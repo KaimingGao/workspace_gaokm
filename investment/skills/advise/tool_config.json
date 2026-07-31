@@ -1,0 +1,29 @@
+{
+  "name": "advise",
+  "description": "规则引擎综合 quote+signal+kline+peer/index，输出确定性 stance_label（是否买入的唯一结论来源）。用于「能不能买/是否应该买入/买卖建议」。LLM 须引用 stance_label 解读，不得自行升级或降级结论。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "stock_code": {
+        "type": "string",
+        "description": "股票代码或名称"
+      },
+      "horizon_days": {
+        "type": "integer",
+        "description": "短线展望天数 1～3，默认 3",
+        "default": 3
+      },
+      "include_peer": {
+        "type": "boolean",
+        "description": "是否纳入同行对比，默认 true",
+        "default": true
+      },
+      "include_index": {
+        "type": "boolean",
+        "description": "是否纳入相对大盘，默认 true",
+        "default": true
+      }
+    },
+    "required": ["stock_code"]
+  }
+}

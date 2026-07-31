@@ -1,0 +1,185 @@
+"""回测策略注册表（P9.3）。"""
+
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any, Dict, List, Optional
+
+DEFAULT_STRATEGY = "short"
+
+# 旧 ID → 新 canonical（纸面 / promote / API 入参仍可认旧名）
+STRATEGY_ALIASES: Dict[str, str] = {
+    "signal_v1": "short",
+    "short_v1": "short",
+    "signal_v1_conservative": "short_conservative",
+}
+
+STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
+    "short": {
+        "label": "短线评分",
+        "description": "标准短线：回测门槛 65，持有 3 日；组合限额最多 20 只（见下方卡片）",
+        "params": {
+            "horizon_days": 3,
+            "min_score": 65.0,
+            "min_history": 12,
+            "data_mode": "full",
+            "apply_costs": True,
+        },
+        "lifecycle": {
+            "version": "1.2.0",
+            "cost_model": "simple_cn",
+            "paper_rules": {
+                "min_score": 55.0,
+                "add_score": 60.0,
+                "min_hold_score": 45.0,
+                "reduce_score": 50.0,
+                "max_positions": 20,
+                "position_pct": 0.15,
+                "horizon_days": 3,
+                "signal_limit": 8,
+            },
+            "execution": {
+                "version": "1.0.0",
+                "overlays": {
+                    "t0": {
+                        "enabled": True,
+                        "t0_ratio": 0.4,
+                        "sell_trigger_pct": 2.0,
+                        "buy_trigger_pct": 1.5,
+                        "fill_mode": "trigger",
+                        "use_atr": True,
+                        "ref": "open",
+                        "lot_size": 100,
+                    }
+                },
+                "coupling": {"t0_vs_stance": "independent"},
+                "runtime_defaults": {
+                    "paper_direction_fallback": "signal",
+                    "backtest_direction_fallback": "signal",
+                    "backtest_path_mode_no_minute": "veto",
+                    "backtest_path_mode_with_minute": "first_touch",
+                },
+            },
+            "risk": {
+                "max_drawdown_pct": 20.0,
+                "target_drawdown_pct": 12.0,
+                "max_position_pct": 25.0,
+                "max_sector_pct": 40.0,
+                "max_positions": 20,
+            },
+        },
+    },
+    "short_conservative": {
+        "label": "保守短线",
+        "description": "更高入场门槛与更紧组合限额（最多 15 只），适合控制换手与回撤",
+        "params": {
+            "horizon_days": 3,
+            "min_score": 72.0,
+            "min_history": 12,
+            "data_mode": "full",
+            "apply_costs": True,
+        },
+        "lifecycle": {
+            "version": "1.2.0",
+            "cost_model": "simple_cn",
+            "paper_rules": {
+                "min_score": 60.0,
+                "add_score": 65.0,
+                "min_hold_score": 50.0,
+                "reduce_score": 55.0,
+                "max_positions": 15,
+                "position_pct": 0.12,
+                "horizon_days": 3,
+                "signal_limit": 5,
+            },
+            "execution": {
+                "version": "1.0.0",
+                "overlays": {
+                    "t0": {
+                        "enabled": True,
+                        "t0_ratio": 0.35,
+                        "sell_trigger_pct": 2.0,
+                        "buy_trigger_pct": 1.5,
+                        "fill_mode": "trigger",
+                        "use_atr": True,
+                        "ref": "open",
+                        "lot_size": 100,
+                    }
+                },
+                "coupling": {"t0_vs_stance": "independent"},
+                "runtime_defaults": {
+                    "paper_direction_fallback": "signal",
+                    "backtest_direction_fallback": "signal",
+                    "backtest_path_mode_no_minute": "veto",
+                    "backtest_path_mode_with_minute": "first_touch",
+                },
+            },
+            "risk": {
+                "max_drawdown_pct": 15.0,
+                "target_drawdown_pct": 10.0,
+                "max_position_pct": 20.0,
+                "max_sector_pct": 35.0,
+                "max_positions": 15,
+            },
+        },
+    },
+}
+
+
+def resolve_strategy_id(name: Optional[str] = None) -> str:
+    key = (name or DEFAULT_STRATEGY).strip() or DEFAULT_STRATEGY
+    return STRATEGY_ALIASES.get(key, key)
+
+
+def list_strategies() -> List[Dict[str, Any]]:
+    rows = []
+    for name, spec in STRATEGY_SPECS.items():
+        rows.append(
+            {
+                "name": name,
+                "label": spec.get("label"),
+                "description": spec.get("description"),
+                "params": deepcopy(spec.get("params") or {}),
+            }
+        )
+    return rows
+
+
+def get_strategy(name: str) -> Dict[str, Any]:
+    key = resolve_strategy_id(name)
+    if key not in STRATEGY_SPECS:
+        raise KeyError(f"未知策略: {name}（可选: {', '.join(STRATEGY_SPECS)}）")
+    spec = STRATEGY_SPECS[key]
+    return {
+        "name": key,
+        "label": spec.get("label"),
+        "description": spec.get("description"),
+        "params": deepcopy(spec.get("params") or {}),
+    }
+
+
+def merge_strategy_params(strategy: str, overrides: Optional[dict] = None) -> Dict[str, Any]:
+    base = get_strategy(strategy)["params"]
+    out = deepcopy(base)
+    for k, v in (overrides or {}).items():
+        if v is not None and v != "":
+            out[k] = v
+    return out
+
+
+def run_strategy_backtest(
+    bars: List[dict],
+    strategy: str = DEFAULT_STRATEGY,
+    *,
+    overrides: Optional[dict] = None,
+    **kwargs: Any,
+) -> Dict[str, Any]:
+    from core.backtest.engine import backtest_signal_on_bars
+
+    canonical = resolve_strategy_id(strategy)
+    params = merge_strategy_params(canonical, overrides)
+    params.update(kwargs)
+    result = backtest_signal_on_bars(bars, **params)
+    result["strategy"] = canonical
+    result["strategy_label"] = get_strategy(canonical).get("label")
+    return result

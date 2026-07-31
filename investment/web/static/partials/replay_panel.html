@@ -1,0 +1,185 @@
+<div class="quant-head">
+  <div class="quant-head-text">
+    <h2>历史回测</h2>
+    <p id="replay-meta" class="quant-meta">历史验证规则 · 非实盘</p>
+    <p class="quant-map-hint">
+      <strong>有效 ≠ 正确</strong>：累计收益为正只说明历史有效，不证明规律正确，更不直接等于 live
+      score。请先看 IC / 分层单调 / 相对基准超额，再 Top-K，最后
+      <a href="/follow">纸面小仓</a>；改参回 <a href="/strategy">策略晋升</a>。
+    </p>
+  </div>
+</div>
+<div class="quant-body replay-page">
+  <div class="quant-section quant-section-core">
+    <p id="replay-pool-meta" class="quant-fingerprint">研究池：—</p>
+    <div class="quant-actions-inline">
+      <label class="platform-field">
+        lookback
+        <input id="quant-lookback" type="number" min="40" max="500" value="120" />
+      </label>
+      <label class="platform-field">
+        top_k
+        <input id="quant-top-k" type="number" min="1" max="10" value="3" />
+      </label>
+      <label class="platform-field">
+        权重
+        <select id="quant-weight-mode" title="与纸面 optimize 同源；默认等权">
+          <option value="equal" selected>等权</option>
+          <option value="score_budget">分数预算</option>
+          <option value="risk_parity_lite">风险平价 lite</option>
+        </select>
+      </label>
+      <label class="platform-field" title="TopK-Dropout：掉出 K+N 才卖">
+        dropout_n
+        <input id="quant-dropout-n" type="number" min="0" max="10" value="0" />
+      </label>
+      <label class="platform-field" title="剔除名称含 ST/退 的标的">
+        <input id="quant-exclude-st" type="checkbox" />
+        剔ST
+      </label>
+      <label class="platform-field" title="池内成交额分位下限；空=不过滤">
+        额分位
+        <input
+          id="quant-min-amount-pctile"
+          type="number"
+          min="0"
+          max="90"
+          step="5"
+          placeholder="空"
+          title="保留成交额≥该分位的票；0 或空=不过滤"
+        />
+      </label>
+      <label class="platform-field" title="超额对照基准">
+        基准
+        <select id="quant-benchmark-code">
+          <option value="000300" selected>沪深300</option>
+          <option value="000905">中证500</option>
+          <option value="399006">创业板指</option>
+          <option value="pool">池等权</option>
+        </select>
+      </label>
+      <button type="button" id="quant-portfolio-run" class="dialog-btn">Top-K 回测</button>
+      <button type="button" id="quant-portfolio-compare" class="dialog-btn secondary">中性化对照</button>
+      <button type="button" id="quant-research-export" class="dialog-btn secondary" title="导出最近回测/网格 JSON">导出研究包</button>
+      <button type="button" id="quant-backtest-report-export" class="dialog-btn secondary" title="导出与页内块对齐的 MD 报告" disabled>
+        导出回测报告
+      </button>
+    </div>
+    <div id="quant-portfolio-summary" class="quant-summary">有票后点「Top-K 回测」</div>
+    <p id="quant-bt-scope-note" class="quant-fingerprint" hidden></p>
+    <div id="quant-bt-progress" class="paper-progress" hidden>
+      <div class="paper-progress-track paper-progress-track-indeterminate" aria-hidden="true">
+        <div class="paper-progress-fill paper-progress-fill-indeterminate"></div>
+      </div>
+      <p id="quant-bt-progress-text" class="paper-progress-text">回测中…</p>
+    </div>
+    <div id="quant-bt-metrics" class="quant-metrics" aria-live="polite"></div>
+    <div id="quant-score-ic" class="quant-weight-table-wrap" aria-label="截面 IC"></div>
+    <div class="quant-chart-wrap quant-bt-chart-wrap" id="quant-ic-chart-wrap" hidden>
+      <div class="quant-chart-axis-head">
+        <span class="quant-chart-title">滚动截面 IC</span>
+        <span class="quant-chart-axis-hint">蓝=日度 IC · 绿=滚动均值；零轴以上表示当日区分度为正</span>
+      </div>
+      <div
+        id="quant-ic-chart"
+        class="quant-chart-host"
+        style="min-height:120px"
+        aria-label="滚动截面 IC 曲线"
+      >      </div>
+    </div>
+    <div id="quant-ic-align" class="quant-weight-table-wrap" aria-label="IC净值对齐"></div>
+    <div id="quant-quantile-table" class="quant-weight-table-wrap" aria-label="分层回测"></div>
+    <div class="quant-chart-wrap quant-bt-chart-wrap" id="quant-quantile-chart-wrap" hidden>
+      <div class="quant-chart-axis-head">
+        <span class="quant-chart-title">分层净值（Q1→Qn）</span>
+        <span class="quant-chart-axis-hint">灰→绿=Q低→Q高 · 琥珀=Q高−Q低多空</span>
+      </div>
+      <div
+        id="quant-quantile-chart"
+        class="quant-chart-host"
+        style="min-height:140px"
+        aria-label="分层回测净值曲线"
+      ></div>
+    </div>
+    <div id="quant-universe-panel" class="quant-weight-table-wrap" aria-label="验证宇宙"></div>
+    <div id="quant-cost-assumptions" class="quant-cost-assumptions quant-weight-table-wrap" aria-label="成本假设"></div>
+    <div id="quant-fit-gap" class="quant-weight-table-wrap" aria-label="回测纸面落差归因"></div>
+    <div id="quant-attr-tables" class="quant-attr-table quant-weight-table-wrap" aria-label="归因"></div>
+    <div id="quant-regime-buckets" class="quant-weight-table-wrap" aria-label="Regime 分桶"></div>
+    <div id="quant-wf-slices" class="quant-weight-table-wrap" aria-label="Walk-forward 切片"></div>
+    <div id="quant-neutral-compare-table" class="quant-weight-table-wrap"></div>
+    <div class="quant-chart-wrap quant-bt-chart-wrap">
+      <div class="quant-chart-axis-head">
+        <span class="quant-chart-title">Top-K 组合净值曲线</span>
+        <span class="quant-chart-axis-hint"
+          >纵轴：净值（起始=100）· 蓝/绿=策略/基准 · 绿点=正IC窗 · 灰点=非正IC窗</span
+        >
+      </div>
+      <div
+        id="quant-portfolio-chart"
+        class="quant-chart-host"
+        style="min-height:160px"
+        aria-label="Top-K 回测净值曲线：纵轴净值起始100，横轴持有期结束日"
+      ></div>
+    </div>
+    <p id="quant-portfolio-legend" class="quant-sub">
+      研究用 Top-K 回测净值（非纸面账本；权重可选等权/分数预算/风险平价）。起点 100；每完成一期持有（默认 3
+      日）按组合收益复利更新。单线=当次回测；对照时蓝=中性化、绿=绝对分。
+    </p>
+    <div id="quant-signal-fill" class="quant-weight-table-wrap" aria-label="信号成交对照"></div>
+    <div id="quant-bt-trades" class="quant-weight-table-wrap"></div>
+  </div>
+
+  <details class="quant-fold" id="param-grid" open>
+    <summary>参数扫描 · Top-K × 窗口</summary>
+    <div class="quant-section">
+      <p class="quant-fingerprint" id="param-grid-meta">
+        默认 top_k∈{2,3,5} · lookback∈{60,90,120} · 最多 9 格 · 跳过 WF/成本对照
+      </p>
+      <div class="quant-actions-inline">
+        <button type="button" id="quant-param-grid-run" class="dialog-btn">跑网格</button>
+        <button type="button" id="quant-param-grid-apply-best" class="dialog-btn secondary" disabled>
+          应用最优到回测表单
+        </button>
+        <label
+          class="platform-field"
+          title="开启后：正IC窗未优于非正时禁止「应用最优」（默认关=仅二次确认）"
+        >
+          <input id="quant-promote-hard-gate" type="checkbox" />
+          IC硬闸
+        </label>
+        <label class="platform-field" title="Promote 提示缓存有效期（小时），默认 24">
+          提示TTL(h)
+          <input
+            id="quant-promote-ttl-hours"
+            type="number"
+            min="1"
+            max="168"
+            step="1"
+            value="24"
+          />
+        </label>
+      </div>
+      <div id="quant-promote-hints" class="quant-weight-table-wrap" aria-label="Promote 提示"></div>
+      <div id="param-grid-progress" class="paper-progress" hidden>
+        <div class="paper-progress-track paper-progress-track-indeterminate" aria-hidden="true">
+          <div class="paper-progress-fill paper-progress-fill-indeterminate"></div>
+        </div>
+        <p id="param-grid-progress-text" class="paper-progress-text">扫描中…</p>
+      </div>
+      <canvas id="param-grid-heat" class="param-grid-heat" width="420" height="220" aria-label="参数热力图"></canvas>
+      <div id="param-grid-table" class="quant-weight-table-wrap"></div>
+    </div>
+  </details>
+
+  <details class="quant-fold" id="quant-fold-cross">
+    <summary>横截面 Top N（辅助）</summary>
+    <div class="quant-section">
+      <div id="quant-cross-summary" class="quant-summary">当日研究池内相对强弱</div>
+      <div class="quant-actions-inline">
+        <button type="button" id="quant-cross-run" class="dialog-btn secondary">排序</button>
+      </div>
+      <div id="quant-cross-list" class="quant-weight-table-wrap"></div>
+    </div>
+  </details>
+</div>

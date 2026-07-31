@@ -1,0 +1,481 @@
+"""QuantService · 因子面板 / IC / OLS / 权重与阈值（进阶）；``run_cross_section`` 属 ② 回溯。"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+
+class QuantFactorMixin:
+    def list_factors(self) -> Dict[str, Any]:
+        from core.signal.factor_panel import build_factor_panel
+
+        return build_factor_panel()
+
+    def build_factor_panel(
+        self,
+        code: str = "茅台",
+        *,
+        lookback: int = 120,
+        horizon_days: int = 3,
+        with_experiment: bool = False,
+    ) -> Dict[str, Any]:
+        from core.signal.factor_panel import build_factor_panel
+
+        if not with_experiment:
+            return build_factor_panel()
+
+        exp = self.run_factor_experiment(code, lookback=lookback, horizon_days=horizon_days)
+        if not exp.get("success"):
+            return exp
+        panel = build_factor_panel(
+            experiment=exp,
+            stock_code=exp.get("stock_code") or code,
+            horizon_days=exp.get("horizon_days") or horizon_days,
+            data_source=exp.get("data_source"),
+        )
+        panel["experiment"] = {
+            "horizon_days": exp.get("horizon_days"),
+            "factor_count": exp.get("factor_count"),
+        }
+        return panel
+
+    def run_cross_section(
+        self,
+        *,
+        codes: Optional[List[str]] = None,
+        limit: int = 10,
+        min_score: Optional[float] = None,
+        horizon_days: int = 3,
+    ) -> Dict[str, Any]:
+        from core.signal.cross_section import rank_cross_section
+
+        return rank_cross_section(
+            codes,
+            horizon_days=horizon_days,
+            limit=limit,
+            min_score=min_score,
+        )
+
+    def run_factor_report(
+        self,
+        code: str = "茅台",
+        *,
+        lookback: int = 120,
+    ) -> Dict[str, Any]:
+        from quant.research.factor_report import compute_factor_ic_report
+        from core.data_service import bars_and_source, get_quote
+        from core.ports.market import resolve_market_code
+        from skills.index.engine import default_benchmark, fetch_index_bars
+
+        quote = get_quote(code)
+        sym = quote.get("stock_code") if quote.get("success") else code
+        bars, src = bars_and_source(code, limit=lookback + 35)
+        if not bars and quote.get("success"):
+            bars, src = bars_and_source(sym, limit=lookback + 35)
+        if not bars:
+            return {"success": False, "error": f"无法获取 {code} 日线"}
+
+        market, _ = resolve_market_code(code)
+        index_bars, _ = fetch_index_bars(default_benchmark(market), limit=lookback + 35)
+        fundamentals = self._experiment_fundamentals(code, sym)
+        report = compute_factor_ic_report(
+            bars,
+            index_bars=index_bars or None,
+            fundamentals=fundamentals,
+            stock_code=str(sym or code),
+            pit_fundamentals=True,
+        )
+        report["stock_code"] = sym
+        report["data_source"] = src
+        return report
+
+    def _experiment_fundamentals(self, code: str, sym: Optional[str] = None) -> Optional[dict]:
+        from core.signal.config import load_signal_config
+        from core.signal.fundamentals_bridge import fetch_score_fundamentals
+
+        cfg = load_signal_config()
+        fund_cfg = cfg.get("fundamentals") or {}
+        if not fund_cfg.get("enabled", True):
+            return None
+        if not fund_cfg.get("use_in_ic_experiment", True):
+            return None
+        return fetch_score_fundamentals(code) or (
+            fetch_score_fundamentals(sym) if sym else None
+        )
+
+    def run_factor_experiment(
+        self,
+        code: str = "茅台",
+        *,
+        lookback: int = 120,
+        horizon_days: int = 3,
+    ) -> Dict[str, Any]:
+        from core.signal.factor_registry import run_factor_experiment
+        from core.data_service import bars_and_source, get_quote
+        from core.ports.market import resolve_market_code
+        from skills.index.engine import default_benchmark, fetch_index_bars
+
+        quote = get_quote(code)
+        sym = quote.get("stock_code") if quote.get("success") else code
+        bars, src = bars_and_source(code, limit=lookback + 35)
+        if not bars and quote.get("success"):
+            bars, src = bars_and_source(sym, limit=lookback + 35)
+        if not bars:
+            return {"success": False, "error": f"无法获取 {code} 日线"}
+
+        market, _ = resolve_market_code(code)
+        index_bars, _ = fetch_index_bars(default_benchmark(market), limit=lookback + 35)
+        fundamentals = self._experiment_fundamentals(code, sym)
+        report = run_factor_experiment(
+            bars,
+            horizon_days=horizon_days,
+            index_bars=index_bars or None,
+            fundamentals=fundamentals,
+            stock_code=str(sym or code),
+            pit_fundamentals=True,
+        )
+        report["stock_code"] = sym
+        report["data_source"] = src
+        from core.signal.factor_panel import build_factor_panel
+
+        report["panel"] = build_factor_panel(
+            experiment=report,
+            stock_code=sym,
+            horizon_days=report.get("horizon_days") or horizon_days,
+            data_source=src,
+        )
+        return report
+
+    def run_factor_ols_experiment(
+        self,
+        code: str = "茅台",
+        *,
+        lookback: int = 120,
+        horizon_days: int = 3,
+    ) -> Dict[str, Any]:
+        from quant.research.factor_ols import compute_factor_ols_report
+        from core.data_service import bars_and_source, get_quote
+        from core.ports.market import resolve_market_code
+        from skills.index.engine import default_benchmark, fetch_index_bars
+
+        quote = get_quote(code)
+        sym = quote.get("stock_code") if quote.get("success") else code
+        bars, src = bars_and_source(code, limit=lookback + 35)
+        if not bars and quote.get("success"):
+            bars, src = bars_and_source(sym, limit=lookback + 35)
+        if not bars:
+            return {"success": False, "error": f"无法获取 {code} 日线", "task": "factor_ols"}
+
+        market, _ = resolve_market_code(code)
+        index_bars, _ = fetch_index_bars(default_benchmark(market), limit=lookback + 35)
+        fundamentals = self._experiment_fundamentals(code, sym)
+        report = compute_factor_ols_report(
+            bars,
+            horizon_days=horizon_days,
+            index_bars=index_bars or None,
+            fundamentals=fundamentals,
+            stock_code=str(sym or code),
+            pit_fundamentals=True,
+        )
+        report["stock_code"] = sym
+        report["data_source"] = src
+        report["task"] = "factor_ols"
+        return report
+
+    def run_factor_ols_pool_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        horizon_days: int = 3,
+        watching_limit: int = 8,
+    ) -> Dict[str, Any]:
+        """研究池多票堆叠时序 OLS（显式触发；不写 config）。"""
+        from quant.research.factor_ols import compute_factor_ols_pooled_report
+        from core.data_service import bars_and_source, get_quote
+        from core.ports.market import resolve_market_code
+        from core.watching_store import read_watching
+        from skills.index.engine import default_benchmark, fetch_index_bars
+
+        uni = read_watching()
+        codes = list(uni.get("watchlist") or [])
+        limit = max(2, min(int(watching_limit or 8), 20))
+        codes = codes[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "研究池至少 2 只才可跑池内 OLS",
+                "task": "factor_ols_pool",
+                "mode": "watching_pooled",
+                "stock_count": len(codes),
+            }
+
+        panels: List[Dict[str, Any]] = []
+        for code in codes:
+            quote = get_quote(code)
+            sym = quote.get("stock_code") if quote.get("success") else code
+            bars, src = bars_and_source(code, limit=lookback + 35)
+            if not bars and quote.get("success"):
+                bars, src = bars_and_source(sym, limit=lookback + 35)
+            if not bars:
+                panels.append({"code": str(sym), "bars": []})
+                continue
+            market, _ = resolve_market_code(code)
+            index_bars, _ = fetch_index_bars(
+                default_benchmark(market), limit=lookback + 35
+            )
+            fundamentals = self._experiment_fundamentals(code, sym)
+            panels.append(
+                {
+                    "code": str(sym),
+                    "bars": bars,
+                    "index_bars": index_bars or None,
+                    "fundamentals": fundamentals,
+                    "data_source": src,
+                }
+            )
+
+        report = compute_factor_ols_pooled_report(
+            panels, horizon_days=horizon_days
+        )
+        report["task"] = "factor_ols_pool"
+        report["lookback"] = lookback
+        report["watching_limit"] = limit
+        return report
+
+    def run_factor_cs_ic_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        horizon_days: int = 3,
+        watching_limit: int = 12,
+        min_names: int = 5,
+        pit_fundamentals: bool = True,
+    ) -> Dict[str, Any]:
+        """研究池逐因子日频截面 IC（S1；显式触发，不写 config）。"""
+        from core.backtest.factor_cs_ic import compute_factor_cross_section_ic
+        from core.data_service import bars_and_source, get_quote
+        from core.watching_store import read_watching
+
+        uni = read_watching()
+        codes = list(uni.get("watchlist") or [])
+        limit = max(3, min(int(watching_limit or 12), 30))
+        codes = codes[:limit]
+        if len(codes) < 3:
+            return {
+                "success": False,
+                "ok": False,
+                "error": "研究池至少 3 只才可跑因子截面 IC",
+                "task": "factor_cs_ic",
+                "stock_count": len(codes),
+            }
+
+        stock_bars: Dict[str, Any] = {}
+        for code in codes:
+            quote = get_quote(code)
+            sym = quote.get("stock_code") if quote.get("success") else code
+            bars, _src = bars_and_source(code, limit=lookback + 35)
+            if not bars and quote.get("success"):
+                bars, _src = bars_and_source(sym, limit=lookback + 35)
+            if bars:
+                stock_bars[str(sym)] = bars
+
+        if len(stock_bars) < 3:
+            return {
+                "success": False,
+                "ok": False,
+                "error": "有效日线不足 3 只",
+                "task": "factor_cs_ic",
+                "stock_count": len(stock_bars),
+            }
+
+        report = compute_factor_cross_section_ic(
+            stock_bars,
+            horizon_days=horizon_days,
+            min_names=min_names,
+            pit_fundamentals=pit_fundamentals,
+        )
+        report["task"] = "factor_cs_ic"
+        report["lookback"] = lookback
+        report["watching_limit"] = limit
+        report["codes"] = list(stock_bars.keys())
+        return report
+
+    def run_next_day_trend(
+        self,
+        *,
+        lookback: int = 120,
+        lookback_eval_days: int = 60,
+        flat_band_pct: float = 0.5,
+        watching_limit: int = 20,
+        codes: Optional[List[str]] = None,
+        pit_fundamentals: bool = True,
+    ) -> Dict[str, Any]:
+        """观察池日频+1 趋势探针：收盘→次日方向；不写 config。"""
+        from core.backtest.next_day_trend import compute_next_day_trend_report
+        from core.data_service import bars_and_source, get_quote
+        from core.watching_store import read_watching
+
+        if codes:
+            use_codes = [str(c).strip() for c in codes if str(c).strip()]
+        else:
+            uni = read_watching()
+            use_codes = list(uni.get("watchlist") or [])
+        limit = max(1, min(int(watching_limit or 20), 40))
+        use_codes = use_codes[:limit]
+        if not use_codes:
+            return {
+                "success": False,
+                "ok": False,
+                "error": "观察池为空；请先在数据中心加票",
+                "task": "next_day_trend",
+                "mode": "watchlist_daily_plus1",
+                "horizon_days": 1,
+            }
+
+        stock_bars: Dict[str, Any] = {}
+        live_quotes: Dict[str, Any] = {}
+        for code in use_codes:
+            quote = get_quote(code)
+            sym = quote.get("stock_code") if quote.get("success") else code
+            bars, _src = bars_and_source(code, limit=lookback + 20)
+            if not bars and quote.get("success"):
+                bars, _src = bars_and_source(sym, limit=lookback + 20)
+            key = str(sym)
+            if bars:
+                stock_bars[key] = bars
+            if quote.get("success"):
+                live_quotes[key] = quote
+
+        if not stock_bars:
+            return {
+                "success": False,
+                "ok": False,
+                "error": "无法拉取观察池日线",
+                "task": "next_day_trend",
+                "mode": "watchlist_daily_plus1",
+                "horizon_days": 1,
+            }
+
+        report = compute_next_day_trend_report(
+            stock_bars,
+            flat_band_pct=flat_band_pct,
+            lookback_eval_days=lookback_eval_days,
+            pit_fundamentals=pit_fundamentals,
+            live_quotes=live_quotes,
+        )
+        report["task"] = "next_day_trend"
+        report["lookback"] = lookback
+        report["watching_limit"] = limit
+        report["codes"] = list(stock_bars.keys())
+        return report
+
+    def suggest_weights(self, code: str = "茅台", **kwargs: Any) -> Dict[str, Any]:
+        from core.signal.weight_suggest import format_weight_config_diff, suggest_weights_from_ic
+
+        exp = self.run_factor_experiment(code, **kwargs)
+        if not exp.get("success"):
+            return exp
+        corr = self.run_factor_corr(codes=None, limit=30)
+        suggestion = suggest_weights_from_ic(
+            exp,
+            corr_report=corr if corr.get("success") else None,
+        )
+        suggestion["factor_experiment"] = exp
+        suggestion["factor_corr"] = corr
+        suggestion["config_diff"] = format_weight_config_diff(suggestion)
+        return suggestion
+
+    def run_factor_corr(
+        self,
+        *,
+        codes: Optional[List[str]] = None,
+        limit: int = 30,
+        horizon_days: int = 3,
+    ) -> Dict[str, Any]:
+        """观察池/候选截面 sub_scores 相关矩阵（研究只读）。"""
+        from core.signal.cross_section import rank_cross_section
+        from core.signal.factor_corr import compute_factor_corr_matrix
+
+        ranked = rank_cross_section(
+            codes,
+            horizon_days=horizon_days,
+            limit=max(3, min(int(limit or 30), 50)),
+            min_score=0.0,
+        )
+        if not ranked.get("success"):
+            return {
+                "success": False,
+                "error": ranked.get("error") or "横截面失败",
+                "task": "factor_corr",
+            }
+        items = ranked.get("ranking") or []
+        from core.signal.config import load_signal_config
+        from core.signal.factor_corr import redundancy_warnings_from_corr
+
+        report = compute_factor_corr_matrix(items)
+        cfg = load_signal_config()
+        if report.get("success"):
+            report["redundancy_warnings"] = redundancy_warnings_from_corr(
+                report,
+                factor_groups=cfg.get("factor_groups") or {},
+                weights=cfg.get("weights") or {},
+            )
+        report["task"] = "factor_corr"
+        report["ranking_count"] = len(items)
+        report["neutralization"] = ranked.get("neutralization")
+        return report
+
+    def suggest_thresholds(
+        self,
+        code: str = "茅台",
+        *,
+        lookback: int = 120,
+        use_watching: bool = False,
+        watching_limit: int = 5,
+    ) -> Dict[str, Any]:
+        from core.backtest.engine import scan_signal_parameters_oos
+        from core.signal.threshold_suggest import (
+            format_threshold_config_diff,
+            suggest_stance_thresholds_from_oos,
+            suggest_stance_thresholds_from_watching_oos,
+        )
+        from core.watching_store import read_watching
+        from core.data_service import bars_and_source, get_quote
+
+        if use_watching:
+            try:
+                uni = read_watching()
+                codes = uni.get("watchlist") or []
+            except FileNotFoundError:
+                codes = []
+            if len(codes) < 2:
+                return {"success": False, "error": "watching watchlist 不足，无法聚合 OOS"}
+            suggestion = suggest_stance_thresholds_from_watching_oos(
+                codes,
+                lookback=lookback,
+                max_stocks=watching_limit,
+            )
+            if suggestion.get("success"):
+                suggestion["config_diff"] = format_threshold_config_diff(suggestion)
+            return suggestion
+
+        quote = get_quote(code)
+        sym = quote.get("stock_code") if quote.get("success") else code
+        bars, src = bars_and_source(code, limit=lookback + 35)
+        if not bars and quote.get("success"):
+            bars, src = bars_and_source(sym, limit=lookback + 35)
+        if not bars or len(bars) < 40:
+            return {"success": False, "error": f"无法获取足够日线: {code}"}
+
+        oos = scan_signal_parameters_oos(
+            bars,
+            min_scores=[45, 50, 55, 60, 65],
+            horizon_days_list=[2, 3],
+        )
+        suggestion = suggest_stance_thresholds_from_oos(oos)
+        suggestion["stock_code"] = sym
+        suggestion["data_source"] = src
+        suggestion["mode"] = "single_stock_oos"
+        suggestion["oos_scan"] = oos
+        suggestion["config_diff"] = format_threshold_config_diff(suggestion)
+        return suggestion

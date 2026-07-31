@@ -1,0 +1,148 @@
+<div class="quant-body watching-page">
+
+  <div id="watching-empty" class="watching-empty" hidden>
+    <p class="watching-empty-text">尚未创建观察名单。先初始化，再用下方搜索加入要长期看的股票。</p>
+    <button type="button" id="quant-watching-init" class="dialog-btn">从模板初始化</button>
+  </div>
+
+  <div class="watching-search" id="watching-search-wrap">
+    <label class="sr-only" for="watching-search-input">搜索股票</label>
+    <input
+      type="search"
+      id="watching-search-input"
+      class="watching-search-input"
+      placeholder="搜索股票名称或代码，选中加入观察"
+      autocomplete="off"
+      spellcheck="false"
+    />
+    <div id="watching-search-results" class="watching-search-results" hidden></div>
+  </div>
+
+  <div class="watching-toolbar" id="watching-main-actions" hidden>
+    <p id="quant-watching-meta" class="watching-toolbar-meta">加载中…</p>
+  </div>
+
+  <p id="watching-refresh-status" class="watching-status" aria-live="polite" hidden></p>
+
+  <div class="watching-watch-block" id="watching-align-grid" aria-label="观察名单">
+    <section class="watching-chart-card" id="watching-chart-section" hidden>
+      <div class="watching-chart-head">
+        <p id="watching-chart-label" class="watching-chart-label">收盘价</p>
+        <button type="button" id="watching-chart-close" class="dialog-btn secondary" title="关闭日线图">×</button>
+      </div>
+      <div class="watching-chart-canvas">
+        <div id="watching-chart" class="quant-chart-host watching-chart-host" aria-label="观察股票日线图"></div>
+      </div>
+    </section>
+    <section
+      id="watching-news-detail"
+      class="watching-news-detail"
+      hidden
+      aria-label="舆情详情"
+    >
+      <div class="watching-news-detail-head">
+        <h3 id="watching-news-detail-title" class="watching-section-title">资讯</h3>
+        <button type="button" id="watching-news-detail-close" class="dialog-btn secondary" title="关闭">×</button>
+      </div>
+      <p id="watching-news-detail-meta" class="watching-toolbar-meta"></p>
+      <ul id="watching-news-detail-list" class="watching-news-list"></ul>
+      
+      <div id="watching-news-ai-section" class="watching-news-ai-section" hidden>
+        <div class="watching-news-ai-head">
+          <span id="watching-news-ai-status" class="watching-news-ai-status">分析中…</span>
+        </div>
+        <div id="watching-news-ai-content" class="watching-news-ai-content">
+          <div class="watching-news-ai-loading">
+            <div class="watching-news-ai-spinner"></div>
+            <p>正在分析舆情数据…</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div id="watching-watchlist-table" class="quant-weight-table-wrap"></div>
+    <div class="watching-table-actions">
+      <span id="watching-pick-count" class="watching-pick-count">未勾选</span>
+      <div class="watching-table-action-btns">
+        <button
+          type="button"
+          id="quant-watching-remove"
+          class="dialog-btn secondary"
+          disabled
+          title="勾选后从观察名单移除（不影响模拟持仓）"
+        >
+          移除所选
+        </button>
+        <button
+          type="button"
+          id="quant-watching-sync"
+          class="dialog-btn"
+          disabled
+          title="勾选后先看每只买多少、共花多少，确认后加入模拟账户"
+        >
+          加入纸面
+        </button>
+      </div>
+    </div>
+
+    <section class="watching-holdings-card" id="watching-holdings-section" hidden>
+      <header class="watching-log-head">
+        <h3 class="watching-section-title">建仓记录</h3>
+        <p class="watching-log-hint">从观察「加入纸面」的流水</p>
+      </header>
+      <div id="watching-holdings-table" class="paper-operation-log watching-build-log" aria-label="建仓记录"></div>
+    </section>
+  </div>
+
+  <ul id="quant-watching-list" class="quant-list" hidden></ul>
+
+  <div
+    id="watching-build-layer"
+    class="watching-build-layer"
+    role="dialog"
+    aria-modal="true"
+    aria-labelledby="watching-build-title"
+    hidden
+  >
+    <div class="watching-build-card">
+      <div class="watching-build-head">
+        <h3 id="watching-build-title" class="watching-section-title">建仓预览</h3>
+        <button type="button" id="watching-build-close" class="dialog-btn secondary" title="取消">×</button>
+      </div>
+      <div class="watching-build-sizing">
+        <div class="watching-build-mode" role="tablist" aria-label="定量方式">
+          <button type="button" class="watching-build-mode-btn is-active" data-mode="amount" aria-selected="true">金额</button>
+          <button type="button" class="watching-build-mode-btn" data-mode="pct" aria-selected="false">仓位%</button>
+          <button type="button" class="watching-build-mode-btn" data-mode="shares" aria-selected="false">股数</button>
+        </div>
+        <label class="watching-build-shares" id="watching-build-default-field">
+          <span id="watching-build-default-label">默认每只</span>
+          <input
+            type="number"
+            id="watching-build-shares-input"
+            min="100"
+            step="100"
+            value="20000"
+            title="默认金额（元）；清单里可按只改"
+          />
+          <span id="watching-build-default-unit">元</span>
+        </label>
+        <p class="watching-build-cost-note">现价成交 · 零成本假设（无佣金 / 滑点 / 印花税）</p>
+      </div>
+      <div id="watching-build-body" class="watching-build-body"></div>
+      <p id="watching-build-status" class="watching-build-status" aria-live="polite" hidden></p>
+      <div class="watching-build-actions">
+        <button type="button" id="watching-build-cancel" class="dialog-btn secondary">取消</button>
+        <button type="button" id="watching-build-confirm" class="dialog-btn">确认建仓</button>
+      </div>
+    </div>
+  </div>
+
+  <details class="quant-fold" id="watching-data-quality-fold">
+    <summary>数据质量</summary>
+    <div class="quant-section" id="watching-data-quality">
+      <p class="quant-fingerprint" id="watching-dq-meta">打开本折叠后加载观察池质量摘要</p>
+      <div id="watching-dq-table" class="quant-weight-table-wrap"></div>
+    </div>
+  </details>
+</div>

@@ -1,0 +1,230 @@
+"""平台能力门面：Job / Memory / Decision / Feedback / Schedule / Prefill（D1–D6）。"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+
+from core.decision_record import list_decisions, record_from_advice
+from core.feedback_suggest import suggest_config_feedback
+from core.job_progress import job_registry
+from core.memory_store import read_memory, write_memory
+from core.observation import make_observation, wrap_skill_result
+from core.order_prefill import prefill_from_recent_decisions
+from core.schedule_jobs import run_schedule
+
+
+class PlatformService:
+    def list_jobs(self) -> Dict[str, Any]:
+        return {"ok": True, "jobs": job_registry.list_jobs()}
+
+    def get_job(self, name: str) -> Dict[str, Any]:
+        return {"ok": True, "job": job_registry.get(name)}
+
+    def get_memory(self) -> Dict[str, Any]:
+        return {"ok": True, **read_memory()}
+
+    def save_memory(self, preferences: Dict[str, Any]) -> Dict[str, Any]:
+        return write_memory(preferences)
+
+    def list_decisions(self, *, limit: int = 50) -> Dict[str, Any]:
+        return list_decisions(limit=limit)
+
+    def record_advice(
+        self,
+        advice: Dict[str, Any],
+        *,
+        source: str = "advise",
+        session_id: str = "",
+        persist: bool = True,
+    ) -> Dict[str, Any]:
+        return record_from_advice(
+            advice,
+            source=source,
+            session_id=session_id,
+            persist=persist,
+        )
+
+    def suggest_feedback(
+        self,
+        *,
+        paper_metrics: Optional[Dict[str, Any]] = None,
+        backtest_metrics: Optional[Dict[str, Any]] = None,
+        monitor_alerts: Optional[list] = None,
+    ) -> Dict[str, Any]:
+        return suggest_config_feedback(
+            paper_metrics=paper_metrics,
+            backtest_metrics=backtest_metrics,
+            monitor_alerts=monitor_alerts,
+        )
+
+    def run_schedule(self, kind: str, **kwargs: Any) -> Dict[str, Any]:
+        return run_schedule(kind, **kwargs)
+
+    def get_schedule_last(self) -> Dict[str, Any]:
+        import json
+        import os
+
+        from core.paths import SCHEDULE_LAST_RUN_PATH
+
+        if not os.path.isfile(SCHEDULE_LAST_RUN_PATH):
+            return {"ok": True, "empty": True, "path": SCHEDULE_LAST_RUN_PATH}
+        try:
+            with open(SCHEDULE_LAST_RUN_PATH, encoding="utf-8") as f:
+                data = json.load(f)
+        except (OSError, json.JSONDecodeError) as e:
+            return {"ok": False, "error": str(e), "path": SCHEDULE_LAST_RUN_PATH}
+        return {"ok": True, "empty": False, "path": SCHEDULE_LAST_RUN_PATH, "last": data}
+
+    def order_prefill(self, *, limit: int = 10, fmt: str = "json") -> Dict[str, Any]:
+        return prefill_from_recent_decisions(limit=limit, fmt=fmt)
+
+    def observation(self, **kwargs: Any) -> Dict[str, Any]:
+        return make_observation(**kwargs)
+
+    def wrap_skill(self, tool: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+        return wrap_skill_result(tool, payload)
+
+    def get_north_star(self, *, refresh: bool = True) -> Dict[str, Any]:
+        """R0 · 北极星二级指标权威包。"""
+        import os
+
+        from core.north_star import build_north_star_report
+        from core.paper import load_paper, save_paper
+        from core.paths import PAPER_PATH
+
+        paper = None
+        if os.path.isfile(PAPER_PATH):
+            try:
+                paper = load_paper(PAPER_PATH)
+            except Exception as e:
+                return {"ok": False, "error": str(e)}
+        if not refresh and isinstance(paper, dict) and paper.get("last_north_star"):
+            return {"ok": True, "cached": True, "north_star": paper["last_north_star"]}
+        report = build_north_star_report(paper or {})
+        if isinstance(paper, dict):
+            paper["last_north_star"] = report
+            try:
+                save_paper(paper, PAPER_PATH)
+            except Exception:
+                pass
+        return {"ok": True, "cached": False, "north_star": report}
+
+    def get_sample_status(self) -> Dict[str, Any]:
+        """样本覆盖：TTM / PIT history / 纸面快照 / 拦截标注。"""
+        import os
+
+        from core.paper import load_paper
+        from core.paths import PAPER_PATH
+        from core.sample_ops import sample_status
+
+        paper = None
+        if os.path.isfile(PAPER_PATH):
+            try:
+                paper = load_paper(PAPER_PATH)
+            except Exception:
+                paper = None
+        return sample_status(paper=paper)
+
+    def get_empty_fundamentals(self) -> Dict[str, Any]:
+        from core.validation_universe import empty_fundamentals_report
+
+        return empty_fundamentals_report()
+
+    def get_data_quality(self, *, codes: Optional[list] = None) -> Dict[str, Any]:
+        """D4 · 数据质量中心聚合。"""
+        from core.data_quality_center import build_data_quality_report
+
+        return build_data_quality_report(codes=codes)
+
+    def get_source_audit(self, *, codes: Optional[list] = None, lookback: int = 40) -> Dict[str, Any]:
+        """D1 · 独立源审计。"""
+        from core.data_consistency import audit_code_sources
+        from core.data_coverage import universe_codes
+
+        code_list = [str(c).strip() for c in (codes or []) if str(c).strip()]
+        if not code_list:
+            code_list = list(universe_codes() or [])[:20]
+        return audit_code_sources(code_list, lookback=lookback)
+
+    def get_maturity_gate(self) -> Dict[str, Any]:
+        from core.maturity_gate import evaluate_maturity_gate
+        from core.sample_ops import sample_status
+
+        ns = self.get_north_star(refresh=False)
+        ss = sample_status(paper=None)
+        try:
+            import os
+
+            from core.paper import load_paper
+            from core.paths import PAPER_PATH
+
+            if os.path.isfile(PAPER_PATH):
+                ss = sample_status(paper=load_paper(PAPER_PATH))
+        except Exception:
+            pass
+        core = None
+        try:
+            from evals.core_golden_paths import run_all_core_paths
+
+            core = run_all_core_paths()
+        except Exception as e:
+            core = {"ok": False, "failures": [str(e)]}
+        return evaluate_maturity_gate(
+            sample_status=ss,
+            north_star=(ns or {}).get("north_star"),
+            core_paths=core,
+        )
+
+    def export_validation_pack(
+        self, *, backtest_result: Optional[dict] = None, note: str = ""
+    ) -> Dict[str, Any]:
+        from core.signal.config import load_signal_config
+        from core.validation_pack import build_validation_pack, render_validation_pack_markdown
+
+        ns = self.get_north_star(refresh=False)
+        ss = self.get_sample_status()
+        out = build_validation_pack(
+            backtest_result=backtest_result,
+            signal_config=load_signal_config(),
+            north_star=(ns or {}).get("north_star"),
+            sample_status=ss,
+            note=note,
+        )
+        out["markdown"] = render_validation_pack_markdown(out)
+        return out
+
+    def get_fit_gap(self, *, backtest_result: Optional[dict] = None) -> Dict[str, Any]:
+        from core.fit_gap import fit_gap_hints
+
+        ns = self.get_north_star(refresh=False)
+        bt = backtest_result or {}
+        paper_ops: Dict[str, Any] = {}
+        try:
+            import os
+
+            from core.paper import load_paper
+            from core.paths import PAPER_PATH
+
+            if os.path.isfile(PAPER_PATH):
+                paper = load_paper(PAPER_PATH)
+                paper_ops["cost_model"] = paper.get("cost_model") or "simple_cn"
+                opt = paper.get("last_optimize") or {}
+                if isinstance(opt, dict) and opt.get("weight_mode"):
+                    paper_ops["weight_mode"] = opt.get("weight_mode")
+                ops_rep = paper.get("ops_report") or {}
+                if isinstance(ops_rep, dict):
+                    if ops_rep.get("cost_model"):
+                        paper_ops["cost_model"] = ops_rep.get("cost_model")
+                    last_opt = ops_rep.get("last_optimize") or {}
+                    if isinstance(last_opt, dict) and last_opt.get("weight_mode"):
+                        paper_ops["weight_mode"] = last_opt.get("weight_mode")
+        except Exception:
+            pass
+        return fit_gap_hints(
+            realization=((ns or {}).get("north_star") or {}).get("realization"),
+            cost_compare=bt.get("cost_compare"),
+            source_audit=bt.get("source_audit") or bt.get("data_quality"),
+            paper_ops=paper_ops or None,
+            backtest_params=bt.get("params") or bt.get("request") or {},
+            universe=bt.get("universe"),
+        )

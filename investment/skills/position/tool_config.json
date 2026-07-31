@@ -1,0 +1,50 @@
+{
+  "name": "position",
+  "description": "基于模拟账户持仓与实时行情，给出规则化持仓建议（观望/减仓/止损/降集中度等）。默认读 data/paper.json，也可传入临时 holdings。include_stance=true 时每票附加 stance_label/signal_score（新开仓/加仓倾向参考）。规则阈值见 data/position_rules.json。不代客下单。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "paper_path": {
+        "type": "string",
+        "description": "模拟账户 JSON 路径，默认 data/paper.json"
+      },
+      "rules_path": {
+        "type": "string",
+        "description": "规则 JSON 路径，默认 data/position_rules.json"
+      },
+      "horizon_days": {
+        "type": "integer",
+        "description": "展望天数 1～3，默认 3",
+        "default": 3
+      },
+      "include_stance": {
+        "type": "boolean",
+        "description": "为每票附加 stance_label/signal_score（加仓/能否买类问题建议 true）",
+        "default": false
+      },
+      "include_full_stance": {
+        "type": "boolean",
+        "description": "true 时走完整 collect_stock_facts（含 peer/index），较慢",
+        "default": false
+      },
+      "cash": {
+        "type": "number",
+        "description": "临时持仓模式下的现金（与 holdings 联用）"
+      },
+      "holdings": {
+        "type": "array",
+        "description": "临时持仓列表，每项含 stock_code/shares/cost；传入则不读模拟账户",
+        "items": {
+          "type": "object",
+          "properties": {
+            "stock_code": {"type": "string"},
+            "shares": {"type": "number"},
+            "cost": {"type": "number"},
+            "stock_name": {"type": "string"}
+          }
+        }
+      }
+    },
+    "required": []
+  }
+}

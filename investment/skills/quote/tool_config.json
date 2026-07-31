@@ -1,0 +1,14 @@
+{
+  "name": "quote",
+  "description": "查询指定股票代码或名称的实时行情信息。用于单只股票的价格、涨跌幅、开高低、成交量等查询。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "stock_code": {
+        "type": "string",
+        "description": "股票代码或股票名称，如：AAPL、贵州茅台、600519、00700、腾讯"
+      }
+    },
+    "required": ["stock_code"]
+  }
+}

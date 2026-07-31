@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#eef2f7" />
+  <title>Investment · AI 投顾</title>
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("investment_theme");
+        if (t !== "light" && t !== "dark") t = "light";
+        document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css?v={{ASSET_V}}" />
+</head>
+<body data-page="chat">
+  <div class="app-shell">
+{{SIDE_NAV}}
+    <div class="app-column app-workspace">
+{{TOPBAR}}
+
+    <div class="workspace">
+      <div class="workspace-main">
+        <main class="chat" id="stage">
+          <section class="welcome" id="intro">
+            <div class="suggest" id="chips">
+              <button type="button" data-q="茅台现价">
+                <span class="suggest-title">实时行情</span>
+                <span class="suggest-desc">茅台现价是多少？</span>
+              </button>
+              <button type="button" data-q="分析快手行情，是否可以买入">
+                <span class="suggest-title">定期分析</span>
+                <span class="suggest-desc">快手现在能买入吗？</span>
+              </button>
+              <button type="button" data-q="对比茅台和五粮液">
+                <span class="suggest-title">横向对比</span>
+                <span class="suggest-desc">茅台 vs 五粮液</span>
+              </button>
+              <button type="button" data-q="我的持仓怎么看">
+                <span class="suggest-title">持仓复盘</span>
+                <span class="suggest-desc">我的持仓怎么看？</span>
+              </button>
+            </div>
+          </section>
+
+          <div id="messages" class="messages" aria-live="polite"></div>
+        </main>
+
+        <footer class="dock">
+          <form id="form" class="composer" autocomplete="off">
+            <label class="sr-only" for="input">输入问题</label>
+            <textarea
+              id="input"
+              rows="1"
+              placeholder="给 Investment 发送消息"
+            ></textarea>
+            <button type="submit" id="send" class="send" aria-label="发送" disabled>
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                <path d="M12 19V5M5 12l7-7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </form>
+          <div class="dock-meta">
+            <p class="disclaimer" id="disclaimer">市场有风险，不保证收益，不代客下单。</p>
+            <p class="turn-meta" id="turn-meta" hidden></p>
+          </div>
+        </footer>
+      </div>
+
+      <aside class="workspace-results" id="results-pane" aria-label="结果展示">
+        <div class="results-head">
+          <nav class="results-tabs" role="tablist" aria-label="结果类型">
+            <button type="button" class="results-tab active" role="tab" aria-selected="true" data-tab="watching" id="tab-btn-watching">观察</button>
+            <button type="button" class="results-tab" role="tab" aria-selected="false" data-tab="follow" id="tab-btn-follow">模拟</button>
+            <button type="button" class="results-tab" role="tab" aria-selected="false" data-tab="strategy" id="tab-btn-strategy">策略</button>
+            <button type="button" class="results-tab" role="tab" aria-selected="false" data-tab="replay" id="tab-btn-replay">回溯</button>
+            <button type="button" class="results-tab" role="tab" aria-selected="false" data-tab="reply" id="tab-btn-reply">回复</button>
+          </nav>
+        </div>
+        <p class="results-sub results-meta-line" id="results-meta" hidden></p>
+        <div class="results-scroll">
+          <div class="results-tab-panel active" id="tab-panel-watching" role="tabpanel" data-tab-panel="watching">
+            <div class="embed-panel quant-panel" id="workspace-watching">
+{{PANEL_WATCHING}}
+            </div>
+          </div>
+          <div class="results-tab-panel" id="tab-panel-follow" role="tabpanel" data-tab-panel="follow" hidden>
+            <div class="embed-panel paper-panel" id="workspace-follow">
+{{PANEL_FOLLOW}}
+            </div>
+          </div>
+          <div class="results-tab-panel" id="tab-panel-strategy" role="tabpanel" data-tab-panel="strategy" hidden>
+            <div class="embed-panel quant-panel" id="workspace-strategy">
+{{PANEL_STRATEGY}}
+            </div>
+          </div>
+          <div class="results-tab-panel" id="tab-panel-replay" role="tabpanel" data-tab-panel="replay" hidden>
+            <div class="embed-panel quant-panel" id="workspace-replay">
+{{PANEL_REPLAY}}
+            </div>
+          </div>
+          <div class="results-tab-panel" id="tab-panel-paper" role="tabpanel" data-tab-panel="paper" hidden>
+            <div class="embed-panel paper-panel" id="workspace-paper">
+{{PANEL_PAPER}}
+            </div>
+          </div>
+          <div class="results-tab-panel" id="tab-panel-quant" role="tabpanel" data-tab-panel="quant" hidden>
+            <div class="embed-panel quant-panel" id="workspace-quant">
+{{PANEL_QUANT}}
+            </div>
+          </div>
+          <div class="results-tab-panel" id="tab-panel-reply" role="tabpanel" data-tab-panel="reply" hidden>
+            <section class="results-section">
+              <h3>本轮工具结果</h3>
+              <div id="results-artifacts" class="results-artifacts">
+                <p class="results-empty">Agent 调用工具后，这里显示结构化结果摘要。</p>
+              </div>
+            </section>
+            <section class="results-section">
+              <h3>最近助手回复</h3>
+              <div id="results-reply" class="results-reply">
+                <p class="results-empty">对话后，这里同步最近一次助手回复，便于对照右侧数据。</p>
+              </div>
+            </section>
+          </div>
+          <div class="results-tab-panel" id="tab-panel-evals" role="tabpanel" data-tab-panel="evals" hidden>
+            <div class="embed-panel evals-embed" id="workspace-evals">
+{{PANEL_EVALS}}
+            </div>
+          </div>
+          <div class="results-tab-panel" id="tab-panel-usage" role="tabpanel" data-tab-panel="usage" hidden>
+            <div class="embed-panel usage-embed" id="workspace-usage">
+{{PANEL_USAGE}}
+            </div>
+          </div>
+          <div class="results-tab-panel" id="tab-panel-platform" role="tabpanel" data-tab-panel="platform" hidden>
+            <div class="embed-panel platform-embed" id="workspace-platform">
+{{PANEL_PLATFORM}}
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+    </div>
+  </div>
+
+{{DIALOGS}}
+{{AI_DRAWER}}
+
+  <!-- 对话必须先于 CDN：marked 若被墙/超时，不能挡住发消息 -->
+  <script>window.__ASSET_V__ = "{{ASSET_V}}";</script>
+  <script src="/static/js/chat_boot.js?v={{ASSET_V}}"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
+  <script type="module" src="/static/app.js?v={{ASSET_V}}"></script>
+</body>
+</html>

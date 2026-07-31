@@ -1,0 +1,996 @@
+{
+  "version": 1,
+  "description": "黄金问题：先跑 Skills 产出关键数字 checklist，再对照 Agent 回复做人工/半自动校验。带 mock 字段的 case 可用 run_checklist.py --mock 完全离线跑通。",
+  "cases": [
+    {
+      "id": "quote_moutai",
+      "question": "茅台现价",
+      "intent": "行情查询",
+      "skills": [
+        {
+          "name": "quote",
+          "parameters": {
+            "stock_code": "茅台"
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "stock_code",
+        "stock_name",
+        "price",
+        "change"
+      ],
+      "mock": {
+        "quote": {
+          "success": true,
+          "stock_code": "600519",
+          "stock_name": "贵州茅台",
+          "price": "1500.00元",
+          "change": "+1.20%",
+          "price_raw": 1500.0,
+          "change_raw": 1.2
+        }
+      }
+    },
+    {
+      "id": "buy_kuaishou",
+      "question": "分析快手行情，是否可以买入",
+      "intent": "买入深度建议",
+      "skills": [
+        {
+          "name": "advise",
+          "parameters": {
+            "stock_code": "快手"
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "stance_label",
+        "stance_code",
+        "facts"
+      ],
+      "agent_must_contain": [
+        "AI 投顾建议",
+        "不保证收益",
+        "不代客下单"
+      ],
+      "mock": {
+        "quote": {
+          "success": true,
+          "stock_code": "01024",
+          "stock_name": "快手-W",
+          "market": "HK",
+          "price": "HK$43.28",
+          "change": "-7.76%",
+          "price_raw": 43.28,
+          "change_raw": -7.76
+        },
+        "daily_bars": "rising_21",
+        "resolve_market_code": [
+          "HK",
+          "01024"
+        ]
+      }
+    },
+    {
+      "id": "advise_moutai",
+      "question": "茅台现在能不能买",
+      "intent": "规则 stance + 解读",
+      "skills": [
+        {
+          "name": "advise",
+          "parameters": {
+            "stock_code": "茅台"
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "stance_label",
+        "stance_code",
+        "facts.quote.success",
+        "facts.signal.success"
+      ],
+      "agent_must_contain": [
+        "不保证收益",
+        "不代客下单"
+      ],
+      "mock": {
+        "quote": {
+          "success": true,
+          "stock_code": "600519",
+          "stock_name": "贵州茅台",
+          "market": "CN",
+          "price": "1500.00元",
+          "change": "+1.20%",
+          "price_raw": 1500.0,
+          "change_raw": 1.2
+        },
+        "daily_bars": "rising_21",
+        "index_bars": "half_rise_21",
+        "resolve_market_code": [
+          "CN",
+          "600519"
+        ]
+      }
+    },
+    {
+      "id": "compare_moutai_wuliangye",
+      "question": "对比茅台和五粮液",
+      "intent": "横向对比",
+      "skills": [
+        {
+          "name": "compare",
+          "parameters": {
+            "stock_codes": [
+              "茅台",
+              "五粮液"
+            ]
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "stocks"
+      ],
+      "min_items": 2,
+      "mock": {
+        "quotes": {
+          "茅台": {
+            "success": true,
+            "stock_code": "600519",
+            "stock_name": "贵州茅台",
+            "price": "1500.00元",
+            "change": "+1.20%",
+            "price_raw": 1500.0,
+            "change_raw": 1.2
+          },
+          "五粮液": {
+            "success": true,
+            "stock_code": "000858",
+            "stock_name": "五粮液",
+            "price": "120.00元",
+            "change": "+0.80%",
+            "price_raw": 120.0,
+            "change_raw": 0.8
+          }
+        }
+      }
+    },
+    {
+      "id": "position_review",
+      "question": "我的持仓怎么看",
+      "intent": "持仓复盘",
+      "skills": [
+        {
+          "name": "position",
+          "parameters": {
+            "horizon_days": 3,
+            "cash": 50000,
+            "holdings": [
+              {
+                "stock_code": "600519",
+                "stock_name": "贵州茅台",
+                "shares": 100,
+                "cost": 1400
+              },
+              {
+                "stock_code": "000858",
+                "stock_name": "五粮液",
+                "shares": 200,
+                "cost": 120
+              }
+            ]
+          }
+        }
+      ],
+      "required_paths": [
+        "success"
+      ],
+      "mock": {
+        "quotes": {
+          "600519": {
+            "success": true,
+            "stock_code": "600519",
+            "stock_name": "贵州茅台",
+            "price_raw": 1500.0,
+            "change_raw": 1.2
+          },
+          "000858": {
+            "success": true,
+            "stock_code": "000858",
+            "stock_name": "五粮液",
+            "price_raw": 120.0,
+            "change_raw": 0.8
+          }
+        }
+      }
+    },
+    {
+      "id": "position_add_stance",
+      "question": "我的持仓要不要加仓",
+      "intent": "持仓+加仓倾向",
+      "skills": [
+        {
+          "name": "position",
+          "parameters": {
+            "horizon_days": 3,
+            "include_stance": true,
+            "cash": 50000,
+            "holdings": [
+              {
+                "stock_code": "600519",
+                "stock_name": "贵州茅台",
+                "shares": 100,
+                "cost": 1400
+              },
+              {
+                "stock_code": "000858",
+                "stock_name": "五粮液",
+                "shares": 200,
+                "cost": 120
+              }
+            ]
+          }
+        }
+      ],
+      "required_paths": [
+        "success"
+      ],
+      "routing_expect": {
+        "wants_position_stance": true,
+        "position_include_stance": true
+      },
+      "mock": {
+        "quotes": {
+          "600519": {
+            "success": true,
+            "stock_code": "600519",
+            "stock_name": "贵州茅台",
+            "price_raw": 1500.0,
+            "change_raw": 1.2
+          },
+          "000858": {
+            "success": true,
+            "stock_code": "000858",
+            "stock_name": "五粮液",
+            "price_raw": 120.0,
+            "change_raw": 0.8
+          }
+        },
+        "daily_bars": "rising_21"
+      }
+    },
+    {
+      "id": "signal_pool",
+      "question": "帮我看一下茅台和招商银行的短线评分",
+      "intent": "短线评分",
+      "skills": [
+        {
+          "name": "signal",
+          "parameters": {
+            "stock_codes": [
+              "茅台",
+              "招商银行"
+            ],
+            "horizon_days": 3,
+            "limit": 5
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "observation_pool"
+      ],
+      "mock": {
+        "quotes": {
+          "茅台": {
+            "success": true,
+            "stock_code": "600519",
+            "stock_name": "贵州茅台",
+            "price": "1500.00元",
+            "change": "+1.20%",
+            "price_raw": 1500.0,
+            "change_raw": 1.2
+          },
+          "招商银行": {
+            "success": true,
+            "stock_code": "600036",
+            "stock_name": "招商银行",
+            "price": "35.00元",
+            "change": "+0.50%",
+            "price_raw": 35.0,
+            "change_raw": 0.5
+          }
+        },
+        "daily_bars": "rising_21"
+      }
+    },
+    {
+      "id": "fundamentals_moutai",
+      "question": "茅台基本面怎么样",
+      "intent": "基本面",
+      "skills": [
+        {
+          "name": "fundamentals",
+          "parameters": {
+            "stock_code": "茅台"
+          }
+        }
+      ],
+      "required_paths": [
+        "success"
+      ],
+      "mock": {
+        "quote": {
+          "success": true,
+          "stock_code": "600519",
+          "stock_name": "贵州茅台",
+          "price": "1500.00元",
+          "change": "+1.20%"
+        },
+        "fundamentals": {
+          "resolve_market_code": [
+            "CN",
+            "600519"
+          ],
+          "spot": {
+            "代码": "600519",
+            "名称": "贵州茅台",
+            "最新价": 1500,
+            "涨跌幅": 1.0,
+            "市盈率-动态": 22.0,
+            "市净率": 7.5
+          },
+          "financial": {
+            "roe": 28.0,
+            "revenue_growth": 12.0,
+            "profit_growth": 10.0,
+            "as_of": "2024-12-31",
+            "source": "mock"
+          }
+        }
+      }
+    },
+    {
+      "id": "kline_moutai",
+      "question": "茅台最近 K 线形态",
+      "intent": "K线形态",
+      "skills": [
+        {
+          "name": "kline",
+          "parameters": {
+            "stock_code": "茅台",
+            "limit": 10
+          }
+        }
+      ],
+      "required_paths": [
+        "success"
+      ],
+      "mock": {
+        "quote": {
+          "success": true,
+          "stock_code": "600519",
+          "stock_name": "贵州茅台",
+          "price_raw": 1500.0,
+          "change_raw": 1.2
+        },
+        "daily_bars": "rising_21"
+      }
+    },
+    {
+      "id": "index_relative",
+      "question": "宁德时代相对大盘强弱",
+      "intent": "相对强弱",
+      "skills": [
+        {
+          "name": "index",
+          "parameters": {
+            "stock_code": "宁德时代",
+            "window_days": 20
+          }
+        }
+      ],
+      "required_paths": [
+        "success"
+      ],
+      "mock": {
+        "quote": {
+          "success": true,
+          "stock_code": "300750",
+          "stock_name": "宁德时代",
+          "market": "CN"
+        },
+        "daily_bars": "rising_21",
+        "index_bars": "half_rise_21",
+        "index_label": "沪深300",
+        "resolve_market_code": [
+          "CN",
+          "300750"
+        ]
+      }
+    },
+    {
+      "id": "backtest_signal_moutai",
+      "question": "回测一下茅台的短线 signal 规则历史表现",
+      "intent": "量化回测",
+      "skills": [
+        {
+          "name": "backtest",
+          "parameters": {
+            "stock_codes": [
+              "茅台"
+            ],
+            "strategy": "short",
+            "lookback_days": 120,
+            "horizon_days": 3,
+            "min_score": 55
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "results",
+        "summary"
+      ],
+      "mock": {
+        "quote": {
+          "success": true,
+          "stock_code": "600519",
+          "stock_name": "贵州茅台",
+          "market": "CN"
+        },
+        "daily_bars": "rising_45",
+        "index_bars": "empty",
+        "resolve_market_code": [
+          "CN",
+          "600519"
+        ]
+      }
+    },
+    {
+      "id": "quant_portfolio_backtest",
+      "question": "观察池组合 historically 表现如何",
+      "intent": "量化研究",
+      "skills": [
+        {
+          "name": "quant",
+          "parameters": {
+            "task": "portfolio_backtest",
+            "codes": [
+              "600519",
+              "600036"
+            ],
+            "top_k": 2,
+            "lookback": 80,
+            "horizon_days": 3,
+            "min_score": 40
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "metrics"
+      ],
+      "routing_expect": {
+        "is_quant_question": true,
+        "quant_task": "portfolio_backtest"
+      },
+      "mock": {
+        "quotes": {
+          "600519": {
+            "success": true,
+            "stock_code": "600519",
+            "stock_name": "贵州茅台",
+            "market": "CN"
+          },
+          "600036": {
+            "success": true,
+            "stock_code": "600036",
+            "stock_name": "招商银行",
+            "market": "CN"
+          }
+        },
+        "daily_bars": "rising_45",
+        "resolve_market_code": [
+          "CN",
+          "600519"
+        ]
+      }
+    },
+    {
+      "id": "quant_portfolio_neutral_compare",
+      "question": "观察池组合中性化和绝对分回测差多少",
+      "intent": "量化研究",
+      "skills": [
+        {
+          "name": "quant",
+          "parameters": {
+            "task": "portfolio_neutral_compare",
+            "codes": [
+              "600519",
+              "600036"
+            ],
+            "top_k": 2,
+            "lookback": 80,
+            "horizon_days": 3,
+            "min_score": 40
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "winner",
+        "delta",
+        "neutralized",
+        "absolute"
+      ],
+      "routing_expect": {
+        "is_quant_question": true,
+        "quant_task": "portfolio_neutral_compare"
+      },
+      "agent_must_contain": [
+        "中性化",
+        "绝对分",
+        "不保证收益",
+        "不代客下单"
+      ],
+      "mock": {
+        "quotes": {
+          "600519": {
+            "success": true,
+            "stock_code": "600519",
+            "stock_name": "贵州茅台",
+            "market": "CN"
+          },
+          "600036": {
+            "success": true,
+            "stock_code": "600036",
+            "stock_name": "招商银行",
+            "market": "CN"
+          }
+        },
+        "daily_bars": "rising_45",
+        "resolve_market_code": [
+          "CN",
+          "600519"
+        ]
+      }
+    },
+    {
+      "id": "quant_health",
+      "question": "量化系统状态正常吗",
+      "intent": "量化运维",
+      "skills": [
+        {
+          "name": "quant",
+          "parameters": {
+            "task": "health"
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "ok",
+        "watching"
+      ],
+      "routing_expect": {
+        "is_quant_question": true,
+        "quant_task": "health"
+      },
+      "mock": {
+        "quant_health": {
+          "success": true,
+          "ok": true,
+          "task": "health",
+          "watching": {
+            "success": true,
+            "watchlist_count": 5,
+            "issues": []
+          },
+          "daily_last": {
+            "ok": true,
+            "finished_at": "2026-07-19T17:00:00"
+          },
+          "reports": {
+            "count": 1
+          },
+          "issues": [],
+          "warnings": []
+        }
+      }
+    },
+    {
+      "id": "quant_weight_diff",
+      "question": "量化因子权重 diff 怎么改配置",
+      "intent": "量化研究",
+      "skills": [
+        {
+          "name": "quant",
+          "parameters": {
+            "task": "weight_suggest",
+            "stock_code": "茅台",
+            "lookback": 80
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "config_diff"
+      ],
+      "routing_expect": {
+        "is_quant_question": true,
+        "quant_task": "weight_suggest"
+      },
+      "mock": {
+        "quote": {
+          "success": true,
+          "stock_code": "600519",
+          "stock_name": "贵州茅台",
+          "market": "CN"
+        },
+        "daily_bars": "rising_45",
+        "index_bars": "empty",
+        "resolve_market_code": [
+          "CN",
+          "600519"
+        ]
+      }
+    },
+    {
+      "id": "quant_portfolio_bridge",
+      "question": "持仓和量化怎么对照",
+      "intent": "量化研究",
+      "skills": [
+        {
+          "name": "quant",
+          "parameters": {
+            "task": "portfolio_bridge",
+            "include_stance": false
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "portfolio",
+        "quant",
+        "actions"
+      ],
+      "routing_expect": {
+        "is_quant_question": true,
+        "quant_task": "portfolio_bridge"
+      },
+      "mock": {
+        "quant_portfolio_bridge": {
+          "success": true,
+          "task": "portfolio_bridge",
+          "readonly": true,
+          "portfolio": {
+            "exists": true,
+            "count": 1,
+            "codes": [
+              "600519"
+            ],
+            "cash": 50000
+          },
+          "paper": {
+            "initialized": true,
+            "position_count": 1
+          },
+          "quant": {
+            "daily_empty": false,
+            "watching_exists": true,
+            "watching_watchlist_count": 5,
+            "overlap_count": 1,
+            "overlap_codes": [
+              "600519"
+            ],
+            "outside_watching_codes": []
+          },
+          "actions": {},
+          "note": "模拟账户可用"
+        }
+      }
+    },
+    {
+      "id": "quant_daily_neutral_section",
+      "question": "量化日报中性化对照专节包含什么",
+      "intent": "量化研究",
+      "skills": [
+        {
+          "name": "quant",
+          "parameters": {
+            "task": "daily_summary",
+            "include_portfolio_backtest": true,
+            "include_portfolio_neutral_compare": true,
+            "use_saved": false
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "task",
+        "portfolio_neutral_compare_summary.success",
+        "portfolio_neutral_compare_summary.winner",
+        "portfolio_neutral_compare_summary.delta",
+        "portfolio_neutral_compare_summary.neutralized_total_return_pct",
+        "portfolio_neutral_compare_summary.absolute_total_return_pct"
+      ],
+      "routing_expect": {
+        "is_quant_question": true,
+        "quant_task": "daily_summary"
+      },
+      "mock": {
+        "quotes": {
+          "600519": {
+            "success": true,
+            "stock_code": "600519",
+            "stock_name": "贵州茅台",
+            "market": "CN"
+          },
+          "600036": {
+            "success": true,
+            "stock_code": "600036",
+            "stock_name": "招商银行",
+            "market": "CN"
+          }
+        },
+        "daily_bars": "rising_45",
+        "resolve_market_code": [
+          "CN",
+          "600519"
+        ],
+        "watching": {
+          "watchlist": [
+            "600519",
+            "600036"
+          ]
+        }
+      }
+    },
+    {
+      "id": "quant_interpret_neutral",
+      "question": "解读量化日报里的中性化对照",
+      "intent": "量化研究",
+      "skills": [
+        {
+          "name": "quant",
+          "parameters": {
+            "task": "interpret",
+            "use_saved": false,
+            "offline": true
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "task",
+        "interpretation",
+        "neutral_compare_summary.success",
+        "neutral_compare_summary.winner",
+        "source"
+      ],
+      "routing_expect": {
+        "is_quant_question": true,
+        "quant_task": "interpret"
+      },
+      "agent_must_contain": [
+        "中性化",
+        "对照",
+        "不保证收益",
+        "不代客下单"
+      ],
+      "mock": {
+        "quotes": {
+          "600519": {
+            "success": true,
+            "stock_code": "600519",
+            "stock_name": "贵州茅台",
+            "market": "CN"
+          },
+          "600036": {
+            "success": true,
+            "stock_code": "600036",
+            "stock_name": "招商银行",
+            "market": "CN"
+          }
+        },
+        "daily_bars": "rising_45",
+        "resolve_market_code": [
+          "CN",
+          "600519"
+        ],
+        "watching": {
+          "watchlist": [
+            "600519",
+            "600036"
+          ]
+        }
+      }
+    },
+    {
+      "id": "quant_cross_section_score",
+      "question": "观察池横截面 score 怎么排",
+      "intent": "量化研究",
+      "skills": [
+        {
+          "name": "quant",
+          "parameters": {
+            "task": "cross_section",
+            "limit": 5,
+            "min_score": 40
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "ranked_count",
+        "ranking",
+        "min_score"
+      ],
+      "routing_expect": {
+        "is_quant_question": true,
+        "quant_task": "cross_section"
+      },
+      "agent_must_contain": [
+        "score",
+        "横截面",
+        "不保证收益"
+      ],
+      "mock": {
+        "quotes": {
+          "600519": {
+            "success": true,
+            "stock_code": "600519",
+            "stock_name": "贵州茅台",
+            "market": "CN"
+          },
+          "600036": {
+            "success": true,
+            "stock_code": "600036",
+            "stock_name": "招商银行",
+            "market": "CN"
+          }
+        },
+        "daily_bars": "rising_45",
+        "resolve_market_code": [
+          "CN",
+          "600519"
+        ],
+        "watching": {
+          "watchlist": [
+            "600519",
+            "600036"
+          ]
+        }
+      }
+    },
+    {
+      "id": "quant_package_info",
+      "question": "quant 包结构有哪些模块",
+      "intent": "量化运维",
+      "skills": [
+        {
+          "name": "quant",
+          "parameters": {
+            "task": "package_info"
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "package",
+        "modules",
+        "subpackages"
+      ],
+      "routing_expect": {
+        "is_quant_question": true,
+        "quant_task": "package_info"
+      },
+      "mock": {
+        "quant_package_info": {
+          "success": true,
+          "package": "quant",
+          "layout": "P28+",
+          "subpackages": [
+            "services",
+            "ops",
+            "research",
+            "skill"
+          ],
+          "modules": {
+            "services": [
+              "quant_service",
+              "quant_report_export"
+            ],
+            "ops": [
+              "daily_presets",
+              "package_info",
+              "eval_routing_map"
+            ],
+            "research": [
+              "factor_report"
+            ],
+            "skill": [
+              "engine",
+              "handler"
+            ]
+          },
+          "module_count": 10,
+          "shim_paths": [],
+          "shims_removed": true,
+          "shared_core": [
+            "core/signal",
+            "core/backtest"
+          ]
+        }
+      }
+    },
+    {
+      "id": "quant_model_policy",
+      "question": "量化为什么不用线性回归或机器学习做决策",
+      "intent": "量化研究",
+      "skills": [],
+      "routing_expect": {
+        "is_quant_question": true
+      },
+      "agent_must_contain": [
+        "规则",
+        "stance",
+        "不保证收益",
+        "不代客下单"
+      ]
+    },
+    {
+      "id": "quant_factor_ols",
+      "question": "茅台量化因子面板 OLS 实验对比 config 权重",
+      "intent": "量化研究",
+      "skills": [
+        {
+          "name": "quant",
+          "parameters": {
+            "task": "factor_ols",
+            "stock_code": "600519",
+            "lookback": 45,
+            "horizon_days": 3
+          }
+        }
+      ],
+      "required_paths": [
+        "success",
+        "task",
+        "coefficients",
+        "r_squared",
+        "sample_count",
+        "current_weights"
+      ],
+      "routing_expect": {
+        "is_quant_question": true,
+        "quant_task": "factor_ols"
+      },
+      "agent_must_contain": [
+        "研究",
+        "不自动",
+        "不保证收益"
+      ],
+      "mock": {
+        "quotes": {
+          "600519": {
+            "success": true,
+            "stock_code": "600519",
+            "stock_name": "贵州茅台",
+            "market": "CN"
+          }
+        },
+        "daily_bars": "rising_45",
+        "resolve_market_code": [
+          "CN",
+          "600519"
+        ]
+      }
+    }
+  ]
+}

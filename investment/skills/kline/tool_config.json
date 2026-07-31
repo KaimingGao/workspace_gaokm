@@ -1,0 +1,19 @@
+{
+  "name": "kline",
+  "description": "查询股票近 N 根日 K 线（开高低收量）并给出形态摘要，如大阴/大阳、上下影线、放量等。用于解读走势、K 线形态，不是买卖信号。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "stock_code": {
+        "type": "string",
+        "description": "股票代码或名称，如：01024、快手、600519、贵州茅台"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "返回最近多少根日 K，默认 10，最大 30",
+        "default": 10
+      }
+    },
+    "required": ["stock_code"]
+  }
+}

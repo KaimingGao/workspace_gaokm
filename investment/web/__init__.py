@@ -1,0 +1,1 @@
+"""Investment Web UI package."""

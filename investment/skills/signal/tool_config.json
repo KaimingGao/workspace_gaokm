@@ -1,0 +1,29 @@
+{
+  "name": "signal",
+  "description": "生成未来1～3天短线观察池：对候选股做动量/量价/波动评分，输出分数、主因与失效条件。供投顾给出买入/观望等建议时使用。可用于「未来几天看什么」「短线选股」。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "stock_codes": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "候选股票代码或名称列表；为空时从 A 股现货中初筛再评分"
+      },
+      "sector": {
+        "type": "string",
+        "description": "行业关键词，仅在未指定 stock_codes 时用于初筛，如：银行、白酒、新能源"
+      },
+      "horizon_days": {
+        "type": "integer",
+        "description": "展望天数，默认 3，范围 1～3",
+        "default": 3
+      },
+      "limit": {
+        "type": "integer",
+        "description": "观察池返回条数，默认 8，最大 15",
+        "default": 8
+      }
+    },
+    "required": []
+  }
+}

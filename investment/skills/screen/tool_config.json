@@ -1,0 +1,44 @@
+{
+  "name": "screen",
+  "description": "按条件筛选 A 股股票。支持行业关键词、市盈率上限、市净率上限、涨跌幅下限等。返回筛选结果列表，不是买入推荐。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "market": {
+        "type": "string",
+        "description": "市场，默认 A 股",
+        "default": "A"
+      },
+      "sector": {
+        "type": "string",
+        "description": "行业或板块关键词，如：银行、白酒、新能源、医药"
+      },
+      "pe_max": {
+        "type": "number",
+        "description": "市盈率（动态）上限，例如 20"
+      },
+      "pe_min": {
+        "type": "number",
+        "description": "市盈率（动态）下限"
+      },
+      "pb_max": {
+        "type": "number",
+        "description": "市净率上限"
+      },
+      "change_min": {
+        "type": "number",
+        "description": "涨跌幅下限（百分比数值，如 2 表示 +2%）"
+      },
+      "change_max": {
+        "type": "number",
+        "description": "涨跌幅上限（百分比数值）"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "返回条数上限，默认 10，最大 20",
+        "default": 10
+      }
+    },
+    "required": []
+  }
+}

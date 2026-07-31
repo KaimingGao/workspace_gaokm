@@ -1,0 +1,45 @@
+"""项目路径常量（单一事实源）。"""
+
+from __future__ import annotations
+
+import os
+
+ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+DATA_DIR = os.path.join(ROOT_DIR, "data")
+SKILLS_DIR = os.path.join(ROOT_DIR, "skills")
+STORE_DIR = os.environ.get(
+    "INVESTMENT_STORE_DIR",
+    os.path.join(DATA_DIR, "store"),
+)
+PAPER_PATH = os.environ.get(
+    "INVESTMENT_PAPER_PATH",
+    os.path.join(DATA_DIR, "paper.json"),
+)
+PAPER_EXAMPLE_PATH = os.path.join(DATA_DIR, "paper.example.json")
+POSITION_RULES_PATH = os.path.join(DATA_DIR, "position_rules.json")
+EVALS_LAST_RUN_PATH = os.path.join(DATA_DIR, "evals_last_run.json")
+EVALS_JOB_PATH = os.path.join(DATA_DIR, "evals_job.json")
+QUANT_DAILY_PATH = os.path.join(DATA_DIR, "quant_daily.json")
+QUANT_REPORTS_DIR = os.path.join(DATA_DIR, "reports")
+DAILY_LAST_RUN_PATH = os.path.join(DATA_DIR, "daily_last_run.json")
+SIGNAL_CONFIG_PATH = os.path.join(DATA_DIR, "signal_config.json")
+WATCHING_PATH = os.environ.get(
+    "INVESTMENT_WATCHING_PATH",
+    os.path.join(DATA_DIR, "watching.json"),
+)
+WATCHING_EXAMPLE_PATH = os.path.join(DATA_DIR, "watching.example.json")
+MEMORY_PATH = os.environ.get(
+    "INVESTMENT_MEMORY_PATH",
+    os.path.join(DATA_DIR, "memory.json"),
+)
+DECISIONS_PATH = os.environ.get(
+    "INVESTMENT_DECISIONS_PATH",
+    os.path.join(DATA_DIR, "decisions.jsonl"),
+)
+SCHEDULE_LAST_RUN_PATH = os.path.join(DATA_DIR, "schedule_last_run.json")
+NORTH_STAR_LAST_BACKTEST_PATH = os.path.join(DATA_DIR, "north_star_last_backtest.json")
+TTM_EVENTS_PATH = os.path.join(DATA_DIR, "ttm_events.jsonl")
+NEWS_STORE_DIR = os.path.join(STORE_DIR, "news")
+SENTIMENT_LEXICON_PATH = os.path.join(DATA_DIR, "sentiment_lexicon.json")
+JOBS_DIR = os.path.join(DATA_DIR, "jobs")
+PAPER_JOB_PATH = os.path.join(JOBS_DIR, "paper.json")

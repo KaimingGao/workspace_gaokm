@@ -1,0 +1,93 @@
+{
+  "name": "quant",
+  "description": "量化研究台：横截面排序、观察池 TopK 回测、因子权重/stance 阈值 OOS 建议、量化日报摘要与 AI 解读。用于「观察池组合 historically 如何」「量化报告怎么说」「IC 权重要不要调」「阈值怎么校准」等研究问题。非实盘、不保证收益。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "task": {
+        "type": "string",
+        "enum": [
+          "daily_summary",
+          "cross_section",
+          "portfolio_backtest",
+          "portfolio_neutral_compare",
+          "weight_suggest",
+          "threshold_suggest",
+          "interpret",
+          "health",
+          "config_diff",
+          "daily_presets",
+          "portfolio_bridge",
+          "package_info",
+          "factor_ols",
+          "t0_backtest"
+        ],
+        "description": "研究任务类型"
+      },
+      "stock_code": {
+        "type": "string",
+        "description": "单票分析默认标的（权重/阈值/日报），默认茅台"
+      },
+      "codes": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "description": "横截面/组合回测候选列表；默认 watching watchlist"
+      },
+      "lookback": {
+        "type": "integer",
+        "description": "日线回看长度，默认 120",
+        "default": 120
+      },
+      "top_k": {
+        "type": "integer",
+        "description": "组合 TopK，默认 3",
+        "default": 3
+      },
+      "horizon_days": {
+        "type": "integer",
+        "description": "持有/评分 horizon，默认 3",
+        "default": 3
+      },
+      "min_score": {
+        "type": "number",
+        "description": "最低短线分，默认 55",
+        "default": 55
+      },
+      "use_watching": {
+        "type": "boolean",
+        "description": "threshold_suggest 时对 watching 多票 OOS 聚合",
+        "default": false
+      },
+      "watching_limit": {
+        "type": "integer",
+        "description": "watching 聚合扫描上限，默认 5",
+        "default": 5
+      },
+      "use_saved": {
+        "type": "boolean",
+        "description": "interpret/daily_summary 优先读 quant_daily.json",
+        "default": true
+      },
+      "offline": {
+        "type": "boolean",
+        "description": "interpret 离线规则解读（无 LLM，golden/CI 用）",
+        "default": false
+      },
+      "include_portfolio_backtest": {
+        "type": "boolean",
+        "description": "daily_summary 是否含组合回测摘要",
+        "default": true
+      },
+      "include_portfolio_neutral_compare": {
+        "type": "boolean",
+        "description": "daily_summary 是否含中性化 vs 绝对分对照专节",
+        "default": true
+      }
+    },
+    "required": [
+      "task"
+    ]
+  }
+}

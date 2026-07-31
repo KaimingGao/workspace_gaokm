@@ -1,0 +1,23 @@
+{
+  "ts": 1785344827.339273,
+  "source": "paper_daily",
+  "alert_count": 2,
+  "alerts": [
+    {
+      "level": "warn",
+      "code": "ic_decay",
+      "message": "滚动 IC=-0.162 偏低，疑似因子衰减"
+    },
+    {
+      "level": "info",
+      "code": "high_cash",
+      "message": "现金占比 90%，组合偏空仓"
+    }
+  ],
+  "note": "出站告警；不自动改权、不代客下单。",
+  "extra": {
+    "strategy": "short_conservative",
+    "equity": 6016057.34,
+    "bars_coverage": 1.0
+  }
+}

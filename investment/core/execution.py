@@ -1,0 +1,585 @@
+"""ExecutionSpec：调仓 + overlays（做 T）+ coupling。
+
+合并顺序（后者覆盖前者非空键）：
+  DEFAULT_EXECUTION → StrategySpec.lifecycle.execution → paper.rules
+  → request_override → channel runtime_defaults（仅填未显式声明的方向/路径）
+
+纸面 / 回测入口应只读 resolve_effective_*，禁止各自硬编码 direction/path_mode。
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+from copy import deepcopy
+from typing import Any, Dict, List, Optional, Tuple
+
+from core.t0.config import DEFAULT_T0_RULES, load_t0_rules
+
+DEFAULT_COUPLING: Dict[str, Any] = {
+    "t0_vs_stance": "independent",  # independent | skip_if_avoid | only_if_hold
+}
+
+COUPLING_MODES = frozenset({"independent", "skip_if_avoid", "only_if_hold"})
+
+# 纸面可写的 T0 覆盖键（防误写内部字段）
+ALLOWED_T0_PATCH_KEYS = frozenset(
+    {
+        "enabled",
+        "t0_ratio",
+        "sell_trigger_pct",
+        "buy_trigger_pct",
+        "must_cover_same_day",
+        "lot_size",
+        "ref",
+        "fill_mode",
+        "direction",
+        "path_mode",
+        "minute_period",
+        "min_range_pct",
+        "use_atr",
+        "atr_window",
+        "atr_sell_mult",
+        "atr_buy_mult",
+        "dir_enter",
+        "auto_strong_pct",
+        "auto_weak_pct",
+        "w_gap",
+        "w_yclose_loc",
+        "w_mom3",
+        "w_gap_atr",
+    }
+)
+
+DEFAULT_RUNTIME: Dict[str, Any] = {
+    "paper_direction_fallback": "signal",
+    "backtest_direction_fallback": "signal",
+    "backtest_path_mode_no_minute": "veto",
+    "backtest_path_mode_with_minute": "first_touch",
+}
+
+# 生产默认 overlay：钉住与现行纸面/回测一致的关键行为；其余继承 DEFAULT_T0_RULES
+DEFAULT_T0_OVERLAY: Dict[str, Any] = {
+    "enabled": True,
+    "t0_ratio": 0.4,
+    "sell_trigger_pct": 2.0,
+    "buy_trigger_pct": 1.5,
+    "fill_mode": "trigger",
+    "use_atr": True,
+    "ref": "open",
+    "lot_size": 100,
+    # direction / path_mode 留给 runtime_defaults，避免与 DEFAULT_T0 的 auto/dual_touch 双轨
+}
+
+DEFAULT_EXECUTION: Dict[str, Any] = {
+    "version": "1.0.0",
+    "overlays": {"t0": deepcopy(DEFAULT_T0_OVERLAY)},
+    "coupling": deepcopy(DEFAULT_COUPLING),
+    "runtime_defaults": deepcopy(DEFAULT_RUNTIME),
+}
+
+_REBALANCE_KEYS = (
+    "min_score",
+    "add_score",
+    "min_hold_score",
+    "reduce_score",
+    "max_positions",
+    "position_pct",
+    "horizon_days",
+    "signal_limit",
+    "stop_loss_pnl",
+    "max_hold_days",
+)
+
+
+def _merge_dict(base: dict, overlay: Optional[dict]) -> dict:
+    out = deepcopy(base) if base else {}
+    if not overlay:
+        return out
+    for k, v in overlay.items():
+        if v is None:
+            continue
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = _merge_dict(out[k], v)
+        else:
+            out[k] = deepcopy(v)
+    return out
+
+
+def default_execution_spec() -> Dict[str, Any]:
+    return deepcopy(DEFAULT_EXECUTION)
+
+
+def execution_from_lifecycle(lifecycle: Optional[dict]) -> Dict[str, Any]:
+    """从 StrategySpec.lifecycle 抽出 execution；无则用默认 + 兼容 paper_rules.t0。"""
+    life = lifecycle or {}
+    base = default_execution_spec()
+    raw = life.get("execution")
+    if isinstance(raw, dict):
+        base = _merge_dict(base, raw)
+    # 兼容：旧纸面把 t0 写在 paper_rules.t0
+    pr = life.get("paper_rules") or {}
+    if isinstance(pr, dict) and isinstance(pr.get("t0"), dict):
+        base["overlays"] = base.get("overlays") or {}
+        base["overlays"]["t0"] = _merge_dict(
+            base["overlays"].get("t0") or {}, pr.get("t0") or {}
+        )
+    return base
+
+
+def get_strategy_execution(strategy: Optional[str] = None) -> Dict[str, Any]:
+    from core.strategy import get_strategy_spec
+
+    sid = strategy
+    if not sid:
+        from core.backtest.strategies import DEFAULT_STRATEGY
+
+        sid = DEFAULT_STRATEGY
+    spec = get_strategy_spec(sid)
+    exe = deepcopy(spec.get("execution") or default_execution_spec())
+    exe["_strategy_id"] = spec.get("strategy_id")
+    exe["_strategy_version"] = spec.get("version")
+    exe["_paper_rules"] = deepcopy(spec.get("paper_rules") or {})
+    return exe
+
+
+def _layer_t0(
+    *,
+    strategy_exe: dict,
+    paper: Optional[dict],
+    request_override: Optional[dict],
+) -> Tuple[dict, Dict[str, str], List[str]]:
+    """合并 T0 覆盖层；返回 (raw_override_for_load_t0_rules, sources, notes)。"""
+    sources: Dict[str, str] = {}
+    notes: List[str] = []
+    layers: List[Tuple[str, dict]] = []
+
+    spec_t0 = ((strategy_exe.get("overlays") or {}).get("t0")) or {}
+    if spec_t0:
+        layers.append(("spec", dict(spec_t0)))
+
+    paper_rules = (paper or {}).get("rules") or {}
+    paper_t0 = paper_rules.get("t0") if isinstance(paper_rules, dict) else None
+    if isinstance(paper_t0, dict) and paper_t0:
+        layers.append(("paper", dict(paper_t0)))
+
+    # request 可以是完整 execution、{t0:...} 或扁平 t0 规则
+    req = request_override or {}
+    req_t0: dict = {}
+    if isinstance(req.get("overlays"), dict) and isinstance(req["overlays"].get("t0"), dict):
+        req_t0 = dict(req["overlays"]["t0"])
+    elif isinstance(req.get("t0"), dict):
+        req_t0 = dict(req["t0"])
+    elif req and not any(k in req for k in ("overlays", "coupling", "runtime_defaults", "rebalance")):
+        # 扁平规则（旧 API）
+        req_t0 = {k: v for k, v in req.items() if k not in ("channel", "has_minute")}
+    if req_t0:
+        layers.append(("request", req_t0))
+
+    merged: dict = {}
+    for name, layer in layers:
+        for k, v in layer.items():
+            if v is None:
+                continue
+            merged[k] = v
+            sources[k] = name
+    if not layers:
+        notes.append("无 Spec/纸面/请求覆盖，T0 用库默认 + runtime")
+    return merged, sources, notes
+
+
+def _apply_channel_fallbacks(
+    *,
+    raw_t0: dict,
+    sources: Dict[str, str],
+    runtime: dict,
+    channel: str,
+    has_minute: Optional[bool],
+    notes: List[str],
+) -> dict:
+    out = dict(raw_t0)
+    ch = (channel or "paper").strip().lower()
+    if ch not in {"paper", "backtest"}:
+        ch = "paper"
+
+    if "direction" not in out:
+        if ch == "backtest":
+            fb = runtime.get("backtest_direction_fallback") or "signal"
+        else:
+            fb = runtime.get("paper_direction_fallback") or "signal"
+        out["direction"] = fb
+        sources["direction"] = "runtime_fallback"
+        notes.append(f"{ch}: direction 未显式声明 → {fb}")
+
+    if ch == "backtest" and "path_mode" not in out:
+        if has_minute:
+            fb = runtime.get("backtest_path_mode_with_minute") or "first_touch"
+        else:
+            fb = runtime.get("backtest_path_mode_no_minute") or "veto"
+        out["path_mode"] = fb
+        sources["path_mode"] = "runtime_fallback"
+        notes.append(f"backtest: path_mode 未显式声明 → {fb}")
+
+    return out
+
+
+def _effective_hash(payload: dict) -> str:
+    blob = json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:16]
+
+
+def resolve_effective_execution(
+    *,
+    strategy: Optional[str] = None,
+    paper: Optional[dict] = None,
+    request_override: Optional[dict] = None,
+    channel: str = "paper",
+    has_minute: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """解析生效 Execution（含 t0 / rebalance / coupling）。"""
+    sid = strategy or (paper or {}).get("strategy_id")
+    strategy_exe = get_strategy_execution(sid)
+    runtime = _merge_dict(
+        DEFAULT_RUNTIME,
+        strategy_exe.get("runtime_defaults"),
+    )
+    if isinstance(request_override, dict) and isinstance(
+        request_override.get("runtime_defaults"), dict
+    ):
+        runtime = _merge_dict(runtime, request_override["runtime_defaults"])
+
+    coupling = _merge_dict(DEFAULT_COUPLING, strategy_exe.get("coupling"))
+    if isinstance(request_override, dict) and isinstance(request_override.get("coupling"), dict):
+        coupling = _merge_dict(coupling, request_override["coupling"])
+    # 纸面账户级 coupling（rules.execution.coupling）
+    paper_rules = (paper or {}).get("rules") or {}
+    if isinstance(paper_rules, dict):
+        paper_exe = paper_rules.get("execution")
+        if isinstance(paper_exe, dict) and isinstance(paper_exe.get("coupling"), dict):
+            coupling = _merge_dict(coupling, paper_exe["coupling"])
+    mode = str((coupling or {}).get("t0_vs_stance") or "independent").strip().lower()
+    if mode not in COUPLING_MODES:
+        mode = "independent"
+    coupling["t0_vs_stance"] = mode
+
+    raw_t0, sources, notes = _layer_t0(
+        strategy_exe=strategy_exe,
+        paper=paper,
+        request_override=request_override,
+    )
+    raw_t0 = _apply_channel_fallbacks(
+        raw_t0=raw_t0,
+        sources=sources,
+        runtime=runtime,
+        channel=channel,
+        has_minute=has_minute,
+        notes=notes,
+    )
+    t0 = load_t0_rules(raw_t0)
+
+    # rebalance：Spec paper_rules ← paper.rules（非 t0 键）
+    rebalance = deepcopy(strategy_exe.get("_paper_rules") or {})
+    paper_rules = (paper or {}).get("rules") or {}
+    if isinstance(paper_rules, dict):
+        for k in _REBALANCE_KEYS:
+            if k in paper_rules and paper_rules[k] is not None:
+                rebalance[k] = paper_rules[k]
+
+    execution = {
+        "version": strategy_exe.get("version") or DEFAULT_EXECUTION["version"],
+        "overlays": {"t0": {k: t0[k] for k in t0 if k != "note"}},
+        "coupling": coupling,
+        "runtime_defaults": runtime,
+    }
+
+    hash_payload = {
+        "strategy_id": strategy_exe.get("_strategy_id"),
+        "strategy_version": strategy_exe.get("_strategy_version"),
+        "channel": channel,
+        "t0": {
+            k: t0.get(k)
+            for k in (
+                "enabled",
+                "t0_ratio",
+                "sell_trigger_pct",
+                "buy_trigger_pct",
+                "fill_mode",
+                "direction",
+                "path_mode",
+                "use_atr",
+                "dir_enter",
+            )
+        },
+        "coupling": coupling,
+        "rebalance": {k: rebalance.get(k) for k in _REBALANCE_KEYS if k in rebalance},
+    }
+
+    return {
+        "ok": True,
+        "strategy_id": strategy_exe.get("_strategy_id"),
+        "strategy_version": strategy_exe.get("_strategy_version"),
+        "channel": (channel or "paper").strip().lower(),
+        "execution": execution,
+        "rebalance": rebalance,
+        "t0": t0,
+        "t0_sources": sources,
+        "coupling": coupling,
+        "runtime_defaults": runtime,
+        "effective_hash": _effective_hash(hash_payload),
+        "notes": notes,
+        "summary": _human_summary(t0, coupling, channel=(channel or "paper")),
+    }
+
+
+def resolve_t0_rules(
+    *,
+    strategy: Optional[str] = None,
+    paper: Optional[dict] = None,
+    rules: Optional[dict] = None,
+    channel: str = "paper",
+    has_minute: Optional[bool] = None,
+) -> Dict[str, Any]:
+    """便捷：只返回生效 t0 规则（兼容旧 load_t0_rules(rules) 调用点）。"""
+    bundle = resolve_effective_execution(
+        strategy=strategy,
+        paper=paper,
+        request_override=rules,
+        channel=channel,
+        has_minute=has_minute,
+    )
+    out = dict(bundle["t0"])
+    out["_execution_meta"] = {
+        "effective_hash": bundle["effective_hash"],
+        "t0_sources": bundle["t0_sources"],
+        "notes": bundle["notes"],
+        "channel": bundle["channel"],
+        "coupling": bundle["coupling"],
+        "summary": bundle["summary"],
+    }
+    return out
+
+
+def strip_execution_meta(rules: Optional[dict]) -> dict:
+    """传给 simulate_t0_day 前去掉内部 meta。"""
+    if not rules:
+        return {}
+    return {k: v for k, v in rules.items() if not str(k).startswith("_")}
+
+
+def _human_summary(t0: dict, coupling: dict, *, channel: str) -> str:
+    ratio = t0.get("t0_ratio")
+    ratio_s = f"{int(round(float(ratio) * 100))}%" if ratio is not None else "—"
+    sell = t0.get("sell_trigger_pct")
+    buy = t0.get("buy_trigger_pct")
+    trig = f"+{sell}/-{buy}%" if sell is not None and buy is not None else "—"
+    coup = (coupling or {}).get("t0_vs_stance") or "independent"
+    return (
+        f"{channel} · 仓{ratio_s} · {t0.get('direction') or '—'} · "
+        f"{t0.get('fill_mode') or '—'} · 触发{trig} · path={t0.get('path_mode') or '—'} · "
+        f"耦合={coup}"
+    )
+
+
+def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
+    """API / Web 用精简视图。"""
+    t0 = bundle.get("t0") or {}
+    return {
+        "ok": True,
+        "strategy_id": bundle.get("strategy_id"),
+        "strategy_version": bundle.get("strategy_version"),
+        "channel": bundle.get("channel"),
+        "effective_hash": bundle.get("effective_hash"),
+        "summary": bundle.get("summary"),
+        "notes": bundle.get("notes") or [],
+        "coupling": bundle.get("coupling") or {},
+        "t0": {
+            "enabled": t0.get("enabled"),
+            "t0_ratio": t0.get("t0_ratio"),
+            "sell_trigger_pct": t0.get("sell_trigger_pct"),
+            "buy_trigger_pct": t0.get("buy_trigger_pct"),
+            "fill_mode": t0.get("fill_mode"),
+            "direction": t0.get("direction"),
+            "path_mode": t0.get("path_mode"),
+            "use_atr": t0.get("use_atr"),
+            "atr_window": t0.get("atr_window"),
+            "dir_enter": t0.get("dir_enter"),
+            "ref": t0.get("ref"),
+            "lot_size": t0.get("lot_size"),
+            "minute_period": t0.get("minute_period"),
+            "w_gap": t0.get("w_gap"),
+            "w_yclose_loc": t0.get("w_yclose_loc"),
+            "w_mom3": t0.get("w_mom3"),
+            "w_gap_atr": t0.get("w_gap_atr"),
+        },
+        "t0_sources": bundle.get("t0_sources") or {},
+        "rebalance": bundle.get("rebalance") or {},
+        "runtime_defaults": bundle.get("runtime_defaults") or {},
+    }
+
+
+def stance_allows_t0(
+    coupling_mode: Optional[str],
+    stance_code: Optional[str],
+) -> Tuple[bool, str]:
+    """按 t0_vs_stance 决定是否允许做 T。返回 (allowed, reason)。"""
+    mode = str(coupling_mode or "independent").strip().lower()
+    if mode not in COUPLING_MODES:
+        mode = "independent"
+    code = str(stance_code or "").strip().lower() or None
+    if mode == "independent":
+        return True, ""
+    if mode == "skip_if_avoid":
+        if code == "avoid":
+            return False, "coupling:skip_if_avoid"
+        return True, ""
+    if mode == "only_if_hold":
+        if code in {"wait", "probe", "buy_light"}:
+            return True, ""
+        return False, f"coupling:only_if_hold(stance={code or 'unknown'})"
+    return True, ""
+
+
+def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]:
+    """校验纸面 Execution 补丁；返回 (ok, normalized, errors)。
+
+    接受形态：
+      { t0: {...}, coupling: {...}, lock: bool }
+      或扁平 t0 字段（与旧 API 兼容）
+    """
+    errors: List[str] = []
+    if raw is None:
+        return False, {}, ["body 不能为空"]
+    if not isinstance(raw, dict):
+        return False, {}, ["须为 JSON object"]
+
+    t0_in: dict
+    coupling_in: Optional[dict] = None
+    lock = bool(raw.get("lock", True))
+
+    if isinstance(raw.get("t0"), dict) or "coupling" in raw or "overlays" in raw:
+        t0_in = dict(raw.get("t0") or {})
+        if isinstance(raw.get("overlays"), dict) and isinstance(raw["overlays"].get("t0"), dict):
+            t0_in = {**t0_in, **raw["overlays"]["t0"]}
+        if isinstance(raw.get("coupling"), dict):
+            coupling_in = dict(raw["coupling"])
+    else:
+        t0_in = {
+            k: v
+            for k, v in raw.items()
+            if k not in {"lock", "reset", "note", "coupling", "channel"}
+        }
+
+    unknown = [k for k in t0_in.keys() if k not in ALLOWED_T0_PATCH_KEYS]
+    if unknown:
+        errors.append(f"不允许的 t0 键: {', '.join(sorted(unknown)[:8])}")
+
+    # 归一化：走 load_t0_rules 边界，再只保留补丁键
+    try:
+        normalized_full = load_t0_rules(
+            {k: v for k, v in t0_in.items() if k in ALLOWED_T0_PATCH_KEYS}
+        )
+    except Exception as e:
+        return False, {}, [f"t0 校验失败: {e}"]
+
+    t0_out = {k: normalized_full[k] for k in t0_in if k in ALLOWED_T0_PATCH_KEYS and k in normalized_full}
+    # enabled 等 bool
+    if "enabled" in t0_in:
+        t0_out["enabled"] = bool(t0_in.get("enabled"))
+    if "use_atr" in t0_in:
+        t0_out["use_atr"] = bool(t0_in.get("use_atr"))
+
+    coupling_out: Dict[str, Any] = {}
+    if coupling_in is not None:
+        mode = str(coupling_in.get("t0_vs_stance") or "independent").strip().lower()
+        if mode not in COUPLING_MODES:
+            errors.append(
+                f"coupling.t0_vs_stance 须为 {', '.join(sorted(COUPLING_MODES))}"
+            )
+        else:
+            coupling_out["t0_vs_stance"] = mode
+
+    if errors:
+        return False, {}, errors
+
+    return True, {"t0": t0_out, "coupling": coupling_out, "lock": lock}, []
+
+
+def apply_execution_patch_to_paper(
+    paper: dict,
+    patch: dict,
+    *,
+    note: str = "",
+) -> Dict[str, Any]:
+    """写入 paper.rules.t0 / paper.rules.execution.coupling；返回生效视图 meta。"""
+    ok, normalized, errors = validate_execution_patch(patch)
+    if not ok:
+        return {"ok": False, "errors": errors}
+
+    rules = dict(paper.get("rules") or {})
+    prev_t0 = dict(rules.get("t0") or {}) if isinstance(rules.get("t0"), dict) else {}
+    new_t0 = dict(prev_t0)
+    new_t0.update(normalized.get("t0") or {})
+    rules["t0"] = new_t0
+
+    coupling_patch = normalized.get("coupling") or {}
+    if coupling_patch:
+        exe = dict(rules.get("execution") or {}) if isinstance(rules.get("execution"), dict) else {}
+        coup = dict(exe.get("coupling") or {})
+        coup.update(coupling_patch)
+        exe["coupling"] = coup
+        rules["execution"] = exe
+
+    paper["rules"] = rules
+    if normalized.get("lock"):
+        paper["t0_rules_locked"] = True
+    if note:
+        paper["execution_note"] = str(note)[:200]
+    return {"ok": True, "normalized": normalized}
+
+
+def reset_paper_execution_overlay(paper: dict) -> Dict[str, Any]:
+    """清除账户级 t0 / execution 覆盖，恢复 Spec 默认。"""
+    rules = dict(paper.get("rules") or {})
+    rules.pop("t0", None)
+    rules.pop("execution", None)
+    paper["rules"] = rules
+    paper.pop("t0_rules_locked", None)
+    paper.pop("execution_note", None)
+    return {"ok": True}
+
+
+def diff_t0_maps(before: dict, after: dict) -> List[Dict[str, Any]]:
+    """简易 t0/coupling 字段 diff。"""
+    keys = sorted(set(before.keys()) | set(after.keys()))
+    changes: List[Dict[str, Any]] = []
+    for k in keys:
+        if str(k).startswith("_"):
+            continue
+        a, b = before.get(k), after.get(k)
+        if a != b:
+            changes.append({"path": k, "from": a, "to": b})
+    return changes
+
+
+def execution_diff_against_strategy(
+    paper: Optional[dict] = None,
+    *,
+    strategy: Optional[str] = None,
+) -> Dict[str, Any]:
+    """纸面生效 vs 纯 Spec（无 paper overlay）的 diff。"""
+    sid = strategy or (paper or {}).get("strategy_id")
+    base = resolve_effective_execution(strategy=sid, paper=None, channel="paper")
+    cur = resolve_effective_execution(strategy=sid, paper=paper, channel="paper")
+    t0_changes = diff_t0_maps(base.get("t0") or {}, cur.get("t0") or {})
+    coup_changes = diff_t0_maps(base.get("coupling") or {}, cur.get("coupling") or {})
+    return {
+        "ok": True,
+        "strategy_id": cur.get("strategy_id"),
+        "base_hash": base.get("effective_hash"),
+        "paper_hash": cur.get("effective_hash"),
+        "t0_changes": t0_changes,
+        "coupling_changes": coup_changes,
+        "changed": bool(t0_changes or coup_changes),
+        "base_summary": base.get("summary"),
+        "paper_summary": cur.get("summary"),
+    }

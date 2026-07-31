@@ -1,0 +1,133 @@
+<div class="platform-panel">
+  <div class="platform-head">
+    <h2>平台 · D1–D6</h2>
+    <p id="platform-meta" class="platform-meta">记忆 · 决策记录 · 反馈 · 调度 · 预填</p>
+  </div>
+
+  <section class="platform-section">
+    <h3>记忆偏好</h3>
+    <p class="platform-hint">长期偏好（非对话短记忆）。保存到 data/memory.json</p>
+    <label class="platform-field">
+      风险风格
+      <select id="memory-risk" aria-label="风险风格">
+        <option value="conservative">conservative</option>
+        <option value="balanced" selected>balanced</option>
+        <option value="aggressive">aggressive</option>
+      </select>
+    </label>
+    <label class="platform-field">
+      默认 horizon（天）
+      <input id="memory-horizon" type="number" min="1" max="60" value="3" />
+    </label>
+    <label class="platform-field">
+      备注
+      <textarea id="memory-notes" rows="2" spellcheck="false" placeholder="投资风格备注…"></textarea>
+    </label>
+    <div class="quant-actions-inline">
+      <button type="button" id="memory-save" class="dialog-btn">保存偏好</button>
+      <button type="button" id="memory-refresh" class="dialog-btn secondary">刷新</button>
+    </div>
+  </section>
+
+  <section class="platform-section" id="platform-north-star-section">
+    <h3>产品北极星 · R0</h3>
+    <p class="platform-hint">
+      回测–纸面拟合与风险调整收益：策略验证闭环的收口指标。
+      纸面动作在 <a href="/follow">交易执行</a>；改参在 <a href="/strategy">策略中心</a> 晋升；
+      历史对照在 <a href="/replay">历史回测</a>。
+    </p>
+    <p class="platform-hint">
+      纸面夏普/卡玛 · 回测–纸面 Corr/TE · TTM · 拦截流水（权威 API，非前端缓存）
+    </p>
+    <div id="north-star-kpi" class="paper-stats follow-stats north-star-kpi" aria-live="polite"></div>
+    <p id="north-star-note" class="platform-hint"></p>
+    <div id="north-star-fit-banner" class="platform-fit-banner" hidden role="status"></div>
+    <details class="platform-details" id="sample-status-fold">
+      <summary>样本覆盖</summary>
+      <div id="sample-status-body" class="platform-hint" aria-live="polite"></div>
+    </details>
+    <details class="platform-details" id="data-quality-fold">
+      <summary>数据质量（D 轨）</summary>
+      <div id="data-quality-body" class="platform-hint" aria-live="polite">点「数据质量」加载覆盖率 / 财务多期 / 源审计 / 日历。</div>
+    </details>
+    <div class="quant-actions-inline">
+      <button type="button" id="north-star-refresh" class="dialog-btn secondary">刷新北极星</button>
+      <button type="button" id="sample-status-refresh" class="dialog-btn secondary">刷新样本覆盖</button>
+      <button type="button" id="data-quality-refresh" class="dialog-btn secondary">数据质量</button>
+      <button type="button" id="maturity-gate-refresh" class="dialog-btn">成熟闸门</button>
+      <button type="button" id="empty-fundamentals-refresh" class="dialog-btn secondary" title="列出空财务码">空财务列表</button>
+      <button type="button" id="fundamentals-warmup-run" class="dialog-btn secondary" title="预热快照并入库真实多期 history">预热财务多期</button>
+      <button type="button" id="fit-gap-refresh" class="dialog-btn secondary" title="回测–纸面落差启发式">落差归因</button>
+    </div>
+    <p id="north-star-action-status" class="platform-hint" aria-live="polite"></p>
+    <div id="maturity-gate-body" class="platform-hint" hidden aria-live="polite"></div>
+    <pre id="ops-aux-body" class="platform-pre" hidden></pre>
+  </section>
+
+  <section class="platform-section" id="platform-audit-section">
+    <h3>审计时间线</h3>
+    <p class="platform-hint">决策 · 调度 · 出站告警 · 策略晋升（只读聚合）</p>
+    <ul id="audit-timeline-list" class="platform-list"></ul>
+    <button type="button" id="audit-timeline-refresh" class="dialog-btn secondary">刷新时间线</button>
+  </section>
+
+  <section class="platform-section">
+    <h3>决策记录</h3>
+    <p class="platform-hint">最近 DecisionRecord（advise 默认可落盘）</p>
+    <ul id="decision-list" class="platform-list"></ul>
+    <button type="button" id="decision-refresh" class="dialog-btn secondary">刷新记录</button>
+  </section>
+
+  <section class="platform-section">
+    <h3>纸面日更 · P2</h3>
+    <p class="platform-hint">
+      调度 <code>paper_daily</code>：DecisionRecord + 五问 + 衰减告警。也可
+      <code>bash scripts/daily_paper.sh</code> / launchd。
+    </p>
+    <label class="platform-field">
+      策略
+      <select id="schedule-paper-strategy" aria-label="纸面日更策略">
+        <option value="short" selected>short</option>
+        <option value="short_conservative">short_conservative</option>
+      </select>
+    </label>
+    <label class="platform-field platform-check">
+      <input id="schedule-paper-buy" type="checkbox" />
+      日更时模拟买入（默认关）
+    </label>
+    <div class="quant-actions-inline">
+      <button type="button" id="schedule-paper-run" class="dialog-btn">运行纸面日更</button>
+      <button type="button" id="schedule-last-refresh" class="dialog-btn secondary">刷新上次调度</button>
+      <button type="button" id="feedback-from-alerts" class="dialog-btn secondary">从告警生成建议</button>
+    </div>
+    <ul id="schedule-alert-list" class="platform-list"></ul>
+    <pre id="schedule-last-out" class="platform-pre"></pre>
+  </section>
+
+  <section class="platform-section">
+    <h3>配置反馈建议</h3>
+    <p class="platform-hint">根据回测回撤/胜率/监控告警启发式生成 signal_config 补丁（不写盘）；人审后到策略页 promote</p>
+    <label class="platform-field">
+      max_drawdown_pct
+      <input id="feedback-dd" type="number" step="0.1" placeholder="例如 15" />
+    </label>
+    <label class="platform-field">
+      win_rate_pct
+      <input id="feedback-win" type="number" step="0.1" placeholder="例如 40" />
+    </label>
+    <div class="quant-actions-inline">
+      <button type="button" id="feedback-run" class="dialog-btn">生成建议</button>
+    </div>
+    <pre id="feedback-out" class="platform-pre"></pre>
+  </section>
+
+  <section class="platform-section">
+    <h3>非交易订单预填</h3>
+    <p class="platform-hint">从决策记录导出预填；须在券商 App 人工确认</p>
+    <div class="quant-actions-inline">
+      <button type="button" id="prefill-json" class="dialog-btn secondary">导出 JSON</button>
+      <button type="button" id="prefill-csv" class="dialog-btn secondary">导出 CSV</button>
+    </div>
+    <pre id="prefill-out" class="platform-pre"></pre>
+  </section>
+</div>

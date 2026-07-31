@@ -1,0 +1,14 @@
+{
+  "name": "fundamentals",
+  "description": "查询股票基本面要点：市盈率、市净率、市值、ROE、营收/净利增速等（以 A 股为主）。用于长期分析的估值与财务事实，不是买入推荐。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "stock_code": {
+        "type": "string",
+        "description": "股票代码或名称，如：600519、贵州茅台、01024"
+      }
+    },
+    "required": ["stock_code"]
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "name": "default",
+  "initial_cash": 1000000,
+  "cash": 1000000,
+  "holdings": [],
+  "trades": [],
+  "signal_log": [],
+  "snapshots": [],
+  "rules": {
+    "horizon_days": 3,
+    "min_score": 55,
+    "signal_limit": 8,
+    "max_positions": 20,
+    "position_pct": 0.15,
+    "stop_loss_pnl": -8,
+    "max_hold_days": 5,
+    "min_hold_score": 45,
+    "t0": {
+      "enabled": true,
+      "t0_ratio": 0.4,
+      "sell_trigger_pct": 2.0,
+      "buy_trigger_pct": 1.5,
+      "must_cover_same_day": false,
+      "fill_mode": "optimistic"
+    }
+  },
+  "cost_model": "simple_cn"
+}

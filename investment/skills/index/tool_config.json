@@ -1,0 +1,23 @@
+{
+  "name": "index",
+  "description": "计算股票相对基准指数的近 N 日涨跌与超额收益。默认 A 股对标沪深300，港股对标恒生指数。用于相对强弱，不是买卖信号。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "stock_code": {
+        "type": "string",
+        "description": "股票代码或名称"
+      },
+      "benchmark": {
+        "type": "string",
+        "description": "可选基准：hs300、上证指数、hsi、恒生；不填则按市场自动选择"
+      },
+      "days": {
+        "type": "integer",
+        "description": "回看交易日数量，默认 20，最大 60",
+        "default": 20
+      }
+    },
+    "required": ["stock_code"]
+  }
+}

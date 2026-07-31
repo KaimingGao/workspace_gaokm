@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "kind": "fundamentals",
+  "code": "000739",
+  "data_source": "akshare_financial_abstract_ths",
+  "fetched_at": "2026-07-30T15:15:51",
+  "non_pit": true,
+  "data": {
+    "success": true,
+    "stock_code": "000739",
+    "stock_name": "普洛药业",
+    "market": "CN",
+    "coverage": "full",
+    "metrics": {
+      "stock_code": "000739",
+      "stock_name": "普洛药业",
+      "market": "CN",
+      "price": "20.02元",
+      "change": "-3.10%",
+      "roe": 3.86,
+      "revenue_growth": -10.36,
+      "profit_growth": 0.19,
+      "eps": 0.2152,
+      "financial_as_of": "2026-03-31"
+    },
+    "highlights": [
+      "ROE 约 3.86%",
+      "营收增速约 -10.36%",
+      "净利增速约 0.19%"
+    ],
+    "sources": [
+      "akshare_financial_abstract_ths"
+    ],
+    "notes": [
+      "现货估值拉取失败: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"
+    ],
+    "note": "以上为基本面事实摘要，供投顾建议使用；市场有风险，不保证收益，不代客下单。"
+  },
+  "history": [
+    {
+      "as_of": "2026-07-30",
+      "fetched_at": "2026-07-30T15:15:51",
+      "metrics": {
+        "roe": 3.86,
+        "profit_growth": 0.19,
+        "revenue_growth": -10.36
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    }
+  ],
+  "latest_as_of": "2026-07-30"
+}

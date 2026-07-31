@@ -1,0 +1,17 @@
+{
+  "name": "compare",
+  "description": "对比 2～5 只股票的关键行情指标（价格、涨跌幅、成交量等）。当用户要求多股对比、横向比较时使用。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "stock_codes": {
+        "type": "array",
+        "items": {"type": "string"},
+        "minItems": 2,
+        "maxItems": 5,
+        "description": "要对比的股票代码或名称列表，如：[\"贵州茅台\", \"五粮液\"]"
+      }
+    },
+    "required": ["stock_codes"]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "news",
+  "description": "查询与股票相关的近期新闻/资讯标题摘要（以公开资讯接口为主）。用于事件背景了解，不是投资建议，不保证完整与时效。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "stock_code": {
+        "type": "string",
+        "description": "股票代码或名称，如：600519、茅台；也可传关键词"
+      },
+      "limit": {
+        "type": "integer",
+        "description": "返回条数，默认 8，最大 15",
+        "default": 8
+      }
+    },
+    "required": ["stock_code"]
+  }
+}

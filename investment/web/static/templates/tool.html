@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#eef2f7" />
+  <title>{{TITLE}}</title>
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("investment_theme");
+        if (t !== "light" && t !== "dark") t = "light";
+        document.documentElement.setAttribute("data-theme", t);
+      } catch (e) {
+        document.documentElement.setAttribute("data-theme", "light");
+      }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Manrope:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/styles.css?v={{ASSET_V}}" />
+</head>
+<body data-page="{{PAGE}}">
+  <div class="app-shell">
+{{SIDE_NAV}}
+    <div class="app-column">
+{{TOPBAR}}
+{{CONTENT}}
+    </div>
+  </div>
+
+{{EXTRA_DIALOGS}}
+{{AI_DRAWER}}
+
+  <script>window.__ASSET_V__ = "{{ASSET_V}}";</script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js" defer></script>
+  <script type="module" src="/static/app.js?v={{ASSET_V}}"></script>
+</body>
+</html>

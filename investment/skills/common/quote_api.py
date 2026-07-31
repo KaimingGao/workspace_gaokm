@@ -1,0 +1,479 @@
+"""股票行情 API：统一走腾讯财经 qt.gtimg.cn，带短时缓存。"""
+
+from __future__ import annotations
+
+import time
+from typing import Dict, List, Optional, Tuple
+
+import requests
+
+
+class StockAPI:
+    TENCENT_URL = "https://qt.gtimg.cn/q="
+    CACHE_TTL_SECONDS = 60
+
+    # 热门名称 → 腾讯行情符号
+    STOCK_MAPPING = {
+        "阿里巴巴": "usBABA",
+        "苹果": "usAAPL",
+        "Apple": "usAAPL",
+        "谷歌": "usGOOGL",
+        "Google": "usGOOGL",
+        "微软": "usMSFT",
+        "Microsoft": "usMSFT",
+        "亚马逊": "usAMZN",
+        "Amazon": "usAMZN",
+        "特斯拉": "usTSLA",
+        "Tesla": "usTSLA",
+        "Meta": "usMETA",
+        "脸书": "usMETA",
+        "Facebook": "usMETA",
+        "英伟达": "usNVDA",
+        "NVIDIA": "usNVDA",
+        "AMD": "usAMD",
+        "英特尔": "usINTC",
+        "高通": "usQCOM",
+        "博通": "usAVGO",
+        "京东": "usJD",
+        "百度": "usBIDU",
+        "网易": "usNTES",
+        "拼多多": "usPDD",
+        "蔚来": "usNIO",
+        "理想汽车": "usLI",
+        "小鹏汽车": "usXPEV",
+        "台积电": "usTSM",
+        "贵州茅台": "sh600519",
+        "茅台": "sh600519",
+        "五粮液": "sz000858",
+        "比亚迪": "sz002594",
+        "宁德时代": "sz300750",
+        "隆基绿能": "sh601012",
+        "招商银行": "sh600036",
+        "平安银行": "sz000001",
+        "工商银行": "sh601398",
+        "建设银行": "sh601939",
+        "中国银行": "sh601988",
+        "农业银行": "sh601288",
+        "中国平安": "sh601318",
+        "中国人寿": "sh601628",
+        "中信证券": "sh600030",
+        "东方财富": "sz300059",
+        "同花顺": "sz300033",
+        "科大讯飞": "sz002230",
+        "海康威视": "sz002415",
+        "格力电器": "sz000651",
+        "美的集团": "sz000333",
+        "恒瑞医药": "sh600276",
+        "迈瑞医疗": "sz300760",
+        "泸州老窖": "sz000568",
+        "山西汾酒": "sh600809",
+        "中国移动": "sh600941",
+        "中国联通": "sh600050",
+        "中国电信": "sh601728",
+        "中国石化": "sh600028",
+        "中国石油": "sh601857",
+        "中国铝业": "sh601600",
+        "中铝": "sh601600",
+        "腾讯": "hk00700",
+        "腾讯控股": "hk00700",
+        "美团": "hk03690",
+        "小米": "hk01810",
+        "快手": "hk01024",
+        "快手-W": "hk01024",
+    }
+
+    _cache: Dict[str, Tuple[float, dict]] = {}
+
+    @classmethod
+    def clear_cache(cls):
+        cls._cache.clear()
+
+    @classmethod
+    def resolve_symbol(cls, stock_code: str) -> Optional[str]:
+        """将名称/代码解析为腾讯行情符号；无法解析时返回 None。"""
+        code = (stock_code or "").strip()
+        if not code:
+            return None
+
+        if code in cls.STOCK_MAPPING:
+            return cls.STOCK_MAPPING[code]
+
+        lower = code.lower()
+        if lower in {k.lower(): v for k, v in cls.STOCK_MAPPING.items()}:
+            for k, v in cls.STOCK_MAPPING.items():
+                if k.lower() == lower:
+                    return v
+
+        # 已带市场前缀
+        if lower.startswith(("sh", "sz", "hk", "us")):
+            if lower.startswith("hk") and not code.lower().startswith("hk"):
+                return lower
+            if lower.startswith("us"):
+                return "us" + code[2:].upper() if code[2:] else None
+            return lower
+
+        # 6 位 A 股
+        if code.isdigit() and len(code) == 6:
+            if code.startswith("6"):
+                return f"sh{code}"
+            if code.startswith(("0", "3")):
+                return f"sz{code}"
+
+        # 港股纯数字（4～5 位）
+        if code.isdigit() and 4 <= len(code) <= 5:
+            return f"hk{code.zfill(5)}"
+
+        # 美股 ticker（纯字母）
+        if code.isalpha() and 1 <= len(code) <= 5:
+            return f"us{code.upper()}"
+
+        # 中文名未在映射表
+        if any("\u4e00" <= ch <= "\u9fff" for ch in code):
+            return None
+
+        return code
+
+    @classmethod
+    def query(cls, stock_code: str) -> dict:
+        symbol = cls.resolve_symbol(stock_code)
+        if not symbol:
+            return {
+                "success": False,
+                "stock_code": stock_code,
+                "error": (
+                    f"无法识别股票「{stock_code}」。"
+                    "请使用股票代码（如 600519、AAPL、00700），或热门中文名称。"
+                ),
+            }
+
+        cached = cls._cache.get(symbol)
+        now = time.time()
+        if cached and now - cached[0] < cls.CACHE_TTL_SECONDS:
+            result = dict(cached[1])
+            result["cached"] = True
+            return result
+
+        try:
+            result = cls._query_tencent(stock_code, symbol)
+            if result.get("success"):
+                cls._cache[symbol] = (now, dict(result))
+            return result
+        except requests.exceptions.RequestException as e:
+            return {
+                "success": False,
+                "stock_code": stock_code,
+                "error": f"股票查询失败: {e}",
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "stock_code": stock_code,
+                "error": f"处理股票数据失败: {e}",
+            }
+
+    @classmethod
+    def batch_query(cls, stock_codes: List[str]) -> Dict[str, dict]:
+        """批量查询多只股票行情，一次网络请求。"""
+        if not stock_codes:
+            return {}
+
+        now = time.time()
+        results = {}
+        uncached_codes = []
+        symbols_map = {}
+
+        # 先检查缓存
+        for code in stock_codes:
+            symbol = cls.resolve_symbol(code)
+            if not symbol:
+                results[code] = {
+                    "success": False,
+                    "stock_code": code,
+                    "error": f"无法识别股票「{code}」",
+                }
+                continue
+            symbols_map[code] = symbol
+            cached = cls._cache.get(symbol)
+            if cached and now - cached[0] < cls.CACHE_TTL_SECONDS:
+                result = dict(cached[1])
+                result["cached"] = True
+                results[code] = result
+            else:
+                uncached_codes.append(code)
+
+        # 只查询未缓存的股票
+        if not uncached_codes:
+            return results
+
+        # 腾讯API支持用逗号分隔多只股票
+        symbols = [symbols_map[c] for c in uncached_codes]
+        url = f"{cls.TENCENT_URL}{','.join(symbols)}"
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://finance.qq.com/",
+        }
+
+        try:
+            response = requests.get(url, headers=headers, timeout=10)
+            response.raise_for_status()
+            content = response.content.decode("gbk", errors="ignore")
+
+            # 解析多只股票数据：v_sh600519="1~...";v_sz000858="1~...";
+            for line in content.split(";"):
+                line = line.strip()
+                if not line:
+                    continue
+                # 找到 symbol=... 的格式
+                if '="' in line:
+                    symbol_part, data_part = line.split('="', 1)
+                    symbol = symbol_part.lstrip("v_")
+                    data = data_part.rstrip('";\n ')
+                    if symbol and "~" in data:
+                        # 找到对应的原始代码
+                        found_code = None
+                        for code, sym in symbols_map.items():
+                            if sym == symbol:
+                                found_code = code
+                                break
+                        if found_code:
+                            result = cls._parse_tencent_data(found_code, symbol, data)
+                            if result.get("success"):
+                                cls._cache[symbol] = (now, dict(result))
+                            results[found_code] = result
+
+            # 确保所有请求的代码都有结果
+            for code in uncached_codes:
+                if code not in results:
+                    results[code] = {
+                        "success": False,
+                        "stock_code": code,
+                        "error": f"无法查询到股票「{code}」的行情信息",
+                    }
+
+        except requests.exceptions.RequestException as e:
+            for code in uncached_codes:
+                results[code] = {
+                    "success": False,
+                    "stock_code": code,
+                    "error": f"股票查询失败: {e}",
+                }
+        except Exception as e:
+            for code in uncached_codes:
+                results[code] = {
+                    "success": False,
+                    "stock_code": code,
+                    "error": f"处理股票数据失败: {e}",
+                }
+
+        return results
+
+    @classmethod
+    def _parse_tencent_data(cls, stock_code: str, symbol: str, data_str: str) -> dict:
+        """解析单条腾讯行情数据字符串。"""
+        data = data_str.split("~")
+        if len(data) < 45:
+            return {
+                "success": False,
+                "stock_code": stock_code,
+                "error": "无法解析股票数据",
+            }
+
+        market = cls._market_of(symbol)
+        currency = {"CN": "CNY", "HK": "HKD", "US": "USD"}.get(market, "CNY")
+        unit = {"CNY": "元", "HKD": "HK$", "USD": "$"}[currency]
+
+        stock_name = data[1] or stock_code
+        code_display = data[2] or stock_code
+
+        try:
+            price = float(data[3] or 0)
+            pre_close = float(data[4] or 0)
+            open_price = float(data[5] or 0)
+            volume = float(data[6] or 0)
+            high = float(data[33] or 0) if len(data) > 33 else 0.0
+            low = float(data[34] or 0) if len(data) > 34 else 0.0
+            change_amount = float(data[31] or 0) if len(data) > 31 else (price - pre_close)
+            change_percent = float(data[32] or 0) if len(data) > 32 else (
+                (change_amount / pre_close * 100) if pre_close else 0.0
+            )
+        except (ValueError, IndexError):
+            return {
+                "success": False,
+                "stock_code": stock_code,
+                "error": "无法解析股票数据",
+            }
+
+        if price == 0 and pre_close == 0:
+            return {
+                "success": False,
+                "stock_code": stock_code,
+                "error": f"无法查询到股票「{stock_code}」的行情信息",
+            }
+
+        price_str = cls._fmt_price(price, currency, unit)
+        change_amt_str = cls._fmt_price(change_amount, currency, unit, signed=True)
+
+        return {
+            "success": True,
+            "stock_code": code_display,
+            "stock_name": stock_name,
+            "symbol": symbol,
+            "market": market,
+            "price": price_str,
+            "price_raw": price,
+            "change": f"{change_percent:+.2f}%",
+            "change_raw": change_percent,
+            "change_amount": change_amt_str,
+            "open": cls._fmt_price(open_price, currency, unit) if open_price else "",
+            "high": cls._fmt_price(high, currency, unit) if high else "",
+            "low": cls._fmt_price(low, currency, unit) if low else "",
+            "volume": cls._format_volume(volume, market),
+            "volume_raw": volume,
+            "market_cap": "",
+            "currency": currency,
+            "unit": unit,
+            "cached": False,
+            "description": (
+                f"{stock_name}({code_display})最新价{price_str}，"
+                f"{change_amt_str}，涨幅{change_percent:+.2f}%"
+            ),
+        }
+
+    @classmethod
+    def _query_tencent(cls, stock_code: str, symbol: str) -> dict:
+        url = f"{cls.TENCENT_URL}{symbol}"
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://finance.qq.com/",
+        }
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        # 腾讯接口常为 GBK
+        content = response.content.decode("gbk", errors="ignore")
+
+        if "=~" in content or '=""' in content or not content.strip():
+            # 空数据：v_xxx="";
+            if '="";' in content or '=""' in content.split(";")[0]:
+                return {
+                    "success": False,
+                    "stock_code": stock_code,
+                    "error": f"无法查询到股票「{stock_code}」的行情信息",
+                }
+
+        # 格式: v_sh600519="1~贵州茅台~600519~..."
+        if "~" not in content:
+            return {
+                "success": False,
+                "stock_code": stock_code,
+                "error": f"无法查询到股票「{stock_code}」的行情信息",
+            }
+
+        payload = content.split('="', 1)[-1].rstrip('";\n ')
+        data = payload.split("~")
+        if len(data) < 45:
+            return {
+                "success": False,
+                "stock_code": stock_code,
+                "error": "无法解析股票数据",
+            }
+
+        market = cls._market_of(symbol)
+        currency = {"CN": "CNY", "HK": "HKD", "US": "USD"}.get(market, "CNY")
+        unit = {"CNY": "元", "HKD": "HK$", "USD": "$"}[currency]
+
+        stock_name = data[1] or stock_code
+        code_display = data[2] or stock_code
+
+        try:
+            price = float(data[3] or 0)
+            pre_close = float(data[4] or 0)
+            open_price = float(data[5] or 0)
+            volume = float(data[6] or 0)
+            # 腾讯字段：33 最高 34 最低（A股）；部分市场位置一致
+            high = float(data[33] or 0) if len(data) > 33 else 0.0
+            low = float(data[34] or 0) if len(data) > 34 else 0.0
+            # 涨跌额/幅：31 / 32
+            change_amount = float(data[31] or 0) if len(data) > 31 else (price - pre_close)
+            change_percent = float(data[32] or 0) if len(data) > 32 else (
+                (change_amount / pre_close * 100) if pre_close else 0.0
+            )
+        except (ValueError, IndexError):
+            return {
+                "success": False,
+                "stock_code": stock_code,
+                "error": "无法解析股票数据",
+            }
+
+        if price == 0 and pre_close == 0:
+            return {
+                "success": False,
+                "stock_code": stock_code,
+                "error": f"无法查询到股票「{stock_code}」的行情信息",
+            }
+
+        price_str = cls._fmt_price(price, currency, unit)
+        change_amt_str = cls._fmt_price(change_amount, currency, unit, signed=True)
+
+        return {
+            "success": True,
+            "stock_code": code_display,
+            "stock_name": stock_name,
+            "symbol": symbol,
+            "market": market,
+            "price": price_str,
+            "price_raw": price,
+            "change": f"{change_percent:+.2f}%",
+            "change_raw": change_percent,
+            "change_amount": change_amt_str,
+            "open": cls._fmt_price(open_price, currency, unit) if open_price else "",
+            "high": cls._fmt_price(high, currency, unit) if high else "",
+            "low": cls._fmt_price(low, currency, unit) if low else "",
+            "volume": cls._format_volume(volume, market),
+            "volume_raw": volume,
+            "market_cap": "",
+            "currency": currency,
+            "unit": unit,
+            "cached": False,
+            "description": (
+                f"{stock_name}({code_display})最新价{price_str}，"
+                f"{change_amt_str}，涨幅{change_percent:+.2f}%"
+            ),
+        }
+
+    @staticmethod
+    def _market_of(symbol: str) -> str:
+        s = symbol.lower()
+        if s.startswith(("sh", "sz")):
+            return "CN"
+        if s.startswith("hk"):
+            return "HK"
+        if s.startswith("us"):
+            return "US"
+        return "CN"
+
+    @staticmethod
+    def _fmt_price(value: float, currency: str, unit: str, signed: bool = False) -> str:
+        if currency == "CNY":
+            return f"{value:+.2f}{unit}" if signed else f"{value:.2f}{unit}"
+        # $ / HK$ 前缀
+        if signed:
+            sign = "+" if value >= 0 else "-"
+            return f"{sign}{unit}{abs(value):.2f}"
+        return f"{unit}{value:.2f}"
+
+    @staticmethod
+    def _format_volume(volume: float, market: str) -> str:
+        # A 股字段多为手；美股/港股多为股。统一展示为「万」量级可读字符串。
+        if volume <= 0:
+            return ""
+        if volume >= 1e8:
+            return f"{volume / 1e8:.2f}亿"
+        if volume >= 1e4:
+            return f"{volume / 1e4:.2f}万"
+        return f"{volume:.0f}"

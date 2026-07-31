@@ -1,0 +1,177 @@
+<div class="quant-head">
+  <div class="quant-head-text">
+    <h2>研究枢纽</h2>
+    <p id="quant-meta" class="quant-meta is-busy" aria-live="polite">分析 IC/OLS/ 权重…</p>
+  </div>
+</div>
+
+<div class="quant-body quant-page">
+  <section class="quant-section" id="quant-section-factors" aria-labelledby="quant-section-factors-title">
+    <div class="quant-section-toolbar">
+      <h3 id="quant-section-factors-title" class="watching-section-title">因子建议</h3>
+      <div class="quant-actions-inline">
+        <button type="button" id="quant-cs-ic-run" class="dialog-btn secondary">截面 IC</button>
+        <button type="button" id="quant-ols-pool-run" class="dialog-btn secondary">研究池 OLS</button>
+        <button type="button" id="quant-weight-export" class="dialog-btn secondary">导出权重 diff</button>
+      </div>
+    </div>
+    <details class="quant-fold quant-help-fold">
+      <summary>IC / OLS 说明</summary>
+      <div class="quant-help-body">
+        <p>
+          默认用研究池第一只（常为 600519）日线做只读诊断。每个交易日
+          <code>t</code> 用截至当日的窗口跑 <code>score_bars</code> 取
+          <code>sub_scores</code>。结果<strong>不写</strong>
+          <code>signal_config</code>。
+        </p>
+
+        <h4>共同：前瞻收益</h4>
+        <p>默认 horizon <code>h = 3</code> 个交易日：</p>
+        <pre class="quant-help-formula">r<sub>t→t+h</sub> = close<sub>t+h</sub> / close<sub>t</sub> − 1</pre>
+        <p>（实现里乘 100 成百分比，相关/回归尺度一致即可。）</p>
+
+        <h4>IC（单因子）</h4>
+        <ol>
+          <li>对每个因子 <code>k</code>，收集有值的日子：<code>x<sub>t</sub> =</code> 因子分，<code>y<sub>t</sub> = r<sub>t→t+h</sub></code>。</li>
+          <li>样本数 <code>n ≥ 3</code> 且方差非 0 时，算 Pearson 相关：</li>
+        </ol>
+        <pre class="quant-help-formula">IC<sub>k</sub> = corr(x, y)
+     = Σ (x<sub>i</sub>−x̄)(y<sub>i</sub>−ȳ)
+       / ( √Σ(x<sub>i</sub>−x̄)² · √Σ(y<sub>i</sub>−ȳ)² )</pre>
+        <p>
+          表中 <strong>IC / n</strong> 默认是<strong>单票时序</strong> Pearson；无数字时显示原因标签：
+          <strong>缺测</strong>（n&lt;3）·
+          <strong>常数</strong>（因子分无波动）·
+          <strong>收益平</strong>（前瞻收益无波动）。
+          点「截面 IC」改为池内<strong>日频截面</strong>（Pearson + Spearman）汇总，与单票 IC 不是同一指标。
+          页头「IC 12/20」= 20 个因子里 12 个算出了有效 IC。
+        </p>
+
+        <h4>OLS（多因子）</h4>
+        <ol>
+          <li>拼面板：每天一行「各因子分 + 前瞻收益」（允许缺测）。</li>
+          <li>
+            筛因子：覆盖太少、几乎常数、或凑不齐完整行的剔除（「未入模」）。
+          </li>
+          <li>在完整子面板上做多元线性回归：</li>
+        </ol>
+        <pre class="quant-help-formula">y = β<sub>0</sub> + β<sub>1</sub>x<sub>1</sub> + … + β<sub>p</sub>x<sub>p</sub> + ε</pre>
+        <p>
+          <strong>OLS 列</strong> ≈ β；无数字时显示原因标签：
+          <strong>缺测</strong>（覆盖不足）·
+          <strong>常数</strong>（几乎无波动）·
+          <strong>覆盖</strong>（为凑完整行剔除）·
+          <strong>共线</strong>（奇异剔除）；悬停可看说明。
+          <strong>R²</strong> = 1 − SS<sub>res</sub>/SS<sub>tot</sub>；
+          <strong>n</strong> = 完整样本行数。
+        </p>
+        <p>
+          <strong>两种模式</strong>：进页默认<strong>单票</strong> walk-forward（快探针）。
+          「研究池 OLS」为显式触发：取观察名单<strong>前最多 8 只</strong>，把时序面板<strong>堆叠</strong>后再拟合（更稳一点），
+          <em>不是</em>逐日截面 Fama–MacBeth，仍不写 config。跑完后摘要会列出实际入模代码。
+        </p>
+
+        <h4>OLS 系数 ≠ 生产权重</h4>
+        <p>
+          理想线性模型里，系数与权重<strong>方向一致</strong>：
+        </p>
+        <pre class="quant-help-formula">r̂ = β<sub>0</sub> + Σ β<sub>k</sub> x<sub>k</sub>
+  ⇒  score ∝ Σ β<sub>k</sub> x<sub>k</sub></pre>
+        <p>
+          因此「用 β 当线性打分权重」在理论上说得通。但本页<strong>不会</strong>把 raw OLS
+          系数直接写成 <code>signal_config.weights</code>：
+        </p>
+        <ol>
+          <li>
+            <strong>尺度</strong>：生产权重是归一化、常带非负/上限约束的配置；β
+            可正可负、可任意大，量纲是收益贡献，不是占比。
+          </li>
+          <li>
+            <strong>稳定性</strong>：样本少或因子共线时 β 易抖（例如 IC 为正而 OLS
+            为负）；表上的「建议 / Δ」走 IC 小步调整，更适合人审迭代。
+          </li>
+          <li>
+            <strong>目标</strong>：OLS 拟合历史前瞻收益；生产权重还要可解释、风控、缺测与未入模因子。
+          </li>
+          <li>
+            <strong>边界</strong>：研究建议 ≠ 自动写盘。若要用回归思路调权，路径应是 β →
+            归一化/裁剪 → OOS 验证 → 人审 promote，而不是把 OLS 列原样当权。
+          </li>
+        </ol>
+        <p>
+          表里把 OLS 与「当前 / 建议」并排，是为了<strong>对照诊断</strong>：权重建议来自
+          IC / <code>weight_suggest</code>；OLS 用来看联合后谁还剩解释力。
+        </p>
+
+        <h4>怎么用</h4>
+        <p>
+          先看 IC 筛有用因子 → 再看 OLS 联合后谁还剩贡献 → 对照「当前 / 建议 /
+          Δ」导出 diff → 人审后再改配置。IC 强而 OLS 弱时慎加权重；R²
+          低或未入模很多时，优先看横截面与回测，勿只靠单票拍板。
+        </p>
+      </div>
+    </details>
+    <p id="quant-ols-summary" class="quant-fingerprint is-busy">分析中…</p>
+    <div id="quant-factor-list" class="quant-weight-table-wrap" aria-label="因子建议表"></div>
+    <div id="quant-weight-suggest" class="quant-sub"></div>
+  </section>
+
+  <section class="quant-section" id="quant-section-threshold" aria-labelledby="quant-section-threshold-title">
+    <div class="quant-section-toolbar">
+      <h3 id="quant-section-threshold-title" class="watching-section-title">阈值</h3>
+      <div class="quant-actions-inline">
+        <button type="button" id="quant-threshold-watching" class="dialog-btn secondary">研究池阈值</button>
+        <button type="button" id="quant-threshold-export" class="dialog-btn secondary">导出阈值 diff</button>
+      </div>
+    </div>
+    <p id="quant-threshold-summary" class="quant-fingerprint is-busy">分析中…</p>
+    <div id="quant-threshold-table" class="quant-weight-table-wrap" aria-label="阈值建议表"></div>
+  </section>
+
+  <section class="quant-section" id="quant-section-cross" aria-labelledby="quant-section-cross-title">
+    <div class="quant-section-toolbar">
+      <h3 id="quant-section-cross-title" class="watching-section-title">横截面</h3>
+      <div class="quant-actions-inline">
+        <button type="button" id="quant-cross-run" class="dialog-btn secondary">刷新排序</button>
+      </div>
+    </div>
+    <p id="quant-cross-summary" class="quant-fingerprint is-busy">
+      排序中…
+    </p>
+    <div id="quant-cross-list" class="quant-weight-table-wrap" aria-label="横截面排序"></div>
+  </section>
+
+  <section class="quant-section" id="quant-export-preview" aria-labelledby="quant-section-daily-title">
+    <div class="quant-section-toolbar">
+      <h3 id="quant-section-daily-title" class="watching-section-title">日报</h3>
+      <div class="quant-actions-inline">
+        <button type="button" id="quant-ops-run-daily" class="dialog-btn">生成日报</button>
+        <button type="button" id="quant-interpret-offline" class="dialog-btn secondary">规则解读</button>
+        <button type="button" id="quant-interpret" class="dialog-btn secondary">AI 解读</button>
+        <button type="button" id="quant-export-md" class="dialog-btn secondary">下载 MD</button>
+        <button type="button" id="quant-export-html" class="dialog-btn secondary">下载 HTML</button>
+      </div>
+    </div>
+    <p id="quant-ops-summary" class="quant-fingerprint is-busy">加载中…</p>
+
+    <select id="quant-ops-preset" class="sr-only" aria-hidden="true" tabindex="-1">
+      <option value="quant" selected>量化研究</option>
+    </select>
+    <div id="quant-ops-preset-flags" class="sr-only" aria-hidden="true"></div>
+
+    <div id="quant-interpret-body" class="quant-summary" hidden></div>
+    <div id="quant-interpret-neutral" class="quant-weight-table-wrap sub" hidden></div>
+
+    <div id="quant-export-preview-meta" class="quant-sub is-busy">日报预览加载中…</div>
+    <nav id="quant-export-preview-toc" class="quant-export-preview-toc"></nav>
+    <div id="quant-export-preview-body" class="quant-export-preview-body"></div>
+  </section>
+</div>
+
+<button type="button" id="quant-factor-run" class="sr-only" tabindex="-1" aria-hidden="true">IC</button>
+<button type="button" id="quant-ols-run" class="sr-only" tabindex="-1" aria-hidden="true">OLS</button>
+<button type="button" id="quant-threshold-run" class="sr-only" tabindex="-1" aria-hidden="true">阈值</button>
+<button type="button" id="quant-feedback-suggest" class="sr-only" tabindex="-1" aria-hidden="true">反馈</button>
+<button type="button" id="quant-export-preview-md" class="sr-only" tabindex="-1" aria-hidden="true">预览MD</button>
+<button type="button" id="quant-export-preview-html" class="sr-only" tabindex="-1" aria-hidden="true">预览HTML</button>
+<button type="button" id="quant-ops-refresh" class="sr-only" tabindex="-1" aria-hidden="true">刷新</button>

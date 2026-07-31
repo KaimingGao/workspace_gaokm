@@ -1,0 +1,40 @@
+{
+  "name": "backtest",
+  "description": "对 signal 短线评分规则做历史 walk-forward 回测，输出胜率、均收益、最大回撤、夏普近似、买入持有/指数基准对比、按分数分层收益等研究指标。用于「这个短线规则过去表现如何」「回测茅台 signal 策略」等量化研究问题。非实盘、不含手续费。",
+  "parameters": {
+    "type": "object",
+    "properties": {
+      "stock_codes": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "回测标的代码或名称，最多 5 只；默认茅台"
+      },
+      "strategy": {
+        "type": "string",
+        "description": "策略名：short（短线评分）或 short_conservative（保守短线）；旧名 signal_v1 仍可用",
+        "default": "short"
+      },
+      "lookback_days": {
+        "type": "integer",
+        "description": "拉取日线长度（交易日量级），默认 120，范围 40～500",
+        "default": 120
+      },
+      "horizon_days": {
+        "type": "integer",
+        "description": "信号持有天数，与 signal 一致，默认 3",
+        "default": 3
+      },
+      "min_score": {
+        "type": "number",
+        "description": "入场最低短线分，默认 55",
+        "default": 55
+      },
+      "benchmark": {
+        "type": "string",
+        "description": "基准指数：auto（默认按市场）、hs300、hsi、sh；none 则仅对比买入持有",
+        "default": "auto"
+      }
+    },
+    "required": []
+  }
+}

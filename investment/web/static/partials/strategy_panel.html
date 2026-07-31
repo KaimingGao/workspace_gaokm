@@ -1,0 +1,234 @@
+<div class="quant-body strategy-page">
+  <div class="quant-section quant-section-core" id="quant-section-strategy-list">
+    <h3>策略列表</h3>
+    <p class="quant-map-hint">
+      改限额 / 门槛须<strong>人审晋升</strong>后纸面才跟规格跑。
+      历史是否像样 → <a href="/replay">历史回测</a>；
+      纸面落地 → <a href="/follow">交易执行</a>；
+      拟合 → <a href="/platform">北极星</a>。
+    </p>
+    <p id="strategy-list-loading" class="quant-fingerprint">加载策略列表…</p>
+    <div id="strategy-list" class="quant-weight-table-wrap strategy-list-host"></div>
+    <div id="strategy-risk-limits" class="strategy-risk-limits" aria-label="StrategySpec 说明"></div>
+  </div>
+
+  <details class="quant-fold" id="strategy-risk-audit-fold">
+    <summary>风控与敞口 · 拦截流水</summary>
+    <div class="quant-section" id="strategy-risk-audit">
+      <p class="quant-fingerprint" id="strategy-risk-meta">来自纸面持仓实时敞口 + 最近 ops / 北极星拦截汇总</p>
+      <div id="strategy-exposure" class="quant-weight-table-wrap"></div>
+      <div id="strategy-exposure-style" class="quant-weight-table-wrap"></div>
+      <div id="strategy-risk-eff" class="quant-weight-table-wrap"></div>
+      <div id="strategy-risk-blocks" class="quant-weight-table-wrap"></div>
+    </div>
+  </details>
+
+  <div class="strategy-alpha-risk">
+    <div class="strategy-alpha-risk-item strategy-alpha">
+      <div class="strategy-alpha-risk-header">
+        <span class="strategy-alpha-risk-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="3 17 9 11 13 15 21 7"></polyline>
+            <polyline points="14 7 21 7 21 14"></polyline>
+          </svg>
+        </span>
+        <h3>Alpha（进攻）</h3>
+      </div>
+      <p class="strategy-alpha-risk-desc">20 因子线性评分（19 生产权重）+ 因子择时 + 截面行业/规模残差 + 凯利仓位 + 技术确认</p>
+      <div class="strategy-logic">
+        <div class="strategy-logic-item">
+          <h4>因子构成</h4>
+          <ul>
+            <li>价量/趋势：动量、量价、技术形态、均线斜率、周线确认、相对强弱、特异动量</li>
+            <li>风险/微观：波动、反转、流动性、跳空、非流动性（Amihud）</li>
+            <li>基本面：估值、盈利收益率、质量(ROE)、成长、股息、规模</li>
+            <li>情绪：另类情绪（小权重）；资金流已注册、默认权重 0</li>
+            <li>截面：z-score 中性化 + 行业/规模残差（默认开）</li>
+          </ul>
+        </div>
+        <div class="strategy-logic-item">
+          <h4>因子择时</h4>
+          <ul>
+            <li>牛市：启用动量、量价，禁用估值</li>
+            <li>熊市：启用质量、流动性，禁用动量</li>
+            <li>高波动：启用流动性、反转</li>
+          </ul>
+        </div>
+        <div class="strategy-logic-item">
+          <h4>凯利仓位</h4>
+          <ul>
+            <li>根据胜率和盈亏比自适应</li>
+            <li>高评分自动加仓，低评分减仓</li>
+          </ul>
+        </div>
+        <div class="strategy-logic-item">
+          <h4>技术指标确认</h4>
+          <ul>
+            <li>MACD趋势确认</li>
+            <li>KDJ超买超卖</li>
+            <li>RSI动量判断</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+
+    <div class="strategy-alpha-risk-item strategy-risk">
+      <div class="strategy-alpha-risk-header">
+        <span class="strategy-alpha-risk-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+            <polyline points="9 12 11 14 15 10"></polyline>
+          </svg>
+        </span>
+        <h3>Risk（防守）</h3>
+      </div>
+      <p class="strategy-alpha-risk-desc">动态止损 + 舆情风控 + 自适应阈值 + 相关性风控 + 成本控制</p>
+      <div class="strategy-logic">
+        <div class="strategy-logic-item">
+          <h4>动态止损</h4>
+          <ul>
+            <li>ATR止损：基于波动率动态调整</li>
+            <li>移动止损：盈利后跟踪最高价</li>
+            <li>自适应：组合多种止损方式</li>
+          </ul>
+        </div>
+        <div class="strategy-logic-item">
+          <h4>自适应阈值</h4>
+          <ul>
+            <li>胜率下降自动提高买入门槛</li>
+            <li>连续亏损触发风控限制</li>
+            <li>回撤控制仓位上限</li>
+          </ul>
+        </div>
+        <div class="strategy-logic-item">
+          <h4>相关性风控</h4>
+          <ul>
+            <li>检测高相关性股票（>0.8）</li>
+            <li>避免组合过度集中</li>
+          </ul>
+        </div>
+        <div class="strategy-logic-item">
+          <h4>交易成本</h4>
+          <ul>
+            <li>精确计算佣金、印花税</li>
+            <li>滑点成本预估</li>
+            <li>真实收益评估</li>
+          </ul>
+        </div>
+        <div class="strategy-logic-item">
+          <h4>舆情风控</h4>
+          <ul>
+            <li>强利空：评分 -5 分（触发减仓）</li>
+            <li>弱利空：评分 -3 分</li>
+            <li>利好：评分 +3 分（增强持仓信心）</li>
+            <li>数据来源：观察页新闻情绪</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="quant-section" id="quant-section-strategy-detail">
+    <div class="strategy-alpha-risk-item strategy-rebalance">
+      <div class="strategy-alpha-risk-header">
+        <span class="strategy-alpha-risk-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 20h9"></path>
+            <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"></path>
+          </svg>
+        </span>
+        <h3>调仓规则</h3>
+      </div>
+      <p class="strategy-alpha-risk-desc">加仓 + 梯度减仓 + 条件止损 + Walk-Forward优化</p>
+      <div class="strategy-logic">
+        <div class="strategy-logic-item">
+          <h4>加仓</h4>
+          <ul>
+            <li>评分 ≥ 60分，加仓 50%</li>
+            <li>仓位大小由凯利公式自适应</li>
+            <li>技术指标确认后加仓</li>
+          </ul>
+        </div>
+        <div class="strategy-logic-item">
+          <h4>梯度减仓</h4>
+          <ul>
+            <li>评分 < 45分：减仓 80%（极弱）</li>
+            <li>45 ≤ 评分 < 50分：减仓 50%（偏弱）</li>
+            <li>50 ≤ 评分 < 60分：减仓 30%（中性偏弱）</li>
+          </ul>
+        </div>
+        <div class="strategy-logic-item">
+          <h4>条件止损</h4>
+          <ul>
+            <li>亏损 ≥ 8%：全部卖出</li>
+            <li>持有 ≥ 5天且趋势向下：卖出</li>
+            <li>持有 ≥ 5天且趋势向上：继续持有</li>
+          </ul>
+        </div>
+        <div class="strategy-logic-item">
+          <h4>Walk-Forward优化</h4>
+          <ul>
+            <li>滚动窗口参数优化</li>
+            <li>参数鲁棒性验证</li>
+            <li>定期自动调优</li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="quant-section" id="strategy-factor-lab">
+    <h3>因子研究</h3>
+    <p class="quant-sub">
+      IC / OLS / 权重与阈值建议已集中在
+      <a class="quant-inline-link" href="/quant">研究枢纽</a>；
+      本页专注规格稿与人审晋升。因子名定义见下方字典。
+    </p>
+    <p id="strategy-factor-status" class="quant-fingerprint" aria-live="polite"></p>
+  </div>
+
+  <details class="quant-fold" id="strategy-factor-dict">
+    <summary>因子字典</summary>
+    <div class="quant-section">
+      <p class="quant-fingerprint">点击因子可填入 AI 提问；悬停见定义（与表内 factor-tip 同源）。</p>
+      <div id="strategy-factor-dict-list" class="strategy-factor-dict-list"></div>
+    </div>
+  </details>
+
+  <div class="quant-section" id="strategy-promote-lab">
+    <h3>人审晋升</h3>
+    <p class="quant-sub">
+      P2 演示闭环末步：告警 → feedback 建议 → 本页显式 promote。可选同步到纸面账户；禁止静默改 signal_config。
+    </p>
+    <div class="quant-actions-inline">
+      <label
+        class="platform-field"
+        title="开启后：Top-K 晋升提示过期则禁止策略晋升（默认关=仅二次确认）"
+      >
+        <input id="strategy-promote-expire-hard" type="checkbox" />
+        过期硬拦晋升
+      </label>
+    </div>
+    <div id="strategy-promote-hints" class="quant-weight-table-wrap" aria-label="回测晋升提示"></div>
+    <p id="strategy-promote-status" class="quant-fingerprint" aria-live="polite"></p>
+  </div>
+
+  <div class="quant-section" id="quant-section-signal-config">
+    <details class="portfolio-edit-wrap quant-fold" id="strategy-spec-editor" open>
+      <summary>策略规格稿（可编辑草稿 · Monaco）</summary>
+      <p class="quant-sub">
+        编辑草稿后「校验 / 保存草稿 / 人审晋升」；晋升才写 signal_config.json（先备份）。禁止静默写盘。
+      </p>
+      <div id="strategy-monaco-host" class="strategy-monaco-host" aria-label="策略规格 JSON"></div>
+      <textarea id="quant-signal-config" class="portfolio-editor" rows="14" spellcheck="false" hidden></textarea>
+      <div class="quant-actions-inline" style="margin-top:0.75rem">
+        <button type="button" id="strategy-draft-validate" class="dialog-btn secondary">校验 / Diff</button>
+        <button type="button" id="strategy-draft-save" class="dialog-btn secondary">保存草稿</button>
+        <button type="button" id="strategy-draft-promote" class="dialog-btn">人审晋升到生产</button>
+        <button type="button" id="strategy-draft-reload" class="dialog-btn secondary">重载生产配置</button>
+      </div>
+      <p id="strategy-draft-status" class="quant-fingerprint" aria-live="polite"></p>
+      <pre id="strategy-draft-diff" class="platform-pre" hidden></pre>
+    </details>
+  </div>
+</div>

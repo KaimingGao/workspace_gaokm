@@ -1,0 +1,2156 @@
+/** Paper dialog/page wiring. */
+import {
+  fmtMoney,
+  fmtPriceUnit,
+  escapeText,
+  fmtPct,
+  metricCls,
+} from "./paper/fmt.js";
+import { drawSeries } from "./paper/chart.js";
+import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
+import {
+  loadHoldingsSort,
+  persistHoldingsSort as persistHoldingsSortSaved,
+  sortHoldings as sortHoldingsRows,
+} from "./paper/holdings_sort.js";
+import {
+  renderLineChart,
+  loadLightweightCharts,
+  disposeChart,
+} from "./lw_charts.js";
+import { apiFetch } from "./api_client.js";
+import {
+  buildPaperHoldingsTableHtml,
+  buildPaperOriginBarHtml,
+  buildPaperHoldActionBarHtml,
+} from "./paper/holdings_ui.js";
+import { renderPaperRulesHtml } from "./paper/rules_ui.js";
+import {
+  renderExecutionRulesHtml,
+  fillExecutionForm,
+  collectExecutionForm,
+  renderExecutionDiffHtml,
+} from "./paper/execution_ui.js";
+import { buildPaperLogsView } from "./paper/logs_ui.js";
+import {
+  renderPaperT0 as renderPaperT0Ui,
+  renderPaperT0Preview as renderPaperT0PreviewUi,
+} from "./paper/t0_ui.js";
+import { createHoldingsIslandController } from "./paper/holdings_island.js";
+
+import { formatDailySteps, runDaily } from "./shared.js";
+
+/** Paper dialog/page wiring. */
+export function initPaper(ctx) {
+  const page = document.body.dataset.page || "chat";
+  const paperDialog = document.getElementById("paper-dialog");
+  const paperMeta = document.getElementById("paper-meta");
+  const paperStats = document.getElementById("paper-stats");
+  const paperChart = document.getElementById("paper-chart");
+  const paperChartFallback = document.getElementById("paper-chart-fallback");
+
+  function paintPaperLine(points, { emptyText, ma, costLine, disableZoom } = {}) {
+    const pts = points || [];
+    const host = paperChart;
+    const canvas = paperChartFallback;
+    if (!host && !canvas) return Promise.resolve(null);
+
+    // 宿主定高 + Shadow 隔离 LWC；CDN 失败再回退自绘 canvas
+    if (host && host.tagName !== "CANVAS") {
+      if (canvas) canvas.hidden = true;
+      host.hidden = false;
+      return loadLightweightCharts()
+        .then(() => renderLineChart(host, pts, { emptyText, ma, disableZoom }))
+        .catch((err) => {
+          console.warn("[follow] Lightweight Charts 失败，回退 canvas", err);
+          disposeChart(host);
+          if (!canvas) return null;
+          host.hidden = true;
+          canvas.hidden = false;
+          drawSeries(
+            canvas,
+            pts.map((p) => ({ x: p.time, y: p.value })),
+            { emptyHint: emptyText, costLine }
+          );
+          return null;
+        });
+    }
+
+    const c = host && host.tagName === "CANVAS" ? host : canvas;
+    if (c) {
+      c.hidden = false;
+      drawSeries(
+        c,
+        pts.map((p) => ({ x: p.time, y: p.value })),
+        { emptyHint: emptyText, costLine }
+      );
+    }
+    return Promise.resolve(null);
+  }
+  let paperInitialized = false;
+  let holdingsPage = 1;
+  const HOLDINGS_PAGE_SIZE = 40;
+  let lastSnapshots = [];
+  let chartMode = "portfolio"; // portfolio | stock
+  let chartStockCode = null;
+  let lastAccountData = null;
+  let pendingFocusCode = null;
+  let selectedHoldCode = null;
+  let paperLogShowAll = { trading: false, fund: false };
+  let holdingsGrid = null;
+  let holdingsGridReady = false;
+  const _sortInit = loadHoldingsSort();
+  let holdingsSortKey = _sortInit.key;
+  let holdingsSortDir = _sortInit.dir;
+
+  const holdingsIsland = createHoldingsIslandController({
+    getAssetV: () =>
+      (typeof window !== "undefined" && window.__ASSET_V__) || "p325",
+    getSortState: () => ({ key: holdingsSortKey, dir: holdingsSortDir }),
+    setSortState: (key, dir) => {
+      holdingsSortKey = key;
+      holdingsSortDir = dir;
+    },
+    persistSort: () => persistHoldingsSort(),
+    onRowSelect: (el, opts) => selectHoldRow(el, opts),
+    getRowContext: () => ({
+      chartMode,
+      chartStockCode,
+      selectedHoldCode,
+      pendingFocusCode,
+    }),
+    setSelectedHoldCode: (code) => {
+      selectedHoldCode = code;
+    },
+    buildOriginBarHtml: buildPaperOriginBarHtml,
+    buildActionBarHtml: buildPaperHoldActionBarHtml,
+  });
+  try {
+    const params = new URLSearchParams(window.location.search || "");
+    const fromUrl = String(params.get("code") || "").trim();
+    if (fromUrl) pendingFocusCode = fromUrl;
+  } catch (_) {
+    /* ignore */
+  }
+
+  function focusPaperHolding(code) {
+    pendingFocusCode = String(code || "").trim() || null;
+    applyPendingFocus();
+  }
+
+  function syncHoldingsGridFlags({ focusCode = null } = {}) {
+    if (!holdingsGrid || !holdingsGridReady) return;
+    const rows = (holdingsGrid.getData() || []).map((row) => {
+      const c = String(row.code || "");
+      return {
+        ...row,
+        isAdjustActive: !!(selectedHoldCode && c === String(selectedHoldCode)),
+        isChartActive: !!(
+          chartMode === "stock" &&
+          chartStockCode &&
+          c === String(chartStockCode)
+        ),
+        isFocusHolding: !!(focusCode && c === String(focusCode)),
+      };
+    });
+    holdingsGrid.setRows(rows);
+  }
+
+  function applyPendingFocus() {
+    const code = String(pendingFocusCode || "").trim();
+    if (!code) return false;
+    const holdingsEl = document.getElementById("paper-holdings-table");
+    if (!holdingsEl) return false;
+    holdingsEl.querySelectorAll(".is-focus-holding").forEach((el) => {
+      el.classList.remove("is-focus-holding");
+    });
+    const safe = String(code).replace(/"/g, "");
+    let tr = holdingsEl.querySelector(`[data-code="${safe}"]`);
+    if (!tr && holdingsGrid && holdingsGridReady) {
+      const row = holdingsGrid.getRow(code);
+      const d = row && row.getData();
+      if (!d) return false;
+      tr = {
+        dataset: { code, shares: d.shares != null ? String(d.shares) : "" },
+        querySelector(sel) {
+          if (String(sel).includes("paper-wl-name-text")) {
+            return {
+              dataset: { fullName: d.name || "" },
+              getAttribute() {
+                return d.name || "";
+              },
+              textContent: d.name || code,
+            };
+          }
+          return null;
+        },
+        scrollIntoView() {},
+      };
+    }
+    if (!tr) return false;
+    if (tr.classList) tr.classList.add("is-focus-holding");
+    selectHoldRow(tr, { scroll: true, chart: true });
+    syncHoldingsGridFlags({ focusCode: code });
+    try {
+      if (typeof tr.scrollIntoView === "function") {
+        tr.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    pendingFocusCode = null;
+    return true;
+  }
+
+  function selectHoldRow(tr, { scroll = false, chart = false } = {}) {
+    const code = String((tr && tr.dataset.code) || "").trim();
+    if (!code || !tr) return;
+    selectedHoldCode = code;
+    const holdingsEl = document.getElementById("paper-holdings-table");
+    if (holdingsEl) {
+      holdingsEl.querySelectorAll(".paper-hold-row").forEach((row) => {
+        row.classList.toggle("is-adjust-active", row === tr || row.dataset.code === code);
+      });
+    }
+    syncHoldingsGridFlags();
+    const nameEl = tr.querySelector(".paper-wl-name-text");
+    let name = nameEl
+      ? nameEl.dataset.fullName || nameEl.getAttribute("title") || nameEl.textContent.trim()
+      : code;
+    let held = tr.dataset.shares || "";
+    if (holdingsGrid && holdingsGridReady) {
+      const d = holdingsGrid.getRow(code)?.getData();
+      if (d) {
+        if (!nameEl) name = d.name || code;
+        if (!held && d.shares != null) held = String(d.shares);
+      }
+    }
+    const bar = document.getElementById("paper-hold-action-bar");
+    if (bar) {
+      bar.hidden = false;
+      bar.removeAttribute("hidden");
+      const nameNode = bar.querySelector(".paper-hold-action-name");
+      const codeNode = bar.querySelector(".paper-hold-action-code");
+      if (nameNode) nameNode.textContent = name;
+      if (codeNode) codeNode.textContent = code;
+      bar.querySelectorAll("[data-code]").forEach((el) => {
+        el.dataset.code = code;
+      });
+      const cutBtn = bar.querySelector(".paper-hold-cut");
+      if (cutBtn) cutBtn.dataset.shares = held;
+      const input = bar.querySelector(".paper-hold-shares");
+      if (input && document.activeElement !== input) input.value = "";
+    }
+    const stockModeBtn = document.getElementById("paper-chart-stock-mode");
+    if (stockModeBtn) {
+      stockModeBtn.disabled = false;
+      stockModeBtn.title = `${name} · 单票收盘价`;
+    }
+    if (chart) showStockChart(code, name);
+    if (scroll) {
+      try {
+        tr.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  }
+
+  function clearHoldSelection() {
+    selectedHoldCode = null;
+    const holdingsEl = document.getElementById("paper-holdings-table");
+    if (holdingsEl) {
+      holdingsEl.querySelectorAll(".is-adjust-active").forEach((row) => {
+        row.classList.remove("is-adjust-active");
+      });
+    }
+    syncHoldingsGridFlags();
+    const bar = document.getElementById("paper-hold-action-bar");
+    if (bar) {
+      bar.hidden = true;
+      bar.setAttribute("hidden", "");
+    }
+    // 取消选中时回到整账曲线，避免只剩微弱高亮、看起来像没反应
+    if (chartMode === "stock") {
+      showPortfolioChart();
+    }
+    setTradeStatus("已取消选中");
+  }
+
+  function persistHoldingsSort() {
+    persistHoldingsSortSaved(holdingsSortKey, holdingsSortDir);
+  }
+
+  function setChartLabel(text) {
+    const el = document.getElementById("paper-chart-label");
+    if (el) el.textContent = text || "整账净值";
+    const portfolioBtn = document.getElementById("paper-chart-portfolio");
+    const stockBtn = document.getElementById("paper-chart-stock-mode");
+    if (portfolioBtn) {
+      portfolioBtn.classList.toggle("is-active", chartMode === "portfolio");
+      // follow 页：按钮兼作模式切换，不再 hidden
+      if (portfolioBtn.classList.contains("paper-chart-mode")) {
+        portfolioBtn.hidden = false;
+      } else {
+        portfolioBtn.hidden = chartMode === "portfolio";
+      }
+    }
+    if (stockBtn) {
+      stockBtn.classList.toggle("is-active", chartMode === "stock");
+      stockBtn.disabled = !chartStockCode && chartMode !== "stock";
+    }
+  }
+
+  function drawPaperChart(snapshots) {
+    lastSnapshots = snapshots || [];
+    if (chartMode !== "portfolio") return;
+    const pts = lastSnapshots
+      .map((s) => ({
+        // 保留完整时间：同日多笔快照不能截成 YYYY-MM-DD（LWC 不允许重复 time）
+        time: s.ts || s.date || "",
+        value: Number(s.equity),
+      }))
+      .filter((p) => p.time && Number.isFinite(p.value));
+    setChartLabel("整账净值");
+    paintPaperLine(pts, {
+      emptyText: pts.length
+        ? "暂无足够数据"
+        : "暂无净值快照 · 完成一笔买卖后会自动记录曲线",
+      disableZoom: true,
+    });
+  }
+
+  async function showStockChart(code, name) {
+    if (!code) return;
+    chartMode = "stock";
+    chartStockCode = code;
+    setChartLabel(`${name || code} · 收盘价`);
+    await paintPaperLine([], { emptyText: "加载日线…" });
+    try {
+      const { ok, data, error } = await apiFetch(
+        `/api/paper/holding-chart?code=${encodeURIComponent(code)}&lookback=60`
+      );
+      if (!ok) throw new Error(error || data.detail || "加载失败");
+      const pts = (data.points || [])
+        .map((p) => ({
+          time: String(p.date || "").slice(0, 10),
+          value: Number(p.close),
+        }))
+        .filter((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.time) && Number.isFinite(p.value));
+      const cost = Number(data.cost);
+      setChartLabel(
+        `${data.stock_name || name || code} · 收盘价` +
+          (Number.isFinite(cost) && cost > 0 ? `（成本 ${cost}）` : "")
+      );
+      await paintPaperLine(pts, {
+        emptyText: "暂无日线",
+        ma: [5, 10, 20],
+        costLine: Number.isFinite(cost) && cost > 0 ? cost : null,
+        disableZoom: true,
+      });
+      document.querySelectorAll("#paper-holdings-table [data-code]").forEach((tr) => {
+        tr.classList.toggle("is-chart-active", tr.dataset.code === code);
+      });
+      syncHoldingsGridFlags();
+    } catch (err) {
+      setChartLabel(`${name || code} · ${err.message || err}`);
+      await paintPaperLine([], {
+        emptyText: `日线加载失败：${String(err.message || err)}`,
+      });
+    }
+  }
+
+  function showPortfolioChart() {
+    chartMode = "portfolio";
+    // 保留 chartStockCode，方便再切回单票
+    document.querySelectorAll("#paper-holdings-table .is-chart-active").forEach((tr) => {
+      tr.classList.remove("is-chart-active");
+    });
+    syncHoldingsGridFlags();
+    drawPaperChart(lastSnapshots);
+  }
+
+  const chartResetBtn = document.getElementById("paper-chart-portfolio");
+  if (chartResetBtn && chartResetBtn.dataset.wired !== "1") {
+    chartResetBtn.dataset.wired = "1";
+    chartResetBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      showPortfolioChart();
+    });
+  }
+  const chartStockModeBtn = document.getElementById("paper-chart-stock-mode");
+  if (chartStockModeBtn && chartStockModeBtn.dataset.wired !== "1") {
+    chartStockModeBtn.dataset.wired = "1";
+    chartStockModeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      if (!chartStockCode && selectedHoldCode) chartStockCode = selectedHoldCode;
+      if (!chartStockCode) {
+        setTradeStatus("先点持仓行，再看单票曲线", { error: true });
+        return;
+      }
+      const tr = document.querySelector(
+        `#paper-holdings-table [data-code="${String(chartStockCode).replace(/"/g, "")}"]`
+      );
+      const nameEl = tr && tr.querySelector(".paper-wl-name-text");
+      showStockChart(chartStockCode, nameEl ? nameEl.textContent.trim() : chartStockCode);
+    });
+  }
+
+  const depositAmountEl = document.getElementById("paper-deposit-amount");
+  const DEPOSIT_LS_KEY = "paper_deposit_amount";
+  if (depositAmountEl) {
+    // 默认始终 0；清掉历史记忆金额，避免上次注/减资残留
+    try {
+      localStorage.removeItem(DEPOSIT_LS_KEY);
+    } catch (_) {}
+    depositAmountEl.value = "0";
+  }
+
+  function readAdjustAmount() {
+    const raw = depositAmountEl ? String(depositAmountEl.value || "").trim() : "";
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setTradeStatus("请填写有效金额", { error: true });
+      return null;
+    }
+    if (amount > 100_000_000) {
+      setTradeStatus("单次不超过 1 亿", { error: true });
+      return null;
+    }
+    return amount;
+  }
+
+  const depositBtn = document.getElementById("paper-deposit");
+  if (depositBtn && depositBtn.dataset.wired !== "1") {
+    depositBtn.dataset.wired = "1";
+    depositBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const amount = readAdjustAmount();
+      if (amount == null) return;
+      try {
+        setTradeStatus(`注资 ${amount.toLocaleString("zh-CN")} 中…`);
+        await postPaperTrade("/api/paper/deposit", { amount });
+      } catch (err) {
+        setTradeStatus(String(err.message || err), { error: true });
+      }
+    });
+  }
+
+  const withdrawBtn = document.getElementById("paper-withdraw");
+  if (withdrawBtn && withdrawBtn.dataset.wired !== "1") {
+    withdrawBtn.dataset.wired = "1";
+    withdrawBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const amount = readAdjustAmount();
+      if (amount == null) return;
+      try {
+        setTradeStatus(`减资 ${amount.toLocaleString("zh-CN")} 中…`);
+        await postPaperTrade("/api/paper/withdraw", { amount });
+      } catch (err) {
+        setTradeStatus(String(err.message || err), { error: true });
+      }
+    });
+  }
+
+  const resetBtn = document.getElementById("paper-reset");
+  if (resetBtn && resetBtn.dataset.wired !== "1") {
+    resetBtn.dataset.wired = "1";
+    resetBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      if (!window.confirm("确认回零？持仓与现金保留，盈亏与曲线从当前净值重新起算。")) {
+        return;
+      }
+      try {
+        setTradeStatus("回零中…");
+        chartMode = "portfolio";
+        chartStockCode = null;
+        await postPaperTrade("/api/paper/reset", {});
+        showPortfolioChart();
+      } catch (err) {
+        setTradeStatus(String(err.message || err), { error: true });
+      }
+    });
+  }
+
+  const costModelSel = document.getElementById("paper-cost-model");
+  if (costModelSel && costModelSel.dataset.wired !== "1") {
+    costModelSel.dataset.wired = "1";
+    costModelSel.addEventListener("change", async () => {
+      try {
+        setTradeStatus("切换成本模型…");
+        await postPaperTrade("/api/paper/cost-model", {
+          cost_model: costModelSel.value,
+        });
+      } catch (err) {
+        setTradeStatus(String(err.message || err), { error: true });
+      }
+    });
+  }
+
+  const openForm = document.getElementById("paper-open-form");
+  if (openForm && openForm.dataset.wired !== "1") {
+    openForm.dataset.wired = "1";
+    openForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      setTradeStatus("请到观察页建仓来添加持仓", { error: true });
+    });
+  }
+
+  // 带货币单位的金额：A股单位在后（383.01元），港美股单位在前（HK$42.1）。
+  // 与观察页 quote_api 的 _fmt_price 规则保持一致。
+  function renderPaperStats(summary) {
+    const s = summary || {};
+    const pnl = s.total_pnl_pct;
+    const pnlCls =
+      pnl == null || !Number.isFinite(Number(pnl)) || Number(pnl) === 0
+        ? ""
+        : Number(pnl) > 0
+          ? "up"
+          : "down";
+    const dd =
+      s.max_drawdown_pct != null && Number.isFinite(Number(s.max_drawdown_pct))
+        ? `${Number(s.max_drawdown_pct).toFixed(1)}%`
+        : "—";
+    const compactItems = [
+      ["净值", fmtMoney(s.equity), "", "现金 + 持仓市值"],
+      ["现金", fmtMoney(s.cash), "", "可用现金余额"],
+      [
+        "盈亏",
+        s.total_pnl_pct != null
+          ? `${Number(s.total_pnl_pct) >= 0 ? "+" : ""}${Number(s.total_pnl_pct).toFixed(2)}%`
+          : "—",
+        pnlCls,
+        `累计盈亏比例；历史最大回撤 ${dd}`,
+      ],
+      ["持仓", s.position_count != null ? `${s.position_count} 只` : "—", "", "当前持仓只数"],
+    ];
+    const followEl = document.getElementById("follow-stats");
+    if (followEl) {
+      followEl.innerHTML = compactItems
+        .map(
+          ([label, val, cls, title]) =>
+            `<div class="paper-stat follow-stat" title="${escapeText(title || "")}">` +
+            `<span class="label">${label}</span>` +
+            `<span class="val ${cls}">${val}</span></div>`
+        )
+        .join("");
+    }
+
+    const paperEl = document.getElementById("paper-stats");
+    if (paperEl) {
+      const invested =
+        s.invested_pct != null && Number.isFinite(Number(s.invested_pct))
+          ? `${Number(s.invested_pct).toFixed(1)}%`
+          : "—";
+      const detailItems = [
+        ["净值", fmtMoney(s.equity), ""],
+        ["仓位", invested, ""],
+        ["市值", fmtMoney(s.stock_value), ""],
+        [
+          "盈亏",
+          s.total_pnl_pct != null
+            ? `${Number(s.total_pnl_pct) >= 0 ? "+" : ""}${Number(s.total_pnl_pct).toFixed(2)}%`
+            : "—",
+          pnlCls,
+        ],
+        ["现金", fmtMoney(s.cash), ""],
+        ["回撤", dd, Number(s.max_drawdown_pct) > 0 ? "down" : ""],
+        ["持仓", s.position_count != null ? s.position_count : "—", ""],
+      ];
+      paperEl.innerHTML = detailItems
+        .map(
+          ([label, val, cls]) =>
+            `<div class="paper-stat"><span class="label">${label}</span>` +
+            `<span class="val ${cls}">${val}</span></div>`
+        )
+        .join("");
+    }
+  }
+
+  function renderFollowNorthStar(ns) {
+    const host = document.getElementById("follow-north-star");
+    if (!host) return;
+    if (!ns || typeof ns !== "object") {
+      host.hidden = true;
+      host.innerHTML = "";
+      return;
+    }
+    const pr = ns.paper_risk || {};
+    const rz = ns.realization || {};
+    const isFull = !!ns.paper_risk;
+    const sharpe = isFull ? pr.rolling_sharpe : ns.rolling_sharpe;
+    const calmar = isFull ? pr.calmar : ns.calmar;
+    const corr = isFull ? rz.corr : ns.corr;
+    const te = isFull ? rz.tracking_error_pct : ns.tracking_error_pct;
+    if (sharpe == null && calmar == null && corr == null && te == null) {
+      host.hidden = true;
+      host.innerHTML = "";
+      return;
+    }
+    host.hidden = false;
+    const fmt = (v, d) =>
+      v == null || Number.isNaN(Number(v)) ? "—" : Number(v).toFixed(d);
+    const items = [
+      ["夏普", fmt(sharpe, 2), "滚动纸面夏普"],
+      ["卡玛", fmt(calmar, 2), "纸面卡玛"],
+      ["拟合", fmt(corr, 3), "回测–纸面相关"],
+      ["TE", te != null ? `${fmt(te, 2)}%` : "—", "跟踪误差"],
+    ];
+    host.innerHTML = items
+      .map(
+        ([label, val, title]) =>
+          `<div class="paper-stat follow-stat" title="${title}">` +
+          `<span class="label">${label}</span>` +
+          `<span class="val">${val}</span></div>`
+      )
+      .join("");
+  }
+
+  let _scoreTooltipEl = null;
+  function showScoreTooltip(cell) {
+    let raw;
+    try {
+      raw = JSON.parse(cell.dataset.scoreDetail || "{}");
+    } catch (_) {
+      raw = {};
+    }
+    const formula = raw.formula || "";
+    const reasons = raw.reasons || [];
+    const hardReject = raw.hard_reject;
+    const rejectReason = raw.reject_reason || "";
+
+    if (!formula && !reasons.length && !hardReject) return;
+
+    let html = '<div class="score-detail">';
+    if (formula) {
+      const highlighted = formula.replace(
+        /(\d+\.\d+|[=+\-×])/g,
+        '<span class="score-formula-highlight">$1</span>'
+      );
+      html += `<div class="score-formula-section">
+        <div class="score-section-title">评分公式</div>
+        <div class="score-formula">${highlighted}</div>
+      </div>`;
+    }
+    if (hardReject && rejectReason) {
+      html += `<div class="score-detail-reject">
+        <span class="score-detail-reject-icon">⚠</span>
+        <span class="score-detail-reject-text">${escapeText(rejectReason)}</span>
+      </div>`;
+    }
+    if (reasons.length) {
+      html += `<div class="score-reasons-section">
+        <div class="score-section-title">评分理由</div>
+        <ul class="score-reasons">`;
+      reasons.forEach((rsn) => {
+        let cls = "neutral";
+        if (/强于|高于|上升|增加|优秀|良好|高/.test(rsn)) cls = "pos";
+        else if (/弱于|低于|下降|减少|较差|低/.test(rsn)) cls = "neg";
+        html += `<li class="${cls}">${escapeText(rsn)}</li>`;
+      });
+      html += "</ul></div>";
+    }
+    html += "</div>";
+
+    if (_scoreTooltipEl) _scoreTooltipEl.remove();
+    const tip = document.createElement("div");
+    tip.className = "score-tooltip";
+    tip.innerHTML = html;
+    document.body.appendChild(tip);
+    _scoreTooltipEl = tip;
+
+    const rect = cell.getBoundingClientRect();
+    const tipRect = tip.getBoundingClientRect();
+    let left = rect.left + rect.width / 2 - tipRect.width / 2;
+    left = Math.max(8, Math.min(left, window.innerWidth - tipRect.width - 8));
+    let top = rect.bottom + 6;
+    if (top + tipRect.height > window.innerHeight - 8) {
+      top = rect.top - tipRect.height - 6;
+    }
+    tip.style.left = left + "px";
+    tip.style.top = top + "px";
+
+    const close = (ev) => {
+      if (tip.contains(ev.target)) return;
+      tip.remove();
+      _scoreTooltipEl = null;
+      document.removeEventListener("click", close, true);
+    };
+    setTimeout(() => document.addEventListener("click", close, true), 0);
+  }
+
+  function sortHoldings(list) {
+    return sortHoldingsRows(list, holdingsSortKey, holdingsSortDir);
+  }
+
+  function destroyHoldingsGrid() {
+    holdingsIsland.destroy();
+    holdingsGrid = null;
+    holdingsGridReady = false;
+  }
+
+  function renderHoldingsHtml(summary, holdings) {
+    const built = buildPaperHoldingsTableHtml({
+      summary,
+      holdings,
+      holdingsPage,
+      holdingsPageSize: HOLDINGS_PAGE_SIZE,
+      chartMode,
+      chartStockCode,
+      selectedHoldCode,
+      pendingFocusCode,
+      holdingsSortKey,
+      holdingsSortDir,
+    });
+    holdingsPage = built.page;
+    selectedHoldCode = built.selectedHoldCode;
+    return built.originBarHtml + built.tableHtml + built.pagerHtml + built.actionBarHtml;
+  }
+
+  async function upgradeHoldingsToIsland(summary, holdings) {
+    await holdingsIsland.upgrade(summary, holdings);
+    holdingsGrid = holdingsIsland.getGrid();
+    holdingsGridReady = holdingsIsland.isReady();
+    setTimeout(() => applyPendingFocus(), 0);
+    const holdingsEl = document.getElementById("paper-holdings-table");
+    if (!holdingsEl || !holdingsEl.querySelector(".paper-holdings-react-grid")) {
+      throw new Error("island DOM missing");
+    }
+  }
+
+  async function renderPaperAccountDetail(data) {
+    lastAccountData = data || null;
+    const holdingsEl = document.getElementById("paper-holdings-table");
+    const rulesEl = document.getElementById("paper-rules-summary");
+    const holdingsCountEl = document.getElementById("paper-holdings-count");
+    if (!holdingsEl && !rulesEl) return;
+
+    const summary = (data && data.summary) || {};
+    const holdings = sortHoldings(summary.holdings || []);
+    if (holdingsEl) {
+      if (!data || !data.initialized) {
+        destroyHoldingsGrid();
+        holdingsEl.innerHTML = `<p class="watching-table-empty">账户未初始化</p>`;
+        clearHoldSelection();
+        if (holdingsCountEl) holdingsCountEl.textContent = "";
+      } else if (!holdings.length) {
+        destroyHoldingsGrid();
+        clearHoldSelection();
+        if (holdingsCountEl) holdingsCountEl.textContent = "";
+        holdingsEl.innerHTML =
+          `<div class="paper-holdings-empty">` +
+          `<p class="paper-holdings-empty-title">暂无持仓</p>` +
+          `<p class="paper-holdings-empty-text">本页只管理已有仓位；新仓请到观察页搜索建仓。</p>` +
+          `<a class="dialog-btn" href="/watching" data-results-tab="watching">去观察建仓</a>` +
+          `</div>`;
+      } else {
+        if (holdingsCountEl) holdingsCountEl.textContent = String(holdings.length);
+        holdingsEl.__pageSource = lastAccountData;
+        // 先画原生表，再升级虚拟网格；失败保留原生表
+        const html = renderHoldingsHtml(summary, holdings);
+        holdingsEl.innerHTML = html;
+        setTimeout(() => applyPendingFocus(), 0);
+        try {
+          await upgradeHoldingsToIsland(summary, holdings);
+        } catch (err) {
+          console.warn("[follow] 虚拟表升级跳过，保留原生表", err);
+          destroyHoldingsGrid();
+          holdingsEl.innerHTML = html;
+          setTimeout(() => applyPendingFocus(), 0);
+        }
+      }
+    }
+
+    if (rulesEl) rulesEl.innerHTML = renderPaperRulesHtml(data);
+
+    const t0RulesEl = document.getElementById("paper-t0-rules");
+    const t0Form = document.getElementById("paper-t0-form");
+    let execution = data && data.execution;
+    if (t0RulesEl) {
+      if (execution && execution.ok !== false) {
+        t0RulesEl.innerHTML = renderExecutionRulesHtml(execution);
+        if (t0Form) fillExecutionForm(t0Form, execution);
+      } else {
+        t0RulesEl.innerHTML = `<p class="quant-sub">加载 ExecutionSpec…</p>`;
+        // 旧进程未带 execution 字段时兜底拉专用接口
+        apiFetch("/api/paper/execution")
+          .then(({ ok, data: exe }) => {
+            if (!ok || !exe || exe.ok === false) {
+              t0RulesEl.innerHTML = renderExecutionRulesHtml(
+                exe || { ok: false, error: "无法加载 ExecutionSpec（请重启 Web：python run_web.py）" }
+              );
+              return;
+            }
+            if (lastAccountData) lastAccountData.execution = exe;
+            t0RulesEl.innerHTML = renderExecutionRulesHtml(exe);
+            if (t0Form) fillExecutionForm(t0Form, exe);
+          })
+          .catch((err) => {
+            t0RulesEl.innerHTML = renderExecutionRulesHtml({
+              ok: false,
+              error: String(err.message || err) + "（若刚升级请重启 Web）",
+            });
+          });
+      }
+    }
+
+    const logsView = buildPaperLogsView(data, paperLogShowAll);
+    const logEl = document.getElementById("paper-operation-log");
+    if (logEl) logEl.innerHTML = logsView.tradingHtml;
+    const fundCard = document.getElementById("paper-fund-log-card");
+    const fundEl = document.getElementById("paper-fund-log");
+    if (fundCard && fundEl) {
+      if (logsView.hasFundLogs) {
+        fundCard.hidden = false;
+        fundEl.innerHTML = logsView.fundHtml;
+      } else {
+        fundCard.hidden = true;
+        fundEl.innerHTML = "";
+      }
+    }
+  }
+
+  function setPaperMetaText(text) {
+    for (const id of ["paper-meta", "follow-meta"]) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = text;
+    }
+  }
+
+  function showValidateNext(kind) {
+    const el = document.getElementById("paper-validate-next");
+    if (!el) return;
+    el.hidden = false;
+    if (kind === "t0") {
+      el.innerHTML =
+        `做 T 是<strong>底仓 overlay</strong>验证，不是独立选股。完整闭环：` +
+        `<a class="follow-hero-link" href="/replay">历史回测</a> · ` +
+        `<a class="follow-hero-link" href="/strategy">策略晋升</a> · ` +
+        `<a class="follow-hero-link" href="/platform">北极星</a>`;
+      return;
+    }
+    el.innerHTML =
+      `纸面调仓是落地一步（非完整科学验证）。下一步：` +
+      `<a class="follow-hero-link" href="/replay">历史回测对照</a> · ` +
+      `改限额去 <a class="follow-hero-link" href="/strategy">策略中心晋升</a> · ` +
+      `看拟合 <a class="follow-hero-link" href="/platform">北极星</a>`;
+  }
+
+  async function loadPaper() {
+    if (
+      !document.getElementById("paper-meta") &&
+      !document.getElementById("follow-meta") &&
+      !document.getElementById("paper-stats") &&
+      !document.getElementById("paper-holdings-table")
+    ) {
+      return null;
+    }
+    const emptyEl = document.getElementById("paper-empty");
+    const mainEl = document.getElementById("paper-main");
+    const { ok, data, error } = await apiFetch("/api/paper");
+    if (!ok) {
+      setPaperMetaText(error || "纸面加载失败");
+      return null;
+    }
+    applyPaperData(data);
+    return data;
+  }
+
+  function renderOpsReport(ops, { forceShow = false } = {}) {
+    return renderOpsReportEl(ops, { forceShow });
+  }
+
+  function applyPaperData(data) {
+    if (!data) return data;
+    const emptyEl = document.getElementById("paper-empty");
+    const mainEl = document.getElementById("paper-main");
+    paperInitialized = !!data.initialized;
+    const costNote = document.getElementById("follow-cost-note");
+    const costSelect = document.getElementById("paper-cost-model");
+    const model = data.cost_model || (data.summary && data.summary.cost_model) || "zero";
+    if (costSelect && costSelect.value !== model) costSelect.value = model;
+    if (costNote) {
+      costNote.textContent =
+        model === "simple_cn"
+          ? "模拟账户 · A股简化成本"
+          : "模拟账户 · 零成本假设";
+      costNote.title =
+        model === "simple_cn"
+          ? "佣金万 2.5（最低 5 元）+ 卖出印花税万 5"
+          : "成交按现价，不计佣金、滑点与印花税";
+    }
+    if (!data.initialized) {
+      setPaperMetaText("未初始化");
+      if (emptyEl) emptyEl.hidden = false;
+      if (mainEl) mainEl.hidden = true;
+      renderPaperStats({});
+      renderPaperAccountDetail(data);
+      drawPaperChart([]);
+      return data;
+    }
+    if (emptyEl) emptyEl.hidden = true;
+    if (mainEl) mainEl.hidden = false;
+    const sm = data.summary || {};
+    setPaperMetaText(
+      `${data.name || "paper"} · 持仓 ${(sm.holdings || []).length} 只 · 现金 ${sm.cash ?? "—"}`
+    );
+    renderPaperStats(sm);
+    renderFollowNorthStar(data.north_star || (data.ops_report && data.ops_report.north_star));
+    renderPaperAccountDetail(data);
+    if (data.ops_report) {
+      const section = document.getElementById("paper-rebalance-section");
+      if (section) section.hidden = false;
+      renderOpsReport(data.ops_report, { forceShow: true });
+    }
+    applyPendingFocus();
+    lastSnapshots = data.snapshots || [];
+    if (chartMode === "stock" && chartStockCode) {
+      const stillHeld = (sm.holdings || []).some(
+        (h) => String(h.stock_code) === String(chartStockCode)
+      );
+      if (stillHeld) showStockChart(chartStockCode);
+      else showPortfolioChart();
+    } else {
+      drawPaperChart(lastSnapshots);
+    }
+    return data;
+  }
+
+  let tradeStatusTimer = null;
+  function setTradeStatus(msg, { error } = {}) {
+    const el = document.getElementById("paper-trade-status");
+    if (!el) return;
+    if (tradeStatusTimer) {
+      clearTimeout(tradeStatusTimer);
+      tradeStatusTimer = null;
+    }
+    el.textContent = msg || "";
+    el.classList.toggle("is-error", !!error);
+    el.classList.toggle("is-ok", !!(msg && !error));
+    el.hidden = !msg;
+    if (msg && !error) {
+      tradeStatusTimer = setTimeout(() => {
+        el.textContent = "";
+        el.classList.remove("is-ok");
+        el.hidden = true;
+        tradeStatusTimer = null;
+      }, 4200);
+    }
+  }
+
+  function rowSharesInput(btn) {
+    const bar = document.getElementById("paper-hold-action-bar");
+    const input =
+      (bar && !bar.hidden && bar.querySelector(".paper-hold-shares")) ||
+      (btn.closest("tr") && btn.closest("tr").querySelector(".paper-hold-shares")) ||
+      (btn.closest(".paper-hold-action-bar") &&
+        btn.closest(".paper-hold-action-bar").querySelector(".paper-hold-shares"));
+    const raw = input ? String(input.value || "").trim() : "";
+    if (!raw) return null;
+    const n = Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return null;
+    return Math.floor(n);
+  }
+
+  async function postPaperTrade(url, body) {
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || res.statusText);
+    applyPaperData(data);
+    setTradeStatus(data.message || "完成");
+    // 加减仓 / 清仓后回写观察页「已持 / 未持」状态
+    if (typeof ctx.reloadWatching === "function") {
+      try {
+        await ctx.reloadWatching();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    return data;
+  }
+
+  const holdingsTableEl = document.getElementById("paper-holdings-table");
+  if (holdingsTableEl && holdingsTableEl.dataset.tradeWired !== "1") {
+    holdingsTableEl.dataset.tradeWired = "1";
+    holdingsTableEl.addEventListener("keydown", async (e) => {
+      if (e.key !== "Enter") return;
+      const input = e.target.closest(".paper-hold-shares");
+      if (!input) return;
+      e.preventDefault();
+      const bar = input.closest(".paper-hold-action-bar");
+      const buyBtn =
+        (bar && bar.querySelector(".paper-hold-buy")) ||
+        (input.closest("tr") && input.closest("tr").querySelector(".paper-hold-buy"));
+      if (buyBtn) buyBtn.click();
+    });
+    holdingsTableEl.addEventListener("click", async (e) => {
+      const pagerBtn = e.target.closest && e.target.closest("[data-pager]");
+      if (pagerBtn) {
+        e.preventDefault();
+        if (pagerBtn.getAttribute("data-pager") === "prev") holdingsPage -= 1;
+        else holdingsPage += 1;
+        if (lastAccountData) renderPaperAccountDetail(lastAccountData);
+        return;
+      }
+      const moreBtn = e.target.closest(".paper-log-more");
+      if (moreBtn) {
+        // logs live outside; ignore if somehow nested
+        return;
+      }
+      const dismissBtn = e.target.closest(".paper-hold-action-dismiss");
+      if (dismissBtn) {
+        e.preventDefault();
+        clearHoldSelection();
+        return;
+      }
+      const scoreCell = e.target.closest(".paper-hold-score[data-score-detail]");
+      if (scoreCell) {
+        e.preventDefault();
+        e.stopPropagation();
+        showScoreTooltip(scoreCell);
+        return;
+      }
+      const sortThEl = e.target.closest("th.paper-hold-sort");
+      if (sortThEl) {
+        e.preventDefault();
+        e.stopPropagation();
+        const key = sortThEl.dataset.sort;
+        if (key === "code" || key === "market_value" || key === "score") {
+          if (holdingsSortKey === key) {
+            holdingsSortDir = holdingsSortDir === "asc" ? "desc" : "asc";
+          } else {
+            holdingsSortKey = key;
+            holdingsSortDir = key === "code" ? "asc" : "desc";
+          }
+          persistHoldingsSort();
+          if (lastAccountData) renderPaperAccountDetail(lastAccountData);
+        }
+        return;
+      }
+      const buyBtn = e.target.closest(".paper-hold-buy");
+      const cutBtn = e.target.closest(".paper-hold-cut");
+      const flatBtn = e.target.closest(".paper-hold-flat");
+      if (!buyBtn && !cutBtn && !flatBtn) {
+        if (e.target.closest("input, button, .paper-hold-action-bar, thead, summary, .watching-react-grid-head")) {
+          return;
+        }
+        const row = e.target.closest(".paper-hold-row[data-code], tr[data-code]");
+        if (row && row.dataset.code) {
+          selectHoldRow(row, { chart: true });
+        }
+        return;
+      }
+      e.preventDefault();
+      try {
+        if (buyBtn) {
+          let shares = rowSharesInput(buyBtn);
+          if (shares == null) {
+            setTradeStatus("请填写加仓股数", { error: true });
+            return;
+          }
+          const lot = Math.floor(shares / 100) * 100;
+          if (lot < 100) {
+            setTradeStatus("加仓至少 100 股", { error: true });
+            return;
+          }
+          setTradeStatus(`加仓 ${lot} 股…`);
+          await postPaperTrade("/api/paper/buy", {
+            stock_code: buyBtn.dataset.code,
+            shares: lot,
+          });
+        } else if (flatBtn) {
+          setTradeStatus("清仓中…");
+          await postPaperTrade("/api/paper/sell", {
+            stock_code: flatBtn.dataset.code,
+          });
+        } else if (cutBtn) {
+          const held = Number(cutBtn.dataset.shares || 0);
+          let shares = rowSharesInput(cutBtn);
+          if (shares == null) {
+            // 未填：默认减一手
+            shares = held > 0 && held < 100 ? held : 100;
+          } else if (shares < held) {
+            const lot = Math.floor(shares / 100) * 100;
+            if (lot <= 0) {
+              setTradeStatus("减仓至少 100 股（或点清仓）", { error: true });
+              return;
+            }
+            shares = lot;
+          }
+          // shares >= held → 清仓
+          if (held > 0 && shares >= held) {
+            setTradeStatus("清仓中…");
+            await postPaperTrade("/api/paper/sell", {
+              stock_code: cutBtn.dataset.code,
+            });
+          } else {
+            setTradeStatus(`减仓 ${shares} 股…`);
+            await postPaperTrade("/api/paper/sell", {
+              stock_code: cutBtn.dataset.code,
+              shares,
+            });
+          }
+        }
+      } catch (err) {
+        setTradeStatus(String(err.message || err), { error: true });
+      }
+    });
+  }
+
+  async function openPaperDialog() {
+    try {
+      await loadPaper();
+      if (paperDialog && typeof paperDialog.showModal === "function") paperDialog.showModal();
+    } catch (err) {
+      setPaperMetaText(String(err.message || err));
+      if (paperDialog && typeof paperDialog.showModal === "function") paperDialog.showModal();
+    }
+  }
+
+  const btnPaper = document.getElementById("btn-paper");
+  if (btnPaper && btnPaper.tagName === "BUTTON" && !btnPaper.dataset.resultsTab) {
+    btnPaper.addEventListener("click", () => openPaperDialog());
+  }
+
+  if (document.getElementById("paper-init") || document.getElementById("paper-run") || document.getElementById("paper-adjust")) {
+    const progressEl = document.getElementById("paper-progress");
+    const progressFill = document.getElementById("paper-progress-fill");
+    const progressText = document.getElementById("paper-progress-text");
+    const runBtns = ["paper-run", "paper-adjust", "paper-daily", "paper-daily-n5", "paper-feedback-alerts", "paper-init"]
+      .map((id) => document.getElementById(id))
+      .filter(Boolean);
+
+    function setPaperBusy(busy) {
+      runBtns.forEach((btn) => {
+        btn.disabled = !!busy;
+      });
+    }
+
+    function showProgress(pct, message) {
+      if (!progressEl) return;
+      progressEl.hidden = false;
+      if (progressFill) progressFill.style.width = `${Math.max(0, Math.min(100, pct || 0))}%`;
+      if (progressText) progressText.textContent = message || "";
+    }
+
+    function hideProgress() {
+      if (!progressEl) return;
+      progressEl.hidden = true;
+      if (progressFill) progressFill.style.width = "0%";
+    }
+
+    function renderRebalanceReport(report, { preview = false, cashImpact = null, riskGate = null, opsReport = null } = {}) {
+      const section = document.getElementById("paper-rebalance-section");
+      const container = document.getElementById("paper-rebalance-report");
+      const cashEl = document.getElementById("paper-rebalance-cash");
+      const previewNote = document.getElementById("paper-rebalance-preview-note");
+      const confirmBtn = document.getElementById("paper-rebalance-confirm");
+      if (!section || !container) return;
+
+      if (opsReport) renderOpsReport(opsReport, { forceShow: true });
+
+      const hasRisk =
+        riskGate &&
+        ((Array.isArray(riskGate.blocks) && riskGate.blocks.length > 0) ||
+          (Array.isArray(riskGate.warnings) && riskGate.warnings.length > 0));
+      const hasCash =
+        cashImpact &&
+        (cashImpact.cash_before != null ||
+          cashImpact.buy_amount != null ||
+          cashImpact.sell_amount != null);
+      const hasOps = !!(opsReport && (opsReport.strategy_id || opsReport.cost_model));
+      const emptyReport = !report || report.length === 0;
+
+      if (emptyReport && !hasCash && !hasRisk && !hasOps) {
+        section.hidden = true;
+        if (previewNote) previewNote.hidden = true;
+        if (confirmBtn) confirmBtn.hidden = true;
+        if (cashEl) {
+          cashEl.hidden = true;
+          cashEl.innerHTML = "";
+        }
+        const nextEl = document.getElementById("paper-validate-next");
+        if (nextEl) {
+          nextEl.hidden = true;
+          nextEl.innerHTML = "";
+        }
+        renderOpsReport(null);
+        return;
+      }
+
+      showValidateNext("rebalance");
+
+      const sectionEl = document.getElementById("follow-fold-rebalance");
+      if (sectionEl) {
+        try {
+          sectionEl.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      if (previewNote) {
+        previewNote.hidden = !preview;
+        previewNote.textContent = preview
+          ? "预演未成交 · 确认后才会改仓"
+          : "";
+      }
+      if (confirmBtn) {
+        confirmBtn.hidden = !preview || emptyReport;
+        confirmBtn.disabled = false;
+      }
+
+      if (cashEl) {
+        const ci = cashImpact || {};
+        if (hasCash || hasRisk) {
+          const fmt = (v) => {
+            const n = Number(v);
+            if (!Number.isFinite(n)) return "—";
+            return n.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+          };
+          const net = Number(ci.net_cash_flow);
+          const netCls =
+            !Number.isFinite(net) || net === 0 ? "" : net > 0 ? "up" : "down";
+          const netText = Number.isFinite(net)
+            ? `${net >= 0 ? "+" : ""}${fmt(net)}`
+            : "—";
+          const costLabel =
+            ci.cost_model === "simple_cn"
+              ? "A股简化成本 · 现价"
+              : ci.cost_model === "zero"
+                ? "零成本 · 现价"
+                : "现价成交";
+          let riskHtml = "";
+          if (hasRisk) {
+            const blocks = (riskGate.blocks || [])
+              .map((b) => `<li class="down">${escapeText(String(b))}</li>`)
+              .join("");
+            const warns = (riskGate.warnings || [])
+              .map((w) => `<li>${escapeText(String(w))}</li>`)
+              .join("");
+            riskHtml =
+              `<div class="paper-rebalance-risk" role="status">` +
+              (blocks
+                ? `<p class="paper-rebalance-risk-title">风控拦截加仓</p><ul>${blocks}</ul>`
+                : "") +
+              (warns
+                ? `<p class="paper-rebalance-risk-title is-warn">风控提示</p><ul>${warns}</ul>`
+                : "") +
+              `</div>`;
+          }
+          cashEl.hidden = false;
+          cashEl.innerHTML =
+            (hasCash
+              ? `<div class="paper-rebalance-cash-head">` +
+                `<span class="paper-rebalance-cash-label">资金影响</span>` +
+                `<span class="paper-rebalance-cash-note">${costLabel}</span>` +
+                `</div>` +
+                `<dl class="paper-rebalance-cash-grid" aria-label="资金影响">` +
+                `<div><dt>调仓前现金</dt><dd>${fmt(ci.cash_before)}</dd></div>` +
+                `<div><dt>预计买入</dt><dd>${fmt(ci.buy_amount)}</dd></div>` +
+                `<div><dt>预计卖出</dt><dd>${fmt(ci.sell_amount)}</dd></div>` +
+                `<div><dt>净现金流</dt><dd class="${netCls}">${netText}</dd></div>` +
+                `<div><dt>调仓后现金</dt><dd>${fmt(ci.cash_after)}</dd></div>` +
+                `<div><dt>持仓只数</dt><dd>${escapeText(
+                  String(ci.position_count_before ?? "—")
+                )} → ${escapeText(String(ci.position_count_after ?? "—"))}</dd></div>` +
+                `</dl>`
+              : "") +
+            riskHtml;
+        } else {
+          cashEl.hidden = true;
+          cashEl.innerHTML = "";
+        }
+      }
+
+      if (emptyReport) {
+        container.innerHTML = hasRisk
+          ? `<p class="follow-ops-note">因风控拦截，本轮无加仓清单。</p>`
+          : `<p class="follow-ops-note">无可执行变动。</p>`;
+        section.hidden = false;
+        return;
+      }
+
+      const decisionClass = {
+        加仓: "rebalance-up",
+        买入: "rebalance-up",
+        减仓: "rebalance-down",
+        卖出: "rebalance-down",
+        止损卖出: "rebalance-sell",
+        超时卖出: "rebalance-sell",
+      };
+
+      function buildScoreDetail(r) {
+        if (!r.reasons && !r.score_formula && !r.hard_reject) {
+          return '<div class="score-detail-empty">无评分详情</div>';
+        }
+
+        let html = '<div class="score-detail">';
+
+        if (r.score_formula) {
+          let formula = String(r.score_formula || "");
+          const tempDiv = document.createElement("div");
+          tempDiv.innerHTML = formula;
+          formula = tempDiv.textContent || tempDiv.innerText || "";
+          const highlighted = escapeText(formula).replace(
+            /(\d+\.\d+|[=+\-×])/g,
+            '<span class="score-formula-highlight">$1</span>'
+          );
+          html +=
+            `<div class="score-formula-section">` +
+            `<div class="score-section-title">评分公式</div>` +
+            `<div class="score-formula">${highlighted}</div>` +
+            `</div>`;
+        }
+
+        if (r.hard_reject && r.reject_reason) {
+          html +=
+            `<div class="score-detail-reject">` +
+            `<span class="score-detail-reject-icon">⚠</span>` +
+            `<span class="score-detail-reject-text">${escapeText(r.reject_reason)}</span>` +
+            `</div>`;
+        }
+
+        const reasons = r.reasons || [];
+        if (reasons.length > 0) {
+          html +=
+            `<div class="score-reasons-section">` +
+            `<div class="score-section-title">评分理由</div>` +
+            `<ul class="score-reasons">`;
+          reasons.forEach((rsn) => {
+            let cls = "neutral";
+            if (/强于|高于|上升|增加|优秀|良好|高/.test(rsn)) cls = "pos";
+            else if (/弱于|低于|下降|减少|较差|低/.test(rsn)) cls = "neg";
+            html += `<li class="${cls}">${escapeText(rsn)}</li>`;
+          });
+          html += "</ul></div>";
+        }
+
+        html += "</div>";
+        return html;
+      }
+
+      const rows = report
+        .map((r, idx) => {
+          const cls = decisionClass[r.decision] || "rebalance-hold";
+          const scoreText = r.score != null ? Number(r.score).toFixed(1) : "—";
+          let scoreClass = "";
+          if (r.score != null) {
+            if (r.score >= 60) scoreClass = "high";
+            else if (r.score >= 50) scoreClass = "medium";
+            else scoreClass = "low";
+          }
+          const changeText =
+            r.shares_change > 0
+              ? `+${r.shares_change}`
+              : r.shares_change < 0
+                ? `${r.shares_change}`
+                : "—";
+          const hasDetail = !!(r.factors || r.factor_contrib || r.reasons || r.score_formula);
+          const expandIcon = hasDetail
+            ? '<span class="rebalance-expand-icon" aria-hidden="true">▸</span>'
+            : "";
+
+          let decisionTagClass = "hold";
+          const decision = String(r.decision || "");
+          if (decision.includes("加仓") || decision.includes("买入")) decisionTagClass = "up";
+          else if (decision.includes("减仓")) decisionTagClass = "down";
+          else if (
+            decision.includes("止损") ||
+            decision.includes("超时") ||
+            decision.includes("卖出")
+          )
+            decisionTagClass = "sell";
+
+          const name = escapeText(r.stock_name || r.stock_code || "");
+          const code = escapeText(r.stock_code || "");
+          const reason = escapeText(r.reason || "—");
+
+          return (
+            `<tr class="${cls}${hasDetail ? " is-expandable" : ""}" data-detail-idx="${idx}"` +
+            `${hasDetail ? ' title="点击展开评分明细"' : ""}>` +
+            `<td class="rebalance-stock">` +
+            `<span class="rebalance-stock-name">${name}</span>` +
+            `<span class="rebalance-stock-code">${code}</span>` +
+            `</td>` +
+            `<td class="num rebalance-score ${scoreClass}">${scoreText}${expandIcon}</td>` +
+            `<td class="num rebalance-shares">` +
+            `<span class="rebalance-shares-old">${escapeText(String(r.old_shares ?? "—"))}</span>` +
+            `<span class="rebalance-shares-arrow">→</span>` +
+            `<span class="rebalance-shares-new">${escapeText(String(r.new_shares ?? "—"))}</span>` +
+            `</td>` +
+            `<td class="num rebalance-change">${changeText}</td>` +
+            `<td class="rebalance-decision"><span class="rebalance-decision-tag ${decisionTagClass}">${escapeText(
+              decision || "—"
+            )}</span></td>` +
+            `<td class="rebalance-reason">${reason}</td>` +
+            `</tr>` +
+            (hasDetail
+              ? `<tr class="rebalance-detail-row" data-detail-for="${idx}" hidden><td colspan="6">${buildScoreDetail(
+                  r
+                )}</td></tr>`
+              : "")
+          );
+        })
+        .join("");
+
+      container.innerHTML =
+        `<div class="rebalance-table-scroll">` +
+        `<table class="rebalance-table">` +
+        `<thead><tr>` +
+        `<th>股票</th><th class="num">评分</th><th class="num">股数</th>` +
+        `<th class="num">变动</th><th>决策</th><th>原因</th>` +
+        `</tr></thead>` +
+        `<tbody>${rows}</tbody>` +
+        `</table></div>`;
+
+      container.querySelectorAll("tr[data-detail-idx]").forEach((tr) => {
+        tr.addEventListener("click", () => {
+          const idx = tr.dataset.detailIdx;
+          const detailRow = container.querySelector(`tr[data-detail-for="${idx}"]`);
+          if (!detailRow) return;
+          const icon = tr.querySelector(".rebalance-expand-icon");
+          const open = detailRow.hidden;
+          detailRow.hidden = !open;
+          if (open) {
+            tr.classList.add("rebalance-row-expanded");
+            if (icon) icon.textContent = "▾";
+          } else {
+            tr.classList.remove("rebalance-row-expanded");
+            if (icon) icon.textContent = "▸";
+          }
+        });
+      });
+
+      section.hidden = false;
+    }
+
+    async function waitPaperJob(jobId) {
+      const started = Date.now();
+      let sawOwnJob = false;
+      while (Date.now() - started < 15 * 60 * 1000) {
+        const res = await fetch("/api/jobs/paper");
+        const data = await res.json();
+        const job = (data && data.job) || {};
+        const sameJob = !jobId || !job.id || job.id === jobId;
+        if (sameJob && job.id) sawOwnJob = true;
+
+        // 服务热重载 / 进程重启后槽位回到 idle，旧逻辑会空转到 15 分钟
+        if (job.status === "idle" || !job.id) {
+          if (sawOwnJob || Date.now() - started > 2500) {
+            throw new Error("纸面任务已中断（可能服务重启），请重试确认调仓");
+          }
+          await new Promise((r) => setTimeout(r, 400));
+          continue;
+        }
+        if (!sameJob) {
+          throw new Error("纸面任务已被其它任务覆盖，请重试");
+        }
+
+        const pct = Number(job.pct) || 0;
+        const msg =
+          job.message ||
+          (job.total
+            ? `${job.current || 0}/${job.total}`
+            : job.status === "running"
+              ? "运行中…"
+              : "");
+        showProgress(pct, msg);
+        if (paperMeta && msg) setPaperMetaText(msg);
+        if (job.status === "done") return job;
+        if (job.status === "failed") {
+          throw new Error(job.error || "纸面任务失败");
+        }
+        await new Promise((r) => setTimeout(r, 400));
+      }
+      throw new Error("纸面任务超时");
+    }
+
+    const paperInitBtn = document.getElementById("paper-init");
+    if (paperInitBtn) {
+    paperInitBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      try {
+        const res = await fetch("/api/paper/init", { method: "POST" });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || res.statusText);
+        }
+        await loadPaper();
+      } catch (err) {
+        setPaperMetaText(String(err.message || err));
+      }
+    });
+    }
+
+    async function runPaper(simulateBuy, { dryRun = false } = {}) {
+      setPaperBusy(true);
+      const strategy = document.getElementById("paper-strategy")?.value || "short";
+      showProgress(
+        1,
+        dryRun ? "预演调仓…" : simulateBuy ? "启动模拟买入…" : "启动跑一日…"
+      );
+      try {
+        const res = await fetch("/api/paper/run", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            simulate_buy: simulateBuy,
+            background: true,
+            strategy: strategy,
+            dry_run: !!dryRun,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || res.statusText);
+        if (!data.ok && data.error) throw new Error(data.error);
+        
+        let result;
+        if (data.background && data.job && data.job.id) {
+          // 后台模式，等待任务完成
+          const job = await waitPaperJob(data.job.id);
+          result = job.result || {};
+        } else {
+          // 同步模式，直接使用返回结果
+          result = data;
+        }
+        const n = result.observation_pool_count;
+        const buyTrades = result.new_trades || [];
+        const sellTrades = result.sell_trades || [];
+        const rebalanceReport = result.rebalance_report || [];
+        const cashImpact = result.cash_impact || null;
+        const riskGate = result.risk_gate || null;
+        const opsReport =
+          result.ops_report ||
+          (result.data_quality || result.risk_blocks || result.cost_model
+            ? {
+                strategy_id: result.strategy_id,
+                strategy_version: result.strategy_version,
+                cost_model: result.cost_model,
+                data_quality: result.data_quality,
+                risk_blocks: result.risk_blocks,
+                monitor_alerts: result.monitor_alerts,
+                buys_blocked: result.buys_blocked,
+                fallback_count: (result.data_quality || {}).fallback_count,
+              }
+            : null);
+
+        let resultText = dryRun
+          ? `预演完成 · 评分 ${n} 只`
+          : `完成 · 评分 ${n} 只`;
+        if (buyTrades.length > 0) {
+            resultText += ` · 加仓 ${buyTrades.length} 只`;
+        }
+        if (sellTrades.length > 0) {
+            resultText += ` · 减仓 ${sellTrades.length} 只`;
+        }
+        if (riskGate && riskGate.ok === false) {
+            resultText += " · 风控拦截加仓";
+        }
+        const fb = Number((opsReport && opsReport.fallback_count) || 0);
+        if (fb > 0) {
+            resultText += ` · 数据降级 ${fb} 只`;
+        }
+        if (buyTrades.length === 0 && sellTrades.length === 0) {
+            resultText += dryRun ? " · 预演无调仓" : " · 无调仓操作";
+        }
+
+        setPaperMetaText(resultText);
+        showProgress(100, (document.getElementById("follow-meta")||document.getElementById("paper-meta")||{}).textContent || "");
+        if (!dryRun) {
+          await loadPaper();
+          if (typeof ctx.reloadWatching === "function") {
+            try {
+              await ctx.reloadWatching();
+            } catch (_) {}
+          }
+        }
+
+        // 渲染调仓报告
+        if (simulateBuy && rebalanceReport.length > 0) {
+          renderRebalanceReport(rebalanceReport, {
+            preview: !!dryRun,
+            cashImpact,
+            riskGate,
+            opsReport,
+          });
+        } else if (simulateBuy) {
+          renderRebalanceReport([], {
+            preview: !!dryRun,
+            cashImpact,
+            riskGate,
+            opsReport,
+          });
+          if (dryRun) {
+            setPaperMetaText(
+              resultText + (riskGate && riskGate.ok === false ? "" : " · 无可执行变动")
+            );
+          }
+        } else if (opsReport) {
+          const section = document.getElementById("paper-rebalance-section");
+          if (section) section.hidden = false;
+          renderOpsReport(opsReport, { forceShow: true });
+        }
+        setTimeout(hideProgress, 1200);
+        return result;
+      } catch (err) {
+        hideProgress();
+        throw err;
+      } finally {
+        setPaperBusy(false);
+      }
+    }
+
+    const paperRunBtn = document.getElementById("paper-run");
+    if (paperRunBtn) {
+    paperRunBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      try {
+        await runPaper(false);
+      } catch (err) {
+        setPaperMetaText(String(err.message || err));
+      }
+    });
+    }
+
+    const paperAdjustBtn = document.getElementById("paper-adjust");
+    if (paperAdjustBtn) {
+    paperAdjustBtn.addEventListener("click", async (e) => {
+
+      // 隐藏旧的调仓报告
+      const rebalanceSection = document.getElementById("paper-rebalance-section");
+      if (rebalanceSection) rebalanceSection.hidden = true;
+      e.preventDefault();
+      try {
+        await runPaper(true, { dryRun: true });
+      } catch (err) {
+        setPaperMetaText(String(err.message || err));
+      }
+    });
+    }
+
+    const rebalanceConfirmBtn = document.getElementById("paper-rebalance-confirm");
+    if (rebalanceConfirmBtn) {
+      rebalanceConfirmBtn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        if (rebalanceConfirmBtn.disabled) return;
+        rebalanceConfirmBtn.disabled = true;
+        try {
+          await runPaper(true, { dryRun: false });
+        } catch (err) {
+          setPaperMetaText(String(err.message || err));
+          rebalanceConfirmBtn.disabled = false;
+        }
+      });
+    }
+
+    const rebalanceCloseBtn = document.getElementById("paper-rebalance-close");
+    if (rebalanceCloseBtn) {
+      rebalanceCloseBtn.addEventListener("click", () => {
+        const section = document.getElementById("paper-rebalance-section");
+        if (section) section.hidden = true;
+        const confirmBtn = document.getElementById("paper-rebalance-confirm");
+        if (confirmBtn) confirmBtn.hidden = true;
+        const previewNote = document.getElementById("paper-rebalance-preview-note");
+        if (previewNote) previewNote.hidden = true;
+      });
+    }
+
+    const paperDailyBtn = document.getElementById("paper-daily");
+    if (paperDailyBtn) {
+    paperDailyBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const includePaper = paperInitialized;
+      setPaperMetaText(includePaper
+        ? "每日任务运行中（观察池 + checklist）…"
+        : "纸面未初始化，仅运行 golden checklist…");
+      setPaperBusy(true);
+      showProgress(8, (document.getElementById("follow-meta")||document.getElementById("paper-meta")||{}).textContent || "");
+      try {
+        const data = await runDaily({
+          paperRun: includePaper,
+          paperBuy: false,
+          evalMock: true,
+          evalAgent: false,
+        });
+        const steps = formatDailySteps(data);
+        if (!includePaper && data.eval_ok) {
+          setPaperMetaText(`checklist 完成（已跳过纸面）· ${steps}`);
+        } else if (data.ok) {
+          setPaperMetaText(`每日任务完成 · ${steps}`);
+        } else {
+          const paperStep = (data.steps || []).find((s) => s.code === "paper_not_initialized");
+          setPaperMetaText(paperStep
+            ? `${paperStep.error} · ${steps}`
+            : `部分失败 · ${steps || data.error || ""}`);
+        }
+        showProgress(100, (document.getElementById("follow-meta")||document.getElementById("paper-meta")||{}).textContent || "");
+        if (includePaper) await loadPaper();
+        else {
+          paperInitialized = false;
+        }
+        setTimeout(hideProgress, 1200);
+      } catch (err) {
+        hideProgress();
+        setPaperMetaText(String(err.message || err));
+      } finally {
+        setPaperBusy(false);
+      }
+    });
+    }
+
+    const paperDailyN5 = document.getElementById("paper-daily-n5");
+    if (paperDailyN5) {
+      paperDailyN5.addEventListener("click", async (e) => {
+        e.preventDefault();
+        if (!paperInitialized) {
+          setPaperMetaText("请先初始化模拟账户后再跑纸面日更");
+          return;
+        }
+        const stratEl = document.getElementById("paper-strategy");
+        setPaperMetaText("纸面日更（paper_daily）运行中…");
+        setPaperBusy(true);
+        try {
+          const res = await fetch("/api/schedule/run", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              kind: "paper_daily",
+              strategy: stratEl ? stratEl.value : "short",
+              simulate_buy: false,
+            }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || data.error || res.statusText);
+          const ops =
+            data.ops_report ||
+            {
+              strategy_id: data.strategy_id,
+              strategy_version: data.strategy_version,
+              cost_model: data.cost_model,
+              data_quality: data.data_quality,
+              risk_blocks: data.risk_blocks,
+              monitor_alerts: data.monitor_alerts,
+              buys_blocked: data.buys_blocked,
+            };
+          renderOpsReport(ops, { forceShow: true });
+          const n = (data.monitor_alerts || []).length;
+          setPaperMetaText(
+            `纸面日更完成 · 告警 ${n} · ${data.strategy_id || "—"} @ ${data.strategy_version || "—"}`
+          );
+          await loadPaper().catch(() => {});
+        } catch (err) {
+          setPaperMetaText(String(err.message || err));
+        } finally {
+          setPaperBusy(false);
+        }
+      });
+    }
+
+    const paperFeedbackAlerts = document.getElementById("paper-feedback-alerts");
+    if (paperFeedbackAlerts) {
+      paperFeedbackAlerts.addEventListener("click", async (e) => {
+        e.preventDefault();
+        const ops = window.__paperLastOpsReport || {};
+        const alerts = Array.isArray(ops.monitor_alerts) ? ops.monitor_alerts : [];
+        if (!alerts.length) {
+          setPaperMetaText("暂无监控告警；请先「纸面日更」或预演调仓");
+          return;
+        }
+        setPaperMetaText("根据告警生成配置建议…");
+        try {
+          const res = await fetch("/api/feedback/suggest", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ monitor_alerts: alerts }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.detail || data.error || res.statusText);
+          const reasons = (data.reasons || []).slice(0, 3).join("；");
+          setPaperMetaText(
+            `建议已生成（未写盘）· ${reasons || "见平台页"} · 人审后到策略页 promote`
+          );
+          const note = document.getElementById("paper-rebalance-preview-note");
+          if (note) {
+            note.hidden = false;
+            note.textContent = JSON.stringify(
+              { reasons: data.reasons, patch: data.patch, note: data.note },
+              null,
+              2
+            );
+          }
+          const section = document.getElementById("paper-rebalance-section");
+          if (section) section.hidden = false;
+        } catch (err) {
+          setPaperMetaText(String(err.message || err));
+        }
+      });
+    }
+  }
+
+  ctx.reloadPaper = loadPaper;
+  ctx.focusPaperHolding = focusPaperHolding;
+
+  window.__investmentGetCurrentStock = () => {
+    const code = chartStockCode || selectedHoldCode;
+    if (!code) return null;
+    const holdings = (lastAccountData && lastAccountData.holdings) || [];
+    const hit = holdings.find((h) => String(h.stock_code) === String(code));
+    let name = hit?.stock_name || "";
+    if (!name && holdingsGrid && holdingsGridReady) {
+      const d = holdingsGrid.getRow(code)?.getData();
+      if (d?.name) name = d.name;
+    }
+    return { code: String(code).trim(), name: String(name || "").trim() };
+  };
+
+  const paperRebalanceSummary = document.getElementById("paper-rebalance-summary");
+  const paperT0Summary = document.getElementById("paper-t0-summary");
+  const paperT0Metrics = document.getElementById("paper-t0-metrics");
+  const paperT0Days = document.getElementById("paper-t0-days");
+  const paperT0Preview = document.getElementById("paper-t0-preview");
+  const paperT0Confirm = document.getElementById("paper-t0-confirm");
+
+  function renderPaperT0(data) {
+    renderPaperT0Ui(
+      { metricsEl: paperT0Metrics, daysEl: paperT0Days },
+      data
+    );
+  }
+
+  function renderPaperT0Preview(data) {
+    renderPaperT0PreviewUi(
+      { previewEl: paperT0Preview, confirmEl: paperT0Confirm },
+      data
+    );
+  }
+
+  const paperRebalanceBtn = document.getElementById("paper-rebalance");
+  if (paperRebalanceBtn) {
+    paperRebalanceBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      if (paperRebalanceSummary) paperRebalanceSummary.textContent = "调仓中…";
+      try {
+        const res = await fetch("/api/paper/rebalance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ top_k: 3, limit: 10 }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          if (paperRebalanceSummary) {
+            paperRebalanceSummary.textContent = data.error || data.detail || "调仓失败";
+          }
+          return;
+        }
+        if (paperRebalanceSummary) {
+          paperRebalanceSummary.textContent =
+            `卖出 ${(data.sell_trades || []).length} · 买入 ${(data.buy_trades || []).length} · 净值 ${(data.summary || {}).equity ?? "—"}`;
+        }
+        await loadPaper();
+      } catch (err) {
+        if (paperRebalanceSummary) paperRebalanceSummary.textContent = String(err.message || err);
+      }
+    });
+  }
+
+  const paperT0Bt = document.getElementById("paper-t0-backtest");
+  if (paperT0Bt) {
+    paperT0Bt.addEventListener("click", async (e) => {
+      e.preventDefault();
+      // 默认回测全部持仓；按住 Alt 才仅测当前选中行（避免点行看图后误以为整仓结果）
+      const onlySelected = !!(e.altKey && selectedHoldCode);
+      if (paperT0Summary) {
+        paperT0Summary.textContent = onlySelected
+          ? `做T回测中（仅选中 ${selectedHoldCode}）…`
+          : "做T回测中（全部持仓）…";
+      }
+      try {
+        const body = {
+          from_paper: true,
+          lookback: 30,
+          compare_optimistic: true,
+          use_minute: true,
+          compare_daily: true,
+        };
+        if (onlySelected) body.code = selectedHoldCode;
+        const res = await fetch("/api/quant/t0-backtest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.success) {
+          if (paperT0Summary) paperT0Summary.textContent = data.error || data.detail || "回测失败";
+          renderPaperT0(null);
+          return;
+        }
+        const opt = data.optimistic_compare || {};
+        const daily = data.daily_compare || {};
+        const label =
+          data.scope_label ||
+          (data.from_holdings && data.ok_count > 1
+            ? `持仓 ${data.ok_count} 只`
+            : `${data.stock_name || data.stock_code || "持仓"}`);
+        if (paperT0Summary) {
+          paperT0Summary.textContent =
+            `${label} · 做T日 ${data.t0_trade_days ?? "—"}` +
+            ` · 净PnL ${data.t0_pnl_with_exposure ?? data.t0_pnl_total ?? "—"}` +
+            ` · 完成往返 ${data.cover_rate_pct != null ? data.cover_rate_pct + "%" : "—"}` +
+            ` · 参与 ${data.participate_rate_pct != null ? data.participate_rate_pct + "%" : "—"}` +
+            ` · 敞口 ${data.exposure_pnl_total ?? "—"}` +
+            (data.optimistic_delta_ratio_pct != null || opt.delta_pnl_ratio_pct != null
+              ? ` · 乐观Δ占比 ${(data.optimistic_delta_ratio_pct ?? opt.delta_pnl_ratio_pct)}%`
+              : "") +
+            (daily.delta_pnl != null ? ` · 相对日线Δ ${daily.delta_pnl}` : "") +
+            ` · 路径${(data.rules && data.rules.path_mode) || data.path_mode || (data.use_minute ? "first_touch" : "veto")}` +
+            (data.minute_path_days != null ? ` · 5m日${data.minute_path_days}` : "") +
+            ` · 选向${(data.rules && data.rules.direction) || data.direction || "signal"}` +
+            (data.execution && data.execution.effective_hash
+              ? ` · exec ${String(data.execution.effective_hash).slice(0, 8)}`
+              : "") +
+            (data.no_t0_compare && data.no_t0_compare.t0_contribution != null
+              ? ` · T贡献 ${data.no_t0_compare.t0_contribution}`
+              : "") +
+            ` · 非实盘`;
+        }
+        renderPaperT0(data);
+        showValidateNext("t0");
+        const t0RulesEl = document.getElementById("paper-t0-rules");
+        if (t0RulesEl && data.execution) {
+          t0RulesEl.innerHTML = renderExecutionRulesHtml(data.execution);
+        }
+      } catch (err) {
+        if (paperT0Summary) paperT0Summary.textContent = String(err.message || err);
+      }
+    });
+  }
+
+  const paperT0Run = document.getElementById("paper-t0-run");
+  if (paperT0Run) {
+    paperT0Run.addEventListener("click", async (e) => {
+      e.preventDefault();
+      if (paperT0Summary) paperT0Summary.textContent = "预演做T中…";
+      try {
+        const res = await fetch("/api/paper/t0", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ dry_run: true }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.success === false) {
+          if (paperT0Summary) paperT0Summary.textContent = data.error || data.detail || "预演失败";
+          renderPaperT0Preview(null);
+          return;
+        }
+        if (paperT0Summary) {
+          paperT0Summary.textContent =
+            `预演完成 · 成交 ${(data.trades || []).length} · PnL ${data.pnl_total ?? 0} · ` +
+            `跳过 ${data.skip_count ?? 0}` +
+            (data.coupling_skip_count
+              ? `（耦合 ${data.coupling_skip_count}）`
+              : "") +
+            ` · 确认后才会改账`;
+        }
+        if (data.execution) {
+          const t0RulesEl = document.getElementById("paper-t0-rules");
+          if (t0RulesEl) t0RulesEl.innerHTML = renderExecutionRulesHtml(data.execution);
+        }
+        renderPaperT0Preview(data);
+      } catch (err) {
+        if (paperT0Summary) paperT0Summary.textContent = String(err.message || err);
+      }
+    });
+  }
+
+  const paperT0Form = document.getElementById("paper-t0-form");
+  const paperT0EditStatus = document.getElementById("paper-t0-edit-status");
+  const paperT0DiffBox = document.getElementById("paper-t0-diff-box");
+  async function refreshPaperAfterExecution(exec) {
+    const t0RulesEl = document.getElementById("paper-t0-rules");
+    if (t0RulesEl && exec) t0RulesEl.innerHTML = renderExecutionRulesHtml(exec);
+    if (paperT0Form && exec) fillExecutionForm(paperT0Form, exec);
+    try {
+      const { ok, data } = await apiFetch("/api/paper");
+      if (ok) await renderPaperAccountDetail(data);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  if (paperT0Form) {
+    paperT0Form.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = collectExecutionForm(paperT0Form);
+      if (!body) return;
+      if (paperT0EditStatus) paperT0EditStatus.textContent = "保存中…";
+      try {
+        const res = await fetch("/api/paper/execution", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...body, note: "follow UI" }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.ok === false) {
+          const err = data.detail || data.errors || data.error || "保存失败";
+          if (paperT0EditStatus) {
+            paperT0EditStatus.textContent = Array.isArray(err) ? err.join("; ") : String(err);
+          }
+          return;
+        }
+        if (paperT0EditStatus) {
+          paperT0EditStatus.textContent =
+            (data.message || "已保存") +
+            (data.execution && data.execution.effective_hash
+              ? ` · hash ${String(data.execution.effective_hash).slice(0, 8)}`
+              : "");
+        }
+        await refreshPaperAfterExecution(data.execution);
+      } catch (err) {
+        if (paperT0EditStatus) paperT0EditStatus.textContent = String(err.message || err);
+      }
+    });
+  }
+  const paperT0Reset = document.getElementById("paper-t0-reset");
+  if (paperT0Reset) {
+    paperT0Reset.addEventListener("click", async (e) => {
+      e.preventDefault();
+      if (paperT0EditStatus) paperT0EditStatus.textContent = "重置中…";
+      try {
+        const res = await fetch("/api/paper/execution/reset", { method: "POST" });
+        const data = await res.json();
+        if (!res.ok) {
+          if (paperT0EditStatus) paperT0EditStatus.textContent = data.detail || "重置失败";
+          return;
+        }
+        if (paperT0EditStatus) paperT0EditStatus.textContent = data.message || "已恢复默认";
+        if (paperT0DiffBox) {
+          paperT0DiffBox.hidden = true;
+          paperT0DiffBox.innerHTML = "";
+        }
+        await refreshPaperAfterExecution(data.execution);
+      } catch (err) {
+        if (paperT0EditStatus) paperT0EditStatus.textContent = String(err.message || err);
+      }
+    });
+  }
+  const paperT0DiffBtn = document.getElementById("paper-t0-diff");
+  if (paperT0DiffBtn) {
+    paperT0DiffBtn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      if (paperT0EditStatus) paperT0EditStatus.textContent = "对照中…";
+      try {
+        const res = await fetch("/api/paper/execution/diff");
+        const data = await res.json();
+        if (!res.ok) {
+          if (paperT0EditStatus) paperT0EditStatus.textContent = data.detail || "对照失败";
+          return;
+        }
+        if (paperT0DiffBox) {
+          paperT0DiffBox.hidden = false;
+          paperT0DiffBox.innerHTML = renderExecutionDiffHtml(data);
+        }
+        if (paperT0EditStatus) {
+          paperT0EditStatus.textContent = data.changed
+            ? `相对 Spec 有差异 · paper ${String(data.paper_hash || "").slice(0, 8)}`
+            : "与策略默认一致";
+        }
+      } catch (err) {
+        if (paperT0EditStatus) paperT0EditStatus.textContent = String(err.message || err);
+      }
+    });
+  }
+
+  if (paperT0Confirm) {
+    paperT0Confirm.addEventListener("click", async (e) => {
+      e.preventDefault();
+      if (paperT0Summary) paperT0Summary.textContent = "确认写入做T…";
+      try {
+        const res = await fetch("/api/paper/t0", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirm: true, dry_run: false }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.success === false) {
+          if (paperT0Summary) paperT0Summary.textContent = data.error || data.detail || "写入失败";
+          return;
+        }
+        if (paperT0Summary) {
+          paperT0Summary.textContent =
+            `已写入 · 成交 ${(data.trades || []).length} · PnL ${data.pnl_total ?? 0}`;
+        }
+        renderPaperT0Preview(null);
+        await loadPaper();
+      } catch (err) {
+        if (paperT0Summary) paperT0Summary.textContent = String(err.message || err);
+      }
+    });
+  }
+
+  const paperGotoQuant = document.getElementById("paper-goto-quant");
+  if (paperGotoQuant) {
+    paperGotoQuant.addEventListener("click", async (e) => {
+      e.preventDefault();
+      try {
+        if (typeof ctx.showResultsTab === "function" && page === "chat") {
+          await ctx.showResultsTab("quant", { openMobile: true, load: true });
+        }
+      } catch (err) {
+        setPaperMetaText(String(err.message || err));
+      }
+    });
+  }
+
+  document.querySelectorAll(".paper-clear-records").forEach((btn) => {
+    btn.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const category = btn.dataset.category;
+      const label = category === "trading" ? "交易记录" : "资金记录";
+      const confirmed = window.confirm(
+        `确定清除全部「${label}」？此操作不可恢复，持仓与资金余额不受影响。`
+      );
+      if (!confirmed) return;
+      btn.disabled = true;
+      const originalText = btn.textContent;
+      btn.textContent = "清除中…";
+      try {
+        const res = await fetch("/api/paper/clear-records", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(`清除失败：${data.detail || data.error || "未知错误"}`);
+          return;
+        }
+        paperLogShowAll[category === "fund" ? "fund" : "trading"] = false;
+        await loadPaper();
+      } catch (err) {
+        alert(`清除失败：${err.message || err}`);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = originalText;
+      }
+    });
+  });
+
+  document.addEventListener("click", (e) => {
+    const moreBtn = e.target.closest(".paper-log-more");
+    if (!moreBtn) return;
+    e.preventDefault();
+    const kind = moreBtn.dataset.logKind;
+    if (kind !== "trading" && kind !== "fund") return;
+    paperLogShowAll[kind] = !paperLogShowAll[kind];
+    if (lastAccountData) renderPaperAccountDetail(lastAccountData);
+  });
+
+  if (page === "paper" || page === "follow") {
+    loadPaper().catch((err) => {
+      setPaperMetaText(String(err.message || err));
+    });
+  }
+}

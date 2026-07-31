@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "description": "确定性回归：固定 fixture，双跑指纹须一致。",
+  "cases": [
+    {
+      "id": "score_rising_fixture",
+      "engine": "score_bars",
+      "params": { "horizon_days": 3 },
+      "quote": { "change_raw": 1.2, "price_raw": 112.5 },
+      "bars": [
+        {"date": "2026-01-01", "open": 100, "high": 101, "low": 99.5, "close": 100.5, "volume": 1000},
+        {"date": "2026-01-02", "open": 100.5, "high": 102, "low": 100, "close": 101.5, "volume": 1100},
+        {"date": "2026-01-03", "open": 101.5, "high": 103, "low": 101, "close": 102.5, "volume": 1200},
+        {"date": "2026-01-04", "open": 102.5, "high": 104, "low": 102, "close": 103.5, "volume": 1300},
+        {"date": "2026-01-05", "open": 103.5, "high": 105, "low": 103, "close": 104.5, "volume": 1400},
+        {"date": "2026-01-06", "open": 104.5, "high": 106, "low": 104, "close": 105.5, "volume": 1500},
+        {"date": "2026-01-07", "open": 105.5, "high": 107, "low": 105, "close": 106.5, "volume": 1600},
+        {"date": "2026-01-08", "open": 106.5, "high": 108, "low": 106, "close": 107.5, "volume": 1700},
+        {"date": "2026-01-09", "open": 107.5, "high": 109, "low": 107, "close": 108.5, "volume": 1800},
+        {"date": "2026-01-10", "open": 108.5, "high": 110, "low": 108, "close": 109.5, "volume": 1900},
+        {"date": "2026-01-11", "open": 109.5, "high": 111, "low": 109, "close": 110.5, "volume": 2000},
+        {"date": "2026-01-12", "open": 110.5, "high": 112.5, "low": 110, "close": 112.5, "volume": 2100}
+      ]
+    },
+    {
+      "id": "score_overheat_reject",
+      "engine": "score_bars",
+      "params": { "horizon_days": 3 },
+      "quote": { "change_raw": 8.0, "price_raw": 150 },
+      "bars": [
+        {"date": "d0", "open": 100, "high": 102, "low": 99, "close": 100, "volume": 1000},
+        {"date": "d1", "open": 106, "high": 108, "low": 105, "close": 106, "volume": 1000},
+        {"date": "d2", "open": 112, "high": 115, "low": 111, "close": 112, "volume": 1000},
+        {"date": "d3", "open": 119, "high": 122, "low": 118, "close": 119, "volume": 1000},
+        {"date": "d4", "open": 126, "high": 130, "low": 125, "close": 126, "volume": 1000},
+        {"date": "d5", "open": 134, "high": 138, "low": 133, "close": 134, "volume": 1000},
+        {"date": "d6", "open": 142, "high": 146, "low": 141, "close": 142, "volume": 1000},
+        {"date": "d7", "open": 150, "high": 155, "low": 149, "close": 150, "volume": 1000}
+      ]
+    },
+    {
+      "id": "backtest_rising_fixture",
+      "engine": "backtest_signal",
+      "params": { "horizon_days": 3, "min_score": 50, "min_history": 10 },
+      "bars": [
+        {"date": "2026-01-01", "open": 100, "high": 101, "low": 99, "close": 100, "volume": 1000},
+        {"date": "2026-01-02", "open": 100.4, "high": 101.4, "low": 99.4, "close": 100.4, "volume": 1020},
+        {"date": "2026-01-03", "open": 100.8, "high": 101.8, "low": 99.8, "close": 100.8, "volume": 1040},
+        {"date": "2026-01-04", "open": 101.2, "high": 102.2, "low": 100.2, "close": 101.2, "volume": 1060},
+        {"date": "2026-01-05", "open": 101.6, "high": 102.6, "low": 100.6, "close": 101.6, "volume": 1080},
+        {"date": "2026-01-06", "open": 102.0, "high": 103.0, "low": 101.0, "close": 102.0, "volume": 1100},
+        {"date": "2026-01-07", "open": 102.4, "high": 103.4, "low": 101.4, "close": 102.4, "volume": 1120},
+        {"date": "2026-01-08", "open": 102.8, "high": 103.8, "low": 101.8, "close": 102.8, "volume": 1140},
+        {"date": "2026-01-09", "open": 103.2, "high": 104.2, "low": 102.2, "close": 103.2, "volume": 1160},
+        {"date": "2026-01-10", "open": 103.6, "high": 104.6, "low": 102.6, "close": 103.6, "volume": 1180},
+        {"date": "2026-01-11", "open": 104.0, "high": 105.0, "low": 103.0, "close": 104.0, "volume": 1200},
+        {"date": "2026-01-12", "open": 104.4, "high": 105.4, "low": 103.4, "close": 104.4, "volume": 1220},
+        {"date": "2026-01-13", "open": 104.8, "high": 105.8, "low": 103.8, "close": 104.8, "volume": 1240},
+        {"date": "2026-01-14", "open": 105.2, "high": 106.2, "low": 104.2, "close": 105.2, "volume": 1260},
+        {"date": "2026-01-15", "open": 105.6, "high": 106.6, "low": 104.6, "close": 105.6, "volume": 1280},
+        {"date": "2026-01-16", "open": 106.0, "high": 107.0, "low": 105.0, "close": 106.0, "volume": 1300},
+        {"date": "2026-01-17", "open": 106.4, "high": 107.4, "low": 105.4, "close": 106.4, "volume": 1320},
+        {"date": "2026-01-18", "open": 106.8, "high": 107.8, "low": 105.8, "close": 106.8, "volume": 1340},
+        {"date": "2026-01-19", "open": 107.2, "high": 108.2, "low": 106.2, "close": 107.2, "volume": 1360},
+        {"date": "2026-01-20", "open": 107.6, "high": 108.6, "low": 106.6, "close": 107.6, "volume": 1380},
+        {"date": "2026-01-21", "open": 108.0, "high": 109.0, "low": 107.0, "close": 108.0, "volume": 1400},
+        {"date": "2026-01-22", "open": 108.4, "high": 109.4, "low": 107.4, "close": 108.4, "volume": 1420},
+        {"date": "2026-01-23", "open": 108.8, "high": 109.8, "low": 107.8, "close": 108.8, "volume": 1440},
+        {"date": "2026-01-24", "open": 109.2, "high": 110.2, "low": 108.2, "close": 109.2, "volume": 1460},
+        {"date": "2026-01-25", "open": 109.6, "high": 110.6, "low": 108.6, "close": 109.6, "volume": 1480},
+        {"date": "2026-01-26", "open": 110.0, "high": 111.0, "low": 109.0, "close": 110.0, "volume": 1500},
+        {"date": "2026-01-27", "open": 110.4, "high": 111.4, "low": 109.4, "close": 110.4, "volume": 1520},
+        {"date": "2026-01-28", "open": 110.8, "high": 111.8, "low": 109.8, "close": 110.8, "volume": 1540},
+        {"date": "2026-01-29", "open": 111.2, "high": 112.2, "low": 110.2, "close": 111.2, "volume": 1560},
+        {"date": "2026-01-30", "open": 111.6, "high": 112.6, "low": 110.6, "close": 111.6, "volume": 1580},
+        {"date": "2026-01-31", "open": 112.0, "high": 113.0, "low": 111.0, "close": 112.0, "volume": 1600},
+        {"date": "2026-02-01", "open": 112.4, "high": 113.4, "low": 111.4, "close": 112.4, "volume": 1620},
+        {"date": "2026-02-02", "open": 112.8, "high": 113.8, "low": 111.8, "close": 112.8, "volume": 1640},
+        {"date": "2026-02-03", "open": 113.2, "high": 114.2, "low": 112.2, "close": 113.2, "volume": 1660},
+        {"date": "2026-02-04", "open": 113.6, "high": 114.6, "low": 112.6, "close": 113.6, "volume": 1680},
+        {"date": "2026-02-05", "open": 114.0, "high": 115.0, "low": 113.0, "close": 114.0, "volume": 1700},
+        {"date": "2026-02-06", "open": 114.4, "high": 115.4, "low": 113.4, "close": 114.4, "volume": 1720},
+        {"date": "2026-02-07", "open": 114.8, "high": 115.8, "low": 113.8, "close": 114.8, "volume": 1740},
+        {"date": "2026-02-08", "open": 115.2, "high": 116.2, "low": 114.2, "close": 115.2, "volume": 1760},
+        {"date": "2026-02-09", "open": 115.6, "high": 116.6, "low": 114.6, "close": 115.6, "volume": 1780},
+        {"date": "2026-02-10", "open": 116.0, "high": 117.0, "low": 115.0, "close": 116.0, "volume": 1800}
+      ]
+    },
+    {
+      "id": "signal_handler_fixture",
+      "engine": "handler",
+      "handler": "signal",
+      "parameters": {
+        "stock_codes": ["TEST"],
+        "horizon_days": 3,
+        "limit": 3
+      },
+      "patches": {
+        "quote": {
+          "success": true,
+          "stock_code": "600000",
+          "stock_name": "测试股",
+          "price": "10.00元",
+          "price_raw": 10.0,
+          "change": "+1.0%",
+          "change_raw": 1.0
+        },
+        "bars": [
+          {"date": "2026-01-01", "open": 9.5, "high": 10.2, "low": 9.4, "close": 10.0, "volume": 1000},
+          {"date": "2026-01-02", "open": 10.0, "high": 10.3, "low": 9.8, "close": 10.1, "volume": 1100},
+          {"date": "2026-01-03", "open": 10.1, "high": 10.5, "low": 10.0, "close": 10.2, "volume": 1200},
+          {"date": "2026-01-04", "open": 10.2, "high": 10.6, "low": 10.1, "close": 10.3, "volume": 1300},
+          {"date": "2026-01-05", "open": 10.3, "high": 10.7, "low": 10.2, "close": 10.4, "volume": 1400},
+          {"date": "2026-01-06", "open": 10.4, "high": 10.8, "low": 10.3, "close": 10.5, "volume": 1500},
+          {"date": "2026-01-07", "open": 10.5, "high": 10.9, "low": 10.4, "close": 10.6, "volume": 1600},
+          {"date": "2026-01-08", "open": 10.6, "high": 11.0, "low": 10.5, "close": 10.7, "volume": 1700},
+          {"date": "2026-01-09", "open": 10.7, "high": 11.1, "low": 10.6, "close": 10.8, "volume": 1800},
+          {"date": "2026-01-10", "open": 10.8, "high": 11.2, "low": 10.7, "close": 10.9, "volume": 1900},
+          {"date": "2026-01-11", "open": 10.9, "high": 11.3, "low": 10.8, "close": 11.0, "volume": 2000},
+          {"date": "2026-01-12", "open": 11.0, "high": 11.4, "low": 10.9, "close": 11.1, "volume": 2100}
+        ]
+      }
+    }
+  ]
+}

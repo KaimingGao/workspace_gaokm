@@ -1,0 +1,77 @@
+{
+  "version": 3,
+  "weights": {
+    "momentum": 0.22,
+    "volume_price": 0.14,
+    "relative_strength": 0.11,
+    "volatility": 0.06,
+    "reversal": 0.07,
+    "liquidity": 0.06,
+    "value": 0.05,
+    "quality": 0.04,
+    "ma_slope": 0.03,
+    "technical_pattern": 0.02,
+    "weekly_confirm": 0.01,
+    "gap_risk": 0.01,
+    "size": 0.03,
+    "earnings_yield": 0.03,
+    "growth": 0.03,
+    "dividend": 0.02,
+    "money_flow": 0.0,
+    "amihud": 0.02,
+    "idio_momentum": 0.03,
+    "alt_sentiment": 0.02
+  },
+  "factor_groups": {
+    "trend": ["momentum", "ma_slope", "technical_pattern", "weekly_confirm"],
+    "value_quality": ["value", "earnings_yield", "quality", "growth", "dividend"],
+    "liquidity_flow": ["liquidity", "money_flow", "amihud", "volume_price"],
+    "risk": ["volatility", "gap_risk"],
+    "residual": ["relative_strength", "idio_momentum", "size"]
+  },
+  "hard_reject": {
+    "min_bars": 2,
+    "mom3_gain_max_pct": 15,
+    "mom3_loss_min_pct": -12
+  },
+  "rank": {
+    "min_score": 55,
+    "default_limit": 8
+  },
+  "stance_thresholds": {
+    "avoid": 45,
+    "wait": 55,
+    "probe": 68
+  },
+  "invalidation": {
+    "stop_pct": 0.03
+  },
+  "relative_strength": {
+    "window_days": 20,
+    "min_compare_days": 5,
+    "fallback_to_last_change": true
+  },
+  "regime": {
+    "enabled": true,
+    "weak_trend_days": 20,
+    "weak_trend_threshold_pct": -3,
+    "score_penalty": 5
+  },
+  "fundamentals": {
+    "enabled": true,
+    "fetch_on_score": true,
+    "use_in_ic_experiment": true,
+    "use_in_backtest": true,
+    "pit_mode": "as_of",
+    "missing_as_of_policy": "zero_weight"
+  },
+  "cross_section": {
+    "neutralize": true,
+    "method": "zscore",
+    "min_samples": 3,
+    "zscore_scale": 10,
+    "industry_residual": true,
+    "size_residual": true,
+    "size_buckets": 3
+  }
+}

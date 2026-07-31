@@ -1,0 +1,127 @@
+{
+  "version": 1,
+  "kind": "fundamentals",
+  "code": "302132",
+  "data_source": "akshare_financial_indicator",
+  "fetched_at": "2026-07-30T16:37:06",
+  "non_pit": true,
+  "data": {
+    "success": true,
+    "stock_code": "302132",
+    "stock_name": "中航成飞",
+    "market": "CN",
+    "coverage": "partial",
+    "metrics": {
+      "stock_code": "302132",
+      "stock_name": "中航成飞",
+      "market": "CN",
+      "price": "58.43元",
+      "change": "+2.62%",
+      "roe": 0.9,
+      "profit_growth": 23.16,
+      "revenue_growth": 79.71,
+      "eps": 0.0721,
+      "financial_as_of": "2026-03-31"
+    },
+    "highlights": [],
+    "sources": [
+      "akshare_financial_indicator"
+    ],
+    "notes": [
+      "现货估值拉取失败: ('Connection aborted.', RemoteDisconnected('Remote end closed connection without response'))"
+    ],
+    "note": "以上为基本面事实摘要，供投顾建议使用；市场有风险，不保证收益，不代客下单。"
+  },
+  "history": [
+    {
+      "as_of": "2024-06-30",
+      "fetched_at": "2026-07-30T16:37:06",
+      "metrics": {
+        "roe": 3.39,
+        "profit_growth": 2760.12,
+        "revenue_growth": -6.27,
+        "eps": 1.0786
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    },
+    {
+      "as_of": "2024-09-30",
+      "fetched_at": "2026-07-30T16:37:06",
+      "metrics": {
+        "roe": 4.19,
+        "profit_growth": 3275.85,
+        "revenue_growth": -3.05,
+        "eps": 1.25
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    },
+    {
+      "as_of": "2024-12-31",
+      "fetched_at": "2026-07-30T16:37:06",
+      "metrics": {
+        "roe": 4.6,
+        "profit_growth": 3183.94,
+        "revenue_growth": 6.11,
+        "eps": 1.2065
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    },
+    {
+      "as_of": "2025-03-31",
+      "fetched_at": "2026-07-30T16:37:06",
+      "metrics": {
+        "roe": 0.8,
+        "profit_growth": -89.5,
+        "revenue_growth": -81.1,
+        "eps": 0.0586
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    },
+    {
+      "as_of": "2025-06-30",
+      "fetched_at": "2026-07-30T16:37:06",
+      "metrics": {
+        "roe": 4.72,
+        "profit_growth": -68.33,
+        "revenue_growth": -38.99,
+        "eps": 0.3416
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    },
+    {
+      "as_of": "2025-09-30",
+      "fetched_at": "2026-07-30T16:37:06",
+      "metrics": {
+        "roe": 11.08,
+        "profit_growth": -35.21,
+        "revenue_growth": 6.19,
+        "eps": 0.81
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    },
+    {
+      "as_of": "2025-12-31",
+      "fetched_at": "2026-07-30T16:37:06",
+      "metrics": {
+        "roe": 26.76,
+        "profit_growth": 6.47,
+        "revenue_growth": 15.84,
+        "eps": 1.2845
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    },
+    {
+      "as_of": "2026-03-31",
+      "fetched_at": "2026-07-30T16:37:06",
+      "metrics": {
+        "roe": 0.9,
+        "profit_growth": 23.16,
+        "revenue_growth": 79.71,
+        "eps": 0.0721
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    }
+  ],
+  "latest_as_of": "2026-03-31",
+  "history_ingested_at": "2026-07-30T16:37:06"
+}

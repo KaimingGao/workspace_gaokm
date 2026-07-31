@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "kind": "fundamentals",
+  "code": "688825",
+  "data_source": "akshare_spot_em",
+  "fetched_at": "2026-07-29T00:59:19",
+  "non_pit": true,
+  "data": {
+    "success": true,
+    "stock_code": "688825",
+    "stock_name": "C长鑫",
+    "market": "CN",
+    "coverage": "full",
+    "metrics": {
+      "stock_code": "688825",
+      "stock_name": "C长鑫",
+      "market": "CN",
+      "price": "47.00元",
+      "change": "-4.08%",
+      "pe": 31.74,
+      "pb": 22.56,
+      "market_cap": 3143401645619.0
+    },
+    "highlights": [
+      "PE 约 31.74",
+      "PB 约 22.56",
+      "市值约 3143401645619.0"
+    ],
+    "sources": [
+      "akshare_spot_em"
+    ],
+    "notes": [],
+    "note": "以上为基本面事实摘要，供投顾建议使用；市场有风险，不保证收益，不代客下单。"
+  },
+  "history": [
+    {
+      "as_of": "2026-01-30",
+      "fetched_at": "2026-07-29T23:14:56",
+      "metrics": {
+        "pe": 31.74,
+        "pb": 22.56
+      },
+      "data_source": "synthetic_demo_ladder",
+      "synthetic_demo": true,
+      "non_pit_origin": true
+    },
+    {
+      "as_of": "2026-04-30",
+      "fetched_at": "2026-07-29T23:14:56",
+      "metrics": {
+        "pe": 31.74,
+        "pb": 22.56
+      },
+      "data_source": "synthetic_demo_ladder",
+      "synthetic_demo": true,
+      "non_pit_origin": true
+    },
+    {
+      "as_of": "2026-07-29",
+      "fetched_at": "2026-07-29T00:59:19",
+      "metrics": {
+        "pe": 31.74,
+        "pb": 22.56
+      },
+      "data_source": "akshare_spot_em",
+      "non_pit_origin": true
+    }
+  ],
+  "latest_as_of": "2026-07-29",
+  "history_persisted_at": "2026-07-29T23:14:56",
+  "demo_ladder_at": "2026-07-29T23:14:56"
+}

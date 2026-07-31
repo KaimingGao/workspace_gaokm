@@ -1,0 +1,145 @@
+{
+  "version": 1,
+  "kind": "fundamentals",
+  "code": "600938",
+  "data_source": "akshare_financial_indicator",
+  "fetched_at": "2026-07-30T16:37:05",
+  "non_pit": true,
+  "data": {
+    "success": true,
+    "stock_code": "600938",
+    "stock_name": "中国海油",
+    "market": "CN",
+    "coverage": "full",
+    "metrics": {
+      "stock_code": "600938",
+      "stock_name": "中国海油",
+      "market": "CN",
+      "price": "31.32元",
+      "change": "-0.73%",
+      "pe": 9.51,
+      "pb": 1.78,
+      "market_cap": 1488638158779.0,
+      "roe": 4.77,
+      "profit_growth": 7.06,
+      "revenue_growth": 8.63,
+      "eps": 0.82,
+      "financial_as_of": "2026-03-31"
+    },
+    "highlights": [
+      "动态/现货 PE 约 9.51，相对偏低区间（需结合行业）",
+      "PB 约 1.78",
+      "市值约 1488638158779.0"
+    ],
+    "sources": [
+      "akshare_spot_em",
+      "akshare_financial_indicator"
+    ],
+    "notes": [],
+    "note": "以上为基本面事实摘要，供投顾建议使用；市场有风险，不保证收益，不代客下单。"
+  },
+  "history": [
+    {
+      "as_of": "2024-06-30",
+      "fetched_at": "2026-07-30T16:37:05",
+      "metrics": {
+        "roe": 11.27,
+        "profit_growth": 25.05,
+        "revenue_growth": 18.07,
+        "eps": 1.68
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    },
+    {
+      "as_of": "2024-09-30",
+      "fetched_at": "2026-07-30T16:37:05",
+      "metrics": {
+        "roe": 16.43,
+        "profit_growth": 19.47,
+        "revenue_growth": 6.26,
+        "eps": 2.45
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    },
+    {
+      "as_of": "2024-12-31",
+      "fetched_at": "2026-07-30T16:37:05",
+      "metrics": {
+        "roe": 19.36,
+        "profit_growth": 11.38,
+        "revenue_growth": 0.94,
+        "eps": 2.9
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    },
+    {
+      "as_of": "2025-03-31",
+      "fetched_at": "2026-07-30T16:37:05",
+      "metrics": {
+        "roe": 4.78,
+        "profit_growth": -7.95,
+        "revenue_growth": -4.14,
+        "eps": 0.77
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    },
+    {
+      "as_of": "2025-06-30",
+      "fetched_at": "2026-07-30T16:37:05",
+      "metrics": {
+        "roe": 8.9,
+        "profit_growth": -12.79,
+        "revenue_growth": -8.45,
+        "eps": 1.46
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    },
+    {
+      "as_of": "2025-09-30",
+      "fetched_at": "2026-07-30T16:37:05",
+      "metrics": {
+        "roe": 13.01,
+        "profit_growth": -12.59,
+        "revenue_growth": -4.15,
+        "eps": 2.14
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    },
+    {
+      "as_of": "2025-12-31",
+      "fetched_at": "2026-07-30T16:37:05",
+      "metrics": {
+        "roe": 15.64,
+        "profit_growth": -11.49,
+        "revenue_growth": -5.3,
+        "eps": 2.57
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    },
+    {
+      "as_of": "2026-03-31",
+      "fetched_at": "2026-07-30T16:37:05",
+      "metrics": {
+        "roe": 4.77,
+        "profit_growth": 7.06,
+        "revenue_growth": 8.63,
+        "eps": 0.82
+      },
+      "data_source": "akshare_financial_abstract_ths"
+    },
+    {
+      "as_of": "2026-07-29",
+      "fetched_at": "2026-07-29T01:28:52",
+      "metrics": {
+        "pe": 9.51,
+        "pb": 1.78
+      },
+      "data_source": "akshare_spot_em",
+      "non_pit_origin": true
+    }
+  ],
+  "latest_as_of": "2026-07-29",
+  "history_persisted_at": "2026-07-29T23:14:56",
+  "demo_ladder_at": "2026-07-29T23:14:56",
+  "history_ingested_at": "2026-07-30T16:37:05"
+}

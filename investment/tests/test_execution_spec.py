@@ -1,0 +1,165 @@
+"""ExecutionSpec resolve · StrategySpec overlays.t0。"""
+
+from __future__ import annotations
+
+import unittest
+
+
+class TestExecutionResolve(unittest.TestCase):
+    def test_paper_direction_fallback_signal(self):
+        from core.execution import resolve_effective_execution
+
+        bundle = resolve_effective_execution(strategy="short", channel="paper")
+        self.assertTrue(bundle["ok"])
+        self.assertEqual(bundle["t0"]["direction"], "signal")
+        self.assertEqual(bundle["t0_sources"].get("direction"), "runtime_fallback")
+        self.assertEqual(bundle["t0"]["fill_mode"], "trigger")
+        self.assertAlmostEqual(float(bundle["t0"]["t0_ratio"]), 0.4)
+        self.assertTrue(bundle["effective_hash"])
+        self.assertIn("signal", bundle["summary"])
+
+    def test_backtest_path_fallback(self):
+        from core.execution import resolve_effective_execution
+
+        no_m = resolve_effective_execution(strategy="short", channel="backtest", has_minute=False)
+        self.assertEqual(no_m["t0"]["path_mode"], "veto")
+        with_m = resolve_effective_execution(strategy="short", channel="backtest", has_minute=True)
+        self.assertEqual(with_m["t0"]["path_mode"], "first_touch")
+
+    def test_paper_override_wins(self):
+        from core.execution import resolve_effective_execution
+
+        paper = {"strategy_id": "short", "rules": {"t0": {"t0_ratio": 0.25, "direction": "long_t"}}}
+        bundle = resolve_effective_execution(paper=paper, channel="paper")
+        self.assertAlmostEqual(float(bundle["t0"]["t0_ratio"]), 0.25)
+        self.assertEqual(bundle["t0"]["direction"], "long_t")
+        self.assertEqual(bundle["t0_sources"].get("direction"), "paper")
+        self.assertEqual(bundle["t0_sources"].get("t0_ratio"), "paper")
+
+    def test_request_override_wins(self):
+        from core.execution import resolve_t0_rules, strip_execution_meta
+
+        raw = resolve_t0_rules(
+            strategy="short",
+            rules={"direction": "reverse_t", "path_mode": "adverse"},
+            channel="backtest",
+            has_minute=True,
+        )
+        cfg = strip_execution_meta(raw)
+        self.assertEqual(cfg["direction"], "reverse_t")
+        self.assertEqual(cfg["path_mode"], "adverse")
+        self.assertEqual(raw["_execution_meta"]["t0_sources"]["direction"], "request")
+
+    def test_strategy_spec_includes_execution(self):
+        from core.strategy import get_strategy_spec
+
+        spec = get_strategy_spec("short")
+        self.assertEqual(spec["version"], "1.2.0")
+        self.assertIn("execution", spec)
+        t0 = (spec["execution"].get("overlays") or {}).get("t0") or {}
+        self.assertTrue(t0.get("enabled"))
+        self.assertAlmostEqual(float(t0.get("t0_ratio")), 0.4)
+
+    def test_conservative_t0_ratio(self):
+        from core.strategy import get_strategy_spec
+
+        spec = get_strategy_spec("short_conservative")
+        t0 = (spec["execution"].get("overlays") or {}).get("t0") or {}
+        self.assertAlmostEqual(float(t0.get("t0_ratio")), 0.35)
+
+    def test_apply_strategy_writes_t0(self):
+        from core.strategy import apply_strategy_to_paper
+
+        paper = {"rules": {}, "cash": 100000, "cost_model": "simple_cn"}
+        apply_strategy_to_paper(paper, "short")
+        self.assertIn("t0", paper["rules"])
+        self.assertAlmostEqual(float(paper["rules"]["t0"]["t0_ratio"]), 0.4)
+        self.assertEqual(paper.get("execution_version"), "1.0.0")
+
+    def test_public_view(self):
+        from core.execution import execution_public_view, resolve_effective_execution
+
+        view = execution_public_view(resolve_effective_execution(strategy="short"))
+        self.assertTrue(view["ok"])
+        self.assertIn("direction", view["t0"])
+        self.assertNotIn("note", view["t0"])
+
+    def test_validate_and_apply_patch(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            resolve_effective_execution,
+            validate_execution_patch,
+        )
+
+        ok, norm, errs = validate_execution_patch(
+            {
+                "t0": {"t0_ratio": 0.3, "direction": "long_t"},
+                "coupling": {"t0_vs_stance": "skip_if_avoid"},
+            }
+        )
+        self.assertTrue(ok, errs)
+        self.assertAlmostEqual(norm["t0"]["t0_ratio"], 0.3)
+        self.assertEqual(norm["coupling"]["t0_vs_stance"], "skip_if_avoid")
+
+        paper = {"strategy_id": "short", "rules": {}}
+        applied = apply_execution_patch_to_paper(paper, norm)
+        self.assertTrue(applied["ok"])
+        bundle = resolve_effective_execution(paper=paper, channel="paper")
+        self.assertEqual(bundle["t0"]["direction"], "long_t")
+        self.assertEqual(bundle["coupling"]["t0_vs_stance"], "skip_if_avoid")
+        self.assertTrue(paper.get("t0_rules_locked"))
+
+    def test_stance_coupling(self):
+        from core.execution import stance_allows_t0
+
+        self.assertTrue(stance_allows_t0("independent", "avoid")[0])
+        self.assertFalse(stance_allows_t0("skip_if_avoid", "avoid")[0])
+        self.assertTrue(stance_allows_t0("skip_if_avoid", "probe")[0])
+        self.assertTrue(stance_allows_t0("only_if_hold", "buy_light")[0])
+        self.assertFalse(stance_allows_t0("only_if_hold", "avoid")[0])
+
+    def test_diff_against_strategy(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_diff_against_strategy,
+        )
+
+        paper = {"strategy_id": "short", "rules": {}}
+        apply_execution_patch_to_paper(paper, {"t0": {"t0_ratio": 0.55}})
+        diff = execution_diff_against_strategy(paper)
+        self.assertTrue(diff["changed"])
+        paths = {c["path"] for c in diff["t0_changes"]}
+        self.assertIn("t0_ratio", paths)
+
+    def test_coupling_skip_on_holdings(self):
+        from core.t0.rules import simulate_t0_on_holdings
+
+        paper = {
+            "cash": 100000,
+            "holdings": [
+                {"stock_code": "600519", "stock_name": "茅台", "shares": 1000, "cost": 100}
+            ],
+            "rules": {},
+        }
+        bar = {
+            "date": "2024-01-02",
+            "open": 100,
+            "high": 105,
+            "low": 95,
+            "close": 102,
+            "prev_close": 99,
+        }
+        out = simulate_t0_on_holdings(
+            paper,
+            bars_by_code={"600519": bar},
+            rules={"direction": "long_t", "sell_trigger_pct": 2, "buy_trigger_pct": 1.5},
+            dry_run=True,
+            stance_by_code={"600519": "avoid"},
+            coupling={"t0_vs_stance": "skip_if_avoid"},
+        )
+        self.assertEqual(out.get("coupling_skip_count"), 1)
+        self.assertTrue(out["results"][0].get("coupling_skip"))
+
+
+if __name__ == "__main__":
+    unittest.main()

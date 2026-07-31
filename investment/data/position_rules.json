@@ -1,0 +1,13 @@
+{
+  "concentration_high": 35,
+  "concentration_warn": 25,
+  "take_profit_pnl": 8,
+  "take_profit_day_change": -2,
+  "trail_pnl": 5,
+  "stop_loss_pnl": -8,
+  "stop_loss_day_change": -2,
+  "reduce_pnl": -5,
+  "reduce_day_change": -3,
+  "short_horizon_day_abs": 4,
+  "stop_buffer_pct": 3
+}
