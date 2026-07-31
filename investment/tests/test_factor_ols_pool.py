@@ -107,6 +107,24 @@ class TestFactorOlsPool(unittest.TestCase):
         self.assertTrue(data["success"])
         self.assertEqual(data.get("mode"), "watching_pooled")
 
+    def test_research_panel_computes_beyond_regime_core(self):
+        """全量注册因子应出现在面板（不因 regime 白名单整列变 None）。"""
+        from quant.research.factor_ols import collect_subscore_forward_panel
+
+        xs, ys = collect_subscore_forward_panel(rising_bars(50), horizon_days=3)
+        self.assertGreater(len(ys), 10)
+        # 扩展因子在价量 mock 上应有观测（非 regime 导致的全缺测）
+        for name in ("technical_pattern", "ma_slope", "gap_risk", "amihud"):
+            present = sum(1 for row in xs if row.get(name) is not None)
+            self.assertGreater(present, 0, f"{name} should not be all-missing")
+
+    def test_fit_marks_standardized(self):
+        report = compute_factor_ols_report(rising_bars(50), horizon_days=3, min_history=12)
+        self.assertTrue(report.get("success"), report.get("error"))
+        self.assertTrue(report.get("standardized"))
+        self.assertIn("z-score", (report.get("note") or "").lower())
+        self.assertIn("regime", (report.get("note") or "").lower())
+
     def test_panel_has_pool_button(self):
         path = os.path.join(ROOT, "web", "static", "partials", "quant_panel.html")
         with open(path, encoding="utf-8") as f:

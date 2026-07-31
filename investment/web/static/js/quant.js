@@ -246,9 +246,7 @@ export function initQuant(ctx) {
           new Promise((resolve) => setTimeout(resolve, 12000)),
         ]);
       }
-      if (page === "quant" && quantFactorList) {
-        setQuantMeta("分析 IC/OLS/ 权重…", { busy: true });
-      } else if (quantMeta) {
+      if (quantMeta) {
         setQuantMeta("只读建议 · 不写 signal_config");
       }
       if (useDialog) quantDialog.showModal();
@@ -719,23 +717,28 @@ export function initQuant(ctx) {
       return;
     }
     const hints = data.hints || [];
-    const rows = hints
-      .map((h) => {
-        const lvl = h.level || "info";
-        const cls = lvl === "warn" ? "down" : "";
-        return (
-          `<tr class="${cls}"><td>${escapeHtml(lvl)}</td>` +
-          `<td>${escapeHtml(h.code || "")}</td>` +
-          `<td>${escapeHtml(h.message || "")}</td></tr>`
-        );
-      })
-      .join("");
     el.innerHTML =
       `<p class="quant-trades-caption">回测–纸面落差归因（启发式 · warn ${
         data.warn_count ?? 0
       }）</p>` +
-      `<table class="quant-weight-table"><thead><tr><th>级别</th><th>码</th><th>说明</th></tr></thead>` +
-      `<tbody>${rows}</tbody></table>` +
+      researchGridHtml(
+        [
+          { id: "level", label: "级别", widthPct: 14, center: true },
+          { id: "code", label: "码", widthPct: 22 },
+          { id: "message", label: "说明", flex: true },
+        ],
+        hints.map((h) => ({
+          level: h.level || "info",
+          code: h.code || "",
+          message: h.message || "",
+          isWarn: (h.level || "") === "warn",
+        })),
+        (col, d) => escapeHtml(d[col.id] ?? "—"),
+        {
+          emptyText: "无归因项",
+          rowClass: (d) => (d.isWarn ? "down" : ""),
+        }
+      ) +
       `<p class="quant-sub">${escapeHtml(data.note || "")} · 拟合 KPI 见 <a href="/platform">平台北极星</a></p>`;
   }
 
@@ -1190,12 +1193,13 @@ export function initQuant(ctx) {
         `<p class="sub">最近 Top-K 无警示。来源：<a href="/replay">历史回测</a>。</p>`;
       return;
     }
-    let rows = "";
+    const hintRows = [];
     hints.forEach((h) => {
-      rows +=
-        `<tr><td>${escapeHtml(String(h.level || "warn"))}</td>` +
-        `<td><code>${escapeHtml(String(h.code || "—"))}</code></td>` +
-        `<td>${escapeHtml(String(h.text || ""))}</td></tr>`;
+      hintRows.push({
+        level: String(h.level || "warn"),
+        code: String(h.code || "—"),
+        text: String(h.text || ""),
+      });
     });
     if (
       align &&
@@ -1203,14 +1207,28 @@ export function initQuant(ctx) {
       align.aligned_favor_pos_ic === false &&
       !hints.some((h) => h.code === "ic_align_mismatch")
     ) {
-      rows +=
-        `<tr><td>warn</td><td><code>ic_align_mismatch</code></td>` +
-        `<td>正IC窗均收益未高于非正（差 ${align.avg_return_spread_pp}pp）</td></tr>`;
+      hintRows.push({
+        level: "warn",
+        code: "ic_align_mismatch",
+        text: `正IC窗均收益未高于非正（差 ${align.avg_return_spread_pp}pp）`,
+      });
     }
     el.innerHTML =
       head +
-      (rows
-        ? `<table class="quant-weight-table"><thead><tr><th>级别</th><th>码</th><th>说明</th></tr></thead><tbody>${rows}</tbody></table>`
+      (hintRows.length
+        ? researchGridHtml(
+            [
+              { id: "level", label: "级别", widthPct: 14, center: true },
+              { id: "code", label: "码", widthPct: 26 },
+              { id: "text", label: "说明", flex: true },
+            ],
+            hintRows,
+            (col, d) =>
+              col.id === "code"
+                ? `<code>${escapeHtml(d.code)}</code>`
+                : escapeHtml(d[col.id] ?? "—"),
+            { emptyText: "无 warn 项" }
+          )
         : `<p class="sub">无 warn 项。</p>`) +
       `<p class="sub">研究警示，默认不硬拦 promote；回测页可开「IC硬闸」；策略页可开「过期硬拦晋升」。提示 TTL ${ttlH}h（可改）。</p>`;
   }
@@ -2382,15 +2400,20 @@ export function initQuant(ctx) {
     const excl = (uni.excluded || []).slice(0, 8).join("、") || "—";
     const dropped = uni.dropped_thin || [];
     const fail = uni.load_failures || [];
-    let rows = "";
+    const dropRows = [];
     dropped.slice(0, 12).forEach((d) => {
-      rows +=
-        `<tr><td>${escapeHtml(String(d.stock_code || "—"))}</td>` +
-        `<td>短序列</td><td>${escapeHtml(String(d.reason || d.bars || "—"))}</td></tr>`;
+      dropRows.push({
+        code: String(d.stock_code || "—"),
+        reason: "短序列",
+        detail: String(d.reason || d.bars || "—"),
+      });
     });
     fail.slice(0, 8).forEach((f) => {
-      rows +=
-        `<tr><td colspan="2">${escapeHtml(String(f))}</td><td>拉日线失败/过短</td></tr>`;
+      dropRows.push({
+        code: String(f),
+        reason: "拉日线失败",
+        detail: "过短/失败",
+      });
     });
     el.innerHTML =
       `<p class="quant-trades-caption">验证宇宙 · ${escapeHtml(src)} · 候选 ${
@@ -2400,26 +2423,42 @@ export function initQuant(ctx) {
       (uni.dropped_thin_count ? ` · 排除短序列 ${uni.dropped_thin_count}` : "") +
       `</p>` +
       `<p class="sub">exclude：${escapeHtml(excl)}</p>` +
-      (rows
-        ? `<table class="quant-weight-table"><thead><tr><th>代码</th><th>原因</th><th>说明</th></tr></thead><tbody>${rows}</tbody></table>`
+      (dropRows.length
+        ? researchGridHtml(
+            [
+              { id: "code", label: "代码", widthPct: 22 },
+              { id: "reason", label: "原因", widthPct: 22 },
+              { id: "detail", label: "说明", flex: true },
+            ],
+            dropRows,
+            (col, d) => escapeHtml(d[col.id] ?? "—"),
+            { emptyText: "无剔除项" }
+          )
         : `<p class="sub">${escapeHtml(uni.note || "")}</p>`);
     const filt = uni.filters || {};
     const fd = uni.filter_dropped || [];
     if (filt.exclude_st || filt.min_avg_amount_pctile != null || fd.length) {
-      let frows = "";
-      fd.slice(0, 12).forEach((d) => {
-        frows +=
-          `<tr><td>${escapeHtml(String(d.stock_code || "—"))}</td>` +
-          `<td>过滤</td><td>${escapeHtml(String(d.reason || "—"))}</td></tr>`;
-      });
+      const frows = fd.slice(0, 12).map((d) => ({
+        code: String(d.stock_code || "—"),
+        reason: "过滤",
+        detail: String(d.reason || "—"),
+      }));
       el.innerHTML +=
         `<p class="sub">过滤 · 剔ST=${filt.exclude_st ? "是" : "否"}` +
         (filt.min_avg_amount_pctile != null
           ? ` · 成交额≥${filt.min_avg_amount_pctile}%分位`
           : "") +
         ` · 保留 ${filt.kept ?? "—"} · 剔除 ${filt.dropped_count ?? fd.length}</p>` +
-        (frows
-          ? `<table class="quant-weight-table"><thead><tr><th>代码</th><th></th><th>说明</th></tr></thead><tbody>${frows}</tbody></table>`
+        (frows.length
+          ? researchGridHtml(
+              [
+                { id: "code", label: "代码", widthPct: 22 },
+                { id: "reason", label: "原因", widthPct: 18 },
+                { id: "detail", label: "说明", flex: true },
+              ],
+              frows,
+              (col, d) => escapeHtml(d[col.id] ?? "—")
+            )
           : "");
     }
   }
@@ -4921,7 +4960,7 @@ export function initQuant(ctx) {
       other: { short: "未算", tip: "暂无有效 IC" },
     };
     const OLS_REASON = {
-      sparse: { short: "缺测", tip: "缺测过多，覆盖不足" },
+      sparse: { short: "缺测", tip: "有效观测过少（如缺基本面 PIT / 数据源）" },
       constant: { short: "常数", tip: "样本内几乎常数，无法估系数" },
       coverage: { short: "覆盖", tip: "为凑完整行被剔除" },
       collinear: { short: "共线", tip: "共线/奇异被剔除" },
@@ -5259,27 +5298,64 @@ export function initQuant(ctx) {
       `Top ${data.ranked_count} / 候选 ${data.candidate_count} · min_score=${data.min_score}${neutNote}`,
       { busy: false }
     );
-    const rows = (data.ranking || [])
-      .map((r, i) => {
-        const raw = r.score_raw != null ? r.score_raw : "—";
-        const name = r.stock_name || r.stock_code || "—";
-        return `<tr>
-          <td class="num">${i + 1}</td>
-          <td>${name}</td>
-          <td class="num">${r.score ?? "—"}</td>
-          <td class="num">${raw}</td>
-          <td class="sub">${r.data_source || ""}</td>
-        </tr>`;
-      })
-      .join("");
-    if (quantCrossList) {
-      quantCrossList.innerHTML = rows
-        ? `<table class="quant-weight-table quant-cross-table">
-          <thead><tr><th>#</th><th>标的</th><th>score</th><th>raw</th><th>源</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>`
-        : `<p class="watching-table-empty">无排序结果</p>`;
+    const ranking = Array.isArray(data.ranking) ? data.ranking : [];
+    if (!quantCrossList) return;
+    if (!ranking.length) {
+      quantCrossList.innerHTML = `<p class="watching-table-empty">无排序结果</p>`;
+      return;
     }
+    const rows = ranking.map((r, i) => {
+      const code = String(r.stock_code || "").trim();
+      const name = r.stock_name || code || "—";
+      const score =
+        r.score != null && !Number.isNaN(Number(r.score))
+          ? String(Math.round(Number(r.score)))
+          : "—";
+      const raw =
+        r.score_raw != null && !Number.isNaN(Number(r.score_raw))
+          ? String(Math.round(Number(r.score_raw)))
+          : r.score_raw != null
+            ? String(r.score_raw)
+            : "—";
+      return {
+        rank: String(i + 1),
+        code,
+        name,
+        score,
+        raw,
+        source: r.data_source || "—",
+      };
+    });
+    quantCrossList.innerHTML = researchGridHtml(
+      [
+        {
+          id: "rank",
+          label: "#",
+          widthPct: 8,
+          num: true,
+          headClass: "watching-col-center",
+          cellClass: "watching-col-center",
+        },
+        { id: "name", label: "股票", flex: true, cellClass: "watching-stock" },
+        { id: "score", label: "评分", widthPct: 14, num: true },
+        { id: "raw", label: "raw", widthPct: 14, num: true },
+        { id: "source", label: "源", widthPct: 22 },
+      ],
+      rows,
+      (col, d) => {
+        if (col.id === "name") {
+          return (
+            `<div class="watching-stock" title="${escapeHtml(
+              (d.name || "") + " " + (d.code || "")
+            )}">` +
+            watchingNameSpanHtml(d.name || d.code) +
+            `<span class="watching-code-sub">${escapeHtml(d.code || "")}</span></div>`
+          );
+        }
+        return escapeHtml(d[col.id] ?? "—");
+      },
+      { emptyText: "无排序结果" }
+    );
   }
 
   async function refreshCrossSection() {
@@ -5312,11 +5388,12 @@ export function initQuant(ctx) {
     const pooled = data.mode === "watching_pooled" || data.task === "factor_ols_pool";
     const codes = Array.isArray(data.stock_codes) ? data.stock_codes.filter(Boolean) : [];
     const codeNote = codes.length ? ` · ${codes.join("、")}` : "";
+    const zNote = data.standardized ? " · z-score β" : "";
     let olsText = pooled
-      ? `池内 OLS · ${data.stock_count ?? codes.length ?? "—"} 只${codeNote} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"} · 不写 config`
-      : `OLS · ${data.stock_code || ""} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"} · 不写 config`;
+      ? `池内 OLS · ${data.stock_count ?? codes.length ?? "—"} 只${codeNote} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"} · 全量因子${zNote} · 不写 config`
+      : `OLS · ${data.stock_code || ""} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"} · 全量因子${zNote} · 不写 config`;
     if ((data.excluded_features || []).length) {
-      olsText += ` · 未入模 ${data.excluded_features.length}（缺测/常数）`;
+      olsText += ` · 未入模 ${data.excluded_features.length}（缺测/常数/覆盖）`;
     }
     setBusyText(quantOlsSummary, olsText, { busy: false });
     renderMergedFactorTable();
@@ -5610,7 +5687,6 @@ export function initQuant(ctx) {
   });
 
   async function runFactorIcSuggest() {
-    setQuantMeta("分析 IC/OLS/ 权重…", { busy: true });
     const [expRes, sugRes] = await Promise.all([
       fetch("/api/quant/factor-experiment", {
         method: "POST",
@@ -5639,7 +5715,6 @@ export function initQuant(ctx) {
 
   async function runFactorOlsPoolSuggest() {
     setBusyText(quantOlsSummary, "研究池 OLS 中…", { busy: true });
-    setQuantMeta("研究池 OLS 中…", { busy: true });
     await ensureFactorMeta();
     const res = await fetch("/api/quant/factor-ols-pool", {
       method: "POST",
@@ -5667,7 +5742,9 @@ export function initQuant(ctx) {
       const codes = Array.isArray(data.stock_codes) ? data.stock_codes.filter(Boolean) : [];
       const codeNote = codes.length ? ` · ${codes.join("、")}` : "";
       setQuantMeta(
-        `池内 OLS · ${data.stock_count ?? codes.length ?? "—"} 只${codeNote} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"}`
+        `池内 OLS · ${data.stock_count ?? codes.length ?? "—"} 只${codeNote} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"}${
+          data.standardized ? " · z-score β" : ""
+        }`
       );
     } else {
       setQuantMeta((data && data.error) || "池内 OLS 失败", { error: true });
@@ -5809,7 +5886,6 @@ export function initQuant(ctx) {
   }
 
   async function runAllSuggest() {
-    setQuantMeta("分析 IC/OLS/ 权重…", { busy: true });
     setBusyText(quantOlsSummary, "分析中…", { busy: true });
     setBusyText(quantThresholdSummary, "分析中…", { busy: true });
     // 忙碌态只留在摘要行，避免表内再叠一句「分析中…」
@@ -6356,9 +6432,9 @@ export function initQuant(ctx) {
         ? `最优(样本内) lookback=${best.lookback} · top_k=${best.top_k} · 收益 ${best.total_return_pct}% · ${data.cell_count} 格 · 网格跳过 WF/OOS`
         : `完成 ${data.cell_count} 格 · 无成功单元 · 网格为样本内扫描`;
       if (data.multiple_testing_note) {
-        text += ` · ${data.multiple_testing_note}`;
+        t += ` · ${data.multiple_testing_note}`;
       } else if (data.trial_count != null) {
-        text += ` · trial_count=${data.trial_count}`;
+        t += ` · trial_count=${data.trial_count}`;
       }
       if (dull && dull.sharp) {
         t += ` · ⚠邻格Δ最大 ${dull.max_gap_pp}pp（参数过尖，应用前请二次确认）`;
@@ -6370,25 +6446,38 @@ export function initQuant(ctx) {
     drawParamHeatmap(data.cells || [], data.axes || {});
     refreshParamGridApplyGate();
     if (!table) return;
-    const rows = (data.cells || [])
-      .map((c) => {
+    table.innerHTML = researchGridHtml(
+      [
+        { id: "lookback", label: "lookback", widthPct: 18, num: true },
+        { id: "top_k", label: "top_k", widthPct: 14, num: true },
+        { id: "ret", label: "收益", widthPct: 22, num: true },
+        { id: "dd", label: "回撤", widthPct: 22, num: true },
+        { id: "n", label: "笔数", widthPct: 14, num: true },
+      ],
+      (data.cells || []).map((c) => {
         const ret = c.total_return_pct;
-        const bestCls =
-          best && c.lookback === best.lookback && c.top_k === best.top_k ? " is-best" : "";
-        return (
-          `<tr class="${bestCls.trim()}">` +
-          `<td class="num">${escapeHtml(String(c.lookback))}</td>` +
-          `<td class="num">${escapeHtml(String(c.top_k))}</td>` +
-          `<td class="num ${metricClass(ret)}">${c.success ? fmtPct(ret) : escapeHtml(c.error || "失败")}</td>` +
-          `<td class="num">${fmtPct(c.max_drawdown_pct)}</td>` +
-          `<td class="num">${escapeHtml(String(c.trade_count ?? "—"))}</td></tr>`
-        );
-      })
-      .join("");
-    table.innerHTML =
-      `<table class="quant-weight-table"><thead><tr>` +
-      `<th>lookback</th><th>top_k</th><th>收益</th><th>回撤</th><th>笔数</th>` +
-      `</tr></thead><tbody>${rows}</tbody></table>`;
+        const isBest =
+          best && c.lookback === best.lookback && c.top_k === best.top_k;
+        return {
+          lookback: String(c.lookback),
+          top_k: String(c.top_k),
+          retText: c.success ? fmtPct(ret) : String(c.error || "失败"),
+          retCls: c.success ? metricClass(ret) : "down",
+          dd: fmtPct(c.max_drawdown_pct),
+          n: String(c.trade_count ?? "—"),
+          isBest,
+        };
+      }),
+      (col, d) => {
+        if (col.id === "ret") return metricCell(escapeHtml(d.retText), d.retCls);
+        if (col.id === "dd") return escapeHtml(d.dd);
+        return escapeHtml(d[col.id] ?? "—");
+      },
+      {
+        emptyText: "无网格结果",
+        rowClass: (d) => (d.isBest ? "is-best" : ""),
+      }
+    );
   }
 
   async function runParamGrid() {

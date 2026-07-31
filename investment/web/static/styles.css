@@ -7998,6 +7998,16 @@ html[data-density="compact"] .table-pager {
   background: color-mix(in srgb, var(--danger, #f5222d) 8%, var(--surface));
 }
 
+/* 回测网格最优格 / 警示行 */
+.quant-research-grid .watching-react-grid-row.is-best {
+  background: color-mix(in srgb, var(--accent, #2563eb) 10%, var(--surface));
+}
+
+.quant-research-grid .watching-react-grid-row.down,
+.quant-research-grid .watching-react-grid-row.is-warn {
+  background: color-mix(in srgb, var(--danger, #f5222d) 7%, var(--surface));
+}
+
 #quant-bt-trades.quant-weight-table-wrap {
   overflow-x: hidden;
 }

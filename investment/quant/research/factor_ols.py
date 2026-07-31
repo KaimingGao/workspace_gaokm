@@ -2,15 +2,18 @@
 
 - 单票 walk-forward：``compute_factor_ols_report``
 - 研究池堆叠时序：``compute_factor_ols_pooled_report``（非逐日截面 Fama–MacBeth）
+
+研究路径与生产 ``score_bars`` 解耦：全量注册因子、不走 regime 择时白名单；
+拟合前对入模列做样本内 z-score，β 表示 1σ 偏效应（勿与 config 权重同量级对比）。
 """
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.signal.config import load_signal_config
-from core.signal.factor_registry import registered_factor_names
-from core.signal.scorer import score_bars
+from core.signal.factor_registry import compute_factor, registered_factor_names
 
 
 def _forward_return(bars: List[dict], idx: int, horizon: int) -> Optional[float]:
@@ -21,6 +24,34 @@ def _forward_return(bars: List[dict], idx: int, horizon: int) -> Optional[float]
     if not entry:
         return None
     return (exit_p / entry - 1.0) * 100.0
+
+
+def _research_sub_scores(
+    window: List[dict],
+    *,
+    quote: Optional[dict] = None,
+    index_bars: Optional[List[dict]] = None,
+    fundamentals: Optional[dict] = None,
+    factor_names: Optional[Tuple[str, ...]] = None,
+) -> Dict[str, Optional[float]]:
+    """研究用：逐个算注册因子，绕开 score_bars / regime enabled_factors。"""
+    names = factor_names or registered_factor_names()
+    row: Dict[str, Optional[float]] = {}
+    for key in names:
+        try:
+            score, _meta = compute_factor(
+                key,
+                window,
+                quote=quote,
+                index_bars=index_bars,
+                fundamentals=fundamentals,
+                sentiment=None,
+                money_flow=None,
+            )
+            row[key] = float(score)
+        except Exception:
+            row[key] = None
+    return row
 
 
 def collect_subscore_forward_panel(
@@ -36,7 +67,7 @@ def collect_subscore_forward_panel(
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float]]:
     """对齐子因子与 forward return，供 OLS / 研究面板复用。
 
-    因子可缺测（None）；不再要求当日全部因子齐全，否则加厚后样本会被清空。
+    全量注册因子（不经 regime 白名单）；因子可缺测（None）。
     E2：默认按决策日 PIT 解析财务。
     """
     horizon_days = max(1, min(int(horizon_days or 3), 10))
@@ -69,6 +100,8 @@ def collect_subscore_forward_panel(
     for i in range(min_history - 1, n - horizon_days):
         start = max(0, i - max_window + 1)
         window = bars[start : i + 1]
+        if len(window) < 2:
+            continue
         quote = {"change_raw": 0.0, "price_raw": bars[i]["close"]}
         if i >= 1:
             c0 = bars[i - 1]["close"]
@@ -78,36 +111,50 @@ def collect_subscore_forward_panel(
 
         idx_slice = index_bars[start : i + 1] if index_bars else None
         decision_date = str((bars[i] or {}).get("date") or "")[:10]
-        scored = score_bars(
-            window,
-            horizon_days=horizon_days,
-            quote=quote,
-            index_bars=idx_slice,
-            fundamentals=_fund_for(decision_date),
-        )
-        if scored.get("hard_reject"):
-            continue
 
         fr = _forward_return(bars, i, horizon_days)
         if fr is None:
             continue
 
-        sub = scored.get("sub_scores") or {}
-        row: Dict[str, Optional[float]] = {}
-        any_val = False
-        for key in factor_names:
-            v = sub.get(key)
-            if v is None:
-                row[key] = None
-            else:
-                row[key] = float(v)
-                any_val = True
-        if not any_val:
+        row = _research_sub_scores(
+            window,
+            quote=quote,
+            index_bars=idx_slice,
+            fundamentals=_fund_for(decision_date),
+            factor_names=factor_names,
+        )
+        if not any(v is not None for v in row.values()):
             continue
         xs.append(row)
         ys.append(fr)
 
     return xs, ys
+
+
+def _zscore_complete_panel(
+    xs: List[Dict[str, float]],
+    active: List[str],
+    *,
+    eps: float = 1e-6,
+) -> Tuple[List[Dict[str, float]], Dict[str, float], Dict[str, float]]:
+    """对完整子面板做样本内 z-score；方差过小的列 std 置 1（随后会被常数剔除兜底）。"""
+    means: Dict[str, float] = {}
+    stds: Dict[str, float] = {}
+    n = len(xs)
+    if n == 0 or not active:
+        return xs, means, stds
+    for name in active:
+        vals = [float(row[name]) for row in xs]
+        mean = sum(vals) / n
+        var = sum((v - mean) ** 2 for v in vals) / n
+        std = math.sqrt(var) if var > eps * eps else 1.0
+        means[name] = mean
+        stds[name] = std
+    xs_z = [
+        {name: (float(row[name]) - means[name]) / stds[name] for name in active}
+        for row in xs
+    ]
+    return xs_z, means, stds
 
 
 def _prepare_complete_panel(
@@ -355,19 +402,27 @@ def fit_factor_ols_from_panel(
     pit_fundamentals: bool = True,
     mode: str = "single",
     stock_codes: Optional[List[str]] = None,
+    standardize: bool = True,
 ) -> Dict[str, Any]:
-    """对已对齐的 (sub_scores, forward return) 面板拟合 OLS。"""
+    """对已对齐的 (sub_scores, forward return) 面板拟合 OLS。
+
+    默认对入模列做样本内 z-score，使 β 为「因子高 1σ → 前瞻收益变多少百分点」；
+    负号表示偏相关为负，勿直接与 config.weights 比大小。
+    """
     factor_names = registered_factor_names()
     cfg = load_signal_config()
     current_weights = dict(cfg.get("weights") or {})
     xs_c, ys_c, active, excluded, prep_meta = _prepare_complete_panel(
         xs, ys, factor_names
     )
-    fit = (
-        _ols_with_intercept(xs_c, ys_c, active, excluded)
-        if xs_c is not None and ys_c is not None
-        else None
-    )
+    z_means: Dict[str, float] = {}
+    z_stds: Dict[str, float] = {}
+    fit = None
+    if xs_c is not None and ys_c is not None and active:
+        xs_fit = xs_c
+        if standardize:
+            xs_fit, z_means, z_stds = _zscore_complete_panel(xs_c, active)
+        fit = _ols_with_intercept(xs_fit, ys_c, active, excluded)
 
     task = "factor_ols_pool" if mode == "watching_pooled" else "factor_ols"
     if not fit:
@@ -386,6 +441,7 @@ def fit_factor_ols_from_panel(
             "excluded_features": excl,
             "exclusion_reasons": _exclusion_reasons_map(prep_meta, excluded=excl),
             "prep_meta": prep_meta,
+            "standardized": bool(standardize),
             "current_weights": {k: round(float(v), 4) for k, v in current_weights.items()},
             "task": task,
             "mode": mode,
@@ -396,9 +452,15 @@ def fit_factor_ols_from_panel(
         return err
 
     note_parts = [
-        "面板 OLS 仅供研究对比 config.weights，不自动写 signal_config。",
-        "缺测因子已自动剔除后再拟合。",
+        "面板 OLS 仅供研究对比，不自动写 signal_config。",
+        "研究路径全量注册因子（不经 regime 择时白名单）。",
+        "缺测/常数/覆盖不足因子已自动剔除后再拟合。",
     ]
+    if standardize:
+        note_parts.append(
+            "系数基于样本内 z-score：β≈因子高 1σ 时前瞻收益变多少百分点；"
+            "负号=偏相关为负，勿与 config.weights 同量级对比。"
+        )
     if mode == "watching_pooled":
         note_parts.append(
             "模式：研究池堆叠时序面板（非逐日截面 Fama–MacBeth）；系数比单票稳，仍非生产权重。"
@@ -434,6 +496,9 @@ def fit_factor_ols_from_panel(
         "active_features": fit.get("active_features") or [],
         "excluded_features": fit.get("excluded_features") or [],
         "exclusion_reasons": excl_reasons,
+        "standardized": bool(standardize),
+        "zscore_means": {k: round(v, 4) for k, v in z_means.items()},
+        "zscore_stds": {k: round(v, 4) for k, v in z_stds.items()},
         "current_weights": {k: round(float(v), 4) for k, v in current_weights.items()},
         "fundamentals_used": fundamentals_used,
         "pit_fundamentals": bool(pit_fundamentals),

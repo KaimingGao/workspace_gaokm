@@ -146,12 +146,13 @@ def summarize_factor_ols(factor_ols: Dict[str, Any]) -> Optional[Dict[str, Any]]
             continue
     deltas.sort(key=lambda x: abs(x["delta"]), reverse=True)
     excluded = factor_ols.get("excluded_features") or []
+    z_tag = " · z-score β" if factor_ols.get("standardized") else ""
     line = (
-        f"因子 OLS：R²={factor_ols.get('r_squared')} · n={factor_ols.get('sample_count')} "
-        f"（研究用，不自动写 signal_config）"
+        f"因子 OLS：R²={factor_ols.get('r_squared')} · n={factor_ols.get('sample_count')}"
+        f"{z_tag} （全量因子研究用，不自动写 signal_config）"
     )
     if excluded:
-        line += f" · 剔除常数因子 {len(excluded)} 个"
+        line += f" · 未入模 {len(excluded)} 个"
     return {
         "summary_line": line,
         "r_squared": factor_ols.get("r_squared"),

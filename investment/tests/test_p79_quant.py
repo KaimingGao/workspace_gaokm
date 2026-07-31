@@ -12,8 +12,9 @@ class TestP79WebCrossSectionScoreTable(unittest.TestCase):
         path = os.path.join(ROOT, "web", "static", "js", "quant.js")
         with open(path, encoding="utf-8") as f:
             js = f.read()
-        self.assertIn("quant-cross-table", js)
+        self.assertIn("researchGridHtml", js)
         self.assertIn("score_raw", js)
+        self.assertIn("quant-cross-list", js)
 
     def test_html_cross_section_wrap(self):
         path = os.path.join(ROOT, "web", "static", "partials", "quant_panel.html")
