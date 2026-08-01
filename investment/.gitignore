@@ -14,6 +14,8 @@ data/reports/
 data/logs/
 data/store/daily/**/*.json
 data/store/news/**/*.json
+data/store/fundamentals/**/*.json
+data/store/minute/**/*.json
 data/store/spot_a_em.json
 data/paper.json
 data/memory.json
