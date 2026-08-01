@@ -68,7 +68,13 @@ const COLS = [
   { id: "cost", label: "成本", widthPct: 9, num: true, title: "持仓加权平均成本，对账用" },
   { id: "market_value", label: "市值", widthPct: 10, num: true, sortable: true },
   { id: "score", label: "评分", widthPct: 7, num: true, sortable: true },
-  { id: "pnl", label: "浮盈亏", widthPct: 8, num: true },
+  {
+    id: "pnl",
+    label: "浮盈亏",
+    widthPct: 8,
+    num: true,
+    title: "相对持仓成本：(现价÷成本−1)×100%；加仓则为加权成本，非当日涨跌",
+  },
   { id: "since", label: "开始", widthPct: 9 },
   { id: "origin", label: "出处", widthPct: 8, cellClass: "paper-hold-origin", headClass: "paper-hold-origin" },
 ];

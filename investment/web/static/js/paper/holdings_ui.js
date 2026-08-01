@@ -207,7 +207,8 @@ export function buildPaperHoldingsTableHtml({
     `<div class="paper-holdings-scroll">` +
     `<table class="quant-weight-table paper-holdings-table"><thead><tr>` +
     `<th>股票</th><th>股数</th><th>现价</th><th title="持仓加权平均成本，对账用">成本</th>` +
-    `${sortThHtml("市值", "market_value")}${sortThHtml("评分", "score")}<th>浮盈亏</th>` +
+    `${sortThHtml("市值", "market_value")}${sortThHtml("评分", "score")}` +
+    `<th title="相对持仓成本：(现价÷成本−1)×100%；加仓则为加权成本，非当日涨跌">浮盈亏</th>` +
     `<th>开始</th><th class="paper-hold-origin">出处</th>` +
     `</tr></thead><tbody>${rows}</tbody></table></div>`;
 
