@@ -152,6 +152,7 @@ class QuantFactorMixin:
         *,
         lookback: int = 120,
         horizon_days: int = 3,
+        ridge_lambda: float = 0.0,
     ) -> Dict[str, Any]:
         from quant.research.factor_ols import compute_factor_ols_report
         from core.data_service import bars_and_source, get_quote
@@ -176,6 +177,7 @@ class QuantFactorMixin:
             fundamentals=fundamentals,
             stock_code=str(sym or code),
             pit_fundamentals=True,
+            ridge_lambda=ridge_lambda,
         )
         report["stock_code"] = sym
         report["data_source"] = src
@@ -188,6 +190,7 @@ class QuantFactorMixin:
         lookback: int = 120,
         horizon_days: int = 3,
         watching_limit: int = 8,
+        ridge_lambda: float = 0.0,
     ) -> Dict[str, Any]:
         """研究池多票堆叠时序 OLS（显式触发；不写 config）。"""
         from quant.research.factor_ols import compute_factor_ols_pooled_report
@@ -235,7 +238,7 @@ class QuantFactorMixin:
             )
 
         report = compute_factor_ols_pooled_report(
-            panels, horizon_days=horizon_days
+            panels, horizon_days=horizon_days, ridge_lambda=ridge_lambda
         )
         report["task"] = "factor_ols_pool"
         report["lookback"] = lookback
@@ -372,15 +375,79 @@ class QuantFactorMixin:
     def suggest_weights(self, code: str = "茅台", **kwargs: Any) -> Dict[str, Any]:
         from core.signal.weight_suggest import format_weight_config_diff, suggest_weights_from_ic
 
-        exp = self.run_factor_experiment(code, **kwargs)
+        lookback = int(kwargs.get("lookback") or 120)
+        horizon_days = int(kwargs.get("horizon_days") or 3)
+        use_cs_ic = bool(kwargs.get("use_cs_ic", True))
+        watching_limit = int(kwargs.get("watching_limit") or 12)
+
+        ic_mode = "single"
+        exp: Dict[str, Any]
+        cs_ic: Optional[Dict[str, Any]] = None
+        if use_cs_ic:
+            cs_ic = self.run_factor_cs_ic_experiment(
+                lookback=lookback,
+                horizon_days=horizon_days,
+                watching_limit=watching_limit,
+            )
+            if cs_ic.get("success") and (cs_ic.get("factors") or []):
+                exp = cs_ic
+                ic_mode = "cs_ic"
+            else:
+                exp = self.run_factor_experiment(
+                    code, lookback=lookback, horizon_days=horizon_days
+                )
+                ic_mode = "single"
+        else:
+            exp = self.run_factor_experiment(
+                code, lookback=lookback, horizon_days=horizon_days
+            )
+
         if not exp.get("success"):
             return exp
-        corr = self.run_factor_corr(codes=None, limit=30)
+
+        ols = self.run_factor_ols_experiment(
+            code,
+            lookback=lookback,
+            horizon_days=horizon_days,
+            ridge_lambda=float(kwargs.get("ridge_lambda") or 0.0),
+        )
+        corr = self.run_factor_corr(codes=None, limit=30, horizon_days=horizon_days)
         suggestion = suggest_weights_from_ic(
             exp,
+            ols_report=ols if ols.get("success") else None,
             corr_report=corr if corr.get("success") else None,
+            ic_mode=ic_mode,
         )
+        run_oos_gate = bool(kwargs.get("run_oos_gate", True))
+        oos_gate: Optional[Dict[str, Any]] = None
+        if run_oos_gate and suggestion.get("success"):
+            from core.signal.weight_oos_gate import evaluate_weight_suggestion_oos
+
+            oos_gate = evaluate_weight_suggestion_oos(
+                suggestion.get("current_weights") or {},
+                suggestion.get("suggested_weights") or {},
+                lookback=min(lookback, 90),
+                top_k=int(kwargs.get("oos_top_k") or 3),
+                horizon_days=horizon_days,
+                watching_limit=min(watching_limit, 10),
+                oos_tol_pp=float(kwargs.get("oos_tol_pp") or 1.0),
+            )
+            suggestion["oos_gate"] = oos_gate
+            suggestion["promote_ready"] = bool(
+                oos_gate.get("ok") and oos_gate.get("passed") and not oos_gate.get("skipped")
+            )
+        else:
+            suggestion["oos_gate"] = {
+                "ok": False,
+                "passed": False,
+                "skipped": True,
+                "reason": "gate_disabled",
+            }
+            suggestion["promote_ready"] = False
+
         suggestion["factor_experiment"] = exp
+        suggestion["factor_cs_ic"] = cs_ic
+        suggestion["factor_ols"] = ols
         suggestion["factor_corr"] = corr
         suggestion["config_diff"] = format_weight_config_diff(suggestion)
         return suggestion

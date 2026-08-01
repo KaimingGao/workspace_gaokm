@@ -5,6 +5,7 @@
 
 研究路径与生产 ``score_bars`` 解耦：全量注册因子、不走 regime 择时白名单；
 拟合前对入模列做样本内 z-score，β 表示 1σ 偏效应（勿与 config 权重同量级对比）。
+求解：默认 QR 最小二乘；``ridge_lambda>0`` 时用 Ridge（截距不惩罚），缓解共线与过拟合。
 """
 
 from __future__ import annotations
@@ -12,8 +13,21 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
+import numpy as np
+
 from core.signal.config import load_signal_config
 from core.signal.factor_registry import compute_factor, registered_factor_names
+
+
+def clamp_ridge_lambda(value: Any, default: float = 0.0) -> float:
+    """研究用 Ridge λ：``[0, 100]``；非法则回落 default。"""
+    try:
+        x = float(value)
+    except (TypeError, ValueError):
+        return float(default)
+    if not math.isfinite(x) or x < 0:
+        return float(default)
+    return float(min(x, 100.0))
 
 
 def _forward_return(bars: List[dict], idx: int, horizon: int) -> Optional[float]:
@@ -250,45 +264,72 @@ def _prepare_complete_panel(
     return None, None, [], feature_names[:], meta
 
 
-def _gauss_solve(matrix: List[List[float]], rhs: List[float]) -> Optional[List[float]]:
-    n = len(matrix)
-    if n == 0 or len(rhs) != n:
-        return None
-    aug = [row[:] + [rhs[i]] for i, row in enumerate(matrix)]
+def _qr_lstsq(design: List[List[float]], ys: List[float]) -> Optional[List[float]]:
+    """最小二乘：X = QR（economy），解 R β = Qᵀ y；秩亏返回 None。
 
-    rank = 0
-    for col in range(n):
-        pivot = max(range(col, n), key=lambda r: abs(aug[r][col]))
-        if abs(aug[pivot][col]) < 1e-12:
-            continue
-        rank += 1
-        aug[col], aug[pivot] = aug[pivot], aug[col]
-        pv = aug[col][col]
-        for r in range(col + 1, n):
-            factor = aug[r][col] / pv
-            if factor == 0:
-                continue
-            for c in range(col, n + 1):
-                aug[r][c] -= factor * aug[col][c]
-
-    if rank < n:
+    相对正规方程 + 高斯消元，条件数不平方，数值更稳。
+    """
+    x = np.asarray(design, dtype=np.float64)
+    y = np.asarray(ys, dtype=np.float64)
+    if x.ndim != 2 or y.ndim != 1 or x.shape[0] != y.shape[0] or x.shape[1] < 1:
         return None
 
-    out = [0.0] * n
-    for i in range(n - 1, -1, -1):
-        if abs(aug[i][i]) < 1e-12:
-            return None
-        out[i] = aug[i][n]
-        for j in range(i + 1, n):
-            out[i] -= aug[i][j] * out[j]
-        out[i] /= aug[i][i]
-    return out
+    n, m = x.shape
+    q, r = np.linalg.qr(x, mode="reduced")
+    diag = np.abs(np.diag(r))
+    if diag.size < m:
+        return None
+    scale = float(diag.max()) if diag.size else 0.0
+    tol = max(n, m) * np.finfo(np.float64).eps * max(scale, 1.0)
+    if float(diag.min()) <= tol:
+        return None
+
+    try:
+        beta = np.linalg.solve(r, q.T @ y)
+    except np.linalg.LinAlgError:
+        return None
+    if not np.all(np.isfinite(beta)):
+        return None
+    return [float(v) for v in beta]
+
+
+def _ridge_lstsq(
+    design: List[List[float]],
+    ys: List[float],
+    ridge_lambda: float,
+) -> Optional[List[float]]:
+    """Ridge：min ||y−Xβ||² + λ Σ_{j≥1} β_j²（截距 β₀ 不惩罚）。
+
+    用 Tikhonov 增广矩阵再走 QR，避免显式求 (XᵀX+λI)⁻¹。
+    """
+    lam = clamp_ridge_lambda(ridge_lambda, 0.0)
+    if lam <= 0:
+        return _qr_lstsq(design, ys)
+
+    x = np.asarray(design, dtype=np.float64)
+    y = np.asarray(ys, dtype=np.float64)
+    if x.ndim != 2 or y.ndim != 1 or x.shape[0] != y.shape[0] or x.shape[1] < 1:
+        return None
+
+    n, m = x.shape
+    if m <= 1:
+        return _qr_lstsq(design, ys)
+
+    sqrt_l = math.sqrt(lam)
+    extra = np.zeros((m - 1, m), dtype=np.float64)
+    for i in range(m - 1):
+        extra[i, i + 1] = sqrt_l
+    x_aug = np.vstack([x, extra])
+    y_aug = np.concatenate([y, np.zeros(m - 1, dtype=np.float64)])
+    return _qr_lstsq(x_aug.tolist(), y_aug.tolist())
 
 
 def _fit_ols_once(
     xs: List[Dict[str, float]],
     ys: List[float],
     active: List[str],
+    *,
+    ridge_lambda: float = 0.0,
 ) -> Optional[Dict[str, Any]]:
     n = len(ys)
     p = len(active)
@@ -299,16 +340,13 @@ def _fit_ols_once(
     for row in xs:
         design.append([1.0] + [float(row[name]) for name in active])
 
-    ata = [[0.0] * (p + 1) for _ in range(p + 1)]
-    aty = [0.0] * (p + 1)
-    for i in range(n):
-        yi = float(ys[i])
-        for j in range(p + 1):
-            aty[j] += design[i][j] * yi
-            for k in range(p + 1):
-                ata[j][k] += design[i][j] * design[i][k]
-
-    beta = _gauss_solve(ata, aty)
+    lam = clamp_ridge_lambda(ridge_lambda, 0.0)
+    y_vec = [float(y) for y in ys]
+    beta = (
+        _ridge_lstsq(design, y_vec, lam)
+        if lam > 0
+        else _qr_lstsq(design, y_vec)
+    )
     if beta is None:
         return None
 
@@ -325,6 +363,8 @@ def _fit_ols_once(
         "r_squared": round(r2, 4) if r2 is not None else None,
         "sample_count": n,
         "active": list(active),
+        "solver": "ridge" if lam > 0 else "qr",
+        "ridge_lambda": lam,
     }
 
 
@@ -355,14 +395,20 @@ def _ols_with_intercept(
     ys: List[float],
     active: List[str],
     excluded: List[str],
+    *,
+    ridge_lambda: float = 0.0,
 ) -> Optional[Dict[str, Any]]:
-    """拟合 OLS；奇异时逐个剔除共线因子。"""
+    """拟合 OLS / Ridge；纯 OLS 奇异时逐个剔除共线因子。Ridge 尽量保留全部入模列。"""
+    lam = clamp_ridge_lambda(ridge_lambda, 0.0)
     work = list(active)
     dropped_collinear: List[str] = []
     fit = None
     while work:
-        fit = _fit_ols_once(xs, ys, work)
+        fit = _fit_ols_once(xs, ys, work, ridge_lambda=lam)
         if fit is not None:
+            break
+        if lam > 0:
+            # Ridge 仍失败极少见；不再剔列以免掩盖数值问题
             break
         # 丢掉最右侧因子（通常较新/覆盖差）；保留尽量多的左侧核心因子
         dropped_collinear.append(work.pop())
@@ -388,8 +434,10 @@ def _ols_with_intercept(
         "feature_count": len(final_active) + len(all_excluded),
         "active_feature_count": len(final_active),
         "rank": len(final_active) + 1,
-        "rank_deficient": bool(all_excluded),
+        "rank_deficient": bool(dropped_collinear),
         "dropped_collinear": dropped_collinear,
+        "solver": fit.get("solver") or ("ridge" if lam > 0 else "qr"),
+        "ridge_lambda": lam,
     }
 
 
@@ -403,12 +451,15 @@ def fit_factor_ols_from_panel(
     mode: str = "single",
     stock_codes: Optional[List[str]] = None,
     standardize: bool = True,
+    ridge_lambda: float = 0.0,
 ) -> Dict[str, Any]:
-    """对已对齐的 (sub_scores, forward return) 面板拟合 OLS。
+    """对已对齐的 (sub_scores, forward return) 面板拟合 OLS / Ridge。
 
     默认对入模列做样本内 z-score，使 β 为「因子高 1σ → 前瞻收益变多少百分点」；
     负号表示偏相关为负，勿直接与 config.weights 比大小。
+    ``ridge_lambda>0`` 时收缩斜率系数（截距不惩罚），共线时尽量保留因子。
     """
+    lam = clamp_ridge_lambda(ridge_lambda, 0.0)
     factor_names = registered_factor_names()
     cfg = load_signal_config()
     current_weights = dict(cfg.get("weights") or {})
@@ -422,7 +473,9 @@ def fit_factor_ols_from_panel(
         xs_fit = xs_c
         if standardize:
             xs_fit, z_means, z_stds = _zscore_complete_panel(xs_c, active)
-        fit = _ols_with_intercept(xs_fit, ys_c, active, excluded)
+        fit = _ols_with_intercept(
+            xs_fit, ys_c, active, excluded, ridge_lambda=lam
+        )
 
     task = "factor_ols_pool" if mode == "watching_pooled" else "factor_ols"
     if not fit:
@@ -433,7 +486,7 @@ def fit_factor_ols_from_panel(
             "error": (
                 "样本不足或矩阵奇异，无法拟合 OLS"
                 f"（对齐样本 {raw_n}，注册因子 {len(factor_names)}；"
-                "缺测因子已尽量剔除仍不够，可加大 lookback / 研究池）"
+                "缺测因子已尽量剔除仍不够，可加大 lookback / 研究池 / ridge λ）"
             ),
             "sample_count": raw_n,
             "feature_count": len(factor_names),
@@ -442,6 +495,8 @@ def fit_factor_ols_from_panel(
             "exclusion_reasons": _exclusion_reasons_map(prep_meta, excluded=excl),
             "prep_meta": prep_meta,
             "standardized": bool(standardize),
+            "ridge_lambda": lam,
+            "solver": "ridge" if lam > 0 else "qr",
             "current_weights": {k: round(float(v), 4) for k, v in current_weights.items()},
             "task": task,
             "mode": mode,
@@ -456,6 +511,10 @@ def fit_factor_ols_from_panel(
         "研究路径全量注册因子（不经 regime 择时白名单）。",
         "缺测/常数/覆盖不足因子已自动剔除后再拟合。",
     ]
+    if lam > 0:
+        note_parts.append(
+            f"Ridge λ={lam:g}：斜率 L2 收缩、截距不惩罚；缓解共线，β 仍非生产权重。"
+        )
     if standardize:
         note_parts.append(
             "系数基于样本内 z-score：β≈因子高 1σ 时前瞻收益变多少百分点；"
@@ -503,6 +562,8 @@ def fit_factor_ols_from_panel(
         "fundamentals_used": fundamentals_used,
         "pit_fundamentals": bool(pit_fundamentals),
         "rank_deficient": fit.get("rank_deficient"),
+        "solver": fit.get("solver") or ("ridge" if lam > 0 else "qr"),
+        "ridge_lambda": lam,
         "prep_meta": prep_meta,
         "note": " ".join(note_parts),
     }
@@ -522,8 +583,9 @@ def compute_factor_ols_report(
     fundamentals: Optional[dict] = None,
     stock_code: Optional[str] = None,
     pit_fundamentals: bool = True,
+    ridge_lambda: float = 0.0,
 ) -> Dict[str, Any]:
-    """对 sub_scores 拟合 forward return 的 OLS（研究用，不产出生产权重 patch）。"""
+    """对 sub_scores 拟合 forward return 的 OLS/Ridge（研究用，不产出生产权重 patch）。"""
     xs, ys = collect_subscore_forward_panel(
         bars,
         horizon_days=horizon_days,
@@ -541,6 +603,7 @@ def compute_factor_ols_report(
         fundamentals_used=bool(pit_fundamentals) or fundamentals is not None,
         pit_fundamentals=pit_fundamentals,
         mode="single",
+        ridge_lambda=ridge_lambda,
     )
     if stock_code:
         out["stock_code"] = stock_code
@@ -551,8 +614,9 @@ def compute_factor_ols_pooled_report(
     stock_panels: List[Dict[str, Any]],
     *,
     horizon_days: int = 3,
+    ridge_lambda: float = 0.0,
 ) -> Dict[str, Any]:
-    """堆叠多票时序面板后拟合 OLS（研究池探针，非逐日截面回归）。
+    """堆叠多票时序面板后拟合 OLS/Ridge（研究池探针，非逐日截面回归）。
 
     每项需含 ``code`` 与 ``bars``；可选 ``index_bars`` / ``fundamentals``。
     """
@@ -595,6 +659,7 @@ def compute_factor_ols_pooled_report(
             "stock_count": len(loaded),
             "skipped": skipped,
             "horizon_days": horizon_days,
+            "ridge_lambda": clamp_ridge_lambda(ridge_lambda, 0.0),
         }
 
     out = fit_factor_ols_from_panel(
@@ -605,6 +670,7 @@ def compute_factor_ols_pooled_report(
         pit_fundamentals=True,
         mode="watching_pooled",
         stock_codes=loaded,
+        ridge_lambda=ridge_lambda,
     )
     out["skipped"] = skipped
     out["raw_row_count"] = len(all_ys)

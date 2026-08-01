@@ -22,7 +22,7 @@ class ChatResponse(BaseModel):
 class PaperRunRequest(BaseModel):
     simulate_buy: bool = False
     background: bool = False
-    strategy: str = "short"
+    strategy: str = "short_conservative"
     dry_run: bool = False
 
 
@@ -178,12 +178,24 @@ class FactorExperimentRequest(BaseModel):
     code: str = "茅台"
     lookback: int = Field(default=120, ge=40, le=500)
     horizon_days: int = Field(default=3, ge=1, le=10)
+    ridge_lambda: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100.0,
+        description="Ridge λ；0=普通 OLS（QR），>0 收缩斜率系数",
+    )
 
 
 class FactorOlsPoolRequest(BaseModel):
     lookback: int = Field(default=120, ge=40, le=500)
     horizon_days: int = Field(default=3, ge=1, le=10)
     watching_limit: int = Field(default=8, ge=2, le=20)
+    ridge_lambda: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100.0,
+        description="Ridge λ；0=普通 OLS（QR），>0 收缩斜率系数",
+    )
 
 
 class FactorCsIcRequest(BaseModel):
@@ -262,6 +274,22 @@ class WeightSuggestRequest(BaseModel):
     code: str = "茅台"
     lookback: int = Field(default=120, ge=40, le=500)
     horizon_days: int = Field(default=3, ge=1, le=10)
+    use_cs_ic: bool = Field(
+        default=True,
+        description="优先用研究池截面 IC/ICIR 驱动建议；池不足回退单票",
+    )
+    watching_limit: int = Field(default=12, ge=3, le=30)
+    run_oos_gate: bool = Field(
+        default=True,
+        description="建议权 vs 当前权的研究池 Top-K OOS 门禁",
+    )
+    oos_tol_pp: float = Field(default=1.0, ge=0.0, le=10.0)
+    ridge_lambda: float = Field(
+        default=0.0,
+        ge=0.0,
+        le=100.0,
+        description="嵌入 OLS 回退时的 Ridge λ；0=普通 OLS",
+    )
 
 
 class ThresholdSuggestRequest(BaseModel):

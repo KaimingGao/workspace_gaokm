@@ -130,6 +130,7 @@ class TestFactorOlsPool(unittest.TestCase):
         with open(path, encoding="utf-8") as f:
             html = f.read()
         self.assertIn("quant-ols-pool-run", html)
+        self.assertIn("quant-ridge-lambda", html)
         self.assertIn("研究池 OLS", html)
         self.assertIn("堆叠", html)
 

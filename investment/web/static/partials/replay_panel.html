@@ -17,6 +17,13 @@
         lookback
         <input id="quant-lookback" type="number" min="40" max="500" value="120" />
       </label>
+      <label class="platform-field" title="持有期（1～10）；可存为研究默认，不影响 live 评分">
+        horizon
+        <input id="quant-horizon" type="number" min="1" max="10" value="3" />
+      </label>
+      <button type="button" id="quant-horizon-save-default" class="dialog-btn secondary" title="写入 memory.json">
+        存为默认
+      </button>
       <label class="platform-field">
         top_k
         <input id="quant-top-k" type="number" min="1" max="10" value="3" />

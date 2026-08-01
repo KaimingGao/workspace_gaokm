@@ -48,6 +48,8 @@ class TestP89WebFactorOls(unittest.TestCase):
         self.assertIn("quant-ols-run", text)
         self.assertIn("quant-ols-summary", text)
         self.assertIn("quant-factor-list", text)
+        self.assertIn("quant-ridge-lambda", text)
+        self.assertIn("ridge λ", text)
 
     def test_app_js_has_factor_ols_api(self):
         path = os.path.join(ROOT, "web", "static", "js", "quant.js")
@@ -56,6 +58,8 @@ class TestP89WebFactorOls(unittest.TestCase):
         self.assertIn("/api/quant/factor-ols", text)
         self.assertIn("renderFactorOls", text)
         self.assertIn("OLS", text)
+        self.assertIn("ridge_lambda", text)
+        self.assertIn("readRidgeLambda", text)
 
 
 if __name__ == "__main__":

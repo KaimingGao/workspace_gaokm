@@ -33,7 +33,7 @@ class ScheduleBody(BaseModel):
     codes: Optional[List[str]] = None
     limit: int = 5
     simulate_buy: bool = False
-    strategy: str = "short"
+    strategy: str = "short_conservative"
     force: bool = False
     # fundamentals_warmup
     ingest_history: Optional[bool] = True
@@ -65,6 +65,12 @@ def get_job(name: str):
 @router.get("/api/memory")
 def get_memory():
     return deps.platform.get_memory()
+
+
+@router.get("/api/prefs")
+def get_prefs():
+    """研究/回测默认偏好（已钳制 horizon 等）。"""
+    return deps.platform.get_effective_prefs()
 
 
 @router.put("/api/memory")

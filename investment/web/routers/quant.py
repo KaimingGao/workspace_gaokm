@@ -263,6 +263,7 @@ def quant_factor_ols(body: FactorExperimentRequest):
             body.code,
             lookback=body.lookback,
             horizon_days=body.horizon_days,
+            ridge_lambda=body.ridge_lambda,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -276,6 +277,7 @@ def quant_factor_ols_pool(body: FactorOlsPoolRequest):
             lookback=body.lookback,
             horizon_days=body.horizon_days,
             watching_limit=body.watching_limit,
+            ridge_lambda=body.ridge_lambda,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -338,6 +340,11 @@ def quant_weight_suggest(body: WeightSuggestRequest):
             body.code,
             lookback=body.lookback,
             horizon_days=body.horizon_days,
+            use_cs_ic=body.use_cs_ic,
+            watching_limit=body.watching_limit,
+            run_oos_gate=body.run_oos_gate,
+            oos_tol_pp=body.oos_tol_pp,
+            ridge_lambda=body.ridge_lambda,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

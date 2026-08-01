@@ -20,6 +20,12 @@ def main(argv=None) -> int:
     parser.add_argument("--code", default="茅台")
     parser.add_argument("--lookback", type=int, default=120)
     parser.add_argument("--horizon", type=int, default=3)
+    parser.add_argument(
+        "--ridge-lambda",
+        type=float,
+        default=0.0,
+        help="Ridge λ；0=普通 OLS（QR），>0 收缩斜率",
+    )
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
@@ -27,6 +33,7 @@ def main(argv=None) -> int:
         args.code,
         lookback=args.lookback,
         horizon_days=args.horizon,
+        ridge_lambda=args.ridge_lambda,
     )
     if args.json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
@@ -38,7 +45,10 @@ def main(argv=None) -> int:
 
     sym = report.get("stock_code")
     print(f"{sym} src={report.get('data_source')} horizon={report.get('horizon_days')}")
-    print(f"  n={report.get('sample_count')} R²={report.get('r_squared')}")
+    print(
+        f"  n={report.get('sample_count')} R²={report.get('r_squared')}"
+        f" solver={report.get('solver')} λ={report.get('ridge_lambda')}"
+    )
     print(f"  intercept={report.get('intercept')}")
     for name, coef in (report.get("coefficients") or {}).items():
         cur = (report.get("current_weights") or {}).get(name)

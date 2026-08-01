@@ -32,7 +32,7 @@ _PAGE_TITLES = {
     "strategy": "策略中心",
     "replay": "历史回测",
     "follow": "交易执行",
-    "platform": "系统设置",
+    "platform": "平台",
 }
 
 _PANEL_CLASS = {
@@ -92,7 +92,7 @@ def _side_nav(active: str) -> str:
             item("follow", "/follow", "交易执行", "纸面调仓 · 做T验证", "btn-follow"),
             item("replay", "/replay", "历史回测", "历史验证 · 归因", "btn-replay"),
             item("quant", "/quant", "研究枢纽", "因子 · 横截面 · 日报", "btn-quant"),
-            item("platform", "/platform", "系统设置", "北极星 · 审计", "btn-settings"),
+            item("platform", "/platform", "平台", "态势 · 偏好 · 调度", "btn-settings"),
         ]
     )
     return f"""    <aside class="side-nav" aria-label="主导航">

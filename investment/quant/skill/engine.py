@@ -106,6 +106,7 @@ class QuantEngine:
                 code,
                 lookback=lookback,
                 horizon_days=int(params.get("horizon_days") or 3),
+                ridge_lambda=float(params.get("ridge_lambda") or 0.0),
             )
 
         if task == "factor_corr":

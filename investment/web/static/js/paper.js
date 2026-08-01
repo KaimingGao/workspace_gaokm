@@ -1488,7 +1488,8 @@ export function initPaper(ctx) {
 
     async function runPaper(simulateBuy, { dryRun = false } = {}) {
       setPaperBusy(true);
-      const strategy = document.getElementById("paper-strategy")?.value || "short";
+      const strategy =
+        document.getElementById("paper-strategy")?.value || "short_conservative";
       showProgress(
         1,
         dryRun ? "预演调仓…" : simulateBuy ? "启动模拟买入…" : "启动跑一日…"
@@ -1719,7 +1720,7 @@ export function initPaper(ctx) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               kind: "paper_daily",
-              strategy: stratEl ? stratEl.value : "short",
+              strategy: stratEl ? stratEl.value : "short_conservative",
               simulate_buy: false,
             }),
           });

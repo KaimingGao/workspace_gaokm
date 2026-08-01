@@ -202,6 +202,74 @@ export function initQuant(ctx) {
   let strategyLastIcExport = null;
   let strategyLastWeightDiff = null;
   let dailyPresetsCache = [];
+  /** 研究页持有期；打开时从 memory 灌入，可「存为默认」写回 */
+  let prefsHorizonDays = 3;
+
+  function clampHorizonDays(v, fallback = 3) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(1, Math.min(10, Math.round(n)));
+  }
+
+  function syncHorizonInputs(h) {
+    const v = String(clampHorizonDays(h, prefsHorizonDays));
+    document.querySelectorAll("#quant-horizon").forEach((el) => {
+      el.value = v;
+    });
+  }
+
+  function readHorizonDays() {
+    const el = document.getElementById("quant-horizon");
+    if (el && el.value !== "") {
+      const n = clampHorizonDays(el.value, prefsHorizonDays);
+      prefsHorizonDays = n;
+      return n;
+    }
+    return prefsHorizonDays;
+  }
+
+  function clampRidgeLambda(v, fallback = 0) {
+    const n = Number(v);
+    if (!Number.isFinite(n) || n < 0) return fallback;
+    return Math.min(100, n);
+  }
+
+  function readRidgeLambda() {
+    const el = document.getElementById("quant-ridge-lambda");
+    if (el && el.value !== "") return clampRidgeLambda(el.value, 0);
+    return 0;
+  }
+
+  async function loadPrefsHorizon() {
+    try {
+      const res = await fetch("/api/prefs");
+      const data = await res.json();
+      const prefs = (data && data.preferences) || {};
+      prefsHorizonDays = clampHorizonDays(prefs.horizon_days, 3);
+    } catch (_) {
+      prefsHorizonDays = 3;
+    }
+    syncHorizonInputs(prefsHorizonDays);
+    return prefsHorizonDays;
+  }
+
+  async function saveHorizonAsDefault() {
+    const h = readHorizonDays();
+    syncHorizonInputs(h);
+    const res = await fetch("/api/memory", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ preferences: { horizon_days: h } }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      throw new Error((data && (data.detail || data.error)) || res.statusText);
+    }
+    const eff = (data && data.effective) || {};
+    prefsHorizonDays = clampHorizonDays(eff.horizon_days, h);
+    syncHorizonInputs(prefsHorizonDays);
+    return prefsHorizonDays;
+  }
 
   async function openQuantDialog(options = {}) {
     const { autoBacktest = false } = options;
@@ -221,6 +289,8 @@ export function initQuant(ctx) {
     const hasOps = !!document.getElementById("quant-ops-summary");
     try {
       if (quantMeta) quantMeta.textContent = "加载面板…";
+      // 先拉研究默认 horizon（memory），再跑 IC/OLS/回测
+      await loadPrefsHorizon().catch(() => {});
       const foreground = [];
       if (hasWatching || hasReplay) {
         foreground.push(
@@ -525,7 +595,7 @@ export function initQuant(ctx) {
             .join(" ");
           return (
             `<div class="watching-react-grid-cell${extra ? ` ${extra}` : ""}" ` +
-            `style="${colStyle(col)}" title="${escapeHtml(col.label || "")}">` +
+            `style="${colStyle(col)}" title="${escapeHtml(col.title || col.label || "")}">` +
             `${escapeHtml(col.label || "")}</div>`
           );
         })
@@ -2495,7 +2565,7 @@ export function initQuant(ctx) {
         [
           { id: "ic", label: "IC均值", widthPct: 14, num: true },
           { id: "std", label: "IC标准差", widthPct: 14, num: true },
-          { id: "icir", label: "ICIR", widthPct: 12, num: true },
+          { id: "icir", label: "ICIR", widthPct: 12, num: true, title: "IC均值/IC标准差；看截面预测力是否稳定" },
           { id: "pos", label: "正IC日", widthPct: 14, num: true },
           { id: "note", label: "说明", flex: true },
         ],
@@ -4401,6 +4471,7 @@ export function initQuant(ctx) {
     return {
       lookback,
       top_k: topK,
+      horizon_days: readHorizonDays(),
       weight_mode: weightMode,
       dropout_n: dropoutN,
       exclude_st: excludeSt,
@@ -4416,6 +4487,7 @@ export function initQuant(ctx) {
       const {
         lookback,
         top_k,
+        horizon_days,
         weight_mode,
         dropout_n,
         exclude_st,
@@ -4425,7 +4497,7 @@ export function initQuant(ctx) {
       const payload = {
         lookback,
         top_k,
-        horizon_days: 3,
+        horizon_days,
         min_score: 55,
         apply_costs: true,
         fetch_fundamentals: false,
@@ -4594,6 +4666,7 @@ export function initQuant(ctx) {
       const {
         lookback,
         top_k,
+        horizon_days,
         weight_mode,
         dropout_n,
         exclude_st,
@@ -4603,7 +4676,7 @@ export function initQuant(ctx) {
       const payload = {
         lookback,
         top_k,
-        horizon_days: 3,
+        horizon_days,
         min_score: 55,
         apply_costs: true,
         fetch_fundamentals: false,
@@ -4930,6 +5003,16 @@ export function initQuant(ctx) {
     const currentWeights = (suggest && suggest.current_weights) || {};
     const suggestedWeights = (suggest && suggest.suggested_weights) || {};
     const deltaMap = (suggest && suggest.deltas) || {};
+    const deltaSources =
+      (suggest && suggest.delta_sources && typeof suggest.delta_sources === "object"
+        ? suggest.delta_sources
+        : {}) || {};
+    const SOURCE_TIP = {
+      cs_ic: "截面 IC/ICIR 强证据",
+      ic: "单票时序 IC 强证据",
+      ols: "OLS β 回退",
+      weak_ic_decay: "IC/ICIR 证据不足 · 略降权",
+    };
     const olsCoefs =
       ols && ols.success && ols.coefficients && typeof ols.coefficients === "object"
         ? ols.coefficients
@@ -4991,6 +5074,13 @@ export function initQuant(ctx) {
       const ic =
         r.ic != null ? Number(r.ic) : r.ic_mean != null ? Number(r.ic_mean) : null;
       const n = r.sample_count != null ? r.sample_count : r.n != null ? r.n : null;
+      let icir =
+        r.icir != null
+          ? Number(r.icir)
+          : r.pearson && r.pearson.icir != null
+            ? Number(r.pearson.icir)
+            : null;
+      if (icir != null && !Number.isFinite(icir)) icir = null;
       let weight = null;
       if (r.weight != null) weight = Number(r.weight);
       else if (r.weight_pct != null) weight = Number(r.weight_pct) / 100;
@@ -4999,7 +5089,7 @@ export function initQuant(ctx) {
         r.ic_reason ||
         (ic == null ? icReasonsTop[name] : null) ||
         null;
-      byName[name] = { name, label, ic, n, weight, icReason };
+      byName[name] = { name, label, ic, n, icir, weight, icReason };
     }
     const nameSet = new Set([
       ...Object.keys(byName),
@@ -5019,6 +5109,7 @@ export function initQuant(ctx) {
         label: meta.label || name,
         ic: null,
         n: null,
+        icir: null,
         weight: null,
         icReason: icReasonsTop[name] || null,
       };
@@ -5053,6 +5144,7 @@ export function initQuant(ctx) {
         cur: curVal,
         sug: sugVal,
         delta,
+        deltaSource: deltaSources[name] || null,
         ols: olsVal,
         olsReason,
         icReason,
@@ -5062,12 +5154,19 @@ export function initQuant(ctx) {
     return researchGridHtml(
       [
         { id: "factor", label: "因子", flex: true },
-        { id: "ic", label: "IC", widthPct: 12, num: true },
-        { id: "n", label: "n", widthPct: 8, num: true },
-        { id: "cur", label: "当前", widthPct: 11, num: true },
-        { id: "sug", label: "建议", widthPct: 11, num: true },
-        { id: "delta", label: "Δ", widthPct: 11, num: true },
-        { id: "ols", label: "OLS", widthPct: 12, num: true },
+        { id: "ic", label: "IC", widthPct: 10, num: true, title: "因子与前瞻收益相关（截面为日均 IC）" },
+        {
+          id: "icir",
+          label: "ICIR",
+          widthPct: 9,
+          num: true,
+          title: "IC̄/σ(IC)：截面 IC 稳定性；|ICIR|≥0.25 为强证据门槛之一",
+        },
+        { id: "n", label: "n", widthPct: 7, num: true },
+        { id: "cur", label: "当前", widthPct: 10, num: true },
+        { id: "sug", label: "建议", widthPct: 10, num: true },
+        { id: "delta", label: "Δ", widthPct: 10, num: true },
+        { id: "ols", label: "OLS", widthPct: 11, num: true },
       ],
       rows,
       (col, r) => {
@@ -5085,13 +5184,27 @@ export function initQuant(ctx) {
           }
           return "—";
         }
+        if (col.id === "icir") {
+          if (r.icir == null || !Number.isFinite(Number(r.icir))) return "—";
+          const v = Number(r.icir);
+          const cls = v >= 0.25 ? "up" : v <= -0.25 ? "down" : "";
+          const tip = "ICIR = 日截面 IC 均值 / 标准差；越大越稳";
+          return `<span title="${escapeHtml(tip)}">${metricCell(
+            escapeHtml(v.toFixed(2)),
+            cls
+          )}</span>`;
+        }
         if (col.id === "n") return escapeHtml(String(r.n != null ? r.n : "—"));
         if (col.id === "cur") return fmtWeightCell(r.cur);
         if (col.id === "sug") return r.sug != null ? fmtWeightCell(r.sug) : "—";
         if (col.id === "delta") {
           if (r.delta == null) return "—";
           const text = `${r.delta > 0 ? "+" : ""}${Number(r.delta).toFixed(3)}`;
-          return metricCell(escapeHtml(text), metricClass(r.delta));
+          const tip = r.deltaSource ? SOURCE_TIP[r.deltaSource] || r.deltaSource : "";
+          const cell = metricCell(escapeHtml(text), metricClass(r.delta));
+          return tip
+            ? `<span title="${escapeHtml(tip)}">${cell}</span>`
+            : cell;
         }
         if (col.id === "ols") {
           if (r.ols != null) return escapeHtml(String(r.ols));
@@ -5181,7 +5294,14 @@ export function initQuant(ctx) {
       const res = await fetch("/api/quant/weight-suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code, lookback: 120, horizon_days: 3 }),
+        body: JSON.stringify({
+          code,
+          lookback: 120,
+          horizon_days: readHorizonDays(),
+          use_cs_ic: true,
+          watching_limit: 12,
+          ridge_lambda: readRidgeLambda(),
+        }),
       });
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -5192,12 +5312,16 @@ export function initQuant(ctx) {
         strategyLastWeightDiff = null;
         return;
       }
-      const exp = data.factor_experiment || {};
+      const exp =
+        data.ic_mode === "cs_ic" && data.factor_cs_ic
+          ? data.factor_cs_ic
+          : data.factor_experiment || {};
       strategyLastIcExport = {
         stock_code: data.stock_code || exp.stock_code || code,
         generated_at: new Date().toISOString(),
         panel: exp.panel || null,
         factors: exp.factors || exp.rows || null,
+        ic_mode: data.ic_mode,
         note: "只读 IC 导出；不改写 signal_config",
       };
       strategyLastWeightDiff = data.config_diff || {
@@ -5212,7 +5336,8 @@ export function initQuant(ctx) {
       }
       if (wHost) wHost.innerHTML = "";
       if (status) {
-        status.textContent = `标的 ${strategyLastIcExport.stock_code} · 只读建议，须人审后合并配置`;
+        status.textContent =
+          `标的 ${strategyLastIcExport.stock_code} · ${data.ic_mode || "single"} · 只读建议，须人审后合并配置`;
       }
       setStrategyFactorExportEnabled(true);
     } catch (err) {
@@ -5365,7 +5490,7 @@ export function initQuant(ctx) {
     const res = await fetch("/api/quant/cross-section", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ limit: 10, horizon_days: 3 }),
+      body: JSON.stringify({ limit: 10, horizon_days: readHorizonDays() }),
     });
     const data = await res.json();
     renderCrossSection(data);
@@ -5389,14 +5514,59 @@ export function initQuant(ctx) {
     const codes = Array.isArray(data.stock_codes) ? data.stock_codes.filter(Boolean) : [];
     const codeNote = codes.length ? ` · ${codes.join("、")}` : "";
     const zNote = data.standardized ? " · z-score β" : "";
+    const lam = Number(data.ridge_lambda);
+    const ridgeNote =
+      Number.isFinite(lam) && lam > 0
+        ? ` · Ridge λ=${lam}`
+        : data.solver === "qr"
+          ? " · QR"
+          : "";
     let olsText = pooled
-      ? `池内 OLS · ${data.stock_count ?? codes.length ?? "—"} 只${codeNote} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"} · 全量因子${zNote} · 不写 config`
-      : `OLS · ${data.stock_code || ""} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"} · 全量因子${zNote} · 不写 config`;
+      ? `池内 OLS · ${data.stock_count ?? codes.length ?? "—"} 只${codeNote} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"} · 全量因子${zNote}${ridgeNote} · 不写 config`
+      : `OLS · ${data.stock_code || ""} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"} · 全量因子${zNote}${ridgeNote} · 不写 config`;
     if ((data.excluded_features || []).length) {
       olsText += ` · 未入模 ${data.excluded_features.length}（缺测/常数/覆盖）`;
     }
     setBusyText(quantOlsSummary, olsText, { busy: false });
     renderMergedFactorTable();
+  }
+
+  function weightSuggestStatusHtml(suggest) {
+    if (!suggest || !suggest.success) return "";
+    const lines = (suggest.rationale || []).slice(0, 4);
+    const gate = suggest.oos_gate || {};
+    let gateLine = "";
+    if (gate.skipped) {
+      gateLine = `<span class="sub">OOS 门禁：已跳过（${escapeHtml(
+        String(gate.reason || "—")
+      )}）· promote_ready=否</span>`;
+    } else if (gate.ok && gate.passed) {
+      const d =
+        gate.delta_oos_pp != null ? ` · ΔOOS ${gate.delta_oos_pp}pp` : "";
+      gateLine = `<span class="sub up">OOS 门禁：通过${escapeHtml(d)} · 仍须人审</span>`;
+    } else if (gate.ok) {
+      gateLine = `<span class="sub down">OOS 门禁：未过（${escapeHtml(
+        String(gate.reason || "—")
+      )}）· 不建议 promote</span>`;
+    }
+    const warns = [
+      ...((suggest.constraint_warnings || []).slice(0, 2)),
+      ...((suggest.redundancy_warnings || []).slice(0, 1)),
+    ];
+    const warnHtml = warns.length
+      ? `<span class="sub">${warns.map((w) => escapeHtml(String(w))).join(" · ")}</span>`
+      : "";
+    return (
+      `<strong>权重建议</strong>（${escapeHtml(String(suggest.ic_mode || "—"))}` +
+      `${suggest.promote_ready ? " · promote_ready" : ""}）<br/>` +
+      (lines.length ? lines.map((l) => `${escapeHtml(String(l))}<br/>`).join("") : "") +
+      (gateLine ? `${gateLine}<br/>` : "") +
+      (warnHtml ? `${warnHtml}<br/>` : "") +
+      `<span class="sub">${escapeHtml(
+        (suggest.config_diff && suggest.config_diff.apply_note) ||
+          "导出 diff 可手动合并；不自动写盘"
+      )}</span>`
+    );
   }
 
   function renderFactorExperiment(exp, suggest) {
@@ -5415,19 +5585,24 @@ export function initQuant(ctx) {
       : (exp.factors || []).filter((f) => f.ic != null).length;
     if (quantMeta) {
       const keepBusy = quantMeta.classList.contains("is-busy");
+      const gate = (suggest && suggest.oos_gate) || {};
+      const gateTag =
+        suggest && suggest.promote_ready
+          ? " · OOS✓"
+          : gate.ok && !gate.passed
+            ? " · OOS✗"
+            : gate.skipped
+              ? " · OOS—"
+              : "";
       setQuantMeta(
-        `${exp.stock_code || ""} · horizon ${exp.horizon_days} · IC ${icCount}/${exp.panel ? exp.panel.factor_count : "—"}`,
+        `${exp.stock_code || ""} · horizon ${exp.horizon_days} · IC ${icCount}/${
+          exp.panel ? exp.panel.factor_count : "—"
+        }${gateTag}`,
         { busy: keepBusy }
       );
     }
     if (suggest && suggest.success) {
-      const lines = (suggest.rationale || []).slice(0, 4);
-      if (quantWeightSuggest) {
-        quantWeightSuggest.innerHTML =
-          `<strong>权重建议</strong><br/>` +
-          lines.map((l) => `${l}<br/>`).join("") +
-          `<span class="sub">导出 diff 可手动合并 signal_config.json</span>`;
-      }
+      if (quantWeightSuggest) quantWeightSuggest.innerHTML = weightSuggestStatusHtml(suggest);
       lastWeightSuggestForMerge = suggest;
       renderFactorPanelTable(panel, suggest);
       quantLastWeightDiff = suggest.config_diff || null;
@@ -5687,19 +5862,69 @@ export function initQuant(ctx) {
   });
 
   async function runFactorIcSuggest() {
+    const h = readHorizonDays();
     const [expRes, sugRes] = await Promise.all([
       fetch("/api/quant/factor-experiment", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: "茅台", lookback: 120, horizon_days: 3 }),
+        body: JSON.stringify({ code: "茅台", lookback: 120, horizon_days: h }),
       }),
       fetch("/api/quant/weight-suggest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: "茅台", lookback: 120, horizon_days: 3 }),
+        body: JSON.stringify({
+          code: "茅台",
+          lookback: 120,
+          horizon_days: h,
+          use_cs_ic: true,
+          watching_limit: 12,
+          ridge_lambda: readRidgeLambda(),
+        }),
       }),
     ]);
-    renderFactorExperiment(await expRes.json(), await sugRes.json());
+    const exp = await expRes.json();
+    const sug = await sugRes.json();
+    // 若建议已用截面 IC，表内 IC/ICIR 与建议对齐
+    if (sug && sug.success && sug.ic_mode === "cs_ic" && sug.factor_cs_ic) {
+      const cs = sug.factor_cs_ic;
+      const rows = (cs.factors || []).map((f) => {
+        const name = f.factor || f.name || "";
+        const meta = factorMetaByName[name] || {};
+        return {
+          factor: name,
+          name,
+          label: f.label || meta.label || name,
+          ic: f.ic != null ? f.ic : f.pearson && f.pearson.ic_mean,
+          sample_count:
+            f.sample_count != null ? f.sample_count : f.pearson && f.pearson.day_count,
+          exclusion_reason: f.exclusion_reason || null,
+          icir: f.icir != null ? f.icir : f.pearson && f.pearson.icir,
+        };
+      });
+      lastFactorPanelForMerge = {
+        rows,
+        factors: rows,
+        mode: "factor_cross_section",
+      };
+      lastWeightSuggestForMerge = sug;
+      if (sug.factor_ols && sug.factor_ols.success) lastOlsForMerge = sug.factor_ols;
+      renderMergedFactorTable();
+      if (quantWeightSuggest) quantWeightSuggest.innerHTML = weightSuggestStatusHtml(sug);
+      quantLastWeightDiff = sug.config_diff || null;
+      const nOk = rows.filter((r) => r.ic != null).length;
+      const gate = sug.oos_gate || {};
+      const gateTag = sug.promote_ready
+        ? " · OOS✓"
+        : gate.ok && !gate.passed
+          ? " · OOS✗"
+          : " · OOS—";
+      setQuantMeta(
+        `截面驱动建议 · IC ${nOk}/${rows.length} · 只读${gateTag}` +
+          (sug.ols_used ? " · 含 OLS 回退" : "")
+      );
+      return;
+    }
+    renderFactorExperiment(exp, sug);
   }
 
   async function runFactorOlsSuggest() {
@@ -5708,7 +5933,12 @@ export function initQuant(ctx) {
     const res = await fetch("/api/quant/factor-ols", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ code: "茅台", lookback: 120, horizon_days: 3 }),
+      body: JSON.stringify({
+        code: "茅台",
+        lookback: 120,
+        horizon_days: readHorizonDays(),
+        ridge_lambda: readRidgeLambda(),
+      }),
     });
     renderFactorOls(await res.json());
   }
@@ -5719,7 +5949,12 @@ export function initQuant(ctx) {
     const res = await fetch("/api/quant/factor-ols-pool", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lookback: 120, horizon_days: 3, watching_limit: 8 }),
+      body: JSON.stringify({
+        lookback: 120,
+        horizon_days: readHorizonDays(),
+        watching_limit: 8,
+        ridge_lambda: readRidgeLambda(),
+      }),
     });
     let data = null;
     try {
@@ -5760,7 +5995,7 @@ export function initQuant(ctx) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         lookback: 120,
-        horizon_days: 3,
+        horizon_days: readHorizonDays(),
         watching_limit: 12,
         min_names: 5,
         pit_fundamentals: true,
@@ -6051,6 +6286,28 @@ export function initQuant(ctx) {
     });
   }
 
+  on("quant-horizon-save-default", "click", async (e) => {
+    e.preventDefault();
+    const btn = e.currentTarget;
+    if (btn) btn.disabled = true;
+    try {
+      const h = await saveHorizonAsDefault();
+      const msg = `已存研究默认 horizon=${h}d（不影响数据中心/交易 live）`;
+      if (typeof setQuantMeta === "function") setQuantMeta(msg);
+      const replayMeta = document.getElementById("replay-meta");
+      if (replayMeta) replayMeta.textContent = msg;
+    } catch (err) {
+      const detail = String(err.message || err);
+      if (typeof setQuantMeta === "function") {
+        setQuantMeta(`存默认失败 · ${detail}`, { error: true });
+      } else {
+        window.alert(detail);
+      }
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
   on("quant-cs-ic-run", "click", async (e) => {
     e.preventDefault();
     const btn = document.getElementById("quant-cs-ic-run");
@@ -6070,6 +6327,16 @@ export function initQuant(ctx) {
     if (!quantLastWeightDiff || !quantLastWeightDiff.success) {
       if (quantMeta) quantMeta.textContent = "建议尚未就绪，稍后再导出权重 diff";
       return;
+    }
+    if (quantLastWeightDiff.promote_ready === false) {
+      const note = quantLastWeightDiff.apply_note || "OOS 未过或已跳过";
+      if (
+        !window.confirm(
+          `当前建议 promote_ready=否（${note}）。仍导出 diff 仅供对照？`
+        )
+      ) {
+        return;
+      }
     }
     downloadJson(quantLastWeightDiff, "signal_config_weight_diff.json");
   });

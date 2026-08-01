@@ -10,13 +10,24 @@
     <div class="quant-section-toolbar">
       <h3 id="quant-section-factors-title" class="watching-section-title">因子建议</h3>
       <div class="quant-actions-inline">
+        <label class="platform-field" title="研究前瞻持有期（1～10）；不影响数据中心 live 评分">
+          horizon
+          <input id="quant-horizon" type="number" min="1" max="10" value="3" />
+        </label>
+        <button type="button" id="quant-horizon-save-default" class="dialog-btn secondary" title="写入 memory.json，供下次打开研究/回测默认">
+          存为默认
+        </button>
+        <label class="platform-field" title="Ridge λ；0=普通 OLS（QR）；>0 收缩斜率、缓解共线（截距不惩罚）">
+          ridge λ
+          <input id="quant-ridge-lambda" type="number" min="0" max="100" step="0.1" value="0" />
+        </label>
         <button type="button" id="quant-cs-ic-run" class="dialog-btn secondary">截面 IC</button>
         <button type="button" id="quant-ols-pool-run" class="dialog-btn secondary">研究池 OLS</button>
         <button type="button" id="quant-weight-export" class="dialog-btn secondary">导出权重 diff</button>
       </div>
     </div>
     <details class="quant-fold quant-help-fold">
-      <summary>IC / OLS 说明</summary>
+      <summary>IC / OLS·Ridge / 建议权重说明</summary>
       <div class="quant-help-body">
         <p>
           默认用研究池第一只（常为 600519）日线做只读诊断。每个交易日
@@ -26,7 +37,11 @@
         </p>
 
         <h4>共同：前瞻收益</h4>
-        <p>默认 horizon <code>h = 3</code> 个交易日：</p>
+        <p>
+          默认 horizon <code>h</code> 来自本页控件（可「存为默认」写入
+          <code>memory.json</code>）；<strong>不</strong>改数据中心评分 / 交易执行。
+          常用 <code>h = 3</code> 个交易日：
+        </p>
         <pre class="quant-help-formula">r<sub>t→t+h</sub> = close<sub>t+h</sub> / close<sub>t</sub> − 1</pre>
         <p>（实现里乘 100 成百分比，相关/回归尺度一致即可。）</p>
 
@@ -43,71 +58,142 @@
           <strong>缺测</strong>（n&lt;3）·
           <strong>常数</strong>（因子分无波动）·
           <strong>收益平</strong>（前瞻收益无波动）。
-          点「截面 IC」改为池内<strong>日频截面</strong>（Pearson + Spearman）汇总，与单票 IC 不是同一指标。
+          点「截面 IC」或截面驱动建议时，改为池内<strong>日频截面</strong>（Pearson + Spearman）汇总，并出现
+          <strong>ICIR</strong> 列；与单票 IC 不是同一指标。
           页头「IC 12/20」= 20 个因子里 12 个算出了有效 IC。
         </p>
 
-        <h4>OLS（多因子）</h4>
-        <ol>
-          <li>拼面板：每天一行「各因子分 + 前瞻收益」（允许缺测）。</li>
-          <li>
-            筛因子：覆盖太少、几乎常数、或凑不齐完整行的剔除（「未入模」）。
-          </li>
-          <li>在完整子面板上做多元线性回归：</li>
-        </ol>
-        <pre class="quant-help-formula">y = β<sub>0</sub> + β<sub>1</sub>x<sub>1</sub> + … + β<sub>p</sub>x<sub>p</sub> + ε</pre>
+        <h4>ICIR（截面稳定性）</h4>
         <p>
-          <strong>OLS 列</strong> ≈ β；无数字时显示原因标签：
-          <strong>缺测</strong>（覆盖不足）·
-          <strong>常数</strong>（几乎无波动）·
-          <strong>覆盖</strong>（为凑完整行剔除）·
-          <strong>共线</strong>（奇异剔除）；悬停可看说明。
-          <strong>R²</strong> = 1 − SS<sub>res</sub>/SS<sub>tot</sub>；
-          <strong>n</strong> = 完整样本行数。
+          <strong>ICIR</strong> = Information Coefficient Information Ratio（信息系数的信息比率）。
+          对研究池逐日算截面 IC，再对这串日 IC 求：
         </p>
+        <pre class="quant-help-formula">ICIR = IC̄ / σ(IC)
+     = mean(日截面 IC) / std(日截面 IC)</pre>
         <p>
-          <strong>两种模式</strong>：进页默认<strong>单票</strong> walk-forward（快探针）。
-          「研究池 OLS」为显式触发：取观察名单<strong>前最多 8 只</strong>，把时序面板<strong>堆叠</strong>后再拟合（更稳一点），
-          <em>不是</em>逐日截面 Fama–MacBeth，仍不写 config。跑完后摘要会列出实际入模代码。
+          <strong>IC</strong> 看某一天（或均值）相关强弱；
+          <strong>ICIR</strong> 看预测力是否<strong>既偏正/偏负又稳</strong>（均值大、波动小）。
+          |ICIR| 大更可信；接近 0 表示弱或不稳。
+          权重建议的强证据要求 <code>|IC| ≥ 0.03</code> 且
+          <code>|ICIR| ≥ 0.25</code>，并用 |ICIR| 缩放步长。
+          单票时序 IC 通常<strong>没有</strong> ICIR（表里为 —）。
         </p>
 
-        <h4>OLS 系数 ≠ 生产权重</h4>
+        <h4>OLS / Ridge（多因子线性回归）</h4>
         <p>
-          理想线性模型里，系数与权重<strong>方向一致</strong>：
+          研究探针上的多元线性回归：拟合因子分 → 前瞻收益。
+          目标默认是残差平方和（与 MSE 只差常数 \(1/n\)，最优点相同）：
         </p>
-        <pre class="quant-help-formula">r̂ = β<sub>0</sub> + Σ β<sub>k</sub> x<sub>k</sub>
-  ⇒  score ∝ Σ β<sub>k</sub> x<sub>k</sub></pre>
+        <pre class="quant-help-formula">min<sub>β</sub>  Σ<sub>i</sub> (y<sub>i</sub> − ŷ<sub>i</sub>)²
+ŷ<sub>i</sub> = β<sub>0</sub> + β<sub>1</sub>x<sub>i1</sub> + … + β<sub>p</sub>x<sub>ip</sub></pre>
         <p>
-          因此「用 β 当线性打分权重」在理论上说得通。但本页<strong>不会</strong>把 raw OLS
-          系数直接写成 <code>signal_config.weights</code>：
+          <strong>求解（本页）</strong>：不再用「正规方程 + 高斯消元」。
+          <code>ridge λ = 0</code> 时对设计矩阵做 <strong>QR</strong> 再回代；奇异则剔共线列重试。
+        </p>
+        <pre class="quant-help-formula">X = QR
+R β = Qᵀ y
+（相对 XᵀX β = Xᵀy，条件数不平方，数值更稳）</pre>
+        <p>
+          <code>ridge λ = λ &gt; 0</code> 时为 <strong>Ridge（L2）</strong>：斜率收缩、截距不惩罚，
+          缓解共线 / 小样本过拟合，尽量保留入模因子。
+        </p>
+        <pre class="quant-help-formula">min<sub>β</sub>  ||y − Xβ||² + λ Σ<sub>k≥1</sub> β<sub>k</sub>²
+实现：Tikhonov 增广 [X; √λ I<sub>斜率</sub>] 后再 QR
+（λ 取本页「ridge λ」，范围 0～100）</pre>
+
+        <h4>OLS / Ridge 计算步骤（本页）</h4>
+        <ol>
+          <li>
+            <strong>拼面板</strong>：每个交易日（或池内堆叠后的每一行）取
+            因子分 + 前瞻收益 \(y=r_{t→t+h}\)（百分比）。研究路径全量注册因子，
+            <strong>不经</strong> regime 白名单；允许缺测。
+          </li>
+          <li>
+            <strong>筛列 / 筛行</strong>：覆盖太少、几乎常数、凑不齐完整行的因子剔除
+            （表上「缺测 / 常数 / 覆盖」）；
+            <code>λ=0</code> 时 QR 秩亏继续剔列（「共线」）；
+            <code>λ&gt;0</code> 时尽量保留入模列。
+          </li>
+          <li>
+            <strong>标准化（默认开）</strong>：对入模列做样本内 z-score，
+            \(x'=(x-\bar x)/\sigma\)。于是表上的 β ≈「该因子高 <strong>1σ</strong> 时，
+            前瞻收益变多少个百分点」；勿与 config 权重同量级对比。
+          </li>
+          <li>
+            <strong>拟合</strong>：按本页 <code>ridge λ</code> 选 QR OLS 或 Ridge，
+            得 \(\beta_0,\beta_1,\ldots,\beta_p\)；摘要可见 <code>QR</code> / <code>Ridge λ=…</code>。
+          </li>
+          <li>
+            <strong>指标</strong>：
+            \(R^2 = 1 - SS_{res}/SS_{tot}\)（用拟合值算，Ridge 时仍是样本内 R²）；
+            <strong>n</strong> = 完整样本行数；
+            <strong>OLS 列</strong> = 各因子 \(\beta_k\)（未入模显示原因标签）。
+          </li>
+        </ol>
+        <pre class="quant-help-formula">y = β<sub>0</sub> + Σ<sub>k</sub> β<sub>k</sub> x'<sub>k</sub> + ε
+SS<sub>res</sub> = Σ (y − ŷ)²
+SS<sub>tot</sub> = Σ (y − ȳ)²</pre>
+        <p>
+          <strong>两种模式</strong>：进页默认<strong>单票</strong> walk-forward（快探针）。
+          「研究池 OLS」：观察名单前最多 8 只，时序面板<strong>堆叠</strong>后再拟合
+          （非逐日截面 Fama–MacBeth）。均不写 config。
+          无 Lasso（L1）；L2 仅当 <code>ridge λ &gt; 0</code>。
+        </p>
+
+        <h4>当前 / 建议 / Δ（权重建议）</h4>
+        <p>
+          表里<strong>当前</strong>来自 <code>signal_config.weights</code>；
+          <strong>建议</strong>默认由研究池<strong>截面 IC / ICIR</strong>驱动（池不足回退单票时序 IC），
+          弱证据再回退 OLS / 近零降权。详见 <code>docs/weight-suggest-deepen.md</code>。
         </p>
         <ol>
           <li>
-            <strong>尺度</strong>：生产权重是归一化、常带非负/上限约束的配置；β
-            可正可负、可任意大，量纲是收益贡献，不是占比。
+            <strong>强截面证据</strong>：日数 <code>n</code> 足够，
+            <code>|IC| ≥ 0.03</code> 且 <code>|ICIR| ≥ 0.25</code>
+            → <code>δ = sign(IC)·0.03·scale</code>，
+            <code>scale = clamp(|ICIR|/0.5, 0.5, 1.5)</code>。
           </li>
           <li>
-            <strong>稳定性</strong>：样本少或因子共线时 β 易抖（例如 IC 为正而 OLS
-            为负）；表上的「建议 / Δ」走 IC 小步调整，更适合人审迭代。
+            <strong>否则 OLS</strong>：入模且 <code>|β| ≥ 0.05</code>
+            → 按符号 <code>±0.02</code>。
           </li>
           <li>
-            <strong>目标</strong>：OLS 拟合历史前瞻收益；生产权重还要可解释、风控、缺测与未入模因子。
+            <strong>再否则</strong>：有 IC 但未过 IC/ICIR 门槛
+            → <code>−0.015</code>（证据不足略降权）。
           </li>
           <li>
-            <strong>边界</strong>：研究建议 ≠ 自动写盘。若要用回归思路调权，路径应是 β →
-            归一化/裁剪 → OOS 验证 → 人审 promote，而不是把 OLS 列原样当权。
+            夹紧后归一化 →「建议」；<strong>Δ</strong> 悬停可见证据来源。
           </li>
         </ol>
+        <pre class="quant-help-formula">强证据: |IC|≥0.03 且 |ICIR|≥0.25
+δ = sign(IC)·0.03·clamp(|ICIR|/0.5, 0.5, 1.5)
+否则: OLS ±0.02 或 近零 −0.015
+建议 = normalize(clamp(w+δ))</pre>
         <p>
-          表里把 OLS 与「当前 / 建议」并排，是为了<strong>对照诊断</strong>：权重建议来自
-          IC / <code>weight_suggest</code>；OLS 用来看联合后谁还剩解释力。
+          单票回退时无 ICIR，仅按 <code>|IC|</code> 判强证据。
+          冲突时以强 IC/ICIR 为准。
+          另施加：<strong>零权冻结</strong>（如 money_flow）、
+          <strong>组内上限 45%</strong>、regime 白名单外上调提示。
+        </p>
+        <h4>OOS 门禁（P2）</h4>
+        <p>
+          默认对「当前权 vs 建议权」各跑一遍研究池 Top-K（后 30% 权益为 OOS）。
+          过门：建议 OOS ≥ 当前 OOS − 1pp，且不新增 OOS 失败旗标 →
+          <code>promote_ready=true</code>（仍须人审，不自动写盘）。
+          未过 / 跳过时导出 diff 会二次确认。
+        </p>
+
+        <h4>OLS / Ridge 系数 ≠ 生产权重</h4>
+        <p>
+          回归最小化的是历史前瞻收益误差（Ridge 时再加斜率 L2），得到的是偏效应 β，不是归一化权重。
+          建议<strong>不会</strong>把 raw β 写成 <code>signal_config.weights</code>：
+          弱 IC 时只用 β <strong>符号</strong>做小步 ±0.02；表内 OLS 列仍显示原始 β 供对照。
         </p>
 
         <h4>怎么用</h4>
         <p>
-          先看 IC 筛有用因子 → 再看 OLS 联合后谁还剩贡献 → 对照「当前 / 建议 /
-          Δ」导出 diff → 人审后再改配置。IC 强而 OLS 弱时慎加权重；R²
-          低或未入模很多时，优先看横截面与回测，勿只靠单票拍板。
+          优先看截面 IC/ICIR → OLS →「建议 / Δ」导出 diff → 人审；
+          上线前用回测 / OOS 验证。
         </p>
       </div>
     </details>

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
+from contextvars import ContextVar
 from copy import deepcopy
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from core.paths import DATA_DIR
 
@@ -90,6 +92,9 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
 }
 
 _cached: Optional[Dict[str, Any]] = None
+_config_overlays: ContextVar[Tuple[Dict[str, Any], ...]] = ContextVar(
+    "signal_config_overlays", default=()
+)
 
 
 def _deep_merge(base: dict, override: dict) -> dict:
@@ -102,10 +107,31 @@ def _deep_merge(base: dict, override: dict) -> dict:
     return out
 
 
+def _apply_overlays(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    out = cfg
+    for patch in _config_overlays.get():
+        out = _deep_merge(out, patch)
+    return out
+
+
+@contextmanager
+def signal_config_overlay(patch: Optional[Dict[str, Any]]) -> Iterator[None]:
+    """临时叠加 signal_config（如权重），供研究对照回测；不写盘。"""
+    if not patch:
+        yield
+        return
+    stack = _config_overlays.get()
+    token = _config_overlays.set(stack + (dict(patch),))
+    try:
+        yield
+    finally:
+        _config_overlays.reset(token)
+
+
 def load_signal_config(*, reload: bool = False) -> Dict[str, Any]:
     global _cached
     if _cached is not None and not reload:
-        return deepcopy(_cached)
+        return _apply_overlays(deepcopy(_cached))
 
     cfg = deepcopy(DEFAULT_SIGNAL_CONFIG)
     path = os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH)
@@ -114,7 +140,7 @@ def load_signal_config(*, reload: bool = False) -> Dict[str, Any]:
             user = json.load(f)
         cfg = _deep_merge(cfg, user)
     _cached = cfg
-    return deepcopy(cfg)
+    return _apply_overlays(deepcopy(cfg))
 
 
 def get_stance_thresholds(config: Optional[Dict[str, Any]] = None) -> Dict[str, float]:

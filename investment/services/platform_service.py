@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional
 from core.decision_record import list_decisions, record_from_advice
 from core.feedback_suggest import suggest_config_feedback
 from core.job_progress import job_registry
-from core.memory_store import read_memory, write_memory
+from core.memory_store import effective_preferences, read_memory, write_memory
 from core.observation import make_observation, wrap_skill_result
 from core.order_prefill import prefill_from_recent_decisions
 from core.schedule_jobs import run_schedule
@@ -21,7 +21,11 @@ class PlatformService:
         return {"ok": True, "job": job_registry.get(name)}
 
     def get_memory(self) -> Dict[str, Any]:
-        return {"ok": True, **read_memory()}
+        mem = read_memory()
+        return {"ok": True, **mem, "effective": effective_preferences()}
+
+    def get_effective_prefs(self) -> Dict[str, Any]:
+        return {"ok": True, "preferences": effective_preferences()}
 
     def save_memory(self, preferences: Dict[str, Any]) -> Dict[str, Any]:
         return write_memory(preferences)

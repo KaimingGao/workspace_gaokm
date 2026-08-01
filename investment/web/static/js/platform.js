@@ -6,7 +6,7 @@ export function initPlatform(ctx) {
   if (!meta && !document.getElementById("memory-risk")) return;
 
   const riskEl = document.getElementById("memory-risk");
-  const horizonEl = document.getElementById("memory-horizon");
+  const horizonDisplay = document.getElementById("memory-horizon-display");
   const notesEl = document.getElementById("memory-notes");
   const decisionList = document.getElementById("decision-list");
   const feedbackOut = document.getElementById("feedback-out");
@@ -16,6 +16,8 @@ export function initPlatform(ctx) {
 
   let lastMonitorAlerts = [];
   let lastPaperMetrics = null;
+  /** 研究默认 horizon（只读展示；编辑入口在研究枢纽） */
+  let cachedHorizonDays = 3;
 
   function setMeta(text) {
     if (meta) meta.textContent = text;
@@ -40,21 +42,33 @@ export function initPlatform(ctx) {
       .join("");
   }
 
+  function clampHorizonDays(v, fallback = 3) {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return fallback;
+    return Math.max(1, Math.min(10, Math.round(n)));
+  }
+
   async function loadMemory() {
     const res = await fetch("/api/memory");
     const data = await res.json();
-    const prefs = data.preferences || {};
+    const prefs = (data.effective || data.preferences) || {};
     if (riskEl && prefs.risk_style) riskEl.value = prefs.risk_style;
-    if (horizonEl && prefs.horizon_days != null) horizonEl.value = prefs.horizon_days;
+    cachedHorizonDays = clampHorizonDays(prefs.horizon_days, 3);
+    if (horizonDisplay) horizonDisplay.textContent = String(cachedHorizonDays);
     if (notesEl) notesEl.value = prefs.notes || "";
-    setMeta(data.exists ? "已加载偏好" : "尚无 memory.json · 可保存创建");
+    setMeta(
+      data.exists
+        ? `已加载偏好 · 研究默认 horizon=${cachedHorizonDays}d（只读；改在研究枢纽）`
+        : "尚无 memory.json · 可保存风险风格/备注"
+    );
     return data;
   }
 
   async function saveMemory() {
     const preferences = {
       risk_style: riskEl ? riskEl.value : "balanced",
-      horizon_days: horizonEl ? Number(horizonEl.value) || 3 : 3,
+      // 保留既有研究默认，避免平台保存时把 horizon 冲掉
+      horizon_days: cachedHorizonDays,
       notes: notesEl ? notesEl.value : "",
     };
     const res = await fetch("/api/memory", {
@@ -64,7 +78,12 @@ export function initPlatform(ctx) {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || res.statusText);
-    setMeta("偏好已保存");
+    const eff = data.effective || data.preferences || preferences;
+    cachedHorizonDays = clampHorizonDays(eff.horizon_days, cachedHorizonDays);
+    if (horizonDisplay) horizonDisplay.textContent = String(cachedHorizonDays);
+    setMeta(
+      `偏好已保存 · 研究默认 horizon=${cachedHorizonDays}d 仍只影响研究/回测`
+    );
     return data;
   }
 
@@ -134,7 +153,7 @@ export function initPlatform(ctx) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         kind: "paper_daily",
-        strategy: stratEl ? stratEl.value : "short",
+        strategy: stratEl ? stratEl.value : "short_conservative",
         simulate_buy: !!(buyEl && buyEl.checked),
       }),
     });

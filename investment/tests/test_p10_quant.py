@@ -90,16 +90,120 @@ class TestWeightSuggest(unittest.TestCase):
                 {"factor": "score", "ic": 0.05, "sample_count": 20},
             ],
         }
-        out = suggest_weights_from_ic(exp, current_weights={
-            "momentum": 0.4,
-            "volume_price": 0.3,
-            "relative_strength": 0.2,
-            "volatility": 0.1,
-        })
+        out = suggest_weights_from_ic(
+            exp,
+            current_weights={
+                "momentum": 0.4,
+                "volume_price": 0.3,
+                "relative_strength": 0.2,
+                "volatility": 0.1,
+            },
+            ic_mode="single",
+        )
         self.assertTrue(out["success"])
         self.assertGreater(out["suggested_weights"]["momentum"], out["current_weights"]["momentum"])
         self.assertLess(out["suggested_weights"]["volume_price"], out["current_weights"]["volume_price"])
         self.assertAlmostEqual(sum(out["suggested_weights"].values()), 1.0, places=2)
+
+    def test_weak_ic_uses_ols_then_decay(self):
+        exp = {
+            "success": True,
+            "factors": [
+                {"factor": "momentum", "ic": 0.01, "sample_count": 20},
+                {"factor": "volume_price", "ic": 0.005, "sample_count": 20},
+                {"factor": "liquidity", "ic": None, "sample_count": 20},
+            ],
+        }
+        ols = {
+            "success": True,
+            "coefficients": {"momentum": 0.25, "liquidity": -0.18},
+        }
+        out = suggest_weights_from_ic(
+            exp,
+            current_weights={
+                "momentum": 0.4,
+                "volume_price": 0.3,
+                "liquidity": 0.2,
+                "volatility": 0.1,
+            },
+            ols_report=ols,
+            weak_ic_decay=0.015,
+            ols_delta=0.02,
+            ic_mode="single",
+        )
+        self.assertTrue(out["success"])
+        self.assertEqual(out["delta_sources"]["momentum"], "ols")
+        self.assertEqual(out["deltas"]["momentum"], 0.02)
+        self.assertEqual(out["delta_sources"]["volume_price"], "weak_ic_decay")
+        self.assertEqual(out["deltas"]["volume_price"], -0.015)
+        self.assertEqual(out["delta_sources"]["liquidity"], "ols")
+        self.assertEqual(out["deltas"]["liquidity"], -0.02)
+        self.assertNotIn("volatility", out["delta_sources"])
+
+    def test_cs_ic_requires_icir_and_scales(self):
+        exp = {
+            "success": True,
+            "factors": [
+                {"factor": "momentum", "ic": 0.08, "icir": 0.6, "sample_count": 40},
+                {"factor": "volume_price", "ic": 0.08, "icir": 0.1, "sample_count": 40},
+                {"factor": "liquidity", "ic": -0.05, "icir": -0.5, "sample_count": 40},
+            ],
+        }
+        out = suggest_weights_from_ic(
+            exp,
+            current_weights={
+                "momentum": 0.4,
+                "volume_price": 0.3,
+                "liquidity": 0.2,
+                "volatility": 0.1,
+            },
+            ic_mode="cs_ic",
+            max_delta=0.03,
+            min_icir=0.25,
+        )
+        self.assertEqual(out["ic_mode"], "cs_ic")
+        self.assertEqual(out["delta_sources"]["momentum"], "cs_ic")
+        self.assertAlmostEqual(out["deltas"]["momentum"], 0.036, places=3)
+        self.assertEqual(out["delta_sources"]["volume_price"], "weak_ic_decay")
+        self.assertEqual(out["delta_sources"]["liquidity"], "cs_ic")
+        self.assertLess(out["deltas"]["liquidity"], 0)
+
+    def test_group_cap_and_freeze_zero(self):
+        from core.signal.weight_suggest import apply_group_caps
+
+        capped, warns = apply_group_caps(
+            {
+                "momentum": 0.35,
+                "ma_slope": 0.2,
+                "technical_pattern": 0.1,
+                "weekly_confirm": 0.05,
+                "value": 0.3,
+            },
+            {
+                "trend": ["momentum", "ma_slope", "technical_pattern", "weekly_confirm"],
+                "value_quality": ["value"],
+            },
+            max_group_share=0.45,
+        )
+        self.assertTrue(warns)
+        trend_sum = sum(
+            capped[k]
+            for k in ("momentum", "ma_slope", "technical_pattern", "weekly_confirm")
+        )
+        self.assertLessEqual(trend_sum, 0.451)
+        out = suggest_weights_from_ic(
+            {
+                "success": True,
+                "factors": [
+                    {"factor": "momentum", "ic": 0.2, "sample_count": 20},
+                    {"factor": "money_flow", "ic": 0.2, "sample_count": 20},
+                ],
+            },
+            current_weights={"momentum": 0.5, "money_flow": 0.0, "value": 0.5},
+            ic_mode="single",
+        )
+        self.assertEqual(out["suggested_weights"]["money_flow"], 0.0)
+        self.assertIn("money_flow", out["frozen_zero_factors"])
 
 
 if __name__ == "__main__":
