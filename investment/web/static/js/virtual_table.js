@@ -163,7 +163,7 @@ export function mountVirtualTable(host, options = {}) {
             `style="${colStyle(col)}" ` +
             (col.sortable
               ? `data-sort="${escapeHtml(col.id)}" role="button" tabindex="0" title="点击排序"`
-              : `title="${escapeHtml(col.label || "")}"`) +
+              : `title="${escapeHtml(col.title || col.label || "")}"`) +
             `>${inner}</div>`
           );
         })

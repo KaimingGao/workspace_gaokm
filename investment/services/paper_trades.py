@@ -11,6 +11,7 @@ from core.paper import (
     save_paper,
     append_snapshot,
     append_operation_log,
+    capture_mark_snapshot,
 )
 
 
@@ -36,6 +37,7 @@ class PaperTradesMixin:
         if not ranked.get("success"):
             return {"success": False, "ok": False, **ranked}
 
+        capture_mark_snapshot(paper)
         result = simulate_cross_section_rebalance(
             paper,
             ranked.get("ranking") or [],
@@ -59,6 +61,7 @@ class PaperTradesMixin:
         from core.paper import manual_buy
 
         paper = load_paper(self.path)
+        capture_mark_snapshot(paper)
         trade = manual_buy(paper, stock_code, amount=amount, shares=shares)
         summary = mark_to_market(paper)
         append_snapshot(paper, summary)
@@ -99,6 +102,7 @@ class PaperTradesMixin:
         from core.paper import manual_sell
 
         paper = load_paper(self.path)
+        capture_mark_snapshot(paper)
         trades = manual_sell(paper, codes=codes, stock_code=stock_code, shares=shares)
         summary = mark_to_market(paper)
         append_snapshot(paper, summary)
@@ -289,6 +293,8 @@ class PaperTradesMixin:
             except Exception:
                 stance_by_code = {}
 
+        if not dry_run:
+            capture_mark_snapshot(paper)
         result = simulate_t0_on_holdings(
             paper,
             bars_by_code=bars_by_code,

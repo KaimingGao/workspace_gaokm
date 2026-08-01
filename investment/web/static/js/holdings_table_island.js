@@ -32,6 +32,7 @@ export function holdingToRow(h, { chartMode, chartStockCode, selectedHoldCode, p
     name,
     shares: h.shares,
     priceText: fmtPriceUnit(h.price, h.unit, h.currency),
+    costText: fmtPriceUnit(h.cost, h.unit, h.currency),
     mvText: fmtPriceUnit(h.market_value, h.unit, h.currency),
     marketValueNum: Number.isFinite(mv) ? mv : null,
     scoreText: fmtScore(score),
@@ -62,13 +63,14 @@ const ORIGIN_HINT = {
 
 const COLS = [
   { id: "name", label: "股票", flex: true },
-  { id: "shares", label: "股数", widthPct: 8, num: true },
-  { id: "price", label: "现价", widthPct: 10, num: true },
-  { id: "market_value", label: "市值", widthPct: 11, num: true, sortable: true },
-  { id: "score", label: "评分", widthPct: 8, num: true, sortable: true },
-  { id: "pnl", label: "浮盈亏", widthPct: 9, num: true },
-  { id: "since", label: "开始", widthPct: 10 },
-  { id: "origin", label: "出处", widthPct: 9, cellClass: "paper-hold-origin", headClass: "paper-hold-origin" },
+  { id: "shares", label: "股数", widthPct: 7, num: true },
+  { id: "price", label: "现价", widthPct: 9, num: true },
+  { id: "cost", label: "成本", widthPct: 9, num: true, title: "持仓加权平均成本，对账用" },
+  { id: "market_value", label: "市值", widthPct: 10, num: true, sortable: true },
+  { id: "score", label: "评分", widthPct: 7, num: true, sortable: true },
+  { id: "pnl", label: "浮盈亏", widthPct: 8, num: true },
+  { id: "since", label: "开始", widthPct: 9 },
+  { id: "origin", label: "出处", widthPct: 8, cellClass: "paper-hold-origin", headClass: "paper-hold-origin" },
 ];
 
 function compare(id, a, b) {
@@ -130,6 +132,11 @@ export async function mountHoldingsTableIsland(host, options = {}) {
       }
       if (col.id === "shares") return escapeHtml(d.shares != null ? String(d.shares) : "—");
       if (col.id === "price") return escapeHtml(d.priceText || "—");
+      if (col.id === "cost") {
+        return `<span class="paper-hold-cost" title="持仓加权平均成本">${escapeHtml(
+          d.costText || "—"
+        )}</span>`;
+      }
       if (col.id === "market_value") return escapeHtml(d.mvText || "—");
       if (col.id === "score") {
         return (

@@ -21,6 +21,22 @@
           ridge λ
           <input id="quant-ridge-lambda" type="number" min="0" max="100" step="0.1" value="0" />
         </label>
+        <label class="platform-field" title="单票 OLS 标的：可选手观察池，或手输代码/名称；切换后点「单票 OLS」对照 β 是否差很多">
+          OLS 标的
+          <input
+            id="quant-ols-code"
+            list="quant-ols-code-list"
+            type="text"
+            value="茅台"
+            maxlength="16"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <datalist id="quant-ols-code-list"></datalist>
+        </label>
+        <button type="button" id="quant-ols-run" class="dialog-btn secondary" title="按上方标的重跑单票 walk-forward OLS">
+          单票 OLS
+        </button>
         <button type="button" id="quant-cs-ic-run" class="dialog-btn secondary">截面 IC</button>
         <button type="button" id="quant-ols-pool-run" class="dialog-btn secondary">研究池 OLS</button>
         <button type="button" id="quant-weight-export" class="dialog-btn secondary">导出权重 diff</button>
@@ -30,9 +46,9 @@
       <summary>IC / OLS·Ridge / 建议权重说明</summary>
       <div class="quant-help-body">
         <p>
-          默认用研究池第一只（常为 600519）日线做只读诊断。每个交易日
-          <code>t</code> 用截至当日的窗口跑 <code>score_bars</code> 取
-          <code>sub_scores</code>。结果<strong>不写</strong>
+          默认单票 OLS 标的为<strong>茅台</strong>；可用工具栏「OLS 标的」切换观察池个股或手输代码，
+          点「单票 OLS」对照不同票的 β / R² 是否差很多。每个交易日
+          <code>t</code> 用截至当日的窗口取研究路径因子分。结果<strong>不写</strong>
           <code>signal_config</code>。
         </p>
 
@@ -134,7 +150,8 @@ R β = Qᵀ y
 SS<sub>res</sub> = Σ (y − ŷ)²
 SS<sub>tot</sub> = Σ (y − ȳ)²</pre>
         <p>
-          <strong>两种模式</strong>：进页默认<strong>单票</strong> walk-forward（快探针）。
+          <strong>两种模式</strong>：进页默认按「OLS 标的」做<strong>单票</strong> walk-forward（快探针）；
+          可切换标的再点「单票 OLS」对照。
           「研究池 OLS」：观察名单前最多 8 只，时序面板<strong>堆叠</strong>后再拟合
           （非逐日截面 Fama–MacBeth）。均不写 config。
           无 Lasso（L1）；L2 仅当 <code>ridge λ &gt; 0</code>。
@@ -227,35 +244,37 @@ SS<sub>tot</sub> = Σ (y − ȳ)²</pre>
     <div id="quant-cross-list" class="quant-weight-table-wrap" aria-label="横截面排序"></div>
   </section>
 
-  <section class="quant-section" id="quant-export-preview" aria-labelledby="quant-section-daily-title">
-    <div class="quant-section-toolbar">
-      <h3 id="quant-section-daily-title" class="watching-section-title">日报</h3>
-      <div class="quant-actions-inline">
-        <button type="button" id="quant-ops-run-daily" class="dialog-btn">生成日报</button>
-        <button type="button" id="quant-interpret-offline" class="dialog-btn secondary">规则解读</button>
-        <button type="button" id="quant-interpret" class="dialog-btn secondary">AI 解读</button>
-        <button type="button" id="quant-export-md" class="dialog-btn secondary">下载 MD</button>
-        <button type="button" id="quant-export-html" class="dialog-btn secondary">下载 HTML</button>
+  <details class="quant-fold" id="quant-daily-fold">
+    <summary>日报</summary>
+    <div class="quant-section" id="quant-export-preview" aria-labelledby="quant-section-daily-title">
+      <div class="quant-section-toolbar">
+        <h3 id="quant-section-daily-title" class="watching-section-title sr-only">日报</h3>
+        <div class="quant-actions-inline">
+          <button type="button" id="quant-ops-run-daily" class="dialog-btn">生成日报</button>
+          <button type="button" id="quant-interpret-offline" class="dialog-btn secondary">规则解读</button>
+          <button type="button" id="quant-interpret" class="dialog-btn secondary">AI 解读</button>
+          <button type="button" id="quant-export-md" class="dialog-btn secondary">下载 MD</button>
+          <button type="button" id="quant-export-html" class="dialog-btn secondary">下载 HTML</button>
+        </div>
       </div>
+      <p id="quant-ops-summary" class="quant-fingerprint is-busy">加载中…</p>
+
+      <select id="quant-ops-preset" class="sr-only" aria-hidden="true" tabindex="-1">
+        <option value="quant" selected>量化研究</option>
+      </select>
+      <div id="quant-ops-preset-flags" class="sr-only" aria-hidden="true"></div>
+
+      <div id="quant-interpret-body" class="quant-summary" hidden></div>
+      <div id="quant-interpret-neutral" class="quant-weight-table-wrap sub" hidden></div>
+
+      <div id="quant-export-preview-meta" class="quant-sub is-busy">日报预览加载中…</div>
+      <nav id="quant-export-preview-toc" class="quant-export-preview-toc"></nav>
+      <div id="quant-export-preview-body" class="quant-export-preview-body"></div>
     </div>
-    <p id="quant-ops-summary" class="quant-fingerprint is-busy">加载中…</p>
-
-    <select id="quant-ops-preset" class="sr-only" aria-hidden="true" tabindex="-1">
-      <option value="quant" selected>量化研究</option>
-    </select>
-    <div id="quant-ops-preset-flags" class="sr-only" aria-hidden="true"></div>
-
-    <div id="quant-interpret-body" class="quant-summary" hidden></div>
-    <div id="quant-interpret-neutral" class="quant-weight-table-wrap sub" hidden></div>
-
-    <div id="quant-export-preview-meta" class="quant-sub is-busy">日报预览加载中…</div>
-    <nav id="quant-export-preview-toc" class="quant-export-preview-toc"></nav>
-    <div id="quant-export-preview-body" class="quant-export-preview-body"></div>
-  </section>
+  </details>
 </div>
 
 <button type="button" id="quant-factor-run" class="sr-only" tabindex="-1" aria-hidden="true">IC</button>
-<button type="button" id="quant-ols-run" class="sr-only" tabindex="-1" aria-hidden="true">OLS</button>
 <button type="button" id="quant-threshold-run" class="sr-only" tabindex="-1" aria-hidden="true">阈值</button>
 <button type="button" id="quant-feedback-suggest" class="sr-only" tabindex="-1" aria-hidden="true">反馈</button>
 <button type="button" id="quant-export-preview-md" class="sr-only" tabindex="-1" aria-hidden="true">预览MD</button>

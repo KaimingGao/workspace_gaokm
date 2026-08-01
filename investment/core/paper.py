@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 from core.paper_costs import resolve_cost_model  # noqa: F401 — re-export for paper_cycle / callers
@@ -26,7 +26,24 @@ EXAMPLE_PATH = PAPER_EXAMPLE_PATH
 
 
 def _now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+    return datetime.now().isoformat(timespec="milliseconds")
+
+
+def _next_snapshot_ts(paper: dict) -> str:
+    """相对上一笔快照单调递增，避免买卖前/后同毫秒撞 LWC time。"""
+    ts = _now_iso()
+    snaps = paper.get("snapshots") or []
+    if not snaps:
+        return ts
+    last = str((snaps[-1] or {}).get("ts") or "")
+    if not last or ts > last:
+        return ts
+    try:
+        return (datetime.fromisoformat(last) + timedelta(milliseconds=1)).isoformat(
+            timespec="milliseconds"
+        )
+    except ValueError:
+        return ts
 
 
 def load_paper(path: Optional[str] = None) -> dict:
@@ -169,7 +186,7 @@ from core.paper_exec import (  # noqa: E402,F401
 
 def append_snapshot(paper: dict, summary: Dict[str, Any]) -> None:
     snap = {
-        "ts": _now_iso(),
+        "ts": _next_snapshot_ts(paper),
         "equity": summary.get("equity"),
         "cash": summary.get("cash"),
         "stock_value": summary.get("stock_value"),
@@ -181,6 +198,13 @@ def append_snapshot(paper: dict, summary: Dict[str, Any]) -> None:
     }
     paper.setdefault("snapshots", []).append(snap)
     paper["snapshots"] = paper["snapshots"][-120:]
+
+
+def capture_mark_snapshot(paper: dict) -> Dict[str, Any]:
+    """改仓前盯市落点：把未实现涨跌从成交快照里拆开，避免曲线「一卖就跳」。"""
+    summary = mark_to_market(paper)
+    append_snapshot(paper, summary)
+    return summary
 
 
 OPERATION_LOG_TYPES = {

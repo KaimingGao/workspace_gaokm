@@ -207,7 +207,7 @@ AI 是控制面（顶栏/⌘K），不占侧栏、不占首页主叙事。
 | **策略卡** | 策略列表 | `.strategy-card` |
 | **区段** | 一块一事 | `.quant-section` / `.platform-section` / `.follow-ops-*`（锚点：`#platform-audit-section`） |
 | **主按钮 / 次按钮** | 动作 | `.dialog-btn` · `.dialog-btn.secondary` |
-| **折叠** | 按需 | `<details class="quant-fold">`（折叠深链：`#watching-data-quality-fold` / `#strategy-risk-audit-fold`） |
+| **折叠** | 按需 | `<details class="quant-fold">`（折叠深链：`#watching-data-quality-fold` / `#strategy-risk-audit-fold` / `#quant-daily-fold`） |
 | **状态行** | meta / 指纹 | `.quant-fingerprint` · 页顶 meta |
 | **因子悬停** | 定义注释 | `.factor-tip` + `title` |
 | **确认流** | 预演→确认 | 报告区 + 显式确认按钮（禁止一键静默成交） |

@@ -169,6 +169,11 @@ export function buildPaperHoldingsTableHtml({
           h.unit,
           h.currency
         )}</td>` +
+        `<td class="num paper-hold-cost" title="持仓加权平均成本">${fmtPriceUnit(
+          h.cost,
+          h.unit,
+          h.currency
+        )}</td>` +
         `<td class="num paper-hold-mv">${fmtPriceUnit(
           h.market_value,
           h.unit,
@@ -201,7 +206,7 @@ export function buildPaperHoldingsTableHtml({
   const tableHtml =
     `<div class="paper-holdings-scroll">` +
     `<table class="quant-weight-table paper-holdings-table"><thead><tr>` +
-    `<th>股票</th><th>股数</th><th>现价</th>` +
+    `<th>股票</th><th>股数</th><th>现价</th><th title="持仓加权平均成本，对账用">成本</th>` +
     `${sortThHtml("市值", "market_value")}${sortThHtml("评分", "score")}<th>浮盈亏</th>` +
     `<th>开始</th><th class="paper-hold-origin">出处</th>` +
     `</tr></thead><tbody>${rows}</tbody></table></div>`;

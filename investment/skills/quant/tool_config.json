@@ -20,6 +20,7 @@
           "portfolio_bridge",
           "package_info",
           "factor_ols",
+          "factor_corr",
           "t0_backtest"
         ],
         "description": "研究任务类型"

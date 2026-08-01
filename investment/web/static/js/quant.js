@@ -240,6 +240,60 @@ export function initQuant(ctx) {
     return 0;
   }
 
+  function readOlsCode() {
+    const el = document.getElementById("quant-ols-code");
+    const raw = el && el.value != null ? String(el.value).trim() : "";
+    if (!raw) return "茅台";
+    // datalist 选项形如「600519 · 贵州茅台」时取代码段
+    const head = raw.split(/[·|｜]/)[0].trim();
+    return head || "茅台";
+  }
+
+  async function populateOlsCodeOptions() {
+    const list = document.getElementById("quant-ols-code-list");
+    const input = document.getElementById("quant-ols-code");
+    if (!list) return [];
+    const seen = new Set();
+    const rows = [];
+    const push = (code, name) => {
+      const c = String(code || "").trim();
+      if (!c || seen.has(c)) return;
+      seen.add(c);
+      rows.push({ code: c, name: String(name || "").trim() });
+    };
+    push("茅台", "贵州茅台");
+    push("600519", "贵州茅台");
+    try {
+      const res = await fetch("/api/watching");
+      const data = await res.json();
+      const uni = (data && data.watching) || data || {};
+      const wl = uni.watchlist || data.watchlist || [];
+      const names = Array.isArray(uni.watchlist_names)
+        ? uni.watchlist_names
+        : Array.isArray(data.watchlist_names)
+          ? data.watchlist_names
+          : [];
+      for (let i = 0; i < wl.length; i++) {
+        const item = wl[i];
+        if (typeof item === "string") {
+          push(item, names[i] || watchingNameByCode[item] || "");
+        } else if (item && typeof item === "object") {
+          push(item.code || item.stock_code, item.name || item.stock_name || names[i] || "");
+        }
+      }
+    } catch (_) {
+      /* 离线/未建池时仍保留茅台选项 */
+    }
+    list.innerHTML = rows
+      .map((r) => {
+        const label = r.name ? `${r.code} · ${r.name}` : r.code;
+        return `<option value="${escapeHtml(r.code)}" label="${escapeHtml(label)}"></option>`;
+      })
+      .join("");
+    if (input && !String(input.value || "").trim()) input.value = "茅台";
+    return rows;
+  }
+
   async function loadPrefsHorizon() {
     try {
       const res = await fetch("/api/prefs");
@@ -289,8 +343,9 @@ export function initQuant(ctx) {
     const hasOps = !!document.getElementById("quant-ops-summary");
     try {
       if (quantMeta) quantMeta.textContent = "加载面板…";
-      // 先拉研究默认 horizon（memory），再跑 IC/OLS/回测
+      // 先拉研究默认 horizon（memory）与 OLS 标的列表，再跑 IC/OLS/回测
       await loadPrefsHorizon().catch(() => {});
+      await populateOlsCodeOptions().catch(() => {});
       const foreground = [];
       if (hasWatching || hasReplay) {
         foreground.push(
@@ -4860,6 +4915,32 @@ export function initQuant(ctx) {
     }
   }
 
+  function openDailyFold() {
+    const fold = document.getElementById("quant-daily-fold");
+    if (fold) fold.open = true;
+  }
+
+  function syncDailyFoldSummary(tail) {
+    const foldSummary = document.querySelector("#quant-daily-fold > summary");
+    if (!foldSummary) return;
+    const t = String(tail || "").trim();
+    foldSummary.textContent = t ? `日报 · ${t}` : "日报";
+  }
+
+  let dailyPreviewRequested = false;
+
+  async function ensureDailyPreview() {
+    if (!quantExportPreviewBody || dailyPreviewRequested) return;
+    dailyPreviewRequested = true;
+    try {
+      await previewQuantExport("markdown");
+    } catch (err) {
+      if (quantExportPreviewMeta) {
+        quantExportPreviewMeta.textContent = String(err.message || err);
+      }
+    }
+  }
+
   async function loadOpsPanel() {
     if (!quantOpsSummary) return;
     setBusyText(quantOpsSummary, "加载中…", { busy: true });
@@ -4878,13 +4959,16 @@ export function initQuant(ctx) {
       const daily = data.daily_last || {};
       const uni = data.watching || {};
       const parts = [];
+      let foldTail = "";
       if (daily.empty) {
         parts.push("尚无日报 · 点「生成日报」汇总今日结论");
+        foldTail = "尚无日报";
       } else {
         const when = String(daily.finished_at || "")
           .replace("T", " ")
           .slice(0, 16);
         parts.push(`最近日报 ${daily.ok ? "OK" : "FAIL"}${when ? ` · ${when}` : ""}`);
+        foldTail = `${daily.ok ? "OK" : "FAIL"}${when ? ` · ${when}` : ""}`;
       }
       if (uni.exists === false) {
         parts.push("研究池未初始化");
@@ -4892,14 +4976,17 @@ export function initQuant(ctx) {
         parts.push(`研究池 ${uni.watchlist_count} 只`);
       }
       setBusyText(quantOpsSummary, parts.join(" · "), { busy: false });
+      syncDailyFoldSummary(foldTail);
     } catch (err) {
       setBusyText(quantOpsSummary, String(err.message || err), { busy: false });
+      syncDailyFoldSummary("加载失败");
     }
   }
 
   const QUANT_EXPORT_PRESETS = new Set(["quant", "quant_paper", "full"]);
 
   async function runDailyWithPreset(preset, runningLabel) {
+    openDailyFold();
     setQuantMeta(runningLabel || "生成日报中…", { busy: true });
     const res = await fetch("/api/daily/run", {
       method: "POST",
@@ -4921,6 +5008,7 @@ export function initQuant(ctx) {
       await refreshCrossSection().catch(() => {});
     }
     if (data.ok && QUANT_EXPORT_PRESETS.has(preset)) {
+      dailyPreviewRequested = true;
       await previewQuantExport("markdown");
     }
     return data;
@@ -5928,13 +6016,14 @@ export function initQuant(ctx) {
   }
 
   async function runFactorOlsSuggest() {
-    setBusyText(quantOlsSummary, "OLS 实验中…", { busy: true });
+    const code = readOlsCode();
+    setBusyText(quantOlsSummary, `OLS 实验中… · ${code}`, { busy: true });
     await ensureFactorMeta();
     const res = await fetch("/api/quant/factor-ols", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        code: "茅台",
+        code,
         lookback: 120,
         horizon_days: readHorizonDays(),
         ridge_lambda: readRidgeLambda(),
@@ -6148,10 +6237,28 @@ export function initQuant(ctx) {
 
   on("quant-ols-run", "click", async (e) => {
     e.preventDefault();
+    const btn = document.getElementById("quant-ols-run");
+    if (btn) btn.disabled = true;
     try {
       await runFactorOlsSuggest();
     } catch (err) {
-      if (quantOlsSummary) quantOlsSummary.textContent = String(err.message || err);
+      setBusyText(quantOlsSummary, String(err.message || err), { busy: false });
+      if (quantMeta) setQuantMeta(String(err.message || err), { error: true });
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  });
+
+  on("quant-ols-code", "change", async () => {
+    // 选完 datalist / 失焦后自动重跑，便于换票对照
+    const btn = document.getElementById("quant-ols-run");
+    if (btn) btn.disabled = true;
+    try {
+      await runFactorOlsSuggest();
+    } catch (err) {
+      setBusyText(quantOlsSummary, String(err.message || err), { busy: false });
+    } finally {
+      if (btn) btn.disabled = false;
     }
   });
 
@@ -6963,17 +7070,19 @@ export function initQuant(ctx) {
     }
   });
 
-  // 报告区常显：进入页面后预拉一次 MD 预览
-  if (quantExportPreviewBody) {
-    previewQuantExport("markdown").catch((err) => {
-      if (quantExportPreviewMeta) {
-        quantExportPreviewMeta.textContent = String(err.message || err);
-      }
-    });
+  // 日报默认折叠：展开或深链时再拉 MD 预览
+  document.getElementById("quant-daily-fold")?.addEventListener("toggle", (e) => {
+    const fold = e.currentTarget;
+    if (fold && fold.open) ensureDailyPreview();
+  });
+  if (String(location.hash || "").replace(/^#/, "") === "quant-daily-fold") {
+    openDailyFold();
+    ensureDailyPreview();
   }
 
   on("quant-export-md", "click", async (e) => {
     e.preventDefault();
+    openDailyFold();
     try {
       const res = await fetch("/api/quant/export?format=markdown&use_saved=true");
       const data = await res.json();
@@ -6991,6 +7100,7 @@ export function initQuant(ctx) {
 
   on("quant-export-html", "click", async (e) => {
     e.preventDefault();
+    openDailyFold();
     try {
       const res = await fetch("/api/quant/export?format=html&use_saved=true");
       const data = await res.json();
@@ -7052,6 +7162,7 @@ export function initQuant(ctx) {
       if (quantMeta) quantMeta.textContent = "本页无解读区";
       return;
     }
+    openDailyFold();
     const llmOk = forceOffline ? false : await resolveLlmAvailable();
     const useOffline = forceOffline || !llmOk;
     showQuantInterpretPanel();

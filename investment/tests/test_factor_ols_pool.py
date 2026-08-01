@@ -13,6 +13,8 @@ from quant.research.factor_ols import (
     compute_factor_ols_report,
     fit_factor_ols_from_panel,
 )
+from quant.services.quant_interpret import build_rule_based_interpret, compact_quant_report
+
 
 
 class TestFactorOlsPool(unittest.TestCase):
@@ -74,6 +76,38 @@ class TestFactorOlsPool(unittest.TestCase):
         out = fit_factor_ols_from_panel([], [], horizon_days=3)
         self.assertFalse(out.get("success"))
 
+    def test_api_factor_ols_mocked(self):
+        try:
+            from fastapi.testclient import TestClient
+            import web.app as web_app
+            import web.deps as deps
+        except ImportError:
+            self.skipTest("fastapi not installed")
+
+        mock_out = {
+            "success": True,
+            "task": "factor_ols",
+            "stock_code": "600519",
+            "r_squared": 0.12,
+            "sample_count": 25,
+            "coefficients": {"momentum": 0.1},
+            "current_weights": {"momentum": 0.28},
+        }
+        with patch.object(
+            deps.quant,
+            "run_factor_ols_experiment",
+            return_value=mock_out,
+        ):
+            client = TestClient(web_app.app)
+            res = client.post(
+                "/api/quant/factor-ols",
+                json={"code": "茅台", "lookback": 120, "horizon_days": 3},
+            )
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertTrue(data["success"])
+        self.assertEqual(data.get("task"), "factor_ols")
+
     def test_api_factor_ols_pool_mocked(self):
         try:
             from fastapi.testclient import TestClient
@@ -107,6 +141,18 @@ class TestFactorOlsPool(unittest.TestCase):
         self.assertTrue(data["success"])
         self.assertEqual(data.get("mode"), "watching_pooled")
 
+    def test_interpret_includes_factor_ols(self):
+        ols = compute_factor_ols_report(rising_bars(45), horizon_days=3, min_history=12)
+        self.assertTrue(ols.get("success"))
+        compact = compact_quant_report({"success": True, "factor_ols": ols})
+        self.assertIn("factor_ols", compact)
+        self.assertIn("summary_line", compact["factor_ols"])
+        out = build_rule_based_interpret({"success": True, "factor_ols": ols})
+        self.assertTrue(out.get("success"))
+        text = out.get("interpretation") or ""
+        self.assertIn("因子 OLS", text)
+        self.assertIn("不自动写 signal_config", text)
+
     def test_research_panel_computes_beyond_regime_core(self):
         """全量注册因子应出现在面板（不因 regime 白名单整列变 None）。"""
         from quant.research.factor_ols import collect_subscore_forward_panel
@@ -131,6 +177,8 @@ class TestFactorOlsPool(unittest.TestCase):
             html = f.read()
         self.assertIn("quant-ols-pool-run", html)
         self.assertIn("quant-ridge-lambda", html)
+        self.assertIn("quant-ols-code", html)
+        self.assertIn("单票 OLS", html)
         self.assertIn("研究池 OLS", html)
         self.assertIn("堆叠", html)
 
@@ -140,6 +188,8 @@ class TestFactorOlsPool(unittest.TestCase):
             js = f.read()
         self.assertIn("/api/quant/factor-ols-pool", js)
         self.assertIn("runFactorOlsPoolSuggest", js)
+        self.assertIn("readOlsCode", js)
+        self.assertIn("populateOlsCodeOptions", js)
 
 
 if __name__ == "__main__":

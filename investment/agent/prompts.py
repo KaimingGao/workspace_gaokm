@@ -35,7 +35,7 @@ MODEL_POLICY_HINT = (
 QUANT_TASK_ENUM = (
     "daily_summary|cross_section|portfolio_backtest|portfolio_neutral_compare|"
     "weight_suggest|threshold_suggest|interpret|health|"
-    "config_diff|daily_presets|portfolio_bridge|package_info|factor_ols|t0_backtest"
+    "config_diff|daily_presets|portfolio_bridge|package_info|factor_ols|factor_corr|t0_backtest"
 )
 
 QUANT_TASK_ROUTES = (
@@ -52,6 +52,7 @@ QUANT_TASK_ROUTES = (
     ("portfolio_bridge", "持仓与量化联动摘要"),
     ("package_info", "quant 包结构/模块树"),
     ("factor_ols", "因子面板 OLS 实验（研究用，不写 config）"),
+    ("factor_corr", "因子相关矩阵（研究用）"),
     ("t0_backtest", "底仓做T日线代理回测（仅模拟）"),
 )
 

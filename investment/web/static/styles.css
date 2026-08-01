@@ -581,12 +581,6 @@ td.num {
   padding: 0;
 }
 
-.platform-panel h2 {
-  margin: 0 0 4px;
-  font-size: 1rem;
-}
-
-.platform-meta,
 .platform-hint {
   margin: 0 0 10px;
   font-size: 0.75rem;
@@ -877,7 +871,7 @@ td.num {
 .embed-panel.replay-panel,
 .embed-panel.strategy-panel,
 .embed-panel.usage-panel,
-.embed-panel.platform-panel {
+.embed-panel.platform-embed {
   max-width: none;
   width: 100%;
   max-height: none;
@@ -4983,7 +4977,8 @@ a.hub-card:hover {
 .follow-page,
 .strategy-page,
 .replay-page,
-.quant-page {
+.quant-page,
+.platform-page {
   max-width: none;
   width: 100%;
   box-sizing: border-box;
@@ -5009,7 +5004,8 @@ a.hub-card:hover {
   gap: 12px;
 }
 
-.quant-page {
+.quant-page,
+.platform-page {
   gap: 14px;
 }
 
@@ -7423,6 +7419,15 @@ a.hub-card:hover {
   gap: 8px;
 }
 
+.quant-actions-inline .platform-field {
+  margin-bottom: 0;
+}
+
+.quant-actions-inline #quant-ols-code {
+  width: 7.5rem;
+  min-width: 6rem;
+}
+
 .quant-foot-actions {
   margin-top: 8px;
   padding-top: 12px;
@@ -7668,6 +7673,11 @@ body[data-page]:not([data-page="chat"]) {
 .page-panel.quant-panel .quant-body {
   max-height: none;
   overflow: visible;
+}
+
+/* 盖过 *-page { padding: 0 0 12px !important }：有 sticky 标题栏时正文留顶距 */
+.page-panel.quant-panel .quant-head + .quant-body {
+  padding: 16px 0 12px !important;
 }
 
 .page-panel .quant-close,

@@ -16,10 +16,12 @@ from core.paper import (
     ORIGIN_MIXED,
     ORIGIN_STRATEGY,
     buy_codes_direct,
+    load_paper,
     manual_buy,
     mark_to_market,
     merge_origin,
     plan_buy_codes,
+    save_paper,
 )
 
 PRICES = {"600519": 10.0, "000568": 20.0, "601318": 50.0}
@@ -349,6 +351,59 @@ class TestPlanSyncToPaper(unittest.TestCase):
             self.assertEqual(plan["missing"], ["999999"])
             with open(paper_path, encoding="utf-8") as f:
                 self.assertEqual(json.load(f)["holdings"], [])
+
+
+class TestSellNavCurveSnapshots(unittest.TestCase):
+    """卖出前先盯市落点：涨跌先画上，卖出点本身接近持平。"""
+
+    def test_sell_splits_mtm_rise_from_trade(self):
+        from services.paper_service import PaperService
+
+        prices = {"600519": 10.0}
+
+        def _q(code):
+            code = str(code)
+            return {
+                "success": True,
+                "stock_code": code,
+                "stock_name": f"名{code}",
+                "price_raw": prices[code],
+            }
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            svc = PaperService(path)
+            svc.init()
+            with patch("core.paper_exec.query_quote", side_effect=_q):
+                svc.set_cost_model("zero")
+                svc.buy(stock_code="600519", amount=5000)
+
+                paper = load_paper(path)
+                stale_equity = float(paper["snapshots"][-1]["equity"])
+                paper["snapshots"] = [
+                    {
+                        "ts": "2024-01-01T00:00:00.000",
+                        "equity": stale_equity,
+                        "cash": paper.get("cash"),
+                        "stock_value": 5000.0,
+                    }
+                ]
+                save_paper(paper, path)
+
+                prices["600519"] = 12.0
+                out = svc.sell(codes=["600519"])
+                self.assertTrue(out.get("ok"), out)
+
+                paper = load_paper(path)
+                snaps = paper.get("snapshots") or []
+                self.assertGreaterEqual(len(snaps), 2)
+                pre, post = snaps[-2], snaps[-1]
+                self.assertGreater(float(pre["equity"]), stale_equity)
+                self.assertAlmostEqual(
+                    float(pre["equity"]), float(post["equity"]), delta=1.0
+                )
+                self.assertNotEqual(pre.get("ts"), post.get("ts"))
+                self.assertEqual(paper.get("holdings") or [], [])
 
 
 if __name__ == "__main__":
