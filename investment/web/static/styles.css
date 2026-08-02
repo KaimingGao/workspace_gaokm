@@ -2220,6 +2220,13 @@ dialog h2 {
   color: var(--ink);
 }
 
+/* 保留小写希腊 β 等字形，避免 uppercase 变成 Β/B */
+.dialog-btn.dialog-btn-keep-case,
+.dialog-btn.secondary.dialog-btn-keep-case {
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
 .paper-head h2 {
   margin-bottom: 4px;
 }
@@ -5004,7 +5011,14 @@ a.hub-card:hover {
   gap: 12px;
 }
 
-.quant-page,
+.quant-page {
+  --quant-gap: 8px;
+  --quant-gap-lg: 10px;
+  --quant-pad: 8px;
+  --quant-pad-x: 10px;
+  gap: var(--quant-gap-lg);
+}
+
 .platform-page {
   gap: 14px;
 }
@@ -5014,33 +5028,625 @@ a.hub-card:hover {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
   flex-wrap: wrap;
   margin: 0;
-  min-height: 36px;
+  min-height: 32px;
 }
 
 .quant-page .quant-section-toolbar .watching-section-title {
   margin: 0;
+  font-size: 0.88rem;
 }
 
 .quant-page .quant-section-toolbar .quant-actions-inline {
   margin: 0;
   justify-content: flex-end;
+  gap: 6px;
 }
 
 .quant-page > .quant-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--quant-gap);
   margin: 0;
-  padding: 0 0 16px;
+  padding: 0;
+  /* 不再画段底横线：探针在段内、全局对照在段外时，线会卡在两折叠之间显得突兀 */
+  border-bottom: none;
+}
+
+.quant-page .quant-cluster-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.quant-page .quant-cluster-block {
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.quant-page .quant-cluster-block:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.quant-page .quant-cluster-universe-hint {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--ink-3);
+  letter-spacing: 0.01em;
+  line-height: 1.4;
+}
+
+.quant-page .quant-cluster-meta {
+  margin: 0 0 8px;
+}
+
+.quant-page .quant-cluster-step {
+  margin: 8px 0 4px;
+  font-size: 0.88rem;
+}
+
+.quant-page .quant-cluster-tables-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 8px;
+  margin: 0 0 8px;
+  padding-bottom: 6px;
   border-bottom: 1px solid var(--line);
 }
 
-.quant-page > .quant-section:last-child {
+.quant-page .quant-cluster-tables-label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+  text-transform: none;
+}
+
+.quant-page .quant-cluster-tables-head .sub {
+  font-size: 0.72rem;
+  color: var(--ink-3);
+}
+
+/* 探针 / 全局对照：与「日报」同款 quant-fold 卡片折叠 */
+.quant-page .quant-probe-fold.quant-fold {
+  margin: var(--quant-gap) 0 0;
+}
+
+.quant-page .quant-probe-body.quant-section {
+  margin: 0;
+  padding: var(--quant-pad) var(--quant-pad-x) 10px;
   border-bottom: none;
-  padding-bottom: 0;
+  background: var(--surface);
+}
+
+.quant-page .quant-probe-toolbar {
+  margin-bottom: 6px;
+  align-items: flex-end;
+  gap: 6px;
+}
+
+.quant-page .quant-probe-secondary-action {
+  opacity: 0.85;
+}
+
+.quant-page .quant-cluster-status {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  margin: 0 0 var(--quant-gap);
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--line-2) 72%, var(--surface));
+}
+
+.quant-page .quant-cluster-status-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  align-items: baseline;
+}
+
+.quant-page .quant-cluster-stat {
+  font-size: 0.72rem;
+  color: var(--ink-3);
+  white-space: nowrap;
+  padding: 0 12px 0 0;
+  margin-right: 12px;
+  border-right: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  line-height: 1.35;
+}
+
+.quant-page .quant-cluster-stat:last-child {
+  border-right: none;
+  margin-right: 0;
+  padding-right: 0;
+}
+
+.quant-page .quant-cluster-stat b {
+  font-family: var(--font-mono);
+  font-weight: 650;
+  font-size: 0.95rem;
+  color: var(--ink);
+  margin-right: 4px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.quant-page .quant-cluster-stat.is-warn b {
+  color: var(--gold);
+}
+
+/* 方法指纹：常显一行，不用迷你 details */
+.quant-page .quant-cluster-method {
+  margin: 0;
+  padding-top: 6px;
+  border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+
+.quant-page .quant-cluster-method-k {
+  color: var(--ink-2);
+  font-weight: 650;
+  margin-right: 6px;
+  letter-spacing: 0.04em;
+}
+
+.quant-page .quant-cluster-method-v {
+  font-variant-numeric: tabular-nums;
+  word-break: break-word;
+  color: var(--ink-2);
+}
+
+.quant-page .quant-cluster-hub {
+  margin: 0 0 var(--quant-gap);
+  padding: 0;
+  border-top: none;
+  font-size: 0.84rem;
+  line-height: 1.45;
+}
+
+.quant-page .quant-cluster-hub:empty {
+  display: none;
+}
+
+.quant-page .quant-cluster-unmapped {
+  margin: 0 0 8px;
+  color: var(--gold);
+  font-size: var(--font-size-caption);
+}
+
+/* G1… 组折叠：与日报 / 探针同款 quant-fold 卡片 */
+.quant-page .quant-cluster-group-table {
+  margin: 0 0 var(--quant-gap);
+  padding: 0;
+  border-bottom: none;
+}
+
+.quant-page .quant-cluster-group-table:last-child {
+  margin-bottom: 4px;
+}
+
+.quant-page .quant-cluster-group-fold.quant-fold {
+  margin: 0;
+}
+
+.quant-page .quant-cluster-group-fold.quant-fold > summary.quant-cluster-group-head {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 8px 12px;
+  padding-right: 3rem; /* 给「展开/收起」留位 */
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+.quant-page .quant-cluster-group-fold.quant-fold > summary.quant-cluster-group-head::-webkit-details-marker {
+  display: none;
+}
+
+.quant-page .quant-cluster-group-fold.quant-fold > summary.quant-cluster-group-head::after {
+  float: none;
+  position: absolute;
+  top: 9px;
+  right: 12px;
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+}
+
+.quant-page .quant-cluster-group-body {
+  min-width: 0;
+  padding: 2px 10px 10px;
+  background: var(--surface);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.quant-page .quant-cluster-group-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+}
+
+.quant-page .quant-global-fold.quant-fold {
+  margin: 0 0 var(--quant-gap);
+}
+
+.quant-page .quant-global-fold-body {
+  padding: 2px 0;
+  background: var(--surface);
+}
+
+.quant-page .quant-global-fold-body > .quant-section {
+  margin: 0;
+  padding: 10px;
+  border-bottom: 1px solid var(--line-2);
+  background: var(--surface);
+  gap: var(--quant-gap);
+}
+
+.quant-page .quant-global-fold-body > .quant-section:last-child {
+  border-bottom: none;
+}
+
+.quant-page .quant-probe-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border-radius: var(--radius-xs);
+  border: 1px solid var(--line);
+  background: var(--bg-hover);
+  color: var(--ink-2);
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1.45;
+  margin-right: 6px;
+  vertical-align: middle;
+  letter-spacing: 0.02em;
+}
+
+.quant-page .quant-probe-badge.is-ok {
+  border-color: color-mix(in srgb, var(--ok) 32%, var(--line));
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.quant-page .quant-probe-badge.is-warn {
+  border-color: color-mix(in srgb, var(--gold) 36%, var(--line));
+  background: var(--gold-soft);
+  color: var(--gold);
+}
+
+.quant-page .quant-probe-badge.is-muted {
+  background: transparent;
+  color: var(--ink-3);
+}
+
+/* 研究表：与数据中心同壳 watching-react-grid · 紧凑 / 扫视高亮 */
+.quant-page .quant-research-grid {
+  border-radius: var(--radius-sm);
+  font-size: 0.78rem;
+  background: var(--surface);
+}
+
+.quant-page .quant-research-grid .watching-react-grid-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--line-2);
+  border-bottom: 1px solid var(--line);
+}
+
+.quant-page .quant-research-grid .watching-react-grid-row {
+  min-height: 30px;
+}
+
+.quant-page .quant-research-grid .watching-react-grid-row.is-head {
+  min-height: 28px;
+}
+
+.quant-page .quant-research-grid .watching-react-grid-cell {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.quant-page .quant-research-grid .watching-react-grid-row.is-head .watching-react-grid-cell {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: var(--ink-3);
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.quant-page .quant-research-grid .watching-react-grid-row > .watching-react-grid-cell:first-child {
+  padding-left: 12px;
+}
+
+.quant-page .quant-research-grid .watching-react-grid-row > .watching-react-grid-cell:last-child {
+  padding-right: 14px;
+}
+
+.quant-page .quant-research-grid .watching-react-grid-body .watching-react-grid-row:nth-child(even):not(.is-scan-hot):not(.is-hetero) {
+  background: color-mix(in srgb, var(--line-2) 48%, var(--surface));
+}
+
+.quant-page .quant-research-grid .watching-react-grid-body .watching-react-grid-row:hover {
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.quant-page .quant-research-grid .watching-react-grid-cell.watching-col-num {
+  font-family: var(--font-mono);
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+.quant-page .quant-research-grid .quant-cell-empty {
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.quant-page .quant-research-grid .watching-react-grid-row.is-scan-hot {
+  background: color-mix(in srgb, var(--gold) 7%, var(--surface));
+}
+
+.quant-page .quant-research-grid .watching-react-grid-row.is-hetero {
+  box-shadow: inset 2px 0 0 var(--gold);
+  background: color-mix(in srgb, var(--gold) 4%, var(--surface));
+}
+
+.quant-page .quant-cluster-group-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px 12px;
+}
+
+.quant-page .quant-cluster-group-title {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.quant-page .quant-cluster-gid {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink);
+  line-height: 1.15;
+}
+
+.quant-page .quant-cluster-tags {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+
+.quant-page .quant-cluster-tag {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  border: 1px solid transparent;
+  background: color-mix(in srgb, var(--ink) 5%, var(--surface));
+  color: var(--ink-2);
+  font-size: 0.68rem;
+  font-weight: 550;
+  line-height: 1.45;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+
+.quant-page .quant-cluster-tag.is-ok {
+  border-color: color-mix(in srgb, var(--ok) 28%, transparent);
+  background: var(--ok-soft);
+  color: var(--ok);
+}
+
+.quant-page .quant-cluster-tag.is-warn {
+  border-color: color-mix(in srgb, var(--gold) 32%, transparent);
+  background: var(--gold-soft);
+  color: var(--gold);
+}
+
+.quant-page .quant-cluster-tag.is-accent {
+  border-color: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: var(--accent-soft);
+  color: var(--accent-active);
+}
+
+.quant-page .quant-cluster-tag.is-muted {
+  background: transparent;
+  color: var(--ink-3);
+  border-color: var(--line);
+}
+
+.quant-page .quant-cluster-metrics {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  align-items: baseline;
+  margin-left: 2px;
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+
+.quant-page .quant-cluster-metric {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  font-size: 0.72rem;
+  color: var(--ink-2);
+}
+
+.quant-page .quant-cluster-metric-k {
+  color: var(--ink-3);
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+
+.quant-page .quant-cluster-metric-v {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 0.78rem;
+}
+
+.quant-page .quant-cluster-group-actions {
+  flex: 0 0 auto;
+  margin-left: auto;
+  margin-right: 0.25rem; /* 与右上「展开/收起」错开 */
+}
+
+.quant-page .quant-cluster-members {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 2px;
+  padding-top: 0;
+}
+
+.quant-page .quant-cluster-member {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  padding: 0 10px 0 0;
+  margin-right: 6px;
+  border-right: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  line-height: 1.15;
+  min-width: 0;
+}
+
+.quant-page .quant-cluster-member:last-child {
+  border-right: none;
+  margin-right: 0;
+  padding-right: 0;
+}
+
+.quant-page .quant-cluster-member-name {
+  color: var(--ink);
+  font-size: 0.76rem;
+  font-weight: 600;
+}
+
+.quant-page .quant-cluster-member-code {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.03em;
+}
+
+.quant-page .quant-cluster-diag-fold {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--ink-3);
+}
+
+.quant-page .quant-cluster-diag-fold > summary {
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  color: var(--ink-3);
+  letter-spacing: 0.02em;
+}
+
+.quant-page .quant-cluster-diag-fold > summary::-webkit-details-marker {
+  display: none;
+}
+
+.quant-page .quant-cluster-diag {
+  margin-top: 4px;
+  font-size: 0.7rem;
+  line-height: 1.45;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.quant-page .quant-cluster-pool {
+  margin: 10px 0 6px;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.quant-page .quant-cluster-more {
+  margin-top: 8px;
+}
+
+.quant-page .quant-cluster-advanced {
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--line-2);
+  font-size: var(--font-size-caption);
+  color: var(--ink-2);
+}
+
+.quant-page .quant-cluster-advanced-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.quant-page .quant-cluster-more summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.quant-page .quant-cluster-more .dialog-btn {
+  margin-top: 6px;
+  margin-right: 4px;
+}
+
+.quant-page .quant-cluster-export {
+  margin-top: 0;
+  padding: 4px 9px;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.quant-page .quant-cluster-ranks {
+  margin: 6px 0 4px;
+}
+
+.quant-page .quant-cluster-ranks ol {
+  margin: 4px 0 0;
+  padding-left: 1.25rem;
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.quant-page .quant-cluster-rank-code {
+  font-weight: 600;
 }
 
 .quant-page .quant-fingerprint,
@@ -5053,21 +5659,46 @@ a.hub-card:hover {
   display: none;
 }
 
+/* 研究枢纽折叠：更紧的卡片节奏 */
+.quant-page .quant-fold {
+  margin: 0 0 var(--quant-gap);
+  border-radius: var(--radius-sm);
+}
+
+.quant-page .quant-fold > summary {
+  padding: 8px 12px;
+  font-size: 0.8rem;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.quant-page .quant-fold > summary::after {
+  font-size: 0.66rem;
+  letter-spacing: 0.06em;
+  font-weight: 500;
+}
+
+.quant-page .quant-fold .quant-section {
+  gap: var(--quant-gap);
+  padding: var(--quant-pad) var(--quant-pad-x);
+}
+
 .quant-page .quant-help-fold {
   margin: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--surface) 88%, var(--bg));
 }
 
 .quant-page .quant-help-fold > summary {
-  padding: 8px 10px;
-  font-size: 0.78rem;
+  padding: 6px 10px;
+  font-size: 0.74rem;
+  color: var(--ink-2);
 }
 
 .quant-page .quant-help-body {
-  padding: 8px 12px 12px;
-  font-size: 0.78rem;
-  line-height: 1.55;
+  padding: 6px 10px 10px;
+  font-size: 0.76rem;
+  line-height: 1.5;
   color: var(--ink-2);
 }
 
@@ -5158,9 +5789,28 @@ a.hub-card:hover {
 .quant-factor-reason,
 .quant-ols-reason {
   color: var(--ink-3);
-  font-size: 0.72rem;
+  font-size: 0.7rem;
   font-weight: 600;
   letter-spacing: 0.02em;
+}
+
+.quant-page .quant-research-grid .bt-trade-ret {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-weight: 550;
+}
+
+.quant-page .quant-research-grid .bt-trade-ret.up {
+  font-weight: 650;
+}
+
+.quant-page .quant-research-grid .bt-trade-ret.down {
+  font-weight: 650;
+}
+
+.quant-page .factor-tip {
+  border-bottom-color: color-mix(in srgb, var(--ink-3) 60%, transparent);
+  color: var(--ink);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -5174,7 +5824,7 @@ a.hub-card:hover {
 .quant-page .quant-fold .quant-section {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--quant-gap);
 }
 
 .quant-page .quant-summary,
@@ -7423,9 +8073,184 @@ a.hub-card:hover {
   margin-bottom: 0;
 }
 
-.quant-actions-inline #quant-ols-code {
-  width: 7.5rem;
-  min-width: 6rem;
+.quant-actions-inline .quant-probe-picker-field {
+  min-width: 0;
+}
+
+.quant-probe-picker-label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  margin-bottom: 4px;
+}
+
+.quant-probe-picker {
+  position: relative;
+  width: 9.75rem;
+  max-width: min(11rem, 100%);
+}
+
+.quant-page .quant-actions-inline .dialog-btn {
+  padding: 7px 12px;
+  font-size: 0.76rem;
+}
+
+.quant-page .quant-actions-inline .platform-field input {
+  min-height: 32px;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+}
+
+.quant-probe-picker-trigger {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 22px 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.quant-probe-picker-trigger:hover {
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+}
+
+.quant-probe-picker.is-open .quant-probe-picker-trigger {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.quant-probe-picker-empty {
+  color: var(--ink-3);
+  font-size: 0.84rem;
+}
+
+.quant-probe-picker-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  flex: 1 1 auto;
+  min-width: 0;
+  line-height: 1.2;
+}
+
+.quant-probe-picker-name {
+  max-width: 100%;
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.quant-probe-picker-code {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  letter-spacing: 0.02em;
+}
+
+.quant-probe-picker-group {
+  flex: 0 0 auto;
+  align-self: center;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  border: 1px solid rgba(24, 144, 255, 0.22);
+  background: var(--accent-soft);
+  color: var(--accent-active);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.quant-probe-picker-caret {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  width: 0;
+  height: 0;
+  margin-top: -2px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--ink-3);
+  pointer-events: none;
+}
+
+.quant-probe-picker.is-open .quant-probe-picker-caret {
+  margin-top: -3px;
+  border-top: none;
+  border-bottom: 5px solid var(--ink-3);
+}
+
+.quant-probe-picker-menu {
+  position: absolute;
+  z-index: 40;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  min-width: 100%;
+  max-height: 260px;
+  overflow: auto;
+  padding: 4px 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.quant-probe-picker-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.4rem;
+  gap: 8px;
+  padding: 4px 8px 6px;
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--line-2);
+}
+
+.quant-probe-picker-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 2.4rem;
+  gap: 8px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.quant-probe-picker-option:hover,
+.quant-probe-picker-option.is-selected {
+  background: var(--bg-hover);
+}
+
+.quant-probe-picker-option .quant-probe-picker-group {
+  justify-self: end;
+}
+
+.quant-probe-picker-empty-row {
+  padding: 10px;
+  font-size: var(--font-size-caption);
+  color: var(--ink-3);
 }
 
 .quant-foot-actions {
@@ -7665,9 +8490,21 @@ body[data-page]:not([data-page="chat"]) {
   position: sticky;
   top: 0;
   /* 与 *-page 同壳：水平 padding 只靠 .page-main，避免主体再缩一圈 */
+  padding: 10px 0 8px;
   padding-left: 0;
   padding-right: 0;
   background: color-mix(in srgb, var(--surface) 94%, transparent);
+}
+
+.page-panel.quant-panel .quant-head h2 {
+  margin: 0 0 2px;
+  font-size: 0.98rem;
+  line-height: 1.25;
+}
+
+.page-panel.quant-panel .quant-meta {
+  font-size: 0.72rem;
+  line-height: 1.35;
 }
 
 .page-panel.quant-panel .quant-body {
@@ -7677,7 +8514,12 @@ body[data-page]:not([data-page="chat"]) {
 
 /* 盖过 *-page { padding: 0 0 12px !important }：有 sticky 标题栏时正文留顶距 */
 .page-panel.quant-panel .quant-head + .quant-body {
-  padding: 16px 0 12px !important;
+  padding: 10px 0 8px !important;
+}
+
+/* 研究枢纽主列略收边距，提高一屏信息量 */
+.page-main:has(.quant-page) {
+  padding: 10px 16px calc(16px + env(safe-area-inset-bottom));
 }
 
 .page-panel .quant-close,
@@ -7838,6 +8680,17 @@ html[data-density="compact"] .quant-metrics {
   gap: 8px;
 }
 
+html[data-density="compact"] .quant-page {
+  --quant-gap: 6px;
+  --quant-gap-lg: 8px;
+  --quant-pad: 6px;
+  --quant-pad-x: 8px;
+}
+
+html[data-density="compact"] .quant-page .quant-research-grid .watching-react-grid-row {
+  min-height: 28px;
+}
+
 html[data-density="compact"] .page-main {
   --density-gap: 8px;
 }
@@ -7960,7 +8813,7 @@ html[data-density="compact"] .table-pager {
   color: #b42318;
 }
 
-/* Top-K 回测结果表：与数据中心同套 watching-react-grid */
+/* 研究小表：与数据中心同套 watching-react-grid（非虚拟） */
 .replay-page .quant-section-core .quant-weight-table-wrap,
 .quant-page .quant-weight-table-wrap {
   overflow-x: hidden;

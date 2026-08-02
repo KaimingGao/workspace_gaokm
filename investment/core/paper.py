@@ -215,6 +215,7 @@ OPERATION_LOG_TYPES = {
     "buy": "买入",
     "sell": "卖出",
     "rebalance": "调仓",
+    "cluster_pool_rebalance": "分池落账",
     "sync_paper": "建仓",
     "settings": "设置",
     "risk_block": "风控拦截",

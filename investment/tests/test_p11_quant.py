@@ -75,6 +75,9 @@ class TestPaperRebalance(unittest.TestCase):
                 }
             ]
             paper["cash"] = 50000.0
+            # 示例账本 initial_cash=100万，现金改小会触发回撤拦买
+            paper["initial_cash"] = 50000.0
+            paper["snapshots"] = []
 
             ranking = [
                 {"stock_code": "600519", "stock_name": "茅台", "score": 72},
@@ -90,7 +93,14 @@ class TestPaperRebalance(unittest.TestCase):
                     "price_raw": prices.get(str(code), 100.0),
                 }
 
-            with patch("skills.common.quote_api.StockAPI.query", side_effect=fake_query):
+            with patch(
+                "skills.common.quote_api.StockAPI.query", side_effect=fake_query
+            ), patch(
+                "core.ports.market.query_quote", side_effect=fake_query
+            ), patch(
+                "core.paper_rebalance._quote_price",
+                side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
+            ):
                 result = simulate_cross_section_rebalance(paper, ranking, top_k=2)
 
             self.assertTrue(result["success"])

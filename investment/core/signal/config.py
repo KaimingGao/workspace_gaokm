@@ -89,6 +89,16 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "size_residual": True,
         "size_buckets": 3,
     },
+    # 分组 live：开关在此；权向量在 data/live/cluster_weights_*.json
+    "cluster_scoring": {
+        "enabled": False,
+        "mode": "off",
+        "top_n_per_group": 1,
+        "max_names": 10,
+        "min_coverage": 0.5,
+        "max_age_days": 14,
+        "auto_demote_on_stale": True,
+    },
 }
 
 _cached: Optional[Dict[str, Any]] = None

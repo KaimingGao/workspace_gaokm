@@ -26,6 +26,9 @@ export function initQuant(ctx) {
   let btTradesTableApi = null;
   /** code → 中文名（观察池加载时更新，归因表截断用） */
   let watchingNameByCode = {};
+  /** 探针 picker：展示文案 → 代码；行缓存 */
+  let probeSelectValueToCode = {};
+  let probePickerRows = [];
   /** 数据中心当前点选（图表/资讯）的股票 */
   let watchingFocusCode = null;
   let watchingFocusName = "";
@@ -146,6 +149,9 @@ export function initQuant(ctx) {
   const quantWeightSuggest = document.getElementById("quant-weight-suggest");
   const quantWeightTable = document.getElementById("quant-weight-table");
   const quantOlsSummary = document.getElementById("quant-ols-summary");
+  const quantOlsClusters = document.getElementById("quant-ols-clusters");
+  const quantProbeSummary = document.getElementById("quant-probe-summary");
+  const quantProbeResult = document.getElementById("quant-probe-result");
   const quantOlsTable = document.getElementById("quant-ols-table"); // 兼容旧 DOM；已并入 quant-factor-list
   const quantPortfolioSummary = document.getElementById("quant-portfolio-summary");
   const quantBtProgress = document.getElementById("quant-bt-progress");
@@ -198,6 +204,8 @@ export function initQuant(ctx) {
     }
   }
   let quantLastWeightDiff = null;
+  /** 最近一次 β 分组完整响应（含各组 config_diff / preferred_cluster） */
+  let quantLastOlsClusters = null;
   let quantLastThresholdDiff = null;
   let strategyLastIcExport = null;
   let strategyLastWeightDiff = null;
@@ -240,19 +248,202 @@ export function initQuant(ctx) {
     return 0;
   }
 
+  function resolveProbeInputToCode(raw) {
+    const s = String(raw || "").trim();
+    if (!s) return "";
+    if (probeSelectValueToCode[s]) return probeSelectValueToCode[s];
+    const main = s.split(/[·|｜]/)[0].trim();
+    if (probeSelectValueToCode[main]) return probeSelectValueToCode[main];
+    const m = s.match(/\b(\d{6})\b/);
+    if (m) return normalizeProbeCode(m[1]);
+    const bare = normalizeProbeCode(main);
+    if (/^\d{6}$/.test(bare)) return bare;
+    const want = main.replace(/\s+/g, "");
+    const nameByCode = clusterNameByCodeFromData(quantLastOlsClusters);
+    for (const [c, nm] of Object.entries(nameByCode || {})) {
+      if (String(nm || "").replace(/\s+/g, "") === want) return normalizeProbeCode(c);
+    }
+    for (const [c, nm] of Object.entries(watchingNameByCode || {})) {
+      if (String(nm || "").replace(/\s+/g, "") === want) return normalizeProbeCode(c);
+    }
+    return main || s;
+  }
+
   function readOlsCode() {
     const el = document.getElementById("quant-ols-code");
     const raw = el && el.value != null ? String(el.value).trim() : "";
     if (!raw) return "茅台";
-    // datalist 选项形如「600519 · 贵州茅台」时取代码段
-    const head = raw.split(/[·|｜]/)[0].trim();
-    return head || "茅台";
+    if (/^\d{6}$/.test(normalizeProbeCode(raw))) {
+      return normalizeProbeCode(raw);
+    }
+    return resolveProbeInputToCode(raw) || "茅台";
+  }
+
+  function probePickerIdentityHtml(row) {
+    const name = (row && row.name) || (row && row.code) || "";
+    const code = (row && row.code) || "";
+    return (
+      `<span class="quant-probe-picker-identity">` +
+      `<span class="quant-probe-picker-name">${escapeHtml(name)}</span>` +
+      `<span class="quant-probe-picker-code">${escapeHtml(code)}</span>` +
+      `</span>`
+    );
+  }
+
+  function probePickerTriggerHtml(row) {
+    if (!row || !row.code) {
+      return `<span class="quant-probe-picker-empty">分组后可选</span>`;
+    }
+    const group = row.group || "—";
+    return (
+      probePickerIdentityHtml(row) +
+      `<span class="quant-probe-picker-group">${escapeHtml(group)}</span>` +
+      `<span class="quant-probe-picker-caret" aria-hidden="true"></span>`
+    );
+  }
+
+  function setProbePickerOpen(open) {
+    const root = document.getElementById("quant-probe-picker");
+    const trigger = document.getElementById("quant-ols-code-trigger");
+    const menu = document.getElementById("quant-ols-code-menu");
+    if (!root || !trigger || !menu) return;
+    const on = !!open && probePickerRows.length > 0;
+    root.classList.toggle("is-open", on);
+    trigger.setAttribute("aria-expanded", on ? "true" : "false");
+    menu.hidden = !on;
+  }
+
+  function applyProbePickerSelection(code, { silent } = {}) {
+    const hidden = document.getElementById("quant-ols-code");
+    const trigger = document.getElementById("quant-ols-code-trigger");
+    if (!hidden || !trigger) return;
+    const c = normalizeProbeCode(code);
+    const row =
+      probePickerRows.find((r) => r.code === c) ||
+      (c ? { code: c, name: "", group: "" } : null);
+    hidden.value = row && row.code ? row.code : "";
+    trigger.innerHTML = probePickerTriggerHtml(row);
+    const picker = trigger.closest(".quant-probe-picker");
+    const opts = picker
+      ? picker.querySelectorAll('[role="option"]')
+      : [];
+    opts.forEach((el) => {
+      const selected = el.getAttribute("data-code") === hidden.value;
+      el.setAttribute("aria-selected", selected ? "true" : "false");
+      el.classList.toggle("is-selected", selected);
+    });
+    setProbePickerOpen(false);
+    if (!silent && hidden.value) {
+      hidden.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  }
+
+  function renderProbePickerMenu() {
+    const menu = document.getElementById("quant-ols-code-menu");
+    if (!menu) return;
+    if (!probePickerRows.length) {
+      menu.innerHTML =
+        `<div class="quant-probe-picker-empty-row">暂无分组成员</div>`;
+      return;
+    }
+    const head =
+      `<div class="quant-probe-picker-head" aria-hidden="true">` +
+      `<span>标的</span><span>分组</span>` +
+      `</div>`;
+    const cur = normalizeProbeCode(
+      (document.getElementById("quant-ols-code") || {}).value || ""
+    );
+    const body = probePickerRows
+      .map((r) => {
+        const selected = r.code === cur;
+        return (
+          `<button type="button" role="option" class="quant-probe-picker-option` +
+          `${selected ? " is-selected" : ""}"` +
+          ` data-code="${escapeHtml(r.code)}"` +
+          ` aria-selected="${selected ? "true" : "false"}">` +
+          probePickerIdentityHtml(r) +
+          `<span class="quant-probe-picker-group">${escapeHtml(
+            r.group || "—"
+          )}</span>` +
+          `</button>`
+        );
+      })
+      .join("");
+    menu.innerHTML = head + body;
+  }
+
+  /** 专业 picker：名称 / 代码 / 分组 分栏；隐藏域存代码 */
+  function fillProbeCodeSelect(rows, preferredCode) {
+    const hidden = document.getElementById("quant-ols-code");
+    if (!hidden) return;
+    bindProbePicker();
+    const nextMap = {};
+    probePickerRows = (rows || []).map((r) => {
+      const code = normalizeProbeCode(r.code) || String(r.code || "").trim();
+      const name = String(r.name || "").trim().replace(/\s+/g, "");
+      const group = String(r.group || r.label || "").trim();
+      const label = [name || null, code || null, group || null]
+        .filter(Boolean)
+        .join(" · ");
+      nextMap[label] = code;
+      nextMap[code] = code;
+      if (name) nextMap[name] = code;
+      return { code, name, group };
+    });
+    probeSelectValueToCode = nextMap;
+    renderProbePickerMenu();
+    if (!probePickerRows.length) {
+      hidden.value = "";
+      const trigger = document.getElementById("quant-ols-code-trigger");
+      if (trigger) trigger.innerHTML = probePickerTriggerHtml(null);
+      return;
+    }
+    const pref = normalizeProbeCode(
+      resolveProbeInputToCode(preferredCode || hidden.value || "")
+    );
+    const hit = probePickerRows.find((r) => r.code === pref);
+    applyProbePickerSelection(hit ? hit.code : probePickerRows[0].code, {
+      silent: true,
+    });
+  }
+
+  function bindProbePicker() {
+    const root = document.getElementById("quant-probe-picker");
+    const trigger = document.getElementById("quant-ols-code-trigger");
+    const menu = document.getElementById("quant-ols-code-menu");
+    if (!root || !trigger || !menu || root._probePickerBound) return;
+    root._probePickerBound = true;
+    trigger.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setProbePickerOpen(!root.classList.contains("is-open"));
+    });
+    menu.addEventListener("click", (e) => {
+      const opt = e.target && e.target.closest("[data-code]");
+      if (!opt) return;
+      e.preventDefault();
+      applyProbePickerSelection(opt.getAttribute("data-code"));
+    });
+    document.addEventListener("click", (e) => {
+      if (!root.contains(e.target)) setProbePickerOpen(false);
+    });
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "Escape") setProbePickerOpen(false);
+    });
   }
 
   async function populateOlsCodeOptions() {
-    const list = document.getElementById("quant-ols-code-list");
-    const input = document.getElementById("quant-ols-code");
-    if (!list) return [];
+    const hidden = document.getElementById("quant-ols-code");
+    if (!hidden) return [];
+    // 已有分组成员时由 syncProbe 填充，避免覆盖
+    if (
+      quantLastOlsClusters &&
+      quantLastOlsClusters.success &&
+      Array.isArray(quantLastOlsClusters.clusters) &&
+      quantLastOlsClusters.clusters.length
+    ) {
+      return [];
+    }
     const seen = new Set();
     const rows = [];
     const push = (code, name) => {
@@ -261,7 +452,6 @@ export function initQuant(ctx) {
       seen.add(c);
       rows.push({ code: c, name: String(name || "").trim() });
     };
-    push("茅台", "贵州茅台");
     push("600519", "贵州茅台");
     try {
       const res = await fetch("/api/watching");
@@ -284,13 +474,7 @@ export function initQuant(ctx) {
     } catch (_) {
       /* 离线/未建池时仍保留茅台选项 */
     }
-    list.innerHTML = rows
-      .map((r) => {
-        const label = r.name ? `${r.code} · ${r.name}` : r.code;
-        return `<option value="${escapeHtml(r.code)}" label="${escapeHtml(label)}"></option>`;
-      })
-      .join("");
-    if (input && !String(input.value || "").trim()) input.value = "茅台";
+    fillProbeCodeSelect(rows, hidden.value);
     return rows;
   }
 
@@ -372,7 +556,7 @@ export function initQuant(ctx) {
         ]);
       }
       if (quantMeta) {
-        setQuantMeta("只读建议 · 不写 signal_config");
+        setQuantMeta("股票分组为主路径 · 不写 signal_config");
       }
       if (useDialog) quantDialog.showModal();
       // 运维/因子/桥接等后台拉取：不阻塞 tab 加载态
@@ -382,12 +566,9 @@ export function initQuant(ctx) {
         background.push(loadFactorPanel().catch(() => {}));
       }
       if (hasReplay) background.push(loadLastBacktestSnapshot().catch(() => {}));
-      if (quantCrossList && (page === "quant" || page === "replay")) {
-        background.push(refreshCrossSection().catch(() => {}));
-      }
-      // 研究枢纽进页默认跑 IC / OLS / 阈值建议
-      if (page === "quant" && quantFactorList) {
-        background.push(runAllSuggest().catch(() => {}));
+      // 研究枢纽：进页自动跑分组（主路径）；不预跑全局 IC
+      if (page === "quant" && (quantFactorList || quantOlsClusters)) {
+        background.push(bootstrapClusterHub().catch(() => {}));
       }
       Promise.all(background)
         .then(async () => {
@@ -630,7 +811,7 @@ export function initQuant(ctx) {
     return n > 0 ? "up" : "down";
   }
 
-  /** 与数据中心主表同壳：watching-react-grid（非虚拟，适合回测/敞口小表） */
+  /** 与数据中心同壳：watching-react-grid（小表非虚拟；壳/样式对齐 watching） */
   function researchGridHtml(columns, rows, cellHtml, opts = {}) {
     const cols = Array.isArray(columns) ? columns : [];
     const data = Array.isArray(rows) ? rows : [];
@@ -5071,12 +5252,24 @@ export function initQuant(ctx) {
   }
 
   function fmtWeightCell(v) {
-    if (v == null || v === "") return "—";
+    if (v == null || v === "") return `<span class="quant-cell-empty">—</span>`;
     const n = Number(v);
     if (!Number.isFinite(n)) return escapeHtml(String(v));
     /* API 权重多为 0～1；panel.weight_pct 已是百分数 */
     if (Math.abs(n) <= 1.5) return `${(n * 100).toFixed(1)}%`;
     return `${n.toFixed(1)}%`;
+  }
+
+  function fmtEmptyCell() {
+    return `<span class="quant-cell-empty">—</span>`;
+  }
+
+  function fmtOlsCell(v) {
+    if (v == null || v === "") return fmtEmptyCell();
+    const n = Number(v);
+    if (!Number.isFinite(n)) return escapeHtml(String(v));
+    const text = n.toFixed(4);
+    return metricCell(escapeHtml(text), metricClass(n));
   }
 
   /** 因子 IC + 权重建议 + OLS 系数合并为一张表 */
@@ -5227,6 +5420,10 @@ export function initQuant(ctx) {
       const olsReason = olsReasons[name] || null;
       let icReason = base.icReason || (base.ic == null ? icReasonsTop[name] : null) || null;
       if (base.ic == null && !icReason && list.length) icReason = "other";
+      const absDelta =
+        delta != null && Number.isFinite(Number(delta))
+          ? Math.abs(Number(delta))
+          : 0;
       return {
         ...base,
         cur: curVal,
@@ -5236,21 +5433,43 @@ export function initQuant(ctx) {
         ols: olsVal,
         olsReason,
         icReason,
+        scanHot: absDelta >= 0.02,
       };
     });
 
     return researchGridHtml(
       [
         { id: "factor", label: "因子", flex: true },
-        { id: "ic", label: "IC", widthPct: 10, num: true, title: "因子与前瞻收益相关（截面为日均 IC）" },
+        {
+          id: "ic",
+          label: "IC",
+          widthPct: 10,
+          num: true,
+          title:
+            panelOrExp && panelOrExp.mode === "group_ts_ic"
+              ? "组内时序 IC：组员堆叠样本上因子值与前瞻收益的 Pearson"
+              : "因子与前瞻收益相关（截面为日均 IC）",
+        },
         {
           id: "icir",
           label: "ICIR",
           widthPct: 9,
           num: true,
-          title: "IC̄/σ(IC)：截面 IC 稳定性；|ICIR|≥0.25 为强证据门槛之一",
+          title:
+            panelOrExp && panelOrExp.mode === "group_ts_ic"
+              ? "组内时序 IC 无日截面序列，ICIR 不适用"
+              : "IC̄/σ(IC)：截面 IC 稳定性；|ICIR|≥0.25 为强证据门槛之一",
         },
-        { id: "n", label: "n", widthPct: 7, num: true },
+        {
+          id: "n",
+          label: "n",
+          widthPct: 7,
+          num: true,
+          title:
+            panelOrExp && panelOrExp.mode === "group_ts_ic"
+              ? "组内该因子有效配对样本数"
+              : "有效样本数",
+        },
         { id: "cur", label: "当前", widthPct: 10, num: true },
         { id: "sug", label: "建议", widthPct: 10, num: true },
         { id: "delta", label: "Δ", widthPct: 10, num: true },
@@ -5270,10 +5489,17 @@ export function initQuant(ctx) {
               info.short
             )}</span>`;
           }
-          return "—";
+          return fmtEmptyCell();
         }
         if (col.id === "icir") {
-          if (r.icir == null || !Number.isFinite(Number(r.icir))) return "—";
+          if (
+            panelOrExp &&
+            panelOrExp.mode === "group_ts_ic" &&
+            (r.icir == null || !Number.isFinite(Number(r.icir)))
+          ) {
+            return `<span class="quant-factor-reason" title="组内时序 IC，无日截面序列">不适用</span>`;
+          }
+          if (r.icir == null || !Number.isFinite(Number(r.icir))) return fmtEmptyCell();
           const v = Number(r.icir);
           const cls = v >= 0.25 ? "up" : v <= -0.25 ? "down" : "";
           const tip = "ICIR = 日截面 IC 均值 / 标准差；越大越稳";
@@ -5282,11 +5508,12 @@ export function initQuant(ctx) {
             cls
           )}</span>`;
         }
-        if (col.id === "n") return escapeHtml(String(r.n != null ? r.n : "—"));
+        if (col.id === "n")
+          return r.n != null ? escapeHtml(String(r.n)) : fmtEmptyCell();
         if (col.id === "cur") return fmtWeightCell(r.cur);
-        if (col.id === "sug") return r.sug != null ? fmtWeightCell(r.sug) : "—";
+        if (col.id === "sug") return r.sug != null ? fmtWeightCell(r.sug) : fmtEmptyCell();
         if (col.id === "delta") {
-          if (r.delta == null) return "—";
+          if (r.delta == null) return fmtEmptyCell();
           const text = `${r.delta > 0 ? "+" : ""}${Number(r.delta).toFixed(3)}`;
           const tip = r.deltaSource ? SOURCE_TIP[r.deltaSource] || r.deltaSource : "";
           const cell = metricCell(escapeHtml(text), metricClass(r.delta));
@@ -5295,18 +5522,21 @@ export function initQuant(ctx) {
             : cell;
         }
         if (col.id === "ols") {
-          if (r.ols != null) return escapeHtml(String(r.ols));
+          if (r.ols != null) return fmtOlsCell(r.ols);
           if (r.olsReason) {
             const info = OLS_REASON[r.olsReason] || OLS_REASON.other;
             return `<span class="quant-factor-reason" title="${escapeHtml(info.tip)}">${escapeHtml(
               info.short
             )}</span>`;
           }
-          return "—";
+          return fmtEmptyCell();
         }
-        return "—";
+        return fmtEmptyCell();
       },
-      { emptyText: "暂无因子" }
+      {
+        emptyText: "暂无因子",
+        rowClass: (r) => (r && r.scanHot ? "is-scan-hot" : ""),
+      }
     );
   }
 
@@ -5333,15 +5563,759 @@ export function initQuant(ctx) {
   let lastWeightSuggestForMerge = null;
   let lastOlsForMerge = null;
 
+  function clusterGroupSuggestShim(cl) {
+    const sug = (cl && cl.weight_suggest) || {};
+    const diff = (cl && cl.config_diff) || {};
+    const suggested =
+      sug.suggested_weights || diff.suggested_weights || null;
+    if (!suggested || typeof suggested !== "object") {
+      return sug.success
+        ? sug
+        : { success: false, error: sug.error || "无组权建议" };
+    }
+    const current = sug.current_weights || diff.current_weights || {};
+    let deltas = sug.deltas || diff.deltas || null;
+    if (!deltas || typeof deltas !== "object") {
+      deltas = {};
+      const keys = new Set([
+        ...Object.keys(current || {}),
+        ...Object.keys(suggested),
+      ]);
+      for (const k of keys) {
+        const a = Number(current[k]);
+        const b = Number(suggested[k]);
+        if (Number.isFinite(a) || Number.isFinite(b)) {
+          deltas[k] = (Number.isFinite(b) ? b : 0) - (Number.isFinite(a) ? a : 0);
+        }
+      }
+    }
+    return {
+      success: sug.success !== false,
+      suggested_weights: suggested,
+      current_weights: current,
+      deltas,
+      delta_sources: sug.delta_sources || diff.delta_sources || {},
+    };
+  }
+
+  function clusterGroupOlsShim(cl) {
+    const ols = (cl && cl.ols) || null;
+    if (!ols || typeof ols !== "object") return null;
+    if (ols.success === false && !ols.coefficients) return null;
+    return ols;
+  }
+
+  /** 组标题副信息：直径 / Δ组β / |β| top（原花名册字段） */
+  function clusterTightTopLines(cl) {
+    const tightBits = [];
+    if (cl && cl.max_within_dist != null) {
+      tightBits.push(
+        `直径=${cl.max_within_dist}` +
+          (cl.within_dist_cap != null ? `≤τ${cl.within_dist_cap}` : "")
+      );
+    }
+    if (cl && cl.mean_distance_to_group_beta != null) {
+      tightBits.push(
+        `均Δ组β=${cl.mean_distance_to_group_beta}` +
+          (cl.max_distance_to_group_beta != null
+            ? `(最大${cl.max_distance_to_group_beta})`
+            : "")
+      );
+    } else if (cl && cl.mean_center_dist != null) {
+      tightBits.push(`均心距=${cl.mean_center_dist}`);
+    }
+    const top = ((cl && cl.top_betas) || [])
+      .slice(0, 3)
+      .map(
+        (t) =>
+          `${t.factor}:${Number(t.beta) >= 0 ? "+" : ""}${t.beta}`
+      )
+      .join(" · ");
+    return {
+      tight: tightBits.join(" · "),
+      top: top ? `|β|：${top}` : "",
+    };
+  }
+
+  /** β 分组后：因子区按「一组一表」；花名册并入 G 标题 */
+  function renderClusterFactorTables() {
+    if (!quantFactorList) return false;
+    const data = quantLastOlsClusters;
+    if (!data || !data.success) return false;
+    const clusters = Array.isArray(data.clusters) ? data.clusters : [];
+    if (!clusters.length) return false;
+    const pref = data.preferred_cluster || null;
+    const nameByCode = clusterNameByCodeFromData(data);
+    const parts = clusters.map((cl, idx) => {
+      const label = cl.label || `G${(cl.cluster_id ?? idx) + 1}`;
+      const isPref =
+        pref &&
+        (pref.cluster_id === cl.cluster_id ||
+          (pref.label && pref.label === cl.label));
+      const sug = clusterGroupSuggestShim(cl);
+      const ols = clusterGroupOlsShim(cl);
+      // 优先组内时序 IC 面板（跑分组时随结果下发）；勿用全局 IC（进页已不预跑）
+      const panel =
+        (cl.factor_ic_panel && cl.factor_ic_panel.success && cl.factor_ic_panel) ||
+        lastFactorPanelForMerge;
+      const table =
+        factorIcWeightMergedHtml(
+          panel,
+          sug && sug.success ? sug : null,
+          ols
+        ) ||
+        `<p class="watching-table-empty">${escapeHtml(
+          (sug && sug.error) || "本组暂无因子建议"
+        )}</p>`;
+      const canExport = cl.config_diff && cl.config_diff.success;
+      const exportBtn = canExport
+        ? `<button type="button" class="dialog-btn secondary dialog-btn-keep-case quant-cluster-export" ` +
+          `data-cluster-export="${escapeHtml(
+            String(idx)
+          )}" title="导出本组因子权重 diff">导出本组</button>`
+        : "";
+      const gate = cl.oos_gate || {};
+      const tags = [];
+      tags.push(clusterTagHtml(`${cl.member_count ?? 0} 只`));
+      if (cl.outlier_singleton) tags.push(clusterTagHtml("离群单票", "warn"));
+      else if (cl.singleton) tags.push(clusterTagHtml("单票", "muted"));
+      if (isPref) tags.push(clusterTagHtml("导出优先", "accent"));
+      if (gate.ok && gate.passed) tags.push(clusterTagHtml("OOS✓", "ok"));
+      else if (gate.ok) tags.push(clusterTagHtml("OOS未过", "warn"));
+      const metrics =
+        clusterMetricHtml("R²", ols && ols.r_squared != null ? ols.r_squared : "—") +
+        clusterMetricHtml(
+          "n",
+          ols && ols.sample_count != null ? ols.sample_count : "—"
+        );
+      const membersHtml = formatMemberChipsHtml(cl.members, nameByCode);
+      const { tight, top } = clusterTightTopLines(cl);
+      const diag = [tight, top].filter(Boolean).join(" · ");
+      const diagHtml = diag
+        ? `<details class="quant-cluster-diag-fold">` +
+          `<summary>紧度 / |β|</summary>` +
+          `<div class="quant-cluster-diag">${escapeHtml(diag)}</div>` +
+          `</details>`
+        : "";
+      return (
+        `<article class="quant-cluster-group-table">` +
+        `<details class="quant-fold quant-cluster-group-fold" open>` +
+        `<summary class="quant-cluster-group-head">` +
+        `<div class="quant-cluster-group-title-row">` +
+        `<div class="quant-cluster-group-title">` +
+        `<span class="quant-cluster-gid">${escapeHtml(String(label))}</span>` +
+        `<span class="quant-cluster-tags">${tags.join("")}</span>` +
+        `<span class="quant-cluster-metrics">${metrics}</span>` +
+        `</div>` +
+        (exportBtn
+          ? `<div class="quant-cluster-group-actions">${exportBtn}</div>`
+          : "") +
+        `</div>` +
+        `<div class="quant-cluster-members" aria-label="分组成员">${membersHtml}</div>` +
+        `</summary>` +
+        `<div class="quant-cluster-group-body">` +
+        diagHtml +
+        table +
+        `</div>` +
+        `</details>` +
+        `</article>`
+      );
+    });
+    quantFactorList.innerHTML =
+      `<div class="quant-cluster-tables-head">` +
+      `<span class="quant-cluster-tables-label">因子建议</span>` +
+      `<span class="sub">组内 IC · 当前 / 建议 / Δ · OLS β · |Δ|≥0.02 高亮</span>` +
+      `</div>` +
+      parts.join("");
+    return true;
+  }
+
+  function renderProbeFactorTable() {
+    const host = quantProbeResult;
+    if (!host) return;
+    const html = factorIcWeightMergedHtml(
+      lastFactorPanelForMerge,
+      lastWeightSuggestForMerge,
+      lastOlsForMerge
+    );
+    host.innerHTML =
+      html || `<p class="watching-table-empty">暂无探针对照</p>`;
+  }
+
+  function normalizeProbeCode(raw) {
+    return String(raw || "")
+      .trim()
+      .replace(/\.(SH|SZ|BJ)$/i, "");
+  }
+
+  /** 名称+代码合并展示：中国石化 600028 */
+  function formatStockCodeName(code, name) {
+    const c = normalizeProbeCode(code);
+    const n = String(name || "").trim().replace(/\s+/g, "");
+    if (n && c) return `${n} ${c}`;
+    return n || c || "—";
+  }
+
+  function clusterNameByCodeFromData(data) {
+    const nameByCode = { ...(watchingNameByCode || {}) };
+    const ha =
+      (data && data.holdings_assignment) ||
+      (data && data.pool_artifact && data.pool_artifact.holdings_assignment) ||
+      {};
+    for (const g of ha.groups || []) {
+      for (const h of g.holdings || []) {
+        const c = normalizeProbeCode(h.stock_code);
+        const nm = String(h.stock_name || "").trim();
+        if (c && nm) nameByCode[c] = nm;
+      }
+    }
+    for (const h of ha.unmapped || []) {
+      const c = normalizeProbeCode(h.stock_code);
+      const nm = String(h.stock_name || "").trim();
+      if (c && nm) nameByCode[c] = nm;
+    }
+    return nameByCode;
+  }
+
+  function formatMemberList(codes, nameByCode) {
+    const map = nameByCode || {};
+    const list = (codes || []).map((m) => {
+      const c = normalizeProbeCode(m);
+      return formatStockCodeName(c, map[c] || watchingNameByCode[c] || "");
+    });
+    return list.length ? list.join("、") : "—";
+  }
+
+  function formatMemberChipsHtml(codes, nameByCode) {
+    const map = nameByCode || {};
+    const chips = (codes || []).map((m) => {
+      const c = normalizeProbeCode(m);
+      const n = String(map[c] || watchingNameByCode[c] || "")
+        .trim()
+        .replace(/\s+/g, "");
+      const name = n || c || "—";
+      return (
+        `<span class="quant-cluster-member">` +
+        `<span class="quant-cluster-member-name">${escapeHtml(name)}</span>` +
+        (c
+          ? `<span class="quant-cluster-member-code">${escapeHtml(c)}</span>`
+          : "") +
+        `</span>`
+      );
+    });
+    return chips.length
+      ? chips.join("")
+      : `<span class="sub">—</span>`;
+  }
+
+  function clusterTagHtml(text, kind) {
+    const k = kind ? ` is-${kind}` : "";
+    return `<span class="quant-cluster-tag${k}">${escapeHtml(String(text))}</span>`;
+  }
+
+  function clusterMetricHtml(key, value) {
+    if (value == null || value === "" || value === "—") return "";
+    return (
+      `<span class="quant-cluster-metric">` +
+      `<span class="quant-cluster-metric-k">${escapeHtml(String(key))}</span>` +
+      `<span class="quant-cluster-metric-v">${escapeHtml(String(value))}</span>` +
+      `</span>`
+    );
+  }
+
+  function findClusterForProbeCode(codeOrName) {
+    const data = quantLastOlsClusters;
+    if (!data || !data.success) return null;
+    const key = normalizeProbeCode(resolveProbeInputToCode(codeOrName));
+    if (!key) return null;
+    const clusters = Array.isArray(data.clusters) ? data.clusters : [];
+    for (const cl of clusters) {
+      const members = (cl.members || []).map((m) => normalizeProbeCode(m));
+      if (members.includes(key)) return cl;
+    }
+    // 名称模糊：成员里包含输入（少见）
+    const lower = key.toLowerCase();
+    for (const cl of clusters) {
+      for (const m of cl.members || []) {
+        if (String(m).toLowerCase().includes(lower)) return cl;
+      }
+    }
+    return null;
+  }
+
+  function syncProbeCodeOptionsFromClusters() {
+    const hidden = document.getElementById("quant-ols-code");
+    if (!hidden) return;
+    const data = quantLastOlsClusters;
+    const clusters = data && data.success ? data.clusters || [] : [];
+    const nameByCode = clusterNameByCodeFromData(data);
+    const seen = new Set();
+    const rows = [];
+    for (const cl of clusters) {
+      const gLabel = cl.label || `G${(cl.cluster_id ?? 0) + 1}`;
+      for (const m of cl.members || []) {
+        const c = normalizeProbeCode(m);
+        if (!c || seen.has(c)) continue;
+        seen.add(c);
+        const nm = String(nameByCode[c] || watchingNameByCode[c] || "")
+          .trim()
+          .replace(/\s+/g, "");
+        rows.push({ code: c, name: nm, group: gLabel });
+      }
+    }
+    if (rows.length) fillProbeCodeSelect(rows, hidden.value);
+  }
+
+  function probeIcMapFromExperiment(exp) {
+    const out = {};
+    const factors = (exp && (exp.factors || (exp.panel && exp.panel.rows))) || [];
+    for (const f of factors) {
+      const name = f.factor || f.name || "";
+      if (!name) continue;
+      const ic =
+        f.ic != null
+          ? Number(f.ic)
+          : f.ic_mean != null
+            ? Number(f.ic_mean)
+            : f.pearson && f.pearson.ic_mean != null
+              ? Number(f.pearson.ic_mean)
+              : null;
+      const n =
+        f.sample_count != null
+          ? f.sample_count
+          : f.n != null
+            ? f.n
+            : f.pearson && f.pearson.n != null
+              ? f.pearson.n
+              : null;
+      out[name] = {
+        ic: Number.isFinite(ic) ? ic : null,
+        n: n != null && Number.isFinite(Number(n)) ? Number(n) : null,
+      };
+    }
+    return out;
+  }
+
+  function probeIcMapFromGroupPanel(panel) {
+    const out = {};
+    for (const r of (panel && panel.rows) || []) {
+      const name = r.factor || r.name || "";
+      if (!name) continue;
+      const ic = r.ic != null ? Number(r.ic) : null;
+      out[name] = {
+        ic: Number.isFinite(ic) ? ic : null,
+        n:
+          r.sample_count != null
+            ? Number(r.sample_count)
+            : r.n != null
+              ? Number(r.n)
+              : null,
+      };
+    }
+    return out;
+  }
+
+  function isProbeSingletonCluster(cl) {
+    if (!cl) return false;
+    const nMem = Number(cl.member_count);
+    return (
+      !!cl.singleton ||
+      !!cl.outlier_singleton ||
+      (Number.isFinite(nMem) && nMem < 2)
+    );
+  }
+
+  function renderProbeStockVsGroupTable(stockExp, stockOls, cluster) {
+    const host = quantProbeResult;
+    if (!host) return;
+    const singleton = isProbeSingletonCluster(cluster);
+    const groupIc = probeIcMapFromGroupPanel(
+      cluster && cluster.factor_ic_panel
+    );
+    // 单票组：IC/β 一律用分组落盘（组模型=该票），禁止二次 /factor-ols 假差异
+    const stockIc = singleton
+      ? groupIc
+      : probeIcMapFromExperiment(stockExp);
+    const groupCoefs =
+      (cluster && cluster.ols && cluster.ols.coefficients) || {};
+    const stockCoefs = singleton
+      ? groupCoefs
+      : (stockOls && stockOls.success && stockOls.coefficients) || {};
+    const names = new Set([
+      ...Object.keys(stockIc),
+      ...Object.keys(groupIc),
+      ...Object.keys(stockCoefs).filter(
+        (k) => !["intercept", "_intercept", "const"].includes(k)
+      ),
+      ...Object.keys(groupCoefs).filter(
+        (k) => !["intercept", "_intercept", "const"].includes(k)
+      ),
+    ]);
+    const rows = [...names].sort().map((name) => {
+      const meta = factorMetaByName[name] || {};
+      const sIc = stockIc[name] || {};
+      const gIc = groupIc[name] || {};
+      const sB =
+        stockCoefs[name] != null && Number.isFinite(Number(stockCoefs[name]))
+          ? Number(stockCoefs[name])
+          : null;
+      const gB =
+        groupCoefs[name] != null && Number.isFinite(Number(groupCoefs[name]))
+          ? Number(groupCoefs[name])
+          : null;
+      const dIc =
+        sIc.ic != null && gIc.ic != null ? sIc.ic - gIc.ic : null;
+      const dB = sB != null && gB != null ? sB - gB : null;
+      return {
+        name,
+        label: meta.label || name,
+        stockIc: sIc.ic,
+        groupIc: gIc.ic,
+        dIc,
+        stockB: sB,
+        groupB: gB,
+        dB,
+        stockN: sIc.n,
+        groupN: gIc.n,
+        flag: singleton
+          ? false
+          : (dIc != null && Math.abs(dIc) >= 0.08) ||
+            (dB != null && Math.abs(dB) >= 0.25),
+      };
+    });
+    const fmtN = (v, digits) =>
+      v == null || !Number.isFinite(Number(v))
+        ? "—"
+        : Number(v).toFixed(digits);
+    host.innerHTML = researchGridHtml(
+      [
+        { id: "factor", label: "因子", flex: true },
+        { id: "stockIc", label: "单票IC", widthPct: 11, num: true },
+        { id: "groupIc", label: "组IC", widthPct: 10, num: true },
+        { id: "dIc", label: "ΔIC", widthPct: 10, num: true },
+        { id: "stockB", label: "单票β", widthPct: 11, num: true },
+        { id: "groupB", label: "组β", widthPct: 10, num: true },
+        { id: "dB", label: "Δβ", widthPct: 10, num: true },
+        {
+          id: "n",
+          label: "IC·n日",
+          widthPct: 12,
+          num: true,
+          title: "单票/组内时序 IC 有效天数（不是组员只数）",
+        },
+      ],
+      rows,
+      (col, r) => {
+        if (col.id === "factor") {
+          const base = factorNameCellHtml(r.name, r.label);
+          return r.flag
+            ? `${base} <span class="quant-factor-reason" title="与所在组差异偏大">异质</span>`
+            : base;
+        }
+        if (col.id === "stockIc") return fmtN(r.stockIc, 4);
+        if (col.id === "groupIc") return fmtN(r.groupIc, 4);
+        if (col.id === "dIc") {
+          if (r.dIc == null) return "—";
+          const t = `${r.dIc > 0 ? "+" : ""}${r.dIc.toFixed(4)}`;
+          return metricCell(escapeHtml(t), metricClass(r.dIc));
+        }
+        if (col.id === "stockB") return fmtN(r.stockB, 4);
+        if (col.id === "groupB") return fmtN(r.groupB, 4);
+        if (col.id === "dB") {
+          if (r.dB == null) return "—";
+          const t = `${r.dB > 0 ? "+" : ""}${r.dB.toFixed(4)}`;
+          return metricCell(escapeHtml(t), metricClass(r.dB));
+        }
+        if (col.id === "n") {
+          const a = r.stockN != null ? String(r.stockN) : "—";
+          const b = r.groupN != null ? String(r.groupN) : "—";
+          return escapeHtml(`${a}/${b}`);
+        }
+        return "—";
+      },
+      {
+        emptyText: "无对照因子",
+        rowClass: (r) => (r && r.flag ? "is-scan-hot is-hetero" : ""),
+      }
+    );
+    return rows;
+  }
+
+  function probeStatusBadge(kind, text) {
+    const k = kind ? ` is-${kind}` : "";
+    return (
+      `<span class="quant-probe-badge${k}">${escapeHtml(String(text))}</span>`
+    );
+  }
+
+  function markProbeReadyFromClusters(data) {
+    if (!quantProbeSummary) return;
+    if (data && data.success) {
+      const nCl = data.n_clusters != null ? data.n_clusters : "—";
+      const nIn = data.stock_count != null ? data.stock_count : "—";
+      setBusyText(
+        quantProbeSummary,
+        `${probeStatusBadge("ok", "就绪")} ${escapeHtml(String(nCl))} 组 · 入组 ${escapeHtml(
+          String(nIn)
+        )} · 选票后对照`,
+        { busy: false, html: true }
+      );
+      return;
+    }
+    const err = (data && data.error) || "上方分组未成功";
+    setBusyText(
+      quantProbeSummary,
+      `${probeStatusBadge("warn", "未就绪")} ${escapeHtml(err)} · 请先跑分组`,
+      { busy: false, html: true }
+    );
+  }
+
+  async function waitForClusterHubReady(maxMs) {
+    const limit = Math.max(1000, Number(maxMs) || 120000);
+    const t0 = Date.now();
+    while (Date.now() - t0 < limit) {
+      if (quantLastOlsClusters && quantLastOlsClusters.success) return true;
+      if (!bootstrapClusterHub._running) {
+        // 未在跑且仍无成功结果 → 失败或未触发
+        return !!(quantLastOlsClusters && quantLastOlsClusters.success);
+      }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    return !!(quantLastOlsClusters && quantLastOlsClusters.success);
+  }
+
+  async function runProbeStockVsGroup() {
+    const code = readOlsCode();
+    const fold = document.getElementById("quant-probe-fold");
+    if (fold) fold.open = true;
+    if (!quantLastOlsClusters || !quantLastOlsClusters.success) {
+      if (bootstrapClusterHub._running) {
+        setBusyText(quantProbeSummary, "上方分组进行中，请稍候…", {
+          busy: true,
+        });
+        const ok = await waitForClusterHubReady(180000);
+        if (!ok) {
+          markProbeReadyFromClusters(quantLastOlsClusters);
+          if (quantProbeResult) {
+            quantProbeResult.innerHTML =
+              `<p class="watching-table-empty">分组未完成或失败，无法对照</p>`;
+          }
+          return;
+        }
+      } else {
+        markProbeReadyFromClusters(quantLastOlsClusters);
+        if (quantProbeResult) {
+          quantProbeResult.innerHTML =
+            `<p class="watching-table-empty">尚无分组结果 · 请先点「跑分组」</p>`;
+        }
+        return;
+      }
+    }
+    setBusyText(
+      quantProbeSummary,
+      `对照中… · ${escapeHtml(code)}`,
+      { busy: true }
+    );
+    await ensureFactorMeta();
+    const resolvedEarly = normalizeProbeCode(code);
+    const clEarly = findClusterForProbeCode(resolvedEarly);
+    // 单票组：不二次打 OLS；表内单票β=组β=分组落盘
+    if (clEarly && isProbeSingletonCluster(clEarly)) {
+      const resolved = resolvedEarly;
+      const cl = clEarly;
+      renderProbeStockVsGroupTable(null, null, cl);
+      const r2g =
+        cl.ols && cl.ols.r_squared != null ? cl.ols.r_squared : "—";
+      const badge = cl.outlier_singleton
+        ? probeStatusBadge("warn", "离群单票组")
+        : probeStatusBadge("muted", "单票组");
+      setBusyText(
+        quantProbeSummary,
+        `${badge} ${escapeHtml(resolved)} ∈ ${escapeHtml(
+          cl.label || "?"
+        )} · 组模型=自身 · R²=${escapeHtml(String(r2g))}`,
+        { busy: false, html: true }
+      );
+      setQuantMeta(
+        `探针 · ${resolved} 单票组 · 同源β · 不冲分组表`
+      );
+      return;
+    }
+    const h =
+      Number(
+        (quantLastOlsClusters && quantLastOlsClusters.horizon_days) ||
+          readHorizonDays()
+      ) || readHorizonDays();
+    const ridgeRaw = Number(
+      quantLastOlsClusters && quantLastOlsClusters.ridge_lambda
+    );
+    const ridge = Number.isFinite(ridgeRaw)
+      ? ridgeRaw
+      : readRidgeLambda();
+    // 与「跑分组」同窗 / 同 ridge，避免假异质
+    const clusterLb = Number(
+      (quantLastOlsClusters && quantLastOlsClusters.lookback) || 80
+    );
+    const probeLb =
+      Number.isFinite(clusterLb) && clusterLb > 0 ? clusterLb : 80;
+    const [expRes, olsRes] = await Promise.all([
+      fetch("/api/quant/factor-experiment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, lookback: probeLb, horizon_days: h }),
+      }),
+      fetch("/api/quant/factor-ols", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code,
+          lookback: probeLb,
+          horizon_days: h,
+          ridge_lambda: ridge,
+        }),
+      }),
+    ]);
+    let exp = null;
+    let ols = null;
+    try {
+      exp = await expRes.json();
+    } catch (_) {
+      exp = null;
+    }
+    try {
+      ols = await olsRes.json();
+    } catch (_) {
+      ols = null;
+    }
+    const resolved = normalizeProbeCode(
+      (ols && ols.stock_code) || (exp && exp.stock_code) || code
+    );
+    const cl = findClusterForProbeCode(resolved);
+    if ((!exp || exp.success === false) && (!ols || ols.success === false)) {
+      setBusyText(
+        quantProbeSummary,
+        (exp && exp.error) || (ols && ols.error) || "单票 IC/OLS 失败",
+        { busy: false }
+      );
+      if (quantProbeResult) {
+        quantProbeResult.innerHTML = `<p class="watching-table-empty">对照失败</p>`;
+      }
+      return;
+    }
+    const probeRows = renderProbeStockVsGroupTable(exp, ols, cl);
+    if (!cl) {
+      setBusyText(
+        quantProbeSummary,
+        `已算单票 ${resolved} · 未落入当前任一组（可能不在纸面持仓/数据不足）`,
+        { busy: false }
+      );
+      setQuantMeta(`探针 · ${resolved} 未入组`);
+      return;
+    }
+    const r2s = ols && ols.r_squared != null ? ols.r_squared : "—";
+    const r2g =
+      cl.ols && cl.ols.r_squared != null ? cl.ols.r_squared : "—";
+    const nMem = Number(cl.member_count);
+    const memLabel = Number.isFinite(nMem) ? `${nMem}只` : "?只";
+    if (isProbeSingletonCluster(cl)) {
+      const badge = cl.outlier_singleton
+        ? probeStatusBadge("warn", "离群单票组")
+        : probeStatusBadge("muted", "单票组");
+      setBusyText(
+        quantProbeSummary,
+        `${badge} ${escapeHtml(resolved)} ∈ ${escapeHtml(
+          cl.label || "?"
+        )} · 组模型=自身 · R²=${escapeHtml(String(r2g))}`,
+        { busy: false, html: true }
+      );
+      setQuantMeta(
+        `探针 · ${resolved} 单票组 · 同源β · 不冲分组表`
+      );
+      return;
+    }
+    const heteroN = Array.isArray(probeRows)
+      ? probeRows.filter((r) => r && r.flag).length
+      : 0;
+    const maxAbsDb = Array.isArray(probeRows)
+      ? probeRows.reduce((acc, r) => {
+          if (r && r.dB != null && Number.isFinite(Number(r.dB))) {
+            return Math.max(acc, Math.abs(Number(r.dB)));
+          }
+          return acc;
+        }, 0)
+      : 0;
+    const unfit = heteroN >= 2 || maxAbsDb >= 0.4;
+    const badge = unfit
+      ? probeStatusBadge("warn", "异质")
+      : probeStatusBadge("ok", "可共用");
+    const detail = unfit
+      ? `异质${heteroN} · max|Δβ|=${maxAbsDb.toFixed(2)}`
+      : `异质${heteroN}`;
+    setBusyText(
+      quantProbeSummary,
+      `${badge} ${escapeHtml(resolved)} ∈ ${escapeHtml(
+        cl.label || "?"
+      )} · ${escapeHtml(memLabel)} · R² ${escapeHtml(
+        String(r2s)
+      )}/${escapeHtml(String(r2g))} · ${escapeHtml(detail)}`,
+      { busy: false, html: true }
+    );
+    setQuantMeta(
+      unfit
+        ? `探针 · ${resolved} 相对 ${cl.label || "组"} 异质偏大 · 建议视为离群`
+        : `探针对照 · ${resolved} vs ${cl.label || "组"} · 不冲分组表`
+    );
+  }
+
   function renderMergedFactorTable() {
+    // 已有分组：主因子区保持一组一表；探针结果写到探针区
+    if (quantLastOlsClusters && quantLastOlsClusters.success) {
+      renderClusterFactorTables();
+      if (quantProbeResult) renderProbeFactorTable();
+      return;
+    }
     if (!quantFactorList) return;
+    if (renderClusterFactorTables()) return;
     const html = factorIcWeightMergedHtml(
       lastFactorPanelForMerge,
       lastWeightSuggestForMerge,
       lastOlsForMerge
     );
     quantFactorList.innerHTML =
-      html || `<p class="watching-table-empty">暂无因子建议</p>`;
+      html ||
+      `<p class="watching-table-empty">点「跑分组」生成一组一表</p>`;
+  }
+
+  async function bootstrapClusterHub() {
+    if (bootstrapClusterHub._running) return;
+    bootstrapClusterHub._running = true;
+    try {
+      // 忙碌只留页顶 meta；摘要行留给结果/错误，避免「进页自动分组中」叠三处
+      if (quantOlsSummary) {
+        quantOlsSummary.textContent = "";
+        quantOlsSummary.classList.remove("is-busy");
+      }
+      if (quantFactorList) quantFactorList.innerHTML = "";
+      // 可选：先闪一下草稿摘要，再重算（失败时至少有草稿可读）
+      try {
+        const res = await fetch("/api/quant/cluster-live/status");
+        const data = await res.json();
+        const draft = data && data.success ? data.draft || {} : {};
+        if (draft.exists && quantOlsClusters && !quantOlsClusters.innerHTML.trim()) {
+          const nCl = draft.n_clusters != null ? draft.n_clusters : "—";
+          quantOlsClusters.innerHTML =
+            `<span class="sub">上次草稿 ${escapeHtml(String(nCl))} 组 · 映射 ${escapeHtml(
+              String(draft.n_mapped_codes ?? "—")
+            )} 只 · 正在用当前参数重算…</span>`;
+        }
+      } catch (_) {
+        /* ignore */
+      }
+      setQuantMeta("分组中…", { busy: true });
+      await runFactorOlsClustersSuggest();
+    } finally {
+      bootstrapClusterHub._running = false;
+    }
   }
   async function strategyIcCode() {
     try {
@@ -5586,11 +6560,15 @@ export function initQuant(ctx) {
   }
 
   function renderFactorOls(data) {
-    if (!quantOlsSummary && !quantFactorList) return;
+    if (!quantOlsSummary && !quantFactorList && !quantProbeResult) return;
+    const summaryHost =
+      quantLastOlsClusters && quantLastOlsClusters.success && quantProbeSummary
+        ? quantProbeSummary
+        : quantOlsSummary;
     if (!data || !data.success) {
       lastOlsForMerge = null;
       setBusyText(
-        quantOlsSummary,
+        summaryHost,
         (data && data.error) || "OLS 摘要将显示在此",
         { busy: false }
       );
@@ -5610,13 +6588,611 @@ export function initQuant(ctx) {
           ? " · QR"
           : "";
     let olsText = pooled
-      ? `池内 OLS · ${data.stock_count ?? codes.length ?? "—"} 只${codeNote} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"} · 全量因子${zNote}${ridgeNote} · 不写 config`
-      : `OLS · ${data.stock_code || ""} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"} · 全量因子${zNote}${ridgeNote} · 不写 config`;
+      ? `探针·池内 OLS · ${data.stock_count ?? codes.length ?? "—"} 只${codeNote} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"} · 全量因子${zNote}${ridgeNote} · 不写 config`
+      : `探针·OLS · ${data.stock_code || ""} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"} · 全量因子${zNote}${ridgeNote} · 不写 config`;
     if ((data.excluded_features || []).length) {
       olsText += ` · 未入模 ${data.excluded_features.length}（缺测/常数/覆盖）`;
     }
-    setBusyText(quantOlsSummary, olsText, { busy: false });
+    setBusyText(summaryHost, olsText, { busy: false });
     renderMergedFactorTable();
+  }
+
+  function exportClusterWeightDiff(diff, label) {
+    if (!diff || !diff.success) {
+      setQuantMeta((diff && diff.error) || "该组无可用权重 diff", { error: true });
+      return;
+    }
+    const note = diff.apply_note || "组权导出仅供人审";
+    if (
+      !window.confirm(
+        `${label || diff.cluster_label || "该组"}：${note}\n\n仍导出 JSON 对照？`
+      )
+    ) {
+      return;
+    }
+    quantLastWeightDiff = diff;
+    const safe = String(diff.cluster_label || label || "cluster").replace(
+      /[^\w\u4e00-\u9fff\-]+/g,
+      "_"
+    );
+    downloadJson(diff, `signal_config_weight_diff_${safe}.json`);
+    setQuantMeta(`已导出 ${diff.cluster_label || label || "组"} 权重 diff · 不写盘`);
+  }
+
+  function renderOlsClusters(data) {
+    if (!quantOlsClusters) return;
+    quantLastOlsClusters = data && data.success ? data : null;
+    markProbeReadyFromClusters(data);
+    if (!data || !data.success) {
+      quantOlsClusters.innerHTML = `<span class="sub">${escapeHtml(
+        (data && data.error) || "β 分组失败"
+      )}</span>`;
+      renderMergedFactorTable();
+      return;
+    }
+    const clusters = Array.isArray(data.clusters) ? data.clusters : [];
+
+    // 花名册并入下方 G 标题；此处仅摘要 + 未入组提示
+    const nHoldAll = (data.holdings_codes || []).length;
+    const nUni =
+      data.universe_count != null
+        ? data.universe_count
+        : data.stock_count != null
+          ? data.stock_count
+          : "—";
+    const nClustered = data.stock_count != null ? data.stock_count : "—";
+    const nFitted =
+      data.fitted_count != null ? data.fitted_count : nClustered;
+    const outliers = Array.isArray(data.beta_outliers) ? data.beta_outliers : [];
+    const nOutlier =
+      data.outlier_count != null ? data.outlier_count : outliers.length;
+    const nDataSkip = Array.isArray(data.skipped)
+      ? data.skipped.filter((s) => {
+          const r = String((s && s.reason) || "");
+          return r && r.indexOf("β离群") < 0;
+        }).length
+      : 0;
+    const nGroups = data.n_clusters != null ? data.n_clusters : clusters.length || "—";
+    const methodBits = [];
+    if (data.cluster_method === "kmeans") methodBits.push("k-means");
+    else if (data.cluster_linkage === "average") methodBits.push("平均连接");
+    else methodBits.push("complete·τ");
+    if (data.n_clusters_auto) methodBits.push(`k=${nGroups}`);
+    if (data.within_dist_cap != null || data.tau != null) {
+      methodBits.push(
+        `τ=${data.within_dist_cap != null ? data.within_dist_cap : data.tau}` +
+          (data.tau_quantile != null ? `(q=${data.tau_quantile})` : "")
+      );
+    }
+    if (data.cluster_merges && data.cluster_merges.length) {
+      methodBits.push(`τ内并组${data.cluster_merges.length}`);
+    }
+    if (data.beta_scale === "l2") methodBits.push("β 行L2");
+    else if (data.beta_scale === "none") methodBits.push("β 原始");
+    else methodBits.push("β z-score");
+    if (data.cluster_balance && data.cluster_balance.imbalanced) {
+      methodBits.push("组规模偏斜");
+    }
+    methodBits.push("不写 config");
+    const metaLine =
+      `<div class="quant-cluster-status">` +
+      `<div class="quant-cluster-status-stats">` +
+      `<span class="quant-cluster-stat"><b>${escapeHtml(String(nGroups))}</b> 组</span>` +
+      `<span class="quant-cluster-stat"><b>${escapeHtml(
+        String(nHoldAll || nUni)
+      )}</b> 持仓</span>` +
+      `<span class="quant-cluster-stat"><b>${escapeHtml(
+        String(nFitted)
+      )}</b> 拟合</span>` +
+      `<span class="quant-cluster-stat"><b>${escapeHtml(
+        String(nClustered)
+      )}</b> 入组</span>` +
+      (data.singleton_outlier_count
+        ? `<span class="quant-cluster-stat is-warn"><b>${escapeHtml(
+            String(data.singleton_outlier_count)
+          )}</b> 单票离群</span>`
+        : nOutlier
+          ? `<span class="quant-cluster-stat is-warn"><b>${escapeHtml(
+              String(nOutlier)
+            )}</b> β离群</span>`
+          : "") +
+      (nDataSkip
+        ? `<span class="quant-cluster-stat is-warn"><b>${escapeHtml(
+            String(nDataSkip)
+          )}</b> 数据不足</span>`
+        : "") +
+      `</div>` +
+      `<p class="quant-cluster-method">` +
+      `<span class="quant-cluster-method-k">方法</span>` +
+      `<span class="quant-cluster-method-v">${escapeHtml(
+        methodBits.join(" · ")
+      )}</span>` +
+      `</p>` +
+      `</div>`;
+
+    const rosterNameByCode = clusterNameByCodeFromData(data);
+    // 兼容旧字段 β离群未入簇（现多为单票组，一般为空）
+    const outlierNote = outliers.length
+      ? `<p class="sub">未入组离群：${escapeHtml(
+          outliers
+            .map((o) => {
+              const c = o.code || o.stock_code || "?";
+              const d = o.distance != null ? ` d=${o.distance}` : "";
+              return `${formatStockCodeName(
+                c,
+                rosterNameByCode[normalizeProbeCode(c)] || ""
+              )}${d}`;
+            })
+            .join("、")
+        )}</p>`
+      : "";
+
+    const ha =
+      data.holdings_assignment ||
+      (data.pool_artifact && data.pool_artifact.holdings_assignment) ||
+      {};
+    // 宇宙=纸面持仓：成员已在 G 标题；此处只提示未入组
+    let holdHtml = "";
+    const umLines = ((ha && ha.unmapped) || [])
+      .map((h) => {
+        const nm = formatStockCodeName(h.stock_code, h.stock_name);
+        const reason = h.reason ? `（${h.reason}）` : "";
+        return `${nm}${reason}`;
+      })
+      .join("；");
+    if (umLines) {
+      holdHtml =
+        `<p class="sub quant-cluster-unmapped">未入组：${escapeHtml(
+          umLines
+        )}</p>`;
+    }
+
+    // 导出优先已在组标题 chip 标出，不再单独占一行
+    const liveBar =
+      `<details class="quant-cluster-more quant-cluster-advanced" id="quant-cluster-live-bar">` +
+      `<summary>进阶 ` +
+      `<span class="sub" id="quant-cluster-live-status">打分 / 纸面</span></summary>` +
+      `<div class="quant-cluster-advanced-actions">` +
+      `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" ` +
+      `data-cluster-export="live-apply">开始对照</button>` +
+      `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" ` +
+      `data-cluster-export="live-active">用分组打分</button>` +
+      `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" ` +
+      `data-cluster-export="live-paper">调纸面仓</button>` +
+      `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="live-off">关闭</button>` +
+      `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="live-rollback">回滚</button>` +
+      `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="artifact">导出映射</button>` +
+      `</div>` +
+      `</details>`;
+
+    quantOlsClusters.innerHTML =
+      `${metaLine}${outlierNote}${holdHtml}${liveBar}`;
+    renderMergedFactorTable();
+    syncProbeCodeOptionsFromClusters();
+    refreshClusterLiveStatus();
+  }
+
+  async function refreshClusterLiveStatus() {
+    const el = document.getElementById("quant-cluster-live-status");
+    try {
+      const res = await fetch("/api/quant/cluster-live/status");
+      const data = await res.json();
+      if (!el) return;
+      if (!data || !data.success) {
+        el.textContent = "（状态不可用）";
+        return;
+      }
+      const cs = data.cluster_scoring || {};
+      const act = data.active || {};
+      const h = data.health || {};
+      const alerts = (h.alerts || []).slice(0, 2).join("；");
+      const modeLabel =
+        cs.mode === "active"
+          ? "已用分组打分"
+          : cs.mode === "shadow"
+            ? "对照中（未改主分）"
+            : "未接通打分";
+      el.textContent =
+        ` · ${modeLabel}` +
+        (act.version != null ? ` · 映射 v${act.version}` : "") +
+        (h.coverage != null ? ` · 池覆盖 ${Math.round(h.coverage * 100)}%` : "") +
+        (alerts ? ` · ${alerts}` : "");
+    } catch (_) {
+      if (el) el.textContent = "（状态加载失败）";
+    }
+  }
+
+  async function postClusterLive(path, body) {
+    const res = await fetch(path, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body || {}),
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = null;
+    }
+    if (!res.ok || !data || data.success === false) {
+      const err =
+        (data && (data.error || data.detail)) ||
+        (res.status === 404 ? "接口未找到：请重启 Web" : `HTTP ${res.status}`);
+      return { ok: false, error: err, data };
+    }
+    return { ok: true, data };
+  }
+
+  async function runClusterLiveApply() {
+    const art =
+      quantLastOlsClusters && quantLastOlsClusters.pool_artifact;
+    if (
+      !window.confirm(
+        "一键应用分组？\n将：晋升映射 → 影子模式 → 刷新分池簿。\n不写 signal_config.weights。"
+      )
+    ) {
+      return;
+    }
+    setQuantMeta("应用分组中…", { busy: true });
+    const body = { from_draft: true, mode: "shadow", note: "一键应用" };
+    if (art && art.success && art.code_map) {
+      body.artifact = art;
+      body.from_draft = false;
+    }
+    const out = await postClusterLive("/api/quant/cluster-live/apply", body);
+    if (!out.ok) {
+      setQuantMeta(`应用失败 · ${out.error}`, { error: true });
+      return;
+    }
+    const n =
+      (out.data.refresh &&
+        out.data.refresh.rank &&
+        out.data.refresh.rank.name_count) ||
+      0;
+    setQuantMeta(
+      `${out.data.note || "已应用"}` + (n ? ` · 簿 ${n} 只` : "")
+    );
+    if (quantOlsSummary) {
+      setBusyText(
+        quantOlsSummary,
+        `分组已应用 · v${out.data.version ?? "—"} · 影子模式`,
+        { busy: false }
+      );
+    }
+    refreshClusterLiveStatus();
+  }
+
+  async function runClusterLivePromote() {
+    // 兼容旧入口：走一键应用
+    return runClusterLiveApply();
+  }
+
+  async function runClusterLiveMode(mode) {
+    if (
+      !window.confirm(
+        `将 cluster_scoring.mode 设为 ${mode}？\n仅改开关，不改全局 weights。`
+      )
+    ) {
+      return;
+    }
+    setQuantMeta(`设置 mode=${mode}…`, { busy: true });
+    const out = await postClusterLive("/api/quant/cluster-live/mode", { mode });
+    if (!out.ok) {
+      setQuantMeta(`设置失败 · ${out.error}`, { error: true });
+      return;
+    }
+    setQuantMeta(`分组 live mode=${mode}`);
+    refreshClusterLiveStatus();
+  }
+
+  async function runClusterLiveRank() {
+    setQuantMeta("分池排序中…", { busy: true });
+    const out = await postClusterLive("/api/quant/cluster-live/rank", {});
+    if (!out.ok) {
+      setQuantMeta(`分池排序失败 · ${out.error}`, { error: true });
+      return;
+    }
+    const n = (out.data.book || []).length;
+    setQuantMeta(`分池簿 ${n} 只 · v${out.data.cluster_version ?? "—"} · 无跨组总榜`);
+    refreshClusterLiveStatus();
+  }
+
+  async function runClusterLiveRefresh() {
+    setQuantMeta("刷新合并簿…", { busy: true });
+    const out = await postClusterLive("/api/quant/cluster-live/refresh-book", {});
+    if (!out.ok) {
+      setQuantMeta(`刷新失败 · ${out.error}`, { error: true });
+      return;
+    }
+    const n = (out.data.rank && out.data.rank.name_count) || 0;
+    setQuantMeta(`日更完成 · 簿 ${n} 只 · 未重聚类`);
+    refreshClusterLiveStatus();
+  }
+
+  async function runClusterLiveRollback() {
+    if (!window.confirm("回滚到上一版 live 映射？")) return;
+    setQuantMeta("回滚中…", { busy: true });
+    const out = await postClusterLive("/api/quant/cluster-live/rollback", {});
+    if (!out.ok) {
+      setQuantMeta(`回滚失败 · ${out.error}`, { error: true });
+      return;
+    }
+    setQuantMeta(`已回滚 · v${out.data.version ?? "—"}`);
+    refreshClusterLiveStatus();
+  }
+
+  async function runClusterLivePaperRebalance() {
+    if (
+      !window.confirm(
+        "用分池合并簿对纸面账户调仓？\n将写 paper.json；不写 signal_config.weights。"
+      )
+    ) {
+      return;
+    }
+    if (!window.confirm("二次确认：纸面分池落账？")) return;
+    setQuantMeta("纸面分池调仓中…", { busy: true });
+    const out = await postClusterLive("/api/paper/rebalance", {
+      top_k: 5,
+      limit: 20,
+      cluster_mode: true,
+    });
+    if (!out.ok) {
+      setQuantMeta(`分池调仓失败 · ${out.error}`, { error: true });
+      return;
+    }
+    const sellN = (out.data.sell_trades || []).length;
+    const buyN = (out.data.buy_trades || []).length;
+    setQuantMeta(
+      `纸面分池调仓完成 · 卖 ${sellN} · 买 ${buyN} · cluster_mode`
+    );
+  }
+
+  function exportPoolArtifact() {
+    const art =
+      quantLastOlsClusters && quantLastOlsClusters.pool_artifact;
+    if (!art || !art.success) {
+      setQuantMeta("无可用映射产物（请先跑 β 分组）", { error: true });
+      return;
+    }
+    if (
+      !window.confirm(
+        `${art.apply_note || "研究归档产物"}\n\n导出 JSON？不写 signal_config / 纸面。`
+      )
+    ) {
+      return;
+    }
+    const stamp = String(art.created_at || "")
+      .replace(/[^\d]/g, "")
+      .slice(0, 14);
+    downloadJson(
+      art,
+      `cluster_pool_artifact_${stamp || Date.now()}.json`
+    );
+    setQuantMeta(
+      `已导出映射产物 · ${art.n_mapped_codes ?? "—"} 只 · promote_ready=否`
+    );
+  }
+
+  function clusterPoolBookAndArtifact() {
+    const book =
+      quantLastOlsClusters &&
+      quantLastOlsClusters.pool_merge &&
+      quantLastOlsClusters.pool_merge.book &&
+      quantLastOlsClusters.pool_merge.book.book;
+    const art =
+      quantLastOlsClusters && quantLastOlsClusters.pool_artifact;
+    return { book: book || [], artifact: art && art.success ? art : null };
+  }
+
+  async function postClusterPaperRebalance({ confirm }) {
+    const { book, artifact } = clusterPoolBookAndArtifact();
+    if (!book.length) {
+      return { ok: false, error: "无分池候选簿" };
+    }
+    const body = {
+      book,
+      top_k: book.length,
+      confirm: !!confirm,
+    };
+    if (artifact) {
+      body.artifact = {
+        schema_version: artifact.schema_version,
+        created_at: artifact.created_at,
+        n_clusters: artifact.n_clusters,
+        n_mapped_codes: artifact.n_mapped_codes,
+      };
+    }
+    const res = await fetch("/api/quant/cluster-paper-preview", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = null;
+    }
+    if (!res.ok || !data || !data.success) {
+      const err =
+        (data && (data.error || data.detail)) ||
+        (res.status === 404
+          ? "接口未找到：请重启 Web"
+          : `HTTP ${res.status}`);
+      return { ok: false, error: err };
+    }
+    return { ok: true, data };
+  }
+
+  async function runClusterPaperPreview() {
+    const { book } = clusterPoolBookAndArtifact();
+    if (!book.length) {
+      setQuantMeta("无分池候选簿，无法预演", { error: true });
+      return;
+    }
+    if (
+      !window.confirm(
+        `用分池候选 ${book.length} 只对当前纸面账户做调仓预演？\n不写 paper.json。`
+      )
+    ) {
+      return;
+    }
+    setQuantMeta("纸面分池预演中…", { busy: true });
+    try {
+      const out = await postClusterPaperRebalance({ confirm: false });
+      if (!out.ok) {
+        setQuantMeta(`纸面预演失败 · ${out.error}`, { error: true });
+        return;
+      }
+      const data = out.data;
+      window.__quantLastClusterPaperPreview = data;
+      const sellN = data.sell_count ?? 0;
+      const buyN = data.buy_count ?? 0;
+      const blocked = data.buys_blocked ? " · 风控拦买" : "";
+      setQuantMeta(
+        `纸面预演（未写账）· 卖 ${sellN} · 买 ${buyN}${blocked}` +
+          ` · 事后持仓 ${(data.holdings_after || []).length} 只 · 可点「确认落账」`
+      );
+      if (quantOlsSummary) {
+        const sells = (data.sell_trades || [])
+          .slice(0, 3)
+          .map((t) => t.stock_name || t.stock_code)
+          .join("、");
+        const buys = (data.buy_trades || [])
+          .slice(0, 3)
+          .map((t) => t.stock_name || t.stock_code)
+          .join("、");
+        setBusyText(
+          quantOlsSummary,
+          `分池预演 · 卖${sellN}${sells ? `(${sells})` : ""} · 买${buyN}${
+            buys ? `(${buys})` : ""
+          } · 不写账`,
+          { busy: false }
+        );
+      }
+    } catch (err) {
+      setQuantMeta(String(err.message || err), { error: true });
+    }
+  }
+
+  function exportMultiScore() {
+    const ms = quantLastOlsClusters && quantLastOlsClusters.multi_score;
+    if (!ms || !ms.success) {
+      setQuantMeta("无多权打分结果", { error: true });
+      return;
+    }
+    downloadJson(ms, `cluster_multi_score_${Date.now()}.json`);
+    setQuantMeta(
+      `已导出多权分 · ${ms.scored_count ?? "—"} 只 · 仅组内序`
+    );
+  }
+
+  async function runClusterMultiRescore() {
+    const art =
+      quantLastOlsClusters && quantLastOlsClusters.pool_artifact;
+    setQuantMeta("多权复打中…", { busy: true });
+    try {
+      const body = {
+        lookback: 80,
+        horizon_days: readHorizonDays(),
+        watching_limit: 20,
+      };
+      if (art && art.success && art.code_map) {
+        body.artifact = {
+          code_map: art.code_map,
+          created_at: art.created_at,
+          schema_version: art.schema_version,
+        };
+      }
+      const res = await fetch("/api/quant/cluster-multi-score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = null;
+      }
+      if (!res.ok || !data || !data.success) {
+        const err =
+          (data && (data.error || data.detail)) ||
+          (res.status === 404
+            ? "接口未找到：请重启 Web"
+            : `HTTP ${res.status}`);
+        setQuantMeta(`多权复打失败 · ${err}`, { error: true });
+        return;
+      }
+      if (quantLastOlsClusters) {
+        quantLastOlsClusters.multi_score = data;
+        renderOlsClusters(quantLastOlsClusters);
+      }
+      setQuantMeta(
+        `多权复打完成 · ${data.scored_count ?? "—"} 只 · 仅组内序 · 不进 live`
+      );
+      if (quantOlsSummary) {
+        setBusyText(
+          quantOlsSummary,
+          `多权复打 · ${data.scored_count ?? "—"} 只 · ${data.source || "—"}`,
+          { busy: false }
+        );
+      }
+    } catch (err) {
+      setQuantMeta(String(err.message || err), { error: true });
+    }
+  }
+
+  async function runClusterPaperApply() {
+    const { book } = clusterPoolBookAndArtifact();
+    if (!book.length) {
+      setQuantMeta("无分池候选簿，无法落账", { error: true });
+      return;
+    }
+    const prev = window.__quantLastClusterPaperPreview;
+    const hint = prev
+      ? `预演：卖 ${prev.sell_count ?? "—"} · 买 ${prev.buy_count ?? "—"}`
+      : "建议先点「纸面预演」对照";
+    if (
+      !window.confirm(
+        `确认将分池候选 ${book.length} 只写入纸面账户？\n${hint}\n\n` +
+          `将改写 paper.json；不写 signal_config。`
+      )
+    ) {
+      return;
+    }
+    if (
+      !window.confirm(
+        "二次确认：真的落账？此操作会买卖纸面持仓，不可自动撤销。"
+      )
+    ) {
+      return;
+    }
+    setQuantMeta("分池落账中…", { busy: true });
+    try {
+      const out = await postClusterPaperRebalance({ confirm: true });
+      if (!out.ok) {
+        setQuantMeta(`分池落账失败 · ${out.error}`, { error: true });
+        return;
+      }
+      const data = out.data;
+      window.__quantLastClusterPaperPreview = null;
+      const sellN = data.sell_count ?? 0;
+      const buyN = data.buy_count ?? 0;
+      setQuantMeta(
+        `分池已落账 · 卖 ${sellN} · 买 ${buyN}` +
+          ` · 持仓 ${(data.holdings_after || []).length} 只 · 未碰 signal_config`
+      );
+      if (quantOlsSummary) {
+        setBusyText(
+          quantOlsSummary,
+          `分池落账完成 · 卖${sellN} · 买${buyN} · 仅 paper.json`,
+          { busy: false }
+        );
+      }
+    } catch (err) {
+      setQuantMeta(String(err.message || err), { error: true });
+    }
   }
 
   function weightSuggestStatusHtml(suggest) {
@@ -6006,10 +7582,15 @@ export function initQuant(ctx) {
         : gate.ok && !gate.passed
           ? " · OOS✗"
           : " · OOS—";
-      setQuantMeta(
-        `截面驱动建议 · IC ${nOk}/${rows.length} · 只读${gateTag}` +
-          (sug.ols_used ? " · 含 OLS 回退" : "")
-      );
+      const icMsg =
+        `探针·截面驱动 · IC ${nOk}/${rows.length} · 只读${gateTag}` +
+        (sug.ols_used ? " · 含 OLS 回退" : "");
+      if (quantLastOlsClusters && quantLastOlsClusters.success && quantProbeSummary) {
+        setBusyText(quantProbeSummary, icMsg + " · 不冲组表", { busy: false });
+        const fold = document.getElementById("quant-probe-fold");
+        if (fold) fold.open = true;
+      }
+      setQuantMeta(icMsg);
       return;
     }
     renderFactorExperiment(exp, sug);
@@ -6072,6 +7653,89 @@ export function initQuant(ctx) {
       );
     } else {
       setQuantMeta((data && data.error) || "池内 OLS 失败", { error: true });
+    }
+  }
+
+  async function runFactorOlsClustersSuggest() {
+    const started = Date.now();
+    const tick = () => {
+      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+      // 进度只走页顶 meta；摘要行空着，算完由状态条接手
+      setQuantMeta(`分组中… ${sec}s · 纸面持仓`, { busy: true });
+    };
+    tick();
+    const timer = setInterval(tick, 1000);
+    await ensureFactorMeta();
+    try {
+      const res = await fetch("/api/quant/factor-ols-clusters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback: 80,
+          horizon_days: readHorizonDays(),
+          watching_limit: 8,
+          // null → complete-linkage 按 τ 切树（类内距离紧、尽量多组）
+          n_clusters: null,
+          cluster_method: "hierarchical",
+          cluster_linkage: "complete",
+          within_dist_quantile: 0.25,
+          ridge_lambda: readRidgeLambda(),
+          pit_fundamentals: false,
+          beta_scale: "feature_zscore",
+          run_oos_gate: true,
+          oos_tol_pp: 1.0,
+          run_group_score: true,
+          run_pool_merge: true,
+          top_n_per_group: 1,
+        }),
+      });
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = null;
+      }
+      if (!res.ok) {
+        const detail =
+          (data && (data.detail || data.error)) ||
+          (res.status === 404
+            ? "接口未找到：请重启 Web（WEB_RELOAD=off 时需手动重启）"
+            : `HTTP ${res.status}`);
+        setBusyText(quantOlsSummary, detail, { busy: false });
+        setQuantMeta(`分组失败 · ${detail}`, { error: true });
+        if (quantOlsClusters) {
+          quantOlsClusters.textContent = detail;
+        }
+        return;
+      }
+      renderOlsClusters(data);
+      if (data && data.success) {
+        const nCl = data.n_clusters ?? "—";
+        const nUni = data.universe_count ?? data.stock_count ?? "—";
+        const nHold = (data.holdings_codes || []).length;
+        const nIn = data.stock_count ?? "—";
+        const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+        const os = data.oos_summary || {};
+        const oosTag = os.run
+          ? ` · OOS✓${os.passed ?? 0}/✗${os.failed ?? 0}`
+          : "";
+        const pmOk = data.pool_merge && data.pool_merge.success ? " · 分池合成" : "";
+        // 统计条在 quant-ols-clusters；摘要行留空，避免与 meta / 状态条重复
+        if (quantOlsSummary) {
+          quantOlsSummary.textContent = "";
+          quantOlsSummary.classList.remove("is-busy");
+        }
+        setQuantMeta(
+          `分组 · ${nCl} 组 · 纸面持仓 ${nHold || nUni} · 入组 ${nIn} · ${sec}s${oosTag}${pmOk}`
+        );
+      } else {
+        setBusyText(quantOlsSummary, (data && data.error) || "分组失败", {
+          busy: false,
+        });
+        setQuantMeta((data && data.error) || "分组失败", { error: true });
+      }
+    } finally {
+      clearInterval(timer);
     }
   }
 
@@ -6235,46 +7899,160 @@ export function initQuant(ctx) {
     }
   });
 
-  on("quant-ols-run", "click", async (e) => {
+  on("quant-probe-run", "click", async (e) => {
     e.preventDefault();
-    const btn = document.getElementById("quant-ols-run");
+    const btn = document.getElementById("quant-probe-run");
     if (btn) btn.disabled = true;
     try {
-      await runFactorOlsSuggest();
+      await runProbeStockVsGroup();
     } catch (err) {
-      setBusyText(quantOlsSummary, String(err.message || err), { busy: false });
-      if (quantMeta) setQuantMeta(String(err.message || err), { error: true });
+      setBusyText(quantProbeSummary, String(err.message || err), { busy: false });
+      setQuantMeta(String(err.message || err), { error: true });
     } finally {
       if (btn) btn.disabled = false;
     }
   });
 
   on("quant-ols-code", "change", async () => {
-    // 选完 datalist / 失焦后自动重跑，便于换票对照
-    const btn = document.getElementById("quant-ols-run");
+    // 换票后自动对照（需已有分组）
+    const btn = document.getElementById("quant-probe-run");
     if (btn) btn.disabled = true;
     try {
-      await runFactorOlsSuggest();
+      await runProbeStockVsGroup();
     } catch (err) {
-      setBusyText(quantOlsSummary, String(err.message || err), { busy: false });
+      setBusyText(quantProbeSummary, String(err.message || err), { busy: false });
     } finally {
       if (btn) btn.disabled = false;
     }
   });
 
+  // 兼容隐藏入口 / 旧深链
+  on("quant-ols-run", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runProbeStockVsGroup();
+    } catch (err) {
+      setBusyText(quantProbeSummary, String(err.message || err), { busy: false });
+    }
+  });
+
   on("quant-ols-pool-run", "click", async (e) => {
     e.preventDefault();
-    const btn = document.getElementById("quant-ols-pool-run");
+    // 研究池 OLS 已移出探针；隐藏按钮若被触发则提示改用对照验证
+    setBusyText(
+      quantProbeSummary,
+      "研究池 OLS 已从探针移除 · 请用「对照验证」看单票 vs 所在组",
+      { busy: false }
+    );
+  });
+
+  on("quant-cs-ic-run", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runProbeStockVsGroup();
+    } catch (err) {
+      setBusyText(quantProbeSummary, String(err.message || err), { busy: false });
+    }
+  });
+
+  on("quant-ols-clusters-run", "click", async (e) => {
+    e.preventDefault();
+    const btn = document.getElementById("quant-ols-clusters-run");
     if (btn) btn.disabled = true;
     try {
-      await runFactorOlsPoolSuggest();
+      await runFactorOlsClustersSuggest();
     } catch (err) {
       setBusyText(quantOlsSummary, String(err.message || err), { busy: false });
       setQuantMeta(String(err.message || err), { error: true });
+      if (quantOlsClusters) {
+        quantOlsClusters.hidden = false;
+        quantOlsClusters.textContent = String(err.message || err);
+      }
     } finally {
       if (btn) btn.disabled = false;
     }
   });
+
+  function onClusterExportClick(e) {
+    const btn =
+      e.target && e.target.closest
+        ? e.target.closest("[data-cluster-export]")
+        : null;
+    if (!btn || !quantLastOlsClusters) return;
+    e.preventDefault();
+    e.stopPropagation(); // 勿触发组 details 折叠
+    const key = btn.getAttribute("data-cluster-export");
+    if (key === "preferred") {
+      const pref = quantLastOlsClusters.preferred_cluster;
+      exportClusterWeightDiff(pref && pref.config_diff, pref && pref.label);
+      return;
+    }
+    if (key === "artifact") {
+      exportPoolArtifact();
+      return;
+    }
+    if (key === "paper-preview") {
+      runClusterPaperPreview();
+      return;
+    }
+    if (key === "paper-apply") {
+      runClusterPaperApply();
+      return;
+    }
+    if (key === "multi-score") {
+      exportMultiScore();
+      return;
+    }
+    if (key === "multi-rescore") {
+      runClusterMultiRescore();
+      return;
+    }
+    if (key === "live-apply" || key === "live-promote") {
+      runClusterLiveApply();
+      return;
+    }
+    if (key === "live-shadow") {
+      runClusterLiveMode("shadow");
+      return;
+    }
+    if (key === "live-active") {
+      runClusterLiveMode("active");
+      return;
+    }
+    if (key === "live-off") {
+      runClusterLiveMode("off");
+      return;
+    }
+    if (key === "live-rank") {
+      runClusterLiveRank();
+      return;
+    }
+    if (key === "live-refresh") {
+      runClusterLiveRefresh();
+      return;
+    }
+    if (key === "live-rollback") {
+      runClusterLiveRollback();
+      return;
+    }
+    if (key === "live-paper") {
+      runClusterLivePaperRebalance();
+      return;
+    }
+    const idx = Number(key);
+    const cl = (quantLastOlsClusters.clusters || [])[idx];
+    if (!cl) return;
+    exportClusterWeightDiff(cl.config_diff, cl.label);
+  }
+
+  if (quantOlsClusters && quantOlsClusters.dataset.exportWired !== "1") {
+    quantOlsClusters.dataset.exportWired = "1";
+    quantOlsClusters.addEventListener("click", onClusterExportClick);
+  }
+  if (quantFactorList && quantFactorList.dataset.clusterExportWired !== "1") {
+    quantFactorList.dataset.clusterExportWired = "1";
+    quantFactorList.addEventListener("click", onClusterExportClick);
+  }
 
   async function fillWatchingNextDayTrend() {
     if (!watchingGrid || !watchingGridReady) return;

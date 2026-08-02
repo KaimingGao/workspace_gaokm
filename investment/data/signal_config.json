@@ -23,11 +23,34 @@
     "alt_sentiment": 0.02
   },
   "factor_groups": {
-    "trend": ["momentum", "ma_slope", "technical_pattern", "weekly_confirm"],
-    "value_quality": ["value", "earnings_yield", "quality", "growth", "dividend"],
-    "liquidity_flow": ["liquidity", "money_flow", "amihud", "volume_price"],
-    "risk": ["volatility", "gap_risk"],
-    "residual": ["relative_strength", "idio_momentum", "size"]
+    "trend": [
+      "momentum",
+      "ma_slope",
+      "technical_pattern",
+      "weekly_confirm"
+    ],
+    "value_quality": [
+      "value",
+      "earnings_yield",
+      "quality",
+      "growth",
+      "dividend"
+    ],
+    "liquidity_flow": [
+      "liquidity",
+      "money_flow",
+      "amihud",
+      "volume_price"
+    ],
+    "risk": [
+      "volatility",
+      "gap_risk"
+    ],
+    "residual": [
+      "relative_strength",
+      "idio_momentum",
+      "size"
+    ]
   },
   "hard_reject": {
     "min_bars": 2,
@@ -73,5 +96,9 @@
     "industry_residual": true,
     "size_residual": true,
     "size_buckets": 3
+  },
+  "cluster_scoring": {
+    "mode": "shadow",
+    "enabled": true
   }
 }

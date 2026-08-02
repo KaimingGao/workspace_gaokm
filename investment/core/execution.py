@@ -383,6 +383,30 @@ def _human_summary(t0: dict, coupling: dict, *, channel: str) -> str:
 def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
     """API / Web 用精简视图。"""
     t0 = bundle.get("t0") or {}
+    # L4：只读分池合并簿（不改全局 weights）
+    cluster_book = None
+    try:
+        from core.signal.cluster_live import (
+            get_cluster_scoring_cfg,
+            load_active_cluster_book,
+            load_active_cluster_weights,
+        )
+
+        cs = get_cluster_scoring_cfg()
+        book_doc = load_active_cluster_book()
+        active = load_active_cluster_weights()
+        if book_doc and cs.get("mode") in ("shadow", "active"):
+            cluster_book = {
+                "mode": cs.get("mode"),
+                "updated_at": book_doc.get("updated_at"),
+                "name_count": len(book_doc.get("book") or []),
+                "book": (book_doc.get("book") or [])[:20],
+                "cluster_version": (active or {}).get("version"),
+                "signal_config_touched": False,
+                "note": "execution 只读分池簿；权重源见 weight_source",
+            }
+    except Exception:
+        cluster_book = None
     return {
         "ok": True,
         "strategy_id": bundle.get("strategy_id"),
@@ -414,6 +438,7 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "t0_sources": bundle.get("t0_sources") or {},
         "rebalance": bundle.get("rebalance") or {},
         "runtime_defaults": bundle.get("runtime_defaults") or {},
+        "cluster_book": cluster_book,
     }
 
 

@@ -271,7 +271,6 @@ def simulate_cross_section_rebalance(
     dq = None
     try:
         from core.data_service import summarize_data_quality
-        from core.paper_costs import resolve_cost_model
 
         codes = [str(c) for c in sorted(top_codes) if c][:12]
         if codes:
@@ -283,11 +282,10 @@ def simulate_cross_section_rebalance(
                 "count": raw_dq.get("count"),
                 "adjust_policy": raw_dq.get("adjust_policy"),
             }
-        cost_model = resolve_cost_model(paper)
     except Exception:
-        from core.paper_costs import resolve_cost_model
-
-        cost_model = resolve_cost_model(paper)
+        dq = None
+    # 使用模块顶层 resolve_cost_model；勿在函数内再 import 同名，否则整函数变 local 未绑定
+    cost_model = resolve_cost_model(paper)
 
     risk_blocks = (risk_gate or {}).get("blocks") or []
     monitor_alerts: list = []

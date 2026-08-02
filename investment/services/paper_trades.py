@@ -16,7 +16,13 @@ from core.paper import (
 
 
 class PaperTradesMixin:
-    def rebalance(self, *, top_k: Optional[int] = None, limit: Optional[int] = None) -> Dict[str, Any]:
+    def rebalance(
+        self,
+        *,
+        top_k: Optional[int] = None,
+        limit: Optional[int] = None,
+        cluster_mode: bool = False,
+    ) -> Dict[str, Any]:
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
         from core.paper_rebalance import simulate_cross_section_rebalance
@@ -29,6 +35,59 @@ class PaperTradesMixin:
         k = max(1, int(top_k if top_k is not None else max_pos))
         k = min(k, max_pos, 30)
         lim = max(int(limit or 0), k, max(20, max_pos))
+
+        # L2：分池模式 — 组内 Top-N 合并簿，不用跨组统一排名
+        use_cluster = bool(cluster_mode) or bool(
+            (rules.get("cluster_mode") if isinstance(rules, dict) else False)
+        )
+        if use_cluster:
+            from core.signal.cluster_live import assess_cluster_live_health
+            from core.signal.cluster_rank import rank_cluster_pools
+
+            health = assess_cluster_live_health()
+            ranked = rank_cluster_pools(None, persist_book=True)
+            if not ranked.get("success"):
+                return {"success": False, "ok": False, "cluster_mode": True, **ranked}
+            ranking = ranked.get("book") or ranked.get("ranking") or []
+            k = max(1, min(len(ranking) or k, max_pos, 30))
+            capture_mark_snapshot(paper)
+            result = simulate_cross_section_rebalance(
+                paper,
+                ranking,
+                top_k=k,
+            )
+            summary = mark_to_market(paper)
+            append_snapshot(paper, summary)
+            append_operation_log(
+                paper,
+                "cluster_pool_rebalance",
+                detail=f"分池 live 调仓 Top{k} · v{ranked.get('cluster_version')}",
+                meta={
+                    "cluster_mode": True,
+                    "cluster_version": ranked.get("cluster_version"),
+                    "book_codes": [r.get("stock_code") for r in ranking],
+                    "health_alerts": (health.get("alerts") or [])[:5],
+                    "signal_config_touched": False,
+                },
+            )
+            paper["last_cluster_pool"] = {
+                "applied_at": summary.get("as_of") if isinstance(summary, dict) else None,
+                "cluster_version": ranked.get("cluster_version"),
+                "book_codes": [r.get("stock_code") for r in ranking],
+                "signal_config_touched": False,
+            }
+            save_paper(paper, self.path)
+            return {
+                "success": True,
+                "ok": True,
+                "top_k": k,
+                "cluster_mode": True,
+                "cluster_pools": ranked,
+                "health": health,
+                **result,
+                "summary": summary,
+            }
+
         # 候选来自观察池 watching；模拟仓只看 holdings
         ranked = rank_cross_section(
             None,
@@ -50,6 +109,7 @@ class PaperTradesMixin:
             "success": True,
             "ok": True,
             "top_k": k,
+            "cluster_mode": False,
             "cross_section": ranked,
             **result,
             "summary": summary,

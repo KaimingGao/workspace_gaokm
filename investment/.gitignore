@@ -11,6 +11,7 @@ data/evals_job.json
 data/daily_last_run.json
 data/quant_daily.json
 data/reports/
+data/live/
 data/logs/
 data/store/daily/**/*.json
 data/store/news/**/*.json

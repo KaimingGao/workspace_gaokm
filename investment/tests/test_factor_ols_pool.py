@@ -175,12 +175,13 @@ class TestFactorOlsPool(unittest.TestCase):
         path = os.path.join(ROOT, "web", "static", "partials", "quant_panel.html")
         with open(path, encoding="utf-8") as f:
             html = f.read()
+        # 池 OLS API 仍保留隐藏入口；探针主入口改为单票 vs 所在组
         self.assertIn("quant-ols-pool-run", html)
         self.assertIn("quant-ridge-lambda", html)
         self.assertIn("quant-ols-code", html)
-        self.assertIn("单票 OLS", html)
-        self.assertIn("研究池 OLS", html)
-        self.assertIn("堆叠", html)
+        self.assertIn("quant-probe-run", html)
+        self.assertIn("对照验证", html)
+        self.assertIn("单票 vs 所在组", html)
 
     def test_js_calls_pool_api(self):
         path = os.path.join(ROOT, "web", "static", "js", "quant.js")

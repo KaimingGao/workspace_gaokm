@@ -57,8 +57,12 @@ def evaluate_weight_suggestion_oos(
     watching_limit: int = 10,
     oos_tol_pp: float = 1.0,
     codes: Optional[List[str]] = None,
+    min_names: int = 3,
 ) -> Dict[str, Any]:
-    """对照当前/建议权重跑同一宇宙 Top-K；OOS 段收益不劣于当前（容差）则过门。"""
+    """对照当前/建议权重跑同一宇宙 Top-K；OOS 段收益不劣于当前（容差）则过门。
+
+    ``min_names``：最少有效代码数（全局建议默认 3；β 分组组内对照可降到 2）。
+    """
     from quant.research.portfolio_data import load_portfolio_stock_bars
     from core.watching_store import read_watching
 
@@ -67,15 +71,16 @@ def evaluate_weight_suggestion_oos(
     else:
         uni = read_watching()
         use_codes = list(uni.get("watchlist") or [])
-    limit = max(3, min(int(watching_limit or 10), 20))
+    min_n = max(2, min(int(min_names or 3), 10))
+    limit = max(min_n, min(int(watching_limit or 10), 40))
     use_codes = use_codes[:limit]
-    if len(use_codes) < 3:
+    if len(use_codes) < min_n:
         return {
             "ok": False,
             "passed": False,
             "skipped": True,
             "reason": "watching_too_small",
-            "note": "研究池不足 3 只，跳过 OOS 门禁（不阻断导出，但 promote_ready=false）。",
+            "note": f"有效标的不足 {min_n} 只，跳过 OOS 门禁（不阻断导出，但 promote_ready=false）。",
             "stock_count": len(use_codes),
         }
 
@@ -84,21 +89,22 @@ def evaluate_weight_suggestion_oos(
         lookback=lookback,
         fetch_fundamentals=False,
     )
-    if len(stock_bars) < 3:
+    if len(stock_bars) < min_n:
         return {
             "ok": False,
             "passed": False,
             "skipped": True,
             "reason": "bars_too_few",
-            "note": f"有效日线不足 3 只（失败 {len(failures)}）",
+            "note": f"有效日线不足 {min_n} 只（失败 {len(failures)}）",
             "failures": failures[:8],
             "stock_count": len(stock_bars),
         }
 
+    top_k_eff = max(1, min(int(top_k or 1), len(stock_bars)))
     cur_bt = _run_topk_with_weights(
         stock_bars,
         current_weights,
-        top_k=top_k,
+        top_k=top_k_eff,
         horizon_days=horizon_days,
         min_score=min_score,
         fundamentals_by_code=fund_map or None,
@@ -106,7 +112,7 @@ def evaluate_weight_suggestion_oos(
     sug_bt = _run_topk_with_weights(
         stock_bars,
         suggested_weights,
-        top_k=top_k,
+        top_k=top_k_eff,
         horizon_days=horizon_days,
         min_score=min_score,
         fundamentals_by_code=fund_map or None,
@@ -154,7 +160,7 @@ def evaluate_weight_suggestion_oos(
         "delta_oos_pp": delta_oos,
         "oos_tol_pp": tol,
         "lookback": lookback,
-        "top_k": top_k,
+        "top_k": top_k_eff,
         "horizon_days": horizon_days,
         "stock_count": len(stock_bars),
         "codes": list(stock_bars.keys()),

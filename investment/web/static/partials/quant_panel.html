@@ -1,14 +1,14 @@
 <div class="quant-head">
   <div class="quant-head-text">
     <h2>研究枢纽</h2>
-    <p id="quant-meta" class="quant-meta" aria-live="polite">只读建议 · 不写 signal_config</p>
+    <p id="quant-meta" class="quant-meta" aria-live="polite">同组同建模 · 异组异建模 · 不写 signal_config</p>
   </div>
 </div>
 
 <div class="quant-body quant-page">
   <section class="quant-section" id="quant-section-factors" aria-labelledby="quant-section-factors-title">
     <div class="quant-section-toolbar">
-      <h3 id="quant-section-factors-title" class="watching-section-title">因子建议</h3>
+      <h3 id="quant-section-factors-title" class="watching-section-title">股票分组</h3>
       <div class="quant-actions-inline">
         <label class="platform-field" title="研究前瞻持有期（1～10）；不影响数据中心 live 评分">
           horizon
@@ -21,228 +21,142 @@
           ridge λ
           <input id="quant-ridge-lambda" type="number" min="0" max="100" step="0.1" value="0" />
         </label>
-        <label class="platform-field" title="单票 OLS 标的：可选手观察池，或手输代码/名称；切换后点「单票 OLS」对照 β 是否差很多">
-          OLS 标的
-          <input
-            id="quant-ols-code"
-            list="quant-ols-code-list"
-            type="text"
-            value="茅台"
-            maxlength="16"
-            autocomplete="off"
-            spellcheck="false"
-          />
-          <datalist id="quant-ols-code-list"></datalist>
-        </label>
-        <button type="button" id="quant-ols-run" class="dialog-btn secondary" title="按上方标的重跑单票 walk-forward OLS">
-          单票 OLS
+        <button
+          type="button"
+          id="quant-ols-clusters-run"
+          class="dialog-btn dialog-btn-keep-case"
+          title="仅纸面持仓按 OLS β 分组；离群票各自成单票组单独建模；不写全局 config"
+        >
+          跑分组
         </button>
-        <button type="button" id="quant-cs-ic-run" class="dialog-btn secondary">截面 IC</button>
-        <button type="button" id="quant-ols-pool-run" class="dialog-btn secondary">研究池 OLS</button>
-        <button type="button" id="quant-weight-export" class="dialog-btn secondary">导出权重 diff</button>
       </div>
     </div>
+    <p class="sub quant-cluster-universe-hint">
+      宇宙 = 纸面持仓 · 同组同建模 · 离群各自成单票组
+    </p>
     <details class="quant-fold quant-help-fold">
       <summary>IC / OLS·Ridge / 建议权重说明</summary>
       <div class="quant-help-body">
         <p>
-          默认单票 OLS 标的为<strong>茅台</strong>；可用工具栏「OLS 标的」切换观察池个股或手输代码，
-          点「单票 OLS」对照不同票的 β / R² 是否差很多。每个交易日
-          <code>t</code> 用截至当日的窗口取研究路径因子分。结果<strong>不写</strong>
-          <code>signal_config</code>。
+          <strong>目的</strong>：找出 OLS 表现相似的股票，<strong>同组共用一套建模/配权</strong>；
+          不同组各自池 OLS → 各自建议权，避免异质票硬套全局权。
         </p>
-
-        <h4>共同：前瞻收益</h4>
         <p>
-          默认 horizon <code>h</code> 来自本页控件（可「存为默认」写入
-          <code>memory.json</code>）；<strong>不</strong>改数据中心评分 / 交易执行。
-          常用 <code>h = 3</code> 个交易日：
-        </p>
-        <pre class="quant-help-formula">r<sub>t→t+h</sub> = close<sub>t+h</sub> / close<sub>t</sub> − 1</pre>
-        <p>（实现里乘 100 成百分比，相关/回归尺度一致即可。）</p>
-
-        <h4>IC（单因子）</h4>
-        <ol>
-          <li>对每个因子 <code>k</code>，收集有值的日子：<code>x<sub>t</sub> =</code> 因子分，<code>y<sub>t</sub> = r<sub>t→t+h</sub></code>。</li>
-          <li>样本数 <code>n ≥ 3</code> 且方差非 0 时，算 Pearson 相关：</li>
-        </ol>
-        <pre class="quant-help-formula">IC<sub>k</sub> = corr(x, y)
-     = Σ (x<sub>i</sub>−x̄)(y<sub>i</sub>−ȳ)
-       / ( √Σ(x<sub>i</sub>−x̄)² · √Σ(y<sub>i</sub>−ȳ)² )</pre>
-        <p>
-          表中 <strong>IC / n</strong> 默认是<strong>单票时序</strong> Pearson；无数字时显示原因标签：
-          <strong>缺测</strong>（n&lt;3）·
-          <strong>常数</strong>（因子分无波动）·
-          <strong>收益平</strong>（前瞻收益无波动）。
-          点「截面 IC」或截面驱动建议时，改为池内<strong>日频截面</strong>（Pearson + Spearman）汇总，并出现
-          <strong>ICIR</strong> 列；与单票 IC 不是同一指标。
-          页头「IC 12/20」= 20 个因子里 12 个算出了有效 IC。
-        </p>
-
-        <h4>ICIR（截面稳定性）</h4>
-        <p>
-          <strong>ICIR</strong> = Information Coefficient Information Ratio（信息系数的信息比率）。
-          对研究池逐日算截面 IC，再对这串日 IC 求：
-        </p>
-        <pre class="quant-help-formula">ICIR = IC̄ / σ(IC)
-     = mean(日截面 IC) / std(日截面 IC)</pre>
-        <p>
-          <strong>IC</strong> 看某一天（或均值）相关强弱；
-          <strong>ICIR</strong> 看预测力是否<strong>既偏正/偏负又稳</strong>（均值大、波动小）。
-          |ICIR| 大更可信；接近 0 表示弱或不稳。
-          权重建议的强证据要求 <code>|IC| ≥ 0.03</code> 且
-          <code>|ICIR| ≥ 0.25</code>，并用 |ICIR| 缩放步长。
-          单票时序 IC 通常<strong>没有</strong> ICIR（表里为 —）。
-        </p>
-
-        <h4>OLS / Ridge（多因子线性回归）</h4>
-        <p>
-          研究探针上的多元线性回归：拟合因子分 → 前瞻收益。
-          目标默认是残差平方和（与 MSE 只差常数 \(1/n\)，最优点相同）：
-        </p>
-        <pre class="quant-help-formula">min<sub>β</sub>  Σ<sub>i</sub> (y<sub>i</sub> − ŷ<sub>i</sub>)²
-ŷ<sub>i</sub> = β<sub>0</sub> + β<sub>1</sub>x<sub>i1</sub> + … + β<sub>p</sub>x<sub>ip</sub></pre>
-        <p>
-          <strong>求解（本页）</strong>：不再用「正规方程 + 高斯消元」。
-          <code>ridge λ = 0</code> 时对设计矩阵做 <strong>QR</strong> 再回代；奇异则剔共线列重试。
-        </p>
-        <pre class="quant-help-formula">X = QR
-R β = Qᵀ y
-（相对 XᵀX β = Xᵀy，条件数不平方，数值更稳）</pre>
-        <p>
-          <code>ridge λ = λ &gt; 0</code> 时为 <strong>Ridge（L2）</strong>：斜率收缩、截距不惩罚，
-          缓解共线 / 小样本过拟合，尽量保留入模因子。
-        </p>
-        <pre class="quant-help-formula">min<sub>β</sub>  ||y − Xβ||² + λ Σ<sub>k≥1</sub> β<sub>k</sub>²
-实现：Tikhonov 增广 [X; √λ I<sub>斜率</sub>] 后再 QR
-（λ 取本页「ridge λ」，范围 0～100）</pre>
-
-        <h4>OLS / Ridge 计算步骤（本页）</h4>
-        <ol>
-          <li>
-            <strong>拼面板</strong>：每个交易日（或池内堆叠后的每一行）取
-            因子分 + 前瞻收益 \(y=r_{t→t+h}\)（百分比）。研究路径全量注册因子，
-            <strong>不经</strong> regime 白名单；允许缺测。
-          </li>
-          <li>
-            <strong>筛列 / 筛行</strong>：覆盖太少、几乎常数、凑不齐完整行的因子剔除
-            （表上「缺测 / 常数 / 覆盖」）；
-            <code>λ=0</code> 时 QR 秩亏继续剔列（「共线」）；
-            <code>λ&gt;0</code> 时尽量保留入模列。
-          </li>
-          <li>
-            <strong>标准化（默认开）</strong>：对入模列做样本内 z-score，
-            \(x'=(x-\bar x)/\sigma\)。于是表上的 β ≈「该因子高 <strong>1σ</strong> 时，
-            前瞻收益变多少个百分点」；勿与 config 权重同量级对比。
-          </li>
-          <li>
-            <strong>拟合</strong>：按本页 <code>ridge λ</code> 选 QR OLS 或 Ridge，
-            得 \(\beta_0,\beta_1,\ldots,\beta_p\)；摘要可见 <code>QR</code> / <code>Ridge λ=…</code>。
-          </li>
-          <li>
-            <strong>指标</strong>：
-            \(R^2 = 1 - SS_{res}/SS_{tot}\)（用拟合值算，Ridge 时仍是样本内 R²）；
-            <strong>n</strong> = 完整样本行数；
-            <strong>OLS 列</strong> = 各因子 \(\beta_k\)（未入模显示原因标签）。
-          </li>
-        </ol>
-        <pre class="quant-help-formula">y = β<sub>0</sub> + Σ<sub>k</sub> β<sub>k</sub> x'<sub>k</sub> + ε
-SS<sub>res</sub> = Σ (y − ŷ)²
-SS<sub>tot</sub> = Σ (y − ȳ)²</pre>
-        <p>
-          <strong>两种模式</strong>：进页默认按「OLS 标的」做<strong>单票</strong> walk-forward（快探针）；
-          可切换标的再点「单票 OLS」对照。
-          「研究池 OLS」：观察名单前最多 8 只，时序面板<strong>堆叠</strong>后再拟合
-          （非逐日截面 Fama–MacBeth）。均不写 config。
-          无 Lasso（L1）；L2 仅当 <code>ridge λ &gt; 0</code>。
+          「跑分组」：宇宙=<strong>仅纸面持仓</strong>，按单票 OLS β（complete·τ）聚类；
+          过远/异质票<strong>各自成单票组</strong>；<strong>一组一表</strong>标题含成员（名称+代码）与
+          当前 / 建议 / Δ · 组内 OLS β。数据不足单独提示。探针：单票 vs 所在组。均不写全局 config。
         </p>
 
         <h4>当前 / 建议 / Δ（权重建议）</h4>
         <p>
-          表里<strong>当前</strong>来自 <code>signal_config.weights</code>；
-          <strong>建议</strong>默认由研究池<strong>截面 IC / ICIR</strong>驱动（池不足回退单票时序 IC），
-          弱证据再回退 OLS / 近零降权。详见 <code>docs/weight-suggest-deepen.md</code>。
-        </p>
-        <ol>
-          <li>
-            <strong>强截面证据</strong>：日数 <code>n</code> 足够，
-            <code>|IC| ≥ 0.03</code> 且 <code>|ICIR| ≥ 0.25</code>
-            → <code>δ = sign(IC)·0.03·scale</code>，
-            <code>scale = clamp(|ICIR|/0.5, 0.5, 1.5)</code>。
-          </li>
-          <li>
-            <strong>否则 OLS</strong>：入模且 <code>|β| ≥ 0.05</code>
-            → 按符号 <code>±0.02</code>。
-          </li>
-          <li>
-            <strong>再否则</strong>：有 IC 但未过 IC/ICIR 门槛
-            → <code>−0.015</code>（证据不足略降权）。
-          </li>
-          <li>
-            夹紧后归一化 →「建议」；<strong>Δ</strong> 悬停可见证据来源。
-          </li>
-        </ol>
-        <pre class="quant-help-formula">强证据: |IC|≥0.03 且 |ICIR|≥0.25
-δ = sign(IC)·0.03·clamp(|ICIR|/0.5, 0.5, 1.5)
-否则: OLS ±0.02 或 近零 −0.015
-建议 = normalize(clamp(w+δ))</pre>
-        <p>
-          单票回退时无 ICIR，仅按 <code>|IC|</code> 判强证据。
-          冲突时以强 IC/ICIR 为准。
-          另施加：<strong>零权冻结</strong>（如 money_flow）、
-          <strong>组内上限 45%</strong>、regime 白名单外上调提示。
-        </p>
-        <h4>OOS 门禁（P2）</h4>
-        <p>
-          默认对「当前权 vs 建议权」各跑一遍研究池 Top-K（后 30% 权益为 OOS）。
-          过门：建议 OOS ≥ 当前 OOS − 1pp，且不新增 OOS 失败旗标 →
-          <code>promote_ready=true</code>（仍须人审，不自动写盘）。
-          未过 / 跳过时导出 diff 会二次确认。
+          分组后为<strong>一组一表</strong>。表里<strong>当前</strong>来自 <code>signal_config.weights</code>；
+          <strong>建议</strong>来自<strong>该组</strong>池 OLS 小步草案（异组不同）。
+          详见 <code>docs/weight-suggest-deepen.md</code>。
         </p>
 
-        <h4>OLS / Ridge 系数 ≠ 生产权重</h4>
+        <h4>探针（单票 vs 所在组）</h4>
         <p>
-          回归最小化的是历史前瞻收益误差（Ridge 时再加斜率 L2），得到的是偏效应 β，不是归一化权重。
-          建议<strong>不会</strong>把 raw β 写成 <code>signal_config.weights</code>：
-          弱 IC 时只用 β <strong>符号</strong>做小步 ±0.02；表内 OLS 列仍显示原始 β 供对照。
-        </p>
-
-        <h4>怎么用</h4>
-        <p>
-          优先看截面 IC/ICIR → OLS →「建议 / Δ」导出 diff → 人审；
-          上线前用回测 / OOS 验证。
+          选一只票，算其时序 IC 与 OLS β，并与所属组对照。
+          若 |ΔIC| 或 |Δβ| 偏大，说明不宜与该组共用建模，应视为离群或换组。
         </p>
       </div>
     </details>
-    <p id="quant-ols-summary" class="quant-fingerprint is-busy">分析中…</p>
-    <div id="quant-factor-list" class="quant-weight-table-wrap" aria-label="因子建议表"></div>
+    <p id="quant-ols-summary" class="quant-fingerprint" aria-live="polite"></p>
+    <div
+      id="quant-ols-clusters"
+      class="quant-cluster-hub"
+      aria-live="polite"
+      aria-label="分组研究：持仓入组与组摘要"
+    ></div>
+    <div
+      id="quant-factor-list"
+      class="quant-weight-table-wrap"
+      aria-label="因子建议表（分组后为每组一张表）"
+    ></div>
     <div id="quant-weight-suggest" class="quant-sub"></div>
+
+    <details class="quant-fold quant-probe-fold" id="quant-probe-fold">
+      <summary>探针 · 单票 vs 所在组</summary>
+      <div class="quant-probe-body quant-section">
+        <div class="quant-actions-inline quant-probe-toolbar">
+          <div class="platform-field quant-probe-picker-field" title="对照标的：名称 / 代码 / 分组">
+            <span class="quant-probe-picker-label">对照标的</span>
+            <div class="quant-probe-picker" id="quant-probe-picker">
+              <button
+                type="button"
+                class="quant-probe-picker-trigger"
+                id="quant-ols-code-trigger"
+                aria-haspopup="listbox"
+                aria-expanded="false"
+                aria-controls="quant-ols-code-menu"
+              >
+                <span class="quant-probe-picker-empty">分组后可选</span>
+              </button>
+              <input type="hidden" id="quant-ols-code" value="" />
+              <div
+                class="quant-probe-picker-menu"
+                id="quant-ols-code-menu"
+                role="listbox"
+                hidden
+              ></div>
+            </div>
+          </div>
+          <button
+            type="button"
+            id="quant-probe-run"
+            class="dialog-btn secondary"
+            title="算单票 IC+OLS，并与其所在组指标对照"
+          >
+            对照验证
+          </button>
+          <button
+            type="button"
+            id="quant-weight-export"
+            class="dialog-btn secondary quant-probe-secondary-action"
+            title="导出全局 signal_config 权重 diff（非本组）"
+          >
+            导出全局 diff
+          </button>
+        </div>
+        <p id="quant-probe-summary" class="quant-fingerprint sub">等待上方分组完成…</p>
+        <div id="quant-probe-result" class="quant-weight-table-wrap" aria-label="单票 vs 所在组对照表"></div>
+      </div>
+    </details>
+    <!-- 兼容旧测试/深链：池 OLS API 仍保留，UI 不再入口 -->
+    <button type="button" id="quant-ols-pool-run" class="sr-only" tabindex="-1" aria-hidden="true">研究池 OLS</button>
+    <button type="button" id="quant-ols-run" class="sr-only" tabindex="-1" aria-hidden="true">单票 OLS</button>
+    <button type="button" id="quant-cs-ic-run" class="sr-only" tabindex="-1" aria-hidden="true">截面 IC</button>
   </section>
 
-  <section class="quant-section" id="quant-section-threshold" aria-labelledby="quant-section-threshold-title">
-    <div class="quant-section-toolbar">
-      <h3 id="quant-section-threshold-title" class="watching-section-title">阈值</h3>
-      <div class="quant-actions-inline">
-        <button type="button" id="quant-threshold-watching" class="dialog-btn secondary">研究池阈值</button>
-        <button type="button" id="quant-threshold-export" class="dialog-btn secondary">导出阈值 diff</button>
-      </div>
-    </div>
-    <p id="quant-threshold-summary" class="quant-fingerprint is-busy">分析中…</p>
-    <div id="quant-threshold-table" class="quant-weight-table-wrap" aria-label="阈值建议表"></div>
-  </section>
+  <details class="quant-fold quant-global-fold" id="quant-global-fold">
+    <summary>全局对照 · 阈值 / 横截面</summary>
+    <div class="quant-global-fold-body">
+      <section class="quant-section" id="quant-section-threshold" aria-labelledby="quant-section-threshold-title">
+        <div class="quant-section-toolbar">
+          <h3 id="quant-section-threshold-title" class="watching-section-title">阈值</h3>
+          <span class="sub">非分组权</span>
+          <div class="quant-actions-inline">
+            <button type="button" id="quant-threshold-watching" class="dialog-btn secondary">研究池阈值</button>
+            <button type="button" id="quant-threshold-export" class="dialog-btn secondary">导出阈值 diff</button>
+          </div>
+        </div>
+        <p id="quant-threshold-summary" class="quant-fingerprint">点按钮分析</p>
+        <div id="quant-threshold-table" class="quant-weight-table-wrap" aria-label="阈值建议表"></div>
+      </section>
 
-  <section class="quant-section" id="quant-section-cross" aria-labelledby="quant-section-cross-title">
-    <div class="quant-section-toolbar">
-      <h3 id="quant-section-cross-title" class="watching-section-title">横截面</h3>
-      <div class="quant-actions-inline">
-        <button type="button" id="quant-cross-run" class="dialog-btn secondary">刷新排序</button>
-      </div>
+      <section class="quant-section" id="quant-section-cross" aria-labelledby="quant-section-cross-title">
+        <div class="quant-section-toolbar">
+          <h3 id="quant-section-cross-title" class="watching-section-title">横截面</h3>
+          <span class="sub">非分组权</span>
+          <div class="quant-actions-inline">
+            <button type="button" id="quant-cross-run" class="dialog-btn secondary">刷新排序</button>
+          </div>
+        </div>
+        <p id="quant-cross-summary" class="quant-fingerprint">点「刷新排序」</p>
+        <div id="quant-cross-list" class="quant-weight-table-wrap" aria-label="横截面排序"></div>
+      </section>
     </div>
-    <p id="quant-cross-summary" class="quant-fingerprint is-busy">
-      排序中…
-    </p>
-    <div id="quant-cross-list" class="quant-weight-table-wrap" aria-label="横截面排序"></div>
-  </section>
+  </details>
 
   <details class="quant-fold" id="quant-daily-fold">
     <summary>日报</summary>

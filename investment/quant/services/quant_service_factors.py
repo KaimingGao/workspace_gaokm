@@ -245,6 +245,318 @@ class QuantFactorMixin:
         report["watching_limit"] = limit
         return report
 
+    def run_factor_ols_cluster_experiment(
+        self,
+        *,
+        lookback: int = 80,
+        horizon_days: int = 3,
+        watching_limit: int = 8,
+        ridge_lambda: float = 0.0,
+        n_clusters: Optional[int] = None,
+        pit_fundamentals: bool = False,
+        l2_normalize_betas: Optional[bool] = None,
+        beta_scale: str = "feature_zscore",
+        cluster_method: str = "hierarchical",
+        cluster_linkage: str = "complete",
+        within_dist_quantile: float = 0.25,
+        run_oos_gate: bool = True,
+        oos_tol_pp: float = 1.0,
+        run_group_score: bool = True,
+        run_pool_merge: bool = True,
+        top_n_per_group: int = 1,
+    ) -> Dict[str, Any]:
+        """研究池：β 聚类 → 组权 → 组内 OOS → 分组 score → 分池合成（不写 config）。
+
+        默认：complete-linkage + τ 切树；β 因子维 z-score；关 PIT。
+        """
+        from quant.research.factor_ols_clusters import (
+            compute_factor_ols_cluster_report,
+            merge_cluster_universe,
+        )
+        from quant.research.cluster_oos import attach_cluster_oos_gates
+        from quant.research.cluster_group_score import attach_cluster_group_scores
+        from quant.research.cluster_pool_merge import attach_cluster_pool_merge
+        from quant.research.cluster_pool_artifact import attach_cluster_pool_artifact
+        from quant.research.cluster_multi_score import attach_cluster_multi_score
+        from core.data_service import bars_and_source, get_quote
+        from core.ports.market import resolve_market_code
+        from skills.index.engine import default_benchmark, fetch_index_bars
+
+        holdings_raw: List[Any] = []
+        try:
+            from core.paths import PAPER_PATH
+            from core.paper import load_paper
+            import os as _os
+
+            if _os.path.isfile(PAPER_PATH):
+                holdings_raw = list(load_paper(PAPER_PATH).get("holdings") or [])
+        except Exception:
+            holdings_raw = []
+
+        # 聚类宇宙 = 仅纸面持仓（不再并入观察池）
+        uni_meta = merge_cluster_universe(
+            [],
+            holdings_raw,
+            watching_limit=watching_limit,
+            universe_mode="holdings",
+        )
+        codes = list(uni_meta["codes"])
+        limit = int(uni_meta["watching_limit"])
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "纸面持仓至少 2 只才可按 β 分组",
+                "task": "factor_ols_clusters",
+                "mode": "ols_beta_clusters",
+                "stock_count": len(codes),
+                "watching_limit": limit,
+                "universe_mode": "holdings",
+                "watching_codes": [],
+                "holdings_codes": list(uni_meta["holdings_codes"]),
+                "holdings_added": list(uni_meta["holdings_added"]),
+                "universe_count": int(uni_meta["universe_count"]),
+            }
+
+        index_cache: Dict[str, Any] = {}
+        panels: List[Dict[str, Any]] = []
+        bars_by_code: Dict[str, Any] = {}
+        quotes_by_code: Dict[str, Any] = {}
+        # 规范化后的宇宙（与面板 / code_map 键一致）
+        resolved_codes: List[str] = []
+        resolved_seen: set = set()
+        watching_resolved: List[str] = []
+        holdings_resolved: List[str] = []
+        holdings_added_resolved: List[str] = []
+        code_roles: Dict[str, Any] = dict(uni_meta.get("code_roles") or {})
+
+        for code in codes:
+            role = code_roles.get(code) or {}
+            quote = get_quote(code)
+            sym = quote.get("stock_code") if quote.get("success") else code
+            sym_s = str(sym)
+            if quote.get("success"):
+                quotes_by_code[sym_s] = quote
+            if sym_s not in resolved_seen:
+                resolved_seen.add(sym_s)
+                resolved_codes.append(sym_s)
+            if role.get("from_watching") and sym_s not in watching_resolved:
+                watching_resolved.append(sym_s)
+            if role.get("from_holdings") and sym_s not in holdings_resolved:
+                holdings_resolved.append(sym_s)
+            if role.get("holdings_added") and sym_s not in holdings_added_resolved:
+                holdings_added_resolved.append(sym_s)
+            bars, src = bars_and_source(code, limit=lookback + 35)
+            if not bars and quote.get("success"):
+                bars, src = bars_and_source(sym, limit=lookback + 35)
+            if not bars:
+                panels.append({"code": sym_s, "bars": []})
+                continue
+            bars_by_code[sym_s] = bars
+            market, _ = resolve_market_code(code)
+            bench = default_benchmark(market)
+            if bench not in index_cache:
+                index_cache[bench], _ = fetch_index_bars(bench, limit=lookback + 35)
+            # 分组探针默认不拉财务：PIT/快照都会显著拖慢
+            panels.append(
+                {
+                    "code": sym_s,
+                    "bars": bars,
+                    "index_bars": index_cache.get(bench) or None,
+                    "fundamentals": None,
+                    "data_source": src,
+                }
+            )
+
+        report = compute_factor_ols_cluster_report(
+            panels,
+            horizon_days=horizon_days,
+            ridge_lambda=ridge_lambda,
+            n_clusters=n_clusters,
+            pit_fundamentals=bool(pit_fundamentals),
+            l2_normalize_betas=l2_normalize_betas,
+            beta_scale=str(beta_scale or "feature_zscore"),
+            cluster_method=str(cluster_method or "hierarchical"),
+            cluster_linkage=str(cluster_linkage or "complete"),
+            within_dist_quantile=float(within_dist_quantile or 0.25),
+        )
+        report["task"] = "factor_ols_clusters"
+        report["lookback"] = lookback
+        report["watching_limit"] = limit
+        report["universe_mode"] = "holdings"
+        # 统计以持仓宇宙为准；解析失败时回退原始列表，避免 UI 显示 0
+        report["watching_codes"] = watching_resolved or []
+        report["holdings_codes"] = holdings_resolved or list(
+            uni_meta["holdings_codes"]
+        )
+        report["holdings_added"] = holdings_added_resolved or list(
+            uni_meta["holdings_added"]
+        )
+        report["universe_count"] = int(uni_meta["universe_count"])
+        report["universe_codes"] = resolved_codes or list(uni_meta["codes"])
+        report["holdings_raw_count"] = len(holdings_raw)
+        report["universe_note"] = (
+            f"宇宙=纸面持仓 {report['universe_count']} 只"
+        )
+        if report.get("success"):
+            attach_cluster_oos_gates(
+                report,
+                lookback=lookback,
+                horizon_days=horizon_days,
+                oos_tol_pp=float(oos_tol_pp),
+                run_oos_gate=bool(run_oos_gate),
+            )
+            attach_cluster_group_scores(
+                report,
+                bars_by_code,
+                horizon_days=horizon_days,
+                quotes_by_code=quotes_by_code,
+                run_group_score=bool(run_group_score),
+            )
+            if run_group_score:
+                attach_cluster_pool_merge(
+                    report,
+                    bars_by_code,
+                    horizon_days=horizon_days,
+                    top_n_per_group=int(top_n_per_group or 1),
+                    run_pool_merge=bool(run_pool_merge),
+                )
+                attach_cluster_pool_artifact(report)
+                attach_cluster_multi_score(
+                    report,
+                    bars_by_code,
+                    quotes_by_code=quotes_by_code,
+                    horizon_days=horizon_days,
+                )
+                # L3：重聚类结果进草稿（≠ active），待人审 promote
+                try:
+                    from core.signal.cluster_live import save_cluster_draft
+
+                    art = report.get("pool_artifact") or {}
+                    if art.get("success") and art.get("code_map"):
+                        save_cluster_draft(art)
+                        report["cluster_draft_saved"] = True
+                except Exception:
+                    report["cluster_draft_saved"] = False
+        return report
+
+    def run_cluster_multi_score(
+        self,
+        *,
+        artifact: Optional[Dict[str, Any]] = None,
+        lookback: int = 80,
+        horizon_days: int = 3,
+        watching_limit: int = 20,
+    ) -> Dict[str, Any]:
+        """用归档 code_map 对研究池多权复打分（不写 config）。"""
+        from quant.research.cluster_multi_score import run_multi_score_from_artifact
+
+        return run_multi_score_from_artifact(
+            artifact=artifact,
+            lookback=lookback,
+            horizon_days=horizon_days,
+            watching_limit=watching_limit,
+        )
+
+    def cluster_live_status(self) -> Dict[str, Any]:
+        from core.signal.cluster_live import cluster_status_public
+
+        return cluster_status_public()
+
+    def promote_cluster_live(
+        self,
+        artifact: Optional[Dict[str, Any]] = None,
+        *,
+        note: str = "",
+        force: bool = False,
+        from_draft: bool = False,
+    ) -> Dict[str, Any]:
+        from core.signal.cluster_live import (
+            load_cluster_draft,
+            promote_cluster_artifact,
+        )
+
+        art = artifact
+        if from_draft or not art:
+            art = load_cluster_draft() or art
+        if not art:
+            return {"success": False, "error": "无产物可晋升（传 artifact 或先存草稿）"}
+        return promote_cluster_artifact(art, note=note, force=force)
+
+    def rollback_cluster_live(self, *, to_version: Optional[int] = None) -> Dict[str, Any]:
+        from core.signal.cluster_live import rollback_cluster_weights
+
+        return rollback_cluster_weights(to_version=to_version)
+
+    def set_cluster_live_mode(
+        self, mode: str, *, enabled: Optional[bool] = None
+    ) -> Dict[str, Any]:
+        from core.signal.cluster_live import set_cluster_scoring_mode
+
+        return set_cluster_scoring_mode(mode, enabled=enabled)
+
+    def save_cluster_live_draft(self, artifact: Dict[str, Any]) -> Dict[str, Any]:
+        from core.signal.cluster_live import save_cluster_draft
+
+        return save_cluster_draft(artifact or {})
+
+    def refresh_cluster_live_book(self) -> Dict[str, Any]:
+        from core.signal.cluster_live import refresh_cluster_book_daily
+
+        return refresh_cluster_book_daily()
+
+    def rank_cluster_live_pools(
+        self,
+        *,
+        top_n_per_group: Optional[int] = None,
+        max_names: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        from core.signal.cluster_rank import rank_cluster_pools
+
+        return rank_cluster_pools(
+            None,
+            top_n_per_group=top_n_per_group,
+            max_names=max_names,
+            persist_book=True,
+        )
+
+    def apply_cluster_live_shortcut(
+        self,
+        artifact: Optional[Dict[str, Any]] = None,
+        *,
+        from_draft: bool = True,
+        note: str = "",
+        mode: str = "shadow",
+    ) -> Dict[str, Any]:
+        """一键：晋升 + 影子/激活 + 刷新分池簿。"""
+        from core.signal.cluster_live import apply_cluster_live_shortcut
+
+        return apply_cluster_live_shortcut(
+            artifact,
+            from_draft=from_draft,
+            note=note,
+            mode=mode,
+            refresh_book=True,
+        )
+
+    def preview_cluster_paper_rebalance(
+        self,
+        book: List[Dict[str, Any]],
+        *,
+        top_k: Optional[int] = None,
+        confirm: bool = False,
+        artifact: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """分池候选簿 → 纸面调仓预演或确认落账（confirm 才写 paper，永不写 config）。"""
+        from quant.research.cluster_pool_artifact import preview_paper_pool_rebalance
+
+        return preview_paper_pool_rebalance(
+            book or [],
+            top_k=top_k,
+            dry_run=not bool(confirm),
+            confirm=bool(confirm),
+            artifact=artifact,
+        )
+
     def run_factor_cs_ic_experiment(
         self,
         *,

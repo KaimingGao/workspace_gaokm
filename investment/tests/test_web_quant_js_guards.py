@@ -31,6 +31,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("readOlsCode", js)
         self.assertIn("populateOlsCodeOptions", js)
         self.assertIn("researchGridHtml", js)
+        self.assertIn("watching-react-grid quant-research-grid", js)
         self.assertIn("score_raw", js)
 
     def test_partials_have_key_controls(self):
@@ -41,8 +42,13 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-interpret-neutral", panel)
         self.assertIn("quant-ols-run", panel)
         self.assertIn("quant-ols-code", panel)
-        self.assertIn("quant-ols-code-list", panel)
-        self.assertIn("单票 OLS", panel)
+        self.assertIn("quant-probe-picker", panel)
+        self.assertIn("quant-ols-code-menu", panel)
+        self.assertIn("quant-probe-run", panel)
+        self.assertIn("quant-global-fold", panel)
+        self.assertIn("quant-section-threshold", panel)
+        self.assertIn("quant-section-cross", panel)
+        self.assertIn("对照验证", panel)
         self.assertIn("quant-ols-summary", panel)
         self.assertIn("quant-factor-list", panel)
         self.assertIn("quant-ridge-lambda", panel)

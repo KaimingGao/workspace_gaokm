@@ -191,7 +191,11 @@ def paper_job():
 @router.post("/api/paper/rebalance")
 def paper_rebalance(body: PaperRebalanceRequest):
     try:
-        return deps.paper.rebalance(top_k=body.top_k, limit=body.limit)
+        return deps.paper.rebalance(
+            top_k=body.top_k,
+            limit=body.limit,
+            cluster_mode=bool(body.cluster_mode),
+        )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
