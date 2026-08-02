@@ -132,6 +132,18 @@ export async function mountWatchingTableIsland(host, options = {}) {
         const cls = d.chgCls ? ` ${escapeHtml(d.chgCls)}` : "";
         return `<span class="watching-chg${cls}">${escapeHtml(text)}</span>`;
       }
+      if (col.id === "score") {
+        const text = d.score != null && d.score !== "" ? String(d.score) : "—";
+        const detail = d.scoreDetail || "";
+        if (!detail) {
+          return escapeHtml(text);
+        }
+        return (
+          `<span class="watching-score-cell paper-hold-score has-tip" ` +
+          `data-score-detail="${escapeHtml(detail)}" title="悬停查看评分与权重来源">` +
+          `${escapeHtml(text)}</span>`
+        );
+      }
       const v = d[col.id];
       return v != null && v !== "" ? escapeHtml(String(v)) : "—";
     },

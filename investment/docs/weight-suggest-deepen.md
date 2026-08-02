@@ -33,9 +33,9 @@
 **目的**：用聚类找出 **OLS 表现相似** 的股票 → **同组共用一套建模/配权**；**不同组用不同建模**（各组独立池 OLS → 独立小步权），避免异质票硬套同一套全局权。
 
 ```text
-股票分组 → 宇宙=仅纸面持仓；OLS β·complete·τ；过远/异质票各自升单票组
+股票分组 → 宇宙=全部观察池；OLS β·complete·目标 k≈N/5（4～10）+ 超大组二分
 一组一表 → G 标题含成员（名称+代码）；多票组池 OLS / 单票组单票 OLS → 小步建议权
-未入组   → 数据不足单独提示（不再单独「花名册 / 持仓入组」块）
+未入组   → 数据不足单独提示；纸面持仓映射另作落地参考
 ```
 
 进阶（折叠）：影子对照 / 用分组打分 / 按分组调纸面仓 —— **不是**枢纽日常主路径。
@@ -44,17 +44,17 @@
 ## P4–P9 · 实现链路（支撑上述三件事）
 
 ```text
-宇宙 = 仅纸面持仓
-  → 逐票 OLS β → 缩尾+z-score → complete·τ → 过远/Δβ异质 → 各自升单票组 → 多票组池 OLS / 单票组单票 OLS → 小步建议权
-  → holdings_assignment（纸面持仓 → 组）
+宇宙 = 全部观察池
+  → 逐票 OLS β → 缩尾+z-score → complete·目标k≈N/5 → 超大组二分 → 多票组池 OLS / 小步建议权
+  → holdings_assignment（纸面持仓 → 组，落地用）
   → 组内 OOS / 组内 score 排序（证据）
   → UI：一组一表；可选晋升 live / 影子 / 分池调仓
 ```
 
 - 入口：研究枢纽「跑分组」/ `POST /api/quant/factor-ols-clusters`
-- **宇宙**：**仅纸面持仓**（不再并观察池）；持仓不足 2 只不可聚类
+- **宇宙**：**全部观察池**（不截前 N）；不足 2 只不可聚类
 - lookback 80、**关闭 PIT 财务**（否则逐票面板会极慢）
-- 解释池 OLS 被异质票拉开；组权仍是小步 Δ，**非** raw β→权重占比
+- 解释池 OLS 被异质票拉开；组权仍是约束小步 Δ（**非** raw β→权重占比）。分组路径 **OLS β 优先**：`prefer_ols` · `ols_delta=0.05` · 按 `|β|` 放大至 3×；无可用 β 时用**组内按日截面 IC→ICIR**补位（单票组回退时序 IC，不要求 ICIR）
 - **组内 OOS**：仅在组员宇宙上对照；过门 ≠ 全局 `promote_ready`；**不写** `signal_config`
 - **导出**：`preferred_cluster`（导出优先，非分类标签）+ 每组「导出本组 diff」；合并为全局权前须确认代表性
 - **枢纽 IA**：分组 + 一组一表 + 探针 = 主路径；阈值 / 横截面收进「全局对照」折叠（非分组权）
@@ -153,7 +153,7 @@ for code in universe:
   score = score_bars(..., config=overlay(weights))
 for each cluster:
   rank members by score  # 仅组内
-book = concat(top_n_per_group)  # 分池合成；禁止 flat sort(all scores)
+book = concat(top_n_per_group=10)  # 组内相对 Top10（不按全局 min_score 砍簿）；禁止 flat sort(all scores)
 ```
 
 中性化：优先**组内**中性化；全宇宙中性化会混淆组权，L2 默认关或按组做。
@@ -173,25 +173,53 @@ book = concat(top_n_per_group)  # 分池合成；禁止 flat sort(all scores)
 - 无影子期直接 L2 active
 - raw OLS β 当生产权重占比
 
-### 简化主路径（UI）
+### 落地主路径（UI · 向导）
+
+分组成功后枢纽展示**落地状态条**（不埋进「进阶」）：
 
 ```text
-β 分组 → ① 应用分组（晋升+影子+刷新簿）→ ② 启用组权 → ③ 纸面分池
+β 分组 → 草稿
+  ① 对照   promote + mode=shadow + 刷新簿   POST /api/quant/cluster-live/apply
+  ② 启用   mode=active（健康门禁）         POST /api/quant/cluster-live/mode
+  调仓     侧栏「交易执行」/follow           POST /api/paper/rebalance（仅执行页）
 ```
 
-- 一键 API：`POST /api/quant/cluster-live/apply`
-- 回滚 / 关闭 / 导出 / 预演 / 复打 收在「更多」
+研究枢纽只更新 live 组权与 `cluster_scoring.mode`（从而更新执行页 score）；**不写** `paper.json`。无「去交易执行」按钮，靠侧栏切换。
+
+| 展示 | 含义 |
+|------|------|
+| mode / version | `cluster_scoring.mode` · active 映射版本 |
+| 覆盖率 / 陈旧 | 健康检查；不过门禁则禁用「启用」 |
+| 对照样本 | `score_global` vs `score_cluster`（及 Δ） |
+
+回滚 / 关闭 / 导出映射为次按钮。仍**不写** `signal_config.weights`。
+
+### 日更闭环
+
+当 `mode ∈ {shadow, active}` 且存在 active 映射：
+
+1. `paper_daily` / 扫描前：`prepare_cluster_for_daily` → 陈旧可自动降级 + `refresh_cluster_book_daily`
+2. `mode=active`：纸面 `rebalance` **默认**走分池簿（无需再传 `cluster_mode`）
+3. `mode=shadow`：调仓仍用全局 Top-K；簿与双分仅对照
+4. 未映射票：`weight_source=global_fallback`；覆盖率进 status / 日报
+
+### 对照审计
+
+- 枢纽落地条旁：簿样本 5～10 行（全局分 / 组权分 / Δ）
+- 日报 `build_daily_report`：若 shadow|active，附 `cluster_live` 一节
+- 平台/策略 status：一行 `分组 live · mode · v · 覆盖率`
 
 ## 深化补强（相对 P/L 勾选后的落地）
 
-骨架（P0–P9 + L0–L4）已闭合；补强不再开新大阶段，而把轻量实现做成可审工作台：
-
 | 项 | 内容 | 状态 |
 |----|------|------|
-| 文档对齐 | 宇宙=纸面持仓；主路径三块写死 | ✅ |
+| 文档对齐 | 宇宙=观察池；主路径三块写死 | ✅ |
 | 枢纽 IA | 阈值/横截面降级为「全局对照」折叠 | ✅ |
 | 组表工作台 | 组可折叠；\|Δ\| 大行可扫视；表头粘性 | ✅ |
 | 探针状态 | 通过 / 异质 / 单票组 徽章，少长句 | ✅ |
+| 落地向导 | 对照 → 启用；调仓侧栏交易执行 | ✅ |
+| 日更吃簿 | prepare + active 默认分池 + 陈旧降级 | ✅ |
+| 双分审计 | 枢纽样本 + 日报 cluster_live | ✅ |
 | Live 运维验 | 覆盖率·陈旧·回滚对照 L 退出标准 | 待人工清单 |
 
 ### 与研究段衔接

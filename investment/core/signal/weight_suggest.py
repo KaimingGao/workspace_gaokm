@@ -177,6 +177,9 @@ def suggest_weights_from_ic(
     ols_report: Optional[Dict[str, Any]] = None,
     min_ols_beta: float = 0.05,
     ols_delta: float = 0.02,
+    ols_scale_by_beta: bool = False,
+    ols_scale_cap: float = 2.0,
+    prefer_ols: bool = False,
     weak_ic_decay: float = 0.015,
     corr_report: Optional[Dict[str, Any]] = None,
     corr_threshold: float = 0.7,
@@ -186,10 +189,12 @@ def suggest_weights_from_ic(
 ) -> Dict[str, Any]:
     """权重微调建议（不自动写配置）。
 
-    优先级（对每个在 config 中的因子）：
+    默认优先级（对每个在 config 中的因子）：
     1. 强 IC（及可选 ICIR 门槛）→ ±max_delta × ICIR 缩放
-    2. 否则 OLS β → ±ols_delta
+    2. 否则 OLS β → ±ols_delta（可选按 |β| 放大）
     3. 否则近零 / 未过门槛的 IC → −weak_ic_decay
+
+    ``prefer_ols=True`` 时改为 β 优先：先 OLS，无可用 β 再走 IC / 弱 IC 降权。
     随后：冻结原权重为 0 的因子、组内上限、归一化。
     """
     cfg = load_signal_config()
@@ -200,6 +205,7 @@ def suggest_weights_from_ic(
     mode = str(ic_mode or "single").strip().lower()
     if mode in ("cs_ic", "cross_section", "cs"):
         require_icir = True
+    scale_cap = max(1.0, min(float(ols_scale_cap or 2.0), 5.0))
 
     ic_map = _ic_index(factor_experiment)
     ols_coefs = _ols_coefficients(ols_report)
@@ -207,13 +213,43 @@ def suggest_weights_from_ic(
     rationale: List[str] = []
     sources: Dict[str, str] = {}
 
+    def _apply_ols_step(key: str, beta: float, ic_val: Optional[float], icir: Optional[float]) -> None:
+        mag = float(ols_delta)
+        if ols_scale_by_beta and min_ols_beta > 0:
+            mag = mag * min(
+                scale_cap,
+                max(0.75, abs(float(beta)) / float(min_ols_beta)),
+            )
+        # prefer_ols：同向强 IC 可再加一点确认步长（不超过 max_delta 的 40%）
+        if prefer_ols and ic_val is not None and abs(float(ic_val)) >= float(min_ic):
+            if (float(ic_val) > 0) == (float(beta) > 0):
+                mag = min(float(max_delta) * 1.2, mag + 0.4 * float(max_delta))
+        step = mag if beta > 0 else -mag
+        deltas[key] += step
+        sources[key] = "ols"
+        ic_note = (
+            f"IC={ic_val:+.4f}" if ic_val is not None else "IC 缺测/常数"
+        )
+        if icir is not None:
+            ic_note += f" ICIR={icir:+.3f}"
+        rationale.append(
+            f"{key} {ic_note} · OLS β={beta:+.4f} → 建议{'提高' if step > 0 else '降低'} "
+            f"权重 {step:+.3f}（{'OLS 优先' if prefer_ols else 'OLS 回退'}"
+            f"{'·按β放大' if ols_scale_by_beta else ''}）"
+        )
+
     for key in base:
         if freeze_zero_weights and abs(float(base.get(key) or 0.0)) < 1e-12:
             continue
         ic_val, n, icir = ic_map.get(key, (None, 0, None))
         beta = ols_coefs.get(key)
+        has_ols = beta is not None and abs(float(beta)) >= float(min_ols_beta)
 
-        if ic_val is not None and n >= min_samples:
+        if prefer_ols and has_ols:
+            _apply_ols_step(key, float(beta), ic_val, icir)
+            continue
+
+        if (not prefer_ols) and ic_val is not None and n >= min_samples:
             step = _strong_ic_step(
                 ic_val,
                 icir,
@@ -233,24 +269,30 @@ def suggest_weights_from_ic(
                 )
                 continue
 
-        if beta is not None and abs(beta) >= min_ols_beta:
-            step = ols_delta if beta > 0 else -ols_delta
-            deltas[key] += step
-            sources[key] = "ols"
-            ic_note = (
-                f"IC={ic_val:+.4f}"
-                if ic_val is not None
-                else "IC 缺测/常数"
-            )
-            if icir is not None:
-                ic_note += f" ICIR={icir:+.3f}"
-            rationale.append(
-                f"{key} {ic_note} · OLS β={beta:+.4f} → 建议{'提高' if step > 0 else '降低'} "
-                f"权重 {step:+.3f}（OLS 回退）"
-            )
+        if (not prefer_ols) and has_ols:
+            _apply_ols_step(key, float(beta), ic_val, icir)
             continue
 
         if ic_val is not None and n >= min_samples:
+            # prefer_ols 且无 β 时：强 IC 仍可用；弱 IC 才降权
+            if prefer_ols:
+                step = _strong_ic_step(
+                    ic_val,
+                    icir,
+                    max_delta=max_delta,
+                    min_ic=min_ic,
+                    min_icir=min_icir,
+                    require_icir=require_icir,
+                )
+                if step is not None:
+                    deltas[key] += step
+                    sources[key] = "ic"
+                    rationale.append(
+                        f"{key} IC={ic_val:+.4f}（n={n}）→ 建议"
+                        f"{'提高' if step > 0 else '降低'} 权重 {step:+.3f}"
+                        f"（无可用 β · IC 补位）"
+                    )
+                    continue
             step = -abs(weak_ic_decay)
             deltas[key] += step
             sources[key] = "weak_ic_decay"
@@ -359,14 +401,21 @@ def suggest_weights_from_ic(
             "require_icir": require_icir,
             "min_ols_beta": min_ols_beta,
             "ols_delta": ols_delta,
+            "ols_scale_by_beta": bool(ols_scale_by_beta),
+            "ols_scale_cap": scale_cap,
+            "prefer_ols": bool(prefer_ols),
             "weak_ic_decay": weak_ic_decay,
             "corr_threshold": corr_threshold,
             "max_group_share": max_group_share,
             "freeze_zero_weights": freeze_zero_weights,
         },
         "note": (
-            "建议仅供研究：截面 IC/ICIR 优先；弱证据回退 OLS；"
-            "组内上限与零权冻结已施加。须 OOS 门禁 / 人审后再改配置。"
+            (
+                "建议仅供研究：分组路径 OLS β 优先（可按 |β| 放大）；无 β 时 IC 补位；"
+                if prefer_ols
+                else "建议仅供研究：截面 IC/ICIR 优先；弱证据回退 OLS；"
+            )
+            + "组内上限与零权冻结已施加。须 OOS 门禁 / 人审后再改配置。"
         ),
     }
 

@@ -335,6 +335,12 @@ class TestClusterPoolArtifact(unittest.TestCase):
             self.assertTrue(
                 any(o.get("type") == "cluster_pool_rebalance" for o in ops)
             )
+            self.assertTrue(any(o.get("type") == "buy" for o in ops))
+            summary = next(
+                o for o in ops if o.get("type") == "cluster_pool_rebalance"
+            )
+            self.assertEqual((summary.get("meta") or {}).get("source"), "research_hub")
+            self.assertEqual((summary.get("meta") or {}).get("buy_count"), 1)
         finally:
             os.unlink(path)
 

@@ -43,29 +43,42 @@ def rank_cluster_pools(
         }
 
     if codes is None:
-        try:
-            uni = read_watching(watching_path)
-        except FileNotFoundError:
-            return {"success": False, "error": "watching.json 不存在"}
-        codes = list(uni.get("watchlist") or [])
-        if not codes:
-            refreshed = refresh_watchlist(uni, path=watching_path)
-            codes = list(refreshed.get("watchlist") or [])
+        # 优先 live 映射码（与分组成员一致）；否则回退观察池
+        mapped_codes = [
+            str(c).strip()
+            for c in (active.get("code_map") or {}).keys()
+            if str(c).strip()
+        ]
+        if mapped_codes:
+            codes = mapped_codes
+        else:
+            try:
+                uni = read_watching(watching_path)
+            except FileNotFoundError:
+                return {"success": False, "error": "watching.json 不存在"}
+            codes = list(uni.get("watchlist") or [])
+            if not codes:
+                refreshed = refresh_watchlist(uni, path=watching_path)
+                codes = list(refreshed.get("watchlist") or [])
 
-    codes = [str(c).strip() for c in (codes or []) if str(c).strip()][:50]
+    codes = [str(c).strip() for c in (codes or []) if str(c).strip()][:80]
     if not codes:
         return {"success": False, "error": "候选池为空"}
 
     # 强制用组权打分（active 语义）
+    # 分池簿按组内相对序取 Top-N，不用全局 min_score 砍簿（否则每组常只剩 1 只→调仓狂卖）
     by_label: Dict[str, List[dict]] = {}
     unmapped: List[dict] = []
     rejected: List[dict] = []
+    below_min = 0
 
     for raw in codes:
+        # 与纸面持仓打分一致：跳过基本面拉取，避免预演分 ≠ 持仓表分
         result = score_stock(
             raw,
             horizon_days=horizon_days,
             cluster_mode="active",
+            skip_fundamentals=True,
         )
         if not result.get("success"):
             rejected.append({"stock_code": raw, "reason": result.get("error")})
@@ -86,10 +99,15 @@ def rank_cluster_pools(
             continue
         sc = item.get("score")
         try:
-            if sc is None or float(sc) < float(min_score):
-                continue
+            sc_f = float(sc) if sc is not None else None
         except (TypeError, ValueError):
+            sc_f = None
+        if sc_f is None:
             continue
+        if sc_f < float(min_score):
+            below_min += 1
+            item = dict(item)
+            item["below_min_score"] = True
         by_label.setdefault(str(label), []).append(item)
 
     groups_out: List[Dict[str, Any]] = []
@@ -109,6 +127,7 @@ def rank_cluster_pools(
                 "weight_source": it.get("weight_source"),
                 "score_global": it.get("score_global"),
                 "delta_vs_global": it.get("delta_vs_global"),
+                "below_min_score": bool(it.get("below_min_score")),
             }
             ranked.append(row)
         groups_out.append(
@@ -156,10 +175,12 @@ def rank_cluster_pools(
         "book": book,
         "ranking": book,  # 兼容 rebalance 消费「排名列表」
         "unmapped_count": len(unmapped),
+        "below_min_score_count": below_min,
         "rejected": rejected[:20],
         "book_path": path,
         "note": (
-            "分池：组权打分→组内 Top-N→合并；无跨组总榜。"
+            "分池：组权打分→组内相对 Top-N→合并；无跨组总榜。"
+            "簿内不按全局 min_score 剔除（仅标注 below_min_score）。"
             "未映射票不进簿。不写 signal_config.weights。"
         ),
     }

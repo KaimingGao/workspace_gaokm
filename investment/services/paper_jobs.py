@@ -31,6 +31,17 @@ class PaperJobsMixin:
 
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
+        cluster_prep = None
+        try:
+            from core.signal.cluster_live import prepare_cluster_for_daily
+
+            cluster_prep = prepare_cluster_for_daily()
+        except Exception as exc:
+            cluster_prep = {
+                "success": False,
+                "error": str(exc),
+                "task": "cluster_prepare_daily",
+            }
         paper = load_paper(self.path)
         if dry_run:
             paper = copy.deepcopy(paper)
@@ -38,7 +49,12 @@ class PaperJobsMixin:
             paper, simulate_buy=simulate_buy, strategy=strategy, on_progress=on_progress
         )
         if dry_run:
-            return {"ok": True, "preview": True, **result}
+            return {
+                "ok": True,
+                "preview": True,
+                "cluster_prepare": cluster_prep,
+                **result,
+            }
         from core.paper_costs import fee_fields_from_trade
 
         buys = result.get("buy_trades") or result.get("new_trades") or []
@@ -104,7 +120,7 @@ class PaperJobsMixin:
                 },
             )
         save_paper(paper, self.path)
-        return {"ok": True, **result}
+        return {"ok": True, "cluster_prepare": cluster_prep, **result}
 
     def start_run_job(
         self,

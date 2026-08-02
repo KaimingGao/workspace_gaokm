@@ -37,8 +37,8 @@ def get_cluster_scoring_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     return {
         "enabled": bool(raw.get("enabled", False)),
         "mode": mode,
-        "top_n_per_group": max(1, min(int(raw.get("top_n_per_group") or 1), 5)),
-        "max_names": max(1, min(int(raw.get("max_names") or 10), 30)),
+        "top_n_per_group": max(1, min(int(raw.get("top_n_per_group") or 10), 10)),
+        "max_names": max(1, min(int(raw.get("max_names") or 40), 80)),
         "min_coverage": float(raw.get("min_coverage") or 0.5),
         "max_age_days": max(1, min(int(raw.get("max_age_days") or 14), 90)),
         "auto_demote_on_stale": bool(raw.get("auto_demote_on_stale", True)),
@@ -339,22 +339,40 @@ def load_active_cluster_book() -> Optional[Dict[str, Any]]:
     return None
 
 
+def _default_health_universe() -> List[str]:
+    """优先纸面持仓（与分组宇宙一致），否则观察池。"""
+    codes: List[str] = []
+    try:
+        from core.paper import load_paper
+        from core.paths import PAPER_PATH
+
+        paper = load_paper(PAPER_PATH)
+        for h in paper.get("holdings") or []:
+            if isinstance(h, dict) and h.get("stock_code"):
+                codes.append(str(h["stock_code"]).strip())
+    except Exception:
+        pass
+    if len(codes) >= 2:
+        return codes[:40]
+    try:
+        from core.watching_store import read_watching
+
+        return list((read_watching().get("watchlist") or [])[:40])
+    except Exception:
+        return codes[:40]
+
+
 def assess_cluster_live_health(
     *,
     universe: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """覆盖率 / 陈旧 / 模式门禁（L3）。"""
-    from core.watching_store import read_watching
-
     cs = get_cluster_scoring_cfg()
     active = load_active_cluster_weights()
     alerts: List[str] = []
     mapped = set((active or {}).get("code_map") or {})
     if universe is None:
-        try:
-            universe = list((read_watching().get("watchlist") or [])[:40])
-        except Exception:
-            universe = []
+        universe = _default_health_universe()
     uni = [str(c).strip() for c in (universe or []) if str(c).strip()]
     hit = sum(1 for c in uni if c in mapped)
     coverage = (hit / len(uni)) if uni else None
@@ -491,6 +509,162 @@ def refresh_cluster_book_daily() -> Dict[str, Any]:
     }
 
 
+def maybe_auto_demote_stale() -> Dict[str, Any]:
+    """陈旧且 auto_demote_on_stale：active → shadow（只改 mode，不写 weights）。"""
+    cs = get_cluster_scoring_cfg()
+    health = assess_cluster_live_health()
+    out: Dict[str, Any] = {
+        "success": True,
+        "task": "cluster_auto_demote",
+        "demoted": False,
+        "health": health,
+        "cluster_scoring": cs,
+        "signal_config_touched": False,
+    }
+    if cs.get("mode") != "active":
+        return out
+    if not health.get("suggest_demote") and not health.get("stale"):
+        return out
+    if not (cs.get("auto_demote_on_stale") and health.get("stale")):
+        # 覆盖率不足：仅告警，不自动降（与陈旧区分）
+        if health.get("suggest_demote") and not health.get("stale"):
+            out["note"] = "建议降级但未自动执行（非陈旧）"
+        return out
+    mode_out = set_cluster_scoring_mode("shadow")
+    out["demoted"] = bool(mode_out.get("success"))
+    out["mode_result"] = mode_out
+    out["cluster_scoring"] = get_cluster_scoring_cfg()
+    out["signal_config_touched"] = False
+    out["note"] = "映射陈旧，已自动降为 shadow"
+    return out
+
+
+def prepare_cluster_for_daily() -> Dict[str, Any]:
+    """日更入口：陈旧降级 +（shadow|active 时）刷新分池簿。"""
+    demote = maybe_auto_demote_stale()
+    cs = get_cluster_scoring_cfg()
+    mode = cs.get("mode") or "off"
+    refresh = None
+    if mode in ("shadow", "active") and load_active_cluster_weights():
+        refresh = refresh_cluster_book_daily()
+    return {
+        "success": True,
+        "task": "cluster_prepare_daily",
+        "demote": demote,
+        "refresh": refresh,
+        "cluster_scoring": get_cluster_scoring_cfg(),
+        "health": assess_cluster_live_health(),
+        "signal_config_touched": False,
+    }
+
+
+def cluster_score_audit_sample(*, limit: int = 8) -> Dict[str, Any]:
+    """对照审计：优先分池簿样本，否则按组轮询取票，算 score_global vs score_cluster。"""
+    active = load_active_cluster_weights()
+    cs = get_cluster_scoring_cfg()
+    mode = cs.get("mode") or "off"
+    if not active or mode not in ("shadow", "active"):
+        return {
+            "success": True,
+            "task": "cluster_score_audit",
+            "rows": [],
+            "mode": mode,
+            "note": "非 shadow/active 或无 active 映射，跳过双分样本",
+        }
+    cmap = active.get("code_map") or {}
+    n = max(1, min(int(limit), 12))
+    codes: List[str] = []
+    # 1) 合并簿优先（与落地簿一致，刷新簿后对照也会变）
+    book = load_active_cluster_book() or {}
+    for row in book.get("book") or []:
+        code = str((row or {}).get("stock_code") or "").strip()
+        if code and code in cmap and code not in codes:
+            codes.append(code)
+        if len(codes) >= n:
+            break
+    # 2) 按组轮询补齐，避免总是 code_map 前缀那几只
+    if len(codes) < n:
+        by_label: Dict[str, List[str]] = {}
+        for code, meta in cmap.items():
+            c = str(code).strip()
+            if not c:
+                continue
+            lab = str((meta or {}).get("cluster_label") or "?")
+            by_label.setdefault(lab, []).append(c)
+        labels = sorted(by_label.keys())
+        idx = 0
+        while len(codes) < n and labels:
+            progressed = False
+            for lab in labels:
+                members = by_label.get(lab) or []
+                if idx < len(members):
+                    c = members[idx]
+                    if c not in codes:
+                        codes.append(c)
+                        progressed = True
+                    if len(codes) >= n:
+                        break
+            if not progressed:
+                break
+            idx += 1
+    rows: List[Dict[str, Any]] = []
+    fails: List[str] = []
+    try:
+        from core.signal.score_stock import score_stock
+    except Exception as exc:
+        return {
+            "success": False,
+            "task": "cluster_score_audit",
+            "error": str(exc),
+            "rows": [],
+        }
+    for code in codes:
+        try:
+            # 强制 shadow 语义：始终拉出全局/组权双分供对照（不影响交易 mode）
+            result = score_stock(
+                code,
+                cluster_mode="shadow",
+                skip_fundamentals=True,
+            )
+        except Exception as exc:
+            fails.append(f"{code}:{exc}")
+            continue
+        if not isinstance(result, dict) or not result.get("success"):
+            fails.append(f"{code}:{result.get('error') if isinstance(result, dict) else 'fail'}")
+            continue
+        item = result.get("signal_item") or {}
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            {
+                "stock_code": code,
+                "stock_name": item.get("stock_name") or result.get("stock_name") or code,
+                "cluster_label": item.get("cluster_label")
+                or (cmap.get(code) or {}).get("cluster_label"),
+                "score_global": item.get("score_global"),
+                "score_cluster": item.get("score_cluster"),
+                "delta_vs_global": item.get("delta_vs_global"),
+                "weight_source": item.get("weight_source"),
+                "score": item.get("score"),
+            }
+        )
+    out: Dict[str, Any] = {
+        "success": True,
+        "task": "cluster_score_audit",
+        "mode": mode,
+        "version": active.get("version"),
+        "rows": rows,
+        "sampled_at": _iso_now(),
+        "signal_config_touched": False,
+    }
+    if not rows and fails:
+        out["success"] = False
+        out["error"] = f"打分失败 {len(fails)} 只：" + "；".join(fails[:3])
+    elif fails:
+        out["note"] = f"部分失败 {len(fails)}/{len(codes)}"
+    return out
+
+
 def apply_cluster_live_shortcut(
     artifact: Optional[Dict[str, Any]] = None,
     *,
@@ -548,8 +722,8 @@ def apply_cluster_live_shortcut(
     }
 
 
-def cluster_status_public() -> Dict[str, Any]:
-    """供 API/UI 的状态摘要。"""
+def cluster_status_public(*, include_audit: bool = True) -> Dict[str, Any]:
+    """供 API/UI 的状态摘要（含落地下一步 + 可选双分样本）。"""
     from core.paths import (
         CLUSTER_BOOK_ACTIVE_PATH,
         CLUSTER_WEIGHTS_ACTIVE_PATH,
@@ -561,11 +735,37 @@ def cluster_status_public() -> Dict[str, Any]:
     health = assess_cluster_live_health()
     draft = load_cluster_draft()
     book = load_active_cluster_book()
+    paper_land = _paper_cluster_landed(active)
+    mode = cs.get("mode") or "off"
+    has_draft = bool(draft and draft.get("code_map"))
+    has_active = bool(active)
+    allow_active = bool(health.get("allow_active"))
+    if not has_draft and not has_active:
+        next_step = "run_cluster"
+        next_label = "先跑分组"
+    elif mode == "off" or not has_active:
+        next_step = "apply_shadow"
+        next_label = "① 对照"
+    elif mode == "shadow":
+        next_step = "enable_active" if allow_active else "fix_health"
+        next_label = "② 启用" if allow_active else "修复健康后再启用"
+    else:
+        # mode=active：研究侧权责结束；调仓走侧栏交易执行页
+        next_step = "go_follow"
+        next_label = "已启用 · 侧栏进交易执行"
+
+    audit = None
+    if include_audit and mode in ("shadow", "active") and has_active:
+        try:
+            audit = cluster_score_audit_sample(limit=8)
+        except Exception as exc:
+            audit = {"success": False, "rows": [], "error": str(exc)}
+
     return {
         "success": True,
         "cluster_scoring": cs,
         "active": {
-            "exists": bool(active),
+            "exists": has_active,
             "path": CLUSTER_WEIGHTS_ACTIVE_PATH,
             "version": (active or {}).get("version"),
             "promoted_at": (active or {}).get("promoted_at"),
@@ -573,7 +773,7 @@ def cluster_status_public() -> Dict[str, Any]:
             "n_clusters": (active or {}).get("n_clusters"),
         },
         "draft": {
-            "exists": bool(draft),
+            "exists": has_draft,
             "path": CLUSTER_WEIGHTS_DRAFT_PATH,
             "saved_at": (draft or {}).get("saved_at"),
             "n_mapped_codes": (draft or {}).get("n_mapped_codes"),
@@ -596,7 +796,52 @@ def cluster_status_public() -> Dict[str, Any]:
             "name_count": len((book or {}).get("book") or []),
         },
         "health": health,
-        "note": "组权在 live 产物；signal_config 仅开关 mode",
+        "landing": {
+            "next_step": next_step,
+            "next_label": next_label,
+            "can_apply": has_draft or has_active,
+            "can_activate": allow_active and has_active,
+            # 研究枢纽不调仓；就绪后跳转 /follow
+            "ready_for_follow": mode == "active" and has_active,
+            "can_paper": False,
+            "paper_applied": bool(paper_land.get("applied")),
+            "paper_applied_at": paper_land.get("applied_at"),
+            "paper_cluster_version": paper_land.get("cluster_version"),
+        },
+        "audit_sample": audit,
+        "note": "组权在 live 产物；调仓仅交易执行页；signal_config 仅开关 mode",
+    }
+
+
+def _paper_cluster_landed(active: Optional[dict]) -> Dict[str, Any]:
+    """纸面是否已按当前 active 映射完成过分池调仓。"""
+    if not active:
+        return {"applied": False}
+    try:
+        from core.paper import load_paper
+
+        paper = load_paper()
+    except Exception:
+        return {"applied": False}
+    last = paper.get("last_cluster_pool") if isinstance(paper, dict) else None
+    if not isinstance(last, dict):
+        return {"applied": False}
+    av = active.get("version")
+    pv = last.get("cluster_version")
+    if av is None or pv is None:
+        return {
+            "applied": False,
+            "applied_at": last.get("applied_at"),
+            "cluster_version": pv,
+        }
+    try:
+        matched = int(av) == int(pv)
+    except (TypeError, ValueError):
+        matched = str(av) == str(pv)
+    return {
+        "applied": matched,
+        "applied_at": last.get("applied_at"),
+        "cluster_version": pv,
     }
 
 

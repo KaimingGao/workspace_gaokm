@@ -345,6 +345,24 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
             f"(Δ累计 {((nc.get('delta') or {}).get('total_return_pct'))}%)"
         )
 
+    cl = report.get("cluster_live") or {}
+    if cl and cl.get("mode") in ("shadow", "active"):
+        cov = cl.get("coverage")
+        cov_s = f"{round(float(cov) * 100)}%" if cov is not None else "—"
+        bullets.append(
+            f"分组 live：mode={cl.get('mode')} · v{cl.get('version') or '—'} · "
+            f"覆盖 {cov_s} · 簿 {cl.get('book_names') or '—'} 只"
+        )
+        rows = ((cl.get("audit_sample") or {}).get("rows") or [])[:3]
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            bullets.append(
+                f"  · {r.get('stock_name') or r.get('stock_code')} "
+                f"全局 {r.get('score_global')} / 组权 {r.get('score_cluster')} "
+                f"Δ {r.get('delta_vs_global')}"
+            )
+
     return {
         "success": True,
         "bullet_count": len(bullets),
@@ -415,6 +433,31 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
                 "",
             ]
         )
+
+    cl = report.get("cluster_live") or {}
+    if cl and cl.get("mode") in ("shadow", "active"):
+        cov = cl.get("coverage")
+        cov_s = f"{round(float(cov) * 100)}%" if cov is not None else "—"
+        cl_lines = [
+            f"- mode={cl.get('mode')} · version={cl.get('version')} · 覆盖 {cov_s}",
+            f"- 分池簿 {cl.get('book_names') or '—'} 只 · 龄 {cl.get('age_days') or '—'}d",
+            f"- _{cl.get('note') or '组权 live；不写全局 weights'}_",
+        ]
+        for a in (cl.get("alerts") or [])[:4]:
+            cl_lines.append(f"- ⚠ {a}")
+        cl_lines.append("")
+        cl_lines.append("| 标的 | 组 | 全局分 | 组权分 | Δ |")
+        cl_lines.append("| --- | --- | ---: | ---: | ---: |")
+        for r in ((cl.get("audit_sample") or {}).get("rows") or [])[:10]:
+            if not isinstance(r, dict):
+                continue
+            cl_lines.append(
+                f"| {r.get('stock_name') or r.get('stock_code')} | "
+                f"{r.get('cluster_label') or '—'} | "
+                f"{r.get('score_global')} | {r.get('score_cluster')} | "
+                f"{r.get('delta_vs_global')} |"
+            )
+        parts.extend(["## 分组 live 对照", ""] + cl_lines + [""])
 
     tsug = report.get("threshold_suggest") or {}
     if tsug.get("success"):

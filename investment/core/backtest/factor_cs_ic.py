@@ -86,7 +86,8 @@ def compute_factor_cross_section_ic(
 
     horizon_days = max(1, min(int(horizon_days or 3), 10))
     min_history = max(5, int(min_history or 12))
-    min_names = max(3, int(min_names or 5))
+    # 组内宇宙可能只有 2～3 只；显式传入时可低至 2（日截面仍偏噪）
+    min_names = max(2, int(min_names or 5))
 
     date_maps = {c: _bars_by_date(b) for c, b in stock_bars.items()}
     dates = _common_dates(stock_bars)

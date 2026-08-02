@@ -38,17 +38,37 @@ class PaperAccountMixin:
         try:
             pool = run_signal_scan(paper, stock_codes=holding_codes)
             score_by_code = {}
+            try:
+                from core.signal.cluster_live import lookup_code_weights
+            except Exception:
+                lookup_code_weights = None  # type: ignore
             for item in pool:
                 code = str(item.get("stock_code") or "")
-                if code:
-                    score_by_code[code] = {
-                        "score": item.get("score"),
-                        "sub_scores": item.get("sub_scores"),
-                        "factor_contrib": item.get("factor_contrib"),
-                        "reasons": item.get("reasons"),
-                        "hard_reject": item.get("hard_reject"),
-                        "reject_reason": item.get("reject_reason"),
-                    }
+                if not code:
+                    continue
+                weights = None
+                if callable(lookup_code_weights):
+                    mapped = lookup_code_weights(code)
+                    if mapped and isinstance(mapped.get("weights"), dict):
+                        src = str(item.get("weight_source") or "")
+                        # active 组权 / 组权打分时用映射权；shadow 主分仍全局
+                        if src.startswith("cluster:") or src == "cluster":
+                            weights = mapped["weights"]
+                score_by_code[code] = {
+                    "score": item.get("score"),
+                    "sub_scores": item.get("sub_scores"),
+                    "factor_contrib": item.get("factor_contrib"),
+                    "reasons": item.get("reasons"),
+                    "hard_reject": item.get("hard_reject"),
+                    "reject_reason": item.get("reject_reason"),
+                    "weight_source": item.get("weight_source"),
+                    "cluster_label": item.get("cluster_label"),
+                    "cluster_mode": item.get("cluster_mode"),
+                    "cluster_version": item.get("cluster_version"),
+                    "score_global": item.get("score_global"),
+                    "score_cluster": item.get("score_cluster"),
+                    "weights": weights,
+                }
 
             enriched_holdings = []
             for h in summary.get("holdings") or []:
@@ -62,6 +82,12 @@ class PaperAccountMixin:
                     enriched["score_reasons"] = score_info.get("reasons")
                     enriched["hard_reject"] = score_info.get("hard_reject")
                     enriched["reject_reason"] = score_info.get("reject_reason")
+                    enriched["weight_source"] = score_info.get("weight_source")
+                    enriched["cluster_label"] = score_info.get("cluster_label")
+                    enriched["cluster_mode"] = score_info.get("cluster_mode")
+                    enriched["cluster_version"] = score_info.get("cluster_version")
+                    enriched["score_global"] = score_info.get("score_global")
+                    enriched["score_cluster"] = score_info.get("score_cluster")
                     enriched["score_formula"] = _build_score_formula(score_info)
                 else:
                     enriched["score"] = None
@@ -434,7 +460,13 @@ class PaperAccountMixin:
             raise FileNotFoundError("请先初始化纸面账户")
         paper = load_paper(self.path)
         logs = paper.get("operation_log") or []
-        trading_types = {"buy", "sell", "rebalance", "sync_paper"}
+        trading_types = {
+            "buy",
+            "sell",
+            "rebalance",
+            "cluster_pool_rebalance",
+            "sync_paper",
+        }
         fund_types = {"init", "deposit", "withdraw", "reset"}
 
         if category == "trading":

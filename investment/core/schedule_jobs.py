@@ -332,7 +332,18 @@ def run_paper_daily(
         from core.strategy_monitor import assess_strategy_health
         from core.paths import PAPER_PATH
 
-        slot.update(current=1, message="run_daily_cycle")
+        slot.update(current=1, message="cluster_prepare + run_daily_cycle")
+        cluster_prep = None
+        try:
+            from core.signal.cluster_live import prepare_cluster_for_daily
+
+            cluster_prep = prepare_cluster_for_daily()
+        except Exception as exc:
+            cluster_prep = {
+                "success": False,
+                "error": str(exc),
+                "task": "cluster_prepare_daily",
+            }
         paper = load_paper(PAPER_PATH)
         cycle = run_daily_cycle(
             paper,
@@ -432,6 +443,7 @@ def run_paper_daily(
             "kind": "paper_daily",
             "simulate_buy": bool(simulate_buy),
             "strategy": strategy,
+            "cluster_prepare": cluster_prep,
             "cycle": cycle,
             "summary": summary,
             "health": health,

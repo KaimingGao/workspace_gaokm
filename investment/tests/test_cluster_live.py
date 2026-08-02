@@ -193,6 +193,155 @@ class TestClusterLive(unittest.TestCase):
             self.assertEqual(set(codes), {"600519", "601318"})
             self.assertNotIn("000001", codes)
 
+            # 组内相对 Top-N：低于全局 min_score 的票仍可进簿
+            def fake_score_low(code, **kwargs):
+                return {
+                    "success": True,
+                    "signal_item": {
+                        "stock_code": code,
+                        "stock_name": code,
+                        "score": {"600519": 40, "000001": 30, "601318": 35}.get(
+                            str(code), 10
+                        ),
+                        "hard_reject": False,
+                        "cluster_label": {
+                            "600519": "G1",
+                            "000001": "G1",
+                            "601318": "G2",
+                        }.get(str(code), "?"),
+                        "weight_source": "cluster:G1",
+                    },
+                }
+
+            with patch(
+                "core.signal.score_stock.score_stock", side_effect=fake_score_low
+            ):
+                low = rank_cluster_pools(
+                    ["600519", "000001", "601318"],
+                    top_n_per_group=2,
+                    min_score=55,
+                    persist_book=False,
+                )
+            self.assertTrue(low["success"])
+            self.assertGreaterEqual(low.get("below_min_score_count") or 0, 1)
+            self.assertEqual(len(low["book"]), 3)
+
+    def test_auto_demote_stale_and_prepare_daily(self):
+        from core.signal.cluster_live import (
+            maybe_auto_demote_stale,
+            prepare_cluster_for_daily,
+            promote_cluster_artifact,
+            set_cluster_scoring_mode,
+        )
+
+        with _live_tmp():
+            promote_cluster_artifact(self._artifact())
+            with patch(
+                "core.signal.cluster_live.assess_cluster_live_health",
+                return_value={
+                    "allow_active": True,
+                    "alerts": [],
+                    "stale": False,
+                    "suggest_demote": False,
+                },
+            ):
+                ok = set_cluster_scoring_mode("active")
+            self.assertTrue(ok["success"])
+
+            with patch(
+                "core.signal.cluster_live.assess_cluster_live_health",
+                return_value={
+                    "allow_active": False,
+                    "alerts": ["映射陈旧"],
+                    "stale": True,
+                    "suggest_demote": True,
+                },
+            ):
+                dem = maybe_auto_demote_stale()
+            self.assertTrue(dem["success"])
+            self.assertTrue(dem["demoted"])
+            self.assertEqual(dem["cluster_scoring"]["mode"], "shadow")
+
+            with patch(
+                "core.signal.cluster_live.maybe_auto_demote_stale",
+                return_value={"success": True, "demoted": False},
+            ), patch(
+                "core.signal.cluster_live.refresh_cluster_book_daily",
+                return_value={
+                    "success": True,
+                    "rank": {"name_count": 2, "success": True},
+                },
+            ), patch(
+                "core.signal.cluster_live.assess_cluster_live_health",
+                return_value={"allow_active": True, "alerts": []},
+            ):
+                prep = prepare_cluster_for_daily()
+            self.assertTrue(prep["success"])
+            self.assertIsNotNone(prep.get("refresh"))
+
+    def test_status_landing_fields(self):
+        from core.signal.cluster_live import (
+            cluster_status_public,
+            promote_cluster_artifact,
+            set_cluster_scoring_mode,
+        )
+
+        with _live_tmp():
+            promote_cluster_artifact(self._artifact())
+            with patch(
+                "core.signal.cluster_live.assess_cluster_live_health",
+                return_value={
+                    "allow_active": True,
+                    "alerts": [],
+                    "coverage": 1.0,
+                    "stale": False,
+                },
+            ), patch(
+                "core.signal.cluster_live.cluster_score_audit_sample",
+                return_value={"success": True, "rows": []},
+            ):
+                set_cluster_scoring_mode("shadow")
+                st = cluster_status_public(include_audit=True)
+            self.assertTrue(st["success"])
+            land = st.get("landing") or {}
+            self.assertEqual(land.get("next_step"), "enable_active")
+            self.assertTrue(land.get("can_activate"))
+            self.assertIn("audit_sample", st)
+
+    def test_status_landing_after_paper_applied(self):
+        from core.signal.cluster_live import (
+            cluster_status_public,
+            promote_cluster_artifact,
+            set_cluster_scoring_mode,
+        )
+
+        with _live_tmp():
+            promoted = promote_cluster_artifact(self._artifact())
+            ver = promoted.get("version")
+            with patch(
+                "core.signal.cluster_live.assess_cluster_live_health",
+                return_value={
+                    "allow_active": True,
+                    "alerts": [],
+                    "coverage": 1.0,
+                    "stale": False,
+                },
+            ), patch(
+                "core.signal.cluster_live._paper_cluster_landed",
+                return_value={
+                    "applied": True,
+                    "applied_at": "2026-08-01",
+                    "cluster_version": ver,
+                },
+            ):
+                set_cluster_scoring_mode("active")
+                st = cluster_status_public(include_audit=False)
+            land = st.get("landing") or {}
+            self.assertEqual(land.get("next_step"), "go_follow")
+            self.assertEqual(land.get("next_label"), "已启用 · 侧栏进交易执行")
+            self.assertTrue(land.get("ready_for_follow"))
+            self.assertTrue(land.get("paper_applied"))
+
 
 if __name__ == "__main__":
     unittest.main()

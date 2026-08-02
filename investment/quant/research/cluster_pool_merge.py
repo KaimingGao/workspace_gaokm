@@ -56,14 +56,14 @@ def _cluster_specs(
 def build_merged_book(
     group_scores: Dict[str, Any],
     *,
-    top_n_per_group: int = 1,
-    max_names: int = 10,
+    top_n_per_group: int = 10,
+    max_names: int = 40,
     clusters: Optional[Sequence[Dict[str, Any]]] = None,
     only_oos_passed: bool = False,
 ) -> Dict[str, Any]:
     """从最新 ``group_scores`` 各组榜取 Top-N，合成候选簿（等权提示）。"""
-    top_n = max(1, min(int(top_n_per_group or 1), 5))
-    max_names = max(1, min(int(max_names or 10), 20))
+    top_n = max(1, min(int(top_n_per_group or 10), 10))
+    max_names = max(1, min(int(max_names or 40), 80))
     groups = list((group_scores or {}).get("groups") or [])
     oos_ok: Optional[set] = None
     if only_oos_passed and clusters is not None:
@@ -170,8 +170,8 @@ def backtest_cluster_pools(
     clusters: Sequence[Dict[str, Any]],
     bars_by_code: Dict[str, List[dict]],
     *,
-    top_n_per_group: int = 1,
-    max_names: int = 10,
+    top_n_per_group: int = 10,
+    max_names: int = 40,
     horizon_days: int = 3,
     min_score: float = 55.0,
     min_history: int = 12,
@@ -194,8 +194,8 @@ def backtest_cluster_pools(
     from core.signal.config import load_signal_config, signal_config_overlay
     from core.signal.cross_section_batch import score_window_as_item
 
-    top_n = max(1, min(int(top_n_per_group or 1), 5))
-    max_names = max(1, min(int(max_names or 10), 20))
+    top_n = max(1, min(int(top_n_per_group or 10), 10))
+    max_names = max(1, min(int(max_names or 40), 80))
     horizon_days = max(1, min(int(horizon_days or 3), 10))
     min_score = float(min_score or 55.0)
     min_history = max(5, int(min_history or 12))
@@ -410,8 +410,8 @@ def attach_cluster_pool_merge(
     bars_by_code: Dict[str, List[dict]],
     *,
     horizon_days: int = 3,
-    top_n_per_group: int = 1,
-    max_names: int = 10,
+    top_n_per_group: int = 10,
+    max_names: int = 40,
     run_pool_merge: bool = True,
     run_backtest: bool = True,
 ) -> Dict[str, Any]:

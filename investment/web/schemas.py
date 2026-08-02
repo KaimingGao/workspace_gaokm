@@ -27,11 +27,25 @@ class PaperRunRequest(BaseModel):
 
 
 class PaperRebalanceRequest(BaseModel):
-    top_k: int = Field(default=3, ge=1, le=10)
-    limit: int = Field(default=10, ge=1, le=30)
+    top_k: int = Field(
+        default=3,
+        ge=1,
+        le=30,
+        description="目标持仓只数；分池模式按合并簿长度（可至 30）",
+    )
+    limit: int = Field(
+        default=10,
+        ge=1,
+        le=40,
+        description="全局横截面候选上限；分池模式可放宽",
+    )
     cluster_mode: bool = Field(
         default=False,
         description="true=分池 live（组内 Top-N 合并簿）；不写全局 weights",
+    )
+    dry_run: bool = Field(
+        default=False,
+        description="true=仅预演不写 paper.json（交易执行页）",
     )
 
 
@@ -208,10 +222,10 @@ class FactorOlsClusterRequest(BaseModel):
     lookback: int = Field(default=80, ge=40, le=500)
     horizon_days: int = Field(default=3, ge=1, le=10)
     watching_limit: int = Field(
-        default=8,
+        default=12,
         ge=3,
         le=20,
-        description="默认 8 只；过大时逐票 OLS 会很慢",
+        description="兼容字段：watching 宇宙取全部观察池，本参数不截断；仅 union 等模式参考",
     )
     n_clusters: Optional[int] = Field(
         default=None,
@@ -225,13 +239,13 @@ class FactorOlsClusterRequest(BaseModel):
     )
     cluster_linkage: str = Field(
         default="complete",
-        description="层次连接：complete（控直径，默认）| average",
+        description="层次连接：complete（默认，控大团）| average",
     )
     within_dist_quantile: float = Field(
-        default=0.25,
+        default=0.75,
         ge=0.05,
         le=0.95,
-        description="类内直径 τ = 两两距离分位数；越小组越紧；入组后再校验单票β↔组池β",
+        description="类内直径 τ = 两两距离分位数（默认 0.75）；越小越紧、单票组越多",
     )
     ridge_lambda: float = Field(
         default=0.0,
@@ -265,10 +279,10 @@ class FactorOlsClusterRequest(BaseModel):
         description="各组 Top-N 合成候选簿 + 分池对照回测（研究预览，不写纸面）",
     )
     top_n_per_group: int = Field(
-        default=1,
+        default=10,
         ge=1,
-        le=5,
-        description="每组取组内排名前 N 只合成候选",
+        le=10,
+        description="每组取组内排名前 N 只合成候选（默认 10）",
     )
 
 

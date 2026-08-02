@@ -195,6 +195,7 @@ def paper_rebalance(body: PaperRebalanceRequest):
             top_k=body.top_k,
             limit=body.limit,
             cluster_mode=bool(body.cluster_mode),
+            dry_run=bool(body.dry_run),
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

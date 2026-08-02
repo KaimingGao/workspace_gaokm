@@ -8,32 +8,29 @@
 <div class="quant-body quant-page">
   <section class="quant-section" id="quant-section-factors" aria-labelledby="quant-section-factors-title">
     <div class="quant-section-toolbar">
-      <h3 id="quant-section-factors-title" class="watching-section-title">股票分组</h3>
-      <div class="quant-actions-inline">
-        <label class="platform-field" title="研究前瞻持有期（1～10）；不影响数据中心 live 评分">
-          horizon
-          <input id="quant-horizon" type="number" min="1" max="10" value="3" />
-        </label>
-        <button type="button" id="quant-horizon-save-default" class="dialog-btn secondary" title="写入 memory.json，供下次打开研究/回测默认">
-          存为默认
-        </button>
-        <label class="platform-field" title="Ridge λ；0=普通 OLS（QR）；>0 收缩斜率、缓解共线（截距不惩罚）">
-          ridge λ
-          <input id="quant-ridge-lambda" type="number" min="0" max="100" step="0.1" value="0" />
-        </label>
-        <button
-          type="button"
-          id="quant-ols-clusters-run"
-          class="dialog-btn dialog-btn-keep-case"
-          title="仅纸面持仓按 OLS β 分组；离群票各自成单票组单独建模；不写全局 config"
-        >
-          跑分组
-        </button>
-      </div>
+      <h3 id="quant-section-factors-title" class="watching-section-title">分组</h3>
     </div>
-    <p class="sub quant-cluster-universe-hint">
-      宇宙 = 纸面持仓 · 同组同建模 · 离群各自成单票组
-    </p>
+    <div class="quant-cluster-params quant-actions-inline" aria-label="分组参数">
+      <label class="platform-field" title="研究前瞻持有期（1～10）；不影响数据中心 live 评分">
+        horizon
+        <input id="quant-horizon" type="number" min="1" max="10" value="3" />
+      </label>
+      <button type="button" id="quant-horizon-save-default" class="dialog-btn secondary" title="写入 memory.json，供下次打开研究/回测默认">
+        存为默认
+      </button>
+      <label class="platform-field" title="Ridge λ；0=普通 OLS（QR）；>0 收缩斜率、缓解共线（截距不惩罚）">
+        ridge λ
+        <input id="quant-ridge-lambda" type="number" min="0" max="100" step="0.1" value="0" />
+      </label>
+      <button
+        type="button"
+        id="quant-ols-clusters-run"
+        class="dialog-btn dialog-btn-keep-case"
+        title="观察池按 OLS β 分组；离群票各自成单票组单独建模；不写全局 config"
+      >
+        跑分组
+      </button>
+    </div>
     <details class="quant-fold quant-help-fold">
       <summary>IC / OLS·Ridge / 建议权重说明</summary>
       <div class="quant-help-body">
@@ -42,9 +39,9 @@
           不同组各自池 OLS → 各自建议权，避免异质票硬套全局权。
         </p>
         <p>
-          「跑分组」：宇宙=<strong>仅纸面持仓</strong>，按单票 OLS β（complete·τ）聚类；
-          过远/异质票<strong>各自成单票组</strong>；<strong>一组一表</strong>标题含成员（名称+代码）与
-          当前 / 建议 / Δ · 组内 OLS β。数据不足单独提示。探针：单票 vs 所在组。均不写全局 config。
+          「跑分组」：宇宙=<strong>全部观察池</strong>，按单票 OLS β 层次聚类到目标组数（约 N/5，4～10），超大组再二分；
+          <strong>一组一表</strong>标题含成员（名称+代码）与当前 / 建议 / Δ · 组内 OLS β。
+          异质用探针核对。数据不足单独提示。均不写全局 config。
         </p>
 
         <h4>当前 / 建议 / Δ（权重建议）</h4>
@@ -66,7 +63,7 @@
       id="quant-ols-clusters"
       class="quant-cluster-hub"
       aria-live="polite"
-      aria-label="分组研究：持仓入组与组摘要"
+      aria-label="分组研究：观察池入组与组摘要"
     ></div>
     <div
       id="quant-factor-list"
@@ -74,9 +71,19 @@
       aria-label="因子建议表（分组后为每组一张表）"
     ></div>
     <div id="quant-weight-suggest" class="quant-sub"></div>
+    <!-- 兼容旧测试/深链：池 OLS API 仍保留，UI 不再入口 -->
+    <button type="button" id="quant-ols-pool-run" class="sr-only" tabindex="-1" aria-hidden="true">研究池 OLS</button>
+    <button type="button" id="quant-ols-run" class="sr-only" tabindex="-1" aria-hidden="true">单票 OLS</button>
+    <button type="button" id="quant-cs-ic-run" class="sr-only" tabindex="-1" aria-hidden="true">截面 IC</button>
+  </section>
 
+  <!-- 探针 / 对照 / 日报：标题在折叠外（同「分组」），内容仍用 quant-fold -->
+  <section class="quant-section" aria-labelledby="quant-section-probe-title">
+    <div class="quant-section-toolbar">
+      <h3 id="quant-section-probe-title" class="watching-section-title">探针</h3>
+    </div>
     <details class="quant-fold quant-probe-fold" id="quant-probe-fold">
-      <summary>探针 · 单票 vs 所在组</summary>
+      <summary><span class="sub">单票 vs 所在组</span></summary>
       <div class="quant-probe-body quant-section">
         <div class="quant-actions-inline quant-probe-toolbar">
           <div class="platform-field quant-probe-picker-field" title="对照标的：名称 / 代码 / 分组">
@@ -122,70 +129,75 @@
         <div id="quant-probe-result" class="quant-weight-table-wrap" aria-label="单票 vs 所在组对照表"></div>
       </div>
     </details>
-    <!-- 兼容旧测试/深链：池 OLS API 仍保留，UI 不再入口 -->
-    <button type="button" id="quant-ols-pool-run" class="sr-only" tabindex="-1" aria-hidden="true">研究池 OLS</button>
-    <button type="button" id="quant-ols-run" class="sr-only" tabindex="-1" aria-hidden="true">单票 OLS</button>
-    <button type="button" id="quant-cs-ic-run" class="sr-only" tabindex="-1" aria-hidden="true">截面 IC</button>
   </section>
 
-  <details class="quant-fold quant-global-fold" id="quant-global-fold">
-    <summary>全局对照 · 阈值 / 横截面</summary>
-    <div class="quant-global-fold-body">
-      <section class="quant-section" id="quant-section-threshold" aria-labelledby="quant-section-threshold-title">
-        <div class="quant-section-toolbar">
-          <h3 id="quant-section-threshold-title" class="watching-section-title">阈值</h3>
-          <span class="sub">非分组权</span>
-          <div class="quant-actions-inline">
-            <button type="button" id="quant-threshold-watching" class="dialog-btn secondary">研究池阈值</button>
-            <button type="button" id="quant-threshold-export" class="dialog-btn secondary">导出阈值 diff</button>
-          </div>
-        </div>
-        <p id="quant-threshold-summary" class="quant-fingerprint">点按钮分析</p>
-        <div id="quant-threshold-table" class="quant-weight-table-wrap" aria-label="阈值建议表"></div>
-      </section>
-
-      <section class="quant-section" id="quant-section-cross" aria-labelledby="quant-section-cross-title">
-        <div class="quant-section-toolbar">
-          <h3 id="quant-section-cross-title" class="watching-section-title">横截面</h3>
-          <span class="sub">非分组权</span>
-          <div class="quant-actions-inline">
-            <button type="button" id="quant-cross-run" class="dialog-btn secondary">刷新排序</button>
-          </div>
-        </div>
-        <p id="quant-cross-summary" class="quant-fingerprint">点「刷新排序」</p>
-        <div id="quant-cross-list" class="quant-weight-table-wrap" aria-label="横截面排序"></div>
-      </section>
+  <section class="quant-section" aria-labelledby="quant-section-global-title">
+    <div class="quant-section-toolbar">
+      <h3 id="quant-section-global-title" class="watching-section-title">对照</h3>
     </div>
-  </details>
+    <details class="quant-fold quant-global-fold" id="quant-global-fold">
+      <summary><span class="sub">阈值 / 横截面</span></summary>
+      <div class="quant-global-fold-body">
+        <section class="quant-section" id="quant-section-threshold" aria-labelledby="quant-section-threshold-title">
+          <div class="quant-section-toolbar">
+            <h3 id="quant-section-threshold-title" class="watching-section-title">阈值</h3>
+            <span class="sub">非分组权</span>
+            <div class="quant-actions-inline">
+              <button type="button" id="quant-threshold-watching" class="dialog-btn secondary">研究池阈值</button>
+              <button type="button" id="quant-threshold-export" class="dialog-btn secondary">导出阈值 diff</button>
+            </div>
+          </div>
+          <p id="quant-threshold-summary" class="quant-fingerprint">点按钮分析</p>
+          <div id="quant-threshold-table" class="quant-weight-table-wrap" aria-label="阈值建议表"></div>
+        </section>
 
-  <details class="quant-fold" id="quant-daily-fold">
-    <summary>日报</summary>
-    <div class="quant-section" id="quant-export-preview" aria-labelledby="quant-section-daily-title">
-      <div class="quant-section-toolbar">
-        <h3 id="quant-section-daily-title" class="watching-section-title sr-only">日报</h3>
-        <div class="quant-actions-inline">
-          <button type="button" id="quant-ops-run-daily" class="dialog-btn">生成日报</button>
-          <button type="button" id="quant-interpret-offline" class="dialog-btn secondary">规则解读</button>
-          <button type="button" id="quant-interpret" class="dialog-btn secondary">AI 解读</button>
-          <button type="button" id="quant-export-md" class="dialog-btn secondary">下载 MD</button>
-          <button type="button" id="quant-export-html" class="dialog-btn secondary">下载 HTML</button>
-        </div>
+        <section class="quant-section" id="quant-section-cross" aria-labelledby="quant-section-cross-title">
+          <div class="quant-section-toolbar">
+            <h3 id="quant-section-cross-title" class="watching-section-title">横截面</h3>
+            <span class="sub">非分组权</span>
+            <div class="quant-actions-inline">
+              <button type="button" id="quant-cross-run" class="dialog-btn secondary">刷新排序</button>
+            </div>
+          </div>
+          <p id="quant-cross-summary" class="quant-fingerprint">点「刷新排序」</p>
+          <div id="quant-cross-list" class="quant-weight-table-wrap" aria-label="横截面排序"></div>
+        </section>
       </div>
-      <p id="quant-ops-summary" class="quant-fingerprint is-busy">加载中…</p>
+    </details>
+  </section>
 
-      <select id="quant-ops-preset" class="sr-only" aria-hidden="true" tabindex="-1">
-        <option value="quant" selected>量化研究</option>
-      </select>
-      <div id="quant-ops-preset-flags" class="sr-only" aria-hidden="true"></div>
-
-      <div id="quant-interpret-body" class="quant-summary" hidden></div>
-      <div id="quant-interpret-neutral" class="quant-weight-table-wrap sub" hidden></div>
-
-      <div id="quant-export-preview-meta" class="quant-sub is-busy">日报预览加载中…</div>
-      <nav id="quant-export-preview-toc" class="quant-export-preview-toc"></nav>
-      <div id="quant-export-preview-body" class="quant-export-preview-body"></div>
+  <section class="quant-section" aria-labelledby="quant-section-daily-title">
+    <div class="quant-section-toolbar">
+      <h3 id="quant-section-daily-title" class="watching-section-title">日报</h3>
     </div>
-  </details>
+    <details class="quant-fold" id="quant-daily-fold">
+      <summary id="quant-daily-fold-summary">摘要加载中…</summary>
+      <div class="quant-section" id="quant-export-preview">
+        <div class="quant-section-toolbar">
+          <div class="quant-actions-inline">
+            <button type="button" id="quant-ops-run-daily" class="dialog-btn">生成日报</button>
+            <button type="button" id="quant-interpret-offline" class="dialog-btn secondary">规则解读</button>
+            <button type="button" id="quant-interpret" class="dialog-btn secondary">AI 解读</button>
+            <button type="button" id="quant-export-md" class="dialog-btn secondary">下载 MD</button>
+            <button type="button" id="quant-export-html" class="dialog-btn secondary">下载 HTML</button>
+          </div>
+        </div>
+        <p id="quant-ops-summary" class="quant-fingerprint is-busy">加载中…</p>
+
+        <select id="quant-ops-preset" class="sr-only" aria-hidden="true" tabindex="-1">
+          <option value="quant" selected>量化研究</option>
+        </select>
+        <div id="quant-ops-preset-flags" class="sr-only" aria-hidden="true"></div>
+
+        <div id="quant-interpret-body" class="quant-summary" hidden></div>
+        <div id="quant-interpret-neutral" class="quant-weight-table-wrap sub" hidden></div>
+
+        <div id="quant-export-preview-meta" class="quant-sub is-busy">日报预览加载中…</div>
+        <nav id="quant-export-preview-toc" class="quant-export-preview-toc"></nav>
+        <div id="quant-export-preview-body" class="quant-export-preview-body"></div>
+      </div>
+    </details>
+  </section>
 </div>
 
 <button type="button" id="quant-factor-run" class="sr-only" tabindex="-1" aria-hidden="true">IC</button>

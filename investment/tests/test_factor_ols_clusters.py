@@ -23,6 +23,7 @@ from quant.research.factor_ols_clusters import (
     eject_by_group_beta_delta,
     eject_far_from_group_beta,
     fit_beta_scale_transform,
+    group_cs_ic_panel,
     group_ts_ic_panel,
     kmeans_labels,
     merge_cluster_universe,
@@ -49,20 +50,30 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertEqual(clamp_n_clusters(1), 2)
         self.assertEqual(clamp_n_clusters(99), 12)
 
-    def test_merge_cluster_universe_holdings_only(self):
+    def test_merge_cluster_universe_modes(self):
         watch = ["A", "B", "C", "D", "E"]
         holdings = [
             {"stock_code": "C"},
             {"stock_code": "H1"},
             {"stock_code": "H2"},
         ]
+        # 默认 / watching：全部观察池（limit 不截断）
         out = merge_cluster_universe(
+            watch, holdings, watching_limit=3, universe_mode="watching"
+        )
+        self.assertEqual(out["universe_mode"], "watching")
+        self.assertEqual(out["codes"], ["A", "B", "C", "D", "E"])
+        self.assertEqual(out["watching_codes"], ["A", "B", "C", "D", "E"])
+        self.assertEqual(out["holdings_codes"], ["C", "H1", "H2"])
+        self.assertEqual(out["universe_count"], 5)
+        self.assertEqual(out["watching_limit"], 5)
+        # 旧 holdings 模式
+        hold = merge_cluster_universe(
             watch, holdings, watching_limit=3, universe_mode="holdings"
         )
-        self.assertEqual(out["universe_mode"], "holdings")
-        self.assertEqual(out["watching_codes"], [])
-        self.assertEqual(out["codes"], ["C", "H1", "H2"])
-        self.assertEqual(out["universe_count"], 3)
+        self.assertEqual(hold["universe_mode"], "holdings")
+        self.assertEqual(hold["watching_codes"], [])
+        self.assertEqual(hold["codes"], ["C", "H1", "H2"])
         # 兼容旧并集
         uni = merge_cluster_universe(
             watch, holdings, watching_limit=3, universe_mode="union"
@@ -97,7 +108,7 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertEqual(sorted(int(np.sum(labels == c)) for c in (0, 1)), [4, 4])
 
     def test_tau_cut_two_clouds_plus_outlier(self):
-        """两紧团 + 一远点 → 2 组 + 1 离群；组内直径 ≤ τ。"""
+        """τ 切树 API：两紧团 + 一远点 → 远点保持单票。"""
         rng0 = np.random.RandomState(0)
         rng1 = np.random.RandomState(1)
         a = np.tile(np.array([0.0, 0.0]), (5, 1)) + rng0.normal(0, 0.02, (5, 2))
@@ -109,43 +120,36 @@ class TestFactorOlsClusters(unittest.TestCase):
         # 切树后离群应仍是单票
         self.assertEqual(int(np.sum(labels == labels[-1])), 1)
 
-        out = cluster_beta_vectors(
-            x,
-            method="hierarchical",
-            n_clusters=None,
-            cluster_linkage="complete",
-            within_dist_quantile=0.25,
+    def test_auto_target_k_keeps_few_groups(self):
+        """默认自动 k：约 n/5，且超大组会被二分。"""
+        from quant.research.factor_ols_clusters import (
+            default_max_cluster_size,
+            default_n_clusters,
         )
-        self.assertTrue(out["cut_by_tau"])
-        self.assertEqual(out["cluster_linkage"], "complete")
-        self.assertGreaterEqual(out["n_outliers"], 1)
-        self.assertIn(10, out["outlier_indices"])
-        # 至少两组、远点不入簇；入簇组直径 ≤ τ
-        self.assertGreaterEqual(out["n_clusters"], 2)
-        self.assertEqual(int(out["labels"][10]), OUTLIER_LABEL)
-        for c in range(out["n_clusters"]):
-            idx = [i for i, lab in enumerate(out["labels"]) if int(lab) == c]
-            self.assertGreaterEqual(len(idx), 2)
-            self.assertLessEqual(
-                cluster_diameter(x, idx), float(out["within_dist_cap"]) + 1e-6
-            )
 
-    def test_tight_tau_yields_multiple_groups_on_grid(self):
-        """分散点在紧 τ 下组数 > 1（相对塌成 1 团）。"""
-        pts = []
-        for i in range(4):
-            for j in range(3):
-                pts.append([float(i) * 1.5, float(j) * 1.5])
-        x = np.asarray(pts, dtype=float)
+        self.assertEqual(default_n_clusters(40), 8)
+        self.assertEqual(default_n_clusters(20), 4)
+        self.assertEqual(default_max_cluster_size(40, 8), 8)
+        rng = np.random.RandomState(2)
+        x = rng.normal(size=(40, 5))
         out = cluster_beta_vectors(
             x,
             method="hierarchical",
             n_clusters=None,
-            cluster_linkage="complete",
-            within_dist_quantile=0.25,
+            cluster_linkage="average",
         )
-        self.assertGreater(out["n_clusters"], 1)
-        self.assertTrue(out["cut_by_tau"])
+        self.assertFalse(out["cut_by_tau"])
+        self.assertTrue(out["auto_k"])
+        self.assertEqual(out["target_k"], 8)
+        self.assertEqual(out["n_outliers"], 0)
+        self.assertGreaterEqual(out["n_clusters"], 6)
+        self.assertLessEqual(out["n_clusters"], 14)
+        sizes = [
+            int(np.sum(out["labels"] == c))
+            for c in sorted(set(int(v) for v in out["labels"]))
+        ]
+        self.assertTrue(sizes)
+        self.assertLessEqual(max(sizes), int(out["max_cluster_size"] or 99))
 
     def test_eject_far_from_group_beta(self):
         # 两近点 + 一点远：组β取近点中心时远点应被踢
@@ -231,12 +235,16 @@ class TestFactorOlsClusters(unittest.TestCase):
         for cl in clusters:
             panel = cl.get("factor_ic_panel") or {}
             self.assertTrue(panel.get("success"), cl.get("label"))
-            self.assertEqual(panel.get("mode"), "group_ts_ic")
             rows = panel.get("rows") or []
             self.assertGreater(len(rows), 0)
-            self.assertTrue(any(r.get("sample_count") for r in rows))
-            if not cl.get("singleton"):
+            if cl.get("singleton"):
+                self.assertEqual(panel.get("mode"), "group_ts_ic")
+                self.assertTrue(any(r.get("sample_count") for r in rows))
+            else:
+                self.assertEqual(panel.get("mode"), "group_cs_ic", cl.get("label"))
                 self.assertIn("max_within_dist", cl)
+                # 合成短序列可能日截面稀疏；只要走了组内截面口径即可
+                self.assertIn("组内按日截面", panel.get("note") or "")
 
     def test_beta_scale_resolve_and_zscore(self):
         self.assertEqual(resolve_beta_scale("none"), "none")
@@ -258,6 +266,26 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertIsNone(by["momentum"]["icir"])
         self.assertEqual(by["missing"]["exclusion_reason"], "sparse")
 
+    def test_group_cs_ic_panel_basic(self):
+        stock_bars = {
+            f"S{i:02d}": _bars_variant(50, 1.0 + i * 0.02, 0.001 * (i + 1))
+            for i in range(4)
+        }
+        out = group_cs_ic_panel(
+            stock_bars,
+            ["momentum", "volatility"],
+            horizon_days=3,
+            pit_fundamentals=False,
+        )
+        self.assertTrue(out["success"])
+        self.assertEqual(out["mode"], "group_cs_ic")
+        self.assertEqual(out["stock_count"], 4)
+        rows = out.get("rows") or []
+        self.assertGreaterEqual(len(rows), 1)
+        self.assertTrue(
+            any(r.get("ic") is not None or int(r.get("sample_count") or 0) >= 0 for r in rows)
+        )
+
     def test_cluster_needs_two_fits(self):
         out = compute_factor_ols_cluster_report(
             [{"code": "600519", "bars": rising_bars(50)}],
@@ -273,22 +301,31 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertIn("quant-ols-clusters-run", html)
         self.assertIn("跑分组", html)
         self.assertIn("quant-probe-fold", html)
-        self.assertIn("纸面持仓", html)
+        self.assertIn("观察池", html)
         self.assertIn("同组同建模", html)
         self.assertIn("quant-global-fold", html)
-        self.assertIn("全局对照 · 阈值 / 横截面", html)
-        self.assertIn("探针 · 单票 vs 所在组", html)
+        self.assertIn("watching-section-title\">对照</", html)
+        self.assertIn("watching-section-title\">探针</", html)
+        self.assertIn("watching-section-title\">日报</", html)
+        self.assertIn("watching-section-title\">分组</", html)
         js_path = os.path.join(ROOT, "web/static/js/quant.js")
         with open(js_path, encoding="utf-8") as f:
             js = f.read()
-        self.assertIn("IC·n日", js)
+        self.assertIn("probeIcFieldsFromRow", js)
+        self.assertIn("组ICIR", js)
         self.assertIn("formatMemberChipsHtml", js)
         self.assertIn('quant-fold quant-cluster-group-fold', js)
+        # 分组默认折叠（无 open）
+        self.assertNotIn("quant-cluster-group-fold\" open", js)
+        self.assertNotIn("quant-cluster-group-fold' open", js)
         self.assertIn("probeStatusBadge", js)
         self.assertIn("is-scan-hot", js)
         self.assertIn("fmtOlsCell", js)
         self.assertIn("quant-cell-empty", js)
         self.assertIn("watching-react-grid quant-research-grid", js)
+        self.assertIn("quant-cluster-landing", js)
+        self.assertIn("clusterLandingHtml", js)
+        self.assertIn("① 对照", js)
         self.assertNotIn("① 花名册", js)
 
     def test_api_clusters_mocked(self):

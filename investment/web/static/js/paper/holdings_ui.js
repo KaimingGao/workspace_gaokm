@@ -186,8 +186,14 @@ export function buildPaperHoldingsTableHtml({
             reasons: h.score_reasons || [],
             hard_reject: h.hard_reject,
             reject_reason: h.reject_reason || "",
+            weight_source: h.weight_source || "",
+            cluster_label: h.cluster_label || "",
+            cluster_mode: h.cluster_mode || "",
+            cluster_version: h.cluster_version,
+            score_global: h.score_global,
+            score_cluster: h.score_cluster,
           })
-        )}" title="点击看评分明细">${fmtScore(score)}</td>` +
+        )}" title="悬停查看评分与权重来源">${fmtScore(score)}</td>` +
         `<td class="num paper-hold-pnl ${metricCls(pnl)}">${fmtPct(pnl, {
           signed: true,
         })}</td>` +

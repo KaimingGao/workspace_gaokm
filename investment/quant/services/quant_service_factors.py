@@ -258,12 +258,12 @@ class QuantFactorMixin:
         beta_scale: str = "feature_zscore",
         cluster_method: str = "hierarchical",
         cluster_linkage: str = "complete",
-        within_dist_quantile: float = 0.25,
+        within_dist_quantile: float = 0.75,
         run_oos_gate: bool = True,
         oos_tol_pp: float = 1.0,
         run_group_score: bool = True,
         run_pool_merge: bool = True,
-        top_n_per_group: int = 1,
+        top_n_per_group: int = 10,
     ) -> Dict[str, Any]:
         """研究池：β 聚类 → 组权 → 组内 OOS → 分组 score → 分池合成（不写 config）。
 
@@ -293,25 +293,33 @@ class QuantFactorMixin:
         except Exception:
             holdings_raw = []
 
-        # 聚类宇宙 = 仅纸面持仓（不再并入观察池）
+        watchlist: List[Any] = []
+        try:
+            from core.watching_store import read_watching
+
+            watchlist = list((read_watching() or {}).get("watchlist") or [])
+        except Exception:
+            watchlist = []
+
+        # 聚类宇宙 = 全部观察池（纸面持仓仅作落地映射参考，不进聚类）
         uni_meta = merge_cluster_universe(
-            [],
+            watchlist,
             holdings_raw,
             watching_limit=watching_limit,
-            universe_mode="holdings",
+            universe_mode="watching",
         )
         codes = list(uni_meta["codes"])
         limit = int(uni_meta["watching_limit"])
         if len(codes) < 2:
             return {
                 "success": False,
-                "error": "纸面持仓至少 2 只才可按 β 分组",
+                "error": "观察池至少 2 只才可按 β 分组",
                 "task": "factor_ols_clusters",
                 "mode": "ols_beta_clusters",
                 "stock_count": len(codes),
                 "watching_limit": limit,
-                "universe_mode": "holdings",
-                "watching_codes": [],
+                "universe_mode": "watching",
+                "watching_codes": list(uni_meta.get("watching_codes") or []),
                 "holdings_codes": list(uni_meta["holdings_codes"]),
                 "holdings_added": list(uni_meta["holdings_added"]),
                 "universe_count": int(uni_meta["universe_count"]),
@@ -377,14 +385,16 @@ class QuantFactorMixin:
             beta_scale=str(beta_scale or "feature_zscore"),
             cluster_method=str(cluster_method or "hierarchical"),
             cluster_linkage=str(cluster_linkage or "complete"),
-            within_dist_quantile=float(within_dist_quantile or 0.25),
+            within_dist_quantile=float(within_dist_quantile or 0.75),
         )
         report["task"] = "factor_ols_clusters"
         report["lookback"] = lookback
         report["watching_limit"] = limit
-        report["universe_mode"] = "holdings"
-        # 统计以持仓宇宙为准；解析失败时回退原始列表，避免 UI 显示 0
-        report["watching_codes"] = watching_resolved or []
+        report["universe_mode"] = "watching"
+        # 统计以观察池宇宙为准；解析失败时回退原始列表，避免 UI 显示 0
+        report["watching_codes"] = watching_resolved or list(
+            uni_meta.get("watching_codes") or []
+        )
         report["holdings_codes"] = holdings_resolved or list(
             uni_meta["holdings_codes"]
         )
@@ -395,8 +405,18 @@ class QuantFactorMixin:
         report["universe_codes"] = resolved_codes or list(uni_meta["codes"])
         report["holdings_raw_count"] = len(holdings_raw)
         report["universe_note"] = (
-            f"宇宙=纸面持仓 {report['universe_count']} 只"
+            f"宇宙=观察池全部 {report['universe_count']} 只"
         )
+        # 成员展示用：报价/解析到的中文名（研究枢纽未拉观察名单时也能显示）
+        name_by_code: Dict[str, str] = {}
+        for code_key, q in (quotes_by_code or {}).items():
+            if not isinstance(q, dict):
+                continue
+            c = str(code_key or "").strip()
+            nm = str(q.get("stock_name") or q.get("name") or "").strip()
+            if c and nm:
+                name_by_code[c] = nm
+        report["name_by_code"] = name_by_code
         if report.get("success"):
             attach_cluster_oos_gates(
                 report,
@@ -417,7 +437,7 @@ class QuantFactorMixin:
                     report,
                     bars_by_code,
                     horizon_days=horizon_days,
-                    top_n_per_group=int(top_n_per_group or 1),
+                    top_n_per_group=int(top_n_per_group or 10),
                     run_pool_merge=bool(run_pool_merge),
                 )
                 attach_cluster_pool_artifact(report)

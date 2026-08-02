@@ -37,6 +37,10 @@ import {
   renderPaperT0Preview as renderPaperT0PreviewUi,
 } from "./paper/t0_ui.js";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
+import {
+  formatWeightSourceNote,
+  createScoreTooltipController,
+} from "./score_tooltip.js";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 
@@ -606,78 +610,10 @@ export function initPaper(ctx) {
       .join("");
   }
 
-  let _scoreTooltipEl = null;
-  function showScoreTooltip(cell) {
-    let raw;
-    try {
-      raw = JSON.parse(cell.dataset.scoreDetail || "{}");
-    } catch (_) {
-      raw = {};
-    }
-    const formula = raw.formula || "";
-    const reasons = raw.reasons || [];
-    const hardReject = raw.hard_reject;
-    const rejectReason = raw.reject_reason || "";
-
-    if (!formula && !reasons.length && !hardReject) return;
-
-    let html = '<div class="score-detail">';
-    if (formula) {
-      const highlighted = formula.replace(
-        /(\d+\.\d+|[=+\-×])/g,
-        '<span class="score-formula-highlight">$1</span>'
-      );
-      html += `<div class="score-formula-section">
-        <div class="score-section-title">评分公式</div>
-        <div class="score-formula">${highlighted}</div>
-      </div>`;
-    }
-    if (hardReject && rejectReason) {
-      html += `<div class="score-detail-reject">
-        <span class="score-detail-reject-icon">⚠</span>
-        <span class="score-detail-reject-text">${escapeText(rejectReason)}</span>
-      </div>`;
-    }
-    if (reasons.length) {
-      html += `<div class="score-reasons-section">
-        <div class="score-section-title">评分理由</div>
-        <ul class="score-reasons">`;
-      reasons.forEach((rsn) => {
-        let cls = "neutral";
-        if (/强于|高于|上升|增加|优秀|良好|高/.test(rsn)) cls = "pos";
-        else if (/弱于|低于|下降|减少|较差|低/.test(rsn)) cls = "neg";
-        html += `<li class="${cls}">${escapeText(rsn)}</li>`;
-      });
-      html += "</ul></div>";
-    }
-    html += "</div>";
-
-    if (_scoreTooltipEl) _scoreTooltipEl.remove();
-    const tip = document.createElement("div");
-    tip.className = "score-tooltip";
-    tip.innerHTML = html;
-    document.body.appendChild(tip);
-    _scoreTooltipEl = tip;
-
-    const rect = cell.getBoundingClientRect();
-    const tipRect = tip.getBoundingClientRect();
-    let left = rect.left + rect.width / 2 - tipRect.width / 2;
-    left = Math.max(8, Math.min(left, window.innerWidth - tipRect.width - 8));
-    let top = rect.bottom + 6;
-    if (top + tipRect.height > window.innerHeight - 8) {
-      top = rect.top - tipRect.height - 6;
-    }
-    tip.style.left = left + "px";
-    tip.style.top = top + "px";
-
-    const close = (ev) => {
-      if (tip.contains(ev.target)) return;
-      tip.remove();
-      _scoreTooltipEl = null;
-      document.removeEventListener("click", close, true);
-    };
-    setTimeout(() => document.addEventListener("click", close, true), 0);
-  }
+  const scoreTips = createScoreTooltipController();
+  const hideScoreTooltip = () => scoreTips.hide();
+  const showScoreTooltip = (cell, opts) => scoreTips.show(cell, opts);
+  const showPlainTooltip = (anchor, text) => scoreTips.showPlain(anchor, text);
 
   function sortHoldings(list) {
     return sortHoldingsRows(list, holdingsSortKey, holdingsSortDir);
@@ -1011,7 +947,7 @@ export function initPaper(ctx) {
       if (scoreCell) {
         e.preventDefault();
         e.stopPropagation();
-        showScoreTooltip(scoreCell);
+        showScoreTooltip(scoreCell, { sticky: true });
         return;
       }
       const sortThEl = e.target.closest("th.paper-hold-sort");
@@ -1099,6 +1035,22 @@ export function initPaper(ctx) {
         setTradeStatus(String(err.message || err), { error: true });
       }
     });
+    holdingsTableEl.addEventListener("mouseover", (e) => {
+      const scoreCell = e.target.closest(".paper-hold-score[data-score-detail]");
+      if (!scoreCell || !holdingsTableEl.contains(scoreCell)) return;
+      if (scoreTips.tipAnchor === scoreCell && scoreTips.tipEl) return;
+      showScoreTooltip(scoreCell, { sticky: false });
+    });
+    holdingsTableEl.addEventListener("mouseout", (e) => {
+      const from = e.target.closest(".paper-hold-score[data-score-detail]");
+      if (!from) return;
+      const to = e.relatedTarget;
+      if (to && from.contains(to)) return;
+      if (scoreTips.tipEl && to && scoreTips.tipEl.contains(to)) return;
+      // sticky（点击）时不因移出单元格立刻关掉
+      if (scoreTips.tipEl && scoreTips.tipEl.dataset.sticky === "1") return;
+      hideScoreTooltip();
+    });
   }
 
   async function openPaperDialog() {
@@ -1120,7 +1072,15 @@ export function initPaper(ctx) {
     const progressEl = document.getElementById("paper-progress");
     const progressFill = document.getElementById("paper-progress-fill");
     const progressText = document.getElementById("paper-progress-text");
-    const runBtns = ["paper-run", "paper-adjust", "paper-daily", "paper-daily-n5", "paper-feedback-alerts", "paper-init"]
+    const runBtns = [
+      "paper-run",
+      "paper-adjust",
+      "paper-cluster-rebalance",
+      "paper-daily",
+      "paper-daily-n5",
+      "paper-feedback-alerts",
+      "paper-init",
+    ]
       .map((id) => document.getElementById(id))
       .filter(Boolean);
 
@@ -1284,11 +1244,25 @@ export function initPaper(ctx) {
       };
 
       function buildScoreDetail(r) {
-        if (!r.reasons && !r.score_formula && !r.hard_reject) {
+        if (
+          !r.reasons &&
+          !r.score_formula &&
+          !r.hard_reject &&
+          !r.weight_source &&
+          !r.cluster_label
+        ) {
           return '<div class="score-detail-empty">无评分详情</div>';
         }
 
         let html = '<div class="score-detail">';
+        html += formatWeightSourceNote({
+          weight_source: r.weight_source,
+          cluster_label: r.cluster_label,
+          cluster_mode: r.cluster_mode,
+          cluster_version: r.cluster_version,
+          score_global: r.score_global,
+          score_cluster: r.score_cluster,
+        });
 
         if (r.score_formula) {
           let formula = String(r.score_formula || "");
@@ -1343,13 +1317,48 @@ export function initPaper(ctx) {
             else if (r.score >= 50) scoreClass = "medium";
             else scoreClass = "low";
           }
+          const oldSh =
+            r.old_shares != null
+              ? Number(r.old_shares)
+              : r.shares_before != null
+                ? Number(r.shares_before)
+                : null;
+          const newSh =
+            r.new_shares != null
+              ? Number(r.new_shares)
+              : r.shares_after != null
+                ? Number(r.shares_after)
+                : null;
+          // 优先用股数差；避免 shares_change=0 却挡住 before/after 回算
+          let shChange = null;
+          if (
+            oldSh != null &&
+            newSh != null &&
+            Number.isFinite(oldSh) &&
+            Number.isFinite(newSh)
+          ) {
+            shChange = newSh - oldSh;
+          } else if (
+            r.shares_change != null &&
+            Number.isFinite(Number(r.shares_change))
+          ) {
+            shChange = Number(r.shares_change);
+          }
           const changeText =
-            r.shares_change > 0
-              ? `+${r.shares_change}`
-              : r.shares_change < 0
-                ? `${r.shares_change}`
-                : "—";
-          const hasDetail = !!(r.factors || r.factor_contrib || r.reasons || r.score_formula);
+            shChange == null || !Number.isFinite(shChange)
+              ? "—"
+              : shChange > 0
+                ? `+${Math.round(shChange)}`
+                : shChange < 0
+                  ? `${Math.round(shChange)}`
+                  : "0";
+          const hasDetail = !!(
+            r.factors ||
+            r.factor_contrib ||
+            r.reasons ||
+            r.score_formula ||
+            r.weight_source
+          );
           const expandIcon = hasDetail
             ? '<span class="rebalance-expand-icon" aria-hidden="true">▸</span>'
             : "";
@@ -1365,6 +1374,17 @@ export function initPaper(ctx) {
           )
             decisionTagClass = "sell";
 
+          // 「卖出」类：悬停注释说明清仓含义（与「减仓」区分）
+          let decisionTitle = "";
+          if (decision.includes("止损卖出")) {
+            decisionTitle = "止损规则触发，预演清仓；点「确认调仓」后才成交";
+          } else if (decision.includes("超时卖出")) {
+            decisionTitle = "持有超时且趋势向下，预演清仓；点「确认调仓」后才成交";
+          } else if (decision.includes("卖出")) {
+            decisionTitle =
+              "不在分池目标簿：所在组当前相对序未进组内 Top-N（或未映射/硬拒绝），预演清仓；点「确认调仓」后才成交";
+          }
+
           const name = escapeText(r.stock_name || r.stock_code || "");
           const code = escapeText(r.stock_code || "");
           const reason = escapeText(r.reason || "—");
@@ -1378,14 +1398,30 @@ export function initPaper(ctx) {
             `</td>` +
             `<td class="num rebalance-score ${scoreClass}">${scoreText}${expandIcon}</td>` +
             `<td class="num rebalance-shares">` +
-            `<span class="rebalance-shares-old">${escapeText(String(r.old_shares ?? "—"))}</span>` +
+            `<span class="rebalance-shares-old">${escapeText(
+              String(
+                oldSh != null && Number.isFinite(oldSh)
+                  ? Math.round(oldSh)
+                  : "—"
+              )
+            )}</span>` +
             `<span class="rebalance-shares-arrow">→</span>` +
-            `<span class="rebalance-shares-new">${escapeText(String(r.new_shares ?? "—"))}</span>` +
+            `<span class="rebalance-shares-new">${escapeText(
+              String(
+                newSh != null && Number.isFinite(newSh)
+                  ? Math.round(newSh)
+                  : "—"
+              )
+            )}</span>` +
             `</td>` +
-            `<td class="num rebalance-change">${changeText}</td>` +
-            `<td class="rebalance-decision"><span class="rebalance-decision-tag ${decisionTagClass}">${escapeText(
-              decision || "—"
-            )}</span></td>` +
+            `<td class="num rebalance-change">${escapeText(changeText)}</td>` +
+            `<td class="rebalance-decision"><span class="rebalance-decision-tag ${decisionTagClass}` +
+            `${decisionTitle ? " has-tip" : ""}"` +
+            `${
+              decisionTitle
+                ? ` data-tip="${escapeText(decisionTitle)}"`
+                : ""
+            }>${escapeText(decision || "—")}</span></td>` +
             `<td class="rebalance-reason">${reason}</td>` +
             `</tr>` +
             (hasDetail
@@ -1423,6 +1459,15 @@ export function initPaper(ctx) {
             if (icon) icon.textContent = "▸";
           }
         });
+      });
+
+      container.querySelectorAll(".rebalance-decision-tag[data-tip]").forEach((el) => {
+        el.addEventListener("mouseenter", (e) => {
+          e.stopPropagation();
+          showPlainTooltip(el, el.getAttribute("data-tip") || "");
+        });
+        el.addEventListener("mouseleave", () => hideScoreTooltip());
+        el.addEventListener("click", (e) => e.stopPropagation());
       });
 
       section.hidden = false;
@@ -1617,6 +1662,98 @@ export function initPaper(ctx) {
     });
     }
 
+    let followClusterActive = false;
+    let followClusterPreviewPending = false;
+
+    async function refreshFollowClusterStatus() {
+      const el = document.getElementById("follow-cluster-status");
+      const clusterBtn = document.getElementById("paper-cluster-rebalance");
+      try {
+        const res = await fetch("/api/quant/cluster-live/status");
+        const data = await res.json().catch(() => ({}));
+        const cs = (data && data.cluster_scoring) || {};
+        const act = (data && data.active) || {};
+        const book = (data && data.book) || {};
+        const mode = cs.mode || "off";
+        followClusterActive = mode === "active" && !!act.exists;
+        if (el) {
+          if (!data || !data.success) {
+            el.textContent = "分组打分：状态不可用（研究枢纽未接通）";
+          } else if (mode === "off") {
+            el.textContent =
+              "分组打分：未启用 · score 用全局权 · 可在研究枢纽「对照→启用」";
+          } else if (mode === "shadow") {
+            el.textContent = `分组打分：对照中 · 映射 v${
+              act.version ?? "—"
+            } · 主分仍全局 · 启用后本页 score/分池簿生效`;
+          } else {
+            el.textContent = `分组打分：已启用 · 映射 v${
+              act.version ?? "—"
+            } · 簿 ${book.name_count ?? "—"} 只 · 预演/分池调仓吃组权`;
+          }
+        }
+        if (clusterBtn) clusterBtn.hidden = !followClusterActive;
+      } catch (_) {
+        followClusterActive = false;
+        if (el) el.textContent = "分组打分：加载失败";
+        if (clusterBtn) clusterBtn.hidden = true;
+      }
+    }
+
+    async function runClusterPaperRebalance({ dryRun = true } = {}) {
+      setPaperBusy(true);
+      showProgress(1, dryRun ? "分池预演…" : "分池落账…");
+      try {
+        const res = await fetch("/api/paper/rebalance", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            top_k: 10,
+            limit: 30,
+            cluster_mode: true,
+            dry_run: !!dryRun,
+          }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || data.success === false || data.ok === false) {
+          const detail = data.detail || data.error || res.statusText;
+          const msg = Array.isArray(detail)
+            ? detail
+                .map((d) => (d && d.msg) || JSON.stringify(d))
+                .join("；")
+            : detail;
+          throw new Error(msg || "分池调仓失败");
+        }
+        const sellN = (data.sell_trades || []).length;
+        const buyN = (data.buy_trades || []).length;
+        const report = data.rebalance_report || [];
+        followClusterPreviewPending = !!dryRun;
+        setPaperMetaText(
+          (dryRun ? "分池预演" : "分池落账") +
+            ` · 簿 ${data.observation_pool_count ?? "—"} · 卖 ${sellN} · 买 ${buyN}` +
+            (data.cluster_mode ? " · cluster" : "")
+        );
+        renderRebalanceReport(report, {
+          preview: !!dryRun,
+          cashImpact: null,
+          riskGate: data.risk_gate || null,
+          opsReport: {
+            strategy_id: "cluster_pool",
+            cost_model: (data.summary || {}).cost_model,
+            note: data.note || (dryRun ? "分池预演未写账" : "分池已落账"),
+          },
+        });
+        if (!dryRun) {
+          followClusterPreviewPending = false;
+          await loadPaper();
+        }
+        showProgress(100, "");
+      } finally {
+        setPaperBusy(false);
+        hideProgress();
+      }
+    }
+
     const paperAdjustBtn = document.getElementById("paper-adjust");
     if (paperAdjustBtn) {
     paperAdjustBtn.addEventListener("click", async (e) => {
@@ -1626,11 +1763,34 @@ export function initPaper(ctx) {
       if (rebalanceSection) rebalanceSection.hidden = true;
       e.preventDefault();
       try {
-        await runPaper(true, { dryRun: true });
+        await refreshFollowClusterStatus();
+        if (followClusterActive) {
+          await runClusterPaperRebalance({ dryRun: true });
+        } else {
+          followClusterPreviewPending = false;
+          await runPaper(true, { dryRun: true });
+        }
       } catch (err) {
         setPaperMetaText(String(err.message || err));
       }
     });
+    }
+
+    const paperClusterBtn = document.getElementById("paper-cluster-rebalance");
+    if (paperClusterBtn) {
+      paperClusterBtn.addEventListener("click", async (e) => {
+        e.preventDefault();
+        try {
+          await refreshFollowClusterStatus();
+          if (!followClusterActive) {
+            setPaperMetaText("请先在研究枢纽启用分组打分（mode=active）");
+            return;
+          }
+          await runClusterPaperRebalance({ dryRun: true });
+        } catch (err) {
+          setPaperMetaText(String(err.message || err));
+        }
+      });
     }
 
     const rebalanceConfirmBtn = document.getElementById("paper-rebalance-confirm");
@@ -1640,7 +1800,19 @@ export function initPaper(ctx) {
         if (rebalanceConfirmBtn.disabled) return;
         rebalanceConfirmBtn.disabled = true;
         try {
-          await runPaper(true, { dryRun: false });
+          if (followClusterPreviewPending || followClusterActive) {
+            if (
+              !window.confirm(
+                "确认按分池合并簿落账？\n将改写 paper.json；不写全局 weights。"
+              )
+            ) {
+              rebalanceConfirmBtn.disabled = false;
+              return;
+            }
+            await runClusterPaperRebalance({ dryRun: false });
+          } else {
+            await runPaper(true, { dryRun: false });
+          }
         } catch (err) {
           setPaperMetaText(String(err.message || err));
           rebalanceConfirmBtn.disabled = false;
@@ -2153,5 +2325,35 @@ export function initPaper(ctx) {
     loadPaper().catch((err) => {
       setPaperMetaText(String(err.message || err));
     });
+    // 研究枢纽启用的组权 → 本页 score / 分池调仓
+    fetch("/api/quant/cluster-live/status")
+      .then((r) => r.json())
+      .then((data) => {
+        const el = document.getElementById("follow-cluster-status");
+        const clusterBtn = document.getElementById("paper-cluster-rebalance");
+        if (!el) return;
+        const cs = (data && data.cluster_scoring) || {};
+        const act = (data && data.active) || {};
+        const book = (data && data.book) || {};
+        const mode = cs.mode || "off";
+        const active = mode === "active" && !!act.exists;
+        if (!data || !data.success) {
+          el.textContent = "分组打分：状态不可用";
+        } else if (mode === "off") {
+          el.textContent =
+            "分组打分：未启用 · score 用全局权 · 研究枢纽「对照→启用」后生效";
+        } else if (mode === "shadow") {
+          el.textContent = `分组打分：对照中 · v${act.version ?? "—"} · 主分仍全局`;
+        } else {
+          el.textContent = `分组打分：已启用 · v${act.version ?? "—"} · 簿 ${
+            book.name_count ?? "—"
+          } 只 · 预演走分池簿`;
+        }
+        if (clusterBtn) clusterBtn.hidden = !active;
+      })
+      .catch(() => {
+        const el = document.getElementById("follow-cluster-status");
+        if (el) el.textContent = "分组打分：加载失败";
+      });
   }
 }

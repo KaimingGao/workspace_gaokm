@@ -374,6 +374,12 @@ def run_daily_cycle(
             "hard_reject": signal.get("hard_reject") if signal else None,
             "reject_reason": signal.get("reject_reason") if signal else None,
             "score_formula": score_formula,
+            "weight_source": signal.get("weight_source") if signal else None,
+            "cluster_label": signal.get("cluster_label") if signal else None,
+            "cluster_mode": signal.get("cluster_mode") if signal else None,
+            "cluster_version": signal.get("cluster_version") if signal else None,
+            "score_global": signal.get("score_global") if signal else None,
+            "score_cluster": signal.get("score_cluster") if signal else None,
         })
 
     # 按评分降序排列

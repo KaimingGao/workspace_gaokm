@@ -63,6 +63,16 @@ def _blank(code: str, *, added_at: Optional[str] = None, error: Optional[str] = 
         "volume_ratio": None,
         "pe": None,
         "pb": None,
+        # 与交易执行持仓分同源：score_stock 读 cluster_scoring
+        "cluster_mode": None,
+        "weight_source": None,
+        "cluster_label": None,
+        "cluster_version": None,
+        "score_global": None,
+        "score_cluster": None,
+        "delta_vs_global": None,
+        "score_formula": None,
+        "score_reasons": None,
         "added_at": added_at,
         "days_watched": _days_since(added_at),
         "peer_rank": None,
@@ -102,13 +112,14 @@ def _insight_one(
     added_at: Optional[str] = None,
     valuation: Optional[Dict[str, Optional[float]]] = None,
 ) -> Dict[str, Any]:
-    """单票轻量摘要：score_stock 一次取齐；不二次打指数/基本面/同业。"""
+    """单票轻量摘要：与交易执行同源 ``score_stock``（含分组权）；不二次打指数/基本面/同业。"""
     out = _blank(code, added_at=added_at)
     try:
         from core.signal.score_stock import score_stock
         from core.stance import compute_buy_stance
         from core.ports.market import query_quote
 
+        # cluster_mode=None → 读 signal_config.cluster_scoring（active 时用组权，同持仓表）
         scored = score_stock(code, horizon_days=3, skip_fundamentals=True)
         quote = (scored or {}).get("quote") or {}
         if not quote:
@@ -117,6 +128,39 @@ def _insight_one(
         out["score"] = _f(item.get("score"))
         out["hard_reject"] = bool(item.get("hard_reject"))
         out["reject_reason"] = (item.get("reject_reason") or None) if out["hard_reject"] else None
+        out["cluster_mode"] = item.get("cluster_mode") or scored.get("cluster_mode")
+        out["weight_source"] = item.get("weight_source")
+        out["cluster_label"] = item.get("cluster_label")
+        out["cluster_version"] = item.get("cluster_version")
+        out["score_global"] = _f(item.get("score_global"))
+        out["score_cluster"] = _f(item.get("score_cluster"))
+        out["delta_vs_global"] = _f(item.get("delta_vs_global"))
+        reasons = item.get("reasons") or []
+        out["score_reasons"] = list(reasons) if isinstance(reasons, list) else []
+        # 公式权向量：active 组权时与交易执行持仓表一致
+        weights = None
+        src = str(item.get("weight_source") or "")
+        if src.startswith("cluster:"):
+            try:
+                from core.signal.cluster_live import lookup_code_weights
+
+                mapped = lookup_code_weights(code) or {}
+                if isinstance(mapped.get("weights"), dict):
+                    weights = mapped["weights"]
+            except Exception:
+                weights = None
+        try:
+            from services.paper_helpers import _build_score_formula
+
+            out["score_formula"] = _build_score_formula(
+                {
+                    "sub_scores": item.get("sub_scores"),
+                    "factor_contrib": item.get("factor_contrib"),
+                    "weights": weights,
+                }
+            ) or None
+        except Exception:
+            out["score_formula"] = None
         out["volume"] = quote.get("volume")
         factors = item.get("factors") or {}
         out["volume_ratio"] = _f(factors.get("volume_ratio") or factors.get("turnover_ratio"))

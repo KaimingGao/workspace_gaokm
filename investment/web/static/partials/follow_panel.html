@@ -18,12 +18,10 @@
         模拟账户 · 零成本假设
       </p>
       <p class="follow-hero-note">
-        验证闭环：
-        <a class="follow-hero-link" href="/replay">历史回测</a>
-        → 本页策略调仓 / 做T
-        →
-        <a class="follow-hero-link" href="/strategy">策略晋升</a>
-        · 拟合见
+        <a class="follow-hero-link" href="/replay">回测</a>
+        → 调仓 / 做T →
+        <a class="follow-hero-link" href="/strategy">晋升</a>
+        ·
         <a class="follow-hero-link" href="/platform">北极星</a>
       </p>
     </div>
@@ -97,8 +95,11 @@
     <section class="follow-ops-card" id="follow-fold-rebalance" aria-label="策略调仓">
       <header class="follow-ops-head">
         <h3 class="follow-ops-title">策略调仓</h3>
-        <p class="follow-ops-hint" title="买卖清单由 signal 规则生成；成交后持仓标为「策略」。日常加减仓请用上方持仓表。完整验证请对照历史回测">纸面验策略 · 预演后确认</p>
+        <p class="follow-ops-hint" title="研究枢纽对照/启用后，此处吃 live 组权更新 score；买卖只在本页。日常加减仓用上方持仓表">纸面验策略 · 预演后确认</p>
       </header>
+      <p id="follow-cluster-status" class="follow-ops-note" aria-live="polite">
+        分组打分：加载中…
+      </p>
       <div class="follow-ops-row quant-actions-inline">
         <label class="follow-strategy-field">
           <span class="sr-only">选择策略</span>
@@ -111,9 +112,18 @@
           type="button"
           id="paper-adjust"
           class="dialog-btn follow-adjust"
-          title="先预演评分与买卖清单，确认后再成交"
+          title="预演调仓：先出买卖清单，点「确认调仓」才写纸面。未启用分组时走策略/全局评分加减仓；研究枢纽已「启用」组权（mode=active）时自动改走分池合并簿。"
         >
           预演调仓
+        </button>
+        <button
+          type="button"
+          id="paper-cluster-rebalance"
+          class="dialog-btn secondary"
+          hidden
+          title="分池调仓：强制按研究枢纽 live 分组簿（组权→组内 Top-N→合并）预演。需先在研究页「对照→启用」；与预演在 active 时路径相同，未启用时本按钮不可用。"
+        >
+          分池调仓
         </button>
         <button
           type="button"

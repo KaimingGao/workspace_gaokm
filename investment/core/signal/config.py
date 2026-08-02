@@ -93,8 +93,8 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
     "cluster_scoring": {
         "enabled": False,
         "mode": "off",
-        "top_n_per_group": 1,
-        "max_names": 10,
+        "top_n_per_group": 10,
+        "max_names": 40,
         "min_coverage": 0.5,
         "max_age_days": 14,
         "auto_demote_on_stale": True,

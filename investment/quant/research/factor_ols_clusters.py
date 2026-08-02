@@ -1,10 +1,8 @@
 """按单票 OLS β 相似度聚类，使同组可共用建模、异组各用各的（研究用，不写盘）。
 
 目的：OLS 表现相似的股票进同一组 → 组内池 OLS + 共用小步权；不同组独立建模。
-默认宇宙=纸面持仓。流程：逐票 OLS → β 缩尾+z-score → complete·τ切树
-→ 过远/Δβ异质票各自升为单票组 → 多票组池 OLS / 单票组单票 OLS → 小步建议权。
-
-类内直径 ≤ τ。离群不丢弃，各自成单票组单独建模。
+默认宇宙=观察池。流程：逐票 OLS → β 缩尾+z-score → average·目标 k（≈√N，3～8）
+→ 多票组池 OLS → 小步建议权。异质用探针核对（自动路径不再拆成单票堆）。
 
 ``beta_scale``：
 - ``feature_zscore``（默认）：列缩尾 + 因子维 z-score
@@ -47,17 +45,20 @@ def merge_cluster_universe(
     holdings: Sequence[Any],
     *,
     watching_limit: int = 8,
-    universe_mode: str = "holdings",
+    universe_mode: str = "watching",
 ) -> Dict[str, Any]:
     """构建聚类宇宙。
 
-    默认 ``universe_mode=holdings``：只用纸面持仓。
-    ``union``：观察池前 N ∪ 全部纸面持仓（兼容旧行为）。
+    默认 ``universe_mode=watching``：**全部**观察池（不截前 N）。
+    ``holdings``：仅纸面持仓（旧默认）。
+    ``union``：观察池前 N ∪ 全部纸面持仓（``watching_limit`` 仅约束观察侧）。
     """
     limit = clamp_watching_limit(watching_limit, 8)
-    mode = str(universe_mode or "holdings").strip().lower()
+    mode = str(universe_mode or "watching").strip().lower()
     if mode in ("paper", "holding", "holdings_only"):
         mode = "holdings"
+    if mode in ("watch", "watchlist", "watching_only"):
+        mode = "watching"
 
     holdings_codes: List[str] = []
     seen_h: set = set()
@@ -70,6 +71,40 @@ def merge_cluster_universe(
             continue
         seen_h.add(c)
         holdings_codes.append(c)
+
+    # 去重保序
+    watch_all: List[str] = []
+    seen_w: set = set()
+    for c in watchlist or []:
+        code = str(c).strip()
+        if not code or code in seen_w:
+            continue
+        seen_w.add(code)
+        watch_all.append(code)
+
+    if mode == "watching":
+        watching_codes = list(watch_all)
+        code_roles = {
+            c: {
+                "from_watching": True,
+                "from_holdings": c in seen_h,
+                "holdings_added": False,
+            }
+            for c in watching_codes
+        }
+        return {
+            "codes": list(watching_codes),
+            "watching_codes": list(watching_codes),
+            "holdings_codes": list(holdings_codes),
+            "holdings_added": [],
+            # 全量模式：limit 记实际只数，便于 UI/报告展示
+            "watching_limit": len(watching_codes),
+            "universe_count": len(watching_codes),
+            "universe_mode": "watching",
+            "code_roles": code_roles,
+        }
+
+    watching_codes = watch_all[:limit]
 
     if mode == "holdings":
         code_roles = {
@@ -91,8 +126,7 @@ def merge_cluster_universe(
             "code_roles": code_roles,
         }
 
-    watch_all = [str(c).strip() for c in (watchlist or []) if str(c).strip()]
-    watching_codes = watch_all[:limit]
+    # union
     watch_set = set(watching_codes)
     holdings_added = [c for c in holdings_codes if c not in watch_set]
     codes: List[str] = []
@@ -565,8 +599,12 @@ def soft_merge_or_eject_small(
     *,
     min_size: int = 2,
     tau: float,
+    absorb_far: bool = False,
 ) -> Tuple[np.ndarray, List[Dict[str, Any]], List[Dict[str, Any]]]:
-    """小组：与某组合并后直径仍 ≤ τ 才并入，否则踢离群（禁止远距硬并成一团）。"""
+    """小组：优先并入合并后直径 ≤ τ 的组；否则踢离群。
+
+    ``absorb_far=True``：无法在 τ 内合并时并入最近组（不产离群单票）。
+    """
     x = np.asarray(x, dtype=float)
     labels = np.asarray(labels, dtype=int).copy()
     min_size = max(1, int(min_size))
@@ -614,7 +652,7 @@ def soft_merge_or_eject_small(
             )
             labels[np.asarray(src_idx, dtype=int)] = best_t
             continue
-        # 并不进去：踢成离群（即使没有大组也不硬并）
+        # 并不进去：踢成离群；absorb_far 则硬并最近组
         nearest_d = None
         nearest_c = None
         for t in others or candidates:
@@ -622,6 +660,19 @@ def soft_merge_or_eject_small(
             d = complete_linkage_distance(x, src_idx, t_idx)
             if nearest_d is None or d < nearest_d:
                 nearest_d, nearest_c = d, t
+        if absorb_far and nearest_c is not None:
+            merges.append(
+                {
+                    "from": int(src),
+                    "to": int(nearest_c),
+                    "moved": int(len(src_idx)),
+                    "distance": None if nearest_d is None else round(float(nearest_d), 4),
+                    "threshold": round(tau, 4),
+                    "reason": "absorb_far",
+                }
+            )
+            labels[np.asarray(src_idx, dtype=int)] = int(nearest_c)
+            continue
         for i in src_idx:
             ejects.append(
                 {
@@ -643,18 +694,27 @@ def refine_cluster_labels(
     *,
     min_size: int = 2,
     tau: float,
+    strict_diameter: bool = True,
+    absorb_far: bool = False,
 ) -> Dict[str, Any]:
-    """直径压到 ≤ τ → 小组近并/远踢 → 再压直径 → 重编号。"""
+    """默认：直径压到 ≤ τ → 小组近并/远踢 → 再压直径 → 重编号。
+
+    ``strict_diameter=False``：不拆直径（配合目标 k，避免组数炸成单票堆）。
+    """
     x = np.asarray(x, dtype=float)
     labels = np.asarray(labels, dtype=int).copy()
     tau = max(float(tau), 1e-9)
-    labels, eject_diam = enforce_diameter_cap(x, labels, tau=tau)
+    eject_diam: List[Dict[str, Any]] = []
+    eject_diam2: List[Dict[str, Any]] = []
+    if strict_diameter:
+        labels, eject_diam = enforce_diameter_cap(x, labels, tau=tau)
     labels, merges, eject_small = soft_merge_or_eject_small(
-        x, labels, min_size=min_size, tau=tau
+        x, labels, min_size=min_size, tau=tau, absorb_far=absorb_far
     )
-    labels, eject_diam2 = enforce_diameter_cap(x, labels, tau=tau)
+    if strict_diameter:
+        labels, eject_diam2 = enforce_diameter_cap(x, labels, tau=tau)
     labels, merges2, eject_small2 = soft_merge_or_eject_small(
-        x, labels, min_size=min_size, tau=tau
+        x, labels, min_size=min_size, tau=tau, absorb_far=absorb_far
     )
     labels = _relabel_non_negative(labels)
     centers = _centers_from_labels(x, labels)
@@ -706,7 +766,7 @@ def enforce_min_cluster_size(
 ) -> Tuple[np.ndarray, np.ndarray, List[Dict[str, Any]]]:
     """兼容旧接口：走 refine（直径 τ + 近并远踢）。"""
     if tau is None:
-        tau = within_dist_tau(x, 0.25)
+        tau = within_dist_tau(x, 0.5)
     refined = refine_cluster_labels(x, labels, min_size=min_size, tau=float(tau))
     return refined["labels"], refined["centers"], refined["merges"]
 
@@ -955,6 +1015,101 @@ def auto_cluster_range(n: int, *, k_min: int = 2, k_max: int = 6) -> Tuple[int, 
     return lo, hi
 
 
+def default_n_clusters(n: int) -> int:
+    """观察池默认目标组数：约每组 5 只（n/5），夹在 4～10。
+
+    比 √n 略多，避免「4 组里一团过大」。
+    """
+    n = int(n)
+    if n <= 1:
+        return max(1, n)
+    if n <= 4:
+        return max(1, min(n - 1, 2)) if n >= 2 else 1
+    k = int(round(n / 5.0))
+    return max(4, min(10, k, n - 1))
+
+
+def default_max_cluster_size(n: int, k: int) -> int:
+    """单组上限：约 1.5× 理想组均规模，至少 5。"""
+    n = max(1, int(n))
+    k = max(1, int(k))
+    ideal = max(1, int(math.ceil(n / float(k))))
+    return max(5, ideal + 2, int(math.ceil(1.5 * ideal)))
+
+
+def split_oversized_clusters(
+    x: np.ndarray,
+    labels: np.ndarray,
+    *,
+    max_size: int,
+    linkage: str = "average",
+) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
+    """组员过多时对超大组做二分，直到各组 ≤ max_size。"""
+    x = np.asarray(x, dtype=float)
+    labels = np.asarray(labels, dtype=int).copy()
+    max_size = max(2, int(max_size))
+    link = str(linkage or "average").strip().lower()
+    if link not in ("complete", "average"):
+        link = "average"
+    splits: List[Dict[str, Any]] = []
+    next_id = max((int(v) for v in labels if int(v) >= 0), default=-1) + 1
+    guard = 0
+    while guard < 64:
+        guard += 1
+        oversized = None
+        for c in sorted(set(int(v) for v in labels if int(v) >= 0)):
+            idx = [i for i, lab in enumerate(labels) if int(lab) == c]
+            if len(idx) > max_size:
+                oversized = (c, idx)
+                break
+        if oversized is None:
+            break
+        cid, idx = oversized
+        if len(idx) < 2:
+            break
+        sub = x[np.asarray(idx, dtype=int)]
+        sub_lab, _ = agglomerative_labels(sub, n_clusters=2, linkage=link)
+        n0 = int(np.sum(sub_lab == 0))
+        n1 = int(np.sum(sub_lab == 1))
+        if n0 < 1 or n1 < 1:
+            # 退化：按到中心距离对半劈
+            center = sub.mean(axis=0)
+            order = sorted(
+                range(len(idx)),
+                key=lambda j: float(np.linalg.norm(sub[j] - center)),
+                reverse=True,
+            )
+            mid = max(1, len(order) // 2)
+            for j in order[:mid]:
+                labels[int(idx[j])] = next_id
+            splits.append(
+                {
+                    "from": int(cid),
+                    "to": int(next_id),
+                    "moved": int(mid),
+                    "reason": "oversized_half",
+                    "max_size": max_size,
+                }
+            )
+        else:
+            moved = 0
+            for j, gi in enumerate(idx):
+                if int(sub_lab[j]) == 1:
+                    labels[int(gi)] = next_id
+                    moved += 1
+            splits.append(
+                {
+                    "from": int(cid),
+                    "to": int(next_id),
+                    "moved": int(moved),
+                    "reason": "oversized_bisect",
+                    "max_size": max_size,
+                }
+            )
+        next_id += 1
+    return labels, splits
+
+
 def _partition_score(
     x: np.ndarray,
     labels: np.ndarray,
@@ -986,15 +1141,15 @@ def cluster_beta_vectors(
     n_clusters: Optional[int] = None,
     seed: int = 42,
     min_cluster_size: int = 2,
-    cluster_linkage: str = "complete",
-    within_dist_quantile: float = 0.25,
+    cluster_linkage: str = "average",
+    within_dist_quantile: float = 0.75,
     tau: Optional[float] = None,
 ) -> Dict[str, Any]:
     """对已尺度化的 β 矩阵聚类。
 
-    默认：complete-linkage + τ 切树（类内直径 ≤ τ，尽量多组）。
-    ``n_clusters`` 显式给定时先切到 k，再用同一 τ 压直径 / 近并远踢。
-    ``method=kmeans`` 仍可用，但会再套 τ 后处理。
+    默认：average-linkage 切到目标 k（≈√n，3～8），不做严格直径拆组。
+    ``n_clusters`` 显式给定时切到该 k。
+    ``method=kmeans`` 仍可用。
     """
     x = np.asarray(x, dtype=float)
     n = int(x.shape[0])
@@ -1003,9 +1158,9 @@ def cluster_beta_vectors(
         method_s = "hierarchical"
     elif method_s != "kmeans":
         method_s = "hierarchical"
-    link = str(cluster_linkage or "complete").strip().lower()
+    link = str(cluster_linkage or "average").strip().lower()
     if link not in ("complete", "average"):
-        link = "complete"
+        link = "average"
     min_size = max(1, int(min_cluster_size))
     q = float(within_dist_quantile)
     tau_v = float(tau) if tau is not None else within_dist_tau(x, q)
@@ -1030,33 +1185,62 @@ def cluster_beta_vectors(
         "n_outliers": 0,
         "distance_scale": None,
         "within_stats": [],
+        "target_k": None,
     }
     if n <= 1:
         return empty
 
-    auto_tau = n_clusters is None
+    auto_k = n_clusters is None
     candidates: List[Dict[str, Any]] = []
+    size_splits: List[Dict[str, Any]] = []
+    max_size_used: Optional[int] = None
+    # 自动：目标 k + 超大组二分；不 absorb_far（否则易塌成少数大团）
+    loose_refine = bool(auto_k)
 
     if method_s == "kmeans":
-        k = clamp_n_clusters(n_clusters if n_clusters is not None else 3, 3)
+        k = clamp_n_clusters(
+            n_clusters if n_clusters is not None else default_n_clusters(n), 3
+        )
         k = max(1, min(k, n))
         labels, _centers = kmeans_labels(x, n_clusters=k, seed=seed)
-    elif auto_tau:
-        labels, _centers = agglomerative_cut_by_tau(x, tau=tau_v, linkage=link)
+        target_k = k
+    elif auto_k:
+        k = default_n_clusters(n)
+        k = max(1, min(k, n))
+        # complete 比 average 更不易并出超级大团
+        link_auto = "complete" if link == "average" else link
+        labels, _centers = agglomerative_labels(x, n_clusters=k, linkage=link_auto)
+        link = link_auto
+        target_k = k
+        max_size_used = default_max_cluster_size(n, k)
+        labels, size_splits = split_oversized_clusters(
+            x, labels, max_size=max_size_used, linkage=link_auto
+        )
     else:
         k = clamp_n_clusters(n_clusters, 3)
         k = max(1, min(k, n))
         labels, _centers = agglomerative_labels(
             x, n_clusters=k, linkage=link
         )
+        target_k = k
 
     refined = refine_cluster_labels(
         x,
         labels,
-        min_size=min_size,
+        # 自动路径：不并小、不踢离群（否则又单票化）；靠目标 k + 超大组二分控规模
+        min_size=1 if auto_k else min_size,
         tau=tau_v,
+        strict_diameter=not loose_refine,
+        absorb_far=False,
     )
     labels = np.asarray(refined["labels"], dtype=int)
+    # 精炼后若再胀大，再劈一次
+    if auto_k and max_size_used is not None:
+        labels, size_splits2 = split_oversized_clusters(
+            x, labels, max_size=max_size_used, linkage=link
+        )
+        size_splits = list(size_splits) + list(size_splits2)
+        labels = _relabel_non_negative(labels)
     in_mask = labels >= 0
     sil_best = (
         silhouette_score(x[in_mask], labels[in_mask])
@@ -1065,15 +1249,18 @@ def cluster_beta_vectors(
         else None
     )
     outlier_indices = [int(i) for i in range(n) if int(labels[i]) < 0]
-    # 记录切树候选摘要（非轮廓搜 k）
-    if auto_tau:
+    centers = _centers_from_labels(x, labels)
+    if auto_k:
         sizes = [
             int(np.sum(labels == c))
             for c in sorted(set(int(v) for v in labels if int(v) >= 0))
         ]
         candidates.append(
             {
-                "mode": "tau_cut",
+                "mode": "target_k",
+                "target_k": int(target_k),
+                "max_cluster_size": max_size_used,
+                "size_splits": len(size_splits),
                 "tau": round(tau_v, 4),
                 "quantile": q,
                 "sizes": sizes,
@@ -1082,12 +1269,15 @@ def cluster_beta_vectors(
         )
     return {
         "labels": labels,
-        "centers": refined["centers"],
-        "n_clusters": int(refined["n_clusters"]),
+        "centers": centers,
+        "n_clusters": int(len(set(int(v) for v in labels if int(v) >= 0))),
         "method": method_s,
         "cluster_linkage": link,
-        "auto_k": auto_tau,
-        "cut_by_tau": bool(auto_tau and method_s == "hierarchical"),
+        "auto_k": auto_k,
+        "cut_by_tau": False,
+        "target_k": int(target_k),
+        "max_cluster_size": max_size_used,
+        "size_splits": size_splits,
         "silhouette": None if sil_best is None else round(float(sil_best), 4),
         "candidates": candidates,
         "merges": refined.get("merges") or [],
@@ -1097,23 +1287,67 @@ def cluster_beta_vectors(
         "within_dist_cap": round(tau_v, 4),
         "tau": round(tau_v, 4),
         "tau_quantile": q,
-        "n_outliers": int(refined.get("n_outliers") or 0),
+        "n_outliers": int(np.sum(labels < 0)),
         "distance_scale": refined.get("distance_scale"),
-        "within_stats": refined.get("within_stats") or [],
+        "within_stats": cluster_within_stats(x, labels),
     }
 
 
-def _draft_weights_from_ols(ols_report: Dict[str, Any]) -> Dict[str, Any]:
-    """组内 OLS → 符号小步建议权（复用现有规则，无 IC）。"""
+def _draft_weights_from_ols(
+    ols_report: Dict[str, Any],
+    *,
+    ic_panel: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """组内建议权：OLS β 优先（按 |β| 放大）；无 β 时用组内 IC 补位。"""
     from core.signal.weight_suggest import suggest_weights_from_ic
 
+    factors: List[Any] = []
+    ic_mode_panel = ""
+    if isinstance(ic_panel, dict):
+        factors = list(ic_panel.get("factors") or ic_panel.get("rows") or [])
+        ic_mode_panel = str(ic_panel.get("mode") or "")
+
+    # 组内截面 IC 有日序列 → 要求 ICIR；单票时序回退则不要求
+    require_icir = ic_mode_panel == "group_cs_ic"
+
     return suggest_weights_from_ic(
-        {"factors": [], "success": True},
+        {"factors": factors, "success": True},
         ols_report=ols_report,
         ic_mode="ols_cluster",
-        require_icir=False,
-        min_samples=8,
+        require_icir=require_icir,
+        min_samples=6,
+        min_ic=0.02,
+        max_delta=0.06,
+        ols_delta=0.05,
+        min_ols_beta=0.02,
+        weak_ic_decay=0.01,
+        ols_scale_by_beta=True,
+        ols_scale_cap=3.0,
+        prefer_ols=True,
     )
+
+
+def _weight_suggest_public(draft: Dict[str, Any]) -> Dict[str, Any]:
+    """一组一表 / 悬停注释所需字段（含 Δ 来源与 rationale）。"""
+    if not isinstance(draft, dict):
+        return {"success": False, "error": "无建议"}
+    if not draft.get("success"):
+        return {
+            "success": False,
+            "error": draft.get("error") or "建议失败",
+        }
+    return {
+        "success": True,
+        "suggested_weights": draft.get("suggested_weights"),
+        "current_weights": draft.get("current_weights"),
+        "deltas": draft.get("deltas") or {},
+        "delta_sources": draft.get("delta_sources") or {},
+        "rationale": list(draft.get("rationale") or [])[:24],
+        "constraint_warnings": draft.get("constraint_warnings") or [],
+        "params": draft.get("params") or {},
+        "ic_mode": draft.get("ic_mode"),
+        "note": draft.get("note"),
+    }
 
 
 def group_ts_ic_panel(
@@ -1121,10 +1355,7 @@ def group_ts_ic_panel(
     ys: Sequence[float],
     feature_names: Sequence[str],
 ) -> Dict[str, Any]:
-    """组内堆叠面板上的时序 IC（因子值 vs 前瞻收益），供一组一表填 IC/n。
-
-    非全市场截面 IC；ICIR 不适用（无日截面序列），故恒为 null。
-    """
+    """单票组回退：堆叠时序 IC（无日截面序列，ICIR 恒 null）。"""
     from core.signal.factor_corr import pearson_with_reason
 
     rows: List[Dict[str, Any]] = []
@@ -1169,8 +1400,178 @@ def group_ts_ic_panel(
         "rows": rows,
         "factors": rows,
         "exclusion_reasons": exclusion_reasons,
-        "note": "组内时序 IC（非截面）；ICIR 列不适用",
+        "note": "单票组时序 IC 回退（非截面）；ICIR 不适用",
     }
+
+
+def group_cs_ic_panel(
+    stock_bars: Dict[str, List[dict]],
+    feature_names: Sequence[str],
+    *,
+    horizon_days: int = 3,
+    pit_fundamentals: bool = False,
+    fundamentals_by_code: Optional[Dict[str, dict]] = None,
+) -> Dict[str, Any]:
+    """组内按日截面 IC → ICIR（宇宙=组员；与研究池 factor_cs_ic 同口径）。"""
+    from core.backtest.factor_cs_ic import compute_factor_cross_section_ic
+
+    names = [str(f).strip() for f in (feature_names or []) if str(f).strip()]
+    bars_map = {
+        str(c): list(b)
+        for c, b in (stock_bars or {}).items()
+        if str(c).strip() and b
+    }
+    n_stocks = len(bars_map)
+    if n_stocks < 2:
+        empty_rows = [
+            {
+                "factor": name,
+                "name": name,
+                "ic": None,
+                "icir": None,
+                "sample_count": 0,
+                "exclusion_reason": "sparse",
+            }
+            for name in names
+        ]
+        return {
+            "success": True,
+            "ok": False,
+            "mode": "group_cs_ic",
+            "rows": empty_rows,
+            "factors": empty_rows,
+            "exclusion_reasons": {r["factor"]: "sparse" for r in empty_rows},
+            "stock_count": n_stocks,
+            "note": "组员不足 2，无法做组内截面 IC",
+        }
+
+    min_names = 2 if n_stocks == 2 else 3
+    out = compute_factor_cross_section_ic(
+        bars_map,
+        horizon_days=horizon_days,
+        min_history=12,
+        max_window=30,
+        min_names=min_names,
+        fundamentals_by_code=fundamentals_by_code,
+        pit_fundamentals=bool(pit_fundamentals),
+        factor_names=names or None,
+    )
+    if not out.get("success"):
+        empty_rows = [
+            {
+                "factor": name,
+                "name": name,
+                "ic": None,
+                "icir": None,
+                "sample_count": 0,
+                "exclusion_reason": "other",
+            }
+            for name in names
+        ]
+        return {
+            "success": True,
+            "ok": False,
+            "mode": "group_cs_ic",
+            "rows": empty_rows,
+            "factors": empty_rows,
+            "exclusion_reasons": {r["factor"]: "other" for r in empty_rows},
+            "stock_count": n_stocks,
+            "min_names": min_names,
+            "error": out.get("error"),
+            "note": f"组内截面 IC 失败：{out.get('error') or 'unknown'}",
+        }
+
+    by_fac = {
+        str(r.get("factor") or r.get("name") or ""): r
+        for r in (out.get("factors") or [])
+        if isinstance(r, dict)
+    }
+    rows: List[Dict[str, Any]] = []
+    exclusion_reasons: Dict[str, str] = {}
+    for name in names or list(by_fac.keys()):
+        src = by_fac.get(name) or {}
+        reason = src.get("exclusion_reason")
+        if reason:
+            exclusion_reasons[name] = str(reason)
+        pear = src.get("pearson") if isinstance(src.get("pearson"), dict) else {}
+        n_days = src.get("sample_count")
+        if n_days is None:
+            n_days = pear.get("day_count")
+        icir = src.get("icir")
+        if icir is None:
+            icir = pear.get("icir")
+        ic = src.get("ic")
+        if ic is None:
+            ic = pear.get("ic_mean")
+        rows.append(
+            {
+                "factor": name,
+                "name": name,
+                "ic": ic,
+                "icir": icir,
+                "sample_count": int(n_days or 0),
+                "exclusion_reason": reason,
+                "pearson": src.get("pearson"),
+                "spearman": src.get("spearman"),
+            }
+        )
+    return {
+        "success": True,
+        "ok": bool(out.get("ok")),
+        "mode": "group_cs_ic",
+        "rows": rows,
+        "factors": rows,
+        "exclusion_reasons": exclusion_reasons,
+        "horizon_days": out.get("horizon_days") or horizon_days,
+        "min_names": min_names,
+        "stock_count": n_stocks,
+        "day_count": out.get("day_count"),
+        "pit_fundamentals": bool(pit_fundamentals),
+        "score_ic": out.get("score_ic"),
+        "note": "组内按日截面 IC → ICIR（宇宙=组员；非全市场）",
+    }
+
+
+def _member_bars_and_funds(
+    members: Sequence[str],
+    panel_by_code: Dict[str, Dict[str, Any]],
+) -> Tuple[Dict[str, List[dict]], Dict[str, dict]]:
+    bars_map: Dict[str, List[dict]] = {}
+    funds: Dict[str, dict] = {}
+    for code in members or []:
+        c = str(code).strip()
+        panel = panel_by_code.get(c) or {}
+        bars = panel.get("bars") or []
+        if not bars:
+            continue
+        bars_map[c] = list(bars)
+        fund = panel.get("fundamentals")
+        if isinstance(fund, dict) and fund:
+            funds[c] = fund
+    return bars_map, funds
+
+
+def _cluster_factor_ic_panel(
+    members: Sequence[str],
+    *,
+    panel_by_code: Dict[str, Dict[str, Any]],
+    feature_names: Sequence[str],
+    horizon_days: int,
+    pit_fundamentals: bool,
+    all_xs: Sequence[Dict[str, Any]],
+    all_ys: Sequence[float],
+) -> Dict[str, Any]:
+    """多票组：组内日截面 IC→ICIR；单票组：时序 IC 回退。"""
+    if len(members) < 2:
+        return group_ts_ic_panel(all_xs, all_ys, feature_names)
+    bars_map, funds = _member_bars_and_funds(members, panel_by_code)
+    return group_cs_ic_panel(
+        bars_map,
+        feature_names,
+        horizon_days=horizon_days,
+        pit_fundamentals=pit_fundamentals,
+        fundamentals_by_code=funds or None,
+    )
 
 
 def compute_factor_ols_cluster_report(
@@ -1183,12 +1584,12 @@ def compute_factor_ols_cluster_report(
     l2_normalize_betas: Optional[bool] = None,
     beta_scale: str = "feature_zscore",
     cluster_method: str = "hierarchical",
-    cluster_linkage: str = "complete",
-    within_dist_quantile: float = 0.25,
+    cluster_linkage: str = "average",
+    within_dist_quantile: float = 0.75,
 ) -> Dict[str, Any]:
-    """逐票 OLS → β 聚类 → 相对组池 β 过远则踢出 → 组内池 OLS + 小步权。
+    """逐票 OLS → β 聚类 → 组内池 OLS + 小步权。
 
-    默认 complete-linkage + τ 切树（类内直径 ≤ τ，尽量多组）。
+    默认 average-linkage 切到目标 k≈√N（3～8）；显式 ``n_clusters`` 时才严踢异质。
     """
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
     k_req = None if n_clusters is None else clamp_n_clusters(n_clusters, 3)
@@ -1196,7 +1597,7 @@ def compute_factor_ols_cluster_report(
     use_pit = bool(pit_fundamentals)
     scale_mode = resolve_beta_scale(beta_scale, l2_normalize_betas=l2_normalize_betas)
     method_s = str(cluster_method or "hierarchical").strip().lower()
-    link_s = str(cluster_linkage or "complete").strip().lower()
+    link_s = str(cluster_linkage or "average").strip().lower()
     tau_q = float(within_dist_quantile)
 
     per_stock: List[Dict[str, Any]] = []
@@ -1289,79 +1690,91 @@ def compute_factor_ols_cluster_report(
     labels = np.asarray(clustered["labels"], dtype=int)
     tau_used = float(clustered.get("within_dist_cap") or clustered.get("tau") or 1.0)
     pool_ejects: List[Dict[str, Any]] = []
+    # 自动目标 k：不再做组池 Δβ/直径踢出（否则又拆回数十单票组）；异质看探针
+    # 仅当调用方显式指定 n_clusters 时保留严踢
+    run_pool_eject = k_req is not None
 
-    # 迭代：组活跃因子上 |Δβ| 过大 / 异质因子过多 → 踢出（与探针同口径）
-    for _round in range(3):
-        uniq = sorted(c for c in set(int(v) for v in labels) if c >= 0)
-        group_raw_map: Dict[int, np.ndarray] = {}
-        active_mask_map: Dict[int, np.ndarray] = {}
-        group_scaled: Dict[int, np.ndarray] = {}
-        for cid in uniq:
-            member_idx = [i for i, lab in enumerate(labels) if int(lab) == cid]
-            if len(member_idx) < 2:
-                continue
-            members = [codes[i] for i in member_idx]
-            all_xs: List[Dict[str, Optional[float]]] = []
-            all_ys: List[float] = []
-            for code in members:
-                panel = panel_by_code.get(code) or {}
-                all_xs.extend(panel.get("xs") or [])
-                all_ys.extend(panel.get("ys") or [])
-            pooled = fit_factor_ols_from_panel(
-                all_xs,
-                all_ys,
-                horizon_days=horizon_days,
-                fundamentals_used=False,
-                pit_fundamentals=use_pit,
-                mode="watching_pooled",
-                stock_codes=members,
-                ridge_lambda=lam,
-            )
-            if not pooled.get("success"):
-                continue
-            g_raw = coef_vector_from_report(pooled, feature_names)
-            group_scaled[cid] = apply_beta_scale_transform(g_raw, scale_tf)
-            # |Δβ| 严校验仅用于足够大的组（小组噪声大，易误杀）
-            if len(member_idx) >= 4:
-                group_raw_map[cid] = g_raw
-                active = set(str(f) for f in (pooled.get("active_features") or []))
-                if not active:
-                    active = {
-                        str(f)
-                        for f, v in _ols_coef_dict(pooled).items()
-                        if abs(float(v)) > 1e-12
-                    }
-                active_mask_map[cid] = np.asarray(
-                    [fn in active for fn in feature_names], dtype=bool
+    if run_pool_eject:
+        for _round in range(3):
+            uniq = sorted(c for c in set(int(v) for v in labels) if c >= 0)
+            group_raw_map: Dict[int, np.ndarray] = {}
+            active_mask_map: Dict[int, np.ndarray] = {}
+            group_scaled: Dict[int, np.ndarray] = {}
+            for cid in uniq:
+                member_idx = [i for i, lab in enumerate(labels) if int(lab) == cid]
+                if len(member_idx) < 2:
+                    continue
+                members = [codes[i] for i in member_idx]
+                all_xs: List[Dict[str, Optional[float]]] = []
+                all_ys: List[float] = []
+                for code in members:
+                    panel = panel_by_code.get(code) or {}
+                    all_xs.extend(panel.get("xs") or [])
+                    all_ys.extend(panel.get("ys") or [])
+                pooled = fit_factor_ols_from_panel(
+                    all_xs,
+                    all_ys,
+                    horizon_days=horizon_days,
+                    fundamentals_used=False,
+                    pit_fundamentals=use_pit,
+                    mode="watching_pooled",
+                    stock_codes=members,
+                    ridge_lambda=lam,
                 )
-        if not group_scaled and not group_raw_map:
-            break
-        labels, ejected_delta = (
-            eject_by_group_beta_delta(
-                raw,
+                if not pooled.get("success"):
+                    continue
+                g_raw = coef_vector_from_report(pooled, feature_names)
+                group_scaled[cid] = apply_beta_scale_transform(g_raw, scale_tf)
+                if len(member_idx) >= 4:
+                    group_raw_map[cid] = g_raw
+                    active = set(str(f) for f in (pooled.get("active_features") or []))
+                    if not active:
+                        active = {
+                            str(f)
+                            for f, v in _ols_coef_dict(pooled).items()
+                            if abs(float(v)) > 1e-12
+                        }
+                    active_mask_map[cid] = np.asarray(
+                        [fn in active for fn in feature_names], dtype=bool
+                    )
+            if not group_scaled and not group_raw_map:
+                break
+            labels, ejected_delta = (
+                eject_by_group_beta_delta(
+                    raw,
+                    labels,
+                    group_raw_by_cluster=group_raw_map,
+                    active_mask_by_cluster=active_mask_map,
+                    hetero_abs=0.30,
+                    max_abs_delta=0.55,
+                    max_hetero_factors=3,
+                )
+                if group_raw_map
+                else (labels, [])
+            )
+            labels, ejected_l2 = (
+                eject_far_from_group_beta(
+                    x, labels, group_beta_scaled_by_cluster=group_scaled, tau=tau_used
+                )
+                if group_scaled
+                else (labels, [])
+            )
+            ejected = ejected_delta + ejected_l2
+            if not ejected:
+                break
+            pool_ejects.extend(ejected)
+            refined = refine_cluster_labels(
+                x,
                 labels,
-                group_raw_by_cluster=group_raw_map,
-                active_mask_by_cluster=active_mask_map,
+                min_size=2,
+                tau=tau_used,
+                strict_diameter=True,
+                absorb_far=False,
             )
-            if group_raw_map
-            else (labels, [])
-        )
-        labels, ejected_l2 = (
-            eject_far_from_group_beta(
-                x, labels, group_beta_scaled_by_cluster=group_scaled, tau=tau_used
-            )
-            if group_scaled
-            else (labels, [])
-        )
-        ejected = ejected_delta + ejected_l2
-        if not ejected:
-            break
-        pool_ejects.extend(ejected)
-        refined = refine_cluster_labels(x, labels, min_size=2, tau=tau_used)
-        labels = np.asarray(refined["labels"], dtype=int)
-        pool_ejects.extend(refined.get("ejects") or [])
+            labels = np.asarray(refined["labels"], dtype=int)
+            pool_ejects.extend(refined.get("ejects") or [])
 
-    # 离群不丢弃：各自升为单票组（单独建模）
+    # 离群不丢弃：各自升为单票组（自动 k 路径通常无离群）
     eject_by_idx: Dict[int, Dict[str, Any]] = {}
     for e in list(clustered.get("ejects") or []) + pool_ejects:
         if "index" in e:
@@ -1391,7 +1804,7 @@ def compute_factor_ols_cluster_report(
     if k < 1:
         return {
             "success": False,
-            "error": "无有效分组（持仓拟合失败或样本不足）",
+            "error": "无有效分组（拟合失败或样本不足）",
             "task": "factor_ols_clusters",
             "mode": "ols_beta_clusters",
             "stock_count": 0,
@@ -1403,7 +1816,7 @@ def compute_factor_ols_cluster_report(
             "n_clusters": 0,
             "cluster_method": clustered.get("method") or method_s,
             "cluster_linkage": clustered.get("cluster_linkage") or link_s,
-            "note": "无法形成分组；检查纸面持仓与日线。",
+            "note": "无法形成分组；检查观察池标的与日线。",
             "within_dist_cap": tau_used,
             "tau_quantile": clustered.get("tau_quantile") or tau_q,
         }
@@ -1439,6 +1852,15 @@ def compute_factor_ols_cluster_report(
             all_ys.extend(panel.get("ys") or [])
 
         if len(members) < 2:
+            cluster["factor_ic_panel"] = _cluster_factor_ic_panel(
+                members,
+                panel_by_code=panel_by_code,
+                feature_names=feature_names,
+                horizon_days=horizon_days,
+                pit_fundamentals=use_pit,
+                all_xs=all_xs,
+                all_ys=all_ys,
+            )
             if member_idx:
                 one = per_stock[member_idx[0]]
                 cluster["ols"] = {
@@ -1450,19 +1872,12 @@ def compute_factor_ols_cluster_report(
                     "active_features": one.get("active_features") or [],
                     "stock_codes": members,
                 }
-                draft = _draft_weights_from_ols(one)
-                cluster["weight_suggest"] = {
-                    "success": bool(draft.get("success")),
-                    "suggested_weights": draft.get("suggested_weights"),
-                    "current_weights": draft.get("current_weights"),
-                    "rationale": (draft.get("rationale") or [])[:8],
-                    "constraint_warnings": draft.get("constraint_warnings") or [],
-                }
+                draft = _draft_weights_from_ols(
+                    one, ic_panel=cluster.get("factor_ic_panel")
+                )
+                cluster["weight_suggest"] = _weight_suggest_public(draft)
             else:
                 cluster["ols"] = {"success": False, "error": "空组"}
-            cluster["factor_ic_panel"] = group_ts_ic_panel(
-                all_xs, all_ys, feature_names
-            )
             cluster["member_beta_gaps"] = []
             clusters.append(cluster)
             continue
@@ -1518,15 +1933,29 @@ def compute_factor_ols_cluster_report(
                         "within_cap": round(tau_used, 4),
                     }
                 )
-            draft = _draft_weights_from_ols(pooled)
-            cluster["weight_suggest"] = {
-                "success": bool(draft.get("success")),
-                "suggested_weights": draft.get("suggested_weights"),
-                "current_weights": draft.get("current_weights"),
-                "rationale": (draft.get("rationale") or [])[:8],
-                "constraint_warnings": draft.get("constraint_warnings") or [],
-            }
+            cluster["factor_ic_panel"] = _cluster_factor_ic_panel(
+                members,
+                panel_by_code=panel_by_code,
+                feature_names=feature_names,
+                horizon_days=horizon_days,
+                pit_fundamentals=use_pit,
+                all_xs=all_xs,
+                all_ys=all_ys,
+            )
+            draft = _draft_weights_from_ols(
+                pooled, ic_panel=cluster.get("factor_ic_panel")
+            )
+            cluster["weight_suggest"] = _weight_suggest_public(draft)
         else:
+            cluster["factor_ic_panel"] = _cluster_factor_ic_panel(
+                members,
+                panel_by_code=panel_by_code,
+                feature_names=feature_names,
+                horizon_days=horizon_days,
+                pit_fundamentals=use_pit,
+                all_xs=all_xs,
+                all_ys=all_ys,
+            )
             cluster["weight_suggest"] = {
                 "success": False,
                 "error": pooled.get("error") or "组内池 OLS 失败",
@@ -1545,9 +1974,16 @@ def compute_factor_ols_cluster_report(
             cluster["mean_hetero_count"] = round(
                 float(np.mean([g.get("hetero_count") or 0 for g in gaps])), 2
             )
-        cluster["factor_ic_panel"] = group_ts_ic_panel(
-            all_xs, all_ys, feature_names
-        )
+        if "factor_ic_panel" not in cluster:
+            cluster["factor_ic_panel"] = _cluster_factor_ic_panel(
+                members,
+                panel_by_code=panel_by_code,
+                feature_names=feature_names,
+                horizon_days=horizon_days,
+                pit_fundamentals=use_pit,
+                all_xs=all_xs,
+                all_ys=all_ys,
+            )
         clusters.append(cluster)
 
     for cl in clusters:
@@ -1577,6 +2013,8 @@ def compute_factor_ols_cluster_report(
         "n_multi_member_clusters": n_multi,
         "n_clusters_requested": k_req,
         "n_clusters_auto": bool(clustered.get("auto_k")),
+        "target_k": clustered.get("target_k"),
+        "max_cluster_size": clustered.get("max_cluster_size"),
         "cluster_method": clustered.get("method") or method_s,
         "cluster_linkage": clustered.get("cluster_linkage") or link_s,
         "cut_by_tau": bool(clustered.get("cut_by_tau")),
@@ -1608,17 +2046,16 @@ def compute_factor_ols_cluster_report(
             (
                 f"按单票 OLS β（{scale_mode}，列缩尾）"
                 + (
-                    f"complete-linkage τ切树"
-                    if clustered.get("cut_by_tau")
+                    f"目标k={clustered.get('target_k')}·{clustered.get('cluster_linkage') or link_s}"
+                    if clustered.get("auto_k")
                     else (
                         f"层次聚类({clustered.get('cluster_linkage') or link_s})"
                         if (clustered.get("method") or method_s) == "hierarchical"
                         else "k-means"
                     )
                 )
-                + f"，共 {k} 组（其中多票组 {n_multi}）；τ={tau_used}(q={clustered.get('tau_quantile') or tau_q})；"
+                + f"，共 {k} 组（其中多票组 {n_multi}）；"
             )
-            + "过远/Δβ异质票各自升为单票组单独建模；"
             + (f"单票离群组 {n_singleton_out}；" if n_singleton_out else "")
             + (f"组β校验触发 {n_pool_ej}；" if n_pool_ej else "")
             + "多票组池 OLS → 小步建议权（同组同建模）。"

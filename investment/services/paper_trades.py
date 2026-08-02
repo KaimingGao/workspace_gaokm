@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import os
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from core.paper import (
     load_paper,
@@ -11,8 +12,117 @@ from core.paper import (
     save_paper,
     append_snapshot,
     append_operation_log,
+    append_trade_legs_to_operation_log,
     capture_mark_snapshot,
 )
+
+
+def _rebalance_report_from_legs(
+    *,
+    ranking: List[dict],
+    sell_trades: List[dict],
+    buy_trades: List[dict],
+    holdings_before: List[dict],
+    holdings_after: List[dict],
+) -> List[dict]:
+    """把分池/横截面腿转成交易执行页调仓报告行。"""
+    sell_by = {str(t.get("stock_code")): t for t in sell_trades or []}
+    buy_by = {str(t.get("stock_code")): t for t in buy_trades or []}
+    score_by = {
+        str(r.get("stock_code")): r.get("score")
+        for r in ranking or []
+        if r.get("stock_code")
+    }
+    name_by: Dict[str, str] = {}
+    for src in (holdings_before or []) + (ranking or []) + (sell_trades or []) + (
+        buy_trades or []
+    ):
+        code = str(src.get("stock_code") or "")
+        if code and src.get("stock_name"):
+            name_by[code] = str(src.get("stock_name"))
+    old_shares = {
+        str(h.get("stock_code")): float(h.get("shares") or 0)
+        for h in holdings_before or []
+        if h.get("stock_code")
+    }
+    new_shares = {
+        str(h.get("stock_code")): float(h.get("shares") or 0)
+        for h in holdings_after or []
+        if h.get("stock_code")
+    }
+    codes = sorted(set(old_shares) | set(new_shares) | set(sell_by) | set(buy_by))
+    rows: List[dict] = []
+    for code in codes:
+        o = old_shares.get(code, 0.0)
+        n = new_shares.get(code, 0.0)
+        decision = "持有"
+        reason = ""
+        if code in sell_by:
+            decision = "卖出"
+            reason = sell_by[code].get("note") or "分池调仓卖出"
+        elif code in buy_by:
+            decision = "买入"
+            reason = buy_by[code].get("note") or "分池调仓买入"
+        elif abs(n - o) < 1e-9:
+            decision = "持有"
+            reason = "仍在目标簿内" if code in score_by else "未变动"
+        label = next(
+            (
+                str(r.get("cluster_label"))
+                for r in ranking or []
+                if str(r.get("stock_code")) == code and r.get("cluster_label")
+            ),
+            None,
+        )
+        rank_row = next(
+            (r for r in ranking or [] if str(r.get("stock_code")) == code),
+            {},
+        )
+        # 字段名与 paper_cycle / 交易执行页 renderRebalanceReport 对齐
+        delta = n - o
+        if not reason:
+            if abs(delta) < 1e-9:
+                reason = "仍在目标簿内" if code in score_by else "未变动"
+            elif delta > 0:
+                reason = "分池调仓买入"
+            else:
+                reason = "分池调仓卖出"
+        rows.append(
+            {
+                "stock_code": code,
+                "stock_name": name_by.get(code) or code,
+                "score": score_by.get(code),
+                "decision": decision,
+                "reason": reason,
+                "old_shares": int(o),
+                "new_shares": int(n),
+                "shares_change": int(delta),
+                "shares_before": o,
+                "shares_after": n,
+                "cluster_label": label or rank_row.get("cluster_label"),
+                "weight_source": rank_row.get("weight_source")
+                or (
+                    f"cluster:{label}"
+                    if label and decision != "卖出"
+                    else None
+                ),
+                "score_global": rank_row.get("score_global"),
+                # 分池簿主分即为组权分（active）
+                "score_cluster": rank_row.get("score_cluster")
+                if rank_row.get("score_cluster") is not None
+                else rank_row.get("score"),
+            }
+        )
+    def _sort_key(row: dict) -> tuple:
+        # 买卖在前，持有在后；同组内按 |变动|、评分
+        dec = str(row.get("decision") or "")
+        action = 0 if ("卖" in dec or "买" in dec or "减" in dec or "加" in dec) else 1
+        chg = abs(float(row.get("shares_change") or 0))
+        sc = float(row.get("score") or 0)
+        return (action, -chg, -sc)
+
+    rows.sort(key=_sort_key)
+    return rows
 
 
 class PaperTradesMixin:
@@ -22,6 +132,7 @@ class PaperTradesMixin:
         top_k: Optional[int] = None,
         limit: Optional[int] = None,
         cluster_mode: bool = False,
+        dry_run: bool = False,
     ) -> Dict[str, Any]:
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
@@ -36,10 +147,19 @@ class PaperTradesMixin:
         k = min(k, max_pos, 30)
         lim = max(int(limit or 0), k, max(20, max_pos))
 
-        # L2：分池模式 — 组内 Top-N 合并簿，不用跨组统一排名
+        # L2：分池模式 — 组内 Top-N 合并簿；mode=active 时交易执行页默认走分池
+        scoring_mode = "off"
+        try:
+            from core.signal.cluster_live import get_cluster_scoring_cfg
+
+            scoring_mode = str(
+                (get_cluster_scoring_cfg() or {}).get("mode") or "off"
+            ).strip().lower()
+        except Exception:
+            scoring_mode = "off"
         use_cluster = bool(cluster_mode) or bool(
             (rules.get("cluster_mode") if isinstance(rules, dict) else False)
-        )
+        ) or scoring_mode == "active"
         if use_cluster:
             from core.signal.cluster_live import assess_cluster_live_health
             from core.signal.cluster_rank import rank_cluster_pools
@@ -49,43 +169,93 @@ class PaperTradesMixin:
             if not ranked.get("success"):
                 return {"success": False, "ok": False, "cluster_mode": True, **ranked}
             ranking = ranked.get("book") or ranked.get("ranking") or []
-            k = max(1, min(len(ranking) or k, max_pos, 30))
-            capture_mark_snapshot(paper)
+            # 分池簿已是每组 Top-N；按簿长持有，不被纸面 max_positions / 旧 30 上限截断
+            k = max(1, min(len(ranking) or int(k or 5), 80))
+            holdings_before = copy.deepcopy(paper.get("holdings") or [])
+            work = copy.deepcopy(paper) if dry_run else paper
+            if not dry_run:
+                capture_mark_snapshot(work)
             result = simulate_cross_section_rebalance(
-                paper,
+                work,
                 ranking,
                 top_k=k,
+                respect_max_positions=False,
             )
-            summary = mark_to_market(paper)
-            append_snapshot(paper, summary)
+            summary = mark_to_market(work)
+            sell_trades = list(result.get("sell_trades") or [])
+            buy_trades = list(result.get("buy_trades") or [])
+            report = _rebalance_report_from_legs(
+                ranking=ranking,
+                sell_trades=sell_trades,
+                buy_trades=buy_trades,
+                holdings_before=holdings_before,
+                holdings_after=work.get("holdings") or [],
+            )
+            if dry_run:
+                return {
+                    "success": True,
+                    "ok": True,
+                    "dry_run": True,
+                    "top_k": k,
+                    "cluster_mode": True,
+                    "cluster_pools": ranked,
+                    "health": health,
+                    "sell_trades": sell_trades,
+                    "buy_trades": buy_trades,
+                    "rebalance_report": report,
+                    "summary": summary,
+                    "observation_pool_count": len(ranking),
+                    "note": "分池预演 · 未写 paper.json",
+                }
+
+            append_snapshot(work, summary)
+            append_trade_legs_to_operation_log(
+                work,
+                sell_trades,
+                buy_trades,
+                origin="cluster",
+                source="follow",
+            )
             append_operation_log(
-                paper,
+                work,
                 "cluster_pool_rebalance",
-                detail=f"分池 live 调仓 Top{k} · v{ranked.get('cluster_version')}",
+                detail=(
+                    f"分池 live 调仓 Top{k} · v{ranked.get('cluster_version')} · "
+                    f"卖 {len(sell_trades)} · 买 {len(buy_trades)}"
+                ),
                 meta={
                     "cluster_mode": True,
                     "cluster_version": ranked.get("cluster_version"),
                     "book_codes": [r.get("stock_code") for r in ranking],
+                    "buy_count": len(buy_trades),
+                    "sell_count": len(sell_trades),
                     "health_alerts": (health.get("alerts") or [])[:5],
                     "signal_config_touched": False,
+                    "origin": "cluster",
+                    "source": "follow",
                 },
             )
-            paper["last_cluster_pool"] = {
+            work["last_cluster_pool"] = {
                 "applied_at": summary.get("as_of") if isinstance(summary, dict) else None,
                 "cluster_version": ranked.get("cluster_version"),
                 "book_codes": [r.get("stock_code") for r in ranking],
+                "buy_count": len(buy_trades),
+                "sell_count": len(sell_trades),
                 "signal_config_touched": False,
             }
-            save_paper(paper, self.path)
+            save_paper(work, self.path)
             return {
                 "success": True,
                 "ok": True,
+                "dry_run": False,
                 "top_k": k,
                 "cluster_mode": True,
                 "cluster_pools": ranked,
                 "health": health,
                 **result,
+                "rebalance_report": report,
                 "summary": summary,
+                "observation_pool_count": len(ranking),
             }
 
         # 候选来自观察池 watching；模拟仓只看 holdings
@@ -96,23 +266,53 @@ class PaperTradesMixin:
         if not ranked.get("success"):
             return {"success": False, "ok": False, **ranked}
 
-        capture_mark_snapshot(paper)
+        ranking = ranked.get("ranking") or []
+        holdings_before = copy.deepcopy(paper.get("holdings") or [])
+        work = copy.deepcopy(paper) if dry_run else paper
+        if not dry_run:
+            capture_mark_snapshot(work)
         result = simulate_cross_section_rebalance(
-            paper,
-            ranked.get("ranking") or [],
+            work,
+            ranking,
             top_k=k,
         )
-        summary = mark_to_market(paper)
-        append_snapshot(paper, summary)
-        save_paper(paper, self.path)
+        summary = mark_to_market(work)
+        sell_trades = list(result.get("sell_trades") or [])
+        buy_trades = list(result.get("buy_trades") or [])
+        report = _rebalance_report_from_legs(
+            ranking=ranking,
+            sell_trades=sell_trades,
+            buy_trades=buy_trades,
+            holdings_before=holdings_before,
+            holdings_after=work.get("holdings") or [],
+        )
+        if dry_run:
+            return {
+                "success": True,
+                "ok": True,
+                "dry_run": True,
+                "top_k": k,
+                "cluster_mode": False,
+                "cross_section": ranked,
+                "sell_trades": sell_trades,
+                "buy_trades": buy_trades,
+                "rebalance_report": report,
+                "summary": summary,
+                "observation_pool_count": len(ranking),
+            }
+        append_snapshot(work, summary)
+        save_paper(work, self.path)
         return {
             "success": True,
             "ok": True,
+            "dry_run": False,
             "top_k": k,
             "cluster_mode": False,
             "cross_section": ranked,
             **result,
+            "rebalance_report": report,
             "summary": summary,
+            "observation_pool_count": len(ranking),
         }
 
     def buy(self, *, stock_code: str, amount: Optional[float] = None, shares: Optional[float] = None) -> Dict[str, Any]:

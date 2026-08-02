@@ -10,6 +10,7 @@ function typeCls(t) {
     buy: "is-buy",
     sell: "is-sell",
     rebalance: "is-rebalance",
+    cluster_pool_rebalance: "is-cluster",
     sync_paper: "is-sync",
     init: "is-init",
   };
@@ -69,10 +70,13 @@ function originLabelOf(l) {
   if (origin === "manual") return "手动";
   if (origin === "strategy") return "策略";
   if (origin === "mixed") return "手动+策略";
+  if (origin === "cluster" || origin === "research") return "研究枢纽";
   const detail = String(l.detail || "");
   if (detail.includes("[调仓]")) return "策略";
   if (l.type === "sync_paper") return "观察建仓";
+  if (l.type === "cluster_pool_rebalance") return "研究枢纽";
   if (l.type === "rebalance") return "策略汇总";
+  if (meta.cluster_mode || meta.source === "research_hub") return "研究枢纽";
   if (l.type === "buy" || l.type === "sell") return "手动";
   return "";
 }
@@ -121,14 +125,19 @@ function renderLogItem(l) {
 
   let primary = "";
   let secondaryParts = [];
-  if (l.type === "rebalance") {
+  if (l.type === "rebalance" || l.type === "cluster_pool_rebalance") {
     const buyN = meta.buy_count != null ? Number(meta.buy_count) : NaN;
     const sellN = meta.sell_count != null ? Number(meta.sell_count) : NaN;
     const strategy = String(meta.strategy || "").trim();
+    const ver =
+      meta.cluster_version != null && meta.cluster_version !== ""
+        ? `v${meta.cluster_version}`
+        : "";
     primary =
       Number.isFinite(buyN) || Number.isFinite(sellN)
         ? `买入 ${Number.isFinite(buyN) ? buyN : 0} 笔 · 卖出 ${Number.isFinite(sellN) ? sellN : 0} 笔`
-        : String(l.detail || "策略调仓");
+        : String(l.detail || (l.type === "cluster_pool_rebalance" ? "分池调仓" : "策略调仓"));
+    if (ver) secondaryParts.push(ver);
     if (strategy) secondaryParts.push(strategy);
     if (origin) secondaryParts.push(origin);
   } else if ((l.type === "buy" || l.type === "sell" || l.type === "sync_paper") && hasTradeBits) {
@@ -227,9 +236,11 @@ function dayLabel(key, items) {
   if (!items || !items.length) return base;
   const buyN = items.filter((x) => x.type === "buy" || x.type === "sync_paper").length;
   const sellN = items.filter((x) => x.type === "sell").length;
+  const clusterN = items.filter((x) => x.type === "cluster_pool_rebalance").length;
   const parts = [];
   if (buyN) parts.push(`买${buyN}`);
   if (sellN) parts.push(`卖${sellN}`);
+  if (clusterN) parts.push(`分池${clusterN}`);
   return parts.length ? `${base} · ${parts.join(" ")}` : base;
 }
 
@@ -275,7 +286,13 @@ function renderLogs(list, kind, showAllState) {
 
 export function buildPaperLogsView(data, showAllState) {
   const logs = (data && data.operation_log) || [];
-  const tradingTypes = new Set(["buy", "sell", "rebalance", "sync_paper"]);
+  const tradingTypes = new Set([
+    "buy",
+    "sell",
+    "rebalance",
+    "cluster_pool_rebalance",
+    "sync_paper",
+  ]);
   const fundTypes = new Set(["init", "deposit", "withdraw", "reset"]);
   const tradingLogs = logs.filter((l) => tradingTypes.has(l.type));
   const fundLogs = logs.filter((l) => fundTypes.has(l.type));

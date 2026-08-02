@@ -43,6 +43,12 @@ export function holdingToRow(h, { chartMode, chartStockCode, selectedHoldCode, p
       reasons: h.score_reasons || [],
       hard_reject: h.hard_reject,
       reject_reason: h.reject_reason || "",
+      weight_source: h.weight_source || "",
+      cluster_label: h.cluster_label || "",
+      cluster_mode: h.cluster_mode || "",
+      cluster_version: h.cluster_version,
+      score_global: h.score_global,
+      score_cluster: h.score_cluster,
     }),
     pnlText: fmtPct(pnl, { signed: true }),
     pnlCls: metricCls(pnl),
@@ -147,7 +153,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
       if (col.id === "score") {
         return (
           `<span class="paper-hold-score ${escapeHtml(d.scoreCls || "")}" ` +
-          `data-score-detail="${escapeHtml(d.scoreDetail || "")}" title="点击看评分明细">` +
+          `data-score-detail="${escapeHtml(d.scoreDetail || "")}" title="悬停查看评分与权重来源">` +
           `${escapeHtml(d.scoreText || "—")}</span>`
         );
       }

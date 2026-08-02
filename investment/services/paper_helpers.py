@@ -13,7 +13,8 @@ def _build_score_formula(score_info: dict) -> str:
     from core.signal.config import load_signal_config
 
     signal_cfg = load_signal_config()
-    weights = signal_cfg.get("weights") or {}
+    # 优先用打分时的权向量（组权）；否则回退全局 config
+    weights = score_info.get("weights") or signal_cfg.get("weights") or {}
     factor_labels = {
         "momentum": "动量",
         "technical_pattern": "技术形态",

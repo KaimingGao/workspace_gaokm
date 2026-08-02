@@ -551,6 +551,29 @@ export function initPlatform(ctx) {
     return data;
   }
 
+  async function loadClusterLiveHint() {
+    try {
+      const res = await fetch("/api/quant/cluster-live/status");
+      const data = await res.json();
+      if (!res.ok || !data || !data.success) return;
+      const mode = (data.cluster_scoring || {}).mode || "off";
+      if (mode === "off") return;
+      const v = (data.active || {}).version;
+      const cov = (data.health || {}).coverage;
+      const tip =
+        `分组 live · ${mode}` +
+        (v != null ? ` · v${v}` : "") +
+        (cov != null ? ` · 覆盖 ${Math.round(Number(cov) * 100)}%` : "");
+      if (meta && meta.textContent) {
+        meta.textContent = `${meta.textContent} · ${tip}`;
+      } else {
+        setMeta(tip);
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
   async function openPlatformPanel() {
     await Promise.all([
       loadMemory().catch((e) => setMeta(String(e.message || e))),
@@ -560,6 +583,7 @@ export function initPlatform(ctx) {
       loadNorthStar().catch(() => {}),
       loadSampleStatus().catch(() => {}),
     ]);
+    await loadClusterLiveHint().catch(() => {});
   }
 
   const on = (id, type, fn) => {

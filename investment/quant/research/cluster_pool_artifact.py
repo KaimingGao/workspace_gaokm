@@ -306,6 +306,7 @@ def preview_paper_pool_rebalance(
     from core.paper import (
         append_operation_log,
         append_snapshot,
+        append_trade_legs_to_operation_log,
         capture_mark_snapshot,
         load_paper,
         mark_to_market,
@@ -353,7 +354,7 @@ def preview_paper_pool_rebalance(
 
     target = paper if write else copy.deepcopy(paper)
     k = top_k if top_k is not None else len(ranking)
-    k = max(1, min(int(k), 30))
+    k = max(1, min(int(k), 80))
 
     if write:
         capture_mark_snapshot(target)
@@ -363,6 +364,8 @@ def preview_paper_pool_rebalance(
             target,
             ranking,
             top_k=k,
+            # 分池簿本身已是每组 Top-N 合成；勿再被纸面 max_positions(常=5) 砍掉
+            respect_max_positions=False,
         )
     except Exception as exc:
         return {
@@ -392,11 +395,18 @@ def preview_paper_pool_rebalance(
             "signal_config_touched": False,
             "note": "分池候选簿纸面落账；组权未写入 signal_config",
         }
+        append_trade_legs_to_operation_log(
+            target,
+            sells,
+            buys,
+            origin="cluster",
+            source="research_hub",
+        )
         append_operation_log(
             target,
             "cluster_pool_rebalance",
             detail=(
-                f"分池落账：卖 {len(sells)} · 买 {len(buys)} · "
+                f"分池调仓：卖 {len(sells)} · 买 {len(buys)} · "
                 f"目标 {len(ranking)} 只（不写 signal_config）"
             ),
             meta={
@@ -405,6 +415,8 @@ def preview_paper_pool_rebalance(
                 "buy_count": len(buys),
                 "artifact_created_at": art.get("created_at"),
                 "signal_config_touched": False,
+                "origin": "cluster",
+                "source": "research_hub",
             },
         )
         save_paper(target, path)

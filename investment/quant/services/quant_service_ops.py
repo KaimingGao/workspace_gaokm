@@ -316,6 +316,32 @@ class QuantOpsMixin:
         neutral_compare_summary = None
         if include_portfolio_backtest and include_portfolio_neutral_compare:
             neutral_compare_summary = self.portfolio_neutral_compare_summary()
+        cluster_live = None
+        try:
+            from core.signal.cluster_live import (
+                cluster_score_audit_sample,
+                cluster_status_public,
+            )
+
+            st = cluster_status_public(include_audit=False)
+            cs = (st or {}).get("cluster_scoring") or {}
+            if cs.get("mode") in ("shadow", "active"):
+                audit = cluster_score_audit_sample(limit=8)
+                cluster_live = {
+                    "mode": cs.get("mode"),
+                    "enabled": cs.get("enabled"),
+                    "version": ((st or {}).get("active") or {}).get("version"),
+                    "coverage": ((st or {}).get("health") or {}).get("coverage"),
+                    "age_days": ((st or {}).get("health") or {}).get("age_days"),
+                    "stale": ((st or {}).get("health") or {}).get("stale"),
+                    "alerts": ((st or {}).get("health") or {}).get("alerts") or [],
+                    "book_names": ((st or {}).get("book") or {}).get("name_count"),
+                    "audit_sample": audit,
+                    "note": "组权 live 对照；未写 signal_config.weights",
+                }
+        except Exception as exc:
+            cluster_live = {"success": False, "error": str(exc)}
+
         report = {
             "success": True,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -328,6 +354,7 @@ class QuantOpsMixin:
             "strategies": self.list_strategies(),
             "portfolio_backtest_summary": portfolio_summary,
             "portfolio_neutral_compare_summary": neutral_compare_summary,
+            "cluster_live": cluster_live,
         }
         if include_cross_section:
             report["cross_section"] = self.run_cross_section(limit=10)

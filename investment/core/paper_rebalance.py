@@ -21,11 +21,14 @@ def simulate_cross_section_rebalance(
     *,
     top_k: Optional[int] = None,
     min_score: Optional[float] = None,
+    respect_max_positions: bool = True,
 ) -> Dict[str, Any]:
     """
     按横截面 TopK 调仓：卖出不在 TopK 或分数低于 min_hold_score 的持仓，
     再从 TopK 中买入未持有且 score >= min_score 的标的。
     买入前强制 check_account_risk；超限则拦截加仓并写 risk_block 日志。
+
+    ``respect_max_positions=False``：分池落账用，按候选簿长度持有，不被纸面 max_positions 截断。
     """
     from core.ports.market import query_quote, quote_price
 
@@ -37,11 +40,21 @@ def simulate_cross_section_rebalance(
         top_k = max_pos
     else:
         top_k = max(1, int(top_k))
-    top_k = min(top_k, max_pos, 30)
+    if respect_max_positions:
+        top_k = min(top_k, max_pos, 30)
+    else:
+        # 分池：按簿长持有；上限对齐 cluster max_names（80），勿再用 30 砍掉簿尾
+        top_k = min(top_k, 80)
     if min_score is None:
         min_score = float(rules.get("min_score") or 55.0)
     min_hold_score = float(rules.get("min_hold_score") or 45.0)
-    max_positions = max_pos
+    # 分池：持仓上限=簿长；买入不再二次套用全局 min_score（簿已是组内 Top-N）
+    if not respect_max_positions:
+        max_positions = top_k
+        min_score = float("-inf")
+        min_hold_score = float("-inf")
+    else:
+        max_positions = max_pos
     position_pct = float(rules.get("position_pct") or 0.15)
 
     top_items = (ranking or [])[:top_k]
@@ -68,7 +81,11 @@ def simulate_cross_section_rebalance(
         in_top = code in top_codes
         reason = None
         if not in_top:
-            reason = "不在横截面 TopK"
+            reason = (
+                "不在分池目标簿（组内 Top-N 合并结果之外）"
+                if not respect_max_positions
+                else "不在横截面 TopK"
+            )
         elif score is not None and score < min_hold_score:
             reason = f"分数低于 min_hold_score({min_hold_score})"
 
@@ -156,12 +173,20 @@ def simulate_cross_section_rebalance(
 
             sid = paper.get("strategy_id") or "short"
             rr = (get_strategy_spec(str(sid)).get("risk") or {})
+            opt_cap = (
+                max_positions
+                if not respect_max_positions
+                else int(rr.get("max_positions") or max_positions)
+            )
+            opt_min = (
+                float("-inf") if not respect_max_positions else float(min_score)
+            )
             opt = optimize_weights(
                 list(ranking or []),
                 max_position_pct=float(rr.get("max_position_pct") or 25.0),
                 max_sector_pct=float(rr.get("max_sector_pct") or 40.0),
-                max_positions=int(rr.get("max_positions") or max_positions),
-                min_score=float(min_score),
+                max_positions=opt_cap,
+                min_score=opt_min,
             )
             paper["last_optimize"] = opt
             target_w = opt.get("weights_pct") or {}
