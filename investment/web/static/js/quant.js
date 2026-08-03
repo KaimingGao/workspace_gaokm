@@ -881,109 +881,334 @@ export function initQuant(ctx) {
     return `<span class="bt-trade-ret ${cls || ""}">${text}</span>`;
   }
 
-  const BT_TRADES_COLS = [
-    { id: "entry", label: "入场", widthPct: 16 },
-    { id: "exit", label: "出场", widthPct: 16 },
-    { id: "ret", label: "收益", widthPct: 12, num: true, sortable: true },
+  const BT_SIM_TRADE_COLS_BASE = [
+    { id: "signal", label: "信号日", widthPct: 9 },
+    { id: "entry", label: "买入日", widthPct: 9 },
+    { id: "exit", label: "卖出日", widthPct: 9 },
+    { id: "name", label: "股票", flex: true },
     {
-      id: "topk",
-      label: "持仓数",
-      widthPct: 10,
+      id: "score",
+      label: "score",
+      widthPct: 7,
       num: true,
-      headClass: "watching-col-center",
-      cellClass: "watching-col-center",
+      sortable: true,
+      title: "悬停查看评分公式与分组因子权重",
     },
-    { id: "legs", label: "标的", flex: true },
     {
-      id: "defer",
-      label: "涨跌停延后",
-      widthPct: 14,
-      headClass: "watching-col-center",
-      cellClass: "watching-col-center",
+      id: "intent",
+      label: "意图价",
+      widthPct: 8,
+      num: true,
+      sortable: true,
+      title: "信号日收盘（决策参照）；与买入价不同才显示本列",
     },
+    {
+      id: "buy",
+      label: "买入价",
+      widthPct: 8,
+      num: true,
+      sortable: true,
+      title: "实际入场价（next_open=次日开盘）",
+    },
+    { id: "sell", label: "卖出价", widthPct: 8, num: true, sortable: true },
+    { id: "ret", label: "收益", widthPct: 7, num: true, sortable: true },
+    { id: "status", label: "状态", widthPct: 8 },
   ];
+
+  function simTradesIntentDiffers(legs) {
+    for (const r of legs || []) {
+      const intent = r.intent_price;
+      const buy = r.entry_price;
+      if (intent == null || buy == null) continue;
+      if (Number(intent) !== Number(buy)) return true;
+    }
+    return false;
+  }
+
+  function btSimTradeColumns(showIntent) {
+    if (showIntent) return BT_SIM_TRADE_COLS_BASE;
+    return BT_SIM_TRADE_COLS_BASE.filter((c) => c.id !== "intent");
+  }
+
+  /** @type {Array<object>} */
+  let lastSimTrades = [];
+  const btSimScoreTips = createScoreTooltipController();
 
   function clearBtTradesTable() {
     btTradesTableApi = null;
+    lastSimTrades = [];
     if (quantBtTrades) quantBtTrades.innerHTML = "";
   }
 
   function setBtTradesCaption(text) {
     btTradesTableApi = null;
+    lastSimTrades = [];
     if (quantBtTrades) {
       quantBtTrades.innerHTML = `<p class="quant-trades-caption">${escapeHtml(text)}</p>`;
     }
   }
 
-  function renderBtTradesTable(trades) {
+  function flattenTradesToSimLegs(trades) {
+    const out = [];
+    for (const t of trades || []) {
+      const legs = Array.isArray(t.legs) ? t.legs : [];
+      if (!legs.length) continue;
+      for (const l of legs) {
+        out.push({
+          stock_code: l.stock_code || l.code || "",
+          signal_date: t.signal_date || l.signal_date,
+          entry_date: l.entry_date || t.entry_date,
+          exit_date: l.exit_date || t.exit_date,
+          intent_price: l.intent_price,
+          entry_price: l.fill_price ?? l.entry_price,
+          exit_price: l.exit_price,
+          return_pct: l.return_pct,
+          score: l.score,
+          status: "filled",
+          port_return_pct: t.return_pct,
+          cluster_label: l.cluster_label,
+          score_weight_source: l.score_weight_source,
+          factor_weights: l.factor_weights,
+          factor_weights_note: l.factor_weights_note,
+          score_formula: l.score_formula,
+          score_reasons: l.score_reasons,
+          score_raw: l.score_raw,
+        });
+      }
+    }
+    return out;
+  }
+
+  function formatSimStatus(st) {
+    const s = String(st || "filled");
+    if (s === "filled") return "成交";
+    if (s === "skipped_limit_entry") return "买跳过";
+    if (s === "skipped_limit_exit") return "卖跳过";
+    return s;
+  }
+
+  function formatFactorWeightsNote(r) {
+    if (r && r.factor_weights_note) return String(r.factor_weights_note);
+    const fw = (r && r.factor_weights) || {};
+    const parts = Object.keys(fw)
+      .sort((a, b) => Number(fw[b] || 0) - Number(fw[a] || 0) || a.localeCompare(b))
+      .slice(0, 8)
+      .map((k) => `${k} ${Number(fw[k]).toFixed(2)}`);
+    const body = parts.join(" / ");
+    const label = r && r.cluster_label;
+    if (label) {
+      return `分组 ${label} 因子权重` + (body ? `：${body}` : "");
+    }
+    return "未入组 · 全局因子权重" + (body ? `：${body}` : "");
+  }
+
+  function downloadSimTradesCsv(rows) {
+    const showIntent = simTradesIntentDiffers(rows);
+    const header = [
+      "stock_code",
+      "stock_name",
+      "signal_date",
+      "entry_date",
+      ...(showIntent ? ["intent_price"] : []),
+      "entry_price",
+      "exit_date",
+      "exit_price",
+      "return_pct",
+      "score",
+      "cluster_label",
+      "factor_weights_note",
+      "score_formula",
+      "status",
+      "port_return_pct",
+      "sector",
+    ];
+    const lines = [header.join(",")];
+    for (const r of rows || []) {
+      const code = String(r.stock_code || "").trim();
+      const name = watchingNameByCode[code] || "";
+      const cells = [
+        code,
+        name,
+        r.signal_date || "",
+        r.entry_date || "",
+        ...(showIntent ? [r.intent_price ?? ""] : []),
+        r.entry_price ?? "",
+        r.exit_date || "",
+        r.exit_price ?? "",
+        r.return_pct ?? "",
+        r.score ?? "",
+        r.cluster_label || "",
+        formatFactorWeightsNote(r),
+        r.score_formula || "",
+        r.status || "",
+        r.port_return_pct ?? "",
+        r.sector || "",
+      ].map((v) => {
+        const s = String(v);
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      });
+      lines.push(cells.join(","));
+    }
+    const blob = new Blob(["\ufeff" + lines.join("\n")], {
+      type: "text/csv;charset=utf-8",
+    });
+    downloadBlob(blob, `topk_sim_trades_${new Date().toISOString().slice(0, 10)}.csv`);
+  }
+
+  function renderBtTradesTable(dataOrTrades) {
     if (!quantBtTrades) return;
-    if (!trades || !trades.length) {
-      setBtTradesCaption("暂无成交样本");
+    // 已并入记账表：清空旧「信号–成交对照」区
+    const fillEl = document.getElementById("quant-signal-fill");
+    if (fillEl) fillEl.innerHTML = "";
+    let legs = [];
+    if (Array.isArray(dataOrTrades)) {
+      legs = dataOrTrades;
+    } else if (dataOrTrades && typeof dataOrTrades === "object") {
+      if (Array.isArray(dataOrTrades.sim_trades) && dataOrTrades.sim_trades.length) {
+        legs = dataOrTrades.sim_trades;
+      } else if (Array.isArray(dataOrTrades.trades_sample)) {
+        legs = flattenTradesToSimLegs(dataOrTrades.trades_sample);
+      } else if (Array.isArray(dataOrTrades.signal_fill_sample)) {
+        // 兼容旧响应：无 sim_trades 时用对照样本
+        legs = dataOrTrades.signal_fill_sample;
+      }
+    }
+    if (!legs.length) {
+      setBtTradesCaption("暂无模拟成交记录 · 请先跑 Top-K 回测");
       return;
     }
-    const rows = trades
+    lastSimTrades = legs;
+    const filled = legs.filter((r) => (r.status || "filled") === "filled").length;
+    const skipped = legs.length - filled;
+    const showIntent = simTradesIntentDiffers(legs);
+    const rows = legs
       .slice()
-      .reverse()
-      .map((t, i) => {
-        const ret = t.return_pct;
-        const legs = (t.legs || [])
-          .map((l) => {
-            const code = l.code || l.stock_code || "";
-            if (!code) return "";
-            const w = l.weight_pct;
-            return w != null && Number.isFinite(Number(w))
-              ? `${code}:${Number(w).toFixed(0)}%`
-              : code;
-          })
-          .filter(Boolean)
-          .slice(0, 4)
-          .join(",");
-        const deferred = (t.legs || []).some((l) => Number(l.exit_deferred_days || 0) > 0);
-        const skipped = t.skipped_limit_exit || deferred;
+      .sort((a, b) => {
+        const ae = String(a.entry_date || a.signal_date || "");
+        const be = String(b.entry_date || b.signal_date || "");
+        if (ae !== be) return be.localeCompare(ae);
+        const as = String(a.signal_date || "");
+        const bs = String(b.signal_date || "");
+        if (as !== bs) return bs.localeCompare(as);
+        return String(b.stock_code || "").localeCompare(String(a.stock_code || ""), "zh-CN");
+      })
+      .map((r, i) => {
+        const code = String(r.stock_code || "").trim();
+        const fullName = watchingNameByCode[code] || code;
+        const ret = r.return_pct;
+        const st = r.status || "filled";
+        const reasons = Array.isArray(r.score_reasons) ? r.score_reasons.slice(0, 8) : [];
+        reasons.push("截面中性化后相对分（中心约 50；公式为合成项，末尾含原始→中性化对照）");
+        if (r.sector) reasons.push(`行业 ${r.sector}`);
+        if (r.port_return_pct != null) reasons.push(`本期组合收益 ${r.port_return_pct}%`);
+        const scoreDetail = JSON.stringify({
+          formula: r.score_formula || "",
+          reasons,
+          hard_reject: false,
+          reject_reason: "",
+          weight_source: r.score_weight_source || r.weight_source || "",
+          cluster_label: r.cluster_label || "",
+          cluster_mode: r.cluster_mode || "",
+          cluster_version: r.cluster_version,
+          score_global: r.score_global,
+          score_cluster: r.score_cluster,
+          factor_weights: r.factor_weights || {},
+        });
         return {
-          code: `bt-${i}-${t.entry_date || ""}-${t.exit_date || ""}`,
-          entry: t.entry_date || t.signal_date || "—",
-          exit: t.exit_date || "—",
+          code: `sim-${i}-${code}-${r.entry_date || ""}-${r.exit_date || ""}-${st}`,
+          stock_code: code,
+          name: fullName,
+          signal: r.signal_date || "—",
+          entry: r.entry_date || "—",
+          exit: r.exit_date || "—",
+          intentNum: Number.isFinite(Number(r.intent_price)) ? Number(r.intent_price) : null,
+          intentText: r.intent_price != null ? String(r.intent_price) : "—",
+          buyNum: Number.isFinite(Number(r.entry_price)) ? Number(r.entry_price) : null,
+          buyText: r.entry_price != null ? String(r.entry_price) : "—",
+          sellNum: Number.isFinite(Number(r.exit_price)) ? Number(r.exit_price) : null,
+          sellText: r.exit_price != null ? String(r.exit_price) : "—",
           retNum: Number.isFinite(Number(ret)) ? Number(ret) : null,
-          retText: fmtPct(ret),
-          retCls: metricClass(ret),
-          topk: String(t.top_k ?? ((t.legs || []).length || "—")),
-          legs: legs || "—",
-          defer: skipped ? "是" : "—",
+          retText: ret != null ? fmtPct(ret) : "—",
+          retCls: st !== "filled" ? "down" : metricClass(ret),
+          scoreNum: Number.isFinite(Number(r.score)) ? Number(r.score) : null,
+          scoreText: r.score != null ? String(r.score) : "—",
+          scoreDetail,
+          status: formatSimStatus(st),
         };
       });
 
     quantBtTrades.innerHTML =
-      `<p class="quant-trades-caption">最近 ${rows.length} 笔调仓（新→旧）</p>` +
+      `<p class="quant-trades-caption">` +
+      `模拟成交账（含涨跌停跳过）· ${rows.length} 笔` +
+      `（成交 ${filled}` +
+      (skipped ? ` · 跳过 ${skipped}` : "") +
+      `）· 按买入日新→旧 · 信号日→次日买入` +
+      (showIntent ? "" : " · 意图价=买入价已省略") +
+      `<button type="button" id="quant-bt-trades-csv" class="dialog-btn secondary quant-bt-trades-csv">下载 CSV</button>` +
+      `</p>` +
       `<div class="quant-bt-trades-host"></div>`;
+    const csvBtn = document.getElementById("quant-bt-trades-csv");
+    if (csvBtn) {
+      csvBtn.addEventListener("click", () => downloadSimTradesCsv(lastSimTrades));
+    }
     const host = quantBtTrades.querySelector(".quant-bt-trades-host");
     btTradesTableApi = mountVirtualTable(host, {
-      columns: BT_TRADES_COLS,
-      emptyText: "暂无成交样本",
+      columns: btSimTradeColumns(showIntent),
+      emptyText: "暂无模拟成交记录",
       rowHeight: 38,
+      rootClass: "watching-react-grid",
       bodyClass: "quant-bt-trades-body",
       compare: (id, a, b) => {
-        if (id === "ret") {
-          const av = a.retNum;
-          const bv = b.retNum;
+        const numKeys = {
+          ret: "retNum",
+          buy: "buyNum",
+          sell: "sellNum",
+          intent: "intentNum",
+          score: "scoreNum",
+        };
+        const nk = numKeys[id];
+        if (nk) {
+          const av = a[nk];
+          const bv = b[nk];
           if (av == null && bv == null) return 0;
           if (av == null) return -1;
           if (bv == null) return 1;
           return av - bv;
         }
-        return String(a[id] ?? "").localeCompare(String(b[id] ?? ""), "zh-CN", { numeric: true });
+        return String(a[id] ?? "").localeCompare(String(b[id] ?? ""), "zh-CN", {
+          numeric: true,
+        });
       },
       cellHtml: (col, d) => {
+        if (col.id === "name") {
+          return (
+            `<div class="watching-stock" title="${escapeHtml(d.name + " " + d.stock_code)}">` +
+            watchingNameSpanHtml(d.name) +
+            `<span class="watching-code-sub">${escapeHtml(d.stock_code)}</span></div>`
+          );
+        }
         if (col.id === "ret") {
           return `<span class="bt-trade-ret ${d.retCls || ""}">${escapeHtml(d.retText)}</span>`;
         }
-        if (col.id === "legs") {
-          return `<span title="${escapeHtml(d.legs)}">${escapeHtml(d.legs)}</span>`;
+        if (col.id === "score") {
+          return (
+            `<span class="bt-trade-score paper-hold-score has-tip" ` +
+            `data-score-detail="${escapeHtml(d.scoreDetail)}" ` +
+            `title="悬停查看评分与权重来源">${escapeHtml(d.scoreText)}</span>`
+          );
         }
+        if (col.id === "intent") return escapeHtml(d.intentText);
+        if (col.id === "buy") return escapeHtml(d.buyText);
+        if (col.id === "sell") return escapeHtml(d.sellText);
         return escapeHtml(d[col.id] ?? "—");
       },
     });
     btTradesTableApi.setRows(rows);
+    if (quantBtTrades.dataset.scoreTipWired !== "1") {
+      btSimScoreTips.bindHost(quantBtTrades, {
+        scoreSelector: ".bt-trade-score[data-score-detail], .paper-hold-score[data-score-detail]",
+      });
+    }
   }
 
   function renderMetricCards(host, items) {
@@ -1319,7 +1544,8 @@ export function initQuant(ctx) {
     renderCostAssumptions(data.cost_assumptions);
     renderAttributionTables(data.attribution);
     renderRegimeBuckets(data.regime_buckets);
-    renderSignalFillTable(data.signal_fill_sample);
+    // 信号–成交已并入模拟成交账
+    renderSignalFillTable(null);
     renderScoreIc(data.score_ic);
     renderIcEquityAlign(data.ic_equity_align);
     renderQuantileTable(data.quantile_backtest);
@@ -1333,7 +1559,7 @@ export function initQuant(ctx) {
     const expBtn = document.getElementById("quant-backtest-report-export");
     if (expBtn) expBtn.disabled = false;
 
-    renderBtTradesTable(data.trades_sample || []);
+    renderBtTradesTable(data);
   }
 
   const PROMOTE_HINTS_KEY = "investment_promote_hints_v1";
@@ -1740,7 +1966,7 @@ export function initQuant(ctx) {
           renderNeutralCompareTable(null);
         }
         paintPortfolioChart(ps.equity_curve_tail, "无组合摘要曲线");
-        setBtTradesCaption("日报仅含摘要曲线；点击「Top-K 回测」加载完整成交明细");
+        setBtTradesCaption("日报仅含摘要曲线；点击「Top-K 回测」加载完整模拟成交账");
       }
     } catch (_) {
       /* ignore */
@@ -2319,6 +2545,8 @@ export function initQuant(ctx) {
       cluster_version: it && it.cluster_version,
       score_global: it && it.score_global,
       score_cluster: it && it.score_cluster,
+      min_score: it && it.min_score,
+      below_min_score: !!(it && it.below_min_score),
     });
   }
 
@@ -2332,7 +2560,7 @@ export function initQuant(ctx) {
           .filter(Boolean);
     if (!codes.length) return;
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 45000);
+    const timer = setTimeout(() => ctrl.abort(), 100000);
     try {
       const res = await fetch(
         `/api/watching/insights?codes=${encodeURIComponent(codes.join(","))}`,
@@ -2352,15 +2580,27 @@ export function initQuant(ctx) {
           excess = String(it.excess_label);
         }
         const scoreNum = it.score != null && !Number.isNaN(Number(it.score)) ? Number(it.score) : null;
+        const belowMin = !!it.below_min_score;
         const scoreDetail = watchingScoreDetail(it);
+        const scoreText =
+          scoreNum == null
+            ? "—"
+            : belowMin
+              ? `${scoreNum.toFixed(0)}↓`
+              : scoreNum.toFixed(0);
+        const scoreTitle = belowMin
+          ? `低于选股门槛 ${it.min_score ?? "—"}（仍显示分数）`
+          : "悬停查看评分与权重来源";
         const volNum = it.volume != null ? parseWatchingVolume(it.volume) : NaN;
         if (useGrid) {
           const row = watchingGrid.getRow(code);
           if (!row) return;
           row.update({
-            score: scoreNum == null ? "—" : scoreNum.toFixed(0),
+            score: scoreText,
             scoreNum,
             scoreDetail,
+            scoreTitle,
+            scoreBelowMin: belowMin,
             stance: it.stance_short || "—",
             excess: excess || "—",
             excessNum:
@@ -2388,11 +2628,12 @@ export function initQuant(ctx) {
           };
           const scoreEl = tr.querySelector(`[data-q='score']`);
           if (scoreEl) {
-            const text = scoreNum == null ? "—" : scoreNum.toFixed(0);
             scoreEl.innerHTML =
-              `<span class="watching-score-cell paper-hold-score has-tip" ` +
-              `data-score-detail="${escapeHtml(scoreDetail)}" title="悬停查看评分与权重来源">` +
-              `${escapeHtml(text)}</span>`;
+              `<span class="watching-score-cell paper-hold-score has-tip${
+                belowMin ? " score-below-min" : ""
+              }" ` +
+              `data-score-detail="${escapeHtml(scoreDetail)}" title="${escapeHtml(scoreTitle)}">` +
+              `${escapeHtml(scoreText)}</span>`;
           }
           setTxt("stance", it.stance_short || null);
           setTxt("excess", excess);
@@ -2408,7 +2649,19 @@ export function initQuant(ctx) {
         }
       });
       const okN = (data.items || []).filter((x) => x.ok).length;
-      setWatchingRefreshStatus(`摘要已更新 · ${okN}/${codes.length}`);
+      const items = data.items || [];
+      const srcSample = items.find((x) => x && x.weight_source) || {};
+      const mode = srcSample.cluster_mode || "";
+      const wsrc = String(srcSample.weight_source || "");
+      let scoreMode = "全局权";
+      if (wsrc.startsWith("cluster:")) scoreMode = `组权 · ${wsrc.slice("cluster:".length) || "组"}`;
+      else if (wsrc === "global+shadow") scoreMode = "对照中 · 主分全局";
+      else if (wsrc === "global_fallback") scoreMode = "全局回退（未映射）";
+      else if (mode === "active") scoreMode = "active · 组权优先";
+      else if (mode === "shadow") scoreMode = "shadow · 主分全局";
+      setWatchingRefreshStatus(
+        `摘要已更新 · ${okN}/${codes.length} · score ${scoreMode}（与交易执行同源）`
+      );
       if (useGrid) sortWatchingTableRows();
     } catch (err) {
       if (useGrid) {
@@ -3285,62 +3538,10 @@ export function initQuant(ctx) {
       `<p class="quant-attr-note">${escapeHtml(rb.note || "")}</p>`;
   }
 
-  function renderSignalFillTable(rows) {
+  /** @deprecated 已并入模拟成交账；保留空实现以免旧调用报错 */
+  function renderSignalFillTable(_rows) {
     const el = document.getElementById("quant-signal-fill");
-    if (!el) return;
-    const list = Array.isArray(rows) ? rows : [];
-    if (!list.length) {
-      el.innerHTML = "";
-      return;
-    }
-    const data = list
-      .slice()
-      .reverse()
-      .slice(0, 24)
-      .map((r) => {
-        const st = r.status || (r.skipped_limit ? "skipped_limit_entry" : "filled");
-        const cls = st !== "filled" ? "down" : metricClass(r.return_pct);
-        const code = String(r.stock_code || "").trim();
-        const fullName = watchingNameByCode[code] || code;
-        return {
-          signal_date: r.signal_date || "",
-          stock_code: code,
-          name: fullName,
-          score: r.score != null ? String(r.score) : "—",
-          intent: r.intent_price != null ? String(r.intent_price) : "—",
-          fill: r.fill_price != null ? String(r.fill_price) : "—",
-          exit: r.exit_price != null ? String(r.exit_price) : "—",
-          retText: r.return_pct != null ? fmtPct(r.return_pct) : "—",
-          retCls: cls,
-          status: st,
-        };
-      });
-    el.innerHTML =
-      `<p class="quant-trades-caption">信号–成交对照（含涨跌停跳过）</p>` +
-      researchGridHtml(
-        [
-          { id: "signal_date", label: "信号日", widthPct: 11 },
-          { id: "name", label: "股票", flex: true },
-          { id: "score", label: "score", widthPct: 9, num: true },
-          { id: "intent", label: "意图价", widthPct: 10, num: true },
-          { id: "fill", label: "成交价", widthPct: 10, num: true },
-          { id: "exit", label: "出场价", widthPct: 10, num: true },
-          { id: "ret", label: "收益", widthPct: 11, num: true },
-          { id: "status", label: "状态", widthPct: 14 },
-        ],
-        data,
-        (col, d) => {
-          if (col.id === "name") {
-            return (
-              `<div class="watching-stock" title="${escapeHtml(d.name + " " + d.stock_code)}">` +
-              watchingNameSpanHtml(d.name) +
-              `<span class="watching-code-sub">${escapeHtml(d.stock_code)}</span></div>`
-            );
-          }
-          if (col.id === "ret") return metricCell(d.retText, d.retCls);
-          return escapeHtml(d[col.id] ?? "—");
-        }
-      );
+    if (el) el.innerHTML = "";
   }
 
   function drawWatchingChart(pts) {
@@ -7031,18 +7232,37 @@ export function initQuant(ctx) {
     const nextPrefix = doneResearch ? "状态：" : "下一步：";
     const audit = (data && data.audit_sample) || {};
     const rows = Array.isArray(audit.rows) ? audit.rows : [];
+    const ev = (data && data.enable_evidence) || {};
+    const evGate = ev.gate || {};
+    const evBlockers = Array.isArray(evGate.blockers) ? evGate.blockers : [];
+    const evWarns = Array.isArray(evGate.warnings) ? evGate.warnings : [];
+    const oos = ev.oos_summary || {};
+    const turn = ev.turnover_est || {};
+    const exp = ev.exposure_summary || {};
+    const topSec = exp.top_sector || null;
 
+    const topN =
+      book.top_n_per_group != null
+        ? book.top_n_per_group
+        : cs.top_n_per_group != null
+          ? cs.top_n_per_group
+          : ev.top_n_per_group != null
+            ? ev.top_n_per_group
+            : "—";
     const stats =
       `<div class="quant-cluster-landing-stats">` +
       `<span class="quant-cluster-stat"><b>${escapeHtml(modeLabel)}</b> mode</span>` +
       `<span class="quant-cluster-stat"><b>v${escapeHtml(
         String(act.version != null ? act.version : "—")
       )}</b> 映射</span>` +
+      `<span class="quant-cluster-stat" title="每组相对序取前 N，再合并为候选簿"><b>${escapeHtml(
+        String(topN)
+      )}</b> 组内TopN</span>` +
       `<span class="quant-cluster-stat"><b>${escapeHtml(cov)}</b> 覆盖</span>` +
       `<span class="quant-cluster-stat${h.stale ? " is-warn" : ""}"><b>${escapeHtml(
         age
       )}</b> 龄</span>` +
-      `<span class="quant-cluster-stat"><b>${escapeHtml(
+      `<span class="quant-cluster-stat" title="合并簿只数=账户调仓目标，非单组 Top-N"><b>${escapeHtml(
         String(book.name_count != null ? book.name_count : "—")
       )}</b> 簿</span>` +
       `</div>`;
@@ -7053,6 +7273,51 @@ export function initQuant(ctx) {
         )}</p>`
       : "";
 
+    const evidenceOpen = mode === "shadow" || !!evBlockers.length;
+    const evidenceHtml =
+      mode === "off" && !act.exists
+        ? ""
+        : `<details class="quant-cluster-evidence" ${
+            evidenceOpen ? "open" : ""
+          }>` +
+          `<summary>启用证据包 ` +
+          `<span class="sub${evGate.ok === false ? " down" : ""}">${
+            evGate.ok === false
+              ? "未通过"
+              : evGate.ok
+                ? "可启用"
+                : "—"
+          }</span></summary>` +
+          `<ul class="quant-cluster-evidence-list">` +
+          `<li>簿长 ${escapeHtml(
+            String(ev.name_count != null ? ev.name_count : book.name_count ?? "—")
+          )} · 组内TopN=${escapeHtml(String(topN))} · max=${escapeHtml(
+            String(ev.max_names != null ? ev.max_names : "—")
+          )}</li>` +
+          `<li>OOS 通过 ${escapeHtml(String(oos.pass_count ?? "—"))} / 失败 ${escapeHtml(
+            String(oos.fail_count ?? "—")
+          )} / 未知 ${escapeHtml(String(oos.unknown_count ?? "—"))}</li>` +
+          `<li title="相对纸面 vs 合并簿">换手估计 卖 ${escapeHtml(
+            String(turn.would_sell_count ?? "—")
+          )} · 买 ${escapeHtml(String(turn.would_buy_count ?? "—"))}</li>` +
+          `<li>行业集中 ${
+            topSec
+              ? escapeHtml(
+                  `${topSec.name} ${topSec.weight_pct != null ? topSec.weight_pct + "%" : ""}`
+                )
+              : "—"
+          }</li>` +
+          `<li>双分样本 ${escapeHtml(
+            String((ev.score_audit_sample || {}).count ?? rows.length)
+          )} 只</li>` +
+          (evBlockers.length
+            ? `<li class="down">拦：${escapeHtml(evBlockers.join("；"))}</li>`
+            : "") +
+          (evWarns.length
+            ? `<li class="is-warn">提示：${escapeHtml(evWarns.join("；"))}</li>`
+            : "") +
+          `</ul></details>`;
+
     const actions =
       `<div class="quant-cluster-landing-actions">` +
       `<button type="button" class="dialog-btn dialog-btn-keep-case" ` +
@@ -7060,7 +7325,7 @@ export function initQuant(ctx) {
       `title="晋升映射 → shadow → 刷新簿（更新交易执行打分用的组权）">① 对照</button>` +
       `<button type="button" class="dialog-btn dialog-btn-keep-case" ` +
       `data-cluster-export="live-active" ${canActivate ? "" : "disabled"} ` +
-      `title="健康门禁通过后启用组权打分（交易执行页 score 吃组权）">② 启用</button>` +
+      `title="证据包+健康门禁通过后启用组权打分（交易执行页 score 吃组权）">② 启用</button>` +
       `<span class="sub quant-cluster-landing-next${
         doneResearch ? " is-done" : ""
       }">${nextPrefix}${escapeHtml(next)}</span>` +
@@ -7125,7 +7390,7 @@ export function initQuant(ctx) {
         `<span class="quant-cluster-tables-label">双分对照</span>` +
         `<span class="sub">全局 / 组权 / Δ${escapeHtml(sampled)} · 不写 config</span>` +
         `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" ` +
-        `data-cluster-export="live-audit" title="重新打分刷新双分样本">刷新对照</button>` +
+        `data-cluster-export="live-audit" title="轮换样本并重新打分">刷新对照</button>` +
         `</div>` +
         (rows.length
           ? `<div class="watching-react-grid quant-research-grid quant-cluster-audit-grid">` +
@@ -7159,6 +7424,7 @@ export function initQuant(ctx) {
       `</div>` +
       stats +
       alertHtml +
+      evidenceHtml +
       actions +
       auditHtml +
       more +
@@ -7166,9 +7432,17 @@ export function initQuant(ctx) {
     );
   }
 
-  async function refreshClusterLiveStatus() {
+  async function refreshClusterLiveStatus({ auditRotate = false } = {}) {
     try {
-      const res = await fetch("/api/quant/cluster-live/status");
+      const q = new URLSearchParams();
+      if (auditRotate) {
+        q.set("audit_rotate", "true");
+        q.set("audit_offset", String(Date.now() % 10000000));
+      }
+      const url =
+        "/api/quant/cluster-live/status" +
+        (q.toString() ? `?${q.toString()}` : "");
+      const res = await fetch(url);
       const data = await res.json();
       // await 后重取节点：分组重绘会替换 #quant-cluster-landing，旧引用已脱离 DOM
       const host = document.getElementById("quant-cluster-landing");
@@ -7272,11 +7546,38 @@ export function initQuant(ctx) {
   }
 
   async function runClusterLiveMode(mode) {
-    if (
-      !window.confirm(
-        `将 cluster_scoring.mode 设为 ${mode}？\n仅改开关，不改全局 weights。`
-      )
-    ) {
+    let confirmMsg = `将 cluster_scoring.mode 设为 ${mode}？\n仅改开关，不改全局 weights。`;
+    if (mode === "active") {
+      try {
+        const stRes = await fetch("/api/quant/cluster-live/status");
+        const st = await stRes.json();
+        const ev = (st && st.enable_evidence) || {};
+        const oos = ev.oos_summary || {};
+        const turn = ev.turnover_est || {};
+        confirmMsg =
+          `启用组权前请确认证据包：\n` +
+          `· 簿 ${ev.name_count ?? "—"} 只 · TopN=${ev.top_n_per_group ?? "—"}\n` +
+          `· OOS 通过 ${oos.pass_count ?? 0} / 失败 ${oos.fail_count ?? 0}\n` +
+          `· 相对纸面约卖 ${turn.would_sell_count ?? 0} · 买 ${turn.would_buy_count ?? 0}\n` +
+          `· 健康覆盖 ${
+            ev.health && ev.health.coverage != null
+              ? Math.round(Number(ev.health.coverage) * 100) + "%"
+              : "—"
+          }\n\n` +
+          `确认将 mode 设为 active？（不改全局 weights）`;
+        if (ev.gate && ev.gate.ok === false) {
+          setQuantMeta(
+            `证据包未通过 · ${(ev.gate.blockers || []).join("；") || "见落地卡"}`,
+            { error: true }
+          );
+          refreshClusterLiveStatus();
+          return;
+        }
+      } catch (_) {
+        /* 仍走后端门禁 */
+      }
+    }
+    if (!window.confirm(confirmMsg)) {
       return;
     }
     setQuantMeta(`设置 mode=${mode}…`, { busy: true });
@@ -8316,9 +8617,9 @@ export function initQuant(ctx) {
       return;
     }
     if (key === "live-audit") {
-      setQuantMeta("刷新双分对照…", { busy: true });
-      refreshClusterLiveStatus().then(() => {
-        setQuantMeta("双分对照已刷新");
+      setQuantMeta("轮换双分对照样本…", { busy: true });
+      refreshClusterLiveStatus({ auditRotate: true }).then(() => {
+        setQuantMeta("双分对照已换一批样本");
       });
       return;
     }

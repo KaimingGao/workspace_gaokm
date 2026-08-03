@@ -14,6 +14,163 @@ from core.backtest.engine import _mock_quote_from_bars, _trade_metrics
 WEIGHT_MODES = ("equal", "score_budget", "risk_parity_lite")
 
 
+def _fmt_factor_weights(weights: Optional[Dict[str, Any]], *, limit: int = 8) -> str:
+    if not isinstance(weights, dict) or not weights:
+        return ""
+    parts: List[str] = []
+    for k, v in sorted(weights.items(), key=lambda kv: (-float(kv[1] or 0), str(kv[0]))):
+        try:
+            parts.append(f"{k} {float(v):.2f}")
+        except (TypeError, ValueError):
+            continue
+        if len(parts) >= limit:
+            break
+    return " / ".join(parts)
+
+
+def _score_factor_weight_meta(
+    code: str,
+    *,
+    global_weights: Optional[Dict[str, Any]] = None,
+    cluster_active: Any = None,
+) -> Dict[str, Any]:
+    """score 悬浮用：优先分组因子权，未入组则全局。"""
+    try:
+        from core.signal.cluster_live import lookup_code_weights
+
+        mapped = lookup_code_weights(str(code), active=cluster_active)
+    except Exception:
+        mapped = None
+    if mapped and isinstance(mapped.get("weights"), dict):
+        fw = {str(k): float(v) for k, v in mapped["weights"].items() if v is not None}
+        label = str(mapped.get("cluster_label") or mapped.get("label") or "?")
+        src = str(mapped.get("weight_source") or f"cluster:{label}")
+        body = _fmt_factor_weights(fw)
+        note = f"分组 {label} 因子权重" + (f"：{body}" if body else "")
+        return {
+            "cluster_label": label,
+            "score_weight_source": src,
+            "factor_weights": fw,
+            "factor_weights_note": note,
+        }
+    gw = dict(global_weights or {})
+    body = _fmt_factor_weights(gw)
+    note = "未入组 · 全局因子权重" + (f"：{body}" if body else "")
+    return {
+        "cluster_label": None,
+        "score_weight_source": "global",
+        "factor_weights": gw,
+        "factor_weights_note": note,
+    }
+
+
+def _sim_trade_row(
+    *,
+    stock_code: str,
+    score: Any,
+    signal_date: str,
+    entry_date: Optional[str],
+    exit_date: Optional[str] = None,
+    intent_price: Optional[float] = None,
+    entry_price: Optional[float] = None,
+    exit_price: Optional[float] = None,
+    return_pct: Optional[float] = None,
+    sector: Optional[str] = None,
+    execution_mode: Optional[str] = None,
+    exit_deferred_days: int = 0,
+    status: str = "filled",
+    port_return_pct: Optional[float] = None,
+    port_gross_return_pct: Optional[float] = None,
+    port_cost_pct: Optional[float] = None,
+    cluster_label: Optional[str] = None,
+    score_weight_source: Optional[str] = None,
+    factor_weights: Optional[Dict[str, Any]] = None,
+    factor_weights_note: Optional[str] = None,
+    score_formula: Optional[str] = None,
+    score_reasons: Optional[List[str]] = None,
+    score_raw: Optional[float] = None,
+) -> Dict[str, Any]:
+    return {
+        "stock_code": stock_code,
+        "score": score,
+        "signal_date": signal_date,
+        "entry_date": entry_date,
+        "exit_date": exit_date,
+        "intent_price": intent_price,
+        "entry_price": entry_price,
+        "exit_price": exit_price,
+        "return_pct": return_pct,
+        "sector": sector,
+        "execution_mode": execution_mode,
+        "exit_deferred_days": int(exit_deferred_days or 0),
+        "status": status,
+        "port_return_pct": port_return_pct,
+        "port_gross_return_pct": port_gross_return_pct,
+        "port_cost_pct": port_cost_pct,
+        "cluster_label": cluster_label,
+        "score_weight_source": score_weight_source,
+        "factor_weights": factor_weights or {},
+        "factor_weights_note": factor_weights_note or "",
+        "score_formula": score_formula or "",
+        "score_reasons": list(score_reasons or []),
+        "score_raw": score_raw,
+    }
+
+
+def _score_formula_for_item(
+    item: Optional[Dict[str, Any]],
+    *,
+    score: Any = None,
+    formula_weights: Optional[Dict[str, Any]] = None,
+) -> str:
+    """与交易执行页同源的评分公式；中性化时附原始分对照。"""
+    if not isinstance(item, dict):
+        return ""
+    try:
+        from services.paper_helpers import _build_score_formula
+
+        formula = _build_score_formula(
+            {
+                "sub_scores": item.get("sub_scores"),
+                "factor_contrib": item.get("factor_contrib"),
+                "weights": formula_weights or item.get("weights"),
+            }
+        )
+    except Exception:
+        formula = ""
+    if not formula:
+        return ""
+    raw = item.get("score_raw")
+    final = score if score is not None else item.get("score")
+    try:
+        if raw is not None and final is not None and float(raw) != float(final):
+            formula = f"{formula}（原始 {raw} → 中性化 {final}）"
+    except (TypeError, ValueError):
+        pass
+    return formula
+
+
+def _intent_and_fill_prices(
+    mode: str,
+    *,
+    signal_bar: Optional[dict],
+    entry_bar: Optional[dict],
+) -> Tuple[Any, Any]:
+    """意图价=决策参照价；买入价=实际入场价。
+
+    next_open：意图=信号日收盘，买入=次日开盘（可不同）。
+    close：意图与买入均为当日收盘（相同）。
+    """
+    sig = signal_bar or {}
+    ent = entry_bar or {}
+    if (mode or "").strip().lower() == "next_open":
+        intent = sig.get("close") or sig.get("open")
+        fill = ent.get("open") or ent.get("close")
+        return intent, fill
+    px = ent.get("close") or ent.get("open")
+    return px, px
+
+
 def _vol_from_window(bars: List[dict], *, window: int = 20) -> Optional[float]:
     closes: List[float] = []
     for b in (bars or [])[-max(window + 2, 5) :]:
@@ -264,6 +421,13 @@ def backtest_topk_equal_weight(
     cfg = load_signal_config()
     cs_cfg = cfg.get("cross_section") or {}
     use_neutral = cs_cfg.get("neutralize", True) if neutralize is None else bool(neutralize)
+    global_factor_weights = dict(cfg.get("weights") or {})
+    try:
+        from core.signal.cluster_live import load_active_cluster_weights
+
+        cluster_active = load_active_cluster_weights()
+    except Exception:
+        cluster_active = None
     dropout_n = max(0, min(int(dropout_n or 0), 10))
 
     top_k = max(1, min(int(top_k or 3), 10))
@@ -304,6 +468,7 @@ def backtest_topk_equal_weight(
 
     returns: List[float] = []
     trades: List[dict] = []
+    sim_trades: List[dict] = []
     equity_curve: List[dict] = []
     equity = 100.0
     neutralized_rebalances = 0
@@ -377,6 +542,7 @@ def backtest_topk_equal_weight(
         )
         if neut_meta.get("applied"):
             neutralized_rebalances += 1
+        items_by_code = neut_meta.get("items_by_code") or {}
         selected = apply_topk_dropout(
             picks, prev_codes, top_k=top_k, dropout_n=dropout_n
         )
@@ -396,6 +562,21 @@ def backtest_topk_equal_weight(
         leg_exit_dates: List[str] = []
         signal_date = dates[i]
         for code, score in selected:
+            scored_item = items_by_code.get(str(code)) or {}
+            score_formula = _score_formula_for_item(
+                scored_item,
+                score=score,
+                formula_weights=global_factor_weights,
+            )
+            score_reasons = list(scored_item.get("reasons") or [])
+            try:
+                score_raw = (
+                    float(scored_item["score_raw"])
+                    if scored_item.get("score_raw") is not None
+                    else None
+                )
+            except (TypeError, ValueError):
+                score_raw = None
             dm = date_maps[code]
             entry_bar = dm.get(entry_date)
             if not entry_bar:
@@ -418,24 +599,51 @@ def backtest_topk_equal_weight(
                 )
                 if match.get("blocked"):
                     skipped_limit += 1
-                    # R4.2：跳过也进对照样本
-                    intent = entry_bar.get("open") or entry_bar.get("close")
-                    signal_fill_sample.append(
-                        {
-                            "signal_date": signal_date,
-                            "entry_date": entry_date,
-                            "stock_code": code,
-                            "score": score,
-                            "intent_price": round(float(intent), 4) if intent else None,
-                            "fill_price": None,
-                            "exit_price": None,
-                            "return_pct": None,
-                            "skipped_limit": True,
-                            "skipped_limit_exit": False,
-                            "exit_deferred_days": 0,
-                            "execution_mode": mode,
-                            "status": "skipped_limit_entry",
-                        }
+                    # R4.2：跳过也进对照样本 / 模拟账
+                    signal_bar = dm.get(signal_date) or {}
+                    intent, _fill = _intent_and_fill_prices(
+                        mode, signal_bar=signal_bar, entry_bar=entry_bar
+                    )
+                    try:
+                        intent_f = round(float(intent), 4) if intent else None
+                    except (TypeError, ValueError):
+                        intent_f = None
+                    skip_row = {
+                        "signal_date": signal_date,
+                        "entry_date": entry_date,
+                        "stock_code": code,
+                        "score": score,
+                        "intent_price": intent_f,
+                        "fill_price": None,
+                        "exit_price": None,
+                        "return_pct": None,
+                        "skipped_limit": True,
+                        "skipped_limit_exit": False,
+                        "exit_deferred_days": 0,
+                        "execution_mode": mode,
+                        "status": "skipped_limit_entry",
+                    }
+                    signal_fill_sample.append(skip_row)
+                    fw = _score_factor_weight_meta(
+                        code,
+                        global_weights=global_factor_weights,
+                        cluster_active=cluster_active,
+                    )
+                    sim_trades.append(
+                        _sim_trade_row(
+                            stock_code=code,
+                            score=score,
+                            signal_date=signal_date,
+                            entry_date=entry_date,
+                            intent_price=intent_f,
+                            sector=_sector_for(code, smap),
+                            execution_mode=mode,
+                            status="skipped_limit_entry",
+                            score_formula=score_formula,
+                            score_reasons=score_reasons,
+                            score_raw=score_raw,
+                            **fw,
+                        )
                     )
                     continue
 
@@ -454,27 +662,55 @@ def backtest_topk_equal_weight(
             )
             if exit_res.get("skipped") or not exit_res.get("ok"):
                 skipped_limit_exit += 1
-                intent = (
-                    entry_bar.get("open")
-                    if mode == "next_open"
-                    else entry_bar.get("close")
-                ) or entry_bar.get("close")
-                signal_fill_sample.append(
-                    {
-                        "signal_date": signal_date,
-                        "entry_date": entry_date,
-                        "stock_code": code,
-                        "score": score,
-                        "intent_price": round(float(intent), 4) if intent else None,
-                        "fill_price": round(float(intent), 4) if intent else None,
-                        "exit_price": None,
-                        "return_pct": None,
-                        "skipped_limit": False,
-                        "skipped_limit_exit": True,
-                        "exit_deferred_days": 0,
-                        "execution_mode": mode,
-                        "status": "skipped_limit_exit",
-                    }
+                signal_bar = dm.get(signal_date) or {}
+                intent, fill = _intent_and_fill_prices(
+                    mode, signal_bar=signal_bar, entry_bar=entry_bar
+                )
+                try:
+                    intent_f = round(float(intent), 4) if intent else None
+                except (TypeError, ValueError):
+                    intent_f = None
+                try:
+                    fill_f = round(float(fill), 4) if fill else None
+                except (TypeError, ValueError):
+                    fill_f = None
+                skip_exit = {
+                    "signal_date": signal_date,
+                    "entry_date": entry_date,
+                    "stock_code": code,
+                    "score": score,
+                    "intent_price": intent_f,
+                    "fill_price": fill_f,
+                    "exit_price": None,
+                    "return_pct": None,
+                    "skipped_limit": False,
+                    "skipped_limit_exit": True,
+                    "exit_deferred_days": 0,
+                    "execution_mode": mode,
+                    "status": "skipped_limit_exit",
+                }
+                signal_fill_sample.append(skip_exit)
+                fw = _score_factor_weight_meta(
+                    code,
+                    global_weights=global_factor_weights,
+                    cluster_active=cluster_active,
+                )
+                sim_trades.append(
+                    _sim_trade_row(
+                        stock_code=code,
+                        score=score,
+                        signal_date=signal_date,
+                        entry_date=entry_date,
+                        intent_price=intent_f,
+                        entry_price=fill_f,
+                        sector=_sector_for(code, smap),
+                        execution_mode=mode,
+                        status="skipped_limit_exit",
+                        score_formula=score_formula,
+                        score_reasons=score_reasons,
+                        score_raw=score_raw,
+                        **fw,
+                    )
                 )
                 continue
             if exit_res.get("deferred"):
@@ -483,12 +719,10 @@ def backtest_topk_equal_weight(
             exit_bar = code_bars[exit_idx]
             exit_date = str(exit_bar.get("date") or planned_exit_date)
 
-            if mode == "next_open":
-                entry = entry_bar.get("open") or entry_bar.get("close")
-                intent = entry_bar.get("open") or entry_bar.get("close")
-            else:
-                entry = entry_bar.get("close")
-                intent = entry_bar.get("close")
+            signal_bar = dm.get(signal_date) or {}
+            intent, entry = _intent_and_fill_prices(
+                mode, signal_bar=signal_bar, entry_bar=entry_bar
+            )
             exit_p = exit_bar.get("close")
             if not entry:
                 continue
@@ -505,6 +739,9 @@ def backtest_topk_equal_weight(
                 {
                     "stock_code": code,
                     "score": score,
+                    "score_formula": score_formula,
+                    "score_reasons": score_reasons,
+                    "score_raw": score_raw,
                     "return_pct": round(ret, 2),
                     "sector": _sector_for(code, smap),
                     "exit_date": exit_date,
@@ -599,18 +836,56 @@ def backtest_topk_equal_weight(
 
         # 组合退出日取各腿最晚卖出日（研究近似）
         exit_date = max(leg_exit_dates) if leg_exit_dates else planned_exit_date
+        port_ret_r = round(port_ret, 2)
+        gross_ret_r = round(gross_ret, 2)
+        cost_pct_r = round(cost_pct, 4) if apply_costs else 0.0
 
         returns.append(port_ret)
         equity *= 1.0 + port_ret / 100.0
+        for leg in legs:
+            code_l = str(leg.get("stock_code") or "")
+            fw = _score_factor_weight_meta(
+                code_l,
+                global_weights=global_factor_weights,
+                cluster_active=cluster_active,
+            )
+            leg["cluster_label"] = fw.get("cluster_label")
+            leg["score_weight_source"] = fw.get("score_weight_source")
+            leg["factor_weights"] = fw.get("factor_weights")
+            leg["factor_weights_note"] = fw.get("factor_weights_note")
+            sim_trades.append(
+                _sim_trade_row(
+                    stock_code=code_l,
+                    score=leg.get("score"),
+                    signal_date=str(leg.get("signal_date") or signal_date),
+                    entry_date=str(leg.get("entry_date") or entry_date),
+                    exit_date=str(leg.get("exit_date") or exit_date),
+                    intent_price=leg.get("intent_price"),
+                    entry_price=leg.get("fill_price"),
+                    exit_price=leg.get("exit_price"),
+                    return_pct=leg.get("return_pct"),
+                    sector=leg.get("sector"),
+                    execution_mode=str(leg.get("execution_mode") or mode),
+                    exit_deferred_days=int(leg.get("exit_deferred_days") or 0),
+                    status="filled",
+                    port_return_pct=port_ret_r,
+                    port_gross_return_pct=gross_ret_r,
+                    port_cost_pct=cost_pct_r,
+                    score_formula=leg.get("score_formula") or "",
+                    score_reasons=leg.get("score_reasons") or [],
+                    score_raw=leg.get("score_raw"),
+                    **fw,
+                )
+            )
         trades.append(
             {
                 "signal_date": dates[i],
                 "entry_date": entry_date,
                 "exit_date": exit_date,
                 "hold_days": horizon_days,
-                "return_pct": round(port_ret, 2),
-                "gross_return_pct": round(gross_ret, 2),
-                "cost_pct": round(cost_pct, 4) if apply_costs else 0.0,
+                "return_pct": port_ret_r,
+                "gross_return_pct": gross_ret_r,
+                "cost_pct": cost_pct_r,
                 "legs": legs,
                 "top_k": len(legs),
                 "neutralization_applied": bool(neut_meta.get("applied")),
@@ -685,9 +960,11 @@ def backtest_topk_equal_weight(
         "attribution": attribution,
         "metrics": metrics,
         "trade_count": len(trades),
+        "sim_trade_count": len(sim_trades),
         "equity_curve": equity_curve,
         "trades": trades,
         "trades_sample": trades[-20:],
+        "sim_trades": sim_trades,
         "signal_fill_sample": signal_fill_sample[-40:],
         "note": (
             f"横截面 TopK 回测（权重={resolved_weight_mode}）"

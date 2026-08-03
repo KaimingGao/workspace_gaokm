@@ -135,12 +135,16 @@ export async function mountWatchingTableIsland(host, options = {}) {
       if (col.id === "score") {
         const text = d.score != null && d.score !== "" ? String(d.score) : "—";
         const detail = d.scoreDetail || "";
+        const below = !!d.scoreBelowMin;
+        const title = d.scoreTitle || "悬停查看评分与权重来源";
         if (!detail) {
           return escapeHtml(text);
         }
         return (
-          `<span class="watching-score-cell paper-hold-score has-tip" ` +
-          `data-score-detail="${escapeHtml(detail)}" title="悬停查看评分与权重来源">` +
+          `<span class="watching-score-cell paper-hold-score has-tip${
+            below ? " score-below-min" : ""
+          }" ` +
+          `data-score-detail="${escapeHtml(detail)}" title="${escapeHtml(title)}">` +
           `${escapeHtml(text)}</span>`
         );
       }

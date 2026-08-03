@@ -80,6 +80,27 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertIsNone(item["excess_return_pct"])
         self.assertEqual(item["excess_label"], "RS66")
 
+    def test_insights_covers_full_watchlist_up_to_80(self):
+        from core.watching_insights import build_watching_insights
+
+        codes = [f"{i:06d}" for i in range(1, 41)]
+
+        def fake_score(code, **kwargs):
+            return {
+                "success": True,
+                "quote": {"success": True, "stock_code": code},
+                "signal_item": {"score": 50.0 + (int(code) % 10), "hard_reject": False, "factors": {}},
+            }
+
+        with patch("core.signal.score_stock.score_stock", side_effect=fake_score), patch(
+            "core.watching_insights._spot_valuation_map",
+            return_value={},
+        ):
+            out = build_watching_insights(codes)
+        self.assertEqual(out["count"], 40)
+        self.assertEqual(out.get("truncated"), 0)
+        self.assertTrue(all(i.get("score") is not None for i in out["items"]))
+
 
 if __name__ == "__main__":
     unittest.main()

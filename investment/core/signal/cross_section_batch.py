@@ -56,6 +56,11 @@ def score_and_rank_watching(
         items = neut.get("items") or items
         meta = {k: v for k, v in neut.items() if k != "items"}
 
+    meta["items_by_code"] = {
+        str(it.get("stock_code") or "").strip(): it
+        for it in items
+        if it.get("stock_code")
+    }
     return rank_scored_items(items, min_score=min_score), meta
 
 
@@ -70,6 +75,8 @@ def score_bars_as_item(
         "stock_code": code,
         "score": scored.get("score"),
         "sub_scores": scored.get("sub_scores") or {},
+        "factor_contrib": scored.get("factor_contrib") or {},
+        "reasons": scored.get("reasons") or [],
         "regime": scored.get("regime") or {},
         "hard_reject": scored.get("hard_reject"),
     }

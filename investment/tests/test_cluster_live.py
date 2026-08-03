@@ -75,6 +75,20 @@ class TestClusterLive(unittest.TestCase):
             },
         }
 
+    def test_audit_sample_rotates_with_offset(self):
+        from core.signal.cluster_live import _pick_audit_codes
+
+        cmap = {
+            f"c{i}": {"cluster_label": f"G{i % 3}"}
+            for i in range(12)
+        }
+        book = [{"stock_code": f"c{i}"} for i in range(12)]
+        a = _pick_audit_codes(cmap, book, 4, offset=0)
+        b = _pick_audit_codes(cmap, book, 4, offset=3)
+        self.assertEqual(len(a), 4)
+        self.assertEqual(len(b), 4)
+        self.assertNotEqual(a, b)
+
     def test_promote_and_rollback(self):
         from core.signal.cluster_live import (
             load_active_cluster_weights,
@@ -149,7 +163,7 @@ class TestClusterLive(unittest.TestCase):
                 (out["mode"].get("cluster_scoring") or {}).get("mode"), "shadow"
             )
 
-    def test_rank_cluster_pools_no_cross_sort(self):
+    def test_rank_cluster_pools_global_sort(self):
         from core.signal.cluster_live import promote_cluster_artifact
         from core.signal.cluster_rank import rank_cluster_pools
 
@@ -183,33 +197,43 @@ class TestClusterLive(unittest.TestCase):
             ):
                 out = rank_cluster_pools(
                     ["600519", "000001", "601318"],
-                    top_n_per_group=1,
+                    max_names=10,
+                    min_score=55,
                     persist_book=True,
                 )
             self.assertTrue(out["success"])
-            self.assertFalse(out["cross_group_rank"])
-            codes = [b["stock_code"] for b in out["book"]]
-            # 每组 Top1：G1→600519，G2→601318；不是按 90/80/70 全局序
-            self.assertEqual(set(codes), {"600519", "601318"})
-            self.assertNotIn("000001", codes)
+            self.assertTrue(out["cross_group_rank"])
+            self.assertEqual(out.get("mode"), "cluster_score_global_rank")
+            # 全局按分：601318(90) → 600519(80) → 000001(70)
+            self.assertEqual(
+                [b["stock_code"] for b in out["book"]],
+                ["601318", "600519", "000001"],
+            )
 
-            # 组内相对 Top-N：低于全局 min_score 的票仍可进簿
             def fake_score_low(code, **kwargs):
                 return {
                     "success": True,
                     "signal_item": {
                         "stock_code": code,
                         "stock_name": code,
-                        "score": {"600519": 40, "000001": 30, "601318": 35}.get(
-                            str(code), 10
-                        ),
+                        "score": {
+                            "600519": 70,
+                            "000001": 40,
+                            "601318": 35,
+                        }.get(str(code), 10),
                         "hard_reject": False,
                         "cluster_label": {
                             "600519": "G1",
                             "000001": "G1",
                             "601318": "G2",
                         }.get(str(code), "?"),
-                        "weight_source": "cluster:G1",
+                        "weight_source": "cluster:{}".format(
+                            {
+                                "600519": "G1",
+                                "000001": "G1",
+                                "601318": "G2",
+                            }.get(str(code), "?")
+                        ),
                     },
                 }
 
@@ -218,13 +242,37 @@ class TestClusterLive(unittest.TestCase):
             ):
                 low = rank_cluster_pools(
                     ["600519", "000001", "601318"],
-                    top_n_per_group=2,
+                    max_names=10,
                     min_score=55,
                     persist_book=False,
                 )
             self.assertTrue(low["success"])
             self.assertGreaterEqual(low.get("below_min_score_count") or 0, 1)
-            self.assertEqual(len(low["book"]), 3)
+            # 仅 600519≥55 进簿
+            self.assertEqual([b["stock_code"] for b in low["book"]], ["600519"])
+            self.assertEqual(low["min_score"], 55.0)
+            scored_codes = {r["stock_code"] for r in low.get("scored_all") or []}
+            self.assertEqual(scored_codes, {"600519", "000001", "601318"})
+            low_row = next(
+                r for r in low["scored_all"] if r["stock_code"] == "000001"
+            )
+            self.assertTrue(low_row.get("below_min_score"))
+            self.assertEqual(low_row.get("score"), 40)
+
+            # max_names 截断
+            with patch(
+                "core.signal.score_stock.score_stock", side_effect=fake_score
+            ):
+                capped = rank_cluster_pools(
+                    ["600519", "000001", "601318"],
+                    max_names=2,
+                    min_score=55,
+                    persist_book=False,
+                )
+            self.assertEqual(
+                [b["stock_code"] for b in capped["book"]],
+                ["601318", "600519"],
+            )
 
     def test_auto_demote_stale_and_prepare_daily(self):
         from core.signal.cluster_live import (
@@ -307,6 +355,43 @@ class TestClusterLive(unittest.TestCase):
             self.assertEqual(land.get("next_step"), "enable_active")
             self.assertTrue(land.get("can_activate"))
             self.assertIn("audit_sample", st)
+            book = st.get("book") or {}
+            self.assertIn("top_n_per_group", book)
+            self.assertGreaterEqual(int(book.get("top_n_per_group") or 0), 1)
+            ev = st.get("enable_evidence") or {}
+            self.assertTrue(ev.get("success"))
+            self.assertIn("oos_summary", ev)
+            self.assertIn("turnover_est", ev)
+            self.assertIn("exposure_summary", ev)
+            self.assertTrue((ev.get("gate") or {}).get("ok"))
+
+    def test_enable_evidence_blocks_all_oos_fail(self):
+        from core.signal.cluster_live import (
+            build_cluster_enable_evidence,
+            promote_cluster_artifact,
+        )
+
+        art = self._artifact()
+        art["clusters"] = [
+            {"label": "G1", "oos_gate": {"ok": True, "passed": False}},
+            {"label": "G2", "oos_gate": {"ok": True, "passed": False}},
+        ]
+        with _live_tmp():
+            promote_cluster_artifact(art)
+            with patch(
+                "core.signal.cluster_live.assess_cluster_live_health",
+                return_value={
+                    "allow_active": True,
+                    "alerts": [],
+                    "coverage": 1.0,
+                    "stale": False,
+                },
+            ):
+                ev = build_cluster_enable_evidence()
+            self.assertFalse((ev.get("gate") or {}).get("ok"))
+            self.assertTrue(
+                any("OOS" in str(b) for b in (ev.get("gate") or {}).get("blockers") or [])
+            )
 
     def test_status_landing_after_paper_applied(self):
         from core.signal.cluster_live import (

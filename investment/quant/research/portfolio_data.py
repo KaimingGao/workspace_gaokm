@@ -35,7 +35,7 @@ def load_portfolio_stock_bars(
     sym_by_raw: Dict[str, str] = {}
     need = int(min_bars) if min_bars is not None else max(16, min(40, int(lookback or 120) // 2))
 
-    for raw in candidates[:15]:
+    for raw in candidates:
         quote = get_quote(str(raw))
         sym = quote.get("stock_code") if quote.get("success") else str(raw)
         bars, _ = bars_and_source(raw, limit=lookback + 35)

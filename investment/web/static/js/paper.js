@@ -803,8 +803,17 @@ export function initPaper(ctx) {
     paperInitialized = !!data.initialized;
     const costNote = document.getElementById("follow-cost-note");
     const costSelect = document.getElementById("paper-cost-model");
+    const stratSelect = document.getElementById("paper-strategy");
     const model = data.cost_model || (data.summary && data.summary.cost_model) || "zero";
     if (costSelect && costSelect.value !== model) costSelect.value = model;
+    if (stratSelect && data.strategy_id) {
+      const opt = Array.from(stratSelect.options || []).find(
+        (o) => o.value === data.strategy_id
+      );
+      if (opt && stratSelect.value !== data.strategy_id) {
+        stratSelect.value = data.strategy_id;
+      }
+    }
     if (costNote) {
       costNote.textContent =
         model === "simple_cn"
@@ -1113,6 +1122,21 @@ export function initPaper(ctx) {
 
       if (opsReport) renderOpsReport(opsReport, { forceShow: true });
 
+      // 按分数降序展示（无分排后）
+      report = Array.isArray(report)
+        ? [...report].sort((a, b) => {
+            const as = a && a.score != null && Number.isFinite(Number(a.score))
+              ? Number(a.score)
+              : null;
+            const bs = b && b.score != null && Number.isFinite(Number(b.score))
+              ? Number(b.score)
+              : null;
+            if (as == null && bs == null) return 0;
+            if (as == null) return 1;
+            if (bs == null) return -1;
+            return bs - as;
+          })
+        : report;
       const hasRisk =
         riskGate &&
         ((Array.isArray(riskGate.blocks) && riskGate.blocks.length > 0) ||
@@ -1121,7 +1145,8 @@ export function initPaper(ctx) {
         cashImpact &&
         (cashImpact.cash_before != null ||
           cashImpact.buy_amount != null ||
-          cashImpact.sell_amount != null);
+          cashImpact.sell_amount != null ||
+          cashImpact.turnover_pct != null);
       const hasOps = !!(opsReport && (opsReport.strategy_id || opsReport.cost_model));
       const emptyReport = !report || report.length === 0;
 
@@ -1154,9 +1179,15 @@ export function initPaper(ctx) {
       }
       if (previewNote) {
         previewNote.hidden = !preview;
-        previewNote.textContent = preview
-          ? "预演未成交 · 确认后才会改仓"
-          : "";
+        let note = preview ? "预演未成交 · 确认后才会改仓" : "";
+        if (preview && cashImpact && cashImpact.turnover_capped) {
+          const cap =
+            cashImpact.max_turnover_pct != null
+              ? `（上限 ${cashImpact.max_turnover_pct}%）`
+              : "";
+          note += ` · 换手软上限已截断买入${cap}`;
+        }
+        previewNote.textContent = note;
       }
       if (confirmBtn) {
         confirmBtn.hidden = !preview || emptyReport;
@@ -1217,6 +1248,17 @@ export function initPaper(ctx) {
                 `<div><dt>持仓只数</dt><dd>${escapeText(
                   String(ci.position_count_before ?? "—")
                 )} → ${escapeText(String(ci.position_count_after ?? "—"))}</dd></div>` +
+                (ci.turnover_pct != null
+                  ? `<div title="双边换手=(买额+卖额)/2/净值"><dt>换手</dt><dd${
+                      ci.turnover_over_limit || ci.turnover_capped
+                        ? ' class="down"'
+                        : ""
+                    }>${escapeText(String(ci.turnover_pct))}%${
+                      ci.max_turnover_pct != null
+                        ? ` / ${escapeText(String(ci.max_turnover_pct))}%`
+                        : ""
+                    }${ci.turnover_capped ? " · 已截断" : ""}</dd></div>`
+                  : "") +
                 `</dl>`
               : "") +
             riskHtml;
@@ -1241,6 +1283,7 @@ export function initPaper(ctx) {
         卖出: "rebalance-down",
         止损卖出: "rebalance-sell",
         超时卖出: "rebalance-sell",
+        跳过: "rebalance-hold",
       };
 
       function buildScoreDetail(r) {
@@ -1311,12 +1354,16 @@ export function initPaper(ctx) {
         .map((r, idx) => {
           const cls = decisionClass[r.decision] || "rebalance-hold";
           const scoreText = r.score != null ? Number(r.score).toFixed(1) : "—";
+          const belowMin = !!r.below_min_score;
+          const scoreShown =
+            scoreText !== "—" && belowMin ? `${scoreText}↓` : scoreText;
           let scoreClass = "";
           if (r.score != null) {
             if (r.score >= 60) scoreClass = "high";
             else if (r.score >= 50) scoreClass = "medium";
             else scoreClass = "low";
           }
+          if (belowMin) scoreClass += (scoreClass ? " " : "") + "below-min";
           const oldSh =
             r.old_shares != null
               ? Number(r.old_shares)
@@ -1380,9 +1427,12 @@ export function initPaper(ctx) {
             decisionTitle = "止损规则触发，预演清仓；点「确认调仓」后才成交";
           } else if (decision.includes("超时卖出")) {
             decisionTitle = "持有超时且趋势向下，预演清仓；点「确认调仓」后才成交";
+          } else if (decision.includes("跳过")) {
+            decisionTitle =
+              "风险预算（单票/行业上限）未买入；见原因列";
           } else if (decision.includes("卖出")) {
             decisionTitle =
-              "不在分池目标簿：所在组当前相对序未进组内 Top-N（或未映射/硬拒绝），预演清仓；点「确认调仓」后才成交";
+              "不在分池目标簿：组权分未进全局排序截断（或未映射/硬拒绝/低于 min_score），预演清仓；点「确认调仓」后才成交";
           }
 
           const name = escapeText(r.stock_name || r.stock_code || "");
@@ -1396,7 +1446,9 @@ export function initPaper(ctx) {
             `<span class="rebalance-stock-name">${name}</span>` +
             `<span class="rebalance-stock-code">${code}</span>` +
             `</td>` +
-            `<td class="num rebalance-score ${scoreClass}">${scoreText}${expandIcon}</td>` +
+            `<td class="num rebalance-score ${scoreClass}" title="${
+              belowMin ? "低于选股门槛（仍显示分数）" : ""
+            }">${scoreShown}${expandIcon}</td>` +
             `<td class="num rebalance-shares">` +
             `<span class="rebalance-shares-old">${escapeText(
               String(
@@ -1665,33 +1717,52 @@ export function initPaper(ctx) {
     let followClusterActive = false;
     let followClusterPreviewPending = false;
 
+    function formatFollowClusterStatus(data) {
+      const cs = (data && data.cluster_scoring) || {};
+      const act = (data && data.active) || {};
+      const book = (data && data.book) || {};
+      const mode = cs.mode || "off";
+      const maxNames =
+        book.max_names != null
+          ? book.max_names
+          : cs.max_names != null
+            ? cs.max_names
+            : "—";
+      if (!data || !data.success) {
+        return {
+          active: false,
+          text: "分组打分：状态不可用（研究枢纽未接通）",
+        };
+      }
+      if (mode === "off") {
+        return {
+          active: false,
+          text: "分组打分：未启用 · score 用全局权 · 研究枢纽「对照→启用」后生效",
+        };
+      }
+      if (mode === "shadow") {
+        return {
+          active: false,
+          text: `分组打分：对照中 · v${act.version ?? "—"} · 组权分全局排序 · 上限 ${maxNames} · 主分仍全局`,
+        };
+      }
+      return {
+        active: !!act.exists,
+        text: `分组打分：已启用 · v${act.version ?? "—"} · 组权分全局排序 · 簿 ${
+          book.name_count ?? "—"
+        }/${maxNames}（min_score 过滤后截断）`,
+      };
+    }
+
     async function refreshFollowClusterStatus() {
       const el = document.getElementById("follow-cluster-status");
       const clusterBtn = document.getElementById("paper-cluster-rebalance");
       try {
         const res = await fetch("/api/quant/cluster-live/status");
         const data = await res.json().catch(() => ({}));
-        const cs = (data && data.cluster_scoring) || {};
-        const act = (data && data.active) || {};
-        const book = (data && data.book) || {};
-        const mode = cs.mode || "off";
-        followClusterActive = mode === "active" && !!act.exists;
-        if (el) {
-          if (!data || !data.success) {
-            el.textContent = "分组打分：状态不可用（研究枢纽未接通）";
-          } else if (mode === "off") {
-            el.textContent =
-              "分组打分：未启用 · score 用全局权 · 可在研究枢纽「对照→启用」";
-          } else if (mode === "shadow") {
-            el.textContent = `分组打分：对照中 · 映射 v${
-              act.version ?? "—"
-            } · 主分仍全局 · 启用后本页 score/分池簿生效`;
-          } else {
-            el.textContent = `分组打分：已启用 · 映射 v${
-              act.version ?? "—"
-            } · 簿 ${book.name_count ?? "—"} 只 · 预演/分池调仓吃组权`;
-          }
-        }
+        const st = formatFollowClusterStatus(data);
+        followClusterActive = st.active;
+        if (el) el.textContent = st.text;
         if (clusterBtn) clusterBtn.hidden = !followClusterActive;
       } catch (_) {
         followClusterActive = false;
@@ -1704,14 +1775,16 @@ export function initPaper(ctx) {
       setPaperBusy(true);
       showProgress(1, dryRun ? "分池预演…" : "分池落账…");
       try {
+        const strategy =
+          document.getElementById("paper-strategy")?.value || "short_conservative";
+        // 不传 top_k：后端按分池簿长持有；limit 仅横截面用，分池路径忽略（勿传 > schema 上限）
         const res = await fetch("/api/paper/rebalance", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            top_k: 10,
-            limit: 30,
             cluster_mode: true,
             dry_run: !!dryRun,
+            strategy,
           }),
         });
         const data = await res.json().catch(() => ({}));
@@ -1719,29 +1792,53 @@ export function initPaper(ctx) {
           const detail = data.detail || data.error || res.statusText;
           const msg = Array.isArray(detail)
             ? detail
-                .map((d) => (d && d.msg) || JSON.stringify(d))
+                .map((d) => {
+                  if (!d || typeof d !== "object") return String(d);
+                  const loc = Array.isArray(d.loc)
+                    ? d.loc.filter((x) => x !== "body").join(".")
+                    : "";
+                  const m = d.msg || d.message || JSON.stringify(d);
+                  return loc ? `${loc}: ${m}` : m;
+                })
                 .join("；")
-            : detail;
+            : typeof detail === "string"
+              ? detail
+              : JSON.stringify(detail);
           throw new Error(msg || "分池调仓失败");
         }
         const sellN = (data.sell_trades || []).length;
         const buyN = (data.buy_trades || []).length;
         const report = data.rebalance_report || [];
+        const bookN = data.observation_pool_count ?? data.top_k ?? "—";
         followClusterPreviewPending = !!dryRun;
+        const ci = data.cash_impact || null;
+        const turnPct = ci && ci.turnover_pct != null ? ci.turnover_pct : null;
         setPaperMetaText(
           (dryRun ? "分池预演" : "分池落账") +
-            ` · 簿 ${data.observation_pool_count ?? "—"} · 卖 ${sellN} · 买 ${buyN}` +
-            (data.cluster_mode ? " · cluster" : "")
+            ` · 目标簿 ${bookN} 只 · top_k=${data.top_k ?? "—"} · 卖 ${sellN} · 买 ${buyN}` +
+            (turnPct != null ? ` · 换手 ${turnPct}%` : "")
         );
+        const opsFromApi = data.ops_report || null;
         renderRebalanceReport(report, {
           preview: !!dryRun,
-          cashImpact: null,
+          cashImpact: ci,
           riskGate: data.risk_gate || null,
-          opsReport: {
-            strategy_id: "cluster_pool",
-            cost_model: (data.summary || {}).cost_model,
-            note: data.note || (dryRun ? "分池预演未写账" : "分池已落账"),
-          },
+          opsReport: opsFromApi
+            ? {
+                ...opsFromApi,
+                note:
+                  (opsFromApi.note ||
+                    data.note ||
+                    (dryRun ? "分池预演未写账" : "分池已落账")) +
+                  ` · 目标=组权分全局排序簿（${bookN} 只）`,
+              }
+            : {
+                strategy_id: strategy,
+                cost_model: (data.summary || {}).cost_model || (ci && ci.cost_model),
+                note:
+                  (data.note || (dryRun ? "分池预演未写账" : "分池已落账")) +
+                  ` · 目标=组权分全局排序簿（${bookN} 只）`,
+              },
         });
         if (!dryRun) {
           followClusterPreviewPending = false;
@@ -1962,6 +2059,9 @@ export function initPaper(ctx) {
         }
       });
     }
+
+    // 须在本 block 内调用：refreshFollowClusterStatus 为块级函数，外层会 ReferenceError 卡在「加载中…」
+    refreshFollowClusterStatus().catch(() => {});
   }
 
   ctx.reloadPaper = loadPaper;
@@ -2325,35 +2425,5 @@ export function initPaper(ctx) {
     loadPaper().catch((err) => {
       setPaperMetaText(String(err.message || err));
     });
-    // 研究枢纽启用的组权 → 本页 score / 分池调仓
-    fetch("/api/quant/cluster-live/status")
-      .then((r) => r.json())
-      .then((data) => {
-        const el = document.getElementById("follow-cluster-status");
-        const clusterBtn = document.getElementById("paper-cluster-rebalance");
-        if (!el) return;
-        const cs = (data && data.cluster_scoring) || {};
-        const act = (data && data.active) || {};
-        const book = (data && data.book) || {};
-        const mode = cs.mode || "off";
-        const active = mode === "active" && !!act.exists;
-        if (!data || !data.success) {
-          el.textContent = "分组打分：状态不可用";
-        } else if (mode === "off") {
-          el.textContent =
-            "分组打分：未启用 · score 用全局权 · 研究枢纽「对照→启用」后生效";
-        } else if (mode === "shadow") {
-          el.textContent = `分组打分：对照中 · v${act.version ?? "—"} · 主分仍全局`;
-        } else {
-          el.textContent = `分组打分：已启用 · v${act.version ?? "—"} · 簿 ${
-            book.name_count ?? "—"
-          } 只 · 预演走分池簿`;
-        }
-        if (clusterBtn) clusterBtn.hidden = !active;
-      })
-      .catch(() => {
-        const el = document.getElementById("follow-cluster-status");
-        if (el) el.textContent = "分组打分：加载失败";
-      });
   }
 }

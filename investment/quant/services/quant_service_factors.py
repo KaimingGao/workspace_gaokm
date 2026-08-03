@@ -477,10 +477,18 @@ class QuantFactorMixin:
             watching_limit=watching_limit,
         )
 
-    def cluster_live_status(self) -> Dict[str, Any]:
+    def cluster_live_status(
+        self,
+        *,
+        audit_rotate: bool = False,
+        audit_offset: Optional[int] = None,
+    ) -> Dict[str, Any]:
         from core.signal.cluster_live import cluster_status_public
 
-        return cluster_status_public()
+        return cluster_status_public(
+            audit_rotate=bool(audit_rotate),
+            audit_offset=audit_offset,
+        )
 
     def promote_cluster_live(
         self,

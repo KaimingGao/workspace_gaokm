@@ -413,9 +413,10 @@ class QuantReplayMixin:
                 )
             except Exception:
                 pass
-        # 线上下发只保留样本；全量 trades 已用于 regime_buckets
+        # 线上下发：去掉嵌套 period trades（体积大）；保留腿级 sim_trades 供成交账
         if isinstance(result, dict):
             result.pop("trades", None)
+            # trades_sample 仍作调仓期摘要；sim_trades 为全量腿级模拟账
         return result
 
     def run_param_grid(

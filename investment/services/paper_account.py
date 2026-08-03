@@ -9,7 +9,6 @@ from core.paper import (
     init_from_example,
     load_paper,
     mark_to_market,
-    run_signal_scan,
     save_paper,
     append_snapshot,
     append_operation_log,
@@ -29,46 +28,72 @@ class PaperAccountMixin:
         )
 
     def _compute_holding_scores(self, paper: dict, summary: dict) -> dict:
-        """计算当前持仓的评分，合并到 summary.holdings 中。"""
+        """计算当前持仓的评分，合并到 summary.holdings 中。
+
+        直调 ``score_stock``（与数据中心同源），**不**经 observation_pool /
+        min_score TopN，避免选股门槛把展示分滤掉。
+        """
         holdings = paper.get("holdings") or []
         holding_codes = [str(h.get("stock_code")) for h in holdings if h.get("stock_code")]
         if not holding_codes:
             return summary
 
         try:
-            pool = run_signal_scan(paper, stock_codes=holding_codes)
-            score_by_code = {}
+            import concurrent.futures
+
+            from core.signal.score_display import annotate_score_gate, selection_min_score
+            from core.signal.score_stock import score_stock
+
             try:
                 from core.signal.cluster_live import lookup_code_weights
             except Exception:
                 lookup_code_weights = None  # type: ignore
-            for item in pool:
-                code = str(item.get("stock_code") or "")
-                if not code:
-                    continue
-                weights = None
-                if callable(lookup_code_weights):
-                    mapped = lookup_code_weights(code)
-                    if mapped and isinstance(mapped.get("weights"), dict):
-                        src = str(item.get("weight_source") or "")
-                        # active 组权 / 组权打分时用映射权；shadow 主分仍全局
-                        if src.startswith("cluster:") or src == "cluster":
-                            weights = mapped["weights"]
-                score_by_code[code] = {
-                    "score": item.get("score"),
-                    "sub_scores": item.get("sub_scores"),
-                    "factor_contrib": item.get("factor_contrib"),
-                    "reasons": item.get("reasons"),
-                    "hard_reject": item.get("hard_reject"),
-                    "reject_reason": item.get("reject_reason"),
-                    "weight_source": item.get("weight_source"),
-                    "cluster_label": item.get("cluster_label"),
-                    "cluster_mode": item.get("cluster_mode"),
-                    "cluster_version": item.get("cluster_version"),
-                    "score_global": item.get("score_global"),
-                    "score_cluster": item.get("score_cluster"),
-                    "weights": weights,
-                }
+
+            rules = paper.get("rules") or {}
+            horizon = max(1, min(int(rules.get("horizon_days") or 3), 3))
+            gate = selection_min_score(paper)
+
+            def _one(code: str) -> tuple:
+                try:
+                    result = score_stock(
+                        code,
+                        horizon_days=horizon,
+                        skip_fundamentals=True,
+                    )
+                except Exception as e:
+                    return code, {"success": False, "error": str(e)}
+                return code, result or {}
+
+            score_by_code: Dict[str, Any] = {}
+            workers = min(len(holding_codes), 10)
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+                for code, result in ex.map(lambda c: _one(c), holding_codes):
+                    item = (result.get("signal_item") or {}) if result.get("success") else {}
+                    if not item and not result.get("success"):
+                        continue
+                    weights = None
+                    if callable(lookup_code_weights):
+                        mapped = lookup_code_weights(code)
+                        if mapped and isinstance(mapped.get("weights"), dict):
+                            src = str(item.get("weight_source") or "")
+                            if src.startswith("cluster:") or src == "cluster":
+                                weights = mapped["weights"]
+                    score_by_code[code] = {
+                        "score": item.get("score"),
+                        "sub_scores": item.get("sub_scores"),
+                        "factor_contrib": item.get("factor_contrib"),
+                        "reasons": item.get("reasons"),
+                        "hard_reject": item.get("hard_reject"),
+                        "reject_reason": item.get("reject_reason"),
+                        "weight_source": item.get("weight_source"),
+                        "cluster_label": item.get("cluster_label"),
+                        "cluster_mode": item.get("cluster_mode")
+                        or result.get("cluster_mode"),
+                        "cluster_version": item.get("cluster_version"),
+                        "score_global": item.get("score_global"),
+                        "score_cluster": item.get("score_cluster"),
+                        "weights": weights,
+                    }
 
             enriched_holdings = []
             for h in summary.get("holdings") or []:
@@ -89,11 +114,19 @@ class PaperAccountMixin:
                     enriched["score_global"] = score_info.get("score_global")
                     enriched["score_cluster"] = score_info.get("score_cluster")
                     enriched["score_formula"] = _build_score_formula(score_info)
+                    gate_meta = annotate_score_gate(
+                        score_info.get("score"), paper=paper, min_score=gate
+                    )
+                    enriched["min_score"] = gate_meta["min_score"]
+                    enriched["below_min_score"] = gate_meta["below_min_score"]
                 else:
                     enriched["score"] = None
+                    enriched["min_score"] = gate
+                    enriched["below_min_score"] = False
                 enriched_holdings.append(enriched)
 
             summary["holdings"] = enriched_holdings
+            summary["selection_min_score"] = gate
         except Exception as e:
             # 评分失败不阻断账户摘要；保留持仓行，score 留空
             import logging

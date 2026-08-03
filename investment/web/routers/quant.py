@@ -10,7 +10,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -345,10 +345,16 @@ def quant_cluster_multi_score(body: ClusterMultiScoreRequest):
 
 
 @router.get("/api/quant/cluster-live/status")
-def quant_cluster_live_status():
-    """分组 live 状态：active / draft / health / mode。"""
+def quant_cluster_live_status(
+    audit_rotate: bool = False,
+    audit_offset: Optional[int] = None,
+):
+    """分组 live 状态：active / draft / health / mode；audit_rotate 轮换双分样本。"""
     try:
-        return deps.quant.cluster_live_status()
+        return deps.quant.cluster_live_status(
+            audit_rotate=bool(audit_rotate),
+            audit_offset=audit_offset,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -409,7 +415,7 @@ def quant_cluster_live_refresh_book():
 
 @router.post("/api/quant/cluster-live/rank")
 def quant_cluster_live_rank():
-    """分池排序：组内 Top-N → 合并簿。"""
+    """分池排序：组权打分 → 全局按 score 排序截断。"""
     try:
         return deps.quant.rank_cluster_live_pools()
     except Exception as e:

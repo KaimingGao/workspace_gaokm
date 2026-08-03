@@ -12,11 +12,17 @@
   <div class="quant-section quant-section-core">
     <p id="replay-pool-meta" class="quant-fingerprint">研究池：—</p>
     <div class="quant-actions-inline">
-      <label class="platform-field">
+      <label
+        class="platform-field"
+        title="拉多少根共同交易日线（样本长度）；默认 120。≠持有期。"
+      >
         lookback
         <input id="quant-lookback" type="number" min="40" max="500" value="120" />
       </label>
-      <label class="platform-field" title="持有期（1～10）；可存为研究默认，不影响 live 评分">
+      <label
+        class="platform-field"
+        title="持有几个交易日再调仓：1=每个交易日一轮；3=约每 3 日一轮。可存为研究默认，不影响 live 评分。"
+      >
         horizon
         <input id="quant-horizon" type="number" min="1" max="10" value="3" />
       </label>
@@ -71,6 +77,32 @@
         导出回测报告
       </button>
     </div>
+    <details class="replay-howto">
+      <summary>回测怎么跑（示例）</summary>
+      <div class="replay-howto-body">
+        <p>
+          <strong>lookback</strong>＝样本长度（默认 120 个共同交易日）；
+          <strong>horizon</strong>＝持有几个交易日再调仓（填 1＝每个交易日一轮，不是日历自然日）。
+        </p>
+        <p class="replay-howto-clarify">
+          因子权＝全局 <code>signal_config.weights</code>（固定，非分组权）；
+          池＝观察池 − exclude（验证宇宙），不是纸面持仓。
+          页上「等权 / 分数预算」是股票仓位，不是因子权。
+        </p>
+        <ol class="replay-howto-steps">
+          <li><b>准备</b>：拉日线对齐；净值从 100 起；读一次全局因子权。</li>
+          <li><b>攒历史</b>：前若干日只积累窗口（约需 ≥12 根），不买卖。</li>
+          <li><b>信号日</b>：对池内每票用「当天及以前」K 线打分（可中性化）→ 取 Top-K（默认 3）。</li>
+          <li><b>次日开盘</b>（默认 next_open）：假买入；持有 horizon 个交易日。</li>
+          <li><b>出场</b>：按规则卖出 → 加权收益 − 换手成本 → 更新净值。</li>
+          <li><b>下一轮</b>：指针前进 horizon 天，重复打分→买入→持有→卖出，直到样本不够。</li>
+        </ol>
+        <pre class="replay-howto-timeline" aria-label="三天一轮示意">交易日:  …  D11        D12        D13–D14     D15       D16 …
+动作:        打分/TopK   开盘买入    持有        卖出结算   新一轮开盘买
+             (信号)      (入场)                 (出场)     (下一轮入场)
+horizon=1 时：每个交易日都可成为信号日，调仓更密、成本更重。</pre>
+      </div>
+    </details>
     <div id="quant-portfolio-summary" class="quant-summary">有票后点「Top-K 回测」</div>
     <p id="quant-bt-scope-note" class="quant-fingerprint" hidden></p>
     <div id="quant-bt-progress" class="paper-progress" hidden>
@@ -132,8 +164,7 @@
       研究用 Top-K 回测净值（非纸面账本；权重可选等权/分数预算/风险平价）。起点 100；每完成一期持有（默认 3
       日）按组合收益复利更新。单线=当次回测；对照时蓝=中性化、绿=绝对分。
     </p>
-    <div id="quant-signal-fill" class="quant-weight-table-wrap" aria-label="信号成交对照"></div>
-    <div id="quant-bt-trades" class="quant-weight-table-wrap"></div>
+    <div id="quant-bt-trades" class="quant-weight-table-wrap" aria-label="模拟成交账"></div>
   </div>
 
   <details class="quant-fold" id="param-grid" open>
@@ -173,7 +204,7 @@
         </div>
         <p id="param-grid-progress-text" class="paper-progress-text">扫描中…</p>
       </div>
-      <canvas id="param-grid-heat" class="param-grid-heat" width="420" height="220" aria-label="参数热力图"></canvas>
+      <canvas id="param-grid-heat" class="param-grid-heat" width="360" height="188" aria-label="参数热力图"></canvas>
       <div id="param-grid-table" class="quant-weight-table-wrap"></div>
     </div>
   </details>

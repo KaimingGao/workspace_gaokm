@@ -447,12 +447,19 @@ def set_cluster_scoring_mode(
 
     if mode == "active":
         health = assess_cluster_live_health()
-        if not health.get("allow_active"):
+        evidence = build_cluster_enable_evidence(health=health)
+        if not health.get("allow_active") or not (evidence.get("gate") or {}).get(
+            "ok"
+        ):
+            blockers = list((evidence.get("gate") or {}).get("blockers") or [])
+            if not blockers:
+                blockers = list(health.get("alerts") or []) or ["无 active 映射"]
             return {
                 "success": False,
-                "error": "健康检查未通过，禁止 active："
-                + ("；".join(health.get("alerts") or []) or "无 active 映射"),
+                "error": "启用证据包未通过，禁止 active："
+                + ("；".join(str(b) for b in blockers[:6])),
                 "health": health,
+                "enable_evidence": evidence,
             }
 
     path = os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH)
@@ -558,8 +565,79 @@ def prepare_cluster_for_daily() -> Dict[str, Any]:
     }
 
 
-def cluster_score_audit_sample(*, limit: int = 8) -> Dict[str, Any]:
-    """对照审计：优先分池簿样本，否则按组轮询取票，算 score_global vs score_cluster。"""
+def _pick_audit_codes(
+    cmap: Dict[str, Any],
+    book_rows: List[Any],
+    n: int,
+    *,
+    offset: int = 0,
+) -> List[str]:
+    """
+    选双分对照样本：优先合并簿，再按组轮询；``offset`` 旋转起点，避免永远同一批。
+    """
+    n = max(1, min(int(n), 12))
+    off = abs(int(offset or 0))
+    book_codes: List[str] = []
+    for row in book_rows or []:
+        code = str((row or {}).get("stock_code") or "").strip()
+        if code and code in cmap and code not in book_codes:
+            book_codes.append(code)
+
+    by_label: Dict[str, List[str]] = {}
+    # 簿内优先：按簿序入组，再补 code_map 其余
+    seed_order = list(book_codes)
+    for code in cmap.keys():
+        c = str(code).strip()
+        if c and c not in seed_order:
+            seed_order.append(c)
+    for c in seed_order:
+        meta = cmap.get(c) or {}
+        lab = str(meta.get("cluster_label") or "?")
+        by_label.setdefault(lab, []).append(c)
+
+    if not by_label:
+        return []
+
+    labels = sorted(by_label.keys())
+    # 旋转：组起点 + 组内起点，刷新对照时换票
+    label_start = off % len(labels)
+    labels = labels[label_start:] + labels[:label_start]
+    for lab in labels:
+        members = by_label[lab]
+        if not members:
+            continue
+        m0 = off % len(members)
+        by_label[lab] = members[m0:] + members[:m0]
+
+    codes: List[str] = []
+    idx = 0
+    while len(codes) < n:
+        progressed = False
+        for lab in labels:
+            members = by_label.get(lab) or []
+            if idx < len(members):
+                c = members[idx]
+                if c not in codes:
+                    codes.append(c)
+                    progressed = True
+                if len(codes) >= n:
+                    break
+        if not progressed:
+            break
+        idx += 1
+    return codes
+
+
+def cluster_score_audit_sample(
+    *,
+    limit: int = 8,
+    offset: Optional[int] = None,
+    rotate: bool = False,
+) -> Dict[str, Any]:
+    """对照审计：优先分池簿样本，按组轮询取票，算 score_global vs score_cluster。
+
+    ``rotate=True`` 或显式 ``offset``：旋转样本起点（刷新对照换一批票）。
+    """
     active = load_active_cluster_weights()
     cs = get_cluster_scoring_cfg()
     mode = cs.get("mode") or "off"
@@ -573,40 +651,17 @@ def cluster_score_audit_sample(*, limit: int = 8) -> Dict[str, Any]:
         }
     cmap = active.get("code_map") or {}
     n = max(1, min(int(limit), 12))
-    codes: List[str] = []
-    # 1) 合并簿优先（与落地簿一致，刷新簿后对照也会变）
+    if offset is None and rotate:
+        offset = int(datetime.now(timezone.utc).timestamp() * 1000) % 10_000_000
+    elif offset is None:
+        offset = 0
     book = load_active_cluster_book() or {}
-    for row in book.get("book") or []:
-        code = str((row or {}).get("stock_code") or "").strip()
-        if code and code in cmap and code not in codes:
-            codes.append(code)
-        if len(codes) >= n:
-            break
-    # 2) 按组轮询补齐，避免总是 code_map 前缀那几只
-    if len(codes) < n:
-        by_label: Dict[str, List[str]] = {}
-        for code, meta in cmap.items():
-            c = str(code).strip()
-            if not c:
-                continue
-            lab = str((meta or {}).get("cluster_label") or "?")
-            by_label.setdefault(lab, []).append(c)
-        labels = sorted(by_label.keys())
-        idx = 0
-        while len(codes) < n and labels:
-            progressed = False
-            for lab in labels:
-                members = by_label.get(lab) or []
-                if idx < len(members):
-                    c = members[idx]
-                    if c not in codes:
-                        codes.append(c)
-                        progressed = True
-                    if len(codes) >= n:
-                        break
-            if not progressed:
-                break
-            idx += 1
+    codes = _pick_audit_codes(
+        cmap,
+        list(book.get("book") or []),
+        n,
+        offset=int(offset),
+    )
     rows: List[Dict[str, Any]] = []
     fails: List[str] = []
     try:
@@ -654,6 +709,8 @@ def cluster_score_audit_sample(*, limit: int = 8) -> Dict[str, Any]:
         "mode": mode,
         "version": active.get("version"),
         "rows": rows,
+        "sample_offset": int(offset),
+        "sample_codes": list(codes),
         "sampled_at": _iso_now(),
         "signal_config_touched": False,
     }
@@ -662,6 +719,8 @@ def cluster_score_audit_sample(*, limit: int = 8) -> Dict[str, Any]:
         out["error"] = f"打分失败 {len(fails)} 只：" + "；".join(fails[:3])
     elif fails:
         out["note"] = f"部分失败 {len(fails)}/{len(codes)}"
+    elif rotate or int(offset) != 0:
+        out["note"] = f"轮换样本 offset={int(offset)}"
     return out
 
 
@@ -722,7 +781,162 @@ def apply_cluster_live_shortcut(
     }
 
 
-def cluster_status_public(*, include_audit: bool = True) -> Dict[str, Any]:
+def build_cluster_enable_evidence(
+    *,
+    include_audit: bool = True,
+    health: Optional[Dict[str, Any]] = None,
+    audit: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """
+    EP1：对照→启用证据包（JSON）。
+
+    门禁：健康 allow_active；若有 OOS 记录且全部失败则禁止启用。
+    """
+    cs = get_cluster_scoring_cfg()
+    active = load_active_cluster_weights()
+    book_doc = load_active_cluster_book() or {}
+    book_rows = list(book_doc.get("book") or [])
+    meta = book_doc.get("meta") if isinstance(book_doc.get("meta"), dict) else {}
+    h = health if isinstance(health, dict) else assess_cluster_live_health()
+
+    top_n = meta.get("top_n_per_group") or cs.get("top_n_per_group")
+    max_names = meta.get("max_names") or cs.get("max_names")
+    name_count = len(book_rows)
+
+    # OOS：来自 active 映射内 clusters[].oos_gate
+    oos_pass = 0
+    oos_fail = 0
+    oos_unknown = 0
+    for cl in (active or {}).get("clusters") or []:
+        if not isinstance(cl, dict):
+            continue
+        gate = cl.get("oos_gate") or {}
+        if not isinstance(gate, dict) or not gate:
+            oos_unknown += 1
+            continue
+        if gate.get("ok") and gate.get("passed"):
+            oos_pass += 1
+        elif gate.get("ok") is False or gate.get("passed") is False:
+            oos_fail += 1
+        else:
+            oos_unknown += 1
+    oos_summary = {
+        "pass_count": oos_pass,
+        "fail_count": oos_fail,
+        "unknown_count": oos_unknown,
+        "n_clusters": oos_pass + oos_fail + oos_unknown,
+        "note": "来自 active 映射 clusters.oos_gate；无记录不拦启用",
+    }
+
+    # 换手估计：纸面持仓 vs 分池簿（只数，无报价）
+    book_codes = {
+        str(r.get("stock_code") or "").strip()
+        for r in book_rows
+        if r.get("stock_code")
+    }
+    held_codes: set = set()
+    try:
+        from core.paper import load_paper
+
+        paper = load_paper()
+        for hh in (paper or {}).get("holdings") or []:
+            c = str(hh.get("stock_code") or "").strip()
+            if c and float(hh.get("shares") or 0) > 0:
+                held_codes.add(c)
+    except Exception:
+        held_codes = set()
+    would_sell = sorted(held_codes - book_codes)
+    would_buy = sorted(book_codes - held_codes)
+    turnover_est = {
+        "held_count": len(held_codes),
+        "book_count": len(book_codes),
+        "would_sell_count": len(would_sell),
+        "would_buy_count": len(would_buy),
+        "would_sell": would_sell[:12],
+        "would_buy": would_buy[:12],
+        "note": "相对当前纸面 vs 合并簿只数估计，非金额换手",
+    }
+
+    # 行业集中度简表（簿内）
+    exposure_summary: Dict[str, Any] = {"sectors": [], "top_sector": None}
+    try:
+        from core.portfolio_optimize import _sector_for, load_sector_map
+
+        smap = load_sector_map()
+        sec_cnt: Dict[str, int] = {}
+        for c in book_codes:
+            sec = _sector_for(c, smap)
+            sec_cnt[sec] = int(sec_cnt.get(sec) or 0) + 1
+        total = sum(sec_cnt.values()) or 1
+        sectors = [
+            {
+                "name": k,
+                "count": v,
+                "weight_pct": round(v / total * 100.0, 1),
+            }
+            for k, v in sorted(sec_cnt.items(), key=lambda x: -x[1])
+        ]
+        exposure_summary = {
+            "sectors": sectors[:8],
+            "top_sector": sectors[0] if sectors else None,
+            "note": "按簿内只数占比（非市值）",
+        }
+    except Exception:
+        pass
+
+    if include_audit and audit is None and (cs.get("mode") in ("shadow", "active")):
+        try:
+            audit = cluster_score_audit_sample(limit=6)
+        except Exception as exc:
+            audit = {"success": False, "rows": [], "error": str(exc)}
+    audit_rows = list((audit or {}).get("rows") or [])[:6]
+
+    blockers: List[str] = []
+    warnings: List[str] = []
+    if not active:
+        blockers.append("无 active 映射")
+    if not h.get("allow_active"):
+        blockers.extend(list(h.get("alerts") or []) or ["健康检查未通过"])
+    if oos_fail > 0 and oos_pass == 0 and oos_unknown == 0:
+        blockers.append(f"组 OOS 全部失败（{oos_fail}）")
+    if name_count <= 0:
+        warnings.append("分池簿为空 · 启用后请刷新簿再分池调仓")
+
+    gate_ok = len(blockers) == 0
+    return {
+        "success": True,
+        "task": "cluster_enable_evidence",
+        "ok": gate_ok,
+        "gate": {"ok": gate_ok, "blockers": blockers, "warnings": warnings},
+        "top_n_per_group": top_n,
+        "max_names": max_names,
+        "name_count": name_count,
+        "cluster_version": (active or {}).get("version"),
+        "mode": cs.get("mode") or "off",
+        "oos_summary": oos_summary,
+        "turnover_est": turnover_est,
+        "exposure_summary": exposure_summary,
+        "score_audit_sample": {
+            "rows": audit_rows,
+            "count": len(audit_rows),
+            "error": (audit or {}).get("error"),
+        },
+        "health": {
+            "coverage": h.get("coverage"),
+            "age_days": h.get("age_days"),
+            "stale": h.get("stale"),
+            "allow_active": h.get("allow_active"),
+        },
+        "note": "启用前证据包 · 健康门禁 + OOS/簿长/换手估计/行业简表/双分样本",
+    }
+
+
+def cluster_status_public(
+    *,
+    include_audit: bool = True,
+    audit_rotate: bool = False,
+    audit_offset: Optional[int] = None,
+) -> Dict[str, Any]:
     """供 API/UI 的状态摘要（含落地下一步 + 可选双分样本）。"""
     from core.paths import (
         CLUSTER_BOOK_ACTIVE_PATH,
@@ -739,7 +953,26 @@ def cluster_status_public(*, include_audit: bool = True) -> Dict[str, Any]:
     mode = cs.get("mode") or "off"
     has_draft = bool(draft and draft.get("code_map"))
     has_active = bool(active)
-    allow_active = bool(health.get("allow_active"))
+
+    audit = None
+    if include_audit and mode in ("shadow", "active") and has_active:
+        try:
+            audit = cluster_score_audit_sample(
+                limit=8,
+                offset=audit_offset,
+                rotate=bool(audit_rotate),
+            )
+        except Exception as exc:
+            audit = {"success": False, "rows": [], "error": str(exc)}
+
+    evidence = build_cluster_enable_evidence(
+        include_audit=False,
+        health=health,
+        audit=audit,
+    )
+    allow_active = bool(health.get("allow_active")) and bool(
+        (evidence.get("gate") or {}).get("ok")
+    )
     if not has_draft and not has_active:
         next_step = "run_cluster"
         next_label = "先跑分组"
@@ -748,18 +981,11 @@ def cluster_status_public(*, include_audit: bool = True) -> Dict[str, Any]:
         next_label = "① 对照"
     elif mode == "shadow":
         next_step = "enable_active" if allow_active else "fix_health"
-        next_label = "② 启用" if allow_active else "修复健康后再启用"
+        next_label = "② 启用" if allow_active else "修复健康/证据包后再启用"
     else:
         # mode=active：研究侧权责结束；调仓走侧栏交易执行页
         next_step = "go_follow"
         next_label = "已启用 · 侧栏进交易执行"
-
-    audit = None
-    if include_audit and mode in ("shadow", "active") and has_active:
-        try:
-            audit = cluster_score_audit_sample(limit=8)
-        except Exception as exc:
-            audit = {"success": False, "rows": [], "error": str(exc)}
 
     return {
         "success": True,
@@ -794,6 +1020,18 @@ def cluster_status_public(*, include_audit: bool = True) -> Dict[str, Any]:
             "path": CLUSTER_BOOK_ACTIVE_PATH,
             "updated_at": (book or {}).get("updated_at"),
             "name_count": len((book or {}).get("book") or []),
+            "top_n_per_group": (
+                ((book or {}).get("meta") or {}).get("top_n_per_group")
+                if isinstance((book or {}).get("meta"), dict)
+                else None
+            )
+            or cs.get("top_n_per_group"),
+            "max_names": (
+                ((book or {}).get("meta") or {}).get("max_names")
+                if isinstance((book or {}).get("meta"), dict)
+                else None
+            )
+            or cs.get("max_names"),
         },
         "health": health,
         "landing": {
@@ -808,6 +1046,7 @@ def cluster_status_public(*, include_audit: bool = True) -> Dict[str, Any]:
             "paper_applied_at": paper_land.get("applied_at"),
             "paper_cluster_version": paper_land.get("cluster_version"),
         },
+        "enable_evidence": evidence,
         "audit_sample": audit,
         "note": "组权在 live 产物；调仓仅交易执行页；signal_config 仅开关 mode",
     }

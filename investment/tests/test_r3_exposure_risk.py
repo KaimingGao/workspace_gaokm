@@ -82,6 +82,42 @@ class TestExposureMatrix(unittest.TestCase):
         self.assertTrue(out["exposure"]["over_limit_sectors"])
 
 
+class TestClipBuyRiskBudget(unittest.TestCase):
+    def test_clip_and_skip_by_sector(self):
+        from core.risk.budget import clip_buy_to_risk_budget
+
+        # 行业已用 35%，上限 40% → 仅剩 5% ≈ 5000；价 50 → 最多 100 股
+        out = clip_buy_to_risk_budget(
+            code="300750",
+            sector="新能源",
+            price=50.0,
+            shares=500,
+            equity=100000.0,
+            name_mv={},
+            sector_mv={"新能源": 35000.0},
+            max_position_pct=25.0,
+            max_sector_pct=40.0,
+        )
+        self.assertTrue(out["clipped"])
+        self.assertEqual(out["shares"], 100)
+        self.assertIn("行业", out["reason"])
+
+        skip = clip_buy_to_risk_budget(
+            code="002594",
+            sector="新能源",
+            price=50.0,
+            shares=100,
+            equity=100000.0,
+            name_mv={},
+            sector_mv={"新能源": 40000.0},
+            max_position_pct=25.0,
+            max_sector_pct=40.0,
+        )
+        self.assertTrue(skip["skipped"])
+        self.assertEqual(skip["shares"], 0)
+        self.assertIn("行业", skip["reason"])
+
+
 class TestRiskBlockEffectiveness(unittest.TestCase):
     def test_summarize_by_code_and_rates(self):
         from core.north_star import summarize_risk_blocks

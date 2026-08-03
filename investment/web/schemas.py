@@ -27,25 +27,29 @@ class PaperRunRequest(BaseModel):
 
 
 class PaperRebalanceRequest(BaseModel):
-    top_k: int = Field(
-        default=3,
+    top_k: Optional[int] = Field(
+        default=None,
         ge=1,
-        le=30,
-        description="目标持仓只数；分池模式按合并簿长度（可至 30）",
+        le=80,
+        description="目标持仓只数；分池模式省略则按合并簿长度（上限 80）",
     )
     limit: int = Field(
-        default=10,
+        default=40,
         ge=1,
-        le=40,
-        description="全局横截面候选上限；分池模式可放宽",
+        le=80,
+        description="横截面候选上限；分池模式对齐 max_names（≤80）",
     )
     cluster_mode: bool = Field(
         default=False,
-        description="true=分池 live（组内 Top-N 合并簿）；不写全局 weights",
+        description="true=分池 live（组权打分→全局排序截断）；不写全局 weights",
     )
     dry_run: bool = Field(
         default=False,
         description="true=仅预演不写 paper.json（交易执行页）",
+    )
+    strategy: Optional[str] = Field(
+        default=None,
+        description="调仓策略 ID（short / short_conservative）；省略则沿用 paper.strategy_id",
     )
 
 

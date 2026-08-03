@@ -25,8 +25,16 @@ export function holdingToRow(h, { chartMode, chartStockCode, selectedHoldCode, p
   const name = h.stock_name || code || "";
   const pnl = h.pnl_pct;
   const score = h.score;
+  const belowMin = !!h.below_min_score;
+  const minScore = h.min_score;
+  const scoreBase = fmtScore(score);
+  const scoreText =
+    scoreBase !== "—" && belowMin ? `${scoreBase}↓` : scoreBase;
   const origin = String(h.origin || "");
   const mv = Number(h.market_value ?? h.market_value_approx);
+  const scoreTitle = belowMin
+    ? `低于选股门槛 ${minScore ?? "—"}（仍显示分数）· 悬停看详情`
+    : "悬停查看评分与权重来源";
   return {
     code,
     name,
@@ -35,9 +43,10 @@ export function holdingToRow(h, { chartMode, chartStockCode, selectedHoldCode, p
     costText: fmtPriceUnit(h.cost, h.unit, h.currency),
     mvText: fmtPriceUnit(h.market_value, h.unit, h.currency),
     marketValueNum: Number.isFinite(mv) ? mv : null,
-    scoreText: fmtScore(score),
+    scoreText,
     scoreNum: score != null && Number.isFinite(Number(score)) ? Number(score) : null,
-    scoreCls: scoreCls(score),
+    scoreCls: `${scoreCls(score)}${belowMin ? " score-below-min" : ""}`,
+    scoreTitle,
     scoreDetail: JSON.stringify({
       formula: h.score_formula || "",
       reasons: h.score_reasons || [],
@@ -49,6 +58,8 @@ export function holdingToRow(h, { chartMode, chartStockCode, selectedHoldCode, p
       cluster_version: h.cluster_version,
       score_global: h.score_global,
       score_cluster: h.score_cluster,
+      min_score: minScore,
+      below_min_score: belowMin,
     }),
     pnlText: fmtPct(pnl, { signed: true }),
     pnlCls: metricCls(pnl),
@@ -153,7 +164,9 @@ export async function mountHoldingsTableIsland(host, options = {}) {
       if (col.id === "score") {
         return (
           `<span class="paper-hold-score ${escapeHtml(d.scoreCls || "")}" ` +
-          `data-score-detail="${escapeHtml(d.scoreDetail || "")}" title="悬停查看评分与权重来源">` +
+          `data-score-detail="${escapeHtml(d.scoreDetail || "")}" title="${escapeHtml(
+            d.scoreTitle || "悬停查看评分与权重来源"
+          )}">` +
           `${escapeHtml(d.scoreText || "—")}</span>`
         );
       }

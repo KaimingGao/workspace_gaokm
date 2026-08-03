@@ -24,19 +24,47 @@ def _rebalance_report_from_legs(
     buy_trades: List[dict],
     holdings_before: List[dict],
     holdings_after: List[dict],
+    risk_budget_skips: Optional[List[dict]] = None,
+    score_rows: Optional[List[dict]] = None,
 ) -> List[dict]:
-    """把分池/横截面腿转成交易执行页调仓报告行。"""
+    """把分池/横截面腿转成交易执行页调仓报告行。
+
+    ``ranking`` = 目标簿（选股结果）；``score_rows`` = 展示用全量打分
+    （含低于 min_score 被踢出簿的票）。省略时回退 ranking。
+    """
     sell_by = {str(t.get("stock_code")): t for t in sell_trades or []}
     buy_by = {str(t.get("stock_code")): t for t in buy_trades or []}
+    skip_by = {
+        str(s.get("stock_code")): s
+        for s in (risk_budget_skips or [])
+        if s.get("stock_code")
+    }
+    # 展示分：优先全量 scored；目标簿仅用于「是否在簿」判断
+    display_rows = list(score_rows or []) or list(ranking or [])
     score_by = {
         str(r.get("stock_code")): r.get("score")
+        for r in display_rows
+        if r.get("stock_code")
+    }
+    # 卖出腿上若已带分，补进 lookup（持仓不在映射/簿时）
+    for t in sell_trades or []:
+        code = str(t.get("stock_code") or "")
+        if code and code not in score_by and t.get("score") is not None:
+            score_by[code] = t.get("score")
+    book_codes = {
+        str(r.get("stock_code"))
         for r in ranking or []
         if r.get("stock_code")
     }
+    row_by = {
+        str(r.get("stock_code")): r
+        for r in display_rows
+        if r.get("stock_code")
+    }
     name_by: Dict[str, str] = {}
-    for src in (holdings_before or []) + (ranking or []) + (sell_trades or []) + (
+    for src in (holdings_before or []) + display_rows + (sell_trades or []) + (
         buy_trades or []
-    ):
+    ) + list(skip_by.values()):
         code = str(src.get("stock_code") or "")
         if code and src.get("stock_name"):
             name_by[code] = str(src.get("stock_name"))
@@ -50,7 +78,9 @@ def _rebalance_report_from_legs(
         for h in holdings_after or []
         if h.get("stock_code")
     }
-    codes = sorted(set(old_shares) | set(new_shares) | set(sell_by) | set(buy_by))
+    codes = sorted(
+        set(old_shares) | set(new_shares) | set(sell_by) | set(buy_by) | set(skip_by)
+    )
     rows: List[dict] = []
     for code in codes:
         o = old_shares.get(code, 0.0)
@@ -63,30 +93,26 @@ def _rebalance_report_from_legs(
         elif code in buy_by:
             decision = "买入"
             reason = buy_by[code].get("note") or "分池调仓买入"
+        elif code in skip_by and abs(n - o) < 1e-9:
+            decision = "跳过"
+            reason = skip_by[code].get("reason") or "风险预算跳过"
         elif abs(n - o) < 1e-9:
             decision = "持有"
-            reason = "仍在目标簿内" if code in score_by else "未变动"
-        label = next(
-            (
-                str(r.get("cluster_label"))
-                for r in ranking or []
-                if str(r.get("stock_code")) == code and r.get("cluster_label")
-            ),
-            None,
-        )
-        rank_row = next(
-            (r for r in ranking or [] if str(r.get("stock_code")) == code),
-            {},
-        )
+            reason = "仍在目标簿内" if code in book_codes else "未变动"
+        rank_row = row_by.get(code) or {}
+        label = rank_row.get("cluster_label")
         # 字段名与 paper_cycle / 交易执行页 renderRebalanceReport 对齐
         delta = n - o
         if not reason:
             if abs(delta) < 1e-9:
-                reason = "仍在目标簿内" if code in score_by else "未变动"
+                reason = "仍在目标簿内" if code in book_codes else "未变动"
             elif delta > 0:
                 reason = "分池调仓买入"
             else:
                 reason = "分池调仓卖出"
+        below = bool(rank_row.get("below_min_score"))
+        if below and decision == "卖出" and "min_score" not in str(reason):
+            reason = (reason or "分池调仓卖出") + " · 低于 min_score"
         rows.append(
             {
                 "stock_code": code,
@@ -99,7 +125,7 @@ def _rebalance_report_from_legs(
                 "shares_change": int(delta),
                 "shares_before": o,
                 "shares_after": n,
-                "cluster_label": label or rank_row.get("cluster_label"),
+                "cluster_label": label,
                 "weight_source": rank_row.get("weight_source")
                 or (
                     f"cluster:{label}"
@@ -107,19 +133,30 @@ def _rebalance_report_from_legs(
                     else None
                 ),
                 "score_global": rank_row.get("score_global"),
-                # 分池簿主分即为组权分（active）
                 "score_cluster": rank_row.get("score_cluster")
                 if rank_row.get("score_cluster") is not None
                 else rank_row.get("score"),
+                "below_min_score": below,
             }
         )
     def _sort_key(row: dict) -> tuple:
-        # 买卖在前，持有在后；同组内按 |变动|、评分
+        # 预演调仓：按分数降序；同分时买卖优先于持有
+        sc_raw = row.get("score")
+        try:
+            sc = float(sc_raw) if sc_raw is not None and sc_raw != "" else None
+        except (TypeError, ValueError):
+            sc = None
+        # None 排最后
+        sc_rank = -(sc if sc is not None else -1.0)
+        missing = 0 if sc is not None else 1
         dec = str(row.get("decision") or "")
-        action = 0 if ("卖" in dec or "买" in dec or "减" in dec or "加" in dec) else 1
-        chg = abs(float(row.get("shares_change") or 0))
-        sc = float(row.get("score") or 0)
-        return (action, -chg, -sc)
+        if "卖" in dec or "买" in dec or "减" in dec or "加" in dec:
+            action = 0
+        elif "跳过" in dec:
+            action = 1
+        else:
+            action = 2
+        return (missing, sc_rank, action)
 
     rows.sort(key=_sort_key)
     return rows
@@ -133,21 +170,29 @@ class PaperTradesMixin:
         limit: Optional[int] = None,
         cluster_mode: bool = False,
         dry_run: bool = False,
+        strategy: Optional[str] = None,
     ) -> Dict[str, Any]:
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
         from core.paper_rebalance import simulate_cross_section_rebalance
         from core.signal.cross_section import rank_cross_section
+        from core.strategy import apply_strategy_to_paper
 
         paper = load_paper(self.path)
-        rules = paper.get("rules") or {}
+        work = copy.deepcopy(paper) if dry_run else paper
+        sid = str(strategy or work.get("strategy_id") or "short_conservative").strip()
+        try:
+            apply_strategy_to_paper(work, sid)
+        except Exception:
+            pass
+        rules = work.get("rules") or {}
         max_pos = max(1, int(rules.get("max_positions") or 5))
         # 未显式传 top_k 时跟账户持仓上限走，避免 daily 误用硬编码 Top3 清空仓位
         k = max(1, int(top_k if top_k is not None else max_pos))
         k = min(k, max_pos, 30)
         lim = max(int(limit or 0), k, max(20, max_pos))
 
-        # L2：分池模式 — 组内 Top-N 合并簿；mode=active 时交易执行页默认走分池
+        # L2：分池模式 — 组权打分后全局排序截断；mode=active 时交易执行页默认走分池
         scoring_mode = "off"
         try:
             from core.signal.cluster_live import get_cluster_scoring_cfg
@@ -165,14 +210,28 @@ class PaperTradesMixin:
             from core.signal.cluster_rank import rank_cluster_pools
 
             health = assess_cluster_live_health()
-            ranked = rank_cluster_pools(None, persist_book=True)
+            rules_min = rules.get("min_score")
+            try:
+                cluster_min = (
+                    float(rules_min) if rules_min is not None else None
+                )
+            except (TypeError, ValueError):
+                cluster_min = None
+            ranked = rank_cluster_pools(
+                None,
+                persist_book=True,
+                min_score=cluster_min,
+            )
             if not ranked.get("success"):
                 return {"success": False, "ok": False, "cluster_mode": True, **ranked}
             ranking = ranked.get("book") or ranked.get("ranking") or []
+            score_rows = list(ranked.get("scored_all") or [])
+            if not score_rows:
+                for g in ranked.get("groups") or []:
+                    score_rows.extend(list(g.get("ranking") or []))
             # 分池簿已是每组 Top-N；按簿长持有，不被纸面 max_positions / 旧 30 上限截断
             k = max(1, min(len(ranking) or int(k or 5), 80))
-            holdings_before = copy.deepcopy(paper.get("holdings") or [])
-            work = copy.deepcopy(paper) if dry_run else paper
+            holdings_before = copy.deepcopy(work.get("holdings") or [])
             if not dry_run:
                 capture_mark_snapshot(work)
             result = simulate_cross_section_rebalance(
@@ -180,6 +239,7 @@ class PaperTradesMixin:
                 ranking,
                 top_k=k,
                 respect_max_positions=False,
+                score_lookup=score_rows,
             )
             summary = mark_to_market(work)
             sell_trades = list(result.get("sell_trades") or [])
@@ -190,7 +250,23 @@ class PaperTradesMixin:
                 buy_trades=buy_trades,
                 holdings_before=holdings_before,
                 holdings_after=work.get("holdings") or [],
+                risk_budget_skips=result.get("risk_budget_skips"),
+                score_rows=score_rows,
             )
+            try:
+                from core.signal.score_display import annotate_score_gate
+
+                for row in report:
+                    gate = annotate_score_gate(
+                        row.get("score"), paper=work
+                    )
+                    row["min_score"] = gate["min_score"]
+                    if row.get("below_min_score") is None:
+                        row["below_min_score"] = gate["below_min_score"]
+                    elif gate["below_min_score"]:
+                        row["below_min_score"] = True
+            except Exception:
+                pass
             if dry_run:
                 return {
                     "success": True,
@@ -204,6 +280,13 @@ class PaperTradesMixin:
                     "buy_trades": buy_trades,
                     "rebalance_report": report,
                     "summary": summary,
+                    "cash_impact": result.get("cash_impact"),
+                    "turnover": result.get("turnover"),
+                    "turnover_capped": result.get("turnover_capped"),
+                    "risk_budget_skips": result.get("risk_budget_skips"),
+                    "attribution": result.get("attribution"),
+                    "risk_gate": result.get("risk_gate"),
+                    "ops_report": result.get("ops_report"),
                     "observation_pool_count": len(ranking),
                     "note": "分池预演 · 未写 paper.json",
                 }
@@ -267,8 +350,7 @@ class PaperTradesMixin:
             return {"success": False, "ok": False, **ranked}
 
         ranking = ranked.get("ranking") or []
-        holdings_before = copy.deepcopy(paper.get("holdings") or [])
-        work = copy.deepcopy(paper) if dry_run else paper
+        holdings_before = copy.deepcopy(work.get("holdings") or [])
         if not dry_run:
             capture_mark_snapshot(work)
         result = simulate_cross_section_rebalance(
@@ -285,6 +367,7 @@ class PaperTradesMixin:
             buy_trades=buy_trades,
             holdings_before=holdings_before,
             holdings_after=work.get("holdings") or [],
+            risk_budget_skips=result.get("risk_budget_skips"),
         )
         if dry_run:
             return {
@@ -298,6 +381,13 @@ class PaperTradesMixin:
                 "buy_trades": buy_trades,
                 "rebalance_report": report,
                 "summary": summary,
+                "cash_impact": result.get("cash_impact"),
+                "turnover": result.get("turnover"),
+                "turnover_capped": result.get("turnover_capped"),
+                "risk_budget_skips": result.get("risk_budget_skips"),
+                "attribution": result.get("attribution"),
+                "risk_gate": result.get("risk_gate"),
+                "ops_report": result.get("ops_report"),
                 "observation_pool_count": len(ranking),
             }
         append_snapshot(work, summary)

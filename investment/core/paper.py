@@ -239,6 +239,7 @@ def build_ops_report(
     source_audit: Optional[Dict[str, Any]] = None,
     exposure: Optional[Dict[str, Any]] = None,
     risk_block_items: Optional[List[Any]] = None,
+    attribution: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """北极星日更/调仓「五问」稳定结构（可进响应顶层与 DecisionRecord）。"""
     dq = data_quality or {}
@@ -258,6 +259,13 @@ def build_ops_report(
         "buys_blocked": bool(buys_blocked),
         "fallback_count": int(dq.get("fallback_count") or 0),
     }
+    if strategy_id:
+        try:
+            from core.strategy import get_strategy_spec
+
+            out["strategy_label"] = get_strategy_spec(str(strategy_id)).get("label")
+        except Exception:
+            out["strategy_label"] = None
     if tw is not None:
         out["target_weights"] = tw
     if limits is not None:
@@ -328,6 +336,22 @@ def build_ops_report(
         }
     if risk_block_items:
         out["risk_block_items"] = list(risk_block_items)[:20]
+    if isinstance(attribution, dict) and attribution:
+        out["attribution"] = {
+            "ok": attribution.get("ok"),
+            "mode": attribution.get("mode"),
+            "selection_pct": attribution.get("selection_pct"),
+            "allocation_pct": attribution.get("allocation_pct"),
+            "residual_pct": attribution.get("residual_pct"),
+            "total_excess_pct": attribution.get("total_excess_pct"),
+            "portfolio_return_pct": attribution.get("portfolio_return_pct"),
+            "period_return_pct": attribution.get("period_return_pct"),
+            "by_sector": (attribution.get("by_sector") or [])[:6],
+            "top_contributors": (attribution.get("top_contributors") or [])[:5],
+            "name_count": attribution.get("name_count"),
+            "methodology": attribution.get("methodology"),
+            "note": attribution.get("note"),
+        }
     return out
 
 

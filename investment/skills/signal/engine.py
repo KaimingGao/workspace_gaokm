@@ -90,6 +90,8 @@ class SignalEngine:
                     rejected.append(
                         {"stock_code": code, "stock_name": name, "reason": item.get("reject_reason")}
                     )
+                    # 仍保留分数供持仓/观察展示；选股 TopN 由 rank_candidates 过滤
+                    scored_items.append(item)
                 else:
                     scored_items.append(item)
 

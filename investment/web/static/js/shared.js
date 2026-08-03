@@ -139,10 +139,14 @@ export function downloadJson(data, filename) {
 export function formatOpsReportHtml(ops) {
   if (!ops || typeof ops !== "object") return "";
   const sid = ops.strategy_id || "—";
+  const slabel = ops.strategy_label || "";
   const sver =
     ops.strategy_version != null && ops.strategy_version !== ""
       ? String(ops.strategy_version)
       : "—";
+  const sDisp = slabel
+    ? `${slabel}（${sid}）`
+    : sid;
   const cost =
     ops.cost_model === "simple_cn"
       ? "A股简化"
@@ -226,9 +230,30 @@ export function formatOpsReportHtml(ops) {
       ? `${sa.status || "—"} · fallback ${saFb}`
       : "—";
   const saCls = saFb > 0 || sa.status === "bad" ? "is-warn" : "";
+  const attr = ops.attribution || {};
+  const fmtPct = (v) => {
+    if (v == null || !Number.isFinite(Number(v))) return "—";
+    const n = Number(v);
+    return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+  };
+  const attrOk = !!attr.ok;
+  const attrTitle = attr.methodology || attr.note || "纸面 Brinson lite · 非完整因子归因";
+  const attrText = attrOk
+    ? `选股 ${fmtPct(attr.selection_pct)} · 配置 ${fmtPct(attr.allocation_pct)} · 残差 ${fmtPct(attr.residual_pct)}`
+    : "—";
+  const topNames = Array.isArray(attr.top_contributors) ? attr.top_contributors : [];
+  const topText = topNames.length
+    ? topNames
+        .slice(0, 3)
+        .map(
+          (t) =>
+            `${t.stock_name || t.stock_code}:${fmtPct(t.contrib_pct)}`
+        )
+        .join(" ")
+    : "";
   return (
     `<dl class="paper-ops-report-grid" aria-label="调仓五问">` +
-    `<div><dt>策略</dt><dd>${escapeHtml(sid)} @ ${escapeHtml(sver)}</dd></div>` +
+    `<div><dt>策略</dt><dd title="${escapeHtml(sid)}">${escapeHtml(sDisp)} @ ${escapeHtml(sver)}</dd></div>` +
     `<div><dt>成本</dt><dd>${escapeHtml(cost)}</dd></div>` +
     `<div><dt>数据质量</dt><dd class="${fbCls}">${escapeHtml(fbText)}</dd></div>` +
     `<div><dt>源审计</dt><dd class="${saCls}" title="${escapeHtml(
@@ -246,6 +271,16 @@ export function formatOpsReportHtml(ops) {
     `<div><dt>目标权重</dt><dd title="${escapeHtml(twText)}">${escapeHtml(twText)}</dd></div>` +
     `<div><dt>策略限额</dt><dd>${escapeHtml(limText)}</dd></div>` +
     `<div><dt>仓位预算</dt><dd class="${vs.high_vol ? "is-warn" : ""}">${escapeHtml(volText)}</dd></div>` +
+    `<div><dt>简化归因</dt><dd title="${escapeHtml(attrTitle)}${
+      topText ? " · 贡献 " + topText : ""
+    }">${escapeHtml(attrText)}</dd></div>` +
+    (attrOk && attr.portfolio_return_pct != null
+      ? `<div><dt>持仓收益</dt><dd>${escapeHtml(fmtPct(attr.portfolio_return_pct))}${
+          attr.period_return_pct != null
+            ? ` · 较昨快照 ${escapeHtml(fmtPct(attr.period_return_pct))}`
+            : ""
+        }</dd></div>`
+      : "") +
     `</dl>` +
     (blocks.length
       ? `<ul class="paper-ops-report-alerts">${blocks

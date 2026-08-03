@@ -41,7 +41,48 @@ export function formatWeightSourceNote(raw) {
       )}</div>`
     );
   }
+  if (raw && raw.min_score != null) {
+    const floor = Number(raw.min_score);
+    const below = !!raw.below_min_score;
+    bits.push(
+      `<div class="score-weight-dual sub${below ? " is-warn" : ""}">选股门槛 ${escapeText(
+        String(floor)
+      )}${below ? " · 当前低于门槛（仍显示分数）" : ""}</div>`
+    );
+  }
   return `<div class="score-weight-section">${bits.join("")}</div>`;
+}
+
+export function formatFactorWeightsSection(raw) {
+  const fw = raw && raw.factor_weights;
+  if (!fw || typeof fw !== "object") return "";
+  const keys = Object.keys(fw).sort(
+    (a, b) => Number(fw[b] || 0) - Number(fw[a] || 0) || String(a).localeCompare(String(b))
+  );
+  if (!keys.length) return "";
+  const src = String((raw && raw.weight_source) || "").trim();
+  const label = raw && raw.cluster_label ? String(raw.cluster_label) : "";
+  const title =
+    src.startsWith("cluster:") || label
+      ? `分组因子权重${label ? ` · ${label}` : ""}`
+      : "全局因子权重";
+  const rows = keys
+    .slice(0, 14)
+    .map((k) => {
+      const v = Number(fw[k]);
+      const txt = Number.isFinite(v) ? v.toFixed(2) : String(fw[k] ?? "—");
+      return (
+        `<tr><td class="score-fw-name">${escapeText(k)}</td>` +
+        `<td class="score-fw-val num">${escapeText(txt)}</td></tr>`
+      );
+    })
+    .join("");
+  return (
+    `<div class="score-factors-section">` +
+    `<div class="score-section-title">${escapeText(title)}</div>` +
+    `<table class="score-factor-weights"><tbody>${rows}</tbody></table>` +
+    `</div>`
+  );
 }
 
 export function createScoreTooltipController() {
@@ -81,11 +122,16 @@ export function createScoreTooltipController() {
     const hardReject = raw.hard_reject;
     const rejectReason = raw.reject_reason || "";
     const hasWeight = !!(raw.weight_source || raw.cluster_mode || raw.cluster_label);
+    const hasFactorWeights =
+      raw.factor_weights &&
+      typeof raw.factor_weights === "object" &&
+      Object.keys(raw.factor_weights).length > 0;
 
-    if (!formula && !reasons.length && !hardReject && !hasWeight) return;
+    if (!formula && !reasons.length && !hardReject && !hasWeight && !hasFactorWeights) return;
 
     let html = '<div class="score-detail">';
     html += formatWeightSourceNote(raw);
+    html += formatFactorWeightsSection(raw);
     if (formula) {
       const highlighted = formula.replace(
         /(\d+\.\d+|[=+\-×])/g,

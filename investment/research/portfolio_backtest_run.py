@@ -21,7 +21,7 @@ from core.data_service import get_quote  # noqa: E402
 def _load_bars_for_codes(codes, lookback: int) -> dict:
     stock_bars = {}
     failures = []
-    for raw in codes[:15]:
+    for raw in codes:
         quote = get_quote(str(raw))
         sym = quote.get("stock_code") if quote.get("success") else str(raw)
         bars, _ = fetch_daily_bars(raw, limit=lookback + 35)

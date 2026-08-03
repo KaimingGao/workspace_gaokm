@@ -135,6 +135,13 @@ export function buildPaperHoldingsTableHtml({
       const pnl = h.pnl_pct;
       const startDate = h.bought_date || "—";
       const score = h.score;
+      const belowMin = !!h.below_min_score;
+      const scoreBase = fmtScore(score);
+      const scoreShown =
+        scoreBase !== "—" && belowMin ? `${scoreBase}↓` : scoreBase;
+      const scoreTitle = belowMin
+        ? `低于选股门槛 ${h.min_score ?? "—"}（仍显示分数）· 悬停看详情`
+        : "悬停查看评分与权重来源";
       const origin = String(h.origin || "");
       const originLabel = h.origin_label || "—";
       const originTitle = ORIGIN_HINT[origin] || "早期记录未标出处";
@@ -179,7 +186,9 @@ export function buildPaperHoldingsTableHtml({
           h.unit,
           h.currency
         )}</td>` +
-        `<td class="num paper-hold-score ${scoreCls(score)}" ` +
+        `<td class="num paper-hold-score ${scoreCls(score)}${
+          belowMin ? " score-below-min" : ""
+        }" ` +
         `data-score-detail="${escapeText(
           JSON.stringify({
             formula: h.score_formula || "",
@@ -192,8 +201,10 @@ export function buildPaperHoldingsTableHtml({
             cluster_version: h.cluster_version,
             score_global: h.score_global,
             score_cluster: h.score_cluster,
+            min_score: h.min_score,
+            below_min_score: belowMin,
           })
-        )}" title="悬停查看评分与权重来源">${fmtScore(score)}</td>` +
+        )}" title="${escapeText(scoreTitle)}">${escapeText(scoreShown)}</td>` +
         `<td class="num paper-hold-pnl ${metricCls(pnl)}">${fmtPct(pnl, {
           signed: true,
         })}</td>` +

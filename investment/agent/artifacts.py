@@ -107,6 +107,10 @@ def compact_payload(data: Dict[str, Any]) -> Dict[str, Any]:
         }
     if "trades_sample" in data:
         out["trades_sample"] = _truncate_list(data["trades_sample"], 12)
+    if "sim_trades" in data:
+        out["sim_trades"] = _truncate_list(data["sim_trades"], 40)
+        if data.get("sim_trade_count") is not None:
+            out["sim_trade_count"] = data.get("sim_trade_count")
     if "equity_curve" in data:
         out["equity_curve"] = _truncate_list(data["equity_curve"], 60)
     if "equity_curve_tail" in data:

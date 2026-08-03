@@ -19,9 +19,12 @@ STANCE_SHORT = {
 }
 
 # 列表页：单票与整批上限（秒）；超时后不等待残余线程
-_INSIGHT_STOCK_TIMEOUT = 10.0
-_INSIGHT_BATCH_TIMEOUT = 45.0
-_INSIGHT_MAX_WORKERS = 2
+_INSIGHT_STOCK_TIMEOUT = 12.0
+_INSIGHT_BATCH_TIMEOUT = 90.0
+_INSIGHT_MAX_WORKERS = 6
+# 与观察池常见规模对齐（watching 上限约 80）；勿默认砍到 30 导致尾部无分
+_INSIGHT_DEFAULT_LIMIT = 80
+_INSIGHT_HARD_CAP = 80
 
 
 def _f(v: Any) -> Optional[float]:
@@ -71,6 +74,8 @@ def _blank(code: str, *, added_at: Optional[str] = None, error: Optional[str] = 
         "score_global": None,
         "score_cluster": None,
         "delta_vs_global": None,
+        "min_score": None,
+        "below_min_score": False,
         "score_formula": None,
         "score_reasons": None,
         "added_at": added_at,
@@ -111,6 +116,7 @@ def _insight_one(
     *,
     added_at: Optional[str] = None,
     valuation: Optional[Dict[str, Optional[float]]] = None,
+    paper_ctx: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """单票轻量摘要：与交易执行同源 ``score_stock``（含分组权）；不二次打指数/基本面/同业。"""
     out = _blank(code, added_at=added_at)
@@ -135,9 +141,19 @@ def _insight_one(
         out["score_global"] = _f(item.get("score_global"))
         out["score_cluster"] = _f(item.get("score_cluster"))
         out["delta_vs_global"] = _f(item.get("delta_vs_global"))
+        # 选股门槛仅标注，不抹掉分数
+        try:
+            from core.signal.score_display import annotate_score_gate
+
+            gate = annotate_score_gate(out["score"], paper=paper_ctx)
+            out["min_score"] = gate["min_score"]
+            out["below_min_score"] = gate["below_min_score"]
+        except Exception:
+            out["min_score"] = None
+            out["below_min_score"] = False
         reasons = item.get("reasons") or []
         out["score_reasons"] = list(reasons) if isinstance(reasons, list) else []
-        # 公式权向量：active 组权时与交易执行持仓表一致
+        # 公式权向量：active 组权时用映射权
         weights = None
         src = str(item.get("weight_source") or "")
         if src.startswith("cluster:"):
@@ -205,12 +221,12 @@ def build_watching_insights(
     codes: List[str],
     *,
     added_at_by_code: Optional[Dict[str, str]] = None,
-    limit: int = 30,
+    limit: int = _INSIGHT_DEFAULT_LIMIT,
 ) -> Dict[str, Any]:
     added = added_at_by_code or {}
     cleaned = [
         str(c).strip() for c in (codes or []) if str(c).strip()
-    ][: max(1, min(int(limit or 30), 40))]
+    ][: max(1, min(int(limit or _INSIGHT_DEFAULT_LIMIT), _INSIGHT_HARD_CAP))]
 
     if not cleaned:
         return {
@@ -219,6 +235,18 @@ def build_watching_insights(
             "items": [],
             "note": "观察摘要为空",
         }
+
+    # paper 门槛只读一次，避免每票 load_paper
+    paper_ctx = None
+    try:
+        from core.paths import PAPER_PATH
+        from core.paper import load_paper
+        import os
+
+        if os.path.isfile(PAPER_PATH):
+            paper_ctx = load_paper(PAPER_PATH)
+    except Exception:
+        paper_ctx = None
 
     valuation_by = _spot_valuation_map(cleaned)
     items_by_code: Dict[str, Dict[str, Any]] = {}
@@ -234,6 +262,7 @@ def build_watching_insights(
                     c,
                     added_at=added.get(c) or added.get(str(c)),
                     valuation=valuation_by.get(key),
+                    paper_ctx=paper_ctx,
                 )
             ] = c
         try:
@@ -274,9 +303,14 @@ def build_watching_insights(
         or _blank(c, added_at=added.get(c), error="未完成")
         for c in cleaned
     ]
+    truncated = max(0, len([str(c).strip() for c in (codes or []) if str(c).strip()]) - len(cleaned))
+    note = "轻量观察摘要（跳过基本面/同业/独立指数重拉）；不改 stance 主契约。"
+    if truncated:
+        note += f" 本次仅返回前 {len(cleaned)} 只（截断 {truncated}）。"
     return {
         "ok": True,
         "count": len(items),
         "items": items,
-        "note": "轻量观察摘要（跳过基本面/同业/独立指数重拉）；不改 stance 主契约。",
+        "truncated": truncated,
+        "note": note,
     }

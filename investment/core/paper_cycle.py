@@ -77,6 +77,7 @@ def run_daily_cycle(
 
     # Q4：调仓前风控（基于当前市值快照）
     risk_gate = None
+    pre_summary = None
     try:
         from core.risk import check_account_risk
 
@@ -137,21 +138,49 @@ def run_daily_cycle(
     append_snapshot(paper, summary)
     _p(grand, grand, "完成")
 
-    buy_amount = round(sum(float(t.get("amount") or 0) for t in new_trades), 2)
-    sell_amount = round(sum(float(t.get("amount") or 0) for t in sell_trades), 2)
-    cash_after = float((summary or {}).get("cash") or paper.get("cash") or 0)
     cost_model = resolve_cost_model(paper)
-    cash_impact = {
-        "cash_before": round(cash_before, 2),
-        "buy_amount": buy_amount,
-        "sell_amount": sell_amount,
-        "net_cash_flow": round(sell_amount - buy_amount, 2),
-        "cash_after": round(cash_after, 2),
-        "position_count_before": position_count_before,
-        "position_count_after": int((summary or {}).get("position_count") or 0),
-        "equity_after": (summary or {}).get("equity"),
-        "cost_model": cost_model,
-    }
+    equity_before = None
+    try:
+        equity_before = float((pre_summary or {}).get("equity") or 0) or None
+    except Exception:
+        equity_before = None
+    max_turnover_pct = None
+    raw_mto = (paper.get("rules") or {}).get(
+        "max_turnover_pct", (paper.get("rules") or {}).get("max_turnover")
+    )
+    if raw_mto is not None and raw_mto != "":
+        try:
+            max_turnover_pct = float(raw_mto)
+        except (TypeError, ValueError):
+            max_turnover_pct = None
+    try:
+        from core.paper_rebalance import build_rebalance_cash_impact
+
+        cash_impact = build_rebalance_cash_impact(
+            cash_before=cash_before,
+            position_count_before=position_count_before,
+            sell_trades=sell_trades,
+            buy_trades=new_trades,
+            summary=summary,
+            equity_before=equity_before,
+            cost_model=cost_model,
+            max_turnover_pct=max_turnover_pct,
+        )
+    except Exception:
+        buy_amount = round(sum(float(t.get("amount") or 0) for t in new_trades), 2)
+        sell_amount = round(sum(float(t.get("amount") or 0) for t in sell_trades), 2)
+        cash_after = float((summary or {}).get("cash") or paper.get("cash") or 0)
+        cash_impact = {
+            "cash_before": round(cash_before, 2),
+            "buy_amount": buy_amount,
+            "sell_amount": sell_amount,
+            "net_cash_flow": round(sell_amount - buy_amount, 2),
+            "cash_after": round(cash_after, 2),
+            "position_count_before": position_count_before,
+            "position_count_after": int((summary or {}).get("position_count") or 0),
+            "equity_after": (summary or {}).get("equity"),
+            "cost_model": cost_model,
+        }
 
     dq = None
     codes: list = []
@@ -406,6 +435,14 @@ def run_daily_cycle(
         source_audit = audit_code_sources(holding_codes(paper) or [])
     except Exception:
         source_audit = None
+    attribution = {}
+    try:
+        from core.paper_attribution import build_paper_attribution_lite
+
+        attribution = build_paper_attribution_lite(paper, summary) or {}
+    except Exception:
+        attribution = {"ok": False, "reason": "attribution_error"}
+
     ops_report = build_ops_report(
         strategy_id=sid,
         strategy_version=sver,
@@ -421,6 +458,7 @@ def run_daily_cycle(
         source_audit=source_audit,
         exposure=(risk_gate or {}).get("exposure"),
         risk_block_items=(risk_gate or {}).get("block_items"),
+        attribution=attribution,
     )
     paper["last_ops_report"] = ops_report
 
@@ -443,6 +481,7 @@ def run_daily_cycle(
         "monitor_alerts": monitor_alerts,
         "buys_blocked": buys_blocked,
         "ops_report": ops_report,
+        "attribution": attribution,
         "last_optimize": paper.get("last_optimize"),
         "target_weights": (paper.get("last_optimize") or {}).get("weights_pct"),
         "health": monitor,

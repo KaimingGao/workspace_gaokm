@@ -1,11 +1,116 @@
 """风险预算轻量（模拟账户）：市场波动缩放 + 分数比例目标仓。
 
 非 QP；不接实盘。高波时压低有效单票/行业上限，目标权重按 score 比例分配。
+买入路径：``clip_buy_to_risk_budget`` 按单票/行业剩余额度缩量或跳过。
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Tuple
+
+
+def clip_buy_to_risk_budget(
+    *,
+    code: str,
+    sector: str,
+    price: float,
+    shares: int,
+    equity: float,
+    name_mv: Dict[str, float],
+    sector_mv: Dict[str, float],
+    max_position_pct: float,
+    max_sector_pct: float,
+) -> Dict[str, Any]:
+    """
+    按单票 / 行业上限对拟买股数缩量；不足一手则 skip。
+
+    ``name_mv`` / ``sector_mv`` 为调仓过程中滚动市值（含已成交买）。
+    返回 ``shares`` · ``clipped`` · ``skipped`` · ``reason`` · ``room_name_pct`` · ``room_sector_pct``。
+    """
+    px = float(price or 0)
+    sh = int(shares or 0)
+    eq = float(equity or 0)
+    max_pos = float(max_position_pct)
+    max_sec = float(max_sector_pct)
+    code = str(code or "")
+    sector = str(sector or "其他")
+    out: Dict[str, Any] = {
+        "shares": sh,
+        "clipped": False,
+        "skipped": False,
+        "reason": "",
+        "room_name_pct": None,
+        "room_sector_pct": None,
+        "max_position_pct": max_pos,
+        "max_sector_pct": max_sec,
+        "sector": sector,
+    }
+    if sh <= 0 or px <= 0:
+        out["skipped"] = True
+        out["shares"] = 0
+        out["reason"] = "拟买手数无效"
+        return out
+    if eq <= 0:
+        return out
+
+    cur_name = float(name_mv.get(code) or 0.0)
+    cur_sec = float(sector_mv.get(sector) or 0.0)
+    room_name_pct = max(0.0, max_pos - cur_name / eq * 100.0)
+    room_sec_pct = max(0.0, max_sec - cur_sec / eq * 100.0)
+    out["room_name_pct"] = round(room_name_pct, 2)
+    out["room_sector_pct"] = round(room_sec_pct, 2)
+
+    if room_name_pct <= 1e-9:
+        out["skipped"] = True
+        out["shares"] = 0
+        out["reason"] = f"单票已达上限 {max_pos:g}%"
+        return out
+    if room_sec_pct <= 1e-9:
+        out["skipped"] = True
+        out["shares"] = 0
+        out["reason"] = f"行业 {sector} 已达上限 {max_sec:g}%"
+        return out
+
+    room_cash = min(room_name_pct, room_sec_pct) / 100.0 * eq
+    max_shares = int(room_cash // px // 100) * 100
+    if max_shares <= 0:
+        out["skipped"] = True
+        out["shares"] = 0
+        bottleneck = "单票" if room_name_pct <= room_sec_pct else f"行业 {sector}"
+        out["reason"] = f"{bottleneck}预算不足一手（上限 {max_pos:g}%/{max_sec:g}%）"
+        return out
+    if max_shares < sh:
+        out["shares"] = max_shares
+        out["clipped"] = True
+        bottleneck = "单票" if room_name_pct <= room_sec_pct else f"行业 {sector}"
+        out["reason"] = f"{bottleneck}预算缩量至 {max_shares} 股"
+    return out
+
+
+def build_running_exposure_mv(
+    holdings: List[dict],
+    *,
+    sector_map: Optional[Dict[str, str]] = None,
+) -> Tuple[Dict[str, float], Dict[str, float]]:
+    """从持仓构建 code→市值、行业→市值（缺 market_value 时用 cost×shares）。"""
+    from core.portfolio_optimize import _sector_for, load_sector_map
+
+    smap = sector_map if sector_map is not None else load_sector_map()
+    name_mv: Dict[str, float] = {}
+    sector_mv: Dict[str, float] = {}
+    for h in holdings or []:
+        code = str(h.get("stock_code") or "")
+        if not code:
+            continue
+        mv = float(h.get("market_value") or 0)
+        if mv <= 0:
+            mv = float(h.get("cost") or 0) * float(h.get("shares") or 0)
+        if mv <= 0:
+            continue
+        sector = str(h.get("sector") or _sector_for(code, smap))
+        name_mv[code] = float(name_mv.get(code) or 0.0) + mv
+        sector_mv[sector] = float(sector_mv.get(sector) or 0.0) + mv
+    return name_mv, sector_mv
 
 
 def _realized_vol(closes: List[float]) -> Optional[float]:

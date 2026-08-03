@@ -1426,7 +1426,7 @@ td.num {
 .param-grid-heat {
   display: block;
   width: 100%;
-  max-width: 480px;
+  max-width: 360px;
   height: auto;
   margin: 10px 0;
   border: 1px solid var(--line);
@@ -3739,6 +3739,13 @@ canvas#paper-chart-fallback[hidden] {
   color: #9ca3af;
 }
 
+.paper-holdings-table td.paper-hold-score.score-below-min,
+.watching-score-cell.paper-hold-score.score-below-min,
+.rebalance-score.below-min {
+  opacity: 0.85;
+  text-decoration: underline dotted;
+}
+
 .watching-score-cell.paper-hold-score {
   font-weight: 600;
   text-align: right;
@@ -5513,6 +5520,62 @@ a.hub-card:hover {
   margin: 0 0 var(--replay-gap);
 }
 
+.replay-page .replay-howto {
+  margin: 0 0 var(--replay-gap, 10px);
+  padding: 6px 10px;
+  border: 1px solid var(--line-2);
+  border-radius: 6px;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+  background: var(--bg-1, transparent);
+}
+
+.replay-page .replay-howto summary {
+  cursor: pointer;
+  user-select: none;
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.replay-page .replay-howto-body {
+  margin-top: 6px;
+  max-width: 56em;
+}
+
+.replay-page .replay-howto-body p {
+  margin: 0 0 6px;
+}
+
+.replay-page .replay-howto-clarify {
+  color: var(--ink-3);
+}
+
+.replay-page .replay-howto-body code {
+  font-size: 0.95em;
+}
+
+.replay-page .replay-howto-steps {
+  margin: 0 0 8px;
+  padding-left: 1.2em;
+}
+
+.replay-page .replay-howto-steps li {
+  margin: 0 0 3px;
+}
+
+.replay-page .replay-howto-timeline {
+  margin: 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  font-size: 0.68rem;
+  line-height: 1.4;
+  white-space: pre;
+  border-radius: 4px;
+  background: var(--bg-2, rgba(0, 0, 0, 0.04));
+  color: var(--ink-2);
+}
+
 .replay-page .quant-actions-inline .dialog-btn {
   padding: 5px 12px;
   font-size: 0.78rem;
@@ -5592,75 +5655,21 @@ a.hub-card:hover {
   display: none;
 }
 
-.replay-page .quant-research-grid,
-.replay-page .watching-react-grid.quant-research-grid {
-  border-radius: var(--replay-radius);
-  font-size: 0.78rem;
-  background: var(--surface);
-  box-shadow: none;
-}
-
-.replay-page .quant-research-grid .watching-react-grid-head {
-  background: var(--line-2);
-  border-bottom: 1px solid var(--line);
-}
-
-.replay-page .quant-research-grid .watching-react-grid-row {
-  min-height: 38px;
-}
-
-.replay-page .quant-research-grid .watching-react-grid-row.is-head {
-  min-height: 36px;
-}
-
-.replay-page .quant-research-grid .watching-react-grid-cell {
-  padding-top: 8px;
-  padding-bottom: 8px;
-}
-
-.replay-page .quant-research-grid .watching-react-grid-row.is-head .watching-react-grid-cell {
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  color: var(--ink-3);
-  padding-top: 8px;
-  padding-bottom: 8px;
-}
-
-.replay-page .quant-research-grid .watching-react-grid-row > .watching-react-grid-cell:first-child {
-  padding-left: 12px;
-}
-
-.replay-page .quant-research-grid .watching-react-grid-row > .watching-react-grid-cell:last-child {
-  padding-right: 14px;
-}
-
-.replay-page
-  .quant-research-grid
-  .watching-react-grid-body
-  .watching-react-grid-row:nth-child(even):not(.is-best):not(.is-warn):not(.down) {
-  background: color-mix(in srgb, var(--line-2) 48%, var(--surface));
-}
-
-.replay-page .quant-research-grid .watching-react-grid-body .watching-react-grid-row:hover {
-  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
-}
-
-.replay-page .quant-research-grid .watching-react-grid-cell.watching-col-num,
-.replay-page .quant-research-grid .bt-trade-ret {
+/* 历史回测表：壳/密度与数据中心 watching-react-grid 同源（见下方 .watching-page/.replay-page 共用块） */
+.replay-page .watching-react-grid .bt-trade-ret {
   font-family: var(--font-mono);
   font-size: 0.76rem;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
 
-.replay-page .quant-research-grid .watching-react-grid-row.is-best {
+.replay-page .watching-react-grid .watching-react-grid-row.is-best {
   background: color-mix(in srgb, var(--accent) 9%, var(--surface));
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-.replay-page .quant-research-grid .watching-react-grid-row.is-warn,
-.replay-page .quant-research-grid .watching-react-grid-row.down {
+.replay-page .watching-react-grid .watching-react-grid-row.is-warn,
+.replay-page .watching-react-grid .watching-react-grid-row.down {
   background: color-mix(in srgb, var(--danger) 6%, var(--surface));
 }
 
@@ -5709,34 +5718,9 @@ a.hub-card:hover {
 }
 
 .replay-page .quant-bt-trades-body {
+  height: auto !important;
   max-height: min(42vh, 480px);
-}
-
-.replay-page .quant-bt-trades-host .watching-react-grid {
-  border-radius: var(--replay-radius);
-  font-size: 0.78rem;
-}
-
-.replay-page .quant-bt-trades-host .watching-react-grid-row {
-  min-height: 38px;
-}
-
-.replay-page .quant-bt-trades-host .watching-react-grid-cell {
-  padding-top: 8px;
-  padding-bottom: 8px;
-}
-
-.replay-page .quant-bt-trades-host .watching-react-grid-row.is-head .watching-react-grid-cell {
-  font-size: 0.66rem;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  color: var(--ink-3);
-}
-
-.replay-page .quant-bt-trades-host .watching-col-num,
-.replay-page .quant-bt-trades-host .bt-trade-ret {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
+  overflow: auto;
 }
 
 .replay-page > .quant-fold {
@@ -5758,7 +5742,9 @@ a.hub-card:hover {
 
 .replay-page .param-grid-heat {
   display: block;
-  max-width: 100%;
+  width: min(100%, 360px);
+  max-width: 360px;
+  height: auto;
   margin: 0 0 var(--replay-gap);
   border: 1px solid var(--line);
   border-radius: var(--replay-radius);
@@ -6435,6 +6421,27 @@ a.hub-card:hover {
   font-size: 0.72rem;
   color: var(--gold);
   line-height: 1.4;
+}
+
+.quant-page .quant-cluster-evidence {
+  margin: 0 0 8px;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.quant-page .quant-cluster-evidence summary {
+  cursor: pointer;
+  user-select: none;
+}
+
+.quant-page .quant-cluster-evidence-list {
+  margin: 4px 0 0;
+  padding-left: 1.1em;
+  color: var(--text-2, inherit);
+}
+
+.quant-page .quant-cluster-evidence-list .down {
+  color: var(--down, #c44);
 }
 
 .quant-page .quant-cluster-landing-actions {
@@ -7167,15 +7174,17 @@ a.hub-card:hover {
   border-top: 1px solid var(--line);
 }
 
-/* 数据中心主表：专业紧凑密度（scoped，不改交易页网格） */
-.watching-page .watching-react-grid {
+/* 数据中心主表 + 历史回测表：同壳同密度（scoped，不改交易页网格） */
+.watching-page .watching-react-grid,
+.replay-page .watching-react-grid {
   border-radius: var(--watching-radius);
   font-size: 0.78rem;
   background: var(--surface);
   box-shadow: none;
 }
 
-.watching-page .watching-react-grid-head {
+.watching-page .watching-react-grid-head,
+.replay-page .watching-react-grid-head {
   background: var(--line-2);
   border-bottom: 1px solid var(--line);
 }
@@ -7184,20 +7193,24 @@ a.hub-card:hover {
   height: min(70vh, 900px);
 }
 
-.watching-page .watching-react-grid-row {
+.watching-page .watching-react-grid-row,
+.replay-page .watching-react-grid-row {
   min-height: 38px;
 }
 
-.watching-page .watching-react-grid-row.is-head {
+.watching-page .watching-react-grid-row.is-head,
+.replay-page .watching-react-grid-row.is-head {
   min-height: 36px;
 }
 
-.watching-page .watching-react-grid-cell {
+.watching-page .watching-react-grid-cell,
+.replay-page .watching-react-grid-cell {
   padding-top: 8px;
   padding-bottom: 8px;
 }
 
-.watching-page .watching-react-grid-row.is-head .watching-react-grid-cell {
+.watching-page .watching-react-grid-row.is-head .watching-react-grid-cell,
+.replay-page .watching-react-grid-row.is-head .watching-react-grid-cell {
   font-size: 0.66rem;
   font-weight: 700;
   letter-spacing: 0.05em;
@@ -7207,39 +7220,48 @@ a.hub-card:hover {
   text-transform: none;
 }
 
-.watching-page .watching-react-grid-row > .watching-react-grid-cell:first-child {
+.watching-page .watching-react-grid-row > .watching-react-grid-cell:first-child,
+.replay-page .watching-react-grid-row > .watching-react-grid-cell:first-child {
   padding-left: 12px;
 }
 
-.watching-page .watching-react-grid-row > .watching-react-grid-cell:last-child {
+.watching-page .watching-react-grid-row > .watching-react-grid-cell:last-child,
+.replay-page .watching-react-grid-row > .watching-react-grid-cell:last-child {
   padding-right: 14px;
 }
 
 .watching-page
   .watching-react-grid-body
-  .watching-react-grid-row:nth-child(even):not(.is-chart-active):not(.is-sentiment-alert) {
+  .watching-react-grid-row:nth-child(even):not(.is-chart-active):not(.is-sentiment-alert),
+.replay-page
+  .watching-react-grid-body
+  .watching-react-grid-row:nth-child(even):not(.is-best):not(.is-warn):not(.down):not(.is-chart-active) {
   background: color-mix(in srgb, var(--line-2) 48%, var(--surface));
 }
 
-.watching-page .watching-react-grid-body .watching-react-grid-row:hover {
+.watching-page .watching-react-grid-body .watching-react-grid-row:hover,
+.replay-page .watching-react-grid-body .watching-react-grid-row:hover {
   background: color-mix(in srgb, var(--accent) 5%, var(--surface));
 }
 
-.watching-page .watching-react-grid-cell.watching-col-num {
+.watching-page .watching-react-grid-cell.watching-col-num,
+.replay-page .watching-react-grid-cell.watching-col-num {
   font-family: var(--font-mono);
   font-size: 0.76rem;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
 }
 
-.watching-page .watching-name-text {
+.watching-page .watching-name-text,
+.replay-page .watching-name-text {
   font-weight: 600;
   font-size: 0.8rem;
   letter-spacing: -0.01em;
   line-height: 1.25;
 }
 
-.watching-page .watching-code-sub {
+.watching-page .watching-code-sub,
+.replay-page .watching-code-sub {
   font-family: var(--font-mono);
   font-size: 0.68rem;
   letter-spacing: 0.01em;
@@ -9928,9 +9950,41 @@ html[data-density="compact"] .table-pager {
   overflow-x: hidden;
 }
 
+.quant-bt-trades-csv {
+  margin-left: 10px;
+  vertical-align: middle;
+}
+
 .quant-bt-trades-host {
   width: 100%;
   margin-top: 4px;
+}
+
+.score-factors-section {
+  margin-bottom: 4px;
+}
+
+.score-factor-weights {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.score-factor-weights td {
+  padding: 2px 0;
+  vertical-align: baseline;
+}
+
+.score-factor-weights .score-fw-name {
+  color: var(--ink-2, #475569);
+  padding-right: 12px;
+}
+
+.score-factor-weights .score-fw-val {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink, #0f172a);
+  font-weight: 600;
 }
 
 .quant-bt-trades-body {
