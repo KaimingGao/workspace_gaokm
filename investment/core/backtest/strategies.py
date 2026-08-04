@@ -17,7 +17,7 @@ STRATEGY_ALIASES: Dict[str, str] = {
 STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
     "short": {
         "label": "短线评分",
-        "description": "标准短线：回测门槛 65，持有 3 日；组合限额最多 20 只（见下方卡片）",
+        "description": "短线主策略：组 β → ŷ 选股；持有约 3 日；组合最多 20 只（限额见卡片，ŷ 门槛见页脚）",
         "params": {
             "horizon_days": 3,
             "min_score": 65.0,
@@ -71,7 +71,7 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
     },
     "short_conservative": {
         "label": "保守短线",
-        "description": "更高入场门槛与更紧组合限额（最多 15 只），适合控制换手与回撤",
+        "description": "更紧组合限额（最多 15 只），控制换手与回撤；选股仍走组 β → ŷ",
         "params": {
             "horizon_days": 3,
             "min_score": 72.0,

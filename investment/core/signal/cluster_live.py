@@ -1033,7 +1033,7 @@ def cluster_score_audit_sample(
         }
     for code in codes:
         try:
-            # 强制 shadow 语义：始终拉出全局/组权双分供对照（不影响交易 mode）
+            # 强制 shadow 语义：始终拉出全局ŷ / 组ŷ 供对照（不影响交易 mode）
             result = score_stock(
                 code,
                 cluster_mode="shadow",
@@ -1141,7 +1141,7 @@ def apply_cluster_live_shortcut(
 
 def build_cluster_enable_evidence(
     *,
-    include_audit: bool = True,
+    include_audit: bool = False,
     health: Optional[Dict[str, Any]] = None,
     audit: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
@@ -1149,6 +1149,7 @@ def build_cluster_enable_evidence(
     EP1：对照→启用证据包（JSON）。
 
     门禁：健康 allow_active；若有 OOS 记录且全部失败则禁止启用。
+    默认不采全局/组双分样本（系统主路径无全局 return_model）。
     """
     cs = get_cluster_scoring_cfg()
     active = load_active_cluster_weights()
@@ -1238,7 +1239,8 @@ def build_cluster_enable_evidence(
             audit = cluster_score_audit_sample(limit=6)
         except Exception as exc:
             audit = {"success": False, "rows": [], "error": str(exc)}
-    audit_rows = list((audit or {}).get("rows") or [])[:6]
+    # 主路径无全局ŷ；双分样本仅遗留调试（默认不采）
+    audit_rows = list((audit or {}).get("rows") or [])[:6] if include_audit else []
 
     blockers: List[str] = []
     warnings: List[str] = []
@@ -1256,7 +1258,7 @@ def build_cluster_enable_evidence(
         warnings.append("分池簿为空 · 启用后请刷新簿再分池调仓")
 
     gate_ok = len(blockers) == 0
-    return {
+    out: Dict[str, Any] = {
         "success": True,
         "task": "cluster_enable_evidence",
         "ok": gate_ok,
@@ -1271,28 +1273,33 @@ def build_cluster_enable_evidence(
         "oos_summary": oos_summary,
         "turnover_est": turnover_est,
         "exposure_summary": exposure_summary,
-        "score_audit_sample": {
-            "rows": audit_rows,
-            "count": len(audit_rows),
-            "error": (audit or {}).get("error"),
-        },
         "health": {
             "coverage": h.get("coverage"),
             "age_days": h.get("age_days"),
             "stale": h.get("stale"),
             "allow_active": h.get("allow_active"),
         },
-        "note": "启用前证据包 · 健康门禁 + OOS/簿长/换手估计/行业简表/双分样本",
+        "note": "启用前证据包 · 健康门禁 + OOS/簿长/换手估计/行业简表（组ŷ；无全局模型对照）",
     }
+    if include_audit:
+        out["score_audit_sample"] = {
+            "rows": audit_rows,
+            "count": len(audit_rows),
+            "error": (audit or {}).get("error"),
+        }
+    return out
 
 
 def cluster_status_public(
     *,
-    include_audit: bool = True,
+    include_audit: bool = False,
     audit_rotate: bool = False,
     audit_offset: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """供 API/UI 的状态摘要（含落地下一步 + 可选双分样本）。"""
+    """供 API/UI 的状态摘要（含落地下一步）。
+
+    ``include_audit`` 默认关闭：系统主路径只有组 return_model，无全局ŷ对照。
+    """
     from core.paths import (
         CLUSTER_BOOK_ACTIVE_PATH,
         CLUSTER_WEIGHTS_ACTIVE_PATH,
@@ -1327,7 +1334,7 @@ def cluster_status_public(
     evidence = build_cluster_enable_evidence(
         include_audit=False,
         health=health,
-        audit=audit,
+        audit=None,
     )
     allow_active = bool(health.get("allow_active")) and bool(
         (evidence.get("gate") or {}).get("ok")

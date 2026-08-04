@@ -141,11 +141,11 @@ def summarize_portfolio_neutral_compare(
     a_ret = am.get("total_return_pct")
     d_ret = delta.get("total_return_pct")
     if winner == "neutralized":
-        interp = f"调仓日截面中性化累计收益较绝对分高 {abs(d_ret or 0)} 个百分点"
+        interp = f"调仓日截面中性化累计收益较未中性化ŷ高 {abs(d_ret or 0)} 个百分点"
     elif winner == "absolute":
-        interp = f"绝对分累计收益较中性化高 {abs(d_ret or 0)} 个百分点"
+        interp = f"未中性化ŷ累计收益较中性化高 {abs(d_ret or 0)} 个百分点"
     else:
-        interp = "中性化与绝对分累计收益接近"
+        interp = "中性化与未中性化ŷ累计收益接近"
 
     return {
         "success": True,

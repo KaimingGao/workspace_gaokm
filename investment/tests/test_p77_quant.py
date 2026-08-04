@@ -36,7 +36,7 @@ class TestP77InterpretCrossSectionScore(unittest.TestCase):
 
     def test_rule_based_interpret_mentions_score(self):
         out = build_rule_based_interpret(self._report_with_cs())
-        self.assertIn("score", out["interpretation"])
+        self.assertIn("ŷ", out["interpretation"])
         self.assertIn("不等于买入", out["interpretation"])
 
 

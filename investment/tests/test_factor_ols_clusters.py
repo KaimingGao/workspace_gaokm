@@ -397,6 +397,11 @@ class TestFactorOlsClusters(unittest.TestCase):
                     "label": "G1",
                     "members": ["600519", "000001"],
                     "singleton": False,
+                    "return_model": {
+                        "coefficients": {"momentum": 0.6, "value": 0.4},
+                        "intercept": 0.0,
+                        "sample_count": 40,
+                    },
                     "weight_suggest": {
                         "success": True,
                         "current_weights": {"momentum": 0.2},
@@ -420,7 +425,7 @@ class TestFactorOlsClusters(unittest.TestCase):
             "note": "ok",
         }
         with patch(
-            "core.signal.weight_oos_gate.evaluate_weight_suggestion_oos",
+            "core.signal.weight_oos_gate.evaluate_research_oos",
             return_value=fake_gate,
         ):
             out = attach_cluster_oos_gates(report, run_oos_gate=True)

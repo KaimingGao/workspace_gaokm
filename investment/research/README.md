@@ -37,8 +37,6 @@ CLI 等价：`portfolio_backtest_run.py` · `backtest_scan.py` · `factor_ols_*`
 | `watching_run.py` | watching 初始化与 refresh |
 | `cross_section_run.py` | 横截面 Top N |
 | `portfolio_backtest_run.py` | 组合回测 |
-| `weight_coord_compare_run.py` | 权重三臂对照（global / OLS·IC / 坐标网格；不写盘） |
-| `rank_mode_compare_run.py` | 排序键对照（已退役；仅返回提示） |
 | `paper_rebalance_run.py` | 纸面调仓（显式 opt-in） |
 | `t0_backtest_run.py` | 底仓做 T 日线代理回测（非实盘） |
 | `quant_export_run.py` | 报告 MD/HTML 导出 |

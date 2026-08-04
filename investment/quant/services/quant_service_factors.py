@@ -643,75 +643,6 @@ class QuantFactorMixin:
         report["codes"] = list(stock_bars.keys())
         return report
 
-    def run_next_day_trend(
-        self,
-        *,
-        lookback: int = 120,
-        lookback_eval_days: int = 60,
-        flat_band_pct: float = 0.5,
-        watching_limit: int = 20,
-        codes: Optional[List[str]] = None,
-        pit_fundamentals: bool = True,
-    ) -> Dict[str, Any]:
-        """观察池日频+1 趋势探针：收盘→次日方向；不写 config。"""
-        from core.backtest.next_day_trend import compute_next_day_trend_report
-        from core.data_service import bars_and_source, get_quote
-        from core.watching_store import read_watching
-
-        if codes:
-            use_codes = [str(c).strip() for c in codes if str(c).strip()]
-        else:
-            uni = read_watching()
-            use_codes = list(uni.get("watchlist") or [])
-        limit = max(1, min(int(watching_limit or 20), 40))
-        use_codes = use_codes[:limit]
-        if not use_codes:
-            return {
-                "success": False,
-                "ok": False,
-                "error": "观察池为空；请先在数据中心加票",
-                "task": "next_day_trend",
-                "mode": "watchlist_daily_plus1",
-                "horizon_days": 1,
-            }
-
-        stock_bars: Dict[str, Any] = {}
-        live_quotes: Dict[str, Any] = {}
-        for code in use_codes:
-            quote = get_quote(code)
-            sym = quote.get("stock_code") if quote.get("success") else code
-            bars, _src = bars_and_source(code, limit=lookback + 20)
-            if not bars and quote.get("success"):
-                bars, _src = bars_and_source(sym, limit=lookback + 20)
-            key = str(sym)
-            if bars:
-                stock_bars[key] = bars
-            if quote.get("success"):
-                live_quotes[key] = quote
-
-        if not stock_bars:
-            return {
-                "success": False,
-                "ok": False,
-                "error": "无法拉取观察池日线",
-                "task": "next_day_trend",
-                "mode": "watchlist_daily_plus1",
-                "horizon_days": 1,
-            }
-
-        report = compute_next_day_trend_report(
-            stock_bars,
-            flat_band_pct=flat_band_pct,
-            lookback_eval_days=lookback_eval_days,
-            pit_fundamentals=pit_fundamentals,
-            live_quotes=live_quotes,
-        )
-        report["task"] = "next_day_trend"
-        report["lookback"] = lookback
-        report["watching_limit"] = limit
-        report["codes"] = list(stock_bars.keys())
-        return report
-
     def suggest_weights(self, code: str = "茅台", **kwargs: Any) -> Dict[str, Any]:
         from core.signal.weight_suggest import format_weight_config_diff, suggest_weights_from_ic
 
@@ -791,52 +722,6 @@ class QuantFactorMixin:
         suggestion["factor_corr"] = corr
         suggestion["config_diff"] = format_weight_config_diff(suggestion)
         return suggestion
-
-    def compare_weight_coordinate_search(self, **kwargs: Any) -> Dict[str, Any]:
-        """全局权 / OLS·IC 建议权 / 坐标网格搜索三臂对照（研究只读）。"""
-        from core.signal.weight_coordinate_search import compare_weight_arms
-
-        lookback = int(kwargs.get("lookback") or 90)
-        horizon_days = int(kwargs.get("horizon_days") or 3)
-        watching_limit = int(kwargs.get("watching_limit") or 10)
-        include_ols = bool(kwargs.get("include_ols_arm", True))
-        codes = kwargs.get("codes")
-
-        ols_w = None
-        ols_meta: Dict[str, Any] = {}
-        if include_ols:
-            sug = self.suggest_weights(
-                str(kwargs.get("suggest_code") or "茅台"),
-                lookback=lookback,
-                horizon_days=horizon_days,
-                use_cs_ic=True,
-                watching_limit=min(watching_limit, 12),
-                run_oos_gate=False,
-                ridge_lambda=float(kwargs.get("ridge_lambda") or 0.0),
-            )
-            if sug.get("success") and sug.get("suggested_weights"):
-                ols_w = sug["suggested_weights"]
-                ols_meta = {
-                    "suggestion_ic_mode": sug.get("ic_mode"),
-                    "promote_ready_suggest": False,
-                }
-            else:
-                ols_meta = {"error": sug.get("error") or "suggest_weights 失败"}
-
-        return compare_weight_arms(
-            codes=codes,
-            lookback=lookback,
-            top_k=int(kwargs.get("top_k") or 3),
-            horizon_days=horizon_days,
-            min_score=float(kwargs.get("min_score") or 55.0),
-            watching_limit=watching_limit,
-            ols_suggested_weights=ols_w,
-            ols_arm_meta=ols_meta,
-            n_sweeps=int(kwargs.get("n_sweeps") or 2),
-            max_evals=int(kwargs.get("max_evals") or 48),
-            grid=kwargs.get("grid"),
-            start_from=str(kwargs.get("start_from") or "current"),
-        )
 
     def run_factor_corr(
         self,

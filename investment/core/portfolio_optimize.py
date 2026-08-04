@@ -68,7 +68,7 @@ def optimize_weights(
     max_pos = max(0.1, float(max_position_pct or 2.0))
     max_sec = max(0.1, float(max_sector_pct or 5.0))
     max_n = max(1, int(max_positions or 20))
-    from core.signal.score_display import resolve_buy_floor
+    from core.signal.score_display import json_safe_number, resolve_buy_floor
 
     # 默认 55 在收益分下改为无下限；显式传入其它值仍尊重
     if min_score == 55.0:
@@ -282,7 +282,7 @@ def optimize_weights(
             "max_position_pct": max_pos,
             "max_sector_pct": max_sec,
             "max_positions": max_n,
-            "min_score": floor,
+            "min_score": json_safe_number(floor),
             "effective_max_position_pct": eff_pos,
             "effective_max_sector_pct": eff_sec,
         },

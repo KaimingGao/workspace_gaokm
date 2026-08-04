@@ -89,7 +89,7 @@ flowchart LR
 |----------|----------|------------|--------|
 | **事实输入** | 当时可见的价量、财务、资讯、账本 | `ports` · `fetch_daily_bars` · fundamentals · sentiment · `watching` / `paper` | 基本面多为 **snapshot**（非完整 PIT）；须在质量/文档标明 |
 | **清洗门禁** | 能否进入生产估计 | `normalize_bars` · `assess_quality` · `allows_production_score` · manifest `adjust_policy` | thin/empty/fallback → `hard_reject`，不硬塞分 |
-| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· `compute_buy_stance` | 生产 Alpha = **数据拟合线性 ŷ**（β 可正可负）；规则分已退役；LLM **不改** `score` / `stance_label` |
+| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· `compute_buy_stance` | 生产 Alpha = **回归 ŷ**（当前线性；解法=OLS/Ridge）；`heuristic_score` **仅研究对照基线**；LLM **不改** `score` / `stance_label` |
 | **Risk 估计** | 已发生敞口对「能买多少 / 要不要停」的影响 | `check_account_risk` · `optimize_weights` · `strategy_monitor`（回撤 · 滚动 IC · 行业覆盖） · 成本 `simple_cn` | 监控 **只告警**；不自动改权、不代客下单 |
 | **验证** | 同一规则在历史上是否仍有效 | `backtest` · OOS/regime · `wf_slices` · IC / `weight_suggest` · 纸面 `ops_report` 五问 | 研究结果 ≠ 实盘保证；OOS 失败须可见 |
 | **动作** | 估计如何变成可审计行为 | 观察 · 人建仓 · `run_daily_cycle` / 横截面调仓 · `paper_daily` · DecisionRecord | **现行不接 OMS**（策略验证）；配置变更走 feedback → **人审 promote** |
@@ -202,7 +202,7 @@ flowchart LR
 |---|------|------------------------|--------------------------|------------|-----------------|------------------|
 | 1 | **多维数据收集** | 统一行情仓（日/分钟/Tick）+ 财务/宏观/另类；多源对齐、可订阅增量 | 日线 + 现货 + 基本面快照 + 资讯标题可复现拉取；薄 `DataService` | **部分 ~62%** | **M1 已收口**：DataService · 覆盖率 · 快照缓存 · 观察池日线增量；仍缺 Tick/宏观/全市场数仓 | Velocity · 拟合（数据一致） |
 | 2 | **数据清洗与预处理** | 完整 **PIT**、复权策略参数化、公司行为、日历对齐、质量分级进生产门禁 | 日线 as_of 切条；`quality` 门禁；`adjust_policy` 进 manifest；基本面标明非 PIT | **部分 ~58%** | `normalize` · `allows_production_score` · `data_pit` · `pit_report`；缺财务 PIT / 复权多策略缓存 | 拟合（防未来函数） |
-| 3 | **因子挖掘与模型** | 大规模因子库 + IC/IR 流水线 + 中性化；可选 ML/NN，artifact 冻结可 promote | `score_bars`→sub_scores + **OLS/Ridge ŷ**（因子系数 β）；IC / 旧 weight_suggest 遗留；NN **仅研究轨** | **线性 ŷ ~70%** | `ReturnScoreModel` · 分组 β · 横截面；规则分已退役；NN 不上生产 `score` | Velocity · 收益质量 |
+| 3 | **因子挖掘与模型** | 大规模因子库 + IC/IR 流水线 + 中性化；可选 ML/NN，artifact 冻结可 promote | `score_bars`→sub_scores + **回归 ŷ**（当前 OLS/Ridge）；IC / weight_suggest 遗留；`heuristic_score` 仅 OOS 基线；NN **仅研究轨** | **线性 ŷ ~70%** | `ReturnScoreModel` · 分组 β · 横截面；生产不回退规则分；NN 不上生产 `score` | Velocity · 收益质量 |
 | 4 | **组合优化与风控** | QP/风险预算求解；单票/行业/风格暴露；VaR/限额实时；成本与冲击进目标函数 | 分数风险预算 + `risk_parity_lite` + 暴露矩阵 + 单票/行业硬拦；行业 map 覆盖与预算告警；纸面止损/回撤熔断 | **部分 ~68%** | `optimize_weights` · `risk/budget` · `check_account_risk` · `exposure`；仍缺完整 QP / 风格因子 / 实时 VaR | 收益质量 · 风控底线 |
 | 5 | **历史回测验证** | 组合级事件驱动；T+1/涨跌停/冲击；WF/OOS/多 regime；Brinson/因子归因 | 共用 `score_bars`；成本对照；WF/OOS/regime；撮合近似（板别涨跌停 + 跌停延后卖）；个股/行业/选股超额归因 | **较强 ~80%** | `backtest` · `matching` · `attribution` · `wf_slices`；非交易所级仿真 | 拟合 · 收益质量诊断 |
 | 6 | **部署与迭代** | OMS/券商 API；实时监控与自动风控；衰减触发再训练/调仓流水线 | **纸面准实盘（策略验证）**：日更调度、滚动 IC、告警出站、人审 promote；**现行不接 OMS** | **模拟 ~52%** | `paper_daily` · `strategy_monitor` · `alert_outbound`；N6 = 验证成熟后另立项 | 纸面收益 · 拟合闭环 |
@@ -311,7 +311,7 @@ flowchart LR
 | 5 | 历史回测验证 | ~85% | OOS/regime 分桶/WF/成本/Brinson lite/信号成交对照 |
 | 6 | 部署与迭代 | ~55% | 纸面日更 + 滚动 IC + 出站告警 + 人审晋升；无 OMS |
 
-**当前焦点**：**观察池日频+1 趋势探针**见 **[next-day-trend.md](next-day-trend.md)**；E 轨见 [evidence-strengthen.md](evidence-strengthen.md)。继续真实 `paper_daily`、财务预热；`GET /api/ops/data-quality` · `maturity-gate` · `sample-status`；**不冲 N6 / 全市场数仓 / 半日预判**。
+**当前焦点**：选股主轴见 **[weight-suggest-deepen.md](weight-suggest-deepen.md)**（回归 ŷ；heuristic 仅研究基线）；E 轨见 [evidence-strengthen.md](evidence-strengthen.md)。继续真实 `paper_daily`、财务预热；`GET /api/ops/data-quality` · `maturity-gate` · `sample-status`；**不冲 N6 / 全市场数仓**。
 
 ### P0 落地状态（2026-07）
 

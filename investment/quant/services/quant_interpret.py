@@ -7,15 +7,17 @@ from typing import Any, Dict, List, Optional
 
 QUANT_INTERPRET_SYSTEM = """你是 Investment 量化研究台的解读助手。
 根据用户提供的量化日报 JSON 摘要，用中文输出 3～6 条要点：
-1) 因子 IC / 权重建议（若有）
-2) **横截面 score 排序**（若有 cross_section：须写 Top 标的与 score 分布；score 为动能分，不等于买入）
+1) 因子 IC / 权重建议遗留诊断（若有；权重建议不驱动选股）
+2) **横截面 ŷ（predicted_score）排序**（若有 cross_section：须写 Top 标的与 ŷ 分布；ŷ 为模型预测收益百分点，不等于买入）
 3) Top-K 回测摘要（若有）
 4) **中性化 vs 绝对分对照专节**（若有 portfolio_neutral_compare_summary：须写 winner、Δ累计、中性化/绝对分累计）
-5) stance 阈值建议（若有）
-6) **因子 OLS 实验**（若有 factor_ols：R²/样本与 config 权重对比；研究用，不写 config）
-7) 风险与局限（样本、OOS、非 point-in-time、非实盘）
+5) stance 阈值建议（若有；按 ŷ% 门槛）
+6) **因子 OLS 实验**（若有 factor_ols：R²/样本与 config 对照；研究用，不写 config）
+7) OOS / 分组 live（若有：heuristic 基线 vs ŷ；过门≠自动 promote）
+8) 风险与局限（样本、OOS、非 point-in-time、非实盘）
 
-要求：只解读给定数据，不保证收益，不推荐具体买卖；不升级/降级 stance_label 结论。"""
+要求：只解读给定数据，不保证收益，不推荐具体买卖；不升级/降级 stance_label 结论。
+强调：选股真源是 predicted_score（ŷ），不是人工 weights。"""
 
 
 def compact_quant_report(report: Dict[str, Any]) -> Dict[str, Any]:
@@ -34,6 +36,9 @@ def compact_quant_report(report: Dict[str, Any]) -> Dict[str, Any]:
             "current_weights": ws.get("current_weights"),
             "suggested_weights": ws.get("suggested_weights"),
             "rationale": (ws.get("rationale") or [])[:4],
+            "deprecated_for_scoring": True,
+            "note": ws.get("note")
+            or "遗留诊断；选股真源为 predicted_score（ŷ）",
         }
     fo = report.get("factor_ols") or {}
     if fo.get("success"):
@@ -79,6 +84,16 @@ def compact_quant_report(report: Dict[str, Any]) -> Dict[str, Any]:
         sm = summarize_cross_section_scores(cs)
         if sm:
             out["cross_section"] = sm
+    if report.get("scoring"):
+        out["scoring"] = report.get("scoring")
+    cl = report.get("cluster_live") or {}
+    if cl and cl.get("mode") in ("shadow", "active"):
+        out["cluster_live"] = {
+            "mode": cl.get("mode"),
+            "version": cl.get("version"),
+            "oos_summary": cl.get("oos_summary"),
+            "note": cl.get("note"),
+        }
     return out
 
 
@@ -121,7 +136,10 @@ def build_rule_based_interpret(report: Dict[str, Any]) -> Dict[str, Any]:
                 f"vs config {top_delta.get('config')}"
             )
 
-    from quant.services.quant_report_export import summarize_cross_section_scores
+    from quant.services.quant_report_export import (
+        _fmt_yhat,
+        summarize_cross_section_scores,
+    )
 
     cs_sm = summarize_cross_section_scores(report.get("cross_section") or {})
     if cs_sm:
@@ -130,7 +148,7 @@ def build_rule_based_interpret(report: Dict[str, Any]) -> Dict[str, Any]:
         if top_row.get("score") is not None:
             bullets.append(
                 f"横截面 Top1：{top_row.get('stock_name') or top_row.get('stock_code')} "
-                f"score {top_row.get('score')}（动能分，不等于买入指令）"
+                f"ŷ {_fmt_yhat(top_row.get('score'))}（predicted_score，不等于买入指令）"
             )
 
     ps = compact.get("portfolio_backtest_summary") or {}

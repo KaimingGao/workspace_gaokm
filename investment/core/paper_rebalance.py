@@ -102,11 +102,14 @@ def simulate_cross_section_rebalance(
     score_lookup: Optional[List[dict]] = None,
 ) -> Dict[str, Any]:
     """
-    按横截面 TopK 调仓：卖出不在 TopK 或分数低于 min_hold_score 的持仓，
-    再从 TopK 中买入未持有且 score >= min_score 的标的。
+    按横截面 TopK / 分池目标簿调仓。
+
+    - 横截面（``respect_max_positions=True``）：卖出不在 TopK，或分数低于 min_hold_score；
+      再从 TopK 买入 score >= min_score 的未持仓。
+    - 分池（``respect_max_positions=False``）：滞回——买入仍看目标簿且 ŷ≥min_score；
+      **卖出仅当 ŷ < min_hold_score**（默认 -1%），不因「未进簿/截断」清仓。
     买入前强制 check_account_risk；超限则拦截加仓并写 risk_block 日志。
 
-    ``respect_max_positions=False``：分池落账用，按候选簿长度持有，不被纸面 max_positions 截断。
     ``score_lookup``：可选全量打分行（含低于 min_score 未进簿的票），供卖出腿带分。
     """
     from core.ports.market import query_quote, quote_price
@@ -189,14 +192,15 @@ def simulate_cross_section_rebalance(
         score = score_by_code.get(code)
         in_top = code in top_codes
         reason = None
-        if not in_top:
-            reason = (
-                "不在分池目标簿（组权分全局排序截断之外）"
-                if not respect_max_positions
-                else "不在横截面 TopK"
-            )
-        elif score is not None and score < min_hold_score:
-            reason = f"分数低于 min_hold_score({min_hold_score})"
+        if not respect_max_positions:
+            # 分池滞回：入簿用 min_score；已持仓只在 ŷ < min_hold_score 时卖
+            if score is not None and score < min_hold_score:
+                reason = f"分数低于卖出门槛 min_hold({min_hold_score})"
+        else:
+            if not in_top:
+                reason = "不在横截面 TopK"
+            elif score is not None and score < min_hold_score:
+                reason = f"分数低于 min_hold_score({min_hold_score})"
 
         if not reason:
             kept.append(h)
@@ -664,12 +668,14 @@ def simulate_cross_section_rebalance(
         max_turnover_pct=max_turnover_pct,
     )
 
+    from core.signal.score_display import json_safe_number
+
     return {
         "success": True,
         "top_k": top_k,
         "target_codes": sorted(top_codes),
-        "min_score": min_score,
-        "min_hold_score": min_hold_score,
+        "min_score": json_safe_number(min_score),
+        "min_hold_score": json_safe_number(min_hold_score),
         "sell_trades": sell_trades,
         "buy_trades": buy_trades,
         "buys_blocked": buys_blocked,

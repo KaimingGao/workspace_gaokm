@@ -6,6 +6,37 @@ from datetime import datetime
 from statistics import median
 from typing import Any, Dict, List, Optional
 
+# 章节标题（MD / HTML / TOC 同源）
+CROSS_SECTION_TITLE = "横截面 ŷ（predicted_score）"
+WEIGHT_SUGGEST_TITLE = "权重建议（遗留诊断）"
+CLUSTER_LIVE_TITLE = "分组 live（组ŷ）"
+SCORING_DEFAULT_NOTE = (
+    "选股真源=predicted_score（ŷ）；heuristic 仅作研究 OOS 基线；过门≠自动 promote"
+)
+
+
+def _fmt_yhat(v: Any, *, digits: int = 3) -> str:
+    """收益分 ŷ 展示：百分点量纲，带 %。"""
+    if v is None or v == "":
+        return "—"
+    try:
+        return f"{float(v):.{digits}f}%"
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _scoring_meta(report: Dict[str, Any]) -> Dict[str, Any]:
+    scoring = report.get("scoring") if isinstance(report.get("scoring"), dict) else {}
+    cfg = report.get("config") if isinstance(report.get("config"), dict) else {}
+    cfg_scoring = cfg.get("scoring") if isinstance(cfg.get("scoring"), dict) else {}
+    rank_mode = (
+        scoring.get("rank_mode")
+        or cfg_scoring.get("rank_mode")
+        or "predicted_score"
+    )
+    note = scoring.get("note") or cfg.get("product_note") or SCORING_DEFAULT_NOTE
+    return {"rank_mode": rank_mode, "note": note}
+
 
 def _cross_section_ranked_list(cross_section: Dict[str, Any]) -> List[dict]:
     """横截面 Top 列表（兼容 ranking / ranked / top 字段）。"""
@@ -29,15 +60,16 @@ def _score_summary_bullet(ranked: List[dict]) -> str:
         except (TypeError, ValueError):
             continue
     if not scores:
-        return f"横截面：Top {len(ranked)} 只"
+        return f"横截面 ŷ：Top {len(ranked)} 只"
     med = median(scores)
     return (
-        f"横截面 score：Top {len(ranked)} 只 · 最高 {max(scores):.1f} · 中位 {med:.1f}"
+        f"横截面 ŷ：Top {len(ranked)} 只 · "
+        f"最高 {_fmt_yhat(max(scores))} · 中位 {_fmt_yhat(med)}"
     )
 
 
 def summarize_cross_section_scores(cross_section: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """横截面 score 摘要（P77：解读 / compact 共用）。"""
+    """横截面 ŷ 摘要（P77：解读 / compact 共用）。"""
     if not cross_section or not cross_section.get("success"):
         return None
     ranked = _cross_section_ranked_list(cross_section)
@@ -66,10 +98,11 @@ def summarize_cross_section_scores(cross_section: Dict[str, Any]) -> Optional[Di
         "ranked_count": len(ranked),
         "top": top,
         "summary_line": _score_summary_bullet(ranked),
+        "score_semantics": "predicted_score（ŷ，百分点）",
     }
     if scores:
-        out["max_score"] = round(max(scores), 1)
-        out["median_score"] = round(float(median(scores)), 1)
+        out["max_score"] = round(max(scores), 3)
+        out["median_score"] = round(float(median(scores)), 3)
     neut = cross_section.get("neutralization") or {}
     if neut.get("applied"):
         out["neutralization_applied"] = True
@@ -78,19 +111,26 @@ def summarize_cross_section_scores(cross_section: Dict[str, Any]) -> Optional[Di
 
 
 def build_cross_section_export_section(cross_section: Dict[str, Any]) -> Optional[Dict[str, Any]]:
-    """横截面 score 专节（P80：MD/HTML 导出）。"""
+    """横截面 ŷ 专节（P80：MD/HTML 导出）。"""
     summary = summarize_cross_section_scores(cross_section)
     if not summary:
         return None
     ranked = _cross_section_ranked_list(cross_section)
-    md_lines = [f"- {summary['summary_line']}"]
+    md_lines = [
+        f"- {summary['summary_line']}",
+        "- 语义：predicted_score（ŷ）· 模型预测前瞻收益百分点 · 非 0–100 规则分",
+    ]
     neut = cross_section.get("neutralization") or {}
     if neut.get("applied"):
         md_lines.append(f"- 截面中性化：{neut.get('method') or 'zscore'}")
     for i, row in enumerate(ranked[:10], 1):
         name = row.get("stock_name") or row.get("stock_code") or "—"
-        raw = f" · raw {row['score_raw']}" if row.get("score_raw") is not None else ""
-        md_lines.append(f"- {i}. {name} · score {row.get('score')}{raw}")
+        raw = (
+            f" · raw {_fmt_yhat(row['score_raw'])}"
+            if row.get("score_raw") is not None
+            else ""
+        )
+        md_lines.append(f"- {i}. {name} · ŷ {_fmt_yhat(row.get('score'))}{raw}")
     if cross_section.get("note"):
         md_lines.append(f"- _{cross_section['note']}_")
 
@@ -98,22 +138,23 @@ def build_cross_section_export_section(cross_section: Dict[str, Any]) -> Optiona
     for i, row in enumerate(ranked[:10], 1):
         name = row.get("stock_name") or row.get("stock_code") or "—"
         raw = row.get("score_raw")
-        raw_cell = f"{raw}" if raw is not None else "—"
+        raw_cell = _fmt_yhat(raw) if raw is not None else "—"
         tr += (
             f"<tr><td>{i}</td><td>{name}</td>"
-            f"<td class='num'>{row.get('score')}</td>"
+            f"<td class='num'>{_fmt_yhat(row.get('score'))}</td>"
             f"<td class='num'>{raw_cell}</td></tr>"
         )
     html_body = (
         f"<p>{summary['summary_line']}</p>"
-        "<table><thead><tr><th>#</th><th>标的</th><th>score</th><th>score_raw</th></tr></thead>"
+        "<p class='meta'>语义：predicted_score（ŷ）· 非 0–100 规则分</p>"
+        "<table><thead><tr><th>#</th><th>标的</th><th>ŷ</th><th>raw</th></tr></thead>"
         f"<tbody>{tr}</tbody></table>"
     )
     if cross_section.get("note"):
         html_body += f"<p class='meta'>{cross_section['note']}</p>"
 
     return {
-        "title": "横截面 score",
+        "title": CROSS_SECTION_TITLE,
         "anchor": "cross-section",
         "markdown_lines": md_lines,
         "html_body": html_body,
@@ -218,6 +259,103 @@ def _lines(title: str, rows: List[str]) -> List[str]:
     return out
 
 
+def build_cluster_live_export_section(cl: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """分组 live 组ŷ 状态 + OOS + 簿 Top + 组模型摘要。"""
+    if not cl or cl.get("mode") not in ("shadow", "active"):
+        return None
+    cov = cl.get("coverage")
+    cov_s = f"{round(float(cov) * 100)}%" if cov is not None else "—"
+    md_lines = [
+        f"- mode={cl.get('mode')} · version={cl.get('version')} · 覆盖 {cov_s}",
+        f"- 分池簿 {cl.get('book_names') or '—'} 只 · 龄 {cl.get('age_days') or '—'}d"
+        f" · 有模型组 {cl.get('n_groups_with_model') or '—'}",
+        f"- _{cl.get('note') or '组ŷ live；不写全局 weights；过门≠自动 promote'}_",
+    ]
+    oos = cl.get("oos_summary") if isinstance(cl.get("oos_summary"), dict) else {}
+    if oos:
+        md_lines.append(
+            f"- OOS（heuristic 基线 vs ŷ）：通过 {oos.get('pass_count', '—')} / "
+            f"失败 {oos.get('fail_count', '—')} / 跳过 {oos.get('skip_count', '—')} / "
+            f"未知 {oos.get('unknown_count', '—')}"
+        )
+        if oos.get("note"):
+            md_lines.append(f"- _{oos.get('note')}_")
+    book_top = cl.get("book_top") if isinstance(cl.get("book_top"), list) else []
+    if book_top:
+        md_lines.append("- **簿 Top ŷ**")
+        for i, row in enumerate(book_top[:8], 1):
+            name = row.get("stock_name") or row.get("stock_code") or "—"
+            lab = row.get("cluster_label") or "—"
+            md_lines.append(
+                f"  - {i}. {name} · ŷ {_fmt_yhat(row.get('score'))} · 组 {lab}"
+            )
+    groups = cl.get("group_models") if isinstance(cl.get("group_models"), list) else []
+    if groups:
+        md_lines.append("- **组 return_model**")
+        for g in groups[:12]:
+            oos_flag = (
+                "过门"
+                if g.get("oos_passed")
+                else ("跳过" if g.get("oos_skipped") else "未过/未知")
+            )
+            md_lines.append(
+                f"  - {g.get('label') or '—'} · 成员 {g.get('n_members') or 0} · "
+                f"β {g.get('n_coef') or 0} · n={g.get('sample_count') or '—'} · OOS {oos_flag}"
+            )
+    for a in (cl.get("alerts") or [])[:4]:
+        md_lines.append(f"- ⚠ {a}")
+
+    oos_html = ""
+    if oos:
+        oos_html = (
+            f"<p>OOS（heuristic vs ŷ）：通过 {oos.get('pass_count', '—')} / "
+            f"失败 {oos.get('fail_count', '—')} / 跳过 {oos.get('skip_count', '—')} / "
+            f"未知 {oos.get('unknown_count', '—')} · 过门≠自动 promote</p>"
+        )
+    book_html = ""
+    if book_top:
+        rows = "".join(
+            f"<tr><td>{i}</td><td>{r.get('stock_name') or r.get('stock_code') or '—'}</td>"
+            f"<td>{_fmt_yhat(r.get('score'))}</td>"
+            f"<td>{r.get('cluster_label') or '—'}</td></tr>"
+            for i, r in enumerate(book_top[:8], 1)
+        )
+        book_html = (
+            "<p><strong>簿 Top ŷ</strong></p>"
+            "<table><thead><tr><th>#</th><th>标的</th><th>ŷ</th><th>组</th></tr></thead>"
+            f"<tbody>{rows}</tbody></table>"
+        )
+    groups_html = ""
+    if groups:
+        grows = "".join(
+            "<tr>"
+            f"<td>{g.get('label') or '—'}</td>"
+            f"<td>{g.get('n_members') or 0}</td>"
+            f"<td>{g.get('n_coef') or 0}</td>"
+            f"<td>{g.get('sample_count') or '—'}</td>"
+            f"<td>{'过门' if g.get('oos_passed') else ('跳过' if g.get('oos_skipped') else '未过/未知')}</td>"
+            "</tr>"
+            for g in groups[:12]
+        )
+        groups_html = (
+            "<p><strong>组 return_model</strong></p>"
+            "<table><thead><tr><th>组</th><th>成员</th><th>β数</th><th>n</th><th>OOS</th></tr></thead>"
+            f"<tbody>{grows}</tbody></table>"
+        )
+    html_body = (
+        f"<p>mode={cl.get('mode')} · version={cl.get('version')} · 覆盖 {cov_s} · "
+        f"簿 {cl.get('book_names') or '—'} 只 · 有模型组 {cl.get('n_groups_with_model') or '—'}</p>"
+        f"<p class='meta'>{cl.get('note') or ''}</p>"
+        f"{oos_html}{book_html}{groups_html}"
+    )
+    return {
+        "title": CLUSTER_LIVE_TITLE,
+        "anchor": "cluster-live",
+        "markdown_lines": md_lines,
+        "html_body": html_body,
+    }
+
+
 def build_neutral_compare_export_section(nc: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     """中性化对照专节（P58：MD/HTML 导出共用）。"""
     if not nc or not nc.get("success"):
@@ -228,7 +366,7 @@ def build_neutral_compare_export_section(nc: Dict[str, Any]) -> Optional[Dict[st
     md_lines = [
         f"- 结论：**{nc.get('winner')}** 更优",
         f"- 中性化累计：**{nc.get('neutralized_total_return_pct')}%** · 胜率 {nc.get('neutralized_win_rate_pct')}%",
-        f"- 绝对分累计：**{nc.get('absolute_total_return_pct')}%** · 胜率 {nc.get('absolute_win_rate_pct')}%",
+        f"- 未中性化ŷ累计：**{nc.get('absolute_total_return_pct')}%** · 胜率 {nc.get('absolute_win_rate_pct')}%",
         f"- Δ累计：{delta.get('total_return_pct')}% · Δ胜率：{delta.get('win_rate_pct')}% · Δ交易：{delta.get('trade_count')}",
         f"- 标的：{stocks}",
         f"- 解读：{nc.get('interpretation') or '—'}",
@@ -240,7 +378,7 @@ def build_neutral_compare_export_section(nc: Dict[str, Any]) -> Optional[Dict[st
 
     html_body = (
         "<table>"
-        "<thead><tr><th>维度</th><th>中性化</th><th>绝对分</th><th>Δ</th></tr></thead><tbody>"
+        "<thead><tr><th>维度</th><th>中性化</th><th>未中性化ŷ</th><th>Δ</th></tr></thead><tbody>"
         f"<tr><td>累计收益</td><td>{nc.get('neutralized_total_return_pct')}%</td>"
         f"<td>{nc.get('absolute_total_return_pct')}%</td>"
         f"<td>{delta.get('total_return_pct')}%</td></tr>"
@@ -250,7 +388,7 @@ def build_neutral_compare_export_section(nc: Dict[str, Any]) -> Optional[Dict[st
         f"<tr><td>交易次数</td><td colspan=\"2\">—</td><td>{delta.get('trade_count')}</td></tr>"
         "</tbody></table>"
         f"<p>结论：<strong>{nc.get('winner')}</strong> · {nc.get('interpretation') or '—'}</p>"
-        f"<p class='meta'>标的：{stocks}</p>"
+        f"<p class='meta'>标的：{stocks} · 「未中性化ŷ」= 未做截面中性化的 predicted_score</p>"
     )
     if nc.get("note"):
         html_body += f"<p class='meta'>{nc['note']}</p>"
@@ -264,29 +402,33 @@ def build_neutral_compare_export_section(nc: Dict[str, Any]) -> Optional[Dict[st
 
 
 def build_report_export_toc(report: Dict[str, Any]) -> Dict[str, Any]:
-    """导出目录（P65：含 neutral-compare 锚点）。"""
+    """导出目录：主叙事组ŷ → 横截面 → Top-K → 中性化；单票探针进附录。"""
     entries: List[tuple] = [("一页摘要", "一页摘要")]
 
-    if report.get("factor_ic"):
-        entries.append(("因子 IC", "因子-ic"))
-    ols_section = build_factor_ols_export_section(report.get("factor_ols") or {})
-    if ols_section:
-        entries.append((ols_section["title"], ols_section["anchor"]))
+    cl = report.get("cluster_live") or {}
+    if cl and cl.get("mode") in ("shadow", "active"):
+        entries.append((CLUSTER_LIVE_TITLE, "cluster-live"))
     cs_section = build_cross_section_export_section(report.get("cross_section") or {})
     if cs_section:
         entries.append((cs_section["title"], cs_section["anchor"]))
-    if (report.get("weight_suggest") or {}).get("success"):
-        entries.append(("权重建议", "权重建议"))
-    if (report.get("threshold_suggest") or {}).get("success"):
-        entries.append(("stance 阈值建议", "stance-阈值建议"))
     if (report.get("portfolio_backtest_summary") or {}).get("success"):
-        entries.append(("Top-K 回测摘要", "topk-回测摘要"))
-
+        entries.append(("Top-K 回测摘要（ŷ）", "topk-回测摘要"))
     nc_section = build_neutral_compare_export_section(
         report.get("portfolio_neutral_compare_summary") or {}
     )
     if nc_section:
         entries.append((nc_section["title"], nc_section["anchor"]))
+
+    # 附录：单票遗留探针
+    if report.get("factor_ic"):
+        entries.append(("附录·因子 IC", "因子-ic"))
+    ols_section = build_factor_ols_export_section(report.get("factor_ols") or {})
+    if ols_section:
+        entries.append((f"附录·{ols_section['title']}", ols_section["anchor"]))
+    if (report.get("weight_suggest") or {}).get("success"):
+        entries.append((f"附录·{WEIGHT_SUGGEST_TITLE}", "权重建议-遗留"))
+    if (report.get("threshold_suggest") or {}).get("success"):
+        entries.append(("附录·stance 阈值建议", "stance-阈值建议"))
 
     md_lines = [f"- [{title}](#{anchor})" for title, anchor in entries]
     html_items = "".join(
@@ -301,21 +443,36 @@ def build_report_export_toc(report: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
-    """量化日报一页摘要（P27.1，供 MD/HTML 顶部卡片）。"""
+    """量化日报一页摘要：组ŷ / 簿 / OOS / 横截面 / Top-K 优先。"""
     bullets: List[str] = []
+    scoring = _scoring_meta(report)
+    bullets.append(
+        f"选股真源：{scoring['rank_mode']}（ŷ）· {scoring['note']}"
+    )
 
-    ic = report.get("factor_ic") or {}
-    factors = ic.get("factors") or []
-    if factors:
-        top = factors[0]
+    cl = report.get("cluster_live") or {}
+    if cl and cl.get("mode") in ("shadow", "active"):
+        cov = cl.get("coverage")
+        cov_s = f"{round(float(cov) * 100)}%" if cov is not None else "—"
         bullets.append(
-            f"因子 IC：{top.get('label') or top.get('factor')} {top.get('ic')} "
-            f"(样本 n={ic.get('sample_count') or top.get('sample_count') or '—'})"
+            f"分组 live：mode={cl.get('mode')} · v{cl.get('version') or '—'} · "
+            f"覆盖 {cov_s} · 簿 {cl.get('book_names') or '—'} 只 · "
+            f"有模型组 {cl.get('n_groups_with_model') or '—'}"
         )
-
-    ols_sm = summarize_factor_ols(report.get("factor_ols") or {})
-    if ols_sm:
-        bullets.append(ols_sm["summary_line"])
+        oos = cl.get("oos_summary") if isinstance(cl.get("oos_summary"), dict) else {}
+        if oos:
+            bullets.append(
+                f"OOS（heuristic vs ŷ）：通过 {oos.get('pass_count', '—')} / "
+                f"失败 {oos.get('fail_count', '—')} / 跳过 {oos.get('skip_count', '—')} / "
+                f"未知 {oos.get('unknown_count', '—')} · 过门≠自动 promote"
+            )
+        book_top = cl.get("book_top") if isinstance(cl.get("book_top"), list) else []
+        if book_top:
+            tip = book_top[0]
+            bullets.append(
+                f"簿头：{tip.get('stock_name') or tip.get('stock_code') or '—'} · "
+                f"ŷ {_fmt_yhat(tip.get('score'))}"
+            )
 
     cs = report.get("cross_section") or {}
     if cs.get("success"):
@@ -323,18 +480,10 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
         if ranked:
             bullets.append(_score_summary_bullet(ranked))
 
-    ws = report.get("weight_suggest") or {}
-    if ws.get("success"):
-        bullets.append("权重建议：有（须手动 merge diff，不自动改配置）")
-
-    tsug = report.get("threshold_suggest") or {}
-    if tsug.get("success"):
-        bullets.append("stance 阈值建议：有")
-
     ps = report.get("portfolio_backtest_summary") or {}
     if ps.get("success"):
         bullets.append(
-            f"Top-K 回测：累计 {ps.get('total_return_pct')}% · "
+            f"Top-K 回测（ŷ）：累计 {ps.get('total_return_pct')}% · "
             f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
         )
 
@@ -345,29 +494,35 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
             f"(Δ累计 {((nc.get('delta') or {}).get('total_return_pct'))}%)"
         )
 
-    cl = report.get("cluster_live") or {}
-    if cl and cl.get("mode") in ("shadow", "active"):
-        cov = cl.get("coverage")
-        cov_s = f"{round(float(cov) * 100)}%" if cov is not None else "—"
+    # 附录探针（若有）
+    ic = report.get("factor_ic") or {}
+    factors = ic.get("factors") or []
+    if factors:
+        top = factors[0]
         bullets.append(
-            f"分组 live：mode={cl.get('mode')} · v{cl.get('version') or '—'} · "
-            f"覆盖 {cov_s} · 簿 {cl.get('book_names') or '—'} 只"
+            f"附录·因子 IC：{top.get('label') or top.get('factor')} {top.get('ic')} "
+            f"(样本 n={ic.get('sample_count') or top.get('sample_count') or '—'})"
         )
-        rows = ((cl.get("audit_sample") or {}).get("rows") or [])[:3]
-        for r in rows:
-            if not isinstance(r, dict):
-                continue
-            bullets.append(
-                f"  · {r.get('stock_name') or r.get('stock_code')} "
-                f"全局 {r.get('score_global')} / 组权 {r.get('score_cluster')} "
-                f"Δ {r.get('delta_vs_global')}"
-            )
+
+    ols_sm = summarize_factor_ols(report.get("factor_ols") or {})
+    if ols_sm:
+        bullets.append(f"附录·{ols_sm['summary_line']}")
+
+    ws = report.get("weight_suggest") or {}
+    if ws.get("success"):
+        bullets.append(
+            "附录·权重建议（遗留）：有 · 不驱动选股 · 须人审，不自动写盘"
+        )
+
+    tsug = report.get("threshold_suggest") or {}
+    if tsug.get("success"):
+        bullets.append("附录·stance 阈值建议：有（单票探针）")
 
     return {
         "success": True,
         "bullet_count": len(bullets),
         "bullets": bullets,
-        "note": "一页摘要；详细见下文各节。",
+        "note": "一页摘要；主叙事=组ŷ/簿/OOS/横截面/Top-K；过门≠自动 promote。",
     }
 
 
@@ -391,20 +546,12 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
         parts.append(f"> {summary.get('note')}")
         parts.append("")
 
-    ic = report.get("factor_ic") or {}
-    if ic:
-        fac_lines = []
-        for row in (ic.get("factors") or [])[:8]:
-            fac_lines.append(
-                f"- **{row.get('label') or row.get('factor')}**: IC {row.get('ic')} (n={row.get('sample_count')})"
-            )
-        parts.extend(_lines("因子 IC", fac_lines or ["无因子 IC 数据"]))
-
-    ols_section = build_factor_ols_export_section(report.get("factor_ols") or {})
-    if ols_section:
+    # 主叙事
+    cl_section = build_cluster_live_export_section(report.get("cluster_live") or {})
+    if cl_section:
         parts.extend(
-            [f"## {ols_section['title']}", ""]
-            + ols_section["markdown_lines"]
+            [f"## {cl_section['title']}", ""]
+            + cl_section["markdown_lines"]
             + [""]
         )
 
@@ -416,14 +563,48 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
             + [""]
         )
 
+    ps = report.get("portfolio_backtest_summary") or {}
+    if ps.get("success"):
+        detail_lines = build_portfolio_backtest_markdown_lines(ps)
+        parts.extend(_lines("Top-K 回测摘要（ŷ）", detail_lines))
+
+    nc = report.get("portfolio_neutral_compare_summary") or {}
+    nc_section = build_neutral_compare_export_section(nc)
+    if nc_section:
+        parts.extend(
+            [f"## {nc_section['title']}", ""]
+            + nc_section["markdown_lines"]
+            + [""]
+        )
+
+    # 附录：单票遗留探针
+    appendix_bits: List[str] = []
+    ic = report.get("factor_ic") or {}
+    if ic.get("factors"):
+        fac_lines = [
+            f"- **{row.get('label') or row.get('factor')}**: IC {row.get('ic')} (n={row.get('sample_count')})"
+            for row in (ic.get("factors") or [])[:8]
+        ]
+        appendix_bits.extend(_lines("附录·因子 IC", fac_lines))
+
+    ols_section = build_factor_ols_export_section(report.get("factor_ols") or {})
+    if ols_section:
+        appendix_bits.extend(
+            [f"## 附录·{ols_section['title']}", ""]
+            + ols_section["markdown_lines"]
+            + [""]
+        )
+
     ws = report.get("weight_suggest") or {}
     if ws.get("success"):
         cur = ws.get("current_weights") or {}
         sug = ws.get("suggested_weights") or {}
         wl = [f"| {k} | {cur.get(k)} | {sug.get(k)} |" for k in cur]
-        parts.extend(
+        appendix_bits.extend(
             [
-                "## 权重建议",
+                f"## 附录·{WEIGHT_SUGGEST_TITLE}",
+                "",
+                "> 遗留 IC 小步权诊断；**不**驱动选股。选股真源为 return_model → ŷ。",
                 "",
                 "| 因子 | 当前 | 建议 |",
                 "| --- | ---: | ---: |",
@@ -433,40 +614,20 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
                 "",
             ]
         )
-
-    cl = report.get("cluster_live") or {}
-    if cl and cl.get("mode") in ("shadow", "active"):
-        cov = cl.get("coverage")
-        cov_s = f"{round(float(cov) * 100)}%" if cov is not None else "—"
-        cl_lines = [
-            f"- mode={cl.get('mode')} · version={cl.get('version')} · 覆盖 {cov_s}",
-            f"- 分池簿 {cl.get('book_names') or '—'} 只 · 龄 {cl.get('age_days') or '—'}d",
-            f"- _{cl.get('note') or '组权 live；不写全局 weights'}_",
-        ]
-        for a in (cl.get("alerts") or [])[:4]:
-            cl_lines.append(f"- ⚠ {a}")
-        cl_lines.append("")
-        cl_lines.append("| 标的 | 组 | 全局分 | 组权分 | Δ |")
-        cl_lines.append("| --- | --- | ---: | ---: | ---: |")
-        for r in ((cl.get("audit_sample") or {}).get("rows") or [])[:10]:
-            if not isinstance(r, dict):
-                continue
-            cl_lines.append(
-                f"| {r.get('stock_name') or r.get('stock_code')} | "
-                f"{r.get('cluster_label') or '—'} | "
-                f"{r.get('score_global')} | {r.get('score_cluster')} | "
-                f"{r.get('delta_vs_global')} |"
-            )
-        parts.extend(["## 分组 live 对照", ""] + cl_lines + [""])
+        if ws.get("note"):
+            appendix_bits.append(f"> _{ws.get('note')}_")
+            appendix_bits.append("")
 
     tsug = report.get("threshold_suggest") or {}
     if tsug.get("success"):
         cur = tsug.get("current_thresholds") or {}
         sug = tsug.get("suggested_thresholds") or {}
         tl = [f"| {k} | {cur.get(k)} | {sug.get(k)} |" for k in cur]
-        parts.extend(
+        appendix_bits.extend(
             [
-                "## stance 阈值建议",
+                "## 附录·stance 阈值建议",
+                "",
+                "> 单票探针；门槛按收益分 ŷ%（百分点）。",
                 "",
                 "| 阈值 | 当前 | 建议 |",
                 "| --- | ---: | ---: |",
@@ -478,30 +639,23 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
         )
         agg = tsug.get("watching_aggregate")
         if agg:
-            parts.append(
+            appendix_bits.append(
                 f"> watching 聚合：{agg.get('stock_count')} 只，中位最优 min_score={agg.get('median_best_min_score')}"
             )
-            parts.append("")
+            appendix_bits.append("")
 
-    ps = report.get("portfolio_backtest_summary") or {}
-    if ps.get("success"):
-        detail_lines = build_portfolio_backtest_markdown_lines(ps)
-        parts.extend(_lines("Top-K 回测摘要", detail_lines))
-
-    nc = report.get("portfolio_neutral_compare_summary") or {}
-    nc_section = build_neutral_compare_export_section(nc)
-    if nc_section:
-        parts.extend(
-            [f"## {nc_section['title']}", ""]
-            + nc_section["markdown_lines"]
-            + [""]
-        )
+    if appendix_bits:
+        parts.append("## 附录（单票遗留探针）")
+        parts.append("")
+        parts.append("> 默认生成日报不跑本附录；仅 `include_legacy_probe` 或旧快照才有。")
+        parts.append("")
+        parts.extend(appendix_bits)
 
     parts.extend(
         [
             "---",
             "",
-            "_以上为量化研究摘要，市场有风险，不保证收益，不代客下单。_",
+            "_以上为量化研究摘要（选股真源=ŷ）；市场有风险，不保证收益，不代客下单。_",
             "",
         ]
     )
@@ -528,24 +682,50 @@ def render_quant_report_html(report: Dict[str, Any]) -> str:
             f"<ul>{bullets}</ul><p class='meta'>{summary.get('note') or ''}</p>",
         )
 
+    # 主叙事
+    cl_section = build_cluster_live_export_section(report.get("cluster_live") or {})
+    if cl_section:
+        section(
+            cl_section["title"],
+            f'<div id="{cl_section["anchor"]}">{cl_section["html_body"]}</div>',
+        )
+
+    cs_section = build_cross_section_export_section(report.get("cross_section") or {})
+    if cs_section:
+        section(cs_section["title"], cs_section["html_body"])
+
+    ps = report.get("portfolio_backtest_summary") or {}
+    if ps.get("success"):
+        lis = "".join(
+            f"<li>{line[2:] if line.startswith('- ') else line}</li>"
+            for line in build_portfolio_backtest_markdown_lines(ps)
+            if line.startswith("- ")
+        )
+        section("Top-K 回测摘要（ŷ）", f"<ul>{lis}</ul>")
+
+    nc = report.get("portfolio_neutral_compare_summary") or {}
+    nc_section = build_neutral_compare_export_section(nc)
+    if nc_section:
+        section(
+            nc_section["title"],
+            f"<div id=\"{nc_section['anchor']}\">{nc_section['html_body']}</div>",
+        )
+
+    # 附录
     ic = report.get("factor_ic") or {}
     if ic.get("factors"):
         rows = "".join(
             f"<li><strong>{r.get('label') or r.get('factor')}</strong>: IC {r.get('ic')} (n={r.get('sample_count')})</li>"
             for r in (ic.get("factors") or [])[:8]
         )
-        section("因子 IC", f"<ul>{rows}</ul>")
+        section("附录·因子 IC", f"<ul>{rows}</ul>")
 
     ols_section = build_factor_ols_export_section(report.get("factor_ols") or {})
     if ols_section:
         section(
-            ols_section["title"],
+            f"附录·{ols_section['title']}",
             f'<div id="{ols_section["anchor"]}">{ols_section["html_body"]}</div>',
         )
-
-    cs_section = build_cross_section_export_section(report.get("cross_section") or {})
-    if cs_section:
-        section(cs_section["title"], cs_section["html_body"])
 
     ws = report.get("weight_suggest") or {}
     if ws.get("success"):
@@ -554,8 +734,10 @@ def render_quant_report_html(report: Dict[str, Any]) -> str:
         tr = "".join(
             f"<tr><td>{k}</td><td>{cur.get(k)}</td><td>{sug.get(k)}</td></tr>" for k in cur
         )
+        note = ws.get("note") or "遗留 IC 小步权；不驱动选股"
         section(
-            "权重建议",
+            f"附录·{WEIGHT_SUGGEST_TITLE}",
+            f"<p class='meta'>{note}</p>"
             f"<table><thead><tr><th>因子</th><th>当前</th><th>建议</th></tr></thead><tbody>{tr}</tbody></table>",
         )
 
@@ -567,25 +749,9 @@ def render_quant_report_html(report: Dict[str, Any]) -> str:
             f"<tr><td>{k}</td><td>{cur.get(k)}</td><td>{sug.get(k)}</td></tr>" for k in cur
         )
         section(
-            "stance 阈值建议",
+            "附录·stance 阈值建议",
+            "<p class='meta'>单票探针；门槛按收益分 ŷ%（百分点）</p>"
             f"<table><thead><tr><th>阈值</th><th>当前</th><th>建议</th></tr></thead><tbody>{tr}</tbody></table>",
-        )
-
-    ps = report.get("portfolio_backtest_summary") or {}
-    if ps.get("success"):
-        lis = "".join(
-            f"<li>{line[2:] if line.startswith('- ') else line}</li>"
-            for line in build_portfolio_backtest_markdown_lines(ps)
-            if line.startswith("- ")
-        )
-        section("Top-K 回测摘要", f"<ul>{lis}</ul>")
-
-    nc = report.get("portfolio_neutral_compare_summary") or {}
-    nc_section = build_neutral_compare_export_section(nc)
-    if nc_section:
-        section(
-            nc_section["title"],
-            f"<div id=\"{nc_section['anchor']}\">{nc_section['html_body']}</div>",
         )
 
     body = "\n".join(sections) or "<p>无报告内容</p>"
@@ -611,10 +777,9 @@ def render_quant_report_html(report: Dict[str, Any]) -> str:
   <h1>量化研究日报</h1>
   <p class="meta">生成时间 {ts}</p>
   {body}
-  <p class="foot">以上为量化研究摘要，市场有风险，不保证收益，不代客下单。</p>
+  <p class="foot">以上为量化研究摘要（选股真源=ŷ · 主叙事=组ŷ/簿/OOS/横截面/Top-K）；市场有风险，不保证收益，不代客下单。</p>
 </body>
 </html>"""
-
 
 def export_quant_report(
     report: Optional[Dict[str, Any]] = None,

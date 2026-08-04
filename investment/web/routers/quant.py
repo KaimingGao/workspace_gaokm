@@ -29,17 +29,14 @@ from web.schemas import (
     FactorExperimentRequest,
     FactorOlsClusterRequest,
     FactorOlsPoolRequest,
-    NextDayTrendRequest,
     ParamGridRequest,
     PortfolioBacktestRequest,
     QuantInterpretRequest,
     QuantReportRequest,
-    RankModeCompareRequest,
     ReturnModelFitRequest,
     ReturnModelPromoteRequest,
     T0BacktestRequest,
     ThresholdSuggestRequest,
-    WeightCoordCompareRequest,
     WeightSuggestRequest,
 )
 
@@ -311,7 +308,7 @@ def quant_cluster_live_status(
     audit_rotate: bool = False,
     audit_offset: Optional[int] = None,
 ):
-    """分组 live 状态：active / draft / health / mode；audit_rotate 轮换双分样本。"""
+    """分组 live 状态：active / draft / health / mode。"""
     try:
         return deps.quant.cluster_live_status(
             audit_rotate=bool(audit_rotate),
@@ -399,22 +396,6 @@ def quant_factor_cs_ic(body: FactorCsIcRequest):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/api/quant/next-day-trend")
-def quant_next_day_trend(body: NextDayTrendRequest):
-    """观察池日频+1：收盘→次日方向；研究探针，不写 config。"""
-    try:
-        return deps.quant.run_next_day_trend(
-            lookback=body.lookback,
-            lookback_eval_days=body.lookback_eval_days,
-            flat_band_pct=body.flat_band_pct,
-            watching_limit=body.watching_limit,
-            codes=body.codes,
-            pit_fundamentals=body.pit_fundamentals,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
 @router.post("/api/quant/ab-compare")
 def quant_ab_compare(body: AbCompareRequest):
     """S2 · A/B 对照指纹。"""
@@ -446,28 +427,6 @@ def quant_weight_suggest(body: WeightSuggestRequest):
             run_oos_gate=body.run_oos_gate,
             oos_tol_pp=body.oos_tol_pp,
             ridge_lambda=body.ridge_lambda,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/api/quant/weight-coord-compare")
-def quant_weight_coord_compare(body: WeightCoordCompareRequest):
-    """全局 / OLS·IC 建议 / 坐标网格三臂对照（不写 signal_config）。"""
-    try:
-        return deps.quant.compare_weight_coordinate_search(
-            codes=body.codes,
-            lookback=body.lookback,
-            top_k=body.top_k,
-            horizon_days=body.horizon_days,
-            min_score=body.min_score,
-            watching_limit=body.watching_limit,
-            include_ols_arm=body.include_ols_arm,
-            suggest_code=body.suggest_code,
-            ridge_lambda=body.ridge_lambda,
-            n_sweeps=body.n_sweeps,
-            max_evals=body.max_evals,
-            start_from=body.start_from,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -579,26 +538,6 @@ def quant_portfolio_backtest(body: PortfolioBacktestRequest):
             benchmark_code=body.benchmark_code,
             rank_mode=body.rank_mode,
             min_predicted_score=body.min_predicted_score,
-            return_model_min_samples=body.return_model_min_samples,
-            return_model_ridge_lambda=body.return_model_ridge_lambda,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
-
-
-@router.post("/api/quant/rank-mode-compare")
-def quant_rank_mode_compare(body: RankModeCompareRequest):
-    """规则分对照已退役；系统仅认收益分 predicted_score。"""
-    try:
-        return deps.quant.compare_rank_modes(
-            codes=body.codes,
-            lookback=body.lookback,
-            top_k=body.top_k,
-            horizon_days=body.horizon_days,
-            min_score=body.min_score,
-            min_predicted_score=body.min_predicted_score,
-            apply_costs=body.apply_costs,
-            watching_limit=body.watching_limit,
             return_model_min_samples=body.return_model_min_samples,
             return_model_ridge_lambda=body.return_model_ridge_lambda,
         )

@@ -9,6 +9,7 @@ import {
   fmtPct,
   metricCls,
   fmtScore,
+  scoreCls,
 } from "./fmt.js";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
 
@@ -99,14 +100,6 @@ export function buildPaperHoldingsTableHtml({
   holdingsSortDir,
   idPrefix = "paper-holdings",
 }) {
-  const scoreCls = (v) => {
-    const n = Number(v);
-    if (!Number.isFinite(n)) return "score-na";
-    if (n >= 60) return "score-high";
-    if (n >= 50) return "score-mid";
-    return "score-low";
-  };
-
   const fmtScoreLocal = fmtScore;
 
   function sortThHtml(label, key) {

@@ -63,7 +63,8 @@
   },
   "scoring": {
     "rank_mode": "predicted_score",
-    "min_predicted_score": null
+    "min_predicted_score": 1.0,
+    "min_hold_predicted_score": -1.0
   },
   "stance_thresholds": {
     "avoid": -0.5,

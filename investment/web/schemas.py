@@ -354,17 +354,6 @@ class FactorCsIcRequest(BaseModel):
     pit_fundamentals: bool = True
 
 
-class NextDayTrendRequest(BaseModel):
-    """观察池日频+1 趋势预判（收盘→次日方向）。"""
-
-    lookback: int = Field(default=120, ge=40, le=500)
-    lookback_eval_days: int = Field(default=60, ge=10, le=250)
-    flat_band_pct: float = Field(default=0.5, ge=0.0, le=5.0)
-    watching_limit: int = Field(default=20, ge=1, le=40)
-    codes: Optional[List[str]] = None
-    pit_fundamentals: bool = True
-
-
 class AbCompareRequest(BaseModel):
     """S2 · A/B 对照指纹。"""
 
@@ -411,21 +400,6 @@ class PortfolioBacktestRequest(BaseModel):
         default=None,
         description="收益分下限（百分点）；默认不截断",
     )
-    return_model_min_samples: int = Field(default=24, ge=8, le=500)
-    return_model_ridge_lambda: float = Field(default=0.0, ge=0.0, le=100.0)
-
-
-class RankModeCompareRequest(BaseModel):
-    """已退役：规则分 vs 收益分对照。"""
-
-    codes: Optional[list] = None
-    lookback: int = Field(default=120, ge=40, le=500)
-    top_k: int = Field(default=3, ge=1, le=10)
-    horizon_days: int = Field(default=3, ge=1, le=10)
-    min_score: float = Field(default=55.0, ge=0, le=100)
-    min_predicted_score: Optional[float] = None
-    apply_costs: bool = True
-    watching_limit: int = Field(default=12, ge=3, le=40)
     return_model_min_samples: int = Field(default=24, ge=8, le=500)
     return_model_ridge_lambda: float = Field(default=0.0, ge=0.0, le=100.0)
 
@@ -477,29 +451,6 @@ class WeightSuggestRequest(BaseModel):
         ge=0.0,
         le=100.0,
         description="嵌入 OLS 回退时的 Ridge λ；0=普通 OLS",
-    )
-
-
-class WeightCoordCompareRequest(BaseModel):
-    """权重坐标搜索对照：global / OLS·IC 建议 / 坐标网格（研究只读）。"""
-
-    codes: Optional[list] = None
-    lookback: int = Field(default=90, ge=40, le=500)
-    top_k: int = Field(default=3, ge=1, le=10)
-    horizon_days: int = Field(default=3, ge=1, le=10)
-    min_score: float = Field(default=55.0, ge=0, le=100)
-    watching_limit: int = Field(default=10, ge=3, le=30)
-    include_ols_arm: bool = Field(
-        default=True,
-        description="是否跑 IC/OLS 建议臂（关闭可加快，仅对照 global vs 坐标搜索）",
-    )
-    suggest_code: str = Field(default="茅台", description="嵌入 suggest_weights 的锚点票")
-    ridge_lambda: float = Field(default=0.0, ge=0.0, le=100.0)
-    n_sweeps: int = Field(default=2, ge=1, le=5)
-    max_evals: int = Field(default=48, ge=5, le=200)
-    start_from: str = Field(
-        default="current",
-        description="坐标搜索起点：current | equal | suggested",
     )
 
 

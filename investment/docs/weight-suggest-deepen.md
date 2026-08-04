@@ -2,28 +2,32 @@
 
 目标：把研究枢纽从「权重建议双轨」收口为**因子系数 = 组 OLS β → 收益分**，仍不自动写盘。
 
-## 产品语义（现行）
+## 产品语义（现行主轴）
 
-**人工预定的规则分退出；全面拥抱数据驱动的回归模型。**
+**选股真源 = 数据驱动的回归模型 → `predicted_score`（ŷ）。**  
+人工预定规则分 **退出生产选股**；在研究里仍作 **实验对照基线**。
 
-| 旧 | 新 |
-|----|----|
-| 人工预定、常非负归一的 `signal_config.weights` → 规则综合分 | 历史收益拟合的 **线性回归** → 收益分 ŷ |
-| `heuristic_score` / 0–100 加权 | `ReturnScoreModel`：`intercept` + **可正可负的 β** + z |
-
-现阶段模型是 **线性回归（OLS / 可选 Ridge）**。线性系数 β 即 **带符号的系数权重**：
+| 角色 | 是什么 | 用在哪 |
+|------|--------|--------|
+| **主轴 · ŷ** | 回归模型预测的前瞻收益分（当前多为线性：`α + Σ βᵢ·zᵢ`） | live / 纸面 / 主回测排序 · stance |
+| **对照基线 · `heuristic_score`** | 全局人工权线性加权（0–100） | **仅**研究 OOS / 方案对照（`weight_oos_gate` 等）；不进 live 主分、不写 stance |
+| **解法** | 当前：QR 最小二乘 / 可选 Ridge | 拟合同一线性 ŷ；未来可换其它求解器 |
+| **模型族** | 当前：线性回归 | 未来可引入其它回归模型；选股真源仍是「模型预测分」 |
 
 ```text
-ŷ = α + Σ βᵢ · zᵢ
+ŷ = Model.predict(sub_scores)     # 选股真源 = predicted_score
+heuristic_score = 人工权·因子     # 实验基线，对比「新方案是否优于旧规则」
 ```
 
-- **β > 0**：该因子抬升预期收益；**β < 0**：压制
-- 量纲：因子 z 上 1σ → ŷ 百分点斜率（**不是**和为 1 的混合权）
-- `|β|` 归一化仅供展示 / 遗留诊断，**不**驱动选股
-- 无组 / 全局模型时 `score` 为空，**不**回退规则分
-- 换非线性模型时仍换拟合器；选股真源始终是「模型预测分」，不再开人工权主轴
+补充约定：
 
-细则与退役说明见下文 P11 / Live。
+- **β > 0** 抬升预期收益，**β < 0** 压制；量纲是 z 上 1σ → ŷ 百分点（**不是**和为 1 的混合权）
+- `|β|` 归一化仅供展示 / 遗留诊断，**不**驱动选股
+- 无组 / 全局模型时 `score` 为空，**不**回退规则分进生产
+- `signal_config.weights` 仍可喂因子管线 / heuristic 基线，**永不**因研究自动 overwrite
+- 长多默认滞回：``min_predicted_score=+1``（ŷ≥1% 才入簿/建议买入）；``min_hold_predicted_score=-1``（**仅** ŷ&lt;-1% 建议卖出）；已持仓在 -1%～+1% 之间不因「未进簿」清仓；研究可显式 ``null`` 关门槛
+
+细则见下文 P2（OOS 对照）· P11 / Live。
 
 ## 目标链路（已合并）
 
@@ -44,8 +48,7 @@
 | **P7** | `code→cluster→return_model` **映射产物**（weights 由 \|β\| 可选派生） | ✅ |
 | **P8** | 分池候选簿 **确认落账**（永不写 signal_config） | ✅ |
 | **P9** | 多权打分（遗留诊断） | ✅ 轻量 |
-| **P10** | 权重坐标网格对照（遗留；`promote_ready` 恒否） | ✅ 轻量 |
-| **P11** | **因子系数 = 组 OLS β → 收益分**；规则分已全局退役 | ✅ |
+| **P11** | **因子系数 = 组 OLS β → 收益分**；生产退役规则分；研究保留 heuristic 基线 | ✅ |
 | **P11.1** | 回测页固定收益分 + ŷ 模型草稿/promote | ✅ |
 | **L0** | live 映射晋升 / 回滚（门禁=return_model） | ✅ |
 | **L1** | `score_stock` 主分=ŷ（映射组/全局因子系数） | ✅ |
@@ -96,7 +99,7 @@
 | `heuristic_score` | 全局人工预定义线性加权排序 · **对照基线** |
 | `predicted_score`（ŷ） | 研究枢纽回归模型 · **选股实现方案** |
 
-研究枢纽定位：寻找更优 ŷ，以提升历史回测收益与交易执行选股准确率。
+研究枢纽定位：在 **heuristic 基线** 上验证新 ŷ 方案是否更优（历史回测 / 执行选股），而非取消基线。
 
 - 切分：同一研究池 Top-K 权益曲线 **后 30%** 为 OOS
 - 过门：研究臂 OOS ≥ 基线 OOS − `oos_tol_pp`（默认 1pp）
@@ -107,11 +110,6 @@
 - 自动把组权 / β 写入 `signal_config.weights`
 - 把 β 强行写成「和为 1 的生产权重」再当 ŷ 用
 - raw OLS β → 权重占比当选股主轴
-- 坐标搜索结果自动 promote
-
-## P10 · 权重坐标搜索对照（遗留）
-
-回答「是目标函数错了，还是权重本身救不了」：同一宇宙并列三臂；`promote_ready` 恒否。
 
 ## P11 · 因子系数 → 收益分
 
@@ -125,11 +123,12 @@
 | 入口 | 说明 |
 |------|------|
 | `rank_mode=predicted_score` | 优先分组 β；否则全局模型 |
-| `POST /api/quant/rank-mode-compare` | 遗留对照 |
+| `weight_oos_gate` | 研究对照：heuristic 基线 vs ŷ |
 | `core/signal/return_score.py` | `ReturnScoreModel` |
 | `core/signal/factor_coefs.py` | `|β|` → 展示权 |
 
-系统默认主路径仅为 `predicted_score`；规则分（`heuristic_score`）已全局退役，不写入 signal_item、不参与排序/stance/调仓。无全局/分组系数时 `score` 为空。
+系统默认主路径仅为 `predicted_score`。  
+`heuristic_score`：**不**写入生产 `signal_item` 主分、**不**参与 live 排序 / stance / 调仓；**保留**为研究 OOS / 方案对照的基线臂。无全局/分组系数时 `score` 为空（不回退规则分）。
 
 ### P11.1 · 回测页与模型产物
 
@@ -169,9 +168,9 @@
 ### 打分语义
 
 ```text
-score_bars → sub_scores（ŷ 输入；可顺带算加权总分，不挂产品面）
+score_bars → sub_scores（ŷ 输入；可顺带算加权总分供研究基线）
 ŷ = ReturnScoreModel.predict(sub_scores)   # 选股真源 = predicted_score
-# 规则分 heuristic_score 已全局退役，不写入、不排序
+# heuristic_score：仅研究对照基线，不进 live 主分 / stance
 ```
 
 ### 明确不做
@@ -185,5 +184,5 @@ score_bars → sub_scores（ŷ 输入；可顺带算加权总分，不挂产品�
 - promote 门禁=`return_model.coefficients`；weights 可缺或 `|β|` 派生
 - active 时主分=ŷ
 - 单测：`test_factor_coefs` · `test_cluster_live` · `test_cluster_group_score` · `test_return_score`
-- `ASSET_V=p614`
+- `ASSET_V=p645`
 

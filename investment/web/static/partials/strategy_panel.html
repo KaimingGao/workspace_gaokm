@@ -2,17 +2,18 @@
   <header class="strategy-hero" aria-label="策略中心导读">
     <p class="strategy-eyebrow">Strategy · Spec &amp; Promote</p>
     <p class="strategy-hero-lead">
-      限额与持有期经<strong>策略卡人审晋升</strong>后纸面才跟跑。
-      选股因子系数（OLS β → ŷ）在 <a href="/quant">研究枢纽</a>；
+      本页管<strong>策略卡限额</strong>与<strong>人审晋升</strong>（不静默写盘）。
+      选股真源是组 OLS/Ridge β → ŷ（predicted_score），在
+      <a href="/quant">研究枢纽</a>对照/启用；
       历史验证 → <a href="/replay">回测</a>；
-      落地 → <a href="/follow">交易执行</a>。
+      调仓落地 → <a href="/follow">交易执行</a>。
     </p>
   </header>
 
   <section class="quant-section quant-section-core strategy-section" id="quant-section-strategy-list">
     <div class="strategy-section-head">
       <h3 class="strategy-section-title">策略卡</h3>
-      <p class="strategy-section-sub">只读参数 · 人审晋升写盘</p>
+      <p class="strategy-section-sub">只读限额 · 人审晋升写盘</p>
     </div>
     <p id="strategy-list-loading" class="quant-fingerprint">加载策略列表…</p>
     <div id="strategy-list" class="quant-weight-table-wrap strategy-list-host"></div>
@@ -22,7 +23,7 @@
   <section class="quant-section strategy-section" id="strategy-promote-lab">
     <div class="strategy-section-head">
       <h3 class="strategy-section-title">人审晋升</h3>
-      <p class="strategy-section-sub">策略卡改限额；选股权在研究枢纽启用</p>
+      <p class="strategy-section-sub">策略卡改限额/持有期；选股 β 在研究枢纽启用</p>
     </div>
     <div class="strategy-promote-bar quant-actions-inline">
       <label
@@ -52,9 +53,10 @@
     <summary>因子字典 · 研究入口</summary>
     <div class="quant-section" id="strategy-factor-lab">
       <p class="quant-sub strategy-inline-note">
-        IC / OLS / 因子系数在
-        <a class="quant-inline-link" href="/quant">研究枢纽</a>；
-        本页仅字典。点击因子可填入 AI 提问；悬停见定义。
+        因子进模型经组 OLS/Ridge β → ŷ；拟合与落地在
+        <a class="quant-inline-link" href="/quant">研究枢纽</a>。
+        本页仅字典：点击可填入 AI 提问；悬停见定义。
+        不在此页改 weights / 自动 promote。
       </p>
       <p id="strategy-factor-status" class="quant-fingerprint" aria-live="polite"></p>
       <div id="strategy-factor-dict-list" class="strategy-factor-dict-list"></div>
@@ -75,38 +77,33 @@
             </span>
             <div>
               <h3>Alpha</h3>
-              <p class="strategy-alpha-risk-desc">sub_scores → OLS/Ridge β → ŷ（predicted_score）· 非手工权重</p>
+              <p class="strategy-alpha-risk-desc">sub_scores → 组 OLS/Ridge β → ŷ%（predicted_score）· 非 0–100 规则分、非手工权重</p>
             </div>
           </div>
           <div class="strategy-logic">
             <div class="strategy-logic-item">
-              <h4>因子构成</h4>
+              <h4>主轴</h4>
               <ul>
-                <li>价量/趋势：动量、量价、技术形态、均线斜率、周线确认、相对强弱、特异动量</li>
-                <li>风险/微观：波动、反转、流动性、跳空、非流动性（Amihud）</li>
-                <li>基本面：估值、盈利收益率、质量(ROE)、成长、股息、规模</li>
-                <li>情绪：另类情绪（入模）；资金流已注册</li>
+                <li>研究枢纽：跑分组 → 组内拟合 return_model → 对照 / 启用 live</li>
+                <li>打分：因子 sub_scores × 组 β → 预测前瞻收益 ŷ（百分点）</li>
+                <li>heuristic_score / signal_config.weights 仅研究基线，不驱动 live 选股</li>
               </ul>
             </div>
             <div class="strategy-logic-item">
-              <h4>因子择时</h4>
+              <h4>因子族（入模）</h4>
               <ul>
-                <li>牛市：启用动量、量价，禁用估值</li>
-                <li>熊市：启用质量、流动性，禁用动量</li>
-                <li>高波动：启用流动性、反转</li>
+                <li>价量/趋势：动量、量价、形态、均线斜率、周线、相对强弱、特异动量</li>
+                <li>风险/微观：波动、反转、流动性、跳空、Amihud</li>
+                <li>基本面：估值、盈利收益率、质量、成长、股息、规模</li>
+                <li>情绪：另类情绪等（以注册表为准）</li>
               </ul>
             </div>
             <div class="strategy-logic-item">
-              <h4>仓位</h4>
+              <h4>ŷ 滞回门槛</h4>
               <ul>
-                <li>凯利：胜率 × 盈亏比自适应</li>
-                <li>高评分加仓，低评分减仓</li>
-              </ul>
-            </div>
-            <div class="strategy-logic-item">
-              <h4>技术确认</h4>
-              <ul>
-                <li>MACD 趋势 · KDJ 超买超卖 · RSI 动量</li>
+                <li>买入/入簿：ŷ ≥ min_predicted_score（默认 +1%）</li>
+                <li>卖出：仅 ŷ &lt; min_hold_predicted_score（默认 −1%）</li>
+                <li>中间带：已持仓不因「未进目标簿」清仓</li>
               </ul>
             </div>
           </div>
@@ -122,34 +119,28 @@
             </span>
             <div>
               <h3>Risk</h3>
-              <p class="strategy-alpha-risk-desc">动态止损 · 阈值自适应 · 相关集中 · 成本 · 舆情</p>
+              <p class="strategy-alpha-risk-desc">策略卡限额 · 账户风控 · 成本 · 敞口审计</p>
             </div>
           </div>
           <div class="strategy-logic">
             <div class="strategy-logic-item">
-              <h4>动态止损</h4>
+              <h4>组合限额（策略卡 promote）</h4>
               <ul>
-                <li>ATR / 移动止损 / 组合自适应</li>
+                <li>最多持仓数 · 单票/行业上限 · 目标回撤</li>
+                <li>改参须本页人审晋升，交易页不手改规格</li>
               </ul>
             </div>
             <div class="strategy-logic-item">
-              <h4>自适应阈值</h4>
+              <h4>账户风控</h4>
               <ul>
-                <li>胜率下降抬高买入门槛</li>
-                <li>连续亏损 · 回撤压仓位上限</li>
+                <li>回撤硬拦加仓；单票/行业超限则买入缩量</li>
+                <li>敞口与拦截流水见上方折叠</li>
               </ul>
             </div>
             <div class="strategy-logic-item">
-              <h4>相关性</h4>
+              <h4>成本</h4>
               <ul>
-                <li>高相关（&gt;0.8）控集中</li>
-              </ul>
-            </div>
-            <div class="strategy-logic-item">
-              <h4>成本与舆情</h4>
-              <ul>
-                <li>佣金 · 印花税 · 滑点预估</li>
-                <li>强利空 −5 · 弱利空 −3 · 利好 +3</li>
+                <li>佣金 · 印花税 · 滑点（策略卡 cost_model，默认 A 股简化）</li>
               </ul>
             </div>
           </div>
@@ -167,32 +158,30 @@
             </span>
             <div>
               <h3>调仓规则</h3>
-              <p class="strategy-alpha-risk-desc">加仓 · 梯度减仓 · 条件止损 · Walk-Forward</p>
+              <p class="strategy-alpha-risk-desc">分池目标簿 + ŷ 滞回 · 预演后确认 · 不在本页下单</p>
             </div>
           </div>
           <div class="strategy-logic">
             <div class="strategy-logic-item">
-              <h4>加仓</h4>
+              <h4>分池路径（live active）</h4>
               <ul>
-                <li>评分 ≥ 60：加仓 50%（凯利定仓）</li>
+                <li>目标簿：组 ŷ 排序，按买入门槛入簿后截断</li>
+                <li>买入：簿内且 ŷ ≥ 买入门槛；卖出：ŷ &lt; 卖出门槛</li>
+                <li>刷新簿在研究枢纽「更多 → 刷新簿」（不重聚类）</li>
               </ul>
             </div>
             <div class="strategy-logic-item">
-              <h4>梯度减仓</h4>
+              <h4>执行落点</h4>
               <ul>
-                <li>&lt;45：减 80% · 45–50：减 50% · 50–60：减 30%</li>
+                <li>交易执行页：预演调仓 → 确认调仓（才写纸面）</li>
+                <li>可选做 T 为独立 overlay，与选股 ŷ 解耦</li>
               </ul>
             </div>
             <div class="strategy-logic-item">
-              <h4>条件止损</h4>
+              <h4>验证（非本页）</h4>
               <ul>
-                <li>亏 ≥ 8% 全清；持有 ≥ 5 日看趋势</li>
-              </ul>
-            </div>
-            <div class="strategy-logic-item">
-              <h4>Walk-Forward</h4>
-              <ul>
-                <li>滚动窗优化 · 鲁棒性验证</li>
+                <li>历史回测：Top-K / Walk-forward / 成本假设</li>
+                <li>回测 promote 提示可拦策略卡过期晋升（见上方开关）</li>
               </ul>
             </div>
           </div>

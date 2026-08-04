@@ -1,4 +1,4 @@
-"""分池选股：各组组权打分 → 全局按 score 排序 → min_score 过滤 + max_names 截断。"""
+"""分池选股：各组 ŷ（return_model）打分 → 全局按 score 排序 → min_score 过滤 + max_names 截断。"""
 
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ def rank_cluster_pools(
     cs = get_cluster_scoring_cfg()
     cfg = load_signal_config()
     defaults = get_rank_defaults(cfg)
-    # 收益分默认：用 scoring.min_predicted_score；未设则不设下限（比较用 -inf，落盘用 null）
+    # 收益分默认：scoring.min_predicted_score（缺省 +1：ŷ<1% 不入簿）
     floor_disabled = False
     if min_score is None:
         floor = selection_min_score()
@@ -130,6 +130,16 @@ def rank_cluster_pools(
                     "score_global": item.get("score_global"),
                     "delta_vs_global": item.get("delta_vs_global"),
                     "below_min_score": True,
+                }
+            )
+            continue
+        name_u = str(item.get("stock_name") or "").upper()
+        if "ST" in name_u or "退" in str(item.get("stock_name") or ""):
+            rejected.append(
+                {
+                    "stock_code": item.get("stock_code"),
+                    "reason": f"ST/退市名过滤（{item.get('stock_name') or item.get('stock_code')}）",
+                    "score": item.get("score"),
                 }
             )
             continue
@@ -259,7 +269,7 @@ def rank_cluster_pools(
         "rejected": rejected[:20],
         "book_path": path,
         "note": (
-            "分池：组权打分→全局按 score 降序→min_score 过滤→max_names 截断。"
+            "分池：组ŷ→剔ST→ŷ≥min_predicted_score（默认+1）→全局降序→max_names 截断。"
             "不再做组内 Top-N。低于门槛 / 未映射 / 硬拒绝仍进 scored_all 供展示。"
             "不写 signal_config.weights。"
         ),

@@ -2863,21 +2863,25 @@ a.dialog-btn[aria-disabled="true"] {
 }
 
 .rebalance-score {
-  font-weight: 700;
+  font-weight: 600;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-.rebalance-score.high {
-  color: #059669;
+.rebalance-score.score-up {
+  color: var(--color-up, #f5222d);
 }
 
-.rebalance-score.medium {
-  color: #d97706;
+.rebalance-score.score-down {
+  color: var(--color-down, #52c41a);
 }
 
-.rebalance-score.low {
-  color: #dc2626;
+.rebalance-score.score-flat {
+  color: var(--ink-2, #64748b);
+}
+
+.rebalance-score.score-na {
+  color: #9ca3af;
 }
 
 .rebalance-decision-tag {
@@ -3963,19 +3967,42 @@ canvas#paper-chart-fallback[hidden] {
   white-space: nowrap;
 }
 
-.paper-holdings-table td.paper-hold-score.score-high {
-  color: #059669;
+/* 收益分：半粗即可；红绿已承载正负，避免 700 抢戏 */
+.paper-hold-score,
+.bt-trade-score.paper-hold-score {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
-.paper-holdings-table td.paper-hold-score.score-mid {
-  color: #d97706;
+.paper-hold-score.score-up,
+.paper-holdings-table td.paper-hold-score.score-up,
+.watching-score-cell.paper-hold-score.score-up,
+.paper-holdings-react-grid .paper-hold-score.score-up,
+.bt-trade-score.paper-hold-score.score-up {
+  color: var(--color-up, #f5222d);
 }
 
-.paper-holdings-table td.paper-hold-score.score-low {
-  color: #dc2626;
+.paper-hold-score.score-down,
+.paper-holdings-table td.paper-hold-score.score-down,
+.watching-score-cell.paper-hold-score.score-down,
+.paper-holdings-react-grid .paper-hold-score.score-down,
+.bt-trade-score.paper-hold-score.score-down {
+  color: var(--color-down, #52c41a);
 }
 
-.paper-holdings-table td.paper-hold-score.score-na {
+.paper-hold-score.score-flat,
+.paper-holdings-table td.paper-hold-score.score-flat,
+.watching-score-cell.paper-hold-score.score-flat,
+.paper-holdings-react-grid .paper-hold-score.score-flat,
+.bt-trade-score.paper-hold-score.score-flat {
+  color: var(--ink-2, #64748b);
+}
+
+.paper-hold-score.score-na,
+.paper-holdings-table td.paper-hold-score.score-na,
+.watching-score-cell.paper-hold-score.score-na,
+.paper-holdings-react-grid .paper-hold-score.score-na,
+.bt-trade-score.paper-hold-score.score-na {
   color: #9ca3af;
 }
 
@@ -3994,22 +4021,6 @@ canvas#paper-chart-fallback[hidden] {
   min-width: 42px;
   padding-left: 4px;
   padding-right: 6px;
-}
-
-.watching-score-cell.paper-hold-score.score-high {
-  color: #059669;
-}
-
-.watching-score-cell.paper-hold-score.score-mid {
-  color: #d97706;
-}
-
-.watching-score-cell.paper-hold-score.score-low {
-  color: #dc2626;
-}
-
-.watching-score-cell.paper-hold-score.score-na {
-  color: #9ca3af;
 }
 
 .paper-holdings-table td.num {

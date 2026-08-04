@@ -69,9 +69,10 @@ def summarize_portfolio_backtest(
     lookback: int = 90,
     top_k: int = 3,
     horizon_days: int = 3,
-    min_score: float = 55.0,
+    min_score: Optional[float] = None,
+    min_predicted_score: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """每日报告用的轻量 TopK 回测摘要（原 P12.3）。"""
+    """每日报告用的轻量 TopK 回测摘要（ŷ 排序；规则分 min_score 不再默认 55）。"""
     from core.backtest.topk_backtest import backtest_topk_equal_weight
     from core.watching_store import read_watching
 
@@ -94,12 +95,17 @@ def summarize_portfolio_backtest(
             "failures": failures,
         }
 
-    bt = backtest_topk_equal_weight(
-        stock_bars,
-        top_k=top_k,
-        horizon_days=horizon_days,
-        min_score=min_score,
-    )
+    bt_kwargs: Dict[str, Any] = {
+        "top_k": top_k,
+        "horizon_days": horizon_days,
+        "rank_mode": "predicted_score",
+        "min_predicted_score": min_predicted_score,
+    }
+    # 仅显式传入时才带规则分门槛，避免日报 params 残留 min_score=55
+    if min_score is not None:
+        bt_kwargs["min_score"] = float(min_score)
+
+    bt = backtest_topk_equal_weight(stock_bars, **bt_kwargs)
     if not bt.get("success"):
         return bt
 
@@ -110,6 +116,10 @@ def summarize_portfolio_backtest(
     regime = bt.get("regime_summary") or {}
     rb = bt.get("regime_buckets") or {}
     pit = bt.get("pit_report") or {}
+    params = dict(bt.get("params") or {})
+    if params.get("rank_mode") == "predicted_score":
+        # 规则分 0–100 门槛不适用；保留 min_predicted_score
+        params["min_score"] = None
     return {
         "success": True,
         "loaded_stocks": list(stock_bars.keys()),
@@ -117,7 +127,7 @@ def summarize_portfolio_backtest(
         "total_return_pct": metrics.get("total_return_pct"),
         "win_rate_pct": metrics.get("win_rate_pct"),
         "max_drawdown_pct": metrics.get("max_drawdown_pct"),
-        "params": bt.get("params"),
+        "params": params,
         "equity_curve_tail": curve[-12:],
         "failures": failures,
         # R4.4：日报导出可读诊断块（与页内块对齐的子集）

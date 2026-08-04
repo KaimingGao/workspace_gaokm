@@ -23,7 +23,7 @@ DAILY_PRESETS: Dict[str, Dict[str, Any]] = {
     },
     "quant": {
         "label": "量化研究",
-        "description": "刷新 watching、横截面、量化日报（含中性化对照）并导出 Markdown/HTML",
+        "description": "刷新 watching、横截面、量化日报（组ŷ主叙事 + 中性化对照）并导出 Markdown/HTML",
         "paper_run": False,
         "paper_buy": False,
         "eval_mock": False,

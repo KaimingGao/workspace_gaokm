@@ -2,16 +2,8 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtScore } from "./paper/fmt.js";
+import { fmtPriceUnit, fmtPct, metricCls, fmtScore, scoreCls } from "./paper/fmt.js";
 import { mountVirtualTable, escapeHtml, truncateName } from "./virtual_table.js";
-
-function scoreCls(v) {
-  const n = Number(v);
-  if (!Number.isFinite(n)) return "score-na";
-  if (n >= 60) return "score-high";
-  if (n >= 50) return "score-mid";
-  return "score-low";
-}
 
 export function holdingToRow(h, { chartMode, chartStockCode, selectedHoldCode, pendingFocusCode } = {}) {
   const code = String(h.stock_code || "").trim();

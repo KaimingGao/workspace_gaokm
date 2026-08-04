@@ -237,6 +237,111 @@ class TestTurnoverStats(unittest.TestCase):
             self.assertTrue(result.get("turnover_capped") or len(result.get("buy_trades") or []) == 0)
             self.assertIn("cash_impact", result)
 
+    def test_rebalance_floors_are_json_safe(self):
+        """未设 ŷ 门槛时内部用 -inf，API 落盘必须是 null（Starlette allow_nan=False）。"""
+        import json
+        from core.signal.score_display import json_safe, json_safe_number
+
+        self.assertIsNone(json_safe_number(float("-inf")))
+        self.assertIsNone(json_safe_number(float("nan")))
+        payload = json_safe(
+            {
+                "min_score": float("-inf"),
+                "min_hold_score": float("inf"),
+                "last_optimize": {"limits": {"min_score": float("-inf")}},
+            }
+        )
+        json.dumps(payload, allow_nan=False)
+        self.assertIsNone(payload["min_score"])
+        self.assertIsNone(payload["last_optimize"]["limits"]["min_score"])
+
+
+class TestClusterSellHysteresis(unittest.TestCase):
+    """分池：卖出仅 ŷ < min_hold；中间带不因未进簿清仓。"""
+
+    def test_cluster_keeps_mid_band_outside_book(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            init_from_example(path)
+            paper = load_paper(path)
+            paper["holdings"] = [
+                {
+                    "stock_code": "000739",
+                    "stock_name": "高分",
+                    "shares": 200,
+                    "cost": 10.0,
+                    "bought_at": "2026-01-01T10:00:00",
+                },
+                {
+                    "stock_code": "600938",
+                    "stock_name": "中间带",
+                    "shares": 100,
+                    "cost": 10.0,
+                    "bought_at": "2026-01-01T10:00:00",
+                },
+                {
+                    "stock_code": "601658",
+                    "stock_name": "弱分",
+                    "shares": 100,
+                    "cost": 10.0,
+                    "bought_at": "2026-01-01T10:00:00",
+                },
+            ]
+            paper["cash"] = 200000.0
+            paper["rules"] = {
+                **(paper.get("rules") or {}),
+                "max_positions": 5,
+                "position_pct": 0.2,
+            }
+            # 目标簿仅高分；中间带/弱分不在簿
+            ranking = [
+                {"stock_code": "000739", "stock_name": "高分", "score": 1.87},
+            ]
+            score_lookup = [
+                {"stock_code": "000739", "score": 1.87},
+                {"stock_code": "600938", "score": 0.426},
+                {"stock_code": "601658", "score": -1.5},
+            ]
+
+            def fake_query(code):
+                return {
+                    "success": True,
+                    "stock_code": str(code),
+                    "stock_name": str(code),
+                    "price_raw": 20.0,
+                }
+
+            with patch(
+                "skills.common.quote_api.StockAPI.query", side_effect=fake_query
+            ), patch(
+                "core.ports.market.query_quote", side_effect=fake_query
+            ), patch(
+                "core.paper_rebalance._quote_price",
+                side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
+            ), patch(
+                "core.risk.check_account_risk",
+                return_value={"ok": True, "blocks": [], "warnings": []},
+            ):
+                result = simulate_cross_section_rebalance(
+                    paper,
+                    ranking,
+                    top_k=1,
+                    min_score=1.0,
+                    respect_max_positions=False,
+                    score_lookup=score_lookup,
+                )
+
+            self.assertTrue(result["success"])
+            sold = {t["stock_code"] for t in result.get("sell_trades") or []}
+            held = {h["stock_code"] for h in paper["holdings"]}
+            self.assertNotIn("600938", sold)
+            self.assertIn("600938", held)
+            self.assertIn("000739", held)
+            self.assertIn("601658", sold)
+            self.assertNotIn("601658", held)
+            note = (result["sell_trades"][0].get("note") or "")
+            self.assertIn("卖出门槛", note)
+
 
 if __name__ == "__main__":
     unittest.main()

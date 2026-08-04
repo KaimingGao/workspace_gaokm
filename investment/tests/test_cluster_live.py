@@ -489,7 +489,7 @@ class TestClusterLive(unittest.TestCase):
         with _live_tmp():
             promote_cluster_artifact(art)
             with patch(
-                "core.signal.weight_oos_gate.evaluate_weight_suggestion_oos",
+                "core.signal.weight_oos_gate.evaluate_research_oos",
                 return_value={
                     "ok": True,
                     "passed": True,

@@ -83,11 +83,11 @@ Web：`GET/POST /api/paper/execution` · `GET .../diff` · `POST .../reset` · �
 
 | 页 | 策略角色 |
 |----|----------|
-| `/strategy` | **看图纸**：只读 `signal_config`、diff 建议 |
+| `/strategy` | **看图纸**：策略卡限额 · 人审 promote · ŷ 滞回说明 |
 | `/watching` | **划狩猎范围**（选股输入名单） |
 | `/replay` | 用图纸交**历史卷**（资金模拟在引擎内） |
 | `/paper` + `/follow` | 图纸 + **假账**持续记账 |
-| `/quant` | 因子/权重研究，**不自动改**生产配置 |
+| `/quant` | 组 β → ŷ 研究与 live 启用，**不自动改**全局 weights |
 
 测试类型与是否需要纸面：[quant-concepts · 测试类型](quant-concepts.md#3-测试类型何时需要纸面)。
 

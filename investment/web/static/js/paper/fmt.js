@@ -36,12 +36,22 @@ export function metricCls(v) {
   return n > 0 ? "up" : "down";
 }
 
-/** 表格收益分 score / ŷ：固定千分位（三位小数）。 */
-export function fmtScore(v, { empty = "—" } = {}) {
+/** 表格收益分 score / ŷ：百分点量纲，固定三位小数并带 %。 */
+export function fmtScore(v, { empty = "—", signed = false } = {}) {
   if (v === null || v === undefined || v === "") return empty;
   const n = Number(v);
   if (!Number.isFinite(n)) return empty;
-  return n.toFixed(3);
+  const sign = signed && n > 0 ? "+" : "";
+  return `${sign}${n.toFixed(3)}%`;
+}
+
+/** 收益分红绿：正 → score-up（红），负 → score-down（绿），零 → score-flat。 */
+export function scoreCls(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "score-na";
+  if (n > 0) return "score-up";
+  if (n < 0) return "score-down";
+  return "score-flat";
 }
 
 export function paperFmtPct(v) {

@@ -14,7 +14,7 @@
 | [**data-layer-strengthen.md**](data-layer-strengthen.md) | **D0–D4**：数据层深化补强（ann/源审计/复权/日历/DQ 中心） |
 | [**evidence-strengthen.md**](evidence-strengthen.md) | **E0–E4**：北极星证据诚实（策略 KPI · 对齐 · IC PIT · 日历 · outcome 催办） |
 | [**strengthen-next.md**](strengthen-next.md) | **现行下一程 C/P/EP**：口径纠偏 · 组合换手/预算/归因 · 分组启用证据包 |
-| [**next-day-trend.md**](next-day-trend.md) | **观察池日频+1**：收盘→次日方向探针（半天延后） |
+| [**weight-suggest-deepen.md**](weight-suggest-deepen.md) | **选股主轴**：回归 ŷ · heuristic 仅 OOS 基线 · 分组 β |
 | [**topk-backtest-upgrade.md**](topk-backtest-upgrade.md) | **TopK 回测**：T0–T16 已收口；**[T17 TTL可配·过期硬拦](topk-backtest-upgrade.md#11j-第十一程--t17-ttl-可配--过期硬拦已落地)** |
 | [**n6-live-gate.md**](n6-live-gate.md) | N6 实盘准入备忘（闸门通过前不写 OMS 代码） |
 | [structure.md](structure.md) | 仓库目录与 canonical 模块路径 |

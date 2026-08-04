@@ -158,7 +158,8 @@ class TestP27ExecutiveSummary(unittest.TestCase):
         out = build_report_executive_summary(self._sample_report())
         self.assertTrue(out["success"])
         self.assertGreaterEqual(out["bullet_count"], 3)
-        self.assertTrue(any("因子 IC" in b for b in out["bullets"]))
+        self.assertTrue(any("附录·因子 IC" in b or "因子 IC" in b for b in out["bullets"]))
+        self.assertTrue(any("选股真源" in b for b in out["bullets"]))
     def test_markdown_includes_summary_section(self):
         md = render_quant_report_markdown(self._sample_report())
         self.assertIn("一页摘要", md)
@@ -264,8 +265,8 @@ class TestP75ExecutiveSummaryScoreStats(unittest.TestCase):
             }
         }
         out = build_report_executive_summary(report)
-        self.assertTrue(any("横截面 score" in b for b in out["bullets"]))
-        self.assertTrue(any("72.5" in b or "72" in b for b in out["bullets"]))
+        self.assertTrue(any("横截面 ŷ" in b for b in out["bullets"]))
+        self.assertTrue(any("72.500%" in b or "72.5" in b for b in out["bullets"]))
 
 # --- test_p80_quant.py::TestP80CrossSectionExportSection ---
 class TestP80CrossSectionExportSection(unittest.TestCase):
@@ -282,14 +283,16 @@ class TestP80CrossSectionExportSection(unittest.TestCase):
         sec = build_cross_section_export_section(self._cs())
         self.assertIsNotNone(sec)
         self.assertEqual(sec["anchor"], "cross-section")
-        self.assertTrue(any("score 72.5" in line or "score 72" in line for line in sec["markdown_lines"]))
+        self.assertTrue(
+            any("ŷ 72.500%" in line or "ŷ 72.5" in line for line in sec["markdown_lines"])
+        )
     def test_toc_includes_cross_section(self):
         toc = build_report_export_toc({"cross_section": self._cs()})
         anchors = [e["anchor"] for e in toc["entries"]]
         self.assertIn("cross-section", anchors)
     def test_markdown_export_includes_section(self):
         md = render_quant_report_markdown({"cross_section": self._cs()})
-        self.assertIn("横截面 score", md)
+        self.assertIn("横截面 ŷ", md)
         self.assertIn("贵州茅台", md)
     def test_html_export_includes_section(self):
         out = export_quant_report({"cross_section": self._cs()}, fmt="html")

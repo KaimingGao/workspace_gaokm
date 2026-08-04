@@ -294,24 +294,50 @@ class QuantOpsMixin:
         self,
         code: str = "茅台",
         *,
-        include_cross_section: bool = False,
+        include_cross_section: bool = True,
         include_portfolio_backtest: bool = True,
         include_portfolio_neutral_compare: bool = True,
+        include_legacy_probe: bool = False,
     ) -> Dict[str, Any]:
+        """量化日报：主叙事=组ŷ / 簿 / OOS / 横截面ŷ / Top-K(ŷ)。
+
+        单票 IC·OLS·权建议·阈值 默认不跑，仅 ``include_legacy_probe=True`` 进附录。
+        """
         cfg = self.config_summary()
-        ic = self.run_factor_report(code)
-        factor_exp = self.run_factor_experiment(code)
-        factor_ols = self.run_factor_ols_experiment(code)
-        from core.signal.weight_suggest import suggest_weights_from_ic
+        ic = None
+        factor_exp = None
+        factor_ols = None
+        weight_suggest = None
+        threshold_suggest = None
+        if include_legacy_probe:
+            ic = self.run_factor_report(code)
+            factor_exp = self.run_factor_experiment(code)
+            factor_ols = self.run_factor_ols_experiment(code)
+            from core.signal.weight_suggest import suggest_weights_from_ic
 
-        weight_suggest = suggest_weights_from_ic(factor_exp) if factor_exp.get("success") else None
-        if weight_suggest and weight_suggest.get("success"):
-            from core.signal.weight_suggest import format_weight_config_diff
+            weight_suggest = (
+                suggest_weights_from_ic(factor_exp) if factor_exp.get("success") else None
+            )
+            if weight_suggest and weight_suggest.get("success"):
+                from core.signal.weight_suggest import format_weight_config_diff
 
-            weight_suggest["config_diff"] = format_weight_config_diff(weight_suggest)
-        threshold_suggest = self.suggest_thresholds(code)
-        if not threshold_suggest.get("success"):
-            threshold_suggest = None
+                weight_suggest["config_diff"] = format_weight_config_diff(weight_suggest)
+                weight_suggest["deprecated_for_scoring"] = True
+                weight_suggest["note"] = (
+                    "附录·遗留 IC 小步权诊断；选股真源为 return_model → predicted_score（ŷ），"
+                    "不自动写 signal_config"
+                )
+            threshold_suggest = self.suggest_thresholds(code)
+            if not threshold_suggest.get("success"):
+                threshold_suggest = None
+            elif isinstance(threshold_suggest, dict):
+                threshold_suggest = dict(threshold_suggest)
+                threshold_suggest["appendix"] = True
+                note0 = threshold_suggest.get("note") or ""
+                threshold_suggest["note"] = (
+                    "附录·单票阈值探针。 " + str(note0)
+                ).strip()
+
         portfolio_summary = self.portfolio_daily_summary() if include_portfolio_backtest else None
         neutral_compare_summary = None
         if include_portfolio_backtest and include_portfolio_neutral_compare:
@@ -319,14 +345,54 @@ class QuantOpsMixin:
         cluster_live = None
         try:
             from core.signal.cluster_live import (
-                cluster_score_audit_sample,
+                _summarize_cluster_oos,
                 cluster_status_public,
+                load_active_cluster_book,
+                load_active_cluster_weights,
             )
 
             st = cluster_status_public(include_audit=False)
             cs = (st or {}).get("cluster_scoring") or {}
             if cs.get("mode") in ("shadow", "active"):
-                audit = cluster_score_audit_sample(limit=8)
+                active = load_active_cluster_weights() or {}
+                clusters = active.get("clusters") or []
+                oos_summary = _summarize_cluster_oos(clusters)
+                book_doc = load_active_cluster_book() or {}
+                book_rows = list(book_doc.get("book") or [])
+                book_top = []
+                for r in book_rows[:8]:
+                    if not isinstance(r, dict):
+                        continue
+                    yhat = r.get("predicted_score")
+                    if yhat is None:
+                        yhat = r.get("score")
+                    book_top.append(
+                        {
+                            "stock_code": r.get("stock_code"),
+                            "stock_name": r.get("stock_name"),
+                            "score": yhat,
+                            "cluster_label": r.get("cluster_label"),
+                            "rank": r.get("rank"),
+                        }
+                    )
+                group_models = []
+                for cl in clusters:
+                    if not isinstance(cl, dict):
+                        continue
+                    rm = cl.get("return_model") if isinstance(cl.get("return_model"), dict) else {}
+                    coef = rm.get("coefficients") if isinstance(rm.get("coefficients"), dict) else {}
+                    gate = cl.get("oos_gate") if isinstance(cl.get("oos_gate"), dict) else {}
+                    group_models.append(
+                        {
+                            "label": cl.get("label"),
+                            "n_members": len(cl.get("members") or []),
+                            "n_coef": len(coef),
+                            "sample_count": rm.get("sample_count"),
+                            "ridge_lambda": rm.get("ridge_lambda"),
+                            "oos_passed": cl.get("oos_passed"),
+                            "oos_skipped": bool(gate.get("skipped")),
+                        }
+                    )
                 cluster_live = {
                     "mode": cs.get("mode"),
                     "enabled": cs.get("enabled"),
@@ -336,21 +402,35 @@ class QuantOpsMixin:
                     "stale": ((st or {}).get("health") or {}).get("stale"),
                     "alerts": ((st or {}).get("health") or {}).get("alerts") or [],
                     "book_names": ((st or {}).get("book") or {}).get("name_count"),
-                    "audit_sample": audit,
-                    "note": "组权 live 对照；未写 signal_config.weights",
+                    "book_top": book_top,
+                    "group_models": group_models,
+                    "n_groups_with_model": sum(
+                        1 for g in group_models if int(g.get("n_coef") or 0) > 0
+                    ),
+                    "oos_summary": oos_summary,
+                    "note": (
+                        "组ŷ live；未写 signal_config.weights；"
+                        "OOS=heuristic 基线 vs ŷ 研究臂；过门≠自动 promote；"
+                        "OOS 计数来自 active 落盘快照（生成日报时不重跑）"
+                    ),
                 }
         except Exception as exc:
             cluster_live = {"success": False, "error": str(exc)}
 
-        report = {
+        scoring = (cfg.get("scoring") if isinstance(cfg, dict) else None) or {}
+        report: Dict[str, Any] = {
             "success": True,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "narrative": "cluster_yhat",
             "config": cfg,
-            "factor_ic": ic,
-            "factor_experiment": factor_exp,
-            "factor_ols": factor_ols,
-            "weight_suggest": weight_suggest,
-            "threshold_suggest": threshold_suggest,
+            "scoring": {
+                "rank_mode": scoring.get("rank_mode") or "predicted_score",
+                "min_predicted_score": scoring.get("min_predicted_score"),
+                "note": (
+                    (cfg.get("product_note") if isinstance(cfg, dict) else None)
+                    or "选股真源=predicted_score（ŷ）· 主叙事=组ŷ/簿/OOS/横截面/Top-K"
+                ),
+            },
             "strategies": self.list_strategies(),
             "portfolio_backtest_summary": portfolio_summary,
             "portfolio_neutral_compare_summary": neutral_compare_summary,
@@ -358,4 +438,15 @@ class QuantOpsMixin:
         }
         if include_cross_section:
             report["cross_section"] = self.run_cross_section(limit=10)
+        if include_legacy_probe:
+            report["factor_ic"] = ic
+            report["factor_experiment"] = factor_exp
+            report["factor_ols"] = factor_ols
+            report["weight_suggest"] = weight_suggest
+            report["threshold_suggest"] = threshold_suggest
+            report["appendix"] = {
+                "legacy_probe": True,
+                "probe_code": code,
+                "note": "单票 IC/OLS/权建议/阈值为附录探针，不驱动选股",
+            }
         return report

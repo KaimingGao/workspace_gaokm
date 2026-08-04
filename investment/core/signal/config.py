@@ -57,7 +57,9 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
     # 排序键：仅收益分 predicted_score（ŷ%）
     "scoring": {
         "rank_mode": "predicted_score",
-        "min_predicted_score": None,
+        # 滞回：买入/入簿 ŷ≥+1%；卖出仅 ŷ<-1%；中间带持有不因未进簿清仓
+        "min_predicted_score": 1.0,
+        "min_hold_predicted_score": -1.0,
     },
     # stance 门槛按收益分 ŷ%（百分点）
     "stance_thresholds": {

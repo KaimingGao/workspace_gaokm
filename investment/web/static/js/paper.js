@@ -6,6 +6,7 @@ import {
   fmtPct,
   metricCls,
   fmtScore,
+  scoreCls,
 } from "./paper/fmt.js";
 import { drawSeries } from "./paper/chart.js";
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
@@ -846,10 +847,9 @@ export function initPaper(ctx) {
     renderPaperStats(sm);
     renderFollowNorthStar(data.north_star || (data.ops_report && data.ops_report.north_star));
     renderPaperAccountDetail(data);
+    // 只缓存五问文案；不要因刷账户把「调仓报告」预演区再次展开
     if (data.ops_report) {
-      const section = document.getElementById("paper-rebalance-section");
-      if (section) section.hidden = false;
-      renderOpsReport(data.ops_report, { forceShow: true });
+      renderOpsReport(data.ops_report, { forceShow: false });
     }
     applyPendingFocus();
     lastSnapshots = data.snapshots || [];
@@ -1088,7 +1088,6 @@ export function initPaper(ctx) {
     const runBtns = [
       "paper-run",
       "paper-adjust",
-      "paper-cluster-rebalance",
       "paper-daily",
       "paper-daily-n5",
       "paper-feedback-alerts",
@@ -1114,6 +1113,35 @@ export function initPaper(ctx) {
       if (!progressEl) return;
       progressEl.hidden = true;
       if (progressFill) progressFill.style.width = "0%";
+    }
+
+    /** 确认落账或点 × 后收起预演区（持仓/流水另由 loadPaper 刷新）。 */
+    function dismissRebalancePreview() {
+      const section = document.getElementById("paper-rebalance-section");
+      if (section) section.hidden = true;
+      const confirmBtn = document.getElementById("paper-rebalance-confirm");
+      if (confirmBtn) {
+        confirmBtn.hidden = true;
+        confirmBtn.disabled = false;
+      }
+      const previewNote = document.getElementById("paper-rebalance-preview-note");
+      if (previewNote) {
+        previewNote.hidden = true;
+        previewNote.textContent = "";
+      }
+      const cashEl = document.getElementById("paper-rebalance-cash");
+      if (cashEl) {
+        cashEl.hidden = true;
+        cashEl.innerHTML = "";
+      }
+      const container = document.getElementById("paper-rebalance-report");
+      if (container) container.innerHTML = "";
+      const nextEl = document.getElementById("paper-validate-next");
+      if (nextEl) {
+        nextEl.hidden = true;
+        nextEl.innerHTML = "";
+      }
+      followClusterPreviewPending = false;
     }
 
     function renderRebalanceReport(report, { preview = false, cashImpact = null, riskGate = null, opsReport = null } = {}) {
@@ -1377,13 +1405,8 @@ export function initPaper(ctx) {
           const belowMin = !!r.below_min_score;
           const scoreShown =
             scoreText !== "—" && belowMin ? `${scoreText}↓` : scoreText;
-          let scoreClass = "";
-          if (r.score != null) {
-            if (r.score >= 60) scoreClass = "high";
-            else if (r.score >= 50) scoreClass = "medium";
-            else scoreClass = "low";
-          }
-          if (belowMin) scoreClass += (scoreClass ? " " : "") + "below-min";
+          let scoreClass = scoreCls(r.score);
+          if (belowMin) scoreClass += " below-min";
           const oldSh =
             r.old_shares != null
               ? Number(r.old_shares)
@@ -1452,7 +1475,7 @@ export function initPaper(ctx) {
               "风险预算（单票/行业上限）未买入；见原因列";
           } else if (decision.includes("卖出")) {
             decisionTitle =
-              "不在分池目标簿：组权分未进全局排序截断（或未映射/硬拒绝/低于 min_score），预演清仓；点「确认调仓」后才成交";
+              "分池卖出：ŷ 低于卖出门槛（min_hold），或横截面路径不在 TopK；点「确认调仓」后才成交";
           }
 
           const name = escapeText(r.stock_name || r.stock_code || "");
@@ -1679,34 +1702,30 @@ export function initPaper(ctx) {
         setPaperMetaText(resultText);
         showProgress(100, (document.getElementById("follow-meta")||document.getElementById("paper-meta")||{}).textContent || "");
         if (!dryRun) {
+          dismissRebalancePreview();
           await loadPaper();
           if (typeof ctx.reloadWatching === "function") {
             try {
               await ctx.reloadWatching();
             } catch (_) {}
           }
-        }
-
-        // 渲染调仓报告
-        if (simulateBuy && rebalanceReport.length > 0) {
+        } else if (simulateBuy && rebalanceReport.length > 0) {
           renderRebalanceReport(rebalanceReport, {
-            preview: !!dryRun,
+            preview: true,
             cashImpact,
             riskGate,
             opsReport,
           });
         } else if (simulateBuy) {
           renderRebalanceReport([], {
-            preview: !!dryRun,
+            preview: true,
             cashImpact,
             riskGate,
             opsReport,
           });
-          if (dryRun) {
-            setPaperMetaText(
-              resultText + (riskGate && riskGate.ok === false ? "" : " · 无可执行变动")
-            );
-          }
+          setPaperMetaText(
+            resultText + (riskGate && riskGate.ok === false ? "" : " · 无可执行变动")
+          );
         } else if (opsReport) {
           const section = document.getElementById("paper-rebalance-section");
           if (section) section.hidden = false;
@@ -1776,18 +1795,15 @@ export function initPaper(ctx) {
 
     async function refreshFollowClusterStatus() {
       const el = document.getElementById("follow-cluster-status");
-      const clusterBtn = document.getElementById("paper-cluster-rebalance");
       try {
         const res = await fetch("/api/quant/cluster-live/status");
         const data = await res.json().catch(() => ({}));
         const st = formatFollowClusterStatus(data);
         followClusterActive = st.active;
         if (el) el.textContent = st.text;
-        if (clusterBtn) clusterBtn.hidden = !followClusterActive;
       } catch (_) {
         followClusterActive = false;
         if (el) el.textContent = "分组打分：加载失败";
-        if (clusterBtn) clusterBtn.hidden = true;
       }
     }
 
@@ -1838,30 +1854,29 @@ export function initPaper(ctx) {
             ` · 目标簿 ${bookN} 只 · top_k=${data.top_k ?? "—"} · 卖 ${sellN} · 买 ${buyN}` +
             (turnPct != null ? ` · 换手 ${turnPct}%` : "")
         );
-        const opsFromApi = data.ops_report || null;
-        renderRebalanceReport(report, {
-          preview: !!dryRun,
-          cashImpact: ci,
-          riskGate: data.risk_gate || null,
-          opsReport: opsFromApi
-            ? {
-                ...opsFromApi,
-                note:
-                  (opsFromApi.note ||
-                    data.note ||
-                    (dryRun ? "分池预演未写账" : "分池已落账")) +
-                  ` · 目标=组权分全局排序簿（${bookN} 只）`,
-              }
-            : {
-                strategy_id: strategy,
-                cost_model: (data.summary || {}).cost_model || (ci && ci.cost_model),
-                note:
-                  (data.note || (dryRun ? "分池预演未写账" : "分池已落账")) +
-                  ` · 目标=组权分全局排序簿（${bookN} 只）`,
-              },
-        });
-        if (!dryRun) {
-          followClusterPreviewPending = false;
+        if (dryRun) {
+          const opsFromApi = data.ops_report || null;
+          renderRebalanceReport(report, {
+            preview: true,
+            cashImpact: ci,
+            riskGate: data.risk_gate || null,
+            opsReport: opsFromApi
+              ? {
+                  ...opsFromApi,
+                  note:
+                    (opsFromApi.note || data.note || "分池预演未写账") +
+                    ` · 目标=组权分全局排序簿（${bookN} 只）`,
+                }
+              : {
+                  strategy_id: strategy,
+                  cost_model: (data.summary || {}).cost_model || (ci && ci.cost_model),
+                  note:
+                    (data.note || "分池预演未写账") +
+                    ` · 目标=组权分全局排序簿（${bookN} 只）`,
+                },
+          });
+        } else {
+          dismissRebalancePreview();
           await loadPaper();
         }
         showProgress(100, "");
@@ -1875,9 +1890,8 @@ export function initPaper(ctx) {
     if (paperAdjustBtn) {
     paperAdjustBtn.addEventListener("click", async (e) => {
 
-      // 隐藏旧的调仓报告
-      const rebalanceSection = document.getElementById("paper-rebalance-section");
-      if (rebalanceSection) rebalanceSection.hidden = true;
+      // 收起旧预演，再出新清单
+      dismissRebalancePreview();
       e.preventDefault();
       try {
         await refreshFollowClusterStatus();
@@ -1893,23 +1907,6 @@ export function initPaper(ctx) {
     });
     }
 
-    const paperClusterBtn = document.getElementById("paper-cluster-rebalance");
-    if (paperClusterBtn) {
-      paperClusterBtn.addEventListener("click", async (e) => {
-        e.preventDefault();
-        try {
-          await refreshFollowClusterStatus();
-          if (!followClusterActive) {
-            setPaperMetaText("请先在研究枢纽启用分组打分（mode=active）");
-            return;
-          }
-          await runClusterPaperRebalance({ dryRun: true });
-        } catch (err) {
-          setPaperMetaText(String(err.message || err));
-        }
-      });
-    }
-
     const rebalanceConfirmBtn = document.getElementById("paper-rebalance-confirm");
     if (rebalanceConfirmBtn) {
       rebalanceConfirmBtn.addEventListener("click", async (e) => {
@@ -1920,7 +1917,13 @@ export function initPaper(ctx) {
           if (followClusterPreviewPending || followClusterActive) {
             if (
               !window.confirm(
-                "确认按分池合并簿落账？\n将改写 paper.json；不写全局 weights。"
+                [
+                  "确认按分池目标簿落账？",
+                  "",
+                  "将按预演清单改写 paper.json 持仓与现金。",
+                  "不写入 signal_config.weights。",
+                  "此为纸面模拟，非实盘委托。",
+                ].join("\n")
               )
             ) {
               rebalanceConfirmBtn.disabled = false;
@@ -1940,12 +1943,7 @@ export function initPaper(ctx) {
     const rebalanceCloseBtn = document.getElementById("paper-rebalance-close");
     if (rebalanceCloseBtn) {
       rebalanceCloseBtn.addEventListener("click", () => {
-        const section = document.getElementById("paper-rebalance-section");
-        if (section) section.hidden = true;
-        const confirmBtn = document.getElementById("paper-rebalance-confirm");
-        if (confirmBtn) confirmBtn.hidden = true;
-        const previewNote = document.getElementById("paper-rebalance-preview-note");
-        if (previewNote) previewNote.hidden = true;
+        dismissRebalancePreview();
       });
     }
 

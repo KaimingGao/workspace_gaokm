@@ -61,9 +61,9 @@ export function formatScoreHero(raw) {
       ? Number(raw.min_score)
       : null;
   let gate = "";
-  if (floor != null) {
+    if (floor != null) {
     gate = `<div class="score-hero-gate${below ? " is-warn" : ""}">选股门槛 ${escapeText(
-      String(floor)
+      Number.isFinite(floor) ? `${floor}%` : String(floor)
     )}${below ? " · 当前低于门槛" : ""}</div>`;
   }
   return (
@@ -109,19 +109,6 @@ export function formatWeightSourceNote(raw) {
     `<div class="score-section-title">模型来源</div>`,
     `<div class="score-weight-source">${escapeText(line)}</div>`,
   ];
-  if (raw && (raw.score_global != null || raw.score_cluster != null)) {
-    const g =
-      raw.score_global != null ? Number(raw.score_global).toFixed(3) : "—";
-    const c =
-      raw.score_cluster != null ? Number(raw.score_cluster).toFixed(3) : "—";
-    bits.push(
-      `<div class="score-weight-dual sub">` +
-        `<span>全局 ${escapeText(g)}%</span>` +
-        `<span class="score-dual-sep">·</span>` +
-        `<span>组 ${escapeText(c)}%</span>` +
-        `</div>`
-    );
-  }
   return `<div class="score-weight-section">${bits.join("")}</div>`;
 }
 

@@ -17,12 +17,6 @@ function compare(id, a, b) {
   if (id === "score") return numSortKey(a, "scoreNum") - numSortKey(b, "scoreNum");
   if (id === "vol") return numSortKey(a, "volNum") - numSortKey(b, "volNum");
   if (id === "excess") return numSortKey(a, "excessNum") - numSortKey(b, "excessNum");
-  if (id === "ndBias") {
-    const rank = { up: 2, down: 0, flat: 1 };
-    const ra = rank[a.ndBiasKey] ?? -1;
-    const rb = rank[b.ndBiasKey] ?? -1;
-    return ra - rb;
-  }
   if (id === "name") {
     return String(a.name || "").localeCompare(String(b.name || ""), "zh-CN");
   }
@@ -39,14 +33,6 @@ const COLS = [
   { id: "chg", label: "涨跌", widthPct: 6.5, num: true },
   { id: "score", label: "评分", widthPct: 6, num: true, sortable: true },
   { id: "stance", label: "倾向", widthPct: 6, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  {
-    id: "ndBias",
-    label: "次日",
-    widthPct: 5.5,
-    headClass: "watching-col-center",
-    cellClass: "watching-col-center",
-    sortable: true,
-  },
   { id: "excess", label: "超额", widthPct: 7.5, num: true, sortable: true },
   { id: "vol", label: "量", widthPct: 7, num: true, sortable: true },
   { id: "volr", label: "量比", widthPct: 5, num: true },
@@ -117,16 +103,6 @@ export async function mountWatchingTableIsland(host, options = {}) {
             )}" title="按金额确认后，现价假买进模拟账户">建仓</button>`;
       }
       if (col.id === "sent") return d.sentHtml || "—";
-      if (col.id === "ndBias") {
-        const text = d.ndBias || "—";
-        const tip = d.ndBiasTitle || "加载中…";
-        const key = String(d.ndBiasKey || "");
-        const cls =
-          key === "up" ? " is-up" : key === "down" ? " is-down" : key === "flat" ? " is-flat" : "";
-        return `<span class="watching-nd-bias${cls}" title="${escapeHtml(tip)}">${escapeHtml(
-          text
-        )}</span>`;
-      }
       if (col.id === "chg") {
         const text = d.chg != null && d.chg !== "" ? String(d.chg) : "—";
         const cls = d.chgCls ? ` ${escapeHtml(d.chgCls)}` : "";
@@ -137,11 +113,14 @@ export async function mountWatchingTableIsland(host, options = {}) {
         const detail = d.scoreDetail || "";
         const below = !!d.scoreBelowMin;
         const title = d.scoreTitle || "悬停查看收益分与因子系数";
+        const signCls = d.scoreCls ? ` ${escapeHtml(String(d.scoreCls))}` : "";
         if (!detail) {
-          return escapeHtml(text);
+          return `<span class="watching-score-cell paper-hold-score${signCls}">${escapeHtml(
+            text
+          )}</span>`;
         }
         return (
-          `<span class="watching-score-cell paper-hold-score has-tip${
+          `<span class="watching-score-cell paper-hold-score has-tip${signCls}${
             below ? " score-below-min" : ""
           }" ` +
           `data-score-detail="${escapeHtml(detail)}" title="${escapeHtml(title)}">` +

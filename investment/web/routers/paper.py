@@ -191,12 +191,16 @@ def paper_job():
 @router.post("/api/paper/rebalance")
 def paper_rebalance(body: PaperRebalanceRequest):
     try:
-        return deps.paper.rebalance(
-            top_k=body.top_k,
-            limit=body.limit,
-            cluster_mode=bool(body.cluster_mode),
-            dry_run=bool(body.dry_run),
-            strategy=body.strategy,
+        from core.signal.score_display import json_safe
+
+        return json_safe(
+            deps.paper.rebalance(
+                top_k=body.top_k,
+                limit=body.limit,
+                cluster_mode=bool(body.cluster_mode),
+                dry_run=bool(body.dry_run),
+                strategy=body.strategy,
+            )
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

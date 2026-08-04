@@ -12,6 +12,8 @@ from core.signal.config import load_signal_config
 class QuantConfigMixin:
     def config_summary(self) -> Dict[str, Any]:
         cfg = load_signal_config()
+        scoring = cfg.get("scoring") if isinstance(cfg.get("scoring"), dict) else {}
+        rank_mode = scoring.get("rank_mode") or "predicted_score"
         return {
             "success": True,
             "config_path": os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH),
@@ -19,6 +21,14 @@ class QuantConfigMixin:
             "stance_thresholds": cfg.get("stance_thresholds"),
             "regime": cfg.get("regime"),
             "hard_reject": cfg.get("hard_reject"),
+            "scoring": {
+                "rank_mode": rank_mode,
+                "min_predicted_score": scoring.get("min_predicted_score"),
+            },
+            "product_note": (
+                "选股真源=predicted_score（ŷ）；"
+                "heuristic 仅作研究 OOS 基线；过门≠自动 promote"
+            ),
         }
 
     def read_signal_config_file(self) -> Dict[str, Any]:
@@ -57,6 +67,16 @@ class QuantConfigMixin:
         return export_config_diff_bundle(preview)
 
     def list_strategies(self) -> Dict[str, Any]:
+        from core.signal.score_display import resolve_buy_floor, resolve_hold_floor
         from core.strategy import list_strategy_specs
 
-        return {"success": True, "strategies": list_strategy_specs()}
+        return {
+            "success": True,
+            "strategies": list_strategy_specs(),
+            # live 选股门槛（ŷ%）；策略卡 params.min_score 为遗留 0–100 回测默认
+            "scoring_floors": {
+                "min_predicted_score": resolve_buy_floor(),
+                "min_hold_predicted_score": resolve_hold_floor(),
+                "unit": "predicted_score_pct",
+            },
+        }

@@ -10,7 +10,7 @@ import { apiFetch } from "./api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "./lw_charts.js";
 import { mountVirtualTable, colStyle } from "./virtual_table.js";
 import { createScoreTooltipController } from "./score_tooltip.js";
-import { fmtScore } from "./paper/fmt.js";
+import { fmtScore, scoreCls } from "./paper/fmt.js";
 
 /** Quant research panel. */
 export function initQuant(ctx) {
@@ -1151,6 +1151,7 @@ export function initQuant(ctx) {
           retCls: st !== "filled" ? "down" : metricClass(ret),
           scoreNum: Number.isFinite(Number(r.score)) ? Number(r.score) : null,
           scoreText: fmtScore(r.score),
+          scoreCls: scoreCls(r.score),
           scoreDetail,
           status: formatSimStatus(st),
         };
@@ -1211,7 +1212,9 @@ export function initQuant(ctx) {
         }
         if (col.id === "score") {
           return (
-            `<span class="bt-trade-score paper-hold-score has-tip" ` +
+            `<span class="bt-trade-score paper-hold-score has-tip ${escapeHtml(
+              d.scoreCls || ""
+            )}" ` +
             `data-score-detail="${escapeHtml(d.scoreDetail)}" ` +
             `title="悬停查看收益分与因子系数">${escapeHtml(d.scoreText)}</span>`
           );
@@ -2077,7 +2080,7 @@ export function initQuant(ctx) {
     }
 
     const winnerLabel =
-      winner === "neutralized" ? "中性化" : winner === "absolute" ? "绝对分" : "接近";
+      winner === "neutralized" ? "中性化" : winner === "absolute" ? "未中性化ŷ" : "接近";
     const fmtDelta = (v) => (v == null || v === "" ? "—" : `${v}%`);
     const frozen = !!opts.frozen;
     const srcLabel = frozen
@@ -2092,7 +2095,7 @@ export function initQuant(ctx) {
         [
           { id: "dim", label: "维度", flex: true },
           { id: "n", label: "中性化", widthPct: 22, num: true },
-          { id: "a", label: "绝对分", widthPct: 22, num: true },
+          { id: "a", label: "未中性化ŷ", widthPct: 22, num: true },
           { id: "d", label: "Δ", widthPct: 18, num: true },
         ],
         [
@@ -2622,6 +2625,7 @@ export function initQuant(ctx) {
           row.update({
             score: scoreText,
             scoreNum,
+            scoreCls: scoreCls(scoreNum),
             scoreDetail,
             scoreTitle,
             scoreBelowMin: belowMin,
@@ -2653,9 +2657,9 @@ export function initQuant(ctx) {
           const scoreEl = tr.querySelector(`[data-q='score']`);
           if (scoreEl) {
             scoreEl.innerHTML =
-              `<span class="watching-score-cell paper-hold-score has-tip${
-                belowMin ? " score-below-min" : ""
-              }" ` +
+              `<span class="watching-score-cell paper-hold-score has-tip ${escapeHtml(
+                scoreCls(scoreNum)
+              )}${belowMin ? " score-below-min" : ""}" ` +
               `data-score-detail="${escapeHtml(scoreDetail)}" title="${escapeHtml(scoreTitle)}">` +
               `${escapeHtml(scoreText)}</span>`;
           }
@@ -2677,12 +2681,12 @@ export function initQuant(ctx) {
       const srcSample = items.find((x) => x && x.weight_source) || {};
       const mode = srcSample.cluster_mode || "";
       const wsrc = String(srcSample.weight_source || "");
-      let scoreMode = "全局权";
-      if (wsrc.startsWith("cluster:")) scoreMode = `组权 · ${wsrc.slice("cluster:".length) || "组"}`;
-      else if (wsrc === "global+shadow") scoreMode = "对照中 · 主分全局";
-      else if (wsrc === "global_fallback") scoreMode = "全局回退（未映射）";
-      else if (mode === "active") scoreMode = "active · 组权优先";
-      else if (mode === "shadow") scoreMode = "shadow · 主分全局";
+      let scoreMode = "组ŷ";
+      if (wsrc.startsWith("cluster:")) scoreMode = `组ŷ · ${wsrc.slice("cluster:".length) || "组"}`;
+      else if (wsrc === "global+shadow") scoreMode = "对照中 · 映射就绪";
+      else if (wsrc === "global_fallback") scoreMode = "未映射组（无ŷ）";
+      else if (mode === "active") scoreMode = "active · 组ŷ";
+      else if (mode === "shadow") scoreMode = "shadow · 组ŷ映射";
       setWatchingRefreshStatus(
         `摘要已更新 · ${okN}/${codes.length} · score ${scoreMode}（与交易执行同源）`
       );
@@ -2956,7 +2960,7 @@ export function initQuant(ctx) {
         "研究用 Top-K 回测净值（非纸面账本）。起点 100。" +
         (markers.length
           ? " 标记：绿点=正IC窗结束 · 灰点=非正IC窗。"
-          : " 单线=当次回测；对照时蓝=中性化、绿=绝对分。");
+          : " 单线=当次回测；对照时蓝=中性化、绿=未中性化ŷ。");
     }
     await renderLineChart(host, pts, { emptyText, disableZoom: true, markers });
   }
@@ -2987,7 +2991,7 @@ export function initQuant(ctx) {
     const legendEl = document.getElementById("quant-portfolio-legend");
     if (legendEl) {
       legendEl.textContent =
-        "中性化对照双曲线。起点 100；横轴为持有期结束日。蓝=截面中性化打分 · 绿=绝对分打分（同一观察池与参数）。";
+        "中性化对照双曲线。起点 100；横轴为持有期结束日。蓝=截面中性化ŷ · 绿=未中性化ŷ（同一观察池与参数）。";
     }
     await renderDualLineChart(host, seriesA, seriesB, { emptyText, disableZoom: true });
   }
@@ -4197,10 +4201,8 @@ export function initQuant(ctx) {
         chgCls: "",
         score: scoreNum == null ? "…" : fmtScore(scoreNum),
         scoreNum,
+        scoreCls: scoreCls(scoreNum),
         stance: "…",
-        ndBias: "—",
-        ndBiasKey: "",
-        ndBiasTitle: "加载中（收盘→次日方向）",
         excess: "…",
         excessNum: null,
         vol: "…",
@@ -4229,7 +4231,7 @@ export function initQuant(ctx) {
       grid.on("sortChanged", (sorters) => {
         const s = Array.isArray(sorters) && sorters.length ? sorters[0] : null;
         const key = s && s.field;
-        if (key === "name" || key === "score" || key === "excess" || key === "vol" || key === "ndBias") {
+        if (key === "name" || key === "score" || key === "excess" || key === "vol") {
           watchingSortKey = key;
           watchingSortDir = s.dir === "asc" ? "asc" : "desc";
           persistWatchingSort();
@@ -4615,11 +4617,10 @@ export function initQuant(ctx) {
         : '<li class="sub">watchlist 为空</li>';
     }
     if (wl.length) {
-      // 行情与摘要并行；舆情/次日预判单独跑，避免挡住主表
+      // 行情与摘要并行；舆情单独跑，避免挡住主表
       fillWatchingQuotes().catch(() => {});
       fillWatchingInsights().catch(() => {});
       fillWatchingSentiment().catch(() => {});
-      fillWatchingNextDayTrend().catch(() => {});
     }
     loadWatchingSentimentAlerts().catch(() => {});
     return data;
@@ -4701,7 +4702,6 @@ export function initQuant(ctx) {
               : null;
         const kv =
           fmtCell("持有", params.horizon_days != null ? `${params.horizon_days} 日` : null) +
-          fmtCell("门槛", params.min_score != null ? String(params.min_score) : null) +
           fmtCell("最多", risk.max_positions != null ? `${risk.max_positions} 只` : null) +
           fmtCell(
             "单票",
@@ -4753,9 +4753,21 @@ export function initQuant(ctx) {
     });
     const riskBox = document.getElementById("strategy-risk-limits");
     if (riskBox) {
+      const floors = (data && data.scoring_floors) || {};
+      const buyF = floors.min_predicted_score;
+      const holdF = floors.min_hold_predicted_score;
+      const fmtFloor = (v) =>
+        v == null || !Number.isFinite(Number(v))
+          ? "—"
+          : `${Number(v) >= 0 ? "+" : ""}${Number(v)}%`;
+      const floorLine =
+        buyF != null || holdF != null
+          ? ` live ŷ 滞回：买入/入簿 ≥ ${fmtFloor(buyF)} · 卖出 &lt; ${fmtFloor(holdF)}（signal_config.scoring）。`
+          : "";
       riskBox.innerHTML =
-        `<p class="strategy-footnote">限额 · 成本 · Execution（含做T）见上表；改参须人审 promote。` +
-        ` 验证 → <a href="/replay">回测</a> · 落地 → <a href="/follow">交易执行</a> · 拟合 → <a href="/platform">北极星</a>。</p>`;
+        `<p class="strategy-footnote">限额 · 成本 · 做T 见上表；改参须人审 promote。` +
+        floorLine +
+        ` 选股 β → <a href="/quant">研究枢纽</a> · 验证 → <a href="/replay">回测</a> · 调仓 → <a href="/follow">交易执行</a>。</p>`;
     }
     renderPromoteHintsPanel(loadCachedPromoteHints(), "strategy-promote-hints");
   }
@@ -5163,7 +5175,7 @@ export function initQuant(ctx) {
         data.winner === "neutralized"
           ? "中性化更优"
           : data.winner === "absolute"
-            ? "绝对分更优"
+            ? "未中性化ŷ更优"
             : "接近";
       const excessNote =
         bc.ok && bc.delta_excess_pct != null
@@ -5221,7 +5233,7 @@ export function initQuant(ctx) {
       series.push({ label: "中性化", color: "#2563eb", lineWidth: 2, points: nPts });
     }
     if (aPts.length >= 2) {
-      series.push({ label: "绝对分", color: "#059669", lineWidth: 2, points: aPts });
+      series.push({ label: "未中性化ŷ", color: "#059669", lineWidth: 2, points: aPts });
     }
     if (bPts.length >= 2) {
       series.push({ label: "基准", color: "#9ca3af", lineWidth: 1.5, points: bPts });
@@ -5229,7 +5241,7 @@ export function initQuant(ctx) {
     if (series.length >= 2) {
       if (legendEl) {
         legendEl.textContent =
-          "中性化对照：蓝=截面中性化 · 绿=绝对分" +
+          "中性化对照：蓝=截面中性化 · 绿=未中性化ŷ" +
           (bPts.length >= 2 ? " · 灰=同一基准买持" : "") +
           "。起点 100；超额见对照表。";
       }
@@ -7030,7 +7042,9 @@ export function initQuant(ctx) {
         code,
         name,
         score,
+        scoreCls: scoreCls(r.score),
         raw,
+        rawCls: scoreCls(r.score_raw),
         source: r.data_source || "—",
       };
     });
@@ -7059,6 +7073,16 @@ export function initQuant(ctx) {
             watchingNameSpanHtml(d.name || d.code) +
             `<span class="watching-code-sub">${escapeHtml(d.code || "")}</span></div>`
           );
+        }
+        if (col.id === "score") {
+          return `<span class="paper-hold-score ${escapeHtml(
+            d.scoreCls || ""
+          )}">${escapeHtml(d.score ?? "—")}</span>`;
+        }
+        if (col.id === "raw") {
+          return `<span class="paper-hold-score ${escapeHtml(
+            d.rawCls || ""
+          )}">${escapeHtml(d.raw ?? "—")}</span>`;
         }
         return escapeHtml(d[col.id] ?? "—");
       },
@@ -7289,9 +7313,9 @@ export function initQuant(ctx) {
     const mode = cs.mode || "off";
     const modeLabel =
       mode === "active"
-        ? "已启用组权"
+        ? "已启用组ŷ"
         : mode === "shadow"
-          ? "对照中（主分仍全局）"
+          ? "对照中（映射已就绪）"
           : "未接通";
     const cov =
       h.coverage != null ? `${Math.round(Number(h.coverage) * 100)}%` : "—";
@@ -7304,8 +7328,6 @@ export function initQuant(ctx) {
     const doneResearch = nextStep === "go_follow" || readyFollow;
     const next = land.next_label || "① 对照";
     const nextPrefix = doneResearch ? "状态：" : "下一步：";
-    const audit = (data && data.audit_sample) || {};
-    const rows = Array.isArray(audit.rows) ? audit.rows : [];
     const ev = (data && data.enable_evidence) || {};
     const evGate = ev.gate || {};
     const evBlockers = Array.isArray(evGate.blockers) ? evGate.blockers : [];
@@ -7335,7 +7357,7 @@ export function initQuant(ctx) {
       `<span class="quant-cluster-stat"><b>v${escapeHtml(
         String(act.version != null ? act.version : "—")
       )}</b> 映射</span>` +
-      `<span class="quant-cluster-stat" title="组权打分后全局按 score 排序，再按 min_score / max 截断"><b>全局</b> 排序</span>` +
+      `<span class="quant-cluster-stat" title="组ŷ 打分后全局按 score 排序，再按 min_score / max 截断"><b>全局</b> 排序</span>` +
       `<span class="quant-cluster-stat"><b>${escapeHtml(cov)}</b> 覆盖</span>` +
       `<span class="quant-cluster-stat${h.stale ? " is-warn" : ""}"><b>${escapeHtml(
         age
@@ -7367,7 +7389,7 @@ export function initQuant(ctx) {
                 : "—"
           }</span></summary>` +
           `<ul class="quant-cluster-evidence-list">` +
-          `<li title="组权分→全局排序→min_score 过滤→max 截断">簿长 ${escapeHtml(
+          `<li title="组ŷ→全局排序→min_score 过滤→max 截断">簿长 ${escapeHtml(
             String(ev.name_count != null ? ev.name_count : book.name_count ?? "—")
           )} · 全局排序 · min_score=${escapeHtml(
             String(minScore)
@@ -7394,9 +7416,6 @@ export function initQuant(ctx) {
                 )
               : "—"
           }</li>` +
-          `<li>双分样本 ${escapeHtml(
-            String((ev.score_audit_sample || {}).count ?? rows.length)
-          )} 只</li>` +
           (evBlockers.length
             ? `<li class="down">拦：${escapeHtml(evBlockers.join("；"))}</li>`
             : "") +
@@ -7409,89 +7428,14 @@ export function initQuant(ctx) {
       `<div class="quant-cluster-landing-actions">` +
       `<button type="button" class="dialog-btn dialog-btn-keep-case" ` +
       `data-cluster-export="live-apply" ${canApply ? "" : "disabled"} ` +
-      `title="晋升映射 → shadow → 刷新簿（更新交易执行打分用的组权）">① 对照</button>` +
+      `title="晋升分组映射 → 进入对照（shadow）→ 刷新目标簿。此步不切换交易执行选股真源。">① 对照</button>` +
       `<button type="button" class="dialog-btn dialog-btn-keep-case" ` +
       `data-cluster-export="live-active" ${canActivate ? "" : "disabled"} ` +
-      `title="证据包+健康门禁通过后启用组权打分（交易执行页 score 吃组权）">② 启用</button>` +
+      `title="证据包与健康门禁通过后，将交易执行选股切换为组ŷ。不改写 signal_config.weights。">② 启用</button>` +
       `<span class="sub quant-cluster-landing-next${
         doneResearch ? " is-done" : ""
       }">${nextPrefix}${escapeHtml(next)}</span>` +
       `</div>`;
-
-    let auditHtml = "";
-    if (mode === "shadow" || mode === "active") {
-      const body = rows.length
-        ? rows
-            .map((r) => {
-              const dg = r.delta_vs_global;
-              const dCls =
-                dg != null && Number(dg) > 0
-                  ? "up"
-                  : dg != null && Number(dg) < 0
-                    ? "down"
-                    : "";
-              return (
-                `<div class="watching-react-grid-row">` +
-                `<div class="watching-react-grid-cell" style="flex:1 1 auto;min-width:0">` +
-                `${escapeHtml(
-                  formatStockCodeName(r.stock_code, r.stock_name || "")
-                )}` +
-                (r.cluster_label
-                  ? ` <span class="sub">${escapeHtml(String(r.cluster_label))}</span>`
-                  : "") +
-                `</div>` +
-                `<div class="watching-react-grid-cell watching-col-num num" style="flex:0 0 14%">` +
-                `${escapeHtml(
-                  r.score_global != null ? fmtScore(r.score_global) : "—"
-                )}</div>` +
-                `<div class="watching-react-grid-cell watching-col-num num" style="flex:0 0 14%">` +
-                `${escapeHtml(
-                  r.score_cluster != null
-                    ? fmtScore(r.score_cluster)
-                    : "—"
-                )}</div>` +
-                `<div class="watching-react-grid-cell watching-col-num num" style="flex:0 0 12%">` +
-                `<span class="bt-trade-ret ${dCls}">${escapeHtml(
-                  dg != null
-                    ? `${Number(dg) > 0 ? "+" : ""}${Number(dg).toFixed(2)}`
-                    : "—"
-                )}</span></div>` +
-                `</div>`
-              );
-            })
-            .join("")
-        : `<p class="watching-table-empty">${escapeHtml(
-            audit.error
-              ? `双分对照失败：${audit.error}`
-              : "双分对照暂无样本（行情/打分未就绪）"
-          )}</p>`;
-      const sampled =
-        audit.sampled_at || audit.version != null
-          ? ` · 采样${
-              audit.version != null ? ` v${audit.version}` : ""
-            }${audit.sampled_at ? ` @ ${String(audit.sampled_at).slice(11, 19)}` : ""}`
-          : "";
-      auditHtml =
-        `<div class="quant-cluster-landing-audit">` +
-        `<div class="quant-cluster-tables-head">` +
-        `<span class="quant-cluster-tables-label">双分对照</span>` +
-        `<span class="sub">全局 / 组权 / Δ${escapeHtml(sampled)} · 不写 config</span>` +
-        `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" ` +
-        `data-cluster-export="live-audit" title="轮换样本并重新打分">刷新对照</button>` +
-        `</div>` +
-        (rows.length
-          ? `<div class="watching-react-grid quant-research-grid quant-cluster-audit-grid">` +
-            `<div class="watching-react-grid-head"><div class="watching-react-grid-row is-head">` +
-            `<div class="watching-react-grid-cell" style="flex:1 1 auto">标的</div>` +
-            `<div class="watching-react-grid-cell watching-col-num" style="flex:0 0 14%">全局</div>` +
-            `<div class="watching-react-grid-cell watching-col-num" style="flex:0 0 14%">组权</div>` +
-            `<div class="watching-react-grid-cell watching-col-num" style="flex:0 0 12%">Δ</div>` +
-            `</div></div>` +
-            `<div class="watching-react-grid-body quant-research-grid-body">${body}</div>` +
-            `</div>`
-          : body) +
-        `</div>`;
-    }
 
     const more =
       `<details class="quant-cluster-more quant-cluster-advanced" id="quant-cluster-live-bar">` +
@@ -7513,23 +7457,14 @@ export function initQuant(ctx) {
       alertHtml +
       evidenceHtml +
       actions +
-      auditHtml +
       more +
       `</div>`
     );
   }
 
-  async function refreshClusterLiveStatus({ auditRotate = false } = {}) {
+  async function refreshClusterLiveStatus() {
     try {
-      const q = new URLSearchParams();
-      if (auditRotate) {
-        q.set("audit_rotate", "true");
-        q.set("audit_offset", String(Date.now() % 10000000));
-      }
-      const url =
-        "/api/quant/cluster-live/status" +
-        (q.toString() ? `?${q.toString()}` : "");
-      const res = await fetch(url);
+      const res = await fetch("/api/quant/cluster-live/status");
       const data = await res.json();
       // await 后重取节点：分组重绘会替换 #quant-cluster-landing，旧引用已脱离 DOM
       const host = document.getElementById("quant-cluster-landing");
@@ -7600,20 +7535,32 @@ export function initQuant(ctx) {
       quantLastOlsClusters && quantLastOlsClusters.pool_artifact;
     if (
       !window.confirm(
-        "一键应用分组？\n将：晋升映射 → 影子模式 → 刷新分池簿。\n不写 signal_config.weights。"
+        [
+          "进入对照（shadow）？",
+          "",
+          "将执行：",
+          "· 晋升当前分组映射为 live",
+          "· 模式切换为 shadow（对照）",
+          "· 按组ŷ 刷新分池目标簿",
+          "",
+          "说明：",
+          "· 交易执行页选股仍用现行规则，直至「② 启用」",
+          "· 不写入 signal_config.weights",
+          "· 可随时「关闭 / 回滚」撤销",
+        ].join("\n")
       )
     ) {
       return;
     }
-    setQuantMeta("应用分组中…", { busy: true });
-    const body = { from_draft: true, mode: "shadow", note: "一键应用" };
+    setQuantMeta("正在进入对照…", { busy: true });
+    const body = { from_draft: true, mode: "shadow", note: "落地·对照" };
     if (art && art.success && art.code_map) {
       body.artifact = art;
       body.from_draft = false;
     }
     const out = await postClusterLive("/api/quant/cluster-live/apply", body);
     if (!out.ok) {
-      setQuantMeta(`应用失败 · ${out.error}`, { error: true });
+      setQuantMeta(`对照未完成 · ${out.error}`, { error: true });
       return;
     }
     const n =
@@ -7622,7 +7569,9 @@ export function initQuant(ctx) {
         out.data.refresh.rank.name_count) ||
       0;
     setQuantMeta(
-      `${out.data.note || "已应用"}` + (n ? ` · 簿 ${n} 只` : "")
+      `已进入对照（shadow）` +
+        (n ? ` · 目标簿 ${n} 只` : "") +
+        ` · 启用前交易执行选股未切换`
     );
     refreshClusterLiveStatus();
   }
@@ -7633,7 +7582,11 @@ export function initQuant(ctx) {
   }
 
   async function runClusterLiveMode(mode) {
-    let confirmMsg = `将 cluster_scoring.mode 设为 ${mode}？\n仅改开关，不改全局 weights。`;
+    let confirmMsg = [
+      `切换分组 live 模式为「${mode}」？`,
+      "",
+      "仅变更选股开关，不改写 signal_config.weights。",
+    ].join("\n");
     if (mode === "active") {
       try {
         const stRes = await fetch("/api/quant/cluster-live/status");
@@ -7641,20 +7594,27 @@ export function initQuant(ctx) {
         const ev = (st && st.enable_evidence) || {};
         const oos = ev.oos_summary || {};
         const turn = ev.turnover_est || {};
-        confirmMsg =
-          `启用组权前请确认证据包：\n` +
-          `· 簿 ${ev.name_count ?? "—"} 只 · 全局排序 · max=${ev.max_names ?? "—"}\n` +
-          `· OOS 通过 ${oos.pass_count ?? 0} / 失败 ${oos.fail_count ?? 0}\n` +
-          `· 相对纸面约卖 ${turn.would_sell_count ?? 0} · 买 ${turn.would_buy_count ?? 0}\n` +
-          `· 健康覆盖 ${
-            ev.health && ev.health.coverage != null
-              ? Math.round(Number(ev.health.coverage) * 100) + "%"
-              : "—"
-          }\n\n` +
-          `确认将 mode 设为 active？（不改全局 weights）`;
+        const cov =
+          ev.health && ev.health.coverage != null
+            ? `${Math.round(Number(ev.health.coverage) * 100)}%`
+            : "—";
+        confirmMsg = [
+          "启用组ŷ选股？",
+          "",
+          "证据摘要：",
+          `· 目标簿 ${ev.name_count ?? "—"} 只 · 上限 ${ev.max_names ?? "—"}`,
+          `· OOS（heuristic 基线 vs ŷ）：通过 ${oos.pass_count ?? 0} · 失败 ${oos.fail_count ?? 0}`,
+          `· 相对当前纸面：约卖 ${turn.would_sell_count ?? 0} · 买 ${turn.would_buy_count ?? 0}`,
+          `· 映射健康覆盖 ${cov}`,
+          "",
+          "启用后：",
+          "· 交易执行页「预演调仓」将按组ŷ 排序与目标簿执行",
+          "· 不写入 signal_config.weights",
+          "· 过门 ≠ 自动 promote；可随时关闭或回滚",
+        ].join("\n");
         if (ev.gate && ev.gate.ok === false) {
           setQuantMeta(
-            `证据包未通过 · ${(ev.gate.blockers || []).join("；") || "见落地卡"}`,
+            `启用受阻 · ${(ev.gate.blockers || []).join("；") || "证据包未通过，见落地卡"}`,
             { error: true }
           );
           refreshClusterLiveStatus();
@@ -7663,17 +7623,46 @@ export function initQuant(ctx) {
       } catch (_) {
         /* 仍走后端门禁 */
       }
+    } else if (mode === "off") {
+      confirmMsg = [
+        "关闭分组 live？",
+        "",
+        "交易执行页将回到非组ŷ选股路径。",
+        "已晋升的映射文件保留，可再次对照 / 启用。",
+        "不改写 signal_config.weights。",
+      ].join("\n");
+    } else if (mode === "shadow") {
+      confirmMsg = [
+        "切回对照（shadow）？",
+        "",
+        "映射与目标簿保留；交易执行页选股暂不吃组ŷ。",
+        "不改写 signal_config.weights。",
+      ].join("\n");
     }
     if (!window.confirm(confirmMsg)) {
       return;
     }
-    setQuantMeta(`设置 mode=${mode}…`, { busy: true });
+    const busyLabel =
+      mode === "active"
+        ? "正在启用组ŷ…"
+        : mode === "off"
+          ? "正在关闭分组 live…"
+          : `正在切换 mode=${mode}…`;
+    setQuantMeta(busyLabel, { busy: true });
     const out = await postClusterLive("/api/quant/cluster-live/mode", { mode });
     if (!out.ok) {
-      setQuantMeta(`设置失败 · ${out.error}`, { error: true });
+      setQuantMeta(`模式未变更 · ${out.error}`, { error: true });
       return;
     }
-    setQuantMeta(`分组 live mode=${mode}`);
+    const doneLabel =
+      mode === "active"
+        ? "已启用组ŷ · 交易执行预演将按组ŷ 选股"
+        : mode === "off"
+          ? "已关闭分组 live"
+          : mode === "shadow"
+            ? "已切回对照（shadow）"
+            : `分组 live mode=${mode}`;
+    setQuantMeta(doneLabel);
     refreshClusterLiveStatus();
   }
 
@@ -7702,14 +7691,26 @@ export function initQuant(ctx) {
   }
 
   async function runClusterLiveRollback() {
-    if (!window.confirm("回滚到上一版 live 映射？")) return;
-    setQuantMeta("回滚中…", { busy: true });
-    const out = await postClusterLive("/api/quant/cluster-live/rollback", {});
-    if (!out.ok) {
-      setQuantMeta(`回滚失败 · ${out.error}`, { error: true });
+    if (
+      !window.confirm(
+        [
+          "回滚 live 分组映射？",
+          "",
+          "将恢复上一版已晋升的 code_map / return_model。",
+          "当前对照或启用状态可能随之变化。",
+          "不改写 signal_config.weights。",
+        ].join("\n")
+      )
+    ) {
       return;
     }
-    setQuantMeta(`已回滚 · v${out.data.version ?? "—"}`);
+    setQuantMeta("正在回滚映射…", { busy: true });
+    const out = await postClusterLive("/api/quant/cluster-live/rollback", {});
+    if (!out.ok) {
+      setQuantMeta(`回滚未完成 · ${out.error}`, { error: true });
+      return;
+    }
+    setQuantMeta(`已回滚` + (out.data.version != null ? ` · 现为 v${out.data.version}` : ""));
     refreshClusterLiveStatus();
   }
 
@@ -8715,13 +8716,6 @@ export function initQuant(ctx) {
       runClusterLiveRefresh();
       return;
     }
-    if (key === "live-audit") {
-      setQuantMeta("轮换双分对照样本…", { busy: true });
-      refreshClusterLiveStatus({ auditRotate: true }).then(() => {
-        setQuantMeta("双分对照已换一批样本");
-      });
-      return;
-    }
     if (key === "live-rollback") {
       runClusterLiveRollback();
       return;
@@ -8760,123 +8754,6 @@ export function initQuant(ctx) {
   if (quantFactorList && quantFactorList.dataset.clusterExportWired !== "1") {
     quantFactorList.dataset.clusterExportWired = "1";
     quantFactorList.addEventListener("click", onClusterExportClick);
-  }
-
-  async function fillWatchingNextDayTrend() {
-    if (!watchingGrid || !watchingGridReady) return;
-    const codes = (watchingGrid.getData() || []).map((r) => r.code).filter(Boolean);
-    if (!codes.length) return;
-    codes.forEach((code) => {
-      const comp = watchingGrid.getRow(code);
-      if (comp) {
-        comp.update({
-          ndBias: "…",
-          ndBiasKey: "",
-          ndBiasTitle: "计算中…",
-        });
-      }
-    });
-    const res = await fetch("/api/quant/next-day-trend", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        lookback: 120,
-        lookback_eval_days: 60,
-        flat_band_pct: 0.5,
-        watching_limit: 20,
-        pit_fundamentals: true,
-      }),
-    });
-    let data = null;
-    try {
-      data = await res.json();
-    } catch (_) {
-      data = null;
-    }
-    if (!res.ok) {
-      const detail =
-        (data && (data.detail || data.error)) ||
-        (res.status === 404
-          ? "接口未找到：请重启 Web"
-          : `HTTP ${res.status}`);
-      codes.forEach((code) => {
-        const comp = watchingGrid.getRow(code);
-        if (comp) {
-          comp.update({
-            ndBias: "—",
-            ndBiasKey: "",
-            ndBiasTitle: detail,
-          });
-        }
-      });
-      return;
-    }
-    if (!data || data.success === false) {
-      const err = (data && data.error) || "次日预判失败";
-      codes.forEach((code) => {
-        const comp = watchingGrid.getRow(code);
-        if (comp) {
-          comp.update({
-            ndBias: "—",
-            ndBiasKey: "",
-            ndBiasTitle: err,
-          });
-        }
-      });
-      return;
-    }
-    const biasLabel = { up: "偏多", down: "偏空", flat: "中性" };
-    const byCode = {};
-    (data.latest || []).forEach((row) => {
-      const c = String((row && row.code) || "").trim();
-      if (c) byCode[c] = row;
-    });
-    codes.forEach((code) => {
-      const row =
-        byCode[code] ||
-        byCode[watchingCodeKey(code)] ||
-        Object.values(byCode).find(
-          (r) => watchingCodeKey(r.code) === watchingCodeKey(code)
-        );
-      const comp = watchingGrid.getRow(code);
-      if (!comp) return;
-      if (!row) {
-        comp.update({
-          ndBias: "—",
-          ndBiasKey: "",
-          ndBiasTitle: "无预判结果",
-        });
-        return;
-      }
-      const key = String(row.bias || "");
-      const conf =
-        row.conf != null ? `${(Number(row.conf) * 100).toFixed(0)}%` : "—";
-      const phase = String(row.decision_phase || "");
-      // 列名已是「次日」；仅昨收→今日例外标「今·」，避免与现价假对照
-      const prefix = phase === "prior_close_for_today" ? "今·" : "";
-      const tipBits = [
-        `${row.as_of || "—"} → 预判 ${row.target_date || "次日"}`,
-        `score ${row.score ?? "—"}`,
-        `置信 ${conf}`,
-      ];
-      if (row.intraday_provisional) tipBits.push("盘中暂估决策日");
-      if (phase === "prior_close_for_today") {
-        tipBits.push("昨收预判今日（可与涨跌对照，非明日前瞻）");
-        if (row.live_vs_pred) tipBits.push(`盘中对照 ${row.live_vs_pred}`);
-      } else {
-        tipBits.push("勿用今日涨跌评判明日预判");
-      }
-      const ev = data.eval || {};
-      if (ev.hit_rate != null) {
-        tipBits.push(`历史命中 ${(Number(ev.hit_rate) * 100).toFixed(1)}%`);
-      }
-      tipBits.push("非投资建议");
-      comp.update({
-        ndBias: `${prefix}${biasLabel[key] || key || "—"}`,
-        ndBiasKey: key,
-        ndBiasTitle: tipBits.join(" · "),
-      });
-    });
   }
 
   on("quant-horizon-save-default", "click", async (e) => {
@@ -9052,21 +8929,6 @@ export function initQuant(ctx) {
     }
   });
 
-  async function runRankModeCompare() {
-    setQuantBtBusy(true, "排序对照已退役…");
-    const metaEl = document.getElementById("quant-rank-mode-compare-meta");
-    const msg = "规则分已全局退役；系统仅认收益分 predicted_score";
-    if (quantPortfolioSummary) {
-      quantPortfolioSummary.textContent = msg;
-      quantPortfolioSummary.classList.add("down");
-    }
-    if (metaEl) {
-      metaEl.hidden = false;
-      metaEl.textContent = msg;
-    }
-    setQuantBtBusy(false);
-  }
-
   async function fitReturnScoreModel() {
     setQuantBtBusy(true, "拟合收益排序模型…");
     try {
@@ -9102,15 +8964,6 @@ export function initQuant(ctx) {
       setQuantBtBusy(false);
     }
   }
-
-  on("quant-rank-mode-compare", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await runRankModeCompare();
-    } catch (err) {
-      if (quantPortfolioSummary) quantPortfolioSummary.textContent = String(err.message || err);
-    }
-  });
 
   on("quant-return-model-fit", "click", async (e) => {
     e.preventDefault();
