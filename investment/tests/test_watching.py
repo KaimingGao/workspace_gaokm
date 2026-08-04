@@ -146,6 +146,26 @@ class TestWatching(unittest.TestCase):
         codes = [x["stock_code"] for x in out["items"]]
         self.assertIn("600519", codes)
 
+    def test_search_former_names_military(self):
+        """曾用名：哈飞股份→中直；中船股份→中船科技。"""
+        from skills.common.stock_search import search_stocks
+
+        with patch("skills.screen.engine.fetch_a_spot", return_value=[]):
+            hafei = search_stocks("哈飞股份", limit=5)
+            cssc = search_stocks("中船股份", limit=5)
+        self.assertTrue(hafei["success"])
+        self.assertEqual(hafei["items"][0]["stock_code"], "600038")
+        self.assertIn("中直", hafei["items"][0]["stock_name"])
+        self.assertTrue(cssc["success"])
+        self.assertEqual(cssc["items"][0]["stock_code"], "600072")
+        self.assertIn("中船科技", cssc["items"][0]["stock_name"])
+
+    def test_search_strips_corp_suffix(self):
+        from skills.common import stock_search as ss
+
+        self.assertEqual(ss._query_variants("哈飞股份"), ["哈飞股份", "哈飞"])
+        self.assertEqual(ss._query_variants("中船股份"), ["中船股份", "中船"])
+
     def test_list_watchlist_quotes(self):
         from core.watching_store import list_watchlist_quotes
 

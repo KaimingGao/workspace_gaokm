@@ -1,12 +1,10 @@
-"""横截面排序：对 watching 候选批量打分（P9.2）。"""
+"""横截面排序：对 watching 候选批量打分（P9.2）。仅收益分 ŷ。"""
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
 from core.signal.config import get_rank_defaults, load_signal_config
-from core.signal.neutralize import apply_cross_section_neutralization
-from core.signal.scorer import rank_candidates
 from core.signal.score_stock import score_stock
 from core.watching_store import read_watching, refresh_watchlist
 
@@ -19,7 +17,7 @@ def rank_cross_section(
     min_score: Optional[float] = None,
     watching_path: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """对候选列表做短线横截面排序，返回 Top N。"""
+    """对候选列表做短线横截面排序，返回 Top N（按 predicted_score）。"""
     cfg = load_signal_config()
     defaults = get_rank_defaults(cfg)
     if min_score is None:
@@ -62,31 +60,91 @@ def rank_cross_section(
             continue
         scored_items.append(item)
 
-    neutralization: Dict[str, Any] = {"applied": False}
-    cs_cfg = cfg.get("cross_section") or {}
-    if cs_cfg.get("neutralize", True) and scored_items:
-        neut = apply_cross_section_neutralization(
-            scored_items,
-            weights=cfg.get("weights") or {},
-            method=str(cs_cfg.get("method") or "zscore"),
-            min_samples=int(cs_cfg.get("min_samples") or 3),
-            zscore_scale=float(cs_cfg.get("zscore_scale") or 10.0),
-            industry_residual=bool(cs_cfg.get("industry_residual")),
-            size_residual=bool(cs_cfg.get("size_residual")),
-            size_buckets=int(cs_cfg.get("size_buckets") or 3),
-        )
-        scored_items = neut.get("items") or scored_items
-        neutralization = {k: v for k, v in neut.items() if k != "items"}
-
-    ranked = rank_candidates(
-        scored_items,
-        limit=limit,
-        min_score=float(min_score),
-        config=cfg,
+    from core.signal.return_score import (
+        apply_predicted_scores,
+        apply_predicted_scores_by_model,
+        clamp_rank_mode,
+        rank_by_predicted_score,
     )
-    if not ranked and scored_items:
-        scored_items.sort(key=lambda x: x.get("score") or 0, reverse=True)
-        ranked = scored_items[:limit]
+    from core.signal.return_score_store import load_return_model
+
+    scoring_cfg = cfg.get("scoring") or {}
+    rank_mode = clamp_rank_mode(scoring_cfg.get("rank_mode"))
+    rank_meta: Dict[str, Any] = {"rank_mode": rank_mode}
+    cluster_models: Dict[str, Any] = {}
+    try:
+        from core.signal.cluster_live import load_cluster_return_models_by_code
+
+        cluster_models = load_cluster_return_models_by_code()
+    except Exception:
+        cluster_models = {}
+    return_model, model_meta = load_return_model(prefer_active=True)
+    if cluster_models:
+        scored_items = apply_predicted_scores_by_model(
+            scored_items,
+            cluster_models,
+            write_rank_score=False,
+            default_model=return_model,
+        )
+        rank_meta["return_model_source"] = "cluster_group_beta"
+        rank_meta["cluster_return_models"] = len(cluster_models)
+        if return_model is not None:
+            rank_meta["global_return_model"] = model_meta
+    elif return_model is not None:
+        scored_items = apply_predicted_scores(
+            scored_items, return_model, write_rank_score=False
+        )
+        rank_meta["return_model_source"] = "global"
+        rank_meta["return_model"] = model_meta
+    else:
+        rank_meta["fallback"] = "no_model"
+
+    neutralization: Dict[str, Any] = {
+        "applied": False,
+        "skipped": True,
+        "reason": "predicted_score_uses_factor_coefs",
+    }
+
+    has_pred = bool(cluster_models) or return_model is not None or any(
+        it.get("predicted_score") is not None for it in scored_items
+    )
+    ranked: List[dict] = []
+    if has_pred:
+        min_pred = scoring_cfg.get("min_predicted_score")
+        try:
+            min_pred_f = float(min_pred) if min_pred is not None else None
+        except (TypeError, ValueError):
+            min_pred_f = None
+        picks = rank_by_predicted_score(
+            scored_items, min_predicted_score=min_pred_f, top_k=limit
+        )
+        by_code = {
+            str(it.get("stock_code") or "").strip(): it for it in scored_items
+        }
+        for code, yhat in picks:
+            it = dict(by_code.get(code) or {})
+            it["score"] = yhat
+            it["predicted_score"] = yhat
+            it["rank_mode"] = "predicted_score"
+            it.pop("heuristic_score", None)
+            ranked.append(it)
+        if not ranked:
+            rank_meta["fallback"] = "empty_preds"
+            ranked = [
+                dict(it)
+                for it in scored_items
+                if it.get("predicted_score") is not None and not it.get("hard_reject")
+            ]
+            ranked.sort(
+                key=lambda x: float(x.get("predicted_score") or 0.0), reverse=True
+            )
+            ranked = ranked[:limit]
+            for it in ranked:
+                it["score"] = it.get("predicted_score")
+                it["rank_mode"] = "predicted_score"
+                it.pop("heuristic_score", None)
+    else:
+        rank_meta["fallback"] = rank_meta.get("fallback") or "no_model"
 
     return {
         "success": True,
@@ -97,9 +155,6 @@ def rank_cross_section(
         "ranking": ranked,
         "rejected_sample": rejected[:8],
         "neutralization": neutralization,
-        "note": (
-            "横截面排序基于 score_bars"
-            + ("（截面中性化后重加权）" if neutralization.get("applied") else "")
-            + "，供观察池/纸面参考，不保证收益。"
-        ),
+        "rank_meta": rank_meta,
+        "note": "横截面排序基于 predicted_score（收益分 ŷ）；无模型则空榜，不保证收益。",
     }

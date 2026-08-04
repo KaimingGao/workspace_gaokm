@@ -61,7 +61,16 @@
     "min_score": 55,
     "default_limit": 8
   },
+  "scoring": {
+    "rank_mode": "predicted_score",
+    "min_predicted_score": null
+  },
   "stance_thresholds": {
+    "avoid": -0.5,
+    "wait": 0,
+    "probe": 0.35
+  },
+  "stance_thresholds_heuristic": {
     "avoid": 45,
     "wait": 55,
     "probe": 68

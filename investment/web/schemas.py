@@ -234,8 +234,8 @@ class FactorOlsClusterRequest(BaseModel):
     n_clusters: Optional[int] = Field(
         default=None,
         ge=2,
-        le=12,
-        description="组数；默认 null=complete-linkage 按 τ 切树（类内直径上限）",
+        le=100,
+        description="目标组数；null=自动约 n/5（夹在 4～10）；显式 ≥2，实际上限=有效票数-1",
     )
     cluster_method: str = Field(
         default="hierarchical",
@@ -402,6 +402,48 @@ class PortfolioBacktestRequest(BaseModel):
     include_benchmark: bool = True
     # T10：000300 / 000905 / 399006 / pool（强制池等权）
     benchmark_code: str = "000300"
+    # 仅 predicted_score；规则分已退役
+    rank_mode: str = Field(
+        default="predicted_score",
+        description="排序键：仅 predicted_score（收益分）；其它值亦按收益分",
+    )
+    min_predicted_score: Optional[float] = Field(
+        default=None,
+        description="收益分下限（百分点）；默认不截断",
+    )
+    return_model_min_samples: int = Field(default=24, ge=8, le=500)
+    return_model_ridge_lambda: float = Field(default=0.0, ge=0.0, le=100.0)
+
+
+class RankModeCompareRequest(BaseModel):
+    """已退役：规则分 vs 收益分对照。"""
+
+    codes: Optional[list] = None
+    lookback: int = Field(default=120, ge=40, le=500)
+    top_k: int = Field(default=3, ge=1, le=10)
+    horizon_days: int = Field(default=3, ge=1, le=10)
+    min_score: float = Field(default=55.0, ge=0, le=100)
+    min_predicted_score: Optional[float] = None
+    apply_costs: bool = True
+    watching_limit: int = Field(default=12, ge=3, le=40)
+    return_model_min_samples: int = Field(default=24, ge=8, le=500)
+    return_model_ridge_lambda: float = Field(default=0.0, ge=0.0, le=100.0)
+
+
+class ReturnModelFitRequest(BaseModel):
+    """拟合收益排序模型并可选落研究草稿。"""
+
+    codes: Optional[list] = None
+    lookback: int = Field(default=120, ge=40, le=500)
+    horizon_days: int = Field(default=3, ge=1, le=10)
+    watching_limit: int = Field(default=12, ge=3, le=40)
+    ridge_lambda: float = Field(default=0.0, ge=0.0, le=100.0)
+    min_samples: int = Field(default=24, ge=8, le=500)
+    save_draft: bool = True
+
+
+class ReturnModelPromoteRequest(BaseModel):
+    note: str = ""
 
 
 class ParamGridRequest(BaseModel):
@@ -435,6 +477,29 @@ class WeightSuggestRequest(BaseModel):
         ge=0.0,
         le=100.0,
         description="嵌入 OLS 回退时的 Ridge λ；0=普通 OLS",
+    )
+
+
+class WeightCoordCompareRequest(BaseModel):
+    """权重坐标搜索对照：global / OLS·IC 建议 / 坐标网格（研究只读）。"""
+
+    codes: Optional[list] = None
+    lookback: int = Field(default=90, ge=40, le=500)
+    top_k: int = Field(default=3, ge=1, le=10)
+    horizon_days: int = Field(default=3, ge=1, le=10)
+    min_score: float = Field(default=55.0, ge=0, le=100)
+    watching_limit: int = Field(default=10, ge=3, le=30)
+    include_ols_arm: bool = Field(
+        default=True,
+        description="是否跑 IC/OLS 建议臂（关闭可加快，仅对照 global vs 坐标搜索）",
+    )
+    suggest_code: str = Field(default="茅台", description="嵌入 suggest_weights 的锚点票")
+    ridge_lambda: float = Field(default=0.0, ge=0.0, le=100.0)
+    n_sweeps: int = Field(default=2, ge=1, le=5)
+    max_evals: int = Field(default=48, ge=5, le=200)
+    start_from: str = Field(
+        default="current",
+        description="坐标搜索起点：current | equal | suggested",
     )
 
 

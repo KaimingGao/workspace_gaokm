@@ -13,14 +13,30 @@
     <div class="quant-cluster-params quant-actions-inline" aria-label="分组参数">
       <label class="platform-field" title="研究前瞻持有期（1～10）；不影响数据中心 live 评分">
         horizon
-        <input id="quant-horizon" type="number" min="1" max="10" value="3" />
+        <input id="quant-horizon" type="number" min="1" max="10" value="1" />
       </label>
       <button type="button" id="quant-horizon-save-default" class="dialog-btn secondary" title="写入 memory.json，供下次打开研究/回测默认">
         存为默认
       </button>
-      <label class="platform-field" title="Ridge λ；0=普通 OLS（QR）；>0 收缩斜率、缓解共线（截距不惩罚）">
+      <label class="platform-field" title="Ridge λ；0=普通 OLS（QR）；>0 收缩斜率、缓解共线（截距不惩罚）；默认 0.5">
         ridge λ
-        <input id="quant-ridge-lambda" type="number" min="0" max="100" step="0.1" value="0" />
+        <input id="quant-ridge-lambda" type="number" min="0" max="100" step="0.1" value="0.5" />
+      </label>
+      <label
+        class="platform-field"
+        title="目标聚类数 K：默认 10；清空=自动约 N/5（4～10）；填 ≥2 尽量切到该 k（实际上限≈观察池有效只数）"
+      >
+        K
+        <input
+          id="quant-cluster-k"
+          type="number"
+          min="2"
+          max="100"
+          step="1"
+          value="10"
+          placeholder="自动"
+          inputmode="numeric"
+        />
       </label>
       <button
         type="button"
@@ -31,24 +47,39 @@
         跑分组
       </button>
     </div>
+    <p class="quant-fingerprint quant-oos-semantics" title="OOS 产品语义">
+      OOS：heuristic（人工加权基线） vs predicted_score（枢纽 ŷ）· 过门≠自动 promote
+    </p>
     <details class="quant-fold quant-help-fold">
-      <summary>IC / OLS·Ridge / 建议权重说明</summary>
+      <summary>IC / OLS·因子系数说明</summary>
       <div class="quant-help-body">
         <p>
-          <strong>目的</strong>：找出 OLS 表现相似的股票，<strong>同组共用一套建模/配权</strong>；
-          不同组各自池 OLS → 各自建议权，避免异质票硬套全局权。
+          <strong>目的</strong>：找出 OLS 表现相似的股票，<strong>同组共用一套因子系数</strong>；
+          不同组各自池 OLS → 各自 β → 收益分 ŷ，避免异质票硬套全局模型。
         </p>
         <p>
-          「跑分组」：宇宙=<strong>全部观察池</strong>，按单票 OLS β 层次聚类到目标组数（约 N/5，4～10），超大组再二分；
-          <strong>一组一表</strong>标题含成员（名称+代码）与当前 / 建议 / Δ · 组内 OLS β。
-          异质用探针核对。数据不足单独提示。均不写全局 config。
+          「跑分组」：宇宙=<strong>全部观察池</strong>，按单票 OLS β 层次聚类。
+          表单默认 <strong>ridge λ=0.5</strong>、<strong>K=10</strong>；
+          <strong>K 清空</strong>=自动约 N/5（夹在 4～10），超大组再二分；
+          <strong>填 ≥2</strong>=按目标 k 切簇（尽量贴近 K；实际上限≈有效票数，不因离群拆成单票堆）。
+          异质用探针核对。
+          <strong>一组一表</strong>标题含成员（名称+代码）；主列展示<strong>因子系数 β</strong>
+         （z 上 ŷ 百分点斜率，可负；<strong>不是</strong>归一化权重）。
+          数据不足单独提示。均不写全局 config。
         </p>
 
-        <h4>当前 / 建议 / Δ（权重建议）</h4>
+        <h4>OOS 语义</h4>
         <p>
-          分组后为<strong>一组一表</strong>。表里<strong>当前</strong>来自 <code>signal_config.weights</code>；
-          <strong>建议</strong>来自<strong>该组</strong>池 OLS 小步草案（异组不同）。
-          详见 <code>docs/weight-suggest-deepen.md</code>。
+          <strong>基线</strong>：全局人工预定义线性加权（<code>heuristic_score</code>）。
+          <strong>研究臂</strong>：本页回归模型 → <code>predicted_score</code>（ŷ）。
+          枢纽定位是找到更优 ŷ，提升回测收益与交易选股；门禁看权益后 30% 段；过门 ≠ 自动 promote。
+        </p>
+
+        <h4>因子系数 β</h4>
+        <p>
+          分组后为<strong>一组一表</strong>。表里<strong>系数 β</strong>来自该组池 OLS，
+          即 <code>return_model.coefficients</code>，驱动组内收益分 ŷ。
+          量纲：对标准化因子的 ŷ% 斜率。详见 <code>docs/weight-suggest-deepen.md</code>。
         </p>
 
         <h4>探针（单票 vs 所在组）</h4>
@@ -68,7 +99,7 @@
     <div
       id="quant-factor-list"
       class="quant-weight-table-wrap"
-      aria-label="因子建议表（分组后为每组一张表）"
+      aria-label="因子系数表（分组后为每组一张表）"
     ></div>
     <div id="quant-weight-suggest" class="quant-sub"></div>
     <!-- 兼容旧测试/深链：池 OLS API 仍保留，UI 不再入口 -->

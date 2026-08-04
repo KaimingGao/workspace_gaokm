@@ -34,17 +34,16 @@ from web.schemas import (
     PortfolioBacktestRequest,
     QuantInterpretRequest,
     QuantReportRequest,
+    RankModeCompareRequest,
+    ReturnModelFitRequest,
+    ReturnModelPromoteRequest,
     T0BacktestRequest,
     ThresholdSuggestRequest,
+    WeightCoordCompareRequest,
     WeightSuggestRequest,
 )
 
 router = APIRouter(tags=["quant"])
-
-
-class SignalConfigDraftBody(BaseModel):
-    config: Dict[str, Any]
-    note: str = ""
 
 
 class PortfolioBacktestExportBody(BaseModel):
@@ -151,43 +150,6 @@ def signal_config_diff_export(code: str = "茅台", use_saved: bool = True):
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error") or "无 diff 可导出")
     return result
-
-
-@router.post("/api/signal/config/draft/validate")
-def signal_config_draft_validate(body: SignalConfigDraftBody):
-    """R2 · 校验草稿并相对生产算 diff（不写盘）。"""
-    return deps.quant.validate_signal_config_draft(body.config)
-
-
-@router.post("/api/signal/config/draft/save")
-def signal_config_draft_save(body: SignalConfigDraftBody):
-    """R2 · 保存草稿到 signal_config_draft.json（非生产）。"""
-    out = deps.quant.save_signal_config_draft(body.config, note=body.note or "")
-    if not out.get("ok"):
-        raise HTTPException(status_code=400, detail=out.get("errors") or out.get("error") or "save failed")
-    return out
-
-
-@router.get("/api/signal/config/draft")
-def signal_config_draft_get():
-    return deps.quant.load_signal_config_draft()
-
-
-@router.post("/api/signal/config/draft/diff")
-def signal_config_draft_diff(body: SignalConfigDraftBody):
-    return deps.quant.diff_signal_config_draft(body.config)
-
-
-@router.post("/api/signal/config/draft/promote")
-def signal_config_draft_promote(body: SignalConfigDraftBody):
-    """R2 · 人审晋升草稿 → signal_config.json（先备份）。"""
-    out = deps.quant.promote_signal_config_draft(body.config, note=body.note or "")
-    if not out.get("ok"):
-        raise HTTPException(
-            status_code=400,
-            detail=out.get("errors") or out.get("error") or "promote failed",
-        )
-    return out
 
 
 @router.get("/api/quant/last")
@@ -489,6 +451,28 @@ def quant_weight_suggest(body: WeightSuggestRequest):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.post("/api/quant/weight-coord-compare")
+def quant_weight_coord_compare(body: WeightCoordCompareRequest):
+    """全局 / OLS·IC 建议 / 坐标网格三臂对照（不写 signal_config）。"""
+    try:
+        return deps.quant.compare_weight_coordinate_search(
+            codes=body.codes,
+            lookback=body.lookback,
+            top_k=body.top_k,
+            horizon_days=body.horizon_days,
+            min_score=body.min_score,
+            watching_limit=body.watching_limit,
+            include_ols_arm=body.include_ols_arm,
+            suggest_code=body.suggest_code,
+            ridge_lambda=body.ridge_lambda,
+            n_sweeps=body.n_sweeps,
+            max_evals=body.max_evals,
+            start_from=body.start_from,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.post("/api/quant/threshold-suggest")
 def quant_threshold_suggest(body: ThresholdSuggestRequest):
     try:
@@ -593,7 +577,63 @@ def quant_portfolio_backtest(body: PortfolioBacktestRequest):
             include_quantile=body.include_quantile,
             include_benchmark=body.include_benchmark,
             benchmark_code=body.benchmark_code,
+            rank_mode=body.rank_mode,
+            min_predicted_score=body.min_predicted_score,
+            return_model_min_samples=body.return_model_min_samples,
+            return_model_ridge_lambda=body.return_model_ridge_lambda,
         )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/rank-mode-compare")
+def quant_rank_mode_compare(body: RankModeCompareRequest):
+    """规则分对照已退役；系统仅认收益分 predicted_score。"""
+    try:
+        return deps.quant.compare_rank_modes(
+            codes=body.codes,
+            lookback=body.lookback,
+            top_k=body.top_k,
+            horizon_days=body.horizon_days,
+            min_score=body.min_score,
+            min_predicted_score=body.min_predicted_score,
+            apply_costs=body.apply_costs,
+            watching_limit=body.watching_limit,
+            return_model_min_samples=body.return_model_min_samples,
+            return_model_ridge_lambda=body.return_model_ridge_lambda,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/return-model/fit")
+def quant_return_model_fit(body: ReturnModelFitRequest):
+    try:
+        return deps.quant.fit_return_score_model(
+            codes=body.codes,
+            lookback=body.lookback,
+            horizon_days=body.horizon_days,
+            watching_limit=body.watching_limit,
+            ridge_lambda=body.ridge_lambda,
+            min_samples=body.min_samples,
+            save_draft=body.save_draft,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/return-model/promote")
+def quant_return_model_promote(body: ReturnModelPromoteRequest):
+    try:
+        return deps.quant.promote_return_score_model(note=body.note)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/return-model/status")
+def quant_return_model_status():
+    try:
+        return deps.quant.return_score_model_status()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

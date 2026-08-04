@@ -1,79 +1,224 @@
-/** 评分悬浮注释（交易执行持仓 / 数据中心观察表共用）。 */
+/** 评分悬浮注释（交易执行持仓 / 数据中心观察表共用）。
+ * 主叙事：收益分 ŷ + 因子系数 β（可正可负），非规则权重。
+ */
 
 import { escapeText } from "./paper/fmt.js";
+
+const FACTOR_LABELS = {
+  momentum: "动量",
+  volume_price: "量价",
+  relative_strength: "相对强弱",
+  volatility: "波动",
+  reversal: "反转",
+  liquidity: "流动性",
+  value: "估值",
+  quality: "质量",
+  ma_slope: "均线斜率",
+  technical_pattern: "技术形态",
+  weekly_confirm: "周线确认",
+  gap_risk: "跳空风险",
+  size: "规模",
+  earnings_yield: "盈利收益率",
+  growth: "成长",
+  dividend: "股息",
+  money_flow: "资金流",
+  amihud: "Amihud",
+  idio_momentum: "特异动量",
+  alt_sentiment: "舆情",
+};
+
+function fmtSigned(v, digits = 3) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  const t = n.toFixed(digits);
+  return n > 0 ? `+${t}` : t;
+}
+
+function signCls(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n === 0) return "";
+  return n > 0 ? "pos" : "neg";
+}
+
+function resolveYhat(raw) {
+  const candidates = [raw && raw.predicted_score, raw && raw.score];
+  if (raw && raw.formula_terms && raw.formula_terms.total != null) {
+    candidates.unshift(raw.formula_terms.total);
+  }
+  for (const c of candidates) {
+    const n = Number(c);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+export function formatScoreHero(raw) {
+  const y = resolveYhat(raw);
+  const yTxt = y == null ? "—" : `${fmtSigned(y, 3)}%`;
+  const below = !!raw.below_min_score;
+  const floor =
+    raw && raw.min_score != null && Number.isFinite(Number(raw.min_score))
+      ? Number(raw.min_score)
+      : null;
+  let gate = "";
+  if (floor != null) {
+    gate = `<div class="score-hero-gate${below ? " is-warn" : ""}">选股门槛 ${escapeText(
+      String(floor)
+    )}${below ? " · 当前低于门槛" : ""}</div>`;
+  }
+  return (
+    `<div class="score-hero">` +
+    `<div class="score-hero-label">收益分 ŷ（表格 score）</div>` +
+    `<div class="score-hero-value ${signCls(y)}">${escapeText(yTxt)}</div>` +
+    `<div class="score-hero-hint">ŷ = α + Σ β·z（百分点）</div>` +
+    `<div class="score-hero-semantics">` +
+    `语义：模型预测的前瞻收益（%）· 非 0–100 规则分 · β 可正可负` +
+    `</div>` +
+    gate +
+    `</div>`
+  );
+}
 
 export function formatWeightSourceNote(raw) {
   const src = String((raw && raw.weight_source) || "").trim();
   const mode = String((raw && raw.cluster_mode) || "").trim();
+  const rms = String((raw && raw.return_model_source) || "").trim();
   const label = raw && raw.cluster_label ? String(raw.cluster_label) : "";
   const ver =
     raw && raw.cluster_version != null && raw.cluster_version !== ""
       ? `v${raw.cluster_version}`
       : "";
-  let title = "权重来源";
-  let line = "全局 signal_config.weights";
-  if (src.startsWith("cluster:")) {
-    line = `分组权 · ${src.slice("cluster:".length) || label || "组"}`;
+  let line = "全局收益分模型";
+  if (rms === "cluster_group_beta" || src.startsWith("cluster:")) {
+    line = `分组因子系数 · ${
+      src.startsWith("cluster:") ? src.slice("cluster:".length) : label || "组"
+    }`;
     if (ver) line += ` · ${ver}`;
   } else if (src === "global+shadow") {
-    line = "主分=全局权 · 影子对照已算组权分";
+    line = "主分=全局 ŷ · 影子已算组 ŷ";
     if (label) line += `（${label}）`;
   } else if (src === "global_fallback") {
-    line = "全局权回退（未映射到分组）";
-  } else if (src === "global" || !src) {
-    if (mode === "off" || !mode) line = "全局 signal_config.weights";
-    else line = `全局权 · mode=${mode}`;
-  } else {
+    line = "全局收益分回退（未映射到分组）";
+  } else if (rms === "global" || src === "global" || !src) {
+    if (mode && mode !== "off") line = `全局收益分 · mode=${mode}`;
+  } else if (src) {
     line = src;
   }
+
   const bits = [
-    `<div class="score-section-title">${title}</div>`,
+    `<div class="score-section-title">模型来源</div>`,
     `<div class="score-weight-source">${escapeText(line)}</div>`,
   ];
   if (raw && (raw.score_global != null || raw.score_cluster != null)) {
     const g =
-      raw.score_global != null ? Number(raw.score_global).toFixed(1) : "—";
+      raw.score_global != null ? Number(raw.score_global).toFixed(3) : "—";
     const c =
-      raw.score_cluster != null ? Number(raw.score_cluster).toFixed(1) : "—";
+      raw.score_cluster != null ? Number(raw.score_cluster).toFixed(3) : "—";
     bits.push(
-      `<div class="score-weight-dual sub">全局分 ${escapeText(g)} · 组权分 ${escapeText(
-        c
-      )}</div>`
-    );
-  }
-  if (raw && raw.min_score != null) {
-    const floor = Number(raw.min_score);
-    const below = !!raw.below_min_score;
-    bits.push(
-      `<div class="score-weight-dual sub${below ? " is-warn" : ""}">选股门槛 ${escapeText(
-        String(floor)
-      )}${below ? " · 当前低于门槛（仍显示分数）" : ""}</div>`
+      `<div class="score-weight-dual sub">` +
+        `<span>全局 ${escapeText(g)}%</span>` +
+        `<span class="score-dual-sep">·</span>` +
+        `<span>组 ${escapeText(c)}%</span>` +
+        `</div>`
     );
   }
   return `<div class="score-weight-section">${bits.join("")}</div>`;
 }
 
+/** 分项拆解表：因子 / β / z / 贡献。有 terms 时优先于纯系数表。 */
+export function formatFormulaTermsSection(raw) {
+  const expl = raw && (raw.formula_terms || raw.score_formula_terms);
+  if (!expl || typeof expl !== "object") return "";
+  const terms = Array.isArray(expl.terms) ? expl.terms : [];
+  if (!terms.length) return "";
+
+  const rows = terms
+    .map((t) => {
+      const name = t.label || FACTOR_LABELS[t.key] || t.key || "—";
+      const beta = fmtSigned(t.beta, 3);
+      const z = fmtSigned(t.z, 2);
+      const contrib = fmtSigned(t.contrib, 3);
+      return (
+        `<tr>` +
+        `<td class="score-ft-name" title="${escapeText(t.key || "")}">${escapeText(
+          name
+        )}</td>` +
+        `<td class="num ${signCls(t.beta)}">${escapeText(beta)}</td>` +
+        `<td class="num ${signCls(t.z)}">${escapeText(z)}</td>` +
+        `<td class="num ${signCls(t.contrib)}">${escapeText(contrib)}</td>` +
+        `</tr>`
+      );
+    })
+    .join("");
+
+  const alpha = fmtSigned(expl.intercept, 3);
+  const total = fmtSigned(expl.total, 3);
+  return (
+    `<div class="score-formula-section">` +
+    `<div class="score-section-title">分项拆解</div>` +
+    `<table class="score-formula-table">` +
+    `<thead><tr>` +
+    `<th>因子</th><th>β</th><th>z</th><th>贡献</th>` +
+    `</tr></thead>` +
+    `<tbody>` +
+    `<tr class="score-ft-alpha">` +
+    `<td>截距 α</td>` +
+    `<td class="num">—</td>` +
+    `<td class="num">—</td>` +
+    `<td class="num ${signCls(expl.intercept)}">${escapeText(alpha)}</td>` +
+    `</tr>` +
+    rows +
+    `<tr class="score-ft-total">` +
+    `<td>合计 ŷ</td>` +
+    `<td class="num">—</td>` +
+    `<td class="num">—</td>` +
+    `<td class="num ${signCls(expl.total)}">${escapeText(total)}%</td>` +
+    `</tr>` +
+    `</tbody></table>` +
+    `<div class="score-formula-caption">β×z = 贡献；按 |贡献| 排序</div>` +
+    `</div>`
+  );
+}
+
+/** 仅系数表（无分项拆解时回退）。 */
 export function formatFactorWeightsSection(raw) {
+  if (raw && (raw.formula_terms || raw.score_formula_terms)) {
+    const expl = raw.formula_terms || raw.score_formula_terms;
+    if (expl && Array.isArray(expl.terms) && expl.terms.length) return "";
+  }
+  const coefs = raw && (raw.factor_coefficients || raw.coefficients);
   const fw = raw && raw.factor_weights;
-  if (!fw || typeof fw !== "object") return "";
-  const keys = Object.keys(fw).sort(
-    (a, b) => Number(fw[b] || 0) - Number(fw[a] || 0) || String(a).localeCompare(String(b))
+  const useCoefs = coefs && typeof coefs === "object" && Object.keys(coefs).length > 0;
+  const map = useCoefs ? coefs : fw;
+  if (!map || typeof map !== "object") return "";
+  const keys = Object.keys(map).sort(
+    (a, b) =>
+      Math.abs(Number(map[b] || 0)) - Math.abs(Number(map[a] || 0)) ||
+      String(a).localeCompare(String(b))
   );
   if (!keys.length) return "";
   const src = String((raw && raw.weight_source) || "").trim();
   const label = raw && raw.cluster_label ? String(raw.cluster_label) : "";
-  const title =
-    src.startsWith("cluster:") || label
-      ? `分组因子权重${label ? ` · ${label}` : ""}`
-      : "全局因子权重";
+  const title = useCoefs
+    ? src.startsWith("cluster:") || label
+      ? `因子系数 β${label ? ` · ${label}` : ""}`
+      : "因子系数 β"
+    : src.startsWith("cluster:") || label
+      ? `展示权(|β|)${label ? ` · ${label}` : ""}`
+      : "展示权(|β|)";
   const rows = keys
-    .slice(0, 14)
+    .slice(0, 12)
     .map((k) => {
-      const v = Number(fw[k]);
-      const txt = Number.isFinite(v) ? v.toFixed(2) : String(fw[k] ?? "—");
+      const v = Number(map[k]);
+      const txt = Number.isFinite(v)
+        ? useCoefs
+          ? fmtSigned(v, 4)
+          : v.toFixed(2)
+        : String(map[k] ?? "—");
+      const name = FACTOR_LABELS[k] || k;
       return (
-        `<tr><td class="score-fw-name">${escapeText(k)}</td>` +
-        `<td class="score-fw-val num">${escapeText(txt)}</td></tr>`
+        `<tr><td class="score-fw-name" title="${escapeText(k)}">${escapeText(name)}</td>` +
+        `<td class="score-fw-val num ${signCls(v)}">${escapeText(txt)}</td></tr>`
       );
     })
     .join("");
@@ -83,6 +228,26 @@ export function formatFactorWeightsSection(raw) {
     `<table class="score-factor-weights"><tbody>${rows}</tbody></table>` +
     `</div>`
   );
+}
+
+function formatReasonsSection(reasons) {
+  const list = Array.isArray(reasons) ? reasons.slice(0, 5) : [];
+  if (!list.length) return "";
+  let html =
+    `<div class="score-reasons-section">` +
+    `<div class="score-section-title">评分理由</div>` +
+    `<ul class="score-reasons">`;
+  list.forEach((rsn) => {
+    let cls = "neutral";
+    if (/强于|高于|上升|增加|优秀|良好|高/.test(rsn)) cls = "pos";
+    else if (/弱于|低于|下降|减少|较差|低/.test(rsn)) cls = "neg";
+    html += `<li class="${cls}">${escapeText(rsn)}</li>`;
+  });
+  if (Array.isArray(reasons) && reasons.length > 5) {
+    html += `<li class="neutral score-reasons-more">另有 ${reasons.length - 5} 条…</li>`;
+  }
+  html += "</ul></div>";
+  return html;
 }
 
 export function createScoreTooltipController() {
@@ -104,10 +269,60 @@ export function createScoreTooltipController() {
     const tip = document.createElement("div");
     tip.className = "score-tooltip plain-hover-tip";
     tip.innerHTML = `<div class="plain-hover-tip-body">${escapeText(msg)}</div>`;
+    tip.setAttribute("role", "tooltip");
     document.body.appendChild(tip);
     tipEl = tip;
     tipAnchor = anchor;
     place(tip, anchor);
+  }
+
+  function showHtml(anchor, html, { className = "score-tooltip" } = {}) {
+    const body = String(html || "").trim();
+    if (!anchor || !body) return;
+    hide();
+    const tip = document.createElement("div");
+    tip.className = className;
+    tip.innerHTML = body;
+    tip.setAttribute("role", "tooltip");
+    document.body.appendChild(tip);
+    tipEl = tip;
+    tipAnchor = anchor;
+    place(tip, anchor);
+  }
+
+  function bindAttrTip(
+    host,
+    {
+      selector = "[data-tip-html]",
+      htmlAttr = "data-tip-html",
+      className = "score-tooltip plain-hover-tip",
+      buildHtml = null,
+    } = {}
+  ) {
+    if (!host || host.dataset.attrTipWired === "1") return;
+    host.dataset.attrTipWired = "1";
+    host.addEventListener("mouseover", (e) => {
+      const el = e.target.closest(selector);
+      if (!el || !host.contains(el)) return;
+      if (tipAnchor === el && tipEl) return;
+      let html = "";
+      if (typeof buildHtml === "function") {
+        html = buildHtml(el) || "";
+      } else {
+        html = el.getAttribute(htmlAttr) || "";
+      }
+      if (!html) return;
+      showHtml(el, html, { className });
+    });
+    host.addEventListener("mouseout", (e) => {
+      const from = e.target.closest(selector);
+      if (!from) return;
+      const to = e.relatedTarget;
+      if (to && from.contains(to)) return;
+      if (tipEl && to && tipEl.contains(to)) return;
+      if (tipEl && tipEl.dataset.sticky === "1") return;
+      hide();
+    });
   }
 
   function show(cell, { sticky = false } = {}) {
@@ -117,29 +332,58 @@ export function createScoreTooltipController() {
     } catch (_) {
       raw = {};
     }
+    // 兼容旧字段名
+    if (!raw.formula_terms && raw.score_formula_terms) {
+      raw.formula_terms = raw.score_formula_terms;
+    }
     const formula = raw.formula || "";
     const reasons = raw.reasons || [];
     const hardReject = raw.hard_reject;
     const rejectReason = raw.reject_reason || "";
-    const hasWeight = !!(raw.weight_source || raw.cluster_mode || raw.cluster_label);
+    const hasWeight = !!(
+      raw.weight_source ||
+      raw.cluster_mode ||
+      raw.cluster_label ||
+      raw.return_model_source
+    );
+    const hasTerms =
+      raw.formula_terms &&
+      Array.isArray(raw.formula_terms.terms) &&
+      raw.formula_terms.terms.length > 0;
+    const hasCoefs =
+      (raw.factor_coefficients &&
+        typeof raw.factor_coefficients === "object" &&
+        Object.keys(raw.factor_coefficients).length > 0) ||
+      (raw.coefficients &&
+        typeof raw.coefficients === "object" &&
+        Object.keys(raw.coefficients).length > 0);
     const hasFactorWeights =
       raw.factor_weights &&
       typeof raw.factor_weights === "object" &&
       Object.keys(raw.factor_weights).length > 0;
 
-    if (!formula && !reasons.length && !hardReject && !hasWeight && !hasFactorWeights) return;
+    if (
+      !formula &&
+      !reasons.length &&
+      !hardReject &&
+      !hasWeight &&
+      !hasTerms &&
+      !hasCoefs &&
+      !hasFactorWeights &&
+      resolveYhat(raw) == null
+    )
+      return;
 
     let html = '<div class="score-detail">';
+    html += formatScoreHero(raw);
     html += formatWeightSourceNote(raw);
+    html += formatFormulaTermsSection(raw);
     html += formatFactorWeightsSection(raw);
-    if (formula) {
-      const highlighted = formula.replace(
-        /(\d+\.\d+|[=+\-×])/g,
-        '<span class="score-formula-highlight">$1</span>'
-      );
+    // 有分项表时不再堆一行长公式
+    if (formula && !hasTerms) {
       html += `<div class="score-formula-section">
-        <div class="score-section-title">评分公式</div>
-        <div class="score-formula">${highlighted}</div>
+        <div class="score-section-title">收益分公式</div>
+        <div class="score-formula">${escapeText(formula)}</div>
       </div>`;
     }
     if (hardReject && rejectReason) {
@@ -148,18 +392,7 @@ export function createScoreTooltipController() {
         <span class="score-detail-reject-text">${escapeText(rejectReason)}</span>
       </div>`;
     }
-    if (reasons.length) {
-      html += `<div class="score-reasons-section">
-        <div class="score-section-title">评分理由</div>
-        <ul class="score-reasons">`;
-      reasons.forEach((rsn) => {
-        let cls = "neutral";
-        if (/强于|高于|上升|增加|优秀|良好|高/.test(rsn)) cls = "pos";
-        else if (/弱于|低于|下降|减少|较差|低/.test(rsn)) cls = "neg";
-        html += `<li class="${cls}">${escapeText(rsn)}</li>`;
-      });
-      html += "</ul></div>";
-    }
+    html += formatReasonsSection(reasons);
     html += "</div>";
 
     hide();
@@ -225,8 +458,10 @@ export function createScoreTooltipController() {
   return {
     show,
     showPlain,
+    showHtml,
     hide,
     bindHost,
+    bindAttrTip,
     get tipEl() {
       return tipEl;
     },

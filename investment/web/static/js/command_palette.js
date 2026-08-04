@@ -56,13 +56,6 @@ const COMMANDS = [
     keywords: "网格 热力 参数 scan",
   },
   {
-    id: "strategy-spec",
-    label: "策略 · 打开只读规格稿",
-    hint: "/strategy#strategy-spec-editor",
-    href: "/strategy#strategy-spec-editor",
-    keywords: "monaco 配置 signal_config json",
-  },
-  {
     id: "factor-dict",
     label: "策略 · 因子字典",
     hint: "/strategy#strategy-factor-dict",

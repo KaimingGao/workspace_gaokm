@@ -52,7 +52,17 @@ def _live_tmp():
 
 
 class TestClusterLive(unittest.TestCase):
+    def _rm(self, mom=0.2, val=0.1):
+        return {
+            "coefficients": {"momentum": mom, "value": val},
+            "intercept": 0.0,
+            "z_means": {"momentum": 50.0, "value": 50.0},
+            "z_stds": {"momentum": 10.0, "value": 10.0},
+        }
+
     def _artifact(self):
+        rm1 = self._rm(0.6, 0.4)
+        rm2 = self._rm(0.3, 0.7)
         return {
             "created_at": "2026-08-01T00:00:00Z",
             "n_clusters": 2,
@@ -60,20 +70,74 @@ class TestClusterLive(unittest.TestCase):
                 "600519": {
                     "cluster_label": "G1",
                     "cluster_id": 0,
+                    "return_model": rm1,
                     "weights": {"momentum": 0.6, "value": 0.4},
                 },
                 "000001": {
                     "cluster_label": "G1",
                     "cluster_id": 0,
+                    "return_model": rm1,
                     "weights": {"momentum": 0.6, "value": 0.4},
                 },
                 "601318": {
                     "cluster_label": "G2",
                     "cluster_id": 1,
+                    "return_model": rm2,
                     "weights": {"momentum": 0.3, "value": 0.7},
                 },
             },
         }
+
+    def test_promote_requires_return_model_not_weights(self):
+        from core.signal.cluster_live import promote_cluster_artifact
+
+        art = {
+            "created_at": "2026-08-01T00:00:00Z",
+            "n_clusters": 1,
+            "code_map": {
+                "600519": {
+                    "cluster_label": "G1",
+                    "return_model": self._rm(0.5, 0.5),
+                },
+                "000001": {
+                    "cluster_label": "G1",
+                    "return_model": self._rm(0.5, 0.5),
+                },
+            },
+        }
+        with _live_tmp():
+            out = promote_cluster_artifact(art)
+            self.assertTrue(out["success"], out)
+            from core.signal.cluster_live import load_active_cluster_weights, lookup_code_weights
+
+            act = load_active_cluster_weights()
+            self.assertEqual(act["n_mapped_codes"], 2)
+            self.assertTrue(act["code_map"]["600519"].get("weights_derived_from_beta"))
+            looked = lookup_code_weights("600519")
+            self.assertEqual(looked["weight_source"], "derived_from_beta")
+            self.assertAlmostEqual(
+                looked["weights"]["momentum"] + looked["weights"]["value"], 1.0, places=5
+            )
+
+    def test_promote_rejects_weights_only(self):
+        from core.signal.cluster_live import promote_cluster_artifact
+
+        art = {
+            "code_map": {
+                "600519": {
+                    "cluster_label": "G1",
+                    "weights": {"momentum": 1.0},
+                },
+                "000001": {
+                    "cluster_label": "G1",
+                    "weights": {"momentum": 1.0},
+                },
+            },
+        }
+        with _live_tmp():
+            out = promote_cluster_artifact(art)
+            self.assertFalse(out["success"])
+            self.assertIn("return_model", out.get("error") or "")
 
     def test_audit_sample_rotates_with_offset(self):
         from core.signal.cluster_live import _pick_audit_codes
@@ -392,6 +456,59 @@ class TestClusterLive(unittest.TestCase):
             self.assertTrue(
                 any("OOS" in str(b) for b in (ev.get("gate") or {}).get("blockers") or [])
             )
+
+    def test_summarize_and_ensure_oos_gates(self):
+        from core.signal.cluster_live import (
+            _summarize_cluster_oos,
+            ensure_active_cluster_oos_gates,
+            promote_cluster_artifact,
+        )
+
+        s = _summarize_cluster_oos(
+            [
+                {"label": "G1", "oos_gate": {"ok": True, "passed": True}},
+                {"label": "G2", "oos_gate": {"skipped": True}},
+                {"label": "G3", "oos_passed": False},
+                {"label": "G4"},
+            ]
+        )
+        self.assertEqual(s["pass_count"], 1)
+        self.assertEqual(s["skip_count"], 1)
+        self.assertEqual(s["fail_count"], 1)
+        self.assertEqual(s["unknown_count"], 1)
+
+        art = self._artifact()
+        art["clusters"] = [
+            {
+                "label": "G1",
+                "members": ["600519", "000001"],
+                "return_model": self._rm(0.6, 0.4),
+                "weights": {"momentum": 0.6, "value": 0.4},
+            }
+        ]
+        with _live_tmp():
+            promote_cluster_artifact(art)
+            with patch(
+                "core.signal.weight_oos_gate.evaluate_weight_suggestion_oos",
+                return_value={
+                    "ok": True,
+                    "passed": True,
+                    "skipped": False,
+                    "delta_oos_pp": 0.5,
+                    "note": "mock",
+                },
+            ), patch(
+                "core.signal.config.load_signal_config",
+                return_value={"weights": {"momentum": 0.5, "value": 0.5}},
+            ):
+                out = ensure_active_cluster_oos_gates(persist=True, force=True)
+            self.assertTrue(out["success"])
+            self.assertEqual(out["filled"], 1)
+            self.assertEqual(out["oos_summary"]["pass_count"], 1)
+            from core.signal.cluster_live import load_active_cluster_weights
+
+            active = load_active_cluster_weights()
+            self.assertTrue((active["clusters"][0].get("oos_gate") or {}).get("passed"))
 
     def test_status_landing_after_paper_applied(self):
         from core.signal.cluster_live import (

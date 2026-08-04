@@ -2,7 +2,7 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls } from "./paper/fmt.js";
+import { fmtPriceUnit, fmtPct, metricCls, fmtScore } from "./paper/fmt.js";
 import { mountVirtualTable, escapeHtml, truncateName } from "./virtual_table.js";
 
 function scoreCls(v) {
@@ -11,13 +11,6 @@ function scoreCls(v) {
   if (n >= 60) return "score-high";
   if (n >= 50) return "score-mid";
   return "score-low";
-}
-
-function fmtScore(v) {
-  if (v == null) return "—";
-  const n = Number(v);
-  if (!Number.isFinite(n)) return "—";
-  return n.toFixed(1);
 }
 
 export function holdingToRow(h, { chartMode, chartStockCode, selectedHoldCode, pendingFocusCode } = {}) {
@@ -34,7 +27,7 @@ export function holdingToRow(h, { chartMode, chartStockCode, selectedHoldCode, p
   const mv = Number(h.market_value ?? h.market_value_approx);
   const scoreTitle = belowMin
     ? `低于选股门槛 ${minScore ?? "—"}（仍显示分数）· 悬停看详情`
-    : "悬停查看评分与权重来源";
+    : "悬停查看收益分与因子系数";
   return {
     code,
     name,
@@ -60,6 +53,10 @@ export function holdingToRow(h, { chartMode, chartStockCode, selectedHoldCode, p
       score_cluster: h.score_cluster,
       min_score: minScore,
       below_min_score: belowMin,
+      return_model_source: h.return_model_source || "",
+      factor_coefficients: h.factor_coefficients || {},
+      formula_terms: h.score_formula_terms || null,
+      predicted_score: h.predicted_score != null ? h.predicted_score : score,
     }),
     pnlText: fmtPct(pnl, { signed: true }),
     pnlCls: metricCls(pnl),
@@ -165,7 +162,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
         return (
           `<span class="paper-hold-score ${escapeHtml(d.scoreCls || "")}" ` +
           `data-score-detail="${escapeHtml(d.scoreDetail || "")}" title="${escapeHtml(
-            d.scoreTitle || "悬停查看评分与权重来源"
+            d.scoreTitle || "悬停查看收益分与因子系数"
           )}">` +
           `${escapeHtml(d.scoreText || "—")}</span>`
         );

@@ -1,4 +1,7 @@
-"""分组权 live 产物：晋升 / 回滚 / 健康检查（不写 signal_config.weights）。"""
+"""分组因子系数 live 产物：晋升 / 回滚 / 健康检查（不写 signal_config.weights）。
+
+真源为 code_map.return_model；weights 可由 |β| 派生供旧路径。
+"""
 
 from __future__ import annotations
 
@@ -68,7 +71,12 @@ def lookup_code_weights(
     *,
     active: Optional[Dict[str, Any]] = None,
 ) -> Optional[Dict[str, Any]]:
-    """返回 {weights, cluster_label, cluster_id, version} 或 None。"""
+    """返回 {weights, cluster_label, …}；无存盘权时由 |β| 派生。
+
+    派生权仅诊断/兼容；选股真源是 return_model。
+    """
+    from core.signal.factor_coefs import display_weights_from_return_model
+
     art = active if active is not None else load_active_cluster_weights()
     if not art:
         return None
@@ -76,46 +84,155 @@ def lookup_code_weights(
     code = str(code or "").strip()
     meta = cmap.get(code)
     if not isinstance(meta, dict):
-        # 尝试去前缀匹配少见
         return None
-    w = meta.get("weights")
-    if not isinstance(w, dict) or not w:
-        return None
+    lab = meta.get("cluster_label") or meta.get("label")
+    rm = meta.get("return_model")
+    if not isinstance(rm, dict):
+        for cl in art.get("clusters") or []:
+            if not isinstance(cl, dict):
+                continue
+            if str(cl.get("label") or "") == str(lab or "") and isinstance(
+                cl.get("return_model"), dict
+            ):
+                rm = cl.get("return_model")
+                break
+
+    weight_source = f"cluster:{lab or '?'}"
     weights: Dict[str, float] = {}
-    for k, v in w.items():
-        try:
-            weights[str(k)] = float(v)
-        except (TypeError, ValueError):
-            continue
+    w = meta.get("weights")
+    if isinstance(w, dict) and w:
+        for k, v in w.items():
+            try:
+                weights[str(k)] = float(v)
+            except (TypeError, ValueError):
+                continue
+        if meta.get("weights_derived_from_beta"):
+            weight_source = "derived_from_beta"
     if not weights:
+        derived = display_weights_from_return_model(
+            rm if isinstance(rm, dict) else None
+        )
+        if derived:
+            weights = derived
+            weight_source = "derived_from_beta"
+    if not weights and not isinstance(rm, dict):
         return None
+    if not weights and isinstance(rm, dict):
+        # 有系数但无法派生（全零）时仍返回映射，供 return_model 路径
+        return {
+            "weights": {},
+            "cluster_label": lab,
+            "cluster_id": meta.get("cluster_id"),
+            "version": art.get("version"),
+            "weight_source": "derived_from_beta",
+            "return_model": rm,
+        }
     return {
         "weights": weights,
-        "cluster_label": meta.get("cluster_label") or meta.get("label"),
+        "cluster_label": lab,
         "cluster_id": meta.get("cluster_id"),
         "version": art.get("version"),
-        "weight_source": f"cluster:{meta.get('cluster_label') or meta.get('label') or '?'}",
+        "weight_source": weight_source,
+        "return_model": rm if isinstance(rm, dict) else meta.get("return_model"),
     }
 
 
+def lookup_code_return_model(
+    code: str,
+    *,
+    active: Optional[Dict[str, Any]] = None,
+):
+    """返回该票所属组的 ``ReturnScoreModel``，无则 None。"""
+    from core.signal.return_score import ReturnScoreModel
+
+    art = active if active is not None else load_active_cluster_weights()
+    if not art:
+        return None
+    cmap = art.get("code_map") or {}
+    code = str(code or "").strip()
+    meta = cmap.get(code)
+    if not isinstance(meta, dict):
+        return None
+    rm = meta.get("return_model")
+    if not isinstance(rm, dict):
+        # 回退：按组 label 从 clusters 取
+        lab = str(meta.get("cluster_label") or meta.get("label") or "")
+        for cl in art.get("clusters") or []:
+            if not isinstance(cl, dict):
+                continue
+            if str(cl.get("label") or "") == lab and isinstance(cl.get("return_model"), dict):
+                rm = cl.get("return_model")
+                break
+    return ReturnScoreModel.from_dict(rm) if isinstance(rm, dict) else None
+
+
+def load_cluster_return_models_by_code(
+    *,
+    active: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """code → ReturnScoreModel（仅含有分组收益分模型的映射）。"""
+    from core.signal.return_score import ReturnScoreModel
+
+    art = active if active is not None else load_active_cluster_weights()
+    out: Dict[str, Any] = {}
+    if not art:
+        return out
+    by_label: Dict[str, Any] = {}
+    for cl in art.get("clusters") or []:
+        if not isinstance(cl, dict):
+            continue
+        lab = str(cl.get("label") or "")
+        rm = cl.get("return_model")
+        if lab and isinstance(rm, dict) and rm.get("coefficients"):
+            model = ReturnScoreModel.from_dict(rm)
+            if model is not None:
+                by_label[lab] = model
+    for code, meta in (art.get("code_map") or {}).items():
+        c = str(code or "").strip()
+        if not c or not isinstance(meta, dict):
+            continue
+        rm = meta.get("return_model")
+        model = ReturnScoreModel.from_dict(rm) if isinstance(rm, dict) else None
+        if model is None:
+            lab = str(meta.get("cluster_label") or meta.get("label") or "")
+            model = by_label.get(lab)
+        if model is not None:
+            out[c] = model
+    return out
+
+
 def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
+    from core.signal.factor_coefs import has_factor_coefficients
+
     cmap = artifact.get("code_map") if isinstance(artifact, dict) else None
     if not isinstance(cmap, dict) or not cmap:
         return "code_map 为空"
+    # 组表 return_model 回填（校验前）
+    by_label_rm: Dict[str, Any] = {}
+    for cl in (artifact.get("clusters") or []):
+        if not isinstance(cl, dict):
+            continue
+        lab = str(cl.get("label") or cl.get("cluster_label") or "")
+        rm = cl.get("return_model")
+        if lab and isinstance(rm, dict) and has_factor_coefficients(rm):
+            by_label_rm[lab] = rm
     ok = 0
     singletonish = 0
     by_label: Dict[str, int] = {}
     for code, meta in cmap.items():
         if not str(code).strip() or not isinstance(meta, dict):
             continue
-        w = meta.get("weights")
-        if not isinstance(w, dict) or not w:
+        rm = meta.get("return_model")
+        if not has_factor_coefficients(rm if isinstance(rm, dict) else None):
+            lab = str(meta.get("cluster_label") or meta.get("label") or "")
+            rm = by_label_rm.get(lab)
+        if not has_factor_coefficients(rm if isinstance(rm, dict) else None):
             continue
         ok += 1
         lab = str(meta.get("cluster_label") or "?")
         by_label[lab] = by_label.get(lab, 0) + 1
     if ok < 2:
-        return "至少需要 2 只带组权的映射"
+        return "至少需要 2 只带 return_model.coefficients 的映射"
     for lab, n in by_label.items():
         if n == 1:
             singletonish += 1
@@ -160,20 +277,63 @@ def promote_cluster_artifact(
         except Exception:
             pass
 
+    from core.signal.factor_coefs import (
+        display_weights_from_return_model,
+        has_factor_coefficients,
+    )
+
+    by_label_rm: Dict[str, Any] = {}
+    for cl in artifact.get("clusters") or []:
+        if not isinstance(cl, dict):
+            continue
+        lab = str(cl.get("label") or cl.get("cluster_label") or "")
+        rm = cl.get("return_model")
+        if lab and isinstance(rm, dict) and has_factor_coefficients(rm):
+            by_label_rm[lab] = rm
+
     cmap = {}
     for code, meta in (artifact.get("code_map") or {}).items():
         c = str(code).strip()
         if not c or not isinstance(meta, dict):
             continue
-        w = meta.get("weights")
-        if not isinstance(w, dict) or not w:
+        lab = meta.get("cluster_label") or meta.get("label")
+        rm = meta.get("return_model")
+        if not has_factor_coefficients(rm if isinstance(rm, dict) else None):
+            rm = by_label_rm.get(str(lab or ""))
+        if not has_factor_coefficients(rm if isinstance(rm, dict) else None):
+            # 兼容旧产物：仅有 weights、无 return_model 时仍可晋升（force 或遗留）
+            w_only = meta.get("weights")
+            if not (isinstance(w_only, dict) and w_only):
+                continue
+            entry = {
+                "cluster_id": meta.get("cluster_id"),
+                "cluster_label": lab,
+                "weights": {str(k): float(v) for k, v in w_only.items() if _num(v)},
+                "oos_passed": meta.get("oos_passed"),
+            }
+            cmap[c] = entry
             continue
-        cmap[c] = {
+        derived = display_weights_from_return_model(rm)
+        stored_w = meta.get("weights")
+        used_derived = False
+        if isinstance(stored_w, dict) and stored_w:
+            w = stored_w
+        elif derived:
+            w = derived
+            used_derived = True
+        else:
+            w = None
+        entry = {
             "cluster_id": meta.get("cluster_id"),
-            "cluster_label": meta.get("cluster_label") or meta.get("label"),
-            "weights": {str(k): float(v) for k, v in w.items() if _num(v)},
+            "cluster_label": lab,
+            "return_model": rm,
             "oos_passed": meta.get("oos_passed"),
         }
+        if isinstance(w, dict) and w:
+            entry["weights"] = {str(k): float(v) for k, v in w.items() if _num(v)}
+            if used_derived:
+                entry["weights_derived_from_beta"] = True
+        cmap[c] = entry
 
     active = {
         "success": True,
@@ -185,12 +345,17 @@ def promote_cluster_artifact(
             m.get("cluster_label") for m in cmap.values()
         }),
         "n_mapped_codes": len(cmap),
+        "n_codes_with_coefs": sum(
+            1
+            for m in cmap.values()
+            if has_factor_coefficients(m.get("return_model"))
+        ),
         "code_map": cmap,
         "clusters": artifact.get("clusters"),
         "pool_book": artifact.get("pool_book"),
         "promote_note": str(note or "")[:500],
         "signal_config_touched": False,
-        "note": "live 生效映射；权向量不在 signal_config.json",
+        "note": "live 因子系数映射；真源=return_model；weights 可选派生",
     }
     with open(CLUSTER_WEIGHTS_ACTIVE_PATH, "w", encoding="utf-8") as f:
         json.dump(active, f, ensure_ascii=False, indent=2)
@@ -337,6 +502,199 @@ def load_active_cluster_book() -> Optional[Dict[str, Any]]:
     except Exception:
         return None
     return None
+
+
+def _save_active_doc(active: Dict[str, Any]) -> str:
+    from core.paths import CLUSTER_WEIGHTS_ACTIVE_PATH
+
+    _ensure_dirs()
+    with open(CLUSTER_WEIGHTS_ACTIVE_PATH, "w", encoding="utf-8") as f:
+        json.dump(active, f, ensure_ascii=False, indent=2)
+    return CLUSTER_WEIGHTS_ACTIVE_PATH
+
+
+def _summarize_cluster_oos(clusters: Sequence[Any]) -> Dict[str, Any]:
+    """统计 active/draft clusters 的 OOS：优先 oos_gate，回退 oos_passed。"""
+    from core.signal.weight_oos_gate import OOS_PRODUCT_SEMANTICS
+
+    oos_pass = 0
+    oos_fail = 0
+    oos_skip = 0
+    oos_unknown = 0
+    for cl in clusters or []:
+        if not isinstance(cl, dict):
+            continue
+        gate = cl.get("oos_gate")
+        if isinstance(gate, dict) and gate:
+            if gate.get("skipped"):
+                oos_skip += 1
+            elif gate.get("ok") and gate.get("passed"):
+                oos_pass += 1
+            elif gate.get("ok") is False or gate.get("passed") is False:
+                oos_fail += 1
+            else:
+                oos_unknown += 1
+            continue
+        # 旧产物只有布尔 oos_passed
+        if "oos_passed" in cl and cl.get("oos_passed") is not None:
+            if bool(cl.get("oos_passed")):
+                oos_pass += 1
+            else:
+                oos_fail += 1
+            continue
+        oos_unknown += 1
+    return {
+        "pass_count": oos_pass,
+        "fail_count": oos_fail,
+        "skip_count": oos_skip,
+        "unknown_count": oos_unknown,
+        "n_clusters": oos_pass + oos_fail + oos_skip + oos_unknown,
+        "note": (
+            "来自 active 映射 clusters.oos_gate（缺省回退 oos_passed）；无记录不拦启用。 "
+            + OOS_PRODUCT_SEMANTICS
+        ),
+    }
+
+
+def ensure_active_cluster_oos_gates(
+    *,
+    persist: bool = True,
+    force: bool = False,
+    lookback: int = 80,
+    horizon_days: int = 3,
+    oos_tol_pp: float = 1.0,
+) -> Dict[str, Any]:
+    """给 live active 各组补算 / 刷新 ``oos_gate``（heuristic 基线 vs 组 ŷ）。"""
+    from core.signal.config import load_signal_config
+    from core.signal.weight_oos_gate import evaluate_research_oos
+    from quant.research.cluster_pool_artifact import _slim_oos_gate
+
+    active = load_active_cluster_weights()
+    if not active:
+        return {"success": False, "error": "无 active 映射", "filled": 0}
+    clusters = list(active.get("clusters") or [])
+    if not clusters:
+        return {"success": False, "error": "active 无 clusters", "filled": 0}
+
+    need = force or any(
+        not (isinstance(cl.get("oos_gate"), dict) and cl.get("oos_gate"))
+        for cl in clusters
+        if isinstance(cl, dict)
+    )
+    if not need:
+        return {
+            "success": True,
+            "filled": 0,
+            "skipped_existing": True,
+            "oos_summary": _summarize_cluster_oos(clusters),
+        }
+
+    cfg = load_signal_config() or {}
+    cur_w = dict(cfg.get("weights") or {})
+    filled = 0
+    lb = max(40, min(int(lookback or 80), 90))
+    hz = max(1, min(int(horizon_days or 3), 10))
+
+    for cl in clusters:
+        if not isinstance(cl, dict):
+            continue
+        if (
+            not force
+            and isinstance(cl.get("oos_gate"), dict)
+            and cl.get("oos_gate")
+        ):
+            continue
+        members = [str(c).strip() for c in (cl.get("members") or []) if str(c).strip()]
+        rm = cl.get("return_model") if isinstance(cl.get("return_model"), dict) else {}
+        if not rm.get("coefficients"):
+            cmap0 = (active.get("code_map") or {}) if isinstance(active, dict) else {}
+            for m in members:
+                entry = cmap0.get(m) or {}
+                cand = entry.get("return_model") if isinstance(entry, dict) else None
+                if isinstance(cand, dict) and cand.get("coefficients"):
+                    rm = cand
+                    break
+        label = cl.get("label")
+        if cl.get("singleton") or len(members) < 2:
+            gate = {
+                "ok": False,
+                "passed": False,
+                "skipped": True,
+                "reason": "cluster_too_small",
+                "note": "组成员不足 2 只，跳过组内 Top-K OOS。",
+                "stock_count": len(members),
+                "cluster_label": label,
+                "scope": "cluster_members",
+            }
+        elif not rm.get("coefficients"):
+            gate = {
+                "ok": False,
+                "passed": False,
+                "skipped": True,
+                "reason": "no_return_model",
+                "note": "组无 return_model（ŷ），跳过 OOS。",
+                "cluster_label": label,
+                "scope": "cluster_members",
+            }
+        elif not cur_w:
+            gate = {
+                "ok": False,
+                "passed": False,
+                "skipped": True,
+                "reason": "no_baseline_weights",
+                "note": "无全局人工权，无法跑 heuristic 基线。",
+                "cluster_label": label,
+                "scope": "cluster_members",
+            }
+        else:
+            top_k = 1 if len(members) <= 2 else min(2, len(members))
+            gate = evaluate_research_oos(
+                codes=members,
+                research_models_by_code={m: rm for m in members},
+                baseline_weights=cur_w,
+                watching_limit=min(40, len(members)),
+                min_names=2,
+                lookback=lb,
+                top_k=top_k,
+                horizon_days=hz,
+                oos_tol_pp=float(oos_tol_pp),
+                ridge_lambda=float(rm.get("ridge_lambda") or 0.0),
+            )
+            gate = dict(gate)
+            gate["scope"] = "cluster_members"
+            gate["cluster_label"] = label
+            if gate.get("note"):
+                gate["note"] = (
+                    str(gate["note"])
+                    + " 补算自 live active；基线=heuristic；研究臂=ŷ。"
+                )
+        slim = _slim_oos_gate(gate) or gate
+        cl["oos_gate"] = slim
+        cl["oos_passed"] = bool(
+            slim.get("ok") and slim.get("passed") and not slim.get("skipped")
+        )
+        filled += 1
+
+    active["clusters"] = clusters
+    cmap = active.get("code_map") if isinstance(active.get("code_map"), dict) else {}
+    by_label = {str(c.get("label")): c for c in clusters if isinstance(c, dict)}
+    for _code, meta in list(cmap.items()):
+        if not isinstance(meta, dict):
+            continue
+        lab = str(meta.get("cluster_label") or "")
+        src = by_label.get(lab)
+        if src is not None:
+            meta["oos_passed"] = src.get("oos_passed")
+    active["code_map"] = cmap
+    path = _save_active_doc(active) if persist else None
+
+    return {
+        "success": True,
+        "filled": filled,
+        "path": path,
+        "oos_summary": _summarize_cluster_oos(clusters),
+        "note": "已为 active 各组补 oos_gate" if filled else "无需补算",
+    }
 
 
 def _default_health_universe() -> List[str]:
@@ -801,32 +1159,23 @@ def build_cluster_enable_evidence(
 
     top_n = meta.get("top_n_per_group") or cs.get("top_n_per_group")
     max_names = meta.get("max_names") or cs.get("max_names")
+    from core.signal.score_display import json_safe_number
+
+    raw_min = meta.get("min_score")
+    min_score = json_safe_number(raw_min)
+    if min_score is None and raw_min is None and not meta.get("min_score_disabled"):
+        min_score = json_safe_number(cs.get("min_score"))
+    selection_mode = meta.get("mode") or "cluster_score_global_rank"
     name_count = len(book_rows)
 
-    # OOS：来自 active 映射内 clusters[].oos_gate
-    oos_pass = 0
-    oos_fail = 0
-    oos_unknown = 0
-    for cl in (active or {}).get("clusters") or []:
-        if not isinstance(cl, dict):
-            continue
-        gate = cl.get("oos_gate") or {}
-        if not isinstance(gate, dict) or not gate:
-            oos_unknown += 1
-            continue
-        if gate.get("ok") and gate.get("passed"):
-            oos_pass += 1
-        elif gate.get("ok") is False or gate.get("passed") is False:
-            oos_fail += 1
-        else:
-            oos_unknown += 1
-    oos_summary = {
-        "pass_count": oos_pass,
-        "fail_count": oos_fail,
-        "unknown_count": oos_unknown,
-        "n_clusters": oos_pass + oos_fail + oos_unknown,
-        "note": "来自 active 映射 clusters.oos_gate；无记录不拦启用",
-    }
+    # 缺 oos_gate 时补算并落盘，避免证据包长期「未知」
+    try:
+        ensure_active_cluster_oos_gates(persist=True, force=False)
+        active = load_active_cluster_weights() or active
+    except Exception:
+        pass
+
+    oos_summary = _summarize_cluster_oos((active or {}).get("clusters") or [])
 
     # 换手估计：纸面持仓 vs 分池簿（只数，无报价）
     book_codes = {
@@ -897,8 +1246,12 @@ def build_cluster_enable_evidence(
         blockers.append("无 active 映射")
     if not h.get("allow_active"):
         blockers.extend(list(h.get("alerts") or []) or ["健康检查未通过"])
-    if oos_fail > 0 and oos_pass == 0 and oos_unknown == 0:
-        blockers.append(f"组 OOS 全部失败（{oos_fail}）")
+    if oos_summary.get("fail_count", 0) > 0 and oos_summary.get(
+        "pass_count", 0
+    ) == 0 and oos_summary.get("unknown_count", 0) == 0 and oos_summary.get(
+        "skip_count", 0
+    ) == 0:
+        blockers.append(f"组 OOS 全部失败（{oos_summary.get('fail_count')}）")
     if name_count <= 0:
         warnings.append("分池簿为空 · 启用后请刷新簿再分池调仓")
 
@@ -908,7 +1261,9 @@ def build_cluster_enable_evidence(
         "task": "cluster_enable_evidence",
         "ok": gate_ok,
         "gate": {"ok": gate_ok, "blockers": blockers, "warnings": warnings},
-        "top_n_per_group": top_n,
+        "top_n_per_group": top_n,  # 兼容旧字段；建簿已改为全局排序
+        "selection_mode": selection_mode,
+        "min_score": min_score,
         "max_names": max_names,
         "name_count": name_count,
         "cluster_version": (active or {}).get("version"),
@@ -943,6 +1298,7 @@ def cluster_status_public(
         CLUSTER_WEIGHTS_ACTIVE_PATH,
         CLUSTER_WEIGHTS_DRAFT_PATH,
     )
+    from core.signal.score_display import json_safe_number
 
     cs = get_cluster_scoring_cfg()
     active = load_active_cluster_weights()
@@ -953,6 +1309,9 @@ def cluster_status_public(
     mode = cs.get("mode") or "off"
     has_draft = bool(draft and draft.get("code_map"))
     has_active = bool(active)
+
+    book_meta = (book or {}).get("meta") if isinstance((book or {}).get("meta"), dict) else {}
+    book_min_score = json_safe_number(book_meta.get("min_score"))
 
     audit = None
     if include_audit and mode in ("shadow", "active") and has_active:
@@ -1020,18 +1379,10 @@ def cluster_status_public(
             "path": CLUSTER_BOOK_ACTIVE_PATH,
             "updated_at": (book or {}).get("updated_at"),
             "name_count": len((book or {}).get("book") or []),
-            "top_n_per_group": (
-                ((book or {}).get("meta") or {}).get("top_n_per_group")
-                if isinstance((book or {}).get("meta"), dict)
-                else None
-            )
-            or cs.get("top_n_per_group"),
-            "max_names": (
-                ((book or {}).get("meta") or {}).get("max_names")
-                if isinstance((book or {}).get("meta"), dict)
-                else None
-            )
-            or cs.get("max_names"),
+            "selection_mode": book_meta.get("mode") or "cluster_score_global_rank",
+            "min_score": book_min_score,
+            "top_n_per_group": book_meta.get("top_n_per_group") or cs.get("top_n_per_group"),
+            "max_names": book_meta.get("max_names") or cs.get("max_names"),
         },
         "health": health,
         "landing": {

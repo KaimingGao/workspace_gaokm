@@ -87,7 +87,7 @@ def _side_nav(active: str) -> str:
 
     items = "\n          ".join(
         [
-            item("strategy", "/strategy", "策略中心", "规格 · 晋升 · 改限额", "btn-strategy"),
+            item("strategy", "/strategy", "策略中心", "策略卡 · 晋升 · 改限额", "btn-strategy"),
             item("watching", "/watching", "数据中心", "观察 · 建仓入口", "btn-watching"),
             item("follow", "/follow", "交易执行", "纸面调仓 · 做T验证", "btn-follow"),
             item("replay", "/replay", "历史回测", "历史验证 · 归因", "btn-replay"),

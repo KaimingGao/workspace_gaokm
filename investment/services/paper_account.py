@@ -71,13 +71,6 @@ class PaperAccountMixin:
                     item = (result.get("signal_item") or {}) if result.get("success") else {}
                     if not item and not result.get("success"):
                         continue
-                    weights = None
-                    if callable(lookup_code_weights):
-                        mapped = lookup_code_weights(code)
-                        if mapped and isinstance(mapped.get("weights"), dict):
-                            src = str(item.get("weight_source") or "")
-                            if src.startswith("cluster:") or src == "cluster":
-                                weights = mapped["weights"]
                     score_by_code[code] = {
                         "score": item.get("score"),
                         "sub_scores": item.get("sub_scores"),
@@ -92,7 +85,11 @@ class PaperAccountMixin:
                         "cluster_version": item.get("cluster_version"),
                         "score_global": item.get("score_global"),
                         "score_cluster": item.get("score_cluster"),
-                        "weights": weights,
+                        "return_model_source": item.get("return_model_source"),
+                        "return_model": item.get("return_model"),
+                        "factor_coefficients": item.get("factor_coefficients"),
+                        "score_formula": item.get("score_formula"),
+                        "score_formula_terms": item.get("score_formula_terms"),
                     }
 
             enriched_holdings = []
@@ -113,7 +110,12 @@ class PaperAccountMixin:
                     enriched["cluster_version"] = score_info.get("cluster_version")
                     enriched["score_global"] = score_info.get("score_global")
                     enriched["score_cluster"] = score_info.get("score_cluster")
-                    enriched["score_formula"] = _build_score_formula(score_info)
+                    enriched["return_model_source"] = score_info.get("return_model_source")
+                    enriched["factor_coefficients"] = score_info.get("factor_coefficients")
+                    enriched["score_formula_terms"] = score_info.get("score_formula_terms")
+                    enriched["score_formula"] = score_info.get("score_formula") or _build_score_formula(
+                        score_info
+                    )
                     gate_meta = annotate_score_gate(
                         score_info.get("score"), paper=paper, min_score=gate
                     )

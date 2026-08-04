@@ -14,6 +14,28 @@ from core.backtest.engine import _mock_quote_from_bars, _trade_metrics
 WEIGHT_MODES = ("equal", "score_budget", "risk_parity_lite")
 
 
+def _close_return_pct(
+    date_maps: Dict[str, Dict[str, dict]],
+    code: str,
+    start_date: str,
+    end_date: str,
+) -> Optional[float]:
+    """两日收盘价简单收益（百分点）；缺 bar 则 None。"""
+    dm = date_maps.get(code) or {}
+    a = dm.get(start_date)
+    b = dm.get(end_date)
+    if not a or not b:
+        return None
+    try:
+        pa = float(a.get("close") or 0)
+        pb = float(b.get("close") or 0)
+    except (TypeError, ValueError):
+        return None
+    if pa <= 0:
+        return None
+    return (pb / pa - 1.0) * 100.0
+
+
 def _fmt_factor_weights(weights: Optional[Dict[str, Any]], *, limit: int = 8) -> str:
     if not isinstance(weights, dict) or not weights:
         return ""
@@ -34,7 +56,7 @@ def _score_factor_weight_meta(
     global_weights: Optional[Dict[str, Any]] = None,
     cluster_active: Any = None,
 ) -> Dict[str, Any]:
-    """score 悬浮用：优先分组因子权，未入组则全局。"""
+    """分组标签 / 展示权（|β| 派生）；选股真源仍是 return_model。"""
     try:
         from core.signal.cluster_live import lookup_code_weights
 
@@ -46,7 +68,7 @@ def _score_factor_weight_meta(
         label = str(mapped.get("cluster_label") or mapped.get("label") or "?")
         src = str(mapped.get("weight_source") or f"cluster:{label}")
         body = _fmt_factor_weights(fw)
-        note = f"分组 {label} 因子权重" + (f"：{body}" if body else "")
+        note = f"分组 {label} 展示权(|β|)" + (f"：{body}" if body else "")
         return {
             "cluster_label": label,
             "score_weight_source": src,
@@ -55,13 +77,104 @@ def _score_factor_weight_meta(
         }
     gw = dict(global_weights or {})
     body = _fmt_factor_weights(gw)
-    note = "未入组 · 全局因子权重" + (f"：{body}" if body else "")
+    note = "未入组 · 全局展示权" + (f"：{body}" if body else "")
     return {
         "cluster_label": None,
         "score_weight_source": "global",
         "factor_weights": gw,
         "factor_weights_note": note,
     }
+
+
+def _resolve_bt_return_model(
+    code: str,
+    *,
+    return_model: Any = None,
+    return_models_by_code: Optional[Dict[str, Any]] = None,
+) -> Tuple[Any, str]:
+    by_code = return_models_by_code or {}
+    key = str(code or "").strip()
+    model = by_code.get(key) if key and return_models_by_code is not None else None
+    if model is not None:
+        return model, "cluster_group_beta"
+    if return_model is not None:
+        # None = 未加载分组映射（回测 walk-forward）；空 dict 也走 walk-forward
+        if not return_models_by_code:
+            return return_model, "walk_forward"
+        return return_model, "global"
+    return None, ""
+
+
+def _score_tooltip_meta(
+    item: Optional[Dict[str, Any]],
+    *,
+    score: Any = None,
+    code: str = "",
+    return_model: Any = None,
+    return_models_by_code: Optional[Dict[str, Any]] = None,
+    cluster_active: Any = None,
+    global_weights: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """与数据中心 / 交易执行同源的悬浮注释字段（ŷ · β · 分项表）。"""
+    fw = _score_factor_weight_meta(
+        code,
+        global_weights=global_weights,
+        cluster_active=cluster_active,
+    )
+    out: Dict[str, Any] = {
+        **fw,
+        "score_formula": "",
+        "score_formula_terms": None,
+        "factor_coefficients": {},
+        "return_model_source": "",
+        "score_reasons": list((item or {}).get("reasons") or []) if isinstance(item, dict) else [],
+        "score_raw": None,
+        "predicted_score": None,
+    }
+    if not isinstance(item, dict):
+        return out
+
+    try:
+        if item.get("score_raw") is not None:
+            out["score_raw"] = float(item["score_raw"])
+    except (TypeError, ValueError):
+        out["score_raw"] = None
+
+    model, rms = _resolve_bt_return_model(
+        code,
+        return_model=return_model,
+        return_models_by_code=return_models_by_code,
+    )
+    if not rms and item.get("return_model_source"):
+        rms = str(item.get("return_model_source") or "")
+    out["return_model_source"] = rms
+
+    pred = item.get("predicted_score")
+    if pred is None and score is not None:
+        pred = score
+    try:
+        out["predicted_score"] = float(pred) if pred is not None else None
+    except (TypeError, ValueError):
+        out["predicted_score"] = None
+
+    if model is not None:
+        try:
+            expl = model.explain_prediction(item.get("sub_scores") or {})
+            out["score_formula_terms"] = expl
+            coefs = dict(getattr(model, "coefficients", None) or {})
+            coefs.pop("intercept", None)
+            out["factor_coefficients"] = {str(k): float(v) for k, v in coefs.items()}
+            from services.paper_helpers import _build_score_formula
+
+            out["score_formula"] = _build_score_formula(
+                {
+                    "sub_scores": item.get("sub_scores"),
+                    "return_model": model,
+                }
+            ) or ""
+        except Exception:
+            pass
+    return out
 
 
 def _sim_trade_row(
@@ -87,12 +200,17 @@ def _sim_trade_row(
     factor_weights: Optional[Dict[str, Any]] = None,
     factor_weights_note: Optional[str] = None,
     score_formula: Optional[str] = None,
+    score_formula_terms: Optional[Dict[str, Any]] = None,
+    factor_coefficients: Optional[Dict[str, Any]] = None,
+    return_model_source: Optional[str] = None,
     score_reasons: Optional[List[str]] = None,
     score_raw: Optional[float] = None,
+    predicted_score: Optional[float] = None,
 ) -> Dict[str, Any]:
     return {
         "stock_code": stock_code,
         "score": score,
+        "predicted_score": predicted_score if predicted_score is not None else score,
         "signal_date": signal_date,
         "entry_date": entry_date,
         "exit_date": exit_date,
@@ -112,6 +230,9 @@ def _sim_trade_row(
         "factor_weights": factor_weights or {},
         "factor_weights_note": factor_weights_note or "",
         "score_formula": score_formula or "",
+        "score_formula_terms": score_formula_terms,
+        "factor_coefficients": factor_coefficients or {},
+        "return_model_source": return_model_source or "",
         "score_reasons": list(score_reasons or []),
         "score_raw": score_raw,
     }
@@ -123,31 +244,10 @@ def _score_formula_for_item(
     score: Any = None,
     formula_weights: Optional[Dict[str, Any]] = None,
 ) -> str:
-    """与交易执行页同源的评分公式；中性化时附原始分对照。"""
-    if not isinstance(item, dict):
-        return ""
-    try:
-        from services.paper_helpers import _build_score_formula
-
-        formula = _build_score_formula(
-            {
-                "sub_scores": item.get("sub_scores"),
-                "factor_contrib": item.get("factor_contrib"),
-                "weights": formula_weights or item.get("weights"),
-            }
-        )
-    except Exception:
-        formula = ""
-    if not formula:
-        return ""
-    raw = item.get("score_raw")
-    final = score if score is not None else item.get("score")
-    try:
-        if raw is not None and final is not None and float(raw) != float(final):
-            formula = f"{formula}（原始 {raw} → 中性化 {final}）"
-    except (TypeError, ValueError):
-        pass
-    return formula
+    """兼容旧调用；新路径请用 ``_score_tooltip_meta``。"""
+    del formula_weights
+    meta = _score_tooltip_meta(item, score=score)
+    return str(meta.get("score_formula") or "")
 
 
 def _intent_and_fill_prices(
@@ -398,11 +498,25 @@ def backtest_topk_equal_weight(
     max_position_pct: float = 40.0,
     max_sector_pct: float = 60.0,
     dropout_n: int = 0,
+    rank_mode: str = "predicted_score",
+    min_predicted_score: Optional[float] = None,
+    return_model_min_samples: int = 24,
+    return_model_ridge_lambda: float = 0.0,
+    return_model_refit_every: int = 1,
+    return_models_by_code: Optional[Dict[str, Any]] = None,
+    use_live_cluster_models: bool = True,
+    allow_heuristic_baseline: bool = False,
 ) -> Dict[str, Any]:
     """
     多票横截面：每个调仓日对 watching 打分，持有 TopK，持有 horizon_days。
     weight_mode: equal | score_budget | risk_parity_lite（与纸面 optimize 同源）。
     dropout_n>0 时启用 TopK-Dropout（K±N 缓冲）。
+
+    rank_mode:
+      - predicted_score：walk-forward / 分组因子系数后按收益分（ŷ%）排序（生产默认）
+      - heuristic_score：人工线性加权 0–100（仅研究 OOS 基线；须 allow_heuristic_baseline）
+
+    return_models_by_code / use_live_cluster_models：研究 OOS 注入组 β，避免串 live。
     """
     from core.backtest.attribution import attribute_portfolio_trades
     from core.backtest.matching import (
@@ -414,6 +528,12 @@ def backtest_topk_equal_weight(
     from core.portfolio_optimize import _sector_for, load_sector_map
     from core.signal.config import load_signal_config
     from core.signal.cross_section_batch import score_and_rank_watching, score_window_as_item
+    from core.signal.return_score import (
+        ReturnScoreModel,
+        clamp_rank_mode,
+        fit_return_model_from_panel,
+        resolve_research_rank_mode,
+    )
 
     if not stock_bars:
         return {"success": False, "error": "无标的日线"}
@@ -422,6 +542,11 @@ def backtest_topk_equal_weight(
     cs_cfg = cfg.get("cross_section") or {}
     use_neutral = cs_cfg.get("neutralize", True) if neutralize is None else bool(neutralize)
     global_factor_weights = dict(cfg.get("weights") or {})
+    resolved_rank_mode = (
+        resolve_research_rank_mode(rank_mode)
+        if allow_heuristic_baseline
+        else clamp_rank_mode(rank_mode)
+    )
     try:
         from core.signal.cluster_live import load_active_cluster_weights
 
@@ -440,6 +565,9 @@ def backtest_topk_equal_weight(
         mode = "next_open"
     if slippage_tier:
         cost_config = cost_config_for_slippage_tier(slippage_tier, base=cost_config)
+    min_fit = max(8, int(return_model_min_samples or 24))
+    refit_every = max(1, int(return_model_refit_every or 1))
+    ridge_lam = float(return_model_ridge_lambda or 0.0)
 
     # next_open 需要信号日后再留 1 + horizon + 跌停延后
     extra = 1 if mode == "next_open" else 0
@@ -492,6 +620,34 @@ def backtest_topk_equal_weight(
         fund_cfg.get("use_in_backtest", True)
     )
     pit_mode = str(fund_cfg.get("pit_mode") or "as_of").strip().lower()
+    pending_signals: List[dict] = []
+    train_xs: List[Dict[str, Optional[float]]] = []
+    train_ys: List[float] = []
+    return_model = None
+    cluster_return_models: Dict[str, Any] = {}
+    if resolved_rank_mode == "predicted_score":
+        if return_models_by_code is not None:
+            for code, raw in (return_models_by_code or {}).items():
+                key = str(code or "").strip()
+                if not key or raw is None:
+                    continue
+                if isinstance(raw, ReturnScoreModel):
+                    cluster_return_models[key] = raw
+                elif isinstance(raw, dict):
+                    m = ReturnScoreModel.from_dict(raw)
+                    if m is not None:
+                        cluster_return_models[key] = m
+        elif use_live_cluster_models:
+            try:
+                from core.signal.cluster_live import load_cluster_return_models_by_code
+
+                cluster_return_models = load_cluster_return_models_by_code()
+            except Exception:
+                cluster_return_models = {}
+    last_model_fit_rebalance = -10**9
+    rebalance_idx = 0
+    pred_rank_rebalances = 0
+    heuristic_fallback_rebalances = 0
     i = min_history - 1
     if dates:
         equity_curve.append({"date": dates[i], "equity": equity, "return_pct": 0.0})
@@ -534,18 +690,81 @@ def backtest_topk_equal_weight(
             if item:
                 entries.append(item)
 
+        # 收益分：优先分组 live OLS β；否则 walk-forward 拟合全局模型
+        if resolved_rank_mode == "predicted_score" and not cluster_return_models:
+            still_pending: List[dict] = []
+            for p in pending_signals:
+                j = int(p["signal_i"])
+                if j + horizon_days <= i and j + horizon_days < n:
+                    y = _close_return_pct(
+                        date_maps,
+                        str(p["code"]),
+                        str(p["signal_date"]),
+                        dates[j + horizon_days],
+                    )
+                    subs = p.get("sub_scores") or {}
+                    if y is not None and subs:
+                        train_xs.append(dict(subs))
+                        train_ys.append(float(y))
+                else:
+                    still_pending.append(p)
+            pending_signals = still_pending
+            for item in entries:
+                code = str(item.get("stock_code") or "").strip()
+                if not code:
+                    continue
+                pending_signals.append(
+                    {
+                        "signal_i": i,
+                        "signal_date": signal_as_of,
+                        "code": code,
+                        "sub_scores": dict(item.get("sub_scores") or {}),
+                    }
+                )
+            if len(train_ys) >= min_fit and (
+                return_model is None
+                or (rebalance_idx - last_model_fit_rebalance) >= refit_every
+            ):
+                model, _fit_rep = fit_return_model_from_panel(
+                    train_xs,
+                    train_ys,
+                    horizon_days=horizon_days,
+                    ridge_lambda=ridge_lam,
+                    fitted_as_of=signal_as_of,
+                    min_samples=min_fit,
+                )
+                if model is not None:
+                    return_model = model
+                    last_model_fit_rebalance = rebalance_idx
+
         picks, neut_meta = score_and_rank_watching(
             entries,
             min_score=min_score,
             config=cfg,
             neutralize=use_neutral,
+            rank_mode=resolved_rank_mode,
+            return_model=return_model,
+            return_models_by_code=cluster_return_models or None,
+            min_predicted_score=min_predicted_score,
+            allow_heuristic_baseline=allow_heuristic_baseline
+            or resolved_rank_mode == "heuristic_score",
         )
+        if resolved_rank_mode == "heuristic_score":
+            pred_rank_rebalances += 0
+        elif resolved_rank_mode == "predicted_score":
+            if neut_meta.get("predicted_score_fallback") or (
+                return_model is None and not cluster_return_models
+            ):
+                heuristic_fallback_rebalances += 1
+            else:
+                pred_rank_rebalances += 1
         if neut_meta.get("applied"):
             neutralized_rebalances += 1
         items_by_code = neut_meta.get("items_by_code") or {}
         selected = apply_topk_dropout(
             picks, prev_codes, top_k=top_k, dropout_n=dropout_n
         )
+        rebalance_idx += 1
         if not selected:
             i += 1
             continue
@@ -563,20 +782,31 @@ def backtest_topk_equal_weight(
         signal_date = dates[i]
         for code, score in selected:
             scored_item = items_by_code.get(str(code)) or {}
-            score_formula = _score_formula_for_item(
+            tip = _score_tooltip_meta(
                 scored_item,
                 score=score,
-                formula_weights=global_factor_weights,
+                code=str(code),
+                return_model=return_model,
+                return_models_by_code=cluster_return_models or None,
+                cluster_active=cluster_active,
+                global_weights=global_factor_weights,
             )
-            score_reasons = list(scored_item.get("reasons") or [])
-            try:
-                score_raw = (
-                    float(scored_item["score_raw"])
-                    if scored_item.get("score_raw") is not None
-                    else None
-                )
-            except (TypeError, ValueError):
-                score_raw = None
+            score_formula = tip.get("score_formula") or ""
+            score_reasons = list(tip.get("score_reasons") or [])
+            score_raw = tip.get("score_raw")
+            tip_kw = {
+                "cluster_label": tip.get("cluster_label"),
+                "score_weight_source": tip.get("score_weight_source"),
+                "factor_weights": tip.get("factor_weights") or {},
+                "factor_weights_note": tip.get("factor_weights_note") or "",
+                "score_formula": score_formula,
+                "score_formula_terms": tip.get("score_formula_terms"),
+                "factor_coefficients": tip.get("factor_coefficients") or {},
+                "return_model_source": tip.get("return_model_source") or "",
+                "score_reasons": score_reasons,
+                "score_raw": score_raw,
+                "predicted_score": tip.get("predicted_score"),
+            }
             dm = date_maps[code]
             entry_bar = dm.get(entry_date)
             if not entry_bar:
@@ -624,11 +854,6 @@ def backtest_topk_equal_weight(
                         "status": "skipped_limit_entry",
                     }
                     signal_fill_sample.append(skip_row)
-                    fw = _score_factor_weight_meta(
-                        code,
-                        global_weights=global_factor_weights,
-                        cluster_active=cluster_active,
-                    )
                     sim_trades.append(
                         _sim_trade_row(
                             stock_code=code,
@@ -639,10 +864,7 @@ def backtest_topk_equal_weight(
                             sector=_sector_for(code, smap),
                             execution_mode=mode,
                             status="skipped_limit_entry",
-                            score_formula=score_formula,
-                            score_reasons=score_reasons,
-                            score_raw=score_raw,
-                            **fw,
+                            **tip_kw,
                         )
                     )
                     continue
@@ -690,11 +912,6 @@ def backtest_topk_equal_weight(
                     "status": "skipped_limit_exit",
                 }
                 signal_fill_sample.append(skip_exit)
-                fw = _score_factor_weight_meta(
-                    code,
-                    global_weights=global_factor_weights,
-                    cluster_active=cluster_active,
-                )
                 sim_trades.append(
                     _sim_trade_row(
                         stock_code=code,
@@ -706,10 +923,7 @@ def backtest_topk_equal_weight(
                         sector=_sector_for(code, smap),
                         execution_mode=mode,
                         status="skipped_limit_exit",
-                        score_formula=score_formula,
-                        score_reasons=score_reasons,
-                        score_raw=score_raw,
-                        **fw,
+                        **tip_kw,
                     )
                 )
                 continue
@@ -740,8 +954,16 @@ def backtest_topk_equal_weight(
                     "stock_code": code,
                     "score": score,
                     "score_formula": score_formula,
+                    "score_formula_terms": tip_kw.get("score_formula_terms"),
+                    "factor_coefficients": tip_kw.get("factor_coefficients") or {},
+                    "return_model_source": tip_kw.get("return_model_source") or "",
+                    "cluster_label": tip_kw.get("cluster_label"),
+                    "score_weight_source": tip_kw.get("score_weight_source"),
+                    "factor_weights": tip_kw.get("factor_weights") or {},
+                    "factor_weights_note": tip_kw.get("factor_weights_note") or "",
                     "score_reasons": score_reasons,
                     "score_raw": score_raw,
+                    "predicted_score": tip_kw.get("predicted_score"),
                     "return_pct": round(ret, 2),
                     "sector": _sector_for(code, smap),
                     "exit_date": exit_date,
@@ -844,15 +1066,6 @@ def backtest_topk_equal_weight(
         equity *= 1.0 + port_ret / 100.0
         for leg in legs:
             code_l = str(leg.get("stock_code") or "")
-            fw = _score_factor_weight_meta(
-                code_l,
-                global_weights=global_factor_weights,
-                cluster_active=cluster_active,
-            )
-            leg["cluster_label"] = fw.get("cluster_label")
-            leg["score_weight_source"] = fw.get("score_weight_source")
-            leg["factor_weights"] = fw.get("factor_weights")
-            leg["factor_weights_note"] = fw.get("factor_weights_note")
             sim_trades.append(
                 _sim_trade_row(
                     stock_code=code_l,
@@ -871,10 +1084,17 @@ def backtest_topk_equal_weight(
                     port_return_pct=port_ret_r,
                     port_gross_return_pct=gross_ret_r,
                     port_cost_pct=cost_pct_r,
+                    cluster_label=leg.get("cluster_label"),
+                    score_weight_source=leg.get("score_weight_source"),
+                    factor_weights=leg.get("factor_weights") or {},
+                    factor_weights_note=leg.get("factor_weights_note") or "",
                     score_formula=leg.get("score_formula") or "",
+                    score_formula_terms=leg.get("score_formula_terms"),
+                    factor_coefficients=leg.get("factor_coefficients") or {},
+                    return_model_source=leg.get("return_model_source") or "",
                     score_reasons=leg.get("score_reasons") or [],
                     score_raw=leg.get("score_raw"),
-                    **fw,
+                    predicted_score=leg.get("predicted_score"),
                 )
             )
         trades.append(
@@ -954,6 +1174,30 @@ def backtest_topk_equal_weight(
             "max_position_pct": float(max_position_pct),
             "max_sector_pct": float(max_sector_pct),
             "dropout_n": dropout_n,
+            "rank_mode": resolved_rank_mode,
+            "min_predicted_score": min_predicted_score,
+            "return_model_source": (
+                "cluster_group_beta"
+                if cluster_return_models
+                else ("walk_forward" if resolved_rank_mode == "predicted_score" else None)
+            ),
+            "cluster_return_models": len(cluster_return_models),
+            "return_model_min_samples": min_fit,
+            "return_model_ridge_lambda": ridge_lam,
+            "return_model_refit_every": refit_every,
+            "pred_rank_rebalances": pred_rank_rebalances,
+            "heuristic_fallback_rebalances": heuristic_fallback_rebalances,
+            "return_model_train_samples": len(train_ys),
+            "return_model_last": (
+                {
+                    "sample_count": return_model.sample_count,
+                    "fitted_as_of": return_model.fitted_as_of,
+                    "intercept": return_model.intercept,
+                    "n_coefs": len(return_model.coefficients),
+                }
+                if return_model is not None
+                else None
+            ),
         },
         "dropped_stocks": dropped_thin,
         "pit_report": pit,
@@ -967,11 +1211,20 @@ def backtest_topk_equal_weight(
         "sim_trades": sim_trades,
         "signal_fill_sample": signal_fill_sample[-40:],
         "note": (
-            f"横截面 TopK 回测（权重={resolved_weight_mode}）"
+            f"横截面 TopK 回测（权重={resolved_weight_mode}；排序={resolved_rank_mode}）"
             + ("（调仓日截面中性化）" if use_neutral else "")
             + f"；成交={mode}；涨跌停过滤={'开' if respect_limit else '关'}；"
             f"跌停卖出延后≤{defer_cap}日；板别阈值；"
             + ("成本按换手计费（续持不扣往返）；" if apply_costs else "")
+            + (
+                (
+                    "predicted_score=分组 live OLS β→收益分；"
+                    if cluster_return_models
+                    else "predicted_score=walk-forward 拟合后按收益分排序；"
+                )
+                if resolved_rank_mode == "predicted_score"
+                else ""
+            )
             + "非交易所仿真，仅供研究。"
         ),
     }

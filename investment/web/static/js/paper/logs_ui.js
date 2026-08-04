@@ -1,6 +1,6 @@
 /** Paper operation/fund logs render helper. */
 
-import { escapeText } from "./fmt.js";
+import { escapeText, fmtScore } from "./fmt.js";
 
 function typeCls(t) {
   const m = {
@@ -183,7 +183,7 @@ function renderLogItem(l) {
     if (feeBits.length) secondaryParts.push(feeBits.join(" · "));
     else if (String(meta.cost_model || "") === "zero") secondaryParts.push("零成本");
     if (meta.score != null && Number.isFinite(Number(meta.score))) {
-      secondaryParts.push(`评分 ${Number(meta.score).toFixed(1)}`);
+      secondaryParts.push(`评分 ${fmtScore(meta.score)}`);
     }
     if (meta.note) secondaryParts.push(String(meta.note));
   } else {

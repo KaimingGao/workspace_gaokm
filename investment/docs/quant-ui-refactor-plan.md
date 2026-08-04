@@ -56,7 +56,7 @@ AI = 对量化系统的自然语言 RPC；危险动作仍走人审。
 | 旧表述 | 新落点 |
 |--------|--------|
 | Lightweight Charts | [W1](quant-ui-upgrade.md#4-w1--专业图表与回测报告) |
-| Monaco | [W3.2](quant-ui-upgrade.md#61-交付包按优先级) |
+| Monaco | [W3.2](quant-ui-upgrade.md#61-交付包按优先级)（**已退役**） |
 | 可选 React | [W4 闸门](quant-ui-upgrade.md#7-w4--可选现代化契约闸门) |
 | 实盘 | **边界外**（不做） |
 

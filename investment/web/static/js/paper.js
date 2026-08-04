@@ -5,6 +5,7 @@ import {
   escapeText,
   fmtPct,
   metricCls,
+  fmtScore,
 } from "./paper/fmt.js";
 import { drawSeries } from "./paper/chart.js";
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
@@ -39,6 +40,9 @@ import {
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import {
   formatWeightSourceNote,
+  formatFactorWeightsSection,
+  formatFormulaTermsSection,
+  formatScoreHero,
   createScoreTooltipController,
 } from "./score_tooltip.js";
 
@@ -1292,12 +1296,22 @@ export function initPaper(ctx) {
           !r.score_formula &&
           !r.hard_reject &&
           !r.weight_source &&
-          !r.cluster_label
+          !r.cluster_label &&
+          !r.return_model_source &&
+          !(r.factor_coefficients && Object.keys(r.factor_coefficients || {}).length) &&
+          !(r.score_formula_terms && (r.score_formula_terms.terms || []).length)
         ) {
           return '<div class="score-detail-empty">无评分详情</div>';
         }
 
         let html = '<div class="score-detail">';
+        html += formatScoreHero({
+          predicted_score: r.score,
+          score: r.score,
+          min_score: r.min_score,
+          below_min_score: r.below_min_score,
+          formula_terms: r.score_formula_terms,
+        });
         html += formatWeightSourceNote({
           weight_source: r.weight_source,
           cluster_label: r.cluster_label,
@@ -1305,21 +1319,27 @@ export function initPaper(ctx) {
           cluster_version: r.cluster_version,
           score_global: r.score_global,
           score_cluster: r.score_cluster,
+          return_model_source: r.return_model_source,
+        });
+        html += formatFormulaTermsSection({
+          formula_terms: r.score_formula_terms,
+        });
+        html += formatFactorWeightsSection({
+          factor_coefficients: r.factor_coefficients || {},
+          weight_source: r.weight_source,
+          cluster_label: r.cluster_label,
+          formula_terms: r.score_formula_terms,
         });
 
-        if (r.score_formula) {
+        if (r.score_formula && !(r.score_formula_terms && (r.score_formula_terms.terms || []).length)) {
           let formula = String(r.score_formula || "");
           const tempDiv = document.createElement("div");
           tempDiv.innerHTML = formula;
           formula = tempDiv.textContent || tempDiv.innerText || "";
-          const highlighted = escapeText(formula).replace(
-            /(\d+\.\d+|[=+\-×])/g,
-            '<span class="score-formula-highlight">$1</span>'
-          );
           html +=
             `<div class="score-formula-section">` +
-            `<div class="score-section-title">评分公式</div>` +
-            `<div class="score-formula">${highlighted}</div>` +
+            `<div class="score-section-title">收益分公式</div>` +
+            `<div class="score-formula">${escapeText(formula)}</div>` +
             `</div>`;
         }
 
@@ -1353,7 +1373,7 @@ export function initPaper(ctx) {
       const rows = report
         .map((r, idx) => {
           const cls = decisionClass[r.decision] || "rebalance-hold";
-          const scoreText = r.score != null ? Number(r.score).toFixed(1) : "—";
+          const scoreText = r.score != null ? fmtScore(r.score) : "—";
           const belowMin = !!r.below_min_score;
           const scoreShown =
             scoreText !== "—" && belowMin ? `${scoreText}↓` : scoreText;

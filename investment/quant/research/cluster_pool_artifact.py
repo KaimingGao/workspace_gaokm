@@ -1,6 +1,7 @@
-"""分池研究产物：code→cluster→weights 映射 + 纸面调仓预演（默认不写账）。
+"""分池研究产物：code→cluster→因子系数(return_model) 映射 + 纸面调仓预演。
 
-供人审归档；不写 signal_config，不进 live 多权 scorer。
+真源为组 OLS 收益分系数；weights 仅由 |β| 派生（兼容旧消费者）。
+不写 signal_config。
 """
 
 from __future__ import annotations
@@ -10,6 +11,11 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from core.signal.factor_coefs import (
+    display_weights_from_return_model,
+    has_factor_coefficients,
+)
+
 
 SCHEMA_VERSION = 1
 
@@ -18,7 +24,12 @@ def _iso_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
-def _suggested_weights(cluster: Dict[str, Any]) -> Optional[Dict[str, float]]:
+def _cluster_weights(cluster: Dict[str, Any]) -> Optional[Dict[str, float]]:
+    """优先 |β| 派生；无 return_model 时回退旧 weight_suggest。"""
+    rm = cluster.get("return_model")
+    derived = display_weights_from_return_model(rm if isinstance(rm, dict) else None)
+    if derived:
+        return derived
     sug = cluster.get("weight_suggest") or {}
     if not sug.get("success"):
         return None
@@ -34,31 +45,93 @@ def _suggested_weights(cluster: Dict[str, Any]) -> Optional[Dict[str, float]]:
     return out or None
 
 
+def _slim_oos_gate(gate: Any) -> Optional[Dict[str, Any]]:
+    """归档用精简 OOS，供 live 证据包 / UI 悬浮注释读取（避免整份回测曲线）。"""
+    if not isinstance(gate, dict) or not gate:
+        return None
+    keep = (
+        "ok",
+        "passed",
+        "skipped",
+        "reason",
+        "note",
+        "delta_oos_pp",
+        "oos_tol_pp",
+        "scope",
+        "cluster_label",
+        "stock_count",
+        "lookback",
+        "horizon_days",
+        "top_k",
+        "baseline_rank_mode",
+        "research_rank_mode",
+    )
+    out = {k: gate[k] for k in keep if k in gate}
+
+    def _arm_oos(arm: Any) -> Optional[Dict[str, Any]]:
+        if not isinstance(arm, dict):
+            return None
+        oos = arm.get("oos") if isinstance(arm.get("oos"), dict) else {}
+        slim_arm: Dict[str, Any] = {}
+        if oos.get("oos_return_pct") is not None:
+            slim_arm["oos_return_pct"] = oos.get("oos_return_pct")
+        if oos.get("is_return_pct") is not None:
+            slim_arm["is_return_pct"] = oos.get("is_return_pct")
+        if oos.get("failed") is not None:
+            slim_arm["failed"] = oos.get("failed")
+        if oos.get("fail_reason"):
+            slim_arm["fail_reason"] = oos.get("fail_reason")
+        return {"oos": slim_arm} if slim_arm else None
+
+    for src_key, dst_key in (
+        ("baseline", "baseline"),
+        ("research", "research"),
+        ("current", "baseline"),
+        ("suggested", "research"),
+    ):
+        if dst_key in out:
+            continue
+        arm = _arm_oos(gate.get(src_key))
+        if arm:
+            out[dst_key] = arm
+    return out or None
+
+
 def build_pool_artifact(report: Dict[str, Any]) -> Dict[str, Any]:
-    """从 β 分组报告抽出可归档映射产物。"""
+    """从 β 分组报告抽出可归档映射产物（真源=return_model）。"""
     clusters_out: List[Dict[str, Any]] = []
     code_map: Dict[str, Dict[str, Any]] = {}
 
     for cl in report.get("clusters") or []:
-        weights = _suggested_weights(cl)
+        rm = cl.get("return_model") if isinstance(cl.get("return_model"), dict) else None
+        weights = _cluster_weights(cl)
         label = str(cl.get("label") or f"G{(cl.get('cluster_id') or 0) + 1}")
         members = [str(m).strip() for m in (cl.get("members") or []) if str(m).strip()]
         gate = cl.get("oos_gate") or {}
+        gate_slim = _slim_oos_gate(gate)
+        oos_passed = bool(
+            gate.get("ok") and gate.get("passed") and not gate.get("skipped")
+        )
         entry = {
             "cluster_id": cl.get("cluster_id"),
             "label": label,
             "members": members,
             "member_count": len(members),
+            "return_model": rm,
             "weights": weights,
-            "oos_passed": bool(gate.get("ok") and gate.get("passed")),
+            "weights_derived_from_beta": bool(
+                rm and has_factor_coefficients(rm) and weights
+            ),
+            "oos_gate": gate_slim,
+            "oos_passed": oos_passed,
             "singleton": bool(cl.get("singleton")),
         }
         clusters_out.append(entry)
-        # 成员一律进 code_map（便于持仓入组）；weights 可为空
         for code in members:
             code_map[code] = {
                 "cluster_id": cl.get("cluster_id"),
                 "cluster_label": label,
+                "return_model": rm,
                 "weights": weights,
                 "oos_passed": entry["oos_passed"],
             }
@@ -77,7 +150,6 @@ def build_pool_artifact(report: Dict[str, Any]) -> Dict[str, Any]:
             "rebalance_count": bt.get("rebalance_count"),
         }
 
-    # 候选簿内代码补全映射（若组权缺失则仅记所属组）
     for p in book:
         code = str(p.get("stock_code") or "").strip()
         if not code or code in code_map:
@@ -85,10 +157,17 @@ def build_pool_artifact(report: Dict[str, Any]) -> Dict[str, Any]:
         code_map[code] = {
             "cluster_id": p.get("cluster_id"),
             "cluster_label": p.get("cluster_label"),
+            "return_model": None,
             "weights": None,
             "oos_passed": None,
             "from_book_only": True,
         }
+
+    n_with_coefs = sum(
+        1
+        for m in code_map.values()
+        if isinstance(m, dict) and has_factor_coefficients(m.get("return_model"))
+    )
 
     return {
         "success": True,
@@ -98,6 +177,7 @@ def build_pool_artifact(report: Dict[str, Any]) -> Dict[str, Any]:
         "promote_ready": False,
         "n_clusters": len(clusters_out),
         "n_mapped_codes": len(code_map),
+        "n_codes_with_coefs": n_with_coefs,
         "lookback": report.get("lookback"),
         "horizon_days": report.get("horizon_days"),
         "stock_count": report.get("stock_count"),
@@ -112,10 +192,10 @@ def build_pool_artifact(report: Dict[str, Any]) -> Dict[str, Any]:
         "backtest_summary": bt_summary,
         "preferred_cluster_label": (report.get("preferred_cluster") or {}).get("label"),
         "apply_note": (
-            "研究归档：code→cluster→weights 与分池候选簿。"
-            "不写 signal_config；纸面调仓须单独预演确认；promote_ready 恒否。"
+            "研究归档：code→cluster→因子系数(return_model)；weights 由 |β| 派生。"
+            "不写 signal_config；纸面调仓须单独预演；promote_ready 恒否。"
         ),
-        "note": "人审产物；可用于后续分池纸面预演，不进 live。",
+        "note": "人审产物；因子系数=组 OLS β→收益分；不进 live 须 promote。",
     }
 
 

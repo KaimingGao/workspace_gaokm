@@ -360,8 +360,20 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
     from core.signal.factors.dynamic_position import get_full_position_plan
     
     rules = paper.get("rules") or {}
-    base_min_score = float(rules.get("min_score") or 60.0)  # 与减仓阈值对齐
-    base_sell_score = float(rules.get("add_score") or 60.0)  # 加仓阈值
+    from core.signal.score_display import (
+        is_predicted_rank_mode,
+        resolve_buy_floor,
+        score_gates_use_heuristic_bands,
+    )
+
+    predicted = is_predicted_rank_mode()
+    # 收益分：不用 0–100 的 min_score/加仓分档；入选靠池排序与可选 min_predicted_score
+    base_min_score = resolve_buy_floor(paper, heuristic_default=60.0)
+    base_sell_score = (
+        float("-inf")
+        if predicted
+        else float(rules.get("add_score") or 60.0)
+    )
     max_positions = int(rules.get("max_positions") or 5)
     position_pct = float(rules.get("position_pct") or 0.15)
     add_size_pct = float(rules.get("add_size_pct") or 0.5)  # 加仓比例50%
@@ -371,8 +383,11 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
     # 自适应仓位配置
     use_adaptive_position = rules.get("use_adaptive_position", True)
     
-    # 胜率自适应阈值
-    use_adaptive_threshold = rules.get("use_adaptive_threshold", True)
+    # 0–100 加减仓分档已退役（score_gates_use_heuristic_bands=False）
+    use_adaptive_threshold = (
+        bool(rules.get("use_adaptive_threshold", True))
+        and score_gates_use_heuristic_bands()
+    )
     
     # 技术指标过滤（加仓时使用）
     use_technical_filter = rules.get("use_technical_filter", True)
@@ -423,10 +438,14 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
             continue
 
         if code in held_codes:
-            # 已有持仓：使用动态仓位管理
+            # 已有持仓：动态仓位管理；0–100 分档已退役
             holding = held_codes[code]
             current_shares = float(holding.get("shares") or 0)
             score_val = float(score)
+
+            if not score_gates_use_heuristic_bands():
+                item["skip_reason"] = "收益分模式：持仓加减仓不按 0–100 分档（靠调仓簿）"
+                continue
             
             # 技术指标检查（提前获取）
             technical_info = None
@@ -646,11 +665,16 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
         update_peak_price,
     )
     from core.signal.factors.dynamic_position import get_reduce_position_plan
+    from core.signal.score_display import (
+        resolve_buy_floor,
+        score_gates_use_heuristic_bands,
+    )
 
     rules = paper.get("rules") or {}
     stop_loss_pnl = float(rules.get("stop_loss_pnl") or -8.0)
     max_hold_days = int(rules.get("max_hold_days") or 5)
-    min_score = int(rules.get("min_score") or 60)  # 与加仓阈值对齐
+    min_score = resolve_buy_floor(paper, heuristic_default=60.0)
+    use_score_reduce = score_gates_use_heuristic_bands()
     
     # 动态止损配置
     stop_loss_mode = rules.get("stop_loss_mode", "adaptive")
@@ -748,8 +772,8 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
             else:
                 reason = f"持有超时({hold_days}天)且趋势向下"
         
-        # 4. 梯度减仓（根据评分等级）
-        if not reason and score is not None:
+        # 4. 梯度减仓（根据评分等级；收益分模式下跳过 0–100 分档）
+        if not reason and score is not None and use_score_reduce:
             reduce_plan = get_reduce_position_plan(score, shares, min_score=min_score)
             if reduce_plan["should_reduce"]:
                 sell_shares = reduce_plan["reduce_shares"]

@@ -125,9 +125,16 @@ def simulate_cross_section_rebalance(
         # 分池：按簿长持有；上限对齐 cluster max_names（80），勿再用 30 砍掉簿尾
         top_k = min(top_k, 80)
     if min_score is None:
-        min_score = float(rules.get("min_score") or 55.0)
-    min_hold_score = float(rules.get("min_hold_score") or 45.0)
-    # 分池：持仓上限=簿长；买入仍按策略 min_score（与 score_cluster 选股一致）
+        from core.signal.score_display import resolve_buy_floor, resolve_hold_floor
+
+        min_score = resolve_buy_floor(paper, heuristic_default=55.0)
+        min_hold_score = resolve_hold_floor(paper, heuristic_default=45.0)
+    else:
+        min_score = float(min_score)
+        from core.signal.score_display import resolve_hold_floor
+
+        min_hold_score = resolve_hold_floor(paper, heuristic_default=45.0)
+    # 分池：持仓上限=簿长；买入门槛见 resolve_buy_floor（收益分可无下限）
     if not respect_max_positions:
         max_positions = top_k
     else:

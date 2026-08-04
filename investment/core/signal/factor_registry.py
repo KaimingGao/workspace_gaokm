@@ -203,7 +203,7 @@ _register(
 )
 _register(
     "alt_sentiment",
-    "另类情绪",
+    "舆情",
     _compute_alt_sentiment,
     "舆情/情绪快照偏置：无舆情中性 50；偏多抬分、偏空压分。",
 )
@@ -266,6 +266,15 @@ def list_factors() -> List[Dict[str, str]]:
         }
         for k, v in _REGISTRY.items()
     ]
+
+
+def factor_label(name: str) -> str:
+    """因子展示名（中文）；未注册则回退原名。"""
+    key = str(name or "").strip()
+    meta = _REGISTRY.get(key)
+    if meta and meta.get("label"):
+        return str(meta["label"])
+    return key or str(name or "")
 
 
 def registered_factor_names() -> Tuple[str, ...]:

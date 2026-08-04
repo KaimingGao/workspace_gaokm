@@ -53,7 +53,11 @@ def compute_buy_stance(
             "confidence": "low",
         }
 
-    score = _f(signal_item.get("score"))
+    score = _f(signal_item.get("predicted_score"))
+    if score is None:
+        # 主分须为 ŷ；无收益分则信息不足
+        score = None
+    score_kind = "predicted"
     hard_reject = bool(signal_item.get("hard_reject"))
     reject_reason = signal_item.get("reject_reason") or ""
     data_source = signal_item.get("data_source") or kline.get("data_source") or ""
@@ -77,7 +81,7 @@ def compute_buy_stance(
         }
 
     if score is None:
-        reasons.append("无短线评分")
+        reasons.append("无收益分（请拟合/promote ŷ 模型或跑分组）")
         return {
             "stance_code": "insufficient",
             "stance_label": STANCE_LABELS["insufficient"],
@@ -87,23 +91,24 @@ def compute_buy_stance(
             "score": score,
         }
 
-    thresholds = get_stance_thresholds(load_signal_config())
+    thresholds = get_stance_thresholds(load_signal_config(), kind="predicted")
     t_avoid = thresholds["avoid"]
     t_wait = thresholds["wait"]
     t_probe = thresholds["probe"]
+    label = "收益分"
 
     if score < t_avoid:
         code = "avoid"
-        reasons.append(f"短线分偏低({score})")
+        reasons.append(f"{label}偏低({score})")
     elif score < t_wait:
         code = "wait"
-        reasons.append(f"短线分中性偏弱({score})")
+        reasons.append(f"{label}中性偏弱({score})")
     elif score < t_probe:
         code = "probe"
-        reasons.append(f"短线分尚可({score})，宜谨慎")
+        reasons.append(f"{label}尚可({score})，宜谨慎")
     else:
         code = "buy_light"
-        reasons.append(f"短线分偏强({score})")
+        reasons.append(f"{label}偏强({score})")
 
     penalties = 0
     if change is not None and change <= -5:

@@ -68,7 +68,13 @@ def optimize_weights(
     max_pos = max(0.1, float(max_position_pct or 2.0))
     max_sec = max(0.1, float(max_sector_pct or 5.0))
     max_n = max(1, int(max_positions or 20))
-    floor = float(min_score or 0.0)
+    from core.signal.score_display import resolve_buy_floor
+
+    # 默认 55 在收益分下改为无下限；显式传入其它值仍尊重
+    if min_score == 55.0:
+        floor = resolve_buy_floor(heuristic_default=55.0)
+    else:
+        floor = float(min_score if min_score is not None else 0.0)
     mode = (weight_mode or "score_budget").strip().lower()
     if mode not in ("score_budget", "greedy_cap", "risk_parity_lite", "qp_lite"):
         mode = "score_budget"

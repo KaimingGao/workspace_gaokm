@@ -129,16 +129,18 @@ def attach_cluster_oos_gates(
         }
         return attach_cluster_export_diffs(report)
 
-    from core.signal.weight_oos_gate import evaluate_weight_suggestion_oos
+    from core.signal.weight_oos_gate import evaluate_research_oos
+    from core.signal.config import load_signal_config
 
     passed_n = 0
     failed_n = 0
     skipped_n = 0
     lb = max(40, min(int(lookback or 80), 90))
+    base_w = dict((load_signal_config() or {}).get("weights") or {})
 
     for cl in clusters:
         members = [str(c).strip() for c in (cl.get("members") or []) if str(c).strip()]
-        sug = cl.get("weight_suggest") or {}
+        rm = cl.get("return_model")
         if cl.get("singleton") or len(members) < 2:
             cl["oos_gate"] = {
                 "ok": False,
@@ -150,39 +152,38 @@ def attach_cluster_oos_gates(
             }
             skipped_n += 1
             continue
-        if not sug.get("success"):
+        if not isinstance(rm, dict) or not rm.get("coefficients"):
             cl["oos_gate"] = {
                 "ok": False,
                 "passed": False,
                 "skipped": True,
-                "reason": "no_weight_suggest",
-                "note": "无组内建议权，跳过 OOS。",
+                "reason": "no_return_model",
+                "note": "无组内 return_model（ŷ），跳过 OOS。",
             }
             skipped_n += 1
             continue
 
-        cur_w = sug.get("current_weights") or {}
-        sug_w = sug.get("suggested_weights") or {}
         top_k = 1 if len(members) <= 2 else min(2, len(members))
-        gate = evaluate_weight_suggestion_oos(
-            cur_w,
-            sug_w,
+        models_by_code = {m: rm for m in members}
+        gate = evaluate_research_oos(
             codes=members,
+            research_models_by_code=models_by_code,
+            baseline_weights=base_w,
             watching_limit=len(members),
             min_names=2,
             lookback=lb,
             top_k=top_k,
             horizon_days=horizon_days,
             oos_tol_pp=oos_tol_pp,
+            ridge_lambda=float(rm.get("ridge_lambda") or 0.0),
         )
-        # 组内对照：过门仅表示「组内建议权不劣于全局当前权」；不自动 promote
         gate = dict(gate)
         gate["scope"] = "cluster_members"
         gate["cluster_label"] = cl.get("label")
         if gate.get("note"):
             gate["note"] = (
                 str(gate["note"])
-                + " 范围仅限本组股票；不写 signal_config，不设全局 promote_ready。"
+                + " 范围仅限本组股票；基线=全局 heuristic；研究臂=本组 β→ŷ；不写 signal_config。"
             )
         cl["oos_gate"] = gate
         if gate.get("skipped"):
@@ -199,9 +200,11 @@ def attach_cluster_oos_gates(
         "failed": failed_n,
         "skipped": skipped_n,
         "oos_tol_pp": float(oos_tol_pp),
-        "note": "各组：组内建议权 vs 当前全局权 · 仅组员 Top-K · 后 30% OOS。",
+        "note": (
+            "各组：heuristic 基线 vs 组 return_model ŷ · 仅组员 Top-K · 后 30% OOS。"
+        ),
     }
     note = str(report.get("note") or "")
     if "组内 OOS" not in note:
-        report["note"] = note + " 已附组内 OOS/Top-K 对照（只读）。"
+        report["note"] = note + " 已附组内 OOS/Top-K 对照（heuristic vs ŷ，只读）。"
     return attach_cluster_export_diffs(report)

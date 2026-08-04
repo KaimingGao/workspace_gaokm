@@ -1,100 +1,150 @@
-# 权重建议深化方案（IC / OLS / 配权）
+# 权重建议深化方案（IC / OLS / 因子系数）
 
-目标：把研究枢纽「建议」从**单票启发式**推进到更接近专业研究链路的**可审证据摘要**，仍不自动写盘。
+目标：把研究枢纽从「权重建议双轨」收口为**因子系数 = 组 OLS β → 收益分**，仍不自动写盘。
 
-## 目标链路
+## 产品语义（现行）
+
+**人工预定的规则分退出；全面拥抱数据驱动的回归模型。**
+
+| 旧 | 新 |
+|----|----|
+| 人工预定、常非负归一的 `signal_config.weights` → 规则综合分 | 历史收益拟合的 **线性回归** → 收益分 ŷ |
+| `heuristic_score` / 0–100 加权 | `ReturnScoreModel`：`intercept` + **可正可负的 β** + z |
+
+现阶段模型是 **线性回归（OLS / 可选 Ridge）**。线性系数 β 即 **带符号的系数权重**：
 
 ```text
-截面 IC / ICIR  →  （弱证据）OLS β  →  约束小步 Δ  →  OOS / 回测门禁  →  人审 promote
+ŷ = α + Σ βᵢ · zᵢ
 ```
+
+- **β > 0**：该因子抬升预期收益；**β < 0**：压制
+- 量纲：因子 z 上 1σ → ŷ 百分点斜率（**不是**和为 1 的混合权）
+- `|β|` 归一化仅供展示 / 遗留诊断，**不**驱动选股
+- 无组 / 全局模型时 `score` 为空，**不**回退规则分
+- 换非线性模型时仍换拟合器；选股真源始终是「模型预测分」，不再开人工权主轴
+
+细则与退役说明见下文 P11 / Live。
+
+## 目标链路（已合并）
+
+```text
+单票 OLS β 聚类  →  组池 OLS β（因子系数）  →  return_model → ŷ  →  人审 promote
+```
+
+遗留：`weight_suggest` / IC 小步权 / OOS 组权对照 已标 `deprecated_for_scoring`；展示权可由 `|β|` 派生，**不是**选股权。
 
 | 阶段 | 内容 | 状态 |
 |------|------|------|
-| **P0** | 默认用研究池 **截面 IC + ICIR** 驱动建议；\|ICIR\| 门槛 + 按 ICIR 缩放步长；表内展示 ICIR / 证据来源 | ✅ |
-| **P1** | IC 弱时 OLS 回退 / 近零降权；对齐 CS-IC 输入 | ✅ |
-| **P2** | 建议权 vs 当前权的 **OOS Top-K 门禁**（过门 → `promote_ready`） | ✅ |
-| **P3** | 组内权重上限、零权冻结、与 live regime 白名单软提示 | ✅ 轻量 |
-| **P4** | 单票 OLS β 聚类 → 组内池 OLS / 小步建议权（研究探针） | ✅ 轻量 |
-| **P4.1** | 每组：组内建议权 vs 当前权 · Top-K OOS 对照（只读） | ✅ 轻量 |
-| **P4.2** | 优选组 / 各组导出权重 diff（人审；`promote_ready` 恒否） | ✅ 轻量 |
-| **P5** | 分组 score：每组用组权打分 → **组内排序**（对照全局权统一排名） | ✅ 轻量 |
-| **P6** | 各组组内 Top-N **合成候选簿** + 分池 vs 全局 Top-K 对照回测 | ✅ 轻量（**Top-N=每组相对序**，≠ 账户持仓上限；现行默认 10） |
-| **P7** | `code→cluster→weights` **映射产物** + 纸面分池调仓预演（不写账） | ✅ 轻量 |
-| **P8** | 分池候选簿 **确认落账**（`confirm` → 写 paper；永不写 signal_config） | ✅ 轻量 |
-| **P9** | `code_map` **多权打分**（仅组内序）+ 归档复打 API（不进 live） | ✅ 轻量 |
-| **L0** | live 映射晋升 / 回滚（`cluster_weights_active.json`） | ✅ |
-| **L1** | `score_stock` 影子/激活双分（`cluster_scoring.mode`） | ✅ |
+| **P0–P3** | IC / 小步权 / OOS（研究遗留） | ✅ 已退役为选股主轴 |
+| **P4** | 单票 OLS β 聚类 → 组内池 OLS → **因子系数 return_model** | ✅ |
+| **P4.1** | 组内 OOS 对照（遗留诊断） | ✅ 轻量 |
+| **P4.2** | 导出 diff（遗留；`promote_ready` 恒否） | ✅ 轻量 |
+| **P5** | 分组 score：组因子系数 → **ŷ 组内排序** | ✅ |
+| **P6** | 各组组内 Top-N **合成候选簿** + 分池 vs 全局 Top-K 对照回测 | ✅ 轻量（Top-N 默认 10） |
+| **P7** | `code→cluster→return_model` **映射产物**（weights 由 \|β\| 可选派生） | ✅ |
+| **P8** | 分池候选簿 **确认落账**（永不写 signal_config） | ✅ |
+| **P9** | 多权打分（遗留诊断） | ✅ 轻量 |
+| **P10** | 权重坐标网格对照（遗留；`promote_ready` 恒否） | ✅ 轻量 |
+| **P11** | **因子系数 = 组 OLS β → 收益分**；规则分已全局退役 | ✅ |
+| **P11.1** | 回测页固定收益分 + ŷ 模型草稿/promote | ✅ |
+| **L0** | live 映射晋升 / 回滚（门禁=return_model） | ✅ |
+| **L1** | `score_stock` 主分=ŷ（映射组/全局因子系数） | ✅ |
 | **L2** | `rank_cluster_pools` + 纸面 `cluster_mode` 调仓 | ✅ |
 | **L3** | 草稿/日更刷新簿 + 覆盖率·陈旧健康检查 | ✅ |
 | **L4** | execution 只读 `cluster_book`（不写全局 weights） | ✅ |
 
 ## 研究枢纽定位（股票分组）
 
-**目的**：用聚类找出 **OLS 表现相似** 的股票 → **同组共用一套建模/配权**；**不同组用不同建模**（各组独立池 OLS → 独立小步权），避免异质票硬套同一套全局权。
+**目的**：用聚类找出 **OLS 表现相似** 的股票 → **同组共用一套因子系数**；**不同组各自 β → ŷ**。
 
 ```text
 股票分组 → 宇宙=全部观察池；OLS β·complete·目标 k≈N/5（4～10）+ 超大组二分
-一组一表 → G 标题含成员（名称+代码）；多票组池 OLS / 单票组单票 OLS → 小步建议权
+一组一表 → G 标题含成员；主列「因子 / 系数β」（z 上 ŷ% 斜率，可负，非归一化权）
 未入组   → 数据不足单独提示；纸面持仓映射另作落地参考
 ```
 
 进阶（折叠）：影子对照 / 用分组打分 / 按分组调纸面仓 —— **不是**枢纽日常主路径。
 探针（折叠）：单票 vs 所在组 —— 核对该票是否仍适合本组建模；不冲组表。
 
-## P4–P9 · 实现链路（支撑上述三件事）
+## P4–P9 · 实现链路（支撑上述）
 
 ```text
 宇宙 = 全部观察池
-  → 逐票 OLS β → 缩尾+z-score → complete·目标k≈N/5 → 超大组二分 → 多票组池 OLS / 小步建议权
-  → holdings_assignment（纸面持仓 → 组，落地用）
-  → 组内 OOS / 组内 score 排序（证据）
-  → UI：一组一表；可选晋升 live / 影子 / 分池调仓
+  → 逐票 OLS β → 缩尾+z-score → complete·目标k≈N/5 → 超大组二分
+  → 多票组池 OLS → return_model（因子系数）→ |β| 可选派生展示权
+  → holdings_assignment / 组内 ŷ 排序 / 分池簿
+  → UI：一组一表（系数β）；可选晋升 live
 ```
 
 - 入口：研究枢纽「跑分组」/ `POST /api/quant/factor-ols-clusters`
-- **宇宙**：**全部观察池**（不截前 N）；不足 2 只不可聚类
-- lookback 80、**关闭 PIT 财务**（否则逐票面板会极慢）
-- 解释池 OLS 被异质票拉开；组权仍是约束小步 Δ（**非** raw β→权重占比）。分组路径 **OLS β 优先**：`prefer_ols` · `ols_delta=0.05` · 按 `|β|` 放大至 3×；无可用 β 时用**组内按日截面 IC→ICIR**补位（单票组回退时序 IC，不要求 ICIR）
-- **组内 OOS**：仅在组员宇宙上对照；过门 ≠ 全局 `promote_ready`；**不写** `signal_config`
-- **导出**：`preferred_cluster`（导出优先，非分类标签）+ 每组「导出本组 diff」；合并为全局权前须确认代表性
-- **枢纽 IA**：分组 + 一组一表 + 探针 = 主路径；阈值 / 横截面收进「全局对照」折叠（非分组权）
-- **分组 score**：`group_scores` / `cluster.group_ranking`；`global_ranking` 为同批票全局权对照
-- **分池合成**：`pool_merge.book`（最新截面各组 Top-N）；`pool_merge.backtest`（历史分池 vs 全局，close 执行）
-- **映射产物**：`pool_artifact`（`code_map` + `pool_book`）；落盘 `data/reports/last_cluster_pool_artifact.json`
-- **纸面预演 / 落账**：`POST /api/quant/cluster-paper-preview`（默认 deepcopy；`confirm=true` 写纸面并记 `last_cluster_pool`）
-- **多权打分**：`multi_score` / `POST /api/quant/cluster-multi-score`（`cross_group_rank=false`；不进 live scorer）
+- **真源**：`ReturnScoreModel`（`intercept` + `coefficients` + `z_*`）
+- **promote 门禁**：至少 2 只带 `return_model.coefficients`；weights 可选由 `|β|` 派生
+- **不写** `signal_config.weights`（硬边界）
+- 量纲：系数是 z 上的 ŷ 百分点斜率，**不是**归一化权重
+- `signal_config.weights` 保留默认值仅供 `score_bars` 因子管线（不产出规则分）
 
-## P0/P1 规则
+## P0/P1 规则（遗留；已非选股主轴）
 
-对每个 `signal_config.weights` 因子：
+对每个 `signal_config.weights` 因子的旧小步建议逻辑仍见于 `weight_suggest.py`，但分组路径已改为 `|β|` 派生展示权并标 `deprecated_for_scoring`。
 
-1. **强截面证据**：`n` 足够，且 `|IC| ≥ 0.03`，且 `|ICIR| ≥ 0.25`  
-   → `δ = sign(IC) · 0.03 · clamp(|ICIR|/0.5, 0.5, 1.5)`
-2. **否则 OLS**：`|β| ≥ 0.05` → `±0.02`
-3. **否则近零 IC** → `−0.015`
-4. **零权冻结**：原权重为 0 的因子（如 `money_flow`）不复活
-5. **组内上限**：`factor_groups` 各组和 ≤ 0.45，超限等比压缩后归一化
-6. 相关冗余 / 白名单外上调 → `constraint_warnings`
+## P2 OOS 门禁（研究对照）
 
-## P2 OOS 门禁
+**产品语义**（与门禁 `note` / 研究枢纽文案同源）：
 
-- 同一研究池、同一 Top-K 参数，分别用当前权 / 建议权跑 `backtest_topk`（经 `signal_config_overlay`）
-- 权益曲线后 30% 为 OOS（`split_oos_summary`）
-- **过门**：建议 OOS ≥ 当前 OOS − `oos_tol_pp`（默认 1pp），且不新增 OOS 失败旗标
-- `promote_ready = passed ∧ ¬skipped`；导出 diff 带 `apply_note`；未过门时 UI 二次确认
+| 臂 | 角色 |
+|----|------|
+| `heuristic_score` | 全局人工预定义线性加权排序 · **对照基线** |
+| `predicted_score`（ŷ） | 研究枢纽回归模型 · **选股实现方案** |
+
+研究枢纽定位：寻找更优 ŷ，以提升历史回测收益与交易执行选股准确率。
+
+- 切分：同一研究池 Top-K 权益曲线 **后 30%** 为 OOS
+- 过门：研究臂 OOS ≥ 基线 OOS − `oos_tol_pp`（默认 1pp）
+- 过门 ≠ 自动 promote；不写 `signal_config`
 
 ## 非目标
 
-- 自动把组权写入 `signal_config.weights`（live 权向量只在 `data/live/`）
-- 完整均值方差 / 风险平价求解
-- raw OLS β → 权重占比
-- 跨组统一总榜冒充分组
+- 自动把组权 / β 写入 `signal_config.weights`
+- 把 β 强行写成「和为 1 的生产权重」再当 ŷ 用
+- raw OLS β → 权重占比当选股主轴
+- 坐标搜索结果自动 promote
 
-## 验收（研究段）
+## P10 · 权重坐标搜索对照（遗留）
 
-- `ic_mode=cs_ic` 时表含 ICIR；建议响应含 `oos_gate` / `promote_ready`
-- 单测：ICIR 门槛、组上限、overlay、OOS 门禁 mock
-- `ASSET_V` 与页内说明同步
+回答「是目标函数错了，还是权重本身救不了」：同一宇宙并列三臂；`promote_ready` 恒否。
+
+## P11 · 因子系数 → 收益分
+
+```text
+跑分组 → 组内池 OLS β
+  → cluster.return_model（因子系数）
+  → 组内 predicted_ranking / promote 后 live code_map.return_model
+  → rank_mode=predicted_score 时按各组 ŷ 排序
+```
+
+| 入口 | 说明 |
+|------|------|
+| `rank_mode=predicted_score` | 优先分组 β；否则全局模型 |
+| `POST /api/quant/rank-mode-compare` | 遗留对照 |
+| `core/signal/return_score.py` | `ReturnScoreModel` |
+| `core/signal/factor_coefs.py` | `|β|` → 展示权 |
+
+系统默认主路径仅为 `predicted_score`；规则分（`heuristic_score`）已全局退役，不写入 signal_item、不参与排序/stance/调仓。无全局/分组系数时 `score` 为空。
+
+### P11.1 · 回测页与模型产物
+
+| 入口 | 说明 |
+|------|------|
+| 回测页 | 固定排序 · 收益分 |
+| 「拟合ŷ模型」 | 全局草稿（无分组时回退） |
+| 枢纽 promote | `code_map.return_model` 必填；weights 可由 `|β|` 派生 |
+| `ASSET_V` | p614 |
+
+## 验收
+
+1. 跑分组后表内只见「因子系数 β」，无双轨「权 vs β」主叙事
+2. promote 仅依赖组 `return_model`；live 打分/簿排序用 ŷ
+3. 无系数时不回退规则综合分
 
 ---
 
@@ -103,127 +153,37 @@
 ### 产品硬约束（不可破）
 
 1. **不**把各组权合并成一份全局 `signal_config.weights` 后假装「已分组」
-2. **不**做跨组统一总榜；live 选股 = **组内排序 → 分池合成**（与研究 P5/P6 同构）
-3. 全局 `signal_config` 继续服务「未映射票 / 回退路径」；分组权走**独立活产物**
-4. 人审 promote 映射产物后才能挂 live；自动 OLS 重聚类默认关
-
-### 现状 → 缺口
-
-| 已有（研究） | Live 缺口 |
-|--------------|-----------|
-| `pool_artifact` / `code_map` | 版本化「生效中」产物 + 回滚 |
-| `multi_score` / 组内序 | `score_stock` / `rank_cross_section` 读 code_map |
-| 分池合成簿 + 纸面 confirm | 日更扫描 / 纸面调仓默认走分池模式 |
-| 组内 OOS | live 旁路对照 + 失效告警 |
-
-今日 live 主路径：`rank_cross_section` → `score_stock` → 单一 `load_signal_config().weights`。
+2. **不**自动写 `signal_config.weights`
+3. 全局 `signal_config` 继续服务「未映射票」因子管线；分组因子系数走**独立活产物**
+4. 中性化在 `predicted_score` 模式下跳过（与拟合面板一致）
 
 ### 目标架构
 
 ```text
 [人审] β 分组产物
-   → promote → data/live/cluster_weights_active.json  (code→cluster→weights + meta)
-   → score_stock(code): 若 code∈map 则 overlay 组权，否则全局权
-   → rank_cluster_pools(): 各组内 Top-N → 合并候选（非跨组 sort）
-   → paper rebalance / daily cycle（可选开关 cluster_mode）
-   → （更后）实盘 execution 只消费合并簿，不改全局 config
+   → promote → data/live/cluster_weights_active.json  (code→cluster→return_model；weights 可选派生)
+   → score_stock(code): 组/全局 return_model → ŷ（主分）
+   → rank_cluster_pools / paper rebalance（可选 cluster_mode）
 ```
 
-### 分阶段
-
-| 阶段 | 内容 | 退出标准 |
-|------|------|----------|
-| **L0 · 生效产物** | `promote_cluster_artifact`：研究产物 → `cluster_weights_active.json`；带 `version` / `promoted_at` / `source_created_at`；UI「晋升 live 映射」二次确认；支持回滚上一版 | 文件可读写；未映射不影响现网 |
-| **L1 · 影子打分** | `score_stock(..., cluster_mode="shadow")`：同时出 `score_global` / `score_cluster`；日报/研究页对照，**调仓仍用全局** | 影子跑 ≥N 日；组内序稳定、无大面积硬拒异常 |
-| **L2 · 纸面分池 live** | `rank_cluster_pools` 替代（或并列）`rank_cross_section`；`paper.rebalance(cluster_mode=true)` 消费合并簿；默认仍需开关 | 纸面连续调仓与 P8 语义一致；可一键回退全局 Top-K |
-| **L3 · 日更闭环** | 定时：watching 变更时「仅重打分不重聚类」；可选低频重跑 β 分组 → **草稿**待审，不自动 promote | 映射覆盖率/过期告警；草稿 ≠ active |
-| **L4 · 实盘只读消费** | execution / 下单路径只读「分池合并簿」；审计字段 `weight_source=cluster:{label}` | 与券商/执行适配；仍禁止写全局 weights |
-
-### 配置与数据
-
-- **新文件**（建议）：`data/live/cluster_weights_active.json` + `cluster_weights_history/`
-- **不要**把 `code_map` 塞进 `signal_config.json`（避免污染全局 promote / regime 白名单）
-- `signal_config` 可加软开关：`cluster_scoring.enabled` / `mode: off|shadow|active`（开关在 config，**权向量在 live 产物**）
-
-### 打分语义（L1/L2）
+### 打分语义
 
 ```text
-for code in universe:
-  weights = code_map[code].weights if mapped else global.weights
-  score = score_bars(..., config=overlay(weights))
-for each cluster:
-  rank members by score  # 仅组内
-book = concat(top_n_per_group=10)  # 组内相对 Top10（不按全局 min_score 砍簿）；禁止 flat sort(all scores)
+score_bars → sub_scores（ŷ 输入；可顺带算加权总分，不挂产品面）
+ŷ = ReturnScoreModel.predict(sub_scores)   # 选股真源 = predicted_score
+# 规则分 heuristic_score 已全局退役，不写入、不排序
 ```
 
-中性化：优先**组内**中性化；全宇宙中性化会混淆组权，L2 默认关或按组做。
+### 明确不做
 
-### 风险与门禁
+- 自动写 `signal_config.weights`
+- 把 β 归一化成生产权再当 ŷ
+- 无系数时回退规则综合分
 
-- **覆盖率**：未映射票走全局权并打标；覆盖率 &lt; 阈值 → 告警、禁止 `mode=active`
-- **陈旧**：`promoted_at` 超期（如 7/14 交易日）→ 自动降级 shadow/off
-- **组崩塌**：单票组过多 / 一组过大 → promote 拒绝或仅 shadow
-- **回撤**：纸面 `cluster_mode` 与全局并行影子净值，劣于全局超阈值则建议降级
-- **审计**：每笔纸面调仓 meta 带 `cluster_label` + artifact `version`
+### 验收（Live）
 
-### 明确不做（Live 段）
+- promote 门禁=`return_model.coefficients`；weights 可缺或 `|β|` 派生
+- active 时主分=ŷ
+- 单测：`test_factor_coefs` · `test_cluster_live` · `test_cluster_group_score` · `test_return_score`
+- `ASSET_V=p614`
 
-- 自动把组权 promote 进 `signal_config.weights`
-- 用跨组 score 排序冒充分组
-- 无影子期直接 L2 active
-- raw OLS β 当生产权重占比
-
-### 落地主路径（UI · 向导）
-
-分组成功后枢纽展示**落地状态条**（不埋进「进阶」）：
-
-```text
-β 分组 → 草稿
-  ① 对照   promote + mode=shadow + 刷新簿   POST /api/quant/cluster-live/apply
-  ② 启用   mode=active（健康门禁）         POST /api/quant/cluster-live/mode
-  调仓     侧栏「交易执行」/follow           POST /api/paper/rebalance（仅执行页）
-```
-
-研究枢纽只更新 live 组权与 `cluster_scoring.mode`（从而更新执行页 score）；**不写** `paper.json`。无「去交易执行」按钮，靠侧栏切换。
-
-| 展示 | 含义 |
-|------|------|
-| mode / version | `cluster_scoring.mode` · active 映射版本 |
-| 覆盖率 / 陈旧 | 健康检查；不过门禁则禁用「启用」 |
-| 对照样本 | `score_global` vs `score_cluster`（及 Δ） |
-
-回滚 / 关闭 / 导出映射为次按钮。仍**不写** `signal_config.weights`。
-
-### 日更闭环
-
-当 `mode ∈ {shadow, active}` 且存在 active 映射：
-
-1. `paper_daily` / 扫描前：`prepare_cluster_for_daily` → 陈旧可自动降级 + `refresh_cluster_book_daily`
-2. `mode=active`：纸面 `rebalance` **默认**走分池簿（无需再传 `cluster_mode`）
-3. `mode=shadow`：调仓仍用全局 Top-K；簿与双分仅对照
-4. 未映射票：`weight_source=global_fallback`；覆盖率进 status / 日报
-
-### 对照审计
-
-- 枢纽落地条旁：簿样本 5～10 行（全局分 / 组权分 / Δ）
-- 日报 `build_daily_report`：若 shadow|active，附 `cluster_live` 一节
-- 平台/策略 status：一行 `分组 live · mode · v · 覆盖率`
-
-## 深化补强（相对 P/L 勾选后的落地）
-
-| 项 | 内容 | 状态 |
-|----|------|------|
-| 文档对齐 | 宇宙=观察池；主路径三块写死 | ✅ |
-| 枢纽 IA | 阈值/横截面降级为「全局对照」折叠 | ✅ |
-| 组表工作台 | 组可折叠；\|Δ\| 大行可扫视；表头粘性 | ✅ |
-| 探针状态 | 通过 / 异质 / 单票组 徽章，少长句 | ✅ |
-| 落地向导 | 对照 → 启用；调仓侧栏交易执行 | ✅ |
-| 日更吃簿 | prepare + active 默认分池 + 陈旧降级 | ✅ |
-| 双分审计 | 枢纽样本 + 日报 cluster_live | ✅ |
-| Live 运维验 | 覆盖率·陈旧·回滚对照 L 退出标准 | 待人工清单 |
-
-### 与研究段衔接
-
-- Promote 输入 = 人审后的 `pool_artifact`（P7），不是每次 β 分组的瞬时结果
-- 纸面 confirm（P8）验证的是**候选簿**；L2 验证的是**日更路径长期用同一套 map**
-- 多权复打（P9）= L1 的研究预演；L1 把它接到 `score_stock` 主链

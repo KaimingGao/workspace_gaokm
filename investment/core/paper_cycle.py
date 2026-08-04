@@ -312,82 +312,24 @@ def run_daily_cycle(
         else:
             reason = "无评分数据"
 
-        # 生成评分公式
+        # 生成收益分公式（与持仓/观察同源：因子系数 β · z）
         score_formula = ""
-        if signal and signal.get("sub_scores") and signal.get("factor_contrib"):
-            from core.signal.config import load_signal_config
+        if signal:
+            score_formula = str(signal.get("score_formula") or "")
+            if not score_formula and signal.get("sub_scores"):
+                from services.paper_helpers import _build_score_formula
 
-            sub_scores = signal.get("sub_scores") or {}
-            contrib = signal.get("factor_contrib") or {}
-            signal_cfg = load_signal_config()
-            weights = signal_cfg.get("weights") or {}
-            factor_labels = {
-                "momentum": "动量",
-                "technical_pattern": "技术形态",
-                "volume_price": "量价",
-                "ma_slope": "均线斜率",
-                "weekly_confirm": "周线确认",
-                "relative_strength": "相对强弱",
-                "volatility": "波动",
-                "reversal": "反转",
-                "liquidity": "流动性",
-                "value": "估值",
-                "quality": "质量",
-            }
-
-            terms = []
-            total_contrib = 0
-            for factor_name in sub_scores:
-                weight = weights.get(factor_name)
-                if weight is None:
-                    continue
-                label = factor_labels.get(factor_name, factor_name)
-                sub_score = sub_scores[factor_name]
-                contribution = contrib.get(factor_name, 0)
-                total_contrib += contribution
-                terms.append(f"{label}({sub_score:.1f}×{weight:.2f}={contribution:.2f})")
-
-            if terms:
-                formula = " + ".join(terms)
-                penalty = contrib.get("regime_penalty")
-                if penalty:
-                    penalty_val = abs(float(penalty))
-                    formula += f" - 环境惩罚({penalty_val:.2f})"
-                    total_contrib += float(penalty)
-
-                # 因子交互调整
-                interaction = contrib.get("interaction_adj")
-                if interaction is not None:
-                    ival = float(interaction)
-                    if ival != 0:
-                        op = " + " if ival > 0 else " - "
-                        formula += f"{op}交互调整({abs(ival):.2f})"
-                        total_contrib += ival
-
-                # 风控惩罚
-                risk_pen = contrib.get("risk_penalty")
-                if risk_pen is not None:
-                    rpval = abs(float(risk_pen))
-                    if rpval > 0:
-                        formula += f" - 风控惩罚({rpval:.2f})"
-                        total_contrib += float(risk_pen)
-
-                # 舆情情绪调整
-                sent_adj = contrib.get("sentiment_adj")
-                if sent_adj is not None:
-                    sval = float(sent_adj)
-                    if sval != 0:
-                        op = " + " if sval > 0 else " - "
-                        formula += f"{op}舆情({abs(sval):.1f})"
-                        total_contrib += sval
-
-                formula += f" = {round(total_contrib, 1)}"
-                score_formula = formula
+                score_formula = _build_score_formula(
+                    {
+                        "sub_scores": signal.get("sub_scores"),
+                        "return_model": signal.get("return_model"),
+                    }
+                )
 
         rebalance_report.append({
             "stock_code": code,
             "stock_name": name,
-            "score": round(score, 1) if score is not None else None,
+            "score": round(score, 3) if score is not None else None,
             "old_shares": int(old_shares),
             "new_shares": int(new_shares),
             "shares_change": int(shares_change),
@@ -409,6 +351,9 @@ def run_daily_cycle(
             "cluster_version": signal.get("cluster_version") if signal else None,
             "score_global": signal.get("score_global") if signal else None,
             "score_cluster": signal.get("score_cluster") if signal else None,
+            "return_model_source": signal.get("return_model_source") if signal else None,
+            "factor_coefficients": signal.get("factor_coefficients") if signal else None,
+            "score_formula_terms": signal.get("score_formula_terms") if signal else None,
         })
 
     # 按评分降序排列

@@ -167,32 +167,6 @@ class TestV2GapRiskAndPromoteNote(unittest.TestCase):
         self.assertTrue(meta.get("ok"))
         self.assertLess(score, 50)
 
-    def test_promote_requires_note_on_weight_change(self):
-        from core.signal_config_draft import promote_draft, save_draft
-
-        with tempfile.TemporaryDirectory() as td:
-            draft_path = os.path.join(td, "draft.json")
-            cfg_path = os.path.join(td, "signal_config.json")
-            with open(cfg_path, "w", encoding="utf-8") as f:
-                json.dump({"version": 1, "weights": {"momentum": 1.0}}, f)
-            save_draft(
-                {"weights": {"momentum": 0.5, "volatility": 0.5}},
-                note="draft",
-                path=draft_path,
-            )
-            bad = promote_draft(
-                note="",
-                config_path=cfg_path,
-                draft_path=draft_path,
-            )
-            self.assertFalse(bad.get("ok"))
-            good = promote_draft(
-                note="调低动量抬波动",
-                config_path=cfg_path,
-                draft_path=draft_path,
-            )
-            self.assertTrue(good.get("ok"))
-
 
 class TestV3WeightCompareAndOutcomeGate(unittest.TestCase):
     def test_weight_mode_compare(self):

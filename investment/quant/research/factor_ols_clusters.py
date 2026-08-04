@@ -2,7 +2,7 @@
 
 目的：OLS 表现相似的股票进同一组 → 组内池 OLS + 共用小步权；不同组独立建模。
 默认宇宙=观察池。流程：逐票 OLS → β 缩尾+z-score → average·目标 k（≈√N，3～8）
-→ 多票组池 OLS → 小步建议权。异质用探针核对（自动路径不再拆成单票堆）。
+→ 多票组池 OLS → 因子系数(return_model)。异质用探针核对（自动路径不再拆成单票堆）。
 
 ``beta_scale``：
 - ``feature_zscore``（默认）：列缩尾 + 因子维 z-score
@@ -25,11 +25,12 @@ from quant.research.factor_ols import (
 
 
 def clamp_n_clusters(value: Any, default: int = 3) -> int:
+    """目标组数下限 2；不再硬顶 12（上限由调用方 ``min(k, n)`` 按宇宙规模收束）。"""
     try:
         k = int(value)
     except (TypeError, ValueError):
         return int(default)
-    return max(2, min(k, 12))
+    return max(2, k)
 
 
 def clamp_watching_limit(value: Any, default: int = 8) -> int:
@@ -186,6 +187,110 @@ def _ols_coef_dict(report: Dict[str, Any]) -> Dict[str, float]:
         except (TypeError, ValueError):
             continue
     return out
+
+
+def _public_cluster_ols(report: Dict[str, Any], *, mode: str) -> Dict[str, Any]:
+    """组 OLS 公开字段：含收益分预测所需 z 统计。"""
+    if not isinstance(report, dict) or not report.get("success"):
+        return {
+            "success": False,
+            "mode": mode,
+            "error": (report or {}).get("error") if isinstance(report, dict) else "ols_failed",
+        }
+    return {
+        "success": True,
+        "mode": mode,
+        "coefficients": report.get("coefficients") or {},
+        "intercept": report.get("intercept"),
+        "r_squared": report.get("r_squared"),
+        "sample_count": report.get("sample_count"),
+        "active_features": report.get("active_features") or [],
+        "excluded_features": report.get("excluded_features") or [],
+        "stock_codes": report.get("stock_codes"),
+        "standardized": bool(report.get("standardized", True)),
+        "zscore_means": report.get("zscore_means") or report.get("z_means") or {},
+        "zscore_stds": report.get("zscore_stds") or report.get("z_stds") or {},
+        "horizon_days": report.get("horizon_days"),
+        "solver": report.get("solver"),
+        "ridge_lambda": report.get("ridge_lambda"),
+        "error": report.get("error"),
+    }
+
+
+def _return_model_from_ols(ols: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """组 OLS → 收益分模型 dict（供分组 predicted_score）。"""
+    if not isinstance(ols, dict) or not ols.get("success"):
+        return None
+    from core.signal.return_score import ReturnScoreModel
+
+    payload = dict(ols)
+    if not payload.get("z_means"):
+        payload["z_means"] = payload.get("zscore_means") or {}
+    if not payload.get("z_stds"):
+        payload["z_stds"] = payload.get("zscore_stds") or {}
+    model = ReturnScoreModel.from_ols_report(payload)
+    if model is None:
+        return None
+    out = model.to_dict()
+    out["note"] = "分组 OLS β → 因子系数（收益分真源）"
+    return out
+
+
+def _display_weight_suggest_from_return_model(
+    return_model: Optional[Dict[str, Any]],
+    *,
+    ols_report: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """由 |β| 派生展示权；已退役为选股主轴（deprecated_for_scoring）。"""
+    from core.signal.factor_coefs import (
+        coefficients_from_return_model,
+        display_weights_from_return_model,
+    )
+    from core.signal.config import load_signal_config
+
+    rm = return_model
+    if not isinstance(rm, dict) and isinstance(ols_report, dict):
+        rm = _return_model_from_ols(ols_report)
+    coefs = coefficients_from_return_model(rm if isinstance(rm, dict) else None)
+    suggested = display_weights_from_return_model(rm if isinstance(rm, dict) else None)
+    if not suggested:
+        return {
+            "success": False,
+            "error": "无因子系数可派生展示权",
+            "deprecated_for_scoring": True,
+        }
+    current = dict((load_signal_config() or {}).get("weights") or {})
+    deltas: Dict[str, float] = {}
+    keys = set(current) | set(suggested)
+    for k in keys:
+        try:
+            a = float(current.get(k) or 0.0)
+            b = float(suggested.get(k) or 0.0)
+        except (TypeError, ValueError):
+            continue
+        d = round(b - a, 6)
+        if abs(d) > 1e-9:
+            deltas[k] = d
+    return {
+        "success": True,
+        "suggested_weights": suggested,
+        "current_weights": {k: float(current.get(k) or 0.0) for k in suggested},
+        "deltas": deltas,
+        "delta_sources": {k: "derived_from_beta" for k in suggested},
+        "coefficients": coefs,
+        "rationale": [
+            f"{k} |β|={abs(float(coefs.get(k) or 0)):.4f} → 展示权 {suggested[k]:.4f}"
+            for k in sorted(suggested, key=lambda x: -abs(float(coefs.get(x) or 0)))[:12]
+        ],
+        "constraint_warnings": [],
+        "params": {"source": "abs_beta_normalize"},
+        "ic_mode": "factor_coefs",
+        "deprecated_for_scoring": True,
+        "note": (
+            "展示权由 |β| 归一化派生，非选股权；"
+            "打分真源为 return_model 因子系数 → ŷ。"
+        ),
+    }
 
 
 def _feature_union(reports: Sequence[Dict[str, Any]]) -> List[str]:
@@ -1194,8 +1299,8 @@ def cluster_beta_vectors(
     candidates: List[Dict[str, Any]] = []
     size_splits: List[Dict[str, Any]] = []
     max_size_used: Optional[int] = None
-    # 自动：目标 k + 超大组二分；不 absorb_far（否则易塌成少数大团）
-    loose_refine = bool(auto_k)
+    # 目标 k（自动或手动）都不严踢直径：否则离群升单票组会把 k=2 炸成十几组
+    loose_refine = True
 
     if method_s == "kmeans":
         k = clamp_n_clusters(
@@ -1227,8 +1332,8 @@ def cluster_beta_vectors(
     refined = refine_cluster_labels(
         x,
         labels,
-        # 自动路径：不并小、不踢离群（否则又单票化）；靠目标 k + 超大组二分控规模
-        min_size=1 if auto_k else min_size,
+        # 不并小、不踢离群；靠目标 k（自动路径另加超大组二分）控规模
+        min_size=1,
         tau=tau_v,
         strict_diameter=not loose_refine,
         absorb_far=False,
@@ -1297,44 +1402,24 @@ def _draft_weights_from_ols(
     ols_report: Dict[str, Any],
     *,
     ic_panel: Optional[Dict[str, Any]] = None,
+    return_model: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """组内建议权：OLS β 优先（按 |β| 放大）；无 β 时用组内 IC 补位。"""
-    from core.signal.weight_suggest import suggest_weights_from_ic
-
-    factors: List[Any] = []
-    ic_mode_panel = ""
-    if isinstance(ic_panel, dict):
-        factors = list(ic_panel.get("factors") or ic_panel.get("rows") or [])
-        ic_mode_panel = str(ic_panel.get("mode") or "")
-
-    # 组内截面 IC 有日序列 → 要求 ICIR；单票时序回退则不要求
-    require_icir = ic_mode_panel == "group_cs_ic"
-
-    return suggest_weights_from_ic(
-        {"factors": factors, "success": True},
-        ols_report=ols_report,
-        ic_mode="ols_cluster",
-        require_icir=require_icir,
-        min_samples=6,
-        min_ic=0.02,
-        max_delta=0.06,
-        ols_delta=0.05,
-        min_ols_beta=0.02,
-        weak_ic_decay=0.01,
-        ols_scale_by_beta=True,
-        ols_scale_cap=3.0,
-        prefer_ols=True,
+    """组内展示权：由 return_model |β| 派生（选股已退役小步权建议）。"""
+    del ic_panel  # 保留签名兼容调用方
+    return _display_weight_suggest_from_return_model(
+        return_model, ols_report=ols_report
     )
 
 
 def _weight_suggest_public(draft: Dict[str, Any]) -> Dict[str, Any]:
-    """一组一表 / 悬停注释所需字段（含 Δ 来源与 rationale）。"""
+    """一组一表所需字段；标记 deprecated_for_scoring。"""
     if not isinstance(draft, dict):
-        return {"success": False, "error": "无建议"}
+        return {"success": False, "error": "无建议", "deprecated_for_scoring": True}
     if not draft.get("success"):
         return {
             "success": False,
             "error": draft.get("error") or "建议失败",
+            "deprecated_for_scoring": True,
         }
     return {
         "success": True,
@@ -1342,11 +1427,14 @@ def _weight_suggest_public(draft: Dict[str, Any]) -> Dict[str, Any]:
         "current_weights": draft.get("current_weights"),
         "deltas": draft.get("deltas") or {},
         "delta_sources": draft.get("delta_sources") or {},
+        "coefficients": draft.get("coefficients") or {},
         "rationale": list(draft.get("rationale") or [])[:24],
         "constraint_warnings": draft.get("constraint_warnings") or [],
         "params": draft.get("params") or {},
         "ic_mode": draft.get("ic_mode"),
-        "note": draft.get("note"),
+        "deprecated_for_scoring": True,
+        "note": draft.get("note")
+        or "展示权由 |β| 派生；选股用因子系数 return_model。",
     }
 
 
@@ -1589,7 +1677,8 @@ def compute_factor_ols_cluster_report(
 ) -> Dict[str, Any]:
     """逐票 OLS → β 聚类 → 组内池 OLS + 小步权。
 
-    默认 average-linkage 切到目标 k≈√N（3～8）；显式 ``n_clusters`` 时才严踢异质。
+    默认 / 显式 ``n_clusters`` 均切到目标 k；不严踢异质升单票组（否则手动 k 会炸组数）。
+    异质用探针核对。自动 k 另加超大组二分。
     """
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
     k_req = None if n_clusters is None else clamp_n_clusters(n_clusters, 3)
@@ -1690,9 +1779,9 @@ def compute_factor_ols_cluster_report(
     labels = np.asarray(clustered["labels"], dtype=int)
     tau_used = float(clustered.get("within_dist_cap") or clustered.get("tau") or 1.0)
     pool_ejects: List[Dict[str, Any]] = []
-    # 自动目标 k：不再做组池 Δβ/直径踢出（否则又拆回数十单票组）；异质看探针
-    # 仅当调用方显式指定 n_clusters 时保留严踢
-    run_pool_eject = k_req is not None
+    # 目标 k（自动或手动）都不做组池 Δβ/直径踢出：踢出再升单票组会把 k=2 炸成十几组。
+    # 异质看探针 / 组内距离，不靠拆组。
+    run_pool_eject = False
 
     if run_pool_eject:
         for _round in range(3):
@@ -1863,21 +1952,17 @@ def compute_factor_ols_cluster_report(
             )
             if member_idx:
                 one = per_stock[member_idx[0]]
-                cluster["ols"] = {
-                    "success": True,
-                    "mode": "single",
-                    "coefficients": one.get("coefficients") or {},
-                    "r_squared": one.get("r_squared"),
-                    "sample_count": one.get("sample_count"),
-                    "active_features": one.get("active_features") or [],
-                    "stock_codes": members,
-                }
+                cluster["ols"] = _public_cluster_ols(one, mode="single")
+                cluster["return_model"] = _return_model_from_ols(cluster["ols"])
                 draft = _draft_weights_from_ols(
-                    one, ic_panel=cluster.get("factor_ic_panel")
+                    one,
+                    ic_panel=cluster.get("factor_ic_panel"),
+                    return_model=cluster.get("return_model"),
                 )
                 cluster["weight_suggest"] = _weight_suggest_public(draft)
             else:
                 cluster["ols"] = {"success": False, "error": "空组"}
+                cluster["return_model"] = None
             cluster["member_beta_gaps"] = []
             clusters.append(cluster)
             continue
@@ -1893,19 +1978,8 @@ def compute_factor_ols_cluster_report(
             ridge_lambda=lam,
         )
         pooled["mode"] = "cluster_pooled"
-        cluster["ols"] = {
-            "success": bool(pooled.get("success")),
-            "mode": "cluster_pooled",
-            "coefficients": pooled.get("coefficients") or {},
-            "r_squared": pooled.get("r_squared"),
-            "sample_count": pooled.get("sample_count"),
-            "active_features": pooled.get("active_features") or [],
-            "excluded_features": pooled.get("excluded_features") or [],
-            "stock_codes": members,
-            "error": pooled.get("error"),
-            "solver": pooled.get("solver"),
-            "ridge_lambda": pooled.get("ridge_lambda"),
-        }
+        cluster["ols"] = _public_cluster_ols(pooled, mode="cluster_pooled")
+        cluster["return_model"] = _return_model_from_ols(cluster["ols"])
         gaps: List[Dict[str, Any]] = []
         if pooled.get("success"):
             g_raw = coef_vector_from_report(pooled, feature_names)
@@ -1943,7 +2017,9 @@ def compute_factor_ols_cluster_report(
                 all_ys=all_ys,
             )
             draft = _draft_weights_from_ols(
-                pooled, ic_panel=cluster.get("factor_ic_panel")
+                pooled,
+                ic_panel=cluster.get("factor_ic_panel"),
+                return_model=cluster.get("return_model"),
             )
             cluster["weight_suggest"] = _weight_suggest_public(draft)
         else:
@@ -2047,18 +2123,23 @@ def compute_factor_ols_cluster_report(
                 f"按单票 OLS β（{scale_mode}，列缩尾）"
                 + (
                     f"目标k={clustered.get('target_k')}·{clustered.get('cluster_linkage') or link_s}"
-                    if clustered.get("auto_k")
+                    if clustered.get("target_k") is not None
                     else (
                         f"层次聚类({clustered.get('cluster_linkage') or link_s})"
                         if (clustered.get("method") or method_s) == "hierarchical"
                         else "k-means"
                     )
                 )
+                + (
+                    "（自动）"
+                    if clustered.get("auto_k")
+                    else ("（手动）" if clustered.get("target_k") is not None else "")
+                )
                 + f"，共 {k} 组（其中多票组 {n_multi}）；"
             )
             + (f"单票离群组 {n_singleton_out}；" if n_singleton_out else "")
             + (f"组β校验触发 {n_pool_ej}；" if n_pool_ej else "")
-            + "多票组池 OLS → 小步建议权（同组同建模）。"
+            + "多票组池 OLS → 因子系数 return_model（同组同建模）。"
             + (
                 " 默认关闭逐日 PIT 财务以加速；仅作分组探针。"
                 if not use_pit

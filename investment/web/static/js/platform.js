@@ -42,7 +42,7 @@ export function initPlatform(ctx) {
       .join("");
   }
 
-  function clampHorizonDays(v, fallback = 3) {
+  function clampHorizonDays(v, fallback = 1) {
     const n = Number(v);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(1, Math.min(10, Math.round(n)));
@@ -53,7 +53,7 @@ export function initPlatform(ctx) {
     const data = await res.json();
     const prefs = (data.effective || data.preferences) || {};
     if (riskEl && prefs.risk_style) riskEl.value = prefs.risk_style;
-    cachedHorizonDays = clampHorizonDays(prefs.horizon_days, 3);
+    cachedHorizonDays = clampHorizonDays(prefs.horizon_days, 1);
     if (horizonDisplay) horizonDisplay.textContent = String(cachedHorizonDays);
     if (notesEl) notesEl.value = prefs.notes || "";
     setMeta(

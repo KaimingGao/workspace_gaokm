@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Any, Dict, List, Optional
 
 
@@ -15,7 +16,7 @@ def rank_cluster_pools(
     watching_path: Optional[str] = None,
     persist_book: bool = True,
 ) -> Dict[str, Any]:
-    """live 分池排序：组权打分后跨组统一按分数排序截断。
+    """live 分池排序：组收益分后跨组按分数排序截断。
 
     ``top_n_per_group`` 已废弃（保留入参兼容旧 API），不再做组内 Top-N。
     """
@@ -25,14 +26,31 @@ def rank_cluster_pools(
         save_active_cluster_book,
     )
     from core.signal.config import get_rank_defaults, load_signal_config
+    from core.signal.score_display import json_safe_number, selection_min_score
     from core.signal.score_stock import score_stock
     from core.watching_store import read_watching, refresh_watchlist
 
     cs = get_cluster_scoring_cfg()
     cfg = load_signal_config()
     defaults = get_rank_defaults(cfg)
+    # 收益分默认：用 scoring.min_predicted_score；未设则不设下限（比较用 -inf，落盘用 null）
+    floor_disabled = False
     if min_score is None:
-        min_score = defaults["min_score"]
+        floor = selection_min_score()
+        if floor is None:
+            min_score = float("-inf")
+            floor_disabled = True
+        else:
+            min_score = float(floor)
+    else:
+        try:
+            min_score = float(min_score)
+            floor_disabled = not math.isfinite(min_score)
+            if floor_disabled:
+                min_score = float("-inf")
+        except (TypeError, ValueError):
+            min_score = float("-inf")
+            floor_disabled = True
     max_n = max(1, min(int(max_names or cs.get("max_names") or 40), 80))
     horizon_days = max(1, min(int(horizon_days or 3), 3))
     # 兼容旧调用方：仍回传配置值，但不参与建簿
@@ -133,7 +151,9 @@ def rank_cluster_pools(
                 }
             )
             continue
-        sc = item.get("score")
+        sc = item.get("predicted_score")
+        if sc is None:
+            sc = item.get("score")
         try:
             sc_f = float(sc) if sc is not None else None
         except (TypeError, ValueError):
@@ -147,12 +167,14 @@ def rank_cluster_pools(
             "stock_code": item.get("stock_code"),
             "stock_name": item.get("stock_name"),
             "score": sc_f,
+            "predicted_score": item.get("predicted_score"),
             "cluster_label": str(label),
             "cluster_id": item.get("cluster_id"),
             "weight_source": item.get("weight_source"),
             "score_global": item.get("score_global"),
             "delta_vs_global": item.get("delta_vs_global"),
             "below_min_score": below,
+            "return_model_source": item.get("return_model_source"),
         }
         mapped_rows.append(row)
         by_label.setdefault(str(label), []).append(row)
@@ -201,6 +223,7 @@ def rank_cluster_pools(
     for b in book:
         b["weight_pct"] = w_pct
 
+    min_score_out = json_safe_number(min_score)
     path = None
     if persist_book:
         path = save_active_cluster_book(
@@ -208,7 +231,8 @@ def rank_cluster_pools(
             meta={
                 "version": active.get("version"),
                 "horizon_days": horizon_days,
-                "min_score": min_score,
+                "min_score": min_score_out,
+                "min_score_disabled": floor_disabled or min_score_out is None,
                 "max_names": max_n,
                 "mode": "cluster_score_global_rank",
                 # 兼容旧 status 读取
@@ -224,7 +248,8 @@ def rank_cluster_pools(
         "cluster_version": active.get("version"),
         "top_n_per_group": top_n_cfg,  # 兼容字段；建簿已不再使用
         "max_names": max_n,
-        "min_score": min_score,
+        "min_score": min_score_out,
+        "min_score_disabled": floor_disabled or min_score_out is None,
         "groups": groups_out,
         "book": book,
         "ranking": book,

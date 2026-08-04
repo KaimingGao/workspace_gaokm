@@ -48,7 +48,7 @@ class TestFactorOlsClusters(unittest.TestCase):
     def test_clamp_n_clusters(self):
         self.assertEqual(clamp_n_clusters(3), 3)
         self.assertEqual(clamp_n_clusters(1), 2)
-        self.assertEqual(clamp_n_clusters(99), 12)
+        self.assertEqual(clamp_n_clusters(99), 99)
 
     def test_merge_cluster_universe_modes(self):
         watch = ["A", "B", "C", "D", "E"]
@@ -150,6 +150,25 @@ class TestFactorOlsClusters(unittest.TestCase):
         ]
         self.assertTrue(sizes)
         self.assertLessEqual(max(sizes), int(out["max_cluster_size"] or 99))
+
+    def test_manual_k_stays_near_target(self):
+        """显式 K：切到目标 k，不因直径/组β踢出升成单票堆。"""
+        rng = np.random.RandomState(7)
+        # 两团高斯，夹杂噪声点；旧逻辑会踢出后升单票组
+        a = rng.normal(size=(12, 5)) * 0.2
+        b = rng.normal(size=(12, 5)) * 0.2 + 3.0
+        noise = rng.normal(size=(6, 5)) * 2.5
+        x = np.vstack([a, b, noise])
+        out = cluster_beta_vectors(
+            x,
+            method="hierarchical",
+            n_clusters=2,
+            cluster_linkage="complete",
+        )
+        self.assertEqual(out["target_k"], 2)
+        self.assertFalse(out["auto_k"])
+        self.assertEqual(out["n_outliers"], 0)
+        self.assertEqual(out["n_clusters"], 2)
 
     def test_eject_far_from_group_beta(self):
         # 两近点 + 一点远：组β取近点中心时远点应被踢
@@ -300,6 +319,7 @@ class TestFactorOlsClusters(unittest.TestCase):
             html = f.read()
         self.assertIn("quant-ols-clusters-run", html)
         self.assertIn("跑分组", html)
+        self.assertIn("quant-cluster-k", html)
         self.assertIn("quant-probe-fold", html)
         self.assertIn("观察池", html)
         self.assertIn("同组同建模", html)
@@ -311,6 +331,7 @@ class TestFactorOlsClusters(unittest.TestCase):
         js_path = os.path.join(ROOT, "web/static/js/quant.js")
         with open(js_path, encoding="utf-8") as f:
             js = f.read()
+        self.assertIn("readClusterK", js)
         self.assertIn("probeIcFieldsFromRow", js)
         self.assertIn("组ICIR", js)
         self.assertIn("formatMemberChipsHtml", js)

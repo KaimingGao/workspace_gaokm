@@ -1,4 +1,4 @@
-"""分组 score：组权打分 + 组内排序。"""
+"""分组 score：因子系数 → 收益分组内排序。"""
 
 import os
 import sys
@@ -15,26 +15,29 @@ from quant.research.cluster_group_score import (
 )
 
 
+def _rm(mom=0.2, val=0.1):
+    return {
+        "coefficients": {"momentum": mom, "value": val},
+        "intercept": 0.0,
+        "z_means": {"momentum": 50.0, "value": 50.0},
+        "z_stds": {"momentum": 1.0, "value": 1.0},
+    }
+
+
 class TestClusterGroupScore(unittest.TestCase):
-    def test_within_group_rank_uses_overlay_weights(self):
+    def test_within_group_rank_uses_predicted_score(self):
         clusters = [
             {
                 "cluster_id": 0,
                 "label": "G1",
                 "members": ["600519", "000001"],
-                "weight_suggest": {
-                    "success": True,
-                    "suggested_weights": {"momentum": 0.6, "value": 0.4},
-                },
+                "return_model": _rm(0.6, 0.4),
             },
             {
                 "cluster_id": 1,
                 "label": "G2",
                 "members": ["601318"],
-                "weight_suggest": {
-                    "success": True,
-                    "suggested_weights": {"momentum": 0.3, "value": 0.7},
-                },
+                "return_model": _rm(0.3, 0.7),
             },
         ]
         bars = {
@@ -43,32 +46,51 @@ class TestClusterGroupScore(unittest.TestCase):
             "601318": [{"close": 12 + i * 0.2, "date": f"2024-01-{i+1:02d}"} for i in range(20)],
         }
 
-        def fake_score(bars_in, **kwargs):
-            # 用最后收盘价当伪 score，便于排序
+        def fake_score_one(code, bars_in, **kw):
             last = float((bars_in or [{}])[-1].get("close") or 0)
-            return {"score": last, "hard_reject": False, "sub_scores": {}}
-
-        with patch(
-            "quant.research.cluster_group_score._score_one",
-            side_effect=lambda code, bars, **kw: {
+            return {
                 "success": True,
                 "stock_code": code,
                 "stock_name": code,
-                "score": float((bars or [{}])[-1].get("close") or 0),
+                "score": last,
                 "hard_reject": False,
-            },
+                "sub_scores": {"momentum": last, "value": 50.0},
+            }
+
+        with patch(
+            "quant.research.cluster_group_score._score_one",
+            side_effect=fake_score_one,
         ):
             out = compute_cluster_group_scores(clusters, bars, horizon_days=3)
 
         self.assertTrue(out.get("success"))
+        self.assertEqual(out.get("mode"), "group_factor_coefs_within")
         g1 = next(g for g in out["groups"] if g["label"] == "G1")
         self.assertFalse(g1.get("skipped"))
-        self.assertEqual(len(g1["ranking"]), 2)
-        self.assertEqual(g1["ranking"][0]["rank_in_group"], 1)
-        self.assertEqual(g1["ranking"][1]["rank_in_group"], 2)
-        # 600519 last close 29 > 000001 last 17.5
-        self.assertEqual(g1["ranking"][0]["stock_code"], "600519")
-        self.assertTrue(out.get("global_ranking"))
+        self.assertTrue(g1.get("has_return_model"))
+        self.assertEqual(len(g1["predicted_ranking"]), 2)
+        self.assertEqual(g1["predicted_ranking"][0]["rank_in_group"], 1)
+        # 600519 sub momentum 更高 → ŷ 更高
+        self.assertEqual(g1["predicted_ranking"][0]["stock_code"], "600519")
+        self.assertEqual(g1["predicted_ranking"][0]["score_mode"], "group_predicted_score")
+        self.assertTrue(out.get("predicted_global_ranking"))
+
+    def test_skips_without_return_model(self):
+        clusters = [
+            {
+                "cluster_id": 0,
+                "label": "G1",
+                "members": ["600519"],
+                "weight_suggest": {
+                    "success": True,
+                    "suggested_weights": {"momentum": 1.0},
+                },
+            }
+        ]
+        out = compute_cluster_group_scores(clusters, {"600519": []}, horizon_days=3)
+        self.assertTrue(out["success"])
+        self.assertTrue(out["groups"][0].get("skipped"))
+        self.assertEqual(out["groups"][0].get("reason"), "no_return_model")
 
     def test_attach_writes_group_ranking(self):
         report = {
@@ -79,10 +101,7 @@ class TestClusterGroupScore(unittest.TestCase):
                     "cluster_id": 0,
                     "label": "G1",
                     "members": ["600519"],
-                    "weight_suggest": {
-                        "success": True,
-                        "suggested_weights": {"momentum": 1.0},
-                    },
+                    "return_model": _rm(),
                 }
             ],
         }
@@ -93,25 +112,21 @@ class TestClusterGroupScore(unittest.TestCase):
                 "groups": [
                     {
                         "label": "G1",
-                        "ranking": [
+                        "predicted_ranking": [
                             {
                                 "stock_code": "600519",
                                 "rank_in_group": 1,
-                                "score": 55.0,
+                                "score": 1.2,
+                                "predicted_score": 1.2,
                             }
                         ],
                     }
                 ],
-                "global_ranking": [],
-                "flat": [],
             },
         ):
-            out = attach_cluster_group_scores(
-                report, {"600519": []}, run_group_score=True
-            )
-        self.assertTrue(out["group_scores"]["success"])
-        self.assertEqual(out["clusters"][0]["group_ranking"][0]["rank_in_group"], 1)
-        self.assertIn("分组 score", out.get("note") or "")
+            attach_cluster_group_scores(report, {}, horizon_days=3)
+        self.assertEqual(report["clusters"][0]["group_ranking"][0]["predicted_score"], 1.2)
+        self.assertEqual(report["clusters"][0]["predicted_ranking"][0]["score"], 1.2)
 
 
 if __name__ == "__main__":

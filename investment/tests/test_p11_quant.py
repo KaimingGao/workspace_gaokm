@@ -65,12 +65,19 @@ class TestEquityCurve(unittest.TestCase):
             "return_pct",
             "factor_weights_note",
             "score_formula",
+            "score_formula_terms",
+            "factor_coefficients",
+            "return_model_source",
         ):
             self.assertIn(key, row)
         self.assertIsNotNone(row.get("entry_price"))
         self.assertTrue(str(row.get("factor_weights_note") or ""))
-        self.assertTrue(str(row.get("score_formula") or ""))
-        self.assertIn("=", str(row.get("score_formula")))
+        # walk-forward 拟合成功后应有分项拆解；样本过短时公式可空
+        if row.get("score_formula_terms"):
+            self.assertIn("terms", row["score_formula_terms"])
+            self.assertTrue(row.get("factor_coefficients"))
+        elif row.get("score_formula"):
+            self.assertIn("ŷ", str(row.get("score_formula")))
         self.assertNotIn("weight_pct", row)
 
 

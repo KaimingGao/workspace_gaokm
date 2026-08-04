@@ -35,6 +35,10 @@ class TestClusterPoolArtifact(unittest.TestCase):
                     "members": ["600519", "000001"],
                     "singleton": False,
                     "oos_gate": {"ok": True, "passed": True},
+                    "return_model": {
+                        "coefficients": {"momentum": 0.3, "value": 0.2},
+                        "intercept": 0.0,
+                    },
                     "weight_suggest": {
                         "success": True,
                         "suggested_weights": {"momentum": 0.6, "value": 0.4},
@@ -44,6 +48,10 @@ class TestClusterPoolArtifact(unittest.TestCase):
                     "cluster_id": 1,
                     "label": "G2",
                     "members": ["601318"],
+                    "return_model": {
+                        "coefficients": {"momentum": 0.1, "value": 0.4},
+                        "intercept": 0.0,
+                    },
                     "weight_suggest": {
                         "success": True,
                         "suggested_weights": {"momentum": 0.3, "value": 0.7},
@@ -93,9 +101,19 @@ class TestClusterPoolArtifact(unittest.TestCase):
         self.assertEqual(art["schema_version"], 1)
         self.assertIn("600519", art["code_map"])
         self.assertEqual(art["code_map"]["600519"]["cluster_label"], "G1")
+        # |β| 派生：0.3/(0.3+0.2)=0.6
         self.assertAlmostEqual(art["code_map"]["600519"]["weights"]["momentum"], 0.6)
+        self.assertTrue(art["clusters"][0]["weights_derived_from_beta"])
+        self.assertEqual(
+            art["code_map"]["600519"]["return_model"]["coefficients"]["momentum"], 0.3
+        )
+        self.assertEqual(art["n_codes_with_coefs"], 3)
         self.assertEqual(len(art["pool_book"]), 2)
         self.assertIsNotNone(art["backtest_summary"])
+        self.assertTrue(art["clusters"][0]["oos_passed"])
+        self.assertTrue(art["clusters"][0]["oos_gate"]["passed"])
+        self.assertFalse(art["clusters"][1]["oos_passed"])
+        self.assertFalse(art["clusters"][1]["oos_gate"]["passed"])
 
     def test_intent_preview(self):
         intent = intent_preview_vs_holdings(

@@ -210,13 +210,19 @@ class PaperTradesMixin:
             from core.signal.cluster_rank import rank_cluster_pools
 
             health = assess_cluster_live_health()
-            rules_min = rules.get("min_score")
-            try:
-                cluster_min = (
-                    float(rules_min) if rules_min is not None else None
-                )
-            except (TypeError, ValueError):
-                cluster_min = None
+            # 收益分模式下忽略纸面 0–100 min_score，改由 selection_min_score / ŷ 门槛
+            from core.signal.score_display import is_predicted_rank_mode, selection_min_score
+
+            if is_predicted_rank_mode():
+                cluster_min = selection_min_score(paper)
+            else:
+                rules_min = rules.get("min_score")
+                try:
+                    cluster_min = (
+                        float(rules_min) if rules_min is not None else None
+                    )
+                except (TypeError, ValueError):
+                    cluster_min = None
             ranked = rank_cluster_pools(
                 None,
                 persist_book=True,
@@ -229,7 +235,7 @@ class PaperTradesMixin:
             if not score_rows:
                 for g in ranked.get("groups") or []:
                     score_rows.extend(list(g.get("ranking") or []))
-            # 分池簿已是每组 Top-N；按簿长持有，不被纸面 max_positions / 旧 30 上限截断
+            # 分池簿已是组权分全局排序截断；按簿长持有，不被纸面 max_positions / 旧 30 上限截断
             k = max(1, min(len(ranking) or int(k or 5), 80))
             holdings_before = copy.deepcopy(work.get("holdings") or [])
             if not dry_run:

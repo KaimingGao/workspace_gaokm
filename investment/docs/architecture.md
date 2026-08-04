@@ -210,7 +210,7 @@ flowchart TB
 | **语言 / 运行时** | Python 3.9+（`pyproject.toml`：`>=3.10,<3.13`）；无 Node 构建管线 |
 | **Web 后端** | FastAPI + Uvicorn；`httpx` / `requests` |
 | **Web 前端** | 原生 HTML/CSS/JS（ES modules）；服务端拼页 `web/page_html.py` |
-| **前端增强（CDN）** | Lightweight Charts · Monaco Editor · marked；局部 React 岛（非全站 SPA） |
+| **前端增强（CDN）** | Lightweight Charts · marked；局部 React 岛（非全站 SPA） |
 | **AI** | 通义千问（DashScope，OpenAI 兼容 HTTP）；自研 `InvestmentAgent` + Skills |
 | **行情 / 基本面** | 腾讯 qt（现价）· AkShare（日线/选股等）· pandas |
 | **存储** | 本地 JSON / JSONL（无 SQLite / Redis）；见 [data-layer · 存储选型](data-layer.md#存储选型为何是-json何时才上数据库) |
@@ -227,7 +227,7 @@ flowchart TB
 领域     core/（信号 · 回测 · 纸面 · 风控 · store）
 能力     skills/*（13 工具，薄 handler）
 数据     DataService + AkShare/腾讯 + data/*.json
-前端     web/static（vanilla + CDN 图表/编辑器）
+前端     web/static（vanilla + CDN 图表）
 ```
 
 ### Python 依赖（`requirements.txt`）
@@ -246,7 +246,6 @@ flowchart TB
 |------|------|
 | 壳层 / 主路径 UI | Vanilla JS 分模块（`watching` / `paper` / `quant` …） |
 | K 线 / 净值图 | TradingView **Lightweight Charts** 4.x（jsDelivr） |
-| 策略 JSON 编辑 | **Monaco** 0.45 |
 | Markdown | **marked** |
 | 大表 | 自研 `virtual_table.js`（可挂 React 岛根节点） |
 | 实时推送 | FastAPI **WebSocket** `/ws/live` |

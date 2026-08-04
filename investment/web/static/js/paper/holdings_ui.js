@@ -8,6 +8,7 @@ import {
   escapeText,
   fmtPct,
   metricCls,
+  fmtScore,
 } from "./fmt.js";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
 
@@ -106,12 +107,7 @@ export function buildPaperHoldingsTableHtml({
     return "score-low";
   };
 
-  const fmtScore = (v) => {
-    if (v == null) return "—";
-    const n = Number(v);
-    if (!Number.isFinite(n)) return "—";
-    return n.toFixed(1);
-  };
+  const fmtScoreLocal = fmtScore;
 
   function sortThHtml(label, key) {
     const active = holdingsSortKey === key;
@@ -136,12 +132,12 @@ export function buildPaperHoldingsTableHtml({
       const startDate = h.bought_date || "—";
       const score = h.score;
       const belowMin = !!h.below_min_score;
-      const scoreBase = fmtScore(score);
+      const scoreBase = fmtScoreLocal(score);
       const scoreShown =
         scoreBase !== "—" && belowMin ? `${scoreBase}↓` : scoreBase;
       const scoreTitle = belowMin
         ? `低于选股门槛 ${h.min_score ?? "—"}（仍显示分数）· 悬停看详情`
-        : "悬停查看评分与权重来源";
+        : "悬停查看收益分与因子系数";
       const origin = String(h.origin || "");
       const originLabel = h.origin_label || "—";
       const originTitle = ORIGIN_HINT[origin] || "早期记录未标出处";
@@ -203,6 +199,10 @@ export function buildPaperHoldingsTableHtml({
             score_cluster: h.score_cluster,
             min_score: h.min_score,
             below_min_score: belowMin,
+            return_model_source: h.return_model_source || "",
+            factor_coefficients: h.factor_coefficients || {},
+            formula_terms: h.score_formula_terms || null,
+            predicted_score: h.predicted_score != null ? h.predicted_score : score,
           })
         )}" title="${escapeText(scoreTitle)}">${escapeText(scoreShown)}</td>` +
         `<td class="num paper-hold-pnl ${metricCls(pnl)}">${fmtPct(pnl, {

@@ -136,7 +136,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
         const text = d.score != null && d.score !== "" ? String(d.score) : "—";
         const detail = d.scoreDetail || "";
         const below = !!d.scoreBelowMin;
-        const title = d.scoreTitle || "悬停查看评分与权重来源";
+        const title = d.scoreTitle || "悬停查看收益分与因子系数";
         if (!detail) {
           return escapeHtml(text);
         }

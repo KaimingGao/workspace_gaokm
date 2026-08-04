@@ -36,7 +36,7 @@
 
 | 专业能力 | 本地现状 | 判断 |
 |----------|----------|------|
-| Monaco / 在线写策略 | 无；策略靠配置 / 规格卡 | **路径内缺口**（[refactor P2](quant-ui-refactor-plan.md) 已列 Monaco） |
+| Monaco / 在线写策略 | **已退役**；选股权走研究枢纽 β，限额走策略卡 promote | 不再列为缺口 |
 | Notebook 探索 | 无 | 缺口 |
 | 数据字典 / API 插入 | 无；AI 旁路代偿一部分 | 缺口 |
 | 因子 / 策略规格 | `/strategy` 只读 IC/权重 + promote | 有骨架，偏「看卡」不是「写策略」 |
@@ -152,7 +152,7 @@ OMS / EMS、Algo 单、Level2、多账户、网关延迟监控、真·实盘—�
 5. **实时与降级** — ✅ Banner + `/ws/live` + last-known  
 6. **表格与 `paper.js` 工程债** — ✅ 虚拟表预算 + holdings 岛拆分（R5）  
 7. **回测–纸面拟合** — ✅ Corr/TE 北极星（R0）；样本持续积累  
-8. **Quant IDE** — Monaco 可编辑草稿 ✅；Notebook 仍缺  
+8. **Quant IDE** — Monaco 规格草稿 **已退役**；Notebook 仍缺；选股权 → 研究枢纽  
 
 ### C. 体验取向差异（改前先改契约）
 

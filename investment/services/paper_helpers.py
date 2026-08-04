@@ -2,77 +2,67 @@
 
 from __future__ import annotations
 
+from typing import Any, Dict, Optional
+
 
 def _build_score_formula(score_info: dict) -> str:
-    """根据 sub_scores 和 factor_contrib 生成评分公式字符串。"""
-    sub_scores = score_info.get("sub_scores") or {}
-    contrib = score_info.get("factor_contrib") or {}
-    if not sub_scores or not contrib:
+    """生成收益分 ŷ 公式字符串（因子系数 β · z）。
+
+    优先用 ``return_model`` / ``ReturnScoreModel``；无模型则空串（不再拼规则加权公式）。
+    """
+    if not score_info:
+        return ""
+    subs = score_info.get("sub_scores") or {}
+    model = score_info.get("return_model")
+    if model is None and score_info.get("coefficients"):
+        model = {
+            "intercept": score_info.get("intercept", 0.0),
+            "coefficients": score_info.get("coefficients"),
+            "z_means": score_info.get("z_means") or {},
+            "z_stds": score_info.get("z_stds") or {},
+            "standardized": score_info.get("standardized", True),
+        }
+    try:
+        from core.signal.return_score import ReturnScoreModel
+
+        rm = model if isinstance(model, ReturnScoreModel) else ReturnScoreModel.from_dict(model)
+    except Exception:
+        rm = None
+    if rm is None:
+        return ""
+    try:
+        return rm.format_formula(subs) or ""
+    except Exception:
         return ""
 
-    from core.signal.config import load_signal_config
 
-    signal_cfg = load_signal_config()
-    # 优先用打分时的权向量（组权）；否则回退全局 config
-    weights = score_info.get("weights") or signal_cfg.get("weights") or {}
-    factor_labels = {
-        "momentum": "动量",
-        "technical_pattern": "技术形态",
-        "volume_price": "量价",
-        "ma_slope": "均线斜率",
-        "weekly_confirm": "周线确认",
-        "relative_strength": "相对强弱",
-        "volatility": "波动",
-        "reversal": "反转",
-        "liquidity": "流动性",
-        "value": "估值",
-        "quality": "质量",
+def _active_return_model_payload(
+    *,
+    group_model: Any = None,
+    global_model: Any = None,
+    return_model_source: Optional[str] = None,
+) -> Dict[str, Any]:
+    """给前端悬浮注释用的精简模型快照。"""
+    src = str(return_model_source or "")
+    chosen = None
+    if src.startswith("cluster") and group_model is not None:
+        chosen = group_model
+    elif global_model is not None:
+        chosen = global_model
+    elif group_model is not None:
+        chosen = group_model
+    if chosen is None:
+        return {}
+    try:
+        d = chosen.to_dict() if hasattr(chosen, "to_dict") else dict(chosen)
+    except Exception:
+        return {}
+    coefs = dict(d.get("coefficients") or {})
+    coefs.pop("intercept", None)
+    return {
+        "intercept": d.get("intercept"),
+        "coefficients": coefs,
+        "z_means": d.get("z_means") or {},
+        "z_stds": d.get("z_stds") or {},
+        "standardized": d.get("standardized", True),
     }
-
-    terms = []
-    total_contrib = 0
-    for factor_name in sub_scores:
-        weight = weights.get(factor_name)
-        if weight is None:
-            continue
-        label = factor_labels.get(factor_name, factor_name)
-        sub_score = sub_scores[factor_name]
-        contribution = contrib.get(factor_name, 0)
-        total_contrib += contribution
-        terms.append(f"{label}({sub_score:.1f}×{weight:.2f}={contribution:.2f})")
-
-    if not terms:
-        return ""
-
-    formula = " + ".join(terms)
-    penalty = contrib.get("regime_penalty")
-    if penalty:
-        penalty_val = abs(float(penalty))
-        formula += f" - 环境惩罚({penalty_val:.2f})"
-        total_contrib += float(penalty)
-
-    interaction = contrib.get("interaction_adj")
-    if interaction is not None:
-        ival = float(interaction)
-        if ival != 0:
-            op = " + " if ival > 0 else " - "
-            formula += f"{op}交互调整({abs(ival):.2f})"
-            total_contrib += ival
-
-    risk_pen = contrib.get("risk_penalty")
-    if risk_pen is not None:
-        rpval = abs(float(risk_pen))
-        if rpval > 0:
-            formula += f" - 风控惩罚({rpval:.2f})"
-            total_contrib += float(risk_pen)
-
-    sent_adj = contrib.get("sentiment_adj")
-    if sent_adj is not None:
-        sval = float(sent_adj)
-        if sval != 0:
-            op = " + " if sval > 0 else " - "
-            formula += f"{op}舆情({abs(sval):.1f})"
-            total_contrib += sval
-
-    formula += f" = {round(total_contrib, 1)}"
-    return formula

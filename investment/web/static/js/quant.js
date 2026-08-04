@@ -8,9 +8,9 @@ import {
 } from "./shared.js";
 import { apiFetch } from "./api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "./lw_charts.js";
-import { mountJsonEditor, setJsonEditorValue, getJsonEditorValue } from "./monaco_spec.js";
 import { mountVirtualTable, colStyle } from "./virtual_table.js";
 import { createScoreTooltipController } from "./score_tooltip.js";
+import { fmtScore } from "./paper/fmt.js";
 
 /** Quant research panel. */
 export function initQuant(ctx) {
@@ -137,9 +137,6 @@ export function initQuant(ctx) {
   const quantMeta = document.getElementById("quant-meta");
   const quantWatchingMeta = document.getElementById("quant-watching-meta");
   const quantWatchingList = document.getElementById("quant-watching-list");
-  const quantSignalSummary = document.getElementById("quant-signal-summary");
-  const quantSignalTable = document.getElementById("quant-signal-table");
-  const quantSignalConfig = document.getElementById("quant-signal-config");
   const strategyList = document.getElementById("strategy-list");
   const strategyListLoading = document.getElementById("strategy-list-loading");
   const quantDiffSummary = document.getElementById("quant-diff-summary");
@@ -185,6 +182,7 @@ export function initQuant(ctx) {
   const quantBtBusyIds = [
     "quant-portfolio-run",
     "quant-portfolio-compare",
+    "quant-return-model-fit",
   ];
 
   function setQuantBtBusy(busy, message) {
@@ -212,9 +210,9 @@ export function initQuant(ctx) {
   let strategyLastWeightDiff = null;
   let dailyPresetsCache = [];
   /** 研究页持有期；打开时从 memory 灌入，可「存为默认」写回 */
-  let prefsHorizonDays = 3;
+  let prefsHorizonDays = 1;
 
-  function clampHorizonDays(v, fallback = 3) {
+  function clampHorizonDays(v, fallback = 1) {
     const n = Number(v);
     if (!Number.isFinite(n)) return fallback;
     return Math.max(1, Math.min(10, Math.round(n)));
@@ -247,6 +245,15 @@ export function initQuant(ctx) {
     const el = document.getElementById("quant-ridge-lambda");
     if (el && el.value !== "") return clampRidgeLambda(el.value, 0);
     return 0;
+  }
+
+  /** 目标聚类数：空=自动；否则 ≥2（实际上限由后端按宇宙 n 收束）。 */
+  function readClusterK() {
+    const el = document.getElementById("quant-cluster-k");
+    if (!el || el.value === "" || el.value == null) return null;
+    const n = Number(el.value);
+    if (!Number.isFinite(n)) return null;
+    return Math.max(2, Math.min(100, Math.round(n)));
   }
 
   function resolveProbeInputToCode(raw) {
@@ -484,9 +491,9 @@ export function initQuant(ctx) {
       const res = await fetch("/api/prefs");
       const data = await res.json();
       const prefs = (data && data.preferences) || {};
-      prefsHorizonDays = clampHorizonDays(prefs.horizon_days, 3);
+      prefsHorizonDays = clampHorizonDays(prefs.horizon_days, 1);
     } catch (_) {
-      prefsHorizonDays = 3;
+      prefsHorizonDays = 1;
     }
     syncHorizonInputs(prefsHorizonDays);
     return prefsHorizonDays;
@@ -522,7 +529,7 @@ export function initQuant(ctx) {
       page !== "follow" &&
       quantDialog &&
       typeof quantDialog.showModal === "function";
-    const hasStrategy = !!document.getElementById("quant-signal-summary") || !!document.getElementById("strategy-list");
+    const hasStrategy = !!document.getElementById("strategy-list");
     const hasWatching = !!document.getElementById("quant-watching-list") || !!document.getElementById("quant-watching-meta");
     const hasReplay = !!document.getElementById("quant-portfolio-run");
     const hasOps = !!document.getElementById("quant-ops-summary");
@@ -540,14 +547,8 @@ export function initQuant(ctx) {
         );
       }
       if (hasStrategy) {
-        foreground.push(
-          loadSignalConfigPanel().catch((err) => {
-            if (quantSignalSummary) quantSignalSummary.textContent = String(err.message || err);
-      })
-        );
-        foreground.push(
-          loadStrategyList().catch(() => {})
-        );
+        foreground.push(loadSignalConfigPanel().catch(() => {}));
+        foreground.push(loadStrategyList().catch(() => {}));
       }
       // 前台只等名单/策略骨架，超时也放行，避免右侧一直「加载观察…」
       if (foreground.length) {
@@ -1098,7 +1099,15 @@ export function initQuant(ctx) {
         const ret = r.return_pct;
         const st = r.status || "filled";
         const reasons = Array.isArray(r.score_reasons) ? r.score_reasons.slice(0, 8) : [];
-        reasons.push("截面中性化后相对分（中心约 50；公式为合成项，末尾含原始→中性化对照）");
+        if (r.return_model_source === "cluster_group_beta") {
+          reasons.push("收益分：分组因子系数 β → ŷ%");
+        } else if (r.return_model_source === "walk_forward") {
+          reasons.push("收益分：walk-forward 拟合 → ŷ%");
+        } else if (r.return_model_source) {
+          reasons.push(`收益分来源 · ${r.return_model_source}`);
+        } else {
+          reasons.push("收益分 ŷ%（线性回归预测前瞻收益）");
+        }
         if (r.sector) reasons.push(`行业 ${r.sector}`);
         if (r.port_return_pct != null) reasons.push(`本期组合收益 ${r.port_return_pct}%`);
         const scoreDetail = JSON.stringify({
@@ -1113,6 +1122,16 @@ export function initQuant(ctx) {
           score_global: r.score_global,
           score_cluster: r.score_cluster,
           factor_weights: r.factor_weights || {},
+          factor_coefficients: r.factor_coefficients || {},
+          return_model_source: r.return_model_source || "",
+          formula_terms: r.score_formula_terms || null,
+          predicted_score:
+            r.predicted_score != null
+              ? r.predicted_score
+              : r.score != null
+                ? r.score
+                : null,
+          score: r.score,
         });
         return {
           code: `sim-${i}-${code}-${r.entry_date || ""}-${r.exit_date || ""}-${st}`,
@@ -1131,7 +1150,7 @@ export function initQuant(ctx) {
           retText: ret != null ? fmtPct(ret) : "—",
           retCls: st !== "filled" ? "down" : metricClass(ret),
           scoreNum: Number.isFinite(Number(r.score)) ? Number(r.score) : null,
-          scoreText: r.score != null ? String(r.score) : "—",
+          scoreText: fmtScore(r.score),
           scoreDetail,
           status: formatSimStatus(st),
         };
@@ -1194,7 +1213,7 @@ export function initQuant(ctx) {
           return (
             `<span class="bt-trade-score paper-hold-score has-tip" ` +
             `data-score-detail="${escapeHtml(d.scoreDetail)}" ` +
-            `title="悬停查看评分与权重来源">${escapeHtml(d.scoreText)}</span>`
+            `title="悬停查看收益分与因子系数">${escapeHtml(d.scoreText)}</span>`
           );
         }
         if (col.id === "intent") return escapeHtml(d.intentText);
@@ -2547,6 +2566,10 @@ export function initQuant(ctx) {
       score_cluster: it && it.score_cluster,
       min_score: it && it.min_score,
       below_min_score: !!(it && it.below_min_score),
+      return_model_source: (it && it.return_model_source) || "",
+      factor_coefficients: (it && it.factor_coefficients) || {},
+      formula_terms: (it && it.score_formula_terms) || null,
+      predicted_score: it && it.predicted_score != null ? it.predicted_score : it && it.score,
     });
   }
 
@@ -2582,15 +2605,16 @@ export function initQuant(ctx) {
         const scoreNum = it.score != null && !Number.isNaN(Number(it.score)) ? Number(it.score) : null;
         const belowMin = !!it.below_min_score;
         const scoreDetail = watchingScoreDetail(it);
+        const scoreBase = fmtScore(scoreNum);
         const scoreText =
-          scoreNum == null
+          scoreBase === "—"
             ? "—"
             : belowMin
-              ? `${scoreNum.toFixed(0)}↓`
-              : scoreNum.toFixed(0);
+              ? `${scoreBase}↓`
+              : scoreBase;
         const scoreTitle = belowMin
           ? `低于选股门槛 ${it.min_score ?? "—"}（仍显示分数）`
-          : "悬停查看评分与权重来源";
+          : "悬停查看收益分与因子系数";
         const volNum = it.volume != null ? parseWatchingVolume(it.volume) : NaN;
         if (useGrid) {
           const row = watchingGrid.getRow(code);
@@ -4171,7 +4195,7 @@ export function initQuant(ctx) {
         price: "—",
         chg: "—",
         chgCls: "",
-        score: scoreNum == null ? "…" : `${Math.round(scoreNum)}`,
+        score: scoreNum == null ? "…" : fmtScore(scoreNum),
         scoreNum,
         stance: "…",
         ndBias: "—",
@@ -4601,48 +4625,6 @@ export function initQuant(ctx) {
     return data;
   }
 
-  function renderSignalConfig(data) {
-    if (!data || !data.config) {
-      if (quantSignalSummary) quantSignalSummary.textContent = "无法加载 signal_config";
-      return;
-    }
-    const cfg = data.config;
-    const weights = cfg.weights || {};
-    const thresholds = cfg.stance_thresholds || {};
-    const rank = cfg.rank || {};
-    if (quantSignalSummary) {
-      quantSignalSummary.textContent = [
-        data.exists ? "已加载配置文件" : "使用内置默认配置",
-        `min_score ${rank.min_score ?? "—"}`,
-        `regime ${cfg.regime && cfg.regime.enabled ? "开" : "关"}`,
-      ].join(" · ");
-    }
-    if (quantSignalTable) {
-      const weightRows = Object.entries(weights)
-        .map(
-          ([k, v]) =>
-            `<tr><td>${factorNameCellHtml(k)}</td><td class="num">${Number(v).toFixed(3)}</td><td>—</td></tr>`
-        )
-        .join("");
-      const thresholdRows = Object.entries(thresholds)
-        .map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td class="num">${v}</td><td>stance</td></tr>`)
-        .join("");
-      quantSignalTable.innerHTML = `<table class="quant-weight-table">
-        <thead><tr><th>项</th><th>值</th><th>类型</th></tr></thead>
-        <tbody>${weightRows}${thresholdRows}</tbody>
-      </table>`;
-    }
-    if (quantSignalConfig) {
-      const json = JSON.stringify(cfg, null, 2);
-      quantSignalConfig.value = json;
-      const host = document.getElementById("strategy-monaco-host");
-      if (host) {
-        mountJsonEditor(host, json, quantSignalConfig, { readOnly: false }).catch(() => {
-          setJsonEditorValue(json);
-        });
-      }
-    }
-  }
 
   function renderFactorDict() {
     const list = document.getElementById("strategy-factor-dict-list");
@@ -4669,13 +4651,8 @@ export function initQuant(ctx) {
     try {
       await ensureFactorMeta();
       renderFactorDict();
-      const res = await fetch("/api/signal/config/file");
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.detail || res.statusText);
-      renderSignalConfig(data);
-      return data;
-    } catch (err) {
-      if (quantSignalSummary) quantSignalSummary.textContent = String(err.message || err);
+      return null;
+    } catch (_) {
       return null;
     }
   }
@@ -4701,27 +4678,42 @@ export function initQuant(ctx) {
     const strategies = data.strategies;
     const costLabel = (m) =>
       m === "simple_cn" ? "A股简化成本" : m === "zero" ? "零成本" : m || "—";
+    const fmtCell = (label, value) =>
+      value == null || value === ""
+        ? ""
+        : `<div class="strategy-card-kv"><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(
+            String(value)
+          )}</dd></div>`;
     const cards = strategies
       .map((s) => {
         const params = s.params || {};
         const risk = s.risk || {};
         const t0 = (((s.execution || {}).overlays || {}).t0) || {};
-        const chips = [
-          params.horizon_days != null ? `持有 ${params.horizon_days} 日` : null,
-          params.min_score != null ? `回测门槛 ${params.min_score}` : null,
-          risk.max_positions != null ? `最多 ${risk.max_positions} 只` : null,
-          risk.max_position_pct != null ? `单票 ≤${risk.max_position_pct}%` : null,
-          risk.max_sector_pct != null ? `行业 ≤${risk.max_sector_pct}%` : null,
+        const dd =
           risk.target_drawdown_pct != null || risk.max_drawdown_pct != null
-            ? `回撤预警 ${risk.target_drawdown_pct ?? risk.max_drawdown_pct}%`
-            : null,
+            ? `${risk.target_drawdown_pct ?? risk.max_drawdown_pct}%`
+            : null;
+        const t0v =
           t0.enabled === false
-            ? "做T 关"
+            ? "关"
             : t0.t0_ratio != null
-              ? `做T ${Math.round(Number(t0.t0_ratio) * 100)}%`
-              : null,
-          s.cost_model ? costLabel(s.cost_model) : null,
-        ].filter(Boolean);
+              ? `${Math.round(Number(t0.t0_ratio) * 100)}%`
+              : null;
+        const kv =
+          fmtCell("持有", params.horizon_days != null ? `${params.horizon_days} 日` : null) +
+          fmtCell("门槛", params.min_score != null ? String(params.min_score) : null) +
+          fmtCell("最多", risk.max_positions != null ? `${risk.max_positions} 只` : null) +
+          fmtCell(
+            "单票",
+            risk.max_position_pct != null ? `≤${risk.max_position_pct}%` : null
+          ) +
+          fmtCell(
+            "行业",
+            risk.max_sector_pct != null ? `≤${risk.max_sector_pct}%` : null
+          ) +
+          fmtCell("回撤", dd) +
+          fmtCell("做T", t0v) +
+          fmtCell("成本", s.cost_model ? costLabel(s.cost_model) : null);
         const title = s.label || s.strategy_id || s.name || "未命名策略";
         const sid = s.strategy_id || s.name || "";
         return (
@@ -4736,10 +4728,8 @@ export function initQuant(ctx) {
           `<span class="strategy-card-ver">v${escapeHtml(String(s.version || "—"))}</span>` +
           `</div>` +
           `</header>` +
-          (chips.length
-            ? `<ul class="strategy-card-chips">${chips
-                .map((c) => `<li>${escapeHtml(c)}</li>`)
-                .join("")}</ul>`
+          (kv
+            ? `<dl class="strategy-card-grid">${kv}</dl>`
             : "") +
           `<div class="strategy-card-actions quant-actions-inline">` +
           `<button type="button" class="dialog-btn secondary strategy-promote-btn" data-strategy="${escapeHtml(sid)}" data-apply="0">晋升快照</button>` +
@@ -4758,16 +4748,14 @@ export function initQuant(ctx) {
         promoteStrategy(sid, apply).catch((err) => {
           const st = document.getElementById("strategy-promote-status");
           if (st) st.textContent = String(err.message || err);
-      });
+        });
       });
     });
     const riskBox = document.getElementById("strategy-risk-limits");
     if (riskBox) {
       riskBox.innerHTML =
-        `<p class="quant-sub">限额 · 成本 · <strong>Execution（含做T）</strong>已写在上方卡片；` +
-        `改参须人审 promote，不静默写盘。` +
-        `历史验证 → <a href="/replay">历史回测</a>；纸面落地 → <a href="/follow">交易执行</a>；` +
-        `拟合 → <a href="/platform">北极星</a>。</p>`;
+        `<p class="strategy-footnote">限额 · 成本 · Execution（含做T）见上表；改参须人审 promote。` +
+        ` 验证 → <a href="/replay">回测</a> · 落地 → <a href="/follow">交易执行</a> · 拟合 → <a href="/platform">北极星</a>。</p>`;
     }
     renderPromoteHintsPanel(loadCachedPromoteHints(), "strategy-promote-hints");
   }
@@ -4932,6 +4920,7 @@ export function initQuant(ctx) {
       const allowedB = new Set(["000300", "000905", "399006", "pool"]);
       if (allowedB.has(String(benchEl.value))) benchmarkCode = String(benchEl.value);
     }
+    const rankMode = "predicted_score";
     return {
       lookback,
       top_k: topK,
@@ -4941,6 +4930,7 @@ export function initQuant(ctx) {
       exclude_st: excludeSt,
       min_avg_amount_pctile: minAvgAmountPctile,
       benchmark_code: benchmarkCode,
+      rank_mode: rankMode,
     };
   }
 
@@ -4957,6 +4947,7 @@ export function initQuant(ctx) {
         exclude_st,
         min_avg_amount_pctile,
         benchmark_code,
+        rank_mode,
       } = readPortfolioBtParams();
       const payload = {
         lookback,
@@ -4970,6 +4961,7 @@ export function initQuant(ctx) {
         exclude_st,
         min_avg_amount_pctile,
         benchmark_code,
+        rank_mode,
         include_score_ic: true,
         include_quantile: true,
         include_benchmark: true,
@@ -5598,7 +5590,7 @@ export function initQuant(ctx) {
     return parts.join("\n");
   }
 
-  /** 因子 IC + 权重建议 + OLS 系数合并为一张表 */
+  /** 因子 IC + 因子系数 β 合并为一张表（一组一表主列=β，非权重） */
   function factorIcWeightMergedHtml(panelOrExp, suggest, ols) {
     const panelRows =
       (panelOrExp && panelOrExp.rows) ||
@@ -5606,30 +5598,15 @@ export function initQuant(ctx) {
       (panelOrExp && panelOrExp.factors) ||
       [];
     const list = Array.isArray(panelRows) ? panelRows : [];
-    const hasSuggest = !!(suggest && (suggest.success || suggest.suggested_weights));
-    const currentWeights = (suggest && suggest.current_weights) || {};
-    const suggestedWeights = (suggest && suggest.suggested_weights) || {};
-    const deltaMap = (suggest && suggest.deltas) || {};
-    const deltaSources =
-      (suggest && suggest.delta_sources && typeof suggest.delta_sources === "object"
-        ? suggest.delta_sources
-        : {}) || {};
+    const coefFromSuggest =
+      suggest && suggest.coefficients && typeof suggest.coefficients === "object"
+        ? suggest.coefficients
+        : {};
     const isGroupTsIc = !!(panelOrExp && panelOrExp.mode === "group_ts_ic");
     const isGroupCsIc = !!(panelOrExp && panelOrExp.mode === "group_cs_ic");
-    const suggestLogicTip = weightSuggestLogicTip(suggest, isGroupTsIc);
-    const SOURCE_TIP = {
-      cs_ic: "来源：截面 IC/ICIR 强证据 → 调权",
-      ic: "来源：时序/组内 IC 强证据 → 调权",
-      ols: "来源：OLS β 回退 → 调权",
-      weak_ic_decay: "来源：IC 证据不足 → 略降权",
-    };
     const olsCoefs =
       ols && ols.success && ols.coefficients && typeof ols.coefficients === "object"
         ? ols.coefficients
-        : {};
-    const olsCur =
-      ols && ols.success && ols.current_weights && typeof ols.current_weights === "object"
-        ? ols.current_weights
         : {};
     const olsReasons =
       ols && ols.exclusion_reasons && typeof ols.exclusion_reasons === "object"
@@ -5665,7 +5642,6 @@ export function initQuant(ctx) {
       const name = r.factor || r.name || "";
       if (!name) continue;
       const meta0 = factorMetaByName[name] || {};
-      // 优先行内 label → 注册表中文 → 英文名
       const label =
         (r.label && r.label !== name ? r.label : null) ||
         meta0.label ||
@@ -5702,22 +5678,17 @@ export function initQuant(ctx) {
             ? Number(pear.icir)
             : null;
       if (icir != null && !Number.isFinite(icir)) icir = null;
-      let weight = null;
-      if (r.weight != null) weight = Number(r.weight);
-      else if (r.weight_pct != null) weight = Number(r.weight_pct) / 100;
       const icReason =
         r.exclusion_reason ||
         r.ic_reason ||
         (ic == null ? icReasonsTop[name] : null) ||
         null;
-      byName[name] = { name, label, ic, n, icir, weight, icReason };
+      byName[name] = { name, label, ic, n, icir, icReason };
     }
     const nameSet = new Set([
       ...Object.keys(byName),
-      ...Object.keys(currentWeights),
-      ...Object.keys(suggestedWeights),
       ...Object.keys(olsCoefs),
-      ...Object.keys(olsCur),
+      ...Object.keys(coefFromSuggest),
       ...Object.keys(olsReasons),
       ...Object.keys(icReasonsTop),
     ]);
@@ -5731,49 +5702,32 @@ export function initQuant(ctx) {
         ic: null,
         n: null,
         icir: null,
-        weight: null,
         icReason: icReasonsTop[name] || null,
       };
-      // 再次以注册表中文覆盖（避免截面 IC 等只带英文名的结果盖掉 label）
       if (meta.label && (!base.label || base.label === name)) {
         base.label = meta.label;
       }
-      const curVal =
-        currentWeights[name] != null
-          ? currentWeights[name]
-          : olsCur[name] != null
-            ? olsCur[name]
-            : base.weight != null
-              ? base.weight
-              : null;
-      const sugVal = hasSuggest ? suggestedWeights[name] : null;
-      const delta =
-        !hasSuggest
-          ? null
-          : deltaMap[name] != null
-            ? deltaMap[name]
-            : sugVal != null && curVal != null
-              ? Number(sugVal) - Number(curVal)
-              : null;
-      const hasOlsKey = Object.prototype.hasOwnProperty.call(olsCoefs, name);
-      const olsVal = hasOlsKey ? olsCoefs[name] : null;
+      const hasOlsKey =
+        Object.prototype.hasOwnProperty.call(olsCoefs, name) ||
+        Object.prototype.hasOwnProperty.call(coefFromSuggest, name);
+      const olsVal = hasOlsKey
+        ? olsCoefs[name] != null
+          ? olsCoefs[name]
+          : coefFromSuggest[name]
+        : null;
       const olsReason = olsReasons[name] || null;
       let icReason = base.icReason || (base.ic == null ? icReasonsTop[name] : null) || null;
       if (base.ic == null && !icReason && list.length) icReason = "other";
-      const absDelta =
-        delta != null && Number.isFinite(Number(delta))
-          ? Math.abs(Number(delta))
+      const absBeta =
+        olsVal != null && Number.isFinite(Number(olsVal))
+          ? Math.abs(Number(olsVal))
           : 0;
       return {
         ...base,
-        cur: curVal,
-        sug: sugVal,
-        delta,
-        deltaSource: deltaSources[name] || null,
         ols: olsVal,
         olsReason,
         icReason,
-        scanHot: absDelta >= 0.02,
+        scanHot: absBeta >= 0.05,
       };
     });
 
@@ -5783,7 +5737,7 @@ export function initQuant(ctx) {
         {
           id: "ic",
           label: "IC",
-          widthPct: 10,
+          widthPct: 12,
           num: true,
           title: isGroupCsIc
             ? "组内日截面 IC 均值：每日组员横截面 corr(因子, 前瞻收益) 再对日平均"
@@ -5794,18 +5748,18 @@ export function initQuant(ctx) {
         {
           id: "icir",
           label: "ICIR",
-          widthPct: 9,
+          widthPct: 11,
           num: true,
           title: isGroupCsIc
-            ? "组内 IC̄/σ(IC)：日截面 IC 序列稳定性；|ICIR|≥0.25 为强证据门槛之一"
+            ? "组内 IC̄/σ(IC)：日截面 IC 序列稳定性"
             : isGroupTsIc
               ? "单票组无日截面序列，ICIR 不适用"
-              : "IC̄/σ(IC)：截面 IC 稳定性；|ICIR|≥0.25 为强证据门槛之一",
+              : "IC̄/σ(IC)：截面 IC 稳定性",
         },
         {
           id: "n",
           label: "n",
-          widthPct: 7,
+          widthPct: 8,
           num: true,
           title: isGroupCsIc
             ? "有效截面日数（每日至少 min_names 只组员）"
@@ -5814,33 +5768,13 @@ export function initQuant(ctx) {
               : "有效样本数",
         },
         {
-          id: "cur",
-          label: "当前",
-          widthPct: 10,
-          num: true,
-          title: "当前生效/对照权重（分组表为该组建模起点，通常来自全局 config）",
-        },
-        {
-          id: "sug",
-          label: "建议",
-          widthPct: 10,
-          num: true,
-          title: suggestLogicTip,
-        },
-        {
-          id: "delta",
-          label: "Δ",
-          widthPct: 10,
-          num: true,
-          title: "建议 − 当前。\n" + suggestLogicTip,
-        },
-        {
           id: "ols",
-          label: "OLS",
-          widthPct: 11,
+          label: "系数β",
+          widthPct: 16,
           num: true,
           title:
-            "组内/单票 OLS 系数 β（对前瞻收益）。|β| 过门槛时可驱动建议 Δ；不是权重本身",
+            "因子系数 β：组内/单票 OLS 对标准化因子的 ŷ% 斜率（可负）。" +
+            "选股真源；不是归一化权重。",
         },
       ],
       rows,
@@ -5850,10 +5784,10 @@ export function initQuant(ctx) {
           if (r.ic != null) {
             const cls = r.ic >= 0.03 ? "up" : r.ic <= -0.03 ? "down" : "";
             const tip = isGroupCsIc
-              ? `组内日均截面 IC=${Number(r.ic).toFixed(4)}；强证据常用 |IC|≥0.03`
+              ? `组内日均截面 IC=${Number(r.ic).toFixed(4)}`
               : isGroupTsIc
-                ? `单票组时序 IC=${Number(r.ic).toFixed(4)}：因子值与前瞻收益 Pearson`
-                : `IC=${Number(r.ic).toFixed(4)}：与前瞻收益相关；强证据常用 |IC|≥0.03`;
+                ? `单票组时序 IC=${Number(r.ic).toFixed(4)}`
+                : `IC=${Number(r.ic).toFixed(4)}`;
             return `<span title="${escapeHtml(tip)}">${metricCell(
               escapeHtml(Number(r.ic).toFixed(4)),
               cls
@@ -5877,7 +5811,7 @@ export function initQuant(ctx) {
           if (r.icir == null || !Number.isFinite(Number(r.icir))) return fmtEmptyCell();
           const v = Number(r.icir);
           const cls = v >= 0.25 ? "up" : v <= -0.25 ? "down" : "";
-          const tip = "ICIR = 日截面 IC 均值 / 标准差；越大越稳；强证据常用 |ICIR|≥0.25";
+          const tip = "ICIR = 日截面 IC 均值 / 标准差";
           return `<span title="${escapeHtml(tip)}">${metricCell(
             escapeHtml(v.toFixed(2)),
             cls
@@ -5885,27 +5819,10 @@ export function initQuant(ctx) {
         }
         if (col.id === "n")
           return r.n != null ? escapeHtml(String(r.n)) : fmtEmptyCell();
-        if (col.id === "cur") {
-          const cell = fmtWeightCell(r.cur);
-          return r.cur != null
-            ? `<span title="当前权重 ${Number(r.cur).toFixed(3)}">${cell}</span>`
-            : cell;
-        }
-        if (col.id === "sug") {
-          if (r.sug == null) return fmtEmptyCell();
-          const tip = factorWeightSuggestCellTip(r.name, r, suggest, SOURCE_TIP);
-          return `<span title="${escapeHtml(tip)}">${fmtWeightCell(r.sug)}</span>`;
-        }
-        if (col.id === "delta") {
-          if (r.delta == null) return fmtEmptyCell();
-          const text = `${r.delta > 0 ? "+" : ""}${Number(r.delta).toFixed(3)}`;
-          const tip = factorWeightSuggestCellTip(r.name, r, suggest, SOURCE_TIP);
-          const cell = metricCell(escapeHtml(text), metricClass(r.delta));
-          return `<span title="${escapeHtml(tip)}">${cell}</span>`;
-        }
         if (col.id === "ols") {
           if (r.ols != null) {
-            const tip = `OLS β=${Number(r.ols).toFixed(4)}：组内池/单票回归系数；过门槛时可作建议 Δ 的回退依据`;
+            const tip =
+              `因子系数 β=${Number(r.ols).toFixed(4)}：z 上 ŷ 百分点斜率；驱动组收益分`;
             return `<span title="${escapeHtml(tip)}">${fmtOlsCell(r.ols)}</span>`;
           }
           if (r.olsReason) {
@@ -5951,16 +5868,32 @@ export function initQuant(ctx) {
   function clusterGroupSuggestShim(cl) {
     const sug = (cl && cl.weight_suggest) || {};
     const diff = (cl && cl.config_diff) || {};
+    const rm = (cl && cl.return_model) || {};
+    const ols = (cl && cl.ols) || {};
+    const coefs =
+      (rm.coefficients && typeof rm.coefficients === "object"
+        ? rm.coefficients
+        : null) ||
+      (sug.coefficients && typeof sug.coefficients === "object"
+        ? sug.coefficients
+        : null) ||
+      (ols.coefficients && typeof ols.coefficients === "object"
+        ? ols.coefficients
+        : null) ||
+      {};
     const suggested =
       sug.suggested_weights || diff.suggested_weights || null;
-    if (!suggested || typeof suggested !== "object") {
-      return sug.success
-        ? sug
-        : { success: false, error: sug.error || "无组权建议" };
+    const hasCoefs = Object.keys(coefs).length > 0;
+    if ((!suggested || typeof suggested !== "object") && !hasCoefs) {
+      return {
+        success: false,
+        error: sug.error || "无因子系数",
+        deprecated_for_scoring: true,
+      };
     }
     const current = sug.current_weights || diff.current_weights || {};
     let deltas = sug.deltas || diff.deltas || null;
-    if (!deltas || typeof deltas !== "object") {
+    if ((!deltas || typeof deltas !== "object") && suggested) {
       deltas = {};
       const keys = new Set([
         ...Object.keys(current || {}),
@@ -5975,23 +5908,41 @@ export function initQuant(ctx) {
       }
     }
     return {
-      success: sug.success !== false,
-      suggested_weights: suggested,
+      success: sug.success !== false || hasCoefs,
+      suggested_weights: suggested || {},
       current_weights: current,
-      deltas,
+      deltas: deltas || {},
       delta_sources: sug.delta_sources || diff.delta_sources || {},
+      coefficients: coefs,
       rationale: sug.rationale || diff.rationale || [],
       params: sug.params || diff.params || {},
-      ic_mode: sug.ic_mode || diff.ic_mode || "ols_cluster",
+      ic_mode: sug.ic_mode || diff.ic_mode || "factor_coefs",
       note: sug.note || diff.note || "",
+      deprecated_for_scoring: true,
+      error: sug.error,
     };
   }
 
   function clusterGroupOlsShim(cl) {
     const ols = (cl && cl.ols) || null;
-    if (!ols || typeof ols !== "object") return null;
-    if (ols.success === false && !ols.coefficients) return null;
-    return ols;
+    const rm = (cl && cl.return_model) || null;
+    if (ols && typeof ols === "object") {
+      if (ols.success === false && !ols.coefficients) {
+        // fall through to return_model
+      } else {
+        return ols;
+      }
+    }
+    if (rm && typeof rm === "object" && rm.coefficients) {
+      return {
+        success: true,
+        coefficients: rm.coefficients,
+        intercept: rm.intercept,
+        sample_count: rm.sample_count,
+        r_squared: rm.r_squared,
+      };
+    }
+    return null;
   }
 
   /** 组标题副信息：直径 / Δ组β / |β| top（原花名册字段） */
@@ -6054,14 +6005,14 @@ export function initQuant(ctx) {
           ols
         ) ||
         `<p class="watching-table-empty">${escapeHtml(
-          (sug && sug.error) || "本组暂无因子建议"
+          (sug && sug.error) || "本组暂无因子系数"
         )}</p>`;
       const canExport = cl.config_diff && cl.config_diff.success;
       const exportBtn = canExport
         ? `<button type="button" class="dialog-btn secondary dialog-btn-keep-case quant-cluster-export" ` +
           `data-cluster-export="${escapeHtml(
             String(idx)
-          )}" title="导出本组因子权重 diff">导出本组</button>`
+          )}" title="导出本组因子系数对照（遗留 diff）">导出本组</button>`
         : "";
       const gate = cl.oos_gate || {};
       const tags = [];
@@ -6069,8 +6020,15 @@ export function initQuant(ctx) {
       if (cl.outlier_singleton) tags.push(clusterTagHtml("离群单票", "warn"));
       else if (cl.singleton) tags.push(clusterTagHtml("单票", "muted"));
       if (isPref) tags.push(clusterTagHtml("导出优先", "accent"));
-      if (gate.ok && gate.passed) tags.push(clusterTagHtml("OOS✓", "ok"));
-      else if (gate.ok) tags.push(clusterTagHtml("OOS未过", "warn"));
+      if (gate.skipped) {
+        tags.push(clusterTagHtml("OOS跳过", "muted", null, gate));
+      } else if (gate.ok && gate.passed) {
+        tags.push(clusterTagHtml("OOS✓", "ok", null, gate));
+      } else if (gate.ok) {
+        tags.push(clusterTagHtml("OOS未过", "warn", null, gate));
+      } else if (gate && (gate.reason || gate.note)) {
+        tags.push(clusterTagHtml("OOS—", "muted", null, gate));
+      }
       const metrics =
         clusterMetricHtml("R²", ols && ols.r_squared != null ? ols.r_squared : "—") +
         clusterMetricHtml(
@@ -6112,8 +6070,8 @@ export function initQuant(ctx) {
     });
     quantFactorList.innerHTML =
       `<div class="quant-cluster-tables-head">` +
-      `<span class="quant-cluster-tables-label">因子建议</span>` +
-      `<span class="sub">组内 IC · 当前 / 建议 / Δ · OLS β · |Δ|≥0.02 高亮</span>` +
+      `<span class="quant-cluster-tables-label">因子系数</span>` +
+      `<span class="sub">组内 IC · 系数 β（ŷ% 斜率，非权重）· |β|≥0.05 高亮</span>` +
       `</div>` +
       parts.join("");
     return true;
@@ -6224,9 +6182,125 @@ export function initQuant(ctx) {
       : `<span class="sub">—</span>`;
   }
 
-  function clusterTagHtml(text, kind) {
+  function parseOosGateReason(gate) {
+    const reasonRaw = String((gate && gate.reason) || "").trim();
+    const reasonMap = {
+      oos_not_worse: "研究臂不劣于基线（容差内）",
+      insufficient_oos: "OOS 收益不足，无法判定",
+      backtest_failed: "Top-K 回测失败",
+      watching_too_small: "有效标的不足",
+      bars_too_few: "有效日线不足",
+      no_return_model: "无组内 return_model（ŷ）",
+      no_baseline_weights: "无全局人工权（heuristic 基线）",
+      cluster_too_small: "组成员不足",
+      gate_disabled: "未跑 OOS 门禁",
+      research_oos_failed: "研究臂自身 OOS 失败旗标",
+      no_weight_suggest: "无组内建议权（遗留）",
+    };
+    if (/^oos_worse_/.test(reasonRaw)) {
+      return `研究臂差于基线超过容差（${reasonRaw.replace("oos_worse_", "")}）`;
+    }
+    return reasonMap[reasonRaw] || reasonRaw || "—";
+  }
+
+  function oosGateStatusMeta(gate) {
+    if (!gate || typeof gate !== "object") {
+      return { key: "none", label: "无记录", kind: "muted" };
+    }
+    if (gate.skipped) return { key: "skip", label: "已跳过", kind: "muted" };
+    if (gate.ok && gate.passed) return { key: "pass", label: "通过", kind: "ok" };
+    if (gate.ok) return { key: "fail", label: "未通过", kind: "warn" };
+    return { key: "unknown", label: "未判定", kind: "muted" };
+  }
+
+  function oosGateTipHtml(gate) {
+    const st = oosGateStatusMeta(gate);
+    const reason = parseOosGateReason(gate);
+    const baseOos =
+      (gate && gate.baseline && gate.baseline.oos) ||
+      (gate && gate.current && gate.current.oos) ||
+      {};
+    const resOos =
+      (gate && gate.research && gate.research.oos) ||
+      (gate && gate.suggested && gate.suggested.oos) ||
+      {};
+    const delta =
+      gate && gate.delta_oos_pp != null && gate.delta_oos_pp !== ""
+        ? Number(gate.delta_oos_pp)
+        : null;
+    const tol =
+      gate && gate.oos_tol_pp != null && gate.oos_tol_pp !== ""
+        ? gate.oos_tol_pp
+        : "1";
+    const deltaCls =
+      delta == null || !Number.isFinite(delta)
+        ? ""
+        : delta >= 0
+          ? "is-pos"
+          : "is-neg";
+    const deltaText =
+      delta == null || !Number.isFinite(delta)
+        ? "—"
+        : `${delta > 0 ? "+" : ""}${delta}pp`;
+    const metrics = [
+      ["ΔOOS", deltaText, deltaCls],
+      ["容差", `±${tol}pp`, ""],
+      [
+        "基线 OOS",
+        baseOos.oos_return_pct != null ? `${baseOos.oos_return_pct}%` : "—",
+        "",
+      ],
+      [
+        "研究 OOS",
+        resOos.oos_return_pct != null ? `${resOos.oos_return_pct}%` : "—",
+        "",
+      ],
+    ]
+      .map(
+        ([k, v, cls]) =>
+          `<div class="oos-gate-tip-metric">` +
+          `<dt>${escapeHtml(k)}</dt>` +
+          `<dd class="${escapeHtml(cls)}">${escapeHtml(String(v))}</dd>` +
+          `</div>`
+      )
+      .join("");
+    const flag =
+      resOos.failed && resOos.fail_reason
+        ? `<p class="oos-gate-tip-flag">研究臂旗标 · ${escapeHtml(
+            String(resOos.fail_reason)
+          )}</p>`
+        : "";
+    return (
+      `<div class="oos-gate-tip-inner">` +
+      `<header class="oos-gate-tip-head">` +
+      `<span class="oos-gate-tip-status is-${escapeHtml(st.kind)}">${escapeHtml(
+        st.label
+      )}</span>` +
+      `<span class="oos-gate-tip-eyebrow">OOS · heuristic → ŷ</span>` +
+      `</header>` +
+      `<p class="oos-gate-tip-reason">${escapeHtml(reason)}</p>` +
+      `<dl class="oos-gate-tip-metrics">${metrics}</dl>` +
+      flag +
+      `<p class="oos-gate-tip-foot">过门 ≠ 自动 promote · 仅研究对照</p>` +
+      `</div>`
+    );
+  }
+
+  function clusterTagHtml(text, kind, title, gate) {
     const k = kind ? ` is-${kind}` : "";
-    return `<span class="quant-cluster-tag${k}">${escapeHtml(String(text))}</span>`;
+    const attrs = [];
+    if (gate && typeof gate === "object" && Object.keys(gate).length) {
+      attrs.push(
+        `data-oos-gate="${escapeHtml(JSON.stringify(gate))}"`
+      );
+      attrs.push(`class="quant-cluster-tag${k} has-oos-tip"`);
+    } else {
+      attrs.push(`class="quant-cluster-tag${k}"`);
+      if (title != null && String(title).trim() !== "") {
+        attrs.push(`title="${escapeHtml(String(title))}"`);
+      }
+    }
+    return `<span ${attrs.join(" ")}>${escapeHtml(String(text))}</span>`;
   }
 
   function clusterMetricHtml(key, value) {
@@ -6943,11 +7017,11 @@ export function initQuant(ctx) {
       const name = r.stock_name || code || "—";
       const score =
         r.score != null && !Number.isNaN(Number(r.score))
-          ? String(Math.round(Number(r.score)))
+          ? fmtScore(r.score)
           : "—";
       const raw =
         r.score_raw != null && !Number.isNaN(Number(r.score_raw))
-          ? String(Math.round(Number(r.score_raw)))
+          ? fmtScore(r.score_raw)
           : r.score_raw != null
             ? String(r.score_raw)
             : "—";
@@ -7241,28 +7315,32 @@ export function initQuant(ctx) {
     const exp = ev.exposure_summary || {};
     const topSec = exp.top_sector || null;
 
-    const topN =
-      book.top_n_per_group != null
-        ? book.top_n_per_group
-        : cs.top_n_per_group != null
-          ? cs.top_n_per_group
-          : ev.top_n_per_group != null
-            ? ev.top_n_per_group
+    const maxNames =
+      book.max_names != null
+        ? book.max_names
+        : cs.max_names != null
+          ? cs.max_names
+          : ev.max_names != null
+            ? ev.max_names
             : "—";
+    const minScore =
+      book.min_score != null
+        ? book.min_score
+        : ev.min_score != null
+          ? ev.min_score
+          : "—";
     const stats =
       `<div class="quant-cluster-landing-stats">` +
       `<span class="quant-cluster-stat"><b>${escapeHtml(modeLabel)}</b> mode</span>` +
       `<span class="quant-cluster-stat"><b>v${escapeHtml(
         String(act.version != null ? act.version : "—")
       )}</b> 映射</span>` +
-      `<span class="quant-cluster-stat" title="每组相对序取前 N，再合并为候选簿"><b>${escapeHtml(
-        String(topN)
-      )}</b> 组内TopN</span>` +
+      `<span class="quant-cluster-stat" title="组权打分后全局按 score 排序，再按 min_score / max 截断"><b>全局</b> 排序</span>` +
       `<span class="quant-cluster-stat"><b>${escapeHtml(cov)}</b> 覆盖</span>` +
       `<span class="quant-cluster-stat${h.stale ? " is-warn" : ""}"><b>${escapeHtml(
         age
       )}</b> 龄</span>` +
-      `<span class="quant-cluster-stat" title="合并簿只数=账户调仓目标，非单组 Top-N"><b>${escapeHtml(
+      `<span class="quant-cluster-stat" title="合并簿只数=账户调仓目标"><b>${escapeHtml(
         String(book.name_count != null ? book.name_count : "—")
       )}</b> 簿</span>` +
       `</div>`;
@@ -7289,14 +7367,23 @@ export function initQuant(ctx) {
                 : "—"
           }</span></summary>` +
           `<ul class="quant-cluster-evidence-list">` +
-          `<li>簿长 ${escapeHtml(
+          `<li title="组权分→全局排序→min_score 过滤→max 截断">簿长 ${escapeHtml(
             String(ev.name_count != null ? ev.name_count : book.name_count ?? "—")
-          )} · 组内TopN=${escapeHtml(String(topN))} · max=${escapeHtml(
-            String(ev.max_names != null ? ev.max_names : "—")
-          )}</li>` +
-          `<li>OOS 通过 ${escapeHtml(String(oos.pass_count ?? "—"))} / 失败 ${escapeHtml(
+          )} · 全局排序 · min_score=${escapeHtml(
+            String(minScore)
+          )} · max=${escapeHtml(String(maxNames))}</li>` +
+          `<li title="${escapeHtml(
+            "汇总各组 oos_gate：通过/失败/跳过/未知。悬停各组「OOS✓/未过」标签可见原因。"
+          )}">OOS 通过 ${escapeHtml(String(oos.pass_count ?? "—"))} / 失败 ${escapeHtml(
             String(oos.fail_count ?? "—")
-          )} / 未知 ${escapeHtml(String(oos.unknown_count ?? "—"))}</li>` +
+          )} / 跳过 ${escapeHtml(String(oos.skip_count ?? "—"))} / 未知 ${escapeHtml(
+            String(oos.unknown_count ?? "—")
+          )}${
+            oos.note ? ` · ${escapeHtml(String(oos.note))}` : ""
+          }</li>` +
+          `<li class="quant-oos-semantics" title="${escapeHtml(
+            "基线=heuristic（人工加权）；研究臂=predicted_score（ŷ）。过门≠自动 promote。"
+          )}">OOS：heuristic 基线 vs ŷ 研究臂 · 过门≠自动 promote</li>` +
           `<li title="相对纸面 vs 合并簿">换手估计 卖 ${escapeHtml(
             String(turn.would_sell_count ?? "—")
           )} · 买 ${escapeHtml(String(turn.would_buy_count ?? "—"))}</li>` +
@@ -7355,12 +7442,12 @@ export function initQuant(ctx) {
                 `</div>` +
                 `<div class="watching-react-grid-cell watching-col-num num" style="flex:0 0 14%">` +
                 `${escapeHtml(
-                  r.score_global != null ? Number(r.score_global).toFixed(2) : "—"
+                  r.score_global != null ? fmtScore(r.score_global) : "—"
                 )}</div>` +
                 `<div class="watching-react-grid-cell watching-col-num num" style="flex:0 0 14%">` +
                 `${escapeHtml(
                   r.score_cluster != null
-                    ? Number(r.score_cluster).toFixed(2)
+                    ? fmtScore(r.score_cluster)
                     : "—"
                 )}</div>` +
                 `<div class="watching-react-grid-cell watching-col-num num" style="flex:0 0 12%">` +
@@ -7556,7 +7643,7 @@ export function initQuant(ctx) {
         const turn = ev.turnover_est || {};
         confirmMsg =
           `启用组权前请确认证据包：\n` +
-          `· 簿 ${ev.name_count ?? "—"} 只 · TopN=${ev.top_n_per_group ?? "—"}\n` +
+          `· 簿 ${ev.name_count ?? "—"} 只 · 全局排序 · max=${ev.max_names ?? "—"}\n` +
           `· OOS 通过 ${oos.pass_count ?? 0} / 失败 ${oos.fail_count ?? 0}\n` +
           `· 相对纸面约卖 ${turn.would_sell_count ?? 0} · 买 ${turn.would_buy_count ?? 0}\n` +
           `· 健康覆盖 ${
@@ -7783,18 +7870,24 @@ export function initQuant(ctx) {
     if (!suggest || !suggest.success) return "";
     const lines = (suggest.rationale || []).slice(0, 4);
     const gate = suggest.oos_gate || {};
+    const gateAttr =
+      gate && typeof gate === "object" && Object.keys(gate).length
+        ? ` data-oos-gate="${escapeHtml(JSON.stringify(gate))}"`
+        : "";
     let gateLine = "";
     if (gate.skipped) {
-      gateLine = `<span class="sub">OOS 门禁：已跳过（${escapeHtml(
-        String(gate.reason || "—")
+      gateLine = `<span class="sub has-oos-tip"${gateAttr}>OOS 门禁：已跳过（${escapeHtml(
+        parseOosGateReason(gate)
       )}）· promote_ready=否</span>`;
     } else if (gate.ok && gate.passed) {
       const d =
         gate.delta_oos_pp != null ? ` · ΔOOS ${gate.delta_oos_pp}pp` : "";
-      gateLine = `<span class="sub up">OOS 门禁：通过${escapeHtml(d)} · 仍须人审</span>`;
+      gateLine = `<span class="sub up has-oos-tip"${gateAttr}>OOS 门禁：通过${escapeHtml(
+        d
+      )} · 仍须人审</span>`;
     } else if (gate.ok) {
-      gateLine = `<span class="sub down">OOS 门禁：未过（${escapeHtml(
-        String(gate.reason || "—")
+      gateLine = `<span class="sub down has-oos-tip"${gateAttr}>OOS 门禁：未过（${escapeHtml(
+        parseOosGateReason(gate)
       )}）· 不建议 promote</span>`;
     }
     const warns = [
@@ -8263,8 +8356,8 @@ export function initQuant(ctx) {
           lookback: 80,
           horizon_days: readHorizonDays(),
           watching_limit: 12,
-          // null → 自动目标 k≈n/5（约 4～10）+ 超大组二分
-          n_clusters: null,
+          // null → 自动目标 k≈n/5（约 4～10）+ 超大组二分；填了则按目标 k
+          n_clusters: readClusterK(),
           cluster_method: "hierarchical",
           cluster_linkage: "complete",
           within_dist_quantile: 0.75,
@@ -8309,13 +8402,19 @@ export function initQuant(ctx) {
           ? ` · OOS✓${os.passed ?? 0}/✗${os.failed ?? 0}`
           : "";
         const pmOk = data.pool_merge && data.pool_merge.success ? " · 分池合成" : "";
+        const kTag =
+          data.target_k != null
+            ? readClusterK() != null
+              ? ` · 目标k=${data.target_k}`
+              : ` · 自动k=${data.target_k}`
+            : "";
         // 统计条在 quant-ols-clusters；摘要行留空，避免与 meta / 状态条重复
         if (quantOlsSummary) {
           quantOlsSummary.textContent = "";
           quantOlsSummary.classList.remove("is-busy");
         }
         setQuantMeta(
-          `分组 · ${nCl} 组 · 观察 ${nWatch || nUni} · 入组 ${nIn} · ${sec}s${oosTag}${pmOk}`
+          `分组 · ${nCl} 组${kTag} · 观察 ${nWatch || nUni} · 入组 ${nIn} · ${sec}s${oosTag}${pmOk}`
         );
       } else {
         setBusyText(quantOlsSummary, (data && data.error) || "分组失败", {
@@ -8401,7 +8500,7 @@ export function initQuant(ctx) {
       { busy: false }
     );
     setQuantMeta(
-      `截面 IC · ${nOk}/${rows.length} 因子 · horizon ${data.horizon_days ?? 3}` +
+      `截面 IC · ${nOk}/${rows.length} 因子 · horizon ${data.horizon_days ?? 1}` +
         (scoreP.icir != null ? ` · score ICIR ${scoreP.icir}` : "")
     );
   }
@@ -8632,6 +8731,27 @@ export function initQuant(ctx) {
     if (!cl) return;
     exportClusterWeightDiff(cl.config_diff, cl.label);
   }
+
+  const oosGateTips = createScoreTooltipController();
+  function wireOosGateTips(host) {
+    if (!host) return;
+    oosGateTips.bindAttrTip(host, {
+      selector: "[data-oos-gate]",
+      className: "score-tooltip oos-gate-tip",
+      buildHtml: (el) => {
+        try {
+          return oosGateTipHtml(
+            JSON.parse(el.getAttribute("data-oos-gate") || "{}")
+          );
+        } catch (_) {
+          return "";
+        }
+      },
+    });
+  }
+  wireOosGateTips(quantOlsClusters);
+  wireOosGateTips(quantFactorList);
+  wireOosGateTips(quantWeightSuggest);
 
   if (quantOlsClusters && quantOlsClusters.dataset.exportWired !== "1") {
     quantOlsClusters.dataset.exportWired = "1";
@@ -8871,143 +8991,13 @@ export function initQuant(ctx) {
         status.textContent =
           reasons.slice(0, 2).join("；") ||
           data.note ||
-          "已生成建议（未写盘）· 编辑规格稿后可人审晋升";
-      }
-      // 合并反馈 patch；若无 weights 则用 IC 建议权重便于人审
-      try {
-        const cur = JSON.parse(getJsonEditorValue() || "{}");
-        const patch = data.patch && typeof data.patch === "object" ? data.patch : {};
-        if (patch.rank && typeof patch.rank === "object") {
-          cur.rank = { ...(cur.rank || {}), ...patch.rank };
-        }
-        if (patch.stance_thresholds && typeof patch.stance_thresholds === "object") {
-          cur.stance_thresholds = {
-            ...(cur.stance_thresholds || {}),
-            ...patch.stance_thresholds,
-          };
-        }
-        if (patch.weights && typeof patch.weights === "object") {
-          cur.weights = patch.weights;
-        } else if (
-          strategyLastWeightDiff &&
-          strategyLastWeightDiff.suggested_weights &&
-          typeof strategyLastWeightDiff.suggested_weights === "object"
-        ) {
-          cur.weights = strategyLastWeightDiff.suggested_weights;
-        }
-        setJsonEditorValue(JSON.stringify(cur, null, 2));
-      } catch (_) {
-        /* ignore */
+          "已生成建议（未写盘）· 选股改β请到研究枢纽；限额改策略卡晋升";
       }
     } catch (err) {
       if (status) status.textContent = String(err.message || err);
       }
   });
 
-  function parseEditorConfig() {
-    const raw = getJsonEditorValue();
-    try {
-      return { ok: true, config: JSON.parse(raw) };
-    } catch (err) {
-      return { ok: false, error: String(err.message || err) };
-    }
-  }
-
-  async function postDraft(path, note) {
-    const parsed = parseEditorConfig();
-    const status = document.getElementById("strategy-draft-status");
-    const diffEl = document.getElementById("strategy-draft-diff");
-    if (!parsed.ok) {
-      if (status) status.textContent = `JSON 无效：${parsed.error}`;
-      return null;
-    }
-    const { ok, data, error } = await apiFetch(path, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ config: parsed.config, note: note || "" }),
-    });
-    if (!ok) {
-      const detail = (data && (data.detail || data.errors)) || error;
-      throw new Error(
-        Array.isArray(detail) ? detail.join("; ") : String(detail || "请求失败")
-      );
-    }
-    if (diffEl && data.diff) {
-      diffEl.hidden = false;
-      diffEl.textContent = JSON.stringify(data.diff.changes || data.diff, null, 2);
-    } else if (diffEl && data.changes) {
-      diffEl.hidden = false;
-      diffEl.textContent = JSON.stringify(data.changes, null, 2);
-    }
-    return data;
-  }
-
-  on("strategy-draft-validate", "click", async (e) => {
-    e.preventDefault();
-    const status = document.getElementById("strategy-draft-status");
-    try {
-      if (status) status.textContent = "校验中…";
-      const data = await postDraft("/api/signal/config/draft/validate");
-      if (!data) return;
-      if (status) {
-        status.textContent = data.ok
-          ? `校验通过 · diff ${data.diff?.change_count ?? 0} 处`
-          : `校验失败：${(data.errors || []).join("; ")}`;
-      }
-    } catch (err) {
-      if (status) status.textContent = String(err.message || err);
-      }
-  });
-
-  on("strategy-draft-save", "click", async (e) => {
-    e.preventDefault();
-    const status = document.getElementById("strategy-draft-status");
-    try {
-      if (status) status.textContent = "保存草稿中…";
-      const data = await postDraft("/api/signal/config/draft/save", "R2 UI draft");
-      if (!data) return;
-      if (status) status.textContent = `草稿已保存 · ${data.path || "signal_config_draft.json"}`;
-      } catch (err) {
-      if (status) status.textContent = String(err.message || err);
-      }
-  });
-
-  on("strategy-draft-promote", "click", async (e) => {
-    e.preventDefault();
-    const status = document.getElementById("strategy-draft-status");
-    if (
-      !window.confirm(
-        "确认将编辑器中的配置写入生产 signal_config.json？将先备份现有文件。"
-      )
-    ) {
-      return;
-    }
-    try {
-      if (status) status.textContent = "人审晋升中…";
-      const data = await postDraft(
-        "/api/signal/config/draft/promote",
-        "R2 UI human promote"
-      );
-      if (!data) return;
-      if (status) {
-        status.textContent = `已晋升 · 备份 ${data.backup || "—"} · 请复跑回测验证`;
-      }
-      await loadSignalConfigPanel();
-    } catch (err) {
-      if (status) status.textContent = String(err.message || err);
-      }
-  });
-
-  on("strategy-draft-reload", "click", async (e) => {
-    e.preventDefault();
-    const status = document.getElementById("strategy-draft-status");
-    try {
-      await loadSignalConfigPanel();
-      if (status) status.textContent = "已重载生产配置";
-      } catch (err) {
-      if (status) status.textContent = String(err.message || err);
-      }
-  });
 
   on("quant-threshold-run", "click", async (e) => {
     e.preventDefault();
@@ -9059,6 +9049,75 @@ export function initQuant(ctx) {
     } catch (err) {
       quantPortfolioSummary.textContent = String(err.message || err);
       paintPortfolioChart([], "对照失败");
+    }
+  });
+
+  async function runRankModeCompare() {
+    setQuantBtBusy(true, "排序对照已退役…");
+    const metaEl = document.getElementById("quant-rank-mode-compare-meta");
+    const msg = "规则分已全局退役；系统仅认收益分 predicted_score";
+    if (quantPortfolioSummary) {
+      quantPortfolioSummary.textContent = msg;
+      quantPortfolioSummary.classList.add("down");
+    }
+    if (metaEl) {
+      metaEl.hidden = false;
+      metaEl.textContent = msg;
+    }
+    setQuantBtBusy(false);
+  }
+
+  async function fitReturnScoreModel() {
+    setQuantBtBusy(true, "拟合收益排序模型…");
+    try {
+      const { lookback, horizon_days } = readPortfolioBtParams();
+      const { ok, data, error } = await apiFetch("/api/quant/return-model/fit", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback,
+          horizon_days,
+          watching_limit: 12,
+          save_draft: true,
+        }),
+      });
+      if (!ok || !data || !data.success) {
+        const msg = (data && (data.error || data.detail)) || error || "拟合失败";
+        if (quantPortfolioSummary) {
+          quantPortfolioSummary.textContent = msg;
+          quantPortfolioSummary.classList.add("down");
+        }
+        return;
+      }
+      const draft = data.draft || {};
+      const msg =
+        `ŷ模型已拟合并落草稿 n=${data.sample_count} R²=${(data.ols && data.ols.r_squared) ?? "—"}` +
+        (draft.path ? ` · ${draft.path}` : "") +
+        " · 人审 promote 后配合 scoring.rank_mode=predicted_score";
+      if (quantPortfolioSummary) {
+        quantPortfolioSummary.classList.remove("down");
+        quantPortfolioSummary.textContent = msg;
+      }
+    } finally {
+      setQuantBtBusy(false);
+    }
+  }
+
+  on("quant-rank-mode-compare", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runRankModeCompare();
+    } catch (err) {
+      if (quantPortfolioSummary) quantPortfolioSummary.textContent = String(err.message || err);
+    }
+  });
+
+  on("quant-return-model-fit", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await fitReturnScoreModel();
+    } catch (err) {
+      if (quantPortfolioSummary) quantPortfolioSummary.textContent = String(err.message || err);
     }
   });
 
@@ -9630,7 +9689,7 @@ export function initQuant(ctx) {
       const note =
         reasons.slice(0, 3).join("；") ||
         data.note ||
-        "已生成建议（未写盘）· 可到策略中心人审晋升";
+        "已生成建议（未写盘）· 选股改β请到研究枢纽";
       if (quantMeta) quantMeta.textContent = note;
       if (quantInterpretBody) {
         const patch = data.patch && typeof data.patch === "object" ? data.patch : {};
@@ -10210,7 +10269,7 @@ export function initQuant(ctx) {
       setTimeout(() => {
         runParamGrid()
           .then(() => {
-            window.location.href = "/strategy#strategy-spec-editor";
+            window.location.href = "/quant";
           })
           .catch((err) => {
             if (meta) meta.textContent = String(err.message || err);

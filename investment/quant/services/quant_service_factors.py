@@ -792,6 +792,52 @@ class QuantFactorMixin:
         suggestion["config_diff"] = format_weight_config_diff(suggestion)
         return suggestion
 
+    def compare_weight_coordinate_search(self, **kwargs: Any) -> Dict[str, Any]:
+        """全局权 / OLS·IC 建议权 / 坐标网格搜索三臂对照（研究只读）。"""
+        from core.signal.weight_coordinate_search import compare_weight_arms
+
+        lookback = int(kwargs.get("lookback") or 90)
+        horizon_days = int(kwargs.get("horizon_days") or 3)
+        watching_limit = int(kwargs.get("watching_limit") or 10)
+        include_ols = bool(kwargs.get("include_ols_arm", True))
+        codes = kwargs.get("codes")
+
+        ols_w = None
+        ols_meta: Dict[str, Any] = {}
+        if include_ols:
+            sug = self.suggest_weights(
+                str(kwargs.get("suggest_code") or "茅台"),
+                lookback=lookback,
+                horizon_days=horizon_days,
+                use_cs_ic=True,
+                watching_limit=min(watching_limit, 12),
+                run_oos_gate=False,
+                ridge_lambda=float(kwargs.get("ridge_lambda") or 0.0),
+            )
+            if sug.get("success") and sug.get("suggested_weights"):
+                ols_w = sug["suggested_weights"]
+                ols_meta = {
+                    "suggestion_ic_mode": sug.get("ic_mode"),
+                    "promote_ready_suggest": False,
+                }
+            else:
+                ols_meta = {"error": sug.get("error") or "suggest_weights 失败"}
+
+        return compare_weight_arms(
+            codes=codes,
+            lookback=lookback,
+            top_k=int(kwargs.get("top_k") or 3),
+            horizon_days=horizon_days,
+            min_score=float(kwargs.get("min_score") or 55.0),
+            watching_limit=watching_limit,
+            ols_suggested_weights=ols_w,
+            ols_arm_meta=ols_meta,
+            n_sweeps=int(kwargs.get("n_sweeps") or 2),
+            max_evals=int(kwargs.get("max_evals") or 48),
+            grid=kwargs.get("grid"),
+            start_from=str(kwargs.get("start_from") or "current"),
+        )
+
     def run_factor_corr(
         self,
         *,

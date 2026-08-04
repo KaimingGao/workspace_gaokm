@@ -129,7 +129,7 @@ R0 北极星仪表硬化 ──► R1 拟合底座（财务 PIT · 成本/冲击
 
 ### 4.2 不做
 
-完整归因重构、财务 PIT、Monaco 可写 IDE、QP 求解器。
+完整归因重构、财务 PIT、在线策略 JSON IDE、QP 求解器。
 
 ### 4.3 出门标准
 
@@ -195,7 +195,7 @@ R0 北极星仪表硬化 ──► R1 拟合底座（财务 PIT · 成本/冲击
 | ID | 项 | 落点（建议） | 验收 |
 |----|----|--------------|------|
 | R2.1 | **参数网格 / 热力摘要** | 回测 API 批量 `param_scan`；Web 表或热力（可先表） | ✅ 同策略 ≥2 维参数扫描可出报告块 |
-| R2.2 | **策略规格可编辑（约束内）** | Monaco **只读→可编辑草稿**；diff + 人审 promote（沿用 feedback） | ✅ 不静默写盘；promote 路径可演示 |
+| R2.2 | **策略规格可编辑（约束内）** | ~~Monaco 草稿 + promote~~ → **已退役**；选股权改走研究枢纽 ReturnScoreModel | ✅ 历史已交付；现路径不经 signal_config 草稿 |
 | R2.3 | **Notebook 降级方案** | 可选：导出研究脚本 / 固定 `research/*.py` 模板；全量 Jupyter **非必须** | ✅ 文档给出「Idea 标准路径」≤5 步 |
 | R2.4 | **TTM 仪表接线** | R0.3 事件在「新建扫描 / 回测成功 / promote」处打点 | ✅ 打点已接线（中位周环比待样本） |
 | R2.5 | **IC / weight_suggest 实验流** | 策略页：扫描 → 只读 diff → 一键生成 feedback | ✅ 不改变生产权重除非 promote |
@@ -215,11 +215,11 @@ R0 北极星仪表硬化 ──► R1 拟合底座（财务 PIT · 成本/冲击
 | ID | 状态 | 落点 |
 |----|------|------|
 | R2.1 参数网格 | ✅ | `run_param_grid` · 回溯页热力/表 ·「应用最优」填 lookback/top_k |
-| R2.2 规格草稿 | ✅ | Monaco 可编辑 · `signal_config_draft` validate/save/diff/promote · 备份 |
-| R2.3 Idea 路径 | ✅ | `research/README.md` ≤5 步；CLI 模板沿用现有脚本 |
-| R2.4 TTM | ✅ | 网格/草稿保存/晋升/反馈建议打点 |
-| R2.5 IC→feedback | ✅ | 策略页「生成反馈建议」→ 补丁进编辑器 · 须人审 promote |
-| 测试 | ✅ | `tests/test_r2_signal_config_draft.py` |
+| R2.2 规格草稿 | ✅→退役 | 曾：Monaco · `signal_config_draft`；现已删除，选股权 → 研究枢纽 β |
+| R2.3 Idea 路径 | ✅ | `research/README.md` ≤5 步（研究枢纽 / 回测 / 策略卡） |
+| R2.4 TTM | ✅ | 网格 / 反馈 / promote 打点 |
+| R2.5 IC→feedback | ✅ | 研究枢纽 IC / OLS 只读；不写 signal_config |
+| 测试 | ✅→退役 | `test_r2_signal_config_draft` 已删 |
 
 ---
 

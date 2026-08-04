@@ -158,26 +158,6 @@ class TestS4MaturityGate(unittest.TestCase):
         self.assertEqual(out.get("track"), "S0-S4")
 
 
-class TestS0PromoteDemoGuard(unittest.TestCase):
-    def test_promote_blocks_when_demo_dominated(self):
-        from core.signal_config_draft import promote_draft
-
-        fake_cov = {
-            "synthetic_multi_point": 5,
-            "real_multi_point": 1,
-            "real_multi_coverage": 0.1,
-        }
-        with patch(
-            "core.sample_ops.fundamentals_history_coverage", return_value=fake_cov
-        ):
-            out = promote_draft(
-                draft={"weights": {"momentum": 0.5, "value": 0.5}},
-                note="test promote",
-            )
-        self.assertFalse(out.get("ok"))
-        self.assertIn("synthetic", str(out.get("error") or "").lower())
-
-
 class TestS1ApiRoute(unittest.TestCase):
     def test_factor_cs_ic_route_mocked(self):
         try:

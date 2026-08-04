@@ -499,7 +499,7 @@ flowchart LR
 
 | 用户 / 研究问题 | 代码路径 | ML 术语 |
 |----------------|----------|---------|
-| 单票短线分 | `core/signal/scorer.py` · `score_bars` | 特征 → 线性模型输出 |
+| 单票短线分 | `score_stock` · `ReturnScoreModel`（`score_bars`→sub_scores） | 特征 → 拟合线性 ŷ |
 | 观察池 Top N | `core/signal/cross_section.py` | 截面排序 / LTR |
 | 去市场共同因子 | `core/signal/neutralize.py` | 组内标准化 |
 | 因子有效性 | `research/factor_report.py` | feature–label 相关 / IC |
@@ -510,47 +510,36 @@ flowchart LR
 
 #### 心智模型（三句话）
 
-1. **因子 = 特征；score = 模型输出；回测 = 带时间约束的 offline eval。**
+1. **因子 = 特征；score = 回归 ŷ（因子系数 β）；回测 = 带时间约束的 offline eval。**
 2. **横截面中性化 = 去掉市场共同因子，学相对排序而不是绝对水平。**
 3. **IC / OOS / 纸面 = 量化里的 train/val/test + shadow deployment，用来对抗过拟合与非平稳。**
 
-更 ML 化的演进（未默认开启）：GBDT 学因子组合、序列模型吃 raw bars、组合层均值-方差优化——均可在现有 **特征 / 评估 / 部署分离** 架构上增量接入。详见 [为何不用拟合模型](#为何不用拟合模型线性回归--复杂模型)。
+更复杂模型（GBDT / 序列等）仍属可选演进；现行已默认用 **线性回归收益分**。见下节与 [weight-suggest-deepen.md](weight-suggest-deepen.md)。
 
-#### 为何不用拟合模型（线性回归 / 复杂模型）
+#### 选股真源：线性回归因子系数（规则分已退役）
 
-当前 **生产决策链** 是：`score_bars`（固定权重线性加总）→ `compute_buy_stance`（阈值规则）→ LLM 只解读 JSON。**没有**用历史收益拟合 β 的 OLS/Ridge，也 **没有** GBDT/神经网络 end-to-end 荐股。
+**人工预定的规则分退出；全面拥抱数据驱动的回归模型。** 现阶段用 **线性回归（OLS / 可选 Ridge）**；线性系数 β 即 **可正可负的系数权重**。
+
+```text
+score_bars → sub_scores（特征）
+ŷ = α + Σ βᵢ · zᵢ     # ReturnScoreModel → predicted_score = 选股真源
+```
 
 | 层级 | 现在是什么 | 不是什么 |
 |------|------------|----------|
-| **score** | 手工因子 + 配置权重加总 | 训练出来的 `y = Xβ + ε` |
-| **stance** | 规则分档 + 降档 | 分类器/回归直接输出「买/卖」 |
-| **IC/权重建议** | 评估与 diff 建议 | 自动 overwrite `signal_config.json` |
+| **score** | 组/全局 `ReturnScoreModel` 的 ŷ（`predicted_score`） | 人工 `weights` 加权的规则综合分 |
+| **因子系数 β** | z 上 ŷ% 斜率，**可正可负** | 和为 1 的非负混合权 |
+| **stance** | 仍基于分数阈值 / 策略层 | 分类器直接输出「买/卖」 |
+| **promote** | 人审冻结 `return_model`；**不**自动写 `signal_config.weights` | 静默 overwrite 生产配置 |
 
-**刻意不用（现阶段）的主要原因**：
+`score_bars` 仍算因子与 `sub_scores`（ŷ 输入）；其内部加权总分**不**再挂 `heuristic_score`，也不驱动选股。无模型时 `score` 为空。
 
-1. **产品契约**：「能否买」须 **逐字引用 `advise.stance_label`**；黑盒模型输出与合规话术难对齐（见 [quant-upgrade.md · 升级原则](quant-upgrade.md#升级原则)）。
-2. **可解释与审计**：规则因子 + `factor_contrib` 可逐条说明；深度模型需额外 SHAP/版本治理。
-3. **数据未就绪**：live 可能 `quote_fallback`、基本面为 **snapshot 非 point-in-time** → 拟合易 **前视偏差 / train-serve 不一致**。
-4. **金融噪声与非平稳**：短期收益标签噪声大；有效因子会失效 → 需滚动 OOS + 监控，运维成本高。
-5. **目标不仅是预测**：还要成本、换手、回撤；预测准 ≠ 赚钱。
-6. **工程顺序**：路线图 **先一致性、再复杂度**——IC/OOS/TopK 回测基建先稳，再考虑拟合模型。
+**仍刻意不做的**：GBDT / 神经网络 end-to-end 荐股；黑盒直接改 `stance_label`；自动写盘。原因未变——可解释、审计、PIT/数据质量、OOS 与成本约束。复杂模型须 eval 证明增量后再人审 artifact。
 
-**与线性回归的关系**：`score` 在 **形式** 上像固定权重的线性组合，但 **权重不是**从截面回归估计的；工业上的截面回归还需 rolling train、PIT 面板、模型版本与 stance 映射，尚未默认开启。
-
-**何时值得引入拟合模型**（未来可选，非 P6～P80 默认）：
-
-| 前置条件 | 说明 |
-|----------|------|
-| live/backtest 同源 | 同一 bars、同一 fundamentals PIT |
-| 自动化 OOS | 滚动 train → validate → 冻结 artifact |
-| 决策仍分层 | 模型产出 **排序/score**，买卖仍走 stance 或显式策略层 |
-| 人工上线 | 权重/模型 **不自动写** 生产配置 |
-| 产品定位允许 | 从「规则投顾」扩展到「研究台 + 可选 model blend」 |
-
-**演进路径（文档级，未默认实现）**：
+**演进路径**：
 
 ```text
-规则 score（当前）→ IC 调权 → 截面线性回归 score_ml → GBDT blend → 序列模型（需 eval 证明增量）
+规则 score（已退役）→ 线性回归 ŷ（现行）→ GBDT blend → 序列模型（需 eval 证明增量）
 ```
 
 工业级因子库规模见 [与专业量化系统的差距](#与专业量化系统的差距)；工业常见 **候选因子数百～数千、生产 alpha 几十级**，与是否使用拟合模型是正交问题。分类对照见 [工业常见因子分类](#工业常见因子分类对照本仓库)。

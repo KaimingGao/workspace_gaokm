@@ -24,7 +24,7 @@
         title="持有几个交易日再调仓：1=每个交易日一轮；3=约每 3 日一轮。可存为研究默认，不影响 live 评分。"
       >
         horizon
-        <input id="quant-horizon" type="number" min="1" max="10" value="3" />
+        <input id="quant-horizon" type="number" min="1" max="10" value="1" />
       </label>
       <button type="button" id="quant-horizon-save-default" class="dialog-btn secondary" title="写入 memory.json">
         存为默认
@@ -41,6 +41,14 @@
           <option value="risk_parity_lite">风险平价 lite</option>
         </select>
       </label>
+      <span
+        class="platform-field"
+        title="系统按收益分 predicted_score（ŷ%）排序"
+        style="align-self:center"
+      >
+        排序 · 收益分
+      </span>
+      <input type="hidden" id="quant-rank-mode" value="predicted_score" />
       <label class="platform-field" title="TopK-Dropout：掉出 K+N 才卖">
         dropout_n
         <input id="quant-dropout-n" type="number" min="0" max="10" value="0" />
@@ -72,6 +80,14 @@
       </label>
       <button type="button" id="quant-portfolio-run" class="dialog-btn">Top-K 回测</button>
       <button type="button" id="quant-portfolio-compare" class="dialog-btn secondary">中性化对照</button>
+      <button
+        type="button"
+        id="quant-return-model-fit"
+        class="dialog-btn secondary"
+        title="拟合全局收益分模型并保存研究草稿（优先仍用分组 β）"
+      >
+        拟合ŷ模型
+      </button>
       <button type="button" id="quant-research-export" class="dialog-btn secondary" title="导出最近回测/网格 JSON">导出研究包</button>
       <button type="button" id="quant-backtest-report-export" class="dialog-btn secondary" title="导出与页内块对齐的 MD 报告" disabled>
         导出回测报告
@@ -104,6 +120,7 @@ horizon=1 时：每个交易日都可成为信号日，调仓更密、成本更�
       </div>
     </details>
     <div id="quant-portfolio-summary" class="quant-summary">有票后点「Top-K 回测」</div>
+    <p id="quant-rank-mode-compare-meta" class="quant-fingerprint" hidden></p>
     <p id="quant-bt-scope-note" class="quant-fingerprint" hidden></p>
     <div id="quant-bt-progress" class="paper-progress" hidden>
       <div class="paper-progress-track paper-progress-track-indeterminate" aria-hidden="true">

@@ -85,7 +85,7 @@ S4  成熟闸门收口 →（过）N6 备忘 /（不过）停
 |----|------|------|------|
 | S0.1 | 财务点按 **可用日**（`ann_date` / `available_as_of` 优先，否则 `as_of`）截断 | `core/fundamentals_pit.py` | 报告期晚于决策日、公告日已过 → 可选入；单测 |
 | S0.2 | 池截面 IC 每日 `resolve_fundamentals_for_score(as_of=date)` | `core/backtest/pool_ic.py` | `pit_fundamentals=true` 元数据 |
-| S0.3 | 权重 promote 在 synthetic 主导时硬拒（除非 `allow_demo=true`） | `core/signal_config_draft.py` | 返回明确 error |
+| S0.3 | 权重 promote 在 synthetic 主导时硬拒（除非 `allow_demo=true`） | ~~`signal_config_draft`~~ → 研究枢纽 / ReturnScoreModel 启用闸门 | 返回明确 error |
 | S0.4 | 闸门项保留 real_multi / demo_discipline | `maturity_gate` | 已有 + S4 扩展 |
 
 ---
@@ -164,7 +164,7 @@ S4  成熟闸门收口 →（过）N6 备忘 /（不过）停
 | 财务可用日 PIT | `core/fundamentals_pit.py` |
 | 池 score IC + PIT | `core/backtest/pool_ic.py` |
 | 因子截面 IC | `core/backtest/factor_cs_ic.py` |
-| promote 拒 demo | `core/signal_config_draft.py` |
+| promote 拒 demo | 研究枢纽启用闸门 / ReturnScoreModel（原 `signal_config_draft` 已删） |
 | A/B 对照 | `core/ab_compare.py` |
 | 验证包 | `core/validation_pack.py` |
 | 权重模式对照 | `core/weight_mode_compare.py` |

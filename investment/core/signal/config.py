@@ -15,6 +15,7 @@ SIGNAL_CONFIG_PATH = os.path.join(DATA_DIR, "signal_config.json")
 
 DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
     "version": 3,
+    # weights：诊断/遗留规则综合分用；非选股权。选股真源=因子系数 ReturnScoreModel
     "weights": {
         "momentum": 0.22,
         "volume_price": 0.14,
@@ -50,10 +51,22 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "mom3_loss_min_pct": -12.0,
     },
     "rank": {
-        "min_score": 55.0,
+        "min_score": 55.0,  # 仅遗留/无收益模型回退时使用
         "default_limit": 8,
     },
+    # 排序键：仅收益分 predicted_score（ŷ%）
+    "scoring": {
+        "rank_mode": "predicted_score",
+        "min_predicted_score": None,
+    },
+    # stance 门槛按收益分 ŷ%（百分点）
     "stance_thresholds": {
+        "avoid": -0.5,
+        "wait": 0.0,
+        "probe": 0.35,
+    },
+    # 遗留：旧 0–100 门槛表（不再用于 stance）
+    "stance_thresholds_heuristic": {
         "avoid": 45.0,
         "wait": 55.0,
         "probe": 68.0,
@@ -153,13 +166,35 @@ def load_signal_config(*, reload: bool = False) -> Dict[str, Any]:
     return _apply_overlays(deepcopy(cfg))
 
 
-def get_stance_thresholds(config: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
+def get_stance_thresholds(
+    config: Optional[Dict[str, Any]] = None,
+    *,
+    kind: str = "predicted",
+) -> Dict[str, float]:
+    """stance 门槛。``kind=predicted`` 用 ŷ% 门槛；``heuristic`` 用 0–100。"""
     cfg = config or load_signal_config()
+    k = str(kind or "predicted").strip().lower()
+    if k in ("heuristic", "rule", "heuristic_score", "score"):
+        raw = cfg.get("stance_thresholds_heuristic") or {}
+        return {
+            "avoid": float(raw.get("avoid", 45)),
+            "wait": float(raw.get("wait", 55)),
+            "probe": float(raw.get("probe", 68)),
+        }
     raw = cfg.get("stance_thresholds") or {}
+    # 兼容旧配置仍写 45/55/68：若 avoid≥10 视为遗留 0–100，改读 heuristic 表
+    avoid = float(raw.get("avoid", -0.5))
+    if avoid >= 10:
+        raw = cfg.get("stance_thresholds_heuristic") or raw
+        return {
+            "avoid": float(raw.get("avoid", 45)),
+            "wait": float(raw.get("wait", 55)),
+            "probe": float(raw.get("probe", 68)),
+        }
     return {
-        "avoid": float(raw.get("avoid", 45)),
-        "wait": float(raw.get("wait", 55)),
-        "probe": float(raw.get("probe", 68)),
+        "avoid": avoid,
+        "wait": float(raw.get("wait", 0.0)),
+        "probe": float(raw.get("probe", 0.35)),
     }
 
 

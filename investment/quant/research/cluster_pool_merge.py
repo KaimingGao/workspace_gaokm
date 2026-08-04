@@ -197,7 +197,12 @@ def backtest_cluster_pools(
     top_n = max(1, min(int(top_n_per_group or 10), 10))
     max_names = max(1, min(int(max_names or 40), 80))
     horizon_days = max(1, min(int(horizon_days or 3), 10))
-    min_score = float(min_score or 55.0)
+    from core.signal.score_display import resolve_buy_floor
+
+    if min_score == 55.0:
+        min_score = resolve_buy_floor(heuristic_default=55.0)
+    else:
+        min_score = float(min_score if min_score is not None else 55.0)
     min_history = max(5, int(min_history or 12))
 
     specs = _cluster_specs(clusters, only_oos_passed=only_oos_passed)

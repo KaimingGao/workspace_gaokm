@@ -87,6 +87,10 @@ class QuantReplayMixin:
         include_quantile: bool = True,
         include_benchmark: bool = True,
         benchmark_code: str = "000300",
+        rank_mode: str = "predicted_score",
+        min_predicted_score: Optional[float] = None,
+        return_model_min_samples: int = 24,
+        return_model_ridge_lambda: float = 0.0,
     ) -> Dict[str, Any]:
         from core.backtest.topk_backtest import backtest_topk_equal_weight
         from quant.research.portfolio_data import load_portfolio_stock_bars
@@ -142,6 +146,10 @@ class QuantReplayMixin:
             max_position_pct=max_position_pct,
             max_sector_pct=max_sector_pct,
             dropout_n=dropout_n,
+            rank_mode=rank_mode,
+            min_predicted_score=min_predicted_score,
+            return_model_min_samples=return_model_min_samples,
+            return_model_ridge_lambda=return_model_ridge_lambda,
         )
         result = backtest_topk_equal_weight(
             stock_bars,
@@ -163,6 +171,10 @@ class QuantReplayMixin:
             "exclude_st": bool(exclude_st),
             "min_avg_amount_pctile": min_avg_amount_pctile,
             "benchmark_code": str(benchmark_code or "000300"),
+            "rank_mode": str(rank_mode or "predicted_score"),
+            "min_predicted_score": min_predicted_score,
+            "return_model_min_samples": int(return_model_min_samples or 24),
+            "return_model_ridge_lambda": float(return_model_ridge_lambda or 0.0),
         }
         dropped = list(result.get("dropped_stocks") or [])
         result["universe"] = {
@@ -418,6 +430,74 @@ class QuantReplayMixin:
             result.pop("trades", None)
             # trades_sample 仍作调仓期摘要；sim_trades 为全量腿级模拟账
         return result
+
+    def compare_rank_modes(self, **kwargs: Any) -> Dict[str, Any]:
+        """规则分对照已退役；系统仅认 predicted_score。"""
+        from quant.research.portfolio_data import load_portfolio_stock_bars
+        from quant.research.rank_mode_compare import compare_rank_modes
+
+        codes = kwargs.get("codes")
+        lookback = int(kwargs.get("lookback") or 120)
+        watching_limit = int(kwargs.get("watching_limit") or 12)
+        resolved = resolve_replay_candidates(codes)
+        candidates = list(resolved.get("codes") or [])[: max(3, min(watching_limit, 40))]
+        if len(candidates) < 2:
+            return {
+                "success": False,
+                "error": "有效标的不足",
+                "promote_ready": False,
+                "universe": resolved,
+            }
+        stock_bars, failures, fund_map = load_portfolio_stock_bars(
+            candidates,
+            lookback=lookback,
+            fetch_fundamentals=False,
+        )
+        if len(stock_bars) < 2:
+            return {
+                "success": False,
+                "error": f"有效日线不足（失败 {len(failures)}）",
+                "failures": failures[:8],
+                "promote_ready": False,
+            }
+        out = compare_rank_modes(
+            stock_bars,
+            top_k=int(kwargs.get("top_k") or 3),
+            horizon_days=int(kwargs.get("horizon_days") or 3),
+            min_score=float(kwargs.get("min_score") or 55.0),
+            min_predicted_score=kwargs.get("min_predicted_score"),
+            apply_costs=bool(kwargs.get("apply_costs", True)),
+            fundamentals_by_code=fund_map or None,
+            return_model_min_samples=int(kwargs.get("return_model_min_samples") or 24),
+            return_model_ridge_lambda=float(kwargs.get("return_model_ridge_lambda") or 0.0),
+        )
+        out["codes"] = list(stock_bars.keys())
+        out["failures"] = failures[:8]
+        out["lookback"] = lookback
+        return out
+
+    def fit_return_score_model(self, **kwargs: Any) -> Dict[str, Any]:
+        from core.signal.return_score_store import fit_watching_return_model
+
+        return fit_watching_return_model(
+            codes=kwargs.get("codes"),
+            lookback=int(kwargs.get("lookback") or 120),
+            horizon_days=int(kwargs.get("horizon_days") or 3),
+            ridge_lambda=float(kwargs.get("ridge_lambda") or 0.0),
+            watching_limit=int(kwargs.get("watching_limit") or 12),
+            min_samples=int(kwargs.get("min_samples") or 24),
+            save_draft=bool(kwargs.get("save_draft", True)),
+        )
+
+    def promote_return_score_model(self, note: str = "") -> Dict[str, Any]:
+        from core.signal.return_score_store import promote_return_model_draft
+
+        return promote_return_model_draft(note=note)
+
+    def return_score_model_status(self) -> Dict[str, Any]:
+        from core.signal.return_score_store import return_model_status
+
+        return return_model_status()
 
     def run_param_grid(
         self,

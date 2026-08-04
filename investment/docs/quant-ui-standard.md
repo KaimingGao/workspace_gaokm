@@ -20,7 +20,7 @@
 
 | 顺序 | 模块 | 路径 | 唯一任务 |
 |------|------|------|----------|
-| 1 | 策略中心 | `/strategy` | 策略规格 + 只读 IC/权重 / 人审 promote |
+| 1 | 策略中心 | `/strategy` | 策略卡限额 · 人审 promote；选股权在研究枢纽 |
 | 2 | 数据中心 | `/watching` | 长期名单 + **开仓入口** |
 | 3 | 交易执行 | `/follow` | 已有仓位账本（加减仓 · 清仓 · 调仓） |
 | 4 | 历史回测 | `/replay` | 组合历史回测 |
@@ -88,17 +88,16 @@
 
 | | 约定 |
 |--|------|
-| **唯一任务** | 看/改规格草稿 + 只读因子建议 + 人审晋升 |
-| **主区必有** | 策略卡 · 限额只读 · IC/权重分析区 · Monaco 草稿 · promote 入口 |
-| **禁止** | 静默写 `signal_config`；把完整 quant 枢纽嵌进来 |
+| **唯一任务** | 策略卡限额与人审晋升 · 风控审计；选股 α 在研究枢纽 |
+| **主区必有** | 策略卡 · 限额只读 · promote 入口 · 因子字典 |
+| **禁止** | 静默写 `signal_config`；整稿编辑 weights；把完整 quant 枢纽嵌进来 |
 | **因子名** | 悬停显示定义（`factor-tip`） |
 
-#### 规格草稿白名单与人审边界（R2）
+#### 配置写盘边界
 
-- **可编辑顶层键**：`version` · `weights` · `hard_reject` · `rank` · `stance_thresholds` · `invalidation` · `relative_strength` · `regime` · `fundamentals` · `cross_section`（见 `core/signal_config_draft.ALLOWED_TOP_KEYS`）
-- **草稿落盘**：`data/signal_config_draft.json`（非生产）；API：`/api/signal/config/draft/{validate,save,diff,promote}`
-- **生产写入唯一路径**：人审「晋升」→ 先备份到 `data/config_backups/` 再写 `signal_config.json`
-- **IC / feedback**：只读建议或补丁进编辑器；**不得**自动 promote
+- **选股真源**：研究枢纽 `ReturnScoreModel` / 分组 β → live promote
+- **策略限额**：策略卡「晋升 / 晋升并应用到纸面」
+- **IC / feedback**：只读建议；**不得**自动 promote 进 `signal_config.weights`
 
 ### `/quant` 研究枢纽
 
@@ -120,7 +119,7 @@
 | **主区必有** | 偏好档案（风险风格/备注；**研究 horizon 只读**，编辑在研究枢纽）· 北极星 KPI · 审计时间线 · 纸面日更调度 |
 | **按需折叠** | 反馈建议 · 非交易预填 · 决策记录可次要展示 |
 | **禁止** | 静默写 `signal_config`；假装未接线字段为全局生产参数；开仓/调仓 |
-| **决策归属** | 偏好写 `memory.json`；生产权重仍只经策略页人审 promote |
+| **决策归属** | 偏好写 `memory.json`；选股 β 经研究枢纽 live；策略限额经策略卡 promote |
 
 <a id="仪表盘"></a>
 

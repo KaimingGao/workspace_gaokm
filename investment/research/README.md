@@ -6,13 +6,13 @@
 
 Web 优先；CLI 为离线/批处理备胎。
 
-1. **改一参**：策略页 Monaco 编辑 `weights` / `rank.min_score` 等白名单键 →「校验 / Diff」→「保存草稿」（不写生产）
+1. **改选股模型**：研究枢纽跑分组 / 拟合 ŷ → 对照 → 启用 live（因子系数 β，不写手工 weights）
 2. **回测**：回溯页设 `lookback` / `top_k` →「Top-K 回测」看净值与质量文案
 3. **扫描表**：「跑网格」→ 热力/表 →「应用最优到回测表单」→ 再回测确认
-4. **因子建议（可选）**：策略页「分析 IC / 权重」→「生成反馈建议」→ 补丁进编辑器
-5. **人审晋升**：确认 diff 后「人审晋升到生产」→ 复跑回测 / 纸面日更验证
+4. **因子建议（可选）**：研究枢纽 IC / OLS 只读诊断（不自动写盘）
+5. **人审落地**：策略卡晋升限额；研究枢纽启用分组 β → 纸面日更 / 复跑回测验证
 
-CLI 等价：`portfolio_backtest_run.py` · `backtest_scan.py` · `signal_diff_export_run.py`（晋升仍走 Web 或手工合并 `signal_config.json`）。
+CLI 等价：`portfolio_backtest_run.py` · `backtest_scan.py` · `factor_ols_*`（禁止脚本静默覆盖 `signal_config.json`）。
 
 ## 验证包（V4）
 
@@ -37,6 +37,8 @@ CLI 等价：`portfolio_backtest_run.py` · `backtest_scan.py` · `signal_diff_e
 | `watching_run.py` | watching 初始化与 refresh |
 | `cross_section_run.py` | 横截面 Top N |
 | `portfolio_backtest_run.py` | 组合回测 |
+| `weight_coord_compare_run.py` | 权重三臂对照（global / OLS·IC / 坐标网格；不写盘） |
+| `rank_mode_compare_run.py` | 排序键对照（已退役；仅返回提示） |
 | `paper_rebalance_run.py` | 纸面调仓（显式 opt-in） |
 | `t0_backtest_run.py` | 底仓做 T 日线代理回测（非实盘） |
 | `quant_export_run.py` | 报告 MD/HTML 导出 |
@@ -48,7 +50,7 @@ CLI 等价：`portfolio_backtest_run.py` · `backtest_scan.py` · `signal_diff_e
 
 - 业务逻辑在 `core/` 与 `quant/`；此处为薄 CLI wrapper
 - 统一 `import quant.*` / `core.*`
-- **禁止**脚本静默覆盖 `signal_config.json`；草稿见 `core/signal_config_draft.py`
+- **禁止**脚本静默覆盖 `signal_config.json`；选股权经研究枢纽 live 产物
 
 ## 相关文档
 

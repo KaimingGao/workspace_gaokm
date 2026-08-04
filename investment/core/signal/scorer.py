@@ -144,7 +144,9 @@ def score_bars(
     sentiment: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """
-    对单票日线打分。v2版本集成因子交互和非线性打分。
+    对单票日线打分。产出 sub_scores（ŷ 输入）；不产出规则综合分。
+
+    返回 dict 含 sub_scores / score_meta；选股主轴为 ReturnScoreModel → ŷ。
     """
     cfg = config or load_signal_config()
     weights = cfg.get("weights") or {}
@@ -370,16 +372,20 @@ def rank_candidates(
     """过滤硬拒绝与低分，按分数排序截断。"""
     cfg = config or load_signal_config()
     defaults = get_rank_defaults(cfg)
+    from core.signal.score_display import resolve_buy_floor
+
+    # 显式传入非默认值时尊重调用方；默认 55 在收益分下改为无下限
     if min_score == 55.0:
-        min_score = defaults["min_score"]
+        min_score = resolve_buy_floor(heuristic_default=float(defaults["min_score"]))
     if limit == 8:
         limit = int(defaults["default_limit"])
 
     limit = max(1, min(int(limit or 8), 15))
+    floor = float(min_score)
     kept = [
         s
         for s in scored
-        if not s.get("hard_reject") and (s.get("score") or 0) >= min_score
+        if not s.get("hard_reject") and (s.get("score") or 0) >= floor
     ]
     kept.sort(key=lambda x: x.get("score") or 0, reverse=True)
     return kept[:limit]

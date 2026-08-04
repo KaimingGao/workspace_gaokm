@@ -78,6 +78,9 @@ def _blank(code: str, *, added_at: Optional[str] = None, error: Optional[str] = 
         "below_min_score": False,
         "score_formula": None,
         "score_reasons": None,
+        "return_model_source": None,
+        "factor_coefficients": None,
+        "score_formula_terms": None,
         "added_at": added_at,
         "days_watched": _days_since(added_at),
         "peer_rank": None,
@@ -118,14 +121,14 @@ def _insight_one(
     valuation: Optional[Dict[str, Optional[float]]] = None,
     paper_ctx: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """单票轻量摘要：与交易执行同源 ``score_stock``（含分组权）；不二次打指数/基本面/同业。"""
+    """单票轻量摘要：与交易执行同源 ``score_stock``（含分组因子系数）；不二次打指数/基本面/同业。"""
     out = _blank(code, added_at=added_at)
     try:
         from core.signal.score_stock import score_stock
         from core.stance import compute_buy_stance
         from core.ports.market import query_quote
 
-        # cluster_mode=None → 读 signal_config.cluster_scoring（active 时用组权，同持仓表）
+        # cluster_mode=None → 读 signal_config.cluster_scoring（active 时用组 β，同持仓表）
         scored = score_stock(code, horizon_days=3, skip_fundamentals=True)
         quote = (scored or {}).get("quote") or {}
         if not quote:
@@ -141,6 +144,9 @@ def _insight_one(
         out["score_global"] = _f(item.get("score_global"))
         out["score_cluster"] = _f(item.get("score_cluster"))
         out["delta_vs_global"] = _f(item.get("delta_vs_global"))
+        out["return_model_source"] = item.get("return_model_source")
+        out["factor_coefficients"] = item.get("factor_coefficients")
+        out["score_formula_terms"] = item.get("score_formula_terms")
         # 选股门槛仅标注，不抹掉分数
         try:
             from core.signal.score_display import annotate_score_gate
@@ -153,30 +159,19 @@ def _insight_one(
             out["below_min_score"] = False
         reasons = item.get("reasons") or []
         out["score_reasons"] = list(reasons) if isinstance(reasons, list) else []
-        # 公式权向量：active 组权时用映射权
-        weights = None
-        src = str(item.get("weight_source") or "")
-        if src.startswith("cluster:"):
+        out["score_formula"] = item.get("score_formula") or None
+        if not out["score_formula"]:
             try:
-                from core.signal.cluster_live import lookup_code_weights
+                from services.paper_helpers import _build_score_formula
 
-                mapped = lookup_code_weights(code) or {}
-                if isinstance(mapped.get("weights"), dict):
-                    weights = mapped["weights"]
+                out["score_formula"] = _build_score_formula(
+                    {
+                        "sub_scores": item.get("sub_scores"),
+                        "return_model": item.get("return_model"),
+                    }
+                ) or None
             except Exception:
-                weights = None
-        try:
-            from services.paper_helpers import _build_score_formula
-
-            out["score_formula"] = _build_score_formula(
-                {
-                    "sub_scores": item.get("sub_scores"),
-                    "factor_contrib": item.get("factor_contrib"),
-                    "weights": weights,
-                }
-            ) or None
-        except Exception:
-            out["score_formula"] = None
+                out["score_formula"] = None
         out["volume"] = quote.get("volume")
         factors = item.get("factors") or {}
         out["volume_ratio"] = _f(factors.get("volume_ratio") or factors.get("turnover_ratio"))
