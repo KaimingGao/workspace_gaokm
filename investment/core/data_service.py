@@ -82,12 +82,14 @@ def get_bars(
     as_of: Optional[str] = None,
     incremental: bool = True,
     adjust: Optional[str] = None,
+    offline_ok: bool = False,
 ) -> Dict[str, Any]:
     """返回 {bars, data_source, quality, adjust, adjust_policy, fallback, production_ok, pit}。
 
     as_of：若给日期，只返回 date <= as_of 的 bars（PIT 切条）。
     incremental：允许缓存增量合并（观察池轻本地史）。
     adjust：qfq|raw|hfq（D2）。
+    offline_ok：本地有足够 bars 时不打远端（研究分组）。
     """
     from core.data_pit import bars_as_of
     from core.ports.market import fetch_daily_bars
@@ -101,6 +103,7 @@ def get_bars(
         cache_max_age_hours=cache_max_age_hours,
         incremental=incremental,
         adjust=policy,
+        offline_ok=offline_ok,
     )
     bars: List[dict]
     data_source: str
@@ -175,9 +178,13 @@ def get_fundamentals(
     use_cache: bool = True,
     cache_max_age_hours: float = FUNDAMENTALS_CACHE_HOURS,
     as_of: Optional[str] = None,
+    live: bool = True,
     **kwargs: Any,
 ) -> Dict[str, Any]:
-    """基本面：默认快照；传 as_of 时走 history 面板 PIT 选取（R1）。"""
+    """基本面：默认快照；传 as_of 时走 history 面板 PIT 选取（R1）。
+
+    ``live=False``：缓存未命中也不打远端（日报批量用）。
+    """
     from core.ports.market import build_fundamentals
     from core.store import load_snapshot_cache, save_snapshot_cache
 
@@ -238,8 +245,22 @@ def get_fundamentals(
                 "note": "基本面快照缓存；非公告日 PIT。传 as_of= 可走 history。",
             }
 
+    if not live:
+        return {
+            "success": False,
+            "stock_code": raw,
+            "error": "cache_miss_no_live",
+            "data_source": "empty",
+            "fetched_at": datetime.now().isoformat(timespec="seconds"),
+            "cache_hit": False,
+            "non_pit": True,
+            "fundamentals_pit": False,
+            "quality": {"level": "empty"},
+            "note": "live=False 且无可用快照缓存",
+        }
+
     try:
-        live = build_fundamentals(raw, **kwargs)
+        payload_live = build_fundamentals(raw, **kwargs)
     except Exception as e:
         return {
             "success": False,
@@ -253,31 +274,31 @@ def get_fundamentals(
             "quality": {"level": "empty"},
         }
 
-    if not isinstance(live, dict):
-        live = {"success": False, "raw": live}
+    if not isinstance(payload_live, dict):
+        payload_live = {"success": False, "raw": payload_live}
     src = "akshare_fundamentals"
-    if live.get("sources"):
-        src = ",".join(str(s) for s in (live.get("sources") or [])[:3]) or src
+    if payload_live.get("sources"):
+        src = ",".join(str(s) for s in (payload_live.get("sources") or [])[:3]) or src
     fetched_at = datetime.now().isoformat(timespec="seconds")
-    if use_cache and live.get("success"):
+    if use_cache and payload_live.get("success"):
         try:
             save_snapshot_cache(
                 "fundamentals",
                 raw,
-                live,
+                payload_live,
                 data_source=src,
             )
         except OSError:
             pass
     return {
-        **live,
+        **payload_live,
         "stock_code": raw,
         "data_source": src,
         "fetched_at": fetched_at,
         "cache_hit": cache_hit,
         "non_pit": True,
         "fundamentals_pit": False,
-        "quality": {"level": "snapshot" if live.get("success") else "empty"},
+        "quality": {"level": "snapshot" if payload_live.get("success") else "empty"},
         "note": "基本面为当前快照；非 PIT。传 as_of= 可走 history。",
     }
 

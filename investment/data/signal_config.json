@@ -64,7 +64,8 @@
   "scoring": {
     "rank_mode": "predicted_score",
     "min_predicted_score": 1.0,
-    "min_hold_predicted_score": -1.0
+    "min_hold_predicted_score": -1.0,
+    "horizon_days": 3
   },
   "stance_thresholds": {
     "avoid": -0.5,
@@ -98,6 +99,20 @@
     "pit_mode": "as_of",
     "missing_as_of_policy": "zero_weight"
   },
+  "sentiment": {
+    "include_in_score": false,
+    "role": "prior",
+    "prior": {
+      "mode": "gate",
+      "bearish_score_min": 0.6,
+      "block_new_buys": false,
+      "scale_buy_pct": 0.6,
+      "scale_holds": true,
+      "warn_only": true
+    },
+    "append_history": true,
+    "history_max_lines_per_code": 500
+  },
   "cross_section": {
     "neutralize": true,
     "method": "zscore",
@@ -112,9 +127,12 @@
     "enabled": true,
     "top_n_per_group": 10,
     "max_names": 40,
+    "max_age_days": 14,
+    "refit_max_age_days": 14,
+    "auto_demote_on_stale": true,
     "max_oos_fail_rate": 0.5,
     "min_yhat_rolling_ic": 0.0,
-    "block_active_on_yhat_ic": false,
+    "block_active_on_yhat_ic": true,
     "min_sector_map_coverage": 0.5
   }
 }

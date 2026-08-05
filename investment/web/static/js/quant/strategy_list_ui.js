@@ -92,9 +92,15 @@ export function buildStrategyRiskFootnoteHtml(data, opts = {}) {
     buyF != null || holdF != null
       ? ` live ŷ 滞回：买入/入簿 ≥ ${fmtFloor(buyF)} · 卖出 &lt; ${fmtFloor(holdF)}（signal_config.scoring）。`
       : "";
+  const prior = (data && data.sentiment_prior) || {};
+  const priorMode = prior.mode ? String(prior.mode) : "";
+  const priorLine = priorMode
+    ? ` 舆情先验 prior.mode=${esc(priorMode)}（不影响 ŷ）。`
+    : "";
   const html =
     `<p class="strategy-footnote">限额 · 成本 · 做T 见上表；改参须人审 promote。` +
     floorLine +
+    priorLine +
     ` 选股 β → <a href="/quant">研究枢纽</a> · 验证 → <a href="/replay">回测</a> · 调仓 → <a href="/follow">交易执行</a>。</p>`;
   return { html, buyF, holdF };
 }

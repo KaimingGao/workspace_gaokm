@@ -28,9 +28,159 @@ export function installStrategy(q) {
     try {
       await ensureFactorMeta();
       renderFactorDict();
+      await loadSentimentPriorForm();
       return null;
     } catch (_) {
       return null;
+    }
+  }
+
+  function priorModeLabel(mode) {
+    if (mode === "risk") return "仅警告";
+    if (mode === "gate") return "约束开仓";
+    return "关闭";
+  }
+
+  function formatPriorStatus(prior, { saved = false } = {}) {
+    const p = prior || {};
+    const mode = String(p.mode || "off");
+    const bits = [
+      saved ? "已保存" : "当前",
+      `${priorModeLabel(mode)}（${mode}）`,
+      "ŷ 不变",
+    ];
+    const t = Number(p.bearish_score_min);
+    if (Number.isFinite(t)) bits.push(`阈值 ${t}`);
+    if (mode === "gate") {
+      if (p.block_new_buys) bits.push("禁止新开仓");
+      else {
+        const s = Number(p.scale_buy_pct);
+        bits.push(
+          `缩仓 ${Number.isFinite(s) ? Math.round(s * 100) : 50}%`
+        );
+      }
+      if (p.scale_holds) bits.push("已持仓同步");
+    }
+    return bits.join(" · ");
+  }
+
+  function fillSentimentPriorForm(prior) {
+    const p = prior || {};
+    const mode = String(p.mode || "off").toLowerCase();
+    document.querySelectorAll('input[name="strategy-prior-mode"]').forEach((el) => {
+      el.checked = el.value === mode;
+    });
+    const blockEl = document.getElementById("strategy-prior-block-buys");
+    if (blockEl) blockEl.checked = !!p.block_new_buys;
+    const holdsEl = document.getElementById("strategy-prior-scale-holds");
+    if (holdsEl) holdsEl.checked = !!p.scale_holds;
+    const scaleEl = document.getElementById("strategy-prior-scale");
+    if (scaleEl) {
+      const s = Number(p.scale_buy_pct);
+      scaleEl.value = Number.isFinite(s) ? String(Math.round(s * 100)) : "50";
+    }
+    const thrEl = document.getElementById("strategy-prior-thr");
+    if (thrEl) {
+      const t = Number(p.bearish_score_min);
+      thrEl.value = Number.isFinite(t) ? String(t) : "0.6";
+    }
+    syncPriorGateOptsVisibility();
+  }
+
+  function syncPriorGateOptsVisibility() {
+    const opts = document.getElementById("strategy-prior-gate-opts");
+    if (!opts) return;
+    const checked = document.querySelector(
+      'input[name="strategy-prior-mode"]:checked'
+    );
+    const mode = checked ? checked.value : "off";
+    opts.hidden = mode !== "gate";
+  }
+
+  async function loadSentimentPriorForm() {
+    const st = document.getElementById("strategy-prior-status");
+    try {
+      const res = await fetch("/api/signal/config/sentiment-prior");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || res.statusText);
+      const prior = data.sentiment_prior || {};
+      fillSentimentPriorForm(prior);
+      if (st && !(st.textContent || "").includes("已保存")) {
+        st.textContent = formatPriorStatus(prior);
+      }
+    } catch (err) {
+      if (st) st.textContent = String(err.message || err);
+    }
+  }
+
+  async function saveStrategySentimentPrior() {
+    const st = document.getElementById("strategy-prior-status");
+    const checked = document.querySelector(
+      'input[name="strategy-prior-mode"]:checked'
+    );
+    const mode = checked ? checked.value : "off";
+    const blockEl = document.getElementById("strategy-prior-block-buys");
+    const holdsEl = document.getElementById("strategy-prior-scale-holds");
+    const scaleEl = document.getElementById("strategy-prior-scale");
+    const thrEl = document.getElementById("strategy-prior-thr");
+    let scalePct = scaleEl && scaleEl.value !== "" ? Number(scaleEl.value) : 50;
+    if (!Number.isFinite(scalePct)) scalePct = 50;
+    const scale = Math.max(0, Math.min(scalePct, 100)) / 100;
+    let thr = thrEl && thrEl.value !== "" ? Number(thrEl.value) : 0.6;
+    if (!Number.isFinite(thr)) thr = 0.6;
+    const modeLabel = priorModeLabel(mode);
+    if (
+      !window.confirm(
+        [
+          "保存舆情先验配置？",
+          "",
+          `· 模式：${modeLabel}（prior.mode=${mode}）`,
+          mode === "gate"
+            ? blockEl && blockEl.checked
+              ? "· Gate：禁止新开仓"
+              : `· Gate：新开仓缩至 ${Math.round(scale * 100)}%`
+            : "",
+          mode === "gate" && holdsEl && holdsEl.checked
+            ? `· 已持仓同步缩至 ${Math.round(scale * 100)}%`
+            : "",
+          `· 看空阈值 S ≥ ${thr}`,
+          "",
+          "契约：不改 predicted_score（ŷ）；不改 weights。",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      )
+    ) {
+      return;
+    }
+    if (st) st.textContent = "正在保存…";
+    try {
+      const body = {
+        mode,
+        bearish_score_min: thr,
+        note: "策略中心人审·舆情先验",
+      };
+      if (mode === "gate") {
+        body.block_new_buys = !!(blockEl && blockEl.checked);
+        body.scale_buy_pct = scale;
+        body.scale_holds = !!(holdsEl && holdsEl.checked);
+      }
+      const res = await fetch("/api/signal/config/sentiment-prior", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || data.success === false) {
+        if (st) st.textContent = data.detail || data.error || "保存失败";
+        return;
+      }
+      const prior = data.sentiment_prior || {};
+      fillSentimentPriorForm(prior);
+      if (st) st.textContent = formatPriorStatus(prior, { saved: true });
+      loadStrategyList().catch(() => {});
+    } catch (err) {
+      if (st) st.textContent = String(err.message || err);
     }
   }
 
@@ -270,6 +420,19 @@ export function installStrategy(q) {
     if (riskBox) {
       riskBox.innerHTML = buildStrategyRiskFootnoteHtml(data, { escapeHtml }).html;
     }
+    if (data.sentiment_prior) {
+      fillSentimentPriorForm(data.sentiment_prior);
+    }
+    // 顺带填 ŷ 门槛输入
+    const floors = data.scoring_floors || {};
+    const buyIn = document.getElementById("strategy-floor-buy");
+    const holdIn = document.getElementById("strategy-floor-hold");
+    if (buyIn && floors.min_predicted_score != null && buyIn.value === "") {
+      buyIn.value = String(floors.min_predicted_score);
+    }
+    if (holdIn && floors.min_hold_predicted_score != null && holdIn.value === "") {
+      holdIn.value = String(floors.min_hold_predicted_score);
+    }
     renderPromoteHintsPanel(loadCachedPromoteHints(), "strategy-promote-hints");
   }
 
@@ -432,6 +595,9 @@ export function installStrategy(q) {
     renderStrategyList,
     runStrategyWeightSuggest,
     saveStrategyScoringFloors,
+    saveStrategySentimentPrior,
+    loadSentimentPriorForm,
+    syncPriorGateOptsVisibility,
     setStrategyFactorExportEnabled,
     strategyIcCode,
   };

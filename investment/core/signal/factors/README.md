@@ -23,7 +23,7 @@
 | `earnings_yield.py` | 盈利收益率 | EP=1/PE_TTM |
 | `growth.py` | 成长 | 盈利/营收增速 |
 | `dividend.py` | 股息 | dividend_yield |
-| `money_flow.py` | 资金流 | 真净流入口 / OHLCV MFI **proxy**（默认权重 0，须人审启用） |
+| `money_flow.py` | 资金流 | 真净流入口 / OHLCV MFI **proxy**（默认权重 0；X3 `factor_health` 非 0 拦截 promote） |
 | `amihud.py` | 非流动性 | \|ret\|/amount 冲击代理 |
 | `idio_momentum.py` | 特异动量 | 对指数回归残差 |
 

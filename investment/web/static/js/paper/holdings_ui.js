@@ -19,6 +19,13 @@ const ORIGIN_HINT = {
   mixed: "手动建仓后被策略加过仓",
 };
 
+function sentPlaceholderHtml(code) {
+  const c = String(code || "").trim();
+  return (
+    `<span class="watching-sent-badge is-neutral" data-code="${escapeText(c)}" title="加载中">…</span>`
+  );
+}
+
 export function buildPaperOriginBarHtml(summary) {
   const originSummary = (summary && summary.origin_summary) || [];
   if (!originSummary.length) return "";
@@ -99,8 +106,10 @@ export function buildPaperHoldingsTableHtml({
   holdingsSortKey,
   holdingsSortDir,
   idPrefix = "paper-holdings",
+  sentHtmlByCode = null,
 }) {
   const fmtScoreLocal = fmtScore;
+  const sentMap = sentHtmlByCode || {};
 
   function sortThHtml(label, key) {
     const active = holdingsSortKey === key;
@@ -165,6 +174,9 @@ export function buildPaperHoldingsTableHtml({
         `<span class="paper-wl-name-text">${escapeText(name)}</span>` +
         `<span class="paper-wl-code">${escapeText(code)}</span>` +
         `</td>` +
+        `<td class="watching-col-center paper-hold-sent">${
+          sentMap[code] || sentPlaceholderHtml(code)
+        }</td>` +
         `<td class="num">${escapeText(h.shares ?? "—")}</td>` +
         `<td class="num paper-hold-price">${fmtPriceUnit(
           h.price,
@@ -222,7 +234,7 @@ export function buildPaperHoldingsTableHtml({
   const tableHtml =
     `<div class="paper-holdings-scroll">` +
     `<table class="quant-weight-table paper-holdings-table"><thead><tr>` +
-    `<th>股票</th><th>股数</th><th>现价</th><th title="持仓加权平均成本，对账用">成本</th>` +
+    `<th>股票</th><th class="watching-col-center">情绪</th><th>股数</th><th>现价</th><th title="持仓加权平均成本，对账用">成本</th>` +
     `${sortThHtml("市值", "market_value")}${sortThHtml("评分", "score")}` +
     `${sortThHtml("浮盈亏", "pnl")}` +
     `<th>开始</th><th class="paper-hold-origin">出处</th>` +

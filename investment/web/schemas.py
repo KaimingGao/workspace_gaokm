@@ -257,7 +257,19 @@ class FactorOlsClusterRequest(BaseModel):
         default=0.0,
         ge=0.0,
         le=100.0,
-        description="Ridge λ；0=普通 OLS（QR），>0 收缩斜率系数",
+        description="Ridge λ 种子；select_ridge=true 时作网格起点/回退",
+    )
+    select_ridge: bool = Field(
+        default=True,
+        description="B3：时间切分网格选 Ridge λ（写入 ridge_lambda_selected）",
+    )
+    collinearity_policy: str = Field(
+        default="drop_redundant",
+        description="B3：趋势族共线进模 keep_all|drop_redundant|orthogonalize_lite",
+    )
+    respect_regime: bool = Field(
+        default=True,
+        description="B5：与 live regime 白名单对齐裁剪因子。枢纽 UI 默认不勾（发 false=全因子）；勾选后表内未进白名单的因子会显示未算",
     )
     pit_fundamentals: bool = Field(
         default=True,
@@ -293,6 +305,10 @@ class FactorOlsClusterRequest(BaseModel):
         ge=1,
         le=10,
         description="每组取组内排名前 N 只合成候选（默认 10）",
+    )
+    refresh_bars: bool = Field(
+        default=True,
+        description="刷新过期日线（默认开）：约 36h 内缓存仍复用；过期/缺条限流拉网。关=纯缓存重算（改参快跑，行情未变则结果几乎不变）",
     )
 
 
@@ -351,6 +367,17 @@ class ScoringFloorsRequest(BaseModel):
     min_hold_predicted_score: Optional[float] = Field(
         default=None, description="卖出 ŷ% 上限（低于则卖）；省略则不改"
     )
+    note: str = Field(default="", max_length=500)
+
+
+class SentimentPriorRequest(BaseModel):
+    """舆情先验旁路（不进 ŷ）；人审写 sentiment.prior。"""
+
+    mode: Optional[str] = Field(default=None, description="off | risk | gate")
+    bearish_score_min: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    block_new_buys: Optional[bool] = None
+    scale_buy_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    scale_holds: Optional[bool] = None
     note: str = Field(default="", max_length=500)
 
 

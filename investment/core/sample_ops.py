@@ -47,6 +47,8 @@ def fundamentals_history_coverage(
     empty = 0
     synthetic_multi = 0
     real_multi = 0
+    ann_missing_points = 0
+    ann_missing_codes = 0
     empty_codes: List[str] = []
     for code in code_list:
         panel = load_fundamentals_panel(code, store_dir=store_dir)
@@ -59,6 +61,12 @@ def fundamentals_history_coverage(
             or str((h or {}).get("data_source") or "").startswith("synthetic_demo")
         )
         real_n = max(0, hc - demo_n)
+        code_ann_missing = sum(
+            1 for h in hist if isinstance(h, dict) and h.get("ann_missing")
+        )
+        if code_ann_missing:
+            ann_missing_codes += 1
+            ann_missing_points += code_ann_missing
         if panel.get("empty") or hc <= 0:
             empty += 1
             status = "empty"
@@ -81,6 +89,7 @@ def fundamentals_history_coverage(
                 "history_count": hc,
                 "real_points": real_n,
                 "synthetic_demo_points": demo_n,
+                "ann_missing_points": code_ann_missing,
                 "latest_as_of": panel.get("latest_as_of"),
                 "path": panel.get("path"),
             }
@@ -98,6 +107,15 @@ def fundamentals_history_coverage(
         "empty_codes": empty_codes[:80],
         "coverage": round(with_hist / total, 4) if total else None,
         "real_multi_coverage": round(real_multi / total, 4) if total else None,
+        "ann_missing_codes": ann_missing_codes,
+        "ann_missing_points": ann_missing_points,
+        "ann_missing_code_ratio": round(ann_missing_codes / total, 4)
+        if total
+        else None,
+        "ingest_hint": (
+            "平台点「预热财务多期」或 CLI: sample_ops_run.py ingest-history；"
+            "勿仅 seed-ladder。ann_missing 高时补公告日。"
+        ),
         "note": "real_multi_point 不含仅靠 synthetic_demo ladder 的多点。",
         "rows": rows,
     }
@@ -665,6 +683,15 @@ def sample_status(
         discipline["warnings"].append(
             f"财务 history 有 {fund.get('synthetic_multi_point')} 只主要靠 synthetic_demo 多点"
         )
+    try:
+        ann_ratio = fund.get("ann_missing_code_ratio")
+        if ann_ratio is not None and float(ann_ratio) > 0.3:
+            discipline["warnings"].append(
+                f"ann_missing 码占比={ann_ratio}（{fund.get('ann_missing_codes')} 只）· "
+                + str(fund.get("ingest_hint") or "请补公告日 / ingest-history")
+            )
+    except (TypeError, ValueError):
+        pass
     if orphan_excluded:
         discipline["warnings"].append(
             f"store 残留已排除码 {len(orphan_excluded)} 只（旧港股/脏键），不计入覆盖；"
@@ -708,6 +735,13 @@ def sample_status(
             "empty_codes": fund.get("empty_codes") or [],
             "coverage": fund.get("coverage"),
             "real_multi_coverage": fund.get("real_multi_coverage"),
+            "ann_missing_codes": fund.get("ann_missing_codes"),
+            "ann_missing_points": fund.get("ann_missing_points"),
+            "ann_missing_code_ratio": fund.get("ann_missing_code_ratio"),
+            "ann_missing_top": __import__(
+                "core.research.beta_accuracy", fromlist=["ann_missing_top_codes"]
+            ).ann_missing_top_codes(fund, limit=20),
+            "ingest_hint": fund.get("ingest_hint"),
             "universe_source": resolved.get("source"),
             "universe_count": len(uni_codes),
             "store_orphan_codes": orphans[:40],

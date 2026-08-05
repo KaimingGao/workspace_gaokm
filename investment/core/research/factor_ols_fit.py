@@ -329,13 +329,25 @@ def fit_factor_ols_from_panel(
     stock_codes: Optional[List[str]] = None,
     standardize: bool = True,
     ridge_lambda: float = 0.0,
+    select_ridge: bool = False,
+    collinearity_policy: str = "drop_redundant",
+    respect_regime: bool = False,
+    y_spec: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """对已对齐的 (sub_scores, forward return) 面板拟合 OLS / Ridge。
 
     默认对入模列做样本内 z-score，使 β 为「因子高 1σ → 前瞻收益变多少百分点」；
     负号表示偏相关为负，勿直接与 config.weights 比大小。
     ``ridge_lambda>0`` 时收缩斜率系数（截距不惩罚），共线时尽量保留因子。
+    B3：``select_ridge=True`` 时网格选 λ；``collinearity_policy`` 控趋势族冗余。
     """
+    from core.research.beta_accuracy import (
+        apply_collinearity_policy,
+        build_y_spec,
+        sample_fingerprint,
+        select_ridge_lambda,
+    )
+
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
     factor_names = registered_factor_names()
     cfg = load_signal_config()
@@ -343,16 +355,51 @@ def fit_factor_ols_from_panel(
     xs_c, ys_c, active, excluded, prep_meta = _prepare_complete_panel(
         xs, ys, factor_names
     )
+    collinearity_meta: Dict[str, Any] = {}
+    ridge_select_meta: Dict[str, Any] = {}
     z_means: Dict[str, float] = {}
     z_stds: Dict[str, float] = {}
     fit = None
     if xs_c is not None and ys_c is not None and active:
-        xs_fit = xs_c
-        if standardize:
-            xs_fit, z_means, z_stds = _zscore_complete_panel(xs_c, active)
-        fit = _ols_with_intercept(
-            xs_fit, ys_c, active, excluded, ridge_lambda=lam
+        kept, dropped_red, collinearity_meta = apply_collinearity_policy(
+            xs_c,
+            list(active),
+            policy=collinearity_policy,
+            ys=ys_c,
         )
+        if dropped_red:
+            excluded = list(excluded) + list(dropped_red)
+            active = kept
+            prep_meta = dict(prep_meta)
+            prep_meta["dropped_collinear_policy"] = list(dropped_red)
+        xs_fit = xs_c
+        if standardize and active:
+            xs_fit, z_means, z_stds = _zscore_complete_panel(xs_c, active)
+        if select_ridge and active:
+            ridge_select_meta = select_ridge_lambda(xs_fit, ys_c, list(active))
+            lam = float(ridge_select_meta.get("ridge_lambda_selected") or 0.0)
+        if active:
+            fit = _ols_with_intercept(
+                xs_fit, ys_c, active, excluded, ridge_lambda=lam
+            )
+
+    y_spec_out = y_spec or build_y_spec(horizon_days=horizon_days)
+    n_names = len(stock_codes) if stock_codes is not None else (1 if mode == "single" else 0)
+    n_names_i = int(n_names or 1)
+    # 单票/双票组是设计内的：不能用「全市场截面 min_names=3」否掉 promote
+    # 门槛 = min(3, 实际组员数)，只要求「组员齐」+ 足够 n_obs
+    min_names_gate = max(1, min(3, n_names_i))
+    fp = sample_fingerprint(
+        n_obs=int((fit or {}).get("sample_count") or prep_meta.get("raw_sample_count") or 0),
+        n_names=n_names_i,
+        dropped={
+            "sparse": prep_meta.get("dropped_sparse") or [],
+            "constant": prep_meta.get("dropped_constant") or [],
+            "coverage": prep_meta.get("dropped_for_coverage") or [],
+            "collinear_policy": prep_meta.get("dropped_collinear_policy") or [],
+        },
+        min_names=min_names_gate,
+    )
 
     task = "factor_ols_pool" if mode == "watching_pooled" else "factor_ols"
     if not fit:
@@ -366,13 +413,21 @@ def fit_factor_ols_from_panel(
                 "缺测因子已尽量剔除仍不够，可加大 lookback / 研究池 / ridge λ）"
             ),
             "sample_count": raw_n,
+            "n_obs": raw_n,
             "feature_count": len(factor_names),
             "horizon_days": horizon_days,
+            "y_spec": y_spec_out,
+            "sample_fingerprint": fp,
             "excluded_features": excl,
             "exclusion_reasons": _exclusion_reasons_map(prep_meta, excluded=excl),
             "prep_meta": prep_meta,
+            "collinearity_meta": collinearity_meta,
+            "ridge_select": ridge_select_meta,
             "standardized": bool(standardize),
             "ridge_lambda": lam,
+            "ridge_lambda_selected": lam,
+            "collinearity_policy": collinearity_policy,
+            "respect_regime": bool(respect_regime),
             "solver": "ridge" if lam > 0 else "qr",
             "current_weights": {k: round(float(v), 4) for k, v in current_weights.items()},
             "task": task,
@@ -385,9 +440,17 @@ def fit_factor_ols_from_panel(
 
     note_parts = [
         "面板 OLS 仅供研究对比，不自动写 signal_config。",
-        "研究路径全量注册因子（不经 regime 择时白名单）。",
+        (
+            "研究路径已 respect_regime（与 live 启用因子对齐）。"
+            if respect_regime
+            else "研究路径全量注册因子（不经 regime 择时白名单）。"
+        ),
         "缺测/常数/覆盖不足因子已自动剔除后再拟合。",
     ]
+    if collinearity_meta.get("dropped"):
+        note_parts.append(
+            f"共线策略 {collinearity_policy}：剔除 {collinearity_meta.get('dropped')}"
+        )
     if lam > 0:
         note_parts.append(
             f"Ridge λ={lam:g}：斜率 L2 收缩、截距不惩罚；缓解共线，β 仍非生产权重。"
@@ -416,7 +479,8 @@ def fit_factor_ols_from_panel(
 
     excl_reasons = _exclusion_reasons_map(
         prep_meta,
-        dropped_collinear=fit.get("dropped_collinear") or [],
+        dropped_collinear=list(fit.get("dropped_collinear") or [])
+        + list(collinearity_meta.get("dropped") or []),
         excluded=fit.get("excluded_features") or [],
     )
     out: Dict[str, Any] = {
@@ -424,7 +488,10 @@ def fit_factor_ols_from_panel(
         "task": task,
         "mode": mode,
         "horizon_days": horizon_days,
+        "y_spec": y_spec_out,
         "sample_count": fit["sample_count"],
+        "n_obs": fit["sample_count"],
+        "sample_fingerprint": fp,
         "feature_count": fit["feature_count"],
         "r_squared": fit["r_squared"],
         "intercept": fit["intercept"],
@@ -441,10 +508,17 @@ def fit_factor_ols_from_panel(
         "rank_deficient": fit.get("rank_deficient"),
         "solver": fit.get("solver") or ("ridge" if lam > 0 else "qr"),
         "ridge_lambda": lam,
+        "ridge_lambda_selected": lam,
+        "collinearity_policy": collinearity_policy,
+        "collinearity_meta": collinearity_meta,
+        "ridge_select": ridge_select_meta or None,
+        "respect_regime": bool(respect_regime),
         "prep_meta": prep_meta,
         "note": " ".join(note_parts),
+        "track": "B1-B3",
     }
     if stock_codes is not None:
         out["stock_codes"] = list(stock_codes)
         out["stock_count"] = len(stock_codes)
+        out["n_names"] = len(stock_codes)
     return out

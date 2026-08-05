@@ -32,6 +32,7 @@ class ReturnScoreModel:
     solver: str = "qr"
     fitted_as_of: Optional[str] = None
     note: str = ""
+    y_spec: Optional[Dict[str, Any]] = None
 
     def predict(self, sub_scores: Optional[Dict[str, float]]) -> Optional[float]:
         subs = sub_scores or {}
@@ -166,6 +167,7 @@ class ReturnScoreModel:
             solver=str(data.get("solver") or "qr"),
             fitted_as_of=data.get("fitted_as_of"),
             note=str(data.get("note") or ""),
+            y_spec=data.get("y_spec") if isinstance(data.get("y_spec"), dict) else None,
         )
 
     @classmethod
@@ -212,6 +214,14 @@ class ReturnScoreModel:
         # factor_ols 报告字段为 zscore_*；兼容 z_*
         z_means = report.get("z_means") or report.get("zscore_means")
         z_stds = report.get("z_stds") or report.get("zscore_stds")
+        y_spec = report.get("y_spec")
+        if not isinstance(y_spec, dict):
+            try:
+                from core.research.beta_accuracy import build_y_spec
+
+                y_spec = build_y_spec(horizon_days=int(report.get("horizon_days") or 3))
+            except Exception:
+                y_spec = None
         return cls(
             intercept=intercept_f,
             coefficients=clean,
@@ -220,10 +230,15 @@ class ReturnScoreModel:
             standardized=bool(report.get("standardized", True)),
             horizon_days=int(report.get("horizon_days") or 3),
             sample_count=int(report.get("sample_count") or 0),
-            ridge_lambda=float(report.get("ridge_lambda") or 0.0),
+            ridge_lambda=float(
+                report.get("ridge_lambda_selected")
+                if report.get("ridge_lambda_selected") is not None
+                else (report.get("ridge_lambda") or 0.0)
+            ),
             solver=str(report.get("solver") or "qr"),
             fitted_as_of=fitted_as_of,
             note="由 OLS/Ridge 报告构建；预测值为前瞻收益百分点，非 0–100 score。",
+            y_spec=y_spec,
         )
 
 

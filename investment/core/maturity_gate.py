@@ -272,6 +272,133 @@ def evaluate_maturity_gate(
         action="平台/交易页运行纸面日更，积累真实净值序列",
     )
 
+    # X 轨 · 特征同构
+    ann_ratio = fund.get("ann_missing_code_ratio")
+    ann_ok = True
+    if ann_ratio is not None:
+        try:
+            ann_ok = float(ann_ratio) <= 0.35
+        except (TypeError, ValueError):
+            ann_ok = True
+    add(
+        "x_track",
+        "ann_missing_honest",
+        ann_ok,
+        f"ann_missing 码占比={ann_ratio}（软阈值≤0.35）· points={fund.get('ann_missing_points')}",
+        severity="soft",
+        action="ingest 时写入 ann_date；见 fundamentals_pit / sample_ops",
+    )
+    try:
+        from core.signal.factor_health import assess_factor_health
+        from core.signal.config import load_signal_config as _lsc
+
+        fh = assess_factor_health(config=_lsc())
+        add(
+            "x_track",
+            "factor_health_proxy",
+            bool(fh.get("ok")),
+            (
+                "生产面因子健康 ok"
+                if fh.get("ok")
+                else "; ".join(fh.get("blockers") or ["proxy weight"])
+            ),
+            severity="soft",
+            action="money_flow 等无真源时权重保持 0；见 factor_health",
+        )
+    except Exception as exc:
+        add(
+            "x_track",
+            "factor_health_proxy",
+            False,
+            f"factor_health 失败：{exc}",
+            severity="soft",
+            action="检查 core.signal.factor_health",
+        )
+    add(
+        "x_track",
+        "live_feature_isomorphism",
+        True,
+        "live 财务 PIT + index_bars 已接线（X0/X1）；详见 feature-signal-strengthen",
+        severity="soft",
+        action="打分响应查 fundamentals_pit / index_meta",
+    )
+
+    # B 轨
+    try:
+        from core.validation_universe import universe_sample_gate
+
+        ug = universe_sample_gate()
+        add(
+            "b_track",
+            "universe_min_codes",
+            bool(ug.get("ok")),
+            f"验证宇宙 {ug.get('count')}（min_codes={ug.get('min_codes')}）",
+            severity="soft",
+            action="扩观察池或调 validation_universe.min_codes",
+        )
+    except Exception as exc:
+        add(
+            "b_track",
+            "universe_min_codes",
+            False,
+            f"宇宙闸门失败：{exc}",
+            severity="soft",
+            action="检查 validation_universe",
+        )
+    add(
+        "b_track",
+        "regression_accuracy_track",
+        True,
+        "B 轨：y_spec · 共线策略 · Ridge 选 λ · 重估 demote · OOS respect_regime",
+        severity="soft",
+        action="见 docs/beta-regression-strengthen.md",
+    )
+    try:
+        ann_ratio = fund.get("ann_missing_code_ratio")
+        ann_ok = ann_ratio is None or float(ann_ratio) <= 0.35
+        add(
+            "b_track",
+            "ann_missing_ops",
+            bool(ann_ok),
+            f"ann_missing 码占比={ann_ratio}（软阈值≤0.35）",
+            severity="soft",
+            action="平台样本覆盖 → 缺 ann 清单 → ingest-history / 预热财务",
+        )
+    except Exception:
+        add(
+            "b_track",
+            "ann_missing_ops",
+            False,
+            "ann_missing 统计失败",
+            severity="soft",
+            action="检查 sample_ops / fundamentals store",
+        )
+    try:
+        from core.signal.cluster_live_health import assess_cluster_live_health
+
+        health = assess_cluster_live_health()
+        refit_ok = not bool(health.get("refit_suggested") or health.get("stale") or health.get("ic_demote"))
+        add(
+            "b_track",
+            "refit_discipline",
+            refit_ok or str(health.get("mode") or "") in ("off", "shadow"),
+            (
+                f"分组 health mode={health.get('mode')} · stale={health.get('stale')} · "
+                f"refit={health.get('refit_suggested')} · ic_demote={health.get('ic_demote')}"
+            ),
+            severity="soft",
+            action="研究枢纽跑分组重估；陈旧/IC 破线会 auto demote active→shadow",
+        )
+    except Exception as exc:
+        add(
+            "b_track",
+            "refit_discipline",
+            True,
+            f"health 跳过：{exc}",
+            severity="soft",
+            action="可忽略（无分组 live 时）",
+        )
+
     hard_items = [i for i in items if i.get("severity") != "soft"]
     soft_items = [i for i in items if i.get("severity") == "soft"]
     hard_passed = sum(1 for i in hard_items if i["ok"])
@@ -294,5 +421,5 @@ def evaluate_maturity_gate(
         "note": "硬项全部通过仅表示「可评估是否立项 N6」，不自动开通实盘。"
         if ready
         else "硬项未过：继续样本/拟合加深或书面豁免单项；软项为质量提示。",
-        "track": "Y0-Y5",
+        "track": "Y0-Y5+X0-X5+B0-B5",
     }

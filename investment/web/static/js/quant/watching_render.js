@@ -89,6 +89,12 @@ export function watchingScoreDetail(it) {
     factor_coefficients: (it && it.factor_coefficients) || {},
     formula_terms: (it && it.score_formula_terms) || null,
     predicted_score: it && it.predicted_score != null ? it.predicted_score : it && it.score,
+    sentiment_include_in_score: !!(it && it.sentiment_include_in_score),
+    sentiment_prior: (it && it.sentiment_prior) || null,
+    alt_sentiment_beta: it && it.alt_sentiment_beta,
+    alt_sentiment_in_yhat: !!(it && it.alt_sentiment_in_yhat),
+    risk_hints: (it && it.risk_hints) || [],
+    warnings: (it && it.warnings) || [],
   });
 }
 
@@ -128,8 +134,14 @@ export function sentimentBadgeHtml(sent, code) {
     s.score != null && !Number.isNaN(Number(s.score))
       ? ` · 风险 ${Number(s.score).toFixed(2)}`
       : "";
+  // 先验旁路：不进 score/ŷ；policy 见 sentiment.prior.mode
+  const gateNote =
+    s.role === "prior" || s.include_in_score !== true
+      ? "先验旁路 · 不参与 predicted_score"
+      : "遗留开闸进 ŷ（不推荐）";
   const title = [
     s.note || "规则关键词，非模型",
+    gateNote,
     hits.length ? `命中：${hits.join("、")}` : "无关键词命中",
     scorePart.trim(),
   ]

@@ -385,10 +385,31 @@ export function createOlsUi(deps) {
         (sug && sug.error) || "本组暂无因子系数"
       )}</p>`;
     const { tight, top } = clusterTightTopLines(cl);
-    const diag = [tight, top].filter(Boolean).join(" · ");
+    const coll = cl.trend_collinearity || {};
+    const pairs = Array.isArray(coll.high_corr_pairs) ? coll.high_corr_pairs : [];
+    const olsMeta = cl.ols || {};
+    const droppedPol = (olsMeta.sample_fingerprint || {}).dropped || {};
+    const droppedCols = droppedPol.collinear_policy || [];
+    const collLine = droppedCols.length
+      ? `共线进模剔除：${droppedCols.slice(0, 4).join("、")}（${
+          olsMeta.collinearity_policy || "drop_redundant"
+        }）`
+      : pairs.length
+        ? `趋势族高相关：${pairs
+            .slice(0, 3)
+            .map((p) => `${p.a}↔${p.b}(${p.corr})`)
+            .join(" · ")}`
+        : coll.note
+          ? String(coll.note)
+          : "";
+    const ridgeBit =
+      olsMeta.ridge_lambda != null && Number(olsMeta.ridge_lambda) > 0
+        ? `Ridge λ=${olsMeta.ridge_lambda}`
+        : "";
+    const diag = [tight, top, collLine, ridgeBit].filter(Boolean).join(" · ");
     const diagHtml = diag
       ? `<details class="quant-cluster-diag-fold">` +
-        `<summary>紧度 / |β|</summary>` +
+        `<summary>紧度 / |β| / 共线 / λ</summary>` +
         `<div class="quant-cluster-diag">${esc(diag)}</div>` +
         `</details>`
       : "";
@@ -746,6 +767,15 @@ export function createOlsUi(deps) {
       methodBits.push("组规模偏斜");
     }
     methodBits.push("不写 config");
+    if (data.respect_regime) methodBits.push("regime对齐");
+    if (data.collinearity_policy && data.collinearity_policy !== "keep_all") {
+      methodBits.push(`共线=${data.collinearity_policy}`);
+    }
+    if (data.select_ridge) methodBits.push("选λ");
+    if (data.speed_note) methodBits.push("大宇宙加速");
+    if (data.daily_pit === false && data.pit_fundamentals !== false) {
+      methodBits.push("财务快照");
+    }
     const flags = data.lookahead_flags || {};
     const fundMode = String(flags.fundamentals || "");
     const pitOn = data.pit_fundamentals !== false && flags.pit_fundamentals !== false;
@@ -768,6 +798,31 @@ export function createOlsUi(deps) {
         fundMode || "pit_as_of"
       )}${esc(pitCover)}</p>`;
     }
+    const ySpec = data.y_spec || {};
+    const fp = data.sample_fingerprint || {};
+    const yLine =
+      ySpec.horizon_days != null
+        ? `<p class="quant-cluster-method"><span class="quant-cluster-method-k">y</span>` +
+          `<span class="quant-cluster-method-v">${esc(
+            `horizon=${ySpec.horizon_days} · ${
+              ySpec.include_cost ? "含成本" : "不含成本"
+            } · ${ySpec.formula || "fwd ret"}`
+          )}</span></p>`
+        : "";
+    const fpWarn = fp.promote_ok === false;
+    const fpLine =
+      fp.n_obs != null
+        ? `<p class="quant-cluster-method${
+            fpWarn ? " is-warn" : ""
+          }"><span class="quant-cluster-method-k">样本</span>` +
+          `<span class="quant-cluster-method-v">${esc(
+            `n_obs=${fp.n_obs} · names=${fp.n_names ?? "—"}` +
+              (fp.date_span ? ` · ${fp.date_span}` : "") +
+              (fpWarn
+                ? ` · 不足不可 promote：${(fp.blockers || []).slice(0, 2).join("；")}`
+                : "")
+          )}</span></p>`
+        : "";
     const metaLine =
       `<div class="quant-cluster-status">` +
       `<div class="quant-cluster-status-stats">` +
@@ -797,6 +852,8 @@ export function createOlsUi(deps) {
         : "") +
       `</div>` +
       pitBanner +
+      yLine +
+      fpLine +
       `<p class="quant-cluster-method">` +
       `<span class="quant-cluster-method-k">方法</span>` +
       `<span class="quant-cluster-method-v">${esc(

@@ -68,6 +68,7 @@ class QuantConfigMixin:
 
     def list_strategies(self) -> Dict[str, Any]:
         from core.signal.score_display import resolve_buy_floor, resolve_hold_floor
+        from core.signal.sentiment_prior_config import read_sentiment_prior_public
         from core.strategy import list_strategy_specs
 
         return {
@@ -79,6 +80,7 @@ class QuantConfigMixin:
                 "min_hold_predicted_score": resolve_hold_floor(),
                 "unit": "predicted_score_pct",
             },
+            "sentiment_prior": read_sentiment_prior_public(),
         }
 
     def save_scoring_floors(
@@ -95,3 +97,29 @@ class QuantConfigMixin:
             min_hold_predicted_score=min_hold_predicted_score,
             note=note,
         )
+
+    def save_sentiment_prior(
+        self,
+        *,
+        mode: Optional[str] = None,
+        bearish_score_min: Optional[float] = None,
+        block_new_buys: Optional[bool] = None,
+        scale_buy_pct: Optional[float] = None,
+        scale_holds: Optional[bool] = None,
+        note: str = "",
+    ) -> Dict[str, Any]:
+        from core.signal.sentiment_prior_config import save_sentiment_prior as _save
+
+        return _save(
+            mode=mode,
+            bearish_score_min=bearish_score_min,
+            block_new_buys=block_new_buys,
+            scale_buy_pct=scale_buy_pct,
+            scale_holds=scale_holds,
+            note=note,
+        )
+
+    def read_sentiment_prior(self) -> Dict[str, Any]:
+        from core.signal.sentiment_prior_config import read_sentiment_prior_public
+
+        return {"success": True, "sentiment_prior": read_sentiment_prior_public()}

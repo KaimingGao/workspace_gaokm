@@ -32,8 +32,12 @@ def _default_health_universe() -> List[str]:
 def assess_cluster_live_health(
     *,
     universe: Optional[Sequence[str]] = None,
+    compute_ic: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """覆盖率 / 陈旧 / 模式门禁（L3）。"""
+    """覆盖率 / 陈旧 / 模式门禁（L3）。
+
+    ``compute_ic``：默认仅 ``mode=active`` 时算滚动 ŷ IC（shadow 刷簿/对照免等）。
+    """
     from core.signal.cluster_live import get_cluster_scoring_cfg, load_active_cluster_weights
 
     cs = get_cluster_scoring_cfg()
@@ -113,17 +117,52 @@ def assess_cluster_live_health(
     except Exception:
         pass
 
+    # B4：滚动 ŷ IC（默认仅 active；对照刷簿跳过以免久等）
+    ic_demote = False
+    yhat_ic = None
+    do_ic = bool(compute_ic) if compute_ic is not None else (cs.get("mode") == "active")
+    if do_ic:
+        try:
+            min_ic = float(cs.get("min_yhat_rolling_ic") or 0.0)
+            block_ic = bool(cs.get("block_active_on_yhat_ic", True))
+            from core.strategy_monitor import estimate_rolling_yhat_ic_for_codes
+
+            ic_codes = list(mapped)[:12] if mapped else []
+            pack = (
+                estimate_rolling_yhat_ic_for_codes(ic_codes, limit=4) if ic_codes else {}
+            )
+            yhat_ic = pack.get("rolling_ic") if isinstance(pack, dict) else None
+            if (
+                block_ic
+                and yhat_ic is not None
+                and isinstance(yhat_ic, (int, float))
+                and float(yhat_ic) < min_ic
+            ):
+                ic_demote = True
+                refit_suggested = True
+                alerts.append(
+                    f"滚动 ŷ IC={float(yhat_ic):.3f} < 阈值 {min_ic} · 建议降级/重估"
+                )
+        except Exception:
+            pass
+
     mode = cs["mode"]
     demoted = False
-    if mode == "active" and (stale or (coverage is not None and coverage < cs["min_coverage"])):
+    if mode == "active" and (
+        stale
+        or ic_demote
+        or (coverage is not None and coverage < cs["min_coverage"])
+    ):
         alerts.append("建议降级：active 条件不满足（请改 shadow/off）")
-        if cs.get("auto_demote_on_stale") and stale:
-            demoted = True  # 调用方决定是否改 config；此处只报告
+        if cs.get("auto_demote_on_stale") and (stale or ic_demote):
+            demoted = True
 
     allow_active = (
         bool(active)
         and not stale
+        and not ic_demote
         and (coverage is None or coverage >= float(cs["min_coverage"]))
+        and (sample_count_min is None or sample_count_min >= 24)
     )
 
     return {
@@ -140,6 +179,9 @@ def assess_cluster_live_health(
         "coverage": round(coverage, 3) if coverage is not None else None,
         "age_days": round(age_days, 2) if age_days is not None else None,
         "stale": stale,
+        "ic_demote": ic_demote,
+        "yhat_rolling_ic": yhat_ic,
+        "ic_computed": do_ic,
         "fitted_as_of": fitted_as_of,
         "sample_count_min": sample_count_min,
         "ridge_lambda": ridge_lambda,
@@ -148,4 +190,5 @@ def assess_cluster_live_health(
         "suggest_demote": demoted or (mode == "active" and not allow_active),
         "alerts": alerts,
         "signal_config_touched": False,
+        "track": "B4",
     }

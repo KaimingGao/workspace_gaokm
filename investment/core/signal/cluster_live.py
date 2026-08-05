@@ -67,7 +67,29 @@ def get_cluster_scoring_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
         "top_n_per_group": max(1, min(int(raw.get("top_n_per_group") or 10), 10)),
         "max_names": max(1, min(int(raw.get("max_names") or 40), 80)),
         "min_coverage": float(raw.get("min_coverage") or 0.5),
-        "max_age_days": max(1, min(int(raw.get("max_age_days") or 14), 90)),
+        # B4：refit_max_age_days 与 max_age_days 同义（配置任一侧即可）
+        "max_age_days": max(
+            1,
+            min(
+                int(
+                    raw.get("refit_max_age_days")
+                    if raw.get("refit_max_age_days") is not None
+                    else (raw.get("max_age_days") or 14)
+                ),
+                90,
+            ),
+        ),
+        "refit_max_age_days": max(
+            1,
+            min(
+                int(
+                    raw.get("refit_max_age_days")
+                    if raw.get("refit_max_age_days") is not None
+                    else (raw.get("max_age_days") or 14)
+                ),
+                90,
+            ),
+        ),
         "auto_demote_on_stale": bool(raw.get("auto_demote_on_stale", True)),
         # FH0：缺省从 1.0 收紧到 0.5（配置显式写出仍优先生效）
         "max_oos_fail_rate": max(
@@ -84,7 +106,12 @@ def get_cluster_scoring_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
         "min_yhat_rolling_ic": float(
             raw.get("min_yhat_rolling_ic") if raw.get("min_yhat_rolling_ic") is not None else 0.0
         ),
-        "block_active_on_yhat_ic": bool(raw.get("block_active_on_yhat_ic", False)),
+        # FS1：默认硬拦（与 DEFAULT_SIGNAL_CONFIG 对齐）；配置显式 false 可关
+        "block_active_on_yhat_ic": bool(
+            raw.get("block_active_on_yhat_ic")
+            if raw.get("block_active_on_yhat_ic") is not None
+            else True
+        ),
         "min_sector_map_coverage": max(
             0.0,
             min(
@@ -259,6 +286,31 @@ def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
     cmap = artifact.get("code_map") if isinstance(artifact, dict) else None
     if not isinstance(cmap, dict) or not cmap:
         return "code_map 为空"
+    # B1：样本指纹 / 验证宇宙不足则拒绝 promote（force 可豁免）
+    fp = artifact.get("sample_fingerprint")
+    if isinstance(fp, dict) and fp.get("promote_ok") is False:
+        blockers = []
+        for b in fp.get("blockers") or []:
+            bs = str(b)
+            # 历史产物里单票/双票组的 n_names<3 不再硬拦
+            if ("n_names=" in bs and "min_names=" in bs) or bs.startswith("组内：n_names="):
+                try:
+                    part = bs.split("n_names=")[1].split("<")[0].strip()
+                    if int(float(part)) < 3:
+                        continue
+                except Exception:
+                    pass
+            blockers.append(bs)
+        if blockers:
+            return "样本指纹未过：" + ("；".join(blockers[:4]) or "n 不足")
+    try:
+        from core.validation_universe import universe_sample_gate
+
+        ug = universe_sample_gate()
+        if not ug.get("ok"):
+            return "验证宇宙不足：" + ("；".join(ug.get("blockers") or []) or "min_codes")
+    except Exception:
+        pass
     # 组表 return_model 回填（校验前）
     by_label_rm: Dict[str, Any] = {}
     for cl in (artifact.get("clusters") or []):
@@ -268,6 +320,32 @@ def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
         rm = cl.get("return_model")
         if lab and isinstance(rm, dict) and has_factor_coefficients(rm):
             by_label_rm[lab] = rm
+        # 组级指纹不足也拦
+        gfp = None
+        if isinstance(rm, dict):
+            gfp = rm.get("sample_fingerprint")
+        if not isinstance(gfp, dict):
+            ols = cl.get("ols") if isinstance(cl.get("ols"), dict) else {}
+            gfp = ols.get("sample_fingerprint")
+        if isinstance(gfp, dict) and gfp.get("promote_ok") is False:
+            # 小组员数不足 3：聚类允许单票/双票组，不因此拒晋升
+            bad = []
+            for b in gfp.get("blockers") or []:
+                bs = str(b)
+                if "n_names=" in bs and "min_names=" in bs:
+                    try:
+                        n_part = bs.split("n_names=")[1].split("<")[0].strip()
+                        if int(float(n_part)) < 3:
+                            continue
+                    except Exception:
+                        pass
+                bad.append(bs)
+            if not bad:
+                continue
+            return (
+                f"组 {lab or '?'} 样本不足："
+                + ("；".join(bad[:3]) or "n 不足")
+            )
     ok = 0
     singletonish = 0
     by_label: Dict[str, int] = {}
@@ -815,11 +893,12 @@ def _default_health_universe() -> List[str]:
 def assess_cluster_live_health(
     *,
     universe: Optional[Sequence[str]] = None,
+    compute_ic: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """覆盖率 / 陈旧 / 模式门禁（L3）。实现见 ``cluster_live_health``。"""
     from core.signal.cluster_live_health import assess_cluster_live_health as _impl
 
-    return _impl(universe=universe)
+    return _impl(universe=universe, compute_ic=compute_ic)
 
 
 def set_cluster_scoring_mode(
@@ -918,11 +997,14 @@ def set_cluster_scoring_mode(
     }
 
 
-def refresh_cluster_book_daily() -> Dict[str, Any]:
-    """L3：不重聚类，仅按 active map 重打分并刷新合并簿。"""
+def refresh_cluster_book_daily(*, light: bool = False) -> Dict[str, Any]:
+    """L3：不重聚类，仅按 active map 重打分并刷新合并簿。
+
+    ``light=True``：跳过健康 IC（对照一键应用用，避免再等一轮）。
+    """
     from core.signal.cluster_rank import rank_cluster_pools
 
-    health = assess_cluster_live_health()
+    health = assess_cluster_live_health(compute_ic=False if light else None)
     ranked = rank_cluster_pools(None, persist_book=True)
     try:
         from core.live_config_manifest import write_live_config_manifest
@@ -941,6 +1023,7 @@ def refresh_cluster_book_daily() -> Dict[str, Any]:
             "error": ranked.get("error"),
             "name_count": len(ranked.get("book") or []),
         },
+        "light": bool(light),
         "signal_config_touched": False,
     }
 
@@ -961,17 +1044,20 @@ def maybe_auto_demote_stale() -> Dict[str, Any]:
         return out
     if not health.get("suggest_demote") and not health.get("stale"):
         return out
-    if not (cs.get("auto_demote_on_stale") and health.get("stale")):
-        # 覆盖率不足：仅告警，不自动降（与陈旧区分）
-        if health.get("suggest_demote") and not health.get("stale"):
-            out["note"] = "建议降级但未自动执行（非陈旧）"
+    if not (cs.get("auto_demote_on_stale") and (health.get("stale") or health.get("ic_demote"))):
+        # 覆盖率不足：仅告警，不自动降（与陈旧/IC 区分）
+        if health.get("suggest_demote") and not (
+            health.get("stale") or health.get("ic_demote")
+        ):
+            out["note"] = "建议降级但未自动执行（非陈旧/IC）"
         return out
     mode_out = set_cluster_scoring_mode("shadow")
     out["demoted"] = bool(mode_out.get("success"))
     out["mode_result"] = mode_out
     out["cluster_scoring"] = get_cluster_scoring_cfg()
     out["signal_config_touched"] = False
-    out["note"] = "映射陈旧，已自动降为 shadow"
+    reason = "映射陈旧" if health.get("stale") else "滚动 ŷ IC 破线"
+    out["note"] = f"{reason}，已自动降为 shadow"
     return out
 
 
@@ -1054,7 +1140,8 @@ def apply_cluster_live_shortcut(
 
     rank_out = None
     if refresh_book and mode != "off":
-        rank_out = refresh_cluster_book_daily()
+        # 对照/一键：轻量刷簿（跳过 IC；打分跳过舆情）
+        rank_out = refresh_cluster_book_daily(light=True)
 
     # active 走健康门禁；失败则降级 shadow
     mode_out = set_cluster_scoring_mode(mode, force=force)

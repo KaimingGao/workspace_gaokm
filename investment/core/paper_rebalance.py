@@ -244,9 +244,37 @@ def simulate_cross_section_rebalance(
             elif score is not None and score < min_hold_score:
                 reason = f"分数低于 min_hold_score({min_hold_score})"
 
+        sell_shares = shares
+        keep_shares = 0.0
+        sell_note = None
+        prior_trim = False
         if not reason:
-            kept.append(h)
-            continue
+            # 舆情先验：gate + scale_holds → 已持仓缩至 scale_buy_pct（不改 ŷ）
+            try:
+                from core.sentiment_prior import (
+                    apply_prior_to_hold,
+                    resolve_prior_for_code,
+                )
+
+                prior = resolve_prior_for_code(code)
+                hold_apply = apply_prior_to_hold(prior, shares=shares)
+                if hold_apply.get("trim") and float(hold_apply.get("sell_shares") or 0) > 0:
+                    sell_shares = float(hold_apply["sell_shares"])
+                    keep_shares = float(hold_apply.get("keep_shares") or 0)
+                    scale_h = hold_apply.get("scale")
+                    sell_note = (
+                        f"舆情先验缩仓至 {float(scale_h):.0%}"
+                        if scale_h is not None
+                        else "舆情先验缩仓"
+                    )
+                    prior_trim = True
+                    reason = hold_apply.get("reason") or "sentiment_prior_bearish"
+                else:
+                    kept.append(h)
+                    continue
+            except Exception:
+                kept.append(h)
+                continue
 
         quote = query_quote(code)
         price = _quote_price(quote) if quote.get("success") else None
@@ -258,9 +286,14 @@ def simulate_cross_section_rebalance(
         fill_px = apply_fill_price(
             "sell", float(price), model=cost_model, params=fee_params
         )
-        amount = round(shares * fill_px, 2)
+        amount = round(sell_shares * fill_px, 2)
         fee_info = calc_trade_fees(
             "sell", amount, model=cost_model, params=fee_params
+        )
+        note = (
+            sell_note
+            if prior_trim
+            else f"横截面调仓卖出：{reason}"
         )
         trade = annotate_trade(
             {
@@ -268,19 +301,22 @@ def simulate_cross_section_rebalance(
                 "side": "sell",
                 "stock_code": code,
                 "stock_name": h.get("stock_name") or quote.get("stock_name"),
-                "shares": shares,
+                "shares": sell_shares,
                 "price": round(fill_px, 4),
                 "amount": amount,
                 "pnl_pct": pnl_pct,
                 "score": score,
                 "origin": ORIGIN_STRATEGY,
-                "note": f"横截面调仓卖出：{reason}",
+                "note": note,
+                "sentiment_prior": bool(prior_trim),
             },
             fee_info,
         )
         paper.setdefault("trades", []).append(trade)
         sell_trades.append(trade)
         cash = round(cash + float(fee_info["net_cash_delta"]), 2)
+        if prior_trim and keep_shares > 0:
+            kept.append({**h, "shares": keep_shares})
 
     paper["holdings"] = kept
     paper["cash"] = round(cash, 2)
@@ -305,6 +341,57 @@ def simulate_cross_section_rebalance(
     except Exception:
         risk_gate = {"ok": True, "blocks": [], "warnings": []}
         risk_limits = {}
+
+    # 舆情先验预检：新开仓候选 +（若 scale_holds）已持仓；warnings 进 gate
+    sentiment_prior_summary: Dict[str, Any] = {"ok": True, "skipped": True}
+    try:
+        from core.sentiment_prior import (
+            check_sentiment_priors_for_codes,
+            get_sentiment_prior_cfg,
+        )
+
+        prior_cfg_live = get_sentiment_prior_cfg()
+        held_now = {str(h.get("stock_code")) for h in kept}
+        cand_codes = [
+            str(x.get("stock_code") or "").strip()
+            for x in top_items
+            if str(x.get("stock_code") or "").strip()
+            and str(x.get("stock_code") or "").strip() not in held_now
+            and not x.get("hard_reject")
+        ]
+        prior_codes = list(cand_codes)
+        if prior_cfg_live.get("mode") == "gate" and prior_cfg_live.get("scale_holds"):
+            prior_codes = list(dict.fromkeys([*cand_codes, *sorted(held_now)]))
+        if prior_codes:
+            sentiment_prior_summary = check_sentiment_priors_for_codes(prior_codes)
+            for w in sentiment_prior_summary.get("warnings") or []:
+                warns = list(risk_gate.get("warnings") or [])
+                if w and w not in warns:
+                    warns.append(w)
+                risk_gate["warnings"] = warns
+            # gate+block：并入 soft 提示，逐票在循环 skip（不整批 drawdown 式硬拦）
+            for bi in sentiment_prior_summary.get("block_items") or []:
+                msg = str(bi.get("message") or "")
+                if msg and msg not in (risk_gate.get("warnings") or []):
+                    risk_gate.setdefault("warnings", []).append(msg)
+        else:
+            sentiment_prior_summary = {
+                "ok": True,
+                "warnings": [],
+                "blocks": [],
+                "note": "无新开仓候选",
+            }
+        risk_gate["sentiment_prior"] = {
+            "ok": sentiment_prior_summary.get("ok"),
+            "warnings": sentiment_prior_summary.get("warnings") or [],
+            "blocks": sentiment_prior_summary.get("blocks") or [],
+            "candidate_count": len(cand_codes),
+            "hold_check_count": len(held_now)
+            if prior_cfg_live.get("scale_holds")
+            else 0,
+        }
+    except Exception as exc:
+        sentiment_prior_summary = {"ok": True, "error": str(exc)}
 
     block_items = list((risk_gate or {}).get("block_items") or [])
     drawdown_blocks = [i for i in block_items if i.get("code") == "drawdown_limit"]
@@ -428,6 +515,47 @@ def simulate_cross_section_rebalance(
             score = item.get("score")
             if score is None or float(score) < min_score:
                 continue
+
+            # 舆情先验（ŷ 外）：不改 score；gate 时 skip / 缩 ratio
+            prior_apply = None
+            try:
+                from core.sentiment_prior import (
+                    apply_prior_to_buy,
+                    resolve_prior_for_code,
+                )
+
+                sent_snap = item.get("watching_sentiment") or item.get("sentiment")
+                if isinstance(item.get("sentiment_prior"), dict) and item.get(
+                    "sentiment_prior"
+                ).get("success"):
+                    prior_pack = item["sentiment_prior"]
+                else:
+                    prior_pack = resolve_prior_for_code(
+                        code,
+                        sentiment=sent_snap if isinstance(sent_snap, dict) else None,
+                        fetch=not isinstance(sent_snap, dict),
+                    )
+                prior_apply = apply_prior_to_buy(prior_pack, position_ratio=position_pct)
+                for w in prior_apply.get("warnings") or []:
+                    warns = list(risk_gate.get("warnings") or [])
+                    if w and w not in warns:
+                        warns.append(w)
+                        risk_gate["warnings"] = warns
+                if prior_apply.get("skip"):
+                    risk_budget_skips.append(
+                        {
+                            "stock_code": code,
+                            "stock_name": item.get("stock_name"),
+                            "reason": prior_apply.get("reason")
+                            or "sentiment_prior_bearish",
+                            "score": score,
+                            "sentiment_prior": True,
+                        }
+                    )
+                    continue
+            except Exception:
+                prior_apply = None
+
             # 横截面：optimize 未分配则跳过；分池：合并簿即目标集，不因 optimize 漏配而整票跳过
             if (
                 respect_max_positions
@@ -471,6 +599,11 @@ def simulate_cross_section_rebalance(
                 continue
 
             ratio = position_pct
+            if prior_apply and prior_apply.get("ratio") is not None:
+                try:
+                    ratio = min(ratio, float(prior_apply["ratio"]))
+                except (TypeError, ValueError):
+                    pass
             # 仅横截面用目标仓缩量；分池用账户 position_pct + 单票/行业 clip
             if respect_max_positions and code in target_w:
                 try:
@@ -787,6 +920,7 @@ def simulate_cross_section_rebalance(
         "turnover_skipped": turnover_skipped,
         "max_turnover_pct": max_turnover_pct,
         "risk_budget_skips": risk_budget_skips,
+        "sentiment_prior": sentiment_prior_summary,
         "attribution": attribution,
         "cost_assumptions": cost_assumptions,
         "exposure_style": exposure_style,

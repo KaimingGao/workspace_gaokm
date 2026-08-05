@@ -79,6 +79,93 @@ class TestClusterPanelsPit(unittest.TestCase):
         self.assertEqual(out["lookahead_flags"]["fundamentals"], "none")
         self.assertIsNone(out["panels"][0].get("fundamentals"))
 
+    def test_default_bars_use_offline_ok(self):
+        from quant.research.cluster_panels import _load_bars_for_cluster
+
+        bars = [{"date": f"2024-01-{i:02d}", "close": 10.0} for i in range(1, 50)]
+        calls = []
+
+        def fake_bars(code, **kwargs):
+            calls.append(dict(kwargs))
+            return bars, "cache"
+
+        with patch("core.data_service.bars_and_source", side_effect=fake_bars):
+            out_bars, src, remote = _load_bars_for_cluster(
+                "600519", lookback=40, refresh_bars=False
+            )
+        self.assertEqual(len(calls), 1)
+        self.assertTrue(calls[0].get("offline_ok"))
+        self.assertFalse(remote)
+        self.assertEqual(len(out_bars), 49)
+        self.assertEqual(src, "cache")
+
+    def test_refresh_bars_reuses_fresh_cache(self):
+        from quant.research.cluster_panels import _load_bars_for_cluster
+
+        bars = [{"date": f"2024-01-{i:02d}", "close": 10.0} for i in range(1, 50)]
+        calls = []
+
+        def fake_bars(code, **kwargs):
+            calls.append(dict(kwargs))
+            return bars, "cache"
+
+        with patch("core.data_service.bars_and_source", side_effect=fake_bars):
+            out_bars, src, remote = _load_bars_for_cluster(
+                "600519", lookback=40, refresh_bars=True
+            )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].get("cache_max_age_hours"), 36)
+        self.assertFalse(calls[0].get("offline_ok"))
+        self.assertFalse(remote)
+        self.assertEqual(src, "cache")
+        self.assertEqual(len(out_bars), 49)
+
+    def test_refresh_bars_fetches_when_thin(self):
+        from quant.research.cluster_panels import _load_bars_for_cluster
+
+        thin = [{"date": "2024-01-01", "close": 10.0}]
+        full = [{"date": f"2024-01-{i:02d}", "close": 10.0} for i in range(1, 50)]
+        calls = []
+
+        def fake_bars(code, **kwargs):
+            calls.append(dict(kwargs))
+            if kwargs.get("cache_max_age_hours") == 0:
+                return full, "akshare"
+            return thin, "cache:stale"
+
+        with patch("core.data_service.bars_and_source", side_effect=fake_bars):
+            out_bars, src, remote = _load_bars_for_cluster(
+                "600519", lookback=40, refresh_bars=True
+            )
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(calls[1].get("cache_max_age_hours"), 0)
+        self.assertTrue(calls[1].get("incremental"))
+        self.assertTrue(remote)
+        self.assertEqual(src, "akshare")
+        self.assertEqual(len(out_bars), 49)
+
+    def test_build_panels_bars_refresh_stats(self):
+        from quant.research.cluster_panels import build_cluster_ols_panels
+
+        bars = [{"date": f"2024-01-{i:02d}", "close": 10.0} for i in range(1, 50)]
+        with patch(
+            "core.data_service.bars_and_source", return_value=(bars, "cache")
+        ), patch(
+            "core.ports.market.resolve_market_code", return_value=("cn", "000001")
+        ), patch(
+            "core.ports.market.default_benchmark", return_value="000300"
+        ), patch(
+            "core.ports.market.fetch_index_bars", return_value=([], "empty")
+        ), patch(
+            "core.signal.config.load_signal_config", return_value={}
+        ):
+            out = build_cluster_ols_panels(
+                ["000001"], lookback=30, pit_fundamentals=False, refresh_bars=True
+            )
+        br = out.get("bars_refresh") or {}
+        self.assertTrue(br.get("requested"))
+        self.assertEqual(br.get("remote_count"), 0)
+        self.assertEqual(br.get("cache_count"), 1)
 
 class TestClusterLiveAuditSplit(unittest.TestCase):
     def test_pick_audit_codes_round_robin(self):

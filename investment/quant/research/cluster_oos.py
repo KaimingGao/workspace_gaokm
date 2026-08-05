@@ -108,9 +108,18 @@ def attach_cluster_oos_gates(
     horizon_days: int = 3,
     oos_tol_pp: float = 1.0,
     run_oos_gate: bool = True,
+    respect_regime: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """就地为 ``report["clusters"]`` 挂 ``oos_gate``、``config_diff`` 与优选组。"""
+    """就地为 ``report["clusters"]`` 挂 ``oos_gate``、``config_diff`` 与优选组。
+
+    B5：默认 ``respect_regime`` 取自 report（分组拟合默认 True）。
+    """
     clusters: List[Dict[str, Any]] = list(report.get("clusters") or [])
+    regime_aligned = (
+        bool(respect_regime)
+        if respect_regime is not None
+        else bool(report.get("respect_regime", True))
+    )
     if not run_oos_gate:
         for cl in clusters:
             cl["oos_gate"] = {
@@ -119,6 +128,7 @@ def attach_cluster_oos_gates(
                 "skipped": True,
                 "reason": "gate_disabled",
                 "note": "未跑组内 OOS（run_oos_gate=false）。",
+                "respect_regime": regime_aligned,
             }
         report["clusters"] = clusters
         report["oos_summary"] = {
@@ -126,6 +136,7 @@ def attach_cluster_oos_gates(
             "passed": 0,
             "failed": 0,
             "skipped": len(clusters),
+            "respect_regime": regime_aligned,
         }
         return attach_cluster_export_diffs(report)
 
@@ -149,6 +160,7 @@ def attach_cluster_oos_gates(
                 "reason": "cluster_too_small",
                 "note": "组成员不足 2 只，跳过组内 Top-K OOS。",
                 "stock_count": len(members),
+                "respect_regime": regime_aligned,
             }
             skipped_n += 1
             continue
@@ -159,6 +171,7 @@ def attach_cluster_oos_gates(
                 "skipped": True,
                 "reason": "no_return_model",
                 "note": "无组内 return_model（ŷ），跳过 OOS。",
+                "respect_regime": regime_aligned,
             }
             skipped_n += 1
             continue
@@ -176,14 +189,21 @@ def attach_cluster_oos_gates(
             horizon_days=horizon_days,
             oos_tol_pp=oos_tol_pp,
             ridge_lambda=float(rm.get("ridge_lambda") or 0.0),
+            respect_regime=regime_aligned,
         )
         gate = dict(gate)
         gate["scope"] = "cluster_members"
         gate["cluster_label"] = cl.get("label")
+        gate["respect_regime"] = regime_aligned
         if gate.get("note"):
             gate["note"] = (
                 str(gate["note"])
                 + " 范围仅限本组股票；基线=全局 heuristic；研究臂=本组 β→ŷ；不写 signal_config。"
+                + (
+                    " 研究模型按 respect_regime 拟合。"
+                    if regime_aligned
+                    else " 研究模型为全因子拟合。"
+                )
             )
         cl["oos_gate"] = gate
         if gate.get("skipped"):
@@ -200,8 +220,10 @@ def attach_cluster_oos_gates(
         "failed": failed_n,
         "skipped": skipped_n,
         "oos_tol_pp": float(oos_tol_pp),
+        "respect_regime": regime_aligned,
         "note": (
-            "各组：heuristic 基线 vs 组 return_model ŷ · 仅组员 Top-K · 后 30% OOS。"
+            "各组：heuristic 基线 vs 组 return_model ŷ · 仅组员 Top-K · 后 30% OOS；"
+            "默认 respect_regime 与 live 对齐。"
         ),
     }
     note = str(report.get("note") or "")

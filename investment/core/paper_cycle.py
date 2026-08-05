@@ -280,12 +280,15 @@ def run_daily_cycle(
         if code in sell_by_code:
             t = sell_by_code[code]
             note = t.get("note") or ""
+            prior_trim = bool(t.get("sentiment_prior")) or ("舆情先验" in str(note))
             if "止损" in note:
                 decision = "止损卖出"
             elif "超时" in note:
                 decision = "超时卖出"
-            elif "减仓" in note or "清仓" in note:
+            elif prior_trim and new_shares > 1e-9:
                 decision = "减仓"
+            elif "减仓" in note or "清仓" in note or ("舆情先验" in str(note) and "缩仓" in str(note)):
+                decision = "减仓" if new_shares > 1e-9 else "卖出"
             else:
                 decision = "卖出"
             reason = note
@@ -338,6 +341,10 @@ def run_daily_cycle(
             "shares_change": int(shares_change),
             "decision": decision,
             "reason": reason,
+            "sentiment_prior": bool(
+                (sell_by_code.get(code) or {}).get("sentiment_prior")
+            )
+            or ("舆情先验" in str(reason or "")),
             "target_weight_pct": (
                 (paper.get("last_optimize") or {}).get("weights_pct") or {}
             ).get(code),

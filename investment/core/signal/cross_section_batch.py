@@ -201,6 +201,7 @@ def score_window_as_item(
     fundamentals: Optional[dict] = None,
     sector: Optional[str] = None,
     market_cap: Optional[float] = None,
+    required_factor_keys: Optional[List[str]] = None,
 ) -> Optional[dict]:
     scored = score_bars(
         window,
@@ -209,6 +210,7 @@ def score_window_as_item(
         index_bars=index_bars,
         config=config,
         fundamentals=fundamentals,
+        required_factor_keys=required_factor_keys,
     )
     if scored.get("hard_reject"):
         return None

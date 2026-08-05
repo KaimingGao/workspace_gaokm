@@ -250,6 +250,7 @@ class QuantFactorMixin:
         ridge_lambda: float = 0.0,
         n_clusters: Optional[int] = None,
         pit_fundamentals: bool = True,
+        sentiment_pit: bool = False,
         l2_normalize_betas: Optional[bool] = None,
         beta_scale: str = "feature_zscore",
         cluster_method: str = "hierarchical",
@@ -260,10 +261,17 @@ class QuantFactorMixin:
         run_group_score: bool = True,
         run_pool_merge: bool = True,
         top_n_per_group: int = 10,
+        respect_regime: bool = True,
+        select_ridge: bool = True,
+        collinearity_policy: str = "drop_redundant",
+        progress_cb: Optional[Any] = None,
+        refresh_bars: bool = True,
     ) -> Dict[str, Any]:
         """研究池：β 聚类 → 组权 → 组内 OOS → 分组 score → 分池合成（不写 config）。
 
-        默认：complete-linkage + τ 切树；β 因子维 z-score；PIT 默认开（FH5）。
+        默认：complete-linkage + τ 切树；β 因子维 z-score；PIT 默认开（FH5）；
+        B5 respect_regime；B3 选 λ + drop_redundant。
+        refresh_bars 默认 True：过期/缺条日线限流拉网（约 36h 内仍复用）；False=纯缓存重算。
         """
         from quant.research.factor_ols_clusters import (
             compute_factor_ols_cluster_report,
@@ -319,11 +327,24 @@ class QuantFactorMixin:
                 "universe_count": int(uni_meta["universe_count"]),
             }
 
+        n_codes = len(codes)
+
+        def _on_progress(msg: str, cur: int = 0, tot: int = 0) -> None:
+            if not progress_cb:
+                return
+            try:
+                progress_cb(msg, int(cur or 0), int(tot or n_codes or 1))
+            except Exception:
+                pass
+
+        _on_progress(f"拉日线 0/{n_codes}", 0, n_codes)
         built = build_cluster_ols_panels(
             codes,
             lookback=lookback,
             pit_fundamentals=bool(pit_fundamentals),
             code_roles=dict(uni_meta.get("code_roles") or {}),
+            progress_cb=_on_progress,
+            refresh_bars=bool(refresh_bars),
         )
         panels = list(built.get("panels") or [])
         bars_by_code = dict(built.get("bars_by_code") or {})
@@ -332,22 +353,31 @@ class QuantFactorMixin:
         watching_resolved = list(built.get("watching_resolved") or [])
         holdings_resolved = list(built.get("holdings_resolved") or [])
         holdings_added_resolved = list(built.get("holdings_added_resolved") or [])
+        bars_refresh = dict(built.get("bars_refresh") or {})
 
+        _on_progress(f"拟合 0/{n_codes}", 0, n_codes)
         report = compute_factor_ols_cluster_report(
             panels,
             horizon_days=horizon_days,
             ridge_lambda=ridge_lambda,
             n_clusters=n_clusters,
             pit_fundamentals=bool(pit_fundamentals),
+            sentiment_pit=bool(sentiment_pit),
             l2_normalize_betas=l2_normalize_betas,
             beta_scale=str(beta_scale or "feature_zscore"),
             cluster_method=str(cluster_method or "hierarchical"),
             cluster_linkage=str(cluster_linkage or "complete"),
             within_dist_quantile=float(within_dist_quantile or 0.75),
+            respect_regime=bool(respect_regime),
+            select_ridge=bool(select_ridge),
+            collinearity_policy=str(collinearity_policy or "drop_redundant"),
+            progress_cb=_on_progress,
         )
         report["task"] = "factor_ols_clusters"
         report["lookback"] = lookback
         report["watching_limit"] = limit
+        report["refresh_bars"] = bool(refresh_bars)
+        report["bars_refresh"] = bars_refresh
         report["universe_mode"] = "watching"
         # 统计以观察池宇宙为准；解析失败时回退原始列表，避免 UI 显示 0
         report["watching_codes"] = watching_resolved or list(
@@ -376,6 +406,7 @@ class QuantFactorMixin:
                 name_by_code[c] = nm
         report["name_by_code"] = name_by_code
         if report.get("success"):
+            _on_progress("OOS / 分池…", n_codes, n_codes)
             attach_cluster_oos_gates(
                 report,
                 lookback=lookback,
@@ -415,8 +446,17 @@ class QuantFactorMixin:
                         report["cluster_draft_saved"] = True
                 except Exception:
                     report["cluster_draft_saved"] = False
-        # FH5+：PIT 末日探针 + 逐日 as_of（见 cluster_panels / collect_subscore_forward_panel）
         flags = dict(built.get("lookahead_flags") or {})
+        if report.get("large_universe") and report.get("daily_pit") is False:
+            flags = dict(flags)
+            flags["daily_pit"] = False
+            flags["speed_note"] = report.get("speed_note")
+            if flags.get("fundamentals") == "pit_as_of":
+                flags["fundamentals"] = "pit_snapshot"
+                flags["note"] = (
+                    str(flags.get("note") or "")
+                    + " 大宇宙加速：拟合用末日财务快照（非逐日 PIT）。"
+                ).strip()
         report["lookahead_flags"] = flags
         report["pit_fundamentals"] = bool(pit_fundamentals)
         report["fundamentals_pit_summary"] = flags.get("pit_summary")
@@ -429,34 +469,77 @@ class QuantFactorMixin:
         from core.job_progress import quant_ols_clusters_job
 
         if quant_ols_clusters_job.is_running():
-            return {
-                "ok": False,
-                "success": False,
-                "error": "已有分组任务在运行",
-                "job": quant_ols_clusters_job.get(),
-            }
+            # 卡住（如拉日线挂死）超过 3 分钟则释放槽位，允许重开
+            stale = quant_ols_clusters_job.stale_seconds()
+            job_snap = quant_ols_clusters_job.get()
+            msg = str((job_snap or {}).get("message") or "")
+            stuck_at_start = "拉日线 0/" in msg or msg in ("排队中…", "启动中…")
+            if stale is not None and (
+                stale >= 180 or (stuck_at_start and stale >= 90)
+            ):
+                quant_ols_clusters_job.force_fail(
+                    f"分组任务无进展已 {int(stale)}s，已自动释放（{msg or 'running'}）"
+                )
+            else:
+                return {
+                    "ok": False,
+                    "success": False,
+                    "error": "已有分组任务在运行",
+                    "job": quant_ols_clusters_job.get(),
+                }
+
+        # 进度按「票数」量级：拉日线 + 拟合约占绝大部分
+        try:
+            from core.watching_store import read_watching
+
+            n_watch = len(list((read_watching() or {}).get("watchlist") or []))
+        except Exception:
+            n_watch = 20
+        job_total = max(20, n_watch * 2 + 10)
 
         job_id = quant_ols_clusters_job.start(
             kind="factor_ols_clusters",
-            total=5,
+            total=job_total,
             message="排队中…",
         )
+
+        def _progress(msg: str, cur: int = 0, tot: int = 0) -> None:
+            # 映射到 job：前 80% = 拉日线+拟合；后 20% = OOS/分池
+            t = max(1, int(tot or n_watch or 1))
+            c = max(0, int(cur or 0))
+            if "OOS" in msg or "分池" in msg or "组池" in msg or "聚类" in msg:
+                mapped = int(job_total * 0.8) + min(
+                    int(job_total * 0.2) - 1, max(1, c)
+                )
+            elif "拟合" in msg:
+                mapped = int(job_total * 0.4) + int((job_total * 0.4) * min(1.0, c / t))
+            else:
+                # 拉日线
+                mapped = int((job_total * 0.4) * min(1.0, c / t))
+            quant_ols_clusters_job.update(
+                current=max(1, min(job_total - 1, mapped)),
+                total=job_total,
+                message=msg,
+            )
 
         def _worker() -> None:
             try:
                 if quant_ols_clusters_job.is_cancel_requested():
                     quant_ols_clusters_job.finish(error="已取消")
                     return
-                quant_ols_clusters_job.update(current=1, message="合并宇宙…")
+                quant_ols_clusters_job.update(
+                    current=1, total=job_total, message=f"合并宇宙… {n_watch} 只"
+                )
                 if quant_ols_clusters_job.is_cancel_requested():
                     quant_ols_clusters_job.finish(error="已取消")
                     return
-                quant_ols_clusters_job.update(current=2, message="拉取日线 / 拟合…")
-                result = self.run_factor_ols_cluster_experiment(**kwargs)
+                result = self.run_factor_ols_cluster_experiment(
+                    progress_cb=_progress,
+                    **{k: v for k, v in kwargs.items() if k != "progress_cb"},
+                )
                 if quant_ols_clusters_job.is_cancel_requested():
                     quant_ols_clusters_job.finish(error="已取消")
                     return
-                quant_ols_clusters_job.update(current=4, message="OOS / 分池合成…")
                 if not result.get("success"):
                     quant_ols_clusters_job.finish(
                         error=str(result.get("error") or "分组失败"),
@@ -745,7 +828,52 @@ class QuantFactorMixin:
         suggestion["factor_ols"] = ols
         suggestion["factor_corr"] = corr
         suggestion["config_diff"] = format_weight_config_diff(suggestion)
+        # FS1：趋势族共线提示挂到晋升建议
+        try:
+            from core.signal.factor_collinearity import trend_family_collinearity
+
+            rows = []
+            for it in (corr.get("items") or corr.get("rows") or []):
+                if isinstance(it, dict) and (it.get("sub_scores") or it.get("factors")):
+                    rows.append(it.get("sub_scores") or it.get("factors"))
+            if len(rows) >= 3:
+                suggestion["trend_collinearity"] = trend_family_collinearity(rows)
+        except Exception:
+            pass
         return suggestion
+
+    def run_alt_sentiment_ic(
+        self,
+        *,
+        lookback: int = 80,
+        horizon_days: int = 3,
+        watching_limit: int = 8,
+        pit_fundamentals: bool = True,
+    ) -> Dict[str, Any]:
+        """FS2：观察池 alt_sentiment as_of TS IC（研究只读；不改 live 闸）。"""
+        from core.data_service import bars_and_source, get_quote
+        from core.research.sentiment_ic import summarize_alt_sentiment_ic_pool
+        from core.watching_store import read_watching
+
+        uni = read_watching()
+        codes = list(uni.get("watchlist") or [])[: max(1, min(int(watching_limit or 8), 20))]
+        panels = []
+        for code in codes:
+            quote = get_quote(code)
+            sym = quote.get("stock_code") if quote.get("success") else code
+            bars, _src = bars_and_source(code, limit=lookback + 35)
+            if not bars and quote.get("success"):
+                bars, _src = bars_and_source(sym, limit=lookback + 35)
+            if bars:
+                panels.append({"code": str(sym), "bars": bars})
+        out = summarize_alt_sentiment_ic_pool(
+            panels,
+            horizon_days=horizon_days,
+            pit_fundamentals=pit_fundamentals,
+        )
+        out["task"] = "alt_sentiment_ic"
+        out["lookback"] = lookback
+        return out
 
     def run_factor_corr(
         self,

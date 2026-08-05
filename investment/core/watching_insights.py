@@ -22,9 +22,9 @@ STANCE_SHORT = {
 _INSIGHT_STOCK_TIMEOUT = 12.0
 _INSIGHT_BATCH_TIMEOUT = 90.0
 _INSIGHT_MAX_WORKERS = 6
-# 与观察池常见规模对齐（watching 上限约 80）；勿默认砍到 30 导致尾部无分
-_INSIGHT_DEFAULT_LIMIT = 80
-_INSIGHT_HARD_CAP = 80
+# 与观察池上限对齐（watching 常见 100）；勿砍到更小导致尾部无分
+_INSIGHT_DEFAULT_LIMIT = 100
+_INSIGHT_HARD_CAP = 120
 
 
 def _f(v: Any) -> Optional[float]:
@@ -90,8 +90,43 @@ def _blank(code: str, *, added_at: Optional[str] = None, error: Optional[str] = 
     }
 
 
+def _fill_valuation_from_em(
+    want: set, out: Dict[str, Dict[str, Optional[float]]]
+) -> None:
+    """现货缺失时：按票读缓存 / stock_value_em 补 PE·PB（限流，避免拖死列表）。"""
+    missing = [
+        c
+        for c in sorted(want)
+        if c not in out
+        or (out[c].get("pe") is None and out[c].get("pb") is None)
+    ]
+    if not missing:
+        return
+
+    def _one(code: str) -> tuple:
+        try:
+            from core.valuation_em import fetch_valuation_pack
+
+            pack = fetch_valuation_pack(code) or {}
+        except Exception:
+            return code, None, None
+        return code, _f(pack.get("pe")), _f(pack.get("pb"))
+
+    workers = min(6, len(missing))
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = [pool.submit(_one, c) for c in missing]
+        for fut in as_completed(futs):
+            try:
+                code, pe, pb = fut.result()
+            except Exception:
+                continue
+            if pe is None and pb is None:
+                continue
+            out[code] = {"pe": pe, "pb": pb}
+
+
 def _spot_valuation_map(codes: List[str]) -> Dict[str, Dict[str, Optional[float]]]:
-    """从本地 A 股现货缓存取 PE/PB（不触发远端拉取）。"""
+    """A 股 PE/PB：本地现货优先；缺票再用 valuation_em 缓存 / 单票序列（不阻塞拉全表）。"""
     out: Dict[str, Dict[str, Optional[float]]] = {}
     want = {str(c).zfill(6) for c in codes if str(c).isdigit() and len(str(c).strip()) <= 6}
     if not want:
@@ -99,18 +134,23 @@ def _spot_valuation_map(codes: List[str]) -> Dict[str, Dict[str, Optional[float]
     try:
         from core.ports.market import load_disk_spot, spot_row_get, spot_to_float
 
-        # 估值快照可稍旧；空着不如用几天前的现货缓存
+        # 仅用已落盘现货；东财全表常挂，列表路径不在此阻塞重拉
         rows = load_disk_spot(max_age_hours=24 * 14) or []
+        for row in rows:
+            c = str(spot_row_get(row, "code") or "").zfill(6)
+            if c not in want:
+                continue
+            out[c] = {
+                "pe": spot_to_float(spot_row_get(row, "pe")),
+                "pb": spot_to_float(spot_row_get(row, "pb")),
+            }
     except Exception:
-        return out
-    for row in rows:
-        c = str(spot_row_get(row, "code") or "").zfill(6)
-        if c not in want:
-            continue
-        out[c] = {
-            "pe": spot_to_float(spot_row_get(row, "pe")),
-            "pb": spot_to_float(spot_row_get(row, "pb")),
-        }
+        pass
+
+    try:
+        _fill_valuation_from_em(want, out)
+    except Exception:
+        pass
     return out
 
 

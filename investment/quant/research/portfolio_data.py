@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from core.research.portfolio_bars import (
+    DAILY_PORTFOLIO_MAX_NAMES,
     load_portfolio_stock_bars,
     should_fetch_backtest_fundamentals,
 )
@@ -13,6 +14,7 @@ __all__ = [
     "should_fetch_backtest_fundamentals",
     "load_portfolio_stock_bars",
     "summarize_portfolio_backtest",
+    "DAILY_PORTFOLIO_MAX_NAMES",
 ]
 
 
@@ -40,7 +42,14 @@ def summarize_portfolio_backtest(
     if len(candidates) < 2:
         return {"success": False, "error": "候选标的不足"}
 
-    stock_bars, failures, _fund = load_portfolio_stock_bars(candidates, lookback=lookback)
+    n_all = len(candidates)
+    stock_bars, failures, _fund = load_portfolio_stock_bars(
+        candidates,
+        lookback=lookback,
+        offline_ok=True,
+        max_names=DAILY_PORTFOLIO_MAX_NAMES,
+        fundamentals_live=False,
+    )
     if len(stock_bars) < 2:
         return {
             "success": False,
@@ -73,6 +82,12 @@ def summarize_portfolio_backtest(
     if params.get("rank_mode") == "predicted_score":
         # 规则分 0–100 门槛不适用；保留 min_predicted_score
         params["min_score"] = None
+    note = None
+    if n_all > DAILY_PORTFOLIO_MAX_NAMES:
+        note = (
+            f"日报轻量回测截断观察池 {n_all}→{DAILY_PORTFOLIO_MAX_NAMES}，"
+            "基本面仅本地缓存（避免串行远端挂死）"
+        )
     return {
         "success": True,
         "loaded_stocks": list(stock_bars.keys()),
@@ -83,6 +98,7 @@ def summarize_portfolio_backtest(
         "params": params,
         "equity_curve_tail": curve[-12:],
         "failures": failures,
+        "note": note,
         # R4.4：日报导出可读诊断块（与页内块对齐的子集）
         "metrics": metrics,
         "attribution": {

@@ -62,6 +62,12 @@ export function clusterLandingHtml(data) {
     `<span class="quant-cluster-stat${h.stale ? " is-warn" : ""}"><b>${escapeHtml(
       age
     )}</b> 龄</span>` +
+    (h.refit_suggested
+      ? `<span class="quant-cluster-stat is-warn"><b>重估</b> 建议</span>`
+      : "") +
+    (h.ic_demote
+      ? `<span class="quant-cluster-stat is-warn"><b>IC</b> 破线</span>`
+      : "") +
     `<span class="quant-cluster-stat" title="合并簿只数=账户调仓目标"><b>${escapeHtml(
       String(book.name_count != null ? book.name_count : "—")
     )}</b> 簿</span>` +
@@ -124,16 +130,23 @@ export function clusterLandingHtml(data) {
           : "") +
         `</ul></details>`;
 
+  const needDemote =
+    nextStep === "demote_shadow" ||
+    (mode === "active" && (!canActivate || h.suggest_demote || h.ic_demote));
   const actions =
     `<div class="quant-cluster-landing-actions">` +
-    `<button type="button" class="dialog-btn dialog-btn-keep-case" ` +
-    `data-cluster-export="live-apply" ${canApply ? "" : "disabled"} ` +
-    `title="晋升分组映射 → 进入对照（shadow）→ 刷新目标簿。此步不切换交易执行选股真源。">① 对照</button>` +
+    (needDemote
+      ? `<button type="button" class="dialog-btn dialog-btn-keep-case" ` +
+        `data-cluster-export="live-shadow" ` +
+        `title="ŷ IC / 健康未过：先降为对照（shadow），交易执行不再用组ŷ；再跑分组重估。">降为对照</button>`
+      : `<button type="button" class="dialog-btn dialog-btn-keep-case" ` +
+        `data-cluster-export="live-apply" ${canApply ? "" : "disabled"} ` +
+        `title="晋升分组映射 → 进入对照（shadow）→ 刷新目标簿。此步不切换交易执行选股真源。">① 对照</button>`) +
     `<button type="button" class="dialog-btn dialog-btn-keep-case" ` +
     `data-cluster-export="live-active" ${canActivate ? "" : "disabled"} ` +
     `title="证据包与健康门禁通过后，将交易执行选股切换为组ŷ。不改写 signal_config.weights。">② 启用</button>` +
     `<span class="sub quant-cluster-landing-next${
-      doneResearch ? " is-done" : ""
+      doneResearch && !needDemote ? " is-done" : ""
     }">${nextPrefix}${escapeHtml(next)}</span>` +
     `</div>`;
 
@@ -146,6 +159,8 @@ export function clusterLandingHtml(data) {
     `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="live-rollback">回滚</button>` +
     `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="artifact">导出映射</button>` +
     `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="live-refresh">刷新簿</button>` +
+    `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="live-refit" ` +
+    `title="跳到研究枢纽「跑分组」重估组 β（人审后对照/启用）。">建议重估</button>` +
     `</div></details>`;
 
   return (

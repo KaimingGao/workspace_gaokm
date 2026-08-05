@@ -47,6 +47,35 @@ def clamp_watching_limit(value: Any, default: int = 8) -> int:
     return max(3, min(n, 20))
 
 
+def panel_ic_factor_names(
+    *,
+    respect_regime: bool = False,
+    index_bars: Optional[List[dict]] = None,
+    cluster_feature_names: Optional[Sequence[str]] = None,
+) -> List[str]:
+    """组 IC 因子清单：全注册（或 regime 对齐），不绑单票 OLS 入模集。
+
+    大宇宙末日财务快照下，估值/质量在单票时序里近似常数 → 被剔出
+    ``_feature_union``；若 IC 表沿用该并集，截面 IC 永远不算这些因子。
+    """
+    from core.research.panel import _resolve_factor_names
+
+    names = list(
+        _resolve_factor_names(
+            respect_regime=bool(respect_regime),
+            index_bars=index_bars,
+            config=None,
+        )
+    )
+    seen = set(names)
+    for f in cluster_feature_names or []:
+        k = str(f).strip()
+        if k and k not in seen:
+            seen.add(k)
+            names.append(k)
+    return names
+
+
 def merge_cluster_universe(
     watchlist: Sequence[Any],
     holdings: Sequence[Any],
@@ -299,6 +328,15 @@ def group_cs_ic_panel(
         }
 
     min_names = 2 if n_stocks == 2 else 3
+    index_bars: Optional[List[dict]] = None
+    try:
+        from core.ports.market import default_benchmark, fetch_index_bars
+
+        bench = str(default_benchmark("CN") or "000300")
+        ib, _ = fetch_index_bars(bench, limit=160)
+        index_bars = list(ib or []) or None
+    except Exception:
+        index_bars = None
     out = compute_factor_cross_section_ic(
         bars_map,
         horizon_days=horizon_days,
@@ -308,6 +346,8 @@ def group_cs_ic_panel(
         fundamentals_by_code=fundamentals_by_code,
         pit_fundamentals=bool(pit_fundamentals),
         factor_names=names or None,
+        index_bars=index_bars,
+        require_all_factors=True,
     )
     if not out.get("success"):
         empty_rows = [
@@ -427,6 +467,22 @@ def _cluster_factor_ic_panel(
     )
 
 
+def cluster_speed_policy(panel_count: int) -> Dict[str, Any]:
+    """大宇宙（≥40）加速：末日财务快照 + 跳过 Ridge 选 λ。"""
+    n = int(panel_count or 0)
+    large = n >= 40
+    return {
+        "large_universe": large,
+        "daily_pit": not large,
+        "select_ridge": not large,
+        "note": (
+            f"宇宙 {n}≥40：财务用末日快照（非逐日 PIT）· 跳过 Ridge 选 λ 以加速"
+            if large
+            else None
+        ),
+    }
+
+
 def compute_factor_ols_cluster_report(
     stock_panels: List[Dict[str, Any]],
     *,
@@ -434,49 +490,84 @@ def compute_factor_ols_cluster_report(
     ridge_lambda: float = 0.0,
     n_clusters: Optional[int] = None,
     pit_fundamentals: bool = True,
+    sentiment_pit: bool = False,
     l2_normalize_betas: Optional[bool] = None,
     beta_scale: str = "feature_zscore",
     cluster_method: str = "hierarchical",
     cluster_linkage: str = "average",
     within_dist_quantile: float = 0.75,
+    respect_regime: bool = True,
+    select_ridge: bool = True,
+    collinearity_policy: str = "drop_redundant",
+    progress_cb: Optional[Any] = None,
+    max_workers: int = 8,
 ) -> Dict[str, Any]:
     """逐票 OLS → β 聚类 → 组内池 OLS + 小步权。
 
     默认 / 显式 ``n_clusters`` 均切到目标 k；不严踢异质升单票组（否则手动 k 会炸组数）。
     异质用探针核对。自动 k 另加超大组二分。
+    FS2：``sentiment_pit`` 注入 as_of alt_sentiment（与 live 闸独立）。
+    B5：默认 ``respect_regime=True``；B3：默认选 Ridge λ + 共线 drop_redundant。
+    大宇宙（≥40）：末日财务快照进面板（跳过逐日 PIT）+ 默认不选 λ，显著加速。
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from core.research.beta_accuracy import build_y_spec
+
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
     k_req = None if n_clusters is None else clamp_n_clusters(n_clusters, 3)
     horizon_days = max(1, min(int(horizon_days or 3), 10))
     use_pit = bool(pit_fundamentals)
+    use_sent_pit = bool(sentiment_pit)
     scale_mode = resolve_beta_scale(beta_scale, l2_normalize_betas=l2_normalize_betas)
     method_s = str(cluster_method or "hierarchical").strip().lower()
     link_s = str(cluster_linkage or "average").strip().lower()
     tau_q = float(within_dist_quantile)
+    y_spec = build_y_spec(horizon_days=horizon_days)
+    respect_regime = bool(respect_regime)
+    select_ridge = bool(select_ridge)
+    collinearity_policy = str(collinearity_policy or "drop_redundant")
 
-    per_stock: List[Dict[str, Any]] = []
-    skipped: List[Dict[str, str]] = []
-    panel_by_code: Dict[str, Dict[str, Any]] = {}
+    panel_n = sum(
+        1
+        for item in (stock_panels or [])
+        if str(item.get("code") or item.get("stock_code") or "").strip()
+        and (item.get("bars") or [])
+    )
+    speed = cluster_speed_policy(panel_n)
+    large_universe = bool(speed["large_universe"])
+    daily_pit = bool(use_pit and speed["daily_pit"])
+    if large_universe and select_ridge:
+        select_ridge = False
+    speed_note = speed.get("note") if large_universe else None
 
-    for item in stock_panels or []:
+    def _progress(msg: str, cur: int = 0, tot: int = 0) -> None:
+        if not progress_cb:
+            return
+        try:
+            progress_cb(msg, cur, tot)
+        except Exception:
+            pass
+
+    def _fit_one(item: Dict[str, Any]) -> Tuple[str, Optional[Dict[str, Any]], Optional[Dict[str, Any]], Optional[str]]:
         code = str(item.get("code") or item.get("stock_code") or "").strip()
         bars = item.get("bars") or []
         if not code:
-            continue
+            return "", None, None, None
         if not bars:
-            skipped.append({"code": code, "reason": "无日线"})
-            continue
+            return code, None, None, "无日线"
         xs, ys = collect_subscore_forward_panel(
             bars,
             horizon_days=horizon_days,
             index_bars=item.get("index_bars"),
             fundamentals=item.get("fundamentals"),
             stock_code=code,
-            pit_fundamentals=use_pit,
+            pit_fundamentals=daily_pit,
+            sentiment_pit=use_sent_pit,
+            respect_regime=respect_regime,
         )
         if not ys:
-            skipped.append({"code": code, "reason": "面板为空"})
-            continue
+            return code, None, None, "面板为空"
         fit = fit_factor_ols_from_panel(
             xs,
             ys,
@@ -486,15 +577,17 @@ def compute_factor_ols_cluster_report(
             mode="single",
             stock_codes=[code],
             ridge_lambda=lam,
+            select_ridge=False,
+            collinearity_policy=collinearity_policy,
+            respect_regime=respect_regime,
+            y_spec=y_spec,
         )
         if not fit.get("success"):
-            skipped.append(
-                {"code": code, "reason": str(fit.get("error") or "单票 OLS 失败")}
-            )
-            continue
+            return code, None, None, str(fit.get("error") or "单票 OLS 失败")
         fit["stock_code"] = code
-        per_stock.append(fit)
-        panel_by_code[code] = {
+        if xs:
+            fit["last_sub_scores"] = dict(xs[-1])
+        panel_pack = {
             "code": code,
             "bars": bars,
             "index_bars": item.get("index_bars"),
@@ -502,6 +595,33 @@ def compute_factor_ols_cluster_report(
             "xs": xs,
             "ys": ys,
         }
+        return code, fit, panel_pack, None
+
+    per_stock: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, str]] = []
+    panel_by_code: Dict[str, Dict[str, Any]] = {}
+
+    items = [it for it in (stock_panels or []) if isinstance(it, dict)]
+    workers = max(1, min(int(max_workers or 8), 12, len(items) or 1))
+    _progress(f"拟合 0/{len(items)}", 0, len(items))
+    done = 0
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = [pool.submit(_fit_one, item) for item in items]
+        for fut in as_completed(futs):
+            code, fit, panel_pack, reason = fut.result()
+            done += 1
+            if done == len(items) or done % 5 == 0 or done <= 3:
+                _progress(f"拟合 {done}/{len(items)}", done, len(items))
+            if not code:
+                continue
+            if reason:
+                skipped.append({"code": code, "reason": reason})
+                continue
+            if fit is None or panel_pack is None:
+                skipped.append({"code": code, "reason": "单票 OLS 失败"})
+                continue
+            per_stock.append(fit)
+            panel_by_code[code] = panel_pack
 
     if len(per_stock) < 2:
         return {
@@ -514,8 +634,11 @@ def compute_factor_ols_cluster_report(
             "horizon_days": horizon_days,
             "ridge_lambda": lam,
             "n_clusters": k_req,
+            "speed_note": speed_note,
+            "daily_pit": daily_pit,
         }
 
+    _progress(f"聚类 {len(per_stock)} 只…", len(per_stock), len(per_stock))
     feature_names = _feature_union(per_stock)
     if len(feature_names) < 2:
         return {
@@ -531,6 +654,17 @@ def compute_factor_ols_cluster_report(
         }
 
     codes = [str(r.get("stock_code")) for r in per_stock]
+    index_bars_probe = None
+    for c0 in codes:
+        ib0 = (panel_by_code.get(c0) or {}).get("index_bars")
+        if ib0:
+            index_bars_probe = ib0
+            break
+    ic_feature_names = panel_ic_factor_names(
+        respect_regime=respect_regime,
+        index_bars=index_bars_probe,
+        cluster_feature_names=feature_names,
+    )
     raw = _beta_matrix(per_stock, feature_names)
     x, scale_tf = fit_beta_scale_transform(raw, scale_mode)
     clustered = cluster_beta_vectors(
@@ -574,6 +708,10 @@ def compute_factor_ols_cluster_report(
                     mode="watching_pooled",
                     stock_codes=members,
                     ridge_lambda=lam,
+                    select_ridge=select_ridge,
+                    collinearity_policy=collinearity_policy,
+                    respect_regime=respect_regime,
+                    y_spec=y_spec,
                 )
                 if not pooled.get("success"):
                     continue
@@ -629,6 +767,7 @@ def compute_factor_ols_cluster_report(
             pool_ejects.extend(refined.get("ejects") or [])
 
     # 离群不丢弃：各自升为单票组（自动 k 路径通常无离群）
+    _progress("组池 OLS…", 0, 1)
     eject_by_idx: Dict[int, Dict[str, Any]] = {}
     for e in list(clustered.get("ejects") or []) + pool_ejects:
         if "index" in e:
@@ -709,7 +848,7 @@ def compute_factor_ols_cluster_report(
             cluster["factor_ic_panel"] = _cluster_factor_ic_panel(
                 members,
                 panel_by_code=panel_by_code,
-                feature_names=feature_names,
+                feature_names=ic_feature_names,
                 horizon_days=horizon_days,
                 pit_fundamentals=use_pit,
                 all_xs=all_xs,
@@ -741,6 +880,10 @@ def compute_factor_ols_cluster_report(
             mode="watching_pooled",
             stock_codes=members,
             ridge_lambda=lam,
+            select_ridge=select_ridge,
+            collinearity_policy=collinearity_policy,
+            respect_regime=respect_regime,
+            y_spec=y_spec,
         )
         pooled["mode"] = "cluster_pooled"
         cluster["ols"] = _public_cluster_ols(pooled, mode="cluster_pooled")
@@ -775,7 +918,7 @@ def compute_factor_ols_cluster_report(
             cluster["factor_ic_panel"] = _cluster_factor_ic_panel(
                 members,
                 panel_by_code=panel_by_code,
-                feature_names=feature_names,
+                feature_names=ic_feature_names,
                 horizon_days=horizon_days,
                 pit_fundamentals=use_pit,
                 all_xs=all_xs,
@@ -791,7 +934,7 @@ def compute_factor_ols_cluster_report(
             cluster["factor_ic_panel"] = _cluster_factor_ic_panel(
                 members,
                 panel_by_code=panel_by_code,
-                feature_names=feature_names,
+                feature_names=ic_feature_names,
                 horizon_days=horizon_days,
                 pit_fundamentals=use_pit,
                 all_xs=all_xs,
@@ -819,7 +962,7 @@ def compute_factor_ols_cluster_report(
             cluster["factor_ic_panel"] = _cluster_factor_ic_panel(
                 members,
                 panel_by_code=panel_by_code,
-                feature_names=feature_names,
+                feature_names=ic_feature_names,
                 horizon_days=horizon_days,
                 pit_fundamentals=use_pit,
                 all_xs=all_xs,
@@ -833,6 +976,47 @@ def compute_factor_ols_cluster_report(
         cl["top_betas"] = [
             {"factor": f, "beta": round(b, 4)} for f, b in top if math.isfinite(b)
         ]
+        # FS1：组内趋势族共线性（晋升人审提示）
+        try:
+            from core.signal.factor_collinearity import collinearity_from_panel_rows
+
+            mem_xs: List[Dict[str, Any]] = []
+            for code in cl.get("members") or []:
+                mem_xs.extend((panel_by_code.get(str(code)) or {}).get("xs") or [])
+            cl["trend_collinearity"] = collinearity_from_panel_rows(mem_xs)
+        except Exception as exc:
+            cl["trend_collinearity"] = {"success": False, "error": str(exc)}
+
+    panel_xs: List[Dict[str, Any]] = []
+    for p in panel_by_code.values():
+        panel_xs.extend(p.get("xs") or [])
+    try:
+        from core.signal.factor_collinearity import collinearity_from_panel_rows
+
+        trend_collinearity = collinearity_from_panel_rows(panel_xs)
+    except Exception as exc:
+        trend_collinearity = {"success": False, "error": str(exc)}
+
+    alt_sentiment_ic = None
+    if use_sent_pit:
+        try:
+            from core.research.sentiment_ic import summarize_alt_sentiment_ic_pool
+
+            alt_sentiment_ic = summarize_alt_sentiment_ic_pool(
+                [
+                    {
+                        "code": c,
+                        "bars": (panel_by_code.get(c) or {}).get("bars"),
+                        "index_bars": (panel_by_code.get(c) or {}).get("index_bars"),
+                        "fundamentals": (panel_by_code.get(c) or {}).get("fundamentals"),
+                    }
+                    for c in panel_by_code
+                ],
+                horizon_days=horizon_days,
+                pit_fundamentals=use_pit,
+            )
+        except Exception as exc:
+            alt_sentiment_ic = {"success": False, "error": str(exc)}
 
     in_codes = [codes[i] for i in range(len(codes)) if int(labels[i]) >= 0]
     n_singleton_out = len(singleton_outlier_groups)
@@ -869,6 +1053,7 @@ def compute_factor_ols_cluster_report(
         "tau_quantile": clustered.get("tau_quantile") or tau_q,
         "distance_scale": clustered.get("distance_scale"),
         "feature_names": list(feature_names),
+        "ic_feature_names": list(ic_feature_names),
         "stock_codes": in_codes,
         "fitted_codes": codes,
         "fitted_count": len(codes),
@@ -880,9 +1065,22 @@ def compute_factor_ols_cluster_report(
         "skipped": skipped,
         "clusters": clusters,
         "pit_fundamentals": use_pit,
+        "sentiment_pit": use_sent_pit,
+        "y_spec": y_spec,
+        "respect_regime": respect_regime,
+        "select_ridge": select_ridge,
+        "collinearity_policy": collinearity_policy,
+        "sample_fingerprint": _aggregate_sample_fingerprint(clusters),
+        "daily_pit": daily_pit,
+        "speed_note": speed_note,
+        "large_universe": large_universe,
+        "narrative": "primary=cross_section_pooled_ols; secondary=single_stock_timeseries_probe",
+        "trend_collinearity": trend_collinearity,
+        "alt_sentiment_ic": alt_sentiment_ic,
         "beta_scale": scale_mode,
         "l2_normalize_betas": scale_mode == "l2",
         "cluster_balance": _cluster_balance_stats(clusters),
+        "track": "B0-B5",
         "note": (
             (
                 f"按单票 OLS β（{scale_mode}，列缩尾）"
@@ -910,9 +1108,81 @@ def compute_factor_ols_cluster_report(
                 if not use_pit
                 else " 已开 PIT 财务，耗时更长。"
             )
+            + (
+                f" {speed_note}。"
+                if speed_note
+                else (
+                    " 主路径：截面/组池 OLS（respect_regime）；单票时序为诊断。"
+                    if respect_regime
+                    else " 研究全因子拟合（未对齐 regime）。"
+                )
+            )
             + " 研究探针，不写 signal_config。"
         ),
     }
+
+
+def _aggregate_sample_fingerprint(clusters: Sequence[Dict[str, Any]]) -> Dict[str, Any]:
+    """汇总各组 sample_fingerprint。
+
+    小组成员数 < 3 时，组指纹本身用自适应 min_names，不再把「n_names<3」
+    当成硬拦（单票/双票组是聚类设计内结果）。仍汇总 n_obs / 总 names。
+    """
+    from core.research.beta_accuracy import sample_fingerprint
+
+    obs = 0
+    names = 0
+    blockers: List[str] = []
+    spans: List[str] = []
+    for cl in clusters or []:
+        rm = (cl or {}).get("return_model") or {}
+        ols = (cl or {}).get("ols") or {}
+        fp = rm.get("sample_fingerprint") or ols.get("sample_fingerprint") or {}
+        if not isinstance(fp, dict):
+            continue
+        try:
+            obs += int(fp.get("n_obs") or 0)
+        except (TypeError, ValueError):
+            pass
+        try:
+            names += int(fp.get("n_names") or 0)
+        except (TypeError, ValueError):
+            pass
+        if fp.get("date_span"):
+            spans.append(str(fp["date_span"]))
+        if fp.get("promote_ok") is False:
+            # 仅保留非「小组员数」类拦阻（如 n_obs 不足）
+            for b in fp.get("blockers") or []:
+                bs = str(b)
+                if "n_names=" in bs and "min_names=" in bs:
+                    try:
+                        # n_names=2 < min_names=3 → 小组，忽略
+                        left = bs.split("n_names=")[1]
+                        n_part = left.split("<")[0].strip()
+                        if int(float(n_part)) < 3:
+                            continue
+                    except Exception:
+                        pass
+                blockers.append(bs)
+    # 全产物：总映射票数门槛仍用 3（至少覆盖若干票）；obs 用累加
+    out = sample_fingerprint(
+        n_obs=obs,
+        n_names=names,
+        date_span=spans[0] if len(spans) == 1 else ("; ".join(spans[:3]) if spans else None),
+        min_obs=24,
+        min_names=3,
+    )
+    if blockers:
+        out["promote_ok"] = False
+        existing = list(out.get("blockers") or [])
+        out["blockers"] = existing + [f"组内：{b}" for b in blockers[:6]]
+    out["n_clusters_with_fp"] = sum(
+        1
+        for cl in clusters or []
+        if isinstance(((cl or {}).get("return_model") or {}).get("sample_fingerprint"), dict)
+        or isinstance(((cl or {}).get("ols") or {}).get("sample_fingerprint"), dict)
+    )
+    return out
 
 
 def _cluster_balance_stats(clusters: Sequence[Dict[str, Any]]) -> Dict[str, Any]:

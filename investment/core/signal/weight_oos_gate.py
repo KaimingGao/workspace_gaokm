@@ -188,8 +188,13 @@ def evaluate_research_oos(
     oos_tol_pp: float = 1.0,
     min_names: int = 3,
     ridge_lambda: float = 0.0,
+    respect_regime: bool = True,
 ) -> Dict[str, Any]:
-    """heuristic 基线 vs predicted（研究模型）同一宇宙 Top-K OOS 对照。"""
+    """heuristic 基线 vs predicted（研究模型）同一宇宙 Top-K OOS 对照。
+
+    B5：``respect_regime=True``（默认）表示研究臂模型应按 regime 对齐因子集拟合；
+    本函数消费已拟合的 return_model，并在结果中戳记该约定。
+    """
     from core.signal.config import load_signal_config
     from core.watching_store import read_watching
     from core.research.portfolio_bars import load_portfolio_stock_bars
@@ -293,7 +298,7 @@ def evaluate_research_oos(
         ridge_lambda=ridge_lambda,
         fundamentals_by_code=fund_map or None,
     )
-    return _compare_arms(
+    out = _compare_arms(
         _metrics_from_backtest(base_bt),
         _metrics_from_backtest(res_bt),
         tol=float(oos_tol_pp),
@@ -303,6 +308,17 @@ def evaluate_research_oos(
         stock_count=len(stock_bars),
         codes=list(stock_bars.keys()),
     )
+    out["respect_regime"] = bool(respect_regime)
+    if out.get("note"):
+        out["note"] = (
+            str(out["note"])
+            + (
+                " 研究臂约定 respect_regime（与 live enabled_factors 对齐）。"
+                if respect_regime
+                else " 研究臂为全因子模型（未强制 regime）。"
+            )
+        )
+    return out
 
 
 def evaluate_weight_suggestion_oos(
@@ -319,6 +335,7 @@ def evaluate_weight_suggestion_oos(
     min_names: int = 3,
     research_models_by_code: Optional[Dict[str, Any]] = None,
     ridge_lambda: float = 0.0,
+    respect_regime: bool = True,
 ) -> Dict[str, Any]:
     """兼容入口：优先走 heuristic vs predicted；无模型时跳过。
 
@@ -338,6 +355,7 @@ def evaluate_weight_suggestion_oos(
             oos_tol_pp=oos_tol_pp,
             min_names=min_names,
             ridge_lambda=ridge_lambda,
+            respect_regime=respect_regime,
         )
     return {
         "ok": False,

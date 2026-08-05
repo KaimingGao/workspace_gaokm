@@ -30,6 +30,39 @@ class TestHistoryResolve(unittest.TestCase):
         self.assertEqual(src, "akshare_us_daily")
         self.assertEqual(len(out), 2)
 
+    def test_offline_ok_returns_stale_cache_without_network(self):
+        stale_bars = [
+            {
+                "date": f"2026-01-{i:02d}",
+                "open": 1,
+                "high": 2,
+                "low": 1,
+                "close": 1.5,
+                "volume": 10,
+            }
+            for i in range(1, 50)
+        ]
+        with patch(
+            "skills.common.history.resolve_market_code", return_value=("CN", "600519")
+        ), patch(
+            "core.store.peek_daily_cache_meta",
+            return_value={"adjust_policy": "qfq"},
+        ), patch(
+            "skills.common.history.load_daily_cache",
+            side_effect=[
+                None,  # fresh miss
+                (stale_bars, {"data_source": "akshare_cn_daily:qfq"}),  # ignore_age
+            ],
+        ), patch(
+            "skills.common.history.fetch_a_daily_bars",
+            side_effect=AssertionError("should not hit network"),
+        ):
+            out, src = fetch_daily_bars(
+                "600519", limit=40, offline_ok=True, incremental=False
+            )
+        self.assertEqual(len(out), 40)
+        self.assertTrue(str(src).startswith("cache"))
+
     def test_fetch_a_daily_falls_back_to_sina(self):
         from types import ModuleType
 

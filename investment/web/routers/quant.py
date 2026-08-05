@@ -29,6 +29,7 @@ from web.schemas import (
     FactorExperimentRequest,
     FactorOlsClusterRequest,
     ScoringFloorsRequest,
+    SentimentPriorRequest,
     FactorOlsPoolRequest,
     ParamGridRequest,
     PortfolioBacktestRequest,
@@ -144,6 +145,34 @@ def signal_config_scoring_floors(body: ScoringFloorsRequest):
             min_predicted_score=body.min_predicted_score,
             min_hold_predicted_score=body.min_hold_predicted_score,
             note=body.note or "策略中心人审",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not out.get("success"):
+        raise HTTPException(status_code=400, detail=out.get("error") or "写入失败")
+    return out
+
+
+@router.get("/api/signal/config/sentiment-prior")
+def signal_config_sentiment_prior_get():
+    """舆情先验配置只读。"""
+    try:
+        return deps.quant.read_sentiment_prior()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/signal/config/sentiment-prior")
+def signal_config_sentiment_prior_save(body: SentimentPriorRequest):
+    """人审写入 prior.mode 等；强制不进 ŷ；不改 weights。"""
+    try:
+        out = deps.quant.save_sentiment_prior(
+            mode=body.mode,
+            bearish_score_min=body.bearish_score_min,
+            block_new_buys=body.block_new_buys,
+            scale_buy_pct=body.scale_buy_pct,
+            scale_holds=body.scale_holds,
+            note=body.note or "策略中心人审·舆情先验",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -294,6 +323,10 @@ def quant_factor_ols_clusters(body: FactorOlsClusterRequest):
         run_group_score=body.run_group_score,
         run_pool_merge=body.run_pool_merge,
         top_n_per_group=body.top_n_per_group,
+        respect_regime=body.respect_regime,
+        select_ridge=body.select_ridge,
+        collinearity_policy=body.collinearity_policy,
+        refresh_bars=bool(body.refresh_bars),
     )
     try:
         if body.sync:

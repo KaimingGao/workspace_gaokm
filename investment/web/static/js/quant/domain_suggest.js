@@ -368,7 +368,9 @@ export function installSuggest(q) {
       const msg = job.message || (job.status === "running" ? "运行中…" : "");
       const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
       setQuantMeta(
-        `分组中… ${sec}s · ${msg}${pct ? ` · ${pct}%` : ""}`,
+        `分组中… ${sec}s · ${msg || "运行中"}${
+          Number.isFinite(pct) && pct > 0 ? ` · ${Math.round(pct)}%` : ""
+        }`,
         { busy: true }
       );
       if (job.status === "done") return job;
@@ -418,6 +420,15 @@ export function installSuggest(q) {
           run_group_score: true,
           run_pool_merge: true,
           top_n_per_group: 10,
+          refresh_bars: !!(
+            (document.getElementById("quant-cluster-refresh-bars") || {})
+              .checked
+          ),
+          // 默认关：研究全因子；勾选=与 live regime 白名单对齐（表里会裁掉许多因子）
+          respect_regime: !!(
+            (document.getElementById("quant-cluster-respect-regime") || {})
+              .checked
+          ),
         }),
       });
       let data = null;
@@ -490,8 +501,13 @@ export function installSuggest(q) {
         (data.lookahead_flags && data.lookahead_flags.pit_fundamentals === false)
           ? " · 非PIT"
           : " · PIT";
+      const br = data.bars_refresh || {};
+      const barsTag = data.refresh_bars
+        ? ` · 日线远端 ${br.remote_count ?? 0}/${br.total ?? "—"}`
+        : " · 仅缓存日线";
+      const regimeTag = data.respect_regime ? " · regime裁剪" : " · 全因子";
       setQuantMeta(
-        `分组 · ${nCl} 组${kTag} · 观察 ${nWatch || nUni} · 入组 ${nIn} · ${sec}s${oosTag}${pmOk}${pitTag}`
+        `分组 · ${nCl} 组${kTag} · 观察 ${nWatch || nUni} · 入组 ${nIn} · ${sec}s${oosTag}${pmOk}${pitTag}${barsTag}${regimeTag}`
       );
     } finally {
       stopTick();

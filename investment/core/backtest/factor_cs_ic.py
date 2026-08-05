@@ -71,8 +71,14 @@ def compute_factor_cross_section_ic(
     fundamentals_by_code: Optional[Dict[str, dict]] = None,
     pit_fundamentals: bool = True,
     factor_names: Optional[List[str]] = None,
+    index_bars: Optional[List[dict]] = None,
+    require_all_factors: bool = True,
 ) -> Dict[str, Any]:
-    """对每个注册因子算池内日频截面 IC（Pearson / Spearman）。"""
+    """对每个注册因子算池内日频截面 IC（Pearson / Spearman）。
+
+    ``require_all_factors``：把 factor_names 作 required_keys 强制算全，
+    避免 live regime/权重裁剪导致组 IC 表大片「未算」。
+    """
     from core.backtest.engine import _mock_quote_from_bars
     from core.signal.cross_section_batch import score_window_as_item
     from core.signal.factor_registry import registered_factor_names
@@ -88,6 +94,7 @@ def compute_factor_cross_section_ic(
     min_history = max(5, int(min_history or 12))
     # 组内宇宙可能只有 2～3 只；显式传入时可低至 2（日截面仍偏噪）
     min_names = max(2, int(min_names or 5))
+    req_keys = list(names) if require_all_factors else None
 
     date_maps = {c: _bars_by_date(b) for c, b in stock_bars.items()}
     dates = _common_dates(stock_bars)
@@ -161,6 +168,8 @@ def compute_factor_cross_section_ic(
                 horizon_days=horizon_days,
                 quote=quote,
                 fundamentals=fund,
+                index_bars=index_bars,
+                required_factor_keys=req_keys,
             )
             if not item or item.get("hard_reject"):
                 continue
@@ -237,6 +246,7 @@ def compute_factor_cross_section_ic(
         "stock_count": len(stock_bars),
         "day_count": len(day_meta),
         "pit_fundamentals": bool(pit_fundamentals),
+        "require_all_factors": bool(require_all_factors),
         "calendar": calendar_tag,
         "score_ic": score_block,
         "factors": factors_out,

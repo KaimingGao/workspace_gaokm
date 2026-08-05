@@ -38,6 +38,20 @@
           inputmode="numeric"
         />
       </label>
+      <label
+        class="platform-field quant-cluster-refresh"
+        title="默认勾选：过期/缺条日线限流拉网后再分组。取消=纯本地缓存重算（改 K/λ 更快；行情未变则分组几乎不变）。刷新浏览器页不会更新日线。"
+      >
+        <input id="quant-cluster-refresh-bars" type="checkbox" checked />
+        刷新过期日线
+      </label>
+      <label
+        class="platform-field quant-cluster-refresh"
+        title="勾选后：因子集对齐当前大盘 regime 白名单（如中性时可能只留动量/量价/RS/估值/质量），表里其它因子会显示未算。不勾选=研究用全注册因子（推荐看全表 IC/β）。不影响交易执行 live 打分。"
+      >
+        <input id="quant-cluster-respect-regime" type="checkbox" />
+        对齐 regime 裁剪
+      </label>
       <button
         type="button"
         id="quant-ols-clusters-run"
@@ -62,6 +76,9 @@
           表单默认 <strong>ridge λ=0.5</strong>、<strong>K=10</strong>；
           <strong>K 清空</strong>=自动约 N/5（夹在 4～10），超大组再二分；
           <strong>填 ≥2</strong>=按目标 k 切簇（尽量贴近 K；实际上限≈有效票数，不因离群拆成单票堆）。
+          「跑分组」默认<strong>刷新过期日线</strong>（约 36h 内仍用本地；过期/缺条限流拉网）——否则行情未变时重跑几乎无新信息。
+          仅调 K/λ 时可取消勾选，用本地缓存快跑。刷新浏览器页不会更新日线。
+          默认<strong>不</strong>勾「对齐 regime 裁剪」=全注册因子进面板；勾选后与 live 大盘白名单对齐（中性时可能只留动量/量价等，其它显示未算）。
           异质用探针核对。
           <strong>一组一表</strong>标题含成员（名称+代码）；主列展示<strong>因子系数 β</strong>
          （z 上 ŷ 百分点斜率，可负；<strong>不是</strong>归一化权重）。

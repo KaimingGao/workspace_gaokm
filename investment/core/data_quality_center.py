@@ -55,14 +55,47 @@ def build_data_quality_report(
     cal = calendar_status()
     disc = (ss.get("discipline") or {}) if isinstance(ss, dict) else {}
     warnings = list(disc.get("warnings") or [])
-
     status = "ok"
+
     if fund.get("real_multi_coverage") is not None:
         try:
             if float(fund["real_multi_coverage"]) < 0.5:
                 status = "warn"
+                warnings.append(
+                    f"real_multi_coverage={fund['real_multi_coverage']} < 0.5 · "
+                    + str(fund.get("ingest_hint") or "请 ingest-history")
+                )
         except (TypeError, ValueError):
             pass
+    ann_missing_top = []
+    try:
+        from core.research.beta_accuracy import ann_missing_top_codes
+
+        ann_missing_top = ann_missing_top_codes(fund, limit=15)
+    except Exception:
+        ann_missing_top = []
+    if fund.get("ann_missing_code_ratio") is not None:
+        try:
+            if float(fund["ann_missing_code_ratio"]) > 0.3:
+                status = "warn" if status == "ok" else status
+                warnings.append(
+                    f"ann_missing 码占比={fund['ann_missing_code_ratio']} "
+                    f"（{fund.get('ann_missing_codes')} 只）· 补公告日以免前视"
+                )
+        except (TypeError, ValueError):
+            pass
+
+    factor_health = None
+    try:
+        from core.signal.factor_health import assess_factor_health
+
+        factor_health = assess_factor_health()
+        if factor_health.get("blockers"):
+            status = "warn" if status == "ok" else status
+            warnings.extend(list(factor_health.get("blockers") or [])[:4])
+    except Exception as e:
+        factor_health = {"ok": False, "error": str(e)}
+
     if audit and audit.get("status") in ("warn", "bad"):
         status = "bad" if audit.get("status") == "bad" else (status if status == "bad" else "warn")
     if warnings:
@@ -72,15 +105,19 @@ def build_data_quality_report(
         "ok": True,
         "kind": "data_quality_center",
         "status": status,
-        "track": "D0-D4",
+        "track": "D0-D4+X+B0",
         "bars_coverage": coverage,
-        "fundamentals_history": fund,
+        "fundamentals_history": {
+            **fund,
+            "ann_missing_top": ann_missing_top,
+        },
+        "factor_health": factor_health,
         "sample_discipline": disc,
         "source_audit": audit,
         "calendar": cal,
-        "warnings": warnings[:12],
+        "warnings": warnings[:16],
         "note": (
-            "数据质量中心 lite：聚合覆盖率/财务多期/源审计/日历；"
-            "非独立数仓监控台。运营项见 maturity-gate。"
+            "数据质量中心：覆盖率/财务多期/ann_missing/因子健康/源审计/日历；"
+            "B 轨回归准确性见 beta-regression-strengthen；运营项见 maturity-gate。"
         ),
     }

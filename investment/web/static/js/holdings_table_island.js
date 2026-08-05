@@ -4,8 +4,19 @@
 
 import { fmtPriceUnit, fmtPct, metricCls, fmtScore, scoreCls } from "./paper/fmt.js";
 import { mountVirtualTable, escapeHtml, truncateName } from "./virtual_table.js";
+import { sentimentBadgeHtml } from "./quant/watching_render.js";
 
-export function holdingToRow(h, { chartMode, chartStockCode, selectedHoldCode, pendingFocusCode } = {}) {
+export function holdingSentPlaceholder(code) {
+  const c = String(code || "").trim();
+  return (
+    `<span class="watching-sent-badge is-neutral" data-code="${escapeHtml(c)}" title="加载中">…</span>`
+  );
+}
+
+export function holdingToRow(
+  h,
+  { chartMode, chartStockCode, selectedHoldCode, pendingFocusCode, sentHtml } = {}
+) {
   const code = String(h.stock_code || "").trim();
   const name = h.stock_name || code || "";
   const pnl = h.pnl_pct;
@@ -24,6 +35,10 @@ export function holdingToRow(h, { chartMode, chartStockCode, selectedHoldCode, p
     code,
     name,
     shares: h.shares,
+    sentHtml:
+      sentHtml != null && sentHtml !== ""
+        ? sentHtml
+        : holdingSentPlaceholder(code),
     priceText: fmtPriceUnit(h.price, h.unit, h.currency),
     costText: fmtPriceUnit(h.cost, h.unit, h.currency),
     mvText: fmtPriceUnit(h.market_value, h.unit, h.currency),
@@ -62,6 +77,11 @@ export function holdingToRow(h, { chartMode, chartStockCode, selectedHoldCode, p
   };
 }
 
+/** 供外部把接口 sentiment 转成徽章 HTML（与数据中心同源）。 */
+export function holdingSentimentHtml(sent, code) {
+  return sentimentBadgeHtml(sent || {}, code);
+}
+
 const ORIGIN_HINT = {
   manual: "你手动建仓或加仓",
   strategy: "由「按策略调仓」生成",
@@ -70,10 +90,17 @@ const ORIGIN_HINT = {
 
 const COLS = [
   { id: "name", label: "股票", flex: true },
-  { id: "shares", label: "股数", widthPct: 7, num: true },
-  { id: "price", label: "现价", widthPct: 9, num: true },
-  { id: "cost", label: "成本", widthPct: 9, num: true, title: "持仓加权平均成本，对账用" },
-  { id: "market_value", label: "市值", widthPct: 10, num: true, sortable: true },
+  {
+    id: "sent",
+    label: "情绪",
+    widthPct: 5,
+    headClass: "watching-col-center",
+    cellClass: "watching-col-center paper-hold-sent",
+  },
+  { id: "shares", label: "股数", widthPct: 6, num: true },
+  { id: "price", label: "现价", widthPct: 8, num: true },
+  { id: "cost", label: "成本", widthPct: 8, num: true, title: "持仓加权平均成本，对账用" },
+  { id: "market_value", label: "市值", widthPct: 9, num: true, sortable: true },
   { id: "score", label: "评分", widthPct: 7, num: true, sortable: true },
   {
     id: "pnl",
@@ -143,6 +170,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
           `<span class="paper-wl-code">${escapeHtml(d.code || "")}</span></div>`
         );
       }
+      if (col.id === "sent") return d.sentHtml || holdingSentPlaceholder(d.code);
       if (col.id === "shares") return escapeHtml(d.shares != null ? String(d.shares) : "—");
       if (col.id === "price") return escapeHtml(d.priceText || "—");
       if (col.id === "cost") {

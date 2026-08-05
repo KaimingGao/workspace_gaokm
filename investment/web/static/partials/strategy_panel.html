@@ -53,6 +53,125 @@
     <p id="strategy-floor-status" class="quant-fingerprint" aria-live="polite"></p>
   </section>
 
+  <section class="quant-section strategy-section" id="strategy-sentiment-prior">
+    <div class="strategy-section-head">
+      <h3 class="strategy-section-title">舆情先验</h3>
+      <p class="strategy-section-sub">
+        Policy · ŷ 外旁路 · 人审写盘
+      </p>
+    </div>
+
+    <p class="strategy-prior-contract" role="note">
+      <span class="strategy-prior-contract-k">契约</span>
+      排序真源仍是 <code>predicted_score</code>（ŷ）；本区只改
+      <code>policy(ŷ, S)</code>——告警或约束新开仓，不改分、不改 weights。
+    </p>
+
+    <div class="strategy-prior-body">
+      <div class="strategy-prior-col strategy-prior-col-mode">
+        <p class="strategy-prior-label" id="strategy-prior-mode-label">运行模式</p>
+        <fieldset
+          class="strategy-prior-modes"
+          id="strategy-prior-mode-group"
+          aria-labelledby="strategy-prior-mode-label"
+        >
+          <legend class="sr-only">prior.mode</legend>
+          <label class="strategy-prior-card">
+            <input type="radio" name="strategy-prior-mode" value="off" />
+            <span class="strategy-prior-card-inner">
+              <span class="strategy-prior-card-top">
+                <span class="strategy-prior-card-title">关闭</span>
+                <code class="strategy-prior-card-code">off</code>
+              </span>
+              <span class="strategy-prior-card-desc">仅展示徽章；调仓不读先验</span>
+            </span>
+          </label>
+          <label class="strategy-prior-card">
+            <input type="radio" name="strategy-prior-mode" value="risk" />
+            <span class="strategy-prior-card-inner">
+              <span class="strategy-prior-card-top">
+                <span class="strategy-prior-card-title">仅警告</span>
+                <code class="strategy-prior-card-code">risk</code>
+              </span>
+              <span class="strategy-prior-card-desc">强看空写入 warnings；仍可买入</span>
+            </span>
+          </label>
+          <label class="strategy-prior-card">
+            <input type="radio" name="strategy-prior-mode" value="gate" />
+            <span class="strategy-prior-card-inner">
+              <span class="strategy-prior-card-top">
+                <span class="strategy-prior-card-title">约束开仓</span>
+                <code class="strategy-prior-card-code">gate</code>
+              </span>
+              <span class="strategy-prior-card-desc">强看空时跳过/缩减新开仓，可选同步缩已持仓</span>
+            </span>
+          </label>
+        </fieldset>
+      </div>
+
+      <div class="strategy-prior-col strategy-prior-col-params">
+        <p class="strategy-prior-label">触发与 Gate</p>
+        <div class="strategy-prior-params">
+          <label class="strategy-prior-field">
+            <span class="strategy-prior-field-title">看空阈值</span>
+            <span class="strategy-prior-field-hint">规则风险分 S ≥ 阈值视为强看空</span>
+            <span class="strategy-prior-field-ctrl">
+              <input
+                id="strategy-prior-thr"
+                type="number"
+                min="0"
+                max="1"
+                step="0.05"
+                class="platform-input"
+                title="bearish_score_min"
+              />
+              <span class="strategy-prior-unit">S</span>
+            </span>
+          </label>
+          <div id="strategy-prior-gate-opts" class="strategy-prior-gate-only" hidden>
+            <label class="strategy-prior-field strategy-prior-field-check">
+              <input type="checkbox" id="strategy-prior-block-buys" />
+              <span>
+                <span class="strategy-prior-field-title">禁止新开仓</span>
+                <span class="strategy-prior-field-hint">勾选后 skip；不勾选则按比例缩仓</span>
+              </span>
+            </label>
+            <label class="strategy-prior-field strategy-prior-field-check">
+              <input type="checkbox" id="strategy-prior-scale-holds" />
+              <span>
+                <span class="strategy-prior-field-title">已持仓同步缩仓</span>
+                <span class="strategy-prior-field-hint">强看空时按下方比例减仓（非整批清仓）</span>
+              </span>
+            </label>
+            <label class="strategy-prior-field">
+              <span class="strategy-prior-field-title">缩仓比例</span>
+              <span class="strategy-prior-field-hint">新开仓与已持仓共用（剩余目标仓）</span>
+              <span class="strategy-prior-field-ctrl">
+                <input
+                  id="strategy-prior-scale"
+                  type="number"
+                  min="0"
+                  max="100"
+                  step="5"
+                  class="platform-input"
+                  title="scale_buy_pct ×100"
+                />
+                <span class="strategy-prior-unit">%</span>
+              </span>
+            </label>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="strategy-prior-footer">
+      <button type="button" id="strategy-prior-save" class="dialog-btn">
+        保存先验配置
+      </button>
+      <p id="strategy-prior-status" class="quant-fingerprint strategy-prior-status" aria-live="polite"></p>
+    </div>
+  </section>
+
   <section class="quant-section strategy-section" id="strategy-promote-lab">
     <div class="strategy-section-head">
       <h3 class="strategy-section-title">人审晋升</h3>

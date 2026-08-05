@@ -1381,6 +1381,28 @@ export function initQuant(ctx) {
     });
   }
 
+  const priorSaveBtn = document.getElementById("strategy-prior-save");
+  if (priorSaveBtn) {
+    priorSaveBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      strategy.saveStrategySentimentPrior().catch(() => {});
+    });
+  }
+  document.querySelectorAll('input[name="strategy-prior-mode"]').forEach((el) => {
+    el.addEventListener("change", () => {
+      if (typeof strategy.syncPriorGateOptsVisibility === "function") {
+        strategy.syncPriorGateOptsVisibility();
+      } else {
+        const opts = document.getElementById("strategy-prior-gate-opts");
+        const checked = document.querySelector(
+          'input[name="strategy-prior-mode"]:checked'
+        );
+        if (opts) opts.hidden = !(checked && checked.value === "gate");
+      }
+    });
+  });
+  strategy.loadSentimentPriorForm?.().catch(() => {});
+
   ctx.applyQuantArtifact = async function applyQuantArtifact(art) {
     const data = (art && art.data) || {};
     const task = String((art.params && art.params.task) || data.task || "").toLowerCase();

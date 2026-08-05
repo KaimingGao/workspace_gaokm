@@ -13,52 +13,88 @@ def _records(df_or_rows: Any) -> List[dict]:
 
 
 def fetch_cn_spot_row(code: str) -> Optional[dict]:
-    """从 A 股现货表中取单行（含动态 PE/PB 等）。"""
-    from skills.common.ak_lock import import_akshare
+    """从 A 股现货表中取单行（含动态 PE/PB 等）。优先本地/内存现货，避免每票重拉全表。"""
+    from skills.screen.engine import fetch_a_spot, load_disk_spot, spot_row_get
 
-    ak = import_akshare()
-
-    df = ak.stock_zh_a_spot_em()
-    rows = _records(df)
     code = str(code).zfill(6)
+    rows = load_disk_spot(max_age_hours=24 * 14) or []
+    if not rows:
+        try:
+            rows = list(fetch_a_spot() or [])
+        except Exception:
+            rows = []
     for row in rows:
-        c = str(_row_get(row, "code") or "").zfill(6)
+        c = str(spot_row_get(row, "code") or "").zfill(6)
         if c == code:
             return row
     return None
 
 
 def fetch_cn_valuation_latest(code: str) -> Dict[str, Any]:
-    """乐咕乐股估值序列取最新一条（可选增强）。"""
+    """估值最新一条：乐咕优先；缺失时回退东方财富 ``stock_value_em``（含 PE/PB）。"""
     from skills.common.ak_lock import import_akshare
 
     ak = import_akshare()
-
     code = str(code).zfill(6)
+
     fn = getattr(ak, "stock_a_lg_indicator", None) or getattr(ak, "stock_a_indicator_lg", None)
-    if fn is None:
+    if fn is not None:
+        try:
+            df = fn(stock=code)
+            rows = _records(df)
+            if rows:
+                latest = rows[-1]
+                for cand in (rows[-1], rows[0]):
+                    if _to_float(cand.get("pe_ttm") or cand.get("pe")) is not None:
+                        latest = cand
+                        break
+                pe = _to_float(latest.get("pe"))
+                pe_ttm = _to_float(latest.get("pe_ttm"))
+                pb = _to_float(latest.get("pb"))
+                if pe is not None or pe_ttm is not None or pb is not None:
+                    return {
+                        "pe": pe,
+                        "pe_ttm": pe_ttm,
+                        "pb": pb,
+                        "ps_ttm": _to_float(latest.get("ps_ttm")),
+                        "dv_ttm": _to_float(latest.get("dv_ttm")),
+                        "total_mv": _to_float(latest.get("total_mv")),
+                        "as_of": str(
+                            latest.get("trade_date") or latest.get("日期") or ""
+                        ),
+                        "source": "akshare_lg_indicator",
+                    }
+        except Exception:
+            pass
+
+    # 乐咕不可用 / 东财全表现货挂掉时：单票估值序列仍常可用
+    try:
+        df = ak.stock_value_em(symbol=code)
+        rows = _records(df)
+        if not rows:
+            return {}
+        latest = rows[-1]
+        pe_ttm = _to_float(
+            latest.get("PE(TTM)")
+            or latest.get("PE_TTM")
+            or latest.get("pe_ttm")
+        )
+        pe_static = _to_float(
+            latest.get("PE(静)") or latest.get("PE") or latest.get("pe")
+        )
+        pb = _to_float(latest.get("市净率") or latest.get("pb"))
+        return {
+            "pe": pe_ttm if pe_ttm is not None else pe_static,
+            "pe_ttm": pe_ttm,
+            "pb": pb,
+            "ps_ttm": _to_float(latest.get("市销率") or latest.get("ps_ttm")),
+            "dv_ttm": None,
+            "total_mv": _to_float(latest.get("总市值") or latest.get("total_mv")),
+            "as_of": str(latest.get("数据日期") or latest.get("date") or "")[:10],
+            "source": "akshare_value_em",
+        }
+    except Exception:
         return {}
-    df = fn(stock=code)
-    rows = _records(df)
-    if not rows:
-        return {}
-    # 通常按日期升序或降序，取最后或第一含 pe 的
-    latest = rows[-1]
-    # 若首行更新，也尝试 rows[0]
-    for cand in (rows[-1], rows[0]):
-        if _to_float(cand.get("pe_ttm") or cand.get("pe")) is not None:
-            latest = cand
-            break
-    return {
-        "pe": _to_float(latest.get("pe")),
-        "pe_ttm": _to_float(latest.get("pe_ttm")),
-        "pb": _to_float(latest.get("pb")),
-        "ps_ttm": _to_float(latest.get("ps_ttm")),
-        "dv_ttm": _to_float(latest.get("dv_ttm")),
-        "total_mv": _to_float(latest.get("total_mv")),
-        "as_of": str(latest.get("trade_date") or latest.get("日期") or ""),
-        "source": "akshare_lg_indicator",
-    }
 
 
 def _extract_ann_date(row: dict) -> str:

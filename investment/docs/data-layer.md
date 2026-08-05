@@ -108,7 +108,7 @@ flowchart LR
 | 数据类型 | PIT？ | 说明 |
 |----------|-------|------|
 | 日线回测窗口 | **是（研究近似）** | `core/data_pit.window_as_of`；单票/组合回测打分窗只含决策日及以前；`get_bars(..., as_of=)` 可切条 |
-| 基本面 | **部分（R1+V0+C1）** | `history[]` + `get_fundamentals(as_of=)`；**真实多期**用 `ingest-history` / `fundamentals_warmup(ingest_history=True)` 从 AkShare 财务全表入库；`sample_status` 区分 `real_multi` vs `synthetic_demo`；验证宇宙见 `data/validation_universe.json` |
+| 基本面 | **live+研究 as_of（X0）** | live `score_stock` 经 `resolve_live_fundamentals` 与 panel/OLS 同源；缺 ann 标 `ann_missing`；覆盖见 DQ / sample_ops |
 | 资讯标题 | **否** | 实时拉取，不作历史面板；舆情因子演进见 [sentiment-layer.md](sentiment-layer.md) |
 
 ### 验证宇宙约定（V0）

@@ -98,14 +98,35 @@ def rank_cluster_pools(
     mapped_rows: List[dict] = []
     below_min = 0
 
-    for raw in codes:
-        # 与纸面持仓打分一致：跳过基本面拉取，避免预演分 ≠ 持仓表分
-        result = score_stock(
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    def _score_one(raw: str) -> Dict[str, Any]:
+        # 与纸面持仓打分一致：跳过基本面；刷簿跳过舆情（避免 N×12s）
+        return score_stock(
             raw,
             horizon_days=horizon_days,
             cluster_mode="active",
             skip_fundamentals=True,
+            skip_sentiment=True,
         )
+
+    workers = max(1, min(8, len(codes)))
+    scored_by_code: Dict[str, Dict[str, Any]] = {}
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futs = {pool.submit(_score_one, raw): raw for raw in codes}
+        for fut in as_completed(futs):
+            raw = futs[fut]
+            try:
+                scored_by_code[raw] = fut.result()
+            except Exception as e:
+                scored_by_code[raw] = {
+                    "success": False,
+                    "stock_code": raw,
+                    "error": str(e),
+                }
+
+    for raw in codes:
+        result = scored_by_code.get(raw) or {"success": False, "error": "no_result"}
         if not result.get("success"):
             rejected.append({"stock_code": raw, "reason": result.get("error")})
             continue

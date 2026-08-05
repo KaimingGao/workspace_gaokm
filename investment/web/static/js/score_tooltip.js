@@ -122,13 +122,15 @@ export function formatFormulaTermsSection(raw) {
   const rows = terms
     .map((t) => {
       const name = t.label || FACTOR_LABELS[t.key] || t.key || "—";
+      const gated = !!t.gated;
+      const nameExtra = gated ? "（闸关）" : t.note ? `（${t.note}）` : "";
       const beta = fmtSigned(t.beta, 3);
-      const z = fmtSigned(t.z, 2);
-      const contrib = fmtSigned(t.contrib, 3);
+      const z = gated ? "—" : fmtSigned(t.z, 2);
+      const contrib = gated ? "0" : fmtSigned(t.contrib, 3);
       return (
-        `<tr>` +
+        `<tr${gated ? ' class="score-ft-gated"' : ""}>` +
         `<td class="score-ft-name" title="${escapeText(t.key || "")}">${escapeText(
-          name
+          name + nameExtra
         )}</td>` +
         `<td class="num ${signCls(t.beta)}">${escapeText(beta)}</td>` +
         `<td class="num ${signCls(t.z)}">${escapeText(z)}</td>` +
@@ -162,7 +164,91 @@ export function formatFormulaTermsSection(raw) {
     `<td class="num ${signCls(expl.total)}">${escapeText(total)}%</td>` +
     `</tr>` +
     `</tbody></table>` +
-    `<div class="score-formula-caption">β×z = 贡献；按 |贡献| 排序</div>` +
+    `<div class="score-formula-caption">β×z = 贡献；按 |贡献| 排序；舆情闸关时贡献为 0</div>` +
+    `</div>`
+  );
+}
+
+/** 特征同构（X 轨）：财务 PIT / 指数 / 深度边界。 */
+export function formatFeatureIsoSection(raw) {
+  if (!raw) return "";
+  const bits = [];
+  const pit = raw.fundamentals_pit || {};
+  if (pit && (pit.mode || pit.as_of || pit.decision_as_of)) {
+    const mode = String(pit.mode || "—");
+    const asOf = String(pit.as_of || pit.decision_as_of || "—");
+    bits.push(`财务 PIT · mode=${mode} · as_of=${asOf}`);
+    if (pit.ann_missing) bits.push("ann_missing（可用日缺公告日）");
+    if (pit.non_pit) bits.push("非严格 PIT 快照");
+    if (pit.ok === false) bits.push("财务点缺失/失败");
+  }
+  const idx = raw.index_meta || {};
+  if (idx && (idx.benchmark || idx.reason || idx.ok != null)) {
+    if (idx.ok) {
+      bits.push(
+        `指数 ${String(idx.benchmark || "")} · ${Number(idx.bar_count) || "?"} 根`
+      );
+    } else {
+      bits.push(`指数不可用 · ${String(idx.reason || "no_index")}`);
+    }
+  }
+  const depth = String(raw.fundamentals_depth || "").trim();
+  if (depth) {
+    const depthNote =
+      (raw.fundamentals_depth_meta && raw.fundamentals_depth_meta.note) || "";
+    bits.push(
+      depth === "cn_full"
+        ? "财务深度 · A 股完整（需 ingest）"
+        : depth === "hk_shallow"
+          ? "财务深度 · 港股浅"
+          : depth === "us_shallow"
+            ? "财务深度 · 美股/其他浅"
+            : `财务深度 · ${depth}`
+    );
+    if (depthNote && depth !== "cn_full") bits.push(String(depthNote));
+  }
+  if (!bits.length) return "";
+  return (
+    `<div class="score-feature-iso-section">` +
+    `<div class="score-section-title">特征同构</div>` +
+    bits.map((b) => `<div class="score-sentiment-line">${escapeText(b)}</div>`).join("") +
+    `</div>`
+  );
+}
+
+/** 舆情先验（ŷ 外）旁路提示。 */
+export function formatSentimentGateSection(raw) {
+  if (!raw) return "";
+  const bits = [];
+  const prior = raw.sentiment_prior || {};
+  const mode = String(prior.mode || "").trim();
+  bits.push("舆情 = 先验旁路 · 不进 predicted_score / 非因子");
+  if (mode) {
+    const active = prior.active ? "触发" : "未触发";
+    bits.push(`prior.mode=${mode} · ${active}`);
+  } else if (
+    raw.sentiment_include_in_score === false ||
+    raw.sentiment_include_in_score === true
+  ) {
+    bits.push(
+      raw.sentiment_include_in_score
+        ? "遗留：include_in_score=true（不推荐；应走 prior.mode）"
+        : "include_in_score=false（硬闸）"
+    );
+  }
+  const hints = Array.isArray(raw.risk_hints) ? raw.risk_hints : [];
+  for (const h of hints.slice(0, 2)) {
+    if (h && h.note) bits.push(String(h.note));
+  }
+  const warns = Array.isArray(raw.warnings) ? raw.warnings : [];
+  for (const w of warns.slice(0, 3)) {
+    if (w) bits.push(String(w));
+  }
+  if (!bits.length) return "";
+  return (
+    `<div class="score-sentiment-section">` +
+    `<div class="score-section-title">舆情先验</div>` +
+    bits.map((b) => `<div class="score-sentiment-line">${escapeText(b)}</div>`).join("") +
     `</div>`
   );
 }
@@ -357,7 +443,13 @@ export function createScoreTooltipController() {
       !hasTerms &&
       !hasCoefs &&
       !hasFactorWeights &&
-      resolveYhat(raw) == null
+      resolveYhat(raw) == null &&
+      raw.sentiment_include_in_score == null &&
+      !(Array.isArray(raw.risk_hints) && raw.risk_hints.length) &&
+      !(Array.isArray(raw.warnings) && raw.warnings.length) &&
+      !raw.fundamentals_pit &&
+      !raw.index_meta &&
+      !raw.fundamentals_depth
     )
       return;
 
@@ -366,6 +458,8 @@ export function createScoreTooltipController() {
     html += formatWeightSourceNote(raw);
     html += formatFormulaTermsSection(raw);
     html += formatFactorWeightsSection(raw);
+    html += formatFeatureIsoSection(raw);
+    html += formatSentimentGateSection(raw);
     // 有分项表时不再堆一行长公式
     if (formula && !hasTerms) {
       html += `<div class="score-formula-section">

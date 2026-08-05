@@ -88,8 +88,14 @@ def _rebalance_report_from_legs(
         decision = "持有"
         reason = ""
         if code in sell_by:
-            decision = "卖出"
-            reason = sell_by[code].get("note") or "分池调仓卖出"
+            st = sell_by[code]
+            note = str(st.get("note") or "")
+            prior_trim = bool(st.get("sentiment_prior")) or ("舆情先验" in note)
+            if prior_trim and n > 1e-9:
+                decision = "减仓"
+            else:
+                decision = "卖出"
+            reason = note or "分池调仓卖出"
         elif code in buy_by:
             decision = "买入"
             reason = buy_by[code].get("note") or "分池调仓买入"
@@ -113,6 +119,12 @@ def _rebalance_report_from_legs(
         below = bool(rank_row.get("below_min_score"))
         if below and decision == "卖出" and "min_score" not in str(reason):
             reason = (reason or "分池调仓卖出") + " · 低于 min_score"
+        st_row = sell_by.get(code) or {}
+        sk_row = skip_by.get(code) or {}
+        prior_flag = bool(st_row.get("sentiment_prior") or sk_row.get("sentiment_prior")) or (
+            "舆情先验" in str(reason or "")
+            or "sentiment_prior" in str(reason or "")
+        )
         rows.append(
             {
                 "stock_code": code,
@@ -137,6 +149,9 @@ def _rebalance_report_from_legs(
                 if rank_row.get("score_cluster") is not None
                 else rank_row.get("score"),
                 "below_min_score": below,
+                "sentiment_prior": bool(prior_flag)
+                if (code in sell_by or code in skip_by)
+                else False,
             }
         )
     def _sort_key(row: dict) -> tuple:

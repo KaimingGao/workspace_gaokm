@@ -80,10 +80,10 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertIsNone(item["excess_return_pct"])
         self.assertEqual(item["excess_label"], "RS66")
 
-    def test_insights_covers_full_watchlist_up_to_80(self):
-        from core.watching_insights import build_watching_insights
+    def test_insights_covers_full_watchlist_up_to_hard_cap(self):
+        from core.watching_insights import build_watching_insights, _INSIGHT_HARD_CAP
 
-        codes = [f"{i:06d}" for i in range(1, 41)]
+        codes = [f"{i:06d}" for i in range(1, 101)]
 
         def fake_score(code, **kwargs):
             return {
@@ -97,9 +97,61 @@ class TestWatchingInsights(unittest.TestCase):
             return_value={},
         ):
             out = build_watching_insights(codes)
-        self.assertEqual(out["count"], 40)
+        self.assertEqual(out["count"], 100)
         self.assertEqual(out.get("truncated"), 0)
         self.assertTrue(all(i.get("score") is not None for i in out["items"]))
+        self.assertGreaterEqual(_INSIGHT_HARD_CAP, 100)
+
+    def test_spot_valuation_warms_when_disk_empty(self):
+        from core.watching_insights import _spot_valuation_map
+
+        rows = [
+            {"代码": "600519", "市盈率-动态": "20.5", "市净率": "8.25"},
+            {"代码": "000001", "市盈率-动态": "5.1", "市净率": "0.65"},
+        ]
+        with patch(
+            "core.ports.market.load_disk_spot", return_value=rows
+        ), patch(
+            "core.watching_insights._fill_valuation_from_em"
+        ):
+            out = _spot_valuation_map(["600519", "000001"])
+        self.assertEqual(out["600519"]["pe"], 20.5)
+        self.assertEqual(out["600519"]["pb"], 8.25)
+        self.assertEqual(out["000001"]["pe"], 5.1)
+
+    def test_spot_valuation_falls_back_to_em_when_spot_fails(self):
+        from core.watching_insights import _spot_valuation_map
+
+        with patch(
+            "core.ports.market.load_disk_spot", return_value=[]
+        ), patch(
+            "core.valuation_em.fetch_valuation_pack",
+            return_value={"pe": 19.7, "pb": 6.03, "pe_ttm": 19.7},
+        ):
+            out = _spot_valuation_map(["600519"])
+        self.assertEqual(out["600519"]["pe"], 19.7)
+        self.assertEqual(out["600519"]["pb"], 6.03)
+
+    def test_pe_pb_from_spot_when_factors_missing(self):
+        from core.watching_insights import build_watching_insights
+
+        fake_score = {
+            "success": True,
+            "quote": {"success": True, "stock_code": "600519"},
+            "signal_item": {
+                "score": 55.0,
+                "hard_reject": False,
+                "factors": {},
+            },
+        }
+        with patch("core.signal.score_stock.score_stock", return_value=fake_score), patch(
+            "core.watching_insights._spot_valuation_map",
+            return_value={"600519": {"pe": 18.2, "pb": 7.1}},
+        ):
+            out = build_watching_insights(["600519"])
+        item = out["items"][0]
+        self.assertEqual(item["pe"], 18.2)
+        self.assertEqual(item["pb"], 7.1)
 
 
 if __name__ == "__main__":

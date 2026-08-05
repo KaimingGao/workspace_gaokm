@@ -9,6 +9,11 @@ from core.risk.budget import (
 )
 from core.risk.checks import check_account_risk
 from core.risk.exposure import board_style_for, build_exposure_matrix
+from core.sentiment_prior import (
+    apply_prior_to_buy,
+    build_sentiment_prior,
+    check_sentiment_priors_for_codes,
+)
 
 __all__ = [
     "check_account_risk",
@@ -20,4 +25,7 @@ __all__ = [
     "board_style_for",
     "list_risk_blocks",
     "annotate_risk_block",
+    "build_sentiment_prior",
+    "apply_prior_to_buy",
+    "check_sentiment_priors_for_codes",
 ]

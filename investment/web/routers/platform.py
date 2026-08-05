@@ -64,15 +64,25 @@ def get_job(name: str):
 
 
 @router.post("/api/jobs/{name}/cancel")
-def cancel_job(name: str):
-    """协作取消运行中任务（worker 轮询 cancel_requested）。"""
+def cancel_job(name: str, force: bool = False):
+    """取消运行中任务。``force=true`` 时立即标失败并释放槽位（卡住的拉数线程仍可能在后台收尾）。"""
     from core.job_progress import job_registry
 
     slot = job_registry.slot(name)
+    if force:
+        ok = slot.force_fail("用户强制结束")
+        return {
+            "ok": ok,
+            "cancelled": ok,
+            "forced": True,
+            "job": slot.get(),
+            "note": "已强制结束，可重新开跑" if ok else "当前无运行中任务",
+        }
     ok = slot.request_cancel()
     return {
         "ok": ok,
         "cancelled": ok,
+        "forced": False,
         "job": slot.get(),
         "note": "已请求取消" if ok else "当前无运行中任务",
     }
@@ -181,6 +191,14 @@ def ops_empty_fundamentals():
 def ops_data_quality():
     """D4 · 数据质量中心（覆盖率/财务多期/源审计/日历）。"""
     return deps.platform.get_data_quality()
+
+
+@router.get("/api/ops/factor-health")
+def ops_factor_health():
+    """X3 · 生产面因子健康（proxy / 无源权重）。"""
+    from core.signal.factor_health import assess_factor_health
+
+    return assess_factor_health()
 
 
 @router.get("/api/ops/source-audit")

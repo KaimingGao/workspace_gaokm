@@ -212,6 +212,7 @@ def select_point_as_of(
     meta["ok"] = True
     meta["selected_as_of"] = report_as_of
     meta["selected_available_as_of"] = avail
+    meta["ann_missing"] = bool(chosen.get("ann_missing"))
     meta["reason"] = None
     return chosen, meta
 
@@ -242,6 +243,12 @@ def resolve_fundamentals_for_score(
         if history:
             latest = history[-1]
             metrics = dict(latest.get("metrics") or {})
+            try:
+                from core.valuation_em import enrich_fundamentals_metrics
+
+                metrics = enrich_fundamentals_metrics(code, metrics) or metrics
+            except Exception:
+                pass
             return {
                 "ok": bool(metrics),
                 "metrics": metrics or None,
@@ -258,6 +265,12 @@ def resolve_fundamentals_for_score(
 
                 live = get_fundamentals(code, use_cache=True)
                 metrics = normalize_fundamentals_metrics(live)
+                try:
+                    from core.valuation_em import enrich_fundamentals_metrics
+
+                    metrics = enrich_fundamentals_metrics(code, metrics) or metrics
+                except Exception:
+                    pass
                 return {
                     "ok": bool(metrics),
                     "metrics": metrics,
@@ -289,9 +302,16 @@ def resolve_fundamentals_for_score(
     # as_of PIT 路径
     point, meta = select_point_as_of(history, as_of)
     if point and point.get("metrics"):
+        metrics = dict(point.get("metrics") or {})
+        try:
+            from core.valuation_em import enrich_fundamentals_metrics
+
+            metrics = enrich_fundamentals_metrics(code, metrics) or metrics
+        except Exception:
+            pass
         return {
             "ok": True,
-            "metrics": dict(point.get("metrics") or {}),
+            "metrics": metrics,
             "fundamentals_pit": True,
             "non_pit": False,
             "as_of": meta.get("selected_as_of"),
@@ -299,6 +319,7 @@ def resolve_fundamentals_for_score(
             "mode": "as_of",
             "history_count": len(history),
             "pit_meta": meta,
+            "ann_missing": bool(meta.get("ann_missing") or point.get("ann_missing")),
             "note": "财务按 as_of 选取；无未来报告期。",
         }
 
@@ -313,6 +334,7 @@ def resolve_fundamentals_for_score(
         "mode": "as_of_missing",
         "history_count": len(history),
         "pit_meta": meta,
+        "ann_missing": False,
         "policy": policy,
         "note": "决策日无可用财务点；已拒绝未来快照。",
     }

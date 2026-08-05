@@ -231,10 +231,24 @@ export function installClusterProbe(q) {
       e.target && e.target.closest
         ? e.target.closest("[data-cluster-export]")
         : null;
-    if (!btn || !state.quantLastOlsClusters) return;
+    if (!btn) return;
+    const key = btn.getAttribute("data-cluster-export");
+    // B4：建议重估 → 触发「跑分组」（可不依赖当前报告）
+    if (key === "live-refit") {
+      e.preventDefault();
+      e.stopPropagation();
+      const runBtn = document.getElementById("quant-ols-clusters-run");
+      if (runBtn) {
+        runBtn.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        runBtn.click();
+      } else {
+        setQuantMeta("请到研究枢纽点「跑分组」重估组 β", { error: true });
+      }
+      return;
+    }
+    if (!state.quantLastOlsClusters) return;
     e.preventDefault();
     e.stopPropagation(); // 勿触发组 details 折叠
-    const key = btn.getAttribute("data-cluster-export");
     if (key === "preferred") {
       const pref = state.quantLastOlsClusters.preferred_cluster;
       exportClusterWeightDiff(pref && pref.config_diff, pref && pref.label);
@@ -666,13 +680,23 @@ export function installClusterProbe(q) {
     ) {
       return;
     }
-    setQuantMeta("正在进入对照…", { busy: true });
+    setQuantMeta("正在进入对照…晋升映射 / 刷簿（跳过舆情）", { busy: true });
     const body = { from_draft: true, mode: "shadow", note: "落地·对照" };
     if (art && art.success && art.code_map) {
       body.artifact = art;
       body.from_draft = false;
     }
-    const out = await postClusterLive("/api/quant/cluster-live/apply", body);
+    const started = Date.now();
+    const tick = setInterval(() => {
+      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+      setQuantMeta(`正在进入对照… ${sec}s · 刷分池簿`, { busy: true });
+    }, 1000);
+    let out;
+    try {
+      out = await postClusterLive("/api/quant/cluster-live/apply", body);
+    } finally {
+      clearInterval(tick);
+    }
     if (!out.ok) {
       setQuantMeta(`对照未完成 · ${out.error}`, { error: true });
       return;
@@ -682,8 +706,9 @@ export function installClusterProbe(q) {
         out.data.refresh.rank &&
         out.data.refresh.rank.name_count) ||
       0;
+    const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
     setQuantMeta(
-      `已进入对照（shadow）` +
+      `已进入对照（shadow）· ${sec}s` +
         (n ? ` · 目标簿 ${n} 只` : "") +
         ` · 启用前交易执行选股未切换`
     );

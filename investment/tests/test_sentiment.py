@@ -55,12 +55,31 @@ class TestScoreHeadlines(unittest.TestCase):
         self.assertEqual(out["label"], "mixed")
         self.assertEqual(out["score"], 0.5)
 
+    def test_sparse_branch_fine_not_full_bearish(self):
+        """分行违规夹在多数无命中标题里，不得虚高到 1.0 触发 gate 缩仓。"""
+        titles = [
+            "邮储银行参加创新成果播种行动并发布初创贷科创金融产品",
+            "邮储银行南平市分行被罚200万元",
+            "涉贷款管理不到位等违规，邮储银行南平分行被罚200万元",
+            "邮储银行如何运用AI赋能千行百业",
+            "邮储银行：数智赋能筑防线",
+        ]
+        out = score_headlines(
+            [{"title": t} for t in titles],
+            lexicon={"positive": ["增持"], "negative": ["违规", "处罚", "减持"]},
+        )
+        self.assertEqual(out["label"], "bearish")
+        self.assertLess(float(out["score"]), 0.6)
+        self.assertEqual(out.get("n_hit_titles"), 1)
+        self.assertEqual(out.get("n_titles"), 5)
+
 
 class TestFetchAndCache(unittest.TestCase):
     def test_fetch_uses_cache(self):
         with tempfile.TemporaryDirectory() as td:
+            # 经 ports 适配器拉资讯；patch 适配器而非 skills 直连
             with patch.object(sentiment_mod, "NEWS_STORE_DIR", td), patch(
-                "skills.news.engine.build_news",
+                "core.ports.market.build_news",
                 return_value={
                     "success": True,
                     "stock_code": "600519",
@@ -186,8 +205,8 @@ class TestAlerts(unittest.TestCase):
                 )
             with patch.object(sentiment_mod, "NEWS_STORE_DIR", news_dir), patch.object(
                 sentiment_mod, "WATCHING_PATH", uni
-            ), patch.object(sentiment_mod, "SCHEDULE_LAST_RUN_PATH", last_run), patch(
-                "skills.news.engine.build_news",
+            ), patch.object(sentiment_mod, "SCHEDULE_LAST_RUN_PATH", last_run            ), patch(
+                "core.ports.market.build_news",
                 return_value={
                     "success": True,
                     "stock_code": "600519",

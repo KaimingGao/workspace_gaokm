@@ -61,6 +61,8 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         # 滞回：买入/入簿 ŷ≥+1%；卖出仅 ŷ<-1%；中间带持有不因未进簿清仓
         "min_predicted_score": 1.0,
         "min_hold_predicted_score": -1.0,
+        # B2：前瞻收益 y 与拟合/TopK/纸面共用 horizon
+        "horizon_days": 3,
     },
     # stance 门槛按收益分 ŷ%（百分点）
     "stance_thresholds": {
@@ -96,6 +98,21 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "pit_mode": "as_of",
         "missing_as_of_policy": "zero_weight",
     },
+    # 舆情：默认不进 ŷ（include_in_score=false）；role=prior 作 ŷ 外旁路。
+    "sentiment": {
+        "include_in_score": False,
+        "role": "prior",
+        "prior": {
+            "mode": "off",
+            "bearish_score_min": 0.6,
+            "block_new_buys": False,
+            "scale_buy_pct": 0.5,
+            "scale_holds": False,
+            "warn_only": True,
+        },
+        "append_history": True,
+        "history_max_lines_per_code": 500,
+    },
     "cross_section": {
         "neutralize": True,
         "method": "zscore",
@@ -113,12 +130,13 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "max_names": 40,
         "min_coverage": 0.5,
         "max_age_days": 14,
+        "refit_max_age_days": 14,
         "auto_demote_on_stale": True,
         # FH0/Y1.4：OOS 失败率超过该值则禁止 active（默认 0.5）
         "max_oos_fail_rate": 0.5,
-        # Y1.3：滚动 ŷ IC 低于此值时启用证据包警告（不硬拦，除非 block_active_on_yhat_ic）
+        # Y1.3：滚动 ŷ IC 低于此值时禁止 active（FS1 默认硬拦；force+审计可豁免）
         "min_yhat_rolling_ic": 0.0,
-        "block_active_on_yhat_ic": False,
+        "block_active_on_yhat_ic": True,
         # Y3.3：行业 map 覆盖率低于此值 → 启用警告
         "min_sector_map_coverage": 0.5,
     },

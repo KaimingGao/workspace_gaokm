@@ -307,6 +307,7 @@ def fetch_daily_bars(
     cache_max_age_hours: float = 24.0,
     incremental: bool = True,
     adjust: str = "qfq",
+    offline_ok: bool = False,
 ) -> Tuple[List[dict], str]:
     """
     按市场拉取日线（带本地缓存 data/store/daily/）。
@@ -315,6 +316,7 @@ def fetch_daily_bars(
 
     incremental=True：若本地已有 bars，则拉更大窗口后按 date 合并再落盘（观察池轻本地史）。
     adjust：qfq|raw|hfq（写入缓存 adjust_policy；与请求不一致则跳过缓存防混用）。
+    offline_ok=True：本地有足够 bars 时直接返回（可过期），不打远端——研究分组用。
     """
     from core.store import merge_bars_by_date, peek_daily_cache_meta
 
@@ -334,6 +336,7 @@ def fetch_daily_bars(
         "yes",
     )
     existing: List[dict] = []
+    cached_src = "cache"
     if use_cache and not disable_cache:
         # D2：缓存 adjust_policy 与请求不一致则跳过，防 qfq/raw 混用
         meta_peek = None
@@ -357,12 +360,13 @@ def fetch_daily_bars(
                 src = meta.get("data_source") or "cache"
                 if src and not str(src).startswith("cache:"):
                     src = f"cache:{src}"
+                cached_src = str(src)
                 if len(bars) >= limit:
                     trimmed = bars[-limit:] if limit and len(bars) > limit else bars
                     return trimmed, str(src)
                 existing = list(bars)
 
-            if incremental and not existing:
+            if (incremental or offline_ok) and not existing:
                 stale = load_daily_cache(
                     market,
                     code,
@@ -372,6 +376,13 @@ def fetch_daily_bars(
                 )
                 if stale:
                     existing = list(stale[0] or [])
+                    cached_src = "cache:stale"
+
+    # 研究路径：本地够用就不打 AkShare（避免 100 票并行挂死）
+    min_offline = max(20, min(int(limit or 30), 40))
+    if offline_ok and existing and len(existing) >= min_offline:
+        trimmed = existing[-limit:] if limit and len(existing) > limit else existing
+        return trimmed, cached_src
 
     fetch_limit = max(int(limit or 30), len(existing) + 5 if existing else int(limit or 30))
     if incremental and existing:

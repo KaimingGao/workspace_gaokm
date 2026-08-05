@@ -439,8 +439,25 @@ def format_weight_config_diff(suggestion: Dict[str, Any]) -> Dict[str, Any]:
 
     oos_gate = suggestion.get("oos_gate") or {}
     promote_ready = bool(suggestion.get("promote_ready"))
+    factor_health = None
+    try:
+        from core.signal.factor_health import assess_factor_health
+
+        factor_health = assess_factor_health(
+            config={"weights": suggestion.get("suggested_weights") or suggested}
+        )
+        if factor_health.get("promote_blocked"):
+            promote_ready = False
+    except Exception:
+        factor_health = None
     apply_note = "请手动合并 patch.weights 到 signal_config.json；须先做样本外验证。"
-    if oos_gate.get("skipped"):
+    if factor_health and factor_health.get("blockers"):
+        apply_note = (
+            "因子健康拦截："
+            + "; ".join(factor_health.get("blockers") or [])
+            + "。归零 proxy 权重后再 promote。"
+        )
+    elif oos_gate.get("skipped"):
         apply_note = "OOS 门禁已跳过；导出仅供对照，不建议直接 promote。"
     elif oos_gate and not oos_gate.get("passed"):
         apply_note = (
@@ -460,6 +477,7 @@ def format_weight_config_diff(suggestion: Dict[str, Any]) -> Dict[str, Any]:
         "ic_mode": suggestion.get("ic_mode"),
         "oos_gate": oos_gate,
         "promote_ready": promote_ready,
+        "factor_health": factor_health,
         "constraint_warnings": suggestion.get("constraint_warnings") or [],
         "rationale": suggestion.get("rationale") or [],
         "redundancy_warnings": suggestion.get("redundancy_warnings") or [],

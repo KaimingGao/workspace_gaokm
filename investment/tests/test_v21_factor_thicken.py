@@ -124,12 +124,15 @@ class TestV21FactorThicken(unittest.TestCase):
 
     def test_alt_sentiment_no_hardcoded_adj_in_score_bars(self):
         bars = _rising_bars()
-        bull = score_bars(
-            bars,
-            quote={"change_raw": 1.0},
-            sentiment={"label": "bullish"},
-            config=load_signal_config(reload=True),
-        )
+        from core.signal.config import signal_config_overlay
+
+        with signal_config_overlay({"sentiment": {"include_in_score": True}}):
+            bull = score_bars(
+                bars,
+                quote={"change_raw": 1.0},
+                sentiment={"label": "bullish"},
+                config=load_signal_config(reload=True),
+            )
         self.assertNotIn("sentiment_adj", bull.get("factor_contrib") or {})
         self.assertIn("alt_sentiment", bull.get("sub_scores") or {})
         self.assertGreater(bull["sub_scores"]["alt_sentiment"], 50)

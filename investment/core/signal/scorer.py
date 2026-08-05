@@ -142,11 +142,14 @@ def score_bars(
     config: Optional[dict] = None,
     fundamentals: Optional[dict] = None,
     sentiment: Optional[dict] = None,
+    required_factor_keys: Optional[List[str]] = None,
+    skip_factors: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """
     对单票日线打分。产出 sub_scores（ŷ 输入）；不产出规则综合分。
 
-    返回 dict 含 sub_scores / score_meta；选股主轴为 ReturnScoreModel → ŷ。
+    ``required_factor_keys``：即使 weights 权为 0 也计算（ŷ β 同构）。
+    ``skip_factors``：强制跳过（如舆情闸关时跳过 alt_sentiment）。
     """
     cfg = config or load_signal_config()
     weights = cfg.get("weights") or {}
@@ -241,7 +244,7 @@ def score_bars(
         if factor_name in adjusted_weights:
             adjusted_weights[factor_name] = weights[factor_name] * multiplier
     
-    # 只保留启用的因子
+    # 只保留启用的因子（启发式权）；ŷ required keys 仍经 required_factor_keys 补算
     if enabled_factors:
         filtered_weights = {k: v for k, v in adjusted_weights.items() if k in enabled_factors}
         adjusted_weights = filtered_weights
@@ -253,6 +256,13 @@ def score_bars(
     else:
         adjusted_weights = dict(weights)
 
+    skip = list(skip_factors or [])
+    # FS0：闸关或不传 sentiment 时不计算 alt_sentiment（避免中性 50 进 ŷ）
+    sent_cfg = cfg.get("sentiment") or {}
+    if not bool(sent_cfg.get("include_in_score", False)) or sentiment is None:
+        if "alt_sentiment" not in skip:
+            skip.append("alt_sentiment")
+
     sub_scores, factor_contrib, factors = compute_configured_factors(
         bars,
         weights=adjusted_weights,
@@ -262,6 +272,8 @@ def score_bars(
         last_change=last_change,
         fundamentals=fundamentals,
         sentiment=sentiment,
+        required_keys=required_factor_keys,
+        skip_factors=skip,
     )
 
     # v2: 因子交互调整

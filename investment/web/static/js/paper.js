@@ -111,6 +111,8 @@ export function initPaper(ctx) {
   const _sortInit = loadHoldingsSort();
   let holdingsSortKey = _sortInit.key;
   let holdingsSortDir = _sortInit.dir;
+  /** code → 情绪徽章 HTML（与数据中心同源 API） */
+  const holdingsSentimentHtmlByCode = Object.create(null);
 
   const holdingsIsland = createHoldingsIslandController({
     getAssetV: () =>
@@ -133,6 +135,7 @@ export function initPaper(ctx) {
     },
     buildOriginBarHtml: buildPaperOriginBarHtml,
     buildActionBarHtml: buildPaperHoldActionBarHtml,
+    getSentHtml: (code) => holdingsSentimentHtmlByCode[String(code || "").trim()] || null,
   });
   try {
     const params = new URLSearchParams(window.location.search || "");
@@ -642,10 +645,70 @@ export function initPaper(ctx) {
       pendingFocusCode,
       holdingsSortKey,
       holdingsSortDir,
+      sentHtmlByCode: holdingsSentimentHtmlByCode,
     });
     holdingsPage = built.page;
     selectedHoldCode = built.selectedHoldCode;
     return built.originBarHtml + built.tableHtml + built.pagerHtml + built.actionBarHtml;
+  }
+
+  function applyHoldingsSentimentHtml(code, html) {
+    const key = String(code || "").trim();
+    if (!key || !html) return;
+    holdingsSentimentHtmlByCode[key] = html;
+    const holdingsEl = document.getElementById("paper-holdings-table");
+    if (!holdingsEl) return;
+    holdingsEl.querySelectorAll(`tr[data-code="${key}"] .paper-hold-sent`).forEach((cell) => {
+      cell.innerHTML = html;
+    });
+  }
+
+  function syncHoldingsSentimentToGrid() {
+    if (!holdingsGrid || !holdingsGridReady) return;
+    const rows = (holdingsGrid.getData() || []).map((row) => {
+      const c = String(row.code || "").trim();
+      const html = holdingsSentimentHtmlByCode[c];
+      return html ? { ...row, sentHtml: html } : row;
+    });
+    holdingsGrid.setRows(rows);
+  }
+
+  async function fillHoldingsSentiment(holdings) {
+    const codes = (holdings || [])
+      .map((h) => String((h && h.stock_code) || "").trim())
+      .filter(Boolean);
+    if (!codes.length) return;
+    const statusEl = document.getElementById("paper-holdings-load-status");
+    const prev =
+      statusEl && !statusEl.classList.contains("is-busy")
+        ? String(statusEl.textContent || "").trim()
+        : "";
+    try {
+      const V =
+        (typeof window !== "undefined" && window.__ASSET_V__) || "p325";
+      const mod = await import(`./holdings_table_island.js?v=${V}`);
+      const res = await fetch(
+        `/api/watching/sentiment?codes=${encodeURIComponent(codes.join(","))}&limit=3`
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) return;
+      const byCode = {};
+      for (const it of data.items || []) {
+        const c = String((it && (it.stock_code || it.code)) || "").trim();
+        if (c) byCode[c] = it;
+      }
+      codes.forEach((code) => {
+        const row = byCode[code] || {};
+        const html = mod.holdingSentimentHtml(row.sentiment || {}, code);
+        applyHoldingsSentimentHtml(code, html);
+      });
+      syncHoldingsSentimentToGrid();
+      if (prev && prev.startsWith("已刷新")) {
+        setHoldingsLoadStatus(`${prev} · 情绪已更新`, { ok: true });
+      }
+    } catch (_) {
+      /* 情绪填充失败时保留 … 占位 */
+    }
   }
 
   async function upgradeHoldingsToIsland(summary, holdings) {
@@ -699,6 +762,7 @@ export function initPaper(ctx) {
           holdingsEl.innerHTML = html;
           setTimeout(() => applyPendingFocus(), 0);
         }
+        fillHoldingsSentiment(holdings).catch(() => {});
       }
     }
 
@@ -777,7 +841,8 @@ export function initPaper(ctx) {
       `看拟合 <a class="follow-hero-link" href="/platform">北极星</a>`;
   }
 
-  async function loadPaper() {
+  async function loadPaper(opts = {}) {
+    const quiet = !!(opts && opts.quiet);
     if (
       !document.getElementById("paper-meta") &&
       !document.getElementById("follow-meta") &&
@@ -786,15 +851,69 @@ export function initPaper(ctx) {
     ) {
       return null;
     }
-    const emptyEl = document.getElementById("paper-empty");
-    const mainEl = document.getElementById("paper-main");
-    const { ok, data, error } = await apiFetch("/api/paper");
-    if (!ok) {
-      setPaperMetaText(error || "纸面加载失败");
-      return null;
+    const refreshBtn = document.getElementById("paper-holdings-refresh");
+    const started = Date.now();
+    if (!quiet) {
+      setHoldingsLoadStatus("加载中…", { busy: true });
+      if (refreshBtn) {
+        refreshBtn.disabled = true;
+        refreshBtn.textContent = "刷新中…";
+      }
     }
-    applyPaperData(data);
-    return data;
+    try {
+      const { ok, data, error } = await apiFetch("/api/paper");
+      if (!ok) {
+        setPaperMetaText(error || "纸面加载失败");
+        if (!quiet) {
+          setHoldingsLoadStatus(error || "加载失败", { error: true });
+        }
+        return null;
+      }
+      applyPaperData(data);
+      const n = ((data.summary && data.summary.holdings) || []).length;
+      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+      if (!quiet) {
+        setHoldingsLoadStatus(
+          data.initialized
+            ? `已刷新 · ${n} 只持仓 · ${sec}s`
+            : "未初始化",
+          { ok: !!data.initialized }
+        );
+      }
+      return data;
+    } catch (err) {
+      const msg = String((err && err.message) || err || "加载失败");
+      setPaperMetaText(msg);
+      if (!quiet) setHoldingsLoadStatus(msg, { error: true });
+      throw err;
+    } finally {
+      if (refreshBtn) {
+        refreshBtn.disabled = false;
+        refreshBtn.textContent = "刷新";
+      }
+    }
+  }
+
+  let holdingsLoadStatusTimer = null;
+  function setHoldingsLoadStatus(msg, { busy = false, error = false, ok = false } = {}) {
+    const el = document.getElementById("paper-holdings-load-status");
+    if (!el) return;
+    if (holdingsLoadStatusTimer) {
+      clearTimeout(holdingsLoadStatusTimer);
+      holdingsLoadStatusTimer = null;
+    }
+    const text = String(msg || "").trim();
+    el.textContent = text;
+    el.hidden = !text;
+    el.classList.toggle("is-busy", !!busy && !error);
+    el.classList.toggle("is-error", !!error);
+    el.classList.toggle("is-ok", !!ok && !error && !busy);
+    if (text && ok && !error && !busy) {
+      holdingsLoadStatusTimer = setTimeout(() => {
+        el.classList.remove("is-ok");
+        holdingsLoadStatusTimer = null;
+      }, 5000);
+    }
   }
 
   function renderOpsReport(ops, { forceShow = false } = {}) {
@@ -1082,9 +1201,8 @@ export function initPaper(ctx) {
   }
 
   if (document.getElementById("paper-init") || document.getElementById("paper-run") || document.getElementById("paper-adjust")) {
-    const progressEl = document.getElementById("paper-progress");
-    const progressFill = document.getElementById("paper-progress-fill");
-    const progressText = document.getElementById("paper-progress-text");
+    const opsStatusEl = document.getElementById("paper-ops-load-status");
+    let opsStatusTimer = null;
     const runBtns = [
       "paper-run",
       "paper-adjust",
@@ -1102,17 +1220,44 @@ export function initPaper(ctx) {
       });
     }
 
+    function setOpsLoadStatus(msg, { busy = false, error = false, ok = false } = {}) {
+      if (!opsStatusEl) return;
+      if (opsStatusTimer) {
+        clearTimeout(opsStatusTimer);
+        opsStatusTimer = null;
+      }
+      const text = String(msg || "").trim();
+      opsStatusEl.textContent = text;
+      opsStatusEl.hidden = !text;
+      opsStatusEl.classList.toggle("is-busy", !!busy && !error);
+      opsStatusEl.classList.toggle("is-error", !!error);
+      opsStatusEl.classList.toggle("is-ok", !!ok && !error && !busy);
+      if (text && ok && !error && !busy) {
+        opsStatusTimer = setTimeout(() => {
+          opsStatusEl.classList.remove("is-ok");
+          opsStatusEl.hidden = true;
+          opsStatusEl.textContent = "";
+          opsStatusTimer = null;
+        }, 5000);
+      }
+    }
+
     function showProgress(pct, message) {
-      if (!progressEl) return;
-      progressEl.hidden = false;
-      if (progressFill) progressFill.style.width = `${Math.max(0, Math.min(100, pct || 0))}%`;
-      if (progressText) progressText.textContent = message || "";
+      const msg = String(message || "").trim();
+      const done = Number(pct) >= 100;
+      if (!msg && !done) {
+        setOpsLoadStatus("加载中…", { busy: true });
+        return;
+      }
+      if (done) {
+        setOpsLoadStatus(msg || "已完成", { ok: true });
+        return;
+      }
+      setOpsLoadStatus(msg || "加载中…", { busy: true });
     }
 
     function hideProgress() {
-      if (!progressEl) return;
-      progressEl.hidden = true;
-      if (progressFill) progressFill.style.width = "0%";
+      setOpsLoadStatus("");
     }
 
     /** 确认落账或点 × 后收起预演区（持仓/流水另由 loadPaper 刷新）。 */
@@ -1144,7 +1289,16 @@ export function initPaper(ctx) {
       followClusterPreviewPending = false;
     }
 
-    function renderRebalanceReport(report, { preview = false, cashImpact = null, riskGate = null, opsReport = null } = {}) {
+    function renderRebalanceReport(
+      report,
+      {
+        preview = false,
+        cashImpact = null,
+        riskGate = null,
+        opsReport = null,
+        riskBudgetSkips = null,
+      } = {}
+    ) {
       const section = document.getElementById("paper-rebalance-section");
       const container = document.getElementById("paper-rebalance-report");
       const cashEl = document.getElementById("paper-rebalance-cash");
@@ -1169,6 +1323,8 @@ export function initPaper(ctx) {
             return bs - as;
           })
         : report;
+      const skips = Array.isArray(riskBudgetSkips) ? riskBudgetSkips : [];
+      const hasSkips = skips.length > 0;
       const hasRisk =
         riskGate &&
         ((Array.isArray(riskGate.blocks) && riskGate.blocks.length > 0) ||
@@ -1182,7 +1338,7 @@ export function initPaper(ctx) {
       const hasOps = !!(opsReport && (opsReport.strategy_id || opsReport.cost_model));
       const emptyReport = !report || report.length === 0;
 
-      if (emptyReport && !hasCash && !hasRisk && !hasOps) {
+      if (emptyReport && !hasCash && !hasRisk && !hasOps && !hasSkips) {
         section.hidden = true;
         if (previewNote) previewNote.hidden = true;
         if (confirmBtn) confirmBtn.hidden = true;
@@ -1228,7 +1384,7 @@ export function initPaper(ctx) {
 
       if (cashEl) {
         const ci = cashImpact || {};
-        if (hasCash || hasRisk) {
+        if (hasCash || hasRisk || hasSkips) {
           const fmt = (v) => {
             const n = Number(v);
             if (!Number.isFinite(n)) return "—";
@@ -1264,6 +1420,34 @@ export function initPaper(ctx) {
                 : "") +
               `</div>`;
           }
+          let skipHtml = "";
+          if (hasSkips) {
+            const priorSkips = skips.filter((s) => s && s.sentiment_prior);
+            const otherSkips = skips.filter((s) => !(s && s.sentiment_prior));
+            const row = (s) => {
+              const code = escapeText(String(s.stock_code || ""));
+              const name = escapeText(String(s.stock_name || ""));
+              const reason = escapeText(String(s.reason || "跳过"));
+              return `<li><code>${code}</code>${
+                name ? ` ${name}` : ""
+              } · ${reason}</li>`;
+            };
+            skipHtml =
+              `<div class="paper-rebalance-risk" role="status">` +
+              (priorSkips.length
+                ? `<p class="paper-rebalance-risk-title">舆情先验 · 跳过新开仓</p><ul>${priorSkips
+                    .slice(0, 12)
+                    .map(row)
+                    .join("")}</ul>`
+                : "") +
+              (otherSkips.length
+                ? `<p class="paper-rebalance-risk-title is-warn">其他跳过买入</p><ul>${otherSkips
+                    .slice(0, 8)
+                    .map(row)
+                    .join("")}</ul>`
+                : "") +
+              `</div>`;
+          }
           cashEl.hidden = false;
           cashEl.innerHTML =
             (hasCash
@@ -1293,7 +1477,8 @@ export function initPaper(ctx) {
                   : "") +
                 `</dl>`
               : "") +
-            riskHtml;
+            riskHtml +
+            skipHtml;
         } else {
           cashEl.hidden = true;
           cashEl.innerHTML = "";
@@ -1301,9 +1486,11 @@ export function initPaper(ctx) {
       }
 
       if (emptyReport) {
-        container.innerHTML = hasRisk
-          ? `<p class="follow-ops-note">因风控拦截，本轮无加仓清单。</p>`
-          : `<p class="follow-ops-note">无可执行变动。</p>`;
+        container.innerHTML = hasSkips
+          ? `<p class="follow-ops-note">本轮无加仓清单（含舆情先验跳过 ${skips.filter((s) => s && s.sentiment_prior).length} 只）。</p>`
+          : hasRisk
+            ? `<p class="follow-ops-note">因风控拦截，本轮无加仓清单。</p>`
+            : `<p class="follow-ops-note">无可执行变动。</p>`;
         section.hidden = false;
         return;
       }
@@ -1464,15 +1651,31 @@ export function initPaper(ctx) {
           )
             decisionTagClass = "sell";
 
-          // 「卖出」类：悬停注释说明清仓含义（与「减仓」区分）
+          // 决策标签悬停：按真实原因，勿把舆情缩仓误写成 ŷ/TopK 卖出
           let decisionTitle = "";
-          if (decision.includes("止损卖出")) {
+          const reasonText = String(r.reason || "");
+          const isPrior =
+            !!r.sentiment_prior ||
+            reasonText.includes("舆情先验") ||
+            reasonText.includes("sentiment_prior");
+          if (isPrior && (decision.includes("减仓") || decision.includes("卖出"))) {
+            decisionTitle = reasonText
+              ? `${reasonText}（强看空先验 · 不改 ŷ）；点「确认调仓」后才成交`
+              : "舆情先验 · 强看空缩仓（不改 ŷ）；点「确认调仓」后才成交";
+          } else if (decision.includes("止损卖出")) {
             decisionTitle = "止损规则触发，预演清仓；点「确认调仓」后才成交";
           } else if (decision.includes("超时卖出")) {
             decisionTitle = "持有超时且趋势向下，预演清仓；点「确认调仓」后才成交";
           } else if (decision.includes("跳过")) {
-            decisionTitle =
-              "风险预算（单票/行业上限）未买入；见原因列";
+            decisionTitle = isPrior
+              ? reasonText
+                ? `${reasonText}；点「确认调仓」后仍不会新开仓`
+                : "舆情先验 · 跳过新开仓；点「确认调仓」后仍不会买入"
+              : "风险预算（单票/行业上限）未买入；见原因列";
+          } else if (decision.includes("减仓")) {
+            decisionTitle = reasonText
+              ? `${reasonText}；点「确认调仓」后才成交`
+              : "预演减仓；点「确认调仓」后才成交";
           } else if (decision.includes("卖出")) {
             decisionTitle =
               "分池卖出：ŷ 低于卖出门槛（min_hold），或横截面路径不在 TopK；点「确认调仓」后才成交";
@@ -1664,6 +1867,8 @@ export function initPaper(ctx) {
         const rebalanceReport = result.rebalance_report || [];
         const cashImpact = result.cash_impact || null;
         const riskGate = result.risk_gate || null;
+        const riskBudgetSkips = result.risk_budget_skips || [];
+        const priorSkipN = riskBudgetSkips.filter((s) => s && s.sentiment_prior).length;
         const opsReport =
           result.ops_report ||
           (result.data_quality || result.risk_blocks || result.cost_model
@@ -1688,6 +1893,13 @@ export function initPaper(ctx) {
         if (sellTrades.length > 0) {
             resultText += ` · 减仓 ${sellTrades.length} 只`;
         }
+        const priorTrimN = sellTrades.filter((t) => t && t.sentiment_prior).length;
+        if (priorTrimN > 0) {
+            resultText += ` · 舆情缩仓 ${priorTrimN}`;
+        }
+        if (priorSkipN > 0) {
+            resultText += ` · 舆情跳过 ${priorSkipN}`;
+        }
         if (riskGate && riskGate.ok === false) {
             resultText += " · 风控拦截加仓";
         }
@@ -1703,7 +1915,7 @@ export function initPaper(ctx) {
         showProgress(100, (document.getElementById("follow-meta")||document.getElementById("paper-meta")||{}).textContent || "");
         if (!dryRun) {
           dismissRebalancePreview();
-          await loadPaper();
+          await loadPaper({ quiet: true });
           if (typeof ctx.reloadWatching === "function") {
             try {
               await ctx.reloadWatching();
@@ -1715,6 +1927,7 @@ export function initPaper(ctx) {
             cashImpact,
             riskGate,
             opsReport,
+            riskBudgetSkips,
           });
         } else if (simulateBuy) {
           renderRebalanceReport([], {
@@ -1722,6 +1935,7 @@ export function initPaper(ctx) {
             cashImpact,
             riskGate,
             opsReport,
+            riskBudgetSkips,
           });
           setPaperMetaText(
             resultText + (riskGate && riskGate.ok === false ? "" : " · 无可执行变动")
@@ -1856,10 +2070,19 @@ export function initPaper(ctx) {
         );
         if (dryRun) {
           const opsFromApi = data.ops_report || null;
+          const skips = data.risk_budget_skips || [];
+          const priorN = skips.filter((s) => s && s.sentiment_prior).length;
+          if (priorN > 0) {
+            setPaperMetaText(
+              ((document.getElementById("follow-meta") || {}).textContent || "") +
+                ` · 舆情跳过 ${priorN}`
+            );
+          }
           renderRebalanceReport(report, {
             preview: true,
             cashImpact: ci,
             riskGate: data.risk_gate || null,
+            riskBudgetSkips: skips,
             opsReport: opsFromApi
               ? {
                   ...opsFromApi,
@@ -1877,7 +2100,7 @@ export function initPaper(ctx) {
           });
         } else {
           dismissRebalancePreview();
-          await loadPaper();
+          await loadPaper({ quiet: true });
         }
         showProgress(100, "");
       } finally {
@@ -1976,7 +2199,7 @@ export function initPaper(ctx) {
             : `部分失败 · ${steps || data.error || ""}`);
         }
         showProgress(100, (document.getElementById("follow-meta")||document.getElementById("paper-meta")||{}).textContent || "");
-        if (includePaper) await loadPaper();
+        if (includePaper) await loadPaper({ quiet: true });
         else {
           paperInitialized = false;
         }
@@ -2029,7 +2252,7 @@ export function initPaper(ctx) {
           setPaperMetaText(
             `纸面日更完成 · 告警 ${n} · ${data.strategy_id || "—"} @ ${data.strategy_version || "—"}`
           );
-          await loadPaper().catch(() => {});
+          await loadPaper({ quiet: true }).catch(() => {});
         } catch (err) {
           setPaperMetaText(String(err.message || err));
         } finally {
@@ -2141,7 +2364,7 @@ export function initPaper(ctx) {
           paperRebalanceSummary.textContent =
             `卖出 ${(data.sell_trades || []).length} · 买入 ${(data.buy_trades || []).length} · 净值 ${(data.summary || {}).equity ?? "—"}`;
         }
-        await loadPaper();
+        await loadPaper({ quiet: true });
       } catch (err) {
         if (paperRebalanceSummary) paperRebalanceSummary.textContent = String(err.message || err);
       }
@@ -2374,7 +2597,7 @@ export function initPaper(ctx) {
             `已写入 · 成交 ${(data.trades || []).length} · PnL ${data.pnl_total ?? 0}`;
         }
         renderPaperT0Preview(null);
-        await loadPaper();
+        await loadPaper({ quiet: true });
       } catch (err) {
         if (paperT0Summary) paperT0Summary.textContent = String(err.message || err);
       }
@@ -2419,7 +2642,7 @@ export function initPaper(ctx) {
           return;
         }
         paperLogShowAll[category === "fund" ? "fund" : "trading"] = false;
-        await loadPaper();
+        await loadPaper({ quiet: true });
       } catch (err) {
         alert(`清除失败：${err.message || err}`);
       } finally {
@@ -2440,6 +2663,18 @@ export function initPaper(ctx) {
   });
 
   if (page === "paper" || page === "follow") {
+    const refreshBtn = document.getElementById("paper-holdings-refresh");
+    if (refreshBtn && refreshBtn.dataset.wired !== "1") {
+      refreshBtn.dataset.wired = "1";
+      refreshBtn.addEventListener("click", async () => {
+        try {
+          await loadPaper();
+        } catch (_) {
+          /* status 已在 loadPaper 内处理 */
+        }
+      });
+    }
+    setHoldingsLoadStatus("加载中…", { busy: true });
     loadPaper().catch((err) => {
       setPaperMetaText(String(err.message || err));
     });

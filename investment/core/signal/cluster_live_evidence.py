@@ -193,29 +193,34 @@ def build_cluster_enable_evidence(
     if name_count <= 0:
         warnings.append("分池簿为空 · 启用后请刷新簿再分池调仓")
 
-    # Y1.1 / Y1.3：滚动 ŷ IC 摘要
-    rolling_ic_pack: Dict[str, Any] = {"ok": False, "rolling_ic": None}
-    try:
-        from core.strategy_monitor import estimate_rolling_yhat_ic_for_codes
-
-        ic_codes = list(book_codes)[:6] or list(held_codes)[:6]
-        if ic_codes:
-            rolling_ic_pack = estimate_rolling_yhat_ic_for_codes(ic_codes, limit=4)
-    except Exception as exc:
-        rolling_ic_pack = {"ok": False, "rolling_ic": None, "error": str(exc)}
-    yhat_ic = rolling_ic_pack.get("rolling_ic")
-    min_yhat_ic = float(cs.get("min_yhat_rolling_ic") or 0.0)
-    if yhat_ic is not None:
+    # Y1.1 / Y1.3：滚动 ŷ IC（仅 active 门禁需要；shadow 对照跳过以免久等）
+    rolling_ic_pack: Dict[str, Any] = {"ok": False, "rolling_ic": None, "skipped": True}
+    mode_now = str(cs.get("mode") or "off")
+    if mode_now == "active":
+        rolling_ic_pack = {"ok": False, "rolling_ic": None}
         try:
-            yic = float(yhat_ic)
-            if yic < min_yhat_ic:
-                msg = f"滚动 ŷ IC={yic:.3f} < 阈值 {min_yhat_ic}"
-                if cs.get("block_active_on_yhat_ic"):
-                    blockers.append(msg)
-                else:
-                    warnings.append(msg + " · 建议重拟合后再启用")
-        except (TypeError, ValueError):
-            pass
+            from core.strategy_monitor import estimate_rolling_yhat_ic_for_codes
+
+            ic_codes = list(book_codes)[:6] or list(held_codes)[:6]
+            if ic_codes:
+                rolling_ic_pack = estimate_rolling_yhat_ic_for_codes(ic_codes, limit=4)
+        except Exception as exc:
+            rolling_ic_pack = {"ok": False, "rolling_ic": None, "error": str(exc)}
+        yhat_ic = rolling_ic_pack.get("rolling_ic")
+        min_yhat_ic = float(cs.get("min_yhat_rolling_ic") or 0.0)
+        if yhat_ic is not None:
+            try:
+                yic = float(yhat_ic)
+                if yic < min_yhat_ic:
+                    msg = f"滚动 ŷ IC={yic:.3f} < 阈值 {min_yhat_ic}"
+                    if cs.get("block_active_on_yhat_ic"):
+                        blockers.append(msg)
+                    else:
+                        warnings.append(msg + " · 建议重拟合后再启用")
+            except (TypeError, ValueError):
+                pass
+    else:
+        rolling_ic_pack["note"] = "shadow/off 跳过 ŷ IC（启用 active 时再算）"
 
     # Y3.3：行业 map 覆盖率
     try:
@@ -296,10 +301,21 @@ def cluster_status_public(
         load_active_cluster_book,
         load_active_cluster_weights,
         load_cluster_draft,
+        maybe_auto_demote_stale,
     )
     from core.signal.score_display import json_safe_number
 
     cs = get_cluster_scoring_cfg()
+    auto_demote = None
+    # active 且配置了自动降级：IC 破线 / 陈旧立刻落到 shadow，避免卡在「已启用但不可用」
+    if cs.get("mode") == "active" and cs.get("auto_demote_on_stale"):
+        try:
+            auto_demote = maybe_auto_demote_stale()
+            if auto_demote.get("demoted"):
+                cs = get_cluster_scoring_cfg()
+        except Exception:
+            auto_demote = None
+
     active = load_active_cluster_weights()
     health = assess_cluster_live_health()
     draft = load_cluster_draft()
@@ -342,10 +358,24 @@ def cluster_status_public(
     elif mode == "shadow":
         next_step = "enable_active" if allow_active else "fix_health"
         next_label = "② 启用" if allow_active else "修复健康/证据包后再启用"
+    elif health.get("suggest_demote") or not allow_active:
+        # 仍挂在 active 但门禁已破（未开自动降级时）
+        next_step = "demote_shadow"
+        next_label = "降为对照（健康未过）"
     else:
         # mode=active：研究侧权责结束；调仓走侧栏交易执行页
         next_step = "go_follow"
         next_label = "已启用 · 侧栏进交易执行"
+
+    if auto_demote and auto_demote.get("demoted"):
+        next_step = "fix_health"
+        next_label = "已自动降为对照 · 请跑分组重估后再启用"
+        note = str(auto_demote.get("note") or "已自动降为 shadow")
+        alerts = list(health.get("alerts") or [])
+        if note and note not in alerts:
+            health = dict(health)
+            health["alerts"] = [note] + alerts
+            health["auto_demoted"] = True
 
     return {
         "success": True,
@@ -391,8 +421,8 @@ def cluster_status_public(
             "next_label": next_label,
             "can_apply": has_draft or has_active,
             "can_activate": allow_active and has_active,
-            # 研究枢纽不调仓；就绪后跳转 /follow
-            "ready_for_follow": mode == "active" and has_active,
+            # 研究枢纽不调仓；就绪后跳转 /follow（健康破线时不算就绪）
+            "ready_for_follow": mode == "active" and has_active and allow_active,
             "can_paper": False,
             "paper_applied": bool(paper_land.get("applied")),
             "paper_applied_at": paper_land.get("applied_at"),
@@ -400,6 +430,14 @@ def cluster_status_public(
         },
         "enable_evidence": evidence,
         "audit_sample": audit,
+        "auto_demote": (
+            {
+                "demoted": bool((auto_demote or {}).get("demoted")),
+                "note": (auto_demote or {}).get("note"),
+            }
+            if auto_demote
+            else None
+        ),
         "note": "组权在 live 产物；调仓仅交易执行页；signal_config 仅开关 mode",
     }
 

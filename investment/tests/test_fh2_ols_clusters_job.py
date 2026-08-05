@@ -56,6 +56,31 @@ class TestFh2OlsClustersJob(unittest.TestCase):
             self.assertTrue(slot.request_cancel())
             self.assertTrue(slot.is_cancel_requested())
 
+    def test_force_fail_releases_slot(self):
+        from core.job_progress import JobProgress
+        from quant.services.quant_service import QuantService
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "quant_ols_clusters.json")
+            slot = JobProgress(name="quant-ols-clusters", persist_path=path)
+            slot.start(kind="factor_ols_clusters", total=10, message="拉日线 0/100")
+            # 伪造陈旧 updated_at
+            with slot._lock:
+                slot._job["updated_at"] = time.time() - 200
+                slot._save_unlocked()
+            svc = QuantService()
+            fake = {"success": True, "n_clusters": 2}
+            with patch("core.job_progress.quant_ols_clusters_job", slot), patch.object(
+                svc, "run_factor_ols_cluster_experiment", return_value=fake
+            ):
+                out = svc.start_factor_ols_cluster_job(lookback=80)
+            self.assertTrue(out.get("background"), out)
+            for _ in range(50):
+                if slot.get().get("status") in ("done", "failed"):
+                    break
+                time.sleep(0.05)
+            self.assertEqual(slot.get().get("status"), "done")
+
 
 if __name__ == "__main__":
     unittest.main()

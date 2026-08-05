@@ -16,7 +16,9 @@ def default_universe() -> Dict[str, Any]:
         "version": 1,
         "exclude_codes": [],
         "include_only": [],
-        "note": "include_only 非空时仅用该列表；否则 watching − exclude。",
+        "min_codes": 5,
+        "min_trading_days": 40,
+        "note": "include_only 非空时仅用该列表；否则 watching − exclude。B1：min_codes/min_trading_days 供闸门。",
     }
 
 
@@ -87,6 +89,29 @@ def resolve_validation_codes(
         "source": source,
         "excluded": sorted(exclude),
         "universe": uni,
+        "min_codes": int(uni.get("min_codes") or 5),
+        "min_trading_days": int(uni.get("min_trading_days") or 40),
+        "universe_ok": len(codes) >= int(uni.get("min_codes") or 5),
+    }
+
+
+def universe_sample_gate(*, universe: Optional[dict] = None) -> Dict[str, Any]:
+    """B1：验证宇宙码数门槛（供 promote / maturity）。"""
+    resolved = resolve_validation_codes(universe=universe)
+    min_c = int(resolved.get("min_codes") or 5)
+    ok = bool(resolved.get("universe_ok"))
+    blockers = []
+    if not ok:
+        blockers.append(
+            f"验证宇宙 {resolved.get('count')} < min_codes={min_c}"
+        )
+    return {
+        "ok": ok,
+        "count": resolved.get("count"),
+        "min_codes": min_c,
+        "min_trading_days": resolved.get("min_trading_days"),
+        "blockers": blockers,
+        "track": "B1",
     }
 
 

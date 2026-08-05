@@ -27,8 +27,15 @@ def _public_cluster_ols(report: Dict[str, Any], *, mode: str) -> Dict[str, Any]:
         "zscore_means": report.get("zscore_means") or report.get("z_means") or {},
         "zscore_stds": report.get("zscore_stds") or report.get("z_stds") or {},
         "horizon_days": report.get("horizon_days"),
+        "y_spec": report.get("y_spec"),
+        "n_obs": report.get("n_obs") or report.get("sample_count"),
+        "sample_fingerprint": report.get("sample_fingerprint"),
         "solver": report.get("solver"),
-        "ridge_lambda": report.get("ridge_lambda"),
+        "ridge_lambda": report.get("ridge_lambda_selected")
+        if report.get("ridge_lambda_selected") is not None
+        else report.get("ridge_lambda"),
+        "collinearity_policy": report.get("collinearity_policy"),
+        "respect_regime": report.get("respect_regime"),
         "error": report.get("error"),
     }
 
@@ -49,6 +56,12 @@ def _return_model_from_ols(ols: Optional[Dict[str, Any]]) -> Optional[Dict[str, 
         return None
     out = model.to_dict()
     out["note"] = "分组 OLS β → 因子系数（收益分真源）"
+    if payload.get("y_spec"):
+        out["y_spec"] = payload["y_spec"]
+    if payload.get("sample_fingerprint"):
+        out["sample_fingerprint"] = payload["sample_fingerprint"]
+    if payload.get("collinearity_policy"):
+        out["collinearity_policy"] = payload["collinearity_policy"]
     return out
 
 

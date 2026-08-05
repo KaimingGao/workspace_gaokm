@@ -493,6 +493,26 @@ export function initPlatform(ctx) {
             fund.empty_codes.length > 12 ? "…" : ""
           }</li>`
         : "") +
+      (fund.ann_missing_code_ratio != null
+        ? `<li class="${
+            Number(fund.ann_missing_code_ratio) > 0.3 ? "is-warn" : ""
+          }">ann_missing：码占比 ${(Number(fund.ann_missing_code_ratio) * 100).toFixed(
+            0
+          )}% · ${fund.ann_missing_codes ?? 0} 只 · points ${
+            fund.ann_missing_points ?? "—"
+          }</li>`
+        : "") +
+      (fund.ann_missing_top && fund.ann_missing_top.length
+        ? `<li>缺 ann Top：${escapeAttr(
+            fund.ann_missing_top
+              .slice(0, 8)
+              .map((r) => `${r.code}(${r.ann_missing_points})`)
+              .join(", ")
+          )}${fund.ann_missing_top.length > 8 ? "…" : ""}</li>`
+        : "") +
+      (fund.ingest_hint
+        ? `<li class="is-warn">催办：${escapeAttr(String(fund.ingest_hint))}</li>`
+        : "") +
       (Number(fund.store_orphan_count || 0) > 0
         ? `<li class="is-warn">store 孤儿 ${fund.store_orphan_count}（不计入覆盖）：${escapeAttr(
             (fund.store_orphan_codes || []).slice(0, 8).join(", ")
@@ -634,6 +654,20 @@ export function initPlatform(ctx) {
           ? (Number(fund.real_multi_coverage) * 100).toFixed(0) + "%"
           : "—"
       } · demo ${fund.synthetic_multi_point ?? "—"}</li>` +
+      (fund.ann_missing_code_ratio != null
+        ? `<li class="${
+            Number(fund.ann_missing_code_ratio) > 0.3 ? "is-warn" : ""
+          }">ann_missing 占比 ${(Number(fund.ann_missing_code_ratio) * 100).toFixed(0)}%` +
+          (fund.ann_missing_top && fund.ann_missing_top.length
+            ? ` · Top ${escapeAttr(
+                fund.ann_missing_top
+                  .slice(0, 6)
+                  .map((r) => r.code)
+                  .join(", ")
+              )}`
+            : "") +
+          `</li>`
+        : "") +
       `<li>源审计：${escapeAttr(audit.status || "—")} · fallback ${
         (audit.fallback_codes || []).length
       } · thin ${(audit.thin_codes || []).length}</li>` +

@@ -14,6 +14,7 @@ export function createHoldingsIslandController(deps) {
     setSelectedHoldCode,
     buildOriginBarHtml,
     buildActionBarHtml,
+    getSentHtml,
   } = deps;
 
   let holdingsGrid = null;
@@ -122,14 +123,18 @@ export function createHoldingsIslandController(deps) {
     const mod = await loadModule();
     const grid = await ensureGrid(host);
     const rowCtx = getRowContext();
-    const rows = holdings.map((h) =>
-      mod.holdingToRow(h, {
+    const rows = holdings.map((h) => {
+      const code = String(h.stock_code || "").trim();
+      const sentHtml =
+        typeof getSentHtml === "function" ? getSentHtml(code) : null;
+      return mod.holdingToRow(h, {
         chartMode: rowCtx.chartMode,
         chartStockCode: rowCtx.chartStockCode,
         selectedHoldCode: rowCtx.selectedHoldCode,
         pendingFocusCode: rowCtx.pendingFocusCode,
-      })
-    );
+        sentHtml,
+      });
+    });
     grid.setRows(rows);
     if (!grid.getData || !grid.getData().length) {
       throw new Error("island empty after setRows");

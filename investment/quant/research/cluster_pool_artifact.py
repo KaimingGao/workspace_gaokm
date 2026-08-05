@@ -134,6 +134,11 @@ def build_pool_artifact(report: Dict[str, Any]) -> Dict[str, Any]:
         "n_codes_with_coefs": n_with_coefs,
         "lookback": report.get("lookback"),
         "horizon_days": report.get("horizon_days"),
+        "y_spec": report.get("y_spec"),
+        "sample_fingerprint": report.get("sample_fingerprint"),
+        "respect_regime": report.get("respect_regime"),
+        "collinearity_policy": report.get("collinearity_policy"),
+        "select_ridge": report.get("select_ridge"),
         "stock_count": report.get("stock_count"),
         "clusters": clusters_out,
         "code_map": code_map,
@@ -150,6 +155,7 @@ def build_pool_artifact(report: Dict[str, Any]) -> Dict[str, Any]:
             "不写 signal_config；纸面调仓须单独预演；promote_ready 恒否。"
         ),
         "note": "人审产物；因子系数=组 OLS β→收益分；不进 live 须 promote。",
+        "track": "B0-B5",
     }
 
 
@@ -469,6 +475,31 @@ def preview_paper_pool_rebalance(
         "buy_trades": buys[:20],
         "buys_blocked": bool(result.get("buys_blocked")),
         "risk_gate": result.get("risk_gate"),
+        "risk_budget_skips": result.get("risk_budget_skips") or [],
+        "sentiment_prior": result.get("sentiment_prior"),
+        "cash_impact": result.get("cash_impact"),
+        "ops_report": result.get("ops_report"),
+        "rebalance_report": result.get("rebalance_report")
+        or [
+            {
+                "stock_code": t.get("stock_code"),
+                "stock_name": t.get("stock_name"),
+                "decision": (
+                    "买入"
+                    if t.get("side") == "buy"
+                    else (
+                        "减仓"
+                        if t.get("sentiment_prior") and "缩仓" in str(t.get("note") or "")
+                        else "卖出"
+                    )
+                ),
+                "reason": t.get("note") or "",
+                "shares": t.get("shares"),
+                "score": t.get("score"),
+                "sentiment_prior": bool(t.get("sentiment_prior")),
+            }
+            for t in (sells + buys)[:40]
+        ],
         "cash_after": target.get("cash"),
         "holdings_after": [
             {

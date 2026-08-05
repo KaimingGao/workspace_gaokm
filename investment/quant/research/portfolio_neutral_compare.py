@@ -98,6 +98,7 @@ def summarize_portfolio_neutral_compare(
     fetch_fundamentals: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """每日报告用的轻量中性化对照摘要（P54）。"""
+    from core.research.portfolio_bars import DAILY_PORTFOLIO_MAX_NAMES
     from core.watching_store import read_watching
     from quant.research.portfolio_data import load_portfolio_stock_bars
 
@@ -112,10 +113,14 @@ def summarize_portfolio_neutral_compare(
     if len(candidates) < 2:
         return {"success": False, "error": "候选标的不足"}
 
+    n_all = len(candidates)
     stock_bars, failures, fundamentals_by_code = load_portfolio_stock_bars(
         candidates,
         lookback=lookback,
         fetch_fundamentals=fetch_fundamentals,
+        offline_ok=True,
+        max_names=DAILY_PORTFOLIO_MAX_NAMES,
+        fundamentals_live=False,
     )
     if len(stock_bars) < 2:
         return {
@@ -161,5 +166,12 @@ def summarize_portfolio_neutral_compare(
         "loaded_stocks": list(stock_bars.keys()),
         "interpretation": interp,
         "failures": failures,
-        "note": "快照基本面 + 截面中性化对照；非 point-in-time，仅供研究。",
+        "note": (
+            (
+                f"日报轻量对照截断观察池 {n_all}→{DAILY_PORTFOLIO_MAX_NAMES}；"
+                if n_all > DAILY_PORTFOLIO_MAX_NAMES
+                else ""
+            )
+            + "快照基本面 + 截面中性化对照；非 point-in-time，仅供研究。"
+        ),
     }

@@ -35,6 +35,39 @@ def fit_gap_hints(
         }
     )
 
+    # X4：特征同构 / 质量门政策
+    try:
+        from core.signal.live_features import build_quality_policy_snapshot
+
+        qp = build_quality_policy_snapshot()
+        hints.append(
+            {
+                "code": "quality_policy",
+                "level": "info",
+                "message": (
+                    "X 政策：live 有质量门+财务PIT+index；"
+                    f"回测 quality_gate={qp.get('backtest', {}).get('quality_gate')}；"
+                    "研究面板默认绕开 regime（OOS/分组默认 respect_regime=True）"
+                ),
+            }
+        )
+    except Exception:
+        pass
+    try:
+        from core.signal.factor_health import assess_factor_health
+
+        fh = assess_factor_health()
+        if fh.get("blockers"):
+            hints.append(
+                {
+                    "code": "x_factor_proxy",
+                    "level": "warn",
+                    "message": "伪因子权重：" + "; ".join(fh.get("blockers") or [])[:200],
+                }
+            )
+    except Exception:
+        pass
+
     status = str(rz.get("status") or "")
     if status == "unavailable":
         reason = str(rz.get("reason") or "unavailable")
@@ -139,6 +172,47 @@ def fit_gap_hints(
             }
         )
 
+    # B2：horizon / y_spec 与配置对齐提示
+    try:
+        from core.signal.config import load_signal_config
+        from core.research.beta_accuracy import build_y_spec
+
+        cfg = load_signal_config() or {}
+        scoring = cfg.get("scoring") or {}
+        cfg_h = scoring.get("horizon_days")
+        if cfg_h is None:
+            cfg_h = 3
+        bt_h = params.get("horizon_days")
+        if bt_h is not None:
+            try:
+                if int(bt_h) != int(cfg_h):
+                    hints.append(
+                        {
+                            "code": "horizon_mismatch",
+                            "level": "warn",
+                            "message": (
+                                f"回测/对照 horizon={bt_h} ≠ scoring.horizon_days={cfg_h}；"
+                                "y 契约不一致会扭曲拟合与 OOS"
+                            ),
+                        }
+                    )
+            except (TypeError, ValueError):
+                pass
+        y_spec = build_y_spec(horizon_days=int(cfg_h))
+        hints.append(
+            {
+                "code": "y_spec",
+                "level": "info",
+                "message": (
+                    f"y_spec：horizon={y_spec.get('horizon_days')} · "
+                    f"成本={'含' if y_spec.get('include_cost') else '不含'} · "
+                    f"{y_spec.get('formula')}"
+                ),
+            }
+        )
+    except Exception:
+        pass
+
     if params.get("rebalance_days") or params.get("horizon_days"):
         hints.append(
             {
@@ -187,10 +261,18 @@ def fit_gap_hints(
         )
 
     warn_n = sum(1 for h in hints if h.get("level") == "warn")
+    quality_policy = None
+    try:
+        from core.signal.live_features import build_quality_policy_snapshot
+
+        quality_policy = build_quality_policy_snapshot()
+    except Exception:
+        quality_policy = None
     return {
         "ok": True,
         "hints": hints,
         "count": len(hints),
         "warn_count": warn_n,
+        "quality_policy": quality_policy,
         "note": "启发式归因，非因果证明。",
     }

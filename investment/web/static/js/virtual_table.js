@@ -257,6 +257,21 @@ export function mountVirtualTable(host, options = {}) {
     publish("data");
   }
 
+  /** 批量补丁：只重绘一次，避免 insights 逐行 update 卡顿/闪空 */
+  function patchRows(patches) {
+    if (!patches || typeof patches !== "object") return;
+    let n = 0;
+    Object.keys(patches).forEach((code) => {
+      const c = String(code || "").trim();
+      if (!c || !rowMap.has(c)) return;
+      const patch = patches[c];
+      if (!patch || typeof patch !== "object") return;
+      rowMap.set(c, { ...rowMap.get(c), ...patch });
+      n += 1;
+    });
+    if (n) publish("data");
+  }
+
   headEl.addEventListener("click", (e) => {
     const th = e.target.closest("[data-sort]");
     if (!th || !headEl.contains(th)) return;
@@ -301,6 +316,7 @@ export function mountVirtualTable(host, options = {}) {
       };
     },
     setRows,
+    patchRows,
     setSort(sorters) {
       const s = Array.isArray(sorters) && sorters.length ? sorters[0] : null;
       sortState = !s || !s.column ? [] : [{ id: s.column, desc: s.dir !== "asc" }];

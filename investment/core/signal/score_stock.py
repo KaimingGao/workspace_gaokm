@@ -7,7 +7,6 @@ from typing import Any, Dict, Optional
 
 from core.signal.scorer import score_bars
 from core.signal.config import load_signal_config
-from core.signal.fundamentals_bridge import fetch_score_fundamentals
 from core.ports.market import (
     bars_from_quote_fallback,
     fetch_daily_bars,
@@ -114,6 +113,7 @@ def score_stock(
     horizon_days: int = 3,
     quote: Optional[dict] = None,
     skip_fundamentals: bool = False,
+    skip_sentiment: bool = False,
     bypass_quality_gate: bool = False,
     cluster_mode: Optional[str] = None,
 ) -> Dict[str, Any]:
@@ -121,6 +121,8 @@ def score_stock(
 
     P1：默认质量门禁 —— thin/empty/fallback 不进生产 score（hard_reject）。
     研究可传 bypass_quality_gate=True；历史回测引擎直接调 score_bars，不受影响。
+
+    ``skip_sentiment=True``：跳过标题舆情拉取（分池刷簿必开，否则 N×超时极慢）。
 
     cluster_mode: None=读 signal_config.cluster_scoring；
     off — 不用组 β；shadow — 可算 score_cluster 对照，主分仍全局/空；
@@ -193,23 +195,134 @@ def score_stock(
     cfg = load_signal_config()
     fund_cfg = cfg.get("fundamentals") or {}
     fundamentals = None
-    if not skip_fundamentals and fund_cfg.get("enabled", True) and fund_cfg.get("fetch_on_score", True):
-        fundamentals = fetch_score_fundamentals(raw) or fetch_score_fundamentals(str(code))
+    fundamentals_pit_meta: Dict[str, Any] = {}
+    index_meta: Dict[str, Any] = {}
+    fund_depth: Dict[str, Any] = {}
+    index_bars = None
+    # X0：live 财务 PIT（与 panel/OLS 同源 resolve）
+    if not skip_fundamentals and fund_cfg.get("enabled", True) and fund_cfg.get(
+        "fetch_on_score", True
+    ):
+        try:
+            from core.signal.live_features import resolve_live_fundamentals
 
-    # 拉观察页舆情情绪（复用 15min 缓存）；失败不影响评分但记 warnings（FH4）
-    sentiment = None
-    formula_warnings: list = []
+            live_fund = resolve_live_fundamentals(raw, bars=bars, config=cfg)
+            fundamentals = (live_fund or {}).get("metrics")
+            fundamentals_pit_meta = dict((live_fund or {}).get("fundamentals_pit") or {})
+            if not fundamentals:
+                live_fund2 = resolve_live_fundamentals(
+                    str(code), bars=bars, config=cfg
+                )
+                fundamentals = (live_fund2 or {}).get("metrics")
+                if live_fund2 and live_fund2.get("fundamentals_pit"):
+                    fundamentals_pit_meta = dict(live_fund2["fundamentals_pit"])
+        except Exception as e:
+            fundamentals = None
+            fundamentals_pit_meta = {"ok": False, "error": str(e), "mode": "error"}
+
+    # X1：指数日线；X5：财务深度边界
     try:
-        from core.sentiment import fetch_stock_headlines
-        sent_data = _call_with_timeout(fetch_stock_headlines, 12, raw, limit=5)
-        if sent_data and sent_data.get("ok"):
-            sentiment = sent_data.get("sentiment")
-        elif sent_data and not sent_data.get("ok"):
-            formula_warnings.append(
-                f"sentiment_unavailable:{sent_data.get('error') or 'not_ok'}"
+        from core.signal.live_features import (
+            fetch_live_index_bars,
+            infer_fundamentals_depth,
+        )
+
+        try:
+            from core.ports.market import resolve_market_code
+
+            mkt = str(
+                resolve_market_code(str(code)) or resolve_market_code(raw) or "CN"
             )
+        except Exception:
+            mkt = "CN"
+        idx_pack = fetch_live_index_bars(market=mkt, limit=75)
+        index_meta = {
+            "ok": bool(idx_pack.get("ok")),
+            "benchmark": idx_pack.get("benchmark"),
+            "label": idx_pack.get("label"),
+            "cached": bool(idx_pack.get("cached")),
+            "reason": idx_pack.get("reason"),
+            "bar_count": len(idx_pack.get("bars") or []),
+        }
+        if idx_pack.get("bars"):
+            index_bars = idx_pack["bars"]
+        fund_depth = infer_fundamentals_depth(str(code), quote=quote)
     except Exception as e:
-        formula_warnings.append(f"sentiment_fetch_failed:{e}")
+        index_meta = {"ok": False, "reason": f"index_setup_failed:{e}"}
+        fund_depth = {"fundamentals_depth": "unknown", "note": str(e)}
+
+    # 拉观察页舆情（缓存）；默认不进 score/ŷ；先验旁路见 sentiment_prior
+    sentiment_ui = None
+    formula_warnings: list = []
+    risk_hints: list = []
+    sentiment_prior: dict = {}
+    sent_cfg = cfg.get("sentiment") or {}
+    include_sentiment_in_score = bool(sent_cfg.get("include_in_score", False))
+    if skip_sentiment:
+        formula_warnings.append("sentiment_skipped_for_speed")
+        sentiment_prior = {
+            "success": True,
+            "role": "prior",
+            "mode": "off",
+            "skipped": True,
+            "note": "刷簿/批打分跳过舆情拉取",
+        }
+    else:
+        try:
+            from core.sentiment import fetch_stock_headlines
+
+            sent_data = _call_with_timeout(fetch_stock_headlines, 12, raw, limit=5)
+            if sent_data and sent_data.get("ok"):
+                sentiment_ui = sent_data.get("sentiment")
+            elif sent_data and not sent_data.get("ok"):
+                formula_warnings.append(
+                    f"sentiment_unavailable:{sent_data.get('error') or 'not_ok'}"
+                )
+            else:
+                formula_warnings.append("sentiment_empty")
+        except Exception as e:
+            formula_warnings.append(f"sentiment_fetch_failed:{e}")
+
+        try:
+            from core.sentiment_prior import build_sentiment_prior
+
+            sentiment_prior = build_sentiment_prior(
+                sentiment_ui if isinstance(sentiment_ui, dict) else None,
+                config=cfg,
+                stock_code=str(code),
+            )
+            risk_hints.extend(list(sentiment_prior.get("risk_hints") or []))
+            for w in sentiment_prior.get("warnings") or []:
+                if w and w not in formula_warnings:
+                    formula_warnings.append(w)
+        except Exception as e:
+            formula_warnings.append(f"sentiment_prior_failed:{e}")
+            sentiment_prior = {"success": False, "role": "prior", "error": str(e)}
+
+    # FS1 / X0 / X1：财务与指数覆盖可见
+    if fundamentals_pit_meta.get("error"):
+        formula_warnings.append(
+            f"fundamentals_pit_failed:{fundamentals_pit_meta.get('error')}"
+        )
+    if fundamentals_pit_meta.get("mode") == "as_of_missing":
+        formula_warnings.append("fundamentals_as_of_missing")
+    if fundamentals_pit_meta.get("ann_missing"):
+        formula_warnings.append("fundamentals_ann_missing")
+    if fundamentals_pit_meta.get("non_pit"):
+        formula_warnings.append("fundamentals_non_pit_snapshot")
+    if not skip_fundamentals and fund_cfg.get("enabled", True):
+        if not isinstance(fundamentals, dict) or not fundamentals:
+            formula_warnings.append("fundamentals_missing")
+        else:
+            fund_keys = ("pe", "pb", "roe", "market_cap", "dividend_yield")
+            if not any(fundamentals.get(k) is not None for k in fund_keys):
+                formula_warnings.append("fundamentals_empty_metrics")
+    if index_meta and not index_meta.get("ok"):
+        formula_warnings.append(
+            str(index_meta.get("reason") or "no_index")
+        )
+    if fund_depth.get("fundamentals_depth") in ("hk_shallow", "us_shallow"):
+        formula_warnings.append(f"fundamentals_depth:{fund_depth.get('fundamentals_depth')}")
 
     # 分组 live：解析模式；组 β 仅 active 进主分（FH0）
     from core.signal.cluster_live import (
@@ -236,14 +349,46 @@ def score_stock(
     cluster_id = None
     cluster_version = None
 
-    # 只打一次分：拿 sub_scores / hard_reject（ŷ 输入）；不产出规则综合分
+    # 先解析 return_model 键，保证 ŷ β 所需 sub_scores 齐套（FS0）
+    required_factor_keys: list = []
+    group_model_pre = None
+    global_model_pre = None
+    try:
+        from core.signal.return_score import ReturnScoreModel
+        from core.signal.cluster_live import lookup_code_return_model
+        from core.signal.return_score_store import load_return_model
+
+        if cluster_yhat_shadow_compute_allowed(mode):
+            ret_raw = (mapped or {}).get("return_model") if mapped else None
+            if isinstance(ret_raw, dict):
+                group_model_pre = ReturnScoreModel.from_dict(ret_raw)
+            if group_model_pre is None:
+                group_model_pre = lookup_code_return_model(
+                    str(code)
+                ) or lookup_code_return_model(raw)
+        global_model_pre, _meta = load_return_model(prefer_active=True)
+        for m in (group_model_pre, global_model_pre):
+            if m is None:
+                continue
+            for k in (m.coefficients or {}).keys():
+                kk = str(k).strip()
+                if kk and kk not in required_factor_keys:
+                    required_factor_keys.append(kk)
+    except Exception:
+        required_factor_keys = []
+        group_model_pre = None
+        global_model_pre = None
+
+    sentiment_for_score = sentiment_ui if include_sentiment_in_score else None
     scored = score_bars(
         bars,
         horizon_days=horizon_days,
         quote=quote,
         fundamentals=fundamentals,
+        index_bars=index_bars,
         config=cfg,
-        sentiment=sentiment,
+        sentiment=sentiment_for_score,
+        required_factor_keys=required_factor_keys or None,
     )
     if mapped and cluster_yhat_shadow_compute_allowed(mode):
         cluster_label = mapped.get("cluster_label")
@@ -275,24 +420,12 @@ def score_stock(
     score_cluster = None
     return_model_source = None
     active_model = None
-    group_model = None
-    global_model = None
+    group_model = group_model_pre
+    global_model = global_model_pre
     try:
-        from core.signal.return_score import ReturnScoreModel
-        from core.signal.cluster_live import lookup_code_return_model
-        from core.signal.return_score_store import load_return_model
-
-        subs = scored.get("sub_scores") or {}
-        # off：不算组模型；shadow/active：可算对照；仅 active 写入主分
-        if cluster_yhat_shadow_compute_allowed(mode):
-            ret_raw = (mapped or {}).get("return_model") if mapped else None
-            if isinstance(ret_raw, dict):
-                group_model = ReturnScoreModel.from_dict(ret_raw)
-            if group_model is None:
-                group_model = lookup_code_return_model(
-                    str(code)
-                ) or lookup_code_return_model(raw)
-        global_model, _meta = load_return_model(prefer_active=True)
+        subs = dict(scored.get("sub_scores") or {})
+        if not include_sentiment_in_score:
+            subs.pop("alt_sentiment", None)
 
         if global_model is not None:
             score_global = global_model.predict(subs)
@@ -354,11 +487,52 @@ def score_stock(
             )
             factor_coefficients = dict(return_model_payload.get("coefficients") or {})
             score_formula_terms = active_model.explain_prediction(
-                scored.get("sub_scores") or {}
+                {
+                    k: v
+                    for k, v in (scored.get("sub_scores") or {}).items()
+                    if include_sentiment_in_score or k != "alt_sentiment"
+                }
             )
+            # FS3：公式始终展示 alt_sentiment 项（闸关或 β=0 时贡献记 0）
+            try:
+                coef_alt = factor_coefficients.get("alt_sentiment")
+                alt_b = float(coef_alt) if coef_alt is not None else 0.0
+            except (TypeError, ValueError):
+                alt_b = 0.0
+            if score_formula_terms is None:
+                score_formula_terms = {
+                    "intercept": float(getattr(active_model, "intercept", 0.0) or 0.0),
+                    "total": float(predicted_score or 0.0),
+                    "terms": [],
+                }
+            terms = list(score_formula_terms.get("terms") or [])
+            if not any(str(t.get("key")) == "alt_sentiment" for t in terms):
+                from core.signal.factor_registry import factor_label
+
+                terms.append(
+                    {
+                        "key": "alt_sentiment",
+                        "label": factor_label("alt_sentiment"),
+                        "beta": round(alt_b, 6),
+                        "z": 0.0,
+                        "contrib": 0.0,
+                        "gated": not include_sentiment_in_score,
+                        "note": (
+                            "闸关·不进 ŷ"
+                            if not include_sentiment_in_score
+                            else ("β≈0" if abs(alt_b) < 1e-12 else "")
+                        ),
+                    }
+                )
+                score_formula_terms = dict(score_formula_terms)
+                score_formula_terms["terms"] = terms
             score_formula = build_score_formula(
                 {
-                    "sub_scores": scored.get("sub_scores"),
+                    "sub_scores": {
+                        k: v
+                        for k, v in (scored.get("sub_scores") or {}).items()
+                        if include_sentiment_in_score or k != "alt_sentiment"
+                    },
                     "return_model": active_model,
                 }
             )
@@ -368,6 +542,13 @@ def score_stock(
             score_formula_terms = None
             factor_coefficients = None
             formula_warnings.append(f"score_formula_failed:{e}")
+
+    alt_beta = None
+    if isinstance(factor_coefficients, dict) and "alt_sentiment" in factor_coefficients:
+        try:
+            alt_beta = float(factor_coefficients["alt_sentiment"])
+        except (TypeError, ValueError):
+            alt_beta = None
 
     signal_item = {
         "stock_code": code,
@@ -408,6 +589,22 @@ def score_stock(
         "score_formula": score_formula or None,
         "score_formula_terms": score_formula_terms,
         "warnings": list(formula_warnings),
+        "risk_hints": list(risk_hints),
+        "sentiment_prior": sentiment_prior,
+        "sentiment_include_in_score": include_sentiment_in_score,
+        "watching_sentiment": sentiment_ui,
+        "alt_sentiment_beta": alt_beta,
+        "alt_sentiment_in_yhat": bool(
+            include_sentiment_in_score
+            and alt_beta is not None
+            and abs(alt_beta) > 1e-12
+            and (scored.get("sub_scores") or {}).get("alt_sentiment") is not None
+        ),
+        "fundamentals_pit": fundamentals_pit_meta or None,
+        "index_meta": index_meta or None,
+        "fundamentals_depth": fund_depth.get("fundamentals_depth"),
+        "fundamentals_depth_meta": fund_depth or None,
+        "feature_isomorphism_track": "X0-X5",
     }
 
     return {

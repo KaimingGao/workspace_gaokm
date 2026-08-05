@@ -269,59 +269,104 @@ export function installWatching(q) {
           .map((r) => r.dataset.code)
           .filter(Boolean);
     if (!codes.length) return;
+    const gen = (state.watchingInsightsGen = (state.watchingInsightsGen || 0) + 1);
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 100000);
     const insightDeps = { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail };
+    setWatchingRefreshStatus("正在加载评分…", { busy: true, owner: "insights" });
     try {
-      const res = await fetch(
-        `/api/watching/insights?codes=${encodeURIComponent(codes.join(","))}`,
-        { signal: ctrl.signal }
-      );
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || res.statusText);
-      const byCode = indexByWatchingCode(data.items || []);
-      codes.forEach((code) => {
-        const it = byCode[watchingCodeKey(code)] || {};
-        if (useGrid) {
+      // 分批拉取，避免单次过长/截断；合并后再一次写入表格
+      const chunkSize = 40;
+      const items = [];
+      for (let i = 0; i < codes.length; i += chunkSize) {
+        if (gen !== state.watchingInsightsGen) return;
+        const chunk = codes.slice(i, i + chunkSize);
+        const res = await fetch(
+          `/api/watching/insights?codes=${encodeURIComponent(chunk.join(","))}`,
+          { signal: ctrl.signal }
+        );
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || res.statusText);
+        items.push(...(data.items || []));
+      }
+      if (gen !== state.watchingInsightsGen) return;
+      if (useGrid && !(state.watchingGrid && state.watchingGridReady)) return;
+
+      const byCode = indexByWatchingCode(items);
+      if (useGrid && typeof state.watchingGrid.patchRows === "function") {
+        const patches = {};
+        codes.forEach((code) => {
+          const it = byCode[watchingCodeKey(code)];
+          // 无回包的票保持「…」，勿用空对象刷成「—」
+          if (!it || !it.stock_code) return;
+          const row = state.watchingGrid.getRow(code);
+          if (!row) return;
+          patches[code] = buildWatchingInsightsGridPatch(it, row, insightDeps);
+        });
+        state.watchingGrid.patchRows(patches);
+        sortWatchingTableRows();
+      } else if (useGrid) {
+        codes.forEach((code) => {
+          const it = byCode[watchingCodeKey(code)];
+          if (!it || !it.stock_code) return;
           const row = state.watchingGrid.getRow(code);
           if (!row) return;
           row.update(buildWatchingInsightsGridPatch(it, row, insightDeps));
-          return;
-        }
-        const tr = watchTable?.querySelector(
-          `tr[data-code="${String(code).replace(/"/g, "")}"]`
-        );
-        if (!tr) return;
-        const setTxt = (key, val) => {
-          const el = tr.querySelector(`[data-q='${key}']`);
-          if (el) el.textContent = val != null && val !== "" ? String(val) : "—";
-        };
-        const disp = buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail);
-        const scoreEl = tr.querySelector(`[data-q='score']`);
-        if (scoreEl) {
-          scoreEl.innerHTML = buildWatchingScoreCellHtml(disp, scoreCls, escapeHtml);
-        }
-        const fields = buildWatchingInsightsNativeFields(it);
-        setTxt("stance", fields.stance);
-        setTxt("excess", fields.excess);
-        if (fields.vol) setTxt("vol", fields.vol);
-        setTxt("volr", fields.volr);
-        setTxt("pe", fields.pe);
-        setTxt("pb", fields.pb);
-      });
-      const items = data.items || [];
+        });
+        sortWatchingTableRows();
+      } else {
+        codes.forEach((code) => {
+          const it = byCode[watchingCodeKey(code)];
+          if (!it || !it.stock_code) return;
+          const tr = watchTable?.querySelector(
+            `tr[data-code="${String(code).replace(/"/g, "")}"]`
+          );
+          if (!tr) return;
+          const setTxt = (key, val) => {
+            const el = tr.querySelector(`[data-q='${key}']`);
+            if (el) el.textContent = val != null && val !== "" ? String(val) : "—";
+          };
+          const disp = buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail);
+          const scoreEl = tr.querySelector(`[data-q='score']`);
+          if (scoreEl) {
+            scoreEl.innerHTML = buildWatchingScoreCellHtml(disp, scoreCls, escapeHtml);
+          }
+          const fields = buildWatchingInsightsNativeFields(it);
+          setTxt("stance", fields.stance);
+          setTxt("excess", fields.excess);
+          if (fields.vol) setTxt("vol", fields.vol);
+          setTxt("volr", fields.volr);
+          setTxt("pe", fields.pe);
+          setTxt("pb", fields.pb);
+        });
+      }
       const okN = items.filter((x) => x.ok).length;
-      setWatchingRefreshStatus(buildWatchingInsightsStatusText(okN, codes.length, items));
-      if (useGrid) sortWatchingTableRows();
+      setWatchingRefreshStatus(buildWatchingInsightsStatusText(okN, codes.length, items), {
+        ok: true,
+        owner: "insights",
+      });
     } catch (err) {
-      if (useGrid) {
+      if (gen !== state.watchingInsightsGen) return;
+      if (useGrid && state.watchingGrid && state.watchingGridReady) {
+        const patches = {};
         codes.forEach((code) => {
           const row = state.watchingGrid.getRow(code);
           if (!row) return;
-          row.update(buildWatchingInsightsGridErrorPatch(row.getData()));
+          patches[code] = buildWatchingInsightsGridErrorPatch(row.getData());
         });
+        if (typeof state.watchingGrid.patchRows === "function") {
+          state.watchingGrid.patchRows(patches);
+        } else {
+          Object.keys(patches).forEach((code) => {
+            const row = state.watchingGrid.getRow(code);
+            if (row) row.update(patches[code]);
+          });
+        }
       }
-      setWatchingRefreshStatus(buildWatchingInsightsErrorStatus(err), { error: true });
+      setWatchingRefreshStatus(buildWatchingInsightsErrorStatus(err), {
+        error: true,
+        owner: "insights",
+      });
     } finally {
       clearTimeout(timer);
     }
@@ -333,7 +378,7 @@ export function installWatching(q) {
       if (!codes.length) return;
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 20000);
-      setWatchingRefreshStatus("正在拉取行情…");
+      setWatchingRefreshStatus("正在拉取行情…", { busy: true, owner: "quotes" });
       try {
         const res = await fetch(
           `/api/watching/quotes?codes=${encodeURIComponent(codes.join(","))}`,
@@ -349,10 +394,16 @@ export function installWatching(q) {
           row.update(buildWatchingQuoteGridPatch(it, row, parseWatchingVolume));
         });
         const okN = (data.items || []).filter((x) => x.ok).length;
-        setWatchingRefreshStatus(buildWatchingQuotesStatusText(okN, codes.length));
+        setWatchingRefreshStatus(buildWatchingQuotesStatusText(okN, codes.length), {
+          ok: true,
+          owner: "quotes",
+        });
         sortWatchingTableRows();
       } catch (err) {
-        setWatchingRefreshStatus(buildWatchingQuotesErrorStatus(err), { error: true });
+        setWatchingRefreshStatus(buildWatchingQuotesErrorStatus(err), {
+          error: true,
+          owner: "quotes",
+        });
       } finally {
         clearTimeout(timer);
       }
@@ -363,6 +414,7 @@ export function installWatching(q) {
     const trs = watchTable.querySelectorAll("tr[data-code]");
     if (!trs.length) return;
     const codes = Array.from(trs).map((r) => r.dataset.code).filter(Boolean);
+    setWatchingRefreshStatus("正在拉取行情…", { busy: true, owner: "quotes" });
     try {
       const res = await fetch(`/api/watching/quotes?codes=${encodeURIComponent(codes.join(","))}`);
       const data = await res.json().catch(() => ({}));
@@ -388,9 +440,15 @@ export function installWatching(q) {
         }
       });
       const okN = (data.items || []).filter((x) => x.ok).length;
-      setWatchingRefreshStatus(buildWatchingQuotesStatusText(okN, codes.length));
+      setWatchingRefreshStatus(buildWatchingQuotesStatusText(okN, codes.length), {
+        ok: true,
+        owner: "quotes",
+      });
     } catch (err) {
-      setWatchingRefreshStatus(buildWatchingQuotesErrorStatus(err), { error: true });
+      setWatchingRefreshStatus(buildWatchingQuotesErrorStatus(err), {
+        error: true,
+        owner: "quotes",
+      });
     }
   }
 
@@ -570,6 +628,7 @@ export function installWatching(q) {
       mainActions: document.getElementById("watching-main-actions"),
       searchWrap: document.getElementById("watching-search-wrap"),
     };
+    setWatchingRefreshStatus("正在加载观察名单…", { busy: true, owner: "panel" });
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 15000);
     let uniRes;
@@ -591,6 +650,7 @@ export function installWatching(q) {
           ? "观察名单加载超时，请刷新"
           : String((err && err.message) || err);
       setPoolMeta(msg);
+      setWatchingRefreshStatus(msg, { error: true, owner: "panel" });
       throw err;
     } finally {
       clearTimeout(timer);
@@ -629,9 +689,13 @@ export function installWatching(q) {
       els.quantWatchingList.innerHTML = watchingQuantListHtml(wl, names, escapeHtml);
     }
     if (wl.length) {
+      // quotes 会接管忙碌条；先交还 panel owner
+      setWatchingRefreshStatus("正在拉取行情…", { busy: true, owner: "quotes" });
       fillWatchingQuotes().catch(() => {});
       fillWatchingInsights().catch(() => {});
       fillWatchingSentiment().catch(() => {});
+    } else {
+      setWatchingRefreshStatus("", { owner: "panel" });
     }
     loadWatchingSentimentAlerts().catch(() => {});
     return data;
@@ -884,6 +948,7 @@ export function installWatching(q) {
     }
     state.watchingGrid = null;
     state.watchingGridReady = false;
+    state.watchingInsightsGen = (state.watchingInsightsGen || 0) + 1;
     if (!wl.length) {
       watchTable.innerHTML = `<p class="watching-table-empty">暂无观察 · 上方搜索加入</p>`;
       hideWatchingNewsDetail();
@@ -1017,19 +1082,93 @@ export function installWatching(q) {
     el.classList.toggle("is-error", !!error);
   }
 
-  function setWatchingRefreshStatus(text, { error = false } = {}) {
+  let watchingRefreshStatusTimer = null;
+  let watchingRefreshBusyOwner = null;
+  let watchingRefreshBusySince = 0;
+  const WATCHING_BUSY_MIN_MS = 600;
+
+  function setWatchingRefreshStatus(
+    text,
+    { error = false, busy = null, ok = false, owner = null } = {}
+  ) {
     const el = document.getElementById("watching-refresh-status");
     if (!el) return;
+    if (watchingRefreshStatusTimer) {
+      clearTimeout(watchingRefreshStatusTimer);
+      watchingRefreshStatusTimer = null;
+    }
     const msg = String(text || "").trim();
     if (!msg) {
       el.hidden = true;
       el.textContent = "";
-      el.classList.remove("is-error");
+      el.classList.remove("is-error", "is-busy", "is-ok");
+      if (!owner || watchingRefreshBusyOwner === owner) {
+        watchingRefreshBusyOwner = null;
+        watchingRefreshBusySince = 0;
+      }
       return;
     }
-    el.hidden = false;
-    el.textContent = msg;
-    el.classList.toggle("is-error", !!error);
+    const isBusy =
+      busy == null
+        ? /正在|加载中|拉取|刷新中|分析中|移除中|加入中/.test(msg)
+        : !!busy;
+    // 行情拉取进行中时，其它并行任务的「已更新」勿冲掉忙碌态
+    if (
+      !isBusy &&
+      !error &&
+      watchingRefreshBusyOwner &&
+      owner &&
+      watchingRefreshBusyOwner !== owner
+    ) {
+      return;
+    }
+
+    const apply = () => {
+      if (isBusy) {
+        watchingRefreshBusyOwner = owner || "default";
+        if (!watchingRefreshBusySince) watchingRefreshBusySince = Date.now();
+      } else if (!owner || watchingRefreshBusyOwner === owner) {
+        watchingRefreshBusyOwner = null;
+        watchingRefreshBusySince = 0;
+      }
+
+      el.hidden = false;
+      el.textContent = msg;
+      el.classList.toggle("is-error", !!error);
+      el.classList.toggle("is-busy", !!isBusy && !error);
+      el.classList.toggle("is-ok", !!ok && !error && !isBusy);
+      const bar = document.getElementById("watching-main-actions");
+      if (bar && bar.hidden && msg) bar.hidden = false;
+      if (msg && (ok || (!error && !isBusy))) {
+        watchingRefreshStatusTimer = setTimeout(() => {
+          if (el.classList.contains("is-busy") || el.classList.contains("is-error")) {
+            return;
+          }
+          el.hidden = true;
+          el.textContent = "";
+          el.classList.remove("is-ok");
+          watchingRefreshStatusTimer = null;
+        }, 6000);
+      }
+    };
+
+    // 忙碌→完成过快时强制至少亮一会
+    if (
+      !isBusy &&
+      !error &&
+      watchingRefreshBusySince &&
+      (!owner || watchingRefreshBusyOwner === owner)
+    ) {
+      const left = WATCHING_BUSY_MIN_MS - (Date.now() - watchingRefreshBusySince);
+      if (left > 0) {
+        watchingRefreshStatusTimer = setTimeout(() => {
+          watchingRefreshStatusTimer = null;
+          apply();
+        }, left);
+        return;
+      }
+    }
+    apply();
   }
 
 

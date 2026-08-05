@@ -175,6 +175,29 @@ class JobProgress:
             self._save_unlocked()
             return True
 
+    def force_fail(self, error: str = "已强制结束") -> bool:
+        """立即标失败（卡住的 worker 仍可能在跑，但槽位可重新开跑）。"""
+        with self._lock:
+            if self._job.get("status") != "running":
+                return False
+            self._job["cancel_requested"] = True
+            self._job["status"] = "failed"
+            self._job["error"] = error or "已强制结束"
+            self._job["message"] = "已中断"
+            self._job["updated_at"] = time.time()
+            self._save_unlocked()
+            return True
+
+    def stale_seconds(self) -> Optional[float]:
+        with self._lock:
+            if self._job.get("status") != "running":
+                return None
+            ts = self._job.get("updated_at")
+            try:
+                return max(0.0, time.time() - float(ts))
+            except (TypeError, ValueError):
+                return None
+
     def is_cancel_requested(self) -> bool:
         with self._lock:
             return bool(self._job.get("cancel_requested"))

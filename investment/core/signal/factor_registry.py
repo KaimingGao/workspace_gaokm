@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from core.signal.factors.alt_sentiment import score_alt_sentiment
 from core.signal.factors.amihud import score_amihud
@@ -300,9 +300,16 @@ def compute_configured_factors(
     fundamentals: Optional[dict] = None,
     sentiment: Optional[dict] = None,
     money_flow: Optional[dict] = None,
+    required_keys: Optional[Sequence[str]] = None,
+    skip_factors: Optional[Sequence[str]] = None,
 ) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, Any]]:
-    """按 weights 键计算子分、加权贡献与合并 meta。"""
-    wmap = weights or {}
+    """按 weights 键计算子分；``required_keys`` 即使权为 0 也算（ŷ β 同构，FS0）。"""
+    wmap = dict(weights or {})
+    skip = {str(x).strip() for x in (skip_factors or []) if str(x).strip()}
+    for key in required_keys or []:
+        k = str(key or "").strip()
+        if k and k not in wmap and k in _REGISTRY:
+            wmap[k] = 0.0
     sub_scores: Dict[str, float] = {}
     contribs: Dict[str, float] = {}
     meta: Dict[str, Any] = {}
@@ -310,12 +317,18 @@ def compute_configured_factors(
     for name, weight in wmap.items():
         if name not in _REGISTRY:
             continue
+        if name in skip:
+            continue
         try:
             w = float(weight)
         except (TypeError, ValueError):
             w = 0.0
-        # 权重为 0 的可选因子可跳过计算
-        if abs(w) < 1e-12 and name in ("alt_sentiment", "money_flow"):
+        # 可选因子：权≈0 且非 required 时可跳过
+        required = set(str(x).strip() for x in (required_keys or []) if str(x).strip())
+        if abs(w) < 1e-12 and name not in required and name in (
+            "alt_sentiment",
+            "money_flow",
+        ):
             continue
         score, fac_meta = compute_factor(
             name,
