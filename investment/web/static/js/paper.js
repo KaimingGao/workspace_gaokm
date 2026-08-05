@@ -968,7 +968,7 @@ export function initPaper(ctx) {
         e.preventDefault();
         e.stopPropagation();
         const key = sortThEl.dataset.sort;
-        if (key === "code" || key === "market_value" || key === "score") {
+        if (key === "code" || key === "market_value" || key === "score" || key === "pnl") {
           if (holdingsSortKey === key) {
             holdingsSortDir = holdingsSortDir === "asc" ? "desc" : "asc";
           } else {

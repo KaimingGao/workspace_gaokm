@@ -1,4 +1,7 @@
-"""反馈半闭环：根据纸面/回测摘要提出 signal_config 补丁建议（不自动写盘）。"""
+"""反馈半闭环：根据纸面/回测摘要提出 signal_config 补丁建议（不自动写盘）。
+
+生产选股门槛为 ŷ 滞回（scoring.*）；不再建议改 0–100 rank.min_score。
+"""
 
 from __future__ import annotations
 
@@ -25,9 +28,9 @@ def suggest_config_feedback(
 ) -> Dict[str, Any]:
     """
     启发式建议（人确认后再合并）：
-    - 回撤过大 → 提高 min_score / 收紧 probe 阈值
-    - 胜率偏低 → 小幅提高 momentum 权重提示（仅建议，不重算 IC）
-    - 监控告警（N5）→ 写入 reasons，并按告警码收紧阈值（仍不写盘）
+    - 回撤过大 → 提高 scoring.min_predicted_score / 收紧 stance probe（ŷ%）
+    - ŷ IC 衰减 → 提示重拟合分组，不自动改 weights
+    - 监控告警 → 写入 reasons（仍不写盘）
     """
     cfg = _load_config(config_path)
     patch: Dict[str, Any] = {}
@@ -74,51 +77,56 @@ def suggest_config_feedback(
         if max_dd_f is None:
             max_dd_f = 15.0 if "drawdown_limit" in alert_codes else 12.0
 
-    if "ic_decay" in alert_codes and win_f is None:
+    if ("ic_decay" in alert_codes or "yhat_ic_decay" in alert_codes) and win_f is None:
         win_f = 40.0
 
-    rank = dict(cfg.get("rank") or {})
+    scoring = dict(cfg.get("scoring") or {})
     thresholds = dict(cfg.get("stance_thresholds") or {})
-    weights = dict(cfg.get("weights") or {})
 
     if max_dd_f is not None and max_dd_f >= 12:
-        new_min = min(75, int(rank.get("min_score") or 55) + 5)
-        if new_min != rank.get("min_score"):
-            rank["min_score"] = new_min
-            patch["rank"] = rank
-            reasons.append(f"最大回撤约 {max_dd_f}% ≥ 12%，建议提高 rank.min_score → {new_min}")
-        probe = int(thresholds.get("probe") or 68)
-        new_probe = min(80, probe + 3)
-        if new_probe != probe:
-            thresholds["probe"] = new_probe
-            patch["stance_thresholds"] = thresholds
-            reasons.append(f"同步收紧 stance_thresholds.probe → {new_probe}")
+        try:
+            cur_buy = float(scoring.get("min_predicted_score") or 1.0)
+        except (TypeError, ValueError):
+            cur_buy = 1.0
+        new_buy = round(min(5.0, cur_buy + 0.5), 2)
+        if new_buy != cur_buy:
+            scoring["min_predicted_score"] = new_buy
+            scoring.setdefault("rank_mode", "predicted_score")
+            if "min_hold_predicted_score" not in scoring:
+                scoring["min_hold_predicted_score"] = -1.0
+            patch["scoring"] = scoring
+            reasons.append(
+                f"最大回撤约 {max_dd_f}% ≥ 12%，建议提高 ŷ 买入门槛 "
+                f"min_predicted_score → {new_buy}（策略中心人审写盘）"
+            )
+        try:
+            probe = float(thresholds.get("probe") or 0.35)
+        except (TypeError, ValueError):
+            probe = 0.35
+        # ŷ% stance：probe 常见 0.35；若误存 0–100 则跳过收紧
+        if probe < 10:
+            new_probe = round(min(2.0, probe + 0.1), 2)
+            if new_probe != probe:
+                thresholds["probe"] = new_probe
+                patch["stance_thresholds"] = thresholds
+                reasons.append(f"同步收紧 stance_thresholds.probe → {new_probe}%")
 
-    if win_f is not None and win_f < 45 and "momentum" in weights:
-        w = copy.deepcopy(weights)
-        bump = 0.02
-        w["momentum"] = round(float(w["momentum"]) + bump, 4)
-        # 从 volume_price 匀一点
-        if "volume_price" in w:
-            w["volume_price"] = round(max(0.05, float(w["volume_price"]) - bump), 4)
-        s = sum(float(x) for x in w.values()) or 1.0
-        w = {k: round(float(v) / s, 4) for k, v in w.items()}
-        patch["weights"] = w
-        reasons.append(f"胜率约 {win_f}% < 45%，建议略增 momentum 权重（须样本外验证）")
+    if "yhat_ic_decay" in alert_codes or "ic_decay" in alert_codes:
+        reasons.append(
+            "因子/ŷ IC 衰减：请研究枢纽跑分组→对照重拟合；勿自动改 signal_config.weights"
+        )
 
-    if not patch:
-        reasons.append("指标未触发启发式规则，暂无配置补丁；可继续跑 IC/阈值建议。")
+    if win_f is not None and win_f < 45:
+        reasons.append(
+            f"胜率约 {win_f}% 偏低：优先检查组 β OOS 与 ŷ 滞回，不建议盲加 momentum 权"
+        )
 
     return {
-        "ok": True,
         "success": True,
+        "ok": True,
         "auto_apply": False,
-        "reasons": reasons,
         "patch": patch,
-        "monitor_alerts": alerts,
-        "note": (
-            "仅生成建议补丁，不写盘。请人工审阅后合并到 signal_config.json，"
-            "再经策略页 promote。市场有风险，不保证收益，不代客下单。"
-        ),
-        "config_path": config_path or SIGNAL_CONFIG_PATH,
+        "reasons": reasons,
+        "note": "仅建议；合并须人审。选股门槛=scoring ŷ 滞回，不写 weights。",
+        "signal_config_weights_touched": False,
     }

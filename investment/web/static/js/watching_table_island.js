@@ -17,6 +17,7 @@ function compare(id, a, b) {
   if (id === "score") return numSortKey(a, "scoreNum") - numSortKey(b, "scoreNum");
   if (id === "vol") return numSortKey(a, "volNum") - numSortKey(b, "volNum");
   if (id === "excess") return numSortKey(a, "excessNum") - numSortKey(b, "excessNum");
+  if (id === "chg") return numSortKey(a, "chgNum") - numSortKey(b, "chgNum");
   if (id === "name") {
     return String(a.name || "").localeCompare(String(b.name || ""), "zh-CN");
   }
@@ -30,7 +31,7 @@ const COLS = [
   { id: "paper", label: "仓位", widthPct: 6.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
   { id: "sent", label: "情绪", widthPct: 5, headClass: "watching-col-center", cellClass: "watching-col-center" },
   { id: "price", label: "现价", widthPct: 7, num: true },
-  { id: "chg", label: "涨跌", widthPct: 6.5, num: true },
+  { id: "chg", label: "涨跌", widthPct: 6.5, num: true, sortable: true },
   { id: "score", label: "评分", widthPct: 6, num: true, sortable: true },
   { id: "stance", label: "倾向", widthPct: 6, headClass: "watching-col-center", cellClass: "watching-col-center" },
   { id: "excess", label: "超额", widthPct: 7.5, num: true, sortable: true },

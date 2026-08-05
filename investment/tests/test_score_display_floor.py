@@ -45,6 +45,24 @@ class TestSelectionFloor(unittest.TestCase):
         ):
             self.assertEqual(selection_min_score(), 0.3)
 
+    def test_legacy_heuristic_optimize_floor_ignored(self):
+        from core.signal.score_display import (
+            looks_like_legacy_heuristic_score,
+            resolve_buy_floor,
+            resolve_optimize_score_floor,
+        )
+
+        with patch(
+            "core.signal.config.load_signal_config",
+            return_value={"scoring": {"min_predicted_score": 1.0}},
+        ):
+            self.assertTrue(looks_like_legacy_heuristic_score(55.0))
+            self.assertFalse(looks_like_legacy_heuristic_score(1.0))
+            self.assertEqual(resolve_optimize_score_floor(None), 1.0)
+            self.assertEqual(resolve_optimize_score_floor(55.0), 1.0)
+            self.assertEqual(resolve_optimize_score_floor(0.5), 0.5)
+            self.assertEqual(resolve_buy_floor(explicit=55.0), 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

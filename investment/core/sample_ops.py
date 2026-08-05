@@ -191,7 +191,7 @@ def ingest_real_fundamentals_history(
     """
     from core.fundamentals_pit import merge_history_point
     from core.paths import STORE_DIR
-    from skills.fundamentals.engine import fetch_cn_financial_series
+    from core.ports.market import fetch_cn_financial_series
 
     root = store_dir or os.path.join(STORE_DIR, "fundamentals")
     if codes:

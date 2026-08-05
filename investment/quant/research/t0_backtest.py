@@ -15,7 +15,7 @@ def _fetch_minute_by_date(
 ) -> Tuple[Dict[str, List[dict]], Dict[str, Any]]:
     """返回 (minute_by_date, meta)；失败则 ({}, meta)。"""
     try:
-        from skills.common.minute_history import fetch_minute_bars, group_minute_bars_by_date
+        from core.ports.market import fetch_minute_bars, group_minute_bars_by_date
 
         bars, meta = fetch_minute_bars(
             code, period=period, lookback_days=lookback_days, use_cache=True

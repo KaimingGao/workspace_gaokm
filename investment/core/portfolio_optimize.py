@@ -49,7 +49,7 @@ def optimize_weights(
     max_position_pct: float = 2.0,
     max_sector_pct: float = 5.0,
     max_positions: int = 20,
-    min_score: float = 55.0,
+    min_score: Optional[float] = None,
     sector_map: Optional[Dict[str, str]] = None,
     weight_mode: str = "score_budget",
     vol_scale: Optional[float] = None,
@@ -63,18 +63,15 @@ def optimize_weights(
     - weight_mode=risk_parity_lite：TopN 内 1/vol 或等权，限额裁剪（无 QP）
     - weight_mode=qp_lite：可选 cvxpy（V3.4）；不可用则回退 score_budget 并标 unavailable
     - apply_market_vol：高波时压低有效上限（取数失败则不缩放）
+    - min_score：ŷ% 下限；默认 None → ``resolve_buy_floor``；≥10 视为遗留 0–100 并改走 ŷ 门槛
     """
     smap = sector_map if sector_map is not None else load_sector_map()
     max_pos = max(0.1, float(max_position_pct or 2.0))
     max_sec = max(0.1, float(max_sector_pct or 5.0))
     max_n = max(1, int(max_positions or 20))
-    from core.signal.score_display import json_safe_number, resolve_buy_floor
+    from core.signal.score_display import json_safe_number, resolve_optimize_score_floor
 
-    # 默认 55 在收益分下改为无下限；显式传入其它值仍尊重
-    if min_score == 55.0:
-        floor = resolve_buy_floor(heuristic_default=55.0)
-    else:
-        floor = float(min_score if min_score is not None else 0.0)
+    floor = resolve_optimize_score_floor(min_score)
     mode = (weight_mode or "score_budget").strip().lower()
     if mode not in ("score_budget", "greedy_cap", "risk_parity_lite", "qp_lite"):
         mode = "score_budget"

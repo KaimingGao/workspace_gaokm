@@ -112,6 +112,13 @@ def _size_bucket_keys(
     return keys, meta
 
 
+def _uses_predicted_score(item: dict) -> bool:
+    """生产 score=ŷ 时不应被 0–100 启发式重算覆盖。"""
+    if item.get("predicted_score") is not None:
+        return True
+    return str(item.get("rank_mode") or "").strip().lower() == "predicted_score"
+
+
 def apply_cross_section_neutralization(
     items: List[dict],
     *,
@@ -213,7 +220,15 @@ def apply_cross_section_neutralization(
             contrib["regime_penalty"] = round(-penalty, 2)
 
         patched["factor_contrib"] = contrib
-        patched["score"] = round(max(0.0, min(100.0, total)), 1)
+        src = items[i]
+        if _uses_predicted_score(src):
+            raw_pred = src.get("predicted_score", src.get("score"))
+            try:
+                patched["score"] = round(float(raw_pred), 4)
+            except (TypeError, ValueError):
+                patched["score"] = src.get("score")
+        else:
+            patched["score"] = round(max(0.0, min(100.0, total)), 1)
         patched["neutralization"] = {
             "applied": True,
             "method": method,

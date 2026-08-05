@@ -21,10 +21,49 @@ class TestStrategySpec(unittest.TestCase):
         self.assertEqual(spec["strategy_id"], "short")
         self.assertEqual(spec["version"], "1.2.0")
         self.assertEqual(spec["cost_model"], "simple_cn")
-        self.assertIn("min_score", spec["paper_rules"])
+        self.assertNotIn("min_score", spec["paper_rules"])
+        self.assertIn("max_positions", spec["paper_rules"])
         self.assertIn("max_drawdown_pct", spec["risk"])
         self.assertIn("execution", spec)
         self.assertIn("t0", (spec["execution"].get("overlays") or {}))
+
+    def test_apply_strategy_strips_legacy_score_keys(self):
+        from core.strategy import apply_strategy_to_paper
+
+        paper = {
+            "rules": {
+                "min_score": 55,
+                "add_score": 60,
+                "min_hold_score": 45,
+                "reduce_score": 40,
+                "max_positions": 3,
+            },
+            "cost_model": "simple_cn",
+            "cost_model_locked": True,
+        }
+        apply_strategy_to_paper(paper, "short")
+        rules = paper["rules"]
+        self.assertNotIn("min_score", rules)
+        self.assertNotIn("add_score", rules)
+        self.assertNotIn("min_hold_score", rules)
+        self.assertNotIn("reduce_score", rules)
+        self.assertEqual(rules["max_positions"], 20)
+        self.assertEqual(rules.get("weight_mode"), "score_budget")
+
+    def test_promote_ignores_legacy_score_overrides(self):
+        from core.strategy import promote_strategy
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "promoted.json")
+            entry = promote_strategy(
+                "short",
+                note="test",
+                path=path,
+                overrides={"min_score": 70, "max_positions": 12},
+            )
+            pr = entry["spec"]["paper_rules"]
+            self.assertNotIn("min_score", pr)
+            self.assertEqual(pr["max_positions"], 12)
 
     def test_legacy_aliases_resolve(self):
         from core.strategy import get_strategy_spec, resolve_strategy_id

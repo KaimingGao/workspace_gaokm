@@ -59,8 +59,23 @@ def list_jobs():
 
 @router.get("/api/jobs/{name}")
 def get_job(name: str):
-    return deps.platform.get_job(name)
+    out = deps.platform.get_job(name)
+    return {**out, "canonical": True}
 
+
+@router.post("/api/jobs/{name}/cancel")
+def cancel_job(name: str):
+    """协作取消运行中任务（worker 轮询 cancel_requested）。"""
+    from core.job_progress import job_registry
+
+    slot = job_registry.slot(name)
+    ok = slot.request_cancel()
+    return {
+        "ok": ok,
+        "cancelled": ok,
+        "job": slot.get(),
+        "note": "已请求取消" if ok else "当前无运行中任务",
+    }
 
 @router.get("/api/memory")
 def get_memory():
@@ -124,7 +139,8 @@ def post_schedule(body: ScheduleBody):
 
 @router.get("/api/schedule/job")
 def schedule_job():
-    return deps.platform.get_job("schedule")
+    out = deps.platform.get_job("schedule")
+    return {**out, "deprecated": True, "canonical": "/api/jobs/schedule"}
 
 
 @router.get("/api/schedule/last")

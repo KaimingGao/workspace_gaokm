@@ -164,9 +164,9 @@ def _score_tooltip_meta(
             coefs = dict(getattr(model, "coefficients", None) or {})
             coefs.pop("intercept", None)
             out["factor_coefficients"] = {str(k): float(v) for k, v in coefs.items()}
-            from services.paper_helpers import _build_score_formula
+            from core.signal.score_view import build_score_formula
 
-            out["score_formula"] = _build_score_formula(
+            out["score_formula"] = build_score_formula(
                 {
                     "sub_scores": item.get("sub_scores"),
                     "return_model": model,
@@ -639,9 +639,18 @@ def backtest_topk_equal_weight(
                         cluster_return_models[key] = m
         elif use_live_cluster_models:
             try:
-                from core.signal.cluster_live import load_cluster_return_models_by_code
+                from core.signal.cluster_live import (
+                    cluster_yhat_primary_allowed,
+                    get_cluster_scoring_cfg,
+                    load_cluster_return_models_by_code,
+                )
 
-                cluster_return_models = load_cluster_return_models_by_code()
+                # FH0：live 注入组 β 仅当 mode=active；显式 return_models_by_code 不受此限（研究 OOS）
+                cs = get_cluster_scoring_cfg()
+                if cluster_yhat_primary_allowed(str(cs.get("mode") or "off")):
+                    cluster_return_models = load_cluster_return_models_by_code()
+                else:
+                    cluster_return_models = {}
             except Exception:
                 cluster_return_models = {}
     last_model_fit_rebalance = -10**9

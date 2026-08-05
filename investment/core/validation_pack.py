@@ -69,12 +69,19 @@ def build_validation_pack(
         }
 
     pack = {
-        "version": 2,
+        "version": 3,
         "kind": "strategy_validation_pack",
         "exported_at": datetime.now().isoformat(timespec="seconds"),
         "note": note
         or "策略验证包：供第三人复跑关键结论；demo/seeded 样本见 sample_status.discipline",
         "signal_config": cfg,
+        "rank_mode": (cfg.get("scoring") or {}).get("rank_mode") or "predicted_score",
+        "scoring_floors": {
+            "min_predicted_score": (cfg.get("scoring") or {}).get("min_predicted_score"),
+            "min_hold_predicted_score": (cfg.get("scoring") or {}).get(
+                "min_hold_predicted_score"
+            ),
+        },
         "backtest": slim_bt,
         "north_star": north_star,
         "sample_status": sample_status,
@@ -83,7 +90,27 @@ def build_validation_pack(
         "risk_blocks": rb,
         "ab_compare": ab_compare,
         "fit_gap": None,
+        "cluster_fingerprint": None,
     }
+    try:
+        from core.signal.cluster_live import (
+            get_cluster_scoring_cfg,
+            load_active_cluster_book,
+            load_active_cluster_weights,
+        )
+
+        active = load_active_cluster_weights() or {}
+        book = load_active_cluster_book() or {}
+        cs = get_cluster_scoring_cfg()
+        pack["cluster_fingerprint"] = {
+            "version": active.get("version"),
+            "mode": cs.get("mode"),
+            "n_mapped": active.get("n_mapped_codes") or len(active.get("code_map") or {}),
+            "book_count": len(book.get("book") or []),
+            "promoted_at": active.get("promoted_at"),
+        }
+    except Exception:
+        pass
     try:
         from core.fit_gap import fit_gap_hints
 
@@ -100,6 +127,8 @@ def build_validation_pack(
     pack["fingerprint"] = _fp(
         {
             "config": cfg.get("weights"),
+            "scoring": cfg.get("scoring"),
+            "cluster": pack.get("cluster_fingerprint"),
             "metrics": (slim_bt.get("metrics") or {}),
             "exported_at": pack["exported_at"],
         }

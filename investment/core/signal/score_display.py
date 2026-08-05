@@ -32,7 +32,19 @@ def json_safe(obj: Any) -> Any:
 
 
 def is_predicted_rank_mode(config: Optional[dict] = None) -> bool:
+    """已废弃：生产恒为 predicted_score。保留以免旧 import 崩；新代码勿分支。"""
+    del config
     return True
+
+
+def looks_like_legacy_heuristic_score(value: Optional[float]) -> bool:
+    """≥10 的「门槛」在短线 ŷ% 语境下视为遗留 0–100 分档。"""
+    if value is None:
+        return False
+    try:
+        return float(value) >= 10.0
+    except (TypeError, ValueError):
+        return False
 
 
 # 长多默认：ŷ≥+1% 才入簿/建议买入
@@ -71,9 +83,15 @@ def resolve_buy_floor(
     del heuristic_default
     if explicit is not None:
         try:
-            return float(explicit)
+            v = float(explicit)
         except (TypeError, ValueError):
-            pass
+            v = None
+        else:
+            if looks_like_legacy_heuristic_score(v):
+                # 调用方误传 0–100：改走配置 ŷ 门槛
+                pass
+            else:
+                return v
     floor = selection_min_score(paper)
     return float(floor) if floor is not None else float("-inf")
 
@@ -106,6 +124,24 @@ def resolve_hold_floor(
 def score_gates_use_heuristic_bands() -> bool:
     """0–100 加减仓分档已退役。"""
     return False
+
+
+def resolve_optimize_score_floor(explicit: Optional[float] = None) -> float:
+    """组合 optimize / 日更目标仓的 ŷ 下限。
+
+    - ``None`` → ``resolve_buy_floor()``
+    - 显式 ŷ%（通常 |x|<10）→ 该值
+    - 显式 ≥10 → 视为遗留 0–100，改走 ``resolve_buy_floor()``
+    """
+    if explicit is None:
+        return float(resolve_buy_floor())
+    try:
+        v = float(explicit)
+    except (TypeError, ValueError):
+        return float(resolve_buy_floor())
+    if looks_like_legacy_heuristic_score(v):
+        return float(resolve_buy_floor())
+    return v
 
 
 def annotate_score_gate(

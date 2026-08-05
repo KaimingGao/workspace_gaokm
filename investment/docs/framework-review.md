@@ -2,7 +2,7 @@
 
 [← 文档索引](README.md) · 工程分层见 [architecture.md](architecture.md) · 数据口见 [data-layer.md](data-layer.md) · 风控见 [risk-layer.md](risk-layer.md) · 路线图见 [roadmap.md](roadmap.md)
 
-本文是对 `investment/` **现行代码框架**的梳理与债务分级（复核 **2026-07-28**；O1–O9 **已落地**）。  
+本文是对 `investment/` **现行代码框架**的梳理与债务分级（复核 **2026-08-05**；O1–O9 / Y-S / **框架深审 C1–C3·H1–H6** **已落地**）。  
 写法约定：**「已收口」** = 主路径已落地、可验收；**「设计保留」** = 有意双轨，不算必须还债。
 
 ---
@@ -92,6 +92,29 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 | **O7** | `paper.js` 巨石 | `js/paper/fmt.js` · `chart.js`；编排仍 `paper.js` |
 | **O8** | `structure.md` 滞后 | 已按现行 `core/` / services / js 刷新 |
 | **O9** | services→skills 穿透 | `watching_service.search` → ports；insights 经 `load_disk_spot` |
+| **Y-S1** | 日更 `min_score=55` 当 ŷ 门槛 → 目标簿近空 | `resolve_optimize_score_floor`；`paper_cycle` 传 `None`；≥10 视为遗留 0–100 |
+| **Y-S2** | StrategySpec/`promote` 写 0–100 选股门 | `paper_rules` 仅限额；`apply_strategy_to_paper` / promote 剥离 legacy keys |
+| **Y-S3** | feedback 建议改 `rank.min_score` | 改建议 `scoring.min_predicted_score`；不写 weights |
+| **Y-S4** | services/core 直调 minute/财务 skills | `ports.fetch_minute_bars` · `fetch_cn_financial_series` + ports_bind |
+| **F-C1** | core→quant.research 分层倒置 | `core/research/*`；quant 再导出 |
+| **F-C2** | ŷ/0–100 渗入 neutralize·回测 UI·stance | neutralize 保 ŷ；JS `min_predicted_score`；stance 无静默回退 |
+| **F-C3** | 三条调仓语义 | `paper_rebalance_orchestrator` + preset 别名 |
+| **F-H1/H2** | web/quant 绕过 ports | watching→DataService；factors/t0→ports；stance 门面 |
+| **F-H3** | 多 JSON 半晋升 | `live_config_manifest` 指纹 + alerts |
+| **F-H5/H6** | weight_suggest / Job 多入口 | 日报跳过 IC suggest；`/api/jobs/{name}` canonical |
+| **F-M1/M2** | 守卫不全 · 双 config GET | quant/services+core→quant 守卫；signal config 标 canonical |
+| **F-B1** | north_star 巨石 | `risk_metrics` · `ttm_events` · `backtest_curve_store`；north_star 再导出 |
+| **F-B2** | cluster_live 证据/状态 | `cluster_live_evidence.py` |
+| **F-B3** | factor_ols_clusters 巨石 | `cluster_partition` · `cluster_weight_display` |
+| **F-B4** | quant.js 门槛逻辑 | `web/static/js/quant/scoring.js`（`quant_scoring.js` 再导出） |
+| **F-B5** | quant.js 功能域迁出 | `quant/` 工厂 + **6 域** `domain_*`；watching helpers→`watching_*_ui`·`watching_panel_ui`；分组结果按需展开因子表（避免主线程卡在「分组中…」）；建议 tip→`suggest_status_ui`；已修回测 `min_score:55`→`portfolioBtScoreFloorPayload`；`ASSET_V=p670` |
+| **FH0** | mode 未硬门禁组 ŷ | `score_stock` / `cross_section` / live topk：仅 `active` 写主分；`shadow` 对照；`off` 不算组 ŷ；`max_oos_fail_rate` 默认 0.5；契约测 `test_cluster_mode_yhat_gate` |
+| **FH1** | 晋升非原子 / 半晋升只告警 | `cluster_pointer.json` + 版本化 artifact + `os.replace`；active 硬门禁（缺簿/坏指针）；`force`→`promote_audit.jsonl`；`test_cluster_pointer_fh1` |
+| **FH2** | 分组同步占 worker | 默认 Job `quant-ols-clusters`；UI 轮询；`sync=true` 兼容；`POST /api/jobs/{name}/cancel`；`test_fh2_ols_clusters_job` |
+| **FH3** | core→services · legacy 55 | `core/signal/score_view.py`；守卫禁 services；`rank.min_score` deprecated |
+| **FH4** | 静默 except | `score_stock.warnings`（舆情）；promote/mode manifest 失败进 warnings；`test_fh4_score_warnings` |
+| **FH5** | 分组默认非 PIT | 默认 `pit_fundamentals=true`；`lookahead_flags`；UI PIT/非 PIT 旗标；**深化** `cluster_panels` 末日 as_of 探针 + `pit_as_of` 诚实旗标 |
+| **FH4+** | 巨石再切 | `cluster_live_audit` · `cluster_panels` 按用例拆出（非为行数） |
 
 ### 5.2 设计保留（勿当缺陷乱拆）
 
@@ -114,8 +137,10 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 | 维度 | 评价 |
 |------|------|
 | 整体 | 研究台 + 纸面准实盘分层已理顺 |
-| 框架急债 | **O1–O9 已落地**；维持 DataService/ports 纪律即可 |
-| 产品缺口 | 仍见 roadmap / design-spine（非本表） |
+| 框架急债 | **O1–O9 / Y-S / F-C1–C3·H\* 已落地**；维持 ports 与 ŷ 单标尺 + live manifest 纪律 |
+| **下一程（机制化）** | **[framework-harden-plan.md](framework-harden-plan.md)**：**FH0–FH5 已落地**；后续按需持续切巨石（FH4）与财务面板真 PIT 注入（FH5 深化） |
+| 产品缺口 | 仍见 roadmap / design-spine / yhat-strengthen（非本表） |
+| 体量债 | `quant.js` 已拆域 + 工厂；`factor_ols_clusters` / `cluster_live` / `north_star` 已拆；巨石按用例再切归 FH4 |
 
 单测锚点：`tests/test_framework_hardening.py`（含 core 无硬 skills import、Skill→DataService）· `tests/test_m1_data_collection.py` · `tests/test_d1_d6_platform.py`。
 
@@ -128,7 +153,9 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 | 唯一读口 | `core/data_service.py` |
 | 端口 | `core/ports/{market,adapters,signal}.py` |
 | 绑定 | `skills/ports_bind.py` |
-| 账本 / 成交 / 日循环 | `paper.py` · `paper_exec.py` · `paper_cycle.py` |
+| 账本 / 成交 / 日循环 | `paper.py` · `paper_exec.py` · `paper_cycle.py` · `paper_rebalance_orchestrator.py` |
+| Live 清单 | `core/live_config_manifest.py` · `data/live/live_config_manifest.json` |
+| 研究共享（core） | `core/research/{factor_ols_fit,panel,portfolio_bars,oos_slim}.py` |
 | 风控门禁 | `core/risk/checks.py` |
-| Job 槽 | `core/job_progress.py` · `GET /api/jobs/paper` |
+| Job 槽 | `core/job_progress.py` · **`GET /api/jobs/{name}`**（canonical） |
 | 模拟 UI | `web/static/js/paper.js` + `paper/fmt.js` · `chart.js` |

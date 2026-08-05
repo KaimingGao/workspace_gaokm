@@ -108,3 +108,17 @@ def spot_row_get(row: Dict[str, Any], field: str) -> Any:
 
 def spot_to_float(value: Any) -> Optional[float]:
     return call("spot_to_float", value)
+
+
+def fetch_minute_bars(code: str, **kwargs: Any) -> Any:
+    """分钟线（默认 skills.common.minute_history）。"""
+    return call("fetch_minute_bars", str(code or "").strip(), **kwargs)
+
+
+def group_minute_bars_by_date(bars: Any) -> Any:
+    return call("group_minute_bars_by_date", bars)
+
+
+def fetch_cn_financial_series(code: str, **kwargs: Any) -> Any:
+    """A 股财务指标时间序列。"""
+    return call("fetch_cn_financial_series", str(code or "").strip(), **kwargs)

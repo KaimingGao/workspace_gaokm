@@ -135,6 +135,7 @@ class EvalRunRequest(BaseModel):
 class DailyRunRequest(BaseModel):
     preset: Optional[str] = None
     paper_run: Optional[bool] = None
+    paper_holding_cycle: Optional[bool] = None  # alias for paper_run
     paper_buy: Optional[bool] = None
     eval_mock: Optional[bool] = None
     eval_agent: Optional[bool] = None
@@ -143,6 +144,7 @@ class DailyRunRequest(BaseModel):
     cross_section: Optional[bool] = None
     sync_paper_watchlist: Optional[bool] = None
     paper_rebalance: Optional[bool] = None
+    paper_cross_section_rebalance: Optional[bool] = None  # alias for paper_rebalance
     export_quant_report: Optional[bool] = None
     portfolio_neutral_compare: Optional[bool] = None
 
@@ -258,8 +260,12 @@ class FactorOlsClusterRequest(BaseModel):
         description="Ridge λ；0=普通 OLS（QR），>0 收缩斜率系数",
     )
     pit_fundamentals: bool = Field(
+        default=True,
+        description="FH5：默认 PIT 基本面；false 时报告带非 PIT 红旗",
+    )
+    sync: bool = Field(
         default=False,
-        description="分组探针默认关 PIT，避免超时",
+        description="FH2：true=同步跑（单测/兼容）；默认入队 Job 轮询",
     )
     beta_scale: str = Field(
         default="feature_zscore",
@@ -333,6 +339,19 @@ class ClusterRollbackRequest(BaseModel):
 class ClusterModeRequest(BaseModel):
     mode: str = Field(default="shadow", pattern="^(off|shadow|active)$")
     enabled: Optional[bool] = None
+    force: bool = False
+
+
+class ScoringFloorsRequest(BaseModel):
+    """Y0 · 人审写入 ŷ 滞回门槛（不改 weights）。"""
+
+    min_predicted_score: Optional[float] = Field(
+        default=None, description="买入/入簿 ŷ% 下限；省略则不改"
+    )
+    min_hold_predicted_score: Optional[float] = Field(
+        default=None, description="卖出 ŷ% 上限（低于则卖）；省略则不改"
+    )
+    note: str = Field(default="", max_length=500)
 
 
 class ClusterApplyShortcutRequest(BaseModel):
@@ -342,6 +361,7 @@ class ClusterApplyShortcutRequest(BaseModel):
     from_draft: bool = True
     mode: str = Field(default="shadow", pattern="^(off|shadow|active)$")
     note: str = Field(default="", max_length=500)
+    force: bool = False
 
 
 class FactorCsIcRequest(BaseModel):

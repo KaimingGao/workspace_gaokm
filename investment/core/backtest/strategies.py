@@ -20,6 +20,7 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
         "description": "短线主策略：组 β → ŷ 选股；持有约 3 日；组合最多 20 只（限额见卡片，ŷ 门槛见页脚）",
         "params": {
             "horizon_days": 3,
+            # heuristic_score 单票 walk-forward 回测默认（0–100）；生产选股用 scoring.min_predicted_score
             "min_score": 65.0,
             "min_history": 12,
             "data_mode": "full",
@@ -29,14 +30,12 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
             "version": "1.2.0",
             "cost_model": "simple_cn",
             "paper_rules": {
-                "min_score": 55.0,
-                "add_score": 60.0,
-                "min_hold_score": 45.0,
-                "reduce_score": 50.0,
+                # 选股门槛真源 = signal_config.scoring（ŷ 滞回）；勿再写 0–100 min_score
                 "max_positions": 20,
                 "position_pct": 0.15,
                 "horizon_days": 3,
                 "signal_limit": 8,
+                "weight_mode": "score_budget",
             },
             "execution": {
                 "version": "1.0.0",
@@ -74,6 +73,7 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
         "description": "更紧组合限额（最多 15 只），控制换手与回撤；选股仍走组 β → ŷ",
         "params": {
             "horizon_days": 3,
+            # heuristic_score 单票 walk-forward 回测默认（0–100）；生产选股用 scoring.min_predicted_score
             "min_score": 72.0,
             "min_history": 12,
             "data_mode": "full",
@@ -83,14 +83,11 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
             "version": "1.2.0",
             "cost_model": "simple_cn",
             "paper_rules": {
-                "min_score": 60.0,
-                "add_score": 65.0,
-                "min_hold_score": 50.0,
-                "reduce_score": 55.0,
                 "max_positions": 15,
                 "position_pct": 0.12,
                 "horizon_days": 3,
                 "signal_limit": 5,
+                "weight_mode": "score_budget",
             },
             "execution": {
                 "version": "1.0.0",

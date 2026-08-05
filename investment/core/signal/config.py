@@ -50,8 +50,9 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "mom3_gain_max_pct": 15.0,
         "mom3_loss_min_pct": -12.0,
     },
+    # FH3：rank.min_score 已 deprecated；生产选股门槛只认 scoring.min_predicted_score
     "rank": {
-        "min_score": 55.0,  # 仅遗留/无收益模型回退时使用
+        "min_score": 55.0,  # deprecated · 启发式遗留，勿作 ŷ 买入门
         "default_limit": 8,
     },
     # 排序键：仅收益分 predicted_score（ŷ%）
@@ -113,6 +114,13 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "min_coverage": 0.5,
         "max_age_days": 14,
         "auto_demote_on_stale": True,
+        # FH0/Y1.4：OOS 失败率超过该值则禁止 active（默认 0.5）
+        "max_oos_fail_rate": 0.5,
+        # Y1.3：滚动 ŷ IC 低于此值时启用证据包警告（不硬拦，除非 block_active_on_yhat_ic）
+        "min_yhat_rolling_ic": 0.0,
+        "block_active_on_yhat_ic": False,
+        # Y3.3：行业 map 覆盖率低于此值 → 启用警告
+        "min_sector_map_coverage": 0.5,
     },
 }
 
@@ -168,45 +176,83 @@ def load_signal_config(*, reload: bool = False) -> Dict[str, Any]:
     return _apply_overlays(deepcopy(cfg))
 
 
+PREDICTED_STANCE_DEFAULTS: Dict[str, float] = {
+    "avoid": -0.5,
+    "wait": 0.0,
+    "probe": 0.35,
+}
+
+
+def _legacy_stance_thresholds_in_predicted_table(raw: Dict[str, Any]) -> bool:
+    """``stance_thresholds`` 中 avoid≥10 视为遗留 0–100 分档（非 ŷ%）。"""
+    try:
+        return float(raw.get("avoid", PREDICTED_STANCE_DEFAULTS["avoid"])) >= 10.0
+    except (TypeError, ValueError):
+        return False
+
+
 def get_stance_thresholds(
     config: Optional[Dict[str, Any]] = None,
     *,
     kind: str = "predicted",
 ) -> Dict[str, float]:
     """stance 门槛。``kind=predicted`` 用 ŷ% 门槛；``heuristic`` 用 0–100。"""
+    return get_stance_thresholds_with_meta(config, kind=kind)["thresholds"]
+
+
+def get_stance_thresholds_with_meta(
+    config: Optional[Dict[str, Any]] = None,
+    *,
+    kind: str = "predicted",
+) -> Dict[str, Any]:
+    """同 ``get_stance_thresholds``，并在遗留 0–100 写入 ``stance_thresholds`` 时附 ``legacy_detected``。"""
     cfg = config or load_signal_config()
     k = str(kind or "predicted").strip().lower()
     if k in ("heuristic", "rule", "heuristic_score", "score"):
         raw = cfg.get("stance_thresholds_heuristic") or {}
         return {
-            "avoid": float(raw.get("avoid", 45)),
-            "wait": float(raw.get("wait", 55)),
-            "probe": float(raw.get("probe", 68)),
+            "thresholds": {
+                "avoid": float(raw.get("avoid", 45)),
+                "wait": float(raw.get("wait", 55)),
+                "probe": float(raw.get("probe", 68)),
+            },
+            "legacy_detected": False,
         }
     raw = cfg.get("stance_thresholds") or {}
-    # 兼容旧配置仍写 45/55/68：若 avoid≥10 视为遗留 0–100，改读 heuristic 表
-    avoid = float(raw.get("avoid", -0.5))
-    if avoid >= 10:
-        raw = cfg.get("stance_thresholds_heuristic") or raw
+    if _legacy_stance_thresholds_in_predicted_table(raw):
         return {
-            "avoid": float(raw.get("avoid", 45)),
-            "wait": float(raw.get("wait", 55)),
-            "probe": float(raw.get("probe", 68)),
+            "thresholds": dict(PREDICTED_STANCE_DEFAULTS),
+            "legacy_detected": True,
+            "note": (
+                "stance_thresholds 含遗留 0–100 分档；"
+                "已改用 ŷ 默认门槛（请迁移至 stance_thresholds_heuristic）"
+            ),
         }
     return {
-        "avoid": avoid,
-        "wait": float(raw.get("wait", 0.0)),
-        "probe": float(raw.get("probe", 0.35)),
+        "thresholds": {
+            "avoid": float(raw.get("avoid", PREDICTED_STANCE_DEFAULTS["avoid"])),
+            "wait": float(raw.get("wait", PREDICTED_STANCE_DEFAULTS["wait"])),
+            "probe": float(raw.get("probe", PREDICTED_STANCE_DEFAULTS["probe"])),
+        },
+        "legacy_detected": False,
     }
 
 
 def get_rank_defaults(config: Optional[Dict[str, Any]] = None) -> Dict[str, float]:
+    """观察池 limit 等；``min_score`` 仅为启发式遗留默认，生产选股用 scoring ŷ。"""
     cfg = config or load_signal_config()
     raw = cfg.get("rank") or {}
-    return {
+    scoring = cfg.get("scoring") or {}
+    out: Dict[str, Any] = {
         "min_score": float(raw.get("min_score", 55)),
         "default_limit": int(raw.get("default_limit", 8)),
     }
+    if "min_predicted_score" in scoring and scoring.get("min_predicted_score") is not None:
+        try:
+            out["min_predicted_score"] = float(scoring["min_predicted_score"])
+        except (TypeError, ValueError):
+            pass
+    return out
 
 
 def read_signal_config_file(*, reload: bool = True) -> Dict[str, Any]:

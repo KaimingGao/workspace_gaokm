@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from core.paths import SIGNAL_CONFIG_PATH
 from core.signal.config import load_signal_config
@@ -80,3 +80,18 @@ class QuantConfigMixin:
                 "unit": "predicted_score_pct",
             },
         }
+
+    def save_scoring_floors(
+        self,
+        *,
+        min_predicted_score: Optional[float] = None,
+        min_hold_predicted_score: Optional[float] = None,
+        note: str = "",
+    ) -> Dict[str, Any]:
+        from core.signal.scoring_floors import save_scoring_floors as _save
+
+        return _save(
+            min_predicted_score=min_predicted_score,
+            min_hold_predicted_score=min_hold_predicted_score,
+            note=note,
+        )

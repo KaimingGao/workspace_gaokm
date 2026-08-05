@@ -102,7 +102,10 @@ def run_daily_cycle(
             max_position_pct=float(rr.get("max_position_pct") or 25.0),
             max_sector_pct=float(rr.get("max_sector_pct") or 40.0),
             max_positions=int(rr.get("max_positions") or 5),
-            min_score=float((paper.get("rules") or {}).get("min_score") or 55.0),
+            min_score=None,  # ŷ 滞回：resolve_buy_floor，勿读 paper.rules.min_score
+            weight_mode=str(
+                (paper.get("rules") or {}).get("weight_mode") or "score_budget"
+            ),
         )
     except Exception:
         paper["last_optimize"] = None
@@ -317,9 +320,9 @@ def run_daily_cycle(
         if signal:
             score_formula = str(signal.get("score_formula") or "")
             if not score_formula and signal.get("sub_scores"):
-                from services.paper_helpers import _build_score_formula
+                from core.signal.score_view import build_score_formula
 
-                score_formula = _build_score_formula(
+                score_formula = build_score_formula(
                     {
                         "sub_scores": signal.get("sub_scores"),
                         "return_model": signal.get("return_model"),

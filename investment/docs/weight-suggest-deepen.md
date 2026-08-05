@@ -27,7 +27,7 @@ heuristic_score = 人工权·因子     # 实验基线，对比「新方案是�
 - `signal_config.weights` 仍可喂因子管线 / heuristic 基线，**永不**因研究自动 overwrite
 - 长多默认滞回：``min_predicted_score=+1``（ŷ≥1% 才入簿/建议买入）；``min_hold_predicted_score=-1``（**仅** ŷ&lt;-1% 建议卖出）；已持仓在 -1%～+1% 之间不因「未进簿」清仓；研究可显式 ``null`` 关门槛
 
-细则见下文 P2（OOS 对照）· P11 / Live。
+细则见下文 P2（OOS 对照）· P11 / Live。生产硬化下一程见 [yhat-strengthen.md](yhat-strengthen.md)（Y0–Y5）。
 
 ## 目标链路（已合并）
 

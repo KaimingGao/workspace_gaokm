@@ -73,9 +73,17 @@ def rank_cross_section(
     rank_meta: Dict[str, Any] = {"rank_mode": rank_mode}
     cluster_models: Dict[str, Any] = {}
     try:
-        from core.signal.cluster_live import load_cluster_return_models_by_code
+        from core.signal.cluster_live import (
+            cluster_yhat_primary_allowed,
+            get_cluster_scoring_cfg,
+            load_cluster_return_models_by_code,
+        )
 
-        cluster_models = load_cluster_return_models_by_code()
+        # FH0：仅 active 用组 β 驱动截面主分；off/shadow 不注入 by_code 图
+        cs = get_cluster_scoring_cfg(cfg)
+        rank_meta["cluster_mode"] = cs.get("mode")
+        if cluster_yhat_primary_allowed(str(cs.get("mode") or "off")):
+            cluster_models = load_cluster_return_models_by_code()
     except Exception:
         cluster_models = {}
     return_model, model_meta = load_return_model(prefer_active=True)

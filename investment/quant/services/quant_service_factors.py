@@ -64,8 +64,7 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         from quant.research.factor_report import compute_factor_ic_report
         from core.data_service import bars_and_source, get_quote
-        from core.ports.market import resolve_market_code
-        from skills.index.engine import default_benchmark, fetch_index_bars
+        from core.ports.market import default_benchmark, fetch_index_bars, resolve_market_code
 
         quote = get_quote(code)
         sym = quote.get("stock_code") if quote.get("success") else code
@@ -112,8 +111,7 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         from core.signal.factor_registry import run_factor_experiment
         from core.data_service import bars_and_source, get_quote
-        from core.ports.market import resolve_market_code
-        from skills.index.engine import default_benchmark, fetch_index_bars
+        from core.ports.market import default_benchmark, fetch_index_bars, resolve_market_code
 
         quote = get_quote(code)
         sym = quote.get("stock_code") if quote.get("success") else code
@@ -156,8 +154,7 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         from quant.research.factor_ols import compute_factor_ols_report
         from core.data_service import bars_and_source, get_quote
-        from core.ports.market import resolve_market_code
-        from skills.index.engine import default_benchmark, fetch_index_bars
+        from core.ports.market import default_benchmark, fetch_index_bars, resolve_market_code
 
         quote = get_quote(code)
         sym = quote.get("stock_code") if quote.get("success") else code
@@ -195,9 +192,8 @@ class QuantFactorMixin:
         """研究池多票堆叠时序 OLS（显式触发；不写 config）。"""
         from quant.research.factor_ols import compute_factor_ols_pooled_report
         from core.data_service import bars_and_source, get_quote
-        from core.ports.market import resolve_market_code
+        from core.ports.market import default_benchmark, fetch_index_bars, resolve_market_code
         from core.watching_store import read_watching
-        from skills.index.engine import default_benchmark, fetch_index_bars
 
         uni = read_watching()
         codes = list(uni.get("watchlist") or [])
@@ -253,7 +249,7 @@ class QuantFactorMixin:
         watching_limit: int = 8,
         ridge_lambda: float = 0.0,
         n_clusters: Optional[int] = None,
-        pit_fundamentals: bool = False,
+        pit_fundamentals: bool = True,
         l2_normalize_betas: Optional[bool] = None,
         beta_scale: str = "feature_zscore",
         cluster_method: str = "hierarchical",
@@ -267,20 +263,18 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """研究池：β 聚类 → 组权 → 组内 OOS → 分组 score → 分池合成（不写 config）。
 
-        默认：complete-linkage + τ 切树；β 因子维 z-score；关 PIT。
+        默认：complete-linkage + τ 切树；β 因子维 z-score；PIT 默认开（FH5）。
         """
         from quant.research.factor_ols_clusters import (
             compute_factor_ols_cluster_report,
             merge_cluster_universe,
         )
+        from quant.research.cluster_panels import build_cluster_ols_panels
         from quant.research.cluster_oos import attach_cluster_oos_gates
         from quant.research.cluster_group_score import attach_cluster_group_scores
         from quant.research.cluster_pool_merge import attach_cluster_pool_merge
         from quant.research.cluster_pool_artifact import attach_cluster_pool_artifact
         from quant.research.cluster_multi_score import attach_cluster_multi_score
-        from core.data_service import bars_and_source, get_quote
-        from core.ports.market import resolve_market_code
-        from skills.index.engine import default_benchmark, fetch_index_bars
 
         holdings_raw: List[Any] = []
         try:
@@ -325,55 +319,19 @@ class QuantFactorMixin:
                 "universe_count": int(uni_meta["universe_count"]),
             }
 
-        index_cache: Dict[str, Any] = {}
-        panels: List[Dict[str, Any]] = []
-        bars_by_code: Dict[str, Any] = {}
-        quotes_by_code: Dict[str, Any] = {}
-        # 规范化后的宇宙（与面板 / code_map 键一致）
-        resolved_codes: List[str] = []
-        resolved_seen: set = set()
-        watching_resolved: List[str] = []
-        holdings_resolved: List[str] = []
-        holdings_added_resolved: List[str] = []
-        code_roles: Dict[str, Any] = dict(uni_meta.get("code_roles") or {})
-
-        for code in codes:
-            role = code_roles.get(code) or {}
-            quote = get_quote(code)
-            sym = quote.get("stock_code") if quote.get("success") else code
-            sym_s = str(sym)
-            if quote.get("success"):
-                quotes_by_code[sym_s] = quote
-            if sym_s not in resolved_seen:
-                resolved_seen.add(sym_s)
-                resolved_codes.append(sym_s)
-            if role.get("from_watching") and sym_s not in watching_resolved:
-                watching_resolved.append(sym_s)
-            if role.get("from_holdings") and sym_s not in holdings_resolved:
-                holdings_resolved.append(sym_s)
-            if role.get("holdings_added") and sym_s not in holdings_added_resolved:
-                holdings_added_resolved.append(sym_s)
-            bars, src = bars_and_source(code, limit=lookback + 35)
-            if not bars and quote.get("success"):
-                bars, src = bars_and_source(sym, limit=lookback + 35)
-            if not bars:
-                panels.append({"code": sym_s, "bars": []})
-                continue
-            bars_by_code[sym_s] = bars
-            market, _ = resolve_market_code(code)
-            bench = default_benchmark(market)
-            if bench not in index_cache:
-                index_cache[bench], _ = fetch_index_bars(bench, limit=lookback + 35)
-            # 分组探针默认不拉财务：PIT/快照都会显著拖慢
-            panels.append(
-                {
-                    "code": sym_s,
-                    "bars": bars,
-                    "index_bars": index_cache.get(bench) or None,
-                    "fundamentals": None,
-                    "data_source": src,
-                }
-            )
+        built = build_cluster_ols_panels(
+            codes,
+            lookback=lookback,
+            pit_fundamentals=bool(pit_fundamentals),
+            code_roles=dict(uni_meta.get("code_roles") or {}),
+        )
+        panels = list(built.get("panels") or [])
+        bars_by_code = dict(built.get("bars_by_code") or {})
+        quotes_by_code = dict(built.get("quotes_by_code") or {})
+        resolved_codes = list(built.get("resolved_codes") or [])
+        watching_resolved = list(built.get("watching_resolved") or [])
+        holdings_resolved = list(built.get("holdings_resolved") or [])
+        holdings_added_resolved = list(built.get("holdings_added_resolved") or [])
 
         report = compute_factor_ols_cluster_report(
             panels,
@@ -457,7 +415,67 @@ class QuantFactorMixin:
                         report["cluster_draft_saved"] = True
                 except Exception:
                     report["cluster_draft_saved"] = False
+        # FH5+：PIT 末日探针 + 逐日 as_of（见 cluster_panels / collect_subscore_forward_panel）
+        flags = dict(built.get("lookahead_flags") or {})
+        report["lookahead_flags"] = flags
+        report["pit_fundamentals"] = bool(pit_fundamentals)
+        report["fundamentals_pit_summary"] = flags.get("pit_summary")
         return report
+
+    def start_factor_ols_cluster_job(self, **kwargs: Any) -> Dict[str, Any]:
+        """FH2：后台跑分组 OLS；轮询 ``GET /api/jobs/quant-ols-clusters``。"""
+        import threading
+
+        from core.job_progress import quant_ols_clusters_job
+
+        if quant_ols_clusters_job.is_running():
+            return {
+                "ok": False,
+                "success": False,
+                "error": "已有分组任务在运行",
+                "job": quant_ols_clusters_job.get(),
+            }
+
+        job_id = quant_ols_clusters_job.start(
+            kind="factor_ols_clusters",
+            total=5,
+            message="排队中…",
+        )
+
+        def _worker() -> None:
+            try:
+                if quant_ols_clusters_job.is_cancel_requested():
+                    quant_ols_clusters_job.finish(error="已取消")
+                    return
+                quant_ols_clusters_job.update(current=1, message="合并宇宙…")
+                if quant_ols_clusters_job.is_cancel_requested():
+                    quant_ols_clusters_job.finish(error="已取消")
+                    return
+                quant_ols_clusters_job.update(current=2, message="拉取日线 / 拟合…")
+                result = self.run_factor_ols_cluster_experiment(**kwargs)
+                if quant_ols_clusters_job.is_cancel_requested():
+                    quant_ols_clusters_job.finish(error="已取消")
+                    return
+                quant_ols_clusters_job.update(current=4, message="OOS / 分池合成…")
+                if not result.get("success"):
+                    quant_ols_clusters_job.finish(
+                        error=str(result.get("error") or "分组失败"),
+                        result=result,
+                    )
+                    return
+                quant_ols_clusters_job.finish(result=result)
+            except Exception as e:
+                quant_ols_clusters_job.finish(error=str(e))
+
+        threading.Thread(
+            target=_worker, name=f"ols-clusters-{job_id}", daemon=True
+        ).start()
+        return {
+            "ok": True,
+            "success": True,
+            "background": True,
+            "job": quant_ols_clusters_job.get(),
+        }
 
     def run_cluster_multi_score(
         self,
@@ -516,11 +534,15 @@ class QuantFactorMixin:
         return rollback_cluster_weights(to_version=to_version)
 
     def set_cluster_live_mode(
-        self, mode: str, *, enabled: Optional[bool] = None
+        self,
+        mode: str,
+        *,
+        enabled: Optional[bool] = None,
+        force: bool = False,
     ) -> Dict[str, Any]:
         from core.signal.cluster_live import set_cluster_scoring_mode
 
-        return set_cluster_scoring_mode(mode, enabled=enabled)
+        return set_cluster_scoring_mode(mode, enabled=enabled, force=force)
 
     def save_cluster_live_draft(self, artifact: Dict[str, Any]) -> Dict[str, Any]:
         from core.signal.cluster_live import save_cluster_draft
@@ -554,6 +576,7 @@ class QuantFactorMixin:
         from_draft: bool = True,
         note: str = "",
         mode: str = "shadow",
+        force: bool = False,
     ) -> Dict[str, Any]:
         """一键：晋升 + 影子/激活 + 刷新分池簿。"""
         from core.signal.cluster_live import apply_cluster_live_shortcut
@@ -564,6 +587,7 @@ class QuantFactorMixin:
             note=note,
             mode=mode,
             refresh_book=True,
+            force=force,
         )
 
     def preview_cluster_paper_rebalance(

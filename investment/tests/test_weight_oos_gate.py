@@ -81,7 +81,7 @@ class TestWeightOosGate(unittest.TestCase):
             "standardized": True,
         }
         with patch(
-            "quant.research.portfolio_data.load_portfolio_stock_bars",
+            "core.research.portfolio_bars.load_portfolio_stock_bars",
             side_effect=fake_load,
         ), patch(
             "core.watching_store.read_watching",

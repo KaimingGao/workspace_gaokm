@@ -5,7 +5,13 @@ export function loadHoldingsSort() {
   let dir = "desc";
   try {
     const saved = JSON.parse(localStorage.getItem("paper_holdings_sort") || "null");
-    if (saved && (saved.key === "code" || saved.key === "market_value" || saved.key === "score")) {
+    if (
+      saved &&
+      (saved.key === "code" ||
+        saved.key === "market_value" ||
+        saved.key === "score" ||
+        saved.key === "pnl")
+    ) {
       key = saved.key;
       dir = saved.dir === "asc" ? "asc" : "desc";
     }
@@ -41,6 +47,9 @@ export function sortHoldings(list, key, dir) {
     if (k === "score") {
       av = Number(a.score);
       bv = Number(b.score);
+    } else if (k === "pnl") {
+      av = Number(a.pnl_pct);
+      bv = Number(b.pnl_pct);
     } else {
       av = Number(a.market_value ?? a.market_value_approx);
       bv = Number(b.market_value ?? b.market_value_approx);

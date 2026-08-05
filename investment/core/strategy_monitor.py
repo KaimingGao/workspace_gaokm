@@ -67,6 +67,125 @@ def estimate_composite_ic(
     }
 
 
+def estimate_yhat_ic(
+    bars: List[dict],
+    *,
+    stock_code: Optional[str] = None,
+    horizon_days: int = 3,
+    min_history: int = 20,
+    max_points: int = 40,
+) -> Dict[str, Any]:
+    """组/全局 ReturnScoreModel ŷ 相对前瞻收益的 Pearson IC；无模型则跳过。"""
+    from core.signal.scorer import score_bars
+
+    horizon_days = max(1, min(int(horizon_days or 3), 5))
+    n = len(bars or [])
+    xs: List[float] = []
+    ys: List[float] = []
+    if n < min_history + horizon_days:
+        return {
+            "ok": False,
+            "ic": None,
+            "sample_count": 0,
+            "note": "bars 不足",
+            "source": "yhat",
+        }
+
+    model = None
+    if stock_code:
+        try:
+            from core.signal.cluster_live import lookup_code_return_model
+
+            model = lookup_code_return_model(str(stock_code))
+        except Exception:
+            model = None
+
+    start_i = max(min_history - 1, n - horizon_days - max_points)
+    for i in range(start_i, n - horizon_days):
+        window = bars[: i + 1]
+        quote = {"change_raw": 0.0, "price_raw": bars[i]["close"]}
+        if i >= 1 and bars[i - 1].get("close"):
+            quote["change_raw"] = round(
+                (bars[i]["close"] / bars[i - 1]["close"] - 1.0) * 100.0, 4
+            )
+        try:
+            out = score_bars(window, quote=quote, fundamentals=None, sentiment=None)
+        except Exception:
+            continue
+        if out.get("hard_reject"):
+            continue
+        pred = None
+        if model is not None:
+            try:
+                pred = model.predict(out.get("sub_scores") or {})
+            except Exception:
+                pred = None
+        if pred is None:
+            # 无组模型：跳过（不混 heuristic 以免污染 ŷ IC）
+            continue
+        c0 = bars[i].get("close")
+        c1 = bars[i + horizon_days].get("close")
+        if not c0:
+            continue
+        xs.append(float(pred))
+        ys.append((float(c1) / float(c0) - 1.0) * 100.0)
+
+    ic = pearson_ic(xs, ys)
+    return {
+        "ok": ic is not None,
+        "ic": ic,
+        "sample_count": len(xs),
+        "horizon_days": horizon_days,
+        "source": "yhat",
+        "has_model": model is not None,
+        "note": "ŷ（组 return_model）滚动 IC；只告警，不改权。",
+    }
+
+
+def estimate_rolling_yhat_ic_for_codes(
+    codes: Sequence[str],
+    *,
+    limit: int = 3,
+    lookback: int = 90,
+    horizon_days: int = 3,
+) -> Dict[str, Any]:
+    """多标的 ŷ IC 均值。"""
+    from core.data_service import get_bars
+
+    ics: List[float] = []
+    details: List[Dict[str, Any]] = []
+    seen = set()
+    for raw in codes or []:
+        code = str(raw or "").strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        if len(seen) > max(1, int(limit or 3)):
+            break
+        try:
+            pack = get_bars(code, limit=lookback)
+            bars = (pack or {}).get("bars") or []
+            one = estimate_yhat_ic(
+                bars, stock_code=code, horizon_days=horizon_days
+            )
+            details.append({"stock_code": code, **one})
+            if one.get("ic") is not None:
+                ics.append(float(one["ic"]))
+        except Exception as e:
+            details.append(
+                {"stock_code": code, "ok": False, "ic": None, "error": str(e)}
+            )
+
+    avg = round(sum(ics) / len(ics), 4) if ics else None
+    return {
+        "ok": avg is not None,
+        "rolling_ic": avg,
+        "sample_codes": len(ics),
+        "details": details,
+        "note": "多标的 ŷ IC 均值；无组模型的票跳过。",
+    }
+
+
 def estimate_rolling_ic_for_codes(
     codes: Sequence[str],
     *,
@@ -224,6 +343,30 @@ def assess_strategy_health(
             )
             suggestions.append("导出 weight_suggest diff，人审后 promote；勿自动改 signal_config")
 
+    # Y1.1：ŷ 滚动 IC（与启发式合成分分开）
+    yhat_ic_pack: Optional[Dict[str, Any]] = None
+    yhat_ic_val = None
+    if compute_rolling_ic and code_list:
+        try:
+            yhat_ic_pack = estimate_rolling_yhat_ic_for_codes(code_list)
+            yhat_ic_val = yhat_ic_pack.get("rolling_ic")
+        except Exception:
+            yhat_ic_pack = {"ok": False, "rolling_ic": None}
+    if yhat_ic_val is not None:
+        try:
+            yic = float(yhat_ic_val)
+        except (TypeError, ValueError):
+            yic = None
+        if yic is not None and yic < 0.0:
+            alerts.append(
+                {
+                    "level": "warn",
+                    "code": "yhat_ic_decay",
+                    "message": f"滚动 ŷ IC={yic:.3f} 偏低，疑似组 β 衰减",
+                }
+            )
+            suggestions.append("研究枢纽跑分组→对照重拟合；勿静默改 weights")
+
     coverage = sector_coverage_report(code_list)
     if coverage["total"] > 0 and coverage["coverage"] < 0.5:
         alerts.append(
@@ -272,9 +415,11 @@ def assess_strategy_health(
             "target_drawdown_pct": target_dd,
             "max_drawdown_limit_pct": max_dd,
             "rolling_ic": ic_val,
+            "yhat_rolling_ic": yhat_ic_val,
             "equity": equity,
             "sector_coverage": coverage,
         },
         "rolling_ic_detail": ic_pack,
-        "note": "N5 监控只告警；不自动改权、不代客下单。",
+        "yhat_ic_detail": yhat_ic_pack,
+        "note": "N5 监控只告警；ŷ IC 与合成分 IC 分列；不自动改权、不代客下单。",
     }

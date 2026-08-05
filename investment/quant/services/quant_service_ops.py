@@ -313,20 +313,31 @@ class QuantOpsMixin:
             ic = self.run_factor_report(code)
             factor_exp = self.run_factor_experiment(code)
             factor_ols = self.run_factor_ols_experiment(code)
-            from core.signal.weight_suggest import suggest_weights_from_ic
+            cluster_yhat_active = False
+            try:
+                from core.signal.cluster_live import cluster_status_public
 
-            weight_suggest = (
-                suggest_weights_from_ic(factor_exp) if factor_exp.get("success") else None
-            )
-            if weight_suggest and weight_suggest.get("success"):
-                from core.signal.weight_suggest import format_weight_config_diff
-
-                weight_suggest["config_diff"] = format_weight_config_diff(weight_suggest)
-                weight_suggest["deprecated_for_scoring"] = True
-                weight_suggest["note"] = (
-                    "附录·遗留 IC 小步权诊断；选股真源为 return_model → predicted_score（ŷ），"
-                    "不自动写 signal_config"
+                cs = (cluster_status_public(include_audit=False) or {}).get("cluster_scoring") or {}
+                cluster_yhat_active = bool(
+                    cs.get("enabled") and cs.get("mode") in ("shadow", "active")
                 )
+            except Exception:
+                cluster_yhat_active = False
+            if not cluster_yhat_active:
+                from core.signal.weight_suggest import suggest_weights_from_ic
+
+                weight_suggest = (
+                    suggest_weights_from_ic(factor_exp) if factor_exp.get("success") else None
+                )
+                if weight_suggest and weight_suggest.get("success"):
+                    from core.signal.weight_suggest import format_weight_config_diff
+
+                    weight_suggest["config_diff"] = format_weight_config_diff(weight_suggest)
+                    weight_suggest["deprecated_for_scoring"] = True
+                    weight_suggest["note"] = (
+                        "附录·遗留 IC 小步权诊断；选股真源为 return_model → predicted_score（ŷ），"
+                        "不自动写 signal_config"
+                    )
             threshold_suggest = self.suggest_thresholds(code)
             if not threshold_suggest.get("success"):
                 threshold_suggest = None

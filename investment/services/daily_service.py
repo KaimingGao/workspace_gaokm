@@ -40,6 +40,7 @@ class DailyRunService:
         *,
         preset: Optional[str] = None,
         paper_run: Optional[bool] = None,
+        paper_holding_cycle: Optional[bool] = None,
         paper_buy: Optional[bool] = None,
         eval_mock: Optional[bool] = None,
         eval_agent: Optional[bool] = None,
@@ -48,13 +49,15 @@ class DailyRunService:
         cross_section: Optional[bool] = None,
         sync_paper_watchlist: Optional[bool] = None,
         paper_rebalance: Optional[bool] = None,
-    export_quant_report: Optional[bool] = None,
-    portfolio_neutral_compare: Optional[bool] = None,
-) -> Dict[str, Any]:
+        paper_cross_section_rebalance: Optional[bool] = None,
+        export_quant_report: Optional[bool] = None,
+        portfolio_neutral_compare: Optional[bool] = None,
+    ) -> Dict[str, Any]:
         overrides = {
             k: v
             for k, v in {
                 "paper_run": paper_run,
+                "paper_holding_cycle": paper_holding_cycle,
                 "paper_buy": paper_buy,
                 "eval_mock": eval_mock,
                 "eval_agent": eval_agent,
@@ -63,6 +66,7 @@ class DailyRunService:
                 "cross_section": cross_section,
                 "sync_paper_watchlist": sync_paper_watchlist,
                 "paper_rebalance": paper_rebalance,
+                "paper_cross_section_rebalance": paper_cross_section_rebalance,
                 "export_quant_report": export_quant_report,
                 "portfolio_neutral_compare": portfolio_neutral_compare,
             }.items()
@@ -149,6 +153,7 @@ class DailyRunService:
                     {
                         "name": "paper_rebalance",
                         "ok": bool(result.get("success") or result.get("ok")),
+                        "mode": result.get("mode"),
                         "top_k": result.get("top_k"),
                         "sell_trades": len(result.get("sell_trades") or []),
                         "buy_trades": len(result.get("buy_trades") or []),

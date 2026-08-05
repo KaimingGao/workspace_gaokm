@@ -84,10 +84,18 @@ class TestP1QualityGate(unittest.TestCase):
         ), patch(
             "core.signal.score_stock.load_signal_config",
             return_value={"fundamentals": {"enabled": False}},
+        ), patch(
+            "core.signal.cluster_live.lookup_code_return_model",
+            return_value=None,
+        ), patch(
+            "core.signal.return_score_store.load_return_model",
+            return_value=(None, {}),
         ):
             out = score_stock("600519", quote=quote, skip_fundamentals=True)
         self.assertFalse(out.get("quality_gate"))
-        self.assertEqual(out["signal_item"]["score"], 60)
+        # 无 return_model 时主分 score 为 None；启发式分仍落 heuristic_score
+        self.assertIsNone(out["signal_item"]["score"])
+        self.assertEqual(out["signal_item"]["heuristic_score"], 60.0)
 
     def test_manifest_has_adjust_policy(self):
         from core.run_manifest import build_run_manifest
@@ -523,7 +531,8 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
         types = [e.get("type") for e in paper.get("operation_log") or []]
         self.assertIn("risk_block", types)
 
-    def test_cross_section_blocks_buys(self):
+    def test_cross_section_soft_sector_budget(self):
+        """行业超限不整批 buys_blocked，走 risk_budget 缩量。"""
         from core.paper_rebalance import simulate_cross_section_rebalance
 
         paper = {
@@ -538,19 +547,28 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
                     "cost": 200,
                 }
             ],
-            "rules": {"max_positions": 5, "min_score": 50, "min_hold_score": 40, "position_pct": 0.2},
+            "rules": {"max_positions": 5, "position_pct": 0.2},
             "operation_log": [],
             "trades": [],
         }
         ranking = [
-            {"stock_code": "300750", "score": 80, "stock_name": "宁德"},
-            {"stock_code": "600519", "score": 90, "stock_name": "茅台"},
+            {"stock_code": "300750", "score": 2.0, "stock_name": "宁德"},
+            {"stock_code": "600519", "score": 3.0, "stock_name": "茅台"},
         ]
         risk_out = {
             "ok": False,
             "blocks": ["行业 新能源 敞口 55.0% > 上限 40%"],
+            "block_items": [
+                {
+                    "code": "max_sector",
+                    "message": "行业 新能源 敞口 55.0% > 上限 40%",
+                    "sector": "新能源",
+                    "value": 55.0,
+                    "limit": 40.0,
+                }
+            ],
             "warnings": [],
-            "limits": {},
+            "limits": {"max_position_pct": 25.0, "max_sector_pct": 40.0},
         }
         with patch(
             "core.ports.market.query_quote",
@@ -573,11 +591,11 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
         ):
             out = simulate_cross_section_rebalance(paper, ranking, top_k=2)
 
-        self.assertTrue(out["buys_blocked"])
-        self.assertEqual(out["buy_trades"], [])
+        self.assertFalse(out["buys_blocked"])
         self.assertIn("ops_report", out)
         self.assertIn("data_quality", out)
-        self.assertTrue(any(e.get("type") == "risk_block" for e in paper.get("operation_log") or []))
+        types = [e.get("type") for e in paper.get("operation_log") or []]
+        self.assertIn("risk_budget", types)
 
 
 class TestP2PaperOpsLoop(unittest.TestCase):

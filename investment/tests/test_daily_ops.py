@@ -46,6 +46,12 @@ class TestDailyPresets(unittest.TestCase):
     def test_override_wins(self):
         out = resolve_daily_preset("quant", overrides={"paper_run": True})
         self.assertTrue(out["flags"]["paper_run"])
+    def test_alias_paper_holding_cycle(self):
+        out = resolve_daily_preset("quant", overrides={"paper_holding_cycle": True})
+        self.assertTrue(out["flags"]["paper_run"])
+    def test_alias_paper_cross_section_rebalance(self):
+        out = resolve_daily_preset("quant", overrides={"paper_cross_section_rebalance": True})
+        self.assertTrue(out["flags"]["paper_rebalance"])
     def test_unknown_preset(self):
         with self.assertRaises(ValueError):
             resolve_daily_preset("nope")

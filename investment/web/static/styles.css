@@ -6352,6 +6352,15 @@ a.hub-card:hover {
 }
 
 /* 方法指纹：常显一行，不用迷你 details */
+.quant-page .quant-cluster-pit-flag {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--muted, #6b7280);
+}
+.quant-page .quant-cluster-pit-flag.is-warn {
+  color: #b45309;
+  font-weight: 600;
+}
 .quant-page .quant-cluster-method {
   margin: 0;
   padding-top: 6px;

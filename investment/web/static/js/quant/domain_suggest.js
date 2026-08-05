@@ -1,0 +1,627 @@
+import { researchGridHtml, metricCell } from "./research_grid.js";
+import { fmtPct, metricClass } from "./bt_result.js";
+import {
+  weightSuggestLogicTip,
+  weightSuggestStatusHtml as buildWeightSuggestStatusHtml,
+  factorWeightSuggestCellTip,
+} from "./suggest_status_ui.js";
+
+/** Quant domain: suggest */
+export function installSuggest(q) {
+  const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText } = q;
+  const { readHorizonDays, readRidgeLambda, readClusterK, ensureFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
+  const { researchGridHtml, metricCell, metricClass, fmtPct } = q;
+
+  function weightSuggestStatusHtml(suggest) {
+    return buildWeightSuggestStatusHtml(suggest, {
+      escapeHtml,
+      parseOosGateReason,
+    });
+  }
+
+  function fmtWeightCell(v) {
+    if (v == null || v === "") return fmtEmptyCell();
+    const n = Number(v);
+    if (!Number.isFinite(n)) return escapeHtml(String(v));
+    /* API 权重多为 0～1；panel.weight_pct 已是百分数 */
+    if (Math.abs(n) <= 1.5) return `${(n * 100).toFixed(1)}%`;
+    return `${n.toFixed(1)}%`;
+  }
+
+  function icTableHtml(exp) {
+    return factorIcWeightMergedHtml(exp, null, state.lastOlsForMerge);
+  }
+
+  async function loadFactorPanel() {
+    if (!els.quantFactorList) return;
+    try {
+      const res = await fetch("/api/quant/factor-panel");
+      const data = await res.json();
+      if (!data.success) {
+        if (els.quantMeta) els.quantMeta.textContent = data.error || "因子面板加载失败";
+        return;
+      }
+      const rows = data.rows || [];
+      rememberFactorMeta(
+        rows.map((r) => ({
+          name: r.factor || r.name,
+          label: r.label,
+          description: r.description || "",
+        }))
+      );
+      state.lastFactorPanelForMerge = data;
+      // 不预填 IC：等用户点分析；若已有 OLS 则仍可显示 OLS 列
+      if (state.lastOlsForMerge || state.lastWeightSuggestForMerge) {
+        q.cluster.renderMergedFactorTable();
+      }
+    } catch (err) {
+      if (els.quantMeta) els.quantMeta.textContent = String(err.message || err);
+    }
+  }
+
+  function renderFactorExperiment(exp, suggest) {
+    if (!exp || !exp.success) {
+      setQuantMeta((exp && exp.error) || "分析失败", { error: true });
+      state.lastWeightSuggestForMerge = null;
+      renderFactorPanelTable(null);
+      if (els.quantWeightSuggest) els.quantWeightSuggest.textContent = "";
+      state.quantLastWeightDiff = null;
+      return;
+    }
+    const panel = exp.panel || { success: true, rows: exp.factors || [] };
+    if (panel && panel.success == null) panel.success = true;
+    const icCount = exp.panel
+      ? exp.panel.ic_ready_count
+      : (exp.factors || []).filter((f) => f.ic != null).length;
+    if (els.quantMeta) {
+      const keepBusy = els.quantMeta.classList.contains("is-busy");
+      const gate = (suggest && suggest.oos_gate) || {};
+      const gateTag =
+        suggest && suggest.promote_ready
+          ? " · OOS✓"
+          : gate.ok && !gate.passed
+            ? " · OOS✗"
+            : gate.skipped
+              ? " · OOS—"
+              : "";
+      setQuantMeta(
+        `${exp.stock_code || ""} · horizon ${exp.horizon_days} · IC ${icCount}/${
+          exp.panel ? exp.panel.factor_count : "—"
+        }${gateTag}`,
+        { busy: keepBusy }
+      );
+    }
+    if (suggest && suggest.success) {
+      if (els.quantWeightSuggest) els.quantWeightSuggest.innerHTML = weightSuggestStatusHtml(suggest);
+      state.lastWeightSuggestForMerge = suggest;
+      renderFactorPanelTable(panel, suggest);
+      state.quantLastWeightDiff = suggest.config_diff || null;
+    } else {
+      if (els.quantWeightSuggest) els.quantWeightSuggest.textContent = "";
+      state.lastWeightSuggestForMerge = null;
+      renderFactorPanelTable(panel, null);
+      state.quantLastWeightDiff = null;
+    }
+  }
+
+  function renderFactorPanelTable(panel, suggest) {
+    if (!els.quantFactorList) return;
+    if (!panel || !panel.success) {
+      state.lastFactorPanelForMerge = null;
+      state.lastWeightSuggestForMerge = null;
+      q.cluster.renderMergedFactorTable();
+      return;
+    }
+    const rows = panel.rows || [];
+    rememberFactorMeta(
+      rows.map((r) => ({
+        name: r.factor || r.name,
+        label: r.label,
+        description: r.description || "",
+      }))
+    );
+    state.lastFactorPanelForMerge = panel;
+    if (suggest && (suggest.success || suggest.suggested_weights)) {
+      state.lastWeightSuggestForMerge = suggest;
+    }
+    q.cluster.renderMergedFactorTable();
+  }
+
+  function renderThresholdTable(suggest) {
+    if (!els.quantThresholdTable) return;
+    if (!suggest || !suggest.success) {
+      els.quantThresholdTable.innerHTML =
+        `<p class="watching-table-empty">尚未跑阈值建议</p>`;
+      return;
+    }
+    const cur = suggest.current_thresholds || {};
+    const sug = suggest.suggested_thresholds || {};
+    const deltas = suggest.deltas || {};
+    const rows = Object.keys(cur).map((k) => {
+      const delta = deltas[k] != null ? deltas[k] : (sug[k] ?? cur[k]) - cur[k];
+      return {
+        key: k,
+        cur: cur[k],
+        sug: sug[k] ?? cur[k],
+        delta,
+      };
+    });
+    els.quantThresholdTable.innerHTML = researchGridHtml(
+      [
+        { id: "key", label: "阈值", flex: true },
+        { id: "cur", label: "当前", widthPct: 18, num: true },
+        { id: "sug", label: "建议", widthPct: 18, num: true },
+        { id: "delta", label: "Δ", widthPct: 18, num: true },
+      ],
+      rows,
+      (col, r) => {
+        if (col.id === "key") return escapeHtml(String(r.key));
+        if (col.id === "cur") return escapeHtml(String(r.cur));
+        if (col.id === "sug") return escapeHtml(String(r.sug));
+        if (col.id === "delta") {
+          const text = `${r.delta > 0 ? "+" : ""}${Number(r.delta).toFixed(1)}`;
+          return metricCell(escapeHtml(text), metricClass(r.delta));
+        }
+        return "—";
+      },
+      { emptyText: "暂无阈值建议" }
+    );
+  }
+
+  function renderWeightDiffTable(suggest) {
+    if (!els.quantFactorList) return;
+    state.lastWeightSuggestForMerge = suggest && suggest.success ? suggest : state.lastWeightSuggestForMerge;
+    els.quantFactorList.innerHTML =
+      factorIcWeightMergedHtml(
+        state.lastFactorPanelForMerge,
+        state.lastWeightSuggestForMerge,
+        state.lastOlsForMerge
+      ) || "";
+  }
+
+  async function runAllSuggest() {
+    setBusyText(els.quantOlsSummary, "分析中…", { busy: true });
+    setBusyText(els.quantThresholdSummary, "分析中…", { busy: true });
+    // 忙碌态只留在摘要行，避免表内再叠一句「分析中…」
+    if (els.quantFactorList) els.quantFactorList.innerHTML = "";
+    if (els.quantThresholdTable) els.quantThresholdTable.innerHTML = "";
+    try {
+      await runFactorIcSuggest();
+      await runFactorOlsSuggest();
+      await runThresholdSuggest({ useWatching: false });
+      setQuantMeta("建议已更新 · 仅供对照");
+    } catch (err) {
+      setQuantMeta(String(err.message || err), { error: true });
+      throw err;
+    }
+  }
+
+  async function runFactorCsIcSuggest() {
+    setQuantMeta("截面 IC 计算中…", { busy: true });
+    setBusyText(els.quantOlsSummary, "截面 IC 中…", { busy: true });
+    await ensureFactorMeta();
+    const res = await fetch("/api/quant/factor-cs-ic", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lookback: 120,
+        horizon_days: readHorizonDays(),
+        watching_limit: 12,
+        min_names: 5,
+        pit_fundamentals: true,
+      }),
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = null;
+    }
+    if (!res.ok) {
+      const detail =
+        (data && (data.detail || data.error)) ||
+        (res.status === 404
+          ? "接口未找到：请重启 Web（WEB_RELOAD=off 时需手动重启）"
+          : `HTTP ${res.status}`);
+      setBusyText(els.quantOlsSummary, detail, { busy: false });
+      setQuantMeta(`截面 IC 失败 · ${detail}`, { error: true });
+      return;
+    }
+    if (!data || !(data.success || data.ok)) {
+      setBusyText(els.quantOlsSummary, (data && data.error) || "截面 IC 失败", { busy: false });
+      setQuantMeta((data && data.error) || "截面 IC 失败", { error: true });
+      return;
+    }
+    const rows = (data.factors || []).map((f) => {
+      const name = f.factor || f.name || "";
+      const meta = factorMetaByName[name] || {};
+      return {
+        factor: name,
+        name,
+        label: f.label || meta.label || name,
+        ic: f.ic != null ? f.ic : (f.pearson && f.pearson.ic_mean),
+        sample_count: f.sample_count != null ? f.sample_count : (f.pearson && f.pearson.day_count),
+        exclusion_reason: f.exclusion_reason || null,
+        spearman_ic: f.spearman && f.spearman.ic_mean,
+        icir: f.icir != null ? f.icir : (f.pearson && f.pearson.icir),
+      };
+    });
+    const panel = {
+      rows,
+      factors: rows,
+      exclusion_reasons: Object.fromEntries(
+        rows.filter((r) => r.exclusion_reason).map((r) => [r.factor || r.name, r.exclusion_reason])
+      ),
+      mode: "factor_cross_section",
+    };
+    state.lastFactorPanelForMerge = panel;
+    if (els.quantFactorList) {
+      els.quantFactorList.innerHTML =
+        factorIcWeightMergedHtml(panel, state.lastWeightSuggestForMerge, state.lastOlsForMerge) || "";
+    }
+    const scoreP = (data.score_ic && data.score_ic.pearson) || {};
+    const nOk = rows.filter((r) => r.ic != null).length;
+    setBusyText(
+      els.quantOlsSummary,
+      `截面 IC · ${data.stock_count ?? "—"} 只 · 日 ${data.day_count ?? "—"} · 因子有效 ${nOk}/${rows.length}` +
+        (scoreP.ic_mean != null ? ` · 综合 IC ${scoreP.ic_mean}` : "") +
+        (data.pit_fundamentals ? " · PIT" : ""),
+      { busy: false }
+    );
+    setQuantMeta(
+      `截面 IC · ${nOk}/${rows.length} 因子 · horizon ${data.horizon_days ?? 1}` +
+        (scoreP.icir != null ? ` · score ICIR ${scoreP.icir}` : "")
+    );
+  }
+
+  async function runFactorIcSuggest() {
+    const h = readHorizonDays();
+    const [expRes, sugRes] = await Promise.all([
+      fetch("/api/quant/factor-experiment", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code: "茅台", lookback: 120, horizon_days: h }),
+      }),
+      fetch("/api/quant/weight-suggest", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          code: "茅台",
+          lookback: 120,
+          horizon_days: h,
+          use_cs_ic: true,
+          watching_limit: 12,
+          ridge_lambda: readRidgeLambda(),
+        }),
+      }),
+    ]);
+    const exp = await expRes.json();
+    const sug = await sugRes.json();
+    // 若建议已用截面 IC，表内 IC/ICIR 与建议对齐
+    if (sug && sug.success && sug.ic_mode === "cs_ic" && sug.factor_cs_ic) {
+      const cs = sug.factor_cs_ic;
+      const rows = (cs.factors || []).map((f) => {
+        const name = f.factor || f.name || "";
+        const meta = factorMetaByName[name] || {};
+        return {
+          factor: name,
+          name,
+          label: f.label || meta.label || name,
+          ic: f.ic != null ? f.ic : f.pearson && f.pearson.ic_mean,
+          sample_count:
+            f.sample_count != null ? f.sample_count : f.pearson && f.pearson.day_count,
+          exclusion_reason: f.exclusion_reason || null,
+          icir: f.icir != null ? f.icir : f.pearson && f.pearson.icir,
+        };
+      });
+      state.lastFactorPanelForMerge = {
+        rows,
+        factors: rows,
+        mode: "factor_cross_section",
+      };
+      state.lastWeightSuggestForMerge = sug;
+      if (sug.factor_ols && sug.factor_ols.success) state.lastOlsForMerge = sug.factor_ols;
+      q.cluster.renderMergedFactorTable();
+      if (els.quantWeightSuggest) els.quantWeightSuggest.innerHTML = weightSuggestStatusHtml(sug);
+      state.quantLastWeightDiff = sug.config_diff || null;
+      const nOk = rows.filter((r) => r.ic != null).length;
+      const gate = sug.oos_gate || {};
+      const gateTag = sug.promote_ready
+        ? " · OOS✓"
+        : gate.ok && !gate.passed
+          ? " · OOS✗"
+          : " · OOS—";
+      const icMsg =
+        `探针·截面驱动 · IC ${nOk}/${rows.length} · 只读${gateTag}` +
+        (sug.ols_used ? " · 含 OLS 回退" : "");
+      if (state.quantLastOlsClusters && state.quantLastOlsClusters.success && els.quantProbeSummary) {
+        setBusyText(els.quantProbeSummary, icMsg + " · 不冲组表", { busy: false });
+        const fold = document.getElementById("quant-probe-fold");
+        if (fold) fold.open = true;
+      }
+      setQuantMeta(icMsg);
+      return;
+    }
+    renderFactorExperiment(exp, sug);
+  }
+
+  async function waitQuantOlsClustersJob(jobId) {
+    const started = Date.now();
+    let sawOwnJob = false;
+    while (Date.now() - started < 15 * 60 * 1000) {
+      const res = await fetch("/api/jobs/quant-ols-clusters");
+      const payload = await res.json();
+      const job = (payload && payload.job) || {};
+      const sameJob = !jobId || !job.id || job.id === jobId;
+      if (sameJob && job.id) sawOwnJob = true;
+      if (job.status === "idle" || !job.id) {
+        if (sawOwnJob || Date.now() - started > 2500) {
+          throw new Error("分组任务已中断（可能服务重启），请重试");
+        }
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
+      if (!sameJob) {
+        throw new Error("分组任务已被其它任务覆盖，请重试");
+      }
+      const pct = Number(job.pct) || 0;
+      const msg = job.message || (job.status === "running" ? "运行中…" : "");
+      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+      setQuantMeta(
+        `分组中… ${sec}s · ${msg}${pct ? ` · ${pct}%` : ""}`,
+        { busy: true }
+      );
+      if (job.status === "done") return job;
+      if (job.status === "failed") {
+        throw new Error(job.error || "分组任务失败");
+      }
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    throw new Error("分组任务超时");
+  }
+
+  async function runFactorOlsClustersSuggest() {
+    const started = Date.now();
+    let timer = null;
+    const tick = () => {
+      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+      // 进度只走页顶 meta；摘要行空着，算完由状态条接手
+      setQuantMeta(`分组中… ${sec}s · 观察池`, { busy: true });
+    };
+    const stopTick = () => {
+      if (timer != null) {
+        clearInterval(timer);
+        timer = null;
+      }
+    };
+    tick();
+    timer = setInterval(tick, 1000);
+    await ensureFactorMeta();
+    try {
+      const res = await fetch("/api/quant/factor-ols-clusters", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback: 80,
+          horizon_days: readHorizonDays(),
+          watching_limit: 12,
+          // null → 自动目标 k≈n/5（约 4～10）+ 超大组二分；填了则按目标 k
+          n_clusters: readClusterK(),
+          cluster_method: "hierarchical",
+          cluster_linkage: "complete",
+          within_dist_quantile: 0.75,
+          ridge_lambda: readRidgeLambda(),
+          pit_fundamentals: true,
+          beta_scale: "feature_zscore",
+          run_oos_gate: true,
+          oos_tol_pp: 1.0,
+          run_group_score: true,
+          run_pool_merge: true,
+          top_n_per_group: 10,
+        }),
+      });
+      let data = null;
+      try {
+        data = await res.json();
+      } catch (_) {
+        data = null;
+      }
+      if (!res.ok) {
+        stopTick();
+        const detail =
+          (data && (data.detail || data.error)) ||
+          (res.status === 404
+            ? "接口未找到：请重启 Web（WEB_RELOAD=off 时需手动重启）"
+            : `HTTP ${res.status}`);
+        setBusyText(els.quantOlsSummary, detail, { busy: false });
+        setQuantMeta(`分组失败 · ${detail}`, { error: true });
+        if (els.quantOlsClusters) {
+          els.quantOlsClusters.textContent = detail;
+        }
+        return;
+      }
+      // FH2：后台 Job → 轮询；sync 兼容路径直接带 success 报告
+      if (data && data.background && data.job) {
+        stopTick();
+        const job = await waitQuantOlsClustersJob(data.job.id);
+        data = job.result || {};
+      }
+      stopTick();
+      const computeSec = Math.max(1, Math.round((Date.now() - started) / 1000));
+      if (!(data && data.success)) {
+        setBusyText(els.quantOlsSummary, (data && data.error) || "分组失败", {
+          busy: false,
+        });
+        setQuantMeta((data && data.error) || "分组失败", { error: true });
+        return;
+      }
+      setQuantMeta(`分组完成 · 渲染中… ${computeSec}s`, { busy: true });
+      await new Promise((r) => setTimeout(r, 0));
+      try {
+        q.cluster.renderOlsClusters(data);
+      } catch (renderErr) {
+        const detail = String((renderErr && renderErr.message) || renderErr);
+        setBusyText(els.quantOlsSummary, detail, { busy: false });
+        setQuantMeta(`分组已算完，渲染失败 · ${detail}`, { error: true });
+        throw renderErr;
+      }
+      const nCl = data.n_clusters ?? "—";
+      const nUni = data.universe_count ?? data.stock_count ?? "—";
+      const nWatch = (data.watching_codes || []).length;
+      const nIn = data.stock_count ?? "—";
+      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+      const os = data.oos_summary || {};
+      const oosTag = os.run
+        ? ` · OOS✓${os.passed ?? 0}/✗${os.failed ?? 0}`
+        : "";
+      const pmOk = data.pool_merge && data.pool_merge.success ? " · 分池合成" : "";
+      const kTag =
+        data.target_k != null
+          ? readClusterK() != null
+            ? ` · 目标k=${data.target_k}`
+            : ` · 自动k=${data.target_k}`
+          : "";
+      if (els.quantOlsSummary) {
+        els.quantOlsSummary.textContent = "";
+        els.quantOlsSummary.classList.remove("is-busy");
+      }
+      const pitTag =
+        data.pit_fundamentals === false ||
+        (data.lookahead_flags && data.lookahead_flags.pit_fundamentals === false)
+          ? " · 非PIT"
+          : " · PIT";
+      setQuantMeta(
+        `分组 · ${nCl} 组${kTag} · 观察 ${nWatch || nUni} · 入组 ${nIn} · ${sec}s${oosTag}${pmOk}${pitTag}`
+      );
+    } finally {
+      stopTick();
+    }
+  }
+
+  async function runFactorOlsPoolSuggest() {
+    setBusyText(els.quantOlsSummary, "研究池 OLS 中…", { busy: true });
+    await ensureFactorMeta();
+    const res = await fetch("/api/quant/factor-ols-pool", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lookback: 120,
+        horizon_days: readHorizonDays(),
+        watching_limit: 8,
+        ridge_lambda: readRidgeLambda(),
+      }),
+    });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = null;
+    }
+    if (!res.ok) {
+      const detail =
+        (data && (data.detail || data.error)) ||
+        (res.status === 404
+          ? "接口未找到：请重启 Web（WEB_RELOAD=off 时需手动重启）"
+          : `HTTP ${res.status}`);
+      setBusyText(els.quantOlsSummary, detail, { busy: false });
+      setQuantMeta(`池内 OLS 失败 · ${detail}`, { error: true });
+      return;
+    }
+    q.cluster.renderFactorOls(data);
+    if (data && data.success) {
+      const codes = Array.isArray(data.stock_codes) ? data.stock_codes.filter(Boolean) : [];
+      const codeNote = codes.length ? ` · ${codes.join("、")}` : "";
+      setQuantMeta(
+        `池内 OLS · ${data.stock_count ?? codes.length ?? "—"} 只${codeNote} · R²=${data.r_squared ?? "—"} · n=${data.sample_count ?? "—"}${
+          data.standardized ? " · z-score β" : ""
+        }`
+      );
+    } else {
+      setQuantMeta((data && data.error) || "池内 OLS 失败", { error: true });
+    }
+  }
+
+  async function runFactorOlsSuggest() {
+    const code = q.cluster.readOlsCode();
+    setBusyText(els.quantOlsSummary, `OLS 实验中… · ${code}`, { busy: true });
+    await ensureFactorMeta();
+    const res = await fetch("/api/quant/factor-ols", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        code,
+        lookback: 120,
+        horizon_days: readHorizonDays(),
+        ridge_lambda: readRidgeLambda(),
+      }),
+    });
+    q.cluster.renderFactorOls(await res.json());
+  }
+
+  async function runThresholdSuggest({ useWatching = false } = {}) {
+    if (!els.quantThresholdSummary) return;
+    setBusyText(
+      els.quantThresholdSummary,
+      useWatching ? "watching OOS 聚合中…" : "OOS 扫描中…",
+      { busy: true }
+    );
+    const res = await fetch("/api/quant/threshold-suggest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(
+        useWatching
+          ? { code: "茅台", lookback: 120, use_watching: true, watching_limit: 5 }
+          : { code: "茅台", lookback: 120, use_watching: false }
+      ),
+    });
+    const data = await res.json();
+    if (!data.success) {
+      setBusyText(els.quantThresholdSummary, data.error || "失败", { busy: false });
+      renderThresholdTable(null);
+      return;
+    }
+    if (useWatching) {
+      const agg = data.watching_aggregate || {};
+      setBusyText(
+        els.quantThresholdSummary,
+        `${(data.rationale || []).slice(0, 1).join("")} · ${agg.stock_count || 0} 只 · 中位 min=${agg.median_best_min_score ?? "—"}`,
+        { busy: false }
+      );
+    } else {
+      setBusyText(
+        els.quantThresholdSummary,
+        (data.rationale || []).slice(0, 2).join(" · "),
+        { busy: false }
+      );
+    }
+    renderThresholdTable(data);
+    state.quantLastThresholdDiff = data.config_diff || null;
+  }
+
+  function weightDiffTableHtml(suggest) {
+    return factorIcWeightMergedHtml(null, suggest, state.lastOlsForMerge);
+  }
+
+  return {
+    factorWeightSuggestCellTip,
+    fmtEmptyCell,
+    fmtOlsCell,
+    fmtWeightCell,
+    icTableHtml,
+    loadFactorPanel,
+    renderFactorExperiment,
+    renderFactorPanelTable,
+    renderThresholdTable,
+    renderWeightDiffTable,
+    runAllSuggest,
+    runFactorCsIcSuggest,
+    runFactorIcSuggest,
+    runFactorOlsClustersSuggest,
+    runFactorOlsPoolSuggest,
+    runFactorOlsSuggest,
+    runThresholdSuggest,
+    weightDiffTableHtml,
+    weightSuggestLogicTip,
+    weightSuggestStatusHtml,
+  };
+}

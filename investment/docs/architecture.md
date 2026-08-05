@@ -214,7 +214,7 @@ flowchart TB
 | **AI** | 通义千问（DashScope，OpenAI 兼容 HTTP）；自研 `InvestmentAgent` + Skills |
 | **行情 / 基本面** | 腾讯 qt（现价）· AkShare（日线/选股等）· pandas |
 | **存储** | 本地 JSON / JSONL（无 SQLite / Redis）；见 [data-layer · 存储选型](data-layer.md#存储选型为何是-json何时才上数据库) |
-| **量化主轴** | 纯 Python 规则因子加权（`score_bars`）；ML 仅研究旁路（`research/ml/`） |
+| **量化主轴** | 组 OLS/Ridge β → **predicted_score（ŷ%）** 选股；`heuristic_score` / `signal_config.weights` 仅研究基线；ML 旁路见 `research/ml/` |
 | **任务 / 运维** | 进程内 `POST /api/schedule/run` + shell cron / launchd；`unittest` + `evals` |
 | **部署形态** | 单机本地（默认 `127.0.0.1:8000`）；暂不接实盘 OMS |
 

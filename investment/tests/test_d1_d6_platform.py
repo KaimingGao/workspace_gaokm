@@ -107,7 +107,8 @@ class TestD4Feedback(unittest.TestCase):
         self.assertTrue(out["success"])
         self.assertFalse(out["auto_apply"])
         self.assertTrue(out["patch"])
-        self.assertIn("rank", out["patch"])
+        self.assertIn("scoring", out["patch"])
+        self.assertIn("min_predicted_score", out["patch"]["scoring"])
 
 
 class TestD6Prefill(unittest.TestCase):

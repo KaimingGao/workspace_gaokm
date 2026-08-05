@@ -80,11 +80,27 @@ def list_strategy_specs() -> List[Dict[str, Any]]:
     return [get_strategy_spec(s["name"]) for s in list_strategies()]
 
 
+# 纸面 rules 中不得再作为 live 选股门槛的遗留键（0–100 时代）
+_LEGACY_PAPER_SCORE_KEYS = (
+    "min_score",
+    "add_score",
+    "min_hold_score",
+    "reduce_score",
+)
+
+
 def apply_strategy_to_paper(paper: dict, strategy: str = DEFAULT_STRATEGY) -> Dict[str, Any]:
-    """把策略规格合并进 paper.rules / cost_model / t0 overlay（不落盘）。"""
+    """把策略规格合并进 paper.rules / cost_model / t0 overlay（不落盘）。
+
+    不合并 0–100 的 min_score/add_score 等；选股门槛真源为 signal_config.scoring。
+    """
     spec = get_strategy_spec(strategy)
     rules = dict(paper.get("rules") or {})
-    rules.update(spec.get("paper_rules") or {})
+    pr = deepcopy(spec.get("paper_rules") or {})
+    for k in _LEGACY_PAPER_SCORE_KEYS:
+        pr.pop(k, None)
+        rules.pop(k, None)
+    rules.update(pr)
     exe = spec.get("execution") or {}
     t0_overlay = ((exe.get("overlays") or {}).get("t0")) or {}
     if t0_overlay:
@@ -98,11 +114,7 @@ def apply_strategy_to_paper(paper: dict, strategy: str = DEFAULT_STRATEGY) -> Di
             merged_t0 = dict(prev)
             merged_t0.update(t0_overlay)
         rules["t0"] = merged_t0
-    # 回测参数中与纸面共用的键
-    for k in ("min_score", "horizon_days", "max_positions", "position_pct"):
-        if k in (spec.get("params") or {}) and k not in (spec.get("paper_rules") or {}):
-            # params 的 min_score 是回测默认，纸面以 paper_rules 为准
-            pass
+    # 回测 params.min_score 不进纸面
     paper["rules"] = rules
     if not paper.get("cost_model") or paper.get("cost_model") == "zero":
         # 若账户仍为教学默认，跟随策略推荐成本（可被账户显式设置覆盖）
@@ -140,14 +152,20 @@ def promote_strategy(
         params = merge_strategy_params(strategy, overrides)
         spec["params"] = params
         for k, v in overrides.items():
+            if k in _LEGACY_PAPER_SCORE_KEYS:
+                # 0–100 选股门不进 promote；真源为 signal_config.scoring
+                continue
             if k in (spec.get("paper_rules") or {}) or k in (
-                "min_score",
-                "add_score",
                 "max_positions",
                 "position_pct",
-                "min_hold_score",
+                "signal_limit",
+                "horizon_days",
+                "weight_mode",
             ):
                 spec.setdefault("paper_rules", {})[k] = v
+    # 防御：规格或旧 promote 残留
+    for k in _LEGACY_PAPER_SCORE_KEYS:
+        (spec.get("paper_rules") or {}).pop(k, None)
     entry = {
         "promoted_at": _now_iso(),
         "note": note or f"promote {spec['strategy_id']}@{spec['version']}",
@@ -178,6 +196,14 @@ def promote_strategy(
                 "note": entry.get("note"),
                 "execution": entry.get("execution_summary"),
             },
+        )
+    except Exception:
+        pass
+    try:
+        from core.live_config_manifest import write_live_config_manifest
+
+        write_live_config_manifest(
+            note=f"after promote_strategy {spec.get('strategy_id')}"
         )
     except Exception:
         pass

@@ -59,8 +59,9 @@
     │  normalize · quality · adjust_policy · allows_production_score
     ▼
 影响估计（Alpha / Risk 两条估计）
-    ├─ Alpha：因子子分 → 加权 score → stance_label（相对吸引力与倾向）
-    └─ Risk：回撤/集中度/成本/滚动 IC（能买多少、要不要停）
+    ├─ Alpha：因子 sub_scores → 组 OLS/Ridge β → **predicted_score（ŷ%）** → stance（相对吸引力）
+    │         heuristic 加权 score 仅研究基线，不驱动 live 选股
+    └─ Risk：回撤/集中度/成本/滚动 ŷ IC（能买多少、要不要停）
     ▼
 验证（规则是否仍有效）
     │  回测 · OOS/regime · WF · IC · 纸面五问
@@ -89,7 +90,7 @@ flowchart LR
 |----------|----------|------------|--------|
 | **事实输入** | 当时可见的价量、财务、资讯、账本 | `ports` · `fetch_daily_bars` · fundamentals · sentiment · `watching` / `paper` | 基本面多为 **snapshot**（非完整 PIT）；须在质量/文档标明 |
 | **清洗门禁** | 能否进入生产估计 | `normalize_bars` · `assess_quality` · `allows_production_score` · manifest `adjust_policy` | thin/empty/fallback → `hard_reject`，不硬塞分 |
-| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· `compute_buy_stance` | 生产 Alpha = **回归 ŷ**（当前线性；解法=OLS/Ridge）；`heuristic_score` **仅研究对照基线**；LLM **不改** `score` / `stance_label` |
+| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· `compute_buy_stance` | 生产 Alpha = **回归 ŷ**（当前线性；解法=OLS/Ridge）；组 β 仅 `cluster_scoring.mode=active` 进主分（off 不算、shadow 只对照，见 FH0）；`heuristic_score` **仅研究对照基线**；LLM **不改** `score` / `stance_label` |
 | **Risk 估计** | 已发生敞口对「能买多少 / 要不要停」的影响 | `check_account_risk` · `optimize_weights` · `strategy_monitor`（回撤 · 滚动 IC · 行业覆盖） · 成本 `simple_cn` | 监控 **只告警**；不自动改权、不代客下单 |
 | **验证** | 同一规则在历史上是否仍有效 | `backtest` · OOS/regime · `wf_slices` · IC / `weight_suggest` · 纸面 `ops_report` 五问 | 研究结果 ≠ 实盘保证；OOS 失败须可见 |
 | **动作** | 估计如何变成可审计行为 | 观察 · 人建仓 · `run_daily_cycle` / 横截面调仓 · `paper_daily` · DecisionRecord | **现行不接 OMS**（策略验证）；配置变更走 feedback → **人审 promote** |
@@ -311,7 +312,7 @@ flowchart LR
 | 5 | 历史回测验证 | ~85% | OOS/regime 分桶/WF/成本/Brinson lite/信号成交对照 |
 | 6 | 部署与迭代 | ~55% | 纸面日更 + 滚动 IC + 出站告警 + 人审晋升；无 OMS |
 
-**当前焦点**：选股主轴见 **[weight-suggest-deepen.md](weight-suggest-deepen.md)**（回归 ŷ；heuristic 仅研究基线）；E 轨见 [evidence-strengthen.md](evidence-strengthen.md)。继续真实 `paper_daily`、财务预热；`GET /api/ops/data-quality` · `maturity-gate` · `sample-status`；**不冲 N6 / 全市场数仓**。
+**当前焦点**：Y 轨已落地见 [yhat-strengthen.md](yhat-strengthen.md)。继续真实 `paper_daily`、财务预热与闸门勾选；评估是否立项 [n6-live-gate.md](n6-live-gate.md)。**不冲 OMS / 全市场数仓**。
 
 ### P0 落地状态（2026-07）
 

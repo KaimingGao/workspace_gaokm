@@ -192,7 +192,7 @@ def evaluate_research_oos(
     """heuristic 基线 vs predicted（研究模型）同一宇宙 Top-K OOS 对照。"""
     from core.signal.config import load_signal_config
     from core.watching_store import read_watching
-    from quant.research.portfolio_data import load_portfolio_stock_bars
+    from core.research.portfolio_bars import load_portfolio_stock_bars
 
     if codes:
         use_codes = [str(c).strip() for c in codes if str(c).strip()]

@@ -361,19 +361,13 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
     
     rules = paper.get("rules") or {}
     from core.signal.score_display import (
-        is_predicted_rank_mode,
         resolve_buy_floor,
         score_gates_use_heuristic_bands,
     )
 
-    predicted = is_predicted_rank_mode()
-    # 收益分：不用 0–100 的 min_score/加仓分档；入选靠池排序与可选 min_predicted_score
-    base_min_score = resolve_buy_floor(paper, heuristic_default=60.0)
-    base_sell_score = (
-        float("-inf")
-        if predicted
-        else float(rules.get("add_score") or 60.0)
-    )
+    # 生产仅 ŷ：不用 0–100 的 min_score/加仓分档；入选靠池排序与 scoring 门槛
+    base_min_score = resolve_buy_floor(paper)
+    base_sell_score = float("-inf")
     max_positions = int(rules.get("max_positions") or 5)
     position_pct = float(rules.get("position_pct") or 0.15)
     add_size_pct = float(rules.get("add_size_pct") or 0.5)  # 加仓比例50%

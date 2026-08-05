@@ -28,6 +28,7 @@ from web.schemas import (
     FactorCsIcRequest,
     FactorExperimentRequest,
     FactorOlsClusterRequest,
+    ScoringFloorsRequest,
     FactorOlsPoolRequest,
     ParamGridRequest,
     PortfolioBacktestRequest,
@@ -114,11 +115,14 @@ def quant_package():
 
 @router.get("/api/signal/config")
 def signal_config():
-    return deps.quant.read_signal_config_file()
+    """Canonical signal config read."""
+    out = deps.quant.read_signal_config_file()
+    return {**out, "canonical": True}
 
 
 @router.get("/api/signal/config/file")
 def signal_config_file():
+    """Legacy wrapper; prefer GET /api/signal/config (canonical)."""
     out = deps.quant.read_signal_config_file()
     return {
         "ok": True,
@@ -127,7 +131,25 @@ def signal_config_file():
         "readonly": True,
         "config": out.get("config"),
         "note": out.get("note"),
+        "deprecated": True,
+        "canonical": "/api/signal/config",
     }
+
+
+@router.post("/api/signal/config/scoring")
+def signal_config_scoring_floors(body: ScoringFloorsRequest):
+    """Y0：人审写入 ŷ 买卖门槛；永不改 weights。"""
+    try:
+        out = deps.quant.save_scoring_floors(
+            min_predicted_score=body.min_predicted_score,
+            min_hold_predicted_score=body.min_hold_predicted_score,
+            note=body.note or "策略中心人审",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not out.get("success"):
+        raise HTTPException(status_code=400, detail=out.get("error") or "写入失败")
+    return out
 
 
 @router.get("/api/signal/config/diff-preview")
@@ -251,26 +273,32 @@ def quant_factor_ols_pool(body: FactorOlsPoolRequest):
 
 @router.post("/api/quant/factor-ols-clusters")
 def quant_factor_ols_clusters(body: FactorOlsClusterRequest):
-    """研究池：单票 OLS β 聚类 → 组内共用池 OLS / 小步权草案；不写 config。"""
+    """研究池：单票 OLS β 聚类 → 组内共用池 OLS / 小步权草案；不写 config。
+
+    默认入队 Job（``GET /api/jobs/quant-ols-clusters``）；``sync=true`` 同步兼容单测。
+    """
+    kwargs = dict(
+        lookback=body.lookback,
+        horizon_days=body.horizon_days,
+        watching_limit=body.watching_limit,
+        ridge_lambda=body.ridge_lambda,
+        n_clusters=body.n_clusters,
+        pit_fundamentals=body.pit_fundamentals,
+        l2_normalize_betas=body.l2_normalize_betas,
+        beta_scale=body.beta_scale,
+        cluster_method=body.cluster_method,
+        cluster_linkage=body.cluster_linkage,
+        within_dist_quantile=body.within_dist_quantile,
+        run_oos_gate=body.run_oos_gate,
+        oos_tol_pp=body.oos_tol_pp,
+        run_group_score=body.run_group_score,
+        run_pool_merge=body.run_pool_merge,
+        top_n_per_group=body.top_n_per_group,
+    )
     try:
-        return deps.quant.run_factor_ols_cluster_experiment(
-            lookback=body.lookback,
-            horizon_days=body.horizon_days,
-            watching_limit=body.watching_limit,
-            ridge_lambda=body.ridge_lambda,
-            n_clusters=body.n_clusters,
-            pit_fundamentals=body.pit_fundamentals,
-            l2_normalize_betas=body.l2_normalize_betas,
-            beta_scale=body.beta_scale,
-            cluster_method=body.cluster_method,
-            cluster_linkage=body.cluster_linkage,
-            within_dist_quantile=body.within_dist_quantile,
-            run_oos_gate=body.run_oos_gate,
-            oos_tol_pp=body.oos_tol_pp,
-            run_group_score=body.run_group_score,
-            run_pool_merge=body.run_pool_merge,
-            top_n_per_group=body.top_n_per_group,
-        )
+        if body.sync:
+            return deps.quant.run_factor_ols_cluster_experiment(**kwargs)
+        return deps.quant.start_factor_ols_cluster_job(**kwargs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -327,6 +355,7 @@ def quant_cluster_live_apply(body: ClusterApplyShortcutRequest):
             from_draft=bool(body.from_draft),
             note=body.note,
             mode=body.mode,
+            force=bool(body.force),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -358,7 +387,9 @@ def quant_cluster_live_rollback(body: ClusterRollbackRequest):
 def quant_cluster_live_mode(body: ClusterModeRequest):
     """设置 cluster_scoring.mode = off|shadow|active。"""
     try:
-        return deps.quant.set_cluster_live_mode(body.mode, enabled=body.enabled)
+        return deps.quant.set_cluster_live_mode(
+            body.mode, enabled=body.enabled, force=bool(body.force)
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -603,6 +634,7 @@ def quant_portfolio_neutral_compare(body: PortfolioBacktestRequest):
             top_k=body.top_k,
             horizon_days=body.horizon_days,
             min_score=body.min_score,
+            min_predicted_score=body.min_predicted_score,
             apply_costs=body.apply_costs,
             fetch_fundamentals=body.fetch_fundamentals,
             weight_mode=body.weight_mode,
@@ -617,10 +649,28 @@ def quant_portfolio_neutral_compare(body: PortfolioBacktestRequest):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/api/paper/quant-bridge")
+def paper_quant_bridge(include_stance: bool = False):
+    """模拟持仓联动摘要（canonical；持仓取自 paper）。"""
+    try:
+        out = deps.quant.build_portfolio_bridge(include_stance=include_stance)
+        if isinstance(out, dict):
+            out = dict(out)
+            out["canonical"] = True
+        return out
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/api/portfolio/quant-bridge")
 def portfolio_quant_bridge(include_stance: bool = False):
-    """模拟持仓联动摘要（路径保留；对照仓已下线，持仓取自 paper）。"""
+    """已弃用别名 → 请用 ``GET /api/paper/quant-bridge``（对照仓已下线）。"""
     try:
-        return deps.quant.build_portfolio_bridge(include_stance=include_stance)
+        out = deps.quant.build_portfolio_bridge(include_stance=include_stance)
+        if isinstance(out, dict):
+            out = dict(out)
+            out["deprecated"] = True
+            out["canonical"] = "/api/paper/quant-bridge"
+        return out
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

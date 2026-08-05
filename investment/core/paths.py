@@ -26,6 +26,10 @@ CLUSTER_WEIGHTS_ACTIVE_PATH = os.path.join(LIVE_DIR, "cluster_weights_active.jso
 CLUSTER_WEIGHTS_HISTORY_DIR = os.path.join(LIVE_DIR, "cluster_weights_history")
 CLUSTER_WEIGHTS_DRAFT_PATH = os.path.join(LIVE_DIR, "cluster_weights_draft.json")
 CLUSTER_BOOK_ACTIVE_PATH = os.path.join(LIVE_DIR, "cluster_book_active.json")
+# FH1：指针指向版本化 artifact；active 文件为镜像兼容层
+CLUSTER_POINTER_PATH = os.path.join(LIVE_DIR, "cluster_pointer.json")
+PROMOTE_AUDIT_PATH = os.path.join(LIVE_DIR, "promote_audit.jsonl")
+LIVE_CONFIG_MANIFEST_PATH = os.path.join(LIVE_DIR, "live_config_manifest.json")
 RETURN_SCORE_MODEL_DRAFT_PATH = os.path.join(QUANT_REPORTS_DIR, "last_return_score_model.json")
 RETURN_SCORE_MODEL_ACTIVE_PATH = os.path.join(LIVE_DIR, "return_score_model_active.json")
 DAILY_LAST_RUN_PATH = os.path.join(DATA_DIR, "daily_last_run.json")
@@ -50,3 +54,9 @@ NEWS_STORE_DIR = os.path.join(STORE_DIR, "news")
 SENTIMENT_LEXICON_PATH = os.path.join(DATA_DIR, "sentiment_lexicon.json")
 JOBS_DIR = os.path.join(DATA_DIR, "jobs")
 PAPER_JOB_PATH = os.path.join(JOBS_DIR, "paper.json")
+QUANT_OLS_CLUSTERS_JOB_PATH = os.path.join(JOBS_DIR, "quant_ols_clusters.json")
+
+
+def cluster_weights_versioned_path(version: int) -> str:
+    """版本化组权产物路径（``cluster_weights_v{n}.json``）。"""
+    return os.path.join(LIVE_DIR, f"cluster_weights_v{int(version)}.json")

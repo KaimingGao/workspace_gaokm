@@ -1,6 +1,9 @@
 """分组因子系数 live 产物：晋升 / 回滚 / 健康检查（不写 signal_config.weights）。
 
 真源为 code_map.return_model；weights 可由 |β| 派生供旧路径。
+
+ŷ 门禁（FH0）：``mode=off`` 不算组 ŷ；``shadow`` 可算 ``score_cluster`` 对照；
+仅 ``active`` 时组 β 写入 ``predicted_score`` / primary。
 """
 
 from __future__ import annotations
@@ -26,17 +29,38 @@ def _ensure_dirs() -> None:
     os.makedirs(CLUSTER_WEIGHTS_HISTORY_DIR, exist_ok=True)
 
 
+def normalize_cluster_scoring_mode(
+    mode: Optional[str],
+    *,
+    enabled: bool = True,
+) -> str:
+    """归一化 off|shadow|active；enabled=false 时强制 off。"""
+    m = str(mode or "off").strip().lower()
+    if m not in ("off", "shadow", "active"):
+        m = "off"
+    if not enabled:
+        return "off"
+    return m
+
+
+def cluster_yhat_primary_allowed(mode: str) -> bool:
+    """仅 active 时组 β 可写入 primary / predicted_score 主分。"""
+    return normalize_cluster_scoring_mode(mode) == "active"
+
+
+def cluster_yhat_shadow_compute_allowed(mode: str) -> bool:
+    """shadow/active 可算 score_cluster 对照；off 不算组 ŷ。"""
+    return normalize_cluster_scoring_mode(mode) in ("shadow", "active")
+
+
 def get_cluster_scoring_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     from core.signal.config import load_signal_config
 
     cfg = config or load_signal_config()
     raw = dict(cfg.get("cluster_scoring") or {})
-    mode = str(raw.get("mode") or "off").strip().lower()
-    if mode not in ("off", "shadow", "active"):
-        mode = "off"
-    if not raw.get("enabled", False) and mode != "off":
-        # enabled=false 强制 off（除非显式只读 shadow 调试——仍尊重 mode 若 enabled）
-        mode = "off"
+    mode = normalize_cluster_scoring_mode(
+        raw.get("mode"), enabled=bool(raw.get("enabled", False))
+    )
     return {
         "enabled": bool(raw.get("enabled", False)),
         "mode": mode,
@@ -45,16 +69,44 @@ def get_cluster_scoring_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
         "min_coverage": float(raw.get("min_coverage") or 0.5),
         "max_age_days": max(1, min(int(raw.get("max_age_days") or 14), 90)),
         "auto_demote_on_stale": bool(raw.get("auto_demote_on_stale", True)),
+        # FH0：缺省从 1.0 收紧到 0.5（配置显式写出仍优先生效）
+        "max_oos_fail_rate": max(
+            0.0,
+            min(
+                float(
+                    raw.get("max_oos_fail_rate")
+                    if raw.get("max_oos_fail_rate") is not None
+                    else 0.5
+                ),
+                1.0,
+            ),
+        ),
+        "min_yhat_rolling_ic": float(
+            raw.get("min_yhat_rolling_ic") if raw.get("min_yhat_rolling_ic") is not None else 0.0
+        ),
+        "block_active_on_yhat_ic": bool(raw.get("block_active_on_yhat_ic", False)),
+        "min_sector_map_coverage": max(
+            0.0,
+            min(
+                float(
+                    raw.get("min_sector_map_coverage")
+                    if raw.get("min_sector_map_coverage") is not None
+                    else 0.5
+                ),
+                1.0,
+            ),
+        ),
     }
 
 
 def load_active_cluster_weights(
     *, path: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
-    from core.paths import CLUSTER_WEIGHTS_ACTIVE_PATH
+    """读 live 组权：优先指针指向的版本化 artifact，否则回退 active 镜像。"""
+    from core.signal.cluster_pointer import resolve_cluster_weights_path
 
-    p = path or CLUSTER_WEIGHTS_ACTIVE_PATH
-    if not os.path.isfile(p):
+    p = path or resolve_cluster_weights_path()
+    if not p or not os.path.isfile(p):
         return None
     try:
         with open(p, encoding="utf-8") as f:
@@ -247,10 +299,15 @@ def promote_cluster_artifact(
     note: str = "",
     force: bool = False,
 ) -> Dict[str, Any]:
-    """研究产物 → active；旧 active 进 history。不写 signal_config.weights。"""
+    """研究产物 → 版本化 artifact + 原子指针切换；旧版进 history。不写 signal_config.weights。"""
     from core.paths import (
         CLUSTER_WEIGHTS_ACTIVE_PATH,
         CLUSTER_WEIGHTS_HISTORY_DIR,
+    )
+    from core.signal.cluster_pointer import (
+        append_promote_audit,
+        publish_cluster_weights_doc,
+        resolve_cluster_weights_path,
     )
 
     err = _validate_artifact_for_promote(artifact)
@@ -266,16 +323,22 @@ def promote_cluster_artifact(
         except (TypeError, ValueError):
             version = 1
 
-    if prev and os.path.isfile(CLUSTER_WEIGHTS_ACTIVE_PATH):
+    prev_path = resolve_cluster_weights_path()
+    if prev and prev_path and os.path.isfile(prev_path):
         stamp = str(prev.get("promoted_at") or "prev").replace(":", "").replace("-", "")
         hist = os.path.join(
             CLUSTER_WEIGHTS_HISTORY_DIR,
             f"cluster_weights_v{prev.get('version', 0)}_{stamp}.json",
         )
         try:
-            shutil.copy2(CLUSTER_WEIGHTS_ACTIVE_PATH, hist)
-        except Exception:
-            pass
+            shutil.copy2(prev_path, hist)
+        except Exception as e:
+            # FH4：历史备份失败可见，不阻断晋升
+            hist_warn = f"history_backup_failed:{e}"
+        else:
+            hist_warn = None
+    else:
+        hist_warn = None
 
     from core.signal.factor_coefs import (
         display_weights_from_return_model,
@@ -357,27 +420,68 @@ def promote_cluster_artifact(
         "signal_config_touched": False,
         "note": "live 因子系数映射；真源=return_model；weights 可选派生",
     }
-    with open(CLUSTER_WEIGHTS_ACTIVE_PATH, "w", encoding="utf-8") as f:
-        json.dump(active, f, ensure_ascii=False, indent=2)
+    published = publish_cluster_weights_doc(active, note=note or f"promote v{version}")
+    if not published.get("success"):
+        return {
+            "success": False,
+            "error": published.get("error") or "指针切换失败",
+            "task": "cluster_promote",
+            "previous_version": prev.get("version") if prev else None,
+        }
+
+    if force and err:
+        append_promote_audit(
+            {
+                "action": "cluster_promote_force",
+                "version": version,
+                "validation_error": err,
+                "note": str(note or "")[:200],
+            }
+        )
+
+    warnings: List[str] = []
+    if hist_warn:
+        warnings.append(hist_warn)
+
+    manifest = None
+    try:
+        from core.live_config_manifest import write_live_config_manifest
+
+        manifest = write_live_config_manifest(note=f"after cluster_promote v{version}")
+    except Exception as e:
+        warnings.append(f"live_manifest_write_failed:{e}")
 
     return {
         "success": True,
         "task": "cluster_promote",
         "version": version,
-        "path": CLUSTER_WEIGHTS_ACTIVE_PATH,
+        "path": published.get("artifact") or CLUSTER_WEIGHTS_ACTIVE_PATH,
+        "pointer": (published.get("pointer") or {}).get("path"),
+        "mirror": published.get("mirror"),
         "n_mapped_codes": len(cmap),
         "promoted_at": active["promoted_at"],
         "previous_version": prev.get("version") if prev else None,
         "signal_config_touched": False,
-        "note": "已晋升为 live active；请将 cluster_scoring.mode 设为 shadow/active",
+        "warnings": warnings,
+        "live_manifest": {
+            "consistent": (manifest or {}).get("consistent"),
+            "alerts": (manifest or {}).get("alerts") or [],
+            "path": (manifest or {}).get("path"),
+            "error": None if manifest else (warnings[-1] if warnings else "manifest_missing"),
+        }
+        if manifest or warnings
+        else None,
+        "note": "已晋升为 live（指针已切换）；请将 cluster_scoring.mode 设为 shadow/active",
     }
 
 
 def rollback_cluster_weights(*, to_version: Optional[int] = None) -> Dict[str, Any]:
-    """回滚到 history 中上一版或指定 version。"""
-    from core.paths import (
-        CLUSTER_WEIGHTS_ACTIVE_PATH,
-        CLUSTER_WEIGHTS_HISTORY_DIR,
+    """回滚到 history 中上一版或指定 version（经指针原子切换）。"""
+    from core.paths import CLUSTER_WEIGHTS_HISTORY_DIR
+    from core.signal.cluster_pointer import (
+        append_promote_audit,
+        publish_cluster_weights_doc,
+        resolve_cluster_weights_path,
     )
 
     _ensure_dirs()
@@ -401,7 +505,6 @@ def rollback_cluster_weights(*, to_version: Optional[int] = None) -> Dict[str, A
             if f"v{int(to_version)}_" in f or f"_v{int(to_version)}_" in f:
                 chosen = f
                 break
-            # cluster_weights_v3_...
             if f.startswith(f"cluster_weights_v{int(to_version)}_"):
                 chosen = f
                 break
@@ -411,20 +514,62 @@ def rollback_cluster_weights(*, to_version: Optional[int] = None) -> Dict[str, A
         chosen = files[0]
 
     src = os.path.join(CLUSTER_WEIGHTS_HISTORY_DIR, chosen)
-    # 当前 active 先备份
     cur = load_active_cluster_weights()
-    if cur and os.path.isfile(CLUSTER_WEIGHTS_ACTIVE_PATH):
+    cur_path = resolve_cluster_weights_path()
+    warnings: List[str] = []
+    if cur and cur_path and os.path.isfile(cur_path):
         stamp = _iso_now().replace(":", "").replace("-", "")
         bak = os.path.join(
             CLUSTER_WEIGHTS_HISTORY_DIR,
             f"cluster_weights_v{cur.get('version', 0)}_pre_rollback_{stamp}.json",
         )
         try:
-            shutil.copy2(CLUSTER_WEIGHTS_ACTIVE_PATH, bak)
-        except Exception:
-            pass
+            shutil.copy2(cur_path, bak)
+        except Exception as e:
+            warnings.append(f"pre_rollback_backup_failed:{e}")
 
-    shutil.copy2(src, CLUSTER_WEIGHTS_ACTIVE_PATH)
+    try:
+        with open(src, encoding="utf-8") as f:
+            restored_doc = json.load(f)
+    except Exception as e:
+        return {"success": False, "error": f"读取历史失败: {e}"}
+    if not isinstance(restored_doc, dict) or not isinstance(
+        restored_doc.get("code_map"), dict
+    ):
+        return {"success": False, "error": "历史 artifact 无效"}
+
+    # 回滚发布：保留历史 version 号，bump 为新指针版本以免覆盖
+    try:
+        new_ver = int((cur or {}).get("version") or 0) + 1
+    except (TypeError, ValueError):
+        new_ver = 1
+    restored_doc = dict(restored_doc)
+    restored_doc["version"] = new_ver
+    restored_doc["rolled_back_from"] = chosen
+    restored_doc["promoted_at"] = _iso_now()
+    published = publish_cluster_weights_doc(
+        restored_doc, note=f"rollback from {chosen}"
+    )
+    if not published.get("success"):
+        return {
+            "success": False,
+            "error": published.get("error") or "回滚指针切换失败",
+            "task": "cluster_rollback",
+        }
+    append_promote_audit(
+        {
+            "action": "cluster_rollback",
+            "version": new_ver,
+            "restored_from": chosen,
+        }
+    )
+    try:
+        from core.live_config_manifest import write_live_config_manifest
+
+        write_live_config_manifest(note=f"after cluster_rollback v{new_ver}")
+    except Exception as e:
+        warnings.append(f"live_manifest_write_failed:{e}")
+
     restored = load_active_cluster_weights()
     return {
         "success": True,
@@ -432,6 +577,8 @@ def rollback_cluster_weights(*, to_version: Optional[int] = None) -> Dict[str, A
         "restored_from": chosen,
         "version": (restored or {}).get("version"),
         "n_mapped_codes": (restored or {}).get("n_mapped_codes"),
+        "pointer": (published.get("pointer") or {}).get("path"),
+        "warnings": warnings,
         "signal_config_touched": False,
     }
 
@@ -505,55 +652,16 @@ def load_active_cluster_book() -> Optional[Dict[str, Any]]:
 
 
 def _save_active_doc(active: Dict[str, Any]) -> str:
-    from core.paths import CLUSTER_WEIGHTS_ACTIVE_PATH
+    """写回当前 live 组权（OOS 补丁等）：经指针发布，避免半文件。"""
+    from core.signal.cluster_pointer import publish_cluster_weights_doc
 
     _ensure_dirs()
-    with open(CLUSTER_WEIGHTS_ACTIVE_PATH, "w", encoding="utf-8") as f:
-        json.dump(active, f, ensure_ascii=False, indent=2)
-    return CLUSTER_WEIGHTS_ACTIVE_PATH
-
-
-def _summarize_cluster_oos(clusters: Sequence[Any]) -> Dict[str, Any]:
-    """统计 active/draft clusters 的 OOS：优先 oos_gate，回退 oos_passed。"""
-    from core.signal.weight_oos_gate import OOS_PRODUCT_SEMANTICS
-
-    oos_pass = 0
-    oos_fail = 0
-    oos_skip = 0
-    oos_unknown = 0
-    for cl in clusters or []:
-        if not isinstance(cl, dict):
-            continue
-        gate = cl.get("oos_gate")
-        if isinstance(gate, dict) and gate:
-            if gate.get("skipped"):
-                oos_skip += 1
-            elif gate.get("ok") and gate.get("passed"):
-                oos_pass += 1
-            elif gate.get("ok") is False or gate.get("passed") is False:
-                oos_fail += 1
-            else:
-                oos_unknown += 1
-            continue
-        # 旧产物只有布尔 oos_passed
-        if "oos_passed" in cl and cl.get("oos_passed") is not None:
-            if bool(cl.get("oos_passed")):
-                oos_pass += 1
-            else:
-                oos_fail += 1
-            continue
-        oos_unknown += 1
-    return {
-        "pass_count": oos_pass,
-        "fail_count": oos_fail,
-        "skip_count": oos_skip,
-        "unknown_count": oos_unknown,
-        "n_clusters": oos_pass + oos_fail + oos_skip + oos_unknown,
-        "note": (
-            "来自 active 映射 clusters.oos_gate（缺省回退 oos_passed）；无记录不拦启用。 "
-            + OOS_PRODUCT_SEMANTICS
-        ),
-    }
+    published = publish_cluster_weights_doc(
+        active, note=f"save_active_doc v{active.get('version')}"
+    )
+    if not published.get("success"):
+        raise RuntimeError(published.get("error") or "save_active_doc failed")
+    return str(published.get("artifact") or "")
 
 
 def ensure_active_cluster_oos_gates(
@@ -565,9 +673,10 @@ def ensure_active_cluster_oos_gates(
     oos_tol_pp: float = 1.0,
 ) -> Dict[str, Any]:
     """给 live active 各组补算 / 刷新 ``oos_gate``（heuristic 基线 vs 组 ŷ）。"""
+    from core.signal.cluster_live_evidence import _summarize_cluster_oos
     from core.signal.config import load_signal_config
     from core.signal.weight_oos_gate import evaluate_research_oos
-    from quant.research.cluster_pool_artifact import _slim_oos_gate
+    from core.research.oos_slim import slim_oos_gate
 
     active = load_active_cluster_weights()
     if not active:
@@ -668,7 +777,7 @@ def ensure_active_cluster_oos_gates(
                     str(gate["note"])
                     + " 补算自 live active；基线=heuristic；研究臂=ŷ。"
                 )
-        slim = _slim_oos_gate(gate) or gate
+        slim = slim_oos_gate(gate) or gate
         cl["oos_gate"] = slim
         cl["oos_passed"] = bool(
             slim.get("ok") and slim.get("passed") and not slim.get("skipped")
@@ -698,127 +807,66 @@ def ensure_active_cluster_oos_gates(
 
 
 def _default_health_universe() -> List[str]:
-    """优先纸面持仓（与分组宇宙一致），否则观察池。"""
-    codes: List[str] = []
-    try:
-        from core.paper import load_paper
-        from core.paths import PAPER_PATH
+    from core.signal.cluster_live_health import _default_health_universe as _impl
 
-        paper = load_paper(PAPER_PATH)
-        for h in paper.get("holdings") or []:
-            if isinstance(h, dict) and h.get("stock_code"):
-                codes.append(str(h["stock_code"]).strip())
-    except Exception:
-        pass
-    if len(codes) >= 2:
-        return codes[:40]
-    try:
-        from core.watching_store import read_watching
-
-        return list((read_watching().get("watchlist") or [])[:40])
-    except Exception:
-        return codes[:40]
+    return _impl()
 
 
 def assess_cluster_live_health(
     *,
     universe: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
-    """覆盖率 / 陈旧 / 模式门禁（L3）。"""
-    cs = get_cluster_scoring_cfg()
-    active = load_active_cluster_weights()
-    alerts: List[str] = []
-    mapped = set((active or {}).get("code_map") or {})
-    if universe is None:
-        universe = _default_health_universe()
-    uni = [str(c).strip() for c in (universe or []) if str(c).strip()]
-    hit = sum(1 for c in uni if c in mapped)
-    coverage = (hit / len(uni)) if uni else None
+    """覆盖率 / 陈旧 / 模式门禁（L3）。实现见 ``cluster_live_health``。"""
+    from core.signal.cluster_live_health import assess_cluster_live_health as _impl
 
-    age_days = None
-    stale = False
-    if active and active.get("promoted_at"):
-        try:
-            promoted = datetime.strptime(
-                str(active["promoted_at"]).replace("Z", ""), "%Y-%m-%dT%H:%M:%S"
-            ).replace(tzinfo=timezone.utc)
-            age_days = (datetime.now(timezone.utc) - promoted).total_seconds() / 86400.0
-            if age_days > float(cs["max_age_days"]):
-                stale = True
-                alerts.append(
-                    f"映射陈旧 {age_days:.1f}d > {cs['max_age_days']}d"
-                )
-        except Exception:
-            pass
-
-    if coverage is not None and coverage < float(cs["min_coverage"]):
-        alerts.append(
-            f"覆盖率 {coverage:.0%} < 阈值 {float(cs['min_coverage']):.0%}"
-        )
-
-    mode = cs["mode"]
-    demoted = False
-    if mode == "active" and (stale or (coverage is not None and coverage < cs["min_coverage"])):
-        alerts.append("建议降级：active 条件不满足（请改 shadow/off）")
-        if cs.get("auto_demote_on_stale") and stale:
-            demoted = True  # 调用方决定是否改 config；此处只报告
-
-    allow_active = (
-        bool(active)
-        and not stale
-        and (coverage is None or coverage >= float(cs["min_coverage"]))
-    )
-
-    return {
-        "success": True,
-        "task": "cluster_live_health",
-        "mode": mode,
-        "enabled": cs["enabled"],
-        "has_active": bool(active),
-        "version": (active or {}).get("version"),
-        "promoted_at": (active or {}).get("promoted_at"),
-        "n_mapped_codes": (active or {}).get("n_mapped_codes"),
-        "universe_size": len(uni),
-        "mapped_in_universe": hit,
-        "coverage": round(coverage, 3) if coverage is not None else None,
-        "age_days": round(age_days, 2) if age_days is not None else None,
-        "stale": stale,
-        "allow_active": allow_active,
-        "suggest_demote": demoted or (mode == "active" and not allow_active),
-        "alerts": alerts,
-        "signal_config_touched": False,
-    }
+    return _impl(universe=universe)
 
 
 def set_cluster_scoring_mode(
     mode: str,
     *,
     enabled: Optional[bool] = None,
+    force: bool = False,
 ) -> Dict[str, Any]:
-    """仅改 signal_config.cluster_scoring 开关；不写 weights。"""
+    """仅改 signal_config.cluster_scoring 开关；不写 weights。
+
+    mode=active 时：健康/证据包 + live manifest 半晋升阻断；
+    ``force=True`` 可豁免并写 ``promote_audit.jsonl``。
+    """
+    from core.io_atomic import atomic_write_json
     from core.paths import SIGNAL_CONFIG_PATH
+    from core.signal.cluster_pointer import active_enable_blockers, append_promote_audit
     from core.signal.config import load_signal_config
 
     mode = str(mode or "off").strip().lower()
     if mode not in ("off", "shadow", "active"):
         return {"success": False, "error": "mode 须为 off|shadow|active"}
 
+    force_audit = False
+    health = None
+    evidence = None
     if mode == "active":
         health = assess_cluster_live_health()
         evidence = build_cluster_enable_evidence(health=health)
-        if not health.get("allow_active") or not (evidence.get("gate") or {}).get(
-            "ok"
-        ):
-            blockers = list((evidence.get("gate") or {}).get("blockers") or [])
-            if not blockers:
-                blockers = list(health.get("alerts") or []) or ["无 active 映射"]
+        blockers = active_enable_blockers(health=health, evidence=evidence)
+        if blockers and not force:
             return {
                 "success": False,
                 "error": "启用证据包未通过，禁止 active："
                 + ("；".join(str(b) for b in blockers[:6])),
                 "health": health,
                 "enable_evidence": evidence,
+                "blockers": blockers,
             }
+        if blockers and force:
+            force_audit = True
+            append_promote_audit(
+                {
+                    "action": "cluster_set_mode_force_active",
+                    "blockers": blockers[:20],
+                    "note": "force=true 豁免 active 门禁",
+                }
+            )
 
     path = os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH)
     raw: Dict[str, Any] = {}
@@ -832,9 +880,7 @@ def set_cluster_scoring_mode(
     else:
         cs["enabled"] = bool(enabled)
     raw["cluster_scoring"] = cs
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(raw, f, ensure_ascii=False, indent=2)
+    atomic_write_json(path, raw)
     # 清缓存
     try:
         from core.signal import config as cfg_mod
@@ -843,12 +889,31 @@ def set_cluster_scoring_mode(
     except Exception:
         pass
     load_signal_config(reload=True)
+    warnings: List[str] = []
+    manifest = None
+    try:
+        from core.live_config_manifest import write_live_config_manifest
+
+        manifest = write_live_config_manifest(note=f"after cluster_set_mode={mode}")
+    except Exception as e:
+        warnings.append(f"live_manifest_write_failed:{e}")
     return {
         "success": True,
         "task": "cluster_set_mode",
         "cluster_scoring": get_cluster_scoring_cfg(),
         "path": path,
+        "force": bool(force_audit),
         "signal_config_weights_touched": False,
+        "warnings": warnings,
+        "health": health,
+        "enable_evidence": evidence,
+        "live_manifest": {
+            "consistent": (manifest or {}).get("consistent"),
+            "alerts": (manifest or {}).get("alerts") or [],
+            "error": None if manifest else (warnings[-1] if warnings else None),
+        }
+        if manifest or warnings
+        else None,
         "note": "仅更新 cluster_scoring 开关；weights 未改",
     }
 
@@ -859,6 +924,12 @@ def refresh_cluster_book_daily() -> Dict[str, Any]:
 
     health = assess_cluster_live_health()
     ranked = rank_cluster_pools(None, persist_book=True)
+    try:
+        from core.live_config_manifest import write_live_config_manifest
+
+        write_live_config_manifest(note="after cluster_daily_refresh")
+    except Exception:
+        pass
     return {
         "success": bool(ranked.get("success")),
         "task": "cluster_daily_refresh",
@@ -930,60 +1001,9 @@ def _pick_audit_codes(
     *,
     offset: int = 0,
 ) -> List[str]:
-    """
-    选双分对照样本：优先合并簿，再按组轮询；``offset`` 旋转起点，避免永远同一批。
-    """
-    n = max(1, min(int(n), 12))
-    off = abs(int(offset or 0))
-    book_codes: List[str] = []
-    for row in book_rows or []:
-        code = str((row or {}).get("stock_code") or "").strip()
-        if code and code in cmap and code not in book_codes:
-            book_codes.append(code)
+    from core.signal.cluster_live_audit import pick_audit_codes
 
-    by_label: Dict[str, List[str]] = {}
-    # 簿内优先：按簿序入组，再补 code_map 其余
-    seed_order = list(book_codes)
-    for code in cmap.keys():
-        c = str(code).strip()
-        if c and c not in seed_order:
-            seed_order.append(c)
-    for c in seed_order:
-        meta = cmap.get(c) or {}
-        lab = str(meta.get("cluster_label") or "?")
-        by_label.setdefault(lab, []).append(c)
-
-    if not by_label:
-        return []
-
-    labels = sorted(by_label.keys())
-    # 旋转：组起点 + 组内起点，刷新对照时换票
-    label_start = off % len(labels)
-    labels = labels[label_start:] + labels[:label_start]
-    for lab in labels:
-        members = by_label[lab]
-        if not members:
-            continue
-        m0 = off % len(members)
-        by_label[lab] = members[m0:] + members[:m0]
-
-    codes: List[str] = []
-    idx = 0
-    while len(codes) < n:
-        progressed = False
-        for lab in labels:
-            members = by_label.get(lab) or []
-            if idx < len(members):
-                c = members[idx]
-                if c not in codes:
-                    codes.append(c)
-                    progressed = True
-                if len(codes) >= n:
-                    break
-        if not progressed:
-            break
-        idx += 1
-    return codes
+    return pick_audit_codes(cmap, book_rows, n, offset=offset)
 
 
 def cluster_score_audit_sample(
@@ -992,94 +1012,13 @@ def cluster_score_audit_sample(
     offset: Optional[int] = None,
     rotate: bool = False,
 ) -> Dict[str, Any]:
-    """对照审计：优先分池簿样本，按组轮询取票，算 score_global vs score_cluster。
-
-    ``rotate=True`` 或显式 ``offset``：旋转样本起点（刷新对照换一批票）。
-    """
-    active = load_active_cluster_weights()
-    cs = get_cluster_scoring_cfg()
-    mode = cs.get("mode") or "off"
-    if not active or mode not in ("shadow", "active"):
-        return {
-            "success": True,
-            "task": "cluster_score_audit",
-            "rows": [],
-            "mode": mode,
-            "note": "非 shadow/active 或无 active 映射，跳过双分样本",
-        }
-    cmap = active.get("code_map") or {}
-    n = max(1, min(int(limit), 12))
-    if offset is None and rotate:
-        offset = int(datetime.now(timezone.utc).timestamp() * 1000) % 10_000_000
-    elif offset is None:
-        offset = 0
-    book = load_active_cluster_book() or {}
-    codes = _pick_audit_codes(
-        cmap,
-        list(book.get("book") or []),
-        n,
-        offset=int(offset),
+    """对照审计：优先分池簿样本（实现见 cluster_live_audit）。"""
+    from core.signal.cluster_live_audit import (
+        cluster_score_audit_sample as _impl,
     )
-    rows: List[Dict[str, Any]] = []
-    fails: List[str] = []
-    try:
-        from core.signal.score_stock import score_stock
-    except Exception as exc:
-        return {
-            "success": False,
-            "task": "cluster_score_audit",
-            "error": str(exc),
-            "rows": [],
-        }
-    for code in codes:
-        try:
-            # 强制 shadow 语义：始终拉出全局ŷ / 组ŷ 供对照（不影响交易 mode）
-            result = score_stock(
-                code,
-                cluster_mode="shadow",
-                skip_fundamentals=True,
-            )
-        except Exception as exc:
-            fails.append(f"{code}:{exc}")
-            continue
-        if not isinstance(result, dict) or not result.get("success"):
-            fails.append(f"{code}:{result.get('error') if isinstance(result, dict) else 'fail'}")
-            continue
-        item = result.get("signal_item") or {}
-        if not isinstance(item, dict):
-            continue
-        rows.append(
-            {
-                "stock_code": code,
-                "stock_name": item.get("stock_name") or result.get("stock_name") or code,
-                "cluster_label": item.get("cluster_label")
-                or (cmap.get(code) or {}).get("cluster_label"),
-                "score_global": item.get("score_global"),
-                "score_cluster": item.get("score_cluster"),
-                "delta_vs_global": item.get("delta_vs_global"),
-                "weight_source": item.get("weight_source"),
-                "score": item.get("score"),
-            }
-        )
-    out: Dict[str, Any] = {
-        "success": True,
-        "task": "cluster_score_audit",
-        "mode": mode,
-        "version": active.get("version"),
-        "rows": rows,
-        "sample_offset": int(offset),
-        "sample_codes": list(codes),
-        "sampled_at": _iso_now(),
-        "signal_config_touched": False,
-    }
-    if not rows and fails:
-        out["success"] = False
-        out["error"] = f"打分失败 {len(fails)} 只：" + "；".join(fails[:3])
-    elif fails:
-        out["note"] = f"部分失败 {len(fails)}/{len(codes)}"
-    elif rotate or int(offset) != 0:
-        out["note"] = f"轮换样本 offset={int(offset)}"
-    return out
+
+    return _impl(limit=limit, offset=offset, rotate=rotate)
+
 
 
 def apply_cluster_live_shortcut(
@@ -1089,10 +1028,11 @@ def apply_cluster_live_shortcut(
     note: str = "",
     mode: str = "shadow",
     refresh_book: bool = True,
+    force: bool = False,
 ) -> Dict[str, Any]:
-    """一键：晋升 → 设 mode（默认 shadow）→ 刷新分池簿。
+    """一键：晋升 → 刷新分池簿 → 设 mode（默认 shadow）。
 
-    省去「晋升 / 影子 / 分池排序」三连点；仍不写全局 weights。
+    FH1：先刷簿再 active，避免「active 无簿」硬拦；仍不写全局 weights。
     """
     art = artifact
     if from_draft or not art:
@@ -1104,23 +1044,24 @@ def apply_cluster_live_shortcut(
             "task": "cluster_apply_shortcut",
         }
 
-    promo = promote_cluster_artifact(art, note=note or "一键应用分组")
+    promo = promote_cluster_artifact(art, note=note or "一键应用分组", force=force)
     if not promo.get("success"):
         return {**promo, "task": "cluster_apply_shortcut"}
 
     mode = str(mode or "shadow").strip().lower()
     if mode not in ("off", "shadow", "active"):
         mode = "shadow"
-    # active 走健康门禁；失败则降级 shadow
-    mode_out = set_cluster_scoring_mode(mode)
-    if not mode_out.get("success") and mode == "active":
-        mode_out = set_cluster_scoring_mode("shadow")
-        mode_out["demoted_to_shadow"] = True
-        mode_out["demote_reason"] = "active 未过健康检查，已用影子"
 
     rank_out = None
     if refresh_book and mode != "off":
         rank_out = refresh_cluster_book_daily()
+
+    # active 走健康门禁；失败则降级 shadow
+    mode_out = set_cluster_scoring_mode(mode, force=force)
+    if not mode_out.get("success") and mode == "active":
+        mode_out = set_cluster_scoring_mode("shadow")
+        mode_out["demoted_to_shadow"] = True
+        mode_out["demote_reason"] = "active 未过健康检查，已用影子"
 
     return {
         "success": True,
@@ -1139,312 +1080,17 @@ def apply_cluster_live_shortcut(
     }
 
 
-def build_cluster_enable_evidence(
-    *,
-    include_audit: bool = False,
-    health: Optional[Dict[str, Any]] = None,
-    audit: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
-    """
-    EP1：对照→启用证据包（JSON）。
-
-    门禁：健康 allow_active；若有 OOS 记录且全部失败则禁止启用。
-    默认不采全局/组双分样本（系统主路径无全局 return_model）。
-    """
-    cs = get_cluster_scoring_cfg()
-    active = load_active_cluster_weights()
-    book_doc = load_active_cluster_book() or {}
-    book_rows = list(book_doc.get("book") or [])
-    meta = book_doc.get("meta") if isinstance(book_doc.get("meta"), dict) else {}
-    h = health if isinstance(health, dict) else assess_cluster_live_health()
-
-    top_n = meta.get("top_n_per_group") or cs.get("top_n_per_group")
-    max_names = meta.get("max_names") or cs.get("max_names")
-    from core.signal.score_display import json_safe_number
-
-    raw_min = meta.get("min_score")
-    min_score = json_safe_number(raw_min)
-    if min_score is None and raw_min is None and not meta.get("min_score_disabled"):
-        min_score = json_safe_number(cs.get("min_score"))
-    selection_mode = meta.get("mode") or "cluster_score_global_rank"
-    name_count = len(book_rows)
-
-    # 缺 oos_gate 时补算并落盘，避免证据包长期「未知」
-    try:
-        ensure_active_cluster_oos_gates(persist=True, force=False)
-        active = load_active_cluster_weights() or active
-    except Exception:
-        pass
-
-    oos_summary = _summarize_cluster_oos((active or {}).get("clusters") or [])
-
-    # 换手估计：纸面持仓 vs 分池簿（只数，无报价）
-    book_codes = {
-        str(r.get("stock_code") or "").strip()
-        for r in book_rows
-        if r.get("stock_code")
-    }
-    held_codes: set = set()
-    try:
-        from core.paper import load_paper
-
-        paper = load_paper()
-        for hh in (paper or {}).get("holdings") or []:
-            c = str(hh.get("stock_code") or "").strip()
-            if c and float(hh.get("shares") or 0) > 0:
-                held_codes.add(c)
-    except Exception:
-        held_codes = set()
-    would_sell = sorted(held_codes - book_codes)
-    would_buy = sorted(book_codes - held_codes)
-    turnover_est = {
-        "held_count": len(held_codes),
-        "book_count": len(book_codes),
-        "would_sell_count": len(would_sell),
-        "would_buy_count": len(would_buy),
-        "would_sell": would_sell[:12],
-        "would_buy": would_buy[:12],
-        "note": "相对当前纸面 vs 合并簿只数估计，非金额换手",
-    }
-
-    # 行业集中度简表（簿内）
-    exposure_summary: Dict[str, Any] = {"sectors": [], "top_sector": None}
-    try:
-        from core.portfolio_optimize import _sector_for, load_sector_map
-
-        smap = load_sector_map()
-        sec_cnt: Dict[str, int] = {}
-        for c in book_codes:
-            sec = _sector_for(c, smap)
-            sec_cnt[sec] = int(sec_cnt.get(sec) or 0) + 1
-        total = sum(sec_cnt.values()) or 1
-        sectors = [
-            {
-                "name": k,
-                "count": v,
-                "weight_pct": round(v / total * 100.0, 1),
-            }
-            for k, v in sorted(sec_cnt.items(), key=lambda x: -x[1])
-        ]
-        exposure_summary = {
-            "sectors": sectors[:8],
-            "top_sector": sectors[0] if sectors else None,
-            "note": "按簿内只数占比（非市值）",
-        }
-    except Exception:
-        pass
-
-    if include_audit and audit is None and (cs.get("mode") in ("shadow", "active")):
-        try:
-            audit = cluster_score_audit_sample(limit=6)
-        except Exception as exc:
-            audit = {"success": False, "rows": [], "error": str(exc)}
-    # 主路径无全局ŷ；双分样本仅遗留调试（默认不采）
-    audit_rows = list((audit or {}).get("rows") or [])[:6] if include_audit else []
-
-    blockers: List[str] = []
-    warnings: List[str] = []
-    if not active:
-        blockers.append("无 active 映射")
-    if not h.get("allow_active"):
-        blockers.extend(list(h.get("alerts") or []) or ["健康检查未通过"])
-    if oos_summary.get("fail_count", 0) > 0 and oos_summary.get(
-        "pass_count", 0
-    ) == 0 and oos_summary.get("unknown_count", 0) == 0 and oos_summary.get(
-        "skip_count", 0
-    ) == 0:
-        blockers.append(f"组 OOS 全部失败（{oos_summary.get('fail_count')}）")
-    if name_count <= 0:
-        warnings.append("分池簿为空 · 启用后请刷新簿再分池调仓")
-
-    gate_ok = len(blockers) == 0
-    out: Dict[str, Any] = {
-        "success": True,
-        "task": "cluster_enable_evidence",
-        "ok": gate_ok,
-        "gate": {"ok": gate_ok, "blockers": blockers, "warnings": warnings},
-        "top_n_per_group": top_n,  # 兼容旧字段；建簿已改为全局排序
-        "selection_mode": selection_mode,
-        "min_score": min_score,
-        "max_names": max_names,
-        "name_count": name_count,
-        "cluster_version": (active or {}).get("version"),
-        "mode": cs.get("mode") or "off",
-        "oos_summary": oos_summary,
-        "turnover_est": turnover_est,
-        "exposure_summary": exposure_summary,
-        "health": {
-            "coverage": h.get("coverage"),
-            "age_days": h.get("age_days"),
-            "stale": h.get("stale"),
-            "allow_active": h.get("allow_active"),
-        },
-        "note": "启用前证据包 · 健康门禁 + OOS/簿长/换手估计/行业简表（组ŷ；无全局模型对照）",
-    }
-    if include_audit:
-        out["score_audit_sample"] = {
-            "rows": audit_rows,
-            "count": len(audit_rows),
-            "error": (audit or {}).get("error"),
-        }
-    return out
-
-
-def cluster_status_public(
-    *,
-    include_audit: bool = False,
-    audit_rotate: bool = False,
-    audit_offset: Optional[int] = None,
-) -> Dict[str, Any]:
-    """供 API/UI 的状态摘要（含落地下一步）。
-
-    ``include_audit`` 默认关闭：系统主路径只有组 return_model，无全局ŷ对照。
-    """
-    from core.paths import (
-        CLUSTER_BOOK_ACTIVE_PATH,
-        CLUSTER_WEIGHTS_ACTIVE_PATH,
-        CLUSTER_WEIGHTS_DRAFT_PATH,
-    )
-    from core.signal.score_display import json_safe_number
-
-    cs = get_cluster_scoring_cfg()
-    active = load_active_cluster_weights()
-    health = assess_cluster_live_health()
-    draft = load_cluster_draft()
-    book = load_active_cluster_book()
-    paper_land = _paper_cluster_landed(active)
-    mode = cs.get("mode") or "off"
-    has_draft = bool(draft and draft.get("code_map"))
-    has_active = bool(active)
-
-    book_meta = (book or {}).get("meta") if isinstance((book or {}).get("meta"), dict) else {}
-    book_min_score = json_safe_number(book_meta.get("min_score"))
-
-    audit = None
-    if include_audit and mode in ("shadow", "active") and has_active:
-        try:
-            audit = cluster_score_audit_sample(
-                limit=8,
-                offset=audit_offset,
-                rotate=bool(audit_rotate),
-            )
-        except Exception as exc:
-            audit = {"success": False, "rows": [], "error": str(exc)}
-
-    evidence = build_cluster_enable_evidence(
-        include_audit=False,
-        health=health,
-        audit=None,
-    )
-    allow_active = bool(health.get("allow_active")) and bool(
-        (evidence.get("gate") or {}).get("ok")
-    )
-    if not has_draft and not has_active:
-        next_step = "run_cluster"
-        next_label = "先跑分组"
-    elif mode == "off" or not has_active:
-        next_step = "apply_shadow"
-        next_label = "① 对照"
-    elif mode == "shadow":
-        next_step = "enable_active" if allow_active else "fix_health"
-        next_label = "② 启用" if allow_active else "修复健康/证据包后再启用"
-    else:
-        # mode=active：研究侧权责结束；调仓走侧栏交易执行页
-        next_step = "go_follow"
-        next_label = "已启用 · 侧栏进交易执行"
-
-    return {
-        "success": True,
-        "cluster_scoring": cs,
-        "active": {
-            "exists": has_active,
-            "path": CLUSTER_WEIGHTS_ACTIVE_PATH,
-            "version": (active or {}).get("version"),
-            "promoted_at": (active or {}).get("promoted_at"),
-            "n_mapped_codes": (active or {}).get("n_mapped_codes"),
-            "n_clusters": (active or {}).get("n_clusters"),
-        },
-        "draft": {
-            "exists": has_draft,
-            "path": CLUSTER_WEIGHTS_DRAFT_PATH,
-            "saved_at": (draft or {}).get("saved_at"),
-            "n_mapped_codes": (draft or {}).get("n_mapped_codes"),
-            "n_clusters": (draft or {}).get("n_clusters"),
-            "clusters": [
-                {
-                    "label": c.get("label"),
-                    "member_count": c.get("member_count"),
-                    "members": list(c.get("members") or [])[:12],
-                }
-                for c in ((draft or {}).get("clusters") or [])
-                if isinstance(c, dict)
-            ],
-            "holdings_assignment": (draft or {}).get("holdings_assignment"),
-        },
-        "book": {
-            "exists": bool(book),
-            "path": CLUSTER_BOOK_ACTIVE_PATH,
-            "updated_at": (book or {}).get("updated_at"),
-            "name_count": len((book or {}).get("book") or []),
-            "selection_mode": book_meta.get("mode") or "cluster_score_global_rank",
-            "min_score": book_min_score,
-            "top_n_per_group": book_meta.get("top_n_per_group") or cs.get("top_n_per_group"),
-            "max_names": book_meta.get("max_names") or cs.get("max_names"),
-        },
-        "health": health,
-        "landing": {
-            "next_step": next_step,
-            "next_label": next_label,
-            "can_apply": has_draft or has_active,
-            "can_activate": allow_active and has_active,
-            # 研究枢纽不调仓；就绪后跳转 /follow
-            "ready_for_follow": mode == "active" and has_active,
-            "can_paper": False,
-            "paper_applied": bool(paper_land.get("applied")),
-            "paper_applied_at": paper_land.get("applied_at"),
-            "paper_cluster_version": paper_land.get("cluster_version"),
-        },
-        "enable_evidence": evidence,
-        "audit_sample": audit,
-        "note": "组权在 live 产物；调仓仅交易执行页；signal_config 仅开关 mode",
-    }
-
-
-def _paper_cluster_landed(active: Optional[dict]) -> Dict[str, Any]:
-    """纸面是否已按当前 active 映射完成过分池调仓。"""
-    if not active:
-        return {"applied": False}
-    try:
-        from core.paper import load_paper
-
-        paper = load_paper()
-    except Exception:
-        return {"applied": False}
-    last = paper.get("last_cluster_pool") if isinstance(paper, dict) else None
-    if not isinstance(last, dict):
-        return {"applied": False}
-    av = active.get("version")
-    pv = last.get("cluster_version")
-    if av is None or pv is None:
-        return {
-            "applied": False,
-            "applied_at": last.get("applied_at"),
-            "cluster_version": pv,
-        }
-    try:
-        matched = int(av) == int(pv)
-    except (TypeError, ValueError):
-        matched = str(av) == str(pv)
-    return {
-        "applied": matched,
-        "applied_at": last.get("applied_at"),
-        "cluster_version": pv,
-    }
-
-
 def _num(v: Any) -> bool:
     try:
         float(v)
         return True
     except (TypeError, ValueError):
         return False
+
+
+from core.signal.cluster_live_evidence import (  # noqa: E402
+    _paper_cluster_landed,
+    _summarize_cluster_oos,
+    build_cluster_enable_evidence,
+    cluster_status_public,
+)

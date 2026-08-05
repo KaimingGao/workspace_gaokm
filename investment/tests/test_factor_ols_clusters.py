@@ -381,6 +381,7 @@ class TestFactorOlsClusters(unittest.TestCase):
                     "cluster_linkage": "complete",
                     "within_dist_quantile": 0.35,
                     "run_oos_gate": True,
+                    "sync": True,
                 },
             )
         self.assertEqual(res.status_code, 200, res.text)

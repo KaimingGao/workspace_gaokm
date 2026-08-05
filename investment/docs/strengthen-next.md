@@ -1,9 +1,9 @@
-# 下一程深化补强（C / P / EP）
+# 下一程深化补强（C / P / EP）· 已收口
 
-[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 已收口 [data-layer-strengthen.md](data-layer-strengthen.md)（D）· [validation-strengthen.md](validation-strengthen.md)（S）· [evidence-strengthen.md](evidence-strengthen.md)（E）· N6 [n6-live-gate.md](n6-live-gate.md)
+[← 文档索引](README.md) · **现行下一程** → [yhat-strengthen.md](yhat-strengthen.md)（Y0–Y5）· 产品主轴 [design-spine.md](design-spine.md) · D/S/E · N6 [n6-live-gate.md](n6-live-gate.md)
 
-**规划日期**：2026-08-03  
-**定位**：相对专业量化差距分析后的**现行下一程**。D/S/E 主干已落地；本轨补**口径可信（C）→ 组合可解释（P）→ 分组启用证据包（EP）**，逼近 N6 闸门，**不写 OMS**。
+**规划日期**：2026-08-03（收口）· **后继**：2026-08-05 起见 [yhat-strengthen.md](yhat-strengthen.md)  
+**定位**：相对专业量化差距分析后的一程（**已收口**）。本轨补**口径可信（C）→ 组合可解释（P）→ 分组启用证据包（EP）**。**不写 OMS**。
 
 ---
 

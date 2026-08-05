@@ -89,6 +89,24 @@ class TestP47Neutralize(unittest.TestCase):
         self.assertEqual(top["stock_code"], "c")
         self.assertLess(top["score"], top["sub_scores"]["momentum"])
 
+    def test_does_not_clamp_predicted_score_to_0_100(self):
+        weights = {"momentum": 1.0}
+        items = [
+            _item("a", 2.5, {"momentum": 55}),
+            _item("b", -0.3, {"momentum": 60}),
+            _item("c", 4.8, {"momentum": 75}),
+        ]
+        for it in items:
+            it["predicted_score"] = it["score"]
+            it["rank_mode"] = "predicted_score"
+        out = apply_cross_section_neutralization(items, weights=weights, min_samples=3)
+        self.assertTrue(out["applied"])
+        by_code = {x["stock_code"]: x for x in out["items"]}
+        self.assertAlmostEqual(by_code["a"]["score"], 2.5, places=3)
+        self.assertAlmostEqual(by_code["b"]["score"], -0.3, places=3)
+        self.assertAlmostEqual(by_code["c"]["score"], 4.8, places=3)
+        self.assertNotEqual(by_code["c"]["score"], 100.0)
+
     def test_default_config_enables_neutralization(self):
         cfg = load_signal_config(reload=True)
         cs = cfg.get("cross_section") or {}
@@ -140,10 +158,9 @@ class TestP47Neutralize(unittest.TestCase):
 
         self.assertTrue(result["success"])
         self.assertIn("neutralization", result)
-        self.assertTrue(result["neutralization"].get("applied"))
-        self.assertIn("截面中性化", result["note"])
-        top = result["ranking"][0]
-        self.assertIn("score_raw", top)
+        self.assertFalse(result["neutralization"].get("applied"))
+        self.assertTrue(result["neutralization"].get("skipped"))
+        self.assertIn("predicted_score", result["note"])
 
 # --- test_p49_quant.py::TestP49PortfolioNeutralization ---
 class TestP49PortfolioNeutralization(unittest.TestCase):
@@ -159,6 +176,8 @@ class TestP49PortfolioNeutralization(unittest.TestCase):
             horizon_days=3,
             min_score=40,
             min_history=10,
+            rank_mode="heuristic_score",
+            allow_heuristic_baseline=True,
         )
         self.assertTrue(result["success"])
         self.assertEqual(result["strategy"], "cross_section_topk_neutral")
@@ -178,6 +197,8 @@ class TestP49PortfolioNeutralization(unittest.TestCase):
             min_score=40,
             min_history=10,
             neutralize=False,
+            rank_mode="heuristic_score",
+            allow_heuristic_baseline=True,
         )
         self.assertTrue(result["success"])
         self.assertEqual(result["strategy"], "cross_section_topk")
@@ -207,10 +228,20 @@ class TestP49PortfolioNeutralization(unittest.TestCase):
             },
         ]
         raw_rank, _ = score_and_rank_watching(
-            entries, min_score=0, neutralize=False, config=cfg
+            entries,
+            min_score=0,
+            neutralize=False,
+            config=cfg,
+            rank_mode="heuristic_score",
+            allow_heuristic_baseline=True,
         )
         neu_rank, meta = score_and_rank_watching(
-            entries, min_score=0, neutralize=True, config=cfg
+            entries,
+            min_score=0,
+            neutralize=True,
+            config=cfg,
+            rank_mode="heuristic_score",
+            allow_heuristic_baseline=True,
         )
         self.assertTrue(meta["applied"])
         self.assertEqual(raw_rank[0][0], "A")

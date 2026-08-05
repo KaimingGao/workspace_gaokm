@@ -111,6 +111,10 @@
     "mode": "active",
     "enabled": true,
     "top_n_per_group": 10,
-    "max_names": 40
+    "max_names": 40,
+    "max_oos_fail_rate": 0.5,
+    "min_yhat_rolling_ic": 0.0,
+    "block_active_on_yhat_ic": false,
+    "min_sector_map_coverage": 0.5
   }
 }

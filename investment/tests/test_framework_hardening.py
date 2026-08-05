@@ -39,6 +39,8 @@ class TestPortsAdapters(unittest.TestCase):
         self.assertIsNotNone(get_adapter("build_signal_pool"))
         self.assertIsNotNone(get_adapter("search_stocks"))
         self.assertIsNotNone(get_adapter("load_disk_spot"))
+        self.assertIsNotNone(get_adapter("fetch_minute_bars"))
+        self.assertIsNotNone(get_adapter("fetch_cn_financial_series"))
 
     def test_core_has_no_hard_skills_imports(self):
         """O2：core 内仅 adapters 可 lazy import skills.ports_bind。"""
@@ -53,6 +55,45 @@ class TestPortsAdapters(unittest.TestCase):
             if "from skills." in text or "import skills." in text:
                 if path.name == "adapters.py" and "skills.ports_bind" in text:
                     continue
+                offenders.append(str(rel))
+        self.assertEqual(offenders, [])
+
+    def test_quant_services_has_no_skills_imports(self):
+        """H2：quant/services 不得直接 import skills（经 ports / services 门面）。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1] / "quant" / "services"
+        offenders = []
+        for path in root.rglob("*.py"):
+            rel = path.relative_to(root.parent.parent)
+            text = path.read_text(encoding="utf-8")
+            if "from skills." in text or "import skills." in text:
+                offenders.append(str(rel))
+        self.assertEqual(offenders, [])
+
+    def test_core_has_no_quant_imports(self):
+        """M1：core 不得 import quant（依赖方向 core ← quant 禁止）。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1] / "core"
+        offenders = []
+        for path in root.rglob("*.py"):
+            rel = path.relative_to(root.parent)
+            text = path.read_text(encoding="utf-8")
+            if "from quant." in text or "import quant" in text:
+                offenders.append(str(rel))
+        self.assertEqual(offenders, [])
+
+    def test_core_has_no_services_imports(self):
+        """FH3：core 不得 import services（公式 DTO 在 score_view）。"""
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1] / "core"
+        offenders = []
+        for path in root.rglob("*.py"):
+            rel = path.relative_to(root.parent)
+            text = path.read_text(encoding="utf-8")
+            if "from services" in text or "import services" in text:
                 offenders.append(str(rel))
         self.assertEqual(offenders, [])
 

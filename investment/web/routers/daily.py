@@ -33,6 +33,7 @@ def daily_run(body: DailyRunRequest):
         result = deps.daily.run(
             preset=body.preset,
             paper_run=body.paper_run,
+            paper_holding_cycle=body.paper_holding_cycle,
             paper_buy=body.paper_buy,
             eval_mock=body.eval_mock,
             eval_agent=body.eval_agent,
@@ -41,6 +42,7 @@ def daily_run(body: DailyRunRequest):
             cross_section=body.cross_section,
             sync_paper_watchlist=body.sync_paper_watchlist,
             paper_rebalance=body.paper_rebalance,
+            paper_cross_section_rebalance=body.paper_cross_section_rebalance,
             export_quant_report=body.export_quant_report,
             portfolio_neutral_compare=body.portfolio_neutral_compare,
         )

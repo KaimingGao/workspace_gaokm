@@ -9,10 +9,10 @@ from typing import Any, Dict, Optional
 from core.job_progress import paper_job
 from core.paper import (
     load_paper,
-    run_daily_cycle,
     save_paper,
     append_operation_log,
 )
+from core.paper_rebalance_orchestrator import run_paper_rebalance
 
 
 class PaperJobsMixin:
@@ -45,8 +45,13 @@ class PaperJobsMixin:
         paper = load_paper(self.path)
         if dry_run:
             paper = copy.deepcopy(paper)
-        result = run_daily_cycle(
-            paper, simulate_buy=simulate_buy, strategy=strategy, on_progress=on_progress
+        result = run_paper_rebalance(
+            paper,
+            mode="holding_rules",
+            simulate_buy=simulate_buy,
+            strategy=strategy,
+            on_progress=on_progress,
+            dry_run=dry_run,
         )
         if dry_run:
             return {

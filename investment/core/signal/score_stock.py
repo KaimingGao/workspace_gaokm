@@ -123,7 +123,8 @@ def score_stock(
     研究可传 bypass_quality_gate=True；历史回测引擎直接调 score_bars，不受影响。
 
     cluster_mode: None=读 signal_config.cluster_scoring；
-    off|shadow|active — 映射组 return_model；主分=ŷ（无模型则空）。
+    off — 不用组 β；shadow — 可算 score_cluster 对照，主分仍全局/空；
+    active — 主分优先组 return_model ŷ（无模型则全局）。
     """
     horizon_days = max(1, min(int(horizon_days or 3), 3))
     raw = str(stock_code or "").strip()
@@ -195,27 +196,41 @@ def score_stock(
     if not skip_fundamentals and fund_cfg.get("enabled", True) and fund_cfg.get("fetch_on_score", True):
         fundamentals = fetch_score_fundamentals(raw) or fetch_score_fundamentals(str(code))
 
-    # 拉观察页舆情情绪（复用 15min 缓存）；失败不影响评分
+    # 拉观察页舆情情绪（复用 15min 缓存）；失败不影响评分但记 warnings（FH4）
     sentiment = None
+    formula_warnings: list = []
     try:
         from core.sentiment import fetch_stock_headlines
         sent_data = _call_with_timeout(fetch_stock_headlines, 12, raw, limit=5)
         if sent_data and sent_data.get("ok"):
             sentiment = sent_data.get("sentiment")
-    except Exception:
-        pass
+        elif sent_data and not sent_data.get("ok"):
+            formula_warnings.append(
+                f"sentiment_unavailable:{sent_data.get('error') or 'not_ok'}"
+            )
+    except Exception as e:
+        formula_warnings.append(f"sentiment_fetch_failed:{e}")
 
-    # 分组 live：解析模式与组因子系数映射
-    from core.signal.cluster_live import get_cluster_scoring_cfg, lookup_code_weights
+    # 分组 live：解析模式；组 β 仅 active 进主分（FH0）
+    from core.signal.cluster_live import (
+        cluster_yhat_primary_allowed,
+        cluster_yhat_shadow_compute_allowed,
+        get_cluster_scoring_cfg,
+        lookup_code_weights,
+        normalize_cluster_scoring_mode,
+    )
 
     cs_cfg = get_cluster_scoring_cfg(cfg)
-    mode = (cluster_mode or cs_cfg.get("mode") or "off").strip().lower()
-    if mode not in ("off", "shadow", "active"):
-        mode = "off"
-    if not cs_cfg.get("enabled") and cluster_mode is None:
-        mode = "off"
+    if cluster_mode is not None:
+        mode = normalize_cluster_scoring_mode(cluster_mode, enabled=True)
+    else:
+        mode = normalize_cluster_scoring_mode(
+            cs_cfg.get("mode"), enabled=bool(cs_cfg.get("enabled"))
+        )
 
-    mapped = lookup_code_weights(str(code)) or lookup_code_weights(raw)
+    mapped = None
+    if cluster_yhat_shadow_compute_allowed(mode):
+        mapped = lookup_code_weights(str(code)) or lookup_code_weights(raw)
     weight_source = "global"
     cluster_label = None
     cluster_id = None
@@ -230,15 +245,15 @@ def score_stock(
         config=cfg,
         sentiment=sentiment,
     )
-    if mapped and mode in ("shadow", "active"):
+    if mapped and cluster_yhat_shadow_compute_allowed(mode):
         cluster_label = mapped.get("cluster_label")
         cluster_id = mapped.get("cluster_id")
         cluster_version = mapped.get("version")
-        if mode == "active":
+        if cluster_yhat_primary_allowed(mode):
             weight_source = mapped.get("weight_source") or f"cluster:{cluster_label}"
         else:
             weight_source = "global+shadow"
-    elif mode == "active":
+    elif cluster_yhat_primary_allowed(mode):
         weight_source = "global_fallback"
 
     try:
@@ -268,13 +283,15 @@ def score_stock(
         from core.signal.return_score_store import load_return_model
 
         subs = scored.get("sub_scores") or {}
-        ret_raw = (mapped or {}).get("return_model") if mapped else None
-        if isinstance(ret_raw, dict):
-            group_model = ReturnScoreModel.from_dict(ret_raw)
-        if group_model is None:
-            group_model = lookup_code_return_model(str(code)) or lookup_code_return_model(
-                raw
-            )
+        # off：不算组模型；shadow/active：可算对照；仅 active 写入主分
+        if cluster_yhat_shadow_compute_allowed(mode):
+            ret_raw = (mapped or {}).get("return_model") if mapped else None
+            if isinstance(ret_raw, dict):
+                group_model = ReturnScoreModel.from_dict(ret_raw)
+            if group_model is None:
+                group_model = lookup_code_return_model(
+                    str(code)
+                ) or lookup_code_return_model(raw)
         global_model, _meta = load_return_model(prefer_active=True)
 
         if global_model is not None:
@@ -282,7 +299,11 @@ def score_stock(
         if group_model is not None:
             score_cluster = group_model.predict(subs)
 
-        if group_model is not None and score_cluster is not None:
+        if (
+            cluster_yhat_primary_allowed(mode)
+            and group_model is not None
+            and score_cluster is not None
+        ):
             predicted_score = score_cluster
             return_model_source = "cluster_group_beta"
             active_model = group_model
@@ -299,10 +320,17 @@ def score_stock(
         group_model = None
         global_model = None
 
-    # 主分：仅 ŷ；无模型则为 None
+    # 主分：仅 ŷ；无模型则为 None（启发式分见 heuristic_score）
     primary_score = None
     if predicted_score is not None and not scored.get("hard_reject"):
         primary_score = predicted_score
+
+    heuristic_score = None
+    try:
+        if scored.get("score") is not None and scored.get("score") != "":
+            heuristic_score = float(scored.get("score"))
+    except (TypeError, ValueError):
+        heuristic_score = None
 
     delta = None
     if score_cluster is not None and score_global is not None:
@@ -314,9 +342,12 @@ def score_stock(
     factor_coefficients = None
     if active_model is not None:
         try:
-            from services.paper_helpers import _active_return_model_payload, _build_score_formula
+            from core.signal.score_view import (
+                active_return_model_payload,
+                build_score_formula,
+            )
 
-            return_model_payload = _active_return_model_payload(
+            return_model_payload = active_return_model_payload(
                 group_model=group_model,
                 global_model=global_model,
                 return_model_source=return_model_source,
@@ -325,17 +356,18 @@ def score_stock(
             score_formula_terms = active_model.explain_prediction(
                 scored.get("sub_scores") or {}
             )
-            score_formula = _build_score_formula(
+            score_formula = build_score_formula(
                 {
                     "sub_scores": scored.get("sub_scores"),
                     "return_model": active_model,
                 }
             )
-        except Exception:
+        except Exception as e:
             return_model_payload = None
             score_formula = ""
             score_formula_terms = None
             factor_coefficients = None
+            formula_warnings.append(f"score_formula_failed:{e}")
 
     signal_item = {
         "stock_code": code,
@@ -343,6 +375,7 @@ def score_stock(
         "price": quote.get("price"),
         "change": quote.get("change"),
         "score": primary_score,
+        "heuristic_score": heuristic_score,
         "predicted_score": predicted_score,
         "return_model_source": return_model_source,
         "rank_mode": "predicted_score",
@@ -374,6 +407,7 @@ def score_stock(
         "factor_coefficients": factor_coefficients,
         "score_formula": score_formula or None,
         "score_formula_terms": score_formula_terms,
+        "warnings": list(formula_warnings),
     }
 
     return {

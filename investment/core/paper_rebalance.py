@@ -15,6 +15,48 @@ from core.paper_costs import (
 from core.ports.market import quote_price as _quote_price
 
 
+def _buy_match_block_reason(code: str, quote: Optional[dict]) -> Optional[str]:
+    """Y2.2：无价/涨停/停牌关键词 → 跳过买入原因；否则 None。"""
+    q = quote or {}
+    try:
+        from core.backtest.matching import is_limit_up, limit_up_threshold_for_code
+        from core.market_calendar import halt_hint
+
+        blob = " ".join(
+            str(q.get(k) or "")
+            for k in ("status", "trade_status", "stock_name", "name", "note", "message")
+        )
+        hint = halt_hint(blob)
+        if hint.get("possible_halt"):
+            return "停牌/不可交易提示，跳过买入"
+
+        change = q.get("change_raw")
+        if change is None:
+            change = q.get("change_pct")
+        if change is None:
+            change = q.get("pct_chg")
+        prev = q.get("prev_close") or q.get("pre_close") or q.get("yesterday_close")
+        price = q.get("price_raw") or q.get("price")
+        if prev is not None and price is not None:
+            try:
+                if is_limit_up(float(prev), float(price), stock_code=code):
+                    return (
+                        f"疑似涨停（阈值≥{limit_up_threshold_for_code(code)}%），跳过买入"
+                    )
+            except (TypeError, ValueError):
+                pass
+        elif change is not None:
+            try:
+                thr = limit_up_threshold_for_code(code)
+                if float(change) >= thr:
+                    return f"涨跌幅 {float(change):.2f}%≥涨停阈值 {thr}%，跳过买入"
+            except (TypeError, ValueError):
+                pass
+    except Exception:
+        return None
+    return None
+
+
 def compute_turnover_stats(
     sell_trades: List[dict],
     buy_trades: List[dict],
@@ -331,6 +373,11 @@ def simulate_cross_section_rebalance(
                 else int(rr.get("max_positions") or max_positions)
             )
             opt_min = float(min_score)
+            weight_mode = str(
+                rules.get("weight_mode")
+                or rr.get("weight_mode")
+                or "score_budget"
+            ).strip() or "score_budget"
             opt = optimize_weights(
                 list(ranking or []),
                 max_position_pct=float(
@@ -345,6 +392,7 @@ def simulate_cross_section_rebalance(
                 ),
                 max_positions=opt_cap,
                 min_score=opt_min,
+                weight_mode=weight_mode,
             )
             paper["last_optimize"] = opt
             target_w = opt.get("weights_pct") or {}
@@ -399,6 +447,27 @@ def simulate_cross_section_rebalance(
             quote = query_quote(code)
             price = _quote_price(quote)
             if not price or price <= 0:
+                risk_budget_skips.append(
+                    {
+                        "stock_code": code,
+                        "stock_name": item.get("stock_name"),
+                        "reason": "无有效报价，跳过买入",
+                        "score": score,
+                    }
+                )
+                continue
+
+            # Y2.2：涨跌停 / 停牌提示 — 最小纪律
+            skip_match = _buy_match_block_reason(code, quote)
+            if skip_match:
+                risk_budget_skips.append(
+                    {
+                        "stock_code": code,
+                        "stock_name": item.get("stock_name"),
+                        "reason": skip_match,
+                        "score": score,
+                    }
+                )
                 continue
 
             ratio = position_pct
@@ -670,6 +739,32 @@ def simulate_cross_section_rebalance(
 
     from core.signal.score_display import json_safe_number
 
+    cost_assumptions = {
+        "cost_model": cost_model,
+        "fee_params": {
+            k: fee_params.get(k)
+            for k in ("commission_rate", "min_commission", "stamp_duty_rate", "slippage_bps", "max_slippage_bps")
+            if isinstance(fee_params, dict) and k in fee_params
+        }
+        if isinstance(fee_params, dict)
+        else {},
+        "turnover_pct": turnover.get("turnover_pct"),
+        "max_turnover_pct": max_turnover_pct,
+        "weight_mode": (paper.get("last_optimize") or {}).get("weight_mode")
+        or (rules.get("weight_mode") if isinstance(rules, dict) else None)
+        or "score_budget",
+        "note": "分池/横截面调仓成本假设；与回测页对照见 fit-gap",
+    }
+
+    # Y3.1：持仓风格/规模暴露简表
+    exposure_style = None
+    try:
+        from core.risk.exposure import build_exposure_matrix
+
+        exposure_style = build_exposure_matrix(paper, summary)
+    except Exception:
+        exposure_style = None
+
     return {
         "success": True,
         "top_k": top_k,
@@ -693,5 +788,7 @@ def simulate_cross_section_rebalance(
         "max_turnover_pct": max_turnover_pct,
         "risk_budget_skips": risk_budget_skips,
         "attribution": attribution,
-        "note": "横截面调仓为纸面模拟，非实盘成交。",
+        "cost_assumptions": cost_assumptions,
+        "exposure_style": exposure_style,
+        "note": "横截面/分池调仓为纸面模拟，非实盘成交；买入门槛=ŷ min_score，卖出仅 ŷ<min_hold。",
     }

@@ -65,15 +65,9 @@ def build_portfolio_quant_bridge(
 
     if include_stance and holdings_block["exists"] and not holdings_block.get("error"):
         try:
-            from skills.position.engine import PositionEngine
+            from services.position_stance import advise_paper_with_stance
 
-            adv = PositionEngine().advise(
-                {
-                    "paper_path": paper_p,
-                    "include_stance": True,
-                    "horizon_days": 3,
-                }
-            )
+            adv = advise_paper_with_stance(paper_p, horizon_days=3)
             if adv.get("success"):
                 holdings_block["total_equity"] = adv.get("total_equity")
                 holdings_block["stance_summary"] = _stance_summary(adv.get("advice") or [])

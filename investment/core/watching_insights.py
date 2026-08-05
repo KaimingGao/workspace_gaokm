@@ -162,9 +162,9 @@ def _insight_one(
         out["score_formula"] = item.get("score_formula") or None
         if not out["score_formula"]:
             try:
-                from services.paper_helpers import _build_score_formula
+                from core.signal.score_view import build_score_formula
 
-                out["score_formula"] = _build_score_formula(
+                out["score_formula"] = build_score_formula(
                     {
                         "sub_scores": item.get("sub_scores"),
                         "return_model": item.get("return_model"),

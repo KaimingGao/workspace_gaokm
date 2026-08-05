@@ -25,6 +25,8 @@ def _live_tmp():
         cfg_path = os.path.join(tmp, "signal_config.json")
         with open(cfg_path, "w", encoding="utf-8") as f:
             json.dump({"cluster_scoring": {"enabled": True, "mode": "shadow"}}, f)
+        pointer = os.path.join(live, "cluster_pointer.json")
+        audit = os.path.join(live, "promote_audit.jsonl")
         with patch("core.paths.LIVE_DIR", live), patch(
             "core.paths.CLUSTER_WEIGHTS_ACTIVE_PATH", active
         ), patch(
@@ -33,6 +35,10 @@ def _live_tmp():
             "core.paths.CLUSTER_WEIGHTS_DRAFT_PATH", draft
         ), patch(
             "core.paths.CLUSTER_BOOK_ACTIVE_PATH", book
+        ), patch(
+            "core.paths.CLUSTER_POINTER_PATH", pointer
+        ), patch(
+            "core.paths.PROMOTE_AUDIT_PATH", audit
         ), patch(
             "core.paths.SIGNAL_CONFIG_PATH", cfg_path
         ), patch.dict(
@@ -47,6 +53,8 @@ def _live_tmp():
                 "hist": hist,
                 "draft": draft,
                 "book": book,
+                "pointer": pointer,
+                "audit": audit,
                 "cfg": cfg_path,
             }
 
@@ -346,8 +354,10 @@ class TestClusterLive(unittest.TestCase):
             set_cluster_scoring_mode,
         )
 
-        with _live_tmp():
+        with _live_tmp() as ctx:
             promote_cluster_artifact(self._artifact())
+            with open(ctx["book"], "w", encoding="utf-8") as f:
+                json.dump({"book": [{"stock_code": "600519"}], "meta": {}}, f)
             with patch(
                 "core.signal.cluster_live.assess_cluster_live_health",
                 return_value={
@@ -356,6 +366,9 @@ class TestClusterLive(unittest.TestCase):
                     "stale": False,
                     "suggest_demote": False,
                 },
+            ), patch(
+                "core.signal.cluster_live.build_cluster_enable_evidence",
+                return_value={"gate": {"ok": True, "blockers": []}},
             ):
                 ok = set_cluster_scoring_mode("active")
             self.assertTrue(ok["success"])
@@ -517,9 +530,11 @@ class TestClusterLive(unittest.TestCase):
             set_cluster_scoring_mode,
         )
 
-        with _live_tmp():
+        with _live_tmp() as ctx:
             promoted = promote_cluster_artifact(self._artifact())
             ver = promoted.get("version")
+            with open(ctx["book"], "w", encoding="utf-8") as f:
+                json.dump({"book": [{"stock_code": "600519"}], "meta": {}}, f)
             with patch(
                 "core.signal.cluster_live.assess_cluster_live_health",
                 return_value={
@@ -528,6 +543,9 @@ class TestClusterLive(unittest.TestCase):
                     "coverage": 1.0,
                     "stale": False,
                 },
+            ), patch(
+                "core.signal.cluster_live.build_cluster_enable_evidence",
+                return_value={"gate": {"ok": True, "blockers": []}},
             ), patch(
                 "core.signal.cluster_live._paper_cluster_landed",
                 return_value={

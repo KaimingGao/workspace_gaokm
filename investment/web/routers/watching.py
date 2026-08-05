@@ -210,13 +210,15 @@ def watching_save(body: WatchingFile):
 @router.get("/api/watching/daily-chart")
 def watching_daily_chart(code: str, lookback: int = 60):
     """通用日线数据，供观察页展示日线图。"""
-    from core.ports.market import fetch_daily_bars, query_quote
+    from core.data_service import get_bars, get_quote
 
     c = str(code or "").strip()
     if not c:
         raise HTTPException(status_code=400, detail="请指定股票代码")
 
-    bars, src = fetch_daily_bars(c, limit=max(10, min(int(lookback), 120)))
+    fetched = get_bars(c, limit=max(10, min(int(lookback), 120)))
+    bars = fetched.get("bars") or []
+    src = fetched.get("data_source")
     points = []
     for b in bars or []:
         close = b.get("close")
@@ -238,7 +240,7 @@ def watching_daily_chart(code: str, lookback: int = 60):
 
     name = c
     try:
-        quote = query_quote(c)
+        quote = get_quote(c)
         if quote.get("success"):
             name = str(quote.get("stock_name") or "").strip() or c
     except Exception:

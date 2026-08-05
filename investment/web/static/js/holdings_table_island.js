@@ -52,6 +52,7 @@ export function holdingToRow(h, { chartMode, chartStockCode, selectedHoldCode, p
     }),
     pnlText: fmtPct(pnl, { signed: true }),
     pnlCls: metricCls(pnl),
+    pnlNum: pnl != null && Number.isFinite(Number(pnl)) ? Number(pnl) : null,
     boughtDate: h.bought_date || "—",
     origin,
     originLabel: h.origin_label || "—",
@@ -79,24 +80,24 @@ const COLS = [
     label: "浮盈亏",
     widthPct: 8,
     num: true,
+    sortable: true,
     title: "相对持仓成本：(现价÷成本−1)×100%；加仓则为加权成本，非当日涨跌",
   },
   { id: "since", label: "开始", widthPct: 9 },
   { id: "origin", label: "出处", widthPct: 8, cellClass: "paper-hold-origin", headClass: "paper-hold-origin" },
 ];
 
+function numCmp(av, bv) {
+  return (Number.isFinite(av) ? av : -Infinity) - (Number.isFinite(bv) ? bv : -Infinity);
+}
+
 function compare(id, a, b) {
   if (id === "code") {
     return String(a.code || "").localeCompare(String(b.code || ""), "zh-CN", { numeric: true });
   }
-  if (id === "score") {
-    const av = Number(a.scoreNum);
-    const bv = Number(b.scoreNum);
-    return (Number.isFinite(av) ? av : -Infinity) - (Number.isFinite(bv) ? bv : -Infinity);
-  }
-  const av = Number(a.marketValueNum);
-  const bv = Number(b.marketValueNum);
-  return (Number.isFinite(av) ? av : -Infinity) - (Number.isFinite(bv) ? bv : -Infinity);
+  if (id === "score") return numCmp(Number(a.scoreNum), Number(b.scoreNum));
+  if (id === "pnl") return numCmp(Number(a.pnlNum), Number(b.pnlNum));
+  return numCmp(Number(a.marketValueNum), Number(b.marketValueNum));
 }
 
 /**

@@ -185,7 +185,8 @@ def paper_run(body: PaperRunRequest):
 
 @router.get("/api/paper/job")
 def paper_job():
-    return deps.paper.get_job()
+    out = deps.paper.get_job()
+    return {**out, "deprecated": True, "canonical": "/api/jobs/paper"}
 
 
 @router.post("/api/paper/rebalance")

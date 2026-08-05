@@ -1,0 +1,91 @@
+/**
+ * 观察面板编排用纯函数：刷新文案 · 名单映射 · 壳层显隐字段。
+ */
+import { escapeHtml as defaultEscapeHtml } from "../shared.js";
+
+export function formatRefreshStats(refresh) {
+  const r = refresh || {};
+  const stats = Array.isArray(r.source_stats) ? r.source_stats : [];
+  const bits = stats.map((s, i) => {
+    const label = s.label || `S${i + 1}`;
+    if (s.error) return `${label} 失败(${s.error})`;
+    if (s.note && !(s.added > 0)) return `${label} +0（${s.note}）`;
+    return `${label} +${s.added ?? 0}/${s.requested ?? 0}`;
+  });
+  const count = r.count != null ? r.count : (r.watchlist || []).length;
+  return bits.length
+    ? `已刷新 · 共 ${count} 只 · ${bits.join(" · ")}`
+    : `已刷新 · 共 ${count} 只`;
+}
+
+export function buildWatchingNameByCode(wl, names) {
+  const map = {};
+  const list = Array.isArray(wl) ? wl : [];
+  const nm = Array.isArray(names) ? names : [];
+  for (let i = 0; i < list.length; i++) {
+    const c = String(list[i] || "").trim();
+    if (!c) continue;
+    const name = nm[i] && String(nm[i]).trim();
+    if (name) map[c] = name;
+  }
+  return map;
+}
+
+export function watchingPoolMetaText(wlLen, paperN, maxSize) {
+  return `观察 ${wlLen} 只 · 已持 ${paperN}/${wlLen} · 上限 ${maxSize || "—"}`;
+}
+
+export function watchingQuantListHtml(wl, names, escapeHtml = defaultEscapeHtml) {
+  const list = Array.isArray(wl) ? wl : [];
+  if (!list.length) return '<li class="sub">watchlist 为空</li>';
+  const nm = Array.isArray(names) ? names : [];
+  return list
+    .map((c, i) => {
+      const name = (nm[i] && String(nm[i]).trim()) || "";
+      const label = name ? `${c} ${name}` : String(c);
+      return `<li>${escapeHtml(label)}</li>`;
+    })
+    .join("");
+}
+
+/** @returns {{ emptyHidden: boolean, gridHidden: boolean, actionsHidden: boolean, searchHidden: boolean }} */
+export function watchingPanelShellFlags(exists) {
+  if (!exists) {
+    return {
+      emptyHidden: false,
+      gridHidden: true,
+      actionsHidden: true,
+      searchHidden: true,
+    };
+  }
+  return {
+    emptyHidden: true,
+    gridHidden: false,
+    actionsHidden: false,
+    searchHidden: false,
+  };
+}
+
+export function applyWatchingPanelShell(flags, els) {
+  const { emptyEl, gridEl, mainActions, searchWrap } = els || {};
+  if (emptyEl) emptyEl.hidden = flags.emptyHidden;
+  if (gridEl) gridEl.hidden = flags.gridHidden;
+  if (mainActions) mainActions.hidden = flags.actionsHidden;
+  if (searchWrap) searchWrap.hidden = flags.searchHidden;
+}
+
+export function watchingChartSeriesFromPoints(pts) {
+  return (pts || [])
+    .map((p) => ({
+      time: String(p.x || p.date || "").slice(0, 10),
+      value: Number(p.y ?? p.close),
+    }))
+    .filter((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.time) && Number.isFinite(p.value));
+}
+
+export function watchingChartLabelText(name, code, opts = {}) {
+  const title = name || code || "";
+  if (opts.error) return `${title} · 加载失败`;
+  if (opts.count != null) return `${title} · 收盘价（${opts.count} 日）`;
+  return `${title} · 收盘价`;
+}

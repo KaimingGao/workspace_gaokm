@@ -71,7 +71,12 @@ class JobProgress:
             payload = dict(self._job)
             # 结果可能很大；落盘保留摘要字段，完整 result 仍在内存供同进程轮询
             result = payload.get("result")
-            if isinstance(result, dict) and len(json.dumps(result, default=str)) > 80_000:
+            # paper 等可截断；研究分组报告须完整（FH2）
+            if (
+                self.name != "quant-ols-clusters"
+                and isinstance(result, dict)
+                and len(json.dumps(result, default=str)) > 80_000
+            ):
                 payload["result"] = {
                     "ok": result.get("ok", True),
                     "persisted_truncated": True,
@@ -110,6 +115,7 @@ class JobProgress:
                 "message": message or "启动中…",
                 "error": None,
                 "result": None,
+                "cancel_requested": False,
                 "updated_at": time.time(),
             }
             self._save_unlocked()
@@ -158,6 +164,21 @@ class JobProgress:
         with self._lock:
             return self._job.get("status") == "running"
 
+    def request_cancel(self) -> bool:
+        """协作取消：标记 cancel_requested；worker 需轮询 ``is_cancel_requested``。"""
+        with self._lock:
+            if self._job.get("status") != "running":
+                return False
+            self._job["cancel_requested"] = True
+            self._job["message"] = self._job.get("message") or "取消中…"
+            self._job["updated_at"] = time.time()
+            self._save_unlocked()
+            return True
+
+    def is_cancel_requested(self) -> bool:
+        with self._lock:
+            return bool(self._job.get("cancel_requested"))
+
 
 class JobRegistry:
     """命名任务槽：paper / evals / schedule / generic。"""
@@ -184,8 +205,12 @@ class JobRegistry:
 # 全局注册表；paper_job 保持兼容别名（落盘抗 uvicorn reload）
 job_registry = JobRegistry()
 try:
-    from core.paths import PAPER_JOB_PATH
+    from core.paths import PAPER_JOB_PATH, QUANT_OLS_CLUSTERS_JOB_PATH
 
     paper_job = job_registry.slot("paper", persist_path=PAPER_JOB_PATH)
+    quant_ols_clusters_job = job_registry.slot(
+        "quant-ols-clusters", persist_path=QUANT_OLS_CLUSTERS_JOB_PATH
+    )
 except Exception:
     paper_job = job_registry.slot("paper")
+    quant_ols_clusters_job = job_registry.slot("quant-ols-clusters")

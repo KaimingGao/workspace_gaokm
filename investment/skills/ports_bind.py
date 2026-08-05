@@ -20,9 +20,13 @@ def bind_market_adapters(*, force: bool = False) -> None:
         fetch_daily_bars,
         resolve_market_code,
     )
+    from skills.common.minute_history import (
+        fetch_minute_bars,
+        group_minute_bars_by_date,
+    )
     from skills.common.quote_api import StockAPI
     from skills.common.stock_search import search_stocks
-    from skills.fundamentals.engine import build_fundamentals
+    from skills.fundamentals.engine import build_fundamentals, fetch_cn_financial_series
     from skills.index.engine import build_relative, default_benchmark, fetch_index_bars
     from skills.kline.engine import KlineEngine
     from skills.news.engine import build_news
@@ -43,6 +47,9 @@ def bind_market_adapters(*, force: bool = False) -> None:
     set_adapter("fetch_daily_bars", fetch_daily_bars)
     set_adapter("bars_from_quote_fallback", bars_from_quote_fallback)
     set_adapter("resolve_market_code", resolve_market_code)
+    set_adapter("fetch_minute_bars", fetch_minute_bars)
+    set_adapter("group_minute_bars_by_date", group_minute_bars_by_date)
+    set_adapter("fetch_cn_financial_series", fetch_cn_financial_series)
     set_adapter("build_fundamentals", build_fundamentals)
     set_adapter("build_news", build_news)
     set_adapter("build_relative", build_relative)

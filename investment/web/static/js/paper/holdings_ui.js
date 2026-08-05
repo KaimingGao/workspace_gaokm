@@ -106,7 +106,13 @@ export function buildPaperHoldingsTableHtml({
     const active = holdingsSortKey === key;
     const arrow = !active ? "" : holdingsSortDir === "asc" ? " ↑" : " ↓";
     const nextHint =
-      key === "code" ? "按代码排序" : key === "score" ? "按评分排序" : "按市值排序";
+      key === "code"
+        ? "按代码排序"
+        : key === "score"
+          ? "按评分排序"
+          : key === "pnl"
+            ? "按浮盈亏排序 · 相对持仓成本：(现价÷成本−1)×100%"
+            : "按市值排序";
     return (
       `<th class="paper-hold-sort${active ? " is-sorted" : ""}" ` +
       `data-sort="${key}" role="button" tabindex="0" title="${nextHint}">${label}${arrow}</th>`
@@ -218,7 +224,7 @@ export function buildPaperHoldingsTableHtml({
     `<table class="quant-weight-table paper-holdings-table"><thead><tr>` +
     `<th>股票</th><th>股数</th><th>现价</th><th title="持仓加权平均成本，对账用">成本</th>` +
     `${sortThHtml("市值", "market_value")}${sortThHtml("评分", "score")}` +
-    `<th title="相对持仓成本：(现价÷成本−1)×100%；加仓则为加权成本，非当日涨跌">浮盈亏</th>` +
+    `${sortThHtml("浮盈亏", "pnl")}` +
     `<th>开始</th><th class="paper-hold-origin">出处</th>` +
     `</tr></thead><tbody>${rows}</tbody></table></div>`;
 

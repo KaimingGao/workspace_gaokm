@@ -342,7 +342,7 @@ def fit_return_model_from_panel(
     min_samples: int = 24,
 ) -> Tuple[Optional[ReturnScoreModel], Dict[str, Any]]:
     """对已对齐面板拟合，返回模型 + OLS 报告摘要。"""
-    from quant.research.factor_ols import fit_factor_ols_from_panel
+    from core.research.factor_ols_fit import fit_factor_ols_from_panel
 
     if len(ys) < max(8, int(min_samples or 24)):
         return None, {
