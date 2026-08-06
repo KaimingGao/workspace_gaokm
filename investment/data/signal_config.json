@@ -64,7 +64,7 @@
   "scoring": {
     "rank_mode": "predicted_score",
     "min_predicted_score": 1.0,
-    "min_hold_predicted_score": -1.0,
+    "min_hold_predicted_score": 0.0,
     "horizon_days": 3
   },
   "stance_thresholds": {
@@ -123,7 +123,7 @@
     "size_buckets": 3
   },
   "cluster_scoring": {
-    "mode": "shadow",
+    "mode": "active",
     "enabled": true,
     "top_n_per_group": 10,
     "max_names": 40,
