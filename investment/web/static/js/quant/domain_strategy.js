@@ -433,6 +433,11 @@ export function installStrategy(q) {
     if (holdIn && floors.min_hold_predicted_score != null && holdIn.value === "") {
       holdIn.value = String(floors.min_hold_predicted_score);
     }
+    // 显示当前已保存阈值
+    const floorSt = document.getElementById("strategy-floor-status");
+    if (floorSt && floors.min_predicted_score != null) {
+      floorSt.textContent = `当前 · 买入 ≥ ${floors.min_predicted_score}% · 卖出 < ${floors.min_hold_predicted_score ?? "—"}%`;
+    }
     renderPromoteHintsPanel(loadCachedPromoteHints(), "strategy-promote-hints");
   }
 

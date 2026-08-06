@@ -466,7 +466,14 @@ export function installSuggest(q) {
         setQuantMeta((data && data.error) || "分组失败", { error: true });
         return;
       }
-      setQuantMeta(`分组完成 · 渲染中… ${computeSec}s`, { busy: true });
+      setQuantMeta(
+        data.cache_hit
+          ? `命中 24h 缓存 · 渲染中… ${
+              data.cache_age_hours != null ? `(${data.cache_age_hours}h 前)` : ""
+            }`
+          : `分组完成 · 渲染中… ${computeSec}s`,
+        { busy: true }
+      );
       await new Promise((r) => setTimeout(r, 0));
       try {
         q.cluster.renderOlsClusters(data);
@@ -506,8 +513,11 @@ export function installSuggest(q) {
         ? ` · 日线远端 ${br.remote_count ?? 0}/${br.total ?? "—"}`
         : " · 仅缓存日线";
       const regimeTag = data.respect_regime ? " · regime裁剪" : " · 全因子";
+      const cacheTag = data.cache_hit
+        ? ` · 缓存命中${data.cache_age_hours != null ? ` ${data.cache_age_hours}h` : ""}`
+        : "";
       setQuantMeta(
-        `分组 · ${nCl} 组${kTag} · 观察 ${nWatch || nUni} · 入组 ${nIn} · ${sec}s${oosTag}${pmOk}${pitTag}${barsTag}${regimeTag}`
+        `分组 · ${nCl} 组${kTag} · 观察 ${nWatch || nUni} · 入组 ${nIn} · ${sec}s${oosTag}${pmOk}${pitTag}${barsTag}${regimeTag}${cacheTag}`
       );
     } finally {
       stopTick();

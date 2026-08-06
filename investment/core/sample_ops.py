@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence
 
 from core.store import snapshot_cache_path
+from core.io_atomic import atomic_write_json
 
 
 def _date_offset(base: str, days: int) -> str:
@@ -179,9 +180,7 @@ def persist_fundamentals_history(
         payload["history"] = hist
         payload["latest_as_of"] = hist[-1].get("as_of") if hist else None
         payload["history_persisted_at"] = datetime.now().isoformat(timespec="seconds")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-            f.write("\n")
+        atomic_write_json(path, payload)
         updated.append(code)
 
     return {
@@ -365,9 +364,7 @@ def ingest_real_fundamentals_history(
             }
         )
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f, ensure_ascii=False, indent=2)
-            f.write("\n")
+        atomic_write_json(path, payload)
         updated.append(info)
 
     return {
@@ -457,9 +454,7 @@ def seed_fundamentals_history_ladder(
             payload["history"] = history
             payload["latest_as_of"] = history[-1].get("as_of") if history else None
             payload["demo_ladder_at"] = datetime.now().isoformat(timespec="seconds")
-            with open(path, "w", encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
-                f.write("\n")
+            atomic_write_json(path, payload)
         seeded.append({"code": code, "added": added, "history_count": len(history)})
 
     return {

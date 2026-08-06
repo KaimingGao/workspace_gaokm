@@ -27,6 +27,8 @@ CLUSTER_WEIGHTS_ACTIVE_PATH = os.path.join(LIVE_DIR, "cluster_weights_active.jso
 CLUSTER_WEIGHTS_HISTORY_DIR = os.path.join(LIVE_DIR, "cluster_weights_history")
 CLUSTER_WEIGHTS_DRAFT_PATH = os.path.join(LIVE_DIR, "cluster_weights_draft.json")
 CLUSTER_BOOK_ACTIVE_PATH = os.path.join(LIVE_DIR, "cluster_book_active.json")
+# P1：分组全量报告缓存（24h 内 + watchlist 指纹未变直接复用，避免重算 OLS/OOS/分池）
+CLUSTER_REPORT_CACHE_PATH = os.path.join(LIVE_DIR, "cluster_report_cache.json")
 # FH1：指针指向版本化 artifact；active 文件为镜像兼容层
 CLUSTER_POINTER_PATH = os.path.join(LIVE_DIR, "cluster_pointer.json")
 PROMOTE_AUDIT_PATH = os.path.join(LIVE_DIR, "promote_audit.jsonl")

@@ -2042,7 +2042,7 @@ export function initPaper(ctx) {
 
     async function runClusterPaperRebalance({ dryRun = true } = {}) {
       setPaperBusy(true);
-      showProgress(1, dryRun ? "分池预演…" : "分池落账…");
+      showProgress(1, dryRun ? "分池预演" : "分池落账");
       try {
         const strategy =
           document.getElementById("paper-strategy")?.value || "short_conservative";

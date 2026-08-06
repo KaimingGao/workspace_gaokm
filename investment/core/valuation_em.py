@@ -7,9 +7,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from typing import Any, Dict, Optional
+
+from core.io_atomic import atomic_write_json
+
+logger = logging.getLogger(__name__)
 
 _FHPS_MEM: Optional[Dict[str, Any]] = None
 
@@ -78,20 +83,18 @@ def write_valuation_cache(code: str, vals: Dict[str, Any]) -> None:
     path = _cache_path(code)
     try:
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(
-                {
-                    "code": str(code).zfill(6),
-                    "pe": pe,
-                    "pb": pb,
-                    "pe_ttm": pe_ttm,
-                    "market_cap": mcap,
-                    "dividend_yield": dy,
-                    "fetched_at": time.time(),
-                },
-                f,
-                ensure_ascii=False,
-            )
+        atomic_write_json(
+            path,
+            {
+                "code": str(code).zfill(6),
+                "pe": pe,
+                "pb": pb,
+                "pe_ttm": pe_ttm,
+                "market_cap": mcap,
+                "dividend_yield": dy,
+                "fetched_at": time.time(),
+            },
+        )
     except Exception:
         pass
 
@@ -123,15 +126,9 @@ def _read_fhps_map_disk(*, max_age_hours: float = 36.0) -> Optional[Dict[str, fl
 def _write_fhps_map_disk(by_code: Dict[str, float]) -> None:
     path = _fhps_map_path()
     try:
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(
-                {"fetched_at": time.time(), "by_code": by_code},
-                f,
-                ensure_ascii=False,
-            )
+        atomic_write_json(path, {"fetched_at": time.time(), "by_code": by_code})
     except Exception:
-        pass
+        logger.warning("分红配送映射写盘失败", exc_info=True)
 
 
 def _fetch_fhps_dividend_map() -> Dict[str, float]:

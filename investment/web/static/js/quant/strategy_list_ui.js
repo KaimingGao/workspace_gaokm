@@ -81,6 +81,7 @@ export function buildStrategyListHtml(data, opts = {}) {
  * @returns {{ html: string, buyF: number|null, holdF: number|null }}
  */
 export function buildStrategyRiskFootnoteHtml(data, opts = {}) {
+  const esc = opts.escapeHtml || defaultEscapeHtml;
   const floors = (data && data.scoring_floors) || {};
   const buyF = floors.min_predicted_score;
   const holdF = floors.min_hold_predicted_score;

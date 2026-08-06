@@ -11,6 +11,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from concurrent.futures import (
@@ -20,6 +21,8 @@ from concurrent.futures import (
     wait,
 )
 from typing import Any, Callable, Dict, List, Optional, Sequence
+
+logger = logging.getLogger(__name__)
 
 ProgressCb = Optional[Callable[[str, int, int], None]]
 
@@ -132,7 +135,7 @@ def _load_one_panel(
                         enrich_fundamentals_metrics(sym_s, fund_metrics) or fund_metrics
                     )
                 except Exception:
-                    pass
+                    logger.warning("面板加载失败", exc_info=True)
                 fund_mode = "pit_as_of"
             else:
                 fund_mode = str(resolved.get("mode") or "as_of_missing")
@@ -207,7 +210,7 @@ def build_cluster_ols_panels(
             mode = "强制刷新过期票" if do_refresh else "缓存优先"
             progress_cb(f"拉日线 0/{n}（{mode}）", 0, n)
         except Exception:
-            pass
+            logger.warning("面板构建失败", exc_info=True)
 
     # 指数只拉一次，避免每票抢锁打远端
     index_by_bench: Dict[str, List[dict]] = {}
@@ -223,7 +226,7 @@ def build_cluster_ols_panels(
             bars, _ = fetch_index_bars(bench, limit=lookback + 35)
             index_by_bench[str(bench)] = list(bars or [])
     except Exception:
-        pass
+        logger.warning("面板渲染失败", exc_info=True)
 
     def _index_for(code: str) -> Optional[List[dict]]:
         try:
@@ -278,7 +281,7 @@ def build_cluster_ols_panels(
                                 n,
                             )
                         except Exception:
-                            pass
+                            logger.warning("面板子项加载失败", exc_info=True)
                     if time.time() - t0 >= batch_timeout:
                         raise FuturesTimeout()
                     continue
@@ -303,7 +306,7 @@ def build_cluster_ols_panels(
                                 n,
                             )
                         except Exception:
-                            pass
+                            logger.warning("面板子项处理失败", exc_info=True)
         except FuturesTimeout:
             for fut, i in futs.items():
                 if raw_rows[i] is not None:
@@ -327,7 +330,7 @@ def build_cluster_ols_panels(
                 try:
                     progress_cb(f"拉日线超时收尾 {done}/{n}（远端 {remote_n}）", done, n)
                 except Exception:
-                    pass
+                    logger.warning("面板汇总失败", exc_info=True)
 
     panels: List[Dict[str, Any]] = []
     bars_by_code: Dict[str, Any] = {}

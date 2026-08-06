@@ -3422,8 +3422,8 @@ a.dialog-btn[aria-disabled="true"] {
 .yhat-scatter-canvas {
   display: block;
   width: 100%;
-  max-width: 760px;
-  height: 136px;
+  max-width: 920px;
+  height: 184px;
   border-radius: 6px;
   background:
     linear-gradient(180deg, rgba(248, 250, 252, 0.95) 0%, rgba(241, 245, 249, 0.9) 100%);
@@ -3431,7 +3431,7 @@ a.dialog-btn[aria-disabled="true"] {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.6);
 }
 .yhat-scatter-canvas {
-  height: 200px;
+  height: 240px;
 }
 html[data-theme="dark"] .yhat-hist-canvas,
 html[data-theme="dark"] .yhat-scatter-canvas,
@@ -3670,6 +3670,47 @@ html[data-theme="dark"] .yhat-group-hist {
   gap: 8px 10px;
   margin: 8px 0 4px;
   align-items: stretch;
+}
+
+/* —— 每组内 4 图统一网格（2×2） —— */
+.yhat-insight-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 8px;
+  margin: 8px 0 6px;
+}
+@media (max-width: 720px) {
+  .yhat-insight-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.yhat-insight-grid .yhat-insight-card {
+  max-width: none;
+  min-width: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* 网格内：β lollipop / ŷ hist 去掉自带边框背景，由外层 card 统一 */
+.yhat-insight-grid .yhat-beta-lollipop,
+.yhat-insight-grid .yhat-group-hist {
+  max-width: none;
+  margin: 4px 0 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+.yhat-insight-grid .yhat-beta-lollipop .yhat-beta-axis {
+  margin-left: 4.8rem;
+}
+.yhat-insight-grid .yhat-group-hist .yhat-ghist-meta {
+  display: none; /* 标题已在 card head，避免重复 */
+}
+.yhat-insight-grid .yhat-group-hist.is-aux {
+  opacity: 1;
+}
+.yhat-insight-grid .yhat-group-hist .yhat-ghist-plot {
+  height: 48px;
 }
 .yhat-insight-card {
   flex: 1 1 220px;
@@ -3943,6 +3984,117 @@ html[data-theme="dark"] .yhat-insight-card {
 }
 .yhat-beta-val.pos { color: #b91c1c; }
 .yhat-beta-val.neg { color: #047857; }
+
+/* 跨组对照矩阵（健康 + β 跨组） */
+.yhat-mx {
+  margin: 8px 0 6px;
+  padding: 6px 8px 6px;
+  border-radius: 6px;
+  border: 1px solid rgba(100, 116, 139, 0.16);
+  background: color-mix(in srgb, var(--surface, #fff) 92%, var(--bg, #f8fafc));
+}
+html[data-theme="dark"] .yhat-mx {
+  background: #1a1a1a;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+.yhat-mx-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  align-items: baseline;
+  cursor: pointer;
+  list-style: none;
+}
+.yhat-mx-summary::-webkit-details-marker { display: none; }
+.yhat-mx-summary::marker { content: ""; }
+.yhat-mx-title {
+  font-size: 0.74rem;
+  font-weight: 650;
+  color: var(--ink-2, #475569);
+}
+.yhat-mx-meta {
+  font-size: 0.64rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: var(--ink-3, #64748b);
+}
+.yhat-mx-scroll {
+  overflow-x: auto;
+  margin-top: 4px;
+  -webkit-overflow-scrolling: touch;
+}
+.yhat-mx-table {
+  border-collapse: separate;
+  border-spacing: 2px;
+  width: 100%;
+  min-width: 360px;
+  table-layout: auto;
+}
+.yhat-mx-th {
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-align: center;
+  padding: 3px 5px 4px;
+  color: var(--ink-3, #64748b);
+  background: rgba(100, 116, 139, 0.08);
+  border-radius: 3px;
+  white-space: nowrap;
+}
+.yhat-mx-th-factor {
+  text-align: left;
+  min-width: 5rem;
+}
+.yhat-mx-row:hover {
+  background: rgba(24, 144, 255, 0.05);
+}
+.yhat-mx-td {
+  font-size: 0.68rem;
+  padding: 4px 6px;
+  text-align: center;
+  border-radius: 3px;
+  color: var(--ink-2, #475569);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.yhat-mx-td.num {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.66rem;
+}
+.yhat-mx-td.is-singleton {
+  color: var(--ink-3, #64748b);
+  font-style: italic;
+}
+.yhat-mx-td.is-pass {
+  color: #047857;
+  font-weight: 700;
+}
+.yhat-mx-td.is-fail {
+  color: #b91c1c;
+  font-weight: 700;
+}
+.yhat-mx-td.is-skip {
+  color: var(--ink-3, #64748b);
+}
+.yhat-mx-td-factor {
+  text-align: left;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.68rem;
+  max-width: 9rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* 符号反转高亮：边框 + 加粗 */
+.yhat-mx-td.is-flip {
+  outline: 1.5px solid rgba(202, 138, 4, 0.85);
+  outline-offset: -1.5px;
+  font-weight: 700;
+}
+.yhat-mx-row.is-flip-row .yhat-mx-td-factor {
+  color: #ca8a04;
+  font-weight: 650;
+}
+.yhat-mx-beta .yhat-mx-td-factor {
+  max-width: 7rem;
+}
 
 .quant-fit-gap-dual-host {
   height: 168px;
@@ -6943,6 +7095,37 @@ a.hub-card:hover {
   letter-spacing: 0.02em;
   color: var(--ink-3);
   gap: 4px;
+}
+
+.replay-page .quant-actions-inline .platform-check {
+  font-size: 0.82rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--ink-2);
+  gap: 6px;
+  margin-bottom: 0;
+  padding: 4px 8px;
+  border-radius: 6px;
+  flex-direction: row;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.15s;
+}
+.replay-page .quant-actions-inline .platform-check:hover {
+  background: var(--hover, rgba(0,0,0,0.04));
+}
+.replay-page .quant-actions-inline .platform-check input[type="checkbox"] {
+  width: 17px;
+  height: 17px;
+  min-height: 0;
+  padding: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  accent-color: var(--accent, #2e7d32);
+  cursor: pointer;
+  flex-shrink: 0;
 }
 
 .replay-page .quant-actions-inline .platform-field input,
@@ -10638,7 +10821,8 @@ a.hub-card:hover {
 }
 
 .quant-actions-inline .quant-probe-picker-field {
-  min-width: 0;
+  min-width: 11rem;
+  flex-shrink: 0;
 }
 
 .quant-probe-picker-label {
@@ -10652,8 +10836,8 @@ a.hub-card:hover {
 
 .quant-probe-picker {
   position: relative;
-  width: 9.75rem;
-  max-width: min(11rem, 100%);
+  width: 11rem;
+  max-width: min(13rem, 100%);
 }
 
 .quant-page .quant-actions-inline .dialog-btn {
@@ -10762,10 +10946,9 @@ a.hub-card:hover {
 
 .quant-probe-picker-menu {
   position: absolute;
-  z-index: 40;
+  z-index: 100;
   top: calc(100% + 4px);
   left: 0;
-  right: 0;
   min-width: 100%;
   max-height: 260px;
   overflow: auto;
@@ -10774,6 +10957,17 @@ a.hub-card:hover {
   border-radius: 10px;
   background: var(--surface);
   box-shadow: var(--shadow-md);
+}
+
+/* 探针折叠面板：overflow visible 让下拉菜单不被裁切 */
+.quant-page .quant-probe-fold.quant-fold {
+  overflow: visible;
+}
+.quant-page .quant-probe-fold.quant-fold > summary {
+  border-radius: 10px;
+}
+.quant-page .quant-probe-fold.quant-fold[open] > summary {
+  border-radius: 10px 10px 0 0;
 }
 
 .quant-probe-picker-head {
@@ -11601,3 +11795,1137 @@ html[data-density="compact"] .table-pager {
 }
 
 
+
+/* =====================================================
+   研究枢纽 · 专业 UI 升级
+   ===================================================== */
+
+/* ——— 研究态势 KPI Row：开页一眼判断 promote 价值 ——— */
+.quant-page .quant-kpi-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0 0 calc(var(--quant-gap-lg, 10px) + 2px);
+  padding: 10px 14px 12px;
+  border: 1px solid color-mix(in srgb, var(--ink) 7%, var(--line));
+  border-radius: 10px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--accent, #2563eb) 4%, var(--surface)) 0%,
+      var(--surface) 60%);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.02),
+    0 1px 2px rgba(15, 23, 42, 0.04);
+}
+html[data-theme="dark"] .quant-page .quant-kpi-row {
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--accent, #3b82f6) 5%, #1a1a1a) 0%,
+      #1a1a1a 60%);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.quant-page .quant-kpi-row-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+}
+.quant-page .quant-kpi-row-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+  text-transform: uppercase;
+}
+.quant-page .quant-kpi-row-title::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 0.78em;
+  margin-right: 8px;
+  vertical-align: -0.08em;
+  background: var(--accent, #2563eb);
+  border-radius: 2px;
+}
+.quant-page .quant-kpi-row-sub {
+  font-size: 0.7rem;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.quant-page .quant-kpi-row-body {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+}
+@media (max-width: 720px) {
+  .quant-page .quant-kpi-row-body {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+@media (max-width: 480px) {
+  .quant-page .quant-kpi-row-body {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+.quant-page .quant-kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 8px 10px 9px;
+  border: 1px solid color-mix(in srgb, var(--line) 92%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--line-2) 58%, var(--surface));
+  transition: transform 0.12s ease, border-color 0.12s ease, box-shadow 0.12s ease;
+}
+.quant-page .quant-kpi-card:hover {
+  transform: translateY(-1px);
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 32%, var(--line));
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.06);
+}
+.quant-page .quant-kpi-card.is-good {
+  border-color: color-mix(in srgb, var(--ok) 28%, var(--line));
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--ok) 7%, var(--surface)) 0%,
+      color-mix(in srgb, var(--ok-soft) 62%, var(--surface)) 100%);
+}
+.quant-page .quant-kpi-card.is-bad {
+  border-color: color-mix(in srgb, var(--danger, #b42318) 26%, var(--line));
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--danger, #b42318) 6%, var(--surface)) 0%,
+      color-mix(in srgb, rgba(180, 35, 24, 0.1) 55%, var(--surface)) 100%);
+}
+.quant-page .quant-kpi-label {
+  font-size: 0.62rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: var(--ink-3);
+  text-transform: none;
+}
+.quant-page .quant-kpi-value {
+  font-family: var(--font-mono);
+  font-size: 1.1rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--ink);
+  letter-spacing: -0.015em;
+  font-feature-settings: "tnum" 1, "lnum" 1, "ss01" 1;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.quant-page .quant-kpi-card.is-good .quant-kpi-value {
+  color: var(--ok);
+}
+.quant-page .quant-kpi-card.is-bad .quant-kpi-value {
+  color: var(--danger, #b42318);
+}
+.quant-page .quant-kpi-sub {
+  font-size: 0.6rem;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  letter-spacing: -0.01em;
+}
+
+/* ——— 分组状态卡 升级：带 Brand Header + 方法细节折叠 ——— */
+.quant-page .quant-cluster-status {
+  padding: 0;
+  border-radius: 10px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--ink) 7%, var(--line));
+  background: var(--surface);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.02),
+    0 1px 2px rgba(15, 23, 42, 0.04);
+}
+html[data-theme="dark"] .quant-page .quant-cluster-status {
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.quant-page .quant-cluster-status-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px 14px;
+  padding: 10px 14px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--ink) 4%, var(--surface)) 0%,
+      color-mix(in srgb, var(--line-2) 75%, var(--surface)) 100%);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+}
+.quant-page .quant-cluster-status-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.quant-page .quant-cluster-status-mark {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  background: linear-gradient(135deg, var(--accent, #2563eb), color-mix(in srgb, var(--accent, #2563eb) 60%, var(--ok)));
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent, #2563eb) 14%, transparent);
+}
+.quant-page .quant-cluster-status-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--ink);
+  text-transform: uppercase;
+}
+.quant-page .quant-cluster-status-stats-cards {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 6px;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+}
+.quant-page .quant-stat-card {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 64px;
+  padding: 4px 10px 5px;
+  border-radius: 7px;
+  border: 1px solid color-mix(in srgb, var(--line) 92%, transparent);
+  background: var(--surface);
+}
+.quant-page .quant-stat-card.is-warn {
+  border-color: color-mix(in srgb, var(--gold) 40%, var(--line));
+  background: color-mix(in srgb, var(--gold-soft) 70%, var(--surface));
+}
+.quant-page .quant-stat-value {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+.quant-page .quant-stat-card.is-warn .quant-stat-value {
+  color: var(--gold);
+}
+.quant-page .quant-stat-key {
+  font-size: 0.62rem;
+  color: var(--ink-3);
+  font-weight: 500;
+  letter-spacing: 0.03em;
+}
+
+/* 方法细节折叠（替换原来平铺的 4 行 p） */
+.quant-page .quant-cluster-status-details {
+  margin: 0;
+  padding: 0;
+}
+.quant-page .quant-cluster-status-details-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: 0.68rem;
+  color: var(--ink-3);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  background: color-mix(in srgb, var(--line-2) 42%, var(--surface));
+  transition: background 0.1s ease;
+}
+.quant-page .quant-cluster-status-details-summary:hover {
+  background: color-mix(in srgb, var(--line-2) 66%, var(--surface));
+}
+.quant-page .quant-cluster-status-details-summary::-webkit-details-marker {
+  display: none;
+}
+.quant-page .quant-cluster-status-details-summary::marker {
+  content: "";
+}
+.quant-page .quant-cluster-status-details-icon {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  position: relative;
+  transition: transform 0.15s ease;
+}
+.quant-page .quant-cluster-status-details-icon::before,
+.quant-page .quant-cluster-status-details-icon::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  background: var(--ink-3);
+  border-radius: 1px;
+}
+.quant-page .quant-cluster-status-details-icon::before {
+  width: 2px;
+  height: 8px;
+  transform: translate(-50%, -50%);
+}
+.quant-page .quant-cluster-status-details-icon::after {
+  width: 8px;
+  height: 2px;
+  transform: translate(-50%, -50%);
+}
+.quant-page .quant-cluster-status-details[open] .quant-cluster-status-details-icon::before {
+  opacity: 0;
+}
+.quant-page .quant-cluster-status-details-body {
+  padding: 6px 14px 10px;
+  background: var(--surface);
+}
+.quant-page .quant-cluster-status-details-body .quant-cluster-method,
+.quant-page .quant-cluster-status-details-body .quant-cluster-pit-flag {
+  margin: 0;
+  padding: 5px 0;
+  border-top: none;
+  border-bottom: 1px dashed color-mix(in srgb, var(--line) 80%, transparent);
+}
+.quant-page .quant-cluster-status-details-body .quant-cluster-method:last-child,
+.quant-page .quant-cluster-status-details-body .quant-cluster-pit-flag:last-child {
+  border-bottom: none;
+}
+.quant-page .quant-cluster-status-details-body .quant-cluster-pit-flag.is-warn {
+  color: #b45309;
+  font-weight: 600;
+}
+
+/* ——— 矩阵 / OOS Δ 卡片 专业质感升级 ——— */
+.quant-page .yhat-mx,
+.quant-page .yhat-oos-delta {
+  margin: 0 0 var(--quant-gap, 8px);
+  border-radius: 10px;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--ink) 7%, var(--line));
+  background: var(--surface);
+  overflow: hidden;
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.02),
+    0 1px 2px rgba(15, 23, 42, 0.04);
+}
+html[data-theme="dark"] .quant-page .yhat-mx,
+html[data-theme="dark"] .quant-page .yhat-oos-delta {
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.quant-page .yhat-mx-summary,
+.quant-page .yhat-oos-delta-summary {
+  padding: 9px 14px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--ink) 3%, var(--surface)) 0%,
+      color-mix(in srgb, var(--line-2) 70%, var(--surface)) 100%);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  position: relative;
+  padding-right: 3rem;
+}
+.quant-page .yhat-mx-summary::after,
+.quant-page .yhat-oos-delta-summary::after {
+  content: "展开";
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--ink-3);
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  background: var(--surface);
+  opacity: 0.85;
+}
+.quant-page .yhat-mx[open] .yhat-mx-summary::after,
+.quant-page .yhat-oos-delta[open] .yhat-oos-delta-summary::after {
+  content: "收起";
+  color: var(--accent, #2563eb);
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 28%, var(--line));
+}
+.quant-page .yhat-mx.is-open-default .yhat-mx-summary::after {
+  opacity: 1;
+}
+.quant-page .yhat-insight-hint {
+  margin: 8px 14px 6px;
+  padding: 5px 9px;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--line-2) 64%, var(--surface));
+  color: var(--ink-3);
+  font-size: 0.66rem;
+  line-height: 1.5;
+}
+.quant-page .yhat-mx-scroll {
+  margin: 0 14px 12px;
+  padding: 0;
+}
+.quant-page .yhat-oos-delta-body {
+  padding: 6px 14px 12px;
+}
+.quant-page .yhat-mx-table {
+  border-spacing: 2px;
+  margin: 4px 0 0;
+}
+.quant-page .yhat-mx-th {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: none;
+  padding: 5px 7px 6px;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--ink) 5%, var(--line-2)) 0%,
+      color-mix(in srgb, var(--line-2) 90%, var(--surface)) 100%);
+  color: var(--ink-2);
+  border-radius: 4px;
+}
+.quant-page .yhat-mx-td {
+  font-size: 0.7rem;
+  padding: 5px 7px;
+  border-radius: 4px;
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  font-variant-numeric: tabular-nums lining-nums;
+  transition: transform 0.1s ease;
+}
+.quant-page .yhat-mx-row:hover .yhat-mx-td {
+  transform: translateY(-0.5px);
+}
+.quant-page .yhat-mx-td-factor {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 0.7rem;
+  font-weight: 500;
+}
+.quant-page .yhat-mx-td.is-flip {
+  outline-offset: -1px;
+}
+
+/* ——— 分组参数 Toolbar 卡片化 ——— */
+.quant-page .quant-cluster-params-wrap {
+  padding: 10px 14px;
+  margin-bottom: var(--quant-gap-lg, 10px);
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 6%, var(--line));
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--line-2) 50%, var(--surface)) 0%,
+      var(--surface) 100%);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.02),
+    0 1px 2px rgba(15, 23, 42, 0.035);
+}
+html[data-theme="dark"] .quant-page .quant-cluster-params-wrap {
+  border-color: rgba(255, 255, 255, 0.07);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.quant-page .quant-cluster-params-label {
+  display: block;
+  margin: 0 0 7px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--ink-2);
+  text-transform: uppercase;
+}
+.quant-page .quant-cluster-params-label::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 0.7em;
+  margin-right: 8px;
+  vertical-align: -0.05em;
+  background: var(--accent, #2563eb);
+  border-radius: 2px;
+}
+
+/* ——— 折叠面板（quant-fold）专业层级 ——— */
+.quant-page .quant-fold {
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 6%, var(--line));
+  background: var(--surface);
+  overflow: hidden;
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.02),
+    0 1px 2px rgba(15, 23, 42, 0.035);
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+html[data-theme="dark"] .quant-page .quant-fold {
+  border-color: rgba(255, 255, 255, 0.07);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+}
+.quant-page .quant-fold[open] {
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 22%, var(--line));
+}
+.quant-page .quant-fold > summary {
+  padding: 10px 14px;
+  padding-right: 3.6rem;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--ink) 3%, var(--surface)) 0%,
+      color-mix(in srgb, var(--line-2) 65%, var(--surface)) 100%);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  position: relative;
+  transition: background 0.1s ease;
+}
+.quant-page .quant-fold > summary:hover {
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--accent, #2563eb) 5%, var(--surface)) 0%,
+      color-mix(in srgb, var(--accent, #2563eb) 2.5%, var(--line-2)) 100%);
+}
+.quant-page .quant-fold > summary::after {
+  position: absolute;
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--ink-3);
+  padding: 2px 9px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  background: var(--surface);
+  float: none;
+  opacity: 0.85;
+}
+.quant-page .quant-fold[open] > summary::after {
+  color: var(--accent, #2563eb);
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 28%, var(--line));
+}
+.quant-page .quant-fold > summary > .watching-section-title {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.quant-page .quant-fold > summary > .watching-section-title::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 0.8em;
+  background: var(--accent, #2563eb);
+  border-radius: 2px;
+  vertical-align: -0.05em;
+}
+.quant-page .quant-fold .quant-section {
+  padding: 10px 14px 14px;
+  gap: var(--quant-gap, 8px);
+}
+
+/* ——— 每组折叠（G1/G2…）标题头专业级 ——— */
+.quant-page .quant-cluster-group-fold.quant-fold {
+  border-radius: 9px;
+}
+.quant-page .quant-cluster-group-fold.quant-fold > summary.quant-cluster-group-head {
+  padding: 10px 14px;
+  padding-right: 3.6rem;
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--ink) 2%, var(--surface)) 0%,
+      color-mix(in srgb, var(--line-2) 60%, var(--surface)) 100%);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  gap: 7px;
+  transition: background 0.1s ease;
+}
+.quant-page .quant-cluster-group-fold.quant-fold > summary.quant-cluster-group-head:hover {
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--accent, #2563eb) 4%, var(--surface)) 0%,
+      color-mix(in srgb, var(--accent, #2563eb) 2%, var(--line-2)) 100%);
+}
+.quant-page .quant-cluster-group-fold.quant-fold > summary.quant-cluster-group-head::after {
+  top: 50%;
+  right: 14px;
+  transform: translateY(-50%);
+  font-size: 0.62rem;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--ink-3);
+  padding: 2px 9px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  background: var(--surface);
+  float: none;
+  opacity: 0.85;
+}
+.quant-page .quant-cluster-group-fold[open] > summary.quant-cluster-group-head::after {
+  color: var(--accent, #2563eb);
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 28%, var(--line));
+}
+.quant-page .quant-cluster-group-body {
+  padding: 8px 14px 12px;
+  gap: 8px;
+}
+
+/* 组号徽章（G1…）：带底色+微渐变 */
+.quant-page .quant-cluster-gid {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 2rem;
+  padding: 2px 8px;
+  border-radius: 5px;
+  background:
+    linear-gradient(135deg,
+      color-mix(in srgb, var(--accent, #2563eb) 22%, var(--surface)) 0%,
+      color-mix(in srgb, var(--accent, #2563eb) 8%, var(--surface)) 100%);
+  border: 1px solid color-mix(in srgb, var(--accent, #2563eb) 30%, var(--line));
+  color: var(--accent, #2563eb);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+}
+.quant-page .quant-cluster-tag {
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-weight: 550;
+  box-shadow: inset 0 -1px 0 rgba(0, 0, 0, 0.04);
+}
+.quant-page .quant-cluster-tag.is-ok {
+  box-shadow:
+    inset 0 -1px 0 color-mix(in srgb, var(--ok) 18%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--ok) 22%, transparent);
+}
+.quant-page .quant-cluster-tag.is-warn {
+  box-shadow:
+    inset 0 -1px 0 color-mix(in srgb, var(--gold) 18%, transparent),
+    0 0 0 1px color-mix(in srgb, var(--gold) 20%, transparent);
+}
+
+/* 组卡片头部 metrics 紧凑卡片 */
+.quant-page .yhat-insight-card {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 92%, transparent);
+  background: color-mix(in srgb, var(--line-2) 55%, var(--surface));
+  transition: border-color 0.1s ease, box-shadow 0.1s ease;
+}
+.quant-page .yhat-insight-card:hover {
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 22%, var(--line));
+  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.05);
+}
+
+/* 全局对照组卡片（全量 β）：与组卡一致的节奏 */
+.quant-page .quant-global-fold-body > .quant-section {
+  padding: 10px 14px;
+  gap: var(--quant-gap, 8px);
+}
+
+/* ——— 统一数字排版规范 ——— */
+.quant-page .quant-kpi-value,
+.quant-page .quant-stat-value,
+.quant-page .quant-cluster-stat b,
+.quant-page .yhat-mx-td.num,
+.quant-page .quant-research-grid .watching-col-num,
+.quant-page .yhat-delta-num,
+.quant-page .yhat-beta-val,
+.quant-page .yhat-bdist-head-row td.num {
+  font-family: var(--font-mono);
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+/* ——— section 间距 · 层级呼吸感 ——— */
+.quant-page > .quant-section + .quant-section {
+  margin-top: 2px;
+  padding-top: 2px;
+}
+.quant-page .quant-section-toolbar {
+  padding: 6px 2px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 72%, transparent);
+  margin-bottom: 10px;
+}
+.quant-page .quant-section-toolbar .watching-section-title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.quant-page .quant-section-toolbar .watching-section-title::before {
+  content: "";
+  display: inline-block;
+  width: 3px;
+  height: 0.85em;
+  background: var(--accent, #2563eb);
+  border-radius: 2px;
+  vertical-align: -0.05em;
+}
+
+/* ——— Landing 卡片 · 专业级 ——— */
+.quant-page .quant-cluster-landing-card {
+  border-radius: 10px;
+  padding: 12px 16px;
+  border: 1px solid color-mix(in srgb, var(--ink) 7%, var(--line));
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--ok) 4%, var(--surface)) 0%,
+      var(--surface) 55%);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.02),
+    0 1px 2px rgba(15, 23, 42, 0.04);
+}
+html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--ok) 5%, #1a1a1a) 0%,
+      #1a1a1a 55%);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.35);
+}
+.quant-page .quant-cluster-landing-head {
+  padding-bottom: 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  margin-bottom: 8px;
+}
+
+/* ——— 研究枢纽 tables 标题专业感 ——— */
+.quant-page .quant-cluster-tables-head {
+  margin: 14px 0 10px;
+  padding: 0 2px 8px;
+  border-bottom: 2px solid color-mix(in srgb, var(--accent, #2563eb) 22%, var(--line));
+  position: relative;
+}
+.quant-page .quant-cluster-tables-head::after {
+  content: "";
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  width: 32%;
+  height: 2px;
+  background: var(--accent, #2563eb);
+  border-radius: 2px;
+}
+.quant-page .quant-cluster-tables-label {
+  font-size: 0.82rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink);
+}
+.quant-page .quant-cluster-tables-label::before {
+  content: "";
+  display: inline-block;
+  width: 4px;
+  height: 0.85em;
+  background: linear-gradient(180deg, var(--accent, #2563eb), color-mix(in srgb, var(--accent, #2563eb) 60%, var(--ok)));
+  border-radius: 2px;
+  vertical-align: -0.05em;
+}
+.quant-page .quant-cluster-tables-head .sub {
+  font-size: 0.7rem;
+  color: var(--ink-3);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   研究枢纽 · 专业性升级（p727）
+   字体 / 颜色 / 表格 / 机密度 四维统一
+   ═══════════════════════════════════════════════════════════ */
+
+.quant-page {
+  /* A 股语义色 */
+  --quant-up: #dc2626;           /* 红涨 */
+  --quant-down: #16a34a;         /* 绿跌 */
+  --quant-good: #16a34a;
+  --quant-bad: #dc2626;
+  --quant-neutral: #94a3b8;
+  --quant-warn: #d97706;
+  /* 表格色谱 */
+  --quant-head-bg: color-mix(in srgb, var(--ink) 5%, var(--surface));
+  --quant-head-fg: var(--ink-2);
+  --quant-stripe: color-mix(in srgb, var(--line-2) 35%, var(--surface));
+  --quant-hover: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  --quant-row-line: var(--line-2);
+  /* 收紧间距 */
+  --quant-gap: 6px;
+  --quant-gap-lg: 8px;
+  /* 全局数字等宽对齐 */
+  font-feature-settings: "tnum" 1, "lnum" 1, "ss01" 1;
+}
+
+/* —— 1. 字体：数字等宽 + 表头大写化 —— */
+.quant-page .quant-weight-table td.num,
+.quant-page .quant-research-grid .watching-col-num,
+.quant-page .yhat-mx-cell,
+.quant-page .yhat-mx-cell-num,
+.quant-page .yhat-beta-row-val,
+.quant-page .yhat-bdist-row-val,
+.quant-page .quant-kpi-value,
+.quant-page .quant-stat-value,
+.quant-page .quant-cluster-metric b,
+.quant-page .quant-cluster-method-k,
+.quant-page .quant-cluster-method-v {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.01em;
+}
+
+.quant-page .quant-weight-table th,
+.quant-page .yhat-mx-table th,
+.quant-page .yhat-mx-cell-head {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+
+/* —— 2. 颜色：A 股语义统一 —— */
+.quant-page .quant-weight-table td.up,
+.quant-page .quant-research-grid .is-up,
+.quant-page .quant-research-grid .text-up {
+  color: var(--quant-up);
+}
+.quant-page .quant-weight-table td.down,
+.quant-page .quant-research-grid .is-down,
+.quant-page .quant-research-grid .text-down {
+  color: var(--quant-down);
+}
+
+/* 表头背景加深 + 行线统一 */
+.quant-page .quant-weight-table th {
+  background: var(--quant-head-bg);
+  color: var(--quant-head-fg);
+  border-bottom: 1px solid var(--line);
+}
+.quant-page .quant-weight-table tbody tr {
+  border-bottom-color: var(--quant-row-line);
+}
+.quant-page .quant-weight-table tbody tr:nth-child(even) {
+  background: var(--quant-stripe);
+}
+.quant-page .quant-weight-table tbody tr:hover {
+  background: var(--quant-hover);
+}
+
+/* 研究表表头 */
+.quant-page .quant-research-grid .watching-react-grid-head {
+  background: var(--quant-head-bg);
+}
+.quant-page .quant-research-grid .watching-react-grid-body .watching-react-grid-row:nth-child(even):not(.is-scan-hot):not(.is-hetero) {
+  background: var(--quant-stripe);
+}
+.quant-page .quant-research-grid .watching-react-grid-body .watching-react-grid-row:hover {
+  background: var(--quant-hover);
+}
+
+/* —— 3. 表格：padding/行高收紧 —— */
+.quant-page .quant-weight-table th,
+.quant-page .quant-weight-table td {
+  padding: 6px 10px;
+}
+.quant-page .quant-weight-table {
+  font-size: 0.74rem;
+}
+.quant-page .quant-weight-table th {
+  font-size: 0.64rem;
+}
+
+/* 研究表紧凑化 */
+.quant-page .quant-research-grid {
+  font-size: 0.74rem;
+}
+.quant-page .quant-research-grid .watching-react-grid-row {
+  min-height: 30px;
+}
+.quant-page .quant-research-grid .watching-react-grid-row.is-head {
+  min-height: 26px;
+}
+.quant-page .quant-research-grid .watching-react-grid-cell {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.quant-page .quant-research-grid .watching-react-grid-row.is-head .watching-react-grid-cell {
+  font-size: 0.62rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--quant-head-fg);
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.quant-page .quant-research-grid .watching-react-grid-cell.watching-col-num {
+  font-size: 0.72rem;
+}
+
+/* 矩阵表统一 */
+.quant-page .yhat-mx-table th,
+.quant-page .yhat-mx-table td {
+  padding: 4px 7px;
+  font-size: 0.7rem;
+}
+
+/* —— 4. 机密度：间距收紧 —— */
+.quant-page .quant-cluster-list {
+  gap: 8px;
+  margin-top: 6px;
+}
+.quant-page .quant-cluster-block {
+  margin-bottom: 0;
+}
+.quant-page > .quant-section {
+  gap: var(--quant-gap);
+}
+.quant-page .quant-cluster-group-body {
+  padding: 6px 0 2px;
+}
+.quant-page .quant-cluster-members {
+  margin: 4px 0 2px;
+  gap: 3px;
+}
+.quant-page .quant-cluster-members .quant-cluster-chip {
+  padding: 1px 6px;
+  font-size: 0.68rem;
+}
+.quant-page .yhat-insight-grid {
+  gap: 6px;
+  margin: 6px 0 4px;
+}
+.quant-page .yhat-insight-card {
+  padding: 6px 8px 7px;
+}
+.quant-page .yhat-insight-head {
+  margin-bottom: 3px;
+}
+.quant-page .yhat-insight-hint {
+  margin: 0 0 4px;
+  font-size: 0.62rem;
+}
+
+/* 组头紧凑 */
+.quant-page .quant-cluster-group-fold.quant-fold > summary.quant-cluster-group-head {
+  padding: 6px 10px;
+}
+.quant-page .quant-cluster-gid {
+  min-width: 22px;
+  height: 18px;
+  font-size: 0.6rem;
+}
+.quant-page .quant-cluster-tag {
+  padding: 1px 6px;
+  font-size: 0.62rem;
+}
+.quant-page .quant-cluster-metric {
+  font-size: 0.68rem;
+}
+
+/* —— 5. 深色主题 —— */
+@media (prefers-color-scheme: dark) {
+  .quant-page {
+    --quant-up: #f87171;
+    --quant-down: #4ade80;
+    --quant-good: #4ade80;
+    --quant-bad: #f87171;
+    --quant-head-bg: color-mix(in srgb, var(--ink) 8%, var(--surface));
+    --quant-head-fg: var(--ink-2);
+    --quant-stripe: color-mix(in srgb, var(--line-2) 25%, var(--surface));
+    --quant-hover: color-mix(in srgb, var(--accent) 10%, var(--surface));
+    --quant-row-line: var(--line-2);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   历史回测页 · 专业性升级（p729）
+   字体 / 颜色 / 表格 / 机密度 四维统一
+   ═══════════════════════════════════════════════════════════ */
+
+.replay-page {
+  /* A 股语义色 */
+  --replay-up: #dc2626;
+  --replay-down: #16a34a;
+  --replay-good: #16a34a;
+  --replay-bad: #dc2626;
+  --replay-neutral: #94a3b8;
+  /* 表格色谱 */
+  --replay-head-bg: color-mix(in srgb, var(--ink) 5%, var(--surface));
+  --replay-head-fg: var(--ink-2);
+  --replay-stripe: color-mix(in srgb, var(--line-2) 35%, var(--surface));
+  --replay-hover: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  --replay-row-line: var(--line-2);
+  /* 收紧间距 */
+  --replay-gap: 6px;
+  --replay-gap-lg: 8px;
+  /* 全局数字等宽 */
+  font-feature-settings: "tnum" 1, "lnum" 1, "ss01" 1;
+  font-size: 0.82rem;
+}
+
+/* —— 1. 字体：数字等宽 + 表头大写化 —— */
+.replay-page .quant-metric .val,
+.replay-page .watching-react-grid .watching-col-num,
+.replay-page .watching-react-grid .bt-trade-ret,
+.replay-page .quant-weight-table td.num,
+.replay-page .quant-fingerprint {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.01em;
+}
+
+.replay-page .watching-react-grid-row.is-head .watching-react-grid-cell,
+.replay-page .quant-weight-table th {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+}
+
+/* —— 2. 颜色：语义统一 —— */
+.replay-page .watching-react-grid-head {
+  background: var(--replay-head-bg);
+}
+.replay-page .watching-react-grid-row.is-head .watching-react-grid-cell {
+  color: var(--replay-head-fg);
+}
+.replay-page
+  .watching-react-grid-body
+  .watching-react-grid-row:nth-child(even):not(.is-best):not(.is-warn):not(.down):not(.is-chart-active) {
+  background: var(--replay-stripe);
+}
+.replay-page .watching-react-grid-body .watching-react-grid-row:hover {
+  background: var(--replay-hover);
+}
+
+.replay-page .quant-weight-table th {
+  background: var(--replay-head-bg);
+  color: var(--replay-head-fg);
+  border-bottom: 1px solid var(--line);
+}
+.replay-page .quant-weight-table tbody tr {
+  border-bottom-color: var(--replay-row-line);
+}
+.replay-page .quant-weight-table tbody tr:nth-child(even) {
+  background: var(--replay-stripe);
+}
+.replay-page .quant-weight-table tbody tr:hover {
+  background: var(--replay-hover);
+}
+.replay-page .quant-weight-table td.up {
+  color: var(--replay-up);
+}
+.replay-page .quant-weight-table td.down {
+  color: var(--replay-down);
+}
+
+/* —— 3. 表格：padding/行高收紧 —— */
+.replay-page .watching-react-grid {
+  font-size: 0.74rem;
+}
+.replay-page .watching-react-grid-row {
+  min-height: 30px;
+}
+.replay-page .watching-react-grid-row.is-head {
+  min-height: 26px;
+}
+.replay-page .watching-react-grid-cell {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.replay-page .watching-react-grid-row.is-head .watching-react-grid-cell {
+  font-size: 0.62rem;
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+.replay-page .watching-react-grid .bt-trade-ret {
+  font-size: 0.72rem;
+}
+
+.replay-page .quant-weight-table {
+  font-size: 0.74rem;
+}
+.replay-page .quant-weight-table th,
+.replay-page .quant-weight-table td {
+  padding: 6px 10px;
+}
+.replay-page .quant-weight-table th {
+  font-size: 0.64rem;
+}
+
+/* —— 4. 机密度：间距收紧 —— */
+.replay-page .quant-metrics {
+  gap: 6px;
+}
+.replay-page .quant-metric {
+  padding: 6px 8px 5px;
+}
+.replay-page .quant-metric .val {
+  font-size: 0.9rem;
+}
+.replay-page .quant-summary {
+  padding: 5px 8px;
+  font-size: 0.72rem;
+}
+.replay-page > .quant-fold > summary {
+  padding: 6px 10px;
+  font-size: 0.74rem;
+}
+.replay-page > .quant-fold .quant-section {
+  padding: 6px 10px 8px;
+}
+.replay-page .quant-chart-wrap {
+  padding: 6px 8px;
+}
+.replay-page .quant-chart-title {
+  font-size: 0.72rem;
+}
+.replay-page .quant-chart-axis-hint {
+  font-size: 0.64rem;
+}
+.replay-page .quant-bt-chart-wrap .quant-chart-host {
+  min-height: 140px;
+}
+.replay-page .quant-trades-caption {
+  margin: 0 0 4px;
+  font-size: 0.68rem;
+}
+.replay-page .quant-bt-trades-body {
+  max-height: min(40vh, 440px);
+}
+.replay-page .quant-fingerprint {
+  margin: 0 0 4px;
+  font-size: 0.7rem;
+}
+.replay-page .quant-actions-inline {
+  gap: 5px 6px;
+}
+.replay-page .replay-howto {
+  padding: 5px 8px;
+  font-size: 0.7rem;
+}
+
+/* —— 5. 深色主题 —— */
+@media (prefers-color-scheme: dark) {
+  .replay-page {
+    --replay-up: #f87171;
+    --replay-down: #4ade80;
+    --replay-good: #4ade80;
+    --replay-bad: #f87171;
+    --replay-head-bg: color-mix(in srgb, var(--ink) 8%, var(--surface));
+    --replay-head-fg: var(--ink-2);
+    --replay-stripe: color-mix(in srgb, var(--line-2) 25%, var(--surface));
+    --replay-hover: color-mix(in srgb, var(--accent) 10%, var(--surface));
+    --replay-row-line: var(--line-2);
+  }
+}

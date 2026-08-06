@@ -523,12 +523,16 @@ export function installWatching(q) {
     const items = [];
     let timedOut = false;
     try {
+      // P2：首批 20 只快速回填，后续批 40 只复用连接
+      const FIRST_CHUNK = 20;
       const chunkSize = 40;
       const totalChunks = Math.ceil(codes.length / chunkSize) || 1;
-      for (let i = 0; i < codes.length; i += chunkSize) {
+      let chunkIdx = 0;
+      for (let i = 0; i < codes.length; ) {
         if (gen !== state.watchingInsightsGen) return;
-        const chunk = codes.slice(i, i + chunkSize);
-        const chunkIdx = Math.floor(i / chunkSize) + 1;
+        const curSize = i === 0 ? FIRST_CHUNK : chunkSize;
+        const chunk = codes.slice(i, i + curSize);
+        chunkIdx += 1;
         setWatchingRefreshStatus(
           `正在加载评分… ${chunkIdx}/${totalChunks}（${items.length}/${codes.length}）`,
           { busy: true, owner: "insights" }
@@ -555,6 +559,7 @@ export function installWatching(q) {
         const batch = data.items || [];
         items.push(...batch);
         applyInsightItems(batch);
+        i += curSize;
       }
       if (gen !== state.watchingInsightsGen) return;
       const okN = items.filter((x) => x.ok).length;
@@ -574,6 +579,19 @@ export function installWatching(q) {
           owner: "insights",
         });
       }
+      // 缓存到 localStorage（4h 有效），下次进页秒级显示
+      try {
+        const scoresByCode = {};
+        for (const it of items) {
+          if (it.stock_code && it.predicted_score != null) {
+            scoresByCode[it.stock_code] = it.predicted_score;
+          }
+        }
+        localStorage.setItem(
+          "watching_insights_cache",
+          JSON.stringify({ timestamp: Date.now(), scoresByCode })
+        );
+      } catch (_) {}
       paintWatchingYhatHist();
     } catch (err) {
       if (gen !== state.watchingInsightsGen) return;
@@ -613,37 +631,76 @@ export function installWatching(q) {
     if (state.watchingGrid && state.watchingGridReady) {
       const codes = (state.watchingGrid.getData() || []).map((r) => r.code).filter(Boolean);
       if (!codes.length) return;
-      const ctrl = new AbortController();
-      const timer = setTimeout(() => ctrl.abort(), 20000);
-      setWatchingRefreshStatus("正在拉取行情…", { busy: true, owner: "quotes" });
-      try {
-        const res = await fetch(
-          `/api/watching/quotes?codes=${encodeURIComponent(codes.join(","))}`,
-          { signal: ctrl.signal }
-        );
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.detail || res.statusText);
-        const byCode = indexByWatchingCode(data.items || []);
+      // P2：分批加载——首批 20 只快速回填，剩余后台补齐
+      const FIRST_BATCH = 20;
+      const firstCodes = codes.slice(0, FIRST_BATCH);
+      const restCodes = codes.slice(FIRST_BATCH);
+      let totalOk = 0;
+      const applyQuoteBatch = (items) => {
+        const byCode = indexByWatchingCode(items || []);
         codes.forEach((code) => {
           const it = byCode[watchingCodeKey(code)] || {};
+          if (!it.stock_code) return;
           const row = state.watchingGrid.getRow(code);
           if (!row) return;
           row.update(buildWatchingQuoteGridPatch(it, row, parseWatchingVolume));
         });
-        const okN = (data.items || []).filter((x) => x.ok).length;
-        setWatchingRefreshStatus(buildWatchingQuotesStatusText(okN, codes.length), {
-          ok: true,
-          owner: "quotes",
-        });
+        return (items || []).filter((x) => x.ok).length;
+      };
+      setWatchingRefreshStatus("正在拉取行情…", { busy: true, owner: "quotes" });
+      // 首批：20s 超时，快速回填前 20 行
+      try {
+        const ctrl1 = new AbortController();
+        const timer1 = setTimeout(() => ctrl1.abort(), 20000);
+        let res1;
+        try {
+          res1 = await fetch(
+            `/api/watching/quotes?codes=${encodeURIComponent(firstCodes.join(","))}`,
+            { signal: ctrl1.signal }
+          );
+        } finally {
+          clearTimeout(timer1);
+        }
+        const data1 = await res1.json().catch(() => ({}));
+        if (!res1.ok) throw new Error(data1.detail || res1.statusText);
+        totalOk += applyQuoteBatch(data1.items || []);
         sortWatchingTableRows();
+        if (restCodes.length) {
+          setWatchingRefreshStatus(
+            `行情 ${totalOk}/${codes.length} · 补齐剩余 ${restCodes.length} 只…`,
+            { busy: true, owner: "quotes" }
+          );
+        }
       } catch (err) {
         setWatchingRefreshStatus(buildWatchingQuotesErrorStatus(err), {
           error: true,
           owner: "quotes",
         });
-      } finally {
-        clearTimeout(timer);
+        return;
       }
+      // 剩余：后台补齐（失败仅告警，不覆盖首批已回填行）
+      if (restCodes.length) {
+        try {
+          const ctrl2 = new AbortController();
+          const timer2 = setTimeout(() => ctrl2.abort(), 30000);
+          const res2 = await fetch(
+            `/api/watching/quotes?codes=${encodeURIComponent(restCodes.join(","))}`,
+            { signal: ctrl2.signal }
+          );
+          const data2 = await res2.json().catch(() => ({}));
+          clearTimeout(timer2);
+          if (res2.ok) {
+            totalOk += applyQuoteBatch(data2.items || []);
+            sortWatchingTableRows();
+          }
+        } catch (_) {
+          /* 首批已回填，剩余失败仅降级 */
+        }
+      }
+      setWatchingRefreshStatus(buildWatchingQuotesStatusText(totalOk, codes.length), {
+        ok: true,
+        owner: "quotes",
+      });
       return;
     }
     const watchTable = document.getElementById("watching-watchlist-table");
@@ -1197,13 +1254,30 @@ export function installWatching(q) {
       paperCodes instanceof Map
         ? paperCodes
         : new Map(Array.from(paperCodes || []).map((c) => [String(c), null]));
+    // 读取 localStorage 缓存的 insights（4h 内有效），用于初始化评分列
+    let cachedScores = {};
+    try {
+      const raw = localStorage.getItem("watching_insights_cache");
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && parsed.timestamp && Date.now() - parsed.timestamp < 4 * 3600 * 1000) {
+          cachedScores = parsed.scoresByCode || {};
+        }
+      }
+    } catch (_) {}
     const rowByCode = new Map();
     for (let i = 0; i < wl.length; i++) {
       const code = String(wl[i] || "").trim();
       if (!code) continue;
       const name = (names[i] && String(names[i]).trim()) || "—";
       const scoreRaw = scores && scores[code];
-      const scoreNum = scoreRaw == null || Number.isNaN(Number(scoreRaw)) ? null : Number(scoreRaw);
+      const cached = cachedScores[code];
+      const scoreNum =
+        scoreRaw != null && !Number.isNaN(Number(scoreRaw))
+          ? Number(scoreRaw)
+          : cached != null && !Number.isNaN(Number(cached))
+            ? Number(cached)
+            : null;
       const onPaper = inPaper.has(code);
       const heldShares = onPaper ? inPaper.get(code) : null;
       rowByCode.set(code, {

@@ -28,7 +28,7 @@ except Exception:
 
 from web import deps  # noqa: E402
 from web.page_html import render_tool_html  # noqa: E402
-from web.routers import chat, daily, evals, live_ws, meta, paper, platform, quant, strategy, watching  # noqa: E402
+from web.routers import quant_config, quant_research, quant_cluster, quant_backtest, quant_score, chat, daily, evals, live_ws, meta, paper, platform, quant, strategy, watching  # noqa: E402
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
@@ -51,6 +51,11 @@ app.include_router(paper.router)
 app.include_router(strategy.router)
 app.include_router(daily.router)
 app.include_router(quant.router)
+app.include_router(quant_config.router)
+app.include_router(quant_research.router)
+app.include_router(quant_cluster.router)
+app.include_router(quant_backtest.router)
+app.include_router(quant_score.router)
 app.include_router(watching.router)
 app.include_router(evals.router)
 app.include_router(platform.router)

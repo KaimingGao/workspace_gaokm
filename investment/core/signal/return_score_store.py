@@ -14,6 +14,7 @@ from core.paths import (
     RETURN_SCORE_MODEL_DRAFT_PATH,
 )
 from core.signal.return_score import ReturnScoreModel, clamp_rank_mode
+from core.io_atomic import atomic_write_json
 
 
 def _ensure_dirs() -> None:
@@ -41,8 +42,7 @@ def save_return_model_draft(
         "meta": dict(meta or {}),
         "note": "研究草稿（因子系数产物）；promote 后才影响 scoring.rank_mode=predicted_score 的横截面。",
     }
-    with open(RETURN_SCORE_MODEL_DRAFT_PATH, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    atomic_write_json(RETURN_SCORE_MODEL_DRAFT_PATH, payload)
     return {
         "success": True,
         "path": RETURN_SCORE_MODEL_DRAFT_PATH,
@@ -124,8 +124,7 @@ def promote_return_model_draft(
         },
         "note": "live 收益排序模型；仅当 signal_config.scoring.rank_mode=predicted_score 时启用。",
     }
-    with open(RETURN_SCORE_MODEL_ACTIVE_PATH, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    atomic_write_json(RETURN_SCORE_MODEL_ACTIVE_PATH, payload)
     return {
         "success": True,
         "path": RETURN_SCORE_MODEL_ACTIVE_PATH,

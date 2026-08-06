@@ -14,6 +14,8 @@ import shutil
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
+from core.io_atomic import atomic_write_json
+
 
 SCHEMA_VERSION = 1
 
@@ -679,8 +681,7 @@ def save_cluster_draft(artifact: Dict[str, Any]) -> Dict[str, Any]:
         "n_mapped_codes": artifact.get("n_mapped_codes"),
         "note": "草稿；不自动生效，须 promote",
     }
-    with open(CLUSTER_WEIGHTS_DRAFT_PATH, "w", encoding="utf-8") as f:
-        json.dump(draft, f, ensure_ascii=False, indent=2)
+    atomic_write_json(CLUSTER_WEIGHTS_DRAFT_PATH, draft)
     return {"success": True, "path": CLUSTER_WEIGHTS_DRAFT_PATH, "is_draft": True}
 
 
@@ -709,8 +710,7 @@ def save_active_cluster_book(book: Sequence[Dict[str, Any]], *, meta: Optional[d
         "signal_config_touched": False,
         "note": "分池合并簿；execution 只读，不写全局 weights",
     }
-    with open(CLUSTER_BOOK_ACTIVE_PATH, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    atomic_write_json(CLUSTER_BOOK_ACTIVE_PATH, payload)
     # 昨日复盘：按会话交易日冻结 ŷ 账本（失败不影响落书）
     try:
         from core.market_calendar import resolve_session_date

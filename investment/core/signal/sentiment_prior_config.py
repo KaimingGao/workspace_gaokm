@@ -7,6 +7,7 @@ import os
 from typing import Any, Dict, Optional
 
 from core.sentiment_prior import DEFAULT_PRIOR, get_sentiment_prior_cfg, normalize_prior_mode
+from core.io_atomic import atomic_write_json
 
 
 def read_sentiment_prior_public(*, config: Optional[dict] = None) -> Dict[str, Any]:
@@ -84,10 +85,7 @@ def save_sentiment_prior(
         sent["append_history"] = True
     raw["sentiment"] = sent
 
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(raw, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    atomic_write_json(path, raw)
 
     import core.signal.config as cfg_mod
 

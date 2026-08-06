@@ -6,10 +6,16 @@
 
 from __future__ import annotations
 
+import glob
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+
+logger = logging.getLogger(__name__)
+
+CLUSTER_WEIGHTS_PRUNE_KEEP = 8
 
 
 def _iso_now() -> str:
@@ -126,13 +132,75 @@ def publish_cluster_weights_doc(
     ptr = write_cluster_pointer(version=version, artifact_path=artifact, note=note)
     # 兼容镜像
     atomic_write_json(CLUSTER_WEIGHTS_ACTIVE_PATH, active)
+    # 清理旧版本文件，保留最近 N 个
+    pruned = prune_old_cluster_weight_artifacts(keep=CLUSTER_WEIGHTS_PRUNE_KEEP)
     return {
         "success": True,
         "version": version,
         "artifact": artifact,
         "pointer": ptr,
         "mirror": CLUSTER_WEIGHTS_ACTIVE_PATH,
+        "pruned": pruned,
     }
+
+
+def prune_old_cluster_weight_artifacts(keep: int = CLUSTER_WEIGHTS_PRUNE_KEEP) -> list:
+    """删除旧版本 cluster_weights_v*.json，保留最近 ``keep`` 个。
+
+    同时清理 history 目录中超出 ``keep`` 的旧备份。
+    当前指针指向的版本永远不会被删除。
+    """
+    from core.paths import LIVE_DIR, CLUSTER_WEIGHTS_HISTORY_DIR
+
+    removed = []
+
+    # 1) LIVE_DIR 下的版本化 artifact
+    pattern = os.path.join(LIVE_DIR, "cluster_weights_v*.json")
+    files = []
+    for fp in glob.glob(pattern):
+        if os.path.basename(fp) == "cluster_weights_active.json":
+            continue
+        # 提取版本号
+        name = os.path.basename(fp)
+        try:
+            ver_str = name.replace("cluster_weights_v", "").replace(".json", "")
+            ver = int(ver_str)
+        except (ValueError, TypeError):
+            continue
+        files.append((ver, fp))
+    files.sort(key=lambda x: x[0], reverse=True)
+
+    # 当前指针版本
+    ptr = load_cluster_pointer()
+    cur_ver = int(ptr.get("version", 0)) if ptr else -1
+
+    for ver, fp in files[keep:]:
+        if ver == cur_ver:
+            continue
+        try:
+            os.remove(fp)
+            removed.append(fp)
+        except OSError as e:
+            logger.warning("清理旧版本文件失败 %s: %s", fp, e)
+
+    # 2) history 目录下的备份
+    hist_pattern = os.path.join(CLUSTER_WEIGHTS_HISTORY_DIR, "cluster_weights_v*.json")
+    hist_files = []
+    for fp in glob.glob(hist_pattern):
+        mtime = os.path.getmtime(fp) if os.path.isfile(fp) else 0
+        hist_files.append((mtime, fp))
+    hist_files.sort(key=lambda x: x[0], reverse=True)
+
+    for _, fp in hist_files[keep:]:
+        try:
+            os.remove(fp)
+            removed.append(fp)
+        except OSError as e:
+            logger.warning("清理历史备份失败 %s: %s", fp, e)
+
+    if removed:
+        logger.info("cluster_weights 清理: 删除 %d 个旧版本文件", len(removed))
+    return removed
 
 
 def active_enable_blockers(

@@ -12,6 +12,7 @@ import time
 from typing import Any, Dict, Optional
 
 from core.paths import MEMORY_PATH
+from core.io_atomic import atomic_write_json
 
 # 与 quant schemas（IC/OLS/回测）对齐：1～10 交易日
 HORIZON_MIN = 1
@@ -99,9 +100,7 @@ def write_memory(preferences: Dict[str, Any], path: Optional[str] = None) -> Dic
         "updated_at": time.time(),
     }
     _ensure_parent(p)
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    atomic_write_json(p, payload)
     out = read_memory(p)
     out["ok"] = True
     out["effective"] = effective_preferences(p)

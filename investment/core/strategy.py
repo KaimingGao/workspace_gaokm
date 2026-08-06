@@ -21,6 +21,7 @@ from core.backtest.strategies import (
     resolve_strategy_id,
 )
 from core.paths import DATA_DIR
+from core.io_atomic import atomic_write_json
 
 # 重新导出，保持单入口
 __all__ = [
@@ -182,9 +183,7 @@ def promote_strategy(
         "execution_version": exe.get("version"),
     }
     out = path or PROMOTED_PATH
-    os.makedirs(os.path.dirname(out) or ".", exist_ok=True)
-    with open(out, "w", encoding="utf-8") as f:
-        json.dump(entry, f, ensure_ascii=False, indent=2)
+    atomic_write_json(out, entry)
     try:
         from core.north_star import TTM_EVENT_PAPER, append_ttm_event
 

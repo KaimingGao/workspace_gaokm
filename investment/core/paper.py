@@ -20,6 +20,7 @@ from core.paper_sizing import (
 from core.paths import PAPER_EXAMPLE_PATH, PAPER_PATH
 from core.ports.market import quote_price
 from core.ports.signal import build_signal_pool
+from core.io_atomic import atomic_write_json
 
 DEFAULT_PAPER_PATH = PAPER_PATH
 EXAMPLE_PATH = PAPER_EXAMPLE_PATH
@@ -81,9 +82,7 @@ def holding_codes(paper: dict) -> List[str]:
 def save_paper(data: dict, path: Optional[str] = None) -> str:
     p = path or DEFAULT_PAPER_PATH
     data.pop("watchlist", None)
-    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    atomic_write_json(p, data)
     return p
 
 

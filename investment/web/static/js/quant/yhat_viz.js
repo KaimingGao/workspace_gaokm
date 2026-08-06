@@ -1257,3 +1257,243 @@ export function paintHitSparkline(canvas, points, opts = {}) {
   );
   return { n: pts.length, last: last.v };
 }
+
+/* ============================ 跨组对照矩阵 ============================ */
+
+/**
+ * 好坏色背景：t∈[-1,1]，正=绿（好），负=红（差），0=中性。
+ * 用 inline style 以适配深浅主题。
+ */
+function qualityCellBg(t) {
+  if (t == null || !Number.isFinite(t)) return "";
+  const c = Math.max(-1, Math.min(1, t));
+  const a = 0.1 + Math.abs(c) * 0.34;
+  if (c >= 0) return `background:rgba(4,120,87,${a.toFixed(3)})`;
+  return `background:rgba(185,28,28,${a.toFixed(3)})`;
+}
+
+/** 从 cluster 抽取健康指标（与 buildGroupIcInsightHtml 同口径）。 */
+function extractClusterHealth(cl) {
+  const ols = (cl && cl.ols) || null;
+  const rm = (cl && cl.return_model) || null;
+  const r2 =
+    ols && ols.r_squared != null && Number.isFinite(Number(ols.r_squared))
+      ? Number(ols.r_squared)
+      : rm && rm.r_squared != null && Number.isFinite(Number(rm.r_squared))
+        ? Number(rm.r_squared)
+        : null;
+  const sampleN =
+    ols && ols.sample_count != null
+      ? Number(ols.sample_count)
+      : rm && rm.sample_count != null
+        ? Number(rm.sample_count)
+        : cl && cl.member_count != null
+          ? Number(cl.member_count)
+          : null;
+
+  let icir = null;
+  const panel = cl && cl.factor_ic_panel ? cl.factor_ic_panel : null;
+  if (panel && panel.score_ic && panel.score_ic.pearson) {
+    const v = panel.score_ic.pearson.icir;
+    if (v != null && Number.isFinite(Number(v))) icir = Number(v);
+  }
+  if (icir == null && panel && Array.isArray(panel.rows)) {
+    const irs = panel.rows
+      .map((r) => Number(r && r.icir))
+      .filter((n) => Number.isFinite(n));
+    if (irs.length) icir = irs.reduce((s, x) => s + x, 0) / irs.length;
+  }
+
+  const gate = (cl && cl.oos_gate) || {};
+  const deltaOos =
+    !gate.skipped && gate.delta_oos_pp != null && Number.isFinite(Number(gate.delta_oos_pp))
+      ? Number(gate.delta_oos_pp)
+      : null;
+  const passed = !gate.skipped && !!gate.ok && !!gate.passed;
+  const skipped = !!gate.skipped;
+
+  const meanDist =
+    cl && cl.mean_distance_to_group_beta != null
+      ? Number(cl.mean_distance_to_group_beta)
+      : null;
+  const cap =
+    cl && cl.within_dist_cap != null ? Number(cl.within_dist_cap) : null;
+  let tightScore = null;
+  if (
+    meanDist != null &&
+    Number.isFinite(meanDist) &&
+    cap != null &&
+    Number.isFinite(cap) &&
+    cap > 0
+  ) {
+    tightScore = 1 - Math.min(1, meanDist / cap);
+  }
+
+  return { r2, icir, deltaOos, tightScore, meanDist, cap, sampleN, passed, skipped, gate };
+}
+
+/** 跨组健康矩阵：行=组，列=R²/ICIR/ΔOOS/同质/n/过门，色阶编码好坏。 */
+export function buildClustersHealthMatrixHtml(clusters, { escapeHtml } = {}) {
+  const esc = escapeHtml || ((s) => String(s ?? ""));
+  if (!Array.isArray(clusters) || !clusters.length) return "";
+
+  const rows = clusters.map((cl, idx) => {
+    const label = String(
+      (cl && cl.label) || `G${((cl && cl.cluster_id) ?? idx) + 1}`
+    );
+    const h = extractClusterHealth(cl);
+    return { label, ...h, singleton: !!(cl && (cl.outlier_singleton || cl.singleton)) };
+  });
+
+  // 列阈值：t∈[-1,1] 好坏归一
+  const tR2 = (v) => (v == null ? null : Math.max(-1, Math.min(1, (v - 0.3) / 0.4)));
+  const tIcir = (v) => (v == null ? null : Math.max(-1, Math.min(1, (v || 0) / 0.5)));
+  const tDelta = (v) => (v == null ? null : Math.max(-1, Math.min(1, (v || 0) / 1)));
+  const tTight = (v) => (v == null ? null : Math.max(-1, Math.min(1, (v || 0) * 2 - 1)));
+
+  const f2 = (x) => (x == null ? "—" : Number(x).toFixed(2));
+  const f3 = (x) => (x == null ? "—" : Number(x).toFixed(3));
+
+  const headCells = ["组", "R²", "ICIR", "ΔOOS", "同质", "n", "门"]
+    .map((c, i) => {
+      const tip = ["组标签", "组 OLS R²；≥0.7 绿", "组 IC 信息比；≥0.5 绿", "ŷ−heuristic 增益(pp)", "1−均β距/cap；越高越同质", "组样本数", "OOS 门禁"][i];
+      return `<th class="yhat-mx-th" title="${esc(tip)}">${esc(c)}</th>`;
+    })
+    .join("");
+
+  const bodyRows = rows
+    .map((r) => {
+      const nameCls = r.singleton ? " is-singleton" : "";
+      const gateCell = r.skipped
+        ? `<td class="yhat-mx-td is-skip" title="${esc(r.gate.reason || "skipped")}">跳</td>`
+        : `<td class="yhat-mx-td ${r.passed ? "is-pass" : "is-fail"}" title="${esc(r.gate.reason || (r.passed ? "通过" : "未过"))}">${r.passed ? "✓" : "✗"}</td>`;
+      const cells =
+        `<td class="yhat-mx-td${nameCls}" title="${esc(r.label)}">${esc(r.label)}</td>` +
+        `<td class="yhat-mx-td num" style="${qualityCellBg(tR2(r.r2))}" title="R² ${f3(r.r2)}">${esc(f2(r.r2))}</td>` +
+        `<td class="yhat-mx-td num" style="${qualityCellBg(tIcir(r.icir))}" title="ICIR ${f3(r.icir)}">${esc(f2(r.icir))}</td>` +
+        `<td class="yhat-mx-td num" style="${qualityCellBg(tDelta(r.deltaOos))}" title="ΔOOS ${r.deltaOos != null ? (r.deltaOos > 0 ? "+" : "") + r.deltaOos.toFixed(2) + "pp" : "—"}">${r.deltaOos == null ? "—" : esc((r.deltaOos > 0 ? "+" : "") + r.deltaOos.toFixed(2))}</td>` +
+        `<td class="yhat-mx-td num" style="${qualityCellBg(tTight(r.tightScore))}" title="均β距 ${f3(r.meanDist)}${r.cap != null ? " / cap " + f3(r.cap) : ""}">${r.tightScore == null ? (r.meanDist != null ? esc(f3(r.meanDist)) : "—") : esc(r.tightScore.toFixed(2))}</td>` +
+        `<td class="yhat-mx-td num" title="样本 n">${r.sampleN == null ? "—" : esc(String(r.sampleN))}</td>` +
+        gateCell;
+      return `<tr class="yhat-mx-row">${cells}</tr>`;
+    })
+    .join("");
+
+  const passN = rows.filter((r) => r.passed).length;
+  const skipN = rows.filter((r) => r.skipped).length;
+  const scoredN = rows.length - skipN;
+
+  return (
+    `<details class="yhat-mx yhat-mx-health" open>` +
+    `<summary class="yhat-mx-summary">` +
+    `<span class="yhat-mx-title">跨组健康矩阵</span>` +
+    `<span class="yhat-mx-meta">过门 ${passN}/${scoredN}${skipN ? ` · 跳过 ${skipN}` : ""} · 色阶=好坏</span>` +
+    `</summary>` +
+    `<p class="yhat-insight-hint">一眼判断哪组值得 promote · 行=组 · 列=R²/ICIR/ΔOOS/同质/n/门 · 悬停看明细</p>` +
+    `<div class="yhat-mx-scroll"><table class="yhat-mx-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table></div>` +
+    `</details>`
+  );
+}
+
+/** 因子 β 方向色：正=红（A 股涨），负=绿，0=灰。 */
+function betaCellBg(beta, peak) {
+  if (beta == null || !Number.isFinite(beta) || !peak) return "";
+  const t = Math.max(-1, Math.min(1, beta / peak));
+  const a = 0.08 + Math.abs(t) * 0.4;
+  if (t >= 0) return `background:rgba(185,28,28,${a.toFixed(3)})`;
+  return `background:rgba(4,120,87,${a.toFixed(3)})`;
+}
+
+/**
+ * 因子 β 跨组矩阵：行=因子，列=组，色阶=β 方向（红正绿负）。
+ * 同因子跨组符号反转 → 单元格加 is-flip 边框（全局不稳定因子）。
+ */
+export function buildFactorBetaMatrixHtml(
+  clusters,
+  { escapeHtml, maxFactors = 12 } = {}
+) {
+  const esc = escapeHtml || ((s) => String(s ?? ""));
+  if (!Array.isArray(clusters) || !clusters.length) return "";
+
+  const groups = clusters.map((cl, idx) => {
+    const label = String(
+      (cl && cl.label) || `G${((cl && cl.cluster_id) ?? idx) + 1}`
+    );
+    const rm = (cl && cl.return_model) || null;
+    const ols = (cl && cl.ols) || null;
+    const coefs =
+      (rm && rm.coefficients && typeof rm.coefficients === "object" && rm.coefficients) ||
+      (ols && ols.coefficients && typeof ols.coefficients === "object" && ols.coefficients) ||
+      {};
+    return { label, coefs };
+  });
+
+  // 因子并集，按跨组最大 |β| 排序
+  const factorMap = new Map();
+  for (const g of groups) {
+    for (const [k, v] of Object.entries(g.coefs || {})) {
+      const b = Number(v);
+      if (!Number.isFinite(b)) continue;
+      if (!factorMap.has(k)) factorMap.set(k, []);
+      factorMap.get(k).push(b);
+    }
+  }
+  if (!factorMap.size) return "";
+
+  const factorRows = Array.from(factorMap.entries())
+    .map(([name, betas]) => ({
+      name,
+      betas,
+      maxAbs: Math.max(...betas.map((b) => Math.abs(b)), 0),
+      hasFlip: betas.some((b) => b > 0) && betas.some((b) => b < 0),
+    }))
+    .sort((a, b) => b.maxAbs - a.maxAbs)
+    .slice(0, Math.max(3, maxFactors));
+
+  if (!factorRows.length) return "";
+
+  const peak = Math.max(...factorRows.map((r) => r.maxAbs), 1e-6);
+
+  const headCells =
+    `<th class="yhat-mx-th yhat-mx-th-factor" title="因子名">因子</th>` +
+    groups
+      .map(
+        (g) => `<th class="yhat-mx-th" title="${esc(g.label)}">${esc(g.label)}</th>`
+      )
+      .join("");
+
+  const bodyRows = factorRows
+    .map((r) => {
+      const flipCls = r.hasFlip ? " is-flip-row" : "";
+      const cells = groups
+        .map((g) => {
+          const b = g.coefs[r.name];
+          const v = b != null && Number.isFinite(Number(b)) ? Number(b) : null;
+          const flipCell = r.hasFlip && v != null ? " is-flip" : "";
+          const title = `${r.name} @ ${g.label}: ${v == null ? "—" : (v > 0 ? "+" : "") + v.toFixed(3)}`;
+          const txt = v == null ? "—" : (v > 0 ? "+" : "") + v.toFixed(2);
+          return `<td class="yhat-mx-td num${flipCell}" style="${betaCellBg(v, peak)}" title="${esc(title)}">${esc(txt)}</td>`;
+        })
+        .join("");
+      return (
+        `<tr class="yhat-mx-row${flipCls}">` +
+        `<td class="yhat-mx-td yhat-mx-td-factor${r.hasFlip ? " is-flip" : ""}" title="${esc(r.name)}${r.hasFlip ? " · 跨组符号反转" : ""}">${esc(r.name)}</td>` +
+        cells +
+        `</tr>`
+      );
+    })
+    .join("");
+
+  const flipN = factorRows.filter((r) => r.hasFlip).length;
+
+  return (
+    `<details class="yhat-mx yhat-mx-beta">` +
+    `<summary class="yhat-mx-summary">` +
+    `<span class="yhat-mx-title">因子 β 跨组矩阵</span>` +
+    `<span class="yhat-mx-meta">Top ${factorRows.length} · 符号反转 ${flipN} · 红正绿负</span>` +
+    `</summary>` +
+    `<p class="yhat-insight-hint">行=因子 · 列=组 · 红正绿负(A股) · 边框高亮=跨组符号反转(全局不稳定因子)</p>` +
+    `<div class="yhat-mx-scroll"><table class="yhat-mx-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table></div>` +
+    `</details>`
+  );
+}

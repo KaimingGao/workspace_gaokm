@@ -6,11 +6,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime
 from typing import Any, Dict, Optional
 
 from core.paths import QUANT_DAILY_PATH, QUANT_REPORTS_DIR, WATCHING_PATH
+
+logger = logging.getLogger(__name__)
 
 
 class QuantOpsMixin:
@@ -48,7 +51,7 @@ class QuantOpsMixin:
                         if hc and hc in codes:
                             holdings_by_code[hc] = dict(h)
             except Exception:
-                pass
+                logger.warning("运维操作异常", exc_info=True)
         # 评分留给 insights 填充；保持字段存在以免前端判空出错
         uni["watchlist_scores"] = {}
         uni["watchlist_holdings"] = holdings_by_code
@@ -242,7 +245,7 @@ class QuantOpsMixin:
 
             freeze_from_daily_report(payload)
         except Exception:
-            pass
+            logger.warning("运维后处理异常", exc_info=True)
         return QUANT_DAILY_PATH
 
     def freeze_score_ledger(self, as_of: Optional[str] = None) -> Dict[str, Any]:

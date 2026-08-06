@@ -9,15 +9,14 @@ from typing import Any, Dict, List, Optional
 
 from core.job_progress import job_registry
 from core.paths import DATA_DIR, SCHEDULE_LAST_RUN_PATH
+from core.io_atomic import atomic_write_json
 
 
 def _write_last_run(payload: Dict[str, Any]) -> str:
     parent = os.path.dirname(SCHEDULE_LAST_RUN_PATH)
     if parent:
         os.makedirs(parent, exist_ok=True)
-    with open(SCHEDULE_LAST_RUN_PATH, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    atomic_write_json(SCHEDULE_LAST_RUN_PATH, payload)
     return SCHEDULE_LAST_RUN_PATH
 
 

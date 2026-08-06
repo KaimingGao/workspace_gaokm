@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.paths import NORTH_STAR_LAST_BACKTEST_PATH
 from core.risk_metrics import _MIN_ALIGN, _parse_ts, _safe_float
+from core.io_atomic import atomic_write_json
 
 
 def _curve_points(curve: Sequence[dict]) -> List[Tuple[str, float]]:
@@ -114,9 +115,7 @@ def save_last_backtest_curve(
         "curve": slim,
         "meta": meta_out,
     }
-    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    atomic_write_json(p, payload)
     return p
 
 

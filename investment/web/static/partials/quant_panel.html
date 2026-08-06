@@ -40,9 +40,9 @@
       </label>
       <label
         class="platform-field quant-cluster-refresh"
-        title="默认勾选：过期/缺条日线限流拉网后再分组。取消=纯本地缓存重算（改 K/λ 更快；行情未变则分组几乎不变）。刷新浏览器页不会更新日线。"
+        title="默认不勾：纯本地缓存重算（改 K/λ 更快；24h 内同 watchlist 命中缓存秒级返回）。勾选=过期/缺条日线限流拉网后再分组（耗时 2-3 分钟）。"
       >
-        <input id="quant-cluster-refresh-bars" type="checkbox" checked />
+        <input id="quant-cluster-refresh-bars" type="checkbox" />
         刷新过期日线
       </label>
       <label

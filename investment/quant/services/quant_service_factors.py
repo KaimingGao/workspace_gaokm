@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 class QuantFactorMixin:
@@ -266,12 +269,15 @@ class QuantFactorMixin:
         collinearity_policy: str = "drop_redundant",
         progress_cb: Optional[Any] = None,
         refresh_bars: bool = True,
+        use_cache: bool = True,
     ) -> Dict[str, Any]:
         """研究池：β 聚类 → 组权 → 组内 OOS → 分组 score → 分池合成（不写 config）。
 
         默认：complete-linkage + τ 切树；β 因子维 z-score；PIT 默认开（FH5）；
         B5 respect_regime；B3 选 λ + drop_redundant。
         refresh_bars 默认 True：过期/缺条日线限流拉网（约 36h 内仍复用）；False=纯缓存重算。
+        P1 use_cache：refresh_bars=False 时默认启用 24h 报告缓存（watchlist+参数指纹未变即复用），
+        避免重复 OLS/OOS/分池计算；refresh_bars=True 强制跳过缓存。
         """
         from quant.research.factor_ols_clusters import (
             compute_factor_ols_cluster_report,
@@ -302,6 +308,42 @@ class QuantFactorMixin:
             watchlist = list((read_watching() or {}).get("watchlist") or [])
         except Exception:
             watchlist = []
+
+        # P1：24h 报告缓存（refresh_bars=False 且 use_cache=True 时启用）
+        cache_enabled = use_cache and not bool(refresh_bars)
+        cache_fp = None
+        if cache_enabled:
+            cache_fp = _cluster_cache_fingerprint(
+                watchlist,
+                lookback=lookback,
+                horizon_days=horizon_days,
+                n_clusters=n_clusters,
+                ridge_lambda=ridge_lambda,
+                pit_fundamentals=pit_fundamentals,
+                l2_normalize_betas=l2_normalize_betas,
+                beta_scale=beta_scale,
+                cluster_method=cluster_method,
+                cluster_linkage=cluster_linkage,
+                within_dist_quantile=within_dist_quantile,
+                run_oos_gate=run_oos_gate,
+                oos_tol_pp=oos_tol_pp,
+                run_group_score=run_group_score,
+                run_pool_merge=run_pool_merge,
+                top_n_per_group=top_n_per_group,
+                respect_regime=respect_regime,
+                select_ridge=select_ridge,
+                collinearity_policy=collinearity_policy,
+            )
+            cached = _load_cluster_cache(cache_fp, max_age_hours=24)
+            if cached is not None:
+                if progress_cb:
+                    try:
+                        progress_cb("命中 24h 缓存，直接复用", 1, 1)
+                    except Exception:
+                        logger.warning("因子服务处理异常", exc_info=True)
+                cached["cache_hit"] = True
+                cached["cache_age_hours"] = _cluster_cache_age_hours(cached)
+                return cached
 
         # 聚类宇宙 = 全部观察池（纸面持仓仅作落地映射参考，不进聚类）
         uni_meta = merge_cluster_universe(
@@ -371,6 +413,8 @@ class QuantFactorMixin:
             respect_regime=bool(respect_regime),
             select_ridge=bool(select_ridge),
             collinearity_policy=str(collinearity_policy or "drop_redundant"),
+            # P3：拟合并发对齐面板拉取（12），cold-cache 重算时缩短 CPU 段
+            max_workers=12,
             progress_cb=_on_progress,
         )
         report["task"] = "factor_ols_clusters"
@@ -460,6 +504,9 @@ class QuantFactorMixin:
         report["lookahead_flags"] = flags
         report["pit_fundamentals"] = bool(pit_fundamentals)
         report["fundamentals_pit_summary"] = flags.get("pit_summary")
+        # P1：成功则落盘缓存（refresh_bars=False 路径）
+        if cache_enabled and cache_fp and report.get("success"):
+            _save_cluster_cache(report, cache_fp)
         return report
 
     def start_factor_ols_cluster_job(self, **kwargs: Any) -> Dict[str, Any]:
@@ -969,3 +1016,154 @@ class QuantFactorMixin:
         suggestion["oos_scan"] = oos
         suggestion["config_diff"] = format_threshold_config_diff(suggestion)
         return suggestion
+
+
+# ---------- P1：分组报告 24h 缓存（watchlist+参数指纹未变即复用）----------
+
+
+def _cluster_cache_fingerprint(
+    watchlist: List[Any],
+    *,
+    lookback: int,
+    horizon_days: int,
+    n_clusters: Optional[int],
+    ridge_lambda: float,
+    pit_fundamentals: bool,
+    l2_normalize_betas: Optional[bool],
+    beta_scale: str,
+    cluster_method: str,
+    cluster_linkage: str,
+    within_dist_quantile: float,
+    run_oos_gate: bool,
+    oos_tol_pp: float,
+    run_group_score: bool,
+    run_pool_merge: bool,
+    top_n_per_group: int,
+    respect_regime: bool,
+    select_ridge: bool,
+    collinearity_policy: str,
+) -> str:
+    """watchlist 代码（排序）+ 关键参数 → 稳定指纹；任一变化即视为需重算。"""
+    import hashlib
+
+    codes = []
+    for item in watchlist or []:
+        if isinstance(item, dict):
+            c = str(item.get("code") or item.get("stock_code") or "").strip()
+        else:
+            c = str(item or "").strip()
+        if c:
+            codes.append(c)
+    codes = sorted(set(codes))
+    parts = [
+        f"codes={','.join(codes)}",
+        f"lb={int(lookback)}",
+        f"hz={int(horizon_days)}",
+        f"k={n_clusters if n_clusters is not None else 'auto'}",
+        f"ridge={float(ridge_lambda):.4f}",
+        f"pit={int(bool(pit_fundamentals))}",
+        f"l2n={l2_normalize_betas}",
+        f"bscale={beta_scale}",
+        f"cmethod={cluster_method}",
+        f"clink={cluster_linkage}",
+        f"wdq={float(within_dist_quantile):.3f}",
+        f"oos={int(bool(run_oos_gate))}",
+        f"oostol={float(oos_tol_pp):.3f}",
+        f"grp={int(bool(run_group_score))}",
+        f"pool={int(bool(run_pool_merge))}",
+        f"topn={int(top_n_per_group)}",
+        f"regime={int(bool(respect_regime))}",
+        f"sridge={int(bool(select_ridge))}",
+        f"colpol={collinearity_policy}",
+    ]
+    raw = "|".join(parts)
+    return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _cluster_cache_age_hours(report: Dict[str, Any]) -> Optional[float]:
+    """从缓存报告里的 created_at / cached_at 估算年龄（小时）。"""
+    from datetime import datetime, timezone
+
+    ts = report.get("cache_created_at") or report.get("created_at")
+    if not ts:
+        return None
+    try:
+        if isinstance(ts, str):
+            ts = ts.replace("Z", "+00:00")
+            dt = datetime.fromisoformat(ts)
+        elif isinstance(ts, datetime):
+            dt = ts
+        else:
+            return None
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        age = (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0
+        return round(max(0.0, age), 2)
+    except Exception:
+        return None
+
+
+def _load_cluster_cache(
+    fingerprint: str, *, max_age_hours: int = 24
+) -> Optional[Dict[str, Any]]:
+    """读缓存：指纹匹配 + 年龄未超限 → 返回报告（深拷贝避免被调用方污染）。"""
+    import json
+    import os
+
+    from core.paths import CLUSTER_REPORT_CACHE_PATH
+
+    if not fingerprint or not os.path.isfile(CLUSTER_REPORT_CACHE_PATH):
+        return None
+    try:
+        with open(CLUSTER_REPORT_CACHE_PATH, encoding="utf-8") as f:
+            doc = json.load(f)
+    except Exception:
+        return None
+    if not isinstance(doc, dict):
+        return None
+    if str(doc.get("fingerprint") or "") != str(fingerprint):
+        return None
+    report = doc.get("report")
+    if not isinstance(report, dict) or not report.get("success"):
+        return None
+    age = _cluster_cache_age_hours(doc) or 0.0
+    if age > float(max_age_hours):
+        return None
+    # 深拷贝避免上层把缓存对象改脏
+    try:
+        import copy
+
+        report = copy.deepcopy(report)
+    except Exception:
+        pass
+    report["cache_created_at"] = doc.get("cache_created_at") or doc.get("created_at")
+    return report
+
+
+def _save_cluster_cache(report: Dict[str, Any], fingerprint: str) -> None:
+    """落盘缓存：报告 + 指纹 + 时间戳（原子写）。"""
+    from datetime import datetime, timezone
+
+    from core.io_atomic import atomic_write_json
+    from core.paths import CLUSTER_REPORT_CACHE_PATH
+
+    if not fingerprint or not isinstance(report, dict) or not report.get("success"):
+        return
+    try:
+        import copy
+
+        report_copy = copy.deepcopy(report)
+    except Exception:
+        report_copy = report
+    # 去掉进度回调残留字段（不可序列化）
+    for k in ("progress_cb", "_progress_cb"):
+        report_copy.pop(k, None)
+    doc = {
+        "fingerprint": str(fingerprint),
+        "cache_created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "report": report_copy,
+    }
+    try:
+        atomic_write_json(CLUSTER_REPORT_CACHE_PATH, doc)
+    except Exception:
+        pass

@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from core.paths import DATA_DIR
 from core.portfolio_optimize import _sector_for, load_sector_map
+from core.io_atomic import atomic_write_json
 
 SECTOR_MAP_PATH = os.path.join(DATA_DIR, "sector_map.json")
 
@@ -16,9 +17,7 @@ def save_sector_map(mapping: Dict[str, str], *, path: Optional[str] = None) -> s
     p = path or SECTOR_MAP_PATH
     os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
     ordered = {k: mapping[k] for k in sorted(mapping.keys())}
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(ordered, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    atomic_write_json(p, ordered)
     return p
 
 

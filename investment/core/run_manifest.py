@@ -9,6 +9,7 @@ from datetime import datetime
 from typing import Any, Dict, Optional
 
 from core.paths import DATA_DIR
+from core.io_atomic import atomic_write_json
 
 MANIFEST_DIR = os.path.join(DATA_DIR, "run_manifests")
 
@@ -68,6 +69,5 @@ def write_run_manifest(manifest: Dict[str, Any], *, dir_path: Optional[str] = No
     fp = str(manifest.get("fingerprint") or "na")
     ts = str(manifest.get("ts") or _now_iso()).replace(":", "").replace("-", "")
     path = os.path.join(d, f"{kind}_{ts}_{fp}.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(manifest, f, ensure_ascii=False, indent=2)
+    atomic_write_json(path, manifest)
     return path

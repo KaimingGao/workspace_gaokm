@@ -344,6 +344,14 @@ export function installClusterProbe(q) {
           push(item.code || item.stock_code, item.name || item.stock_name || names[i] || "");
         }
       }
+      // 回填 watchingNameByCode，供后续 syncProbeCodeOptionsFromClusters 使用
+      for (let i = 0; i < wl.length; i++) {
+        const c = String(wl[i] || "").trim();
+        const nm = names[i] && String(names[i]).trim();
+        if (c && nm && !state.watchingNameByCode[c]) {
+          state.watchingNameByCode[c] = nm;
+        }
+      }
     } catch (_) {
       /* 离线/未建池时仍保留茅台选项 */
     }

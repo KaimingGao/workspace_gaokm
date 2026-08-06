@@ -10,6 +10,7 @@ import urllib.request
 from typing import Any, Dict, List, Optional
 
 from core.paths import DATA_DIR
+from core.io_atomic import atomic_write_json
 
 ALERTS_DIR = os.path.join(DATA_DIR, "alerts")
 ALERTS_LAST_PATH = os.path.join(DATA_DIR, "alerts_last.json")
@@ -23,11 +24,9 @@ def write_alert_file(payload: Dict[str, Any]) -> str:
     _ensure_dir()
     ts = time.strftime("%Y%m%d_%H%M%S")
     path = os.path.join(ALERTS_DIR, f"alert_{ts}.json")
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    atomic_write_json(path, payload)
     try:
-        with open(ALERTS_LAST_PATH, "w", encoding="utf-8") as f:
-            json.dump({**payload, "path": path}, f, ensure_ascii=False, indent=2)
+        atomic_write_json(ALERTS_LAST_PATH, {**payload, "path": path})
     except OSError:
         pass
     return path

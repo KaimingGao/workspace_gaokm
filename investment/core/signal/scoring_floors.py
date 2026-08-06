@@ -6,6 +6,8 @@ import json
 import os
 from typing import Any, Dict, Optional
 
+from core.io_atomic import atomic_write_json
+
 
 def save_scoring_floors(
     *,
@@ -48,10 +50,7 @@ def save_scoring_floors(
         }
 
     raw["scoring"] = scoring
-    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(raw, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    atomic_write_json(path, raw)
 
     # 清 load_signal_config 缓存
     import core.signal.config as cfg_mod

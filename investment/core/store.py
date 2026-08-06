@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.paths import STORE_DIR
+from core.io_atomic import atomic_write_json
 
 DAILY_SUBDIR = "daily"
 MINUTE_SUBDIR = "minute"
@@ -219,8 +220,7 @@ def save_daily_cache(
         "date_max": date_max,
         "adjust_policy": adjust_policy,
     }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    atomic_write_json(path, payload)
     return path
 
 
@@ -322,8 +322,7 @@ def save_snapshot_cache(
             if existing_history:
                 payload["history"] = existing_history
 
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    atomic_write_json(path, payload)
     return path
 
 
@@ -475,6 +474,5 @@ def save_minute_cache(
         "date_max": date_max,
         "adjust_policy": adjust_policy,
     }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    atomic_write_json(path, payload)
     return path

@@ -8,6 +8,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from core.paths import WATCHING_EXAMPLE_PATH, WATCHING_PATH
+from core.io_atomic import atomic_write_json
 
 
 def _now_iso() -> str:
@@ -68,9 +69,7 @@ def write_watching(data: dict, path: Optional[str] = None) -> str:
     p = path or WATCHING_PATH
     cleaned = validate_watching(data)
     cleaned["updated_at"] = _now_iso()
-    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(cleaned, f, ensure_ascii=False, indent=2)
+    atomic_write_json(p, cleaned)
     return p
 
 

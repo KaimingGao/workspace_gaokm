@@ -9,6 +9,8 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
+from core.io_atomic import atomic_write_json
+
 
 class JobProgress:
     def __init__(
@@ -88,10 +90,7 @@ class JobProgress:
                     "ops_report": result.get("ops_report"),
                     "rebalance_report": (result.get("rebalance_report") or [])[:30],
                 }
-            tmp = path + ".tmp"
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(payload, f, ensure_ascii=False, indent=2, default=str)
-            os.replace(tmp, path)
+            atomic_write_json(path, payload)
         except OSError:
             pass
 

@@ -7,6 +7,7 @@ import os
 from typing import Any, Dict, List, Optional, Sequence
 
 from core.paths import DATA_DIR
+from core.io_atomic import atomic_write_json
 
 UNIVERSE_PATH = os.path.join(DATA_DIR, "validation_universe.json")
 
@@ -52,10 +53,7 @@ def save_validation_universe(
     merged["include_only"] = [
         str(c).strip() for c in (merged.get("include_only") or []) if str(c).strip()
     ]
-    os.makedirs(os.path.dirname(p) or ".", exist_ok=True)
-    with open(p, "w", encoding="utf-8") as f:
-        json.dump(merged, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    atomic_write_json(p, merged)
     return {"ok": True, "path": p, "universe": merged}
 
 

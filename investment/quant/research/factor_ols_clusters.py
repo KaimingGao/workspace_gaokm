@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -28,6 +29,8 @@ from quant.research.factor_ols import (
     collect_subscore_forward_panel,
     fit_factor_ols_from_panel,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def clamp_n_clusters(value: Any, default: int = 3) -> int:
@@ -549,7 +552,7 @@ def compute_factor_ols_cluster_report(
         try:
             progress_cb(msg, cur, tot)
         except Exception:
-            pass
+            logger.warning("OLS 单票拟合异常", exc_info=True)
 
     def _fit_one(item: Dict[str, Any]) -> Tuple[str, Optional[Dict[str, Any]], Optional[Dict[str, Any]], Optional[str]]:
         code = str(item.get("code") or item.get("stock_code") or "").strip()
@@ -1164,7 +1167,7 @@ def _aggregate_sample_fingerprint(clusters: Sequence[Dict[str, Any]]) -> Dict[st
                         if int(float(n_part)) < 3:
                             continue
                     except Exception:
-                        pass
+                        logger.warning("聚类后处理异常", exc_info=True)
                 blockers.append(bs)
     # 全产物：总映射票数门槛仍用 3（至少覆盖若干票）；obs 用累加
     out = sample_fingerprint(

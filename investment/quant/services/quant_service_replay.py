@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional, Sequence
+
+logger = logging.getLogger(__name__)
 
 
 def _metrics_slice(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -378,7 +381,7 @@ class QuantReplayMixin:
 
             result = attach_source_audit(result, codes=list(stock_bars.keys()))
         except Exception:
-            pass
+            logger.warning("回测后处理异常", exc_info=True)
 
         try:
             from core.data_service import summarize_data_quality
@@ -424,7 +427,7 @@ class QuantReplayMixin:
                     meta={"trade_count": (result.get("metrics") or {}).get("trade_count")},
                 )
             except Exception:
-                pass
+                logger.warning("回测结果序列化异常", exc_info=True)
         # 线上下发：去掉嵌套 period trades（体积大）；保留腿级 sim_trades 供成交账
         if isinstance(result, dict):
             result.pop("trades", None)
@@ -490,7 +493,7 @@ class QuantReplayMixin:
                 meta={"pairs": len(pairs), "max_cells": max_n},
             )
         except Exception:
-            pass
+            logger.warning("回测导出异常", exc_info=True)
         for lookback, top_k in pairs:
             try:
                 raw = self.run_portfolio_backtest(

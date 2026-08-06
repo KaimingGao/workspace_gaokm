@@ -363,7 +363,7 @@ export function initQuant(ctx) {
         background.push(suggest.loadFactorPanel().catch(() => {}));
       }
       if (hasReplay) background.push(backtest.loadLastBacktestSnapshot().catch(() => {}));
-      // 研究枢纽：进页自动跑分组（主路径）；不预跑全局 IC
+      // 研究枢纽：进页自动跑分组（refresh_bars 默认 false → 24h 缓存命中秒级返回；未命中用本地日线重算 ~30s）
       if (page === "quant" && (els.quantFactorList || els.quantOlsClusters)) {
         background.push(cluster.bootstrapClusterHub().catch(() => {}));
       }

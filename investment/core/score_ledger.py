@@ -11,6 +11,8 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from core.io_atomic import atomic_write_json
+
 _YHAT_EPS = 0.05  # |ŷ| < ε → 无方向
 
 
@@ -251,8 +253,7 @@ def upsert_ledger_rows(
             "last_source": source,
         },
     }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    atomic_write_json(path, payload)
     return {
         "success": True,
         "as_of": d,
@@ -416,8 +417,7 @@ def fill_outcomes(
         "missing": missing,
         "by_code": by_code,
     }
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    atomic_write_json(path, payload)
     return {
         "success": True,
         "as_of": _date_key(as_of),

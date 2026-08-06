@@ -19,6 +19,7 @@ from core.paths import (
     SENTIMENT_LEXICON_PATH,
     WATCHING_PATH,
 )
+from core.io_atomic import atomic_write_json
 DEFAULT_TTL_SEC = 15 * 60
 MAX_BATCH = 20
 ALERT_SCORE_THRESHOLD = 0.6
@@ -208,9 +209,7 @@ def _read_cache(code: str) -> Optional[Dict[str, Any]]:
 def _write_cache(code: str, payload: Dict[str, Any]) -> str:
     os.makedirs(NEWS_STORE_DIR, exist_ok=True)
     path = _cache_path(code)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-        f.write("\n")
+    atomic_write_json(path, payload)
     try:
         append_headline_history(code, payload)
     except Exception:
