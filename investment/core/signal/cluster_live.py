@@ -711,6 +711,14 @@ def save_active_cluster_book(book: Sequence[Dict[str, Any]], *, meta: Optional[d
     }
     with open(CLUSTER_BOOK_ACTIVE_PATH, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
+    # 昨日复盘：按会话交易日冻结 ŷ 账本（失败不影响落书）
+    try:
+        from core.market_calendar import resolve_session_date
+        from core.score_ledger import freeze_from_cluster_book
+
+        freeze_from_cluster_book(as_of=resolve_session_date(), book_doc=payload)
+    except Exception:
+        pass
     return CLUSTER_BOOK_ACTIVE_PATH
 
 

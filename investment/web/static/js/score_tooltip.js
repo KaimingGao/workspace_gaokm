@@ -323,6 +323,92 @@ function formatReasonsSection(reasons) {
   return html;
 }
 
+const T0_FEAT_LABELS = {
+  gap_pct: "跳空 %",
+  yclose_loc: "昨收位置",
+  mom3_pct: "近3日动量 %",
+  gap_atr: "gap / ATR",
+  atr_pct: "ATR %",
+};
+
+/** 做 T 开盘方向分悬浮（≠ 选股 ŷ）。 */
+export function formatT0DirectionDetail(raw) {
+  const score = Number(raw && raw.direction_score);
+  const scoreTxt = Number.isFinite(score) ? fmtSigned(score, 2) : "—";
+  const dir = String((raw && raw.direction) || "");
+  const dirLabel =
+    dir === "long_t" ? "正 T" : dir === "reverse_t" ? "反 T" : dir || "—";
+  const enter =
+    raw && raw.dir_enter != null && Number.isFinite(Number(raw.dir_enter))
+      ? Number(raw.dir_enter)
+      : 0.35;
+  let decision = "低置信跳过";
+  if (Number.isFinite(score)) {
+    if (score >= enter) decision = "正 T（先卖后买）";
+    else if (score <= -enter) decision = "反 T（先买后卖）";
+  } else if (dir === "long_t" || dir === "reverse_t") {
+    decision = dirLabel;
+  }
+  let html = '<div class="score-detail">';
+  html +=
+    `<div class="score-hero">` +
+    `<div class="score-hero-label">做 T 方向分（表格「分」）</div>` +
+    `<div class="score-hero-value ${signCls(score)}">${escapeText(scoreTxt)}</div>` +
+    `<div class="score-hero-hint">约 -1～+1 · 开盘可用特征 · 无前视</div>` +
+    `<div class="score-hero-semantics">` +
+    `语义：决定当天正 T / 反 T / 跳过 · <strong>不是</strong> 选股 predicted_score（ŷ）` +
+    `</div>` +
+    `<div class="score-hero-gate">门槛 ±${escapeText(String(enter))} · 判定 ${escapeText(
+      decision
+    )}</div>` +
+    `</div>`;
+
+  const feats = (raw && raw.features) || (raw && raw.direction_features) || {};
+  const featKeys = ["gap_pct", "yclose_loc", "mom3_pct", "gap_atr", "atr_pct"];
+  const featRows = featKeys
+    .map((k) => {
+      const v = feats[k];
+      if (v == null || v === "") return "";
+      const n = Number(v);
+      const txt = Number.isFinite(n) ? fmtSigned(n, 2) : String(v);
+      return (
+        `<tr>` +
+        `<td class="score-fw-name">${escapeText(T0_FEAT_LABELS[k] || k)}</td>` +
+        `<td class="num score-fw-val ${signCls(n)}">${escapeText(txt)}</td>` +
+        `</tr>`
+      );
+    })
+    .filter(Boolean);
+  if (featRows.length) {
+    html +=
+      `<div class="score-factors-section">` +
+      `<div class="score-section-title">开盘特征</div>` +
+      `<table class="score-factor-weights"><tbody>${featRows.join("")}</tbody></table>` +
+      `<div class="score-hero-hint" style="margin-top:6px">权重默认 跳空0.45 · 昨位0.20 · mom3 0.20 · gap/ATR 0.15</div>` +
+      `</div>`;
+  }
+
+  const reason = String((raw && (raw.direction_reason || raw.reason)) || "").trim();
+  if (reason) {
+    html +=
+      `<div class="score-reasons-section">` +
+      `<div class="score-section-title">选向说明</div>` +
+      `<ul class="score-reasons"><li class="neutral">${escapeText(reason)}</li></ul>` +
+      `</div>`;
+  }
+
+  if (raw && raw.stock_code) {
+    html +=
+      `<div class="score-hero-hint">` +
+      `${escapeText(raw.stock_code)}` +
+      (raw.date ? ` · ${escapeText(raw.date)}` : "") +
+      (dirLabel !== "—" ? ` · ${escapeText(dirLabel)}` : "") +
+      `</div>`;
+  }
+  html += "</div>";
+  return html;
+}
+
 export function createScoreTooltipController() {
   let tipEl = null;
   let tipAnchor = null;
@@ -404,6 +490,20 @@ export function createScoreTooltipController() {
       raw = JSON.parse(cell.dataset.scoreDetail || "{}");
     } catch (_) {
       raw = {};
+    }
+    if (raw && raw.kind === "t0_direction") {
+      const html = formatT0DirectionDetail(raw);
+      hide();
+      const tip = document.createElement("div");
+      tip.className = "score-tooltip";
+      tip.innerHTML = html;
+      tip.setAttribute("role", "tooltip");
+      if (sticky) tip.dataset.sticky = "1";
+      document.body.appendChild(tip);
+      tipEl = tip;
+      tipAnchor = cell;
+      place(tip, cell);
+      return;
     }
     // 兼容旧字段名
     if (!raw.formula_terms && raw.score_formula_terms) {

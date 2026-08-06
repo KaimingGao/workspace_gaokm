@@ -249,6 +249,51 @@
       </div>
     </details>
   </section>
+
+  <section class="quant-section" aria-labelledby="quant-section-score-review-title">
+    <div class="quant-section-toolbar">
+      <h3 id="quant-section-score-review-title" class="watching-section-title">昨日复盘</h3>
+      <p class="quant-section-hint sub">
+        as_of=决策日 ŷ 方向 vs h 日实现收益 · 错票归因（因子失效 / 个股特异）· 不改权
+      </p>
+    </div>
+    <details class="quant-fold" id="quant-score-review-fold">
+      <summary id="quant-score-review-fold-summary">展开查看方向命中与错票</summary>
+      <div class="quant-section">
+        <div class="quant-section-toolbar">
+          <div class="quant-actions-inline">
+            <label class="quant-inline-label">
+              决策日
+              <input
+                type="date"
+                id="quant-score-review-asof"
+                class="quant-inline-input"
+                title="as_of：打分决策日"
+              />
+            </label>
+            <label class="quant-inline-label">
+              horizon
+              <select id="quant-score-review-horizon" class="quant-inline-input" title="前瞻收益天数">
+                <option value="1">1 日</option>
+                <option value="3" selected>3 日</option>
+              </select>
+            </label>
+            <button type="button" id="quant-score-review-run" class="dialog-btn">刷新复盘</button>
+            <button type="button" id="quant-score-review-fill" class="dialog-btn secondary">
+              回填收益
+            </button>
+            <button type="button" id="quant-score-ledger-freeze" class="dialog-btn secondary">
+              冻结今日打分
+            </button>
+          </div>
+        </div>
+        <p id="quant-score-review-status" class="quant-fingerprint">尚未加载</p>
+        <div id="quant-score-review-summary" class="quant-summary"></div>
+        <div id="quant-score-review-blame" class="quant-weight-table-wrap sub"></div>
+        <div id="quant-score-review-table" class="quant-weight-table-wrap"></div>
+      </div>
+    </details>
+  </section>
 </div>
 
 <button type="button" id="quant-factor-run" class="sr-only" tabindex="-1" aria-hidden="true">IC</button>

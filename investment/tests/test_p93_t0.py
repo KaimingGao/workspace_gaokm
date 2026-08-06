@@ -608,6 +608,7 @@ class TestT0Api(unittest.TestCase):
         with open(path, "r", encoding="utf-8") as f:
             text = f.read()
         self.assertIn("paper-t0-backtest", text)
+        self.assertIn("paper-t0-action-status", text)
         self.assertIn("paper-t0-run", text)
         self.assertIn("paper-t0-confirm", text)
         self.assertIn("预演做T", text)

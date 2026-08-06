@@ -199,6 +199,7 @@ def rank_cluster_pools(
             "stock_name": item.get("stock_name"),
             "score": sc_f,
             "predicted_score": item.get("predicted_score"),
+            "heuristic_score": item.get("heuristic_score"),
             "cluster_label": str(label),
             "cluster_id": item.get("cluster_id"),
             "weight_source": item.get("weight_source"),
@@ -206,6 +207,7 @@ def rank_cluster_pools(
             "delta_vs_global": item.get("delta_vs_global"),
             "below_min_score": below,
             "return_model_source": item.get("return_model_source"),
+            "score_formula_terms": item.get("score_formula_terms"),
         }
         mapped_rows.append(row)
         by_label.setdefault(str(label), []).append(row)

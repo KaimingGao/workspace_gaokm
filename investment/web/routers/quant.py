@@ -35,6 +35,9 @@ from web.schemas import (
     PortfolioBacktestRequest,
     QuantInterpretRequest,
     QuantReportRequest,
+    ScoreLedgerFreezeRequest,
+    ScoreOutcomesFillRequest,
+    ScoreReviewRequest,
     ReturnModelFitRequest,
     ReturnModelPromoteRequest,
     T0BacktestRequest,
@@ -73,6 +76,10 @@ def quant_t0_backtest(body: T0BacktestRequest):
             rules["direction"] = body.direction
         if body.path_mode:
             rules["path_mode"] = body.path_mode
+        if body.dir_enter is not None:
+            rules["dir_enter"] = body.dir_enter
+        if body.min_range_pct is not None:
+            rules["min_range_pct"] = body.min_range_pct
 
         code = (body.code or "").strip()
         from_paper = bool(body.from_paper)
@@ -530,6 +537,70 @@ def quant_interpret(body: QuantInterpretRequest):
     if not result.get("success"):
         raise HTTPException(status_code=503, detail=result.get("error") or "解读失败")
     return result
+
+
+@router.get("/api/quant/score-review/dates")
+def quant_score_review_dates(limit: int = 30):
+    """已冻结打分账本日期列表。"""
+    try:
+        return deps.quant.list_score_ledger_dates(limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/score-review")
+def quant_score_review(
+    as_of: Optional[str] = None,
+    horizon_days: int = 3,
+    autofill: bool = True,
+):
+    """昨日复盘：ŷ 方向 vs 前瞻收益。"""
+    try:
+        return deps.quant.build_score_review(
+            as_of=as_of,
+            horizon_days=horizon_days,
+            autofill=autofill,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/score-review")
+def quant_score_review_post(body: ScoreReviewRequest):
+    try:
+        return deps.quant.build_score_review(
+            as_of=body.as_of,
+            horizon_days=body.horizon_days,
+            autofill=body.autofill,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/score-ledger/freeze")
+def quant_score_ledger_freeze(body: ScoreLedgerFreezeRequest):
+    """从当前集群书冻结打分账本。"""
+    try:
+        out = deps.quant.freeze_score_ledger(as_of=body.as_of)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not out.get("success"):
+        raise HTTPException(status_code=404, detail=out.get("error") or "冻结失败")
+    return out
+
+
+@router.post("/api/quant/score-outcomes/fill")
+def quant_score_outcomes_fill(body: ScoreOutcomesFillRequest):
+    """回填 realized / sign_hit。"""
+    try:
+        out = deps.quant.fill_score_outcomes(
+            as_of=body.as_of, horizon_days=body.horizon_days
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not out.get("success"):
+        raise HTTPException(status_code=404, detail=out.get("error") or "回填失败")
+    return out
 
 
 @router.get("/api/quant/export")

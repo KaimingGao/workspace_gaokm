@@ -95,6 +95,12 @@ class T0BacktestRequest(BaseModel):
     fill_mode: Optional[str] = Field(default=None, max_length=16)
     direction: Optional[str] = Field(default=None, max_length=16)
     path_mode: Optional[str] = Field(default=None, max_length=16)
+    dir_enter: Optional[float] = Field(
+        default=None, ge=0.05, le=1.0, description="signal 入场门槛 |score|；默认 0.35"
+    )
+    min_range_pct: Optional[float] = Field(
+        default=None, ge=0.2, le=30.0, description="振幅下限%；空=自动 max(卖+买)*0.6"
+    )
     compare_optimistic: bool = True
     use_minute: bool = True
     compare_daily: bool = True
@@ -120,6 +126,8 @@ class PaperExecutionPatchRequest(BaseModel):
     fill_mode: Optional[str] = None
     direction: Optional[str] = None
     path_mode: Optional[str] = None
+    dir_enter: Optional[float] = None
+    min_range_pct: Optional[float] = None
     use_atr: Optional[bool] = None
 
 
@@ -513,3 +521,24 @@ class QuantInterpretRequest(BaseModel):
     code: str = "茅台"
     save_before_interpret: bool = False
     offline: bool = False
+
+
+class ScoreReviewRequest(BaseModel):
+    """昨日复盘：as_of=决策日；horizon=前瞻收益天数。"""
+
+    as_of: Optional[str] = Field(
+        default=None, description="决策日 YYYY-MM-DD；默认上一交易日"
+    )
+    horizon_days: int = Field(default=3, ge=1, le=10)
+    autofill: bool = Field(default=True, description="缺 outcomes 时自动用日线回填")
+
+
+class ScoreLedgerFreezeRequest(BaseModel):
+    as_of: Optional[str] = Field(
+        default=None, description="冻结日；默认当前会话交易日"
+    )
+
+
+class ScoreOutcomesFillRequest(BaseModel):
+    as_of: Optional[str] = None
+    horizon_days: int = Field(default=3, ge=1, le=10)

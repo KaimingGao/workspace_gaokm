@@ -59,6 +59,7 @@ import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
 import { installStrategy } from "./quant/domain_strategy.js";
 import { installExportInterpret } from "./quant/domain_export.js";
+import { installScoreReview } from "./quant/domain_score_review.js";
 
 /** Quant research panel — shell + domain installs. */
 export function initQuant(ctx) {
@@ -258,12 +259,14 @@ export function initQuant(ctx) {
   const suggest = installSuggest(q);
   const strategy = installStrategy(q);
   const exportDomain = installExportInterpret(q);
+  const scoreReviewDomain = installScoreReview(q);
   q.watching = watching;
   q.backtest = backtest;
   q.cluster = cluster;
   q.suggest = suggest;
   q.strategy = strategy;
   q.exportDomain = exportDomain;
+  q.scoreReviewDomain = scoreReviewDomain;
 
   cluster.wireOosGateTips(els.quantOlsClusters);
   cluster.wireOosGateTips(els.quantFactorList);

@@ -233,7 +233,7 @@
       <summary>做 T（可选）</summary>
       <div class="quant-section">
         <div id="paper-t0-summary" class="quant-summary">
-          底仓 overlay 验证 · 日线代理 · 预演后确认 · 非独立选股 · 非实盘
+          底仓 overlay 验证 · 日线代理 · 预演后确认 · 非独立选股 · 非实盘。明细「分」= 开盘方向分（跳空等），≠ 选股 ŷ。
         </div>
         <div id="paper-t0-rules" class="paper-t0-rules" aria-label="生效做T规则"></div>
         <details class="quant-fold follow-fold" id="paper-t0-edit-fold">
@@ -256,7 +256,31 @@
                 <span>买触发%</span>
                 <input type="number" name="buy_trigger_pct" min="0.1" max="20" step="0.1" value="1.5" />
               </label>
-              <label class="paper-t0-field">
+              <label
+                class="paper-t0-field"
+                title="|方向分|≥此值才入场；调低→更少信号跳过。默认 0.35"
+              >
+                <span>入场门槛</span>
+                <input type="number" name="dir_enter" min="0.05" max="1" step="0.05" value="0.35" />
+              </label>
+              <label
+                class="paper-t0-field"
+                title="日振幅%下限；空=自动 max(卖+买)×0.6。调低→更少振幅跳过"
+              >
+                <span>振幅下限%</span>
+                <input
+                  type="number"
+                  name="min_range_pct"
+                  min="0.2"
+                  max="30"
+                  step="0.1"
+                  placeholder="自动"
+                />
+              </label>
+              <label
+                class="paper-t0-field"
+                title="signal：开盘方向分（跳空/昨位/mom3/gap·ATR）；≠ 选股 predicted_score"
+              >
                 <span>选向</span>
                 <select name="direction">
                   <option value="signal">signal</option>
@@ -273,7 +297,10 @@
                   <option value="optimistic">optimistic</option>
                 </select>
               </label>
-              <label class="paper-t0-field">
+              <label
+                class="paper-t0-field"
+                title="日线无先后时 veto 最严；研究可改 dual_touch。做T回测直接读此表单，无需先保存"
+              >
                 <span>路径</span>
                 <select name="path_mode">
                   <option value="dual_touch">dual_touch</option>
@@ -293,6 +320,10 @@
               <label class="paper-t0-field">
                 <span>ATR 调阈</span>
                 <input type="checkbox" name="use_atr" checked />
+              </label>
+              <label class="paper-t0-field" title="仅做T回测；不写入账本覆盖">
+                <span>回测窗</span>
+                <input type="number" name="lookback" min="20" max="500" step="5" value="30" />
               </label>
             </div>
             <div class="quant-actions-inline">
@@ -318,10 +349,11 @@
             type="button"
             id="paper-t0-backtest"
             class="dialog-btn secondary"
-            title="默认回测全部持仓；按住 Alt 再点 = 仅测当前选中行"
+            title="默认日线代理回测全部持仓（快）；Alt+点 = 仅选中行并尝试 5m 路径"
           >
             做T回测
           </button>
+          <span id="paper-t0-action-status" class="quant-sub" aria-live="polite"></span>
         </div>
       </div>
     </details>

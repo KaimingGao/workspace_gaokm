@@ -3242,6 +3242,7 @@ a.dialog-btn[aria-disabled="true"] {
 .rebalance-decision-tag.has-tip,
 .watching-score-cell.has-tip,
 .paper-hold-score.has-tip,
+.paper-t0-dir-score.has-tip,
 .quant-cluster-tag.has-oos-tip,
 .sub.has-oos-tip {
   cursor: help;
@@ -4011,6 +4012,13 @@ canvas#paper-chart-fallback[hidden] {
 .rebalance-score.below-min {
   opacity: 0.85;
   text-decoration: underline dotted;
+}
+
+.paper-holdings-table td.paper-hold-score.score-reject,
+.watching-score-cell.paper-hold-score.score-reject,
+.rebalance-score.score-reject {
+  color: #b45309;
+  font-weight: 600;
 }
 
 .watching-score-cell.paper-hold-score {
@@ -9536,6 +9544,58 @@ a.hub-card:hover {
   align-items: center;
   gap: 8px;
   margin-top: 8px;
+}
+
+.quant-inline-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--ink-3, #6b7280);
+}
+
+.quant-inline-input {
+  min-width: 7.5rem;
+  padding: 4px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--line, #d1d5db);
+  background: var(--bg, #fff);
+  font-size: 0.78rem;
+  color: var(--ink-2, #374151);
+}
+
+.quant-metric-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  margin: 8px 0;
+  font-size: 0.8rem;
+  color: var(--ink-2, #374151);
+}
+
+.quant-metric-strip b {
+  font-weight: 600;
+  color: var(--ink, #111827);
+}
+
+.quant-mini-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+  margin: 8px 0 12px;
+}
+
+.quant-mini-table th,
+.quant-mini-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--line, #e5e7eb);
+  text-align: left;
+}
+
+.quant-mini-table th.num,
+.quant-mini-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
 }
 
 .quant-ops-preset-label {

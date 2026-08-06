@@ -113,6 +113,37 @@ def next_trading_day(
     return ""
 
 
+def prev_trading_day(
+    date_str: str,
+    *,
+    n: int = 1,
+    store_dir: Optional[str] = None,
+    holidays: Optional[Set[str]] = None,
+) -> str:
+    """从 date_str 起向前找第 n 个交易日（不含当日）。"""
+    from datetime import timedelta
+
+    d = _date_key(date_str)
+    if not d:
+        return ""
+    try:
+        dt = datetime.strptime(d, "%Y-%m-%d")
+    except ValueError:
+        return ""
+    hol = holidays if holidays is not None else _load_holidays(store_dir)
+    left = max(1, int(n or 1))
+    guard = 0
+    while left > 0 and guard < 400:
+        dt -= timedelta(days=1)
+        guard += 1
+        k = dt.strftime("%Y-%m-%d")
+        if is_trading_day(k, holidays=hol):
+            left -= 1
+            if left == 0:
+                return k
+    return ""
+
+
 def resolve_session_date(
     *,
     now: Optional[datetime] = None,

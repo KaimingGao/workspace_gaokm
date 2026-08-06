@@ -60,6 +60,8 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None):
             ("fill_mode", req.fill_mode),
             ("direction", req.direction),
             ("path_mode", req.path_mode),
+            ("dir_enter", req.dir_enter),
+            ("min_range_pct", req.min_range_pct),
             ("use_atr", req.use_atr),
         ):
             if v is not None and k not in t0:

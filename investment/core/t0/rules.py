@@ -505,6 +505,7 @@ def simulate_t0_day(
                 "direction_used": None,
                 "direction_score": dir_res.get("direction_score"),
                 "direction_reason": dir_res.get("direction_reason"),
+                "direction_features": dir_res.get("features"),
                 "signal_skip": True,
                 "range_pct": round(range_pct, 4),
             },
@@ -520,6 +521,7 @@ def simulate_t0_day(
                 "direction_used": direction,
                 "direction_score": dir_res.get("direction_score"),
                 "direction_reason": dir_res.get("direction_reason"),
+                "direction_features": dir_res.get("features"),
                 "path_mode": cfg_day.get("path_mode"),
                 "path_bias": path_res.get("path_bias"),
                 "range_pct": round(range_pct, 4),
@@ -571,6 +573,7 @@ def simulate_t0_day(
         out["intraday_path"] = intraday_path
         out["direction_score"] = dir_res.get("direction_score")
         out["direction_reason"] = dir_res.get("direction_reason")
+        out["direction_features"] = dir_res.get("features")
     return out
 
 

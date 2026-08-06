@@ -342,6 +342,80 @@ class TestClusterSellHysteresis(unittest.TestCase):
             note = (result["sell_trades"][0].get("note") or "")
             self.assertIn("卖出门槛", note)
 
+    def test_cluster_hard_reject_sells(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            init_from_example(path)
+            paper = load_paper(path)
+            paper["holdings"] = [
+                {
+                    "stock_code": "601138",
+                    "stock_name": "工业富联",
+                    "shares": 100,
+                    "cost": 50.0,
+                    "bought_at": "2026-01-01T10:00:00",
+                },
+                {
+                    "stock_code": "000739",
+                    "stock_name": "高分",
+                    "shares": 100,
+                    "cost": 10.0,
+                    "bought_at": "2026-01-01T10:00:00",
+                },
+            ]
+            paper["cash"] = 200000.0
+            paper["rules"] = {
+                **(paper.get("rules") or {}),
+                "max_positions": 5,
+                "position_pct": 0.2,
+            }
+            ranking = [{"stock_code": "000739", "stock_name": "高分", "score": 1.87}]
+            score_lookup = [
+                {"stock_code": "000739", "score": 1.87},
+                {
+                    "stock_code": "601138",
+                    "score": None,
+                    "hard_reject": True,
+                    "reject_reason": "近3日涨幅过大(17.6%)，短线追高风险高",
+                },
+            ]
+
+            def fake_query(code):
+                return {
+                    "success": True,
+                    "stock_code": str(code),
+                    "stock_name": str(code),
+                    "price_raw": 20.0,
+                }
+
+            with patch(
+                "skills.common.quote_api.StockAPI.query", side_effect=fake_query
+            ), patch(
+                "core.ports.market.query_quote", side_effect=fake_query
+            ), patch(
+                "core.paper_rebalance._quote_price",
+                side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
+            ), patch(
+                "core.risk.check_account_risk",
+                return_value={"ok": True, "blocks": [], "warnings": []},
+            ):
+                result = simulate_cross_section_rebalance(
+                    paper,
+                    ranking,
+                    top_k=1,
+                    min_score=1.0,
+                    respect_max_positions=False,
+                    score_lookup=score_lookup,
+                )
+
+            self.assertTrue(result["success"])
+            sold = {t["stock_code"]: t for t in result.get("sell_trades") or []}
+            self.assertIn("601138", sold)
+            self.assertIn("追高", sold["601138"].get("note") or "")
+            held = {h["stock_code"] for h in paper["holdings"]}
+            self.assertNotIn("601138", held)
+            self.assertIn("000739", held)
+
 
 if __name__ == "__main__":
     unittest.main()

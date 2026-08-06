@@ -140,12 +140,16 @@ export function buildPaperHoldingsTableHtml({
       const startDate = h.bought_date || "—";
       const score = h.score;
       const belowMin = !!h.below_min_score;
+      const hardReject = !!h.hard_reject;
       const scoreBase = fmtScoreLocal(score);
-      const scoreShown =
+      let scoreShown =
         scoreBase !== "—" && belowMin ? `${scoreBase}↓` : scoreBase;
-      const scoreTitle = belowMin
-        ? `低于选股门槛 ${h.min_score ?? "—"}（仍显示分数）· 悬停看详情`
-        : "悬停查看收益分与因子系数";
+      if (scoreShown === "—" && hardReject) scoreShown = "拒";
+      const scoreTitle = hardReject
+        ? String(h.reject_reason || "硬拒绝 · 无收益分")
+        : belowMin
+          ? `低于选股门槛 ${h.min_score ?? "—"}（仍显示分数）· 悬停看详情`
+          : "悬停查看收益分与因子系数";
       const origin = String(h.origin || "");
       const originLabel = h.origin_label || "—";
       const originTitle = ORIGIN_HINT[origin] || "早期记录未标出处";
@@ -195,7 +199,7 @@ export function buildPaperHoldingsTableHtml({
         )}</td>` +
         `<td class="num paper-hold-score ${scoreCls(score)}${
           belowMin ? " score-below-min" : ""
-        }" ` +
+        }${hardReject ? " score-reject" : ""}" ` +
         `data-score-detail="${escapeText(
           JSON.stringify({
             formula: h.score_formula || "",

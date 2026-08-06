@@ -237,7 +237,54 @@ class QuantOpsMixin:
             payload["generated_at"] = datetime.now().isoformat(timespec="seconds")
         with open(QUANT_DAILY_PATH, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False, indent=2)
+        try:
+            from core.score_ledger import freeze_from_daily_report
+
+            freeze_from_daily_report(payload)
+        except Exception:
+            pass
         return QUANT_DAILY_PATH
+
+    def freeze_score_ledger(self, as_of: Optional[str] = None) -> Dict[str, Any]:
+        """手动冻结今日/指定日打分账本（书 + 可选横截面）。"""
+        from core.score_ledger import freeze_from_cluster_book
+
+        return freeze_from_cluster_book(as_of=as_of)
+
+    def fill_score_outcomes(
+        self,
+        as_of: Optional[str] = None,
+        *,
+        horizon_days: int = 3,
+    ) -> Dict[str, Any]:
+        from core.score_ledger import default_as_of, fill_outcomes
+
+        return fill_outcomes(as_of or default_as_of(), horizon_days=horizon_days)
+
+    def build_score_review(
+        self,
+        as_of: Optional[str] = None,
+        *,
+        horizon_days: int = 3,
+        autofill: bool = True,
+    ) -> Dict[str, Any]:
+        from core.score_ledger import build_score_review, default_as_of
+
+        return build_score_review(
+            as_of or default_as_of(),
+            horizon_days=horizon_days,
+            autofill=autofill,
+        )
+
+    def list_score_ledger_dates(self, *, limit: int = 30) -> Dict[str, Any]:
+        from core.score_ledger import default_as_of, list_ledger_dates
+
+        dates = list_ledger_dates(limit=limit)
+        return {
+            "success": True,
+            "dates": dates,
+            "default_as_of": default_as_of(),
+        }
 
     def save_report_exports(
         self,

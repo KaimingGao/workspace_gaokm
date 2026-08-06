@@ -51,6 +51,18 @@ def _rebalance_report_from_legs(
         code = str(t.get("stock_code") or "")
         if code and code not in score_by and t.get("score") is not None:
             score_by[code] = t.get("score")
+    hard_by = {
+        str(r.get("stock_code")): str(r.get("reject_reason") or "硬拒绝")
+        for r in display_rows
+        if r.get("stock_code") and r.get("hard_reject")
+    }
+    for t in sell_trades or []:
+        code = str(t.get("stock_code") or "")
+        note = str(t.get("note") or "")
+        if code and code not in hard_by and (
+            t.get("hard_reject") or "追高" in note or "硬拒绝" in note
+        ):
+            hard_by[code] = note or "硬拒绝"
     book_codes = {
         str(r.get("stock_code"))
         for r in ranking or []
@@ -104,14 +116,26 @@ def _rebalance_report_from_legs(
             reason = skip_by[code].get("reason") or "风险预算跳过"
         elif abs(n - o) < 1e-9:
             decision = "持有"
-            reason = "仍在目标簿内" if code in book_codes else "未变动"
+            if code in book_codes:
+                reason = "仍在目标簿内"
+            elif code in hard_by:
+                reason = hard_by[code]
+            elif score_by.get(code) is not None:
+                reason = "未进目标簿 · 滞回持有"
+            else:
+                reason = "未纳入本轮打分"
         rank_row = row_by.get(code) or {}
         label = rank_row.get("cluster_label")
         # 字段名与 paper_cycle / 交易执行页 renderRebalanceReport 对齐
         delta = n - o
         if not reason:
             if abs(delta) < 1e-9:
-                reason = "仍在目标簿内" if code in book_codes else "未变动"
+                if code in book_codes:
+                    reason = "仍在目标簿内"
+                elif score_by.get(code) is not None:
+                    reason = "未进目标簿 · 滞回持有"
+                else:
+                    reason = "未纳入本轮打分"
             elif delta > 0:
                 reason = "分池调仓买入"
             else:
@@ -125,6 +149,7 @@ def _rebalance_report_from_legs(
             "舆情先验" in str(reason or "")
             or "sentiment_prior" in str(reason or "")
         )
+        hard_flag = bool(rank_row.get("hard_reject") or code in hard_by)
         rows.append(
             {
                 "stock_code": code,
@@ -149,6 +174,8 @@ def _rebalance_report_from_legs(
                 if rank_row.get("score_cluster") is not None
                 else rank_row.get("score"),
                 "below_min_score": below,
+                "hard_reject": hard_flag,
+                "reject_reason": rank_row.get("reject_reason") or hard_by.get(code),
                 "sentiment_prior": bool(prior_flag)
                 if (code in sell_by or code in skip_by)
                 else False,

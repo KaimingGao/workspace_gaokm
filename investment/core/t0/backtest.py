@@ -150,14 +150,15 @@ def backtest_t0_on_bars(
             }
 
     primary.update(derive_t0_quality_metrics(primary))
+    path_mode = cfg.get("path_mode") or "veto"
     path_note = (
         "有分钟日：5m 第一触达；缺分钟日回退日线 path_mode；"
         if minute_by_date
-        else "日线代理 path_mode=veto；"
+        else f"日线代理 path_mode={path_mode}；"
     )
     primary["note"] = (
         "底仓做T回测；默认 trigger 成交；"
-        "direction=signal：开盘隔夜特征打分，低置信跳过；"
+        f"direction={cfg.get('direction')} · dir_enter={cfg.get('dir_enter')}；"
         + path_note
         + "T+1 简化；非实盘、不保证收益。"
         "主指标看含敞口净PnL / 完成往返率 / 参与率 / 敞口。"
@@ -261,6 +262,7 @@ def _walk_t0(
                     "exposure_pnl": 0,
                     "direction_score": day.get("direction_score"),
                     "direction_reason": day.get("direction_reason"),
+                    "direction_features": day.get("direction_features"),
                     "signal_skip": bool(day.get("signal_skip")),
                     "path_mode": day.get("path_mode") or day_rules.get("path_mode"),
                     "minute_path": used_minute,
@@ -323,6 +325,7 @@ def _walk_t0(
                 "atr_pct": day.get("atr_pct"),
                 "direction_score": day.get("direction_score"),
                 "direction_reason": day.get("direction_reason"),
+                "direction_features": day.get("direction_features"),
                 "path_mode": day.get("path_mode") or day_rules.get("path_mode"),
                 "minute_path": used_minute,
                 "touch_sell_at": day.get("touch_sell_at"),
@@ -383,6 +386,7 @@ def _walk_t0(
             "path_mode": cfg.get("path_mode"),
             "minute_period": cfg.get("minute_period"),
             "dir_enter": cfg.get("dir_enter"),
+            "min_range_pct": cfg.get("min_range_pct"),
             "use_atr": cfg.get("use_atr"),
             "ref": cfg.get("ref"),
         },

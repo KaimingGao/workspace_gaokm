@@ -23,14 +23,18 @@ export function holdingToRow(
   const score = h.score;
   const belowMin = !!h.below_min_score;
   const minScore = h.min_score;
+  const hardReject = !!h.hard_reject;
   const scoreBase = fmtScore(score);
-  const scoreText =
+  let scoreText =
     scoreBase !== "—" && belowMin ? `${scoreBase}↓` : scoreBase;
+  if (scoreText === "—" && hardReject) scoreText = "拒";
   const origin = String(h.origin || "");
   const mv = Number(h.market_value ?? h.market_value_approx);
-  const scoreTitle = belowMin
-    ? `低于选股门槛 ${minScore ?? "—"}（仍显示分数）· 悬停看详情`
-    : "悬停查看收益分与因子系数";
+  const scoreTitle = hardReject
+    ? String(h.reject_reason || "硬拒绝 · 无收益分")
+    : belowMin
+      ? `低于选股门槛 ${minScore ?? "—"}（仍显示分数）· 悬停看详情`
+      : "悬停查看收益分与因子系数";
   return {
     code,
     name,
@@ -45,7 +49,9 @@ export function holdingToRow(
     marketValueNum: Number.isFinite(mv) ? mv : null,
     scoreText,
     scoreNum: score != null && Number.isFinite(Number(score)) ? Number(score) : null,
-    scoreCls: `${scoreCls(score)}${belowMin ? " score-below-min" : ""}`,
+    scoreCls: `${scoreCls(score)}${belowMin ? " score-below-min" : ""}${
+      hardReject ? " score-reject" : ""
+    }`,
     scoreTitle,
     scoreDetail: JSON.stringify({
       formula: h.score_formula || "",

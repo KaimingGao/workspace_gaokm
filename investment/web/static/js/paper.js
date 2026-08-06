@@ -31,6 +31,7 @@ import {
   renderExecutionRulesHtml,
   fillExecutionForm,
   collectExecutionForm,
+  collectT0BacktestBody,
   renderExecutionDiffHtml,
 } from "./paper/execution_ui.js";
 import { buildPaperLogsView } from "./paper/logs_ui.js";
@@ -1185,6 +1186,13 @@ export function initPaper(ctx) {
     });
   }
 
+  const paperT0DaysHost = document.getElementById("paper-t0-days");
+  if (paperT0DaysHost) {
+    scoreTips.bindHost(paperT0DaysHost, {
+      scoreSelector: ".paper-t0-dir-score[data-score-detail]",
+    });
+  }
+
   async function openPaperDialog() {
     try {
       await loadPaper();
@@ -1588,12 +1596,23 @@ export function initPaper(ctx) {
       const rows = report
         .map((r, idx) => {
           const cls = decisionClass[r.decision] || "rebalance-hold";
-          const scoreText = r.score != null ? fmtScore(r.score) : "—";
+          let scoreText = r.score != null ? fmtScore(r.score) : "—";
+          if (scoreText === "—" && r.hard_reject) {
+            scoreText = "拒";
+          }
           const belowMin = !!r.below_min_score;
           const scoreShown =
-            scoreText !== "—" && belowMin ? `${scoreText}↓` : scoreText;
+            scoreText !== "—" && scoreText !== "拒" && belowMin
+              ? `${scoreText}↓`
+              : scoreText;
           let scoreClass = scoreCls(r.score);
           if (belowMin) scoreClass += " below-min";
+          if (r.hard_reject) scoreClass += " score-reject";
+          const scoreTip = r.hard_reject
+            ? String(r.reject_reason || "硬拒绝 · 无收益分")
+            : belowMin
+              ? `低于选股门槛 · 悬停看详情`
+              : "";
           const oldSh =
             r.old_shares != null
               ? Number(r.old_shares)
@@ -1692,9 +1711,9 @@ export function initPaper(ctx) {
             `<span class="rebalance-stock-name">${name}</span>` +
             `<span class="rebalance-stock-code">${code}</span>` +
             `</td>` +
-            `<td class="num rebalance-score ${scoreClass}" title="${
-              belowMin ? "低于选股门槛（仍显示分数）" : ""
-            }">${scoreShown}${expandIcon}</td>` +
+            `<td class="num rebalance-score ${scoreClass}" title="${escapeText(
+              scoreTip || (belowMin ? "低于选股门槛（仍显示分数）" : "")
+            )}">${scoreShown}${expandIcon}</td>` +
             `<td class="num rebalance-shares">` +
             `<span class="rebalance-shares-old">${escapeText(
               String(
@@ -2372,33 +2391,51 @@ export function initPaper(ctx) {
   }
 
   const paperT0Bt = document.getElementById("paper-t0-backtest");
+  const paperT0ActionStatus = document.getElementById("paper-t0-action-status");
   if (paperT0Bt) {
     paperT0Bt.addEventListener("click", async (e) => {
       e.preventDefault();
-      // 默认回测全部持仓；按住 Alt 才仅测当前选中行（避免点行看图后误以为整仓结果）
+      if (paperT0Bt.disabled) return;
+      // 默认回测全部持仓（日线代理，快）；Alt+选中行 = 单票并尝试 5m
       const onlySelected = !!(e.altKey && selectedHoldCode);
-      if (paperT0Summary) {
-        paperT0Summary.textContent = onlySelected
-          ? `做T回测中（仅选中 ${selectedHoldCode}）…`
-          : "做T回测中（全部持仓）…";
-      }
+      const useMinute = onlySelected;
+      const busyLabel = onlySelected
+        ? `回测中（${selectedHoldCode}·5m）…`
+        : "回测中（全部持仓·日线）…";
+      const setT0Busy = (busy, msg) => {
+        paperT0Bt.disabled = !!busy;
+        paperT0Bt.textContent = busy ? "回测中…" : "做T回测";
+        if (paperT0ActionStatus) paperT0ActionStatus.textContent = msg || "";
+        if (paperT0Summary && msg) paperT0Summary.textContent = msg;
+      };
+      setT0Busy(true, busyLabel);
+      const ac = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer =
+        ac &&
+        setTimeout(() => {
+          try {
+            ac.abort();
+          } catch (_) {
+            /* ignore */
+          }
+        }, 90000);
       try {
-        const body = {
-          from_paper: true,
-          lookback: 30,
-          compare_optimistic: true,
-          use_minute: true,
-          compare_daily: true,
-        };
-        if (onlySelected) body.code = selectedHoldCode;
+        const formRoot = document.getElementById("paper-t0-form");
+        const body = collectT0BacktestBody(formRoot, {
+          useMinute,
+          onlySelected,
+          selectedCode: selectedHoldCode,
+        });
         const res = await fetch("/api/quant/t0-backtest", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body),
+          signal: ac ? ac.signal : undefined,
         });
         const data = await res.json();
         if (!res.ok || !data.success) {
-          if (paperT0Summary) paperT0Summary.textContent = data.error || data.detail || "回测失败";
+          const errMsg = data.error || data.detail || "回测失败";
+          setT0Busy(false, errMsg);
           renderPaperT0(null);
           return;
         }
@@ -2409,27 +2446,34 @@ export function initPaper(ctx) {
           (data.from_holdings && data.ok_count > 1
             ? `持仓 ${data.ok_count} 只`
             : `${data.stock_name || data.stock_code || "持仓"}`);
-        if (paperT0Summary) {
-          paperT0Summary.textContent =
-            `${label} · 做T日 ${data.t0_trade_days ?? "—"}` +
-            ` · 净PnL ${data.t0_pnl_with_exposure ?? data.t0_pnl_total ?? "—"}` +
-            ` · 完成往返 ${data.cover_rate_pct != null ? data.cover_rate_pct + "%" : "—"}` +
-            ` · 参与 ${data.participate_rate_pct != null ? data.participate_rate_pct + "%" : "—"}` +
-            ` · 敞口 ${data.exposure_pnl_total ?? "—"}` +
-            (data.optimistic_delta_ratio_pct != null || opt.delta_pnl_ratio_pct != null
-              ? ` · 乐观Δ占比 ${(data.optimistic_delta_ratio_pct ?? opt.delta_pnl_ratio_pct)}%`
-              : "") +
-            (daily.delta_pnl != null ? ` · 相对日线Δ ${daily.delta_pnl}` : "") +
-            ` · 路径${(data.rules && data.rules.path_mode) || data.path_mode || (data.use_minute ? "first_touch" : "veto")}` +
-            (data.minute_path_days != null ? ` · 5m日${data.minute_path_days}` : "") +
-            ` · 选向${(data.rules && data.rules.direction) || data.direction || "signal"}` +
-            (data.execution && data.execution.effective_hash
-              ? ` · exec ${String(data.execution.effective_hash).slice(0, 8)}`
-              : "") +
-            (data.no_t0_compare && data.no_t0_compare.t0_contribution != null
-              ? ` · T贡献 ${data.no_t0_compare.t0_contribution}`
-              : "") +
-            ` · 非实盘`;
+        const summary =
+          `${label} · 做T日 ${data.t0_trade_days ?? "—"}` +
+          ` · 净PnL ${data.t0_pnl_with_exposure ?? data.t0_pnl_total ?? "—"}` +
+          ` · 完成往返 ${data.cover_rate_pct != null ? data.cover_rate_pct + "%" : "—"}` +
+          ` · 参与 ${data.participate_rate_pct != null ? data.participate_rate_pct + "%" : "—"}` +
+          ` · 敞口 ${data.exposure_pnl_total ?? "—"}` +
+          (data.optimistic_delta_ratio_pct != null || opt.delta_pnl_ratio_pct != null
+            ? ` · 乐观Δ占比 ${(data.optimistic_delta_ratio_pct ?? opt.delta_pnl_ratio_pct)}%`
+            : "") +
+          (daily.delta_pnl != null ? ` · 相对日线Δ ${daily.delta_pnl}` : "") +
+          ` · 路径${(data.rules && data.rules.path_mode) || data.path_mode || (data.use_minute ? "first_touch" : "veto")}` +
+          (data.minute_path_days != null ? ` · 5m日${data.minute_path_days}` : "") +
+          ` · 选向${(data.rules && data.rules.direction) || data.direction || "signal"}` +
+          (data.rules && data.rules.dir_enter != null
+            ? ` · 入场±${data.rules.dir_enter}`
+            : "") +
+          (data.execution && data.execution.effective_hash
+            ? ` · exec ${String(data.execution.effective_hash).slice(0, 8)}`
+            : "") +
+          (data.no_t0_compare && data.no_t0_compare.t0_contribution != null
+            ? ` · T贡献 ${data.no_t0_compare.t0_contribution}`
+            : "") +
+          ` · 非实盘`;
+        if (paperT0Summary) paperT0Summary.textContent = summary;
+        if (paperT0ActionStatus) {
+          paperT0ActionStatus.textContent = `完成 · PnL ${
+            data.t0_pnl_with_exposure ?? data.t0_pnl_total ?? "—"
+          }`;
         }
         renderPaperT0(data);
         showValidateNext("t0");
@@ -2437,8 +2481,18 @@ export function initPaper(ctx) {
         if (t0RulesEl && data.execution) {
           t0RulesEl.innerHTML = renderExecutionRulesHtml(data.execution);
         }
+        paperT0Bt.disabled = false;
+        paperT0Bt.textContent = "做T回测";
       } catch (err) {
-        if (paperT0Summary) paperT0Summary.textContent = String(err.message || err);
+        const aborted = err && (err.name === "AbortError" || /abort/i.test(String(err)));
+        setT0Busy(
+          false,
+          aborted ? "回测超时（已中止；可 Alt+点单票再试）" : String(err.message || err)
+        );
+      } finally {
+        if (timer) clearTimeout(timer);
+        paperT0Bt.disabled = false;
+        paperT0Bt.textContent = "做T回测";
       }
     });
   }

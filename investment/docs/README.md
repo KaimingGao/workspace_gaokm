@@ -18,6 +18,7 @@
 | [**beta-regression-strengthen.md**](beta-regression-strengthen.md) | **B0–B5 已落地**：回归准确性（样本 · y 契约 · 共线/λ · 重估 · 截面 OOS） |
 | [**strengthen-next.md**](strengthen-next.md) | **已收口 C/P/EP**：口径纠偏 · 组合换手/预算/归因 · 分组启用证据包 |
 | [**weight-suggest-deepen.md**](weight-suggest-deepen.md) | **选股主轴（已落地）**：回归 ŷ · heuristic 仅 OOS 基线 · 分组 β |
+| [**score-review.md**](score-review.md) | **昨日复盘**：as_of ŷ 方向 vs h 日实现 · 错票归因 · score ledger |
 | [**topk-backtest-upgrade.md**](topk-backtest-upgrade.md) | **TopK 回测**：T0–T16 已收口；**[T17 TTL可配·过期硬拦](topk-backtest-upgrade.md#11j-第十一程--t17-ttl-可配--过期硬拦已落地)** |
 | [**n6-live-gate.md**](n6-live-gate.md) | N6 实盘准入备忘（闸门通过前不写 OMS 代码） |
 | [structure.md](structure.md) | 仓库目录与 canonical 模块路径 |

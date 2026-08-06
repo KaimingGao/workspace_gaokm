@@ -308,6 +308,7 @@ def resolve_effective_execution(
                 "path_mode",
                 "use_atr",
                 "dir_enter",
+                "min_range_pct",
             )
         },
         "coupling": coupling,
@@ -427,6 +428,7 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "use_atr": t0.get("use_atr"),
             "atr_window": t0.get("atr_window"),
             "dir_enter": t0.get("dir_enter"),
+            "min_range_pct": t0.get("min_range_pct"),
             "ref": t0.get("ref"),
             "lot_size": t0.get("lot_size"),
             "minute_period": t0.get("minute_period"),

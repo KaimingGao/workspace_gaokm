@@ -7,19 +7,37 @@ from typing import Any, Dict, List, Optional, Tuple
 from core.t0.backtest import backtest_t0_on_bars, derive_t0_quality_metrics
 
 
+# 东财分钟接口偶发挂死；多持仓串行时会把整次「做T回测」拖成无响应。
+_MINUTE_FETCH_TIMEOUT_SEC = 5.0
+
+
 def _fetch_minute_by_date(
     code: str,
     *,
     period: str = "5",
     lookback_days: int = 90,
+    timeout_sec: float = _MINUTE_FETCH_TIMEOUT_SEC,
 ) -> Tuple[Dict[str, List[dict]], Dict[str, Any]]:
     """返回 (minute_by_date, meta)；失败则 ({}, meta)。"""
     try:
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
         from core.ports.market import fetch_minute_bars, group_minute_bars_by_date
 
-        bars, meta = fetch_minute_bars(
-            code, period=period, lookback_days=lookback_days, use_cache=True
-        )
+        def _load():
+            return fetch_minute_bars(
+                code, period=period, lookback_days=lookback_days, use_cache=True
+            )
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            fut = pool.submit(_load)
+            try:
+                bars, meta = fut.result(timeout=max(1.0, float(timeout_sec or 5.0)))
+            except FuturesTimeout:
+                return {}, {
+                    "ok": False,
+                    "error": f"minute fetch timeout ({timeout_sec}s)",
+                    "period": period,
+                }
         if not bars:
             return {}, meta or {"ok": False}
         return group_minute_bars_by_date(bars), meta
@@ -119,6 +137,10 @@ def run_t0_backtest_for_code(
         "path_mode": bt_rules.get("path_mode"),
         "fill_mode": bt_rules.get("fill_mode"),
         "t0_ratio": bt_rules.get("t0_ratio"),
+        "dir_enter": bt_rules.get("dir_enter"),
+        "min_range_pct": bt_rules.get("min_range_pct"),
+        "sell_trigger_pct": bt_rules.get("sell_trigger_pct"),
+        "buy_trigger_pct": bt_rules.get("buy_trigger_pct"),
     }
     if compare_no_t0 and report.get("success"):
         off_rules = dict(bt_rules)
@@ -256,10 +278,16 @@ def run_t0_backtest_for_holdings(
             daily_trades += int(dc.get("t0_trade_days") or 0)
 
     # 合并各票成交样本供 UI；最近按日 + 保留若干反T，避免「近一周全正」误以为没有反T
+    # 注意：trade_days_sample=[] 时勿用 `or days`，否则会把全日跳过行灌进样本
     trade_sample: List[Dict[str, Any]] = []
+    skip_reason_counts: Dict[str, int] = {}
+    skip_sample: List[Dict[str, Any]] = []
     for x in ok:
         code = x.get("stock_code")
-        for d in x.get("trade_days_sample") or x.get("days") or []:
+        tds = x.get("trade_days_sample")
+        if not isinstance(tds, list):
+            tds = []
+        for d in tds:
             if d.get("skipped"):
                 continue
             if (
@@ -271,6 +299,22 @@ def run_t0_backtest_for_holdings(
                 row = dict(d)
                 row["stock_code"] = code
                 trade_sample.append(row)
+        for d in x.get("days") or []:
+            if not d.get("skipped"):
+                continue
+            reason = str(d.get("reason") or d.get("direction_reason") or "跳过").strip()
+            reason_key = (reason[:69] + "…") if len(reason) > 72 else (reason or "跳过")
+            skip_reason_counts[reason_key] = skip_reason_counts.get(reason_key, 0) + 1
+            skip_sample.append(
+                {
+                    "date": d.get("date"),
+                    "stock_code": code,
+                    "reason": reason_key,
+                    "direction_score": d.get("direction_score"),
+                    "signal_skip": bool(d.get("signal_skip")),
+                    "path_mode": d.get("path_mode"),
+                }
+            )
     trade_sample.sort(key=lambda r: str(r.get("date") or ""))
     recent = trade_sample[-15:]
     seen = {(r.get("stock_code"), r.get("date"), r.get("direction")) for r in recent}
@@ -286,6 +330,12 @@ def run_t0_backtest_for_holdings(
         if len(rev_extra) >= 5:
             break
     trade_sample = sorted(recent + rev_extra, key=lambda r: str(r.get("date") or ""))
+
+    skip_sample.sort(key=lambda r: str(r.get("date") or ""), reverse=True)
+    skip_reason_top = sorted(
+        ({"reason": k, "count": v} for k, v in skip_reason_counts.items()),
+        key=lambda r: (-int(r["count"]), str(r["reason"])),
+    )[:8]
 
     out: Dict[str, Any] = {
         "success": bool(ok),
@@ -312,6 +362,8 @@ def run_t0_backtest_for_holdings(
         "results": per,
         "days": trade_sample,
         "trade_days_sample": trade_sample,
+        "skip_reason_top": skip_reason_top,
+        "skip_days_sample": skip_sample[:12],
         "path_mode": cfg.get("path_mode"),
         "direction": cfg.get("direction"),
         "use_minute": use_minute and minute_path_days > 0,
@@ -320,13 +372,19 @@ def run_t0_backtest_for_holdings(
             "path_mode": cfg.get("path_mode"),
             "fill_mode": cfg.get("fill_mode"),
             "t0_ratio": cfg.get("t0_ratio"),
+            "dir_enter": cfg.get("dir_enter"),
+            "min_range_pct": cfg.get("min_range_pct"),
+            "sell_trigger_pct": cfg.get("sell_trigger_pct"),
+            "buy_trigger_pct": cfg.get("buy_trigger_pct"),
         },
         "note": (
-            "按模拟持仓底仓回测；默认 direction=signal；"
+            "按模拟持仓底仓回测；"
+            f"direction={cfg.get('direction')} · path={cfg.get('path_mode')} · "
+            f"dir_enter={cfg.get('dir_enter')}；"
             + (
-                "有分钟日 5m 第一触达，缺分钟回退日线 veto；"
+                "有分钟日 5m 第一触达，缺分钟回退日线 path；"
                 if use_minute
-                else "日线 path_mode=veto；"
+                else f"日线 path_mode={cfg.get('path_mode')}；"
             )
             + "非实盘。主看含敞口净PnL / 完成往返率 / 参与率 / 日线Δ。"
         ),

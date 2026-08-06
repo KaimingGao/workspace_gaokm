@@ -196,9 +196,16 @@ def simulate_cross_section_rebalance(
     top_items = (ranking or [])[:top_k]
     top_codes = {str(x.get("stock_code") or "") for x in top_items if x.get("stock_code")}
     score_by_code: Dict[str, float] = {}
+    hard_reject_by_code: Dict[str, str] = {}
     for src in list(score_lookup or []) + list(ranking or []):
         code = str(src.get("stock_code") or "")
-        if not code or code in score_by_code:
+        if not code:
+            continue
+        if src.get("hard_reject") and code not in hard_reject_by_code:
+            hard_reject_by_code[code] = str(
+                src.get("reject_reason") or "硬拒绝"
+            )
+        if code in score_by_code:
             continue
         try:
             if src.get("score") is not None:
@@ -236,10 +243,15 @@ def simulate_cross_section_rebalance(
         reason = None
         if not respect_max_positions:
             # 分池滞回：入簿用 min_score；已持仓只在 ŷ < min_hold_score 时卖
-            if score is not None and score < min_hold_score:
+            # 硬拒绝（如追高）无 ŷ，按卖出处理，避免报告「— / 未变动」挂着
+            if code in hard_reject_by_code:
+                reason = hard_reject_by_code[code]
+            elif score is not None and score < min_hold_score:
                 reason = f"分数低于卖出门槛 min_hold({min_hold_score})"
         else:
-            if not in_top:
+            if code in hard_reject_by_code:
+                reason = hard_reject_by_code[code]
+            elif not in_top:
                 reason = "不在横截面 TopK"
             elif score is not None and score < min_hold_score:
                 reason = f"分数低于 min_hold_score({min_hold_score})"

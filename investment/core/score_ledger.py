@@ -1,0 +1,655 @@
+"""打分账本：按决策日 as_of 冻结 ŷ，供「昨日复盘」对账。
+
+写入：集群书刷新 / 日报 / 手动冻结。
+回填：次日或 h 日后用日线算 realized，再生成方向复盘报告。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+_YHAT_EPS = 0.05  # |ŷ| < ε → 无方向
+
+
+def _date_key(raw: Any) -> str:
+    s = str(raw or "").strip()
+    if not s:
+        return ""
+    if "T" in s:
+        s = s.split("T", 1)[0]
+    return s[:10]
+
+
+def default_as_of() -> str:
+    """默认识别为「上一交易日」（相对当前会话日）。"""
+    from core.market_calendar import prev_trading_day, resolve_session_date
+
+    sess = resolve_session_date()
+    prev = prev_trading_day(sess, n=1)
+    return prev or sess
+
+
+def ledger_dir() -> str:
+    from core.paths import SCORE_LEDGER_DIR
+
+    return SCORE_LEDGER_DIR
+
+
+def ledger_path(as_of: str) -> str:
+    d = _date_key(as_of)
+    return os.path.join(ledger_dir(), f"{d}.json")
+
+
+def outcomes_path(as_of: str) -> str:
+    d = _date_key(as_of)
+    return os.path.join(ledger_dir(), f"{d}.outcomes.json")
+
+
+def _to_float(v: Any) -> Optional[float]:
+    if v is None:
+        return None
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    if x != x:
+        return None
+    return x
+
+
+def _terms_top(raw: Any, *, limit: int = 5) -> List[Dict[str, Any]]:
+    if isinstance(raw, dict):
+        terms = list(raw.get("terms") or [])
+    elif isinstance(raw, list):
+        terms = list(raw)
+    else:
+        terms = []
+    out: List[Dict[str, Any]] = []
+    for t in terms:
+        if not isinstance(t, dict):
+            continue
+        key = str(t.get("key") or t.get("factor") or "").strip()
+        if not key:
+            continue
+        out.append(
+            {
+                "key": key,
+                "label": t.get("label") or key,
+                "beta": _to_float(t.get("beta")),
+                "z": _to_float(t.get("z")),
+                "contrib": _to_float(t.get("contrib")),
+            }
+        )
+    out.sort(key=lambda x: -abs(float(x.get("contrib") or 0.0)))
+    return out[: max(1, int(limit))]
+
+
+def row_from_scored_item(
+    item: dict,
+    *,
+    as_of: str,
+    source: str = "scored",
+) -> Optional[Dict[str, Any]]:
+    """从 signal_item / 书行 / 横截面行抽出账本行。"""
+    if not isinstance(item, dict):
+        return None
+    code = str(item.get("stock_code") or item.get("code") or "").strip()
+    if not code:
+        return None
+    yhat = _to_float(item.get("predicted_score"))
+    if yhat is None:
+        yhat = _to_float(item.get("yhat"))
+    if yhat is None:
+        yhat = _to_float(item.get("score"))
+    if yhat is None:
+        return None
+    terms = _terms_top(
+        item.get("score_formula_terms") or item.get("formula_terms_top")
+    )
+    return {
+        "as_of": _date_key(as_of),
+        "code": code.zfill(6) if code.isdigit() else code,
+        "name": item.get("stock_name") or item.get("name"),
+        "yhat": round(yhat, 6),
+        "heuristic": _to_float(item.get("heuristic_score")),
+        "cluster_label": item.get("cluster_label"),
+        "model_id": item.get("return_model_source")
+        or item.get("weight_source")
+        or item.get("model_id"),
+        "rank": item.get("rank") or item.get("rank_in_group"),
+        "formula_terms_top": terms,
+        "source": str(source or "scored"),
+        "written_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def load_ledger(as_of: str) -> Dict[str, Any]:
+    path = ledger_path(as_of)
+    if not os.path.isfile(path):
+        return {
+            "success": True,
+            "empty": True,
+            "as_of": _date_key(as_of),
+            "rows": [],
+            "path": path,
+        }
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "as_of": _date_key(as_of),
+            "rows": [],
+            "path": path,
+        }
+    rows = list(data.get("rows") or []) if isinstance(data, dict) else []
+    return {
+        "success": True,
+        "empty": not bool(rows),
+        "as_of": _date_key(as_of) or data.get("as_of"),
+        "rows": rows,
+        "meta": (data.get("meta") if isinstance(data, dict) else None) or {},
+        "path": path,
+        "updated_at": data.get("updated_at") if isinstance(data, dict) else None,
+    }
+
+
+def load_outcomes(as_of: str) -> Dict[str, Any]:
+    path = outcomes_path(as_of)
+    if not os.path.isfile(path):
+        return {
+            "success": True,
+            "empty": True,
+            "as_of": _date_key(as_of),
+            "by_code": {},
+            "path": path,
+        }
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        return {"success": False, "error": str(e), "by_code": {}, "path": path}
+    by_code = data.get("by_code") if isinstance(data, dict) else {}
+    if not isinstance(by_code, dict):
+        by_code = {}
+    return {
+        "success": True,
+        "empty": not bool(by_code),
+        "as_of": _date_key(as_of),
+        "by_code": by_code,
+        "horizon_days": data.get("horizon_days") if isinstance(data, dict) else None,
+        "path": path,
+        "updated_at": data.get("updated_at") if isinstance(data, dict) else None,
+    }
+
+
+def upsert_ledger_rows(
+    as_of: str,
+    rows: Sequence[Dict[str, Any]],
+    *,
+    source: str = "upsert",
+    meta: Optional[dict] = None,
+) -> Dict[str, Any]:
+    """按 code 覆盖写入当日账本。"""
+    d = _date_key(as_of)
+    if not d:
+        return {"success": False, "error": "as_of 无效", "n_rows": 0}
+    os.makedirs(ledger_dir(), exist_ok=True)
+    existing = load_ledger(d)
+    by_code: Dict[str, Dict[str, Any]] = {}
+    for r in existing.get("rows") or []:
+        if isinstance(r, dict) and r.get("code"):
+            by_code[str(r["code"])] = dict(r)
+    n_in = 0
+    for raw in rows or []:
+        if not isinstance(raw, dict):
+            continue
+        row = row_from_scored_item(raw, as_of=d, source=source)
+        if row is None:
+            continue
+        by_code[str(row["code"])] = row
+        n_in += 1
+    ordered = sorted(
+        by_code.values(),
+        key=lambda r: (
+            0 if r.get("rank") is not None else 1,
+            int(r["rank"]) if isinstance(r.get("rank"), (int, float)) else 10**9,
+            -float(r.get("yhat") or 0),
+        ),
+    )
+    path = ledger_path(d)
+    payload = {
+        "success": True,
+        "as_of": d,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "n_rows": len(ordered),
+        "rows": ordered,
+        "meta": {
+            **(existing.get("meta") or {}),
+            **(meta or {}),
+            "last_source": source,
+        },
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    return {
+        "success": True,
+        "as_of": d,
+        "n_rows": len(ordered),
+        "n_upserted": n_in,
+        "path": path,
+    }
+
+
+def freeze_from_cluster_book(
+    *,
+    as_of: Optional[str] = None,
+    book_doc: Optional[dict] = None,
+) -> Dict[str, Any]:
+    """从 active 集群书冻结当日 ŷ。"""
+    from core.signal.cluster_live import load_active_cluster_book
+    from core.market_calendar import resolve_session_date
+
+    d = _date_key(as_of) or resolve_session_date()
+    doc = book_doc if isinstance(book_doc, dict) else load_active_cluster_book()
+    if not doc:
+        return {"success": False, "error": "无集群书", "as_of": d, "n_rows": 0}
+    book = list(doc.get("book") or [])
+    meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
+    return upsert_ledger_rows(
+        d,
+        book,
+        source="cluster_book",
+        meta={
+            "cluster_version": meta.get("version") or doc.get("version"),
+            "book_updated_at": doc.get("updated_at"),
+        },
+    )
+
+
+def freeze_from_daily_report(
+    report: dict,
+    *,
+    as_of: Optional[str] = None,
+) -> Dict[str, Any]:
+    """从日报里的 book_top / cross_section 补写账本。"""
+    from core.market_calendar import resolve_session_date
+
+    d = _date_key(as_of)
+    if not d:
+        gen = str(report.get("generated_at") or "")
+        d = _date_key(gen) or resolve_session_date()
+    rows: List[dict] = []
+    cl = report.get("cluster_live") if isinstance(report.get("cluster_live"), dict) else {}
+    for r in cl.get("book_top") or []:
+        if isinstance(r, dict):
+            rows.append(r)
+    cs = report.get("cross_section") if isinstance(report.get("cross_section"), dict) else {}
+    for r in cs.get("items") or cs.get("ranked") or []:
+        if isinstance(r, dict):
+            rows.append(r)
+    if not rows:
+        # 仍尝试刷书
+        return freeze_from_cluster_book(as_of=d)
+    return upsert_ledger_rows(d, rows, source="daily_report", meta={"from_daily": True})
+
+
+def _realized_from_bars(
+    bars: Sequence[dict],
+    as_of: str,
+    horizon_days: int,
+) -> Optional[float]:
+    """(close[as_of+h] / close[as_of] - 1) * 100。"""
+    from core.market_calendar import next_trading_day
+
+    d0 = _date_key(as_of)
+    if not d0 or not bars:
+        return None
+    by_date = {}
+    for b in bars:
+        if not isinstance(b, dict):
+            continue
+        k = _date_key(b.get("date") or b.get("time") or b.get("datetime"))
+        if k:
+            by_date[k] = b
+    if d0 not in by_date:
+        return None
+    d1 = next_trading_day(d0, n=max(1, int(horizon_days or 1)))
+    if not d1 or d1 not in by_date:
+        return None
+    c0 = _to_float(by_date[d0].get("close"))
+    c1 = _to_float(by_date[d1].get("close"))
+    if c0 is None or c1 is None or c0 <= 0:
+        return None
+    return (c1 / c0 - 1.0) * 100.0
+
+
+def _sign_hit(yhat: Optional[float], realized: Optional[float]) -> Optional[bool]:
+    if yhat is None or realized is None:
+        return None
+    if abs(float(yhat)) < _YHAT_EPS:
+        return None  # 无方向
+    if abs(float(realized)) < 1e-12:
+        return None
+    return (float(yhat) > 0) == (float(realized) > 0)
+
+
+def fill_outcomes(
+    as_of: str,
+    *,
+    horizon_days: int = 3,
+) -> Dict[str, Any]:
+    """用本地日线回填 realized / sign_hit。"""
+    from core.data_service import bars_and_source
+
+    ledger = load_ledger(as_of)
+    if not ledger.get("success"):
+        return ledger
+    rows = list(ledger.get("rows") or [])
+    if not rows:
+        return {
+            "success": False,
+            "error": "无账本行，请先冻结打分",
+            "as_of": _date_key(as_of),
+            "filled": 0,
+        }
+    h = max(1, min(int(horizon_days or 3), 10))
+    by_code: Dict[str, Dict[str, Any]] = {}
+    filled = 0
+    missing = 0
+    for r in rows:
+        code = str(r.get("code") or "").strip()
+        if not code:
+            continue
+        bars, _ = bars_and_source(code, limit=max(40, h + 25), offline_ok=True)
+        realized = _realized_from_bars(bars or [], r.get("as_of") or as_of, h)
+        yhat = _to_float(r.get("yhat"))
+        hit = _sign_hit(yhat, realized)
+        abs_err = None
+        if yhat is not None and realized is not None:
+            abs_err = round(abs(float(yhat) - float(realized)), 4)
+        dominant = None
+        terms = r.get("formula_terms_top") or []
+        if terms:
+            dominant = terms[0].get("key")
+        by_code[code] = {
+            "code": code,
+            "realized_h": round(realized, 4) if realized is not None else None,
+            "sign_hit": hit,
+            "abs_err": abs_err,
+            "dominant_factor": dominant,
+            "no_direction": bool(yhat is not None and abs(float(yhat)) < _YHAT_EPS),
+        }
+        if realized is not None:
+            filled += 1
+        else:
+            missing += 1
+    path = outcomes_path(as_of)
+    os.makedirs(ledger_dir(), exist_ok=True)
+    payload = {
+        "success": True,
+        "as_of": _date_key(as_of),
+        "horizon_days": h,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "filled": filled,
+        "missing": missing,
+        "by_code": by_code,
+    }
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(payload, f, ensure_ascii=False, indent=2)
+    return {
+        "success": True,
+        "as_of": _date_key(as_of),
+        "horizon_days": h,
+        "filled": filled,
+        "missing": missing,
+        "path": path,
+    }
+
+
+def _blame_tag(
+    *,
+    sign_hit: Optional[bool],
+    dominant: Optional[str],
+    factor_ic: Optional[float],
+    no_direction: bool,
+    has_terms: bool,
+    has_realized: bool,
+) -> str:
+    if no_direction:
+        return "no_direction"
+    if not has_realized:
+        return "data_thin"
+    if sign_hit is True:
+        return "hit"
+    if sign_hit is not False:
+        return "data_thin"
+    if not has_terms or not dominant:
+        return "data_thin"
+    if factor_ic is not None and factor_ic < 0:
+        return "factor_fade"
+    if factor_ic is not None and factor_ic >= 0:
+        return "idiosyncratic"
+    return "model_tilt"
+
+
+def _day_factor_ic_proxy(
+    rows: Sequence[dict],
+    outcomes: Dict[str, dict],
+    factor_key: str,
+) -> Optional[float]:
+    """用账本 terms 的 z 与 realized 做简易截面相关（样本少时仅作提示）。"""
+    xs: List[float] = []
+    ys: List[float] = []
+    for r in rows:
+        code = str(r.get("code") or "")
+        oc = outcomes.get(code) or {}
+        realized = _to_float(oc.get("realized_h"))
+        if realized is None:
+            continue
+        z = None
+        for t in r.get("formula_terms_top") or []:
+            if str(t.get("key")) == factor_key:
+                z = _to_float(t.get("z"))
+                if z is None:
+                    z = _to_float(t.get("contrib"))
+                break
+        if z is None:
+            continue
+        xs.append(z)
+        ys.append(realized)
+    if len(xs) < 3:
+        return None
+    try:
+        from core.backtest.pool_ic import _pearson
+
+        return _pearson(xs, ys)
+    except Exception:
+        return None
+
+
+def build_score_review(
+    as_of: Optional[str] = None,
+    *,
+    horizon_days: int = 3,
+    autofill: bool = True,
+) -> Dict[str, Any]:
+    """方向复盘报告：命中率 + 错票 + 简易归因标签。"""
+    d = _date_key(as_of) or default_as_of()
+    h = max(1, min(int(horizon_days or 3), 10))
+    ledger = load_ledger(d)
+    if ledger.get("empty"):
+        return {
+            "success": True,
+            "empty": True,
+            "as_of": d,
+            "horizon_days": h,
+            "error": None,
+            "note": "无该日账本。请先跑分组落书、生成日报，或点「冻结今日打分」。",
+            "summary": {},
+            "wrong_rows": [],
+            "factor_blame": [],
+        }
+    outcomes = load_outcomes(d)
+    need_fill = (
+        autofill
+        and (
+            outcomes.get("empty")
+            or int(outcomes.get("horizon_days") or 0) != h
+            or not outcomes.get("by_code")
+        )
+    )
+    if need_fill:
+        fill_outcomes(d, horizon_days=h)
+        outcomes = load_outcomes(d)
+    by_code = outcomes.get("by_code") or {}
+    rows = list(ledger.get("rows") or [])
+
+    n = 0
+    hits = 0
+    wrong_long = 0
+    wrong_short = 0
+    no_dir = 0
+    thin = 0
+    wrong_rows: List[Dict[str, Any]] = []
+    tag_counts: Dict[str, int] = {}
+    factor_wrong: Dict[str, int] = {}
+    factor_ic_cache: Dict[str, Optional[float]] = {}
+
+    for r in rows:
+        code = str(r.get("code") or "")
+        oc = by_code.get(code) or {}
+        yhat = _to_float(r.get("yhat"))
+        realized = _to_float(oc.get("realized_h"))
+        hit = oc.get("sign_hit")
+        if hit is None and yhat is not None and realized is not None:
+            hit = _sign_hit(yhat, realized)
+        no_direction = bool(oc.get("no_direction")) or (
+            yhat is not None and abs(float(yhat)) < _YHAT_EPS
+        )
+        dominant = oc.get("dominant_factor")
+        if not dominant:
+            terms = r.get("formula_terms_top") or []
+            if terms:
+                dominant = terms[0].get("key")
+        fic = None
+        if dominant:
+            if dominant not in factor_ic_cache:
+                factor_ic_cache[dominant] = _day_factor_ic_proxy(rows, by_code, str(dominant))
+            fic = factor_ic_cache.get(str(dominant))
+        tag = _blame_tag(
+            sign_hit=hit if isinstance(hit, bool) else None,
+            dominant=str(dominant) if dominant else None,
+            factor_ic=fic,
+            no_direction=no_direction,
+            has_terms=bool(r.get("formula_terms_top")),
+            has_realized=realized is not None,
+        )
+        tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        if no_direction:
+            no_dir += 1
+            continue
+        if realized is None:
+            thin += 1
+            continue
+        n += 1
+        if hit is True:
+            hits += 1
+            continue
+        if hit is False:
+            if float(yhat or 0) > 0:
+                wrong_long += 1
+            else:
+                wrong_short += 1
+            if dominant:
+                factor_wrong[str(dominant)] = factor_wrong.get(str(dominant), 0) + 1
+            wrong_rows.append(
+                {
+                    "code": code,
+                    "name": r.get("name"),
+                    "yhat": yhat,
+                    "realized_h": realized,
+                    "abs_err": oc.get("abs_err"),
+                    "cluster_label": r.get("cluster_label"),
+                    "dominant_factor": dominant,
+                    "factor_ic_day": round(fic, 4) if fic is not None else None,
+                    "tag": tag,
+                    "formula_terms_top": (r.get("formula_terms_top") or [])[:3],
+                }
+            )
+
+    wrong_rows.sort(key=lambda x: -float(x.get("abs_err") or 0))
+    hit_rate = round(hits / n, 4) if n else None
+    factor_blame = []
+    for fac, cnt in sorted(factor_wrong.items(), key=lambda kv: -kv[1])[:8]:
+        fic = factor_ic_cache.get(fac)
+        if fic is None:
+            fic = _day_factor_ic_proxy(rows, by_code, fac)
+        factor_blame.append(
+            {
+                "factor": fac,
+                "wrong_count": cnt,
+                "factor_ic_day": round(fic, 4) if fic is not None else None,
+            }
+        )
+
+    blame_line = "样本不足"
+    if n:
+        if hit_rate is not None and hit_rate >= 0.55:
+            blame_line = f"方向命中 {hit_rate:.0%}（{hits}/{n}）"
+        elif factor_blame:
+            top = factor_blame[0]
+            ic = top.get("factor_ic_day")
+            ic_s = f"，当日因子相关≈{ic}" if ic is not None else ""
+            blame_line = (
+                f"方向命中 {hit_rate:.0%}（{hits}/{n}）；"
+                f"错票常挂在 {top['factor']}（{top['wrong_count']} 次）{ic_s}"
+            )
+        else:
+            blame_line = f"方向命中 {hit_rate:.0%}（{hits}/{n}）"
+
+    return {
+        "success": True,
+        "empty": False,
+        "as_of": d,
+        "horizon_days": h,
+        "ledger_path": ledger.get("path"),
+        "outcomes_path": outcomes.get("path"),
+        "n_ledger": len(rows),
+        "summary": {
+            "n_scored": n,
+            "hit_rate": hit_rate,
+            "hits": hits,
+            "wrong": len(wrong_rows),
+            "wrong_long": wrong_long,
+            "wrong_short": wrong_short,
+            "no_direction": no_dir,
+            "data_thin": thin,
+            "tag_counts": tag_counts,
+            "blame_line": blame_line,
+        },
+        "wrong_rows": wrong_rows[:80],
+        "factor_blame": factor_blame,
+        "note": (
+            "方向复盘：sign(ŷ) vs sign(r_h)；|ŷ|<0.05% 视为无方向。"
+            "标签：factor_fade=主导因子当日截面相关为负；"
+            "idiosyncratic=因子未坏但个股反；model_tilt=分解不足时的模型偏置兜底。"
+        ),
+    }
+
+
+def list_ledger_dates(*, limit: int = 30) -> List[str]:
+    root = ledger_dir()
+    if not os.path.isdir(root):
+        return []
+    dates = []
+    for name in os.listdir(root):
+        if name.endswith(".json") and not name.endswith(".outcomes.json"):
+            dates.append(name[:-5])
+    dates.sort(reverse=True)
+    return dates[: max(1, int(limit))]

@@ -474,6 +474,7 @@ def simulate_t0_day_minute(
                 "direction_used": None,
                 "direction_score": dir_res.get("direction_score"),
                 "direction_reason": dir_res.get("direction_reason"),
+                "direction_features": dir_res.get("features"),
                 "signal_skip": True,
                 "range_pct": round(range_pct, 4),
                 "path_mode": "first_touch",
@@ -522,5 +523,6 @@ def simulate_t0_day_minute(
         out["intraday_path"] = "first_touch"
         out["direction_score"] = dir_res.get("direction_score")
         out["direction_reason"] = dir_res.get("direction_reason")
+        out["direction_features"] = dir_res.get("features")
         out["minute_bars"] = len(mins)
     return out
