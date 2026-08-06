@@ -270,34 +270,19 @@ export function installWatching(q) {
           .filter(Boolean);
     if (!codes.length) return;
     const gen = (state.watchingInsightsGen = (state.watchingInsightsGen || 0) + 1);
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 100000);
+    // 每批单独超时（对齐后端 batch≈90s）；勿用总时钟，否则 100 票 3 批必触发「摘要超时」
+    const chunkTimeoutMs = 95000;
     const insightDeps = { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail };
     setWatchingRefreshStatus("正在加载评分…", { busy: true, owner: "insights" });
-    try {
-      // 分批拉取，避免单次过长/截断；合并后再一次写入表格
-      const chunkSize = 40;
-      const items = [];
-      for (let i = 0; i < codes.length; i += chunkSize) {
-        if (gen !== state.watchingInsightsGen) return;
-        const chunk = codes.slice(i, i + chunkSize);
-        const res = await fetch(
-          `/api/watching/insights?codes=${encodeURIComponent(chunk.join(","))}`,
-          { signal: ctrl.signal }
-        );
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.detail || res.statusText);
-        items.push(...(data.items || []));
-      }
+
+    const applyInsightItems = (items) => {
       if (gen !== state.watchingInsightsGen) return;
       if (useGrid && !(state.watchingGrid && state.watchingGridReady)) return;
-
       const byCode = indexByWatchingCode(items);
       if (useGrid && typeof state.watchingGrid.patchRows === "function") {
         const patches = {};
         codes.forEach((code) => {
           const it = byCode[watchingCodeKey(code)];
-          // 无回包的票保持「…」，勿用空对象刷成「—」
           if (!it || !it.stock_code) return;
           const row = state.watchingGrid.getRow(code);
           if (!row) return;
@@ -340,13 +325,73 @@ export function installWatching(q) {
           setTxt("pb", fields.pb);
         });
       }
+    };
+
+    const items = [];
+    let timedOut = false;
+    try {
+      const chunkSize = 40;
+      const totalChunks = Math.ceil(codes.length / chunkSize) || 1;
+      for (let i = 0; i < codes.length; i += chunkSize) {
+        if (gen !== state.watchingInsightsGen) return;
+        const chunk = codes.slice(i, i + chunkSize);
+        const chunkIdx = Math.floor(i / chunkSize) + 1;
+        setWatchingRefreshStatus(
+          `正在加载评分… ${chunkIdx}/${totalChunks}（${items.length}/${codes.length}）`,
+          { busy: true, owner: "insights" }
+        );
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), chunkTimeoutMs);
+        let res;
+        try {
+          res = await fetch(
+            `/api/watching/insights?codes=${encodeURIComponent(chunk.join(","))}`,
+            { signal: ctrl.signal }
+          );
+        } catch (err) {
+          if (err && err.name === "AbortError") {
+            timedOut = true;
+            break;
+          }
+          throw err;
+        } finally {
+          clearTimeout(timer);
+        }
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || res.statusText);
+        const batch = data.items || [];
+        items.push(...batch);
+        applyInsightItems(batch);
+      }
+      if (gen !== state.watchingInsightsGen) return;
       const okN = items.filter((x) => x.ok).length;
-      setWatchingRefreshStatus(buildWatchingInsightsStatusText(okN, codes.length, items), {
-        ok: true,
-        owner: "insights",
-      });
+      if (timedOut && items.length) {
+        setWatchingRefreshStatus(
+          `摘要部分超时 · 已更新 ${okN}/${codes.length}（页面仍可用）`,
+          { error: true, owner: "insights" }
+        );
+      } else if (timedOut) {
+        setWatchingRefreshStatus(buildWatchingInsightsErrorStatus({ name: "AbortError" }), {
+          error: true,
+          owner: "insights",
+        });
+      } else {
+        setWatchingRefreshStatus(buildWatchingInsightsStatusText(okN, codes.length, items), {
+          ok: true,
+          owner: "insights",
+        });
+      }
     } catch (err) {
       if (gen !== state.watchingInsightsGen) return;
+      if (items.length) {
+        applyInsightItems(items);
+        const okN = items.filter((x) => x.ok).length;
+        setWatchingRefreshStatus(
+          `摘要部分失败 · 已更新 ${okN}/${codes.length}：${String((err && err.message) || err)}`,
+          { error: true, owner: "insights" }
+        );
+        return;
+      }
       if (useGrid && state.watchingGrid && state.watchingGridReady) {
         const patches = {};
         codes.forEach((code) => {
@@ -367,8 +412,6 @@ export function installWatching(q) {
         error: true,
         owner: "insights",
       });
-    } finally {
-      clearTimeout(timer);
     }
   }
 
