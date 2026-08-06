@@ -57,6 +57,8 @@ export async function mountWatchingTableIsland(host, options = {}) {
         "watching-watch-row",
         d.isSentimentAlert ? "is-sentiment-alert" : "",
         d.isHardReject ? "is-hard-reject" : "",
+        d.yhatHistHit ? "is-yhat-hist-hit" : "",
+        d.yhatHistDim ? "is-yhat-hist-dim" : "",
       ]
         .filter(Boolean)
         .join(" "),

@@ -198,11 +198,13 @@ class PlatformService:
         return out
 
     def get_fit_gap(self, *, backtest_result: Optional[dict] = None) -> Dict[str, Any]:
-        from core.fit_gap import fit_gap_hints
+        from core.fit_gap import build_curve_day_diff, fit_gap_hints
+        from core.north_star import load_last_backtest_curve
 
         ns = self.get_north_star(refresh=False)
         bt = backtest_result or {}
         paper_ops: Dict[str, Any] = {}
+        paper = None
         try:
             import os
 
@@ -224,11 +226,43 @@ class PlatformService:
                         paper_ops["weight_mode"] = last_opt.get("weight_mode")
         except Exception:
             pass
-        return fit_gap_hints(
-            realization=((ns or {}).get("north_star") or {}).get("realization"),
+
+        snaps = list((paper or {}).get("snapshots") or []) if paper else []
+        bt_curve: list = []
+        bt_meta: Dict[str, Any] = {}
+        # 优先用本次回测结果曲线，否则落盘 last curve
+        for key in ("equity_curve", "nav_curve", "curve", "portfolio_curve"):
+            raw = bt.get(key)
+            if isinstance(raw, list) and raw:
+                bt_curve = list(raw)
+                bt_meta["source"] = f"request.{key}"
+                break
+        if not bt_curve:
+            try:
+                pack = load_last_backtest_curve()
+                if isinstance(pack, dict):
+                    bt_curve = list(pack.get("curve") or pack.get("points") or [])
+                    bt_meta = {
+                        "source": "last_backtest_curve",
+                        "saved_at": pack.get("saved_at") or pack.get("updated_at"),
+                        "params": (pack.get("meta") or {}).get("params")
+                        if isinstance(pack.get("meta"), dict)
+                        else None,
+                    }
+            except Exception:
+                pass
+
+        day_diff = build_curve_day_diff(snaps, bt_curve)
+        realization = ((ns or {}).get("north_star") or {}).get("realization")
+        out = fit_gap_hints(
+            realization=realization,
             cost_compare=bt.get("cost_compare"),
             source_audit=bt.get("source_audit") or bt.get("data_quality"),
             paper_ops=paper_ops or None,
-            backtest_params=bt.get("params") or bt.get("request") or {},
+            backtest_params=bt.get("params") or bt.get("request") or bt_meta.get("params") or {},
             universe=bt.get("universe"),
+            day_diff=day_diff,
         )
+        out["curve_meta"] = bt_meta
+        out["day_diff"] = day_diff
+        return out

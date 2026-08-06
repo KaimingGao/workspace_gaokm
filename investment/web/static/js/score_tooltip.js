@@ -142,9 +142,44 @@ export function formatFormulaTermsSection(raw) {
 
   const alpha = fmtSigned(expl.intercept, 3);
   const total = fmtSigned(expl.total, 3);
+
+  // 贡献条：用已有 contrib，不依赖异步模块（tooltip 内联）
+  const barTerms = terms
+    .filter((t) => t && !t.gated && Number.isFinite(Number(t.contrib)))
+    .map((t) => ({
+      key: t.key,
+      label: t.label || FACTOR_LABELS[t.key] || t.key,
+      contrib: Number(t.contrib),
+    }));
+  const peak = Math.max(...barTerms.map((t) => Math.abs(t.contrib)), 1e-9);
+  const barsHtml = barTerms.length
+    ? `<div class="yhat-contrib-bars" aria-label="因子贡献">` +
+      barTerms
+        .slice(0, 10)
+        .map((r) => {
+          const pct = Math.min(100, (Math.abs(r.contrib) / peak) * 100);
+          const side = r.contrib >= 0 ? "pos" : "neg";
+          const sign = r.contrib > 0 ? "+" : "";
+          return (
+            `<div class="yhat-contrib-row" title="${escapeText(r.key || "")}">` +
+            `<span class="yhat-contrib-name">${escapeText(r.label)}</span>` +
+            `<span class="yhat-contrib-track">` +
+            `<span class="yhat-contrib-bar ${side}" style="width:${pct.toFixed(1)}%"></span>` +
+            `</span>` +
+            `<span class="yhat-contrib-val ${side}">${escapeText(
+              `${sign}${r.contrib.toFixed(3)}`
+            )}</span>` +
+            `</div>`
+          );
+        })
+        .join("") +
+      `</div>`
+    : "";
+
   return (
     `<div class="score-formula-section">` +
     `<div class="score-section-title">分项拆解</div>` +
+    barsHtml +
     `<table class="score-formula-table">` +
     `<thead><tr>` +
     `<th>因子</th><th>β</th><th>z</th><th>贡献</th>` +
@@ -164,7 +199,7 @@ export function formatFormulaTermsSection(raw) {
     `<td class="num ${signCls(expl.total)}">${escapeText(total)}%</td>` +
     `</tr>` +
     `</tbody></table>` +
-    `<div class="score-formula-caption">β×z = 贡献；按 |贡献| 排序；舆情闸关时贡献为 0</div>` +
+    `<div class="score-formula-caption">β×z = 贡献；条长∝|贡献|；舆情闸关时贡献为 0</div>` +
     `</div>`
   );
 }

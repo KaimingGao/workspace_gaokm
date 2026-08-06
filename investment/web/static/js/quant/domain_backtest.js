@@ -218,12 +218,15 @@ export function installBacktest(q) {
       await renderLineChart(chartHost, series[0].points, {
         emptyText: "IC 序列不足",
         disableZoom: true,
+        zeroLine: true,
+        color: series[0].color,
       });
       return;
     }
     await renderMultiLineChart(chartHost, series, {
       emptyText: "IC 序列不足",
       disableZoom: true,
+      zeroLine: true,
     });
   }
 

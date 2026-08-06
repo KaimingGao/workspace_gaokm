@@ -85,8 +85,6 @@ class TestScoreStockModeYhatGate(unittest.TestCase):
         ), patch(
             "core.signal.score_stock.allows_production_score", return_value=(True, "")
         ), patch(
-            "core.signal.score_stock.fetch_score_fundamentals", return_value=None
-        ), patch(
             "core.signal.score_stock.score_bars", return_value=scored
         ), patch(
             "core.sentiment.fetch_stock_headlines",
@@ -141,6 +139,73 @@ class TestScoreStockModeYhatGate(unittest.TestCase):
         self.assertEqual(item["return_model_source"], "cluster_group_beta")
         self.assertAlmostEqual(float(item["predicted_score"]), 9.0)
         self.assertAlmostEqual(float(item["score"]), 9.0)
+
+    def test_shadow_fallback_when_no_global_model(self):
+        quote = {
+            "success": True,
+            "stock_code": "600000",
+            "stock_name": "测试",
+            "price": 10.0,
+            "change": 0.1,
+        }
+        bars = [{"date": "2024-01-01", "close": 10.0}] * 30
+        group_m = _model(9.0, 0.0)
+        mapped = {
+            "cluster_label": "G1",
+            "cluster_id": 0,
+            "version": 1,
+            "weight_source": "cluster:G1",
+            "return_model": group_m.to_dict(),
+        }
+        scored = {
+            "score": 50.0,
+            "hard_reject": False,
+            "reject_reason": None,
+            "factors": {},
+            "reasons": [],
+            "invalidation": None,
+            "sub_scores": {"momentum": 0.0},
+            "factor_contrib": {},
+            "regime": None,
+        }
+        with patch(
+            "core.signal.score_stock.fetch_daily_bars", return_value=(bars, "akshare")
+        ), patch(
+            "core.signal.score_stock.allows_production_score", return_value=(True, "")
+        ), patch(
+            "core.signal.score_stock.score_bars", return_value=scored
+        ), patch(
+            "core.sentiment.fetch_stock_headlines",
+            return_value={"ok": False},
+        ), patch(
+            "core.signal.cluster_live.lookup_code_weights", return_value=mapped
+        ), patch(
+            "core.signal.cluster_live.lookup_code_return_model", return_value=group_m
+        ), patch(
+            "core.signal.return_score_store.load_return_model",
+            return_value=(None, {}),
+        ), patch(
+            "core.signal.score_stock.load_signal_config",
+            return_value={
+                "fundamentals": {"enabled": False},
+                "cluster_scoring": {"enabled": True, "mode": "shadow"},
+            },
+        ):
+            out = score_stock(
+                "600000",
+                quote=quote,
+                skip_fundamentals=True,
+                bypass_quality_gate=True,
+                cluster_mode="shadow",
+            )
+        item = out["signal_item"]
+        self.assertEqual(item["return_model_source"], "cluster_shadow_fallback")
+        self.assertAlmostEqual(float(item["predicted_score"]), 9.0)
+        self.assertAlmostEqual(float(item["score"]), 9.0)
+        self.assertIsNone(item.get("score_global"))
+        self.assertTrue(
+            any("no_global_return_model" in str(w) for w in (item.get("warnings") or []))
+        )
 
 
 if __name__ == "__main__":

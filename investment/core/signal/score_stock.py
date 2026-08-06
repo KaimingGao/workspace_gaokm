@@ -444,6 +444,18 @@ def score_stock(
             predicted_score = score_global
             return_model_source = "global"
             active_model = global_model
+        elif (
+            # shadow 且无全局 return_model 产物时：用组 ŷ 顶住主分，避免全表「—」
+            mode == "shadow"
+            and group_model is not None
+            and score_cluster is not None
+        ):
+            predicted_score = score_cluster
+            return_model_source = "cluster_shadow_fallback"
+            active_model = group_model
+            formula_warnings.append(
+                "no_global_return_model:shadow_uses_cluster_yhat"
+            )
     except Exception:
         predicted_score = None
         score_global = None

@@ -60,6 +60,7 @@ import { installSuggest } from "./quant/domain_suggest.js";
 import { installStrategy } from "./quant/domain_strategy.js";
 import { installExportInterpret } from "./quant/domain_export.js";
 import { installScoreReview } from "./quant/domain_score_review.js";
+import { installFitGapHub } from "./quant/domain_fit_gap.js";
 
 /** Quant research panel — shell + domain installs. */
 export function initQuant(ctx) {
@@ -260,6 +261,7 @@ export function initQuant(ctx) {
   const strategy = installStrategy(q);
   const exportDomain = installExportInterpret(q);
   const scoreReviewDomain = installScoreReview(q);
+  const fitGapHub = installFitGapHub(q);
   q.watching = watching;
   q.backtest = backtest;
   q.cluster = cluster;
@@ -267,6 +269,7 @@ export function initQuant(ctx) {
   q.strategy = strategy;
   q.exportDomain = exportDomain;
   q.scoreReviewDomain = scoreReviewDomain;
+  q.fitGapHub = fitGapHub;
 
   cluster.wireOosGateTips(els.quantOlsClusters);
   cluster.wireOosGateTips(els.quantFactorList);

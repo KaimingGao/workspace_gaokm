@@ -208,6 +208,7 @@ def rank_cluster_pools(
             "below_min_score": below,
             "return_model_source": item.get("return_model_source"),
             "score_formula_terms": item.get("score_formula_terms"),
+            "sector": item.get("sector"),
         }
         mapped_rows.append(row)
         by_label.setdefault(str(label), []).append(row)

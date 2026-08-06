@@ -152,7 +152,7 @@ class PaperJobsMixin:
         job_id = paper_job.start(
             kind=kind,
             total=total,
-            message="排队中…",
+            message="排队中",
         )
 
         def _worker() -> None:

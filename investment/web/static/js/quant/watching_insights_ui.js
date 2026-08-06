@@ -19,7 +19,15 @@ export function formatWatchingExcess(it) {
  * @param {(it: object) => string} watchingScoreDetail
  */
 export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
-  const scoreNum = it.score != null && !Number.isNaN(Number(it.score)) ? Number(it.score) : null;
+  const raw =
+    it.score != null && !Number.isNaN(Number(it.score))
+      ? Number(it.score)
+      : it.predicted_score != null && !Number.isNaN(Number(it.predicted_score))
+        ? Number(it.predicted_score)
+        : it.score_cluster != null && !Number.isNaN(Number(it.score_cluster))
+          ? Number(it.score_cluster)
+          : null;
+  const scoreNum = raw;
   const belowMin = !!it.below_min_score;
   const scoreDetail = watchingScoreDetail(it);
   const scoreBase = fmtScore(scoreNum);
@@ -27,7 +35,9 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
     scoreBase === "—" ? "—" : belowMin ? `${scoreBase}↓` : scoreBase;
   const scoreTitle = belowMin
     ? `低于选股门槛 ${it.min_score ?? "—"}（仍显示分数）`
-    : "悬停查看收益分与因子系数";
+    : it.return_model_source === "cluster_shadow_fallback"
+      ? "缺全局 return_model · 暂用组 ŷ（shadow）"
+      : "悬停查看收益分与因子系数";
   return { scoreNum, belowMin, scoreDetail, scoreText, scoreTitle };
 }
 

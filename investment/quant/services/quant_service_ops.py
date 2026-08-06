@@ -286,6 +286,20 @@ class QuantOpsMixin:
             "default_as_of": default_as_of(),
         }
 
+    def score_ledger_code_series(self, code: str, *, limit: int = 40) -> Dict[str, Any]:
+        from core.score_ledger import code_yhat_series
+
+        return code_yhat_series(code, limit=limit)
+
+    def score_review_hit_series(
+        self, *, horizon_days: int = 3, limit: int = 20, autofill: bool = False
+    ) -> Dict[str, Any]:
+        from core.score_ledger import hit_rate_series
+
+        return hit_rate_series(
+            horizon_days=horizon_days, limit=limit, autofill=autofill
+        )
+
     def save_report_exports(
         self,
         report: Dict[str, Any],

@@ -463,6 +463,20 @@ export async function renderLineChart(container, points, opts = {}) {
     }
     throw err;
   }
+  if (opts.zeroLine) {
+    try {
+      line.createPriceLine({
+        price: 0,
+        color: "rgba(100, 116, 139, 0.55)",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: "0",
+      });
+    } catch (_) {
+      /* ignore */
+    }
+  }
   if (Array.isArray(opts.markers) && opts.markers.length) {
     try {
       line.setMarkers(opts.markers);
@@ -688,7 +702,7 @@ export async function renderMultiLineChart(container, seriesList, opts = {}) {
     ...interactionOptions(disableZoom),
   });
   const legendItems = [];
-  prepared.forEach((s) => {
+  prepared.forEach((s, idx) => {
     const series = chart.addLineSeries({ color: s.color, lineWidth: s.lineWidth });
     series.setData(s.points);
     legendItems.push({
@@ -697,6 +711,20 @@ export async function renderMultiLineChart(container, seriesList, opts = {}) {
       thick: s.lineWidth >= 2,
       series,
     });
+    if (opts.zeroLine && idx === 0) {
+      try {
+        series.createPriceLine({
+          price: 0,
+          color: "rgba(100, 116, 139, 0.55)",
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: "0",
+        });
+      } catch (_) {
+        /* ignore */
+      }
+    }
   });
   syncLegend(container, legendItems);
   chart.timeScale().fitContent();

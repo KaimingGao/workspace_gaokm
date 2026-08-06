@@ -24,7 +24,7 @@
       </label>
       <label
         class="platform-field"
-        title="目标聚类数 K：默认 10；清空=自动约 N/5（4～10）；填 ≥2 尽量切到该 k（实际上限≈观察池有效只数）"
+        title="目标聚类数 K：默认自动约 N/5（4～10）；填 ≥2 尽量切到该 k（实际上限≈观察池有效只数）"
       >
         K
         <input
@@ -33,7 +33,7 @@
           min="2"
           max="100"
           step="1"
-          value="10"
+          value=""
           placeholder="自动"
           inputmode="numeric"
         />
@@ -73,8 +73,7 @@
         </p>
         <p>
           「跑分组」：宇宙=<strong>全部观察池</strong>，按单票 OLS β 层次聚类。
-          表单默认 <strong>ridge λ=0.5</strong>、<strong>K=10</strong>；
-          <strong>K 清空</strong>=自动约 N/5（夹在 4～10），超大组再二分；
+          表单默认 <strong>ridge λ=0.5</strong>、<strong>K=自动</strong>（约 N/5，夹在 4～10；超大组再二分）；
           <strong>填 ≥2</strong>=按目标 k 切簇（尽量贴近 K；实际上限≈有效票数，不因离群拆成单票堆）。
           「跑分组」默认<strong>刷新过期日线</strong>（约 36h 内仍用本地；过期/缺条限流拉网）——否则行情未变时重跑几乎无新信息。
           仅调 K/λ 时可取消勾选，用本地缓存快跑。刷新浏览器页不会更新日线。
@@ -285,12 +284,59 @@
             <button type="button" id="quant-score-ledger-freeze" class="dialog-btn secondary">
               冻结今日打分
             </button>
+            <button
+              type="button"
+              id="quant-score-review-refit"
+              class="dialog-btn secondary"
+              title="滚动到「跑分组」并触发重估组 β（不自动改权）"
+            >
+              建议重估
+            </button>
           </div>
         </div>
         <p id="quant-score-review-status" class="quant-fingerprint">尚未加载</p>
         <div id="quant-score-review-summary" class="quant-summary"></div>
+        <div class="yhat-viz-block" id="quant-score-review-hit-wrap" hidden>
+          <p class="quant-trades-caption">跨日方向命中率</p>
+          <canvas
+            id="quant-score-review-hit-spark"
+            class="yhat-spark-canvas"
+            width="480"
+            height="52"
+            aria-label="命中率 sparkline"
+          ></canvas>
+        </div>
+        <div class="yhat-viz-block" id="quant-score-review-scatter-wrap" hidden>
+          <p class="quant-trades-caption">ŷ vs 实现收益（散点）</p>
+          <canvas
+            id="quant-score-review-scatter"
+            class="yhat-scatter-canvas"
+            width="480"
+            height="200"
+            aria-label="ŷ 与实现收益散点"
+          ></canvas>
+        </div>
         <div id="quant-score-review-blame" class="quant-weight-table-wrap sub"></div>
         <div id="quant-score-review-table" class="quant-weight-table-wrap"></div>
+      </div>
+    </details>
+  </section>
+
+  <section class="quant-section" aria-labelledby="quant-section-fit-gap-title">
+    <div class="quant-section-toolbar">
+      <h3 id="quant-section-fit-gap-title" class="watching-section-title">回测–纸面拟合</h3>
+      <p class="quant-section-hint sub">
+        启发式落差 + 同窗双曲线 / 日 Diff · 完整组合回测仍在 <a href="/replay">历史回测</a>
+      </p>
+    </div>
+    <details class="quant-fold" id="quant-fit-gap-fold">
+      <summary id="quant-fit-gap-fold-summary">展开查看拟合落差与日 Diff</summary>
+      <div class="quant-section">
+        <div class="quant-actions-inline">
+          <button type="button" id="quant-fit-gap-refresh" class="dialog-btn">刷新拟合</button>
+        </div>
+        <p id="quant-fit-gap-status" class="quant-fingerprint">尚未加载</p>
+        <div id="quant-fit-gap-hub" class="quant-weight-table-wrap" aria-label="拟合落差"></div>
       </div>
     </details>
   </section>

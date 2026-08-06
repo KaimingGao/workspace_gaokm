@@ -2,7 +2,81 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Sequence
+
+
+def build_curve_day_diff(
+    paper_snapshots: Optional[Sequence[dict]] = None,
+    backtest_curve: Optional[Sequence[dict]] = None,
+    *,
+    window: int = 60,
+    sample_limit: int = 16,
+) -> Dict[str, Any]:
+    """同窗日集合 Diff：交集 / 纸面独有 / 回测独有 + 对齐日收益差样本。"""
+    from core.backtest_curve_store import _curve_points, _paper_daily_equities
+    from core.risk_metrics import period_returns
+
+    paper_pts = _paper_daily_equities(paper_snapshots or [])
+    bt_pts = _curve_points(backtest_curve or [])
+    w = max(5, int(window or 60))
+    if len(paper_pts) > w:
+        paper_pts = paper_pts[-w:]
+    if len(bt_pts) > w * 2:
+        bt_pts = bt_pts[-(w * 2) :]
+
+    paper_map = {d: e for d, e in paper_pts}
+    bt_map = {d: e for d, e in bt_pts}
+    paper_dates = set(paper_map)
+    bt_dates = set(bt_map)
+    common = sorted(paper_dates & bt_dates)
+    paper_only = sorted(paper_dates - bt_dates)
+    bt_only = sorted(bt_dates - paper_dates)
+
+    day_gaps: List[Dict[str, Any]] = []
+    day_series: List[Dict[str, Any]] = []
+    if len(common) >= 2:
+        p_eq = [paper_map[d] for d in common]
+        b_eq = [bt_map[d] for d in common]
+        p0, b0 = p_eq[0], b_eq[0]
+        if p0 and b0 and p0 > 0 and b0 > 0:
+            p_n = [e / p0 for e in p_eq]
+            b_n = [e / b0 for e in b_eq]
+            p_rets = period_returns(p_n)
+            b_rets = period_returns(b_n)
+            for i, d in enumerate(common[1:]):
+                if i >= len(p_rets) or i >= len(b_rets):
+                    break
+                pr = float(p_rets[i])
+                br = float(b_rets[i])
+                row = {
+                    "date": d,
+                    "paper_ret_pct": round(pr * 100.0, 4),
+                    "bt_ret_pct": round(br * 100.0, 4),
+                    "gap_pp": round((pr - br) * 100.0, 4),
+                }
+                day_series.append(row)
+            # 表：|Δ| 最大的若干日；图：用完整时序 day_series
+            day_gaps = sorted(
+                day_series, key=lambda x: -abs(float(x.get("gap_pp") or 0))
+            )
+
+    lim = max(3, min(int(sample_limit or 16), 40))
+    return {
+        "ok": True,
+        "window": w,
+        "paper_days": len(paper_pts),
+        "backtest_days": len(bt_pts),
+        "aligned_days": len(common),
+        "paper_only_days": len(paper_only),
+        "bt_only_days": len(bt_only),
+        "paper_only_sample": paper_only[-lim:],
+        "bt_only_sample": bt_only[-lim:],
+        "common_first": common[0] if common else None,
+        "common_last": common[-1] if common else None,
+        "day_series": day_series,
+        "day_gaps": day_gaps[:lim],
+        "note": "同窗对齐后的日收益差；正=纸面当日相对回测更高。非因果证明。",
+    }
 
 
 def fit_gap_hints(
@@ -13,6 +87,7 @@ def fit_gap_hints(
     paper_ops: Optional[dict] = None,
     backtest_params: Optional[dict] = None,
     universe: Optional[dict] = None,
+    day_diff: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """规则启发式：解释 Corr/TE unavailable 或偏弱的可能原因。"""
     rz = realization or {}
@@ -21,9 +96,9 @@ def fit_gap_hints(
     ops = paper_ops or {}
     params = backtest_params or {}
     uni = universe or {}
+    dd = day_diff or {}
     hints: List[Dict[str, str]] = []
 
-    # 口径脚注：live 与回测边界（常驻 info，避免误以为已对齐舆情）
     hints.append(
         {
             "code": "live_vs_bt_scope",
@@ -35,7 +110,6 @@ def fit_gap_hints(
         }
     )
 
-    # X4：特征同构 / 质量门政策
     try:
         from core.signal.live_features import build_quality_policy_snapshot
 
@@ -108,6 +182,25 @@ def fit_gap_hints(
                 }
             )
 
+    try:
+        po = int(dd.get("paper_only_days") or 0)
+        bo = int(dd.get("bt_only_days") or 0)
+        al = int(dd.get("aligned_days") or 0)
+    except (TypeError, ValueError):
+        po = bo = al = 0
+    if po or bo:
+        level = "warn" if (po >= 5 or bo >= 5 or al < 10) else "info"
+        hints.append(
+            {
+                "code": "date_set_diff",
+                "level": level,
+                "message": (
+                    f"同窗日集合：对齐 {al} · 纸面独有 {po} · 回测独有 {bo}；"
+                    "缺交集时 Corr 不可用或偏脆"
+                ),
+            }
+        )
+
     gap = cc.get("return_gap_pp")
     try:
         gap_f = float(gap) if gap is not None else None
@@ -172,7 +265,6 @@ def fit_gap_hints(
             }
         )
 
-    # B2：horizon / y_spec 与配置对齐提示
     try:
         from core.signal.config import load_signal_config
         from core.research.beta_accuracy import build_y_spec
@@ -249,7 +341,6 @@ def fit_gap_hints(
             }
         )
 
-    # 去掉「仅有口径脚注」时的空洞 ok；若除 live_vs_bt_scope 外无其它，补一条汇总
     substantive = [h for h in hints if h.get("code") != "live_vs_bt_scope"]
     if not substantive:
         hints.append(
@@ -268,7 +359,7 @@ def fit_gap_hints(
         quality_policy = build_quality_policy_snapshot()
     except Exception:
         quality_policy = None
-    return {
+    out: Dict[str, Any] = {
         "ok": True,
         "hints": hints,
         "count": len(hints),
@@ -276,3 +367,16 @@ def fit_gap_hints(
         "quality_policy": quality_policy,
         "note": "启发式归因，非因果证明。",
     }
+    if dd:
+        out["day_diff"] = dd
+    if rz:
+        out["realization"] = {
+            "status": rz.get("status"),
+            "corr": rz.get("corr"),
+            "tracking_error_pct": rz.get("tracking_error_pct"),
+            "aligned_days": rz.get("aligned_days"),
+            "first_date": rz.get("first_date"),
+            "last_date": rz.get("last_date"),
+            "note": rz.get("note"),
+        }
+    return out

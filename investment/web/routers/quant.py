@@ -548,6 +548,33 @@ def quant_score_review_dates(limit: int = 30):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/api/quant/score-review/hit-series")
+def quant_score_review_hit_series(
+    horizon_days: int = 3,
+    limit: int = 20,
+    autofill: bool = False,
+):
+    """跨决策日方向命中率序列（sparkline）。"""
+    try:
+        return deps.quant.score_review_hit_series(
+            horizon_days=horizon_days, limit=limit, autofill=autofill
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/score-ledger/series")
+def quant_score_ledger_series(code: str, limit: int = 40):
+    """单票 ŷ 跨日时间线。"""
+    try:
+        out = deps.quant.score_ledger_code_series(code, limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not out.get("success"):
+        raise HTTPException(status_code=400, detail=out.get("error") or "查询失败")
+    return out
+
+
 @router.get("/api/quant/score-review")
 def quant_score_review(
     as_of: Optional[str] = None,

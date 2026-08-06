@@ -28,6 +28,30 @@
     ></p>
   </div>
 
+  <div class="yhat-viz-block watching-yhat-hist" id="watching-yhat-hist-wrap" hidden>
+    <div class="yhat-viz-head">
+      <p class="quant-trades-caption">观察池 ŷ 分布（截面直方图）</p>
+      <p id="watching-yhat-hist-meta" class="quant-sub"></p>
+      <p id="watching-yhat-hist-filter" class="quant-sub yhat-hist-filter" hidden></p>
+      <button
+        type="button"
+        id="watching-yhat-hist-clear"
+        class="dialog-btn secondary yhat-hist-clear"
+        hidden
+        title="清除直方图筛选"
+      >清除筛选</button>
+    </div>
+    <div class="yhat-hist-stage">
+      <canvas
+        id="watching-yhat-hist"
+        class="yhat-hist-canvas"
+        width="760"
+        height="136"
+        aria-label="predicted_score 直方图，悬停查看箱内票，点击筛选观察表"
+      ></canvas>
+    </div>
+  </div>
+
   <div class="watching-watch-block" id="watching-align-grid" aria-label="观察名单">
     <section class="watching-chart-card" id="watching-chart-section" hidden>
       <div class="watching-chart-head">
@@ -36,6 +60,14 @@
       </div>
       <div class="watching-chart-canvas">
         <div id="watching-chart" class="quant-chart-host watching-chart-host" aria-label="观察股票日线图"></div>
+      </div>
+      <div class="yhat-viz-block watching-yhat-series" id="watching-yhat-series-wrap" hidden>
+        <p class="quant-trades-caption" id="watching-yhat-series-caption">ŷ 时间线（账本）</p>
+        <div
+          id="watching-yhat-series"
+          class="quant-chart-host watching-yhat-series-host"
+          aria-label="单票 ŷ 时间线"
+        ></div>
       </div>
     </section>
     <section

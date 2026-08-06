@@ -1,6 +1,8 @@
 /**
  * 昨日复盘：ŷ 方向 vs 前瞻收益。
  */
+import { paintYhatScatter, paintHitSparkline } from "./yhat_viz.js";
+
 export function installScoreReview(ctx) {
   const { els, escapeHtml, setQuantMeta, on } = ctx;
   const esc = escapeHtml;
@@ -61,31 +63,105 @@ export function installScoreReview(ctx) {
       `<span>错空 ${esc(String(s.wrong_short ?? 0))}</span>` +
       `<span>账本 ${esc(String(data.n_ledger ?? 0))} 只</span>` +
       `</div>` +
-      `<p class="quant-attr-note">${esc(s.blame_line || "")}</p>`;
+      `<p class="quant-attr-note">${esc(s.blame_line || "")}</p>` +
+      (data.refit_hint
+        ? `<p class="quant-attr-note">${esc(data.refit_hint)}</p>`
+        : "");
+  }
+
+  function renderScatter(data) {
+    const wrap = document.getElementById("quant-score-review-scatter-wrap");
+    const canvas = document.getElementById("quant-score-review-scatter");
+    if (!wrap || !canvas) return;
+    const pts = data.scored_rows || [];
+    if (data.empty || pts.length < 2) {
+      wrap.hidden = true;
+      return;
+    }
+    wrap.hidden = false;
+    // 等折叠展开后宽度可用
+    requestAnimationFrame(() => {
+      paintYhatScatter(canvas, pts);
+    });
+  }
+
+  async function renderHitSparkline(horizon) {
+    const wrap = document.getElementById("quant-score-review-hit-wrap");
+    const canvas = document.getElementById("quant-score-review-hit-spark");
+    if (!wrap || !canvas) return;
+    try {
+      const q = new URLSearchParams({
+        horizon_days: String(horizon || 3),
+        limit: "20",
+        autofill: "false",
+      });
+      const res = await fetch(`/api/quant/score-review/hit-series?${q}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        wrap.hidden = true;
+        return;
+      }
+      const pts = data.points || [];
+      if (pts.length < 2) {
+        wrap.hidden = true;
+        return;
+      }
+      wrap.hidden = false;
+      requestAnimationFrame(() => paintHitSparkline(canvas, pts));
+    } catch (_) {
+      wrap.hidden = true;
+    }
+  }
+
+  function renderBlameTable(title, headers, rows, cellsFn) {
+    if (!rows.length) return "";
+    const body = rows.map((r) => `<tr>${cellsFn(r)}</tr>`).join("");
+    const th = headers.map((h) => `<th>${esc(h)}</th>`).join("");
+    return (
+      `<p class="quant-trades-caption">${esc(title)}</p>` +
+      `<table class="quant-mini-table"><thead><tr>${th}</tr></thead>` +
+      `<tbody>${body}</tbody></table>`
+    );
   }
 
   function renderBlame(data) {
     const box = document.getElementById("quant-score-review-blame");
     if (!box) return;
-    const rows = data.factor_blame || [];
-    if (!rows.length) {
+    const fac = data.factor_blame || [];
+    const ind = data.industry_blame || [];
+    const clu = data.cluster_blame || [];
+    if (!fac.length && !ind.length && !clu.length) {
       box.innerHTML = "";
       return;
     }
-    const body = rows
-      .map(
+    box.innerHTML =
+      renderBlameTable(
+        "错票 · 主导因子",
+        ["因子", "次数", "当日相关≈"],
+        fac,
         (r) =>
-          `<tr><td>${esc(r.factor || "—")}</td>` +
+          `<td>${esc(r.factor || "—")}</td>` +
           `<td class="num">${esc(String(r.wrong_count ?? "—"))}</td>` +
           `<td class="num">${
             r.factor_ic_day != null ? esc(Number(r.factor_ic_day).toFixed(3)) : "—"
-          }</td></tr>`
-      )
-      .join("");
-    box.innerHTML =
-      `<table class="quant-mini-table"><thead><tr>` +
-      `<th>错票主导因子</th><th>次数</th><th>当日相关≈</th>` +
-      `</tr></thead><tbody>${body}</tbody></table>`;
+          }</td>`
+      ) +
+      renderBlameTable(
+        "错票 · 行业",
+        ["行业", "次数"],
+        ind,
+        (r) =>
+          `<td>${esc(r.sector || "—")}</td>` +
+          `<td class="num">${esc(String(r.wrong_count ?? "—"))}</td>`
+      ) +
+      renderBlameTable(
+        "错票 · 分组",
+        ["分组", "次数"],
+        clu,
+        (r) =>
+          `<td>${esc(r.cluster_label || "—")}</td>` +
+          `<td class="num">${esc(String(r.wrong_count ?? "—"))}</td>`
+      );
   }
 
   function renderWrongTable(data) {
@@ -110,6 +186,8 @@ export function installScoreReview(ctx) {
           `<tr>` +
           `<td>${esc(r.code || "—")}</td>` +
           `<td>${esc(r.name || "")}</td>` +
+          `<td>${esc(r.sector || "—")}</td>` +
+          `<td>${esc(r.cluster_label || "—")}</td>` +
           `<td class="num">${esc(y)}</td>` +
           `<td class="num">${esc(ret)}</td>` +
           `<td class="num">${esc(err)}</td>` +
@@ -122,7 +200,8 @@ export function installScoreReview(ctx) {
       .join("");
     box.innerHTML =
       `<table class="quant-mini-table"><thead><tr>` +
-      `<th>代码</th><th>名称</th><th>ŷ%</th><th>实现%</th><th>|误差|</th>` +
+      `<th>代码</th><th>名称</th><th>行业</th><th>组</th>` +
+      `<th>ŷ%</th><th>实现%</th><th>|误差|</th>` +
       `<th>主导因子</th><th>因子相关</th><th>标签</th>` +
       `</tr></thead><tbody>${body}</tbody></table>`;
   }
@@ -157,6 +236,8 @@ export function installScoreReview(ctx) {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || res.statusText);
       renderSummary(data);
+      renderScatter(data);
+      renderHitSparkline(horizon).catch(() => {});
       renderBlame(data);
       renderWrongTable(data);
       const s = data.summary || {};
@@ -227,6 +308,18 @@ export function installScoreReview(ctx) {
     return runReview({ autofill: true });
   }
 
+  function jumpRefit() {
+    const runBtn = document.getElementById("quant-ols-clusters-run");
+    if (runBtn) {
+      runBtn.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      runBtn.click();
+      setStatus("已触发「跑分组」重估", { ok: true });
+      if (setQuantMeta) setQuantMeta("复盘 → 跑分组重估中…", { busy: true });
+    } else if (setQuantMeta) {
+      setQuantMeta("请到研究枢纽点「跑分组」重估组 β", { error: true });
+    }
+  }
+
   on("quant-score-review-run", "click", async (e) => {
     e.preventDefault();
     try {
@@ -251,6 +344,10 @@ export function installScoreReview(ctx) {
       setStatus(`冻结失败：${String(err.message || err)}`, { error: true });
     }
   });
+  on("quant-score-review-refit", "click", (e) => {
+    e.preventDefault();
+    jumpRefit();
+  });
 
   const fold = document.getElementById("quant-score-review-fold");
   if (fold) {
@@ -261,5 +358,5 @@ export function installScoreReview(ctx) {
     });
   }
 
-  return { runReview, fillOutcomes, freezeLedger, ensureDefaultAsOf };
+  return { runReview, fillOutcomes, freezeLedger, ensureDefaultAsOf, jumpRefit };
 }

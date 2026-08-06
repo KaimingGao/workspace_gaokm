@@ -396,7 +396,7 @@ def run_paper_daily(
             }
         )
 
-        slot.update(current=3, message="衰减监控")
+        slot.update(current=3, message="衰减监控 + score ledger")
         health = (cycle or {}).get("health")
         if not health:
             health = assess_strategy_health(
@@ -404,6 +404,15 @@ def run_paper_daily(
                 summary=summary,
                 compute_rolling_ic=True,
             )
+
+        # 复盘账本：冻结今日 ŷ + 回填到期决策日 realized
+        score_ledger = None
+        try:
+            from core.score_ledger import run_score_ledger_daily
+
+            score_ledger = run_score_ledger_daily()
+        except Exception as exc:
+            score_ledger = {"success": False, "error": str(exc)}
 
         # R0：确保日更结果含权威北极星包（cycle 内已算则复用）
         north_star = paper.get("last_north_star") or (ops or {}).get("north_star")
@@ -447,6 +456,7 @@ def run_paper_daily(
             "cycle": cycle,
             "summary": summary,
             "health": health,
+            "score_ledger": score_ledger,
             "ops_report": ops or (cycle or {}).get("ops_report"),
             "north_star": north_star,
             "strategy_id": (cycle or {}).get("strategy_id") or strategy,
@@ -458,7 +468,7 @@ def run_paper_daily(
             "monitor_alerts": merged_alerts,
             "alert_outbound": alert_outbound,
             "buys_blocked": bool((cycle or {}).get("buys_blocked")),
-            "note": "N5 准实盘日更；含日线覆盖与北极星 KPI；告警不自动改权；不代客下单。",
+            "note": "N5 准实盘日更；含日线覆盖与北极星 KPI；账本冻/回填；告警不自动改权；不代客下单。",
         }
         path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
         result["path"] = path

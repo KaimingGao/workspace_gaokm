@@ -87,7 +87,7 @@ def run_daily_cycle(
         risk_gate = {"ok": True, "blocks": [], "warnings": []}
 
     buys_blocked = False
-    _p(len(holding_codes) + 1, grand, "减仓/卖出规则…")
+    _p(len(holding_codes) + 1, grand, "减仓/卖出规则")
     sell_trades = simulate_sells(paper, pool)
 
     # P1：目标权重建议（风控拦截时仍可见）

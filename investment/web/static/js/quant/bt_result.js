@@ -425,7 +425,8 @@ export function createBtResultRenderers(deps) {
       return;
     }
     const hints = data.hints || [];
-    el.innerHTML =
+    const dd = data.day_diff || {};
+    let html =
       `<p class="quant-trades-caption">回测–纸面落差归因（启发式 · warn ${
         data.warn_count ?? 0
       }）</p>` +
@@ -446,8 +447,42 @@ export function createBtResultRenderers(deps) {
           emptyText: "无归因项",
           rowClass: (d) => (d.isWarn ? "down" : ""),
         }
-      ) +
-      `<p class="quant-sub">${esc(data.note || "")} · 拟合 KPI 见 <a href="/platform">平台北极星</a></p>`;
+      );
+    if (dd && (dd.aligned_days != null || (dd.day_gaps || []).length)) {
+      html +=
+        `<p class="quant-trades-caption">同窗日 Diff · 对齐 ${esc(
+          String(dd.aligned_days ?? 0)
+        )} · 纸面独有 ${esc(String(dd.paper_only_days ?? 0))} · 回测独有 ${esc(
+          String(dd.bt_only_days ?? 0)
+        )}</p>`;
+      const gaps = (dd.day_gaps || []).slice(0, 8);
+      if (gaps.length) {
+        html += researchGridHtml(
+          [
+            { id: "date", label: "日", widthPct: 22 },
+            { id: "paper_ret_pct", label: "纸面%", widthPct: 18, center: true },
+            { id: "bt_ret_pct", label: "回测%", widthPct: 18, center: true },
+            { id: "gap_pp", label: "Δpp", widthPct: 18, center: true },
+          ],
+          gaps.map((g) => ({
+            date: g.date || "—",
+            paper_ret_pct:
+              g.paper_ret_pct != null ? Number(g.paper_ret_pct).toFixed(2) : "—",
+            bt_ret_pct:
+              g.bt_ret_pct != null ? Number(g.bt_ret_pct).toFixed(2) : "—",
+            gap_pp: g.gap_pp != null ? Number(g.gap_pp).toFixed(2) : "—",
+            isWarn: Math.abs(Number(g.gap_pp) || 0) >= 1,
+          })),
+          (col, d) => esc(d[col.id] ?? "—"),
+          {
+            emptyText: "无日差样本",
+            rowClass: (d) => (d.isWarn ? "down" : ""),
+          }
+        );
+      }
+    }
+    html += `<p class="quant-sub">${esc(data.note || "")} · 拟合 KPI 见 <a href="/platform">平台北极星</a> · 枢纽常驻见 <a href="/quant">研究枢纽</a></p>`;
+    el.innerHTML = html;
   }
 
   function buildCards(data) {

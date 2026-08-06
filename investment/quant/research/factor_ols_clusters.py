@@ -421,6 +421,8 @@ def group_cs_ic_panel(
         "day_count": out.get("day_count"),
         "pit_fundamentals": bool(pit_fundamentals),
         "score_ic": out.get("score_ic"),
+        # 日截面 IC 尾段：组头 IC spark（按日对因子 Pearson 取均）
+        "daily_tail": out.get("daily_tail") or [],
         "note": "组内按日截面 IC → ICIR（宇宙=组员；非全市场）",
     }
 

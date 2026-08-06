@@ -109,6 +109,21 @@ def row_from_scored_item(
     terms = _terms_top(
         item.get("score_formula_terms") or item.get("formula_terms_top")
     )
+    sector = (
+        item.get("sector")
+        or item.get("industry")
+        or item.get("theme_sector")
+        or None
+    )
+    if sector is not None:
+        sector = str(sector).strip() or None
+    if not sector:
+        try:
+            from core.portfolio_optimize import _sector_for, load_sector_map
+
+            sector = _sector_for(code, load_sector_map()) or None
+        except Exception:
+            sector = None
     return {
         "as_of": _date_key(as_of),
         "code": code.zfill(6) if code.isdigit() else code,
@@ -116,6 +131,7 @@ def row_from_scored_item(
         "yhat": round(yhat, 6),
         "heuristic": _to_float(item.get("heuristic_score")),
         "cluster_label": item.get("cluster_label"),
+        "sector": sector,
         "model_id": item.get("return_model_source")
         or item.get("weight_source")
         or item.get("model_id"),
@@ -493,7 +509,10 @@ def build_score_review(
             "note": "无该日账本。请先跑分组落书、生成日报，或点「冻结今日打分」。",
             "summary": {},
             "wrong_rows": [],
+            "scored_rows": [],
             "factor_blame": [],
+            "industry_blame": [],
+            "cluster_blame": [],
         }
     outcomes = load_outcomes(d)
     need_fill = (
@@ -517,8 +536,11 @@ def build_score_review(
     no_dir = 0
     thin = 0
     wrong_rows: List[Dict[str, Any]] = []
+    scored_rows: List[Dict[str, Any]] = []
     tag_counts: Dict[str, int] = {}
     factor_wrong: Dict[str, int] = {}
+    industry_wrong: Dict[str, int] = {}
+    cluster_wrong: Dict[str, int] = {}
     factor_ic_cache: Dict[str, Optional[float]] = {}
 
     for r in rows:
@@ -558,6 +580,20 @@ def build_score_review(
             thin += 1
             continue
         n += 1
+        scored_rows.append(
+            {
+                "code": code,
+                "name": r.get("name"),
+                "yhat": yhat,
+                "realized_h": realized,
+                "hit": hit if isinstance(hit, bool) else None,
+                "abs_err": oc.get("abs_err"),
+                "sector": r.get("sector"),
+                "cluster_label": r.get("cluster_label"),
+                "dominant_factor": dominant,
+                "tag": tag,
+            }
+        )
         if hit is True:
             hits += 1
             continue
@@ -568,6 +604,10 @@ def build_score_review(
                 wrong_short += 1
             if dominant:
                 factor_wrong[str(dominant)] = factor_wrong.get(str(dominant), 0) + 1
+            sec = str(r.get("sector") or "").strip() or "其他"
+            industry_wrong[sec] = industry_wrong.get(sec, 0) + 1
+            clab = str(r.get("cluster_label") or "").strip() or "—"
+            cluster_wrong[clab] = cluster_wrong.get(clab, 0) + 1
             wrong_rows.append(
                 {
                     "code": code,
@@ -576,6 +616,7 @@ def build_score_review(
                     "realized_h": realized,
                     "abs_err": oc.get("abs_err"),
                     "cluster_label": r.get("cluster_label"),
+                    "sector": r.get("sector") or sec,
                     "dominant_factor": dominant,
                     "factor_ic_day": round(fic, 4) if fic is not None else None,
                     "tag": tag,
@@ -597,6 +638,14 @@ def build_score_review(
                 "factor_ic_day": round(fic, 4) if fic is not None else None,
             }
         )
+    industry_blame = [
+        {"sector": sec, "wrong_count": cnt}
+        for sec, cnt in sorted(industry_wrong.items(), key=lambda kv: -kv[1])[:8]
+    ]
+    cluster_blame = [
+        {"cluster_label": lab, "wrong_count": cnt}
+        for lab, cnt in sorted(cluster_wrong.items(), key=lambda kv: -kv[1])[:8]
+    ]
 
     blame_line = "样本不足"
     if n:
@@ -610,6 +659,8 @@ def build_score_review(
                 f"方向命中 {hit_rate:.0%}（{hits}/{n}）；"
                 f"错票常挂在 {top['factor']}（{top['wrong_count']} 次）{ic_s}"
             )
+            if industry_blame:
+                blame_line += f"；行业 {industry_blame[0]['sector']}×{industry_blame[0]['wrong_count']}"
         else:
             blame_line = f"方向命中 {hit_rate:.0%}（{hits}/{n}）"
 
@@ -634,11 +685,19 @@ def build_score_review(
             "blame_line": blame_line,
         },
         "wrong_rows": wrong_rows[:80],
+        "scored_rows": scored_rows[:200],
         "factor_blame": factor_blame,
+        "industry_blame": industry_blame,
+        "cluster_blame": cluster_blame,
         "note": (
             "方向复盘：sign(ŷ) vs sign(r_h)；|ŷ|<0.05% 视为无方向。"
             "标签：factor_fade=主导因子当日截面相关为负；"
             "idiosyncratic=因子未坏但个股反；model_tilt=分解不足时的模型偏置兜底。"
+        ),
+        "refit_hint": (
+            "错票偏多时建议到上方「跑分组」重估组 β（不自动改权）。"
+            if (hit_rate is not None and hit_rate < 0.5 and n >= 5)
+            else None
         ),
     }
 
@@ -653,3 +712,183 @@ def list_ledger_dates(*, limit: int = 30) -> List[str]:
             dates.append(name[:-5])
     dates.sort(reverse=True)
     return dates[: max(1, int(limit))]
+
+
+def code_yhat_series(
+    code: str,
+    *,
+    limit: int = 40,
+) -> Dict[str, Any]:
+    """单票跨决策日 ŷ 时间线（读已冻结账本）。"""
+    raw = str(code or "").strip()
+    if not raw:
+        return {"success": False, "error": "code 无效", "points": []}
+    key = raw.zfill(6) if raw.isdigit() else raw
+    dates = list_ledger_dates(limit=max(5, min(int(limit or 40), 90)))
+    points: List[Dict[str, Any]] = []
+    name = None
+    for d in reversed(dates):  # 时间正序
+        led = load_ledger(d)
+        if not led.get("success") or led.get("empty"):
+            continue
+        for r in led.get("rows") or []:
+            if str(r.get("code") or "") != key:
+                continue
+            y = _to_float(r.get("yhat"))
+            if y is None:
+                break
+            if name is None and r.get("name"):
+                name = r.get("name")
+            oc = (load_outcomes(d).get("by_code") or {}).get(key) or {}
+            points.append(
+                {
+                    "date": d,
+                    "yhat": y,
+                    "realized_h": _to_float(oc.get("realized_h")),
+                    "sign_hit": oc.get("sign_hit"),
+                    "cluster_label": r.get("cluster_label"),
+                }
+            )
+            break
+    return {
+        "success": True,
+        "code": key,
+        "name": name,
+        "n": len(points),
+        "points": points,
+        "note": "来自 score_ledger 冻结行；无账本日不出现。",
+    }
+
+
+def hit_rate_series(
+    *,
+    horizon_days: int = 3,
+    limit: int = 20,
+    autofill: bool = False,
+) -> Dict[str, Any]:
+    """跨决策日方向命中率序列（复盘 sparkline）。"""
+    h = max(1, min(int(horizon_days or 3), 10))
+    dates = list_ledger_dates(limit=max(5, min(int(limit or 20), 60)))
+    series: List[Dict[str, Any]] = []
+    for d in reversed(dates):
+        # 轻量：不跑全量 build_score_review 文案，只算命中
+        led = load_ledger(d)
+        if not led.get("success") or led.get("empty"):
+            continue
+        outcomes = load_outcomes(d)
+        if autofill and (
+            outcomes.get("empty")
+            or int(outcomes.get("horizon_days") or 0) != h
+            or not outcomes.get("by_code")
+        ):
+            try:
+                fill_outcomes(d, horizon_days=h)
+                outcomes = load_outcomes(d)
+            except Exception:
+                pass
+        by_code = outcomes.get("by_code") or {}
+        n = 0
+        hits = 0
+        for r in led.get("rows") or []:
+            code = str(r.get("code") or "")
+            yhat = _to_float(r.get("yhat"))
+            if yhat is None or abs(float(yhat)) < _YHAT_EPS:
+                continue
+            oc = by_code.get(code) or {}
+            realized = _to_float(oc.get("realized_h"))
+            if realized is None:
+                continue
+            hit = oc.get("sign_hit")
+            if hit is None:
+                hit = _sign_hit(yhat, realized)
+            if not isinstance(hit, bool):
+                continue
+            n += 1
+            if hit:
+                hits += 1
+        if n <= 0:
+            continue
+        series.append(
+            {
+                "date": d,
+                "hit_rate": round(hits / n, 4),
+                "hits": hits,
+                "n_scored": n,
+            }
+        )
+    return {
+        "success": True,
+        "horizon_days": h,
+        "n": len(series),
+        "points": series,
+        "note": "仅含已回填 realized 的决策日；autofill=false 时不拉日线。",
+    }
+
+
+def run_score_ledger_daily(
+    *,
+    as_of: Optional[str] = None,
+    horizon_days: Optional[int] = None,
+    fill_lookback: int = 5,
+) -> Dict[str, Any]:
+    """日更钩子：冻结当日账本 + 回填已到期（as_of−h …）outcomes。
+
+    不抛异常给调度层；失败写进返回字段。
+    """
+    from core.market_calendar import prev_trading_day, resolve_session_date
+
+    sess = _date_key(as_of) or resolve_session_date()
+    h = horizon_days
+    if h is None:
+        try:
+            from core.signal.config import load_signal_config
+
+            scoring = (load_signal_config() or {}).get("scoring") or {}
+            h = int(scoring.get("horizon_days") or 3)
+        except Exception:
+            h = 3
+    h = max(1, min(int(h or 3), 10))
+
+    freeze_out: Dict[str, Any]
+    try:
+        freeze_out = freeze_from_cluster_book(as_of=sess)
+        if not freeze_out.get("success") or int(freeze_out.get("n_rows") or 0) <= 0:
+            # 集群书空时仍记失败，不阻断回填旧日
+            pass
+    except Exception as exc:
+        freeze_out = {"success": False, "error": str(exc), "as_of": sess, "n_rows": 0}
+
+    fills: List[Dict[str, Any]] = []
+    look = max(1, min(int(fill_lookback or 5), 20))
+    for i in range(1, look + 1):
+        # 回填「h 个交易日前」起的若干决策日（已到期可算 realized）
+        target = prev_trading_day(sess, n=h + i - 1) or None
+        if not target:
+            continue
+        # 无账本则跳过
+        led = load_ledger(target)
+        if led.get("empty") or not led.get("success"):
+            continue
+        try:
+            fo = fill_outcomes(target, horizon_days=h)
+            fills.append(
+                {
+                    "as_of": target,
+                    "success": bool(fo.get("success")),
+                    "filled": fo.get("filled"),
+                    "missing": fo.get("missing"),
+                    "error": fo.get("error"),
+                }
+            )
+        except Exception as exc:
+            fills.append({"as_of": target, "success": False, "error": str(exc)})
+
+    return {
+        "success": True,
+        "as_of": sess,
+        "horizon_days": h,
+        "freeze": freeze_out,
+        "fills": fills,
+        "filled_days": sum(1 for f in fills if f.get("success")),
+        "note": "日更：冻结今日 ŷ 账本；回填到期决策日 realized（不改权）。",
+    }

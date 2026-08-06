@@ -28,6 +28,8 @@ import {
   buildWatchingBuildPayload,
   watchingBuildModeUiConfig,
 } from "./watching_build_ui.js";
+import { mountScoreHistogram } from "./yhat_viz.js";
+import { defaultScoringFloors } from "./scoring.js";
 import {
   formatRefreshStats,
   buildWatchingNameByCode,
@@ -58,6 +60,157 @@ export function installWatching(q) {
       state.watchingSortDir = saved.dir === "asc" ? "asc" : "desc";
     }
   } catch (_) { /* ignore */ }
+
+  function collectWatchingYhatItems() {
+    const out = [];
+    if (state.watchingGrid && state.watchingGridReady) {
+      for (const r of state.watchingGrid.getData() || []) {
+        const n =
+          r.scoreNum != null
+            ? Number(r.scoreNum)
+            : r.predicted_score != null
+              ? Number(r.predicted_score)
+              : Number(r.score);
+        if (!Number.isFinite(n) || !r.code) continue;
+        out.push({ code: String(r.code), name: r.name || "", score: n });
+      }
+      return out;
+    }
+    const watchTable = document.getElementById("watching-watchlist-table");
+    watchTable?.querySelectorAll("tr[data-code]").forEach((tr) => {
+      const n = Number(tr.dataset.score);
+      const code = String(tr.dataset.code || "").trim();
+      if (!code || !Number.isFinite(n)) return;
+      const name =
+        tr.querySelector(".watching-name-text")?.getAttribute("data-full-name") ||
+        tr.querySelector(".watching-name-text")?.textContent ||
+        "";
+      out.push({ code, name, score: n });
+    });
+    return out;
+  }
+
+  function applyYhatHistTableFilter(sel) {
+    const clearBtn = document.getElementById("watching-yhat-hist-clear");
+    const filterMeta = document.getElementById("watching-yhat-hist-filter");
+    if (clearBtn) clearBtn.hidden = !sel;
+    if (filterMeta) {
+      if (sel) {
+        filterMeta.hidden = false;
+        filterMeta.textContent = `已筛 ${sel.count} 只 · ŷ ∈ [${sel.x0.toFixed(2)}, ${sel.x1.toFixed(2)}] · 再点同柱或 Esc 清除`;
+      } else {
+        filterMeta.hidden = true;
+        filterMeta.textContent = "";
+      }
+    }
+    const hit = sel ? new Set(sel.codes || []) : null;
+    if (state.watchingGrid && typeof state.watchingGrid.patchRows === "function") {
+      const patches = {};
+      for (const r of state.watchingGrid.getData() || []) {
+        const code = String(r.code || "");
+        if (!code) continue;
+        patches[code] = {
+          yhatHistHit: hit ? hit.has(code) : false,
+          yhatHistDim: hit ? !hit.has(code) : false,
+        };
+      }
+      state.watchingGrid.patchRows(patches);
+      return;
+    }
+    const watchTable = document.getElementById("watching-watchlist-table");
+    watchTable?.querySelectorAll("tr[data-code]").forEach((tr) => {
+      const code = String(tr.dataset.code || "");
+      tr.classList.toggle("is-yhat-hist-hit", !!(hit && hit.has(code)));
+      tr.classList.toggle("is-yhat-hist-dim", !!(hit && !hit.has(code)));
+    });
+  }
+
+  function ensureWatchingYhatHist() {
+    if (state.watchingYhatHist) return state.watchingYhatHist;
+    const canvas = document.getElementById("watching-yhat-hist");
+    if (!canvas) return null;
+    const floors = state.scoringFloors || defaultScoringFloors();
+    state.watchingYhatHist = mountScoreHistogram(canvas, {
+      bins: 14,
+      floors: {
+        buy: floors.min_predicted_score,
+        hold: floors.min_hold_predicted_score,
+      },
+      onSelect: (sel) => applyYhatHistTableFilter(sel),
+    });
+    const clearBtn = document.getElementById("watching-yhat-hist-clear");
+    if (clearBtn && !clearBtn.dataset.bound) {
+      clearBtn.dataset.bound = "1";
+      clearBtn.addEventListener("click", () => {
+        state.watchingYhatHist?.clearSelection();
+        applyYhatHistTableFilter(null);
+      });
+    }
+    return state.watchingYhatHist;
+  }
+
+  function paintWatchingYhatHist(scoresOrItems) {
+    const wrap = document.getElementById("watching-yhat-hist-wrap");
+    const meta = document.getElementById("watching-yhat-hist-meta");
+    if (!wrap) return;
+    let items;
+    if (Array.isArray(scoresOrItems) && scoresOrItems.length) {
+      if (typeof scoresOrItems[0] === "number") {
+        // 兼容旧调用：尽量回落成带 code 的 items
+        items = collectWatchingYhatItems();
+        if (!items.length) {
+          items = scoresOrItems
+            .filter((n) => Number.isFinite(n))
+            .map((score, i) => ({ code: `n${i}`, score }));
+        }
+      } else {
+        items = scoresOrItems;
+      }
+    } else {
+      items = collectWatchingYhatItems();
+    }
+    if (!items.length) {
+      wrap.hidden = true;
+      applyYhatHistTableFilter(null);
+      return;
+    }
+    wrap.hidden = false;
+    const floors = state.scoringFloors || defaultScoringFloors();
+    const hist = ensureWatchingYhatHist();
+    if (!hist) return;
+    hist.setFloors({
+      buy: floors.min_predicted_score,
+      hold: floors.min_hold_predicted_score,
+    });
+    requestAnimationFrame(() => {
+      const pack = hist.setData(items);
+      applyYhatHistTableFilter(hist.getSelection());
+      if (meta && pack) {
+        const f = (x, d = 2) =>
+          x != null && Number.isFinite(x) ? Number(x).toFixed(d) : "—";
+        const pct =
+          pack.pct_above_buy != null
+            ? `${(pack.pct_above_buy * 100).toFixed(0)}%≥买门`
+            : null;
+        const pos =
+          pack.pct_pos != null
+            ? `${(pack.pct_pos * 100).toFixed(0)}% ŷ>0`
+            : null;
+        meta.textContent = [
+          `n=${pack.n}`,
+          `μ ${f(pack.mean)}%`,
+          `med ${f(pack.median)}%`,
+          `σ ${f(pack.std)}`,
+          `IQR [${f(pack.p25)}, ${f(pack.p75)}]`,
+          pos,
+          pct,
+          "悬停详查 · 点击筛表",
+        ]
+          .filter(Boolean)
+          .join(" · ");
+      }
+    });
+  }
 
   async function addWatchingWatchItem(query) {
     const queryText = String(query || "").trim();
@@ -172,6 +325,45 @@ export function installWatching(q) {
       ma: [5, 10, 20],
       disableZoom: true,
     }).catch(() => {});
+  }
+
+  async function drawWatchingYhatSeries(code) {
+    const wrap = document.getElementById("watching-yhat-series-wrap");
+    const host = document.getElementById("watching-yhat-series");
+    const cap = document.getElementById("watching-yhat-series-caption");
+    if (!wrap || !host || !code) {
+      if (wrap) wrap.hidden = true;
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/quant/score-ledger/series?code=${encodeURIComponent(code)}&limit=40`
+      );
+      const data = await res.json().catch(() => ({}));
+      const pts = (data.points || [])
+        .map((p) => ({
+          time: String(p.date || "").slice(0, 10),
+          value: Number(p.yhat),
+        }))
+        .filter((p) => /^\d{4}-\d{2}-\d{2}$/.test(p.time) && Number.isFinite(p.value));
+      if (!data.success || pts.length < 2) {
+        wrap.hidden = true;
+        return;
+      }
+      wrap.hidden = false;
+      if (cap) {
+        cap.textContent = `ŷ 时间线（账本 · ${pts.length} 日）`;
+      }
+      await renderLineChart(host, pts, {
+        emptyText: "账本 ŷ 不足",
+        color: "#2563eb",
+        zeroLine: true,
+        disableZoom: true,
+        mainLabel: "ŷ%",
+      });
+    } catch (_) {
+      wrap.hidden = true;
+    }
   }
 
   function ensureResearchDock() {
@@ -325,6 +517,7 @@ export function installWatching(q) {
           setTxt("pb", fields.pb);
         });
       }
+      paintWatchingYhatHist();
     };
 
     const items = [];
@@ -381,6 +574,7 @@ export function installWatching(q) {
           owner: "insights",
         });
       }
+      paintWatchingYhatHist();
     } catch (err) {
       if (gen !== state.watchingInsightsGen) return;
       if (items.length) {
@@ -996,6 +1190,7 @@ export function installWatching(q) {
       watchTable.innerHTML = `<p class="watching-table-empty">暂无观察 · 上方搜索加入</p>`;
       hideWatchingNewsDetail();
       updateWatchingPickCount();
+      paintWatchingYhatHist([]);
       return;
     }
     const inPaper =
@@ -1065,11 +1260,21 @@ export function installWatching(q) {
       state.watchingGridReady = true;
       updateWatchingPickCount();
       syncWatchingSelectAllState();
+      paintWatchingYhatHist(
+        rows
+          .filter((r) => Number.isFinite(r.scoreNum) && r.code)
+          .map((r) => ({ code: r.code, name: r.name || "", score: r.scoreNum }))
+      );
     } catch (err) {
       console.warn("[watching] 虚拟表挂载失败，回退原生表", err);
       state.watchingGrid = null;
       state.watchingGridReady = false;
       renderWatchingWatchTableFallback(rows);
+      paintWatchingYhatHist(
+        rows
+          .filter((r) => Number.isFinite(r.scoreNum) && r.code)
+          .map((r) => ({ code: r.code, name: r.name || "", score: r.scoreNum }))
+      );
     }
   }
 
@@ -1234,6 +1439,7 @@ export function installWatching(q) {
     }
     if (labelEl) labelEl.textContent = watchingChartLabelText(name, code);
     drawWatchingChart([]);
+    drawWatchingYhatSeries(code).catch(() => {});
 
     try {
       const res = await fetch(

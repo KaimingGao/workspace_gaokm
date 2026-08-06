@@ -175,6 +175,14 @@ def _insight_one(
             quote = query_quote(code)
         item = (scored or {}).get("signal_item") or {}
         out["score"] = _f(item.get("score"))
+        if out["score"] is None:
+            # 兼容：主分为空时回退组 ŷ / predicted（避免观察表全「—」）
+            out["score"] = _f(item.get("predicted_score"))
+        if out["score"] is None:
+            out["score"] = _f(item.get("score_cluster"))
+        out["predicted_score"] = _f(item.get("predicted_score"))
+        if out["predicted_score"] is None:
+            out["predicted_score"] = out["score"]
         out["hard_reject"] = bool(item.get("hard_reject"))
         out["reject_reason"] = (item.get("reject_reason") or None) if out["hard_reject"] else None
         out["cluster_mode"] = item.get("cluster_mode") or scored.get("cluster_mode")
@@ -199,6 +207,12 @@ def _insight_one(
             out["below_min_score"] = False
         reasons = item.get("reasons") or []
         out["score_reasons"] = list(reasons) if isinstance(reasons, list) else []
+        # 缺全局模型时提示（不阻断）
+        warns = list(item.get("warnings") or scored.get("warnings") or [])
+        if any("no_global_return_model" in str(w) for w in warns):
+            out["score_reasons"] = list(out["score_reasons"]) + [
+                "缺全局 return_model · 暂用组 ŷ（shadow）"
+            ]
         out["score_formula"] = item.get("score_formula") or None
         if not out["score_formula"]:
             try:

@@ -6,6 +6,13 @@ import { researchGridHtml as defaultResearchGridHtml, metricCell as defaultMetri
 import { metricClass as defaultMetricClass } from "./bt_result.js";
 import { normalizeProbeCode as defaultNormalizeProbeCode } from "./names.js";
 import { probeStatusBadge } from "./probe_ui.js";
+import {
+  buildGroupYhatHistHtml,
+  buildBetaLollipopHtml,
+  buildBetaDistanceHtml,
+  buildGroupIcInsightHtml,
+  buildClustersOosDeltaHtml,
+} from "./yhat_viz.js";
 
 /**
  * @param {{
@@ -464,6 +471,50 @@ export function createOlsUi(deps) {
           ols && ols.sample_count != null ? ols.sample_count : "—"
         );
       const membersHtml = formatMemberChipsHtml(cl.members, nameByCode);
+      let groupScores = (cl.group_ranking || cl.ranking || cl.predicted_ranking || [])
+        .map((r) => Number(r.predicted_score != null ? r.predicted_score : r.score))
+        .filter((n) => Number.isFinite(n));
+      if (!groupScores.length) {
+        const bookRows =
+          (data.pool_merge &&
+            data.pool_merge.book &&
+            (data.pool_merge.book.book || data.pool_merge.book)) ||
+          [];
+        const memberSet = new Set(
+          (cl.members || []).map((m) => normalizeProbeCode(m)).filter(Boolean)
+        );
+        if (Array.isArray(bookRows) && memberSet.size) {
+          groupScores = bookRows
+            .filter((r) => memberSet.has(normalizeProbeCode(r.stock_code || r.code)))
+            .map((r) =>
+              Number(r.predicted_score != null ? r.predicted_score : r.score)
+            )
+            .filter((n) => Number.isFinite(n));
+        }
+      }
+      const stripHtml = buildGroupYhatHistHtml(groupScores, { escapeHtml: esc, bins: 10 });
+      const olsShim = clusterGroupOlsShim(cl);
+      const coefs =
+        (olsShim && olsShim.coefficients) ||
+        ((cl.return_model || {}).coefficients) ||
+        {};
+      const betaHtml = buildBetaLollipopHtml(coefs, {
+        escapeHtml: esc,
+        maxRows: 8,
+        highlightAbs: 0.05,
+      });
+      const distHtml = buildBetaDistanceHtml(cl.member_beta_gaps || [], {
+        escapeHtml: esc,
+        nameByCode,
+        maxRows: 10,
+      });
+      const icHtml = buildGroupIcInsightHtml(cl.factor_ic_panel || null, {
+        escapeHtml: esc,
+      });
+      const insightRow =
+        distHtml || icHtml
+          ? `<div class="yhat-insight-row">${distHtml || ""}${icHtml || ""}</div>`
+          : "";
       const bodyInner = lazy
         ? `<p class="sub quant-cluster-lazy-ph">展开查看因子表…</p>`
         : buildClusterGroupBodyHtml(cl, merge);
@@ -483,6 +534,9 @@ export function createOlsUi(deps) {
           : "") +
         `</div>` +
         `<div class="quant-cluster-members" aria-label="分组成员">${membersHtml}</div>` +
+        insightRow +
+        (betaHtml || "") +
+        (stripHtml || "") +
         `</summary>` +
         `<div class="quant-cluster-group-body"${bodyAttr}>` +
         bodyInner +
@@ -494,8 +548,9 @@ export function createOlsUi(deps) {
     return (
       `<div class="quant-cluster-tables-head">` +
       `<span class="quant-cluster-tables-label">因子系数</span>` +
-      `<span class="sub">组内 IC · 系数 β（ŷ% 斜率，非权重）· |β|≥0.05 高亮 · 展开组加载</span>` +
+      `<span class="sub">同质 β距 · 有效 IC · 增益 ΔOOS · β 条 · 辅截面 ŷ · 展开组加载</span>` +
       `</div>` +
+      buildClustersOosDeltaHtml(clusters, { escapeHtml: esc }) +
       parts.join("")
     );
   }
