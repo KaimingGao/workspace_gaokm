@@ -103,8 +103,8 @@
     "include_in_score": false,
     "role": "prior",
     "prior": {
-        "mode": "gate",
-        "block_new_buys": false,
+      "mode": "gate",
+      "block_new_buys": false,
       "scale_buy_pct": 0.6,
       "scale_holds": true,
       "warn_only": true
@@ -122,7 +122,7 @@
     "size_buckets": 3
   },
   "cluster_scoring": {
-    "mode": "active",
+    "mode": "shadow",
     "enabled": true,
     "top_n_per_group": 10,
     "max_names": 40,
