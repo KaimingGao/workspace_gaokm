@@ -514,13 +514,20 @@ class QuantFactorMixin:
         import threading
 
         from core.job_progress import quant_ols_clusters_job
+        from quant.research.factor_ols_clusters import clamp_watching_limit
+
+        # 轮询/重开前先回收陈旧任务
+        quant_ols_clusters_job.reclaim_if_stale()
 
         if quant_ols_clusters_job.is_running():
-            # 卡住（如拉日线挂死）超过 3 分钟则释放槽位，允许重开
             stale = quant_ols_clusters_job.stale_seconds()
             job_snap = quant_ols_clusters_job.get()
             msg = str((job_snap or {}).get("message") or "")
-            stuck_at_start = "拉日线 0/" in msg or msg in ("排队中…", "启动中…")
+            stuck_at_start = "拉日线 0/" in msg or msg in (
+                "排队中…",
+                "启动中…",
+                "合并宇宙…",
+            )
             if stale is not None and (
                 stale >= 180 or (stuck_at_start and stale >= 90)
             ):
@@ -535,13 +542,15 @@ class QuantFactorMixin:
                     "job": quant_ols_clusters_job.get(),
                 }
 
-        # 进度按「票数」量级：拉日线 + 拟合约占绝大部分
+        # 进度按「票数」量级：尊重 watching_limit，避免按百票满池估 total
         try:
             from core.watching_store import read_watching
 
-            n_watch = len(list((read_watching() or {}).get("watchlist") or []))
+            n_watch_all = len(list((read_watching() or {}).get("watchlist") or []))
         except Exception:
-            n_watch = 20
+            n_watch_all = 20
+        watch_limit = clamp_watching_limit(kwargs.get("watching_limit") or 12, 12)
+        n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
         job_total = max(20, n_watch * 2 + 10)
 
         job_id = quant_ols_clusters_job.start(
@@ -567,35 +576,40 @@ class QuantFactorMixin:
                 current=max(1, min(job_total - 1, mapped)),
                 total=job_total,
                 message=msg,
+                job_id=job_id,
             )
 
         def _worker() -> None:
             try:
                 if quant_ols_clusters_job.is_cancel_requested():
-                    quant_ols_clusters_job.finish(error="已取消")
+                    quant_ols_clusters_job.finish(error="已取消", job_id=job_id)
                     return
                 quant_ols_clusters_job.update(
-                    current=1, total=job_total, message=f"合并宇宙… {n_watch} 只"
+                    current=1,
+                    total=job_total,
+                    message=f"合并宇宙… {n_watch} 只",
+                    job_id=job_id,
                 )
                 if quant_ols_clusters_job.is_cancel_requested():
-                    quant_ols_clusters_job.finish(error="已取消")
+                    quant_ols_clusters_job.finish(error="已取消", job_id=job_id)
                     return
                 result = self.run_factor_ols_cluster_experiment(
                     progress_cb=_progress,
                     **{k: v for k, v in kwargs.items() if k != "progress_cb"},
                 )
                 if quant_ols_clusters_job.is_cancel_requested():
-                    quant_ols_clusters_job.finish(error="已取消")
+                    quant_ols_clusters_job.finish(error="已取消", job_id=job_id)
                     return
                 if not result.get("success"):
                     quant_ols_clusters_job.finish(
                         error=str(result.get("error") or "分组失败"),
                         result=result,
+                        job_id=job_id,
                     )
                     return
-                quant_ols_clusters_job.finish(result=result)
+                quant_ols_clusters_job.finish(result=result, job_id=job_id)
             except Exception as e:
-                quant_ols_clusters_job.finish(error=str(e))
+                quant_ols_clusters_job.finish(error=str(e), job_id=job_id)
 
         threading.Thread(
             target=_worker, name=f"ols-clusters-{job_id}", daemon=True

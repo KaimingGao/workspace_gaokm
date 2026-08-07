@@ -127,8 +127,11 @@ class JobProgress:
         total: Optional[int] = None,
         message: Optional[str] = None,
         pct: Optional[float] = None,
+        job_id: Optional[str] = None,
     ) -> None:
         with self._lock:
+            if job_id is not None and self._job.get("id") != job_id:
+                return
             if self._job.get("status") != "running":
                 return
             if current is not None:
@@ -146,8 +149,17 @@ class JobProgress:
             self._job["updated_at"] = time.time()
             self._save_unlocked()
 
-    def finish(self, *, result: Optional[dict] = None, error: Optional[str] = None) -> None:
+    def finish(
+        self,
+        *,
+        result: Optional[dict] = None,
+        error: Optional[str] = None,
+        job_id: Optional[str] = None,
+    ) -> bool:
+        """结束任务。``job_id`` 不匹配时忽略（防孤儿 worker 覆盖新任务）。"""
         with self._lock:
+            if job_id is not None and self._job.get("id") != job_id:
+                return False
             self._job["status"] = "failed" if error else "done"
             self._job["error"] = error
             self._job["result"] = result
@@ -158,6 +170,7 @@ class JobProgress:
                 self._job["message"] = self._job.get("message") or "完成"
             self._job["updated_at"] = time.time()
             self._save_unlocked()
+            return True
 
     def is_running(self) -> bool:
         with self._lock:
@@ -182,6 +195,36 @@ class JobProgress:
             self._job["cancel_requested"] = True
             self._job["status"] = "failed"
             self._job["error"] = error or "已强制结束"
+            self._job["message"] = "已中断"
+            self._job["updated_at"] = time.time()
+            self._save_unlocked()
+            return True
+
+    def reclaim_if_stale(
+        self,
+        *,
+        stale_sec: float = 180.0,
+        stuck_start_sec: float = 90.0,
+    ) -> bool:
+        """轮询路径：无进展过久则 force_fail，释放槽位。"""
+        with self._lock:
+            if self._job.get("status") != "running":
+                return False
+            ts = self._job.get("updated_at")
+            try:
+                stale = max(0.0, time.time() - float(ts))
+            except (TypeError, ValueError):
+                stale = stale_sec
+            msg = str(self._job.get("message") or "")
+            stuck_at_start = "拉日线 0/" in msg or msg in ("排队中…", "启动中…", "合并宇宙…")
+            threshold = stuck_start_sec if stuck_at_start else stale_sec
+            if stale < threshold:
+                return False
+            self._job["cancel_requested"] = True
+            self._job["status"] = "failed"
+            self._job["error"] = (
+                f"分组任务无进展已 {int(stale)}s，已自动释放（{msg or 'running'}）"
+            )
             self._job["message"] = "已中断"
             self._job["updated_at"] = time.time()
             self._save_unlocked()

@@ -13869,13 +13869,113 @@ html[data-theme="dark"] .dashboard-var-card {
   background: #252526;
 }
 
-/* ——— Factor IC Time Series ——— */
-.factor-ic-series-host {
-  min-height: 240px;
-  padding: 10px;
+/* ——— 时序对比（因子 IC） ——— */
+.quant-ic-compare-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.quant-ic-compare-actions {
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.quant-ic-compare-actions .quant-fingerprint {
+  margin: 0;
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+.quant-ic-compare-kpis {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.quant-ic-kpi {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--surface);
+  min-width: 0;
+}
+.quant-ic-kpi-label {
+  display: block;
+  font-size: 0.66rem;
+  color: var(--ink-3);
+  margin-bottom: 2px;
+}
+.quant-ic-kpi-value {
+  display: block;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.quant-ic-compare-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(12rem, 0.9fr);
+  gap: 10px;
+  align-items: stretch;
+}
+.factor-ic-series-host,
+.quant-ic-compare-chart {
+  min-height: 260px;
+  height: 280px;
+  padding: 8px 10px 4px;
   border: 1px solid var(--line);
   border-radius: 8px;
   background: var(--surface);
+}
+.quant-ic-compare-stats {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  padding: 8px 10px;
+  min-width: 0;
+  overflow: auto;
+}
+.quant-ic-stats-head {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+.quant-ic-stats-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.74rem;
+  table-layout: fixed;
+}
+.quant-ic-stats-table th,
+.quant-ic-stats-table td {
+  padding: 5px 6px;
+  border-bottom: 1px solid var(--line);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quant-ic-stats-table th {
+  color: var(--ink-3);
+  font-weight: 500;
+  text-align: left;
+}
+.quant-ic-stats-table th.num,
+.quant-ic-stats-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.quant-ic-stats-table th:first-child,
+.quant-ic-stats-table td:first-child {
+  width: 42%;
+}
+.quant-ic-stats-note {
+  margin: 8px 0 0;
+  font-size: 0.66rem;
+  color: var(--ink-3);
+  line-height: 1.35;
 }
 .factor-ic-legend {
   display: flex;
@@ -13894,6 +13994,18 @@ html[data-theme="dark"] .dashboard-var-card {
   width: 10px;
   height: 3px;
   border-radius: 2px;
+}
+@media (max-width: 900px) {
+  .quant-ic-compare-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .quant-ic-compare-grid {
+    grid-template-columns: 1fr;
+  }
+  .quant-ic-compare-chart {
+    height: 240px;
+    min-height: 220px;
+  }
 }
 
 /* ——— Professional Dark Theme: New Components ——— */
@@ -13917,7 +14029,9 @@ html[data-theme="dark"] .dashboard-var-card .dashboard-card-head {
 }
 
 /* Factor IC series dark styling */
-html[data-theme="dark"] .factor-ic-series-host {
+html[data-theme="dark"] .factor-ic-series-host,
+html[data-theme="dark"] .quant-ic-compare-stats,
+html[data-theme="dark"] .quant-ic-kpi {
   background: #13151a;
   border-color: rgba(255, 255, 255, 0.08);
 }

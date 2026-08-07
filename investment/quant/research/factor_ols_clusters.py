@@ -47,7 +47,8 @@ def clamp_watching_limit(value: Any, default: int = 8) -> int:
         n = int(value)
     except (TypeError, ValueError):
         return int(default)
-    return max(3, min(n, 20))
+    # 研究台 UI 常用 12；允许到 40，避免再次默默拉满百票观察池
+    return max(3, min(n, 40))
 
 
 def panel_ic_factor_names(
@@ -88,9 +89,10 @@ def merge_cluster_universe(
 ) -> Dict[str, Any]:
     """构建聚类宇宙。
 
-    默认 ``universe_mode=watching``：**全部**观察池（不截前 N）。
-    ``holdings``：仅纸面持仓（旧默认）。
-    ``union``：观察池前 N ∪ 全部纸面持仓（``watching_limit`` 仅约束观察侧）。
+    ``universe_mode=watching``：观察池前 N（``watching_limit``，默认钳制 3–40）。
+    ``holdings``：仅纸面持仓。
+    ``union``：观察池前 N ∪ 全部纸面持仓。
+    ``watching_all``：全部观察池（旧行为，显式开启）。
     """
     limit = clamp_watching_limit(watching_limit, 8)
     mode = str(universe_mode or "watching").strip().lower()
@@ -98,6 +100,8 @@ def merge_cluster_universe(
         mode = "holdings"
     if mode in ("watch", "watchlist", "watching_only"):
         mode = "watching"
+    if mode in ("watching_full", "all_watching", "full"):
+        mode = "watching_all"
 
     holdings_codes: List[str] = []
     seen_h: set = set()
@@ -121,7 +125,7 @@ def merge_cluster_universe(
         seen_w.add(code)
         watch_all.append(code)
 
-    if mode == "watching":
+    if mode == "watching_all":
         watching_codes = list(watch_all)
         code_roles = {
             c: {
@@ -136,8 +140,28 @@ def merge_cluster_universe(
             "watching_codes": list(watching_codes),
             "holdings_codes": list(holdings_codes),
             "holdings_added": [],
-            # 全量模式：limit 记实际只数，便于 UI/报告展示
             "watching_limit": len(watching_codes),
+            "universe_count": len(watching_codes),
+            "universe_mode": "watching_all",
+            "code_roles": code_roles,
+        }
+
+    if mode == "watching":
+        watching_codes = watch_all[:limit]
+        code_roles = {
+            c: {
+                "from_watching": True,
+                "from_holdings": c in seen_h,
+                "holdings_added": False,
+            }
+            for c in watching_codes
+        }
+        return {
+            "codes": list(watching_codes),
+            "watching_codes": list(watching_codes),
+            "holdings_codes": list(holdings_codes),
+            "holdings_added": [],
+            "watching_limit": limit,
             "universe_count": len(watching_codes),
             "universe_mode": "watching",
             "code_roles": code_roles,

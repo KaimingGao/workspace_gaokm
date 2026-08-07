@@ -352,28 +352,31 @@
       </details>
     </section>
 
-      <!-- 因子IC时序多因子对比 -->
-      <section class="quant-section" aria-labelledby="quant-section-ic-series-title">
+      <!-- 时序对比（因子 IC · 参考因子研究中心信息层级） -->
+      <section class="quant-section quant-ic-compare" aria-labelledby="quant-section-ic-series-title">
         <div class="quant-section-toolbar">
-          <h3 id="quant-section-ic-series-title" class="watching-section-title">因子IC时序对比</h3>
+          <h3 id="quant-section-ic-series-title" class="watching-section-title">时序对比</h3>
           <p class="quant-section-hint sub">
-            因子信息系数（IC）时序曲线 · 正值表示因子有效 · 对比多因子选股能力稳定性
+            日频截面 IC · 虚线为 IC 均值 · 正值表示因子有效 · Top 因子稳定性对照
           </p>
         </div>
-        <details class="quant-fold" id="quant-ic-series-fold">
-          <summary id="quant-ic-series-fold-summary">展开查看因子IC时序对比</summary>
-          <div class="quant-section">
-            <div class="quant-actions-inline">
-              <button type="button" id="quant-ic-series-run" class="dialog-btn">计算IC时序</button>
+        <details class="quant-fold" id="quant-ic-series-fold" open>
+          <summary id="quant-ic-series-fold-summary">时序对比 · IC 曲线与排序</summary>
+          <div class="quant-ic-compare-body">
+            <div class="quant-actions-inline quant-ic-compare-actions">
+              <button type="button" id="quant-ic-series-run" class="dialog-btn">计算</button>
               <select id="quant-ic-series-lookback" class="dialog-btn secondary" style="font-size:0.72rem;">
                 <option value="30">近30日</option>
                 <option value="60" selected>近60日</option>
                 <option value="120">近120日</option>
               </select>
+              <p id="quant-ic-series-status" class="quant-fingerprint">尚未加载 · 需先「跑分组」</p>
             </div>
-            <p id="quant-ic-series-status" class="quant-fingerprint">尚未加载 · 需先运行「跑分组」生成因子分数</p>
-            <div id="quant-ic-series-chart" class="factor-ic-series-host" style="height:240px;"></div>
-            <div id="quant-ic-series-stats" class="quant-weight-table-wrap" style="margin-top:8px;"></div>
+            <div id="quant-ic-series-kpis" class="quant-ic-compare-kpis" hidden></div>
+            <div class="quant-ic-compare-grid">
+              <div id="quant-ic-series-chart" class="factor-ic-series-host quant-ic-compare-chart"></div>
+              <div id="quant-ic-series-stats" class="quant-ic-compare-stats quant-weight-table-wrap"></div>
+            </div>
           </div>
         </details>
       </section>

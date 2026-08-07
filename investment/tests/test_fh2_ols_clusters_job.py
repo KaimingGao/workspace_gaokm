@@ -81,6 +81,35 @@ class TestFh2OlsClustersJob(unittest.TestCase):
                 time.sleep(0.05)
             self.assertEqual(slot.get().get("status"), "done")
 
+    def test_finish_ignores_stale_job_id(self):
+        from core.job_progress import JobProgress
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "j.json")
+            slot = JobProgress(name="quant-ols-clusters", persist_path=path)
+            old_id = slot.start(kind="factor_ols_clusters", total=3, message="old")
+            new_id = slot.start(kind="factor_ols_clusters", total=5, message="new")
+            self.assertNotEqual(old_id, new_id)
+            ok = slot.finish(result={"ok": True}, job_id=old_id)
+            self.assertFalse(ok)
+            self.assertEqual(slot.get()["status"], "running")
+            self.assertEqual(slot.get()["id"], new_id)
+            self.assertTrue(slot.finish(result={"ok": True}, job_id=new_id))
+            self.assertEqual(slot.get()["status"], "done")
+
+    def test_reclaim_if_stale_on_poll(self):
+        from core.job_progress import JobProgress
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "j.json")
+            slot = JobProgress(name="quant-ols-clusters", persist_path=path)
+            slot.start(kind="factor_ols_clusters", total=10, message="拉日线 0/100")
+            with slot._lock:
+                slot._job["updated_at"] = time.time() - 120
+                slot._save_unlocked()
+            self.assertTrue(slot.reclaim_if_stale())
+            self.assertEqual(slot.get()["status"], "failed")
+
 
 if __name__ == "__main__":
     unittest.main()

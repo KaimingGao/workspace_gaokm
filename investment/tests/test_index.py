@@ -40,10 +40,12 @@ class TestIndex(unittest.TestCase):
             "stock_code": "600519",
             "stock_name": "贵州茅台",
         }
-        with patch("skills.index.engine.StockAPI.query", return_value=fake_quote), patch(
+        with patch(
+            "skills.index.engine.query_quote", return_value=fake_quote
+        ), patch(
             "skills.index.engine.resolve_market_code", return_value=("CN", "600519")
         ), patch(
-            "skills.index.engine.fetch_daily_bars", return_value=(stock, "mock")
+            "skills.index.engine.bars_and_source", return_value=(stock, "mock")
         ), patch(
             "skills.index.engine.fetch_index_bars", return_value=(index, "沪深300")
         ):

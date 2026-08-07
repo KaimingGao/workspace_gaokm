@@ -725,6 +725,20 @@ export async function renderMultiLineChart(container, seriesList, opts = {}) {
         /* ignore */
       }
     }
+    if (idx === 0 && opts.meanLine != null && Number.isFinite(Number(opts.meanLine))) {
+      try {
+        series.createPriceLine({
+          price: Number(opts.meanLine),
+          color: opts.meanLineColor || "rgba(245, 158, 11, 0.85)",
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: opts.meanLineTitle || "IC均值",
+        });
+      } catch (_) {
+        /* ignore */
+      }
+    }
   });
   syncLegend(container, legendItems);
   chart.timeScale().fitContent();

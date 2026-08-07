@@ -16,8 +16,9 @@ GET /api/dashboard/drawdown-chart — Dashboard 回撤时序图数据
 
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, HTTPException
 
@@ -26,15 +27,86 @@ from web import deps
 router = APIRouter(tags=["dashboard"])
 
 
-def _build_kpis() -> Dict[str, Any]:
-    """聚合核心 KPI：从 north_star 报告 + paper 状态提取。"""
-    paper = deps.paper.status(lite=True)
-    ns_report = None
+def _load_raw_paper() -> Dict[str, Any]:
+    """只读落盘纸面（不盯市），避免仪表盘与行情/AkShare 锁互拖。"""
+    path = getattr(deps.paper, "path", None)
+    if not path or not os.path.isfile(path):
+        return {}
+    try:
+        from core.paper import load_paper
+
+        paper = load_paper(path)
+        return paper if isinstance(paper, dict) else {}
+    except Exception:
+        return {}
+
+
+def _equity_curve_from_paper(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """净值序列：优先 snapshots（生产落盘），兼容遗留 equity_curve。"""
+    out: List[Dict[str, Any]] = []
+    for s in paper.get("snapshots") or []:
+        if not isinstance(s, dict):
+            continue
+        eq = s.get("equity")
+        if eq is None:
+            continue
+        try:
+            equity = float(eq)
+        except (TypeError, ValueError):
+            continue
+        ts = s.get("ts") or s.get("date") or ""
+        date = str(ts)[:10] if ts else None
+        out.append(
+            {
+                "date": date,
+                "equity": equity,
+                "cash": s.get("cash"),
+                "stock_value": s.get("stock_value"),
+                "total_pnl_pct": s.get("total_pnl_pct"),
+            }
+        )
+    if out:
+        return out
+    legacy = paper.get("equity_curve") or []
+    return [e for e in legacy if isinstance(e, dict) and e.get("equity") is not None]
+
+
+def _holdings_from_paper(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [h for h in (paper.get("holdings") or []) if isinstance(h, dict)]
+
+
+def _trades_from_paper(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
+    return [t for t in (paper.get("trades") or []) if isinstance(t, dict)]
+
+
+def _north_star_from_paper(paper: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    cached = paper.get("last_north_star")
+    if isinstance(cached, dict) and cached.get("ok") is not False:
+        return cached
     try:
         from core.north_star import build_north_star_report
-        ns_report = build_north_star_report(paper)
+
+        return build_north_star_report(paper)
     except Exception:
-        pass
+        return None
+
+
+def _unpack_index_bars(raw: Any) -> List[dict]:
+    """``fetch_index_bars`` 返回 ``(bars, label)``；兼容误传 list。"""
+    if raw is None:
+        return []
+    if isinstance(raw, tuple):
+        bars = raw[0] if raw else []
+        return list(bars) if isinstance(bars, list) else []
+    if isinstance(raw, list):
+        return raw
+    return []
+
+
+def _build_kpis() -> Dict[str, Any]:
+    """聚合核心 KPI：从 north_star 报告 + paper 落盘提取。"""
+    paper = _load_raw_paper()
+    ns_report = _north_star_from_paper(paper)
 
     pr = (ns_report or {}).get("paper_risk") or {}
     risk_strategy = (ns_report or {}).get("paper_risk_strategy") or {}
@@ -47,7 +119,7 @@ def _build_kpis() -> Dict[str, Any]:
     trade_count = 0
 
     # Today / Total return from equity
-    eq_curve = paper.get("equity_curve") or []
+    eq_curve = _equity_curve_from_paper(paper)
     if eq_curve and len(eq_curve) >= 2:
         today_ret = eq_curve[-1].get("return_pct")
         if today_ret is None and eq_curve[-1].get("equity") and eq_curve[-2].get("equity"):
@@ -66,7 +138,7 @@ def _build_kpis() -> Dict[str, Any]:
     max_dd = pr.get("max_drawdown_pct") or pr.get("max_drawdown") or risk_strategy.get("max_drawdown_pct")
 
     # Win rate from trades
-    trades = paper.get("trades") or []
+    trades = _trades_from_paper(paper)
     closed = [t for t in trades if t.get("side") == "sell" and t.get("pnl") is not None]
     trade_count = len(closed)
     if closed:
@@ -188,12 +260,14 @@ def _fetch_benchmark_curve(
     end_date = max(dates)
 
     try:
-        bars = fetch_index_bars(benchmark_code, limit=800)
+        bars = _unpack_index_bars(fetch_index_bars(benchmark_code, limit=800))
         if not bars:
             return []
 
         filtered = []
         for b in bars:
+            if not isinstance(b, dict):
+                continue
             d = b.get("date", "")
             if d and start_date <= d <= end_date:
                 filtered.append(b)
@@ -214,6 +288,22 @@ def _fetch_benchmark_curve(
         ]
     except Exception:
         return []
+
+
+def _filter_eq_by_range(eq_curve: list, range: str) -> list:
+    if range == "all" or not eq_curve:
+        return list(eq_curve or [])
+    now = datetime.now()
+    if range == "30":
+        cutoff = now - timedelta(days=30)
+    elif range == "90":
+        cutoff = now - timedelta(days=90)
+    elif range == "ytd":
+        cutoff = datetime(now.year, 1, 1)
+    else:
+        return list(eq_curve)
+    cut = cutoff.strftime("%Y-%m-%d")
+    return [e for e in eq_curve if e.get("date") and e["date"] >= cut]
 
 
 def _calc_series_correlation(nav_points: list, bench_points: list) -> Optional[float]:
@@ -281,23 +371,8 @@ def _build_dd_series(eq_curve: list) -> list:
 def dashboard_nav_curve(range: str = "all", benchmark: str = "hs300"):
     """累计净值曲线（归一到 100）。range: 30 | 90 | ytd | all。含基准对比与相关性。"""
     try:
-        paper = deps.paper.status(lite=True)
-        eq_curve = paper.get("equity_curve") or []
-        if range != "all":
-            now = datetime.now()
-            if range == "30":
-                cutoff = now - timedelta(days=30)
-            elif range == "90":
-                cutoff = now - timedelta(days=90)
-            elif range == "ytd":
-                cutoff = datetime(now.year, 1, 1)
-            else:
-                cutoff = None
-            if cutoff:
-                eq_curve = [
-                    e for e in eq_curve
-                    if e.get("date") and e["date"] >= cutoff.strftime("%Y-%m-%d")
-                ]
+        paper = _load_raw_paper()
+        eq_curve = _filter_eq_by_range(_equity_curve_from_paper(paper), range)
 
         raw_points = [
             {"time": e.get("date"), "value": e.get("equity")}
@@ -322,7 +397,8 @@ def dashboard_nav_curve(range: str = "all", benchmark: str = "hs300"):
         bench_code = None
         correlation = None
         if benchmark_enabled:
-            bench_code = "sh000300" if benchmark == "hs300" else benchmark
+            # 走指数别名表（hs300 / 上证），不要直接传 sh000300 以外的未知码
+            bench_code = "hs300" if benchmark in ("hs300", "sh000300", "csi300") else benchmark
             bench_points = _fetch_benchmark_curve(bench_code, eq_curve)
             correlation = _calc_series_correlation(points, bench_points) if bench_points else None
 
@@ -342,23 +418,8 @@ def dashboard_nav_curve(range: str = "all", benchmark: str = "hs300"):
 def dashboard_drawdown(range: str = "all"):
     """回撤曲线。range: 30 | 90 | ytd | all。"""
     try:
-        paper = deps.paper.status(lite=True)
-        eq_curve = paper.get("equity_curve") or []
-        if range != "all":
-            now = datetime.now()
-            if range == "30":
-                cutoff = now - timedelta(days=30)
-            elif range == "90":
-                cutoff = now - timedelta(days=90)
-            elif range == "ytd":
-                cutoff = datetime(now.year, 1, 1)
-            else:
-                cutoff = None
-            if cutoff:
-                eq_curve = [
-                    e for e in eq_curve
-                    if e.get("date") and e["date"] >= cutoff.strftime("%Y-%m-%d")
-                ]
+        paper = _load_raw_paper()
+        eq_curve = _filter_eq_by_range(_equity_curve_from_paper(paper), range)
 
         dd_points = _build_dd_series(eq_curve)
 
@@ -384,23 +445,8 @@ def dashboard_drawdown(range: str = "all"):
 def dashboard_var_historical(range: str = "all"):
     """历史模拟 VaR / CVaR 与收益直方图。"""
     try:
-        paper = deps.paper.status(lite=True)
-        eq_curve = paper.get("equity_curve") or []
-        if range != "all":
-            now = datetime.now()
-            if range == "30":
-                cutoff = now - timedelta(days=30)
-            elif range == "90":
-                cutoff = now - timedelta(days=90)
-            elif range == "ytd":
-                cutoff = datetime(now.year, 1, 1)
-            else:
-                cutoff = None
-            if cutoff:
-                eq_curve = [
-                    e for e in eq_curve
-                    if e.get("date") and e["date"] >= cutoff.strftime("%Y-%m-%d")
-                ]
+        paper = _load_raw_paper()
+        eq_curve = _filter_eq_by_range(_equity_curve_from_paper(paper), range)
 
         equities = [e.get("equity") for e in eq_curve if e.get("equity") is not None]
         if len(equities) < 5:
@@ -472,39 +518,196 @@ def dashboard_var_historical(range: str = "all"):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+def _factor_label(name: str) -> str:
+    try:
+        from core.signal.factor_registry import factor_label
+
+        return str(factor_label(name) or name)
+    except Exception:
+        return str(name)
+
+
+def _ic_series_from_daily_tail(
+    daily_tail: List[dict],
+    *,
+    lookback: int,
+    top_n: int = 5,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """从组截面 IC ``daily_tail`` 组装多因子时序。"""
+    import math as _math
+    from statistics import mean, stdev
+
+    lookback = max(10, min(int(lookback or 60), 180))
+    rows = [r for r in (daily_tail or []) if isinstance(r, dict) and r.get("date")]
+    rows = rows[-lookback:]
+    by_factor: Dict[str, List[Dict[str, Any]]] = {}
+    for day in rows:
+        date = str(day.get("date") or "")[:10]
+        factors = day.get("factors") or {}
+        if not isinstance(factors, dict):
+            continue
+        for fname, pack in factors.items():
+            if not isinstance(pack, dict):
+                continue
+            ic = pack.get("pearson")
+            if ic is None:
+                ic = pack.get("spearman")
+            try:
+                ic_f = float(ic)
+            except (TypeError, ValueError):
+                continue
+            by_factor.setdefault(str(fname), []).append({"time": date, "value": round(ic_f, 4)})
+
+    factor_series: List[Dict[str, Any]] = []
+    for factor, points in by_factor.items():
+        if len(points) < 3:
+            continue
+        vals = [p["value"] for p in points]
+        ic_mean = mean(vals)
+        ic_std = stdev(vals) if len(vals) > 1 else 0.0
+        ic_ir = (ic_mean / ic_std) if ic_std > 1e-12 else 0.0
+        ic_ir_annual = ic_ir * _math.sqrt(252.0)
+        pos_ratio = sum(1 for v in vals if v > 0) / len(vals) * 100
+        factor_series.append(
+            {
+                "factor": factor,
+                "label": _factor_label(factor),
+                "ic_values": points,
+                "ic_mean": round(ic_mean, 4),
+                "ic_std": round(ic_std, 4),
+                "ic_ir": round(ic_ir, 4),
+                "ic_ir_annual": round(ic_ir_annual, 4),
+                "positive_ratio": round(pos_ratio, 1),
+                "sample_count": len(points),
+            }
+        )
+
+    factor_series.sort(key=lambda x: abs(float(x.get("ic_ir_annual") or 0)), reverse=True)
+    top = factor_series[: max(1, min(int(top_n or 5), 8))]
+    summary: Dict[str, Any] = {}
+    if top:
+        summary = {
+            "ic_mean": round(mean(float(f["ic_mean"]) for f in top), 4),
+            "ir_mean": round(mean(float(f["ic_ir_annual"]) for f in top), 4),
+            "positive_ratio": round(mean(float(f["positive_ratio"]) for f in top), 1),
+            "day_count": max(int(f["sample_count"]) for f in top),
+            "factor_count": len(top),
+        }
+    return top, summary
+
+
+def _ic_series_from_cluster_cache(lookback: int) -> Optional[Dict[str, Any]]:
+    """优先用分组缓存里的真实日频截面 IC。"""
+    try:
+        from core.paths import CLUSTER_REPORT_CACHE_PATH
+    except Exception:
+        return None
+
+    if not os.path.isfile(CLUSTER_REPORT_CACHE_PATH):
+        return None
+    try:
+        import json as _json
+
+        with open(CLUSTER_REPORT_CACHE_PATH, "r", encoding="utf-8") as fh:
+            cached = _json.load(fh)
+    except Exception:
+        return None
+    if not isinstance(cached, dict):
+        return None
+
+    report = cached.get("report") if isinstance(cached.get("report"), dict) else cached
+    clusters = report.get("clusters") if isinstance(report, dict) else None
+    if not isinstance(clusters, list) or not clusters:
+        return None
+
+    preferred = str(report.get("preferred_cluster") or "").strip()
+    cands: List[dict] = []
+    for c in clusters:
+        if not isinstance(c, dict) or c.get("singleton"):
+            continue
+        panel = c.get("factor_ic_panel") or {}
+        if not isinstance(panel, dict):
+            continue
+        if not (panel.get("ok") or panel.get("success")):
+            continue
+        if not (panel.get("daily_tail") or []):
+            continue
+        cands.append(c)
+    if not cands:
+        return None
+
+    def _rank(c: dict) -> tuple:
+        label = str(c.get("label") or "")
+        hit = 1 if preferred and (label == preferred or str(c.get("cluster_id")) == preferred) else 0
+        return (hit, int(c.get("member_count") or 0))
+
+    best = sorted(cands, key=_rank, reverse=True)[0]
+    panel = best.get("factor_ic_panel") or {}
+    factors, summary = _ic_series_from_daily_tail(
+        list(panel.get("daily_tail") or []),
+        lookback=lookback,
+        top_n=5,
+    )
+    if not factors:
+        return None
+    return {
+        "ok": True,
+        "source": "cluster_cs_ic",
+        "cluster_label": best.get("label"),
+        "member_count": best.get("member_count"),
+        "horizon_days": panel.get("horizon_days"),
+        "factors": factors,
+        "summary": summary,
+        "note": (
+            f"组 {best.get('label') or '—'} · {best.get('member_count') or 0} 只 · "
+            f"日频截面 IC（Pearson）近 {lookback} 日 · 展示 |IR| Top {len(factors)}"
+        ),
+    }
+
+
 @router.get("/api/dashboard/factor-ic-series")
 def dashboard_factor_ic_series(
     lookback: int = 60,
     horizon_days: int = 3,
 ):
-    """因子 IC 时序（研究台）。基于观察池截面因子分与前瞻收益。"""
+    """时序对比：多因子日频截面 IC（优先分组缓存）。"""
     try:
-        from core.backtest.factor_cs_ic import compute_factor_cross_section_ic
+        lookback = max(10, min(int(lookback or 60), 180))
+        from_cache = _ic_series_from_cluster_cache(lookback)
+        if from_cache:
+            return from_cache
+
+        # 回退：观察池截面因子分（非真 IC，仅占位）
         from core.watching_insights import load_insights_cache
 
         insights = load_insights_cache()
         if not insights:
-            return {"ok": True, "factors": [], "note": "无观察池数据，请先运行「跑分组」生成因子分数"}
+            return {
+                "ok": True,
+                "factors": [],
+                "summary": {},
+                "note": "无分组 IC 缓存 · 请先运行「跑分组」",
+            }
 
-        items = insights if isinstance(insights, list) else list(insights.values()) if isinstance(insights, dict) else []
-
+        items = (
+            insights
+            if isinstance(insights, list)
+            else list(insights.values())
+            if isinstance(insights, dict)
+            else []
+        )
         if not items:
-            return {"ok": True, "factors": [], "note": "观察池为空"}
+            return {"ok": True, "factors": [], "summary": {}, "note": "观察池为空"}
 
         factor_scores: Dict[str, List[float]] = {}
         for item in items:
-            sub_scores = item.get("sub_scores") or {}
+            sub_scores = (item or {}).get("sub_scores") or {}
             for factor, score in sub_scores.items():
                 try:
                     s = float(score)
                 except (TypeError, ValueError):
                     continue
-                if factor not in factor_scores:
-                    factor_scores[factor] = []
-                factor_scores[factor].append(s)
-
-        if not factor_scores:
-            return {"ok": True, "factors": [], "note": "无因子分数数据"}
+                factor_scores.setdefault(str(factor), []).append(s)
 
         import math as _math
         from statistics import mean, stdev
@@ -518,39 +721,43 @@ def dashboard_factor_ic_series(
                 ic_std = stdev(scores) if len(scores) > 1 else 0.0
             except Exception:
                 continue
-
             ic_ir = (ic_mean / ic_std) if ic_std > 1e-12 else 0.0
-            ann_factor = (_math.sqrt(252.0 / max(horizon_days, 1))) if horizon_days > 0 else 1.0
-            ic_ir_annual = ic_ir * ann_factor
+            ic_ir_annual = ic_ir * _math.sqrt(252.0 / max(int(horizon_days or 3), 1))
+            pos_ratio = sum(1 for s in scores if s > 0) / len(scores) * 100
+            points = [
+                {"time": i + 1, "value": round(s, 4)} for i, s in enumerate(scores[-lookback:])
+            ]
+            factor_series.append(
+                {
+                    "factor": factor,
+                    "label": _factor_label(factor),
+                    "ic_values": points,
+                    "ic_mean": round(ic_mean, 4),
+                    "ic_std": round(ic_std, 4),
+                    "ic_ir": round(ic_ir, 4),
+                    "ic_ir_annual": round(ic_ir_annual, 4),
+                    "positive_ratio": round(pos_ratio, 1),
+                    "sample_count": len(points),
+                }
+            )
 
-            pos_count = sum(1 for s in scores if s > 0)
-            pos_ratio = pos_count / len(scores) * 100
-
-            cumulative = []
-            running = 0.0
-            for s in scores:
-                running += s
-                cumulative.append(round(running, 4))
-
-            factor_series.append({
-                "factor": factor,
-                "ic_values": [round(s, 4) for s in scores],
-                "cumulative_ic": cumulative,
-                "ic_mean": round(ic_mean, 4),
-                "ic_std": round(ic_std, 4),
-                "ic_ir": round(ic_ir, 4),
-                "ic_ir_annual": round(ic_ir_annual, 4),
-                "positive_ratio": round(pos_ratio, 1),
-                "sample_count": len(scores),
-            })
-
-        factor_series.sort(key=lambda x: abs(x["ic_ir_annual"]), reverse=True)
-
+        factor_series.sort(key=lambda x: abs(float(x.get("ic_ir_annual") or 0)), reverse=True)
+        top = factor_series[:5]
+        summary = {}
+        if top:
+            summary = {
+                "ic_mean": round(mean(float(f["ic_mean"]) for f in top), 4),
+                "ir_mean": round(mean(float(f["ic_ir_annual"]) for f in top), 4),
+                "positive_ratio": round(mean(float(f["positive_ratio"]) for f in top), 1),
+                "day_count": max(int(f["sample_count"]) for f in top),
+                "factor_count": len(top),
+            }
         return {
             "ok": True,
-            "factors": factor_series,
-            "total_items": len(items),
-            "note": f"基于 {len(items)} 只观察池票的截面因子分数时序",
+            "source": "insights_proxy",
+            "factors": top,
+            "summary": summary,
+            "note": "未命中分组 IC 缓存 · 暂用观察池因子分截面代理（非真日频 IC）",
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
@@ -560,23 +767,8 @@ def dashboard_factor_ic_series(
 def dashboard_drawdown_chart(range: str = "all"):
     """Dashboard 回撤时序图数据。"""
     try:
-        paper = deps.paper.status(lite=True)
-        eq_curve = paper.get("equity_curve") or []
-        if range != "all":
-            now = datetime.now()
-            if range == "30":
-                cutoff = now - timedelta(days=30)
-            elif range == "90":
-                cutoff = now - timedelta(days=90)
-            elif range == "ytd":
-                cutoff = datetime(now.year, 1, 1)
-            else:
-                cutoff = None
-            if cutoff:
-                eq_curve = [
-                    e for e in eq_curve
-                    if e.get("date") and e["date"] >= cutoff.strftime("%Y-%m-%d")
-                ]
+        paper = _load_raw_paper()
+        eq_curve = _filter_eq_by_range(_equity_curve_from_paper(paper), range)
 
         dd_points = _build_dd_series(eq_curve)
 
@@ -598,14 +790,29 @@ def dashboard_drawdown_chart(range: str = "all"):
 def dashboard_sector_heatmap():
     """板块热力图。优先用持仓聚合，退化到行业默认列表。含市值/涨跌/个股数。"""
     try:
-        paper = deps.paper.status(lite=True)
-        holdings = paper.get("holdings") or []
+        paper = _load_raw_paper()
+        holdings = _holdings_from_paper(paper)
         sectors_map: Dict[str, Dict[str, Any]] = {}
 
         for h in holdings:
             sector = h.get("sector") or h.get("industry") or "其他"
             value = h.get("market_value") or h.get("equity") or 0
-            cost = h.get("cost_value") or value
+            try:
+                value = float(value or 0)
+            except (TypeError, ValueError):
+                value = 0.0
+            cost = h.get("cost_value")
+            if cost is None:
+                try:
+                    shares = float(h.get("shares") or 0)
+                    unit_cost = float(h.get("cost") or 0)
+                    cost = shares * unit_cost
+                except (TypeError, ValueError):
+                    cost = value
+            try:
+                cost = float(cost or 0)
+            except (TypeError, ValueError):
+                cost = 0.0
             change_pct = ((value / cost - 1) * 100) if cost and cost > 0 else 0
             volume = h.get("volume") or h.get("turnover") or 0
             if sector not in sectors_map:
@@ -659,38 +866,93 @@ def dashboard_sector_heatmap():
 
 @router.get("/api/dashboard/signals")
 def dashboard_signals(limit: int = 20):
-    """最新信号 / 告警。"""
+    """最新信号 / 告警。优先 signal_log，其次 operation_log 成交/风控。"""
     try:
-        paper = deps.paper.status(lite=True)
+        paper = _load_raw_paper()
         signals: List[Dict[str, Any]] = []
+        limit = max(1, min(int(limit or 20), 50))
 
-        # From operation_log (risk blocks + signals)
-        op_log = paper.get("operation_log") or []
-        for entry in reversed(op_log[-limit * 2:]):
-            if entry.get("type") in ("risk_block", "signal", "alert"):
+        # From signal_log (observation_pool scans)
+        for entry in reversed(paper.get("signal_log") or []):
+            if not isinstance(entry, dict) or not entry.get("success"):
+                continue
+            ts = entry.get("ts") or entry.get("time")
+            pool = entry.get("observation_pool") or []
+            for item in pool[:8]:
+                if not isinstance(item, dict):
+                    continue
+                score = item.get("predicted_score")
+                if score is None:
+                    score = item.get("score")
+                signals.append({
+                    "code": item.get("stock_code") or item.get("code"),
+                    "name": item.get("stock_name"),
+                    "direction": "bullish" if (score or 0) > 0 else "bearish" if (score or 0) < 0 else "—",
+                    "score": score,
+                    "time": ts,
+                    "type": "signal",
+                    "sector": item.get("sector"),
+                })
+            if len(signals) >= limit:
+                break
+
+        # From operation_log (trades / risk / settings)
+        if len(signals) < limit:
+            op_log = paper.get("operation_log") or []
+            try:
+                from services.paper_account import PaperAccountMixin
+
+                op_log = PaperAccountMixin._operation_log_for_ui(
+                    deps.paper, paper, limit=max(limit * 2, 40)
+                )
+            except Exception:
+                op_log = (paper.get("operation_log") or [])[-max(limit * 2, 40) :]
+            trade_types = {
+                "buy",
+                "sell",
+                "rebalance",
+                "cluster_pool_rebalance",
+                "risk_block",
+                "signal",
+                "alert",
+                "risk_budget",
+            }
+            for entry in reversed(op_log):
+                if not isinstance(entry, dict):
+                    continue
+                et = entry.get("type") or entry.get("action") or ""
+                if et not in trade_types:
+                    continue
                 signals.append({
                     "code": entry.get("code") or entry.get("stock_code"),
-                    "direction": entry.get("direction") or entry.get("side") or "—",
+                    "direction": entry.get("direction") or entry.get("side") or et,
                     "score": entry.get("score") or entry.get("predicted_score"),
                     "time": entry.get("ts") or entry.get("time"),
-                    "type": entry.get("type"),
+                    "type": et,
                 })
+                if len(signals) >= limit:
+                    break
 
-        # Fallback: generate from holdings sentiment
+        # Fallback: holdings with stored scores / sentiment
         if not signals:
-            holdings = paper.get("holdings") or []
-            for h in holdings[:limit]:
+            for h in _holdings_from_paper(paper)[:limit]:
                 sentiment = h.get("sentiment") or {}
                 label = sentiment.get("label") or ""
                 score = h.get("predicted_score") or h.get("score")
-                if label or score:
-                    direction = "bearish" if label == "bearish" else "bullish" if label == "bullish" else "—"
+                if label or score is not None:
+                    direction = (
+                        "bearish"
+                        if label == "bearish"
+                        else "bullish"
+                        if label == "bullish"
+                        else "—"
+                    )
                     signals.append({
                         "code": h.get("code") or h.get("stock_code"),
                         "direction": direction,
                         "score": score,
                         "time": datetime.now().strftime("%H:%M:%S"),
-                        "type": "sentiment",
+                        "type": "holding",
                     })
 
         signals = signals[:limit]
@@ -703,24 +965,39 @@ def dashboard_signals(limit: int = 20):
 def dashboard_allocation():
     """资产配置（按板块汇总市值）。"""
     try:
-        paper = deps.paper.status(lite=True)
-        holdings = paper.get("holdings") or []
+        paper = _load_raw_paper()
+        holdings = _holdings_from_paper(paper)
         sectors_map: Dict[str, float] = {}
         total_value = 0.0
 
         for h in holdings:
             sector = h.get("sector") or h.get("industry") or "其他"
-            value = h.get("market_value") or h.get("equity") or 0
-            sectors_map[sector] = sectors_map.get(sector, 0) + value
+            value = h.get("market_value")
+            if value is None:
+                try:
+                    value = float(h.get("shares") or 0) * float(h.get("cost") or 0)
+                except (TypeError, ValueError):
+                    value = 0.0
+            try:
+                value = float(value or 0)
+            except (TypeError, ValueError):
+                value = 0.0
+            sectors_map[sector] = sectors_map.get(sector, 0.0) + value
             total_value += value
 
         sectors = [
-            {"name": name, "value": round(val, 2)}
+            {
+                "name": name,
+                "value": round(val, 2),
+                "pct": round(val / total_value * 100, 2) if total_value > 0 else 0,
+            }
             for name, val in sorted(sectors_map.items(), key=lambda x: -x[1])
         ]
 
-        # Add cash as a "sector" if available
-        cash = paper.get("cash") or paper.get("available_cash") or 0
+        try:
+            cash = float(paper.get("cash") or paper.get("available_cash") or 0)
+        except (TypeError, ValueError):
+            cash = 0.0
         if cash > 0:
             sectors.append({"name": "现金", "value": round(cash, 2)})
             total_value += cash
@@ -749,15 +1026,18 @@ def _build_market_overview() -> Dict[str, Any]:
         fetch_index_bars = None
 
     indices: List[Dict[str, Any]] = []
+    # 使用别名表已识别的 key（不要用未映射的 sh000001 裸码）
     index_codes = [
-        ("sh000001", "上证指数"),
-        ("sz399001", "深证成指"),
-        ("sz399006", "创业板指"),
+        ("上证", "上证指数"),
+        ("深证", "深证成指"),
+        ("创业板", "创业板指"),
     ]
 
     for code, name in index_codes:
         try:
-            bars = fetch_index_bars(code, limit=2) if fetch_index_bars else None
+            bars = _unpack_index_bars(
+                fetch_index_bars(code, limit=2) if fetch_index_bars else None
+            )
             if bars and len(bars) >= 2:
                 cur = bars[-1]
                 prev = bars[-2]
@@ -769,7 +1049,7 @@ def _build_market_overview() -> Dict[str, Any]:
                     "code": code,
                     "close": round(close, 2),
                     "change_pct": round(change_pct, 2),
-                    "volume": float(cur.get("volume", 0)),
+                    "volume": float(cur.get("volume", 0) or 0),
                 })
             else:
                 indices.append({
@@ -788,28 +1068,42 @@ def _build_market_overview() -> Dict[str, Any]:
                 "volume": 0,
             })
 
-    # Market breadth from watchlist holdings
-    paper = deps.paper.status(lite=True)
-    holdings = paper.get("holdings") or []
+    # Market breadth from paper holdings (disk)
+    paper = _load_raw_paper()
+    holdings = _holdings_from_paper(paper)
     up_count = 0
     down_count = 0
     flat_count = 0
     total_turnover = 0.0
 
     for h in holdings:
-        change = h.get("change_pct") or 0
+        change = h.get("change_pct")
+        if change is None:
+            try:
+                mv = float(h.get("market_value") or 0)
+                shares = float(h.get("shares") or 0)
+                cost = float(h.get("cost") or 0)
+                cost_v = shares * cost
+                change = ((mv / cost_v - 1) * 100) if cost_v > 0 and mv else 0
+            except (TypeError, ValueError):
+                change = 0
+        try:
+            change = float(change or 0)
+        except (TypeError, ValueError):
+            change = 0.0
         if change > 0:
             up_count += 1
         elif change < 0:
             down_count += 1
         else:
             flat_count += 1
-        mv = h.get("market_value") or 0
-        total_turnover += mv
+        try:
+            total_turnover += float(h.get("market_value") or 0)
+        except (TypeError, ValueError):
+            pass
 
-    # Limit up/down from sentiment extremes
-    limit_up = sum(1 for h in holdings if (h.get("change_pct") or 0) >= 9.5)
-    limit_down = sum(1 for h in holdings if (h.get("change_pct") or 0) <= -9.5)
+    limit_up = sum(1 for h in holdings if float(h.get("change_pct") or 0) >= 9.5)
+    limit_down = sum(1 for h in holdings if float(h.get("change_pct") or 0) <= -9.5)
 
     return {
         "ok": True,
@@ -844,8 +1138,8 @@ def dashboard_market_overview():
 
 def _build_risk_metrics() -> Dict[str, Any]:
     """组合风险指标：Sharpe / Sortino / VaR / 波动率 / 最大回撤。"""
-    paper = deps.paper.status(lite=True)
-    eq_curve = paper.get("equity_curve") or []
+    paper = _load_raw_paper()
+    eq_curve = _equity_curve_from_paper(paper)
 
     if not eq_curve or len(eq_curve) < 5:
         return {
@@ -957,8 +1251,8 @@ def dashboard_risk_metrics():
 
 def _build_factor_exposure() -> Dict[str, Any]:
     """因子暴露分析：基于持仓的板块/风格暴露。"""
-    paper = deps.paper.status(lite=True)
-    holdings = paper.get("holdings") or []
+    paper = _load_raw_paper()
+    holdings = _holdings_from_paper(paper)
 
     if not holdings:
         return {"ok": False, "message": "暂无持仓数据"}

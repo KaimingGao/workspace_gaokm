@@ -27,14 +27,26 @@ def fetch_index_bars(benchmark: str, limit: int = 30) -> Tuple[List[dict], str]:
         "hs300": ("sh000300", "沪深300"),
         "沪深300": ("sh000300", "沪深300"),
         "csi300": ("sh000300", "沪深300"),
+        "sh000300": ("sh000300", "沪深300"),
         "上证": ("sh000001", "上证指数"),
         "上证指数": ("sh000001", "上证指数"),
         "sh": ("sh000001", "上证指数"),
+        "sh000001": ("sh000001", "上证指数"),
+        "深证": ("sz399001", "深证成指"),
+        "深证成指": ("sz399001", "深证成指"),
+        "sz399001": ("sz399001", "深证成指"),
+        "创业板": ("sz399006", "创业板指"),
+        "创业板指": ("sz399006", "创业板指"),
+        "sz399006": ("sz399006", "创业板指"),
         "hsi": ("HSI", "恒生指数"),
         "恒生": ("HSI", "恒生指数"),
         "恒生指数": ("HSI", "恒生指数"),
     }
+    # 允许大小写混合的原始 key（如 SH000001）
+    raw_key = (benchmark or "").strip()
     symbol, label = mapping.get(key, (None, None))
+    if not symbol and raw_key.lower() in mapping:
+        symbol, label = mapping[raw_key.lower()]
     if not symbol:
         return [], ""
 
@@ -42,7 +54,7 @@ def fetch_index_bars(benchmark: str, limit: int = 30) -> Tuple[List[dict], str]:
     start = end - timedelta(days=max(90, limit * 3))
     bars: List[dict] = []
 
-    if symbol.startswith("sh"):
+    if symbol.startswith(("sh", "sz")):
         code = symbol[2:]
         # 常见接口
         for fn_name, kwargs in (

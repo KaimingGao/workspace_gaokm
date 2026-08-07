@@ -87,13 +87,13 @@ class TestBacktestEngine(unittest.TestCase):
 
         bars = _rising_bars(45)
         with patch(
-            "skills.backtest.engine.fetch_daily_bars",
-            return_value=(bars, "mock_daily"),
+            "skills.backtest.engine.get_bars",
+            return_value={"bars": bars, "data_source": "mock_daily"},
         ), patch(
             "skills.backtest.engine.fetch_index_bars",
             return_value=([], ""),
         ), patch(
-            "skills.backtest.engine.StockAPI.query",
+            "skills.backtest.engine.get_quote",
             return_value={
                 "success": True,
                 "stock_code": "600519",

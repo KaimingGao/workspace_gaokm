@@ -57,16 +57,22 @@ class TestFactorOlsClusters(unittest.TestCase):
             {"stock_code": "H1"},
             {"stock_code": "H2"},
         ]
-        # 默认 / watching：全部观察池（limit 不截断）
+        # watching：观察池前 N（watching_limit）
         out = merge_cluster_universe(
             watch, holdings, watching_limit=3, universe_mode="watching"
         )
         self.assertEqual(out["universe_mode"], "watching")
-        self.assertEqual(out["codes"], ["A", "B", "C", "D", "E"])
-        self.assertEqual(out["watching_codes"], ["A", "B", "C", "D", "E"])
+        self.assertEqual(out["codes"], ["A", "B", "C"])
+        self.assertEqual(out["watching_codes"], ["A", "B", "C"])
         self.assertEqual(out["holdings_codes"], ["C", "H1", "H2"])
-        self.assertEqual(out["universe_count"], 5)
-        self.assertEqual(out["watching_limit"], 5)
+        self.assertEqual(out["universe_count"], 3)
+        self.assertEqual(out["watching_limit"], 3)
+        # watching_all：全部观察池（旧行为）
+        full = merge_cluster_universe(
+            watch, holdings, watching_limit=3, universe_mode="watching_all"
+        )
+        self.assertEqual(full["codes"], ["A", "B", "C", "D", "E"])
+        self.assertEqual(full["watching_limit"], 5)
         # 旧 holdings 模式
         hold = merge_cluster_universe(
             watch, holdings, watching_limit=3, universe_mode="holdings"

@@ -137,19 +137,82 @@ export async function loadAndRenderFactorIR(hostId) {
   }
 }
 
+const IC_SERIES_COLORS = [
+  "#2563eb",
+  "#059669",
+  "#7c3aed",
+  "#d97706",
+  "#ef4444",
+  "#0891b2",
+  "#db2777",
+  "#65a30d",
+];
+
+function _icPointValues(f) {
+  return (f.ic_values || [])
+    .map((v) => {
+      if (v != null && typeof v === "object") {
+        const n = Number(v.value ?? v.ic);
+        return Number.isFinite(n) ? n : null;
+      }
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    })
+    .filter((n) => n != null);
+}
+
+function renderFactorICSeriesKpis(data) {
+  const host = document.getElementById("quant-ic-series-kpis");
+  if (!host) return;
+  const s = (data && data.summary) || {};
+  const factors = (data && data.factors) || [];
+  if (!factors.length) {
+    host.hidden = true;
+    host.innerHTML = "";
+    return;
+  }
+  const fmt = (v, digits = 4) =>
+    v == null || !Number.isFinite(Number(v)) ? "—" : Number(v).toFixed(digits);
+  const cluster =
+    data.cluster_label != null
+      ? `组 ${escapeHtml(String(data.cluster_label))}`
+      : escapeHtml(String(data.source || "proxy"));
+  host.hidden = false;
+  host.innerHTML = `
+    <div class="quant-ic-kpi"><span class="quant-ic-kpi-label">IC均值</span><span class="quant-ic-kpi-value">${fmt(s.ic_mean)}</span></div>
+    <div class="quant-ic-kpi"><span class="quant-ic-kpi-label">IR均值</span><span class="quant-ic-kpi-value">${fmt(s.ir_mean, 2)}</span></div>
+    <div class="quant-ic-kpi"><span class="quant-ic-kpi-label">正IC占比</span><span class="quant-ic-kpi-value">${fmt(s.positive_ratio, 1)}%</span></div>
+    <div class="quant-ic-kpi"><span class="quant-ic-kpi-label">样本日</span><span class="quant-ic-kpi-value">${s.day_count ?? "—"}</span></div>
+    <div class="quant-ic-kpi"><span class="quant-ic-kpi-label">范围</span><span class="quant-ic-kpi-value">${cluster}</span></div>
+  `;
+}
+
 export async function loadAndRenderFactorICSeries(hostId, statsId, statusEl, lookback = 60) {
   const host = document.getElementById(hostId);
   const statsEl = document.getElementById(statsId);
   if (!host) return;
-  if (statusEl) statusEl.textContent = "计算因子IC时序…";
+  if (statusEl) statusEl.textContent = "计算时序对比…";
 
   try {
     const data = await apiFetch(`/api/dashboard/factor-ic-series?lookback=${lookback}`);
+    renderFactorICSeriesKpis(data);
     await renderFactorICSeriesChart(data, host);
     renderFactorICSeriesStats(data, statsEl);
-    if (statusEl) statusEl.textContent = `因子IC时序计算完成 · ${data.factors?.length || 0} 个因子`;
+    const n = data.factors?.length || 0;
+    const tag = data.cluster_label ? `组 ${data.cluster_label}` : data.source || "";
+    if (statusEl) {
+      statusEl.textContent = n
+        ? `完成 · ${n} 因子${tag ? ` · ${tag}` : ""}`
+        : data.note || "暂无数据";
+    }
   } catch (err) {
-    host.innerHTML = `<div class="factor-corr-warnings-empty">加载失败: ${err.message || err}</div>`;
+    host.innerHTML = `<div class="factor-corr-warnings-empty">加载失败: ${escapeHtml(String(err.message || err))}</div>`;
+    const kpis = document.getElementById("quant-ic-series-kpis");
+    if (kpis) {
+      kpis.hidden = true;
+      kpis.innerHTML = "";
+    }
+    if (statsEl) statsEl.innerHTML = "";
     if (statusEl) statusEl.textContent = "加载失败";
   }
 }
@@ -157,27 +220,39 @@ export async function loadAndRenderFactorICSeries(hostId, statsId, statusEl, loo
 async function renderFactorICSeriesChart(data, host) {
   if (!host) return;
   if (!data || !data.factors || !data.factors.length) {
-    host.innerHTML = `<div class="factor-corr-warnings-empty">暂无因子IC数据 · 请先运行「跑分组」</div>`;
+    host.innerHTML = `<div class="factor-corr-warnings-empty">暂无 IC 时序 · 请先运行「跑分组」</div>`;
     return;
   }
 
-  const colors = ["#2563eb", "#059669", "#7c3aed", "#d97706", "#ef4444", "#0891b2", "#db2777", "#65a30d"];
   const seriesList = data.factors.map((f, i) => {
-    const points = (f.ic_values || []).map(v => ({
-      time: v.time || v.date,
-      value: v.value ?? v.ic,
-    }));
+    const points = (f.ic_values || []).map((v, idx) => {
+      if (v != null && typeof v === "object") {
+        return {
+          time: v.time || v.date || idx + 1,
+          value: v.value ?? v.ic,
+        };
+      }
+      return { time: idx + 1, value: v };
+    });
     return {
-      label: f.factor,
-      color: colors[i % colors.length],
+      label: f.label || f.factor,
+      color: IC_SERIES_COLORS[i % IC_SERIES_COLORS.length],
+      lineWidth: i === 0 ? 2.5 : 2,
       points,
     };
   });
 
+  const meanLine =
+    data.summary && data.summary.ic_mean != null
+      ? Number(data.summary.ic_mean)
+      : null;
+
   await renderMultiLineChart(host, seriesList, {
-    emptyText: "因子IC序列不足",
+    emptyText: "IC 序列不足",
     disableZoom: true,
     zeroLine: true,
+    meanLine: Number.isFinite(meanLine) ? meanLine : null,
+    meanLineTitle: "IC均值",
   });
 }
 
@@ -188,46 +263,70 @@ function renderFactorICSeriesStats(data, statsEl) {
     return;
   }
 
-  const rows = data.factors.map(f => {
-    const vals = (f.ic_values || []).map(v => v.value ?? v.ic).filter(v => v != null && isFinite(v));
-    const n = vals.length;
-    if (!n) return null;
-    const mean = vals.reduce((a, b) => a + b, 0) / n;
-    const variance = vals.reduce((a, b) => a + (b - mean) ** 2, 0) / n;
-    const std = Math.sqrt(variance);
-    const ir = std > 0 ? (mean / std) * Math.sqrt(252) : 0;
-    const posRate = vals.filter(v => v > 0).length / n * 100;
-    return { factor: f.factor, mean, ir, posRate, n };
-  }).filter(Boolean);
+  const rows = data.factors
+    .map((f) => {
+      const vals = _icPointValues(f);
+      const n = vals.length || Number(f.sample_count) || 0;
+      const mean =
+        f.ic_mean != null && Number.isFinite(Number(f.ic_mean))
+          ? Number(f.ic_mean)
+          : n
+            ? vals.reduce((a, b) => a + b, 0) / n
+            : null;
+      const ir =
+        f.ic_ir_annual != null && Number.isFinite(Number(f.ic_ir_annual))
+          ? Number(f.ic_ir_annual)
+          : f.ic_ir != null
+            ? Number(f.ic_ir)
+            : null;
+      const posRate =
+        f.positive_ratio != null && Number.isFinite(Number(f.positive_ratio))
+          ? Number(f.positive_ratio)
+          : n
+            ? (vals.filter((v) => v > 0).length / n) * 100
+            : null;
+      if (mean == null && ir == null) return null;
+      return {
+        factor: f.label || f.factor,
+        key: f.factor,
+        mean: mean ?? 0,
+        ir: ir ?? 0,
+        posRate: posRate ?? 0,
+        n,
+      };
+    })
+    .filter(Boolean);
 
   if (!rows.length) {
-    statsEl.innerHTML = `<div class="factor-corr-warnings-empty">暂无有效IC数据</div>`;
+    statsEl.innerHTML = `<div class="factor-corr-warnings-empty">暂无有效 IC</div>`;
     return;
   }
 
-  rows.sort((a, b) => b.ir - a.ir);
+  rows.sort((a, b) => Math.abs(b.ir) - Math.abs(a.ir));
 
-  let html = `<table class="quant-weight-table" style="width:100%; border-collapse:collapse; font-size:0.78rem;">`;
-  html += `<thead><tr style="border-bottom:1px solid var(--line);">
-    <th style="text-align:left; padding:4px 8px;">因子</th>
-    <th style="text-align:right; padding:4px 8px;">IC均值</th>
-    <th style="text-align:right; padding:4px 8px;">IR(年化)</th>
-    <th style="text-align:right; padding:4px 8px;">正收益率</th>
-    <th style="text-align:right; padding:4px 8px;">样本数</th>
+  let html = `<div class="quant-ic-stats-head">因子排序 · |IR|</div>`;
+  html += `<table class="quant-weight-table quant-ic-stats-table">`;
+  html += `<thead><tr>
+    <th>因子</th>
+    <th class="num">IC</th>
+    <th class="num">IR</th>
+    <th class="num">正%</th>
   </tr></thead><tbody>`;
 
   for (const r of rows) {
     const meanCls = r.mean >= 0 ? "is-positive" : "is-negative";
     const irCls = r.ir >= 0 ? "is-positive" : "is-negative";
-    html += `<tr style="border-bottom:1px solid var(--line);">
-      <td style="padding:4px 8px; font-weight:500;">${escapeHtml(r.factor)}</td>
-      <td style="text-align:right; padding:4px 8px;" class="${meanCls}">${r.mean.toFixed(4)}</td>
-      <td style="text-align:right; padding:4px 8px;" class="${irCls}">${r.ir.toFixed(2)}</td>
-      <td style="text-align:right; padding:4px 8px;">${r.posRate.toFixed(1)}%</td>
-      <td style="text-align:right; padding:4px 8px;">${r.n}</td>
+    html += `<tr>
+      <td title="${escapeHtml(r.key)}">${escapeHtml(r.factor)}</td>
+      <td class="num ${meanCls}">${r.mean.toFixed(3)}</td>
+      <td class="num ${irCls}">${r.ir.toFixed(2)}</td>
+      <td class="num">${r.posRate.toFixed(0)}</td>
     </tr>`;
   }
 
   html += `</tbody></table>`;
+  if (data.note) {
+    html += `<p class="quant-ic-stats-note">${escapeHtml(String(data.note))}</p>`;
+  }
   statsEl.innerHTML = html;
 }

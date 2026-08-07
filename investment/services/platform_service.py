@@ -14,11 +14,25 @@ from core.schedule_jobs import run_schedule
 
 
 class PlatformService:
-    def list_jobs(self) -> Dict[str, Any]:
-        return {"ok": True, "jobs": job_registry.list_jobs()}
-
     def get_job(self, name: str) -> Dict[str, Any]:
-        return {"ok": True, "job": job_registry.get(name)}
+        slot = job_registry.slot(name)
+        # 轮询路径自动回收卡住的任务（尤其 quant-ols-clusters 拉日线挂死）
+        if hasattr(slot, "reclaim_if_stale"):
+            slot.reclaim_if_stale()
+        return {"ok": True, "job": slot.get()}
+
+    def list_jobs(self) -> Dict[str, Any]:
+        jobs = []
+        for snap in job_registry.list_jobs():
+            name = (snap or {}).get("slot") or (snap or {}).get("name")
+            if name:
+                slot = job_registry.slot(str(name))
+                if hasattr(slot, "reclaim_if_stale"):
+                    slot.reclaim_if_stale()
+                jobs.append(slot.get())
+            else:
+                jobs.append(snap)
+        return {"ok": True, "jobs": jobs}
 
     def get_memory(self) -> Dict[str, Any]:
         mem = read_memory()

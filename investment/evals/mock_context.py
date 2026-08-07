@@ -110,14 +110,16 @@ def _patch_daily_bars(stack, mock_cfg: dict) -> None:
         return
     bars, src = resolve_daily_bars(mock_cfg["daily_bars"])
     ret = (bars, src)
+    pack = {"bars": bars, "data_source": src, "production_ok": True}
     # 只 patch 仍存在的符号；日线入口已收敛到 core.data_service
-    for target in (
-        "core.data_service.bars_and_source",
-        "skills.common.history.fetch_daily_bars",
-        "core.signal.score_stock.fetch_daily_bars",
+    for target, value in (
+        ("core.data_service.bars_and_source", ret),
+        ("core.data_service.get_bars", pack),
+        ("skills.common.history.fetch_daily_bars", ret),
+        ("core.signal.score_stock.fetch_daily_bars", ret),
     ):
         try:
-            stack.enter_context(patch(target, return_value=ret))
+            stack.enter_context(patch(target, return_value=value))
         except AttributeError:
             continue
 
@@ -128,6 +130,12 @@ def _patch_daily_bars(stack, mock_cfg: dict) -> None:
         try:
             stack.enter_context(
                 patch("skills.backtest.engine.fetch_index_bars", return_value=([], ""))
+            )
+        except AttributeError:
+            pass
+        try:
+            stack.enter_context(
+                patch("core.ports.market.fetch_index_bars", return_value=([], ""))
             )
         except AttributeError:
             pass
