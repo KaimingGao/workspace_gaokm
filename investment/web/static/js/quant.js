@@ -61,6 +61,7 @@ import { installStrategy } from "./quant/domain_strategy.js";
 import { installExportInterpret } from "./quant/domain_export.js";
 import { installScoreReview } from "./quant/domain_score_review.js";
 import { installFitGapHub } from "./quant/domain_fit_gap.js";
+import { loadAndRenderFactorCorr, loadAndRenderFactorIR, loadAndRenderFactorICSeries } from "./quant/factor_corr_ui.js";
 
 /** Quant research panel — shell + domain installs. */
 export function initQuant(ctx) {
@@ -728,6 +729,35 @@ export function initQuant(ctx) {
       if (btn) btn.disabled = false;
     }
   });
+
+  // Factor analysis: correlation heatmap + IR
+  on("quant-factor-corr-run", "click", async (e) => {
+    e.preventDefault();
+    const statusEl = document.getElementById("quant-factor-analysis-status");
+    if (statusEl) statusEl.textContent = "计算因子相关性…";
+    await loadAndRenderFactorCorr("quant-factor-corr-heatmap");
+    if (statusEl) statusEl.textContent = "因子相关性计算完成";
+  });
+
+  on("quant-factor-ir-run", "click", async (e) => {
+      e.preventDefault();
+      const statusEl = document.getElementById("quant-factor-analysis-status");
+      if (statusEl) statusEl.textContent = "计算因子 IR…";
+      await loadAndRenderFactorIR("quant-factor-ir-bars");
+      if (statusEl) statusEl.textContent = "因子 IR 计算完成";
+    });
+
+    on("quant-ic-series-run", "click", async (e) => {
+      e.preventDefault();
+      const lookback = document.getElementById("quant-ic-series-lookback")?.value || "60";
+      const statusEl = document.getElementById("quant-ic-series-status");
+      await loadAndRenderFactorICSeries(
+        "quant-ic-series-chart",
+        "quant-ic-series-stats",
+        statusEl,
+        lookback
+      );
+    });
 
 
   const oosGateTips = createScoreTooltipController();

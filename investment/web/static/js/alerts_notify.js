@@ -106,7 +106,7 @@ async function maybeNotify(payload) {
   const count = payload.alert_count || (payload.alerts || []).length || 0;
   if (!count) return;
   try {
-    const n = new Notification("Investment 告警", {
+    const n = new Notification("QuantLab 告警", {
       body: `${count} 条监控告警 · 来源 ${payload.source || "monitor"}`,
       tag: "investment-alert",
     });

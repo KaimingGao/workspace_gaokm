@@ -1,1 +1,1 @@
-"""Investment Web UI package."""
+"""QuantLab Web UI package."""

@@ -9,13 +9,13 @@ const page = document.body.dataset.page || "watching";
 try {
   initTheme();
 } catch (err) {
-  console.error("[Investment] init theme failed", err);
+  console.error("[QuantLab] init theme failed", err);
 }
 
 try {
   initAiDrawer();
 } catch (err) {
-  console.error("[Investment] init ai drawer failed", err);
+  console.error("[QuantLab] init ai drawer failed", err);
 }
 
 try {
@@ -43,14 +43,14 @@ try {
     window.location.href = "/replay?auto_param_grid_chain=1#param-grid";
   });
 } catch (err) {
-  console.error("[Investment] init command palette failed", err);
+  console.error("[QuantLab] init command palette failed", err);
 }
 
 // W4: 实况 WebSocket（纸面/健康）；断线复用 degrade banner
 try {
   import("./js/live_ws.js").then((m) => m.initLiveWs());
 } catch (err) {
-  console.error("[Investment] init live ws failed", err);
+  console.error("[QuantLab] init live ws failed", err);
 }
 
 // W0.2: 启动时探测健康；失败则亮降级 Banner
@@ -90,7 +90,7 @@ function safeInit(name, fn) {
     fn();
     return true;
   } catch (err) {
-    console.error(`[Investment] init ${name} failed`, err);
+    console.error(`[QuantLab] init ${name} failed`, err);
     const meta = document.getElementById("results-meta") || document.getElementById("status");
     if (meta) meta.textContent = `初始化失败(${name}): ${err.message || err}`;
     return false;
@@ -101,13 +101,13 @@ async function loadModule(name, path) {
   try {
     return await import(path);
   } catch (err) {
-    console.error(`[Investment] import ${name} failed`, err);
+    console.error(`[QuantLab] import ${name} failed`, err);
     return null;
   }
 }
 
 const V = (typeof window !== "undefined" && window.__ASSET_V__) || "p251";
-const QUANT_PAGES = new Set(["chat", "quant", "watching", "strategy", "replay", "follow"]);
+const QUANT_PAGES = new Set(["chat", "quant", "watching", "strategy", "replay", "follow", "dashboard"]);
 const PAPER_PAGES = new Set(["chat", "paper", "follow"]);
 
 if (page === "chat") {
@@ -159,6 +159,10 @@ async function bootWorkspace() {
     const dockMod = await loadModule("research_dock", `./js/research_dock.js?v=${V}`);
     if (dockMod) safeInit("research_dock", () => dockMod.initResearchDock());
   }
+  if (page === "dashboard") {
+    const dashboardMod = await loadModule("dashboard", `./js/dashboard.js?v=${V}`);
+    if (dashboardMod) safeInit("dashboard", () => dashboardMod.initDashboard(ctx));
+  }
   if (page === "chat") {
     if (platformMod) safeInit("platform", () => platformMod.initPlatform(ctx));
     if (resultsMod) safeInit("results", () => resultsMod.initResults(ctx));
@@ -168,7 +172,7 @@ async function bootWorkspace() {
     if (platformMod) safeInit("platform", () => platformMod.initPlatform(ctx));
     // 系统设置页默认直接加载平台面板数据
     if (typeof ctx.openPlatformPanel === "function") {
-      await ctx.openPlatformPanel().catch((err) => console.error("[Investment] openPlatformPanel", err));
+      await ctx.openPlatformPanel().catch((err) => console.error("[QuantLab] openPlatformPanel", err));
     }
   }
 
@@ -184,11 +188,11 @@ async function bootWorkspace() {
     await ctx.showResultsTab(openTab, { openMobile: false, load: false });
     setTimeout(() => {
       ctx.showResultsTab(openTab, { openMobile: openTab === "evals" || openTab === "usage", load: true }).catch((err) => {
-        console.error("[Investment] showResultsTab load failed", err);
+        console.error("[QuantLab] showResultsTab load failed", err);
       });
     }, 50);
   } else if (QUANT_PAGES.has(page) && page !== "chat" && ctx.openQuantDialog) {
-    ctx.openQuantDialog().catch((err) => console.error("[Investment] openQuantDialog", err));
+    ctx.openQuantDialog().catch((err) => console.error("[QuantLab] openQuantDialog", err));
   }
 
   if (failed.length) {
@@ -206,7 +210,7 @@ async function bootWorkspace() {
   try {
     const dt = (typeof performance !== "undefined" ? performance.now() : Date.now()) - __perfT0;
     if (dt > 2500) {
-      console.warn("[Investment][Perf] bootWorkspace slow", { ms: Math.round(dt) });
+      console.warn("[QuantLab][Perf] bootWorkspace slow", { ms: Math.round(dt) });
       const statusEl = document.getElementById("status");
       if (statusEl && !String(statusEl.textContent || "").includes("Perf")) {
         statusEl.textContent = `性能：首屏初始化耗时 ${Math.round(dt)}ms（持续观测）`;
@@ -219,7 +223,7 @@ async function bootWorkspace() {
 }
 
 bootWorkspace().catch((err) => {
-  console.error("[Investment] workspace boot failed", err);
+  console.error("[QuantLab] workspace boot failed", err);
   const statusEl = document.getElementById("status");
   if (statusEl) {
     statusEl.textContent = `对话可用 · 右侧面板加载失败: ${err.message || err}`;

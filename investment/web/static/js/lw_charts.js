@@ -552,7 +552,7 @@ export async function renderLineChart(container, points, opts = {}) {
   try {
     const dt = (typeof performance !== "undefined" ? performance.now() : Date.now()) - __perfT0;
     if (seriesPts.length >= 1200 && dt > 600) {
-      console.warn("[Investment][Perf] renderLineChart slow", {
+      console.warn("[QuantLab][Perf] renderLineChart slow", {
         ms: Math.round(dt),
         points: seriesPts.length,
       });

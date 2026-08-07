@@ -18,6 +18,7 @@ data/store/news/**/*.json
 data/store/fundamentals/**/*.json
 data/store/minute/**/*.json
 data/store/spot_a_em.json
+data/store/*/*.json
 data/paper.json
 data/memory.json
 data/decisions.jsonl

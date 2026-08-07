@@ -28,7 +28,7 @@ except Exception:
 
 from web import deps  # noqa: E402
 from web.page_html import render_tool_html  # noqa: E402
-from web.routers import quant_config, quant_research, quant_cluster, quant_backtest, quant_score, chat, daily, evals, live_ws, meta, paper, platform, quant, strategy, watching  # noqa: E402
+from web.routers import quant_config, quant_research, quant_cluster, quant_backtest, quant_score, quant_dashboard, chat, daily, evals, live_ws, meta, paper, platform, quant, strategy, watching  # noqa: E402
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
@@ -40,8 +40,8 @@ _daily = deps.daily
 _quant = deps.quant
 
 app = FastAPI(
-    title="Investment · 量化交易",
-    description="量化交易 Web（融合 AI）：业务模块 + 全局 AI 命令",
+    title="QuantLab · 量化交易",
+    description="QuantLab 量化交易 Web（融合 AI）：业务模块 + 全局 AI 命令",
     version="0.1.0",
 )
 
@@ -56,6 +56,7 @@ app.include_router(quant_research.router)
 app.include_router(quant_cluster.router)
 app.include_router(quant_backtest.router)
 app.include_router(quant_score.router)
+app.include_router(quant_dashboard.router)
 app.include_router(watching.router)
 app.include_router(evals.router)
 app.include_router(platform.router)
@@ -64,8 +65,8 @@ app.include_router(live_ws.router)
 
 @app.get("/")
 def index():
-    """根路径进入数据中心（仪表盘已下线）。"""
-    return RedirectResponse(url="/watching", status_code=302)
+    """根路径进入仪表盘。"""
+    return RedirectResponse(url="/dashboard", status_code=302)
 
 
 @app.get("/chat")
@@ -100,6 +101,15 @@ def quant_page():
 def watching_page():
     return HTMLResponse(
         render_tool_html("watching"),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@app.get("/dashboard")
+def dashboard_page():
+    """仪表盘：全局 KPI · 净值曲线 · 板块热力 · 信号告警。"""
+    return HTMLResponse(
+        render_tool_html("dashboard"),
         headers={"Cache-Control": "no-store"},
     )
 

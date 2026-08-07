@@ -1,0 +1,140 @@
+<div class="dashboard-head">
+  <div class="dashboard-head-text">
+    <h2>仪表盘</h2>
+    <p class="dashboard-meta" id="dashboard-meta">全局概览 · 市场监控 · 风险指标 · 实时告警</p>
+  </div>
+  <div class="dashboard-head-actions">
+    <span class="dashboard-updated" id="dashboard-updated">加载中…</span>
+    <button type="button" class="dialog-btn" id="dashboard-refresh">刷新</button>
+  </div>
+</div>
+
+<div class="quant-body dashboard-page">
+
+  <!-- Market Overview Row -->
+  <section class="dashboard-market-row" aria-label="市场监控">
+    <div class="dashboard-market-cards" id="dashboard-market-cards">
+      <!-- JS fills market index + breadth cards -->
+    </div>
+  </section>
+
+  <!-- KPI Row -->
+  <section class="dashboard-kpi-row" aria-label="核心指标">
+    <div class="dashboard-kpi-row-body" id="dashboard-kpi-cards">
+      <!-- JS fills KPI cards here -->
+    </div>
+  </section>
+
+  <!-- Risk Metrics Row -->
+  <section class="dashboard-risk-row" aria-label="组合风险">
+    <div class="dashboard-risk-cards" id="dashboard-risk-cards">
+      <!-- JS fills risk metric cards -->
+    </div>
+  </section>
+
+  <!-- Middle Row: NAV Curve + Sector Heatmap -->
+  <section class="dashboard-main-row">
+    <div class="dashboard-card dashboard-nav-card">
+      <div class="dashboard-card-head">
+          <h3>累计净值曲线</h3>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <label style="font-size:0.72rem;color:var(--ink-3);display:flex;align-items:center;gap:4px;cursor:pointer;">
+              <input type="checkbox" id="dashboard-benchmark-toggle" checked style="accent-color:var(--accent);">
+              对比沪深300
+            </label>
+            <div class="dashboard-range-tabs" id="dashboard-nav-range">
+              <button type="button" data-range="30" class="is-active">近30日</button>
+              <button type="button" data-range="90">近90日</button>
+              <button type="button" data-range="ytd">今年</button>
+              <button type="button" data-range="all">全部</button>
+            </div>
+          </div>
+        </div>
+      <div class="dashboard-chart-host" id="dashboard-nav-chart" style="height:280px"></div>
+      <div class="dashboard-nav-stats" id="dashboard-nav-stats">
+        <!-- JS fills NAV stats -->
+      </div>
+    </div>
+
+    <div class="dashboard-card dashboard-drawdown-card">
+      <div class="dashboard-card-head">
+        <h3>回撤曲线</h3>
+        <span class="dashboard-card-sub" id="dashboard-drawdown-stats">—</span>
+      </div>
+      <div class="dashboard-chart-host" id="dashboard-drawdown-chart" style="height:200px"></div>
+    </div>
+
+    <div class="dashboard-card dashboard-var-card">
+      <div class="dashboard-card-head">
+        <h3>历史模拟 VaR</h3>
+        <span class="dashboard-card-sub" id="dashboard-var-stats">—</span>
+      </div>
+      <div class="dashboard-chart-host" id="dashboard-var-chart" style="height:200px"></div>
+    </div>
+
+    <div class="dashboard-card dashboard-sector-card">
+      <div class="dashboard-card-head">
+        <h3>板块热力图</h3>
+        <span class="dashboard-card-sub" id="dashboard-sector-sub">持仓行业分布</span>
+      </div>
+      <div class="dashboard-sector-grid" id="dashboard-sector-grid">
+        <!-- JS fills sector cells -->
+      </div>
+      <div class="dashboard-sector-legend">
+        <span class="legend-up">▲ 上涨</span>
+        <span class="legend-flat">— 持平</span>
+        <span class="legend-down">▼ 下跌</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Bottom Row: Leaderboard + Signals + Factor Exposure -->
+  <section class="dashboard-bottom-row">
+    <div class="dashboard-card dashboard-leaderboard-card">
+      <div class="dashboard-card-head">
+        <h3>策略排行榜</h3>
+        <span class="dashboard-card-sub">按收益率排序</span>
+      </div>
+      <div class="dashboard-leaderboard-body" id="dashboard-leaderboard">
+        <!-- JS fills strategy table -->
+      </div>
+    </div>
+
+    <div class="dashboard-card dashboard-signals-card">
+      <div class="dashboard-card-head">
+        <h3>最新信号 / 告警</h3>
+        <span class="dashboard-card-sub" id="dashboard-signals-count">—</span>
+      </div>
+      <div class="dashboard-signals-body" id="dashboard-signals-list">
+        <!-- JS fills signal list -->
+      </div>
+    </div>
+
+    <div class="dashboard-card dashboard-exposure-card">
+      <div class="dashboard-card-head">
+        <h3>因子暴露</h3>
+        <span class="dashboard-card-sub" id="dashboard-exposure-concentration">—</span>
+      </div>
+      <div class="dashboard-exposure-body" id="dashboard-exposure-body">
+        <!-- JS fills factor exposure -->
+      </div>
+    </div>
+  </section>
+
+  <!-- Allocation Row -->
+  <section class="dashboard-alloc-row">
+    <div class="dashboard-card dashboard-allocation-card">
+      <div class="dashboard-card-head">
+        <h3>资产配置</h3>
+        <span class="dashboard-card-sub" id="dashboard-allocation-sub">板块市值占比</span>
+      </div>
+      <div class="dashboard-allocation-body">
+        <div class="dashboard-allocation-chart" id="dashboard-allocation-chart" style="height:200px"></div>
+        <div class="dashboard-allocation-legend" id="dashboard-allocation-legend">
+          <!-- JS fills legend -->
+        </div>
+      </div>
+    </div>
+  </section>
+
+</div>

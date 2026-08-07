@@ -1,4 +1,4 @@
-/** Shared helpers for Investment web UI modules. */
+/** Shared helpers for QuantLab web UI modules. */
 
 export function headers(ctx, extra = {}) {
   const h = { "Content-Type": "application/json", ...extra };

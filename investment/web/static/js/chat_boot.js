@@ -51,7 +51,7 @@
       '<div class="avatar" aria-hidden="true">' +
       (role === "user" ? "你" : "I") +
       '</div><div class="col">' +
-      (role === "user" ? "" : '<div class="role">Investment</div>') +
+      (role === "user" ? "" : '<div class="role">QuantLab</div>') +
       '<div class="bubble">' +
       bubbleHtml +
       "</div></div>";
@@ -104,7 +104,7 @@
         try {
           window.__investmentOnChatReply(data);
         } catch (err) {
-          console.error("[Investment] onChatReply", err);
+          console.error("[QuantLab] onChatReply", err);
         }
       }
     } catch (err) {

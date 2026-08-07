@@ -26,6 +26,7 @@ def _current_asset_v() -> str:
         return ASSET_V
 
 _PAGE_TITLES = {
+    "dashboard": "仪表盘",
     "quant": "研究枢纽",
     "watching": "数据中心",
     "paper": "模拟账户（已并入 /follow）",
@@ -36,6 +37,7 @@ _PAGE_TITLES = {
 }
 
 _PANEL_CLASS = {
+    "dashboard": "quant-panel",
     "quant": "quant-panel",
     "watching": "quant-panel",
     "paper": "quant-panel",
@@ -87,6 +89,7 @@ def _side_nav(active: str) -> str:
 
     items = "\n          ".join(
         [
+            item("dashboard", "/dashboard", "仪表盘", "全局概览 · KPI · 净值曲线", "btn-dashboard"),
             item("strategy", "/strategy", "策略中心", "策略卡 · 晋升 · 改限额", "btn-strategy"),
             item("watching", "/watching", "数据中心", "观察 · 建仓入口", "btn-watching"),
             item("follow", "/follow", "交易执行", "纸面调仓 · 做T验证", "btn-follow"),
@@ -97,9 +100,9 @@ def _side_nav(active: str) -> str:
     )
     return f"""    <aside class="side-nav" aria-label="主导航">
       <div class="side-nav-brand">
-        <a class="logo" href="/watching" title="Investment">
-          <span class="logo-mark" aria-hidden="true">I</span>
-          <span class="logo-text">Investment</span>
+        <a class="logo" href="/dashboard" title="QuantLab">
+          <span class="logo-mark" aria-hidden="true">Q</span>
+          <span class="logo-text">QuantLab</span>
         </a>
       </div>
       <nav class="side-nav-list" aria-label="功能模块">
@@ -206,7 +209,7 @@ def render_tool_html(page: str) -> str:
     return _inject_asset_v(
         _apply_chrome(
             _template("tool.html")
-            .replace("{{TITLE}}", f"Investment · {_PAGE_TITLES[page]}")
+            .replace("{{TITLE}}", f"QuantLab · {_PAGE_TITLES[page]}")
             .replace("{{PAGE}}", page)
             .replace("{{CONTENT}}", content)
             .replace("{{EXTRA_DIALOGS}}", extras),

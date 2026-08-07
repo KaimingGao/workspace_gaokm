@@ -72,7 +72,7 @@ export function initChat(ctx) {
     if (role !== "user") {
       const roleEl = document.createElement("div");
       roleEl.className = "role";
-      roleEl.textContent = "Investment";
+      roleEl.textContent = "QuantLab";
       col.appendChild(roleEl);
     }
     col.appendChild(bubble);
@@ -219,7 +219,7 @@ export function initChat(ctx) {
             primary_tab: data.primary_tab || "reply",
             replyBody: body,
           })
-        ).catch((err) => console.error("[Investment] applyChatArtifacts", err));
+        ).catch((err) => console.error("[QuantLab] applyChatArtifacts", err));
       } else if (ctx.setResultsReply) {
         ctx.setResultsReply(body, { openMobile: false, switchTab: false });
       }
@@ -294,7 +294,7 @@ export function initChat(ctx) {
             primary_tab: data.primary_tab || "reply",
             replyBody: body,
           })
-        ).catch((err) => console.error("[Investment] applyChatArtifacts", err));
+        ).catch((err) => console.error("[QuantLab] applyChatArtifacts", err));
       } else if (ctx.setResultsReply) {
         ctx.setResultsReply(body, { openMobile: false, switchTab: false });
       }

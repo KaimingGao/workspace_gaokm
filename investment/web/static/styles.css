@@ -78,52 +78,53 @@ html[data-theme="light"] {
 
 /* 量化深色主题（可选）：盯盘友好 */
 html[data-theme="dark"] {
-  --bg-global: #1e1e1e;
-  --bg-card: #252526;
-  --bg-hover: #2d2d30;
-  --bg-active: #111b26;
-  --bg: #1e1e1e;
-  --bg-accent: #252526;
-  --bg-elevated: #2d2d30;
-  --surface: #252526;
-  --surface-hover: #2d2d30;
-  --surface-elevated: #2d2d30;
-  --ink: rgba(255, 255, 255, 0.85);
-  --ink-2: rgba(255, 255, 255, 0.65);
-  --ink-3: rgba(255, 255, 255, 0.45);
-  --text-primary: rgba(255, 255, 255, 0.85);
-  --text-secondary: rgba(255, 255, 255, 0.65);
-  --text-tertiary: rgba(255, 255, 255, 0.45);
-  --line: #434343;
-  --line-2: #2d2d30;
-  --border-color: #434343;
+  /* Enhanced dark theme - professional quant terminal look */
+  --bg-global: #0f1115;
+  --bg-card: #181a1f;
+  --bg-hover: #1f2229;
+  --bg-active: #262a33;
+  --bg: #0f1115;
+  --bg-accent: #181a1f;
+  --bg-elevated: #1f2229;
+  --surface: #181a1f;
+  --surface-hover: #1f2229;
+  --surface-elevated: #262a33;
+  --ink: rgba(255, 255, 255, 0.92);
+  --ink-2: rgba(255, 255, 255, 0.68);
+  --ink-3: rgba(255, 255, 255, 0.42);
+  --text-primary: rgba(255, 255, 255, 0.92);
+  --text-secondary: rgba(255, 255, 255, 0.68);
+  --text-tertiary: rgba(255, 255, 255, 0.42);
+  --line: #2a2e37;
+  --line-2: #1f2229;
+  --border-color: #2a2e37;
   --user-bg: #111b26;
   --user-ink: #69c0ff;
-  --accent: #1890ff;
-  --accent-hover: #40a9ff;
-  --accent-active: #096dd9;
-  --accent-soft: rgba(24, 144, 255, 0.16);
-  --accent-glow: rgba(24, 144, 255, 0.22);
-  --color-primary: #1890ff;
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --accent-active: #2563eb;
+  --accent-soft: rgba(59, 130, 246, 0.18);
+  --accent-glow: rgba(59, 130, 246, 0.28);
+  --color-primary: #3b82f6;
   --color-up: #f5222d;
   --color-down: #52c41a;
-  --gold: #faad14;
-  --gold-soft: rgba(250, 173, 20, 0.12);
-  --gold-hover: #ffc53d;
-  --ok: #52c41a;
-  --ok-soft: rgba(82, 196, 26, 0.12);
-  --warn: #faad14;
-  --warn-soft: rgba(250, 173, 20, 0.14);
-  --danger: #ff4d4f;
-  --danger-soft: rgba(255, 77, 79, 0.14);
-  --color-warning: #faad14;
-  --color-error: #ff4d4f;
-  --shadow: 0 1px 3px rgba(0, 0, 0, 0.45);
-  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.4);
-  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.5);
-  --shadow-composer: 0 8px 30px rgba(0, 0, 0, 0.35);
-  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.35);
-  --topbar-bg: rgba(30, 30, 30, 0.92);
+  --gold: #f59e0b;
+  --gold-soft: rgba(245, 158, 11, 0.14);
+  --gold-hover: #fbbf24;
+  --ok: #22c55e;
+  --ok-soft: rgba(34, 197, 94, 0.14);
+  --warn: #f59e0b;
+  --warn-soft: rgba(245, 158, 11, 0.16);
+  --danger: #ef4444;
+  --danger-soft: rgba(239, 68, 68, 0.14);
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+  --shadow-composer: 0 8px 30px rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 2px 10px rgba(0, 0, 0, 0.4);
+  --topbar-bg: rgba(15, 17, 21, 0.94);
   --body-bg-image: none;
 }
 
@@ -3768,8 +3769,8 @@ html[data-theme="dark"] .yhat-insight-card {
   color: var(--ink-2, #475569);
 }
 .yhat-bdist-track {
-  height: 6px;
-  background: rgba(100, 116, 139, 0.12);
+  height: 5px;
+  background: rgba(100, 116, 139, 0.1);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -3778,7 +3779,7 @@ html[data-theme="dark"] .yhat-insight-card {
   height: 100%;
   min-width: 2px;
   border-radius: 2px;
-  background: #2563eb;
+  background: rgba(100, 116, 139, 0.55);
 }
 .yhat-bdist-val {
   font-size: 0.62rem;
@@ -12928,4 +12929,1156 @@ html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
     --replay-hover: color-mix(in srgb, var(--accent) 10%, var(--surface));
     --replay-row-line: var(--line-2);
   }
+}
+
+/* =====================================================
+   Dashboard · 仪表盘样式（追加在文件末尾）
+   ===================================================== */
+
+.quant-body.dashboard-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px 16px 18px;
+  max-height: none;
+  overflow-y: auto;
+}
+
+.dashboard-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 4px 0 2px;
+}
+.dashboard-head-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.dashboard-head-text h2 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  margin: 0;
+}
+.dashboard-meta {
+  font-size: 0.72rem;
+  color: var(--ink-3);
+  margin: 0;
+}
+.dashboard-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.dashboard-updated {
+  font-size: 0.7rem;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+}
+
+/* ——— KPI Row ——— */
+.dashboard-kpi-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.dashboard-kpi-row-body {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 0;
+}
+.dashboard-kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 12px 14px 10px;
+  border-right: 1px solid var(--line);
+  transition: background 0.15s ease;
+  position: relative;
+}
+.dashboard-kpi-card:last-child {
+  border-right: none;
+}
+.dashboard-kpi-card:hover {
+  background: var(--bg-hover);
+}
+.dashboard-kpi-card.is-good {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ok) 6%, var(--surface)) 0%, var(--surface) 100%);
+}
+.dashboard-kpi-card.is-bad {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 6%, var(--surface)) 0%, var(--surface) 100%);
+}
+.dashboard-kpi-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--ink-3);
+  text-transform: none;
+}
+.dashboard-kpi-value {
+  font-family: var(--font-mono);
+  font-size: 1.35rem;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+}
+.dashboard-kpi-card.is-good .dashboard-kpi-value {
+  color: var(--ok);
+}
+.dashboard-kpi-card.is-bad .dashboard-kpi-value {
+  color: var(--danger);
+}
+.dashboard-kpi-sub {
+  font-size: 0.62rem;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+}
+.dashboard-kpi-spark {
+  margin-top: 4px;
+  width: 80px;
+  height: 24px;
+  opacity: 0.85;
+}
+
+/* ——— Main Row (NAV + Heatmap) ——— */
+.dashboard-main-row {
+  display: grid;
+  grid-template-columns: 1.6fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 900px) {
+  .dashboard-main-row { grid-template-columns: 1fr; }
+}
+
+.dashboard-card {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.dashboard-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ink) 3%, var(--surface));
+}
+.dashboard-card-head h3 {
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink);
+  margin: 0;
+  letter-spacing: 0.01em;
+}
+.dashboard-card-sub {
+  font-size: 0.68rem;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+/* NAV Chart */
+.dashboard-nav-card {
+  min-height: 320px;
+}
+.dashboard-chart-host {
+  flex: 1;
+  padding: 4px;
+  min-height: 240px;
+}
+.dashboard-range-tabs {
+  display: flex;
+  gap: 2px;
+}
+.dashboard-range-tabs button {
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--ink-2);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  font-family: inherit;
+}
+.dashboard-range-tabs button:hover {
+  color: var(--ink);
+  border-color: var(--ink-3);
+}
+.dashboard-range-tabs button.is-active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* Sector Heatmap */
+.dashboard-sector-card {
+  min-height: 320px;
+}
+.dashboard-sector-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  padding: 10px;
+  flex: 1;
+}
+@media (max-width: 700px) {
+  .dashboard-sector-grid { grid-template-columns: repeat(3, 1fr); }
+}
+.dashboard-sector-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  padding: 10px 6px;
+  border-radius: 8px;
+  background: var(--bg-hover);
+  border: 1px solid var(--line);
+  transition: transform 0.12s ease, background 0.12s ease;
+  cursor: default;
+}
+.dashboard-sector-cell:hover {
+  transform: translateY(-1px);
+}
+.dashboard-sector-cell.is-up {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ok) 18%, var(--surface)) 0%, color-mix(in srgb, var(--ok) 8%, var(--surface)) 100%);
+  border-color: color-mix(in srgb, var(--ok) 40%, var(--line));
+}
+.dashboard-sector-cell.is-down {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 18%, var(--surface)) 0%, color-mix(in srgb, var(--danger) 8%, var(--surface)) 100%);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
+}
+.dashboard-sector-name {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink);
+  text-align: center;
+  line-height: 1.2;
+}
+.dashboard-sector-pct {
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.dashboard-sector-cell.is-up .dashboard-sector-pct {
+  color: var(--ok);
+}
+.dashboard-sector-cell.is-down .dashboard-sector-pct {
+  color: var(--danger);
+}
+
+/* ——— Bottom Row (Leaderboard + Signals + Allocation) ——— */
+.dashboard-bottom-row {
+  display: grid;
+  grid-template-columns: 1fr 1.2fr 1fr;
+  gap: 14px;
+}
+@media (max-width: 1100px) {
+  .dashboard-bottom-row { grid-template-columns: 1fr 1fr; }
+  .dashboard-allocation-card { grid-column: 1 / -1; }
+}
+@media (max-width: 700px) {
+  .dashboard-bottom-row { grid-template-columns: 1fr; }
+}
+
+/* Leaderboard */
+.dashboard-leaderboard-card {
+  min-height: 260px;
+}
+.dashboard-leaderboard-body {
+  flex: 1;
+  overflow-x: auto;
+}
+.dashboard-leaderboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+.dashboard-leaderboard-table th {
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 0.68rem;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ink) 3%, var(--surface));
+  letter-spacing: 0.04em;
+}
+.dashboard-leaderboard-table th.num {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+.dashboard-leaderboard-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--line-2);
+  color: var(--ink);
+}
+.dashboard-leaderboard-table td.num {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.dashboard-leaderboard-table td.up {
+  color: var(--ok);
+}
+.dashboard-leaderboard-table td.down {
+  color: var(--danger);
+}
+.dashboard-leaderboard-table .col-rank {
+  width: 32px;
+  text-align: center;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+.dashboard-leaderboard-table tbody tr:hover {
+  background: var(--bg-hover);
+}
+
+/* Signals */
+.dashboard-signals-card {
+  min-height: 260px;
+}
+.dashboard-signals-body {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 280px;
+}
+.dashboard-signal-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--line-2);
+  font-size: 0.75rem;
+}
+.dashboard-signal-item:last-child {
+  border-bottom: none;
+}
+.dashboard-signal-code {
+  font-weight: 600;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+.dashboard-signal-dir {
+  font-size: 0.68rem;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-align: center;
+  background: var(--bg-hover);
+  color: var(--ink-2);
+  width: fit-content;
+}
+.dashboard-signal-item.is-long .dashboard-signal-dir {
+  background: color-mix(in srgb, var(--ok) 15%, var(--surface));
+  color: var(--ok);
+}
+.dashboard-signal-item.is-short .dashboard-signal-dir {
+  background: color-mix(in srgb, var(--danger) 15%, var(--surface));
+  color: var(--danger);
+}
+.dashboard-signal-score.num {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+.dashboard-signal-time {
+  font-size: 0.65rem;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+}
+
+/* Allocation */
+.dashboard-allocation-card {
+  min-height: 260px;
+}
+.dashboard-allocation-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px;
+  gap: 10px;
+  flex: 1;
+}
+.dashboard-allocation-chart {
+  width: 100%;
+  max-width: 200px;
+}
+.dashboard-allocation-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  justify-content: center;
+  width: 100%;
+}
+.dashboard-allocation-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.68rem;
+  color: var(--ink-2);
+}
+.dashboard-allocation-swatch {
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.dashboard-allocation-name {
+  font-weight: 500;
+}
+.dashboard-allocation-pct.num {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Empty state */
+.dashboard-empty {
+  padding: 24px 16px;
+  text-align: center;
+  color: var(--ink-3);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+/* Dark theme */
+html[data-theme="dark"] .dashboard-kpi-card {
+  border-right-color: rgba(255, 255, 255, 0.08);
+}
+html[data-theme="dark"] .dashboard-kpi-card.is-good {
+  background: linear-gradient(180deg, color-mix(in srgb, #059669 12%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+html[data-theme="dark"] .dashboard-kpi-card.is-bad {
+  background: linear-gradient(180deg, color-mix(in srgb, #ef4444 12%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+html[data-theme="dark"] .dashboard-sector-cell.is-up {
+  background: linear-gradient(180deg, color-mix(in srgb, #059669 20%, #1a1a1a) 0%, color-mix(in srgb, #059669 8%, #1a1a1a) 100%);
+  border-color: rgba(5, 150, 105, 0.4);
+}
+html[data-theme="dark"] .dashboard-sector-cell.is-down {
+  background: linear-gradient(180deg, color-mix(in srgb, #ef4444 20%, #1a1a1a) 0%, color-mix(in srgb, #ef4444 8%, #1a1a1a) 100%);
+  border-color: rgba(239, 68, 68, 0.4);
+}
+html[data-theme="dark"] .dashboard-card-head {
+  background: color-mix(in srgb, #fff 3%, #1a1a1a);
+}
+html[data-theme="dark"] .dashboard-leaderboard-table th {
+  background: color-mix(in srgb, #fff 3%, #1a1a1a);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+html[data-theme="dark"] .dashboard-leaderboard-table td {
+  border-bottom-color: rgba(255, 255, 255, 0.05);
+}
+html[data-theme="dark"] .dashboard-signal-item {
+  border-bottom-color: rgba(255, 255, 255, 0.05);
+}
+html[data-theme="dark"] .dashboard-kpi-row,
+html[data-theme="dark"] .dashboard-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #252526;
+}
+
+/* ——— Market Overview Row ——— */
+.dashboard-market-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.dashboard-market-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0;
+}
+.dashboard-market-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px 9px;
+  border-right: 1px solid var(--line);
+  transition: background 0.15s ease;
+  position: relative;
+}
+.dashboard-market-card:last-child {
+  border-right: none;
+}
+.dashboard-market-card:hover {
+  background: var(--bg-hover);
+}
+.dashboard-market-card.is-up {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ok) 8%, var(--surface)) 0%, var(--surface) 100%);
+}
+.dashboard-market-card.is-down {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 8%, var(--surface)) 0%, var(--surface) 100%);
+}
+.dashboard-market-label {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+.dashboard-market-value {
+  font-family: var(--font-mono);
+  font-size: 1.2rem;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+.dashboard-market-card.is-up .dashboard-market-value {
+  color: var(--ok);
+}
+.dashboard-market-card.is-down .dashboard-market-value {
+  color: var(--danger);
+}
+.dashboard-market-change {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.dashboard-market-card.is-up .dashboard-market-change {
+  color: var(--ok);
+}
+.dashboard-market-card.is-down .dashboard-market-change {
+  color: var(--danger);
+}
+.dashboard-market-card.is-breadth {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 6%, var(--surface)) 0%, var(--surface) 100%);
+}
+.dashboard-market-card.is-limit {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--gold) 10%, var(--surface)) 0%, var(--surface) 100%);
+}
+
+/* ——— Risk Metrics Row ——— */
+.dashboard-risk-row {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.dashboard-risk-cards {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 0;
+}
+@media (max-width: 1100px) {
+  .dashboard-risk-cards { grid-template-columns: repeat(4, 1fr); }
+}
+@media (max-width: 600px) {
+  .dashboard-risk-cards { grid-template-columns: repeat(2, 1fr); }
+}
+.dashboard-risk-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px 9px;
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  transition: background 0.15s ease;
+}
+.dashboard-risk-card:nth-child(8n) {
+  border-right: none;
+}
+.dashboard-risk-card:nth-last-child(-n+8) {
+  border-bottom: none;
+}
+.dashboard-risk-card:hover {
+  background: var(--bg-hover);
+}
+.dashboard-risk-card.is-good {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--ok) 6%, var(--surface)) 0%, var(--surface) 100%);
+}
+.dashboard-risk-card.is-bad {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--danger) 6%, var(--surface)) 0%, var(--surface) 100%);
+}
+.dashboard-risk-label {
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+}
+.dashboard-risk-value {
+  font-family: var(--font-mono);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+.dashboard-risk-card.is-good .dashboard-risk-value {
+  color: var(--ok);
+}
+.dashboard-risk-card.is-bad .dashboard-risk-value {
+  color: var(--danger);
+}
+
+/* ——— NAV Stats ——— */
+.dashboard-nav-stats {
+  display: flex;
+  gap: 16px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  background: color-mix(in srgb, var(--ink) 2%, var(--surface));
+  font-size: 0.75rem;
+}
+.dashboard-nav-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.nav-stat-label {
+  font-size: 0.62rem;
+  color: var(--ink-3);
+  font-weight: 500;
+}
+.nav-stat-value {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.nav-stat-value.up {
+  color: var(--ok);
+}
+.nav-stat-value.down {
+  color: var(--danger);
+}
+
+/* ——— Sector Heatmap Legend & Sub Labels ——— */
+.dashboard-sector-legend {
+  display: flex;
+  gap: 12px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--line);
+  font-size: 0.65rem;
+  color: var(--ink-3);
+  align-items: center;
+}
+.dashboard-sector-legend span {
+  font-weight: 500;
+}
+.legend-up { color: var(--ok) !important; }
+.legend-down { color: var(--danger) !important; }
+
+.dashboard-sector-sub {
+  font-size: 0.62rem;
+  color: var(--ink-3);
+  margin-top: 2px;
+  font-family: var(--font-mono);
+}
+
+/* ——— Exposure Bar ——— */
+.dashboard-exposure-body {
+  padding: 10px 12px;
+  flex: 1;
+  overflow-y: auto;
+  max-height: 280px;
+}
+.dashboard-exposure-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dashboard-exposure-row {
+  display: grid;
+  grid-template-columns: 70px 1fr 44px;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.72rem;
+}
+.dashboard-exposure-name {
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.dashboard-exposure-bar-track {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-hover);
+  overflow: hidden;
+}
+.dashboard-exposure-bar {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--accent) 0%, color-mix(in srgb, var(--accent) 60%, var(--ok)) 100%);
+}
+.dashboard-exposure-pct {
+  text-align: right;
+  font-weight: 700;
+  color: var(--ink-2);
+  font-size: 0.68rem;
+}
+
+/* ——— Allocation Row ——— */
+.dashboard-alloc-row {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+.dashboard-allocation-body {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  gap: 16px;
+  padding: 14px;
+  align-items: center;
+}
+@media (max-width: 700px) {
+  .dashboard-allocation-body {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ——— Dark Theme Extensions ——— */
+html[data-theme="dark"] .dashboard-market-card {
+  border-right-color: rgba(255, 255, 255, 0.08);
+}
+html[data-theme="dark"] .dashboard-market-card.is-up {
+  background: linear-gradient(180deg, color-mix(in srgb, #059669 14%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+html[data-theme="dark"] .dashboard-market-card.is-down {
+  background: linear-gradient(180deg, color-mix(in srgb, #ef4444 14%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+html[data-theme="dark"] .dashboard-market-card.is-breadth {
+  background: linear-gradient(180deg, color-mix(in srgb, #2563eb 10%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+html[data-theme="dark"] .dashboard-market-card.is-limit {
+  background: linear-gradient(180deg, color-mix(in srgb, #d97706 14%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+html[data-theme="dark"] .dashboard-risk-card {
+  border-right-color: rgba(255, 255, 255, 0.08);
+  border-bottom-color: rgba(255, 255, 255, 0.05);
+}
+html[data-theme="dark"] .dashboard-risk-card.is-good {
+  background: linear-gradient(180deg, color-mix(in srgb, #059669 12%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+html[data-theme="dark"] .dashboard-risk-card.is-bad {
+  background: linear-gradient(180deg, color-mix(in srgb, #ef4444 12%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+html[data-theme="dark"] .dashboard-nav-stats {
+  background: color-mix(in srgb, #fff 3%, #1a1a1a);
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+html[data-theme="dark"] .dashboard-exposure-bar-track {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* ——— Sector cell sub label ——— */
+.dashboard-sector-sub {
+  display: block;
+  font-size: 0.6rem;
+  color: var(--ink-3);
+  font-family: var(--font-mono);
+  margin-top: 2px;
+}
+
+/* ——— Allocation legend ——— */
+.dashboard-allocation-legend {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 6px 14px;
+  align-content: start;
+}
+
+/* ——— Exposure card ——— */
+.dashboard-exposure-card {
+  min-height: 260px;
+}
+
+/* ——— Research Hub Factor Correlation & IR Panels ——— */
+.factor-corr-heatmap {
+  display: grid;
+  gap: 2px;
+  padding: 10px;
+  overflow-x: auto;
+}
+.factor-corr-cell {
+  width: 48px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: transform 0.1s ease;
+  font-variant-numeric: tabular-nums;
+}
+.factor-corr-cell:hover {
+  transform: scale(1.1);
+  z-index: 10;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.factor-corr-label {
+  font-size: 0.62rem;
+  color: var(--ink-3);
+  font-weight: 600;
+  text-align: center;
+  padding: 2px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.factor-ir-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+.factor-ir-row {
+  display: grid;
+  grid-template-columns: 100px 1fr 60px 50px;
+  gap: 8px;
+  align-items: center;
+  font-size: 0.72rem;
+}
+.factor-ir-name {
+  font-weight: 600;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.factor-ir-bar-track {
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--bg-hover) 40%, transparent);
+  overflow: hidden;
+}
+.factor-ir-bar-fill {
+  height: 100%;
+  border-radius: 3px;
+}
+.factor-ir-bar-fill.is-positive {
+  background: linear-gradient(90deg, var(--ok) 0%, color-mix(in srgb, var(--ok) 60%, var(--accent)) 100%);
+}
+.factor-ir-bar-fill.is-negative {
+  background: linear-gradient(90deg, var(--danger) 0%, color-mix(in srgb, var(--danger) 60%, var(--gold)) 100%);
+}
+.factor-ir-value {
+  text-align: right;
+  font-family: var(--font-mono);
+  font-weight: 700;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.68rem;
+}
+.factor-ir-rate {
+  text-align: right;
+  font-family: var(--font-mono);
+  color: var(--ink-3);
+  font-size: 0.64rem;
+}
+
+.factor-corr-warnings {
+  padding: 8px 10px;
+  font-size: 0.7rem;
+  color: var(--gold);
+  background: color-mix(in srgb, var(--gold) 8%, var(--surface));
+  border-radius: 6px;
+  margin-top: 8px;
+}
+.factor-corr-warnings-empty {
+  color: var(--ink-3);
+  font-size: 0.68rem;
+  text-align: center;
+  padding: 6px;
+}
+
+/* ——— Correlation heatmap color scale ——— */
+.corr-scale {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.62rem;
+  color: var(--ink-3);
+  margin-top: 6px;
+  justify-content: center;
+}
+.corr-scale-bar {
+  width: 140px;
+  height: 8px;
+  border-radius: 4px;
+  background: linear-gradient(90deg,
+    #3b82f6 0%,      /* -1 strong negative */
+    #93c5fd 25%,     /* -0.5 */
+    #e5e7eb 50%,     /* 0 neutral */
+    #fca5a5 75%,     /* 0.5 */
+    #ef4444 100%     /* 1 strong positive */
+  );
+}
+
+/* Dark theme for factor corr */
+html[data-theme="dark"] .factor-corr-cell {
+  border-radius: 3px;
+}
+html[data-theme="dark"] .factor-corr-warnings {
+  background: color-mix(in srgb, #d97706 12%, #1a1a1a);
+}
+html[data-theme="dark"] .factor-ir-bar-track {
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* ——— Drawdown Chart ——— */
+.dashboard-drawdown-card {
+  min-height: 280px;
+}
+.dashboard-drawdown-card .dashboard-chart-host {
+  padding: 4px;
+}
+
+/* ——— VaR Histogram ——— */
+.dashboard-var-card {
+  min-height: 280px;
+}
+.dashboard-var-card .dashboard-chart-host {
+  padding: 4px;
+}
+
+/* ——— Benchmark Toggle ——— */
+#dashboard-benchmark-toggle {
+  width: 13px;
+  height: 13px;
+  cursor: pointer;
+}
+
+/* Dark theme for new cards */
+html[data-theme="dark"] .dashboard-drawdown-card,
+html[data-theme="dark"] .dashboard-var-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #252526;
+}
+
+/* ——— Factor IC Time Series ——— */
+.factor-ic-series-host {
+  min-height: 240px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+}
+.factor-ic-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  padding: 8px 12px;
+  font-size: 0.68rem;
+}
+.factor-ic-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--ink-2);
+}
+.factor-ic-legend-color {
+  width: 10px;
+  height: 3px;
+  border-radius: 2px;
+}
+
+/* ——— Professional Dark Theme: New Components ——— */
+
+/* Drawdown chart dark styling */
+html[data-theme="dark"] .dashboard-drawdown-card {
+  background: linear-gradient(180deg, #181a1f 0%, #13151a 100%);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+html[data-theme="dark"] .dashboard-drawdown-card .dashboard-card-head {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.08) 0%, transparent 100%);
+}
+
+/* VaR chart dark styling */
+html[data-theme="dark"] .dashboard-var-card {
+  background: linear-gradient(180deg, #181a1f 0%, #13151a 100%);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+html[data-theme="dark"] .dashboard-var-card .dashboard-card-head {
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.08) 0%, transparent 100%);
+}
+
+/* Factor IC series dark styling */
+html[data-theme="dark"] .factor-ic-series-host {
+  background: #13151a;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Enhanced card hover in dark mode */
+html[data-theme="dark"] .dashboard-card:hover {
+  border-color: rgba(59, 130, 246, 0.25);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.1), 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+/* KPI cards more contrast in dark */
+html[data-theme="dark"] .dashboard-kpi-card {
+  background: #181a1f;
+  border-right-color: rgba(255, 255, 255, 0.06);
+}
+html[data-theme="dark"] .dashboard-kpi-card:hover {
+  background: #1f2229;
+}
+html[data-theme="dark"] .dashboard-kpi-value {
+  text-shadow: 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+/* Market cards dark */
+html[data-theme="dark"] .dashboard-market-card {
+  background: #181a1f;
+  border-right-color: rgba(255, 255, 255, 0.06);
+}
+html[data-theme="dark"] .dashboard-market-card:hover {
+  background: #1f2229;
+}
+
+/* Risk cards dark */
+html[data-theme="dark"] .dashboard-risk-card {
+  background: #181a1f;
+}
+html[data-theme="dark"] .dashboard-risk-card:hover {
+  background: #1f2229;
+}
+
+/* Table improvements in dark */
+html[data-theme="dark"] .quant-weight-table-wrap table th,
+html[data-theme="dark"] table th {
+  background: #1a1d23;
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+html[data-theme="dark"] .quant-weight-table-wrap table td,
+html[data-theme="dark"] table td {
+  border-bottom-color: rgba(255, 255, 255, 0.04);
+}
+
+/* Scrollbar styling for dark theme */
+html[data-theme="dark"] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+html[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: #13151a;
+}
+html[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #2a2e37;
+  border-radius: 4px;
+}
+html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: #3a3f4b;
+}
+
+/* Selection color */
+html[data-theme="dark"] ::selection {
+  background: rgba(59, 130, 246, 0.35);
+}
+
+/* Body background for dark */
+html[data-theme="dark"] body,
+html[data-theme="dark"] .app {
+  background: #0f1115;
+}
+
+/* Sidebar dark */
+html[data-theme="dark"] .side-nav {
+  background: #13151a;
+  border-right-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Input fields in dark */
+html[data-theme="dark"] input[type="text"],
+html[data-theme="dark"] input[type="number"],
+html[data-theme="dark"] select,
+html[data-theme="dark"] textarea {
+  background: #181a1f;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--ink);
+}
+html[data-theme="dark"] input:focus,
+html[data-theme="dark"] select:focus,
+html[data-theme="dark"] textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+/* Button dark improvements */
+html[data-theme="dark"] .dialog-btn {
+  background: #1f2229;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--ink);
+}
+html[data-theme="dark"] .dialog-btn:hover {
+  background: #262a33;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+html[data-theme="dark"] .dialog-btn.secondary {
+  background: transparent;
+}
+html[data-theme="dark"] .dialog-btn.is-primary,
+html[data-theme="dark"] .dialog-btn.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* Section hints and captions */
+html[data-theme="dark"] .quant-section-hint,
+html[data-theme="dark"] .quant-trades-caption,
+html[data-theme="dark"] .quant-fingerprint {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* Fold/details dark */
+html[data-theme="dark"] .quant-fold summary,
+html[data-theme="dark"] details summary {
+  background: #181a1f;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+html[data-theme="dark"] .quant-fold summary:hover,
+html[data-theme="dark"] details summary:hover {
+  background: #1f2229;
+}
+
+/* Accent glow effect for KPI cards */
+html[data-theme="dark"] .dashboard-kpi-card.is-good .dashboard-kpi-value {
+  text-shadow: 0 0 8px rgba(34, 197, 94, 0.35);
+}
+html[data-theme="dark"] .dashboard-kpi-card.is-bad .dashboard-kpi-value {
+  text-shadow: 0 0 8px rgba(239, 68, 68, 0.35);
+}
+
+/* Subtle gradient for market cards */
+html[data-theme="dark"] .dashboard-market-card.is-up {
+  background: linear-gradient(180deg, rgba(34, 197, 94, 0.12) 0%, #181a1f 100%);
+}
+html[data-theme="dark"] .dashboard-market-card.is-down {
+  background: linear-gradient(180deg, rgba(239, 68, 68, 0.12) 0%, #181a1f 100%);
+}
+
+/* Smooth transitions everywhere */
+html[data-theme="dark"] * {
+  transition-property: background-color, border-color, color, fill, stroke;
+  transition-duration: 0.15s;
+}
+
+/* Legend text colors */
+html[data-theme="dark"] .dashboard-sector-legend,
+html[data-theme="dark"] .dashboard-sector-legend span {
+  color: rgba(255, 255, 255, 0.45);
 }

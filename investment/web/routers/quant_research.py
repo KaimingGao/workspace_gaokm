@@ -135,3 +135,95 @@ def quant_threshold_suggest(body: ThresholdSuggestRequest):
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/factor-corr")
+def quant_factor_corr(
+    min_samples: int = 3,
+    threshold: float = 0.7,
+):
+    """因子相关性矩阵：基于观察池 sub_scores 算截面 Pearson。"""
+    try:
+        from core.signal.factor_corr import compute_factor_corr_matrix, redundancy_warnings_from_corr
+        from core.watching_insights import load_insights_cache
+
+        items = []
+        try:
+            insights = load_insights_cache()
+            if insights:
+                items = insights if isinstance(insights, list) else list(insights.values()) if isinstance(insights, dict) else []
+        except Exception:
+            pass
+
+        if not items:
+            return {
+                "ok": True,
+                "success": False,
+                "factors": [],
+                "matrix": {},
+                "pairs": [],
+                "warnings": [],
+                "note": "无观察池数据，请先运行「跑分组」生成因子分数",
+            }
+
+        result = compute_factor_corr_matrix(items, min_samples=min_samples)
+        warnings = redundancy_warnings_from_corr(result, threshold=threshold)
+        result["warnings"] = warnings
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/factor-ir")
+def quant_factor_ir(
+    lookback: int = 60,
+    horizon_days: int = 3,
+):
+    """因子 IR 分析：因子信息比率 = IC 均值 / IC 标准差 × sqrt(252/horizon)。"""
+    try:
+        from core.backtest.factor_cs_ic import run_cs_ic
+        from core.watching_insights import load_insights_cache
+
+        insights = load_insights_cache()
+        if not insights:
+            return {"ok": True, "factors": [], "note": "无观察池数据"}
+
+        items = insights if isinstance(insights, list) else list(insights.values()) if isinstance(insights, dict) else []
+
+        factor_ic_series: Dict[str, List[float]] = {}
+        for item in items:
+            sub_scores = item.get("sub_scores") or {}
+            for factor, score in sub_scores.items():
+                if factor not in factor_ic_series:
+                    factor_ic_series[factor] = []
+                factor_ic_series[factor].append(float(score))
+
+        factor_ir_list: List[Dict[str, Any]] = []
+        for factor, scores in factor_ic_series.items():
+            if len(scores) < 3:
+                continue
+            import statistics as _stats
+            mean_ic = _stats.mean(scores)
+            std_ic = _stats.stdev(scores) if len(scores) > 1 else 0
+            ir = (mean_ic / std_ic) if std_ic > 1e-12 else 0
+            ann_factor = (252.0 / max(horizon_days, 1)) ** 0.5
+            ir_annual = ir * ann_factor
+            factor_ir_list.append({
+                "factor": factor,
+                "mean_ic": round(mean_ic, 4),
+                "std_ic": round(std_ic, 4),
+                "ir": round(ir, 4),
+                "ir_annual": round(ir_annual, 4),
+                "sample_count": len(scores),
+                "positive_rate": round(sum(1 for s in scores if s > 0) / len(scores) * 100, 1),
+            })
+
+        factor_ir_list.sort(key=lambda x: abs(x["ir_annual"]), reverse=True)
+
+        return {
+            "ok": True,
+            "factors": factor_ir_list,
+            "note": f"基于 {len(items)} 只观察池票的截面因子分数",
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e

@@ -294,7 +294,7 @@ export function initAiDrawer() {
         try {
           window.__investmentOnChatReply(data);
         } catch (err) {
-          console.error("[Investment] onChatReply", err);
+          console.error("[QuantLab] onChatReply", err);
         }
       }
     } catch (err) {
