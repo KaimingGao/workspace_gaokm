@@ -173,7 +173,13 @@
         </div>
         <div id="quant-ic-series-kpis" class="quant-ic-compare-kpis" hidden></div>
         <div class="quant-ic-compare-grid">
-          <div id="quant-ic-series-chart" class="factor-ic-series-host quant-ic-compare-chart"></div>
+          <div class="quant-ic-chart-panel">
+            <div class="quant-chart-axis-head">
+              <span class="quant-chart-title">IC 时序</span>
+              <span class="quant-chart-axis-hint">零轴 · 均值参考 · 图例可点隐</span>
+            </div>
+            <div id="quant-ic-series-chart" class="factor-ic-series-host quant-ic-compare-chart"></div>
+          </div>
           <div id="quant-ic-series-stats" class="quant-ic-compare-stats quant-weight-table-wrap"></div>
         </div>
       </div>
@@ -230,23 +236,29 @@
         </div>
         <p id="quant-score-review-status" class="quant-fingerprint">尚未加载</p>
         <div id="quant-score-review-summary" class="quant-summary"></div>
-        <div class="yhat-viz-block" id="quant-score-review-hit-wrap" hidden>
-          <p class="quant-trades-caption">跨日方向命中率</p>
+        <div class="yhat-viz-block quant-review-viz" id="quant-score-review-hit-wrap" hidden>
+          <div class="quant-chart-axis-head">
+            <span class="quant-chart-title">跨日方向命中率</span>
+            <span class="quant-chart-axis-hint" id="quant-score-review-hit-meta">虚线=50% / μ</span>
+          </div>
           <canvas
             id="quant-score-review-hit-spark"
             class="yhat-spark-canvas"
-            width="480"
-            height="52"
+            width="920"
+            height="72"
             aria-label="命中率 sparkline"
           ></canvas>
         </div>
-        <div class="yhat-viz-block" id="quant-score-review-scatter-wrap" hidden>
-          <p class="quant-trades-caption">ŷ vs 实现收益（散点）</p>
+        <div class="yhat-viz-block quant-review-viz" id="quant-score-review-scatter-wrap" hidden>
+          <div class="quant-chart-axis-head">
+            <span class="quant-chart-title">ŷ vs 实现收益</span>
+            <span class="quant-chart-axis-hint" id="quant-score-review-scatter-meta">象限着色 · 绿对红错</span>
+          </div>
           <canvas
             id="quant-score-review-scatter"
             class="yhat-scatter-canvas"
-            width="480"
-            height="200"
+            width="920"
+            height="240"
             aria-label="ŷ 与实现收益散点"
           ></canvas>
         </div>

@@ -69,19 +69,38 @@ export function installScoreReview(ctx) {
         : "");
   }
 
+  function setVizMeta(id, text) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = text || "";
+  }
+
   function renderScatter(data) {
     const wrap = document.getElementById("quant-score-review-scatter-wrap");
     const canvas = document.getElementById("quant-score-review-scatter");
     if (!wrap || !canvas) return;
     const pts = data.scored_rows || [];
+    wrap.hidden = false;
     if (data.empty || pts.length < 2) {
-      wrap.hidden = true;
+      canvas.hidden = true;
+      setVizMeta(
+        "quant-score-review-scatter-meta",
+        data.empty ? "无账本样本" : "样本不足（需 ≥2 点）"
+      );
       return;
     }
-    wrap.hidden = false;
-    // 等折叠展开后宽度可用
+    canvas.hidden = false;
     requestAnimationFrame(() => {
-      paintYhatScatter(canvas, pts);
+      const pack = paintYhatScatter(canvas, pts);
+      if (pack && pack.n) {
+        const hit =
+          pack.hit_rate != null
+            ? `${(pack.hit_rate * 100).toFixed(0)}%`
+            : "—";
+        setVizMeta(
+          "quant-score-review-scatter-meta",
+          `n=${pack.n} · 方向命中 ${hit} · 绿=对 · 红=错`
+        );
+      }
     });
   }
 
@@ -89,6 +108,7 @@ export function installScoreReview(ctx) {
     const wrap = document.getElementById("quant-score-review-hit-wrap");
     const canvas = document.getElementById("quant-score-review-hit-spark");
     if (!wrap || !canvas) return;
+    wrap.hidden = false;
     try {
       const q = new URLSearchParams({
         horizon_days: String(horizon || 3),
@@ -98,18 +118,33 @@ export function installScoreReview(ctx) {
       const res = await fetch(`/api/quant/score-review/hit-series?${q}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        wrap.hidden = true;
+        canvas.hidden = true;
+        setVizMeta("quant-score-review-hit-meta", "暂无命中率序列");
         return;
       }
       const pts = data.points || [];
       if (pts.length < 2) {
-        wrap.hidden = true;
+        canvas.hidden = true;
+        setVizMeta("quant-score-review-hit-meta", "样本不足（需 ≥2 日）");
         return;
       }
-      wrap.hidden = false;
-      requestAnimationFrame(() => paintHitSparkline(canvas, pts));
+      canvas.hidden = false;
+      requestAnimationFrame(() => {
+        const pack = paintHitSparkline(canvas, pts);
+        if (pack) {
+          const last =
+            pack.last != null ? `${(pack.last * 100).toFixed(0)}%` : "—";
+          const mean =
+            pack.mean != null ? `${(pack.mean * 100).toFixed(0)}%` : "—";
+          setVizMeta(
+            "quant-score-review-hit-meta",
+            `${pack.n} 日 · 近 ${last} · μ ${mean} · 虚线 50% / μ`
+          );
+        }
+      });
     } catch (_) {
-      wrap.hidden = true;
+      canvas.hidden = true;
+      setVizMeta("quant-score-review-hit-meta", "命中率加载失败");
     }
   }
 

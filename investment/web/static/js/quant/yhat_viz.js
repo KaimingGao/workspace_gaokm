@@ -731,25 +731,30 @@ export function paintYhatScatter(canvas, points, opts = {}) {
       x: Number(p.yhat),
       y: Number(p.realized_h != null ? p.realized_h : p.realized),
       hit: p.hit,
+      code: p.code || p.stock_code || "",
+      name: p.name || p.stock_name || "",
     }))
     .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const cssW = canvas.clientWidth || opts.width || 360;
-  const cssH = canvas.clientHeight || opts.height || 180;
+  const cssW = canvas.clientWidth || opts.width || 480;
+  const cssH = canvas.clientHeight || opts.height || 220;
   canvas.width = Math.round(cssW * dpr);
   canvas.height = Math.round(cssH * dpr);
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
 
-  const pad = { t: 12, r: 12, b: 28, l: 36 };
+  const muted = cssVar(canvas, "--muted", "#64748b");
+  const border = cssVar(canvas, "--border-color", "#e2e8f0");
+  const text = cssVar(canvas, "--text", "#334155");
+  const pad = { t: 10, r: 14, b: 30, l: 40 };
   const w = cssW - pad.l - pad.r;
   const h = cssH - pad.t - pad.b;
-  ctx.fillStyle = "#94a3b8";
-  ctx.font = "11px ui-sans-serif, system-ui, sans-serif";
+  ctx.fillStyle = muted;
+  ctx.font = '11px ui-sans-serif, system-ui, "Segoe UI", sans-serif';
   if (pts.length < 2) {
     ctx.fillText("样本不足，无法画散点", pad.l, pad.t + 14);
-    return { n: pts.length };
+    return { n: pts.length, hits: 0 };
   }
 
   let xMin = Math.min(...pts.map((p) => p.x), 0);
@@ -773,41 +778,106 @@ export function paintYhatScatter(canvas, points, opts = {}) {
 
   const sx = (v) => pad.l + ((v - xMin) / (xMax - xMin)) * w;
   const sy = (v) => pad.t + h - ((v - yMin) / (yMax - yMin)) * h;
+  const isHit = (p) =>
+    p.hit === true || p.hit === false
+      ? p.hit
+      : Math.sign(p.x) === Math.sign(p.y) && p.x !== 0 && p.y !== 0;
 
-  // axes
-  ctx.strokeStyle = "rgba(100, 116, 139, 0.35)";
+  // plot frame
+  ctx.strokeStyle = border;
   ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(pad.l, sy(0));
-  ctx.lineTo(pad.l + w, sy(0));
-  ctx.moveTo(sx(0), pad.t);
-  ctx.lineTo(sx(0), pad.t + h);
-  ctx.stroke();
+  ctx.strokeRect(pad.l + 0.5, pad.t + 0.5, w - 1, h - 1);
 
-  // quadrant tint: correct = same sign
-  pts.forEach((p) => {
-    const hit =
-      p.hit === true || p.hit === false
-        ? p.hit
-        : Math.sign(p.x) === Math.sign(p.y) && p.x !== 0 && p.y !== 0;
-    ctx.fillStyle = hit
-      ? "rgba(4, 120, 87, 0.65)"
-      : "rgba(185, 28, 28, 0.7)";
+  // quadrant bands (same-sign = hit)
+  const zx = sx(0);
+  const zy = sy(0);
+  const qHit = "rgba(4, 120, 87, 0.05)";
+  const qMiss = "rgba(185, 28, 28, 0.05)";
+  // Q1 (+,+) hit · Q2 (-,+) miss · Q3 (-,-) hit · Q4 (+,-) miss
+  ctx.fillStyle = qHit;
+  ctx.fillRect(zx, pad.t, Math.max(0, pad.l + w - zx), Math.max(0, zy - pad.t));
+  ctx.fillRect(pad.l, zy, Math.max(0, zx - pad.l), Math.max(0, pad.t + h - zy));
+  ctx.fillStyle = qMiss;
+  ctx.fillRect(pad.l, pad.t, Math.max(0, zx - pad.l), Math.max(0, zy - pad.t));
+  ctx.fillRect(zx, zy, Math.max(0, pad.l + w - zx), Math.max(0, pad.t + h - zy));
+
+  // grid + ticks
+  const xTicks = niceTicks(xMin, xMax, 5);
+  const yTicks = niceTicks(yMin, yMax, 5);
+  ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+  xTicks.forEach((v) => {
+    const x = sx(v);
+    if (x < pad.l || x > pad.l + w) return;
+    ctx.strokeStyle = "rgba(100, 116, 139, 0.1)";
     ctx.beginPath();
-    ctx.arc(sx(p.x), sy(p.y), 3.2, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.moveTo(x, pad.t);
+    ctx.lineTo(x, pad.t + h);
+    ctx.stroke();
+    ctx.fillStyle = muted;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(v.toFixed(Math.abs(v) >= 10 ? 0 : 1), x, pad.t + h + 4);
+  });
+  yTicks.forEach((v) => {
+    const y = sy(v);
+    if (y < pad.t || y > pad.t + h) return;
+    ctx.strokeStyle = "rgba(100, 116, 139, 0.1)";
+    ctx.beginPath();
+    ctx.moveTo(pad.l, y);
+    ctx.lineTo(pad.l + w, y);
+    ctx.stroke();
+    ctx.fillStyle = muted;
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.fillText(v.toFixed(Math.abs(v) >= 10 ? 0 : 1), pad.l - 5, y);
   });
 
-  ctx.fillStyle = "#64748b";
-  ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
-  ctx.fillText("ŷ%", pad.l + w - 18, cssH - 8);
+  // zero axes
+  ctx.strokeStyle = "rgba(51, 65, 85, 0.45)";
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  ctx.moveTo(pad.l, zy);
+  ctx.lineTo(pad.l + w, zy);
+  ctx.moveTo(zx, pad.t);
+  ctx.lineTo(zx, pad.t + h);
+  ctx.stroke();
+
+  let hits = 0;
+  pts.forEach((p) => {
+    const hit = isHit(p);
+    if (hit) hits += 1;
+    const x = sx(p.x);
+    const y = sy(p.y);
+    ctx.beginPath();
+    ctx.arc(x, y, 3.8, 0, Math.PI * 2);
+    ctx.fillStyle = hit ? "rgba(4, 120, 87, 0.78)" : "rgba(185, 28, 28, 0.8)";
+    ctx.fill();
+    ctx.strokeStyle = hit ? "rgba(4, 120, 87, 0.95)" : "rgba(153, 27, 27, 0.95)";
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+  });
+
+  ctx.fillStyle = text;
+  ctx.font = '10px ui-sans-serif, system-ui, "Segoe UI", sans-serif';
+  ctx.textAlign = "right";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText("ŷ %", cssW - 8, cssH - 8);
   ctx.save();
-  ctx.translate(12, pad.t + h / 2);
+  ctx.translate(11, pad.t + h / 2);
   ctx.rotate(-Math.PI / 2);
-  ctx.fillText("实现%", 0, 0);
+  ctx.textAlign = "center";
+  ctx.fillText("实现 %", 0, 0);
   ctx.restore();
-  ctx.fillText(`${pts.length} 点 · 绿=方向对 · 红=错`, pad.l, 10);
-  return { n: pts.length, xMin, xMax, yMin, yMax };
+
+  return {
+    n: pts.length,
+    hits,
+    hit_rate: pts.length ? hits / pts.length : null,
+    xMin,
+    xMax,
+    yMin,
+    yMax,
+  };
 }
 
 /** 组内 ŷ 条带（兼容旧调用；现委托迷你直方图）。 */
@@ -1220,36 +1290,63 @@ export function paintHitSparkline(canvas, points, opts = {}) {
     }))
     .filter((p) => Number.isFinite(p.v));
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const cssW = canvas.clientWidth || opts.width || 280;
-  const cssH = canvas.clientHeight || opts.height || 48;
+  const cssW = canvas.clientWidth || opts.width || 480;
+  const cssH = canvas.clientHeight || opts.height || 64;
   canvas.width = Math.round(cssW * dpr);
   canvas.height = Math.round(cssH * dpr);
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
-  const pad = { t: 6, r: 6, b: 14, l: 6 };
+  const muted = cssVar(canvas, "--muted", "#64748b");
+  const accent = cssVar(canvas, "--accent", "#2563eb");
+  const pad = { t: 8, r: 44, b: 16, l: 28 };
   const w = cssW - pad.l - pad.r;
   const h = cssH - pad.t - pad.b;
-  ctx.fillStyle = "#94a3b8";
-  ctx.font = "10px ui-sans-serif, system-ui, sans-serif";
+  ctx.fillStyle = muted;
+  ctx.font = '10px ui-sans-serif, system-ui, "Segoe UI", sans-serif';
   if (pts.length < 2) {
     ctx.fillText("命中率样本不足", pad.l, pad.t + 12);
     return { n: pts.length };
   }
   const yAt = (v) => pad.t + h - Math.max(0, Math.min(1, v)) * h;
   const xAt = (i) => pad.l + (i / (pts.length - 1)) * w;
+  const mean = pts.reduce((s, p) => s + p.v, 0) / pts.length;
 
-  // 0.5 参考
-  ctx.strokeStyle = "rgba(100, 116, 139, 0.4)";
+  // band above 50%
+  ctx.fillStyle = "rgba(4, 120, 87, 0.06)";
+  ctx.fillRect(pad.l, pad.t, w, yAt(0.5) - pad.t);
+
+  // 0.5 / mean guides
+  ctx.strokeStyle = "rgba(100, 116, 139, 0.45)";
+  ctx.lineWidth = 1;
   ctx.setLineDash([3, 3]);
   ctx.beginPath();
   ctx.moveTo(pad.l, yAt(0.5));
   ctx.lineTo(pad.l + w, yAt(0.5));
   ctx.stroke();
+  ctx.strokeStyle = "rgba(124, 58, 237, 0.55)";
+  ctx.beginPath();
+  ctx.moveTo(pad.l, yAt(mean));
+  ctx.lineTo(pad.l + w, yAt(mean));
+  ctx.stroke();
   ctx.setLineDash([]);
 
-  ctx.strokeStyle = "#2563eb";
-  ctx.lineWidth = 1.6;
+  // area fill
+  ctx.beginPath();
+  pts.forEach((p, i) => {
+    const x = xAt(i);
+    const y = yAt(p.v);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.lineTo(xAt(pts.length - 1), pad.t + h);
+  ctx.lineTo(xAt(0), pad.t + h);
+  ctx.closePath();
+  ctx.fillStyle = "rgba(37, 99, 235, 0.1)";
+  ctx.fill();
+
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 1.75;
   ctx.beginPath();
   pts.forEach((p, i) => {
     const x = xAt(i);
@@ -1261,17 +1358,27 @@ export function paintHitSparkline(canvas, points, opts = {}) {
   pts.forEach((p, i) => {
     ctx.fillStyle = p.v >= 0.5 ? "#047857" : "#b91c1c";
     ctx.beginPath();
-    ctx.arc(xAt(i), yAt(p.v), 2.4, 0, Math.PI * 2);
+    ctx.arc(xAt(i), yAt(p.v), 2.6, 0, Math.PI * 2);
     ctx.fill();
   });
+
   const last = pts[pts.length - 1];
-  ctx.fillStyle = "#64748b";
+  const lastPct = ((last.v || 0) * 100).toFixed(0);
+  ctx.fillStyle = muted;
+  ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+  ctx.textAlign = "left";
+  ctx.textBaseline = "alphabetic";
+  ctx.fillText("50%", 4, yAt(0.5) + 3);
   ctx.fillText(
-    `${pts[0].date.slice(5)}→${last.date.slice(5)} · 近 ${((last.v || 0) * 100).toFixed(0)}%`,
+    `${pts[0].date.slice(5)}→${last.date.slice(5)} · μ ${(mean * 100).toFixed(0)}%`,
     pad.l,
-    cssH - 2
+    cssH - 3
   );
-  return { n: pts.length, last: last.v };
+  ctx.fillStyle = last.v >= 0.5 ? "#047857" : "#b91c1c";
+  ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+  ctx.textAlign = "left";
+  ctx.fillText(`${lastPct}%`, pad.l + w + 6, yAt(last.v) + 3);
+  return { n: pts.length, last: last.v, mean };
 }
 
 /* ============================ 跨组对照矩阵 ============================ */

@@ -19,52 +19,65 @@ function corrTextColor(v) {
   return Math.abs(v) > 0.5 ? "#fff" : "var(--ink)";
 }
 
+function vizEmpty(msg, ctaHref = "#quant-ols-clusters-run") {
+  return (
+    `<div class="quant-viz-empty" role="status">` +
+    `<p class="quant-viz-empty-msg">${escapeHtml(msg)}</p>` +
+    `<a class="quant-viz-empty-cta" href="${escapeHtml(ctaHref)}">去跑分组</a>` +
+    `</div>`
+  );
+}
+
+function shortFactor(name, max = 8) {
+  const s = String(name || "");
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+
 function renderFactorCorrHeatmap(data, hostId) {
   const host = document.getElementById(hostId);
   if (!host) return;
   if (!data || !data.success || !data.factors || !data.factors.length) {
-    host.innerHTML = `<div class="factor-corr-warnings-empty">暂无因子相关性数据 · 请先运行「跑分组」</div>`;
+    host.innerHTML = vizEmpty("暂无因子相关性 · 请先运行「跑分组」");
     return;
   }
 
   const factors = data.factors;
   const matrix = data.matrix || {};
-
-  // Build the grid
   const size = factors.length;
-  const cellSize = 48;
-  const labelSize = 80;
+  const cellSize = size > 10 ? 36 : size > 7 ? 42 : 48;
+  const labelSize = size > 10 ? 64 : 80;
 
-  let html = `<div class="factor-corr-heatmap" style="grid-template-columns: ${labelSize}px repeat(${size}, ${cellSize}px); max-width: ${labelSize + size * (cellSize + 2)}px">`;
+  let html =
+    `<div class="quant-chart-axis-head">` +
+    `<span class="quant-chart-title">相关性矩阵</span>` +
+    `<span class="quant-chart-axis-hint">红=同向 · 蓝=反向 · 悬停看全名</span>` +
+    `</div>`;
+  html += `<div class="factor-corr-heatmap" style="--corr-label:${labelSize}px; --corr-cell:${cellSize}px; grid-template-columns: var(--corr-label) repeat(${size}, var(--corr-cell)); max-width: ${labelSize + size * (cellSize + 2)}px">`;
 
-  // Header row
-  html += `<div class="factor-corr-label" style="grid-column:1/${size + 2}; display:grid; grid-template-columns:${labelSize}px repeat(${size}, ${cellSize}px); gap:2px; margin-bottom:2px;">`;
-  html += `<span></span>`;
+  html += `<span class="factor-corr-corner"></span>`;
   for (const f of factors) {
-    html += `<span class="factor-corr-label" title="${escapeHtml(f)}">${escapeHtml(f.length > 6 ? f.slice(0, 5) + "…" : f)}</span>`;
+    html += `<span class="factor-corr-label is-col" title="${escapeHtml(f)}">${escapeHtml(shortFactor(f, 6))}</span>`;
   }
-  html += `</div>`;
 
-  // Data rows
-  for (const rowFactor of factors) {
-    html += `<span class="factor-corr-label" title="${escapeHtml(rowFactor)}" style="width:${labelSize}px; text-align:right; padding-right:8px;">${escapeHtml(rowFactor.length > 6 ? rowFactor.slice(0, 5) + "…" : rowFactor)}</span>`;
-    for (const colFactor of factors) {
+  factors.forEach((rowFactor, ri) => {
+    html += `<span class="factor-corr-label is-row" title="${escapeHtml(rowFactor)}">${escapeHtml(shortFactor(rowFactor, 8))}</span>`;
+    factors.forEach((colFactor, ci) => {
       const val = matrix[rowFactor]?.[colFactor];
-      const display = val != null ? val.toFixed(2) : "—";
+      const display = val != null && Number.isFinite(Number(val)) ? Number(val).toFixed(2) : "—";
       const bg = corrColor(val);
       const fg = corrTextColor(val);
+      const diag = ri === ci ? " is-diag" : "";
       const title = `${rowFactor} ↔ ${colFactor}: ${display}`;
-      html += `<div class="factor-corr-cell" style="background:${bg}; color:${fg};" title="${escapeHtml(title)}">${display}</div>`;
-    }
-  }
+      html += `<div class="factor-corr-cell${diag}" data-r="${ri}" data-c="${ci}" style="background:${bg}; color:${fg};" title="${escapeHtml(title)}">${display}</div>`;
+    });
+  });
   html += `</div>`;
+  html += `<div class="corr-scale"><span>−1</span><div class="corr-scale-bar" aria-hidden="true"></div><span>+1</span></div>`;
 
-  // Color scale legend
-  html += `<div class="corr-scale"><span>-1</span><div class="corr-scale-bar"></div><span>+1</span></div>`;
-
-  // Warnings
   if (data.warnings && data.warnings.length) {
-    html += `<div class="factor-corr-warnings">⚠ ${data.warnings.map(w => escapeHtml(w.message || w.type || "")).join("<br>")}</div>`;
+    html += `<div class="factor-corr-warnings">${data.warnings
+      .map((w) => escapeHtml(w.message || w.type || ""))
+      .join("<br>")}</div>`;
   }
 
   host.innerHTML = html;
@@ -74,41 +87,56 @@ function renderFactorIR(data, hostId) {
   const host = document.getElementById(hostId);
   if (!host) return;
   if (!data || !data.factors || !data.factors.length) {
-    host.innerHTML = `<div class="factor-corr-warnings-empty">暂无因子 IR 数据 · 请先运行「跑分组」</div>`;
+    host.innerHTML = vizEmpty("暂无因子 IR · 请先运行「跑分组」");
     return;
   }
 
-  const factors = data.factors.slice(0, 12);
-  const absIRs = factors.map(f => Math.abs(f.ir_annual || 0));
+  const factors = [...data.factors]
+    .sort((a, b) => Math.abs(b.ir_annual || 0) - Math.abs(a.ir_annual || 0))
+    .slice(0, 14);
+  const absIRs = factors.map((f) => Math.abs(f.ir_annual || 0));
   const maxAbsIR = Math.max(...absIRs, 0.05);
-  const hasAnySignal = absIRs.some(v => v > 0.01);
+  const hasAnySignal = absIRs.some((v) => v > 0.01);
 
   if (!hasAnySignal) {
-    host.innerHTML = `<div class="factor-corr-warnings-empty">所有因子 IR 接近零 · 暂无有效信号</div>`;
+    host.innerHTML = vizEmpty("所有因子 IR 接近零 · 暂无有效信号");
     return;
   }
 
-  let html = `<div class="factor-ir-bar">`;
+  let html =
+    `<div class="quant-chart-axis-head">` +
+    `<span class="quant-chart-title">年化 IR（|IR| 排序）</span>` +
+    `<span class="quant-chart-axis-hint">中线=0 · 右正左负</span>` +
+    `</div>` +
+    `<div class="factor-ir-bar">` +
+    `<div class="factor-ir-head"><span>因子</span><span>IR</span><span class="num">值</span><span class="num">正%</span></div>`;
   for (const f of factors) {
-    const ir = f.ir_annual || 0;
-    const width = ir === 0 ? 0 : Math.max(2, Math.abs(ir) / maxAbsIR * 100);
+    const ir = Number(f.ir_annual || 0);
+    const half = ir === 0 ? 0 : Math.max(3, (Math.abs(ir) / maxAbsIR) * 50);
     const isPos = ir >= 0;
+    const tip = `${f.factor} · IR ${ir >= 0 ? "+" : ""}${ir.toFixed(2)} · 正IC ${f.positive_rate?.toFixed?.(0) ?? "—"}%`;
     html += `
-      <div class="factor-ir-row">
-        <span class="factor-ir-name" title="${escapeHtml(f.factor)}">${escapeHtml(f.factor.length > 8 ? f.factor.slice(0, 7) + "…" : f.factor)}</span>
-        <div class="factor-ir-bar-track">
-          <div class="factor-ir-bar-fill ${isPos ? "is-positive" : "is-negative"}" style="width:${width.toFixed(1)}%"></div>
+      <div class="factor-ir-row" title="${escapeHtml(tip)}">
+        <span class="factor-ir-name">${escapeHtml(f.factor)}</span>
+        <div class="factor-ir-bar-track is-bipolar">
+          <span class="factor-ir-zero" aria-hidden="true"></span>
+          <div class="factor-ir-bar-fill ${isPos ? "is-positive" : "is-negative"}" style="${
+            isPos
+              ? `left:50%;width:${half.toFixed(1)}%`
+              : `right:50%;width:${half.toFixed(1)}%`
+          }"></div>
         </div>
-        <span class="factor-ir-value">${ir >= 0 ? "+" : ""}${ir.toFixed(2)}</span>
-        <span class="factor-ir-rate">${f.positive_rate?.toFixed(0) || 0}%</span>
+        <span class="factor-ir-value ${isPos ? "is-positive" : "is-negative"}">${
+          ir >= 0 ? "+" : ""
+        }${ir.toFixed(2)}</span>
+        <span class="factor-ir-rate">${f.positive_rate?.toFixed?.(0) || 0}%</span>
       </div>
     `;
   }
   html += `</div>`;
-
-  html += `<div style="font-size:0.66rem; color:var(--ink-3); padding:4px 10px;">
-    ${escapeHtml(data.note || "")} · IR = IC均值/IC标准差 × √(252/horizon)
-  </div>`;
+  html += `<p class="factor-ir-footnote">${escapeHtml(
+    data.note || ""
+  )} · IR = IC均值/IC标准差 × √(252/horizon)</p>`;
 
   host.innerHTML = html;
 }
@@ -121,7 +149,7 @@ export async function loadAndRenderFactorCorr(hostId) {
     const data = await apiFetch("/api/quant/factor-corr?threshold=0.7");
     renderFactorCorrHeatmap(data, hostId);
   } catch (err) {
-    host.innerHTML = `<div class="factor-corr-warnings-empty">加载失败: ${err.message || err}</div>`;
+    host.innerHTML = vizEmpty(`加载失败: ${err.message || err}`);
   }
 }
 
@@ -133,7 +161,7 @@ export async function loadAndRenderFactorIR(hostId) {
     const data = await apiFetch("/api/quant/factor-ir?horizon_days=3");
     renderFactorIR(data, hostId);
   } catch (err) {
-    host.innerHTML = `<div class="factor-corr-warnings-empty">加载失败: ${err.message || err}</div>`;
+    host.innerHTML = vizEmpty(`加载失败: ${err.message || err}`);
   }
 }
 
@@ -206,7 +234,7 @@ export async function loadAndRenderFactorICSeries(hostId, statsId, statusEl, loo
         : data.note || "暂无数据";
     }
   } catch (err) {
-    host.innerHTML = `<div class="factor-corr-warnings-empty">加载失败: ${escapeHtml(String(err.message || err))}</div>`;
+    host.innerHTML = vizEmpty(`加载失败: ${String(err.message || err)}`);
     const kpis = document.getElementById("quant-ic-series-kpis");
     if (kpis) {
       kpis.hidden = true;
@@ -220,7 +248,7 @@ export async function loadAndRenderFactorICSeries(hostId, statsId, statusEl, loo
 async function renderFactorICSeriesChart(data, host) {
   if (!host) return;
   if (!data || !data.factors || !data.factors.length) {
-    host.innerHTML = `<div class="factor-corr-warnings-empty">暂无 IC 时序 · 请先运行「跑分组」</div>`;
+    host.innerHTML = vizEmpty("暂无 IC 时序 · 请先运行「跑分组」");
     return;
   }
 

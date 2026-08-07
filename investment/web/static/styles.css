@@ -14368,49 +14368,74 @@ html[data-theme="dark"] .dashboard-exposure-bar-track {
 /* ——— Research Hub Factor Correlation & IR Panels ——— */
 .factor-corr-heatmap {
   display: grid;
-  gap: 2px;
-  padding: 10px;
+  gap: 1px;
+  padding: 6px 4px 4px;
   overflow-x: auto;
 }
+.factor-corr-corner {
+  width: var(--corr-label, 80px);
+}
 .factor-corr-cell {
-  width: 48px;
-  height: 32px;
+  width: var(--corr-cell, 48px);
+  height: calc(var(--corr-cell, 48px) * 0.68);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.68rem;
+  font-size: 0.62rem;
   font-weight: 700;
   font-family: var(--font-mono);
-  border-radius: 4px;
-  cursor: pointer;
-  transition: transform 0.1s ease;
+  border-radius: 1px;
+  cursor: default;
   font-variant-numeric: tabular-nums;
 }
+.factor-corr-cell.is-diag {
+  outline: 1px solid color-mix(in srgb, var(--ink-3) 35%, transparent);
+  outline-offset: -1px;
+  font-weight: 800;
+}
 .factor-corr-cell:hover {
-  transform: scale(1.1);
   z-index: 10;
-  box-shadow: 0 0 0 2px var(--accent);
+  box-shadow: 0 0 0 1.5px var(--accent, #2563eb);
 }
 .factor-corr-label {
-  font-size: 0.62rem;
+  font-size: 0.58rem;
   color: var(--ink-3);
-  font-weight: 600;
+  font-weight: 650;
   text-align: center;
   padding: 2px 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.factor-corr-label.is-row {
+  width: var(--corr-label, 80px);
+  text-align: right;
+  padding-right: 6px;
+}
+.factor-corr-label.is-col {
+  writing-mode: horizontal-tb;
+}
 
 .factor-ir-bar {
   display: flex;
   flex-direction: column;
+  gap: 5px;
+  padding: 4px 2px 6px;
+}
+.factor-ir-head {
+  display: grid;
+  grid-template-columns: minmax(5.5rem, 7.5rem) 1fr 3rem 2.4rem;
   gap: 8px;
-  padding: 10px;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding: 0 2px 2px;
 }
 .factor-ir-row {
   display: grid;
-  grid-template-columns: 100px 1fr 60px 50px;
+  grid-template-columns: minmax(5.5rem, 7.5rem) 1fr 3rem 2.4rem;
   gap: 8px;
   align-items: center;
   font-size: 0.72rem;
@@ -14421,22 +14446,45 @@ html[data-theme="dark"] .dashboard-exposure-bar-track {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  font-size: 0.7rem;
 }
 .factor-ir-bar-track {
-  height: 6px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--bg-hover) 40%, transparent);
+  position: relative;
+  height: 10px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--line) 55%, transparent);
   overflow: hidden;
 }
+.factor-ir-bar-track.is-bipolar {
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--danger, #ef4444) 8%, transparent) 0%,
+      color-mix(in srgb, var(--line) 40%, transparent) 50%,
+      color-mix(in srgb, var(--ok, #16a34a) 8%, transparent) 100%
+    );
+}
+.factor-ir-zero {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--ink-3) 55%, transparent);
+  transform: translateX(-0.5px);
+  z-index: 1;
+}
 .factor-ir-bar-fill {
-  height: 100%;
-  border-radius: 3px;
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 1px;
 }
 .factor-ir-bar-fill.is-positive {
-  background: linear-gradient(90deg, var(--ok) 0%, color-mix(in srgb, var(--ok) 60%, var(--accent)) 100%);
+  background: color-mix(in srgb, var(--ok, #16a34a) 82%, #fff);
 }
 .factor-ir-bar-fill.is-negative {
-  background: linear-gradient(90deg, var(--danger) 0%, color-mix(in srgb, var(--danger) 60%, var(--gold)) 100%);
+  background: color-mix(in srgb, var(--danger, #ef4444) 82%, #fff);
 }
 .factor-ir-value {
   text-align: right;
@@ -14446,20 +14494,28 @@ html[data-theme="dark"] .dashboard-exposure-bar-track {
   font-variant-numeric: tabular-nums;
   font-size: 0.68rem;
 }
+.factor-ir-value.is-positive { color: var(--ok, #16a34a); }
+.factor-ir-value.is-negative { color: var(--danger, #ef4444); }
 .factor-ir-rate {
   text-align: right;
   font-family: var(--font-mono);
   color: var(--ink-3);
   font-size: 0.64rem;
 }
+.factor-ir-footnote {
+  margin: 4px 2px 0;
+  font-size: 0.62rem;
+  color: var(--ink-3);
+  line-height: 1.35;
+}
 
 .factor-corr-warnings {
-  padding: 8px 10px;
-  font-size: 0.7rem;
-  color: var(--gold);
-  background: color-mix(in srgb, var(--gold) 8%, var(--surface));
-  border-radius: 6px;
-  margin-top: 8px;
+  padding: 6px 8px;
+  font-size: 0.68rem;
+  color: var(--gold, #d97706);
+  background: color-mix(in srgb, var(--gold, #d97706) 8%, var(--surface));
+  border-radius: 2px;
+  margin-top: 6px;
 }
 .factor-corr-warnings-empty {
   color: var(--ink-3);
@@ -14467,39 +14523,129 @@ html[data-theme="dark"] .dashboard-exposure-bar-track {
   text-align: center;
   padding: 6px;
 }
+.quant-viz-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 88px;
+  padding: 14px 12px;
+  border: 1px dashed color-mix(in srgb, var(--line) 85%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 2%, var(--surface));
+}
+.quant-viz-empty-msg {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--ink-3);
+  text-align: center;
+}
+.quant-viz-empty-cta {
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: var(--accent, #2563eb);
+  text-decoration: none;
+}
+.quant-viz-empty-cta:hover {
+  text-decoration: underline;
+}
 
 /* ——— Correlation heatmap color scale ——— */
 .corr-scale {
   display: flex;
   align-items: center;
-  gap: 4px;
-  font-size: 0.62rem;
+  gap: 6px;
+  font-size: 0.58rem;
+  font-family: var(--font-mono);
   color: var(--ink-3);
   margin-top: 6px;
-  justify-content: center;
+  justify-content: flex-start;
+  padding: 0 4px;
 }
 .corr-scale-bar {
-  width: 140px;
-  height: 8px;
-  border-radius: 4px;
+  width: 120px;
+  height: 6px;
+  border-radius: 1px;
   background: linear-gradient(90deg,
-    #3b82f6 0%,      /* -1 strong negative */
-    #93c5fd 25%,     /* -0.5 */
-    #e5e7eb 50%,     /* 0 neutral */
-    #fca5a5 75%,     /* 0.5 */
-    #ef4444 100%     /* 1 strong positive */
+    #3b82f6 0%,
+    #93c5fd 25%,
+    #e5e7eb 50%,
+    #fca5a5 75%,
+    #ef4444 100%
   );
 }
 
-/* Dark theme for factor corr */
-html[data-theme="dark"] .factor-corr-cell {
-  border-radius: 3px;
-}
 html[data-theme="dark"] .factor-corr-warnings {
   background: color-mix(in srgb, #d97706 12%, #1a1a1a);
 }
-html[data-theme="dark"] .factor-ir-bar-track {
-  background: rgba(255, 255, 255, 0.04);
+html[data-theme="dark"] .factor-ir-bar-track.is-bipolar {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(239, 68, 68, 0.12) 0%,
+      rgba(255, 255, 255, 0.04) 50%,
+      rgba(22, 163, 74, 0.12) 100%
+    );
+}
+html[data-theme="dark"] .quant-viz-empty {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* 复盘 / IC 图表面板 */
+.quant-page .quant-review-viz {
+  margin: 6px 0 8px;
+  padding: 6px 8px 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 96%, var(--line));
+}
+.quant-page .quant-review-viz .yhat-spark-canvas {
+  max-width: none;
+  height: 72px;
+  border-radius: 2px;
+}
+.quant-page .quant-review-viz .yhat-scatter-canvas {
+  max-width: none;
+  height: 240px;
+  border-radius: 2px;
+}
+.quant-page .quant-ic-chart-panel {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.quant-page .quant-ic-chart-panel .factor-ic-series-host,
+.quant-page .quant-ic-chart-panel .quant-ic-compare-chart {
+  border-radius: 2px;
+}
+.quant-page .quant-metric-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--surface);
+  margin: 0 0 6px;
+  padding: 0;
+}
+.quant-page .quant-metric-strip > span {
+  padding: 5px 10px;
+  border-right: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  font-size: 0.68rem;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+.quant-page .quant-metric-strip > span:last-child {
+  border-right: none;
+}
+.quant-page .quant-metric-strip b {
+  color: var(--ink);
+  font-weight: 700;
+  font-family: var(--font-mono);
 }
 
 /* ——— Drawdown / VaR chart hosts（与 secondary-row 定高一致） ——— */
@@ -14667,6 +14813,17 @@ html[data-theme="dark"] .dashboard-var-card {
 .quant-ic-stats-table td.num {
   text-align: right;
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+}
+.quant-ic-stats-table td.is-positive { color: var(--ok, #16a34a); font-weight: 650; }
+.quant-ic-stats-table td.is-negative { color: var(--danger, #ef4444); font-weight: 650; }
+.quant-page .yhat-insight-grid {
+  gap: 8px;
+}
+.quant-page .yhat-insight-card {
+  border-radius: 2px;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 96%, var(--line));
 }
 .quant-ic-stats-table th:first-child,
 .quant-ic-stats-table td:first-child {
