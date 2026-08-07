@@ -14,6 +14,48 @@ export function escapeHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
+/**
+ * 统一加载/更新态：切换 is-busy + 文案（可选胶囊由 CSS 决定）。
+ * @param {HTMLElement|null} el
+ * @param {string} text
+ * @param {{ busy?: boolean, error?: boolean, html?: boolean }} [opts]
+ */
+export function setUiBusy(el, text, { busy = true, error = false, html = false } = {}) {
+  if (!el) return;
+  el.classList.toggle("is-busy", !!busy && !error);
+  el.classList.toggle("is-error", !!error);
+  if (error) el.classList.remove("is-busy");
+  if (html) el.innerHTML = text == null ? "" : String(text);
+  else el.textContent = text == null ? "" : String(text);
+  if (busy && !error) el.setAttribute("aria-busy", "true");
+  else el.removeAttribute("aria-busy");
+}
+
+/**
+ * 按钮进行中：禁用 + is-busy + aria-busy，结束后还原。
+ * @template T
+ * @param {HTMLElement|null} btn
+ * @param {string} labelBusy
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T|undefined>}
+ */
+export async function withUiBusyButton(btn, labelBusy, fn) {
+  if (!btn) return fn();
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.classList.add("is-busy");
+  btn.setAttribute("aria-busy", "true");
+  if (labelBusy) btn.textContent = labelBusy;
+  try {
+    return await fn();
+  } finally {
+    btn.disabled = false;
+    btn.classList.remove("is-busy");
+    btn.removeAttribute("aria-busy");
+    btn.textContent = prev;
+  }
+}
+
 
 export function hideIntro(introEl) {
   if (introEl) introEl.hidden = true;

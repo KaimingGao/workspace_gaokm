@@ -5,6 +5,7 @@ import {
   postQuantCiEval,
   downloadBlob,
   downloadJson,
+  setUiBusy,
 } from "./shared.js";
 import { apiFetch } from "./api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "./lw_charts.js";
@@ -119,18 +120,10 @@ export function initQuant(ctx) {
     return el;
   }
   function setQuantMeta(text, { busy = false, error = false } = {}) {
-    if (!els.quantMeta) return;
-    els.quantMeta.textContent = text;
-    els.quantMeta.classList.toggle("is-busy", !!busy && !error);
-    els.quantMeta.classList.toggle("is-error", !!error);
+    setUiBusy(els.quantMeta, text, { busy, error });
   }
   function setBusyText(el, text, { busy = true, html = false } = {}) {
-    if (!el) return;
-    if (text != null) {
-      if (html) el.innerHTML = text;
-      else el.textContent = text;
-    }
-    el.classList.toggle("is-busy", !!busy);
+    setUiBusy(el, text, { busy, html });
   }
 
   const els = {

@@ -1,65 +1,82 @@
-<div class="quant-body strategy-page">
-  <header class="strategy-hero" aria-label="策略中心导读">
-    <p class="strategy-eyebrow">Strategy · Spec &amp; Promote</p>
-    <p class="strategy-hero-lead">
-      本页管<strong>策略卡限额</strong>与<strong>人审晋升</strong>（不静默写盘）。
-      选股真源是组 OLS/Ridge β → ŷ（predicted_score），在
-      <a href="/quant">研究枢纽</a>对照/启用；
-      历史验证 → <a href="/replay">回测</a>；
-      调仓落地 → <a href="/follow">交易执行</a>。
-    </p>
-  </header>
+<div class="quant-head">
+  <div class="quant-head-text">
+    <p class="quant-eyebrow">Strategy Desk</p>
+    <h2>策略中心</h2>
+    <p id="strategy-meta" class="quant-meta" aria-live="polite">策略卡限额 · ŷ 滞回 · 人审晋升 · 不静默写盘</p>
+  </div>
+</div>
 
-  <section class="quant-section quant-section-core strategy-section" id="quant-section-strategy-list">
-    <div class="strategy-section-head">
+<div class="quant-body strategy-page">
+  <nav class="strategy-path-rail" aria-label="策略主路径">
+    <a class="strategy-path-step" href="#quant-section-strategy-list">① 策略卡</a>
+    <span class="strategy-path-sep" aria-hidden="true">→</span>
+    <a class="strategy-path-step" href="#strategy-scoring-floors">② ŷ 门槛</a>
+    <span class="strategy-path-sep" aria-hidden="true">→</span>
+    <a class="strategy-path-step" href="#strategy-promote-lab">③ 晋升</a>
+    <span class="strategy-path-note">选股 β → 研究枢纽 · 调仓 → 交易执行</span>
+  </nav>
+
+  <p class="strategy-hero-lead">
+    本页管<strong>策略卡限额</strong>与<strong>人审晋升</strong>。
+    选股真源是组 OLS/Ridge β → ŷ，在
+    <a href="/quant">研究枢纽</a>对照/启用；
+    验证 → <a href="/replay">回测</a>；
+    落地 → <a href="/follow">交易执行</a>。
+  </p>
+
+  <!-- ① 主路径：策略卡 -->
+  <section class="quant-section quant-section-core strategy-section strategy-section-primary" id="quant-section-strategy-list">
+    <header class="strategy-section-head">
       <h3 class="strategy-section-title">策略卡</h3>
-      <p class="strategy-section-sub">只读限额 · 人审晋升写盘</p>
-    </div>
-    <p id="strategy-list-loading" class="quant-fingerprint">加载策略列表…</p>
+      <p class="strategy-section-sub">① 主路径 · 只读限额 · 人审晋升写盘</p>
+    </header>
+    <p id="strategy-list-loading" class="quant-fingerprint is-busy">加载策略列表</p>
     <div id="strategy-list" class="quant-weight-table-wrap strategy-list-host"></div>
     <div id="strategy-risk-limits" class="strategy-risk-limits" aria-label="StrategySpec 说明"></div>
   </section>
 
-  <section class="quant-section strategy-section" id="strategy-scoring-floors">
-    <div class="strategy-section-head">
+  <!-- ② 主路径：ŷ 滞回 -->
+  <section class="quant-section strategy-section strategy-section-primary" id="strategy-scoring-floors">
+    <header class="strategy-section-head">
       <h3 class="strategy-section-title">ŷ 滞回门槛</h3>
-      <p class="strategy-section-sub">买入/入簿 · 卖出 · 人审写盘（不改 weights）</p>
+      <p class="strategy-section-sub">② 主路径 · 买入/入簿 · 卖出 · 人审写盘</p>
+    </header>
+    <div class="strategy-control-band">
+      <div class="strategy-floors-form quant-actions-inline">
+        <label class="platform-field strategy-inline-field">
+          买入 ≥
+          <input
+            id="strategy-floor-buy"
+            type="number"
+            step="0.1"
+            class="platform-input"
+            title="ŷ% 百分点；默认 +1"
+          />
+          <span class="strategy-field-unit">%</span>
+        </label>
+        <label class="platform-field strategy-inline-field">
+          卖出 &lt;
+          <input
+            id="strategy-floor-hold"
+            type="number"
+            step="0.1"
+            class="platform-input"
+            title="ŷ% 百分点；默认 −1"
+          />
+          <span class="strategy-field-unit">%</span>
+        </label>
+        <button type="button" id="strategy-floor-save" class="dialog-btn">保存门槛</button>
+      </div>
+      <p id="strategy-floor-status" class="quant-fingerprint" aria-live="polite"></p>
     </div>
-    <div class="strategy-floors-form quant-actions-inline">
-      <label class="platform-field">
-        买入 ≥
-        <input
-          id="strategy-floor-buy"
-          type="number"
-          step="0.1"
-          class="platform-input"
-          title="ŷ% 百分点；默认 +1"
-        />
-        %
-      </label>
-      <label class="platform-field">
-        卖出 &lt;
-        <input
-          id="strategy-floor-hold"
-          type="number"
-          step="0.1"
-          class="platform-input"
-          title="ŷ% 百分点；默认 −1"
-        />
-        %
-      </label>
-      <button type="button" id="strategy-floor-save" class="dialog-btn">保存门槛</button>
-    </div>
-    <p id="strategy-floor-status" class="quant-fingerprint" aria-live="polite"></p>
   </section>
 
-  <section class="quant-section strategy-section" id="strategy-sentiment-prior">
-    <div class="strategy-section-head">
+  <!-- 舆情先验：政策旁路，紧接门槛 -->
+  <section class="quant-section strategy-section strategy-section-primary" id="strategy-sentiment-prior">
+    <header class="strategy-section-head">
       <h3 class="strategy-section-title">舆情先验</h3>
-      <p class="strategy-section-sub">
-        Policy · ŷ 外旁路 · 人审写盘
-      </p>
-    </div>
+      <p class="strategy-section-sub">Policy · ŷ 外旁路 · 人审写盘</p>
+    </header>
 
     <p class="strategy-prior-contract" role="note">
       <span class="strategy-prior-contract-k">契约</span>
@@ -160,23 +177,31 @@
     </div>
   </section>
 
-  <section class="quant-section strategy-section" id="strategy-promote-lab">
-    <div class="strategy-section-head">
+  <!-- ③ 主路径：人审晋升 -->
+  <section class="quant-section strategy-section strategy-section-primary" id="strategy-promote-lab">
+    <header class="strategy-section-head">
       <h3 class="strategy-section-title">人审晋升</h3>
-      <p class="strategy-section-sub">策略卡改限额/持有期；选股 β 在研究枢纽启用</p>
-    </div>
-    <div class="strategy-promote-bar quant-actions-inline">
-      <label
-        class="platform-field strategy-promote-toggle"
-        title="开启后：Top-K 晋升提示过期则禁止策略晋升（默认关=仅二次确认）"
-      >
-        <input id="strategy-promote-expire-hard" type="checkbox" />
-        过期硬拦晋升
-      </label>
+      <p class="strategy-section-sub">③ 主路径 · 改限额/持有期 · 选股 β 在研究枢纽</p>
+    </header>
+    <div class="strategy-control-band strategy-control-band-compact">
+      <div class="strategy-promote-bar quant-actions-inline">
+        <label
+          class="platform-field strategy-promote-toggle"
+          title="开启后：Top-K 晋升提示过期则禁止策略晋升（默认关=仅二次确认）"
+        >
+          <input id="strategy-promote-expire-hard" type="checkbox" />
+          过期硬拦晋升
+        </label>
+      </div>
     </div>
     <div id="strategy-promote-hints" class="quant-weight-table-wrap" aria-label="回测晋升提示"></div>
     <p id="strategy-promote-status" class="quant-fingerprint" aria-live="polite"></p>
   </section>
+
+  <header class="strategy-secondary-band">
+    <h3 class="strategy-secondary-band-title">次要分析</h3>
+    <p class="strategy-secondary-band-desc">风控敞口 · 样本闸门 · 因子字典 · 逻辑参考</p>
+  </header>
 
   <details class="quant-fold strategy-fold" id="strategy-risk-audit-fold">
     <summary>风控与敞口 · 拦截流水</summary>

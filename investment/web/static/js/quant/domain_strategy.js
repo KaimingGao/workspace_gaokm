@@ -181,7 +181,11 @@ export function installStrategy(q) {
       if (!res.ok) throw new Error(data.detail || res.statusText);
       renderStrategyList(data);
     } catch (err) {
-      if (els.strategyListLoading) els.strategyListLoading.textContent = String(err.message || err);
+      if (els.strategyListLoading) {
+        els.strategyListLoading.classList.remove("is-busy");
+        els.strategyListLoading.classList.add("is-error");
+        els.strategyListLoading.textContent = String(err.message || err);
+      }
       }
   }
 
@@ -389,10 +393,17 @@ export function installStrategy(q) {
 
   function renderStrategyList(data) {
     if (!data || !data.success || !data.strategies) {
-      if (els.strategyListLoading) els.strategyListLoading.textContent = "加载失败";
+      if (els.strategyListLoading) {
+        els.strategyListLoading.classList.remove("is-busy");
+        els.strategyListLoading.classList.add("is-error");
+        els.strategyListLoading.textContent = "加载失败";
+      }
       return;
     }
-    if (els.strategyListLoading) els.strategyListLoading.hidden = true;
+    if (els.strategyListLoading) {
+      els.strategyListLoading.classList.remove("is-busy");
+      els.strategyListLoading.hidden = true;
+    }
     els.strategyList.innerHTML = buildStrategyListHtml(data, { escapeHtml });
     els.strategyList.querySelectorAll(".strategy-promote-btn").forEach((btn) => {
       btn.addEventListener("click", (e) => {

@@ -121,14 +121,20 @@ export function initResults(ctx) {
     const show = !!(text && String(text).trim());
     metaEl.hidden = !show;
     metaEl.classList.toggle("is-loading", !!loading);
+    metaEl.classList.toggle("is-busy", !!loading);
     metaEl.classList.toggle("is-error", !!error);
     metaEl.textContent = show ? String(text) : "";
+    if (loading) metaEl.setAttribute("aria-busy", "true");
+    else metaEl.removeAttribute("aria-busy");
   }
 
   function setTabLoading(busy, label) {
     const scroll = pane.querySelector(".results-scroll");
     if (busy && label) setMeta(label, { loading: true });
-    else if (!busy && metaEl) metaEl.classList.remove("is-loading");
+    else if (!busy && metaEl) {
+      metaEl.classList.remove("is-loading", "is-busy");
+      metaEl.removeAttribute("aria-busy");
+    }
     if (scroll) {
       scroll.classList.toggle("is-loading", !!busy);
       scroll.setAttribute("aria-busy", busy ? "true" : "false");

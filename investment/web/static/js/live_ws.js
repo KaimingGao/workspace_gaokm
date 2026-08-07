@@ -6,10 +6,19 @@ let _ws = null;
 let _retryMs = 2000;
 let _timer = null;
 let _lastSnap = null;
+let _failStreak = 0;
+let _pageUnloading = false;
 
 function wsUrl() {
   const proto = location.protocol === "https:" ? "wss:" : "ws:";
   return `${proto}//${location.host}/ws/live`;
+}
+
+function reconnectBannerText() {
+  if (_failStreak >= 3) {
+    return "实况通道连不上 · 请确认已启动 python run_web.py（端口 8000）";
+  }
+  return "实况通道已断开 · 正在重连…";
 }
 
 function fmtNum(v) {
@@ -117,6 +126,7 @@ function onMessage(ev) {
 }
 
 function scheduleReconnect() {
+  if (_pageUnloading) return;
   if (_timer) clearTimeout(_timer);
   _timer = setTimeout(() => {
     _retryMs = Math.min(_retryMs * 1.5, 30000);
@@ -125,18 +135,22 @@ function scheduleReconnect() {
 }
 
 export function connectLiveWs() {
+  if (_pageUnloading) return null;
   if (_ws && (_ws.readyState === WebSocket.OPEN || _ws.readyState === WebSocket.CONNECTING)) {
     return _ws;
   }
   try {
     _ws = new WebSocket(wsUrl());
   } catch (err) {
+    _failStreak += 1;
     noteApiFailure("WebSocket 不可用");
+    setApiDegradeBanner(true, reconnectBannerText());
     scheduleReconnect();
     return null;
   }
   _ws.onopen = () => {
     _retryMs = 2000;
+    _failStreak = 0;
     noteApiSuccess();
     try {
       _ws.send(JSON.stringify({ type: "hello" }));
@@ -149,7 +163,9 @@ export function connectLiveWs() {
     noteApiFailure("实况通道异常");
   };
   _ws.onclose = () => {
-    setApiDegradeBanner(true, "实况通道已断开 · 正在重连…");
+    if (_pageUnloading) return;
+    _failStreak += 1;
+    setApiDegradeBanner(true, reconnectBannerText());
     scheduleReconnect();
   };
   return _ws;
@@ -160,6 +176,15 @@ export function getLastLiveSnapshot() {
 }
 
 export function initLiveWs() {
+  window.addEventListener("beforeunload", () => {
+    _pageUnloading = true;
+    if (_timer) clearTimeout(_timer);
+    try {
+      if (_ws) _ws.close();
+    } catch (_) {
+      /* ignore */
+    }
+  });
   connectLiveWs();
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") {

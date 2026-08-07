@@ -185,29 +185,35 @@ export function installWatching(q) {
     requestAnimationFrame(() => {
       const pack = hist.setData(items);
       applyYhatHistTableFilter(hist.getSelection());
-      if (meta && pack) {
+      if (pack) {
         const f = (x, d = 2) =>
           x != null && Number.isFinite(x) ? Number(x).toFixed(d) : "—";
-        const pct =
+        const pctBuy =
           pack.pct_above_buy != null
-            ? `${(pack.pct_above_buy * 100).toFixed(0)}%≥买门`
+            ? `≥买门 ${(pack.pct_above_buy * 100).toFixed(0)}%`
             : null;
         const pos =
           pack.pct_pos != null
-            ? `${(pack.pct_pos * 100).toFixed(0)}% ŷ>0`
+            ? `ŷ>0 ${(pack.pct_pos * 100).toFixed(0)}%`
             : null;
-        meta.textContent = [
-          `n=${pack.n}`,
-          `μ ${f(pack.mean)}%`,
-          `med ${f(pack.median)}%`,
-          `σ ${f(pack.std)}`,
-          `IQR [${f(pack.p25)}, ${f(pack.p75)}]`,
-          pos,
-          pct,
-          "悬停详查 · 点击筛表",
-        ]
-          .filter(Boolean)
-          .join(" · ");
+        if (meta) {
+          meta.textContent = [pctBuy, pos, `n=${pack.n}`]
+            .filter(Boolean)
+            .join(" · ");
+        }
+        const metaAux = document.getElementById("watching-yhat-hist-meta-aux");
+        if (metaAux) {
+          metaAux.textContent = [
+            `μ ${f(pack.mean)}%`,
+            `med ${f(pack.median)}%`,
+            `IQR [${f(pack.p25)}, ${f(pack.p75)}]`,
+            pack.std != null && Number.isFinite(pack.std)
+              ? `σ ${f(pack.std)}`
+              : null,
+          ]
+            .filter(Boolean)
+            .join(" · ");
+        }
       }
     });
   }

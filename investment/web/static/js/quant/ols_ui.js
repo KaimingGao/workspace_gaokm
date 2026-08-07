@@ -560,13 +560,14 @@ export function createOlsUi(deps) {
             histCardHtml +
             `</div>`
           : "";
-      const bodyInner = lazy
+      const useLazy = lazy && idx !== 0;
+      const bodyInner = useLazy
         ? `<p class="sub quant-cluster-lazy-ph">展开查看因子表…</p>`
         : buildClusterGroupBodyHtml(cl, merge);
-      const bodyAttr = lazy ? ` data-cluster-lazy="${esc(String(idx))}"` : "";
+      const bodyAttr = useLazy ? ` data-cluster-lazy="${esc(String(idx))}"` : "";
       return (
         `<article class="quant-cluster-group-table">` +
-        `<details class="quant-fold quant-cluster-group-fold">` +
+        `<details class="quant-fold quant-cluster-group-fold"${idx === 0 ? " open" : ""}>` +
         `<summary class="quant-cluster-group-head">` +
         `<div class="quant-cluster-group-title-row">` +
         `<div class="quant-cluster-group-title">` +

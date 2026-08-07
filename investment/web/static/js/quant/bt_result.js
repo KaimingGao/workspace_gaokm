@@ -426,10 +426,31 @@ export function createBtResultRenderers(deps) {
     }
     const hints = data.hints || [];
     const dd = data.day_diff || {};
+    const rz = data.realization || {};
+    const corr =
+      rz.corr != null && Number.isFinite(Number(rz.corr))
+        ? Number(rz.corr).toFixed(3)
+        : "—";
+    const te =
+      rz.tracking_error_pct != null && Number.isFinite(Number(rz.tracking_error_pct))
+        ? `${Number(rz.tracking_error_pct).toFixed(2)}%`
+        : "—";
+    const aligned = dd.aligned_days ?? rz.aligned_days ?? "—";
+    const corrNum = Number(rz.corr);
+    const corrCls =
+      Number.isFinite(corrNum) && corrNum < 0.3
+        ? "down"
+        : Number.isFinite(corrNum) && corrNum >= 0.5
+          ? "up"
+          : "";
     let html =
-      `<p class="quant-trades-caption">回测–纸面落差归因（启发式 · warn ${
-        data.warn_count ?? 0
-      }）</p>` +
+      `<div class="quant-validation-strip" aria-label="拟合 KPI">` +
+      `<div class="quant-validation-kpi"><span class="k">Corr</span><span class="v ${corrCls}">${esc(corr)}</span></div>` +
+      `<div class="quant-validation-kpi"><span class="k">TE</span><span class="v">${esc(te)}</span></div>` +
+      `<div class="quant-validation-kpi"><span class="k">对齐日</span><span class="v">${esc(String(aligned))}</span></div>` +
+      `<div class="quant-validation-kpi"><span class="k">warn</span><span class="v ${(data.warn_count || 0) > 0 ? "down" : ""}">${esc(String(data.warn_count ?? 0))}</span></div>` +
+      `</div>` +
+      `<p class="quant-trades-caption">回测–纸面落差归因（启发式）</p>` +
       researchGridHtml(
         [
           { id: "level", label: "级别", widthPct: 14, center: true },
@@ -481,8 +502,52 @@ export function createBtResultRenderers(deps) {
         );
       }
     }
-    html += `<p class="quant-sub">${esc(data.note || "")} · 拟合 KPI 见 <a href="/platform">平台北极星</a> · 枢纽常驻见 <a href="/quant">研究枢纽</a></p>`;
+    html += `<p class="quant-sub">${esc(data.note || "")} · 常驻拟合见 <a href="/quant">研究枢纽</a> · 北极星见 <a href="/platform">平台</a></p>`;
     el.innerHTML = html;
+  }
+
+  /** OOS + Walk-forward 稳健性条（验证台第一眼） */
+  function renderRobustnessPanel(data) {
+    const el = document.getElementById("quant-robustness");
+    if (!el) return;
+    if (!data || !data.success) {
+      el.innerHTML = "";
+      return;
+    }
+    const oos = data.oos_summary || {};
+    const wf = data.wf_slices || {};
+    const regime = data.regime_summary || {};
+    const oosFailed = oos.ok === false || oos.failed === true;
+    const isRet = oos.is_return_pct != null ? `${Number(oos.is_return_pct).toFixed(2)}%` : "—";
+    const oosRet = oos.oos_return_pct != null ? `${Number(oos.oos_return_pct).toFixed(2)}%` : "—";
+    const oosCls = oosFailed ? "down" : "";
+    const wfMean =
+      wf.mean_test_return_pct != null ? `${Number(wf.mean_test_return_pct).toFixed(2)}%` : "—";
+    const wfPos =
+      wf.positive_test_folds != null && wf.measured_test_folds != null
+        ? `${wf.positive_test_folds}/${wf.measured_test_folds}`
+        : "—";
+    const foldN = (wf.folds || []).length || wf.fold_count || "—";
+    const regimeLabel = regime.regime || (regime.ok === false ? regime.reason || "—" : "—");
+    const note =
+      oosFailed
+        ? oos.reason || "OOS 未过闸：样本内好看不等于样本外有效"
+        : wf.ok === false && wf.reason
+          ? `WF：${wf.reason}`
+          : "按权益曲线切分 OOS · WF 为扩展窗测试折；网格扫描默认跳过 WF";
+    el.innerHTML =
+      `<div class="quant-validation-block">` +
+      `<p class="quant-trades-caption">稳健性 · OOS / Walk-forward</p>` +
+      `<div class="quant-validation-strip" aria-label="稳健性 KPI">` +
+      `<div class="quant-validation-kpi"><span class="k">样本内</span><span class="v">${esc(isRet)}</span></div>` +
+      `<div class="quant-validation-kpi"><span class="k">OOS</span><span class="v ${oosCls}">${esc(oosRet)}</span></div>` +
+      `<div class="quant-validation-kpi"><span class="k">WF均收益</span><span class="v">${esc(wfMean)}</span></div>` +
+      `<div class="quant-validation-kpi"><span class="k">WF正窗</span><span class="v">${esc(String(wfPos))}</span></div>` +
+      `<div class="quant-validation-kpi"><span class="k">WF折</span><span class="v">${esc(String(foldN))}</span></div>` +
+      `<div class="quant-validation-kpi"><span class="k">Regime</span><span class="v">${esc(String(regimeLabel))}</span></div>` +
+      `</div>` +
+      `<p class="quant-sub">${esc(note)}</p>` +
+      `</div>`;
   }
 
   function buildCards(data) {
@@ -493,6 +558,7 @@ export function createBtResultRenderers(deps) {
     renderMetricCards,
     renderBtScopeNote,
     renderFitGapPanel,
+    renderRobustnessPanel,
     buildPortfolioBacktestCards: buildCards,
   };
 }

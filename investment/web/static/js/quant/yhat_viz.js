@@ -207,6 +207,42 @@ export function paintScoreHistogram(canvas, scores, opts = {}) {
   const xAt = (v) => pad.l + ((v - pack.min) / (pack.max - pack.min || 1)) * w;
   const yAt = (c) => pad.t + h - (c / yMax) * h;
 
+  const floors = opts.floors || {};
+  const showMarkerLabels = opts.showMarkerLabels === true;
+  const clipX = (x) => Math.min(pad.l + w, Math.max(pad.l, x));
+  const fillBand = (xLo, xHi, fill) => {
+    if (xLo == null || xHi == null || !Number.isFinite(xLo) || !Number.isFinite(xHi)) return;
+    if (xHi <= xLo) return;
+    const a = clipX(xAt(xLo));
+    const b = clipX(xAt(xHi));
+    if (b <= a) return;
+    ctx.fillStyle = fill;
+    ctx.fillRect(a, pad.t, b - a, h);
+  };
+
+  // threshold zones (behind bars): hold→买 中性 · ≥买 可行动
+  const buyThr =
+    floors.buy != null && Number.isFinite(Number(floors.buy))
+      ? Number(floors.buy)
+      : null;
+  const holdThr =
+    floors.hold != null && Number.isFinite(Number(floors.hold))
+      ? Number(floors.hold)
+      : null;
+  if (buyThr != null) {
+    fillBand(buyThr, pack.max, "rgba(245, 34, 45, 0.06)");
+  }
+  if (holdThr != null && buyThr != null && holdThr < buyThr) {
+    fillBand(holdThr, buyThr, "rgba(100, 116, 139, 0.05)");
+  } else if (holdThr != null && buyThr == null) {
+    fillBand(holdThr, pack.max, "rgba(100, 116, 139, 0.04)");
+  }
+
+  // IQR band (subtle, under grid)
+  if (pack.p25 != null && pack.p75 != null && pack.p75 > pack.p25) {
+    fillBand(pack.p25, pack.p75, "rgba(24, 144, 255, 0.045)");
+  }
+
   // plot frame
   ctx.strokeStyle = border;
   ctx.lineWidth = 1;
@@ -218,7 +254,7 @@ export function paintScoreHistogram(canvas, scores, opts = {}) {
   yTicks.forEach((c) => {
     if (c < 0 || c > yMax) return;
     const y = yAt(c);
-    ctx.strokeStyle = "rgba(100, 116, 139, 0.12)";
+    ctx.strokeStyle = "rgba(100, 116, 139, 0.1)";
     ctx.beginPath();
     ctx.moveTo(pad.l, y);
     ctx.lineTo(pad.l + w, y);
@@ -286,7 +322,7 @@ export function paintScoreHistogram(canvas, scores, opts = {}) {
   // zero axis
   if (pack.min < 0 && pack.max > 0) {
     const zx = xAt(0);
-    ctx.strokeStyle = "rgba(51, 65, 85, 0.55)";
+    ctx.strokeStyle = "rgba(51, 65, 85, 0.5)";
     ctx.lineWidth = 1;
     ctx.beginPath();
     ctx.moveTo(zx, pad.t);
@@ -299,31 +335,19 @@ export function paintScoreHistogram(canvas, scores, opts = {}) {
     ctx.fillText("0", zx, pad.t + h + 4);
   }
 
-  // IQR band (subtle)
-  if (pack.p25 != null && pack.p75 != null && pack.p75 > pack.p25) {
-    const x0 = xAt(pack.p25);
-    const x1 = xAt(pack.p75);
-    ctx.fillStyle = "rgba(24, 144, 255, 0.06)";
-    ctx.fillRect(x0, pad.t, Math.max(1, x1 - x0), h);
-  }
-
-  const drawMarker = (v, { color, dash, label, labelY }) => {
+  const drawMarker = (v, { color, dash, label, labelY, lineWidth }) => {
     if (v == null || !Number.isFinite(Number(v))) return;
     const x = xAt(Number(v));
     if (x < pad.l - 1 || x > pad.l + w + 1) return;
     ctx.strokeStyle = color;
-    ctx.lineWidth = 1.25;
+    ctx.lineWidth = lineWidth != null ? lineWidth : 1.15;
     ctx.setLineDash(dash || []);
     ctx.beginPath();
     ctx.moveTo(x, pad.t);
     ctx.lineTo(x, pad.t + h);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.beginPath();
-    ctx.moveTo(x, pad.t);
-    ctx.lineTo(x, pad.t + 4);
-    ctx.stroke();
-    if (label) {
+    if (showMarkerLabels && label) {
       ctx.fillStyle = color;
       ctx.font = fontMono;
       ctx.textAlign = "left";
@@ -333,31 +357,23 @@ export function paintScoreHistogram(canvas, scores, opts = {}) {
     }
   };
 
-  drawMarker(pack.mean, {
-    color: "#1d4ed8",
-    dash: [],
-    label: "μ",
-    labelY: pad.t + 3,
-  });
+  // markers: lines only (labels live in external legend)
+  drawMarker(pack.mean, { color: "#1d4ed8", dash: [], label: "μ" });
   drawMarker(pack.median, {
     color: "#7c3aed",
     dash: [4, 3],
     label: "med",
-    labelY: pad.t + 14,
   });
-
-  const floors = opts.floors || {};
-  drawMarker(floors.buy, {
+  drawMarker(buyThr, {
     color: "#c2410c",
     dash: [5, 3],
     label: "买",
-    labelY: pad.t + 3,
+    lineWidth: 1.35,
   });
-  drawMarker(floors.hold, {
-    color: "#475569",
+  drawMarker(holdThr, {
+    color: "#64748b",
     dash: [2, 3],
     label: "持",
-    labelY: pad.t + 14,
   });
 
   // x ticks

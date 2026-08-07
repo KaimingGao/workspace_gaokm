@@ -351,11 +351,12 @@ export function installScoreReview(ctx) {
 
   const fold = document.getElementById("quant-score-review-fold");
   if (fold) {
-    fold.addEventListener("toggle", () => {
-      if (fold.open) {
-        ensureDefaultAsOf().then(() => runReview({ autofill: true })).catch(() => {});
-      }
-    });
+    const loadIfOpen = () => {
+      if (!fold.open) return;
+      ensureDefaultAsOf().then(() => runReview({ autofill: true })).catch(() => {});
+    };
+    fold.addEventListener("toggle", loadIfOpen);
+    loadIfOpen();
   }
 
   return { runReview, fillOutcomes, freezeLedger, ensureDefaultAsOf, jumpRefit };

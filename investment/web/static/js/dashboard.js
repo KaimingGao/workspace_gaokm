@@ -59,7 +59,10 @@ function renderSparklines() {
     const max = Math.max(...data);
     const range = max - min || 1;
     const step = w / (data.length - 1 || 1);
-    const color = data[data.length - 1] >= data[0] ? "#059669" : "#ef4444";
+    const rootStyle = getComputedStyle(document.documentElement);
+    const colorUp = (rootStyle.getPropertyValue("--color-up").trim() || "#f5222d");
+    const colorDown = (rootStyle.getPropertyValue("--color-down").trim() || "#52c41a");
+    const color = data[data.length - 1] >= data[0] ? colorUp : colorDown;
     ctx.clearRect(0, 0, w, h);
     ctx.beginPath();
     data.forEach((v, i) => {
@@ -89,15 +92,17 @@ function renderMarketOverview(market) {
 
   const cards = [];
 
-  // Index cards
+  // Index cards — ticker density: label / value+change
   for (const idx of indices) {
     const pct = idx.change_pct;
     const cls = pct > 0 ? "is-up" : pct < 0 ? "is-down" : "";
     cards.push(`
       <div class="dashboard-market-card ${cls}">
         <span class="dashboard-market-label">${escapeHtml(idx.name)}</span>
-        <span class="dashboard-market-value">${idx.close != null ? fmtNum(idx.close, 0) : "—"}</span>
-        <span class="dashboard-market-change">${idx.change_pct != null ? fmtPct(idx.change_pct) : "—"}</span>
+        <div class="dashboard-market-metrics">
+          <span class="dashboard-market-value">${idx.close != null ? fmtNum(idx.close, 0) : "—"}</span>
+          <span class="dashboard-market-change">${idx.change_pct != null ? fmtPct(idx.change_pct) : "—"}</span>
+        </div>
       </div>
     `);
   }
@@ -110,8 +115,10 @@ function renderMarketOverview(market) {
     cards.push(`
       <div class="dashboard-market-card is-breadth">
         <span class="dashboard-market-label">涨跌家数</span>
-        <span class="dashboard-market-value">${breadth.up_count || 0} / ${breadth.down_count || 0}</span>
-        <span class="dashboard-market-change">涨 ${upPct}% · 跌 ${downPct}% · 平 ${breadth.flat_count || 0}</span>
+        <div class="dashboard-market-metrics">
+          <span class="dashboard-market-value">${breadth.up_count || 0}<span class="dashboard-market-sep">/</span>${breadth.down_count || 0}</span>
+          <span class="dashboard-market-change">涨${upPct}% · 跌${downPct}% · 平${breadth.flat_count || 0}</span>
+        </div>
       </div>
     `);
   }
@@ -121,8 +128,10 @@ function renderMarketOverview(market) {
     cards.push(`
       <div class="dashboard-market-card">
         <span class="dashboard-market-label">持仓市值</span>
-        <span class="dashboard-market-value">${fmtMoney(turnover.total_value)}</span>
-        <span class="dashboard-market-change">${turnover.holding_count || 0} 只</span>
+        <div class="dashboard-market-metrics">
+          <span class="dashboard-market-value">${fmtMoney(turnover.total_value)}</span>
+          <span class="dashboard-market-change">${turnover.holding_count || 0} 只</span>
+        </div>
       </div>
     `);
   }
@@ -132,8 +141,10 @@ function renderMarketOverview(market) {
     cards.push(`
       <div class="dashboard-market-card is-limit">
         <span class="dashboard-market-label">涨停/跌停</span>
-        <span class="dashboard-market-value">${breadth.limit_up || 0} / ${breadth.limit_down || 0}</span>
-        <span class="dashboard-market-change">涨停 / 跌停</span>
+        <div class="dashboard-market-metrics">
+          <span class="dashboard-market-value">${breadth.limit_up || 0}<span class="dashboard-market-sep">/</span>${breadth.limit_down || 0}</span>
+          <span class="dashboard-market-change">涨停 / 跌停</span>
+        </div>
       </div>
     `);
   }
@@ -208,16 +219,96 @@ function renderSignals(signals) {
     return;
   }
   list.innerHTML = signals.slice(0, 20).map((s) => {
-    const dir = s.direction === "long" || s.direction === "buy" || s.direction === "多" ? "is-long" : s.direction === "short" || s.direction === "sell" || s.direction === "空" ? "is-short" : "";
+    const rawDir = String(s.direction || "").toLowerCase();
+    const dir =
+      rawDir === "long" || rawDir === "buy" || rawDir === "bullish" || s.direction === "多"
+        ? "is-long"
+        : rawDir === "short" || rawDir === "sell" || rawDir === "bearish" || s.direction === "空"
+          ? "is-short"
+          : "";
+    const dirLabel =
+      dir === "is-long" ? "多" : dir === "is-short" ? "空" : String(s.direction || "—");
+    const ts = String(s.time || s.ts || "");
+    const timeShort = ts.includes("T") ? ts.slice(5, 16).replace("T", " ") : ts.slice(0, 16);
+    const code = s.code || s.stock_code || "—";
+    const name = s.name || s.stock_name || "";
     return `
       <div class="dashboard-signal-item ${dir}">
-        <span class="dashboard-signal-code">${escapeHtml(s.code || s.stock_code || "—")}</span>
-        <span class="dashboard-signal-dir">${escapeHtml(String(s.direction || "—"))}</span>
+        <span class="dashboard-signal-code">${escapeHtml(String(code))}</span>
+        <span class="dashboard-signal-name" title="${escapeHtml(name || String(code))}">${escapeHtml(name || "—")}</span>
+        <span class="dashboard-signal-dir">${escapeHtml(dirLabel)}</span>
         <span class="dashboard-signal-score num">${fmtNum(s.score ?? s.predicted_score, 2)}</span>
-        <span class="dashboard-signal-time">${escapeHtml(s.time || s.ts || "")}</span>
+        <span class="dashboard-signal-time">${escapeHtml(timeShort)}</span>
       </div>
     `;
   }).join("");
+}
+
+function renderRiskStrip(risk, exposure, varData) {
+  const host = document.getElementById("dashboard-risk-strip");
+  if (!host) return;
+  const var95 =
+    (risk && risk.var_95 != null ? risk.var_95 : null) ??
+    (varData && varData.var_95 != null ? varData.var_95 : null);
+  const cvar95 =
+    (risk && risk.cvar_95 != null ? risk.cvar_95 : null) ??
+    (varData && varData.cvar_95 != null ? varData.cvar_95 : null);
+  const hhi = exposure && exposure.hhi != null ? exposure.hhi : null;
+  const conc = exposure && exposure.concentration ? exposure.concentration : null;
+  const concMap = { low: "分散", medium: "中等", high: "集中" };
+  const overN = Array.isArray(exposure?.over_limit_sectors)
+    ? exposure.over_limit_sectors.length
+    : 0;
+  const holdingsN = exposure?.holdings_count ?? exposure?.sector_count ?? null;
+  const sharpe = risk?.sharpe;
+  const maxDd = risk?.max_drawdown;
+
+  const items = [
+    {
+      k: "VaR95",
+      v: var95 != null ? fmtPct(var95) : "—",
+      cls: var95 != null && var95 > 2 ? "is-bad" : "",
+    },
+    {
+      k: "CVaR95",
+      v: cvar95 != null ? fmtPct(cvar95) : "—",
+      cls: cvar95 != null && cvar95 > 3 ? "is-bad" : "",
+    },
+    {
+      k: "Sharpe",
+      v: sharpe != null ? fmtNum(sharpe, 2) : "—",
+      cls: sharpe != null && sharpe < 0 ? "is-bad" : sharpe != null && sharpe >= 1 ? "is-good" : "",
+    },
+    {
+      k: "最大回撤",
+      v: maxDd != null ? fmtPct(maxDd) : "—",
+      cls: maxDd != null && maxDd > 5 ? "is-bad" : "",
+    },
+    {
+      k: "集中度",
+      v: conc ? `${concMap[conc] || conc}${hhi != null ? ` · HHI ${fmtNum(hhi, 3)}` : ""}` : "—",
+      cls: conc === "high" ? "is-bad" : "",
+    },
+    {
+      k: "超限板块",
+      v: String(overN),
+      cls: overN > 0 ? "is-bad" : "is-good",
+    },
+    {
+      k: "持仓",
+      v: holdingsN != null ? `${holdingsN}` : "—",
+      cls: "",
+    },
+  ];
+  host.innerHTML = items
+    .map(
+      (it) =>
+        `<div class="dashboard-risk-strip-item ${it.cls}">` +
+        `<span class="dashboard-risk-strip-k">${escapeHtml(it.k)}</span>` +
+        `<span class="dashboard-risk-strip-v">${escapeHtml(it.v)}</span>` +
+        `</div>`
+    )
+    .join("");
 }
 
 function renderRiskMetrics(risk) {
@@ -228,14 +319,11 @@ function renderRiskMetrics(risk) {
     return;
   }
 
+  // 与摘要条互补：去掉 VaR / Sharpe / 回撤（已在 strip）
   const items = [
     { key: "ann_return", label: "年化收益", value: risk.ann_return, formatted: fmtPct(risk.ann_return), direction: risk.ann_return },
     { key: "ann_vol", label: "年化波动", value: risk.ann_volatility, formatted: fmtPct(risk.ann_volatility), direction: -risk.ann_volatility },
-    { key: "sharpe", label: "Sharpe", value: risk.sharpe, formatted: fmtNum(risk.sharpe, 2), direction: risk.sharpe - 1 },
     { key: "sortino", label: "Sortino", value: risk.sortino, formatted: fmtNum(risk.sortino, 2), direction: risk.sortino - 1 },
-    { key: "max_dd", label: "最大回撤", value: risk.max_drawdown, formatted: fmtPct(risk.max_drawdown), direction: -risk.max_drawdown },
-    { key: "var95", label: "VaR(95%)", value: risk.var_95, formatted: fmtPct(risk.var_95), direction: -risk.var_95 },
-    { key: "cvar95", label: "CVaR(95%)", value: risk.cvar_95, formatted: fmtPct(risk.cvar_95), direction: -risk.cvar_95 },
     { key: "calmar", label: "Calmar", value: risk.calmar, formatted: fmtNum(risk.calmar, 2), direction: risk.calmar - 1 },
   ];
 
@@ -289,15 +377,17 @@ function renderFactorExposure(exposure) {
 
 function renderAllocation(allocation) {
   const legend = document.getElementById("dashboard-allocation-legend");
+  const chartHost = document.getElementById("dashboard-allocation-chart");
   if (!legend) return;
   if (!allocation || !allocation.sectors || !allocation.sectors.length) {
     legend.innerHTML = `<div class="dashboard-empty">暂无配置数据</div>`;
+    if (chartHost) chartHost.innerHTML = "";
     return;
   }
-  const total = allocation.total_value || 1;
+  const total = allocation.total_value || allocation.sectors.reduce((s, x) => s + (Number(x.value) || 0), 0) || 1;
   const colors = ["#2563eb", "#059669", "#7c3aed", "#d97706", "#ef4444", "#0891b2", "#db2777", "#65a30d", "#0d9488", "#4f46e5"];
   const items = allocation.sectors.map((s, i) => {
-    const pct = ((s.value / total) * 100).toFixed(1);
+    const pct = s.pct != null ? Number(s.pct).toFixed(1) : ((s.value / total) * 100).toFixed(1);
     const color = colors[i % colors.length];
     return `
       <div class="dashboard-allocation-item">
@@ -309,19 +399,25 @@ function renderAllocation(allocation) {
   }).join("");
   legend.innerHTML = items;
 
-  const chart = document.getElementById("dashboard-allocation-chart");
-  if (chart) {
-    const ctx = chart.getContext("2d");
-    const w = chart.width = chart.offsetWidth;
-    const h = chart.height = chart.offsetHeight;
+  if (chartHost) {
+    let canvas = chartHost.querySelector("canvas");
+    if (!canvas) {
+      canvas = document.createElement("canvas");
+      canvas.setAttribute("aria-hidden", "true");
+      chartHost.replaceChildren(canvas);
+    }
+    const ctx = canvas.getContext("2d");
+    const w = (canvas.width = Math.max(112, chartHost.clientWidth || 120));
+    const h = (canvas.height = Math.max(112, chartHost.clientHeight || 120));
     const cx = w / 2;
     const cy = h / 2;
-    const r = Math.min(cx, cy) - 10;
-    const innerR = r * 0.6;
+    const r = Math.min(cx, cy) - 6;
+    const innerR = r * 0.58;
     ctx.clearRect(0, 0, w, h);
     let startAngle = -Math.PI / 2;
     allocation.sectors.forEach((s, i) => {
-      const slice = (s.value / total) * Math.PI * 2;
+      const slice = ((Number(s.value) || 0) / total) * Math.PI * 2;
+      if (slice <= 0) return;
       const color = colors[i % colors.length];
       ctx.beginPath();
       ctx.arc(cx, cy, r, startAngle, startAngle + slice);
@@ -331,14 +427,14 @@ function renderAllocation(allocation) {
       ctx.fill();
       startAngle += slice;
     });
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim() || "#1e293b";
-    ctx.font = "600 13px Manrope, sans-serif";
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--ink-3").trim() || "#64748b";
+    ctx.font = "600 10px Manrope, sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("总资产", cx, cy - 12);
-    ctx.font = "700 15px IBM Plex Mono, monospace";
-    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#2563eb";
-    ctx.fillText(total.toLocaleString("zh-CN", { maximumFractionDigits: 0 }), cx, cy + 12);
+    ctx.fillText("总资产", cx, cy - 9);
+    ctx.font = "700 12px IBM Plex Mono, monospace";
+    ctx.fillStyle = getComputedStyle(document.documentElement).getPropertyValue("--ink").trim() || "#1e293b";
+    ctx.fillText(total.toLocaleString("zh-CN", { maximumFractionDigits: 0 }), cx, cy + 8);
   }
 }
 
@@ -388,38 +484,19 @@ function renderNavChart(points, range, benchmarkPoints) {
           }
         }
 
-        let statsHtml = `
-          <div class="dashboard-nav-stat">
-            <span class="nav-stat-label">区间收益</span>
-            <span class="nav-stat-value ${ret >= 0 ? "up" : "down"}">${fmtPct(ret)}</span>
-          </div>
-          <div class="dashboard-nav-stat">
-            <span class="nav-stat-label">期间最高</span>
-            <span class="nav-stat-value">${fmtNum(peak, 0)}</span>
-          </div>
-          <div class="dashboard-nav-stat">
-            <span class="nav-stat-label">当前回撤</span>
-            <span class="nav-stat-value ${dd > 0 ? "down" : ""}">${fmtPct(-dd)}</span>
-          </div>
-        `;
+        const stat = (label, value, cls = "") =>
+          `<span class="dashboard-nav-stat"><span class="nav-stat-label">${label}</span>` +
+          `<span class="nav-stat-value ${cls}">${value}</span></span>`;
+        let statsHtml =
+          stat("区间", fmtPct(ret), ret >= 0 ? "up" : "down") +
+          stat("峰值", fmtNum(peak, 0)) +
+          stat("回撤", fmtPct(-dd), dd > 0 ? "down" : "");
         if (benchRet !== null) {
-          statsHtml += `
-            <div class="dashboard-nav-stat">
-              <span class="nav-stat-label">基准收益</span>
-              <span class="nav-stat-value ${benchRet >= 0 ? "up" : "down"}">${fmtPct(benchRet)}</span>
-            </div>
-            <div class="dashboard-nav-stat">
-              <span class="nav-stat-label">超额收益</span>
-              <span class="nav-stat-value ${excessRet >= 0 ? "up" : "down"}">${fmtPct(excessRet)}</span>
-            </div>
-          `;
+          statsHtml +=
+            stat("基准", fmtPct(benchRet), benchRet >= 0 ? "up" : "down") +
+            stat("超额", fmtPct(excessRet), excessRet >= 0 ? "up" : "down");
         }
-        statsHtml += `
-          <div class="dashboard-nav-stat">
-            <span class="nav-stat-label">数据点</span>
-            <span class="nav-stat-value">${vals.length}</span>
-          </div>
-        `;
+        statsHtml += stat("n", String(vals.length));
         statsEl.innerHTML = statsHtml;
       }
     }
@@ -445,187 +522,74 @@ function renderNavChart(points, range, benchmarkPoints) {
   }
 
 function renderDrawdownChart(drawdownPoints) {
-    const host = document.getElementById("dashboard-drawdown-chart");
-    if (!host) return null;
-    if (!drawdownPoints || !drawdownPoints.length) {
-      host.innerHTML = `<div class="dashboard-empty">暂无回撤数据</div>`;
-      return null;
-    }
-    const ctx = host.getContext("2d");
-    const dpr = window.devicePixelRatio || 1;
-    const w = host.clientWidth || host.offsetWidth || 400;
-    const h = host.clientHeight || host.offsetHeight || 200;
-    host.width = w * dpr;
-    host.height = h * dpr;
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, w, h);
-
-    const padL = 50, padR = 12, padT = 16, padB = 28;
-    const chartW = w - padL - padR;
-    const chartH = h - padT - padB;
-
-    const values = drawdownPoints.map(p => p.value);
-    const minVal = Math.min(...values);
-    const maxVal = 0;
-    const range = maxVal - minVal || 1;
-
-    const times = drawdownPoints.map(p => new Date(p.time || p.date).getTime());
-    const tMin = Math.min(...times);
-    const tMax = Math.max(...times);
-    const tRange = tMax - tMin || 1;
-
-    const xOf = (t) => padL + ((t - tMin) / tRange) * chartW;
-    const yOf = (v) => padT + (1 - (v - minVal) / range) * chartH;
-
-    ctx.fillStyle = "#eff6ff";
-    ctx.strokeStyle = "#2563eb";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    drawdownPoints.forEach((p, i) => {
-      const x = xOf(new Date(p.time || p.date).getTime());
-      const y = yOf(p.value);
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
-    });
-    const lastX = xOf(new Date(drawdownPoints[drawdownPoints.length - 1].time || drawdownPoints[drawdownPoints.length - 1].date).getTime());
-    const firstX = xOf(new Date(drawdownPoints[0].time || drawdownPoints[0].date).getTime());
-    const yBase = yOf(0);
-    ctx.lineTo(lastX, yBase);
-    ctx.lineTo(firstX, yBase);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.strokeStyle = "rgba(100,116,139,0.3)";
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = padT + (i / 4) * chartH;
-      ctx.beginPath();
-      ctx.moveTo(padL, y);
-      ctx.lineTo(w - padR, y);
-      ctx.stroke();
-    }
-
-    const minIdx = values.indexOf(minVal);
-    if (minIdx >= 0) {
-      const minX = xOf(new Date(drawdownPoints[minIdx].time || drawdownPoints[minIdx].date).getTime());
-      const minY = yOf(minVal);
-      ctx.fillStyle = "#ef4444";
-      ctx.beginPath();
-      ctx.arc(minX, minY, 4, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#ef4444";
-      ctx.font = "600 11px Manrope, sans-serif";
-      ctx.textAlign = "center";
-      ctx.fillText(`最大回撤 ${fmtPct(minVal)}`, minX, minY - 8);
-    }
-
-    ctx.fillStyle = "#6b7280";
-    ctx.font = "10px IBM Plex Mono, monospace";
-    ctx.textAlign = "right";
-    for (let i = 0; i <= 4; i++) {
-      const v = maxVal - (i / 4) * range;
-      const y = padT + (i / 4) * chartH;
-      ctx.fillText(fmtPct(v), padL - 6, y + 3);
-    }
-
-    _drawdownChart = { ctx, host };
-    return _drawdownChart;
+  const host = document.getElementById("dashboard-drawdown-chart");
+  const statsEl = document.getElementById("dashboard-drawdown-stats");
+  if (!host) return null;
+  if (!drawdownPoints || !drawdownPoints.length) {
+    if (statsEl) statsEl.textContent = "—";
+    host.innerHTML = `<div class="dashboard-empty">暂无回撤数据</div>`;
+    return null;
   }
-
-  function renderVarHistogram(histData) {
-    const host = document.getElementById("dashboard-var-histogram");
-    if (!host) return null;
-    if (!histData || !histData.buckets || !histData.buckets.length) {
-      host.innerHTML = `<div class="dashboard-empty">暂无VaR历史数据</div>`;
-      return null;
-    }
-    const ctx = host.getContext("2d");
-    const dpr = window.devicePixelRatio || 1;
-    const w = host.clientWidth || host.offsetWidth || 400;
-    const h = host.clientHeight || host.offsetHeight || 200;
-    host.width = w * dpr;
-    host.height = h * dpr;
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, w, h);
-
-    const padL = 50, padR = 12, padT = 16, padB = 28;
-    const chartW = w - padL - padR;
-    const chartH = h - padT - padB;
-
-    const buckets = histData.buckets;
-    const maxCount = Math.max(...buckets.map(b => b.count), 1);
-    const n = buckets.length;
-    const barW = (chartW / n) * 0.85;
-    const gap = (chartW / n) * 0.15;
-
-    const var95 = histData.var_95;
-    const var99 = histData.var_99;
-
-    buckets.forEach((b, i) => {
-      const x = padL + i * (barW + gap);
-      const barH = (b.count / maxCount) * chartH;
-      const y = padT + chartH - barH;
-      const isTail95 = var95 != null && b.range_end <= var95;
-      const isTail99 = var99 != null && b.range_end <= var99;
-      const color = isTail99 ? "#dc2626" : isTail95 ? "#f59e0b" : "#2563eb";
-      ctx.fillStyle = color;
-      ctx.fillRect(x, y, barW, barH);
-    });
-
-    if (var95 != null) {
-      const v95Y = padT + chartH;
-      ctx.strokeStyle = "#f59e0b";
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([4, 3]);
-      ctx.beginPath();
-      ctx.moveTo(padL, v95Y);
-      ctx.lineTo(w - padR, v95Y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = "#f59e0b";
-      ctx.font = "600 11px Manrope, sans-serif";
-      ctx.textAlign = "right";
-      ctx.fillText(`VaR 95% ${fmtPct(var95)}`, w - padR, v95Y - 4);
-    }
-    if (var99 != null) {
-      const v99Y = padT + chartH;
-      ctx.strokeStyle = "#dc2626";
-      ctx.lineWidth = 1.5;
-      ctx.setLineDash([6, 3]);
-      ctx.beginPath();
-      ctx.moveTo(padL, v99Y);
-      ctx.lineTo(w - padR, v99Y);
-      ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = "#dc2626";
-      ctx.font = "600 11px Manrope, sans-serif";
-      ctx.textAlign = "right";
-      ctx.fillText(`VaR 99% ${fmtPct(var99)}`, w - padR, v99Y - 18);
-    }
-
-    ctx.strokeStyle = "rgba(100,116,139,0.3)";
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= 4; i++) {
-      const y = padT + (i / 4) * chartH;
-      ctx.beginPath();
-      ctx.moveTo(padL, y);
-      ctx.lineTo(w - padR, y);
-      ctx.stroke();
-    }
-
-    ctx.fillStyle = "#6b7280";
-    ctx.font = "10px IBM Plex Mono, monospace";
-    ctx.textAlign = "right";
-    for (let i = 0; i <= 4; i++) {
-      const v = maxCount - (i / 4) * maxCount;
-      const y = padT + (i / 4) * chartH;
-      ctx.fillText(String(Math.round(v)), padL - 6, y + 3);
-    }
-
-    _varChart = { ctx, host };
-    return _varChart;
+  const pts = drawdownPoints
+    .map((p) => ({
+      time: p.time || p.date,
+      value: Number(p.value),
+    }))
+    .filter((p) => p.time && Number.isFinite(p.value));
+  if (!pts.length) {
+    host.innerHTML = `<div class="dashboard-empty">暂无回撤数据</div>`;
+    return null;
   }
+  const minVal = Math.min(...pts.map((p) => p.value));
+  if (statsEl) statsEl.textContent = `最大回撤 ${fmtPct(minVal)} · ${pts.length} 点`;
+  return renderLineChart(host, pts, {
+    color: "#2563eb",
+    emptyText: "暂无回撤数据",
+    disableZoom: false,
+    zeroLine: true,
+  }).then((chart) => {
+    _drawdownChart = chart;
+    return chart;
+  });
+}
+
+function renderVarHistogram(histData) {
+  const host = document.getElementById("dashboard-var-chart");
+  const statsEl = document.getElementById("dashboard-var-stats");
+  if (!host) return null;
+  const buckets = (histData && (histData.histogram || histData.buckets)) || [];
+  if (!histData || histData.ok === false || !buckets.length) {
+    if (statsEl) statsEl.textContent = histData?.message || "—";
+    host.innerHTML = `<div class="dashboard-empty">${histData?.message || "暂无VaR历史数据"}</div>`;
+    return null;
+  }
+  const maxCount = Math.max(...buckets.map((b) => Number(b.count) || 0), 1);
+  const var95 = histData.var_95;
+  const var99 = histData.var_99;
+  const cvar95 = histData.cvar_95;
+  if (statsEl) {
+    statsEl.textContent =
+      `VaR95 ${fmtPct(var95)} · CVaR95 ${fmtPct(cvar95)} · n=${histData.sample_count ?? buckets.length}`;
+  }
+  const bars = buckets
+    .map((b) => {
+      const count = Number(b.count) || 0;
+      const h = Math.max(2, (count / maxCount) * 100);
+      const mid = ((Number(b.range_low) || 0) + (Number(b.range_high) || 0)) / 2;
+      // 收益直方图：左侧尾部为亏损；VaR 为损失幅度（正数）
+      const isTail95 = var95 != null && mid <= -Math.abs(Number(var95));
+      const isTail99 = var99 != null && mid <= -Math.abs(Number(var99));
+      const cls = isTail99 ? "is-tail99" : isTail95 ? "is-tail95" : "";
+      const title = `${b.label || `${b.range_low}% ~ ${b.range_high}%`} · ${count}`;
+      return `<div class="dashboard-var-bar ${cls}" style="height:${h}%" title="${escapeHtml(title)}"></div>`;
+    })
+    .join("");
+  host.innerHTML =
+    `<div class="dashboard-var-hist" aria-label="收益直方图">${bars}</div>` +
+    `<p class="dashboard-var-footnote">橙/红柱≈VaR 尾部 · 样本 ${escapeHtml(String(histData.sample_count ?? "—"))}</p>`;
+  _varChart = { host };
+  return _varChart;
+}
 
   function renderFactorICSeries(factorData) {
     const host = document.getElementById("dashboard-factor-ic-chart");
@@ -653,7 +617,10 @@ function renderDrawdownChart(drawdownPoints) {
   async function loadDashboardData(range = "30", showBenchmark = true) {
   const meta = document.getElementById("dashboard-meta");
   const updated = document.getElementById("dashboard-updated");
-  if (meta) meta.textContent = "加载中…";
+  if (updated) {
+    updated.dataset.state = "loading";
+    updated.textContent = "加载中";
+  }
 
   const unwrap = (res, fallback = {}) => {
     if (!res || res.ok === false) {
@@ -695,8 +662,8 @@ function renderDrawdownChart(drawdownPoints) {
         { key: "today_return", label: "今日收益", value: kpis.today_return, formatted: fmtPct(kpis.today_return), sub: "vs 昨收", sparkline: kpis.sparkline_today, direction: kpis.today_return },
         { key: "total_return", label: "累计收益", value: kpis.total_return, formatted: fmtPct(kpis.total_return), sub: kpis.period || "全部", sparkline: kpis.sparkline_total, direction: kpis.total_return },
         { key: "sharpe", label: "Sharpe", value: kpis.sharpe, formatted: fmtNum(kpis.sharpe, 2), sub: "年化", sparkline: kpis.sparkline_sharpe, direction: kpis.sharpe - 1 },
-        { key: "max_dd", label: "最大回撤", value: kpis.max_drawdown, formatted: fmtPct(kpis.max_drawdown), sub: "历史极值", sparkline: kpis.sparkline_dd, direction: kpis.max_drawdown },
-        { key: "win_rate", label: "胜率", value: kpis.win_rate, formatted: fmtPct(kpis.win_rate), sub: "交易笔数 " + (kpis.trade_count || 0), sparkline: kpis.sparkline_winrate, direction: kpis.win_rate - 50 },
+        { key: "max_dd", label: "最大回撤", value: kpis.max_drawdown, formatted: fmtPct(kpis.max_drawdown), sub: "历史极值", sparkline: kpis.sparkline_dd, direction: kpis.max_drawdown != null ? -Math.abs(kpis.max_drawdown) : null },
+        { key: "win_rate", label: "胜率", value: kpis.win_rate, formatted: fmtPct(kpis.win_rate), sub: (kpis.trade_count || 0) + " 笔", sparkline: kpis.sparkline_winrate, direction: kpis.win_rate - 50 },
       ];
       kpiHost.innerHTML = items.map(kpiCardHtml).join("");
       renderSparklines();
@@ -705,44 +672,47 @@ function renderDrawdownChart(drawdownPoints) {
     }
 
     // Render risk metrics
-    renderRiskMetrics(riskData);
+    try { renderRiskMetrics(riskData); } catch (e) { console.warn("[Dashboard] risk", e); }
+    try { renderRiskStrip(riskData, exposure, varData); } catch (e) { console.warn("[Dashboard] risk-strip", e); }
 
     // Render NAV chart
+    try {
       if (navData && navData.points) {
         renderNavChart(navData.points, range, navData.benchmark || navData.benchmark_points || []);
       }
+    } catch (e) { console.warn("[Dashboard] nav", e); }
 
-      // Render drawdown chart
+    try {
       if (drawdownData && drawdownData.points) {
         renderDrawdownChart(drawdownData.points);
       }
+    } catch (e) { console.warn("[Dashboard] drawdown", e); }
 
-      // Render VaR histogram
+    try {
       if (varData && varData.ok !== false) {
         renderVarHistogram(varData);
       }
+    } catch (e) { console.warn("[Dashboard] var", e); }
 
-    // Render sector heatmap
-    renderSectorHeatmap(sectors?.sectors || []);
+    try { renderSectorHeatmap(sectors?.sectors || []); } catch (e) { console.warn("[Dashboard] sector", e); }
+    try { renderLeaderboard(kpis?.strategies || []); } catch (e) { console.warn("[Dashboard] leaderboard", e); }
+    try { renderSignals(signals?.signals || []); } catch (e) { console.warn("[Dashboard] signals", e); }
+    try { renderAllocation(allocation); } catch (e) { console.warn("[Dashboard] allocation", e); }
+    try { renderFactorExposure(exposure); } catch (e) { console.warn("[Dashboard] exposure", e); }
 
-    // Render leaderboard
-    const strategies = kpis?.strategies || [];
-    renderLeaderboard(strategies);
-
-    // Render signals
-    renderSignals(signals?.signals || []);
-
-    // Render allocation
-    renderAllocation(allocation);
-
-    // Render factor exposure
-    renderFactorExposure(exposure);
-
-    if (meta) meta.textContent = "数据就绪 · 上次刷新 " + new Date().toLocaleTimeString("zh-CN");
-    if (updated) updated.textContent = "更新于 " + new Date().toLocaleTimeString("zh-CN");
+    const t = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    if (meta) meta.textContent = "纸面组合 · 市场 · 风险 · 信号";
+    if (updated) {
+      updated.dataset.state = "ready";
+      updated.textContent = t;
+    }
   } catch (err) {
     console.error("[Dashboard] load failed", err);
     if (meta) meta.textContent = "加载失败: " + (err.message || err);
+    if (updated) {
+      updated.dataset.state = "error";
+      updated.textContent = "失败";
+    }
   }
 }
 

@@ -279,4 +279,7 @@ class PlatformService:
         )
         out["curve_meta"] = bt_meta
         out["day_diff"] = day_diff
+        # 前端落差卡要直接展示 Corr/TE（不另打北极星）
+        if isinstance(realization, dict):
+            out["realization"] = realization
         return out

@@ -905,6 +905,34 @@ def dashboard_signals(limit: int = 20):
         paper = _load_raw_paper()
         signals: List[Dict[str, Any]] = []
         limit = max(1, min(int(limit or 20), 50))
+        holdings = _holdings_from_paper(paper)
+        name_by_code: Dict[str, str] = {}
+        for h in holdings:
+            c = str(h.get("code") or h.get("stock_code") or "").strip()
+            n = str(h.get("name") or h.get("stock_name") or "").strip()
+            if c and n:
+                name_by_code[c] = n
+        try:
+            from core.watching_store import read_watching, watchlist_names_for
+
+            uni = read_watching()
+            codes = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
+            names = watchlist_names_for(uni) or []
+            for i, c in enumerate(codes):
+                if not c or c in name_by_code:
+                    continue
+                n = str(names[i]).strip() if i < len(names) else ""
+                if n and n != c:
+                    name_by_code[c] = n
+        except Exception:
+            pass
+
+        def _with_name(row: Dict[str, Any]) -> Dict[str, Any]:
+            code = str(row.get("code") or "").strip()
+            name = str(row.get("name") or "").strip() or name_by_code.get(code) or ""
+            if name:
+                row["name"] = name
+            return row
 
         # From signal_log (observation_pool scans)
         for entry in reversed(paper.get("signal_log") or []):
@@ -918,15 +946,16 @@ def dashboard_signals(limit: int = 20):
                 score = item.get("predicted_score")
                 if score is None:
                     score = item.get("score")
-                signals.append({
-                    "code": item.get("stock_code") or item.get("code"),
-                    "name": item.get("stock_name"),
+                code = item.get("stock_code") or item.get("code")
+                signals.append(_with_name({
+                    "code": code,
+                    "name": item.get("stock_name") or item.get("name"),
                     "direction": "bullish" if (score or 0) > 0 else "bearish" if (score or 0) < 0 else "—",
                     "score": score,
                     "time": ts,
                     "type": "signal",
                     "sector": item.get("sector"),
-                })
+                }))
             if len(signals) >= limit:
                 break
 
@@ -957,19 +986,21 @@ def dashboard_signals(limit: int = 20):
                 et = entry.get("type") or entry.get("action") or ""
                 if et not in trade_types:
                     continue
-                signals.append({
-                    "code": entry.get("code") or entry.get("stock_code"),
+                code = entry.get("code") or entry.get("stock_code")
+                signals.append(_with_name({
+                    "code": code,
+                    "name": entry.get("name") or entry.get("stock_name"),
                     "direction": entry.get("direction") or entry.get("side") or et,
                     "score": entry.get("score") or entry.get("predicted_score"),
                     "time": entry.get("ts") or entry.get("time"),
                     "type": et,
-                })
+                }))
                 if len(signals) >= limit:
                     break
 
         # Fallback: holdings with stored scores / sentiment
         if not signals:
-            for h in _holdings_from_paper(paper)[:limit]:
+            for h in holdings[:limit]:
                 sentiment = h.get("sentiment") or {}
                 label = sentiment.get("label") or ""
                 score = h.get("predicted_score") or h.get("score")
@@ -981,13 +1012,14 @@ def dashboard_signals(limit: int = 20):
                         if label == "bullish"
                         else "—"
                     )
-                    signals.append({
+                    signals.append(_with_name({
                         "code": h.get("code") or h.get("stock_code"),
+                        "name": h.get("name") or h.get("stock_name"),
                         "direction": direction,
                         "score": score,
                         "time": datetime.now().strftime("%H:%M:%S"),
                         "type": "holding",
-                    })
+                    }))
 
         signals = signals[:limit]
         return {"ok": True, "signals": signals}
@@ -1318,39 +1350,72 @@ def dashboard_risk_metrics():
 
 
 def _build_factor_exposure() -> Dict[str, Any]:
-    """因子暴露分析：基于持仓的板块/风格暴露。"""
+    """因子暴露分析：基于持仓的板块/风格暴露（含超限清单）。"""
     paper = _load_raw_paper()
     holdings = _holdings_from_paper(paper)
 
     if not holdings:
         return {"ok": False, "message": "暂无持仓数据"}
 
-    # Sector exposure
+    # 优先复用风控暴露矩阵（含行业限额 over_limit）
+    try:
+        from core.risk.exposure import build_exposure_matrix
+
+        matrix = build_exposure_matrix(paper) or {}
+        if isinstance(matrix, dict) and (matrix.get("sectors") or matrix.get("ok")):
+            sectors_raw = matrix.get("sectors") or []
+            over = [
+                s.get("name") or s.get("key")
+                for s in sectors_raw
+                if isinstance(s, dict) and s.get("over_limit")
+            ]
+            sectors = [
+                {
+                    "name": s.get("name") or s.get("key") or "其他",
+                    "value": round(float(s.get("market_value") or 0), 2),
+                    "pct": round(float(s.get("weight_pct") or 0), 2),
+                    "over_limit": bool(s.get("over_limit")),
+                }
+                for s in sectors_raw
+                if isinstance(s, dict)
+            ]
+            hhi = matrix.get("hhi")
+            if hhi is None and sectors:
+                hhi = sum((float(s.get("pct") or 0) / 100.0) ** 2 for s in sectors)
+            return {
+                "ok": True,
+                "sectors": sectors,
+                "total_value": round(float(matrix.get("equity") or matrix.get("total_value") or 0), 2),
+                "sector_count": len(sectors),
+                "hhi": round(float(hhi or 0), 4),
+                "concentration": (
+                    "high"
+                    if float(hhi or 0) > 0.25
+                    else "medium"
+                    if float(hhi or 0) > 0.15
+                    else "low"
+                ),
+                "holdings_count": len(holdings),
+                "over_limit_sectors": [x for x in over if x],
+            }
+    except Exception:
+        pass
+
+    # Sector exposure fallback
     sector_values: Dict[str, float] = {}
-    style_values: Dict[str, float] = {}
     total_value = 0.0
 
     for h in holdings:
         mv = h.get("market_value") or 0
+        try:
+            mv = float(mv or 0)
+        except (TypeError, ValueError):
+            mv = 0.0
         total_value += mv
 
         sector = h.get("sector") or h.get("industry") or "其他"
         sector_values[sector] = sector_values.get(sector, 0) + mv
 
-        # Style classification based on simple heuristics
-        code = h.get("code") or h.get("stock_code") or ""
-        mv_val = mv
-        if mv_val > 0:
-            ratio = mv_val / max(total_value, 1)
-            if ratio > 0.3:
-                style_key = "集中度"
-            elif ratio > 0.15:
-                style_key = "中盘"
-            else:
-                style_key = "分散"
-            style_values[style_key] = style_values.get(style_key, 0) + mv
-
-    # Sector concentration (Herfindahl index)
     hhi = sum((v / max(total_value, 1)) ** 2 for v in sector_values.values())
 
     sectors = [
@@ -1366,6 +1431,7 @@ def _build_factor_exposure() -> Dict[str, Any]:
         "hhi": round(hhi, 4),
         "concentration": "high" if hhi > 0.25 else "medium" if hhi > 0.15 else "low",
         "holdings_count": len(holdings),
+        "over_limit_sectors": [],
     }
 
 

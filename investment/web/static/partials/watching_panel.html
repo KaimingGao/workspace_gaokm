@@ -29,10 +29,20 @@
   </div>
 
   <div class="yhat-viz-block watching-yhat-hist" id="watching-yhat-hist-wrap" hidden>
-    <div class="yhat-viz-head">
-      <p class="quant-trades-caption">观察池 ŷ 分布（截面直方图）</p>
-      <p id="watching-yhat-hist-meta" class="quant-sub"></p>
-      <p id="watching-yhat-hist-filter" class="quant-sub yhat-hist-filter" hidden></p>
+    <div class="yhat-viz-head watching-yhat-hist-head">
+      <div class="watching-yhat-hist-titles">
+        <p class="quant-trades-caption">ŷ 截面分布</p>
+        <p id="watching-yhat-hist-meta" class="quant-sub watching-yhat-hist-meta-primary"></p>
+        <p id="watching-yhat-hist-meta-aux" class="quant-sub watching-yhat-hist-meta-aux"></p>
+        <p id="watching-yhat-hist-filter" class="quant-sub yhat-hist-filter" hidden></p>
+      </div>
+      <ul class="yhat-hist-legend" aria-label="图例">
+        <li class="is-mu"><span class="yhat-hist-swatch is-line"></span>μ</li>
+        <li class="is-med"><span class="yhat-hist-swatch is-dash"></span>med</li>
+        <li class="is-hold"><span class="yhat-hist-swatch is-dash"></span>持门</li>
+        <li class="is-buy"><span class="yhat-hist-swatch is-dash"></span>买门</li>
+        <li class="is-zone-buy"><span class="yhat-hist-swatch is-band"></span>≥买</li>
+      </ul>
       <button
         type="button"
         id="watching-yhat-hist-clear"

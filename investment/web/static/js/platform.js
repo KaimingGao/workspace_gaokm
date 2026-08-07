@@ -1,5 +1,6 @@
 /** Platform panel: memory / decisions / feedback / schedule / prefill / audit (D2–D6 + P2 + W2.5). */
 import { apiFetch } from "./api_client.js";
+import { withUiBusyButton } from "./shared.js";
 
 export function initPlatform(ctx) {
   const meta = document.getElementById("platform-meta");
@@ -352,20 +353,7 @@ export function initPlatform(ctx) {
   }
 
   async function withButtonBusy(btnId, labelBusy, fn) {
-    const btn = document.getElementById(btnId);
-    const prev = btn ? btn.textContent : "";
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = labelBusy;
-    }
-    try {
-      return await fn();
-    } finally {
-      if (btn) {
-        btn.disabled = false;
-        btn.textContent = prev;
-      }
-    }
+    return withUiBusyButton(document.getElementById(btnId), labelBusy, fn);
   }
 
   function renderNorthStar(ns) {

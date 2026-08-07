@@ -33,7 +33,7 @@ import { downloadBlob } from "../shared.js";
 /** Quant domain: backtest */
 export function installBacktest(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText, btSimScoreTips } = q;
-  const { fmtPct, metricClass, renderMetricCards, renderBtScopeNote, renderFitGapPanel, buildPortfolioBacktestCards, renderPromoteHintsPanel, BT_SCOPE_LIVE, BT_SCOPE_FROZEN, readHorizonDays, quantBtBusyIds } = q;
+  const { fmtPct, metricClass, renderMetricCards, renderBtScopeNote, renderFitGapPanel, renderRobustnessPanel, buildPortfolioBacktestCards, renderPromoteHintsPanel, BT_SCOPE_LIVE, BT_SCOPE_FROZEN, readHorizonDays, quantBtBusyIds } = q;
   const { renderAttributionTablesHtml, renderIcEquityAlignHtml, renderQuantileTableHtml, buildT0BacktestMetrics, buildT0BacktestDaysHtml, buildCrossSectionResult, renderScoreIcHtml } = q;
   const { researchGridHtml, metricCell } = q;
 
@@ -645,6 +645,7 @@ export function installBacktest(q) {
   function renderPortfolioBacktestResult(data) {
     if (!data || !data.success) {
       renderMetricCards(els.quantBtMetrics, []);
+      renderRobustnessPanel(null);
       renderWfSlices(null);
       renderCostAssumptions(null);
       renderAttributionTables(null);
@@ -682,6 +683,7 @@ export function installBacktest(q) {
       total_return_pct: m.total_return_pct,
     };
     renderMetricCards(els.quantBtMetrics, buildPortfolioBacktestCards(data));
+    renderRobustnessPanel(data);
     renderUniversePanel(data.universe);
     renderWfSlices(data.wf_slices);
     renderCostAssumptions(data.cost_assumptions);
