@@ -1,6 +1,6 @@
-import { apiFetch } from "./api_client.js";
-import { escapeHtml } from "./shared.js";
-import { renderMultiLineChart } from "./lw_charts.js";
+import { apiFetch } from "../api_client.js";
+import { escapeHtml } from "../shared.js";
+import { renderMultiLineChart } from "../lw_charts.js";
 
 function corrColor(v) {
   if (v == null || !isFinite(v)) return "var(--line)";
