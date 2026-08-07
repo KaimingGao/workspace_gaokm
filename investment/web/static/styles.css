@@ -7705,24 +7705,26 @@ a.hub-card:hover {
   padding-top: 0;
 }
 
-/* 参数控制带 */
+/* 参数控制带（报告风：扁直角） */
 .quant-page .quant-control-band {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg-card, var(--surface));
-  padding: 8px 10px 6px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 96%, var(--line));
+  padding: 7px 10px 6px;
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 .quant-page .quant-control-band-compact {
-  padding: 6px 10px;
+  padding: 5px 10px;
 }
 .quant-page .quant-control-band .quant-oos-semantics {
   margin: 0;
   padding-top: 4px;
   border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
   max-width: none;
+  font-size: 0.66rem;
+  color: var(--ink-3);
 }
 
 .quant-page > .quant-section {
@@ -11589,11 +11591,43 @@ body[data-page]:not([data-page="chat"]) {
 .page-panel.quant-panel .quant-head {
   position: sticky;
   top: 0;
-  padding: 6px 0 8px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 4px 0 8px;
   padding-left: 0;
   padding-right: 0;
   background: color-mix(in srgb, var(--surface) 94%, transparent);
   border-bottom: 1px solid var(--line);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.page-panel.quant-panel .quant-head-actions,
+.quant-head .quant-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.page-panel.quant-panel .quant-desk-badge,
+.quant-head .quant-desk-badge {
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  padding: 2px 6px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 3%, var(--surface));
+}
+.page-panel.quant-panel .quant-desk-note,
+.quant-head .quant-desk-note {
+  font-size: 0.62rem;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .page-panel.quant-panel .quant-eyebrow,
@@ -14527,7 +14561,7 @@ html[data-theme="dark"] .dashboard-var-card {
 .quant-ic-compare-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 .quant-ic-compare-actions {
   align-items: center;
@@ -14542,25 +14576,37 @@ html[data-theme="dark"] .dashboard-var-card {
 .quant-ic-compare-kpis {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 8px;
+  gap: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 2px;
+  overflow: hidden;
+  background: var(--surface);
 }
 .quant-ic-kpi {
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 8px 10px;
-  background: var(--surface);
+  border: none;
+  border-right: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: 0;
+  padding: 6px 10px;
+  background: transparent;
   min-width: 0;
+}
+.quant-ic-kpi:last-child {
+  border-right: none;
 }
 .quant-ic-kpi-label {
   display: block;
-  font-size: 0.66rem;
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--ink-3);
   margin-bottom: 2px;
 }
 .quant-ic-kpi-value {
   display: block;
-  font-size: 0.92rem;
-  font-weight: 600;
+  font-size: 0.84rem;
+  font-weight: 650;
+  font-family: var(--font-mono);
   color: var(--ink);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
@@ -14570,23 +14616,24 @@ html[data-theme="dark"] .dashboard-var-card {
 .quant-ic-compare-grid {
   display: grid;
   grid-template-columns: minmax(0, 1.6fr) minmax(12rem, 0.9fr);
-  gap: 10px;
+  gap: 8px;
   align-items: stretch;
 }
 .factor-ic-series-host,
 .quant-ic-compare-chart {
-  min-height: 260px;
-  height: 280px;
-  padding: 8px 10px 4px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
+  min-height: 240px;
+  height: 256px;
+  padding: 6px 8px 2px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 96%, var(--line));
+  box-shadow: none;
 }
 .quant-ic-compare-stats {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface);
-  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 96%, var(--line));
+  padding: 6px 8px;
   min-width: 0;
   overflow: auto;
 }
@@ -14851,12 +14898,12 @@ html[data-theme="dark"] .dashboard-sector-legend span {
   color: rgba(255, 255, 255, 0.45);
 }
 
-/* ——— 研究枢纽 · 专业 desk 补强（p763） ——— */
+/* ——— 研究枢纽 · 专业 desk 补强（p763 / p770） ——— */
 .quant-page .quant-factor-analysis-grid {
   display: grid;
   grid-template-columns: 1.2fr 1fr;
-  gap: 12px;
-  margin-top: 8px;
+  gap: 8px;
+  margin-top: 6px;
 }
 @media (max-width: 900px) {
   .quant-page .quant-factor-analysis-grid {
@@ -14870,9 +14917,9 @@ html[data-theme="dark"] .dashboard-sector-legend span {
 .quant-page .quant-factor-ir-host {
   min-height: 100px;
   padding: 6px;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  background: var(--surface);
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 96%, var(--line));
   overflow-x: auto;
 }
 .quant-page .quant-inline-select {
@@ -14977,4 +15024,236 @@ html[data-theme="dark"] .strategy-page .strategy-secondary-band {
 html[data-theme="dark"] .strategy-page .strategy-card-head {
   background: rgba(255, 255, 255, 0.03);
   border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   研究枢纽 · Research Desk 报告轨（对齐仪表盘 / 策略中心）
+   ═══════════════════════════════════════════════════════════ */
+
+.quant-page {
+  --quant-gap: 8px;
+  --quant-gap-lg: 12px;
+  gap: var(--quant-gap-lg);
+  font-size: 0.84rem;
+  letter-spacing: -0.005em;
+}
+
+.quant-page .quant-path-rail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 10px;
+  margin: 0 0 4px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--accent, #2563eb) 4%, var(--surface));
+}
+.quant-page .quant-path-step {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  text-decoration: none;
+  padding: 2px 0;
+}
+.quant-page .quant-path-step:hover {
+  color: var(--accent, #2563eb);
+}
+.quant-page .quant-path-sep {
+  font-size: 0.68rem;
+  color: var(--ink-3);
+  user-select: none;
+}
+.quant-page .quant-path-note {
+  margin-left: auto;
+  font-size: 0.62rem;
+  color: var(--ink-3);
+  letter-spacing: 0.02em;
+}
+
+.quant-page .quant-hero-lead {
+  margin: 0 0 2px;
+  max-width: 56em;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+.quant-page .quant-hero-lead strong {
+  color: var(--ink-2);
+  font-weight: 650;
+}
+
+/* 主路径块：左轨报告卡 */
+.quant-page > .quant-section.quant-section-primary {
+  padding: 10px 12px 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent, #2563eb) 62%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 97%, var(--line));
+  gap: 8px;
+}
+.quant-page > .quant-section.quant-section-primary .quant-section-title.watching-section-title {
+  color: var(--ink);
+}
+
+/* 次要分析分隔 */
+.quant-page .quant-secondary-band {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 6px 0 0;
+  padding: 10px 2px 2px;
+  border-top: 1px dashed color-mix(in srgb, var(--line) 90%, transparent);
+}
+.quant-page .quant-secondary-band-title {
+  margin: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+.quant-page .quant-secondary-band-desc {
+  margin: 0;
+  font-size: 0.66rem;
+  color: var(--ink-3);
+}
+
+.quant-page > .quant-section.quant-section-secondary {
+  padding: 4px 2px 2px;
+  gap: 6px;
+  opacity: 0.98;
+}
+.quant-page > .quant-section.quant-section-secondary .quant-section-title.watching-section-title {
+  color: var(--ink-2);
+}
+.quant-page > .quant-section.quant-section-secondary .quant-section-title.watching-section-title::before {
+  background: color-mix(in srgb, var(--ink-3) 70%, transparent);
+}
+
+/* 主路径 fold：开合面板，summary 作状态条 */
+.quant-page .quant-fold-panel {
+  margin: 0;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border-radius: 2px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.quant-page .quant-fold-panel > summary.quant-panel-status,
+.quant-page .quant-fold-panel > summary {
+  list-style: none;
+  cursor: pointer;
+  padding: 5px 10px;
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+  background: color-mix(in srgb, var(--ink) 3%, var(--surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+.quant-page .quant-fold-panel > summary::-webkit-details-marker {
+  display: none;
+}
+.quant-page .quant-fold-panel > summary::after {
+  content: "▾";
+  float: right;
+  opacity: 0.55;
+  font-size: 0.62rem;
+}
+.quant-page .quant-fold-panel:not([open]) > summary::after {
+  content: "▸";
+}
+.quant-page .quant-fold-panel-body,
+.quant-page .quant-fold-panel .quant-ic-compare-body {
+  padding: 8px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.quant-page .quant-fold-panel .quant-control-band {
+  margin: 0;
+}
+
+/* 帮助折叠：降噪 */
+.quant-page .quant-help-fold {
+  margin: 0;
+  border: none;
+  background: transparent;
+}
+.quant-page .quant-help-fold > summary {
+  font-size: 0.66rem;
+  color: var(--ink-3);
+  padding: 2px 0;
+  cursor: pointer;
+}
+.quant-page .quant-help-body {
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--ink-2);
+  padding: 6px 0 2px;
+  max-width: 62em;
+}
+.quant-page .quant-help-body h4 {
+  margin: 10px 0 4px;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* 次要 fold 扁直角 */
+.quant-page > .quant-section.quant-section-secondary > .quant-fold {
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border-radius: 2px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.quant-page > .quant-section.quant-section-secondary > .quant-fold > summary {
+  padding: 6px 10px;
+  font-size: 0.7rem;
+  color: var(--ink-2);
+  background: color-mix(in srgb, var(--ink) 2.5%, var(--surface));
+}
+
+.quant-page .quant-analysis-panel {
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border-radius: 2px;
+  padding: 6px 8px;
+  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 96%, var(--line));
+}
+@media (max-width: 900px) {
+  .quant-page .quant-ic-compare-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .quant-ic-kpi {
+    border-right: none;
+    border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  }
+}
+
+html[data-theme="dark"] .quant-page .quant-path-rail {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--accent, #3b82f6) 8%, #1a1a1a);
+}
+html[data-theme="dark"] .quant-page > .quant-section.quant-section-primary {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #1e1e1e;
+}
+html[data-theme="dark"] .quant-page .quant-fold-panel,
+html[data-theme="dark"] .quant-page > .quant-section.quant-section-secondary > .quant-fold {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #252526;
+}
+html[data-theme="dark"] .quant-page .quant-control-band,
+html[data-theme="dark"] .factor-ic-series-host,
+html[data-theme="dark"] .quant-ic-compare-chart,
+html[data-theme="dark"] .quant-ic-compare-stats {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #252526;
+}
+html[data-theme="dark"] .quant-page .quant-secondary-band {
+  border-top-color: rgba(255, 255, 255, 0.08);
 }

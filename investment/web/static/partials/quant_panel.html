@@ -4,6 +4,10 @@
     <h2>研究枢纽</h2>
     <p id="quant-meta" class="quant-meta" aria-live="polite">同组同建模 · 异组异建模 · 不写 signal_config</p>
   </div>
+  <div class="quant-head-actions">
+    <span class="quant-desk-badge" title="研究输出不写生产配置">只读研究</span>
+    <span class="quant-desk-note">OOS 过门 ≠ promote</span>
+  </div>
 </div>
 
 <div class="quant-body quant-page">
@@ -15,7 +19,14 @@
     <a class="quant-path-step" href="#quant-section-score-review">③ 复盘</a>
     <span class="quant-path-note">次要区段默认折叠</span>
   </nav>
-<section class="quant-section quant-section-primary" id="quant-section-factors" aria-labelledby="quant-section-factors-title">
+
+  <p class="quant-hero-lead">
+    主路径：观察池按 OLS β <strong>分组建模</strong> → 截面 IC <strong>时序稳定性</strong> → ŷ 方向 <strong>昨日复盘</strong>。
+    探针 / 对照 / 日报 / 因子分析 / 纸面拟合为次要分析。
+  </p>
+
+  <!-- ① 分组 -->
+  <section class="quant-section quant-section-primary" id="quant-section-factors" aria-labelledby="quant-section-factors-title">
     <header class="quant-section-head">
       <div class="quant-section-toolbar">
         <h3 id="quant-section-factors-title" class="quant-section-title watching-section-title">分组</h3>
@@ -137,7 +148,9 @@
     <button type="button" id="quant-ols-run" class="sr-only" tabindex="-1" aria-hidden="true">单票 OLS</button>
     <button type="button" id="quant-cs-ic-run" class="sr-only" tabindex="-1" aria-hidden="true">截面 IC</button>
   </section>
-<section class="quant-section quant-ic-compare quant-section-primary" id="quant-section-ic-series" aria-labelledby="quant-section-ic-series-title">
+
+  <!-- ② 时序 -->
+  <section class="quant-section quant-ic-compare quant-section-primary" id="quant-section-ic-series" aria-labelledby="quant-section-ic-series-title">
     <header class="quant-section-head">
       <div class="quant-section-toolbar">
         <h3 id="quant-section-ic-series-title" class="quant-section-title watching-section-title">时序对比</h3>
@@ -146,10 +159,10 @@
         </p>
       </div>
     </header>
-    <details class="quant-fold" id="quant-ic-series-fold" open>
-      <summary id="quant-ic-series-fold-summary">时序对比 · IC 曲线与排序</summary>
+    <details class="quant-fold quant-fold-panel" id="quant-ic-series-fold" open>
+      <summary id="quant-ic-series-fold-summary" class="quant-panel-status">IC 曲线与排序</summary>
       <div class="quant-ic-compare-body">
-        <div class="quant-actions-inline quant-ic-compare-actions">
+        <div class="quant-actions-inline quant-ic-compare-actions quant-control-band quant-control-band-compact">
           <button type="button" id="quant-ic-series-run" class="dialog-btn">计算</button>
           <select id="quant-ic-series-lookback" class="dialog-btn secondary quant-inline-select">
             <option value="30">近30日</option>
@@ -166,7 +179,9 @@
       </div>
     </details>
   </section>
-<section class="quant-section quant-section-primary" id="quant-section-score-review" aria-labelledby="quant-section-score-review-title">
+
+  <!-- ③ 复盘 -->
+  <section class="quant-section quant-section-primary" id="quant-section-score-review" aria-labelledby="quant-section-score-review-title">
     <header class="quant-section-head">
       <div class="quant-section-toolbar">
         <h3 id="quant-section-score-review-title" class="quant-section-title watching-section-title">昨日复盘</h3>
@@ -175,44 +190,42 @@
         </p>
       </div>
     </header>
-    <details class="quant-fold" id="quant-score-review-fold" open>
-      <summary id="quant-score-review-fold-summary">方向命中 · 错票归因</summary>
-      <div class="quant-section">
+    <details class="quant-fold quant-fold-panel" id="quant-score-review-fold" open>
+      <summary id="quant-score-review-fold-summary" class="quant-panel-status">方向命中 · 错票归因</summary>
+      <div class="quant-fold-panel-body">
         <div class="quant-control-band quant-control-band-compact">
-          <div class="quant-section-toolbar">
-            <div class="quant-actions-inline">
-              <label class="quant-inline-label">
-                决策日
-                <input
-                  type="date"
-                  id="quant-score-review-asof"
-                  class="quant-inline-input"
-                  title="as_of：打分决策日"
-                />
-              </label>
-              <label class="quant-inline-label">
-                horizon
-                <select id="quant-score-review-horizon" class="quant-inline-input" title="前瞻收益天数">
-                  <option value="1">1 日</option>
-                  <option value="3" selected>3 日</option>
-                </select>
-              </label>
-              <button type="button" id="quant-score-review-run" class="dialog-btn">刷新复盘</button>
-              <button type="button" id="quant-score-review-fill" class="dialog-btn secondary">
-                回填收益
-              </button>
-              <button type="button" id="quant-score-ledger-freeze" class="dialog-btn secondary">
-                冻结今日打分
-              </button>
-              <button
-                type="button"
-                id="quant-score-review-refit"
-                class="dialog-btn secondary"
-                title="滚动到「跑分组」并触发重估组 β（不自动改权）"
-              >
-                建议重估
-              </button>
-            </div>
+          <div class="quant-actions-inline">
+            <label class="quant-inline-label">
+              决策日
+              <input
+                type="date"
+                id="quant-score-review-asof"
+                class="quant-inline-input"
+                title="as_of：打分决策日"
+              />
+            </label>
+            <label class="quant-inline-label">
+              horizon
+              <select id="quant-score-review-horizon" class="quant-inline-input" title="前瞻收益天数">
+                <option value="1">1 日</option>
+                <option value="3" selected>3 日</option>
+              </select>
+            </label>
+            <button type="button" id="quant-score-review-run" class="dialog-btn">刷新复盘</button>
+            <button type="button" id="quant-score-review-fill" class="dialog-btn secondary">
+              回填收益
+            </button>
+            <button type="button" id="quant-score-ledger-freeze" class="dialog-btn secondary">
+              冻结今日打分
+            </button>
+            <button
+              type="button"
+              id="quant-score-review-refit"
+              class="dialog-btn secondary"
+              title="滚动到「跑分组」并触发重估组 β（不自动改权）"
+            >
+              建议重估
+            </button>
           </div>
         </div>
         <p id="quant-score-review-status" class="quant-fingerprint">尚未加载</p>
@@ -242,11 +255,14 @@
       </div>
     </details>
   </section>
+
   <header class="quant-secondary-band">
     <h3 class="quant-secondary-band-title">次要分析</h3>
     <p class="quant-secondary-band-desc">探针 · 对照 · 日报 · 因子分析 · 纸面拟合</p>
   </header>
-<section class="quant-section quant-section-secondary" aria-labelledby="quant-section-probe-title">
+
+  <!-- 探针 -->
+  <section class="quant-section quant-section-secondary" aria-labelledby="quant-section-probe-title">
     <header class="quant-section-head">
       <div class="quant-section-toolbar">
         <h3 id="quant-section-probe-title" class="quant-section-title watching-section-title">探针</h3>
@@ -301,7 +317,9 @@
       </div>
     </details>
   </section>
-<section class="quant-section quant-section-secondary" aria-labelledby="quant-section-global-title">
+
+  <!-- 对照 -->
+  <section class="quant-section quant-section-secondary" aria-labelledby="quant-section-global-title">
     <header class="quant-section-head">
       <div class="quant-section-toolbar">
         <h3 id="quant-section-global-title" class="quant-section-title watching-section-title">对照</h3>
@@ -338,7 +356,9 @@
       </div>
     </details>
   </section>
-<section class="quant-section quant-section-secondary" aria-labelledby="quant-section-daily-title">
+
+  <!-- 日报 -->
+  <section class="quant-section quant-section-secondary" aria-labelledby="quant-section-daily-title">
     <header class="quant-section-head">
       <div class="quant-section-toolbar">
         <h3 id="quant-section-daily-title" class="quant-section-title watching-section-title">日报</h3>
@@ -375,7 +395,9 @@
       </div>
     </details>
   </section>
-<section class="quant-section quant-section-secondary" aria-labelledby="quant-section-factor-analysis-title">
+
+  <!-- 因子分析 -->
+  <section class="quant-section quant-section-secondary" aria-labelledby="quant-section-factor-analysis-title">
     <header class="quant-section-head">
       <div class="quant-section-toolbar">
         <h3 id="quant-section-factor-analysis-title" class="quant-section-title watching-section-title">因子分析</h3>
@@ -405,7 +427,9 @@
       </div>
     </details>
   </section>
-<section class="quant-section quant-section-secondary" aria-labelledby="quant-section-fit-gap-title">
+
+  <!-- 纸面拟合 -->
+  <section class="quant-section quant-section-secondary" aria-labelledby="quant-section-fit-gap-title">
     <header class="quant-section-head">
       <div class="quant-section-toolbar">
         <h3 id="quant-section-fit-gap-title" class="quant-section-title watching-section-title">纸面拟合</h3>
