@@ -104,7 +104,6 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "role": "prior",
         "prior": {
             "mode": "off",
-            "bearish_score_min": 0.6,
             "block_new_buys": False,
             "scale_buy_pct": 0.5,
             "scale_holds": False,

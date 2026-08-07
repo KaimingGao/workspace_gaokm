@@ -49,8 +49,7 @@ export function installStrategy(q) {
       `${priorModeLabel(mode)}（${mode}）`,
       "ŷ 不变",
     ];
-    const t = Number(p.bearish_score_min);
-    if (Number.isFinite(t)) bits.push(`阈值 ${t}`);
+    bits.push("看空即触发");
     if (mode === "gate") {
       if (p.block_new_buys) bits.push("禁止新开仓");
       else {
@@ -78,11 +77,6 @@ export function installStrategy(q) {
     if (scaleEl) {
       const s = Number(p.scale_buy_pct);
       scaleEl.value = Number.isFinite(s) ? String(Math.round(s * 100)) : "50";
-    }
-    const thrEl = document.getElementById("strategy-prior-thr");
-    if (thrEl) {
-      const t = Number(p.bearish_score_min);
-      thrEl.value = Number.isFinite(t) ? String(t) : "0.6";
     }
     syncPriorGateOptsVisibility();
   }
@@ -122,12 +116,9 @@ export function installStrategy(q) {
     const blockEl = document.getElementById("strategy-prior-block-buys");
     const holdsEl = document.getElementById("strategy-prior-scale-holds");
     const scaleEl = document.getElementById("strategy-prior-scale");
-    const thrEl = document.getElementById("strategy-prior-thr");
     let scalePct = scaleEl && scaleEl.value !== "" ? Number(scaleEl.value) : 50;
     if (!Number.isFinite(scalePct)) scalePct = 50;
     const scale = Math.max(0, Math.min(scalePct, 100)) / 100;
-    let thr = thrEl && thrEl.value !== "" ? Number(thrEl.value) : 0.6;
-    if (!Number.isFinite(thr)) thr = 0.6;
     const modeLabel = priorModeLabel(mode);
     if (
       !window.confirm(
@@ -143,7 +134,6 @@ export function installStrategy(q) {
           mode === "gate" && holdsEl && holdsEl.checked
             ? `· 已持仓同步缩至 ${Math.round(scale * 100)}%`
             : "",
-          `· 看空阈值 S ≥ ${thr}`,
           "",
           "契约：不改 predicted_score（ŷ）；不改 weights。",
         ]
@@ -157,7 +147,6 @@ export function installStrategy(q) {
     try {
       const body = {
         mode,
-        bearish_score_min: thr,
         note: "策略中心人审·舆情先验",
       };
       if (mode === "gate") {

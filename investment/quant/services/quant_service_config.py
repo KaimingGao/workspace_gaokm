@@ -102,7 +102,6 @@ class QuantConfigMixin:
         self,
         *,
         mode: Optional[str] = None,
-        bearish_score_min: Optional[float] = None,
         block_new_buys: Optional[bool] = None,
         scale_buy_pct: Optional[float] = None,
         scale_holds: Optional[bool] = None,
@@ -112,7 +111,6 @@ class QuantConfigMixin:
 
         return _save(
             mode=mode,
-            bearish_score_min=bearish_score_min,
             block_new_buys=block_new_buys,
             scale_buy_pct=scale_buy_pct,
             scale_holds=scale_holds,

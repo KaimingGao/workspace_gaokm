@@ -1,5 +1,11 @@
 /**
- * 研究枢纽 · 回测–纸面拟合落差（常驻，不依赖刚跑完 TopK）。
+ * 研究枢纽 · 纸面拟合（常驻，不依赖刚跑完 TopK）。
+ *
+ * 用途：对比两条独立收益曲线——历史回测日收益（/replay 的 Top-K 组合回测引擎产出）
+ * 与纸面交易实际持仓日收益（/follow 页 paper.json），输出 Corr（相关系数）、
+ * TE（跟踪误差）、Δpp（日收益缺口），并标记 |gap_pp|≥1% 的显著缺口日。
+ * 用于识别回测过拟合、执行延迟、未建模成本/规则等问题。
+ * 轻量诊断工具，非完整回测，聚焦回测与纸面的对齐度。
  */
 import { renderMultiLineChart, renderLineChart } from "../lw_charts.js";
 
@@ -210,7 +216,7 @@ export function installFitGapHub(ctx) {
     const fold = document.getElementById("quant-fit-gap-fold");
     if (fold) fold.open = true;
     setStatus("拟合计算中…", { busy: true });
-    if (setQuantMeta) setQuantMeta("回测–纸面拟合计算中…", { busy: true });
+    if (setQuantMeta) setQuantMeta("纸面拟合计算中…", { busy: true });
     try {
       const res = await fetch("/api/ops/fit-gap", {
         method: "POST",

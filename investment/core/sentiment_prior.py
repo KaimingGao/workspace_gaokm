@@ -15,10 +15,9 @@ PRIOR_REASON = "sentiment_prior_bearish"
 
 DEFAULT_PRIOR = {
     "mode": "off",  # off | risk | gate
-    "bearish_score_min": 0.6,
     "block_new_buys": False,
     "scale_buy_pct": 0.5,
-    "scale_holds": False,  # gate：强看空时已持仓也缩至 scale_buy_pct
+    "scale_holds": False,  # gate：看空时已持仓也缩至 scale_buy_pct
     "warn_only": True,
 }
 
@@ -45,10 +44,7 @@ def get_sentiment_prior_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     raw = dict(DEFAULT_PRIOR)
     raw.update(dict(sent.get("prior") or {}))
     raw["mode"] = normalize_prior_mode(raw.get("mode"))
-    try:
-        raw["bearish_score_min"] = float(raw.get("bearish_score_min") or 0.6)
-    except (TypeError, ValueError):
-        raw["bearish_score_min"] = 0.6
+    raw.pop("bearish_score_min", None)  # 已废弃：看空即触发，清理旧配置残留
     try:
         scale = float(raw.get("scale_buy_pct") if raw.get("scale_buy_pct") is not None else 0.5)
     except (TypeError, ValueError):
@@ -63,6 +59,7 @@ def get_sentiment_prior_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
 
 
 def _bearish_strength(sentiment: Optional[dict]) -> Optional[float]:
+    """提取 bearish 情绪的 score（仅用于展示；active 判定只看 label）。"""
     if not isinstance(sentiment, dict):
         return None
     if str(sentiment.get("label") or "") != "bearish":
@@ -79,13 +76,13 @@ def build_sentiment_prior(
     config: Optional[dict] = None,
     stock_code: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """由规则情绪快照构建先验；actions 不含任何改 ŷ 字段。"""
+    """由规则情绪快照构建先验；看空(bearish)即触发，actions 不含任何改 ŷ 字段。"""
     prior_cfg = get_sentiment_prior_cfg(config)
     mode = prior_cfg["mode"]
-    thr = float(prior_cfg["bearish_score_min"])
     label = str((sentiment or {}).get("label") or "neutral") if sentiment else "neutral"
     score = _bearish_strength(sentiment)
-    active = score is not None and score >= thr - 1e-12
+    # 看空即触发缩仓/拦截，不再依赖 score ≥ 阈值
+    active = label == "bearish"
 
     actions: List[Dict[str, Any]] = []
     risk_hints: List[Dict[str, Any]] = []
@@ -100,7 +97,7 @@ def build_sentiment_prior(
             "label": "bearish",
             "score": score,
             "reason": PRIOR_REASON,
-            "note": f"{note_base} · 风险偏高（≥{thr}）",
+            "note": f"{note_base} · 看空",
         }
         # off 也给 UI 提示；policy 动作仅 risk/gate
         risk_hints.append(hint)
@@ -154,7 +151,6 @@ def build_sentiment_prior(
         "label": label,
         "score": score,
         "active": bool(active),
-        "threshold": thr,
         "actions": actions,
         "risk_hints": risk_hints,
         "warnings": warnings,

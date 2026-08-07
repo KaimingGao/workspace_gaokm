@@ -103,9 +103,8 @@
     "include_in_score": false,
     "role": "prior",
     "prior": {
-      "mode": "gate",
-      "bearish_score_min": 0.6,
-      "block_new_buys": false,
+        "mode": "gate",
+        "block_new_buys": false,
       "scale_buy_pct": 0.6,
       "scale_holds": true,
       "warn_only": true

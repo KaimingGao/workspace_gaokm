@@ -382,6 +382,88 @@ def build_north_star_report(
     risk_eff = summarize_risk_blocks(paper.get("operation_log") or [])
     align_meta = ((bt_pack or {}).get("meta") or {}).get("align") if bt_pack else None
 
+    # ===== R1 增强：滚动拟合 / 三项乘积 / TTM 瓶颈 / 拦截审计 / 退化告警 =====
+    r1: Dict[str, Any] = {}
+    try:
+        from core.north_star_pro import (
+            composite_north_star_score,
+            quantify_fit_gap_attribution,
+            rolling_realization,
+        )
+        from core.risk.block_audit import summarize_block_audit
+        from core.ttm_stages import summarize_ttm_stages
+        from core.backtest_curve_store import _paper_daily_equities, _curve_points
+        from core.risk_metrics import period_returns
+
+        # 拟合度趋势 + 缺口归因
+        roll = rolling_realization(snaps, curve or [], window=max(15, window // 4), step=max(5, window // 12))
+        gap_attr: Dict[str, Any] = {}
+        paper_pts = _paper_daily_equities(snaps)
+        bt_pts = _curve_points(list(curve or []))
+        pmap = {d: e for d, e in paper_pts}
+        bmap = {d: e for d, e in bt_pts}
+        common = sorted(set(pmap) & set(bmap))
+        if len(common) >= 5:
+            pe0, be0 = pmap[common[0]], bmap[common[0]]
+            if pe0 and be0 and pe0 > 0 and be0 > 0:
+                p_n = [pmap[d] / pe0 for d in common]
+                b_n = [bmap[d] / be0 for d in common]
+                prs = list(period_returns(p_n))
+                brs = list(period_returns(b_n))
+                if len(prs) >= 3:
+                    gap_attr = quantify_fit_gap_attribution(prs, brs, cost_pct=0.05)
+        r1["fit_roll"] = roll
+        r1["fit_gap_attribution"] = gap_attr
+
+        # 三项乘积综合分
+        sharpe_r0 = (paper_risk or {}).get("rolling_sharpe")
+        corr_r0 = (realization or {}).get("corr")
+        te_r0 = (realization or {}).get("tracking_error_pct")
+        ttm_r0 = (ttm or {}).get("median_idea_to_paper_hours")
+        composite = composite_north_star_score(
+            sharpe=sharpe_r0, ttm_hours=ttm_r0, corr=corr_r0, te=te_r0,
+        )
+        r1["composite"] = composite
+
+        # TTM 阶段瓶颈
+        try:
+            ttm_stage = summarize_ttm_stages()
+        except Exception:
+            ttm_stage = None
+        r1["ttm_stage"] = ttm_stage
+
+        # 拦截复核审计
+        op_log = list(paper.get("operation_log") or [])
+        try:
+            block_audit_summary = summarize_block_audit(op_log)
+        except Exception:
+            block_audit_summary = None
+        r1["block_audit"] = block_audit_summary
+
+        # 退化告警（用 fit_roll 的 corr 趋势）
+        corr_series = [t.get("corr") for t in roll.get("trend", []) if t.get("corr") is not None]
+        # Sharpe 退化近似：用 snapshots 日收益的滚动夏普（粗粒度）
+        sharpe_series: list = []
+        if len(paper_pts) >= 15:
+            from core.risk_metrics import rolling_sharpe as _rs
+            eq_series = [e for _, e in paper_pts]
+            if len(eq_series) >= 8:
+                rs_raw = list(_rs([(e / eq_series[0] - 1) for e in eq_series], window=7))
+                sharpe_series = [v for v in rs_raw if v is not None]
+        # TTM 系列退化：从 events 构造的瓶颈时间序列（这里取 ttm_stage 的周吞吐近似）
+        ttm_series: list = []
+        if isinstance(ttm_stage, dict) and isinstance(ttm_stage.get("trend"), dict):
+            tr = ttm_stage["trend"]
+            if tr.get("recent_median_h") is not None and tr.get("baseline_median_h") is not None:
+                ttm_series = [float(tr["baseline_median_h"]), float(tr["recent_median_h"])]
+        try:
+            from core.north_star_pro import north_star_degradation_report
+            r1["degradation"] = north_star_degradation_report(sharpe_series, corr_series, ttm_series, window=3)
+        except Exception:
+            r1["degradation"] = {"alerts": {}, "any_degrading": False, "degrading_dimensions": []}
+    except Exception as _exc:
+        r1["error"] = f"R1增强计算异常: {_exc}"
+
     return {
         "ok": True,
         "computed_at": datetime.now().isoformat(timespec="seconds"),
@@ -404,8 +486,9 @@ def build_north_star_report(
             "empty": not bool(curve),
             "align": align_meta,
         },
+        "r1": r1,
         "note": (
             "E 轨：全账户 vs 策略 scope 分列；缺样本为 unavailable；"
-            "拦截有效率需 outcome 标注。"
+            "拦截有效率需 outcome 标注。R1=拟合趋势/缺口归因/三项乘积/TTM瓶颈/拦截审计/退化告警。"
         ),
     }

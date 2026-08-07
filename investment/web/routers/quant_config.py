@@ -80,7 +80,6 @@ def signal_config_sentiment_prior_save(body: SentimentPriorRequest):
     try:
         out = deps.quant.save_sentiment_prior(
             mode=body.mode,
-            bearish_score_min=body.bearish_score_min,
             block_new_buys=body.block_new_buys,
             scale_buy_pct=body.scale_buy_pct,
             scale_holds=body.scale_holds,

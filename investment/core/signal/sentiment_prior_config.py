@@ -17,7 +17,6 @@ def read_sentiment_prior_public(*, config: Optional[dict] = None) -> Dict[str, A
         "role": "prior",
         "include_in_score": bool(cfg.get("include_in_score", False)),
         "mode": cfg["mode"],
-        "bearish_score_min": float(cfg["bearish_score_min"]),
         "block_new_buys": bool(cfg["block_new_buys"]),
         "scale_buy_pct": float(cfg["scale_buy_pct"]),
         "scale_holds": bool(cfg.get("scale_holds", False)),
@@ -29,7 +28,6 @@ def read_sentiment_prior_public(*, config: Optional[dict] = None) -> Dict[str, A
 def save_sentiment_prior(
     *,
     mode: Optional[str] = None,
-    bearish_score_min: Optional[float] = None,
     block_new_buys: Optional[bool] = None,
     scale_buy_pct: Optional[float] = None,
     scale_holds: Optional[bool] = None,
@@ -55,10 +53,7 @@ def save_sentiment_prior(
         m = normalize_prior_mode(mode)
         prior["mode"] = m
         changed["mode"] = m
-    if bearish_score_min is not None:
-        thr = max(0.0, min(float(bearish_score_min), 1.0))
-        prior["bearish_score_min"] = thr
-        changed["bearish_score_min"] = thr
+    prior.pop("bearish_score_min", None)  # 向前清理旧配置残留
     if block_new_buys is not None:
         prior["block_new_buys"] = bool(block_new_buys)
         changed["block_new_buys"] = bool(block_new_buys)
@@ -73,7 +68,7 @@ def save_sentiment_prior(
     if not changed:
         return {
             "success": False,
-            "error": "未提供可写字段（mode / bearish_score_min / block_new_buys / scale_buy_pct / scale_holds）",
+            "error": "未提供可写字段（mode / block_new_buys / scale_buy_pct / scale_holds）",
             "signal_config_weights_touched": False,
         }
 

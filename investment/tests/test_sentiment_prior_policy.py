@@ -30,7 +30,7 @@ class TestSentimentPriorPolicy(unittest.TestCase):
                 "sentiment": {
                     "include_in_score": False,
                     "role": "prior",
-                    "prior": {"mode": "off", "bearish_score_min": 0.6},
+                    "prior": {"mode": "off"},
                 }
             }
         ):
@@ -52,7 +52,6 @@ class TestSentimentPriorPolicy(unittest.TestCase):
                     "include_in_score": False,
                     "prior": {
                         "mode": "gate",
-                        "bearish_score_min": 0.6,
                         "block_new_buys": True,
                         "scale_buy_pct": 0.5,
                     },
@@ -75,7 +74,6 @@ class TestSentimentPriorPolicy(unittest.TestCase):
                     "include_in_score": False,
                     "prior": {
                         "mode": "gate",
-                        "bearish_score_min": 0.6,
                         "block_new_buys": False,
                         "scale_buy_pct": 0.5,
                     },
@@ -97,7 +95,6 @@ class TestSentimentPriorPolicy(unittest.TestCase):
                     "include_in_score": False,
                     "prior": {
                         "mode": "gate",
-                        "bearish_score_min": 0.6,
                         "block_new_buys": False,
                         "scale_buy_pct": 0.6,
                         "scale_holds": True,
@@ -202,7 +199,6 @@ class TestSentimentPriorPolicy(unittest.TestCase):
                         "role": "prior",
                         "prior": {
                             "mode": mode,
-                            "bearish_score_min": 0.6,
                             "block_new_buys": True,
                         },
                     },

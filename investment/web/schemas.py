@@ -382,7 +382,6 @@ class SentimentPriorRequest(BaseModel):
     """舆情先验旁路（不进 ŷ）；人审写 sentiment.prior。"""
 
     mode: Optional[str] = Field(default=None, description="off | risk | gate")
-    bearish_score_min: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     block_new_buys: Optional[bool] = None
     scale_buy_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     scale_holds: Optional[bool] = None

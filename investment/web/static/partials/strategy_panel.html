@@ -112,22 +112,10 @@
       <div class="strategy-prior-col strategy-prior-col-params">
         <p class="strategy-prior-label">触发与 Gate</p>
         <div class="strategy-prior-params">
-          <label class="strategy-prior-field">
-            <span class="strategy-prior-field-title">看空阈值</span>
-            <span class="strategy-prior-field-hint">规则风险分 S ≥ 阈值视为强看空</span>
-            <span class="strategy-prior-field-ctrl">
-              <input
-                id="strategy-prior-thr"
-                type="number"
-                min="0"
-                max="1"
-                step="0.05"
-                class="platform-input"
-                title="bearish_score_min"
-              />
-              <span class="strategy-prior-unit">S</span>
-            </span>
-          </label>
+          <div class="strategy-prior-field">
+            <span class="strategy-prior-field-title">触发条件</span>
+            <span class="strategy-prior-field-hint">看空(bearish)即触发，不看分数阈值</span>
+          </div>
           <div id="strategy-prior-gate-opts" class="strategy-prior-gate-only" hidden>
             <label class="strategy-prior-field strategy-prior-field-check">
               <input type="checkbox" id="strategy-prior-block-buys" />
