@@ -108,6 +108,87 @@ class TestDashboardPaperContract(unittest.TestCase):
         self.assertIn("ic_mean", summary)
         self.assertEqual(summary["factor_count"], 2)
 
+    def test_var_historical_range_param_does_not_shadow_builtin(self):
+        from web.routers import quant_dashboard as qd
+
+        paper = {
+            "cash": 100000,
+            "holdings": [],
+            "trades": [],
+            "snapshots": [
+                {"ts": f"2026-07-{d:02d}T10:00:00", "equity": 100000 + d * 10}
+                for d in range(1, 20)
+            ],
+            "signal_log": [],
+            "operation_log": [],
+            "last_north_star": {"ok": True, "paper_risk": {}},
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "paper.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(paper, f)
+
+            class _P:
+                pass
+
+            fake = _P()
+            fake.path = path
+            with patch.object(qd.deps, "paper", fake):
+                out = qd.dashboard_var_historical(range_key="all")
+                self.assertTrue(out.get("ok"))
+                self.assertGreaterEqual(out.get("sample_count") or 0, 5)
+
+    def test_fetch_index_bars_bounded_timeout(self):
+        from web.routers import quant_dashboard as qd
+
+        def _hang(*_a, **_k):
+            import time
+
+            time.sleep(30)
+            return ([], "")
+
+        with patch("core.ports.market.fetch_index_bars", side_effect=_hang):
+            t0 = __import__("time").time()
+            bars = qd._fetch_index_bars_bounded("上证", limit=2, timeout_sec=0.6)
+            elapsed = __import__("time").time() - t0
+            self.assertEqual(bars, [])
+            self.assertLess(elapsed, 2.5)
+
+    def test_index_quotes_for_overview_from_batch(self):
+        from web.routers import quant_dashboard as qd
+
+        fake = {
+            "sh000001": {
+                "success": True,
+                "stock_name": "上证指数",
+                "price_raw": 3000.5,
+                "change_raw": 1.2,
+                "volume_raw": 1e8,
+            },
+            "sz399001": {
+                "success": True,
+                "stock_name": "深证成指",
+                "price_raw": 10000.0,
+                "change_raw": -0.5,
+                "volume_raw": 2e8,
+            },
+            "sz399006": {
+                "success": True,
+                "stock_name": "创业板指",
+                "price_raw": 2000.0,
+                "change": "+0.8%",
+                "volume_raw": 3e8,
+            },
+        }
+        with patch("core.ports.market.batch_query_quotes", return_value=fake):
+            rows = qd._index_quotes_for_overview()
+        self.assertEqual(len(rows), 3)
+        self.assertEqual(rows[0]["close"], 3000.5)
+        self.assertEqual(rows[0]["change_pct"], 1.2)
+        self.assertEqual(rows[1]["change_pct"], -0.5)
+        self.assertEqual(rows[2]["change_pct"], 0.8)
+
 
 if __name__ == "__main__":
     unittest.main()

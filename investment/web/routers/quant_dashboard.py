@@ -20,7 +20,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from web import deps
 
@@ -101,6 +101,43 @@ def _unpack_index_bars(raw: Any) -> List[dict]:
     if isinstance(raw, list):
         return raw
     return []
+
+
+def _fetch_index_bars_bounded(
+    code: str,
+    *,
+    limit: int = 2,
+    timeout_sec: float = 4.0,
+) -> List[dict]:
+    """带超时的指数日线；超时/失败返回 []，避免仪表盘整页卡住。
+
+    不用 ``ThreadPoolExecutor``（``shutdown(wait=True)`` 会在超时后继续等 worker）。
+    """
+    import threading
+
+    try:
+        from core.ports.market import fetch_index_bars
+    except Exception:
+        return []
+
+    box: Dict[str, Any] = {"raw": None, "err": None}
+    done = threading.Event()
+
+    def _worker() -> None:
+        try:
+            box["raw"] = fetch_index_bars(str(code or "").strip(), limit=int(limit))
+        except Exception as exc:
+            box["err"] = exc
+        finally:
+            done.set()
+
+    t = threading.Thread(target=_worker, daemon=True, name="dash-index-bars")
+    t.start()
+    if not done.wait(timeout=max(0.5, float(timeout_sec))):
+        return []
+    if box["err"] is not None:
+        return []
+    return _unpack_index_bars(box["raw"])
 
 
 def _build_kpis() -> Dict[str, Any]:
@@ -244,11 +281,6 @@ def _fetch_benchmark_curve(
     eq_curve: list,
 ) -> list:
     """抓取基准指数日线，归一到 100，返回 [{time, value}]。"""
-    try:
-        from core.ports.market import fetch_index_bars
-    except Exception:
-        return []
-
     if not eq_curve:
         return []
 
@@ -260,7 +292,8 @@ def _fetch_benchmark_curve(
     end_date = max(dates)
 
     try:
-        bars = _unpack_index_bars(fetch_index_bars(benchmark_code, limit=800))
+        # 仪表盘路径必须有超时；远端/AkShare 卡住时仍返回组合净值
+        bars = _fetch_index_bars_bounded(benchmark_code, limit=800, timeout_sec=5.0)
         if not bars:
             return []
 
@@ -442,11 +475,14 @@ def dashboard_drawdown(range: str = "all"):
 
 
 @router.get("/api/dashboard/var-historical")
-def dashboard_var_historical(range: str = "all"):
-    """历史模拟 VaR / CVaR 与收益直方图。"""
+def dashboard_var_historical(range_key: str = Query("all", alias="range")):
+    """历史模拟 VaR / CVaR 与收益直方图。
+
+    查询参数仍为 ``?range=``；参数名避开内置 ``range``，防止 ``'str' object is not callable``。
+    """
     try:
         paper = _load_raw_paper()
-        eq_curve = _filter_eq_by_range(_equity_curve_from_paper(paper), range)
+        eq_curve = _filter_eq_by_range(_equity_curve_from_paper(paper), range_key)
 
         equities = [e.get("equity") for e in eq_curve if e.get("equity") is not None]
         if len(equities) < 5:
@@ -460,8 +496,6 @@ def dashboard_var_historical(range: str = "all"):
 
         if len(rets) < 5:
             return {"ok": False, "message": "收益率数据不足"}
-
-        import math as _math
 
         n = len(rets)
         sorted_rets = sorted(rets)
@@ -485,8 +519,8 @@ def dashboard_var_historical(range: str = "all"):
         num_buckets = 20
         min_ret = min(rets)
         max_ret = max(rets)
-        bucket_range = max_ret - min_ret if max_ret > min_ret else 0.01
-        bucket_size = bucket_range / num_buckets
+        bucket_span = max_ret - min_ret if max_ret > min_ret else 0.01
+        bucket_size = bucket_span / num_buckets
 
         histogram: List[Dict[str, Any]] = []
         for b in range(num_buckets):
@@ -1018,55 +1052,78 @@ def dashboard_allocation():
 # ——— Market Overview ———
 
 
-def _build_market_overview() -> Dict[str, Any]:
-    """市场监控：指数 / 涨跌家数 / 成交额 / 涨停跌停。"""
-    try:
-        from core.ports.market import fetch_index_bars
-    except Exception:
-        fetch_index_bars = None
-
-    indices: List[Dict[str, Any]] = []
-    # 使用别名表已识别的 key（不要用未映射的 sh000001 裸码）
-    index_codes = [
-        ("上证", "上证指数"),
-        ("深证", "深证成指"),
-        ("创业板", "创业板指"),
+def _index_quotes_for_overview() -> List[Dict[str, Any]]:
+    """仪表盘指数卡：优先腾讯现价（快），失败再退化空卡。"""
+    # (腾讯符号, 展示名, 内部 code)
+    specs = [
+        ("sh000001", "上证指数", "上证"),
+        ("sz399001", "深证成指", "深证"),
+        ("sz399006", "创业板指", "创业板"),
     ]
+    out: List[Dict[str, Any]] = []
+    quotes: Dict[str, Any] = {}
+    try:
+        from core.ports.market import batch_query_quotes
 
-    for code, name in index_codes:
-        try:
-            bars = _unpack_index_bars(
-                fetch_index_bars(code, limit=2) if fetch_index_bars else None
-            )
-            if bars and len(bars) >= 2:
-                cur = bars[-1]
-                prev = bars[-2]
-                close = float(cur.get("close", 0))
-                prev_close = float(prev.get("close", 0))
-                change_pct = ((close / prev_close - 1) * 100) if prev_close > 0 else 0
-                indices.append({
-                    "name": name,
-                    "code": code,
-                    "close": round(close, 2),
-                    "change_pct": round(change_pct, 2),
-                    "volume": float(cur.get("volume", 0) or 0),
-                })
-            else:
-                indices.append({
-                    "name": name,
-                    "code": code,
-                    "close": None,
-                    "change_pct": None,
-                    "volume": 0,
-                })
-        except Exception:
-            indices.append({
+        quotes = batch_query_quotes([s[0] for s in specs]) or {}
+    except Exception:
+        quotes = {}
+
+    for symbol, name, code in specs:
+        q = quotes.get(symbol) if isinstance(quotes, dict) else None
+        if not isinstance(q, dict):
+            # 个别失败时单拉一次（仍远快于 AkShare 日线）
+            try:
+                from core.ports.market import query_quote
+
+                q = query_quote(symbol) or {}
+            except Exception:
+                q = {}
+        close = None
+        change_pct = None
+        volume = 0.0
+        if isinstance(q, dict) and q.get("success") is not False:
+            raw = q.get("price_raw")
+            if raw is None and q.get("price") is not None:
+                try:
+                    raw = float(str(q.get("price")).replace("元", "").replace(",", ""))
+                except (TypeError, ValueError):
+                    raw = None
+            try:
+                close = float(raw) if raw is not None else None
+            except (TypeError, ValueError):
+                close = None
+            ch = q.get("change_raw")
+            if ch is None and isinstance(q.get("change"), str) and q["change"].endswith("%"):
+                try:
+                    ch = float(q["change"].rstrip("%").replace("+", ""))
+                except (TypeError, ValueError):
+                    ch = None
+            try:
+                change_pct = float(ch) if ch is not None else None
+            except (TypeError, ValueError):
+                change_pct = None
+            try:
+                volume = float(q.get("volume_raw") or 0)
+            except (TypeError, ValueError):
+                volume = 0.0
+            if q.get("stock_name"):
+                name = str(q.get("stock_name"))
+        out.append(
+            {
                 "name": name,
                 "code": code,
-                "close": None,
-                "change_pct": None,
-                "volume": 0,
-            })
+                "close": round(close, 2) if close is not None else None,
+                "change_pct": round(change_pct, 2) if change_pct is not None else None,
+                "volume": volume,
+            }
+        )
+    return out
+
+
+def _build_market_overview() -> Dict[str, Any]:
+    """市场监控：指数 / 涨跌家数 / 成交额 / 涨停跌停。"""
+    indices = _index_quotes_for_overview()
 
     # Market breadth from paper holdings (disk)
     paper = _load_raw_paper()
@@ -1078,6 +1135,8 @@ def _build_market_overview() -> Dict[str, Any]:
 
     for h in holdings:
         change = h.get("change_pct")
+        if change is None:
+            change = h.get("pnl_pct")
         if change is None:
             try:
                 mv = float(h.get("market_value") or 0)
@@ -1091,9 +1150,9 @@ def _build_market_overview() -> Dict[str, Any]:
             change = float(change or 0)
         except (TypeError, ValueError):
             change = 0.0
-        if change > 0:
+        if change > 0.01:
             up_count += 1
-        elif change < 0:
+        elif change < -0.01:
             down_count += 1
         else:
             flat_count += 1
@@ -1102,8 +1161,17 @@ def _build_market_overview() -> Dict[str, Any]:
         except (TypeError, ValueError):
             pass
 
-    limit_up = sum(1 for h in holdings if float(h.get("change_pct") or 0) >= 9.5)
-    limit_down = sum(1 for h in holdings if float(h.get("change_pct") or 0) <= -9.5)
+    limit_up = 0
+    limit_down = 0
+    for h in holdings:
+        try:
+            ch = float(h.get("change_pct") if h.get("change_pct") is not None else (h.get("pnl_pct") or 0))
+        except (TypeError, ValueError):
+            ch = 0.0
+        if ch >= 9.5:
+            limit_up += 1
+        elif ch <= -9.5:
+            limit_down += 1
 
     return {
         "ok": True,

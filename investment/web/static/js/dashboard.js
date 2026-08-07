@@ -102,8 +102,8 @@ function renderMarketOverview(market) {
     `);
   }
 
-  // Breadth cards
-  if (breadth.up_count || breadth.down_count) {
+  // Breadth cards — 有持仓就展示（含全平）
+  if (breadth.total_holdings || breadth.up_count || breadth.down_count || breadth.flat_count) {
     const total = breadth.total_holdings || 1;
     const upPct = (breadth.up_count / total * 100).toFixed(0);
     const downPct = (breadth.down_count / total * 100).toFixed(0);
@@ -111,7 +111,7 @@ function renderMarketOverview(market) {
       <div class="dashboard-market-card is-breadth">
         <span class="dashboard-market-label">涨跌家数</span>
         <span class="dashboard-market-value">${breadth.up_count || 0} / ${breadth.down_count || 0}</span>
-        <span class="dashboard-market-change">涨 ${upPct}% · 跌 ${downPct}%</span>
+        <span class="dashboard-market-change">涨 ${upPct}% · 跌 ${downPct}% · 平 ${breadth.flat_count || 0}</span>
       </div>
     `);
   }
@@ -655,19 +655,34 @@ function renderDrawdownChart(drawdownPoints) {
   const updated = document.getElementById("dashboard-updated");
   if (meta) meta.textContent = "加载中…";
 
+  const unwrap = (res, fallback = {}) => {
+    if (!res || res.ok === false) {
+      // apiFetch 失败：{ ok:false, data, error }；本地兜底也可能直接是 payload
+      if (res && res.data && typeof res.data === "object") return { ...fallback, ...res.data, ok: false };
+      return { ok: false, ...fallback };
+    }
+    if (res.data && typeof res.data === "object") return res.data;
+    return res;
+  };
+
+  const fetchDash = (url, fallback = {}) =>
+    apiFetch(url)
+      .then((res) => unwrap(res, fallback))
+      .catch(() => ({ ok: false, ...fallback }));
+
   try {
     const benchParam = showBenchmark ? "hs300" : "none";
     const [marketData, kpis, riskData, navData, sectors, signals, allocation, exposure, drawdownData, varData] = await Promise.all([
-        apiFetch(`/api/dashboard/market-overview`).catch(() => ({ ok: false })),
-        apiFetch(`/api/dashboard/kpis`).catch(() => ({ ok: false })),
-        apiFetch(`/api/dashboard/risk-metrics`).catch(() => ({ ok: false })),
-        apiFetch(`/api/dashboard/nav-curve?range=${range}&benchmark=${benchParam}`).catch(() => ({ points: [], benchmark_points: [] })),
-        apiFetch(`/api/dashboard/sector-heatmap`).catch(() => ({ sectors: [] })),
-        apiFetch(`/api/dashboard/signals`).catch(() => ({ signals: [] })),
-        apiFetch(`/api/dashboard/allocation`).catch(() => ({ sectors: [], total_value: 0 })),
-        apiFetch(`/api/dashboard/factor-exposure`).catch(() => ({ ok: false })),
-        apiFetch(`/api/dashboard/drawdown?range=${range}`).catch(() => ({ points: [] })),
-        apiFetch(`/api/dashboard/var-historical?range=${range}`).catch(() => ({ ok: false })),
+        fetchDash(`/api/dashboard/market-overview`),
+        fetchDash(`/api/dashboard/kpis`),
+        fetchDash(`/api/dashboard/risk-metrics`),
+        fetchDash(`/api/dashboard/nav-curve?range=${range}&benchmark=${benchParam}`, { points: [], benchmark_points: [] }),
+        fetchDash(`/api/dashboard/sector-heatmap`, { sectors: [] }),
+        fetchDash(`/api/dashboard/signals`, { signals: [] }),
+        fetchDash(`/api/dashboard/allocation`, { sectors: [], total_value: 0 }),
+        fetchDash(`/api/dashboard/factor-exposure`),
+        fetchDash(`/api/dashboard/drawdown?range=${range}`, { points: [] }),
+        fetchDash(`/api/dashboard/var-historical?range=${range}`),
       ]);
 
     // Render market overview

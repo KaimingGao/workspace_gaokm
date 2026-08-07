@@ -12504,22 +12504,15 @@ html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
   margin-bottom: 8px;
 }
 
-/* ——— 研究枢纽 tables 标题专业感 ——— */
+/* ——— 研究枢纽 tables 标题 ——— */
 .quant-page .quant-cluster-tables-head {
   margin: 14px 0 10px;
   padding: 0 2px 8px;
-  border-bottom: 2px solid color-mix(in srgb, var(--accent, #2563eb) 22%, var(--line));
+  border-bottom: 1px solid var(--line);
   position: relative;
 }
 .quant-page .quant-cluster-tables-head::after {
-  content: "";
-  position: absolute;
-  bottom: -2px;
-  left: 0;
-  width: 32%;
-  height: 2px;
-  background: var(--accent, #2563eb);
-  border-radius: 2px;
+  content: none;
 }
 .quant-page .quant-cluster-tables-label {
   font-size: 0.82rem;
@@ -12533,10 +12526,10 @@ html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
 .quant-page .quant-cluster-tables-label::before {
   content: "";
   display: inline-block;
-  width: 4px;
+  width: 3px;
   height: 0.85em;
-  background: linear-gradient(180deg, var(--accent, #2563eb), color-mix(in srgb, var(--accent, #2563eb) 60%, var(--ok)));
-  border-radius: 2px;
+  background: var(--accent, #2563eb);
+  border-radius: 1px;
   vertical-align: -0.05em;
 }
 .quant-page .quant-cluster-tables-head .sub {
@@ -13087,12 +13080,18 @@ html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
 
 /* NAV Chart */
 .dashboard-nav-card {
-  min-height: 320px;
+  min-height: 0;
+}
+.dashboard-nav-chart-host {
+  flex: 0 0 auto;
+  height: 180px;
+  min-height: 180px;
+  max-height: 180px;
 }
 .dashboard-chart-host {
   flex: 1;
   padding: 4px;
-  min-height: 240px;
+  min-height: 160px;
 }
 .dashboard-range-tabs {
   display: flex;
@@ -13532,8 +13531,9 @@ html[data-theme="dark"] .dashboard-card {
 /* ——— NAV Stats ——— */
 .dashboard-nav-stats {
   display: flex;
-  gap: 16px;
-  padding: 8px 14px;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+  padding: 6px 12px;
   border-top: 1px solid var(--line);
   background: color-mix(in srgb, var(--ink) 2%, var(--surface));
   font-size: 0.75rem;
