@@ -52,7 +52,7 @@ import { buildUniversePanelHtml } from "./quant/universe_ui.js";
 import { researchGridHtml, metricCell } from "./quant/research_grid.js";
 import { createPromoteHintsRenderer } from "./quant/promote_hints_ui.js";
 import { createFactorIcUi } from "./quant/factor_ic_ui.js";
-import { createOlsUi } from "./quant/ols_ui.js";
+import { createOlsUi } from "./quant/ols_ui.js?v=p798";
 import { createBtTablesUi } from "./quant/bt_tables.js";
 import { installWatching } from "./quant/domain_watching.js";
 import { installBacktest } from "./quant/domain_backtest.js";

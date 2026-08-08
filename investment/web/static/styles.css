@@ -3643,439 +3643,124 @@ html[data-theme="dark"] .yhat-spark-canvas {
 }
 
 /* 组内 ŷ 迷你直方图 */
-.yhat-group-hist {
-  margin: 8px 0 4px;
-  max-width: 480px;
-  padding: 6px 8px 5px;
-  border-radius: 6px;
-  border: 1px solid rgba(100, 116, 139, 0.16);
-  background:
-    linear-gradient(180deg, rgba(248, 250, 252, 0.95) 0%, rgba(241, 245, 249, 0.88) 100%);
-}
-html[data-theme="dark"] .yhat-group-hist {
-  background: linear-gradient(180deg, #1f1f1f 0%, #141414 100%);
-  border-color: rgba(255, 255, 255, 0.1);
-}
-.yhat-ghist-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  align-items: baseline;
-  font-size: 0.68rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--ink-3, #64748b);
-  margin-bottom: 4px;
-}
-.yhat-ghist-caption {
-  font-family: ui-sans-serif, system-ui, sans-serif;
-  font-weight: 650;
-  color: var(--ink-2, #475569);
-  letter-spacing: 0.02em;
-}
-.yhat-ghist-plot {
-  position: relative;
-  height: 52px;
-  margin: 0 2px;
-}
-.yhat-ghist-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 1px;
-  height: 100%;
-  padding: 0 1px;
-  box-sizing: border-box;
-  border-bottom: 1px solid rgba(100, 116, 139, 0.28);
-}
-.yhat-ghist-bar {
-  flex: 1 1 0;
-  min-width: 2px;
-  border-radius: 1px 1px 0 0;
-  align-self: flex-end;
-  opacity: 0.78;
-}
-.yhat-ghist-bar.is-empty {
-  height: 0 !important;
-  min-height: 0;
-  background: transparent;
-}
-.yhat-ghist-bar.pos { background: rgba(185, 28, 28, 0.72); }
-.yhat-ghist-bar.neg { background: rgba(4, 120, 87, 0.72); }
-.yhat-ghist-marks {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-}
-.yhat-ghist-mark {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 0;
-  border-left: 1px dashed transparent;
-  transform: translateX(-50%);
-}
-.yhat-ghist-mark.is-zero {
-  border-left-color: rgba(51, 65, 85, 0.55);
-  border-left-style: solid;
-}
-.yhat-ghist-mark.is-mu {
-  border-left-color: #1d4ed8;
-  border-left-style: solid;
-  border-left-width: 1.5px;
-}
-.yhat-ghist-mark.is-med {
-  border-left-color: #475569;
-}
-.yhat-ghist-axis {
-  display: flex;
-  justify-content: space-between;
-  margin: 2px 2px 0;
-  font-size: 0.62rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--ink-3, #64748b);
-}
-.yhat-ghist-legend {
-  display: flex;
-  gap: 10px;
-  margin-top: 2px;
-  font-size: 0.62rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--ink-3, #64748b);
-}
-.yhat-ghist-legend .is-mu { color: #1d4ed8; }
-.yhat-ghist-legend .is-med { color: #475569; }
-.yhat-ghist-legend .is-zero { color: #475569; }
 
-.yhat-group-hist.is-aux {
-  opacity: 0.88;
-  max-width: 360px;
-  margin-top: 4px;
-}
-.yhat-group-hist.is-aux .yhat-ghist-plot {
-  height: 36px;
-}
 
-.yhat-insight-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 10px;
-  margin: 8px 0 4px;
-  align-items: stretch;
-}
 
 /* —— 每组内 4 图统一网格（2×2） —— */
-.yhat-insight-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 8px;
-  margin: 8px 0 6px;
-}
 @media (max-width: 720px) {
-  .yhat-insight-grid {
-    grid-template-columns: 1fr;
-  }
-}
-.yhat-insight-grid .yhat-insight-card {
-  max-width: none;
-  min-width: 0;
-  margin: 0;
-  display: flex;
-  flex-direction: column;
 }
 /* 网格内：β lollipop / ŷ hist 去掉自带边框背景，由外层 card 统一 */
-.yhat-insight-grid .yhat-beta-lollipop,
-.yhat-insight-grid .yhat-group-hist {
-  max-width: none;
-  margin: 4px 0 0;
-  padding: 0;
-  border: none;
-  background: transparent;
-}
-.yhat-insight-grid .yhat-beta-lollipop .yhat-beta-axis {
-  margin-left: 4.8rem;
-}
-.yhat-insight-grid .yhat-group-hist .yhat-ghist-meta {
-  display: none; /* 标题已在 card head，避免重复 */
-}
-.yhat-insight-grid .yhat-group-hist.is-aux {
-  opacity: 1;
-}
-.yhat-insight-grid .yhat-group-hist .yhat-ghist-plot {
-  height: 48px;
-}
+
+
+
+/* ========== yhat insight 基础样式（被 ΔOOS 图、健康矩阵等共享） ========== */
 .yhat-insight-card {
-  flex: 1 1 220px;
-  max-width: 420px;
-  min-width: 200px;
-  padding: 6px 8px 5px;
-  border-radius: 6px;
-  border: 1px solid rgba(100, 116, 139, 0.16);
-  background: color-mix(in srgb, var(--surface, #fff) 90%, var(--bg, #f8fafc));
-}
-html[data-theme="dark"] .yhat-insight-card {
-  background: #1a1a1a;
-  border-color: rgba(255, 255, 255, 0.1);
-}
-.yhat-insight-head {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  align-items: baseline;
-  margin-bottom: 2px;
-}
-.yhat-insight-title {
-  font-size: 0.72rem;
-  font-weight: 650;
-  color: var(--ink-2, #475569);
-}
-.yhat-insight-meta {
-  font-size: 0.65rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--ink-3, #64748b);
-}
-.yhat-insight-hint {
-  margin: 0 0 4px;
-  font-size: 0.62rem;
-  color: var(--ink-3, #64748b);
-  line-height: 1.35;
-}
-
-.yhat-bdist-row {
-  display: grid;
-  grid-template-columns: 5.5rem 1fr 2.8rem;
-  gap: 6px;
-  align-items: center;
-  min-height: 16px;
-  margin: 1px 0;
-}
-.yhat-bdist-row.is-near-cap .yhat-bdist-bar {
-  background: #c2410c;
-}
-.yhat-bdist-name {
-  font-size: 0.65rem;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--ink-2, #475569);
-}
-.yhat-bdist-track {
-  height: 5px;
-  background: rgba(100, 116, 139, 0.1);
-  border-radius: 2px;
-  overflow: hidden;
-}
-.yhat-bdist-bar {
-  display: block;
-  height: 100%;
-  min-width: 2px;
-  border-radius: 2px;
-  background: rgba(100, 116, 139, 0.55);
-}
-.yhat-bdist-val {
-  font-size: 0.62rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  text-align: right;
-  color: var(--ink-3, #64748b);
-}
-.yhat-bdist-more {
-  font-size: 0.62rem;
-  color: var(--ink-3, #64748b);
-  margin-top: 2px;
-}
-
-.yhat-gic.is-good {
-  border-color: color-mix(in srgb, #047857 35%, var(--line, #e2e8f0));
-}
-.yhat-gic.is-bad {
-  border-color: color-mix(in srgb, #b91c1c 35%, var(--line, #e2e8f0));
-}
-.yhat-gic-spark {
-  display: block;
-  width: 100%;
-  max-width: 200px;
-  height: 36px;
-}
-.yhat-gic-zero {
-  stroke: rgba(100, 116, 139, 0.45);
-  stroke-width: 1;
-  stroke-dasharray: 3 2;
-}
-.yhat-gic-line {
-  stroke: #2563eb;
-  stroke-width: 1.5;
-  stroke-linejoin: round;
-  stroke-linecap: round;
-}
-
-.yhat-oos-delta {
-  max-width: 560px;
+  padding: 12px 14px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-2);
   margin: 8px 0 10px;
   flex: 1 1 100%;
 }
-.yhat-oos-axis {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  font-size: 0.6rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  color: var(--ink-3, #64748b);
-  margin: 0 3.6rem 2px 3.2rem;
-}
-.yhat-oos-axis span:nth-child(1) { text-align: left; }
-.yhat-oos-axis span:nth-child(2) { text-align: center; }
-.yhat-oos-axis span:nth-child(3) { text-align: right; }
-.yhat-oos-row {
-  display: grid;
-  grid-template-columns: 2.8rem 1fr 3.2rem;
-  gap: 6px;
-  align-items: center;
-  min-height: 18px;
-  margin: 2px 0;
-}
-.yhat-oos-row.is-pass .yhat-oos-name {
-  font-weight: 650;
-}
-.yhat-oos-row.is-fail {
-  opacity: 0.72;
-}
-.yhat-oos-name {
-  font-size: 0.72rem;
-  font-weight: 600;
-  color: var(--ink-2, #475569);
-}
-.yhat-oos-track {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-items: center;
-  height: 8px;
-  position: relative;
-}
-.yhat-oos-track::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: rgba(100, 116, 139, 0.4);
-  transform: translateX(-50%);
-}
-.yhat-oos-fill {
-  display: block;
-  height: 6px;
-  border-radius: 1px;
-  min-width: 2px;
-}
-.yhat-oos-fill.pos { background: rgba(4, 120, 87, 0.75); justify-self: start; }
-.yhat-oos-fill.neg {
-  background: rgba(185, 28, 28, 0.75);
-  justify-self: end;
-}
-.yhat-oos-val {
-  font-size: 0.68rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  text-align: right;
-}
-.yhat-oos-val.pos { color: #047857; }
-.yhat-oos-val.neg { color: #b91c1c; }
-.yhat-oos-skip {
-  font-size: 0.62rem;
-  color: var(--ink-3, #64748b);
-  grid-column: 1 / -1;
-  text-align: center;
+
+.yhat-insight-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 6px;
 }
 
-.yhat-beta-lollipop {
-  margin: 6px 0 2px;
-  padding: 6px 8px 4px;
-  border-radius: 6px;
-  border: 1px solid rgba(100, 116, 139, 0.14);
-  background: color-mix(in srgb, var(--surface, #fff) 88%, var(--bg, #f8fafc));
-  max-width: 520px;
+.yhat-insight-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.01em;
 }
-.yhat-beta-axis {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
-  font-size: 0.65rem;
-  color: var(--ink-3, #64748b);
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  margin: 0 0 4px 4.8rem;
-  padding: 0 4.2rem 0 0;
-}
-.yhat-beta-axis span:nth-child(1) { text-align: left; }
-.yhat-beta-axis span:nth-child(2) { text-align: center; }
-.yhat-beta-axis span:nth-child(3) { text-align: right; }
-.yhat-beta-row {
-  display: grid;
-  grid-template-columns: 4.6rem 1fr 3.8rem;
-  align-items: center;
-  gap: 6px;
-  min-height: 18px;
-  margin: 2px 0;
-}
-.yhat-beta-row.is-hot .yhat-beta-name {
-  font-weight: 650;
-  color: var(--ink, #0f172a);
-}
-.yhat-beta-name {
+
+.yhat-insight-meta {
   font-size: 0.72rem;
-  color: var(--ink-2, #475569);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.yhat-beta-stem {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  align-items: center;
-  height: 10px;
-  position: relative;
-}
-.yhat-beta-stem::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  background: rgba(100, 116, 139, 0.35);
-  transform: translateX(-50%);
-}
-.yhat-beta-track {
-  display: block;
-  height: 6px;
-  position: relative;
-}
-.yhat-beta-track.neg {
-  display: flex;
-  justify-content: flex-end;
-}
-.yhat-beta-bar {
-  display: block;
-  height: 100%;
-  border-radius: 1px;
-  min-width: 2px;
-}
-.yhat-beta-track.pos .yhat-beta-bar {
-  background: rgba(185, 28, 28, 0.72);
-}
-.yhat-beta-track.neg .yhat-beta-bar {
-  background: rgba(4, 120, 87, 0.72);
-}
-.yhat-beta-row.is-hot .yhat-beta-track.pos .yhat-beta-bar {
-  background: rgba(185, 28, 28, 0.92);
-}
-.yhat-beta-row.is-hot .yhat-beta-track.neg .yhat-beta-bar {
-  background: rgba(4, 120, 87, 0.92);
-}
-.yhat-beta-val {
-  font-size: 0.7rem;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  text-align: right;
+  color: var(--ink-3);
   font-variant-numeric: tabular-nums;
 }
-.yhat-beta-val.pos { color: #b91c1c; }
-.yhat-beta-val.neg { color: #047857; }
+
+.yhat-insight-hint {
+  font-size: 0.7rem;
+  color: var(--ink-3);
+  line-height: 1.5;
+  margin: 0 0 8px;
+  padding: 0;
+}
+
+html[data-theme="dark"] .yhat-insight-card {
+  background: var(--bg-2);
+  border-color: var(--line);
+}
+
+/* ========== 研究枢纽页特定：yhat insight 样式强化 ========== */
+.quant-page .yhat-insight-card {
+  padding: 10px 14px 13px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
+  margin: 10px 0;
+  max-width: 968px;
+}
+
+.quant-page .yhat-insight-card:hover {
+  border-color: var(--line-2);
+  background: var(--bg-2);
+}
+
+.quant-page .yhat-insight-head {
+  padding: 2px 0 4px;
+  border-bottom: none;
+  margin-bottom: 4px;
+}
+
+.quant-page .yhat-insight-title {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.quant-page .yhat-insight-meta {
+  font-size: 0.74rem;
+  color: var(--ink-3);
+}
+
+.quant-page .yhat-insight-hint {
+  font-size: 0.72rem;
+  color: var(--ink-3);
+  line-height: 1.55;
+  margin: 0 0 6px;
+}
+
+html[data-theme="dark"] .quant-page .yhat-insight-card {
+  border-color: var(--line);
+  background: transparent;
+}
+
+html[data-theme="dark"] .quant-page .yhat-insight-card:hover {
+  background: rgba(255,255,255,0.02);
+  border-color: var(--line-2);
+}
+
+
 
 /* 跨组对照矩阵（健康 + β 跨组） */
+.yhat-mx-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin: 8px 0 6px;
+  align-items: start;
+}
+@media (max-width: 680px) {
+  .yhat-mx-grid {
+    grid-template-columns: 1fr;
+  }
+}
 .yhat-mx {
   margin: 8px 0 6px;
   padding: 6px 8px 6px;
@@ -4116,7 +3801,7 @@ html[data-theme="dark"] .yhat-mx {
   border-collapse: separate;
   border-spacing: 2px;
   width: 100%;
-  min-width: 360px;
+  min-width: 280px;
   table-layout: auto;
 }
 .yhat-mx-th {
@@ -8012,6 +7697,7 @@ a.hub-card:hover {
 .quant-page .quant-cluster-group-head {
   display: flex;
   flex-direction: column;
+  align-items: stretch;
   gap: 8px;
   margin: 0;
 }
@@ -12494,9 +12180,20 @@ html[data-theme="dark"] .quant-page .quant-cluster-status {
   font-weight: 600;
 }
 
-/* ——— 矩阵 / OOS Δ 卡片 专业质感升级 ——— */
-.quant-page .yhat-mx,
-.quant-page .yhat-oos-delta {
+/* ——— 矩阵 卡片专业质感升级 ——— */
+.quant-page .yhat-mx-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 10px;
+  margin: 10px 0 8px;
+  align-items: start;
+}
+@media (max-width: 680px) {
+  .quant-page .yhat-mx-grid {
+    grid-template-columns: 1fr;
+  }
+}
+.quant-page .yhat-mx {
   margin: 0 0 var(--quant-gap, 8px);
   border-radius: 10px;
   padding: 0;
@@ -12507,26 +12204,23 @@ html[data-theme="dark"] .quant-page .quant-cluster-status {
     0 1px 0 rgba(0, 0, 0, 0.02),
     0 1px 2px rgba(15, 23, 42, 0.04);
 }
-html[data-theme="dark"] .quant-page .yhat-mx,
-html[data-theme="dark"] .quant-page .yhat-oos-delta {
+html[data-theme="dark"] .quant-page .yhat-mx {
   border-color: rgba(255, 255, 255, 0.08);
   box-shadow:
     0 1px 0 rgba(0, 0, 0, 0.25),
     0 1px 2px rgba(0, 0, 0, 0.35);
 }
-.quant-page .yhat-mx-summary,
-.quant-page .yhat-oos-delta-summary {
-  padding: 9px 14px;
+.quant-page .yhat-mx-summary {
+  padding: 8px 12px;
   background:
     linear-gradient(180deg,
       color-mix(in srgb, var(--ink) 3%, var(--surface)) 0%,
       color-mix(in srgb, var(--line-2) 70%, var(--surface)) 100%);
   border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
   position: relative;
-  padding-right: 3rem;
+  padding-right: 2.5rem;
 }
-.quant-page .yhat-mx-summary::after,
-.quant-page .yhat-oos-delta-summary::after {
+.quant-page .yhat-mx-summary::after {
   content: "展开";
   position: absolute;
   top: 50%;
@@ -12542,8 +12236,7 @@ html[data-theme="dark"] .quant-page .yhat-oos-delta {
   background: var(--surface);
   opacity: 0.85;
 }
-.quant-page .yhat-mx[open] .yhat-mx-summary::after,
-.quant-page .yhat-oos-delta[open] .yhat-oos-delta-summary::after {
+.quant-page .yhat-mx[open] .yhat-mx-summary::after {
   content: "收起";
   color: var(--accent, #2563eb);
   border-color: color-mix(in srgb, var(--accent, #2563eb) 28%, var(--line));
@@ -12551,21 +12244,12 @@ html[data-theme="dark"] .quant-page .yhat-oos-delta {
 .quant-page .yhat-mx.is-open-default .yhat-mx-summary::after {
   opacity: 1;
 }
-.quant-page .yhat-insight-hint {
-  margin: 8px 14px 6px;
-  padding: 5px 9px;
-  border-radius: 6px;
-  background: color-mix(in srgb, var(--line-2) 64%, var(--surface));
-  color: var(--ink-3);
-  font-size: 0.66rem;
-  line-height: 1.5;
-}
 .quant-page .yhat-mx-scroll {
-  margin: 0 14px 12px;
+  margin: 0 10px 10px;
   padding: 0;
-}
-.quant-page .yhat-oos-delta-body {
-  padding: 6px 14px 12px;
+  max-height: 340px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
 }
 .quant-page .yhat-mx-table {
   border-spacing: 2px;
@@ -12583,6 +12267,9 @@ html[data-theme="dark"] .quant-page .yhat-oos-delta {
       color-mix(in srgb, var(--line-2) 90%, var(--surface)) 100%);
   color: var(--ink-2);
   border-radius: 4px;
+  position: sticky;
+  top: 0;
+  z-index: 2;
 }
 .quant-page .yhat-mx-td {
   font-size: 0.7rem;
@@ -12603,6 +12290,30 @@ html[data-theme="dark"] .quant-page .yhat-oos-delta {
 }
 .quant-page .yhat-mx-td.is-flip {
   outline-offset: -1px;
+}
+
+/* β 矩阵：因子列 + 表头角 sticky（多组横向滚动时保持参照） */
+.quant-page .yhat-mx-beta .yhat-mx-th-factor {
+  position: sticky;
+  left: 0;
+  z-index: 3;
+}
+.quant-page .yhat-mx-beta .yhat-mx-td-factor {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--surface);
+  box-shadow: 2px 0 3px rgba(0, 0, 0, 0.04);
+}
+.quant-page .yhat-mx-beta .yhat-mx-row:hover .yhat-mx-td-factor {
+  background: color-mix(in srgb, var(--accent, #2563eb) 5%, var(--surface));
+}
+html[data-theme="dark"] .quant-page .yhat-mx-beta .yhat-mx-td-factor {
+  background: #1a1a1a;
+  box-shadow: 2px 0 3px rgba(0, 0, 0, 0.25);
+}
+html[data-theme="dark"] .quant-page .yhat-mx-beta .yhat-mx-row:hover .yhat-mx-td-factor {
+  background: color-mix(in srgb, var(--accent, #2563eb) 8%, #1a1a1a);
 }
 
 /* ——— 分组参数 Toolbar 卡片化 ——— */
@@ -12805,17 +12516,6 @@ html[data-theme="dark"] .quant-page .quant-fold {
 }
 
 /* 组卡片头部 metrics 紧凑卡片 */
-.quant-page .yhat-insight-card {
-  padding: 8px 10px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--line) 92%, transparent);
-  background: color-mix(in srgb, var(--line-2) 55%, var(--surface));
-  transition: border-color 0.1s ease, box-shadow 0.1s ease;
-}
-.quant-page .yhat-insight-card:hover {
-  border-color: color-mix(in srgb, var(--accent, #2563eb) 22%, var(--line));
-  box-shadow: 0 1px 4px rgba(15, 23, 42, 0.05);
-}
 
 /* 全局对照组卡片（全量 β）：与组卡一致的节奏 */
 .quant-page .quant-global-fold-body > .quant-section {
@@ -12830,12 +12530,6 @@ html[data-theme="dark"] .quant-page .quant-fold {
 .quant-page .yhat-mx-td.num,
 .quant-page .quant-research-grid .watching-col-num,
 .quant-page .yhat-delta-num,
-.quant-page .yhat-beta-val,
-.quant-page .yhat-bdist-head-row td.num {
-  font-family: var(--font-mono);
-  font-feature-settings: "tnum" 1, "lnum" 1;
-  font-variant-numeric: tabular-nums lining-nums;
-}
 
 /* ——— section 间距 · 层级呼吸感 ——— */
 .quant-page > .quant-section + .quant-section {
@@ -12958,17 +12652,6 @@ html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
 .quant-page .quant-research-grid .watching-col-num,
 .quant-page .yhat-mx-cell,
 .quant-page .yhat-mx-cell-num,
-.quant-page .yhat-beta-row-val,
-.quant-page .yhat-bdist-row-val,
-.quant-page .quant-kpi-value,
-.quant-page .quant-stat-value,
-.quant-page .quant-cluster-metric b,
-.quant-page .quant-cluster-method-k,
-.quant-page .quant-cluster-method-v {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums lining-nums;
-  letter-spacing: -0.01em;
-}
 
 .quant-page .quant-weight-table th,
 .quant-page .yhat-mx-table th,
@@ -13113,20 +12796,6 @@ html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
 .quant-page .quant-cluster-members .quant-cluster-chip {
   padding: 1px 6px;
   font-size: 0.68rem;
-}
-.quant-page .yhat-insight-grid {
-  gap: 6px;
-  margin: 6px 0 4px;
-}
-.quant-page .yhat-insight-card {
-  padding: 6px 8px 7px;
-}
-.quant-page .yhat-insight-head {
-  margin-bottom: 3px;
-}
-.quant-page .yhat-insight-hint {
-  margin: 0 0 4px;
-  font-size: 0.62rem;
 }
 
 /* 组头紧凑 */
@@ -14817,14 +14486,6 @@ html[data-theme="dark"] .dashboard-var-card {
 }
 .quant-ic-stats-table td.is-positive { color: var(--ok, #16a34a); font-weight: 650; }
 .quant-ic-stats-table td.is-negative { color: var(--danger, #ef4444); font-weight: 650; }
-.quant-page .yhat-insight-grid {
-  gap: 8px;
-}
-.quant-page .yhat-insight-card {
-  border-radius: 2px;
-  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
-  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 96%, var(--line));
-}
 .quant-ic-stats-table th:first-child,
 .quant-ic-stats-table td:first-child {
   width: 42%;
@@ -16668,103 +16329,9 @@ html[data-theme="dark"] .quant-pro-help-body {
    ========================================================================== */
 
 /* —— Insight card 外壳 —— */
-.yhat-pro-card {
-  border: 1px solid var(--line);
-  border-radius: var(--q-radius-sm, 4px);
-  background: var(--bg-card);
-  box-shadow: none;
-  overflow: hidden;
-}
-.yhat-pro-card:hover {
-  border-color: var(--line);
-  box-shadow: none;
-}
-html[data-theme="dark"] .yhat-pro-card {
-  background: #181a1f;
-  border-color: rgba(255, 255, 255, 0.06);
-  box-shadow: none;
-}
-html[data-theme="dark"] .yhat-pro-card:hover {
-  border-color: rgba(255, 255, 255, 0.06);
-  box-shadow: none;
-}
-.yhat-pro-card-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 12px 8px;
-  border-bottom: 1px dashed var(--line);
-}
-.yhat-pro-card-head-left {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-.yhat-pro-card-eyebrow {
-  margin: 0;
-  font-size: var(--q-fs-micro);
-  font-weight: var(--q-fw-label);
-  letter-spacing: 0.06em;
-  color: var(--ink-3);
-  text-transform: uppercase;
-  font-family: var(--font-mono);
-  line-height: 1;
-}
-html[data-theme="dark"] .yhat-pro-card-eyebrow {
-  color: rgba(255, 255, 255, 0.42);
-}
-.yhat-pro-card-title-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-.yhat-pro-card-title-row .yhat-insight-title {
-  font-size: var(--q-fs-body);
-  font-weight: var(--q-fw-label);
-  color: var(--ink);
-  margin: 0;
-  line-height: var(--q-lh-tight);
-}
-.yhat-pro-card-title-row .yhat-insight-meta {
-  font-size: var(--q-fs-micro);
-  color: var(--ink-3);
-  font-family: var(--font-mono);
-  letter-spacing: 0.01em;
-  line-height: 1.2;
-}
-.yhat-insight-card.yhat-pro-card .yhat-insight-hint {
-  margin: 8px 12px;
-  font-size: var(--q-fs-micro);
-  padding: 6px 8px;
-  border-left: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
-  background: color-mix(in srgb, var(--accent) 4%, var(--bg-card));
-  border-radius: 0 var(--q-radius-xs) var(--q-radius-xs) 0;
-  color: var(--ink-3);
-  line-height: 1.3;
-}
-html[data-theme="dark"] .yhat-insight-card.yhat-pro-card .yhat-insight-hint {
-  background: rgba(59, 130, 246, 0.06);
-  border-left-color: rgba(96, 165, 250, 0.4);
-  color: rgba(226, 232, 240, 0.72);
-}
 
 /* —— Pro KPI Chip 面板 —— */
-.yhat-pro-kpi {
-  display: grid;
-  gap: 6px;
-  padding: 8px 12px 4px;
-}
-.yhat-pro-kpi--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-.yhat-pro-kpi--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.yhat-pro-kpi--6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 @media (max-width: 560px) {
-  .yhat-pro-kpi--4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .yhat-pro-kpi--6 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .yhat-pro-kpi--3 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 .yhat-pro-chip {
   display: flex;
@@ -16873,389 +16440,24 @@ html[data-theme="dark"] .yhat-pro-chip--bad {
 html[data-theme="dark"] .yhat-pro-chip--bad .yhat-pro-chip-v { color: color-mix(in srgb, var(--color-down, #52c41a) 88%, #fff); }
 
 /* —— 图1 β 距离 分级着色 + 参考线 —— */
-.yhat-bdist-body-wrap {
-  position: relative;
-  padding: 4px 12px 10px;
-}
-.yhat-bdist-row.yhat-bdist--tight .yhat-bdist-bar { background: linear-gradient(90deg, #047857, #059669); }
-.yhat-bdist-row.yhat-bdist--warn .yhat-bdist-bar { background: linear-gradient(90deg, #65a30d, #d97706); }
-.yhat-bdist-row.yhat-bdist--outlier .yhat-bdist-bar { background: linear-gradient(90deg, #dc2626, #b91c1c); }
-.yhat-bdist-row.is-outlier .yhat-bdist-name { font-weight: 600; color: #991b1b; }
-html[data-theme="dark"] .yhat-bdist-row.is-outlier .yhat-bdist-name { color: #fecaca; }
-.yhat-bdist-warn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 14px;
-  height: 14px;
-  margin-left: 4px;
-  border-radius: 3px;
-  background: rgba(220, 38, 38, 0.12);
-  color: #dc2626;
-  font-size: 10px;
-  line-height: 1;
-}
-.yhat-bdist-refs {
-  position: absolute;
-  inset: 4px 12px 10px;
-  pointer-events: none;
-}
-.yhat-bdist-ref {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 1px;
-  border-left: 1px dashed;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  display: flex;
-  align-items: flex-start;
-  justify-content: center;
-  padding-top: 2px;
-}
-.yhat-bdist-ref.is-q3 {
-  border-color: rgba(100, 116, 139, 0.55);
-  color: rgba(100, 116, 139, 0.8);
-  background: rgba(100, 116, 139, 0.04);
-}
-.yhat-bdist-ref.is-out {
-  border-color: rgba(217, 119, 6, 0.75);
-  color: #d97706;
-  background: rgba(217, 119, 6, 0.06);
-}
-.yhat-bdist-more--btn {
-  display: block;
-  width: calc(100% - 24px);
-  margin: 0 12px 10px;
-  padding: 4px 8px;
-  border: 1px dashed var(--line);
-  background: transparent;
-  border-radius: 6px;
-  color: var(--muted);
-  font-size: 11px;
-  cursor: pointer;
-  text-align: center;
-  font-family: inherit;
-}
-.yhat-bdist-more--btn:hover { border-color: var(--accent); color: var(--accent); }
 
 /* —— 图2 IC spark Pro 升级 —— */
-.yhat-gic-spark--pro {
-  display: block;
-  width: 100%;
-  max-width: 520px;
-  margin: 4px auto 12px;
-  background: radial-gradient(ellipse at top, color-mix(in srgb, var(--accent) 5%, transparent), transparent 60%);
-  border-top: 1px solid var(--line);
-  border-bottom: 1px solid var(--line);
-}
-html[data-theme="dark"] .yhat-gic-spark--pro {
-  background: radial-gradient(ellipse at top, rgba(59, 130, 246, 0.07), transparent 60%);
-}
-.yhat-gic-sigma-band { fill: rgba(148, 163, 184, 0.12); stroke: none; }
-html[data-theme="dark"] .yhat-gic-sigma-band { fill: rgba(148, 163, 184, 0.1); }
-.yhat-gic-area-pos { fill: rgba(185, 28, 28, 0.16); stroke: none; }
-.yhat-gic-ma { stroke: #475569; stroke-width: 1.4; stroke-dasharray: 4 3; }
-.yhat-gic-out.is-pos { fill: none; stroke: #b91c1c; stroke-width: 1.2; }
-.yhat-gic-out.is-neg { fill: none; stroke: #047857; stroke-width: 1.2; }
-.yhat-gic-tail { fill: #94a3b8; stroke: #fff; stroke-width: 0.6; }
-html[data-theme="dark"] .yhat-gic-tail { stroke: #0f172a; }
-.yhat-gic-tail.is-last { stroke-width: 1.2; }
-.yhat-gic-xlab {
-  font-size: 9px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  fill: var(--muted);
-}
-html[data-theme="dark"] .yhat-gic-area-pos { fill: rgba(248, 113, 113, 0.18); }
 
 /* —— 图3 β 棒棒糖 Pro —— */
-.yhat-beta-lollipop--pro { padding: 2px 12px 12px; }
-.yhat-beta-row .yhat-beta-name {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 110px;
-}
-.yhat-beta-catdot {
-  flex-shrink: 0;
-  width: 9px;
-  height: 9px;
-  border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.3);
-}
-html[data-theme="dark"] .yhat-beta-catdot { box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.9); }
-.yhat-beta-fname {
-  font-size: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-weight: 500;
-}
-.yhat-beta-tstars {
-  position: absolute;
-  top: 50%;
-  transform: translateY(-50%);
-  color: #b45309;
-  font-size: 11px;
-  font-weight: 700;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  letter-spacing: -0.02em;
-}
-.yhat-beta-track.pos .yhat-beta-tstars { right: -2px; }
-.yhat-beta-track.neg .yhat-beta-tstars.is-left { left: -2px; }
-.yhat-beta-valcol {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 70px;
-  justify-content: flex-end;
-}
-.yhat-beta-icdot {
-  flex-shrink: 0;
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.4), 0 0 0 1px rgba(15, 23, 42, 0.18) inset;
-}
-.yhat-beta-icdot.is-empty { background: #cbd5e1; opacity: 0.6; }
-html[data-theme="dark"] .yhat-beta-icdot { box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.9); }
-html[data-theme="dark"] .yhat-beta-icdot.is-empty { background: #475569; }
-.yhat-beta-more {
-  display: block;
-  width: calc(100% - 24px);
-  margin: 6px 12px 0;
-  padding: 4px 8px;
-  border: 1px dashed var(--line);
-  background: transparent;
-  border-radius: 6px;
-  color: var(--muted);
-  font-size: 11px;
-  cursor: pointer;
-  text-align: center;
-  font-family: inherit;
-}
-.yhat-beta-more:hover { border-color: var(--accent); color: var(--accent); }
 
 /* —— 图4 ŷ 直方图 Pro 升级 —— */
-.yhat-group-hist--pro {
-  padding: 4px 14px 12px;
-}
-.yhat-ghist-meta--pro {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  padding: 4px 0 8px;
-}
-.yhat-ghist-meta-row1,
-.yhat-ghist-meta-row2 {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 10px 14px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
-  color: var(--muted);
-}
-.yhat-ghist-meta-row2 .yhat-ghist-conv {
-  padding: 2px 7px;
-  border-radius: 999px;
-  border: 1px solid var(--line);
-  background: color-mix(in srgb, var(--bg-elevated) 60%, var(--bg-card));
-  font-weight: 600;
-  color: var(--text);
-}
-html[data-theme="dark"] .yhat-ghist-meta-row2 .yhat-ghist-conv {
-  background: rgba(255, 255, 255, 0.03);
-  border-color: rgba(255, 255, 255, 0.06);
-}
-.yhat-ghist-meta-row2 .yhat-ghist-conv.is-strong {
-  border-color: rgba(185, 28, 28, 0.24);
-  color: #b91c1c;
-  background: rgba(185, 28, 28, 0.06);
-}
-html[data-theme="dark"] .yhat-ghist-meta-row2 .yhat-ghist-conv.is-strong {
-  border-color: rgba(248, 113, 113, 0.3);
-  color: #fca5a5;
-  background: rgba(248, 113, 113, 0.08);
-}
-.yhat-ghist-plot--pro {
-  position: relative;
-  /* conviction 三区阴影背景 */
-  background-image:
-    linear-gradient(to right,
-      rgba(4, 120, 87, 0.07) 0%,
-      rgba(4, 120, 87, 0.07) var(--tier-short-right, 0%),
-      transparent var(--tier-short-right, 0%),
-      transparent var(--tier-long-left, 100%),
-      rgba(185, 28, 28, 0.07) var(--tier-long-left, 100%),
-      rgba(185, 28, 28, 0.07) 100%);
-  border-radius: 6px;
-  padding: 4px 2px;
-}
-html[data-theme="dark"] .yhat-ghist-plot--pro {
-  background-image:
-    linear-gradient(to right,
-      rgba(52, 211, 153, 0.08) 0%,
-      rgba(52, 211, 153, 0.08) var(--tier-short-right, 0%),
-      transparent var(--tier-short-right, 0%),
-      transparent var(--tier-long-left, 100%),
-      rgba(248, 113, 113, 0.08) var(--tier-long-left, 100%),
-      rgba(248, 113, 113, 0.08) 100%);
-}
 /* tier 着色叠加在正负之上 */
-.yhat-ghist-bar.is-tier-short { filter: hue-rotate(-6deg) brightness(1.05); box-shadow: 0 -1px 0 #04785766 inset; }
-.yhat-ghist-bar.is-tier-long { filter: hue-rotate(2deg) brightness(1.08); box-shadow: 0 -1px 0 #b91c1c66 inset; }
-.yhat-ghist-mark.is-p20,
-.yhat-ghist-mark.is-p80 {
-  width: 28px;
-  height: auto;
-  border-radius: 0;
-  background: transparent;
-  border-left: 1px dashed;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.03em;
-  padding: 2px 0 0 3px;
-  text-align: left;
-  transform: none;
-}
-.yhat-ghist-mark.is-p20 {
-  color: #047857;
-  border-color: #047857;
-}
-.yhat-ghist-mark.is-p80 {
-  color: #b91c1c;
-  border-color: #b91c1c;
-}
-html[data-theme="dark"] .yhat-ghist-mark.is-p20 { color: #6ee7b7; border-color: #6ee7b7; }
-html[data-theme="dark"] .yhat-ghist-mark.is-p80 { color: #fca5a5; border-color: #fca5a5; }
-.yhat-ghist-axis {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr 1fr;
-  gap: 2px;
-  padding: 4px 0 0;
-  color: var(--muted);
-  font-size: 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-.yhat-ghist-axis span:nth-child(odd) { text-align: left; }
-.yhat-ghist-axis span:nth-child(2), .yhat-ghist-axis span:nth-child(4) {
-  color: #64748b; font-weight: 600; text-align: center;
-}
-.yhat-ghist-axis span:nth-child(2) { color: #047857; }
-.yhat-ghist-axis span:nth-child(4) { color: #b91c1c; }
-.yhat-ghist-axis span:nth-child(3) { text-align: center; }
-.yhat-ghist-axis span:nth-child(5) { text-align: right; }
-html[data-theme="dark"] .yhat-ghist-axis span:nth-child(2) { color: #6ee7b7; }
-html[data-theme="dark"] .yhat-ghist-axis span:nth-child(4) { color: #fca5a5; }
-.yhat-ghist-legend--pro {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 4px 10px;
-  padding-top: 4px;
-  justify-content: center;
-  color: var(--muted);
-  font-size: 10px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-.yhat-ghist-legend--pro .is-p20 {
-  color: #047857; font-weight: 600;
-  border-left: 1px dashed currentColor; padding-left: 4px;
-}
-.yhat-ghist-legend--pro .is-p80 {
-  color: #b91c1c; font-weight: 600;
-  border-left: 1px dashed currentColor; padding-left: 4px;
-}
-html[data-theme="dark"] .yhat-ghist-legend--pro .is-p20 { color: #6ee7b7; }
-html[data-theme="dark"] .yhat-ghist-legend--pro .is-p80 { color: #fca5a5; }
 
-/* —— insight grid 响应式（Pro 紧凑等高填充，充分利用版面） —— */
-.quant-page .yhat-insight-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: 1fr 1fr;     /* 关键：两行等高，撑满 2x2 不出现留白 */
-  grid-auto-rows: 1fr;
-  gap: 12px;
-  margin: 12px 0 4px;
-  align-items: stretch;
-}
-.quant-page .yhat-insight-grid .yhat-insight-card.yhat-pro-card {
-  min-height: 0;                 /* 允许 flex 内容压缩，统一高度 */
-  max-width: none;
-  display: flex;
-  flex-direction: column;
-}
+/* —— insight grid 响应式（Pro 单行 3 列，充分利用版面） —— */
 /* 卡内容区域：图表容器吃掉剩余空间 */
-.quant-page .yhat-insight-card.yhat-pro-card .yhat-beta-lollipop--pro,
-.quant-page .yhat-insight-card.yhat-pro-card .yhat-gic-insight--pro,
-.quant-page .yhat-insight-card.yhat-pro-card .yhat-bdist-body-wrap,
-.quant-page .yhat-insight-card.yhat-pro-card .yhat-group-hist {
-  flex: 1 1 auto;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-}
 /* 图1 β 距离：padding 收窄，填满高度 */
-.quant-page .yhat-bdist-body-wrap {
-  padding: 6px 12px 10px;
-  margin: 0;
-}
-.quant-page .yhat-bdist-warn {
-  width: 13px;
-  height: 13px;
-  margin-left: 3px;
-}
-.quant-page .yhat-bdist-refs {
-  inset: 6px 12px 10px;
-}
 /* 图2 IC：SVG 左右留白去掉，margin 改 4/8，KPI panel 前 gap 收；flex 扩满卡身 */
-.quant-page .yhat-gic-spark--pro {
-  width: 100%;
-  max-width: none;
-  margin: 4px 0 10px;
-  flex: 1 1 auto;
-  min-height: 110px;
-  height: 100%;
-  display: block;
-}
 /* Pro 卡通用：最后一个子元素（通常是图表体）吃掉剩余空间，避免 4 图尾部留白 */
-.quant-page .yhat-insight-card.yhat-pro-card > *:last-child {
-  flex: 1 1 auto;
-  min-height: 0;
-}
 /* 图3 β 棒棒糖：padding 收窄 */
-.quant-page .yhat-beta-lollipop--pro { padding: 4px 12px 10px; }
-.quant-page .yhat-beta-lollipop--pro .yhat-beta-more--btn {
-  width: calc(100% - 24px);
-  margin: 2px 12px 8px;
+/* 图4 ŷ 直方图：plot 高度适配窄列 */
+@media (max-width: 700px) {
 }
-/* 图4 ŷ 直方图：plot 高度从 48px → 64px 充分填充，legend/axis 加 padding 统一 */
-.quant-page .yhat-insight-grid .yhat-group-hist .yhat-ghist-plot {
-  height: 64px;
-}
-.quant-page .yhat-insight-grid .yhat-group-hist .yhat-ghist-meta {
-  display: none;
-}
-@media (min-width: 1200px) {
-  .quant-page .yhat-insight-grid {
-    gap: 16px;
-    min-height: 560px;            /* ≥1200px 宽屏：给 4 图统一大容器，不再 320 min-height 单卡，等高 fr + 容器 min-height 一起撑 */
-  }
-}
-@media (max-width: 960px) {
-  .quant-page .yhat-insight-grid {
-    grid-template-columns: 1fr;
-    grid-template-rows: none;
-    min-height: auto;
-  }
-  .quant-page .yhat-insight-grid .yhat-insight-card.yhat-pro-card {
-    min-height: auto;
-  }
-  .quant-page .yhat-insight-grid .yhat-group-hist .yhat-ghist-plot {
-    height: 56px;
-  }
+@media (max-width: 420px) {
 }
 
 /* ==========================================================================
@@ -17423,7 +16625,7 @@ html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
 }
 .quant-page .quant-cluster-group-fold.quant-fold > summary.quant-cluster-group-head {
   padding: 8px 10px;
-  padding-right: 3rem;
+  padding-right: 1.5rem;
   background: color-mix(in srgb, var(--ink) 1.5%, var(--bg-card));
   border-bottom: 1px solid transparent;
 }
@@ -17451,53 +16653,6 @@ html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
 }
 
 /* —— Insight 2×2：报告卡 —— */
-.quant-page .yhat-insight-card,
-.quant-page .yhat-insight-card.yhat-pro-card {
-  border-radius: 4px;
-  border: 1px solid var(--line);
-  background: var(--bg-card);
-  box-shadow: none;
-  padding: 0;
-}
-.quant-page .yhat-insight-card:hover,
-.quant-page .yhat-insight-card.yhat-pro-card:hover {
-  border-color: var(--line);
-  box-shadow: none;
-  transform: none;
-}
-.quant-page .yhat-pro-card-head,
-.quant-page .yhat-insight-head {
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--ink) 1.5%, var(--bg-card));
-}
-.quant-page .yhat-pro-card-eyebrow,
-.quant-page .yhat-insight-meta {
-  color: var(--ink-3);
-  font-family: var(--font-mono);
-  letter-spacing: 0.04em;
-}
-.quant-page .yhat-insight-title,
-.quant-page .yhat-pro-card-title-row .yhat-insight-title {
-  font-size: 12px;
-  font-weight: 650;
-}
-.quant-page .yhat-insight-hint {
-  font-size: 11px;
-  color: var(--ink-3);
-  padding: 4px 10px;
-  border-top: 1px dashed var(--line-2);
-  background: transparent;
-}
-.quant-page .yhat-insight-grid {
-  gap: 8px;
-}
-.quant-page .yhat-pro-kpi,
-.quant-page .yhat-pro-chip {
-  border-radius: 3px;
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
 
 /* —— 图表宿主：专业报告框 —— */
 .quant-page .quant-pro-chart-host,
@@ -17607,16 +16762,6 @@ html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
 }
 
 /* —— β lollipop / hist 填满 —— */
-.quant-page .yhat-beta-lollipop,
-.quant-page .yhat-group-hist {
-  padding: 6px 8px 8px;
-}
-.quant-page .yhat-beta-val,
-.quant-page .yhat-delta-num,
-.quant-page .yhat-mx-td.num {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
 
 /* —— OOS 带更克制 —— */
 .quant-page .quant-oos-band {
@@ -17959,289 +17104,38 @@ html[data-theme="dark"] .page-panel.quant-panel .quant-head.dashboard-head {
 
 
 /* ==========================================================================
-   分组四图 · 对齐仪表盘诊断卡 (p780)
+   分组四图 · 对齐仪表盘诊断卡 (p781)
    β距离 · 组IC · 组β · 截面ŷ
    ========================================================================== */
 
-.quant-page .yhat-insight-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  grid-template-rows: auto auto;
-  gap: 8px;
-  margin: 8px 0 2px;
-  min-height: 0;
+/* 修复 align-items: baseline 导致 insight-grid 宽度收缩（高特异性覆盖 .quant-fold > summary） */
+.quant-page .quant-cluster-group-fold.quant-fold > summary.quant-cluster-group-head {
   align-items: stretch;
 }
-@media (min-width: 1200px) {
-  .quant-page .yhat-insight-grid { gap: 10px; min-height: 0; }
+
+/* 简化：隐藏 metric-strip 指标条，降低视觉复杂度 */
+@media (max-width: 700px) {
 }
-@media (max-width: 960px) {
-  .quant-page .yhat-insight-grid {
-    grid-template-columns: 1fr;
-    grid-template-rows: none;
-  }
+@media (max-width: 420px) {
 }
 
 /* 卡壳 = dashboard-card */
-.quant-page .yhat-insight-card.yhat-pro-card {
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--bg-card);
-  box-shadow: none;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-.quant-page .yhat-insight-card.yhat-pro-card:hover {
-  border-color: var(--line);
-  box-shadow: none;
-  transform: none;
-}
 
 /* 卡头 = dashboard-card-head */
-.quant-page .yhat-pro-card-head,
-.quant-page .yhat-insight-card.yhat-pro-card .yhat-insight-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 6px 10px;
-  border-bottom: 1px solid var(--line);
-  background: color-mix(in srgb, var(--ink) 2.5%, var(--surface));
-}
-.quant-page .yhat-pro-card-eyebrow { display: none; }
-.quant-page .yhat-pro-card-title-row {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
-  min-width: 0;
-}
-.quant-page .yhat-pro-card-title-row .yhat-insight-title {
-  font-size: 0.78rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--ink);
-  margin: 0;
-}
-.quant-page .yhat-pro-card-title-row .yhat-insight-meta {
-  font-size: 0.66rem;
-  color: var(--ink-3);
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-.quant-page .yhat-insight-card.yhat-pro-card .yhat-insight-hint { display: none; }
 
 /* 指标条 = 仪表盘 risk-strip 节奏 */
-.quant-page .yhat-metric-strip {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0;
-  border-bottom: 1px solid var(--line);
-  background: var(--bg-card);
-  margin: 0;
-  padding: 0;
-}
-.quant-page .yhat-metric-strip > span {
-  padding: 4px 8px;
-  border-right: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
-  font-size: 0.66rem;
-  color: var(--ink-3);
-  font-variant-numeric: tabular-nums;
-  font-family: var(--font-mono);
-  line-height: 1.3;
-  white-space: nowrap;
-}
-.quant-page .yhat-metric-strip > span:last-child { border-right: none; }
-.quant-page .yhat-metric-strip b {
-  color: var(--ink);
-  font-weight: 700;
-}
-.quant-page .yhat-metric-strip b.is-ok,
-.quant-page .yhat-metric-strip b.is-good { color: var(--color-up, #f5222d); }
-.quant-page .yhat-metric-strip b.is-bad { color: var(--color-down, #52c41a); }
-.quant-page .yhat-metric-strip b.is-warn { color: var(--warn, #b45309); }
-.quant-page .yhat-metric-strip b.is-muted { color: var(--ink-3); }
 
 /* 旧 chip 面板在四图内隐藏（若残留） */
-.quant-page .yhat-insight-card .yhat-pro-kpi { display: none; }
 
 /* 图体区 */
-.quant-page .yhat-insight-card .yhat-bdist-body-wrap,
-.quant-page .yhat-insight-card .yhat-beta-lollipop--pro,
-.quant-page .yhat-insight-card .yhat-group-hist,
-.quant-page .yhat-insight-card .yhat-gic-spark--pro {
-  flex: 1 1 auto;
-  min-height: 0;
-  padding: 6px 10px 8px;
-  margin: 0;
-}
-.quant-page .yhat-gic-spark--pro {
-  width: 100%;
-  max-width: none;
-  height: 88px;
-  min-height: 88px;
-  display: block;
-  background: transparent;
-  border: none;
-}
 
 /* MA 线用 accent，不用紫 */
-.quant-page .yhat-gic-ma {
-  stroke: var(--accent, #1890ff);
-  stroke-width: 1.25;
-  stroke-dasharray: 3 3;
-  opacity: 0.9;
-}
-.quant-page .yhat-gic-area-pos {
-  fill: color-mix(in srgb, var(--color-up, #f5222d) 14%, transparent);
-}
 
 /* β 距离条：扁平语义色（同质绿 / 警告琥珀 / 异常红） */
-.quant-page .yhat-bdist-row {
-  gap: 6px;
-  padding: 2px 0;
-  font-size: 11px;
-}
-.quant-page .yhat-bdist-name {
-  min-width: 4.5rem;
-  font-family: var(--font-mono);
-  font-size: 11px;
-}
-.quant-page .yhat-bdist-track {
-  height: 6px;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--ink) 6%, var(--bg-card));
-}
-.quant-page .yhat-bdist-bar {
-  height: 100%;
-  border-radius: 2px;
-  background: var(--ok, #059669);
-}
-.quant-page .yhat-bdist-row.yhat-bdist--tight .yhat-bdist-bar { background: var(--ok, #059669); }
-.quant-page .yhat-bdist-row.yhat-bdist--warn .yhat-bdist-bar { background: var(--warn, #faad14); }
-.quant-page .yhat-bdist-row.yhat-bdist--outlier .yhat-bdist-bar { background: var(--danger, #ff4d4f); }
-.quant-page .yhat-bdist-val {
-  min-width: 2.8rem;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-2);
-}
-.quant-page .yhat-bdist-warn {
-  width: 12px;
-  height: 12px;
-  border-radius: 2px;
-  font-size: 9px;
-  font-weight: 700;
-  background: color-mix(in srgb, var(--danger, #ff4d4f) 12%, var(--bg-card));
-  color: var(--danger, #ff4d4f);
-}
-.quant-page .yhat-bdist-ref {
-  font-size: 9px;
-  font-family: var(--font-mono);
-  color: var(--ink-3);
-  border-left-color: color-mix(in srgb, var(--ink-3) 55%, transparent);
-}
-.quant-page .yhat-bdist-more--btn,
-.quant-page .yhat-beta-more {
-  width: calc(100% - 20px);
-  margin: 2px 10px 6px;
-  padding: 3px 6px;
-  border-radius: 4px;
-  font-size: 11px;
-}
 
 /* β 棒棒糖 */
-.quant-page .yhat-beta-lollipop--pro .yhat-beta-axis {
-  font-size: 10px;
-  font-family: var(--font-mono);
-  color: var(--ink-3);
-  padding: 0 0 4px;
-}
-.quant-page .yhat-beta-row {
-  gap: 4px;
-  padding: 2px 0;
-  min-height: 18px;
-}
-.quant-page .yhat-beta-fname {
-  font-size: 11px;
-  font-family: var(--font-mono);
-}
-.quant-page .yhat-beta-val {
-  font-size: 11px;
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-.quant-page .yhat-beta-val.pos { color: var(--color-up, #f5222d); }
-.quant-page .yhat-beta-val.neg { color: var(--color-down, #52c41a); }
-.quant-page .yhat-beta-catdot,
-.quant-page .yhat-beta-icdot {
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  box-shadow: none;
-}
 
 /* ŷ 直方图 */
-.quant-page .yhat-insight-grid .yhat-group-hist .yhat-ghist-meta,
-.quant-page .yhat-insight-grid .yhat-group-hist .yhat-ghist-meta--pro {
-  display: none;
-}
-.quant-page .yhat-insight-grid .yhat-group-hist .yhat-ghist-plot,
-.quant-page .yhat-insight-grid .yhat-group-hist .yhat-ghist-plot--pro {
-  height: 72px;
-  border-radius: 4px;
-  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
-  background-image:
-    linear-gradient(to right,
-      color-mix(in srgb, var(--color-down, #52c41a) 8%, transparent) 0%,
-      color-mix(in srgb, var(--color-down, #52c41a) 8%, transparent) var(--tier-short-right, 0%),
-      transparent var(--tier-short-right, 0%),
-      transparent var(--tier-long-left, 100%),
-      color-mix(in srgb, var(--color-up, #f5222d) 8%, transparent) var(--tier-long-left, 100%),
-      color-mix(in srgb, var(--color-up, #f5222d) 8%, transparent) 100%);
-}
-.quant-page .yhat-ghist-bar {
-  border-radius: 1px 1px 0 0;
-}
-.quant-page .yhat-ghist-mark.is-p20 {
-  color: var(--color-down, #52c41a);
-  border-color: var(--color-down, #52c41a);
-}
-.quant-page .yhat-ghist-mark.is-p80 {
-  color: var(--color-up, #f5222d);
-  border-color: var(--color-up, #f5222d);
-}
-.quant-page .yhat-ghist-legend--pro {
-  font-size: 10px;
-  font-family: var(--font-mono);
-  justify-content: flex-start;
-  gap: 6px 10px;
-  padding: 4px 0 0;
-}
-.quant-page .yhat-ghist-legend--pro .is-p20 { color: var(--color-down, #52c41a); }
-.quant-page .yhat-ghist-legend--pro .is-p80 { color: var(--color-up, #f5222d); }
-.quant-page .yhat-ghist-axis {
-  font-size: 10px;
-  font-family: var(--font-mono);
-  color: var(--ink-3);
-}
-.quant-page .yhat-ghist-axis span:nth-child(2) { color: var(--color-down, #52c41a); }
-.quant-page .yhat-ghist-axis span:nth-child(4) { color: var(--color-up, #f5222d); }
 
 /* status chip 在卡头内对齐 */
-.quant-page .yhat-pro-card-head .quant-pro-status-chip {
-  flex-shrink: 0;
-  margin-left: auto;
-}
 
-html[data-theme="dark"] .quant-page .yhat-insight-card.yhat-pro-card {
-  background: #181a1f;
-  border-color: rgba(255, 255, 255, 0.06);
-}
-html[data-theme="dark"] .quant-page .yhat-pro-card-head {
-  background: rgba(255, 255, 255, 0.02);
-  border-bottom-color: rgba(255, 255, 255, 0.06);
-}
