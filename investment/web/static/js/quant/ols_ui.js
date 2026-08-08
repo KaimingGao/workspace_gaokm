@@ -506,11 +506,16 @@ export function createOlsUi(deps) {
         (olsShim && olsShim.coefficients) ||
         ((cl.return_model || {}).coefficients) ||
         {};
-      const betaHtml = buildBetaLollipopHtml(coefs, {
+      const factorMeta = (typeof window !== "undefined" && window.__factorMetaByName__) || {};
+      const betaRes = buildBetaLollipopHtml(coefs, {
         escapeHtml: esc,
-        maxRows: 8,
+        maxRows: 10,
         highlightAbs: 0.05,
+        factorMeta,
+        groupPanel: cl.factor_ic_panel || null,
       });
+      const betaHtml = betaRes && betaRes.__betaLollipop ? betaRes.html : "";
+      const totalBetaCount = betaRes && betaRes.__betaLollipop ? betaRes.totalRows : Object.keys(coefs).filter((k) => !["intercept", "_intercept", "const"].includes(k)).length;
       const distHtml = buildBetaDistanceHtml(cl.member_beta_gaps || [], {
         escapeHtml: esc,
         nameByCode,
@@ -523,16 +528,51 @@ export function createOlsUi(deps) {
       // —— 统一包装：4 图同构 insight-card，2×2 网格 ——
       const coefEntries = Object.entries(coefs || {})
         .map(([k, v]) => [k, Number(v)])
-        .filter(([, v]) => Number.isFinite(v));
+        .filter(([k, v]) => !["intercept", "_intercept", "const"].includes(k) && Number.isFinite(v));
       const posN = coefEntries.filter(([, v]) => v > 0).length;
       const negN = coefEntries.filter(([, v]) => v < 0).length;
+
+      // —— Pro: β 棒棒糖卡 KPI 计算 + status chip ——
+      const absSum = coefEntries.reduce((s, [, v]) => s + Math.abs(v), 0);
+      const top3 = [...coefEntries].sort((a, b) => Math.abs(b[1]) - Math.abs(a[1])).slice(0, 3);
+      const top3Sum = top3.reduce((s, [, v]) => s + Math.abs(v), 0);
+      const top3Conc = absSum > 0 ? top3Sum / absSum : 0;
+      const netExpo = coefEntries.reduce((s, [, v]) => s + v, 0);
+      // 粗略显著计数：按 meta t-stat 或 fallback by |β|
+      let signifCount = 0;
+      for (const [k] of coefEntries) {
+        const m = factorMeta[k];
+        const tv = m && (m.t_stat != null ? Number(m.t_stat) : m.tStat != null ? Number(m.tStat) : m.t != null ? Number(m.t) : null);
+        if (tv != null && Number.isFinite(tv) && Math.abs(tv) >= 1.96) signifCount++;
+      }
+      const concTone = top3Conc >= 0.8 ? "warn" : top3Conc >= 0.6 ? "good" : "ok";
+      const netTone = Math.abs(netExpo) >= 0.3 ? "warn" : Math.abs(netExpo) >= 0.15 ? "good" : "muted";
+      const sigTone = coefEntries.length ? (signifCount / coefEntries.length >= 0.5 ? "ok" : signifCount > 0 ? "good" : "warn") : "muted";
+      let betaChipState = "ok";
+      let betaChipText = "分散";
+      if (top3Conc >= 0.8) { betaChipState = "warn"; betaChipText = "风格集中"; }
+      else if (top3Conc >= 0.6) { betaChipState = "ok"; betaChipText = "偏集中"; }
+      if (signifCount === 0 && coefEntries.length >= 4) { betaChipState = "warn"; betaChipText = "噪音暴露"; }
+      const betaMetricStrip =
+        `<div class="yhat-metric-strip" title="色方=因子类别 · 茎末*=t 显著 · 右侧点=因子 IC · 右=+β">` +
+        `<span>项 <b>${totalBetaCount}</b> · +${posN}/−${negN}</span>` +
+        `<span>Top3 <b class="is-${concTone}">${(top3Conc * 100).toFixed(0)}%</b></span>` +
+        `<span>净敞口 <b class="is-${netTone}">${netExpo >= 0 ? "+" : ""}${netExpo.toFixed(2)}</b></span>` +
+        `<span>显著 <b class="is-${sigTone}">${signifCount}/${totalBetaCount}</b></span>` +
+        `</div>`;
+
       const betaCardHtml = betaHtml
-        ? `<div class="yhat-insight-card yhat-beta-card">` +
-          `<div class="yhat-insight-head">` +
-          `<span class="yhat-insight-title">因子 · 组 β</span>` +
-          `<span class="yhat-insight-meta">${coefEntries.length} 项 · 红${posN} 绿${negN}</span>` +
+        ? `<div class="yhat-insight-card yhat-beta-card yhat-pro-card">` +
+          `<div class="yhat-insight-head yhat-pro-card-head">` +
+          `<div class="yhat-pro-card-head-left">` +
+          `<div class="yhat-pro-card-title-row">` +
+          `<span class="yhat-insight-title">组 β</span>` +
+          `<span class="yhat-insight-meta">${totalBetaCount} 因子</span>` +
           `</div>` +
-          `<p class="yhat-insight-hint">组 OLS 系数 · 红正绿负(A股) · |β|≥0.05 加粗</p>` +
+          `</div>` +
+          `<span class="quant-pro-status-chip" data-state="${betaChipState}">${betaChipText}</span>` +
+          `</div>` +
+          betaMetricStrip +
           betaHtml +
           `</div>`
         : "";
@@ -540,13 +580,54 @@ export function createOlsUi(deps) {
       const gScores = (groupScores || []).filter((n) => Number.isFinite(n));
       const gMean = gScores.length ? gScores.reduce((s, x) => s + x, 0) / gScores.length : null;
       const gMed = gScores.length ? [...gScores].sort((a, b) => a - b)[Math.floor(gScores.length / 2)] : null;
+      // —— Pro: ŷ 卡 conviction 计算 + status chip ——
+      let gStd = null;
+      let gSpread = null;
+      let convText = "分层弱";
+      let convState = "idle";
+      if (gScores.length >= 5 && gMean != null) {
+        gStd = Math.sqrt(gScores.reduce((s, x) => s + Math.pow(x - gMean, 2), 0) / gScores.length);
+        const sorted = [...gScores].sort((a, b) => a - b);
+        const qPct = (q) => {
+          const pos = (sorted.length - 1) * q;
+          const lo = Math.floor(pos);
+          const hi = Math.min(sorted.length - 1, lo + 1);
+          return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+        };
+        gSpread = qPct(0.8) - qPct(0.2);
+        const sOverS = gStd > 0 ? gSpread / gStd : 0;
+        const diffMM = gMean - gMed;
+        if (sOverS >= 2.0) { convState = "ok"; convText = "分层强"; }
+        else if (sOverS >= 1.0) { convState = "ok"; convText = "分层可"; }
+        else if (sOverS >= 0.5) { convState = "warn"; convText = "分层弱"; }
+        else { convState = "warn"; convText = "分层差"; }
+        if (Math.abs(diffMM) >= 0.008) {
+          convState = convState === "ok" ? "ok" : "warn";
+          convText += diffMM > 0 ? " · 偏多" : " · 偏空";
+        }
+      }
+      const histMetricStrip =
+        `<div class="yhat-metric-strip" title="P20=减/空 · P80=加/多 · T/B·σ≥2=分层意义强">` +
+        `<span>n <b>${gScores.length}</b></span>` +
+        (gMean != null ? `<span>μ <b>${gMean.toFixed(3)}</b></span>` : "") +
+        (gMed != null ? `<span>med <b>${gMed.toFixed(3)}</b></span>` : "") +
+        (gStd != null ? `<span>σ <b>${gStd.toFixed(3)}</b></span>` : "") +
+        (gSpread != null && gStd != null && gStd > 0
+          ? `<span>T/B·σ <b>${(gSpread / gStd).toFixed(2)}</b></span>`
+          : "") +
+        `</div>`;
       const histCardHtml = stripHtml
-        ? `<div class="yhat-insight-card yhat-ghist-card">` +
-          `<div class="yhat-insight-head">` +
-          `<span class="yhat-insight-title">辅 · 截面 ŷ</span>` +
-          `<span class="yhat-insight-meta">n=${gScores.length}${gMean != null ? ` · μ${gMean.toFixed(3)}` : ""}${gMed != null ? ` · med${gMed.toFixed(3)}` : ""}</span>` +
+        ? `<div class="yhat-insight-card yhat-ghist-card yhat-pro-card">` +
+          `<div class="yhat-insight-head yhat-pro-card-head">` +
+          `<div class="yhat-pro-card-head-left">` +
+          `<div class="yhat-pro-card-title-row">` +
+          `<span class="yhat-insight-title">截面 ŷ</span>` +
+          `<span class="yhat-insight-meta">conviction</span>` +
           `</div>` +
-          `<p class="yhat-insight-hint">组内预测分分布 · μ蓝/med紫/0灰虚线 · 点击箱筛选</p>` +
+          `</div>` +
+          `<span class="quant-pro-status-chip" data-state="${convState}">${convText}</span>` +
+          `</div>` +
+          histMetricStrip +
           stripHtml +
           `</div>`
         : "";

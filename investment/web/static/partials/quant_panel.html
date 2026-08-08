@@ -1,466 +1,423 @@
-<div class="quant-head">
-  <div class="quant-head-text">
-    <p class="quant-eyebrow">Research Desk</p>
+<div class="dashboard-head quant-head">
+  <div class="dashboard-head-text quant-head-text">
+    <p class="dashboard-eyebrow">Research Desk</p>
     <h2>研究枢纽</h2>
-    <p id="quant-meta" class="quant-meta" aria-live="polite">同组同建模 · 异组异建模 · 不写 signal_config</p>
+    <p class="dashboard-meta quant-meta" id="quant-meta" aria-live="polite">分组建模 · 截面 IC · ŷ 复盘 · 只读输出不写生产配置</p>
   </div>
-  <div class="quant-head-actions">
+  <div class="dashboard-head-actions quant-head-actions">
     <span class="quant-desk-badge" title="研究输出不写生产配置">只读研究</span>
     <span class="quant-desk-note">OOS 过门 ≠ promote</span>
   </div>
 </div>
 
 <div class="quant-body quant-page">
-  <nav class="quant-path-rail" aria-label="研究主路径">
-    <a class="quant-path-step" href="#quant-section-factors">① 分组</a>
-    <span class="quant-path-sep" aria-hidden="true">→</span>
-    <a class="quant-path-step" href="#quant-section-ic-series">② 时序</a>
-    <span class="quant-path-sep" aria-hidden="true">→</span>
-    <a class="quant-path-step" href="#quant-section-score-review">③ 复盘</a>
-    <span class="quant-path-note">次要区段默认折叠</span>
-  </nav>
 
-  <p class="quant-hero-lead">
-    主路径：观察池按 OLS β <strong>分组建模</strong> → 截面 IC <strong>时序稳定性</strong> → ŷ 方向 <strong>昨日复盘</strong>。
-    探针 / 对照 / 日报 / 因子分析 / 纸面拟合为次要分析。
-  </p>
+  <!-- 概览：KPI + 主路径（对齐仪表盘 overview-band） -->
+  <section class="dashboard-section" aria-label="研究态势">
+    <header class="dashboard-section-head">
+      <h3 class="dashboard-section-title">概览</h3>
+      <p class="dashboard-section-desc">观察池 · 聚类 · IC · 命中 · 纸面拟合</p>
+    </header>
+    <div class="dashboard-overview-band quant-pro-desk-top">
+      <div class="dashboard-kpi-row quant-pro-overview-kpis" id="quant-pro-overview-kpis" aria-label="研究全景 KPI">
+        <div class="dashboard-kpi-row-body">
+          <div class="dashboard-kpi-card quant-pro-kpi-card is-empty" data-kpi="universe">
+            <div class="dashboard-kpi-label quant-pro-kpi-label">观察池</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub">只数 / 覆盖</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card is-empty" data-kpi="clusters">
+            <div class="dashboard-kpi-label quant-pro-kpi-label">聚类</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub">组数 / 离群</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card is-empty" data-kpi="ic">
+            <div class="dashboard-kpi-label quant-pro-kpi-label">全局 IC</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub">均值 / |IR|</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card is-empty" data-kpi="hit">
+            <div class="dashboard-kpi-label quant-pro-kpi-label">方向命中</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub">近 N 日 / μ</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card is-empty" data-kpi="fit">
+            <div class="dashboard-kpi-label quant-pro-kpi-label">纸面拟合</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub">Corr / TE</div>
+          </div>
+        </div>
+      </div>
+      <nav class="quant-path-rail quant-pro-path-rail" aria-label="研究主路径">
+        <a class="quant-path-step quant-pro-path-step" href="#quant-section-factors">
+          <span class="quant-pro-path-num">1</span> 分组
+        </a>
+        <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
+        <a class="quant-path-step quant-pro-path-step" href="#quant-section-ic-series">
+          <span class="quant-pro-path-num">2</span> IC 时序
+        </a>
+        <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
+        <a class="quant-path-step quant-pro-path-step" href="#quant-section-score-review">
+          <span class="quant-pro-path-num">3</span> 昨日复盘
+        </a>
+        <span class="quant-path-note quant-pro-path-note">次要默认折叠</span>
+      </nav>
+    </div>
+  </section>
 
   <!-- ① 分组 -->
-  <section class="quant-section quant-section-primary" id="quant-section-factors" aria-labelledby="quant-section-factors-title">
-    <header class="quant-section-head">
-      <div class="quant-section-toolbar">
-        <h3 id="quant-section-factors-title" class="quant-section-title watching-section-title">分组</h3>
-        <p class="quant-section-desc">① 主路径 · OLS β 聚类 · 一组一模型</p>
-      </div>
+  <section class="dashboard-section quant-section quant-section-primary" id="quant-section-factors" aria-labelledby="quant-section-factors-title">
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="quant-section-factors-title" class="dashboard-section-title watching-section-title">分组</h3>
+      <p class="dashboard-section-desc quant-section-desc">观察池按 OLS β 聚类 · 一组一模型 · 同组同建模</p>
+      <span class="quant-pro-status-chip" id="quant-pro-cluster-status" data-state="idle">待运行</span>
     </header>
-    <div class="quant-control-band" aria-label="分组参数">
-      <div class="quant-cluster-params quant-actions-inline">
-        <label class="platform-field" title="研究前瞻持有期（1～10）；不影响数据中心 live 评分">
-          horizon
-          <input id="quant-horizon" type="number" min="1" max="10" value="1" />
-        </label>
-        <button type="button" id="quant-horizon-save-default" class="dialog-btn secondary" title="写入 memory.json，供下次打开研究/回测默认">
-          存为默认
-        </button>
-        <label class="platform-field" title="Ridge λ；0=普通 OLS（QR）；>0 收缩斜率、缓解共线（截距不惩罚）；默认 0.5">
-          ridge λ
-          <input id="quant-ridge-lambda" type="number" min="0" max="100" step="0.1" value="0.5" />
-        </label>
-        <label
-          class="platform-field"
-          title="目标聚类数 K：默认自动约 N/5（4～10）；填 ≥2 尽量切到该 k（实际上限≈观察池有效只数）"
-        >
-          K
-          <input
-            id="quant-cluster-k"
-            type="number"
-            min="2"
-            max="100"
-            step="1"
-            value=""
-            placeholder="自动"
-            inputmode="numeric"
-          />
-        </label>
-        <label
-          class="platform-field quant-cluster-refresh"
-          title="默认不勾：纯本地缓存重算（改 K/λ 更快；24h 内同 watchlist 命中缓存秒级返回）。勾选=过期/缺条日线限流拉网后再分组（耗时 2-3 分钟）。"
-        >
-          <input id="quant-cluster-refresh-bars" type="checkbox" />
-          刷新过期日线
-        </label>
-        <label
-          class="platform-field quant-cluster-refresh"
-          title="勾选后：因子集对齐当前大盘 regime 白名单（如中性时可能只留动量/量价/RS/估值/质量），表里其它因子会显示未算。不勾选=研究用全注册因子（推荐看全表 IC/β）。不影响交易执行 live 打分。"
-        >
-          <input id="quant-cluster-respect-regime" type="checkbox" />
-          对齐 regime 裁剪
-        </label>
-        <button
-          type="button"
-          id="quant-ols-clusters-run"
-          class="dialog-btn dialog-btn-keep-case"
-          title="观察池按 OLS β 分组；离群票各自成单票组单独建模；不写全局 config"
-        >
-          跑分组
-        </button>
+    <div class="dashboard-card quant-pro-card">
+      <div class="dashboard-card-head quant-pro-card-head">
+        <h3>OLS β 聚类</h3>
+        <div class="dashboard-card-tools quant-pro-card-tools">
+          <span class="dashboard-card-sub">同组同系数 · 异组异建模</span>
+        </div>
       </div>
-      <p class="quant-fingerprint quant-oos-semantics" title="OOS 产品语义">
-        OOS：heuristic（人工加权基线） vs predicted_score（枢纽 ŷ）· 过门≠自动 promote
-      </p>
+      <div class="quant-pro-card-body">
+        <div class="quant-control-band quant-pro-control-band" aria-label="分组参数">
+          <div class="quant-cluster-params quant-actions-inline quant-pro-params-inline">
+            <label class="platform-field quant-pro-field" title="研究前瞻持有期（1～10）；不影响数据中心 live 评分">
+              <span class="quant-pro-field-label">Horizon</span>
+              <input id="quant-horizon" type="number" min="1" max="10" value="1" />
+            </label>
+            <button type="button" id="quant-horizon-save-default" class="dialog-btn secondary" title="写入 memory.json，供下次打开研究/回测默认">
+              存为默认
+            </button>
+            <label class="platform-field quant-pro-field" title="Ridge λ；0=普通 OLS（QR）；>0 收缩斜率、缓解共线（截距不惩罚）；默认 0.5">
+              <span class="quant-pro-field-label">Ridge λ</span>
+              <input id="quant-ridge-lambda" type="number" min="0" max="100" step="0.1" value="0.5" />
+            </label>
+            <label class="platform-field quant-pro-field" title="目标聚类数 K：默认自动约 N/5（4～10）；填 ≥2 尽量切到该 k">
+              <span class="quant-pro-field-label">K</span>
+              <input id="quant-cluster-k" type="number" min="2" max="100" step="1" value="" placeholder="自动" inputmode="numeric" />
+            </label>
+            <label class="platform-field quant-cluster-refresh quant-pro-checkbox" title="默认不勾：纯本地缓存重算（改 K/λ 更快）">
+              <input id="quant-cluster-refresh-bars" type="checkbox" />
+              <span>刷新过期日线</span>
+            </label>
+            <label class="platform-field quant-cluster-refresh quant-pro-checkbox" title="勾选后因子集对齐当前大盘 regime 白名单">
+              <input id="quant-cluster-respect-regime" type="checkbox" />
+              <span>对齐 Regime</span>
+            </label>
+            <button type="button" id="quant-ols-clusters-run" class="dialog-btn dialog-btn-keep-case" title="观察池按 OLS β 分组 · 离群票各自成单票组">
+              跑分组
+            </button>
+          </div>
+          <div class="quant-oos-band">
+            <span class="quant-oos-band-label">OOS</span>
+            <span class="quant-oos-band-text">heuristic（人工加权基线） vs predicted_score（枢纽 ŷ） · 过门 ≠ 自动 promote</span>
+          </div>
+        </div>
+
+        <div id="quant-pro-factor-summaries" class="quant-pro-factor-summaries" hidden>
+          <div class="quant-pro-factor-summaries-head">
+            <span class="quant-pro-factor-summaries-title">因子摘要</span>
+            <span class="quant-pro-factor-summaries-sub" id="quant-pro-factor-count">共 — 个因子</span>
+          </div>
+          <div id="quant-pro-factor-summaries-grid" class="quant-pro-factor-summaries-grid"></div>
+        </div>
+
+        <details class="quant-fold quant-help-fold quant-pro-help-fold">
+          <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon">?</span> IC / OLS·因子系数说明</summary>
+          <div class="quant-help-body quant-pro-help-body">
+            <p>
+              <strong>目的</strong>：找出 OLS 表现相似的股票，<strong>同组共用一套因子系数</strong>；
+              不同组各自池 OLS → 各自 β → 收益分 ŷ，避免异质票硬套全局模型。
+            </p>
+            <p>
+              「跑分组」：宇宙=<strong>全部观察池</strong>，按单票 OLS β 层次聚类。
+              表单默认 <strong>ridge λ=0.5</strong>、<strong>K=自动</strong>（约 N/5，夹在 4～10；超大组再二分）；
+              <strong>填 ≥2</strong>=按目标 k 切簇（尽量贴近 K；实际上限≈有效票数，不因离群拆成单票堆）。
+            </p>
+            <h4>OOS 语义</h4>
+            <p><strong>基线</strong>：全局人工预定义线性加权（<code>heuristic_score</code>）。<strong>研究臂</strong>：本页回归模型 → <code>predicted_score</code>（ŷ）。</p>
+            <h4>因子系数 β</h4>
+            <p>分组后为<strong>一组一表</strong>。表里<strong>系数 β</strong>来自该组池 OLS，即 <code>return_model.coefficients</code>，驱动组内收益分 ŷ。</p>
+          </div>
+        </details>
+
+        <p id="quant-ols-summary" class="quant-fingerprint" aria-live="polite"></p>
+        <div id="quant-ols-clusters" class="quant-cluster-hub" aria-live="polite" aria-label="分组研究：观察池入组与组摘要"></div>
+        <div id="quant-factor-list" class="quant-weight-table-wrap" aria-label="因子系数表（分组后为每组一张表）"></div>
+        <div id="quant-weight-suggest" class="quant-sub"></div>
+        <button type="button" id="quant-ols-pool-run" class="sr-only" tabindex="-1" aria-hidden="true">研究池 OLS</button>
+        <button type="button" id="quant-ols-run" class="sr-only" tabindex="-1" aria-hidden="true">单票 OLS</button>
+        <button type="button" id="quant-cs-ic-run" class="sr-only" tabindex="-1" aria-hidden="true">截面 IC</button>
+      </div>
     </div>
-    <details class="quant-fold quant-help-fold">
-      <summary>IC / OLS·因子系数说明</summary>
-      <div class="quant-help-body">
-        <p>
-          <strong>目的</strong>：找出 OLS 表现相似的股票，<strong>同组共用一套因子系数</strong>；
-          不同组各自池 OLS → 各自 β → 收益分 ŷ，避免异质票硬套全局模型。
-        </p>
-        <p>
-          「跑分组」：宇宙=<strong>全部观察池</strong>，按单票 OLS β 层次聚类。
-          表单默认 <strong>ridge λ=0.5</strong>、<strong>K=自动</strong>（约 N/5，夹在 4～10；超大组再二分）；
-          <strong>填 ≥2</strong>=按目标 k 切簇（尽量贴近 K；实际上限≈有效票数，不因离群拆成单票堆）。
-          「跑分组」默认<strong>刷新过期日线</strong>（约 36h 内仍用本地；过期/缺条限流拉网）——否则行情未变时重跑几乎无新信息。
-          仅调 K/λ 时可取消勾选，用本地缓存快跑。刷新浏览器页不会更新日线。
-          默认<strong>不</strong>勾「对齐 regime 裁剪」=全注册因子进面板；勾选后与 live 大盘白名单对齐（中性时可能只留动量/量价等，其它显示未算）。
-          异质用探针核对。
-          <strong>一组一表</strong>标题含成员（名称+代码）；主列展示<strong>因子系数 β</strong>
-         （z 上 ŷ 百分点斜率，可负；<strong>不是</strong>归一化权重）。
-          数据不足单独提示。均不写全局 config。
-        </p>
-
-        <h4>OOS 语义</h4>
-        <p>
-          <strong>基线</strong>：全局人工预定义线性加权（<code>heuristic_score</code>）。
-          <strong>研究臂</strong>：本页回归模型 → <code>predicted_score</code>（ŷ）。
-          枢纽定位是找到更优 ŷ，提升回测收益与交易选股；门禁看权益后 30% 段；过门 ≠ 自动 promote。
-        </p>
-
-        <h4>因子系数 β</h4>
-        <p>
-          分组后为<strong>一组一表</strong>。表里<strong>系数 β</strong>来自该组池 OLS，
-          即 <code>return_model.coefficients</code>，驱动组内收益分 ŷ。
-          量纲：对标准化因子的 ŷ% 斜率。详见 <code>docs/weight-suggest-deepen.md</code>。
-        </p>
-
-        <h4>探针（单票 vs 所在组）</h4>
-        <p>
-          选一只票，算其时序 IC 与 OLS β，并与所属组对照。
-          若 |ΔIC| 或 |Δβ| 偏大，说明不宜与该组共用建模，应视为离群或换组。
-        </p>
-      </div>
-    </details>
-    <p id="quant-ols-summary" class="quant-fingerprint" aria-live="polite"></p>
-    <div
-      id="quant-ols-clusters"
-      class="quant-cluster-hub"
-      aria-live="polite"
-      aria-label="分组研究：观察池入组与组摘要"
-    ></div>
-    <div
-      id="quant-factor-list"
-      class="quant-weight-table-wrap"
-      aria-label="因子系数表（分组后为每组一张表）"
-    ></div>
-    <div id="quant-weight-suggest" class="quant-sub"></div>
-    <!-- 兼容旧测试/深链：池 OLS API 仍保留，UI 不再入口 -->
-    <button type="button" id="quant-ols-pool-run" class="sr-only" tabindex="-1" aria-hidden="true">研究池 OLS</button>
-    <button type="button" id="quant-ols-run" class="sr-only" tabindex="-1" aria-hidden="true">单票 OLS</button>
-    <button type="button" id="quant-cs-ic-run" class="sr-only" tabindex="-1" aria-hidden="true">截面 IC</button>
   </section>
 
-  <!-- ② 时序 -->
-  <section class="quant-section quant-ic-compare quant-section-primary" id="quant-section-ic-series" aria-labelledby="quant-section-ic-series-title">
-    <header class="quant-section-head">
-      <div class="quant-section-toolbar">
-        <h3 id="quant-section-ic-series-title" class="quant-section-title watching-section-title">时序对比</h3>
-        <p class="quant-section-desc quant-section-hint">
-          ② 主路径 · 日频截面 IC · Top 因子稳定性
-        </p>
-      </div>
+  <!-- ② IC 时序（对齐净值卡：卡头工具 + 图表宿主） -->
+  <section class="dashboard-section quant-section quant-ic-compare quant-section-primary" id="quant-section-ic-series" aria-labelledby="quant-section-ic-series-title">
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="quant-section-ic-series-title" class="dashboard-section-title watching-section-title">IC 时序</h3>
+      <p class="dashboard-section-desc quant-section-desc">日频截面 IC · Top 因子稳定性</p>
+      <span class="quant-pro-status-chip" id="quant-pro-ic-status" data-state="idle">待加载</span>
     </header>
-    <details class="quant-fold quant-fold-panel" id="quant-ic-series-fold" open>
-      <summary id="quant-ic-series-fold-summary" class="quant-panel-status">IC 曲线与排序</summary>
-      <div class="quant-ic-compare-body">
-        <div class="quant-actions-inline quant-ic-compare-actions quant-control-band quant-control-band-compact">
-          <button type="button" id="quant-ic-series-run" class="dialog-btn">计算</button>
+    <div class="dashboard-card quant-pro-card">
+      <div class="dashboard-card-head quant-pro-card-head">
+        <h3>IC 曲线与排序</h3>
+        <div class="dashboard-card-tools quant-pro-card-tools">
+          <button type="button" id="quant-ic-series-run" class="dialog-btn secondary">计算</button>
           <select id="quant-ic-series-lookback" class="dialog-btn secondary quant-inline-select">
-            <option value="30">近30日</option>
-            <option value="60" selected>近60日</option>
-            <option value="120">近120日</option>
+            <option value="30">近 30 日</option>
+            <option value="60" selected>近 60 日</option>
+            <option value="120">近 120 日</option>
           </select>
-          <p id="quant-ic-series-status" class="quant-fingerprint">尚未加载 · 需先「跑分组」</p>
-        </div>
-        <div id="quant-ic-series-kpis" class="quant-ic-compare-kpis" hidden></div>
-        <div class="quant-ic-compare-grid">
-          <div class="quant-ic-chart-panel">
-            <div class="quant-chart-axis-head">
-              <span class="quant-chart-title">IC 时序</span>
-              <span class="quant-chart-axis-hint">零轴 · 均值参考 · 图例可点隐</span>
-            </div>
-            <div id="quant-ic-series-chart" class="factor-ic-series-host quant-ic-compare-chart"></div>
-          </div>
-          <div id="quant-ic-series-stats" class="quant-ic-compare-stats quant-weight-table-wrap"></div>
         </div>
       </div>
-    </details>
+      <div class="quant-pro-card-body">
+        <details class="quant-fold quant-fold-panel" id="quant-ic-series-fold" open>
+          <summary id="quant-ic-series-fold-summary" class="quant-panel-status sr-only">IC 曲线与排序</summary>
+          <div class="quant-ic-compare-body">
+            <p id="quant-ic-series-status" class="quant-fingerprint">尚未加载 · 需先「跑分组」</p>
+            <div id="quant-ic-series-kpis" class="quant-ic-compare-kpis" hidden></div>
+            <div class="quant-ic-compare-grid">
+              <div class="quant-ic-chart-panel">
+                <div class="dashboard-chart-host factor-ic-series-host quant-ic-compare-chart" id="quant-ic-series-chart"></div>
+              </div>
+              <div id="quant-ic-series-stats" class="quant-ic-compare-stats quant-weight-table-wrap"></div>
+            </div>
+          </div>
+        </details>
+      </div>
+    </div>
   </section>
 
-  <!-- ③ 复盘 -->
-  <section class="quant-section quant-section-primary" id="quant-section-score-review" aria-labelledby="quant-section-score-review-title">
-    <header class="quant-section-head">
-      <div class="quant-section-toolbar">
-        <h3 id="quant-section-score-review-title" class="quant-section-title watching-section-title">昨日复盘</h3>
-        <p class="quant-section-desc quant-section-hint">
-          ③ 主路径 · ŷ 方向 vs 实现收益 · 错票归因
-        </p>
-      </div>
+  <!-- ③ 昨日复盘 -->
+  <section class="dashboard-section quant-section quant-section-primary" id="quant-section-score-review" aria-labelledby="quant-section-score-review-title">
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="quant-section-score-review-title" class="dashboard-section-title watching-section-title">昨日复盘</h3>
+      <p class="dashboard-section-desc quant-section-desc">ŷ 方向 vs 实现收益 · 错票归因 · 命中率</p>
+      <span class="quant-pro-status-chip" id="quant-pro-review-status" data-state="idle">待加载</span>
     </header>
-    <details class="quant-fold quant-fold-panel" id="quant-score-review-fold" open>
-      <summary id="quant-score-review-fold-summary" class="quant-panel-status">方向命中 · 错票归因</summary>
-      <div class="quant-fold-panel-body">
-        <div class="quant-control-band quant-control-band-compact">
-          <div class="quant-actions-inline">
-            <label class="quant-inline-label">
-              决策日
-              <input
-                type="date"
-                id="quant-score-review-asof"
-                class="quant-inline-input"
-                title="as_of：打分决策日"
-              />
-            </label>
-            <label class="quant-inline-label">
-              horizon
-              <select id="quant-score-review-horizon" class="quant-inline-input" title="前瞻收益天数">
-                <option value="1">1 日</option>
-                <option value="3" selected>3 日</option>
+    <div class="dashboard-card quant-pro-card">
+      <div class="dashboard-card-head quant-pro-card-head">
+        <h3>方向命中 · 错票归因</h3>
+        <div class="dashboard-card-tools quant-pro-card-tools">
+          <label class="quant-inline-label quant-pro-field">
+            <span class="quant-pro-field-label">决策日</span>
+            <input type="date" id="quant-score-review-asof" class="quant-inline-input" title="as_of：打分决策日" />
+          </label>
+          <label class="quant-inline-label quant-pro-field">
+            <span class="quant-pro-field-label">Horizon</span>
+            <select id="quant-score-review-horizon" class="quant-inline-input" title="前瞻收益天数">
+              <option value="1">1 日</option>
+              <option value="3" selected>3 日</option>
+            </select>
+          </label>
+          <button type="button" id="quant-score-review-run" class="dialog-btn">刷新复盘</button>
+          <button type="button" id="quant-score-review-fill" class="dialog-btn secondary">回填收益</button>
+          <button type="button" id="quant-score-ledger-freeze" class="dialog-btn secondary">冻结今日打分</button>
+          <button type="button" id="quant-score-review-refit" class="dialog-btn secondary" title="滚动到「跑分组」并触发重估组 β">建议重估</button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body">
+        <details class="quant-fold quant-fold-panel" id="quant-score-review-fold" open>
+          <summary id="quant-score-review-fold-summary" class="quant-panel-status sr-only">方向命中 · 错票归因</summary>
+          <div class="quant-fold-panel-body">
+            <p id="quant-score-review-status" class="quant-fingerprint">尚未加载</p>
+            <div id="quant-score-review-summary" class="quant-summary"></div>
+            <div class="yhat-viz-block quant-review-viz" id="quant-score-review-hit-wrap" hidden>
+              <div class="dashboard-card-head quant-review-viz-head">
+                <h3>跨日方向命中率</h3>
+                <span class="dashboard-card-sub" id="quant-score-review-hit-meta">虚线 = 50% / μ</span>
+              </div>
+              <div class="dashboard-chart-host quant-pro-spark-host">
+                <canvas id="quant-score-review-hit-spark" class="yhat-spark-canvas" width="920" height="72" aria-label="命中率 sparkline"></canvas>
+              </div>
+            </div>
+            <div class="yhat-viz-block quant-review-viz" id="quant-score-review-scatter-wrap" hidden>
+              <div class="dashboard-card-head quant-review-viz-head">
+                <h3>ŷ vs 实现收益</h3>
+                <span class="dashboard-card-sub" id="quant-score-review-scatter-meta">象限着色 · 绿对红错 · 圆大小=置信</span>
+              </div>
+              <div class="dashboard-chart-host quant-pro-scatter-host">
+                <canvas id="quant-score-review-scatter" class="yhat-scatter-canvas" width="920" height="240" aria-label="ŷ 与实现收益散点"></canvas>
+              </div>
+            </div>
+            <div id="quant-score-review-blame" class="quant-weight-table-wrap sub"></div>
+            <div id="quant-score-review-table" class="quant-weight-table-wrap"></div>
+          </div>
+        </details>
+      </div>
+    </div>
+  </section>
+
+  <!-- 次要分析（对齐仪表盘 secondary-row） -->
+  <section class="dashboard-section" aria-label="次要分析">
+    <header class="dashboard-section-head quant-secondary-band">
+      <h3 class="dashboard-section-title quant-secondary-band-title">次要分析</h3>
+      <p class="dashboard-section-desc quant-secondary-band-desc">探针 · 阈值/横截面 · 日报 · 因子相关/IR · 纸面拟合</p>
+    </header>
+    <div class="dashboard-secondary-row quant-pro-secondary-grid">
+
+      <div class="dashboard-card quant-pro-card quant-section quant-section-secondary" aria-labelledby="quant-section-probe-title">
+        <div class="dashboard-card-head">
+          <h3 id="quant-section-probe-title" class="watching-section-title">探针</h3>
+          <span class="dashboard-card-sub">单票 IC/β vs 所在组</span>
+        </div>
+        <div class="quant-pro-card-body">
+          <details class="quant-fold quant-probe-fold" id="quant-probe-fold">
+            <summary><span class="sub">单票 vs 所在组</span></summary>
+            <div class="quant-probe-body quant-section">
+              <div class="quant-actions-inline quant-probe-toolbar">
+                <div class="platform-field quant-probe-picker-field" title="对照标的：名称 / 代码 / 分组">
+                  <span class="quant-probe-picker-label">对照标的</span>
+                  <div class="quant-probe-picker" id="quant-probe-picker">
+                    <button type="button" class="quant-probe-picker-trigger" id="quant-ols-code-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="quant-ols-code-menu">
+                      <span class="quant-probe-picker-empty">分组后可选</span>
+                    </button>
+                    <input type="hidden" id="quant-ols-code" value="" />
+                    <div class="quant-probe-picker-menu" id="quant-ols-code-menu" role="listbox" hidden></div>
+                  </div>
+                </div>
+                <button type="button" id="quant-probe-run" class="dialog-btn secondary" title="算单票 IC+OLS 并对照">对照验证</button>
+                <button type="button" id="quant-weight-export" class="dialog-btn secondary quant-probe-secondary-action" title="导出全局权重 diff">导出全局 diff</button>
+              </div>
+              <p id="quant-probe-summary" class="quant-fingerprint sub">等待上方分组完成…</p>
+              <div id="quant-probe-result" class="quant-weight-table-wrap" aria-label="单票 vs 所在组对照表"></div>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <div class="dashboard-card quant-pro-card quant-section quant-section-secondary" aria-labelledby="quant-section-global-title">
+        <div class="dashboard-card-head">
+          <h3 id="quant-section-global-title" class="watching-section-title">对照</h3>
+          <span class="dashboard-card-sub">阈值 · 横截面（非分组权）</span>
+        </div>
+        <div class="quant-pro-card-body">
+          <details class="quant-fold quant-global-fold" id="quant-global-fold">
+            <summary><span class="sub">阈值 / 横截面</span></summary>
+            <div class="quant-global-fold-body">
+              <section class="quant-section quant-section-nested" id="quant-section-threshold" aria-labelledby="quant-section-threshold-title">
+                <div class="quant-section-toolbar">
+                  <h3 id="quant-section-threshold-title" class="quant-section-subtitle watching-section-title">阈值</h3>
+                  <span class="sub">非分组权</span>
+                  <div class="quant-actions-inline">
+                    <button type="button" id="quant-threshold-watching" class="dialog-btn secondary">研究池阈值</button>
+                    <button type="button" id="quant-threshold-export" class="dialog-btn secondary">导出阈值 diff</button>
+                  </div>
+                </div>
+                <p id="quant-threshold-summary" class="quant-fingerprint">点按钮分析</p>
+                <div id="quant-threshold-table" class="quant-weight-table-wrap" aria-label="阈值建议表"></div>
+              </section>
+              <section class="quant-section quant-section-nested" id="quant-section-cross" aria-labelledby="quant-section-cross-title">
+                <div class="quant-section-toolbar">
+                  <h3 id="quant-section-cross-title" class="quant-section-subtitle watching-section-title">横截面</h3>
+                  <span class="sub">非分组权</span>
+                  <div class="quant-actions-inline">
+                    <button type="button" id="quant-cross-run" class="dialog-btn secondary">刷新排序</button>
+                  </div>
+                </div>
+                <p id="quant-cross-summary" class="quant-fingerprint">点「刷新排序」</p>
+                <div id="quant-cross-list" class="quant-weight-table-wrap" aria-label="横截面排序"></div>
+              </section>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <div class="dashboard-card quant-pro-card quant-section quant-section-secondary quant-pro-secondary-card--wide" aria-labelledby="quant-section-daily-title">
+        <div class="dashboard-card-head">
+          <h3 id="quant-section-daily-title" class="watching-section-title">日报</h3>
+          <span class="dashboard-card-sub">组 ŷ / 簿 / OOS · 过门 ≠ promote</span>
+        </div>
+        <div class="quant-pro-card-body">
+          <details class="quant-fold" id="quant-daily-fold">
+            <summary id="quant-daily-fold-summary">摘要加载中…</summary>
+            <div class="quant-section" id="quant-export-preview">
+              <div class="quant-section-toolbar">
+                <div class="quant-actions-inline">
+                  <button type="button" id="quant-ops-run-daily" class="dialog-btn">生成日报</button>
+                  <button type="button" id="quant-interpret-offline" class="dialog-btn secondary">规则解读</button>
+                  <button type="button" id="quant-interpret" class="dialog-btn secondary">AI 解读</button>
+                  <button type="button" id="quant-export-md" class="dialog-btn secondary">下载 MD</button>
+                  <button type="button" id="quant-export-html" class="dialog-btn secondary">下载 HTML</button>
+                </div>
+              </div>
+              <p id="quant-ops-summary" class="quant-fingerprint is-busy">加载中…</p>
+              <select id="quant-ops-preset" class="sr-only" aria-hidden="true" tabindex="-1">
+                <option value="quant" selected>量化研究</option>
               </select>
-            </label>
-            <button type="button" id="quant-score-review-run" class="dialog-btn">刷新复盘</button>
-            <button type="button" id="quant-score-review-fill" class="dialog-btn secondary">
-              回填收益
-            </button>
-            <button type="button" id="quant-score-ledger-freeze" class="dialog-btn secondary">
-              冻结今日打分
-            </button>
-            <button
-              type="button"
-              id="quant-score-review-refit"
-              class="dialog-btn secondary"
-              title="滚动到「跑分组」并触发重估组 β（不自动改权）"
-            >
-              建议重估
-            </button>
-          </div>
-        </div>
-        <p id="quant-score-review-status" class="quant-fingerprint">尚未加载</p>
-        <div id="quant-score-review-summary" class="quant-summary"></div>
-        <div class="yhat-viz-block quant-review-viz" id="quant-score-review-hit-wrap" hidden>
-          <div class="quant-chart-axis-head">
-            <span class="quant-chart-title">跨日方向命中率</span>
-            <span class="quant-chart-axis-hint" id="quant-score-review-hit-meta">虚线=50% / μ</span>
-          </div>
-          <canvas
-            id="quant-score-review-hit-spark"
-            class="yhat-spark-canvas"
-            width="920"
-            height="72"
-            aria-label="命中率 sparkline"
-          ></canvas>
-        </div>
-        <div class="yhat-viz-block quant-review-viz" id="quant-score-review-scatter-wrap" hidden>
-          <div class="quant-chart-axis-head">
-            <span class="quant-chart-title">ŷ vs 实现收益</span>
-            <span class="quant-chart-axis-hint" id="quant-score-review-scatter-meta">象限着色 · 绿对红错</span>
-          </div>
-          <canvas
-            id="quant-score-review-scatter"
-            class="yhat-scatter-canvas"
-            width="920"
-            height="240"
-            aria-label="ŷ 与实现收益散点"
-          ></canvas>
-        </div>
-        <div id="quant-score-review-blame" class="quant-weight-table-wrap sub"></div>
-        <div id="quant-score-review-table" class="quant-weight-table-wrap"></div>
-      </div>
-    </details>
-  </section>
-
-  <header class="quant-secondary-band">
-    <h3 class="quant-secondary-band-title">次要分析</h3>
-    <p class="quant-secondary-band-desc">探针 · 对照 · 日报 · 因子分析 · 纸面拟合</p>
-  </header>
-
-  <!-- 探针 -->
-  <section class="quant-section quant-section-secondary" aria-labelledby="quant-section-probe-title">
-    <header class="quant-section-head">
-      <div class="quant-section-toolbar">
-        <h3 id="quant-section-probe-title" class="quant-section-title watching-section-title">探针</h3>
-        <p class="quant-section-desc">单票 IC / β vs 所在组 · 离群核对</p>
-      </div>
-    </header>
-    <details class="quant-fold quant-probe-fold" id="quant-probe-fold">
-      <summary><span class="sub">单票 vs 所在组</span></summary>
-      <div class="quant-probe-body quant-section">
-        <div class="quant-actions-inline quant-probe-toolbar">
-          <div class="platform-field quant-probe-picker-field" title="对照标的：名称 / 代码 / 分组">
-            <span class="quant-probe-picker-label">对照标的</span>
-            <div class="quant-probe-picker" id="quant-probe-picker">
-              <button
-                type="button"
-                class="quant-probe-picker-trigger"
-                id="quant-ols-code-trigger"
-                aria-haspopup="listbox"
-                aria-expanded="false"
-                aria-controls="quant-ols-code-menu"
-              >
-                <span class="quant-probe-picker-empty">分组后可选</span>
-              </button>
-              <input type="hidden" id="quant-ols-code" value="" />
-              <div
-                class="quant-probe-picker-menu"
-                id="quant-ols-code-menu"
-                role="listbox"
-                hidden
-              ></div>
+              <div id="quant-ops-preset-flags" class="sr-only" aria-hidden="true"></div>
+              <div id="quant-interpret-body" class="quant-summary" hidden></div>
+              <div id="quant-interpret-neutral" class="quant-weight-table-wrap sub" hidden></div>
+              <div id="quant-export-preview-meta" class="quant-sub is-busy">日报预览加载中…</div>
+              <nav id="quant-export-preview-toc" class="quant-export-preview-toc"></nav>
+              <div id="quant-export-preview-body" class="quant-export-preview-body"></div>
             </div>
-          </div>
-          <button
-            type="button"
-            id="quant-probe-run"
-            class="dialog-btn secondary"
-            title="算单票 IC+OLS，并与其所在组指标对照"
-          >
-            对照验证
-          </button>
-          <button
-            type="button"
-            id="quant-weight-export"
-            class="dialog-btn secondary quant-probe-secondary-action"
-            title="导出全局 signal_config 权重 diff（非本组）"
-          >
-            导出全局 diff
-          </button>
+          </details>
         </div>
-        <p id="quant-probe-summary" class="quant-fingerprint sub">等待上方分组完成…</p>
-        <div id="quant-probe-result" class="quant-weight-table-wrap" aria-label="单票 vs 所在组对照表"></div>
       </div>
-    </details>
-  </section>
 
-  <!-- 对照 -->
-  <section class="quant-section quant-section-secondary" aria-labelledby="quant-section-global-title">
-    <header class="quant-section-head">
-      <div class="quant-section-toolbar">
-        <h3 id="quant-section-global-title" class="quant-section-title watching-section-title">对照</h3>
-        <p class="quant-section-desc">阈值建议 · 横截面排序（非分组权）</p>
-      </div>
-    </header>
-    <details class="quant-fold quant-global-fold" id="quant-global-fold">
-      <summary><span class="sub">阈值 / 横截面</span></summary>
-      <div class="quant-global-fold-body">
-        <section class="quant-section quant-section-nested" id="quant-section-threshold" aria-labelledby="quant-section-threshold-title">
-          <div class="quant-section-toolbar">
-            <h3 id="quant-section-threshold-title" class="quant-section-subtitle watching-section-title">阈值</h3>
-            <span class="sub">非分组权</span>
-            <div class="quant-actions-inline">
-              <button type="button" id="quant-threshold-watching" class="dialog-btn secondary">研究池阈值</button>
-              <button type="button" id="quant-threshold-export" class="dialog-btn secondary">导出阈值 diff</button>
+      <div class="dashboard-card quant-pro-card quant-section quant-section-secondary quant-pro-secondary-card--wide" aria-labelledby="quant-section-factor-analysis-title">
+        <div class="dashboard-card-head">
+          <h3 id="quant-section-factor-analysis-title" class="watching-section-title">因子分析</h3>
+          <div class="dashboard-card-tools">
+            <span class="dashboard-card-sub">相关矩阵 · IR</span>
+            <span class="quant-pro-status-chip" id="quant-pro-factor-status" data-state="idle">待运行</span>
+          </div>
+        </div>
+        <div class="quant-pro-card-body">
+          <details class="quant-fold" id="quant-factor-analysis-fold">
+            <summary id="quant-factor-analysis-fold-summary">因子相关性与 IR</summary>
+            <div class="quant-section">
+              <div class="quant-actions-inline">
+                <button type="button" id="quant-factor-corr-run" class="dialog-btn">计算相关性</button>
+                <button type="button" id="quant-factor-ir-run" class="dialog-btn secondary">计算 IR</button>
+              </div>
+              <p id="quant-factor-analysis-status" class="quant-fingerprint">尚未加载 · 需先运行「跑分组」生成因子分数</p>
+              <div class="dashboard-secondary-row quant-factor-analysis-grid">
+                <div class="dashboard-card quant-analysis-panel">
+                  <div class="dashboard-card-head">
+                    <h3>相关性矩阵</h3>
+                    <span class="dashboard-card-sub">红同向 · 蓝反向 · |ρ|&gt;0.7</span>
+                  </div>
+                  <div id="quant-factor-corr-heatmap" class="dashboard-chart-host quant-factor-corr-host"></div>
+                </div>
+                <div class="dashboard-card quant-analysis-panel">
+                  <div class="dashboard-card-head">
+                    <h3>年化 IR</h3>
+                    <span class="dashboard-card-sub">|IR| 排序 · 中线=0</span>
+                  </div>
+                  <div id="quant-factor-ir-bars" class="dashboard-chart-host quant-factor-ir-host"></div>
+                </div>
+              </div>
             </div>
-          </div>
-          <p id="quant-threshold-summary" class="quant-fingerprint">点按钮分析</p>
-          <div id="quant-threshold-table" class="quant-weight-table-wrap" aria-label="阈值建议表"></div>
-        </section>
+          </details>
+        </div>
+      </div>
 
-        <section class="quant-section quant-section-nested" id="quant-section-cross" aria-labelledby="quant-section-cross-title">
-          <div class="quant-section-toolbar">
-            <h3 id="quant-section-cross-title" class="quant-section-subtitle watching-section-title">横截面</h3>
-            <span class="sub">非分组权</span>
-            <div class="quant-actions-inline">
-              <button type="button" id="quant-cross-run" class="dialog-btn secondary">刷新排序</button>
+      <div class="dashboard-card quant-pro-card quant-section quant-section-secondary quant-pro-secondary-card--wide" aria-labelledby="quant-section-fit-gap-title">
+        <div class="dashboard-card-head">
+          <h3 id="quant-section-fit-gap-title" class="watching-section-title">纸面拟合</h3>
+          <span class="dashboard-card-sub">
+            Corr / TE / Δpp · <a href="/replay" class="quant-pro-inline-link">历史回测</a>
+          </span>
+        </div>
+        <div class="quant-pro-card-body">
+          <details class="quant-fold" id="quant-fit-gap-fold">
+            <summary id="quant-fit-gap-fold-summary">拟合落差与日 Diff</summary>
+            <div class="quant-section">
+              <div class="quant-actions-inline">
+                <button type="button" id="quant-fit-gap-refresh" class="dialog-btn">刷新拟合</button>
+              </div>
+              <p id="quant-fit-gap-status" class="quant-fingerprint">尚未加载</p>
+              <div id="quant-fit-gap-hub" class="quant-weight-table-wrap" aria-label="拟合落差"></div>
             </div>
-          </div>
-          <p id="quant-cross-summary" class="quant-fingerprint">点「刷新排序」</p>
-          <div id="quant-cross-list" class="quant-weight-table-wrap" aria-label="横截面排序"></div>
-        </section>
-      </div>
-    </details>
-  </section>
-
-  <!-- 日报 -->
-  <section class="quant-section quant-section-secondary" aria-labelledby="quant-section-daily-title">
-    <header class="quant-section-head">
-      <div class="quant-section-toolbar">
-        <h3 id="quant-section-daily-title" class="quant-section-title watching-section-title">日报</h3>
-        <p class="quant-section-desc quant-section-hint">
-          主叙事=组ŷ/簿/OOS/横截面/Top-K · 单票权建议默认不进日报 · 过门≠promote
-        </p>
-      </div>
-    </header>
-    <details class="quant-fold" id="quant-daily-fold">
-      <summary id="quant-daily-fold-summary">摘要加载中…</summary>
-      <div class="quant-section" id="quant-export-preview">
-        <div class="quant-section-toolbar">
-          <div class="quant-actions-inline">
-            <button type="button" id="quant-ops-run-daily" class="dialog-btn">生成日报</button>
-            <button type="button" id="quant-interpret-offline" class="dialog-btn secondary">规则解读</button>
-            <button type="button" id="quant-interpret" class="dialog-btn secondary">AI 解读</button>
-            <button type="button" id="quant-export-md" class="dialog-btn secondary">下载 MD</button>
-            <button type="button" id="quant-export-html" class="dialog-btn secondary">下载 HTML</button>
-          </div>
-        </div>
-        <p id="quant-ops-summary" class="quant-fingerprint is-busy">加载中…</p>
-
-        <select id="quant-ops-preset" class="sr-only" aria-hidden="true" tabindex="-1">
-          <option value="quant" selected>量化研究</option>
-        </select>
-        <div id="quant-ops-preset-flags" class="sr-only" aria-hidden="true"></div>
-
-        <div id="quant-interpret-body" class="quant-summary" hidden></div>
-        <div id="quant-interpret-neutral" class="quant-weight-table-wrap sub" hidden></div>
-
-        <div id="quant-export-preview-meta" class="quant-sub is-busy">日报预览加载中…</div>
-        <nav id="quant-export-preview-toc" class="quant-export-preview-toc"></nav>
-        <div id="quant-export-preview-body" class="quant-export-preview-body"></div>
-      </div>
-    </details>
-  </section>
-
-  <!-- 因子分析 -->
-  <section class="quant-section quant-section-secondary" aria-labelledby="quant-section-factor-analysis-title">
-    <header class="quant-section-head">
-      <div class="quant-section-toolbar">
-        <h3 id="quant-section-factor-analysis-title" class="quant-section-title watching-section-title">因子分析</h3>
-        <p class="quant-section-desc quant-section-hint">
-          相关性热力 · IR 对比 · 识别冗余因子
-        </p>
-      </div>
-    </header>
-    <details class="quant-fold" id="quant-factor-analysis-fold">
-      <summary id="quant-factor-analysis-fold-summary">展开查看因子相关性与 IR</summary>
-      <div class="quant-section">
-        <div class="quant-actions-inline">
-          <button type="button" id="quant-factor-corr-run" class="dialog-btn">计算相关性</button>
-          <button type="button" id="quant-factor-ir-run" class="dialog-btn secondary">计算 IR</button>
-        </div>
-        <p id="quant-factor-analysis-status" class="quant-fingerprint">尚未加载 · 需先运行「跑分组」生成因子分数</p>
-        <div class="quant-factor-analysis-grid">
-          <div class="quant-weight-table-wrap quant-analysis-panel">
-            <p class="quant-trades-caption">因子相关性矩阵</p>
-            <div id="quant-factor-corr-heatmap" class="quant-factor-corr-host"></div>
-          </div>
-          <div class="quant-weight-table-wrap quant-analysis-panel">
-            <p class="quant-trades-caption">因子 IR 对比</p>
-            <div id="quant-factor-ir-bars" class="quant-factor-ir-host"></div>
-          </div>
+          </details>
         </div>
       </div>
-    </details>
-  </section>
 
-  <!-- 纸面拟合 -->
-  <section class="quant-section quant-section-secondary" aria-labelledby="quant-section-fit-gap-title">
-    <header class="quant-section-head">
-      <div class="quant-section-toolbar">
-        <h3 id="quant-section-fit-gap-title" class="quant-section-title watching-section-title">纸面拟合</h3>
-        <p class="quant-section-desc quant-section-hint">
-          回测日收益 vs 纸面持仓 · Corr / TE / Δpp · 完整回测见
-          <a href="/replay">历史回测</a>
-        </p>
-      </div>
-    </header>
-    <details class="quant-fold" id="quant-fit-gap-fold">
-      <summary id="quant-fit-gap-fold-summary">展开查看拟合落差与日 Diff</summary>
-      <div class="quant-section">
-        <div class="quant-actions-inline">
-          <button type="button" id="quant-fit-gap-refresh" class="dialog-btn">刷新拟合</button>
-        </div>
-        <p id="quant-fit-gap-status" class="quant-fingerprint">尚未加载</p>
-        <div id="quant-fit-gap-hub" class="quant-weight-table-wrap" aria-label="拟合落差"></div>
-      </div>
-    </details>
+    </div>
   </section>
 </div>
 

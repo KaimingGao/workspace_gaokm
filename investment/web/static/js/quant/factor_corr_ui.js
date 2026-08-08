@@ -2,6 +2,104 @@ import { apiFetch } from "../api_client.js";
 import { escapeHtml } from "../shared.js";
 import { renderMultiLineChart } from "../lw_charts.js";
 
+/* ===== Quant Pro UI Helpers ===== */
+
+/** 设置状态徽章 chip 状态：idle | busy | ok | warn | error */
+export function setProStatusChip(idOrEl, state, text) {
+  const el = typeof idOrEl === "string" ? document.getElementById(idOrEl) : idOrEl;
+  if (!el) return;
+  el.dataset.state = state;
+  if (text != null) el.textContent = text;
+}
+
+/** 更新顶部全景 KPI 的单张卡片 */
+export function setProOverviewKpi(key, valueText, subText, state /* is-good | is-bad | is-mid | '' */) {
+  const host = document.getElementById("quant-pro-overview-kpis");
+  if (!host) return;
+  const card = host.querySelector(`.quant-pro-kpi-card[data-kpi="${key}"]`);
+  if (!card) return;
+  card.classList.remove("is-good", "is-bad", "is-mid", "is-empty");
+  if (state) card.classList.add(state);
+  const valEl = card.querySelector(".quant-pro-kpi-value");
+  const subEl = card.querySelector(".quant-pro-kpi-sub");
+  if (valEl) valEl.textContent = valueText ?? "—";
+  if (subEl && subText != null) subEl.textContent = subText;
+}
+
+/** 从 IC/分组结果渲染因子摘要卡网格 */
+export function renderFactorSummaryCards(data, metaByName) {
+  const host = document.getElementById("quant-pro-factor-summaries");
+  const grid = document.getElementById("quant-pro-factor-summaries-grid");
+  const countEl = document.getElementById("quant-pro-factor-count");
+  if (!host || !grid) return;
+
+  const factors =
+    (data && data.factors) ||
+    (data && Array.isArray(data) ? data : []) ||
+    [];
+  if (!factors.length) {
+    host.hidden = true;
+    return;
+  }
+  host.hidden = false;
+  if (countEl) countEl.textContent = `共 ${factors.length} 个因子`;
+
+  const topByAbsIR = [...factors]
+    .sort((a, b) => Math.abs(b.ir_annual ?? b.ic_ir ?? 0) - Math.abs(a.ir_annual ?? a.ic_ir ?? 0))
+    .slice(0, 16);
+
+  let html = "";
+  for (const f of topByAbsIR) {
+    const name = f.factor || f.name || "";
+    const meta = (metaByName && metaByName[name]) || {};
+    const label = f.label || meta.label || name;
+    const desc = f.description || meta.description || name;
+    const icMean = Number(f.ic_mean ?? f.ic ?? NaN);
+    const ir = Number(f.ir_annual ?? f.ic_ir ?? f.ir ?? NaN);
+    const cov = Number(f.coverage ?? f.sample_count ?? NaN);
+    const posRate = Number(f.positive_rate ?? f.positive_ratio ?? NaN);
+
+    // IR 强度标签（研究语义，非生产/上线状态）
+    let state = "mid";
+    if (Number.isFinite(ir)) {
+      const absIR = Math.abs(ir);
+      if (absIR >= 1.2) state = "strong";
+      else if (absIR < 0.3) state = "faint";
+      else if (Number.isFinite(icMean) && Math.abs(icMean) < 0.02) state = "weak";
+    }
+    const stateLabel = { strong: "强", mid: "中", weak: "偏弱", faint: "弱" }[state];
+
+    const valCls = (n) => (n > 0 ? "is-pos" : n < 0 ? "is-neg" : "");
+    const icCls = Number.isFinite(icMean) ? valCls(icMean) : "";
+    const irCls = Number.isFinite(ir) ? valCls(ir) : "";
+
+    html += `
+      <div class="quant-pro-factor-card" data-state="${escapeHtml(state)}" title="${escapeHtml(`${name} · ${desc}`)}">
+        <div class="quant-pro-factor-card-head">
+          <span class="quant-pro-factor-card-name">${escapeHtml(label)}</span>
+          <span class="quant-pro-factor-card-state">${escapeHtml(stateLabel)}</span>
+        </div>
+        <div class="quant-pro-factor-card-desc">${escapeHtml(desc)}</div>
+        <div class="quant-pro-factor-card-metrics">
+          <div class="quant-pro-factor-metric">
+            <span class="quant-pro-factor-metric-label">IC</span>
+            <span class="quant-pro-factor-metric-value ${icCls}">${Number.isFinite(icMean) ? icMean.toFixed(3) : "—"}</span>
+          </div>
+          <div class="quant-pro-factor-metric">
+            <span class="quant-pro-factor-metric-label">IR</span>
+            <span class="quant-pro-factor-metric-value ${irCls}">${Number.isFinite(ir) ? (ir >= 0 ? "+" : "") + ir.toFixed(2) : "—"}</span>
+          </div>
+          <div class="quant-pro-factor-metric">
+            <span class="quant-pro-factor-metric-label">正IC%</span>
+            <span class="quant-pro-factor-metric-value is-accent">${Number.isFinite(posRate) ? posRate.toFixed(0) + "%" : (Number.isFinite(cov) ? cov : "—")}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+  grid.innerHTML = html;
+}
+
 function corrColor(v) {
   if (v == null || !isFinite(v)) return "var(--line)";
   const clamped = Math.max(-1, Math.min(1, v));
@@ -142,38 +240,46 @@ function renderFactorIR(data, hostId) {
 }
 
 export async function loadAndRenderFactorCorr(hostId) {
-  const host = document.getElementById(hostId);
-  if (!host) return;
-  host.innerHTML = `<div class="quant-fingerprint is-busy">计算因子相关性…</div>`;
-  try {
-    const data = await apiFetch("/api/quant/factor-corr?threshold=0.7");
-    renderFactorCorrHeatmap(data, hostId);
-  } catch (err) {
-    host.innerHTML = vizEmpty(`加载失败: ${err.message || err}`);
+    const host = document.getElementById(hostId);
+    if (!host) return;
+    host.innerHTML = `<div class="quant-fingerprint is-busy">计算因子相关性…</div>`;
+    setProStatusChip("quant-pro-factor-status", "busy", "计算中…");
+    try {
+      const data = await apiFetch("/api/quant/factor-corr?threshold=0.7");
+      renderFactorCorrHeatmap(data, hostId);
+      setProStatusChip("quant-pro-factor-status", "ok", "相关性 OK");
+    } catch (err) {
+      host.innerHTML = vizEmpty(`加载失败: ${err.message || err}`);
+      setProStatusChip("quant-pro-factor-status", "error", "加载失败");
+    }
   }
-}
 
-export async function loadAndRenderFactorIR(hostId) {
-  const host = document.getElementById(hostId);
-  if (!host) return;
-  host.innerHTML = `<div class="quant-fingerprint is-busy">计算因子 IR…</div>`;
-  try {
-    const data = await apiFetch("/api/quant/factor-ir?horizon_days=3");
-    renderFactorIR(data, hostId);
-  } catch (err) {
-    host.innerHTML = vizEmpty(`加载失败: ${err.message || err}`);
+  export async function loadAndRenderFactorIR(hostId) {
+    const host = document.getElementById(hostId);
+    if (!host) return;
+    host.innerHTML = `<div class="quant-fingerprint is-busy">计算因子 IR…</div>`;
+    setProStatusChip("quant-pro-factor-status", "busy", "计算 IR…");
+    try {
+      const data = await apiFetch("/api/quant/factor-ir?horizon_days=3");
+      renderFactorIR(data, hostId);
+      // 若有 IR 结果，同步渲染因子摘要卡
+      if (data && data.factors) renderFactorSummaryCards(data);
+      setProStatusChip("quant-pro-factor-status", "ok", "IR 就绪");
+    } catch (err) {
+      host.innerHTML = vizEmpty(`加载失败: ${err.message || err}`);
+      setProStatusChip("quant-pro-factor-status", "error", "加载失败");
+    }
   }
-}
 
 const IC_SERIES_COLORS = [
   "#2563eb",
-  "#059669",
-  "#7c3aed",
-  "#d97706",
-  "#ef4444",
-  "#0891b2",
-  "#db2777",
-  "#65a30d",
+  "#0f766e",
+  "#b45309",
+  "#dc2626",
+  "#0369a1",
+  "#4d7c0f",
+  "#be123c",
+  "#475569",
 ];
 
 function _icPointValues(f) {
@@ -190,60 +296,87 @@ function _icPointValues(f) {
 }
 
 function renderFactorICSeriesKpis(data) {
-  const host = document.getElementById("quant-ic-series-kpis");
-  if (!host) return;
-  const s = (data && data.summary) || {};
-  const factors = (data && data.factors) || [];
-  if (!factors.length) {
-    host.hidden = true;
-    host.innerHTML = "";
-    return;
+    const host = document.getElementById("quant-ic-series-kpis");
+    if (!host) return;
+    const s = (data && data.summary) || {};
+    const factors = (data && data.factors) || [];
+    if (!factors.length) {
+      host.hidden = true;
+      host.innerHTML = "";
+      return;
+    }
+    const fmt = (v, digits = 4) =>
+      v == null || !Number.isFinite(Number(v)) ? "—" : Number(v).toFixed(digits);
+    const cluster =
+      data.cluster_label != null
+        ? `组 ${escapeHtml(String(data.cluster_label))}`
+        : escapeHtml(String(data.source || "proxy"));
+
+    const icMean = Number(s.ic_mean);
+    const irMean = Number(s.ir_mean);
+    const posRatio = Number(s.positive_ratio);
+    const icCls = Number.isFinite(icMean) ? (icMean >= 0 ? "is-positive" : "is-negative") : "";
+    const irCls = Number.isFinite(irMean) ? (irMean >= 0 ? "is-positive" : "is-negative") : "";
+    const posCls = Number.isFinite(posRatio) ? (posRatio >= 55 ? "is-positive" : posRatio < 45 ? "is-negative" : "") : "";
+
+    host.hidden = false;
+    host.innerHTML = `
+      <div class="quant-ic-kpi"><span class="quant-ic-kpi-label">IC均值</span><span class="quant-ic-kpi-value ${icCls}">${fmt(icMean)}</span></div>
+      <div class="quant-ic-kpi"><span class="quant-ic-kpi-label">IR均值</span><span class="quant-ic-kpi-value ${irCls}">${fmt(irMean, 2)}</span></div>
+      <div class="quant-ic-kpi"><span class="quant-ic-kpi-label">正IC占比</span><span class="quant-ic-kpi-value ${posCls}">${fmt(posRatio, 1)}%</span></div>
+      <div class="quant-ic-kpi"><span class="quant-ic-kpi-label">样本日</span><span class="quant-ic-kpi-value">${s.day_count ?? "—"}</span></div>
+      <div class="quant-ic-kpi"><span class="quant-ic-kpi-label">范围</span><span class="quant-ic-kpi-value">${cluster}</span></div>
+    `;
+
+    // 同步更新顶部全景 KPI（IC）
+    if (Number.isFinite(icMean) && Number.isFinite(irMean)) {
+      const kpiState = icMean >= 0.02 ? "is-good" : icMean > 0 ? "is-mid" : "is-bad";
+      const topFactor = factors
+        .map((f) => ({ f, ir: Number(f.ir_annual ?? f.ic_ir_annual ?? f.ic_ir ?? 0) }))
+        .sort((a, b) => Math.abs(b.ir) - Math.abs(a.ir))[0];
+      const topLabel = topFactor ? `${topFactor.f.label || topFactor.f.factor} |IR|=${Math.abs(topFactor.ir).toFixed(2)}` : "—";
+      setProOverviewKpi("ic", `IC ${icMean >= 0 ? "+" : ""}${icMean.toFixed(3)} · IR ${irMean >= 0 ? "+" : ""}${irMean.toFixed(2)}`, topLabel, kpiState);
+    }
+
+    // 渲染因子摘要卡（供分组后复用）
+    renderFactorSummaryCards({ factors });
   }
-  const fmt = (v, digits = 4) =>
-    v == null || !Number.isFinite(Number(v)) ? "—" : Number(v).toFixed(digits);
-  const cluster =
-    data.cluster_label != null
-      ? `组 ${escapeHtml(String(data.cluster_label))}`
-      : escapeHtml(String(data.source || "proxy"));
-  host.hidden = false;
-  host.innerHTML = `
-    <div class="quant-ic-kpi"><span class="quant-ic-kpi-label">IC均值</span><span class="quant-ic-kpi-value">${fmt(s.ic_mean)}</span></div>
-    <div class="quant-ic-kpi"><span class="quant-ic-kpi-label">IR均值</span><span class="quant-ic-kpi-value">${fmt(s.ir_mean, 2)}</span></div>
-    <div class="quant-ic-kpi"><span class="quant-ic-kpi-label">正IC占比</span><span class="quant-ic-kpi-value">${fmt(s.positive_ratio, 1)}%</span></div>
-    <div class="quant-ic-kpi"><span class="quant-ic-kpi-label">样本日</span><span class="quant-ic-kpi-value">${s.day_count ?? "—"}</span></div>
-    <div class="quant-ic-kpi"><span class="quant-ic-kpi-label">范围</span><span class="quant-ic-kpi-value">${cluster}</span></div>
-  `;
-}
 
 export async function loadAndRenderFactorICSeries(hostId, statsId, statusEl, lookback = 60) {
-  const host = document.getElementById(hostId);
-  const statsEl = document.getElementById(statsId);
-  if (!host) return;
-  if (statusEl) statusEl.textContent = "计算时序对比…";
+    const host = document.getElementById(hostId);
+    const statsEl = document.getElementById(statsId);
+    if (!host) return;
+    if (statusEl) statusEl.textContent = "计算时序对比…";
+    setProStatusChip("quant-pro-ic-status", "busy", "时序计算中…");
 
-  try {
-    const data = await apiFetch(`/api/dashboard/factor-ic-series?lookback=${lookback}`);
-    renderFactorICSeriesKpis(data);
-    await renderFactorICSeriesChart(data, host);
-    renderFactorICSeriesStats(data, statsEl);
-    const n = data.factors?.length || 0;
-    const tag = data.cluster_label ? `组 ${data.cluster_label}` : data.source || "";
-    if (statusEl) {
-      statusEl.textContent = n
-        ? `完成 · ${n} 因子${tag ? ` · ${tag}` : ""}`
-        : data.note || "暂无数据";
+    try {
+      const data = await apiFetch(`/api/dashboard/factor-ic-series?lookback=${lookback}`);
+      renderFactorICSeriesKpis(data);
+      await renderFactorICSeriesChart(data, host);
+      renderFactorICSeriesStats(data, statsEl);
+      const n = data.factors?.length || 0;
+      const tag = data.cluster_label ? `组 ${data.cluster_label}` : data.source || "";
+      const s = (data && data.summary) || {};
+      const icMean = Number(s.ic_mean);
+      const chipState = n ? (icMean >= 0.02 ? "ok" : icMean >= 0 ? "warn" : "warn") : "warn";
+      setProStatusChip("quant-pro-ic-status", chipState, n ? `${n} 因子就绪` : "暂无数据");
+      if (statusEl) {
+        statusEl.textContent = n
+          ? `完成 · ${n} 因子${tag ? ` · ${tag}` : ""}`
+          : data.note || "暂无数据";
+      }
+    } catch (err) {
+      host.innerHTML = vizEmpty(`加载失败: ${String(err.message || err)}`);
+      const kpis = document.getElementById("quant-ic-series-kpis");
+      if (kpis) {
+        kpis.hidden = true;
+        kpis.innerHTML = "";
+      }
+      if (statsEl) statsEl.innerHTML = "";
+      if (statusEl) statusEl.textContent = "加载失败";
+      setProStatusChip("quant-pro-ic-status", "error", "加载失败");
     }
-  } catch (err) {
-    host.innerHTML = vizEmpty(`加载失败: ${String(err.message || err)}`);
-    const kpis = document.getElementById("quant-ic-series-kpis");
-    if (kpis) {
-      kpis.hidden = true;
-      kpis.innerHTML = "";
-    }
-    if (statsEl) statsEl.innerHTML = "";
-    if (statusEl) statusEl.textContent = "加载失败";
   }
-}
 
 async function renderFactorICSeriesChart(data, host) {
   if (!host) return;

@@ -37,12 +37,12 @@ const SHADOW_CSS = `
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  font: 500 11px Manrope, system-ui, sans-serif;
-  color: #6b7280;
-  background: rgba(255, 255, 255, 0.88);
-  border: 1px solid rgba(229, 231, 235, 0.95);
-  padding: 2px 7px;
-  border-radius: 999px;
+  font: 500 10px "IBM Plex Mono", Manrope, "PingFang SC", monospace;
+  color: var(--ink-2, #64748b);
+  background: color-mix(in srgb, var(--surface, #fff) 94%, transparent);
+  border: 1px solid var(--line, #e2e8f0);
+  padding: 1px 5px;
+  border-radius: 2px;
   line-height: 1.2;
   cursor: pointer;
   user-select: none;
@@ -51,17 +51,17 @@ const SHADOW_CSS = `
   -webkit-appearance: none;
 }
 .lw-legend-item:hover {
-  border-color: rgba(37, 99, 235, 0.45);
-  color: #374151;
+  border-color: color-mix(in srgb, var(--accent, #1890ff) 45%, var(--line, #e2e8f0));
+  color: var(--ink, #1e293b);
 }
 .lw-legend-item.is-off {
   opacity: 0.42;
   text-decoration: line-through;
 }
 .lw-legend-item.is-solo {
-  border-color: rgba(37, 99, 235, 0.65);
-  color: #111827;
-  background: rgba(239, 246, 255, 0.95);
+  border-color: color-mix(in srgb, var(--accent, #1890ff) 55%, var(--line, #e2e8f0));
+  color: var(--ink, #1e293b);
+  background: var(--accent-soft, rgba(24, 144, 255, 0.1));
 }
 .lw-legend-swatch {
   width: 14px;
@@ -84,15 +84,15 @@ const SHADOW_CSS = `
   margin: 0;
   padding: 24px 12px;
   text-align: center;
-  color: #6b7280;
-  font: 500 13px Manrope, system-ui, sans-serif;
+  color: var(--ink-3, #94a3b8);
+  font: 500 13px Manrope, "PingFang SC", system-ui, sans-serif;
 }
 `;
 
 function maColor(n) {
   if (n === 5) return "#2563eb";
-  if (n === 10) return "#7c3aed";
-  return "#059669";
+  if (n === 10) return "#b45309";
+  return "#0f766e";
 }
 
 function ensureLegendEl(container) {

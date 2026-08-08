@@ -62,7 +62,7 @@ import { installStrategy } from "./quant/domain_strategy.js";
 import { installExportInterpret } from "./quant/domain_export.js";
 import { installScoreReview } from "./quant/domain_score_review.js";
 import { installFitGapHub } from "./quant/domain_fit_gap.js";
-import { loadAndRenderFactorCorr, loadAndRenderFactorIR, loadAndRenderFactorICSeries } from "./quant/factor_corr_ui.js";
+import { loadAndRenderFactorCorr, loadAndRenderFactorIR, loadAndRenderFactorICSeries, setProStatusChip, setProOverviewKpi, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
 
 /** Quant research panel — shell + domain installs. */
 export function initQuant(ctx) {
@@ -709,8 +709,30 @@ export function initQuant(ctx) {
     e.preventDefault();
     const btn = document.getElementById("quant-ols-clusters-run");
     if (btn) btn.disabled = true;
+    setProStatusChip("quant-pro-cluster-status", "busy", "分组计算中…");
     try {
       await suggest.runFactorOlsClustersSuggest();
+      // 从 DOM 摘要区域回读组 K / 池大小，避免跨模块 state 耦合
+      let k = null;
+      const summaryEl = document.getElementById("quant-ols-summary");
+      const hubEl = document.getElementById("quant-ols-clusters");
+      if (hubEl) {
+        const heads = hubEl.querySelectorAll(".quant-cluster-group-head, [data-cluster-group-head]");
+        if (heads && heads.length) k = heads.length;
+      }
+      if (!k && summaryEl) {
+        const m = summaryEl.textContent.match(/(\d+)\s*组|K\s*[=:：]\s*(\d+)/);
+        if (m) k = Number(m[1] || m[2]);
+      }
+      const nMatch = summaryEl ? summaryEl.textContent.match(/观察池\s*(\d+)|N\s*[=:：]\s*(\d+)|(\d+)\s*只/) : null;
+      const n = nMatch ? Number(nMatch[1] || nMatch[2] || nMatch[3]) : null;
+      if (k) {
+        setProOverviewKpi("clusters", `${k} 组`, n ? `观察池 ${n} 只` : "分组完成", "is-mid");
+      }
+      if (n) {
+        setProOverviewKpi("universe", `${n} 只`, k ? `聚类 K=${k}` : "观察池", "is-mid");
+      }
+      setProStatusChip("quant-pro-cluster-status", "ok", k ? `${k} 组就绪` : "完成");
     } catch (err) {
       setBusyText(els.quantOlsSummary, String(err.message || err), { busy: false });
       setQuantMeta(String(err.message || err), { error: true });
@@ -718,6 +740,7 @@ export function initQuant(ctx) {
         els.quantOlsClusters.hidden = false;
         els.quantOlsClusters.textContent = String(err.message || err);
       }
+      setProStatusChip("quant-pro-cluster-status", "error", "分组失败");
     } finally {
       if (btn) btn.disabled = false;
     }
@@ -751,6 +774,40 @@ export function initQuant(ctx) {
         lookback
       );
     });
+
+  // 复盘状态徽章 + 命中 KPI 回读
+  on("quant-score-review-run", "click", () => setProStatusChip("quant-pro-review-status", "busy", "复盘计算中…"));
+  const reviewTable = document.getElementById("quant-score-review-summary");
+  if (reviewTable && window.MutationObserver) {
+    const obs = new window.MutationObserver(() => {
+      const txt = reviewTable.textContent || "";
+      const hitM = txt.match(/命中\s*(\d+(?:\.\d+)?)\s*%|命中率\s*(\d+(?:\.\d+)?)/);
+      const hit = hitM ? Number(hitM[1] || hitM[2]) : null;
+      if (hit && isFinite(hit)) {
+        const st = hit >= 55 ? "is-good" : hit >= 50 ? "is-mid" : "is-bad";
+        setProOverviewKpi("hit", `${hit.toFixed(1)}%`, `ŷ 方向命中率 · μ 线=50%`, st);
+        setProStatusChip("quant-pro-review-status", st === "is-good" ? "ok" : st === "is-mid" ? "warn" : "warn", `命中 ${hit.toFixed(0)}%`);
+      }
+    });
+    obs.observe(reviewTable, { childList: true, subtree: true, characterData: true });
+  }
+
+  // 纸面拟合 KPI 回读
+  const fitHub = document.getElementById("quant-fit-gap-hub");
+  if (fitHub && window.MutationObserver) {
+    const fobs = new window.MutationObserver(() => {
+      const txt = fitHub.textContent || "";
+      const corrM = txt.match(/Corr\s*[:：]\s*(-?\d+(?:\.\d+)?)|相关系数\s*(-?\d+(?:\.\d+)?)/);
+      const corr = corrM ? Number(corrM[1] || corrM[2]) : null;
+      if (corr != null && isFinite(corr)) {
+        const st = corr >= 0.85 ? "is-good" : corr >= 0.7 ? "is-mid" : "is-bad";
+        const teM = txt.match(/TE\s*[:：]\s*(-?\d+(?:\.\d+)?)|跟踪误差\s*(-?\d+(?:\.\d+)?)/);
+        const te = teM ? Number(teM[1] || teM[2]) : null;
+        setProOverviewKpi("fit", `Corr ${corr >= 0 ? "" : ""}${corr.toFixed(2)}`, te != null ? `TE ${te.toFixed(3)}` : `拟合相关`, st);
+      }
+    });
+    fobs.observe(fitHub, { childList: true, subtree: true, characterData: true });
+  }
 
 
   const oosGateTips = createScoreTooltipController();

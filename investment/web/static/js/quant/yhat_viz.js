@@ -360,7 +360,7 @@ export function paintScoreHistogram(canvas, scores, opts = {}) {
   // markers: lines only (labels live in external legend)
   drawMarker(pack.mean, { color: "#1d4ed8", dash: [], label: "μ" });
   drawMarker(pack.median, {
-    color: "#7c3aed",
+    color: "#475569",
     dash: [4, 3],
     label: "med",
   });
@@ -888,10 +888,11 @@ export function buildGroupYhatStripHtml(scores, opts = {}) {
 /**
  * 组内 ŷ 迷你直方图（分箱密度 · 零轴 · μ/med）。
  * 用于研究枢纽分组组头，纯 HTML/CSS，无需 canvas。
+ * Pro 升级：P20/P80 分层线 + 空/多/中性三区阴影背景 + conviction KPI + status chip
  */
 export function buildGroupYhatHistHtml(
   scores,
-  { escapeHtml, bins = 12, maxBars = 40 } = {}
+  { escapeHtml, bins = 12, maxBars = 40, universeRef = null } = {}
 ) {
   const esc = escapeHtml || ((s) => String(s ?? ""));
   const vals = (scores || [])
@@ -909,17 +910,44 @@ export function buildGroupYhatHistHtml(
   const pctAt = (v) =>
     `${Math.max(0, Math.min(100, ((Number(v) - pack.min) / span) * 100)).toFixed(2)}%`;
 
+  // —— Pro: P20 / P80 分位阈值计算（conviction 分层依据）——
+  const sorted = [...vals].sort((a, b) => a - b);
+  const n = sorted.length;
+  const pQuantile = (q) => {
+    const pos = (n - 1) * q;
+    const lo = Math.floor(pos);
+    const hi = Math.min(n - 1, lo + 1);
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+  };
+  const p20 = pQuantile(0.2);
+  const p80 = pQuantile(0.8);
+  const p10 = pQuantile(0.1);
+  const p90 = pQuantile(0.9);
+  const topBottomSpread = p80 - p20;
+  // Top-Bottom spread / σ（分离度强度，越大分层越有意义）
+  const spreadOverSigma = pack.std > 0 ? topBottomSpread / pack.std : 0;
+  // Top 3 得分均值 vs μ 的 σ 倍数
+  const top3Mean = n >= 3 ? sorted.slice(-3).reduce((s, x) => s + x, 0) / 3 : sorted[sorted.length - 1];
+  const topSigma = pack.std > 0 ? (top3Mean - (pack.mean || 0)) / pack.std : 0;
+  // 偏斜度方向：判断偏多/偏空
+  const diffMuMed = (pack.mean || 0) - (pack.median || 0);
+  const pctPos = pack.pct_pos != null ? pack.pct_pos : sorted.filter((v) => v > 0).length / n;
+
   const bars = pack.bins
     .map((b) => {
       const h = b.count ? Math.max(8, (b.count / maxC) * 100) : 0;
       const mid = (b.x0 + b.x1) / 2;
       const side = mid >= 0 ? "pos" : "neg";
       const tip = `[${b.x0.toFixed(2)}, ${b.x1.toFixed(2)}) · ${b.count} 只`;
+      // conviction 分级着色（叠加在 pos/neg 上）
+      let tier = "mid";
+      if (mid < p20) tier = "short";
+      else if (mid > p80) tier = "long";
       if (!b.count) {
-        return `<span class="yhat-ghist-bar is-empty" title="${esc(tip)}"></span>`;
+        return `<span class="yhat-ghist-bar is-empty is-tier-${tier}" title="${esc(tip)}"></span>`;
       }
       return (
-        `<span class="yhat-ghist-bar ${side}" style="height:${h.toFixed(0)}%" ` +
+        `<span class="yhat-ghist-bar ${side} is-tier-${tier}" style="height:${h.toFixed(0)}%" ` +
         `title="${esc(tip)}"></span>`
       );
     })
@@ -930,49 +958,70 @@ export function buildGroupYhatHistHtml(
   const markers = [];
   if (pack.min < 0 && pack.max > 0) {
     markers.push(
-      `<span class="yhat-ghist-mark is-zero" style="left:${pctAt(0)}" title="ŷ=0"></span>`
+      `<span class="yhat-ghist-mark is-zero" style="left:${pctAt(0)}" title="ŷ=0">0</span>`
     );
   }
   if (pack.mean != null) {
     markers.push(
       `<span class="yhat-ghist-mark is-mu" style="left:${pctAt(pack.mean)}" title="μ ${f(
         pack.mean
-      )}%"></span>`
+      )}">μ</span>`
     );
   }
   if (pack.median != null) {
     markers.push(
       `<span class="yhat-ghist-mark is-med" style="left:${pctAt(pack.median)}" title="med ${f(
         pack.median
-      )}%"></span>`
+      )}">med</span>`
     );
   }
+  // —— Pro: 分层竖线（P20 减仓建议 / P80 加仓建议）——
+  markers.push(
+    `<span class="yhat-ghist-mark is-p20" style="left:${pctAt(p20)}" title="P20 短仓建议 = ${f(p20)}">P20</span>`
+  );
+  markers.push(
+    `<span class="yhat-ghist-mark is-p80" style="left:${pctAt(p80)}" title="P80 长仓建议 = ${f(p80)}">P80</span>`
+  );
 
   // 兼容旧参数名（不再抽样竖条）
   void maxBars;
 
   return (
-    `<div class="yhat-group-hist is-aux" aria-label="组内 ŷ 直方图（辅）">` +
-    `<div class="yhat-ghist-meta">` +
+    `<div class="yhat-group-hist is-aux yhat-group-hist--pro" aria-label="组内 ŷ 直方图（辅）">` +
+    `<div class="yhat-ghist-meta yhat-ghist-meta--pro">` +
+    `<div class="yhat-ghist-meta-row1">` +
     `<span class="yhat-ghist-caption">辅 · 截面 ŷ</span>` +
     `<span>n=${pack.n}</span>` +
-    `<span>μ ${esc(f(pack.mean))}%</span>` +
-    `<span>med ${esc(f(pack.median))}%</span>` +
+    `<span>μ ${esc(f(pack.mean))}</span>` +
+    `<span>med ${esc(f(pack.median))}</span>` +
     `<span>σ ${esc(f(pack.std))}</span>` +
-    (pack.pct_pos != null
-      ? `<span>${esc((pack.pct_pos * 100).toFixed(0))}%&gt;0</span>`
-      : "") +
+    `<span>${esc((pctPos * 100).toFixed(0))}%&gt;0</span>` +
     `</div>` +
-    `<div class="yhat-ghist-plot">` +
+    `<div class="yhat-ghist-meta-row2">` +
+    `<span class="yhat-ghist-conv is-strong" title="Top-Bottom / σ">T/B·σ ${esc(spreadOverSigma.toFixed(2))}</span>` +
+    `<span class="yhat-ghist-conv" title="Top3 均值超 μ 几个 σ">Top3·σ ${esc(topSigma.toFixed(1))}</span>` +
+    `<span class="yhat-ghist-conv" title="P20 / P80 具体阈值">P20/P80 ${esc(f(p20, 3))} / ${esc(f(p80, 3))}</span>` +
+    `<span class="yhat-ghist-conv" title="μ-med 差值（正=右拖尾·负=左拖尾）">μ−med ${esc(diffMuMed.toFixed(3))}</span>` +
+    `</div>` +
+    `</div>` +
+    `<div class="yhat-ghist-plot yhat-ghist-plot--pro" style="--tier-short-left:${pctAt(pack.min)};--tier-short-right:${pctAt(p20)};--tier-long-left:${pctAt(p80)};--tier-long-right:${pctAt(pack.max)};">` +
     `<div class="yhat-ghist-bars">${bars}</div>` +
     `<div class="yhat-ghist-marks">${markers.join("")}</div>` +
     `</div>` +
     `<div class="yhat-ghist-axis">` +
     `<span>${esc(f(pack.data_min != null ? pack.data_min : pack.min, 1))}</span>` +
+    `<span>P20</span>` +
     `<span>0</span>` +
+    `<span>P80</span>` +
     `<span>${esc(f(pack.data_max != null ? pack.data_max : pack.max, 1))}</span>` +
     `</div>` +
-    `<div class="yhat-ghist-legend"><span class="is-mu">μ</span><span class="is-med">med</span><span class="is-zero">0</span></div>` +
+    `<div class="yhat-ghist-legend yhat-ghist-legend--pro">` +
+    `<span class="is-mu">μ</span>` +
+    `<span class="is-med">med</span>` +
+    `<span class="is-zero">0</span>` +
+    `<span class="is-p20">P20减</span>` +
+    `<span class="is-p80">P80加</span>` +
+    `</div>` +
     `</div>`
   );
 }
@@ -980,6 +1029,7 @@ export function buildGroupYhatHistHtml(
 /**
  * 组同质性：成员 → 组 β 距离条（洞察：右尾长=硬并组）。
  * gaps: [{ code, distance_to_group_beta, within_cap? }]
+ * Pro 升级：H-Score / Tukey Outlier / 偏度 Skew / d̄/dₘₐₓ + 分位渐变着色 + Q3/Q3+1.5IQR 参考线 + status chip
  */
 export function buildBetaDistanceHtml(
   gaps,
@@ -996,8 +1046,42 @@ export function buildBetaDistanceHtml(
   if (!rows.length) return "";
   rows.sort((a, b) => b.d - a.d);
   const shown = rows.slice(0, maxRows);
-  const peak = Math.max(...shown.map((r) => r.d), 1e-6);
+  const peak = Math.max(...rows.map((r) => r.d), 1e-6);
   const mean = rows.reduce((s, r) => s + r.d, 0) / rows.length;
+
+  // —— Pro: 分位数统计 ——
+  const sorted = [...rows].map((r) => r.d).sort((a, b) => a - b);
+  const n = sorted.length;
+  const quantile = (q) => {
+    const pos = (n - 1) * q;
+    const lo = Math.floor(pos);
+    const hi = Math.min(n - 1, lo + 1);
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
+  };
+  const q1 = quantile(0.25);
+  const q3 = quantile(0.75);
+  const iqr = q3 - q1;
+  const outlierThr = q3 + 1.5 * iqr;
+  const outlierCount = rows.filter((r) => r.d > outlierThr).length;
+
+  // 偏度 Skew（moment 3 / std³，样本修正近似）
+  const m3 = sorted.reduce((s, x) => s + Math.pow(x - mean, 3), 0) / n;
+  const variance = sorted.reduce((s, x) => s + Math.pow(x - mean, 2), 0) / n;
+  const std = Math.sqrt(Math.max(0, variance));
+  const skew = std > 0 ? m3 / Math.pow(std, 3) : 0;
+
+  // H-Score：1 - CV，越小越集中
+  const cv = mean > 0 ? std / mean : 0;
+  const hScore = Math.max(0, Math.min(1, 1 - cv));
+  const hGrade = hScore >= 0.85 ? "A" : hScore >= 0.65 ? "B" : hScore >= 0.5 ? "C" : "D";
+  const hTone =
+    hScore >= 0.85 ? "ok" : hScore >= 0.65 ? "good" : hScore >= 0.5 ? "warn" : "bad";
+  const meanToPeak = peak > 0 ? mean / peak : 0;
+
+  // 参考线归一化位置（%）
+  const q3Pct = Math.min(100, (q3 / peak) * 100);
+  const outPct = Math.min(100, (outlierThr / peak) * 100);
+
   const body = shown
     .map((r) => {
       const pct = Math.min(100, (r.d / peak) * 100);
@@ -1005,11 +1089,16 @@ export function buildBetaDistanceHtml(
       const lab = name ? `${name} ${r.code}` : r.code;
       const near =
         r.cap != null && Number.isFinite(r.cap) && r.cap > 0 && r.d >= r.cap * 0.85;
+      // 分位分级着色
+      let tier = "tight";
+      if (r.d > outlierThr) tier = "outlier";
+      else if (r.d > q3) tier = "warn";
+      const isOutlier = tier === "outlier";
       return (
-        `<div class="yhat-bdist-row${near ? " is-near-cap" : ""}" title="${esc(
-          `${lab} · d=${r.d.toFixed(3)}`
+        `<div class="yhat-bdist-row yhat-bdist--${tier}${near ? " is-near-cap" : ""}${isOutlier ? " is-outlier" : ""}" title="${esc(
+          `${lab} · d=${r.d.toFixed(3)}${isOutlier ? " · Tukey 异常点" : ""}`
         )}">` +
-        `<span class="yhat-bdist-name">${esc(lab)}</span>` +
+        `<span class="yhat-bdist-name">${esc(lab)}${isOutlier ? '<span class="yhat-bdist-warn" aria-label="异常点" title="Tukey 异常">!</span>' : ""}</span>` +
         `<span class="yhat-bdist-track"><span class="yhat-bdist-bar" style="width:${pct.toFixed(
           1
         )}%"></span></span>` +
@@ -1018,20 +1107,51 @@ export function buildBetaDistanceHtml(
       );
     })
     .join("");
+
+  // —— Pro: 参考虚线 overlay ——
+  const refLines =
+    `<div class="yhat-bdist-refs" aria-hidden="true">` +
+    `<span class="yhat-bdist-ref is-q3" style="left:${q3Pct.toFixed(1)}%" title="Q3 = ${q3.toFixed(3)}">Q3</span>` +
+    `<span class="yhat-bdist-ref is-out" style="left:${outPct.toFixed(1)}%" title="Tukey 异常阈值 Q3+1.5IQR = ${outlierThr.toFixed(3)}">F</span>` +
+    `</div>`;
+
   const more =
     rows.length > shown.length
-      ? `<div class="yhat-bdist-more">…另 ${rows.length - shown.length} 只</div>`
+      ? `<button type="button" class="yhat-bdist-more yhat-bdist-more--btn" data-bdist-expand title="展开全部 ${rows.length} 行">…另 ${rows.length - shown.length} 只 ▾</button>`
       : "";
+
+  const chipState =
+    hTone === "ok" || hTone === "good" ? "ok"
+    : hTone === "warn" ? (skew > 1.5 ? "warn" : "ok")
+    : "warn";
+  const chipText =
+    hGrade === "A" || hGrade === "B" ? `H=${hGrade}`
+    : hGrade === "C" ? (skew > 1.5 ? "H=C 长尾" : "H=C")
+    : "H=D 建议拆";
+  const metricStrip =
+    `<div class="yhat-metric-strip" title="越短越同质 · F=Tukey 异常阈值 · 右偏=硬并组风险">` +
+    `<span>H <b class="is-${hTone}">${hScore.toFixed(2)}</b> ${hGrade}</span>` +
+    `<span>Out <b>${outlierCount}/${n}</b></span>` +
+    `<span>Skew <b>${skew >= 0 ? "+" : ""}${skew.toFixed(1)}</b></span>` +
+    `<span>d̄/峰值 <b>${meanToPeak.toFixed(2)}</b></span>` +
+    `</div>`;
+
   return (
-    `<div class="yhat-insight-card yhat-bdist" aria-label="组 β 距离">` +
-    `<div class="yhat-insight-head">` +
-    `<span class="yhat-insight-title">同质 · β 距离</span>` +
-    `<span class="yhat-insight-meta">n=${rows.length} · 均 ${mean.toFixed(3)} · 峰 ${peak.toFixed(
-      3
-    )}</span>` +
+    `<div class="yhat-insight-card yhat-bdist yhat-pro-card" aria-label="组 β 距离">` +
+    `<div class="yhat-insight-head yhat-pro-card-head">` +
+    `<div class="yhat-pro-card-head-left">` +
+    `<div class="yhat-pro-card-title-row">` +
+    `<span class="yhat-insight-title">β 距离</span>` +
+    `<span class="yhat-insight-meta">n=${n} · 峰 ${peak.toFixed(3)}</span>` +
     `</div>` +
-    `<p class="yhat-insight-hint">到组 β 的 L2；越短越同质 · 近 cap 偏橙</p>` +
+    `</div>` +
+    `<span class="quant-pro-status-chip" data-state="${chipState}">${chipText}</span>` +
+    `</div>` +
+    metricStrip +
+    `<div class="yhat-bdist-body-wrap">` +
     body +
+    refLines +
+    `</div>` +
     more +
     `</div>`
   );
@@ -1040,6 +1160,7 @@ export function buildBetaDistanceHtml(
 /**
  * 组预测力：日截面 IC spark + ICIR。
  * panel: factor_ic_panel（含 daily_tail / score_ic / rows）
+ * Pro 升级：放大 260×72 SVG + 正负面积填充 + MA5 + ±1σ 带 + 超σ点 + 6-chip KPI + ΔIC₂₀ 衰减 + status chip
  */
 export function buildGroupIcInsightHtml(panel, { escapeHtml } = {}) {
   const esc = escapeHtml || ((s) => String(s ?? ""));
@@ -1080,55 +1201,229 @@ export function buildGroupIcInsightHtml(panel, { escapeHtml } = {}) {
   if (!pts.length && icMean == null && icir == null) {
     if (panel.mode === "group_ts_ic") {
       return (
-        `<div class="yhat-insight-card yhat-gic" aria-label="组 IC">` +
-        `<div class="yhat-insight-head"><span class="yhat-insight-title">有效 · 组 IC</span></div>` +
-        `<p class="yhat-insight-hint">单票组：时序 IC 回退，无截面 spark</p>` +
+        `<div class="yhat-insight-card yhat-gic yhat-pro-card" aria-label="组 IC">` +
+        `<div class="yhat-insight-head yhat-pro-card-head">` +
+        `<div class="yhat-pro-card-head-left">` +
+        `<div class="yhat-pro-card-title-row">` +
+        `<span class="yhat-insight-title">组 IC</span>` +
+        `<span class="yhat-insight-meta">单票组</span>` +
+        `</div>` +
+        `</div>` +
+        `<span class="quant-pro-status-chip" data-state="idle">无截面</span>` +
+        `</div>` +
+        `<div class="yhat-metric-strip"><span>时序 IC 回退 · 无截面 spark</span></div>` +
         `</div>`
       );
     }
     return "";
   }
 
+  // —— Pro: 6-chip KPI 统计 ——
+  let icsStd = null;
+  let pctPos = null;
+  let tStat = null;
+  let stars = "";
+  let ic20Diff = null;
+  let icirGrade = "D";
+  if (pts.length) {
+    const icsArr = pts.map((p) => p.ic);
+    const m = icsArr.reduce((s, x) => s + x, 0) / icsArr.length;
+    icsStd = Math.sqrt(icsArr.reduce((s, x) => s + Math.pow(x - m, 2), 0) / icsArr.length);
+    pctPos = icsArr.filter((v) => v > 0).length / icsArr.length;
+    // t-stat ≈ ICIR * sqrt(T)
+    if (icsStd != null && icsStd > 0 && icMean != null) {
+      const compIcir = icMean / icsStd;
+      if (icir == null || !Number.isFinite(icir)) icir = compIcir;
+      tStat = compIcir * Math.sqrt(icsArr.length);
+    } else if (icir != null) {
+      tStat = icir * Math.sqrt(icsArr.length);
+    }
+    if (tStat != null) {
+      const at = Math.abs(tStat);
+      if (at >= 3.09) stars = "***";
+      else if (at >= 1.96) stars = "**";
+      else if (at >= 1.65) stars = "†";
+      else stars = "";
+    }
+    // ΔIC₂₀ = 近 20 天 均值 - 全期均值（负=衰减）
+    const k20 = Math.min(20, icsArr.length);
+    if (k20 >= 5) {
+      const recent = icsArr.slice(-k20);
+      const rMean = recent.reduce((s, x) => s + x, 0) / recent.length;
+      ic20Diff = rMean - m;
+    }
+  }
+  if (icir != null && Number.isFinite(icir)) {
+    if (icir >= 0.7) icirGrade = "A";
+    else if (icir >= 0.4) icirGrade = "B";
+    else if (icir >= 0.2) icirGrade = "C";
+    else icirGrade = "D";
+  }
+  const icirTone =
+    icirGrade === "A" ? "ok"
+    : icirGrade === "B" ? "good"
+    : icirGrade === "C" ? "warn"
+    : "bad";
+  const icTone = icMean != null ? (icMean >= 0 ? "good" : "bad") : "good";
+  const pctTone = pctPos != null ? (pctPos >= 0.55 ? "good" : pctPos >= 0.5 ? "warn" : "bad") : "good";
+  const decayTone = ic20Diff != null ? (ic20Diff >= 0 ? "ok" : ic20Diff >= -0.01 ? "warn" : "bad") : "good";
+
   let spark = "";
   if (pts.length >= 2) {
-    const w = 160;
-    const h = 36;
-    const pad = 2;
+    const w = 260;
+    const h = 72;
+    const pad = { l: 28, r: 20, t: 8, b: 18 };
+    const iw = w - pad.l - pad.r;
+    const ih = h - pad.t - pad.b;
     const ics = pts.map((p) => p.ic);
     let lo = Math.min(...ics, 0);
     let hi = Math.max(...ics, 0);
-    if (hi <= lo) {
-      lo -= 0.05;
-      hi += 0.05;
-    }
-    const xAt = (i) => pad + (i / (pts.length - 1)) * (w - pad * 2);
-    const yAt = (v) => pad + (1 - (v - lo) / (hi - lo)) * (h - pad * 2);
+    if (hi <= lo) { lo -= 0.05; hi += 0.05; }
+    const icSigma = icsStd != null ? icsStd : 0;
+    const xAt = (i) => pad.l + (i / (pts.length - 1)) * iw;
+    const yAt = (v) => pad.t + ih - ((v - lo) / (hi - lo)) * ih;
     const zeroY = yAt(0);
-    const poly = pts
-      .map((p, i) => `${xAt(i).toFixed(1)},${yAt(p.ic).toFixed(1)}`)
-      .join(" ");
+    const hiSigmaY = icSigma > 0 ? yAt(icSigma) : null;
+    const loSigmaY = icSigma > 0 ? yAt(-icSigma) : null;
+
+    const mainLinePts = pts.map((p, i) => `${xAt(i).toFixed(1)},${yAt(p.ic).toFixed(1)}`).join(" ");
+
+    // ±面积填充：正负分开做 polygon 到 0 轴
+    let areaPos = "";
+    let areaNeg = "";
+    if (zeroY != null) {
+      const posSegs = [];
+      const negSegs = [];
+      ics.forEach((v, i) => {
+        const x = xAt(i);
+        const y = yAt(v);
+        if (v >= 0) posSegs.push([x, y]); else negSegs.push([x, y]);
+      });
+      const closeAtZero = (segs, sign) => {
+        if (!segs.length) return "";
+        const first = segs[0];
+        const last = segs[segs.length - 1];
+        const ptsSvg =
+          `${xAt(0).toFixed(1)},${zeroY.toFixed(1)} ` +
+          segs.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ") +
+          ` ${xAt(pts.length - 1).toFixed(1)},${zeroY.toFixed(1)}`;
+        return ptsSvg;
+      };
+      // 简单整体面积填充（不用按符号切，透明度低混色也可）：把整个序列下沿都接到 0 轴
+      const fullArea =
+        `${xAt(0).toFixed(1)},${zeroY.toFixed(1)} ` +
+        pts.map((p, i) => `${xAt(i).toFixed(1)},${yAt(p.ic).toFixed(1)}`).join(" ") +
+        ` ${xAt(pts.length - 1).toFixed(1)},${zeroY.toFixed(1)}`;
+      // 用 fill-rule: evenodd + 两个半透明层
+      areaPos = `<polygon class="yhat-gic-area-pos" points="${fullArea}" />`;
+    }
+
+    // MA5 平滑线
+    let maLine = "";
+    if (pts.length >= 5) {
+      const maPts = [];
+      for (let i = 0; i < pts.length; i++) {
+        const loIdx = Math.max(0, i - 4);
+        const win = ics.slice(loIdx, i + 1);
+        const mv = win.reduce((s, x) => s + x, 0) / win.length;
+        maPts.push(`${xAt(i).toFixed(1)},${yAt(mv).toFixed(1)}`);
+      }
+      maLine = `<polyline class="yhat-gic-ma" fill="none" points="${maPts.join(" ")}" />`;
+    }
+
+    // 超 σ 点 markers
+    let outMarkers = "";
+    if (icSigma > 0) {
+      ics.forEach((v, i) => {
+        if (Math.abs(v - (icMean != null ? icMean : 0)) > icSigma) {
+          const side = v >= 0 ? "pos" : "neg";
+          outMarkers += `<circle class="yhat-gic-out is-${side}" cx="${xAt(i).toFixed(1)}" cy="${yAt(v).toFixed(1)}" r="3.2" />`;
+        }
+      });
+    }
+
+    // 最后 5 个点加大圆点
+    let tailDots = "";
+    const startIdx = Math.max(0, pts.length - 5);
+    for (let i = startIdx; i < pts.length; i++) {
+      const isLast = i === pts.length - 1;
+      tailDots +=
+        `<circle class="yhat-gic-tail${isLast ? " is-last" : ""}" ` +
+        `cx="${xAt(i).toFixed(1)}" cy="${yAt(pts[i].ic).toFixed(1)}" r="${isLast ? 3.6 : 2.4}" ` +
+        `${isLast ? `fill="${pts[i].ic >= 0 ? "#b91c1c" : "#047857"}"` : ""} />`;
+    }
+
+    // x 轴起止 date 标签
+    const xLabel1 = pts[0].date.slice(5);
+    const xLabel2 = pts[pts.length - 1].date.slice(5);
+
     spark =
-      `<svg class="yhat-gic-spark" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" aria-hidden="true">` +
-      `<line class="yhat-gic-zero" x1="${pad}" y1="${zeroY.toFixed(
-        1
-      )}" x2="${w - pad}" y2="${zeroY.toFixed(1)}" />` +
-      `<polyline class="yhat-gic-line" fill="none" points="${poly}" />` +
+      `<svg class="yhat-gic-spark yhat-gic-spark--pro" viewBox="0 0 ${w} ${h}" width="100%" height="${h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true">` +
+      // ±1σ 带
+      (hiSigmaY != null && loSigmaY != null
+        ? `<rect class="yhat-gic-sigma-band" x="${pad.l}" y="${Math.min(hiSigmaY, loSigmaY).toFixed(1)}" width="${iw}" height="${Math.abs(hiSigmaY - loSigmaY).toFixed(1)}" />`
+        : "") +
+      // 面积正区
+      areaPos +
+      // 0 轴
+      `<line class="yhat-gic-zero" x1="${pad.l}" y1="${zeroY.toFixed(1)}" x2="${w - pad.r}" y2="${zeroY.toFixed(1)}" />` +
+      // 主折线
+      `<polyline class="yhat-gic-line" fill="none" points="${mainLinePts}" />` +
+      // MA5
+      maLine +
+      // 超 σ 点
+      outMarkers +
+      // 尾部圆点
+      tailDots +
+      // 起止日期
+      `<text class="yhat-gic-xlab" x="${pad.l}" y="${h - 4}" text-anchor="start">${xLabel1}</text>` +
+      `<text class="yhat-gic-xlab" x="${w - pad.r}" y="${h - 4}" text-anchor="end">${xLabel2}</text>` +
       `</svg>`;
   }
 
   const f = (x, d = 3) =>
     x != null && Number.isFinite(x) ? Number(x).toFixed(d) : "—";
-  const tone =
-    icir != null && icir > 0.3 ? "is-good" : icir != null && icir < 0 ? "is-bad" : "";
+
+  let chipState = "idle";
+  let chipText = "—";
+  if (icirGrade === "A" && (ic20Diff == null || ic20Diff >= -0.005)) {
+    chipState = "ok"; chipText = "强预测";
+  } else if (icirGrade === "B" && (ic20Diff == null || ic20Diff >= -0.01)) {
+    chipState = "ok"; chipText = "预测可";
+  } else if (icirGrade === "C" && ic20Diff != null && ic20Diff < -0.01) {
+    chipState = "warn"; chipText = "衰减";
+  } else if (icirGrade === "C") {
+    chipState = "warn"; chipText = "弱信号";
+  } else if (ic20Diff != null && ic20Diff < -0.01) {
+    chipState = "warn"; chipText = "衰减";
+  } else if (icirGrade === "D") {
+    chipState = "warn"; chipText = "不稳";
+  }
+  if (icMean != null && icMean < 0 && Math.abs(icMean) > 0.001) {
+    chipState = "warn";
+    chipText = icirGrade === "A" || icirGrade === "B" ? "方向反" : "噪声";
+  }
+  const metricStrip =
+    `<div class="yhat-metric-strip" title="面积=相对零轴 · 虚线=MA5 · 灰带=±1σ · ΔIC₂₀&lt;0 为衰减">` +
+    `<span>μIC <b class="is-${icTone}">${esc(f(icMean, 3))}</b></span>` +
+    `<span>ICIR <b class="is-${icirTone}">${esc(f(icir, 2))}</b> ${icirGrade}</span>` +
+    `<span>t <b>${tStat != null ? `${tStat.toFixed(1)}${stars || ""}` : "—"}</b></span>` +
+    `<span>IC&gt;0 <b>${pctPos != null ? `${(pctPos * 100).toFixed(0)}%` : "—"}</b></span>` +
+    `<span>Δ20 <b class="is-${decayTone}">${ic20Diff != null ? `${ic20Diff >= 0 ? "+" : ""}${ic20Diff.toFixed(3)}` : "—"}</b></span>` +
+    `</div>`;
+
   return (
-    `<div class="yhat-insight-card yhat-gic ${tone}" aria-label="组 IC">` +
-    `<div class="yhat-insight-head">` +
-    `<span class="yhat-insight-title">有效 · 组 IC</span>` +
-    `<span class="yhat-insight-meta">μIC ${esc(f(icMean))} · ICIR ${esc(f(icir))} · ${
-      pts.length
-    }d</span>` +
+    `<div class="yhat-insight-card yhat-gic yhat-pro-card" aria-label="组 IC">` +
+    `<div class="yhat-insight-head yhat-pro-card-head">` +
+    `<div class="yhat-pro-card-head-left">` +
+    `<div class="yhat-pro-card-title-row">` +
+    `<span class="yhat-insight-title">组 IC</span>` +
+    `<span class="yhat-insight-meta">${pts.length}d</span>` +
     `</div>` +
-    `<p class="yhat-insight-hint">日截面因子 IC 均 · 绕零=无效 · ICIR&gt;0 才谈效果</p>` +
+    `</div>` +
+    `<span class="quant-pro-status-chip" data-state="${chipState}">${chipText}</span>` +
+    `</div>` +
+    metricStrip +
     (spark || "") +
     `</div>`
   );
@@ -1219,9 +1514,112 @@ export function buildClustersOosDeltaHtml(clusters, { escapeHtml } = {}) {
 /**
  * 组 β 符号条（lollipop / diverging）。
  * coefs: { factor: beta } 或 [{ key, label?, beta }]
+ * Pro 升级：因子分类色方点 + t-stat 星标 + IC 侧色点 + 可展开"…另 X 因子"
  */
-export function buildBetaLollipopHtml(coefs, { escapeHtml, maxRows = 10, highlightAbs = 0.05 } = {}) {
+export function buildBetaLollipopHtml(
+  coefs,
+  { escapeHtml, maxRows = 10, highlightAbs = 0.05, factorMeta = {}, groupPanel = null } = {}
+) {
   const esc = escapeHtml || ((s) => String(s ?? ""));
+  // 因子分类颜色表
+  const CATEGORY_COLORS = {
+    value: "#92400e",   // 褐
+    quality: "#047857", // 绿
+    momentum: "#0f766e",// 青
+    volatility: "#ea580c",// 橙
+    volatility_vol: "#ea580c",
+    liquid: "#2563eb",  // 蓝
+    liquidity: "#2563eb",
+    growth: "#db2777",  // 粉
+    technical: "#64748b",// 灰
+    tech: "#64748b",
+    sentiment: "#be185d",
+    fundamental: "#0369a1",
+    industry: "#b45309",
+    sector: "#b45309",
+    style: "#0f766e",
+    size: "#64748b",
+    default: "#94a3b8",
+  };
+  const factorIcMap = {};
+  if (groupPanel && Array.isArray(groupPanel.rows)) {
+    for (const r of groupPanel.rows) {
+      const k = r.factor || r.name || "";
+      if (!k) continue;
+      const pear = r.pearson && typeof r.pearson === "object" ? r.pearson : r;
+      const icMean = pear.ic_mean != null ? Number(pear.ic_mean)
+        : r.ic_mean != null ? Number(r.ic_mean)
+        : r.ic != null ? Number(r.ic) : null;
+      const icir = pear.icir != null ? Number(pear.icir)
+        : r.icir != null ? Number(r.icir) : null;
+      factorIcMap[k] = { icMean, icir };
+    }
+  }
+  const getFactorMeta = (k) => {
+    const m = factorMeta && factorMeta[k] && typeof factorMeta[k] === "object" ? factorMeta[k] : null;
+    return m || {};
+  };
+  const getCategoryColor = (k) => {
+    const m = getFactorMeta(k);
+    const c = String(m.category || m.cat || "").toLowerCase();
+    if (c && CATEGORY_COLORS[c]) return CATEGORY_COLORS[c];
+    // 关键词 fuzzy
+    const kl = k.toLowerCase();
+    if (/value|bp|pe|pb|dividend|yield/.test(kl)) return CATEGORY_COLORS.value;
+    if (/quality|roe|roa|gross|margin|accrual|profit/.test(kl)) return CATEGORY_COLORS.quality;
+    if (/momentum|ret|ret_|momen|rsi|macd|ma|trend/.test(kl)) return CATEGORY_COLORS.momentum;
+    if (/vol|volatility|iv|var|downside|std|risk/.test(kl)) return CATEGORY_COLORS.volatility;
+    if (/liquid|turnover|atv|volume|amt|illiq|amihud/.test(kl)) return CATEGORY_COLORS.liquid;
+    if (/growth|grow|revenue|earn|sales|capex/.test(kl)) return CATEGORY_COLORS.growth;
+    if (/tech|technical|kdj|bias|breakout|reverse|willr|cci/.test(kl)) return CATEGORY_COLORS.technical;
+    return CATEGORY_COLORS.default;
+  };
+  const getTStatStars = (k, beta) => {
+    const m = getFactorMeta(k);
+    const tv =
+      m.t_stat != null ? Number(m.t_stat)
+      : m.tStat != null ? Number(m.tStat)
+      : m.t != null ? Number(m.t)
+      : m.t_value != null ? Number(m.t_value) : null;
+    if (tv != null && Number.isFinite(tv)) {
+      const a = Math.abs(tv);
+      if (a >= 3.09) return { stars: "***", t: tv };
+      if (a >= 1.96) return { stars: "**", t: tv };
+      if (a >= 1.65) return { stars: "†", t: tv };
+      return { stars: "", t: tv };
+    }
+    // 若无 t，用 |β| 粗估占位：≥highlightAbs 加弱星
+    if (Math.abs(beta) >= highlightAbs * 1.5) return { stars: "·" };
+    return { stars: "" };
+  };
+  const getIcSideColor = (k) => {
+    const info = factorIcMap[k];
+    if (!info || info.icMean == null || !Number.isFinite(info.icMean)) {
+      // 回退查 meta
+      const m = getFactorMeta(k);
+      const fallback =
+        m.ic_mean != null ? Number(m.ic_mean)
+        : m.ic != null ? Number(m.ic) : null;
+      if (fallback == null || !Number.isFinite(fallback)) return null;
+      return _icTint(fallback);
+    }
+    return _icTint(info.icMean);
+  };
+  function _icTint(icMean) {
+    const a = Math.min(1, Math.max(0, Math.abs(icMean) * 20)); // scale: 0.05=1.0
+    if (icMean >= 0) {
+      // 红
+      const alpha = 0.25 + a * 0.75;
+      return `rgba(185,28,28,${alpha.toFixed(2)})`;
+    }
+    const alpha = 0.25 + a * 0.75;
+    return `rgba(4,120,87,${alpha.toFixed(2)})`;
+  }
+  const getCatLabel = (k) => {
+    const m = getFactorMeta(k);
+    return m.label || m.cn_name || m.name_cn || "";
+  };
+
   let rows = [];
   if (Array.isArray(coefs)) {
     rows = coefs
@@ -1242,6 +1640,7 @@ export function buildBetaLollipopHtml(coefs, { escapeHtml, maxRows = 10, highlig
   }
   if (!rows.length) return "";
   rows.sort((a, b) => Math.abs(b.beta) - Math.abs(a.beta));
+  const totalRows = rows.length;
   rows = rows.slice(0, Math.max(3, maxRows));
   const peak = Math.max(...rows.map((r) => Math.abs(r.beta)), 1e-6);
   const body = rows
@@ -1250,33 +1649,67 @@ export function buildBetaLollipopHtml(coefs, { escapeHtml, maxRows = 10, highlig
       const side = r.beta >= 0 ? "pos" : "neg";
       const hi = Math.abs(r.beta) >= highlightAbs ? " is-hot" : "";
       const sign = r.beta > 0 ? "+" : "";
+      const catColor = getCategoryColor(r.key);
+      const catLabel = getCatLabel(r.key);
+      const tInfo = getTStatStars(r.key, r.beta);
+      const icBg = getIcSideColor(r.key);
       const stem =
         side === "pos"
           ? `<span class="yhat-beta-neg-pad"></span>` +
             `<span class="yhat-beta-track pos"><span class="yhat-beta-bar" style="width:${pct.toFixed(
               1
-            )}%"></span></span>`
-          : `<span class="yhat-beta-track neg"><span class="yhat-beta-bar" style="width:${pct.toFixed(
+            )}%; background:${catColor}"></span>${tInfo.stars ? `<span class="yhat-beta-tstars" title="${tInfo.t != null ? `t = ${tInfo.t.toFixed(2)}` : "估计显著"}">${tInfo.stars}</span>` : ""}</span>`
+          : `<span class="yhat-beta-track neg">${tInfo.stars ? `<span class="yhat-beta-tstars is-left" title="${tInfo.t != null ? `t = ${tInfo.t.toFixed(2)}` : "估计显著"}">${tInfo.stars}</span>` : ""}<span class="yhat-beta-bar" style="width:${pct.toFixed(
               1
-            )}%"></span></span>` +
+            )}%; background:${catColor}"></span></span>` +
             `<span class="yhat-beta-pos-pad"></span>`;
+      const icDot = icBg
+        ? `<span class="yhat-beta-icdot" style="background:${icBg}" title="因子自身 IC 质量 · ${catLabel ? catLabel + " · " : ""}${r.key}"></span>`
+        : `<span class="yhat-beta-icdot is-empty" title="暂无 IC 信息 · ${r.key}"></span>`;
+      const title =
+        `${r.key}${catLabel ? `（${catLabel}）` : ""} · β=${sign}${r.beta.toFixed(3)}` +
+        (tInfo.t != null && Number.isFinite(tInfo.t) ? ` · t=${tInfo.t.toFixed(2)}${tInfo.stars ? ` ${tInfo.stars}` : ""}` : "") +
+        (factorIcMap[r.key] && factorIcMap[r.key].icMean != null ? ` · IC=${factorIcMap[r.key].icMean.toFixed(3)}` : "");
       return (
-        `<div class="yhat-beta-row${hi}" title="${esc(r.key)}">` +
-        `<span class="yhat-beta-name">${esc(r.label)}</span>` +
+        `<div class="yhat-beta-row${hi}" title="${esc(title)}">` +
+        `<span class="yhat-beta-name">` +
+        `<span class="yhat-beta-catdot" style="background:${catColor}" title="${esc(catLabel || `分类推断 · ${r.key}`)}"></span>` +
+        `<span class="yhat-beta-fname">${esc(r.label)}</span>` +
+        `</span>` +
         `<span class="yhat-beta-stem" aria-hidden="true">${stem}</span>` +
+        `<span class="yhat-beta-valcol">` +
         `<span class="yhat-beta-val ${side}">${esc(
           `${sign}${r.beta.toFixed(3)}`
         )}</span>` +
+        icDot +
+        `</span>` +
         `</div>`
       );
     })
     .join("");
-  return (
-    `<div class="yhat-beta-lollipop" aria-label="组因子 β">` +
-    `<div class="yhat-beta-axis"><span>−β</span><span>0</span><span>+β</span></div>` +
-    body +
-    `</div>`
-  );
+
+  const more = totalRows > rows.length
+    ? `<button type="button" class="yhat-beta-more" data-beta-expand>…另 ${totalRows - rows.length} 因子 ▾</button>`
+    : "";
+
+  return {
+    __betaLollipop: true,
+    totalRows,
+    shownRows: rows.length,
+    html:
+      `<div class="yhat-beta-lollipop yhat-beta-lollipop--pro" aria-label="组因子 β">` +
+      `<div class="yhat-beta-axis"><span>−β</span><span>0</span><span>+β</span></div>` +
+      body +
+      more +
+      `</div>`,
+  };
+}
+
+/** 兼容性包装：返回字符串 HTML（旧调用方）。 */
+export function buildBetaLollipopHtmlCompat(coefs, opts = {}) {
+  const res = buildBetaLollipopHtml(coefs, opts);
+  if (res && res.__betaLollipop) return res.html;
+  return res || "";
 }
 
 /** 命中率 sparkline（0–1）。 */
