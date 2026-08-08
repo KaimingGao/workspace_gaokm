@@ -1,5 +1,9 @@
 import { downloadJson } from "../shared.js";
-import { normalizeProbeCode } from "./names.js";
+import {
+  normalizeProbeCode,
+  isUsableStockName,
+  resolveStockDisplayName,
+} from "./names.js";
 import { postClusterLive as postClusterLiveApi, formatClusterApiError } from "./cluster_api.js";
 import { clusterLandingHtml } from "./cluster_landing.js";
 import { PROBE_EMPTY_CLUSTER_FAILED, PROBE_EMPTY_NO_CLUSTER, PROBE_EMPTY_COMPARE_FAILED, probePickerTriggerHtml, probePickerIdentityHtml, summarizeProbeHeterogeneity, buildProbeReadySummaryHtml, buildProbeNotReadySummaryHtml, buildProbeSingletonSummaryHtml, buildProbeNotInClusterPlainText, buildProbeHeteroSummaryHtml, buildProbeMetaSingleton, buildProbeMetaNotInCluster, buildProbeMetaHetero, buildProbePickerMenuHtml, probeStatusBadge } from "./probe_ui.js";
@@ -161,7 +165,11 @@ export function installClusterProbe(q) {
     const nextMap = {};
     state.probePickerRows = (rows || []).map((r) => {
       const code = normalizeProbeCode(r.code) || String(r.code || "").trim();
-      const name = String(r.name || "").trim().replace(/\s+/g, "");
+      const name = resolveStockDisplayName(
+        code,
+        r.name,
+        state.watchingNameByCode[code]
+      );
       const group = String(r.group || r.label || "").trim();
       const label = [name || null, code || null, group || null]
         .filter(Boolean)
@@ -312,9 +320,12 @@ export function installClusterProbe(q) {
 
   function rememberWatchingName(code, name) {
     const c = normalizeProbeCode(code);
-    const nm = String(name || "").trim().replace(/\s+/g, "");
+    const nm = resolveStockDisplayName(c, name);
     if (!c || !nm) return;
-    if (!state.watchingNameByCode[c]) state.watchingNameByCode[c] = nm;
+    // 允许用真名覆盖「名=代码」伪名（探针下拉反复丢中文名的根因）
+    if (!isUsableStockName(c, state.watchingNameByCode[c])) {
+      state.watchingNameByCode[c] = nm;
+    }
   }
 
   async function hydrateWatchingNamesFromApi() {
@@ -349,14 +360,14 @@ export function installClusterProbe(q) {
     const hidden = document.getElementById("quant-ols-code");
     if (!hidden) return [];
     const wl = await hydrateWatchingNamesFromApi();
-    // 已有分组成员：只补名称再 sync，避免被无名字的列表覆盖
+    // 已有分组成员：hydrate 后再 async sync（拒伪名、补观察池真名）
     if (
       state.quantLastOlsClusters &&
       state.quantLastOlsClusters.success &&
       Array.isArray(state.quantLastOlsClusters.clusters) &&
       state.quantLastOlsClusters.clusters.length
     ) {
-      syncProbeCodeOptionsFromClusters();
+      await syncProbeCodeOptionsFromClustersAsync();
       return state.probePickerRows || [];
     }
     const seen = new Set();
@@ -365,9 +376,11 @@ export function installClusterProbe(q) {
       const c = normalizeProbeCode(code);
       if (!c || seen.has(c)) return;
       seen.add(c);
-      const nm = String(name || state.watchingNameByCode[c] || "")
-        .trim()
-        .replace(/\s+/g, "");
+      const nm = resolveStockDisplayName(
+        c,
+        name,
+        state.watchingNameByCode[c]
+      );
       rememberWatchingName(c, nm);
       rows.push({ code: c, name: nm });
     };
@@ -1193,14 +1206,12 @@ export function installClusterProbe(q) {
         const c = normalizeProbeCode(m);
         if (!c || seen.has(c)) continue;
         seen.add(c);
-        const nm = String(
-          nameByCode[c] ||
-            state.watchingNameByCode[c] ||
-            state.watchingNameByCode[m] ||
-            ""
-        )
-          .trim()
-          .replace(/\s+/g, "");
+        const nm = resolveStockDisplayName(
+          c,
+          state.watchingNameByCode[c],
+          state.watchingNameByCode[m],
+          nameByCode[c]
+        );
         if (nm) rememberWatchingName(c, nm);
         rows.push({ code: c, name: nm, group: gLabel });
       }
@@ -1209,11 +1220,15 @@ export function installClusterProbe(q) {
   }
 
   async function syncProbeCodeOptionsFromClustersAsync() {
-    const named = Object.keys(state.watchingNameByCode || {}).length;
-    if (named < 3) await hydrateWatchingNamesFromApi();
+    const usableN = Object.entries(state.watchingNameByCode || {}).filter(([c, nm]) =>
+      isUsableStockName(c, nm)
+    ).length;
+    if (usableN < 3) await hydrateWatchingNamesFromApi();
     syncProbeCodeOptionsFromClusters();
     const rows = state.probePickerRows || [];
-    const missing = rows.filter((r) => r && r.code && !r.name).length;
+    const missing = rows.filter(
+      (r) => r && r.code && !isUsableStockName(r.code, r.name)
+    ).length;
     if (rows.length && missing >= Math.ceil(rows.length * 0.5)) {
       await hydrateWatchingNamesFromApi();
       syncProbeCodeOptionsFromClusters();

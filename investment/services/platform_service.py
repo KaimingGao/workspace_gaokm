@@ -154,6 +154,40 @@ class PlatformService:
 
         return build_data_quality_report(codes=codes)
 
+    def run_fundamentals_ingest_nudge(
+        self,
+        *,
+        codes: Optional[list] = None,
+        write: bool = True,
+        max_points: int = 8,
+    ) -> Dict[str, Any]:
+        """DC3 · 对 ann_missing TopN（或指定 codes）催办真实财务多期 ingest。"""
+        from core.pro_core import ingest_nudge_payload
+        from core.sample_ops import ingest_real_fundamentals_history, sample_status
+
+        ss = sample_status(paper=None)
+        nudge = ingest_nudge_payload(codes=codes, sample_status=ss)
+        target = list(nudge.get("codes") or [])
+        if not target:
+            return {
+                "ok": True,
+                "wrote": False,
+                "nudge": nudge,
+                "message": "无 ann_missing TopN 可催办",
+            }
+        out = ingest_real_fundamentals_history(
+            codes=target,
+            max_points=max_points,
+            write=bool(write),
+        )
+        return {
+            "ok": True,
+            "wrote": bool(write),
+            "nudge": nudge,
+            "ingest": out,
+            "track": "DC3",
+        }
+
     def get_source_audit(self, *, codes: Optional[list] = None, lookback: int = 40) -> Dict[str, Any]:
         """D1 · 独立源审计。"""
         from core.data_consistency import audit_code_sources

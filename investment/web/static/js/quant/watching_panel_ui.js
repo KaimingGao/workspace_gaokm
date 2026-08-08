@@ -23,10 +23,13 @@ export function buildWatchingNameByCode(wl, names) {
   const list = Array.isArray(wl) ? wl : [];
   const nm = Array.isArray(names) ? names : [];
   for (let i = 0; i < list.length; i++) {
-    const c = String(list[i] || "").trim();
+    const c = String(list[i] || "")
+      .trim()
+      .replace(/\.(SH|SZ|BJ)$/i, "");
     if (!c) continue;
-    const name = nm[i] && String(nm[i]).trim();
-    if (name) map[c] = name;
+    const name = nm[i] && String(nm[i]).trim().replace(/\s+/g, "");
+    // 拒绝「名=代码」伪名，避免整表覆盖后探针下拉只剩代码
+    if (name && name !== c && !/^\d{6}$/.test(name)) map[c] = name;
   }
   return map;
 }

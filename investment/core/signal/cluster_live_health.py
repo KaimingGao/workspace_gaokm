@@ -165,6 +165,30 @@ def assess_cluster_live_health(
         and (sample_count_min is None or sample_count_min >= 24)
     )
 
+    # FM2 · IC 衰减摘要（滚动 IC / demote 状态；完整 lag 曲线见 walk_forward.ic_decay_curve）
+    ic_decay_summary: Dict[str, Any] = {
+        "ok": True,
+        "track": "FM2",
+        "ic_demote": bool(ic_demote),
+        "refit_suggested": bool(refit_suggested),
+        "stale": bool(stale),
+        "yhat_rolling_ic": yhat_ic if not isinstance(yhat_ic, dict) else yhat_ic.get("ic"),
+        "note": "衰减触发与 B4 refit/demote 同源；完整 lag 曲线在研究 WF 报告",
+    }
+    if isinstance(yhat_ic, dict):
+        series = yhat_ic.get("series") or yhat_ic.get("ic_series")
+        if isinstance(series, (list, tuple)) and series:
+            try:
+                vals = [float(x) for x in series if x is not None]
+                if vals:
+                    ic_decay_summary["series_n"] = len(vals)
+                    ic_decay_summary["series_mean"] = round(sum(vals) / len(vals), 4)
+                    ic_decay_summary["series_last"] = round(vals[-1], 4)
+                    if len(vals) >= 2:
+                        ic_decay_summary["series_delta"] = round(vals[-1] - vals[0], 4)
+            except (TypeError, ValueError):
+                pass
+
     return {
         "success": True,
         "task": "cluster_live_health",
@@ -181,6 +205,7 @@ def assess_cluster_live_health(
         "stale": stale,
         "ic_demote": ic_demote,
         "yhat_rolling_ic": yhat_ic,
+        "ic_decay_summary": ic_decay_summary,
         "ic_computed": do_ic,
         "fitted_as_of": fitted_as_of,
         "sample_count_min": sample_count_min,
@@ -190,5 +215,5 @@ def assess_cluster_live_health(
         "suggest_demote": demoted or (mode == "active" and not allow_active),
         "alerts": alerts,
         "signal_config_touched": False,
-        "track": "B4",
+        "track": "B4+FM2",
     }

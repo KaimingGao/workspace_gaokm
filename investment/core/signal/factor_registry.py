@@ -257,15 +257,30 @@ _register(
 )
 
 
-def list_factors() -> List[Dict[str, str]]:
-    return [
-        {
+def list_factors(*, include_meta: bool = False) -> List[Dict[str, str]]:
+    """列出注册因子；include_meta=True 时附 FM1 sourced/proxy 状态。"""
+    proxy_meta = {}
+    if include_meta:
+        try:
+            from core.signal.factor_health import PROXY_OR_UNSOURCED
+
+            proxy_meta = dict(PROXY_OR_UNSOURCED)
+        except Exception:
+            proxy_meta = {}
+    out: List[Dict[str, str]] = []
+    for k, v in _REGISTRY.items():
+        row: Dict[str, Any] = {
             "name": k,
             "label": v["label"],
             "description": v.get("description") or "",
         }
-        for k, v in _REGISTRY.items()
-    ]
+        if include_meta:
+            pm = proxy_meta.get(k) or {}
+            row["sourced"] = not bool(pm)
+            row["status"] = str(pm.get("status") or "sourced")
+            row["status_note"] = str(pm.get("note") or "")
+        out.append(row)
+    return out
 
 
 def factor_label(name: str) -> str:

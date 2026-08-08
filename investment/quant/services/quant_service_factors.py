@@ -344,6 +344,8 @@ class QuantFactorMixin:
                         logger.warning("因子服务处理异常", exc_info=True)
                 cached["cache_hit"] = True
                 cached["cache_age_hours"] = _cluster_cache_age_hours(cached)
+                # 缓存里常缺 name_by_code；每次复用时用观察池真名补齐（探针下拉）
+                _enrich_cluster_name_by_code(cached)
                 return cached
 
         # 聚类宇宙 = 全部观察池（纸面持仓仅作落地映射参考，不进聚类）
@@ -447,9 +449,10 @@ class QuantFactorMixin:
                 continue
             c = str(code_key or "").strip()
             nm = str(q.get("stock_name") or q.get("name") or "").strip()
-            if c and nm:
+            if c and nm and nm != c and not (nm.isdigit() and len(nm) == 6):
                 name_by_code[c] = nm
         report["name_by_code"] = name_by_code
+        _enrich_cluster_name_by_code(report)
         if report.get("success"):
             _on_progress("OOS / 分池…", n_codes, n_codes)
             attach_cluster_oos_gates(
@@ -1035,6 +1038,67 @@ class QuantFactorMixin:
 
 
 # ---------- P1：分组报告 24h 缓存（watchlist+参数指纹未变即复用）----------
+
+
+def _usable_stock_name(code: str, name: Any) -> str:
+    """拒绝「名=代码」伪名，避免探针下拉被污染。"""
+    c = str(code or "").strip().replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+    nm = str(name or "").strip().replace(" ", "")
+    if not c or not nm:
+        return ""
+    if nm == c or (nm.isdigit() and len(nm) == 6):
+        return ""
+    return nm
+
+
+def _enrich_cluster_name_by_code(report: Dict[str, Any]) -> Dict[str, Any]:
+    """用观察池落盘名补齐 / 覆盖报告 name_by_code，并回填 ranking 伪名。"""
+    if not isinstance(report, dict):
+        return report
+    name_by_code: Dict[str, str] = {}
+    for raw, nm0 in (report.get("name_by_code") or {}).items():
+        c = str(raw or "").strip()
+        nm = _usable_stock_name(c, nm0)
+        if c and nm:
+            name_by_code[c] = nm
+            bare = c.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+            if bare and bare != c:
+                name_by_code.setdefault(bare, nm)
+    try:
+        from core.watching_store import read_watching, watchlist_names_for
+
+        data = read_watching() or {}
+        wl = [str(c).strip() for c in (data.get("watchlist") or []) if str(c).strip()]
+        names = watchlist_names_for(data) if wl else []
+        for i, code in enumerate(wl):
+            nm = _usable_stock_name(code, names[i] if i < len(names) else "")
+            if not nm:
+                continue
+            name_by_code[code] = nm
+            bare = code.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+            if bare and bare != code:
+                name_by_code[bare] = nm
+    except Exception:
+        logger.debug("enrich cluster names from watching failed", exc_info=True)
+    report["name_by_code"] = name_by_code
+    for cl in report.get("clusters") or []:
+        if not isinstance(cl, dict):
+            continue
+        for key in ("group_ranking", "ranking", "predicted_ranking"):
+            rows = cl.get(key)
+            if not isinstance(rows, list):
+                continue
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                code = str(row.get("stock_code") or row.get("code") or "").strip()
+                if not code:
+                    continue
+                bare = code.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
+                true_nm = name_by_code.get(code) or name_by_code.get(bare) or ""
+                if true_nm and not _usable_stock_name(code, row.get("stock_name")):
+                    row["stock_name"] = true_nm
+    return report
 
 
 def _cluster_cache_fingerprint(

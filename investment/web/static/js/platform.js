@@ -660,6 +660,18 @@ export function initPlatform(ctx) {
         (audit.fallback_codes || []).length
       } · thin ${(audit.thin_codes || []).length}</li>` +
       `<li>日历：节假日 ${cal.holiday_count ?? 0} · ${escapeAttr(cal.note || "")}</li>` +
+      (data.pit_depth
+        ? `<li class="${data.pit_depth.soft_ok ? "" : "is-warn"}">PIT 深度：${escapeAttr(
+            data.pit_depth.honest_label || "—"
+          )} · ann_missing=${
+            data.pit_depth.ann_missing_code_ratio != null
+              ? (Number(data.pit_depth.ann_missing_code_ratio) * 100).toFixed(0) + "%"
+              : "—"
+          }</li>`
+        : "") +
+      (data.ingest_nudge && data.ingest_nudge.count
+        ? `<li>可催办 ingest：${data.ingest_nudge.count} 只</li>`
+        : "") +
       `</ul>` +
       (warns ? `<ul class="platform-list compact">${warns}</ul>` : "") +
       `<p class="platform-hint">${escapeAttr(data.note || "")}</p>`;
@@ -669,6 +681,25 @@ export function initPlatform(ctx) {
 
   on("data-quality-refresh", "click", () =>
     withButtonBusy("data-quality-refresh", "加载中…", loadDataQuality)
+  );
+
+  on("fundamentals-ingest-nudge", "click", () =>
+    withButtonBusy("fundamentals-ingest-nudge", "催办中…", async () => {
+      setNorthStarActionStatus("正在催办 ann_missing ingest…");
+      const { ok, data, error } = await apiFetch("/api/ops/fundamentals-ingest-nudge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ write: true }),
+      });
+      if (!ok) {
+        setNorthStarActionStatus(error || "催办失败");
+        return;
+      }
+      const n = (data.nudge && data.nudge.count) || 0;
+      const updated = (data.ingest && (data.ingest.updated || data.ingest.n_updated)) || "—";
+      setNorthStarActionStatus(`催办完成 · 目标 ${n} · 更新 ${updated}`);
+      await loadDataQuality();
+    })
   );
 
   on("maturity-gate-refresh", "click", async () => {

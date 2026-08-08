@@ -148,6 +148,20 @@ def promote_strategy(
 
     不静默改 signal_config.json；研究侧 diff 仍走原有 config 流程。
     """
+    # FM0 · 当前 signal_config.weights 健康门（不写权，但晋级前可见）
+    try:
+        from core.signal.config import load_signal_config
+        from core.signal.factor_health import guard_weights_for_promote
+
+        cfg = load_signal_config() or {}
+        guard = guard_weights_for_promote(cfg.get("weights") or {}, force=False)
+        if guard.get("blocked"):
+            # 策略晋级不改 weights；仅附警告到 note，不硬拦（权重门在写权路径）
+            note = (note or "") + (
+                f" · [factor_health warn] {guard.get('error') or 'proxy weight'}"
+            )
+    except Exception:
+        pass
     spec = get_strategy_spec(strategy)
     if overrides:
         params = merge_strategy_params(strategy, overrides)

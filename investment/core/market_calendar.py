@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import datetime
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 
 def _date_key(raw: Any) -> str:
@@ -175,6 +175,22 @@ def halt_hint(text: str) -> Dict[str, Any]:
         "possible_halt": hit,
         "note": "仅关键词 hint；完整停牌库不在 D 轨范围。",
     }
+
+
+def filter_halted_bars(
+    bars: Iterable[dict],
+    *,
+    drop_zero_volume: bool = True,
+    drop_keyword_halt: bool = True,
+) -> Tuple[List[dict], Dict[str, Any]]:
+    """DC1 · 过滤零量/关键词停牌 bar；返回 (kept, audit)。"""
+    from core.pro_core import filter_halted_bars as _filter
+
+    return _filter(
+        bars,
+        drop_zero_volume=drop_zero_volume,
+        drop_keyword_halt=drop_keyword_halt,
+    )
 
 
 def calendar_status(*, store_dir: Optional[str] = None) -> Dict[str, Any]:

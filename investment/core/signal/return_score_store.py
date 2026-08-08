@@ -109,6 +109,22 @@ def promote_return_model_draft(
             "error": "无可用草稿模型，请先拟合并保存草稿",
             "draft_path": RETURN_SCORE_MODEL_DRAFT_PATH,
         }
+    # FM0 · 系数里若含 proxy 因子非零则拦截（force 经 note 含 force= 时放行）
+    force = "force=1" in str(note or "") or "force:true" in str(note or "").lower()
+    try:
+        from core.signal.factor_health import guard_weights_for_promote
+
+        coefs = (raw.get("model") or {}).get("coefficients") or {}
+        guard = guard_weights_for_promote(coefs, force=force)
+        if guard.get("blocked"):
+            return {
+                "success": False,
+                "error": guard.get("error") or "factor_health_blocked",
+                "factor_health": guard.get("factor_health"),
+                "hint": "proxy 因子系数须为 0；确需放行在 note 写 force=1",
+            }
+    except Exception:
+        pass
     _ensure_dirs()
     promoted_at = _utc_now()
     payload = {

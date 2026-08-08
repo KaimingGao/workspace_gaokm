@@ -4,7 +4,11 @@
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
 import { researchGridHtml as defaultResearchGridHtml, metricCell as defaultMetricCell } from "./research_grid.js";
 import { metricClass as defaultMetricClass } from "./bt_result.js";
-import { normalizeProbeCode as defaultNormalizeProbeCode } from "./names.js";
+import {
+  normalizeProbeCode as defaultNormalizeProbeCode,
+  isUsableStockName,
+  resolveStockDisplayName,
+} from "./names.js";
 import { probeStatusBadge } from "./probe_ui.js";
 import { buildClustersHealthMatrixHtml } from "./yhat_viz.js";
 
@@ -43,9 +47,19 @@ export function createOlsUi(deps) {
 
   function formatStockCodeName(code, name) {
     const c = normalizeProbeCode(code);
-    const n = String(name || "").trim().replace(/\s+/g, "");
+    const n = resolveStockDisplayName(c, name);
     if (n && c) return `${n} ${c}`;
     return n || c || "—";
+  }
+
+  function putUsableName(map, code, name) {
+    const c = normalizeProbeCode(code);
+    const nm = resolveStockDisplayName(c, name);
+    if (!c || !nm) return false;
+    // 已有可用中文名时不让「名=代码」或空来源覆盖
+    if (isUsableStockName(c, map[c])) return false;
+    map[c] = nm;
+    return true;
   }
 
   function clusterNameByCodeFromData(data) {
@@ -53,18 +67,14 @@ export function createOlsUi(deps) {
     const nameByCode = {};
     // 观察池 key 可能带 .SH/.SZ；统一规范化后再查，避免下拉只有代码
     for (const [raw, nm0] of Object.entries(watchingNameByCode || {})) {
-      const c = normalizeProbeCode(raw);
-      const nm = String(nm0 || "").trim();
-      if (c && nm) nameByCode[c] = nm;
+      putUsableName(nameByCode, raw, nm0);
     }
     const fromReport =
       (data && data.name_by_code) ||
       (data && data.stock_names) ||
       {};
     for (const [raw, nm0] of Object.entries(fromReport)) {
-      const c = normalizeProbeCode(raw);
-      const nm = String(nm0 || "").trim();
-      if (c && nm) nameByCode[c] = nm;
+      putUsableName(nameByCode, raw, nm0);
     }
     const ha =
       (data && data.holdings_assignment) ||
@@ -72,29 +82,26 @@ export function createOlsUi(deps) {
       {};
     for (const g of ha.groups || []) {
       for (const h of g.holdings || []) {
-        const c = normalizeProbeCode(h.stock_code);
-        const nm = String(h.stock_name || "").trim();
-        if (c && nm) nameByCode[c] = nm;
+        putUsableName(nameByCode, h.stock_code, h.stock_name);
       }
     }
     for (const h of ha.unmapped || []) {
-      const c = normalizeProbeCode(h.stock_code);
-      const nm = String(h.stock_name || "").trim();
-      if (c && nm) nameByCode[c] = nm;
+      putUsableName(nameByCode, h.stock_code, h.stock_name);
     }
+    // ranking 常把 stock_name 填成代码；只补洞，绝不覆盖观察池真名
     for (const cl of (data && data.clusters) || []) {
       for (const r of (cl.group_ranking || cl.ranking || []) || []) {
-        const c = normalizeProbeCode(r.stock_code || r.code);
-        const nm = String(r.stock_name || "").trim();
-        if (c && nm) nameByCode[c] = nm;
+        putUsableName(nameByCode, r.stock_code || r.code, r.stock_name);
       }
     }
     for (const [c, nm] of Object.entries(nameByCode)) {
-      if (!c || !nm) continue;
-      if (!watchingNameByCode[c]) watchingNameByCode[c] = nm;
-      // 同步规范化键，后续 lookup 稳定
+      if (!isUsableStockName(c, nm)) continue;
+      // 伪名（代码当名）允许被真名覆盖
+      if (!isUsableStockName(c, watchingNameByCode[c])) {
+        watchingNameByCode[c] = nm;
+      }
       const bare = normalizeProbeCode(c);
-      if (bare && bare !== c && !watchingNameByCode[bare]) {
+      if (bare && bare !== c && !isUsableStockName(bare, watchingNameByCode[bare])) {
         watchingNameByCode[bare] = nm;
       }
     }

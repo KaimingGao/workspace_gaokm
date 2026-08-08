@@ -20,12 +20,18 @@ export function probeStatusBadge(kind, text, escapeHtml = defaultEscapeHtml) {
 
 export function probePickerIdentityHtml(row, escapeHtml = defaultEscapeHtml) {
   const esc = escapeHtml;
-  const name = (row && row.name) || (row && row.code) || "";
   const code = (row && row.code) || "";
+  const rawName = String((row && row.name) || "").trim();
+  // 名=代码时不当作股票名展示，避免两行都是 300750
+  const name =
+    rawName && rawName !== code && !/^\d{6}$/.test(rawName) ? rawName : "";
+  const title = name || code || "";
   return (
     `<span class="quant-probe-picker-identity">` +
-    `<span class="quant-probe-picker-name">${esc(name)}</span>` +
-    `<span class="quant-probe-picker-code">${esc(code)}</span>` +
+    `<span class="quant-probe-picker-name">${esc(title)}</span>` +
+    (name
+      ? `<span class="quant-probe-picker-code">${esc(code)}</span>`
+      : "") +
     `</span>`
   );
 }

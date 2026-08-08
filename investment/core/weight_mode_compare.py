@@ -28,6 +28,7 @@ def compare_weight_modes(
             sector_map=sector_map or {},
             weight_mode=mode,
             apply_market_vol=False,
+            apply_regime_scale=False,
         )
         results[mode] = {
             "ok": out.get("ok"),

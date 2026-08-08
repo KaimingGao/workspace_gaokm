@@ -977,7 +977,11 @@ export function installWatching(q) {
     const uni = data.watching || {};
     const wl = uni.watchlist || [];
     const names = Array.isArray(uni.watchlist_names) ? uni.watchlist_names : [];
-    state.watchingNameByCode = buildWatchingNameByCode(wl, names);
+    // 合并而非整表替换：避免空/伪名覆盖探针已 hydrate 的真名
+    state.watchingNameByCode = {
+      ...(state.watchingNameByCode || {}),
+      ...buildWatchingNameByCode(wl, names),
+    };
     const paperN = wl.filter((c) => paperCodes.has(String(c))).length;
     setPoolMeta(watchingPoolMetaText(wl.length, paperN, uni.max_size));
     try {

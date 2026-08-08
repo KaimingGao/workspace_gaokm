@@ -394,6 +394,56 @@ def promote_cluster_artifact(
     if err and not force:
         return {"success": False, "error": err, "task": "cluster_promote"}
 
+    # FM0 · 伪/proxy 因子权重硬门（artifact 内遗留 weights）
+    try:
+        from core.signal.factor_health import guard_weights_for_promote
+
+        merged_w: Dict[str, float] = {}
+        for meta in (artifact.get("code_map") or {}).values():
+            if not isinstance(meta, dict):
+                continue
+            w = meta.get("weights")
+            if isinstance(w, dict):
+                for k, v in w.items():
+                    try:
+                        merged_w[str(k)] = float(v)
+                    except (TypeError, ValueError):
+                        pass
+        for cl in artifact.get("clusters") or []:
+            if not isinstance(cl, dict):
+                continue
+            w = cl.get("weights")
+            if isinstance(w, dict):
+                for k, v in w.items():
+                    try:
+                        merged_w[str(k)] = float(v)
+                    except (TypeError, ValueError):
+                        pass
+        if merged_w:
+            guard = guard_weights_for_promote(merged_w, force=force)
+            if guard.get("blocked"):
+                return {
+                    "success": False,
+                    "error": guard.get("error") or "factor_health_blocked",
+                    "task": "cluster_promote",
+                    "factor_health": guard.get("factor_health"),
+                }
+            if guard.get("forced"):
+                try:
+                    from core.signal.cluster_pointer import append_promote_audit
+
+                    append_promote_audit(
+                        {
+                            "event": "factor_health_force",
+                            "note": note or "",
+                            "blockers": (guard.get("factor_health") or {}).get("blockers"),
+                        }
+                    )
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
     _ensure_dirs()
     prev = load_active_cluster_weights()
     version = 1

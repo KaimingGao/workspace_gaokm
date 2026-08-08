@@ -487,6 +487,14 @@ def build_cluster_ols_panels(
             holdings_added_resolved.append(sym_s)
 
         bars = list(row.get("bars") or [])
+        # DC1 · 最小停牌过滤（零量 / 关键词）
+        halt_audit = None
+        try:
+            from core.market_calendar import filter_halted_bars
+
+            bars, halt_audit = filter_halted_bars(bars)
+        except Exception:
+            halt_audit = None
         fr = row.get("fund_resolve")
         if isinstance(fr, dict):
             fund_resolves.append(fr)
@@ -498,6 +506,7 @@ def build_cluster_ols_panels(
                     "bars": [],
                     "fundamentals": None,
                     "fundamentals_mode": row.get("fundamentals_mode") or "empty_bars",
+                    "halt_audit": halt_audit,
                 }
             )
             continue
@@ -514,6 +523,7 @@ def build_cluster_ols_panels(
                 "fundamentals_as_of": row.get("fundamentals_as_of"),
                 "data_source": row.get("data_source"),
                 "role": role,
+                "halt_audit": halt_audit,
             }
         )
 

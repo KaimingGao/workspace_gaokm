@@ -193,6 +193,23 @@ def ops_data_quality():
     return deps.platform.get_data_quality()
 
 
+class IngestNudgeBody(BaseModel):
+    codes: Optional[List[str]] = None
+    write: bool = True
+    max_points: int = Field(default=8, ge=2, le=24)
+
+
+@router.post("/api/ops/fundamentals-ingest-nudge")
+def ops_fundamentals_ingest_nudge(body: IngestNudgeBody | None = None):
+    """DC3 · ann_missing TopN 催办 ingest（路径内运营）。"""
+    body = body or IngestNudgeBody()
+    return deps.platform.run_fundamentals_ingest_nudge(
+        codes=body.codes,
+        write=body.write,
+        max_points=body.max_points,
+    )
+
+
 @router.get("/api/ops/factor-health")
 def ops_factor_health():
     """X3 · 生产面因子健康（proxy / 无源权重）。"""

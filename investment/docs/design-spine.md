@@ -201,10 +201,10 @@ flowchart LR
 
 | # | 模块 | 专业栈能力目标（对照） | 本仓库采纳目标（路径内） | 本仓库现状 | 主要落点 / 仍缺 | 主要服务北极星柱 |
 |---|------|------------------------|--------------------------|------------|-----------------|------------------|
-| 1 | **多维数据收集** | 统一行情仓（日/分钟/Tick）+ 财务/宏观/另类；多源对齐、可订阅增量 | 日线 + 现货 + 基本面快照 + 资讯标题可复现拉取；薄 `DataService` | **部分 ~62%** | **M1 已收口**：DataService · 覆盖率 · 快照缓存 · 观察池日线增量；仍缺 Tick/宏观/全市场数仓 | Velocity · 拟合（数据一致） |
-| 2 | **数据清洗与预处理** | 完整 **PIT**、复权策略参数化、公司行为、日历对齐、质量分级进生产门禁 | 日线 as_of 切条；`quality` 门禁；`adjust_policy` 进 manifest；基本面标明非 PIT | **部分 ~58%** | `normalize` · `allows_production_score` · `data_pit` · `pit_report`；缺财务 PIT / 复权多策略缓存 | 拟合（防未来函数） |
-| 3 | **因子挖掘与模型** | 大规模因子库 + IC/IR 流水线 + 中性化；可选 ML/NN，artifact 冻结可 promote | `score_bars`→sub_scores + **回归 ŷ**（当前 OLS/Ridge）；IC / weight_suggest 遗留；`heuristic_score` 仅 OOS 基线；NN **仅研究轨** | **线性 ŷ ~70%** | `ReturnScoreModel` · 分组 β · 横截面；生产不回退规则分；NN 不上生产 `score` | Velocity · 收益质量 |
-| 4 | **组合优化与风控** | QP/风险预算求解；单票/行业/风格暴露；VaR/限额实时；成本与冲击进目标函数 | 分数风险预算 + `risk_parity_lite` + 暴露矩阵 + 单票/行业硬拦；行业 map 覆盖与预算告警；纸面止损/回撤熔断 | **部分 ~68%** | `optimize_weights` · `risk/budget` · `check_account_risk` · `exposure`；仍缺完整 QP / 风格因子 / 实时 VaR | 收益质量 · 风控底线 |
+| 1 | **多维数据收集** | 统一行情仓（日/分钟/Tick）+ 财务/宏观/另类；多源对齐、可订阅增量 | 日线 + 现货 + 基本面快照 + 资讯标题可复现拉取；薄 `DataService` | **部分 ~62%** | **M1 已收口**：DataService · 覆盖率 · 快照缓存 · 观察池日线增量；仍缺 Tick/宏观/全市场数仓；路径内加深见 [pro-core-strengthen · DC](pro-core-strengthen.md) | Velocity · 拟合（数据一致） |
+| 2 | **数据清洗与预处理** | 完整 **PIT**、复权策略参数化、公司行为、日历对齐、质量分级进生产门禁 | 日线 as_of 切条；`quality` 门禁；`adjust_policy` 进 manifest；基本面标明非 PIT | **部分 ~58%** | `normalize` · `allows_production_score` · `data_pit` · `pit_report`；财务 PIT 深度 / 停牌对齐见 [pro-core DC](pro-core-strengthen.md) | 拟合（防未来函数） |
+| 3 | **因子挖掘与模型** | 大规模因子库 + IC/IR 流水线 + 中性化；可选 ML/NN，artifact 冻结可 promote | `score_bars`→sub_scores + **回归 ŷ**（当前 OLS/Ridge）；IC / weight_suggest 遗留；`heuristic_score` 仅 OOS 基线；NN **仅研究轨** | **线性 ŷ ~70%** | `ReturnScoreModel` · 分组 β · 横截面；健康门/衰减见 [pro-core FM](pro-core-strengthen.md)；NN 不上生产 `score` | Velocity · 收益质量 |
+| 4 | **组合优化与风控** | QP/风险预算求解；单票/行业/风格暴露；VaR/限额实时；成本与冲击进目标函数 | 分数风险预算 + `risk_parity_lite` + 暴露矩阵 + 单票/行业硬拦；行业 map 覆盖与预算告警；纸面止损/回撤熔断 | **部分 ~68%** | `optimize_weights` · `risk/budget` · `check_account_risk` · `exposure`；风格进目标/动态限额见 [pro-core RK](pro-core-strengthen.md)；仍缺完整 QP / 实时 VaR | 收益质量 · 风控底线 |
 | 5 | **历史回测验证** | 组合级事件驱动；T+1/涨跌停/冲击；WF/OOS/多 regime；Brinson/因子归因 | 共用 `score_bars`；成本对照；WF/OOS/regime；撮合近似（板别涨跌停 + 跌停延后卖）；个股/行业/选股超额归因 | **较强 ~80%** | `backtest` · `matching` · `attribution` · `wf_slices`；非交易所级仿真 | 拟合 · 收益质量诊断 |
 | 6 | **部署与迭代** | OMS/券商 API；实时监控与自动风控；衰减触发再训练/调仓流水线 | **纸面准实盘（策略验证）**：日更调度、滚动 IC、告警出站、人审 promote；**现行不接 OMS** | **模拟 ~52%** | `paper_daily` · `strategy_monitor` · `alert_outbound`；N6 = 验证成熟后另立项 | 纸面收益 · 拟合闭环 |
 
@@ -312,7 +312,7 @@ flowchart LR
 | 5 | 历史回测验证 | ~85% | OOS/regime 分桶/WF/成本/Brinson lite/信号成交对照 |
 | 6 | 部署与迭代 | ~55% | 纸面日更 + 滚动 IC + 出站告警 + 人审晋升；无 OMS |
 
-**当前焦点**：Y 轨已落地见 [yhat-strengthen.md](yhat-strengthen.md)。继续真实 `paper_daily`、财务预热与闸门勾选；评估是否立项 [n6-live-gate.md](n6-live-gate.md)。**不冲 OMS / 全市场数仓**。
+**当前焦点**：DC/FM/RK 主干已落地（见 [pro-core-strengthen.md](pro-core-strengthen.md)）。继续真实 `paper_daily`、财务预热与闸门勾选；评估是否立项 [n6-live-gate.md](n6-live-gate.md)。**不冲 OMS / 全市场数仓**。
 
 ### P0 落地状态（2026-07）
 

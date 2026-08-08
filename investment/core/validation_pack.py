@@ -124,10 +124,46 @@ def build_validation_pack(
     except Exception:
         pass
 
+    # FM3 · 中性化配置指纹
+    neut = (cfg.get("neutralization") or cfg.get("cross_section") or {}) if cfg else {}
+    pack["neutralize"] = {
+        "enabled": bool(neut.get("enabled") or neut.get("apply")),
+        "method": neut.get("method") or neut.get("mode"),
+        "by": neut.get("by") or neut.get("group"),
+        "track": "FM3",
+    }
+
+    # RK3 · weight_mode 对照（缺 cvxpy 时 qp_lite → unavailable）
+    if ab_compare is None:
+        try:
+            from core.weight_mode_compare import compare_weight_modes
+
+            cands = []
+            if isinstance(ops_report, dict):
+                cands = ops_report.get("optimize_candidates") or ops_report.get(
+                    "candidates"
+                ) or []
+            if cands:
+                pack["ab_compare"] = {
+                    "weight_modes": compare_weight_modes(cands),
+                    "track": "RK3",
+                }
+            else:
+                pack["ab_compare"] = {
+                    "weight_modes": None,
+                    "track": "RK3",
+                    "note": "无 candidates；调用方可传入 ab_compare",
+                }
+        except Exception as exc:
+            pack["ab_compare"] = {"weight_modes": None, "error": str(exc), "track": "RK3"}
+    else:
+        pack["ab_compare"] = ab_compare
+
     pack["fingerprint"] = _fp(
         {
             "config": cfg.get("weights"),
             "scoring": cfg.get("scoring"),
+            "neutralize": pack.get("neutralize"),
             "cluster": pack.get("cluster_fingerprint"),
             "metrics": (slim_bt.get("metrics") or {}),
             "exported_at": pack["exported_at"],

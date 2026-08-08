@@ -54,6 +54,9 @@ def optimize_weights(
     weight_mode: str = "score_budget",
     vol_scale: Optional[float] = None,
     apply_market_vol: bool = True,
+    apply_regime_scale: bool = True,
+    exposure: Optional[dict] = None,
+    max_style_pct: Optional[float] = 40.0,
 ) -> Dict[str, Any]:
     """
     目标权重（百分比）。
@@ -109,8 +112,60 @@ def optimize_weights(
             }
             scale = 1.0
 
-    eff_pos = round(max_pos * scale, 4)
-    eff_sec = round(max_sec * scale, 4)
+    # RK1 · regime 仓位缩放（与波动缩放相乘）
+    regime_meta: Dict[str, Any] = {
+        "ok": False,
+        "scale": 1.0,
+        "message": "未启用 regime 缩放",
+    }
+    regime_scale = 1.0
+    if apply_regime_scale:
+        try:
+            from core.pro_core import regime_position_scale
+            from core.signal.regime import assess_regime
+
+            index_bars = None
+            try:
+                from core.signal.live_features import fetch_live_index_bars
+
+                pack = fetch_live_index_bars(lookback=40)
+                if isinstance(pack, dict):
+                    index_bars = pack.get("bars") or pack.get("index_bars")
+                elif isinstance(pack, list):
+                    index_bars = pack
+            except Exception:
+                index_bars = None
+            regime_meta = regime_position_scale(
+                regime=assess_regime(index_bars)
+            )
+            regime_scale = float(regime_meta.get("scale") or 1.0)
+        except Exception as e:
+            regime_meta = {
+                "ok": False,
+                "scale": 1.0,
+                "message": f"regime 缩放失败: {e}",
+            }
+            regime_scale = 1.0
+
+    combined_scale = max(0.2, min(1.0, float(scale) * float(regime_scale)))
+    eff_pos = round(max_pos * combined_scale, 4)
+    eff_sec = round(max_sec * combined_scale, 4)
+
+    # RK0 · 风格暴露软约束告警
+    style_caps = None
+    try:
+        from core.pro_core import style_soft_caps_from_exposure
+
+        if exposure is not None and max_style_pct is not None:
+            style_caps = style_soft_caps_from_exposure(
+                exposure, max_style_pct=float(max_style_pct)
+            )
+            if style_caps and not style_caps.get("ok"):
+                # 风格过浓时额外压一档单票上限（软）
+                eff_pos = round(eff_pos * 0.9, 4)
+                eff_sec = round(eff_sec * 0.9, 4)
+    except Exception:
+        style_caps = None
 
     ranked = []
     for it in candidates or []:
@@ -275,6 +330,9 @@ def optimize_weights(
         "solver": mode,
         "qp": qp_meta,
         "vol_scale": vol_meta,
+        "regime_scale": regime_meta,
+        "combined_scale": combined_scale,
+        "style_caps": style_caps,
         "limits": {
             "max_position_pct": max_pos,
             "max_sector_pct": max_sec,
@@ -282,6 +340,8 @@ def optimize_weights(
             "min_score": json_safe_number(floor),
             "effective_max_position_pct": eff_pos,
             "effective_max_sector_pct": eff_sec,
+            "vol_scale": scale,
+            "regime_scale": regime_scale,
         },
         "note": (
             "N3 目标权重（模拟账户）；"
@@ -291,6 +351,7 @@ def optimize_weights(
                 if requested_mode == "qp_lite" and mode != "qp_lite"
                 else ""
             )
+            + f"；scale=vol×regime={combined_scale}"
             + "；不代客下单。"
         ),
     }

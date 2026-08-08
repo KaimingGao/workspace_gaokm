@@ -399,6 +399,69 @@ def evaluate_maturity_gate(
             action="可忽略（无分组 live 时）",
         )
 
+    # DC / FM / RK · 专业核心三轨
+    try:
+        from core.pro_core import assess_pit_depth
+
+        pit = assess_pit_depth(sample_status=ss, fundamentals_history=fund)
+        add(
+            "dc_track",
+            "pit_depth_soft",
+            bool(pit.get("soft_ok")),
+            (
+                f"PIT 深度 soft_ok={pit.get('soft_ok')} · "
+                f"ann_missing={pit.get('ann_missing_code_ratio')} · "
+                f"real_multi={pit.get('real_multi_coverage')} · "
+                f"label={pit.get('honest_label')}"
+            ),
+            severity="soft",
+            action="平台 DQ → 催办 ingest TopN；见 pro-core-strengthen DC0",
+        )
+        add(
+            "dc_track",
+            "pit_depth_hard",
+            bool(pit.get("ok")),
+            (
+                f"PIT 深度 hard_ok={pit.get('ok')} · "
+                f"硬阈值 ann_missing≤{pit.get('ann_missing_hard_max')}"
+            ),
+            severity="hard",
+            action="ann_missing 过高时先补财务公告日再评估 N6",
+        )
+    except Exception as exc:
+        add(
+            "dc_track",
+            "pit_depth_soft",
+            False,
+            f"pit_depth 失败：{exc}",
+            severity="soft",
+            action="检查 core.pro_core.assess_pit_depth",
+        )
+    try:
+        from core.paper import load_paper
+        from core.risk.block_outcome import unlabeled_digest
+
+        paper = load_paper() or {}
+        ud = unlabeled_digest(paper.get("operation_log") or []) or {}
+        unlabeled_n = int(ud.get("unlabeled_count") or 0)
+        add(
+            "rk_track",
+            "outcome_unlabeled_nudge",
+            unlabeled_n == 0,
+            f"风险拦截未标注 outcome={unlabeled_n}",
+            severity="soft",
+            action="策略页标注真拦/误拦；见 pro-core-strengthen RK2",
+        )
+    except Exception as exc:
+        add(
+            "rk_track",
+            "outcome_unlabeled_nudge",
+            True,
+            f"outcome 催办跳过：{exc}",
+            severity="soft",
+            action="",
+        )
+
     hard_items = [i for i in items if i.get("severity") != "soft"]
     soft_items = [i for i in items if i.get("severity") == "soft"]
     hard_passed = sum(1 for i in hard_items if i["ok"])
@@ -421,5 +484,5 @@ def evaluate_maturity_gate(
         "note": "硬项全部通过仅表示「可评估是否立项 N6」，不自动开通实盘。"
         if ready
         else "硬项未过：继续样本/拟合加深或书面豁免单项；软项为质量提示。",
-        "track": "Y0-Y5+X0-X5+B0-B5",
+        "track": "S0-S4+Y0-Y5+X0-X5+B0-B5+DC/FM/RK",
     }
