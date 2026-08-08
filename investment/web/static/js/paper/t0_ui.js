@@ -10,11 +10,40 @@ function escapeHtml(s) {
     .replace(/"/g, "&quot;");
 }
 
+/** 股票名 + 代码（名优先；无名时退回代码） */
+function stockCellHtml(row, fallback = {}) {
+  const code = String(
+    (row && row.stock_code) || fallback.stock_code || ""
+  ).trim();
+  const name = String(
+    (row && row.stock_name) || fallback.stock_name || ""
+  ).trim();
+  const title = name && code && name !== code ? `${name} ${code}` : name || code;
+  if (!name && !code) return `<td class="rebalance-stock">—</td>`;
+  if (!name || name === code) {
+    return (
+      `<td class="rebalance-stock" title="${escapeHtml(title)}">` +
+      `<span class="rebalance-stock-name">${escapeHtml(code || "—")}</span>` +
+      `</td>`
+    );
+  }
+  return (
+    `<td class="rebalance-stock" title="${escapeHtml(title)}">` +
+    `<span class="rebalance-stock-name">${escapeHtml(name)}</span>` +
+    `<span class="rebalance-stock-code">${escapeHtml(code)}</span>` +
+    `</td>`
+  );
+}
+
 function renderSkipContext(data) {
   const reasons = data.skip_reason_top || [];
   const skips = data.skip_days_sample || [];
   if (!reasons.length && !skips.length) return "";
   const path = (data.rules && data.rules.path_mode) || data.path_mode || "veto";
+  const fallback = {
+    stock_code: data.stock_code,
+    stock_name: data.stock_name,
+  };
   const reasonBits = reasons
     .slice(0, 5)
     .map((r) => `${escapeHtml(r.reason)} ×${r.count}`)
@@ -28,12 +57,12 @@ function renderSkipContext(data) {
     html +=
       `<p class="quant-trades-caption">近期跳过样例</p>` +
       `<table class="quant-weight-table"><thead><tr>` +
-      `<th>代码</th><th>日</th><th>原因</th></tr></thead><tbody>` +
+      `<th>股票</th><th>日</th><th>原因</th></tr></thead><tbody>` +
       skips
         .slice(0, 10)
         .map(
           (d) =>
-            `<tr><td>${escapeHtml(d.stock_code || "")}</td>` +
+            `<tr>${stockCellHtml(d, fallback)}` +
             `<td>${escapeHtml(d.date || "")}</td>` +
             `<td>${escapeHtml(d.reason || "跳过")}</td></tr>`
         )
@@ -98,7 +127,13 @@ export function renderPaperT0(els, data) {
       skipHtml;
     return;
   }
-  const multi = days.some((d) => d.stock_code);
+  const fallback = {
+    stock_code: data.stock_code,
+    stock_name: data.stock_name,
+  };
+  const showStock = days.some(
+    (d) => d.stock_code || d.stock_name || fallback.stock_code || fallback.stock_name
+  );
   const captionBits = [];
   captionBits.push(`成交 ${days.length} 行（指标做T日 ${data.t0_trade_days ?? "—"}）`);
   if (data.cover_rate_pct != null) {
@@ -122,7 +157,7 @@ export function renderPaperT0(els, data) {
     `<p class="quant-trades-caption">${captionBits.join(" · ")}` +
     ` · <span title="${escapeHtml(scoreTip)}">「分」= 方向分，非 ŷ</span></p>` +
     `<table class="quant-weight-table"><thead><tr>` +
-    (multi ? `<th>代码</th>` : "") +
+    (showStock ? `<th>股票</th>` : "") +
     `<th>日</th><th>向</th>` +
     `<th title="${escapeHtml(scoreTip)}">分</th>` +
     `<th>卖/买</th><th>回补</th><th>PnL</th><th>敞口</th></tr></thead><tbody>` +
@@ -136,6 +171,8 @@ export function renderPaperT0(els, data) {
           d.direction_score != null && d.direction_score !== ""
             ? Number(d.direction_score).toFixed(2)
             : "—";
+        const code = d.stock_code || fallback.stock_code || "";
+        const name = d.stock_name || fallback.stock_name || "";
         const detail = JSON.stringify({
           kind: "t0_direction",
           direction_score: d.direction_score,
@@ -143,7 +180,8 @@ export function renderPaperT0(els, data) {
           direction: d.direction || "",
           features: d.direction_features || d.features || null,
           direction_features: d.direction_features || d.features || null,
-          stock_code: d.stock_code || "",
+          stock_code: code,
+          stock_name: name,
           date: d.date || "",
           dir_enter: enter,
         });
@@ -153,8 +191,8 @@ export function renderPaperT0(els, data) {
           Number(d.sold_back_qty) > 0 ? d.sold_back_qty : d.covered_qty ?? 0;
         return (
           `<tr>` +
-          (multi ? `<td>${d.stock_code || ""}</td>` : "") +
-          `<td>${d.date || ""}</td><td>${dir}</td>` +
+          (showStock ? stockCellHtml(d, fallback) : "") +
+          `<td>${escapeHtml(d.date || "")}</td><td>${dir}</td>` +
           `<td class="num paper-t0-dir-score has-tip" data-score-detail="${escapeHtml(
             detail
           )}" title="悬停查看方向分详情（非 ŷ）">${score}</td>` +
@@ -186,7 +224,7 @@ export function renderPaperT0Preview(els, data) {
     `<p class="quant-trades-caption">预演 · 成交 ${tradeN} 笔 · PnL ${data.pnl_total ?? 0} · ` +
     `敞口 ${data.exposure_pnl_total ?? 0} · 跳过 ${data.skip_count ?? 0}</p>` +
     `<table class="quant-weight-table"><thead><tr>` +
-    `<th>代码</th><th>向</th><th>说明</th><th>PnL</th></tr></thead><tbody>` +
+    `<th>股票</th><th>向</th><th>说明</th><th>PnL</th></tr></thead><tbody>` +
     rows
       .map((r) => {
         const dir =
@@ -199,8 +237,9 @@ export function renderPaperT0Preview(els, data) {
           ? r.reason || "跳过"
           : r.error || `${(r.trades || []).length} 笔`;
         return (
-          `<tr><td>${r.stock_code || ""}</td><td>${dir}</td>` +
-          `<td>${note}</td>` +
+          `<tr>${stockCellHtml(r)}` +
+          `<td>${dir}</td>` +
+          `<td>${escapeHtml(note)}</td>` +
           `<td class="num ${paperMetricClass(r.pnl)}">${r.pnl ?? 0}</td></tr>`
         );
       })

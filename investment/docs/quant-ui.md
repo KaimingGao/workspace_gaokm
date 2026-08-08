@@ -202,7 +202,7 @@ python3 run_web.py
 
 | 规则 | 要求 |
 |------|------|
-| 同壳同宽 | 主区 `.page-main` **铺满侧栏右侧**（非 1000px 居中）；四页 + 仪表盘同壳；表与 wrap 均为 `width: 100%` |
+| 同壳同宽 | 主区 `.page-main` **铺满侧栏右侧**（非 1000px 居中）；六页 + 仪表盘同壳；左右 gutter 仅 `--page-gutter-x`（默认 16px）；页体左右 `padding:0`；表与 wrap 均为 `width: 100%` |
 | 无横向滚动 | 容器 `overflow-x: hidden`；禁止用列 `min-width: Nrem` 撑破表 |
 | 列宽分配 | `table-layout: fixed` + 百分比列宽；数值列可省略 |
 | 股票名 | **至少完整显示前 6 字**，第 7 字起才 `…`；禁止 CSS 再截一层 |

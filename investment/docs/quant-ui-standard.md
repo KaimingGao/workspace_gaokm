@@ -165,7 +165,7 @@
 **组件**：复用 `.dashboard-head` / `.dashboard-section*` / `.dashboard-card` / `.dashboard-kpi-*` / `.dashboard-chart-host`；图表 Lightweight Charts + DOM 条带/直方图。
 
 **视觉约定**：
-- **主列铺满**：`.page-main` 吃满侧栏右侧  
+- **主列铺满 · 同壳 gutter**：`.page-main` 吃满侧栏右侧；左右仅 `--page-gutter-x`（默认 16px）  
 - **收益** → `--color-up` / `--color-down`；**质量** → `--d-quality-pos` / `--d-quality-neg`（绑 `--ok` / `--danger`）  
 - 数字等宽/tabular；配置与暴露用细条权重，**不用饼图墙**  
 - 字号阶梯：Micro11 / Caption12 / Body13 / Section14 / Title18 / KPI20  
@@ -196,7 +196,7 @@
 
 | 组件 | 用途 | 典型 class / 落点 |
 |------|------|-------------------|
-| **页壳** | 主列铺满 · 四页+仪表盘同壳 | `.page-main`（`width:100%`）· `.watching-page` / `.follow-page` / `.strategy-page` / `.replay-page` / `.dashboard-page` |
+| **页壳** | 主列铺满 · 六页+仪表盘同壳同 gutter | `.page-main`（`--page-gutter-x/y`，默认 16/12）· `*-page` 页体左右 `padding:0` · 勿按页覆写主列边距 |
 | **AI 抽屉** | 全局命令 | `#ai-drawer` · 顶栏 `#btn-ai-open` · ⌘K |
 | **主表** | 名单/持仓/回测表 | `.quant-weight-table` + wrap；遵守四页表规范 |
 | **图表 / 归因表** | 观察/回测曲线与归因表 | `.quant-chart-host` / `.quant-chart-wrap` + `.quant-attr-table` |

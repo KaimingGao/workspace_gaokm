@@ -6059,18 +6059,20 @@ a.hub-card:hover {
   color: var(--ink-2);
 }
 
+/* 同壳页体：左右 gutter 只来自 .page-main，禁止再叠水平 padding */
 .watching-page,
 .follow-page,
 .strategy-page,
 .replay-page,
 .quant-page,
-.platform-page {
+.dashboard-page,
+.platform-page,
+.paper-page {
   max-width: none;
   width: 100%;
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
-  /* 同壳：左右贴主区；底边距收紧，避免主列滚完后大块空滚 */
   padding: 0 0 12px !important;
 }
 
@@ -7006,27 +7008,21 @@ a.hub-card:hover {
   margin: 0 0 2px;
 }
 
-.quant-head:has(+ .replay-page) .quant-meta {
-  font-size: 0.72rem;
-  font-variant-numeric: tabular-nums;
-  color: var(--ink-3);
-}
-
-.quant-head:has(+ .replay-page) .quant-map-hint {
-  margin-top: 4px;
+.replay-page > .quant-map-hint {
+  margin: 0 0 8px;
   font-size: 0.72rem;
   line-height: 1.4;
   color: var(--ink-3);
   max-width: 52em;
 }
 
-.quant-head:has(+ .replay-page) .quant-map-hint a {
+.replay-page > .quant-map-hint a {
   color: var(--accent-active);
   font-weight: 600;
   text-decoration: none;
 }
 
-.quant-head:has(+ .replay-page) .quant-map-hint a:hover {
+.replay-page > .quant-map-hint a:hover {
   text-decoration: underline;
 }
 
@@ -11278,12 +11274,15 @@ body[data-page]:not([data-page="chat"]) {
 }
 
 .page-main {
-  /* 工作台铺满主列（侧栏右侧剩余宽度），不再 1000px 居中留白 */
+  /* 同壳 gutter 唯一来源：六业务页 + 仪表盘共用，勿再按页覆写 */
+  --page-gutter-x: 16px;
+  --page-gutter-y: 12px;
+  --page-gutter-bottom: calc(20px + env(safe-area-inset-bottom));
   box-sizing: border-box;
   width: 100%;
   max-width: none;
   margin: 0;
-  padding: 12px 20px calc(24px + env(safe-area-inset-bottom));
+  padding: var(--page-gutter-y) var(--page-gutter-x) var(--page-gutter-bottom);
   -webkit-overflow-scrolling: touch;
 }
 
@@ -11386,14 +11385,10 @@ body[data-page]:not([data-page="chat"]) {
   overflow: visible;
 }
 
-/* 盖过 *-page { padding: 0 0 12px !important }：有 sticky 标题栏时正文留顶距 */
-.page-panel.quant-panel .quant-head + .quant-body {
+/* 盖过 *-page 底边距：有 sticky 标题栏时正文留顶距；左右仍贴主区 */
+.page-panel.quant-panel .quant-head + .quant-body,
+.page-panel.quant-panel .dashboard-head + .quant-body {
   padding: 12px 0 10px !important;
-}
-
-/* 研究枢纽主列略收边距，提高一屏信息量 */
-.page-main:has(.quant-page) {
-  padding: 10px 16px calc(16px + env(safe-area-inset-bottom));
 }
 
 .page-panel .quant-close,
@@ -11611,6 +11606,9 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 }
 
 html[data-density="compact"] .page-main {
+  --page-gutter-x: 12px;
+  --page-gutter-y: 10px;
+  --page-gutter-bottom: calc(16px + env(safe-area-inset-bottom));
   --density-gap: 8px;
 }
 
@@ -13266,7 +13264,6 @@ html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 8px 16px 24px;
   max-height: none;
   overflow-y: auto;
 }
@@ -13278,7 +13275,7 @@ html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
   gap: 16px;
   padding: 4px 0 8px;
   border-bottom: 1px solid var(--line);
-  margin: 0 16px;
+  margin: 0;
 }
 .dashboard-head-text {
   display: flex;
@@ -15369,6 +15366,7 @@ html[data-theme="dark"] .quant-ic-compare-stats {
 
 /* ---------- Quant Pro 排版 Token & 容器对齐 ---------- */
 .quant-page {
+  /* 卡片/区内边距 token；页面左右 gutter 用 .page-main --page-gutter-x */
   --q-gutter: 14px;
   --q-gutter-sm: 10px;
   --q-gap-section: 12px;
@@ -15411,9 +15409,8 @@ html[data-theme="dark"] .quant-ic-compare-stats {
   --text: var(--ink);
 }
 
-/* 确保页面整体边距统一（body 下 .quant-body.quant-page） */
+/* 页体布局：水平 gutter 由 .page-main 承担，此处只管纵向节奏 */
 .quant-body.quant-page {
-  padding: var(--q-gutter);
   display: flex;
   flex-direction: column;
   gap: var(--q-gap-section);
@@ -17113,12 +17110,11 @@ html[data-theme="dark"] .quant-page .quant-factor-ir-host {
    复用 dashboard-head / section / card / kpi / chart-host 视觉契约
    ========================================================================== */
 
-/* 页体：与仪表盘同 gutter / 块间距 */
+/* 页体：与仪表盘同块间距（左右贴主区） */
 .quant-body.quant-page {
   display: flex;
   flex-direction: column;
   gap: 14px;
-  padding: 6px 16px 20px;
   max-height: none;
   overflow-y: auto;
   align-items: stretch;
@@ -17154,7 +17150,9 @@ html[data-theme="dark"] .quant-page .quant-factor-ir-host {
   line-height: 1.2;
 }
 .quant-head.dashboard-head .dashboard-meta,
-.quant-head.dashboard-head #quant-meta {
+.quant-head.dashboard-head #quant-meta,
+.quant-head.dashboard-head #replay-meta,
+.quant-head.dashboard-head #platform-meta {
   font-size: var(--q-fs-caption, 0.75rem);
   color: var(--ink-3);
   margin: 0;
@@ -17428,7 +17426,6 @@ html[data-theme="dark"] .page-panel.quant-panel .quant-head.dashboard-head {
 
 .quant-body.quant-page {
   gap: var(--q-gap-section, 12px);
-  padding: 8px 16px 24px;
 }
 
 /* section 标题可读 */
@@ -17627,10 +17624,9 @@ html[data-theme="dark"] .quant-page .dashboard-chart-host.quant-pro-scatter-host
   font-family: var(--font-mono);
 }
 
-/* compact：只收 padding，不压字号阶梯 */
+/* compact：只收块间距，不压字号阶梯；水平 gutter 仍走 .page-main */
 html[data-density="compact"] .quant-body.quant-page {
   gap: 10px;
-  padding: 6px 12px 16px;
 }
 html[data-density="compact"] .quant-page .quant-pro-card-body {
   padding: 8px 10px 10px;
@@ -17751,10 +17747,9 @@ html[data-theme="dark"] .dashboard-risk-card.is-quality-bad {
   }
 }
 
-/* compact：只收间距 */
+/* compact：只收块间距 */
 html[data-density="compact"] .quant-body.dashboard-page {
   gap: 10px;
-  padding: 6px 12px 16px;
 }
 html[data-density="compact"] .dashboard-card-head {
   padding: 6px 10px;

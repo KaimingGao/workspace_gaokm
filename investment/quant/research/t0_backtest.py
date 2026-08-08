@@ -284,6 +284,7 @@ def run_t0_backtest_for_holdings(
     skip_sample: List[Dict[str, Any]] = []
     for x in ok:
         code = x.get("stock_code")
+        name = x.get("stock_name")
         tds = x.get("trade_days_sample")
         if not isinstance(tds, list):
             tds = []
@@ -298,6 +299,7 @@ def run_t0_backtest_for_holdings(
             ):
                 row = dict(d)
                 row["stock_code"] = code
+                row["stock_name"] = name or row.get("stock_name")
                 trade_sample.append(row)
         for d in x.get("days") or []:
             if not d.get("skipped"):
@@ -309,6 +311,7 @@ def run_t0_backtest_for_holdings(
                 {
                     "date": d.get("date"),
                     "stock_code": code,
+                    "stock_name": name,
                     "reason": reason_key,
                     "direction_score": d.get("direction_score"),
                     "signal_skip": bool(d.get("signal_skip")),
