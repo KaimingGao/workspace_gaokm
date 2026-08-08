@@ -2,7 +2,7 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Data Desk</p>
     <h2>数据中心</h2>
-    <p class="dashboard-meta quant-meta">观察名单 · 行情 · ŷ 截面 · 研究分屏</p>
+    <p id="watching-page-meta" class="dashboard-meta quant-meta">观察名单 · 行情 · ŷ 截面 · 研究分屏 · 开仓入口</p>
   </div>
 </div>
 
@@ -95,7 +95,7 @@
       aria-label="舆情详情"
     >
       <div class="watching-news-detail-head">
-        <h3 id="watching-news-detail-title" class="watching-section-title">资讯</h3>
+        <h3 id="watching-news-detail-title" class="dashboard-section-title watching-section-title">资讯</h3>
         <button type="button" id="watching-news-detail-close" class="dialog-btn secondary" title="关闭">×</button>
       </div>
       <p id="watching-news-detail-meta" class="watching-toolbar-meta"></p>
@@ -139,10 +139,10 @@
       </div>
     </div>
 
-    <section class="watching-holdings-card" id="watching-holdings-section" hidden>
-      <header class="watching-log-head">
-        <h3 class="watching-section-title">建仓记录</h3>
-        <p class="watching-log-hint">从观察「加入纸面」的流水</p>
+    <section class="dashboard-section watching-holdings-card" id="watching-holdings-section" hidden>
+      <header class="dashboard-section-head watching-log-head">
+        <h3 class="dashboard-section-title">建仓记录</h3>
+        <p class="dashboard-section-desc watching-log-hint">从观察「加入纸面」的流水</p>
       </header>
       <div id="watching-holdings-table" class="paper-operation-log watching-build-log" aria-label="建仓记录"></div>
     </section>
@@ -160,7 +160,7 @@
   >
     <div class="watching-build-card">
       <div class="watching-build-head">
-        <h3 id="watching-build-title" class="watching-section-title">建仓预览</h3>
+        <h3 id="watching-build-title" class="dashboard-section-title watching-section-title">建仓预览</h3>
         <button type="button" id="watching-build-close" class="dialog-btn secondary" title="取消">×</button>
       </div>
       <div class="watching-build-sizing">

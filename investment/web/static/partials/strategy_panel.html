@@ -1,8 +1,8 @@
-<div class="quant-head">
-  <div class="quant-head-text">
-    <p class="quant-eyebrow">Strategy Desk</p>
+<div class="dashboard-head quant-head">
+  <div class="dashboard-head-text quant-head-text">
+    <p class="dashboard-eyebrow">Strategy Desk</p>
     <h2>策略中心</h2>
-    <p id="strategy-meta" class="quant-meta" aria-live="polite">策略卡限额 · ŷ 滞回 · 人审晋升 · 不静默写盘</p>
+    <p id="strategy-meta" class="dashboard-meta quant-meta" aria-live="polite">策略卡限额 · ŷ 滞回 · 人审晋升 · 不静默写盘</p>
   </div>
 </div>
 
@@ -26,9 +26,9 @@
 
   <!-- ① 主路径：策略卡 -->
   <section class="quant-section quant-section-core strategy-section strategy-section-primary" id="quant-section-strategy-list">
-    <header class="strategy-section-head">
-      <h3 class="strategy-section-title">策略卡</h3>
-      <p class="strategy-section-sub">① 主路径 · 只读限额 · 人审晋升写盘</p>
+    <header class="dashboard-section-head strategy-section-head">
+      <h3 class="dashboard-section-title">策略卡</h3>
+      <p class="dashboard-section-desc">① 主路径 · 只读限额 · 人审晋升写盘</p>
     </header>
     <p id="strategy-list-loading" class="quant-fingerprint is-busy">加载策略列表</p>
     <div id="strategy-list" class="quant-weight-table-wrap strategy-list-host"></div>
@@ -37,9 +37,9 @@
 
   <!-- ② 主路径：ŷ 滞回 -->
   <section class="quant-section strategy-section strategy-section-primary" id="strategy-scoring-floors">
-    <header class="strategy-section-head">
-      <h3 class="strategy-section-title">ŷ 滞回门槛</h3>
-      <p class="strategy-section-sub">② 主路径 · 买入/入簿 · 卖出 · 人审写盘</p>
+    <header class="dashboard-section-head strategy-section-head">
+      <h3 class="dashboard-section-title">ŷ 滞回门槛</h3>
+      <p class="dashboard-section-desc">② 主路径 · 买入/入簿 · 卖出 · 人审写盘</p>
     </header>
     <div class="strategy-control-band">
       <div class="strategy-floors-form quant-actions-inline">
@@ -73,9 +73,9 @@
 
   <!-- 舆情先验：政策旁路，紧接门槛 -->
   <section class="quant-section strategy-section strategy-section-primary" id="strategy-sentiment-prior">
-    <header class="strategy-section-head">
-      <h3 class="strategy-section-title">舆情先验</h3>
-      <p class="strategy-section-sub">Policy · ŷ 外旁路 · 人审写盘</p>
+    <header class="dashboard-section-head strategy-section-head">
+      <h3 class="dashboard-section-title">舆情先验</h3>
+      <p class="dashboard-section-desc">Policy · ŷ 外旁路 · 人审写盘</p>
     </header>
 
     <p class="strategy-prior-contract" role="note">
@@ -179,9 +179,9 @@
 
   <!-- ③ 主路径：人审晋升 -->
   <section class="quant-section strategy-section strategy-section-primary" id="strategy-promote-lab">
-    <header class="strategy-section-head">
-      <h3 class="strategy-section-title">人审晋升</h3>
-      <p class="strategy-section-sub">③ 主路径 · 改限额/持有期 · 选股 β 在研究枢纽</p>
+    <header class="dashboard-section-head strategy-section-head">
+      <h3 class="dashboard-section-title">人审晋升</h3>
+      <p class="dashboard-section-desc">③ 主路径 · 改限额/持有期 · 选股 β 在研究枢纽</p>
     </header>
     <div class="strategy-control-band strategy-control-band-compact">
       <div class="strategy-promote-bar quant-actions-inline">

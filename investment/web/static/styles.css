@@ -655,15 +655,26 @@ td.num {
   animation: north-star-flash 0.9s ease-out;
 }
 
-.platform-section {
+/* 平台区段：走 dashboard-section 节奏；旧底部分隔仅兜底无 header 的遗留块 */
+.platform-section.dashboard-section {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+.platform-section:not(.dashboard-section) {
   margin-bottom: 16px;
   padding-bottom: 14px;
   border-bottom: 1px solid var(--line);
 }
-
-.platform-section h3 {
+.platform-section:not(.dashboard-section) > h3 {
   margin: 0 0 8px;
   font-size: 0.88rem;
+}
+.platform-card-body {
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .platform-field {
@@ -6592,31 +6603,12 @@ a.hub-card:hover {
   padding: 0 2px;
 }
 
-.strategy-page .strategy-section-title {
-  margin: 0;
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  color: var(--ink-2);
-  line-height: 1.3;
-  display: inline-flex;
-  align-items: center;
+/* 策略区段标题：复用 dashboard-section-*，不再自造字号/竖条 */
+.strategy-page .strategy-section-head.dashboard-section-head {
+  margin-bottom: 6px;
 }
-.strategy-page .strategy-section-title::before {
-  content: "";
-  display: inline-block;
-  width: 3px;
-  height: 0.75em;
-  margin-right: 8px;
-  border-radius: 1px;
-  background: var(--accent, #2563eb);
-  vertical-align: -0.05em;
-}
-.strategy-page .strategy-section-primary .strategy-section-title {
-  color: var(--ink);
-}
-
-.strategy-page .strategy-section-sub {
+.strategy-page .strategy-section-sub,
+.strategy-page .dashboard-section-desc {
   margin: 0;
   font-size: 0.68rem;
   color: var(--ink-3);
@@ -17987,4 +17979,76 @@ html[data-density="compact"] .dashboard-risk-card {
   /* 探针工具条在卡体内：保留卡体 padding，勿被旧 fold 规则清零 */
   padding: 10px 12px 12px;
   margin: 0;
+}
+
+/* ==========================================================================
+   全站 Desk Shell 统一（p843）
+   页头 / 区段 / 卡片：以 dashboard-* 为唯一语义；各页可叠 *-page 修饰，勿再造第三套
+   ========================================================================== */
+.page-panel .dashboard-head.quant-head,
+.embed-panel .dashboard-head.quant-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+.page-panel .dashboard-eyebrow,
+.embed-panel .dashboard-eyebrow,
+.quant-head .dashboard-eyebrow {
+  margin: 0 0 2px;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  font-family: var(--font-mono, ui-monospace, monospace);
+}
+.page-panel .dashboard-head h2,
+.embed-panel .dashboard-head h2 {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  line-height: 1.25;
+}
+.page-panel .dashboard-meta,
+.embed-panel .dashboard-meta {
+  margin: 4px 0 0;
+  font-size: 0.78rem;
+  color: var(--ink-3);
+  line-height: 1.4;
+}
+.follow-page .follow-head-path {
+  margin-top: 4px;
+}
+.follow-page .follow-ops .dashboard-section-head.follow-ops-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+}
+.follow-page .follow-ops-card.dashboard-section {
+  margin-top: 10px;
+}
+.follow-page .follow-holdings-head .dashboard-card-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+.replay-page .dashboard-chart-host.quant-chart-host {
+  min-height: 140px;
+}
+.replay-page #quant-ic-chart.dashboard-chart-host {
+  min-height: 120px;
+}
+.replay-page #quant-portfolio-chart.dashboard-chart-host {
+  min-height: 160px;
+}
+/* 进阶 embed：与主链同页头语义，取消窄列压迫感 */
+.embed-panel.evals-embed .dashboard-head h2,
+.embed-panel.usage-embed .dashboard-head h2 {
+  font-size: 1.05rem;
 }

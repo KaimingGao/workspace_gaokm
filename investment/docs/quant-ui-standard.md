@@ -190,6 +190,23 @@
 
 ---
 
+## 2.1 全站 Desk Shell（设计语义 · 必守）
+
+各业务页（含进阶 `/paper` · evals · usage）共用同一套**报告台**语义，以仪表盘 / 研究枢纽为范本。禁止再发明平行页头 / 区段 / 卡片族。
+
+| 层级 | 唯一 class 族 | 语义 |
+|------|----------------|------|
+| **页头** | `.dashboard-head`（可叠 `.quant-head` 粘性）· `.dashboard-eyebrow` · `h2` · `.dashboard-meta` · 可选 `.dashboard-head-actions` | Eyebrow=Desk 英文名 · 标题=中文页名 · meta=唯一任务一句 |
+| **区段** | `.dashboard-section` · `.dashboard-section-head` · `.dashboard-section-title` · `.dashboard-section-desc` | 一块一事；页内可叠 `platform-section` / `strategy-section` / `quant-section` 作锚点，**标题必须用 dashboard-*** |
+| **卡片** | `.dashboard-card` · `.dashboard-card-head` · 卡体 padding 复用 `.quant-pro-card-body` | 交互/表/图的容器；勿为单页新建 `*-card-v2` |
+| **按钮** | `.dialog-btn` · `.dialog-btn.secondary` | 主/次动作 |
+| **色义** | 收益 `--color-up/--color-down`；质量/闸门 `--ok/--danger`（或 `--d-quality-*`） | 研究质量指标**禁止**误用涨跌色 |
+| **gutter** | 仅 `.page-main` 的 `--page-gutter-x/y` | `*-page` 左右 `padding:0`，勿按页覆写主列边距 |
+
+**Eyebrow 对照**（勿自造第三种命名）：Portfolio / Research / Data / Execution / Backtest / Strategy / Platform / Paper / Evals / Usage + `Desk`。
+
+---
+
 ## 3. 组件白名单
 
 改 UI **优先复用**；禁止为单页发明第三种同类容器。
@@ -197,16 +214,18 @@
 | 组件 | 用途 | 典型 class / 落点 |
 |------|------|-------------------|
 | **页壳** | 主列铺满 · 六页+仪表盘同壳同 gutter | `.page-main`（`--page-gutter-x/y`，默认 16/12）· `*-page` 页体左右 `padding:0` · 勿按页覆写主列边距 |
+| **页头** | Desk 标识 · 唯一任务 meta | `.dashboard-head` · `.dashboard-eyebrow` · `.dashboard-meta`（§2.1） |
 | **AI 抽屉** | 全局命令 | `#ai-drawer` · 顶栏 `#btn-ai-open` · ⌘K |
 | **主表** | 名单/持仓/回测表 | `.quant-weight-table` + wrap；遵守四页表规范 |
-| **图表 / 归因表** | 观察/回测曲线与归因表 | `.quant-chart-host` / `.quant-chart-wrap` + `.quant-attr-table` |
+| **图表 / 归因表** | 观察/回测曲线与归因表 | `.dashboard-chart-host` 优先；兼容 `.quant-chart-host` / `.quant-chart-wrap` + `.quant-attr-table` |
 | **指标卡** | 回测/净值数字 | `.quant-metrics` / metric 行 |
 | **五问条** | 调仓/日更可审计摘要（模拟页） | `#paper-ops-report` · `.paper-ops-report-grid`（`#dash-ops-report` 现行未挂载） |
 | **策略卡** | 策略列表 | `.strategy-card` |
-| **区段** | 一块一事 | `.quant-section` / `.platform-section` / `.follow-ops-*`（锚点：`#platform-audit-section`） |
+| **区段** | 一块一事 | `.dashboard-section*`（必用）· 页锚点可叠 `.quant-section` / `.platform-section` / `.follow-ops-card` |
+| **卡片** | 区段内容器 | `.dashboard-card`（必用） |
 | **主按钮 / 次按钮** | 动作 | `.dialog-btn` · `.dialog-btn.secondary` |
 | **折叠** | 按需 | `<details class="quant-fold">`（观察/策略仍可折叠；研究枢纽主/次要块已直出，`#quant-daily-fold` 等为卡片锚点） |
-| **状态行** | meta / 指纹 | `.quant-fingerprint` · 页顶 meta |
+| **状态行** | meta / 指纹 | `.quant-fingerprint` · 页顶 `.dashboard-meta` |
 | **因子悬停** | 定义注释 | `.factor-tip` + `title` |
 | **确认流** | 预演→确认 | 报告区 + 显式确认按钮（禁止一键静默成交） |
 | **研究 Dock** | 观察名单 ↔ 图/详情分屏 | `#research-dock` · `.dock-pane` · `.dock-splitter`（仅 `/watching`） |
@@ -214,7 +233,7 @@
 | **实况通道** | 纸面/健康/告警推送 | `GET /ws/live` · `js/live_ws.js`；断线复用 `#api-degrade-banner` |
 | **密度** | 紧凑/舒适 | `html[data-density=compact]` · 顶栏 `#btn-density` |
 
-**不要**：新圆角卡片体系（白名单外）、顶栏恢复横排五链主导航、页面级横向滚动表、盘口/Level2 模块。侧栏仅六模块（含研究枢纽）。
+**不要**：新圆角卡片体系（白名单外）、顶栏恢复横排五链主导航、页面级横向滚动表、盘口/Level2 模块、平行 `.quant-eyebrow` / `.strategy-section-title` / 裸 `platform-section > h3` 页头族。侧栏仅六模块（含研究枢纽）。
 **W4 边界**：React **仅岛**，不替换六页壳；Dock **仅研究分屏**，不引入交易终端盘口。
 
 ---
@@ -262,6 +281,7 @@
 - [ ] 新块落在某页「唯一任务」内，或已更新本文页面契约  
 - [ ] 未新增主导航项（除非文档同步改 IA 表）  
 - [ ] 复用白名单组件；无新横滚主表  
+- [ ] Desk Shell：页头 / 区段 / 卡片用 `.dashboard-*`（§2.1）；无平行 eyebrow/section-title 族  
 - [ ] 四页主表：无横向滚动 · 股票名 ≥6 字规则 · 同壳 padding  
 - [ ] 主路径危险动作有 busy / disabled；错误进 meta，不静默失败  
 - [ ] 空态有一句引导（空名单 / 空持仓 / 未回测）  

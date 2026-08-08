@@ -2,7 +2,25 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Execution Desk</p>
     <h2>交易执行</h2>
-    <p class="dashboard-meta quant-meta">模拟账户 · 纸面调仓 · 做T验证</p>
+    <p id="follow-meta" class="dashboard-meta quant-meta" aria-live="polite">模拟账户 · 纸面调仓 · 做T验证</p>
+    <p class="dashboard-section-desc follow-head-path">
+      <a class="follow-hero-link" href="/replay">回测</a>
+      → 调仓 / 做T →
+      <a class="follow-hero-link" href="/strategy">晋升</a>
+      ·
+      <a class="follow-hero-link" href="/platform">北极星</a>
+      ·
+      <span id="follow-cost-note" title="成交按现价；可切换成本模型">零成本假设</span>
+    </p>
+  </div>
+  <div class="dashboard-head-actions quant-head-actions">
+    <label class="follow-cost-model-field follow-cost-model-hero">
+      <span>成交成本</span>
+      <select id="paper-cost-model" class="follow-strategy-select" title="模拟成交成本模型">
+        <option value="zero">零成本假设</option>
+        <option value="simple_cn">A股简化（佣金+印花税）</option>
+      </select>
+    </label>
   </div>
 </div>
 
@@ -13,28 +31,6 @@
   </div>
 
   <div id="paper-main" class="paper-main">
-  <header class="follow-hero">
-    <div class="follow-hero-copy">
-      <p id="follow-meta" class="sr-only" aria-live="polite">加载中…</p>
-      <p class="follow-cost-note" id="follow-cost-note" title="成交按现价；可切换成本模型">
-        模拟账户 · 零成本假设
-      </p>
-      <p class="follow-hero-note">
-        <a class="follow-hero-link" href="/replay">回测</a>
-        → 调仓 / 做T →
-        <a class="follow-hero-link" href="/strategy">晋升</a>
-        ·
-        <a class="follow-hero-link" href="/platform">北极星</a>
-      </p>
-    </div>
-    <label class="follow-cost-model-field follow-cost-model-hero">
-      <span>成交成本</span>
-      <select id="paper-cost-model" class="follow-strategy-select" title="模拟成交成本模型">
-        <option value="zero">零成本假设</option>
-        <option value="simple_cn">A股简化（佣金+印花税）</option>
-      </select>
-    </label>
-  </header>
 
   <div class="paper-stats follow-stats" id="follow-stats"></div>
   <div
@@ -44,75 +40,86 @@
     aria-label="产品北极星指标"
   ></div>
 
-  <section class="follow-chart-card" aria-label="净值曲线">
-    <div class="paper-chart-head">
-      <div class="paper-chart-modes" role="group" aria-label="曲线范围">
-        <button
-          type="button"
-          id="paper-chart-portfolio"
-          class="paper-chart-mode is-active"
-          data-mode="portfolio"
-          title="整账净值曲线"
-        >
-          整账
-        </button>
-        <button
-          type="button"
-          id="paper-chart-stock-mode"
-          class="paper-chart-mode"
-          data-mode="stock"
-          disabled
-          title="点击持仓行后可看单票收盘价"
-        >
-          单票
-        </button>
+  <section class="dashboard-section follow-chart-section" aria-label="净值曲线">
+    <header class="dashboard-section-head">
+      <h3 class="dashboard-section-title">净值路径</h3>
+      <p class="dashboard-section-desc">整账 / 单票收盘价</p>
+    </header>
+    <div class="dashboard-card follow-chart-card">
+      <div class="dashboard-card-head paper-chart-head">
+        <div class="paper-chart-modes" role="group" aria-label="曲线范围">
+          <button
+            type="button"
+            id="paper-chart-portfolio"
+            class="paper-chart-mode is-active"
+            data-mode="portfolio"
+            title="整账净值曲线"
+          >
+            整账
+          </button>
+          <button
+            type="button"
+            id="paper-chart-stock-mode"
+            class="paper-chart-mode"
+            data-mode="stock"
+            disabled
+            title="点击持仓行后可看单票收盘价"
+          >
+            单票
+          </button>
+        </div>
+        <p id="paper-chart-label" class="paper-chart-label">整账净值</p>
       </div>
-      <p id="paper-chart-label" class="paper-chart-label">整账净值</p>
+      <div
+        id="paper-chart"
+        class="lw-host follow-lw-host dashboard-chart-host"
+        aria-label="模拟净值或单票曲线"
+      ></div>
+      <canvas
+        id="paper-chart-fallback"
+        hidden
+        width="900"
+        height="240"
+        aria-hidden="true"
+      ></canvas>
     </div>
-    <div
-      id="paper-chart"
-      class="lw-host follow-lw-host"
-      aria-label="模拟净值或单票曲线"
-    ></div>
-    <canvas
-      id="paper-chart-fallback"
-      hidden
-      width="900"
-      height="240"
-      aria-hidden="true"
-    ></canvas>
   </section>
 
-  <section class="paper-section-card follow-holdings-card">
-    <div class="watching-section-head follow-holdings-head">
-      <h3 class="watching-section-title">持仓</h3>
-      <span id="paper-holdings-count" class="watching-section-count"></span>
-      <button
-        type="button"
-        id="paper-holdings-refresh"
-        class="dialog-btn secondary follow-holdings-refresh"
-        title="重新拉取账户、持仓评分与情绪"
-      >
-        刷新
-      </button>
-      <p
-        id="paper-holdings-load-status"
-        class="watching-toolbar-meta follow-holdings-load-status"
-        aria-live="polite"
-      >
-        加载中…
+  <section class="dashboard-section follow-holdings-section">
+    <header class="dashboard-section-head follow-holdings-head">
+      <h3 class="dashboard-section-title">持仓</h3>
+      <p class="dashboard-section-desc">
+        <span id="paper-holdings-count" class="watching-section-count"></span>
       </p>
+      <div class="dashboard-card-tools">
+        <button
+          type="button"
+          id="paper-holdings-refresh"
+          class="dialog-btn secondary follow-holdings-refresh"
+          title="重新拉取账户、持仓评分与情绪"
+        >
+          刷新
+        </button>
+        <p
+          id="paper-holdings-load-status"
+          class="watching-toolbar-meta follow-holdings-load-status"
+          aria-live="polite"
+        >
+          加载中…
+        </p>
+      </div>
+    </header>
+    <div class="dashboard-card paper-section-card follow-holdings-card">
+      <div id="paper-holdings-table" class="quant-weight-table-wrap paper-section-body"></div>
+      <p id="paper-trade-status" class="watching-toolbar-meta paper-trade-status" aria-live="polite"></p>
     </div>
-
-    <div id="paper-holdings-table" class="quant-weight-table-wrap paper-section-body"></div>
-    <p id="paper-trade-status" class="watching-toolbar-meta paper-trade-status" aria-live="polite"></p>
   </section>
 
   <div class="follow-ops" aria-label="账户操作">
-    <section class="follow-ops-card" id="follow-fold-rebalance" aria-label="策略调仓">
-      <header class="follow-ops-head">
-        <h3 class="follow-ops-title">策略调仓</h3>
-        <p class="follow-ops-hint" title="研究枢纽对照/启用后，此处吃 live 组权更新 score；买卖只在本页。日常加减仓用上方持仓表">纸面验策略 · 预演后确认</p>
+    <section class="dashboard-section follow-ops-card" id="follow-fold-rebalance" aria-label="策略调仓">
+      <header class="dashboard-section-head follow-ops-head">
+        <h3 class="dashboard-section-title">策略调仓</h3>
+        <p class="dashboard-section-desc follow-ops-hint" title="研究枢纽对照/启用后，此处吃 live 组权更新 score；买卖只在本页。日常加减仓用上方持仓表">纸面验策略 · 预演后确认</p>
       </header>
       <p id="follow-cluster-status" class="follow-ops-note" aria-live="polite">
         分组打分：加载中…
@@ -175,10 +182,10 @@
       </div>
     </section>
 
-    <section class="follow-ops-card" id="follow-fold-fund" aria-label="资金调整">
-      <header class="follow-ops-head">
-        <h3 class="follow-ops-title">资金调整</h3>
-        <p class="follow-ops-hint" title="回零保留持仓，只把盈亏与净值曲线重新起算；成本模型见页顶">注资 / 减资 / 回零</p>
+    <section class="dashboard-section follow-ops-card" id="follow-fold-fund" aria-label="资金调整">
+      <header class="dashboard-section-head follow-ops-head">
+        <h3 class="dashboard-section-title">资金调整</h3>
+        <p class="dashboard-section-desc follow-ops-hint" title="回零保留持仓，只把盈亏与净值曲线重新起算；成本模型见页顶">注资 / 减资 / 回零</p>
       </header>
       <div class="follow-ops-row follow-fund-actions">
         <label class="follow-deposit-field">
@@ -229,9 +236,10 @@
       </div>
     </section>
 
-    <section class="follow-ops-card" id="follow-ops-trades">
-      <header class="follow-ops-head">
-        <h3 class="follow-ops-title">交易记录</h3>
+    <section class="dashboard-section follow-ops-card" id="follow-ops-trades">
+      <header class="dashboard-section-head follow-ops-head">
+        <h3 class="dashboard-section-title">交易记录</h3>
+        <p class="dashboard-section-desc">纸面成交流水</p>
         <button type="button" class="follow-ops-link paper-clear-records" data-category="trading">清除</button>
       </header>
       <div id="paper-operation-log" class="paper-operation-log follow-ops-log"></div>
