@@ -8,6 +8,7 @@
  * 轻量诊断工具，非完整回测，聚焦回测与纸面的对齐度。
  */
 import { renderMultiLineChart, renderLineChart } from "../lw_charts.js";
+import { syncOverviewFromFitGap } from "./factor_corr_ui.js";
 
 export function installFitGapHub(ctx) {
   const { escapeHtml, setQuantMeta, on, researchGridHtml } = ctx;
@@ -160,6 +161,7 @@ export function installFitGapHub(ctx) {
       el.innerHTML = `<p class="quant-attr-note">${esc(
         (data && data.error) || "无法加载拟合落差"
       )}</p>`;
+      syncOverviewFromFitGap(data || { ok: false, error: "无法加载拟合落差" });
       return;
     }
     const hints = data.hints || [];
@@ -172,6 +174,7 @@ export function installFitGapHub(ctx) {
       rz.tracking_error_pct != null
         ? `${Number(rz.tracking_error_pct).toFixed(2)}%`
         : "—";
+    syncOverviewFromFitGap(data);
     let html =
       `<div class="quant-metric-strip">` +
       `<span>Corr <b>${esc(corr)}</b></span>` +
@@ -213,8 +216,6 @@ export function installFitGapHub(ctx) {
   }
 
   async function refresh() {
-    const fold = document.getElementById("quant-fit-gap-fold");
-    if (fold) fold.open = true;
     setStatus("拟合计算中…", { busy: true });
     if (setQuantMeta) setQuantMeta("纸面拟合计算中…", { busy: true });
     try {
@@ -267,12 +268,8 @@ export function installFitGapHub(ctx) {
     }
   });
 
-  const fold = document.getElementById("quant-fit-gap-fold");
-  if (fold) {
-    fold.addEventListener("toggle", () => {
-      if (fold.open) refresh().catch(() => {});
-    });
-  }
+  // 进页直接拉一次（不再依赖 details 展开）
+  refresh().catch(() => {});
 
   return { refresh, renderPanel };
 }

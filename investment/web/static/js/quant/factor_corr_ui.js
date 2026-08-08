@@ -4,12 +4,30 @@ import { renderMultiLineChart } from "../lw_charts.js";
 
 /* ===== Quant Pro UI Helpers ===== */
 
+const PATH_CHIP_HREF = {
+  "quant-pro-cluster-status": "#quant-section-factors",
+  "quant-pro-ic-status": "#quant-section-ic-series",
+  "quant-pro-review-status": "#quant-section-score-review",
+};
+
+function syncPathStepFromChip(chipId, state) {
+  const href = PATH_CHIP_HREF[chipId];
+  if (!href) return;
+  const step = document.querySelector(`.quant-path-rail a.quant-path-step[href="${href}"]`);
+  if (!step) return;
+  const pathState =
+    state === "ok" ? "done" : state === "busy" ? "busy" : state === "warn" ? "warn" : state === "error" ? "error" : "idle";
+  step.dataset.state = pathState;
+}
+
 /** 设置状态徽章 chip 状态：idle | busy | ok | warn | error */
 export function setProStatusChip(idOrEl, state, text) {
   const el = typeof idOrEl === "string" ? document.getElementById(idOrEl) : idOrEl;
   if (!el) return;
   el.dataset.state = state;
   if (text != null) el.textContent = text;
+  const chipId = typeof idOrEl === "string" ? idOrEl : el.id;
+  if (chipId) syncPathStepFromChip(chipId, state);
 }
 
 /** 更新顶部全景 KPI 的单张卡片 */
@@ -20,10 +38,162 @@ export function setProOverviewKpi(key, valueText, subText, state /* is-good | is
   if (!card) return;
   card.classList.remove("is-good", "is-bad", "is-mid", "is-empty");
   if (state) card.classList.add(state);
+  else if (valueText != null && valueText !== "—") card.classList.add("is-mid");
   const valEl = card.querySelector(".quant-pro-kpi-value");
   const subEl = card.querySelector(".quant-pro-kpi-sub");
   if (valEl) valEl.textContent = valueText ?? "—";
   if (subEl && subText != null) subEl.textContent = subText;
+}
+
+/** 观察池只数 → 概览 KPI（进页拉 watching 时） */
+export function syncOverviewUniverse(n, subText) {
+  const count = Number(n);
+  if (!Number.isFinite(count) || count < 0) return;
+  setProOverviewKpi(
+    "universe",
+    `${count} 只`,
+    subText != null ? String(subText) : "观察池",
+    count > 0 ? "is-mid" : "is-empty"
+  );
+}
+
+/** 分组结果 → 概览 KPI（避免 DOM 刮取） */
+export function syncOverviewFromClusters(data) {
+  if (!data || data.success === false) return;
+  const clusters = Array.isArray(data.clusters) ? data.clusters : [];
+  const kRaw =
+    data.n_clusters != null
+      ? Number(data.n_clusters)
+      : clusters.length
+        ? clusters.length
+        : null;
+  const k = kRaw != null && Number.isFinite(kRaw) ? kRaw : null;
+  const nRaw =
+    data.universe_count != null
+      ? Number(data.universe_count)
+      : data.stock_count != null
+        ? Number(data.stock_count)
+        : Array.isArray(data.watching_codes)
+          ? data.watching_codes.length
+          : null;
+  const n = nRaw != null && Number.isFinite(nRaw) ? nRaw : null;
+  const outliers = clusters.filter((c) => c && c.outlier_singleton).length;
+  if (n != null) {
+    setProOverviewKpi(
+      "universe",
+      `${n} 只`,
+      k != null ? `聚类 ${k} 组` : "观察池",
+      "is-mid"
+    );
+  }
+  if (k != null) {
+    setProOverviewKpi(
+      "clusters",
+      `${k} 组`,
+      outliers ? `${outliers} 离群` : n != null ? `入组 ${n}` : "分组完成",
+      "is-mid"
+    );
+  }
+}
+
+/** 命中率（0–1 或已是百分比）→ 概览 */
+export function syncOverviewHit(hitRate, subText) {
+  let pct = Number(hitRate);
+  if (!Number.isFinite(pct)) return;
+  if (pct <= 1.0001) pct *= 100;
+  const st = pct >= 55 ? "is-good" : pct >= 50 ? "is-mid" : "is-bad";
+  setProOverviewKpi(
+    "hit",
+    `${pct.toFixed(1)}%`,
+    subText != null ? String(subText) : "ŷ 方向命中率 · μ 线=50%",
+    st
+  );
+}
+
+/** 昨日复盘整包 → 概览（含样本不足） */
+export function syncOverviewFromScoreReview(data) {
+  if (!data) return;
+  const s = data.summary || {};
+  if (s.hit_rate != null && Number.isFinite(Number(s.hit_rate))) {
+    const n = s.n_scored != null ? Number(s.n_scored) : null;
+    syncOverviewHit(
+      s.hit_rate,
+      `as_of ${data.as_of || "—"} · μ=50%${n != null ? ` · n=${n}` : ""}`
+    );
+    return;
+  }
+  if (data.empty) {
+    setProOverviewKpi("hit", "无账本", data.note || "尚未冻结评分账本", "is-empty");
+    return;
+  }
+  const nLed = data.n_ledger != null ? Number(data.n_ledger) : null;
+  const thin = s.data_thin != null ? Number(s.data_thin) : null;
+  const blame = String(s.blame_line || "样本不足").trim() || "样本不足";
+  const subParts = [];
+  if (data.as_of) subParts.push(String(data.as_of));
+  if (nLed != null && Number.isFinite(nLed)) subParts.push(`账本 ${nLed}`);
+  if (thin != null && Number.isFinite(thin) && thin > 0) subParts.push(`薄样本 ${thin}`);
+  setProOverviewKpi(
+    "hit",
+    blame.length <= 6 ? blame : "暂无",
+    subParts.length ? subParts.join(" · ") : "近 N 日 / μ",
+    "is-empty"
+  );
+}
+
+/** 纸面拟合 Corr/TE → 概览 */
+export function syncOverviewFit(corr, te, subText) {
+  const c = Number(corr);
+  if (!Number.isFinite(c)) return;
+  const st = c >= 0.85 ? "is-good" : c >= 0.7 ? "is-mid" : "is-bad";
+  const teN = te != null ? Number(te) : null;
+  const teLabel =
+    teN != null && Number.isFinite(teN) ? `TE ${teN.toFixed(2)}%` : null;
+  setProOverviewKpi(
+    "fit",
+    `Corr ${c.toFixed(2)}`,
+    subText != null ? String(subText) : teLabel || "拟合相关",
+    st
+  );
+}
+
+/** 拟合落差整包 → 概览（含未对齐诊断） */
+export function syncOverviewFromFitGap(data) {
+  if (!data) return;
+  const rz = data.realization || {};
+  if (rz.corr != null && Number.isFinite(Number(rz.corr))) {
+    const te =
+      rz.tracking_error_pct != null
+        ? `TE ${Number(rz.tracking_error_pct).toFixed(2)}%`
+        : "拟合相关";
+    syncOverviewFit(rz.corr, rz.tracking_error_pct, te);
+    return;
+  }
+  if (data.ok === false) {
+    setProOverviewKpi("fit", "失败", data.error || "无法加载拟合", "is-empty");
+    return;
+  }
+  const dd = data.day_diff || {};
+  const aligned =
+    rz.aligned_days != null
+      ? Number(rz.aligned_days)
+      : dd.aligned_days != null
+        ? Number(dd.aligned_days)
+        : null;
+  const need = rz.need_days != null ? Number(rz.need_days) : null;
+  let val = "未对齐";
+  if (rz.status === "thin" || (aligned != null && need != null && aligned < need)) {
+    val = "样本薄";
+  } else if (rz.status === "ok") {
+    val = "—";
+  }
+  const sub =
+    aligned != null && need != null && Number.isFinite(aligned) && Number.isFinite(need)
+      ? `交集 ${aligned}/${need} 日`
+      : aligned != null && Number.isFinite(aligned)
+        ? `对齐 ${aligned} 日`
+        : rz.reason || "Corr / TE";
+  setProOverviewKpi("fit", val, sub, "is-empty");
 }
 
 /** 从 IC/分组结果渲染因子摘要卡网格 */
@@ -103,13 +273,16 @@ export function renderFactorSummaryCards(data, metaByName) {
 function corrColor(v) {
   if (v == null || !isFinite(v)) return "var(--line)";
   const clamped = Math.max(-1, Math.min(1, v));
+  const root = document.querySelector(".quant-page") || document.documentElement;
+  const cs = getComputedStyle(root);
   if (clamped >= 0) {
+    const base = cs.getPropertyValue("--q-corr-pos").trim() || "239, 68, 68";
     const alpha = clamped * 0.6;
-    return `rgba(239, 68, 68, ${alpha.toFixed(2)})`;
-  } else {
-    const alpha = Math.abs(clamped) * 0.6;
-    return `rgba(59, 130, 246, ${alpha.toFixed(2)})`;
+    return `rgba(${base}, ${alpha.toFixed(2)})`;
   }
+  const base = cs.getPropertyValue("--q-corr-neg").trim() || "59, 130, 246";
+  const alpha = Math.abs(clamped) * 0.6;
+  return `rgba(${base}, ${alpha.toFixed(2)})`;
 }
 
 function corrTextColor(v) {
@@ -239,13 +412,23 @@ function renderFactorIR(data, hostId) {
   host.innerHTML = html;
 }
 
+function unwrapApi(res, label = "加载失败") {
+  if (!res || res.ok === false) {
+    throw new Error((res && res.error) || label);
+  }
+  return res.data != null ? res.data : res;
+}
+
 export async function loadAndRenderFactorCorr(hostId) {
     const host = document.getElementById(hostId);
     if (!host) return;
     host.innerHTML = `<div class="quant-fingerprint is-busy">计算因子相关性…</div>`;
     setProStatusChip("quant-pro-factor-status", "busy", "计算中…");
     try {
-      const data = await apiFetch("/api/quant/factor-corr?threshold=0.7");
+      const data = unwrapApi(
+        await apiFetch("/api/quant/factor-corr?threshold=0.7"),
+        "相关性加载失败"
+      );
       renderFactorCorrHeatmap(data, hostId);
       setProStatusChip("quant-pro-factor-status", "ok", "相关性 OK");
     } catch (err) {
@@ -260,7 +443,10 @@ export async function loadAndRenderFactorCorr(hostId) {
     host.innerHTML = `<div class="quant-fingerprint is-busy">计算因子 IR…</div>`;
     setProStatusChip("quant-pro-factor-status", "busy", "计算 IR…");
     try {
-      const data = await apiFetch("/api/quant/factor-ir?horizon_days=3");
+      const data = unwrapApi(
+        await apiFetch("/api/quant/factor-ir?horizon_days=3"),
+        "IR 加载失败"
+      );
       renderFactorIR(data, hostId);
       // 若有 IR 结果，同步渲染因子摘要卡
       if (data && data.factors) renderFactorSummaryCards(data);
@@ -271,16 +457,25 @@ export async function loadAndRenderFactorCorr(hostId) {
     }
   }
 
-const IC_SERIES_COLORS = [
+const IC_SERIES_COLORS_FALLBACK = [
   "#2563eb",
   "#0f766e",
   "#b45309",
-  "#dc2626",
+  "#b42318",
   "#0369a1",
   "#4d7c0f",
   "#be123c",
   "#475569",
 ];
+
+function icSeriesColors() {
+  const root = document.querySelector(".quant-page") || document.documentElement;
+  const cs = getComputedStyle(root);
+  return IC_SERIES_COLORS_FALLBACK.map((fb, i) => {
+    const v = cs.getPropertyValue(`--q-ic-${i + 1}`).trim();
+    return v || fb;
+  });
+}
 
 function _icPointValues(f) {
   return (f.ic_values || [])
@@ -342,17 +537,41 @@ function renderFactorICSeriesKpis(data) {
     renderFactorSummaryCards({ factors });
   }
 
+let _icSeriesLoadSeq = 0;
+
+function waitLayoutFrames(n = 2) {
+  return new Promise((resolve) => {
+    const step = (left) => {
+      if (left <= 0) {
+        resolve();
+        return;
+      }
+      requestAnimationFrame(() => step(left - 1));
+    };
+    step(Math.max(1, n));
+  });
+}
+
 export async function loadAndRenderFactorICSeries(hostId, statsId, statusEl, lookback = 60) {
     const host = document.getElementById(hostId);
     const statsEl = document.getElementById(statsId);
     if (!host) return;
+    const seq = ++_icSeriesLoadSeq;
     if (statusEl) statusEl.textContent = "计算时序对比…";
     setProStatusChip("quant-pro-ic-status", "busy", "时序计算中…");
 
     try {
-      const data = await apiFetch(`/api/dashboard/factor-ic-series?lookback=${lookback}`);
+      const data = unwrapApi(
+        await apiFetch(`/api/dashboard/factor-ic-series?lookback=${lookback}`),
+        "IC 时序加载失败"
+      );
+      if (seq !== _icSeriesLoadSeq) return;
       renderFactorICSeriesKpis(data);
+      // 等双栏网格完成布局再量宽，避免首帧 width≈0 / flex 畸变
+      await waitLayoutFrames(2);
+      if (seq !== _icSeriesLoadSeq) return;
       await renderFactorICSeriesChart(data, host);
+      if (seq !== _icSeriesLoadSeq) return;
       renderFactorICSeriesStats(data, statsEl);
       const n = data.factors?.length || 0;
       const tag = data.cluster_label ? `组 ${data.cluster_label}` : data.source || "";
@@ -361,12 +580,37 @@ export async function loadAndRenderFactorICSeries(hostId, statsId, statusEl, loo
       const chipState = n ? (icMean >= 0.02 ? "ok" : icMean >= 0 ? "warn" : "warn") : "warn";
       setProStatusChip("quant-pro-ic-status", chipState, n ? `${n} 因子就绪` : "暂无数据");
       if (statusEl) {
+        const src = data.cluster_label
+          ? `组 ${data.cluster_label}${data.member_count != null ? ` · ${data.member_count} 只` : ""}`
+          : tag;
         statusEl.textContent = n
-          ? `完成 · ${n} 因子${tag ? ` · ${tag}` : ""}`
+          ? `完成 · ${n} 因子${src ? ` · ${src}` : ""}`
           : data.note || "暂无数据";
       }
+      // 布局稳定后再同步一次尺寸（防首屏窄画布）
+      await waitLayoutFrames(1);
+      if (seq === _icSeriesLoadSeq && host.__lwChart && host.__lwMount) {
+        try {
+          const r = host.getBoundingClientRect();
+          const w = Math.max(280, Math.round(r.width || host.clientWidth || 360));
+          const h = Math.max(160, Math.round(r.height || host.clientHeight || 240));
+          host.__lwMount.style.width = `${w}px`;
+          host.__lwMount.style.height = `${h}px`;
+          const wrap = host.__lwMount.parentElement;
+          if (wrap && wrap.classList && wrap.classList.contains("lw-wrap")) {
+            wrap.style.height = `${h}px`;
+          }
+          host.__lwChart.applyOptions({ width: w, height: h });
+          host.__lwChart.timeScale().fitContent();
+        } catch (_) {
+          /* ignore */
+        }
+      }
     } catch (err) {
-      host.innerHTML = vizEmpty(`加载失败: ${String(err.message || err)}`);
+      if (seq !== _icSeriesLoadSeq) return;
+      await renderMultiLineChart(host, [], {
+        emptyText: `加载失败: ${String(err.message || err)}`,
+      });
       const kpis = document.getElementById("quant-ic-series-kpis");
       if (kpis) {
         kpis.hidden = true;
@@ -381,24 +625,33 @@ export async function loadAndRenderFactorICSeries(hostId, statsId, statusEl, loo
 async function renderFactorICSeriesChart(data, host) {
   if (!host) return;
   if (!data || !data.factors || !data.factors.length) {
-    host.innerHTML = vizEmpty("暂无 IC 时序 · 请先运行「跑分组」");
+    await renderMultiLineChart(host, [], {
+      emptyText: "暂无 IC 时序 · 请先运行「跑分组」",
+    });
     return;
   }
 
+  const colors = icSeriesColors();
   const seriesList = data.factors.map((f, i) => {
-    const points = (f.ic_values || []).map((v, idx) => {
-      if (v != null && typeof v === "object") {
-        return {
-          time: v.time || v.date || idx + 1,
-          value: v.value ?? v.ic,
-        };
-      }
-      return { time: idx + 1, value: v };
-    });
+    const points = (f.ic_values || [])
+      .map((v, idx) => {
+        if (v != null && typeof v === "object") {
+          const value = Number(v.value ?? v.ic);
+          if (!Number.isFinite(value)) return null;
+          const time = v.time || v.date;
+          if (time == null || time === "") return null;
+          return { time, value };
+        }
+        const value = Number(v);
+        if (!Number.isFinite(value)) return null;
+        // 无日期时勿用裸 idx（LWC unix 秒会落在 1970）
+        return null;
+      })
+      .filter(Boolean);
     return {
       label: f.label || f.factor,
-      color: IC_SERIES_COLORS[i % IC_SERIES_COLORS.length],
-      lineWidth: i === 0 ? 2.5 : 2,
+      color: colors[i % colors.length],
+      lineWidth: i === 0 ? 2.5 : 1.75,
       points,
     };
   });

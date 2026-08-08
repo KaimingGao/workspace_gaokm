@@ -52,7 +52,7 @@ import { buildUniversePanelHtml } from "./quant/universe_ui.js";
 import { researchGridHtml, metricCell } from "./quant/research_grid.js";
 import { createPromoteHintsRenderer } from "./quant/promote_hints_ui.js";
 import { createFactorIcUi } from "./quant/factor_ic_ui.js";
-import { createOlsUi } from "./quant/ols_ui.js?v=p798";
+import { createOlsUi } from "./quant/ols_ui.js?v=p802";
 import { createBtTablesUi } from "./quant/bt_tables.js";
 import { installWatching } from "./quant/domain_watching.js";
 import { installBacktest } from "./quant/domain_backtest.js";
@@ -62,7 +62,7 @@ import { installStrategy } from "./quant/domain_strategy.js";
 import { installExportInterpret } from "./quant/domain_export.js";
 import { installScoreReview } from "./quant/domain_score_review.js";
 import { installFitGapHub } from "./quant/domain_fit_gap.js";
-import { loadAndRenderFactorCorr, loadAndRenderFactorIR, loadAndRenderFactorICSeries, setProStatusChip, setProOverviewKpi, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
+import { loadAndRenderFactorCorr, loadAndRenderFactorIR, loadAndRenderFactorICSeries, setProStatusChip, syncOverviewFromClusters, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
 
 /** Quant research panel — shell + domain installs. */
 export function initQuant(ctx) {
@@ -73,6 +73,7 @@ export function initQuant(ctx) {
     readHorizonDays,
     readRidgeLambda,
     readClusterK,
+    readWatchingLimit,
     setPrefsHorizonDays,
     getPrefsHorizonDays,
   } = researchParams;
@@ -216,7 +217,7 @@ export function initQuant(ctx) {
     ctx, on, els, state, escapeHtml, apiFetch, downloadBlob, downloadJson,
     fmtPct, metricClass, researchGridHtml, metricCell,
     clampHorizonDays, syncHorizonInputs, readHorizonDays, readRidgeLambda, readClusterK,
-    setPrefsHorizonDays, getPrefsHorizonDays,
+    readWatchingLimit, setPrefsHorizonDays, getPrefsHorizonDays,
     factorMetaByName, factorMetaByLabel, rememberFactorMeta, ensureFactorMeta,
     factorDescription, factorNameCellHtml,
     BT_SCOPE_LIVE, BT_SCOPE_FROZEN, quantBtBusyIds, PRESET_FLAG_LABELS, QUANT_EXPORT_PRESETS,
@@ -712,35 +713,28 @@ export function initQuant(ctx) {
     setProStatusChip("quant-pro-cluster-status", "busy", "分组计算中…");
     try {
       await suggest.runFactorOlsClustersSuggest();
-      // 从 DOM 摘要区域回读组 K / 池大小，避免跨模块 state 耦合
-      let k = null;
-      const summaryEl = document.getElementById("quant-ols-summary");
-      const hubEl = document.getElementById("quant-ols-clusters");
-      if (hubEl) {
-        const heads = hubEl.querySelectorAll(".quant-cluster-group-head, [data-cluster-group-head]");
-        if (heads && heads.length) k = heads.length;
+      // 概览 KPI 已在 renderOlsClusters 内从结果写回；此处兜底
+      const last = state.quantLastOlsClusters;
+      if (last && last.success) {
+        syncOverviewFromClusters(last);
+        const k = last.n_clusters ?? (last.clusters || []).length;
+        setProStatusChip("quant-pro-cluster-status", "ok", k ? `${k} 组就绪` : "完成");
+      } else {
+        setProStatusChip("quant-pro-cluster-status", "ok", "完成");
       }
-      if (!k && summaryEl) {
-        const m = summaryEl.textContent.match(/(\d+)\s*组|K\s*[=:：]\s*(\d+)/);
-        if (m) k = Number(m[1] || m[2]);
-      }
-      const nMatch = summaryEl ? summaryEl.textContent.match(/观察池\s*(\d+)|N\s*[=:：]\s*(\d+)|(\d+)\s*只/) : null;
-      const n = nMatch ? Number(nMatch[1] || nMatch[2] || nMatch[3]) : null;
-      if (k) {
-        setProOverviewKpi("clusters", `${k} 组`, n ? `观察池 ${n} 只` : "分组完成", "is-mid");
-      }
-      if (n) {
-        setProOverviewKpi("universe", `${n} 只`, k ? `聚类 K=${k}` : "观察池", "is-mid");
-      }
-      setProStatusChip("quant-pro-cluster-status", "ok", k ? `${k} 组就绪` : "完成");
     } catch (err) {
-      setBusyText(els.quantOlsSummary, String(err.message || err), { busy: false });
-      setQuantMeta(String(err.message || err), { error: true });
+      const msg = String((err && err.message) || err || "分组失败");
+      setBusyText(els.quantOlsSummary, msg, { busy: false });
+      setQuantMeta(`分组失败 · ${msg}`, { error: true });
       if (els.quantOlsClusters) {
         els.quantOlsClusters.hidden = false;
-        els.quantOlsClusters.textContent = String(err.message || err);
+        els.quantOlsClusters.textContent = msg;
       }
-      setProStatusChip("quant-pro-cluster-status", "error", "分组失败");
+      setProStatusChip(
+        "quant-pro-cluster-status",
+        "error",
+        msg.length > 24 ? "分组失败" : msg
+      );
     } finally {
       if (btn) btn.disabled = false;
     }
@@ -775,40 +769,8 @@ export function initQuant(ctx) {
       );
     });
 
-  // 复盘状态徽章 + 命中 KPI 回读
+  // 复盘 / 拟合 KPI 由各自 domain 在渲染时直接写概览
   on("quant-score-review-run", "click", () => setProStatusChip("quant-pro-review-status", "busy", "复盘计算中…"));
-  const reviewTable = document.getElementById("quant-score-review-summary");
-  if (reviewTable && window.MutationObserver) {
-    const obs = new window.MutationObserver(() => {
-      const txt = reviewTable.textContent || "";
-      const hitM = txt.match(/命中\s*(\d+(?:\.\d+)?)\s*%|命中率\s*(\d+(?:\.\d+)?)/);
-      const hit = hitM ? Number(hitM[1] || hitM[2]) : null;
-      if (hit && isFinite(hit)) {
-        const st = hit >= 55 ? "is-good" : hit >= 50 ? "is-mid" : "is-bad";
-        setProOverviewKpi("hit", `${hit.toFixed(1)}%`, `ŷ 方向命中率 · μ 线=50%`, st);
-        setProStatusChip("quant-pro-review-status", st === "is-good" ? "ok" : st === "is-mid" ? "warn" : "warn", `命中 ${hit.toFixed(0)}%`);
-      }
-    });
-    obs.observe(reviewTable, { childList: true, subtree: true, characterData: true });
-  }
-
-  // 纸面拟合 KPI 回读
-  const fitHub = document.getElementById("quant-fit-gap-hub");
-  if (fitHub && window.MutationObserver) {
-    const fobs = new window.MutationObserver(() => {
-      const txt = fitHub.textContent || "";
-      const corrM = txt.match(/Corr\s*[:：]\s*(-?\d+(?:\.\d+)?)|相关系数\s*(-?\d+(?:\.\d+)?)/);
-      const corr = corrM ? Number(corrM[1] || corrM[2]) : null;
-      if (corr != null && isFinite(corr)) {
-        const st = corr >= 0.85 ? "is-good" : corr >= 0.7 ? "is-mid" : "is-bad";
-        const teM = txt.match(/TE\s*[:：]\s*(-?\d+(?:\.\d+)?)|跟踪误差\s*(-?\d+(?:\.\d+)?)/);
-        const te = teM ? Number(teM[1] || teM[2]) : null;
-        setProOverviewKpi("fit", `Corr ${corr >= 0 ? "" : ""}${corr.toFixed(2)}`, te != null ? `TE ${te.toFixed(3)}` : `拟合相关`, st);
-      }
-    });
-    fobs.observe(fitHub, { childList: true, subtree: true, characterData: true });
-  }
-
 
   const oosGateTips = createScoreTooltipController();
   cluster.wireOosGateTips(els.quantOlsClusters);
@@ -1147,14 +1109,10 @@ export function initQuant(ctx) {
     }
   });
 
-  // 日报默认折叠：展开或深链时再拉 MD 预览
-  document.getElementById("quant-daily-fold")?.addEventListener("toggle", (e) => {
-    const fold = e.currentTarget;
-    if (fold && fold.open) exportDomain.ensureDailyPreview();
-  });
+  // 日报直出：进页拉预览；深链仍滚到卡片
+  exportDomain.ensureDailyPreview();
   if (String(location.hash || "").replace(/^#/, "") === "quant-daily-fold") {
     exportDomain.openDailyFold();
-    exportDomain.ensureDailyPreview();
   }
 
   on("quant-export-md", "click", async (e) => {

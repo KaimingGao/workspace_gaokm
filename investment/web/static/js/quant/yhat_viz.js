@@ -11,26 +11,45 @@ function _quantile(sorted, q) {
   return sorted[lo] * (hi - pos) + sorted[hi] * (pos - lo);
 }
 
-/** Nice tick steps for axis labels. */
-function niceTicks(lo, hi, target = 5) {
+/** Nice tick steps for axis labels. Returns { ticks, step }. */
+function niceTicks(lo, hi, target = 5, { maxTicks = 16 } = {}) {
   const span = hi - lo;
-  if (!(span > 0) || !Number.isFinite(span)) return [lo, hi];
+  if (!(span > 0) || !Number.isFinite(span)) {
+    return { ticks: [lo, hi], step: Math.abs(hi - lo) || 1 };
+  }
   const raw = span / Math.max(2, target - 1);
   const mag = Math.pow(10, Math.floor(Math.log10(raw)));
   const norm = raw / mag;
   let step;
-  if (norm <= 1.5) step = 1 * mag;
-  else if (norm <= 3) step = 2 * mag;
+  if (norm <= 1.25) step = 1 * mag;
+  else if (norm <= 2.25) step = 2 * mag;
+  else if (norm <= 3.5) step = 2.5 * mag;
   else if (norm <= 7) step = 5 * mag;
   else step = 10 * mag;
-  const start = Math.ceil(lo / step) * step;
+  const start = Math.ceil(lo / step - 1e-12) * step;
   const ticks = [];
+  const cap = Math.max(4, Math.min(24, maxTicks));
   for (let v = start; v <= hi + step * 1e-9; v += step) {
     ticks.push(Number(v.toPrecision(12)));
-    if (ticks.length > 12) break;
+    if (ticks.length > cap) break;
   }
   if (!ticks.length) ticks.push(lo, hi);
-  return ticks;
+  return { ticks, step };
+}
+
+/** Format axis tick from step size (finer step → more decimals). */
+function formatAxisTick(v, step) {
+  const a = Math.abs(Number(step)) || 1;
+  let digits;
+  if (a >= 10) digits = 0;
+  else if (a >= 1) digits = 1;
+  else if (a >= 0.1) digits = 2;
+  else if (a >= 0.01) digits = 3;
+  else digits = 4;
+  // trim trailing zeros but keep at least 1 dp for |v| < 10 when step < 1
+  const s = Number(v).toFixed(digits);
+  if (digits <= 1) return s;
+  return s.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
 }
 
 export function binScores(scores, { bins = 12, min, max } = {}) {
@@ -167,17 +186,17 @@ export function paintScoreHistogram(canvas, scores, opts = {}) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
 
-  const muted = cssVar(canvas, "--muted", "#64748b");
-  const border = cssVar(canvas, "--border-color", "#e2e8f0");
-  const text = cssVar(canvas, "--text", "#334155");
+  const muted = cssVar(canvas, "--ink-3", "#94a3b8");
+  const border = cssVar(canvas, "--line", "#e2e8f0");
+  const text = cssVar(canvas, "--ink", "#1e293b");
   const accent = cssVar(canvas, "--accent", "#1890ff");
   const posFill = "rgba(220, 38, 38, 0.42)";
   const negFill = "rgba(5, 150, 105, 0.42)";
   const posStroke = "rgba(185, 28, 28, 0.55)";
   const negStroke = "rgba(4, 120, 87, 0.55)";
-  const fontUi = '11px ui-sans-serif, system-ui, "Segoe UI", sans-serif';
+  const fontUi = '11px Manrope, "PingFang SC", "Hiragino Sans GB", sans-serif';
   const fontMono =
-    '10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+    '10px "IBM Plex Mono", "SF Mono", Menlo, Consolas, monospace';
 
   const pack = binScores(scores, { bins: opts.bins || 16 });
   const pad = { t: 22, r: 14, b: 28, l: 34 };
@@ -249,7 +268,7 @@ export function paintScoreHistogram(canvas, scores, opts = {}) {
   ctx.strokeRect(pad.l + 0.5, pad.t + 0.5, w - 1, h - 1);
 
   // horizontal grid + y ticks (count)
-  const yTicks = niceTicks(0, yMax, 4);
+  const { ticks: yTicks } = niceTicks(0, yMax, 4);
   ctx.font = fontMono;
   yTicks.forEach((c) => {
     if (c < 0 || c > yMax) return;
@@ -376,22 +395,47 @@ export function paintScoreHistogram(canvas, scores, opts = {}) {
     label: "持",
   });
 
-  // x ticks
-  const xTicks = niceTicks(pack.min, pack.max, 6);
+  // x ticks — denser ŷ scale; label density follows plot width
+  const xTarget = Math.max(8, Math.min(14, Math.round(w / 48)));
+  const { ticks: xTicks, step: xStep } = niceTicks(pack.min, pack.max, xTarget, {
+    maxTicks: 18,
+  });
+  // half-step minor ticks (marks only)
+  if (xStep > 0 && Number.isFinite(xStep)) {
+    const half = xStep / 2;
+    const minorStart = Math.ceil(pack.min / half) * half;
+    ctx.strokeStyle = "rgba(100, 116, 139, 0.18)";
+    for (let v = minorStart; v <= pack.max + half * 1e-9; v += half) {
+      const onMajor = xTicks.some((t) => Math.abs(t - v) < half * 1e-6);
+      if (onMajor || Math.abs(v) < 1e-12) continue;
+      const x = xAt(v);
+      if (x < pad.l || x > pad.l + w) continue;
+      ctx.beginPath();
+      ctx.moveTo(x, pad.t + h);
+      ctx.lineTo(x, pad.t + h + 2);
+      ctx.stroke();
+    }
+  }
   ctx.fillStyle = muted;
   ctx.font = fontMono;
   ctx.textBaseline = "top";
+  let lastLabelRight = -Infinity;
   xTicks.forEach((v) => {
-    if (Math.abs(v) < 1e-9) return;
+    if (Math.abs(v) < 1e-9) return; // zero drawn separately
     const x = xAt(v);
-    if (x < pad.l || x > pad.l + w) return;
-    ctx.strokeStyle = "rgba(100, 116, 139, 0.25)";
+    if (x < pad.l - 0.5 || x > pad.l + w + 0.5) return;
+    ctx.strokeStyle = "rgba(100, 116, 139, 0.35)";
     ctx.beginPath();
     ctx.moveTo(x, pad.t + h);
-    ctx.lineTo(x, pad.t + h + 3);
+    ctx.lineTo(x, pad.t + h + 4);
     ctx.stroke();
+    const label = formatAxisTick(v, xStep);
+    const approxW = Math.max(14, label.length * 5.6);
+    // skip label only when it would overlap the previous one
+    if (x - approxW / 2 < lastLabelRight + 4) return;
     ctx.textAlign = "center";
-    ctx.fillText(v.toFixed(Math.abs(v) >= 10 ? 0 : 1), x, pad.t + h + 5);
+    ctx.fillText(label, x, pad.t + h + 5);
+    lastLabelRight = x + approxW / 2;
   });
 
   // crosshair
@@ -744,14 +788,16 @@ export function paintYhatScatter(canvas, points, opts = {}) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
 
-  const muted = cssVar(canvas, "--muted", "#64748b");
-  const border = cssVar(canvas, "--border-color", "#e2e8f0");
-  const text = cssVar(canvas, "--text", "#334155");
+  const muted = cssVar(canvas, "--ink-3", "#94a3b8");
+  const border = cssVar(canvas, "--line", "#e2e8f0");
+  const text = cssVar(canvas, "--ink", "#1e293b");
+  const qualityPos = cssVar(canvas, "--q-quality-pos", "#0f766e");
+  const qualityNeg = cssVar(canvas, "--q-quality-neg", "#b42318");
   const pad = { t: 10, r: 14, b: 30, l: 40 };
   const w = cssW - pad.l - pad.r;
   const h = cssH - pad.t - pad.b;
   ctx.fillStyle = muted;
-  ctx.font = '11px ui-sans-serif, system-ui, "Segoe UI", sans-serif';
+  ctx.font = '11px Manrope, "PingFang SC", "Hiragino Sans GB", sans-serif';
   if (pts.length < 2) {
     ctx.fillText("样本不足，无法画散点", pad.l, pad.t + 14);
     return { n: pts.length, hits: 0 };
@@ -788,11 +834,11 @@ export function paintYhatScatter(canvas, points, opts = {}) {
   ctx.lineWidth = 1;
   ctx.strokeRect(pad.l + 0.5, pad.t + 0.5, w - 1, h - 1);
 
-  // quadrant bands (same-sign = hit)
+  // quadrant bands (same-sign = hit) — research quality colors, not A-share
   const zx = sx(0);
   const zy = sy(0);
-  const qHit = "rgba(4, 120, 87, 0.05)";
-  const qMiss = "rgba(185, 28, 28, 0.05)";
+  const qHit = "rgba(15, 118, 110, 0.06)";
+  const qMiss = "rgba(180, 35, 24, 0.05)";
   // Q1 (+,+) hit · Q2 (-,+) miss · Q3 (-,-) hit · Q4 (+,-) miss
   ctx.fillStyle = qHit;
   ctx.fillRect(zx, pad.t, Math.max(0, pad.l + w - zx), Math.max(0, zy - pad.t));
@@ -802,38 +848,43 @@ export function paintYhatScatter(canvas, points, opts = {}) {
   ctx.fillRect(zx, zy, Math.max(0, pad.l + w - zx), Math.max(0, pad.t + h - zy));
 
   // grid + ticks
-  const xTicks = niceTicks(xMin, xMax, 5);
-  const yTicks = niceTicks(yMin, yMax, 5);
-  ctx.font = '10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+  const { ticks: xTicks, step: scatterXStep } = niceTicks(xMin, xMax, 5);
+  const { ticks: yTicks, step: scatterYStep } = niceTicks(yMin, yMax, 5);
+  ctx.font = '10px "IBM Plex Mono", "SF Mono", Menlo, Consolas, monospace';
   xTicks.forEach((v) => {
     const x = sx(v);
     if (x < pad.l || x > pad.l + w) return;
-    ctx.strokeStyle = "rgba(100, 116, 139, 0.1)";
+    ctx.strokeStyle = border;
+    ctx.globalAlpha = 0.35;
     ctx.beginPath();
     ctx.moveTo(x, pad.t);
     ctx.lineTo(x, pad.t + h);
     ctx.stroke();
+    ctx.globalAlpha = 1;
     ctx.fillStyle = muted;
     ctx.textAlign = "center";
     ctx.textBaseline = "top";
-    ctx.fillText(v.toFixed(Math.abs(v) >= 10 ? 0 : 1), x, pad.t + h + 4);
+    ctx.fillText(formatAxisTick(v, scatterXStep), x, pad.t + h + 4);
   });
   yTicks.forEach((v) => {
     const y = sy(v);
     if (y < pad.t || y > pad.t + h) return;
-    ctx.strokeStyle = "rgba(100, 116, 139, 0.1)";
+    ctx.strokeStyle = border;
+    ctx.globalAlpha = 0.35;
     ctx.beginPath();
     ctx.moveTo(pad.l, y);
     ctx.lineTo(pad.l + w, y);
     ctx.stroke();
+    ctx.globalAlpha = 1;
     ctx.fillStyle = muted;
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
-    ctx.fillText(v.toFixed(Math.abs(v) >= 10 ? 0 : 1), pad.l - 5, y);
+    ctx.fillText(formatAxisTick(v, scatterYStep), pad.l - 5, y);
   });
 
   // zero axes
-  ctx.strokeStyle = "rgba(51, 65, 85, 0.45)";
+  ctx.strokeStyle = text;
+  ctx.globalAlpha = 0.35;
   ctx.lineWidth = 1.1;
   ctx.beginPath();
   ctx.moveTo(pad.l, zy);
@@ -841,6 +892,7 @@ export function paintYhatScatter(canvas, points, opts = {}) {
   ctx.moveTo(zx, pad.t);
   ctx.lineTo(zx, pad.t + h);
   ctx.stroke();
+  ctx.globalAlpha = 1;
 
   let hits = 0;
   pts.forEach((p) => {
@@ -850,15 +902,17 @@ export function paintYhatScatter(canvas, points, opts = {}) {
     const y = sy(p.y);
     ctx.beginPath();
     ctx.arc(x, y, 3.8, 0, Math.PI * 2);
-    ctx.fillStyle = hit ? "rgba(4, 120, 87, 0.78)" : "rgba(185, 28, 28, 0.8)";
+    ctx.fillStyle = hit ? qualityPos : qualityNeg;
+    ctx.globalAlpha = 0.82;
     ctx.fill();
-    ctx.strokeStyle = hit ? "rgba(4, 120, 87, 0.95)" : "rgba(153, 27, 27, 0.95)";
+    ctx.globalAlpha = 1;
+    ctx.strokeStyle = hit ? qualityPos : qualityNeg;
     ctx.lineWidth = 0.8;
     ctx.stroke();
   });
 
   ctx.fillStyle = text;
-  ctx.font = '10px ui-sans-serif, system-ui, "Segoe UI", sans-serif';
+  ctx.font = '10px Manrope, "PingFang SC", "Hiragino Sans GB", sans-serif';
   ctx.textAlign = "right";
   ctx.textBaseline = "alphabetic";
   ctx.fillText("ŷ %", cssW - 8, cssH - 8);
@@ -1048,13 +1102,15 @@ export function paintHitSparkline(canvas, points, opts = {}) {
   const ctx = canvas.getContext("2d");
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
-  const muted = cssVar(canvas, "--muted", "#64748b");
-  const accent = cssVar(canvas, "--accent", "#2563eb");
+  const muted = cssVar(canvas, "--ink-3", "#94a3b8");
+  const accent = cssVar(canvas, "--accent", "#1890ff");
+  const line = cssVar(canvas, "--line", "#e2e8f0");
+  const qualityMid = cssVar(canvas, "--q-quality-mid", "#b45309");
   const pad = { t: 8, r: 44, b: 16, l: 28 };
   const w = cssW - pad.l - pad.r;
   const h = cssH - pad.t - pad.b;
   ctx.fillStyle = muted;
-  ctx.font = '10px ui-sans-serif, system-ui, "Segoe UI", sans-serif';
+  ctx.font = '10px Manrope, "PingFang SC", "Hiragino Sans GB", sans-serif';
   if (pts.length < 2) {
     ctx.fillText("命中率样本不足", pad.l, pad.t + 12);
     return { n: pts.length };
@@ -1064,23 +1120,25 @@ export function paintHitSparkline(canvas, points, opts = {}) {
   const mean = pts.reduce((s, p) => s + p.v, 0) / pts.length;
 
   // band above 50%
-  ctx.fillStyle = "rgba(4, 120, 87, 0.06)";
+  ctx.fillStyle = "rgba(15, 118, 110, 0.06)";
   ctx.fillRect(pad.l, pad.t, w, yAt(0.5) - pad.t);
 
   // 0.5 / mean guides
-  ctx.strokeStyle = "rgba(100, 116, 139, 0.45)";
+  ctx.strokeStyle = line;
+  ctx.globalAlpha = 0.9;
   ctx.lineWidth = 1;
   ctx.setLineDash([3, 3]);
   ctx.beginPath();
   ctx.moveTo(pad.l, yAt(0.5));
   ctx.lineTo(pad.l + w, yAt(0.5));
   ctx.stroke();
-  ctx.strokeStyle = "rgba(124, 58, 237, 0.55)";
+  ctx.strokeStyle = qualityMid;
   ctx.beginPath();
   ctx.moveTo(pad.l, yAt(mean));
   ctx.lineTo(pad.l + w, yAt(mean));
   ctx.stroke();
   ctx.setLineDash([]);
+  ctx.globalAlpha = 1;
 
   // area fill
   ctx.beginPath();
@@ -1093,7 +1151,7 @@ export function paintHitSparkline(canvas, points, opts = {}) {
   ctx.lineTo(xAt(pts.length - 1), pad.t + h);
   ctx.lineTo(xAt(0), pad.t + h);
   ctx.closePath();
-  ctx.fillStyle = "rgba(37, 99, 235, 0.1)";
+  ctx.fillStyle = "rgba(24, 144, 255, 0.1)";
   ctx.fill();
 
   ctx.strokeStyle = accent;
@@ -1132,18 +1190,41 @@ export function paintHitSparkline(canvas, points, opts = {}) {
   return { n: pts.length, last: last.v, mean };
 }
 
-/* ============================ 跨组对照矩阵 ============================ */
+/* ============================ 跨组健康矩阵 ============================ */
 
 /**
- * 好坏色背景：t∈[-1,1]，正=绿（好），负=红（差），0=中性。
- * 用 inline style 以适配深浅主题。
+ * 健康矩阵色阶（研究报告风）：低饱和发散、近零中性、强值加深字色。
+ * t∈[-1,1]；mode=quality 绿好红弱；mode=return A 股红涨绿跌。
  */
-function qualityCellBg(t) {
+function heatCellStyle(t, mode = "quality") {
   if (t == null || !Number.isFinite(t)) return "";
-  const c = Math.max(-1, Math.min(1, t));
-  const a = 0.1 + Math.abs(c) * 0.34;
-  if (c >= 0) return `background:rgba(4,120,87,${a.toFixed(3)})`;
-  return `background:rgba(185,28,28,${a.toFixed(3)})`;
+  const c = Math.max(-1, Math.min(1, Number(t)));
+  const abs = Math.abs(c);
+  if (abs < 0.06) {
+    return "background:color-mix(in srgb, var(--ink) 3.5%, var(--surface));color:var(--ink-2)";
+  }
+  // 底色轻、字色随强度加深，避免荧光块
+  const a = (0.05 + abs * 0.2).toFixed(3);
+  const ret = mode === "return";
+  let rgb;
+  let fg;
+  if (c >= 0) {
+    rgb = ret ? "185,28,28" : "15,118,110"; // 涨红 / 好青绿
+    fg = ret ? "#9f1239" : "#0f766e";
+  } else {
+    rgb = ret ? "21,128,61" : "159,18,57"; // 跌绿 / 弱玫红
+    fg = ret ? "#166534" : "#9f1239";
+  }
+  const ink = abs >= 0.55 ? fg : abs >= 0.28 ? `color-mix(in srgb, ${fg} 72%, var(--ink))` : "inherit";
+  return `background:rgba(${rgb},${a});color:${ink}`;
+}
+
+function qualityCellBg(t) {
+  return heatCellStyle(t, "quality");
+}
+
+function signedReturnCellBg(t) {
+  return heatCellStyle(t, "return");
 }
 
 /** 从 cluster 抽取健康指标（与 buildGroupIcInsightHtml 同口径）。 */
@@ -1156,26 +1237,46 @@ function extractClusterHealth(cl) {
       : rm && rm.r_squared != null && Number.isFinite(Number(rm.r_squared))
         ? Number(rm.r_squared)
         : null;
+  const members = Array.isArray(cl && cl.members) ? cl.members.length : null;
+  const memberN =
+    cl && cl.member_count != null && Number.isFinite(Number(cl.member_count))
+      ? Number(cl.member_count)
+      : members;
   const sampleN =
     ols && ols.sample_count != null
       ? Number(ols.sample_count)
       : rm && rm.sample_count != null
         ? Number(rm.sample_count)
-        : cl && cl.member_count != null
-          ? Number(cl.member_count)
-          : null;
+        : null;
 
   let icir = null;
+  let icMean = null;
   const panel = cl && cl.factor_ic_panel ? cl.factor_ic_panel : null;
-  if (panel && panel.score_ic && panel.score_ic.pearson) {
-    const v = panel.score_ic.pearson.icir;
-    if (v != null && Number.isFinite(Number(v))) icir = Number(v);
+  const pear =
+    panel && panel.score_ic && panel.score_ic.pearson
+      ? panel.score_ic.pearson
+      : null;
+  if (pear) {
+    if (pear.icir != null && Number.isFinite(Number(pear.icir))) icir = Number(pear.icir);
+    if (pear.ic != null && Number.isFinite(Number(pear.ic))) icMean = Number(pear.ic);
+    else if (pear.ic_mean != null && Number.isFinite(Number(pear.ic_mean)))
+      icMean = Number(pear.ic_mean);
   }
   if (icir == null && panel && Array.isArray(panel.rows)) {
     const irs = panel.rows
       .map((r) => Number(r && r.icir))
       .filter((n) => Number.isFinite(n));
     if (irs.length) icir = irs.reduce((s, x) => s + x, 0) / irs.length;
+  }
+  if (icMean == null && panel && Array.isArray(panel.rows)) {
+    const ics = panel.rows
+      .map((r) =>
+        Number(
+          r && (r.ic != null ? r.ic : r.ic_mean != null ? r.ic_mean : NaN)
+        )
+      )
+      .filter((n) => Number.isFinite(n));
+    if (ics.length) icMean = ics.reduce((s, x) => s + x, 0) / ics.length;
   }
 
   const gate = (cl && cl.oos_gate) || {};
@@ -1185,6 +1286,22 @@ function extractClusterHealth(cl) {
       : null;
   const passed = !gate.skipped && !!gate.ok && !!gate.passed;
   const skipped = !!gate.skipped;
+  const resOos =
+    (gate.research && gate.research.oos) ||
+    (gate.suggested && gate.suggested.oos) ||
+    {};
+  const baseOos =
+    (gate.baseline && gate.baseline.oos) ||
+    (gate.current && gate.current.oos) ||
+    {};
+  const yhatOos =
+    resOos.oos_return_pct != null && Number.isFinite(Number(resOos.oos_return_pct))
+      ? Number(resOos.oos_return_pct)
+      : null;
+  const baseOosRet =
+    baseOos.oos_return_pct != null && Number.isFinite(Number(baseOos.oos_return_pct))
+      ? Number(baseOos.oos_return_pct)
+      : null;
 
   const meanDist =
     cl && cl.mean_distance_to_group_beta != null
@@ -1203,169 +1320,276 @@ function extractClusterHealth(cl) {
     tightScore = 1 - Math.min(1, meanDist / cap);
   }
 
-  return { r2, icir, deltaOos, tightScore, meanDist, cap, sampleN, passed, skipped, gate };
+  const outlier = !!(cl && cl.outlier_singleton);
+  const singleton = !!(cl && (cl.singleton || outlier));
+
+  return {
+    r2,
+    icMean,
+    icir,
+    deltaOos,
+    yhatOos,
+    baseOosRet,
+    tightScore,
+    meanDist,
+    cap,
+    memberN,
+    sampleN,
+    passed,
+    skipped,
+    gate,
+    singleton,
+    outlier,
+  };
 }
 
-/** 跨组健康矩阵：行=组，列=R²/ICIR/ΔOOS/同质/n/过门，色阶编码好坏。 */
-export function buildClustersHealthMatrixHtml(clusters, { escapeHtml } = {}) {
+/** 0–100 综合健康分：过门/ΔOOS/R²/ICIR/同质加权。 */
+function clusterHealthScore(h) {
+  if (!h || h.skipped) return null;
+  let s = 0;
+  let w = 0;
+  const add = (v, weight, mapFn) => {
+    if (v == null || !Number.isFinite(v)) return;
+    s += mapFn(v) * weight;
+    w += weight;
+  };
+  add(h.r2, 22, (v) => Math.max(0, Math.min(1, v / 0.7)) * 100);
+  add(h.icir, 18, (v) => Math.max(0, Math.min(1, (v + 0.2) / 0.7)) * 100);
+  add(h.icMean, 10, (v) => Math.max(0, Math.min(1, (v + 0.05) / 0.15)) * 100);
+  add(h.deltaOos, 28, (v) => Math.max(0, Math.min(1, (v + 1) / 3)) * 100);
+  add(h.tightScore, 12, (v) => Math.max(0, Math.min(1, v)) * 100);
+  add(h.yhatOos, 10, (v) => Math.max(0, Math.min(1, (v + 2) / 8)) * 100);
+  if (w < 1e-6) return h.passed ? 55 : 35;
+  let score = s / w;
+  if (h.passed) score = Math.min(100, score + 8);
+  else score = Math.max(0, score - 12);
+  return Math.round(score);
+}
+
+/**
+ * 跨组健康矩阵：汇总条 + 多指标表（按综合分排序）。
+ * @param {object[]} clusters
+ * @param {{ escapeHtml?: Function, preferredLabel?: string }} [opts]
+ */
+export function buildClustersHealthMatrixHtml(
+  clusters,
+  { escapeHtml, preferredLabel } = {}
+) {
   const esc = escapeHtml || ((s) => String(s ?? ""));
   if (!Array.isArray(clusters) || !clusters.length) return "";
 
+  const pref = preferredLabel != null ? String(preferredLabel) : "";
   const rows = clusters.map((cl, idx) => {
     const label = String(
       (cl && cl.label) || `G${((cl && cl.cluster_id) ?? idx) + 1}`
     );
     const h = extractClusterHealth(cl);
-    return { label, ...h, singleton: !!(cl && (cl.outlier_singleton || cl.singleton)) };
+    const isPref = !!(pref && (label === pref || String(cl && cl.label) === pref));
+    const kind = h.outlier
+      ? "离群"
+      : h.singleton
+        ? "单票"
+        : isPref
+          ? "优先"
+          : "组";
+    const score = clusterHealthScore(h);
+    return { label, kind, isPref, score, ...h };
   });
 
-  // 列阈值：t∈[-1,1] 好坏归一
+  // 综合分降序；跳过组沉底；同分优先过门
+  rows.sort((a, b) => {
+    if (a.skipped !== b.skipped) return a.skipped ? 1 : -1;
+    const sa = a.score != null ? a.score : -1;
+    const sb = b.score != null ? b.score : -1;
+    if (sb !== sa) return sb - sa;
+    if (a.passed !== b.passed) return a.passed ? -1 : 1;
+    return String(a.label).localeCompare(String(b.label), "zh");
+  });
+
   const tR2 = (v) => (v == null ? null : Math.max(-1, Math.min(1, (v - 0.3) / 0.4)));
+  const tIc = (v) => (v == null ? null : Math.max(-1, Math.min(1, (v || 0) / 0.08)));
   const tIcir = (v) => (v == null ? null : Math.max(-1, Math.min(1, (v || 0) / 0.5)));
   const tDelta = (v) => (v == null ? null : Math.max(-1, Math.min(1, (v || 0) / 1)));
   const tTight = (v) => (v == null ? null : Math.max(-1, Math.min(1, (v || 0) * 2 - 1)));
+  const tYhat = (v) => (v == null ? null : Math.max(-1, Math.min(1, (v || 0) / 3)));
+  const tScore = (v) =>
+    v == null ? null : Math.max(-1, Math.min(1, (Number(v) - 50) / 50));
 
-  const f2 = (x) => (x == null ? "—" : Number(x).toFixed(2));
-  const f3 = (x) => (x == null ? "—" : Number(x).toFixed(3));
+  const f2 = (x) => (x == null || !Number.isFinite(Number(x)) ? "—" : Number(x).toFixed(2));
+  const f3 = (x) => (x == null || !Number.isFinite(Number(x)) ? "—" : Number(x).toFixed(3));
+  const fSigned = (x, digits = 2) => {
+    if (x == null || !Number.isFinite(Number(x))) return "—";
+    const n = Number(x);
+    return `${n > 0 ? "+" : ""}${n.toFixed(digits)}`;
+  };
 
-  const headCells = ["组", "R²", "ICIR", "ΔOOS", "同质", "n", "门"]
-    .map((c, i) => {
-      const tip = ["组标签", "组 OLS R²；≥0.7 绿", "组 IC 信息比；≥0.5 绿", "ŷ−heuristic 增益(pp)", "1−均β距/cap；越高越同质", "组样本数", "OOS 门禁"][i];
-      return `<th class="yhat-mx-th" title="${esc(tip)}">${esc(c)}</th>`;
-    })
-    .join("");
-
-  const bodyRows = rows
-    .map((r) => {
-      const nameCls = r.singleton ? " is-singleton" : "";
-      const gateCell = r.skipped
-        ? `<td class="yhat-mx-td is-skip" title="${esc(r.gate.reason || "skipped")}">跳</td>`
-        : `<td class="yhat-mx-td ${r.passed ? "is-pass" : "is-fail"}" title="${esc(r.gate.reason || (r.passed ? "通过" : "未过"))}">${r.passed ? "✓" : "✗"}</td>`;
-      const cells =
-        `<td class="yhat-mx-td${nameCls}" title="${esc(r.label)}">${esc(r.label)}</td>` +
-        `<td class="yhat-mx-td num" style="${qualityCellBg(tR2(r.r2))}" title="R² ${f3(r.r2)}">${esc(f2(r.r2))}</td>` +
-        `<td class="yhat-mx-td num" style="${qualityCellBg(tIcir(r.icir))}" title="ICIR ${f3(r.icir)}">${esc(f2(r.icir))}</td>` +
-        `<td class="yhat-mx-td num" style="${qualityCellBg(tDelta(r.deltaOos))}" title="ΔOOS ${r.deltaOos != null ? (r.deltaOos > 0 ? "+" : "") + r.deltaOos.toFixed(2) + "pp" : "—"}">${r.deltaOos == null ? "—" : esc((r.deltaOos > 0 ? "+" : "") + r.deltaOos.toFixed(2))}</td>` +
-        `<td class="yhat-mx-td num" style="${qualityCellBg(tTight(r.tightScore))}" title="均β距 ${f3(r.meanDist)}${r.cap != null ? " / cap " + f3(r.cap) : ""}">${r.tightScore == null ? (r.meanDist != null ? esc(f3(r.meanDist)) : "—") : esc(r.tightScore.toFixed(2))}</td>` +
-        `<td class="yhat-mx-td num" title="样本 n">${r.sampleN == null ? "—" : esc(String(r.sampleN))}</td>` +
-        gateCell;
-      return `<tr class="yhat-mx-row">${cells}</tr>`;
-    })
-    .join("");
-
+  const avg = (arr) =>
+    arr.length ? arr.reduce((s, x) => s + x, 0) / arr.length : null;
   const passN = rows.filter((r) => r.passed).length;
   const skipN = rows.filter((r) => r.skipped).length;
   const scoredN = rows.length - skipN;
+  const avgR2 = avg(rows.map((r) => r.r2).filter((v) => v != null));
+  const avgIcir = avg(rows.map((r) => r.icir).filter((v) => v != null));
+  const avgDelta = avg(rows.map((r) => r.deltaOos).filter((v) => v != null));
+  const avgTight = avg(rows.map((r) => r.tightScore).filter((v) => v != null));
+  const avgScore = avg(rows.map((r) => r.score).filter((v) => v != null));
+  const best = rows.find((r) => !r.skipped && r.score != null) || null;
+  const worst =
+    [...rows].reverse().find((r) => !r.skipped && r.score != null) || null;
+
+  const kpi = (k, v, tip) =>
+    `<span class="yhat-mx-kpi" title="${esc(tip)}">` +
+    `<span class="yhat-mx-kpi-k">${esc(k)}</span>` +
+    `<span class="yhat-mx-kpi-v">${esc(v)}</span>` +
+    `</span>`;
+
+  const kpiRow =
+    `<div class="yhat-mx-kpis" aria-label="跨组健康汇总">` +
+    kpi("过门", `${passN}/${scoredN || 0}`, "OOS 过门组数 / 可评组数") +
+    kpi("均R²", f2(avgR2), "各组 OLS R² 均值") +
+    kpi("均ICIR", f2(avgIcir), "各组 ICIR 均值") +
+    kpi("均ΔOOS", fSigned(avgDelta), "ŷ−heuristic 增益均值 (pp)") +
+    kpi("均同质", f2(avgTight), "同质分均值（越高越紧）") +
+    kpi("均分", avgScore != null ? String(Math.round(avgScore)) : "—", "综合健康分均值") +
+    (best
+      ? kpi("最佳", `${best.label}·${best.score}`, "综合分最高组")
+      : "") +
+    (worst && best && worst.label !== best.label
+      ? kpi("偏弱", `${worst.label}·${worst.score}`, "综合分最低可评组")
+      : "") +
+    `</div>`;
+
+  const cols = [
+    ["#", "排序（按综合分）"],
+    ["组", "组标签"],
+    ["只", "组成员数"],
+    ["型", "组 / 单票 / 离群 / 优先导出"],
+    ["R²", "组 OLS R²；≥0.7 偏绿"],
+    ["IC", "组截面 IC 均值"],
+    ["ICIR", "组 IC 信息比；正红负绿"],
+    ["ŷOOS", "研究臂 OOS 收益%；正红负绿"],
+    ["ΔOOS", "ŷ−heuristic 增益 (pp)；正红负绿"],
+    ["同质", "1−均β距/cap；越高越同质"],
+    ["n", "拟合样本数"],
+    ["门", "OOS 门禁"],
+    ["分", "综合健康分 0–100"],
+  ];
+  const headCells = cols
+    .map(
+      ([c, tip]) =>
+        `<th class="yhat-mx-th" title="${esc(tip)}">${esc(c)}</th>`
+    )
+    .join("");
+
+  const bodyRows = rows
+    .map((r, rank) => {
+      const rowCls = [
+        "yhat-mx-row",
+        r.isPref ? "is-pref" : "",
+        r.singleton ? "is-singleton-row" : "",
+        r.passed ? "is-pass-row" : "",
+        r.skipped ? "is-skip-row" : "",
+        !r.skipped && !r.passed ? "is-fail-row" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      const gateTip = r.skipped
+        ? r.gate.note || r.gate.reason || "skipped"
+        : r.gate.reason ||
+          (r.passed ? "OOS 过门" : "OOS 未过") +
+            (r.baseOosRet != null || r.yhatOos != null
+              ? ` · 基线 ${f2(r.baseOosRet)}% / ŷ ${f2(r.yhatOos)}%`
+              : "");
+      const gateCell = r.skipped
+        ? `<td class="yhat-mx-td is-skip" title="${esc(gateTip)}">跳</td>`
+        : `<td class="yhat-mx-td ${r.passed ? "is-pass" : "is-fail"}" title="${esc(
+            gateTip
+          )}">${r.passed ? "✓" : "✗"}</td>`;
+      const kindCls =
+        r.kind === "优先"
+          ? " is-kind-pref"
+          : r.kind === "离群"
+            ? " is-kind-outlier"
+            : r.kind === "单票"
+              ? " is-kind-single"
+              : "";
+      const cells =
+        `<td class="yhat-mx-td num yhat-mx-td-rank" title="排名">${rank + 1}</td>` +
+        `<td class="yhat-mx-td yhat-mx-td-group${r.singleton ? " is-singleton" : ""}${
+          r.isPref ? " is-pref-label" : ""
+        }" title="${esc(r.label)}">${esc(r.label)}</td>` +
+        `<td class="yhat-mx-td num" title="成员数">${
+          r.memberN == null ? "—" : esc(String(r.memberN))
+        }</td>` +
+        `<td class="yhat-mx-td yhat-mx-td-kind${kindCls}" title="${esc(r.kind)}">${esc(
+          r.kind
+        )}</td>` +
+        `<td class="yhat-mx-td num" style="${qualityCellBg(tR2(r.r2))}" title="R² ${f3(
+          r.r2
+        )}">${esc(f2(r.r2))}</td>` +
+        `<td class="yhat-mx-td num" style="${signedReturnCellBg(tIc(r.icMean))}" title="IC ${f3(
+          r.icMean
+        )}">${esc(f3(r.icMean))}</td>` +
+        `<td class="yhat-mx-td num" style="${signedReturnCellBg(tIcir(r.icir))}" title="ICIR ${f3(
+          r.icir
+        )}">${esc(f2(r.icir))}</td>` +
+        `<td class="yhat-mx-td num" style="${signedReturnCellBg(tYhat(r.yhatOos))}" title="ŷ OOS ${f2(
+          r.yhatOos
+        )}% · 基线 ${f2(r.baseOosRet)}%">${
+          r.yhatOos == null ? "—" : esc(fSigned(r.yhatOos))
+        }</td>` +
+        `<td class="yhat-mx-td num" style="${signedReturnCellBg(tDelta(r.deltaOos))}" title="ΔOOS ${
+          r.deltaOos != null ? fSigned(r.deltaOos) + "pp" : "—"
+        }">${r.deltaOos == null ? "—" : esc(fSigned(r.deltaOos))}</td>` +
+        `<td class="yhat-mx-td num" style="${qualityCellBg(tTight(r.tightScore))}" title="均β距 ${f3(
+          r.meanDist
+        )}${r.cap != null ? " / cap " + f3(r.cap) : ""}">${
+          r.tightScore == null
+            ? r.meanDist != null
+              ? esc(f3(r.meanDist))
+              : "—"
+            : esc(r.tightScore.toFixed(2))
+        }</td>` +
+        `<td class="yhat-mx-td num" title="拟合样本 n">${
+          r.sampleN == null ? "—" : esc(String(r.sampleN))
+        }</td>` +
+        gateCell +
+        `<td class="yhat-mx-td num yhat-mx-td-score" style="${qualityCellBg(
+          tScore(r.score)
+        )}" title="综合健康分">${r.score == null ? "—" : esc(String(r.score))}</td>`;
+      return `<tr class="${rowCls}">${cells}</tr>`;
+    })
+    .join("");
+
+  const swatch = (cls, label) =>
+    `<span class="yhat-mx-swatch ${cls}" aria-hidden="true"></span>` +
+    `<span class="yhat-mx-swatch-lab">${esc(label)}</span>`;
+  const legend =
+    `<p class="yhat-mx-legend" aria-label="色阶说明">` +
+    `<span class="yhat-mx-legend-group">` +
+    swatch("is-up", "涨/正") +
+    swatch("is-down", "跌/负") +
+    swatch("is-good", "质量好") +
+    swatch("is-weak", "质量弱") +
+    `</span>` +
+    `<span class="yhat-mx-legend-note">IC·ŷ·Δ 用涨跌色 · R²·同质·分用质量色 · 按综合分排序` +
+    (pref ? ` · 优先 ${esc(pref)}` : "") +
+    `</span>` +
+    `</p>`;
 
   return (
     `<details class="yhat-mx yhat-mx-health" open>` +
     `<summary class="yhat-mx-summary">` +
     `<span class="yhat-mx-title">跨组健康矩阵</span>` +
-    `<span class="yhat-mx-meta">过门 ${passN}/${scoredN}${skipN ? ` · 跳过 ${skipN}` : ""} · 色阶=好坏</span>` +
+    `<span class="yhat-mx-meta">过门 ${passN}/${scoredN}${
+      skipN ? ` · 跳过 ${skipN}` : ""
+    } · ${rows.length} 组</span>` +
     `</summary>` +
-    `<div class="yhat-mx-scroll"><table class="yhat-mx-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table></div>` +
-    `</details>`
-  );
-}
-
-/** 因子 β 方向色：正=红（A 股涨），负=绿，0=灰。 */
-function betaCellBg(beta, peak) {
-  if (beta == null || !Number.isFinite(beta) || !peak) return "";
-  const t = Math.max(-1, Math.min(1, beta / peak));
-  const a = 0.08 + Math.abs(t) * 0.4;
-  if (t >= 0) return `background:rgba(185,28,28,${a.toFixed(3)})`;
-  return `background:rgba(4,120,87,${a.toFixed(3)})`;
-}
-
-/**
- * 因子 β 跨组矩阵：行=因子，列=组，色阶=β 方向（红正绿负）。
- * 同因子跨组符号反转 → 单元格加 is-flip 边框（全局不稳定因子）。
- */
-export function buildFactorBetaMatrixHtml(
-  clusters,
-  { escapeHtml, maxFactors = 12 } = {}
-) {
-  const esc = escapeHtml || ((s) => String(s ?? ""));
-  if (!Array.isArray(clusters) || !clusters.length) return "";
-
-  const groups = clusters.map((cl, idx) => {
-    const label = String(
-      (cl && cl.label) || `G${((cl && cl.cluster_id) ?? idx) + 1}`
-    );
-    const rm = (cl && cl.return_model) || null;
-    const ols = (cl && cl.ols) || null;
-    const coefs =
-      (rm && rm.coefficients && typeof rm.coefficients === "object" && rm.coefficients) ||
-      (ols && ols.coefficients && typeof ols.coefficients === "object" && ols.coefficients) ||
-      {};
-    return { label, coefs };
-  });
-
-  // 因子并集，按跨组最大 |β| 排序
-  const factorMap = new Map();
-  for (const g of groups) {
-    for (const [k, v] of Object.entries(g.coefs || {})) {
-      const b = Number(v);
-      if (!Number.isFinite(b)) continue;
-      if (!factorMap.has(k)) factorMap.set(k, []);
-      factorMap.get(k).push(b);
-    }
-  }
-  if (!factorMap.size) return "";
-
-  const factorRows = Array.from(factorMap.entries())
-    .map(([name, betas]) => ({
-      name,
-      betas,
-      maxAbs: Math.max(...betas.map((b) => Math.abs(b)), 0),
-      hasFlip: betas.some((b) => b > 0) && betas.some((b) => b < 0),
-    }))
-    .sort((a, b) => b.maxAbs - a.maxAbs)
-    .slice(0, Math.max(3, maxFactors));
-
-  if (!factorRows.length) return "";
-
-  const peak = Math.max(...factorRows.map((r) => r.maxAbs), 1e-6);
-
-  const headCells =
-    `<th class="yhat-mx-th yhat-mx-th-factor" title="因子名">因子</th>` +
-    groups
-      .map(
-        (g) => `<th class="yhat-mx-th" title="${esc(g.label)}">${esc(g.label)}</th>`
-      )
-      .join("");
-
-  const bodyRows = factorRows
-    .map((r) => {
-      const flipCls = r.hasFlip ? " is-flip-row" : "";
-      const cells = groups
-        .map((g) => {
-          const b = g.coefs[r.name];
-          const v = b != null && Number.isFinite(Number(b)) ? Number(b) : null;
-          const flipCell = r.hasFlip && v != null ? " is-flip" : "";
-          const title = `${r.name} @ ${g.label}: ${v == null ? "—" : (v > 0 ? "+" : "") + v.toFixed(3)}`;
-          const txt = v == null ? "—" : (v > 0 ? "+" : "") + v.toFixed(2);
-          return `<td class="yhat-mx-td num${flipCell}" style="${betaCellBg(v, peak)}" title="${esc(title)}">${esc(txt)}</td>`;
-        })
-        .join("");
-      return (
-        `<tr class="yhat-mx-row${flipCls}">` +
-        `<td class="yhat-mx-td yhat-mx-td-factor${r.hasFlip ? " is-flip" : ""}" title="${esc(r.name)}${r.hasFlip ? " · 跨组符号反转" : ""}">${esc(r.name)}</td>` +
-        cells +
-        `</tr>`
-      );
-    })
-    .join("");
-
-  const flipN = factorRows.filter((r) => r.hasFlip).length;
-
-  return (
-    `<details class="yhat-mx yhat-mx-beta" open>` +
-    `<summary class="yhat-mx-summary">` +
-    `<span class="yhat-mx-title">因子 β 跨组矩阵</span>` +
-    `<span class="yhat-mx-meta">Top ${factorRows.length} · 符号反转 ${flipN} · 红正绿负</span>` +
-    `</summary>` +
-    `<div class="yhat-mx-scroll"><table class="yhat-mx-table"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table></div>` +
+    kpiRow +
+    `<div class="yhat-mx-scroll">` +
+    `<table class="yhat-mx-table yhat-mx-table--health"><thead><tr>${headCells}</tr></thead><tbody>${bodyRows}</tbody></table>` +
+    `</div>` +
+    legend +
     `</details>`
   );
 }

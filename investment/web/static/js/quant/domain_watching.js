@@ -1,5 +1,6 @@
 import { apiFetch } from "../api_client.js";
 import { renderLineChart } from "../lw_charts.js";
+import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import { mountVirtualTable, colStyle } from "../virtual_table.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
 import { truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode } from "./names.js";
@@ -979,6 +980,14 @@ export function installWatching(q) {
     state.watchingNameByCode = buildWatchingNameByCode(wl, names);
     const paperN = wl.filter((c) => paperCodes.has(String(c))).length;
     setPoolMeta(watchingPoolMetaText(wl.length, paperN, uni.max_size));
+    try {
+      syncOverviewUniverse(
+        wl.length,
+        paperN ? `纸面重叠 ${paperN}` : "观察池"
+      );
+    } catch (_) {
+      /* overview optional */
+    }
     await renderWatchingWatchTable(wl, names, paperCodes, uni.watchlist_scores || {});
     renderWatchingHoldings(
       uni.watchlist_holdings || {},
@@ -1395,9 +1404,13 @@ export function installWatching(q) {
 
 
   function setPoolMeta(text) {
+    const msg = String(text || "");
+    const busy = /正在|加载中|拉取|刷新中|分析中/.test(msg);
     for (const id of ["quant-watching-meta", "replay-pool-meta"]) {
       const el = document.getElementById(id);
-      if (el) el.textContent = text;
+      if (!el) continue;
+      el.textContent = msg;
+      el.classList.toggle("is-busy", busy);
     }
   }
 

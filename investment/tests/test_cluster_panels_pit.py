@@ -167,6 +167,63 @@ class TestClusterPanelsPit(unittest.TestCase):
         self.assertEqual(br.get("remote_count"), 0)
         self.assertEqual(br.get("cache_count"), 1)
 
+    def test_cache_first_skips_remote_index(self):
+        """缓存优先不得同步打 fetch_index_bars（否则易卡在 0/N 被 90s 回收）。"""
+        from quant.research.cluster_panels import build_cluster_ols_panels
+
+        bars = [{"date": f"2024-01-{i:02d}", "close": 10.0} for i in range(1, 50)]
+        msgs = []
+
+        def _prog(msg, cur=0, tot=0):
+            msgs.append(str(msg))
+
+        with patch(
+            "core.data_service.bars_and_source", return_value=(bars, "cache")
+        ), patch(
+            "core.ports.market.resolve_market_code", return_value=("CN", "000001")
+        ), patch(
+            "core.ports.market.default_benchmark", return_value="hs300"
+        ), patch(
+            "core.ports.market.fetch_index_bars",
+            side_effect=AssertionError("cache-first must not call remote index"),
+        ), patch(
+            "core.signal.config.load_signal_config", return_value={}
+        ):
+            out = build_cluster_ols_panels(
+                ["000001"],
+                lookback=30,
+                pit_fundamentals=False,
+                refresh_bars=False,
+                progress_cb=_prog,
+            )
+        self.assertEqual(len(out.get("panels") or []), 1)
+        self.assertTrue(any("缓存优先" in m for m in msgs))
+
+    def test_refresh_index_timeout_continues(self):
+        import time
+
+        from quant.research.cluster_panels import _load_index_bars_once
+
+        def _hang(*_a, **_k):
+            time.sleep(30)
+            return [], "empty"
+
+        with patch(
+            "core.data_service.bars_and_source", return_value=([], "empty")
+        ), patch(
+            "core.ports.market.fetch_index_bars", side_effect=_hang
+        ):
+            t0 = time.time()
+            bars = _load_index_bars_once(
+                "hs300",
+                limit=40,
+                refresh_bars=True,
+                timeout_sec=2.5,
+            )
+            elapsed = time.time() - t0
+        self.assertEqual(bars, [])
+        self.assertLess(elapsed, 8.0)
+
 class TestClusterLiveAuditSplit(unittest.TestCase):
     def test_pick_audit_codes_round_robin(self):
         from core.signal.cluster_live_audit import pick_audit_codes

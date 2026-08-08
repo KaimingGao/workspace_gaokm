@@ -1,5 +1,5 @@
 /**
- * 研究台参数：持有期 / Ridge / 聚类 K。
+ * 研究台参数：持有期 / Ridge / 聚类 K / 观察池 Limit。
  */
 
 export function clampHorizonDays(v, fallback = 1) {
@@ -14,6 +14,13 @@ export function clampRidgeLambda(v, fallback = 0) {
   return Math.min(100, n);
 }
 
+/** 与后端 clamp_watching_limit 对齐：3～100；默认满池 100 */
+export function clampWatchingLimit(v, fallback = 100) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(3, Math.min(100, Math.round(n)));
+}
+
 /** @returns {number|null} 空=自动 */
 export function readClusterKFromEl(el) {
   if (!el || el.value === "" || el.value == null) return null;
@@ -23,7 +30,7 @@ export function readClusterKFromEl(el) {
 }
 
 /**
- * @param {{ getHorizonEl?: () => HTMLElement|null, getRidgeEl?: () => HTMLElement|null, getClusterKEl?: () => HTMLElement|null, initialHorizon?: number }} opts
+ * @param {{ getHorizonEl?: () => HTMLElement|null, getRidgeEl?: () => HTMLElement|null, getClusterKEl?: () => HTMLElement|null, getWatchingLimitEl?: () => HTMLElement|null, initialHorizon?: number }} opts
  */
 export function createResearchParams(opts = {}) {
   let prefsHorizonDays = clampHorizonDays(opts.initialHorizon ?? 1, 1);
@@ -33,6 +40,9 @@ export function createResearchParams(opts = {}) {
     opts.getRidgeEl || (() => document.getElementById("quant-ridge-lambda"));
   const getClusterKEl =
     opts.getClusterKEl || (() => document.getElementById("quant-cluster-k"));
+  const getWatchingLimitEl =
+    opts.getWatchingLimitEl ||
+    (() => document.getElementById("quant-watching-limit"));
 
   function syncHorizonInputs(h) {
     const v = String(clampHorizonDays(h, prefsHorizonDays));
@@ -61,6 +71,12 @@ export function createResearchParams(opts = {}) {
     return readClusterKFromEl(getClusterKEl());
   }
 
+  function readWatchingLimit() {
+    const el = getWatchingLimitEl();
+    if (el && el.value !== "") return clampWatchingLimit(el.value, 100);
+    return 100;
+  }
+
   function setPrefsHorizonDays(h) {
     prefsHorizonDays = clampHorizonDays(h, prefsHorizonDays);
     return prefsHorizonDays;
@@ -73,10 +89,12 @@ export function createResearchParams(opts = {}) {
   return {
     clampHorizonDays,
     clampRidgeLambda,
+    clampWatchingLimit,
     syncHorizonInputs,
     readHorizonDays,
     readRidgeLambda,
     readClusterK,
+    readWatchingLimit,
     setPrefsHorizonDays,
     getPrefsHorizonDays,
   };

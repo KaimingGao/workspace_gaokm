@@ -236,10 +236,10 @@ class FactorOlsClusterRequest(BaseModel):
     lookback: int = Field(default=80, ge=40, le=500)
     horizon_days: int = Field(default=3, ge=1, le=10)
     watching_limit: int = Field(
-        default=12,
+        default=100,
         ge=3,
-        le=20,
-        description="兼容字段：watching 宇宙取全部观察池，本参数不截断；仅 union 等模式参考",
+        le=100,
+        description="观察池截断：universe_mode=watching 时取名单前 N 只（与 clamp_watching_limit 对齐，默认/上限 100）",
     )
     n_clusters: Optional[int] = Field(
         default=None,

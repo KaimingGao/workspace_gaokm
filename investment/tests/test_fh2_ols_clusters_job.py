@@ -64,9 +64,9 @@ class TestFh2OlsClustersJob(unittest.TestCase):
             path = os.path.join(td, "quant_ols_clusters.json")
             slot = JobProgress(name="quant-ols-clusters", persist_path=path)
             slot.start(kind="factor_ols_clusters", total=10, message="拉日线 0/100")
-            # 伪造陈旧 updated_at
+            # 伪造陈旧 updated_at（须超过 stuck_start 240s）
             with slot._lock:
-                slot._job["updated_at"] = time.time() - 200
+                slot._job["updated_at"] = time.time() - 260
                 slot._save_unlocked()
             svc = QuantService()
             fake = {"success": True, "n_clusters": 2}
@@ -80,6 +80,25 @@ class TestFh2OlsClustersJob(unittest.TestCase):
                     break
                 time.sleep(0.05)
             self.assertEqual(slot.get().get("status"), "done")
+
+    def test_start_while_running_reuses_job(self):
+        from core.job_progress import JobProgress
+        from quant.services.quant_service import QuantService
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "quant_ols_clusters.json")
+            slot = JobProgress(name="quant-ols-clusters", persist_path=path)
+            job_id = slot.start(kind="factor_ols_clusters", total=10, message="拉日线 1/50")
+            svc = QuantService()
+            with patch("core.job_progress.quant_ols_clusters_job", slot), patch.object(
+                svc, "run_factor_ols_cluster_experiment"
+            ) as run_mock:
+                out = svc.start_factor_ols_cluster_job(lookback=80)
+            self.assertTrue(out.get("background"), out)
+            self.assertTrue(out.get("reused"), out)
+            self.assertEqual((out.get("job") or {}).get("id"), job_id)
+            run_mock.assert_not_called()
+            self.assertEqual(slot.get().get("status"), "running")
 
     def test_finish_ignores_stale_job_id(self):
         from core.job_progress import JobProgress
@@ -107,8 +126,26 @@ class TestFh2OlsClustersJob(unittest.TestCase):
             with slot._lock:
                 slot._job["updated_at"] = time.time() - 120
                 slot._save_unlocked()
+            # 满池起点阈值已放宽到 240s；120s 不应误杀
+            self.assertFalse(slot.reclaim_if_stale())
+            with slot._lock:
+                slot._job["updated_at"] = time.time() - 250
+                slot._save_unlocked()
             self.assertTrue(slot.reclaim_if_stale())
             self.assertEqual(slot.get()["status"], "failed")
+
+    def test_touch_refreshes_updated_at(self):
+        from core.job_progress import JobProgress
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "j.json")
+            slot = JobProgress(name="quant-ols-clusters", persist_path=path)
+            jid = slot.start(kind="factor_ols_clusters", total=10, message="拉日线 0/100")
+            with slot._lock:
+                slot._job["updated_at"] = time.time() - 200
+                slot._save_unlocked()
+            self.assertTrue(slot.touch(job_id=jid))
+            self.assertLess(slot.stale_seconds() or 99, 5)
 
 
 if __name__ == "__main__":

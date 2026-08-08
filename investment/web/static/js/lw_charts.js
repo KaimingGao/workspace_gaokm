@@ -317,6 +317,11 @@ function applyMountSize(mount, size) {
   if (!mount) return;
   mount.style.width = `${size.width}px`;
   mount.style.height = `${size.height}px`;
+  const wrap = mount.parentElement;
+  if (wrap && wrap.classList && wrap.classList.contains("lw-wrap")) {
+    wrap.style.width = "100%";
+    wrap.style.height = `${size.height}px`;
+  }
 }
 
 function clearWheelGuard(container) {
@@ -602,9 +607,11 @@ export async function renderDualLineChart(container, pointsA, pointsB, opts = {}
     height: size.height,
     ...interactionOptions(disableZoom),
   });
+  const colorA = opts.colorA || "#2563eb";
+  const colorB = opts.colorB || "#059669";
   const legendItems = [];
   if (a.length >= 2) {
-    const sA = chart.addLineSeries({ color: "#2563eb", lineWidth: 2 });
+    const sA = chart.addLineSeries({ color: colorA, lineWidth: 2 });
     sA.setData(a);
     if (Array.isArray(opts.markers) && opts.markers.length) {
       try {
@@ -615,17 +622,17 @@ export async function renderDualLineChart(container, pointsA, pointsB, opts = {}
     }
     legendItems.push({
       label: opts.labelA || "策略",
-      color: "#2563eb",
+      color: colorA,
       thick: true,
       series: sA,
     });
   }
   if (b.length >= 2) {
-    const sB = chart.addLineSeries({ color: "#059669", lineWidth: 2 });
+    const sB = chart.addLineSeries({ color: colorB, lineWidth: 2 });
     sB.setData(b);
     legendItems.push({
       label: opts.labelB || "基准",
-      color: "#059669",
+      color: colorB,
       series: sB,
     });
   }

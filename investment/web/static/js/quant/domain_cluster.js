@@ -4,6 +4,11 @@ import { postClusterLive as postClusterLiveApi, formatClusterApiError } from "./
 import { clusterLandingHtml } from "./cluster_landing.js";
 import { PROBE_EMPTY_CLUSTER_FAILED, PROBE_EMPTY_NO_CLUSTER, PROBE_EMPTY_COMPARE_FAILED, probePickerTriggerHtml, probePickerIdentityHtml, summarizeProbeHeterogeneity, buildProbeReadySummaryHtml, buildProbeNotReadySummaryHtml, buildProbeSingletonSummaryHtml, buildProbeNotInClusterPlainText, buildProbeHeteroSummaryHtml, buildProbeMetaSingleton, buildProbeMetaNotInCluster, buildProbeMetaHetero, buildProbePickerMenuHtml, probeStatusBadge } from "./probe_ui.js";
 import { createScoreTooltipController } from "../score_tooltip.js";
+import {
+  syncOverviewFromClusters,
+  setProStatusChip,
+  loadAndRenderFactorICSeries,
+} from "./factor_corr_ui.js";
 
 /** Quant domain: cluster */
 export function installClusterProbe(q) {
@@ -305,27 +310,14 @@ export function installClusterProbe(q) {
   }
 
 
-  async function populateOlsCodeOptions() {
-    const hidden = document.getElementById("quant-ols-code");
-    if (!hidden) return [];
-    // 已有分组成员时由 syncProbe 填充，避免覆盖
-    if (
-      state.quantLastOlsClusters &&
-      state.quantLastOlsClusters.success &&
-      Array.isArray(state.quantLastOlsClusters.clusters) &&
-      state.quantLastOlsClusters.clusters.length
-    ) {
-      return [];
-    }
-    const seen = new Set();
-    const rows = [];
-    const push = (code, name) => {
-      const c = String(code || "").trim();
-      if (!c || seen.has(c)) return;
-      seen.add(c);
-      rows.push({ code: c, name: String(name || "").trim() });
-    };
-    push("600519", "贵州茅台");
+  function rememberWatchingName(code, name) {
+    const c = normalizeProbeCode(code);
+    const nm = String(name || "").trim().replace(/\s+/g, "");
+    if (!c || !nm) return;
+    if (!state.watchingNameByCode[c]) state.watchingNameByCode[c] = nm;
+  }
+
+  async function hydrateWatchingNamesFromApi() {
     try {
       const res = await fetch("/api/watching");
       const data = await res.json();
@@ -339,21 +331,62 @@ export function installClusterProbe(q) {
       for (let i = 0; i < wl.length; i++) {
         const item = wl[i];
         if (typeof item === "string") {
-          push(item, names[i] || state.watchingNameByCode[item] || "");
+          rememberWatchingName(item, names[i] || state.watchingNameByCode[item] || "");
         } else if (item && typeof item === "object") {
-          push(item.code || item.stock_code, item.name || item.stock_name || names[i] || "");
+          rememberWatchingName(
+            item.code || item.stock_code,
+            item.name || item.stock_name || names[i] || ""
+          );
         }
       }
-      // 回填 watchingNameByCode，供后续 syncProbeCodeOptionsFromClusters 使用
-      for (let i = 0; i < wl.length; i++) {
-        const c = String(wl[i] || "").trim();
-        const nm = names[i] && String(names[i]).trim();
-        if (c && nm && !state.watchingNameByCode[c]) {
-          state.watchingNameByCode[c] = nm;
-        }
-      }
+      return wl;
     } catch (_) {
-      /* 离线/未建池时仍保留茅台选项 */
+      return [];
+    }
+  }
+
+  async function populateOlsCodeOptions() {
+    const hidden = document.getElementById("quant-ols-code");
+    if (!hidden) return [];
+    const wl = await hydrateWatchingNamesFromApi();
+    // 已有分组成员：只补名称再 sync，避免被无名字的列表覆盖
+    if (
+      state.quantLastOlsClusters &&
+      state.quantLastOlsClusters.success &&
+      Array.isArray(state.quantLastOlsClusters.clusters) &&
+      state.quantLastOlsClusters.clusters.length
+    ) {
+      syncProbeCodeOptionsFromClusters();
+      return state.probePickerRows || [];
+    }
+    const seen = new Set();
+    const rows = [];
+    const push = (code, name) => {
+      const c = normalizeProbeCode(code);
+      if (!c || seen.has(c)) return;
+      seen.add(c);
+      const nm = String(name || state.watchingNameByCode[c] || "")
+        .trim()
+        .replace(/\s+/g, "");
+      rememberWatchingName(c, nm);
+      rows.push({ code: c, name: nm });
+    };
+    push("600519", "贵州茅台");
+    for (let i = 0; i < wl.length; i++) {
+      const item = wl[i];
+      if (typeof item === "string") {
+        push(item, state.watchingNameByCode[normalizeProbeCode(item)] || "");
+      } else if (item && typeof item === "object") {
+        push(
+          item.code || item.stock_code,
+          item.name ||
+            item.stock_name ||
+            state.watchingNameByCode[
+              normalizeProbeCode(item.code || item.stock_code)
+            ] ||
+            ""
+        );
+      }
     }
     fillProbeCodeSelect(rows, hidden.value);
     return rows;
@@ -574,6 +607,19 @@ export function installClusterProbe(q) {
     markProbeReadyFromClusters(data);
     const summary = buildOlsClustersSummaryHtml(data);
     els.quantOlsClusters.innerHTML = summary.html;
+    if (data && data.success) {
+      try {
+        syncOverviewFromClusters(data);
+        const k = data.n_clusters ?? (data.clusters || []).length;
+        setProStatusChip(
+          "quant-pro-cluster-status",
+          "ok",
+          k ? `${k} 组就绪` : "完成"
+        );
+      } catch (_) {
+        /* overview optional */
+      }
+    }
     if (!summary.ok) {
       try {
         renderMergedFactorTable();
@@ -584,11 +630,23 @@ export function installClusterProbe(q) {
     }
     renderMergedFactorTable();
     try {
-      syncProbeCodeOptionsFromClusters();
+      syncProbeCodeOptionsFromClustersAsync().catch((err) => {
+        console.warn("[cluster] syncProbeCodeOptionsFromClusters", err);
+      });
     } catch (err) {
       console.warn("[cluster] syncProbeCodeOptionsFromClusters", err);
     }
     refreshClusterLiveStatus();
+    // 分组就绪后补拉 IC 时序，填满概览「全局 IC」
+    const statusEl = document.getElementById("quant-ic-series-status");
+    const lookback =
+      document.getElementById("quant-ic-series-lookback")?.value || "60";
+    loadAndRenderFactorICSeries(
+      "quant-ic-series-chart",
+      "quant-ic-series-stats",
+      statusEl,
+      lookback
+    ).catch(() => {});
   }
 
   function renderProbeFactorTable() {
@@ -927,8 +985,10 @@ export function installClusterProbe(q) {
 
   async function runProbeStockVsGroup() {
     const code = readOlsCode();
-    const fold = document.getElementById("quant-probe-fold");
-    if (fold) fold.open = true;
+    document.getElementById("quant-probe-fold")?.scrollIntoView?.({
+      behavior: "smooth",
+      block: "nearest",
+    });
     if (!state.quantLastOlsClusters || !state.quantLastOlsClusters.success) {
       if (bootstrapClusterHub._running) {
         setBusyText(els.quantProbeSummary, "上方分组进行中，请稍候…", {
@@ -1133,13 +1193,31 @@ export function installClusterProbe(q) {
         const c = normalizeProbeCode(m);
         if (!c || seen.has(c)) continue;
         seen.add(c);
-        const nm = String(nameByCode[c] || state.watchingNameByCode[c] || "")
+        const nm = String(
+          nameByCode[c] ||
+            state.watchingNameByCode[c] ||
+            state.watchingNameByCode[m] ||
+            ""
+        )
           .trim()
           .replace(/\s+/g, "");
+        if (nm) rememberWatchingName(c, nm);
         rows.push({ code: c, name: nm, group: gLabel });
       }
     }
     if (rows.length) fillProbeCodeSelect(rows, hidden.value);
+  }
+
+  async function syncProbeCodeOptionsFromClustersAsync() {
+    const named = Object.keys(state.watchingNameByCode || {}).length;
+    if (named < 3) await hydrateWatchingNamesFromApi();
+    syncProbeCodeOptionsFromClusters();
+    const rows = state.probePickerRows || [];
+    const missing = rows.filter((r) => r && r.code && !r.name).length;
+    if (rows.length && missing >= Math.ceil(rows.length * 0.5)) {
+      await hydrateWatchingNamesFromApi();
+      syncProbeCodeOptionsFromClusters();
+    }
   }
 
   async function waitForClusterHubReady(maxMs) {
@@ -1219,6 +1297,7 @@ export function installClusterProbe(q) {
     runProbeStockVsGroup,
     setProbePickerOpen,
     syncProbeCodeOptionsFromClusters,
+    syncProbeCodeOptionsFromClustersAsync,
     waitForClusterHubReady,
     wireOosGateTips,
   };

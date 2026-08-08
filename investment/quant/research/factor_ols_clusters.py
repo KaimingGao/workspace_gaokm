@@ -47,8 +47,8 @@ def clamp_watching_limit(value: Any, default: int = 8) -> int:
         n = int(value)
     except (TypeError, ValueError):
         return int(default)
-    # 研究台 UI 常用 12；允许到 40，避免再次默默拉满百票观察池
-    return max(3, min(n, 40))
+    # 研究台 UI 常用 12；上限 100（对齐数据中心满池量级，仍显式截断）
+    return max(3, min(n, 100))
 
 
 def panel_ic_factor_names(
@@ -89,7 +89,7 @@ def merge_cluster_universe(
 ) -> Dict[str, Any]:
     """构建聚类宇宙。
 
-    ``universe_mode=watching``：观察池前 N（``watching_limit``，默认钳制 3–40）。
+    ``universe_mode=watching``：观察池前 N（``watching_limit``，默认钳制 3–100）。
     ``holdings``：仅纸面持仓。
     ``union``：观察池前 N ∪ 全部纸面持仓。
     ``watching_all``：全部观察池（旧行为，显式开启）。

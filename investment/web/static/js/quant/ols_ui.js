@@ -6,10 +6,7 @@ import { researchGridHtml as defaultResearchGridHtml, metricCell as defaultMetri
 import { metricClass as defaultMetricClass } from "./bt_result.js";
 import { normalizeProbeCode as defaultNormalizeProbeCode } from "./names.js";
 import { probeStatusBadge } from "./probe_ui.js";
-import {
-  buildClustersHealthMatrixHtml,
-  buildFactorBetaMatrixHtml,
-} from "./yhat_viz.js?v=p798";
+import { buildClustersHealthMatrixHtml } from "./yhat_viz.js";
 
 /**
  * @param {{
@@ -53,7 +50,13 @@ export function createOlsUi(deps) {
 
   function clusterNameByCodeFromData(data) {
     const watchingNameByCode = getWatchingNameByCode();
-    const nameByCode = { ...watchingNameByCode };
+    const nameByCode = {};
+    // 观察池 key 可能带 .SH/.SZ；统一规范化后再查，避免下拉只有代码
+    for (const [raw, nm0] of Object.entries(watchingNameByCode || {})) {
+      const c = normalizeProbeCode(raw);
+      const nm = String(nm0 || "").trim();
+      if (c && nm) nameByCode[c] = nm;
+    }
     const fromReport =
       (data && data.name_by_code) ||
       (data && data.stock_names) ||
@@ -87,7 +90,13 @@ export function createOlsUi(deps) {
       }
     }
     for (const [c, nm] of Object.entries(nameByCode)) {
-      if (c && nm && !watchingNameByCode[c]) watchingNameByCode[c] = nm;
+      if (!c || !nm) continue;
+      if (!watchingNameByCode[c]) watchingNameByCode[c] = nm;
+      // 同步规范化键，后续 lookup 稳定
+      const bare = normalizeProbeCode(c);
+      if (bare && bare !== c && !watchingNameByCode[bare]) {
+        watchingNameByCode[bare] = nm;
+      }
     }
     return nameByCode;
   }
@@ -474,14 +483,14 @@ export function createOlsUi(deps) {
           ols && ols.sample_count != null ? ols.sample_count : "—"
         );
       const membersHtml = formatMemberChipsHtml(cl.members, nameByCode);
-      const useLazy = lazy && idx !== 0;
+      const useLazy = lazy;
       const bodyInner = useLazy
         ? `<p class="sub quant-cluster-lazy-ph">展开查看因子表…</p>`
         : buildClusterGroupBodyHtml(cl, merge);
       const bodyAttr = useLazy ? ` data-cluster-lazy="${esc(String(idx))}"` : "";
       return (
         `<article class="quant-cluster-group-table">` +
-        `<details class="quant-fold quant-cluster-group-fold"${idx === 0 ? " open" : ""}>` +
+        `<details class="quant-fold quant-cluster-group-fold">` +
         `<summary class="quant-cluster-group-head">` +
         `<div class="quant-cluster-group-title-row">` +
         `<div class="quant-cluster-group-title">` +
@@ -502,20 +511,18 @@ export function createOlsUi(deps) {
         `</article>`
       );
     });
-    const __healthHtml = buildClustersHealthMatrixHtml(clusters, { escapeHtml: esc });
-    const __betaHtml = buildFactorBetaMatrixHtml(clusters, { escapeHtml: esc });
+    const __healthHtml = buildClustersHealthMatrixHtml(clusters, {
+      escapeHtml: esc,
+      preferredLabel: pref && pref.label ? String(pref.label) : "",
+    });
     const __partsHtml = parts.join("");
-    const __matrixGrid =
-      __healthHtml || __betaHtml
-        ? `<div class="yhat-mx-grid">` +
-          (__healthHtml || "") +
-          (__betaHtml || "") +
-          `</div>`
-        : "";
+    const __matrixGrid = __healthHtml
+      ? `<div class="yhat-mx-grid is-stack">${__healthHtml}</div>`
+      : "";
     return (
       `<div class="quant-cluster-tables-head">` +
       `<span class="quant-cluster-tables-label">因子系数</span>` +
-      `<span class="sub">健康矩阵 · β 跨组 · 展开组加载</span>` +
+      `<span class="sub">健康矩阵 · 展开组加载</span>` +
       `</div>` +
       __matrixGrid +
       __partsHtml
@@ -902,13 +909,21 @@ export function createOlsUi(deps) {
           )}</span></p>`
         : "";
     // —— KPI Row：研究态势总览 ——
+    // R²/同质/过门：质量色（绿好红弱）；ICIR/ΔOOS：符号收益色（红涨绿跌）
     function __kpiToneGood(v, thr) {
-      if (v == null || !Number.isFinite(thr)) return "";
-      return Number(v) >= thr ? " is-good" : Number(v) < 0 ? " is-bad" : "";
+      if (v == null || !Number.isFinite(Number(v)) || !Number.isFinite(thr)) return "";
+      return Number(v) >= thr ? "is-good" : Number(v) < 0 ? "is-bad" : "";
+    }
+    function __kpiToneSigned(v) {
+      if (v == null || !Number.isFinite(Number(v))) return "";
+      const n = Number(v);
+      if (n > 0) return "is-up";
+      if (n < 0) return "is-down";
+      return "";
     }
     function __kpiCell(label, value, tone, sub) {
       return (
-        `<div class="quant-kpi-card${tone ? " " + tone.trim() : ""}">` +
+        `<div class="quant-kpi-card${tone ? " " + tone : ""}">` +
         `<span class="quant-kpi-label">${esc(label)}</span>` +
         `<span class="quant-kpi-value">${esc(value)}</span>` +
         (sub ? `<span class="quant-kpi-sub">${esc(sub)}</span>` : "") +
@@ -920,8 +935,8 @@ export function createOlsUi(deps) {
           const f2 = (x) => (x == null ? "—" : Number(x).toFixed(2));
           const fPct = (x) => (x == null ? "—" : (Number(x) * 100).toFixed(0) + "%");
           const r2T = __kpiToneGood(kpi.avg_r2, 0.5);
-          const icirT = __kpiToneGood(kpi.avg_icir, 0.3);
-          const deltaT = __kpiToneGood(kpi.avg_delta, 0);
+          const icirT = __kpiToneSigned(kpi.avg_icir);
+          const deltaT = __kpiToneSigned(kpi.avg_delta);
           const tightT = __kpiToneGood(kpi.avg_tight, 0.6);
           const passT = __kpiToneGood(kpi.pass_rate, 0.5);
           const cells =

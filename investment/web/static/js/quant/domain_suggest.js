@@ -5,12 +5,18 @@ import {
   weightSuggestStatusHtml as buildWeightSuggestStatusHtml,
   factorWeightSuggestCellTip,
 } from "./suggest_status_ui.js";
+import { formatClusterApiError } from "./cluster_api.js";
 
 /** Quant domain: suggest */
 export function installSuggest(q) {
   const { on, els, state, ctx, escapeHtml, apiFetch, setQuantMeta, setBusyText } = q;
-  const { readHorizonDays, readRidgeLambda, readClusterK, ensureFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
+  const { readHorizonDays, readRidgeLambda, readClusterK, readWatchingLimit, ensureFactorMeta, rememberFactorMeta, factorMetaByName, factorMetaByLabel, factorIcWeightMergedHtml, parseOosGateReason, fmtEmptyCell, fmtOlsCell } = q;
   const { researchGridHtml, metricCell, metricClass, fmtPct } = q;
+
+  function formatSuggestError(data, status, fallback = "请求失败") {
+    const msg = formatClusterApiError(data, status);
+    return msg && msg !== "请求失败" ? msg : fallback;
+  }
 
   function weightSuggestStatusHtml(suggest) {
     return buildWeightSuggestStatusHtml(suggest, {
@@ -336,8 +342,10 @@ export function installSuggest(q) {
         (sug.ols_used ? " · 含 OLS 回退" : "");
       if (state.quantLastOlsClusters && state.quantLastOlsClusters.success && els.quantProbeSummary) {
         setBusyText(els.quantProbeSummary, icMsg + " · 不冲组表", { busy: false });
-        const fold = document.getElementById("quant-probe-fold");
-        if (fold) fold.open = true;
+        document.getElementById("quant-probe-fold")?.scrollIntoView?.({
+          behavior: "smooth",
+          block: "nearest",
+        });
       }
       setQuantMeta(icMsg);
       return;
@@ -364,25 +372,37 @@ export function installSuggest(q) {
       if (!sameJob) {
         throw new Error("分组任务已被其它任务覆盖，请重试");
       }
+      if (job.status === "done") return job;
+      if (job.status === "failed") {
+        throw new Error(job.error || job.message || "分组任务失败");
+      }
       const pct = Number(job.pct) || 0;
-      const msg = job.message || (job.status === "running" ? "运行中…" : "");
+      const msg = job.message || "运行中…";
       const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
       setQuantMeta(
-        `分组中… ${sec}s · ${msg || "运行中"}${
+        `分组中… ${sec}s · ${msg}${
           Number.isFinite(pct) && pct > 0 ? ` · ${Math.round(pct)}%` : ""
         }`,
         { busy: true }
       );
-      if (job.status === "done") return job;
-      if (job.status === "failed") {
-        throw new Error(job.error || "分组任务失败");
-      }
       await new Promise((r) => setTimeout(r, 400));
     }
     throw new Error("分组任务超时");
   }
 
   async function runFactorOlsClustersSuggest() {
+    // 进页 bootstrap 与手动「跑分组」共用一次执行，避免双 POST 撞槽
+    if (runFactorOlsClustersSuggest._inflight) {
+      return runFactorOlsClustersSuggest._inflight;
+    }
+    runFactorOlsClustersSuggest._inflight = _runFactorOlsClustersSuggestInner()
+      .finally(() => {
+        runFactorOlsClustersSuggest._inflight = null;
+      });
+    return runFactorOlsClustersSuggest._inflight;
+  }
+
+  async function _runFactorOlsClustersSuggestInner() {
     const started = Date.now();
     let timer = null;
     const tick = () => {
@@ -406,7 +426,7 @@ export function installSuggest(q) {
         body: JSON.stringify({
           lookback: 80,
           horizon_days: readHorizonDays(),
-          watching_limit: 12,
+          watching_limit: readWatchingLimit(),
           // null → 自动目标 k≈n/5（约 4～10）+ 超大组二分；填了则按目标 k
           n_clusters: readClusterK(),
           cluster_method: "hierarchical",
@@ -439,32 +459,56 @@ export function installSuggest(q) {
       }
       if (!res.ok) {
         stopTick();
-        const detail =
-          (data && (data.detail || data.error)) ||
-          (res.status === 404
+        const detail = formatSuggestError(
+          data,
+          res.status,
+          res.status === 404
             ? "接口未找到：请重启 Web（WEB_RELOAD=off 时需手动重启）"
-            : `HTTP ${res.status}`);
+            : `HTTP ${res.status}`
+        );
         setBusyText(els.quantOlsSummary, detail, { busy: false });
         setQuantMeta(`分组失败 · ${detail}`, { error: true });
         if (els.quantOlsClusters) {
           els.quantOlsClusters.textContent = detail;
         }
-        return;
+        throw new Error(detail);
+      }
+      // 兼容旧后端：忙时返回 error + job → 仍附到现任务
+      if (
+        data &&
+        !data.background &&
+        data.job &&
+        (data.job.status === "running" ||
+          String(data.error || "").includes("已有分组任务"))
+      ) {
+        data = {
+          ...data,
+          background: true,
+          reused: true,
+          success: true,
+          ok: true,
+        };
       }
       // FH2：后台 Job → 轮询；sync 兼容路径直接带 success 报告
       if (data && data.background && data.job) {
         stopTick();
+        if (data.reused) {
+          setQuantMeta("分组进行中 · 已接入现有任务", { busy: true });
+        }
         const job = await waitQuantOlsClustersJob(data.job.id);
         data = job.result || {};
       }
       stopTick();
       const computeSec = Math.max(1, Math.round((Date.now() - started) / 1000));
       if (!(data && data.success)) {
-        setBusyText(els.quantOlsSummary, (data && data.error) || "分组失败", {
-          busy: false,
-        });
-        setQuantMeta((data && data.error) || "分组失败", { error: true });
-        return;
+        const detail = formatSuggestError(
+          data,
+          0,
+          (data && typeof data.error === "string" && data.error) || "分组失败"
+        );
+        setBusyText(els.quantOlsSummary, detail, { busy: false });
+        setQuantMeta(`分组失败 · ${detail}`, { error: true });
+        throw new Error(detail);
       }
       setQuantMeta(
         data.cache_hit

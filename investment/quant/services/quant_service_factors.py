@@ -249,7 +249,7 @@ class QuantFactorMixin:
         *,
         lookback: int = 80,
         horizon_days: int = 3,
-        watching_limit: int = 8,
+        watching_limit: int = 100,
         ridge_lambda: float = 0.0,
         n_clusters: Optional[int] = None,
         pit_fundamentals: bool = True,
@@ -317,6 +317,7 @@ class QuantFactorMixin:
                 watchlist,
                 lookback=lookback,
                 horizon_days=horizon_days,
+                watching_limit=watching_limit,
                 n_clusters=n_clusters,
                 ridge_lambda=ridge_lambda,
                 pit_fundamentals=pit_fundamentals,
@@ -516,31 +517,18 @@ class QuantFactorMixin:
         from core.job_progress import quant_ols_clusters_job
         from quant.research.factor_ols_clusters import clamp_watching_limit
 
-        # 轮询/重开前先回收陈旧任务
+        # 轮询/重开前先回收陈旧任务（阈值与 reclaim_if_stale 对齐，满池勿 90s 误杀）
         quant_ols_clusters_job.reclaim_if_stale()
 
         if quant_ols_clusters_job.is_running():
-            stale = quant_ols_clusters_job.stale_seconds()
-            job_snap = quant_ols_clusters_job.get()
-            msg = str((job_snap or {}).get("message") or "")
-            stuck_at_start = "拉日线 0/" in msg or msg in (
-                "排队中…",
-                "启动中…",
-                "合并宇宙…",
-            )
-            if stale is not None and (
-                stale >= 180 or (stuck_at_start and stale >= 90)
-            ):
-                quant_ols_clusters_job.force_fail(
-                    f"分组任务无进展已 {int(stale)}s，已自动释放（{msg or 'running'}）"
-                )
-            else:
-                return {
-                    "ok": False,
-                    "success": False,
-                    "error": "已有分组任务在运行",
-                    "job": quant_ols_clusters_job.get(),
-                }
+            # 进页自动跑 + 手动点「跑分组」常撞车：附到现任务轮询，勿当失败
+            return {
+                "ok": True,
+                "success": True,
+                "background": True,
+                "reused": True,
+                "job": quant_ols_clusters_job.get(),
+            }
 
         # 进度按「票数」量级：尊重 watching_limit，避免按百票满池估 total
         try:
@@ -549,7 +537,7 @@ class QuantFactorMixin:
             n_watch_all = len(list((read_watching() or {}).get("watchlist") or []))
         except Exception:
             n_watch_all = 20
-        watch_limit = clamp_watching_limit(kwargs.get("watching_limit") or 12, 12)
+        watch_limit = clamp_watching_limit(kwargs.get("watching_limit") or 100, 100)
         n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
         job_total = max(20, n_watch * 2 + 10)
 
@@ -580,6 +568,18 @@ class QuantFactorMixin:
             )
 
         def _worker() -> None:
+            stop_hb = threading.Event()
+
+            def _heartbeat() -> None:
+                # 满池拉日线可能长时间 done=0；定时 touch 避免轮询误杀
+                while not stop_hb.wait(8.0):
+                    if not quant_ols_clusters_job.touch(job_id=job_id):
+                        return
+
+            hb = threading.Thread(
+                target=_heartbeat, name=f"ols-clusters-hb-{job_id}", daemon=True
+            )
+            hb.start()
             try:
                 if quant_ols_clusters_job.is_cancel_requested():
                     quant_ols_clusters_job.finish(error="已取消", job_id=job_id)
@@ -610,6 +610,8 @@ class QuantFactorMixin:
                 quant_ols_clusters_job.finish(result=result, job_id=job_id)
             except Exception as e:
                 quant_ols_clusters_job.finish(error=str(e), job_id=job_id)
+            finally:
+                stop_hb.set()
 
         threading.Thread(
             target=_worker, name=f"ols-clusters-{job_id}", daemon=True
@@ -1040,6 +1042,7 @@ def _cluster_cache_fingerprint(
     *,
     lookback: int,
     horizon_days: int,
+    watching_limit: int,
     n_clusters: Optional[int],
     ridge_lambda: float,
     pit_fundamentals: bool,
@@ -1073,6 +1076,7 @@ def _cluster_cache_fingerprint(
         f"codes={','.join(codes)}",
         f"lb={int(lookback)}",
         f"hz={int(horizon_days)}",
+        f"wlim={int(watching_limit)}",
         f"k={n_clusters if n_clusters is not None else 'auto'}",
         f"ridge={float(ridge_lambda):.4f}",
         f"pit={int(bool(pit_fundamentals))}",

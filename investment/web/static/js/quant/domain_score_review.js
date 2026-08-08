@@ -2,6 +2,7 @@
  * 昨日复盘：ŷ 方向 vs 前瞻收益。
  */
 import { paintYhatScatter, paintHitSparkline } from "./yhat_viz.js";
+import { syncOverviewFromScoreReview, setProStatusChip } from "./factor_corr_ui.js";
 
 export function installScoreReview(ctx) {
   const { els, escapeHtml, setQuantMeta, on } = ctx;
@@ -47,6 +48,8 @@ export function installScoreReview(ctx) {
       box.innerHTML = `<p class="quant-attr-note">${esc(
         data.note || "无账本"
       )}</p>`;
+      syncOverviewFromScoreReview(data);
+      setProStatusChip("quant-pro-review-status", "warn", "无账本");
       return;
     }
     const s = data.summary || {};
@@ -67,6 +70,21 @@ export function installScoreReview(ctx) {
       (data.refit_hint
         ? `<p class="quant-attr-note">${esc(data.refit_hint)}</p>`
         : "");
+    syncOverviewFromScoreReview(data);
+    if (s.hit_rate != null && Number.isFinite(Number(s.hit_rate))) {
+      const pct = Number(s.hit_rate) * 100;
+      setProStatusChip(
+        "quant-pro-review-status",
+        pct >= 55 ? "ok" : "warn",
+        `命中 ${pct.toFixed(0)}%`
+      );
+    } else {
+      setProStatusChip(
+        "quant-pro-review-status",
+        "warn",
+        s.blame_line || "样本不足"
+      );
+    }
   }
 
   function setVizMeta(id, text) {
@@ -255,8 +273,6 @@ export function installScoreReview(ctx) {
   }
 
   async function runReview({ autofill = true } = {}) {
-    const fold = document.getElementById("quant-score-review-fold");
-    if (fold) fold.open = true;
     await ensureDefaultAsOf();
     const asOf = readAsOf();
     const horizon = readHorizon();
@@ -284,12 +300,6 @@ export function installScoreReview(ctx) {
           : `as_of ${data.as_of} · 命中 ${hit} · 错票 ${s.wrong ?? 0}`,
         { ok: !data.empty, error: !!data.empty }
       );
-      const sum = document.getElementById("quant-score-review-fold-summary");
-      if (sum) {
-        sum.textContent = data.empty
-          ? "无账本 · 先冻结打分或跑分组/日报"
-          : `命中 ${hit} · 错票 ${s.wrong ?? 0} · as_of ${data.as_of}`;
-      }
       if (setQuantMeta) {
         setQuantMeta(
           data.empty ? "昨日复盘：无账本" : `昨日复盘 · 命中 ${hit}`,
@@ -384,15 +394,10 @@ export function installScoreReview(ctx) {
     jumpRefit();
   });
 
-  const fold = document.getElementById("quant-score-review-fold");
-  if (fold) {
-    const loadIfOpen = () => {
-      if (!fold.open) return;
-      ensureDefaultAsOf().then(() => runReview({ autofill: true })).catch(() => {});
-    };
-    fold.addEventListener("toggle", loadIfOpen);
-    loadIfOpen();
-  }
+  // 进页直接加载（不再嵌套 details 折叠）
+  ensureDefaultAsOf()
+    .then(() => runReview({ autofill: true }))
+    .catch(() => {});
 
   return { runReview, fillOutcomes, freezeLedger, ensureDefaultAsOf, jumpRefit };
 }

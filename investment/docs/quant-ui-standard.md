@@ -125,67 +125,52 @@
 
 <a id="仪表盘"></a>
 
-### `/` 仪表盘
+### `/dashboard` 仪表盘
 
 | | 约定 |
 |--|------|
-| **唯一任务** | 资产与系统态势概览（开盘先看这一屏） |
-| **主区必有** | **策略指纹** · 核心指标（权益/现金/持仓/盈亏/仓位占用/回撤）· **净值曲线**（纸面 `snapshots`）· **调仓五问**（`ops_report`）· **待办条**（健康/告警/空仓引导）· **持仓切片**（Top 盈亏 + 评分）· **来源暴露**（`origin_summary`）· **今日动态** |
-| **次要** | 健康明细 · 快捷入口 · AI 芯片（页底折叠，不与主态势同级） |
-| **数据来源** | 前端汇聚 `/api/paper` · `/api/daily/health` · `/api/schedule/last`；五问 HTML 与模拟页共用 `formatOpsReportHtml`；不新增第三套首页专用账本 |
-| **禁止** | 把全屏对话嵌成唯一主区；静默成交；观察名单编辑；完整回测报告 |
-| **AI** | 芯片打开命令抽屉；全屏见 `/chat` |
-| **刷新** | 进页拉取；交易时段轻量轮询（约 90s） |
-| **视觉** | A 股红涨绿跌（`--color-up` / `--color-down`）；浅色默认 |
+| **唯一任务** | 纸面组合报告墙：市场 · KPI · 风险 · 净值 · 仓位/信号（开盘先看这一屏） |
+| **主区必有** | **概览**（指数/广度 + 纸面 KPI）· **风险**（摘要条 + 收益/波动卡）· **净值路径**（累计净值 · 可选沪深300 · 区间 tab）· **风险分解**（回撤 · 历史 VaR · 板块热力）· **仓位与信号**（配置条带 · 板块暴露 · 最新信号 · 策略卡） |
+| **次要** | 无强制折叠次要带；动作落在侧栏业务页 |
+| **数据来源** | 前端汇聚 `/api/dashboard/*`（market-overview / kpis / risk-metrics / nav-curve / sector-heatmap / signals / allocation / factor-exposure / drawdown / var-historical） |
+| **禁止** | 下单 · 改观察名单 · 嵌全屏对话 · 堆完整回测报告 |
+| **刷新** | 进页拉取；约 **90s** 轻量轮询；页头「刷新」 |
+| **视觉** | 收益类用 A 股红涨绿跌；**质量类**（Sharpe/Sortino/Calmar/胜率等）用 `--ok` / `--danger`；配置用**横向条带**（不用饼图）；浅色默认 |
 
-使用说明书（怎么点、怎么看一屏）见 [quant-ui.md · 仪表盘](quant-ui.md#仪表盘)。
+路径：`/dashboard`（`/` **302 → `/dashboard`**）。使用说明书见 [quant-ui.md · 仪表盘](quant-ui.md#仪表盘)。
 
 #### 设计逻辑
 
-**唯一任务**：开盘态势感知，不是聊天台，也不是交易台。  
-一屏回答：「账怎样 → 有没有事要处理 → 组合结构如何 → 上次动作是否可审计」。
+**唯一任务**：开盘报告式态势感知，不是聊天台，也不是交易台。  
+一屏回答：「市场怎样 → 账与风险怎样 → 净值轨迹 → 仓位/信号结构」。
 
-**信息因果链**（与产品主轴一致）：
+**信息块序**（对标聚宽/米筐报告，不借 Bloomberg）：
 
 ```text
-待办（阻断） → 总账指标 → 净值轨迹 → 五问审计 → 持仓/来源切片 → 时间线
+概览（行情+KPI） → 风险摘要 → 净值路径 → 风险分解 → 仓位与信号
 ```
 
-先处理风险与异常，再读数字与结构；动作落在侧栏业务页，仪表盘只做摘要与跳转。
-
-**数据策略**：不建第二套账本。前端汇聚现有 API；五问与模拟页共用同一套 HTML，避免「首页一套、交易页另一套」。
+先读数字与风险，再看结构；动作落在侧栏业务页，仪表盘只做摘要。
 
 **主次分工**：
-- **主区**：策略指纹、指标、曲线、五问、持仓、来源、动态  
-- **次要**（折叠）：健康明细、快捷入口、AI 芯片  
+- **主区**：上述五段报告轨  
+- **未挂载（可选/另开）**：调仓五问、待办条、策略指纹、React 净值岛（`#dash-equity-react-root`）——现行报告墙不强制
 
-AI 是控制面（顶栏/⌘K），不占侧栏、不占首页主叙事。
-
-**边界**：不下单、不改名单、不嵌全屏对话、不堆完整回测报告——专业感来自「可决策摘要」，不是信息密度。
+**边界**：不下单、不改名单、不嵌全屏对话、不堆完整回测报告。
 
 #### 设计语言
 
-**块序语言**（对标聚宽/米筐报告，不借 Bloomberg）：
+**块序语言**：`指标 → 曲线 → 表/条`
 
-`指标 → 曲线 → 表/条`
-
-读起来像研究报告，不像运营仪表墙。
-
-**组件白名单**（不发明第三种容器）：
-
-`.quant-metrics` · `.quant-section` · `.paper-ops-report` · `.quant-weight-table` · `.quant-fold` · `.quant-fingerprint`  
-仪表盘五问容器：`#dash-ops-report`（与 `#paper-ops-report` 共用 `formatOpsReportHtml`）。
+**组件**：复用 `.dashboard-head` / `.dashboard-section*` / `.dashboard-card` / `.dashboard-kpi-*` / `.dashboard-chart-host`；图表 Lightweight Charts + DOM 条带/直方图。
 
 **视觉约定**：
-- **主列铺满**：`.page-main` 吃满侧栏右侧剩余宽度（工作台，非博客居中栏）  
-- **A 股红涨绿跌**（`--color-up` / `--color-down`）  
-- **浅色默认**；深色可选  
-- 数字用等宽/tabular；指纹用小号次要色  
-- 告警用边框色阶（info 虚线 / warn / block），可点击跳转  
+- **主列铺满**：`.page-main` 吃满侧栏右侧  
+- **收益** → `--color-up` / `--color-down`；**质量** → `--d-quality-pos` / `--d-quality-neg`（绑 `--ok` / `--danger`）  
+- 数字等宽/tabular；配置与暴露用细条权重，**不用饼图墙**  
+- 字号阶梯：Micro11 / Caption12 / Body13 / Section14 / Title18 / KPI20  
 
-**密度克制**：六指标一排够用；持仓只 Top 切片；来源用细条权重，不用饼图墙；快捷与 AI 下沉，避免与资产态势抢层级。
-
-**一句话**：仪表盘是「纸面准实盘的态势封面页」——报告块序 + 白名单组件 + A 股语义色，把决策前置信息聚到一屏，把动手留给业务模块。
+**一句话**：仪表盘是「纸面组合的报告封面」——报告块序 + 收益/质量分色 + 条带结构，把决策前置信息聚到一屏。
 
 ### `/chat` 全屏对话（已下线）
 
@@ -216,16 +201,16 @@ AI 是控制面（顶栏/⌘K），不占侧栏、不占首页主叙事。
 | **主表** | 名单/持仓/回测表 | `.quant-weight-table` + wrap；遵守四页表规范 |
 | **图表 / 归因表** | 观察/回测曲线与归因表 | `.quant-chart-host` / `.quant-chart-wrap` + `.quant-attr-table` |
 | **指标卡** | 回测/净值数字 | `.quant-metrics` / metric 行 |
-| **五问条** | 调仓/日更可审计摘要 | `#paper-ops-report` · `#dash-ops-report` · `.paper-ops-report-grid` |
+| **五问条** | 调仓/日更可审计摘要（模拟页） | `#paper-ops-report` · `.paper-ops-report-grid`（`#dash-ops-report` 现行未挂载） |
 | **策略卡** | 策略列表 | `.strategy-card` |
 | **区段** | 一块一事 | `.quant-section` / `.platform-section` / `.follow-ops-*`（锚点：`#platform-audit-section`） |
 | **主按钮 / 次按钮** | 动作 | `.dialog-btn` · `.dialog-btn.secondary` |
-| **折叠** | 按需 | `<details class="quant-fold">`（折叠深链：`#watching-data-quality-fold` / `#strategy-risk-audit-fold` / `#quant-daily-fold`） |
+| **折叠** | 按需 | `<details class="quant-fold">`（观察/策略仍可折叠；研究枢纽主/次要块已直出，`#quant-daily-fold` 等为卡片锚点） |
 | **状态行** | meta / 指纹 | `.quant-fingerprint` · 页顶 meta |
 | **因子悬停** | 定义注释 | `.factor-tip` + `title` |
 | **确认流** | 预演→确认 | 报告区 + 显式确认按钮（禁止一键静默成交） |
 | **研究 Dock** | 观察名单 ↔ 图/详情分屏 | `#research-dock` · `.dock-pane` · `.dock-splitter`（仅 `/watching`） |
-| **React 岛** | 仪表盘净值等可挂载岛 | `#dash-equity-react-root` · `js/react_islands.js`（CDN；非全站 React） |
+| **React 岛** | 可选挂载（现行仪表盘未用） | `#dash-equity-react-root` · `js/react_islands.js`（CDN；非全站 React） |
 | **实况通道** | 纸面/健康/告警推送 | `GET /ws/live` · `js/live_ws.js`；断线复用 `#api-degrade-banner` |
 | **密度** | 紧凑/舒适 | `html[data-density=compact]` · 顶栏 `#btn-density` |
 

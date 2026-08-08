@@ -107,8 +107,10 @@ export function installExportInterpret(q) {
   }
 
   function openDailyFold() {
-    const fold = document.getElementById("quant-daily-fold");
-    if (fold) fold.open = true;
+    document.getElementById("quant-daily-fold")?.scrollIntoView?.({
+      behavior: "smooth",
+      block: "nearest",
+    });
   }
 
   async function openReadmeViewer(dir) {

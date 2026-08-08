@@ -2,10 +2,10 @@
   <div class="dashboard-head-text">
     <p class="dashboard-eyebrow">Portfolio Overview</p>
     <h2>仪表盘</h2>
-    <p class="dashboard-meta" id="dashboard-meta">纸面组合 · 市场 · 风险 · 信号</p>
+    <p class="dashboard-meta" id="dashboard-meta" aria-live="polite">纸面组合 · 市场 · 风险 · 信号</p>
   </div>
   <div class="dashboard-head-actions">
-    <span class="dashboard-updated" id="dashboard-updated" data-state="loading">加载中</span>
+    <span class="dashboard-updated" id="dashboard-updated" data-state="loading" aria-live="polite">加载中</span>
     <button type="button" class="dialog-btn secondary" id="dashboard-refresh">刷新</button>
   </div>
 </div>
@@ -20,10 +20,10 @@
     </header>
     <div class="dashboard-overview-band">
       <div class="dashboard-market-row" aria-label="市场监控">
-        <div class="dashboard-market-cards" id="dashboard-market-cards"></div>
+        <div class="dashboard-market-cards" id="dashboard-market-cards" aria-live="polite"></div>
       </div>
       <div class="dashboard-kpi-row" aria-label="核心指标">
-        <div class="dashboard-kpi-row-body" id="dashboard-kpi-cards"></div>
+        <div class="dashboard-kpi-row-body" id="dashboard-kpi-cards" aria-live="polite"></div>
       </div>
     </div>
   </section>
@@ -35,8 +35,8 @@
       <p class="dashboard-section-desc">摘要条 · 收益/波动补充指标</p>
     </header>
     <div class="dashboard-risk-row">
-      <div class="dashboard-risk-strip" id="dashboard-risk-strip" aria-label="风险摘要条"></div>
-      <div class="dashboard-risk-cards" id="dashboard-risk-cards"></div>
+      <div class="dashboard-risk-strip" id="dashboard-risk-strip" aria-label="风险摘要条" aria-live="polite"></div>
+      <div class="dashboard-risk-cards" id="dashboard-risk-cards" aria-live="polite"></div>
     </div>
   </section>
 
@@ -47,23 +47,23 @@
       <p class="dashboard-section-desc">累计净值（起点 100）· 可选沪深300</p>
     </header>
     <div class="dashboard-card dashboard-nav-card">
-      <div class="dashboard-card-head">
-        <h3>累计净值</h3>
+      <div class="dashboard-card-head dashboard-card-head--tools">
+        <span class="dashboard-card-sub">起点 100</span>
         <div class="dashboard-card-tools">
           <label class="dashboard-bench-toggle">
             <input type="checkbox" id="dashboard-benchmark-toggle" checked />
             对比沪深300
           </label>
           <div class="dashboard-range-tabs" id="dashboard-nav-range" role="tablist" aria-label="净值区间">
-            <button type="button" data-range="30" class="is-active">30D</button>
-            <button type="button" data-range="90">90D</button>
-            <button type="button" data-range="ytd">YTD</button>
-            <button type="button" data-range="all">ALL</button>
+            <button type="button" role="tab" data-range="30" class="is-active" aria-selected="true" tabindex="0">30D</button>
+            <button type="button" role="tab" data-range="90" aria-selected="false" tabindex="-1">90D</button>
+            <button type="button" role="tab" data-range="ytd" aria-selected="false" tabindex="-1">YTD</button>
+            <button type="button" role="tab" data-range="all" aria-selected="false" tabindex="-1">ALL</button>
           </div>
         </div>
       </div>
       <div class="dashboard-chart-host dashboard-nav-chart-host" id="dashboard-nav-chart"></div>
-      <div class="dashboard-nav-stats" id="dashboard-nav-stats"></div>
+      <div class="dashboard-nav-stats" id="dashboard-nav-stats" aria-live="polite"></div>
     </div>
   </section>
 
@@ -118,8 +118,7 @@
           <span class="dashboard-card-sub" id="dashboard-allocation-sub">板块市值</span>
         </div>
         <div class="dashboard-allocation-body">
-          <div class="dashboard-allocation-chart" id="dashboard-allocation-chart"></div>
-          <div class="dashboard-allocation-legend" id="dashboard-allocation-legend"></div>
+          <div class="dashboard-allocation-bars" id="dashboard-allocation-legend" aria-live="polite"></div>
         </div>
       </div>
 

@@ -149,6 +149,17 @@ class JobProgress:
             self._job["updated_at"] = time.time()
             self._save_unlocked()
 
+    def touch(self, *, job_id: Optional[str] = None) -> bool:
+        """仅刷新 updated_at（心跳），不改 message/进度。"""
+        with self._lock:
+            if job_id is not None and self._job.get("id") != job_id:
+                return False
+            if self._job.get("status") != "running":
+                return False
+            self._job["updated_at"] = time.time()
+            self._save_unlocked()
+            return True
+
     def finish(
         self,
         *,
@@ -203,10 +214,14 @@ class JobProgress:
     def reclaim_if_stale(
         self,
         *,
-        stale_sec: float = 180.0,
-        stuck_start_sec: float = 90.0,
+        stale_sec: float = 300.0,
+        stuck_start_sec: float = 240.0,
     ) -> bool:
-        """轮询路径：无进展过久则 force_fail，释放槽位。"""
+        """轮询路径：无进展过久则 force_fail，释放槽位。
+
+        Limit=100 时起点阶段（合并宇宙/拉日线 0）可能数十秒无 done 递增，
+        但 touch/心跳会刷新 updated_at；仅当 updated_at 本身过旧才回收。
+        """
         with self._lock:
             if self._job.get("status") != "running":
                 return False
@@ -216,7 +231,21 @@ class JobProgress:
             except (TypeError, ValueError):
                 stale = stale_sec
             msg = str(self._job.get("message") or "")
-            stuck_at_start = "拉日线 0/" in msg or msg in ("排队中…", "启动中…", "合并宇宙…")
+            # 有计时/远端/心跳字样 → 长阈值；纯起点文案 → 稍短但仍 ≥4min（满池）
+            heartbeating = (
+                "远端" in msg
+                or "拉指数" in msg
+                or "心跳" in msg
+                or "·" in msg
+                or "s）" in msg
+                or "s)" in msg
+            )
+            stuck_at_start = (not heartbeating) and (
+                "拉日线 0/" in msg
+                or msg.startswith("排队")
+                or msg.startswith("启动")
+                or msg.startswith("合并宇宙")
+            )
             threshold = stuck_start_sec if stuck_at_start else stale_sec
             if stale < threshold:
                 return False

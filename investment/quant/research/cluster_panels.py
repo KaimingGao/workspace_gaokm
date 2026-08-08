@@ -80,6 +80,124 @@ def _load_bars_for_cluster(code: str, *, lookback: int, refresh_bars: bool) -> t
     return [], "empty", True
 
 
+def _index_symbol_candidates(bench: str) -> List[str]:
+    """基准名 → 可能落在本地 bars 缓存里的代码。"""
+    key = str(bench or "").strip().lower()
+    mapping = {
+        "hs300": ["000300", "sh000300", "399300"],
+        "csi300": ["000300", "sh000300"],
+        "sh000300": ["000300", "sh000300"],
+        "沪深300": ["000300", "sh000300"],
+        "hsi": ["HSI", "hsi"],
+        "恒生": ["HSI", "hsi"],
+        "恒生指数": ["HSI", "hsi"],
+    }
+    out: List[str] = []
+    for c in mapping.get(key, []) + [str(bench or "").strip()]:
+        if c and c not in out:
+            out.append(c)
+    return out
+
+
+def _load_index_bars_once(
+    bench: str,
+    *,
+    limit: int,
+    refresh_bars: bool,
+    progress_cb: ProgressCb = None,
+    progress_n: int = 1,
+    timeout_sec: float = 12.0,
+) -> List[dict]:
+    """加载一组指数日线；缓存优先时不阻塞打网；刷新时带超时+心跳。
+
+    指数失败返回 []，分组仍可继续（相对强度等因子降级）。
+    """
+    from core.data_service import bars_and_source
+    from core.ports.market import fetch_index_bars
+
+    bench_s = str(bench or "").strip()
+    if not bench_s:
+        return []
+    min_bars = max(15, min(limit, 30))
+    age = 36.0 if refresh_bars else 24.0 * 14
+
+    # 1) 本地缓存（含指数代码若曾入库）
+    for code in _index_symbol_candidates(bench_s):
+        try:
+            bars, _src = bars_and_source(
+                code,
+                limit=limit,
+                cache_max_age_hours=age,
+                incremental=False,
+                offline_ok=True,
+            )
+            if bars and len(bars) >= min_bars:
+                return list(bars)
+        except Exception:
+            logger.debug("指数本地缓存未命中 %s/%s", bench_s, code, exc_info=True)
+
+    # 2) 缓存优先：缺指数也不打远端，避免 AkShare 挂死整任务
+    if not refresh_bars:
+        if progress_cb:
+            try:
+                progress_cb(f"拉指数跳过（缓存优先·{bench_s}）", 0, progress_n)
+            except Exception:
+                pass
+        return []
+
+    # 3) 刷新：远端拉取，超时放弃（后台线程可能仍在跑，但主路径继续）
+    if progress_cb:
+        try:
+            progress_cb(f"拉指数 {bench_s}…", 0, progress_n)
+        except Exception:
+            pass
+
+    pool = ThreadPoolExecutor(max_workers=1)
+    fut = pool.submit(fetch_index_bars, bench_s, limit=limit)
+    t0 = time.time()
+    try:
+        while True:
+            finished, _ = wait([fut], timeout=1.2, return_when=FIRST_COMPLETED)
+            if finished:
+                try:
+                    bars, _label = fut.result(timeout=0.1)
+                    return list(bars or [])
+                except Exception:
+                    logger.warning("拉指数失败 %s", bench_s, exc_info=True)
+                    return []
+            elapsed = time.time() - t0
+            if progress_cb:
+                try:
+                    progress_cb(
+                        f"拉指数 {bench_s}… {int(elapsed)}s",
+                        0,
+                        progress_n,
+                    )
+                except Exception:
+                    pass
+            if elapsed >= max(4.0, float(timeout_sec)):
+                logger.warning(
+                    "拉指数超时 %s after %.0fs，继续分组（无指数）",
+                    bench_s,
+                    elapsed,
+                )
+                if progress_cb:
+                    try:
+                        progress_cb(
+                            f"拉指数超时跳过（{bench_s}）",
+                            0,
+                            progress_n,
+                        )
+                    except Exception:
+                        pass
+                return []
+    finally:
+        try:
+            pool.shutdown(wait=False, cancel_futures=True)
+        except TypeError:
+            pool.shutdown(wait=False)
+
+
 def _load_one_panel(
     code: str,
     *,
@@ -195,7 +313,7 @@ def build_cluster_ols_panels(
     refresh_bars=False：本地有足够日线即用，不打 AkShare（改参快跑）。
     """
     from core.fundamentals_pit import fundamentals_pit_summary
-    from core.ports.market import default_benchmark, fetch_index_bars, resolve_market_code
+    from core.ports.market import default_benchmark, resolve_market_code
     from core.signal.config import load_signal_config
 
     use_pit = bool(pit_fundamentals)
@@ -212,21 +330,28 @@ def build_cluster_ols_panels(
         except Exception:
             logger.warning("面板构建失败", exc_info=True)
 
-    # 指数只拉一次，避免每票抢锁打远端
+    # 指数只拉一次；缓存优先不阻塞打网（避免卡在「拉日线 0/N」被 90s 回收）
     index_by_bench: Dict[str, List[dict]] = {}
     try:
         markets = {resolve_market_code(c)[0] for c in code_list[:5]}
         markets.add("CN")
+        idx_timeout = 18.0 if do_refresh else 0.0
         for m in markets:
             if not m:
                 continue
-            bench = default_benchmark(m)
+            bench = str(default_benchmark(m))
             if bench in index_by_bench:
                 continue
-            bars, _ = fetch_index_bars(bench, limit=lookback + 35)
-            index_by_bench[str(bench)] = list(bars or [])
+            index_by_bench[bench] = _load_index_bars_once(
+                bench,
+                limit=lookback + 35,
+                refresh_bars=do_refresh,
+                progress_cb=progress_cb,
+                progress_n=n,
+                timeout_sec=idx_timeout,
+            )
     except Exception:
-        logger.warning("面板渲染失败", exc_info=True)
+        logger.warning("指数面板预取失败（继续个股）", exc_info=True)
 
     def _index_for(code: str) -> Optional[List[dict]]:
         try:
@@ -241,10 +366,11 @@ def build_cluster_ols_panels(
     # 强制刷新时降并发，避免 AkShare 打爆；纯缓存可多开
     if do_refresh:
         workers = max(1, min(int(max_workers or 4), 4, n or 1))
-        batch_timeout = max(90.0, min(240.0, 1.5 * float(n or 1) + 60.0))
+        batch_timeout = max(90.0, min(360.0, 1.5 * float(n or 1) + 60.0))
     else:
         workers = max(1, min(int(max_workers or 12), 24, n or 1))
-        batch_timeout = max(45.0, min(120.0, 0.8 * float(n or 1) + 30.0))
+        # Limit≤100：缓存路径给足时间，避免大批次未完成就被收尾
+        batch_timeout = max(45.0, min(240.0, 0.9 * float(n or 1) + 40.0))
     raw_rows: List[Optional[Dict[str, Any]]] = [None] * n
     done = 0
     remote_n = 0
