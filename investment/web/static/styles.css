@@ -6157,12 +6157,18 @@ a.hub-card:hover {
 
 .follow-page .follow-lw-host,
 .follow-page #paper-chart.lw-host {
+  /* 定高；勿叠 .dashboard-chart-host 的 flex:1，否则净值图会被撑满视口 */
+  flex: 0 0 auto;
   height: 200px;
   min-height: 200px;
+  max-height: 200px;
   border: 1px solid var(--line);
   border-radius: var(--follow-radius);
   background: var(--surface);
   overflow: hidden;
+}
+.follow-page .follow-chart-card.dashboard-card {
+  flex: 0 0 auto;
 }
 
 .follow-page canvas#paper-chart-fallback:not([hidden]) {
@@ -17374,6 +17380,17 @@ html[data-theme="dark"] .page-panel.quant-panel .quant-head.dashboard-head {
   min-width: 0;
   flex: 1;
 }
+.quant-page .quant-card-tools-secondary {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.quant-page #quant-section-score-review .quant-card-tools-secondary {
+  max-width: none;
+}
 
 /* 「更多」次要操作 */
 .quant-page .quant-tools-more {
@@ -17959,14 +17976,28 @@ html[data-density="compact"] .dashboard-risk-card {
   gap: 8px;
   margin-left: auto;
 }
-.replay-page .dashboard-chart-host.quant-chart-host {
-  min-height: 140px;
+/* 回测图定高；勿叠 .dashboard-chart-host 的 flex:1（会在 dashboard-card 内撑满） */
+.replay-page .quant-bt-chart-wrap .quant-chart-host,
+.replay-page .dashboard-card .quant-chart-host {
+  flex: 0 0 auto;
+  width: 100%;
+  box-sizing: border-box;
+  max-height: 180px;
 }
-.replay-page #quant-ic-chart.dashboard-chart-host {
+.replay-page #quant-ic-chart.quant-chart-host {
+  height: 120px;
   min-height: 120px;
+  max-height: 120px;
 }
-.replay-page #quant-portfolio-chart.dashboard-chart-host {
+.replay-page #quant-quantile-chart.quant-chart-host {
+  height: 140px;
+  min-height: 140px;
+  max-height: 140px;
+}
+.replay-page #quant-portfolio-chart.quant-chart-host {
+  height: 160px;
   min-height: 160px;
+  max-height: 160px;
 }
 /* 进阶 embed：与主链同页头语义，取消窄列压迫感 */
 .embed-panel.evals-embed .dashboard-head h2,

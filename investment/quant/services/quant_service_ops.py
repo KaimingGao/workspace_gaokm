@@ -283,10 +283,16 @@ class QuantOpsMixin:
         from core.score_ledger import default_as_of, list_ledger_dates
 
         dates = list_ledger_dates(limit=limit)
+        cal = default_as_of()
+        # 优先已有账本里 ≤ 上一交易日的最近一天（避免默认到尚无前瞻收益的末日）
+        pick = next((d for d in dates if d and d <= cal), None) or cal or (
+            dates[0] if dates else ""
+        )
         return {
             "success": True,
             "dates": dates,
-            "default_as_of": default_as_of(),
+            "default_as_of": pick,
+            "calendar_as_of": cal,
         }
 
     def score_ledger_code_series(self, code: str, *, limit: int = 40) -> Dict[str, Any]:

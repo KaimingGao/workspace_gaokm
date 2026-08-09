@@ -41,6 +41,13 @@ export function installScoreReview(ctx) {
     el.classList.toggle("is-ok", !!ok);
   }
 
+  function syncHorizonSelect(horizon) {
+    const el = document.getElementById("quant-score-review-horizon");
+    if (!el || horizon == null) return;
+    const v = String(horizon);
+    if (el.value !== v) el.value = v;
+  }
+
   function renderSummary(data) {
     const box = document.getElementById("quant-score-review-summary");
     if (!box) return;
@@ -55,6 +62,21 @@ export function installScoreReview(ctx) {
     const s = data.summary || {};
     const hit =
       s.hit_rate != null ? `${(Number(s.hit_rate) * 100).toFixed(0)}%` : "—";
+    const fb =
+      data.horizon_fallback_from != null
+        ? `<p class="quant-attr-note">h=${esc(
+            String(data.horizon_fallback_from)
+          )} 实现收益未齐 · 已改用 h=${esc(
+            String(data.horizon_days ?? 1)
+          )}</p>`
+        : "";
+    const thinNote =
+      s.hit_rate == null && Number(s.data_thin || 0) > 0
+        ? `<p class="quant-attr-note">${esc(
+            s.blame_line ||
+              "薄样本：日线未覆盖前瞻收益。可改小 Horizon / 更早决策日 / 刷新日线后回填"
+          )}</p>`
+        : "";
     box.innerHTML =
       `<div class="quant-metric-strip">` +
       `<span>as_of <b>${esc(data.as_of || "—")}</b></span>` +
@@ -65,10 +87,20 @@ export function installScoreReview(ctx) {
       `<span>错多 ${esc(String(s.wrong_long ?? 0))}</span>` +
       `<span>错空 ${esc(String(s.wrong_short ?? 0))}</span>` +
       `<span>账本 ${esc(String(data.n_ledger ?? 0))} 只</span>` +
+      (Number(s.data_thin || 0) > 0
+        ? `<span>薄样本 ${esc(String(s.data_thin))}</span>`
+        : "") +
       `</div>` +
-      `<p class="quant-attr-note">${esc(s.blame_line || "")}</p>` +
+      fb +
+      thinNote +
+      (s.blame_line && s.hit_rate != null
+        ? `<p class="quant-attr-note">${esc(s.blame_line)}</p>`
+        : "") +
       (data.refit_hint
         ? `<p class="quant-attr-note">${esc(data.refit_hint)}</p>`
+        : "") +
+      (data.note && s.hit_rate == null
+        ? `<p class="quant-attr-note">${esc(String(data.note).slice(0, 160))}</p>`
         : "");
     syncOverviewFromScoreReview(data);
     if (s.hit_rate != null && Number.isFinite(Number(s.hit_rate))) {
@@ -79,10 +111,11 @@ export function installScoreReview(ctx) {
         `命中 ${pct.toFixed(0)}%`
       );
     } else {
+      const thin = Number(s.data_thin || 0);
       setProStatusChip(
         "quant-pro-review-status",
         "warn",
-        s.blame_line || "样本不足"
+        thin > 0 ? `薄样本 ${thin}` : s.blame_line || "样本不足"
       );
     }
   }
@@ -286,25 +319,45 @@ export function installScoreReview(ctx) {
       const res = await fetch(`/api/quant/score-review?${q.toString()}`);
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.detail || res.statusText);
+      // 后端可能因薄样本自动降到 h=1；同步控件
+      if (data.horizon_days != null) syncHorizonSelect(data.horizon_days);
+      const usedH = Number(data.horizon_days) || horizon;
       renderSummary(data);
       renderScatter(data);
-      renderHitSparkline(horizon).catch(() => {});
+      renderHitSparkline(usedH).catch(() => {});
       renderBlame(data);
       renderWrongTable(data);
       const s = data.summary || {};
       const hit =
         s.hit_rate != null ? `${(Number(s.hit_rate) * 100).toFixed(0)}%` : "—";
-      setStatus(
-        data.empty
-          ? data.note || "无账本"
-          : `as_of ${data.as_of} · 命中 ${hit} · 错票 ${s.wrong ?? 0}`,
-        { ok: !data.empty, error: !!data.empty }
-      );
+      const thin = Number(s.data_thin || 0);
+      const fbNote =
+        data.horizon_fallback_from != null
+          ? ` · 自 h=${data.horizon_fallback_from} 降级`
+          : "";
+      const statusLine = data.empty
+        ? data.note || "无账本"
+        : s.hit_rate != null
+          ? `as_of ${data.as_of} · 命中 ${hit} · 错票 ${s.wrong ?? 0}${fbNote}`
+          : thin > 0
+            ? `as_of ${data.as_of} · 薄样本 ${thin}/${data.n_ledger ?? "—"} · 日线未覆盖 h=${usedH}`
+            : `as_of ${data.as_of} · ${s.blame_line || "样本不足"}`;
+      setStatus(statusLine, {
+        ok: !data.empty && s.hit_rate != null,
+        error: !!data.empty,
+      });
       if (setQuantMeta) {
-        setQuantMeta(
-          data.empty ? "昨日复盘：无账本" : `昨日复盘 · 命中 ${hit}`,
-          { busy: false, error: !!data.empty }
-        );
+        const metaLine = data.empty
+          ? "昨日复盘：无账本"
+          : s.hit_rate != null
+            ? `昨日复盘 · 命中 ${hit}${fbNote}`
+            : thin > 0
+              ? `昨日复盘 · 薄样本 ${thin} · 请改小 Horizon 或刷新日线`
+              : `昨日复盘 · ${s.blame_line || "样本不足"}`;
+        setQuantMeta(metaLine, {
+          busy: false,
+          error: !!data.empty || (s.hit_rate == null && thin > 0),
+        });
       }
       return data;
     } catch (err) {

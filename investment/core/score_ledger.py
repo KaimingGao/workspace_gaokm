@@ -663,6 +663,23 @@ def build_score_review(
                 blame_line += f"；行业 {industry_blame[0]['sector']}×{industry_blame[0]['wrong_count']}"
         else:
             blame_line = f"方向命中 {hit_rate:.0%}（{hits}/{n}）"
+    elif thin > 0:
+        blame_line = (
+            f"薄样本 {thin}/{len(rows)}：本地日线未覆盖 as_of+{h}，尚无实现收益"
+        )
+
+    # h>1 全部薄样本时自动降到 h=1，避免 UI 只显示「命中 —」
+    if n == 0 and thin > 0 and h > 1:
+        fallback = build_score_review(d, horizon_days=1, autofill=autofill)
+        fb_n = int((fallback.get("summary") or {}).get("n_scored") or 0)
+        if fallback.get("success") and not fallback.get("empty") and fb_n > 0:
+            fallback["horizon_fallback_from"] = h
+            fallback["note"] = (
+                f"h={h} 实现收益未齐（日线未覆盖 as_of+{h}，薄样本 {thin}）。"
+                f"已自动改用 h=1。"
+                + (" " + str(fallback.get("note") or "")).rstrip()
+            )
+            return fallback
 
     return {
         "success": True,
@@ -689,11 +706,18 @@ def build_score_review(
         "factor_blame": factor_blame,
         "industry_blame": industry_blame,
         "cluster_blame": cluster_blame,
+        "suggested_horizon": 1 if (n == 0 and thin > 0 and h > 1) else None,
         "note": (
-            "方向复盘：sign(ŷ) vs sign(r_h)；|ŷ|<0.05% 视为无方向。"
+            (
+                f"h={h} 尚无实现收益（薄样本 {thin}/{len(rows)}）。"
+                "请刷新日线、改小 Horizon，或选更早决策日后再「回填收益」。"
+                if (n == 0 and thin > 0)
+                else ""
+            )
+            + "方向复盘：sign(ŷ) vs sign(r_h)；|ŷ|<0.05% 视为无方向。"
             "标签：factor_fade=主导因子当日截面相关为负；"
             "idiosyncratic=因子未坏但个股反；model_tilt=分解不足时的模型偏置兜底。"
-        ),
+        ).strip(),
         "refit_hint": (
             "错票偏多时建议到上方「跑分组」重估组 β（不自动改权）。"
             if (hit_rate is not None and hit_rate < 0.5 and n >= 5)

@@ -205,16 +205,13 @@
               <option value="3" selected>3 日</option>
             </select>
           </label>
-          <button type="button" id="quant-score-review-run" class="dialog-btn">刷新复盘</button>
         </div>
-        <details class="quant-tools-more">
-          <summary class="quant-tools-more-summary">更多</summary>
-          <div class="quant-tools-more-menu" role="group" aria-label="复盘次要操作">
-            <button type="button" id="quant-score-review-fill" class="dialog-btn secondary">回填收益</button>
-            <button type="button" id="quant-score-ledger-freeze" class="dialog-btn secondary">冻结今日打分</button>
-            <button type="button" id="quant-score-review-refit" class="dialog-btn secondary" title="滚动到「跑分组」并触发重估组 β">建议重估</button>
-          </div>
-        </details>
+        <div class="dashboard-card-tools quant-card-tools-secondary" role="group" aria-label="复盘操作">
+          <button type="button" id="quant-score-review-run" class="dialog-btn">刷新复盘</button>
+          <button type="button" id="quant-score-review-fill" class="dialog-btn secondary">回填收益</button>
+          <button type="button" id="quant-score-ledger-freeze" class="dialog-btn secondary">冻结今日打分</button>
+          <button type="button" id="quant-score-review-refit" class="dialog-btn secondary" title="滚动到「跑分组」并触发重估组 β">建议重估</button>
+        </div>
       </div>
       <div class="quant-pro-card-body">
         <p id="quant-score-review-status" class="quant-fingerprint">尚未加载</p>
