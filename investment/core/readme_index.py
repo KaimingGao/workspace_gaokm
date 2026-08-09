@@ -10,45 +10,21 @@ from core.paths import ROOT_DIR
 ARCHITECTURE_SECTION_ANCHOR = "子目录-readme-索引"
 
 # 需要 README.md 的代码/数据目录（相对 investment/ 根）
+# 仅保留顶层入口 + 少数有独立对外价值的目录；子级详情统一见 docs/architecture.md
 REPO_README_DIRS: tuple[str, ...] = (
     "agent",
     "core",
-    "core/backtest",
-    "core/signal",
-    "core/signal/factors",
-    "core/t0",
     "data",
     "data/reports",
-    "data/store",
     "docs",
     "evals",
     "quant",
-    "quant/ops",
-    "quant/research",
-    "quant/services",
-    "quant/skill",
     "research",
     "scripts",
-    "scripts/launchd",
     "services",
     "skills",
-    "skills/advise",
-    "skills/backtest",
-    "skills/common",
-    "skills/compare",
-    "skills/fundamentals",
-    "skills/index",
-    "skills/kline",
-    "skills/news",
-    "skills/peer",
-    "skills/position",
-    "skills/quant",
-    "skills/quote",
-    "skills/screen",
-    "skills/signal",
     "tests",
     "web",
-    "web/static",
 )
 
 _README_DIR_SET = frozenset(REPO_README_DIRS)

@@ -5,6 +5,7 @@
 """
 
 from __future__ import annotations
+from core.numbers import now_iso_utc
 
 import copy
 import os
@@ -19,10 +20,6 @@ from core.signal.factor_coefs import (
 
 
 SCHEMA_VERSION = 1
-
-
-def _iso_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _cluster_weights(cluster: Dict[str, Any]) -> Optional[Dict[str, float]]:
@@ -127,7 +124,7 @@ def build_pool_artifact(report: Dict[str, Any]) -> Dict[str, Any]:
         "success": True,
         "task": "cluster_pool_artifact",
         "schema_version": SCHEMA_VERSION,
-        "created_at": _iso_now(),
+        "created_at": now_iso_utc(),
         "promote_ready": False,
         "n_clusters": len(clusters_out),
         "n_mapped_codes": len(code_map),
@@ -425,7 +422,7 @@ def preview_paper_pool_rebalance(
         append_snapshot(target, summary)
         art = artifact if isinstance(artifact, dict) else {}
         target["last_cluster_pool"] = {
-            "applied_at": _iso_now(),
+            "applied_at": now_iso_utc(),
             "schema_version": art.get("schema_version") or SCHEMA_VERSION,
             "artifact_created_at": art.get("created_at"),
             "n_clusters": art.get("n_clusters"),

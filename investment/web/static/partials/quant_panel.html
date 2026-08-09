@@ -69,7 +69,6 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-factors-title" class="dashboard-section-title">分组</h3>
       <p class="dashboard-section-desc quant-section-desc">观察池按 OLS β 聚类 · 一组一模型 · 同组同建模</p>
-      <span class="quant-pro-status-chip" id="quant-pro-cluster-status" data-state="idle">待运行</span>
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -158,7 +157,6 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-ic-series-title" class="dashboard-section-title">IC 时序</h3>
       <p class="dashboard-section-desc quant-section-desc">日频截面 IC · Top 因子稳定性</p>
-      <span class="quant-pro-status-chip" id="quant-pro-ic-status" data-state="idle">待加载</span>
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -189,7 +187,6 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-score-review-title" class="dashboard-section-title">昨日复盘</h3>
       <p class="dashboard-section-desc quant-section-desc">ŷ 方向 vs 实现收益 · 错票归因 · 命中率</p>
-      <span class="quant-pro-status-chip" id="quant-pro-review-status" data-state="idle">待加载</span>
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -337,24 +334,18 @@
   <!-- 因子分析 -->
   <section class="dashboard-section quant-section" id="quant-factor-analysis-fold" aria-labelledby="quant-section-factor-analysis-title">
     <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-factor-analysis-title" class="dashboard-section-title">因子分析</h3>
-      <p class="dashboard-section-desc quant-section-desc" id="quant-factor-analysis-fold-summary">相关矩阵 · IR</p>
-      <span class="quant-pro-status-chip" id="quant-pro-factor-status" data-state="idle">待运行</span>
+      <h3 id="quant-section-factor-analysis-title" class="dashboard-section-title">因子相关性</h3>
+      <p class="dashboard-section-desc quant-section-desc" id="quant-factor-analysis-fold-summary">红同向 · 蓝反向 · |ρ|&gt;0.7</p>
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
-        <p id="quant-factor-analysis-status" class="quant-fingerprint quant-card-head-status">尚未加载 · 需先运行「跑分组」生成因子分数</p>
+        <p id="quant-factor-corr-status" class="quant-fingerprint quant-card-head-status">尚未加载 · 需先「跑分组」</p>
         <div class="dashboard-card-tools quant-pro-card-tools">
           <button type="button" id="quant-factor-corr-run" class="dialog-btn">计算相关性</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
-        <div class="quant-factor-analysis-grid">
-          <div class="quant-analysis-panel">
-            <p class="quant-block-cap">相关性矩阵 <span class="quant-sub">红同向 · 蓝反向 · |ρ|&gt;0.7</span></p>
-            <div id="quant-factor-corr-heatmap" class="dashboard-chart-host quant-factor-corr-host"></div>
-          </div>
-        </div>
+        <div id="quant-factor-corr-heatmap" class="dashboard-chart-host quant-factor-corr-host"></div>
       </div>
     </div>
   </section>

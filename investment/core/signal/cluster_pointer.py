@@ -5,6 +5,7 @@
 """
 
 from __future__ import annotations
+from core.numbers import now_iso_utc
 
 import glob
 import json
@@ -16,10 +17,6 @@ from typing import Any, Dict, Optional
 logger = logging.getLogger(__name__)
 
 CLUSTER_WEIGHTS_PRUNE_KEEP = 8
-
-
-def _iso_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def load_cluster_pointer() -> Optional[Dict[str, Any]]:
@@ -78,7 +75,7 @@ def write_cluster_pointer(
         "schema_version": 1,
         "version": int(version),
         "artifact": stored,
-        "updated_at": _iso_now(),
+        "updated_at": now_iso_utc(),
         "note": str(note or "")[:300],
     }
     atomic_write_json(CLUSTER_POINTER_PATH, doc)
@@ -92,7 +89,7 @@ def append_promote_audit(entry: Dict[str, Any]) -> str:
 
     os.makedirs(LIVE_DIR, exist_ok=True)
     row = dict(entry or {})
-    row.setdefault("at", _iso_now())
+    row.setdefault("at", now_iso_utc())
     with open(PROMOTE_AUDIT_PATH, "a", encoding="utf-8") as f:
         f.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
     return PROMOTE_AUDIT_PATH

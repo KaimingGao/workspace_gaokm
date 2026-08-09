@@ -7,6 +7,7 @@
 """
 
 from __future__ import annotations
+from core.numbers import date_key
 
 import json
 import os
@@ -17,15 +18,6 @@ from core.signal.fundamentals_bridge import normalize_fundamentals_metrics
 from core.store import snapshot_cache_path
 
 
-def _date_key(raw: Any) -> str:
-    s = str(raw or "").strip()
-    if not s:
-        return ""
-    if "T" in s:
-        s = s.split("T", 1)[0]
-    return s[:10]
-
-
 def _metrics_as_of_hint(payload: Any) -> str:
     """从 metrics / notes 猜报告期；否则用空串。"""
     if not isinstance(payload, dict):
@@ -34,7 +26,7 @@ def _metrics_as_of_hint(payload: Any) -> str:
     if not isinstance(src, dict):
         return ""
     for key in ("as_of", "report_date", "report_period", "end_date", "ann_date"):
-        d = _date_key(src.get(key))
+        d = date_key(src.get(key))
         if d:
             return d
     return ""
@@ -72,7 +64,7 @@ def load_fundamentals_panel(
     history = list(payload.get("history") or [])
     # 兼容旧文件：把当前 data 视为唯一点
     if not history and payload.get("data") is not None:
-        as_of = _metrics_as_of_hint(payload.get("data")) or _date_key(
+        as_of = _metrics_as_of_hint(payload.get("data")) or date_key(
             payload.get("fetched_at")
         )
         hist_metrics = normalize_fundamentals_metrics(payload.get("data")) or {}
@@ -87,8 +79,8 @@ def load_fundamentals_panel(
                 }
             ]
     history = sorted(
-        [h for h in history if isinstance(h, dict) and _date_key(h.get("as_of"))],
-        key=lambda h: _date_key(h.get("as_of")),
+        [h for h in history if isinstance(h, dict) and date_key(h.get("as_of"))],
+        key=lambda h: date_key(h.get("as_of")),
     )
     return {
         "ok": True,
@@ -118,12 +110,12 @@ def merge_history_point(
 
     D0：可写 ann_date / available_as_of，供 select_point_as_of 按可用日截断。
     """
-    key = _date_key(as_of)
+    key = date_key(as_of)
     if not key or not metrics:
         return list(history or [])
     by: Dict[str, dict] = {}
     for h in history or []:
-        k = _date_key((h or {}).get("as_of"))
+        k = date_key((h or {}).get("as_of"))
         if k:
             by[k] = dict(h)
     point = {
@@ -132,8 +124,8 @@ def merge_history_point(
         "metrics": dict(metrics),
         "data_source": data_source or "",
     }
-    ann = _date_key(ann_date) or _date_key((metrics or {}).get("ann_date"))
-    avail = _date_key(available_as_of)
+    ann = date_key(ann_date) or date_key((metrics or {}).get("ann_date"))
+    avail = date_key(available_as_of)
     if ann:
         point["ann_date"] = ann
         point["metrics"] = {**point["metrics"], "ann_date": ann}
@@ -158,15 +150,15 @@ def _available_date(h: dict) -> str:
     if not isinstance(h, dict):
         return ""
     for key in ("available_as_of", "ann_date", "announce_date", "pub_date"):
-        d = _date_key(h.get(key))
+        d = date_key(h.get(key))
         if d:
             return d
     metrics = h.get("metrics") if isinstance(h.get("metrics"), dict) else {}
     for key in ("ann_date", "announce_date", "available_as_of", "pub_date"):
-        d = _date_key(metrics.get(key))
+        d = date_key(metrics.get(key))
         if d:
             return d
-    return _date_key(h.get("as_of"))
+    return date_key(h.get("as_of"))
 
 
 def select_point_as_of(
@@ -174,7 +166,7 @@ def select_point_as_of(
     as_of: str,
 ) -> Tuple[Optional[dict], Dict[str, Any]]:
     """选取决策日及以前**已可获取**的最新财务点（可用日 ≤ as_of）。"""
-    cutoff = _date_key(as_of)
+    cutoff = date_key(as_of)
     meta: Dict[str, Any] = {
         "ok": False,
         "as_of": cutoff,
@@ -193,7 +185,7 @@ def select_point_as_of(
             continue
         avail = _available_date(h)
         if avail and avail <= cutoff:
-            eligible.append((avail, _date_key(h.get("as_of")), h))
+            eligible.append((avail, date_key(h.get("as_of")), h))
     if not eligible:
         meta["reason"] = "no_point_on_or_before"
         future = []
@@ -276,7 +268,7 @@ def resolve_fundamentals_for_score(
                     "metrics": metrics,
                     "fundamentals_pit": False,
                     "non_pit": True,
-                    "as_of": _date_key(live.get("fetched_at")) if isinstance(live, dict) else None,
+                    "as_of": date_key(live.get("fetched_at")) if isinstance(live, dict) else None,
                     "mode": "live_snapshot",
                     "history_count": 0,
                     "note": "实时/缓存快照；非 PIT。",

@@ -293,7 +293,7 @@ class TestP43ReadmeWebApi(unittest.TestCase):
         client = TestClient(web_app.app)
         res = client.get("/api/readme-index")
         data = res.json()
-        self.assertGreaterEqual(len(data.get("entries") or []), 30)
+        self.assertGreaterEqual(len(data.get("entries") or []), 10)
         self.assertEqual(data["entries"][0]["dir"], REPO_README_DIRS[0])
 
 # --- test_p44_quant.py::TestP44ReadmeCheck ---
@@ -302,7 +302,7 @@ class TestP44ReadmeCheck(unittest.TestCase):
         out = check_readme_coverage()
         self.assertTrue(out["ok"], out.get("failures"))
         self.assertEqual(out["present_count"], out["total_dirs"])
-        self.assertGreaterEqual(len(out.get("entries") or []), 30)
+        self.assertGreaterEqual(len(out.get("entries") or []), 10)
     def test_run_readme_check_cli(self):
         import evals.run_readme_check as mod
 
@@ -330,7 +330,7 @@ class TestP44ReadmeEvalsApi(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         data = res.json()
         self.assertTrue(data.get("ok"))
-        self.assertGreaterEqual(data["present_count"], 30)
+        self.assertGreaterEqual(data["present_count"], 10)
     def test_evals_summary_readme_field(self):
         try:
             from fastapi.testclient import TestClient

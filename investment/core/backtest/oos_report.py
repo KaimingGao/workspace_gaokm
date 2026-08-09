@@ -1,17 +1,9 @@
 """回测稳健性摘要（N4）：样本内外切分 + 简单 regime 切片。"""
 
 from __future__ import annotations
+from core.numbers import to_float as _f
 
 from typing import Any, Dict, List, Optional, Sequence
-
-
-def _f(v: Any) -> Optional[float]:
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
 
 
 def split_oos_summary(

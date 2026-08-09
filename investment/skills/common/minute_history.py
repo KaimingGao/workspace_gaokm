@@ -5,6 +5,7 @@
 """
 
 from __future__ import annotations
+from core.numbers import to_float as _to_float
 
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -12,18 +13,6 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.store import load_minute_cache, merge_minute_bars_by_time, save_minute_cache
 from skills.common.history import resolve_market_code
-
-
-def _to_float(v: Any) -> Optional[float]:
-    if v is None:
-        return None
-    try:
-        f = float(v)
-        if f != f:
-            return None
-        return f
-    except (TypeError, ValueError):
-        return None
 
 
 def normalize_minute_bars(rows: List[dict]) -> List[dict]:

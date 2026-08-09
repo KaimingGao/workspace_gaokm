@@ -8,15 +8,9 @@
 """
 
 from __future__ import annotations
+from core.numbers import calc_sma as _calc_ma
 
 from typing import List, Optional
-
-
-def _calc_ma(closes: List[float], period: int) -> Optional[float]:
-    """计算简单移动均线。"""
-    if len(closes) < period:
-        return None
-    return sum(closes[-period:]) / period
 
 
 def _calc_ma_slope(closes: List[float], period: int, slope_window: int = 5) -> Optional[float]:

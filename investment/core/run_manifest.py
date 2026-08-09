@@ -1,6 +1,7 @@
 """运行清单（Q3）：每次回测 / 调仓写出可复现指纹。"""
 
 from __future__ import annotations
+from core.numbers import now_iso_local as _now_iso
 
 import hashlib
 import json
@@ -12,10 +13,6 @@ from core.paths import DATA_DIR
 from core.io_atomic import atomic_write_json
 
 MANIFEST_DIR = os.path.join(DATA_DIR, "run_manifests")
-
-
-def _now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
 
 
 def _hash_obj(obj: Any) -> str:

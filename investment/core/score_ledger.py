@@ -5,6 +5,7 @@
 """
 
 from __future__ import annotations
+from core.numbers import date_key
 
 import json
 import os
@@ -14,15 +15,6 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from core.io_atomic import atomic_write_json
 
 _YHAT_EPS = 0.05  # |ŷ| < ε → 无方向
-
-
-def _date_key(raw: Any) -> str:
-    s = str(raw or "").strip()
-    if not s:
-        return ""
-    if "T" in s:
-        s = s.split("T", 1)[0]
-    return s[:10]
 
 
 def default_as_of() -> str:
@@ -41,12 +33,12 @@ def ledger_dir() -> str:
 
 
 def ledger_path(as_of: str) -> str:
-    d = _date_key(as_of)
+    d = date_key(as_of)
     return os.path.join(ledger_dir(), f"{d}.json")
 
 
 def outcomes_path(as_of: str) -> str:
-    d = _date_key(as_of)
+    d = date_key(as_of)
     return os.path.join(ledger_dir(), f"{d}.outcomes.json")
 
 
@@ -127,7 +119,7 @@ def row_from_scored_item(
         except Exception:
             sector = None
     return {
-        "as_of": _date_key(as_of),
+        "as_of": date_key(as_of),
         "code": code.zfill(6) if code.isdigit() else code,
         "name": item.get("stock_name") or item.get("name"),
         "yhat": round(yhat, 6),
@@ -150,7 +142,7 @@ def load_ledger(as_of: str) -> Dict[str, Any]:
         return {
             "success": True,
             "empty": True,
-            "as_of": _date_key(as_of),
+            "as_of": date_key(as_of),
             "rows": [],
             "path": path,
         }
@@ -161,7 +153,7 @@ def load_ledger(as_of: str) -> Dict[str, Any]:
         return {
             "success": False,
             "error": str(e),
-            "as_of": _date_key(as_of),
+            "as_of": date_key(as_of),
             "rows": [],
             "path": path,
         }
@@ -169,7 +161,7 @@ def load_ledger(as_of: str) -> Dict[str, Any]:
     return {
         "success": True,
         "empty": not bool(rows),
-        "as_of": _date_key(as_of) or data.get("as_of"),
+        "as_of": date_key(as_of) or data.get("as_of"),
         "rows": rows,
         "meta": (data.get("meta") if isinstance(data, dict) else None) or {},
         "path": path,
@@ -183,7 +175,7 @@ def load_outcomes(as_of: str) -> Dict[str, Any]:
         return {
             "success": True,
             "empty": True,
-            "as_of": _date_key(as_of),
+            "as_of": date_key(as_of),
             "by_code": {},
             "path": path,
         }
@@ -198,7 +190,7 @@ def load_outcomes(as_of: str) -> Dict[str, Any]:
     return {
         "success": True,
         "empty": not bool(by_code),
-        "as_of": _date_key(as_of),
+        "as_of": date_key(as_of),
         "by_code": by_code,
         "horizon_days": data.get("horizon_days") if isinstance(data, dict) else None,
         "path": path,
@@ -214,7 +206,7 @@ def upsert_ledger_rows(
     meta: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """按 code 覆盖写入当日账本。"""
-    d = _date_key(as_of)
+    d = date_key(as_of)
     if not d:
         return {"success": False, "error": "as_of 无效", "n_rows": 0}
     os.makedirs(ledger_dir(), exist_ok=True)
@@ -272,7 +264,7 @@ def freeze_from_cluster_book(
     from core.signal.cluster_live import load_active_cluster_book
     from core.market_calendar import resolve_session_date
 
-    d = _date_key(as_of) or resolve_session_date()
+    d = date_key(as_of) or resolve_session_date()
     doc = book_doc if isinstance(book_doc, dict) else load_active_cluster_book()
     if not doc:
         return {"success": False, "error": "无集群书", "as_of": d, "n_rows": 0}
@@ -297,10 +289,10 @@ def freeze_from_daily_report(
     """从日报里的 book_top / cross_section 补写账本。"""
     from core.market_calendar import resolve_session_date
 
-    d = _date_key(as_of)
+    d = date_key(as_of)
     if not d:
         gen = str(report.get("generated_at") or "")
-        d = _date_key(gen) or resolve_session_date()
+        d = date_key(gen) or resolve_session_date()
     rows: List[dict] = []
     cl = report.get("cluster_live") if isinstance(report.get("cluster_live"), dict) else {}
     for r in cl.get("book_top") or []:
@@ -324,14 +316,14 @@ def _realized_from_bars(
     """(close[as_of+h] / close[as_of] - 1) * 100。"""
     from core.market_calendar import next_trading_day
 
-    d0 = _date_key(as_of)
+    d0 = date_key(as_of)
     if not d0 or not bars:
         return None
     by_date = {}
     for b in bars:
         if not isinstance(b, dict):
             continue
-        k = _date_key(b.get("date") or b.get("time") or b.get("datetime"))
+        k = date_key(b.get("date") or b.get("time") or b.get("datetime"))
         if k:
             by_date[k] = b
     if d0 not in by_date:
@@ -372,7 +364,7 @@ def fill_outcomes(
         return {
             "success": False,
             "error": "无账本行，请先冻结打分",
-            "as_of": _date_key(as_of),
+            "as_of": date_key(as_of),
             "filled": 0,
         }
     h = max(1, min(int(horizon_days or 3), 10))
@@ -410,7 +402,7 @@ def fill_outcomes(
     os.makedirs(ledger_dir(), exist_ok=True)
     payload = {
         "success": True,
-        "as_of": _date_key(as_of),
+        "as_of": date_key(as_of),
         "horizon_days": h,
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "filled": filled,
@@ -420,7 +412,7 @@ def fill_outcomes(
     atomic_write_json(path, payload)
     return {
         "success": True,
-        "as_of": _date_key(as_of),
+        "as_of": date_key(as_of),
         "horizon_days": h,
         "filled": filled,
         "missing": missing,
@@ -496,7 +488,7 @@ def build_score_review(
     autofill: bool = True,
 ) -> Dict[str, Any]:
     """方向复盘报告：命中率 + 错票 + 简易归因标签。"""
-    d = _date_key(as_of) or default_as_of()
+    d = date_key(as_of) or default_as_of()
     h = max(1, min(int(horizon_days or 3), 10))
     ledger = load_ledger(d)
     if ledger.get("empty"):
@@ -861,7 +853,7 @@ def run_score_ledger_daily(
     """
     from core.market_calendar import prev_trading_day, resolve_session_date
 
-    sess = _date_key(as_of) or resolve_session_date()
+    sess = date_key(as_of) or resolve_session_date()
     h = horizon_days
     if h is None:
         try:

@@ -4,20 +4,12 @@
 """
 
 from __future__ import annotations
+from core.numbers import date_key
 
 import json
 import os
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
-
-
-def _date_key(raw: Any) -> str:
-    s = str(raw or "").strip()
-    if not s:
-        return ""
-    if "T" in s:
-        s = s.split("T", 1)[0]
-    return s[:10]
 
 
 def _load_holidays(store_dir: Optional[str] = None) -> Set[str]:
@@ -35,14 +27,14 @@ def _load_holidays(store_dir: Optional[str] = None) -> Set[str]:
     days = payload.get("holidays") if isinstance(payload, dict) else payload
     out: Set[str] = set()
     for d in days or []:
-        k = _date_key(d)
+        k = date_key(d)
         if k:
             out.add(k)
     return out
 
 
 def is_weekend(date_str: str) -> bool:
-    d = _date_key(date_str)
+    d = date_key(date_str)
     if not d:
         return False
     try:
@@ -59,7 +51,7 @@ def is_trading_day(
     store_dir: Optional[str] = None,
 ) -> bool:
     """周末或节假日 → False。"""
-    d = _date_key(date_str)
+    d = date_key(date_str)
     if not d:
         return False
     if is_weekend(d):
@@ -76,7 +68,7 @@ def filter_trading_dates(
     hol = _load_holidays(store_dir)
     out: List[str] = []
     for d in dates:
-        k = _date_key(d)
+        k = date_key(d)
         if k and is_trading_day(k, holidays=hol):
             out.append(k)
     return out
@@ -92,7 +84,7 @@ def next_trading_day(
     """从 date_str 起向后找第 n 个交易日（不含当日）。"""
     from datetime import timedelta
 
-    d = _date_key(date_str)
+    d = date_key(date_str)
     if not d:
         return ""
     try:
@@ -123,7 +115,7 @@ def prev_trading_day(
     """从 date_str 起向前找第 n 个交易日（不含当日）。"""
     from datetime import timedelta
 
-    d = _date_key(date_str)
+    d = date_key(date_str)
     if not d:
         return ""
     try:

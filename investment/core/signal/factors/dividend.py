@@ -1,17 +1,9 @@
 """股息因子（V2.1）：dividend_yield 适中加分。"""
 
 from __future__ import annotations
+from core.numbers import to_float as _to_float
 
 from typing import Any, Dict, Optional, Tuple
-
-
-def _to_float(val: Any) -> Optional[float]:
-    if val is None:
-        return None
-    try:
-        return float(val)
-    except (TypeError, ValueError):
-        return None
 
 
 def score_dividend(

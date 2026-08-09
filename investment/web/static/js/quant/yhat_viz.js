@@ -122,49 +122,6 @@ export function binScores(scores, { bins = 12, min, max } = {}) {
   };
 }
 
-/** 因子贡献水平条 HTML（插入 tooltip）。 */
-export function buildContribBarsHtml(terms, { escapeHtml, maxAbs } = {}) {
-  const esc = escapeHtml || ((s) => String(s ?? ""));
-  const rows = (terms || [])
-    .filter((t) => t && !t.gated)
-    .map((t) => ({
-      key: t.key || "",
-      label: t.label || t.key || "—",
-      contrib: Number(t.contrib),
-    }))
-    .filter((t) => Number.isFinite(t.contrib));
-  if (!rows.length) return "";
-  const peak =
-    maxAbs != null && Number.isFinite(maxAbs) && maxAbs > 0
-      ? maxAbs
-      : Math.max(...rows.map((r) => Math.abs(r.contrib)), 1e-9);
-  const bars = rows
-    .slice(0, 10)
-    .map((r) => {
-      const pct = Math.min(100, (Math.abs(r.contrib) / peak) * 100);
-      const side = r.contrib >= 0 ? "pos" : "neg";
-      const sign = r.contrib > 0 ? "+" : "";
-      return (
-        `<div class="yhat-contrib-row" title="${esc(r.key)}">` +
-        `<span class="yhat-contrib-name">${esc(r.label)}</span>` +
-        `<span class="yhat-contrib-track">` +
-        `<span class="yhat-contrib-bar ${side}" style="width:${pct.toFixed(1)}%"></span>` +
-        `</span>` +
-        `<span class="yhat-contrib-val ${side}">${esc(
-          `${sign}${r.contrib.toFixed(3)}`
-        )}</span>` +
-        `</div>`
-      );
-    })
-    .join("");
-  return (
-    `<div class="yhat-contrib-bars" aria-label="因子贡献">` +
-    `<div class="score-section-title">贡献条</div>` +
-    bars +
-    `</div>`
-  );
-}
-
 function cssVar(el, name, fallback) {
   try {
     const v = getComputedStyle(el || document.documentElement).getPropertyValue(name);
@@ -934,155 +891,6 @@ export function paintYhatScatter(canvas, points, opts = {}) {
   };
 }
 
-/** 组内 ŷ 条带（兼容旧调用；现委托迷你直方图）。 */
-export function buildGroupYhatStripHtml(scores, opts = {}) {
-  return buildGroupYhatHistHtml(scores, opts);
-}
-
-/**
- * 组内 ŷ 迷你直方图（分箱密度 · 零轴 · μ/med）。
- * 用于研究枢纽分组组头，纯 HTML/CSS，无需 canvas。
- * Pro 升级：P20/P80 分层线 + 空/多/中性三区阴影背景 + conviction KPI + status chip
- */
-export function buildGroupYhatHistHtml(
-  scores,
-  { escapeHtml, bins = 12, maxBars = 40, universeRef = null } = {}
-) {
-  const esc = escapeHtml || ((s) => String(s ?? ""));
-  const vals = (scores || [])
-    .map((x) => Number(x))
-    .filter((n) => Number.isFinite(n));
-  if (!vals.length) return "";
-  const k = Math.max(
-    6,
-    Math.min(16, Math.round(bins) || 12, Math.max(4, vals.length))
-  );
-  const pack = binScores(vals, { bins: k });
-  if (!pack.n) return "";
-  const maxC = Math.max(...pack.bins.map((b) => b.count), 1);
-  const span = pack.max - pack.min || 1;
-  const pctAt = (v) =>
-    `${Math.max(0, Math.min(100, ((Number(v) - pack.min) / span) * 100)).toFixed(2)}%`;
-
-  // —— Pro: P20 / P80 分位阈值计算（conviction 分层依据）——
-  const sorted = [...vals].sort((a, b) => a - b);
-  const n = sorted.length;
-  const pQuantile = (q) => {
-    const pos = (n - 1) * q;
-    const lo = Math.floor(pos);
-    const hi = Math.min(n - 1, lo + 1);
-    return sorted[lo] + (sorted[hi] - sorted[lo]) * (pos - lo);
-  };
-  const p20 = pQuantile(0.2);
-  const p80 = pQuantile(0.8);
-  const p10 = pQuantile(0.1);
-  const p90 = pQuantile(0.9);
-  const topBottomSpread = p80 - p20;
-  // Top-Bottom spread / σ（分离度强度，越大分层越有意义）
-  const spreadOverSigma = pack.std > 0 ? topBottomSpread / pack.std : 0;
-  // Top 3 得分均值 vs μ 的 σ 倍数
-  const top3Mean = n >= 3 ? sorted.slice(-3).reduce((s, x) => s + x, 0) / 3 : sorted[sorted.length - 1];
-  const topSigma = pack.std > 0 ? (top3Mean - (pack.mean || 0)) / pack.std : 0;
-  // 偏斜度方向：判断偏多/偏空
-  const diffMuMed = (pack.mean || 0) - (pack.median || 0);
-  const pctPos = pack.pct_pos != null ? pack.pct_pos : sorted.filter((v) => v > 0).length / n;
-
-  const bars = pack.bins
-    .map((b) => {
-      const h = b.count ? Math.max(8, (b.count / maxC) * 100) : 0;
-      const mid = (b.x0 + b.x1) / 2;
-      const side = mid >= 0 ? "pos" : "neg";
-      const tip = `[${b.x0.toFixed(2)}, ${b.x1.toFixed(2)}) · ${b.count} 只`;
-      // conviction 分级着色（叠加在 pos/neg 上）
-      let tier = "mid";
-      if (mid < p20) tier = "short";
-      else if (mid > p80) tier = "long";
-      if (!b.count) {
-        return `<span class="yhat-ghist-bar is-empty is-tier-${tier}" title="${esc(tip)}"></span>`;
-      }
-      return (
-        `<span class="yhat-ghist-bar ${side} is-tier-${tier}" style="height:${h.toFixed(0)}%" ` +
-        `title="${esc(tip)}"></span>`
-      );
-    })
-    .join("");
-
-  const f = (x, d = 2) =>
-    x != null && Number.isFinite(x) ? Number(x).toFixed(d) : "—";
-  const markers = [];
-  if (pack.min < 0 && pack.max > 0) {
-    markers.push(
-      `<span class="yhat-ghist-mark is-zero" style="left:${pctAt(0)}" title="ŷ=0">0</span>`
-    );
-  }
-  if (pack.mean != null) {
-    markers.push(
-      `<span class="yhat-ghist-mark is-mu" style="left:${pctAt(pack.mean)}" title="μ ${f(
-        pack.mean
-      )}">μ</span>`
-    );
-  }
-  if (pack.median != null) {
-    markers.push(
-      `<span class="yhat-ghist-mark is-med" style="left:${pctAt(pack.median)}" title="med ${f(
-        pack.median
-      )}">med</span>`
-    );
-  }
-  // —— Pro: 分层竖线（P20 减仓建议 / P80 加仓建议）——
-  markers.push(
-    `<span class="yhat-ghist-mark is-p20" style="left:${pctAt(p20)}" title="P20 短仓建议 = ${f(p20)}">P20</span>`
-  );
-  markers.push(
-    `<span class="yhat-ghist-mark is-p80" style="left:${pctAt(p80)}" title="P80 长仓建议 = ${f(p80)}">P80</span>`
-  );
-
-  // 兼容旧参数名（不再抽样竖条）
-  void maxBars;
-
-  return (
-    `<div class="yhat-group-hist is-aux yhat-group-hist--pro" aria-label="组内 ŷ 直方图（辅）">` +
-    `<div class="yhat-ghist-meta yhat-ghist-meta--pro">` +
-    `<div class="yhat-ghist-meta-row1">` +
-    `<span class="yhat-ghist-caption">辅 · 截面 ŷ</span>` +
-    `<span>n=${pack.n}</span>` +
-    `<span>μ ${esc(f(pack.mean))}</span>` +
-    `<span>med ${esc(f(pack.median))}</span>` +
-    `<span>σ ${esc(f(pack.std))}</span>` +
-    `<span>${esc((pctPos * 100).toFixed(0))}%&gt;0</span>` +
-    `</div>` +
-    `<div class="yhat-ghist-meta-row2">` +
-    `<span class="yhat-ghist-conv is-strong" title="Top-Bottom / σ">T/B·σ ${esc(spreadOverSigma.toFixed(2))}</span>` +
-    `<span class="yhat-ghist-conv" title="Top3 均值超 μ 几个 σ">Top3·σ ${esc(topSigma.toFixed(1))}</span>` +
-    `<span class="yhat-ghist-conv" title="P20 / P80 具体阈值">P20/P80 ${esc(f(p20, 3))} / ${esc(f(p80, 3))}</span>` +
-    `<span class="yhat-ghist-conv" title="μ-med 差值（正=右拖尾·负=左拖尾）">μ−med ${esc(diffMuMed.toFixed(3))}</span>` +
-    `</div>` +
-    `</div>` +
-    `<div class="yhat-ghist-plot yhat-ghist-plot--pro" style="--tier-short-left:${pctAt(pack.min)};--tier-short-right:${pctAt(p20)};--tier-long-left:${pctAt(p80)};--tier-long-right:${pctAt(pack.max)};">` +
-    `<div class="yhat-ghist-bars">${bars}</div>` +
-    `<div class="yhat-ghist-marks">${markers.join("")}</div>` +
-    `</div>` +
-    `<div class="yhat-ghist-axis">` +
-    `<span>${esc(f(pack.data_min != null ? pack.data_min : pack.min, 1))}</span>` +
-    `<span>P20</span>` +
-    `<span>0</span>` +
-    `<span>P80</span>` +
-    `<span>${esc(f(pack.data_max != null ? pack.data_max : pack.max, 1))}</span>` +
-    `</div>` +
-    `<div class="yhat-ghist-legend yhat-ghist-legend--pro">` +
-    `<span class="is-mu">μ</span>` +
-    `<span class="is-med">med</span>` +
-    `<span class="is-zero">0</span>` +
-    `<span class="is-p20">P20减</span>` +
-    `<span class="is-p80">P80加</span>` +
-    `</div>` +
-    `</div>`
-  );
-}
-
-
-/**
-
 
 /** 命中率 sparkline（0–1）。 */
 export function paintHitSparkline(canvas, points, opts = {}) {
@@ -1227,7 +1035,7 @@ function signedReturnCellBg(t) {
   return heatCellStyle(t, "return");
 }
 
-/** 从 cluster 抽取健康指标（与 buildGroupIcInsightHtml 同口径）。 */
+/** 从 cluster 抽取健康指标（R²/IC/ICIR/ŷ/ΔOOS/同质度等，供跨组健康矩阵使用）。 */
 function extractClusterHealth(cl) {
   const ols = (cl && cl.ols) || null;
   const rm = (cl && cl.return_model) || null;
@@ -1396,13 +1204,9 @@ export function buildClustersHealthMatrixHtml(
     return { label, kind, isPref, score, ...h };
   });
 
-  // 综合分降序；跳过组沉底；同分优先过门
+  // 按组名排序；跳过组沉底
   rows.sort((a, b) => {
     if (a.skipped !== b.skipped) return a.skipped ? 1 : -1;
-    const sa = a.score != null ? a.score : -1;
-    const sb = b.score != null ? b.score : -1;
-    if (sb !== sa) return sb - sa;
-    if (a.passed !== b.passed) return a.passed ? -1 : 1;
     return String(a.label).localeCompare(String(b.label), "zh");
   });
 
@@ -1592,4 +1396,29 @@ export function buildClustersHealthMatrixHtml(
     legend +
     `</details>`
   );
+}
+
+/* ────────────────────────────────────────────────────────────
+ * [p852] 防御性桩：以下三个函数已删除（全局零调用方），
+ * 重新导出为「调用即 console.warn 并返回空」，保留原导出契约。
+ * 若控制台出现 "[yhat_viz] <name> was removed in p852"，
+ * 说明存在遗漏的动态调用方，请回查 p852 删除记录并按需恢复实现。
+ * ──────────────────────────────────────────────────────────── */
+export function buildContribBarsHtml() {
+  console.warn(
+    "[yhat_viz] buildContribBarsHtml was removed in p852 (zero callers) — 因子贡献条不再渲染"
+  );
+  return "";
+}
+export function buildGroupYhatStripHtml() {
+  console.warn(
+    "[yhat_viz] buildGroupYhatStripHtml was removed in p852 (zero callers) — 组内 ŷ 条带不再渲染"
+  );
+  return "";
+}
+export function buildGroupYhatHistHtml() {
+  console.warn(
+    "[yhat_viz] buildGroupYhatHistHtml was removed in p852 (zero callers) — 组内 ŷ 直方图不再渲染"
+  );
+  return "";
 }

@@ -1,6 +1,7 @@
 """规则引擎：由 quote/signal/kline 等事实合成买卖 stance（确定性，供 LLM 引用）。"""
 
 from __future__ import annotations
+from core.numbers import to_float as _f
 
 from typing import Any, Dict, List, Optional
 
@@ -13,15 +14,6 @@ STANCE_LABELS = {
     "probe": "建议逢低分批关注但暂不追入",
     "buy_light": "可考虑轻仓试探（非追涨）",
 }
-
-
-def _f(v: Any) -> Optional[float]:
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
 
 
 def _bad_kline_tags(tags: List[str]) -> bool:

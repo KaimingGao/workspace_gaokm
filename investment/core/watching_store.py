@@ -1,6 +1,7 @@
 """投资宇宙 Watching：观察池定义与刷新（P9.1）。"""
 
 from __future__ import annotations
+from core.numbers import now_iso_local as _now_iso
 
 import json
 import os
@@ -9,10 +10,6 @@ from typing import Any, Dict, List, Optional
 
 from core.paths import WATCHING_EXAMPLE_PATH, WATCHING_PATH
 from core.io_atomic import atomic_write_json
-
-
-def _now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
 
 
 def validate_watching(data: Any) -> Dict[str, Any]:

@@ -743,10 +743,7 @@ export function initQuant(ctx) {
   // Factor analysis: correlation heatmap + IR
   on("quant-factor-corr-run", "click", async (e) => {
     e.preventDefault();
-    const statusEl = document.getElementById("quant-factor-analysis-status");
-    if (statusEl) statusEl.textContent = "计算因子相关性…";
     await loadAndRenderFactorCorr("quant-factor-corr-heatmap");
-    if (statusEl) statusEl.textContent = "因子相关性计算完成";
   });
 
     on("quant-ic-series-run", "click", async (e) => {

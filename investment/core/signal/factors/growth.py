@@ -1,17 +1,9 @@
 """成长因子（V2.1）：盈利/营收增速；从 quality 拆出以免与 ROE 双计。"""
 
 from __future__ import annotations
+from core.numbers import to_float as _to_float
 
 from typing import Any, Dict, Optional, Tuple
-
-
-def _to_float(val: Any) -> Optional[float]:
-    if val is None:
-        return None
-    try:
-        return float(val)
-    except (TypeError, ValueError):
-        return None
 
 
 def score_growth(

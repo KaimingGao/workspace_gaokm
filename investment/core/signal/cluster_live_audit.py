@@ -1,13 +1,10 @@
 """分组 live · 双分对照审计样本（从 cluster_live 按用例拆出）。"""
 
 from __future__ import annotations
+from core.numbers import now_iso_utc
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-
-
-def _iso_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def pick_audit_codes(
@@ -158,7 +155,7 @@ def cluster_score_audit_sample(
         "rows": rows,
         "sample_offset": int(offset),
         "sample_codes": list(codes),
-        "sampled_at": _iso_now(),
+        "sampled_at": now_iso_utc(),
         "signal_config_touched": False,
     }
     if not rows and fails:

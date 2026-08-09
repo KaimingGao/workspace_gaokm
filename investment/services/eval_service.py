@@ -1,6 +1,7 @@
 """Golden eval 服务（Web / CLI 共用）。"""
 
 from __future__ import annotations
+from core.numbers import now_iso_local as _now_iso
 
 import json
 import os
@@ -17,10 +18,6 @@ from evals.run_checklist import (
     run_agent,
     run_skills,
 )
-
-
-def _now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
 
 
 class EvalService:

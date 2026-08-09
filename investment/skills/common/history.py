@@ -1,6 +1,7 @@
 """日线数据获取：A 股 / 港股 / 美股，多接口重试；失败可用 quote 退化。"""
 
 from __future__ import annotations
+from core.numbers import to_float as _to_float
 
 import os
 from datetime import datetime, timedelta
@@ -8,18 +9,6 @@ from typing import Any, Callable, List, Optional, Tuple
 
 from core.store import load_daily_cache, save_daily_cache
 from skills.common.quote_api import StockAPI
-
-
-def _to_float(v: Any) -> Optional[float]:
-    if v is None:
-        return None
-    try:
-        f = float(v)
-        if f != f:
-            return None
-        return f
-    except (TypeError, ValueError):
-        return None
 
 
 def normalize_bars(rows: List[dict]) -> List[dict]:

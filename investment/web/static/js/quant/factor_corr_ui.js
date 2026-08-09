@@ -47,14 +47,15 @@ function syncPathStepFromChip(chipId, state) {
   step.dataset.state = pathState;
 }
 
-/** 设置状态徽章 chip 状态：idle | busy | ok | warn | error */
+/** 设置状态徽章 chip 状态：idle | busy | ok | warn | error
+ *  chip 元素已移除，仅保留 path rail 同步 */
 export function setProStatusChip(idOrEl, state, text) {
+  const chipId = typeof idOrEl === "string" ? idOrEl : idOrEl?.id;
+  if (chipId) syncPathStepFromChip(chipId, state);
   const el = typeof idOrEl === "string" ? document.getElementById(idOrEl) : idOrEl;
   if (!el) return;
   el.dataset.state = state;
   if (text != null) el.textContent = text;
-  const chipId = typeof idOrEl === "string" ? idOrEl : el.id;
-  if (chipId) syncPathStepFromChip(chipId, state);
 }
 
 /** 更新顶部全景 KPI 的单张卡片 */
@@ -345,12 +346,7 @@ function renderFactorCorrHeatmap(data, hostId) {
   const cellSize = size > 10 ? 44 : size > 7 ? 48 : 52;
   const labelSize = size > 10 ? 80 : 88;
 
-  let html =
-    `<div class="quant-chart-axis-head">` +
-    `<span class="quant-chart-title">相关性矩阵</span>` +
-    `<span class="quant-chart-axis-hint">红=同向 · 蓝=反向 · 悬停看全名</span>` +
-    `</div>`;
-  html += `<div class="factor-corr-heatmap" style="--corr-label:${labelSize}px; --corr-cell:${cellSize}px; grid-template-columns: var(--corr-label) repeat(${size}, var(--corr-cell)); max-width: ${labelSize + size * (cellSize + 2)}px">`;
+  let html = `<div class="factor-corr-heatmap" style="--corr-label:${labelSize}px; --corr-cell:${cellSize}px; grid-template-columns: var(--corr-label) repeat(${size}, var(--corr-cell)); max-width: ${labelSize + size * (cellSize + 2)}px">`;
 
   html += `<span class="factor-corr-corner"></span>`;
   for (const f of factors) {
@@ -452,7 +448,9 @@ function unwrapApi(res, label = "加载失败") {
 export async function loadAndRenderFactorCorr(hostId) {
     const host = document.getElementById(hostId);
     if (!host) return;
+    const statusEl = document.getElementById("quant-factor-corr-status");
     host.innerHTML = `<div class="quant-fingerprint is-busy">计算因子相关性…</div>`;
+    if (statusEl) statusEl.textContent = "计算中…";
     setProStatusChip("quant-pro-factor-status", "busy", "计算中…");
     try {
       const data = unwrapApi(
@@ -460,9 +458,12 @@ export async function loadAndRenderFactorCorr(hostId) {
         "相关性加载失败"
       );
       renderFactorCorrHeatmap(data, hostId);
+      const n = data.factors?.length || 0;
+      if (statusEl) statusEl.textContent = n ? `完成 · ${n} 因子` : "完成";
       setProStatusChip("quant-pro-factor-status", "ok", "相关性 OK");
     } catch (err) {
       host.innerHTML = vizEmpty(`加载失败: ${err.message || err}`);
+      if (statusEl) statusEl.textContent = "加载失败";
       setProStatusChip("quant-pro-factor-status", "error", "加载失败");
     }
   }
