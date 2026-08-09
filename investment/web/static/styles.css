@@ -3539,146 +3539,15 @@ html[data-theme="dark"] .yhat-spark-canvas {
   height: 140px;
   min-height: 120px;
 }
-.yhat-group-strip {
-  margin: 6px 0 2px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 8px 12px;
-}
-.yhat-strip-bars {
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 36px;
-  flex: 1 1 160px;
-  min-width: 120px;
-  max-width: 420px;
-  padding: 2px 4px;
-  border-radius: 6px;
-  background: rgba(241, 245, 249, 0.9);
-  border: 1px solid rgba(100, 116, 139, 0.12);
-}
-.yhat-strip-bar {
-  flex: 1 1 0;
-  min-width: 2px;
-  max-width: 10px;
-  border-radius: 2px 2px 0 0;
-  align-self: flex-end;
-}
-.yhat-strip-bar.pos { background: rgba(185, 28, 28, 0.7); }
-.yhat-strip-bar.neg { background: rgba(4, 120, 87, 0.7); }
-.yhat-strip-meta {
-  font-size: 10px;
-  color: #64748b;
-  white-space: nowrap;
-}
-
-/* 组内 ŷ 迷你直方图 */
-
-
-
-/* —— 每组内 4 图统一网格（2×2） —— */
-@media (max-width: 720px) {
-}
-/* 网格内：β lollipop / ŷ hist 去掉自带边框背景，由外层 card 统一 */
-
-
-
-/* ========== yhat insight 基础样式（被 ΔOOS 图、健康矩阵等共享） ========== */
-.yhat-insight-card {
-  padding: 12px 14px 14px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-2);
-  margin: 8px 0 10px;
-  flex: 1 1 100%;
-}
-
-.yhat-insight-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 6px;
-}
-
-.yhat-insight-title {
-  font-size: 0.88rem;
-  font-weight: 600;
-  color: var(--ink);
-  letter-spacing: 0.01em;
-}
-
-.yhat-insight-meta {
-  font-size: 0.72rem;
-  color: var(--ink-3);
-  font-variant-numeric: tabular-nums;
-}
-
-.yhat-insight-hint {
-  font-size: 0.7rem;
-  color: var(--ink-3);
-  line-height: 1.5;
-  margin: 0 0 8px;
-  padding: 0;
-}
-
-html[data-theme="dark"] .yhat-insight-card {
-  background: var(--bg-2);
-  border-color: var(--line);
-}
-
-/* ========== 研究枢纽页特定：yhat insight 样式强化 ========== */
-.quant-page .yhat-insight-card {
-  padding: 10px 14px 13px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: transparent;
-  margin: 10px 0;
-  max-width: 968px;
-}
-
-.quant-page .yhat-insight-card:hover {
-  border-color: var(--line-2);
-  background: var(--bg-2);
-}
-
-.quant-page .yhat-insight-head {
-  padding: 2px 0 4px;
-  border-bottom: none;
-  margin-bottom: 4px;
-}
-
-.quant-page .yhat-insight-title {
-  font-size: 0.92rem;
-  font-weight: 600;
-  color: var(--ink);
-}
-
-.quant-page .yhat-insight-meta {
-  font-size: 0.74rem;
-  color: var(--ink-3);
-}
-
-.quant-page .yhat-insight-hint {
-  font-size: 0.72rem;
-  color: var(--ink-3);
-  line-height: 1.55;
-  margin: 0 0 6px;
-}
-
-html[data-theme="dark"] .quant-page .yhat-insight-card {
-  border-color: var(--line);
-  background: transparent;
-}
-
-html[data-theme="dark"] .quant-page .yhat-insight-card:hover {
-  background: rgba(255,255,255,0.02);
-  border-color: var(--line-2);
-}
-
-
+/* ────────────────────────────────────────────────────────────
+   [p852] 已移除：.yhat-insight-* + .yhat-strip-*/.yhat-group-strip
+   原因：p790 删除 β距离/组IC/组β 三图及组内 ŷ 条带后，HTML/JS 零引用
+   移除选择器：.yhat-insight-card/-head/-title/-meta/-hint（含 .quant-page
+   与 html[data-theme=dark] 变体 14 条）、.yhat-group-strip/.yhat-strip-bars/
+   -bar/-meta（约 34 行）；另清 1 个空 @media + 2 条孤立注释
+   排查：若卡片外壳或 ŷ 条带样式丢失，先确认此处是否误删；
+         .yhat-mx-* 矩阵样式保留，未动。
+   ──────────────────────────────────────────────────────────── */
 
 /* 跨组对照矩阵（健康 + β 跨组） */
 .yhat-mx-grid {
@@ -14237,11 +14106,11 @@ html[data-theme="dark"] .dashboard-exposure-bar-track {
 }
 .factor-corr-cell {
   width: var(--corr-cell, 48px);
-  height: calc(var(--corr-cell, 48px) * 0.68);
+  height: calc(var(--corr-cell, 48px) * 0.72);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.62rem;
+  font-size: 0.68rem;
   font-weight: 700;
   font-family: var(--font-mono);
   border-radius: 1px;
@@ -14910,14 +14779,9 @@ html[data-theme="dark"] .dashboard-sector-legend span {
 /* ——— 研究枢纽 · 专业 desk 补强（p763 / p770） ——— */
 .quant-page .quant-factor-analysis-grid {
   display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 8px;
+  grid-template-columns: 1fr;
+  gap: 12px;
   margin-top: 6px;
-}
-@media (max-width: 900px) {
-  .quant-page .quant-factor-analysis-grid {
-    grid-template-columns: 1fr;
-  }
 }
 .quant-page .quant-analysis-panel {
   min-width: 0;
@@ -16537,143 +16401,15 @@ html[data-theme="dark"] .quant-pro-help-body {
   color: rgba(255, 255, 255, 0.68);
 }
 
-/* ==========================================================================
-   Insight 4 卡 Pro 升级样式
-   卡壳层统一：quant-pro-card 同款描边+圆角+阴影+头结构
-   KPI chip · β lollipop 升级 · β 距离升级 · IC spark 升级 · ŷ hist 升级
-   ========================================================================== */
-
-/* —— Insight card 外壳 —— */
-
-/* —— Pro KPI Chip 面板 —— */
-@media (max-width: 560px) {
-}
-.yhat-pro-chip {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-  padding: 6px 8px;
-  border-radius: var(--q-radius-xs);
-  border: 1px solid var(--line);
-  background: linear-gradient(180deg, var(--bg-card) 0%, color-mix(in srgb, var(--ink) 1.2%, var(--bg-card)) 100%);
-  min-width: 0;
-  transition: all 0.14s ease;
-}
-.yhat-pro-chip:hover {
-  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
-  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent) 5%, transparent);
-  transform: translateY(-1px);
-}
-html[data-theme="dark"] .yhat-pro-chip {
-  background: linear-gradient(180deg, #181a1f 0%, #13151a 100%);
-  border-color: rgba(255, 255, 255, 0.06);
-}
-.yhat-pro-chip-k {
-  font-size: var(--q-fs-micro);
-  font-weight: var(--q-fw-label);
-  letter-spacing: 0.08em;
-  color: var(--ink-3);
-  font-family: var(--font-mono);
-  text-transform: uppercase;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1;
-}
-.yhat-pro-chip-v {
-  font-size: var(--q-fs-caption);
-  font-weight: var(--q-fw-label);
-  font-family: var(--font-mono);
-  color: var(--ink);
-  line-height: var(--q-lh-tight);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.yhat-pro-chip-v b {
-  font-size: 9px;
-  padding: 1px 5px;
-  margin-left: 4px;
-  border-radius: 3px;
-  background: color-mix(in srgb, var(--ink-3) 14%, var(--bg-card));
-  color: var(--ink-3);
-  font-weight: var(--q-fw-display);
-  font-family: var(--font-mono);
-  vertical-align: baseline;
-  letter-spacing: 0.06em;
-  line-height: 1.1;
-  display: inline-block;
-}
-/* chip 色阶（完全走语义变量，红涨/绿涨模式自适应） */
-.yhat-pro-chip--ok {
-  border-color: color-mix(in srgb, var(--color-up, #f5222d) 24%, var(--line));
-  background: linear-gradient(180deg, var(--bg-card) 0%, color-mix(in srgb, var(--color-up, #f5222d) 3.5%, var(--bg-card)) 100%);
-}
-.yhat-pro-chip--ok .yhat-pro-chip-v { color: var(--color-up, #f5222d); }
-.yhat-pro-chip--ok .yhat-pro-chip-v b { background: color-mix(in srgb, var(--color-up, #f5222d) 14%, var(--bg-card)); color: color-mix(in srgb, var(--color-up, #f5222d) 80%, var(--ink)); }
-.yhat-pro-chip--good {
-  border-color: color-mix(in srgb, var(--color-up, #f5222d) 18%, var(--line));
-  background: linear-gradient(180deg, var(--bg-card) 0%, color-mix(in srgb, var(--color-up, #f5222d) 2%, var(--bg-card)) 100%);
-}
-.yhat-pro-chip--good .yhat-pro-chip-v { color: color-mix(in srgb, var(--color-up, #f5222d) 88%, var(--ink)); }
-.yhat-pro-chip--good .yhat-pro-chip-v b { background: color-mix(in srgb, var(--color-up, #f5222d) 12%, var(--bg-card)); color: color-mix(in srgb, var(--color-up, #f5222d) 76%, var(--ink)); }
-.yhat-pro-chip--warn {
-  border-color: color-mix(in srgb, var(--warn, #faad14) 28%, var(--line));
-  background: linear-gradient(180deg, var(--bg-card) 0%, color-mix(in srgb, var(--warn, #faad14) 3.5%, var(--bg-card)) 100%);
-}
-.yhat-pro-chip--warn .yhat-pro-chip-v { color: var(--warn, #faad14); }
-.yhat-pro-chip--warn .yhat-pro-chip-v b { background: color-mix(in srgb, var(--warn, #faad14) 14%, var(--bg-card)); color: color-mix(in srgb, var(--warn, #faad14) 80%, var(--ink)); }
-.yhat-pro-chip--bad {
-  border-color: color-mix(in srgb, var(--color-down, #52c41a) 28%, var(--line));
-  background: linear-gradient(180deg, var(--bg-card) 0%, color-mix(in srgb, var(--color-down, #52c41a) 3.5%, var(--bg-card)) 100%);
-}
-.yhat-pro-chip--bad .yhat-pro-chip-v { color: var(--color-down, #52c41a); }
-.yhat-pro-chip--bad .yhat-pro-chip-v b { background: color-mix(in srgb, var(--color-down, #52c41a) 14%, var(--bg-card)); color: color-mix(in srgb, var(--color-down, #52c41a) 80%, var(--ink)); }
-.yhat-pro-chip--muted .yhat-pro-chip-v { color: var(--ink-3); }
-html[data-theme="dark"] .yhat-pro-chip--ok {
-  border-color: color-mix(in srgb, var(--color-up, #f5222d) 32%, var(--line));
-  background: linear-gradient(180deg, #181a1f 0%, color-mix(in srgb, var(--color-up, #f5222d) 5%, transparent) 100%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-up, #f5222d) 6%, transparent);
-}
-html[data-theme="dark"] .yhat-pro-chip--ok .yhat-pro-chip-v { color: color-mix(in srgb, var(--color-up, #f5222d) 90%, #fff); }
-html[data-theme="dark"] .yhat-pro-chip--good {
-  border-color: color-mix(in srgb, var(--color-up, #f5222d) 24%, var(--line));
-  background: linear-gradient(180deg, #181a1f 0%, color-mix(in srgb, var(--color-up, #f5222d) 3%, transparent) 100%);
-}
-html[data-theme="dark"] .yhat-pro-chip--warn {
-  border-color: color-mix(in srgb, var(--warn, #faad14) 32%, var(--line));
-  background: linear-gradient(180deg, #181a1f 0%, color-mix(in srgb, var(--warn, #faad14) 4%, transparent) 100%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn, #faad14) 5%, transparent);
-}
-html[data-theme="dark"] .yhat-pro-chip--warn .yhat-pro-chip-v { color: color-mix(in srgb, var(--warn, #faad14) 88%, #fff); }
-html[data-theme="dark"] .yhat-pro-chip--bad {
-  border-color: color-mix(in srgb, var(--color-down, #52c41a) 30%, var(--line));
-  background: linear-gradient(180deg, #181a1f 0%, color-mix(in srgb, var(--color-down, #52c41a) 4%, transparent) 100%);
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-down, #52c41a) 6%, transparent);
-}
-html[data-theme="dark"] .yhat-pro-chip--bad .yhat-pro-chip-v { color: color-mix(in srgb, var(--color-down, #52c41a) 88%, #fff); }
-
-/* —— 图1 β 距离 分级着色 + 参考线 —— */
-
-/* —— 图2 IC spark Pro 升级 —— */
-
-/* —— 图3 β 棒棒糖 Pro —— */
-
-/* —— 图4 ŷ 直方图 Pro 升级 —— */
-/* tier 着色叠加在正负之上 */
-
-/* —— insight grid 响应式（Pro 单行 3 列，充分利用版面） —— */
-/* 卡内容区域：图表容器吃掉剩余空间 */
-/* 图1 β 距离：padding 收窄，填满高度 */
-/* 图2 IC：SVG 左右留白去掉，margin 改 4/8，KPI panel 前 gap 收；flex 扩满卡身 */
-/* Pro 卡通用：最后一个子元素（通常是图表体）吃掉剩余空间，避免 4 图尾部留白 */
-/* 图3 β 棒棒糖：padding 收窄 */
-/* 图4 ŷ 直方图：plot 高度适配窄列 */
-@media (max-width: 700px) {
-}
-@media (max-width: 420px) {
-}
+/* ────────────────────────────────────────────────────────────
+   [p852] 已移除：Insight 4 卡 Pro 升级样式整节
+   原因：p790/p793 删除四个 Pro 图表（β距离/组IC/组β/ΔOOS/ŷ直方图）后，
+         HTML/JS 零引用；原节含 3 个空 @media{} 异常，一并清除。
+   移除选择器：.yhat-pro-chip / -k / -v 及 --ok/--good/--warn/--bad/--muted
+   变体（含 dark 主题，约 138 行）
+   排查：若 Pro KPI chip 丢失配色，先确认此处是否误删；
+         .quant-pro-* 主排版样式保留，未动。
+   ──────────────────────────────────────────────────────────── */
 
 /* ==========================================================================
    研究枢纽 · 表格/折叠密度收口 (p777)
@@ -17890,14 +17626,9 @@ html[data-density="compact"] .dashboard-risk-card {
 
 .quant-page .quant-factor-analysis-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
-  gap: 10px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
   margin: 0;
-}
-@media (max-width: 900px) {
-  .quant-page .quant-factor-analysis-grid {
-    grid-template-columns: minmax(0, 1fr);
-  }
 }
 .quant-page .quant-analysis-panel {
   min-width: 0;

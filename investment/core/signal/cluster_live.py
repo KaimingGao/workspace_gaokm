@@ -7,6 +7,7 @@
 """
 
 from __future__ import annotations
+from core.numbers import now_iso_utc
 
 import json
 import os
@@ -15,13 +16,10 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
 from core.io_atomic import atomic_write_json
+from core.signal.factor_health import PROXY_OR_UNSOURCED
 
 
 SCHEMA_VERSION = 1
-
-
-def _iso_now() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _ensure_dirs() -> None:
@@ -420,6 +418,19 @@ def promote_cluster_artifact(
                     except (TypeError, ValueError):
                         pass
         if merged_w:
+            # FM0.5 · 剥离 proxy/prior_only 因子权重（OLS 残留，不应进生产）
+            _proxy_keys = set(PROXY_OR_UNSOURCED.keys())
+            if _proxy_keys:
+                for _pk in _proxy_keys:
+                    merged_w.pop(_pk, None)
+                for _meta in (artifact.get("code_map") or {}).values():
+                    if isinstance(_meta, dict) and isinstance(_meta.get("weights"), dict):
+                        for _pk in _proxy_keys:
+                            _meta["weights"].pop(_pk, None)
+                for _cl in artifact.get("clusters") or []:
+                    if isinstance(_cl, dict) and isinstance(_cl.get("weights"), dict):
+                        for _pk in _proxy_keys:
+                            _cl["weights"].pop(_pk, None)
             guard = guard_weights_for_promote(merged_w, force=force)
             if guard.get("blocked"):
                 return {
@@ -523,7 +534,8 @@ def promote_cluster_artifact(
             "oos_passed": meta.get("oos_passed"),
         }
         if isinstance(w, dict) and w:
-            entry["weights"] = {str(k): float(v) for k, v in w.items() if _num(v)}
+            _w_clean = {k: v for k, v in w.items() if k not in PROXY_OR_UNSOURCED}
+            entry["weights"] = {str(k): float(v) for k, v in _w_clean.items() if _num(v)}
             if used_derived:
                 entry["weights_derived_from_beta"] = True
         cmap[c] = entry
@@ -532,7 +544,7 @@ def promote_cluster_artifact(
         "success": True,
         "schema_version": SCHEMA_VERSION,
         "version": version,
-        "promoted_at": _iso_now(),
+        "promoted_at": now_iso_utc(),
         "source_created_at": artifact.get("created_at"),
         "n_clusters": artifact.get("n_clusters") or len({
             m.get("cluster_label") for m in cmap.values()
@@ -648,7 +660,7 @@ def rollback_cluster_weights(*, to_version: Optional[int] = None) -> Dict[str, A
     cur_path = resolve_cluster_weights_path()
     warnings: List[str] = []
     if cur and cur_path and os.path.isfile(cur_path):
-        stamp = _iso_now().replace(":", "").replace("-", "")
+        stamp = now_iso_utc().replace(":", "").replace("-", "")
         bak = os.path.join(
             CLUSTER_WEIGHTS_HISTORY_DIR,
             f"cluster_weights_v{cur.get('version', 0)}_pre_rollback_{stamp}.json",
@@ -676,7 +688,7 @@ def rollback_cluster_weights(*, to_version: Optional[int] = None) -> Dict[str, A
     restored_doc = dict(restored_doc)
     restored_doc["version"] = new_ver
     restored_doc["rolled_back_from"] = chosen
-    restored_doc["promoted_at"] = _iso_now()
+    restored_doc["promoted_at"] = now_iso_utc()
     published = publish_cluster_weights_doc(
         restored_doc, note=f"rollback from {chosen}"
     )
@@ -722,8 +734,8 @@ def save_cluster_draft(artifact: Dict[str, Any]) -> Dict[str, Any]:
         "success": True,
         "is_draft": True,
         "schema_version": SCHEMA_VERSION,
-        "created_at": artifact.get("created_at") or _iso_now(),
-        "saved_at": _iso_now(),
+        "created_at": artifact.get("created_at") or now_iso_utc(),
+        "saved_at": now_iso_utc(),
         "code_map": artifact.get("code_map"),
         "clusters": artifact.get("clusters"),
         "pool_book": artifact.get("pool_book"),
@@ -754,7 +766,7 @@ def save_active_cluster_book(book: Sequence[Dict[str, Any]], *, meta: Optional[d
     _ensure_dirs()
     payload = {
         "success": True,
-        "updated_at": _iso_now(),
+        "updated_at": now_iso_utc(),
         "book": list(book or []),
         "meta": meta or {},
         "signal_config_touched": False,

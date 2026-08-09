@@ -5,6 +5,7 @@
 """
 
 from __future__ import annotations
+from core.numbers import to_float as _f
 
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 from datetime import datetime
@@ -25,15 +26,6 @@ _INSIGHT_MAX_WORKERS = 12
 # 与观察池上限对齐（watching 常见 100）；勿砍到更小导致尾部无分
 _INSIGHT_DEFAULT_LIMIT = 100
 _INSIGHT_HARD_CAP = 120
-
-
-def _f(v: Any) -> Optional[float]:
-    if v is None:
-        return None
-    try:
-        return float(v)
-    except (TypeError, ValueError):
-        return None
 
 
 def _days_since(iso: Optional[str]) -> Optional[int]:
@@ -194,6 +186,7 @@ def _insight_one(
         out["delta_vs_global"] = _f(item.get("delta_vs_global"))
         out["return_model_source"] = item.get("return_model_source")
         out["factor_coefficients"] = item.get("factor_coefficients")
+        out["sub_scores"] = item.get("sub_scores") or {}
         out["score_formula_terms"] = item.get("score_formula_terms")
         # 选股门槛仅标注，不抹掉分数
         try:
@@ -345,7 +338,10 @@ def build_watching_insights(
                         error="整批超时",
                     )
     finally:
-        pool.shutdown(wait=False, cancel_futures=True)
+        try:
+            pool.shutdown(wait=False, cancel_futures=True)
+        except TypeError:
+            pool.shutdown(wait=False)
 
     items = [
         items_by_code.get(c)
@@ -363,3 +359,25 @@ def build_watching_insights(
         "truncated": truncated,
         "note": note,
     }
+
+
+def load_insights_cache() -> Optional[List[Dict[str, Any]]]:
+    """加载观察池 insights items（即时构建，供因子相关性/IR 等只读分析复用）。"""
+    try:
+        from core.watching_store import read_watching, watchlist_added_map
+
+        uni = read_watching()
+        added_map = watchlist_added_map(uni)
+        fallback = str(uni.get("updated_at") or "").strip()
+        if fallback:
+            for c in uni.get("watchlist") or []:
+                key = str(c).strip()
+                if key and key not in added_map:
+                    added_map[key] = fallback
+        codes = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
+    except Exception:
+        return None
+    if not codes:
+        return None
+    result = build_watching_insights(codes, added_at_by_code=added_map)
+    return list(result.get("items") or [])

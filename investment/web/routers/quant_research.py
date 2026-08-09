@@ -181,7 +181,6 @@ def quant_factor_ir(
 ):
     """因子 IR 分析：因子信息比率 = IC 均值 / IC 标准差 × sqrt(252/horizon)。"""
     try:
-        from core.backtest.factor_cs_ic import run_cs_ic
         from core.watching_insights import load_insights_cache
 
         insights = load_insights_cache()

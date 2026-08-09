@@ -261,8 +261,12 @@ def append_headline_history(code: str, payload: Dict[str, Any]) -> Optional[str]
         with open(path, "r", encoding="utf-8") as f:
             lines = f.readlines()
         if len(lines) > max_lines:
-            with open(path, "w", encoding="utf-8") as f:
+            import tempfile
+
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
                 f.writelines(lines[-max_lines:])
+            os.replace(tmp, path)
     except OSError:
         pass
     return path

@@ -5,12 +5,16 @@ promote：research 配置 → 人工确认后写入 paper 使用的策略快照�
 """
 
 from __future__ import annotations
+from core.numbers import now_iso_local as _now_iso
 
 import json
+import logging
 import os
 from copy import deepcopy
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from core.backtest.strategies import (
     DEFAULT_STRATEGY,
@@ -40,10 +44,6 @@ __all__ = [
 ]
 
 PROMOTED_PATH = os.path.join(DATA_DIR, "strategy_promoted.json")
-
-
-def _now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
 
 
 def get_strategy_spec(name: str = DEFAULT_STRATEGY) -> Dict[str, Any]:
@@ -161,7 +161,7 @@ def promote_strategy(
                 f" · [factor_health warn] {guard.get('error') or 'proxy weight'}"
             )
     except Exception:
-        pass
+        logger.warning("factor_health guard failed during promote", exc_info=True)
     spec = get_strategy_spec(strategy)
     if overrides:
         params = merge_strategy_params(strategy, overrides)
@@ -211,7 +211,7 @@ def promote_strategy(
             },
         )
     except Exception:
-        pass
+        logger.warning("append_ttm_event failed during promote", exc_info=True)
     try:
         from core.live_config_manifest import write_live_config_manifest
 
@@ -219,5 +219,5 @@ def promote_strategy(
             note=f"after promote_strategy {spec.get('strategy_id')}"
         )
     except Exception:
-        pass
+        logger.warning("write_live_config_manifest failed during promote", exc_info=True)
     return entry

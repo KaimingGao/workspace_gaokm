@@ -2,6 +2,33 @@ import { apiFetch } from "../api_client.js";
 import { escapeHtml } from "../shared.js";
 import { renderMultiLineChart } from "../lw_charts.js";
 
+/* ===== 因子中文名映射（与 core.signal.factor_registry 同步） ===== */
+const FACTOR_CN = {
+  momentum: "动量",
+  volume_price: "量价",
+  volatility: "波动",
+  relative_strength: "相对强弱",
+  reversal: "反转",
+  liquidity: "流动性",
+  value: "估值",
+  quality: "质量",
+  technical_pattern: "技术形态",
+  weekly_confirm: "周线确认",
+  ma_slope: "均线斜率",
+  alt_sentiment: "舆情",
+  gap_risk: "跳空风险",
+  size: "规模",
+  earnings_yield: "盈利收益率",
+  growth: "成长",
+  dividend: "股息",
+  money_flow: "资金流",
+  amihud: "非流动性",
+  idio_momentum: "特异动量",
+};
+function factorCN(name) {
+  return FACTOR_CN[name] || name;
+}
+
 /* ===== Quant Pro UI Helpers ===== */
 
 const PATH_CHIP_HREF = {
@@ -315,8 +342,8 @@ function renderFactorCorrHeatmap(data, hostId) {
   const factors = data.factors;
   const matrix = data.matrix || {};
   const size = factors.length;
-  const cellSize = size > 10 ? 36 : size > 7 ? 42 : 48;
-  const labelSize = size > 10 ? 64 : 80;
+  const cellSize = size > 10 ? 44 : size > 7 ? 48 : 52;
+  const labelSize = size > 10 ? 80 : 88;
 
   let html =
     `<div class="quant-chart-axis-head">` +
@@ -327,18 +354,20 @@ function renderFactorCorrHeatmap(data, hostId) {
 
   html += `<span class="factor-corr-corner"></span>`;
   for (const f of factors) {
-    html += `<span class="factor-corr-label is-col" title="${escapeHtml(f)}">${escapeHtml(shortFactor(f, 6))}</span>`;
+    const cn = factorCN(f);
+    html += `<span class="factor-corr-label is-col" title="${escapeHtml(f + ' · ' + cn)}">${escapeHtml(shortFactor(cn, 5))}</span>`;
   }
 
   factors.forEach((rowFactor, ri) => {
-    html += `<span class="factor-corr-label is-row" title="${escapeHtml(rowFactor)}">${escapeHtml(shortFactor(rowFactor, 8))}</span>`;
+    const rowCN = factorCN(rowFactor);
+    html += `<span class="factor-corr-label is-row" title="${escapeHtml(rowFactor + ' · ' + rowCN)}">${escapeHtml(shortFactor(rowCN, 6))}</span>`;
     factors.forEach((colFactor, ci) => {
       const val = matrix[rowFactor]?.[colFactor];
       const display = val != null && Number.isFinite(Number(val)) ? Number(val).toFixed(2) : "—";
       const bg = corrColor(val);
       const fg = corrTextColor(val);
       const diag = ri === ci ? " is-diag" : "";
-      const title = `${rowFactor} ↔ ${colFactor}: ${display}`;
+      const title = `${rowCN} ↔ ${factorCN(colFactor)}: ${display}`;
       html += `<div class="factor-corr-cell${diag}" data-r="${ri}" data-c="${ci}" style="background:${bg}; color:${fg};" title="${escapeHtml(title)}">${display}</div>`;
     });
   });
@@ -385,10 +414,11 @@ function renderFactorIR(data, hostId) {
     const ir = Number(f.ir_annual || 0);
     const half = ir === 0 ? 0 : Math.max(3, (Math.abs(ir) / maxAbsIR) * 50);
     const isPos = ir >= 0;
-    const tip = `${f.factor} · IR ${ir >= 0 ? "+" : ""}${ir.toFixed(2)} · 正IC ${f.positive_rate?.toFixed?.(0) ?? "—"}%`;
+    const cn = factorCN(f.factor);
+    const tip = `${cn} · IR ${ir >= 0 ? "+" : ""}${ir.toFixed(2)} · 正IC ${f.positive_rate?.toFixed?.(0) ?? "—"}%`;
     html += `
       <div class="factor-ir-row" title="${escapeHtml(tip)}">
-        <span class="factor-ir-name">${escapeHtml(f.factor)}</span>
+        <span class="factor-ir-name">${escapeHtml(cn)}</span>
         <div class="factor-ir-bar-track is-bipolar">
           <span class="factor-ir-zero" aria-hidden="true"></span>
           <div class="factor-ir-bar-fill ${isPos ? "is-positive" : "is-negative"}" style="${

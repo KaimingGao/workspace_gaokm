@@ -749,14 +749,6 @@ export function initQuant(ctx) {
     if (statusEl) statusEl.textContent = "因子相关性计算完成";
   });
 
-  on("quant-factor-ir-run", "click", async (e) => {
-      e.preventDefault();
-      const statusEl = document.getElementById("quant-factor-analysis-status");
-      if (statusEl) statusEl.textContent = "计算因子 IR…";
-      await loadAndRenderFactorIR("quant-factor-ir-bars");
-      if (statusEl) statusEl.textContent = "因子 IR 计算完成";
-    });
-
     on("quant-ic-series-run", "click", async (e) => {
       e.preventDefault();
       const lookback = document.getElementById("quant-ic-series-lookback")?.value || "60";

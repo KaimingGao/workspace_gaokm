@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 from core.paper import ORIGIN_STRATEGY, _now_iso, append_operation_log, build_ops_report
 from core.paper_costs import (
@@ -13,6 +16,29 @@ from core.paper_costs import (
     resolve_cost_model,
 )
 from core.ports.market import quote_price as _quote_price
+
+
+def _batch_query_quotes(codes: List[str], *, workers: int = 8) -> Dict[str, dict]:
+    """并行批量查询行情，返回 {code: quote} 字典；失败 code 不含或值为空 dict。"""
+    if not codes:
+        return {}
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from core.ports.market import query_quote
+
+    out: Dict[str, dict] = {}
+    uniq = list(dict.fromkeys(c for c in codes if c))
+    if not uniq:
+        return out
+    with ThreadPoolExecutor(max_workers=min(workers, len(uniq))) as pool:
+        futures = {pool.submit(query_quote, c): c for c in uniq}
+        for fut in as_completed(futures, timeout=30):
+            code = futures[fut]
+            try:
+                out[code] = fut.result(timeout=0)
+            except Exception:
+                out[code] = {}
+    return out
 
 
 def _buy_match_block_reason(code: str, quote: Optional[dict]) -> Optional[str]:
@@ -231,6 +257,10 @@ def simulate_cross_section_rebalance(
     turnover_capped = False
     turnover_skipped: List[str] = []
 
+    # P0 · 批量预取行情（避免循环内串行网络往返）
+    _sell_codes = [str(h.get("stock_code") or "") for h in holdings if h.get("stock_code")]
+    _quote_cache: Dict[str, dict] = _batch_query_quotes(_sell_codes)
+
     for h in holdings:
         code = str(h.get("stock_code") or "")
         shares = float(h.get("shares") or 0)
@@ -285,10 +315,11 @@ def simulate_cross_section_rebalance(
                     kept.append(h)
                     continue
             except Exception:
+                logger.warning("sell_loop sentiment_prior failed for %s", code, exc_info=True)
                 kept.append(h)
                 continue
 
-        quote = query_quote(code)
+        quote = _quote_cache.get(code) or {}
         price = _quote_price(quote) if quote.get("success") else None
         if not price or price <= 0:
             kept.append(h)
@@ -516,6 +547,14 @@ def simulate_cross_section_rebalance(
         max_pos_pct = float(risk_limits.get("max_position_pct") or 25.0)
         max_sec_pct = float(risk_limits.get("max_sector_pct") or 40.0)
 
+        # P0 · 批量预取买入候选行情
+        _buy_codes = [
+            str(it.get("stock_code") or "")
+            for it in top_items
+            if it.get("stock_code") and not it.get("hard_reject")
+        ]
+        _buy_quote_cache: Dict[str, dict] = _batch_query_quotes(_buy_codes)
+
         for item in top_items:
             if len(holdings) >= max_positions:
                 break
@@ -566,6 +605,7 @@ def simulate_cross_section_rebalance(
                     )
                     continue
             except Exception:
+                logger.warning("buy_loop sentiment_prior failed for %s", code, exc_info=True)
                 prior_apply = None
 
             # 横截面：optimize 未分配则跳过；分池：合并簿即目标集，不因 optimize 漏配而整票跳过
@@ -584,7 +624,7 @@ def simulate_cross_section_rebalance(
                 )
                 continue
 
-            quote = query_quote(code)
+            quote = _buy_quote_cache.get(code) or {}
             price = _quote_price(quote)
             if not price or price <= 0:
                 risk_budget_skips.append(
