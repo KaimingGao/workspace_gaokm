@@ -1,6 +1,6 @@
 # Web UI · 全面优化升级方案
 
-[← 文档索引](README.md) · 差距依据 [quant-ui-gap.md](quant-ui-gap.md) · 现行契约 [quant-ui-standard.md](quant-ui-standard.md) · 壳层简史 [quant-ui-refactor-plan.md](quant-ui-refactor-plan.md) · 产品主轴 [design-spine.md](design-spine.md) · 工程节奏 [roadmap.md](roadmap.md)
+[← 文档索引](README.md) · 差距依据 [quant-ui-gap.md](quant-ui-gap.md) · 现行契约 [quant-ui-standard.md](quant-ui-standard.md) · 壳层简史 [quant-ui-refactor-plan.md](archive/quant-ui-refactor-plan.md) · 产品主轴 [design-spine.md](design-spine.md) · 工程节奏 [roadmap.md](roadmap.md)
 
 **规划日期**：2026-07-29  
 **目标画像**：把 Web 从「能用的研究工具页」升到 **聚宽 / QuantConnect 级研究台 + 纸面准实盘工作台**——不是 Bloomberg / 迅投级交易终端。  
@@ -284,10 +284,10 @@ UI 阶段可先用现有字段；后端到位后加列，不阻塞 W1/W2 出门�
 |------|------|
 | [quant-ui-gap.md](quant-ui-gap.md) | **为什么缺**（对照专业终端） |
 | **本文** | **怎么补**（阶段、交付、验收、闸门） |
-| [quant-ui-refactor-plan.md](quant-ui-refactor-plan.md) | 壳/AI 已完成简史；指向本文 |
+| [quant-ui-refactor-plan.md](archive/quant-ui-refactor-plan.md) | 壳/AI 已完成简史；指向本文 |
 | [quant-ui-standard.md](quant-ui-standard.md) | 现行改法契约（W 阶段中增量修改） |
 | [roadmap.md](roadmap.md) | 后端 N1–N6 / P0–P3；与本文 §8 咬合 |
-| [upgrade-refactor-plan.md](upgrade-refactor-plan.md) | 路径内下一程 R0–R5（KPI / PIT / 研究吞吐）；UI 跟随后端字段 |
+| [upgrade-refactor-plan.md](archive/upgrade-refactor-plan.md) | 路径内下一程 R0–R5（KPI / PIT / 研究吞吐）；UI 跟随后端字段 |
 | [design-spine.md](design-spine.md) | [产品北极星](design-spine.md#产品北极星)（三项乘积）· 能力地图 |
 
 ---

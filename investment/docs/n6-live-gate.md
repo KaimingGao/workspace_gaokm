@@ -1,8 +1,8 @@
 # N6 真·实盘准入备忘（仅文档 · 无代码）
 
-[← 深化补强 S 轨](validation-strengthen.md) · [V 轨](strategy-validation-upgrade.md) · [产品边界](design-spine.md#产品边界现行)
+[← 深化补强 S 轨](archive/validation-strengthen.md) · [V 轨](archive/strategy-validation-upgrade.md) · [产品边界](design-spine.md#产品边界现行)
 
-**状态**：策略验证阶段 **不启动** OMS。本文仅在 [成熟闸门](validation-strengthen.md#8-s4--成熟闸门收口) / `GET /api/ops/maturity-gate` 通过后，作为另立项材料草案。
+**状态**：策略验证阶段 **不启动** OMS。本文仅在 [成熟闸门](archive/validation-strengthen.md#8-s4--成熟闸门收口) / `GET /api/ops/maturity-gate` 通过后，作为另立项材料草案。
 
 ## 前置（须全部成立）
 

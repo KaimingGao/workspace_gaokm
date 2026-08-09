@@ -1,6 +1,6 @@
 # 下一程深化补强（C / P / EP）· 已收口
 
-[← 文档索引](README.md) · **现行下一程** → [yhat-strengthen.md](yhat-strengthen.md)（Y0–Y5）· 产品主轴 [design-spine.md](design-spine.md) · D/S/E · N6 [n6-live-gate.md](n6-live-gate.md)
+[← 文档索引](../README.md) · **现行下一程** → [yhat-strengthen.md](yhat-strengthen.md)（Y0–Y5）· 产品主轴 [design-spine.md](../design-spine.md) · D/S/E · N6 [n6-live-gate.md](../n6-live-gate.md)
 
 **规划日期**：2026-08-03（收口）· **后继**：2026-08-05 起见 [yhat-strengthen.md](yhat-strengthen.md)  
 **定位**：相对专业量化差距分析后的一程（**已收口**）。本轨补**口径可信（C）→ 组合可解释（P）→ 分组启用证据包（EP）**。**不写 OMS**。
@@ -138,7 +138,7 @@ N6 闸门评估（另文档，本轨不写 OMS）
 1. 仍经 DataService / ports；LLM 不改 `score` / `stance_label`  
 2. 每阶段 ≥1 API 或落盘字段 + ≥1 Web 可见 + ≥1 测试  
 3. 先 C0 再 P/EP；不扩大因子库抢戏  
-4. UI 遵守 [quant-ui-standard.md](quant-ui-standard.md)；改静态资源 bump `ASSET_V`  
+4. UI 遵守 [quant-ui-standard.md](../quant-ui-standard.md)；改静态资源 bump `ASSET_V`  
 
 ---
 

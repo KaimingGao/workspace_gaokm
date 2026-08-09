@@ -8,19 +8,8 @@
 |------|------|
 | [**design-spine.md**](design-spine.md) | **产品核心设计主轴**：本质/因果链 · **[产品北极星](design-spine.md#产品北极星)**（三项乘积）· [**能力地图 / N1–N6**](design-spine.md#能力地图六大模块) · 达成度 / P0–P2++ |
 | [**roadmap.md**](roadmap.md) | 能力画像、Q1–Q5、**[N1–N6 / 子项目对照](roadmap.md#北极星实现路径n1n6)**、**北极星实现规划 P0–P3** |
-| [**upgrade-refactor-plan.md**](upgrade-refactor-plan.md) | **已收口** R0–R5（北极星仪表 → PIT → 研究吞吐 → 风控 → 报告 → 工程债） |
-| [**strategy-validation-upgrade.md**](strategy-validation-upgrade.md) | **策略验证 V0–V5**（已主干落地） |
-| [**validation-strengthen.md**](validation-strengthen.md) | **S0–S4**：验证深化补强（PIT/截面 IC/验证包/闸门） |
-| [**data-layer-strengthen.md**](data-layer-strengthen.md) | **D0–D4**：数据层深化补强（ann/源审计/复权/日历/DQ 中心） |
-| [**evidence-strengthen.md**](evidence-strengthen.md) | **E0–E4**：北极星证据诚实（策略 KPI · 对齐 · IC PIT · 日历 · outcome 催办） |
-| [**yhat-strengthen.md**](yhat-strengthen.md) | **Y0–Y5 已落地**：ŷ 生产硬化（口径 · 衰减 · 成本 · 暴露 · 拟合 · 样本） |
-| [**feature-signal-strengthen.md**](feature-signal-strengthen.md) | **X0–X5 已落地**：数据·信号特征同构（live 财务 PIT · index · 覆盖 · 伪因子） |
-| [**beta-regression-strengthen.md**](beta-regression-strengthen.md) | **B0–B5 已落地**：回归准确性（样本 · y 契约 · 共线/λ · 重估 · 截面 OOS） |
 | [**pro-core-strengthen.md**](pro-core-strengthen.md) | **DC/FM/RK 主干已落地**：数据清洗加深 · 因子模型硬化 · 组合风控加深 |
-| [**strengthen-next.md**](strengthen-next.md) | **已收口 C/P/EP**：口径纠偏 · 组合换手/预算/归因 · 分组启用证据包 |
-| [**weight-suggest-deepen.md**](weight-suggest-deepen.md) | **选股主轴（已落地）**：回归 ŷ · heuristic 仅 OOS 基线 · 分组 β |
 | [**score-review.md**](score-review.md) | **昨日复盘**：as_of ŷ 方向 vs h 日实现 · 错票归因 · score ledger |
-| [**topk-backtest-upgrade.md**](topk-backtest-upgrade.md) | **TopK 回测**：T0–T16 已收口；**[T17 TTL可配·过期硬拦](topk-backtest-upgrade.md#11j-第十一程--t17-ttl-可配--过期硬拦已落地)** |
 | [**n6-live-gate.md**](n6-live-gate.md) | N6 实盘准入备忘（闸门通过前不写 OMS 代码） |
 | [structure.md](structure.md) | 仓库目录与 canonical 模块路径 |
 | [**framework-review.md**](framework-review.md) | **代码框架梳理与合理性分析**：分层、主路径、债务分级与整改顺序 |
@@ -39,12 +28,10 @@
 | [**quant-ui-standard.md**](quant-ui-standard.md) | **改 UI 契约**：IA · 页面契约 · 组件白名单 · `ASSET_V` · 验收清单 |
 | [**quant-ui-gap.md**](quant-ui-gap.md) | **Web UI 差距分析**：相对专业量化终端（边界外 / 路径内缺口 / 取向差异） |
 | [**quant-ui-upgrade.md**](quant-ui-upgrade.md) | **Web UI 全面升级方案**：W0–W4 工作流 · 验收 · 与后端咬合 · 下一刀 |
-| [quant-ui-refactor-plan.md](quant-ui-refactor-plan.md) | **Web UI 壳层简史**：六模块壳 · P0–P1；详细升级见 upgrade |
-| [quant-upgrade.md](quant-upgrade.md) | **历史归档**：P6～P93 交付流水账（非现行设计主文档） |
-| [quant-summary.md](quant-summary.md) | P6～P26 一页总览与验收命令 |
 | [quant-ops.md](quant-ops.md) | 定时任务 preset、cron/launchd、报告归档与分享 |
+| [**archive/**](archive/README.md) | **已收口历史轨**（R/V/S/D/E/Y/X/B、TopK、quant-upgrade 流水等；非现行契约） |
 
-建议阅读顺序：**[design-spine](design-spine.md)（产品主轴 · [因果链](design-spine.md#因果链已发生--影响估计--动作)）→ [framework-review](framework-review.md)（代码框架与债务）→ structure → architecture → getting-started → skills**；做量化时再读 **[quant-concepts.md](quant-concepts.md)** → **[quant-ui.md](quant-ui.md)（每页一事）** → 改界面前读 **[quant-ui-standard.md](quant-ui-standard.md)**；对照专业终端读 **[quant-ui-gap.md](quant-ui-gap.md)** → Web 排期读 **[quant-ui-upgrade.md](quant-ui-upgrade.md)**；**已收口升级**读 **[upgrade-refactor-plan.md](upgrade-refactor-plan.md)**（R0–R5）→ **[strategy-validation-upgrade.md](strategy-validation-upgrade.md)**（V0–V5）→ **[validation-strengthen.md](validation-strengthen.md)**（S0–S4）→ **[data-layer-strengthen.md](data-layer-strengthen.md)**（D0–D4）→ [evidence-strengthen.md](evidence-strengthen.md)（E0–E4）→ [strengthen-next.md](strengthen-next.md)（C/P/EP）→ [yhat-strengthen.md](yhat-strengthen.md)（Y0–Y5）→ [feature-signal-strengthen.md](feature-signal-strengthen.md)（X0–X5）→ [beta-regression-strengthen.md](beta-regression-strengthen.md)（B0–B5 **已落地**）→ **现行下一程**读 **[pro-core-strengthen.md](pro-core-strengthen.md)**（DC/FM/RK）→ TopK 读 **[topk-backtest-upgrade.md](topk-backtest-upgrade.md)**，然后 **quant / [data-layer](data-layer.md) / [strategy-layer](strategy-layer.md) / [risk-layer](risk-layer.md) / [rl-layer](rl-layer.md) / [sentiment-layer](sentiment-layer.md) / development / roadmap**。
+建议阅读顺序：**[design-spine](design-spine.md)（产品主轴 · [因果链](design-spine.md#因果链已发生--影响估计--动作)）→ [framework-review](framework-review.md)（代码框架与债务）→ structure → architecture → getting-started → skills**；做量化时再读 **[quant-concepts.md](quant-concepts.md)** → **[quant-ui.md](quant-ui.md)（每页一事）** → 改界面前读 **[quant-ui-standard.md](quant-ui-standard.md)**；对照专业终端读 **[quant-ui-gap.md](quant-ui-gap.md)** → Web 排期读 **[quant-ui-upgrade.md](quant-ui-upgrade.md)**；**现行加强验收**读 **[pro-core-strengthen.md](pro-core-strengthen.md)**（DC/FM/RK）→ 已收口轨见 **[archive/](archive/README.md)**，然后 **quant / [data-layer](data-layer.md) / [strategy-layer](strategy-layer.md) / [risk-layer](risk-layer.md) / [rl-layer](rl-layer.md) / [sentiment-layer](sentiment-layer.md) / development / roadmap**。
 
 各代码子目录另有 **README.md**（职责与入口速查）；索引见 [architecture.md#子目录-readme-索引](architecture.md#子目录-readme-索引)，API：`GET /api/readme-index` · `GET /api/readme?dir=`。
 

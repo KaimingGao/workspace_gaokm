@@ -289,7 +289,7 @@ flowchart LR
 | **能力地图（六大模块对照）** | **部分～较强** | 粗估整体约 **~70%～78%**；回测相对最强，部署（无 OMS）最弱 |
 | **N1–N5 实现路径** | **P0–P2 可验收** | 五问/限额/质量/WF/IC/日更调度/告警→人审晋升已接线 |
 | **现行主轴**（观察·策略·模拟·回溯 + AI 旁路） | **基本达成** | `score_bars` → stance → 建仓/调仓/回测共用计分；LLM **不改写** `score` / `stance` |
-| **升级重构 R0–R5** | **已收口** | 见 [upgrade-refactor-plan](upgrade-refactor-plan.md) |
+| **升级重构 R0–R5** | **已收口** | 见 [upgrade-refactor-plan](archive/upgrade-refactor-plan.md) |
 | **N6 真·实盘 OMS** | **未启动（有意推迟）** | 待回测 + 纸面验证成熟、合规就绪后另立项；**不计入当前北极星分子** |
 
 **北极星二级指标基线**

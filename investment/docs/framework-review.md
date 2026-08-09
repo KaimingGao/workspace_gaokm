@@ -106,7 +106,7 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 | **F-B1** | north_star 巨石 | `risk_metrics` · `ttm_events` · `backtest_curve_store`；north_star 再导出 |
 | **F-B2** | cluster_live 证据/状态 | `cluster_live_evidence.py` |
 | **F-B3** | factor_ols_clusters 巨石 | `cluster_partition` · `cluster_weight_display` |
-| **F-B4** | quant.js 门槛逻辑 | `web/static/js/quant/scoring.js`（`quant_scoring.js` 再导出） |
+| **F-B4** | quant.js 门槛逻辑 | `web/static/js/quant/scoring.js` |
 | **F-B5** | quant.js 功能域迁出 | `quant/` 工厂 + **6 域** `domain_*`；watching helpers→`watching_*_ui`·`watching_panel_ui`；分组结果按需展开因子表（避免主线程卡在「分组中…」）；建议 tip→`suggest_status_ui`；已修回测 `min_score:55`→`portfolioBtScoreFloorPayload`；`ASSET_V=p670` |
 | **FH0** | mode 未硬门禁组 ŷ | `score_stock` / `cross_section` / live topk：仅 `active` 写主分；`shadow` 对照；`off` 不算组 ŷ；`max_oos_fail_rate` 默认 0.5；契约测 `test_cluster_mode_yhat_gate` |
 | **FH1** | 晋升非原子 / 半晋升只告警 | `cluster_pointer.json` + 版本化 artifact + `os.replace`；active 硬门禁（缺簿/坏指针）；`force`→`promote_audit.jsonl`；`test_cluster_pointer_fh1` |
@@ -138,7 +138,7 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 |------|------|
 | 整体 | 研究台 + 纸面准实盘分层已理顺 |
 | 框架急债 | **O1–O9 / Y-S / F-C1–C3·H\* 已落地**；维持 ports 与 ŷ 单标尺 + live manifest 纪律 |
-| **下一程（机制化）** | **[framework-harden-plan.md](framework-harden-plan.md)**：**FH0–FH5 已落地**；后续按需持续切巨石（FH4）与财务面板真 PIT 注入（FH5 深化） |
+| **下一程（机制化）** | **[framework-harden-plan.md](archive/framework-harden-plan.md)**：**FH0–FH5 已落地**；后续按需持续切巨石（FH4）与财务面板真 PIT 注入（FH5 深化） |
 | 产品缺口 | 仍见 roadmap / design-spine / yhat-strengthen（非本表） |
 | 体量债 | `quant.js` 已拆域 + 工厂；`factor_ols_clusters` / `cluster_live` / `north_star` 已拆；巨石按用例再切归 FH4 |
 

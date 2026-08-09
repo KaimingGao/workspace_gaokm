@@ -22,7 +22,6 @@ HTML 由 [`web/page_html.py`](../page_html.py) 从 `templates/` + `partials/` �
 | `js/evals.js` | 黄金用例校验 |
 | `js/quant.js` | 量化研究台编排壳：`initQuant(ctx)` · 共享 `q` bag · 域 `install*` |
 | `js/quant/*.js` | 研究台拆分：**域** `domain_watching` · `domain_backtest` · `domain_cluster` · `domain_suggest` · `domain_strategy` · `domain_export`；工厂 names · params · research_grid · bt_* · scoring · promote_* · cluster_* · watching_* · neutral_compare · factor_meta · factor_ic_ui · ols_ui · export_preview · strategy_* · bt_tables · universe_ui · watching_dq_ui · probe_ui · watching_insights_ui · watching_quotes_ui · watching_build_ui · watching_panel_ui · param_grid_ui · suggest_status_ui |
-| `js/quant_scoring.js` | 兼容再导出 → `quant/scoring.js` |
 | `js/platform.js` | 平台面板（Memory / Decision / 反馈 / 调度 / 预填） |
 | `partials/platform_panel.html` | 平台面板（`/?tab=platform`） |
 | `styles.css` | 工作台分栏 · 嵌入面板 |
@@ -48,4 +47,4 @@ HTML 由 [`web/page_html.py`](../page_html.py) 从 `templates/` + `partials/` �
 ## 相关文档
 
 - [架构总览 · 子目录 README 索引](../../docs/architecture.md#子目录-readme-索引)
-- [quant-upgrade · P95–P97](../../docs/quant-upgrade.md)
+- [quant-upgrade · P95–P97](../../docs/archive/quant-upgrade.md)

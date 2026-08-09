@@ -26,10 +26,10 @@ class TestDocsGuards(unittest.TestCase):
 
     def test_quant_md_model_policy(self):
         text = self._read("docs", "quant.md")
-        self.assertIn("#### 为何不用拟合模型", text)
-        self.assertIn("固定权重线性加总", text)
-        self.assertIn("何时值得引入拟合模型", text)
-        self.assertIn("score_ml", text)
+        self.assertIn("#### 选股真源：线性回归因子系数（规则分已退役）", text)
+        self.assertIn("ReturnScoreModel", text)
+        self.assertIn("predicted_score", text)
+        self.assertIn("线性回归", text)
 
     def test_quant_md_industrial_factors(self):
         text = self._read("docs", "quant.md")
@@ -39,7 +39,7 @@ class TestDocsGuards(unittest.TestCase):
         self.assertIn("factor_ols_run.py", text)
 
     def test_quant_upgrade_links_model_policy(self):
-        text = self._read("docs", "quant-upgrade.md")
+        text = self._read("docs", "archive", "quant-upgrade.md")
         self.assertIn("为何不用拟合模型", text)
         self.assertIn("quant.md#为何不用拟合模型", text)
         self.assertIn("factor-ols", text)

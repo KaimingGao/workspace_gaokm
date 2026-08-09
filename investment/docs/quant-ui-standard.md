@@ -35,7 +35,7 @@
 
 `/paper` · evals · usage。**AI 不占侧栏格**。全屏对话 `/chat` **已下线**（302 → `/watching`）；命令入口仅 AI 抽屉。
 
-见 [quant-ui-refactor-plan.md](quant-ui-refactor-plan.md)。
+见 [quant-ui-refactor-plan.md](archive/quant-ui-refactor-plan.md)。
 
 ### 落点裁决（加功能前先答）
 

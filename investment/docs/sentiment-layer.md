@@ -86,5 +86,5 @@ LLM ────────► 叙事（不进分）
 |------|------|
 | [risk-layer.md](risk-layer.md) | 防守侧输入 |
 | [strategy-layer.md](strategy-layer.md) | ŷ 排序真源 |
-| [yhat-strengthen.md](yhat-strengthen.md) | ŷ 门禁 |
+| [yhat-strengthen.md](archive/yhat-strengthen.md) | ŷ 门禁 |
 | [design-spine.md](design-spine.md) | 先可信再变厚 |

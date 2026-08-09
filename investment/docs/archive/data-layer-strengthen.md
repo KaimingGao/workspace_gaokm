@@ -1,6 +1,6 @@
 # 数据层深化补强规划（D 轨）
 
-[← 文档索引](README.md) · 域文档 [data-layer.md](data-layer.md) · 产品主轴 [design-spine.md](design-spine.md) · 验证 S 轨 [validation-strengthen.md](validation-strengthen.md) · N6 [n6-live-gate.md](n6-live-gate.md)
+[← 文档索引](../README.md) · 域文档 [data-layer.md](../data-layer.md) · 产品主轴 [design-spine.md](../design-spine.md) · 验证 S 轨 [validation-strengthen.md](validation-strengthen.md) · N6 [n6-live-gate.md](../n6-live-gate.md)
 
 **规划日期**：2026-07-31  
 **定位**：相对专业量化**数据层**的路径内缺口补强——覆盖面可信、PIT/源一致、复权可辩护、日历对齐、DQ 可巡检。  
@@ -20,7 +20,7 @@
   · GET /api/ops/data-quality 一页聚合 coverage + 空财务 + 审计 + 样本纪律
 ```
 
-差距依据见对话分析与 [data-layer.md](data-layer.md)「成熟模型五模块」对照（收集/清洗 ~62%）。
+差距依据见对话分析与 [data-layer.md](../data-layer.md)「成熟模型五模块」对照（收集/清洗 ~62%）。
 
 ---
 

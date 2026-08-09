@@ -1,6 +1,6 @@
 # Web UI · 相对专业量化终端的差距分析
 
-[← 文档索引](README.md) · 说明书 [quant-ui.md](quant-ui.md) · 契约 [quant-ui-standard.md](quant-ui-standard.md) · **升级方案 [quant-ui-upgrade.md](quant-ui-upgrade.md)** · 壳层简史 [quant-ui-refactor-plan.md](quant-ui-refactor-plan.md) · 产品主轴 [design-spine.md](design-spine.md)
+[← 文档索引](README.md) · 说明书 [quant-ui.md](quant-ui.md) · 契约 [quant-ui-standard.md](quant-ui-standard.md) · **升级方案 [quant-ui-upgrade.md](quant-ui-upgrade.md)** · 壳层简史 [quant-ui-refactor-plan.md](archive/quant-ui-refactor-plan.md) · 产品主轴 [design-spine.md](design-spine.md)
 
 **评估日期**：2026-07-29  
 **对照对象**：专业量化交易系统 Web UI / 功能设计（研究→回测→实盘 OMS→风控全链路；高密度、低延迟、可停靠分屏）  
@@ -24,9 +24,9 @@
 1. **边界外** — 按 OMS/盘口打分接近 0 是预期，不是实现疏漏。  
 2. **边界内** — 研究/模拟 Web 体验仍偏「工具页」，离聚宽 / QuantConnect 级研究台还有一档。
 
-一句话：IA（观察 / 模拟 / 回溯 / 策略）与纸面闭环已成形；**W0–W5** + **R0–R5** 已补图表、报告、风控、虚拟表、北极星。路径内下一程见 **[strategy-validation-upgrade.md](strategy-validation-upgrade.md)**（V0–V5）。OMS/盘口保持空白直至成熟闸门。
+一句话：IA（观察 / 模拟 / 回溯 / 策略）与纸面闭环已成形；**W0–W5** + **R0–R5** 已补图表、报告、风控、虚拟表、北极星。路径内下一程见 **[strategy-validation-upgrade.md](archive/strategy-validation-upgrade.md)**（V0–V5）。OMS/盘口保持空白直至成熟闸门。
 
-> **进度注（2026-07-29）**：落地以 [quant-ui-upgrade.md](quant-ui-upgrade.md)（W0–W5 ✅）、[upgrade-refactor-plan.md](upgrade-refactor-plan.md)（R0–R5 ✅）与 **[strategy-validation-upgrade.md](strategy-validation-upgrade.md)**（V0–V5 待开工）为准。
+> **进度注（2026-07-29）**：落地以 [quant-ui-upgrade.md](quant-ui-upgrade.md)（W0–W5 ✅）、[upgrade-refactor-plan.md](archive/upgrade-refactor-plan.md)（R0–R5 ✅）与 **[strategy-validation-upgrade.md](archive/strategy-validation-upgrade.md)**（V0–V5 待开工）为准。
 
 ---
 
@@ -121,7 +121,7 @@ TWAP / VWAP、订单状态机、多账户矩阵、盘口下单 —— **全部�
 | Dockview / Golden Layout | 无 | 无专业分屏 |
 | Web Worker | 基本无 | 重计算易卡主线程 |
 
-[quant-ui-refactor-plan P2](quant-ui-refactor-plan.md) 已写明 Monaco · Lightweight Charts · 可选 React · 实盘（边界外）——团队已知，尚未切刀。
+[quant-ui-refactor-plan P2](archive/quant-ui-refactor-plan.md) 已写明 Monaco · Lightweight Charts · 可选 React · 实盘（边界外）——团队已知，尚未切刀。
 
 ---
 
@@ -167,11 +167,11 @@ OMS 级盘口布局仍禁止。
 |------|------|
 | [design-spine.md](design-spine.md) | [产品北极星](design-spine.md#产品北极星) · 能力地图与后端达成度 |
 | [roadmap.md](roadmap.md) | N1–N6 / P0–P3 工程节奏 |
-| [upgrade-refactor-plan.md](upgrade-refactor-plan.md) | **已收口** R0–R5 |
-| [strategy-validation-upgrade.md](strategy-validation-upgrade.md) | **现行下一程** V0–V5（策略验证成熟度 · N6 闸门） |
+| [upgrade-refactor-plan.md](archive/upgrade-refactor-plan.md) | **已收口** R0–R5 |
+| [strategy-validation-upgrade.md](archive/strategy-validation-upgrade.md) | **现行下一程** V0–V5（策略验证成熟度 · N6 闸门） |
 | [quant-ui-standard.md](quant-ui-standard.md) | **现行**改 UI 契约（密度克制、白名单） |
 | [quant-ui-upgrade.md](quant-ui-upgrade.md) | **怎么补**：W0–W4 工作流、验收、闸门、下一刀 |
-| [quant-ui-refactor-plan.md](quant-ui-refactor-plan.md) | 壳 / AI 已完成简史 |
+| [quant-ui-refactor-plan.md](archive/quant-ui-refactor-plan.md) | 壳 / AI 已完成简史 |
 | **本文** | 相对专业交易终端的 **UI/功能差距与分级** |
 | [framework-review.md](framework-review.md) | 代码分层与工程债（非 UI 竞品对照） |
 

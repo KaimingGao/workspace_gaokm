@@ -279,7 +279,7 @@ flowchart TB
 强化学习视角（Policy/Reward ↔ 策略/风控；**未实现**在线 RL）见 **[rl-layer.md](rl-layer.md)**。  
 舆情/另类数据（新闻→风险分；当前仅标题 Skill）见 **[sentiment-layer.md](sentiment-layer.md)**。
 
-**P94 演进（非重写）**：`QuantService` 拆为 config/factors/portfolio/ops Mixin，门面类名与方法不变；Web 路由按域拆到 `web/routers/*`，URL 不变。历史 P 记录见 [quant-upgrade.md](quant-upgrade.md)（归档）。
+**P94 演进（非重写）**：`QuantService` 拆为 config/factors/portfolio/ops Mixin，门面类名与方法不变；Web 路由按域拆到 `web/routers/*`，URL 不变。历史 P 记录见 [quant-upgrade.md](archive/quant-upgrade.md)（归档）。
 
 产品流程（观察 · 模拟 · 回溯；观察≠模拟）：见 [quant-ui.md](quant-ui.md)。路由：`/watching` `/follow` `/replay`（`/paper` `/strategy` `/quant` 等仍可用）。见 `action_map.py`、`GET /api/quant/actions` 与 [quant-concepts.md](quant-concepts.md)。
 

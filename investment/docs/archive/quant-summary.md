@@ -1,6 +1,6 @@
 # 量化升级总览（P6～P22）
 
-[← 文档索引](README.md) · 详细路线图见 [quant-upgrade.md](quant-upgrade.md) · 运维见 [quant-ops.md](quant-ops.md)
+[← 文档索引](../README.md) · 详细路线图见 [quant-upgrade.md](quant-upgrade.md) · 运维见 [quant-ops.md](../quant-ops.md)
 
 本文档为 **P6～P22 全部落地** 后的一页速查：阶段成果、常用命令、API 与验收方式。（P23+ 见 [quant-upgrade.md](quant-upgrade.md)）
 
@@ -181,7 +181,7 @@ Web **「校验」** 面板支持「CI 同款」（mock + presets）、**「量�
 
 | 文档 | 用途 |
 |------|------|
-| [quant.md](quant.md) | 原理：因子 → stance → 回测 → 纸面；[纸面是什么](quant.md#纸面是什么给小白)；[ML 视角](quant.md#机器学习视角如何理解量化) |
+| [quant.md](../quant.md) | 原理：因子 → stance → 回测 → 纸面；[纸面是什么](../quant.md#纸面是什么给小白)；[ML 视角](../quant.md#机器学习视角如何理解量化) |
 | [quant-upgrade.md](quant-upgrade.md) | 分阶段详细交付与验收 |
-| [quant-ops.md](quant-ops.md) | cron、preset、报告路径 |
-| [development.md](development.md) | 单测与 CI 说明 |
+| [quant-ops.md](../quant-ops.md) | cron、preset、报告路径 |
+| [development.md](../development.md) | 单测与 CI 说明 |

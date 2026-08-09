@@ -351,7 +351,7 @@ def evaluate_maturity_gate(
         True,
         "B 轨：y_spec · 共线策略 · Ridge 选 λ · 重估 demote · OOS respect_regime",
         severity="soft",
-        action="见 docs/beta-regression-strengthen.md",
+        action="见 docs/archive/beta-regression-strengthen.md",
     )
     try:
         ann_ratio = fund.get("ann_missing_code_ratio")

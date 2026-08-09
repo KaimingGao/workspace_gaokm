@@ -225,5 +225,5 @@ curl -s 'localhost:8000/api/signal/config/diff-export?use_saved=true'
 ## 相关文档
 
 - [quant.md](quant.md) — 量化原理；[机器学习视角](quant.md#机器学习视角如何理解量化)
-- [quant-upgrade.md](quant-upgrade.md) — P6～P33 升级与落地状态
+- [quant-upgrade.md](archive/quant-upgrade.md) — P6～P33 升级与落地状态
 - [roadmap.md](roadmap.md) — 投顾层 cron 说明

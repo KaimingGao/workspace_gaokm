@@ -1,6 +1,6 @@
 # 策略验证升级重构规划（V 轨）
 
-[← 文档索引](README.md) · 差距依据 [§1](#1-差距结论--规划输入) · 产品边界 [design-spine · 产品边界](design-spine.md#产品边界现行) · 已收口上一程 [upgrade-refactor-plan.md](upgrade-refactor-plan.md)（R0–R5） · Web 差距 [quant-ui-gap.md](quant-ui-gap.md) · 数据/风控域 [data-layer.md](data-layer.md) · [risk-layer.md](risk-layer.md)
+[← 文档索引](../README.md) · 差距依据 [§1](#1-差距结论--规划输入) · 产品边界 [design-spine · 产品边界](../design-spine.md#产品边界现行) · 已收口上一程 [upgrade-refactor-plan.md](upgrade-refactor-plan.md)（R0–R5） · Web 差距 [quant-ui-gap.md](../quant-ui-gap.md) · 数据/风控域 [data-layer.md](../data-layer.md) · [risk-layer.md](../risk-layer.md)
 
 **规划日期**：2026-07-29  
 **基线**：R0–R5 主干 + 运营/样本收尾已落地；能力地图粗估 **~70%～78%**；北极星三项已仪表化。  
@@ -36,7 +36,7 @@
 | **B. 路径内不足** | 财务 PIT 深度、Alpha 厚度、组合求解、撮合诚实度、研究 IDE | **V 轨主战场** |
 | **C. 样本/运营债** | 空 fundamentals、未标注 outcome、真实日更薄 | **贯穿 V0 + 各阶段出门标准** |
 
-相对专业全栈粗估见 [design-spine · 达成度](design-spine.md#达成度评估2026-07)。一句话：
+相对专业全栈粗估见 [design-spine · 达成度](../design-spine.md#达成度评估2026-07)。一句话：
 
 | 模块 | 粗估 | 相对专业的核心缺口（路径内） |
 |------|------|------------------------------|
@@ -78,11 +78,11 @@
 
 | 文档 | 职责 |
 |------|------|
-| [design-spine.md](design-spine.md) | 北极星 · 能力地图 · **策略验证 / N6 阶段** |
+| [design-spine.md](../design-spine.md) | 北极星 · 能力地图 · **策略验证 / N6 阶段** |
 | [upgrade-refactor-plan.md](upgrade-refactor-plan.md) | **已收口** R0–R5（仪表 · PIT 最小 · 研究吞吐 · 暴露 · 报告 · 工程稳态） |
-| [roadmap.md](roadmap.md) | 历史 P0–P2++ · N1–N6 骨架 |
-| [quant-ui-gap.md](quant-ui-gap.md) / [quant-ui-upgrade.md](quant-ui-upgrade.md) | Web 差距与壳层 |
-| [data-layer.md](data-layer.md) / [risk-layer.md](risk-layer.md) | 域内演进细节 |
+| [roadmap.md](../roadmap.md) | 历史 P0–P2++ · N1–N6 骨架 |
+| [quant-ui-gap.md](../quant-ui-gap.md) / [quant-ui-upgrade.md](../quant-ui-upgrade.md) | Web 差距与壳层 |
+| [data-layer.md](../data-layer.md) / [risk-layer.md](../risk-layer.md) | 域内演进细节 |
 | **本文** | **验证成熟度下一程：V0–V5 · 闸门 · 验收 · 锁定取舍** |
 
 ---
@@ -97,7 +97,7 @@
 | 4 | **先可信、再变厚**：PIT/成本/源审计未稳前，不并行冲完整 QP / 大规模因子库炫技 |
 | 5 | **研究 / 回测 / 纸面同源**：共用 `score_bars` 与 DataService；禁止双套计分 |
 | 6 | **验收可演示**：每阶段 ≥1 API/落盘 + ≥1 Web 可见 + 对应测试 / eval |
-| 7 | **UI 契约**：改壳先改 [quant-ui-standard](quant-ui-standard.md)；默认报告感 |
+| 7 | **UI 契约**：改壳先改 [quant-ui-standard](../quant-ui-standard.md)；默认报告感 |
 | 8 | **样本诚实**：demo seed / densify / synthetic_demo 须可识别；不得当「策略已验证」依据 |
 
 ---
@@ -163,7 +163,7 @@ V5  验证成熟闸门与文档收口（清单 · 回归套件 · N6 准入备�
 - [x] 热门观察池真实 history 达标（非仅 ladder）— **路径已落地**（`ingest-history` / warmup 串联）；覆盖率靠运营抬升  
 - [x] PIT 单测 + 1 条 eval 锁定无未来泄漏  
 - [x] 样本覆盖页标明 demo vs 真实  
-- [x] [data-layer.md](data-layer.md) 更新「验证宇宙」约定  
+- [x] [data-layer.md](../data-layer.md) 更新「验证宇宙」约定  
 
 ---
 
@@ -191,7 +191,7 @@ V5  验证成熟闸门与文档收口（清单 · 回归套件 · N6 准入备�
 
 - [x] 同策略「回测报告 + 纸面一段」并排可读成本假设  
 - [x] 至少 1 条集成测：改冲击档 → metrics 单调变化  
-- [x] [quant.md](quant.md) / 回测脚注更新方法论  
+- [x] [quant.md](../quant.md) / 回测脚注更新方法论  
 - [x] TopK 含成本按换手计费（见 [topk-backtest-upgrade · T0](topk-backtest-upgrade.md#3-t0--成本诚实度本期--已实现)）
 
 ---
@@ -217,7 +217,7 @@ V5  验证成熟闸门与文档收口（清单 · 回归套件 · N6 准入备�
 
 - [x] 新因子有单测与 IC 样本说明  
 - [x] 网格「应用最优」路径弹出 OOS 警告  
-- [x] [strategy-layer.md](strategy-layer.md) 更新因子边界  
+- [x] [strategy-layer.md](../strategy-layer.md) 更新因子边界  
 
 ---
 
@@ -241,7 +241,7 @@ V5  验证成熟闸门与文档收口（清单 · 回归套件 · N6 准入备�
 ### 7.3 出门标准
 
 - [x] 故意超限：硬拦 + 可标注 + 有效率分母增加  
-- [x] [risk-layer.md](risk-layer.md) 更新验证阶段风控清单  
+- [x] [risk-layer.md](../risk-layer.md) 更新验证阶段风控清单  
 - [x] QP 若未做，文档保留「可选 / 非闸门阻塞」— **已提供 `qp_lite`（cvxpy 可选，不可用则回退）**  
 
 ---
@@ -371,7 +371,7 @@ V4（吞吐）可与 V2/V3 后半并行 ─────────────�
 | V4 | **主干已落地** | 2026-07-29 | validation_pack API · 真实/seeded TTM 分列 |
 | V5 | **主干已落地** | 2026-07-29 | maturity_gate API · n6-live-gate 备忘 · core paths 扩展 |
 
-阶段完成：勾出门标准 → 更新本表 → 回写 [design-spine · 达成度](design-spine.md#达成度评估2026-07) 一句。
+阶段完成：勾出门标准 → 更新本表 → 回写 [design-spine · 达成度](../design-spine.md#达成度评估2026-07) 一句。
 
 ---
 
@@ -387,7 +387,7 @@ V4（吞吐）可与 V2/V3 后半并行 ─────────────�
 3. 策略页继续标注 risk_block outcome；日更替换 densified 快照  
 4. 查看 `GET /api/ops/maturity-gate`；未全绿前 **不立 N6**
 
-N6 备忘见 [n6-live-gate.md](n6-live-gate.md)。
+N6 备忘见 [n6-live-gate.md](../n6-live-gate.md)。
 
 ---
 

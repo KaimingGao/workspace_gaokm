@@ -1,6 +1,6 @@
 # TopK 回测优化升级规划（T 轨）
 
-[← 文档索引](README.md) · 专业差距见 [strategy-validation-upgrade](strategy-validation-upgrade.md) · 产品边界 [design-spine](design-spine.md#产品边界现行) · Web [quant-ui](quant-ui.md)
+[← 文档索引](../README.md) · 专业差距见 [strategy-validation-upgrade](strategy-validation-upgrade.md) · 产品边界 [design-spine](../design-spine.md#产品边界现行) · Web [quant-ui](../quant-ui.md)
 
 **规划日期**：2026-07-30 · **深化补强**：2026-07-30（第二程）  
 **定位**：把「观察池 TopK 等权回测」从**偏惩罚/口径易误解**抬到**研究结论可严肃使用**；服务策略验证，**不**开 OMS / Tick 仓。  

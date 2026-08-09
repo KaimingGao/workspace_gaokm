@@ -40,5 +40,5 @@ bash scripts/agent_regression.sh          # 全量 19 case
 ## 相关文档
 
 - [development.md](../docs/development.md)
-- [upgrade-refactor-plan.md · R5](../docs/upgrade-refactor-plan.md)
+- [upgrade-refactor-plan.md · R5](../docs/archive/upgrade-refactor-plan.md)
 - [架构总览 · 子目录索引](../docs/architecture.md#子目录-readme-索引)

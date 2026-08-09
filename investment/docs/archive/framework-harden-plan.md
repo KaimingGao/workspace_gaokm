@@ -1,6 +1,6 @@
 # 框架深度补强规划（FH 轨）
 
-[← 文档索引](README.md) · 复审结论见 Canvas「量化框架专业复审」· 既有台账 [framework-review.md](framework-review.md) · ŷ 轨 [yhat-strengthen.md](yhat-strengthen.md) · N6 [n6-live-gate.md](n6-live-gate.md)
+[← 文档索引](../README.md) · 复审结论见 Canvas「量化框架专业复审」· 既有台账 [framework-review.md](../framework-review.md) · ŷ 轨 [yhat-strengthen.md](yhat-strengthen.md) · N6 [n6-live-gate.md](../n6-live-gate.md)
 
 **规划日期**：2026-08-05  
 **定位**：在 O/Y/F 拆分与 ŷ 生产硬化之后，把「文档承诺的研究/生产隔离」从**纪律**升为**机制**。对照专业研究台 + 模拟盘惯例，专治 live 语义、晋升事务、异步研究任务、分层纯度与契约测试。  
@@ -192,7 +192,7 @@ FH5  研究数据诚实度（PIT 默认 / look-ahead 旗标）
 |------|------|
 | O/Y/F「已收口」 | 文件拆分与 ŷ 主轴落地仍成立 |
 | 本轨增量 | **语义硬化 + 事务 + Job**，不是再拆一轮空壳文件 |
-| 更新方式 | 每完成一阶段在 [framework-review.md](framework-review.md) §5.1 增 `FH*` 行；本文勾验收表 |
+| 更新方式 | 每完成一阶段在 [framework-review.md](../framework-review.md) §5.1 增 `FH*` 行；本文勾验收表 |
 
 ---
 

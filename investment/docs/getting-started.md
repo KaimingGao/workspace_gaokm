@@ -191,7 +191,7 @@ python3 evals/run_checklist.py --mock --presets          # golden + preset 校�
 python3 run_web.py                                       # Web → 顶栏工具页
 ```
 
-详见 [quant.md](quant.md) · [quant-ops.md](quant-ops.md) · [quant-upgrade.md](quant-upgrade.md)。
+详见 [quant.md](quant.md) · [quant-ops.md](quant-ops.md) · [quant-upgrade.md](archive/quant-upgrade.md)。
 
 ## 无 LLM 时直接测模块
 

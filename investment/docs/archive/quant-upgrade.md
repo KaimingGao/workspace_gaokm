@@ -1,17 +1,17 @@
 # 量化升级规划（P6～P93）· 历史归档
 
-[← 文档索引](README.md)
+[← 文档索引](../README.md)
 
 > **文档角色（P94）**：本文是 **P 系列交付流水账 / 验收记录**，便于追溯「何时加了什么」。  
 > **现行架构与运维真相**请优先读：  
-> - [architecture.md](architecture.md) — 分层与模块边界  
-> - [quant.md](quant.md) — 量化原理与纸面/回测语义  
-> - [quant-ops.md](quant-ops.md) — 日常跑数与 CI  
+> - [architecture.md](../architecture.md) — 分层与模块边界  
+> - [quant.md](../quant.md) — 量化原理与纸面/回测语义  
+> - [quant-ops.md](../quant-ops.md) — 日常跑数与 CI  
 > - [quant-summary.md](quant-summary.md) — 一页验收速查  
 >
 > 新功能请增量更新上述现行文档；不必再把本文当作「当前系统设计说明书」。
 
-本文档记录 **P5 之后** 量化研究台的现状诊断、升级原则与分阶段路线图。原理与现有实现见 [quant.md](quant.md)；P4/P5 已落地项见 [roadmap.md](roadmap.md)。
+本文档记录 **P5 之后** 量化研究台的现状诊断、升级原则与分阶段路线图。原理与现有实现见 [quant.md](../quant.md)；P4/P5 已落地项见 [roadmap.md](../roadmap.md)。
 
 ---
 
@@ -36,7 +36,7 @@
 2. **LLM 只解读**：数值升级在 `core/`；`stance_label` 契约不变。
 3. **先一致性、再复杂度**：先对齐 live/backtest 数据源，再扩展因子与组合。
 4. **每阶段必有 eval**：扩展 `run_repro` / 单测；改 scorer 须跑 repro。
-5. **继续不做**：实盘下单、保证收益、**黑盒 ML 荐股**（除非产品定位变更）。说明见 [quant.md · 为何不用拟合模型](quant.md#为何不用拟合模型线性回归--复杂模型)。
+5. **继续不做**：实盘下单、保证收益、**黑盒 ML 荐股**（除非产品定位变更）。说明见 [quant.md · 为何不用拟合模型](../quant.md#为何不用拟合模型线性回归--复杂模型)。
 
 ---
 
@@ -1536,7 +1536,7 @@ docs/
 |----------|------------|
 | 规则 historically 有效吗？ | OOS 回测 + IC；LLM 引用 `metrics.oos` |
 | 为什么观望？ | `factor_contrib` + `regime` + stance reasons |
-| 纸面是什么？ | 假钱模拟账户，非券商实盘 · [quant.md · 纸面是什么](quant.md#纸面是什么给小白) |
+| 纸面是什么？ | 假钱模拟账户，非券商实盘 · [quant.md · 纸面是什么](../quant.md#纸面是什么给小白) |
 | 纸面表现？ | 模拟页净值、买卖流水、回撤 |
 | 能不能买？ | 仍引用 `advise.stance_label` |
 | 观察池从哪来？ | `watching.json` sources → refresh → 横截面 Top N |
@@ -1579,8 +1579,8 @@ docs/
 | golden 有多少 case？ | 22（含 11 个 quant_*）· `GET /api/evals/summary` |
 | daily 后怎么看报告？ | Web quant preset 完成后自动加载 Markdown 导出预览 + TOC |
 | 无 LLM 怎么解读？ | `POST /api/quant/interpret` · `{ "offline": true }` 或 Web 自动回退 |
-| score 有什么用？ | 筛池/stance/回测/纸面/截面/研究；不等于买入 · [quant.md](quant.md#score-的用途) |
-| 为什么不用线性回归/ML？ | 规则 score + stance；见 [quant.md · 拟合模型](quant.md#为何不用拟合模型线性回归--复杂模型) |
+| score 有什么用？ | 筛池/stance/回测/纸面/截面/研究；不等于买入 · [quant.md](../quant.md#score-的用途) |
+| 为什么不用线性回归/ML？ | 规则 score + stance；见 [quant.md · 拟合模型](../quant.md#为何不用拟合模型线性回归--复杂模型) |
 | routing 预期怎么看？ | Web 校验「路由对照表」或 `GET /api/evals/routing` |
 | 量化报告怎么分享？ | 归档 `share_url` · Web「复制最新报告链接」 |
 | 报告一页摘要？ | `GET /api/quant/export/summary` · MD/HTML 顶部「一页摘要」 |

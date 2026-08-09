@@ -1,6 +1,6 @@
 # 北极星证据诚实深化（E 轨）
 
-[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 已收口 S 轨 [validation-strengthen.md](validation-strengthen.md) · D 轨 [data-layer-strengthen.md](data-layer-strengthen.md) · N6 [n6-live-gate.md](n6-live-gate.md)
+[← 文档索引](../README.md) · 产品主轴 [design-spine.md](../design-spine.md) · 已收口 S 轨 [validation-strengthen.md](validation-strengthen.md) · D 轨 [data-layer-strengthen.md](data-layer-strengthen.md) · N6 [n6-live-gate.md](../n6-live-gate.md)
 
 **规划日期**：2026-07-31  
 **定位**：在 R/V/D/S 主干已收口之后，用可验收代码抬高**北极星三项证据的可归因性与可对齐性**。  

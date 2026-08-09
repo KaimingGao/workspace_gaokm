@@ -514,7 +514,7 @@ flowchart LR
 2. **横截面中性化 = 去掉市场共同因子，学相对排序而不是绝对水平。**
 3. **IC / OOS / 纸面 = 量化里的 train/val/test + shadow deployment，用来对抗过拟合与非平稳。**
 
-更复杂模型（GBDT / 序列等）仍属可选演进；现行已默认用 **线性回归收益分**。见下节与 [weight-suggest-deepen.md](weight-suggest-deepen.md)。
+更复杂模型（GBDT / 序列等）仍属可选演进；现行已默认用 **线性回归收益分**。见下节与 [weight-suggest-deepen.md](archive/weight-suggest-deepen.md)。
 
 #### 选股真源：线性回归因子系数（规则分已退役）
 
@@ -612,7 +612,7 @@ python3 research/factor_ols_run.py --code 茅台 --json
 
 ---
 
-> **P6～P22 升级**详见 [quant-upgrade.md](quant-upgrade.md)；一页总览见 [quant-summary.md](quant-summary.md)；定时任务见 [quant-ops.md](quant-ops.md)。
+> **P6～P22 升级**详见 [quant-upgrade.md](archive/quant-upgrade.md)；一页总览见 [quant-summary.md](archive/quant-summary.md)；定时任务见 [quant-ops.md](quant-ops.md)。
 
 ---
 

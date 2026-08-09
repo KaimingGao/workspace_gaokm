@@ -20,6 +20,6 @@ Walk-forward 回测引擎与组合模拟（live / paper / quant 共用）。
 
 ## 相关文档
 
-- [topk-backtest-upgrade.md](../../docs/topk-backtest-upgrade.md)（T0–T4）
+- [topk-backtest-upgrade.md](../../docs/archive/topk-backtest-upgrade.md)（T0–T4）
 - [quant.md](../../docs/quant.md)
 - [架构总览 · 子目录索引](../../docs/architecture.md#子目录-readme-索引)

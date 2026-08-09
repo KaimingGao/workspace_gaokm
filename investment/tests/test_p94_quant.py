@@ -60,7 +60,7 @@ class TestP94QuantServiceMixins(unittest.TestCase):
         self.assertTrue(res.json().get("success"))
 
     def test_docs_mark_upgrade_as_archive(self):
-        path = os.path.join(ROOT, "docs", "quant-upgrade.md")
+        path = os.path.join(ROOT, "docs", "archive", "quant-upgrade.md")
         with open(path, encoding="utf-8") as f:
             text = f.read()
         self.assertIn("历史归档", text)

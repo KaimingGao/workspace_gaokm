@@ -374,7 +374,7 @@ Q2 与 Q3 可部分并行（Strategy 接口先定，ports 清债同步）；Q4 �
 | 6 | 部署与迭代 | N5 / N6 | 纸面日更+人审（验证）；OMS 成熟后另立 | ~52% / — | N5 主路径；N6 **有意推迟** |
 
 **结论**：**6** 个能力子项目；工程 **6** 轨；仓库现行排期 **N1–N5**（策略验证）；**N6 待验证成熟后另立**。模拟账户交易为验证阶段必做主能力。  
-**下一程详细排期**：[upgrade-refactor-plan.md](upgrade-refactor-plan.md)（R0–R5；与本文 P0–P2++ 已交付区分）。
+**下一程详细排期**：[upgrade-refactor-plan.md](archive/upgrade-refactor-plan.md)（R0–R5；与本文 P0–P2++ 已交付区分）。
 
 ### 阶段总览
 
@@ -397,7 +397,7 @@ Q2 与 Q3 可部分并行（Strategy 接口先定，ports 清债同步）；Q4 �
 | 能力地图（六大模块对照） | **部分～较强**（见 [能力地图](design-spine.md#能力地图六大模块)） |
 | 本仓库路径内采纳目标 | **部分～较强**（P2++ 后粗估 ~68%～74%） |
 | N1–N5 | **P0–P2 可验收**（五问 / 回测默认 / 限额硬拦 / 质量 / 日更 / 告警晋升） |
-| 升级重构 R0–R5 | **R0–R4 出门；R5 主干落地**（[upgrade-refactor-plan](upgrade-refactor-plan.md)） |
+| 升级重构 R0–R5 | **R0–R4 出门；R5 主干落地**（[upgrade-refactor-plan](archive/upgrade-refactor-plan.md)） |
 | 现行「研究台 + 模拟账本 + AI 旁路」 | **基本达成** |
 | N6 真·实盘 | **未启动**（策略验证成熟后再立项；不计入当前北极星分子） |
 

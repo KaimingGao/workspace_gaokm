@@ -144,7 +144,7 @@ flowchart LR
 
 **结论（现行）**：不需要为「专业感」上 SQLite / 时序库。账户、行情缓存、信号配置、交易流水等 **几乎全部用本地 JSON / JSONL** 管理；这是与「本地策略验证、观察池级规模、暂不接实盘」对齐的刻意选择，不是疏漏。
 
-与 [architecture · 刻意不做](architecture.md#7-刻意不做的抽象)、[upgrade-refactor-plan · 明确不做的重构](upgrade-refactor-plan.md#92-明确不做的重构) 一致：不为重构而换存储；除非 JSON 在 PIT / 规模上证明不可维护，再单独立项。
+与 [architecture · 刻意不做](architecture.md#7-刻意不做的抽象)、[upgrade-refactor-plan · 明确不做的重构](archive/upgrade-refactor-plan.md#92-明确不做的重构) 一致：不为重构而换存储；除非 JSON 在 PIT / 规模上证明不可维护，再单独立项。
 
 ### 各类数据落盘对照
 

@@ -53,5 +53,5 @@ CLI 等价：`portfolio_backtest_run.py` · `backtest_scan.py` · `factor_ols_*`
 ## 相关文档
 
 - [quant-ops.md](../docs/quant-ops.md)
-- [upgrade-refactor-plan.md · R2](../docs/upgrade-refactor-plan.md)
+- [upgrade-refactor-plan.md · R2](../docs/archive/upgrade-refactor-plan.md)
 - [架构总览 · 子目录索引](../docs/architecture.md#子目录-readme-索引)

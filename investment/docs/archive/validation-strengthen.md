@@ -1,6 +1,6 @@
 # 策略验证深化补强规划（S 轨）
 
-[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 已收口 V 轨 [strategy-validation-upgrade.md](strategy-validation-upgrade.md) · R 轨 [upgrade-refactor-plan.md](upgrade-refactor-plan.md) · N6 备忘 [n6-live-gate.md](n6-live-gate.md) · 数据 [data-layer.md](data-layer.md) · 风控 [risk-layer.md](risk-layer.md)
+[← 文档索引](../README.md) · 产品主轴 [design-spine.md](../design-spine.md) · 已收口 V 轨 [strategy-validation-upgrade.md](strategy-validation-upgrade.md) · R 轨 [upgrade-refactor-plan.md](upgrade-refactor-plan.md) · N6 备忘 [n6-live-gate.md](../n6-live-gate.md) · 数据 [data-layer.md](../data-layer.md) · 风控 [risk-layer.md](../risk-layer.md)
 
 **规划日期**：2026-07-31  
 **定位**：在 **R0–R5 / V0–V5 主干已落地** 之后，把系统从「研究–纸面可演示、KPI 可查」升到「**策略结论可被严肃验证、可对外辩护**」。  
@@ -46,7 +46,7 @@
 | 4 | 先可信（PIT/样本）再变厚（QP/大因子库） |
 | 5 | 研究 / 回测 / 纸面同源 `score_bars` + DataService |
 | 6 | 每阶段 ≥1 API/落盘 + ≥1 Web 可见 + 测试 |
-| 7 | UI 遵守 [quant-ui-standard](quant-ui-standard.md) |
+| 7 | UI 遵守 [quant-ui-standard](../quant-ui-standard.md) |
 | 8 | demo / synthetic 可识别，不得当「已验证」 |
 
 ---
@@ -149,11 +149,11 @@ S4  成熟闸门收口 →（过）N6 备忘 /（不过）停
 
 | 文档 | 职责 |
 |------|------|
-| [design-spine.md](design-spine.md) | 北极星 · 能力地图 · 阶段边界 |
+| [design-spine.md](../design-spine.md) | 北极星 · 能力地图 · 阶段边界 |
 | [strategy-validation-upgrade.md](strategy-validation-upgrade.md) | **已收口** V0–V5 |
 | [upgrade-refactor-plan.md](upgrade-refactor-plan.md) | **已收口** R0–R5 |
 | **本文** | **现行下一程 S0–S4**（深化补强） |
-| [n6-live-gate.md](n6-live-gate.md) | 闸门通过后的实盘立项备忘 |
+| [n6-live-gate.md](../n6-live-gate.md) | 闸门通过后的实盘立项备忘 |
 
 ---
 

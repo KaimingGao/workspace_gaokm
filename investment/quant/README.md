@@ -24,5 +24,5 @@ P41 起 legacy shim 已删除，仅使用 `quant.*` 路径。
 
 - [quant.md](../docs/quant.md) — 原理与实现；[ML 视角](../docs/quant.md#机器学习视角如何理解量化)
 - [quant-ops.md](../docs/quant-ops.md)
-- [quant-upgrade.md](../docs/quant-upgrade.md)
+- [quant-upgrade.md](../docs/archive/quant-upgrade.md)
 - [架构总览 · 子目录索引](../docs/architecture.md#子目录-readme-索引)

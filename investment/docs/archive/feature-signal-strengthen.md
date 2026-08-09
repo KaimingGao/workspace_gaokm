@@ -1,6 +1,6 @@
 # 数据·信号特征同构深化补强（X 轨）
 
-[← 文档索引](README.md) · 数据域 [data-layer.md](data-layer.md) · 舆情 [sentiment-layer.md](sentiment-layer.md) · 已收口 D [data-layer-strengthen.md](data-layer-strengthen.md) · E [evidence-strengthen.md](evidence-strengthen.md) · Y [yhat-strengthen.md](yhat-strengthen.md) · N6 [n6-live-gate.md](n6-live-gate.md)
+[← 文档索引](../README.md) · 数据域 [data-layer.md](../data-layer.md) · 舆情 [sentiment-layer.md](../sentiment-layer.md) · 已收口 D [data-layer-strengthen.md](data-layer-strengthen.md) · E [evidence-strengthen.md](evidence-strengthen.md) · Y [yhat-strengthen.md](yhat-strengthen.md) · N6 [n6-live-gate.md](../n6-live-gate.md)
 
 **规划日期**：2026-08-05 · **落地**：2026-08-05  
 **定位**：在 D/S/E/Y 与分组 live 已落地之后，补强 **「数据 → 信号 → 回归前瞻」** 链路上的特征侧短板——让 **live 打分用的 X 与研究/OLS/回测估 β 用的 X 同构**，并把仍缺的数据源做成可验收覆盖，而不是再堆启发式权重。  
@@ -34,7 +34,7 @@
   · 成熟闸门含「特征同构」硬/软项；研究↔纸面 fit-gap 可归因到 X 而非只怪成本
 ```
 
-因果主轴（与 [design-spine](design-spine.md) 一致）：
+因果主轴（与 [design-spine](../design-spine.md) 一致）：
 
 ```text
 获取数据 → 提取信号(X) → 回归估 β → ŷ 前瞻 → 动作(仓位/先验)
@@ -78,7 +78,7 @@
 | 4 | 无 as_of 历史的另类（新闻）继续 **prior**，不进本轨「开闸进 ŷ」 |
 | 5 | 永不静默写 weights；剔除/降权经人审或明确 promote 面提示 |
 | 6 | 每阶段 ≥1 API/落盘 + ≥1 Web 可见 + ≥1 测试；改静态 bump `ASSET_V` |
-| 7 | UI 遵守 [quant-ui-standard.md](quant-ui-standard.md) |
+| 7 | UI 遵守 [quant-ui-standard.md](../quant-ui-standard.md) |
 
 ---
 
@@ -264,7 +264,7 @@ X3–X5 第二周按带宽；若只做一件事：**只做 X0**。
 落地后更新：
 
 - [ ] 本文件阶段状态 → 已落地  
-- [ ] [docs/README.md](README.md) 增 X 轨一行  
-- [ ] [data-layer.md](data-layer.md) PIT 表：live 财务改为 as_of  
-- [ ] [framework-review.md](framework-review.md) 债务条：划掉「live snapshot 财务」  
-- [ ] [sentiment-layer.md](sentiment-layer.md) 交叉「进 ŷ 仍否」
+- [ ] [docs/README.md](../README.md) 增 X 轨一行  
+- [ ] [data-layer.md](../data-layer.md) PIT 表：live 财务改为 as_of  
+- [ ] [framework-review.md](../framework-review.md) 债务条：划掉「live snapshot 财务」  
+- [ ] [sentiment-layer.md](../sentiment-layer.md) 交叉「进 ŷ 仍否」

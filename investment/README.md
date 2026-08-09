@@ -21,7 +21,7 @@
 **产品核心设计主轴**：**本质** 已发生事实 → 影响估计 → 验证 → 动作（[因果链](docs/design-spine.md#因果链已发生--影响估计--动作)）；**现行** 数据 → 信号 → 因子 → 倾向 → 动作（量化主轴 + AI 旁路）；**北极星** = 纸面风险调整收益 × 迭代速度 × 回测–纸面拟合度（[产品北极星](docs/design-spine.md#产品北极星)）——六大模块是 [能力地图](docs/design-spine.md#能力地图六大模块)；**现行只收口研究台 + 模拟账户做策略验证**，真·实盘 OMS 待验证成熟后另立项（N6）——见 **[docs/design-spine.md](docs/design-spine.md)**。实现节奏见 **[北极星实现规划 P0–P3](docs/roadmap.md#北极星实现规划p0p3)**。
 
 架构一句话：**量化领域层（`core` 信号/回测/模拟）+ Skills 取数与规则 + AI Agent（意图理解 · 工具编排 · 研究话术）**。  
-Web 主路径见 [docs/quant-ui.md](docs/quant-ui.md)；改 UI 契约见 [docs/quant-ui-standard.md](docs/quant-ui-standard.md)；**现行下一程**见 [docs/data-layer-strengthen.md](docs/data-layer-strengthen.md)（D0–D4 数据层）与 [docs/validation-strengthen.md](docs/validation-strengthen.md)（S0–S4）；历史节奏见 [docs/roadmap.md](docs/roadmap.md)。
+Web 主路径见 [docs/quant-ui.md](docs/quant-ui.md)；改 UI 契约见 [docs/quant-ui-standard.md](docs/quant-ui-standard.md)；**现行加强验收**见 [docs/pro-core-strengthen.md](docs/pro-core-strengthen.md)（DC/FM/RK）；已收口历史轨见 [docs/archive/](docs/archive/README.md)；历史节奏见 [docs/roadmap.md](docs/roadmap.md)。
 
 > **现行仅限研究与模拟账户（策略验证）。不涉及真实账户交易。** 待策略验证成熟后再评估实盘。市场有风险，不保证收益，不代客下单。
 
@@ -285,12 +285,13 @@ Web 主路径：**对话** · **观察** · **模拟** · **回溯**。说明见
 | [docs/quant.md](docs/quant.md) | 量化层：score_bars → stance → 回测 → 纸面 |
 | [docs/quant-ui.md](docs/quant-ui.md) | Web 主路径说明书：观察 · 模拟 · 回溯 |
 | [docs/quant-ui-standard.md](docs/quant-ui-standard.md) | 改 UI 契约 · `ASSET_V` · 验收清单 |
-| [docs/quant-upgrade.md](docs/quant-upgrade.md) | P6～P26 量化升级规划与落地状态 |
-| [docs/quant-summary.md](docs/quant-summary.md) | P6～P26 一页总览与验收命令 |
+| [docs/archive/quant-upgrade.md](docs/archive/quant-upgrade.md) | P6～P26 量化升级规划与落地状态 |
+| [docs/archive/quant-summary.md](docs/archive/quant-summary.md) | P6～P26 一页总览与验收命令 |
 | [docs/quant-ops.md](docs/quant-ops.md) | preset、cron、报告归档与分享链接 |
 | [docs/roadmap.md](docs/roadmap.md) | 能力评估、Q1–Q5、**北极星实现规划 P0–P3** |
-| [docs/upgrade-refactor-plan.md](docs/upgrade-refactor-plan.md) | 已收口 R0–R5 归档 |
-| [docs/strategy-validation-upgrade.md](docs/strategy-validation-upgrade.md) | **现行下一程**：策略验证 V0–V5 |
+| [docs/archive/upgrade-refactor-plan.md](docs/archive/upgrade-refactor-plan.md) | 已收口 R0–R5 归档 |
+| [docs/archive/strategy-validation-upgrade.md](docs/archive/strategy-validation-upgrade.md) | **已收口**：策略验证 V0–V5 |
+| [docs/pro-core-strengthen.md](docs/pro-core-strengthen.md) | **现行加强**：DC/FM/RK |
 
 完整索引：[docs/README.md](docs/README.md)
 

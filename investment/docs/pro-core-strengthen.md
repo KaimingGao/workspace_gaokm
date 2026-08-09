@@ -1,6 +1,6 @@
 # 专业核心三轨深化补强（DC / FM / RK）
 
-[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 已收口 D [data-layer-strengthen.md](data-layer-strengthen.md) · X [feature-signal-strengthen.md](feature-signal-strengthen.md) · Y [yhat-strengthen.md](yhat-strengthen.md) · B [beta-regression-strengthen.md](beta-regression-strengthen.md) · C/P/EP [strengthen-next.md](strengthen-next.md) · N6 [n6-live-gate.md](n6-live-gate.md)
+[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 已收口 D [data-layer-strengthen.md](archive/data-layer-strengthen.md) · X [feature-signal-strengthen.md](archive/feature-signal-strengthen.md) · Y [yhat-strengthen.md](archive/yhat-strengthen.md) · B [beta-regression-strengthen.md](archive/beta-regression-strengthen.md) · C/P/EP [strengthen-next.md](archive/strengthen-next.md) · N6 [n6-live-gate.md](n6-live-gate.md)
 
 **规划日期**：2026-08-09 · **主干落地**：2026-08-09  
 **定位**：在 D/S/E/X/Y/B/C/P/EP 已收口之后，针对相对专业栈仍弱的三条路径内能力——**数据清洗加深（DC）· 因子模型硬化（FM）· 组合风控加深（RK）**——做可验收补强。  

@@ -1,6 +1,6 @@
 # ŷ 生产硬化深化补强（Y 轨）
 
-[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 选股主轴 [weight-suggest-deepen.md](weight-suggest-deepen.md) · 上轮下一程 [strengthen-next.md](strengthen-next.md)（C/P/EP **已收口**）· D/S/E · N6 [n6-live-gate.md](n6-live-gate.md)
+[← 文档索引](../README.md) · 产品主轴 [design-spine.md](../design-spine.md) · 选股主轴 [weight-suggest-deepen.md](weight-suggest-deepen.md) · 上轮下一程 [strengthen-next.md](strengthen-next.md)（C/P/EP **已收口**）· D/S/E · N6 [n6-live-gate.md](../n6-live-gate.md)
 
 **规划日期**：2026-08-05 · **落地**：2026-08-05  
 **定位**：在 R/V/D/S/E 与 C/P/EP、分组 live（L0–L4）已落地之后，把 **predicted_score（ŷ）** 从「能跑的主轴」升到「**可严肃验证、可辩护、可衰减监控**」的生产选股路径。  
@@ -68,7 +68,7 @@
 | 4 | LLM 不改 `score` / `stance_label` / ŷ |
 | 5 | 先可信（口径·衰减·拟合）再变厚（QP·大因子库） |
 | 6 | 每阶段 ≥1 API/落盘 + ≥1 Web 可见 + ≥1 测试；改静态 bump `ASSET_V` |
-| 7 | UI 遵守 [quant-ui-standard.md](quant-ui-standard.md) |
+| 7 | UI 遵守 [quant-ui-standard.md](../quant-ui-standard.md) |
 
 ---
 
@@ -183,7 +183,7 @@ Y5  样本 / 运营债收口
 | **W4** | **Y2.3** + **Y3** |
 | **W5** | **Y4** + **Y5.2–Y5.3** + 文档收口 |
 
-过闸后：评估 [n6-live-gate.md](n6-live-gate.md)；**不过则停在策略验证加深，不接 OMS**。
+过闸后：评估 [n6-live-gate.md](../n6-live-gate.md)；**不过则停在策略验证加深，不接 OMS**。
 
 ---
 
@@ -223,4 +223,4 @@ Y5  样本 / 运营债收口
 | [weight-suggest-deepen.md](weight-suggest-deepen.md) | 选股主轴 **已落地** 叙事（β → ŷ） |
 | [strengthen-next.md](strengthen-next.md) | C/P/EP **已收口**；不再当现行下一程 |
 | **本文** | **现行下一程 Y0–Y5** |
-| [n6-live-gate.md](n6-live-gate.md) | 验证成熟后实盘立项备忘 |
+| [n6-live-gate.md](../n6-live-gate.md) | 验证成熟后实盘立项备忘 |
