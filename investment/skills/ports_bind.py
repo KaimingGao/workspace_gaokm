@@ -15,6 +15,7 @@ def bind_market_adapters(*, force: bool = False) -> None:
             return
 
     from core.ports.adapters import mark_bound, set_adapter
+    from skills.common.ak_worker import get_pool as _get_ak_pool
     from skills.common.history import (
         bars_from_quote_fallback,
         fetch_daily_bars,
@@ -73,6 +74,10 @@ def bind_market_adapters(*, force: bool = False) -> None:
         lambda payload, on_progress=None: SignalEngine().build_pool(
             payload or {}, on_progress=on_progress
         ),
+    )
+    set_adapter(
+        "batch_map",
+        lambda fn, items, **kwargs: _get_ak_pool().map(fn, items, **kwargs),
     )
     mark_bound()
     _BOUND = True

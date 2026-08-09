@@ -262,6 +262,9 @@ def score_bars(
     if not bool(sent_cfg.get("include_in_score", False)) or sentiment is None:
         if "alt_sentiment" not in skip:
             skip.append("alt_sentiment")
+    # llm_sentiment 始终不进生产 ŷ（prior_only 研究轨因子）
+    if "llm_sentiment" not in skip:
+        skip.append("llm_sentiment")
 
     sub_scores, factor_contrib, factors = compute_configured_factors(
         bars,

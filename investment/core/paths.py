@@ -55,6 +55,7 @@ NORTH_STAR_LAST_BACKTEST_PATH = os.path.join(DATA_DIR, "north_star_last_backtest
 TTM_EVENTS_PATH = os.path.join(DATA_DIR, "ttm_events.jsonl")
 NEWS_STORE_DIR = os.path.join(STORE_DIR, "news")
 NEWS_HISTORY_DIR = os.path.join(NEWS_STORE_DIR, "history")
+LLM_SENTIMENT_DIR = os.path.join(NEWS_STORE_DIR, "llm")
 SENTIMENT_LEXICON_PATH = os.path.join(DATA_DIR, "sentiment_lexicon.json")
 JOBS_DIR = os.path.join(DATA_DIR, "jobs")
 PAPER_JOB_PATH = os.path.join(JOBS_DIR, "paper.json")

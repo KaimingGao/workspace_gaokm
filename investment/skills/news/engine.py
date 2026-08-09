@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any, Dict, List, Optional
+
+import requests
 
 from core.ports.market import query_quote, resolve_market_code
 from skills.screen.engine import _normalize_rows, _to_float
@@ -13,6 +16,38 @@ def _pick(row: dict, *keys: str) -> Any:
         if k in row and row[k] not in (None, ""):
             return row[k]
     return None
+
+
+# --------------------------------------------------------------------------- #
+# 正文抓取（供 LLM 情绪分析用；标题之外补充正文语义）
+# --------------------------------------------------------------------------- #
+
+_CONTENT_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    ),
+}
+
+
+def _extract_text(html: str, max_chars: int = 500) -> str:
+    """从 HTML 提取纯文本：去 script/style → 去标签 → 压缩空白 → 截断。"""
+    html = re.sub(r"<(script|style)[^>]*>.*?</\1>", "", html, flags=re.S | re.I)
+    text = re.sub(r"<[^>]+>", " ", html)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text[:max_chars]
+
+
+def fetch_content(url: str, *, timeout: int = 5, max_chars: int = 500) -> str:
+    """抓取新闻正文，截取前 max_chars 字。失败返回空串（不抛异常）。"""
+    if not url:
+        return ""
+    try:
+        response = requests.get(url, headers=_CONTENT_HEADERS, timeout=timeout)
+        response.raise_for_status()
+        return _extract_text(response.text, max_chars)
+    except Exception:
+        return ""
 
 
 def fetch_news_rows(symbol: str) -> List[dict]:
@@ -40,10 +75,11 @@ def normalize_news_item(row: dict) -> Optional[dict]:
         "time": str(_pick(row, "发布时间", "时间", "time", "date") or ""),
         "source": str(_pick(row, "文章来源", "来源", "source") or ""),
         "url": str(_pick(row, "新闻链接", "链接", "url", "href") or ""),
+        "content": "",
     }
 
 
-def build_news(stock_code: str, limit: int = 8) -> dict:
+def build_news(stock_code: str, limit: int = 8, *, with_content: bool = False) -> dict:
     limit = max(1, min(int(limit or 8), 15))
     quote = query_quote(stock_code)
     name = quote.get("stock_name") if quote.get("success") else stock_code
@@ -97,6 +133,11 @@ def build_news(stock_code: str, limit: int = 8) -> dict:
         seen.add(t)
         unique.append(it)
     unique = unique[:limit]
+
+    # 可选：抓取正文（供 LLM 情绪分析用，标题之外补充语义）
+    if with_content:
+        for it in unique:
+            it["content"] = fetch_content(it.get("url", ""))
 
     if not unique:
         return {

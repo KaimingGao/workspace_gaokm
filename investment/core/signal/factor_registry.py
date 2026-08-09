@@ -11,6 +11,7 @@ from core.signal.factors.earnings_yield import score_earnings_yield
 from core.signal.factors.gap_risk import score_gap_risk
 from core.signal.factors.growth import score_growth
 from core.signal.factors.idio_momentum import score_idio_momentum
+from core.signal.factors.llm_sentiment import score_llm_sentiment
 from core.signal.factors.liquidity import score_liquidity
 from core.signal.factors.ma_slope import score_ma_slope
 from core.signal.factors.momentum import pct_change, score_momentum
@@ -101,6 +102,10 @@ def _compute_ma_slope(bars, **_kw):
 
 def _compute_alt_sentiment(bars, *, sentiment=None, **_kw):
     return score_alt_sentiment(bars, sentiment=sentiment)
+
+
+def _compute_llm_sentiment(bars, *, llm_sentiment=None, **_kw):
+    return score_llm_sentiment(bars, llm_sentiment=llm_sentiment)
 
 
 def _compute_gap_risk(bars, **_kw):
@@ -206,6 +211,12 @@ _register(
     "舆情",
     _compute_alt_sentiment,
     "舆情/情绪快照偏置：无舆情中性 50；偏多抬分、偏空压分。",
+)
+_register(
+    "llm_sentiment",
+    "LLM舆情",
+    _compute_llm_sentiment,
+    "Qwen LLM 对新闻标题+正文语义打分（研究轨/prior_only）：不进生产 ŷ；与规则舆情对照。",
 )
 _register(
     "gap_risk",
@@ -314,6 +325,7 @@ def compute_configured_factors(
     last_change: Optional[float] = None,
     fundamentals: Optional[dict] = None,
     sentiment: Optional[dict] = None,
+    llm_sentiment: Optional[dict] = None,
     money_flow: Optional[dict] = None,
     required_keys: Optional[Sequence[str]] = None,
     skip_factors: Optional[Sequence[str]] = None,
@@ -342,6 +354,7 @@ def compute_configured_factors(
         required = set(str(x).strip() for x in (required_keys or []) if str(x).strip())
         if abs(w) < 1e-12 and name not in required and name in (
             "alt_sentiment",
+            "llm_sentiment",
             "money_flow",
         ):
             continue
@@ -354,6 +367,7 @@ def compute_configured_factors(
             last_change=last_change,
             fundamentals=fundamentals,
             sentiment=sentiment,
+            llm_sentiment=llm_sentiment,
             money_flow=money_flow,
         )
         sub_scores[name] = round(score, 1)

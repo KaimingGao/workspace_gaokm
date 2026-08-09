@@ -15,6 +15,10 @@ PROXY_OR_UNSOURCED = {
         "status": "prior_only",
         "note": "无历史 news 面板；不进 ŷ；仅 sentiment.prior 旁路",
     },
+    "llm_sentiment": {
+        "status": "prior_only",
+        "note": "Qwen LLM 舆情（研究轨）；不进 ŷ；仅作 alt_sentiment 研究对照",
+    },
 }
 
 

@@ -122,3 +122,15 @@ def group_minute_bars_by_date(bars: Any) -> Any:
 def fetch_cn_financial_series(code: str, **kwargs: Any) -> Any:
     """A 股财务指标时间序列。"""
     return call("fetch_cn_financial_series", str(code or "").strip(), **kwargs)
+
+
+def batch_map(fn, items, **kwargs: Any) -> List[Any]:
+    """批量并发映射（进程池隔离 AkShare py_mini_racer，避免串行卡顿）。
+
+    fn 须为顶层函数（可 pickle）；单项异常返回 None，不拖垮整批。
+    默认经 skills.ports_bind 注入 ak_worker 进程池；未绑定时 ensure_bound 自动注入。
+    """
+    items = list(items or [])
+    if not items:
+        return []
+    return call("batch_map", fn, items, **kwargs)

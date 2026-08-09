@@ -314,23 +314,59 @@ def check_sentiment_priors_for_codes(
     config: Optional[dict] = None,
     sentiments: Optional[Dict[str, dict]] = None,
 ) -> Dict[str, Any]:
-    """批量先验门禁摘要：供调仓预检 / 风控旁路。"""
+    """批量先验门禁摘要：供调仓预检 / 风控旁路。
+
+    分流：已有 sentiment 的走快路径（无网络，串行即可）；缺失的走进程池
+    并发拉取新闻（隔离 AkShare py_mini_racer，避免 ~80 票串行卡顿）。
+    """
     warnings: List[str] = []
     blocks: List[str] = []
     block_items: List[Dict[str, Any]] = []
     by_code: Dict[str, Any] = {}
     sent_map = dict(sentiments or {})
-    for raw in codes or []:
-        code = str(raw or "").strip()
-        if not code:
-            continue
-        prior = resolve_prior_for_code(
-            code,
-            config=config,
-            sentiment=sent_map.get(code),
-            fetch=code not in sent_map,
+
+    _seen: set = set()
+    clean = [
+        c
+        for c in (str(r or "").strip() for r in (codes or []) if str(r or "").strip())
+        if not (c in _seen or _seen.add(c))
+    ]
+    fast = [c for c in clean if c in sent_map]
+    fetch = [c for c in clean if c not in sent_map]
+
+    # 快路径：已有 sentiment，无网络
+    for code in fast:
+        by_code[code] = resolve_prior_for_code(
+            code, config=config, sentiment=sent_map.get(code), fetch=False
         )
-        by_code[code] = prior
+
+    # 慢路径：需拉新闻，进程池并发
+    if fetch:
+        from core.ports.market import batch_map
+
+        results = batch_map(
+            resolve_prior_for_code, fetch, config=config, fetch=True
+        )
+        for code, prior in zip(fetch, results):
+            if not isinstance(prior, dict):
+                prior = {
+                    "success": False,
+                    "role": "prior",
+                    "mode": get_sentiment_prior_cfg(config)["mode"],
+                    "stock_code": code,
+                    "active": False,
+                    "actions": [],
+                    "risk_hints": [],
+                    "warnings": ["sentiment_fetch_failed:pool"],
+                    "blocks": [],
+                    "error": "pool worker returned None",
+                    "note": "舆情先验 · 进程池拉取失败",
+                }
+            by_code[code] = prior
+
+    # 按原始顺序汇总 warnings / blocks
+    for code in clean:
+        prior = by_code.get(code) or {}
         for w in prior.get("warnings") or []:
             if w not in warnings:
                 warnings.append(w)

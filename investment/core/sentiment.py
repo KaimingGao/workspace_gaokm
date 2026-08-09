@@ -6,6 +6,7 @@ Live 评分默认 ``sentiment.include_in_score=false``（不进 ŷ）；UI 徽�
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -13,6 +14,7 @@ import time
 from typing import Any, Dict, List, Optional, Sequence, Set
 
 from core.paths import (
+    LLM_SENTIMENT_DIR,
     NEWS_HISTORY_DIR,
     NEWS_STORE_DIR,
     SCHEDULE_LAST_RUN_PATH,
@@ -646,3 +648,212 @@ def read_last_sentiment_alerts() -> Dict[str, Any]:
         "path": SCHEDULE_LAST_RUN_PATH,
         "note": data.get("note") or "",
     }
+
+
+# --------------------------------------------------------------------------- #
+# LLM 情绪打分（研究轨）：Qwen 对新闻标题+正文语义分析；带磁盘缓存。
+# 不进生产 ŷ（prior_only）；仅作 alt_sentiment 的研究对照。
+# --------------------------------------------------------------------------- #
+
+LLM_SENTIMENT_TTL_SEC = 30 * 60  # LLM 调用昂贵，缓存 30 分钟
+LLM_SENTIMENT_MAX_ITEMS = 8
+
+_LLM_SYSTEM_PROMPT = (
+    "你是一位严谨的 A 股/港股/美股舆情分析师。"
+    "请根据提供的新闻标题和正文摘要，判断该股票近期整体舆情倾向。"
+    "只输出 JSON，不要输出其他内容。"
+    '格式: {"label": "bullish|bearish|neutral|mixed", '
+    '"score": 0.0到1.0, "reasoning": "简要理由"}。'
+    "score 含义: 0.0=极度利空, 0.5=中性, 1.0=极度利好。"
+    "多条新闻混合正负时 label=mixed，score 取加权中值。"
+)
+
+
+def _items_fingerprint(items: Sequence[dict]) -> str:
+    """对标题集做稳定哈希（content 不参与，避免正文抓取波动导致缓存失效）。"""
+    titles = sorted(
+        str((it or {}).get("title") or "").strip()
+        for it in (items or [])
+        if str((it or {}).get("title") or "").strip()
+    )
+    raw = "\n".join(titles)
+    return hashlib.sha256(raw.encode("utf-8")).hexdigest()[:16]
+
+
+def _llm_cache_path(code: str) -> str:
+    safe = _safe_code(code)
+    return os.path.join(LLM_SENTIMENT_DIR, f"{safe}.json")
+
+
+def _read_llm_cache(code: str) -> Optional[Dict[str, Any]]:
+    path = _llm_cache_path(code)
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, dict) else None
+    except (OSError, json.JSONDecodeError, TypeError):
+        return None
+
+
+def _llm_cache_fresh(cached: Dict[str, Any], *, ttl_sec: int) -> bool:
+    try:
+        ts = float(cached.get("fetched_at") or 0)
+    except (TypeError, ValueError):
+        return False
+    return (time.time() - ts) <= max(0, int(ttl_sec))
+
+
+def _build_llm_user_prompt(items: Sequence[dict]) -> str:
+    lines = ["请分析以下新闻的舆情倾向：", ""]
+    for i, it in enumerate(items[:LLM_SENTIMENT_MAX_ITEMS], 1):
+        title = str(it.get("title") or "").strip()
+        content = str(it.get("content") or "").strip()
+        line = f"{i}. {title}"
+        if content:
+            line += f"（正文摘要: {content}）"
+        lines.append(line)
+    lines.append("")
+    lines.append("请输出 JSON。")
+    return "\n".join(lines)
+
+
+def _parse_llm_response(content: str) -> Dict[str, Any]:
+    """从 Qwen 响应中解析 JSON；容忍 markdown 代码块包裹。"""
+    text = str(content or "").strip()
+    # 去除 ```json ... ``` 包裹
+    if text.startswith("```"):
+        text = re.sub(r"^```(?:json)?\s*", "", text)
+        text = re.sub(r"\s*```$", "", text).strip()
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        # 尝试提取第一个 {...} 片段
+        match = re.search(r"\{[^{}]*\}", text, re.S)
+        if match:
+            try:
+                data = json.loads(match.group(0))
+            except json.JSONDecodeError:
+                data = {}
+        else:
+            data = {}
+    label = str(data.get("label") or "neutral").lower()
+    if label not in ("bullish", "bearish", "neutral", "mixed"):
+        label = "neutral"
+    try:
+        score = float(data.get("score"))
+        if not (0.0 <= score <= 1.0):
+            score = 0.5
+    except (TypeError, ValueError):
+        score = 0.5
+    reasoning = str(data.get("reasoning") or "")[:200]
+    return {"label": label, "score": round(score, 4), "reasoning": reasoning}
+
+
+def score_headlines_llm(
+    code: str,
+    items: Sequence[dict],
+    *,
+    force: bool = False,
+    ttl_sec: int = LLM_SENTIMENT_TTL_SEC,
+) -> Dict[str, Any]:
+    """用 Qwen LLM 对新闻标题+正文打情绪分；带磁盘缓存。
+
+    定位：研究轨因子（prior_only），不进生产 ŷ。
+    与 ``score_headlines``（规则词典）并行，供研究对照。
+
+    Returns:
+        ``{label, score, reasoning, source, n_titles, from_cache, fetched_at}``
+    """
+    code_key = str(code or "").strip()
+    titles = [
+        str((it or {}).get("title") or "").strip()
+        for it in (items or [])
+        if str((it or {}).get("title") or "").strip()
+    ]
+    n_titles = len(titles)
+
+    if n_titles == 0:
+        return _annotate_include_gate(
+            {
+                "label": "neutral",
+                "score": 0.5,
+                "reasoning": "无新闻标题",
+                "source": "qwen",
+                "n_titles": 0,
+                "from_cache": False,
+                "fetched_at": time.time(),
+            }
+        )
+
+    fp = _items_fingerprint(items)
+
+    # 读缓存
+    if not force:
+        cached = _read_llm_cache(code_key)
+        if cached and _llm_cache_fresh(cached, ttl_sec=ttl_sec):
+            if cached.get("fingerprint") == fp:
+                out = dict(cached)
+                out["from_cache"] = True
+                return _annotate_include_gate(out)
+
+    # 调 LLM
+    try:
+        from agent.llm_client import LLMClient
+
+        client = LLMClient()
+        if not client.is_available():
+            return _annotate_include_gate(
+                {
+                    "label": "neutral",
+                    "score": 0.5,
+                    "reasoning": f"LLM 不可用: {client.get_last_error()}",
+                    "source": "qwen",
+                    "n_titles": n_titles,
+                    "from_cache": False,
+                    "fetched_at": time.time(),
+                }
+            )
+
+        messages = [
+            {"role": "system", "content": _LLM_SYSTEM_PROMPT},
+            {"role": "user", "content": _build_llm_user_prompt(items)},
+        ]
+        response = client.chat(messages, enable_search=False)
+        content = client.get_response_content(response)
+        parsed = _parse_llm_response(content)
+    except Exception as e:
+        return _annotate_include_gate(
+            {
+                "label": "neutral",
+                "score": 0.5,
+                "reasoning": f"LLM 调用失败: {e}",
+                "source": "qwen",
+                "n_titles": n_titles,
+                "from_cache": False,
+                "fetched_at": time.time(),
+            }
+        )
+
+    now = time.time()
+    payload = {
+        "code": code_key,
+        "fingerprint": fp,
+        "label": parsed["label"],
+        "score": parsed["score"],
+        "reasoning": parsed["reasoning"],
+        "source": "qwen",
+        "n_titles": n_titles,
+        "from_cache": False,
+        "fetched_at": now,
+    }
+
+    # 写缓存（原子写）
+    try:
+        os.makedirs(LLM_SENTIMENT_DIR, exist_ok=True)
+        atomic_write_json(_llm_cache_path(code_key), payload)
+    except Exception:
+        pass
+
+    return _annotate_include_gate(payload)

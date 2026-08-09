@@ -399,19 +399,23 @@ def summarize_data_quality(
     limit: int = 60,
 ) -> Dict[str, Any]:
     """批量质量快照，供 Run Manifest / 调度报告。"""
-    watch = [str(c).strip() for c in (codes or []) if str(c).strip()]
+    _raw = [str(c).strip() for c in (codes or []) if str(c).strip()]
+    _seen: set = set()
+    watch = [c for c in _raw if not (c in _seen or _seen.add(c))]
     items: List[Dict[str, Any]] = []
     levels = {"good": 0, "thin": 0, "empty": 0}
     fallback_n = 0
-    for code in watch:
-        try:
-            pack = get_bars(code, limit=limit)
-        except Exception as e:
+    # 进程池并发取数：隔离 AkShare py_mini_racer，避免 ~80 票串行卡顿
+    from core.ports.market import batch_map
+
+    packs = batch_map(get_bars, watch, limit=limit)
+    for code, pack in zip(watch, packs):
+        if not isinstance(pack, dict):
             items.append(
                 {
                     "stock_code": code,
                     "ok": False,
-                    "error": str(e),
+                    "error": "pool_worker_failed",
                     "quality": {"level": "empty"},
                     "fallback": True,
                     "production_ok": False,

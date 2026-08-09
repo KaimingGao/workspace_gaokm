@@ -10,6 +10,9 @@ import requests
 
 class StockAPI:
     TENCENT_URL = "https://qt.gtimg.cn/q="
+    # 东方财富 push2 JSON API（回退源，腾讯不可用时启用）
+    EM_PUSH_URL = "https://push2.eastmoney.com/api/qt/stock/get"
+    EM_FIELDS = "f43,f44,f45,f46,f47,f48,f57,f58,f59,f60"
     CACHE_TTL_SECONDS = 60
 
     # 热门名称 → 腾讯行情符号
@@ -153,23 +156,24 @@ class StockAPI:
             result["cached"] = True
             return result
 
-        try:
-            result = cls._query_tencent(stock_code, symbol)
-            if result.get("success"):
-                cls._cache[symbol] = (now, dict(result))
-            return result
-        except requests.exceptions.RequestException as e:
-            return {
-                "success": False,
-                "stock_code": stock_code,
-                "error": f"股票查询失败: {e}",
-            }
-        except Exception as e:
-            return {
-                "success": False,
-                "stock_code": stock_code,
-                "error": f"处理股票数据失败: {e}",
-            }
+        # 依次尝试：腾讯 → 东方财富（任一成功即返回）
+        last_error = "未知错误"
+        for source_fn in (cls._query_tencent, cls._query_eastmoney):
+            try:
+                result = source_fn(stock_code, symbol)
+                if result.get("success"):
+                    cls._cache[symbol] = (now, dict(result))
+                    return result
+                last_error = result.get("error", last_error)
+            except Exception as e:
+                last_error = str(e)
+                continue
+
+        return {
+            "success": False,
+            "stock_code": stock_code,
+            "error": f"行情查询失败（已尝试多源）: {last_error}",
+        }
 
     @classmethod
     def batch_query(cls, stock_codes: List[str]) -> Dict[str, dict]:
@@ -267,6 +271,20 @@ class StockAPI:
                     "stock_code": code,
                     "error": f"处理股票数据失败: {e}",
                 }
+
+        # 东方财富回退：对腾讯未成功的代码逐个尝试
+        failed = [c for c in uncached_codes if not results.get(c, {}).get("success")]
+        for code in failed:
+            sym = symbols_map.get(code)
+            if not sym:
+                continue
+            try:
+                em_result = cls._query_eastmoney(code, sym)
+                if em_result.get("success"):
+                    cls._cache[sym] = (now, dict(em_result))
+                    results[code] = em_result
+            except Exception:
+                pass  # 保留腾讯的错误信息
 
         return results
 
@@ -416,6 +434,137 @@ class StockAPI:
                 "stock_code": stock_code,
                 "error": f"无法查询到股票「{stock_code}」的行情信息",
             }
+
+        price_str = cls._fmt_price(price, currency, unit)
+        change_amt_str = cls._fmt_price(change_amount, currency, unit, signed=True)
+
+        return {
+            "success": True,
+            "stock_code": code_display,
+            "stock_name": stock_name,
+            "symbol": symbol,
+            "market": market,
+            "price": price_str,
+            "price_raw": price,
+            "change": f"{change_percent:+.2f}%",
+            "change_raw": change_percent,
+            "change_amount": change_amt_str,
+            "open": cls._fmt_price(open_price, currency, unit) if open_price else "",
+            "high": cls._fmt_price(high, currency, unit) if high else "",
+            "low": cls._fmt_price(low, currency, unit) if low else "",
+            "volume": cls._format_volume(volume, market),
+            "volume_raw": volume,
+            "market_cap": "",
+            "currency": currency,
+            "unit": unit,
+            "cached": False,
+            "description": (
+                f"{stock_name}({code_display})最新价{price_str}，"
+                f"{change_amt_str}，涨幅{change_percent:+.2f}%"
+            ),
+        }
+
+    # ------------------------------------------------------------------ #
+    # 东方财富 push2 JSON API（回退源）
+    # ------------------------------------------------------------------ #
+
+    @classmethod
+    def _em_secid(cls, symbol: str) -> Optional[str]:
+        """腾讯符号 → 东方财富 secid。"""
+        s = symbol.lower()
+        if s.startswith("sh"):
+            return f"1.{symbol[2:]}"
+        if s.startswith("sz"):
+            return f"0.{symbol[2:]}"
+        if s.startswith("hk"):
+            return f"116.{symbol[2:]}"
+        if s.startswith("us"):
+            return f"105.{symbol[2:]}"
+        return None
+
+    @classmethod
+    def _query_eastmoney(cls, stock_code: str, symbol: str) -> dict:
+        """东方财富 push2 单股行情（JSON，回退源）。"""
+        secid = cls._em_secid(symbol)
+        if not secid:
+            return {
+                "success": False,
+                "stock_code": stock_code,
+                "error": "东方财富不支持该代码",
+            }
+        params = {
+            "secid": secid,
+            "fields": cls.EM_FIELDS,
+            "_": str(int(time.time() * 1000)),
+        }
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://quote.eastmoney.com/",
+        }
+        response = requests.get(
+            cls.EM_PUSH_URL, params=params, headers=headers, timeout=8
+        )
+        response.raise_for_status()
+        body = response.json()
+        data = body.get("data")
+        if not data or not isinstance(data, dict):
+            return {
+                "success": False,
+                "stock_code": stock_code,
+                "error": f"无法查询到股票「{stock_code}」的行情信息",
+            }
+        return cls._parse_em_data(stock_code, symbol, data)
+
+    @classmethod
+    def _parse_em_data(cls, stock_code: str, symbol: str, data: dict) -> dict:
+        """解析东方财富 push2 JSON 字段。
+
+        注意：push2 返回的价格为整数（×10^decimals），需按小数位还原。
+        """
+        market = cls._market_of(symbol)
+        # f59 = 小数位数；缺失时按市场默认（CN=2, HK=3, US=2）
+        _default_decimals = {"CN": 2, "HK": 3, "US": 2}.get(market, 2)
+        try:
+            decimals = int(data.get("f59") or _default_decimals)
+            if not (1 <= decimals <= 6):
+                decimals = _default_decimals
+        except (ValueError, TypeError):
+            decimals = _default_decimals
+        divisor = 10 ** decimals
+
+        try:
+            price = float(data.get("f43") or 0) / divisor
+            pre_close = float(data.get("f60") or 0) / divisor
+            open_price = float(data.get("f46") or 0) / divisor
+            high = float(data.get("f44") or 0) / divisor
+            low = float(data.get("f45") or 0) / divisor
+            volume = float(data.get("f47") or 0)
+        except (ValueError, TypeError):
+            return {
+                "success": False,
+                "stock_code": stock_code,
+                "error": "东方财富数据解析失败",
+            }
+
+        if price == 0 and pre_close == 0:
+            return {
+                "success": False,
+                "stock_code": stock_code,
+                "error": f"无法查询到股票「{stock_code}」的行情信息",
+            }
+
+        currency = {"CN": "CNY", "HK": "HKD", "US": "USD"}.get(market, "CNY")
+        unit = {"CNY": "元", "HKD": "HK$", "USD": "$"}[currency]
+
+        stock_name = data.get("f58") or stock_code
+        code_display = data.get("f57") or stock_code
+        change_amount = price - pre_close
+        change_percent = (
+            (change_amount / pre_close * 100) if pre_close else 0.0
+        )
 
         price_str = cls._fmt_price(price, currency, unit)
         change_amt_str = cls._fmt_price(change_amount, currency, unit, signed=True)
