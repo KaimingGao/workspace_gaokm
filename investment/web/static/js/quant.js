@@ -1281,8 +1281,12 @@ export function initQuant(ctx) {
     try {
       await exportDomain.runDailyWithPreset("quant", "每日量化任务运行中…");
     } catch (err) {
-      if (els.quantMeta) els.quantMeta.textContent = String(err.message || err);
-      }
+      setBusyText(
+        els.quantOpsSummary,
+        String(err.message || err),
+        { busy: false }
+      );
+    }
   });
 
   on("quant-ops-run-daily", "click", async (e) => {
@@ -1290,7 +1294,11 @@ export function initQuant(ctx) {
     try {
       await exportDomain.runDailyWithPreset("quant", "生成日报中…");
     } catch (err) {
-      setQuantMeta(String(err.message || err), { error: true });
+      setBusyText(
+        els.quantOpsSummary,
+        String(err.message || err),
+        { busy: false }
+      );
     }
   });
 

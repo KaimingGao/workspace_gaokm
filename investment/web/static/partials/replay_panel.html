@@ -164,12 +164,9 @@
 
         <div id="quant-portfolio-summary" class="quant-summary">有票后点「Top-K 回测」</div>
         <p id="quant-bt-scope-note" class="quant-fingerprint" hidden></p>
-        <div id="quant-bt-progress" class="paper-progress" hidden>
-          <div class="paper-progress-track paper-progress-track-indeterminate" aria-hidden="true">
-            <div class="paper-progress-fill paper-progress-fill-indeterminate"></div>
-          </div>
-          <p id="quant-bt-progress-text" class="paper-progress-text">回测中…</p>
-        </div>
+        <p id="quant-bt-progress" class="quant-fingerprint quant-card-head-status paper-progress-status" hidden aria-live="polite">
+          <span id="quant-bt-progress-text">回测中…</span>
+        </p>
         <div id="quant-bt-metrics" class="quant-metrics" aria-live="polite"></div>
         <div id="quant-robustness" class="quant-weight-table-wrap" aria-label="稳健性 OOS/WF"></div>
         <div id="quant-fit-gap" class="quant-weight-table-wrap" aria-label="回测纸面落差归因"></div>
@@ -310,11 +307,8 @@ horizon=1 时：每个交易日都可成为信号日，调仓更密、成本更�
             </div>
           </div>
           <div id="quant-promote-hints" class="quant-weight-table-wrap" aria-label="Promote 提示"></div>
-          <div id="param-grid-progress" class="paper-progress" hidden>
-            <div class="paper-progress-track paper-progress-track-indeterminate" aria-hidden="true">
-              <div class="paper-progress-fill paper-progress-fill-indeterminate"></div>
-            </div>
-            <p id="param-grid-progress-text" class="paper-progress-text">扫描中…</p>
+          <div id="param-grid-progress" class="quant-fingerprint quant-card-head-status paper-progress-status" hidden aria-live="polite">
+            <span id="param-grid-progress-text">扫描中…</span>
           </div>
           <canvas id="param-grid-heat" class="param-grid-heat" width="360" height="188" aria-label="参数热力图"></canvas>
           <div id="param-grid-table" class="quant-weight-table-wrap"></div>

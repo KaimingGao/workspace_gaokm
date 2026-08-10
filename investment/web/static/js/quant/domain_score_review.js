@@ -5,7 +5,7 @@ import { paintYhatScatter, paintHitSparkline } from "./yhat_viz.js";
 import { syncOverviewFromScoreReview, setProStatusChip } from "./factor_corr_ui.js";
 
 export function installScoreReview(ctx) {
-  const { els, escapeHtml, setQuantMeta, on } = ctx;
+  const { els, escapeHtml, setQuantMeta, setBusyText, on } = ctx;
   const esc = escapeHtml;
 
   function tagLabel(tag) {
@@ -310,7 +310,6 @@ export function installScoreReview(ctx) {
     const asOf = readAsOf();
     const horizon = readHorizon();
     setStatus("复盘计算中…", { busy: true });
-    if (setQuantMeta) setQuantMeta("昨日复盘计算中…", { busy: true });
     try {
       const q = new URLSearchParams();
       if (asOf) q.set("as_of", asOf);
@@ -410,11 +409,14 @@ export function installScoreReview(ctx) {
     const runBtn = document.getElementById("quant-ols-clusters-run");
     if (runBtn) {
       runBtn.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      // 进度挂分组卡头，不占页顶主标题
+      if (setBusyText && els.quantOlsSummary) {
+        setBusyText(els.quantOlsSummary, "复盘 → 跑分组重估中…", { busy: true });
+      }
       runBtn.click();
-      setStatus("已触发「跑分组」重估", { ok: true });
-      if (setQuantMeta) setQuantMeta("复盘 → 跑分组重估中…", { busy: true });
-    } else if (setQuantMeta) {
-      setQuantMeta("请到研究枢纽点「跑分组」重估组 β", { error: true });
+      setStatus("已触发「跑分组」重估", { busy: true });
+    } else {
+      setStatus("请到「分组」点「跑分组」重估组 β", { error: true });
     }
   }
 

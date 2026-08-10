@@ -249,8 +249,12 @@ export function installClusterProbe(q) {
       const runBtn = document.getElementById("quant-ols-clusters-run");
       if (runBtn) {
         runBtn.scrollIntoView({ block: "nearest", behavior: "smooth" });
+        setBusyText(els.quantOlsSummary, "对照 → 跑分组重估中…", { busy: true });
         runBtn.click();
       } else {
+        setBusyText(els.quantOlsSummary, "请到「分组」点「跑分组」重估组 β", {
+          busy: false,
+        });
         setQuantMeta("请到研究枢纽点「跑分组」重估组 β", { error: true });
       }
       return;

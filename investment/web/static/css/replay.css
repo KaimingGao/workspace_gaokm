@@ -732,3 +732,10 @@ body[data-page="replay"] .replay-desk-guard {
   }
 }
 
+
+/* 回测忙碌：三点脉冲，不用不确定进度蓝条 */
+.paper-progress-status {
+  margin: 0 0 10px;
+  width: fit-content;
+  max-width: 100%;
+}

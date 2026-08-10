@@ -248,20 +248,23 @@ export function installExportInterpret(q) {
 
   async function runDailyWithPreset(preset, runningLabel) {
     openDailyFold();
-    setQuantMeta(runningLabel || "生成日报中…", { busy: true });
+    const busyLine = runningLabel || "生成日报中…";
+    setBusyText(els.quantOpsSummary, busyLine, { busy: true });
     const res = await fetch("/api/daily/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ preset }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || res.statusText);
-    setQuantMeta(
-      data.ok
-        ? `日报已生成`
-        : `日报部分失败 · ${(data.failures || []).join("；")}`,
-      { busy: false, error: !data.ok }
-    );
+    if (!res.ok) {
+      const detail = data.detail || res.statusText;
+      setBusyText(els.quantOpsSummary, `日报失败 · ${detail}`, { busy: false });
+      throw new Error(detail);
+    }
+    const doneLine = data.ok
+      ? "日报已生成"
+      : `日报部分失败 · ${(data.failures || []).join("；")}`;
+    setBusyText(els.quantOpsSummary, doneLine, { busy: false });
     await q.watching.loadWatchingPanel();
     await loadOpsPanel();
     await q.strategy.loadConfigDiffPreview();

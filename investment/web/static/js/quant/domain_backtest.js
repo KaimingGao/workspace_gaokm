@@ -860,7 +860,10 @@ export function installBacktest(q) {
     const prog = document.getElementById("param-grid-progress");
     const progText = document.getElementById("param-grid-progress-text");
     const btn = document.getElementById("quant-param-grid-run");
-    if (prog) prog.hidden = false;
+    if (prog) {
+      prog.hidden = false;
+      prog.classList.add("is-busy");
+    }
     if (progText) progText.textContent = "参数扫描中…";
     if (btn) btn.disabled = true;
     try {
@@ -877,14 +880,16 @@ export function installBacktest(q) {
       if (!ok) throw new Error(error || data.detail || "网格失败");
       renderParamGridResult(data);
     } finally {
-      if (prog) prog.hidden = true;
+      if (prog) {
+        prog.hidden = true;
+        prog.classList.remove("is-busy");
+      }
       if (btn) btn.disabled = false;
     }
   }
 
   async function runPortfolioBacktest() {
     setQuantBtBusy(true, "Top-K 回测中（拉日线，可能需数秒）…");
-    els.quantPortfolioSummary.textContent = "回测中…";
     try {
       const {
         lookback,
@@ -973,7 +978,6 @@ export function installBacktest(q) {
 
   async function runPortfolioNeutralCompare() {
     setQuantBtBusy(true, "中性化对照回测中（可能需数秒）…");
-    els.quantPortfolioSummary.textContent = "中性化对照回测中…";
     try {
       const {
         lookback,
@@ -1060,6 +1064,7 @@ export function installBacktest(q) {
   function setQuantBtBusy(busy, message) {
     if (els.quantBtProgress) {
       els.quantBtProgress.hidden = !busy;
+      els.quantBtProgress.classList.toggle("is-busy", !!busy);
       if (busy) {
         try {
           els.quantBtProgress.scrollIntoView({ behavior: "smooth", block: "nearest" });
