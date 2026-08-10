@@ -268,8 +268,10 @@ export function installFitGapHub(ctx) {
     }
   });
 
-  // 进页直接拉一次（不再依赖 details 展开）
-  refresh().catch(() => {});
+  // 仅研究枢纽进页自动拉；其它页装了 DOM 也不要抢带宽
+  if (document.body?.dataset?.page === "quant") {
+    refresh().catch(() => {});
+  }
 
   return { refresh, renderPanel };
 }

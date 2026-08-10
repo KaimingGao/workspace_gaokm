@@ -379,12 +379,10 @@ export function installSuggest(q) {
       const pct = Number(job.pct) || 0;
       const msg = job.message || "运行中…";
       const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
-      setQuantMeta(
-        `分组中… ${sec}s · ${msg}${
-          Number.isFinite(pct) && pct > 0 ? ` · ${Math.round(pct)}%` : ""
-        }`,
-        { busy: true }
-      );
+      const line = `分组中… ${sec}s · ${msg}${
+        Number.isFinite(pct) && pct > 0 ? ` · ${Math.round(pct)}%` : ""
+      }`;
+      setBusyText(els.quantOlsSummary, line, { busy: true });
       await new Promise((r) => setTimeout(r, 400));
     }
     throw new Error("分组任务超时");
@@ -407,8 +405,10 @@ export function installSuggest(q) {
     let timer = null;
     const tick = () => {
       const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
-      // 进度只走页顶 meta；摘要行空着，算完由状态条接手
-      setQuantMeta(`分组中… ${sec}s · 观察池`, { busy: true });
+      // 进度走分组卡头（主操作旁）；页顶保留路径说明
+      setBusyText(els.quantOlsSummary, `分组中… ${sec}s · 观察池`, {
+        busy: true,
+      });
     };
     const stopTick = () => {
       if (timer != null) {
@@ -493,7 +493,9 @@ export function installSuggest(q) {
       if (data && data.background && data.job) {
         stopTick();
         if (data.reused) {
-          setQuantMeta("分组进行中 · 已接入现有任务", { busy: true });
+          setBusyText(els.quantOlsSummary, "分组进行中 · 已接入现有任务", {
+            busy: true,
+          });
         }
         const job = await waitQuantOlsClustersJob(data.job.id);
         data = job.result || {};
@@ -510,7 +512,8 @@ export function installSuggest(q) {
         setQuantMeta(`分组失败 · ${detail}`, { error: true });
         throw new Error(detail);
       }
-      setQuantMeta(
+      setBusyText(
+        els.quantOlsSummary,
         data.cache_hit
           ? `命中 24h 缓存 · 渲染中… ${
               data.cache_age_hours != null ? `(${data.cache_age_hours}h 前)` : ""
@@ -543,10 +546,6 @@ export function installSuggest(q) {
             ? ` · 目标k=${data.target_k}`
             : ` · 自动k=${data.target_k}`
           : "";
-      if (els.quantOlsSummary) {
-        els.quantOlsSummary.textContent = "";
-        els.quantOlsSummary.classList.remove("is-busy");
-      }
       const pitTag =
         data.pit_fundamentals === false ||
         (data.lookahead_flags && data.lookahead_flags.pit_fundamentals === false)
@@ -560,9 +559,9 @@ export function installSuggest(q) {
       const cacheTag = data.cache_hit
         ? ` · 缓存命中${data.cache_age_hours != null ? ` ${data.cache_age_hours}h` : ""}`
         : "";
-      setQuantMeta(
-        `分组 · ${nCl} 组${kTag} · 观察 ${nWatch || nUni} · 入组 ${nIn} · ${sec}s${oosTag}${pmOk}${pitTag}${barsTag}${regimeTag}${cacheTag}`
-      );
+      const doneLine = `分组 · ${nCl} 组${kTag} · 观察 ${nWatch || nUni} · 入组 ${nIn} · ${sec}s${oosTag}${pmOk}${pitTag}${barsTag}${regimeTag}${cacheTag}`;
+      setBusyText(els.quantOlsSummary, doneLine, { busy: false });
+      setQuantMeta(doneLine);
     } finally {
       stopTick();
     }

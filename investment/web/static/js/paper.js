@@ -104,6 +104,7 @@ export function initPaper(ctx) {
   let chartMode = "portfolio"; // portfolio | stock
   let chartStockCode = null;
   let lastAccountData = null;
+  let paperLoadPromise = null;
   let pendingFocusCode = null;
   let selectedHoldCode = null;
   let paperLogShowAll = { trading: false, fund: false };
@@ -578,6 +579,74 @@ export function initPaper(ctx) {
         )
         .join("");
     }
+
+    /* ── 研究枢纽风格 4 张 KPI 卡（id 在 value 节点上）── */
+    function setKpi(id, val, sub, { cls = "", empty = false } = {}) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      const card = el.closest(".follow-kpi-card") || el;
+      card.classList.toggle("is-empty", !!empty);
+      const vEl =
+        el.classList.contains("follow-kpi-value") || el.classList.contains("dashboard-kpi-value")
+          ? el
+          : card.querySelector(".follow-kpi-value, .dashboard-kpi-value");
+      const sEl = card.querySelector(".follow-kpi-sub, .dashboard-kpi-sub");
+      if (vEl) {
+        vEl.textContent = val;
+        vEl.classList.remove("up", "down");
+        if (cls) vEl.classList.add(cls);
+      }
+      if (sEl && sub != null) sEl.textContent = sub;
+    }
+    const equity    = fmtMoney(s.equity);
+    const cashTxt   = fmtMoney(s.cash);
+    const stockTxt  = fmtMoney(s.stock_value);
+    const hc = s.position_count != null ? `${s.position_count} 只` : "—";
+    // 今日收益：优先 today_pnl_pct，其次 today_pnl 绝对额，都没就 —
+    let todayVal = "—";
+    let todayCls = "";
+    let todaySub = "今日暂未结算";
+    if (s.today_pnl_pct != null && Number.isFinite(Number(s.today_pnl_pct))) {
+      const v = Number(s.today_pnl_pct);
+      todayVal = `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
+      todayCls = v === 0 ? "" : (v > 0 ? "up" : "down");
+      todaySub = s.today_pnl != null
+        ? `今日浮动 ${fmtMoney(s.today_pnl)}`
+        : "按昨收对比今日现价估算";
+    } else if (s.today_pnl != null && Number.isFinite(Number(s.today_pnl))) {
+      const v = Number(s.today_pnl);
+      todayVal = fmtMoney(v);
+      todayCls = v === 0 ? "" : (v > 0 ? "up" : "down");
+      todaySub = "今日浮动盈亏（估算）";
+    }
+    const ddVal = s.max_drawdown_pct != null && Number.isFinite(Number(s.max_drawdown_pct))
+      ? `${Number(s.max_drawdown_pct).toFixed(2)}%`
+      : "—";
+    const ddCls = s.max_drawdown_pct != null && Number(s.max_drawdown_pct) > 0 ? "down" : "";
+    const ddEmpty = s.max_drawdown_pct == null || !Number.isFinite(Number(s.max_drawdown_pct));
+
+    setKpi("paper-kpi-nav",      equity,    `现金 ${cashTxt} · 市值 ${stockTxt}`, { empty: s.equity == null });
+    setKpi("paper-kpi-holdings", hc,        "当前账户活跃持仓",                     { empty: s.position_count == null });
+    setKpi("paper-kpi-dd",       ddVal,     "期间历史最大回撤",                     { cls: ddCls, empty: ddEmpty });
+    setKpi("paper-kpi-today",    todayVal,  todaySub,                               { cls: todayCls, empty: todayVal === "—" });
+
+    const fundCash = document.getElementById("paper-fund-cash-text");
+    if (fundCash) {
+      fundCash.textContent =
+        s.cash != null && Number.isFinite(Number(s.cash))
+          ? `可用现金 ${cashTxt}`
+          : "尚未加载 · 初始化后显示现金余额";
+    }
+
+    /* ── 路径 rail：默认高亮「3 调仓」；未初始化则「2 回测」── */
+    document.querySelectorAll(".follow-path-step").forEach((st) => {
+      const step = st.dataset.step;
+      let active = step === "rebalance";
+      if (!paperInitialized) active = step === "replay";
+      st.classList.toggle("is-active", !!active);
+      if (active) st.setAttribute("aria-current", "step");
+      else st.removeAttribute("aria-current");
+    });
   }
 
   function renderFollowNorthStar(ns) {
@@ -604,19 +673,26 @@ export function initPaper(ctx) {
     const fmt = (v, d) =>
       v == null || Number.isNaN(Number(v)) ? "—" : Number(v).toFixed(d);
     const items = [
-      ["夏普", fmt(sharpe, 2), "滚动纸面夏普"],
-      ["卡玛", fmt(calmar, 2), "纸面卡玛"],
-      ["拟合", fmt(corr, 3), "回测–纸面相关"],
-      ["TE", te != null ? `${fmt(te, 2)}%` : "—", "跟踪误差"],
+      ["夏普", fmt(sharpe, 2), "滚动纸面夏普", "sharpe"],
+      ["卡玛", fmt(calmar, 2), "纸面卡玛", "calmar"],
+      ["拟合", fmt(corr, 3), "回测–纸面相关", "fit"],
+      ["TE", te != null ? `${fmt(te, 2)}%` : "—", "跟踪误差", "te"],
     ];
-    host.innerHTML = items
-      .map(
-        ([label, val, title]) =>
-          `<div class="paper-stat follow-stat" title="${title}">` +
-          `<span class="label">${label}</span>` +
-          `<span class="val">${val}</span></div>`
-      )
-      .join("");
+    host.innerHTML =
+      `<div class="follow-north-star-grid dashboard-kpi-row-body" role="list" aria-label="北极星质量">` +
+      items
+        .map(([label, val, sub, key]) => {
+          const empty = val === "—";
+          return (
+            `<div class="dashboard-kpi-card quant-pro-kpi-card follow-kpi-card follow-north-star-item${empty ? " is-empty" : ""}" role="listitem" data-kpi="${key}" title="${sub}">` +
+            `<div class="dashboard-kpi-label quant-pro-kpi-label follow-kpi-label follow-north-star-label">${label}</div>` +
+            `<div class="dashboard-kpi-value quant-pro-kpi-value follow-kpi-value follow-north-star-val">${val}</div>` +
+            `<div class="dashboard-kpi-sub quant-pro-kpi-sub follow-kpi-sub follow-north-star-sub">${sub}</div>` +
+            `</div>`
+          );
+        })
+        .join("") +
+      `</div>`;
   }
 
   const scoreTips = createScoreTooltipController();
@@ -802,7 +878,17 @@ export function initPaper(ctx) {
 
     const logsView = buildPaperLogsView(data, paperLogShowAll);
     const logEl = document.getElementById("paper-operation-log");
-    if (logEl) logEl.innerHTML = logsView.tradingHtml;
+    if (logEl) {
+      logEl.innerHTML = logsView.tradingHtml;
+      // 同步研究枢纽风格卡头状态：交易条数 / 净交易额（若有）
+      const headStatus = document.querySelector("#follow-ops-trades .follow-card-status");
+      if (headStatus) {
+        const cnt = logsView.tradingCount != null
+          ? logsView.tradingCount
+          : (logEl.querySelectorAll(".paper-op-row, .paper-op, tr, .log-entry, li").length || 0);
+        headStatus.textContent = `共 ${cnt} 条`;
+      }
+    }
     const fundCard = document.getElementById("paper-fund-log-card");
     const fundEl = document.getElementById("paper-fund-log");
     if (fundCard && fundEl) {
@@ -844,6 +930,7 @@ export function initPaper(ctx) {
 
   async function loadPaper(opts = {}) {
     const quiet = !!(opts && opts.quiet);
+    const force = !!(opts && opts.force);
     if (
       !document.getElementById("paper-meta") &&
       !document.getElementById("follow-meta") &&
@@ -852,46 +939,56 @@ export function initPaper(ctx) {
     ) {
       return null;
     }
+    // 防重入：并发刷新共用同一请求，避免叠请求把状态卡在「刷新中…」
+    if (paperLoadPromise && !force) return paperLoadPromise;
+
     const refreshBtn = document.getElementById("paper-holdings-refresh");
     const started = Date.now();
-    if (!quiet) {
-      setHoldingsLoadStatus("加载中…", { busy: true });
-      if (refreshBtn) {
-        refreshBtn.disabled = true;
-        refreshBtn.textContent = "刷新中…";
-      }
-    }
-    try {
-      const { ok, data, error } = await apiFetch("/api/paper");
-      if (!ok) {
-        setPaperMetaText(error || "纸面加载失败");
-        if (!quiet) {
-          setHoldingsLoadStatus(error || "加载失败", { error: true });
-        }
-        return null;
-      }
-      applyPaperData(data);
-      const n = ((data.summary && data.summary.holdings) || []).length;
-      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+    paperLoadPromise = (async () => {
       if (!quiet) {
-        setHoldingsLoadStatus(
-          data.initialized
-            ? `已刷新 · ${n} 只持仓 · ${sec}s`
-            : "未初始化",
-          { ok: !!data.initialized }
-        );
+        setHoldingsLoadStatus("加载中…", { busy: true });
+        if (refreshBtn) {
+          refreshBtn.disabled = true;
+          refreshBtn.textContent = "刷新中…";
+        }
       }
-      return data;
-    } catch (err) {
-      const msg = String((err && err.message) || err || "加载失败");
-      setPaperMetaText(msg);
-      if (!quiet) setHoldingsLoadStatus(msg, { error: true });
-      throw err;
+      try {
+        const { ok, data, error } = await apiFetch("/api/paper");
+        if (!ok) {
+          setPaperMetaText(error || "纸面加载失败");
+          if (!quiet) {
+            setHoldingsLoadStatus(error || "加载失败", { error: true });
+          }
+          return null;
+        }
+        await applyPaperData(data);
+        const n = ((data.summary && data.summary.holdings) || []).length;
+        const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+        if (!quiet) {
+          setHoldingsLoadStatus(
+            data.initialized
+              ? `已刷新 · ${n} 只持仓 · ${sec}s`
+              : "未初始化",
+            { ok: !!data.initialized }
+          );
+        }
+        return data;
+      } catch (err) {
+        const msg = String((err && err.message) || err || "加载失败");
+        setPaperMetaText(msg);
+        if (!quiet) setHoldingsLoadStatus(msg, { error: true });
+        throw err;
+      } finally {
+        if (refreshBtn) {
+          refreshBtn.disabled = false;
+          refreshBtn.textContent = "刷新";
+        }
+      }
+    })();
+    try {
+      return await paperLoadPromise;
     } finally {
-      if (refreshBtn) {
-        refreshBtn.disabled = false;
-        refreshBtn.textContent = "刷新";
-      }
+      paperLoadPromise = null;
     }
   }
 
@@ -921,13 +1018,14 @@ export function initPaper(ctx) {
     return renderOpsReportEl(ops, { forceShow });
   }
 
-  function applyPaperData(data) {
+  async function applyPaperData(data) {
     if (!data) return data;
     const emptyEl = document.getElementById("paper-empty");
     const mainEl = document.getElementById("paper-main");
     paperInitialized = !!data.initialized;
     const costNote = document.getElementById("follow-cost-note");
     const costSelect = document.getElementById("paper-cost-model");
+    const fundCostLabel = document.getElementById("follow-fund-cost-label");
     const stratSelect = document.getElementById("paper-strategy");
     const model = data.cost_model || (data.summary && data.summary.cost_model) || "zero";
     if (costSelect && costSelect.value !== model) costSelect.value = model;
@@ -949,12 +1047,15 @@ export function initPaper(ctx) {
           ? "佣金万 2.5（最低 5 元）+ 卖出印花税万 5"
           : "成交按现价，不计佣金、滑点与印花税";
     }
+    if (fundCostLabel) {
+      fundCostLabel.textContent = model === "simple_cn" ? "A股简化" : "零成本";
+    }
     if (!data.initialized) {
       setPaperMetaText("未初始化");
       if (emptyEl) emptyEl.hidden = false;
       if (mainEl) mainEl.hidden = true;
       renderPaperStats({});
-      renderPaperAccountDetail(data);
+      await renderPaperAccountDetail(data);
       drawPaperChart([]);
       return data;
     }
@@ -966,7 +1067,7 @@ export function initPaper(ctx) {
     );
     renderPaperStats(sm);
     renderFollowNorthStar(data.north_star || (data.ops_report && data.ops_report.north_star));
-    renderPaperAccountDetail(data);
+    await renderPaperAccountDetail(data);
     // 只缓存五问文案；不要因刷账户把「调仓报告」预演区再次展开
     if (data.ops_report) {
       renderOpsReport(data.ops_report, { forceShow: false });
@@ -984,6 +1085,49 @@ export function initPaper(ctx) {
     }
     return data;
   }
+
+  // 研究枢纽同款：路径 rail 跳转按钮。仅绑定一次。
+  (function bindFollowPathRailOnce() {
+    if (window.__followPathRailBound) return;
+    window.__followPathRailBound = true;
+    document.addEventListener("click", (e) => {
+      const step = e.target.closest(".follow-path-step");
+      if (!step) return;
+      const target = step.dataset.step;
+      const href = step.getAttribute("href") || "";
+      if (href && href.startsWith("/")) {
+        e.preventDefault();
+        location.href = href;
+        return;
+      }
+      if (target === "watching") {
+        e.preventDefault();
+        location.href = "/watching";
+      } else if (target === "replay") {
+        e.preventDefault();
+        location.href = "/replay";
+      } else if (target === "rebalance") {
+        e.preventDefault();
+        const el = document.getElementById("follow-section-rebalance");
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else if (target === "strategy" || target === "promote") {
+        e.preventDefault();
+        location.href = "/strategy";
+      }
+    });
+
+    const openSecondaryByHash = () => {
+      const id = String(location.hash || "").replace(/^#/, "");
+      if (!id) return;
+      const sec = document.getElementById(id);
+      if (!sec?.classList.contains("follow-section-secondary")) return;
+      const fold = sec.querySelector("details.follow-secondary-fold");
+      if (fold) fold.open = true;
+      sec.scrollIntoView({ behavior: "smooth", block: "start" });
+    };
+    openSecondaryByHash();
+    window.addEventListener("hashchange", openSecondaryByHash);
+  })();
 
   let tradeStatusTimer = null;
   function setTradeStatus(msg, { error } = {}) {

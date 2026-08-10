@@ -13,12 +13,14 @@
       <span id="follow-cost-note" title="成交按现价；可切换成本模型">零成本假设</span>
     </p>
   </div>
-  <div class="dashboard-head-actions quant-head-actions">
+  <div class="dashboard-head-actions quant-head-actions follow-head-actions">
+    <span class="quant-desk-badge follow-desk-badge" title="纸面模拟不写实盘；晋升 Strategy 后可申请实盘对接">纸面模拟</span>
+    <span class="follow-desk-guard" title="本页仅模拟账户；Promote 后才可对接实盘">无实盘</span>
     <label class="follow-cost-model-field follow-cost-model-hero">
-      <span>成交成本</span>
+      <span>成本</span>
       <select id="paper-cost-model" class="follow-strategy-select" title="模拟成交成本模型">
-        <option value="zero">零成本假设</option>
-        <option value="simple_cn">A股简化（佣金+印花税）</option>
+        <option value="zero">零成本</option>
+        <option value="simple_cn">A股简化</option>
       </select>
     </label>
   </div>
@@ -32,347 +34,437 @@
 
   <div id="paper-main" class="paper-main">
 
-  <div class="paper-stats follow-stats" id="follow-stats"></div>
-  <div
-    id="follow-north-star"
-    class="paper-stats follow-stats north-star-kpi follow-north-star"
-    hidden
-    aria-label="产品北极星指标"
-  ></div>
+  <div class="paper-stats follow-stats" id="follow-stats" hidden aria-hidden="true"></div>
+  <!-- 北极星质量指标挂在概览 band 内，见 #follow-north-star -->
 
-  <section class="dashboard-section follow-chart-section" aria-label="净值曲线">
-    <header class="dashboard-section-head">
-      <h3 class="dashboard-section-title">净值路径</h3>
-      <p class="dashboard-section-desc">整账 / 单票收盘价</p>
+  <!-- 概览（对齐 研究枢纽：KPI + 路径 rail；去掉重复 stats 条带） -->
+  <section class="dashboard-section quant-section follow-overview-section" id="follow-section-overview" aria-labelledby="follow-section-overview-title">
+    <header class="dashboard-section-head quant-section-head follow-section-head">
+      <h3 id="follow-section-overview-title" class="dashboard-section-title">概览</h3>
+      <p class="dashboard-section-desc quant-section-desc">净值 · 持仓 · 质量 · 路径</p>
     </header>
-    <div class="dashboard-card follow-chart-card">
-      <div class="dashboard-card-head paper-chart-head">
-        <div class="paper-chart-modes" role="group" aria-label="曲线范围">
-          <button
-            type="button"
-            id="paper-chart-portfolio"
-            class="paper-chart-mode is-active"
-            data-mode="portfolio"
-            title="整账净值曲线"
-          >
-            整账
-          </button>
-          <button
-            type="button"
-            id="paper-chart-stock-mode"
-            class="paper-chart-mode"
-            data-mode="stock"
-            disabled
-            title="点击持仓行后可看单票收盘价"
-          >
-            单票
-          </button>
+    <div class="dashboard-overview-band quant-pro-desk-top follow-overview-band">
+      <div class="dashboard-kpi-row quant-pro-overview-kpis follow-kpi-row" id="follow-kpi-row" aria-label="执行台 KPI">
+        <div class="dashboard-kpi-row-body">
+          <div class="dashboard-kpi-card quant-pro-kpi-card follow-kpi-card is-empty" data-kpi="nav">
+            <div class="dashboard-kpi-label quant-pro-kpi-label follow-kpi-label">总净值</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value follow-kpi-value" id="paper-kpi-nav">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub follow-kpi-sub">现金 + 市值</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card follow-kpi-card is-empty" data-kpi="holdings">
+            <div class="dashboard-kpi-label quant-pro-kpi-label follow-kpi-label">持仓只数</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value follow-kpi-value" id="paper-kpi-holdings">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub follow-kpi-sub">手动 + 策略</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card follow-kpi-card is-empty" data-kpi="dd">
+            <div class="dashboard-kpi-label quant-pro-kpi-label follow-kpi-label">最大回撤</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value follow-kpi-value" id="paper-kpi-dd">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub follow-kpi-sub">历史 MaxDD%</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card follow-kpi-card is-empty" data-kpi="today">
+            <div class="dashboard-kpi-label quant-pro-kpi-label follow-kpi-label">今日收益</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value follow-kpi-value" id="paper-kpi-today">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub follow-kpi-sub">收益（%）</div>
+          </div>
         </div>
-        <p id="paper-chart-label" class="paper-chart-label">整账净值</p>
       </div>
       <div
-        id="paper-chart"
-        class="lw-host follow-lw-host"
-        aria-label="模拟净值或单票曲线"
-      ></div>
-      <canvas
-        id="paper-chart-fallback"
+        id="follow-north-star"
+        class="follow-north-star-inline"
         hidden
-        width="900"
-        height="240"
-        aria-hidden="true"
-      ></canvas>
+        aria-label="产品北极星指标"
+      ></div>
+      <nav class="quant-path-rail quant-pro-path-rail follow-path-rail" aria-label="执行主路径">
+        <a class="quant-path-step quant-pro-path-step follow-path-step" href="/watching" data-step="watching" data-state="idle">
+          <span class="quant-pro-path-num follow-path-num">1</span> 观察
+        </a>
+        <span class="quant-path-sep quant-pro-path-sep follow-path-sep" aria-hidden="true">/</span>
+        <a class="quant-path-step quant-pro-path-step follow-path-step" href="/replay" data-step="replay" data-state="idle">
+          <span class="quant-pro-path-num follow-path-num">2</span> 回测
+        </a>
+        <span class="quant-path-sep quant-pro-path-sep follow-path-sep" aria-hidden="true">/</span>
+        <a class="quant-path-step quant-pro-path-step follow-path-step is-active" href="#follow-section-rebalance" data-step="rebalance" data-state="active" aria-current="step">
+          <span class="quant-pro-path-num follow-path-num">3</span> 调仓
+        </a>
+        <span class="quant-path-sep quant-pro-path-sep follow-path-sep" aria-hidden="true">/</span>
+        <a class="quant-path-step quant-pro-path-step follow-path-step" href="/strategy" data-step="strategy" data-state="idle">
+          <span class="quant-pro-path-num follow-path-num">4</span> 晋升
+        </a>
+      </nav>
     </div>
   </section>
 
-  <section class="dashboard-section follow-holdings-section">
-    <header class="dashboard-section-head follow-holdings-head">
-      <h3 class="dashboard-section-title">持仓</h3>
-      <p class="dashboard-section-desc">
+  <section class="dashboard-section quant-section follow-holdings-section" id="follow-section-holdings" aria-labelledby="follow-section-holdings-title">
+    <header class="dashboard-section-head quant-section-head follow-section-head">
+      <h3 id="follow-section-holdings-title" class="dashboard-section-title">持仓</h3>
+      <p class="dashboard-section-desc quant-section-desc">
+        净值曲线 + 手动 / 策略 / 混合 明细 · 共
         <span id="paper-holdings-count" class="watching-section-count"></span>
+        只
       </p>
-      <div class="dashboard-card-tools">
-        <button
-          type="button"
-          id="paper-holdings-refresh"
-          class="dialog-btn secondary follow-holdings-refresh"
-          title="重新拉取账户、持仓评分与情绪"
-        >
-          刷新
-        </button>
-        <p
-          id="paper-holdings-load-status"
-          class="watching-toolbar-meta follow-holdings-load-status"
-          aria-live="polite"
-        >
-          加载中…
-        </p>
-      </div>
     </header>
-    <div class="dashboard-card paper-section-card follow-holdings-card">
-      <div id="paper-holdings-table" class="quant-weight-table-wrap paper-section-body"></div>
-      <p id="paper-trade-status" class="watching-toolbar-meta paper-trade-status" aria-live="polite"></p>
+    <div class="dashboard-card quant-pro-card follow-ops-card follow-holdings-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools follow-card-head">
+        <p id="paper-holdings-head-status" class="quant-fingerprint quant-card-head-status follow-card-status" aria-live="polite">
+          <span id="paper-chart-label" class="paper-chart-label">整账净值</span>
+          <span id="paper-holdings-load-status" class="watching-toolbar-meta follow-holdings-load-status">加载中…</span>
+        </p>
+        <div class="dashboard-card-tools quant-pro-card-tools follow-card-tools follow-holdings-tools">
+          <div class="paper-chart-modes" role="group" aria-label="曲线范围">
+            <button
+              type="button"
+              id="paper-chart-portfolio"
+              class="paper-chart-mode is-active"
+              data-mode="portfolio"
+              title="整账净值曲线"
+            >
+              整账
+            </button>
+            <button
+              type="button"
+              id="paper-chart-stock-mode"
+              class="paper-chart-mode"
+              data-mode="stock"
+              disabled
+              title="点击持仓行后可看单票收盘价"
+            >
+              单票
+            </button>
+          </div>
+          <button
+            type="button"
+            id="paper-holdings-refresh"
+            class="dialog-btn secondary follow-holdings-refresh"
+            title="重新拉取账户、持仓评分与情绪"
+          >
+            刷新
+          </button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body follow-card-body">
+        <div id="paper-chart-head-status" class="follow-chart-sublabel" aria-live="polite" hidden></div>
+        <div
+          id="paper-chart"
+          class="lw-host follow-lw-host follow-chart-inline"
+          aria-label="模拟净值或单票曲线"
+        ></div>
+        <canvas
+          id="paper-chart-fallback"
+          hidden
+          width="900"
+          height="240"
+          aria-hidden="true"
+        ></canvas>
+        <div id="paper-holdings-table" class="quant-weight-table-wrap paper-section-body"></div>
+        <p id="paper-trade-status" class="watching-toolbar-meta paper-trade-status" aria-live="polite"></p>
+      </div>
     </div>
   </section>
 
   <div class="follow-ops" aria-label="账户操作">
-    <section class="dashboard-section follow-ops-card" id="follow-fold-rebalance" aria-label="策略调仓">
-      <header class="dashboard-section-head follow-ops-head">
-        <h3 class="dashboard-section-title">策略调仓</h3>
-        <p class="dashboard-section-desc follow-ops-hint" title="研究枢纽对照/启用后，此处吃 live 组权更新 score；买卖只在本页。日常加减仓用上方持仓表">纸面验策略 · 预演后确认</p>
-      </header>
-      <p id="follow-cluster-status" class="follow-ops-note" aria-live="polite">
-        分组打分：加载中…
-      </p>
-      <div class="follow-ops-row quant-actions-inline">
-        <label class="follow-strategy-field">
-          <span class="sr-only">选择策略</span>
-          <select id="paper-strategy" class="follow-strategy-select" title="选择调仓策略">
-            <option value="short_conservative" selected>保守短线</option>
-            <option value="short">短线评分</option>
-          </select>
-        </label>
-        <button
-          type="button"
-          id="paper-adjust"
-          class="dialog-btn follow-adjust"
-          title="预演调仓：先出买卖清单，点「确认调仓」才写纸面。未启用分组时走策略/全局评分加减仓；研究枢纽已「启用」组权（mode=active）时自动改走分池合并簿。"
-        >
-          预演调仓
-        </button>
-        <button
-          type="button"
-          id="paper-daily-n5"
-          class="dialog-btn secondary"
-          title="调度 paper_daily：五问 + DecisionRecord + 衰减告警"
-        >
-          纸面日更
-        </button>
-        <button
-          type="button"
-          id="paper-feedback-alerts"
-          class="dialog-btn secondary"
-          title="用最近调仓/日更的监控告警生成配置建议（不写盘）"
-        >
-          告警→建议
-        </button>
-        <p
-          id="paper-ops-load-status"
-          class="watching-toolbar-meta follow-holdings-load-status follow-ops-load-status"
-          aria-live="polite"
-          hidden
-        ></p>
-      </div>
-      <p id="paper-validate-next" class="follow-validate-next" hidden></p>
-
-      <div class="follow-ops-sub follow-rebalance-card" id="paper-rebalance-section" hidden>
-        <div class="follow-ops-subhead">
-          <span class="follow-ops-subtitle">调仓报告</span>
-          <div class="follow-ops-subactions">
-            <button type="button" id="paper-rebalance-confirm" class="dialog-btn" hidden title="确认后按预演清单成交">
-              确认调仓
-            </button>
-            <button type="button" id="paper-rebalance-close" class="dialog-btn secondary" title="关闭调仓报告">×</button>
+    <section class="dashboard-section quant-section follow-section-secondary follow-fund-section" id="follow-section-fund" aria-labelledby="follow-section-fund-title">
+      <details class="quant-secondary-fold follow-secondary-fold">
+        <summary class="quant-secondary-fold-sum follow-secondary-fold-sum">
+          <h3 id="follow-section-fund-title" class="dashboard-section-title">资金调整</h3>
+          <p class="dashboard-section-desc quant-section-desc" title="回零保留持仓，只把盈亏与净值曲线重新起算；成本模型见页顶">注资 / 减资 / 回零</p>
+        </summary>
+        <div class="dashboard-card quant-pro-card follow-ops-card" id="follow-fold-fund">
+          <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools follow-card-head">
+            <p class="quant-fingerprint quant-card-head-status follow-card-status">纸面账户现金管理</p>
+            <div class="dashboard-card-tools quant-pro-card-tools follow-card-tools">
+              <span class="quant-desk-note">成本：<span id="follow-fund-cost-label">零成本</span></span>
+            </div>
+          </div>
+          <div class="quant-pro-card-body follow-card-body">
+            <div class="quant-control-band quant-pro-control-band follow-control-band" aria-label="调资操作">
+              <div class="quant-cluster-params quant-actions-inline follow-actions-inline follow-fund-actions">
+                <label class="platform-field quant-pro-field follow-platform-field" title="注资/减资金额（元）">
+                  <span class="quant-pro-field-label follow-field-label">调资金额（元）</span>
+                  <input
+                    type="number"
+                    id="paper-deposit-amount"
+                    class="follow-deposit-input"
+                    min="0"
+                    max="100000000"
+                    step="10000"
+                    value="0"
+                  />
+                </label>
+                <button
+                  type="button"
+                  id="paper-deposit"
+                  class="dialog-btn secondary follow-deposit"
+                  title="按左侧金额向假账注资"
+                >
+                  注资
+                </button>
+                <button
+                  type="button"
+                  id="paper-withdraw"
+                  class="dialog-btn secondary follow-withdraw"
+                  title="按左侧金额减少假账现金"
+                >
+                  减资
+                </button>
+                <button
+                  type="button"
+                  id="paper-reset"
+                  class="dialog-btn secondary follow-reset"
+                  title="保留持仓，盈亏与曲线从当前净值回零重新累积"
+                >
+                  回零
+                </button>
+              </div>
+              <div class="quant-oos-band follow-oos-band">
+                <span class="quant-oos-band-label">现金</span>
+                <span class="quant-oos-band-text" id="paper-fund-cash-text">尚未加载 · 初始化后显示现金余额</span>
+              </div>
+            </div>
+            <div class="follow-ops-sub" id="paper-fund-log-card" hidden>
+              <div class="follow-ops-subhead">
+                <span class="follow-ops-subtitle">资金流水</span>
+                <button type="button" class="follow-ops-link paper-clear-records" data-category="fund">清除</button>
+              </div>
+              <div id="paper-fund-log" class="paper-operation-log follow-ops-log"></div>
+            </div>
           </div>
         </div>
-        <p id="paper-rebalance-preview-note" class="follow-ops-note" hidden></p>
-        <div id="paper-ops-report" class="paper-ops-report" hidden></div>
-        <div id="paper-rebalance-cash" class="paper-rebalance-cash" hidden></div>
-        <div id="paper-rebalance-report" class="quant-weight-table-wrap"></div>
-      </div>
+      </details>
     </section>
 
-    <section class="dashboard-section follow-ops-card" id="follow-fold-fund" aria-label="资金调整">
-      <header class="dashboard-section-head follow-ops-head">
-        <h3 class="dashboard-section-title">资金调整</h3>
-        <p class="dashboard-section-desc follow-ops-hint" title="回零保留持仓，只把盈亏与净值曲线重新起算；成本模型见页顶">注资 / 减资 / 回零</p>
+    <section class="dashboard-section quant-section follow-rebalance-section" id="follow-section-rebalance" aria-labelledby="follow-section-rebalance-title" aria-label="策略调仓">
+      <header class="dashboard-section-head quant-section-head follow-section-head">
+        <h3 id="follow-section-rebalance-title" class="dashboard-section-title">策略调仓</h3>
+        <p class="dashboard-section-desc quant-section-desc" title="研究枢纽对照/启用后，此处吃 live 组权更新 score；买卖只在本页。日常加减仓用上方持仓表">纸面验策略 · 预演后确认</p>
       </header>
-      <div class="follow-ops-row follow-fund-actions">
-        <label class="follow-deposit-field">
-          <span class="sr-only">调资金额</span>
-          <input
-            type="number"
-            id="paper-deposit-amount"
-            class="follow-deposit-input"
-            min="0"
-            max="100000000"
-            step="10000"
-            value="0"
-            title="注资/减资金额（元）"
-          />
-          <span class="follow-deposit-unit">元</span>
-        </label>
-        <button
-          type="button"
-          id="paper-deposit"
-          class="dialog-btn secondary follow-deposit"
-          title="按左侧金额向假账注资"
-        >
-          注资
-        </button>
-        <button
-          type="button"
-          id="paper-withdraw"
-          class="dialog-btn secondary follow-withdraw"
-          title="按左侧金额减少假账现金"
-        >
-          减资
-        </button>
-        <button
-          type="button"
-          id="paper-reset"
-          class="dialog-btn secondary follow-reset"
-          title="保留持仓，盈亏与曲线从当前净值回零重新累积"
-        >
-          回零
-        </button>
-      </div>
-      <div class="follow-ops-sub" id="paper-fund-log-card" hidden>
-        <div class="follow-ops-subhead">
-          <span class="follow-ops-subtitle">资金流水</span>
-          <button type="button" class="follow-ops-link paper-clear-records" data-category="fund">清除</button>
+      <div class="dashboard-card quant-pro-card follow-ops-card" id="follow-fold-rebalance">
+        <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools follow-card-head">
+          <p class="quant-fingerprint quant-card-head-status follow-card-status" aria-live="polite">
+            <span id="follow-cluster-status" class="follow-ops-note">分组打分：加载中…</span>
+            <span
+              id="paper-ops-load-status"
+              class="watching-toolbar-meta follow-holdings-load-status follow-ops-load-status"
+              hidden
+            ></span>
+          </p>
+          <div class="dashboard-card-tools quant-card-tools-secondary follow-card-tools" role="group" aria-label="调仓操作">
+            <button
+              type="button"
+              id="paper-daily-n5"
+              class="dialog-btn secondary"
+              title="调度 paper_daily：五问 + DecisionRecord + 衰减告警"
+            >
+              纸面日更
+            </button>
+            <button
+              type="button"
+              id="paper-feedback-alerts"
+              class="dialog-btn secondary"
+              title="用最近调仓/日更的监控告警生成配置建议（不写盘）"
+            >
+              告警→建议
+            </button>
+          </div>
         </div>
-        <div id="paper-fund-log" class="paper-operation-log follow-ops-log"></div>
-      </div>
-    </section>
-
-    <section class="dashboard-section follow-ops-card" id="follow-ops-trades">
-      <header class="dashboard-section-head follow-ops-head">
-        <h3 class="dashboard-section-title">交易记录</h3>
-        <p class="dashboard-section-desc">纸面成交流水</p>
-        <button type="button" class="follow-ops-link paper-clear-records" data-category="trading">清除</button>
-      </header>
-      <div id="paper-operation-log" class="paper-operation-log follow-ops-log"></div>
-    </section>
-
-    <details class="quant-fold follow-fold follow-ops-card follow-ops-t0">
-      <summary>做 T（可选）</summary>
-      <div class="quant-section">
-        <div id="paper-t0-summary" class="quant-summary">
-          底仓 overlay 验证 · 日线代理 · 预演后确认 · 非独立选股 · 非实盘。明细「分」= 开盘方向分（跳空等），≠ 选股 ŷ。
-        </div>
-        <div id="paper-t0-rules" class="paper-t0-rules" aria-label="生效做T规则"></div>
-        <details class="quant-fold follow-fold" id="paper-t0-edit-fold">
-          <summary>编辑账户覆盖（不改策略源）</summary>
-          <form id="paper-t0-form" class="paper-t0-form" autocomplete="off">
-            <div class="paper-t0-form-grid">
-              <label class="paper-t0-field">
-                <span>启用</span>
-                <input type="checkbox" name="enabled" checked />
-              </label>
-              <label class="paper-t0-field">
-                <span>动仓%</span>
-                <input type="number" name="t0_ratio" min="5" max="100" step="5" value="40" />
-              </label>
-              <label class="paper-t0-field">
-                <span>卖触发%</span>
-                <input type="number" name="sell_trigger_pct" min="0.1" max="20" step="0.1" value="2" />
-              </label>
-              <label class="paper-t0-field">
-                <span>买触发%</span>
-                <input type="number" name="buy_trigger_pct" min="0.1" max="20" step="0.1" value="1.5" />
-              </label>
-              <label
-                class="paper-t0-field"
-                title="|方向分|≥此值才入场；调低→更少信号跳过。默认 0.35"
-              >
-                <span>入场门槛</span>
-                <input type="number" name="dir_enter" min="0.05" max="1" step="0.05" value="0.35" />
-              </label>
-              <label
-                class="paper-t0-field"
-                title="日振幅%下限；空=自动 max(卖+买)×0.6。调低→更少振幅跳过"
-              >
-                <span>振幅下限%</span>
-                <input
-                  type="number"
-                  name="min_range_pct"
-                  min="0.2"
-                  max="30"
-                  step="0.1"
-                  placeholder="自动"
-                />
-              </label>
-              <label
-                class="paper-t0-field"
-                title="signal：开盘方向分（跳空/昨位/mom3/gap·ATR）；≠ 选股 predicted_score"
-              >
-                <span>选向</span>
-                <select name="direction">
-                  <option value="signal">signal</option>
-                  <option value="auto">auto</option>
-                  <option value="long_t">long_t</option>
-                  <option value="reverse_t">reverse_t</option>
+        <div class="quant-pro-card-body follow-card-body">
+          <div class="quant-control-band quant-pro-control-band follow-control-band" aria-label="策略调仓参数">
+            <div class="quant-cluster-params quant-actions-inline follow-actions-inline follow-rebalance-actions">
+              <label class="platform-field quant-pro-field follow-platform-field" title="选择调仓策略">
+                <span class="quant-pro-field-label follow-field-label">策略</span>
+                <select id="paper-strategy" class="follow-strategy-select" title="选择调仓策略">
+                  <option value="short_conservative" selected>保守短线</option>
+                  <option value="short">短线评分</option>
                 </select>
               </label>
-              <label class="paper-t0-field">
-                <span>成交</span>
-                <select name="fill_mode">
-                  <option value="trigger">trigger</option>
-                  <option value="mid">mid</option>
-                  <option value="optimistic">optimistic</option>
-                </select>
-              </label>
-              <label
-                class="paper-t0-field"
-                title="日线无先后时 veto 最严；研究可改 dual_touch。做T回测直接读此表单，无需先保存"
+              <button
+                type="button"
+                id="paper-adjust"
+                class="dialog-btn dialog-btn-keep-case follow-adjust"
+                title="预演调仓：先出买卖清单，点「确认调仓」才写纸面。未启用分组时走策略/全局评分加减仓；研究枢纽已「启用」组权（mode=active）时自动改走分池合并簿。"
               >
-                <span>路径</span>
-                <select name="path_mode">
-                  <option value="dual_touch">dual_touch</option>
-                  <option value="veto">veto</option>
-                  <option value="adverse">adverse</option>
-                  <option value="first_touch">first_touch</option>
-                </select>
-              </label>
-              <label class="paper-t0-field">
-                <span>耦合 stance</span>
-                <select name="t0_vs_stance">
-                  <option value="independent">independent</option>
-                  <option value="skip_if_avoid">skip_if_avoid</option>
-                  <option value="only_if_hold">only_if_hold</option>
-                </select>
-              </label>
-              <label class="paper-t0-field">
-                <span>ATR 调阈</span>
-                <input type="checkbox" name="use_atr" checked />
-              </label>
-              <label class="paper-t0-field" title="仅做T回测；不写入账本覆盖">
-                <span>回测窗</span>
-                <input type="number" name="lookback" min="20" max="500" step="5" value="30" />
-              </label>
+                预演调仓
+              </button>
             </div>
+            <div class="quant-oos-band follow-oos-band">
+              <span class="quant-oos-band-label">纸面</span>
+              <span class="quant-oos-band-text">先预演，再「确认调仓」落账；研究枢纽对照验证后可晋升实盘模板</span>
+            </div>
+          </div>
+          <p id="paper-validate-next" class="follow-validate-next" hidden></p>
+          <div class="follow-ops-sub follow-rebalance-card" id="paper-rebalance-section" hidden>
+            <div class="follow-ops-subhead">
+              <span class="follow-ops-subtitle">调仓报告</span>
+              <div class="follow-ops-subactions">
+                <button type="button" id="paper-rebalance-confirm" class="dialog-btn" hidden title="确认后按预演清单成交">
+                  确认调仓
+                </button>
+                <button type="button" id="paper-rebalance-close" class="dialog-btn secondary" title="关闭调仓报告">×</button>
+              </div>
+            </div>
+            <p id="paper-rebalance-preview-note" class="follow-ops-note" hidden></p>
+            <div id="paper-ops-report" class="paper-ops-report" hidden></div>
+            <div id="paper-rebalance-cash" class="paper-rebalance-cash" hidden></div>
+            <div id="paper-rebalance-report" class="quant-weight-table-wrap"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="dashboard-section quant-section follow-section-secondary follow-trades-section" id="follow-section-trades" aria-labelledby="follow-section-trades-title">
+      <details class="quant-secondary-fold follow-secondary-fold">
+        <summary class="quant-secondary-fold-sum follow-secondary-fold-sum">
+          <h3 id="follow-section-trades-title" class="dashboard-section-title">交易记录</h3>
+          <p class="dashboard-section-desc quant-section-desc">纸面成交流水</p>
+        </summary>
+        <div class="dashboard-card quant-pro-card follow-ops-card" id="follow-ops-trades">
+          <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools follow-card-head">
+            <p class="quant-fingerprint quant-card-head-status follow-card-status" id="follow-trades-count">共 0 条</p>
+            <div class="dashboard-card-tools quant-pro-card-tools follow-card-tools">
+              <button type="button" class="follow-ops-link paper-clear-records" data-category="trading">清除</button>
+            </div>
+          </div>
+          <div class="quant-pro-card-body follow-card-body">
+            <div id="paper-operation-log" class="paper-operation-log follow-ops-log"></div>
+          </div>
+        </div>
+      </details>
+    </section>
+
+    <section class="dashboard-section quant-section follow-section-secondary follow-t0-section" id="follow-section-t0" aria-labelledby="follow-section-t0-title">
+      <details class="quant-secondary-fold follow-secondary-fold" id="follow-fold-t0">
+        <summary class="quant-secondary-fold-sum follow-secondary-fold-sum">
+          <h3 id="follow-section-t0-title" class="dashboard-section-title">做 T</h3>
+          <p class="dashboard-section-desc quant-section-desc">底仓 overlay · 预演后确认 · 非独立选股</p>
+        </summary>
+        <div class="dashboard-card quant-pro-card follow-ops-card follow-ops-t0">
+          <div class="quant-pro-card-body follow-card-body">
+            <div id="paper-t0-summary" class="quant-summary">
+              底仓 overlay 验证 · 日线代理 · 预演后确认 · 非独立选股 · 非实盘。明细「分」= 开盘方向分（跳空等），≠ 选股 ŷ。
+            </div>
+            <div id="paper-t0-rules" class="paper-t0-rules" aria-label="生效做T规则"></div>
+            <details class="quant-fold follow-fold" id="paper-t0-edit-fold">
+              <summary>编辑账户覆盖（不改策略源）</summary>
+              <form id="paper-t0-form" class="paper-t0-form" autocomplete="off">
+                <div class="paper-t0-form-grid">
+                  <label class="paper-t0-field">
+                    <span>启用</span>
+                    <input type="checkbox" name="enabled" checked />
+                  </label>
+                  <label class="paper-t0-field">
+                    <span>动仓%</span>
+                    <input type="number" name="t0_ratio" min="5" max="100" step="5" value="40" />
+                  </label>
+                  <label class="paper-t0-field">
+                    <span>卖触发%</span>
+                    <input type="number" name="sell_trigger_pct" min="0.1" max="20" step="0.1" value="2" />
+                  </label>
+                  <label class="paper-t0-field">
+                    <span>买触发%</span>
+                    <input type="number" name="buy_trigger_pct" min="0.1" max="20" step="0.1" value="1.5" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="|方向分|≥此值才入场；调低→更少信号跳过。默认 0.35"
+                  >
+                    <span>入场门槛</span>
+                    <input type="number" name="dir_enter" min="0.05" max="1" step="0.05" value="0.35" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="日振幅%下限；空=自动 max(卖+买)×0.6。调低→更少振幅跳过"
+                  >
+                    <span>振幅下限%</span>
+                    <input
+                      type="number"
+                      name="min_range_pct"
+                      min="0.2"
+                      max="30"
+                      step="0.1"
+                      placeholder="自动"
+                    />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="signal：开盘方向分（跳空/昨位/mom3/gap·ATR）；≠ 选股 predicted_score"
+                  >
+                    <span>选向</span>
+                    <select name="direction">
+                      <option value="signal">signal</option>
+                      <option value="auto">auto</option>
+                      <option value="long_t">long_t</option>
+                      <option value="reverse_t">reverse_t</option>
+                    </select>
+                  </label>
+                  <label class="paper-t0-field">
+                    <span>成交</span>
+                    <select name="fill_mode">
+                      <option value="trigger">trigger</option>
+                      <option value="mid">mid</option>
+                      <option value="optimistic">optimistic</option>
+                    </select>
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="日线无先后时 veto 最严；研究可改 dual_touch。做T回测直接读此表单，无需先保存"
+                  >
+                    <span>路径</span>
+                    <select name="path_mode">
+                      <option value="dual_touch">dual_touch</option>
+                      <option value="veto">veto</option>
+                      <option value="adverse">adverse</option>
+                      <option value="first_touch">first_touch</option>
+                    </select>
+                  </label>
+                  <label class="paper-t0-field">
+                    <span>耦合 stance</span>
+                    <select name="t0_vs_stance">
+                      <option value="independent">independent</option>
+                      <option value="skip_if_avoid">skip_if_avoid</option>
+                      <option value="only_if_hold">only_if_hold</option>
+                    </select>
+                  </label>
+                  <label class="paper-t0-field">
+                    <span>ATR 调阈</span>
+                    <input type="checkbox" name="use_atr" checked />
+                  </label>
+                  <label class="paper-t0-field" title="仅做T回测；不写入账本覆盖">
+                    <span>回测窗</span>
+                    <input type="number" name="lookback" min="20" max="500" step="5" value="30" />
+                  </label>
+                </div>
+                <div class="quant-actions-inline">
+                  <button type="submit" id="paper-t0-save" class="dialog-btn">保存覆盖</button>
+                  <button type="button" id="paper-t0-reset" class="dialog-btn secondary">恢复策略默认</button>
+                  <button type="button" id="paper-t0-diff" class="dialog-btn secondary">对照 Spec</button>
+                </div>
+                <div id="paper-t0-edit-status" class="quant-sub" aria-live="polite"></div>
+                <div id="paper-t0-diff-box" class="quant-weight-table-wrap" hidden></div>
+              </form>
+            </details>
+            <div id="paper-t0-metrics" class="quant-metrics" aria-live="polite"></div>
+            <div id="paper-t0-preview" class="quant-weight-table-wrap" hidden></div>
+            <div id="paper-t0-days" class="quant-weight-table-wrap"></div>
             <div class="quant-actions-inline">
-              <button type="submit" id="paper-t0-save" class="dialog-btn">保存覆盖</button>
-              <button type="button" id="paper-t0-reset" class="dialog-btn secondary">恢复策略默认</button>
-              <button type="button" id="paper-t0-diff" class="dialog-btn secondary">对照 Spec</button>
+              <button type="button" id="paper-t0-run" class="dialog-btn secondary" title="预演今日做T，不改账本">
+                预演做T
+              </button>
+              <button type="button" id="paper-t0-confirm" class="dialog-btn" hidden title="确认后写入模拟账本">
+                确认做T
+              </button>
+              <button
+                type="button"
+                id="paper-t0-backtest"
+                class="dialog-btn secondary"
+                title="默认日线代理回测全部持仓（快）；Alt+点 = 仅选中行并尝试 5m 路径"
+              >
+                做T回测
+              </button>
+              <span id="paper-t0-action-status" class="quant-sub" aria-live="polite"></span>
             </div>
-            <div id="paper-t0-edit-status" class="quant-sub" aria-live="polite"></div>
-            <div id="paper-t0-diff-box" class="quant-weight-table-wrap" hidden></div>
-          </form>
-        </details>
-        <div id="paper-t0-metrics" class="quant-metrics" aria-live="polite"></div>
-        <div id="paper-t0-preview" class="quant-weight-table-wrap" hidden></div>
-        <div id="paper-t0-days" class="quant-weight-table-wrap"></div>
-        <div class="quant-actions-inline">
-          <button type="button" id="paper-t0-run" class="dialog-btn secondary" title="预演今日做T，不改账本">
-            预演做T
-          </button>
-          <button type="button" id="paper-t0-confirm" class="dialog-btn" hidden title="确认后写入模拟账本">
-            确认做T
-          </button>
-          <button
-            type="button"
-            id="paper-t0-backtest"
-            class="dialog-btn secondary"
-            title="默认日线代理回测全部持仓（快）；Alt+点 = 仅选中行并尝试 5m 路径"
-          >
-            做T回测
-          </button>
-          <span id="paper-t0-action-status" class="quant-sub" aria-live="polite"></span>
+          </div>
         </div>
-      </div>
-    </details>
+      </details>
+    </section>
   </div>
   </div>
 </div>

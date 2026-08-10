@@ -402,11 +402,56 @@ def fetch_stock_headlines(
 
     from core.ports.market import build_news
 
-    raw = build_news(code_key, limit=limit)
+    try:
+        raw = build_news(code_key, limit=limit)
+    except Exception as exc:
+        # 超时/网络异常：优先回退过期缓存，避免 UI 永久加载中
+        if cached:
+            items = list(cached.get("items") or [])[:limit]
+            sent = cached.get("sentiment")
+            if not isinstance(sent, dict):
+                sent = _attach_sentiment(items, lexicon=lexicon)
+            return {
+                "ok": True,
+                "stock_code": cached.get("stock_code") or code_key,
+                "stock_name": cached.get("stock_name") or "",
+                "items": items,
+                "sentiment": _annotate_include_gate(sent if isinstance(sent, dict) else {}),
+                "updated_at": cached.get("updated_at"),
+                "from_cache": True,
+                "stale": True,
+                "error": f"资讯源超时，已显示缓存：{exc}",
+            }
+        return {
+            "ok": False,
+            "stock_code": code_key,
+            "stock_name": "",
+            "items": [],
+            "sentiment": score_headlines([], lexicon=lexicon),
+            "error": f"资讯拉取失败：{exc}",
+            "updated_at": None,
+            "from_cache": False,
+        }
     now = time.time()
     updated_at = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(now))
     if not raw.get("success"):
         err = str(raw.get("error") or "未获取到相关资讯")
+        if cached and (cached.get("items") or []):
+            items = list(cached.get("items") or [])[:limit]
+            sent = cached.get("sentiment")
+            if not isinstance(sent, dict):
+                sent = _attach_sentiment(items, lexicon=lexicon)
+            return {
+                "ok": True,
+                "stock_code": cached.get("stock_code") or code_key,
+                "stock_name": cached.get("stock_name") or "",
+                "items": items,
+                "sentiment": _annotate_include_gate(sent if isinstance(sent, dict) else {}),
+                "updated_at": cached.get("updated_at"),
+                "from_cache": True,
+                "stale": True,
+                "error": f"资讯源不可用，已显示缓存：{err}",
+            }
         payload = {
             "ok": False,
             "stock_code": raw.get("stock_code") or code_key,
@@ -476,13 +521,25 @@ def list_watchlist_sentiment(
     lexicon = load_lexicon()
     items: List[Dict[str, Any]] = []
     for code in watch:
-        row = fetch_stock_headlines(
-            code,
-            limit=limit,
-            force=force,
-            ttl_sec=ttl_sec,
-            lexicon=lexicon,
-        )
+        try:
+            row = fetch_stock_headlines(
+                code,
+                limit=limit,
+                force=force,
+                ttl_sec=ttl_sec,
+                lexicon=lexicon,
+            )
+        except Exception as exc:
+            row = {
+                "ok": False,
+                "stock_code": code,
+                "stock_name": "",
+                "items": [],
+                "sentiment": score_headlines([], lexicon=lexicon),
+                "error": f"资讯拉取失败：{exc}",
+                "updated_at": None,
+                "from_cache": False,
+            }
         items.append(row)
     return {
         "ok": True,

@@ -272,9 +272,10 @@ class StockAPI:
                     "error": f"处理股票数据失败: {e}",
                 }
 
-        # 东方财富回退：对腾讯未成功的代码逐个尝试
+        # 东方财富回退：腾讯未成功时限量尝试，避免串行拖死整批（前端 ~20s）
         failed = [c for c in uncached_codes if not results.get(c, {}).get("success")]
-        for code in failed:
+        em_budget = min(8, len(failed))
+        for code in failed[:em_budget]:
             sym = symbols_map.get(code)
             if not sym:
                 continue

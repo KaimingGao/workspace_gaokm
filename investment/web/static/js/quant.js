@@ -52,9 +52,9 @@ import { buildUniversePanelHtml } from "./quant/universe_ui.js";
 import { researchGridHtml, metricCell } from "./quant/research_grid.js";
 import { createPromoteHintsRenderer } from "./quant/promote_hints_ui.js";
 import { createFactorIcUi } from "./quant/factor_ic_ui.js";
-import { createOlsUi } from "./quant/ols_ui.js?v=p802";
+import { createOlsUi } from "./quant/ols_ui.js?v=p910";
 import { createBtTablesUi } from "./quant/bt_tables.js";
-import { installWatching } from "./quant/domain_watching.js";
+import { installWatching } from "./quant/domain_watching.js?v=p910";
 import { installBacktest } from "./quant/domain_backtest.js";
 import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
@@ -1098,11 +1098,35 @@ export function initQuant(ctx) {
     }
   });
 
-  // 日报直出：进页拉预览；深链仍滚到卡片
+  // 日报：进页拉预览；深链打开折叠并滚到卡片
   exportDomain.ensureDailyPreview();
   if (String(location.hash || "").replace(/^#/, "") === "quant-daily-fold") {
     exportDomain.openDailyFold();
   }
+
+  // 路径轨：点击切换当前步高亮；深链到次要块时展开
+  const pathRail = document.querySelector(".quant-page .quant-path-rail");
+  if (pathRail) {
+    pathRail.addEventListener("click", (e) => {
+      const step = e.target.closest?.("a.quant-path-step");
+      if (!step) return;
+      pathRail.querySelectorAll("a.quant-path-step").forEach((a) => {
+        a.classList.toggle("is-active", a === step);
+        if (a === step) a.setAttribute("aria-current", "step");
+        else a.removeAttribute("aria-current");
+      });
+    });
+  }
+  const openSecondaryByHash = () => {
+    const id = String(location.hash || "").replace(/^#/, "");
+    if (!id) return;
+    const sec = document.getElementById(id);
+    if (!sec?.classList.contains("quant-section-secondary")) return;
+    const fold = sec.querySelector("details.quant-secondary-fold");
+    if (fold) fold.open = true;
+  };
+  openSecondaryByHash();
+  window.addEventListener("hashchange", openSecondaryByHash);
 
   on("quant-export-md", "click", async (e) => {
     e.preventDefault();
@@ -1358,6 +1382,10 @@ export function initQuant(ctx) {
   } else if (page === "strategy") {
     strategy.loadStrategyRiskAudit().catch(() => {});
     q.renderPromoteHintsPanel(loadCachedPromoteHints(), "strategy-promote-hints");
+  }
+  if (hash === "strategy-factor-dict") {
+    const fold = document.getElementById("strategy-factor-dict-fold");
+    if (fold) fold.open = true;
   }
 
   // T15/T17：IC硬闸 / TTL / 过期硬拦（默认均关或 24h）

@@ -27,37 +27,10 @@ function sentPlaceholderHtml(code) {
 }
 
 export function buildPaperOriginBarHtml(summary) {
-  const originSummary = (summary && summary.origin_summary) || [];
-  if (!originSummary.length) return "";
-  const originBrief = originSummary
-    .map((o) => `${o.origin_label || o.origin || "—"} ${o.count}只`)
-    .join(" · ");
-  return (
-    `<details class="paper-origin-fold">` +
-    `<summary class="paper-origin-fold-summary" title="按出处汇总市值与浮盈亏">出处对照 · ${escapeText(
-      originBrief
-    )}</summary>` +
-    `<div class="paper-origin-summary" aria-label="出处对照明细">` +
-    originSummary
-      .map((o) => {
-        const key = o.origin || "unknown";
-        const pnl = o.pnl_pct;
-        const pnlText =
-          pnl == null
-            ? ""
-            : ` · ${Number(pnl) >= 0 ? "+" : ""}${Number(pnl).toFixed(1)}%`;
-        return (
-          `<span class="paper-origin-chip is-${escapeText(
-            String(key)
-          )}" title="市值占比 ${escapeText(String(o.weight_pct ?? "—"))}%">` +
-          `${escapeText(o.origin_label || key)} ${escapeText(String(o.count))}只` +
-          ` · ${escapeText(String(o.market_value ?? "—"))}${pnlText}` +
-          `</span>`
-        );
-      })
-      .join("") +
-    `</div></details>`
-  );
+  // 冗余下线：出处对照（手动 X 只 · 市值 · 浮盈亏 vs 策略 X 只）与
+  // 单只持仓表行内的出处 chip 信息重复，故整块不再渲染。
+  // 如后续恢复，把 return 上面的代码块重启用即可（原逻辑保留在 git 历史）。
+  return "";
 }
 
 export function buildPaperHoldActionBarHtml({ selectedHoldCode, holdings }) {

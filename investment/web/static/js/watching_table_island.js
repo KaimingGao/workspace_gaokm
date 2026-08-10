@@ -24,21 +24,21 @@ function compare(id, a, b) {
   return String(a[id] ?? "").localeCompare(String(b[id] ?? ""), "zh-CN", { numeric: true });
 }
 
-/** 短文案列居中，避免夹在数值列之间时一侧挤、一侧空 */
+/** 短文案列居中；数值列略宽，避免窄屏被 ellipsis 裁成「…」像空值 */
 const COLS = [
-  { id: "picked", label: "", widthPct: 3.5, headClass: "watching-pick-cell", cellClass: "watching-pick-cell" },
+  { id: "picked", label: "", widthPct: 2.5, headClass: "watching-pick-cell", cellClass: "watching-pick-cell" },
   { id: "name", label: "股票", flex: true, sortable: true, cellClass: "watching-stock" },
-  { id: "paper", label: "仓位", widthPct: 6.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  { id: "sent", label: "情绪", widthPct: 5, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  { id: "price", label: "现价", widthPct: 7, num: true },
+  { id: "paper", label: "仓位", widthPct: 5, headClass: "watching-col-center", cellClass: "watching-col-center" },
+  { id: "sent", label: "情绪", widthPct: 3.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
+  { id: "price", label: "现价", widthPct: 7.5, num: true },
   { id: "chg", label: "涨跌", widthPct: 6.5, num: true, sortable: true },
-  { id: "score", label: "评分", widthPct: 6, num: true, sortable: true },
-  { id: "stance", label: "倾向", widthPct: 6, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  { id: "excess", label: "超额", widthPct: 7.5, num: true, sortable: true },
-  { id: "vol", label: "量", widthPct: 7, num: true, sortable: true },
-  { id: "volr", label: "量比", widthPct: 5, num: true },
-  { id: "pe", label: "PE", widthPct: 5, num: true },
-  { id: "pb", label: "PB", widthPct: 5, num: true },
+  { id: "score", label: "评分", widthPct: 6.5, num: true, sortable: true },
+  { id: "stance", label: "倾向", widthPct: 4.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
+  { id: "excess", label: "超额", widthPct: 7, num: true, sortable: true },
+  { id: "vol", label: "量", widthPct: 6, num: true, sortable: true },
+  { id: "volr", label: "量比", widthPct: 5.5, num: true },
+  { id: "pe", label: "PE", widthPct: 5.5, num: true },
+  { id: "pb", label: "PB", widthPct: 5.5, num: true },
 ];
 
 /**
@@ -131,7 +131,22 @@ export async function mountWatchingTableIsland(host, options = {}) {
         );
       }
       const v = d[col.id];
-      return v != null && v !== "" ? escapeHtml(String(v)) : "—";
+      if (v == null || v === "") return "—";
+      let text = String(v);
+      let tip = text;
+      // 超额：单元格只留 ±x.x%，强弱进 title（兼容旧 patch 仍带「强/弱/平」）
+      if (col.id === "excess") {
+        const m = text.match(/^([+-]?\d+(?:\.\d+)?%)/);
+        if (m) text = m[1];
+        tip = d.excessTitle || String(v);
+      } else if (col.id === "price") {
+        // 「元」占宽，窄列易被裁成「…」
+        text = text.replace(/元$/u, "");
+        tip = String(v);
+      } else if (d[`${col.id}Title`]) {
+        tip = String(d[`${col.id}Title`]);
+      }
+      return `<span title="${escapeHtml(tip)}">${escapeHtml(text)}</span>`;
     },
   });
 

@@ -51,10 +51,10 @@ export function buildRiskAuditFoldSummary({ blocks, rbSum, exposure }) {
   const bN = Array.isArray(blocks) ? blocks.length : Number(rbSum.block_count || 0);
   const over = (exposure.over_limit_sectors || []).length;
   if (over) {
-    return `风控与敞口 · 行业超限 ${over}` + (bN ? ` · 拦截 ${bN}` : "");
+    return `行业超限 ${over}` + (bN ? ` · 拦截 ${bN}` : "");
   }
-  if (bN) return `风控与敞口 · 拦截 ${bN}`;
-  return "风控与敞口 · 无超限";
+  if (bN) return `拦截 ${bN}`;
+  return "无超限";
 }
 
 /**

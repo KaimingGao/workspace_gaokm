@@ -1,14 +1,25 @@
-"""新闻/资讯标题摘要（AkShare 等公开源）。"""
+"""新闻/资讯标题摘要（东财搜索公开源）。"""
 
 from __future__ import annotations
 
+import json
 import re
+import time
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote as url_quote
 
 import requests
 
 from core.ports.market import query_quote, resolve_market_code
-from skills.screen.engine import _normalize_rows, _to_float
+
+# 单次 HTTP 超时；勿走 akshare.stock_news_em（其 requests 无 timeout，
+# 挂死后会占住全局 ak_lock，导致整站资讯/部分行情链路卡死）。
+_NEWS_HTTP_TIMEOUT_SEC = 8.0
+# 整段 build_news 墙钟上限（含别名重试），须低于前端 AbortController(20s)
+_NEWS_WALL_TIMEOUT_SEC = 16.0
+
+_EM_SEARCH_URL = "https://search-api-web.eastmoney.com/search/jsonp"
+_JSONP_CB = "jQuery3510876543210_1000000000000"
 
 
 def _pick(row: dict, *keys: str) -> Any:
@@ -16,6 +27,14 @@ def _pick(row: dict, *keys: str) -> Any:
         if k in row and row[k] not in (None, ""):
             return row[k]
     return None
+
+
+def _strip_em_tags(text: str) -> str:
+    s = str(text or "")
+    s = re.sub(r"\(</?em>\)", "", s)
+    s = re.sub(r"</?em>", "", s)
+    s = s.replace("\u3000", "").replace("\r\n", " ")
+    return s.strip()
 
 
 # --------------------------------------------------------------------------- #
@@ -50,20 +69,81 @@ def fetch_content(url: str, *, timeout: int = 5, max_chars: int = 500) -> str:
         return ""
 
 
-def fetch_news_rows(symbol: str) -> List[dict]:
-    """拉取资讯原始行。symbol 优先用 6 位 A 股代码或名称。"""
-    from skills.common.ak_lock import import_akshare
+def fetch_news_rows(symbol: str, *, timeout: float = _NEWS_HTTP_TIMEOUT_SEC) -> List[dict]:
+    """拉取资讯原始行。symbol 优先用 6 位 A 股代码或名称。
 
-    ak = import_akshare()
-    fn = getattr(ak, "stock_news_em", None)
-    if fn is None:
-        raise RuntimeError("当前 akshare 无 stock_news_em 接口")
-    # 常见签名：symbol="600519" 或关键词
-    try:
-        df = fn(symbol=symbol)
-    except TypeError:
-        df = fn(symbol)
-    return _normalize_rows(df)
+    直连东财 search JSONP（与 akshare.stock_news_em 同源），并强制 HTTP timeout，
+    避免占用 ak_lock。
+    """
+    keyword = str(symbol or "").strip()
+    if not keyword:
+        return []
+
+    t_http = max(2.0, float(timeout or _NEWS_HTTP_TIMEOUT_SEC))
+    inner_param = {
+        "uid": "",
+        "keyword": keyword,
+        "type": ["cmsArticleWebOld"],
+        "client": "web",
+        "clientType": "web",
+        "clientVersion": "curr",
+        "param": {
+            "cmsArticleWebOld": {
+                "searchScope": "default",
+                "sort": "default",
+                "pageIndex": 1,
+                "pageSize": 10,
+                "preTag": "<em>",
+                "postTag": "</em>",
+            }
+        },
+    }
+    params = {
+        "cb": _JSONP_CB,
+        "param": json.dumps(inner_param, ensure_ascii=False),
+        "_": str(int(time.time() * 1000)),
+    }
+    headers = {
+        "User-Agent": _CONTENT_HEADERS["User-Agent"],
+        "Referer": f"https://so.eastmoney.com/news/s?keyword={url_quote(keyword)}",
+        "Accept": "*/*",
+    }
+    r = requests.get(_EM_SEARCH_URL, params=params, headers=headers, timeout=t_http)
+    r.raise_for_status()
+    text = (r.text or "").strip()
+    if text.startswith(_JSONP_CB + "(") and text.endswith(")"):
+        payload = text[len(_JSONP_CB) + 1 : -1]
+    else:
+        # 兼容 cb 前缀变化：剥到首个 '(' … 末尾 ')'
+        l = text.find("(")
+        rparen = text.rfind(")")
+        if l < 0 or rparen <= l:
+            raise RuntimeError("东财资讯响应不是合法 JSONP")
+        payload = text[l + 1 : rparen]
+    data_json = json.loads(payload)
+    articles = ((data_json or {}).get("result") or {}).get("cmsArticleWebOld") or []
+    rows: List[dict] = []
+    for art in articles:
+        if not isinstance(art, dict):
+            continue
+        code = str(art.get("code") or "").strip()
+        title = _strip_em_tags(art.get("title") or "")
+        if not title:
+            continue
+        url = str(art.get("url") or "").strip()
+        if not url and code:
+            url = f"http://finance.eastmoney.com/a/{code}.html"
+        rows.append(
+            {
+                "关键词": keyword,
+                "新闻标题": title,
+                "新闻内容": _strip_em_tags(art.get("content") or ""),
+                "发布时间": str(art.get("date") or ""),
+                "文章来源": str(art.get("mediaName") or ""),
+                "新闻链接": url,
+            }
+        )
+    return rows
 
 
 def normalize_news_item(row: dict) -> Optional[dict]:
@@ -81,6 +161,11 @@ def normalize_news_item(row: dict) -> Optional[dict]:
 
 def build_news(stock_code: str, limit: int = 8, *, with_content: bool = False) -> dict:
     limit = max(1, min(int(limit or 8), 15))
+    return _build_news_inner(stock_code, limit=limit, with_content=with_content)
+
+
+def _build_news_inner(stock_code: str, limit: int = 8, *, with_content: bool = False) -> dict:
+    t0 = time.monotonic()
     quote = query_quote(stock_code)
     name = quote.get("stock_name") if quote.get("success") else stock_code
     code = quote.get("stock_code") if quote.get("success") else stock_code
@@ -107,12 +192,20 @@ def build_news(stock_code: str, limit: int = 8, *, with_content: bool = False) -
     if stock_code not in queries:
         queries.append(stock_code)
 
+    # 名称优先；超时后不再穷尽全部别名，尽快失败/回退（最多 2 次，控墙钟）
     items: List[dict] = []
     errors: List[str] = []
     used_query = None
-    for q in queries:
+    for q in queries[:2]:
+        elapsed = time.monotonic() - t0
+        remain = _NEWS_WALL_TIMEOUT_SEC - elapsed
+        if remain < 2.0:
+            errors.append("资讯拉取墙钟超时")
+            break
         try:
-            rows = fetch_news_rows(q)
+            rows = fetch_news_rows(
+                q, timeout=min(_NEWS_HTTP_TIMEOUT_SEC, remain)
+            )
             for row in rows:
                 item = normalize_news_item(row)
                 if item and item["title"]:
@@ -122,6 +215,10 @@ def build_news(stock_code: str, limit: int = 8, *, with_content: bool = False) -
                 break
         except Exception as e:
             errors.append(f"{q}: {e}")
+            # 超时类错误：别名重试价值低，直接结束
+            msg = str(e).lower()
+            if "timed out" in msg or "timeout" in msg:
+                break
 
     # 去重标题
     seen = set()
@@ -137,14 +234,19 @@ def build_news(stock_code: str, limit: int = 8, *, with_content: bool = False) -
     # 可选：抓取正文（供 LLM 情绪分析用，标题之外补充语义）
     if with_content:
         for it in unique:
-            it["content"] = fetch_content(it.get("url", ""))
+            remain = _NEWS_WALL_TIMEOUT_SEC - (time.monotonic() - t0)
+            if remain < 1.5:
+                break
+            it["content"] = fetch_content(
+                it.get("url", ""), timeout=max(1, min(5, int(remain)))
+            )
 
     if not unique:
         return {
             "success": False,
             "stock_code": code,
             "stock_name": name,
-            "error": "未获取到相关资讯",
+            "error": "未获取到相关资讯" + (f"（{errors[0]}）" if errors else ""),
             "notes": errors[:3],
         }
 

@@ -107,7 +107,10 @@ export function installExportInterpret(q) {
   }
 
   function openDailyFold() {
-    document.getElementById("quant-daily-fold")?.scrollIntoView?.({
+    const sec = document.getElementById("quant-daily-fold");
+    const fold = sec?.querySelector?.("details.quant-secondary-fold");
+    if (fold) fold.open = true;
+    sec?.scrollIntoView?.({
       behavior: "smooth",
       block: "nearest",
     });

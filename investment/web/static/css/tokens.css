@@ -1,0 +1,967 @@
+/* ══ DESIGN TOKENS ══ :root variables, --sys-* system standard, light/dark themes */
+
+/* ════════════════════════════════════════════════════════════════════
+ *  INVESTMENT WEB · 系统级 UI 设计规范 (Design System Standard)
+ *  ────────────────────────────────────────────────────────────────────
+ *  标准参照页：
+ *    ① 仪表盘  /dashboard   → dashboard_panel.html  （概览/风险/净值/分解/仓位）
+ *    ② 研究枢纽 /quant      → quant_panel.html      （分组/IC/复盘/探针/拟合）
+ *
+ *  所有新页面、新组件必须遵循以下规范。禁止硬编码字号 / 间距 / 圆角 / 颜色。
+ *
+ *  ┌─ Token 层级 ────────────────────────────────────────────────────┐
+ *  │  :root  --sys-*        系统规范 token（唯一真相源）            │
+ *  │  :root  --ink/--accent  颜色 token（浅/深主题各一套）          │
+ *  │  .dashboard-page --d-*  仪表盘别名 → var(--sys-*)              │
+ *  │  .quant-page    --q-*   研究枢纽别名 → var(--sys-*)            │
+ *  └────────────────────────────────────────────────────────────────┘
+ *
+ *  ┌─ 字号阶梯 (Typography Scale) ─ 6 级 ───────────────────────────┐
+ *  │  --sys-fs-micro    11px   KPI label · badge · status chip      │
+ *  │  --sys-fs-caption  12px   section desc · card sub · meta       │
+ *  │  --sys-fs-body     13px   card head title · compact table      │
+ *  │  --sys-fs-section  14px   section title · default body         │
+ *  │  --sys-fs-title    18px   page H2                              │
+ *  │  --sys-fs-kpi      20px   KPI value (max non-hero)             │
+ *  └────────────────────────────────────────────────────────────────┘
+ *
+ *  ┌─ 行高阶梯 (Line Height) ─ 3 级 ───────────────────────────────┐
+ *  │  --sys-lh-tight   1.2    KPI value · card title                │
+ *  │  --sys-lh-snug    1.35   section desc · card sub               │
+ *  │  --sys-lh-body    1.5    paragraph · table cell                │
+ *  └────────────────────────────────────────────────────────────────┘
+ *
+ *  ┌─ 字重阶梯 (Font Weight) ─ 4 级 ───────────────────────────────┐
+ *  │  --sys-fw-body     500   default text                         │
+ *  │  --sys-fw-sub      600   section title · card sub             │
+ *  │  --sys-fw-label    650   KPI label · field label (uppercase)  │
+ *  │  --sys-fw-display  700   KPI value · page H2 · section title  │
+ *  └────────────────────────────────────────────────────────────────┘
+ *
+ *  ┌─ 圆角阶梯 (Radius Tier) ─ 4 级 + 1 pill ──────────────────────┐
+ *  │  --sys-r-tier1   8px   section card · overview band           │
+ *  │  --sys-r-tier2   6px   dense card · quant-pro-card            │
+ *  │  --sys-r-tier3   6px   input · select · segmented control     │
+ *  │  --sys-r-tier4   4px   chip · badge · tag · status pill       │
+ *  │  --sys-r-full  999px   pill button · avatar · desk badge      │
+ *  └────────────────────────────────────────────────────────────────┘
+ *
+ *  ┌─ 间距阶梯 (Spacing) ─ 4 级 ───────────────────────────────────┐
+ *  │  --sys-gap-inline   6px   button-to-button · icon-to-label    │
+ *  │  --sys-gap-block   10px   card body interior block gap        │
+ *  │  --sys-gap-section 12px   section head → card · KPI → KPI     │
+ *  │  --sys-gap-page    16px   section → section vertical          │
+ *  └────────────────────────────────────────────────────────────────┘
+ *
+ *  ┌─ 组件层级 (Component Hierarchy) ──────────────────────────────┐
+ *  │                                                                │
+ *  │  Page Hero (.dashboard-head)                                   │
+ *  │  ├─ .dashboard-eyebrow        English subtitle (12px ink-3)   │
+ *  │  ├─ <h2>                      Page title (18px ink fw-700)    │
+ *  │  ├─ .dashboard-meta           Live status (12px ink-3 mono)   │
+ *  │  └─ .dashboard-head-actions   Badge · note · refresh button   │
+ *  │                                                                │
+ *  │  Section (<section class="dashboard-section">)                 │
+ *  │  ├─ .dashboard-section-head                                    │
+ *  │  │  ├─ <h3 class="dashboard-section-title">  14px fw-700 ink-2 │
+ *  │  │  │     ::before  3px accent bar                             │
+ *  │  │  └─ <p class="dashboard-section-desc">    12px ink-3       │
+ *  │  └─ Content area (card / band / row)                          │
+ *  │                                                                │
+ *  │  Overview Band (.dashboard-overview-band)                      │
+ *  │  ├─ .dashboard-kpi-row                                        │
+ *  │  │  └─ .dashboard-kpi-row-body  grid: repeat(N, 1fr)          │
+ *  │  │     └─ .dashboard-kpi-card                                 │
+ *  │  │        ├─ .dashboard-kpi-label   11px fw-600 uppercase     │
+ *  │  │        ├─ .dashboard-kpi-value   20px fw-700 mono ink      │
+ *  │  │        └─ .dashboard-kpi-sub     11px ink-3                │
+ *  │  └─ .quant-path-rail (optional)                               │
+ *  │     └─ .quant-path-step  1 → 2 → 3 → 4                       │
+ *  │                                                                │
+ *  │  Card (.dashboard-card / .quant-pro-card)                      │
+ *  │  ├─ .dashboard-card-head / .quant-pro-card-head               │
+ *  │  │  ├─ <h3> / .quant-card-head-status  left (status)          │
+ *  │  │  └─ .dashboard-card-tools            right (tools)         │
+ *  │  └─ .quant-pro-card-body                                      │
+ *  │     └─ .quant-control-band (params + OOS band)                │
+ *  │        ├─ .platform-field  label + input/select               │
+ *  │        └─ .quant-oos-band  accent pill + description          │
+ *  │                                                                │
+ *  └────────────────────────────────────────────────────────────────┘
+ *
+ *  ┌─ 颜色语义 (Color Semantics) ──────────────────────────────────┐
+ *  │  --ink       Primary text (16:1 light / 0.94α dark)           │
+ *  │  --ink-2     Secondary text (7.8:1)                           │
+ *  │  --ink-3     Tertiary / label (4.6:1 ≥ AA)                    │
+ *  │  --accent    Brand / interactive (#1890ff light / #3b82f6 dk) │
+ *  │  --color-up  A-stock red up (#f5222d)  [data-up-mode="us" → green]│
+ *  │  --color-down A-stock green down (#52c41a) [data-up-mode="us" → red]│
+ *  │  --ok / --warn / --danger  Semantic status                    │
+ *  │  --line / --line-2  Border hairline / subtle                  │
+ *  └────────────────────────────────────────────────────────────────┘
+ *
+ *  ┌─ 使用约定 ────────────────────────────────────────────────────┐
+ *  │  1. 新页面 HTML 结构：                                         │
+ *  │     <div class="dashboard-head">                              │
+ *  │       <div class="dashboard-head-text">                       │
+ *  │         <p class="dashboard-eyebrow">English Subtitle</p>     │
+ *  │         <h2>页面标题</h2>                                     │
+ *  │         <p class="dashboard-meta">状态文本</p>                │
+ *  │       </div>                                                  │
+ *  │       <div class="dashboard-head-actions">…</div>             │
+ *  │     </div>                                                    │
+ *  │     <div class="quant-body {page}-page">                      │
+ *  │       <section class="dashboard-section">                     │
+ *  │         <header class="dashboard-section-head">               │
+ *  │           <h3 class="dashboard-section-title">板块名</h3>     │
+ *  │           <p class="dashboard-section-desc">描述</p>          │
+ *  │         </header>                                             │
+ *  │         <div class="dashboard-card">…</div>                   │
+ *  │       </section>                                              │
+ *  │     </div>                                                    │
+ *  │                                                                │
+ *  │  2. CSS 引用 token，不硬编码：                                 │
+ *  │     ✅ font-size: var(--sys-fs-section);                     │
+ *  │     ✅ border-radius: var(--sys-r-tier1);                    │
+ *  │     ✅ gap: var(--sys-gap-section);                          │
+ *  │     ❌ font-size: 14px;                                       │
+ *  │     ❌ border-radius: 8px;                                    │
+ *  │     ❌ gap: 12px;                                             │
+ *  │                                                                │
+ *  │  3. 卡片圆角选择：                                            │
+ *  │     概览/大卡片 → --sys-r-tier1 (8px)                        │
+ *  │     研究级/紧凑卡 → --sys-r-tier2 (6px)                      │
+ *  │     输入控件 → --sys-r-tier3 (6px)                           │
+ *  │     徽章/标签 → --sys-r-tier4 (4px)                          │
+ *  │     药丸/头像 → --sys-r-full (999px)                        │
+ *  │                                                                │
+ *  │  4. 主题适配：所有颜色用 --ink / --accent / --line 等 token，  │
+ *  │     浅/深主题自动切换，不写 #hex 值。                          │
+ *  └────────────────────────────────────────────────────────────────┘
+ * ════════════════════════════════════════════════════════════════════ */
+
+/* 结构 token（字号/间距/圆角/布局）放 :root，不随主题丢失 */
+:root {
+  --radius: 12px;
+  --radius-sm: 8px;
+  --radius-xs: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --r-xs: 4px;
+  --r-sm: 6px;
+  --r-md: 6px;
+  --r-lg: 8px;
+  --r-full: 999px;
+  --font: "Manrope", "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+  --font-mono: "IBM Plex Mono", "SF Mono", "Fira Code", "Consolas", monospace;
+  --font-family-num: var(--font-mono);
+  --font-size-body: 14px;
+  --font-size-caption: 12px;
+  --font-size-data: 32px;
+  --fs-caption: 12px;
+  --fs-code: 13px;
+  --fs-body: 14px;
+  --fs-title: 16px;
+  --fs-kpi: 20px;
+  --lh-caption: 18px;
+  --lh-code: 20px;
+  --lh-body: 20px;
+  --lh-title: 24px;
+  --lh-kpi: 28px;
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --side-nav-w: 200px;
+  --side-nav-w-collapsed: 64px;
+  --chat-w: 100%;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --transition-fast: 0.15s var(--ease);
+  --transition: 0.2s var(--ease);
+  --transition-slow: 0.3s var(--ease);
+  --transition-data: 0.3s ease;
+  --split-major: 30%;
+  --split-minor: 70%;
+  --ui-busy-dot: 6px;
+  --ui-busy-dot-gap: 9px;
+  --ui-busy-duration: 1.05s;
+
+  --sys-fs-micro: 0.6875rem;
+  --sys-fs-caption: 0.75rem;
+  --sys-fs-body: 0.8125rem;
+  --sys-fs-section: 0.875rem;
+  --sys-fs-title: 1.125rem;
+  --sys-fs-kpi: 1.25rem;
+  --sys-lh-tight: 1.2;
+  --sys-lh-snug: 1.35;
+  --sys-lh-body: 1.5;
+  --sys-fw-body: 500;
+  --sys-fw-sub: 600;
+  --sys-fw-label: 650;
+  --sys-fw-display: 700;
+  --sys-r-tier1: 8px;
+  --sys-r-tier2: 6px;
+  --sys-r-tier3: 6px;
+  --sys-r-tier4: 4px;
+  --sys-r-full: 999px;
+  --sys-gap-inline: 6px;
+  --sys-gap-block: 10px;
+  --sys-gap-section: 12px;
+  --sys-gap-page: 16px;
+  --sys-gutter: 14px;
+  --sys-gutter-sm: 10px;
+  --sys-card-head-pad-y: 8px;
+  --sys-card-head-pad-x: 12px;
+  --sys-card-head-border: 1px solid var(--line);
+  --d-fs-micro: var(--sys-fs-micro);
+  --d-fs-caption: var(--sys-fs-caption);
+  --d-fs-body: var(--sys-fs-body);
+  --d-fs-section: var(--sys-fs-section);
+  --d-fs-title: var(--sys-fs-title);
+  --d-fs-kpi: var(--sys-fs-kpi);
+}
+
+html[data-theme="light"] {
+  /* Professional Trading Desk · Design Tokens v2 (WCAG AA) */
+  --bg-global: #f8fafc;
+  --bg-card: #ffffff;
+  --bg-hover: #f1f5f9;
+  --bg-active: #e2e8f0;
+  --bg: #f8fafc;
+  --bg-accent: #f1f5f9;
+  --bg-elevated: #ffffff;
+  --surface: #ffffff;
+  --surface-hover: #fafafa;
+  --surface-elevated: #fafafa;
+  --ink: #0f172a;                                    /* contrast 16.2:1 (was #1e293b) */
+  --ink-2: #475569;                                   /* contrast  7.8:1 (was #64748b) */
+  --ink-3: #64748b;                                   /* contrast  4.6:1 >= AA (FAIL was #94a3b8  3.1:1) */
+  --text-primary: rgba(15, 23, 42, 0.94);
+  --text-secondary: rgba(15, 23, 42, 0.72);
+  --text-tertiary: rgba(15, 23, 42, 0.52);
+  --line: #e2e8f0;
+  --line-2: #f1f5f9;
+  --border-color: #e2e8f0;
+  --user-bg: #dbeafe;
+  --user-ink: #1e40af;
+  --accent: #1890ff;
+  --accent-hover: #40a9ff;
+  --accent-active: #096dd9;
+  --accent-soft: rgba(24, 144, 255, 0.1);
+  --accent-glow: rgba(24, 144, 255, 0.15);
+  --color-primary: #1890ff;
+  --color-up: #f5222d;
+  --color-down: #52c41a;
+  --gold: #d97706;
+  --gold-soft: rgba(217, 119, 6, 0.08);
+  --gold-hover: #f59e0b;
+  --ok: #059669;
+  --ok-soft: rgba(5, 150, 105, 0.08);
+  --warn: #faad14;
+  --warn-soft: rgba(250, 173, 20, 0.12);
+  --danger: #ff4d4f;
+  --danger-soft: rgba(255, 77, 79, 0.1);
+  /* 全局加载/更新态 */
+  --ui-busy: var(--accent, #1890ff);
+  --ui-busy-soft: color-mix(in srgb, var(--accent, #1890ff) 10%, var(--surface));
+  --ui-busy-border: color-mix(in srgb, var(--accent, #1890ff) 32%, var(--line));
+  --color-warning: #faad14;
+  --color-error: #ff4d4f;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -4px rgba(0, 0, 0, 0.1);
+  --shadow-composer: 0 8px 30px rgba(24, 144, 255, 0.08);
+  --shadow-card: 0 2px 8px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+  --topbar-bg: rgba(255, 255, 255, 0.86);
+  --body-bg-image:
+    radial-gradient(1200px 520px at 50% -10%, var(--bg-accent) 0%, transparent 55%),
+    linear-gradient(180deg, #f7f9fc 0%, var(--bg) 42%, #e9eef5 100%);
+  --sys-card-head-bg: color-mix(in srgb, var(--ink) 2.5%, var(--surface));
+}
+
+/* 量化深色主题（可选）：盯盘友好 */
+html[data-theme="dark"] {
+  /* Professional Trading Desk · Dark Terminal v2 (WCAG AA) */
+  --bg-global: #0b0d10;
+  --bg-card: #14171c;
+  --bg-hover: #1a1e25;
+  --bg-active: #242832;
+  --bg: #0b0d10;
+  --bg-accent: #14171c;
+  --bg-elevated: #1a1e25;
+  --surface: #14171c;
+  --surface-hover: #1a1e25;
+  --surface-elevated: #242832;
+  --ink: rgba(255, 255, 255, 0.94);
+  --ink-2: rgba(255, 255, 255, 0.74);
+  --ink-3: rgba(255, 255, 255, 0.58);                /* contrast >= 4.5:1 (was 0.42) */
+  --text-primary: rgba(255, 255, 255, 0.94);
+  --text-secondary: rgba(255, 255, 255, 0.74);
+  --text-tertiary: rgba(255, 255, 255, 0.58);
+  --line: #2a2e37;
+  --line-2: #1f2229;
+  --border-color: #2a2e37;
+  --user-bg: #111b26;
+  --user-ink: #69c0ff;
+  --accent: #3b82f6;
+  --accent-hover: #60a5fa;
+  --accent-active: #2563eb;
+  --accent-soft: rgba(59, 130, 246, 0.18);
+  --accent-glow: rgba(59, 130, 246, 0.28);
+  --color-primary: #3b82f6;
+  --color-up: #f5222d;
+  --color-down: #52c41a;
+  --gold: #f59e0b;
+  --gold-soft: rgba(245, 158, 11, 0.14);
+  --gold-hover: #fbbf24;
+  --ok: #22c55e;
+  --ok-soft: rgba(34, 197, 94, 0.14);
+  --warn: #f59e0b;
+  --warn-soft: rgba(245, 158, 11, 0.16);
+  --danger: #ef4444;
+  --danger-soft: rgba(239, 68, 68, 0.14);
+  --color-warning: #f59e0b;
+  --color-error: #ef4444;
+  --ui-busy: var(--accent, #3b82f6);
+  --ui-busy-soft: color-mix(in srgb, var(--accent, #3b82f6) 14%, var(--surface));
+  --ui-busy-border: color-mix(in srgb, var(--accent, #3b82f6) 36%, var(--line));
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --shadow-md: 0 4px 14px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.55);
+  --shadow-composer: 0 8px 30px rgba(0, 0, 0, 0.4);
+  --shadow-card: 0 2px 10px rgba(0, 0, 0, 0.4);
+  --topbar-bg: rgba(15, 17, 21, 0.94);
+  --body-bg-image: none;
+
+  /* dark 模式 --d-* / --sys-* 别名（字号/圆角/间距不随主题变） */
+  --sys-card-head-bg: color-mix(in srgb, var(--ink) 2%, var(--bg-card));
+}
+
+html[data-theme="dark"] .yhat-spark-canvas {
+  background: color-mix(in srgb, #141414 88%, #2a2a2a);
+  border-color: rgba(255, 255, 255, 0.1);
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .yhat-mx {
+  background: #1a1a1a;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+html[data-theme="dark"] .quant-page .quant-kpi-row {
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--accent, #3b82f6) 5%, #1a1a1a) 0%,
+      #1a1a1a 60%);
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme="dark"] .quant-page .quant-cluster-status {
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme="dark"] .quant-page .yhat-mx {
+  border-color: rgba(255, 255, 255, 0.08);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+html[data-theme="dark"] .quant-page .quant-cluster-params-wrap {
+  border-color: rgba(255, 255, 255, 0.07);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+html[data-theme="dark"] .quant-page .quant-fold {
+  border-color: rgba(255, 255, 255, 0.07);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg,
+      color-mix(in srgb, var(--ok) 5%, #1a1a1a) 0%,
+      #1a1a1a 55%);
+  box-shadow:
+    0 1px 0 rgba(0, 0, 0, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/* Dark theme */
+html[data-theme="dark"] .dashboard-kpi-card {
+  border-right-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .dashboard-kpi-card.is-good {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-up, #f5222d) 12%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+
+html[data-theme="dark"] .dashboard-kpi-card.is-bad {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-down, #52c41a) 12%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+
+html[data-theme="dark"] .dashboard-sector-cell.is-up {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-up, #f5222d) 20%, #1a1a1a) 0%, color-mix(in srgb, var(--color-up, #f5222d) 8%, #1a1a1a) 100%);
+  border-color: color-mix(in srgb, var(--color-up, #f5222d) 40%, transparent);
+}
+
+html[data-theme="dark"] .dashboard-sector-cell.is-down {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-down, #52c41a) 20%, #1a1a1a) 0%, color-mix(in srgb, var(--color-down, #52c41a) 8%, #1a1a1a) 100%);
+  border-color: color-mix(in srgb, var(--color-down, #52c41a) 40%, transparent);
+}
+
+html[data-theme="dark"] .dashboard-card-head {
+  background: color-mix(in srgb, #fff 3%, #1a1a1a);
+}
+
+html[data-theme="dark"] .dashboard-leaderboard-table th {
+  background: color-mix(in srgb, #fff 3%, #1a1a1a);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .dashboard-leaderboard-table td {
+  border-bottom-color: rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .dashboard-signal-item {
+  border-bottom-color: rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .dashboard-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #252526;
+}
+
+/* ——— Dark theme (market / risk) ——— */
+html[data-theme="dark"] .dashboard-market-card {
+  border-right-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .dashboard-market-card.is-up {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-up, #f5222d) 14%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+
+html[data-theme="dark"] .dashboard-market-card.is-down {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-down, #52c41a) 14%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+
+html[data-theme="dark"] .dashboard-market-card.is-breadth {
+  background: linear-gradient(180deg, color-mix(in srgb, #2563eb 10%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+
+html[data-theme="dark"] .dashboard-market-card.is-limit {
+  background: linear-gradient(180deg, color-mix(in srgb, #d97706 14%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+
+html[data-theme="dark"] .dashboard-risk-card {
+  border-right-color: rgba(255, 255, 255, 0.08);
+  border-bottom-color: rgba(255, 255, 255, 0.05);
+}
+
+html[data-theme="dark"] .dashboard-risk-card.is-good {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-up, #f5222d) 12%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+
+html[data-theme="dark"] .dashboard-risk-card.is-bad {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-down, #52c41a) 12%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+
+html[data-theme="dark"] .dashboard-nav-stats {
+  background: color-mix(in srgb, #fff 3%, #1a1a1a);
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .dashboard-exposure-bar-track {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .factor-corr-warnings {
+  background: color-mix(in srgb, #d97706 12%, #1a1a1a);
+}
+
+html[data-theme="dark"] .factor-ir-bar-track.is-bipolar {
+  background:
+    linear-gradient(
+      90deg,
+      rgba(239, 68, 68, 0.12) 0%,
+      rgba(255, 255, 255, 0.04) 50%,
+      rgba(22, 163, 74, 0.12) 100%
+    );
+}
+
+html[data-theme="dark"] .quant-viz-empty {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Dark theme for dashboard report rails + secondary cards */
+html[data-theme="dark"] .dashboard-section-title {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+html[data-theme="dark"] .dashboard-section-desc {
+  color: rgba(255, 255, 255, 0.42);
+}
+
+html[data-theme="dark"] .dashboard-card-head {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+html[data-theme="dark"] .dashboard-var-card {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #252526;
+}
+
+/* ——— Professional Dark Theme: New Components ——— */
+/* Drawdown chart dark styling */
+html[data-theme="dark"] .dashboard-drawdown-card {
+  background: linear-gradient(180deg, #181a1f 0%, #13151a 100%);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .dashboard-drawdown-card .dashboard-card-head {
+  background: linear-gradient(180deg, rgba(59, 130, 246, 0.08) 0%, transparent 100%);
+}
+
+/* VaR chart dark styling */
+html[data-theme="dark"] .dashboard-var-card {
+  background: linear-gradient(180deg, #181a1f 0%, #13151a 100%);
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .dashboard-var-card .dashboard-card-head {
+  background: linear-gradient(180deg, rgba(245, 158, 11, 0.08) 0%, transparent 100%);
+}
+
+/* Factor IC series dark styling */
+html[data-theme="dark"] .quant-ic-kpi {
+  background: #13151a;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+/* Enhanced card hover in dark mode */
+html[data-theme="dark"] .dashboard-card:hover {
+  border-color: rgba(59, 130, 246, 0.25);
+  box-shadow: 0 0 0 1px rgba(59, 130, 246, 0.1), 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+
+/* KPI cards more contrast in dark */
+html[data-theme="dark"] .dashboard-kpi-card {
+  background: #181a1f;
+  border-right-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .dashboard-kpi-card:hover {
+  background: #1f2229;
+}
+
+html[data-theme="dark"] .dashboard-kpi-value {
+  text-shadow: 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+/* Market cards dark */
+html[data-theme="dark"] .dashboard-market-card {
+  background: #181a1f;
+  border-right-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .dashboard-market-card:hover {
+  background: #1f2229;
+}
+
+/* Risk cards dark */
+html[data-theme="dark"] .dashboard-risk-card {
+  background: #181a1f;
+}
+
+html[data-theme="dark"] .dashboard-risk-card:hover {
+  background: #1f2229;
+}
+
+/* Table improvements in dark */
+html[data-theme="dark"] table th {
+  background: #1a1d23;
+  border-bottom-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] table td {
+  border-bottom-color: rgba(255, 255, 255, 0.04);
+}
+
+/* Scrollbar styling for dark theme */
+html[data-theme="dark"] ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+html[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: #13151a;
+}
+
+html[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #2a2e37;
+  border-radius: 4px;
+}
+
+html[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: #3a3f4b;
+}
+
+/* Selection color */
+html[data-theme="dark"] ::selection {
+  background: rgba(59, 130, 246, 0.35);
+}
+
+/* Body background for dark */
+html[data-theme="dark"] .app {
+  background: #0f1115;
+}
+
+/* Sidebar dark */
+html[data-theme="dark"] .side-nav {
+  background: #13151a;
+  border-right-color: rgba(255, 255, 255, 0.06);
+}
+
+/* Input fields in dark */
+html[data-theme="dark"] textarea {
+  background: #181a1f;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--ink);
+}
+
+html[data-theme="dark"] textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+/* Button dark improvements */
+html[data-theme="dark"] .dialog-btn {
+  background: #1f2229;
+  border-color: rgba(255, 255, 255, 0.1);
+  color: var(--ink);
+}
+
+html[data-theme="dark"] .dialog-btn:hover {
+  background: #262a33;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+html[data-theme="dark"] .dialog-btn.secondary {
+  background: transparent;
+}
+
+html[data-theme="dark"] .dialog-btn.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* Section hints and captions */
+html[data-theme="dark"] .quant-fingerprint {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+/* Fold/details dark */
+html[data-theme="dark"] details summary {
+  background: #181a1f;
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] details summary:hover {
+  background: #1f2229;
+}
+
+/* Accent glow effect for KPI cards */
+html[data-theme="dark"] .dashboard-kpi-card.is-good .dashboard-kpi-value {
+  text-shadow: 0 0 8px color-mix(in srgb, var(--color-up, #f5222d) 35%, transparent);
+}
+
+html[data-theme="dark"] .dashboard-kpi-card.is-bad .dashboard-kpi-value {
+  text-shadow: 0 0 8px color-mix(in srgb, var(--color-down, #52c41a) 35%, transparent);
+}
+
+/* Subtle gradient for market cards */
+html[data-theme="dark"] .dashboard-market-card.is-up {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-up, #f5222d) 12%, #181a1f) 0%, #181a1f 100%);
+}
+
+html[data-theme="dark"] .dashboard-market-card.is-down {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--color-down, #52c41a) 12%, #181a1f) 0%, #181a1f 100%);
+}
+
+/* Smooth color transitions on theme surfaces (avoid * — it fights layout transitions) */
+html[data-theme="dark"] .app,
+html[data-theme="dark"] .side-nav,
+html[data-theme="dark"] .dashboard-card,
+html[data-theme="dark"] .dashboard-kpi-card,
+html[data-theme="dark"] .dashboard-section,
+html[data-theme="dark"] .topbar {
+  transition-property: background-color, border-color, color, box-shadow;
+  transition-duration: 0.15s;
+}
+
+/* Legend text colors */
+html[data-theme="dark"] .dashboard-sector-legend span {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+html[data-theme="dark"] .quant-page .quant-control-band {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #252526;
+}
+
+html[data-theme="dark"] .quant-page .quant-section-title.watching-section-title {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+html[data-theme="dark"] .quant-page .quant-section-hint {
+  color: rgba(255, 255, 255, 0.42);
+}
+
+html[data-theme="dark"] .quant-head .quant-eyebrow {
+  color: rgba(255, 255, 255, 0.4);
+}
+
+html[data-theme="dark"] .strategy-page .strategy-path-rail {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--accent, #3b82f6) 8%, #1a1a1a);
+}
+
+html[data-theme="dark"] .strategy-page .strategy-control-band {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #252526;
+}
+
+html[data-theme="dark"] .strategy-page .strategy-secondary-band {
+  border-top-color: rgba(255, 255, 255, 0.08);
+}
+
+html[data-theme="dark"] .strategy-page .strategy-card-head {
+  background: rgba(255, 255, 255, 0.03);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-page .quant-path-rail {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: color-mix(in srgb, var(--accent, #3b82f6) 8%, #1a1a1a);
+}
+
+html[data-theme="dark"] .quant-body.quant-page > .dashboard-section.quant-section {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #1e1e1e;
+}
+
+html[data-theme="dark"] .quant-page .quant-fold-panel {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #252526;
+}
+
+html[data-theme="dark"] .quant-ic-compare-stats {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #252526;
+}
+
+/* --- 暗色主题 · 扁平 desk --- */
+html[data-theme="dark"] .quant-pro-head {
+  background: var(--surface);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-pro-overview-kpis {
+  border-color: rgba(255, 255, 255, 0.06);
+  background: #181a1f;
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .quant-pro-kpi-card {
+  background: #181a1f;
+  border-right-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-pro-kpi-card:hover {
+  background: #1f2229;
+}
+
+html[data-theme="dark"] .quant-pro-path-rail {
+  border-color: rgba(255, 255, 255, 0.06);
+  background: #181a1f;
+}
+
+html[data-theme="dark"] .quant-pro-card {
+  background: #181a1f;
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .quant-pro-card:hover {
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .quant-pro-card--warm {
+  background: #181a1f;
+}
+
+html[data-theme="dark"] .quant-pro-card-head {
+  background: rgba(255, 255, 255, 0.02);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-pro-control-band {
+  background: #13151a;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-pro-select {
+  background: #0f1115;
+  border-color: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.92);
+}
+
+html[data-theme="dark"] .quant-pro-checkbox {
+  background: rgba(255, 255, 255, 0.03);
+  border-color: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.68);
+}
+
+html[data-theme="dark"] .quant-pro-chart-host {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px) 0 0 / 100% 24px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px) 0 0 / 24px 100%,
+    #13151a;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-pro-analysis-panel {
+  background: #181a1f;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-pro-help-fold {
+  background: #181a1f;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-pro-help-summary {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+html[data-theme="dark"] .quant-pro-factor-summaries {
+  background: #181a1f;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-pro-factor-card {
+  background: #13151a;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-pro-secondary-band {
+  border-top-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-pro-secondary-band-inner {
+  background: none;
+  border: none;
+}
+
+html[data-theme="dark"] .quant-pro-summary {
+  background: #181a1f;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-pro-ic-kpis {
+  background: #181a1f;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-pro-ic-kpis .quant-ic-kpi {
+  border-right-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-pro-panel-head {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-pro-nested-toolbar {
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-pro-help-body {
+  border-top-color: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.68);
+}
+
+html[data-theme="dark"] .quant-page .quant-cluster-landing-card {
+  background: #181a1f;
+  border-color: rgba(255, 255, 255, 0.06);
+  box-shadow: none;
+}
+
+html[data-theme="dark"] .quant-page .quant-factor-ir-host {
+  background:
+    linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px) 0 0 / 100% 28px,
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px) 0 0 / 28px 100%,
+    #13151a;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .page-panel.quant-panel .quant-head.dashboard-head {
+  background: var(--surface);
+  border-bottom-color: rgba(255, 255, 255, 0.06);
+}
+
+html[data-theme="dark"] .quant-page .dashboard-chart-host.quant-pro-scatter-host {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.06);
+}
+
+/* 暗色：质量 KPI/风险卡不用涨跌渐变 */
+html[data-theme="dark"] .dashboard-kpi-card.is-quality-good {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--d-quality-pos, var(--ok)) 12%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+
+html[data-theme="dark"] .dashboard-kpi-card.is-quality-bad {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--d-quality-neg, var(--danger)) 12%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+
+html[data-theme="dark"] .dashboard-risk-card.is-quality-good {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--d-quality-pos, var(--ok)) 10%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+
+html[data-theme="dark"] .dashboard-risk-card.is-quality-bad {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--d-quality-neg, var(--danger)) 10%, #1a1a1a) 0%, #1a1a1a 100%);
+}
+
+/* ============================================================
+ * 13. DARK THEME OVERRIDES — specific tweaks for quant page
+ * ============================================================ */
+html[data-theme="dark"] .follow-page .follow-stat:hover {
+  border-color: color-mix(in srgb, var(--accent) 50%, var(--line));
+}
+
+html[data-theme="dark"] .follow-fold.quant-fold > summary::before {
+  border-left-color: var(--ink-2);
+}
+
+html[data-theme="dark"] .rebalance-table td.num {
+  color-scheme: dark;
+}
+
+/* dark 模式底框 */
+html[data-theme="dark"] .follow-page .dashboard-section.quant-section {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: #1e1e1e;
+}

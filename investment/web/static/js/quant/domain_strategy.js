@@ -219,11 +219,9 @@ export function installStrategy(q) {
       if (meta) {
         meta.textContent = buildRiskAuditMetaText({ ops, data, exposure, lim });
       }
-      const foldSummary = document.querySelector(
-        "#strategy-risk-audit-fold > summary"
-      );
-      if (foldSummary) {
-        foldSummary.textContent = buildRiskAuditFoldSummary({ blocks, rbSum, exposure });
+      const foldDesc = document.getElementById("strategy-risk-audit-fold-desc");
+      if (foldDesc) {
+        foldDesc.textContent = buildRiskAuditFoldSummary({ blocks, rbSum, exposure });
       }
       expEl.innerHTML = buildSectorExposureHtml({
         exposure,
@@ -260,10 +258,8 @@ export function installStrategy(q) {
       blkEl.innerHTML = buildRiskBlocksHtml(blkData, { escapeHtml, researchGridHtml });
     } catch (err) {
       if (meta) meta.textContent = String(err.message || err);
-      const foldSummary = document.querySelector(
-        "#strategy-risk-audit-fold > summary"
-      );
-      if (foldSummary) foldSummary.textContent = "风控与敞口 · 加载失败";
+      const foldDesc = document.getElementById("strategy-risk-audit-fold-desc");
+      if (foldDesc) foldDesc.textContent = "加载失败";
     }
   }
 

@@ -169,26 +169,30 @@ class TestWatching(unittest.TestCase):
     def test_list_watchlist_quotes(self):
         from core.watching_store import list_watchlist_quotes
 
-        def fake_query(code):
-            c = str(code)
-            if c == "600519":
-                return {
-                    "success": True,
-                    "stock_code": "600519",
-                    "stock_name": "贵州茅台",
-                    "price": "1800.00元",
-                    "price_raw": 1800.0,
-                    "change_raw": 1.25,
-                    "change_amount": "+22.00元",
-                    "open": "1780.00元",
-                    "high": "1810.00元",
-                    "low": "1775.00元",
-                    "volume": "1.20万",
-                    "market": "CN",
-                }
-            return {"success": False, "error": "nope"}
+        def fake_batch(codes):
+            out = {}
+            for code in codes:
+                c = str(code)
+                if c == "600519":
+                    out[c] = {
+                        "success": True,
+                        "stock_code": "600519",
+                        "stock_name": "贵州茅台",
+                        "price": "1800.00元",
+                        "price_raw": 1800.0,
+                        "change_raw": 1.25,
+                        "change_amount": "+22.00元",
+                        "open": "1780.00元",
+                        "high": "1810.00元",
+                        "low": "1775.00元",
+                        "volume": "1.20万",
+                        "market": "CN",
+                    }
+                else:
+                    out[c] = {"success": False, "error": "nope"}
+            return out
 
-        with patch("skills.common.quote_api.StockAPI.query", side_effect=fake_query):
+        with patch("core.ports.market.batch_query_quotes", side_effect=fake_batch):
             out = list_watchlist_quotes(codes=["600519", "000001"])
         self.assertTrue(out["ok"])
         self.assertEqual(out["count"], 2)

@@ -106,7 +106,7 @@ async function loadModule(name, path) {
   }
 }
 
-const V = (typeof window !== "undefined" && window.__ASSET_V__) || "p865";
+const V = (typeof window !== "undefined" && window.__ASSET_V__) || "p879";
 const QUANT_PAGES = new Set(["chat", "quant", "watching", "strategy", "replay", "follow", "dashboard"]);
 const PAPER_PAGES = new Set(["chat", "paper", "follow"]);
 
@@ -152,7 +152,8 @@ async function bootWorkspace() {
   if (paperMod && PAPER_PAGES.has(page)) {
     safeInit("paper", () => paperMod.initPaper(ctx));
   }
-  if (quantMod && QUANT_PAGES.has(page)) {
+  // follow / dashboard 不装研究枢纽（score-review / fit-gap 进页自动拉会拖死纸面）
+  if (quantMod && QUANT_PAGES.has(page) && page !== "follow" && page !== "dashboard") {
     safeInit("quant", () => quantMod.initQuant(ctx));
   }
   if (page === "watching") {
@@ -191,7 +192,14 @@ async function bootWorkspace() {
         console.error("[QuantLab] showResultsTab load failed", err);
       });
     }, 50);
-  } else if (QUANT_PAGES.has(page) && page !== "chat" && ctx.openQuantDialog) {
+  } else if (
+    QUANT_PAGES.has(page) &&
+    page !== "chat" &&
+    page !== "follow" &&
+    page !== "dashboard" &&
+    ctx.openQuantDialog
+  ) {
+    // follow / dashboard 不进研究枢纽引导加载，避免拖慢交易执行主链路
     ctx.openQuantDialog().catch((err) => console.error("[QuantLab] openQuantDialog", err));
   }
 

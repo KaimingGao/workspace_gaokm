@@ -63,8 +63,8 @@ export function createResearchParams(opts = {}) {
 
   function readRidgeLambda() {
     const el = getRidgeEl();
-    if (el && el.value !== "") return clampRidgeLambda(el.value, 0);
-    return 0;
+    if (el && el.value !== "") return clampRidgeLambda(el.value, 1.0);
+    return 1.0;
   }
 
   function readClusterK() {

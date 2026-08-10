@@ -447,10 +447,12 @@ export function installScoreReview(ctx) {
     jumpRefit();
   });
 
-  // 进页直接加载（不再嵌套 details 折叠）
-  ensureDefaultAsOf()
-    .then(() => runReview({ autofill: true }))
-    .catch(() => {});
+  // 仅研究枢纽进页自动加载，避免 /follow 等页抢带宽拖慢纸面主链路
+  if (document.body?.dataset?.page === "quant") {
+    ensureDefaultAsOf()
+      .then(() => runReview({ autofill: true }))
+      .catch(() => {});
+  }
 
   return { runReview, fillOutcomes, freezeLedger, ensureDefaultAsOf, jumpRefit };
 }

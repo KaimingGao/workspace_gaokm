@@ -74,13 +74,9 @@ export function installClusterProbe(q) {
     if (bootstrapClusterHub._running) return;
     bootstrapClusterHub._running = true;
     try {
-      // 忙碌只留页顶 meta；摘要行留给结果/错误，避免「进页自动分组中」叠三处
-      if (els.quantOlsSummary) {
-        els.quantOlsSummary.textContent = "";
-        els.quantOlsSummary.classList.remove("is-busy");
-      }
+      // 进度挂分组卡头（三点脉冲）；页顶 meta 不抢主标题下的说明位
       if (els.quantFactorList) els.quantFactorList.innerHTML = "";
-      setQuantMeta("分组中…", { busy: true });
+      setBusyText(els.quantOlsSummary, "分组中…", { busy: true });
       await q.suggest.runFactorOlsClustersSuggest();
     } finally {
       bootstrapClusterHub._running = false;

@@ -45,7 +45,13 @@ async def watching_quotes(codes: str = ""):
     import asyncio
 
     try:
-        return await asyncio.to_thread(deps.watching.quotes, _parse_codes(codes))
+        # 批量行情应秒级返回；超时避免拖死前端 AbortController(20s)
+        return await asyncio.wait_for(
+            asyncio.to_thread(deps.watching.quotes, _parse_codes(codes)),
+            timeout=18,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="行情拉取超时，请稍后重试") from None
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -82,7 +88,10 @@ async def watching_sentiment(codes: str = "", limit: int = 3, force: bool = Fals
         def _run():
             return deps.watching.sentiment_list(parsed, limit=limit, force=force)
 
-        return await asyncio.to_thread(_run)
+        # 批量串行拉取；单票约 12s 上限，整批给足余量但避免永久挂起
+        return await asyncio.wait_for(asyncio.to_thread(_run), timeout=90)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="舆情批量拉取超时，请稍后重试") from None
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -95,7 +104,10 @@ async def watching_sentiment_one(code: str, limit: int = 8, force: bool = False)
         def _run():
             return deps.watching.sentiment_one(code, limit=limit, force=force)
 
-        return await asyncio.to_thread(_run)
+        # 须低于前端 AbortController(20s)，否则 UI 先 abort 只显示「加载超时」
+        return await asyncio.wait_for(asyncio.to_thread(_run), timeout=18)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="资讯拉取超时，请稍后重试") from None
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -105,7 +117,12 @@ async def watching_sentiment_analysis(code: str):
     import asyncio
 
     try:
-        return await asyncio.to_thread(deps.watching.sentiment_analysis, code)
+        return await asyncio.wait_for(
+            asyncio.to_thread(deps.watching.sentiment_analysis, code),
+            timeout=45,
+        )
+    except asyncio.TimeoutError:
+        return {"ok": False, "analysis": "AI 分析超时，请稍后重试"}
     except Exception as e:
         return {"ok": False, "analysis": f"分析失败: {str(e)}"}
 

@@ -708,8 +708,8 @@ def list_watchlist_quotes(
     path: Optional[str] = None,
     codes: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    """对观察名单（或给定 codes）逐只拉现价；单票失败不影响其它。"""
-    from core.ports.market import query_quote, quote_price
+    """对观察名单（或给定 codes）批量拉现价；单票失败不影响其它。"""
+    from core.ports.market import batch_query_quotes
 
     def _blank(code: str, name: str = "", *, error: str = "") -> Dict[str, Any]:
         return {
@@ -737,19 +737,27 @@ def list_watchlist_quotes(
             return {"ok": True, "count": 0, "items": [], "note": "尚未创建观察名单"}
         watch = [str(c).strip() for c in (data.get("watchlist") or []) if str(c).strip()]
 
+    # 腾讯批量接口一次请求；分块避免超长 URL
+    chunk_size = 40
+    quotes_by: Dict[str, Any] = {}
+    for i in range(0, len(watch), chunk_size):
+        chunk = watch[i : i + chunk_size]
+        try:
+            part = batch_query_quotes(chunk) or {}
+        except Exception:
+            part = {}
+        if isinstance(part, dict):
+            quotes_by.update(part)
+
     items: List[Dict[str, Any]] = []
     for code in watch:
-        try:
-            q = query_quote(code)
-        except Exception as e:
-            items.append(_blank(code, error=str(e)))
-            continue
+        q = quotes_by.get(code)
         if not isinstance(q, dict) or not q.get("success"):
             items.append(
                 _blank(
                     code,
-                    (q or {}).get("stock_name") or code,
-                    error=(q or {}).get("error") or "行情不可用",
+                    (q or {}).get("stock_name") or code if isinstance(q, dict) else code,
+                    error=(q or {}).get("error") if isinstance(q, dict) else "行情不可用",
                 )
             )
             continue

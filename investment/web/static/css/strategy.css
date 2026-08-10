@@ -1,0 +1,1329 @@
+/* ══ STRATEGY ══ 策略中心：策略卡、参数、晋升 */
+
+.strategy-logic {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.strategy-alpha-risk-item .strategy-logic {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+}
+
+.strategy-logic-item {
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-shadow: none;
+}
+
+.strategy-logic-item h4 {
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  color: var(--ink);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.strategy-logic-item h4::before {
+  content: "";
+  width: 3px;
+  height: 12px;
+  border-radius: 1px;
+  background: var(--accent);
+  flex-shrink: 0;
+}
+
+.strategy-alpha-risk-item.strategy-risk .strategy-logic-item h4::before {
+  background: var(--ok);
+}
+
+.strategy-logic-item p {
+  margin: 0 0 6px;
+  font-size: 0.72rem;
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+
+.strategy-logic-item ul {
+  margin: 0;
+  padding-left: 1.1em;
+  font-size: 0.72rem;
+  color: var(--ink-2);
+  line-height: 1.45;
+}
+
+.strategy-logic-item li {
+  margin-bottom: 3px;
+}
+
+.strategy-logic-item li:last-child {
+  margin-bottom: 0;
+}
+
+.strategy-param-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.strategy-param-table td {
+  padding: 6px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--line-2);
+}
+
+.strategy-param-table th {
+  font-weight: 650;
+  color: var(--ink);
+  background: var(--bg);
+}
+
+.strategy-param-table td {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.strategy-factor-dict-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.strategy-factor-chip {
+  font-size: 0.7rem;
+  font-weight: 560;
+  padding: 3px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-xs);
+  background: var(--bg);
+  color: var(--ink-2);
+  cursor: pointer;
+  letter-spacing: -0.01em;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.strategy-factor-chip:hover {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  color: var(--accent-active);
+}
+
+.strategy-page {
+  --strategy-gap: 8px;
+  --strategy-gap-lg: 10px;
+  --strategy-pad: 8px;
+  --strategy-pad-x: 10px;
+  --strategy-radius: var(--radius-sm);
+  gap: var(--strategy-gap-lg);
+  font-size: 0.84rem;
+  color: var(--ink);
+  letter-spacing: -0.005em;
+}
+
+/* 策略中心：专业紧凑密度（scoped） */
+.strategy-page .strategy-path-rail {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  padding: 6px 10px;
+  margin: 0 0 6px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent, #2563eb) 4%, var(--surface));
+}
+
+.strategy-page .strategy-path-step {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+  text-decoration: none;
+  padding: 2px 0;
+}
+
+.strategy-page .strategy-path-step:hover {
+  color: var(--accent, #2563eb);
+}
+
+.strategy-page .strategy-path-sep {
+  font-size: 0.68rem;
+  color: var(--ink-3);
+  user-select: none;
+}
+
+.strategy-page .strategy-path-note {
+  margin-left: auto;
+  font-size: 0.62rem;
+  color: var(--ink-3);
+  letter-spacing: 0.02em;
+}
+
+.strategy-page .strategy-hero-lead {
+  margin: 0 0 4px;
+  max-width: 56em;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+.strategy-page .strategy-hero-lead a {
+  color: var(--accent-active);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.strategy-page .strategy-hero-lead a:hover {
+  text-decoration: underline;
+}
+
+.strategy-page .strategy-section {
+  margin: 0;
+  padding: 0;
+  border-bottom: none;
+  gap: var(--strategy-gap);
+}
+
+.strategy-page .strategy-section-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin: 0;
+  padding: 0 2px;
+}
+
+.strategy-page .strategy-control-band {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-card, var(--surface));
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.strategy-page .strategy-control-band-compact {
+  padding: 6px 10px;
+}
+
+.strategy-page .strategy-inline-field {
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.strategy-page .strategy-inline-field .platform-input {
+  width: 4.5rem;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink);
+  padding: 3px 7px;
+  border-radius: 4px;
+}
+
+.strategy-page .strategy-field-unit {
+  font-size: 0.68rem;
+  color: var(--ink-3);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.strategy-page .strategy-secondary-band {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 8px 0 2px;
+  padding: 8px 2px 4px;
+  border-top: 1px dashed color-mix(in srgb, var(--line) 90%, transparent);
+}
+
+.strategy-page .strategy-secondary-band-title {
+  margin: 0;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.strategy-page .strategy-secondary-band-desc {
+  margin: 0;
+  font-size: 0.66rem;
+  color: var(--ink-3);
+}
+
+.strategy-page .strategy-prior-contract {
+  margin: 2px 0 10px;
+  padding: 8px 10px;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--ink-2, var(--ink-3));
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
+  border-left: 2px solid color-mix(in srgb, var(--accent-active, #2a6) 55%, transparent);
+}
+
+.strategy-page .strategy-prior-contract code {
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.strategy-page .strategy-prior-contract-k {
+  display: inline-block;
+  margin-right: 6px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.strategy-page .strategy-prior-body {
+  display: grid;
+  gap: 12px;
+  margin: 0 0 10px;
+}
+
+@media (min-width: 720px) {
+  .strategy-page .strategy-prior-body {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+
+.strategy-page .strategy-prior-gate-only {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.strategy-page .strategy-prior-gate-only[hidden] {
+  display: none !important;
+}
+
+.strategy-page .strategy-prior-label {
+  margin: 0 0 6px;
+  font-size: 0.68rem;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--ink-3);
+}
+
+.strategy-page .strategy-prior-modes {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+@media (min-width: 520px) {
+  .strategy-page .strategy-prior-modes {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+.strategy-page .strategy-prior-card {
+  position: relative;
+  display: block;
+  margin: 0;
+  cursor: pointer;
+}
+
+.strategy-page .strategy-prior-card input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.strategy-page .strategy-prior-card-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 100%;
+  padding: 9px 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 12%, transparent);
+  background: var(--surface, transparent);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.strategy-page .strategy-prior-card:hover .strategy-prior-card-inner {
+  border-color: color-mix(in srgb, var(--ink) 28%, transparent);
+}
+
+.strategy-page .strategy-prior-card:has(input:focus-visible) .strategy-prior-card-inner {
+  outline: 2px solid color-mix(in srgb, var(--accent-active, #2a6) 55%, transparent);
+  outline-offset: 1px;
+}
+
+.strategy-page .strategy-prior-card:has(input:checked) .strategy-prior-card-inner {
+  border-color: color-mix(in srgb, var(--accent-active, #2a6) 70%, transparent);
+  background: color-mix(in srgb, var(--accent-active, #2a6) 8%, transparent);
+}
+
+.strategy-page .strategy-prior-card-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 6px;
+}
+
+.strategy-page .strategy-prior-card-title {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+}
+
+.strategy-page .strategy-prior-card-code {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--ink-3);
+}
+
+.strategy-page .strategy-prior-card-desc {
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--ink-3);
+}
+
+.strategy-page .strategy-prior-params {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--ink) 10%, transparent);
+  background: color-mix(in srgb, var(--ink) 2.5%, transparent);
+}
+
+.strategy-page .strategy-prior-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  font-size: 0.78rem;
+}
+
+.strategy-page .strategy-prior-field-check {
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.strategy-page .strategy-prior-field-check input {
+  margin-top: 2px;
+}
+
+.strategy-page .strategy-prior-field-title {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.strategy-page .strategy-prior-field-hint {
+  display: block;
+  font-size: 0.66rem;
+  color: var(--ink-3);
+  line-height: 1.35;
+}
+
+.strategy-page .strategy-prior-field-ctrl {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.strategy-page .strategy-prior-field-ctrl .platform-input {
+  width: 5.5rem;
+  max-width: 100%;
+}
+
+.strategy-page .strategy-prior-unit {
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.strategy-page .strategy-prior-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 14px;
+  margin: 0;
+}
+
+.strategy-page .strategy-prior-status {
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+
+.strategy-page .strategy-floors-form {
+  align-items: center;
+}
+
+.strategy-page .strategy-inline-note {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.45;
+  color: var(--ink-3);
+}
+
+.strategy-page .strategy-inline-note a {
+  color: var(--accent-active);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.strategy-page .strategy-inline-note a:hover {
+  text-decoration: underline;
+}
+
+.strategy-page .strategy-promote-bar {
+  gap: 6px 10px;
+  margin: 0;
+}
+
+.strategy-page .strategy-promote-toggle {
+  font-size: 0.72rem;
+  color: var(--ink-2);
+  gap: 6px;
+}
+
+.strategy-page > .strategy-fold {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--strategy-radius);
+  background: var(--surface);
+}
+
+.strategy-page > .strategy-fold > summary {
+  padding: 8px 10px;
+  font-size: 0.78rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+  cursor: pointer;
+  user-select: none;
+}
+
+.strategy-page > .strategy-fold[open] > summary {
+  border-bottom: 1px solid var(--line-2);
+}
+
+.strategy-page > .strategy-fold .strategy-logic-ref {
+  padding: 8px 10px 10px;
+}
+
+.strategy-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.strategy-card {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: none;
+  transition: border-color var(--transition-fast), background var(--transition-fast);
+}
+
+.strategy-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+  background: color-mix(in srgb, var(--surface) 92%, var(--bg-hover));
+}
+
+.strategy-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px 14px;
+  margin-bottom: 6px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  background: color-mix(in srgb, var(--ink) 2%, transparent);
+  margin-left: -10px;
+  margin-right: -10px;
+  margin-top: -8px;
+  padding: 8px 10px 6px;
+}
+
+.strategy-card-titles {
+  min-width: 0;
+  flex: 1;
+}
+
+.strategy-card-title {
+  margin: 0 0 2px;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+.strategy-card-desc {
+  margin: 0;
+  font-size: 0.68rem;
+  line-height: 1.35;
+  color: var(--ink-3);
+}
+
+.strategy-card-meta {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  flex-shrink: 0;
+}
+
+.strategy-card-id {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  font-size: 0.68rem;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.strategy-card-ver {
+  font-size: 0.66rem;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+  letter-spacing: 0.02em;
+}
+
+.strategy-card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(88px, 1fr));
+  gap: 6px 10px;
+  margin: 0;
+  padding: 8px 0 2px;
+  border-top: 1px solid var(--line-2);
+}
+
+.strategy-card-kv {
+  min-width: 0;
+}
+
+.strategy-card-kv dt {
+  margin: 0;
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  line-height: 1.2;
+}
+
+.strategy-card-kv dd {
+  margin: 2px 0 0;
+  font-size: 0.78rem;
+  font-weight: 650;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 旧 chips 兜底（若别处仍生成） */
+.strategy-card-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 0;
+  padding: 6px 0 0;
+  list-style: none;
+  border-top: 1px solid var(--line-2);
+}
+
+.strategy-card-chips li {
+  padding: 2px 7px;
+  border-radius: var(--radius-xs);
+  background: var(--bg);
+  border: 1px solid var(--line-2);
+  font-size: 0.68rem;
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-2);
+  white-space: nowrap;
+}
+
+.strategy-card-actions {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line-2);
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.strategy-card-actions .dialog-btn {
+  font-size: 0.72rem;
+  padding: 5px 10px;
+  border-radius: 6px;
+}
+
+.strategy-risk-limits {
+  margin-top: 4px;
+}
+
+.strategy-risk-limits-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+  gap: 6px 12px;
+  margin: 0 0 4px;
+}
+
+.strategy-risk-limits-grid dt {
+  margin: 0;
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+.strategy-risk-limits-grid dd {
+  margin: 0;
+  font-weight: 650;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  color: var(--ink);
+}
+
+/* Alpha / Risk / 调仓参考 */
+.strategy-alpha-risk {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.strategy-alpha-risk-item {
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--strategy-radius, var(--radius-sm));
+  padding: 10px;
+  box-shadow: none;
+  border-top: 1px solid var(--line);
+  border-left: 3px solid var(--line);
+}
+
+.strategy-alpha {
+  border-left-color: var(--accent);
+}
+
+.strategy-risk {
+  border-left-color: var(--ok);
+}
+
+.strategy-rebalance {
+  border-left-color: var(--gold);
+}
+
+.strategy-rebalance .strategy-alpha-risk-icon {
+  background: color-mix(in srgb, var(--gold) 14%, var(--bg));
+  color: var(--gold);
+  box-shadow: none;
+}
+
+.strategy-rebalance .strategy-logic-item h4::before {
+  background: var(--gold);
+}
+
+.strategy-alpha-risk-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.strategy-alpha-risk-icon {
+  font-size: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-xs);
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.strategy-alpha-risk-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.strategy-alpha-risk-item.strategy-alpha .strategy-alpha-risk-icon {
+  background: var(--accent-soft);
+  color: var(--accent-active);
+  box-shadow: none;
+}
+
+.strategy-alpha-risk-item.strategy-risk .strategy-alpha-risk-icon {
+  background: var(--ok-soft);
+  color: var(--ok);
+  box-shadow: none;
+}
+
+.strategy-alpha-risk-header h3 {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--ink);
+  line-height: 1.25;
+}
+
+.strategy-alpha-risk-desc {
+  margin: 2px 0 0;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  color: var(--ink-3);
+}
+
+.strategy-logic-ref #quant-section-strategy-detail {
+  margin-top: 8px;
+  padding: 0;
+}
+
+@media (max-width: 900px) {
+  .strategy-alpha-risk {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 768px) {
+  .strategy-alpha-risk {
+    grid-template-columns: 1fr;
+  }
+  .strategy-logic {
+    grid-template-columns: 1fr;
+  }
+  .strategy-alpha-risk-item .strategy-logic {
+    grid-template-columns: 1fr;
+  }
+  .strategy-card-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+html[data-density="compact"] .strategy-card {
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+html[data-density="compact"] .strategy-page {
+  --strategy-gap: 6px;
+  --strategy-gap-lg: 8px;
+}
+
+html[data-density="compact"] .strategy-card-grid {
+  gap: 4px 8px;
+  padding-top: 6px;
+}
+
+/* ——— 策略中心 · desk 补强（p767） ——— */
+.strategy-page .strategy-card-grid {
+  gap: 4px 8px;
+  padding: 6px 0 2px;
+}
+
+.strategy-page .strategy-card-kv dt {
+  font-size: 0.58rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.strategy-page .strategy-card-kv dd {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.78rem;
+  font-weight: 650;
+}
+
+.strategy-page .strategy-card-actions {
+  margin-top: 6px;
+  gap: 6px;
+}
+
+.strategy-page > .strategy-fold {
+  border-radius: 8px;
+}
+
+.strategy-page > .strategy-fold > summary {
+  font-size: 0.74rem;
+  letter-spacing: 0.02em;
+}
+
+/* ==========================================================================
+   策略中心 · Desk Shell 对齐交易执行 (p886)
+   L1 区段壳 → L2 白卡 → L3 控制带 · 最小圆角 2px · 终端密度
+   ========================================================================== */
+body[data-page="strategy"] .strategy-page,
+body[data-page="strategy"] {
+  --sys-r-tier1: 2px;
+  --sys-r-tier2: 2px;
+  --sys-r-tier3: 2px;
+  --sys-r-tier4: 2px;
+  --sys-r-full: 2px;
+  --radius: 2px;
+  --radius-sm: 2px;
+  --radius-xs: 2px;
+  --strategy-radius: 2px;
+  --s-r: 2px;
+  --s-gap: 10px;
+  --s-fs-caption: 12px;
+  --s-fs-body: 13px;
+}
+
+body[data-page="strategy"] .quant-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 0 0 16px;
+  border-bottom: 1px solid var(--line);
+  margin-bottom: 12px;
+}
+
+body[data-page="strategy"] .dashboard-eyebrow {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  line-height: 18px;
+}
+
+body[data-page="strategy"] .quant-head h2 {
+  margin: 0;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--ink);
+}
+
+body[data-page="strategy"] .quant-meta {
+  margin: 2px 0 0 !important;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ink-3);
+}
+
+body[data-page="strategy"] .strategy-head-path {
+  margin: 6px 0 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ink-2);
+}
+
+body[data-page="strategy"] .strategy-hero-link {
+  color: var(--accent);
+  font-weight: 500;
+  text-decoration: none;
+}
+
+body[data-page="strategy"] .strategy-hero-link:hover {
+  text-decoration: underline;
+}
+
+body[data-page="strategy"] .strategy-head-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+body[data-page="strategy"] .strategy-desk-badge,
+body[data-page="strategy"] .strategy-desk-guard,
+body[data-page="strategy"] .quant-head .quant-desk-badge.strategy-desk-badge,
+body[data-page="strategy"] .quant-head.dashboard-head .quant-desk-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  border: 1px solid var(--line);
+  border-radius: 2px !important;
+  white-space: nowrap;
+}
+
+body[data-page="strategy"] .strategy-desk-badge {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 24%, transparent);
+}
+
+body[data-page="strategy"] .strategy-desk-guard {
+  color: var(--ink-2);
+  background: var(--bg-card, #fff);
+}
+
+body[data-page="strategy"] .strategy-page {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 0 0 24px;
+}
+
+/* 路径 rail — 同交易执行 numbered steps */
+body[data-page="strategy"] .strategy-path-rail {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+  width: fit-content;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+body[data-page="strategy"] .strategy-path-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  line-height: 20px;
+  font-weight: 500;
+  color: var(--ink-2);
+  text-decoration: none;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+body[data-page="strategy"] .strategy-path-step:hover {
+  background: var(--bg-hover);
+  color: var(--ink);
+}
+
+body[data-page="strategy"] .strategy-path-step.is-active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+body[data-page="strategy"] .strategy-path-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 2px;
+  background: var(--bg-active);
+  color: var(--ink);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+body[data-page="strategy"] .strategy-path-step.is-active .strategy-path-num {
+  background: var(--accent);
+  color: #fff;
+}
+
+body[data-page="strategy"] .strategy-path-sep {
+  color: var(--ink-3);
+  font-size: 12px;
+  padding: 0 2px;
+  user-select: none;
+}
+
+body[data-page="strategy"] .strategy-path-note {
+  display: none;
+}
+
+/* L1 区段壳 */
+body[data-page="strategy"] .strategy-page .dashboard-section.quant-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 82%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent, #2563eb) 55%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 97%, var(--line));
+  box-shadow: none;
+}
+
+body[data-page="strategy"] .strategy-page .dashboard-section-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin: 0;
+  padding: 0 0 2px;
+}
+
+body[data-page="strategy"] .strategy-page .dashboard-section-title {
+  margin: 0;
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+
+body[data-page="strategy"] .strategy-page .dashboard-section-desc {
+  margin: 0;
+  font-size: 12px;
+  line-height: 18px;
+  color: var(--ink-3);
+}
+
+/* L2 白卡 */
+body[data-page="strategy"] .strategy-page .dashboard-card.quant-pro-card,
+body[data-page="strategy"] .strategy-page .strategy-ops-card {
+  margin: 0;
+  padding: 0 !important;
+  border: 1px solid var(--line);
+  border-radius: 2px !important;
+  background: var(--bg-card, #fff);
+  box-shadow: none;
+  overflow: hidden;
+}
+
+body[data-page="strategy"] .strategy-ops-card-head,
+body[data-page="strategy"] .strategy-page .dashboard-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--ink) 2.5%, var(--surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+}
+
+body[data-page="strategy"] .strategy-ops-card-head:has(#strategy-list-loading[hidden]) {
+  display: none;
+}
+
+body[data-page="strategy"] .strategy-card-status {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-3);
+}
+
+body[data-page="strategy"] .strategy-ops-card-body,
+body[data-page="strategy"] .strategy-page .quant-pro-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px 12px;
+  background: var(--bg-card, #fff);
+}
+
+/* L3 控制带 */
+body[data-page="strategy"] .strategy-control-band,
+body[data-page="strategy"] .strategy-page .quant-control-band {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--ink) 1.5%, var(--bg-elevated, var(--surface)));
+}
+
+body[data-page="strategy"] .strategy-field-label {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+body[data-page="strategy"] .strategy-page .platform-input,
+body[data-page="strategy"] .strategy-page .dialog-btn,
+body[data-page="strategy"] .strategy-page .strategy-prior-card-inner,
+body[data-page="strategy"] .strategy-page .strategy-prior-params,
+body[data-page="strategy"] .strategy-page .strategy-logic-item,
+body[data-page="strategy"] .strategy-page .strategy-factor-chip,
+body[data-page="strategy"] .strategy-page .strategy-card {
+  border-radius: 2px !important;
+}
+
+body[data-page="strategy"] .strategy-page .strategy-prior-contract {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: 2px;
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--ink) 2%, var(--surface));
+}
+
+body[data-page="strategy"] .strategy-page .strategy-prior-card-inner {
+  border-radius: 2px;
+}
+
+body[data-page="strategy"] .strategy-page .strategy-prior-params {
+  border-radius: 2px;
+}
+
+/* 策略卡列表：子卡密度 */
+body[data-page="strategy"] .strategy-card-list {
+  gap: 8px;
+}
+
+body[data-page="strategy"] .strategy-card {
+  border-radius: 2px !important;
+  padding: 0;
+  overflow: hidden;
+}
+
+body[data-page="strategy"] .strategy-card-head {
+  margin: 0;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--ink) 2.5%, var(--surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+}
+
+body[data-page="strategy"] .strategy-card-grid,
+body[data-page="strategy"] .strategy-card-actions {
+  padding: 8px 12px;
+  margin: 0;
+  border-top: none;
+}
+
+body[data-page="strategy"] .strategy-card-grid {
+  padding-bottom: 4px;
+  gap: 6px 10px;
+}
+
+body[data-page="strategy"] .strategy-card-actions {
+  padding-top: 4px;
+  padding-bottom: 10px;
+  margin-top: 0;
+  gap: 6px;
+}
+
+body[data-page="strategy"] .strategy-card-title {
+  font-size: 14px;
+  font-weight: 650;
+}
+
+body[data-page="strategy"] .strategy-card-id,
+body[data-page="strategy"] .strategy-card-ver {
+  border-radius: 2px;
+  font-size: 11px;
+}
+
+/* 次要折叠 — 同交易执行 secondary */
+body[data-page="strategy"] .strategy-ops {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+body[data-page="strategy"] .strategy-page .dashboard-section.strategy-section-secondary {
+  padding: 0;
+  gap: 0;
+  border-left-color: color-mix(in srgb, var(--ink-3) 45%, transparent);
+  background: color-mix(in srgb, var(--bg-elevated, var(--surface)) 97%, var(--line));
+}
+
+body[data-page="strategy"] .strategy-secondary-fold {
+  margin: 0;
+  border: none;
+  background: transparent;
+}
+
+body[data-page="strategy"] .strategy-secondary-fold-sum {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  list-style: none;
+}
+
+body[data-page="strategy"] .strategy-secondary-fold-sum::-webkit-details-marker {
+  display: none;
+}
+
+body[data-page="strategy"] .strategy-secondary-fold-sum .dashboard-section-title {
+  font-size: 13px;
+  letter-spacing: 0.03em;
+}
+
+body[data-page="strategy"] .strategy-secondary-fold > .dashboard-card.quant-pro-card {
+  margin: 0 10px 10px;
+}
+
+body[data-page="strategy"] .strategy-logic-ref {
+  padding: 0;
+}
+
+body[data-page="strategy"] .strategy-alpha-risk-item {
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  border-radius: 2px;
+  padding: 10px 12px;
+  background: color-mix(in srgb, var(--ink) 1.2%, var(--surface));
+  margin-bottom: 8px;
+}
+
+body[data-page="strategy"] .strategy-alpha-risk-item:last-child {
+  margin-bottom: 0;
+}
+
+body[data-page="strategy"] .strategy-promote-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-2);
+  white-space: nowrap;
+}

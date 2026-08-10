@@ -135,8 +135,11 @@ function cssVar(el, name, fallback) {
 export function paintScoreHistogram(canvas, scores, opts = {}) {
   if (!canvas || typeof canvas.getContext !== "function") return null;
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
-  const cssW = canvas.clientWidth || opts.width || 480;
-  const cssH = canvas.clientHeight || opts.height || 132;
+  const rawW = canvas.clientWidth || opts.width || 480;
+  const rawH = canvas.clientHeight || opts.height || 132;
+  // 防止未设 CSS width 时 bitmap 尺寸反馈放大 clientWidth
+  const cssW = Math.max(120, Math.min(rawW, opts.maxWidth || 2400));
+  const cssH = Math.max(80, Math.min(rawH, opts.maxHeight || 480));
   canvas.width = Math.round(cssW * dpr);
   canvas.height = Math.round(cssH * dpr);
   const ctx = canvas.getContext("2d");
@@ -1382,7 +1385,7 @@ export function buildClustersHealthMatrixHtml(
     `</p>`;
 
   return (
-    `<details class="yhat-mx yhat-mx-health" open>` +
+    `<details class="yhat-mx yhat-mx-health">` +
     `<summary class="yhat-mx-summary">` +
     `<span class="yhat-mx-title">跨组健康矩阵</span>` +
     `<span class="yhat-mx-meta">过门 ${passN}/${scoredN}${

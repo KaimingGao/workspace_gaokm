@@ -151,4 +151,13 @@ def favicon():
     return Response(status_code=204)
 
 
+@app.middleware("http")
+async def _static_no_store(request, call_next):
+    """嵌套 ES module 无 ?v= 时避免浏览器 304 旧脚本。"""
+    response = await call_next(request)
+    if request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+    return response
+
+
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

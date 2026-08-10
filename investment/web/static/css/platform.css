@@ -1,0 +1,137 @@
+/* ══ PLATFORM ══ 北极星：产品指标、风险、拟合 */
+
+.embed-panel.platform-embed {
+  padding: 0;
+}
+
+.platform-hint {
+  margin: 0 0 10px;
+  font-size: 0.75rem;
+  color: var(--ink-3);
+}
+
+#maturity-gate-body .platform-list li.down {
+  color: var(--danger, #b91c1c);
+}
+
+#maturity-gate-body .platform-list li.platform-gate-soft {
+  color: var(--warn, #b45309);
+}
+
+.platform-fit-banner {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--warn, #b45309) 35%, var(--line, #ddd));
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn, #b45309) 8%, var(--panel, #fff));
+}
+
+.platform-fit-banner-title {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--warn, #b45309);
+}
+
+.platform-fit-banner-why {
+  margin: 0 0 8px;
+  font-size: 0.78rem;
+  color: var(--ink-2, #333);
+  line-height: 1.45;
+}
+
+.platform-fit-banner-steps {
+  margin: 0 0 8px;
+  padding-left: 1.25rem;
+  font-size: 0.78rem;
+  color: var(--ink-2, #333);
+  line-height: 1.5;
+}
+
+.platform-fit-banner-steps a {
+  color: var(--accent, #2563eb);
+}
+
+.platform-card-body {
+  padding: 10px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.platform-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 8px;
+  font-size: 0.78rem;
+  color: var(--ink-2);
+}
+
+.platform-field textarea {
+  font: inherit;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+}
+
+.platform-check {
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+}
+
+.platform-check input {
+  width: auto;
+  padding: 0;
+}
+
+.platform-list {
+  list-style: none;
+  margin: 0 0 10px;
+  padding: 0;
+}
+
+.platform-item {
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line-2);
+}
+
+.platform-item .name {
+  font-size: 0.84rem;
+  font-weight: 600;
+}
+
+.platform-item .sub {
+  font-size: 0.72rem;
+  color: var(--ink-3);
+}
+
+.platform-pre {
+  margin: 10px 0 0;
+  padding: 10px;
+  max-height: 220px;
+  overflow: auto;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  background: var(--line-2);
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.embed-panel.platform-embed {
+  max-width: none;
+  width: 100%;
+  max-height: none;
+  padding: 0;
+  overflow: visible;
+  display: block;
+}
+
+.platform-page {
+  gap: 14px;
+}

@@ -10,7 +10,7 @@ import {
   resolveStockDisplayName,
 } from "./names.js";
 import { probeStatusBadge } from "./probe_ui.js";
-import { buildClustersHealthMatrixHtml } from "./yhat_viz.js";
+import { buildClustersHealthMatrixHtml } from "./yhat_viz.js?v=p868";
 
 /**
  * @param {{

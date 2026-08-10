@@ -120,11 +120,16 @@ export function renderWatchingHoldings(holdingsMap, names, buildLogs, els) {
   }
 
   if (!records.length) {
-    section.hidden = true;
+    section.hidden = false;
     tableEl.innerHTML = "";
+    const desc = document.getElementById("watching-build-log-desc");
+    if (desc) desc.textContent = "暂无流水";
     return;
   }
   section.hidden = false;
+
+  const desc = document.getElementById("watching-build-log-desc");
+  if (desc) desc.textContent = `共 ${records.length} 条 · 从观察「加入纸面」`;
 
   try {
     const sorted = records

@@ -4,13 +4,19 @@
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
 
 export function formatWatchingExcess(it) {
+  // 主表只显示百分比；强弱标签进 title，避免窄列 ellipsis 看起来像空值
   if (it.excess_return_pct != null && !Number.isNaN(Number(it.excess_return_pct))) {
-    return `${Number(it.excess_return_pct) >= 0 ? "+" : ""}${Number(it.excess_return_pct).toFixed(1)}%${
-      it.excess_label ? ` ${it.excess_label}` : ""
-    }`;
+    return `${Number(it.excess_return_pct) >= 0 ? "+" : ""}${Number(it.excess_return_pct).toFixed(1)}%`;
   }
   if (it.excess_label) return String(it.excess_label);
   return null;
+}
+
+export function formatWatchingExcessTitle(it) {
+  const base = formatWatchingExcess(it);
+  if (!base) return "";
+  if (it.excess_label) return `${base} ${it.excess_label}`;
+  return base;
 }
 
 /**
@@ -49,6 +55,7 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
 export function buildWatchingInsightsGridPatch(it, row, deps) {
   const { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail } = deps;
   const excess = formatWatchingExcess(it);
+  const excessTitle = formatWatchingExcessTitle(it);
   const { scoreNum, belowMin, scoreDetail, scoreText, scoreTitle } = buildWatchingScoreDisplay(
     it,
     fmtScore,
@@ -65,6 +72,7 @@ export function buildWatchingInsightsGridPatch(it, row, deps) {
     scoreBelowMin: belowMin,
     stance: it.stance_short || "—",
     excess: excess || "—",
+    excessTitle: excessTitle || excess || "",
     excessNum:
       it.excess_return_pct != null && !Number.isNaN(Number(it.excess_return_pct))
         ? Number(it.excess_return_pct)

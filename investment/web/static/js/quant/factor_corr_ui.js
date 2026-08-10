@@ -246,6 +246,10 @@ export function renderFactorSummaryCards(data, metaByName) {
     .sort((a, b) => Math.abs(b.ir_annual ?? b.ic_ir ?? 0) - Math.abs(a.ir_annual ?? a.ic_ir ?? 0))
     .slice(0, 16);
 
+  // 与概览 KPI 同构：一行等分铺满（≤5 列；更多则换行）
+  const cols = Math.min(Math.max(topByAbsIR.length, 1), 5);
+  grid.style.setProperty("--factor-summary-cols", String(cols));
+
   let html = "";
   for (const f of topByAbsIR) {
     const name = f.factor || f.name || "";
