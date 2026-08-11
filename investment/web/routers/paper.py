@@ -207,6 +207,11 @@ def paper_rebalance(body: PaperRebalanceRequest):
         )
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+    except TimeoutError as e:
+        raise HTTPException(
+            status_code=503,
+            detail=f"{e}（账本忙或上次调仓未释放锁，请稍后重试；必要时重启 web）",
+        ) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

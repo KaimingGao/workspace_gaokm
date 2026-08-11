@@ -759,7 +759,12 @@ def load_cluster_draft() -> Optional[Dict[str, Any]]:
         return None
 
 
-def save_active_cluster_book(book: Sequence[Dict[str, Any]], *, meta: Optional[dict] = None) -> str:
+def save_active_cluster_book(
+    book: Sequence[Dict[str, Any]],
+    *,
+    meta: Optional[dict] = None,
+    scored_all: Optional[Sequence[Dict[str, Any]]] = None,
+) -> str:
     """L4：落盘分池合并簿供 execution 只读。"""
     from core.paths import CLUSTER_BOOK_ACTIVE_PATH
 
@@ -768,6 +773,7 @@ def save_active_cluster_book(book: Sequence[Dict[str, Any]], *, meta: Optional[d
         "success": True,
         "updated_at": now_iso_utc(),
         "book": list(book or []),
+        "scored_all": list(scored_all or []),
         "meta": meta or {},
         "signal_config_touched": False,
         "note": "分池合并簿；execution 只读，不写全局 weights",
@@ -852,6 +858,44 @@ def ensure_active_cluster_oos_gates(
     lb = max(40, min(int(lookback or 80), 90))
     hz = max(1, min(int(horizon_days or 3), 10))
 
+    # 先收集待算 OOS 的成员，一次性拉日线（避免每组重复 IO 卡死 status API）
+    codes_needed: List[str] = []
+    for cl in clusters:
+        if not isinstance(cl, dict):
+            continue
+        if (
+            not force
+            and isinstance(cl.get("oos_gate"), dict)
+            and cl.get("oos_gate")
+        ):
+            continue
+        members = [str(c).strip() for c in (cl.get("members") or []) if str(c).strip()]
+        if cl.get("singleton") or len(members) < 2:
+            continue
+        rm = cl.get("return_model") if isinstance(cl.get("return_model"), dict) else {}
+        if not rm.get("coefficients"):
+            cmap0 = (active.get("code_map") or {}) if isinstance(active, dict) else {}
+            for m in members:
+                entry = cmap0.get(m) or {}
+                cand = entry.get("return_model") if isinstance(entry, dict) else None
+                if isinstance(cand, dict) and cand.get("coefficients"):
+                    rm = cand
+                    break
+        if not rm.get("coefficients") or not cur_w:
+            continue
+        codes_needed.extend(members)
+
+    bars_by_code: Dict[str, List[dict]] = {}
+    if codes_needed:
+        from core.research.portfolio_bars import load_portfolio_stock_bars
+
+        uniq = list(dict.fromkeys(codes_needed))
+        bars_by_code, _fail, _fund = load_portfolio_stock_bars(
+            uniq,
+            lookback=lb,
+            fetch_fundamentals=False,
+        )
+
     for cl in clusters:
         if not isinstance(cl, dict):
             continue
@@ -905,6 +949,9 @@ def ensure_active_cluster_oos_gates(
             }
         else:
             top_k = 1 if len(members) <= 2 else min(2, len(members))
+            member_bars = {
+                m: bars_by_code[m] for m in members if m in bars_by_code
+            }
             gate = evaluate_research_oos(
                 codes=members,
                 research_models_by_code={m: rm for m in members},
@@ -916,6 +963,7 @@ def ensure_active_cluster_oos_gates(
                 horizon_days=hz,
                 oos_tol_pp=float(oos_tol_pp),
                 ridge_lambda=float(rm.get("ridge_lambda") or 0.0),
+                stock_bars=member_bars or None,
             )
             gate = dict(gate)
             gate["scope"] = "cluster_members"

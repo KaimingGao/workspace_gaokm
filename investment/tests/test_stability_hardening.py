@@ -40,6 +40,45 @@ class TestFileLockAndPaperTrim(unittest.TestCase):
             tb.join(timeout=5)
             self.assertEqual(seq, ["1in", "1out", "2in", "2out"])
 
+    def test_path_lock_flock_timeout(self):
+        from core.file_lock import path_lock
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "paper.json")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("{}")
+            held = threading.Event()
+            release = threading.Event()
+
+            def holder():
+                with path_lock(path, timeout_sec=None):
+                    held.set()
+                    release.wait(timeout=5)
+
+            t = threading.Thread(target=holder)
+            t.start()
+            self.assertTrue(held.wait(timeout=2))
+            with self.assertRaises(TimeoutError):
+                with path_lock(path, timeout_sec=0.2):
+                    pass
+            release.set()
+            t.join(timeout=5)
+
+    def test_path_lock_reentrant_same_thread(self):
+        """save_paper 套在 paper_write_lock 内时不得二次 flock 自锁。"""
+        from core.file_lock import path_lock
+        from core.io_atomic import atomic_write_json
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "paper.json")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write("{}")
+            with path_lock(path, timeout_sec=2.0):
+                with path_lock(path, timeout_sec=2.0):
+                    atomic_write_json(path, {"ok": True})
+            with open(path, encoding="utf-8") as f:
+                self.assertIn("ok", f.read())
+
     def test_trim_trades_on_save(self):
         from core.paper import MAX_TRADES, save_paper, load_paper
 

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
+ProgressCb = Optional[Callable[[str, int, int], None]]
 
 
 def _pick_preferred_cluster(clusters: List[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
@@ -109,10 +111,13 @@ def attach_cluster_oos_gates(
     oos_tol_pp: float = 1.0,
     run_oos_gate: bool = True,
     respect_regime: Optional[bool] = None,
+    bars_by_code: Optional[Dict[str, List[dict]]] = None,
+    progress_cb: ProgressCb = None,
 ) -> Dict[str, Any]:
     """就地为 ``report["clusters"]`` 挂 ``oos_gate``、``config_diff`` 与优选组。
 
     B5：默认 ``respect_regime`` 取自 report（分组拟合默认 True）。
+    ``bars_by_code`` 复用分组阶段日线，避免每组再次 IO（100 票×多组会拖过前端超时）。
     """
     clusters: List[Dict[str, Any]] = list(report.get("clusters") or [])
     regime_aligned = (
@@ -148,9 +153,16 @@ def attach_cluster_oos_gates(
     skipped_n = 0
     lb = max(40, min(int(lookback or 80), 90))
     base_w = dict((load_signal_config() or {}).get("weights") or {})
+    n_cl = max(1, len(clusters))
 
-    for cl in clusters:
+    for i, cl in enumerate(clusters):
         members = [str(c).strip() for c in (cl.get("members") or []) if str(c).strip()]
+        label = str(cl.get("label") or f"G{i + 1}")
+        if progress_cb:
+            try:
+                progress_cb(f"OOS {i + 1}/{n_cl} · {label}", i + 1, n_cl)
+            except Exception:
+                pass
         rm = cl.get("return_model")
         if cl.get("singleton") or len(members) < 2:
             cl["oos_gate"] = {
@@ -178,6 +190,11 @@ def attach_cluster_oos_gates(
 
         top_k = 1 if len(members) <= 2 else min(2, len(members))
         models_by_code = {m: rm for m in members}
+        member_bars = None
+        if bars_by_code:
+            member_bars = {
+                m: bars_by_code[m] for m in members if m in bars_by_code
+            }
         gate = evaluate_research_oos(
             codes=members,
             research_models_by_code=models_by_code,
@@ -190,6 +207,7 @@ def attach_cluster_oos_gates(
             oos_tol_pp=oos_tol_pp,
             ridge_lambda=float(rm.get("ridge_lambda") or 0.0),
             respect_regime=regime_aligned,
+            stock_bars=member_bars,
         )
         gate = dict(gate)
         gate["scope"] = "cluster_members"

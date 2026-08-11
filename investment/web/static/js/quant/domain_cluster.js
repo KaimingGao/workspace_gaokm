@@ -1007,7 +1007,7 @@ export function installClusterProbe(q) {
         setBusyText(els.quantProbeSummary, "上方分组进行中，请稍候…", {
           busy: true,
         });
-        const ok = await waitForClusterHubReady(180000);
+        const ok = await waitForClusterHubReady(35 * 60 * 1000);
         if (!ok) {
           markProbeReadyFromClusters(state.quantLastOlsClusters);
           if (els.quantProbeResult) {

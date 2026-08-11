@@ -74,11 +74,11 @@ class TestFh2OlsClustersJob(unittest.TestCase):
                 svc, "run_factor_ols_cluster_experiment", return_value=fake
             ):
                 out = svc.start_factor_ols_cluster_job(lookback=80)
-            self.assertTrue(out.get("background"), out)
-            for _ in range(50):
-                if slot.get().get("status") in ("done", "failed"):
-                    break
-                time.sleep(0.05)
+                self.assertTrue(out.get("background"), out)
+                for _ in range(50):
+                    if slot.get().get("status") in ("done", "failed"):
+                        break
+                    time.sleep(0.05)
             self.assertEqual(slot.get().get("status"), "done")
 
     def test_start_while_running_reuses_job(self):

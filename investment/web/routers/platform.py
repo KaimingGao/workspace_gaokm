@@ -62,8 +62,15 @@ def list_jobs():
 
 
 @router.get("/api/jobs/{name}")
-def get_job(name: str):
+def get_job(name: str, progress: int = 0):
+    """``progress=1``：轮询轻量快照（去掉大 result），避免 3MB JSON 拖垮前端。"""
     out = deps.platform.get_job(name)
+    if progress and isinstance(out.get("job"), dict):
+        job = dict(out["job"])
+        if job.get("result") is not None:
+            job["result"] = None
+            job["result_omitted"] = True
+        out = {**out, "job": job}
     return {**out, "canonical": True}
 
 

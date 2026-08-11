@@ -1657,6 +1657,13 @@ export function initPaper(ctx) {
         跳过: "rebalance-hold",
       };
 
+      // 表头/数据同行同轨，避免 table auto 列宽 + th/td 对齐不一致
+      const REBALANCE_GRID_COLS =
+        "minmax(7.5rem,1.35fr) 4.8rem minmax(7rem,1fr) 4.5rem 4.8rem minmax(9rem,1.7fr)";
+      const rebalanceRowStyle =
+        `display:grid;grid-template-columns:${REBALANCE_GRID_COLS};` +
+        `align-items:center;width:100%;column-gap:0;`;
+
       function buildScoreDetail(r) {
         if (
           !r.reasons &&
@@ -1849,16 +1856,17 @@ export function initPaper(ctx) {
           const reason = escapeText(r.reason || "—");
 
           return (
-            `<tr class="${cls}${hasDetail ? " is-expandable" : ""}" data-detail-idx="${idx}"` +
+            `<div class="rebalance-row ${cls}${hasDetail ? " is-expandable" : ""}" role="row" ` +
+            `style="${rebalanceRowStyle}" data-detail-idx="${idx}"` +
             `${hasDetail ? ' title="点击展开评分明细"' : ""}>` +
-            `<td class="rebalance-stock">` +
+            `<div class="rebalance-stock" role="cell">` +
             `<span class="rebalance-stock-name">${name}</span>` +
             `<span class="rebalance-stock-code">${code}</span>` +
-            `</td>` +
-            `<td class="num rebalance-score ${scoreClass}" title="${escapeText(
+            `</div>` +
+            `<div class="num rebalance-score ${scoreClass}" role="cell" title="${escapeText(
               scoreTip || (belowMin ? "低于选股门槛（仍显示分数）" : "")
-            )}">${scoreShown}${expandIcon}</td>` +
-            `<td class="num rebalance-shares">` +
+            )}">${scoreShown}${expandIcon}</div>` +
+            `<div class="num rebalance-shares" role="cell">` +
             `<span class="rebalance-shares-old">${escapeText(
               String(
                 oldSh != null && Number.isFinite(oldSh)
@@ -1874,21 +1882,21 @@ export function initPaper(ctx) {
                   : "—"
               )
             )}</span>` +
-            `</td>` +
-            `<td class="num rebalance-change">${escapeText(changeText)}</td>` +
-            `<td class="rebalance-decision"><span class="rebalance-decision-tag ${decisionTagClass}` +
+            `</div>` +
+            `<div class="num rebalance-change" role="cell">${escapeText(changeText)}</div>` +
+            `<div class="rebalance-decision" role="cell"><span class="rebalance-decision-tag ${decisionTagClass}` +
             `${decisionTitle ? " has-tip" : ""}"` +
             `${
               decisionTitle
                 ? ` data-tip="${escapeText(decisionTitle)}"`
                 : ""
-            }>${escapeText(decision || "—")}</span></td>` +
-            `<td class="rebalance-reason">${reason}</td>` +
-            `</tr>` +
+            }>${escapeText(decision || "—")}</span></div>` +
+            `<div class="rebalance-reason" role="cell">${reason}</div>` +
+            `</div>` +
             (hasDetail
-              ? `<tr class="rebalance-detail-row" data-detail-for="${idx}" hidden><td colspan="6">${buildScoreDetail(
+              ? `<div class="rebalance-detail-row" data-detail-for="${idx}" hidden>${buildScoreDetail(
                   r
-                )}</td></tr>`
+                )}</div>`
               : "")
           );
         })
@@ -1896,18 +1904,22 @@ export function initPaper(ctx) {
 
       container.innerHTML =
         `<div class="rebalance-table-scroll">` +
-        `<table class="rebalance-table">` +
-        `<thead><tr>` +
-        `<th>股票</th><th class="num">评分</th><th class="num">股数</th>` +
-        `<th class="num">变动</th><th>决策</th><th>原因</th>` +
-        `</tr></thead>` +
-        `<tbody>${rows}</tbody>` +
-        `</table></div>`;
+        `<div class="rebalance-table" role="table">` +
+        `<div class="rebalance-table-head" role="row" style="${rebalanceRowStyle}">` +
+        `<div class="rebalance-th" role="columnheader">股票</div>` +
+        `<div class="rebalance-th num" role="columnheader">评分</div>` +
+        `<div class="rebalance-th num" role="columnheader">股数</div>` +
+        `<div class="rebalance-th num" role="columnheader">变动</div>` +
+        `<div class="rebalance-th" role="columnheader">决策</div>` +
+        `<div class="rebalance-th" role="columnheader">原因</div>` +
+        `</div>` +
+        `<div class="rebalance-table-body" role="rowgroup">${rows}</div>` +
+        `</div></div>`;
 
-      container.querySelectorAll("tr[data-detail-idx]").forEach((tr) => {
+      container.querySelectorAll(".rebalance-row[data-detail-idx]").forEach((tr) => {
         tr.addEventListener("click", () => {
           const idx = tr.dataset.detailIdx;
-          const detailRow = container.querySelector(`tr[data-detail-for="${idx}"]`);
+          const detailRow = container.querySelector(`[data-detail-for="${idx}"]`);
           if (!detailRow) return;
           const icon = tr.querySelector(".rebalance-expand-icon");
           const open = detailRow.hidden;
@@ -1936,15 +1948,17 @@ export function initPaper(ctx) {
 
     async function waitPaperJob(jobId) {
       const started = Date.now();
+      const hardCapMs = 25 * 60 * 1000;
+      const softCapMs = 15 * 60 * 1000;
       let sawOwnJob = false;
-      while (Date.now() - started < 15 * 60 * 1000) {
-        const res = await fetch("/api/jobs/paper");
+      while (Date.now() - started < hardCapMs) {
+        const res = await fetch("/api/jobs/paper?progress=1");
         const data = await res.json();
         const job = (data && data.job) || {};
         const sameJob = !jobId || !job.id || job.id === jobId;
         if (sameJob && job.id) sawOwnJob = true;
 
-        // 服务热重载 / 进程重启后槽位回到 idle，旧逻辑会空转到 15 分钟
+        // 服务热重载 / 进程重启后槽位回到 idle，旧逻辑会空转到超时
         if (job.status === "idle" || !job.id) {
           if (sawOwnJob || Date.now() - started > 2500) {
             throw new Error("纸面任务已中断（可能服务重启），请重试确认调仓");
@@ -1966,9 +1980,20 @@ export function initPaper(ctx) {
               : "");
         showProgress(pct, msg);
         if (paperMeta && msg) setPaperMetaText(msg);
-        if (job.status === "done") return job;
+        if (job.status === "done") {
+          const fullRes = await fetch("/api/jobs/paper");
+          const fullData = await fullRes.json();
+          return (fullData && fullData.job) || job;
+        }
         if (job.status === "failed") {
           throw new Error(job.error || "纸面任务失败");
+        }
+        const elapsed = Date.now() - started;
+        if (elapsed >= softCapMs) {
+          const ua = Number(job.updated_at);
+          const fresh =
+            Number.isFinite(ua) && Date.now() / 1000 - ua < 90;
+          if (!fresh) throw new Error("纸面任务超时");
         }
         await new Promise((r) => setTimeout(r, 400));
       }
@@ -2198,7 +2223,10 @@ export function initPaper(ctx) {
 
     async function runClusterPaperRebalance({ dryRun = true } = {}) {
       setPaperBusy(true);
-      showProgress(1, dryRun ? "分池预演" : "分池落账");
+      showProgress(
+        1,
+        dryRun ? "分池预演（打分）…" : "分池落账（成交）…"
+      );
       try {
         const strategy =
           document.getElementById("paper-strategy")?.value || "short_conservative";
@@ -2238,8 +2266,16 @@ export function initPaper(ctx) {
         followClusterPreviewPending = !!dryRun;
         const ci = data.cash_impact || null;
         const turnPct = ci && ci.turnover_pct != null ? ci.turnover_pct : null;
+        const reused =
+          data.book_reused || (data.cluster_pools || {}).from_cache;
         setPaperMetaText(
-          (dryRun ? "分池预演" : "分池落账") +
+          (dryRun
+            ? reused
+              ? "分池预演·复用簿"
+              : "分池预演"
+            : reused
+              ? "分池落账·已复用簿"
+              : "分池落账") +
             ` · 目标簿 ${bookN} 只 · top_k=${data.top_k ?? "—"} · 卖 ${sellN} · 买 ${buyN}` +
             (turnPct != null ? ` · 换手 ${turnPct}%` : "")
         );

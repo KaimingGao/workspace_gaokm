@@ -100,6 +100,9 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
             },
         ]
         with patch(
+            "core.paper_rebalance_orchestrator.try_reuse_active_cluster_book",
+            return_value=None,
+        ), patch(
             "core.signal.cluster_rank.rank_cluster_pools",
             return_value={
                 "success": True,
@@ -129,13 +132,115 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
             "core.signal.score_display.selection_min_score",
             return_value=-0.01,
         ):
-            out = run_paper_rebalance(paper, mode="cluster_book")
+            out = run_paper_rebalance(paper, mode="cluster_book", dry_run=True)
         lookup = mock_sim.call_args[1]["score_lookup"]
         by = {str(r["stock_code"]): r for r in lookup}
         self.assertIn("000063", by)
         self.assertEqual(by["000063"].get("score"), 1.2)
         self.assertTrue(by["601138"].get("hard_reject"))
         self.assertEqual(out["mode"], "cluster_book")
+
+    def test_confirm_reuses_fresh_active_book(self):
+        paper = {
+            "holdings": [],
+            "rules": {"max_positions": 5},
+            "strategy_id": "short",
+        }
+        book = [{"stock_code": "600519", "score": 2.5, "stock_name": "茅台"}]
+        cached = {
+            "success": True,
+            "from_cache": True,
+            "book": book,
+            "ranking": book,
+            "scored_all": book,
+            "health": {"alerts": []},
+        }
+        with patch(
+            "core.paper_rebalance_orchestrator.try_reuse_active_cluster_book",
+            return_value=cached,
+        ), patch(
+            "core.signal.cluster_rank.rank_cluster_pools",
+        ) as mock_rank, patch(
+            "core.signal.cluster_live.assess_cluster_live_health",
+            return_value={"alerts": []},
+        ), patch(
+            "core.paper_rebalance.simulate_cross_section_rebalance",
+            return_value={"sell_trades": [], "buy_trades": []},
+        ) as mock_sim, patch(
+            "core.strategy.apply_strategy_to_paper",
+        ), patch(
+            "core.signal.score_display.selection_min_score",
+            return_value=-0.01,
+        ):
+            out = run_paper_rebalance(paper, mode="cluster_book", dry_run=False)
+        mock_rank.assert_not_called()
+        self.assertTrue(out.get("book_reused"))
+        self.assertEqual(out["ranking"], book)
+        self.assertTrue(mock_sim.call_args.kwargs.get("skip_sentiment_prior"))
+
+    def test_preview_also_reuses_fresh_active_book(self):
+        paper = {
+            "holdings": [],
+            "rules": {"max_positions": 5},
+            "strategy_id": "short",
+        }
+        book = [{"stock_code": "600519", "score": 2.5}]
+        cached = {
+            "success": True,
+            "from_cache": True,
+            "book": book,
+            "ranking": book,
+            "scored_all": book,
+            "health": {"alerts": []},
+        }
+        with patch(
+            "core.paper_rebalance_orchestrator.try_reuse_active_cluster_book",
+            return_value=cached,
+        ), patch(
+            "core.signal.cluster_rank.rank_cluster_pools",
+        ) as mock_rank, patch(
+            "core.signal.cluster_live.assess_cluster_live_health",
+            return_value={"alerts": []},
+        ), patch(
+            "core.paper_rebalance.simulate_cross_section_rebalance",
+            return_value={"sell_trades": [], "buy_trades": []},
+        ) as mock_sim, patch(
+            "core.strategy.apply_strategy_to_paper",
+        ), patch(
+            "core.signal.score_display.selection_min_score",
+            return_value=-0.01,
+        ):
+            out = run_paper_rebalance(paper, mode="cluster_book", dry_run=True)
+        mock_rank.assert_not_called()
+        self.assertTrue(out.get("book_reused"))
+        # 预演复用簿时仍可跑舆情；确认落账才 skip
+        self.assertFalse(mock_sim.call_args.kwargs.get("skip_sentiment_prior"))
+
+    def test_prepare_reuses_book_for_preview_and_confirm(self):
+        from core.paper_rebalance_orchestrator import prepare_cluster_book_rank
+
+        book = [{"stock_code": "000001", "score": 1.0}]
+        with patch(
+            "core.paper_rebalance_orchestrator.try_reuse_active_cluster_book",
+            return_value={
+                "success": True,
+                "from_cache": True,
+                "book": book,
+                "ranking": book,
+                "scored_all": book,
+            },
+        ), patch(
+            "core.signal.cluster_live.assess_cluster_live_health",
+            return_value={"alerts": []},
+        ), patch(
+            "core.signal.cluster_rank.rank_cluster_pools",
+        ) as mock_rank:
+            out_prev = prepare_cluster_book_rank({"rules": {}}, dry_run=True)
+            out_cfm = prepare_cluster_book_rank({"rules": {}}, dry_run=False)
+        mock_rank.assert_not_called()
+        self.assertTrue(out_prev.get("from_cache"))
+        self.assertTrue(out_cfm.get("from_cache"))
+        self.assertEqual(out_prev["book"], book)
 
 
 class TestSupplementHoldingScores(unittest.TestCase):

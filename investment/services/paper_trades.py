@@ -205,6 +205,26 @@ def _rebalance_report_from_legs(
     return rows
 
 
+def _paper_mutation_token(paper: dict) -> tuple:
+    """轻量指纹：确认落账前检测账本是否被并发改写。"""
+    holdings = paper.get("holdings") or []
+    return (
+        round(float(paper.get("cash") or 0), 4),
+        tuple(
+            sorted(
+                (
+                    str(h.get("stock_code") or ""),
+                    round(float(h.get("shares") or 0), 4),
+                )
+                for h in holdings
+                if isinstance(h, dict)
+            )
+        ),
+        len(paper.get("trades") or []),
+        len(paper.get("operation_log") or []),
+    )
+
+
 class PaperTradesMixin:
     def rebalance(
         self,
@@ -218,35 +238,29 @@ class PaperTradesMixin:
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
         from core.paper_rebalance_orchestrator import (
+            prepare_cluster_book_rank,
             resolve_rebalance_mode,
             run_paper_rebalance,
         )
 
-        with paper_write_lock(self.path):
-            return self._rebalance_locked(
-                top_k=top_k,
-                limit=limit,
-                cluster_mode=cluster_mode,
-                dry_run=dry_run,
-                strategy=strategy,
-                resolve_rebalance_mode=resolve_rebalance_mode,
-                run_paper_rebalance=run_paper_rebalance,
-            )
+        # 打分 / 行情 / 模拟全部在写锁外；锁内只做短写，避免「分池落账」长时间占锁。
+        paper_ro = load_paper(self.path)
+        token0 = _paper_mutation_token(paper_ro)
+        mode = resolve_rebalance_mode(paper_ro, cluster_mode=cluster_mode)
+        ranked_pre = None
+        if mode == "cluster_book":
+            ranked_pre = prepare_cluster_book_rank(paper_ro, dry_run=dry_run)
+            if not (ranked_pre.get("success") or ranked_pre.get("ok")):
+                return {
+                    **ranked_pre,
+                    "mode": mode,
+                    "cluster_mode": True,
+                    "dry_run": dry_run,
+                    "success": False,
+                    "ok": False,
+                }
 
-    def _rebalance_locked(
-        self,
-        *,
-        top_k,
-        limit,
-        cluster_mode,
-        dry_run,
-        strategy,
-        resolve_rebalance_mode,
-        run_paper_rebalance,
-    ) -> Dict[str, Any]:
-        paper = load_paper(self.path)
-        work = copy.deepcopy(paper) if dry_run else paper
-        mode = resolve_rebalance_mode(work, cluster_mode=cluster_mode)
+        work = copy.deepcopy(paper_ro)
         holdings_before = copy.deepcopy(work.get("holdings") or [])
         if not dry_run:
             capture_mark_snapshot(work)
@@ -258,6 +272,7 @@ class PaperTradesMixin:
             limit=limit,
             cluster_mode=cluster_mode,
             strategy=str(strategy or work.get("strategy_id") or "short_conservative"),
+            ranked=ranked_pre if mode == "cluster_book" else None,
         )
         if not (result.get("success") or result.get("ok")):
             return {**result, "mode": mode}
@@ -323,9 +338,18 @@ class PaperTradesMixin:
 
         if dry_run:
             if use_cluster:
-                base_out["note"] = "分池预演 · 未写 paper.json"
+                base_out["note"] = (
+                    "分池预演 · 复用目标簿 · 未写 paper.json"
+                    if result.get("book_reused")
+                    else "分池预演 · 未写 paper.json"
+                )
+                if result.get("book_reused"):
+                    base_out["book_reused"] = True
             return base_out
 
+        if use_cluster and result.get("book_reused"):
+            base_out["book_reused"] = True
+            base_out["note"] = "分池落账 · 复用预演目标簿"
         append_snapshot(work, summary)
         if use_cluster:
             append_trade_legs_to_operation_log(
@@ -363,7 +387,25 @@ class PaperTradesMixin:
                 "sell_count": len(sell_trades),
                 "signal_config_touched": False,
             }
-        save_paper(work, self.path)
+
+        # 锁内短写：直接 atomic_write，避免 save_paper 再套一层 path_lock（曾导致 macOS 自锁 503）
+        from core.io_atomic import atomic_write_json
+        from core.paper import trim_paper_lists
+
+        with paper_write_lock(self.path):
+            current = load_paper(self.path)
+            if _paper_mutation_token(current) != token0:
+                return {
+                    "success": False,
+                    "ok": False,
+                    "mode": mode,
+                    "dry_run": False,
+                    "cluster_mode": use_cluster,
+                    "error": "账本已变更，请重新预演后再确认调仓",
+                }
+            work.pop("watchlist", None)
+            trim_paper_lists(work)
+            atomic_write_json(self.path, work)
         return base_out
 
     def buy(self, *, stock_code: str, amount: Optional[float] = None, shares: Optional[float] = None) -> Dict[str, Any]:

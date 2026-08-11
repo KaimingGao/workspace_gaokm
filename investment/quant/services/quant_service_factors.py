@@ -461,7 +461,10 @@ class QuantFactorMixin:
                 horizon_days=horizon_days,
                 oos_tol_pp=float(oos_tol_pp),
                 run_oos_gate=bool(run_oos_gate),
+                bars_by_code=bars_by_code,
+                progress_cb=_on_progress,
             )
+            _on_progress("组内打分…", n_codes, n_codes)
             attach_cluster_group_scores(
                 report,
                 bars_by_code,
@@ -470,6 +473,7 @@ class QuantFactorMixin:
                 run_group_score=bool(run_group_score),
             )
             if run_group_score:
+                _on_progress("分池合成…", n_codes, n_codes)
                 attach_cluster_pool_merge(
                     report,
                     bars_by_code,
@@ -477,7 +481,9 @@ class QuantFactorMixin:
                     top_n_per_group=int(top_n_per_group or 10),
                     run_pool_merge=bool(run_pool_merge),
                 )
+                _on_progress("分池产物…", n_codes, n_codes)
                 attach_cluster_pool_artifact(report)
+                _on_progress("多权打分…", n_codes, n_codes)
                 attach_cluster_multi_score(
                     report,
                     bars_by_code,
@@ -494,6 +500,7 @@ class QuantFactorMixin:
                         report["cluster_draft_saved"] = True
                 except Exception:
                     report["cluster_draft_saved"] = False
+            _on_progress("收尾…", n_codes, n_codes)
         flags = dict(built.get("lookahead_flags") or {})
         if report.get("large_universe") and report.get("daily_pit") is False:
             flags = dict(flags)

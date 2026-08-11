@@ -272,6 +272,7 @@ def rank_cluster_pools(
                 # 兼容旧 status 读取
                 "top_n_per_group": top_n_cfg,
             },
+            scored_all=scored_all,
         )
 
     return {

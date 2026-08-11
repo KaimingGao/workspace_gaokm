@@ -82,10 +82,77 @@ def _df_to_bars(df: Any, limit: int) -> List[dict]:
     return bars[-limit:] if limit else bars
 
 
-def fetch_a_daily_bars(code: str, limit: int = 30, *, adjust: str = "qfq") -> List[dict]:
+def _normalize_ymd(raw: Optional[str]) -> Optional[str]:
+    """YYYY-MM-DD / YYYYMMDD → YYYYMMDD；非法则 None。"""
+    s = str(raw or "").strip().replace("-", "").replace("/", "").replace(".", "")
+    if len(s) >= 8 and s[:8].isdigit():
+        return s[:8]
+    return None
+
+
+def _parse_bar_date(raw: Any) -> Optional[datetime]:
+    s = _normalize_ymd(str(raw or ""))
+    if not s:
+        return None
+    try:
+        return datetime.strptime(s, "%Y%m%d")
+    except ValueError:
+        return None
+
+
+def _last_bar_dt(bars: List[dict]) -> Optional[datetime]:
+    if not bars:
+        return None
+    return _parse_bar_date((bars[-1] or {}).get("date"))
+
+
+def _incremental_remote_plan(
+    existing: List[dict],
+    *,
+    limit: int,
+    adjust: str = "qfq",
+) -> Tuple[Optional[str], int, bool]:
+    """增量远端计划：(start_ymd|None=默认整窗, fetch_limit, skip_remote)。
+
+    本地条数够且缺口不大时只从最后交易日（含当日重叠）拉到今天；
+    条数不足或缺很久（尤其 qfq）则回退整窗，避免前复权断层。
+    """
+    last = _last_bar_dt(existing)
+    if last is None:
+        return None, max(int(limit or 30), 30), False
+
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    if last.date() >= today.date():
+        return None, 0, True
+
+    gap_days = max(1, (today.date() - last.date()).days)
+    need = max(1, int(limit or 30))
+    # 缺口补上后仍凑不够 limit → 需要更早历史，走整窗
+    thin = len(existing) < max(5, need - max(gap_days, 3))
+    # 长缺口 + 前复权：整窗重拉，避免分红后历史价与本地旧段错位
+    long_qfq_gap = str(adjust or "qfq").lower() == "qfq" and gap_days > 40
+
+    if thin or long_qfq_gap:
+        fetch_limit = max(need, len(existing) + 5, need + 10)
+        return None, fetch_limit, False
+
+    # 缺口窗：重叠最后一日（收盘价/成交量修正）+ 少量日历缓冲
+    start_s = last.strftime("%Y%m%d")
+    fetch_limit = max(8, min(need, gap_days + 6))
+    return start_s, fetch_limit, False
+
+
+def fetch_a_daily_bars(
+    code: str,
+    limit: int = 30,
+    *,
+    adjust: str = "qfq",
+    start_date: Optional[str] = None,
+) -> List[dict]:
     """
     拉取 A 股日线。code 可为 600519 / sh600519。
     adjust: qfq | raw | hfq（hfq 不可用时回退 qfq）。
+    start_date: 可选 YYYYMMDD / YYYY-MM-DD；给定则缩小请求窗口（增量补缺）。
     """
     from skills.common.ak_lock import import_akshare
 
@@ -103,8 +170,10 @@ def fetch_a_daily_bars(code: str, limit: int = 30, *, adjust: str = "qfq") -> Li
         prefix = "sh" if raw.startswith(("5", "6", "9")) else "sz"
 
     end = datetime.now()
-    start = end - timedelta(days=max(90, limit * 4))
-    start_s = start.strftime("%Y%m%d")
+    start_s = _normalize_ymd(start_date)
+    if not start_s:
+        start = end - timedelta(days=max(90, limit * 4))
+        start_s = start.strftime("%Y%m%d")
     end_s = end.strftime("%Y%m%d")
 
     policy = str(adjust or "qfq").strip().lower()
@@ -176,9 +245,15 @@ def fetch_a_daily_bars(code: str, limit: int = 30, *, adjust: str = "qfq") -> Li
     return []
 
 
-def fetch_hk_daily_bars(code: str, limit: int = 30) -> List[dict]:
+def fetch_hk_daily_bars(
+    code: str,
+    limit: int = 30,
+    *,
+    start_date: Optional[str] = None,
+) -> List[dict]:
     """
     拉取港股日线。多符号形态 + 多接口重试。
+    start_date：可选，缩小增量窗口。
     注意：单次接口异常应 continue，不要整段中断。
     """
     from skills.common.ak_lock import import_akshare
@@ -198,8 +273,10 @@ def fetch_hk_daily_bars(code: str, limit: int = 30) -> List[dict]:
             candidates.append(form)
 
     end = datetime.now()
-    start = end - timedelta(days=max(120, limit * 4))
-    start_s = start.strftime("%Y%m%d")
+    start_s = _normalize_ymd(start_date)
+    if not start_s:
+        start = end - timedelta(days=max(120, limit * 4))
+        start_s = start.strftime("%Y%m%d")
     end_s = end.strftime("%Y%m%d")
 
     attempts: List[Tuple[str, Callable[[], Any]]] = []
@@ -251,8 +328,13 @@ def fetch_hk_daily_bars(code: str, limit: int = 30) -> List[dict]:
     return []
 
 
-def fetch_us_daily_bars(code: str, limit: int = 30) -> List[dict]:
-    """拉取美股日线。code 如 AAPL。"""
+def fetch_us_daily_bars(
+    code: str,
+    limit: int = 30,
+    *,
+    start_date: Optional[str] = None,
+) -> List[dict]:
+    """拉取美股日线。code 如 AAPL。start_date：可选，缩小增量窗口。"""
     from skills.common.ak_lock import import_akshare
 
     ak = import_akshare()
@@ -262,8 +344,10 @@ def fetch_us_daily_bars(code: str, limit: int = 30) -> List[dict]:
         symbol = symbol[2:]
 
     end = datetime.now()
-    start = end - timedelta(days=max(90, limit * 3))
-    start_s = start.strftime("%Y%m%d")
+    start_s = _normalize_ymd(start_date)
+    if not start_s:
+        start = end - timedelta(days=max(90, limit * 3))
+        start_s = start.strftime("%Y%m%d")
     end_s = end.strftime("%Y%m%d")
 
     fn = getattr(ak, "stock_us_hist", None)
@@ -308,7 +392,8 @@ def fetch_daily_bars(
     返回 (bars, data_source)：
     data_source: cache:akshare_* / akshare_cn_daily / akshare_hk_daily / empty
 
-    incremental=True：若本地已有 bars，则拉更大窗口后按 date 合并再落盘（观察池轻本地史）。
+    incremental=True：本地已有足够历史时，只请求「最后交易日→今天」缺口窗并按 date 合并落盘；
+    条数不足或前复权长缺口则回退整窗。
     adjust：qfq|raw|hfq（写入缓存 adjust_policy；与请求不一致则跳过缓存防混用）。
     offline_ok=True：本地有足够 bars 时直接返回（可过期），不打远端——研究分组用。
     """
@@ -378,19 +463,27 @@ def fetch_daily_bars(
         trimmed = existing[-limit:] if limit and len(existing) > limit else existing
         return trimmed, cached_src
 
+    gap_start: Optional[str] = None
     fetch_limit = max(int(limit or 30), len(existing) + 5 if existing else int(limit or 30))
     if incremental and existing:
-        fetch_limit = max(fetch_limit, int(limit or 30) + 10)
+        gap_start, fetch_limit, skip_remote = _incremental_remote_plan(
+            existing, limit=int(limit or 30), adjust=policy
+        )
+        if skip_remote:
+            trimmed = existing[-limit:] if limit and len(existing) > limit else existing
+            return trimmed, cached_src
 
     try:
         if market == "CN":
-            bars = fetch_a_daily_bars(code, limit=fetch_limit, adjust=policy)
+            bars = fetch_a_daily_bars(
+                code, limit=fetch_limit, adjust=policy, start_date=gap_start
+            )
             src = f"akshare_cn_daily:{policy}" if bars else "empty"
         elif market == "HK":
-            bars = fetch_hk_daily_bars(code, limit=fetch_limit)
+            bars = fetch_hk_daily_bars(code, limit=fetch_limit, start_date=gap_start)
             src = "akshare_hk_daily" if bars else "empty"
         elif market == "US":
-            bars = fetch_us_daily_bars(code, limit=fetch_limit)
+            bars = fetch_us_daily_bars(code, limit=fetch_limit, start_date=gap_start)
             src = "akshare_us_daily" if bars else "empty"
         else:
             return [], "empty"

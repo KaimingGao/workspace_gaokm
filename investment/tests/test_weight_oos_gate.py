@@ -103,13 +103,50 @@ class TestWeightOosGate(unittest.TestCase):
         self.assertEqual(out["research_rank_mode"], "predicted_score")
         self.assertIn("heuristic_score", OOS_PRODUCT_SEMANTICS)
 
-    def test_compat_without_model_skips(self):
-        out = evaluate_weight_suggestion_oos(
-            {"momentum": 0.5},
-            {"momentum": 0.6},
-        )
-        self.assertTrue(out["skipped"])
-        self.assertEqual(out["reason"], "no_return_model")
+    def test_gate_reuses_preloaded_stock_bars(self):
+        """上游传入 bars 时不再二次 load_portfolio_stock_bars。"""
+        model = {
+            "intercept": 0.0,
+            "coefficients": {"momentum": 0.1},
+            "z_means": {},
+            "z_stds": {},
+            "standardized": True,
+        }
+        bars = {
+            "a": [{"date": f"2024-01-{i:02d}", "close": 10 + i * 0.01} for i in range(1, 60)],
+            "b": [{"date": f"2024-01-{i:02d}", "close": 20 + i * 0.02} for i in range(1, 60)],
+            "c": [{"date": f"2024-01-{i:02d}", "close": 30 + i * 0.01} for i in range(1, 60)],
+        }
+
+        def fake_bt(stock_bars, **kwargs):
+            return {
+                "success": True,
+                "metrics": {"total_return_pct": 5.0},
+                "equity_curve": [
+                    {"date": "d1", "equity": 100},
+                    {"date": "d2", "equity": 105},
+                ],
+                "trades": [],
+                "params": {},
+            }
+
+        with patch(
+            "core.research.portfolio_bars.load_portfolio_stock_bars",
+        ) as load_mock, patch(
+            "core.backtest.topk_backtest.backtest_topk_equal_weight",
+            side_effect=fake_bt,
+        ):
+            out = evaluate_research_oos(
+                codes=["a", "b", "c"],
+                research_models_by_code={"a": model, "b": model, "c": model},
+                baseline_weights={"momentum": 0.5, "value": 0.5},
+                lookback=60,
+                stock_bars=bars,
+            )
+        load_mock.assert_not_called()
+        self.assertFalse(out.get("skipped"))
+        self.assertEqual(out.get("stock_count"), 3)
+        self.assertIsInstance(out.get("reason"), str)
 
     def test_diff_apply_note_reflects_gate(self):
         sug = {

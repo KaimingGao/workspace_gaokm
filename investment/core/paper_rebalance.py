@@ -19,25 +19,51 @@ from core.ports.market import quote_price as _quote_price
 
 
 def _batch_query_quotes(codes: List[str], *, workers: int = 8) -> Dict[str, dict]:
-    """并行批量查询行情，返回 {code: quote} 字典；失败 code 不含或值为空 dict。"""
+    """批量行情：优先一次 HTTP（StockAPI.batch_query）；失败再线程池逐票。"""
     if not codes:
         return {}
+    uniq = list(dict.fromkeys(c for c in codes if c))
+    if not uniq:
+        return {}
+    try:
+        from core.ports.market import batch_query_quotes
+
+        got = batch_query_quotes(uniq) or {}
+        # 统一成 {code: quote}；补全未返回的 key
+        out: Dict[str, dict] = {}
+        for c in uniq:
+            q = got.get(c)
+            if isinstance(q, dict) and q.get("success"):
+                out[c] = q
+            elif isinstance(q, dict):
+                out[c] = q
+        if len(out) >= max(1, len(uniq) // 2):
+            return out
+    except Exception:
+        logger.warning("batch_query_quotes failed; fallback per-code", exc_info=True)
+
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     from core.ports.market import query_quote
 
-    out: Dict[str, dict] = {}
-    uniq = list(dict.fromkeys(c for c in codes if c))
-    if not uniq:
-        return out
+    out = {}
     with ThreadPoolExecutor(max_workers=min(workers, len(uniq))) as pool:
         futures = {pool.submit(query_quote, c): c for c in uniq}
-        for fut in as_completed(futures, timeout=30):
-            code = futures[fut]
-            try:
-                out[code] = fut.result(timeout=0)
-            except Exception:
-                out[code] = {}
+        try:
+            for fut in as_completed(futures, timeout=12):
+                code = futures[fut]
+                try:
+                    out[code] = fut.result(timeout=0)
+                except Exception:
+                    out[code] = {}
+        except Exception:
+            for code, fut in futures.items():
+                if code in out:
+                    continue
+                try:
+                    out[code] = fut.result(timeout=0) if fut.done() else {}
+                except Exception:
+                    out[code] = {}
     return out
 
 
@@ -168,6 +194,7 @@ def simulate_cross_section_rebalance(
     min_score: Optional[float] = None,
     respect_max_positions: bool = True,
     score_lookup: Optional[List[dict]] = None,
+    skip_sentiment_prior: bool = False,
 ) -> Dict[str, Any]:
     """
     按横截面 TopK / 分池目标簿调仓。
@@ -179,6 +206,7 @@ def simulate_cross_section_rebalance(
     买入前强制 check_account_risk；超限则拦截加仓并写 risk_block 日志。
 
     ``score_lookup``：可选全量打分行（含低于 min_score 未进簿的票），供卖出腿带分。
+    ``skip_sentiment_prior``：确认落账复用预演簿时跳过舆情重拉（只成交）。
     """
     from core.ports.market import query_quote, quote_price
 
@@ -257,6 +285,47 @@ def simulate_cross_section_rebalance(
     turnover_capped = False
     turnover_skipped: List[str] = []
 
+    # 舆情先验：卖/买前一次性批量拉取（gate+scale_holds 时含持仓），禁止循环内 N×串行 AkShare
+    prior_by_code: Dict[str, Any] = {}
+    sentiment_prior_summary: Dict[str, Any] = {"ok": True, "skipped": True}
+    prior_cfg_live: Dict[str, Any] = {"mode": "off"}
+    try:
+        from core.sentiment_prior import (
+            check_sentiment_priors_for_codes,
+            get_sentiment_prior_cfg,
+        )
+
+        prior_cfg_live = get_sentiment_prior_cfg()
+        if skip_sentiment_prior:
+            sentiment_prior_summary = {
+                "ok": True,
+                "skipped": True,
+                "warnings": [],
+                "blocks": [],
+                "note": "确认落账复用预演·跳过舆情重拉",
+            }
+            prior_cfg_live = {**prior_cfg_live, "mode": "off", "scale_holds": False}
+        elif str(prior_cfg_live.get("mode") or "off") != "off":
+            hold_codes_all = [
+                str(h.get("stock_code") or "").strip()
+                for h in holdings
+                if str(h.get("stock_code") or "").strip()
+            ]
+            buy_cand_codes = [
+                str(x.get("stock_code") or "").strip()
+                for x in top_items
+                if str(x.get("stock_code") or "").strip() and not x.get("hard_reject")
+            ]
+            need_prior = list(buy_cand_codes)
+            if prior_cfg_live.get("scale_holds") or prior_cfg_live.get("mode") == "gate":
+                need_prior = list(dict.fromkeys([*hold_codes_all, *buy_cand_codes]))
+            if need_prior:
+                sentiment_prior_summary = check_sentiment_priors_for_codes(need_prior)
+                prior_by_code = dict(sentiment_prior_summary.get("by_code") or {})
+    except Exception as exc:
+        logger.warning("batch sentiment prior failed: %s", exc, exc_info=True)
+        sentiment_prior_summary = {"ok": True, "error": str(exc), "by_code": {}}
+
     # P0 · 批量预取行情（避免循环内串行网络往返）
     _sell_codes = [str(h.get("stock_code") or "") for h in holdings if h.get("stock_code")]
     _quote_cache: Dict[str, dict] = _batch_query_quotes(_sell_codes)
@@ -292,13 +361,18 @@ def simulate_cross_section_rebalance(
         prior_trim = False
         if not reason:
             # 舆情先验：gate + scale_holds → 已持仓缩至 scale_buy_pct（不改 ŷ）
+            if str(prior_cfg_live.get("mode") or "off") == "off" or not prior_cfg_live.get(
+                "scale_holds"
+            ):
+                kept.append(h)
+                continue
             try:
-                from core.sentiment_prior import (
-                    apply_prior_to_hold,
-                    resolve_prior_for_code,
-                )
+                from core.sentiment_prior import apply_prior_to_hold
 
-                prior = resolve_prior_for_code(code)
+                prior = prior_by_code.get(code)
+                if not isinstance(prior, dict):
+                    kept.append(h)
+                    continue
                 hold_apply = apply_prior_to_hold(prior, shares=shares)
                 if hold_apply.get("trim") and float(hold_apply.get("sell_shares") or 0) > 0:
                     sell_shares = float(hold_apply["sell_shares"])
@@ -385,15 +459,8 @@ def simulate_cross_section_rebalance(
         risk_gate = {"ok": True, "blocks": [], "warnings": []}
         risk_limits = {}
 
-    # 舆情先验预检：新开仓候选 +（若 scale_holds）已持仓；warnings 进 gate
-    sentiment_prior_summary: Dict[str, Any] = {"ok": True, "skipped": True}
+    # 舆情先验预检摘要：复用开环批量结果（勿二次拉取）
     try:
-        from core.sentiment_prior import (
-            check_sentiment_priors_for_codes,
-            get_sentiment_prior_cfg,
-        )
-
-        prior_cfg_live = get_sentiment_prior_cfg()
         held_now = {str(h.get("stock_code")) for h in kept}
         cand_codes = [
             str(x.get("stock_code") or "").strip()
@@ -402,28 +469,30 @@ def simulate_cross_section_rebalance(
             and str(x.get("stock_code") or "").strip() not in held_now
             and not x.get("hard_reject")
         ]
-        prior_codes = list(cand_codes)
-        if prior_cfg_live.get("mode") == "gate" and prior_cfg_live.get("scale_holds"):
-            prior_codes = list(dict.fromkeys([*cand_codes, *sorted(held_now)]))
-        if prior_codes:
-            sentiment_prior_summary = check_sentiment_priors_for_codes(prior_codes)
-            for w in sentiment_prior_summary.get("warnings") or []:
-                warns = list(risk_gate.get("warnings") or [])
-                if w and w not in warns:
-                    warns.append(w)
-                risk_gate["warnings"] = warns
-            # gate+block：并入 soft 提示，逐票在循环 skip（不整批 drawdown 式硬拦）
-            for bi in sentiment_prior_summary.get("block_items") or []:
-                msg = str(bi.get("message") or "")
-                if msg and msg not in (risk_gate.get("warnings") or []):
-                    risk_gate.setdefault("warnings", []).append(msg)
-        else:
+        if str(prior_cfg_live.get("mode") or "off") == "off":
+            sentiment_prior_summary = {
+                "ok": True,
+                "skipped": True,
+                "warnings": [],
+                "blocks": [],
+                "note": "舆情先验关闭",
+            }
+        elif not prior_by_code and not cand_codes:
             sentiment_prior_summary = {
                 "ok": True,
                 "warnings": [],
                 "blocks": [],
                 "note": "无新开仓候选",
             }
+        for w in sentiment_prior_summary.get("warnings") or []:
+            warns = list(risk_gate.get("warnings") or [])
+            if w and w not in warns:
+                warns.append(w)
+            risk_gate["warnings"] = warns
+        for bi in sentiment_prior_summary.get("block_items") or []:
+            msg = str(bi.get("message") or "")
+            if msg and msg not in (risk_gate.get("warnings") or []):
+                risk_gate.setdefault("warnings", []).append(msg)
         risk_gate["sentiment_prior"] = {
             "ok": sentiment_prior_summary.get("ok"),
             "warnings": sentiment_prior_summary.get("warnings") or [],
@@ -567,43 +636,42 @@ def simulate_cross_section_rebalance(
             if score is None or float(score) < min_score:
                 continue
 
-            # 舆情先验（ŷ 外）：不改 score；gate 时 skip / 缩 ratio
+            # 舆情先验（ŷ 外）：不改 score；gate 时 skip / 缩 ratio（用开环批量结果）
             prior_apply = None
             try:
-                from core.sentiment_prior import (
-                    apply_prior_to_buy,
-                    resolve_prior_for_code,
-                )
+                from core.sentiment_prior import apply_prior_to_buy
 
-                sent_snap = item.get("watching_sentiment") or item.get("sentiment")
-                if isinstance(item.get("sentiment_prior"), dict) and item.get(
+                if str(prior_cfg_live.get("mode") or "off") == "off":
+                    prior_pack = None
+                elif isinstance(item.get("sentiment_prior"), dict) and item.get(
                     "sentiment_prior"
                 ).get("success"):
                     prior_pack = item["sentiment_prior"]
+                elif code in prior_by_code:
+                    prior_pack = prior_by_code[code]
                 else:
-                    prior_pack = resolve_prior_for_code(
-                        code,
-                        sentiment=sent_snap if isinstance(sent_snap, dict) else None,
-                        fetch=not isinstance(sent_snap, dict),
+                    prior_pack = None
+                if prior_pack is not None:
+                    prior_apply = apply_prior_to_buy(
+                        prior_pack, position_ratio=position_pct
                     )
-                prior_apply = apply_prior_to_buy(prior_pack, position_ratio=position_pct)
-                for w in prior_apply.get("warnings") or []:
-                    warns = list(risk_gate.get("warnings") or [])
-                    if w and w not in warns:
-                        warns.append(w)
-                        risk_gate["warnings"] = warns
-                if prior_apply.get("skip"):
-                    risk_budget_skips.append(
-                        {
-                            "stock_code": code,
-                            "stock_name": item.get("stock_name"),
-                            "reason": prior_apply.get("reason")
-                            or "sentiment_prior_bearish",
-                            "score": score,
-                            "sentiment_prior": True,
-                        }
-                    )
-                    continue
+                    for w in prior_apply.get("warnings") or []:
+                        warns = list(risk_gate.get("warnings") or [])
+                        if w and w not in warns:
+                            warns.append(w)
+                            risk_gate["warnings"] = warns
+                    if prior_apply.get("skip"):
+                        risk_budget_skips.append(
+                            {
+                                "stock_code": code,
+                                "stock_name": item.get("stock_name"),
+                                "reason": prior_apply.get("reason")
+                                or "sentiment_prior_bearish",
+                                "score": score,
+                                "sentiment_prior": True,
+                            }
+                        )
+                        continue
             except Exception:
                 logger.warning("buy_loop sentiment_prior failed for %s", code, exc_info=True)
                 prior_apply = None

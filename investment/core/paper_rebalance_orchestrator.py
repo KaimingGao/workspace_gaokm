@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
 RebalanceMode = Literal["holding_rules", "cross_section", "cluster_book"]
+
+# 确认落账复用预演落盘簿的最长年龄（秒）；超时仍重打分
+_CLUSTER_BOOK_REUSE_MAX_AGE_SEC = 2 * 3600
 
 
 def resolve_rebalance_mode(
@@ -158,8 +162,12 @@ def run_paper_rebalance(
     top_k: Optional[int] = None,
     limit: Optional[int] = None,
     cluster_mode: bool = False,
+    ranked: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    """Route paper rebalance to the correct simulator for ``mode``."""
+    """Route paper rebalance to the correct simulator for ``mode``.
+
+    ``ranked``：可选，分池模式预计算好的建簿结果（写锁外 prepare），避免占锁重打分。
+    """
     if mode == "holding_rules":
         return _run_holding_rules(
             paper,
@@ -175,6 +183,7 @@ def run_paper_rebalance(
             top_k=top_k,
             limit=limit,
             cluster_mode=cluster_mode,
+            ranked=ranked,
         )
     return _run_cross_section(
         paper,
@@ -252,6 +261,104 @@ def _run_cross_section(
     }
 
 
+def _parse_iso_ts(raw: Any) -> Optional[datetime]:
+    s = str(raw or "").strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except ValueError:
+        return None
+
+
+def _cluster_book_age_sec(doc: dict) -> Optional[float]:
+    ts = _parse_iso_ts(doc.get("updated_at"))
+    if ts is None:
+        return None
+    now = datetime.now(timezone.utc)
+    if ts.tzinfo is None:
+        # 存盘多为 naive UTC / 本地；按 UTC naive 与 now 对齐
+        ts = ts.replace(tzinfo=timezone.utc)
+    return max(0.0, (now - ts.astimezone(timezone.utc)).total_seconds())
+
+
+def try_reuse_active_cluster_book(
+    *,
+    max_age_sec: float = _CLUSTER_BOOK_REUSE_MAX_AGE_SEC,
+) -> Optional[Dict[str, Any]]:
+    """确认落账：若预演刚写入的 active book 仍新鲜，直接复用（跳过 N 票重打分）。"""
+    from core.signal.cluster_live import (
+        load_active_cluster_book,
+        load_active_cluster_weights,
+    )
+
+    doc = load_active_cluster_book()
+    if not isinstance(doc, dict):
+        return None
+    book = list(doc.get("book") or [])
+    if not book:
+        return None
+    age = _cluster_book_age_sec(doc)
+    if age is None or age > float(max_age_sec):
+        return None
+
+    meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
+    active = load_active_cluster_weights() or {}
+    scored = list(doc.get("scored_all") or []) or book
+    return {
+        "success": True,
+        "ok": True,
+        "task": "rank_cluster_pools",
+        "mode": "cluster_score_global_rank",
+        "from_cache": True,
+        "book_age_sec": round(age, 1),
+        "cluster_version": meta.get("version") or active.get("version"),
+        "top_n_per_group": meta.get("top_n_per_group"),
+        "max_names": meta.get("max_names"),
+        "min_score": meta.get("min_score"),
+        "min_score_disabled": bool(meta.get("min_score_disabled")),
+        "groups": [],
+        "book": book,
+        "ranking": book,
+        "scored_all": scored,
+        "unmapped_count": 0,
+        "below_min_score_count": 0,
+        "rejected": [],
+        "book_path": None,
+        "note": "复用预演落盘目标簿（跳过重打分）",
+    }
+
+
+def prepare_cluster_book_rank(
+    paper: dict,
+    *,
+    dry_run: bool = True,
+    reuse_max_age_sec: float = _CLUSTER_BOOK_REUSE_MAX_AGE_SEC,
+) -> Dict[str, Any]:
+    """分池建簿 / 复用。应在 paper 写锁外调用，避免长时间占锁卡住 /api/paper。"""
+    from core.signal.cluster_live import assess_cluster_live_health
+    from core.signal.cluster_rank import rank_cluster_pools
+    from core.signal.score_display import selection_min_score
+
+    health = assess_cluster_live_health(compute_ic=False)
+    ranked: Optional[Dict[str, Any]] = None
+    # 预演/落账：状态栏「簿 n/m」同源 active book 仍新鲜则复用，避免再次 N 票打分建簿
+    ranked = try_reuse_active_cluster_book(max_age_sec=reuse_max_age_sec)
+    if ranked is None:
+        cluster_min = selection_min_score(paper)
+        ranked = rank_cluster_pools(
+            None,
+            persist_book=True,
+            min_score=cluster_min,
+        )
+    if not isinstance(ranked, dict):
+        ranked = {"success": False, "error": "rank_failed"}
+    ranked = {**ranked, "health": health}
+    return ranked
+
+
 def _run_cluster_book(
     paper: dict,
     *,
@@ -259,11 +366,9 @@ def _run_cluster_book(
     top_k: Optional[int],
     limit: Optional[int],
     cluster_mode: bool,
+    ranked: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     from core.paper_rebalance import simulate_cross_section_rebalance
-    from core.signal.cluster_live import assess_cluster_live_health
-    from core.signal.cluster_rank import rank_cluster_pools
-    from core.signal.score_display import selection_min_score
     from core.strategy import apply_strategy_to_paper
 
     sid = str(paper.get("strategy_id") or "short_conservative").strip()
@@ -272,13 +377,17 @@ def _run_cluster_book(
     except Exception:
         pass
 
-    health = assess_cluster_live_health()
-    cluster_min = selection_min_score(paper)
-    ranked = rank_cluster_pools(
-        None,
-        persist_book=True,
-        min_score=cluster_min,
-    )
+    if ranked is None:
+        ranked = prepare_cluster_book_rank(paper, dry_run=dry_run)
+    health = ranked.get("health") if isinstance(ranked, dict) else None
+    if health is None:
+        try:
+            from core.signal.cluster_live import assess_cluster_live_health
+
+            health = assess_cluster_live_health()
+        except Exception:
+            health = {"alerts": []}
+
     if not ranked.get("success"):
         return {
             "success": False,
@@ -293,8 +402,10 @@ def _run_cluster_book(
     if not score_rows:
         for g in ranked.get("groups") or []:
             score_rows.extend(list(g.get("ranking") or []))
-    # 持仓可能不在 live 映射宇宙 → 补分，避免报告「—」且滞回无法卖
-    score_rows = _supplement_holding_scores(paper, score_rows)
+    reused = bool(ranked.get("from_cache"))
+    # 复用簿时跳过补打分；确认落账再跳过舆情重拉（预演仍可跑先验）
+    if not reused:
+        score_rows = _supplement_holding_scores(paper, score_rows)
 
     k, _lim = _resolve_top_k_limit(
         paper,
@@ -309,6 +420,7 @@ def _run_cluster_book(
         top_k=k,
         respect_max_positions=False,
         score_lookup=score_rows,
+        skip_sentiment_prior=(reused and not dry_run),
     )
     return {
         "success": True,
@@ -321,5 +433,6 @@ def _run_cluster_book(
         "health": health,
         "ranking": ranking,
         "score_rows": score_rows,
+        "book_reused": bool(ranked.get("from_cache")),
         **result,
     }

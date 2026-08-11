@@ -363,6 +363,8 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertIn("fmtOlsCell", ic)
         self.assertIn("quant-cell-empty", ic)
         self.assertIn("watching-react-grid quant-research-grid", grid)
+        self.assertIn("gridTemplateColumns", grid)
+        self.assertIn("grid-template-columns", grid)
         self.assertIn("clusterLandingHtml", land)
         self.assertIn("① 对照", land)
         self.assertIn("live-refit", land)

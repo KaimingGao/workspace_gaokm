@@ -189,11 +189,15 @@ def evaluate_research_oos(
     min_names: int = 3,
     ridge_lambda: float = 0.0,
     respect_regime: bool = True,
+    stock_bars: Optional[Dict[str, List[dict]]] = None,
+    fundamentals_by_code: Optional[Dict[str, dict]] = None,
 ) -> Dict[str, Any]:
     """heuristic 基线 vs predicted（研究模型）同一宇宙 Top-K OOS 对照。
 
     B5：``respect_regime=True``（默认）表示研究臂模型应按 regime 对齐因子集拟合；
     本函数消费已拟合的 return_model，并在结果中戳记该约定。
+
+    ``stock_bars`` 若已由上游分组流水线拉好，直接复用，避免每组重复 IO。
     """
     from core.signal.config import load_signal_config
     from core.watching_store import read_watching
@@ -232,11 +236,28 @@ def evaluate_research_oos(
             "stock_count": len(use_codes),
         }
 
-    stock_bars, failures, fund_map = load_portfolio_stock_bars(
-        use_codes,
-        lookback=lookback,
-        fetch_fundamentals=False,
-    )
+    failures: List[str] = []
+    fund_map: Dict[str, dict] = dict(fundamentals_by_code or {})
+    if stock_bars:
+        need = max(16, min(40, int(lookback or 90) // 2))
+        filtered: Dict[str, List[dict]] = {}
+        for raw in use_codes:
+            bars = stock_bars.get(raw) or stock_bars.get(str(raw))
+            if bars and len(bars) >= need:
+                filtered[str(raw)] = bars
+            elif bars:
+                failures.append(f"{raw}(日线{len(bars)}<{need})")
+            else:
+                failures.append(str(raw))
+        stock_bars = filtered
+    else:
+        stock_bars, failures, loaded_fund = load_portfolio_stock_bars(
+            use_codes,
+            lookback=lookback,
+            fetch_fundamentals=False,
+        )
+        if loaded_fund:
+            fund_map.update(loaded_fund)
     if len(stock_bars) < min_n:
         return {
             "ok": False,

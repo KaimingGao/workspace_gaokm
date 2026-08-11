@@ -1,8 +1,11 @@
 /**
  * 研究台小表网格（与数据中心 watching-react-grid 同壳）。
+ *
+ * 行必须用与 virtual_table 相同的 ``grid-template-columns`` 轨道；
+ * 仅靠 flex + min-width:0 时，表头按文案缩、表体按数字撑 → 探针等表列错位。
  */
 import { escapeHtml } from "../shared.js";
-import { colStyle } from "../virtual_table.js";
+import { colStyle, gridTemplateColumns } from "../virtual_table.js";
 
 export function metricCell(text, cls) {
   return `<span class="bt-trade-ret ${cls || ""}">${text}</span>`;
@@ -20,8 +23,10 @@ export function researchGridHtml(columns, rows, cellHtml, opts = {}) {
   if (!cols.length) return "";
   const emptyText = opts.emptyText || "暂无数据";
   const rowClassFn = typeof opts.rowClass === "function" ? opts.rowClass : null;
+  const gridCols = gridTemplateColumns(cols);
+  const rowTrackStyle = `display:grid;grid-template-columns:${gridCols};align-items:center;width:100%;`;
   const head =
-    `<div class="watching-react-grid-head"><div class="watching-react-grid-row is-head">` +
+    `<div class="watching-react-grid-head"><div class="watching-react-grid-row is-head" style="${rowTrackStyle}">` +
     cols
       .map((col) => {
         const extra = [
@@ -46,7 +51,7 @@ export function researchGridHtml(columns, rows, cellHtml, opts = {}) {
           .map((d) => {
             const rowExtra = rowClassFn ? rowClassFn(d) : "";
             return (
-              `<div class="watching-react-grid-row${rowExtra ? ` ${escapeHtml(rowExtra)}` : ""}">` +
+              `<div class="watching-react-grid-row${rowExtra ? ` ${escapeHtml(rowExtra)}` : ""}" style="${rowTrackStyle}">` +
               cols
                 .map((col) => {
                   const extra = [

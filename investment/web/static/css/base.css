@@ -3876,7 +3876,7 @@ html[data-density="compact"] .table-pager {
 @media (max-width: 420px) {
 }
 
-/* Rebalance table inside report */
+/* Rebalance table inside report — CSS grid 同行同轨，表头/数据对齐 */
 .rebalance-table-scroll {
   width: 100%;
   overflow-x: auto;
@@ -3888,15 +3888,20 @@ html[data-density="compact"] .table-pager {
 
 .rebalance-table {
   width: 100%;
-  border-collapse: separate;
-  border-spacing: 0;
+  min-width: 560px;
   font-size: 13px;
   background: transparent;
-  min-width: 560px;
 }
 
-.rebalance-table thead th {
-  text-align: left;
+.rebalance-table-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-accent);
+  border-bottom: 1px solid var(--line);
+}
+
+.rebalance-th {
   padding: 8px 10px;
   color: var(--ink-3);
   font-weight: 600;
@@ -3904,33 +3909,45 @@ html[data-density="compact"] .table-pager {
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  border-bottom: 1px solid var(--line);
-  background: var(--bg-accent);
-  position: sticky;
-  top: 0;
+  min-width: 0;
 }
 
-.rebalance-table td.num {
+.rebalance-th.num,
+.rebalance-row > .num {
   text-align: right;
-  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
 }
 
-.rebalance-table td {
-  padding: 8px 10px;
+.rebalance-row {
   border-bottom: 1px solid var(--line-2);
-  vertical-align: middle;
+  min-width: 0;
+}
+
+.rebalance-row > [role="cell"] {
+  padding: 8px 10px;
   font-size: 13px;
   line-height: 20px;
   color: var(--ink);
+  min-width: 0;
 }
 
-.rebalance-table tbody tr:last-child td { border-bottom: none; }
+.rebalance-table-body .rebalance-row:last-of-type {
+  border-bottom: none;
+}
 
-.rebalance-table tbody tr.is-expandable { cursor: pointer; }
+.rebalance-row.is-expandable {
+  cursor: pointer;
+}
 
-.rebalance-table tbody tr.is-expandable:hover {
+.rebalance-row.is-expandable:hover {
   background: color-mix(in srgb, var(--accent) 4%, transparent);
+}
+
+.rebalance-detail-row {
+  padding: 8px 12px 12px;
+  border-bottom: 1px solid var(--line-2);
+  background: color-mix(in srgb, var(--bg-accent) 55%, transparent);
 }
 
 .rebalance-stock-name {
@@ -4008,7 +4025,7 @@ html[data-density="compact"] .table-pager {
 .rebalance-decision-tag {
   display: inline-block;
   padding: 2px 8px;
-  border-radius: 4px;                              /* --r-xs */
+  border-radius: 4px;
   font-size: 11px;
   line-height: 18px;
   font-weight: 600;
@@ -4047,7 +4064,7 @@ html[data-density="compact"] .table-pager {
   font-size: 12px;
   line-height: 18px;
   white-space: normal;
-  max-width: 14rem;
+  overflow-wrap: anywhere;
 }
 
 .log-row {

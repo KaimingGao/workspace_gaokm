@@ -355,9 +355,12 @@ export function installSuggest(q) {
 
   async function waitQuantOlsClustersJob(jobId) {
     const started = Date.now();
+    // 墙钟上限 25min；若任务仍有心跳（updated_at 近 90s）则再放宽至 35min
+    const hardCapMs = 35 * 60 * 1000;
+    const softCapMs = 25 * 60 * 1000;
     let sawOwnJob = false;
-    while (Date.now() - started < 15 * 60 * 1000) {
-      const res = await fetch("/api/jobs/quant-ols-clusters");
+    while (Date.now() - started < hardCapMs) {
+      const res = await fetch("/api/jobs/quant-ols-clusters?progress=1");
       const payload = await res.json();
       const job = (payload && payload.job) || {};
       const sameJob = !jobId || !job.id || job.id === jobId;
@@ -372,13 +375,27 @@ export function installSuggest(q) {
       if (!sameJob) {
         throw new Error("分组任务已被其它任务覆盖，请重试");
       }
-      if (job.status === "done") return job;
+      if (job.status === "done") {
+        // progress=1 不含完整 result；再拉一次完整结果
+        const fullRes = await fetch("/api/jobs/quant-ols-clusters");
+        const fullPayload = await fullRes.json();
+        return (fullPayload && fullPayload.job) || job;
+      }
       if (job.status === "failed") {
         throw new Error(job.error || job.message || "分组任务失败");
       }
+      const elapsed = Date.now() - started;
+      if (elapsed >= softCapMs) {
+        const ua = Number(job.updated_at);
+        const fresh =
+          Number.isFinite(ua) && Date.now() / 1000 - ua < 90;
+        if (!fresh) {
+          throw new Error("分组任务超时");
+        }
+      }
       const pct = Number(job.pct) || 0;
       const msg = job.message || "运行中…";
-      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+      const sec = Math.max(1, Math.round(elapsed / 1000));
       const line = `分组中… ${sec}s · ${msg}${
         Number.isFinite(pct) && pct > 0 ? ` · ${Math.round(pct)}%` : ""
       }`;
