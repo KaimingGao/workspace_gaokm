@@ -34,6 +34,20 @@ def position_size_bucket(weight_pct: float) -> str:
     return "空"
 
 
+def _holding_mv(h: dict) -> float:
+    """盯市市值优先；缺省用成本市值（手动仓常无 market_value）。"""
+    try:
+        mv = float(h.get("market_value") or 0)
+    except (TypeError, ValueError):
+        mv = 0.0
+    if mv > 0:
+        return mv
+    try:
+        return float(h.get("shares") or 0) * float(h.get("cost") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def _aggregate(
     holdings: List[dict],
     equity: float,
@@ -43,7 +57,7 @@ def _aggregate(
 ) -> List[Dict[str, Any]]:
     buckets: Dict[str, Dict[str, Any]] = {}
     for h in holdings or []:
-        mv = float(h.get("market_value") or 0)
+        mv = _holding_mv(h)
         if mv <= 0:
             continue
         code = str(h.get("stock_code") or "?")
@@ -95,9 +109,7 @@ def build_exposure_matrix(
     holdings = list(sm.get("holdings") or paper.get("holdings") or [])
     equity = float(sm.get("equity") or 0)
     if equity <= 0:
-        equity = float(paper.get("cash") or 0) + sum(
-            float(h.get("market_value") or 0) for h in holdings
-        )
+        equity = float(paper.get("cash") or 0) + sum(_holding_mv(h) for h in holdings)
 
     spec_risk = risk
     if spec_risk is None:
@@ -122,7 +134,7 @@ def build_exposure_matrix(
     # 单票行
     names: List[Dict[str, Any]] = []
     for h in holdings:
-        mv = float(h.get("market_value") or 0)
+        mv = _holding_mv(h)
         if mv <= 0:
             continue
         code = str(h.get("stock_code") or "?")

@@ -307,7 +307,7 @@ function renderSignals(signals) {
     .join("");
 }
 
-function renderRiskStrip(risk, exposure, varData) {
+function renderRiskStrip(risk, exposure, varData, kpis, drawdownData) {
   const host = document.getElementById("dashboard-risk-strip");
   if (!host) return;
   const var95 =
@@ -323,8 +323,20 @@ function renderRiskStrip(risk, exposure, varData) {
     ? exposure.over_limit_sectors.length
     : 0;
   const holdingsN = exposure?.holdings_count ?? exposure?.sector_count ?? null;
-  const sharpe = risk?.sharpe;
-  const maxDd = risk?.max_drawdown;
+  const sharpe =
+    risk?.sharpe != null
+      ? risk.sharpe
+      : kpis?.sharpe != null
+        ? kpis.sharpe
+        : null;
+  const maxDd =
+    risk?.max_drawdown != null
+      ? risk.max_drawdown
+      : drawdownData?.max_drawdown != null
+        ? drawdownData.max_drawdown
+        : kpis?.max_drawdown != null
+          ? kpis.max_drawdown
+          : null;
 
   const items = [
     {
@@ -821,7 +833,7 @@ async function loadDashboardData(range = "30", showBenchmark = readBenchmarkFlag
       console.warn("[Dashboard] risk", e);
     }
     try {
-      renderRiskStrip(riskData, exposure, varData);
+      renderRiskStrip(riskData, exposure, varData, kpis, drawdownData);
     } catch (e) {
       console.warn("[Dashboard] risk-strip", e);
     }
@@ -849,6 +861,13 @@ async function loadDashboardData(range = "30", showBenchmark = readBenchmarkFlag
     try {
       if (varData && varData.ok !== false) {
         renderVarHistogram(varData);
+      } else {
+        const host = document.getElementById("dashboard-var-chart");
+        const statsEl = document.getElementById("dashboard-var-stats");
+        if (statsEl) statsEl.textContent = "—";
+        if (host) {
+          host.innerHTML = `<div class="dashboard-empty">${varData?.message || "暂无VaR历史数据"}</div>`;
+        }
       }
     } catch (e) {
       console.warn("[Dashboard] var", e);

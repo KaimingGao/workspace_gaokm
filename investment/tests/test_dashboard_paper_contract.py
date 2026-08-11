@@ -79,6 +79,145 @@ class TestDashboardPaperContract(unittest.TestCase):
                 nav = qd.dashboard_nav_curve(range="all", benchmark="none")
                 self.assertEqual(nav["count"], 2)
 
+    def test_signals_from_operation_log_meta(self):
+        from web.routers import quant_dashboard as qd
+
+        paper = {
+            "cash": 10000,
+            "holdings": [
+                {
+                    "stock_code": "600426",
+                    "stock_name": "华鲁恒升",
+                    "shares": 100,
+                    "cost": 21.0,
+                }
+            ],
+            "trades": [],
+            "snapshots": [],
+            "signal_log": [],
+            "operation_log": [
+                {
+                    "ts": "2026-08-11T22:09:23",
+                    "type": "cluster_pool_rebalance",
+                    "type_label": "分池调仓",
+                    "detail": "分池 live 调仓",
+                    "meta": {"book_codes": ["600426"], "buy_count": 1, "sell_count": 0},
+                },
+                {
+                    "ts": "2026-08-11T22:09:23",
+                    "type": "buy",
+                    "type_label": "买入",
+                    "detail": "买入 华鲁恒升 100股 @ 21.0",
+                    "meta": {
+                        "stock_code": "600426",
+                        "stock_name": "华鲁恒升",
+                        "score": 2.7,
+                    },
+                },
+            ],
+            "last_north_star": {"ok": True, "paper_risk": {}},
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "paper.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(paper, f)
+
+            class _P:
+                pass
+
+            fake = _P()
+            fake.path = path
+            with patch.object(qd.deps, "paper", fake):
+                sig = qd.dashboard_signals(limit=10)
+                codes = [s.get("code") for s in sig["signals"]]
+                self.assertIn("600426", codes)
+                row = next(s for s in sig["signals"] if s["code"] == "600426")
+                self.assertEqual(row["name"], "华鲁恒升")
+                self.assertAlmostEqual(float(row["score"]), 2.7)
+                # 无单票 code 的调仓摘要不应占位
+                self.assertTrue(all(s.get("code") for s in sig["signals"]))
+
+                alloc = qd.dashboard_allocation()
+                self.assertEqual(alloc["holdings_count"], 1)
+                self.assertGreater(alloc["total_value"], 10000)
+                # 手动仓无 sector/market_value：用成本市值 + 板块启发式，不应全进「其他」
+                holding_sectors = [
+                    s for s in alloc["sectors"] if s["name"] not in ("现金", "其他")
+                ]
+                self.assertTrue(holding_sectors)
+                self.assertGreater(sum(s["value"] for s in holding_sectors), 0)
+
+    def test_exposure_cost_fallback_for_unmarked_holdings(self):
+        from core.risk.exposure import build_exposure_matrix
+
+        paper = {
+            "cash": 5000,
+            "strategy_id": "short",
+            "holdings": [
+                {
+                    "stock_code": "002594",
+                    "stock_name": "比亚迪",
+                    "shares": 200,
+                    "cost": 90.0,
+                },
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 10,
+                    "cost": 1000.0,
+                    "sector": "消费",
+                    "market_value": 18000,
+                },
+            ],
+        }
+        out = build_exposure_matrix(
+            paper, risk={"max_sector_pct": 90, "max_position_pct": 90}, sector_map={"002594": "新能源"}
+        )
+        self.assertTrue(out["ok"])
+        codes = {n["stock_code"] for n in out["names"]}
+        self.assertIn("002594", codes)
+        self.assertIn("600519", codes)
+        neo = next(r for r in out["sectors"] if r["name"] == "新能源")
+        self.assertGreater(neo["market_value"], 0)
+
+    def test_nav_curve_unique_intraday_times(self):
+        from web.routers import quant_dashboard as qd
+
+        paper = {
+            "cash": 10000,
+            "holdings": [],
+            "trades": [],
+            "snapshots": [
+                {"ts": "2026-08-11T10:00:00", "equity": 100000},
+                {"ts": "2026-08-11T11:00:00", "equity": 100100},
+                {"ts": "2026-08-11T12:00:00", "equity": 99900},
+            ],
+            "signal_log": [],
+            "operation_log": [],
+            "last_north_star": {"ok": True, "paper_risk": {}},
+        }
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "paper.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(paper, f)
+
+            class _P:
+                pass
+
+            fake = _P()
+            fake.path = path
+            with patch.object(qd.deps, "paper", fake):
+                nav = qd.dashboard_nav_curve(range="all", benchmark="none")
+                times = [p["time"] for p in nav["points"]]
+                self.assertEqual(len(times), 3)
+                self.assertEqual(len(set(times)), 3)
+                risk = qd.dashboard_risk_metrics()
+                self.assertTrue(risk.get("ok"))
+                self.assertIsNotNone(risk.get("max_drawdown"))
+                kpis = qd._build_kpis()
+                self.assertIsNotNone(kpis.get("sharpe"))
+
     def test_unpack_index_bars_tuple(self):
         from web.routers.quant_dashboard import _unpack_index_bars
 

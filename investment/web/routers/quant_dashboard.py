@@ -42,7 +42,11 @@ def _load_raw_paper() -> Dict[str, Any]:
 
 
 def _equity_curve_from_paper(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """净值序列：优先 snapshots（生产落盘），兼容遗留 equity_curve。"""
+    """净值序列：优先 snapshots（生产落盘），兼容遗留 equity_curve。
+
+    同时给出 ``date``（日历日，供区间/基准对齐）与 ``time``（唯一时间轴，
+    同日多次快照用完整 ISO，避免图表按日去重后只剩 1 点）。
+    """
     out: List[Dict[str, Any]] = []
     for s in paper.get("snapshots") or []:
         if not isinstance(s, dict):
@@ -54,11 +58,18 @@ def _equity_curve_from_paper(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
             equity = float(eq)
         except (TypeError, ValueError):
             continue
-        ts = s.get("ts") or s.get("date") or ""
-        date = str(ts)[:10] if ts else None
+        ts = s.get("ts") or s.get("date") or s.get("time") or ""
+        ts_s = str(ts).strip().replace("Z", "")
+        day = ts_s[:10] if len(ts_s) >= 10 else None
+        # 有时分秒则保留完整时间，保证同日多快照可画线
+        if "T" in ts_s and len(ts_s) > 10:
+            time_key = ts_s
+        else:
+            time_key = day
         out.append(
             {
-                "date": date,
+                "date": day,
+                "time": time_key or day,
                 "equity": equity,
                 "cash": s.get("cash"),
                 "stock_value": s.get("stock_value"),
@@ -68,11 +79,49 @@ def _equity_curve_from_paper(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
     if out:
         return out
     legacy = paper.get("equity_curve") or []
-    return [e for e in legacy if isinstance(e, dict) and e.get("equity") is not None]
+    normalized: List[Dict[str, Any]] = []
+    for e in legacy:
+        if not isinstance(e, dict) or e.get("equity") is None:
+            continue
+        day = str(e.get("date") or e.get("time") or "")[:10] or None
+        time_key = e.get("time") or e.get("ts") or day
+        row = dict(e)
+        row.setdefault("date", day)
+        row.setdefault("time", time_key)
+        normalized.append(row)
+    return normalized
 
 
 def _holdings_from_paper(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
     return [h for h in (paper.get("holdings") or []) if isinstance(h, dict)]
+
+
+def _holding_market_value(h: Dict[str, Any]) -> float:
+    """盯市市值优先；缺省时用成本市值（手动仓常无 market_value）。"""
+    try:
+        mv = float(h.get("market_value") or 0)
+    except (TypeError, ValueError):
+        mv = 0.0
+    if mv > 0:
+        return mv
+    try:
+        return float(h.get("shares") or 0) * float(h.get("cost") or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _holding_sector(h: Dict[str, Any], sector_map: Optional[Dict[str, str]] = None) -> str:
+    """持仓行业：显式字段 → sector_map → 板块启发式。"""
+    raw = h.get("sector") or h.get("industry")
+    if raw:
+        return str(raw)
+    code = str(h.get("code") or h.get("stock_code") or "").strip()
+    try:
+        from core.portfolio_optimize import _sector_for, load_sector_map
+
+        return str(_sector_for(code, sector_map if sector_map is not None else load_sector_map()))
+    except Exception:
+        return "其他"
 
 
 def _trades_from_paper(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -170,17 +219,57 @@ def _build_kpis() -> Dict[str, Any]:
         if first_eq and first_eq > 0 and last_eq:
             total_ret = (last_eq / first_eq - 1) * 100
 
-    # Sharpe / MaxDD from north_star
+    # Sharpe / MaxDD from north_star；短样本时本地兜底，避免整卡「—」
     sharpe = pr.get("rolling_sharpe") or pr.get("sharpe") or risk_strategy.get("rolling_sharpe")
     max_dd = pr.get("max_drawdown_pct") or pr.get("max_drawdown") or risk_strategy.get("max_drawdown_pct")
 
-    # Win rate from trades
+    rets_pct: List[float] = []
+    if eq_curve:
+        peak = None
+        local_max_dd = 0.0
+        for e in eq_curve:
+            v = e.get("equity")
+            if v is None:
+                continue
+            try:
+                v = float(v)
+            except (TypeError, ValueError):
+                continue
+            if peak is None or v > peak:
+                peak = v
+            if peak and peak > 0:
+                local_max_dd = max(local_max_dd, (peak - v) / peak * 100.0)
+        if max_dd is None:
+            max_dd = local_max_dd
+        for i in range(1, len(eq_curve)):
+            e0 = eq_curve[i - 1].get("equity")
+            e1 = eq_curve[i].get("equity")
+            if e0 and e0 > 0 and e1 is not None:
+                try:
+                    rets_pct.append((float(e1) / float(e0) - 1) * 100.0)
+                except (TypeError, ValueError):
+                    pass
+        if sharpe is None and len(rets_pct) >= 2:
+            mean = sum(rets_pct) / len(rets_pct)
+            var = sum((x - mean) ** 2 for x in rets_pct) / max(len(rets_pct) - 1, 1)
+            std = var ** 0.5
+            if std > 1e-9:
+                unique_days = len({e.get("date") for e in eq_curve if e.get("date")})
+                # 同日快照不做 252 年化，避免 Sharpe 夸张失真
+                scale = (252 ** 0.5) if unique_days > 1 else 1.0
+                sharpe = (mean / std) * scale
+
+    # Win rate：优先已实现卖出盈亏；否则用净值期收益胜率
     trades = _trades_from_paper(paper)
     closed = [t for t in trades if t.get("side") == "sell" and t.get("pnl") is not None]
     trade_count = len(closed)
     if closed:
         wins = sum(1 for t in closed if (t.get("pnl") or 0) > 0)
         win_rate = (wins / len(closed)) * 100
+    elif rets_pct:
+        trade_count = len(rets_pct)
+        wins = sum(1 for r in rets_pct if r > 0)
+        win_rate = (wins / len(rets_pct)) * 100
 
     # Sparkline data (simple: last 30 days of equity-derived values)
     spark_today: List[float] = []
@@ -202,10 +291,11 @@ def _build_kpis() -> Dict[str, Any]:
         if eq_curve and eq_curve[0].get("equity"):
             base = eq_curve[0]["equity"]
             spark_total = [((e.get("equity", base) / base) - 1) * 100 for e in eq_curve[-30:]]
-        # Rolling Sharpe (simplified)
-        if len(rets) >= 7:
-            for i in range(6, len(rets)):
-                window = rets[max(0, i - 6): i + 1]
+        # Rolling Sharpe (simplified)；短样本也给一条可读 spark
+        if len(rets) >= 3:
+            win_n = 7 if len(rets) >= 7 else len(rets)
+            for i in range(win_n - 1, len(rets)):
+                window = rets[max(0, i - win_n + 1): i + 1]
                 if window:
                     mean = sum(window) / len(window)
                     std = (sum((x - mean) ** 2 for x in window) / len(window)) ** 0.5
@@ -225,8 +315,11 @@ def _build_kpis() -> Dict[str, Any]:
             window = closed[-20:]
             wins = sum(1 for t in window if (t.get("pnl") or 0) > 0)
             spark_wr = [wins / len(window) * 100] * 5 if window else []
+        elif rets_pct:
+            wins = sum(1 for r in rets_pct if r > 0)
+            spark_wr = [wins / len(rets_pct) * 100] * min(5, len(rets_pct))
 
-    # Strategy leaderboard
+    # Strategy leaderboard：登记策略缺绩效时，用当前纸面累计收益填一条
     strategies: List[Dict[str, Any]] = []
     try:
         strat_list = deps.quant.list_strategies()
@@ -244,6 +337,24 @@ def _build_kpis() -> Dict[str, Any]:
                     })
     except Exception:
         pass
+    if strategies and total_ret is not None:
+        # 当前策略卡用纸面累计收益/本地 sharpe 覆盖全 0
+        sid = str(paper.get("strategy_id") or "")
+        for s in strategies:
+            if (s.get("return_pct") or 0) == 0 and (s.get("sharpe") or 0) == 0:
+                # 仅给首条或名称匹配当前策略的卡填纸面数
+                name = str(s.get("name") or "")
+                if not sid or sid in name or s is strategies[0]:
+                    s["return_pct"] = round(float(total_ret), 2)
+                    if sharpe is not None:
+                        s["sharpe"] = round(float(sharpe), 2)
+                    break
+    elif not strategies and total_ret is not None:
+        strategies.append({
+            "name": str(paper.get("strategy_id") or "纸面组合"),
+            "return_pct": round(float(total_ret), 2),
+            "sharpe": round(float(sharpe), 2) if sharpe is not None else 0,
+        })
 
     return {
         "ok": True,
@@ -284,12 +395,20 @@ def _fetch_benchmark_curve(
     if not eq_curve:
         return []
 
-    dates = [e.get("date") for e in eq_curve if e.get("date")]
-    if not dates:
+    days = [str(e.get("date") or "")[:10] for e in eq_curve if e.get("date")]
+    days = [d for d in days if len(d) == 10]
+    if not days:
         return []
 
-    start_date = min(dates)
-    end_date = max(dates)
+    start_date = min(days)
+    end_date = max(days)
+    # 同日多次快照时日历跨度为空，放宽到近 30 个交易日以便对照线可见
+    if start_date == end_date:
+        try:
+            end_dt = datetime.strptime(end_date, "%Y-%m-%d")
+            start_date = (end_dt - timedelta(days=45)).strftime("%Y-%m-%d")
+        except ValueError:
+            pass
 
     try:
         # 仪表盘路径必须有超时；远端/AkShare 卡住时仍返回组合净值
@@ -301,7 +420,7 @@ def _fetch_benchmark_curve(
         for b in bars:
             if not isinstance(b, dict):
                 continue
-            d = b.get("date", "")
+            d = str(b.get("date") or "")[:10]
             if d and start_date <= d <= end_date:
                 filtered.append(b)
 
@@ -314,10 +433,11 @@ def _fetch_benchmark_curve(
 
         return [
             {
-                "time": b.get("date"),
+                "time": str(b.get("date") or "")[:10],
                 "value": round(float(b.get("close", 0)) / first_close * 100, 2),
             }
             for b in filtered
+            if b.get("close") is not None
         ]
     except Exception:
         return []
@@ -394,7 +514,7 @@ def _build_dd_series(eq_curve: list) -> list:
         else:
             dd = 0.0
         points.append({
-            "time": e.get("date"),
+            "time": e.get("time") or e.get("date"),
             "value": round(dd, 2),
         })
     return points
@@ -408,7 +528,7 @@ def dashboard_nav_curve(range: str = "all", benchmark: str = "hs300"):
         eq_curve = _filter_eq_by_range(_equity_curve_from_paper(paper), range)
 
         raw_points = [
-            {"time": e.get("date"), "value": e.get("equity")}
+            {"time": e.get("time") or e.get("date"), "value": e.get("equity")}
             for e in eq_curve
             if e.get("equity") is not None
         ]
@@ -485,8 +605,8 @@ def dashboard_var_historical(range_key: str = Query("all", alias="range")):
         eq_curve = _filter_eq_by_range(_equity_curve_from_paper(paper), range_key)
 
         equities = [e.get("equity") for e in eq_curve if e.get("equity") is not None]
-        if len(equities) < 5:
-            return {"ok": False, "message": "净值数据不足（至少5期）"}
+        if len(equities) < 2:
+            return {"ok": False, "message": "净值数据不足（至少2期）"}
 
         rets: List[float] = []
         for i in range(1, len(equities)):
@@ -494,17 +614,19 @@ def dashboard_var_historical(range_key: str = Query("all", alias="range")):
             if e0 and e0 > 0 and e1 is not None:
                 rets.append(e1 / e0 - 1)
 
-        if len(rets) < 5:
+        if len(rets) < 1:
             return {"ok": False, "message": "收益率数据不足"}
 
         n = len(rets)
         sorted_rets = sorted(rets)
 
-        var_95 = -sorted_rets[int(n * 0.05)] * 100 if n > 10 else None
-        var_99 = -sorted_rets[int(n * 0.01)] * 100 if n > 10 else None
+        idx95 = max(0, min(n - 1, int(n * 0.05)))
+        idx99 = max(0, min(n - 1, int(n * 0.01)))
+        var_95 = -sorted_rets[idx95] * 100
+        var_99 = -sorted_rets[idx99] * 100
 
-        var_95_threshold = sorted_rets[int(n * 0.05)] if n > 10 else None
-        var_99_threshold = sorted_rets[int(n * 0.01)] if n > 10 else None
+        var_95_threshold = sorted_rets[idx95]
+        var_99_threshold = sorted_rets[idx99]
 
         cvar_95 = None
         if var_95_threshold is not None:
@@ -827,14 +949,16 @@ def dashboard_sector_heatmap():
         paper = _load_raw_paper()
         holdings = _holdings_from_paper(paper)
         sectors_map: Dict[str, Dict[str, Any]] = {}
+        try:
+            from core.portfolio_optimize import load_sector_map
+
+            smap = load_sector_map()
+        except Exception:
+            smap = {}
 
         for h in holdings:
-            sector = h.get("sector") or h.get("industry") or "其他"
-            value = h.get("market_value") or h.get("equity") or 0
-            try:
-                value = float(value or 0)
-            except (TypeError, ValueError):
-                value = 0.0
+            sector = _holding_sector(h, smap)
+            value = _holding_market_value(h)
             cost = h.get("cost_value")
             if cost is None:
                 try:
@@ -960,6 +1084,7 @@ def dashboard_signals(limit: int = 20):
                 break
 
         # From operation_log (trades / risk / settings)
+        # append_operation_log 把股票字段放在 meta，不在顶层
         if len(signals) < limit:
             op_log = paper.get("operation_log") or []
             try:
@@ -986,12 +1111,37 @@ def dashboard_signals(limit: int = 20):
                 et = entry.get("type") or entry.get("action") or ""
                 if et not in trade_types:
                     continue
-                code = entry.get("code") or entry.get("stock_code")
+                meta = entry.get("meta") if isinstance(entry.get("meta"), dict) else {}
+                code = (
+                    entry.get("code")
+                    or entry.get("stock_code")
+                    or meta.get("stock_code")
+                    or meta.get("code")
+                )
+                name = (
+                    entry.get("name")
+                    or entry.get("stock_name")
+                    or meta.get("stock_name")
+                    or meta.get("name")
+                )
+                score = entry.get("score")
+                if score is None:
+                    score = entry.get("predicted_score")
+                if score is None:
+                    score = meta.get("score")
+                if score is None:
+                    score = meta.get("predicted_score")
+                # 汇总行（分池调仓摘要）无单票 code，跳过以免「—」占位
+                if not code:
+                    continue
                 signals.append(_with_name({
                     "code": code,
-                    "name": entry.get("name") or entry.get("stock_name"),
-                    "direction": entry.get("direction") or entry.get("side") or et,
-                    "score": entry.get("score") or entry.get("predicted_score"),
+                    "name": name,
+                    "direction": entry.get("direction")
+                    or entry.get("side")
+                    or meta.get("side")
+                    or et,
+                    "score": score,
                     "time": entry.get("ts") or entry.get("time"),
                     "type": et,
                 }))
@@ -1035,21 +1185,26 @@ def dashboard_allocation():
         holdings = _holdings_from_paper(paper)
         sectors_map: Dict[str, float] = {}
         total_value = 0.0
+        try:
+            from core.portfolio_optimize import load_sector_map
+
+            smap = load_sector_map()
+        except Exception:
+            smap = {}
 
         for h in holdings:
-            sector = h.get("sector") or h.get("industry") or "其他"
-            value = h.get("market_value")
-            if value is None:
-                try:
-                    value = float(h.get("shares") or 0) * float(h.get("cost") or 0)
-                except (TypeError, ValueError):
-                    value = 0.0
-            try:
-                value = float(value or 0)
-            except (TypeError, ValueError):
-                value = 0.0
+            sector = _holding_sector(h, smap)
+            value = _holding_market_value(h)
             sectors_map[sector] = sectors_map.get(sector, 0.0) + value
             total_value += value
+
+        try:
+            cash = float(paper.get("cash") or paper.get("available_cash") or 0)
+        except (TypeError, ValueError):
+            cash = 0.0
+        if cash > 0:
+            sectors_map["现金"] = sectors_map.get("现金", 0.0) + cash
+            total_value += cash
 
         sectors = [
             {
@@ -1060,16 +1215,8 @@ def dashboard_allocation():
             for name, val in sorted(sectors_map.items(), key=lambda x: -x[1])
         ]
 
-        try:
-            cash = float(paper.get("cash") or paper.get("available_cash") or 0)
-        except (TypeError, ValueError):
-            cash = 0.0
-        if cash > 0:
-            sectors.append({"name": "现金", "value": round(cash, 2)})
-            total_value += cash
-
         if not sectors:
-            sectors = [{"name": "暂无持仓", "value": 0}]
+            sectors = [{"name": "暂无持仓", "value": 0, "pct": 0}]
 
         return {
             "ok": True,
@@ -1189,7 +1336,7 @@ def _build_market_overview() -> Dict[str, Any]:
         else:
             flat_count += 1
         try:
-            total_turnover += float(h.get("market_value") or 0)
+            total_turnover += _holding_market_value(h)
         except (TypeError, ValueError):
             pass
 
@@ -1241,29 +1388,29 @@ def _build_risk_metrics() -> Dict[str, Any]:
     paper = _load_raw_paper()
     eq_curve = _equity_curve_from_paper(paper)
 
-    if not eq_curve or len(eq_curve) < 5:
+    if not eq_curve or len(eq_curve) < 2:
         return {
             "ok": False,
             "status": "insufficient_data",
-            "message": "净值曲线数据不足（至少5期）",
+            "message": "净值曲线数据不足（至少2期）",
         }
 
     equities = [e.get("equity", 0) for e in eq_curve if e.get("equity")]
-    if len(equities) < 5:
+    if len(equities) < 2:
         return {
             "ok": False,
             "status": "insufficient_data",
             "message": "有效净值数据不足",
         }
 
-    # Daily returns
+    # Period returns（快照间隔可能是分钟级；仍给出可展示指标）
     rets: List[float] = []
     for i in range(1, len(equities)):
         e0, e1 = equities[i - 1], equities[i]
         if e0 and e0 > 0:
             rets.append((e1 / e0 - 1))
 
-    if len(rets) < 5:
+    if len(rets) < 1:
         return {"ok": False, "status": "insufficient_data", "message": "收益率数据不足"}
 
     import math
@@ -1272,47 +1419,52 @@ def _build_risk_metrics() -> Dict[str, Any]:
     n = len(rets)
     mean_ret = statistics.mean(rets)
     std_ret = statistics.stdev(rets) if n > 1 else 0.0
-    ann_factor = 252.0
+    unique_days = len({e.get("date") for e in eq_curve if e.get("date")})
+    # 同日/极短样本：报期内夏普；跨日样本再年化
+    ann_factor = 252.0 if unique_days > 1 else 1.0
 
     # Sharpe
     sharpe = (mean_ret / std_ret * math.sqrt(ann_factor)) if std_ret > 1e-12 else None
 
     # Sortino (downside deviation)
     downside_rets = [r for r in rets if r < 0]
-    downside_std = statistics.stdev(downside_rets) if len(downside_rets) > 1 else 0.0
+    downside_std = statistics.stdev(downside_rets) if len(downside_rets) > 1 else (
+        abs(downside_rets[0]) if len(downside_rets) == 1 else 0.0
+    )
     sortino = (mean_ret / downside_std * math.sqrt(ann_factor)) if downside_std > 1e-12 else None
 
-    # Annualized volatility
-    vol = std_ret * math.sqrt(ann_factor) * 100
+    # Annualized volatility（同日样本为期内波动）
+    vol = std_ret * math.sqrt(ann_factor) * 100 if n > 1 else 0.0
 
     # Annualized return
     total_ret = equities[-1] / equities[0] - 1
-    years = n / ann_factor
-    ann_ret = ((1 + total_ret) ** (1 / years) - 1) * 100 if years > 0 else None
+    if unique_days > 1:
+        years = max(n / 252.0, 1e-6)
+        ann_ret = ((1 + total_ret) ** (1 / years) - 1) * 100 if years > 0 else None
+    else:
+        ann_ret = total_ret * 100
 
     # Max drawdown
     peak = equities[0]
     max_dd = 0.0
-    max_dd_end = peak
     for e in equities:
         if e > peak:
             peak = e
-        dd = (peak - e) / peak
+        dd = (peak - e) / peak if peak else 0.0
         if dd > max_dd:
             max_dd = dd
-            max_dd_end = e
     max_dd_pct = max_dd * 100
 
-    # VaR (95%, historical)
-    var_95 = -sorted(rets)[int(n * 0.05)] * 100 if n > 10 else None
-
-    # CVaR (95%)
-    if n > 10:
-        var_threshold = sorted(rets)[int(n * 0.05)]
-        tail_rets = [r for r in rets if r <= var_threshold]
-        cvar_95 = -statistics.mean(tail_rets) * 100 if tail_rets else None
+    # VaR / CVaR：样本少时用经验分位近似，避免整块空白
+    sorted_rets = sorted(rets)
+    if n >= 3:
+        idx95 = max(0, int(n * 0.05))
+        var_95 = -sorted_rets[idx95] * 100
+        tail = sorted_rets[: idx95 + 1] or sorted_rets[:1]
+        cvar_95 = -statistics.mean(tail) * 100 if tail else None
     else:
-        cvar_95 = None
+        var_95 = -min(rets) * 100
+        cvar_95 = var_95
 
     # Calmar ratio
     calmar = (ann_ret / max_dd_pct) if max_dd_pct > 0 and ann_ret is not None else None
@@ -1334,6 +1486,11 @@ def _build_risk_metrics() -> Dict[str, Any]:
         "calmar": round(calmar, 2) if calmar is not None else None,
         "win_rate": round(win_rate, 2),
         "trading_days": n,
+        "note": (
+            "同日快照 · 期内指标（未年化）"
+            if unique_days <= 1
+            else ("短样本近似；非完整日频风险估计" if n < 20 else None)
+        ),
     }
 
 
@@ -1404,16 +1561,17 @@ def _build_factor_exposure() -> Dict[str, Any]:
     # Sector exposure fallback
     sector_values: Dict[str, float] = {}
     total_value = 0.0
+    try:
+        from core.portfolio_optimize import load_sector_map
+
+        smap = load_sector_map()
+    except Exception:
+        smap = {}
 
     for h in holdings:
-        mv = h.get("market_value") or 0
-        try:
-            mv = float(mv or 0)
-        except (TypeError, ValueError):
-            mv = 0.0
+        mv = _holding_market_value(h)
         total_value += mv
-
-        sector = h.get("sector") or h.get("industry") or "其他"
+        sector = _holding_sector(h, smap)
         sector_values[sector] = sector_values.get(sector, 0) + mv
 
     hhi = sum((v / max(total_value, 1)) ** 2 for v in sector_values.values())
