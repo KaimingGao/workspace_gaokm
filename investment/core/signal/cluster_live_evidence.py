@@ -257,6 +257,7 @@ def build_cluster_enable_evidence(
         "min_score": min_score,
         "max_names": max_names,
         "name_count": name_count,
+        "book_codes": sorted(book_codes),
         "cluster_version": (active or {}).get("version"),
         "mode": cs.get("mode") or "off",
         "oos_summary": oos_summary,
@@ -350,6 +351,12 @@ def cluster_status_public(
 
     book_meta = (book or {}).get("meta") if isinstance((book or {}).get("meta"), dict) else {}
     book_min_score = json_safe_number(book_meta.get("min_score"))
+    book_rows = list((book or {}).get("book") or [])
+    book_codes = [
+        str(r.get("stock_code") or "").strip()
+        for r in book_rows
+        if isinstance(r, dict) and str(r.get("stock_code") or "").strip()
+    ]
 
     audit = None
     if include_audit and not light and mode in ("shadow", "active") and has_active:
@@ -444,7 +451,8 @@ def cluster_status_public(
             "exists": bool(book),
             "path": CLUSTER_BOOK_ACTIVE_PATH,
             "updated_at": (book or {}).get("updated_at"),
-            "name_count": len((book or {}).get("book") or []),
+            "name_count": len(book_rows),
+            "codes": book_codes,
             "selection_mode": book_meta.get("mode") or "cluster_score_global_rank",
             "min_score": book_min_score,
             "top_n_per_group": book_meta.get("top_n_per_group") or cs.get("top_n_per_group"),

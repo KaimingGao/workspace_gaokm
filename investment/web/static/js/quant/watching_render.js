@@ -274,11 +274,17 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
       const code = escapeHtml(d.code || "");
       const name = d.name || d.code || "—";
       const alertCls = d.isSentimentAlert ? " is-sentiment-alert" : "";
+      const bookBadge = d.inBook
+        ? `<span class="watching-book-badge" title="分池目标簿">簿</span>`
+        : "";
       return (
-        `<tr data-code="${code}" class="watching-watch-row${alertCls}">` +
+        `<tr data-code="${code}" class="watching-watch-row${alertCls}${d.inBook ? " is-cluster-book" : ""}">` +
         `<td class="watching-pick-cell"><input type="checkbox" class="watching-pick" value="${code}" data-code="${code}" /></td>` +
         `<td class="watching-stock" title="${escapeHtml(name)} ${code}">` +
+        `<span class="watching-name-row">` +
         watchingNameSpanHtml(name) +
+        bookBadge +
+        `</span>` +
         `<span class="watching-code-sub">${code}<span class="watching-mkt"></span></span></td>` +
         `<td class="watching-paper-cell">` +
         (d.onPaper
@@ -321,14 +327,16 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
  *   scoreCls: (n: number|null) => string,
  *   escapeHtml: (s: string) => string,
  *   alertCodes: Set<string>,
+ *   bookCodes?: Set<string>,
  * }} deps
  */
 export function buildWatchingWatchRows(wl, names, paperCodes, scores, deps) {
-  const { fmtScore, scoreCls, escapeHtml, alertCodes } = deps;
+  const { fmtScore, scoreCls, escapeHtml, alertCodes, bookCodes } = deps;
   const inPaper =
     paperCodes instanceof Map
       ? paperCodes
       : new Map(Array.from(paperCodes || []).map((c) => [String(c), null]));
+  const inBook = bookCodes instanceof Set ? bookCodes : new Set(bookCodes || []);
   const rowByCode = new Map();
   for (let i = 0; i < (wl || []).length; i++) {
     const code = String(wl[i] || "").trim();
@@ -346,6 +354,7 @@ export function buildWatchingWatchRows(wl, names, paperCodes, scores, deps) {
       market: "",
       paper: onPaper ? (heldShares != null ? `${heldShares} 股` : "已持") : "建仓",
       onPaper,
+      inBook: inBook.has(code),
       sentHtml: `<span class="watching-sent-badge is-neutral" data-code="${escapeHtml(
         code
       )}" title="加载中">…</span>`,

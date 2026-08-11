@@ -1190,6 +1190,19 @@
   line-height: 1.35;
 }
 
+.watching-name-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.watching-name-row .watching-name-text {
+  display: inline-block;
+  min-width: 0;
+}
+
 .watching-code-sub {
   display: block;
   font-size: 0.72rem;
@@ -1218,6 +1231,25 @@
   color: var(--ink-2);
   background: var(--surface-2, var(--surface));
   cursor: pointer;
+}
+
+.watching-book-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  color: #0f5c4c;
+  border: 1px solid rgba(15, 92, 76, 0.28);
+  background: rgba(15, 92, 76, 0.08);
+}
+
+.watching-watch-row.is-cluster-book .watching-name-text {
+  font-weight: 650;
 }
 
 .watching-sent-badge.is-bull {

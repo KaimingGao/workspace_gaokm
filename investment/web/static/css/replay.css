@@ -70,8 +70,8 @@
 
 .replay-page .param-grid-heat {
   display: block;
-  width: min(100%, 360px);
-  max-width: 360px;
+  width: min(100%, 280px);
+  max-width: 280px;
   height: auto;
   margin: 0 0 var(--replay-gap);
   border: 1px solid var(--line);
@@ -633,8 +633,10 @@ body[data-page="replay"] .replay-page .quant-weight-table-wrap td {
 
 body[data-page="replay"] .replay-page .param-grid-heat {
   border-radius: 2px !important;
-  width: 100%;
-  max-width: 100%;
+  /* 9 格热力图：保持画布比例，勿拉满整卡 */
+  width: min(100%, 280px);
+  max-width: 280px;
+  height: auto;
 }
 
 /* ── 次要折叠 ── */
@@ -692,7 +694,11 @@ body[data-page="replay"] .replay-secondary-fold-sum .dashboard-section-title {
 }
 
 body[data-page="replay"] .replay-secondary-fold > .dashboard-card.quant-pro-card {
+  /* 覆盖 L2 的 width:100%，否则 + 左右 margin 会撑出外框 */
   margin: 0 8px 8px;
+  width: auto;
+  max-width: calc(100% - 16px);
+  box-sizing: border-box;
 }
 
 body[data-page="replay"] .replay-howto-body {

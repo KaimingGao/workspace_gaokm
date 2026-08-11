@@ -118,25 +118,37 @@ export function createOlsUi(deps) {
     return list.length ? list.join("、") : "—";
   }
 
-  function formatMemberChipsHtml(codes, nameByCode) {
+  function formatMemberChipsHtml(codes, nameByCode, bookCodes) {
     const watchingNameByCode = getWatchingNameByCode();
     const map = nameByCode || {};
+    const bookSet = new Set(
+      (bookCodes || [])
+        .map((c) => normalizeProbeCode(c))
+        .filter(Boolean)
+    );
     const chips = (codes || []).map((m) => {
       const c = normalizeProbeCode(m);
       const n = String(map[c] || watchingNameByCode[c] || "")
         .trim()
         .replace(/\s+/g, "");
+      const inBook = !!(c && bookSet.has(c));
+      const bookBadge = inBook
+        ? `<span class="quant-book-badge" title="分池目标簿">簿</span>`
+        : "";
+      const bookCls = inBook ? " is-book" : "";
+      const bookTitle = inBook ? ` title="在分池目标簿"` : "";
+      const codeAttr = c ? ` data-code="${esc(c)}"` : "";
       if (n && c && n !== c) {
         return (
-          `<span class="quant-cluster-member">` +
-          `<span class="quant-cluster-member-name">${esc(n)}</span>` +
+          `<span class="quant-cluster-member${bookCls}"${codeAttr}${bookTitle}>` +
+          `<span class="quant-cluster-member-name">${esc(n)}${bookBadge}</span>` +
           `<span class="quant-cluster-member-code">${esc(c)}</span>` +
           `</span>`
         );
       }
       return (
-        `<span class="quant-cluster-member">` +
-        `<span class="quant-cluster-member-name">${esc(n || c || "—")}</span>` +
+        `<span class="quant-cluster-member${bookCls}"${codeAttr}${bookTitle}>` +
+        `<span class="quant-cluster-member-name">${esc(n || c || "—")}${bookBadge}</span>` +
         `</span>`
       );
     });
@@ -438,7 +450,7 @@ export function createOlsUi(deps) {
 
   /**
    * @param {object} data - quantLastOlsClusters
-   * @param {{ lastFactorPanelForMerge?: object|null, lazyTables?: boolean }} [merge]
+   * @param {{ lastFactorPanelForMerge?: object|null, lazyTables?: boolean, bookCodes?: string[] }} [merge]
    * @returns {string|null} HTML or null if not applicable
    */
   function buildClusterFactorTablesHtml(data, merge = {}) {
@@ -453,6 +465,7 @@ export function createOlsUi(deps) {
     }
     const pref = data.preferred_cluster || null;
     const nameByCode = clusterNameByCodeFromData(data);
+    const bookCodes = Array.isArray(merge.bookCodes) ? merge.bookCodes : [];
     const lazy = merge.lazyTables !== false;
     const parts = clusters.map((cl, idx) => {
       const label = cl.label || `G${(cl.cluster_id ?? idx) + 1}`;
@@ -489,7 +502,7 @@ export function createOlsUi(deps) {
           "n",
           ols && ols.sample_count != null ? ols.sample_count : "—"
         );
-      const membersHtml = formatMemberChipsHtml(cl.members, nameByCode);
+      const membersHtml = formatMemberChipsHtml(cl.members, nameByCode, bookCodes);
       const useLazy = lazy;
       const bodyInner = useLazy
         ? `<p class="sub quant-cluster-lazy-ph">展开查看因子表…</p>`

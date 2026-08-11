@@ -625,7 +625,16 @@ def simulate_cross_section_rebalance(
         _buy_quote_cache: Dict[str, dict] = _batch_query_quotes(_buy_codes)
 
         for item in top_items:
-            if len(holdings) >= max_positions:
+            # 分池滞回：账户可暂时多于簿长（中间带未清仓）；买入上限只看「已持目标簿只数」
+            if not respect_max_positions:
+                book_held = sum(
+                    1
+                    for h in holdings
+                    if str(h.get("stock_code") or "") in top_codes
+                )
+                if book_held >= max_positions:
+                    break
+            elif len(holdings) >= max_positions:
                 break
             code = str(item.get("stock_code") or "")
             if not code or code in held_codes:

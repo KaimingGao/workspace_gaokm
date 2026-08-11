@@ -561,6 +561,9 @@ class TestClusterLive(unittest.TestCase):
             self.assertEqual(land.get("next_label"), "已启用 · 侧栏进交易执行")
             self.assertTrue(land.get("ready_for_follow"))
             self.assertTrue(land.get("paper_applied"))
+            book = st.get("book") or {}
+            self.assertEqual(book.get("name_count"), 1)
+            self.assertEqual(book.get("codes"), ["600519"])
 
 
 if __name__ == "__main__":

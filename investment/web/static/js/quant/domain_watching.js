@@ -1159,8 +1159,8 @@ export function installWatching(q) {
       }
       if (metaEl) metaEl.textContent = meta;
       listEl.innerHTML = buildWatchingNewsListHtml(data.items || [], data);
+      // 详情用 limit=8 可能与表格批量 limit=3 标签不一致；勿回写行，避免点「中」变成「多」
       watchingSentimentByCode[String(code)] = data;
-      applySentimentToRow(code, data);
       if (data.ok && (data.items || []).length) {
         fetchWatchingNewsAI(code, sc);
       } else if (aiSection && aiContent) {
@@ -1352,6 +1352,21 @@ export function installWatching(q) {
       .join("");
   }
 
+  async function fetchClusterBookCodeSet() {
+    try {
+      const res = await fetch("/api/quant/cluster-live/status?light=1");
+      const data = await res.json();
+      const codes = (data && data.book && data.book.codes) || [];
+      return new Set(
+        (Array.isArray(codes) ? codes : [])
+          .map((c) => normalizeProbeCode(c))
+          .filter(Boolean)
+      );
+    } catch (_) {
+      return new Set();
+    }
+  }
+
   async function renderWatchingWatchTable(wl, names, paperCodes, scores) {
     const watchTable = document.getElementById("watching-watchlist-table");
     if (!watchTable) return;
@@ -1376,6 +1391,8 @@ export function installWatching(q) {
       paperCodes instanceof Map
         ? paperCodes
         : new Map(Array.from(paperCodes || []).map((c) => [String(c), null]));
+    const bookCodes = await fetchClusterBookCodeSet();
+    state.clusterBookCodes = Array.from(bookCodes);
     // 读取 localStorage 缓存的 insights（4h 内有效），用于初始化评分列
     let cachedScores = {};
     try {
@@ -1402,6 +1419,7 @@ export function installWatching(q) {
             : null;
       const onPaper = inPaper.has(code);
       const heldShares = onPaper ? inPaper.get(code) : null;
+      const bare = normalizeProbeCode(code);
       rowByCode.set(code, {
         code,
         name,
@@ -1409,6 +1427,7 @@ export function installWatching(q) {
         market: "",
         paper: onPaper ? (heldShares != null ? `${heldShares} 股` : "已持") : "建仓",
         onPaper,
+        inBook: bookCodes.has(bare) || bookCodes.has(code),
         sentHtml: `<span class="watching-sent-badge is-neutral" data-code="${escapeHtml(code)}" title="加载中">…</span>`,
         price: "—",
         chg: "—",

@@ -478,6 +478,35 @@ export function installClusterProbe(q) {
     return resolveProbeInputToCode(raw) || "茅台";
   }
 
+  function paintClusterBookBadges(bookCodes) {
+    const root = els.quantFactorList;
+    if (!root) return;
+    const bookSet = new Set(
+      (bookCodes || [])
+        .map((c) => normalizeProbeCode(c))
+        .filter(Boolean)
+    );
+    root.querySelectorAll(".quant-cluster-member[data-code]").forEach((el) => {
+      const code = normalizeProbeCode(el.getAttribute("data-code") || "");
+      const inBook = !!(code && bookSet.has(code));
+      el.classList.toggle("is-book", inBook);
+      if (inBook) el.setAttribute("title", "在分池目标簿");
+      else el.removeAttribute("title");
+      const nameEl = el.querySelector(".quant-cluster-member-name");
+      if (!nameEl) return;
+      let badge = nameEl.querySelector(".quant-book-badge");
+      if (inBook && !badge) {
+        badge = document.createElement("span");
+        badge.className = "quant-book-badge";
+        badge.title = "分池目标簿";
+        badge.textContent = "簿";
+        nameEl.appendChild(badge);
+      } else if (!inBook && badge) {
+        badge.remove();
+      }
+    });
+  }
+
   async function refreshClusterLiveStatus() {
     try {
       const res = await fetch("/api/quant/cluster-live/status?light=1");
@@ -489,7 +518,10 @@ export function installClusterProbe(q) {
         host.innerHTML = `<p class="sub">落地状态不可用</p>`;
         return;
       }
+      const bookCodes = (data.book && data.book.codes) || [];
+      state.clusterBookCodes = Array.isArray(bookCodes) ? bookCodes : [];
       host.innerHTML = clusterLandingHtml(data);
+      paintClusterBookBadges(state.clusterBookCodes);
     } catch (_) {
       const host = document.getElementById("quant-cluster-landing");
       if (host) host.innerHTML = `<p class="sub">落地状态加载失败</p>`;
@@ -543,6 +575,7 @@ export function installClusterProbe(q) {
     const html = buildClusterFactorTablesHtml(state.quantLastOlsClusters, {
       lastFactorPanelForMerge: state.lastFactorPanelForMerge,
       lazyTables: true,
+      bookCodes: state.clusterBookCodes || [],
     });
     if (!html) return false;
     wireClusterFactorLazyHydrate();
