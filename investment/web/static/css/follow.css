@@ -1391,6 +1391,22 @@
 
 .paper-hold-since {
   text-align: right;
+  padding-left: 20px;
+  min-width: 6.5rem;
+}
+
+.paper-holdings-table td.paper-hold-pnl {
+  padding-right: 28px;
+}
+
+/* 交易执行持仓虚拟表：浮盈亏 / 开始日再拉开（覆盖紧凑 num 列 4px 内边距） */
+body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-pnl {
+  padding-right: 28px !important;
+}
+
+body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-since {
+  padding-left: 20px !important;
+  min-width: 6.5rem;
 }
 
 .paper-hold-shares {
@@ -2022,12 +2038,14 @@
 }
 
 /* 交易执行 · 浮盈亏红绿（虚拟表 span + 原生表 td） */
-.paper-holdings-react-grid .paper-hold-pnl.up {
+.paper-holdings-react-grid .paper-hold-pnl.up,
+.paper-holdings-table .paper-hold-pnl.up {
   color: var(--color-up, #c62828);
   font-weight: 600;
 }
 
-.paper-holdings-react-grid .paper-hold-pnl.down {
+.paper-holdings-react-grid .paper-hold-pnl.down,
+.paper-holdings-table .paper-hold-pnl.down {
   color: var(--color-down, #2e7d32);
   font-weight: 600;
 }

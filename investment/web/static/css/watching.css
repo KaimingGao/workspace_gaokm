@@ -455,6 +455,24 @@
   font-size: 0.76rem;
   font-variant-numeric: tabular-nums;
   letter-spacing: -0.01em;
+  /* 与数据中心一致：窄列时保留内容宽，避免「0% / 浮盈亏」被裁成空白 */
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-pnl,
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score {
+  min-width: 3.4rem;
+}
+
+/* 浮盈亏 ↔ 开始日：右对齐数值与日期易贴在一起，单独加间距 */
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-pnl {
+  padding-right: 28px;
+}
+
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-since {
+  padding-left: 20px;
+  min-width: 6.5rem;
 }
 
 .follow-page .watching-empty {
@@ -1819,7 +1837,8 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 }
 
 .watching-react-grid-row {
-  display: flex;
+  /* virtual_table 用 inline grid-template-columns 分轨；flex 会丢掉轨道宽，右侧列被挤成「空」 */
+  display: grid;
   align-items: center;
   min-height: 38px;
   border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);

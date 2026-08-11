@@ -24,9 +24,9 @@ export function truncateName(name, max = 6) {
 }
 
 export function colStyle(col) {
-  // 兼容旧调用；行级已改用 grid-template-columns，单元格只需 min-width:0
+  // 兼容旧调用；行级已改用 grid-template-columns，单元格需可读下限，防窄屏挤成「空」
   if (col.flex) return "min-width:0;";
-  if (col.widthPct != null) return "min-width:0;";
+  if (col.widthPct != null) return "min-width:3.1rem;";
   if (col.width != null) {
     const w = Number(col.width);
     return `min-width:0;width:${w}px;`;
@@ -38,10 +38,14 @@ export function colStyle(col) {
 export function gridTemplateColumns(columns) {
   return (columns || [])
     .map((col) => {
-      if (col.flex) return "minmax(6.5rem, 1fr)";
-      if (col.widthPct != null) return `minmax(0, ${Number(col.widthPct)}%)`;
+      if (col.flex) return "minmax(6.5rem, 1.35fr)";
+      // widthPct 作相对权重（fr），并设 rem 下限，避免 % 轨在窄容器里塌成 0
+      if (col.widthPct != null) {
+        const w = Math.max(2, Number(col.widthPct) || 8);
+        return `minmax(3.1rem, ${w}fr)`;
+      }
       if (col.width != null) return `${Number(col.width)}px`;
-      return "minmax(0, auto)";
+      return "minmax(3.1rem, 1fr)";
     })
     .join(" ");
 }

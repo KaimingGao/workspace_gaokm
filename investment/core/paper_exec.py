@@ -56,6 +56,21 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
         pnl_pct = None
         if price and cost:
             pnl_pct = round((price / cost - 1.0) * 100.0, 2)
+        change_pct = None
+        if quote.get("success"):
+            raw_ch = quote.get("change_raw")
+            if raw_ch is None and quote.get("change") is not None:
+                try:
+                    change_pct = float(str(quote.get("change")).replace("%", "").strip())
+                except (TypeError, ValueError):
+                    change_pct = None
+            else:
+                try:
+                    change_pct = float(raw_ch) if raw_ch is not None else None
+                except (TypeError, ValueError):
+                    change_pct = None
+            if change_pct is not None:
+                change_pct = round(change_pct, 2)
         bought_at = h.get("bought_at")
         hold_days = None
         bought_date = None
@@ -77,6 +92,7 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
                 "unit": quote.get("unit", "元"),
                 "market_value": round(mv, 2),
                 "pnl_pct": pnl_pct,
+                "change_pct": change_pct,
                 "bought_at": bought_at,
                 "bought_date": bought_date,
                 "hold_days": hold_days,

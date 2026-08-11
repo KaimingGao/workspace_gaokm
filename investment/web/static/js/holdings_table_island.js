@@ -49,6 +49,14 @@ export function holdingToRow(
     : belowMin
       ? `低于选股门槛 ${minScore ?? "—"}（仍显示分数）· 悬停看详情`
       : "悬停查看收益分与因子系数";
+  const fmtSignedPct = (v) => {
+    if (v == null || v === "") return "—";
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    const sign = n > 0 ? "+" : "";
+    return `${sign}${n.toFixed(2)}%`;
+  };
+  const pnlText = fmtSignedPct(pnl);
   return {
     code,
     name,
@@ -85,7 +93,7 @@ export function holdingToRow(
       formula_terms: h.score_formula_terms || null,
       predicted_score: h.predicted_score != null ? h.predicted_score : score,
     }),
-    pnlText: fmtPct(pnl, { signed: true }),
+    pnlText,
     pnlCls: metricCls(pnl),
     pnlNum: pnl != null && Number.isFinite(Number(pnl)) ? Number(pnl) : null,
     boughtDate: h.bought_date || "—",
@@ -130,7 +138,7 @@ const COLS = [
     sortable: true,
     title: "相对持仓成本：(现价÷成本−1)×100%；加仓则为加权成本，非当日涨跌",
   },
-  { id: "since", label: "开始", widthPct: 9 },
+  { id: "since", label: "开始", widthPct: 13 },
   { id: "origin", label: "出处", widthPct: 8, cellClass: "paper-hold-origin", headClass: "paper-hold-origin" },
 ];
 
