@@ -12,7 +12,12 @@ from skills.common.quote_api import StockAPI
 
 
 def normalize_bars(rows: List[dict]) -> List[dict]:
-    """统一日线字段为 date/open/high/low/close/volume。"""
+    """统一日线字段为 date/open/high/low/close/volume，有则保留独立 amount。
+
+    volume 只取成交量；成交额写入 amount，不再混进 volume（避免 Amihud/流动性失真）。
+    """
+    from core.bar_fields import extract_amount_from_row, extract_volume_from_row
+
     bars = []
     for row in rows or []:
         date = row.get("date") or row.get("日期") or row.get("time") or row.get("时间")
@@ -24,22 +29,22 @@ def normalize_bars(rows: List[dict]) -> List[dict]:
         )
         if close is None:
             continue
-        bars.append(
-            {
-                "date": str(date) if date is not None else "",
-                "open": _to_float(row.get("open") or row.get("开盘") or row.get("开盘价"))
-                or close,
-                "high": _to_float(row.get("high") or row.get("最高") or row.get("最高价"))
-                or close,
-                "low": _to_float(row.get("low") or row.get("最低") or row.get("最低价"))
-                or close,
-                "close": close,
-                "volume": _to_float(
-                    row.get("volume") or row.get("成交量") or row.get("成交额")
-                )
-                or 0.0,
-            }
-        )
+        vol = extract_volume_from_row(row)
+        amt = extract_amount_from_row(row)
+        bar = {
+            "date": str(date) if date is not None else "",
+            "open": _to_float(row.get("open") or row.get("开盘") or row.get("开盘价"))
+            or close,
+            "high": _to_float(row.get("high") or row.get("最高") or row.get("最高价"))
+            or close,
+            "low": _to_float(row.get("low") or row.get("最低") or row.get("最低价"))
+            or close,
+            "close": close,
+            "volume": float(vol) if vol is not None else 0.0,
+        }
+        if amt is not None:
+            bar["amount"] = float(amt)
+        bars.append(bar)
     bars.sort(key=lambda x: x["date"])
     return bars
 
@@ -451,8 +456,13 @@ def enrich_quote_bar(quote: dict) -> Optional[dict]:
     vol = _to_float(
         str(quote.get("volume", "")).replace("万", "e4").replace("亿", "e8")
     )
+    amt = _to_float(
+        str(quote.get("amount", "") or quote.get("turnover", "") or "")
+        .replace("万", "e4")
+        .replace("亿", "e8")
+    )
     # 「8363万」类字符串 _to_float 可能失败，忽略量
-    return {
+    out = {
         "date": datetime.now().strftime("%Y-%m-%d"),
         "open": open_p,
         "high": high_p,
@@ -460,6 +470,9 @@ def enrich_quote_bar(quote: dict) -> Optional[dict]:
         "close": price,
         "volume": vol or 0.0,
     }
+    if amt is not None and amt > 0:
+        out["amount"] = float(amt)
+    return out
 
 
 def bars_from_quote_fallback(quote: dict) -> List[dict]:

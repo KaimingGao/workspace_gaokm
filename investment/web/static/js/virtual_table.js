@@ -24,16 +24,26 @@ export function truncateName(name, max = 6) {
 }
 
 export function colStyle(col) {
-  if (col.flex) return "flex:1 1 auto;min-width:0;width:auto;";
-  if (col.widthPct != null) {
-    const w = col.widthPct;
-    return `flex:0 0 ${w}%;width:${w}%;min-width:0;max-width:${w}%;`;
-  }
+  // 兼容旧调用；行级已改用 grid-template-columns，单元格只需 min-width:0
+  if (col.flex) return "min-width:0;";
+  if (col.widthPct != null) return "min-width:0;";
   if (col.width != null) {
     const w = Number(col.width);
-    return `flex:0 0 ${w}px;width:${w}px;min-width:${w}px;max-width:${w}px;`;
+    return `min-width:0;width:${w}px;`;
   }
-  return "flex:0 0 auto;min-width:0;";
+  return "min-width:0;";
+}
+
+/** 表头/表体共用同一套轨道，避免 flex + max-width 导致列错位 */
+export function gridTemplateColumns(columns) {
+  return (columns || [])
+    .map((col) => {
+      if (col.flex) return "minmax(6.5rem, 1fr)";
+      if (col.widthPct != null) return `minmax(0, ${Number(col.widthPct)}%)`;
+      if (col.width != null) return `${Number(col.width)}px`;
+      return "minmax(0, auto)";
+    })
+    .join(" ");
 }
 
 function makeEmitter() {
@@ -104,6 +114,8 @@ export function mountVirtualTable(host, options = {}) {
   const bodyClass = options.bodyClass
     ? `watching-react-grid-body ${options.bodyClass}`
     : "watching-react-grid-body";
+  const gridCols = gridTemplateColumns(columns);
+  const rowTrackStyle = `display:grid;grid-template-columns:${gridCols};align-items:center;width:100%;`;
 
   host.innerHTML =
     `<div class="${escapeHtml(rootClass)}">` +
@@ -137,16 +149,23 @@ export function mountVirtualTable(host, options = {}) {
     return out;
   }
 
+  function syncHeadScrollbarGutter() {
+    // 表体出现纵向滚动条时，给表头补同等右内边距，避免列与表头错位
+    const sb = Math.max(0, (bodyEl.offsetWidth || 0) - (bodyEl.clientWidth || 0));
+    headEl.style.paddingRight = sb > 0 ? `${sb}px` : "";
+  }
+
   function paintHead() {
     const s = sortState[0];
     const ctx = { sortState, rows: snapshot().rows };
     headEl.innerHTML =
-      `<div class="watching-react-grid-row is-head">` +
+      `<div class="watching-react-grid-row is-head" style="${rowTrackStyle}">` +
       columns
         .map((col) => {
           const sorted = s && s.id === col.id;
           const arrow = sorted ? (s.desc ? " ↓" : " ↑") : "";
           const extraCls = [
+            `watching-col-${col.id}`,
             col.num ? "watching-col-num" : "",
             col.sortable ? "is-sortable" : "",
             col.headClass || "",
@@ -169,6 +188,7 @@ export function mountVirtualTable(host, options = {}) {
         })
         .join("") +
       `</div>`;
+    syncHeadScrollbarGutter();
   }
 
   function attrsHtml(d) {
@@ -203,7 +223,7 @@ export function mountVirtualTable(host, options = {}) {
         `<div ${attrsHtml(d)} class="${escapeHtml(cls)}" ` +
         `style="position:absolute;top:0;left:0;transform:translateY(${
           i * rowHeight
-        }px);width:100%;height:${rowHeight}px;display:flex;align-items:center">` +
+        }px);height:${rowHeight}px;${rowTrackStyle}">` +
         columns
           .map((col) => {
             const extraCls = [
@@ -225,6 +245,7 @@ export function mountVirtualTable(host, options = {}) {
     html += `</div>`;
     bodyEl.innerHTML = html;
     bodyEl.scrollTop = scrollTop;
+    syncHeadScrollbarGutter();
   }
 
   function publish(kind) {
@@ -288,6 +309,14 @@ export function mountVirtualTable(host, options = {}) {
 
   bodyEl.addEventListener("scroll", () => paintBody(), { passive: true });
 
+  let resizeObs = null;
+  if (typeof ResizeObserver !== "undefined") {
+    resizeObs = new ResizeObserver(() => syncHeadScrollbarGutter());
+    resizeObs.observe(bodyEl);
+  } else {
+    window.addEventListener("resize", syncHeadScrollbarGutter);
+  }
+
   bodyEl.addEventListener("click", (e) => {
     const row = e.target.closest(".watching-react-grid-row[data-code]");
     if (!row || !bodyEl.contains(row)) return;
@@ -327,6 +356,16 @@ export function mountVirtualTable(host, options = {}) {
       publish("sort");
     },
     destroy() {
+      if (resizeObs) {
+        try {
+          resizeObs.disconnect();
+        } catch (_) {
+          /* ignore */
+        }
+        resizeObs = null;
+      } else {
+        window.removeEventListener("resize", syncHeadScrollbarGutter);
+      }
       host.innerHTML = "";
     },
     /** 暴露以便页内做全选等需要重绘表头的操作 */

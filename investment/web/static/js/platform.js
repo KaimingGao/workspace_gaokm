@@ -561,7 +561,7 @@ export function initPlatform(ctx) {
 
   async function loadClusterLiveHint() {
     try {
-      const res = await fetch("/api/quant/cluster-live/status");
+      const res = await fetch("/api/quant/cluster-live/status?light=1");
       const data = await res.json();
       if (!res.ok || !data || !data.success) return;
       const mode = (data.cluster_scoring || {}).mode || "off";

@@ -76,13 +76,20 @@ def build_sentiment_prior(
     config: Optional[dict] = None,
     stock_code: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """由规则情绪快照构建先验；看空(bearish)即触发，actions 不含任何改 ŷ 字段。"""
+    """由规则情绪快照构建先验；看空(bearish)即触发，actions 不含任何改 ŷ 字段。
+
+    超时/空源降级（degraded / prior_eligible=false）不触发 gate，避免误缩仓。
+    """
     prior_cfg = get_sentiment_prior_cfg(config)
     mode = prior_cfg["mode"]
     label = str((sentiment or {}).get("label") or "neutral") if sentiment else "neutral"
     score = _bearish_strength(sentiment)
-    # 看空即触发缩仓/拦截，不再依赖 score ≥ 阈值
-    active = label == "bearish"
+    degraded = bool(
+        (sentiment or {}).get("degraded")
+        or (sentiment or {}).get("prior_eligible") is False
+    )
+    # 看空即触发缩仓/拦截；降级数据不触发
+    active = label == "bearish" and not degraded
 
     actions: List[Dict[str, Any]] = []
     risk_hints: List[Dict[str, Any]] = []
@@ -90,6 +97,17 @@ def build_sentiment_prior(
     blocks: List[str] = []
 
     note_base = "舆情先验 · 不进 ŷ / 非因子"
+    if degraded:
+        note_base += " · 降级跳过 gate"
+        risk_hints.append(
+            {
+                "kind": "sentiment_degraded",
+                "label": label,
+                "score": score,
+                "reason": "sentiment_degraded",
+                "note": (sentiment or {}).get("degrade_reason") or note_base,
+            }
+        )
 
     if active:
         hint = {
@@ -151,6 +169,7 @@ def build_sentiment_prior(
         "label": label,
         "score": score,
         "active": bool(active),
+        "degraded": bool(degraded),
         "actions": actions,
         "risk_hints": risk_hints,
         "warnings": warnings,

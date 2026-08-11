@@ -10,10 +10,12 @@ S = score_headlines(当日标题)            ← 先验
 action = policy(ŷ, S)                    ← warn / 拦新开仓 / 缩仓；不改 ŷ
 ```
 
-本仓库 **已有**：标题拉取与缓存；观察徽章；`sentiment_prior`（off / risk / gate）；标题 history jsonl（供将来诊断，非主回测）。  
-**没有**：完整历史 news 面板、用 S 拟合 OLS β、LLM 写分、主回测注入舆情。
+本仓库 **已有**：标题拉取与缓存；观察徽章；`sentiment_prior`（off / risk / gate）；标题 history jsonl（供 as_of 诊断）；降级不触发 gate；`GET /api/ops/sentiment-as-of` · validation hygiene 面板覆盖。  
+**没有**：完整可估 β 的全市场 news 仓、用 S 拟合 OLS β、LLM 写分进 ŷ、主回测注入舆情。
 
 LLM 可**解读**标题；**不得**写入 `sub_scores` / ŷ。`sentiment.include_in_score` **恒保持 false**（硬闸）；行为由 `sentiment.prior.mode` 控制。
+
+超时 / 空标题 / 过期缓存回退时标记 `degraded=true` · `prior_eligible=false`，**不触发** gate 缩仓（避免误拦）。
 
 ---
 
@@ -59,6 +61,8 @@ LLM ────────► 叙事（不进分）
 | 能力 | 现状 |
 |------|------|
 | 规则情绪 S | **有** · `score_headlines`（强度=`polar×标题覆盖`，防稀疏负向虚高） |
+| 降级跳过 gate | **有** · `degraded` / `prior_eligible=false` |
+| as_of 面板 API | **有** · `GET /api/ops/sentiment-as-of` · history 覆盖进 hygiene |
 | 先验 policy | **有** · `role=prior` · `prior.mode` |
 | Live 进 ŷ | **否** · `include_in_score=false` · X5 边界诚实 |
 | 调仓旁路 | **有** · skip / scale；`predicted_score` 不改写 |

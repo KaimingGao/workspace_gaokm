@@ -480,7 +480,7 @@ export function installClusterProbe(q) {
 
   async function refreshClusterLiveStatus() {
     try {
-      const res = await fetch("/api/quant/cluster-live/status");
+      const res = await fetch("/api/quant/cluster-live/status?light=1");
       const data = await res.json();
       // await 后重取节点：分组重绘会替换 #quant-cluster-landing，旧引用已脱离 DOM
       const host = document.getElementById("quant-cluster-landing");
@@ -802,7 +802,7 @@ export function installClusterProbe(q) {
     ].join("\n");
     if (mode === "active") {
       try {
-        const stRes = await fetch("/api/quant/cluster-live/status");
+        const stRes = await fetch("/api/quant/cluster-live/status?light=1");
         const st = await stRes.json();
         const ev = (st && st.enable_evidence) || {};
         const oos = ev.oos_summary || {};

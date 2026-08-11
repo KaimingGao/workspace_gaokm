@@ -996,7 +996,9 @@ def set_cluster_scoring_mode(
     evidence = None
     if mode == "active":
         health = assess_cluster_live_health()
-        evidence = build_cluster_enable_evidence(health=health)
+        evidence = build_cluster_enable_evidence(
+            health=health, include_rolling_ic=True
+        )
         blockers = active_enable_blockers(health=health, evidence=evidence)
         if blockers and not force:
             return {

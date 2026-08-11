@@ -1783,6 +1783,7 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 .watching-react-grid-body {
   height: min(68vh, 860px);
   overflow: auto;
+  /* 不用 scrollbar-gutter：双栏时右侧会留一条空槽竖线；表头对齐靠 virtual_table syncHeadScrollbarGutter */
 }
 
 .watching-react-grid-row {
@@ -1829,9 +1830,18 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 
 .watching-react-grid-cell.watching-pick-cell {
   text-align: center;
-  overflow: visible;
+  /* 勿 overflow:visible：窄列时 checkbox 会画进股票列并被挡住点击 */
+  overflow: hidden;
   padding-left: 10px;
   padding-right: 4px;
+  position: relative;
+  z-index: 1;
+}
+
+/* 首列 18px 贴边留白对 checkbox 过宽；略收，保证 42px 轨道内可点 */
+.watching-react-grid-row > .watching-react-grid-cell.watching-pick-cell:first-child {
+  padding-left: 14px;
+  padding-right: 6px;
 }
 
 .watching-react-grid-cell.watching-col-name {
@@ -2549,6 +2559,29 @@ body[data-page="watching"] .research-dock .watching-chart-head {
   background: color-mix(in srgb, var(--ink) 1.5%, var(--surface));
 }
 
+/* 双栏：收盘价卡头与股票表头同高，底边对齐 */
+body[data-page="watching"] .research-dock:not(.dock-off) {
+  --dock-head-h: 41px;
+}
+
+body[data-page="watching"] .research-dock:not(.dock-off) .watching-chart-head {
+  height: var(--dock-head-h);
+  min-height: var(--dock-head-h);
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+body[data-page="watching"] .research-dock:not(.dock-off) .watching-react-grid-head {
+  height: var(--dock-head-h);
+  min-height: var(--dock-head-h);
+  box-sizing: border-box;
+}
+
+body[data-page="watching"] .research-dock:not(.dock-off) .watching-react-grid-row.is-head {
+  min-height: calc(var(--dock-head-h) - 1px);
+  height: calc(var(--dock-head-h) - 1px);
+}
+
 body[data-page="watching"] .research-dock .watching-chart-canvas {
   margin: 0;
   padding: 4px 6px 6px;
@@ -2627,6 +2660,8 @@ body[data-page="watching"] .watching-watchlist-card .watching-react-grid {
   box-shadow: none !important;
   background: var(--bg-card, var(--surface));
   box-sizing: border-box;
+  /* 滚动到名单时避开 sticky 页头，避免列名被盖住 */
+  scroll-margin-top: 6.5rem;
 }
 
 body[data-page="watching"] .watching-watchlist-card .watching-table-actions {
@@ -3148,11 +3183,13 @@ body[data-page="watching"] .watching-watchlist-card .watching-react-grid-cell.wa
   padding-right: 4px;
 }
 
+body[data-page="watching"] .watching-watchlist-card .watching-react-grid-cell.watching-col-name,
 body[data-page="watching"] .watching-watchlist-card .watching-react-grid-cell.watching-stock,
+body[data-page="watching"] .watching-watchlist-card .watching-react-grid-cell.paper-wl-name-cell,
 body[data-page="watching"] .watching-watchlist-card .watching-react-grid-cell:has(.watching-stock) {
-  /* 名称列别再吃掉超额/PE/PB 的可视宽度 */
-  max-width: 9.5rem;
-  flex: 1 1 7rem;
+  /* 名称列由 grid 轨道 minmax(6.5rem,1fr) 控制，勿再强制 flex/max-width 破坏对齐 */
+  min-width: 0;
+  overflow: hidden;
 }
 
 /* A 股：涨红跌绿（覆盖主表涨跌列） */

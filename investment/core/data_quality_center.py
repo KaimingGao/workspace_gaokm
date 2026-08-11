@@ -53,9 +53,22 @@ def build_data_quality_report(
             audit = {"ok": False, "error": str(e)}
 
     cal = calendar_status()
+    hygiene = None
+    try:
+        from core.validation_universe import build_validation_hygiene_report
+
+        hygiene = build_validation_hygiene_report(codes=code_list or None)
+    except Exception as e:
+        hygiene = {"ok": False, "error": str(e)}
+
     disc = (ss.get("discipline") or {}) if isinstance(ss, dict) else {}
     warnings = list(disc.get("warnings") or [])
     status = "ok"
+
+    if isinstance(hygiene, dict) and hygiene.get("status") in ("warn", "fail"):
+        status = hygiene.get("status") or status
+        for a in hygiene.get("actions") or []:
+            warnings.append(str(a))
 
     if fund.get("real_multi_coverage") is not None:
         try:
@@ -146,6 +159,7 @@ def build_data_quality_report(
         "status": status,
         "track": "D0-D4+X+B0+DC/FM/RK",
         "bars_coverage": coverage,
+        "validation_hygiene": hygiene,
         "fundamentals_history": {
             **fund,
             "ann_missing_top": ann_missing_top,

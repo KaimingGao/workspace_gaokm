@@ -290,14 +290,14 @@ def get_cost_breakdown(
     slippage_bps = estimate_slippage(bars, cfg) if bars else float(cfg.get("base_slippage_bps", 3.0))
     slippage_cost = gross_value * slippage_bps / 10000
 
-    # 冲击成本：用末根量价估日成交额
+    # 冲击成本：优先末根独立成交额，否则量×价
     daily_volume = 0.0
     if bars:
         last = bars[-1] or {}
         try:
-            px = float(last.get("close") or price or 0)
-            vol = float(last.get("volume") or 0)
-            daily_volume = px * vol if px > 0 and vol > 0 else 0.0
+            from core.bar_fields import bar_amount
+
+            daily_volume = float(bar_amount(last) or 0.0)
         except (TypeError, ValueError):
             daily_volume = 0.0
     impact_bps = estimate_impact_cost(gross_value, daily_volume, cfg)

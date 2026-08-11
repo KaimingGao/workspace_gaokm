@@ -5,19 +5,9 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Tuple
 
 
-def _bar_amount(bar: dict) -> float:
-    amt = bar.get("amount")
-    try:
-        if amt is not None:
-            return max(0.0, float(amt))
-    except (TypeError, ValueError):
-        pass
-    vol = float(bar.get("volume") or 0.0)
-    close = float(bar.get("close") or 0.0)
-    return max(0.0, vol * close)
-
-
 def _amihud_mean(bars: List[dict], window: int = 10) -> Optional[float]:
+    from core.bar_fields import bar_amount
+
     if not bars or len(bars) < 2:
         return None
     window = min(window, len(bars) - 1)
@@ -28,7 +18,7 @@ def _amihud_mean(bars: List[dict], window: int = 10) -> Optional[float]:
         if prev <= 0 or cur <= 0:
             continue
         ret = abs(cur / prev - 1.0)
-        amt = _bar_amount(bars[i])
+        amt = bar_amount(bars[i])
         if amt <= 0:
             continue
         vals.append(ret / amt)

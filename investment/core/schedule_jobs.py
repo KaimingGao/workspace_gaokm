@@ -20,6 +20,38 @@ def _write_last_run(payload: Dict[str, Any]) -> str:
     return SCHEDULE_LAST_RUN_PATH
 
 
+def _resolve_warmup_codes(
+    codes: Optional[List[str]] = None,
+    *,
+    cap: int = 20,
+    prefer_validation_universe: bool = True,
+) -> List[str]:
+    """预热默认标的：显式 codes → 验证宇宙 → watching。"""
+    if codes:
+        out = [str(c).strip() for c in codes if str(c).strip()]
+        return out[: max(1, int(cap))]
+    if prefer_validation_universe:
+        try:
+            from core.validation_universe import resolve_validation_codes
+
+            resolved = resolve_validation_codes()
+            uni = [str(c).strip() for c in (resolved.get("codes") or []) if str(c).strip()]
+            if uni:
+                return uni[: max(1, int(cap))]
+        except Exception:
+            pass
+    uni_path = os.path.join(DATA_DIR, "watching.json")
+    if os.path.isfile(uni_path):
+        try:
+            with open(uni_path, encoding="utf-8") as f:
+                uni = json.load(f)
+            watch = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
+            return watch[: max(1, int(cap))]
+        except (OSError, json.JSONDecodeError, TypeError):
+            pass
+    return []
+
+
 def run_watch_alert(*, codes: Optional[List[str]] = None) -> Dict[str, Any]:
     """轻量异动：对观察池/给定代码拉现货涨跌，标记 |涨跌|≥2%。"""
     from core.ports.market import query_quote
@@ -128,15 +160,9 @@ def run_sentiment_scan(*, codes: Optional[List[str]] = None, limit: int = 5) -> 
     if slot.is_running():
         return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
 
-    watch = list(codes or [])
+    watch = _resolve_warmup_codes(codes, cap=20)
     if not watch:
-        uni_path = os.path.join(DATA_DIR, "watching.json")
-        if os.path.isfile(uni_path):
-            with open(uni_path, encoding="utf-8") as f:
-                uni = json.load(f)
-            watch = list(uni.get("watchlist") or [])[:20]
-    if not watch:
-        return {"ok": False, "error": "无标的：请传 codes 或配置 watching.json"}
+        return {"ok": False, "error": "无标的：请传 codes 或配置 watching / validation_universe"}
 
     job_id = slot.start(kind="sentiment_scan", total=len(watch), message="扫描舆情…")
     try:
@@ -165,15 +191,9 @@ def run_bars_warmup(
     if slot.is_running():
         return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
 
-    watch = list(codes or [])
+    watch = _resolve_warmup_codes(codes, cap=40)
     if not watch:
-        uni_path = os.path.join(DATA_DIR, "watching.json")
-        if os.path.isfile(uni_path):
-            with open(uni_path, encoding="utf-8") as f:
-                uni = json.load(f)
-            watch = list(uni.get("watchlist") or [])[:20]
-    if not watch:
-        return {"ok": False, "error": "无标的：请传 codes 或配置 watching.json"}
+        return {"ok": False, "error": "无标的：请传 codes 或配置 watching / validation_universe"}
 
     job_id = slot.start(kind="bars_warmup", total=len(watch), message="预热日线…")
     try:
@@ -239,17 +259,15 @@ def run_fundamentals_warmup(
     ingest_max_points: int = 8,
 ) -> Dict[str, Any]:
     """预热观察池基本面快照；默认再对 A 股 6 位码入库真实多期 history（C2）。"""
-    from core.data_coverage import universe_codes
     from core.data_service import get_fundamentals
 
     slot = job_registry.slot("schedule")
     if slot.is_running():
         return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
 
-    watch = list(codes or []) or universe_codes()[: max(1, int(limit or 20))]
-    watch = watch[: max(1, int(limit or 20))]
+    watch = _resolve_warmup_codes(codes, cap=max(1, int(limit or 20)))
     if not watch:
-        return {"ok": False, "error": "无标的：请传 codes 或配置 watching.json"}
+        return {"ok": False, "error": "无标的：请传 codes 或配置 watching / validation_universe"}
 
     job_id = slot.start(kind="fundamentals_warmup", total=len(watch), message="预热基本面…")
     try:
@@ -478,6 +496,41 @@ def run_paper_daily(
         return {"ok": False, "error": str(e), "job": slot.get()}
 
 
+def run_validation_prepare(
+    *,
+    codes: Optional[List[str]] = None,
+    write_excludes: bool = False,
+    warmup_bars: bool = True,
+    warmup_sentiment: bool = True,
+    limit: int = 60,
+) -> Dict[str, Any]:
+    """验证宇宙一键准备：卫生报告 + 可选 exclude + 日线/舆情预热。"""
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = slot.start(kind="validation_prepare", total=1, message="验证宇宙准备…")
+    try:
+        from core.validation_universe import prepare_validation_universe
+
+        slot.update(current=1, message="hygiene + warmup")
+        result = prepare_validation_universe(
+            write_excludes=bool(write_excludes),
+            warmup_bars=bool(warmup_bars),
+            warmup_sentiment=bool(warmup_sentiment),
+            bars_limit=int(limit or 60),
+            codes=codes,
+        )
+        result = {**result, "kind": "validation_prepare"}
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
 def run_schedule(kind: str, **kwargs: Any) -> Dict[str, Any]:
     k = (kind or "").strip()
     if k == "watch_alert":
@@ -504,5 +557,13 @@ def run_schedule(kind: str, **kwargs: Any) -> Dict[str, Any]:
         return run_paper_daily(
             simulate_buy=bool(kwargs.get("simulate_buy")),
             strategy=str(kwargs.get("strategy") or "short"),
+        )
+    if k == "validation_prepare":
+        return run_validation_prepare(
+            codes=kwargs.get("codes"),
+            write_excludes=bool(kwargs.get("write_excludes")),
+            warmup_bars=kwargs.get("warmup_bars", True),
+            warmup_sentiment=kwargs.get("warmup_sentiment", True),
+            limit=int(kwargs.get("limit") or 60),
         )
     return {"ok": False, "error": f"unknown schedule kind: {kind}"}

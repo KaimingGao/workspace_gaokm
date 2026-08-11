@@ -1,8 +1,9 @@
 # 日线/分钟线缓存 SQLite 改造方案
 
-> 状态：设计评审中
+> 状态：**排队中**（P0/P1 稳定性项已落地；本方案仍为下一阶段性能升级，**本次未迁库**）
 > 范围：`core/store.py` 日线/分钟线缓存后端由 JSON 文件改为 SQLite（WAL）；配置与账本保持 JSON
 > 前置调研：见 `docs/data-layer.md` 的存储选型原则（"行情按规模升级列式/时序"）
+> 依赖前置：`core/file_lock.py` 账本锁 · Chat 异步 job · 评分日线进程隔离（见 perf-stability 落地）
 
 ## 一、背景与目标
 

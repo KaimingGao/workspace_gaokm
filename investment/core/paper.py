@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import contextmanager
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional, TypeVar
 
 from core.paper_costs import resolve_cost_model  # noqa: F401 — re-export for paper_cycle / callers
 from core.paper_sizing import (
@@ -21,9 +22,59 @@ from core.paths import PAPER_EXAMPLE_PATH, PAPER_PATH
 from core.ports.market import quote_price
 from core.ports.signal import build_signal_pool
 from core.io_atomic import atomic_write_json
+from core.file_lock import path_lock
 
 DEFAULT_PAPER_PATH = PAPER_PATH
 EXAMPLE_PATH = PAPER_EXAMPLE_PATH
+
+# 账本列表上限：防长期运行 JSON 膨胀（与 operation_log/snapshots 对齐）
+MAX_TRADES = 500
+MAX_SNAPSHOTS = 120
+MAX_SIGNAL_LOG = 30
+MAX_OPERATION_LOG = 200
+
+T = TypeVar("T")
+
+
+@contextmanager
+def paper_write_lock(path: Optional[str] = None) -> Iterator[None]:
+    """串行化对本 paper 路径的 RMW（进程内 + 跨进程文件锁）。"""
+    p = path or DEFAULT_PAPER_PATH
+    with path_lock(p):
+        yield
+
+
+def trim_paper_lists(paper: dict) -> dict:
+    """就地裁剪 trades / snapshots / logs，控制 paper.json 体积。"""
+    if not isinstance(paper, dict):
+        return paper
+    trades = paper.get("trades")
+    if isinstance(trades, list) and len(trades) > MAX_TRADES:
+        paper["trades"] = trades[-MAX_TRADES:]
+    snaps = paper.get("snapshots")
+    if isinstance(snaps, list) and len(snaps) > MAX_SNAPSHOTS:
+        paper["snapshots"] = snaps[-MAX_SNAPSHOTS:]
+    slog = paper.get("signal_log")
+    if isinstance(slog, list) and len(slog) > MAX_SIGNAL_LOG:
+        paper["signal_log"] = slog[-MAX_SIGNAL_LOG:]
+    olog = paper.get("operation_log")
+    if isinstance(olog, list) and len(olog) > MAX_OPERATION_LOG:
+        paper["operation_log"] = olog[-MAX_OPERATION_LOG:]
+    return paper
+
+
+def mutate_paper(
+    mutator: Callable[[dict], T],
+    path: Optional[str] = None,
+) -> T:
+    """加锁 → load → mutator(paper) → trim → save。mutator 可返回附加结果。"""
+    p = path or DEFAULT_PAPER_PATH
+    with paper_write_lock(p):
+        paper = load_paper(p)
+        result = mutator(paper)
+        trim_paper_lists(paper)
+        save_paper(paper, p)
+        return result
 
 
 def _now_iso() -> str:
@@ -82,7 +133,9 @@ def holding_codes(paper: dict) -> List[str]:
 def save_paper(data: dict, path: Optional[str] = None) -> str:
     p = path or DEFAULT_PAPER_PATH
     data.pop("watchlist", None)
-    atomic_write_json(p, data)
+    trim_paper_lists(data)
+    with paper_write_lock(p):
+        atomic_write_json(p, data)
     return p
 
 
@@ -149,7 +202,7 @@ def run_signal_scan(paper: dict, *, on_progress=None, stock_codes=None) -> List[
         "error": payload.get("error"),
     }
     paper.setdefault("signal_log", []).append(entry)
-    paper["signal_log"] = paper["signal_log"][-30:]
+    paper["signal_log"] = paper["signal_log"][-MAX_SIGNAL_LOG:]
     paper["updated_at"] = ts
     return payload.get("scored_items") or payload.get("observation_pool") or []
 
@@ -196,7 +249,7 @@ def append_snapshot(paper: dict, summary: Dict[str, Any]) -> None:
         "strategy_stock_value": summary.get("strategy_stock_value"),
     }
     paper.setdefault("snapshots", []).append(snap)
-    paper["snapshots"] = paper["snapshots"][-120:]
+    paper["snapshots"] = paper["snapshots"][-MAX_SNAPSHOTS:]
 
 
 def capture_mark_snapshot(paper: dict) -> Dict[str, Any]:
@@ -369,7 +422,7 @@ def append_operation_log(
         "meta": meta or {},
     }
     paper.setdefault("operation_log", []).append(entry)
-    paper["operation_log"] = paper["operation_log"][-200:]
+    paper["operation_log"] = paper["operation_log"][-MAX_OPERATION_LOG:]
 
 
 def append_trade_legs_to_operation_log(

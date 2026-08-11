@@ -81,7 +81,7 @@ export function installExportInterpret(q) {
         parts.push(`研究池 ${uni.watchlist_count} 只`);
       }
       try {
-        const clRes = await fetch("/api/quant/cluster-live/status");
+        const clRes = await fetch("/api/quant/cluster-live/status?light=1");
         const cl = await clRes.json();
         if (clRes.ok && cl && cl.success) {
           const mode = (cl.cluster_scoring || {}).mode || "off";

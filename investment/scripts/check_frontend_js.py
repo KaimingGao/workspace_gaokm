@@ -173,8 +173,11 @@ def check_required_files() -> List[str]:
         if expect and expect not in p.read_text(encoding="utf-8"):
             issues.append(f"{rel} 缺少导出: {expect}")
     boot = (JS_DIR / "chat_boot.js").read_text(encoding="utf-8")
-    if "fetch(\"/api/chat\"" not in boot and "fetch('/api/chat'" not in boot:
-        issues.append("js/chat_boot.js 未调用 /api/chat")
+    if (
+        "fetch(\"/api/chat" not in boot
+        and "fetch('/api/chat" not in boot
+    ):
+        issues.append("js/chat_boot.js 未调用 /api/chat 或 /api/chat/async")
     return issues
 
 

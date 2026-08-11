@@ -5648,21 +5648,22 @@ html[data-density="compact"] .quant-page {
 }
 
 .quant-pro-factor-metric-label {
-  font-size: 0.5rem;
+  font-size: var(--q-fs-micro, 0.6875rem);
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--ink-3);
   font-family: var(--font-mono);
+  line-height: 1.2;
 }
 
 .quant-pro-factor-metric-value {
   font-family: var(--font-mono);
-  font-size: 0.72rem;
+  font-size: var(--q-fs-body, 0.8125rem);
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
-  line-height: 1;
+  line-height: 1.15;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

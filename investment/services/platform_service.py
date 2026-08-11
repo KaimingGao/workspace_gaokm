@@ -148,6 +148,30 @@ class PlatformService:
 
         return empty_fundamentals_report()
 
+    def get_validation_hygiene(self, *, as_of: Optional[str] = None) -> Dict[str, Any]:
+        from core.validation_universe import build_validation_hygiene_report
+
+        return build_validation_hygiene_report(as_of=as_of)
+
+    def run_validation_prepare(
+        self,
+        *,
+        codes: Optional[list] = None,
+        write_excludes: bool = False,
+        warmup_bars: bool = True,
+        warmup_sentiment: bool = True,
+        bars_limit: int = 60,
+    ) -> Dict[str, Any]:
+        from core.validation_universe import prepare_validation_universe
+
+        return prepare_validation_universe(
+            codes=codes,
+            write_excludes=bool(write_excludes),
+            warmup_bars=bool(warmup_bars),
+            warmup_sentiment=bool(warmup_sentiment),
+            bars_limit=int(bars_limit or 60),
+        )
+
     def get_data_quality(self, *, codes: Optional[list] = None) -> Dict[str, Any]:
         """D4 · 数据质量中心聚合。"""
         from core.data_quality_center import build_data_quality_report

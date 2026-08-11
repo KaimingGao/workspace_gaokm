@@ -261,7 +261,7 @@ export function initChat(ctx) {
     const pending = appendMessage("assistant", "", { pending: true });
 
     try {
-      const res = await fetch("/api/chat", {
+      const res = await fetch("/api/chat/async", {
         method: "POST",
         headers: headers(ctx),
         body: JSON.stringify({ message: content }),
@@ -274,15 +274,39 @@ export function initChat(ctx) {
         ctx.sessionId = data.session_id;
         localStorage.setItem(ctx.SESSION_KEY, ctx.sessionId);
       }
+      const jobId = (data.job && data.job.id) || null;
+      const started = Date.now();
+      let result = null;
+      while (Date.now() - started < 10 * 60 * 1000) {
+        const jr = await fetch("/api/jobs/chat");
+        const jd = await jr.json().catch(() => ({}));
+        const job = (jd && jd.job) || {};
+        if (jobId && job.id && job.id !== jobId) {
+          throw new Error("对话任务已被其它任务覆盖，请重试");
+        }
+        if (job.status === "failed") {
+          throw new Error(job.error || "对话失败");
+        }
+        if (job.status === "done" || job.status === "succeeded") {
+          result = job.result || {};
+          break;
+        }
+        await new Promise((r) => setTimeout(r, 600));
+      }
+      if (!result) throw new Error("对话超时，请稍后重试");
+      if (result.session_id) {
+        ctx.sessionId = result.session_id;
+        localStorage.setItem(ctx.SESSION_KEY, ctx.sessionId);
+      }
       pending.remove();
-      const { body, meta } = splitReply(data.reply || "");
+      const { body, meta } = splitReply(result.reply || "");
       const usageMeta =
         meta ||
-        (data.turn_usage && (data.turn_usage.total_tokens || data.turn_usage.calls)
-          ? formatUsage(data.turn_usage)
+        (result.turn_usage && (result.turn_usage.total_tokens || result.turn_usage.calls)
+          ? formatUsage(result.turn_usage)
           : "");
       appendMessage("assistant", body, { meta: usageMeta });
-      setTurnMeta(data.turn_usage);
+      setTurnMeta(result.turn_usage);
       // 先释放输入，避免右侧面板加载卡住时对话框无法再发
       ctx.busy = false;
       syncSendEnabled();
@@ -290,8 +314,8 @@ export function initChat(ctx) {
       if (ctx.applyChatArtifacts) {
         Promise.resolve(
           ctx.applyChatArtifacts({
-            artifacts: data.artifacts || [],
-            primary_tab: data.primary_tab || "reply",
+            artifacts: result.artifacts || [],
+            primary_tab: result.primary_tab || "reply",
             replyBody: body,
           })
         ).catch((err) => console.error("[QuantLab] applyChatArtifacts", err));

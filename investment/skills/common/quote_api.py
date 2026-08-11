@@ -7,6 +7,8 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 
+from core.http_retry import requests_get_with_retry
+
 
 class StockAPI:
     TENCENT_URL = "https://qt.gtimg.cn/q="
@@ -221,7 +223,7 @@ class StockAPI:
         }
 
         try:
-            response = requests.get(url, headers=headers, timeout=10)
+            response = requests_get_with_retry(url, headers=headers, timeout=10, retries=2)
             response.raise_for_status()
             content = response.content.decode("gbk", errors="ignore")
 
@@ -371,7 +373,7 @@ class StockAPI:
             ),
             "Referer": "https://finance.qq.com/",
         }
-        response = requests.get(url, headers=headers, timeout=10)
+        response = requests_get_with_retry(url, headers=headers, timeout=10, retries=2)
         response.raise_for_status()
         # 腾讯接口常为 GBK
         content = response.content.decode("gbk", errors="ignore")
@@ -505,8 +507,8 @@ class StockAPI:
             ),
             "Referer": "https://quote.eastmoney.com/",
         }
-        response = requests.get(
-            cls.EM_PUSH_URL, params=params, headers=headers, timeout=8
+        response = requests_get_with_retry(
+            cls.EM_PUSH_URL, params=params, headers=headers, timeout=8, retries=2
         )
         response.raise_for_status()
         body = response.json()

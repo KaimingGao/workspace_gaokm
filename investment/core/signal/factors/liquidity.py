@@ -12,10 +12,10 @@ def _avg(values: List[float]) -> Optional[float]:
 
 
 def turnover_proxy(bar: dict) -> float:
-    """成交额代理：volume × close（normalize_bars 已统一 volume 字段）。"""
-    vol = float(bar.get("volume") or 0.0)
-    close = float(bar.get("close") or 0.0)
-    return max(0.0, vol * close)
+    """成交额：优先独立 amount，否则 volume × close。"""
+    from core.bar_fields import bar_amount
+
+    return bar_amount(bar)
 
 
 def turnover_ratio(bars: List[dict], short: int = 3, long: int = 10) -> Optional[float]:

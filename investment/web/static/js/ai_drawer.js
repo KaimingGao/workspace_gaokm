@@ -1,4 +1,4 @@
-/** 全局 AI 命令抽屉：任意页 ⌘K / 顶栏打开；POST /api/chat */
+/** 全局 AI 命令抽屉：任意页 ⌘K / 顶栏打开；POST /api/chat/async + 轮询 job */
 
 import { apiFetch } from "./api_client.js";
 
@@ -264,6 +264,47 @@ export function initAiDrawer() {
     }
   });
 
+  async function waitChatJob(jobId, pendingEl) {
+    const started = Date.now();
+    let sawOwn = false;
+    while (Date.now() - started < 10 * 60 * 1000) {
+      const { ok, data, error } = await apiFetch("/api/jobs/chat");
+      if (!ok) throw new Error(error || "轮询对话任务失败");
+      const job = (data && data.job) || {};
+      const same = !jobId || !job.id || job.id === jobId;
+      if (same && job.id) sawOwn = true;
+      if (job.status === "idle" || !job.id) {
+        if (sawOwn || Date.now() - started > 2500) {
+          throw new Error("对话任务已中断（可能服务重启），请重试");
+        }
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
+      if (!same) throw new Error("对话任务已被其它任务覆盖，请重试");
+      if (job.status === "failed") {
+        throw new Error(job.error || "对话失败");
+      }
+      if (job.status === "done" || job.status === "succeeded") {
+        return job.result || {};
+      }
+      if (pendingEl) {
+        const msg = job.message || "思考中…";
+        const pct = Number(job.pct) || 0;
+        const tip =
+          pendingEl.querySelector(".msg-pending-tip") ||
+          pendingEl.querySelector(".pending") ||
+          pendingEl;
+        if (tip && tip !== pendingEl) {
+          tip.textContent = pct ? `${msg} ${pct}%` : msg;
+        } else if (pendingEl.dataset) {
+          pendingEl.dataset.jobMsg = msg;
+        }
+      }
+      await new Promise((r) => setTimeout(r, 600));
+    }
+    throw new Error("对话超时，请稍后重试");
+  }
+
   async function send(text) {
     const content = (text || "").trim();
     if (!content || busy || !messages) return;
@@ -273,7 +314,7 @@ export function initAiDrawer() {
     if (input) input.value = "";
     const pending = appendMsg(messages, "assistant", "", true);
     try {
-      const { ok, data, error } = await apiFetch("/api/chat", {
+      const { ok, data, error } = await apiFetch("/api/chat/async", {
         method: "POST",
         headers: sessionHeaders(),
         body: JSON.stringify({ message: content }),
@@ -286,13 +327,27 @@ export function initAiDrawer() {
           /* ignore */
         }
       }
+      const jobId = (data.job && data.job.id) || null;
+      const result = await waitChatJob(jobId, pending);
+      if (result.session_id) {
+        try {
+          localStorage.setItem(SESSION_KEY, result.session_id);
+        } catch (_) {
+          /* ignore */
+        }
+      }
       pending.remove();
-      const msgEl = appendMsg(messages, "assistant", data.reply || "(空回复)", false);
-      appendArtifactJumps(msgEl, data);
+      const msgEl = appendMsg(
+        messages,
+        "assistant",
+        result.reply || "(空回复)",
+        false
+      );
+      appendArtifactJumps(msgEl, result);
       messages.scrollTop = messages.scrollHeight;
       if (typeof window.__investmentOnChatReply === "function") {
         try {
-          window.__investmentOnChatReply(data);
+          window.__investmentOnChatReply(result);
         } catch (err) {
           console.error("[QuantLab] onChatReply", err);
         }

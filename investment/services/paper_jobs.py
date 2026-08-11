@@ -11,6 +11,7 @@ from core.paper import (
     load_paper,
     save_paper,
     append_operation_log,
+    paper_write_lock,
 )
 from core.paper_rebalance_orchestrator import run_paper_rebalance
 
@@ -42,90 +43,91 @@ class PaperJobsMixin:
                 "error": str(exc),
                 "task": "cluster_prepare_daily",
             }
-        paper = load_paper(self.path)
-        if dry_run:
-            paper = copy.deepcopy(paper)
-        result = run_paper_rebalance(
-            paper,
-            mode="holding_rules",
-            simulate_buy=simulate_buy,
-            strategy=strategy,
-            on_progress=on_progress,
-            dry_run=dry_run,
-        )
-        if dry_run:
-            return {
-                "ok": True,
-                "preview": True,
-                "cluster_prepare": cluster_prep,
-                **result,
-            }
-        from core.paper_costs import fee_fields_from_trade
+        with paper_write_lock(self.path):
+            paper = load_paper(self.path)
+            if dry_run:
+                paper = copy.deepcopy(paper)
+            result = run_paper_rebalance(
+                paper,
+                mode="holding_rules",
+                simulate_buy=simulate_buy,
+                strategy=strategy,
+                on_progress=on_progress,
+                dry_run=dry_run,
+            )
+            if dry_run:
+                return {
+                    "ok": True,
+                    "preview": True,
+                    "cluster_prepare": cluster_prep,
+                    **result,
+                }
+            from core.paper_costs import fee_fields_from_trade
 
-        buys = result.get("buy_trades") or result.get("new_trades") or []
-        sells = result.get("sell_trades") or []
-        for t in buys:
-            fee_meta = fee_fields_from_trade(t)
-            append_operation_log(
-                paper,
-                "buy",
-                detail=(
-                    f"[调仓] 买入 {t.get('stock_name') or t.get('stock_code')} "
-                    f"{t.get('shares')}股 @ {t.get('price')}"
-                ),
-                meta={
-                    "stock_code": t.get("stock_code"),
-                    "stock_name": t.get("stock_name"),
-                    "shares": t.get("shares"),
-                    "price": t.get("price"),
-                    "amount": t.get("amount") or t.get("actual_cost"),
-                    "origin": t.get("origin") or "strategy",
-                    "score": t.get("score"),
-                    "note": t.get("note"),
-                    **fee_meta,
-                },
-            )
-        for t in sells:
-            fee_meta = fee_fields_from_trade(t)
-            append_operation_log(
-                paper,
-                "sell",
-                detail=(
-                    f"[调仓] 卖出 {t.get('stock_name') or t.get('stock_code')} "
-                    f"{t.get('shares')}股 @ {t.get('price')}"
-                ),
-                meta={
-                    "stock_code": t.get("stock_code"),
-                    "stock_name": t.get("stock_name"),
-                    "shares": t.get("shares"),
-                    "price": t.get("price"),
-                    "amount": t.get("amount") or t.get("actual_cost"),
-                    "origin": t.get("origin") or "strategy",
-                    "note": t.get("note"),
-                    **fee_meta,
-                },
-            )
-        if buys or sells:
-            append_operation_log(
-                paper, "rebalance",
-                detail=f"策略{strategy} · 买入{len(buys)}笔 · 卖出{len(sells)}笔",
-                meta={"strategy": strategy, "buy_count": len(buys), "sell_count": len(sells)},
-            )
-        elif result.get("buys_blocked"):
-            # risk_block 已在 run_daily_cycle 写入；再记一条调仓摘要便于列表扫描
-            blocks = result.get("risk_blocks") or []
-            append_operation_log(
-                paper,
-                "rebalance",
-                detail=f"策略{strategy} · 风控拦截加仓 · {len(blocks)} 条",
-                meta={
-                    "strategy": strategy,
-                    "buys_blocked": True,
-                    "blocks": blocks,
-                },
-            )
-        save_paper(paper, self.path)
-        return {"ok": True, "cluster_prepare": cluster_prep, **result}
+            buys = result.get("buy_trades") or result.get("new_trades") or []
+            sells = result.get("sell_trades") or []
+            for t in buys:
+                fee_meta = fee_fields_from_trade(t)
+                append_operation_log(
+                    paper,
+                    "buy",
+                    detail=(
+                        f"[调仓] 买入 {t.get('stock_name') or t.get('stock_code')} "
+                        f"{t.get('shares')}股 @ {t.get('price')}"
+                    ),
+                    meta={
+                        "stock_code": t.get("stock_code"),
+                        "stock_name": t.get("stock_name"),
+                        "shares": t.get("shares"),
+                        "price": t.get("price"),
+                        "amount": t.get("amount") or t.get("actual_cost"),
+                        "origin": t.get("origin") or "strategy",
+                        "score": t.get("score"),
+                        "note": t.get("note"),
+                        **fee_meta,
+                    },
+                )
+            for t in sells:
+                fee_meta = fee_fields_from_trade(t)
+                append_operation_log(
+                    paper,
+                    "sell",
+                    detail=(
+                        f"[调仓] 卖出 {t.get('stock_name') or t.get('stock_code')} "
+                        f"{t.get('shares')}股 @ {t.get('price')}"
+                    ),
+                    meta={
+                        "stock_code": t.get("stock_code"),
+                        "stock_name": t.get("stock_name"),
+                        "shares": t.get("shares"),
+                        "price": t.get("price"),
+                        "amount": t.get("amount") or t.get("actual_cost"),
+                        "origin": t.get("origin") or "strategy",
+                        "note": t.get("note"),
+                        **fee_meta,
+                    },
+                )
+            if buys or sells:
+                append_operation_log(
+                    paper, "rebalance",
+                    detail=f"策略{strategy} · 买入{len(buys)}笔 · 卖出{len(sells)}笔",
+                    meta={"strategy": strategy, "buy_count": len(buys), "sell_count": len(sells)},
+                )
+            elif result.get("buys_blocked"):
+                # risk_block 已在 run_daily_cycle 写入；再记一条调仓摘要便于列表扫描
+                blocks = result.get("risk_blocks") or []
+                append_operation_log(
+                    paper,
+                    "rebalance",
+                    detail=f"策略{strategy} · 风控拦截加仓 · {len(blocks)} 条",
+                    meta={
+                        "strategy": strategy,
+                        "buys_blocked": True,
+                        "blocks": blocks,
+                    },
+                )
+            save_paper(paper, self.path)
+            return {"ok": True, "cluster_prepare": cluster_prep, **result}
 
     def start_run_job(
         self,

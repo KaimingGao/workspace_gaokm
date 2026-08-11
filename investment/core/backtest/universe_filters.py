@@ -11,15 +11,13 @@ def _is_st_name(name: str) -> bool:
 
 
 def _avg_amount(bars: List[dict], *, tail: int = 20) -> Optional[float]:
+    from core.bar_fields import bar_amount
+
     amts: List[float] = []
     for b in (bars or [])[-tail:]:
-        try:
-            c = float(b.get("close") or 0)
-            v = float(b.get("volume") or b.get("vol") or 0)
-        except (TypeError, ValueError):
-            continue
-        if c > 0 and v > 0:
-            amts.append(c * v)
+        amt = bar_amount(b)
+        if amt > 0:
+            amts.append(amt)
     if not amts:
         return None
     return sum(amts) / len(amts)
@@ -34,7 +32,7 @@ def filter_universe_bars(
 ) -> Tuple[Dict[str, List[dict]], List[Dict[str, Any]], Dict[str, Any]]:
     """
     返回 (filtered_bars, dropped, filters_meta)。
-    min_avg_amount_pctile: 0–100，只保留成交额（价×量均值）≥该分位的票。
+    min_avg_amount_pctile: 0–100，只保留成交额（优先 amount，否则价×量）≥该分位的票。
     """
     dropped: List[Dict[str, Any]] = []
     names = name_by_code or {}

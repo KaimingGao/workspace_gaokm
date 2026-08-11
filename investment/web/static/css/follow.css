@@ -975,25 +975,41 @@
 }
 
 /* 收益分：半粗即可；红绿已承载正负，避免 700 抢戏 */
-.bt-trade-score.paper-hold-score {
+.bt-trade-score.paper-hold-score,
+.paper-holdings-table .paper-hold-score,
+.paper-holdings-react-grid .paper-hold-score {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
 
+/* 评分红绿（A 股口径：正红 / 负绿），持仓表 + 回测成交 */
+.paper-holdings-table .paper-hold-score.score-up,
+.paper-holdings-react-grid .paper-hold-score.score-up,
 .bt-trade-score.paper-hold-score.score-up {
   color: var(--color-up, #f5222d);
 }
 
+.paper-holdings-table .paper-hold-score.score-down,
+.paper-holdings-react-grid .paper-hold-score.score-down,
 .bt-trade-score.paper-hold-score.score-down {
   color: var(--color-down, #52c41a);
 }
 
+.paper-holdings-table .paper-hold-score.score-flat,
+.paper-holdings-react-grid .paper-hold-score.score-flat,
 .bt-trade-score.paper-hold-score.score-flat {
   color: var(--ink-2, #64748b);
 }
 
+.paper-holdings-table .paper-hold-score.score-na,
+.paper-holdings-react-grid .paper-hold-score.score-na,
 .bt-trade-score.paper-hold-score.score-na {
-  color: #9ca3af;
+  color: var(--ink-3, #94a3b8);
+}
+
+.paper-holdings-table .paper-hold-score.score-below-min,
+.paper-holdings-react-grid .paper-hold-score.score-below-min {
+  opacity: 0.72;
 }
 
 .paper-holdings-table td.num {

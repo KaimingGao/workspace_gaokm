@@ -53,12 +53,14 @@ def build_cluster_enable_evidence(
     include_audit: bool = False,
     health: Optional[Dict[str, Any]] = None,
     audit: Optional[Dict[str, Any]] = None,
+    include_rolling_ic: bool = False,
 ) -> Dict[str, Any]:
     """
     EP1：对照→启用证据包（JSON）。
 
     门禁：健康 allow_active；若有 OOS 记录且全部失败则禁止启用。
     默认不采全局/组双分样本（系统主路径无全局 return_model）。
+    ``include_rolling_ic`` 默认关：状态/UI 路径避免拉行情卡死；启用门禁显式打开。
     """
     from core.signal.cluster_live import (
         assess_cluster_live_health,
@@ -193,10 +195,10 @@ def build_cluster_enable_evidence(
     if name_count <= 0:
         warnings.append("分池簿为空 · 启用后请刷新簿再分池调仓")
 
-    # Y1.1 / Y1.3：滚动 ŷ IC（仅 active 门禁需要；shadow 对照跳过以免久等）
+    # Y1.1 / Y1.3：滚动 ŷ IC（仅启用门禁显式打开；状态 GET 默认跳过以免行情挂死）
     rolling_ic_pack: Dict[str, Any] = {"ok": False, "rolling_ic": None, "skipped": True}
     mode_now = str(cs.get("mode") or "off")
-    if mode_now == "active":
+    if include_rolling_ic and mode_now == "active":
         rolling_ic_pack = {"ok": False, "rolling_ic": None}
         try:
             from core.strategy_monitor import estimate_rolling_yhat_ic_for_codes
@@ -219,6 +221,8 @@ def build_cluster_enable_evidence(
                         warnings.append(msg + " · 建议重拟合后再启用")
             except (TypeError, ValueError):
                 pass
+    elif mode_now == "active":
+        rolling_ic_pack["note"] = "状态路径跳过 ŷ IC（启用门禁再算）"
     else:
         rolling_ic_pack["note"] = "shadow/off 跳过 ŷ IC（启用 active 时再算）"
 
@@ -284,10 +288,14 @@ def cluster_status_public(
     include_audit: bool = False,
     audit_rotate: bool = False,
     audit_offset: Optional[int] = None,
+    light: bool = False,
+    run_auto_demote: bool = False,
 ) -> Dict[str, Any]:
     """供 API/UI 的状态摘要（含落地下一步）。
 
     ``include_audit`` 默认关闭：系统主路径只有组 return_model，无全局ŷ对照。
+    ``light``：交易执行状态条等只读 mode/簿长，跳过证据包与自动降级（避免行情挂死）。
+    ``run_auto_demote``：默认关；GET 状态不做副作用。日更请走 ``prepare_cluster_for_daily``。
     """
     from core.paths import (
         CLUSTER_BOOK_ACTIVE_PATH,
@@ -303,12 +311,24 @@ def cluster_status_public(
         load_cluster_draft,
         maybe_auto_demote_stale,
     )
+    from core.signal.config import load_signal_config
     from core.signal.score_display import json_safe_number
+
+    # 跨进程改写 signal_config 后，服务进程缓存可能仍是旧 mode
+    try:
+        load_signal_config(reload=True)
+    except Exception:
+        pass
 
     cs = get_cluster_scoring_cfg()
     auto_demote = None
-    # active 且配置了自动降级：IC 破线 / 陈旧立刻落到 shadow，避免卡在「已启用但不可用」
-    if cs.get("mode") == "active" and cs.get("auto_demote_on_stale"):
+    # 默认不在 GET status 上自动降级（副作用 + 可能拉行情卡死 UI）
+    if (
+        run_auto_demote
+        and not light
+        and cs.get("mode") == "active"
+        and cs.get("auto_demote_on_stale")
+    ):
         try:
             auto_demote = maybe_auto_demote_stale()
             if auto_demote.get("demoted"):
@@ -317,7 +337,8 @@ def cluster_status_public(
             auto_demote = None
 
     active = load_active_cluster_weights()
-    health = assess_cluster_live_health()
+    # 状态/落地 UI 不拉滚动 IC；IC 门禁在 set_mode(active) / 日更路径算
+    health = assess_cluster_live_health(compute_ic=False)
     draft = load_cluster_draft()
     book = load_active_cluster_book()
     import core.signal.cluster_live as cluster_live_mod
@@ -331,7 +352,7 @@ def cluster_status_public(
     book_min_score = json_safe_number(book_meta.get("min_score"))
 
     audit = None
-    if include_audit and mode in ("shadow", "active") and has_active:
+    if include_audit and not light and mode in ("shadow", "active") and has_active:
         try:
             audit = cluster_score_audit_sample(
                 limit=8,
@@ -341,11 +362,25 @@ def cluster_status_public(
         except Exception as exc:
             audit = {"success": False, "rows": [], "error": str(exc)}
 
-    evidence = build_cluster_enable_evidence(
-        include_audit=False,
-        health=health,
-        audit=None,
-    )
+    if light:
+        evidence = {
+            "success": True,
+            "ok": bool(health.get("allow_active")),
+            "gate": {
+                "ok": bool(health.get("allow_active")),
+                "blockers": [],
+                "warnings": [],
+            },
+            "skipped": True,
+            "note": "light 状态跳过证据包",
+        }
+    else:
+        evidence = build_cluster_enable_evidence(
+            include_audit=False,
+            health=health,
+            audit=None,
+            include_rolling_ic=False,
+        )
     allow_active = bool(health.get("allow_active")) and bool(
         (evidence.get("gate") or {}).get("ok")
     )
@@ -438,6 +473,7 @@ def cluster_status_public(
             if auto_demote
             else None
         ),
+        "light": bool(light),
         "note": "组权在 live 产物；调仓仅交易执行页；signal_config 仅开关 mode",
     }
 

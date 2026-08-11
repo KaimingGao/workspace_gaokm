@@ -92,8 +92,10 @@ flowchart LR
 **日线 bar**（`normalize_bars`）：
 
 ```text
-{ date, open, high, low, close, volume }
+{ date, open, high, low, close, volume, amount? }
 ```
+
+`volume` 仅成交量；`amount` 为独立成交额（有则保留）。二者不再混用。
 
 **实时行情**（`StockAPI.query`）：`success` + `price` / `change_*` 等；同 symbol 约 60s 内存缓存。
 
@@ -207,9 +209,12 @@ flowchart LR
 
 ### 采集运维
 
-- `POST /api/schedule/run` kinds：`bars_warmup` · `spot_refresh` · `fundamentals_warmup`（默认 ingest 真实 history）· `paper_daily`
+- `POST /api/schedule/run` kinds：`bars_warmup` · `spot_refresh` · `fundamentals_warmup`（默认 ingest 真实 history）· `paper_daily` · `validation_prepare` · `sentiment_scan`
+- 验证宇宙卫生：`GET /api/ops/validation-hygiene` · `POST /api/ops/validation-prepare`
+- 舆情 as_of：`GET /api/ops/sentiment-as-of?code=&as_of=`
 - 覆盖率字段：`coverage` / `data_coverage`（mapped、stale、levels）
 - 告警码：`bars_coverage_thin` · `bars_stale` · `bars_empty` → `alert_outbound`
+- 预热默认标的：验证宇宙（`validation_universe`）优先，否则 watching
 
 目标交互（演进后）：
 

@@ -12,6 +12,7 @@ from core.paper import (
     save_paper,
     append_snapshot,
     append_operation_log,
+    paper_write_lock,
     _now_iso,
 )
 from core.paper_costs import enrich_operation_log_with_trade_fees
@@ -409,14 +410,15 @@ class PaperAccountMixin:
         if amt > 100_000_000:
             raise ValueError("单次注资不超过 1 亿")
 
-        paper = load_paper(self.path)
-        paper["cash"] = round(float(paper.get("cash") or 0) + amt, 2)
-        paper["initial_cash"] = round(float(paper.get("initial_cash") or 0) + amt, 2)
-        paper["updated_at"] = _now_iso()
-        summary = mark_to_market(paper)
-        append_snapshot(paper, summary)
-        append_operation_log(paper, "deposit", detail=f"注资 {amt:g} 元", meta={"amount": amt})
-        save_paper(paper, self.path)
+        with paper_write_lock(self.path):
+            paper = load_paper(self.path)
+            paper["cash"] = round(float(paper.get("cash") or 0) + amt, 2)
+            paper["initial_cash"] = round(float(paper.get("initial_cash") or 0) + amt, 2)
+            paper["updated_at"] = _now_iso()
+            summary = mark_to_market(paper)
+            append_snapshot(paper, summary)
+            append_operation_log(paper, "deposit", detail=f"注资 {amt:g} 元", meta={"amount": amt})
+            save_paper(paper, self.path)
         out = self.status()
         out["deposited"] = amt
         out["message"] = f"已注资 {amt:g} · 现金 {out.get('summary', {}).get('cash')}"
@@ -432,21 +434,22 @@ class PaperAccountMixin:
         if amt > 100_000_000:
             raise ValueError("单次减资不超过 1 亿")
 
-        paper = load_paper(self.path)
-        cash = float(paper.get("cash") or 0)
-        if cash <= 0:
-            raise ValueError("当前无可用现金可减")
-        if amt > cash:
-            raise ValueError(f"减资不能超过现金余额（可用 {round(cash, 2)}）")
+        with paper_write_lock(self.path):
+            paper = load_paper(self.path)
+            cash = float(paper.get("cash") or 0)
+            if cash <= 0:
+                raise ValueError("当前无可用现金可减")
+            if amt > cash:
+                raise ValueError(f"减资不能超过现金余额（可用 {round(cash, 2)}）")
 
-        paper["cash"] = round(cash - amt, 2)
-        initial = float(paper.get("initial_cash") or 0)
-        paper["initial_cash"] = round(max(0.0, initial - amt), 2)
-        paper["updated_at"] = _now_iso()
-        summary = mark_to_market(paper)
-        append_snapshot(paper, summary)
-        append_operation_log(paper, "withdraw", detail=f"减资 {amt:g} 元", meta={"amount": amt})
-        save_paper(paper, self.path)
+            paper["cash"] = round(cash - amt, 2)
+            initial = float(paper.get("initial_cash") or 0)
+            paper["initial_cash"] = round(max(0.0, initial - amt), 2)
+            paper["updated_at"] = _now_iso()
+            summary = mark_to_market(paper)
+            append_snapshot(paper, summary)
+            append_operation_log(paper, "withdraw", detail=f"减资 {amt:g} 元", meta={"amount": amt})
+            save_paper(paper, self.path)
         out = self.status()
         out["withdrawn"] = amt
         out["message"] = f"已减资 {amt:g} · 现金 {out.get('summary', {}).get('cash')}"
@@ -457,28 +460,29 @@ class PaperAccountMixin:
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
 
-        paper = load_paper(self.path)
-        summary = mark_to_market(paper)
-        equity = float(summary.get("equity") or paper.get("cash") or 0)
-        if equity <= 0:
-            equity = float(paper.get("cash") or 0)
-        # 以当前净值作为新的初始本金，盈亏从 0% 起算
-        paper["initial_cash"] = round(equity, 2)
-        paper["trades"] = []
-        paper["signal_log"] = []
-        paper["snapshots"] = [
-            {
-                "ts": _now_iso(),
-                "equity": round(equity, 2),
-                "cash": summary.get("cash"),
-                "stock_value": summary.get("stock_value"),
-                "total_pnl_pct": 0.0,
-                "position_count": summary.get("position_count"),
-            }
-        ]
-        paper["updated_at"] = _now_iso()
-        append_operation_log(paper, "reset", detail=f"回零 · 基线 {round(equity, 2)}", meta={"equity": round(equity, 2)})
-        save_paper(paper, self.path)
+        with paper_write_lock(self.path):
+            paper = load_paper(self.path)
+            summary = mark_to_market(paper)
+            equity = float(summary.get("equity") or paper.get("cash") or 0)
+            if equity <= 0:
+                equity = float(paper.get("cash") or 0)
+            # 以当前净值作为新的初始本金，盈亏从 0% 起算
+            paper["initial_cash"] = round(equity, 2)
+            paper["trades"] = []
+            paper["signal_log"] = []
+            paper["snapshots"] = [
+                {
+                    "ts": _now_iso(),
+                    "equity": round(equity, 2),
+                    "cash": summary.get("cash"),
+                    "stock_value": summary.get("stock_value"),
+                    "total_pnl_pct": 0.0,
+                    "position_count": summary.get("position_count"),
+                }
+            ]
+            paper["updated_at"] = _now_iso()
+            append_operation_log(paper, "reset", detail=f"回零 · 基线 {round(equity, 2)}", meta={"equity": round(equity, 2)})
+            save_paper(paper, self.path)
         out = self.status()
         out["message"] = (
             f"已回零 · 基线 {out.get('summary', {}).get('equity')} · "

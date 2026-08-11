@@ -88,12 +88,20 @@ def quant_cluster_multi_score(body: ClusterMultiScoreRequest):
 def quant_cluster_live_status(
     audit_rotate: bool = False,
     audit_offset: Optional[int] = None,
+    light: bool = False,
+    run_auto_demote: bool = False,
 ):
-    """分组 live 状态：active / draft / health / mode。"""
+    """分组 live 状态：active / draft / health / mode。
+
+    ``light=1``：只读 mode/簿长（交易执行状态条）；不跑证据包/自动降级。
+    ``run_auto_demote``：默认关；日更请走 prepare 路径。
+    """
     try:
         return deps.quant.cluster_live_status(
             audit_rotate=bool(audit_rotate),
             audit_offset=audit_offset,
+            light=bool(light),
+            run_auto_demote=bool(run_auto_demote),
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

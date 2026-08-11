@@ -73,6 +73,38 @@
     return el;
   }
 
+  async function waitChatJob(jobId) {
+    var started = Date.now();
+    var sawOwn = false;
+    while (Date.now() - started < 10 * 60 * 1000) {
+      var res = await fetch("/api/jobs/chat");
+      var data = await res.json().catch(function () {
+        return {};
+      });
+      var job = (data && data.job) || {};
+      var same = !jobId || !job.id || job.id === jobId;
+      if (same && job.id) sawOwn = true;
+      if (job.status === "idle" || !job.id) {
+        if (sawOwn || Date.now() - started > 2500) {
+          throw new Error("对话任务已中断（可能服务重启），请重试");
+        }
+        await new Promise(function (r) {
+          setTimeout(r, 400);
+        });
+        continue;
+      }
+      if (!same) throw new Error("对话任务已被其它任务覆盖，请重试");
+      if (job.status === "failed") throw new Error(job.error || "对话失败");
+      if (job.status === "done" || job.status === "succeeded") {
+        return job.result || {};
+      }
+      await new Promise(function (r) {
+        setTimeout(r, 600);
+      });
+    }
+    throw new Error("对话超时，请稍后重试");
+  }
+
   async function send(text) {
     var content = (text || "").trim();
     if (!content || busy) return;
@@ -83,7 +115,7 @@
     syncSend();
     var pending = append("assistant", "", true);
     try {
-      var res = await fetch("/api/chat", {
+      var res = await fetch("/api/chat/async", {
         method: "POST",
         headers: headers(),
         body: JSON.stringify({ message: content }),
@@ -98,11 +130,19 @@
           localStorage.setItem(SESSION_KEY, sessionId);
         } catch (e) {}
       }
+      var jobId = (data.job && data.job.id) || null;
+      var result = await waitChatJob(jobId);
+      if (result.session_id) {
+        sessionId = result.session_id;
+        try {
+          localStorage.setItem(SESSION_KEY, sessionId);
+        } catch (e) {}
+      }
       pending.remove();
-      append("assistant", data.reply || "(空回复)", false);
+      append("assistant", result.reply || "(空回复)", false);
       if (typeof window.__investmentOnChatReply === "function") {
         try {
-          window.__investmentOnChatReply(data);
+          window.__investmentOnChatReply(result);
         } catch (err) {
           console.error("[QuantLab] onChatReply", err);
         }

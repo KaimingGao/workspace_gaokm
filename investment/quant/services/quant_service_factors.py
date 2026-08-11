@@ -649,12 +649,16 @@ class QuantFactorMixin:
         *,
         audit_rotate: bool = False,
         audit_offset: Optional[int] = None,
+        light: bool = False,
+        run_auto_demote: bool = False,
     ) -> Dict[str, Any]:
         from core.signal.cluster_live import cluster_status_public
 
         return cluster_status_public(
             audit_rotate=bool(audit_rotate),
             audit_offset=audit_offset,
+            light=bool(light),
+            run_auto_demote=bool(run_auto_demote),
         )
 
     def promote_cluster_live(

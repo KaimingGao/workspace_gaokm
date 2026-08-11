@@ -19,6 +19,13 @@ class ChatResponse(BaseModel):
     artifacts: list = Field(default_factory=list)
     primary_tab: str = "reply"
 
+
+class ChatAsyncResponse(BaseModel):
+    ok: bool = True
+    background: bool = True
+    session_id: str
+    job: dict = Field(default_factory=dict)
+
 class PaperRunRequest(BaseModel):
     simulate_buy: bool = False
     background: bool = False

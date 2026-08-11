@@ -3,8 +3,22 @@
  */
 
 import { fmtPriceUnit, fmtPct, metricCls, fmtScore, scoreCls } from "./paper/fmt.js";
-import { mountVirtualTable, escapeHtml, truncateName } from "./virtual_table.js";
 import { sentimentBadgeHtml } from "./quant/watching_render.js";
+
+function escapeHtml(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function truncateName(name, max = 6) {
+  const full = String(name || "").trim();
+  const chars = Array.from(full);
+  if (chars.length <= max) return full;
+  return `${chars.slice(0, max).join("")}…`;
+}
 
 export function holdingSentPlaceholder(code) {
   const c = String(code || "").trim();
@@ -138,6 +152,10 @@ function compare(id, a, b) {
  * @param {{ initialSort?: Array<{column:string, dir:string}> }} [options]
  */
 export async function mountHoldingsTableIsland(host, options = {}) {
+  const V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+  const { mountVirtualTable } = await import(
+    `./virtual_table.js?v=${encodeURIComponent(V)}`
+  );
   return mountVirtualTable(host, {
     columns: COLS,
     emptyText: "暂无持仓",

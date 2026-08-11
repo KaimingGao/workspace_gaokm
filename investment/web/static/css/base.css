@@ -3472,6 +3472,15 @@ body[data-page]:not([data-page="chat"]) {
   width: 2px;
   border-radius: 1px;
   background: var(--line, #c5d0dc);
+  /* 默认隐藏：否则与主表右边框叠成「表格右侧多一条竖线」 */
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.research-dock .dock-splitter:hover::after,
+.research-dock .dock-splitter:focus-visible::after,
+body.dock-dragging .dock-splitter::after {
+  opacity: 1;
 }
 
 body.dock-dragging .dock-splitter::after {

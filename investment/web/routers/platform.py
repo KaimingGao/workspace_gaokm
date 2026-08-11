@@ -27,7 +27,7 @@ class ScheduleBody(BaseModel):
         ...,
         description=(
             "watch_alert | daily_review | sentiment_scan | bars_warmup | "
-            "spot_refresh | fundamentals_warmup | paper_daily"
+            "spot_refresh | fundamentals_warmup | paper_daily | validation_prepare"
         ),
     )
     codes: Optional[List[str]] = None
@@ -38,6 +38,10 @@ class ScheduleBody(BaseModel):
     # fundamentals_warmup
     ingest_history: Optional[bool] = True
     ingest_max_points: int = Field(default=8, ge=1, le=24)
+    # validation_prepare
+    write_excludes: bool = False
+    warmup_bars: Optional[bool] = True
+    warmup_sentiment: Optional[bool] = True
 
 
 class RecordAdviceBody(BaseModel):
@@ -141,6 +145,9 @@ def post_schedule(body: ScheduleBody):
         force=body.force,
         ingest_history=body.ingest_history,
         ingest_max_points=body.ingest_max_points,
+        write_excludes=body.write_excludes,
+        warmup_bars=body.warmup_bars,
+        warmup_sentiment=body.warmup_sentiment,
     )
     if not out.get("ok"):
         raise HTTPException(status_code=400, detail=out.get("error") or "schedule failed")
@@ -185,6 +192,43 @@ def ops_sample_status():
 def ops_empty_fundamentals():
     """V0.5 · 空财务码列表（补拉或移出验证宇宙）。"""
     return deps.platform.get_empty_fundamentals()
+
+
+@router.get("/api/ops/validation-hygiene")
+def ops_validation_hygiene(as_of: str = ""):
+    """验证宇宙卫生：日线覆盖 + 空财务 + 舆情 history 面板。"""
+    return deps.platform.get_validation_hygiene(as_of=as_of or None)
+
+
+class ValidationPrepareBody(BaseModel):
+    codes: Optional[List[str]] = None
+    write_excludes: bool = False
+    warmup_bars: bool = True
+    warmup_sentiment: bool = True
+    bars_limit: int = Field(default=60, ge=10, le=120)
+
+
+@router.post("/api/ops/validation-prepare")
+def ops_validation_prepare(body: ValidationPrepareBody | None = None):
+    """一键准备验证宇宙（可写 exclude + 预热日线/舆情 history）。"""
+    body = body or ValidationPrepareBody()
+    return deps.platform.run_validation_prepare(
+        codes=body.codes,
+        write_excludes=body.write_excludes,
+        warmup_bars=body.warmup_bars,
+        warmup_sentiment=body.warmup_sentiment,
+        bars_limit=body.bars_limit,
+    )
+
+
+@router.get("/api/ops/sentiment-as-of")
+def ops_sentiment_as_of(code: str, as_of: str):
+    """FS · 决策日 as_of 舆情面板（history jsonl；不进 ŷ）。"""
+    from core.sentiment import sentiment_as_of
+
+    if not str(code or "").strip() or not str(as_of or "").strip():
+        raise HTTPException(status_code=400, detail="需要 code 与 as_of")
+    return sentiment_as_of(str(code).strip(), str(as_of).strip()[:10])
 
 
 @router.get("/api/ops/data-quality")

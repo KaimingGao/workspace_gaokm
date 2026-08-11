@@ -117,6 +117,8 @@ def score_headlines(
     items: Sequence[dict],
     *,
     lexicon: Optional[Dict[str, List[str]]] = None,
+    degraded: bool = False,
+    degrade_reason: Optional[str] = None,
 ) -> Dict[str, Any]:
     """规则情绪：有命中时打标签；强度按「命中标题占比」稀释。
 
@@ -125,6 +127,7 @@ def score_headlines(
       coverage=命中标题数/总标题数。避免「5 条里 1 条分行违规」被打成 1.0
       误触发 gate 缩仓。
     - 无命中 → neutral / score=null
+    - degraded=True：超时/空源降级，prior 不触发 gate（prior_eligible=false）
     """
     lex = lexicon or load_lexicon()
     pos_words = [w for w in (lex.get("positive") or []) if w]
@@ -159,7 +162,7 @@ def score_headlines(
     n_pos, n_neg = len(hit_pos), len(hit_neg)
     total = n_pos + n_neg
     if total == 0 or n_titles <= 0:
-        return _annotate_include_gate(
+        out = _annotate_include_gate(
             {
                 "label": "neutral",
                 "score": None,
@@ -168,32 +171,54 @@ def score_headlines(
                 "n_titles": n_titles,
                 "n_hit_titles": 0,
                 "coverage": 0.0,
-                "note": "无关键词命中",
+                "note": "无关键词命中" if n_titles else "无标题",
             }
         )
-    polar = n_neg / total
-    coverage = n_hit_titles / float(n_titles)
-    # 强度 = 极性 × 标题覆盖；稀疏负向不再虚高到 1.0
-    score = round(polar * coverage, 4)
-    if n_pos and n_neg:
-        label = "mixed"
-    elif n_neg:
-        label = "bearish"
     else:
-        label = "bullish"
-    return _annotate_include_gate(
-        {
-            "label": label,
-            "score": score,
-            "hit_pos": hit_pos,
-            "hit_neg": hit_neg,
-            "n_titles": n_titles,
-            "n_hit_titles": n_hit_titles,
-            "coverage": round(coverage, 4),
-            "polar": round(polar, 4),
-            "note": "规则关键词×标题覆盖，非模型",
-        }
-    )
+        polar = n_neg / total
+        coverage = n_hit_titles / float(n_titles)
+        # 强度 = 极性 × 标题覆盖；稀疏负向不再虚高到 1.0
+        score = round(polar * coverage, 4)
+        if n_pos and n_neg:
+            label = "mixed"
+        elif n_neg:
+            label = "bearish"
+        else:
+            label = "bullish"
+        out = _annotate_include_gate(
+            {
+                "label": label,
+                "score": score,
+                "hit_pos": hit_pos,
+                "hit_neg": hit_neg,
+                "n_titles": n_titles,
+                "n_hit_titles": n_hit_titles,
+                "coverage": round(coverage, 4),
+                "polar": round(polar, 4),
+                "note": "规则关键词×标题覆盖，非模型",
+            }
+        )
+    if degraded:
+        out["degraded"] = True
+        out["prior_eligible"] = False
+        if degrade_reason:
+            out["degrade_reason"] = str(degrade_reason)[:200]
+        note = str(out.get("note") or "")
+        out["note"] = (note + " · 降级不触发 prior").strip(" ·")
+    else:
+        out.setdefault("degraded", False)
+        out.setdefault("prior_eligible", True)
+    return out
+
+
+def _mark_sentiment_degraded(
+    sent: Dict[str, Any], *, reason: str
+) -> Dict[str, Any]:
+    out = _annotate_include_gate(dict(sent or {}))
+    out["degraded"] = True
+    out["prior_eligible"] = False
+    out["degrade_reason"] = str(reason or "")[:200]
+    return out
 
 
 def _read_cache(code: str) -> Optional[Dict[str, Any]]:
@@ -348,6 +373,95 @@ def sentiment_as_of(
     }
 
 
+def build_sentiment_panel_coverage(
+    codes: Sequence[str],
+    *,
+    as_of: Optional[str] = None,
+) -> Dict[str, Any]:
+    """验证宇宙舆情 history 面板覆盖（只读）。"""
+    as_of_d = str(as_of or "").strip()[:10] or time.strftime("%Y-%m-%d")
+    items: List[Dict[str, Any]] = []
+    ok_n = 0
+    missing_n = 0
+    for code in codes or []:
+        c = str(code or "").strip()
+        if not c:
+            continue
+        row = sentiment_as_of(c, as_of_d)
+        status = str((row.get("sentiment") or {}).get("coverage_status") or "missing")
+        has = bool(row.get("ok")) and status == "ok"
+        if has:
+            ok_n += 1
+        else:
+            missing_n += 1
+        items.append(
+            {
+                "stock_code": c,
+                "ok": has,
+                "coverage_status": status,
+                "n_titles": (row.get("metrics") or {}).get("n_titles") or 0,
+                "label": (row.get("sentiment") or {}).get("label"),
+            }
+        )
+    total = ok_n + missing_n
+    return {
+        "ok": True,
+        "as_of": as_of_d,
+        "total": total,
+        "covered": ok_n,
+        "missing_count": missing_n,
+        "coverage": round(ok_n / total, 3) if total else 1.0,
+        "items": items,
+        "note": "history jsonl as_of 面板；缺失不进 ŷ，仅诊断。",
+    }
+
+
+def warmup_sentiment_history(
+    codes: Sequence[str],
+    *,
+    limit: int = 5,
+) -> Dict[str, Any]:
+    """强制拉取标题并写入 history，供 as_of 面板。"""
+    lexicon = load_lexicon()
+    scanned: List[Dict[str, Any]] = []
+    ok_n = 0
+    for code in list(codes or [])[:MAX_BATCH]:
+        c = str(code or "").strip()
+        if not c:
+            continue
+        try:
+            row = fetch_stock_headlines(
+                c, limit=limit, force=True, lexicon=lexicon
+            )
+        except Exception as exc:
+            row = {
+                "ok": False,
+                "stock_code": c,
+                "error": str(exc),
+                "sentiment": score_headlines([], lexicon=lexicon, degraded=True),
+            }
+        if row.get("ok"):
+            ok_n += 1
+        scanned.append(
+            {
+                "stock_code": row.get("stock_code") or c,
+                "ok": row.get("ok"),
+                "stale": row.get("stale"),
+                "label": (row.get("sentiment") or {}).get("label"),
+                "degraded": (row.get("sentiment") or {}).get("degraded"),
+                "n_titles": len(row.get("items") or []),
+            }
+        )
+    return {
+        "ok": True,
+        "kind": "sentiment_history_warmup",
+        "scanned": len(scanned),
+        "ok_count": ok_n,
+        "items": scanned,
+        "note": "写入 news/history；prior-only，不进 ŷ。",
+    }
+
+
 def _cache_fresh(cached: Dict[str, Any], *, ttl_sec: int) -> bool:
     try:
         ts = float(cached.get("fetched_at") or 0)
@@ -389,12 +503,15 @@ def fetch_stock_headlines(
         sent = cached.get("sentiment")
         if not isinstance(sent, dict):
             sent = _attach_sentiment(items, lexicon=lexicon)
+        sent = _annotate_include_gate(sent if isinstance(sent, dict) else {})
+        sent.setdefault("degraded", False)
+        sent.setdefault("prior_eligible", True)
         return {
             "ok": True,
             "stock_code": cached.get("stock_code") or code_key,
             "stock_name": cached.get("stock_name") or "",
             "items": items,
-            "sentiment": _annotate_include_gate(sent if isinstance(sent, dict) else {}),
+            "sentiment": sent,
             "updated_at": cached.get("updated_at"),
             "from_cache": True,
             "error": None,
@@ -406,17 +523,19 @@ def fetch_stock_headlines(
         raw = build_news(code_key, limit=limit)
     except Exception as exc:
         # 超时/网络异常：优先回退过期缓存，避免 UI 永久加载中
+        reason = f"资讯源超时：{exc}"
         if cached:
             items = list(cached.get("items") or [])[:limit]
             sent = cached.get("sentiment")
             if not isinstance(sent, dict):
                 sent = _attach_sentiment(items, lexicon=lexicon)
+            sent = _mark_sentiment_degraded(sent, reason=reason)
             return {
                 "ok": True,
                 "stock_code": cached.get("stock_code") or code_key,
                 "stock_name": cached.get("stock_name") or "",
                 "items": items,
-                "sentiment": _annotate_include_gate(sent if isinstance(sent, dict) else {}),
+                "sentiment": sent,
                 "updated_at": cached.get("updated_at"),
                 "from_cache": True,
                 "stale": True,
@@ -427,7 +546,9 @@ def fetch_stock_headlines(
             "stock_code": code_key,
             "stock_name": "",
             "items": [],
-            "sentiment": score_headlines([], lexicon=lexicon),
+            "sentiment": score_headlines(
+                [], lexicon=lexicon, degraded=True, degrade_reason=reason
+            ),
             "error": f"资讯拉取失败：{exc}",
             "updated_at": None,
             "from_cache": False,
@@ -441,12 +562,13 @@ def fetch_stock_headlines(
             sent = cached.get("sentiment")
             if not isinstance(sent, dict):
                 sent = _attach_sentiment(items, lexicon=lexicon)
+            sent = _mark_sentiment_degraded(sent, reason=err)
             return {
                 "ok": True,
                 "stock_code": cached.get("stock_code") or code_key,
                 "stock_name": cached.get("stock_name") or "",
                 "items": items,
-                "sentiment": _annotate_include_gate(sent if isinstance(sent, dict) else {}),
+                "sentiment": sent,
                 "updated_at": cached.get("updated_at"),
                 "from_cache": True,
                 "stale": True,
@@ -457,7 +579,9 @@ def fetch_stock_headlines(
             "stock_code": raw.get("stock_code") or code_key,
             "stock_name": raw.get("stock_name") or "",
             "items": [],
-            "sentiment": score_headlines([], lexicon=lexicon),
+            "sentiment": score_headlines(
+                [], lexicon=lexicon, degraded=True, degrade_reason=err
+            ),
             "error": err,
             "updated_at": updated_at,
             "fetched_at": now,
@@ -477,6 +601,10 @@ def fetch_stock_headlines(
 
     items = list(raw.get("items") or [])[:limit]
     sent = _attach_sentiment(items, lexicon=lexicon)
+    if not items:
+        sent = score_headlines(
+            [], lexicon=lexicon, degraded=True, degrade_reason="空标题"
+        )
     payload = {
         "ok": True,
         "stock_code": raw.get("stock_code") or code_key,

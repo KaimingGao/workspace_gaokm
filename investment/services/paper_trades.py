@@ -14,6 +14,7 @@ from core.paper import (
     append_operation_log,
     append_trade_legs_to_operation_log,
     capture_mark_snapshot,
+    paper_write_lock,
 )
 
 
@@ -221,6 +222,28 @@ class PaperTradesMixin:
             run_paper_rebalance,
         )
 
+        with paper_write_lock(self.path):
+            return self._rebalance_locked(
+                top_k=top_k,
+                limit=limit,
+                cluster_mode=cluster_mode,
+                dry_run=dry_run,
+                strategy=strategy,
+                resolve_rebalance_mode=resolve_rebalance_mode,
+                run_paper_rebalance=run_paper_rebalance,
+            )
+
+    def _rebalance_locked(
+        self,
+        *,
+        top_k,
+        limit,
+        cluster_mode,
+        dry_run,
+        strategy,
+        resolve_rebalance_mode,
+        run_paper_rebalance,
+    ) -> Dict[str, Any]:
         paper = load_paper(self.path)
         work = copy.deepcopy(paper) if dry_run else paper
         mode = resolve_rebalance_mode(work, cluster_mode=cluster_mode)
@@ -348,28 +371,29 @@ class PaperTradesMixin:
             raise FileNotFoundError("请先初始化纸面账户")
         from core.paper import manual_buy
 
-        paper = load_paper(self.path)
-        capture_mark_snapshot(paper)
-        trade = manual_buy(paper, stock_code, amount=amount, shares=shares)
-        summary = mark_to_market(paper)
-        append_snapshot(paper, summary)
-        from core.paper_costs import fee_fields_from_trade
+        with paper_write_lock(self.path):
+            paper = load_paper(self.path)
+            capture_mark_snapshot(paper)
+            trade = manual_buy(paper, stock_code, amount=amount, shares=shares)
+            summary = mark_to_market(paper)
+            append_snapshot(paper, summary)
+            from core.paper_costs import fee_fields_from_trade
 
-        fee_meta = fee_fields_from_trade(trade)
-        append_operation_log(
-            paper, "buy",
-            detail=f"买入 {trade.get('stock_name') or trade.get('stock_code')} {trade.get('shares')}股 @ {trade.get('price')}",
-            meta={
-                "stock_code": trade.get("stock_code"),
-                "stock_name": trade.get("stock_name"),
-                "shares": trade.get("shares"),
-                "price": trade.get("price"),
-                "amount": trade.get("amount") or trade.get("actual_cost"),
-                "origin": trade.get("origin") or "manual",
-                **fee_meta,
-            },
-        )
-        save_paper(paper, self.path)
+            fee_meta = fee_fields_from_trade(trade)
+            append_operation_log(
+                paper, "buy",
+                detail=f"买入 {trade.get('stock_name') or trade.get('stock_code')} {trade.get('shares')}股 @ {trade.get('price')}",
+                meta={
+                    "stock_code": trade.get("stock_code"),
+                    "stock_name": trade.get("stock_name"),
+                    "shares": trade.get("shares"),
+                    "price": trade.get("price"),
+                    "amount": trade.get("amount") or trade.get("actual_cost"),
+                    "origin": trade.get("origin") or "manual",
+                    **fee_meta,
+                },
+            )
+            save_paper(paper, self.path)
         out = self.status()
         out["trade"] = trade
         out["message"] = (
@@ -389,29 +413,30 @@ class PaperTradesMixin:
             raise FileNotFoundError("请先初始化纸面账户")
         from core.paper import manual_sell
 
-        paper = load_paper(self.path)
-        capture_mark_snapshot(paper)
-        trades = manual_sell(paper, codes=codes, stock_code=stock_code, shares=shares)
-        summary = mark_to_market(paper)
-        append_snapshot(paper, summary)
-        from core.paper_costs import fee_fields_from_trade
+        with paper_write_lock(self.path):
+            paper = load_paper(self.path)
+            capture_mark_snapshot(paper)
+            trades = manual_sell(paper, codes=codes, stock_code=stock_code, shares=shares)
+            summary = mark_to_market(paper)
+            append_snapshot(paper, summary)
+            from core.paper_costs import fee_fields_from_trade
 
-        for t in trades:
-            fee_meta = fee_fields_from_trade(t)
-            append_operation_log(
-                paper, "sell",
-                detail=f"卖出 {t.get('stock_name') or t.get('stock_code')} {t.get('shares')}股 @ {t.get('price')}",
-                meta={
-                    "stock_code": t.get("stock_code"),
-                    "stock_name": t.get("stock_name"),
-                    "shares": t.get("shares"),
-                    "price": t.get("price"),
-                    "amount": t.get("amount") or t.get("actual_cost"),
-                    "origin": t.get("origin") or "manual",
-                    **fee_meta,
-                },
-            )
-        save_paper(paper, self.path)
+            for t in trades:
+                fee_meta = fee_fields_from_trade(t)
+                append_operation_log(
+                    paper, "sell",
+                    detail=f"卖出 {t.get('stock_name') or t.get('stock_code')} {t.get('shares')}股 @ {t.get('price')}",
+                    meta={
+                        "stock_code": t.get("stock_code"),
+                        "stock_name": t.get("stock_name"),
+                        "shares": t.get("shares"),
+                        "price": t.get("price"),
+                        "amount": t.get("amount") or t.get("actual_cost"),
+                        "origin": t.get("origin") or "manual",
+                        **fee_meta,
+                    },
+                )
+            save_paper(paper, self.path)
         out = self.status()
         out["trades"] = trades
         out["message"] = f"已卖出 {len(trades)} 笔"

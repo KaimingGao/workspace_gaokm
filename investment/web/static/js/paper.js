@@ -2172,8 +2172,18 @@ export function initPaper(ctx) {
 
     async function refreshFollowClusterStatus() {
       const el = document.getElementById("follow-cluster-status");
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl
+        ? setTimeout(() => {
+            try {
+              ctrl.abort();
+            } catch (_) {}
+          }, 8000)
+        : null;
       try {
-        const res = await fetch("/api/quant/cluster-live/status");
+        const res = await fetch("/api/quant/cluster-live/status?light=1", {
+          signal: ctrl ? ctrl.signal : undefined,
+        });
         const data = await res.json().catch(() => ({}));
         const st = formatFollowClusterStatus(data);
         followClusterActive = st.active;
@@ -2181,6 +2191,8 @@ export function initPaper(ctx) {
       } catch (_) {
         followClusterActive = false;
         if (el) el.textContent = "分组打分：加载失败";
+      } finally {
+        if (timer) clearTimeout(timer);
       }
     }
 

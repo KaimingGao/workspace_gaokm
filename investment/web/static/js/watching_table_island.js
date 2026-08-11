@@ -2,12 +2,6 @@
  * 数据中心主表 · 纯 DOM 虚拟滚动（共享 virtual_table 内核）。
  */
 
-import {
-  mountVirtualTable,
-  escapeHtml,
-  truncateName,
-} from "./virtual_table.js";
-
 function numSortKey(row, key) {
   const n = Number(row?.[key]);
   return Number.isFinite(n) ? n : -Infinity;
@@ -24,21 +18,22 @@ function compare(id, a, b) {
   return String(a[id] ?? "").localeCompare(String(b[id] ?? ""), "zh-CN", { numeric: true });
 }
 
-/** 短文案列居中；数值列略宽，避免窄屏被 ellipsis 裁成「…」像空值 */
+/** 短文案列居中；数值列略宽；轨道由 virtual_table grid-template 统一 */
 const COLS = [
-  { id: "picked", label: "", widthPct: 2.5, headClass: "watching-pick-cell", cellClass: "watching-pick-cell" },
+  // 固定 px：双栏缩窄时 % 列会小于「首列 18px 内边距 + checkbox」，溢到股票列上无法点击
+  { id: "picked", label: "", width: 42, headClass: "watching-pick-cell", cellClass: "watching-pick-cell" },
   { id: "name", label: "股票", flex: true, sortable: true, cellClass: "watching-stock" },
-  { id: "paper", label: "仓位", widthPct: 5, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  { id: "sent", label: "情绪", widthPct: 3.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  { id: "price", label: "现价", widthPct: 7.5, num: true },
-  { id: "chg", label: "涨跌", widthPct: 6.5, num: true, sortable: true },
-  { id: "score", label: "评分", widthPct: 6.5, num: true, sortable: true },
-  { id: "stance", label: "倾向", widthPct: 4.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  { id: "excess", label: "超额", widthPct: 7, num: true, sortable: true },
-  { id: "vol", label: "量", widthPct: 6, num: true, sortable: true },
-  { id: "volr", label: "量比", widthPct: 5.5, num: true },
-  { id: "pe", label: "PE", widthPct: 5.5, num: true },
-  { id: "pb", label: "PB", widthPct: 5.5, num: true },
+  { id: "paper", label: "仓位", widthPct: 6, headClass: "watching-col-center", cellClass: "watching-col-center" },
+  { id: "sent", label: "情绪", widthPct: 4.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
+  { id: "price", label: "现价", widthPct: 8, num: true },
+  { id: "chg", label: "涨跌", widthPct: 7, num: true, sortable: true },
+  { id: "score", label: "评分", widthPct: 7.5, num: true, sortable: true },
+  { id: "stance", label: "倾向", widthPct: 5.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
+  { id: "excess", label: "超额", widthPct: 7.5, num: true, sortable: true },
+  { id: "vol", label: "量", widthPct: 7, num: true, sortable: true },
+  { id: "volr", label: "量比", widthPct: 6, num: true },
+  { id: "pe", label: "PE", widthPct: 6, num: true },
+  { id: "pb", label: "PB", widthPct: 6, num: true },
 ];
 
 /**
@@ -46,6 +41,12 @@ const COLS = [
  * @param {{ initialSort?: Array<{column:string, dir:string}> }} [options]
  */
 export async function mountWatchingTableIsland(host, options = {}) {
+  // 嵌套模块必须带 ASSET_V，否则 virtual_table 会被浏览器缓存成旧版导致表头/表体错位
+  const V = (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+  const { mountVirtualTable, escapeHtml, truncateName } = await import(
+    `./virtual_table.js?v=${encodeURIComponent(V)}`
+  );
+
   const api = mountVirtualTable(host, {
     columns: COLS,
     emptyText: "暂无观察",

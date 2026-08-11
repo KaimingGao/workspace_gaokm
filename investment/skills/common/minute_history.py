@@ -51,6 +51,9 @@ def normalize_minute_bars(rows: List[dict]) -> List[dict]:
                 "volume": _to_float(row.get("volume") or row.get("成交量")) or 0.0,
             }
         )
+        amt = _to_float(row.get("amount") or row.get("成交额") or row.get("turnover"))
+        if amt is not None:
+            bars[-1]["amount"] = float(amt)
     bars.sort(key=lambda x: x["datetime"])
     return bars
 

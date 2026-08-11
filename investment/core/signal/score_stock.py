@@ -17,10 +17,9 @@ from core.data_service import allows_production_score, infer_adjust, DEFAULT_ADJ
 
 
 def _call_with_timeout(func, timeout, *args, **kwargs):
-    """带超时的函数调用，使用线程实现（适用于后台线程）。
+    """带超时的函数调用（仅用于无 AkShare 锁的路径，如腾讯行情）。
 
-    在 worker 线程中设置 socket 全局超时，确保 akshare 内部的
-    requests 调用不会永久卡住。
+    日线等 AkShare 路径请用 ``_fetch_bars_isolated``，避免超时后线程仍占全局锁。
     """
     import socket
 
@@ -41,13 +40,65 @@ def _call_with_timeout(func, timeout, *args, **kwargs):
 
     thread = threading.Thread(target=worker, daemon=True)
     thread.start()
-    event.wait(timeout=timeout + 2)  # 给 socket 超时留余量
+    event.wait(timeout=timeout + 2)
 
     if exception[0]:
         raise exception[0]
     if not event.is_set():
         raise TimeoutError(f"操作超时（{timeout}秒）")
     return result[0]
+
+
+def _fetch_bars_isolated(stock_code: str, *, limit: int = 40, timeout: float = 10.0):
+    """子进程拉取日线：超时不占用主进程 ak_lock。
+
+    优先读本地缓存（主进程）；仅缓存不足时走 ak_worker 进程池。
+    """
+    raw = str(stock_code or "").strip()
+    if not raw:
+        return [], "empty"
+    # 1) 主进程缓存快路径（无网络、无 MiniRacer）
+    try:
+        from core.ports.market import resolve_market_code
+        from core.store import load_daily_cache
+
+        market, code = resolve_market_code(raw)
+        if market and code:
+            cached = load_daily_cache(
+                market, code, min_bars=min(15, limit), max_age_hours=36.0
+            )
+            if cached:
+                bars, meta = cached
+                if bars and len(bars) >= min(15, limit):
+                    src = str((meta or {}).get("data_source") or "cache")
+                    return list(bars)[-int(limit) :], (
+                        src if src.startswith("cache") else f"cache:{src}"
+                    )
+    except Exception:
+        pass
+
+    # 2) 进程池远端拉取
+    try:
+        from skills.common.ak_worker import batch_fetch_daily_bars
+        from core.ports.market import resolve_market_code
+
+        market, code = resolve_market_code(raw)
+        if not market or not code:
+            return [], "empty"
+        m = str(market).upper()
+        got = batch_fetch_daily_bars(
+            m, [code], limit=limit, timeout=float(timeout)
+        )
+        bars = list((got or {}).get(code) or [])
+        if bars:
+            return bars[-int(limit) :], f"ak_pool:{m.lower()}"
+        return [], "empty"
+    except Exception:
+        # 进程池不可用时回退端口（仍可能占锁，但有超时线程兜底）
+        try:
+            return _call_with_timeout(fetch_daily_bars, timeout, raw, limit=limit)
+        except Exception:
+            return [], "empty"
 
 
 def _gated_reject_item(
@@ -160,10 +211,9 @@ def score_stock(
     bars = []
     data_source = "quote_fallback"
     try:
-        # 设置超时，防止日线数据获取卡住
-        bars, src = _call_with_timeout(fetch_daily_bars, 10, raw, limit=40)
+        bars, src = _fetch_bars_isolated(raw, limit=40, timeout=10.0)
         if not bars:
-            bars, src = _call_with_timeout(fetch_daily_bars, 10, str(code), limit=40)
+            bars, src = _fetch_bars_isolated(str(code), limit=40, timeout=10.0)
         if bars:
             data_source = src
     except TimeoutError:

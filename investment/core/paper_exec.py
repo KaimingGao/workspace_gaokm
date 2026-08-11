@@ -34,9 +34,20 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
     rows = []
     stock_value = 0.0
     now = datetime.now()
+    codes = [str(h.get("stock_code") or "").strip() for h in holdings if h.get("stock_code")]
+    quotes_by_code: Dict[str, Any] = {}
+    if codes:
+        try:
+            from core.ports.market import batch_query_quotes
+
+            quotes_by_code = batch_query_quotes(codes) or {}
+        except Exception:
+            quotes_by_code = {}
     for h in holdings:
         code = h.get("stock_code")
-        quote = query_quote(str(code))
+        quote = quotes_by_code.get(str(code or "").strip()) if code else None
+        if not isinstance(quote, dict):
+            quote = query_quote(str(code)) if code else {}
         price = _quote_price(quote) if quote.get("success") else None
         shares = float(h.get("shares") or 0)
         cost = float(h.get("cost") or 0)
