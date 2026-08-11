@@ -557,7 +557,8 @@ body[data-page="replay"] .replay-page .quant-metrics > .quant-metric {
   background: color-mix(in srgb, var(--ink) 1.2%, var(--surface));
 }
 
-body[data-page="replay"] .replay-page .quant-metric .lbl {
+body[data-page="replay"] .replay-page .quant-metric .lbl,
+body[data-page="replay"] .replay-page .quant-metric .label {
   font-size: var(--r-fs-micro);
   font-weight: 650;
   letter-spacing: 0.06em;
@@ -569,8 +570,10 @@ body[data-page="replay"] .replay-page .quant-metric .lbl {
 body[data-page="replay"] .replay-page .quant-metric .val {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-variant-numeric: tabular-nums;
-  font-size: var(--sys-fs-kpi, 1.25rem);
-  font-weight: 700;
+  /* 报告台指标卡：勿用 KPI 20px，与终端密度对齐 */
+  font-size: var(--r-fs-section, 0.875rem);
+  line-height: 1.25;
+  font-weight: 650;
   color: var(--ink);
 }
 
@@ -711,6 +714,8 @@ body[data-page="replay"] .replay-page .quant-pro-card,
 body[data-page="replay"] .replay-page .quant-control-band,
 body[data-page="replay"] .replay-page .quant-summary,
 body[data-page="replay"] .replay-page .quant-metrics > .quant-metric,
+body[data-page="replay"] .replay-page .quant-fold,
+body[data-page="replay"] .replay-page .quant-neutral-frozen,
 body[data-page="replay"] .replay-page input,
 body[data-page="replay"] .replay-page select,
 body[data-page="replay"] .replay-page button,
@@ -718,6 +723,12 @@ body[data-page="replay"] .replay-page .dialog-btn,
 body[data-page="replay"] .replay-desk-badge,
 body[data-page="replay"] .replay-desk-guard {
   border-radius: 2px !important;
+}
+
+/* 日报冻结 · 中性化对照：嵌套 fold 勿沿用研究页 12px 软圆角 */
+body[data-page="replay"] .replay-page .quant-fold > summary,
+body[data-page="replay"] .replay-page .quant-neutral-frozen > summary {
+  border-radius: 0;
 }
 
 @media (max-width: 720px) {
