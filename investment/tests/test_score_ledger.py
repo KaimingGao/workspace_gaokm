@@ -373,6 +373,72 @@ class TestScoreLedger(unittest.TestCase):
             miss = delete_ledger("2026-08-05")
             self.assertFalse(miss["success"])
 
+    def test_resolve_freeze_as_of_clamps_to_feature(self):
+        from core.score_ledger import resolve_freeze_as_of
+
+        with patch(
+            "core.score_ledger.infer_feature_as_of", return_value="2026-08-11"
+        ), patch(
+            "core.score_ledger.default_as_of", return_value="2026-08-11"
+        ), patch(
+            "core.market_calendar.resolve_session_date", return_value="2026-08-12"
+        ):
+            out = resolve_freeze_as_of("2026-08-12")
+            self.assertEqual(out["as_of"], "2026-08-11")
+            self.assertTrue(out["remapped"])
+            self.assertEqual(out["feature_as_of"], "2026-08-11")
+
+    def test_resolve_freeze_as_of_defaults_prev_without_feature(self):
+        from core.score_ledger import resolve_freeze_as_of
+
+        with patch(
+            "core.score_ledger.infer_feature_as_of", return_value=None
+        ), patch(
+            "core.score_ledger.default_as_of", return_value="2026-08-11"
+        ), patch(
+            "core.market_calendar.resolve_session_date", return_value="2026-08-12"
+        ):
+            out = resolve_freeze_as_of(None)
+            self.assertEqual(out["as_of"], "2026-08-11")
+            out2 = resolve_freeze_as_of("2026-08-12")
+            self.assertEqual(out2["as_of"], "2026-08-11")
+            self.assertTrue(out2["remapped"])
+
+    def test_freeze_from_cluster_book_uses_resolved_as_of(self):
+        from core.score_ledger import freeze_from_cluster_book, load_ledger
+
+        book = {
+            "updated_at": "2026-08-12T07:00:00Z",
+            "book": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "predicted_score": 1.5,
+                    "cluster_label": "G1",
+                }
+            ],
+            "meta": {"version": 1},
+        }
+        with self._patch_dir(), patch(
+            "core.score_ledger.resolve_freeze_as_of",
+            return_value={
+                "as_of": "2026-08-11",
+                "session_date": "2026-08-12",
+                "prev_trading_day": "2026-08-11",
+                "feature_as_of": "2026-08-11",
+                "requested_as_of": "2026-08-12",
+                "remapped": True,
+                "note": "下调",
+            },
+        ):
+            out = freeze_from_cluster_book(as_of="2026-08-12", book_doc=book)
+            self.assertTrue(out["success"])
+            self.assertEqual(out["as_of"], "2026-08-11")
+            led = load_ledger("2026-08-11")
+            self.assertFalse(led.get("empty"))
+            self.assertEqual(led["meta"].get("feature_as_of"), "2026-08-11")
+            self.assertTrue(load_ledger("2026-08-12").get("empty"))
+
 
 if __name__ == "__main__":
     unittest.main()

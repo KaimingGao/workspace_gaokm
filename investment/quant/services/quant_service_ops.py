@@ -303,10 +303,22 @@ class QuantOpsMixin:
             dates = list_ledger_dates(limit=limit)
         cal = default_as_of()  # 上一交易日
         sess = resolve_session_date()
+        immature_set = {
+            str(e.get("as_of") or "")
+            for e in entries
+            if e.get("immature") and e.get("as_of")
+        }
         # 复盘默认再往前一档：今日刚冻结 / 昨收未进缓存时，as_of=昨 → h=1 仍薄样本
         safe = prev_trading_day(sess, n=2) or cal or sess
-        pick = next((d for d in dates if d and d <= safe), None) or next(
-            (d for d in dates if d and d <= cal), None
+        pick = next(
+            (d for d in dates if d and d <= safe and d not in immature_set),
+            None,
+        ) or next(
+            (d for d in dates if d and d <= cal and d not in immature_set),
+            None,
+        ) or next(
+            (d for d in dates if d and d not in immature_set),
+            None,
         ) or cal or (dates[0] if dates else "")
         return {
             "success": True,
@@ -315,6 +327,7 @@ class QuantOpsMixin:
             "default_as_of": pick,
             "calendar_as_of": cal,
             "safe_as_of": safe,
+            "session_date": sess,
         }
 
     def delete_score_ledger(

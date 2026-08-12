@@ -200,7 +200,7 @@
   <section class="dashboard-section quant-section" id="quant-section-score-review" aria-labelledby="quant-section-score-review-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-score-review-title" class="dashboard-section-title">昨日复盘</h3>
-      <p class="dashboard-section-desc quant-section-desc">ŷ 方向 vs 实现收益 · 错票归因 · 命中率</p>
+      <p class="dashboard-section-desc quant-section-desc">ŷ 方向 vs 实现收益 · 复盘样本 · 命中率</p>
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -225,7 +225,7 @@
         <div class="dashboard-card-tools quant-card-tools-secondary" role="group" aria-label="复盘操作">
           <button type="button" id="quant-score-review-run" class="dialog-btn">刷新复盘</button>
           <button type="button" id="quant-score-review-fill" class="dialog-btn secondary">回填收益</button>
-          <button type="button" id="quant-score-ledger-freeze" class="dialog-btn secondary">冻结今日打分</button>
+          <button type="button" id="quant-score-ledger-freeze" class="dialog-btn secondary" title="按因子截止日冻结分池簿 ŷ（通常为上一交易日；收盘后日线齐才可能是今日）">冻结打分</button>
           <button type="button" id="quant-score-review-refit" class="dialog-btn secondary" title="滚动到「跑分组」并触发重估组 β">建议重估</button>
         </div>
       </div>
@@ -250,7 +250,6 @@
             <canvas id="quant-score-review-scatter" class="yhat-scatter-canvas" width="920" height="240" aria-label="ŷ 与实现收益散点"></canvas>
           </div>
         </div>
-        <div id="quant-score-review-blame" class="quant-weight-table-wrap sub"></div>
         <div id="quant-score-review-table" class="quant-weight-table-wrap"></div>
         <div class="yhat-viz-block quant-review-viz" id="quant-score-review-panel-wrap" hidden>
           <p class="quant-block-cap">

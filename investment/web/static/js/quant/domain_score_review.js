@@ -213,25 +213,6 @@ export function installScoreReview(ctx) {
     }
   }
 
-  function renderBlameTable(title, headers, rows, cellsFn) {
-    if (!rows.length) return "";
-    const body = rows.map((r) => `<tr>${cellsFn(r)}</tr>`).join("");
-    const th = headers
-      .map((h, i) => {
-        const num = i > 0 ? " class=\"num\"" : "";
-        return `<th${num}>${esc(h)}</th>`;
-      })
-      .join("");
-    const cols = headers.length >= 3 ? "3" : "2";
-    return (
-      `<p class="quant-trades-caption">${esc(title)}</p>` +
-      `<div class="quant-score-review-table-scroll">` +
-      `<table class="quant-mini-table quant-score-review-blame quant-score-review-blame--${cols}">` +
-      `<thead><tr>${th}</tr></thead>` +
-      `<tbody>${body}</tbody></table></div>`
-    );
-  }
-
   function facLabel(r) {
     return (
       r.dominant_factor_label ||
@@ -239,46 +220,6 @@ export function installScoreReview(ctx) {
       factorCN(r.dominant_factor || r.factor) ||
       "—"
     );
-  }
-
-  function renderBlame(data) {
-    const box = document.getElementById("quant-score-review-blame");
-    if (!box) return;
-    const fac = data.factor_blame || [];
-    const ind = data.industry_blame || [];
-    const clu = data.cluster_blame || [];
-    if (!fac.length && !ind.length && !clu.length) {
-      box.innerHTML = "";
-      return;
-    }
-    box.innerHTML =
-      renderBlameTable(
-        "错票 · 主导因子",
-        ["因子", "次数", "当日相关≈"],
-        fac,
-        (r) =>
-          `<td>${esc(facLabel(r))}</td>` +
-          `<td class="num">${esc(String(r.wrong_count ?? "—"))}</td>` +
-          `<td class="num">${
-            r.factor_ic_day != null ? esc(Number(r.factor_ic_day).toFixed(3)) : "—"
-          }</td>`
-      ) +
-      renderBlameTable(
-        "错票 · 行业",
-        ["行业", "次数"],
-        ind,
-        (r) =>
-          `<td>${esc(r.sector || "—")}</td>` +
-          `<td class="num">${esc(String(r.wrong_count ?? "—"))}</td>`
-      ) +
-      renderBlameTable(
-        "错票 · 分组",
-        ["分组", "次数"],
-        clu,
-        (r) =>
-          `<td>${esc(r.cluster_label || "—")}</td>` +
-          `<td class="num">${esc(String(r.wrong_count ?? "—"))}</td>`
-      );
   }
 
   function renderWrongTable(data) {
@@ -478,17 +419,28 @@ export function installScoreReview(ctx) {
         const n = e.n_rows != null ? Number(e.n_rows) : null;
         const filled = e.outcomes_filled != null ? Number(e.outcomes_filled) : 0;
         const useful = filled > 0;
+        const immature = !!e.immature;
         const active = asOf === cur ? " is-active" : "";
-        const ocCls = useful ? " has-outcomes" : " no-outcomes";
-        const ocMark = useful ? ` · 已回填 ${filled}` : " · 未回填";
+        const ocCls = useful
+          ? " has-outcomes"
+          : immature
+            ? " is-immature"
+            : " no-outcomes";
+        const ocMark = useful
+          ? ` · 已回填 ${filled}`
+          : immature
+            ? " · 未到期"
+            : " · 未回填";
         const nTxt = n != null && Number.isFinite(n) ? `${n}只` : "—";
-        const title = `${asOf} · ${nTxt}${ocMark} · 点击切换决策日`;
+        const title = immature
+          ? `${asOf} · ${nTxt} · 会话日账本，h 未到期，复盘请选更早决策日`
+          : `${asOf} · ${nTxt}${ocMark} · 点击切换决策日`;
         return (
-          `<div class="quant-score-ledger-chip-wrap${active}" role="listitem">` +
+          `<div class="quant-score-ledger-chip-wrap${active}${immature ? " is-immature" : ""}" role="listitem">` +
           `<button type="button" class="quant-score-ledger-chip${active}${ocCls}"` +
           ` data-asof="${esc(asOf)}" title="${esc(title)}">` +
           `<span class="chip-date">${esc(shortDate(asOf))}</span>` +
-          `<span class="chip-meta">${esc(nTxt)}${useful ? " ✓" : ""}</span>` +
+          `<span class="chip-meta">${esc(nTxt)}${useful ? " ✓" : immature ? " …" : ""}</span>` +
           `</button>` +
           `<button type="button" class="quant-score-ledger-chip-del"` +
           ` data-asof="${esc(asOf)}" data-nrows="${esc(String(n ?? ""))}"` +
@@ -549,7 +501,6 @@ export function installScoreReview(ctx) {
       } else {
         setStatus(`已删除 ${d} · 无剩余账本`, { ok: true });
         renderSummary({ empty: true, note: "无该日账本。请先冻结打分。" });
-        renderBlame({ factor_blame: [], industry_blame: [], cluster_blame: [] });
         const table = document.getElementById("quant-score-review-table");
         if (table) table.innerHTML = "";
         const scatter = document.getElementById("quant-score-review-scatter-wrap");
@@ -580,7 +531,6 @@ export function installScoreReview(ctx) {
       renderSummary(data);
       renderScatter(data);
       renderHitSparkline(usedH).catch(() => {});
-      renderBlame(data);
       renderWrongTable(data);
       markActiveLedgerChip(data.as_of || asOf);
       const s = data.summary || {};
@@ -654,7 +604,7 @@ export function installScoreReview(ctx) {
 
   async function freezeLedger() {
     setStatus("冻结打分中…", { busy: true });
-    // 「冻结今日」：按会话交易日冻结，不跟决策日选择器（避免冻了又拿当天做复盘→全薄样本）
+    // as_of=null：后端按因子截止日解析，避免会话日空标签
     const res = await fetch("/api/quant/score-ledger/freeze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -663,6 +613,8 @@ export function installScoreReview(ctx) {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || res.statusText);
     const freezeAsOf = data.as_of || "";
+    const resolveNote =
+      (data.resolve && data.resolve.note) || data.note || "";
     let reviewAsOf = null;
     try {
       const pack = await loadLedgerIndex();
@@ -672,7 +624,8 @@ export function installScoreReview(ctx) {
     }
     if (reviewAsOf) setAsOf(reviewAsOf);
     setStatus(
-      `已冻结 ${data.n_rows ?? 0} 只（${freezeAsOf || "今日"}）` +
+      `已冻结 ${data.n_rows ?? 0} 只（决策日 ${freezeAsOf || "—"}）` +
+        (resolveNote ? ` · ${resolveNote}` : "") +
         (reviewAsOf && reviewAsOf !== freezeAsOf
           ? ` · 复盘改用 ${reviewAsOf}`
           : ""),

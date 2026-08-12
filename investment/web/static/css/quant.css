@@ -2194,6 +2194,19 @@ body[data-page="quant"] .quant-page #quant-score-review-blame .quant-score-revie
   opacity: 0.75;
 }
 
+.quant-page .quant-score-ledger-chip.is-immature {
+  border-style: dashed;
+  opacity: 0.72;
+}
+
+.quant-page .quant-score-ledger-chip-wrap.is-immature {
+  opacity: 0.85;
+}
+
+.quant-page .quant-score-ledger-chip.is-immature .chip-meta {
+  opacity: 0.8;
+}
+
 .quant-page .quant-score-ledger-chip-del {
   margin: 0;
   padding: 0 7px;

@@ -19,9 +19,11 @@
 
 写入触发：
 
-1. **纸面日更** `run_paper_daily` → `run_score_ledger_daily`（冻结今日 + 回填到期决策日）
-2. 集群书刷新、生成日报
-3. UI「冻结今日打分」
+1. **纸面日更** `run_paper_daily` → `run_score_ledger_daily`（按**因子截止日**冻结 + 回填到期决策日）
+2. 集群书刷新、生成日报（`resolve_freeze_as_of`）
+3. UI「冻结打分」
+
+冻结决策日：默认对齐本地日线末根 / 上一交易日；请求日晚于因子截止则下调；会话日账本 UI 标 **未到期**（`immature`），复盘默认不选。
 
 ## API
 
@@ -30,7 +32,7 @@
 - `POST /api/quant/score-outcomes/fill`
 - `GET /api/quant/score-review/dates`
 
-复盘响应含：`factor_blame` · `industry_blame` · `cluster_blame` · `refit_hint`。
+复盘响应含错票归因字段（`factor_blame` 等，API 仍返回）；UI 以 **复盘样本表** 展示主导因子 / 行业 / 分组，不再单独渲染聚合归因表。
 
 ## UI（研究枢纽）
 

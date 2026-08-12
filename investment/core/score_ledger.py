@@ -26,6 +26,124 @@ def default_as_of() -> str:
     return prev or sess
 
 
+def _codes_from_book_doc(book_doc: Optional[dict]) -> List[str]:
+    if not isinstance(book_doc, dict):
+        return []
+    codes: List[str] = []
+    seen = set()
+    for key in ("book", "scored_all"):
+        for item in book_doc.get(key) or []:
+            if not isinstance(item, dict):
+                continue
+            c = str(item.get("stock_code") or item.get("code") or "").strip()
+            if not c or c in seen:
+                continue
+            seen.add(c)
+            codes.append(c)
+    return codes
+
+
+def _last_bar_date_for_code(code: str) -> Optional[str]:
+    """本地日线末根日期（只读缓存，不拉网）。"""
+    raw = str(code or "").strip()
+    if not raw:
+        return None
+    try:
+        from core.ports.market import resolve_market_code
+        from core.store import load_daily_cache
+
+        market, c = resolve_market_code(raw)
+        if not market or not c:
+            return None
+        cached = load_daily_cache(market, c, min_bars=1, max_age_hours=72.0)
+        if not cached:
+            return None
+        bars, _meta = cached
+        if not bars:
+            return None
+        return date_key(bars[-1].get("date") or bars[-1].get("time"))
+    except Exception:
+        return None
+
+
+def infer_feature_as_of(
+    *,
+    book_doc: Optional[dict] = None,
+    codes: Optional[Sequence[str]] = None,
+    sample: int = 16,
+) -> Optional[str]:
+    """从分池簿标的本地日线推断因子截止日（多数末根日期）。"""
+    from collections import Counter
+
+    pool = list(codes or []) or _codes_from_book_doc(book_doc)
+    if not pool:
+        return None
+    take = max(1, min(int(sample or 16), 40, len(pool)))
+    lasts: List[str] = []
+    for code in pool[:take]:
+        d = _last_bar_date_for_code(code)
+        if d:
+            lasts.append(d)
+    if not lasts:
+        return None
+    mode, n = Counter(lasts).most_common(1)[0]
+    # 至少一半样本同意；否则取最早末根（偏保守，避免超前标决策日）
+    if n * 2 >= len(lasts):
+        return mode
+    return min(lasts)
+
+
+def resolve_freeze_as_of(
+    as_of: Optional[str] = None,
+    *,
+    book_doc: Optional[dict] = None,
+    codes: Optional[Sequence[str]] = None,
+) -> Dict[str, Any]:
+    """冻结决策日：对齐因子截止，禁止「会话日标签 + 昨收因子」。
+
+    规则：
+    - 无显式 as_of → 优先本地日线推断的 feature_as_of，否则上一交易日
+    - 显式 as_of 若晚于 feature_as_of → 下调到 feature_as_of
+    - 无日线证据时，禁止把 as_of 标成「今天会话日」（除非已是上一交易日）
+    """
+    from core.market_calendar import resolve_session_date
+
+    sess = resolve_session_date()
+    prev = default_as_of()
+    feature = infer_feature_as_of(book_doc=book_doc, codes=codes)
+    requested = date_key(as_of) if as_of else None
+    notes: List[str] = []
+
+    if requested:
+        target = requested
+    elif feature:
+        target = feature
+        notes.append(f"按因子截止日 {feature} 冻结")
+    else:
+        target = prev
+        notes.append(f"无日线证据，默认上一交易日 {prev}")
+
+    remapped = False
+    if feature and target and target > feature:
+        notes.append(f"请求 {target} 晚于因子截止 {feature}，已下调")
+        target = feature
+        remapped = True
+    if not feature and target == sess and sess != prev:
+        notes.append(f"无今日日线证据，会话日 {sess} 下调为 {prev}")
+        target = prev
+        remapped = True
+
+    return {
+        "as_of": target,
+        "session_date": sess,
+        "prev_trading_day": prev,
+        "feature_as_of": feature,
+        "requested_as_of": requested,
+        "remapped": remapped,
+        "note": "；".join(notes) if notes else None,
+    }
+
+
 def ledger_dir() -> str:
     from core.paths import SCORE_LEDGER_DIR
 
@@ -260,25 +378,47 @@ def freeze_from_cluster_book(
     as_of: Optional[str] = None,
     book_doc: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """从 active 集群书冻结当日 ŷ。"""
+    """从 active 集群书冻结 ŷ；决策日对齐因子截止（见 resolve_freeze_as_of）。"""
     from core.signal.cluster_live import load_active_cluster_book
-    from core.market_calendar import resolve_session_date
 
-    d = date_key(as_of) or resolve_session_date()
     doc = book_doc if isinstance(book_doc, dict) else load_active_cluster_book()
     if not doc:
-        return {"success": False, "error": "无集群书", "as_of": d, "n_rows": 0}
+        resolved = resolve_freeze_as_of(as_of, book_doc=None)
+        return {
+            "success": False,
+            "error": "无集群书",
+            "as_of": resolved.get("as_of"),
+            "n_rows": 0,
+            "resolve": resolved,
+        }
     book = list(doc.get("book") or [])
     meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
-    return upsert_ledger_rows(
+    resolved = resolve_freeze_as_of(as_of, book_doc=doc)
+    d = date_key(resolved.get("as_of"))
+    if not d:
+        return {
+            "success": False,
+            "error": "无法解析冻结决策日",
+            "n_rows": 0,
+            "resolve": resolved,
+        }
+    out = upsert_ledger_rows(
         d,
         book,
         source="cluster_book",
         meta={
             "cluster_version": meta.get("version") or doc.get("version"),
             "book_updated_at": doc.get("updated_at"),
+            "feature_as_of": resolved.get("feature_as_of"),
+            "session_date": resolved.get("session_date"),
+            "freeze_remapped": bool(resolved.get("remapped")),
+            "freeze_note": resolved.get("note"),
         },
     )
+    out["resolve"] = resolved
+    if resolved.get("note"):
+        out["note"] = resolved.get("note")
+    return out
 
 
 def freeze_from_daily_report(
@@ -287,12 +427,10 @@ def freeze_from_daily_report(
     as_of: Optional[str] = None,
 ) -> Dict[str, Any]:
     """从日报里的 book_top / cross_section 补写账本。"""
-    from core.market_calendar import resolve_session_date
-
-    d = date_key(as_of)
-    if not d:
-        gen = str(report.get("generated_at") or "")
-        d = date_key(gen) or resolve_session_date()
+    d_hint = date_key(as_of)
+    if not d_hint:
+        gen = str((report or {}).get("generated_at") or "")
+        d_hint = date_key(gen) or None
     rows: List[dict] = []
     cl = report.get("cluster_live") if isinstance(report.get("cluster_live"), dict) else {}
     for r in cl.get("book_top") or []:
@@ -303,9 +441,38 @@ def freeze_from_daily_report(
         if isinstance(r, dict):
             rows.append(r)
     if not rows:
-        # 仍尝试刷书
-        return freeze_from_cluster_book(as_of=d)
-    return upsert_ledger_rows(d, rows, source="daily_report", meta={"from_daily": True})
+        # 仍尝试刷书（走因子截止解析）
+        return freeze_from_cluster_book(as_of=d_hint)
+    codes = [
+        str(r.get("stock_code") or r.get("code") or "").strip()
+        for r in rows
+        if isinstance(r, dict)
+    ]
+    resolved = resolve_freeze_as_of(d_hint, codes=codes)
+    d = date_key(resolved.get("as_of"))
+    if not d:
+        return {
+            "success": False,
+            "error": "无法解析冻结决策日",
+            "n_rows": 0,
+            "resolve": resolved,
+        }
+    out = upsert_ledger_rows(
+        d,
+        rows,
+        source="daily_report",
+        meta={
+            "from_daily": True,
+            "feature_as_of": resolved.get("feature_as_of"),
+            "session_date": resolved.get("session_date"),
+            "freeze_remapped": bool(resolved.get("remapped")),
+            "freeze_note": resolved.get("note"),
+        },
+    )
+    out["resolve"] = resolved
+    if resolved.get("note"):
+        out["note"] = resolved.get("note")
+    return out
 
 
 def _realized_from_bars(
@@ -747,7 +914,10 @@ def list_ledger_dates(*, limit: int = 30) -> List[str]:
 
 
 def list_ledger_entries(*, limit: int = 30) -> List[Dict[str, Any]]:
-    """已冻结账本条目：日期 / 票数 / 是否已回填。"""
+    """已冻结账本条目：日期 / 票数 / 是否已回填 / 是否未到期。"""
+    from core.market_calendar import resolve_session_date
+
+    sess = resolve_session_date()
     out: List[Dict[str, Any]] = []
     for d in list_ledger_dates(limit=limit):
         led = load_ledger(d)
@@ -759,6 +929,9 @@ def list_ledger_entries(*, limit: int = 30) -> List[Dict[str, Any]]:
             for v in by_code.values()
             if isinstance(v, dict) and v.get("realized_h") is not None
         )
+        # 会话日当天的账本：h 未到期，复盘默认勿选
+        immature = bool(d and sess and d >= sess)
+        meta = led.get("meta") if isinstance(led.get("meta"), dict) else {}
         out.append(
             {
                 "as_of": d,
@@ -766,6 +939,8 @@ def list_ledger_entries(*, limit: int = 30) -> List[Dict[str, Any]]:
                 "has_outcomes": bool(by_code),
                 "outcomes_filled": int(filled),
                 "updated_at": led.get("updated_at"),
+                "immature": immature,
+                "feature_as_of": meta.get("feature_as_of"),
             }
         )
     return out
@@ -1047,13 +1222,14 @@ def run_score_ledger_daily(
     horizon_days: Optional[int] = None,
     fill_lookback: int = 5,
 ) -> Dict[str, Any]:
-    """日更钩子：冻结当日账本 + 回填已到期（as_of−h …）outcomes。
+    """日更钩子：按因子截止冻结账本 + 回填已到期 outcomes。
 
     不抛异常给调度层；失败写进返回字段。
     """
     from core.market_calendar import prev_trading_day, resolve_session_date
 
-    sess = date_key(as_of) or resolve_session_date()
+    sess = resolve_session_date()
+    requested = date_key(as_of)
     h = horizon_days
     if h is None:
         try:
@@ -1067,21 +1243,26 @@ def run_score_ledger_daily(
 
     freeze_out: Dict[str, Any]
     try:
-        freeze_out = freeze_from_cluster_book(as_of=sess)
+        # 默认不传 as_of，由 resolve_freeze_as_of 对齐因子截止
+        freeze_out = freeze_from_cluster_book(as_of=requested)
         if not freeze_out.get("success") or int(freeze_out.get("n_rows") or 0) <= 0:
-            # 集群书空时仍记失败，不阻断回填旧日
             pass
     except Exception as exc:
-        freeze_out = {"success": False, "error": str(exc), "as_of": sess, "n_rows": 0}
+        freeze_out = {
+            "success": False,
+            "error": str(exc),
+            "as_of": requested or default_as_of(),
+            "n_rows": 0,
+        }
+
+    freeze_day = date_key((freeze_out or {}).get("as_of")) or default_as_of()
 
     fills: List[Dict[str, Any]] = []
     look = max(1, min(int(fill_lookback or 5), 20))
     for i in range(1, look + 1):
-        # 回填「h 个交易日前」起的若干决策日（已到期可算 realized）
         target = prev_trading_day(sess, n=h + i - 1) or None
         if not target:
             continue
-        # 无账本则跳过
         led = load_ledger(target)
         if led.get("empty") or not led.get("success"):
             continue
@@ -1101,10 +1282,11 @@ def run_score_ledger_daily(
 
     return {
         "success": True,
-        "as_of": sess,
+        "as_of": freeze_day,
+        "session_date": sess,
         "horizon_days": h,
         "freeze": freeze_out,
         "fills": fills,
         "filled_days": sum(1 for f in fills if f.get("success")),
-        "note": "日更：冻结今日 ŷ 账本；回填到期决策日 realized（不改权）。",
+        "note": "日更：按因子截止冻结 ŷ 账本；回填到期决策日 realized（不改权）。",
     }
