@@ -217,7 +217,7 @@ def fit_watching_return_model(
     all_xs = []
     all_ys = []
     for code, bars in stock_bars.items():
-        xs, ys = collect_subscore_forward_panel(
+        xs, ys, _dates = collect_subscore_forward_panel(
             bars,
             horizon_days=horizon_days,
             stock_code=code,

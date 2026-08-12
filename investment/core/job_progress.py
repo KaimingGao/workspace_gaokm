@@ -123,6 +123,29 @@ class JobProgress:
         with self._lock:
             out = dict(self._job)
             out["slot"] = self.name
+            # 分组 Job：落盘摘要缺 clusters 时从报告缓存水合（热重载后仍可渲染）
+            if self.name == "quant-ols-clusters":
+                result = out.get("result")
+                if isinstance(result, dict) and not (
+                    isinstance(result.get("clusters"), list)
+                    and len(result.get("clusters") or []) > 0
+                ):
+                    try:
+                        from quant.services.quant_service_factors import (
+                            hydrate_ols_clusters_job_result,
+                        )
+
+                        hydrated = hydrate_ols_clusters_job_result(result)
+                        if (
+                            isinstance(hydrated, dict)
+                            and isinstance(hydrated.get("clusters"), list)
+                            and hydrated.get("clusters")
+                        ):
+                            out["result"] = hydrated
+                            # 回填内存，避免每次 get 都读盘
+                            self._job["result"] = hydrated
+                    except Exception:
+                        pass
             return out
 
     def start(self, *, kind: str, total: int = 0, message: str = "") -> str:

@@ -975,6 +975,12 @@
   line-height: 1.15;
 }
 
+.quant-page .quant-cluster-ord {
+  font-weight: 600;
+  color: var(--ink-muted, #6b7280);
+  margin-right: 0.15em;
+}
+
 .quant-page .quant-cluster-tags {
   display: inline-flex;
   flex-wrap: wrap;

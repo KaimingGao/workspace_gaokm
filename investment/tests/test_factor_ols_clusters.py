@@ -301,13 +301,270 @@ class TestFactorOlsClusters(unittest.TestCase):
         from quant.research.cluster_oos import pick_best_k_selection_row
 
         rows = [
-            {"k": 4, "sort_key": (1, 0.1, 0.2)},
-            {"k": 5, "sort_key": (2, -0.5, 0.1)},
-            {"k": 6, "sort_key": (2, 0.3, 0.0)},
+            {"k": 4, "sort_key": (-1.2, 1, 0.1, 0.2)},
+            {"k": 5, "sort_key": (-0.8, 2, -0.5, 0.1)},
+            {"k": 6, "sort_key": (-0.5, 2, 0.3, 0.0)},
         ]
         best = pick_best_k_selection_row(rows)
         self.assertIsNotNone(best)
         self.assertEqual(best["k"], 6)
+
+    def test_align_cluster_labels_to_previous(self):
+        from quant.research.cluster_label_align import (
+            align_cluster_labels,
+            previous_code_cluster_ids,
+        )
+
+        # 旧：A,B→0(G1)，C,D→1(G2)；新标签对调成 A,B→1，C,D→0
+        codes = ["A", "B", "C", "D"]
+        prev = {"A": 0, "B": 0, "C": 1, "D": 1}
+        new = np.array([1, 1, 0, 0], dtype=int)
+        aligned, info = align_cluster_labels(codes, new, prev)
+        self.assertTrue(info.get("aligned"), info)
+        self.assertEqual(aligned.tolist(), [0, 0, 1, 1])
+        self.assertGreaterEqual(float(info.get("stability") or 0), 0.99)
+
+        active = {
+            "code_map": {
+                "A": {"cluster_id": 2, "cluster_label": "G3"},
+                "B": {"cluster_label": "G3"},
+            },
+            "clusters": [{"cluster_id": 2, "label": "G3", "members": ["A", "B"]}],
+        }
+        prev2 = previous_code_cluster_ids(active)
+        self.assertEqual(prev2.get("A"), 2)
+        self.assertEqual(prev2.get("B"), 2)
+
+        # 无重叠 → 不对齐
+        aligned2, info2 = align_cluster_labels(codes, new, {})
+        self.assertFalse(info2.get("aligned"))
+        self.assertEqual(aligned2.tolist(), new.tolist())
+
+    def test_soft_hetero_weights_and_weighted_ols(self):
+        from quant.research.cluster_soft_hetero import (
+            soft_hetero_member_weight,
+            expand_member_weights_to_rows,
+        )
+        from core.research.factor_ols_fit import fit_factor_ols_from_panel
+
+        self.assertAlmostEqual(soft_hetero_member_weight(0.0), 1.0, places=4)
+        self.assertLess(soft_hetero_member_weight(0.5), soft_hetero_member_weight(0.1))
+        self.assertGreaterEqual(soft_hetero_member_weight(10.0), 0.2)
+
+        mw = {
+            "A": {"weight": 1.0},
+            "B": {"weight": 0.3},
+        }
+        sw = expand_member_weights_to_rows(["A", "A", "B", "B"], mw)
+        self.assertEqual(sw, [1.0, 1.0, 0.3, 0.3])
+
+        # 加权 OLS：高权行应主导斜率
+        xs = [{"momentum": float(i)} for i in range(20)]
+        ys = [float(i) for i in range(20)]
+        # 前 10 行权重大且 y=x；后 10 行权重极低且 y 故意反号
+        ys2 = [float(i) if i < 10 else -float(i) for i in range(20)]
+        w = [1.0] * 10 + [0.01] * 10
+        fit_w = fit_factor_ols_from_panel(
+            xs,
+            ys2,
+            horizon_days=3,
+            standardize=False,
+            ridge_lambda=0.0,
+            select_ridge=False,
+            sample_weights=w,
+        )
+        self.assertTrue(fit_w.get("success"), fit_w.get("error"))
+        self.assertTrue(fit_w.get("weighted_ols"))
+        coef = float((fit_w.get("coefficients") or {}).get("momentum") or 0)
+        self.assertGreater(coef, 0.5)
+
+    def test_yhat_holdout_and_partition_loss(self):
+        from quant.research.partition_loss import (
+            compute_partition_loss,
+            yhat_group_holdout_metrics,
+            yhat_holdout_metrics,
+        )
+
+        rm = {
+            "intercept": 0.0,
+            "coefficients": {"momentum": 1.0},
+            "z_means": {},
+            "z_stds": {},
+            "standardized": False,
+        }
+        xs = [{"momentum": float(i)} for i in range(20)]
+        ys = [float(i) + 0.1 for i in range(20)]
+        hold = yhat_holdout_metrics(rm, xs, ys, holdout_ratio=0.3)
+        self.assertTrue(hold.get("ok"), hold)
+        self.assertIsNotNone(hold.get("ic"))
+        self.assertGreater(float(hold["ic"]), 0.9)
+
+        # 有符号 IC：负相关应比正相关损失更大
+        loss_pos = compute_partition_loss(
+            groups=[{"member_count": 5, "pooled_r2": 0.5, "ic_mean": 0.3}],
+            ic_use_abs=False,
+        )
+        loss_neg = compute_partition_loss(
+            groups=[{"member_count": 5, "pooled_r2": 0.5, "ic_mean": -0.3}],
+            ic_use_abs=False,
+        )
+        self.assertGreater(loss_neg["loss"], loss_pos["loss"])
+
+        loss = compute_partition_loss(
+            groups=[
+                {"member_count": 5, "pooled_r2": 0.8, "ic_mean": 0.2},
+                {"member_count": 5, "pooled_r2": 0.2, "ic_mean": 0.0},
+            ],
+            ic_use_abs=False,
+        )
+        self.assertLess(loss["loss"], 1e9)
+        better = compute_partition_loss(
+            groups=[
+                {"member_count": 5, "pooled_r2": 0.9, "ic_mean": 0.3},
+                {"member_count": 5, "pooled_r2": 0.85, "ic_mean": 0.25},
+            ],
+            ic_use_abs=False,
+        )
+        self.assertLess(better["loss"], loss["loss"])
+
+        # 组级：每票切尾；票顺序颠倒结果应一致
+        panel_ab = {
+            "AAA": {
+                "xs": [{"momentum": float(i)} for i in range(20)],
+                "ys": [float(i) for i in range(20)],
+            },
+            "BBB": {
+                "xs": [{"momentum": float(i)} for i in range(20)],
+                "ys": [0.0] * 20,
+            },
+        }
+        hold_ab = yhat_group_holdout_metrics(
+            ["AAA", "BBB"], panel_ab, return_model=rm, holdout_ratio=0.3
+        )
+        hold_ba = yhat_group_holdout_metrics(
+            ["BBB", "AAA"], panel_ab, return_model=rm, holdout_ratio=0.3
+        )
+        self.assertTrue(hold_ab.get("ok"), hold_ab)
+        self.assertEqual(hold_ab.get("ic"), hold_ba.get("ic"))
+        self.assertEqual(hold_ab.get("n"), hold_ba.get("n"))
+
+        # 前段重拟合：尾段评估用的 β 不应看尾段
+        def _refit(tx, ty):
+            # 故意拟合成 momentum→y 的近似单位斜率
+            return {
+                "intercept": 0.0,
+                "coefficients": {"momentum": 1.0},
+                "z_means": {},
+                "z_stds": {},
+                "standardized": False,
+            }
+
+        hold_refit = yhat_group_holdout_metrics(
+            ["AAA"],
+            panel_ab,
+            return_model={"coefficients": {"momentum": -1.0}, "intercept": 0.0,
+                          "standardized": False, "z_means": {}, "z_stds": {}},
+            refit_fn=_refit,
+            holdout_ratio=0.3,
+        )
+        self.assertTrue(hold_refit.get("refit"))
+        self.assertTrue(hold_refit.get("ok"), hold_refit)
+        self.assertGreater(float(hold_refit["ic"]), 0.9)
+
+        # 有 refit_fn 但拟合失败：不得退回全样本坏模型
+        hold_fail = yhat_group_holdout_metrics(
+            ["AAA"],
+            panel_ab,
+            return_model=rm,
+            refit_fn=lambda *_a, **_k: None,
+            holdout_ratio=0.3,
+        )
+        self.assertFalse(hold_fail.get("ok"))
+        self.assertEqual(hold_fail.get("reason"), "refit_failed")
+        self.assertIsNone(hold_fail.get("ic"))
+
+    def test_calendar_cut_holdout_and_train_window(self):
+        """宇宙日历 cut_date：跨票对齐；缺日期退回按票比例。"""
+        from quant.research.partition_loss import (
+            collect_group_chrono_holdout,
+            resolve_calendar_cut_date,
+            split_panel_by_cut_date,
+            yhat_group_holdout_metrics,
+        )
+        from quant.research.factor_ols_clusters import _stock_train_xy
+
+        # 两票日历重叠：全局 cut 后各自都有足够前/尾段
+        dates = [f"2024-01-{i:02d}" for i in range(1, 31)]
+        panel = {
+            "AAA": {
+                "xs": [{"momentum": float(i)} for i in range(30)],
+                "ys": [float(i) for i in range(30)],
+                "dates": list(dates),
+            },
+            "BBB": {
+                "xs": [{"momentum": float(i) * 0.5} for i in range(30)],
+                "ys": [float(i) * 0.5 for i in range(30)],
+                "dates": list(dates),
+            },
+        }
+        cut = resolve_calendar_cut_date(panel, holdout_ratio=0.3)
+        self.assertIsNotNone(cut)
+        self.assertEqual(len(cut), 10)
+        self.assertGreaterEqual(cut, dates[int(0.5 * len(dates))])
+        self.assertLessEqual(cut, dates[int(0.85 * len(dates))])
+
+        tx, ty, hx, hy = split_panel_by_cut_date(
+            panel["AAA"]["xs"],
+            panel["AAA"]["ys"],
+            panel["AAA"]["dates"],
+            cut_date=cut,
+        )
+        self.assertGreaterEqual(len(ty), 4)
+        self.assertGreaterEqual(len(hy), 4)
+        self.assertEqual(len(ty) + len(hy), 30)
+
+        split = collect_group_chrono_holdout(
+            ["AAA", "BBB"], panel, holdout_ratio=0.3, cut_date=cut
+        )
+        self.assertEqual(split.get("split_mode"), "calendar")
+        self.assertEqual(split.get("cut_date"), cut)
+        self.assertGreaterEqual(int(split["n_train"]), 8)
+        self.assertGreaterEqual(int(split["n_hold"]), 8)
+
+        train_xs, train_ys, used_full = _stock_train_xy(
+            panel["AAA"], holdout_ratio=0.3, cut_date=cut
+        )
+        self.assertFalse(used_full)
+        self.assertEqual(len(train_ys), len(ty))
+
+        rm = {
+            "intercept": 0.0,
+            "coefficients": {"momentum": 1.0},
+            "z_means": {},
+            "z_stds": {},
+            "standardized": False,
+        }
+        hold = yhat_group_holdout_metrics(
+            ["AAA", "BBB"],
+            panel,
+            return_model=rm,
+            holdout_ratio=0.3,
+            cut_date=cut,
+        )
+        self.assertTrue(hold.get("ok"), hold)
+        self.assertEqual(hold.get("split_mode"), "calendar")
+        self.assertEqual(hold.get("cut_date"), cut)
+
+        # 无 dates → 退回 per_stock_ratio
+        bare = {
+            "AAA": {"xs": panel["AAA"]["xs"], "ys": panel["AAA"]["ys"]},
+            "BBB": {"xs": panel["BBB"]["xs"], "ys": panel["BBB"]["ys"]},
+        }
+        self.assertIsNone(resolve_calendar_cut_date(bare, holdout_ratio=0.3))
+        split_ratio = collect_group_chrono_holdout(
+            ["AAA", "BBB"], bare, holdout_ratio=0.3
+        )
+        self.assertEqual(split_ratio.get("split_mode"), "per_stock_ratio")
 
     def test_cluster_report_auto_k_selection(self):
         """auto 路径写入 k_selection，胜出 k 落在候选邻域内。"""
@@ -331,14 +588,182 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertTrue(out.get("success"), out.get("error"))
         self.assertTrue(out.get("n_clusters_auto"))
         ks = out.get("k_selection") or {}
-        self.assertEqual(ks.get("mode"), "auto_oos")
+        self.assertEqual(ks.get("mode"), "auto_fit_ic")
         fitted = int(out.get("fitted_count") or 0)
         expect = auto_k_candidates(fitted)
         self.assertEqual(ks.get("candidate_ks"), expect)
         self.assertIn(int(ks.get("chosen_k")), expect)
-        cand_ks = [int(r["k"]) for r in (ks.get("candidates") or [])]
-        self.assertEqual(cand_ks, expect)
-        self.assertIn("ΔOOS选k", out.get("note") or "")
+        cand_ks = sorted({int(r["k"]) for r in (ks.get("candidates") or [])})
+        self.assertTrue(set(cand_ks).issubset(set(expect)))
+        self.assertIn("拟合+IC选k", out.get("note") or "")
+        self.assertIn("partition_loss", (ks.get("candidates") or [{}])[0])
+        self.assertIn("cluster_beta", ks)
+        self.assertIn("chosen_partition_kind", ks)
+        wf = out.get("walk_forward") or {}
+        self.assertIn(wf.get("split_mode"), ("calendar", "per_stock_ratio"))
+        self.assertEqual(ks.get("walk_forward"), wf)
+        if wf.get("split_mode") == "calendar":
+            self.assertTrue(wf.get("cut_date"))
+            self.assertEqual(
+                (ks.get("cluster_beta") or {}).get("cut_date"), wf.get("cut_date")
+            )
+            # auto-k 多折打分（小宇宙）
+            self.assertTrue(ks.get("expanding_score") in (True, False))
+            cand0 = (ks.get("candidates") or [{}])[0]
+            if ks.get("expanding_score"):
+                self.assertGreaterEqual(int(ks.get("n_expanding_folds") or 0), 2)
+                self.assertIn("expanding_folds", cand0)
+                self.assertGreaterEqual(len(cand0.get("expanding_folds") or []), 2)
+                self.assertIn("partition_loss_primary", cand0)
+            exp = wf.get("expanding") or {}
+            self.assertIn("ok", exp)
+            if exp.get("ok"):
+                self.assertGreaterEqual(int(exp.get("n_folds") or 0), 1)
+                self.assertTrue(exp.get("folds"))
+        gr = out.get("greedy_refine") or {}
+        self.assertIn("ok", gr)
+        self.assertEqual(ks.get("greedy_refine"), gr)
+
+    def test_light_greedy_swap_refine_unit(self):
+        """holdout 贪心换组：标签长度不变；可改进则 loss 下降。"""
+        from quant.research.cluster_greedy_refine import (
+            evaluate_labels_holdout_loss,
+            light_greedy_swap_refine,
+        )
+
+        dates = [f"2024-01-{i:02d}" for i in range(1, 31)]
+        # 两团：A/B 动量→收益，C/D 负相关动量
+        panel = {}
+        for code, sign in (("A", 1.0), ("B", 1.0), ("C", -1.0), ("D", -1.0)):
+            xs = [{"momentum": float(sign * i)} for i in range(30)]
+            ys = [float(sign * i) * 0.01 for i in range(30)]
+            panel[code] = {"xs": xs, "ys": ys, "dates": list(dates)}
+        codes = ["A", "B", "C", "D"]
+        # 错配：A+C / B+D
+        bad = np.array([0, 1, 0, 1], dtype=int)
+        base = evaluate_labels_holdout_loss(
+            bad,
+            codes,
+            panel,
+            holdout_ratio=0.3,
+            cut_date="2024-01-21",
+            use_pit=False,
+            select_ridge=False,
+            respect_regime=False,
+        )
+        self.assertLess(float(base["loss"]), 1e9)
+        refined, diag = light_greedy_swap_refine(
+            bad,
+            codes,
+            panel,
+            holdout_ratio=0.3,
+            cut_date="2024-01-21",
+            use_pit=False,
+            select_ridge=False,
+            respect_regime=False,
+            max_rounds=3,
+            max_evals=40,
+        )
+        self.assertTrue(diag.get("ok"), diag)
+        self.assertEqual(len(refined), 4)
+        self.assertEqual(int(diag.get("n_evals") or 0) >= 0, True)
+        if diag.get("improved"):
+            self.assertLessEqual(
+                float(diag["loss_after"]), float(diag["loss_before"])
+            )
+            # 理想：同号票同组
+            groups = {}
+            for i, lab in enumerate(refined):
+                groups.setdefault(int(lab), []).append(codes[i])
+            for members in groups.values():
+                if len(members) >= 2:
+                    signs = {1 if m in ("A", "B") else -1 for m in members}
+                    self.assertEqual(len(signs), 1, groups)
+    def test_aggregate_expanding_auto_k_score(self):
+        from quant.research.factor_ols_clusters import (
+            _aggregate_expanding_auto_k_score,
+        )
+
+        primary = {
+            "partition_loss": 0.4,
+            "mean_yhat_ic": 0.2,
+            "passed": 1,
+            "failed": 0,
+            "skipped": 0,
+            "mean_delta_oos_pp": 0.5,
+            "silhouette": 0.3,
+            "mean_holdout_r2": 0.1,
+            "mean_holdout_rmse": 0.2,
+        }
+        folds = [
+            {**primary, "partition_loss": 0.4, "mean_yhat_ic": 0.2},
+            {"partition_loss": 0.6, "mean_yhat_ic": 0.0},
+        ]
+        agg = _aggregate_expanding_auto_k_score(folds, primary_score=primary)
+        self.assertAlmostEqual(float(agg["partition_loss"]), 0.5, places=5)
+        self.assertEqual(agg["partition_loss_primary"], 0.4)
+        self.assertEqual(agg["n_expanding_folds"], 2)
+        self.assertEqual(agg["sort_key"][0], -0.5)
+    def test_expanding_cluster_wf_audit_unit(self):
+        """多折切点重聚类审计：日历对齐 + 相邻折稳定度字段。"""
+        from quant.research.cluster_label_align import pair_label_stability
+        from quant.research.cluster_wf_audit import (
+            expanding_cluster_wf_audit,
+            resolve_expanding_cut_dates,
+        )
+
+        stab = pair_label_stability(
+            ["A", "B", "C", "D"],
+            [0, 0, 1, 1],
+            [1, 1, 0, 0],  # 置换后应对齐为高稳定度
+        )
+        self.assertTrue(stab.get("aligned"))
+        self.assertGreaterEqual(float(stab.get("stability") or 0), 0.99)
+
+        dates = [f"2024-01-{i:02d}" for i in range(1, 31)] + [
+            f"2024-02-{i:02d}" for i in range(1, 29)
+        ]
+        # 4 票 × 长面板，便于两折 cut 都有 holdout
+        codes = ["S1", "S2", "S3", "S4"]
+        panel = {}
+        per_stock = []
+        for j, code in enumerate(codes):
+            xs = [{"momentum": float(i + j), "value": float(j)} for i in range(len(dates))]
+            ys = [0.01 * (i + j) for i in range(len(dates))]
+            panel[code] = {"xs": xs, "ys": ys, "dates": list(dates), "bars": []}
+            per_stock.append(
+                {
+                    "success": True,
+                    "stock_code": code,
+                    "coefficients": {"momentum": 1.0 + 0.1 * j, "value": 0.1 * j},
+                    "active_features": ["momentum", "value"],
+                }
+            )
+        cuts = resolve_expanding_cut_dates(
+            panel, codes=codes, train_fractions=(0.55, 0.7)
+        )
+        self.assertGreaterEqual(len(cuts), 2)
+        audit = expanding_cluster_wf_audit(
+            codes,
+            panel,
+            ["momentum", "value"],
+            n_clusters=2,
+            partition_kind="hierarchical_average",
+            method="hierarchical",
+            linkage="average",
+            scale_mode="none",
+            ridge_lambda=0.0,
+            select_ridge=False,
+            use_pit=False,
+            respect_regime=False,
+            train_fractions=(0.55, 0.7),
+            per_stock=per_stock,
+        )
+        self.assertTrue(audit.get("ok"), audit)
+        self.assertGreaterEqual(int(audit.get("n_folds") or 0), 2)
+        # 第二折应有 vs 前折稳定度
+        fold2 = next(f for f in audit["folds"] if f.get("fold") == 2 and f.get("ok"))
+        self.assertIn("stability_vs_prev", fold2)
 
     def test_beta_scale_resolve_and_zscore(self):
         self.assertEqual(resolve_beta_scale("none"), "none")
@@ -399,10 +824,14 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertIn("观察池", html)
         self.assertIn("同组同建模", html)
         self.assertIn("quant-global-fold", html)
-        self.assertIn("watching-section-title\">对照</", html)
-        self.assertIn("watching-section-title\">探针</", html)
-        self.assertIn("watching-section-title\">日报</", html)
-        self.assertIn("watching-section-title\">分组</", html)
+        self.assertIn("quant-section-factors-title", html)
+        self.assertIn(">分组</", html)
+        self.assertIn("quant-section-global-title", html)
+        self.assertIn(">对照</", html)
+        self.assertIn("quant-section-probe-title", html)
+        self.assertIn(">探针</", html)
+        self.assertIn("quant-section-daily-title", html)
+        self.assertIn(">日报</", html)
 
         def _read(*parts: str) -> str:
             with open(os.path.join(ROOT, *parts), encoding="utf-8") as f:

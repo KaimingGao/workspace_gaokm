@@ -157,7 +157,7 @@ class TestFactorOlsPool(unittest.TestCase):
         """全量注册因子应出现在面板（不因 regime 白名单整列变 None）。"""
         from quant.research.factor_ols import collect_subscore_forward_panel
 
-        xs, ys = collect_subscore_forward_panel(rising_bars(50), horizon_days=3)
+        xs, ys, _dates = collect_subscore_forward_panel(rising_bars(50), horizon_days=3)
         self.assertGreater(len(ys), 10)
         # 扩展因子在价量 mock 上应有观测（非 regime 导致的全缺测）
         for name in ("technical_pattern", "ma_slope", "gap_risk", "amihud"):
@@ -184,13 +184,21 @@ class TestFactorOlsPool(unittest.TestCase):
         self.assertIn("单票 vs 所在组", html)
 
     def test_js_calls_pool_api(self):
-        path = os.path.join(ROOT, "web", "static", "js", "quant.js")
-        with open(path, encoding="utf-8") as f:
-            js = f.read()
-        self.assertIn("/api/quant/factor-ols-pool", js)
-        self.assertIn("runFactorOlsPoolSuggest", js)
-        self.assertIn("readOlsCode", js)
-        self.assertIn("populateOlsCodeOptions", js)
+        # 池 OLS / 探针入口已拆到 domain_suggest / domain_cluster
+        suggest = os.path.join(ROOT, "web", "static", "js", "quant", "domain_suggest.js")
+        cluster = os.path.join(ROOT, "web", "static", "js", "quant", "domain_cluster.js")
+        shell = os.path.join(ROOT, "web", "static", "js", "quant.js")
+        with open(suggest, encoding="utf-8") as f:
+            suggest_js = f.read()
+        with open(cluster, encoding="utf-8") as f:
+            cluster_js = f.read()
+        with open(shell, encoding="utf-8") as f:
+            shell_js = f.read()
+        self.assertIn("/api/quant/factor-ols-pool", suggest_js)
+        self.assertIn("runFactorOlsPoolSuggest", suggest_js)
+        self.assertIn("readOlsCode", cluster_js)
+        self.assertIn("populateOlsCodeOptions", cluster_js)
+        self.assertIn("populateOlsCodeOptions", shell_js)
 
 
 if __name__ == "__main__":

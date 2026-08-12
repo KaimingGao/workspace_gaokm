@@ -11,6 +11,16 @@ export function clusterLandingHtml(data) {
   const h = (data && data.health) || {};
   const land = (data && data.landing) || {};
   const mode = cs.mode || "off";
+  const liveN =
+    act.n_clusters != null
+      ? Number(act.n_clusters)
+      : Array.isArray(act.clusters)
+        ? act.clusters.length
+        : null;
+  const researchN =
+    data.research_n_clusters != null
+      ? Number(data.research_n_clusters)
+      : null;
   const modeLabel =
     mode === "active"
       ? "已启用组ŷ"
@@ -57,6 +67,15 @@ export function clusterLandingHtml(data) {
     `<span class="quant-cluster-stat"><b>v${escapeHtml(
       String(act.version != null ? act.version : "—")
     )}</b> 映射</span>` +
+    (researchN != null && liveN != null && researchN !== liveN
+      ? `<span class="quant-cluster-stat is-warn" title="「跑分组」只更新研究区；须点「对照」才把 live 映射换成新组数"><b>研究 ${escapeHtml(
+          String(researchN)
+        )} / live ${escapeHtml(String(liveN))}</b> 组</span>`
+      : liveN != null
+        ? `<span class="quant-cluster-stat"><b>${escapeHtml(
+            String(liveN)
+          )}</b> live组</span>`
+        : "") +
     `<span class="quant-cluster-stat" title="组ŷ 打分后全局按 score 排序，再按 min_score / max 截断"><b>全局</b> 排序</span>` +
     `<span class="quant-cluster-stat"><b>${escapeHtml(cov)}</b> 覆盖</span>` +
     `<span class="quant-cluster-stat${h.stale ? " is-warn" : ""}"><b>${escapeHtml(

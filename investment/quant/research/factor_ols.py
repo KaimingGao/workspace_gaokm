@@ -42,7 +42,7 @@ def compute_factor_ols_report(
     ridge_lambda: float = 0.0,
 ) -> Dict[str, Any]:
     """对 sub_scores 拟合 forward return 的 OLS/Ridge（研究用，不产出生产权重 patch）。"""
-    xs, ys = collect_subscore_forward_panel(
+    xs, ys, _dates = collect_subscore_forward_panel(
         bars,
         horizon_days=horizon_days,
         min_history=min_history,
@@ -89,7 +89,7 @@ def compute_factor_ols_pooled_report(
             if code:
                 skipped.append({"code": code, "reason": "无日线"})
             continue
-        xs, ys = collect_subscore_forward_panel(
+        xs, ys, _dates = collect_subscore_forward_panel(
             bars,
             horizon_days=horizon_days,
             index_bars=item.get("index_bars"),

@@ -241,7 +241,7 @@ export function renderFactorSummaryCards(data, metaByName) {
     return;
   }
   host.hidden = false;
-  if (countEl) countEl.textContent = `共 ${factors.length} 个因子`;
+  if (countEl) countEl.textContent = `全样本 IC · 共 ${factors.length} 个（≠ 组β）`;
 
   const topByAbsIR = [...factors]
     .sort((a, b) => Math.abs(b.ir_annual ?? b.ic_ir ?? 0) - Math.abs(a.ir_annual ?? a.ic_ir ?? 0))

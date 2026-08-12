@@ -469,6 +469,22 @@ export function createOlsUi(deps) {
     const lazy = merge.lazyTables !== false;
     const parts = clusters.map((cl, idx) => {
       const label = cl.label || `G${(cl.cluster_id ?? idx) + 1}`;
+      const ord =
+        cl.ordinal != null && Number.isFinite(Number(cl.ordinal))
+          ? Number(cl.ordinal)
+          : idx + 1;
+      const gidTitle =
+        Number(cl.cluster_id) + 1 !== ord
+          ? `研究第 ${ord}/${clusters.length} 组 · 标签 ${label}（对齐 live，号可不连续）`
+          : `研究第 ${ord}/${clusters.length} 组`;
+      const gidHtml =
+        Number(cl.cluster_id) + 1 !== ord
+          ? `<span class="quant-cluster-gid" title="${esc(gidTitle)}">` +
+            `<span class="quant-cluster-ord">#${esc(String(ord))}</span> ` +
+            `${esc(String(label))}</span>`
+          : `<span class="quant-cluster-gid" title="${esc(gidTitle)}">${esc(
+              String(label)
+            )}</span>`;
       const isPref =
         pref &&
         (pref.cluster_id === cl.cluster_id ||
@@ -514,7 +530,7 @@ export function createOlsUi(deps) {
         `<summary class="quant-cluster-group-head">` +
         `<div class="quant-cluster-group-title-row">` +
         `<div class="quant-cluster-group-title">` +
-        `<span class="quant-cluster-gid">${esc(String(label))}</span>` +
+        gidHtml +
         `<span class="quant-cluster-tags">${tags.join("")}</span>` +
         `<span class="quant-cluster-metrics">${metrics}</span>` +
         `</div>` +
@@ -880,6 +896,19 @@ export function createOlsUi(deps) {
     if (data.speed_note) methodBits.push("大宇宙加速");
     if (data.daily_pit === false && data.pit_fundamentals !== false) {
       methodBits.push("财务快照");
+    }
+    const la = data.label_alignment || {};
+    if (la.aligned) {
+      const ids = clusters
+        .map((c) => Number(c.cluster_id))
+        .filter((v) => Number.isFinite(v) && v >= 0);
+      const maxId = ids.length ? Math.max(...ids) : -1;
+      const sparse = maxId + 1 > clusters.length;
+      methodBits.push(
+        sparse
+          ? `标签对齐 live（G 号保留，可跳号如 G21）`
+          : `标签对齐 live`
+      );
     }
     const flags = data.lookahead_flags || {};
     const fundMode = String(flags.fundamentals || "");

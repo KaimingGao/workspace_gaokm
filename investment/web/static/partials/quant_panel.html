@@ -41,15 +41,15 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">组数 / 离群</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="ic">
+          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="ic" title="全样本因子 IC 时序，不是当前分组的组内 β">
             <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">全局 IC</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">均值 / |IR|</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">因子 IC · 非组β</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="hit">
+          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="hit" title="跨日 ŷ 方向命中（评分复盘），不是分组正IC%">
             <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">方向命中</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">近 N 日 / μ</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">ŷ 跨日 · 非分组</div>
           </div>
           <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="fit">
             <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">纸面拟合</div>
@@ -97,7 +97,7 @@
               </p>
               <p>
                 「跑分组」：宇宙=观察池<strong>前 Limit 只</strong>（默认 100≈满池），按单票 OLS β 层次聚类。
-                表单默认 <strong>ridge λ=1.0</strong>、<strong>K=自动</strong>（中心约 N/5，夹在 4～10；邻域 ±1 按组级 ΔOOS 选优；超大组再二分）；
+                表单默认 <strong>ridge λ=1.0</strong>、<strong>K=自动</strong>（中心约 N/5，夹在 4～10；宇宙日历前段 β 定组；邻域 ±1 × 多折均值尾段 ŷ IC / 前段重拟合选优；定组后有限轮 holdout 贪心换组；另附扩展窗审计；超大组再二分）；
                 <strong>填 ≥2</strong>=按目标 k 切簇（尽量贴近 K；实际上限≈有效票数，不因离群拆成单票堆）。
               </p>
               <h4>OOS 语义</h4>
@@ -122,7 +122,7 @@
               <span class="quant-pro-field-label">Ridge λ</span>
               <input id="quant-ridge-lambda" type="number" min="0" max="100" step="0.1" value="1.0" />
             </label>
-            <label class="platform-field quant-pro-field" title="目标聚类数 K：默认自动（中心 N/5 ±1 按 ΔOOS 选）；填 ≥2 切到该 k">
+            <label class="platform-field quant-pro-field" title="目标聚类数 K：默认自动（中心 N/5 ±1 按尾段有符号 ŷ IC / 前段重拟合选）；填 ≥2 切到该 k">
               <span class="quant-pro-field-label">K</span>
               <input id="quant-cluster-k" type="number" min="2" max="100" step="1" value="" placeholder="自动" inputmode="numeric" />
             </label>
@@ -148,10 +148,10 @@
           </div>
         </div>
 
-        <div id="quant-pro-factor-summaries" class="quant-pro-factor-summaries" hidden>
+        <div id="quant-pro-factor-summaries" class="quant-pro-factor-summaries" hidden title="全样本因子 IC/IR；与下方分组表内的组 β / 权重不是同一套数">
           <div class="quant-pro-factor-summaries-head">
             <span class="quant-pro-factor-summaries-title">因子摘要</span>
-            <span class="quant-pro-factor-summaries-sub" id="quant-pro-factor-count">共 — 个因子</span>
+            <span class="quant-pro-factor-summaries-sub" id="quant-pro-factor-count">全样本 IC · 共 — 个</span>
           </div>
           <div id="quant-pro-factor-summaries-grid" class="quant-pro-factor-summaries-grid"></div>
         </div>

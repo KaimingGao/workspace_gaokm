@@ -21,7 +21,7 @@ def compute_alt_sentiment_ic(
     code = str(stock_code or "").strip()
     if not code:
         return {"success": False, "error": "缺 stock_code", "factor": "alt_sentiment"}
-    xs, ys = collect_subscore_forward_panel(
+    xs, ys, _dates = collect_subscore_forward_panel(
         bars,
         horizon_days=horizon_days,
         index_bars=index_bars,

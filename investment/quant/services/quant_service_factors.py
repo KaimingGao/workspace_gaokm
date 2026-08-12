@@ -276,8 +276,9 @@ class QuantFactorMixin:
         默认：complete-linkage + τ 切树；β 因子维 z-score；PIT 默认开（FH5）；
         B5 respect_regime；B3 选 λ + drop_redundant。
         refresh_bars 默认 True：过期/缺条日线限流拉网（约 36h 内仍复用）；False=纯缓存重算。
-        P1 use_cache：refresh_bars=False 时默认启用 24h 报告缓存（watchlist+参数指纹未变即复用），
-        避免重复 OLS/OOS/分池计算；refresh_bars=True 强制跳过缓存。
+        P1 use_cache：``refresh_bars=False`` 时可命中 24h 指纹缓存；成功落盘时**始终**更新指纹缓存
+        与 ``cluster_last_report``（进页优先恢复，避免刷新重算/旧缓存导致组变）。
+        草稿比指纹缓存更新时，指纹缓存自动作废。
         """
         from quant.research.factor_ols_clusters import (
             compute_factor_ols_cluster_report,
@@ -309,10 +310,10 @@ class QuantFactorMixin:
         except Exception:
             watchlist = []
 
-        # P1：24h 报告缓存（refresh_bars=False 且 use_cache=True 时启用）
+        # P1：指纹缓存 — 读仅在 refresh_bars=False；写在成功后始终落盘（避免刷新日线路径把缓存留在旧分区）
         cache_enabled = use_cache and not bool(refresh_bars)
         cache_fp = None
-        if cache_enabled:
+        if use_cache:
             cache_fp = _cluster_cache_fingerprint(
                 watchlist,
                 lookback=lookback,
@@ -335,18 +336,21 @@ class QuantFactorMixin:
                 select_ridge=select_ridge,
                 collinearity_policy=collinearity_policy,
             )
-            cached = _load_cluster_cache(cache_fp, max_age_hours=24)
-            if cached is not None:
-                if progress_cb:
-                    try:
-                        progress_cb("命中 24h 缓存，直接复用", 1, 1)
-                    except Exception:
-                        logger.warning("因子服务处理异常", exc_info=True)
-                cached["cache_hit"] = True
-                cached["cache_age_hours"] = _cluster_cache_age_hours(cached)
-                # 缓存里常缺 name_by_code；每次复用时用观察池真名补齐（探针下拉）
-                _enrich_cluster_name_by_code(cached)
-                return cached
+            if cache_enabled:
+                cached = _load_cluster_cache(cache_fp, max_age_hours=24)
+                if cached is not None:
+                    if progress_cb:
+                        try:
+                            progress_cb("命中 24h 缓存，直接复用", 1, 1)
+                        except Exception:
+                            logger.warning("因子服务处理异常", exc_info=True)
+                    cached["cache_hit"] = True
+                    cached["cache_age_hours"] = _cluster_cache_age_hours(cached)
+                    # 缓存里常缺 name_by_code；每次复用时用观察池真名补齐（探针下拉）
+                    _enrich_cluster_name_by_code(cached)
+                    # 复用时也刷新「最近一次」，便于进页恢复与草稿对齐
+                    _save_last_cluster_report(cached)
+                    return cached
 
         # 聚类宇宙 = 全部观察池（纸面持仓仅作落地映射参考，不进聚类）
         uni_meta = merge_cluster_universe(
@@ -515,9 +519,11 @@ class QuantFactorMixin:
         report["lookahead_flags"] = flags
         report["pit_fundamentals"] = bool(pit_fundamentals)
         report["fundamentals_pit_summary"] = flags.get("pit_summary")
-        # P1：成功则落盘缓存（refresh_bars=False 路径）
-        if cache_enabled and cache_fp and report.get("success"):
-            _save_cluster_cache(report, cache_fp)
+        # P1：成功则落盘指纹缓存 +「最近一次」（刷新进页优先恢复，不重算）
+        if report.get("success"):
+            if use_cache and cache_fp:
+                _save_cluster_cache(report, cache_fp)
+            _save_last_cluster_report(report)
         return report
 
     def start_factor_ols_cluster_job(self, **kwargs: Any) -> Dict[str, Any]:
@@ -1196,6 +1202,267 @@ def _cluster_cache_age_hours(report: Dict[str, Any]) -> Optional[float]:
         return None
 
 
+def _draft_saved_at_iso() -> Optional[str]:
+    """草稿落盘时间；用于判断指纹缓存是否已过期于最新草稿。"""
+    import json
+    import os
+
+    try:
+        from core.paths import CLUSTER_WEIGHTS_DRAFT_PATH
+    except Exception:
+        return None
+    path = CLUSTER_WEIGHTS_DRAFT_PATH
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+    except Exception:
+        return None
+    if not isinstance(doc, dict):
+        return None
+    return doc.get("saved_at") or doc.get("created_at")
+
+
+def _iso_newer(a: Optional[str], b: Optional[str]) -> bool:
+    """True if ``a`` is strictly newer than ``b`` (UTC ISO). Missing → False."""
+    if not a or not b:
+        return False
+    try:
+        from datetime import datetime
+
+        def _p(s: str) -> datetime:
+            s = str(s).replace("Z", "+00:00")
+            return datetime.fromisoformat(s)
+
+        return _p(a) > _p(b)
+    except Exception:
+        return False
+
+
+def _save_last_cluster_report(report: Dict[str, Any]) -> None:
+    """无论指纹缓存是否启用，都落「最近一次成功分组」便于刷新恢复。"""
+    from datetime import datetime, timezone
+
+    from core.io_atomic import atomic_write_json
+    from core.paths import CLUSTER_LAST_REPORT_PATH
+
+    if not isinstance(report, dict) or not report.get("success"):
+        return
+    if not isinstance(report.get("clusters"), list) or not report.get("clusters"):
+        return
+    try:
+        import copy
+
+        report_copy = copy.deepcopy(report)
+    except Exception:
+        report_copy = dict(report)
+    for k in ("progress_cb", "_progress_cb"):
+        report_copy.pop(k, None)
+    doc = {
+        "saved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "report": report_copy,
+    }
+    try:
+        atomic_write_json(CLUSTER_LAST_REPORT_PATH, doc)
+    except Exception:
+        pass
+
+
+def _oos_summary_from_clusters(clusters: list) -> Dict[str, Any]:
+    passed = failed = skipped = 0
+    for cl in clusters:
+        if not isinstance(cl, dict):
+            continue
+        gate = cl.get("oos_gate") if isinstance(cl.get("oos_gate"), dict) else {}
+        if gate.get("skipped"):
+            skipped += 1
+        elif gate.get("ok") and gate.get("passed"):
+            passed += 1
+        elif gate:
+            failed += 1
+        elif cl.get("oos_passed") is True:
+            passed += 1
+        elif cl.get("oos_passed") is False:
+            failed += 1
+        else:
+            skipped += 1
+    return {
+        "run": True,
+        "passed": passed,
+        "failed": failed,
+        "skipped": skipped,
+        "n": len(clusters),
+    }
+
+
+def _report_from_cluster_draft() -> Optional[Dict[str, Any]]:
+    """把 ``cluster_weights_draft`` 收成研究区可渲染的报告形（缺 ols/IC 面板等全文）。"""
+    try:
+        from core.signal.cluster_live import load_cluster_draft
+    except Exception:
+        return None
+    try:
+        draft = load_cluster_draft()
+    except Exception:
+        return None
+    if not isinstance(draft, dict) or not draft.get("success"):
+        return None
+    clusters = draft.get("clusters")
+    if not isinstance(clusters, list) or not clusters:
+        return None
+    try:
+        import copy
+
+        clusters_copy = copy.deepcopy(clusters)
+        code_map = copy.deepcopy(draft.get("code_map") or {})
+        pool_book = copy.deepcopy(draft.get("pool_book") or [])
+    except Exception:
+        clusters_copy = list(clusters)
+        code_map = dict(draft.get("code_map") or {})
+        pool_book = list(draft.get("pool_book") or [])
+
+    codes: List[str] = []
+    if isinstance(code_map, dict) and code_map:
+        codes = sorted(str(c).strip() for c in code_map.keys() if str(c).strip())
+    else:
+        seen = set()
+        for cl in clusters_copy:
+            if not isinstance(cl, dict):
+                continue
+            for m in cl.get("members") or []:
+                c = str(m).strip()
+                if c and c not in seen:
+                    seen.add(c)
+                    codes.append(c)
+        codes.sort()
+
+    n_clusters = int(draft.get("n_clusters") or len(clusters_copy))
+    n_mapped = int(draft.get("n_mapped_codes") or len(codes))
+    saved_at = draft.get("saved_at") or draft.get("created_at")
+    art = {
+        "success": True,
+        "is_draft": True,
+        "schema_version": draft.get("schema_version"),
+        "created_at": draft.get("created_at"),
+        "saved_at": saved_at,
+        "code_map": code_map,
+        "clusters": clusters_copy,
+        "pool_book": pool_book,
+        "n_clusters": n_clusters,
+        "n_mapped_codes": n_mapped,
+        "note": "从草稿恢复的映射产物",
+    }
+    report: Dict[str, Any] = {
+        "success": True,
+        "task": "factor_ols_clusters",
+        "mode": "ols_beta_clusters",
+        "n_clusters": n_clusters,
+        "clusters": clusters_copy,
+        "stock_count": n_mapped,
+        "universe_count": n_mapped,
+        "fitted_count": n_mapped,
+        "watching_codes": codes,
+        "n_mapped_codes": n_mapped,
+        "pool_artifact": art,
+        "pool_merge": {
+            "success": bool(pool_book),
+            "book": {"book": pool_book} if pool_book else {"book": []},
+        },
+        "oos_summary": _oos_summary_from_clusters(clusters_copy),
+        "cache_created_at": saved_at,
+        "cluster_draft_saved": True,
+        "is_draft_restore": True,
+        "note": "从草稿恢复；组表/β 可用，缺完整研究面板。点「跑分组」可重算全文。",
+        "hydrated_from_cache": True,
+        "restored_from": "draft",
+    }
+    try:
+        _enrich_cluster_name_by_code(report)
+    except Exception:
+        pass
+    return report
+
+
+def _load_latest_cluster_report() -> Optional[Dict[str, Any]]:
+    """读最近一次成功分组：last_report → 指纹缓存（不得旧于草稿）→ 草稿。"""
+    import json
+    import os
+
+    from core.paths import CLUSTER_LAST_REPORT_PATH, CLUSTER_REPORT_CACHE_PATH
+
+    draft_ts = _draft_saved_at_iso()
+
+    def _unpack(path: str, *, source: str) -> Optional[Dict[str, Any]]:
+        if not os.path.isfile(path):
+            return None
+        try:
+            with open(path, encoding="utf-8") as f:
+                doc = json.load(f)
+        except Exception:
+            return None
+        if not isinstance(doc, dict):
+            return None
+        report = doc.get("report") if isinstance(doc.get("report"), dict) else doc
+        if not isinstance(report, dict) or not report.get("success"):
+            return None
+        if not isinstance(report.get("clusters"), list) or not report.get("clusters"):
+            return None
+        created = (
+            doc.get("saved_at")
+            or doc.get("cache_created_at")
+            or doc.get("created_at")
+            or report.get("cache_created_at")
+        )
+        # 指纹缓存若明显旧于草稿（例如刷新日线跑完只写了 draft），勿当作「最近一次」
+        if source == "fingerprint_cache" and _iso_newer(draft_ts, created):
+            return None
+        try:
+            import copy
+
+            out = copy.deepcopy(report)
+        except Exception:
+            out = dict(report)
+        out["cache_created_at"] = created
+        out["hydrated_from_cache"] = True
+        out["restored_from"] = source
+        return out
+
+    last = _unpack(CLUSTER_LAST_REPORT_PATH, source="last_report")
+    if last is not None:
+        return last
+    cached = _unpack(CLUSTER_REPORT_CACHE_PATH, source="fingerprint_cache")
+    if cached is not None:
+        return cached
+    return _report_from_cluster_draft()
+
+
+def hydrate_ols_clusters_job_result(
+    result: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Job 落盘摘要缺 ``clusters`` 时，从最近报告补全（抗热重载）。"""
+    if not isinstance(result, dict):
+        return result
+    clusters = result.get("clusters")
+    if isinstance(clusters, list) and len(clusters) > 0:
+        return result
+    if not (
+        result.get("persisted_artifact")
+        or result.get("success")
+        or result.get("ok")
+    ):
+        return result
+    cached = _load_latest_cluster_report()
+    if not cached:
+        return result
+    cached = dict(cached)
+    cached["hydrated_from_job_stub"] = True
+    cached["job_stub_n_clusters"] = result.get("n_clusters")
+    for k in ("cache_hit", "cache_age_hours", "oos_summary"):
+        if result.get(k) is not None and cached.get(k) is None:
+            cached[k] = result.get(k)
+    return cached
+
 def _load_cluster_cache(
     fingerprint: str, *, max_age_hours: int = 24
 ) -> Optional[Dict[str, Any]]:
@@ -1218,6 +1485,10 @@ def _load_cluster_cache(
         return None
     report = doc.get("report")
     if not isinstance(report, dict) or not report.get("success"):
+        return None
+    # 草稿更新过且指纹缓存更旧 → 作废（常见于 refresh_bars 跑完只写 draft）
+    cache_ts = doc.get("cache_created_at") or doc.get("created_at")
+    if _iso_newer(_draft_saved_at_iso(), cache_ts):
         return None
     age = _cluster_cache_age_hours(doc) or 0.0
     if age > float(max_age_hours):

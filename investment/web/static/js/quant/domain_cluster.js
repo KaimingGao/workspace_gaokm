@@ -76,6 +76,44 @@ export function installClusterProbe(q) {
     try {
       // 进度挂分组卡头（三点脉冲）；页顶 meta 不抢主标题下的说明位
       if (els.quantFactorList) els.quantFactorList.innerHTML = "";
+      // 进页优先恢复上次落盘分组，避免刷新重算/命中旧缓存导致组变
+      setBusyText(els.quantOlsSummary, "恢复上次分组…", { busy: true });
+      let restored = null;
+      try {
+        const hr = await fetch("/api/quant/factor-ols-clusters/last-report");
+        const data = await hr.json();
+        if (
+          data &&
+          data.success &&
+          Array.isArray(data.clusters) &&
+          data.clusters.length
+        ) {
+          restored = data;
+        }
+      } catch (_) {
+        restored = null;
+      }
+      if (restored) {
+        renderOlsClusters(restored);
+        const nCl =
+          restored.n_clusters ?? (restored.clusters || []).length ?? "—";
+        const src =
+          restored.restored_from === "last_report"
+            ? "上次落盘"
+            : restored.restored_from === "fingerprint_cache"
+              ? "报告缓存"
+              : restored.restored_from === "draft"
+                ? "研究草稿"
+                : "落盘报告";
+        const draftHint =
+          restored.restored_from === "draft"
+            ? " · 缺完整研究面板"
+            : "";
+        const line = `已恢复${src} · ${nCl} 组${draftHint} · 点「跑分组」可重算`;
+        setBusyText(els.quantOlsSummary, line, { busy: false });
+        setQuantMeta(line);
+        return;
+      }
       setBusyText(els.quantOlsSummary, "分组中…", { busy: true });
       await q.suggest.runFactorOlsClustersSuggest();
     } finally {
@@ -520,7 +558,20 @@ export function installClusterProbe(q) {
       }
       const bookCodes = (data.book && data.book.codes) || [];
       state.clusterBookCodes = Array.isArray(bookCodes) ? bookCodes : [];
-      host.innerHTML = clusterLandingHtml(data);
+      const research =
+        state.quantLastOlsClusters && state.quantLastOlsClusters.success
+          ? state.quantLastOlsClusters
+          : null;
+      const researchN =
+        research && research.n_clusters != null
+          ? research.n_clusters
+          : research && Array.isArray(research.clusters)
+            ? research.clusters.length
+            : null;
+      host.innerHTML = clusterLandingHtml({
+        ...data,
+        research_n_clusters: researchN,
+      });
       paintClusterBookBadges(state.clusterBookCodes);
     } catch (_) {
       const host = document.getElementById("quant-cluster-landing");

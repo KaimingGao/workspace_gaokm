@@ -136,6 +136,7 @@ def _prepare_complete_panel(
         excluded.extend(leftover)
         meta["complete_sample_count"] = n
         meta["active_feature_count"] = p
+        meta["complete_row_indices"] = list(rows_idx)
         return xs_c, ys_c, active, excluded, meta
 
     return None, None, [], feature_names[:], meta
@@ -207,6 +208,7 @@ def _fit_ols_once(
     active: List[str],
     *,
     ridge_lambda: float = 0.0,
+    sample_weights: Optional[List[float]] = None,
 ) -> Optional[Dict[str, Any]]:
     n = len(ys)
     p = len(active)
@@ -218,15 +220,37 @@ def _fit_ols_once(
         design.append([1.0] + [float(row[name]) for name in active])
 
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
-    y_vec = [float(y) for y in ys]
+    y_fit = [float(y) for y in ys]
+    design_fit = design
+    # 样本权：对 (X,y) 乘 √w 再走 QR / Ridge（等价加权最小二乘）
+    if sample_weights is not None and len(sample_weights) == n:
+        design_w: List[List[float]] = []
+        y_w: List[float] = []
+        w_used = 0
+        for i in range(n):
+            try:
+                w = float(sample_weights[i])
+            except (TypeError, ValueError):
+                w = 1.0
+            if not math.isfinite(w) or w <= 0:
+                continue
+            sw = math.sqrt(w)
+            design_w.append([sw * v for v in design[i]])
+            y_w.append(sw * float(ys[i]))
+            w_used += 1
+        if w_used < max(4, p + 3):
+            return None
+        design_fit, y_fit = design_w, y_w
+
     beta = (
-        _ridge_lstsq(design, y_vec, lam)
+        _ridge_lstsq(design_fit, y_fit, lam)
         if lam > 0
-        else _qr_lstsq(design, y_vec)
+        else _qr_lstsq(design_fit, y_fit)
     )
     if beta is None:
         return None
 
+    # R²：在原始（未 √w 变换）设计上算，便于与旧口径对照
     y_mean = sum(float(y) for y in ys) / n
     ss_tot = sum((float(y) - y_mean) ** 2 for y in ys)
     ss_res = 0.0
@@ -274,6 +298,7 @@ def _ols_with_intercept(
     excluded: List[str],
     *,
     ridge_lambda: float = 0.0,
+    sample_weights: Optional[List[float]] = None,
 ) -> Optional[Dict[str, Any]]:
     """拟合 OLS / Ridge；纯 OLS 奇异时逐个剔除共线因子。Ridge 尽量保留全部入模列。"""
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
@@ -281,7 +306,9 @@ def _ols_with_intercept(
     dropped_collinear: List[str] = []
     fit = None
     while work:
-        fit = _fit_ols_once(xs, ys, work, ridge_lambda=lam)
+        fit = _fit_ols_once(
+            xs, ys, work, ridge_lambda=lam, sample_weights=sample_weights
+        )
         if fit is not None:
             break
         if lam > 0:
@@ -333,6 +360,7 @@ def fit_factor_ols_from_panel(
     collinearity_policy: str = "drop_redundant",
     respect_regime: bool = False,
     y_spec: Optional[Dict[str, Any]] = None,
+    sample_weights: Optional[List[float]] = None,
 ) -> Dict[str, Any]:
     """对已对齐的 (sub_scores, forward return) 面板拟合 OLS / Ridge。
 
@@ -340,6 +368,7 @@ def fit_factor_ols_from_panel(
     负号表示偏相关为负，勿直接与 config.weights 比大小。
     ``ridge_lambda>0`` 时收缩斜率系数（截距不惩罚），共线时尽量保留因子。
     B3：``select_ridge=True`` 时网格选 λ；``collinearity_policy`` 控趋势族冗余。
+    ``sample_weights``：与 ``xs/ys`` 等长的非负样本权（组内软异质降权）；拟合时 √w 变换。
     """
     from core.research.beta_accuracy import (
         apply_collinearity_policy,
@@ -360,6 +389,23 @@ def fit_factor_ols_from_panel(
     z_means: Dict[str, float] = {}
     z_stds: Dict[str, float] = {}
     fit = None
+    row_weights: Optional[List[float]] = None
+    if (
+        sample_weights is not None
+        and xs_c is not None
+        and isinstance(prep_meta.get("complete_row_indices"), list)
+    ):
+        idxs = prep_meta["complete_row_indices"]
+        if len(sample_weights) == len(xs) and len(idxs) == len(xs_c):
+            row_weights = []
+            for i in idxs:
+                try:
+                    w = float(sample_weights[int(i)])
+                except (TypeError, ValueError, IndexError):
+                    w = 1.0
+                if not math.isfinite(w) or w <= 0:
+                    w = 1e-6
+                row_weights.append(float(w))
     if xs_c is not None and ys_c is not None and active:
         kept, dropped_red, collinearity_meta = apply_collinearity_policy(
             xs_c,
@@ -375,12 +421,18 @@ def fit_factor_ols_from_panel(
         xs_fit = xs_c
         if standardize and active:
             xs_fit, z_means, z_stds = _zscore_complete_panel(xs_c, active)
-        if select_ridge and active:
+        if select_ridge and active and row_weights is None:
+            # 加权路径跳过选 λ（验证切分与权未对齐）；沿用传入 λ
             ridge_select_meta = select_ridge_lambda(xs_fit, ys_c, list(active))
             lam = float(ridge_select_meta.get("ridge_lambda_selected") or 0.0)
         if active:
             fit = _ols_with_intercept(
-                xs_fit, ys_c, active, excluded, ridge_lambda=lam
+                xs_fit,
+                ys_c,
+                active,
+                excluded,
+                ridge_lambda=lam,
+                sample_weights=row_weights,
             )
 
     y_spec_out = y_spec or build_y_spec(horizon_days=horizon_days)
@@ -466,6 +518,8 @@ def fit_factor_ols_from_panel(
         )
     else:
         note_parts.append("单票 walk-forward 非截面回归；样本少时系数不稳定。")
+    if row_weights is not None:
+        note_parts.append("已按 sample_weights 做加权 OLS（√w 变换）。")
     if fundamentals_used:
         note_parts.append(
             "value/quality 等基本面按决策日 PIT（缺史跳过）；非静默最新快照。"
@@ -514,9 +568,14 @@ def fit_factor_ols_from_panel(
         "ridge_select": ridge_select_meta or None,
         "respect_regime": bool(respect_regime),
         "prep_meta": prep_meta,
+        "weighted_ols": bool(row_weights is not None),
         "note": " ".join(note_parts),
         "track": "B1-B3",
     }
+    if row_weights is not None and row_weights:
+        out["mean_sample_weight"] = round(
+            float(sum(row_weights) / max(1, len(row_weights))), 4
+        )
     if stock_codes is not None:
         out["stock_codes"] = list(stock_codes)
         out["stock_count"] = len(stock_codes)

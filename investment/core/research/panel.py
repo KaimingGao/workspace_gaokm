@@ -85,8 +85,10 @@ def collect_subscore_forward_panel(
     sentiment_pit: bool = False,
     respect_regime: bool = False,
     config: Optional[dict] = None,
-) -> Tuple[List[Dict[str, Optional[float]]], List[float]]:
+) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str]]:
     """对齐子因子与 forward return，供 OLS / 研究面板复用。
+
+    返回 ``(xs, ys, decision_dates)``；dates 与 xs/ys 等长（YYYY-MM-DD），供日历切分 / WF。
 
     默认全量注册因子（不经 regime 白名单）；因子可缺测（None）。
     E2：默认按决策日 PIT 解析财务。
@@ -139,6 +141,7 @@ def collect_subscore_forward_panel(
 
     xs: List[Dict[str, Optional[float]]] = []
     ys: List[float] = []
+    dates: List[str] = []
     n = len(bars or [])
     for i in range(min_history - 1, n - horizon_days):
         start = max(0, i - max_window + 1)
@@ -171,5 +174,6 @@ def collect_subscore_forward_panel(
             continue
         xs.append(row)
         ys.append(fr)
+        dates.append(decision_date)
 
-    return xs, ys
+    return xs, ys, dates

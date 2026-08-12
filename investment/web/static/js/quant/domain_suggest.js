@@ -379,7 +379,33 @@ export function installSuggest(q) {
         // progress=1 不含完整 result；再拉一次完整结果
         const fullRes = await fetch("/api/jobs/quant-ols-clusters");
         const fullPayload = await fullRes.json();
-        return (fullPayload && fullPayload.job) || job;
+        const fullJob = (fullPayload && fullPayload.job) || job;
+        let result = (fullJob && fullJob.result) || {};
+        // 热重载后 Job 可能只剩摘要：从报告缓存水合
+        const hasClusters =
+          Array.isArray(result.clusters) && result.clusters.length > 0;
+        if (result.success && !hasClusters) {
+          try {
+            const hr = await fetch("/api/quant/factor-ols-clusters/last-report");
+            const hydrated = await hr.json();
+            if (
+              hydrated &&
+              hydrated.success &&
+              Array.isArray(hydrated.clusters) &&
+              hydrated.clusters.length
+            ) {
+              result = {
+                ...hydrated,
+                hydrated_from_job_stub: true,
+                job_stub_n_clusters: result.n_clusters,
+              };
+              fullJob.result = result;
+            }
+          } catch (_) {
+            /* keep stub */
+          }
+        }
+        return fullJob;
       }
       if (job.status === "failed") {
         throw new Error(job.error || job.message || "分组任务失败");
@@ -547,7 +573,7 @@ export function installSuggest(q) {
         setQuantMeta(`分组已算完，渲染失败 · ${detail}`, { error: true });
         throw renderErr;
       }
-      const nCl = data.n_clusters ?? "—";
+      const nCl = data.n_clusters ?? (data.clusters || []).length ?? "—";
       const nUni = data.universe_count ?? data.stock_count ?? "—";
       const nWatch = (data.watching_codes || []).length;
       const nIn = data.stock_count ?? "—";
@@ -575,8 +601,14 @@ export function installSuggest(q) {
       const regimeTag = data.respect_regime ? " · regime裁剪" : " · 全因子";
       const cacheTag = data.cache_hit
         ? ` · 缓存命中${data.cache_age_hours != null ? ` ${data.cache_age_hours}h` : ""}`
-        : "";
-      const doneLine = `分组 · ${nCl} 组${kTag} · 观察 ${nWatch || nUni} · 入组 ${nIn} · ${sec}s${oosTag}${pmOk}${pitTag}${barsTag}${regimeTag}${cacheTag}`;
+        : data.hydrated_from_job_stub || data.hydrated_from_cache
+          ? ` · 已从落盘恢复${
+              data.restored_from ? `(${data.restored_from})` : ""
+            }`
+          : "";
+      const liveHint =
+        " · 研究区已更新；live 映射须点「对照」才会从旧组数切换";
+      const doneLine = `分组 · ${nCl} 组${kTag} · 观察 ${nWatch || nUni} · 入组 ${nIn} · ${sec}s${oosTag}${pmOk}${pitTag}${barsTag}${regimeTag}${cacheTag}${liveHint}`;
       setBusyText(els.quantOlsSummary, doneLine, { busy: false });
       setQuantMeta(doneLine);
     } finally {

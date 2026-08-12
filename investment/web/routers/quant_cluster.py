@@ -56,6 +56,23 @@ def quant_factor_ols_clusters(body: FactorOlsClusterRequest):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/api/quant/factor-ols-clusters/last-report")
+def quant_factor_ols_clusters_last_report():
+    """最近一次成功分组报告（优先 ``cluster_last_report``；供进页恢复 / Job 水合）。"""
+    try:
+        from quant.services.quant_service_factors import _load_latest_cluster_report
+
+        report = _load_latest_cluster_report()
+        if not report:
+            return {
+                "success": False,
+                "error": "尚无落盘分组报告或研究草稿（请先点「跑分组」）",
+            }
+        return report
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.post("/api/quant/cluster-paper-preview")
 def quant_cluster_paper_preview(body: ClusterPaperPreviewRequest):
     """分池候选簿 → 纸面调仓预演；confirm=true 写 paper.json（不写 signal_config）。"""
