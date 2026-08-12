@@ -100,6 +100,8 @@ def score_cluster_partition_oos(
                     "member_count": n_mem,
                     "pooled_r2": None,
                     "ic_mean": 0.0,
+                    "has_return_model": False,
+                    "fit_ok": False,
                 }
             )
             continue
@@ -140,6 +142,7 @@ def score_cluster_partition_oos(
                 "member_count": n_mem,
                 "pooled_r2": r2,
                 "ic_mean": ic_f,
+                "has_return_model": True,
             }
         )
 

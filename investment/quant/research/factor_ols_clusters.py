@@ -1581,7 +1581,11 @@ def compute_factor_ols_cluster_report(
                     active_mask_by_cluster=active_mask_map,
                     hetero_abs=0.30,
                     max_abs_delta=0.55,
+                    hetero_rel=0.40,
+                    max_rel_delta=0.75,
+                    abs_floor=0.01,
                     max_hetero_factors=3,
+                    use_relative=True,
                 )
                 if group_raw_map
                 else (labels, [])

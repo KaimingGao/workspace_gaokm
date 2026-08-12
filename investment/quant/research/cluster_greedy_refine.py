@@ -83,10 +83,13 @@ def _group_holdout_metrics(
         ic_f = float(ic_v) if ic_v is not None else 0.0
     except (TypeError, ValueError):
         ic_f = 0.0
+    # holdout 重拟合失败 → 本组在贪心口径下不可用（须带 fit_ok，否则漏 unusable 罚）
     return {
         "member_count": n_mem,
         "pooled_r2": None if r2 is None else float(r2),
         "ic_mean": float(ic_f),
+        "has_return_model": bool(hold_ok),
+        "fit_ok": bool(hold_ok),
     }
 
 
@@ -143,6 +146,8 @@ def evaluate_labels_holdout_loss(
                 "member_count": metrics["member_count"],
                 "pooled_r2": metrics["pooled_r2"],
                 "ic_mean": metrics["ic_mean"],
+                "has_return_model": metrics.get("has_return_model"),
+                "fit_ok": metrics.get("fit_ok"),
                 "members": list(members),
             }
         groups_metrics.append(metrics)
@@ -291,6 +296,11 @@ def light_greedy_swap_refine(
                 break
         if not moved or n_evals >= max_evals_i:
             break
+
+    # 组被掏空后标签可能跳号；对外返回前重编号（与 research greedy 一致）
+    from quant.research.cluster_partition import _relabel_non_negative
+
+    best = _relabel_non_negative(np.asarray(best, dtype=int))
 
     return best, {
         "ok": True,

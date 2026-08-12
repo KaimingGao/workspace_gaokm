@@ -502,12 +502,20 @@ def compute_partition_loss(
     w_ic: float = 0.5,
     lambda_imbalance: float = 0.3,
     lambda_singleton: float = 1.5,
-    ic_use_abs: bool = True,
+    lambda_unusable: float = 1.5,
+    ic_use_abs: bool = False,
+    include_singleton_quality: bool = True,
+    singleton_prior_r2: float = 0.0,
+    singleton_prior_ic: float = 0.0,
 ) -> Dict[str, Any]:
     """最小化 (1-R²) + (-IC) + 结构惩罚。
 
-    groups[i] 需要的字段：member_count / pooled_r2 / ic_mean。
-    返回 dict，其中 loss 越小越好。
+    groups[i] 字段：member_count / pooled_r2 / ic_mean；可选 fit_ok / invalid /
+    has_return_model。
+
+    - ``ic_use_abs=False``（默认）：有符号 IC；负相关抬高 loss（与 live 选 k 一致）。
+    - 单票组默认计入质量项（先验 R²/IC），避免「踢成单票眼不见为净」。
+    - 拟合失败的多票组计入 ``unusable`` 惩罚，避免「空壳大组」优于全单票。
     """
     total_n = sum(int(g.get("member_count") or 0) for g in groups)
     if total_n < 1:
@@ -517,35 +525,115 @@ def compute_partition_loss(
             "loss_ic": 0.0,
             "penalty_imbalance": 0.0,
             "penalty_singleton": 0.0,
+            "penalty_unusable": 0.0,
             "details": [],
             "note": "空分区",
+            "ic_use_abs": bool(ic_use_abs),
+            "singleton_count": 0,
+            "singleton_members": 0,
+            "singleton_share": 0.0,
+            "unusable_members": 0,
+            "unusable_share": 0.0,
         }
+
+    def _parse_r2(g: Dict[str, Any]) -> Optional[float]:
+        r2_raw = g.get("pooled_r2")
+        if r2_raw is not None:
+            try:
+                return float(max(0.0, min(1.0, float(r2_raw))))
+            except (TypeError, ValueError):
+                return None
+        return extract_group_r2_from_pooled(g)
+
+    def _parse_ic(g: Dict[str, Any], *, default: float) -> float:
+        if "ic_mean" not in g or g.get("ic_mean") is None:
+            return float(default)
+        try:
+            return float(g.get("ic_mean"))
+        except (TypeError, ValueError):
+            return float(default)
+
+    def _is_unusable_multi(g: Dict[str, Any], n_g: int) -> bool:
+        """无可用交易模型的多票组（空壳），不是 holdout 偶发失败。"""
+        if n_g < 2:
+            return False
+        if g.get("invalid") is True or g.get("fit_ok") is False:
+            return True
+        if g.get("unusable") is True:
+            return True
+        if g.get("has_return_model") is False:
+            return True
+        return False
+
     loss_r2_num, loss_ic_num, wsum = 0.0, 0.0, 0.0
-    singletons = 0
+    singleton_members = 0
+    unusable_members = 0
     sizes: List[int] = []
     details: List[Dict[str, Any]] = []
     for g in groups:
+        if not isinstance(g, dict):
+            continue
         n_g = max(0, int(g.get("member_count") or 0))
         sizes.append(n_g)
         if n_g < 1:
             continue
-        if n_g < 2:
-            singletons += 1
+
+        r2_parsed = _parse_r2(g)
+        if _is_unusable_multi(g, n_g):
+            unusable_members += n_g
+            # 空壳多票组：质量项按最差先验计入，避免只靠结构罚还显得「干净」
+            w = partition_group_weight(n_g, total_n)
+            r2 = 0.0
+            ic = _parse_ic(g, default=0.0)
+            if ic_use_abs:
+                ic = abs(ic)
+            loss_r2_num += w * (1.0 - r2)
+            loss_ic_num += w * (-ic)
+            wsum += w
+            details.append(
+                {
+                    "member_count": n_g,
+                    "weight": round(w, 4),
+                    "r2": 0.0,
+                    "ic_mean": round(ic, 4),
+                    "r2_term": 1.0,
+                    "ic_term": round(-ic, 4),
+                    "unusable": True,
+                }
+            )
             continue
+
+        if n_g < 2:
+            singleton_members += n_g
+            if not include_singleton_quality:
+                continue
+            w = partition_group_weight(n_g, total_n)
+            if r2_parsed is None:
+                r2 = float(singleton_prior_r2)
+            else:
+                r2 = float(r2_parsed)
+            ic = _parse_ic(g, default=float(singleton_prior_ic))
+            if ic_use_abs:
+                ic = abs(ic)
+            loss_r2_num += w * (1.0 - r2)
+            loss_ic_num += w * (-ic)
+            wsum += w
+            details.append(
+                {
+                    "member_count": n_g,
+                    "weight": round(w, 4),
+                    "r2": round(r2, 4),
+                    "ic_mean": round(ic, 4),
+                    "r2_term": round((1.0 - r2), 4),
+                    "ic_term": round(-ic, 4),
+                    "singleton": True,
+                }
+            )
+            continue
+
         w = partition_group_weight(n_g, total_n)
-        r2_raw = g.get("pooled_r2")
-        if r2_raw is None:
-            r2 = extract_group_r2_from_pooled(g) or 0.0
-        else:
-            try:
-                r2 = float(r2_raw)
-                r2 = max(0.0, min(1.0, r2))
-            except (TypeError, ValueError):
-                r2 = 0.0
-        try:
-            ic = float(g.get("ic_mean") or 0.0)
-        except (TypeError, ValueError):
-            ic = 0.0
+        r2 = 0.0 if r2_parsed is None else float(r2_parsed)
+        ic = _parse_ic(g, default=0.0)
         if ic_use_abs:
             ic = abs(ic)
         loss_r2_num += w * (1.0 - r2)
@@ -561,6 +649,7 @@ def compute_partition_loss(
                 "ic_term": round(-ic, 4),
             }
         )
+
     loss_r2 = loss_r2_num / max(wsum, 1e-9)
     loss_ic = loss_ic_num / max(wsum, 1e-9)
 
@@ -569,14 +658,19 @@ def compute_partition_loss(
     max_share = (max(sizes) / total_n) if total_n > 0 else 1.0
     penalty_imbalance = max(0.0, max_share - 2.0 * ideal) * lambda_imbalance
 
-    singleton_share = singletons / max(k, 1)
-    penalty_singleton = singleton_share * lambda_singleton
+    # 按票数占比罚，避免「组数很多但单票很少」与「空壳大组」口径不一致
+    singleton_share = singleton_members / float(total_n)
+    unusable_share = unusable_members / float(total_n)
+    penalty_singleton = singleton_share * float(lambda_singleton)
+    penalty_unusable = unusable_share * float(lambda_unusable)
+    singleton_group_count = int(sum(1 for n in sizes if n == 1))
 
     loss = (
         w_r2 * loss_r2
         + w_ic * loss_ic
         + penalty_imbalance
         + penalty_singleton
+        + penalty_unusable
     )
     return {
         "loss": float(loss),
@@ -584,9 +678,21 @@ def compute_partition_loss(
         "loss_ic": float(loss_ic),
         "penalty_imbalance": float(penalty_imbalance),
         "penalty_singleton": float(penalty_singleton),
+        "penalty_unusable": float(penalty_unusable),
         "group_count": int(k),
-        "singleton_count": int(singletons),
+        # singleton_count = 单票「组」个数（展示）；惩罚用的是票数占比 singleton_share
+        "singleton_count": singleton_group_count,
+        "singleton_members": int(singleton_members),
+        "singleton_share": round(float(singleton_share), 4),
+        "unusable_members": int(unusable_members),
+        "unusable_share": round(float(unusable_share), 4),
         "max_share": round(max_share, 4),
         "details": details,
-        "note": "loss 越小越好 = R² 越大且 IC 越大，同时不失衡无大量单票组。",
+        "ic_use_abs": bool(ic_use_abs),
+        "note": (
+            "loss 越小越好：有符号 IC↑、R²↑；单票计入质量先验；"
+            "空壳多票组另计 unusable 罚。"
+            "penalty_singleton 按 singleton_members/total_n，"
+            "勿与 singleton_count/group_count 组占比混淆。"
+        ),
     }

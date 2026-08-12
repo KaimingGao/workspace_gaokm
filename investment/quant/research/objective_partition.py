@@ -374,7 +374,7 @@ def _fit_group_ic(
             xs = list(p.get("xs") or [])
             ys = list(p.get("ys") or [])
         result = group_ts_ic_panel(xs, ys, feature_names)
-        return extract_group_ic_from_panel(result, use_abs=True)
+        return extract_group_ic_from_panel(result, use_abs=False)
     bars_map, funds = _member_bars_and_funds(member_codes, panel_by_code)
     if len(bars_map) < 2:
         # 回退 TS
@@ -384,7 +384,7 @@ def _fit_group_ic(
             xs = list(p.get("xs") or [])
             ys = list(p.get("ys") or [])
         result = group_ts_ic_panel(xs, ys, feature_names)
-        return extract_group_ic_from_panel(result, use_abs=True)
+        return extract_group_ic_from_panel(result, use_abs=False)
     result = group_cs_ic_panel(
         bars_map,
         feature_names,
@@ -392,7 +392,7 @@ def _fit_group_ic(
         pit_fundamentals=bool(pit_fundamentals),
         fundamentals_by_code=funds or None,
     )
-    return extract_group_ic_from_panel(result, use_abs=True)
+    return extract_group_ic_from_panel(result, use_abs=False)
 
 
 def evaluate_partition(
@@ -432,6 +432,13 @@ def evaluate_partition(
             respect_regime=respect_regime,
             y_spec=y_spec,
         )
+        has_rm = False
+        if isinstance(pooled, dict):
+            coefs = pooled.get("coefficients")
+            if isinstance(coefs, dict) and coefs:
+                has_rm = True
+            elif pooled.get("success") and r2 is not None:
+                has_rm = True
         try:
             ic_m = _fit_group_ic(
                 members,
@@ -449,6 +456,8 @@ def evaluate_partition(
                 "members": members,
                 "pooled_r2": None if r2 is None else float(r2),
                 "ic_mean": float(ic_m),
+                "has_return_model": bool(has_rm),
+                "fit_ok": bool(has_rm),
                 "_pooled": pooled,
             }
         )
@@ -458,7 +467,7 @@ def evaluate_partition(
         w_ic=float(w_ic),
         lambda_imbalance=float(lambda_imbalance),
         lambda_singleton=float(lambda_singleton),
-        ic_use_abs=True,
+        ic_use_abs=False,
     )
     return {"groups": groups_metrics, **loss_info}
 

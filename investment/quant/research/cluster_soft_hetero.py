@@ -14,10 +14,16 @@ def soft_hetero_member_weight(
     *,
     soft_delta: float = 0.25,
     w_min: float = 0.2,
+    max_rel_delta: Optional[float] = None,
+    soft_rel: float = 0.40,
 ) -> float:
-    """max|Δβ| → (0,1] 权重。soft_delta 处约 0.5；过大趋近 w_min。"""
-    d = max(0.0, float(max_abs_delta))
-    scale = max(1e-6, float(soft_delta))
+    """异质度 → (0,1] 权重。优先用相对 Δβ；否则回退绝对。"""
+    if max_rel_delta is not None:
+        d = max(0.0, float(max_rel_delta))
+        scale = max(1e-6, float(soft_rel))
+    else:
+        d = max(0.0, float(max_abs_delta))
+        scale = max(1e-6, float(soft_delta))
     w = 1.0 / (1.0 + (d / scale) ** 2)
     return float(max(float(w_min), min(1.0, w)))
 
@@ -29,9 +35,10 @@ def compute_member_soft_weights(
     group_raw: np.ndarray,
     active_mask: Optional[np.ndarray] = None,
     soft_delta: float = 0.25,
+    soft_rel: float = 0.40,
     w_min: float = 0.2,
 ) -> Dict[str, Dict[str, Any]]:
-    """code → {weight, max_abs_delta, mean_abs_delta, hetero_count}。"""
+    """code → {weight, max_abs_delta, max_rel_delta, ...}。"""
     out: Dict[str, Dict[str, Any]] = {}
     g = np.asarray(group_raw, dtype=float).reshape(-1)
     for code in member_codes:
@@ -42,6 +49,7 @@ def compute_member_soft_weights(
                 "weight": 1.0,
                 "max_abs_delta": 0.0,
                 "mean_abs_delta": 0.0,
+                "max_rel_delta": 0.0,
                 "hetero_count": 0,
             }
             continue
@@ -50,11 +58,14 @@ def compute_member_soft_weights(
             float(stats.get("max_abs_delta") or 0.0),
             soft_delta=soft_delta,
             w_min=w_min,
+            max_rel_delta=float(stats.get("max_rel_delta") or 0.0),
+            soft_rel=soft_rel,
         )
         out[c] = {
             "weight": round(w, 4),
             "max_abs_delta": stats.get("max_abs_delta"),
             "mean_abs_delta": stats.get("mean_abs_delta"),
+            "max_rel_delta": stats.get("max_rel_delta"),
             "hetero_count": stats.get("hetero_count"),
         }
     return out

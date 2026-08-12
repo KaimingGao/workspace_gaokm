@@ -237,6 +237,23 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertEqual(int(out[0]), OUTLIER_LABEL)
         self.assertTrue(any("delta_beta" in str(e.get("reason")) for e in ej))
 
+    def test_delta_beta_relative_catches_small_factor(self):
+        # 估值绝对差大 / 动量相对差大（β≈0）都应踢
+        group = np.array([1.2, 0.010], dtype=float)
+        ticket_b = np.array([1.70, 0.012], dtype=float)  # |Δ估值|=0.5
+        ticket_c = np.array([1.10, 0.000], dtype=float)  # 动量暴露归零
+        st_b = beta_delta_mismatch(ticket_b, group)
+        st_c = beta_delta_mismatch(ticket_c, group)
+        self.assertTrue(st_b["reject"])
+        self.assertEqual(st_b.get("reason"), "max_abs_delta")
+        self.assertTrue(st_c["reject"])
+        self.assertEqual(st_c.get("reason"), "max_rel_delta")
+        # 纯绝对阈值会漏掉票 C
+        st_c_abs = beta_delta_mismatch(
+            ticket_c, group, use_relative=False, max_abs_delta=0.40
+        )
+        self.assertFalse(st_c_abs["reject"])
+
     def test_refine_ejects_far_singleton(self):
         main = np.random.RandomState(0).normal(0, 0.05, (21, 3))
         outlier = np.array([[8.0, 8.0, 8.0]])
@@ -426,6 +443,80 @@ class TestFactorOlsClusters(unittest.TestCase):
             ic_use_abs=False,
         )
         self.assertLess(better["loss"], loss["loss"])
+
+        # 默认有符号 IC：|IC| 口径不得把反向组评得更好
+        part_good = compute_partition_loss(
+            groups=[
+                {"member_count": 2, "pooled_r2": 0.15, "ic_mean": 0.04},
+                {"member_count": 2, "pooled_r2": 0.12, "ic_mean": 0.03},
+            ]
+        )
+        part_rev = compute_partition_loss(
+            groups=[
+                {"member_count": 2, "pooled_r2": 0.20, "ic_mean": -0.05},
+                {"member_count": 2, "pooled_r2": 0.10, "ic_mean": 0.02},
+            ]
+        )
+        self.assertLess(part_good["loss"], part_rev["loss"])
+        self.assertFalse(part_good.get("ic_use_abs"))
+
+        # 空壳多票组不得优于全拆单票
+        shell = compute_partition_loss(
+            groups=[
+                {
+                    "member_count": 10,
+                    "pooled_r2": None,
+                    "ic_mean": 0.0,
+                    "has_return_model": False,
+                    "fit_ok": False,
+                }
+            ]
+        )
+        all_sing = compute_partition_loss(
+            groups=[{"member_count": 1} for _ in range(10)]
+        )
+        self.assertGreaterEqual(shell["loss"], all_sing["loss"] - 1e-9)
+        self.assertGreater(shell.get("penalty_unusable", 0), 0)
+
+        # 漏传 fit_ok 时会漏 unusable 罚（贪心旧路径）；带标志应 ≈2.5
+        shell_silent = compute_partition_loss(
+            groups=[{"member_count": 10, "pooled_r2": None, "ic_mean": 0.0}]
+        )
+        self.assertAlmostEqual(shell_silent["loss"], 1.0, places=4)
+        self.assertEqual(shell_silent.get("penalty_unusable", 0), 0)
+        self.assertAlmostEqual(shell["loss"], 2.5, places=4)
+
+        # singleton_count=组数；penalty 用票数占比 singleton_share
+        mixed = compute_partition_loss(
+            groups=[
+                {"member_count": 8, "pooled_r2": 0.2, "ic_mean": 0.05},
+                {"member_count": 8, "pooled_r2": 0.2, "ic_mean": 0.05},
+                {"member_count": 1},
+                {"member_count": 1},
+                {"member_count": 1},
+                {"member_count": 1},
+            ]
+        )
+        self.assertEqual(mixed["singleton_count"], 4)
+        self.assertEqual(mixed["singleton_members"], 4)
+        self.assertAlmostEqual(float(mixed["singleton_share"]), 0.2, places=4)
+        self.assertAlmostEqual(float(mixed["penalty_singleton"]), 0.3, places=4)
+
+        # 单票计入质量先验：踢成单票不应比显式计入差组更「好看」
+        hide = compute_partition_loss(
+            groups=[
+                {"member_count": 3, "pooled_r2": 0.2, "ic_mean": 0.05},
+                *[{"member_count": 1} for _ in range(7)],
+            ]
+        )
+        hide_skip = compute_partition_loss(
+            groups=[
+                {"member_count": 3, "pooled_r2": 0.2, "ic_mean": 0.05},
+                *[{"member_count": 1} for _ in range(7)],
+            ],
+            include_singleton_quality=False,
+        )
+        self.assertGreater(hide["loss"], hide_skip["loss"])
 
         # 组级：每票切尾；票顺序颠倒结果应一致
         panel_ab = {
@@ -666,6 +757,9 @@ class TestFactorOlsClusters(unittest.TestCase):
         )
         self.assertTrue(diag.get("ok"), diag)
         self.assertEqual(len(refined), 4)
+        # 返回标签应连续非负（组掏空后重编号）
+        labs = sorted({int(v) for v in refined if int(v) >= 0})
+        self.assertEqual(labs, list(range(len(labs))))
         self.assertEqual(int(diag.get("n_evals") or 0) >= 0, True)
         if diag.get("improved"):
             self.assertLessEqual(

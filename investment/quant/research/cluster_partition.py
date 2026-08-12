@@ -211,9 +211,18 @@ def beta_delta_mismatch(
     active_mask: Optional[np.ndarray] = None,
     hetero_abs: float = 0.25,
     max_abs_delta: float = 0.40,
+    hetero_rel: float = 0.40,
+    max_rel_delta: float = 0.75,
+    abs_floor: float = 0.01,
     max_hetero_factors: int = 2,
+    use_relative: bool = True,
 ) -> Dict[str, Any]:
-    """在组活跃因子上比较单票β vs 组池β（与探针 Δβ/异质同口径）。"""
+    """在组活跃因子上比较单票β vs 组池β。
+
+    默认同时看**相对** |Δβ|/scale 与绝对 |Δβ|：
+    - scale = max(|β_g|, |β_m|, abs_floor)，避免小系数因子永远踢不出去。
+    - 相对或绝对任一超阈即 reject。
+    """
     m = np.asarray(member_raw, dtype=float).reshape(-1)
     g = np.asarray(group_raw, dtype=float).reshape(-1)
     if m.shape != g.shape:
@@ -228,17 +237,29 @@ def beta_delta_mismatch(
             "reject": False,
             "max_abs_delta": 0.0,
             "mean_abs_delta": 0.0,
+            "max_rel_delta": 0.0,
+            "mean_rel_delta": 0.0,
             "l2": 0.0,
             "hetero_count": 0,
             "reason": None,
         }
     deltas = np.abs(m - g)
+    floor = max(1e-6, float(abs_floor))
+    scale = np.maximum(np.maximum(np.abs(g), np.abs(m)), floor)
+    rel = deltas / scale
     max_d = float(np.max(deltas))
     mean_d = float(np.mean(deltas))
+    max_r = float(np.max(rel))
+    mean_r = float(np.mean(rel))
     l2 = float(np.linalg.norm(m - g))
-    hetero_n = int(np.sum(deltas >= float(hetero_abs)))
+    if use_relative:
+        hetero_n = int(np.sum(rel >= float(hetero_rel)))
+    else:
+        hetero_n = int(np.sum(deltas >= float(hetero_abs)))
     reason = None
-    if max_d >= float(max_abs_delta):
+    if use_relative and max_r >= float(max_rel_delta):
+        reason = "max_rel_delta"
+    elif max_d >= float(max_abs_delta):
         reason = "max_abs_delta"
     elif hetero_n >= int(max_hetero_factors):
         reason = "hetero_factor_count"
@@ -246,6 +267,8 @@ def beta_delta_mismatch(
         "reject": reason is not None,
         "max_abs_delta": round(max_d, 4),
         "mean_abs_delta": round(mean_d, 4),
+        "max_rel_delta": round(max_r, 4),
+        "mean_rel_delta": round(mean_r, 4),
         "l2": round(l2, 4),
         "hetero_count": hetero_n,
         "reason": reason,
@@ -260,9 +283,17 @@ def eject_by_group_beta_delta(
     active_mask_by_cluster: Dict[int, np.ndarray],
     hetero_abs: float = 0.25,
     max_abs_delta: float = 0.40,
+    hetero_rel: float = 0.40,
+    max_rel_delta: float = 0.75,
+    abs_floor: float = 0.01,
     max_hetero_factors: int = 2,
+    use_relative: bool = True,
 ) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
-    """按组活跃因子上的 |Δβ| 踢出：与探针「异质」对齐，避免 002594∈G1 仍巨差。"""
+    """按组活跃因子相对/绝对 |Δβ| 硬踢出。
+
+    主路径仍会在组池迭代里调用；``cluster_soft_hetero`` 是并行的软降权，
+    二者互补而非互相替代。
+    """
     labels = np.asarray(labels, dtype=int).copy()
     raw = np.asarray(raw, dtype=float)
     ejects: List[Dict[str, Any]] = []
@@ -276,7 +307,11 @@ def eject_by_group_beta_delta(
                 active_mask=mask,
                 hetero_abs=hetero_abs,
                 max_abs_delta=max_abs_delta,
+                hetero_rel=hetero_rel,
+                max_rel_delta=max_rel_delta,
+                abs_floor=abs_floor,
                 max_hetero_factors=max_hetero_factors,
+                use_relative=use_relative,
             )
             if not stats["reject"]:
                 continue
@@ -284,9 +319,15 @@ def eject_by_group_beta_delta(
                 {
                     "index": int(i),
                     "from_cluster": int(cid),
-                    "distance": stats["max_abs_delta"],
-                    "threshold": float(max_abs_delta),
+                    "distance": stats.get("max_rel_delta")
+                    if use_relative
+                    else stats["max_abs_delta"],
+                    "threshold": float(max_rel_delta)
+                    if use_relative
+                    else float(max_abs_delta),
                     "mean_abs_delta": stats["mean_abs_delta"],
+                    "max_abs_delta": stats["max_abs_delta"],
+                    "max_rel_delta": stats.get("max_rel_delta"),
                     "l2": stats["l2"],
                     "hetero_count": stats["hetero_count"],
                     "reason": f"delta_beta_{stats['reason']}",
@@ -294,6 +335,7 @@ def eject_by_group_beta_delta(
             )
             labels[i] = OUTLIER_LABEL
     return labels, ejects
+
 
 
 OUTLIER_LABEL = -1
@@ -415,7 +457,10 @@ def enforce_diameter_cap(
     *,
     tau: float,
 ) -> Tuple[np.ndarray, List[Dict[str, Any]]]:
-    """组内直径 > τ 时反复踢出离中心最远的点，直到直径 ≤ τ 或只剩单票。"""
+    """组内直径 > τ 时反复踢点，直到直径 ≤ τ 或只剩单票。
+
+    优先踢**构成当前直径的端点**里离中心更远的那个（而非「离中心最远但可能不在直径上」的点）。
+    """
     x = np.asarray(x, dtype=float)
     labels = np.asarray(labels, dtype=int).copy()
     tau = max(float(tau), 1e-9)
@@ -431,8 +476,20 @@ def enforce_diameter_cap(
             diam = cluster_diameter(x, idx)
             if diam <= tau + 1e-12:
                 continue
+            # 找直径端点对
+            best_pair = (idx[0], idx[1])
+            best_d = -1.0
+            for a in range(len(idx)):
+                for b in range(a + 1, len(idx)):
+                    d_ab = float(np.linalg.norm(x[idx[a]] - x[idx[b]]))
+                    if d_ab > best_d:
+                        best_d = d_ab
+                        best_pair = (idx[a], idx[b])
             center = x[np.asarray(idx)].mean(axis=0)
-            far_i = max(idx, key=lambda i: float(np.linalg.norm(x[i] - center)))
+            i0, i1 = best_pair
+            d0 = float(np.linalg.norm(x[i0] - center))
+            d1 = float(np.linalg.norm(x[i1] - center))
+            far_i = i0 if d0 >= d1 else i1
             d = float(np.linalg.norm(x[far_i] - center))
             ejects.append(
                 {
@@ -440,6 +497,7 @@ def enforce_diameter_cap(
                     "from_cluster": int(c),
                     "distance": round(d, 4),
                     "threshold": round(tau, 4),
+                    "diameter": round(float(best_d), 4),
                     "reason": "diameter_over_tau",
                 }
             )
