@@ -204,18 +204,23 @@
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
-        <div class="quant-card-tools-primary">
-          <label class="quant-inline-label quant-pro-field">
-            <span class="quant-pro-field-label">决策日</span>
-            <input type="date" id="quant-score-review-asof" class="quant-inline-input" title="as_of：打分决策日" />
-          </label>
-          <label class="quant-inline-label quant-pro-field">
-            <span class="quant-pro-field-label">Horizon</span>
+        <div class="quant-card-tools-primary quant-score-review-filters">
+          <label class="quant-inline-label quant-score-review-horizon-field" title="前瞻收益天数">
+            <span class="quant-score-review-filter-label">Horizon</span>
             <select id="quant-score-review-horizon" class="quant-inline-input" title="前瞻收益天数">
               <option value="1">1 日</option>
               <option value="3" selected>3 日</option>
             </select>
           </label>
+          <div
+            id="quant-score-review-ledgers"
+            class="quant-score-ledger-chips"
+            hidden
+            aria-label="决策日（已冻结账本）"
+          >
+            <span class="quant-score-review-filter-label quant-score-ledger-chips-label">决策日</span>
+            <div id="quant-score-review-ledger-chips" class="quant-score-ledger-chip-row" role="list"></div>
+          </div>
         </div>
         <div class="dashboard-card-tools quant-card-tools-secondary" role="group" aria-label="复盘操作">
           <button type="button" id="quant-score-review-run" class="dialog-btn">刷新复盘</button>
@@ -239,7 +244,7 @@
         <div class="yhat-viz-block quant-review-viz" id="quant-score-review-scatter-wrap" hidden>
           <p class="quant-block-cap">
             ŷ vs 实现收益
-            <span class="quant-sub" id="quant-score-review-scatter-meta">象限着色 · 命中青绿 / 失手红</span>
+            <span class="quant-sub" id="quant-score-review-scatter-meta">每点一只股票 · 绿=命中 / 红=失手 · 悬停看明细</span>
           </p>
           <div class="dashboard-chart-host quant-pro-scatter-host">
             <canvas id="quant-score-review-scatter" class="yhat-scatter-canvas" width="920" height="240" aria-label="ŷ 与实现收益散点"></canvas>
@@ -247,6 +252,20 @@
         </div>
         <div id="quant-score-review-blame" class="quant-weight-table-wrap sub"></div>
         <div id="quant-score-review-table" class="quant-weight-table-wrap"></div>
+        <div class="yhat-viz-block quant-review-viz" id="quant-score-review-panel-wrap" hidden>
+          <p class="quant-block-cap">
+            单票时间线
+            <span class="quant-sub" id="quant-score-review-panel-meta">点击上表行 · 收盘 / 日涨跌 / 冻结ŷ 同图</span>
+          </p>
+          <p class="quant-attr-note" id="quant-score-review-panel-note">
+            ŷ 仅来自已冻结账本；无账本日断点。左轴%（涨跌/ŷ）· 右轴收盘价。
+          </p>
+          <div
+            id="quant-score-review-panel-chart"
+            class="dashboard-chart-host quant-pro-spark-host quant-score-panel-chart"
+            aria-label="收盘价、日涨跌与冻结ŷ"
+          ></div>
+        </div>
       </div>
     </div>
   </section>
@@ -338,6 +357,18 @@
             <option value="quant" selected>量化研究</option>
           </select>
           <div id="quant-ops-preset-flags" class="sr-only" aria-hidden="true"></div>
+          <div
+            id="quant-daily-archive"
+            class="quant-daily-archive"
+            hidden
+            aria-label="归档日报"
+          >
+            <div class="quant-daily-archive-head">
+              <span class="quant-daily-archive-label">归档</span>
+              <span id="quant-daily-archive-meta" class="quant-sub">加载中…</span>
+            </div>
+            <div id="quant-daily-archive-chips" class="quant-daily-archive-chip-row" role="list"></div>
+          </div>
           <div id="quant-interpret-body" class="quant-summary" hidden></div>
           <div id="quant-interpret-neutral" class="quant-weight-table-wrap sub" hidden></div>
           <div id="quant-export-preview-meta" class="quant-sub is-busy">日报预览加载中…</div>

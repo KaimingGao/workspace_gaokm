@@ -2,11 +2,14 @@
  * 昨日复盘：ŷ 方向 vs 前瞻收益。
  */
 import { paintYhatScatter, paintHitSparkline } from "./yhat_viz.js";
-import { syncOverviewFromScoreReview, setProStatusChip } from "./factor_corr_ui.js";
+import { syncOverviewFromScoreReview, setProStatusChip, factorCN } from "./factor_corr_ui.js";
 
 export function installScoreReview(ctx) {
   const { els, escapeHtml, setQuantMeta, setBusyText, on } = ctx;
   const esc = escapeHtml;
+  let panelLoadToken = 0;
+  /** 当前复盘决策日（由冻结 chip 选择） */
+  let selectedAsOf = null;
 
   function tagLabel(tag) {
     const map = {
@@ -21,9 +24,15 @@ export function installScoreReview(ctx) {
   }
 
   function readAsOf() {
-    const el = document.getElementById("quant-score-review-asof");
-    const v = el && el.value ? String(el.value).trim() : "";
+    const v = selectedAsOf != null ? String(selectedAsOf).trim() : "";
     return v || null;
+  }
+
+  function setAsOf(asOf) {
+    const d = String(asOf || "").trim();
+    selectedAsOf = d || null;
+    markActiveLedgerChip(selectedAsOf || "");
+    return selectedAsOf;
   }
 
   function readHorizon() {
@@ -141,7 +150,12 @@ export function installScoreReview(ctx) {
     }
     canvas.hidden = false;
     requestAnimationFrame(() => {
-      const pack = paintYhatScatter(canvas, pts);
+      const pack = paintYhatScatter(canvas, pts, {
+        tagLabel,
+        onPoint: (p) => {
+          if (p && p.code) openStockPanel(p.code, p.name || "");
+        },
+      });
       if (pack && pack.n) {
         const hit =
           pack.hit_rate != null
@@ -149,7 +163,7 @@ export function installScoreReview(ctx) {
             : "—";
         setVizMeta(
           "quant-score-review-scatter-meta",
-          `n=${pack.n} · 方向命中 ${hit} · 绿=对 · 红=错`
+          `每点一只 · n=${pack.n} · 命中 ${hit} · 绿对红错 · 悬停看明细`
         );
       }
     });
@@ -202,11 +216,28 @@ export function installScoreReview(ctx) {
   function renderBlameTable(title, headers, rows, cellsFn) {
     if (!rows.length) return "";
     const body = rows.map((r) => `<tr>${cellsFn(r)}</tr>`).join("");
-    const th = headers.map((h) => `<th>${esc(h)}</th>`).join("");
+    const th = headers
+      .map((h, i) => {
+        const num = i > 0 ? " class=\"num\"" : "";
+        return `<th${num}>${esc(h)}</th>`;
+      })
+      .join("");
+    const cols = headers.length >= 3 ? "3" : "2";
     return (
       `<p class="quant-trades-caption">${esc(title)}</p>` +
-      `<table class="quant-mini-table"><thead><tr>${th}</tr></thead>` +
-      `<tbody>${body}</tbody></table>`
+      `<div class="quant-score-review-table-scroll">` +
+      `<table class="quant-mini-table quant-score-review-blame quant-score-review-blame--${cols}">` +
+      `<thead><tr>${th}</tr></thead>` +
+      `<tbody>${body}</tbody></table></div>`
+    );
+  }
+
+  function facLabel(r) {
+    return (
+      r.dominant_factor_label ||
+      r.factor_label ||
+      factorCN(r.dominant_factor || r.factor) ||
+      "—"
     );
   }
 
@@ -226,7 +257,7 @@ export function installScoreReview(ctx) {
         ["因子", "次数", "当日相关≈"],
         fac,
         (r) =>
-          `<td>${esc(r.factor || "—")}</td>` +
+          `<td>${esc(facLabel(r))}</td>` +
           `<td class="num">${esc(String(r.wrong_count ?? "—"))}</td>` +
           `<td class="num">${
             r.factor_ic_day != null ? esc(Number(r.factor_ic_day).toFixed(3)) : "—"
@@ -253,56 +284,281 @@ export function installScoreReview(ctx) {
   function renderWrongTable(data) {
     const box = document.getElementById("quant-score-review-table");
     if (!box) return;
-    const rows = data.wrong_rows || [];
-    if (!rows.length) {
+    const scored = data.scored_rows || [];
+    if (data.empty || !scored.length) {
       box.innerHTML = data.empty
         ? ""
-        : `<p class="quant-attr-note">无方向错误样本（或收益尚未回填）。</p>`;
+        : `<p class="quant-attr-note">无已回填样本（或收益尚未回填）。</p>`;
       return;
     }
+    const icByCode = {};
+    for (const r of data.wrong_rows || []) {
+      const c = String(r.code || "").trim();
+      if (c && r.factor_ic_day != null) icByCode[c] = r.factor_ic_day;
+    }
+    const nHit = scored.filter((r) => r.hit === true).length;
+    const nMiss = scored.filter((r) => r.hit === false).length;
+    const rows = scored.slice().sort((a, b) => {
+      const ah = a.hit === true ? 1 : a.hit === false ? 0 : 2;
+      const bh = b.hit === true ? 1 : b.hit === false ? 0 : 2;
+      if (ah !== bh) return ah - bh; // 错票优先，便于对照
+      return Math.abs(Number(b.abs_err) || 0) - Math.abs(Number(a.abs_err) || 0);
+    });
     const body = rows
+      .slice(0, 80)
       .map((r) => {
         const y = r.yhat != null ? Number(r.yhat).toFixed(2) : "—";
         const ret = r.realized_h != null ? Number(r.realized_h).toFixed(2) : "—";
         const err = r.abs_err != null ? Number(r.abs_err).toFixed(2) : "—";
-        const fac = r.dominant_factor || "—";
-        const ic =
-          r.factor_ic_day != null ? Number(r.factor_ic_day).toFixed(3) : "—";
+        const fac = facLabel(r);
+        const code = String(r.code || "").trim();
+        const icRaw = r.factor_ic_day != null ? r.factor_ic_day : icByCode[code];
+        const ic = icRaw != null ? Number(icRaw).toFixed(3) : "—";
+        const hitCls =
+          r.hit === true ? " is-hit" : r.hit === false ? " is-miss" : "";
+        const result =
+          r.hit === true ? "命中" : r.hit === false ? "失手" : tagLabel(r.tag);
         return (
-          `<tr>` +
-          `<td>${esc(r.code || "—")}</td>` +
-          `<td>${esc(r.name || "")}</td>` +
-          `<td>${esc(r.sector || "—")}</td>` +
-          `<td>${esc(r.cluster_label || "—")}</td>` +
+          `<tr class="quant-score-review-row is-clickable${hitCls}" data-code="${esc(code)}" data-name="${esc(
+            r.name || ""
+          )}" title="点击查看收盘 / 涨跌 / 冻结ŷ" role="button" tabindex="0">` +
+          `<td class="col-code">${esc(code || "—")}</td>` +
+          `<td class="col-name" title="${esc(r.name || "")}">${esc(r.name || "")}</td>` +
+          `<td class="col-sector" title="${esc(r.sector || "")}">${esc(r.sector || "—")}</td>` +
+          `<td class="col-group">${esc(r.cluster_label || "—")}</td>` +
           `<td class="num">${esc(y)}</td>` +
           `<td class="num">${esc(ret)}</td>` +
           `<td class="num">${esc(err)}</td>` +
-          `<td>${esc(fac)}</td>` +
+          `<td class="col-factor" title="${esc(r.dominant_factor || "")}">${esc(fac)}</td>` +
           `<td class="num">${esc(ic)}</td>` +
-          `<td>${esc(tagLabel(r.tag))}</td>` +
+          `<td class="col-tag">${esc(result)}</td>` +
           `</tr>`
         );
       })
       .join("");
     box.innerHTML =
-      `<table class="quant-mini-table"><thead><tr>` +
-      `<th>代码</th><th>名称</th><th>行业</th><th>组</th>` +
-      `<th>ŷ%</th><th>实现%</th><th>|误差|</th>` +
-      `<th>主导因子</th><th>因子相关</th><th>标签</th>` +
-      `</tr></thead><tbody>${body}</tbody></table>`;
+      `<p class="quant-trades-caption">复盘样本 · 命中 ${esc(String(nHit))} / 失手 ${esc(
+        String(nMiss)
+      )} · 点击行打开单票时间线</p>` +
+      `<div class="quant-score-review-table-scroll">` +
+      `<table class="quant-mini-table quant-score-review-mini quant-score-review-mini--wrong">` +
+      `<thead><tr>` +
+      `<th class="col-code">代码</th><th class="col-name">名称</th>` +
+      `<th class="col-sector">行业</th><th class="col-group">组</th>` +
+      `<th class="num">ŷ%</th><th class="num">实现%</th><th class="num">|误差|</th>` +
+      `<th class="col-factor">主导因子</th><th class="num">因子相关</th><th class="col-tag">结果</th>` +
+      `</tr></thead><tbody>${body}</tbody></table></div>`;
+  }
+
+  async function openStockPanel(code, name) {
+    const wrap = document.getElementById("quant-score-review-panel-wrap");
+    const host = document.getElementById("quant-score-review-panel-chart");
+    const noteEl = document.getElementById("quant-score-review-panel-note");
+    if (!wrap || !host) return;
+    const c = String(code || "").trim();
+    if (!c) return;
+    wrap.hidden = false;
+    wrap.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    setVizMeta(
+      "quant-score-review-panel-meta",
+      `${name || c} · 加载中…`
+    );
+    const token = ++panelLoadToken;
+    try {
+      const q = new URLSearchParams({ code: c, lookback: "10" });
+      const res = await fetch(`/api/quant/score-ledger/stock-panel?${q}`);
+      const data = await res.json().catch(() => ({}));
+      if (token !== panelLoadToken) return;
+      if (!res.ok || !data.success) {
+        setVizMeta(
+          "quant-score-review-panel-meta",
+          `${c} · ${data.detail || data.error || "加载失败"}`
+        );
+        return;
+      }
+      if (noteEl && data.note) {
+        noteEl.textContent =
+          `${data.note} · 左轴%（涨跌/ŷ）· 右轴收盘价。`;
+      }
+      const title = `${data.stock_name || data.name || name || c} · ${c}`;
+      setVizMeta(
+        "quant-score-review-panel-meta",
+        `${title} · 收盘 ${data.n_close ?? 0} · 涨跌 ${data.n_change ?? 0} · ŷ ${data.n_yhat ?? 0} 日`
+      );
+      const V =
+        (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+      const { renderDualScaleOverlayChart } = await import(
+        `../lw_charts.js?v=${encodeURIComponent(V)}`
+      );
+      await renderDualScaleOverlayChart(host, {
+        price: {
+          points: data.close_points || [],
+          color: "#0f766e",
+          label: "收盘",
+        },
+        pctSeries: [
+          {
+            points: data.change_points || [],
+            color: "#c2410c",
+            label: "日涨跌%",
+            zeroLine: true,
+          },
+          {
+            points: data.yhat_points || [],
+            color: "#2563eb",
+            label: "冻结ŷ%",
+            zeroLine: true,
+          },
+        ],
+        emptyText: "暂无近 10 日曲线",
+        disableZoom: true,
+      });
+      document
+        .querySelectorAll("#quant-score-review-table tr.is-active")
+        .forEach((tr) => tr.classList.remove("is-active"));
+      const active = document.querySelector(
+        `#quant-score-review-table tr[data-code="${CSS.escape(c)}"]`
+      );
+      if (active) active.classList.add("is-active");
+    } catch (err) {
+      if (token !== panelLoadToken) return;
+      setVizMeta(
+        "quant-score-review-panel-meta",
+        `${c} · ${String(err.message || err)}`
+      );
+    }
   }
 
   async function ensureDefaultAsOf() {
-    const el = document.getElementById("quant-score-review-asof");
-    if (!el || el.value) return;
+    if (readAsOf()) return;
     try {
-      const res = await fetch("/api/quant/score-review/dates?limit=10");
-      const data = await res.json().catch(() => ({}));
-      if (data.default_as_of) el.value = data.default_as_of;
-      else if ((data.dates || [])[0]) el.value = data.dates[0];
+      const pack = await loadLedgerIndex();
+      setAsOf(pack.default_as_of || (pack.dates || [])[0] || "");
     } catch (_) {
       /* ignore */
     }
+  }
+
+  function shortDate(asOf) {
+    const s = String(asOf || "");
+    return s.length >= 10 ? s.slice(5) : s || "—";
+  }
+
+  async function loadLedgerIndex() {
+    const res = await fetch("/api/quant/score-review/dates?limit=20");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || res.statusText);
+    renderLedgerChips(data);
+    return data;
+  }
+
+  function renderLedgerChips(data) {
+    const wrap = document.getElementById("quant-score-review-ledgers");
+    const row = document.getElementById("quant-score-review-ledger-chips");
+    if (!wrap || !row) return;
+    const entries = Array.isArray(data.entries)
+      ? data.entries
+      : (data.dates || []).map((d) => ({
+          as_of: d,
+          n_rows: null,
+          has_outcomes: false,
+        }));
+    if (!entries.length) {
+      wrap.hidden = true;
+      row.innerHTML = "";
+      return;
+    }
+    wrap.hidden = false;
+    const cur = readAsOf() || data.default_as_of || "";
+    if (!readAsOf() && cur) selectedAsOf = cur;
+    row.innerHTML = entries
+      .map((e) => {
+        const asOf = String(e.as_of || "").trim();
+        if (!asOf) return "";
+        const n = e.n_rows != null ? Number(e.n_rows) : null;
+        const filled = e.outcomes_filled != null ? Number(e.outcomes_filled) : 0;
+        const useful = filled > 0;
+        const active = asOf === cur ? " is-active" : "";
+        const ocCls = useful ? " has-outcomes" : " no-outcomes";
+        const ocMark = useful ? ` · 已回填 ${filled}` : " · 未回填";
+        const nTxt = n != null && Number.isFinite(n) ? `${n}只` : "—";
+        const title = `${asOf} · ${nTxt}${ocMark} · 点击切换决策日`;
+        return (
+          `<div class="quant-score-ledger-chip-wrap${active}" role="listitem">` +
+          `<button type="button" class="quant-score-ledger-chip${active}${ocCls}"` +
+          ` data-asof="${esc(asOf)}" title="${esc(title)}">` +
+          `<span class="chip-date">${esc(shortDate(asOf))}</span>` +
+          `<span class="chip-meta">${esc(nTxt)}${useful ? " ✓" : ""}</span>` +
+          `</button>` +
+          `<button type="button" class="quant-score-ledger-chip-del"` +
+          ` data-asof="${esc(asOf)}" data-nrows="${esc(String(n ?? ""))}"` +
+          ` title="删除 ${esc(asOf)} 账本" aria-label="删除 ${esc(asOf)} 账本">×</button>` +
+          `</div>`
+        );
+      })
+      .join("");
+  }
+
+  function markActiveLedgerChip(asOf) {
+    const row = document.getElementById("quant-score-review-ledger-chips");
+    if (!row) return;
+    const cur = String(asOf || "").trim();
+    row.querySelectorAll(".quant-score-ledger-chip-wrap").forEach((wrap) => {
+      const btn = wrap.querySelector(".quant-score-ledger-chip");
+      const on = btn && btn.getAttribute("data-asof") === cur;
+      wrap.classList.toggle("is-active", !!on);
+      if (btn) btn.classList.toggle("is-active", !!on);
+    });
+  }
+
+  async function selectLedgerAsOf(asOf) {
+    const d = String(asOf || "").trim();
+    if (!d) return;
+    setAsOf(d);
+    await runReview({ autofill: true });
+  }
+
+  async function deleteLedgerAsOf(asOf, { nRows } = {}) {
+    const d = String(asOf || "").trim();
+    if (!d) return;
+    const nHint =
+      nRows != null && String(nRows) !== "" ? `（约 ${nRows} 只）` : "";
+    const ok = window.confirm(
+      `确认删除 ${d} 的冻结账本${nHint}？\n将同时删除该日回填 outcomes，不可恢复。`
+    );
+    if (!ok) return;
+    setStatus(`正在删除 ${d}…`, { busy: true });
+    const res = await fetch("/api/quant/score-ledger/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ as_of: d, include_outcomes: true }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || res.statusText);
+    const pack = await loadLedgerIndex().catch(() => ({ dates: [], default_as_of: null }));
+    const cur = readAsOf();
+    if (cur === d) {
+      const next =
+        pack.default_as_of ||
+        (pack.dates || []).find((x) => x && x !== d) ||
+        "";
+      setAsOf(next);
+      if (next) {
+        setStatus(`已删除 ${d} · 切到 ${next}`, { ok: true });
+        await runReview({ autofill: true });
+      } else {
+        setStatus(`已删除 ${d} · 无剩余账本`, { ok: true });
+        renderSummary({ empty: true, note: "无该日账本。请先冻结打分。" });
+        renderBlame({ factor_blame: [], industry_blame: [], cluster_blame: [] });
+        const table = document.getElementById("quant-score-review-table");
+        if (table) table.innerHTML = "";
+        const scatter = document.getElementById("quant-score-review-scatter-wrap");
+        if (scatter) scatter.hidden = true;
+      }
+    } else {
+      setStatus(`已删除 ${d}`, { ok: true });
+    }
+    return data;
   }
 
   async function runReview({ autofill = true } = {}) {
@@ -326,6 +582,7 @@ export function installScoreReview(ctx) {
       renderHitSparkline(usedH).catch(() => {});
       renderBlame(data);
       renderWrongTable(data);
+      markActiveLedgerChip(data.as_of || asOf);
       const s = data.summary || {};
       const hit =
         s.hit_rate != null ? `${(Number(s.hit_rate) * 100).toFixed(0)}%` : "—";
@@ -351,11 +608,11 @@ export function installScoreReview(ctx) {
           : s.hit_rate != null
             ? `昨日复盘 · 命中 ${hit}${fbNote}`
             : thin > 0
-              ? `昨日复盘 · 薄样本 ${thin} · 请改小 Horizon 或刷新日线`
+              ? `昨日复盘 · 薄样本 ${thin} · as_of+h 日线未到，请选更早决策日`
               : `昨日复盘 · ${s.blame_line || "样本不足"}`;
         setQuantMeta(metaLine, {
           busy: false,
-          error: !!data.empty || (s.hit_rate == null && thin > 0),
+          error: !!data.empty,
         });
       }
       return data;
@@ -387,22 +644,56 @@ export function installScoreReview(ctx) {
       `已回填 ${data.filled ?? 0} 只（缺 ${data.missing ?? 0}）`,
       { ok: true }
     );
+    try {
+      await loadLedgerIndex();
+    } catch (_) {
+      /* ignore */
+    }
     return runReview({ autofill: false });
   }
 
   async function freezeLedger() {
     setStatus("冻结打分中…", { busy: true });
+    // 「冻结今日」：按会话交易日冻结，不跟决策日选择器（避免冻了又拿当天做复盘→全薄样本）
     const res = await fetch("/api/quant/score-ledger/freeze", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ as_of: readAsOf() }),
+      body: JSON.stringify({ as_of: null }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.detail || res.statusText);
-    const asEl = document.getElementById("quant-score-review-asof");
-    if (asEl && data.as_of) asEl.value = data.as_of;
-    setStatus(`已冻结 ${data.n_rows ?? 0} 只 · ${data.as_of || ""}`, { ok: true });
-    return runReview({ autofill: true });
+    const freezeAsOf = data.as_of || "";
+    let reviewAsOf = null;
+    try {
+      const pack = await loadLedgerIndex();
+      reviewAsOf = pack.default_as_of || pack.safe_as_of || null;
+    } catch (_) {
+      /* ignore */
+    }
+    if (reviewAsOf) setAsOf(reviewAsOf);
+    setStatus(
+      `已冻结 ${data.n_rows ?? 0} 只（${freezeAsOf || "今日"}）` +
+        (reviewAsOf && reviewAsOf !== freezeAsOf
+          ? ` · 复盘改用 ${reviewAsOf}`
+          : ""),
+      { ok: true }
+    );
+    const out = await runReview({ autofill: true });
+    if (setQuantMeta && freezeAsOf) {
+      const s = (out && out.summary) || {};
+      if (s.hit_rate != null) {
+        setQuantMeta(
+          `已冻结 ${freezeAsOf} · 复盘 ${out.as_of || reviewAsOf || ""} · 命中 ${(Number(s.hit_rate) * 100).toFixed(0)}%`,
+          { busy: false, error: false }
+        );
+      } else if (Number(s.data_thin || 0) > 0) {
+        setQuantMeta(
+          `已冻结 ${freezeAsOf}（${data.n_rows ?? 0} 只）· 复盘日线未覆盖 as_of+h，请选更早决策日`,
+          { busy: false, error: false }
+        );
+      }
+    }
+    return out;
   }
 
   function jumpRefit() {
@@ -449,12 +740,78 @@ export function installScoreReview(ctx) {
     jumpRefit();
   });
 
+  const reviewTable = document.getElementById("quant-score-review-table");
+  if (reviewTable && reviewTable.dataset.panelWired !== "1") {
+    reviewTable.dataset.panelWired = "1";
+    reviewTable.addEventListener("click", (e) => {
+      const tr = e.target && e.target.closest ? e.target.closest("tr[data-code]") : null;
+      if (!tr || !reviewTable.contains(tr)) return;
+      const code = String(tr.getAttribute("data-code") || "").trim();
+      if (!code) return;
+      openStockPanel(code, tr.getAttribute("data-name") || "");
+    });
+    reviewTable.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const tr = e.target && e.target.closest ? e.target.closest("tr[data-code]") : null;
+      if (!tr || !reviewTable.contains(tr)) return;
+      e.preventDefault();
+      const code = String(tr.getAttribute("data-code") || "").trim();
+      if (!code) return;
+      openStockPanel(code, tr.getAttribute("data-name") || "");
+    });
+  }
+
+  const chipRow = document.getElementById("quant-score-review-ledger-chips");
+  if (chipRow && chipRow.dataset.chipWired !== "1") {
+    chipRow.dataset.chipWired = "1";
+    chipRow.addEventListener("click", (e) => {
+      const delBtn =
+        e.target && e.target.closest
+          ? e.target.closest("button.quant-score-ledger-chip-del[data-asof]")
+          : null;
+      if (delBtn && chipRow.contains(delBtn)) {
+        e.preventDefault();
+        e.stopPropagation();
+        const asOf = String(delBtn.getAttribute("data-asof") || "").trim();
+        if (!asOf) return;
+        deleteLedgerAsOf(asOf, {
+          nRows: delBtn.getAttribute("data-nrows") || "",
+        }).catch((err) => {
+          setStatus(`删除失败：${String(err.message || err)}`, { error: true });
+        });
+        return;
+      }
+      const btn =
+        e.target && e.target.closest
+          ? e.target.closest("button.quant-score-ledger-chip[data-asof]")
+          : null;
+      if (!btn || !chipRow.contains(btn)) return;
+      e.preventDefault();
+      const asOf = String(btn.getAttribute("data-asof") || "").trim();
+      if (!asOf) return;
+      selectLedgerAsOf(asOf).catch((err) => {
+        setStatus(`切换账本失败：${String(err.message || err)}`, { error: true });
+      });
+    });
+  }
+
   // 仅研究枢纽进页自动加载，避免 /follow 等页抢带宽拖慢纸面主链路
   if (document.body?.dataset?.page === "quant") {
-    ensureDefaultAsOf()
+    loadLedgerIndex()
+      .then((pack) => {
+        setAsOf(pack.default_as_of || (pack.dates || [])[0] || "");
+      })
+      .catch(() => {})
       .then(() => runReview({ autofill: true }))
       .catch(() => {});
   }
 
-  return { runReview, fillOutcomes, freezeLedger, ensureDefaultAsOf, jumpRefit };
+  return {
+    runReview,
+    fillOutcomes,
+    freezeLedger,
+    ensureDefaultAsOf,
+    jumpRefit,
+    loadLedgerIndex,
+  };
 }

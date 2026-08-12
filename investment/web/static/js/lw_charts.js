@@ -269,14 +269,16 @@ function ensureIsolatedMount(container) {
   return mount;
 }
 
-function measureHost(container) {
+function measureHost(container, opts = {}) {
   const r = container.getBoundingClientRect();
   // 优先用 CSS 定高；避免 shadow :host 干扰后 rect 异常
   const cssH = parseFloat(getComputedStyle(container).height) || 0;
   const cssW = parseFloat(getComputedStyle(container).width) || 0;
+  const minW = Number.isFinite(Number(opts.minWidth)) ? Number(opts.minWidth) : 280;
+  const minH = Number.isFinite(Number(opts.minHeight)) ? Number(opts.minHeight) : 160;
   return {
-    width: Math.max(280, Math.round(cssW || r.width || container.clientWidth || 360)),
-    height: Math.max(160, Math.round(cssH || r.height || container.clientHeight || 240)),
+    width: Math.max(minW, Math.round(cssW || r.width || container.clientWidth || 360)),
+    height: Math.max(minH, Math.round(cssH || r.height || container.clientHeight || 240)),
   };
 }
 
@@ -757,6 +759,321 @@ export async function renderMultiLineChart(container, seriesList, opts = {}) {
       ? new ResizeObserver(() => {
           if (!container.__lwChart || !container.__lwMount) return;
           const next = measureHost(container);
+          applyMountSize(container.__lwMount, next);
+          try {
+            container.__lwChart.applyOptions(next);
+          } catch (_) {
+            /* ignore */
+          }
+        })
+      : null;
+  if (ro) {
+    ro.observe(container);
+    container.__lwRo = ro;
+  }
+  return chart;
+}
+
+/**
+ * 上下多面板：各自独立价轴，时间轴同步滚动。
+ * @param {Array<{
+ *   container: HTMLElement,
+ *   points: Array<{time?:string,date?:string,value:number}>,
+ *   color?: string,
+ *   label?: string,
+ *   emptyText?: string,
+ *   zeroLine?: boolean,
+ * }>} panes
+ * @param {{ disableZoom?: boolean }} [opts]
+ */
+export async function renderSyncedPaneCharts(panes, opts = {}) {
+  const list = Array.isArray(panes) ? panes.filter((p) => p && p.container) : [];
+  if (!list.length) return [];
+
+  let LC;
+  try {
+    LC = await loadLightweightCharts();
+  } catch (_) {
+    list.forEach((p) => showEmpty(p.container, "图表库加载失败"));
+    return [];
+  }
+
+  const disableZoom = !!opts.disableZoom;
+  const priceScaleMinWidth = Number(opts.priceScaleMinWidth) > 0 ? Number(opts.priceScaleMinWidth) : 56;
+  // 统一用第一块宿主的内容宽，避免右轴字宽不同导致三图左右错位
+  const sharedWidth = (() => {
+    const el = list[0].container;
+    const w =
+      Math.round(el.clientWidth || el.getBoundingClientRect().width || 0) ||
+      Math.round(parseFloat(getComputedStyle(el).width) || 0);
+    return Math.max(280, w);
+  })();
+  const charts = [];
+
+  for (let i = 0; i < list.length; i++) {
+    const pane = list[i];
+    const isLast = i === list.length - 1;
+    const pts = normalizeSeriesPoints(
+      (pane.points || []).map((p) => ({
+        time: p.time || p.date,
+        value: p.value,
+      }))
+    );
+    if (pts.length < 2) {
+      showEmpty(pane.container, pane.emptyText || "暂无曲线");
+      charts.push(null);
+      continue;
+    }
+    disposeChart(pane.container);
+    const mount = ensureIsolatedMount(pane.container);
+    mount.replaceChildren();
+    const size = measureHost(pane.container, { minWidth: 200, minHeight: 72 });
+    size.width = sharedWidth;
+    applyMountSize(mount, size);
+    const chart = LC.createChart(mount, {
+      ...chartTheme(),
+      autoSize: false,
+      width: size.width,
+      height: size.height,
+      ...interactionOptions(disableZoom),
+      rightPriceScale: {
+        borderColor: cssVar("--line", "#e5e7eb"),
+        minimumWidth: priceScaleMinWidth,
+        entireTextOnly: true,
+      },
+      timeScale: {
+        borderColor: cssVar("--line", "#e5e7eb"),
+        visible: isLast,
+        timeVisible: false,
+        secondsVisible: false,
+      },
+    });
+    const series = chart.addLineSeries({
+      color: pane.color || cssVar("--accent", "#2563eb"),
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: true,
+    });
+    series.setData(pts);
+    if (pane.zeroLine) {
+      try {
+        series.createPriceLine({
+          price: 0,
+          color: "rgba(100, 116, 139, 0.55)",
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: "0",
+        });
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    if (pane.label) {
+      syncLegend(pane.container, [
+        {
+          label: pane.label,
+          color: pane.color || "#2563eb",
+          thick: true,
+          series,
+        },
+      ]);
+    }
+    chart.timeScale().fitContent();
+    pane.container.__lwChart = chart;
+    if (!disableZoom) attachWheelGuard(pane.container, mount);
+    const ro =
+      typeof ResizeObserver !== "undefined"
+        ? new ResizeObserver(() => {
+            if (!pane.container.__lwChart || !pane.container.__lwMount) return;
+            const next = measureHost(pane.container, { minWidth: 200, minHeight: 72 });
+            next.width = Math.max(
+              280,
+              Math.round(
+                list[0].container.clientWidth ||
+                  list[0].container.getBoundingClientRect().width ||
+                  next.width
+              )
+            );
+            applyMountSize(pane.container.__lwMount, next);
+            try {
+              pane.container.__lwChart.applyOptions(next);
+            } catch (_) {
+              /* ignore */
+            }
+          })
+        : null;
+    if (ro) {
+      ro.observe(pane.container);
+      pane.container.__lwRo = ro;
+    }
+    charts.push(chart);
+  }
+
+  const live = charts.filter(Boolean);
+  if (live.length >= 2) {
+    let syncing = false;
+    live.forEach((chart) => {
+      chart.timeScale().subscribeVisibleLogicalRangeChange((range) => {
+        if (syncing || !range) return;
+        syncing = true;
+        try {
+          live.forEach((other) => {
+            if (other === chart) return;
+            try {
+              other.timeScale().setVisibleLogicalRange(range);
+            } catch (_) {
+              /* ignore */
+            }
+          });
+        } finally {
+          syncing = false;
+        }
+      });
+    });
+  }
+  return charts;
+}
+
+/**
+ * 双轴叠线：右轴价格，左轴百分比序列（涨跌 / ŷ 等）。
+ * @param {HTMLElement} container
+ * @param {{
+ *   price?: { points: any[], color?: string, label?: string },
+ *   pctSeries?: Array<{ points: any[], color?: string, label?: string, zeroLine?: boolean }>,
+ *   emptyText?: string,
+ *   disableZoom?: boolean,
+ * }} opts
+ */
+export async function renderDualScaleOverlayChart(container, opts = {}) {
+  if (!container) return null;
+  const pricePts = normalizeSeriesPoints(
+    ((opts.price && opts.price.points) || []).map((p) => ({
+      time: p.time || p.date,
+      value: p.value,
+    }))
+  );
+  const pctList = (opts.pctSeries || [])
+    .map((s) => ({
+      label: s.label || "%",
+      color: s.color || "#c2410c",
+      zeroLine: !!s.zeroLine,
+      points: normalizeSeriesPoints(
+        (s.points || []).map((p) => ({
+          time: p.time || p.date,
+          value: p.value,
+        }))
+      ),
+    }))
+    .filter((s) => s.points.length >= 1);
+
+  const hasPrice = pricePts.length >= 2;
+  const hasPct = pctList.some((s) => s.points.length >= 2);
+  if (!hasPrice && !hasPct) {
+    showEmpty(container, opts.emptyText || "暂无曲线");
+    return null;
+  }
+
+  let LC;
+  try {
+    LC = await loadLightweightCharts();
+  } catch (_) {
+    showEmpty(container, "图表库加载失败");
+    return null;
+  }
+
+  disposeChart(container);
+  const mount = ensureIsolatedMount(container);
+  mount.replaceChildren();
+  const size = measureHost(container, { minWidth: 200, minHeight: 160 });
+  applyMountSize(mount, size);
+  const disableZoom = !!opts.disableZoom;
+  const chart = LC.createChart(mount, {
+    ...chartTheme(),
+    autoSize: false,
+    width: size.width,
+    height: size.height,
+    ...interactionOptions(disableZoom),
+    leftPriceScale: {
+      visible: hasPct,
+      borderColor: cssVar("--line", "#e5e7eb"),
+      minimumWidth: 48,
+      entireTextOnly: true,
+      scaleMargins: { top: 0.12, bottom: 0.12 },
+    },
+    rightPriceScale: {
+      visible: hasPrice,
+      borderColor: cssVar("--line", "#e5e7eb"),
+      minimumWidth: 56,
+      entireTextOnly: true,
+      scaleMargins: { top: 0.08, bottom: 0.12 },
+    },
+  });
+
+  const legendItems = [];
+  let zeroLineDrawn = false;
+
+  if (hasPrice) {
+    const priceSeries = chart.addLineSeries({
+      color: (opts.price && opts.price.color) || "#0f766e",
+      lineWidth: 2,
+      priceScaleId: "right",
+      priceLineVisible: false,
+      lastValueVisible: true,
+    });
+    priceSeries.setData(pricePts);
+    legendItems.push({
+      label: (opts.price && opts.price.label) || "收盘",
+      color: (opts.price && opts.price.color) || "#0f766e",
+      thick: true,
+      series: priceSeries,
+    });
+  }
+
+  for (const s of pctList) {
+    if (s.points.length < 2) continue;
+    const series = chart.addLineSeries({
+      color: s.color,
+      lineWidth: 2,
+      priceScaleId: "left",
+      priceLineVisible: false,
+      lastValueVisible: true,
+      lineStyle: 0,
+    });
+    series.setData(s.points);
+    if (s.zeroLine && !zeroLineDrawn) {
+      zeroLineDrawn = true;
+      try {
+        series.createPriceLine({
+          price: 0,
+          color: "rgba(100, 116, 139, 0.55)",
+          lineWidth: 1,
+          lineStyle: 2,
+          axisLabelVisible: true,
+          title: "0%",
+        });
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    legendItems.push({
+      label: s.label,
+      color: s.color,
+      thick: false,
+      series,
+    });
+  }
+
+  syncLegend(container, legendItems);
+  chart.timeScale().fitContent();
+  container.__lwChart = chart;
+  if (!disableZoom) attachWheelGuard(container, mount);
+
+  const ro =
+    typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => {
+          if (!container.__lwChart || !container.__lwMount) return;
+          const next = measureHost(container, { minWidth: 200, minHeight: 160 });
           applyMountSize(container.__lwMount, next);
           try {
             container.__lwChart.applyOptions(next);

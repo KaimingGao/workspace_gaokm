@@ -176,6 +176,44 @@ class TestScoreLedger(unittest.TestCase):
             self.assertGreaterEqual(hit["n"], 1)
             self.assertIn("hit_rate", hit["points"][0])
 
+    def test_stock_panel_aligns_close_chg_yhat(self):
+        from core.score_ledger import stock_panel_series, upsert_ledger_rows
+
+        def fake_bars(code, limit=60, **kwargs):
+            return (
+                [
+                    {"date": "2026-08-04", "close": 100.0},
+                    {"date": "2026-08-05", "close": 101.0},
+                    {"date": "2026-08-06", "close": 99.0},
+                ],
+                "test",
+            )
+
+        with self._patch_dir(), patch(
+            "core.data_service.bars_and_source", side_effect=fake_bars
+        ):
+            upsert_ledger_rows(
+                "2026-08-05",
+                [{"stock_code": "600519", "predicted_score": 1.5, "stock_name": "茅台"}],
+                source="test",
+            )
+            out = stock_panel_series("600519", lookback=10)
+            self.assertTrue(out["success"])
+            self.assertLessEqual(out["n_close"], 10)
+            self.assertEqual(out["lookback"], 10)
+            self.assertEqual(out["n_close"], 3)
+            self.assertEqual(out["n_change"], 2)
+            self.assertEqual(out["n_yhat"], 1)
+            chg = {p["date"]: p["value"] for p in out["change_points"]}
+            self.assertAlmostEqual(chg["2026-08-05"], 1.0, places=2)
+            self.assertAlmostEqual(chg["2026-08-06"], round((99 / 101 - 1) * 100, 2), places=2)
+            self.assertEqual(out["yhat_points"][0]["date"], "2026-08-05")
+            self.assertAlmostEqual(out["yhat_points"][0]["value"], 1.5, places=3)
+            # 无账本日 yhat 为 None，不插值
+            by_d = {p["date"]: p["yhat"] for p in out["points"]}
+            self.assertIsNone(by_d["2026-08-04"])
+            self.assertIsNone(by_d["2026-08-06"])
+
     def test_sector_persisted_and_industry_blame(self):
         from core.score_ledger import build_score_review, fill_outcomes, upsert_ledger_rows
 
@@ -291,6 +329,49 @@ class TestScoreLedger(unittest.TestCase):
         self.assertEqual(row["code"], "300750")
         self.assertAlmostEqual(row["yhat"], 0.8)
         self.assertEqual(row["sector"], "电池")
+
+    def test_delete_ledger(self):
+        import json
+
+        from core.score_ledger import (
+            delete_ledger,
+            list_ledger_dates,
+            load_ledger,
+            load_outcomes,
+            outcomes_path,
+            upsert_ledger_rows,
+        )
+
+        with self._patch_dir():
+            upsert_ledger_rows(
+                "2026-08-05",
+                [
+                    {
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "predicted_score": 1.2,
+                    }
+                ],
+                source="test",
+            )
+            with open(outcomes_path("2026-08-05"), "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "success": True,
+                        "as_of": "2026-08-05",
+                        "by_code": {"600519": {"realized_h": 1.0, "sign_hit": True}},
+                    },
+                    f,
+                )
+            self.assertIn("2026-08-05", list_ledger_dates())
+            self.assertFalse(load_outcomes("2026-08-05").get("empty"))
+            out = delete_ledger("2026-08-05", include_outcomes=True)
+            self.assertTrue(out["success"])
+            self.assertNotIn("2026-08-05", list_ledger_dates())
+            self.assertTrue(load_ledger("2026-08-05").get("empty"))
+            self.assertTrue(load_outcomes("2026-08-05").get("empty"))
+            miss = delete_ledger("2026-08-05")
+            self.assertFalse(miss["success"])
 
 
 if __name__ == "__main__":

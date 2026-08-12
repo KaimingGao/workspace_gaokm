@@ -9,6 +9,7 @@ from fastapi import APIRouter, HTTPException
 from web import deps
 from web.schemas import (
     ScoreLedgerFreezeRequest,
+    ScoreLedgerDeleteRequest,
     ScoreOutcomesFillRequest,
     ScoreReviewRequest,
 )
@@ -45,6 +46,18 @@ def quant_score_ledger_series(code: str, limit: int = 40):
     """单票 ŷ 跨日时间线。"""
     try:
         out = deps.quant.score_ledger_code_series(code, limit=limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not out.get("success"):
+        raise HTTPException(status_code=400, detail=out.get("error") or "查询失败")
+    return out
+
+
+@router.get("/api/quant/score-ledger/stock-panel")
+def quant_score_ledger_stock_panel(code: str, lookback: int = 10):
+    """复盘单票三面板：收盘价 / 日涨跌% / 冻结 ŷ%（默认近 10 日）。"""
+    try:
+        out = deps.quant.score_ledger_stock_panel(code, lookback=lookback)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
     if not out.get("success"):
@@ -90,6 +103,22 @@ def quant_score_ledger_freeze(body: ScoreLedgerFreezeRequest):
         raise HTTPException(status_code=500, detail=str(e)) from e
     if not out.get("success"):
         raise HTTPException(status_code=404, detail=out.get("error") or "冻结失败")
+    return out
+
+
+@router.post("/api/quant/score-ledger/delete")
+def quant_score_ledger_delete(body: ScoreLedgerDeleteRequest):
+    """删除指定日（或批量）冻结账本与 outcomes。"""
+    try:
+        out = deps.quant.delete_score_ledger(
+            as_of=body.as_of,
+            dates=body.dates,
+            include_outcomes=body.include_outcomes,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not out.get("success"):
+        raise HTTPException(status_code=404, detail=out.get("error") or "删除失败")
     return out
 
 

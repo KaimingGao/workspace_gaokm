@@ -1063,7 +1063,7 @@ export function initPaper(ctx) {
     if (mainEl) mainEl.hidden = false;
     const sm = data.summary || {};
     setPaperMetaText(
-      `${data.name || "paper"} · 持仓 ${(sm.holdings || []).length} 只 · 现金 ${sm.cash ?? "—"}`
+      `持仓 ${(sm.holdings || []).length} 只 · 现金 ${sm.cash ?? "—"}`
     );
     renderPaperStats(sm);
     renderFollowNorthStar(data.north_star || (data.ops_report && data.ops_report.north_star));

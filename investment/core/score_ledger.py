@@ -446,6 +446,18 @@ def _blame_tag(
     return "model_tilt"
 
 
+def _factor_cn(name: Optional[str]) -> str:
+    key = str(name or "").strip()
+    if not key:
+        return ""
+    try:
+        from core.signal.factor_registry import factor_label
+
+        return factor_label(key) or key
+    except Exception:
+        return key
+
+
 def _day_factor_ic_proxy(
     rows: Sequence[dict],
     outcomes: Dict[str, dict],
@@ -583,6 +595,7 @@ def build_score_review(
                 "sector": r.get("sector"),
                 "cluster_label": r.get("cluster_label"),
                 "dominant_factor": dominant,
+                "dominant_factor_label": _factor_cn(dominant) if dominant else None,
                 "tag": tag,
             }
         )
@@ -610,6 +623,7 @@ def build_score_review(
                     "cluster_label": r.get("cluster_label"),
                     "sector": r.get("sector") or sec,
                     "dominant_factor": dominant,
+                    "dominant_factor_label": _factor_cn(dominant) if dominant else None,
                     "factor_ic_day": round(fic, 4) if fic is not None else None,
                     "tag": tag,
                     "formula_terms_top": (r.get("formula_terms_top") or [])[:3],
@@ -626,6 +640,7 @@ def build_score_review(
         factor_blame.append(
             {
                 "factor": fac,
+                "factor_label": _factor_cn(fac),
                 "wrong_count": cnt,
                 "factor_ic_day": round(fic, 4) if fic is not None else None,
             }
@@ -647,9 +662,10 @@ def build_score_review(
             top = factor_blame[0]
             ic = top.get("factor_ic_day")
             ic_s = f"，当日因子相关≈{ic}" if ic is not None else ""
+            fac_cn = top.get("factor_label") or _factor_cn(top.get("factor"))
             blame_line = (
                 f"方向命中 {hit_rate:.0%}（{hits}/{n}）；"
-                f"错票常挂在 {top['factor']}（{top['wrong_count']} 次）{ic_s}"
+                f"错票常挂在 {fac_cn}（{top['wrong_count']} 次）{ic_s}"
             )
             if industry_blame:
                 blame_line += f"；行业 {industry_blame[0]['sector']}×{industry_blame[0]['wrong_count']}"
@@ -730,6 +746,98 @@ def list_ledger_dates(*, limit: int = 30) -> List[str]:
     return dates[: max(1, int(limit))]
 
 
+def list_ledger_entries(*, limit: int = 30) -> List[Dict[str, Any]]:
+    """已冻结账本条目：日期 / 票数 / 是否已回填。"""
+    out: List[Dict[str, Any]] = []
+    for d in list_ledger_dates(limit=limit):
+        led = load_ledger(d)
+        rows = list(led.get("rows") or []) if led.get("success") else []
+        oc = load_outcomes(d)
+        by_code = oc.get("by_code") or {} if oc.get("success") else {}
+        filled = sum(
+            1
+            for v in by_code.values()
+            if isinstance(v, dict) and v.get("realized_h") is not None
+        )
+        out.append(
+            {
+                "as_of": d,
+                "n_rows": len(rows),
+                "has_outcomes": bool(by_code),
+                "outcomes_filled": int(filled),
+                "updated_at": led.get("updated_at"),
+            }
+        )
+    return out
+
+
+def delete_ledger(
+    as_of: str,
+    *,
+    include_outcomes: bool = True,
+) -> Dict[str, Any]:
+    """删除指定日冻结账本（可选一并删 outcomes）。"""
+    d = date_key(as_of)
+    if not d:
+        return {"success": False, "error": "as_of 无效", "as_of": as_of}
+    removed: List[str] = []
+    missing: List[str] = []
+    paths = [ledger_path(d)]
+    if include_outcomes:
+        paths.append(outcomes_path(d))
+    for path in paths:
+        try:
+            if os.path.isfile(path):
+                os.remove(path)
+                removed.append(os.path.basename(path))
+            else:
+                missing.append(os.path.basename(path))
+        except OSError as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "as_of": d,
+                "removed": removed,
+                "missing": missing,
+            }
+    if not removed:
+        return {
+            "success": False,
+            "error": "无该日账本文件",
+            "as_of": d,
+            "removed": removed,
+            "missing": missing,
+        }
+    return {
+        "success": True,
+        "as_of": d,
+        "removed": removed,
+        "missing": missing,
+        "include_outcomes": bool(include_outcomes),
+    }
+
+
+def delete_ledgers(
+    dates: Sequence[str],
+    *,
+    include_outcomes: bool = True,
+) -> Dict[str, Any]:
+    """批量删除多日账本。"""
+    results: List[Dict[str, Any]] = []
+    ok = 0
+    for raw in dates or []:
+        one = delete_ledger(str(raw), include_outcomes=include_outcomes)
+        results.append(one)
+        if one.get("success"):
+            ok += 1
+    return {
+        "success": ok > 0,
+        "deleted": ok,
+        "failed": len(results) - ok,
+        "results": results,
+    }
+
+
 def code_yhat_series(
     code: str,
     *,
@@ -773,6 +881,98 @@ def code_yhat_series(
         "n": len(points),
         "points": points,
         "note": "来自 score_ledger 冻结行；无账本日不出现。",
+    }
+
+
+def stock_panel_series(
+    code: str,
+    *,
+    lookback: int = 10,
+    yhat_limit: int = 90,
+) -> Dict[str, Any]:
+    """复盘单票三面板：收盘价 / 日涨跌% / 冻结 ŷ%（按日期对齐，ŷ 稀疏不插值）。"""
+    raw = str(code or "").strip()
+    if not raw:
+        return {"success": False, "error": "code 无效", "points": []}
+    key = raw.zfill(6) if raw.isdigit() else raw
+    lb = max(5, min(int(lookback or 10), 120))
+    # 多取 1 根用于首日涨跌计算，展示仍截到 lookback 日
+    fetch_n = min(lb + 1, 120)
+    yhat_lim = max(5, min(int(yhat_limit or 90), 120))
+
+    try:
+        from core.data_service import bars_and_source
+
+        bars, src = bars_and_source(key, limit=fetch_n)
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"日线加载失败：{exc}",
+            "code": key,
+            "points": [],
+        }
+
+    yhat_pack = code_yhat_series(key, limit=yhat_lim)
+    yhat_by_date: Dict[str, float] = {}
+    name = yhat_pack.get("name")
+    for p in yhat_pack.get("points") or []:
+        d = date_key(p.get("date"))
+        y = _to_float(p.get("yhat"))
+        if d and y is not None:
+            yhat_by_date[d] = y
+
+    raw_points: List[Dict[str, Any]] = []
+    prev_close: Optional[float] = None
+
+    for b in bars or []:
+        if not isinstance(b, dict):
+            continue
+        d = date_key(b.get("date") or b.get("time") or b.get("datetime"))
+        px = _to_float(b.get("close"))
+        if not d or px is None or px <= 0:
+            continue
+        if name is None and b.get("stock_name"):
+            name = b.get("stock_name")
+        chg = None
+        if prev_close is not None and prev_close > 0:
+            chg = round((px / prev_close - 1.0) * 100.0, 2)
+        prev_close = px
+        y = yhat_by_date.get(d)
+        raw_points.append(
+            {
+                "date": d,
+                "close": round(px, 4),
+                "change_pct": chg,
+                "yhat": round(y, 4) if y is not None else None,
+            }
+        )
+
+    points = raw_points[-lb:] if len(raw_points) > lb else raw_points
+    close_points: List[Dict[str, Any]] = []
+    change_points: List[Dict[str, Any]] = []
+    yhat_points: List[Dict[str, Any]] = []
+    for row in points:
+        close_points.append({"date": row["date"], "value": row["close"]})
+        if row.get("change_pct") is not None:
+            change_points.append({"date": row["date"], "value": row["change_pct"]})
+        if row.get("yhat") is not None:
+            yhat_points.append({"date": row["date"], "value": row["yhat"]})
+
+    return {
+        "success": True,
+        "code": key,
+        "name": name,
+        "lookback": lb,
+        "data_source": src,
+        "points": points,
+        "close_points": close_points,
+        "change_points": change_points,
+        "yhat_points": yhat_points,
+        "n_close": len(close_points),
+        "n_change": len(change_points),
+        "n_yhat": len(yhat_points),
+        "note": "ŷ 仅来自已冻结账本；无账本日断点，不插值。需先落书或点「冻结今日打分」。近 "
+        f"{lb} 个交易日。",
     }
 
 

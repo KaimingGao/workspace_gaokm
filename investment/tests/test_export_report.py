@@ -86,12 +86,50 @@ class TestQuantReportIndex(unittest.TestCase):
                 f.write("# test")
             listed = list_quant_reports(reports_dir=tmp, limit=10)
             self.assertEqual(listed["count"], 1)
+            self.assertEqual(listed["day_count"], 1)
             self.assertEqual(listed["reports"][0]["format"], "markdown")
+            self.assertEqual(listed["days"][0]["stamp"], "20260719")
             read = read_quant_report_file("quant_daily_20260719.md", reports_dir=tmp)
             self.assertTrue(read["success"])
             self.assertIn("# test", read["content"])
+
     def test_reject_invalid_filename(self):
         out = read_quant_report_file("../evil.txt")
+        self.assertFalse(out["success"])
+
+    def test_delete_report_day(self):
+        from quant.services.quant_report_index import delete_quant_reports
+
+        with tempfile.TemporaryDirectory() as tmp:
+            for name in (
+                "quant_daily_20260719.md",
+                "quant_daily_20260719.html",
+                "quant_daily_20260720.md",
+            ):
+                with open(os.path.join(tmp, name), "w", encoding="utf-8") as f:
+                    f.write("x")
+            # score_ledger 子目录不应被误删
+            ledger_dir = os.path.join(tmp, "score_ledger")
+            os.makedirs(ledger_dir)
+            with open(os.path.join(ledger_dir, "2026-07-19.json"), "w", encoding="utf-8") as f:
+                f.write("{}")
+
+            out = delete_quant_reports(date="2026-07-19", reports_dir=tmp)
+            self.assertTrue(out["success"])
+            self.assertEqual(out["deleted_count"], 2)
+            self.assertFalse(os.path.isfile(os.path.join(tmp, "quant_daily_20260719.md")))
+            self.assertFalse(os.path.isfile(os.path.join(tmp, "quant_daily_20260719.html")))
+            self.assertTrue(os.path.isfile(os.path.join(tmp, "quant_daily_20260720.md")))
+            self.assertTrue(os.path.isfile(os.path.join(ledger_dir, "2026-07-19.json")))
+
+            listed = list_quant_reports(reports_dir=tmp, limit=10)
+            self.assertEqual(listed["day_count"], 1)
+            self.assertEqual(listed["days"][0]["stamp"], "20260720")
+
+    def test_delete_rejects_empty(self):
+        from quant.services.quant_report_index import delete_quant_reports
+
+        out = delete_quant_reports()
         self.assertFalse(out["success"])
 
 # --- test_p26_quant.py::TestP26ReportShareUrl ---
@@ -136,6 +174,33 @@ class TestP26Api(unittest.TestCase):
             res = client.get("/api/quant/reports")
         self.assertEqual(res.status_code, 200)
         self.assertIn("share_url", res.json()["reports"][0])
+
+    def test_quant_reports_delete_api(self):
+        try:
+            from fastapi.testclient import TestClient
+            import web.app as web_app
+            import web.deps as deps
+        except ImportError:
+            self.skipTest("fastapi not installed")
+
+        mock = {
+            "success": True,
+            "deleted": ["quant_daily_20260719.md", "quant_daily_20260719.html"],
+            "deleted_count": 2,
+        }
+        with unittest.mock.patch.object(
+            deps.quant, "delete_report_archive", return_value=mock
+        ) as m:
+            client = TestClient(web_app.app)
+            res = client.post(
+                "/api/quant/reports/delete",
+                json={"date": "2026-07-19"},
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["deleted_count"], 2)
+        m.assert_called_once()
+        kwargs = m.call_args.kwargs
+        self.assertEqual(kwargs.get("date"), "2026-07-19")
 
 # --- test_p27_quant.py::TestP27ExecutiveSummary ---
 class TestP27ExecutiveSummary(unittest.TestCase):

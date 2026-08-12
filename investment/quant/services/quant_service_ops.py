@@ -9,7 +9,7 @@ import json
 import logging
 import os
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from core.paths import QUANT_DAILY_PATH, QUANT_REPORTS_DIR, WATCHING_PATH
 
@@ -81,6 +81,20 @@ class QuantOpsMixin:
         from quant.services.quant_report_index import read_quant_report_file
 
         return read_quant_report_file(filename)
+
+    def delete_report_archive(
+        self,
+        *,
+        stamp: Optional[str] = None,
+        date: Optional[str] = None,
+        dates: Optional[List[str]] = None,
+        stamps: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        from quant.services.quant_report_index import delete_quant_reports
+
+        return delete_quant_reports(
+            stamp=stamp, date=date, dates=dates, stamps=stamps
+        )
 
     def build_health_summary(self) -> Dict[str, Any]:
         from quant.ops.daily_health import build_daily_health
@@ -280,25 +294,66 @@ class QuantOpsMixin:
         )
 
     def list_score_ledger_dates(self, *, limit: int = 30) -> Dict[str, Any]:
-        from core.score_ledger import default_as_of, list_ledger_dates
+        from core.market_calendar import prev_trading_day, resolve_session_date
+        from core.score_ledger import default_as_of, list_ledger_dates, list_ledger_entries
 
-        dates = list_ledger_dates(limit=limit)
-        cal = default_as_of()
-        # 优先已有账本里 ≤ 上一交易日的最近一天（避免默认到尚无前瞻收益的末日）
-        pick = next((d for d in dates if d and d <= cal), None) or cal or (
-            dates[0] if dates else ""
-        )
+        entries = list_ledger_entries(limit=limit)
+        dates = [str(e.get("as_of") or "") for e in entries if e.get("as_of")]
+        if not dates:
+            dates = list_ledger_dates(limit=limit)
+        cal = default_as_of()  # 上一交易日
+        sess = resolve_session_date()
+        # 复盘默认再往前一档：今日刚冻结 / 昨收未进缓存时，as_of=昨 → h=1 仍薄样本
+        safe = prev_trading_day(sess, n=2) or cal or sess
+        pick = next((d for d in dates if d and d <= safe), None) or next(
+            (d for d in dates if d and d <= cal), None
+        ) or cal or (dates[0] if dates else "")
         return {
             "success": True,
             "dates": dates,
+            "entries": entries,
             "default_as_of": pick,
             "calendar_as_of": cal,
+            "safe_as_of": safe,
         }
+
+    def delete_score_ledger(
+        self,
+        *,
+        as_of: Optional[str] = None,
+        dates: Optional[List[str]] = None,
+        include_outcomes: bool = True,
+    ) -> Dict[str, Any]:
+        from core.score_ledger import delete_ledger, delete_ledgers
+
+        batch = [str(d).strip() for d in (dates or []) if str(d).strip()]
+        if as_of and str(as_of).strip():
+            batch.append(str(as_of).strip())
+        # 去重保序
+        seen = set()
+        uniq: List[str] = []
+        for d in batch:
+            if d in seen:
+                continue
+            seen.add(d)
+            uniq.append(d)
+        if not uniq:
+            return {"success": False, "error": "未指定 as_of / dates"}
+        if len(uniq) == 1:
+            return delete_ledger(uniq[0], include_outcomes=include_outcomes)
+        return delete_ledgers(uniq, include_outcomes=include_outcomes)
 
     def score_ledger_code_series(self, code: str, *, limit: int = 40) -> Dict[str, Any]:
         from core.score_ledger import code_yhat_series
 
         return code_yhat_series(code, limit=limit)
+
+    def score_ledger_stock_panel(
+        self, code: str, *, lookback: int = 10
+    ) -> Dict[str, Any]:
+        from core.score_ledger import stock_panel_series
+
+        return stock_panel_series(code, lookback=lookback)
 
     def score_review_hit_series(
         self, *, horizon_days: int = 3, limit: int = 20, autofill: bool = False

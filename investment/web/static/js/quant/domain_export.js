@@ -100,10 +100,162 @@ export function installExportInterpret(q) {
       }
       setBusyText(els.quantOpsSummary, parts.join(" · "), { busy: false });
       syncDailyFoldSummary(foldTail);
+      await loadDailyArchive().catch(() => {});
     } catch (err) {
       setBusyText(els.quantOpsSummary, String(err.message || err), { busy: false });
       syncDailyFoldSummary("加载失败");
     }
+  }
+
+  function shortArchiveDate(dateOrStamp) {
+    const s = String(dateOrStamp || "").trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s.slice(5);
+    if (/^\d{8}$/.test(s)) return `${s.slice(4, 6)}-${s.slice(6, 8)}`;
+    return s || "—";
+  }
+
+  function formatArchiveFormats(formats) {
+    const set = new Set((formats || []).map((f) => String(f)));
+    const parts = [];
+    if (set.has("markdown") || set.has("md")) parts.push("md");
+    if (set.has("html")) parts.push("html");
+    return parts.length ? parts.join("·") : "—";
+  }
+
+  function daysFromReportsPayload(data) {
+    if (Array.isArray(data?.days) && data.days.length) return data.days;
+    const reports = Array.isArray(data?.reports) ? data.reports : [];
+    const byStamp = new Map();
+    for (const r of reports) {
+      const stamp = String(r.stamp || "").trim();
+      if (!stamp) continue;
+      let day = byStamp.get(stamp);
+      if (!day) {
+        day = {
+          stamp,
+          date: r.date || null,
+          formats: [],
+          filenames: [],
+        };
+        byStamp.set(stamp, day);
+      }
+      if (r.format && !day.formats.includes(r.format)) day.formats.push(r.format);
+      if (r.filename && !day.filenames.includes(r.filename)) {
+        day.filenames.push(r.filename);
+      }
+    }
+    return [...byStamp.values()];
+  }
+
+  function renderDailyArchive(data) {
+    const host = els.quantDailyArchive;
+    const row = els.quantDailyArchiveChips;
+    const meta = els.quantDailyArchiveMeta;
+    if (!host || !row) return;
+    const days = daysFromReportsPayload(data);
+    if (!days.length) {
+      host.hidden = true;
+      row.innerHTML = "";
+      if (meta) meta.textContent = "无归档";
+      return;
+    }
+    host.hidden = false;
+    if (meta) {
+      meta.textContent = `${data.day_count ?? days.length} 日 · 点 × 清理该日 md/html`;
+    }
+    row.innerHTML = days
+      .map((d) => {
+        const stamp = String(d.stamp || "").trim();
+        const date = String(d.date || "").trim() || stamp;
+        const fmt = formatArchiveFormats(d.formats);
+        const title = `${date || stamp} · ${fmt} · 删除该日归档`;
+        return (
+          `<div class="quant-daily-archive-chip-wrap" role="listitem">` +
+          `<span class="quant-daily-archive-chip" title="${escapeHtml(title)}">` +
+          `<span class="chip-date">${escapeHtml(shortArchiveDate(date || stamp))}</span>` +
+          `<span class="chip-meta">${escapeHtml(fmt)}</span>` +
+          `</span>` +
+          `<button type="button" class="quant-daily-archive-chip-del"` +
+          ` data-stamp="${escapeHtml(stamp)}" data-date="${escapeHtml(date)}"` +
+          ` title="删除 ${escapeHtml(date || stamp)} 日报" aria-label="删除 ${escapeHtml(date || stamp)} 日报">×</button>` +
+          `</div>`
+        );
+      })
+      .join("");
+  }
+
+  async function loadDailyArchive() {
+    if (!els.quantDailyArchive) return null;
+    if (els.quantDailyArchiveMeta) els.quantDailyArchiveMeta.textContent = "加载中…";
+    const res = await fetch("/api/quant/reports?limit=30");
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || res.statusText);
+    renderDailyArchive(data);
+    return data;
+  }
+
+  async function deleteDailyArchive(stamp, { date } = {}) {
+    const s = String(stamp || "").trim();
+    if (!s) return;
+    const label = String(date || "").trim() || s;
+    const ok = window.confirm(
+      `确认删除 ${label} 的归档日报？\n将删除 quant_daily_${s}.md / .html（若存在），不可恢复。\n不影响冻结账本与 quant_daily.json。`
+    );
+    if (!ok) return;
+    if (els.quantDailyArchiveMeta) {
+      els.quantDailyArchiveMeta.textContent = `正在删除 ${label}…`;
+    }
+    const res = await fetch("/api/quant/reports/delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ stamp: s }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.detail || data.error || res.statusText);
+    const n = data.deleted_count ?? (data.deleted || []).length;
+    setBusyText(
+      els.quantOpsSummary,
+      `已清理日报 ${label}${n ? ` · ${n} 文件` : ""}`,
+      { busy: false }
+    );
+    await loadDailyArchive();
+    // 若清的是最近预览日，刷新预览（可能变空或落到更早归档）
+    state.dailyPreviewRequested = false;
+    try {
+      await previewQuantExport("markdown");
+    } catch (_) {
+      /* ignore */
+    }
+    return data;
+  }
+
+  function bindDailyArchiveActions() {
+    const row = els.quantDailyArchiveChips;
+    if (!row || row.__archiveBound) return;
+    row.__archiveBound = true;
+    row.addEventListener("click", async (e) => {
+      const btn =
+        e.target && e.target.closest
+          ? e.target.closest("button.quant-daily-archive-chip-del[data-stamp]")
+          : null;
+      if (!btn) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const stamp = btn.getAttribute("data-stamp") || "";
+      const date = btn.getAttribute("data-date") || "";
+      try {
+        await deleteDailyArchive(stamp, { date });
+      } catch (err) {
+        setBusyText(
+          els.quantOpsSummary,
+          `清理日报失败：${String(err.message || err)}`,
+          { busy: false }
+        );
+        if (els.quantDailyArchiveMeta) {
+          els.quantDailyArchiveMeta.textContent = String(err.message || err);
+        }
+      }
+    });
   }
 
   function openDailyFold() {
@@ -275,6 +427,7 @@ export function installExportInterpret(q) {
       state.dailyPreviewRequested = true;
       await previewQuantExport("markdown");
     }
+    await loadDailyArchive().catch(() => {});
     return data;
   }
 
@@ -356,14 +509,18 @@ export function installExportInterpret(q) {
     foldSummary.textContent = t || "暂无摘要";
   }
 
+  bindDailyArchiveActions();
+
   return {
     applyExportPreviewHeadingIds: applyExportPreviewHeadingIdsHtml,
     ensureDailyPreview,
+    loadDailyArchive,
     loadOpsPackageTree,
     loadOpsPanel,
     openDailyFold,
     openReadmeViewer,
     previewQuantExport,
+    renderDailyArchive,
     renderExportMarkdownPreview,
     renderExportPreviewToc,
     renderPresetFlags,
@@ -374,5 +531,6 @@ export function installExportInterpret(q) {
     setQuantInterpretContent,
     showQuantInterpretPanel,
     syncDailyFoldSummary,
+    deleteDailyArchive,
   };
 }

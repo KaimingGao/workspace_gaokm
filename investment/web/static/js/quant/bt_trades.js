@@ -32,8 +32,8 @@ export const BT_SIM_TRADE_COLS_BASE = [
     title: "实际入场价（next_open=次日开盘）",
   },
   { id: "sell", label: "卖出价", widthPct: 8, num: true, sortable: true },
-  { id: "ret", label: "收益", widthPct: 7, num: true, sortable: true },
-  { id: "status", label: "状态", widthPct: 8 },
+  { id: "ret", label: "收益", widthPct: 8, num: true, sortable: true },
+  { id: "status", label: "状态", widthPct: 10 },
 ];
 
 export function simTradesIntentDiffers(legs) {

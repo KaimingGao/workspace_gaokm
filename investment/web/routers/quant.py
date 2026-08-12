@@ -16,7 +16,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
 from web import deps
-from web.schemas import QuantInterpretRequest, QuantReportRequest
+from web.schemas import QuantInterpretRequest, QuantReportDeleteRequest, QuantReportRequest
 
 router = APIRouter(tags=["quant"])
 
@@ -111,6 +111,23 @@ def quant_export_summary(use_saved: bool = True):
 def quant_reports(limit: int = 20):
     limit = max(1, min(int(limit or 20), 100))
     return deps.quant.list_report_archive(limit=limit)
+
+
+@router.post("/api/quant/reports/delete")
+def quant_reports_delete(body: QuantReportDeleteRequest):
+    """删除指定日（或批量）归档日报 quant_daily_*.{md,html}。"""
+    try:
+        out = deps.quant.delete_report_archive(
+            stamp=body.stamp,
+            date=body.date,
+            stamps=body.stamps,
+            dates=body.dates,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not out.get("success"):
+        raise HTTPException(status_code=404, detail=out.get("error") or "删除失败")
+    return out
 
 
 @router.get("/api/quant/reports/{filename}")

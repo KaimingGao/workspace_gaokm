@@ -726,7 +726,8 @@ export function mountScoreHistogram(canvas, opts = {}) {
 
 /**
  * ŷ vs realized 散点。
- * points: [{ yhat, realized_h, hit }]
+ * points: [{ yhat, realized_h, hit, code?, name? }]
+ * 悬停显示股票注释；opts.interactive === false 可关闭。
  */
 export function paintYhatScatter(canvas, points, opts = {}) {
   if (!canvas || typeof canvas.getContext !== "function") return null;
@@ -735,8 +736,10 @@ export function paintYhatScatter(canvas, points, opts = {}) {
       x: Number(p.yhat),
       y: Number(p.realized_h != null ? p.realized_h : p.realized),
       hit: p.hit,
-      code: p.code || p.stock_code || "",
-      name: p.name || p.stock_name || "",
+      code: String(p.code || p.stock_code || "").trim(),
+      name: String(p.name || p.stock_name || "").trim(),
+      tag: p.tag || "",
+      abs_err: p.abs_err,
     }))
     .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y));
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
@@ -760,7 +763,7 @@ export function paintYhatScatter(canvas, points, opts = {}) {
   ctx.font = '11px Manrope, "PingFang SC", "Hiragino Sans GB", sans-serif';
   if (pts.length < 2) {
     ctx.fillText("样本不足，无法画散点", pad.l, pad.t + 14);
-    return { n: pts.length, hits: 0 };
+    return { n: pts.length, hits: 0, layout: { pad, cssW, cssH, w, h }, points: [] };
   }
 
   let xMin = Math.min(...pts.map((p) => p.x), 0);
@@ -854,21 +857,38 @@ export function paintYhatScatter(canvas, points, opts = {}) {
   ctx.stroke();
   ctx.globalAlpha = 1;
 
+  const hoverIndex =
+    opts.hoverIndex != null && Number.isFinite(opts.hoverIndex)
+      ? Math.round(opts.hoverIndex)
+      : -1;
+  const plotted = [];
   let hits = 0;
-  pts.forEach((p) => {
+  pts.forEach((p, i) => {
     const hit = isHit(p);
     if (hit) hits += 1;
     const x = sx(p.x);
     const y = sy(p.y);
+    plotted.push({ ...p, hit, px: x, py: y });
+    const active = i === hoverIndex;
+    const r = active ? 6.2 : 3.8;
     ctx.beginPath();
-    ctx.arc(x, y, 3.8, 0, Math.PI * 2);
+    ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fillStyle = hit ? qualityPos : qualityNeg;
-    ctx.globalAlpha = 0.82;
+    ctx.globalAlpha = active ? 1 : 0.82;
     ctx.fill();
     ctx.globalAlpha = 1;
     ctx.strokeStyle = hit ? qualityPos : qualityNeg;
-    ctx.lineWidth = 0.8;
+    ctx.lineWidth = active ? 1.6 : 0.8;
     ctx.stroke();
+    if (active) {
+      ctx.beginPath();
+      ctx.arc(x, y, r + 3.5, 0, Math.PI * 2);
+      ctx.strokeStyle = text;
+      ctx.globalAlpha = 0.35;
+      ctx.lineWidth = 1;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
   });
 
   ctx.fillStyle = text;
@@ -883,7 +903,7 @@ export function paintYhatScatter(canvas, points, opts = {}) {
   ctx.fillText("实现 %", 0, 0);
   ctx.restore();
 
-  return {
+  const pack = {
     n: pts.length,
     hits,
     hit_rate: pts.length ? hits / pts.length : null,
@@ -891,7 +911,203 @@ export function paintYhatScatter(canvas, points, opts = {}) {
     xMax,
     yMin,
     yMax,
+    layout: { pad, cssW, cssH, w, h },
+    points: plotted,
   };
+
+  if (opts.interactive !== false) {
+    _bindYhatScatterHover(canvas, points, opts);
+  }
+  return pack;
+}
+
+function _escScatterTip(s) {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function _scatterTipEl() {
+  let tip = document.getElementById("yhat-scatter-tip-global");
+  if (!tip) {
+    tip = document.createElement("div");
+    tip.id = "yhat-scatter-tip-global";
+    tip.className = "yhat-hist-tip yhat-scatter-tip";
+    tip.hidden = true;
+    tip.setAttribute("role", "tooltip");
+    document.body.appendChild(tip);
+  }
+  return tip;
+}
+
+function _bindYhatScatterHover(canvas, rawPoints, opts = {}) {
+  const st = canvas.__yhatScatter || (canvas.__yhatScatter = {});
+  st.rawPoints = rawPoints || [];
+  st.hoverIndex = st.hoverIndex != null ? st.hoverIndex : -1;
+  st.onPoint = typeof opts.onPoint === "function" ? opts.onPoint : st.onPoint || null;
+  st.tagLabel =
+    typeof opts.tagLabel === "function" ? opts.tagLabel : st.tagLabel || null;
+
+  if (st.bound) {
+    // 数据刷新：按当前 hover 重绘一次
+    st.pack = paintYhatScatter(canvas, st.rawPoints, {
+      interactive: false,
+      hoverIndex: st.hoverIndex,
+    });
+    return;
+  }
+  st.bound = true;
+  canvas.style.cursor = "crosshair";
+
+  const hitRadius = 12;
+
+  function hideTip() {
+    const tip = document.getElementById("yhat-scatter-tip-global");
+    if (tip) tip.hidden = true;
+  }
+
+  function showTip(p, clientX, clientY) {
+    const tip = _scatterTipEl();
+    if (!p) {
+      hideTip();
+      return;
+    }
+    const title = p.name ? `${p.name} ${p.code}` : p.code || "未知名";
+    const hitTxt = p.hit ? "方向命中" : "方向失手";
+    const tag =
+      st.tagLabel && p.tag ? st.tagLabel(p.tag) : p.tag || "";
+    const err =
+      p.abs_err != null && Number.isFinite(Number(p.abs_err))
+        ? Number(p.abs_err).toFixed(2)
+        : null;
+    tip.innerHTML =
+      `<div class="yhat-hist-tip-range">${_escScatterTip(title)}</div>` +
+      `<div class="yhat-hist-tip-stats">` +
+      `<b>${hitTxt}</b>` +
+      (tag ? ` · ${_escScatterTip(tag)}` : "") +
+      `</div>` +
+      `<ul class="yhat-hist-tip-list">` +
+      `<li>ŷ ${_escScatterTip(p.x.toFixed(2))}%</li>` +
+      `<li>实现 ${_escScatterTip(p.y.toFixed(2))}%</li>` +
+      (err != null ? `<li>|误差| ${_escScatterTip(err)}</li>` : "") +
+      `</ul>` +
+      (p.code
+        ? `<div class="yhat-hist-tip-hint">点击打开单票时间线</div>`
+        : "");
+    tip.hidden = false;
+    const gap = 12;
+    const tw = tip.offsetWidth || 180;
+    const th = tip.offsetHeight || 80;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    let left = clientX + gap;
+    let top = clientY + gap;
+    if (left + tw > vw - 8) left = clientX - tw - gap;
+    if (top + th > vh - 8) top = clientY - th - gap;
+    tip.style.left = `${Math.max(8, left)}px`;
+    tip.style.top = `${Math.max(8, top)}px`;
+  }
+
+  function nearestIndex(x, y, pack) {
+    if (!pack || !pack.points || !pack.points.length) return -1;
+    let best = -1;
+    let bestD = hitRadius * hitRadius;
+    pack.points.forEach((p, i) => {
+      const dx = p.px - x;
+      const dy = p.py - y;
+      const d = dx * dx + dy * dy;
+      if (d <= bestD) {
+        bestD = d;
+        best = i;
+      }
+    });
+    return best;
+  }
+
+  function repaint(hoverIndex) {
+    st.hoverIndex = hoverIndex;
+    st.pack = paintYhatScatter(canvas, st.rawPoints, {
+      interactive: false,
+      hoverIndex,
+    });
+  }
+
+  function localXY(ev) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ev.clientX - rect.left,
+      y: ev.clientY - rect.top,
+      clientX: ev.clientX,
+      clientY: ev.clientY,
+    };
+  }
+
+  function onMove(ev) {
+    const { x, y, clientX, clientY } = localXY(ev);
+    if (!st.pack) {
+      st.pack = paintYhatScatter(canvas, st.rawPoints, {
+        interactive: false,
+        hoverIndex: st.hoverIndex,
+      });
+    }
+    const pack = st.pack;
+    const { pad, w, h } = pack.layout || {};
+    const inPlot =
+      pad &&
+      x >= pad.l &&
+      x <= pad.l + w &&
+      y >= pad.t &&
+      y <= pad.t + h;
+    const idx = inPlot ? nearestIndex(x, y, pack) : -1;
+    if (idx !== st.hoverIndex) repaint(idx);
+    if (idx >= 0 && st.pack && st.pack.points[idx]) {
+      canvas.style.cursor = "pointer";
+      showTip(st.pack.points[idx], clientX, clientY);
+    } else {
+      canvas.style.cursor = "crosshair";
+      hideTip();
+    }
+  }
+
+  function onLeave() {
+    if (st.hoverIndex >= 0) repaint(-1);
+    else st.hoverIndex = -1;
+    hideTip();
+    canvas.style.cursor = "crosshair";
+  }
+
+  function onClick(ev) {
+    const { x, y } = localXY(ev);
+    const pack =
+      st.pack ||
+      paintYhatScatter(canvas, st.rawPoints, {
+        interactive: false,
+        hoverIndex: -1,
+      });
+    st.pack = pack;
+    const idx = nearestIndex(x, y, pack);
+    if (idx < 0 || !pack.points[idx]) return;
+    const p = pack.points[idx];
+    if (st.onPoint) st.onPoint(p);
+  }
+
+  canvas.addEventListener("pointermove", onMove);
+  canvas.addEventListener("pointerleave", onLeave);
+  canvas.addEventListener("click", onClick);
+  st.destroy = () => {
+    canvas.removeEventListener("pointermove", onMove);
+    canvas.removeEventListener("pointerleave", onLeave);
+    canvas.removeEventListener("click", onClick);
+    hideTip();
+    delete canvas.__yhatScatter;
+  };
+
+  st.pack = paintYhatScatter(canvas, st.rawPoints, {
+    interactive: false,
+    hoverIndex: st.hoverIndex,
+  });
 }
 
 

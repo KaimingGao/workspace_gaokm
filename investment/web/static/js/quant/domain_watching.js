@@ -877,7 +877,6 @@ export function installWatching(q) {
       const wl = (data.watchlist || []).length;
       const eq = data.equity ?? data.nav ?? data.summary?.equity;
       el.textContent = [
-        data.name || "paper",
         `观察 ${wl} 只`,
         eq != null ? `净值 ${eq}` : null,
       ]

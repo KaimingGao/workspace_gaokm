@@ -6,7 +6,11 @@ from quant.services.quant_report_export import (
     render_quant_report_html,
     render_quant_report_markdown,
 )
-from quant.services.quant_report_index import list_quant_reports, read_quant_report_file
+from quant.services.quant_report_index import (
+    delete_quant_reports,
+    list_quant_reports,
+    read_quant_report_file,
+)
 from quant.services.quant_interpret import (
     build_rule_based_interpret,
     compact_quant_report,
@@ -25,6 +29,7 @@ __all__ = [
     "render_quant_report_markdown",
     "list_quant_reports",
     "read_quant_report_file",
+    "delete_quant_reports",
     "build_rule_based_interpret",
     "compact_quant_report",
     "format_neutral_compare_brief",

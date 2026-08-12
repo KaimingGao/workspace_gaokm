@@ -548,3 +548,22 @@ class ScoreLedgerFreezeRequest(BaseModel):
 class ScoreOutcomesFillRequest(BaseModel):
     as_of: Optional[str] = None
     horizon_days: int = Field(default=3, ge=1, le=10)
+
+
+class ScoreLedgerDeleteRequest(BaseModel):
+    """清理已冻结账本：单日 as_of 或批量 dates。"""
+
+    as_of: Optional[str] = Field(default=None, description="单日 YYYY-MM-DD")
+    dates: Optional[List[str]] = Field(default=None, description="批量日期")
+    include_outcomes: bool = Field(
+        default=True, description="是否同时删除 outcomes 回填文件"
+    )
+
+
+class QuantReportDeleteRequest(BaseModel):
+    """清理归档日报：单日 stamp/date 或批量。只删 quant_daily_*.{md,html}。"""
+
+    stamp: Optional[str] = Field(default=None, description="单日 YYYYMMDD")
+    date: Optional[str] = Field(default=None, description="单日 YYYY-MM-DD")
+    stamps: Optional[List[str]] = Field(default=None, description="批量 YYYYMMDD")
+    dates: Optional[List[str]] = Field(default=None, description="批量 YYYY-MM-DD")
