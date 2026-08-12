@@ -885,6 +885,29 @@ def default_n_clusters(n: int) -> int:
     return max(4, min(10, k, n - 1))
 
 
+def auto_k_candidates(n: int) -> List[int]:
+    """自动 k 邻域：``default_n_clusters(n) ± 1``，夹在与默认相同的 4～10 / ``n-1``。
+
+    小宇宙（n≤4）只返回中心 k，避免无意义扩搜。
+    """
+    n = int(n)
+    k0 = default_n_clusters(n)
+    if n <= 4:
+        return [int(k0)]
+    lo = 4
+    hi = min(10, max(2, n - 1))
+    if hi < lo:
+        return [max(1, min(k0, n))]
+    out: List[int] = []
+    for k in (k0 - 1, k0, k0 + 1):
+        kk = int(k)
+        if lo <= kk <= hi and kk not in out:
+            out.append(kk)
+    if not out:
+        out.append(max(lo, min(hi, int(k0))))
+    return out
+
+
 def default_max_cluster_size(n: int, k: int) -> int:
     """单组上限：约 1.5× 理想组均规模，至少 5。"""
     n = max(1, int(n))
@@ -1000,11 +1023,14 @@ def cluster_beta_vectors(
     cluster_linkage: str = "average",
     within_dist_quantile: float = 0.75,
     tau: Optional[float] = None,
+    auto_postprocess: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """对已尺度化的 β 矩阵聚类。
 
-    默认：average-linkage 切到目标 k（≈√n，3～8），不做严格直径拆组。
+    默认：目标 k 层次聚类（中心 ≈ n/5，夹 4～10），不做严格直径拆组。
     ``n_clusters`` 显式给定时切到该 k。
+    ``auto_postprocess``：None 时仅在 ``n_clusters is None`` 为 True；
+    True 时对显式 k 也走 complete（若传入 average）+ 超大组二分（供 ΔOOS 邻域搜 k）。
     ``method=kmeans`` 仍可用。
     """
     x = np.asarray(x, dtype=float)
@@ -1047,6 +1073,7 @@ def cluster_beta_vectors(
         return empty
 
     auto_k = n_clusters is None
+    do_auto_pp = bool(auto_postprocess) if auto_postprocess is not None else auto_k
     candidates: List[Dict[str, Any]] = []
     size_splits: List[Dict[str, Any]] = []
     max_size_used: Optional[int] = None
@@ -1060,8 +1087,12 @@ def cluster_beta_vectors(
         k = max(1, min(k, n))
         labels, _centers = kmeans_labels(x, n_clusters=k, seed=seed)
         target_k = k
-    elif auto_k:
-        k = default_n_clusters(n)
+    elif auto_k or do_auto_pp:
+        k = (
+            default_n_clusters(n)
+            if auto_k
+            else _clamp_n_clusters(n_clusters, 3)
+        )
         k = max(1, min(k, n))
         # complete 比 average 更不易并出超级大团
         link_auto = "complete" if link == "average" else link
@@ -1091,7 +1122,7 @@ def cluster_beta_vectors(
     )
     labels = np.asarray(refined["labels"], dtype=int)
     # 精炼后若再胀大，再劈一次
-    if auto_k and max_size_used is not None:
+    if do_auto_pp and max_size_used is not None:
         labels, size_splits2 = split_oversized_clusters(
             x, labels, max_size=max_size_used, linkage=link
         )
@@ -1106,7 +1137,7 @@ def cluster_beta_vectors(
     )
     outlier_indices = [int(i) for i in range(n) if int(labels[i]) < 0]
     centers = _centers_from_labels(x, labels)
-    if auto_k:
+    if auto_k or do_auto_pp:
         sizes = [
             int(np.sum(labels == c))
             for c in sorted(set(int(v) for v in labels if int(v) >= 0))
@@ -1130,6 +1161,7 @@ def cluster_beta_vectors(
         "method": method_s,
         "cluster_linkage": link,
         "auto_k": auto_k,
+        "auto_postprocess": bool(do_auto_pp),
         "cut_by_tau": False,
         "target_k": int(target_k),
         "max_cluster_size": max_size_used,

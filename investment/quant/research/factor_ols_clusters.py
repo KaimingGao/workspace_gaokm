@@ -1,7 +1,8 @@
 """按单票 OLS β 相似度聚类，使同组可共用建模、异组各用各的（研究用，不写盘）。
 
 目的：OLS 表现相似的股票进同一组 → 组内池 OLS + 共用小步权；不同组独立建模。
-默认宇宙=观察池。流程：逐票 OLS → β 缩尾+z-score → average·目标 k（≈√N，3～8）
+默认宇宙=观察池。流程：逐票 OLS → β 缩尾+z-score → 目标 k 层次聚类
+（中心 ≈ n/5，夹 4～10；auto 时邻域 ±1 按组级 ΔOOS 选 k）
 → 多票组池 OLS → 因子系数(return_model)。异质用探针核对（自动路径不再拆成单票堆）。
 
 ``beta_scale``：
@@ -235,6 +236,7 @@ from quant.research.cluster_partition import (
     agglomerative_labels,
     apply_beta_scale_transform,
     auto_cluster_range,
+    auto_k_candidates,
     beta_delta_mismatch,
     cluster_beta_vectors,
     cluster_diameter,
@@ -512,6 +514,198 @@ def cluster_speed_policy(panel_count: int) -> Dict[str, Any]:
     }
 
 
+def _slim_pool_clusters_for_oos(
+    *,
+    codes: Sequence[str],
+    labels: np.ndarray,
+    panel_by_code: Dict[str, Dict[str, Any]],
+    per_stock: Sequence[Dict[str, Any]],
+    horizon_days: int,
+    ridge_lambda: float,
+    use_pit: bool,
+    select_ridge: bool,
+    collinearity_policy: str,
+    respect_regime: bool,
+    y_spec: Dict[str, Any],
+) -> List[Dict[str, Any]]:
+    """仅为 ΔOOS 选 k：组池 OLS + return_model，跳过 IC / gaps / 共线诊断。"""
+    labs = np.asarray(labels, dtype=int)
+    uniq = sorted(set(int(v) for v in labs if int(v) >= 0))
+    out: List[Dict[str, Any]] = []
+    for cid in uniq:
+        members = [codes[i] for i, lab in enumerate(labs) if int(lab) == cid]
+        member_idx = [i for i, lab in enumerate(labs) if int(lab) == cid]
+        cluster: Dict[str, Any] = {
+            "cluster_id": cid,
+            "label": f"G{cid + 1}",
+            "members": members,
+            "member_count": len(members),
+            "singleton": len(members) < 2,
+        }
+        if len(members) < 2:
+            if member_idx:
+                one = per_stock[member_idx[0]]
+                cluster["ols"] = _public_cluster_ols(one, mode="single")
+                cluster["return_model"] = _return_model_from_ols(cluster["ols"])
+            else:
+                cluster["ols"] = {"success": False, "error": "空组"}
+                cluster["return_model"] = None
+            out.append(cluster)
+            continue
+        all_xs: List[Dict[str, Optional[float]]] = []
+        all_ys: List[float] = []
+        for code in members:
+            panel = panel_by_code.get(code) or {}
+            all_xs.extend(panel.get("xs") or [])
+            all_ys.extend(panel.get("ys") or [])
+        pooled = fit_factor_ols_from_panel(
+            all_xs,
+            all_ys,
+            horizon_days=horizon_days,
+            fundamentals_used=False,
+            pit_fundamentals=use_pit,
+            mode="watching_pooled",
+            stock_codes=members,
+            ridge_lambda=ridge_lambda,
+            select_ridge=select_ridge,
+            collinearity_policy=collinearity_policy,
+            respect_regime=respect_regime,
+            y_spec=y_spec,
+        )
+        pooled["mode"] = "cluster_pooled"
+        cluster["ols"] = _public_cluster_ols(pooled, mode="cluster_pooled")
+        cluster["return_model"] = _return_model_from_ols(cluster["ols"])
+        out.append(cluster)
+    return out
+
+
+def _select_clustered_by_delta_oos(
+    x: np.ndarray,
+    *,
+    codes: Sequence[str],
+    panel_by_code: Dict[str, Dict[str, Any]],
+    per_stock: Sequence[Dict[str, Any]],
+    method_s: str,
+    link_s: str,
+    tau_q: float,
+    horizon_days: int,
+    lam: float,
+    use_pit: bool,
+    select_ridge: bool,
+    collinearity_policy: str,
+    respect_regime: bool,
+    y_spec: Dict[str, Any],
+    oos_tol_pp: float = 1.0,
+    progress_cb: Optional[Any] = None,
+) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+    """auto-k：邻域候选上切树+组池，按通过组数 / 平均 ΔOOS / silhouette 选优。"""
+    from quant.research.cluster_oos import (
+        pick_best_k_selection_row,
+        score_cluster_partition_oos,
+    )
+
+    n = int(x.shape[0])
+    center_k = default_n_clusters(n)
+    cand_ks = auto_k_candidates(n)
+    bars_by_code: Dict[str, List[dict]] = {
+        str(c): list((panel_by_code.get(str(c)) or {}).get("bars") or [])
+        for c in codes
+    }
+    rows: List[Dict[str, Any]] = []
+    by_k: Dict[int, Dict[str, Any]] = {}
+
+    def _progress(msg: str, cur: int = 0, tot: int = 0) -> None:
+        if not progress_cb:
+            return
+        try:
+            progress_cb(msg, cur, tot)
+        except Exception:
+            logger.warning("k 选择进度回调异常", exc_info=True)
+
+    for i, k_cand in enumerate(cand_ks):
+        _progress(f"选k {i + 1}/{len(cand_ks)} · k={k_cand}", i + 1, len(cand_ks))
+        clustered_i = cluster_beta_vectors(
+            x,
+            method=method_s,
+            n_clusters=int(k_cand),
+            seed=42,
+            cluster_linkage=link_s,
+            within_dist_quantile=tau_q,
+            auto_postprocess=True,
+        )
+        labels_i = np.asarray(clustered_i["labels"], dtype=int)
+        labels_i, _ = promote_outliers_to_singleton_clusters(labels_i)
+        labels_i = _relabel_non_negative(labels_i)
+        clustered_i = dict(clustered_i)
+        clustered_i["labels"] = labels_i
+        clustered_i["n_clusters"] = int(
+            len(set(int(v) for v in labels_i if int(v) >= 0))
+        )
+        # 搜 k 时标记为 auto，便于报告口径
+        clustered_i["auto_k"] = True
+        clusters_i = _slim_pool_clusters_for_oos(
+            codes=codes,
+            labels=labels_i,
+            panel_by_code=panel_by_code,
+            per_stock=per_stock,
+            horizon_days=horizon_days,
+            ridge_lambda=lam,
+            use_pit=use_pit,
+            select_ridge=select_ridge,
+            collinearity_policy=collinearity_policy,
+            respect_regime=respect_regime,
+            y_spec=y_spec,
+        )
+        score = score_cluster_partition_oos(
+            clusters_i,
+            horizon_days=horizon_days,
+            oos_tol_pp=oos_tol_pp,
+            respect_regime=respect_regime,
+            bars_by_code=bars_by_code,
+            silhouette=clustered_i.get("silhouette"),
+        )
+        row = {
+            "k": int(k_cand),
+            "target_k": int(clustered_i.get("target_k") or k_cand),
+            "n_clusters": int(clustered_i.get("n_clusters") or 0),
+            "n_multi_member": sum(
+                1 for c in clusters_i if not c.get("singleton")
+            ),
+            "passed": score["passed"],
+            "failed": score["failed"],
+            "skipped": score["skipped"],
+            "mean_delta_oos_pp": score["mean_delta_oos_pp"],
+            "silhouette": score["silhouette"],
+            "sort_key": score["sort_key"],
+        }
+        rows.append(row)
+        by_k[int(k_cand)] = clustered_i
+
+    best = pick_best_k_selection_row(rows) or rows[0]
+    chosen_k = int(best["k"])
+    parts = [
+        f"passed={best.get('passed')}",
+        (
+            f"mean_ΔOOS={best.get('mean_delta_oos_pp')}pp"
+            if best.get("mean_delta_oos_pp") is not None
+            else "mean_ΔOOS=n/a"
+        ),
+    ]
+    if best.get("silhouette") is not None:
+        parts.append(f"sil={best.get('silhouette')}")
+    reason = f"邻域{cand_ks} 优选 k={chosen_k}（{' · '.join(parts)}）"
+    k_selection = {
+        "mode": "auto_oos",
+        "center_k": int(center_k),
+        "candidate_ks": list(cand_ks),
+        "candidates": rows,
+        "chosen_k": chosen_k,
+        "reason": reason,
+        "oos_tol_pp": float(oos_tol_pp),
+    }
+    return by_k[chosen_k], k_selection
+
+
 def compute_factor_ols_cluster_report(
     stock_panels: List[Dict[str, Any]],
     *,
@@ -534,7 +728,7 @@ def compute_factor_ols_cluster_report(
     """逐票 OLS → β 聚类 → 组内池 OLS + 小步权。
 
     默认 / 显式 ``n_clusters`` 均切到目标 k；不严踢异质升单票组（否则手动 k 会炸组数）。
-    异质用探针核对。自动 k 另加超大组二分。
+    异质用探针核对。``n_clusters is None`` 时邻域 ±1 按组级 ΔOOS 选 k，并加超大组二分。
     FS2：``sentiment_pit`` 注入 as_of alt_sentiment（与 live 闸独立）。
     B5：默认 ``respect_regime=True``；B3：默认选 Ridge λ + 共线 drop_redundant。
     大宇宙（≥40）：末日财务快照进面板（跳过逐日 PIT）+ 默认不选 λ，显著加速。
@@ -696,14 +890,42 @@ def compute_factor_ols_cluster_report(
     )
     raw = _beta_matrix(per_stock, feature_names)
     x, scale_tf = fit_beta_scale_transform(raw, scale_mode)
-    clustered = cluster_beta_vectors(
-        x,
-        method=method_s,
-        n_clusters=k_req,
-        seed=42,
-        cluster_linkage=link_s,
-        within_dist_quantile=tau_q,
-    )
+    k_selection: Dict[str, Any]
+    if k_req is None:
+        clustered, k_selection = _select_clustered_by_delta_oos(
+            x,
+            codes=codes,
+            panel_by_code=panel_by_code,
+            per_stock=per_stock,
+            method_s=method_s,
+            link_s=link_s,
+            tau_q=tau_q,
+            horizon_days=horizon_days,
+            lam=lam,
+            use_pit=use_pit,
+            select_ridge=select_ridge,
+            collinearity_policy=collinearity_policy,
+            respect_regime=respect_regime,
+            y_spec=y_spec,
+            progress_cb=progress_cb,
+        )
+    else:
+        clustered = cluster_beta_vectors(
+            x,
+            method=method_s,
+            n_clusters=k_req,
+            seed=42,
+            cluster_linkage=link_s,
+            within_dist_quantile=tau_q,
+        )
+        k_selection = {
+            "mode": "manual",
+            "center_k": None,
+            "candidate_ks": [],
+            "candidates": [],
+            "chosen_k": int(k_req),
+            "reason": "n_clusters_explicit",
+        }
     labels = np.asarray(clustered["labels"], dtype=int)
     tau_used = float(clustered.get("within_dist_cap") or clustered.get("tau") or 1.0)
     pool_ejects: List[Dict[str, Any]] = []
@@ -1066,8 +1288,9 @@ def compute_factor_ols_cluster_report(
         "n_clusters": k,
         "n_multi_member_clusters": n_multi,
         "n_clusters_requested": k_req,
-        "n_clusters_auto": bool(clustered.get("auto_k")),
+        "n_clusters_auto": bool(clustered.get("auto_k")) or k_req is None,
         "target_k": clustered.get("target_k"),
+        "k_selection": k_selection,
         "max_cluster_size": clustered.get("max_cluster_size"),
         "cluster_method": clustered.get("method") or method_s,
         "cluster_linkage": clustered.get("cluster_linkage") or link_s,
@@ -1123,11 +1346,20 @@ def compute_factor_ols_cluster_report(
                     )
                 )
                 + (
-                    "（自动）"
-                    if clustered.get("auto_k")
-                    else ("（手动）" if clustered.get("target_k") is not None else "")
+                    "（自动·ΔOOS选k）"
+                    if k_selection.get("mode") == "auto_oos"
+                    else (
+                        "（自动）"
+                        if clustered.get("auto_k")
+                        else ("（手动）" if clustered.get("target_k") is not None else "")
+                    )
                 )
                 + f"，共 {k} 组（其中多票组 {n_multi}）；"
+            )
+            + (
+                f"选k：{k_selection.get('reason')}；"
+                if k_selection.get("mode") == "auto_oos" and k_selection.get("reason")
+                else ""
             )
             + (f"单票离群组 {n_singleton_out}；" if n_singleton_out else "")
             + (f"组β校验触发 {n_pool_ej}；" if n_pool_ej else "")

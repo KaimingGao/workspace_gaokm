@@ -122,7 +122,7 @@
     "size_buckets": 3
   },
   "cluster_scoring": {
-    "mode": "shadow",
+    "mode": "active",
     "enabled": true,
     "top_n_per_group": 10,
     "max_names": 40,

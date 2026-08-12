@@ -28,6 +28,8 @@ data/signal_config_draft.json
 data/config_backups/
 data/schedule_last_run.json
 data/jobs/
+data/run_web.pid
+data/run_web.log
 data/run_manifests/
 data/strategy_promoted.json
 .DS_Store

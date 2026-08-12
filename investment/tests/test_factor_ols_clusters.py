@@ -129,12 +129,16 @@ class TestFactorOlsClusters(unittest.TestCase):
     def test_auto_target_k_keeps_few_groups(self):
         """默认自动 k：约 n/5，且超大组会被二分。"""
         from quant.research.factor_ols_clusters import (
+            auto_k_candidates,
             default_max_cluster_size,
             default_n_clusters,
         )
 
         self.assertEqual(default_n_clusters(40), 8)
         self.assertEqual(default_n_clusters(20), 4)
+        self.assertEqual(auto_k_candidates(40), [7, 8, 9])
+        self.assertEqual(auto_k_candidates(20), [4, 5])
+        self.assertEqual(auto_k_candidates(3), [default_n_clusters(3)])
         self.assertEqual(default_max_cluster_size(40, 8), 8)
         rng = np.random.RandomState(2)
         x = rng.normal(size=(40, 5))
@@ -156,6 +160,23 @@ class TestFactorOlsClusters(unittest.TestCase):
         ]
         self.assertTrue(sizes)
         self.assertLessEqual(max(sizes), int(out["max_cluster_size"] or 99))
+
+    def test_auto_postprocess_on_explicit_k(self):
+        """显式 k + auto_postprocess：complete + 超大组二分（供邻域搜 k）。"""
+        rng = np.random.RandomState(3)
+        x = rng.normal(size=(30, 4))
+        out = cluster_beta_vectors(
+            x,
+            method="hierarchical",
+            n_clusters=6,
+            cluster_linkage="average",
+            auto_postprocess=True,
+        )
+        self.assertFalse(out["auto_k"])
+        self.assertTrue(out["auto_postprocess"])
+        self.assertEqual(out["target_k"], 6)
+        self.assertEqual(out["cluster_linkage"], "complete")
+        self.assertIsNotNone(out.get("max_cluster_size"))
 
     def test_manual_k_stays_near_target(self):
         """显式 K：切到目标 k，不因直径/组β踢出升成单票堆。"""
@@ -250,6 +271,11 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertEqual(out.get("cluster_method"), "hierarchical")
         self.assertEqual(out.get("cluster_linkage"), "complete")
         self.assertFalse(out.get("n_clusters_auto"))
+        ks = out.get("k_selection") or {}
+        self.assertEqual(ks.get("mode"), "manual")
+        self.assertEqual(ks.get("chosen_k"), 2)
+        self.assertEqual(ks.get("candidates"), [])
+        self.assertEqual(ks.get("reason"), "n_clusters_explicit")
         self.assertIn("feature_zscore", out.get("note") or "")
         self.assertGreaterEqual(out.get("stock_count"), 2)
         clusters = out.get("clusters") or []
@@ -270,6 +296,49 @@ class TestFactorOlsClusters(unittest.TestCase):
                 self.assertIn("max_within_dist", cl)
                 # 合成短序列可能日截面稀疏；只要走了组内截面口径即可
                 self.assertIn("组内按日截面", panel.get("note") or "")
+
+    def test_pick_best_k_selection_row(self):
+        from quant.research.cluster_oos import pick_best_k_selection_row
+
+        rows = [
+            {"k": 4, "sort_key": (1, 0.1, 0.2)},
+            {"k": 5, "sort_key": (2, -0.5, 0.1)},
+            {"k": 6, "sort_key": (2, 0.3, 0.0)},
+        ]
+        best = pick_best_k_selection_row(rows)
+        self.assertIsNotNone(best)
+        self.assertEqual(best["k"], 6)
+
+    def test_cluster_report_auto_k_selection(self):
+        """auto 路径写入 k_selection，胜出 k 落在候选邻域内。"""
+        from quant.research.factor_ols_clusters import auto_k_candidates
+
+        panels = [
+            {"code": "600519", "bars": _bars_variant(50, 1.0, 0.002)},
+            {"code": "000001", "bars": _bars_variant(50, 1.05, 0.003)},
+            {"code": "601318", "bars": _bars_variant(50, 0.95, -0.004)},
+        ]
+        out = compute_factor_ols_cluster_report(
+            panels,
+            horizon_days=3,
+            n_clusters=None,
+            ridge_lambda=0.0,
+            beta_scale="feature_zscore",
+            cluster_method="hierarchical",
+            cluster_linkage="average",
+            select_ridge=False,
+        )
+        self.assertTrue(out.get("success"), out.get("error"))
+        self.assertTrue(out.get("n_clusters_auto"))
+        ks = out.get("k_selection") or {}
+        self.assertEqual(ks.get("mode"), "auto_oos")
+        fitted = int(out.get("fitted_count") or 0)
+        expect = auto_k_candidates(fitted)
+        self.assertEqual(ks.get("candidate_ks"), expect)
+        self.assertIn(int(ks.get("chosen_k")), expect)
+        cand_ks = [int(r["k"]) for r in (ks.get("candidates") or [])]
+        self.assertEqual(cand_ks, expect)
+        self.assertIn("ΔOOS选k", out.get("note") or "")
 
     def test_beta_scale_resolve_and_zscore(self):
         self.assertEqual(resolve_beta_scale("none"), "none")
