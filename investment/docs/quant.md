@@ -525,6 +525,8 @@ score_bars → sub_scores（特征）
 ŷ = α + Σ βᵢ · zᵢ     # ReturnScoreModel → predicted_score = 选股真源
 ```
 
+训练 / 打分 / 回测 / 复盘 / 纸面执行的时间口径与产物流转见 **[predicted-score-chain.md](predicted-score-chain.md)**。
+
 | 层级 | 现在是什么 | 不是什么 |
 |------|------------|----------|
 | **score** | 组/全局 `ReturnScoreModel` 的 ŷ（`predicted_score`） | 人工 `weights` 加权的规则综合分 |

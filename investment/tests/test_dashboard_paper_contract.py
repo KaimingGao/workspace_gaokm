@@ -66,9 +66,18 @@ class TestDashboardPaperContract(unittest.TestCase):
 
             fake = _P()
             fake.path = path
-            with patch.object(qd.deps, "paper", fake):
+            live = {
+                "today_pnl_pct": 0.5,
+                "total_pnl_pct": 1.0,
+                "equity": 101000,
+                "holdings": paper["holdings"],
+            }
+            with patch.object(qd.deps, "paper", fake), patch(
+                "core.paper.mark_to_market", return_value=live
+            ):
                 kpis = qd._build_kpis()
                 self.assertAlmostEqual(kpis["total_return"], 1.0, places=2)
+                self.assertAlmostEqual(kpis["today_return"], 0.5, places=2)
                 self.assertEqual(kpis["sharpe"], 1.5)
                 alloc = qd.dashboard_allocation()
                 self.assertEqual(alloc["holdings_count"], 1)
@@ -215,9 +224,53 @@ class TestDashboardPaperContract(unittest.TestCase):
                 risk = qd.dashboard_risk_metrics()
                 self.assertTrue(risk.get("ok"))
                 self.assertIsNotNone(risk.get("max_drawdown"))
-                kpis = qd._build_kpis()
+                # 盯市失败时回退 snapshots：累计相对首末快照
+                with patch(
+                    "core.paper.mark_to_market", side_effect=RuntimeError("no quote")
+                ):
+                    kpis = qd._build_kpis()
                 self.assertIsNotNone(kpis.get("sharpe"))
+                # 99900/100000 - 1 = -0.1%
+                self.assertAlmostEqual(kpis["total_return"], -0.1, places=2)
 
+    def test_kpis_prefer_live_mtm_over_stale_snapshots(self):
+        """回零后 snapshots 未续写时，仪表盘收益仍应对齐交易执行盯市。"""
+        from web.routers import quant_dashboard as qd
+
+        paper = {
+            "cash": 50000,
+            "initial_cash": 100000,
+            "holdings": [
+                {"stock_code": "600519", "shares": 100, "cost": 10.0},
+            ],
+            "trades": [],
+            "snapshots": [
+                {"ts": "2026-08-12T09:00:00", "equity": 100000, "total_pnl_pct": 0.0},
+                {"ts": "2026-08-12T09:01:00", "equity": 99900, "total_pnl_pct": -0.1},
+            ],
+            "signal_log": [],
+            "operation_log": [],
+            "last_north_star": {"ok": True, "paper_risk": {"rolling_sharpe": 1.2}},
+        }
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "paper.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(paper, f)
+
+            class _P:
+                pass
+
+            fake = _P()
+            fake.path = path
+            live = {"today_pnl_pct": 0.09, "total_pnl_pct": 0.24, "equity": 100240}
+            with patch.object(qd.deps, "paper", fake), patch(
+                "core.paper.mark_to_market", return_value=live
+            ):
+                kpis = qd._build_kpis()
+            self.assertAlmostEqual(kpis["today_return"], 0.09, places=2)
+            self.assertAlmostEqual(kpis["total_return"], 0.24, places=2)
+            # 不得再吃陈旧快照 -0.1% / -0.04%
+            self.assertNotAlmostEqual(kpis["total_return"], -0.1, places=2)
     def test_unpack_index_bars_tuple(self):
         from web.routers.quant_dashboard import _unpack_index_bars
 

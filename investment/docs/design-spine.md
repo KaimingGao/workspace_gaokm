@@ -1,6 +1,6 @@
 # 产品核心设计主轴
 
-[← 文档索引](README.md) · 工程分层见 [architecture.md](architecture.md) · 因子/stance 细节见 [quant.md](quant.md) · Web 主路径见 [quant-ui.md](quant-ui.md)
+[← 文档索引](README.md) · 工程分层见 [architecture.md](architecture.md) · 因子/stance 细节见 [quant.md](quant.md) · ŷ 全链路见 [predicted-score-chain.md](predicted-score-chain.md) · Web 主路径见 [quant-ui.md](quant-ui.md)
 
 本文是产品的 **核心设计主轴**，分三层读：
 

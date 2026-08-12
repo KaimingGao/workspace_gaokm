@@ -1,6 +1,6 @@
 # 昨日复盘（Score Review）
 
-[← 文档索引](README.md)
+[← 文档索引](README.md) · 全链路见 [predicted-score-chain.md](predicted-score-chain.md)
 
 对账 **决策日 `as_of` 的 ŷ 方向** 与 **h 日实现收益**，解释错票（因子失效 / 个股特异 / 行业 / 分组）。不改权、不 promote。
 

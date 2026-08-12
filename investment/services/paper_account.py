@@ -456,7 +456,11 @@ class PaperAccountMixin:
         return out
 
     def reset(self) -> Dict[str, Any]:
-        """回零（测试基线）：保留持仓与现金，把当前净值当作新起点，清空曲线/成交记录。"""
+        """回零（测试基线）：保留持仓与现金，把当前净值当作新起点，清空曲线/成交记录。
+
+        同时写入当日 ``pnl_anchor``（回零价），使「今日收益」当日不再相对昨收，
+        与累计收益同起点；下一自然日自动失效，恢复按昨收。
+        """
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
 
@@ -470,9 +474,27 @@ class PaperAccountMixin:
             paper["initial_cash"] = round(equity, 2)
             paper["trades"] = []
             paper["signal_log"] = []
+            ts = _now_iso()
+            prices: Dict[str, float] = {}
+            for h in summary.get("holdings") or []:
+                code = str((h or {}).get("stock_code") or "").strip()
+                px = (h or {}).get("price")
+                if not code or px is None:
+                    continue
+                try:
+                    prices[code] = float(px)
+                except (TypeError, ValueError):
+                    continue
+            paper["pnl_anchor"] = {
+                "ts": ts,
+                "date": ts[:10],
+                "equity": round(equity, 2),
+                "cash": summary.get("cash"),
+                "prices": prices,
+            }
             paper["snapshots"] = [
                 {
-                    "ts": _now_iso(),
+                    "ts": ts,
                     "equity": round(equity, 2),
                     "cash": summary.get("cash"),
                     "stock_value": summary.get("stock_value"),
@@ -480,13 +502,19 @@ class PaperAccountMixin:
                     "position_count": summary.get("position_count"),
                 }
             ]
-            paper["updated_at"] = _now_iso()
-            append_operation_log(paper, "reset", detail=f"回零 · 基线 {round(equity, 2)}", meta={"equity": round(equity, 2)})
+            paper["updated_at"] = ts
+            append_operation_log(
+                paper,
+                "reset",
+                detail=f"回零 · 基线 {round(equity, 2)} · 今日改相对回零价",
+                meta={"equity": round(equity, 2), "anchor_n": len(prices)},
+            )
             save_paper(paper, self.path)
         out = self.status()
         out["message"] = (
             f"已回零 · 基线 {out.get('summary', {}).get('equity')} · "
-            f"持仓 {out.get('summary', {}).get('position_count', 0)} 只保留"
+            f"持仓 {out.get('summary', {}).get('position_count', 0)} 只保留 · "
+            f"今日收益自回零价起算"
         )
         return out
 

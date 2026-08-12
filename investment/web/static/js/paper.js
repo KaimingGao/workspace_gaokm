@@ -471,7 +471,7 @@ export function initPaper(ctx) {
     resetBtn.dataset.wired = "1";
     resetBtn.addEventListener("click", async (e) => {
       e.preventDefault();
-      if (!window.confirm("确认回零？持仓与现金保留，盈亏与曲线从当前净值重新起算。")) {
+      if (!window.confirm("确认回零？持仓与现金保留；累计盈亏与今日收益均从当前净值/现价重新起算（当日不再相对昨收）。")) {
         return;
       }
       try {
@@ -606,18 +606,27 @@ export function initPaper(ctx) {
     let todayVal = "—";
     let todayCls = "";
     let todaySub = "今日暂未结算";
+    const todayBasis = String(s.today_pnl_basis || "prev_close");
     if (s.today_pnl_pct != null && Number.isFinite(Number(s.today_pnl_pct))) {
       const v = Number(s.today_pnl_pct);
       todayVal = `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
       todayCls = v === 0 ? "" : (v > 0 ? "up" : "down");
-      todaySub = s.today_pnl != null
-        ? `今日浮动 ${fmtMoney(s.today_pnl)}`
-        : "按昨收对比今日现价估算";
+      if (todayBasis === "reset") {
+        todaySub =
+          s.today_pnl != null
+            ? `自回零起 ${fmtMoney(s.today_pnl)}`
+            : "相对回零价（已去掉昨收）";
+      } else {
+        todaySub = s.today_pnl != null
+          ? `今日浮动 ${fmtMoney(s.today_pnl)}`
+          : "按昨收对比今日现价估算";
+      }
     } else if (s.today_pnl != null && Number.isFinite(Number(s.today_pnl))) {
       const v = Number(s.today_pnl);
       todayVal = fmtMoney(v);
       todayCls = v === 0 ? "" : (v > 0 ? "up" : "down");
-      todaySub = "今日浮动盈亏（估算）";
+      todaySub =
+        todayBasis === "reset" ? "自回零起浮动" : "今日浮动盈亏（估算）";
     }
     const ddVal = s.max_drawdown_pct != null && Number.isFinite(Number(s.max_drawdown_pct))
       ? `${Number(s.max_drawdown_pct).toFixed(2)}%`

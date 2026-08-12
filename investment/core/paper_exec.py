@@ -168,6 +168,81 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
         cash_attr = cash * (strategy_stock_value / stock_value)
         equity_strategy = round(strategy_stock_value + cash_attr, 2)
 
+    # 今日浮动：
+    # - 当日回零后：相对回零价（去掉昨收），与累计同起点
+    # - 否则：按涨跌幅反推昨收，汇总 (现价−昨收)×股数
+    today_pnl: Optional[float] = None
+    today_pnl_pct: Optional[float] = None
+    today_pnl_basis = "prev_close"
+    anchor = paper.get("pnl_anchor") if isinstance(paper.get("pnl_anchor"), dict) else None
+    today_str = now.strftime("%Y-%m-%d")
+    anchor_date = str((anchor or {}).get("date") or "")[:10]
+    anchor_prices = (anchor or {}).get("prices") if isinstance(anchor, dict) else None
+    use_reset_anchor = (
+        bool(anchor)
+        and anchor_date == today_str
+        and isinstance(anchor_prices, dict)
+        and bool(anchor_prices)
+    )
+
+    if not rows:
+        today_pnl = 0.0
+        today_pnl_pct = 0.0
+        if use_reset_anchor:
+            today_pnl_basis = "reset"
+    elif use_reset_anchor:
+        day_sum = 0.0
+        n_anchored = 0
+        for row in rows:
+            code = str(row.get("stock_code") or "").strip()
+            px = row.get("price")
+            sh = row.get("shares")
+            if not code or px is None or sh is None:
+                continue
+            ap = anchor_prices.get(code)
+            if ap is None:
+                continue
+            try:
+                day_sum += (float(px) - float(ap)) * float(sh)
+                n_anchored += 1
+            except (TypeError, ValueError):
+                continue
+        if n_anchored > 0:
+            today_pnl = round(day_sum, 2)
+            today_pnl_basis = "reset"
+            try:
+                base = float((anchor or {}).get("equity") or 0)
+            except (TypeError, ValueError):
+                base = 0.0
+            if base <= 1e-6:
+                base = float(equity) - today_pnl
+            if base > 1e-6:
+                today_pnl_pct = round(today_pnl / base * 100.0, 2)
+    else:
+        day_sum = 0.0
+        n_chg = 0
+        for row in rows:
+            chg = row.get("change_pct")
+            mv = row.get("market_value")
+            if chg is None or mv is None:
+                continue
+            try:
+                chg_f = float(chg)
+                mv_f = float(mv)
+            except (TypeError, ValueError):
+                continue
+            denom = 100.0 + chg_f
+            if abs(denom) < 1e-9:
+                continue
+            # change% = (P-P0)/P0*100 → ΔMV = MV * chg / (100+chg)
+            day_sum += mv_f * chg_f / denom
+            n_chg += 1
+        if n_chg > 0:
+            today_pnl = round(day_sum, 2)
+            base = float(equity) - today_pnl
+            if base > 1e-6:
+                today_pnl_pct = round(today_pnl / base * 100.0, 2)
+
     return {
         "cash": round(cash, 2),
         "stock_value": round(stock_value, 2),
@@ -176,6 +251,9 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
         "strategy_stock_value": strategy_stock_value,
         "initial_cash": initial,
         "total_pnl_pct": total_pnl_pct,
+        "today_pnl": today_pnl,
+        "today_pnl_pct": today_pnl_pct,
+        "today_pnl_basis": today_pnl_basis,
         "holdings": rows,
         "position_count": len(rows),
         "origin_summary": origin_summary,

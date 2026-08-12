@@ -293,6 +293,101 @@ class TestHoldingOrigin(unittest.TestCase):
         self.assertEqual(summary["cost_model"], "zero")
         self.assertGreater(summary["max_drawdown_pct"], 0)
 
+    def test_mark_to_market_today_pnl_from_change_pct(self):
+        """今日收益 = Σ MV·chg/(100+chg)；账户%相对昨收净值。"""
+        paper = _paper(
+            cash=5000.0,
+            holdings=[
+                {"stock_code": "600519", "shares": 100, "cost": 10.0},
+                {"stock_code": "000568", "shares": 100, "cost": 20.0},
+            ],
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "stock_code": "600519",
+                "stock_name": "茅台",
+                "price_raw": 11.0,
+                "change_raw": 10.0,  # 昨收 10 → 今 11；ΔMV=100
+            },
+            "000568": {
+                "success": True,
+                "stock_code": "000568",
+                "stock_name": "泸州",
+                "price_raw": 19.0,
+                "change_raw": -5.0,  # 昨收 20 → 今 19；ΔMV=-100
+            },
+        }
+        with patch("core.ports.market.batch_query_quotes", return_value=quotes):
+            summary = mark_to_market(paper)
+        # 今日浮动合计 0；净值 = 5000 + 1100 + 1900 = 8000；昨收净值同为 8000
+        self.assertEqual(summary["today_pnl"], 0.0)
+        self.assertEqual(summary["today_pnl_pct"], 0.0)
+        self.assertEqual(summary["holdings"][0]["change_pct"], 10.0)
+        self.assertEqual(summary["holdings"][1]["change_pct"], -5.0)
+
+        quotes2 = {
+            "600519": {
+                "success": True,
+                "price_raw": 11.0,
+                "change_raw": 10.0,
+            },
+            "000568": {
+                "success": True,
+                "price_raw": 20.0,
+                "change_raw": 0.0,
+            },
+        }
+        with patch("core.ports.market.batch_query_quotes", return_value=quotes2):
+            summary2 = mark_to_market(paper)
+        # ΔMV = 100；equity=5000+1100+2000=8100；昨收净值=8000；pct=1.25
+        self.assertEqual(summary2["today_pnl"], 100.0)
+        self.assertEqual(summary2["today_pnl_pct"], 1.25)
+
+    def test_mark_to_market_today_pnl_cash_only(self):
+        paper = _paper(cash=10000.0, holdings=[])
+        summary = mark_to_market(paper)
+        self.assertEqual(summary["today_pnl"], 0.0)
+        self.assertEqual(summary["today_pnl_pct"], 0.0)
+
+    def test_mark_to_market_today_pnl_uses_reset_anchor(self):
+        """当日回零后，今日收益相对回零价，不再吃昨收涨跌幅。"""
+        from datetime import datetime
+
+        today = datetime.now().strftime("%Y-%m-%d")
+        paper = _paper(
+            cash=5000.0,
+            holdings=[
+                {"stock_code": "600519", "shares": 100, "cost": 10.0},
+                {"stock_code": "000568", "shares": 100, "cost": 20.0},
+            ],
+        )
+        paper["initial_cash"] = 8100.0
+        paper["pnl_anchor"] = {
+            "ts": f"{today}T10:00:00",
+            "date": today,
+            "equity": 8100.0,
+            "prices": {"600519": 11.0, "000568": 20.0},
+        }
+        quotes = {
+            "600519": {
+                "success": True,
+                "price_raw": 12.0,
+                "change_raw": 20.0,  # 昨收口径会算更大；锚点只认 +1
+            },
+            "000568": {
+                "success": True,
+                "price_raw": 20.0,
+                "change_raw": 5.0,
+            },
+        }
+        with patch("core.ports.market.batch_query_quotes", return_value=quotes):
+            summary = mark_to_market(paper)
+        # (12-11)*100 + (20-20)*100 = 100；相对回零净值 8100 → 1.23%
+        self.assertEqual(summary["today_pnl_basis"], "reset")
+        self.assertEqual(summary["today_pnl"], 100.0)
+        self.assertEqual(summary["today_pnl_pct"], 1.23)
+
     def test_mark_to_market_origin_summary(self):
         paper = _paper(
             holdings=[

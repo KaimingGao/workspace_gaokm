@@ -190,7 +190,7 @@ def _fetch_index_bars_bounded(
 
 
 def _build_kpis() -> Dict[str, Any]:
-    """聚合核心 KPI：从 north_star 报告 + paper 落盘提取。"""
+    """聚合核心 KPI：收益与交易执行页同源（盯市）；曲线/夏普仍用 snapshots。"""
     paper = _load_raw_paper()
     ns_report = _north_star_from_paper(paper)
 
@@ -203,22 +203,59 @@ def _build_kpis() -> Dict[str, Any]:
     max_dd = None
     win_rate = None
     trade_count = 0
+    period = "相对本金"
+    live_summary: Optional[Dict[str, Any]] = None
 
-    # Today / Total return from equity
+    # 今日 / 累计：与 /follow 交易执行页同源（mark_to_market）
+    # 避免仪表盘只读陈旧 snapshots，回零后基线已换但曲线未续写时出现两页不一致。
+    try:
+        from core.paper import mark_to_market
+
+        live_summary = mark_to_market(paper) if paper else None
+    except Exception:
+        live_summary = None
+    if isinstance(live_summary, dict):
+        tp = live_summary.get("today_pnl_pct")
+        if tp is not None:
+            try:
+                today_ret = float(tp)
+            except (TypeError, ValueError):
+                pass
+        tot = live_summary.get("total_pnl_pct")
+        if tot is not None:
+            try:
+                total_ret = float(tot)
+            except (TypeError, ValueError):
+                pass
+
+    # Today / Total return fallback：snapshots 曲线（无行情或盯市失败时）
     eq_curve = _equity_curve_from_paper(paper)
-    if eq_curve and len(eq_curve) >= 2:
+    if today_ret is None and eq_curve and len(eq_curve) >= 2:
         today_ret = eq_curve[-1].get("return_pct")
         if today_ret is None and eq_curve[-1].get("equity") and eq_curve[-2].get("equity"):
             e0 = eq_curve[-2]["equity"]
             e1 = eq_curve[-1]["equity"]
             if e0 and e0 > 0:
                 today_ret = (e1 / e0 - 1) * 100
-    if eq_curve and len(eq_curve) >= 1:
-        first_eq = eq_curve[0].get("equity")
+    if total_ret is None and eq_curve and len(eq_curve) >= 1:
+        # 优先相对回零本金 initial_cash，与交易执行 total_pnl_pct 口径一致
+        initial = paper.get("initial_cash")
         last_eq = eq_curve[-1].get("equity")
-        if first_eq and first_eq > 0 and last_eq:
-            total_ret = (last_eq / first_eq - 1) * 100
-
+        try:
+            initial_f = float(initial) if initial is not None else None
+            last_f = float(last_eq) if last_eq is not None else None
+        except (TypeError, ValueError):
+            initial_f = None
+            last_f = None
+        if initial_f and initial_f > 0 and last_f is not None:
+            total_ret = (last_f / initial_f - 1) * 100
+        else:
+            first_eq = eq_curve[0].get("equity")
+            if first_eq and first_eq > 0 and last_eq:
+                total_ret = (last_eq / first_eq - 1) * 100
+                period = "历史累计"
+    elif total_ret is not None and paper.get("initial_cash") is not None:
+        period = "相对回零基线"
     # Sharpe / MaxDD from north_star；短样本时本地兜底，避免整卡「—」
     sharpe = pr.get("rolling_sharpe") or pr.get("sharpe") or risk_strategy.get("rolling_sharpe")
     max_dd = pr.get("max_drawdown_pct") or pr.get("max_drawdown") or risk_strategy.get("max_drawdown_pct")
@@ -364,7 +401,7 @@ def _build_kpis() -> Dict[str, Any]:
         "max_drawdown": round(max_dd, 2) if max_dd is not None else None,
         "win_rate": round(win_rate, 2) if win_rate is not None else None,
         "trade_count": trade_count,
-        "period": "历史累计",
+        "period": period,
         "sparkline_today": spark_today,
         "sparkline_total": spark_total,
         "sparkline_sharpe": spark_sharpe[-30:],
