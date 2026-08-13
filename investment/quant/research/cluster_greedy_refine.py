@@ -15,7 +15,13 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from quant.research.objective_partition import labels_to_group_indices
-from quant.research.partition_loss import compute_partition_loss
+from quant.research.partition_loss import (
+    DEFAULT_LAMBDA_IMBALANCE,
+    DEFAULT_LAMBDA_SINGLETON,
+    DEFAULT_W_IC,
+    DEFAULT_W_R2,
+    compute_partition_loss,
+)
 
 
 def _refit_fn_factory(
@@ -153,10 +159,10 @@ def evaluate_labels_holdout_loss(
         groups_metrics.append(metrics)
     loss_info = compute_partition_loss(
         groups=groups_metrics,
-        w_r2=1.0,
-        w_ic=0.5,
-        lambda_imbalance=0.3,
-        lambda_singleton=1.5,
+        w_r2=DEFAULT_W_R2,
+        w_ic=DEFAULT_W_IC,
+        lambda_imbalance=DEFAULT_LAMBDA_IMBALANCE,
+        lambda_singleton=DEFAULT_LAMBDA_SINGLETON,
         ic_use_abs=False,
     )
     return {"groups": groups_metrics, "cache": local_cache, **loss_info}

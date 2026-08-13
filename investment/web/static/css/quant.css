@@ -6066,13 +6066,30 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 
 .quant-pro-factor-card-state {
   flex-shrink: 0;
-  padding: 1px 6px;
+  padding: 2px 7px;
   border-radius: var(--q-r, 2px);
-  font-size: 0.52rem;
-  font-weight: 800;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 0.72rem;
+  font-weight: 750;
+  letter-spacing: 0.04em;
+  line-height: 1.25;
+  text-transform: none;
   font-family: var(--font-mono);
+}
+
+.quant-pro-factor-card[data-state="strong"] .quant-pro-factor-card-state {
+  color: var(--ok, #16a34a);
+  background: color-mix(in srgb, var(--ok, #16a34a) 14%, var(--surface));
+}
+
+.quant-pro-factor-card[data-state="mid"] .quant-pro-factor-card-state {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.quant-pro-factor-card[data-state="weak"] .quant-pro-factor-card-state,
+.quant-pro-factor-card[data-state="faint"] .quant-pro-factor-card-state {
+  color: var(--ink-2);
+  background: color-mix(in srgb, var(--ink) 8%, var(--surface));
 }
 
 .quant-pro-factor-card[data-state="active"] .quant-pro-factor-card-state {

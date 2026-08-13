@@ -1233,6 +1233,14 @@ export function initPaper(ctx) {
       if (scoreCell) {
         e.preventDefault();
         e.stopPropagation();
+        if (
+          scoreTips.tipAnchor === scoreCell &&
+          scoreTips.tipEl &&
+          scoreTips.tipEl.dataset.sticky === "1"
+        ) {
+          hideScoreTooltip();
+          return;
+        }
         showScoreTooltip(scoreCell, { sticky: true });
         return;
       }
@@ -1330,6 +1338,7 @@ export function initPaper(ctx) {
     holdingsTableEl.addEventListener("mouseover", (e) => {
       const scoreCell = e.target.closest(".paper-hold-score[data-score-detail]");
       if (!scoreCell || !holdingsTableEl.contains(scoreCell)) return;
+      if (scoreTips.tipEl && scoreTips.tipEl.dataset.sticky === "1") return;
       if (scoreTips.tipAnchor === scoreCell && scoreTips.tipEl) return;
       showScoreTooltip(scoreCell, { sticky: false });
     });

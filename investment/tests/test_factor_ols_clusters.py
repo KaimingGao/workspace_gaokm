@@ -500,7 +500,7 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertEqual(mixed["singleton_count"], 4)
         self.assertEqual(mixed["singleton_members"], 4)
         self.assertAlmostEqual(float(mixed["singleton_share"]), 0.2, places=4)
-        self.assertAlmostEqual(float(mixed["penalty_singleton"]), 0.3, places=4)
+        self.assertAlmostEqual(float(mixed["penalty_singleton"]), 0.15, places=4)
 
         # 单票计入质量先验：踢成单票不应比显式计入差组更「好看」
         hide = compute_partition_loss(
@@ -517,6 +517,16 @@ class TestFactorOlsClusters(unittest.TestCase):
             include_singleton_quality=False,
         )
         self.assertGreater(hide["loss"], hide_skip["loss"])
+
+        # IC 量纲：典型 IC 差应能压过小幅 R² 优势（ic_ref_scale 生效）
+        high_r2_neg_ic = compute_partition_loss(
+            groups=[{"member_count": 8, "pooled_r2": 0.25, "ic_mean": -0.04}]
+        )
+        mid_r2_pos_ic = compute_partition_loss(
+            groups=[{"member_count": 8, "pooled_r2": 0.15, "ic_mean": 0.04}]
+        )
+        self.assertLess(mid_r2_pos_ic["loss"], high_r2_neg_ic["loss"])
+        self.assertAlmostEqual(float(mid_r2_pos_ic.get("ic_ref_scale") or 0), 0.05, places=4)
 
         # 组级：每票切尾；票顺序颠倒结果应一致
         panel_ab = {

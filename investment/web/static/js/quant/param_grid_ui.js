@@ -25,10 +25,10 @@ export function drawParamHeatmap(cells, axes) {
     .map((c) => Number(c.total_return_pct));
   const minV = vals.length ? Math.min(...vals) : 0;
   const maxV = vals.length ? Math.max(...vals) : 1;
-  const padL = 48;
-  const padB = 28;
-  const padT = 12;
-  const padR = 12;
+  const padL = 56;
+  const padB = 36;
+  const padT = 16;
+  const padR = 16;
   const cellW = (w - padL - padR) / topKs.length;
   const cellH = (h - padT - padB) / lookbacks.length;
   const byKey = {};
@@ -48,9 +48,9 @@ export function drawParamHeatmap(cells, axes) {
         fill = `rgb(${r},80,${b})`;
       }
       g.fillStyle = fill;
-      g.fillRect(x + 2, y + 2, cellW - 4, cellH - 4);
+      g.fillRect(x + 3, y + 3, cellW - 6, cellH - 6);
       g.fillStyle = "#111827";
-      g.font = "11px IBM Plex Mono, monospace";
+      g.font = "600 15px IBM Plex Mono, monospace";
       g.textAlign = "center";
       g.textBaseline = "middle";
       const label =
@@ -63,14 +63,14 @@ export function drawParamHeatmap(cells, axes) {
     });
   });
   g.fillStyle = "#6b7280";
-  g.font = "10px Manrope, sans-serif";
+  g.font = "12px Manrope, sans-serif";
   g.textAlign = "right";
   lookbacks.forEach((lb, ri) => {
-    g.fillText(String(lb), padL - 6, padT + ri * cellH + cellH / 2);
+    g.fillText(String(lb), padL - 8, padT + ri * cellH + cellH / 2);
   });
   g.textAlign = "center";
   topKs.forEach((tk, ci) => {
-    g.fillText(`K=${tk}`, padL + ci * cellW + cellW / 2, h - 10);
+    g.fillText(`K=${tk}`, padL + ci * cellW + cellW / 2, h - 12);
   });
 }
 

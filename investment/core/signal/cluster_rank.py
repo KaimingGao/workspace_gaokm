@@ -23,9 +23,9 @@ def rank_cluster_pools(
     from core.signal.cluster_live import (
         get_cluster_scoring_cfg,
         load_active_cluster_weights,
-        oos_failed_cluster_labels,
         save_active_cluster_book,
     )
+    from core.signal.cluster_oos_labels import oos_failed_cluster_labels
     from core.signal.config import get_rank_defaults, get_scoring_horizon_days, load_signal_config
     from core.signal.score_display import json_safe_number, selection_min_score
     from core.signal.score_stock import score_stock
@@ -111,12 +111,14 @@ def rank_cluster_pools(
 
     def _score_one(raw: str) -> Dict[str, Any]:
         # 与纸面持仓打分一致：跳过基本面；刷簿跳过舆情（避免 N×12s）
+        # fetch_sector_breadth 默认关：避免主题日每票再拉 40 行情把「对照」卡死
         return score_stock(
             raw,
             horizon_days=horizon_days,
             cluster_mode="active",
             skip_fundamentals=True,
             skip_sentiment=True,
+            quote_timeout=5.0,
         )
 
     workers = max(1, min(8, len(codes)))

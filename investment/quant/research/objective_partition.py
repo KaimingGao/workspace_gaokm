@@ -117,7 +117,7 @@ def _build_ic_matrix(
                     continue
                 fx.append(val)
                 fy.append(yi)
-            if len(fx) < 5:
+            if len(fx) < 20:
                 continue
             if use_spearman:
                 try:
@@ -256,46 +256,69 @@ def generate_candidate_partitions(
     feature_names: Sequence[str],
     *,
     k_target: Optional[int] = None,
+    k_list: Optional[Sequence[int]] = None,
     enable_ic_features: bool = True,
     progress_cb: Optional[Callable[[str, int, int], None]] = None,
 ) -> List[Dict[str, Any]]:
-    """生成多个候选分区，每个 dict 含 labels (n,) + kind。"""
+    """生成多个候选分区，每个 dict 含 labels (n,) + kind。
+
+    ``k_list`` 优先；否则单点 ``k_target`` 或 ``default_n_clusters(n)``。
+    生产 auto-k 邻域请传 ``auto_k_candidates(n)``。
+    """
     n = len(codes)
-    if k_target is None:
-        k_target = default_n_clusters(n)
-    k_target = max(2, min(int(k_target), n - 1))
+    if k_list:
+        ks = sorted({max(2, min(int(k), n - 1)) for k in k_list if int(k) >= 2})
+    else:
+        if k_target is None:
+            k_target = default_n_clusters(n)
+        ks = [max(2, min(int(k_target), n - 1))]
     candi: List[Dict[str, Any]] = []
 
-    # 1) agglomerative complete / average
-    candi.append(_candidate_agglomerative_linkage(beta_scaled, k_target=k_target, linkage="complete"))
-    candi.append(_candidate_agglomerative_linkage(beta_scaled, k_target=k_target, linkage="average"))
-    # 2) kmeans 多种 seed
-    for s in (42, 7, 2024):
-        candi.append(_candidate_kmeans_seeds(beta_scaled, k_target=k_target, seed=s))
-    # 3) IC 相关增强（需要 panel_by_code 非空）
-    if enable_ic_features and panel_by_code:
-        try:
-            candi.append(_candidate_hstack_beta_ic(
-                beta_scaled, panel_by_code, codes, feature_names,
-                alpha=0.7, seed=42, k_target=k_target, linkage="complete",
-            ))
-        except Exception as exc:
-            if progress_cb:
-                try:
-                    progress_cb(f"候选 hstack 跳过: {exc}", 0, 1)
-                except Exception:
-                    pass
-        try:
-            candi.append(_candidate_ic_weighted(
-                beta_scaled, panel_by_code, codes, feature_names,
-                shrinkage=0.4, seed=42, k_target=k_target,
-            ))
-        except Exception as exc:
-            if progress_cb:
-                try:
-                    progress_cb(f"候选 ic_weighted 跳过: {exc}", 0, 1)
-                except Exception:
-                    pass
+    for k_target in ks:
+        # 1) agglomerative complete / average
+        c1 = _candidate_agglomerative_linkage(
+            beta_scaled, k_target=k_target, linkage="complete"
+        )
+        c1["kind"] = f"{c1.get('kind', 'agg_complete')}_k{k_target}"
+        candi.append(c1)
+        c2 = _candidate_agglomerative_linkage(
+            beta_scaled, k_target=k_target, linkage="average"
+        )
+        c2["kind"] = f"{c2.get('kind', 'agg_average')}_k{k_target}"
+        candi.append(c2)
+        # 2) kmeans 多种 seed
+        for s in (42, 7, 2024):
+            ck = _candidate_kmeans_seeds(beta_scaled, k_target=k_target, seed=s)
+            ck["kind"] = f"{ck.get('kind', f'kmeans_{s}')}_k{k_target}"
+            candi.append(ck)
+        # 3) IC 相关增强（需要 panel_by_code 非空）
+        if enable_ic_features and panel_by_code:
+            try:
+                ch = _candidate_hstack_beta_ic(
+                    beta_scaled, panel_by_code, codes, feature_names,
+                    alpha=0.7, seed=42, k_target=k_target, linkage="complete",
+                )
+                ch["kind"] = f"{ch.get('kind', 'hstack')}_k{k_target}"
+                candi.append(ch)
+            except Exception as exc:
+                if progress_cb:
+                    try:
+                        progress_cb(f"候选 hstack 跳过: {exc}", 0, 1)
+                    except Exception:
+                        pass
+            try:
+                cw = _candidate_ic_weighted(
+                    beta_scaled, panel_by_code, codes, feature_names,
+                    shrinkage=0.4, seed=42, k_target=k_target,
+                )
+                cw["kind"] = f"{cw.get('kind', 'ic_weighted')}_k{k_target}"
+                candi.append(cw)
+            except Exception as exc:
+                if progress_cb:
+                    try:
+                        progress_cb(f"候选 ic_weighted 跳过: {exc}", 0, 1)
+                    except Exception:
+                        pass
     # 去重（labels 完全相同则只留 1）
     seen = set()
     dedup: List[Dict[str, Any]] = []
@@ -409,14 +432,51 @@ def evaluate_partition(
     respect_regime: bool,
     y_spec: Dict[str, Any],
     w_r2: float = 1.0,
-    w_ic: float = 0.5,
+    w_ic: float = 1.0,
     lambda_imbalance: float = 0.3,
-    lambda_singleton: float = 1.5,
+    lambda_singleton: float = 0.75,
+    use_holdout: bool = True,
+    holdout_ratio: float = 0.3,
+    cut_date: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """对一组 labels 做组池 OLS + 组内 IC → 统一 loss。
+    """对一组 labels 做组指标 → 统一 loss。
 
-    返回 groups 列表（每个含 member_count, pooled_r2, ic_mean）+ loss 分解。
+    默认 ``use_holdout=True``：与 live 一致，用尾段 ŷ holdout（前段重拟合）的
+    R²/IC；``False`` 时回退全样本池 OLS + 因子 IC（仅诊断）。
     """
+    if use_holdout:
+        from quant.research.cluster_greedy_refine import evaluate_labels_holdout_loss
+
+        out = evaluate_labels_holdout_loss(
+            labels,
+            codes,
+            panel_by_code,
+            holdout_ratio=holdout_ratio,
+            cut_date=cut_date,
+            horizon_days=horizon_days,
+            ridge_lambda=ridge_lambda,
+            use_pit=use_pit,
+            select_ridge=select_ridge,
+            collinearity_policy=collinearity_policy,
+            respect_regime=respect_regime,
+            y_spec=y_spec,
+        )
+        # 覆盖权重（holdout 评估器内部用默认常量；此处允许研究覆盖）
+        loss_info = compute_partition_loss(
+            groups=out.get("groups") or [],
+            w_r2=float(w_r2),
+            w_ic=float(w_ic),
+            lambda_imbalance=float(lambda_imbalance),
+            lambda_singleton=float(lambda_singleton),
+            ic_use_abs=False,
+        )
+        return {
+            "groups": out.get("groups") or [],
+            "cache": out.get("cache"),
+            **loss_info,
+            "eval_mode": "holdout_yhat",
+        }
+
     groups_idx = labels_to_group_indices(labels)
     groups_metrics: List[Dict[str, Any]] = []
     for cid, idxs in groups_idx.items():
@@ -469,7 +529,7 @@ def evaluate_partition(
         lambda_singleton=float(lambda_singleton),
         ic_use_abs=False,
     )
-    return {"groups": groups_metrics, **loss_info}
+    return {"groups": groups_metrics, **loss_info, "eval_mode": "in_sample"}
 
 
 def greedy_swap_optimize(
@@ -486,7 +546,7 @@ def greedy_swap_optimize(
     respect_regime: bool,
     y_spec: Dict[str, Any],
     w_r2: float = 1.0,
-    w_ic: float = 0.5,
+    w_ic: float = 1.0,
     max_rounds: int = 6,
     progress_cb: Optional[Callable[[str, int, int], None]] = None,
 ) -> Tuple[np.ndarray, Dict[str, Any], Dict[str, Any]]:
@@ -596,13 +656,15 @@ def objective_search_partition(
     k_target: Optional[int] = None,
     enable_ic_features: bool = True,
     w_r2: float = 1.0,
-    w_ic: float = 0.5,
+    w_ic: float = 1.0,
     run_greedy_swap: bool = True,
+    search_k_neighborhood: bool = True,
     progress_cb: Optional[Callable[[str, int, int], None]] = None,
 ) -> Tuple[np.ndarray, List[Dict[str, Any]], Dict[str, Any]]:
     """对外主入口：候选搜索 + 打分 + 可选贪心精修。
 
     返回 (best_labels, candidates_scores, diagnostics)。
+    默认 ``search_k_neighborhood=True``：对 ``auto_k_candidates(n)`` 各跑一套候选。
     """
     n = len(codes)
     if n <= 2:
@@ -613,12 +675,19 @@ def objective_search_partition(
             {"degraded": True, "reason": "n<=2 退化分组"},
         )
 
+    if k_target is not None:
+        k_list = [int(k_target)]
+    elif search_k_neighborhood:
+        k_list = list(auto_k_candidates(n))
+    else:
+        k_list = [default_n_clusters(n)]
+
     candidates = generate_candidate_partitions(
         codes,
         beta_scaled,
         panel_by_code,
         feature_names,
-        k_target=k_target,
+        k_list=k_list,
         enable_ic_features=enable_ic_features,
         progress_cb=progress_cb,
     )

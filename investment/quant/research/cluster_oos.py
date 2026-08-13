@@ -18,7 +18,7 @@ def score_cluster_partition_oos(
     panel_by_code: Optional[Dict[str, Dict[str, Any]]] = None,
     silhouette: Optional[float] = None,
     w_r2: float = 1.0,
-    w_ic: float = 0.5,
+    w_ic: float = 1.0,
     holdout_ratio: float = 0.3,
     ridge_lambda: float = 0.0,
     select_ridge: bool = False,
@@ -41,6 +41,8 @@ def score_cluster_partition_oos(
     from core.signal.config import load_signal_config
     from quant.research.cluster_weight_display import _return_model_from_ols
     from quant.research.partition_loss import (
+        DEFAULT_W_IC,
+        DEFAULT_W_R2,
         compute_partition_loss,
         yhat_group_holdout_metrics,
     )

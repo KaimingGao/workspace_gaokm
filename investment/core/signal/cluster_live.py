@@ -433,36 +433,7 @@ def _artifact_horizon_days(artifact: Dict[str, Any]) -> Optional[int]:
     return None
 
 
-def oos_failed_cluster_labels(
-    clusters: Optional[Sequence[Any]] = None,
-    *,
-    active: Optional[Dict[str, Any]] = None,
-) -> List[str]:
-    """返回 OOS 门禁未过的组 label 列表（跳过 skipped）。"""
-    if clusters is None:
-        art = active if active is not None else load_active_cluster_weights()
-        clusters = list((art or {}).get("clusters") or [])
-    failed: List[str] = []
-    seen = set()
-    for cl in clusters or []:
-        if not isinstance(cl, dict):
-            continue
-        lab = str(cl.get("label") or cl.get("cluster_label") or "").strip()
-        if not lab:
-            continue
-        gate = cl.get("oos_gate")
-        failed_flag = False
-        if isinstance(gate, dict) and gate:
-            if gate.get("skipped"):
-                continue
-            if gate.get("passed") is False or gate.get("ok") is False:
-                failed_flag = True
-        elif "oos_passed" in cl and cl.get("oos_passed") is not None:
-            failed_flag = not bool(cl.get("oos_passed"))
-        if failed_flag and lab not in seen:
-            seen.add(lab)
-            failed.append(lab)
-    return failed
+from core.signal.cluster_oos_labels import oos_failed_cluster_labels  # noqa: F401
 
 
 def promote_cluster_artifact(

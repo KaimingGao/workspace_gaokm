@@ -209,14 +209,14 @@ export function formatFormulaTermsSection(raw) {
     `</tr></thead>` +
     `<tbody>` +
     `<tr class="score-ft-alpha">` +
-    `<td>截距 α</td>` +
+    `<td class="score-ft-name">截距 α</td>` +
     `<td class="num">—</td>` +
     `<td class="num">—</td>` +
     `<td class="num ${signCls(expl.intercept)}">${escapeText(alpha)}</td>` +
     `</tr>` +
     rows +
     `<tr class="score-ft-total">` +
-    `<td>合计 ŷ</td>` +
+    `<td class="score-ft-name">合计 ŷ</td>` +
     `<td class="num">—</td>` +
     `<td class="num">—</td>` +
     `<td class="num ${signCls(expl.total)}">${escapeText(total)}%</td>` +
@@ -277,36 +277,69 @@ export function formatFeatureIsoSection(raw) {
 /** 舆情先验（ŷ 外）旁路提示。 */
 export function formatSentimentGateSection(raw) {
   if (!raw) return "";
-  const bits = [];
+  const meta = [];
+  const notes = [];
   const prior = raw.sentiment_prior || {};
   const mode = String(prior.mode || "").trim();
-  bits.push("舆情 = 先验旁路 · 不进 predicted_score / 非因子");
   if (mode) {
     const active = prior.active ? "触发" : "未触发";
-    bits.push(`prior.mode=${mode} · ${active}`);
+    meta.push({
+      chip: active,
+      chipCls: prior.active ? "is-on" : "is-off",
+      code: `prior.mode=${mode}`,
+    });
   } else if (
     raw.sentiment_include_in_score === false ||
     raw.sentiment_include_in_score === true
   ) {
-    bits.push(
-      raw.sentiment_include_in_score
-        ? "遗留：include_in_score=true（不推荐；应走 prior.mode）"
-        : "include_in_score=false（硬闸）"
-    );
+    if (raw.sentiment_include_in_score) {
+      meta.push({
+        chip: "遗留",
+        chipCls: "is-warn",
+        code: "include_in_score=true",
+        note: "不推荐；应走 prior.mode",
+      });
+    } else {
+      meta.push({
+        chip: "硬闸",
+        chipCls: "is-gate",
+        code: "include_in_score=false",
+      });
+    }
   }
   const hints = Array.isArray(raw.risk_hints) ? raw.risk_hints : [];
   for (const h of hints.slice(0, 2)) {
-    if (h && h.note) bits.push(String(h.note));
+    if (h && h.note) notes.push(String(h.note));
   }
   const warns = Array.isArray(raw.warnings) ? raw.warnings : [];
   for (const w of warns.slice(0, 3)) {
-    if (w) bits.push(String(w));
+    if (w) notes.push(String(w));
   }
-  if (!bits.length) return "";
+
+  const metaHtml = meta
+    .map((m) => {
+      const note = m.note
+        ? `<span class="score-sentiment-note">${escapeText(m.note)}</span>`
+        : "";
+      return (
+        `<div class="score-sentiment-meta">` +
+        `<span class="score-sentiment-chip ${m.chipCls}">${escapeText(m.chip)}</span>` +
+        `<span class="score-sentiment-code">${escapeText(m.code)}</span>` +
+        note +
+        `</div>`
+      );
+    })
+    .join("");
+  const notesHtml = notes
+    .map((b) => `<div class="score-sentiment-line">${escapeText(b)}</div>`)
+    .join("");
+
   return (
     `<div class="score-sentiment-section">` +
     `<div class="score-section-title">舆情先验</div>` +
-    bits.map((b) => `<div class="score-sentiment-line">${escapeText(b)}</div>`).join("") +
+    `<div class="score-sentiment-lead">先验旁路 · 不进 ŷ · 非因子</div>` +
+    metaHtml +
+    notesHtml +
     `</div>`
   );
 }
@@ -470,13 +503,67 @@ export function formatT0DirectionDetail(raw) {
 export function createScoreTooltipController() {
   let tipEl = null;
   let tipAnchor = null;
+  let docClickClose = null;
+  let docKeyClose = null;
+
+  function clearDocClosers() {
+    if (docClickClose) {
+      document.removeEventListener("click", docClickClose, true);
+      docClickClose = null;
+    }
+    if (docKeyClose) {
+      document.removeEventListener("keydown", docKeyClose, true);
+      docKeyClose = null;
+    }
+  }
 
   function hide() {
+    clearDocClosers();
     if (tipEl) {
       tipEl.remove();
       tipEl = null;
     }
     tipAnchor = null;
+  }
+
+  function attachDismiss(tip, cell, { sticky = false } = {}) {
+    tip.addEventListener("mouseleave", (e) => {
+      if (tip.dataset.sticky === "1") return;
+      const to = e.relatedTarget;
+      if (to && cell && cell.contains(to)) return;
+      hide();
+    });
+
+    if (!sticky) return;
+
+    tip.dataset.sticky = "1";
+    tip.classList.add("is-sticky");
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.className = "score-tooltip-close";
+    closeBtn.setAttribute("aria-label", "关闭");
+    closeBtn.textContent = "×";
+    closeBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      hide();
+    });
+    tip.prepend(closeBtn);
+
+    docClickClose = (ev) => {
+      if (!tipEl || tipEl !== tip) return;
+      if (tip.contains(ev.target)) return;
+      // 同单元格点击由 bindHost / 业务侧 toggle，这里不抢
+      if (cell && cell.contains(ev.target)) return;
+      hide();
+    };
+    docKeyClose = (ev) => {
+      if (ev.key === "Escape") hide();
+    };
+    setTimeout(() => {
+      document.addEventListener("click", docClickClose, true);
+      document.addEventListener("keydown", docKeyClose, true);
+    }, 0);
   }
 
   function showPlain(anchor, text) {
@@ -556,11 +643,11 @@ export function createScoreTooltipController() {
       tip.className = "score-tooltip";
       tip.innerHTML = html;
       tip.setAttribute("role", "tooltip");
-      if (sticky) tip.dataset.sticky = "1";
       document.body.appendChild(tip);
       tipEl = tip;
       tipAnchor = cell;
       place(tip, cell);
+      attachDismiss(tip, cell, { sticky });
       return;
     }
     // 兼容旧字段名
@@ -639,33 +726,36 @@ export function createScoreTooltipController() {
     const tip = document.createElement("div");
     tip.className = "score-tooltip";
     tip.innerHTML = html;
+    tip.setAttribute("role", "tooltip");
     document.body.appendChild(tip);
     tipEl = tip;
     tipAnchor = cell;
     place(tip, cell);
-
-    if (sticky) {
-      tip.dataset.sticky = "1";
-      const close = (ev) => {
-        if (tip.contains(ev.target) || cell.contains(ev.target)) return;
-        hide();
-        document.removeEventListener("click", close, true);
-      };
-      setTimeout(() => document.addEventListener("click", close, true), 0);
-    }
+    attachDismiss(tip, cell, { sticky });
   }
 
   function place(tip, anchor) {
+    const pad = 8;
+    const maxH = Math.max(120, window.innerHeight - pad * 2);
+    tip.style.maxHeight = `${maxH}px`;
+
     const rect = anchor.getBoundingClientRect();
-    const tipRect = tip.getBoundingClientRect();
+    let tipRect = tip.getBoundingClientRect();
     let left = rect.left + rect.width / 2 - tipRect.width / 2;
-    left = Math.max(8, Math.min(left, window.innerWidth - tipRect.width - 8));
+    left = Math.max(pad, Math.min(left, window.innerWidth - tipRect.width - pad));
+
+    // Prefer below; flip above if it fits; else pin to top and let tip scroll.
     let top = rect.bottom + 6;
-    if (top + tipRect.height > window.innerHeight - 8) {
-      top = rect.top - tipRect.height - 6;
+    tipRect = tip.getBoundingClientRect();
+    if (top + tipRect.height > window.innerHeight - pad) {
+      const above = rect.top - tipRect.height - 6;
+      top = above >= pad ? above : pad;
     }
-    tip.style.left = left + "px";
-    tip.style.top = top + "px";
+    const h = tip.offsetHeight || tipRect.height;
+    top = Math.max(pad, Math.min(top, window.innerHeight - h - pad));
+
+    tip.style.left = `${left}px`;
+    tip.style.top = `${top}px`;
   }
 
   function bindHost(host, { scoreSelector = "[data-score-detail]" } = {}) {
@@ -676,11 +766,16 @@ export function createScoreTooltipController() {
       if (!cell || !host.contains(cell)) return;
       e.preventDefault();
       e.stopPropagation();
+      if (tipAnchor === cell && tipEl && tipEl.dataset.sticky === "1") {
+        hide();
+        return;
+      }
       show(cell, { sticky: true });
     });
     host.addEventListener("mouseover", (e) => {
       const cell = e.target.closest(scoreSelector);
       if (!cell || !host.contains(cell)) return;
+      if (tipEl && tipEl.dataset.sticky === "1") return;
       if (tipAnchor === cell && tipEl) return;
       show(cell, { sticky: false });
     });

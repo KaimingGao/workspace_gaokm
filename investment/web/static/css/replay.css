@@ -70,8 +70,8 @@
 
 .replay-page .param-grid-heat {
   display: block;
-  width: min(100%, 280px);
-  max-width: 280px;
+  width: min(100%, 640px);
+  max-width: 640px;
   height: auto;
   margin: 0 0 var(--replay-gap);
   border: 1px solid var(--line);
@@ -707,9 +707,8 @@ body[data-page="replay"] .replay-page .quant-weight-table-wrap td {
 
 body[data-page="replay"] .replay-page .param-grid-heat {
   border-radius: 2px !important;
-  /* 9 格热力图：保持画布比例，勿拉满整卡 */
-  width: min(100%, 280px);
-  max-width: 280px;
+  width: min(100%, 640px);
+  max-width: 640px;
   height: auto;
 }
 

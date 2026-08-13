@@ -170,6 +170,8 @@ def score_stock(
     skip_sentiment: bool = False,
     bypass_quality_gate: bool = False,
     cluster_mode: Optional[str] = None,
+    fetch_sector_breadth: bool = False,
+    quote_timeout: float = 15.0,
 ) -> Dict[str, Any]:
     """拉行情 + 日线 + score_bars，返回 signal_item 形状 dict。
 
@@ -177,6 +179,9 @@ def score_stock(
     研究可传 bypass_quality_gate=True；历史回测引擎直接调 score_bars，不受影响。
 
     ``skip_sentiment=True``：跳过标题舆情拉取（分池刷簿必开，否则 N×超时极慢）。
+    ``fetch_sector_breadth=True``：主题缺口时再拉同伴行情算广度（默认关；
+    刷簿并行下会 N×批量行情卡死。纸面调仓另有批量 ``compute_sector_gap_breadth_live``）。
+    ``quote_timeout``：单票行情秒数（分池刷簿宜 ≤6，避免对照长时间挂起）。
 
     cluster_mode: None=读 signal_config.cluster_scoring；
     off — 不用组 β；shadow — 可算 score_cluster 对照，主分仍全局/空；
@@ -188,11 +193,12 @@ def score_stock(
         horizon_days = get_scoring_horizon_days()
     horizon_days = max(1, min(int(horizon_days or 1), 10))
     raw = str(stock_code or "").strip()
+    q_timeout = max(2.0, min(float(quote_timeout or 15.0), 30.0))
 
     if quote is None:
         try:
             # 设置超时，防止行情查询卡住
-            quote = _call_with_timeout(query_quote, 15, raw)
+            quote = _call_with_timeout(query_quote, q_timeout, raw)
         except TimeoutError:
             return {
                 "success": False,
@@ -690,8 +696,13 @@ def score_stock(
         ep_cfg = get_event_prior_cfg()
         trigger = float(ep_cfg.get("gap_trigger_pct") or 2)
         sector_breadth = None
-        # 主题候选才拉同伴缺口广度，避免每票全池行情
-        if gap_v is not None and float(gap_v) >= trigger:
+        # 默认不拉同伴行情：刷簿 8 路并行 × 每票 40 行情会把对照卡死数分钟。
+        # 纸面卖出循环已批量算 breadth；单票展示用缺口即可触发 theme soft hold。
+        if (
+            fetch_sector_breadth
+            and gap_v is not None
+            and float(gap_v) >= trigger
+        ):
             try:
                 from core.watching_store import read_watching
 
