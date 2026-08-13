@@ -76,7 +76,7 @@ export function clusterLandingHtml(data) {
             String(liveN)
           )}</b> live组</span>`
         : "") +
-    `<span class="quant-cluster-stat" title="组ŷ 打分后全局按 score 排序，再按 min_score / max 截断"><b>全局</b> 排序</span>` +
+    `<span class="quant-cluster-stat" title="组ŷ 打分后全局按 score 排序，再按 ŷ 门槛 / max 截断"><b>全局</b> 排序</span>` +
     `<span class="quant-cluster-stat"><b>${escapeHtml(cov)}</b> 覆盖</span>` +
     `<span class="quant-cluster-stat${h.stale ? " is-warn" : ""}"><b>${escapeHtml(
       age
@@ -114,9 +114,9 @@ export function clusterLandingHtml(data) {
               : "—"
         }</span></summary>` +
         `<ul class="quant-cluster-evidence-list">` +
-        `<li title="组ŷ→全局排序→min_score 过滤→max 截断">簿长 ${escapeHtml(
+        `<li title="组ŷ→全局排序→ŷ 门槛过滤→max 截断">簿长 ${escapeHtml(
           String(ev.name_count != null ? ev.name_count : book.name_count ?? "—")
-        )} · 全局排序 · min_score=${escapeHtml(
+        )} · 全局排序 · ŷ门槛=${escapeHtml(
           String(minScore)
         )} · max=${escapeHtml(String(maxNames))}</li>` +
         `<li title="${escapeHtml(

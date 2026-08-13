@@ -288,5 +288,8 @@ def read_signal_config_file(*, reload: bool = True) -> Dict[str, Any]:
         "config": merged,
         "raw": raw,
         "readonly": True,
-        "note": "修改须手动编辑 signal_config.json；IC/阈值建议仅导出 diff，不自动写盘。",
+        "note": (
+            "weights 须人审导出后手动合并；"
+            "scoring 滞回 / stance_thresholds 可通过 Web 人审写入（不静默）。"
+        ),
     }

@@ -68,9 +68,9 @@
     "horizon_days": 3
   },
   "stance_thresholds": {
-    "avoid": -0.5,
-    "wait": 0,
-    "probe": 0.35
+    "avoid": -0.25,
+    "wait": 0.25,
+    "probe": 0.6
   },
   "stance_thresholds_heuristic": {
     "avoid": 45,

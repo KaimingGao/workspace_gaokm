@@ -68,8 +68,8 @@ class TestP51BacktestFundamentals(unittest.TestCase):
         )
         self.assertIsNotNone(item)
         self.assertGreater(item["sub_scores"].get("value", 50), 50)
-    @patch("quant.research.portfolio_data.fetch_fundamentals_batch")
-    @patch("skills.common.history.fetch_daily_bars")
+    @patch("core.research.portfolio_bars.fetch_fundamentals_batch")
+    @patch("core.ports.market.fetch_daily_bars")
     @patch("skills.common.quote_api.StockAPI.query")
     def test_load_portfolio_attaches_fundamentals(self, mock_quote, mock_bars, mock_fund):
         mock_quote.side_effect = lambda raw: {
@@ -89,6 +89,44 @@ class TestP51BacktestFundamentals(unittest.TestCase):
         self.assertEqual(len(stock_bars), 2)
         mock_fund.assert_called_once()
         self.assertEqual(len(fund), 2)
+
+    @patch("core.ports.market.batch_map")
+    @patch("core.ports.market.fetch_daily_bars")
+    def test_load_portfolio_uses_cache_without_remote(self, mock_bars, mock_batch):
+        mock_bars.side_effect = lambda raw, limit=155, **kwargs: (
+            _aligned_bars(str(raw)[:3], n=50),
+            "cache:mock",
+        )
+        stock_bars, failures, _fund = load_portfolio_stock_bars(
+            ["600519", "600036", "000858"],
+            lookback=120,
+            fetch_fundamentals=False,
+        )
+        self.assertEqual(len(stock_bars), 3)
+        self.assertEqual(failures, [])
+        mock_batch.assert_not_called()
+
+    @patch("core.ports.market.batch_map")
+    @patch("core.ports.market.fetch_daily_bars")
+    def test_load_portfolio_refills_misses_via_batch_map(self, mock_bars, mock_batch):
+        mock_bars.side_effect = lambda raw, limit=155, **kwargs: ([], "empty")
+
+        def _pack(code, **kwargs):
+            return {"bars": _aligned_bars(str(code)[:3], n=50)}
+
+        mock_batch.side_effect = lambda fn, items, **kwargs: [
+            _pack(c) for c in items
+        ]
+        stock_bars, failures, _fund = load_portfolio_stock_bars(
+            ["600519", "600036", "000858"],
+            lookback=120,
+            fetch_fundamentals=False,
+        )
+        self.assertEqual(len(stock_bars), 3)
+        self.assertEqual(failures, [])
+        mock_batch.assert_called_once()
+        _fn, items = mock_batch.call_args[0][:2]
+        self.assertEqual(list(items), ["600519", "600036", "000858"])
 
 
 if __name__ == "__main__":

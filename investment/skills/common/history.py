@@ -386,6 +386,7 @@ def fetch_daily_bars(
     incremental: bool = True,
     adjust: str = "qfq",
     offline_ok: bool = False,
+    offline_only: bool = False,
 ) -> Tuple[List[dict], str]:
     """
     按市场拉取日线（带本地缓存 data/store/daily/）。
@@ -396,6 +397,7 @@ def fetch_daily_bars(
     条数不足或前复权长缺口则回退整窗。
     adjust：qfq|raw|hfq（写入缓存 adjust_policy；与请求不一致则跳过缓存防混用）。
     offline_ok=True：本地有足够 bars 时直接返回（可过期），不打远端——研究分组用。
+    offline_only=True：只读缓存（含过期），不够也不打远端；批量回测先扫盘再用进程池补缺。
     """
     from core.store import merge_bars_by_date, peek_daily_cache_meta
 
@@ -462,6 +464,12 @@ def fetch_daily_bars(
     if offline_ok and existing and len(existing) >= min_offline:
         trimmed = existing[-limit:] if limit and len(existing) > limit else existing
         return trimmed, cached_src
+
+    if offline_only:
+        if existing:
+            trimmed = existing[-limit:] if limit and len(existing) > limit else existing
+            return trimmed, cached_src
+        return [], "empty"
 
     gap_start: Optional[str] = None
     fetch_limit = max(int(limit or 30), len(existing) + 5 if existing else int(limit or 30))

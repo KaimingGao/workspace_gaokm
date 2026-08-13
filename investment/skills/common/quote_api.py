@@ -14,8 +14,13 @@ class StockAPI:
     TENCENT_URL = "https://qt.gtimg.cn/q="
     # 东方财富 push2 JSON API（回退源，腾讯不可用时启用）
     EM_PUSH_URL = "https://push2.eastmoney.com/api/qt/stock/get"
+    EM_ULIST_URL = "https://push2.eastmoney.com/api/qt/ulist.np/get"
     EM_FIELDS = "f43,f44,f45,f46,f47,f48,f57,f58,f59,f60"
     CACHE_TTL_SECONDS = 60
+    # 批量路径必须低于 /api/watching/quotes 的 wait_for；超时重试会占满默认线程池
+    BATCH_HTTP_TIMEOUT = 4.0
+    BATCH_HTTP_RETRIES = 1
+    STALE_CACHE_MAX_SECONDS = 1800
 
     # 热门名称 → 腾讯行情符号
     STOCK_MAPPING = {
@@ -178,6 +183,31 @@ class StockAPI:
         }
 
     @classmethod
+    def _fresh_cached(cls, symbol: str, *, now: float) -> Optional[dict]:
+        cached = cls._cache.get(symbol)
+        if not cached or now - cached[0] >= cls.CACHE_TTL_SECONDS:
+            return None
+        result = dict(cached[1])
+        result["cached"] = True
+        return result
+
+    @classmethod
+    def _stale_cached(cls, symbol: str, *, now: float) -> Optional[dict]:
+        """TTL 过期但仍在窗口内的缓存；上游超时/失败时保底。"""
+        cached = cls._cache.get(symbol)
+        if not cached:
+            return None
+        ts, payload = cached
+        if now - ts > cls.STALE_CACHE_MAX_SECONDS:
+            return None
+        if not isinstance(payload, dict) or not payload.get("success"):
+            return None
+        result = dict(payload)
+        result["cached"] = True
+        result["stale"] = now - ts >= cls.CACHE_TTL_SECONDS
+        return result
+
+    @classmethod
     def batch_query(cls, stock_codes: List[str]) -> Dict[str, dict]:
         """批量查询多只股票行情，一次网络请求。"""
         if not stock_codes:
@@ -199,11 +229,9 @@ class StockAPI:
                 }
                 continue
             symbols_map[code] = symbol
-            cached = cls._cache.get(symbol)
-            if cached and now - cached[0] < cls.CACHE_TTL_SECONDS:
-                result = dict(cached[1])
-                result["cached"] = True
-                results[code] = result
+            fresh = cls._fresh_cached(symbol, now=now)
+            if fresh:
+                results[code] = fresh
             else:
                 uncached_codes.append(code)
 
@@ -223,7 +251,12 @@ class StockAPI:
         }
 
         try:
-            response = requests_get_with_retry(url, headers=headers, timeout=10, retries=2)
+            response = requests_get_with_retry(
+                url,
+                headers=headers,
+                timeout=cls.BATCH_HTTP_TIMEOUT,
+                retries=cls.BATCH_HTTP_RETRIES,
+            )
             response.raise_for_status()
             content = response.content.decode("gbk", errors="ignore")
 
@@ -274,20 +307,25 @@ class StockAPI:
                     "error": f"处理股票数据失败: {e}",
                 }
 
-        # 东方财富回退：腾讯未成功时限量尝试，避免串行拖死整批（前端 ~20s）
         failed = [c for c in uncached_codes if not results.get(c, {}).get("success")]
-        em_budget = min(8, len(failed))
-        for code in failed[:em_budget]:
-            sym = symbols_map.get(code)
-            if not sym:
-                continue
-            try:
-                em_result = cls._query_eastmoney(code, sym)
+        if not failed:
+            return results
+
+        # 过期缓存保底（避免整批空白）
+        still_failed = []
+        for code in failed:
+            stale = cls._stale_cached(symbols_map.get(code) or "", now=now)
+            if stale:
+                results[code] = stale
+            else:
+                still_failed.append(code)
+
+        # 东方财富 ulist 一次回退整批；禁止再串行逐票（8×超时会拖死线程池）
+        if still_failed:
+            em_part = cls._query_eastmoney_batch(still_failed, symbols_map)
+            for code, em_result in em_part.items():
                 if em_result.get("success"):
-                    cls._cache[sym] = (now, dict(em_result))
                     results[code] = em_result
-            except Exception:
-                pass  # 保留腾讯的错误信息
 
         return results
 
@@ -470,6 +508,100 @@ class StockAPI:
     # ------------------------------------------------------------------ #
     # 东方财富 push2 JSON API（回退源）
     # ------------------------------------------------------------------ #
+
+    @classmethod
+    def _match_em_row_code(
+        cls,
+        row: dict,
+        codes: List[str],
+        symbols_map: Dict[str, str],
+    ) -> Optional[str]:
+        raw = str(row.get("f57") or row.get("f12") or "").strip()
+        if not raw:
+            return None
+        tail = raw.split(".")[-1]
+        wanted = set(codes)
+        if raw in wanted:
+            return raw
+        if tail in wanted:
+            return tail
+        for code in codes:
+            sym = symbols_map.get(code) or ""
+            body = sym[2:] if len(sym) > 2 else sym
+            if body == raw or body == tail:
+                return code
+        return None
+
+    @classmethod
+    def _query_eastmoney_batch(
+        cls, codes: List[str], symbols_map: Dict[str, str]
+    ) -> Dict[str, dict]:
+        """东方财富 ulist 一次拉多票；失败返回 {}。"""
+        if not codes:
+            return {}
+        secids: List[str] = []
+        seen: set = set()
+        for code in codes:
+            sym = symbols_map.get(code)
+            if not sym:
+                continue
+            secid = cls._em_secid(sym)
+            if not secid or secid in seen:
+                continue
+            seen.add(secid)
+            secids.append(secid)
+        if not secids:
+            return {}
+        params = {
+            "secids": ",".join(secids),
+            "fields": cls.EM_FIELDS,
+            "_": str(int(time.time() * 1000)),
+        }
+        headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+            ),
+            "Referer": "https://quote.eastmoney.com/",
+        }
+        try:
+            response = requests_get_with_retry(
+                cls.EM_ULIST_URL,
+                params=params,
+                headers=headers,
+                timeout=cls.BATCH_HTTP_TIMEOUT,
+                retries=0,
+            )
+            response.raise_for_status()
+            body = response.json()
+        except Exception:
+            return {}
+        data = body.get("data") if isinstance(body, dict) else None
+        if not isinstance(data, dict):
+            return {}
+        diff = data.get("diff")
+        if isinstance(diff, dict):
+            rows = list(diff.values())
+        elif isinstance(diff, list):
+            rows = diff
+        else:
+            rows = []
+        out: Dict[str, dict] = {}
+        now = time.time()
+        for row in rows:
+            if not isinstance(row, dict):
+                continue
+            code = cls._match_em_row_code(row, codes, symbols_map)
+            if not code:
+                continue
+            sym = symbols_map.get(code)
+            if not sym:
+                continue
+            parsed = cls._parse_em_data(code, sym, row)
+            if parsed.get("success"):
+                cls._cache[sym] = (now, dict(parsed))
+                out[code] = parsed
+        return out
 
     @classmethod
     def _em_secid(cls, symbol: str) -> Optional[str]:

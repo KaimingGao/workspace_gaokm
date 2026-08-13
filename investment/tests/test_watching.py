@@ -362,5 +362,40 @@ class TestP9Quant(unittest.TestCase):
         self.assertGreaterEqual(len(report["factors"]), 8)
 
 
+class TestWatchingQuotesApi(unittest.TestCase):
+    def test_placeholder_shape(self):
+        from web.routers.watching import _quotes_placeholder
+
+        out = _quotes_placeholder(["600519"], note="行情拉取超时，请稍后刷新")
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["count"], 1)
+        self.assertFalse(out["items"][0]["ok"])
+        self.assertIn("超时", out["note"])
+
+    def test_quotes_timeout_returns_200_placeholder(self):
+        import time
+
+        from fastapi.testclient import TestClient
+
+        import web.app as web_app
+        from web.routers import watching as wr
+
+        def slow(_codes):
+            time.sleep(0.25)
+            return {"ok": True, "count": 0, "items": []}
+
+        with patch.object(wr, "_QUOTES_WAIT_SEC", 0.05), patch.object(
+            wr.deps.watching, "quotes", side_effect=slow
+        ):
+            client = TestClient(web_app.app)
+            r = client.get("/api/watching/quotes?codes=600519")
+        self.assertEqual(r.status_code, 200)
+        body = r.json()
+        self.assertTrue(body.get("ok"))
+        self.assertIn("超时", body.get("note") or "")
+        self.assertEqual(body["items"][0]["stock_code"], "600519")
+        self.assertFalse(body["items"][0]["ok"])
+
+
 if __name__ == "__main__":
     unittest.main()

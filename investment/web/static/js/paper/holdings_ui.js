@@ -94,7 +94,9 @@ export function buildPaperHoldingsTableHtml({
           ? "按评分排序"
           : key === "pnl"
             ? "按浮盈亏排序 · 相对持仓成本：(现价÷成本−1)×100%"
-            : "按市值排序";
+            : key === "chg"
+              ? "按当日涨跌幅排序 · 相对昨收"
+              : "按市值排序";
     return (
       `<th class="paper-hold-sort${active ? " is-sorted" : ""}" ` +
       `data-sort="${key}" role="button" tabindex="0" title="${nextHint}">${label}${arrow}</th>`
@@ -121,7 +123,7 @@ export function buildPaperHoldingsTableHtml({
       const scoreTitle = hardReject
         ? String(h.reject_reason || "硬拒绝 · 无收益分")
         : belowMin
-          ? `低于选股门槛 ${h.min_score ?? "—"}（仍显示分数）· 悬停看详情`
+          ? `低于ŷ门槛 ${h.min_score ?? "—"}（仍显示分数）· 悬停看详情`
           : "悬停查看收益分与因子系数";
       const origin = String(h.origin || "");
       const originLabel = h.origin_label || "—";
@@ -159,6 +161,10 @@ export function buildPaperHoldingsTableHtml({
           h.price,
           h.unit,
           h.currency
+        )}</td>` +
+        `<td class="num paper-hold-chg ${metricCls(h.change_pct)}" title="相对昨收">${fmtPct(
+          h.change_pct,
+          { signed: true }
         )}</td>` +
         `<td class="num paper-hold-cost" title="持仓加权平均成本">${fmtPriceUnit(
           h.cost,
@@ -211,7 +217,9 @@ export function buildPaperHoldingsTableHtml({
   const tableHtml =
     `<div class="paper-holdings-scroll">` +
     `<table class="quant-weight-table paper-holdings-table"><thead><tr>` +
-    `<th>股票</th><th class="watching-col-center">情绪</th><th>股数</th><th>现价</th><th title="持仓加权平均成本，对账用">成本</th>` +
+    `<th>股票</th><th class="watching-col-center">情绪</th><th>股数</th><th>现价</th>` +
+    `${sortThHtml("涨跌", "chg")}` +
+    `<th title="持仓加权平均成本，对账用">成本</th>` +
     `${sortThHtml("市值", "market_value")}${sortThHtml("评分", "score")}` +
     `${sortThHtml("浮盈亏", "pnl")}` +
     `<th>开始</th><th class="paper-hold-origin">出处</th>` +

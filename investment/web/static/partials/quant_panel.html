@@ -304,19 +304,20 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-global-title" class="dashboard-section-title">对照</h3>
-        <p class="dashboard-section-desc quant-section-desc">阈值 · 横截面（非分组权）</p>
+        <p class="dashboard-section-desc quant-section-desc">阈值（ŷ OOS）· 横截面</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
         <div class="quant-pro-card-body quant-compare-body">
           <div class="quant-compare-block" id="quant-section-threshold">
             <div class="quant-section-toolbar">
-              <p class="quant-block-cap" id="quant-section-threshold-title">阈值</p>
+              <p class="quant-block-cap" id="quant-section-threshold-title" title="研究池抽样扫 ŷ% wait；人审确认后可写入 stance_thresholds（不改 weights/scoring）">阈值</p>
               <div class="quant-actions-inline">
-                <button type="button" id="quant-threshold-watching" class="dialog-btn secondary">研究池阈值</button>
-                <button type="button" id="quant-threshold-export" class="dialog-btn secondary">导出阈值 diff</button>
+                <button type="button" id="quant-threshold-watching" class="dialog-btn secondary" title="观察池抽样 ŷ wait OOS · 建议可导出或应用">研究池阈值</button>
+                <button type="button" id="quant-threshold-apply" class="dialog-btn secondary" title="人审确认后写入 signal_config.stance_thresholds">应用建议</button>
+                <button type="button" id="quant-threshold-export" class="dialog-btn secondary" title="导出可合并 stub（可选）">导出阈值 diff</button>
               </div>
             </div>
-            <p id="quant-threshold-summary" class="quant-fingerprint">点按钮分析</p>
+            <p id="quant-threshold-summary" class="quant-fingerprint">点按钮分析 · ŷ% wait OOS · 人审后「应用建议」</p>
             <div id="quant-threshold-table" class="quant-weight-table-wrap" aria-label="阈值建议表"></div>
           </div>
           <div class="quant-compare-block" id="quant-section-cross">

@@ -40,7 +40,7 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
   const scoreText =
     scoreBase === "—" ? "—" : belowMin ? `${scoreBase}↓` : scoreBase;
   const scoreTitle = belowMin
-    ? `低于选股门槛 ${it.min_score ?? "—"}（仍显示分数）`
+    ? `低于ŷ门槛 ${it.min_score ?? "—"}（仍显示分数）`
     : it.return_model_source === "cluster_shadow_fallback"
       ? "缺全局 return_model · 暂用组 ŷ（shadow）"
       : "悬停查看收益分与因子系数";

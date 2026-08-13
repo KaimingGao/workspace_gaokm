@@ -10,7 +10,8 @@ export function loadHoldingsSort() {
       (saved.key === "code" ||
         saved.key === "market_value" ||
         saved.key === "score" ||
-        saved.key === "pnl")
+        saved.key === "pnl" ||
+        saved.key === "chg")
     ) {
       key = saved.key;
       dir = saved.dir === "asc" ? "asc" : "desc";
@@ -50,6 +51,9 @@ export function sortHoldings(list, key, dir) {
     } else if (k === "pnl") {
       av = Number(a.pnl_pct);
       bv = Number(b.pnl_pct);
+    } else if (k === "chg") {
+      av = Number(a.change_pct);
+      bv = Number(b.change_pct);
     } else {
       av = Number(a.market_value ?? a.market_value_approx);
       bv = Number(b.market_value ?? b.market_value_approx);

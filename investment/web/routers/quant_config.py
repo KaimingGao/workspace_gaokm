@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from web import deps
-from web.schemas import ScoringFloorsRequest, SentimentPriorRequest
+from web.schemas import ScoringFloorsRequest, SentimentPriorRequest, StanceThresholdsRequest
 
 router = APIRouter(tags=["quant"])
 
@@ -57,6 +57,23 @@ def signal_config_scoring_floors(body: ScoringFloorsRequest):
             min_predicted_score=body.min_predicted_score,
             min_hold_predicted_score=body.min_hold_predicted_score,
             note=body.note or "策略中心人审",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not out.get("success"):
+        raise HTTPException(status_code=400, detail=out.get("error") or "写入失败")
+    return out
+
+
+@router.post("/api/signal/config/stance")
+def signal_config_stance_thresholds(body: StanceThresholdsRequest):
+    """人审写入 stance_thresholds；永不改 weights / scoring。"""
+    try:
+        out = deps.quant.save_stance_thresholds(
+            avoid=body.avoid,
+            wait=body.wait,
+            probe=body.probe,
+            note=body.note or "研究枢纽人审·阈值",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

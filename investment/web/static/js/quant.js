@@ -47,15 +47,16 @@ import {
   buildResearchCurves,
   buildPortfolioBacktestSummaryText,
   buildPortfolioBacktestFailText,
-} from "./quant/bt_result.js";
+  applyReplayOverviewKpis,
+} from "./quant/bt_result.js?v=p984";
 import { buildUniversePanelHtml } from "./quant/universe_ui.js";
 import { researchGridHtml, metricCell } from "./quant/research_grid.js";
 import { createPromoteHintsRenderer } from "./quant/promote_hints_ui.js";
 import { createFactorIcUi } from "./quant/factor_ic_ui.js";
 import { createOlsUi } from "./quant/ols_ui.js?v=p910";
 import { createBtTablesUi } from "./quant/bt_tables.js";
-import { installWatching } from "./quant/domain_watching.js?v=p910";
-import { installBacktest } from "./quant/domain_backtest.js";
+import { installWatching } from "./quant/domain_watching.js?v=p981";
+import { installBacktest } from "./quant/domain_backtest.js?v=p984";
 import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
 import { installStrategy } from "./quant/domain_strategy.js";
@@ -192,6 +193,7 @@ export function initQuant(ctx) {
     quantLastWeightDiff: null,
     quantLastOlsClusters: null,
     quantLastThresholdDiff: null,
+    quantLastThresholdSuggest: null,
     strategyLastIcExport: null,
     strategyLastWeightDiff: null,
     dailyPresetsCache: [],
@@ -928,7 +930,25 @@ export function initQuant(ctx) {
       }
       return;
     }
+    if (state.quantLastThresholdDiff.skipped_apply) {
+      if (els.quantThresholdSummary) {
+        els.quantThresholdSummary.textContent =
+          "无门槛改动可导出（已跳过或与当前接近）";
+      }
+      return;
+    }
     downloadJson(state.quantLastThresholdDiff, "signal_config_threshold_diff.json");
+  });
+
+  on("quant-threshold-apply", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await suggest.applyThresholdSuggest();
+    } catch (err) {
+      if (els.quantThresholdSummary) {
+        els.quantThresholdSummary.textContent = String(err.message || err);
+      }
+    }
   });
 
   on("quant-portfolio-run", "click", async (e) => {
@@ -1514,6 +1534,7 @@ export function initQuant(ctx) {
         { label: "交易次数", value: escapeHtml(String(ps.trade_count ?? "—")) },
         { label: "来源", value: "Agent" },
       ]);
+      applyReplayOverviewKpis(ps, { source: "Agent" });
       backtest.paintPortfolioChart(ps.equity_curve_tail, "无摘要曲线");
       return;
     }

@@ -47,6 +47,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-probe-run", panel)
         self.assertIn("quant-global-fold", panel)
         self.assertIn("quant-section-threshold", panel)
+        self.assertIn("quant-threshold-apply", panel)
         self.assertIn("quant-section-cross", panel)
         self.assertIn("对照验证", panel)
         self.assertIn("quant-ols-summary", panel)
@@ -58,6 +59,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
 
         replay = self._read("web", "static", "partials", "replay_panel.html")
         self.assertIn("quant-neutral-compare-table", replay)
+        self.assertIn('id="replay-kpi-row"', replay)
+        self.assertIn('id="replay-kpi-return"', replay)
 
     def test_interpret_request_has_offline(self):
         try:

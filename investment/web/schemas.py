@@ -385,6 +385,15 @@ class ScoringFloorsRequest(BaseModel):
     note: str = Field(default="", max_length=500)
 
 
+class StanceThresholdsRequest(BaseModel):
+    """人审写入 stance_thresholds（不改 weights / scoring）。"""
+
+    avoid: Optional[float] = Field(default=None, description="avoid 档 ŷ% 或旧分；省略则保留当前")
+    wait: Optional[float] = Field(default=None, description="wait 档")
+    probe: Optional[float] = Field(default=None, description="probe 档")
+    note: str = Field(default="", max_length=500)
+
+
 class SentimentPriorRequest(BaseModel):
     """舆情先验旁路（不进 ŷ）；人审写 sentiment.prior。"""
 

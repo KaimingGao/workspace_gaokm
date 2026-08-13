@@ -674,21 +674,28 @@ export function installWatching(q) {
         return (items || []).filter((x) => x.ok).length;
       };
       setWatchingRefreshStatus("正在拉取行情…", { busy: true, owner: "quotes" });
-      // 首批：20s 超时，快速回填前 20 行
-      try {
-        const ctrl1 = new AbortController();
-        const timer1 = setTimeout(() => ctrl1.abort(), 20000);
-        let res1;
+      const fetchQuoteBatch = async (codeList, timeoutMs) => {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), timeoutMs);
         try {
-          res1 = await fetch(
-            `/api/watching/quotes?codes=${encodeURIComponent(firstCodes.join(","))}`,
-            { signal: ctrl1.signal }
+          const res = await fetch(
+            `/api/watching/quotes?codes=${encodeURIComponent(codeList.join(","))}`,
+            { signal: ctrl.signal }
           );
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) throw new Error(data.detail || res.statusText);
+          return data;
         } finally {
-          clearTimeout(timer1);
+          clearTimeout(timer);
         }
-        const data1 = await res1.json().catch(() => ({}));
-        if (!res1.ok) throw new Error(data1.detail || res1.statusText);
+      };
+      try {
+        let data1;
+        try {
+          data1 = await fetchQuoteBatch(firstCodes, 15000);
+        } catch (_err) {
+          data1 = await fetchQuoteBatch(firstCodes, 12000);
+        }
         totalOk += applyQuoteBatch(data1.items || []);
         sortWatchingTableRows();
         if (restCodes.length) {
@@ -707,26 +714,24 @@ export function installWatching(q) {
       // 剩余：后台补齐（失败仅告警，不覆盖首批已回填行）
       if (restCodes.length) {
         try {
-          const ctrl2 = new AbortController();
-          const timer2 = setTimeout(() => ctrl2.abort(), 30000);
-          const res2 = await fetch(
-            `/api/watching/quotes?codes=${encodeURIComponent(restCodes.join(","))}`,
-            { signal: ctrl2.signal }
-          );
-          const data2 = await res2.json().catch(() => ({}));
-          clearTimeout(timer2);
-          if (res2.ok) {
-            totalOk += applyQuoteBatch(data2.items || []);
-            sortWatchingTableRows();
-          }
+          const data2 = await fetchQuoteBatch(restCodes, 20000);
+          totalOk += applyQuoteBatch(data2.items || []);
+          sortWatchingTableRows();
         } catch (_) {
           /* 首批已回填，剩余失败仅降级 */
         }
       }
-      setWatchingRefreshStatus(buildWatchingQuotesStatusText(totalOk, codes.length), {
-        ok: true,
-        owner: "quotes",
-      });
+      if (totalOk === 0) {
+        setWatchingRefreshStatus("行情暂不可用，请稍后刷新", {
+          error: true,
+          owner: "quotes",
+        });
+      } else {
+        setWatchingRefreshStatus(buildWatchingQuotesStatusText(totalOk, codes.length), {
+          ok: true,
+          owner: "quotes",
+        });
+      }
       return;
     }
     const watchTable = document.getElementById("watching-watchlist-table");

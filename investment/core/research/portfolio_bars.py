@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Dict, List, Optional, Tuple
 
 from core.signal.config import load_signal_config
@@ -9,6 +11,10 @@ from core.signal.fundamentals_bridge import fetch_fundamentals_batch
 
 # 日报/轻量回测：大宇宙超过此数则只读缓存、优先离线日线，并截断候选
 DAILY_PORTFOLIO_MAX_NAMES = 40
+_CACHE_WORKERS = 12
+_REMOTE_ITEM_TIMEOUT = 25.0
+
+logger = logging.getLogger(__name__)
 
 
 def should_fetch_backtest_fundamentals(config: Optional[dict] = None) -> bool:
@@ -17,6 +23,114 @@ def should_fetch_backtest_fundamentals(config: Optional[dict] = None) -> bool:
     if not fund_cfg.get("enabled", True):
         return False
     return bool(fund_cfg.get("use_in_backtest", True))
+
+
+def _resolve_symbol(raw: str) -> str:
+    digits = "".join(ch for ch in str(raw or "") if ch.isdigit())
+    if len(digits) == 6:
+        return digits
+    from core.data_service import get_quote
+
+    quote = get_quote(str(raw))
+    return str(quote.get("stock_code") if quote.get("success") else raw)
+
+
+def _fetch_bars_for_raw(
+    raw: str,
+    *,
+    limit: int,
+    offline_ok: bool,
+    offline_only: bool = False,
+) -> Tuple[str, str, List[dict]]:
+    from core.data_service import bars_and_source
+
+    code = str(raw or "").strip()
+    sym = _resolve_symbol(code)
+    bars, _ = bars_and_source(
+        code,
+        limit=limit,
+        offline_ok=bool(offline_ok),
+        offline_only=bool(offline_only),
+    )
+    if not bars and str(sym) != code:
+        bars, _ = bars_and_source(
+            str(sym),
+            limit=limit,
+            offline_ok=bool(offline_ok),
+            offline_only=bool(offline_only),
+        )
+    return code, str(sym), list(bars or [])
+
+
+def _bars_from_pack(pack: object) -> List[dict]:
+    if isinstance(pack, dict):
+        return list(pack.get("bars") or [])
+    if isinstance(pack, tuple) and pack:
+        return list(pack[0] or [])
+    return []
+
+
+def _load_bars_parallel(
+    raw_list: List[str],
+    *,
+    limit: int,
+    need: int,
+    offline_ok: bool,
+) -> Tuple[Dict[str, Tuple[str, List[dict]]], int]:
+    """先并发读本地缓存；不够的再经进程池补远端（避开同进程 AkShare 锁）。"""
+    by_raw: Dict[str, Tuple[str, List[dict]]] = {}
+    n = len(raw_list)
+    misses = list(raw_list)
+    if offline_ok and n:
+        workers = min(_CACHE_WORKERS, max(1, n))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futs = [
+                pool.submit(
+                    _fetch_bars_for_raw,
+                    raw,
+                    limit=limit,
+                    offline_ok=True,
+                    offline_only=True,
+                )
+                for raw in raw_list
+            ]
+            for fut in as_completed(futs):
+                try:
+                    raw, sym, bars = fut.result()
+                except Exception:
+                    logger.warning("portfolio cache bar load failed", exc_info=True)
+                    continue
+                by_raw[str(raw)] = (str(sym), list(bars or []))
+        for raw in raw_list:
+            by_raw.setdefault(raw, (_resolve_symbol(raw), []))
+        misses = [raw for raw in raw_list if len(by_raw[raw][1]) < need]
+
+    remote_n = 0
+    if not misses:
+        return by_raw, remote_n
+
+    from core.data_service import get_bars
+    from core.ports.market import batch_map
+
+    packs = batch_map(
+        get_bars,
+        misses,
+        limit=limit,
+        offline_ok=False,
+        timeout=_REMOTE_ITEM_TIMEOUT,
+    )
+    for raw, pack in zip(misses, packs):
+        bars = _bars_from_pack(pack)
+        if not bars:
+            by_raw.setdefault(raw, (_resolve_symbol(raw), []))
+            continue
+        remote_n += 1
+        prev = by_raw.get(raw)
+        sym = prev[0] if prev else _resolve_symbol(raw)
+        by_raw[raw] = (str(sym), list(bars))
+    for raw in raw_list:
+        by_raw.setdefault(raw, (_resolve_symbol(raw), []))
+    return by_raw, remote_n
 
 
 def load_portfolio_stock_bars(
@@ -36,9 +150,9 @@ def load_portfolio_stock_bars(
 
     大宇宙（≥40）默认 ``fundamentals_live=False``：只读本地财务快照，
     避免日报在 100 票上串行打远端挂死。
-    """
-    from core.data_service import bars_and_source, get_quote
 
+    日线：线程池扫本地缓存，缺票再 ``batch_map(get_bars)`` 进程池补远端。
+    """
     raw_list = [str(c).strip() for c in (candidates or []) if str(c).strip()]
     truncated = False
     if max_names is not None and max_names > 0 and len(raw_list) > int(max_names):
@@ -49,18 +163,17 @@ def load_portfolio_stock_bars(
     failures: List[str] = []
     sym_by_raw: Dict[str, str] = {}
     need = int(min_bars) if min_bars is not None else max(16, min(40, int(lookback or 120) // 2))
+    limit = int(lookback or 120) + 35
+
+    by_raw, remote_n = _load_bars_parallel(
+        raw_list,
+        limit=limit,
+        need=need,
+        offline_ok=bool(offline_ok),
+    )
 
     for raw in raw_list:
-        # 六位代码跳过 get_quote 远端解析，减少日报卡顿面
-        digits = "".join(ch for ch in raw if ch.isdigit())
-        if len(digits) == 6:
-            sym = digits
-        else:
-            quote = get_quote(str(raw))
-            sym = quote.get("stock_code") if quote.get("success") else str(raw)
-        bars, _ = bars_and_source(raw, limit=lookback + 35, offline_ok=bool(offline_ok))
-        if not bars and sym != raw:
-            bars, _ = bars_and_source(str(sym), limit=lookback + 35, offline_ok=bool(offline_ok))
+        sym, bars = by_raw.get(raw, (_resolve_symbol(raw), []))
         if bars and len(bars) >= need:
             stock_bars[str(sym)] = bars
             sym_by_raw[str(raw)] = str(sym)
@@ -69,6 +182,15 @@ def load_portfolio_stock_bars(
             failures.append(f"{raw}(日线{len(bars)}<{need})")
         else:
             failures.append(str(raw))
+
+    logger.info(
+        "portfolio bars loaded=%d fail=%d remote=%d universe=%d truncated=%s",
+        len(stock_bars),
+        len(failures),
+        remote_n,
+        len(raw_list),
+        truncated,
+    )
 
     fundamentals_by_code: Dict[str, dict] = {}
     use_fund = (

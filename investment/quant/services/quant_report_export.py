@@ -516,7 +516,10 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
 
     tsug = report.get("threshold_suggest") or {}
     if tsug.get("success"):
-        bullets.append("附录·stance 阈值建议：有（单票探针）")
+        if tsug.get("skipped_apply") or tsug.get("score_scale") == "predicted":
+            bullets.append("附录·stance 阈值：有（旧分 OOS 参考 · ŷ% 门槛未改）")
+        else:
+            bullets.append("附录·stance 阈值建议：有（启发式路径 · 须人审）")
 
     return {
         "success": True,
@@ -623,11 +626,23 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
         cur = tsug.get("current_thresholds") or {}
         sug = tsug.get("suggested_thresholds") or {}
         tl = [f"| {k} | {cur.get(k)} | {sug.get(k)} |" for k in cur]
+        oos_scale = ((tsug.get("oos") or {}).get("score_scale") or "")
+        agg_scale = ((tsug.get("watching_aggregate") or {}).get("score_scale") or "")
+        if oos_scale == "predicted_yhat" or agg_scale == "predicted_yhat":
+            scale_note = (
+                "ŷ% wait OOS；已跳过改门槛（与当前接近或样本不足）。"
+                if tsug.get("skipped_apply")
+                else "ŷ% wait OOS 建议；须人审后合并 stance_thresholds，不自动写盘。"
+            )
+        elif tsug.get("skipped_apply") or tsug.get("score_scale") == "predicted":
+            scale_note = "OOS 扫旧 0–100 规则分；当前 stance 为 ŷ%，已跳过自动改门槛。"
+        else:
+            scale_note = "启发式 0–100 门槛路径；须人审后合并，不自动写盘。"
         appendix_bits.extend(
             [
                 "## 附录·stance 阈值建议",
                 "",
-                "> 单票探针；门槛按收益分 ŷ%（百分点）。",
+                f"> {scale_note}",
                 "",
                 "| 阈值 | 当前 | 建议 |",
                 "| --- | ---: | ---: |",
@@ -639,9 +654,15 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
         )
         agg = tsug.get("watching_aggregate")
         if agg:
-            appendix_bits.append(
-                f"> watching 聚合：{agg.get('stock_count')} 只，中位最优 min_score={agg.get('median_best_min_score')}"
-            )
+            if (agg.get("score_scale") or "") == "predicted_yhat":
+                med = agg.get("median_best_wait", agg.get("median_best_min_score"))
+                appendix_bits.append(
+                    f"> watching 聚合：{agg.get('stock_count')} 只，中位最优 wait={med}（ŷ%）"
+                )
+            else:
+                appendix_bits.append(
+                    f"> watching 聚合：{agg.get('stock_count')} 只，中位最优 min_score={agg.get('median_best_min_score')}（旧分制）"
+                )
             appendix_bits.append("")
 
     if appendix_bits:
@@ -748,9 +769,14 @@ def render_quant_report_html(report: Dict[str, Any]) -> str:
         tr = "".join(
             f"<tr><td>{k}</td><td>{cur.get(k)}</td><td>{sug.get(k)}</td></tr>" for k in cur
         )
+        meta = (
+            "OOS 扫旧 0–100 规则分；当前 stance 为 ŷ%，已跳过自动改门槛。"
+            if tsug.get("skipped_apply") or tsug.get("score_scale") == "predicted"
+            else "启发式 0–100 门槛路径；须人审后合并，不自动写盘。"
+        )
         section(
             "附录·stance 阈值建议",
-            "<p class='meta'>单票探针；门槛按收益分 ŷ%（百分点）</p>"
+            f"<p class='meta'>{meta}</p>"
             f"<table><thead><tr><th>阈值</th><th>当前</th><th>建议</th></tr></thead><tbody>{tr}</tbody></table>",
         )
 

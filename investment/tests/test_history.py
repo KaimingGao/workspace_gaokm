@@ -63,6 +63,53 @@ class TestHistoryResolve(unittest.TestCase):
         self.assertEqual(len(out), 40)
         self.assertTrue(str(src).startswith("cache"))
 
+    def test_offline_only_skips_network_on_cache_miss(self):
+        with patch(
+            "skills.common.history.resolve_market_code", return_value=("CN", "600519")
+        ), patch(
+            "core.store.peek_daily_cache_meta",
+            return_value={"adjust_policy": "qfq"},
+        ), patch(
+            "skills.common.history.load_daily_cache",
+            return_value=None,
+        ), patch(
+            "skills.common.history.fetch_a_daily_bars",
+            side_effect=AssertionError("should not hit network"),
+        ):
+            out, src = fetch_daily_bars(
+                "600519", limit=40, offline_only=True, incremental=False
+            )
+        self.assertEqual(out, [])
+        self.assertEqual(src, "empty")
+
+    def test_offline_only_returns_short_cache_without_network(self):
+        short = [
+            {
+                "date": f"2026-01-{i:02d}",
+                "open": 1,
+                "high": 2,
+                "low": 1,
+                "close": 1.5,
+                "volume": 10,
+            }
+            for i in range(1, 8)
+        ]
+        with patch(
+            "skills.common.history.resolve_market_code", return_value=("CN", "600519")
+        ), patch(
+            "core.store.peek_daily_cache_meta",
+            return_value={"adjust_policy": "qfq"},
+        ), patch(
+            "skills.common.history.load_daily_cache",
+            return_value=(short, {"data_source": "akshare_cn_daily:qfq"}),
+        ), patch(
+            "skills.common.history.fetch_a_daily_bars",
+            side_effect=AssertionError("should not hit network"),
+        ):
+            out, src = fetch_daily_bars("600519", limit=40, offline_only=True)
+        self.assertEqual(len(out), 7)
+        self.assertTrue(str(src).startswith("cache"))
+
     def test_fetch_a_daily_falls_back_to_sina(self):
         from types import ModuleType
 

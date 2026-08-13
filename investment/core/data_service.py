@@ -83,6 +83,7 @@ def get_bars(
     incremental: bool = True,
     adjust: Optional[str] = None,
     offline_ok: bool = False,
+    offline_only: bool = False,
 ) -> Dict[str, Any]:
     """返回 {bars, data_source, quality, adjust, adjust_policy, fallback, production_ok, pit}。
 
@@ -90,6 +91,7 @@ def get_bars(
     incremental：允许缓存增量合并（观察池轻本地史）。
     adjust：qfq|raw|hfq（D2）。
     offline_ok：本地有足够 bars 时不打远端（研究分组）。
+    offline_only：只读缓存，不够也不打远端。
     """
     from core.data_pit import bars_as_of
     from core.ports.market import fetch_daily_bars
@@ -104,6 +106,7 @@ def get_bars(
         incremental=incremental,
         adjust=policy,
         offline_ok=offline_ok,
+        offline_only=offline_only,
     )
     bars: List[dict]
     data_source: str

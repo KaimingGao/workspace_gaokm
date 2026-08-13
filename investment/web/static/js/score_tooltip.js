@@ -62,7 +62,7 @@ export function formatScoreHero(raw) {
       : null;
   let gate = "";
     if (floor != null) {
-    gate = `<div class="score-hero-gate${below ? " is-warn" : ""}">选股门槛 ${escapeText(
+    gate = `<div class="score-hero-gate${below ? " is-warn" : ""}">ŷ门槛 ${escapeText(
       Number.isFinite(floor) ? `${floor}%` : String(floor)
     )}${below ? " · 当前低于门槛" : ""}</div>`;
   }

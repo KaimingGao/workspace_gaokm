@@ -27,8 +27,29 @@ import {
   metricClass,
   buildPortfolioBacktestSummaryText,
   buildPortfolioBacktestFailText,
-} from "./bt_result.js";
+  applyReplayOverviewKpis,
+} from "./bt_result.js?v=p984";
 import { downloadBlob } from "../shared.js";
+
+/** Top-K 净值图横轴只展示最近 N 个自然日（含末日）。 */
+export const TOPK_NAV_CHART_WINDOW_DAYS = 15;
+
+function _curvePointDate(p) {
+  return String((p && (p.date || p.ts || p.time)) || "").slice(0, 10);
+}
+
+export function sliceCurveToDateWindow(series, days = TOPK_NAV_CHART_WINDOW_DAYS) {
+  const rows = Array.isArray(series) ? series : [];
+  if (!rows.length) return rows;
+  const last = _curvePointDate(rows[rows.length - 1]);
+  const n = Math.max(2, Number(days) || TOPK_NAV_CHART_WINDOW_DAYS);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(last)) return rows.slice(-n);
+  const endMs = Date.parse(`${last}T00:00:00Z`);
+  if (!Number.isFinite(endMs)) return rows.slice(-n);
+  const startStr = new Date(endMs - (n - 1) * 86400000).toISOString().slice(0, 10);
+  const sliced = rows.filter((p) => _curvePointDate(p) >= startStr);
+  return sliced.length >= 2 ? sliced : rows.slice(-n);
+}
 
 /** Quant domain: backtest */
 export function installBacktest(q) {
@@ -165,6 +186,7 @@ export function installBacktest(q) {
           renderNeutralCompareTable(null);
         }
         paintPortfolioChart(ps.equity_curve_tail, "无组合摘要曲线");
+        applyReplayOverviewKpis(ps, { source: `冻结 ${at}` });
         setBtTradesCaption("日报仅含摘要曲线；点击「Top-K 回测」加载完整模拟成交账");
       }
     } catch (_) {
@@ -178,9 +200,14 @@ export function installBacktest(q) {
     const legendEl = document.getElementById("quant-portfolio-legend");
     if (legendEl) {
       legendEl.textContent =
-        "中性化对照双曲线。起点 100；横轴为持有期结束日。蓝=截面中性化ŷ · 绿=未中性化ŷ（同一观察池与参数）。";
+        "中性化对照双曲线。起点 100；横轴近15日（持有期结束日）。蓝=截面中性化ŷ · 绿=未中性化ŷ（同一观察池与参数）。";
     }
-    await renderDualLineChart(host, seriesA, seriesB, { emptyText, disableZoom: true });
+    await renderDualLineChart(
+      host,
+      sliceCurveToDateWindow(seriesA),
+      sliceCurveToDateWindow(seriesB),
+      { emptyText, disableZoom: true }
+    );
   }
 
   async function paintIcChart(sic) {
@@ -243,13 +270,13 @@ export function installBacktest(q) {
           value: Number(p.equity ?? p.equity_norm ?? p.value),
         };
       });
-    const nPts = toPts(nCurve);
-    const aPts = toPts(aCurve);
+    const nPts = toPts(sliceCurveToDateWindow(nCurve));
+    const aPts = toPts(sliceCurveToDateWindow(aCurve));
     const benchCurve =
       (data.neutralized && data.neutralized.benchmark && data.neutralized.benchmark.equity_curve) ||
       (data.absolute && data.absolute.benchmark && data.absolute.benchmark.equity_curve) ||
       [];
-    const bPts = toPts(benchCurve);
+    const bPts = toPts(sliceCurveToDateWindow(benchCurve));
     const host = els.quantPortfolioChart;
     const legendEl = document.getElementById("quant-portfolio-legend");
     if (!host) return;
@@ -268,7 +295,7 @@ export function installBacktest(q) {
         legendEl.textContent =
           "中性化对照：蓝=截面中性化 · 绿=未中性化ŷ" +
           (bPts.length >= 2 ? " · 灰=同一基准买持" : "") +
-          "。起点 100；超额见对照表。";
+          "。起点 100；横轴近15日；超额见对照表。";
       }
       await renderMultiLineChart(host, series, {
         emptyText: "对照曲线不足",
@@ -294,21 +321,28 @@ export function installBacktest(q) {
         };
       });
     const markers = buildIcAlignMarkers(icAlign);
-    const pts = toPts(curve);
-    const bpts = toPts(benchCurve);
+    const windowed = sliceCurveToDateWindow(curve);
+    const windowedBench = sliceCurveToDateWindow(benchCurve);
+    const winStart = _curvePointDate(windowed[0] || {});
+    const pts = toPts(windowed);
+    const bpts = toPts(windowedBench);
+    const winMarkers =
+      winStart && /^\d{4}-\d{2}-\d{2}$/.test(winStart)
+        ? markers.filter((m) => String(m.time || "") >= winStart)
+        : markers;
     if (bpts.length >= 2 && pts.length >= 2) {
       if (legendEl) {
         legendEl.textContent =
           `Top-K 净值（蓝）vs ${benchLabel || "基准"}（绿）。` +
           (markers.length
-            ? "标记：绿点=正IC窗结束 · 灰点=非正IC窗。"
-            : "起点 100；横轴为调仓期结束日。") +
+            ? "标记：绿点=正IC窗结束 · 灰点=非正IC窗。横轴近15日。"
+            : "起点 100；横轴近15日（调仓期结束日）。") +
           "超额看指标卡，勿只看绝对累计。";
       }
       await renderDualLineChart(host, pts, bpts, {
         emptyText,
         disableZoom: true,
-        markers,
+        markers: winMarkers,
       });
       return;
     }
@@ -317,9 +351,10 @@ export function installBacktest(q) {
         "研究用 Top-K 回测净值（非纸面账本）。起点 100。" +
         (markers.length
           ? " 标记：绿点=正IC窗结束 · 灰点=非正IC窗。"
-          : " 单线=当次回测；对照时蓝=中性化、绿=未中性化ŷ。");
+          : " 单线=当次回测；对照时蓝=中性化、绿=未中性化ŷ。") +
+        " 横轴近15日。";
     }
-    await renderLineChart(host, pts, { emptyText, disableZoom: true, markers });
+    await renderLineChart(host, pts, { emptyText, disableZoom: true, markers: winMarkers });
   }
 
   async function paintQuantileChart(qb) {
@@ -644,6 +679,7 @@ export function installBacktest(q) {
 
   function renderPortfolioBacktestResult(data) {
     if (!data || !data.success) {
+      applyReplayOverviewKpis(null);
       renderMetricCards(els.quantBtMetrics, []);
       renderRobustnessPanel(null);
       renderWfSlices(null);
@@ -683,6 +719,7 @@ export function installBacktest(q) {
       total_return_pct: m.total_return_pct,
     };
     renderMetricCards(els.quantBtMetrics, buildPortfolioBacktestCards(data));
+    applyReplayOverviewKpis(data);
     renderRobustnessPanel(data);
     renderUniversePanel(data.universe);
     renderWfSlices(data.wf_slices);
@@ -889,7 +926,7 @@ export function installBacktest(q) {
   }
 
   async function runPortfolioBacktest() {
-    setQuantBtBusy(true, "Top-K 回测中（拉日线，可能需数秒）…");
+    setQuantBtBusy(true, "Top-K 回测中（先读本地日线，缺的再补远端；观察池大时可能需一分钟）…");
     try {
       const {
         lookback,
@@ -919,11 +956,30 @@ export function installBacktest(q) {
         include_quantile: true,
         include_benchmark: true,
       };
-      const res = await fetch("/api/quant/portfolio-backtest", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), 240000) : null;
+      let res;
+      try {
+        res = await fetch("/api/quant/portfolio-backtest", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: ctrl ? ctrl.signal : undefined,
+        });
+      } catch (err) {
+        const aborted = Boolean(
+          err && (err.name === "AbortError" || /abort/i.test(String(err)))
+        );
+        els.quantPortfolioSummary.textContent = aborted
+          ? "回测超过 4 分钟仍未返回。可缩小观察池，或等本地日线缓存补齐后再试。"
+          : String((err && err.message) || err || "回测请求失败");
+        els.quantPortfolioSummary.classList.add("down");
+        renderPortfolioBacktestResult(null);
+        paintPortfolioChart([], "回测失败");
+        return { success: false, error: els.quantPortfolioSummary.textContent };
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
         els.quantPortfolioSummary.textContent = buildPortfolioBacktestFailText(

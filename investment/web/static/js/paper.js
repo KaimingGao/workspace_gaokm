@@ -1241,7 +1241,13 @@ export function initPaper(ctx) {
         e.preventDefault();
         e.stopPropagation();
         const key = sortThEl.dataset.sort;
-        if (key === "code" || key === "market_value" || key === "score" || key === "pnl") {
+        if (
+          key === "code" ||
+          key === "market_value" ||
+          key === "score" ||
+          key === "pnl" ||
+          key === "chg"
+        ) {
           if (holdingsSortKey === key) {
             holdingsSortDir = holdingsSortDir === "asc" ? "desc" : "asc";
           } else {
@@ -1771,7 +1777,7 @@ export function initPaper(ctx) {
           const scoreTip = r.hard_reject
             ? String(r.reject_reason || "硬拒绝 · 无收益分")
             : belowMin
-              ? `低于选股门槛 · 悬停看详情`
+              ? `低于ŷ门槛 · 悬停看详情`
               : "";
           const oldSh =
             r.old_shares != null
@@ -1873,7 +1879,7 @@ export function initPaper(ctx) {
             `<span class="rebalance-stock-code">${code}</span>` +
             `</div>` +
             `<div class="num rebalance-score ${scoreClass}" role="cell" title="${escapeText(
-              scoreTip || (belowMin ? "低于选股门槛（仍显示分数）" : "")
+              scoreTip || (belowMin ? "低于ŷ门槛（仍显示分数）" : "")
             )}">${scoreShown}${expandIcon}</div>` +
             `<div class="num rebalance-shares" role="cell">` +
             `<span class="rebalance-shares-old">${escapeText(
@@ -2200,7 +2206,7 @@ export function initPaper(ctx) {
         active: !!act.exists,
         text: `分组打分：已启用 · v${act.version ?? "—"} · 组权分全局排序 · 簿 ${
           book.name_count ?? "—"
-        }/${maxNames}（min_score 过滤后截断）`,
+        }/${maxNames}（ŷ门槛过滤后截断）`,
       };
     }
 

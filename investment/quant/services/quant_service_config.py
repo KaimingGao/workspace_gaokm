@@ -98,6 +98,18 @@ class QuantConfigMixin:
             note=note,
         )
 
+    def save_stance_thresholds(
+        self,
+        *,
+        avoid: Optional[float] = None,
+        wait: Optional[float] = None,
+        probe: Optional[float] = None,
+        note: str = "",
+    ) -> Dict[str, Any]:
+        from core.signal.stance_save import save_stance_thresholds as _save
+
+        return _save(avoid=avoid, wait=wait, probe=probe, note=note)
+
     def save_sentiment_prior(
         self,
         *,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -10,6 +11,33 @@ from web import deps
 from web.schemas import WatchingFile, WatchingSyncPaper, WatchingWatchAdd, WatchingWatchRemove
 
 router = APIRouter(tags=["watching"])
+
+# 与 insights/sentiment 隔离，避免默认线程池被占满后行情 18s 排队 504
+_quotes_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="watch-quotes")
+_QUOTES_WAIT_SEC = 12.0
+
+
+def _quotes_placeholder(codes: Optional[list], *, note: str) -> dict:
+    items = []
+    for c in codes or []:
+        items.append(
+            {
+                "stock_code": c,
+                "stock_name": c,
+                "ok": False,
+                "error": note,
+                "price": None,
+                "price_raw": None,
+                "change_percent": None,
+                "change_amount": None,
+                "open": None,
+                "high": None,
+                "low": None,
+                "volume": None,
+                "market": None,
+            }
+        )
+    return {"ok": True, "count": len(items), "items": items, "note": note}
 
 
 def _parse_codes(codes: str = "") -> Optional[list]:
@@ -44,14 +72,16 @@ def watching_search(q: str = "", limit: int = 8):
 async def watching_quotes(codes: str = ""):
     import asyncio
 
+    parsed = _parse_codes(codes)
+    loop = asyncio.get_running_loop()
     try:
-        # 批量行情应秒级返回；超时避免拖死前端 AbortController(20s)
+        # 独立线程池 + 短超时；超时返回占位而非 504，避免前端整表失败
         return await asyncio.wait_for(
-            asyncio.to_thread(deps.watching.quotes, _parse_codes(codes)),
-            timeout=18,
+            loop.run_in_executor(_quotes_executor, deps.watching.quotes, parsed),
+            timeout=_QUOTES_WAIT_SEC,
         )
     except asyncio.TimeoutError:
-        raise HTTPException(status_code=504, detail="行情拉取超时，请稍后重试") from None
+        return _quotes_placeholder(parsed, note="行情拉取超时，请稍后刷新")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

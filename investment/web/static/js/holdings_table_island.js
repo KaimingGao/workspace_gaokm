@@ -47,7 +47,7 @@ export function holdingToRow(
   const scoreTitle = hardReject
     ? String(h.reject_reason || "硬拒绝 · 无收益分")
     : belowMin
-      ? `低于选股门槛 ${minScore ?? "—"}（仍显示分数）· 悬停看详情`
+      ? `低于ŷ门槛 ${minScore ?? "—"}（仍显示分数）· 悬停看详情`
       : "悬停查看收益分与因子系数";
   const fmtSignedPct = (v) => {
     if (v == null || v === "") return "—";
@@ -57,6 +57,8 @@ export function holdingToRow(
     return `${sign}${n.toFixed(2)}%`;
   };
   const pnlText = fmtSignedPct(pnl);
+  const chg = h.change_pct;
+  const chgText = fmtSignedPct(chg);
   return {
     code,
     name,
@@ -93,6 +95,9 @@ export function holdingToRow(
       formula_terms: h.score_formula_terms || null,
       predicted_score: h.predicted_score != null ? h.predicted_score : score,
     }),
+    chgText,
+    chgCls: metricCls(chg),
+    chgNum: chg != null && Number.isFinite(Number(chg)) ? Number(chg) : null,
     pnlText,
     pnlCls: metricCls(pnl),
     pnlNum: pnl != null && Number.isFinite(Number(pnl)) ? Number(pnl) : null,
@@ -126,9 +131,17 @@ const COLS = [
     cellClass: "watching-col-center paper-hold-sent",
   },
   { id: "shares", label: "股数", widthPct: 6, num: true },
-  { id: "price", label: "现价", widthPct: 8, num: true },
-  { id: "cost", label: "成本", widthPct: 8, num: true, title: "持仓加权平均成本，对账用" },
-  { id: "market_value", label: "市值", widthPct: 9, num: true, sortable: true },
+  { id: "price", label: "现价", widthPct: 7, num: true },
+  {
+    id: "chg",
+    label: "涨跌",
+    widthPct: 7,
+    num: true,
+    sortable: true,
+    title: "相对昨收的当日涨跌幅（行情）；与「浮盈亏」不同",
+  },
+  { id: "cost", label: "成本", widthPct: 7, num: true, title: "持仓加权平均成本，对账用" },
+  { id: "market_value", label: "市值", widthPct: 8, num: true, sortable: true },
   { id: "score", label: "评分", widthPct: 7, num: true, sortable: true },
   {
     id: "pnl",
@@ -138,7 +151,7 @@ const COLS = [
     sortable: true,
     title: "相对持仓成本：(现价÷成本−1)×100%；加仓则为加权成本，非当日涨跌",
   },
-  { id: "since", label: "开始", widthPct: 13 },
+  { id: "since", label: "开始", widthPct: 12 },
   { id: "origin", label: "出处", widthPct: 8, cellClass: "paper-hold-origin", headClass: "paper-hold-origin" },
 ];
 
@@ -152,6 +165,7 @@ function compare(id, a, b) {
   }
   if (id === "score") return numCmp(Number(a.scoreNum), Number(b.scoreNum));
   if (id === "pnl") return numCmp(Number(a.pnlNum), Number(b.pnlNum));
+  if (id === "chg") return numCmp(Number(a.chgNum), Number(b.chgNum));
   return numCmp(Number(a.marketValueNum), Number(b.marketValueNum));
 }
 
@@ -205,6 +219,11 @@ export async function mountHoldingsTableIsland(host, options = {}) {
       if (col.id === "sent") return d.sentHtml || holdingSentPlaceholder(d.code);
       if (col.id === "shares") return escapeHtml(d.shares != null ? String(d.shares) : "—");
       if (col.id === "price") return escapeHtml(d.priceText || "—");
+      if (col.id === "chg") {
+        return `<span class="paper-hold-chg ${escapeHtml(d.chgCls || "")}" title="相对昨收">${escapeHtml(
+          d.chgText || "—"
+        )}</span>`;
+      }
       if (col.id === "cost") {
         return `<span class="paper-hold-cost" title="持仓加权平均成本">${escapeHtml(
           d.costText || "—"

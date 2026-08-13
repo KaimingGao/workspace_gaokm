@@ -50,6 +50,67 @@ class TestY0ScoringFloors(unittest.TestCase):
                 self.assertEqual(raw["scoring"]["min_hold_predicted_score"], -0.5)
 
 
+class TestStanceSave(unittest.TestCase):
+    def test_save_stance_only_thresholds(self):
+        from core.signal.stance_save import save_stance_thresholds
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "signal_config.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "weights": {"momentum": 0.5},
+                        "scoring": {
+                            "rank_mode": "predicted_score",
+                            "min_predicted_score": 1.0,
+                        },
+                        "stance_thresholds": {
+                            "avoid": -0.5,
+                            "wait": 0.0,
+                            "probe": 0.35,
+                        },
+                    },
+                    f,
+                )
+            with patch.dict(os.environ, {"INVESTMENT_SIGNAL_CONFIG": path}):
+                import core.signal.config as cfg_mod
+
+                cfg_mod._cached = None
+                out = save_stance_thresholds(
+                    avoid=-0.5, wait=0.5, probe=0.85, note="test"
+                )
+                self.assertTrue(out["success"])
+                self.assertFalse(out["signal_config_weights_touched"])
+                self.assertFalse(out.get("scoring_touched"))
+                with open(path, encoding="utf-8") as rf:
+                    raw = json.loads(rf.read())
+                self.assertEqual(raw["weights"]["momentum"], 0.5)
+                self.assertEqual(raw["scoring"]["min_predicted_score"], 1.0)
+                self.assertEqual(raw["stance_thresholds"]["wait"], 0.5)
+                self.assertEqual(raw["stance_thresholds"]["probe"], 0.85)
+
+    def test_save_stance_rejects_unordered(self):
+        from core.signal.stance_save import save_stance_thresholds
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "signal_config.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "stance_thresholds": {
+                            "avoid": -0.5,
+                            "wait": 0.0,
+                            "probe": 0.35,
+                        }
+                    },
+                    f,
+                )
+            with patch.dict(os.environ, {"INVESTMENT_SIGNAL_CONFIG": path}):
+                out = save_stance_thresholds(avoid=1.0, wait=0.0, probe=0.5)
+                self.assertFalse(out["success"])
+                self.assertIn("avoid < wait < probe", out.get("error") or "")
+
+
 class TestY2BuyBlock(unittest.TestCase):
     def test_limit_up_skip_reason(self):
         from core.paper_rebalance import _buy_match_block_reason

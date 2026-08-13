@@ -16,6 +16,101 @@ export function metricClass(v) {
   return n > 0 ? "up" : "down";
 }
 
+function _kpiNum(v) {
+  if (v === null || v === undefined || v === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+function _kpiPct(v, { signed = true } = {}) {
+  const n = _kpiNum(v);
+  if (n == null) return "—";
+  const body = Math.abs(n).toFixed(2);
+  if (!signed) return `${body}%`;
+  return `${n >= 0 ? "+" : "-"}${body}%`;
+}
+
+/**
+ * 历史回测页概览 KPI（纯数据，无 DOM）。
+ * 兼容完整 Top-K 结果（metrics+benchmark）与日报冻结摘要（顶层字段）。
+ */
+export function buildReplayOverviewKpis(data, { source = "" } = {}) {
+  const blank = (sub) => ({ value: "—", sub, empty: true, cls: "" });
+  if (!data || data.success === false) {
+    return {
+      return: blank("先跑回测"),
+      excess: blank("相对基准"),
+      dd: blank("历史 MaxDD"),
+      win: blank("胜率"),
+    };
+  }
+  const m =
+    data.metrics && typeof data.metrics === "object" ? data.metrics : data;
+  const bench = data.benchmark && typeof data.benchmark === "object" ? data.benchmark : {};
+  const ret = m.total_return_pct;
+  const win = m.win_rate_pct;
+  const dd = m.max_drawdown_pct;
+  const trades = m.trade_count ?? data.trade_count;
+  const excess = bench.ok ? bench.excess_pct : m.excess_pct;
+  const src = source || (data.params ? "当次回测" : "日报冻结");
+  const retN = _kpiNum(ret);
+  const exN = _kpiNum(excess);
+  const ddN = _kpiNum(dd);
+  const winN = _kpiNum(win);
+  const tradesN = _kpiNum(trades);
+  return {
+    return: {
+      value: _kpiPct(ret),
+      sub: src,
+      empty: retN == null,
+      cls: metricClass(retN),
+    },
+    excess: {
+      value: _kpiPct(excess),
+      sub: exN == null ? "相对基准" : `相对 ${bench.benchmark_label || "基准"}`,
+      empty: exN == null,
+      cls: metricClass(exN),
+    },
+    dd: {
+      value: _kpiPct(dd, { signed: false }),
+      sub: "历史 MaxDD",
+      empty: ddN == null,
+      cls: ddN != null && ddN > 0 ? "down" : "",
+    },
+    win: {
+      value: winN == null ? "—" : `${winN.toFixed(1)}%`,
+      sub: tradesN != null ? `${tradesN} 笔` : "胜率",
+      empty: winN == null,
+      cls: "",
+    },
+  };
+}
+
+const _REPLAY_KPI_IDS = {
+  return: "replay-kpi-return",
+  excess: "replay-kpi-excess",
+  dd: "replay-kpi-dd",
+  win: "replay-kpi-win",
+};
+
+/** 把概览 KPI 写进历史回测页 DOM。 */
+export function applyReplayOverviewKpis(data, opts = {}) {
+  const pack = buildReplayOverviewKpis(data, opts);
+  Object.entries(_REPLAY_KPI_IDS).forEach(([key, id]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const item = pack[key];
+    const card = el.closest(".replay-kpi-card") || el.closest(".dashboard-kpi-card");
+    el.textContent = item.value;
+    el.classList.remove("up", "down");
+    if (item.cls) el.classList.add(item.cls);
+    if (card) card.classList.toggle("is-empty", !!item.empty);
+    const sub = document.getElementById(`${id}-sub`);
+    if (sub) sub.textContent = item.sub;
+  });
+  return pack;
+}
+
 /** 研究包导出用曲线摘要（纯对象，无 DOM）。 */
 export function buildResearchCurves(result) {
   if (!result || !result.success) return null;

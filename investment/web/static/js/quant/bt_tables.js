@@ -372,7 +372,11 @@ export function createBtTablesUi(deps = {}) {
     const neutNote = neut.applied
       ? ` · 截面中性化(${neut.method || "zscore"})`
       : "";
-    const summary = `Top ${data.ranked_count} / 候选 ${data.candidate_count} · min_score=${data.min_score}${neutNote}`;
+    const floorLabel =
+      data.min_predicted_score != null
+        ? `ŷ门槛=${data.min_predicted_score}`
+        : `门槛=${data.min_score}`;
+    const summary = `Top ${data.ranked_count} / 候选 ${data.candidate_count} · ${floorLabel}${neutNote}`;
     const ranking = Array.isArray(data.ranking) ? data.ranking : [];
     if (!ranking.length) {
       return {

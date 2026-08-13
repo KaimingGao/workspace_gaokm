@@ -181,6 +181,30 @@ class TestWebApi(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         self.assertTrue(res.json()["success"])
 
+    def test_signal_config_stance_save_mocked(self):
+        if self.client is None:
+            self.skipTest("fastapi not installed")
+        mock_out = {
+            "success": True,
+            "stance_thresholds": {"avoid": -0.5, "wait": 0.5, "probe": 0.85},
+            "signal_config_weights_touched": False,
+            "scoring_touched": False,
+        }
+        with patch.object(deps.quant, "save_stance_thresholds", return_value=mock_out):
+            res = self.client.post(
+                "/api/signal/config/stance",
+                json={
+                    "avoid": -0.5,
+                    "wait": 0.5,
+                    "probe": 0.85,
+                    "note": "test",
+                },
+            )
+        self.assertEqual(res.status_code, 200)
+        body = res.json()
+        self.assertTrue(body["success"])
+        self.assertEqual(body["stance_thresholds"]["wait"], 0.5)
+
     def test_quant_interpret_mocked(self):
         if self.client is None:
             self.skipTest("fastapi not installed")

@@ -1037,14 +1037,39 @@ class QuantFactorMixin:
         bars, src = bars_and_source(code, limit=lookback + 35)
         if not bars and quote.get("success"):
             bars, src = bars_and_source(sym, limit=lookback + 35)
-        if not bars or len(bars) < 40:
+        if not bars or len(bars) < 50:
             return {"success": False, "error": f"无法获取足够日线: {code}"}
 
-        oos = scan_signal_parameters_oos(
-            bars,
-            min_scores=[45, 50, 55, 60, 65],
-            horizon_days_list=[2, 3],
-        )
+        from core.signal.config import get_stance_thresholds, load_signal_config
+        from core.signal.threshold_suggest import scan_yhat_wait_oos
+
+        base = get_stance_thresholds(load_signal_config())
+        predicted = True
+        try:
+            predicted = float((base or {}).get("avoid", 0)) < 10.0
+        except (TypeError, ValueError):
+            predicted = True
+
+        if predicted:
+            model = None
+            try:
+                from core.signal.cluster_live import load_cluster_return_models_by_code
+
+                models = load_cluster_return_models_by_code() or {}
+                model = models.get(str(sym).strip()) or models.get(str(code).strip())
+            except Exception:
+                model = None
+            oos = scan_yhat_wait_oos(bars, model=model, horizon_days=3)
+        else:
+            oos = scan_signal_parameters_oos(
+                bars,
+                min_scores=[45, 50, 55, 60, 65],
+                horizon_days_list=[2, 3],
+            )
+            if oos.get("success"):
+                oos = dict(oos)
+                oos["score_scale"] = "heuristic_0_100"
+
         suggestion = suggest_stance_thresholds_from_oos(oos)
         suggestion["stock_code"] = sym
         suggestion["data_source"] = src

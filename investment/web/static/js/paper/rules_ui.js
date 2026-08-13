@@ -15,7 +15,14 @@ export function renderPaperRulesHtml(data) {
     : [ratio, dir, t0.fill_mode].filter(Boolean).join(" · ") || "开";
   const chips = [
     ["horizon", `${rules.horizon_days ?? "—"} 天`],
-    ["min_score", String(rules.min_score ?? "—")],
+    [
+      "ŷ买入",
+      rules.min_predicted_score != null
+        ? `${rules.min_predicted_score}%`
+        : rules.min_score != null
+          ? `${rules.min_score}（遗留）`
+          : "—",
+    ],
     ["最大持仓", String(rules.max_positions ?? "—")],
     [
       "仓位",
