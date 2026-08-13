@@ -329,6 +329,25 @@ def simulate_cross_section_rebalance(
     # P0 · 批量预取行情（避免循环内串行网络往返）
     _sell_codes = [str(h.get("stock_code") or "") for h in holdings if h.get("stock_code")]
     _quote_cache: Dict[str, dict] = _batch_query_quotes(_sell_codes)
+    event_prior_soft_holds: List[dict] = []
+    # P1b：一次预取行情；广度按票用同 sector 同伴（不足回退全持仓）
+    _sector_breadth_by_code: Dict[str, Optional[float]] = {}
+    try:
+        from core.event_prior import compute_sector_gap_breadth_live, get_event_prior_cfg
+
+        _epcfg = get_event_prior_cfg()
+        if str(_epcfg.get("mode") or "off") != "off" and _sell_codes:
+            for _c in _sell_codes:
+                _br = compute_sector_gap_breadth_live(
+                    _sell_codes,
+                    gap_trigger_pct=float(_epcfg.get("gap_trigger_pct") or 2.0),
+                    quotes=_quote_cache,
+                    focus_code=_c,
+                    use_sector_peers=True,
+                )
+                _sector_breadth_by_code[_c] = _br.get("breadth")
+    except Exception:
+        _sector_breadth_by_code = {}
 
     for h in holdings:
         code = str(h.get("stock_code") or "")
@@ -354,6 +373,76 @@ def simulate_cross_section_rebalance(
                 reason = "不在横截面 TopK"
             elif score is not None and score < min_hold_score:
                 reason = f"分数低于 min_hold_score({min_hold_score})"
+
+        # P1：主题开盘缺口 / rem / 舆情看多 · 卖出改为 soft hold（不改 ŷ）
+        # 分池滞回卖因「分数低于*」；横截面另有「不在 TopK」——主题日同样保护，避免踏空
+        _soft_hold_eligible = bool(
+            reason
+            and (
+                "分数低于" in str(reason)
+                or str(reason) == "不在横截面 TopK"
+            )
+        )
+        if _soft_hold_eligible:
+            try:
+                from core.event_prior import (
+                    build_event_prior_from_quote,
+                    get_event_prior_cfg,
+                    should_soft_hold_for_low_score,
+                )
+                from core.sentiment_prior import should_soft_hold_from_sentiment
+                from quant.research.rem_ridge import predict_rem_from_features
+
+                ep_cfg = get_event_prior_cfg()
+                rem_yhat = None
+                q_ep = _quote_cache.get(code) or {}
+                _sector_breadth = _sector_breadth_by_code.get(code)
+                if str(ep_cfg.get("mode") or "off") != "off":
+                    try:
+                        from core.event_prior import gap_pct_from_quote_bars
+
+                        gap_v = gap_pct_from_quote_bars(
+                            q_ep if q_ep.get("success") else None
+                        )
+                        feats = {
+                            "gap_pct": gap_v,
+                            "open_gap": gap_v,
+                            "sector_gap_breadth": _sector_breadth,
+                            "theme_day": 1.0
+                            if (
+                                gap_v is not None
+                                and float(gap_v) >= float(ep_cfg.get("gap_trigger_pct") or 2)
+                            )
+                            else 0.0,
+                        }
+                        rem_yhat = predict_rem_from_features(feats)
+                    except Exception:
+                        rem_yhat = None
+                    ep = build_event_prior_from_quote(
+                        q_ep if q_ep.get("success") else None,
+                        sector_breadth=_sector_breadth,
+                        rem_yhat=rem_yhat,
+                        stock_code=code,
+                    )
+                    sent_soft = should_soft_hold_from_sentiment(
+                        prior_by_code.get(code)
+                    )
+                    if should_soft_hold_for_low_score(ep) or sent_soft:
+                        reason = None
+                        kept.append(h)
+                        event_prior_soft_holds.append(
+                            {
+                                "stock_code": code,
+                                "gap_pct": ep.get("gap_pct"),
+                                "sector_breadth": _sector_breadth,
+                                "rem_yhat": rem_yhat,
+                                "sentiment_soft_hold": bool(sent_soft),
+                                "warnings": list(ep.get("warnings") or []),
+                            }
+                        )
+                        continue
+            except Exception:
+                logger.warning("sell_loop event_prior failed for %s", code, exc_info=True)
 
         sell_shares = shares
         keep_shares = 0.0
@@ -1050,6 +1139,11 @@ def simulate_cross_section_rebalance(
         "max_turnover_pct": max_turnover_pct,
         "risk_budget_skips": risk_budget_skips,
         "sentiment_prior": sentiment_prior_summary,
+        "event_prior": {
+            "soft_holds": event_prior_soft_holds,
+            "count": len(event_prior_soft_holds),
+            "note": "主题开盘缺口日：低 ŷ 卖出改为 soft hold（不改 ŷ）",
+        },
         "attribution": attribution,
         "cost_assumptions": cost_assumptions,
         "exposure_style": exposure_style,

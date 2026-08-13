@@ -123,6 +123,11 @@ def get_cluster_scoring_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
                 1.0,
             ),
         ),
+        "exclude_oos_failed_groups": bool(
+            raw.get("exclude_oos_failed_groups")
+            if raw.get("exclude_oos_failed_groups") is not None
+            else True
+        ),
     }
 
 
@@ -282,10 +287,21 @@ def load_cluster_return_models_by_code(
 
 def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
     from core.signal.factor_coefs import has_factor_coefficients
+    from core.signal.config import get_scoring_horizon_days
 
     cmap = artifact.get("code_map") if isinstance(artifact, dict) else None
     if not isinstance(cmap, dict) or not cmap:
         return "code_map 为空"
+
+    # P0.1：artifact 拟合 horizon 须与 scoring.horizon_days 一致
+    art_h = _artifact_horizon_days(artifact)
+    cfg_h = get_scoring_horizon_days()
+    if art_h is not None and int(art_h) != int(cfg_h):
+        return (
+            f"horizon_days 不一致：artifact={art_h} vs scoring.horizon_days={cfg_h}"
+            "（请用同一持有期重跑分组后再 promote）"
+        )
+
     # B1：样本指纹 / 验证宇宙不足则拒绝 promote（force 可豁免）
     fp = artifact.get("sample_fingerprint")
     if isinstance(fp, dict) and fp.get("promote_ok") is False:
@@ -369,6 +385,84 @@ def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
     if singletonish == len(by_label) and len(by_label) > 3:
         return "单票组过多，拒绝晋升（请重聚类或缩小 k）"
     return None
+
+
+def _artifact_horizon_days(artifact: Dict[str, Any]) -> Optional[int]:
+    """从分组产物推断拟合 horizon；缺省返回 None（不拦旧产物）。"""
+    if not isinstance(artifact, dict):
+        return None
+
+    def _as_h(raw: Any) -> Optional[int]:
+        if raw is None:
+            return None
+        try:
+            return max(1, min(int(raw), 10))
+        except (TypeError, ValueError):
+            return None
+
+    h = _as_h(artifact.get("horizon_days"))
+    if h is not None:
+        return h
+    ys = artifact.get("y_spec")
+    if isinstance(ys, dict):
+        h = _as_h(ys.get("horizon_days"))
+        if h is not None:
+            return h
+    for cl in artifact.get("clusters") or []:
+        if not isinstance(cl, dict):
+            continue
+        rm = cl.get("return_model") if isinstance(cl.get("return_model"), dict) else {}
+        h = _as_h(rm.get("horizon_days"))
+        if h is not None:
+            return h
+        y2 = rm.get("y_spec") if isinstance(rm.get("y_spec"), dict) else {}
+        h = _as_h(y2.get("horizon_days"))
+        if h is not None:
+            return h
+        ols = cl.get("ols") if isinstance(cl.get("ols"), dict) else {}
+        h = _as_h(ols.get("horizon_days"))
+        if h is not None:
+            return h
+    for meta in (artifact.get("code_map") or {}).values():
+        if not isinstance(meta, dict):
+            continue
+        rm = meta.get("return_model") if isinstance(meta.get("return_model"), dict) else {}
+        h = _as_h(rm.get("horizon_days"))
+        if h is not None:
+            return h
+    return None
+
+
+def oos_failed_cluster_labels(
+    clusters: Optional[Sequence[Any]] = None,
+    *,
+    active: Optional[Dict[str, Any]] = None,
+) -> List[str]:
+    """返回 OOS 门禁未过的组 label 列表（跳过 skipped）。"""
+    if clusters is None:
+        art = active if active is not None else load_active_cluster_weights()
+        clusters = list((art or {}).get("clusters") or [])
+    failed: List[str] = []
+    seen = set()
+    for cl in clusters or []:
+        if not isinstance(cl, dict):
+            continue
+        lab = str(cl.get("label") or cl.get("cluster_label") or "").strip()
+        if not lab:
+            continue
+        gate = cl.get("oos_gate")
+        failed_flag = False
+        if isinstance(gate, dict) and gate:
+            if gate.get("skipped"):
+                continue
+            if gate.get("passed") is False or gate.get("ok") is False:
+                failed_flag = True
+        elif "oos_passed" in cl and cl.get("oos_passed") is not None:
+            failed_flag = not bool(cl.get("oos_passed"))
+        if failed_flag and lab not in seen:
+            seen.add(lab)
+            failed.append(lab)
+    return failed
 
 
 def promote_cluster_artifact(

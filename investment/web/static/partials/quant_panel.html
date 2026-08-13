@@ -304,7 +304,7 @@
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-global-title" class="dashboard-section-title">对照</h3>
-        <p class="dashboard-section-desc quant-section-desc">阈值（ŷ OOS）· 横截面</p>
+        <p class="dashboard-section-desc quant-section-desc">阈值（ŷ OOS）· 盘中 rem · 横截面</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
         <div class="quant-pro-card-body quant-compare-body">
@@ -319,6 +319,18 @@
             </div>
             <p id="quant-threshold-summary" class="quant-fingerprint">点按钮分析 · ŷ% wait OOS · 人审后「应用建议」</p>
             <div id="quant-threshold-table" class="quant-weight-table-wrap" aria-label="阈值建议表"></div>
+          </div>
+          <div class="quant-compare-block" id="quant-section-rem">
+            <div class="quant-section-toolbar">
+              <p class="quant-block-cap" id="quant-section-rem-title" title="open→close 剩余收益头 · 不改 EOD ŷ · 人审后 persist">盘中 rem</p>
+              <div class="quant-actions-inline">
+                <button type="button" id="quant-rem-ridge-run" class="dialog-btn secondary" title="观察池拟合 rem Ridge + 时间 OOS（不写盘）">拟合 rem</button>
+                <button type="button" id="quant-rem-ridge-persist" class="dialog-btn secondary" title="人审后写入 live/rem_ridge_model.json">启用 rem 模型</button>
+                <button type="button" id="quant-rem-ridge-status" class="dialog-btn secondary" title="查看已启用模型">模型状态</button>
+              </div>
+            </div>
+            <p id="quant-rem-summary" class="quant-fingerprint">点「拟合 rem」· y=close/open−1 · OOS 过门后再启用</p>
+            <div id="quant-rem-result" class="quant-weight-table-wrap" aria-label="rem 拟合摘要"></div>
           </div>
           <div class="quant-compare-block" id="quant-section-cross">
             <div class="quant-section-toolbar">

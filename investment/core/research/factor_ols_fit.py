@@ -361,6 +361,7 @@ def fit_factor_ols_from_panel(
     respect_regime: bool = False,
     y_spec: Optional[Dict[str, Any]] = None,
     sample_weights: Optional[List[float]] = None,
+    feature_names: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """对已对齐的 (sub_scores, forward return) 面板拟合 OLS / Ridge。
 
@@ -369,6 +370,7 @@ def fit_factor_ols_from_panel(
     ``ridge_lambda>0`` 时收缩斜率系数（截距不惩罚），共线时尽量保留因子。
     B3：``select_ridge=True`` 时网格选 λ；``collinearity_policy`` 控趋势族冗余。
     ``sample_weights``：与 ``xs/ys`` 等长的非负样本权（组内软异质降权）；拟合时 √w 变换。
+    ``feature_names``：可选覆盖默认注册因子集（rem 头可并入 gap_pct 等）。
     """
     from core.research.beta_accuracy import (
         apply_collinearity_policy,
@@ -378,7 +380,7 @@ def fit_factor_ols_from_panel(
     )
 
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
-    factor_names = registered_factor_names()
+    factor_names = list(feature_names) if feature_names else list(registered_factor_names())
     cfg = load_signal_config()
     current_weights = dict(cfg.get("weights") or {})
     xs_c, ys_c, active, excluded, prep_meta = _prepare_complete_panel(

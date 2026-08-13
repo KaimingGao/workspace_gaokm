@@ -922,6 +922,85 @@ export function initQuant(ctx) {
     }
   });
 
+  async function runRemRidge({ persist = false } = {}) {
+    const sum = document.getElementById("quant-rem-summary");
+    const box = document.getElementById("quant-rem-result");
+    if (sum) sum.textContent = persist ? "写入 rem 模型中…" : "拟合 rem 中…";
+    const res = await fetch("/api/quant/rem-ridge", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lookback: 120,
+        watching_limit: 12,
+        ridge_lambda: 1.0,
+        persist: !!persist,
+        note: persist ? "ui rem promote" : "",
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+      if (sum) sum.textContent = `rem 失败 · ${err}`;
+      return;
+    }
+    const oos = data.oos || {};
+    const line = `n=${data.sample_count} · 票=${data.stock_count} · OOS IC=${oos.ic ?? "—"} · 命中=${oos.sign_hit ?? "—"} · train ${oos.n_train ?? "—"}/test ${oos.n_test ?? "—"}`;
+    if (sum) {
+      sum.textContent = persist
+        ? `已启用 · ${line}`
+        : `拟合完成（未写盘）· ${line} · 人审后点「启用 rem 模型」`;
+    }
+    if (box) {
+      const coefs = (data.return_model && data.return_model.coefficients) || {};
+      const top = Object.entries(coefs)
+        .sort((a, b) => Math.abs(Number(b[1]) || 0) - Math.abs(Number(a[1]) || 0))
+        .slice(0, 8)
+        .map(([k, v]) => `${k}:${Number(v).toFixed(3)}`)
+        .join(" · ");
+      box.innerHTML = `<p class="quant-fingerprint">top β · ${top || "—"}</p>`;
+    }
+  }
+
+  on("quant-rem-ridge-run", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runRemRidge({ persist: false });
+    } catch (err) {
+      const sum = document.getElementById("quant-rem-summary");
+      if (sum) sum.textContent = String(err.message || err);
+    }
+  });
+
+  on("quant-rem-ridge-persist", "click", async (e) => {
+    e.preventDefault();
+    if (!window.confirm("将 rem 模型写入 live（不改 EOD ŷ）？仅影响主题日 soft hold。")) return;
+    try {
+      await runRemRidge({ persist: true });
+    } catch (err) {
+      const sum = document.getElementById("quant-rem-summary");
+      if (sum) sum.textContent = String(err.message || err);
+    }
+  });
+
+  on("quant-rem-ridge-status", "click", async (e) => {
+    e.preventDefault();
+    const sum = document.getElementById("quant-rem-summary");
+    try {
+      const res = await fetch("/api/quant/rem-ridge/model");
+      const data = await res.json().catch(() => ({}));
+      if (!data.exists) {
+        if (sum) sum.textContent = data.note || "尚无 rem 模型";
+        return;
+      }
+      const oos = data.oos || {};
+      if (sum) {
+        sum.textContent = `已启用 · ${data.promoted_at || ""} · OOS IC=${oos.ic ?? "—"} · 命中=${oos.sign_hit ?? "—"} · n=${data.sample_count ?? "—"}`;
+      }
+    } catch (err) {
+      if (sum) sum.textContent = String(err.message || err);
+    }
+  });
+
   on("quant-threshold-export", "click", (e) => {
     e.preventDefault();
     if (!state.quantLastThresholdDiff || !state.quantLastThresholdDiff.success) {

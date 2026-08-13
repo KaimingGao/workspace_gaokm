@@ -61,8 +61,8 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         # 滞回：买入/入簿 ŷ≥+1%；卖出仅 ŷ<-1%；中间带持有不因未进簿清仓
         "min_predicted_score": 1.0,
         "min_hold_predicted_score": -1.0,
-        # B2：前瞻收益 y 与拟合/TopK/纸面共用 horizon
-        "horizon_days": 3,
+        # B2：前瞻收益 y 与拟合/TopK/纸面共用 horizon（默认 1 = T−1 因子 → T 日收益）
+        "horizon_days": 1,
     },
     # stance 门槛按收益分 ŷ%（百分点）
     "stance_thresholds": {
@@ -108,6 +108,7 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
             "scale_buy_pct": 0.5,
             "scale_holds": False,
             "warn_only": True,
+            "reduce_avoid_on_bullish": True,
         },
         "append_history": True,
         "history_max_lines_per_code": 500,
@@ -138,6 +139,18 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "block_active_on_yhat_ic": True,
         # Y3.3：行业 map 覆盖率低于此值 → 启用警告
         "min_sector_map_coverage": 0.5,
+        # P0：OOS 门禁未过的组不进选股簿（仍可进 scored_all 展示）
+        "exclude_oos_failed_groups": True,
+    },
+    # P1：T 日事件先验（缺口/板块开盘）· 不进 ŷ，只影响调仓动作
+    "event_prior": {
+        "mode": "gate",  # off | risk | gate
+        "gap_trigger_pct": 2.0,
+        "sector_breadth_min": 0.5,
+        "soft_hold_on_theme": True,
+        "warn_only": False,
+        "rem_gate_enabled": True,
+        "rem_soft_hold_min": 0.25,
     },
 }
 
@@ -270,6 +283,17 @@ def get_rank_defaults(config: Optional[Dict[str, Any]] = None) -> Dict[str, floa
         except (TypeError, ValueError):
             pass
     return out
+
+
+def get_scoring_horizon_days(config: Optional[Dict[str, Any]] = None) -> int:
+    """生产 ŷ / 分组 / 纸面共用的 ``scoring.horizon_days``（夹在 1～10）。"""
+    cfg = config or load_signal_config()
+    raw = (cfg.get("scoring") or {}).get("horizon_days")
+    try:
+        h = int(raw if raw is not None else 1)
+    except (TypeError, ValueError):
+        h = 1
+    return max(1, min(h, 10))
 
 
 def read_signal_config_file(*, reload: bool = True) -> Dict[str, Any]:

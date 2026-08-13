@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional
 def rank_cluster_pools(
     codes: Optional[List[str]] = None,
     *,
-    horizon_days: int = 3,
+    horizon_days: Optional[int] = None,
     top_n_per_group: Optional[int] = None,
     max_names: Optional[int] = None,
     min_score: Optional[float] = None,
@@ -23,9 +23,10 @@ def rank_cluster_pools(
     from core.signal.cluster_live import (
         get_cluster_scoring_cfg,
         load_active_cluster_weights,
+        oos_failed_cluster_labels,
         save_active_cluster_book,
     )
-    from core.signal.config import get_rank_defaults, load_signal_config
+    from core.signal.config import get_rank_defaults, get_scoring_horizon_days, load_signal_config
     from core.signal.score_display import json_safe_number, selection_min_score
     from core.signal.score_stock import score_stock
     from core.watching_store import read_watching, refresh_watchlist
@@ -52,13 +53,16 @@ def rank_cluster_pools(
             min_score = float("-inf")
             floor_disabled = True
     max_n = max(1, min(int(max_names or cs.get("max_names") or 40), 80))
-    horizon_days = max(1, min(int(horizon_days or 3), 3))
+    if horizon_days is None:
+        horizon_days = get_scoring_horizon_days(cfg)
+    horizon_days = max(1, min(int(horizon_days or 1), 10))
     # 兼容旧调用方：仍回传配置值，但不参与建簿
     top_n_cfg = int(
         top_n_per_group
         if top_n_per_group is not None
         else (cs.get("top_n_per_group") or 10)
     )
+    exclude_oos = bool(cs.get("exclude_oos_failed_groups", True))
 
     active = load_active_cluster_weights()
     if not active or not active.get("code_map"):
@@ -67,6 +71,10 @@ def rank_cluster_pools(
             "error": "无 live 分组映射（请先 promote）",
             "task": "rank_cluster_pools",
         }
+
+    oos_blocked_labels = set(
+        oos_failed_cluster_labels(active=active) if exclude_oos else []
+    )
 
     if codes is None:
         # 优先 live 映射码（与分组成员一致）；否则回退观察池
@@ -94,9 +102,10 @@ def rank_cluster_pools(
     by_label: Dict[str, List[dict]] = {}
     unmapped: List[dict] = []
     rejected: List[dict] = []
-    scored_extra: List[dict] = []  # hard_reject / 未映射，供展示
+    scored_extra: List[dict] = []  # hard_reject / 未映射 / OOS 阻断，供展示
     mapped_rows: List[dict] = []
     below_min = 0
+    oos_blocked_count = 0
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -182,6 +191,37 @@ def rank_cluster_pools(
                 }
             )
             continue
+        # P0.2：OOS 失败组不进簿（ŷ 仍进 scored_all 供对照）
+        if exclude_oos and str(label) in oos_blocked_labels:
+            oos_blocked_count += 1
+            rejected.append(
+                {
+                    "stock_code": item.get("stock_code"),
+                    "reason": f"组 {label} OOS 门禁未过·已排除入簿",
+                    "score": item.get("score"),
+                    "cluster_label": str(label),
+                }
+            )
+            scored_extra.append(
+                {
+                    "stock_code": item.get("stock_code"),
+                    "stock_name": item.get("stock_name"),
+                    "score": item.get("score"),
+                    "predicted_score": item.get("predicted_score"),
+                    "heuristic_score": item.get("heuristic_score"),
+                    "cluster_label": str(label),
+                    "cluster_id": item.get("cluster_id"),
+                    "weight_source": item.get("weight_source"),
+                    "score_global": item.get("score_global"),
+                    "delta_vs_global": item.get("delta_vs_global"),
+                    "below_min_score": True,
+                    "oos_blocked": True,
+                    "return_model_source": item.get("return_model_source"),
+                    "score_formula_terms": item.get("score_formula_terms"),
+                    "sector": item.get("sector"),
+                }
+            )
+            continue
         sc = item.get("predicted_score")
         if sc is None:
             sc = item.get("score")
@@ -209,6 +249,10 @@ def rank_cluster_pools(
             "return_model_source": item.get("return_model_source"),
             "score_formula_terms": item.get("score_formula_terms"),
             "sector": item.get("sector"),
+            "score_rem": item.get("score_rem"),
+            "predicted_score_rem": item.get("predicted_score_rem"),
+            "gap_pct": item.get("gap_pct"),
+            "event_prior": item.get("event_prior"),
         }
         mapped_rows.append(row)
         by_label.setdefault(str(label), []).append(row)
@@ -271,6 +315,9 @@ def rank_cluster_pools(
                 "mode": "cluster_score_global_rank",
                 # 兼容旧 status 读取
                 "top_n_per_group": top_n_cfg,
+                "exclude_oos_failed_groups": exclude_oos,
+                "oos_blocked_labels": sorted(oos_blocked_labels),
+                "oos_blocked_count": oos_blocked_count,
             },
             scored_all=scored_all,
         )
@@ -285,6 +332,10 @@ def rank_cluster_pools(
         "max_names": max_n,
         "min_score": min_score_out,
         "min_score_disabled": floor_disabled or min_score_out is None,
+        "horizon_days": horizon_days,
+        "exclude_oos_failed_groups": exclude_oos,
+        "oos_blocked_labels": sorted(oos_blocked_labels),
+        "oos_blocked_count": oos_blocked_count,
         "groups": groups_out,
         "book": book,
         "ranking": book,
@@ -294,8 +345,8 @@ def rank_cluster_pools(
         "rejected": rejected[:20],
         "book_path": path,
         "note": (
-            "分池：组ŷ→剔ST→ŷ≥min_predicted_score（默认+1）→全局降序→max_names 截断。"
-            "不再做组内 Top-N。低于门槛 / 未映射 / 硬拒绝仍进 scored_all 供展示。"
+            "分池：组ŷ→剔ST→剔OOS失败组→ŷ≥min_predicted_score（h=1 现网约 +0.35）→全局降序→max_names 截断。"
+            "不再做组内 Top-N。低于门槛 / 未映射 / 硬拒绝 / OOS阻断仍进 scored_all 供展示。"
             "不写 signal_config.weights。"
         ),
     }

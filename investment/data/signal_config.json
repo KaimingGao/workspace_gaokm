@@ -63,9 +63,9 @@
   },
   "scoring": {
     "rank_mode": "predicted_score",
-    "min_predicted_score": 1.0,
+    "min_predicted_score": 0.35,
     "min_hold_predicted_score": 0.0,
-    "horizon_days": 3
+    "horizon_days": 1
   },
   "stance_thresholds": {
     "avoid": -0.25,
@@ -107,7 +107,8 @@
       "block_new_buys": false,
       "scale_buy_pct": 0.6,
       "scale_holds": true,
-      "warn_only": true
+      "warn_only": true,
+      "reduce_avoid_on_bullish": true
     },
     "append_history": true,
     "history_max_lines_per_code": 500
@@ -132,6 +133,16 @@
     "max_oos_fail_rate": 0.5,
     "min_yhat_rolling_ic": 0.0,
     "block_active_on_yhat_ic": true,
-    "min_sector_map_coverage": 0.5
+    "min_sector_map_coverage": 0.5,
+    "exclude_oos_failed_groups": true
+  },
+  "event_prior": {
+    "mode": "gate",
+    "gap_trigger_pct": 2.0,
+    "sector_breadth_min": 0.5,
+    "soft_hold_on_theme": true,
+    "warn_only": false,
+    "rem_gate_enabled": true,
+    "rem_soft_hold_min": 0.25
   }
 }

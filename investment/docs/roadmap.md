@@ -65,6 +65,11 @@
 | **P5.2** | Web 展示净值/回撤曲线 | **已落地** |
 | **P5.3** | 「是否买入」改为规则输出 stance + LLM 只解释 | **已落地** |
 
+### 盘中 / 实时增强（进行中）
+
+EOD ŷ 主轴不变；事件先验 + open→close 剩余收益头的**能力定义与阶段表（P0–R3）**见专文：  
+[intraday-residual-score.md](intraday-residual-score.md)。**P0～R3 代码已落地**；生产排序仍只用 EOD ŷ；rem 需 `POST /api/quant/rem-ridge`（`persist=true`）后人审启用门控。
+
 ### P4.1 已落地：`backtest` Skill
 
 **目录**：`core/backtest/engine.py`（引擎） + `skills/backtest/`（Agent 工具）

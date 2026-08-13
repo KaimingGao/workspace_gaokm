@@ -1,9 +1,11 @@
 # predicted_score（ŷ）逻辑链路与执行链
 
-[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 复盘细节 [score-review.md](score-review.md) · 运维定时 [quant-ops.md](quant-ops.md)
+[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 复盘细节 [score-review.md](score-review.md) · 运维定时 [quant-ops.md](quant-ops.md) · **盘中/实时增强** [intraday-residual-score.md](intraday-residual-score.md)
 
 本文梳理 **训练 → 打分 → 回测 / 复盘 / 验证 → 纸面执行** 的同一套时间口径与产物流转。  
 目标：任何人看到页面上的「评分 / score / ŷ」，都能回答「它在预测什么、该和谁对账、会不会自动改 β」。
+
+> **实时 / 主题日**：EOD ŷ 主轴不变；开盘缺口与剩余收益头的产品定义与阶段规划见 [intraday-residual-score.md](intraday-residual-score.md)，勿与本节 \(T\!-\!1\) 因子契约混读。
 
 ---
 
@@ -58,9 +60,9 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 
 | 来源 | 常见默认 | 用途 |
 |------|----------|------|
-| `signal_config.scoring.horizon_days` | **3** | 配置契约；多数 API / 复盘 UI 兜底 |
+| `signal_config.scoring.horizon_days` | **1**（现网；曾长期为 3） | 配置契约；打分 / 复盘 / promote 校验 |
 | 研究枢纽「持有期」`#quant-horizon` | **1** | **跑分组 / TopK 回测** 读页面时 |
-| 昨日复盘 Horizon 下拉 | **3**（可选 1） | 对账标签长度 |
+| 昨日复盘 Horizon 下拉 | **1**（可选更长） | 对账标签长度 |
 
 **原则**：估 β、打 ŷ、复盘 \(r_h\)、回测持有期应使用**同一 \(h\)**；改 UI 持有期后需重跑分组并 promote，再谈 live 一致性。
 
@@ -236,7 +238,7 @@ flowchart TD
 
 ## 10. 常见误读（速查）
 
-1. **「score 预测当天涨跌」** — 仅当 \(h=1\) 且决策日是昨收时，才近似「今天相对昨收」；默认配置 \(h=3\) 时预测的是 **未来 3 日累计**。  
+1. **「score 预测当天涨跌」** — 仅当 \(h=1\) 且决策日是昨收时，才近似「今天相对昨收」；若配置仍为 \(h=3\) 则预测的是 **未来 3 日累计**（现网默认已对齐 \(h=1\)）。  
 2. **「每天定时更新 β」** — 没有；日更只重打分 / 调仓 / 冻结。  
 3. **「表上 score 和涨跌并排 = 验证」** — 仅直觉；严谨验证用复盘错开 \(h\)。  
 4. **「冻结日 = 决策日」** — 冻结已按因子截止解析；历史错标的会话日账本可删，UI 会标未到期。  

@@ -76,7 +76,7 @@
                 type="number"
                 step="0.1"
                 class="platform-input"
-                title="ŷ% 百分点；默认 +1"
+                title="ŷ% 百分点；h=1 现网约 +0.35"
               />
               <span class="strategy-field-unit">%</span>
             </label>
@@ -359,7 +359,7 @@
                   <div class="strategy-logic-item">
                     <h4>ŷ 滞回门槛</h4>
                     <ul>
-                      <li>买入/入簿：ŷ ≥ min_predicted_score（默认 +1%）</li>
+                      <li>买入/入簿：ŷ ≥ min_predicted_score（h=1 现网约 +0.35%；缺省键兜底曾为 +1%）</li>
                       <li>卖出：仅 ŷ &lt; min_hold_predicted_score（默认 −1%）</li>
                       <li>中间带：已持仓不因「未进目标簿」清仓</li>
                     </ul>

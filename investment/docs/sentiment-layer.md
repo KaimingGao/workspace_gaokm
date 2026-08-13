@@ -27,9 +27,13 @@ LLM 可**解读**标题；**不得**写入 `sub_scores` / ŷ。`sentiment.includ
 | `risk` | 强 bearish → warnings / UI；不改目标簿 |
 | `gate` | 强 bearish → 跳过新开仓（`block_new_buys`）或目标仓 ×`scale_buy_pct`；若 `scale_holds` 则已持仓同步缩至同比例；**ŷ 不变** |
 
+`reduce_avoid_on_bullish`（默认 true）：label 看多或标题命中主题词时发 `soft_hold`，纸面低 ŷ 卖出可改为持有（与 [intraday-residual-score.md](intraday-residual-score.md) 事件先验对称）。
+
 **Web**：策略中心「舆情先验」三态开关 → `POST /api/signal/config/sentiment-prior`（人审写盘；强制 `include_in_score=false`）。
 
 配置见 `signal_config.sentiment`；实现见 `core/sentiment_prior.py` · 调仓接入 `paper_rebalance`。
+
+**相关**：开盘缺口等 **事件先验**（与 S 并列的 \(E\)，同属 ŷ 外旁路）及盘中剩余收益头规划见 [intraday-residual-score.md](intraday-residual-score.md)。
 
 ---
 

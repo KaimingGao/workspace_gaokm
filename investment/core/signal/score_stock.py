@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Any, Dict, Optional
 
@@ -14,6 +15,8 @@ from core.ports.market import (
 )
 from core.store import assess_quality
 from core.data_service import allows_production_score, infer_adjust, DEFAULT_ADJUST_POLICY
+
+logger = logging.getLogger(__name__)
 
 
 def _call_with_timeout(func, timeout, *args, **kwargs):
@@ -161,7 +164,7 @@ def _gated_reject_item(
 def score_stock(
     stock_code: str,
     *,
-    horizon_days: int = 3,
+    horizon_days: Optional[int] = None,
     quote: Optional[dict] = None,
     skip_fundamentals: bool = False,
     skip_sentiment: bool = False,
@@ -179,7 +182,11 @@ def score_stock(
     off — 不用组 β；shadow — 可算 score_cluster 对照，主分仍全局/空；
     active — 主分优先组 return_model ŷ（无模型则全局）。
     """
-    horizon_days = max(1, min(int(horizon_days or 3), 3))
+    if horizon_days is None:
+        from core.signal.config import get_scoring_horizon_days
+
+        horizon_days = get_scoring_horizon_days()
+    horizon_days = max(1, min(int(horizon_days or 1), 10))
     raw = str(stock_code or "").strip()
 
     if quote is None:
@@ -668,6 +675,72 @@ def score_stock(
         "fundamentals_depth_meta": fund_depth or None,
         "feature_isomorphism_track": "X0-X5",
     }
+
+    # R3：盘中剩余收益头（展示字段；不替换 predicted_score）
+    try:
+        from core.event_prior import (
+            build_event_prior_from_quote,
+            compute_sector_gap_breadth_live,
+            gap_pct_from_quote_bars,
+            get_event_prior_cfg,
+        )
+        from quant.research.rem_ridge import predict_rem_from_features
+
+        gap_v = gap_pct_from_quote_bars(quote, bars)
+        ep_cfg = get_event_prior_cfg()
+        trigger = float(ep_cfg.get("gap_trigger_pct") or 2)
+        sector_breadth = None
+        # 主题候选才拉同伴缺口广度，避免每票全池行情
+        if gap_v is not None and float(gap_v) >= trigger:
+            try:
+                from core.watching_store import read_watching
+
+                watch_codes = [
+                    str(c).strip()
+                    for c in ((read_watching() or {}).get("watchlist") or [])
+                    if str(c).strip()
+                ][:40]
+                if watch_codes:
+                    br = compute_sector_gap_breadth_live(
+                        watch_codes,
+                        gap_trigger_pct=trigger,
+                        focus_code=str(code),
+                        quotes={str(code): quote} if quote else None,
+                    )
+                    sector_breadth = br.get("breadth")
+            except Exception:
+                logger.warning("sector gap breadth failed for %s", code, exc_info=True)
+        feats = {
+            "gap_pct": gap_v,
+            "open_gap": gap_v,
+            "sector_gap_breadth": sector_breadth,
+            "theme_day": 1.0
+            if (gap_v is not None and float(gap_v) >= trigger)
+            else 0.0,
+        }
+        # 并入当日 sub_scores 供 rem 模型（若有）
+        for k, v in (scored.get("sub_scores") or {}).items():
+            if k not in feats:
+                try:
+                    feats[k] = float(v) if v is not None else None
+                except (TypeError, ValueError):
+                    feats[k] = None
+        rem_yhat = predict_rem_from_features(feats)
+        ep = build_event_prior_from_quote(
+            quote,
+            bars,
+            rem_yhat=rem_yhat,
+            sector_breadth=sector_breadth,
+            stock_code=str(code),
+        )
+        signal_item["gap_pct"] = gap_v
+        signal_item["predicted_score_rem"] = rem_yhat
+        signal_item["score_rem"] = rem_yhat
+        signal_item["event_prior"] = ep
+        signal_item["rem_tau"] = "open"
+        signal_item["rem_y_spec"] = "close[T]/open[T]-1"
+    except Exception:
+        logger.warning("rem/event_prior attach failed for %s", code, exc_info=True)
 
     return {
         "success": True,

@@ -184,6 +184,85 @@ class QuantFactorMixin:
         report["task"] = "factor_ols"
         return report
 
+    def run_rem_ridge_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 12,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        theme_boost: float = 1.5,
+        persist: bool = False,
+        note: str = "",
+    ) -> Dict[str, Any]:
+        """R0：观察池 open→close rem 头 Ridge；可选 persist live 模型。"""
+        from quant.research.rem_ridge import (
+            fit_rem_ridge_report,
+            load_rem_model,
+            persist_rem_model,
+        )
+        from core.data_service import bars_and_source
+        from core.ports.market import default_benchmark, fetch_index_bars, resolve_market_code
+        from core.watching_store import read_watching
+
+        uni = read_watching()
+        codes = list(uni.get("watchlist") or [])
+        limit = max(2, min(int(watching_limit or 12), 40))
+        codes = codes[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "研究池至少 2 只才可跑 rem Ridge",
+                "task": "rem_ridge",
+            }
+
+        stock_bars: List[Dict[str, Any]] = []
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            if not bars:
+                continue
+            market, _ = resolve_market_code(code)
+            index_bars, _ = fetch_index_bars(
+                default_benchmark(market), limit=lookback + 40
+            )
+            stock_bars.append(
+                {
+                    "code": str(code),
+                    "bars": bars,
+                    "index_bars": index_bars,
+                    "fundamentals": self._experiment_fundamentals(code, code),
+                }
+            )
+        report = fit_rem_ridge_report(
+            stock_bars,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            theme_boost=theme_boost,
+        )
+        report["watching_limit"] = limit
+        report["lookback"] = lookback
+        if persist and report.get("success"):
+            saved = persist_rem_model(report, note=note or "api rem-ridge persist")
+            report["persisted"] = saved
+        else:
+            report["persisted"] = {"success": False, "skipped": True}
+            live = load_rem_model()
+            report["live_model_present"] = bool(live)
+        return report
+
+    def get_rem_ridge_model(self) -> Dict[str, Any]:
+        from quant.research.rem_ridge import load_rem_model, rem_model_path
+
+        doc = load_rem_model()
+        if not doc:
+            return {
+                "success": False,
+                "exists": False,
+                "path": rem_model_path(),
+                "note": "尚无 rem 模型；POST /api/quant/rem-ridge persist=true",
+            }
+        return {"success": True, "exists": True, "path": rem_model_path(), **doc}
+
     def run_factor_ols_pool_experiment(
         self,
         *,

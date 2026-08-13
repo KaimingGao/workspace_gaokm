@@ -79,6 +79,29 @@ export function formatScoreHero(raw) {
   );
 }
 
+export function formatRemScoreSection(raw) {
+  const rem = raw && (raw.score_rem != null ? raw.score_rem : raw.predicted_score_rem);
+  const gap = raw && raw.gap_pct;
+  const ep = raw && raw.event_prior;
+  const hasRem = rem != null && Number.isFinite(Number(rem));
+  const hasGap = gap != null && Number.isFinite(Number(gap));
+  const theme = !!(ep && ep.theme);
+  if (!hasRem && !hasGap && !theme) return "";
+  const remTxt = hasRem ? `${fmtSigned(Number(rem), 3)}%` : "—";
+  const gapTxt = hasGap ? `${fmtSigned(Number(gap), 2)}%` : "—";
+  const warn = Array.isArray(ep && ep.warnings) ? ep.warnings.slice(0, 2).join(" · ") : "";
+  return (
+    `<div class="score-weight-section">` +
+    `<div class="score-section-title">盘中剩余（不改 EOD ŷ）</div>` +
+    `<div class="score-weight-source">rem ŷ ${escapeText(remTxt)} · 缺口 ${escapeText(gapTxt)}` +
+    `${theme ? " · 主题日" : ""}</div>` +
+    (warn
+      ? `<div class="score-hero-hint">${escapeText(warn)}</div>`
+      : `<div class="score-hero-hint">τ=open · y=close/open−1 · 仅门控/展示</div>`) +
+    `</div>`
+  );
+}
+
 export function formatWeightSourceNote(raw) {
   const src = String((raw && raw.weight_source) || "").trim();
   const mode = String((raw && raw.cluster_mode) || "").trim();
@@ -590,6 +613,7 @@ export function createScoreTooltipController() {
 
     let html = '<div class="score-detail">';
     html += formatScoreHero(raw);
+    html += formatRemScoreSection(raw);
     html += formatWeightSourceNote(raw);
     html += formatFormulaTermsSection(raw);
     html += formatFactorWeightsSection(raw);

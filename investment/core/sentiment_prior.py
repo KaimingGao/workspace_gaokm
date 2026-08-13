@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 
 PRIOR_REASON = "sentiment_prior_bearish"
+PRIOR_REASON_BULLISH = "sentiment_prior_bullish_theme"
 
 DEFAULT_PRIOR = {
     "mode": "off",  # off | risk | gate
@@ -19,6 +20,8 @@ DEFAULT_PRIOR = {
     "scale_buy_pct": 0.5,
     "scale_holds": False,  # gate：看空时已持仓也缩至 scale_buy_pct
     "warn_only": True,
+    # P1c：看多/主题时减少「负 ŷ 强回避」——卖出 soft hold（不改 ŷ）
+    "reduce_avoid_on_bullish": True,
 }
 
 
@@ -53,9 +56,37 @@ def get_sentiment_prior_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     raw["block_new_buys"] = bool(raw.get("block_new_buys", False))
     raw["scale_holds"] = bool(raw.get("scale_holds", False))
     raw["warn_only"] = bool(raw.get("warn_only", True))
+    raw["reduce_avoid_on_bullish"] = bool(
+        raw.get("reduce_avoid_on_bullish")
+        if raw.get("reduce_avoid_on_bullish") is not None
+        else True
+    )
     raw["role"] = str(sent.get("role") or "prior")
     raw["include_in_score"] = bool(sent.get("include_in_score", False))
     return raw
+
+
+def _is_bullish_label(label: str) -> bool:
+    lab = str(label or "").lower()
+    return lab in ("bullish", "positive", "利好") or "pos" in lab or "bull" in lab
+
+
+def _theme_from_titles(sentiment: Optional[dict]) -> bool:
+    """标题命中常见主题词 → 视为主题偏多（弱信号）。"""
+    if not isinstance(sentiment, dict):
+        return False
+    blob = " ".join(
+        str(x)
+        for x in (
+            sentiment.get("summary"),
+            sentiment.get("title"),
+            " ".join(str(t) for t in (sentiment.get("titles") or [])[:5]),
+            sentiment.get("headline"),
+        )
+        if x
+    )
+    keys = ("云计算", "AI", "人工智能", "算力", "芯片", "半导体", "机器人", "新能源")
+    return any(k in blob for k in keys)
 
 
 def _bearish_strength(sentiment: Optional[dict]) -> Optional[float]:
@@ -161,6 +192,33 @@ def build_sentiment_prior(
                     f"{PRIOR_REASON}: 已持仓缩至 {scale_h:.0%}（bearish={score}）"
                 )
 
+    # P1c：看多 / 主题 → soft_hold（与 event_prior 对称，专治负 ŷ 踏空）
+    bullish = (_is_bullish_label(label) or _theme_from_titles(sentiment)) and label != "bearish"
+    if (
+        bullish
+        and not degraded
+        and prior_cfg.get("reduce_avoid_on_bullish")
+        and mode != "off"
+    ):
+        actions.append(
+            {
+                "type": "soft_hold",
+                "reason": PRIOR_REASON_BULLISH,
+                "label": label,
+            }
+        )
+        warnings.append(f"{PRIOR_REASON_BULLISH}: 看多/主题·减少负ŷ回避")
+        if not active:
+            active = True
+            risk_hints.append(
+                {
+                    "kind": "sentiment_bullish",
+                    "label": label,
+                    "reason": PRIOR_REASON_BULLISH,
+                    "note": f"{note_base} · 看多 soft hold",
+                }
+            )
+
     return {
         "success": True,
         "role": "prior",
@@ -170,6 +228,7 @@ def build_sentiment_prior(
         "score": score,
         "active": bool(active),
         "degraded": bool(degraded),
+        "bullish_theme": bool(bullish and not degraded),
         "actions": actions,
         "risk_hints": risk_hints,
         "warnings": warnings,
@@ -180,6 +239,16 @@ def build_sentiment_prior(
         "include_in_score": bool(prior_cfg["include_in_score"]),
         "note": note_base,
     }
+
+
+def should_soft_hold_from_sentiment(prior: Optional[dict]) -> bool:
+    """低 ŷ 卖出时：看多/主题 soft_hold。"""
+    if not isinstance(prior, dict):
+        return False
+    for act in prior.get("actions") or []:
+        if act.get("type") == "soft_hold":
+            return True
+    return False
 
 
 def apply_prior_to_buy(
