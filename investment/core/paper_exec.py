@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -28,6 +29,27 @@ from core.paper import (  # noqa: E402
     merge_origin,
 )
 
+
+def _quote_open(quote: dict) -> Optional[float]:
+    """从行情 dict 取开盘价数值（优先 open_raw，否则解析格式化 open）。"""
+    raw = quote.get("open_raw")
+    if raw is not None:
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            pass
+    s = quote.get("open")
+    if s is None or s == "":
+        return None
+    m = re.search(r"-?\d+(?:\.\d+)?", str(s).replace(",", ""))
+    if not m:
+        return None
+    try:
+        return float(m.group(0))
+    except ValueError:
+        return None
+
+
 def mark_to_market(paper: dict) -> Dict[str, Any]:
     cash = float(paper.get("cash") or 0)
     holdings = paper.get("holdings") or []
@@ -49,6 +71,7 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
         if not isinstance(quote, dict):
             quote = query_quote(str(code)) if code else {}
         price = _quote_price(quote) if quote.get("success") else None
+        open_px = _quote_open(quote) if quote.get("success") else None
         shares = float(h.get("shares") or 0)
         cost = float(h.get("cost") or 0)
         mv = (price or cost) * shares
@@ -88,6 +111,7 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
                 "shares": shares,
                 "cost": cost,
                 "price": price,
+                "open": open_px,
                 "currency": quote.get("currency", "CNY"),
                 "unit": quote.get("unit", "元"),
                 "market_value": round(mv, 2),

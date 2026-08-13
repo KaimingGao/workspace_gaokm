@@ -1434,6 +1434,7 @@ export function installWatching(q) {
         inBook: bookCodes.has(bare) || bookCodes.has(code),
         sentHtml: `<span class="watching-sent-badge is-neutral" data-code="${escapeHtml(code)}" title="加载中">…</span>`,
         price: "—",
+        open: "—",
         chg: "—",
         chgCls: "",
         score: scoreNum == null ? "…" : fmtScore(scoreNum),

@@ -25,7 +25,8 @@ const COLS = [
   { id: "name", label: "股票", flex: true, sortable: true, cellClass: "watching-stock" },
   { id: "paper", label: "仓位", widthPct: 6, headClass: "watching-col-center", cellClass: "watching-col-center" },
   { id: "sent", label: "情绪", widthPct: 4.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  { id: "price", label: "现价", widthPct: 8, num: true },
+  { id: "price", label: "现价", widthPct: 7, num: true },
+  { id: "open", label: "开盘价", widthPct: 7, num: true, title: "当日开盘价" },
   { id: "chg", label: "涨跌", widthPct: 7, num: true, sortable: true },
   { id: "score", label: "评分", widthPct: 7.5, num: true, sortable: true },
   { id: "stance", label: "倾向", widthPct: 5.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
@@ -147,7 +148,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
         const m = text.match(/^([+-]?\d+(?:\.\d+)?%)/);
         if (m) text = m[1];
         tip = d.excessTitle || String(v);
-      } else if (col.id === "price") {
+      } else if (col.id === "price" || col.id === "open") {
         // 「元」占宽，窄列易被裁成「…」
         text = text.replace(/元$/u, "");
         tip = String(v);

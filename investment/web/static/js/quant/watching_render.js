@@ -293,6 +293,7 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
         `</td>` +
         `<td class="watching-sent-cell">${d.sentHtml || "—"}</td>` +
         `<td class="num watching-col-num" data-q="price">${escapeHtml(String(d.price ?? "—"))}</td>` +
+        `<td class="num watching-col-num" data-q="open">${escapeHtml(String(d.open ?? "—"))}</td>` +
         `<td class="num watching-col-num watching-chg${d.chgCls ? " " + escapeHtml(d.chgCls) : ""}" data-q="chg">${escapeHtml(String(d.chg ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="score">${escapeHtml(String(d.score ?? "—"))}</td>` +
         `<td data-q="stance">${escapeHtml(String(d.stance ?? "—"))}</td>` +
@@ -309,6 +310,7 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
     `<div class="watching-table-scroll"><table class="quant-weight-table watching-result-table"><thead><tr>` +
     `<th class="watching-pick-cell"><input type="checkbox" id="watching-select-all" /></th>` +
     `<th>股票</th><th>仓位</th><th>情绪</th><th class="watching-col-num">现价</th>` +
+    `<th class="watching-col-num">开盘价</th>` +
     `<th class="watching-col-num">涨跌</th><th class="watching-col-num">评分</th><th>倾向</th>` +
     `<th class="watching-col-num">超额</th><th class="watching-col-num">量</th>` +
     `<th class="watching-col-num">量比</th><th class="watching-col-num">PE</th><th class="watching-col-num">PB</th>` +
@@ -359,6 +361,7 @@ export function buildWatchingWatchRows(wl, names, paperCodes, scores, deps) {
         code
       )}" title="加载中">…</span>`,
       price: "—",
+      open: "—",
       chg: "—",
       chgCls: "",
       chgNum: null,

@@ -68,6 +68,7 @@ export function holdingToRow(
         ? sentHtml
         : holdingSentPlaceholder(code),
     priceText: fmtPriceUnit(h.price, h.unit, h.currency),
+    openText: fmtPriceUnit(h.open, h.unit, h.currency),
     costText: fmtPriceUnit(h.cost, h.unit, h.currency),
     mvText: fmtPriceUnit(h.market_value, h.unit, h.currency),
     marketValueNum: Number.isFinite(mv) ? mv : null,
@@ -132,6 +133,7 @@ const COLS = [
   },
   { id: "shares", label: "股数", widthPct: 6, num: true },
   { id: "price", label: "现价", widthPct: 7, num: true },
+  { id: "open", label: "开盘价", widthPct: 7, num: true, title: "当日开盘价" },
   {
     id: "chg",
     label: "涨跌",
@@ -141,18 +143,18 @@ const COLS = [
     title: "相对昨收的当日涨跌幅（行情）；与「浮盈亏」不同",
   },
   { id: "cost", label: "成本", widthPct: 7, num: true, title: "持仓加权平均成本，对账用" },
-  { id: "market_value", label: "市值", widthPct: 8, num: true, sortable: true },
+  { id: "market_value", label: "市值", widthPct: 7, num: true, sortable: true },
   { id: "score", label: "评分", widthPct: 7, num: true, sortable: true },
   {
     id: "pnl",
     label: "浮盈亏",
-    widthPct: 8,
+    widthPct: 7,
     num: true,
     sortable: true,
     title: "相对持仓成本：(现价÷成本−1)×100%；加仓则为加权成本，非当日涨跌",
   },
-  { id: "since", label: "开始", widthPct: 12 },
-  { id: "origin", label: "出处", widthPct: 8, cellClass: "paper-hold-origin", headClass: "paper-hold-origin" },
+  { id: "since", label: "开始", widthPct: 11 },
+  { id: "origin", label: "出处", widthPct: 7, cellClass: "paper-hold-origin", headClass: "paper-hold-origin" },
 ];
 
 function numCmp(av, bv) {
@@ -219,6 +221,11 @@ export async function mountHoldingsTableIsland(host, options = {}) {
       if (col.id === "sent") return d.sentHtml || holdingSentPlaceholder(d.code);
       if (col.id === "shares") return escapeHtml(d.shares != null ? String(d.shares) : "—");
       if (col.id === "price") return escapeHtml(d.priceText || "—");
+      if (col.id === "open") {
+        return `<span class="paper-hold-open" title="当日开盘价">${escapeHtml(
+          d.openText || "—"
+        )}</span>`;
+      }
       if (col.id === "chg") {
         return `<span class="paper-hold-chg ${escapeHtml(d.chgCls || "")}" title="相对昨收">${escapeHtml(
           d.chgText || "—"

@@ -53,6 +53,7 @@ export function buildWatchingQuoteGridPatch(it, row, parseWatchingVolume) {
   const volNum = ok && typeof parseWatchingVolume === "function" ? parseWatchingVolume(it.volume) : NaN;
   return {
     price: ok && it.price != null ? String(it.price) : "—",
+    open: ok && it.open != null && it.open !== "" ? String(it.open) : "—",
     chg: chgTxt,
     chgCls,
     chgNum,

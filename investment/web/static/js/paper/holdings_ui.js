@@ -162,6 +162,11 @@ export function buildPaperHoldingsTableHtml({
           h.unit,
           h.currency
         )}</td>` +
+        `<td class="num paper-hold-open" title="当日开盘价">${fmtPriceUnit(
+          h.open,
+          h.unit,
+          h.currency
+        )}</td>` +
         `<td class="num paper-hold-chg ${metricCls(h.change_pct)}" title="相对昨收">${fmtPct(
           h.change_pct,
           { signed: true }
@@ -218,6 +223,7 @@ export function buildPaperHoldingsTableHtml({
     `<div class="paper-holdings-scroll">` +
     `<table class="quant-weight-table paper-holdings-table"><thead><tr>` +
     `<th>股票</th><th class="watching-col-center">情绪</th><th>股数</th><th>现价</th>` +
+    `<th title="当日开盘价">开盘价</th>` +
     `${sortThHtml("涨跌", "chg")}` +
     `<th title="持仓加权平均成本，对账用">成本</th>` +
     `${sortThHtml("市值", "market_value")}${sortThHtml("评分", "score")}` +
