@@ -266,6 +266,9 @@ class TestClusterLive(unittest.TestCase):
             ), patch(
                 "core.watching_store.read_watching",
                 return_value={"watchlist": ["600519", "000001", "601318"]},
+            ), patch(
+                "core.ports.market.batch_query_quotes",
+                return_value={},
             ):
                 out = rank_cluster_pools(
                     ["600519", "000001", "601318"],
@@ -311,6 +314,9 @@ class TestClusterLive(unittest.TestCase):
 
             with patch(
                 "core.signal.score_stock.score_stock", side_effect=fake_score_low
+            ), patch(
+                "core.ports.market.batch_query_quotes",
+                return_value={},
             ):
                 low = rank_cluster_pools(
                     ["600519", "000001", "601318"],
@@ -334,6 +340,9 @@ class TestClusterLive(unittest.TestCase):
             # max_names 截断
             with patch(
                 "core.signal.score_stock.score_stock", side_effect=fake_score
+            ), patch(
+                "core.ports.market.batch_query_quotes",
+                return_value={},
             ):
                 capped = rank_cluster_pools(
                     ["600519", "000001", "601318"],
@@ -345,6 +354,73 @@ class TestClusterLive(unittest.TestCase):
                 [b["stock_code"] for b in capped["book"]],
                 ["601318", "600519"],
             )
+
+    def test_rank_passes_pool_sector_gap_breadth(self):
+        """刷簿预计算池内广度并注入 score_stock。"""
+        from core.signal.cluster_live import promote_cluster_artifact
+        from core.signal.cluster_rank import rank_cluster_pools
+
+        seen = []
+
+        def fake_score(code, **kwargs):
+            seen.append(dict(kwargs))
+            return {
+                "success": True,
+                "signal_item": {
+                    "stock_code": code,
+                    "stock_name": code,
+                    "score": 80,
+                    "hard_reject": False,
+                    "cluster_label": "G1",
+                    "weight_source": "cluster:G1",
+                },
+            }
+
+        quotes = {
+            "600519": {
+                "success": True,
+                "open": "10.3元",
+                "price_raw": 10.5,
+                "change_raw": 2.0,
+            },
+            "000001": {
+                "success": True,
+                "open": "20.4元",
+                "price_raw": 20.0,
+                "change_raw": -1.0,
+            },
+            "601318": {
+                "success": True,
+                "open": "8.24元",
+                "price_raw": 8.0,
+                "change_raw": 1.0,
+            },
+        }
+        with _live_tmp():
+            promote_cluster_artifact(self._artifact())
+            with patch(
+                "core.signal.score_stock.score_stock", side_effect=fake_score
+            ), patch(
+                "core.ports.market.batch_query_quotes",
+                return_value=quotes,
+            ), patch(
+                "core.event_prior.get_event_prior_cfg",
+                return_value={"gap_trigger_pct": 2.0, "mode": "gate"},
+            ):
+                out = rank_cluster_pools(
+                    ["600519", "000001", "601318"],
+                    max_names=10,
+                    min_score=0,
+                    persist_book=False,
+                )
+        self.assertTrue(out["success"])
+        self.assertIsNotNone(out.get("sector_gap_breadth"))
+        self.assertTrue(seen)
+        for kw in seen:
+            self.assertEqual(
+                kw.get("sector_gap_breadth"), out.get("sector_gap_breadth")
+            )
+            self.assertIn("quote", kw)
 
     def test_auto_demote_stale_and_prepare_daily(self):
         from core.signal.cluster_live import (

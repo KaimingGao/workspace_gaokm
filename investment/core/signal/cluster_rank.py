@@ -107,18 +107,42 @@ def rank_cluster_pools(
     below_min = 0
     oos_blocked_count = 0
 
+    # 一次批量行情 → 池内共享 sector_gap_breadth（对齐 rem 面板按日广度；避免 N×同伴拉取）
+    quote_cache: Dict[str, dict] = {}
+    pool_breadth: Optional[float] = None
+    try:
+        from core.event_prior import compute_sector_gap_breadth_live, get_event_prior_cfg
+        from core.ports.market import batch_query_quotes
+
+        quote_cache = dict(batch_query_quotes(codes) or {})
+        trigger = float(get_event_prior_cfg().get("gap_trigger_pct") or 2.0)
+        br = compute_sector_gap_breadth_live(
+            codes,
+            gap_trigger_pct=trigger,
+            quotes=quote_cache,
+            use_sector_peers=False,
+        )
+        if br.get("breadth") is not None:
+            pool_breadth = float(br["breadth"])
+    except Exception:
+        quote_cache = {}
+        pool_breadth = None
+
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     def _score_one(raw: str) -> Dict[str, Any]:
         # 跳过完整财务 PIT（避免 N×慢拉取）；score_stock 仍会并入本地 valuation_em
         # 缓存（市值/PE 等），保证规模等因子不因 skip 打成假中性 50。
-        # 刷簿跳过舆情（避免 N×12s）；fetch_sector_breadth 默认关。
+        # 刷簿跳过舆情；广度用上方池共享值，勿开 fetch_sector_breadth。
+        q = quote_cache.get(raw)
         return score_stock(
             raw,
             horizon_days=horizon_days,
             cluster_mode="active",
             skip_fundamentals=True,
             skip_sentiment=True,
+            quote=q if isinstance(q, dict) else None,
+            sector_gap_breadth=pool_breadth,
             quote_timeout=5.0,
         )
 
@@ -410,9 +434,11 @@ def rank_cluster_pools(
         "book_path": path,
         "tau_shadow_book_path": tau_shadow_path,
         "tau_shadow_meta": tau_shadow_meta,
+        "sector_gap_breadth": pool_breadth,
         "note": (
             "分池：组ŷ→剔ST→剔OOS失败组→ŷ≥min_predicted_score（h=1 现网约 +0.35）→全局降序→max_names 截断。"
             "不再做组内 Top-N。低于门槛 / 未映射 / 硬拒绝 / OOS阻断仍进 scored_all 供展示。"
+            "刷簿前批量行情算池内 sector_gap_breadth，写入各票 ŷ_τ。"
             "不写 signal_config.weights。"
             "另写 A2 τ 影子簿（同池按 ŷ_τ）供对照。"
         ),

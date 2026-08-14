@@ -241,6 +241,27 @@ class TestEventBreadth(unittest.TestCase):
         self.assertIn("000001", out.get("peer_codes") or [])
         self.assertNotIn("300750", out.get("peer_codes") or [])
 
+    def test_pool_shared_breadth_no_peers(self):
+        """刷簿：整池 quotes 一次算共享 breadth（与 rem 按日广度同构）。"""
+        from core.event_prior import compute_sector_gap_breadth_live
+
+        quotes = {
+            "000001": {"success": True, "open": "10.3元", "price_raw": 10.5, "change_raw": 2.0},
+            "000002": {"success": True, "open": "20.0元", "price_raw": 20.0, "change_raw": 0.0},
+            "600000": {"success": True, "open": "8.24元", "price_raw": 8.0, "change_raw": 1.0},
+        }
+        with patch("core.ports.market.batch_query_quotes", return_value={}):
+            out = compute_sector_gap_breadth_live(
+                ["000001", "000002", "600000"],
+                quotes=quotes,
+                use_sector_peers=False,
+                gap_trigger_pct=2.0,
+            )
+        self.assertEqual(out.get("universe_mode"), "codes_universe")
+        # gaps ≈ 2%, 0%, 3% → 2/3 hit trigger
+        self.assertIsNotNone(out.get("breadth"))
+        self.assertGreaterEqual(float(out["breadth"]), 0.3)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -171,6 +171,7 @@ def score_stock(
     bypass_quality_gate: bool = False,
     cluster_mode: Optional[str] = None,
     fetch_sector_breadth: bool = False,
+    sector_gap_breadth: Optional[float] = None,
     quote_timeout: float = 15.0,
 ) -> Dict[str, Any]:
     """拉行情 + 日线 + score_bars，返回 signal_item 形状 dict。
@@ -179,8 +180,9 @@ def score_stock(
     研究可传 bypass_quality_gate=True；历史回测引擎直接调 score_bars，不受影响。
 
     ``skip_sentiment=True``：跳过标题舆情拉取（分池刷簿必开，否则 N×超时极慢）。
+    ``sector_gap_breadth``：调用方预计算的截面缺口广度（刷簿一次批量后共享）。
     ``fetch_sector_breadth=True``：主题缺口时再拉同伴行情算广度（默认关；
-    刷簿并行下会 N×批量行情卡死。纸面调仓另有批量 ``compute_sector_gap_breadth_live``）。
+    有预计算值时不再拉；刷簿并行下勿开，否则 N×批量行情卡死）。
     ``quote_timeout``：单票行情秒数（分池刷簿宜 ≤6，避免对照长时间挂起）。
 
     cluster_mode: None=读 signal_config.cluster_scoring；
@@ -744,9 +746,14 @@ def score_stock(
         ep_cfg = get_event_prior_cfg()
         trigger = float(ep_cfg.get("gap_trigger_pct") or 2)
         sector_breadth = None
+        if sector_gap_breadth is not None:
+            try:
+                sector_breadth = float(sector_gap_breadth)
+            except (TypeError, ValueError):
+                sector_breadth = None
         # 默认不拉同伴行情：刷簿 8 路并行 × 每票 40 行情会把对照卡死数分钟。
-        # 纸面调仓另有批量 compute_sector_gap_breadth_live。
-        if (
+        # 刷簿路径应预计算 sector_gap_breadth；纸面调仓另有批量路径。
+        elif (
             fetch_sector_breadth
             and gap_v is not None
             and float(gap_v) >= trigger

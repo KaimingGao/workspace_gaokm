@@ -276,6 +276,8 @@ def compute_sector_gap_breadth_live(
 
     ``use_sector_peers=True`` 且提供 ``focus_code`` 时：优先同 ``sector_map`` 标签同伴；
     同伴不足 3 只则回退全 ``codes`` 宇宙。
+    刷簿路径传 ``use_sector_peers=False`` + 预取 ``quotes``：整池共享一个 breadth，
+    与 rem 训练面板按日广度同构，且只需一次 batch 行情。
     """
     from core.ports.market import batch_query_quotes
 

@@ -172,8 +172,9 @@ flowchart LR
 ```text
 score_stock(code) 续——
   → gap_pct = gap_pct_from_quote_bars(quote, bars)       # 开盘缺口%
-  →（缺口≥trigger 时）compute_sector_gap_breadth_live    # 同业开盘截面广度
-  → feats = {gap_pct, open_gap, sector_gap_breadth, theme_day, sub_scores…}
+  → sector_gap_breadth：刷簿由 rank_cluster_pools 批量注入池共享值；
+    单票可选 fetch_sector_breadth / 纸面调仓批量 compute_sector_gap_breadth_live
+  → feats = {gap_pct, sector_gap_breadth, theme_day, …}  # rem 仅 Z
   →（enable_minute_tau 且有本地缓存）附加 ret_open_to_tau  # 09:45 已实现收益
   → rem_yhat = predict_rem_from_features(feats)           # rem_ridge 模型预测 ŷ_τ
   → ep = build_event_prior_from_quote(…)                  # 事件先验（soft hold / warn）
