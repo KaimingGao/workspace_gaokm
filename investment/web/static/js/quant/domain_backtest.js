@@ -665,7 +665,7 @@ export function installBacktest(q) {
     const dull = paramGridDullness(data);
     if (dull) data.dullness = dull;
     if (meta) meta.textContent = buildParamGridMetaText(data, dull);
-    drawParamHeatmap(data.cells || [], data.axes || {});
+    drawParamHeatmap(data.cells || [], data.axes || {}, { best: data.best });
     refreshParamGridApplyGate();
     if (!table) return;
     table.innerHTML = buildParamGridTableHtml(data, {

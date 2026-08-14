@@ -1,77 +1,109 @@
 /**
- * 参数网格热力图与结果表 HTML（canvas / 字符串）。
+ * 参数网格热力矩阵与结果表 HTML。
  */
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
 import { researchGridHtml as defaultResearchGridHtml, metricCell as defaultMetricCell } from "./research_grid.js";
 import { fmtPct as defaultFmtPct, metricClass as defaultMetricClass } from "./bt_result.js";
 
-export function drawParamHeatmap(cells, axes) {
-  const canvas = document.getElementById("param-grid-heat");
-  if (!canvas) return;
-  const g = canvas.getContext("2d");
-  const w = canvas.width;
-  const h = canvas.height;
-  g.clearRect(0, 0, w, h);
+function _heatTone(t) {
+  // t∈[0,1]：格内相对高低；A 股语义：高→红、低→绿，强度随 |t−0.5|
+  const clamp = Math.max(0, Math.min(1, t));
+  if (clamp >= 0.5) {
+    const u = (clamp - 0.5) * 2;
+    const pct = Math.round(10 + u * 42);
+    return {
+      cls: "is-high",
+      style: `background: color-mix(in srgb, var(--replay-up, #dc2626) ${pct}%, var(--surface, #fff));`,
+    };
+  }
+  const u = (0.5 - clamp) * 2;
+  const pct = Math.round(10 + u * 42);
+  return {
+    cls: "is-low",
+    style: `background: color-mix(in srgb, var(--replay-down, #16a34a) ${pct}%, var(--surface, #fff));`,
+  };
+}
+
+/** 渲染 lookback × top_k 矩阵（替代旧 canvas 热力）。 */
+export function buildParamHeatmapHtml(cells, axes, opts = {}) {
+  const escapeHtml = opts.escapeHtml || defaultEscapeHtml;
   const lookbacks = (axes && axes.lookback) || [];
   const topKs = (axes && axes.top_k) || [];
   if (!lookbacks.length || !topKs.length) {
-    g.fillStyle = "#9ca3af";
-    g.font = "12px Manrope, sans-serif";
-    g.fillText("暂无网格", 16, h / 2);
-    return;
+    return `<div class="param-grid-matrix is-empty">暂无网格</div>`;
   }
+
+  const byKey = {};
+  (cells || []).forEach((c) => {
+    byKey[`${c.lookback}|${c.top_k}`] = c;
+  });
   const vals = (cells || [])
     .filter((c) => c.success && c.total_return_pct != null)
     .map((c) => Number(c.total_return_pct));
   const minV = vals.length ? Math.min(...vals) : 0;
   const maxV = vals.length ? Math.max(...vals) : 1;
-  const padL = 56;
-  const padB = 36;
-  const padT = 16;
-  const padR = 16;
-  const cellW = (w - padL - padR) / topKs.length;
-  const cellH = (h - padT - padB) / lookbacks.length;
-  const byKey = {};
-  (cells || []).forEach((c) => {
-    byKey[`${c.lookback}|${c.top_k}`] = c;
-  });
-  lookbacks.forEach((lb, ri) => {
-    topKs.forEach((tk, ci) => {
-      const c = byKey[`${lb}|${tk}`];
-      const x = padL + ci * cellW;
-      const y = padT + ri * cellH;
-      let fill = "#e5e7eb";
-      if (c && c.success && c.total_return_pct != null) {
-        const t = maxV === minV ? 0.5 : (Number(c.total_return_pct) - minV) / (maxV - minV);
-        const r = Math.round(255 * t);
-        const b = Math.round(255 * (1 - t));
-        fill = `rgb(${r},80,${b})`;
-      }
-      g.fillStyle = fill;
-      g.fillRect(x + 3, y + 3, cellW - 6, cellH - 6);
-      g.fillStyle = "#111827";
-      g.font = "600 15px IBM Plex Mono, monospace";
-      g.textAlign = "center";
-      g.textBaseline = "middle";
-      const label =
-        c && c.success && c.total_return_pct != null
-          ? `${Number(c.total_return_pct).toFixed(1)}%`
-          : c && c.error
-            ? "×"
-            : "—";
-      g.fillText(label, x + cellW / 2, y + cellH / 2);
-    });
-  });
-  g.fillStyle = "#6b7280";
-  g.font = "12px Manrope, sans-serif";
-  g.textAlign = "right";
-  lookbacks.forEach((lb, ri) => {
-    g.fillText(String(lb), padL - 8, padT + ri * cellH + cellH / 2);
-  });
-  g.textAlign = "center";
-  topKs.forEach((tk, ci) => {
-    g.fillText(`K=${tk}`, padL + ci * cellW + cellW / 2, h - 12);
-  });
+  const best = opts.best || null;
+
+  const head =
+    `<div class="param-grid-matrix-corner" aria-hidden="true">lb\\K</div>` +
+    topKs
+      .map((tk) => `<div class="param-grid-matrix-colhead">K=${escapeHtml(String(tk))}</div>`)
+      .join("");
+
+  const rows = lookbacks
+    .map((lb) => {
+      const cellsHtml = topKs
+        .map((tk) => {
+          const c = byKey[`${lb}|${tk}`];
+          const isBest =
+            best &&
+            Number(c && c.lookback) === Number(best.lookback) &&
+            Number(c && c.top_k) === Number(best.top_k);
+          if (c && c.success && c.total_return_pct != null) {
+            const v = Number(c.total_return_pct);
+            const t = maxV === minV ? 0.5 : (v - minV) / (maxV - minV);
+            const tone = _heatTone(t);
+            const title = `lookback=${lb} · top_k=${tk} · 收益 ${v.toFixed(2)}%`;
+            return (
+              `<div class="param-grid-matrix-cell ${tone.cls}${isBest ? " is-best" : ""}" ` +
+              `style="${tone.style}" title="${escapeHtml(title)}">` +
+              `<span class="param-grid-matrix-val">${escapeHtml(v.toFixed(1))}%</span>` +
+              (isBest ? `<span class="param-grid-matrix-best">最优</span>` : "") +
+              `</div>`
+            );
+          }
+          const err = c && c.error ? String(c.error) : "";
+          return (
+            `<div class="param-grid-matrix-cell is-empty" title="${escapeHtml(err || "无结果")}">` +
+            `<span class="param-grid-matrix-val">${err ? "×" : "—"}</span>` +
+            `</div>`
+          );
+        })
+        .join("");
+      return (
+        `<div class="param-grid-matrix-rowhead">${escapeHtml(String(lb))}</div>` + cellsHtml
+      );
+    })
+    .join("");
+
+  const cols = topKs.length + 1;
+  return (
+    `<div class="param-grid-matrix" style="--pg-cols:${cols}" role="img" aria-label="参数网格收益矩阵">` +
+    head +
+    rows +
+    `</div>` +
+    `<div class="param-grid-matrix-legend" aria-hidden="true">` +
+    `<span class="param-grid-matrix-leg is-low">相对低</span>` +
+    `<span class="param-grid-matrix-leg-bar"></span>` +
+    `<span class="param-grid-matrix-leg is-high">相对高</span>` +
+    `</div>`
+  );
+}
+
+export function drawParamHeatmap(cells, axes, opts = {}) {
+  const host = document.getElementById("param-grid-heat");
+  if (!host) return;
+  host.innerHTML = buildParamHeatmapHtml(cells, axes, opts);
 }
 
 export function paramGridDullness(data) {

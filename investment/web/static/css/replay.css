@@ -70,13 +70,9 @@
 
 .replay-page .param-grid-heat {
   display: block;
-  width: min(100%, 640px);
-  max-width: 640px;
-  height: auto;
+  width: min(100%, 420px);
+  max-width: 420px;
   margin: 0 0 var(--replay-gap);
-  border: 1px solid var(--line);
-  border-radius: var(--replay-radius);
-  background: var(--surface);
 }
 
 html[data-density="compact"] .replay-page {
@@ -706,10 +702,8 @@ body[data-page="replay"] .replay-page .quant-weight-table-wrap td {
 }
 
 body[data-page="replay"] .replay-page .param-grid-heat {
-  border-radius: 2px !important;
-  width: min(100%, 640px);
-  max-width: 640px;
-  height: auto;
+  width: min(100%, 420px);
+  max-width: 420px;
 }
 
 /* ── 次要折叠 ── */
