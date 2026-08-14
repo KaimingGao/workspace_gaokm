@@ -2,7 +2,7 @@ import { apiFetch } from "../api_client.js";
 import { renderLineChart } from "../lw_charts.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import { mountVirtualTable, colStyle } from "../virtual_table.js";
-import { fmtScore, scoreCls } from "../paper/fmt.js";
+import { fmtScore, scoreCls, resolveTradeScore, resolveEodScore, resolveEodRemScore } from "../paper/fmt.js?v=p1061";
 import { truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode } from "./names.js";
 import { renderWatchingHoldings as renderWatchingHoldingsHtml } from "./watching_holdings.js";
 import { buildWatchingDqMetaText, buildWatchingDqFoldSummary, buildWatchingDqTableHtml } from "./watching_dq_ui.js";
@@ -15,7 +15,7 @@ import {
   buildWatchingInsightsErrorStatus,
   buildWatchingInsightsGridErrorPatch,
   buildWatchingInsightsNativeFields,
-} from "./watching_insights_ui.js?v=p910";
+} from "./watching_insights_ui.js?v=p1061";
 import {
   parseWatchingVolume,
   formatWatchingChg,
@@ -29,19 +29,20 @@ import {
   buildWatchingBuildPayload,
   watchingBuildModeUiConfig,
 } from "./watching_build_ui.js";
-import { mountScoreHistogram } from "./yhat_viz.js";
+import { mountScoreHistogram, summarizeScores } from "./yhat_viz.js";
 import { defaultScoringFloors } from "./scoring.js";
 import {
   formatRefreshStats,
   buildWatchingNameByCode,
   watchingPoolMetaText,
   applyWatchingOverviewKpis,
+  formatYhatLayerMeta,
   watchingQuantListHtml,
   watchingPanelShellFlags,
   applyWatchingPanelShell,
   watchingChartSeriesFromPoints,
   watchingChartLabelText,
-} from "./watching_panel_ui.js?v=p910";
+} from "./watching_panel_ui.js?v=p1061";
 
 const WATCHING_SORT_STORAGE = "watching_table_sort_v1";
 const WATCHING_SORT_KEYS = new Set(["name", "chg", "score", "excess", "vol"]);
@@ -64,6 +65,14 @@ export function installWatching(q) {
   } catch (_) { /* ignore */ }
 
   function collectWatchingYhatItems() {
+    const insightBy = state.watchingInsightByCode || {};
+    const mergeLayer = (code, row) => {
+      const it = insightBy[watchingCodeKey(code)] || row;
+      return {
+        scoreEod: resolveEodScore(it) ?? resolveEodScore(row),
+        scoreEodRem: resolveEodRemScore(it) ?? resolveEodRemScore(row),
+      };
+    };
     const out = [];
     if (state.watchingGrid && state.watchingGridReady) {
       for (const r of state.watchingGrid.getData() || []) {
@@ -74,7 +83,13 @@ export function installWatching(q) {
               ? Number(r.predicted_score)
               : Number(r.score);
         if (!Number.isFinite(n) || !r.code) continue;
-        out.push({ code: String(r.code), name: r.name || "", score: n });
+        const code = String(r.code);
+        out.push({
+          code,
+          name: r.name || "",
+          score: n,
+          ...mergeLayer(code, r),
+        });
       }
       return out;
     }
@@ -87,7 +102,16 @@ export function installWatching(q) {
         tr.querySelector(".watching-name-text")?.getAttribute("data-full-name") ||
         tr.querySelector(".watching-name-text")?.textContent ||
         "";
-      out.push({ code, name, score: n });
+      const row = {
+        scoreEodNum: Number(tr.dataset.scoreEod),
+        scoreEodRemNum: Number(tr.dataset.scoreEodRem),
+      };
+      out.push({
+        code,
+        name,
+        score: n,
+        ...mergeLayer(code, row),
+      });
     });
     return out;
   }
@@ -174,7 +198,23 @@ export function installWatching(q) {
     if (!items.length) {
       wrap.hidden = true;
       applyYhatHistTableFilter(null);
-      applyWatchingOverviewKpis({ buyPct: null, mu: null, med: null, n: null });
+      applyWatchingOverviewKpis({
+        buyPct: null,
+        mu: null,
+        med: null,
+        n: null,
+        eodMu: null,
+        eodMed: null,
+        eodN: null,
+        eodRemMu: null,
+        eodRemMed: null,
+        eodRemN: null,
+      });
+      const metaEod = document.getElementById("watching-yhat-hist-meta-eod");
+      const metaEodRem = document.getElementById("watching-yhat-hist-meta-eod-rem");
+      if (meta) meta.textContent = "";
+      if (metaEod) metaEod.textContent = "";
+      if (metaEodRem) metaEodRem.textContent = "";
       return;
     }
     wrap.hidden = false;
@@ -191,23 +231,23 @@ export function installWatching(q) {
       if (pack) {
         const f = (x, d = 2) =>
           x != null && Number.isFinite(x) ? Number(x).toFixed(d) : "—";
-        const pctBuy =
-          pack.pct_above_buy != null
-            ? `≥买门 ${(pack.pct_above_buy * 100).toFixed(0)}%`
-            : null;
+        const floorsBuy = floors.min_predicted_score;
+        const eodPack = summarizeScores(
+          items.map((it) => it.scoreEod),
+          { buyFloor: floorsBuy }
+        );
+        const eodRemPack = summarizeScores(items.map((it) => it.scoreEodRem));
         const pos =
           pack.pct_pos != null
-            ? `ŷ>0 ${(pack.pct_pos * 100).toFixed(0)}%`
+            ? `ŷ_trade>0 ${(pack.pct_pos * 100).toFixed(0)}%`
             : null;
         if (meta) {
-          meta.textContent = [pctBuy, pos, `n=${pack.n}`]
-            .filter(Boolean)
-            .join(" · ");
+          meta.textContent = [pos, `n=${pack.n}`].filter(Boolean).join(" · ");
         }
         const metaAux = document.getElementById("watching-yhat-hist-meta-aux");
         if (metaAux) {
           metaAux.textContent = [
-            `μ ${f(pack.mean)}%`,
+            `ŷ_trade μ ${f(pack.mean)}%`,
             `med ${f(pack.median)}%`,
             `IQR [${f(pack.p25)}, ${f(pack.p75)}]`,
             pack.std != null && Number.isFinite(pack.std)
@@ -217,11 +257,27 @@ export function installWatching(q) {
             .filter(Boolean)
             .join(" · ");
         }
+        const metaEod = document.getElementById("watching-yhat-hist-meta-eod");
+        if (metaEod) {
+          metaEod.textContent = formatYhatLayerMeta("ŷ_EOD", eodPack, {
+            buy: true,
+          });
+        }
+        const metaEodRem = document.getElementById("watching-yhat-hist-meta-eod-rem");
+        if (metaEodRem) {
+          metaEodRem.textContent = formatYhatLayerMeta("ŷ_EOD_rem", eodRemPack);
+        }
         applyWatchingOverviewKpis({
-          buyPct: pack.pct_above_buy,
+          buyPct: eodPack.n ? eodPack.pct_above_buy : null,
           mu: pack.mean,
           med: pack.median,
-          n: pack.n,
+          n: eodPack.n || pack.n,
+          eodMu: eodPack.mean,
+          eodMed: eodPack.median,
+          eodN: eodPack.n || null,
+          eodRemMu: eodRemPack.mean,
+          eodRemMed: eodRemPack.median,
+          eodRemN: eodRemPack.n || null,
         });
       }
     });
@@ -488,6 +544,7 @@ export function installWatching(q) {
           .filter(Boolean);
     if (!codes.length) return;
     const gen = (state.watchingInsightsGen = (state.watchingInsightsGen || 0) + 1);
+    state.watchingInsightByCode = {};
     // 每批单独超时（对齐后端 batch≈90s）；勿用总时钟，否则 100 票 3 批必触发「摘要超时」
     const chunkTimeoutMs = 95000;
     const insightDeps = { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail };
@@ -497,6 +554,10 @@ export function installWatching(q) {
       if (gen !== state.watchingInsightsGen) return;
       if (useGrid && !(state.watchingGrid && state.watchingGridReady)) return;
       const byCode = indexByWatchingCode(items);
+      state.watchingInsightByCode = {
+        ...(state.watchingInsightByCode || {}),
+        ...byCode,
+      };
       if (useGrid && typeof state.watchingGrid.patchRows === "function") {
         const patches = {};
         codes.forEach((code) => {
@@ -534,6 +595,13 @@ export function installWatching(q) {
           if (scoreEl) {
             scoreEl.innerHTML = buildWatchingScoreCellHtml(disp, scoreCls, escapeHtml);
           }
+          const eod = resolveEodScore(it);
+          const eodRem = resolveEodRemScore(it);
+          if (disp.scoreNum != null) tr.dataset.score = String(disp.scoreNum);
+          if (eod != null) tr.dataset.scoreEod = String(eod);
+          else delete tr.dataset.scoreEod;
+          if (eodRem != null) tr.dataset.scoreEodRem = String(eodRem);
+          else delete tr.dataset.scoreEodRem;
           const fields = buildWatchingInsightsNativeFields(it);
           setTxt("stance", fields.stance);
           setTxt("excess", fields.excess);
@@ -609,8 +677,9 @@ export function installWatching(q) {
       try {
         const scoresByCode = {};
         for (const it of items) {
-          if (it.stock_code && it.predicted_score != null) {
-            scoresByCode[it.stock_code] = it.predicted_score;
+          const trade = resolveTradeScore(it);
+          if (it.stock_code && trade != null) {
+            scoresByCode[it.stock_code] = trade;
           }
         }
         localStorage.setItem(
@@ -1022,6 +1091,12 @@ export function installWatching(q) {
         mu: null,
         med: null,
         n: null,
+        eodMu: null,
+        eodMed: null,
+        eodN: null,
+        eodRemMu: null,
+        eodRemMed: null,
+        eodRemN: null,
       });
       const watchTable = document.getElementById("watching-watchlist-table");
       if (state.watchingGrid && typeof state.watchingGrid.destroy === "function") {
@@ -1384,6 +1459,7 @@ export function installWatching(q) {
     state.watchingGrid = null;
     state.watchingGridReady = false;
     state.watchingInsightsGen = (state.watchingInsightsGen || 0) + 1;
+    state.watchingInsightByCode = {};
     if (!wl.length) {
       watchTable.innerHTML = `<p class="watching-table-empty">暂无观察 · 上方搜索加入</p>`;
       hideWatchingNewsDetail();
@@ -1562,6 +1638,12 @@ export function installWatching(q) {
         mu: null,
         med: null,
         n: null,
+        eodMu: null,
+        eodMed: null,
+        eodN: null,
+        eodRemMu: null,
+        eodRemMed: null,
+        eodRemN: null,
       });
     }
   }

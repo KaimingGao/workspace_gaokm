@@ -336,6 +336,9 @@ def run_daily_cycle(
             "stock_code": code,
             "stock_name": name,
             "score": round(score, 3) if score is not None else None,
+            "predicted_score": (
+                signal.get("predicted_score") if signal else None
+            ),
             "old_shares": int(old_shares),
             "new_shares": int(new_shares),
             "shares_change": int(shares_change),
@@ -376,9 +379,23 @@ def run_daily_cycle(
             "dual_score_fusion": signal.get("dual_score_fusion") if signal else None,
             "y_spec_tau": signal.get("y_spec_tau") if signal else None,
         })
+        if signal:
+            try:
+                from core.signal.dual_score import dual_score_book_fields
 
-    # 按评分降序排列
-    rebalance_report.sort(key=lambda x: x.get("score") or 0, reverse=True)
+                rebalance_report[-1].update(dual_score_book_fields(signal))
+            except Exception:
+                pass
+
+    # 按 ŷ_trade 降序（缺则 ŷ_τ / EOD）
+    try:
+        from core.signal.dual_score import rank_key_for_item
+
+        rebalance_report.sort(
+            key=lambda x: rank_key_for_item(x) or 0, reverse=True
+        )
+    except Exception:
+        rebalance_report.sort(key=lambda x: x.get("score") or 0, reverse=True)
 
     sid = paper.get("strategy_id") or strategy
     sver = paper.get("strategy_version")

@@ -2209,6 +2209,11 @@ a.dialog-btn[aria-disabled="true"] {
   background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
 }
 
+.score-layer-eod-rem {
+  background: linear-gradient(180deg, #fffbeb 0%, #fef3c7 100%);
+  border-color: rgba(217, 119, 6, 0.28);
+}
+
 .score-layer-tau {
   background: linear-gradient(180deg, #f0f9ff 0%, #e0f2fe 100%);
   border-color: rgba(14, 165, 233, 0.22);

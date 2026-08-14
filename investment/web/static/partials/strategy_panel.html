@@ -111,26 +111,41 @@
   >
     <header class="dashboard-section-head quant-section-head strategy-section-head">
       <h3 id="strategy-section-dual-title" class="dashboard-section-title">融合分数</h3>
-      <p class="dashboard-section-desc quant-section-desc">blend 排序 · τ 闸 · 权重 · 人审写盘</p>
+      <p class="dashboard-section-desc quant-section-desc">ŷ_trade = w·ŷ_EOD_rem + w·ŷ_τ · τ 闸 · 人审写盘</p>
     </header>
     <div class="dashboard-card quant-pro-card strategy-ops-card">
       <div class="quant-pro-card-body strategy-ops-card-body">
         <p class="strategy-prior-contract" role="note">
           <span class="strategy-prior-contract-k">契约</span>
-          簿排序键 = <code>w_EOD·ŷ_EOD + w_τ·ŷ_τ</code>（不对账单一 y）。表列主分仍是
-          <code>predicted_score</code>；买入另须 ŷ_τ ≥ τ 闸。
+          ŷ_EOD_rem = (1+ŷ_EOD)/(1+开盘缺口)−1，与 ŷ_τ 同为 T收/T开。簿排序键 =
+          <code>w_EOD·ŷ_EOD_rem + w_τ·ŷ_τ</code>。数据中心 / 交易执行表列主分为
+          <code>ŷ_trade</code>；买入另须 ŷ_EOD ≥ 门槛且 ŷ_τ ≥ τ 闸。
         </p>
         <div class="quant-control-band strategy-control-band" aria-label="融合分数">
           <div class="strategy-floors-form quant-actions-inline">
-            <label class="platform-field strategy-inline-field" title="融合分：ŷ_EOD 权重">
+            <label class="platform-field strategy-inline-field" title="ŷ_EOD_rem 权重">
               <span class="strategy-field-label">w_EOD</span>
-              <input id="strategy-dual-w-eod" type="number" min="0" max="1" step="0.05" class="platform-input" />
-              <span class="strategy-field-unit" aria-hidden="true"></span>
+              <input
+                id="strategy-dual-w-eod"
+                type="number"
+                step="0.05"
+                min="0"
+                max="1"
+                class="platform-input"
+                title="w_eod"
+              />
             </label>
-            <label class="platform-field strategy-inline-field" title="融合分：ŷ_τ 权重">
+            <label class="platform-field strategy-inline-field" title="ŷ_τ 权重">
               <span class="strategy-field-label">w_τ</span>
-              <input id="strategy-dual-w-tau" type="number" min="0" max="1" step="0.05" class="platform-input" />
-              <span class="strategy-field-unit" aria-hidden="true"></span>
+              <input
+                id="strategy-dual-w-tau"
+                type="number"
+                step="0.05"
+                min="0"
+                max="1"
+                class="platform-input"
+                title="w_tau"
+              />
             </label>
             <label class="platform-field strategy-inline-field" title="ŷ_τ ≥ 此值才买入">
               <span class="strategy-field-label">τ 闸 ≥</span>

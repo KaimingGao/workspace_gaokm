@@ -2,7 +2,7 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtScore, scoreCls } from "./paper/fmt.js";
+import { fmtPriceUnit, fmtPct, metricCls, fmtScore, scoreCls, resolveTradeScore } from "./paper/fmt.js";
 import { sentimentBadgeHtml } from "./quant/watching_render.js";
 
 function escapeHtml(s) {
@@ -34,7 +34,7 @@ export function holdingToRow(
   const code = String(h.stock_code || "").trim();
   const name = h.stock_name || code || "";
   const pnl = h.pnl_pct;
-  const score = h.score;
+  const score = resolveTradeScore(h);
   const belowMin = !!h.below_min_score;
   const minScore = h.min_score;
   const hardReject = !!h.hard_reject;
@@ -47,8 +47,8 @@ export function holdingToRow(
   const scoreTitle = hardReject
     ? String(h.reject_reason || "硬拒绝 · 无收益分")
     : belowMin
-      ? `低于ŷ门槛 ${minScore ?? "—"}（仍显示分数）· 悬停看详情`
-      : "悬停查看收益分与因子系数";
+      ? `低于ŷ_EOD门槛 ${minScore ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
+      : "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
   const fmtSignedPct = (v) => {
     if (v == null || v === "") return "—";
     const n = Number(v);
@@ -83,7 +83,8 @@ export function holdingToRow(
       const hasTerms =
         terms && Array.isArray(terms.terms) && terms.terms.length > 0;
       return {
-        predicted_score: h.predicted_score != null ? h.predicted_score : score,
+        predicted_score: h.predicted_score != null ? h.predicted_score : h.score,
+        score: h.score != null ? h.score : h.predicted_score,
         predicted_score_tau:
           h.predicted_score_tau != null
             ? h.predicted_score_tau
@@ -91,6 +92,10 @@ export function holdingToRow(
               ? h.score_rem
               : h.predicted_score_rem,
         predicted_score_blend: h.predicted_score_blend,
+        predicted_score_eod: h.predicted_score_eod,
+        predicted_score_eod_rem: h.predicted_score_eod_rem,
+        predicted_score_tau_delta: h.predicted_score_tau_delta,
+        realized_t1_to_tau: h.realized_t1_to_tau,
         score_rem: h.score_rem != null ? h.score_rem : h.predicted_score_rem,
         gap_pct: h.gap_pct,
         event_prior: h.event_prior || null,
@@ -167,7 +172,7 @@ const COLS = [
   },
   { id: "cost", label: "成本", widthPct: 7, num: true, title: "持仓加权平均成本，对账用" },
   { id: "market_value", label: "市值", widthPct: 7, num: true, sortable: true },
-  { id: "score", label: "评分", widthPct: 7, num: true, sortable: true },
+  { id: "score", label: "评分", widthPct: 7, num: true, sortable: true, title: "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ" },
   {
     id: "pnl",
     label: "浮盈亏",

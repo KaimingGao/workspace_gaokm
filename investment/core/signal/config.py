@@ -66,7 +66,7 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
     },
     # 双层 ŷ：EOD predicted_score + τ predicted_score_tau（见 dual_score / docs §2.5）
     "dual_score": {
-        "fusion_mode": "f2",  # 仅 blend：簿排序用融合分；买入另须 ŷ_τ≥floor
+        "fusion_mode": "blend",  # ŷ_trade = w·ŷ_EOD_rem + w·ŷ_τ；买入另须 ŷ_τ≥floor
         "tau": "open",
         "min_predicted_score_tau": 0.0,
         "block_buy_if_tau_missing": False,

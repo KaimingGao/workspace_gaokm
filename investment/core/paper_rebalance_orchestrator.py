@@ -114,7 +114,9 @@ def _supplement_holding_scores(
             sc_f = float(sc) if sc is not None else None
         except (TypeError, ValueError):
             sc_f = None
-        return {
+        from core.signal.dual_score import dual_score_book_fields
+
+        out = {
             "stock_code": item.get("stock_code") or code,
             "stock_name": item.get("stock_name") or name_by.get(code),
             "score": sc_f,
@@ -127,17 +129,21 @@ def _supplement_holding_scores(
             "score_cluster": item.get("score_cluster"),
             "below_min_score": bool(item.get("below_min_score")),
             "score_formula_terms": item.get("score_formula_terms"),
-            "predicted_score_tau": item.get(
-                "predicted_score_tau", item.get("score_rem")
-            ),
-            "score_rem": item.get("score_rem"),
-            "gap_pct": item.get("gap_pct"),
-            "event_prior": item.get("event_prior"),
-            "as_of_tau": item.get("as_of_tau"),
-            "dual_score_fusion": item.get("dual_score_fusion"),
-            "y_spec_tau": item.get("y_spec_tau"),
             "holding_supplement": True,
         }
+        try:
+            out.update(dual_score_book_fields(item))
+        except Exception:
+            out["predicted_score_tau"] = item.get(
+                "predicted_score_tau", item.get("score_rem")
+            )
+            out["score_rem"] = item.get("score_rem")
+            out["gap_pct"] = item.get("gap_pct")
+            out["event_prior"] = item.get("event_prior")
+            out["as_of_tau"] = item.get("as_of_tau")
+            out["dual_score_fusion"] = item.get("dual_score_fusion")
+            out["y_spec_tau"] = item.get("y_spec_tau")
+        return out
 
     extra: List[dict] = []
     workers = max(1, min(8, len(missing)))

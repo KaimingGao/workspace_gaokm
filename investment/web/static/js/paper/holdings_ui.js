@@ -10,6 +10,7 @@ import {
   metricCls,
   fmtScore,
   scoreCls,
+  resolveTradeScore,
 } from "./fmt.js";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
 
@@ -113,7 +114,7 @@ export function buildPaperHoldingsTableHtml({
       const code = h.stock_code || "";
       const pnl = h.pnl_pct;
       const startDate = h.bought_date || "—";
-      const score = h.score;
+      const score = resolveTradeScore(h);
       const belowMin = !!h.below_min_score;
       const hardReject = !!h.hard_reject;
       const scoreBase = fmtScoreLocal(score);
@@ -123,8 +124,8 @@ export function buildPaperHoldingsTableHtml({
       const scoreTitle = hardReject
         ? String(h.reject_reason || "硬拒绝 · 无收益分")
         : belowMin
-          ? `低于ŷ门槛 ${h.min_score ?? "—"}（仍显示分数）· 悬停看详情`
-          : "悬停查看收益分与因子系数";
+          ? `低于ŷ_EOD门槛 ${h.min_score ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
+          : "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
       const origin = String(h.origin || "");
       const originLabel = h.origin_label || "—";
       const originTitle = ORIGIN_HINT[origin] || "早期记录未标出处";
@@ -190,7 +191,8 @@ export function buildPaperHoldingsTableHtml({
             const hasTerms =
               terms && Array.isArray(terms.terms) && terms.terms.length > 0;
             return {
-              predicted_score: h.predicted_score != null ? h.predicted_score : score,
+              predicted_score: h.predicted_score != null ? h.predicted_score : h.score,
+              score: h.score != null ? h.score : h.predicted_score,
               predicted_score_tau:
                 h.predicted_score_tau != null
                   ? h.predicted_score_tau
@@ -198,6 +200,10 @@ export function buildPaperHoldingsTableHtml({
                     ? h.score_rem
                     : h.predicted_score_rem,
               predicted_score_blend: h.predicted_score_blend,
+              predicted_score_eod: h.predicted_score_eod,
+              predicted_score_eod_rem: h.predicted_score_eod_rem,
+              predicted_score_tau_delta: h.predicted_score_tau_delta,
+              realized_t1_to_tau: h.realized_t1_to_tau,
               score_rem: h.score_rem != null ? h.score_rem : h.predicted_score_rem,
               gap_pct: h.gap_pct,
               event_prior: h.event_prior || null,

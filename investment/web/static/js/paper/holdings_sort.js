@@ -1,5 +1,7 @@
 /** Holdings sort helpers extracted from paper.js (W0.1). */
 
+import { resolveTradeScore } from "./fmt.js";
+
 export function loadHoldingsSort() {
   let key = "market_value";
   let dir = "desc";
@@ -46,8 +48,10 @@ export function sortHoldings(list, key, dir) {
       return asc ? av.localeCompare(bv) : bv.localeCompare(av);
     }
     if (k === "score") {
-      av = Number(a.score);
-      bv = Number(b.score);
+      av = resolveTradeScore(a);
+      bv = resolveTradeScore(b);
+      av = av == null ? NaN : av;
+      bv = bv == null ? NaN : bv;
     } else if (k === "pnl") {
       av = Number(a.pnl_pct);
       bv = Number(b.pnl_pct);

@@ -10,6 +10,13 @@
   color: var(--ink-3);
 }
 
+.follow-holdings-score-stats {
+  display: inline;
+  margin-left: 0.5em;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3, #64748b);
+}
+
 .paper-progress {
   margin: 0 0 14px;
 }

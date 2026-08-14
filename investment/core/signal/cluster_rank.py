@@ -292,14 +292,13 @@ def rank_cluster_pools(
             }
         )
 
-    # 选股簿：全局按组权分降序 → min_score 过滤 → max_names 截断
-    # F2：排序键可用 blend，但 below_min_score / score 主字段仍为 ŷ_EOD
+    # 选股簿：全局按 ŷ_trade 降序 → min_score 过滤（仍看 ŷ_EOD）→ max_names 截断
     try:
         from core.signal.dual_score import get_dual_score_cfg, rank_key_for_item
 
         _dual_cfg = get_dual_score_cfg()
     except Exception:
-        _dual_cfg = {"fusion_mode": "f2"}
+        _dual_cfg = {"fusion_mode": "blend"}
 
         def rank_key_for_item(x, config=None):  # type: ignore
             try:
@@ -317,7 +316,7 @@ def rank_cluster_pools(
     book = eligible[:max_n]
     for i, b in enumerate(book):
         b["rank"] = i + 1
-        if _dual_cfg.get("fusion_mode") == "f2":
+        if _dual_cfg.get("fusion_mode") in ("blend", "residual", "f2"):
             b["rank_key"] = "predicted_score_blend"
 
     scored_all: List[dict] = list(scored_extra) + list(mapped_rows)

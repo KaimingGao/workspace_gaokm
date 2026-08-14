@@ -423,13 +423,17 @@ class DualScoreRequest(BaseModel):
     """双层 ŷ fusion；人审写 dual_score（不改 weights / scoring）。"""
 
     fusion_mode: Optional[str] = Field(
-        default=None, description="仅保留 f2/blend；其它入参归一为 f2"
+        default=None, description="仅 blend；其它入参归一为 blend"
     )
     min_predicted_score_tau: Optional[float] = Field(
         default=None, description="ŷ_τ 买入闸下限（%）；省略不改"
     )
-    w_eod: Optional[float] = Field(default=None, description="F2 blend 权重 · EOD")
-    w_tau: Optional[float] = Field(default=None, description="F2 blend 权重 · τ")
+    w_eod: Optional[float] = Field(
+        default=None, description="ŷ_EOD_rem 融合权重"
+    )
+    w_tau: Optional[float] = Field(
+        default=None, description="ŷ_τ 融合权重"
+    )
     block_buy_if_tau_missing: Optional[bool] = None
     note: str = Field(default="", max_length=500)
 

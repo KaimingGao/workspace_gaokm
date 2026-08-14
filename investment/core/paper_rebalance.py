@@ -424,9 +424,9 @@ def simulate_cross_section_rebalance(
                             )
                             else 0.0,
                         }
-                        rem_yhat = predict_rem_from_features(feats)
-                        if rem_yhat is None and code in tau_by_code:
-                            rem_yhat = tau_by_code[code]
+                        rem_yhat = tau_by_code.get(code)
+                        if rem_yhat is None:
+                            rem_yhat = predict_rem_from_features(feats)
                     except Exception:
                         rem_yhat = tau_by_code.get(code)
                     ep = build_event_prior_from_quote(
@@ -1152,7 +1152,7 @@ def simulate_cross_section_rebalance(
 
         _dual_meta = {
             "fusion_mode": get_dual_score_cfg().get("fusion_mode"),
-            "note": "融合分：簿排序用 blend；买入另须 ŷ_τ≥min_predicted_score_tau；主排序字段仍为 ŷ_EOD",
+            "note": "正交加权：簿排序与表列主分为 ŷ_trade=w·ŷ_EOD_rem+w·ŷ_τ；买入另须 ŷ_τ≥min_predicted_score_tau；ŷ_EOD 仅作门槛",
         }
     except Exception:
         _dual_meta = {"fusion_mode": None, "note": "dual_score unavailable"}

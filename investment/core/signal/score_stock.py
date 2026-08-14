@@ -771,18 +771,12 @@ def score_stock(
                 logger.warning("sector gap breadth failed for %s", code, exc_info=True)
         feats = {
             "gap_pct": gap_v,
-            "open_gap": gap_v,
             "sector_gap_breadth": sector_breadth,
             "theme_day": 1.0
             if (gap_v is not None and float(gap_v) >= trigger)
             else 0.0,
         }
-        for k, v in (scored.get("sub_scores") or {}).items():
-            if k not in feats:
-                try:
-                    feats[k] = float(v) if v is not None else None
-                except (TypeError, ValueError):
-                    feats[k] = None
+        # rem 头只吃 Z；日线 sub_scores 已在 ŷ_EOD，勿再塞进 feats
 
         # 可选：仅读本地分钟缓存附加 ret_open_to_tau（不拉网）
         as_of_tau_override = None
@@ -847,22 +841,23 @@ def score_stock(
             logger.debug("minute tau attach skipped for %s", code, exc_info=True)
 
         rem_yhat = predict_rem_from_features(feats)
-        ep = build_event_prior_from_quote(
-            quote,
-            bars,
-            rem_yhat=rem_yhat,
-            sector_breadth=sector_breadth,
-            stock_code=str(code),
-        )
         apply_tau_score_fields(
             signal_item,
             rem_yhat=rem_yhat,
             gap_pct=gap_v,
             feats=feats,
-            event_prior=ep,
             as_of_tau=as_of_tau_override,
             y_spec_override=y_spec_override,
         )
+        trade = signal_item.get("predicted_score_tau")
+        ep = build_event_prior_from_quote(
+            quote,
+            bars,
+            rem_yhat=trade if trade is not None else rem_yhat,
+            sector_breadth=sector_breadth,
+            stock_code=str(code),
+        )
+        signal_item["event_prior"] = ep
     except Exception:
         logger.warning("rem/event_prior attach failed for %s", code, exc_info=True)
 

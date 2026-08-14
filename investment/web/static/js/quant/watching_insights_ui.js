@@ -2,6 +2,7 @@
  * 观察池 insights 列格式化与 score 单元格 HTML（纯数据 / 字符串）。
  */
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
+import { resolveTradeScore, resolveEodScore, resolveEodRemScore } from "../paper/fmt.js?v=p1061";
 
 export function formatWatchingExcess(it) {
   // 主表只显示百分比；强弱标签进 title，避免窄列 ellipsis 看起来像空值
@@ -25,25 +26,17 @@ export function formatWatchingExcessTitle(it) {
  * @param {(it: object) => string} watchingScoreDetail
  */
 export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
-  const raw =
-    it.score != null && !Number.isNaN(Number(it.score))
-      ? Number(it.score)
-      : it.predicted_score != null && !Number.isNaN(Number(it.predicted_score))
-        ? Number(it.predicted_score)
-        : it.score_cluster != null && !Number.isNaN(Number(it.score_cluster))
-          ? Number(it.score_cluster)
-          : null;
-  const scoreNum = raw;
+  const scoreNum = resolveTradeScore(it);
   const belowMin = !!it.below_min_score;
   const scoreDetail = watchingScoreDetail(it);
   const scoreBase = fmtScore(scoreNum);
   const scoreText =
     scoreBase === "—" ? "—" : belowMin ? `${scoreBase}↓` : scoreBase;
   const scoreTitle = belowMin
-    ? `低于ŷ门槛 ${it.min_score ?? "—"}（仍显示分数）`
+    ? `低于ŷ_EOD门槛 ${it.min_score ?? "—"}（表列为 ŷ_trade）`
     : it.return_model_source === "cluster_shadow_fallback"
       ? "缺全局 return_model · 暂用组 ŷ（shadow）"
-      : "悬停查看收益分与因子系数";
+      : "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
   return { scoreNum, belowMin, scoreDetail, scoreText, scoreTitle };
 }
 
@@ -61,11 +54,15 @@ export function buildWatchingInsightsGridPatch(it, row, deps) {
     fmtScore,
     watchingScoreDetail
   );
+  const scoreEodNum = resolveEodScore(it);
+  const scoreEodRemNum = resolveEodRemScore(it);
   const volNum = it.volume != null ? parseWatchingVolume(it.volume) : NaN;
   const prev = row && row.getData ? row.getData() : row || {};
   return {
     score: scoreText,
     scoreNum,
+    scoreEodNum,
+    scoreEodRemNum,
     scoreCls: scoreCls(scoreNum),
     scoreDetail,
     scoreTitle,

@@ -64,6 +64,14 @@
   font-variant-numeric: tabular-nums;
 }
 
+.watching-yhat-hist-meta-layer {
+  margin: 0;
+  width: 100%;
+  color: var(--ink-2, #475569);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+}
+
 .watching-yhat-hist .yhat-hist-canvas {
   display: block;
   width: 100%;
@@ -2351,7 +2359,7 @@ body[data-page="watching"] .watching-kpi-row {
 
 body[data-page="watching"] .watching-kpi-row .dashboard-kpi-row-body {
   display: grid !important;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   gap: 10px;
   align-items: stretch;
   width: 100%;
@@ -3067,7 +3075,7 @@ body[data-page="watching"] .watching-overview-band {
 
 body[data-page="watching"] .watching-kpi-row .dashboard-kpi-row-body {
   display: grid !important;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) !important;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
   gap: 8px;
   width: 100%;
 }
@@ -3341,6 +3349,7 @@ body[data-page="watching"] .watching-card-tools #btn-research-dock {
 /* ── ŷ 卡头：mono 统计，图例收紧 ── */
 body[data-page="watching"] .watching-yhat-card .watching-yhat-hist-meta-primary,
 body[data-page="watching"] .watching-yhat-card .watching-yhat-hist-meta-aux,
+body[data-page="watching"] .watching-yhat-card .watching-yhat-hist-meta-layer,
 body[data-page="watching"] .watching-yhat-card .yhat-hist-filter {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
   font-size: var(--w-fs-caption);

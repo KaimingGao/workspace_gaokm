@@ -24,7 +24,7 @@ def read_dual_score_public() -> Dict[str, Any]:
         "enable_minute_tau": bool(cfg.get("enable_minute_tau")),
         "minute_tau_hm": cfg.get("minute_tau_hm"),
         "y_spec": cfg.get("y_spec"),
-        "note": "簿排序用 blend（w_EOD·ŷ_EOD + w_τ·ŷ_τ）；主 score 仍 EOD；买入另过 τ 闸",
+        "note": "簿排序用 ŷ_trade=w·ŷ_EOD_rem+w·ŷ_τ；主 score 仍 EOD；买入另过 τ 闸",
     }
 
 
@@ -57,8 +57,8 @@ def save_dual_score(
         dual["fusion_mode"] = mode
         changed["fusion_mode"] = mode
     else:
-        # 产品仅保留融合分：写其它字段时一并钉死 f2
-        dual["fusion_mode"] = "f2"
+        # 产品仅正交加权
+        dual["fusion_mode"] = "blend"
     if min_predicted_score_tau is not None:
         dual["min_predicted_score_tau"] = float(min_predicted_score_tau)
         changed["min_predicted_score_tau"] = float(min_predicted_score_tau)

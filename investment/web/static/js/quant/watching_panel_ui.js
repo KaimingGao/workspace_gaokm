@@ -38,7 +38,7 @@ export function watchingPoolMetaText(wlLen, paperN, maxSize) {
   return `观察 ${wlLen} 只 · 已持 ${paperN}/${wlLen} · 上限 ${maxSize || "—"}`;
 }
 
-/** @param {{ pool?: number|string|null, held?: number|string|null, maxSize?: number|string|null, buyPct?: number|null, mu?: number|null, med?: number|null, n?: number|null }} opts */
+/** @param {{ pool?: number|string|null, held?: number|string|null, maxSize?: number|string|null, buyPct?: number|null, mu?: number|null, med?: number|null, n?: number|null, eodMu?: number|null, eodMed?: number|null, eodN?: number|null, eodRemMu?: number|null, eodRemMed?: number|null, eodRemN?: number|null }} opts */
 export function applyWatchingOverviewKpis(opts = {}) {
   const set = (id, value, sub, empty) => {
     const el = document.getElementById(id);
@@ -59,6 +59,12 @@ export function applyWatchingOverviewKpis(opts = {}) {
   const mu = opts.mu;
   const med = opts.med;
   const n = opts.n;
+  const eodMu = opts.eodMu;
+  const eodMed = opts.eodMed;
+  const eodN = opts.eodN;
+  const eodRemMu = opts.eodRemMu;
+  const eodRemMed = opts.eodRemMed;
+  const eodRemN = opts.eodRemN;
 
   if (pool !== undefined) {
     set(
@@ -81,7 +87,7 @@ export function applyWatchingOverviewKpis(opts = {}) {
     set(
       "watching-kpi-buy",
       txt,
-      n != null ? `n=${n}` : "ŷ 过买门槛占比",
+      n != null ? `n=${n}` : "ŷ_EOD 过买门槛占比",
       buyPct == null || !Number.isFinite(buyPct)
     );
   }
@@ -91,9 +97,53 @@ export function applyWatchingOverviewKpis(opts = {}) {
     const sub =
       med != null && Number.isFinite(med)
         ? `med ${Number(med).toFixed(2)}%`
-        : "截面均值";
+        : "ŷ_trade 截面均值";
     set("watching-kpi-mu", txt, sub, mu == null || !Number.isFinite(mu));
   }
+  if (eodMu !== undefined) {
+    const txt =
+      eodMu == null || !Number.isFinite(eodMu) ? "—" : `${Number(eodMu).toFixed(2)}%`;
+    const sub =
+      eodMed != null && Number.isFinite(eodMed)
+        ? `med ${Number(eodMed).toFixed(2)}%${eodN != null ? ` · n=${eodN}` : ""}`
+        : "隔夜主轴";
+    set("watching-kpi-eod", txt, sub, eodMu == null || !Number.isFinite(eodMu));
+  }
+  if (eodRemMu !== undefined) {
+    const txt =
+      eodRemMu == null || !Number.isFinite(eodRemMu)
+        ? "—"
+        : `${Number(eodRemMu).toFixed(2)}%`;
+    const sub =
+      eodRemMed != null && Number.isFinite(eodRemMed)
+        ? `med ${Number(eodRemMed).toFixed(2)}%${
+            eodRemN != null ? ` · n=${eodRemN}` : ""
+          }`
+        : "τ→收盘映射";
+    set(
+      "watching-kpi-eod-rem",
+      txt,
+      sub,
+      eodRemMu == null || !Number.isFinite(eodRemMu)
+    );
+  }
+}
+
+export function formatYhatLayerMeta(label, pack, { buy = false } = {}) {
+  if (!pack || !pack.n) return `${label} —`;
+  const f = (x) =>
+    x != null && Number.isFinite(x) ? Number(x).toFixed(2) : "—";
+  return [
+    `${label} μ ${f(pack.mean)}%`,
+    `med ${f(pack.median)}%`,
+    pack.pct_pos != null ? `>0 ${(pack.pct_pos * 100).toFixed(0)}%` : null,
+    buy && pack.pct_above_buy != null
+      ? `≥买门 ${(pack.pct_above_buy * 100).toFixed(0)}%`
+      : null,
+    `n=${pack.n}`,
+  ]
+    .filter(Boolean)
+    .join(" · ");
 }
 
 export function watchingQuantListHtml(wl, names, escapeHtml = defaultEscapeHtml) {

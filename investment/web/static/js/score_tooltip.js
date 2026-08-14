@@ -2,7 +2,7 @@
  * 主叙事：收益分 ŷ + 因子系数 β（可正可负），非规则权重。
  */
 
-import { escapeText } from "./paper/fmt.js";
+import { escapeText, resolveEodScore, resolveEodRemScore } from "./paper/fmt.js?v=p1061";
 
 const FACTOR_LABELS = {
   momentum: "动量",
@@ -82,15 +82,17 @@ function resolveBlend(raw) {
   if (direct != null && direct !== "" && Number.isFinite(Number(direct))) {
     return Number(direct);
   }
-  const ye = resolveYhat(raw);
+  const eodRem = resolveEodRemScore(raw);
   const yt = resolveTau(raw);
-  if (ye == null && yt == null) return null;
-  if (yt == null) return ye;
-  if (ye == null) return yt;
   const { w_eod, w_tau } = resolveWeights(raw);
-  const denom = w_eod + w_tau;
-  if (Math.abs(denom) < 1e-12) return ye;
-  return (w_eod * ye + w_tau * yt) / denom;
+  if (eodRem != null && yt != null) {
+    const s = w_eod + w_tau;
+    if (Math.abs(s) < 1e-12) return 0.5 * eodRem + 0.5 * yt;
+    return (w_eod * eodRem + w_tau * yt) / s;
+  }
+  if (yt != null) return yt;
+  if (eodRem != null) return eodRem;
+  return resolveYhat(raw);
 }
 
 const TAU_FEAT_LABELS = {
@@ -122,13 +124,56 @@ export function formatScoreHero(raw) {
     `<div class="score-hero-label">① ŷ_EOD · 隔夜主轴</div>` +
     `<div class="score-hero-value ${signCls(y)}">${escapeText(yTxt)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">表列 score · ŷ = α + Σ β·z（百分点）· T−1 因子</div>` +
+    `<div class="score-hero-hint">ŷ = α + Σ β·z（百分点）· T−1 因子 · 买入门槛</div>` +
     gate +
     `</div>`
   );
 }
 
-/** ŷ_τ：当日剩余收益头 · 特征组成。 */
+/** ŷ_EOD_rem：与 ŷ_EOD 同级 · 剥掉昨收→τ 后的剩余。 */
+export function formatEodRemScoreSection(raw) {
+  const yEod = resolveEodScore(raw);
+  const rem = resolveEodRemScore(raw);
+  const realized = raw && raw.realized_t1_to_tau;
+  const gap = raw && raw.gap_pct;
+  const remN = rem == null ? null : Number(rem);
+  const yN = yEod == null ? null : Number(yEod);
+  const rN =
+    realized != null && realized !== "" && Number.isFinite(Number(realized))
+      ? Number(realized)
+      : gap != null && gap !== "" && Number.isFinite(Number(gap))
+        ? Number(gap)
+        : null;
+  const remTxt = remN == null || !Number.isFinite(remN) ? "—" : `${fmtSigned(remN, 3)}%`;
+  const yTxt = yN == null || !Number.isFinite(yN) ? "—" : `${fmtSigned(yN, 3)}%`;
+  const rTxt = rN == null || !Number.isFinite(rN) ? "—" : `${fmtSigned(rN, 3)}%`;
+  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
+  const rows = [
+    `<div class="score-layer-row"><span>ŷ_EOD</span><span class="num ${signCls(
+      yN
+    )}">${escapeText(yTxt)}</span></div>`,
+    `<div class="score-layer-row"><span>昨收→τ 已实现</span><span class="num ${signCls(
+      rN
+    )}">${escapeText(rTxt)}</span></div>`,
+    `<div class="score-layer-row score-layer-row-total"><span>ŷ_EOD_rem</span><span class="num ${signCls(
+      remN
+    )}">${escapeText(remTxt)}</span></div>`,
+  ];
+  return (
+    `<div class="score-layer score-layer-eod-rem">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">② ŷ_EOD_rem · τ→收盘映射</div>` +
+    `<div class="score-hero-value ${signCls(remN)}">${escapeText(remTxt)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">(1+ŷ_EOD)/(1+已实现)−1 · τ=${escapeText(
+      tau
+    )} · 与 ŷ_τ 同目标（T 收/T 开）</div>` +
+    `<div class="score-layer-compose">${rows.join("")}</div>` +
+    `</div>`
+  );
+}
+
+/** ŷ_τ：独立预估 T 收相对 T 开。 */
 export function formatRemScoreSection(raw) {
   const rem = resolveTau(raw);
   const gap = raw && raw.gap_pct;
@@ -200,7 +245,7 @@ export function formatRemScoreSection(raw) {
   return (
     `<div class="score-layer score-layer-tau">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">② ŷ_τ · τ→收盘</div>` +
+    `<div class="score-hero-label">③ ŷ_τ · T收 / T开（rem 头）</div>` +
     `<div class="score-hero-value ${signCls(rem)}">${escapeText(remTxt)}</div>` +
     `</div>` +
     `<div class="score-hero-hint">τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 买入闸</div>` +
@@ -210,33 +255,38 @@ export function formatRemScoreSection(raw) {
   );
 }
 
-/** 融合分：w_EOD·ŷ_EOD + w_τ·ŷ_τ。 */
+/** 融合分：w·ŷ_EOD_rem + w·ŷ_τ。 */
 export function formatBlendScoreSection(raw) {
   const blend = resolveBlend(raw);
-  const ye = resolveYhat(raw);
+  const eodRem = resolveEodRemScore(raw);
   const yt = resolveTau(raw);
   const { w_eod, w_tau } = resolveWeights(raw);
   const blendTxt = blend == null ? "—" : `${fmtSigned(blend, 3)}%`;
-  const yeTxt = ye == null ? "—" : `${fmtSigned(ye, 3)}%`;
-  const ytTxt = yt == null ? "—" : `${fmtSigned(yt, 3)}%`;
+  const remN = eodRem == null || eodRem === "" ? null : Number(eodRem);
+  const tN = yt == null || yt === "" ? null : Number(yt);
+  const remTxt = remN == null || !Number.isFinite(remN) ? "—" : `${fmtSigned(remN, 3)}%`;
+  const tTxt = tN == null || !Number.isFinite(tN) ? "—" : `${fmtSigned(tN, 3)}%`;
+  const wTxt = `w_EOD=${Number(w_eod).toFixed(2)} · w_τ=${Number(w_tau).toFixed(2)}`;
   const rows = [
-    `<div class="score-layer-row"><span>w_EOD × ŷ_EOD</span><span class="num">${escapeText(
-      `${w_eod} × ${yeTxt}`
-    )}</span></div>`,
-    `<div class="score-layer-row"><span>w_τ × ŷ_τ</span><span class="num">${escapeText(
-      `${w_tau} × ${ytTxt}`
-    )}</span></div>`,
-    `<div class="score-layer-row score-layer-row-total"><span>融合分 blend</span><span class="num ${signCls(
+    `<div class="score-layer-row"><span>ŷ_EOD_rem</span><span class="num ${signCls(
+      remN
+    )}">${escapeText(remTxt)}</span></div>`,
+    `<div class="score-layer-row"><span>ŷ_τ</span><span class="num ${signCls(
+      tN
+    )}">${escapeText(tTxt)}</span></div>`,
+    `<div class="score-layer-row score-layer-row-total"><span>ŷ_trade</span><span class="num ${signCls(
       blend
     )}">${escapeText(blendTxt)}</span></div>`,
   ];
   return (
     `<div class="score-layer score-layer-blend">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">③ 融合分 · 簿排序</div>` +
+    `<div class="score-hero-label">④ ŷ_trade · 正交加权</div>` +
     `<div class="score-hero-value ${signCls(blend)}">${escapeText(blendTxt)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">blend = (w_EOD·ŷ_EOD + w_τ·ŷ_τ) / (w_EOD+w_τ) · 表列仍显示 ŷ_EOD</div>` +
+    `<div class="score-hero-hint">${escapeText(
+      wTxt
+    )} · 同为 T收/T开 · 开盘排序键 · 表列主分</div>` +
     `<div class="score-layer-compose">${rows.join("")}</div>` +
     `</div>`
   );
@@ -913,7 +963,7 @@ export function createScoreTooltipController() {
       return;
 
     let html = '<div class="score-detail">';
-    // ① EOD 分数 + 组成 → ② τ 分数 + 组成 → ③ 融合分
+    // ① EOD → ② EOD_rem → ③ τ → ④ ŷ_trade
     html += formatScoreHero(raw);
     html += formatFormulaTermsSection(raw);
     html += formatFactorWeightsSection(raw);
@@ -923,6 +973,7 @@ export function createScoreTooltipController() {
         <div class="score-formula">${escapeText(formula)}</div>
       </div>`;
     }
+    html += formatEodRemScoreSection(raw);
     html += formatRemScoreSection(raw);
     html += formatFormulaTermsSection(raw, { key: "tau" });
     html += formatFactorWeightsSection(raw, { key: "tau" });

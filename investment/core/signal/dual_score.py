@@ -1,6 +1,11 @@
-"""双层 predicted_score：ŷ_EOD + ŷ_τ；现网仅融合分（blend 排序 + τ 买入闸）。
+"""双层 predicted_score：ŷ_EOD + ŷ_τ；同目标正交加权融合。
 
-规范见 docs/predicted-score-chain.md §2.5 · docs/tau-contract-and-partition-upgrade.md §9。
+ŷ_EOD      预估 close[T]/close[T-1]−1
+ŷ_τ        预估 close[T]/open[T]−1（rem 头，独立）
+ŷ_EOD_rem  = ŷ_EOD − r_{开盘相对昨收}   # 映到同一 OC 目标
+ŷ_trade    = (w_eod·ŷ_EOD_rem + w_τ·ŷ_τ) / (w_eod+w_τ)
+
+规范见 docs/predicted-score-chain.md §2.5。
 """
 
 from __future__ import annotations
@@ -8,8 +13,8 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 DEFAULT_DUAL_SCORE: Dict[str, Any] = {
-    # 现网仅 blend：簿排序用 predicted_score_blend；买入另须 ŷ_τ≥floor；主字段仍为 EOD
-    "fusion_mode": "f2",
+    # 正交加权：簿排序用 ŷ_trade=blend(ŷ_EOD_rem, ŷ_τ)；买入另须 ŷ_τ≥floor
+    "fusion_mode": "blend",
     "tau": "open",
     "min_predicted_score_tau": 0.0,
     "block_buy_if_tau_missing": False,
@@ -24,13 +29,12 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
         "formula": "close[T]/open[T]-1",
         "unit": "pct",
         "tau": "open",
-        "note": "当日剩余收益头；不替换 EOD predicted_score",
+        "note": "ŷ_trade = w·ŷ_EOD_rem + w·ŷ_τ；不替换 EOD predicted_score",
     },
 }
 
 _TAU_FEATURE_KEYS = (
     "gap_pct",
-    "open_gap",
     "sector_gap_breadth",
     "theme_day",
     "ret_open_to_tau",
@@ -38,9 +42,93 @@ _TAU_FEATURE_KEYS = (
 
 
 def normalize_fusion_mode(raw: Any) -> str:
-    """产品仅保留融合分（blend）；f0/f1 入参一律归一到 f2。"""
+    """产品仅正交加权；residual/f0/f1/f2 入参一律归一到 blend。"""
     _ = raw
-    return "f2"
+    return "blend"
+
+
+def realized_t1_to_tau_pct(
+    gap_pct: Optional[float],
+    ret_open_to_tau: Optional[float] = None,
+) -> Optional[float]:
+    """昨收→τ 已实现 %。开盘 τ 即缺口；更晚再复合 open→τ。"""
+    if gap_pct is None and ret_open_to_tau is None:
+        return None
+    try:
+        g = 0.0 if gap_pct is None else float(gap_pct)
+        r = 0.0 if ret_open_to_tau is None else float(ret_open_to_tau)
+    except (TypeError, ValueError):
+        return None
+    return round(((1.0 + g / 100.0) * (1.0 + r / 100.0) - 1.0) * 100.0, 6)
+
+
+def eod_remaining_at_tau(
+    y_eod: Optional[float],
+    realized_pct: Optional[float],
+) -> Optional[float]:
+    """把 ŷ_EOD（昨收→收）严格映成与 ŷ_τ 同一目标：T 收相对 T 开。
+
+    (1+ŷ_EOD/100)/(1+r/100)−1；与 ``realized_t1_to_tau_pct`` 同一复合口径。
+    无已实现时退回 ŷ_EOD（视作尚未开盘）。
+    """
+    if y_eod is None:
+        return None
+    try:
+        ye = float(y_eod)
+    except (TypeError, ValueError):
+        return None
+    if realized_pct is None:
+        return round(ye, 6)
+    try:
+        r = float(realized_pct)
+    except (TypeError, ValueError):
+        return round(ye, 6)
+    denom = 1.0 + r / 100.0
+    if abs(denom) < 1e-12:
+        return None
+    return round(((1.0 + ye / 100.0) / denom - 1.0) * 100.0, 6)
+
+
+def _as_float(v: Any) -> Optional[float]:
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def fuse_remaining_heads(
+    eod_rem: Optional[float],
+    y_tau: Optional[float],
+    *,
+    w_eod: float = 0.5,
+    w_tau: float = 0.5,
+) -> Optional[float]:
+    """ŷ_trade = 加权融合两个正交的 OC 预估。缺一侧用另一侧。
+
+    两套模型独立训练、互不依赖；只在决策时用权重合成。
+    """
+    a = _as_float(eod_rem)
+    b = _as_float(y_tau)
+    if a is None and b is None:
+        return None
+    if a is None:
+        return round(b, 6)  # type: ignore[arg-type]
+    if b is None:
+        return round(a, 6)
+    try:
+        we = float(w_eod)
+    except (TypeError, ValueError):
+        we = 0.5
+    try:
+        wt = float(w_tau)
+    except (TypeError, ValueError):
+        wt = 0.5
+    s = we + wt
+    if abs(s) < 1e-12:
+        we, wt, s = 0.5, 0.5, 1.0
+    return round((we * a + wt * b) / s, 6)
 
 
 def _dual_patch_from_config(config: Optional[dict]) -> Dict[str, Any]:
@@ -150,22 +238,21 @@ def compute_predicted_score_blend(
     *,
     config: Optional[dict] = None,
 ) -> Optional[float]:
-    """F2：s = w_eod·ŷ_EOD + w_τ·ŷ_τ；缺 τ 则退回 EOD。不对账单一 y。"""
-    cfg = get_dual_score_cfg(config)
-    y_e = resolve_predicted_score_eod(item)
-    y_t = resolve_predicted_score_tau(item)
-    if y_e is None and y_t is None:
+    """ŷ_trade：w_eod·ŷ_EOD_rem + w_τ·ŷ_τ（已归一）。"""
+    if not isinstance(item, dict):
         return None
-    if y_t is None:
-        return y_e
-    if y_e is None:
-        return y_t
-    w_e = float(cfg.get("w_eod") if cfg.get("w_eod") is not None else 0.5)
-    w_t = float(cfg.get("w_tau") if cfg.get("w_tau") is not None else 0.5)
-    denom = w_e + w_t
-    if abs(denom) < 1e-12:
-        return y_e
-    return round((w_e * y_e + w_t * y_t) / denom, 6)
+    cfg = get_dual_score_cfg(config)
+    eod_rem = item.get("predicted_score_eod_rem")
+    y_t = resolve_predicted_score_tau(item)
+    fused = fuse_remaining_heads(
+        eod_rem,
+        y_t,
+        w_eod=float(cfg.get("w_eod") or 0.5),
+        w_tau=float(cfg.get("w_tau") or 0.5),
+    )
+    if fused is not None:
+        return fused
+    return resolve_predicted_score_eod(item)
 
 
 def buy_passes_tau_gate(
@@ -173,7 +260,7 @@ def buy_passes_tau_gate(
     *,
     config: Optional[dict] = None,
 ) -> Tuple[bool, Optional[str]]:
-    """ŷ_τ 买入闸（融合分模式下始终启用）。返回 (ok, skip_reason)。"""
+    """ŷ_τ 买入闸（rem 头的 OC 预估）。返回 (ok, skip_reason)。"""
     cfg = get_dual_score_cfg(config)
     y_tau = resolve_predicted_score_tau(item)
     floor = float(cfg["min_predicted_score_tau"])
@@ -208,8 +295,16 @@ def apply_tau_score_fields(
     config: Optional[dict] = None,
     as_of_tau: Optional[str] = None,
     y_spec_override: Optional[Dict[str, Any]] = None,
+    rem_model_doc: Optional[Dict[str, Any]] = None,
+    residual_delta: Optional[bool] = None,
 ) -> Dict[str, Any]:
-    """写入双层契约字段（不改 predicted_score / score 主值）。"""
+    """写入双层契约字段（不改 predicted_score / score 主值）。
+
+    ``rem_yhat`` 就是独立训出的 ŷ_τ（open→close），不依赖 ŷ_EOD。
+    ŷ_EOD_rem 只是把 ŷ_EOD 减缺口，映到同一目标；ŷ_trade 决策时加权。
+    ``residual_delta`` 已废弃，忽略。
+    """
+    _ = residual_delta
     cfg = get_dual_score_cfg(config)
     tau = str(cfg.get("tau") or "open")
     y_spec = dict(cfg.get("y_spec") or DEFAULT_DUAL_SCORE["y_spec"])
@@ -220,13 +315,31 @@ def apply_tau_score_fields(
         y_spec.update(y_spec_override)
     as_of = as_of_tau if as_of_tau is not None else tau
 
+    feat_snap = features_tau_snapshot(feats)
+    ret_ot = feat_snap.get("ret_open_to_tau")
+    if ret_ot is None and isinstance(feats, dict):
+        ret_ot = feats.get("ret_open_to_tau")
+    realized = realized_t1_to_tau_pct(gap_pct, ret_ot)
+    y_eod = resolve_predicted_score_eod(signal_item)
+    eod_rem = eod_remaining_at_tau(y_eod, realized)
+    y_tau = rem_yhat
+    trade = fuse_remaining_heads(
+        eod_rem,
+        y_tau,
+        w_eod=float(cfg.get("w_eod") or 0.5),
+        w_tau=float(cfg.get("w_tau") or 0.5),
+    )
+
     signal_item["predicted_score_eod"] = signal_item.get("predicted_score")
-    signal_item["predicted_score_tau"] = rem_yhat
-    signal_item["predicted_score_rem"] = rem_yhat
-    signal_item["score_rem"] = rem_yhat
+    signal_item["predicted_score_eod_rem"] = eod_rem
+    signal_item["predicted_score_tau_delta"] = None
+    signal_item["realized_t1_to_tau"] = realized
+    signal_item["predicted_score_tau"] = y_tau
+    signal_item["predicted_score_rem"] = y_tau
+    signal_item["score_rem"] = y_tau
     signal_item["as_of_tau"] = as_of
     signal_item["y_spec_tau"] = y_spec
-    signal_item["features_tau"] = features_tau_snapshot(feats)
+    signal_item["features_tau"] = feat_snap
     signal_item["gap_pct"] = gap_pct
     signal_item["rem_tau"] = as_of
     signal_item["rem_y_spec"] = y_spec.get("formula")
@@ -238,17 +351,26 @@ def apply_tau_score_fields(
         try:
             from quant.research.rem_ridge import explain_rem_prediction
 
-            formula_terms_tau = explain_rem_prediction(feats)
+            formula_terms_tau = explain_rem_prediction(
+                feats, model_doc=rem_model_doc
+            )
         except Exception:
             formula_terms_tau = None
+    if isinstance(formula_terms_tau, dict):
+        formula_terms_tau = dict(formula_terms_tau)
+        formula_terms_tau["eod_remaining"] = eod_rem
+        formula_terms_tau["y_tau"] = y_tau
+        formula_terms_tau["trade"] = trade
+        formula_terms_tau["head"] = "tau_oc"
     signal_item["formula_terms_tau"] = formula_terms_tau
     signal_item["score_formula_terms_tau"] = formula_terms_tau
     signal_item["score_formula_tau"] = format_tau_formula_string(formula_terms_tau)
-    blend = compute_predicted_score_blend(signal_item, config=config)
-    signal_item["predicted_score_blend"] = blend
+    signal_item["predicted_score_blend"] = trade
     signal_item["dual_score_weights"] = {
         "w_eod": cfg.get("w_eod"),
         "w_tau": cfg.get("w_tau"),
+        "mode": "blend",
+        "tau_available": y_tau is not None,
     }
     return signal_item
 
@@ -266,7 +388,7 @@ def attach_dual_score_pit(
 
     缺口 = open[T]/close[T−1]（与 live ``gap_pct_from_quote_bars`` 同口径）。
     不拉同伴行情；``sector_gap_breadth`` 可由调用方截面预计算后传入。
-    无 rem 模型时仍写契约字段（ŷ_τ=None，blend 退回 EOD）。
+    无 rem 模型时仍写契约字段（ŷ_τ=None，ŷ_trade 退回 ŷ_EOD_rem）。
     """
     if not isinstance(signal_item, dict):
         return signal_item
@@ -291,17 +413,10 @@ def attach_dual_score_pit(
             breadth = None
     feats: Dict[str, Any] = {
         "gap_pct": gap_v,
-        "open_gap": gap_v,
         "sector_gap_breadth": breadth,
         "theme_day": theme,
     }
-    for k, v in (signal_item.get("sub_scores") or {}).items():
-        if k in feats:
-            continue
-        try:
-            feats[k] = float(v) if v is not None else None
-        except (TypeError, ValueError):
-            feats[k] = None
+    # 只传 rem 头 Z 特征；勿塞全日线 sub_scores（训练未用，易误导）
     rem_yhat = None
     try:
         from quant.research.rem_ridge import predict_rem_from_features
@@ -328,6 +443,7 @@ def attach_dual_score_pit(
         # 传完整 signal_config（或调用方原 config），勿传已 flatten 的 dual 块
         config=config,
         as_of_tau=str(cfg.get("tau") or "open"),
+        rem_model_doc=rem_model_doc,
     )
     return signal_item
 
@@ -490,6 +606,19 @@ def recover_sub_scores_for_tau(item: Optional[dict]) -> Dict[str, float]:
 def format_tau_formula_string(expl: Optional[Dict[str, Any]]) -> str:
     if not isinstance(expl, dict):
         return ""
+    eod_rem = expl.get("eod_remaining")
+    trade = expl.get("trade")
+    y_tau = expl.get("y_tau")
+    if y_tau is None:
+        y_tau = expl.get("total")
+    if eod_rem is not None and trade is not None and y_tau is not None:
+        try:
+            return (
+                f"ŷ_trade = w·ŷ_EOD_rem({float(eod_rem):+.3f}) + "
+                f"w·ŷ_τ({float(y_tau):+.3f}) = {float(trade):.3f}%"
+            )
+        except (TypeError, ValueError):
+            pass
     terms = list(expl.get("terms") or [])
     if not terms and expl.get("intercept") is None:
         return ""
@@ -515,19 +644,12 @@ def format_tau_formula_string(expl: Optional[Dict[str, Any]]) -> str:
 
 
 def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
-    """保证 tip 有 ŷ_τ 组成：已有则用；否则用 sub_scores / EOD 反推 + rem 拆解。"""
+    """保证 tip 有 ŷ_τ 组成：有 Z 实值时重拆；勿沿用「全缺特征」旧戳。"""
     if not isinstance(item, dict):
         return None
     existing = item.get("formula_terms_tau") or item.get("score_formula_terms_tau")
-    if (
-        isinstance(existing, dict)
-        and isinstance(existing.get("terms"), list)
-        and existing["terms"]
-    ):
-        return existing
 
     feats: Dict[str, Any] = {}
-    feats.update(recover_sub_scores_for_tau(item))
     ft = item.get("features_tau")
     if isinstance(ft, dict):
         for k, v in ft.items():
@@ -535,17 +657,76 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
                 feats[k] = v
     gap = item.get("gap_pct")
     if gap is not None and gap != "":
-        feats.setdefault("gap_pct", gap)
+        feats["gap_pct"] = gap
         feats.setdefault("open_gap", gap)
-    if not feats:
-        return existing if isinstance(existing, dict) else None
-    try:
-        from quant.research.rem_ridge import explain_rem_prediction
+    for k in ("sector_gap_breadth", "theme_day", "ret_open_to_tau"):
+        v = item.get(k)
+        if v is not None and v != "":
+            feats.setdefault(k, v)
 
-        expl = explain_rem_prediction(feats)
+    try:
+        from quant.research.rem_ridge import REM_Z_FEATURES
+
+        z_keys = set(REM_Z_FEATURES) | {"open_gap"}
     except Exception:
-        expl = None
-    return expl if expl is not None else (existing if isinstance(existing, dict) else None)
+        z_keys = {
+            "gap_pct",
+            "open_gap",
+            "sector_gap_breadth",
+            "theme_day",
+            "ret_open_to_tau",
+        }
+    has_z = any(feats.get(k) is not None for k in z_keys)
+
+    def _stale_imputed_z(expl: Optional[dict]) -> bool:
+        """簿上已有组成，但缺口等 Z 后来才写入 → 须重拆。"""
+        if not isinstance(expl, dict):
+            return True
+        terms = expl.get("terms") or []
+        if not terms:
+            return True
+        if not has_z:
+            return False
+        z_in_terms = False
+        for t in terms:
+            if not isinstance(t, dict):
+                continue
+            key = str(t.get("key") or "")
+            if key not in z_keys:
+                continue
+            z_in_terms = True
+            if t.get("note") and feats.get(key) is not None:
+                return True
+        return has_z and not z_in_terms
+
+    if (
+        isinstance(existing, dict)
+        and isinstance(existing.get("terms"), list)
+        and existing["terms"]
+        and not _stale_imputed_z(existing)
+    ):
+        return existing
+
+    try:
+        feats.update(recover_sub_scores_for_tau(item))
+    except Exception:
+        pass
+    if feats:
+        try:
+            from quant.research.rem_ridge import explain_rem_prediction
+
+            expl = explain_rem_prediction(feats)
+            if expl is not None:
+                return expl
+        except Exception:
+            pass
+    if (
+        isinstance(existing, dict)
+        and isinstance(existing.get("terms"), list)
+        and existing["terms"]
+    ):
+        return existing
+    return None
 
 
 def rem_factor_coefficients_public() -> Dict[str, float]:
@@ -583,10 +764,11 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
         live_w = {
             "w_eod": cfg.get("w_eod"),
             "w_tau": cfg.get("w_tau"),
+            "mode": "blend",
         }
     except Exception:
-        live_fusion = "f2"
-        live_w = {"w_eod": 0.5, "w_tau": 0.5}
+        live_fusion = "blend"
+        live_w = {"w_eod": 0.5, "w_tau": 0.5, "mode": "blend"}
     formula_terms_tau = ensure_formula_terms_tau(item)
     score_formula_tau = item.get("score_formula_tau") or format_tau_formula_string(
         formula_terms_tau
@@ -597,8 +779,11 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
     # 权重与 fusion 一样用当前配置，避免簿内旧 w_* 误导 tip
     return {
         "predicted_score_eod": item.get("predicted_score_eod", item.get("predicted_score")),
+        "predicted_score_eod_rem": item.get("predicted_score_eod_rem"),
         "predicted_score_tau": item.get("predicted_score_tau", item.get("score_rem")),
+        "predicted_score_tau_delta": item.get("predicted_score_tau_delta"),
         "predicted_score_blend": item.get("predicted_score_blend"),
+        "realized_t1_to_tau": item.get("realized_t1_to_tau"),
         "score_rem": item.get("score_rem"),
         "predicted_score_rem": item.get("predicted_score_rem"),
         "as_of_tau": item.get("as_of_tau") or item.get("rem_tau"),
@@ -610,13 +795,13 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
         "factor_coefficients_tau": coefs_tau or None,
         "gap_pct": item.get("gap_pct"),
         "event_prior": item.get("event_prior"),
-        "dual_score_fusion": live_fusion or "f2",
+        "dual_score_fusion": live_fusion or "blend",
         "dual_score_weights": live_w,
     }
 
 
 def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) -> Optional[float]:
-    """排序键：融合分 blend（缺则 EOD）。买入门槛仍看 EOD+τ 闸。"""
+    """排序键：ŷ_trade = 加权融合 ŷ_EOD_rem 与 ŷ_τ。买入门槛仍看 EOD+τ 闸。"""
     b = None
     if isinstance(item, dict):
         b = item.get("predicted_score_blend")

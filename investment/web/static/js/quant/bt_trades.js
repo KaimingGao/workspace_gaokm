@@ -19,7 +19,7 @@ export const BT_SIM_TRADE_COLS_BASE = [
     widthPct: 7.5,
     num: true,
     sortable: true,
-    title: "表列 = blend 排序键（w_EOD·ŷ_EOD + w_τ·ŷ_τ）· 悬停看 ŷ_EOD / ŷ_τ 组成",
+    title: "表列 = ŷ_trade（w_EOD·ŷ_EOD_rem + w_τ·ŷ_τ）· 悬停看 ŷ_EOD / ŷ_τ",
   },
   {
     id: "intent",
@@ -90,6 +90,8 @@ export function flattenTradesToSimLegs(trades) {
         predicted_score: l.predicted_score != null ? l.predicted_score : l.score,
         predicted_score_tau: l.predicted_score_tau,
         predicted_score_blend: l.predicted_score_blend,
+        predicted_score_eod_rem: l.predicted_score_eod_rem,
+        realized_t1_to_tau: l.realized_t1_to_tau,
         score_rem: l.score_rem != null ? l.score_rem : l.predicted_score_rem,
         formula_terms_tau: l.formula_terms_tau || l.score_formula_terms_tau,
         score_formula_tau: l.score_formula_tau,
@@ -257,6 +259,36 @@ export function buildSimTradeRow(r, i, deps) {
       : r.score != null && Number.isFinite(Number(r.score))
         ? Number(r.score)
         : null;
+  // 回测 tip：信号日打分时常无缺口；成交后用意图价(昨收)→开盘成交价还原
+  let gapPct =
+    r.gap_pct != null && Number.isFinite(Number(r.gap_pct)) ? Number(r.gap_pct) : null;
+  let realized =
+    r.realized_t1_to_tau != null && Number.isFinite(Number(r.realized_t1_to_tau))
+      ? Number(r.realized_t1_to_tau)
+      : null;
+  if (gapPct == null && realized == null) {
+    const intent = Number(r.intent_price);
+    const fill = Number(r.entry_price ?? r.fill_price);
+    if (Number.isFinite(intent) && intent > 0 && Number.isFinite(fill)) {
+      gapPct = (fill / intent - 1) * 100;
+      realized = gapPct;
+    }
+  } else if (realized == null) {
+    realized = gapPct;
+  }
+  let eodRem = null;
+  if (eodScore != null && realized != null) {
+    const denom = 1 + realized / 100;
+    eodRem =
+      Math.abs(denom) < 1e-12 ? null : ((1 + eodScore / 100) / denom - 1) * 100;
+  } else if (
+    r.predicted_score_eod_rem != null &&
+    Number.isFinite(Number(r.predicted_score_eod_rem))
+  ) {
+    eodRem = Number(r.predicted_score_eod_rem);
+  } else if (eodScore != null) {
+    eodRem = eodScore;
+  }
   const scoreDetail = watchingScoreDetail({
     // tip ① 优先 predicted_score=ŷ_EOD；表列展示用 blend
     score: eodScore != null ? eodScore : blendScore,
@@ -268,8 +300,11 @@ export function buildSimTradeRow(r, i, deps) {
           ? r.score_rem
           : r.predicted_score_rem,
     predicted_score_blend: blendScore,
+    predicted_score_eod_rem: eodRem,
+    predicted_score_tau_delta: r.predicted_score_tau_delta,
+    realized_t1_to_tau: realized,
     score_rem: r.score_rem != null ? r.score_rem : r.predicted_score_rem,
-    gap_pct: r.gap_pct,
+    gap_pct: gapPct,
     event_prior: r.event_prior,
     as_of_tau: r.as_of_tau || r.rem_tau,
     rem_tau: r.rem_tau,
@@ -316,7 +351,7 @@ export function buildSimTradeRow(r, i, deps) {
     scoreText: fmtScore(blendScore),
     scoreCls: scoreCls(blendScore),
     scoreDetail,
-    scoreTitle: "融合分（排序键）· 悬停看 ŷ_EOD / ŷ_τ",
+    scoreTitle: "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ",
     status: formatSimStatus(st),
   };
 }

@@ -22,9 +22,10 @@ class TestDualScoreFields(unittest.TestCase):
             gap_pct=2.5,
             feats={"gap_pct": 2.5, "theme_day": 1.0, "momentum": 60.0},
             event_prior={"theme": True},
+            residual_delta=False,
             config={
                 "dual_score": {
-                    "fusion_mode": "f2",
+                    "fusion_mode": "blend",
                     "tau": "open",
                     "min_predicted_score_tau": 0.0,
                 }
@@ -38,9 +39,10 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertIn("formula", item["y_spec_tau"])
         self.assertEqual(item["features_tau"].get("gap_pct"), 2.5)
         self.assertNotIn("momentum", item["features_tau"])
-        self.assertEqual(item["dual_score_fusion"], "f2")
+        self.assertEqual(item["dual_score_fusion"], "blend")
         self.assertIn("formula_terms_tau", item)
         self.assertIn("score_formula_terms_tau", item)
+        self.assertIsNotNone(item.get("predicted_score_eod_rem"))
 
     def test_ensure_formula_terms_tau_from_eod_terms(self):
         """旧簿无 τ 组成时，从 EOD z + 组模型反推后与 rem 对齐。"""
@@ -85,6 +87,100 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertIsNotNone(expl)
         self.assertTrue(expl.get("terms"))
         self.assertAlmostEqual(float(expl["total"]), 0.1 + 0.5 * 1.0, places=4)
+
+    def test_ensure_formula_terms_tau_refreshes_stale_gap(self):
+        """簿上全缺特征的旧组成，后来有 gap 时必须重拆。"""
+        from unittest.mock import patch
+
+        from core.signal.dual_score import ensure_formula_terms_tau
+
+        rem_doc = {
+            "return_model": {
+                "intercept": 0.063,
+                "coefficients": {
+                    "momentum": 0.117,
+                    "gap_pct": -0.12,
+                    "sector_gap_breadth": 0.222,
+                },
+                "active_features": ["momentum", "gap_pct", "sector_gap_breadth"],
+                "zscore_means": {"momentum": 0.0, "gap_pct": 0.0, "sector_gap_breadth": 0.0},
+                "zscore_stds": {"momentum": 1.0, "gap_pct": 1.0, "sector_gap_breadth": 1.0},
+            }
+        }
+        stale = {
+            "intercept": 0.063,
+            "terms": [
+                {
+                    "key": "momentum",
+                    "label": "动量",
+                    "beta": 0.117,
+                    "z": 0.0,
+                    "contrib": 0.0,
+                    "note": "缺特征·z≈0",
+                },
+                {
+                    "key": "gap_pct",
+                    "label": "跳空 %",
+                    "beta": -0.12,
+                    "z": 0.0,
+                    "contrib": 0.0,
+                    "note": "缺特征·z≈0",
+                },
+            ],
+            "total": 0.063,
+        }
+        item = {
+            "formula_terms_tau": stale,
+            "gap_pct": 0.313,
+            "features_tau": {"gap_pct": 0.313},
+        }
+        with patch("quant.research.rem_ridge.load_rem_model", return_value=rem_doc):
+            expl = ensure_formula_terms_tau(item)
+        self.assertIsNotNone(expl)
+        by_key = {t["key"]: t for t in expl["terms"]}
+        self.assertIn("gap_pct", by_key)
+        self.assertNotIn("note", by_key["gap_pct"])
+        self.assertAlmostEqual(float(by_key["gap_pct"]["z"]), 0.313, places=3)
+        # 缺特征日线项不进 tip
+        self.assertNotIn("momentum", by_key)
+
+    def test_eod_remaining_and_residual_stack(self):
+        from core.signal.dual_score import (
+            apply_tau_score_fields,
+            eod_remaining_at_tau,
+            fuse_remaining_heads,
+            realized_t1_to_tau_pct,
+        )
+
+        self.assertAlmostEqual(realized_t1_to_tau_pct(1.0), 1.0, places=6)
+        self.assertAlmostEqual(
+            realized_t1_to_tau_pct(1.0, 1.0),
+            ((1.01 * 1.01) - 1.0) * 100.0,
+            places=5,
+        )
+        rem = eod_remaining_at_tau(2.0, 1.0)
+        self.assertAlmostEqual(rem, ((1.02 / 1.01) - 1.0) * 100.0, places=5)
+        self.assertAlmostEqual(
+            fuse_remaining_heads(rem, 0.3), (rem + 0.3) / 2.0, places=5
+        )
+
+        item = {"predicted_score": 2.0, "score": 2.0}
+        apply_tau_score_fields(
+            item,
+            rem_yhat=0.3,
+            gap_pct=1.0,
+            feats={"gap_pct": 1.0},
+            residual_delta=False,
+        )
+        self.assertAlmostEqual(item["realized_t1_to_tau"], 1.0, places=5)
+        self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
+        self.assertIsNone(item.get("predicted_score_tau_delta"))
+        self.assertAlmostEqual(item["predicted_score_tau"], 0.3, places=5)
+        self.assertAlmostEqual(
+            item["predicted_score_blend"], (rem + 0.3) / 2.0, places=5
+        )
+        self.assertEqual(item["predicted_score"], 2.0)
+        self.assertTrue(item["dual_score_weights"].get("tau_available"))
 
     def test_buy_gate_legacy_f0_still_blocks(self):
         """f0 已废弃，归一为 f2 后 τ 闸仍生效。"""
@@ -141,7 +237,7 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("缺失", str(reason))
 
-    def test_blend_rank_key(self):
+    def test_residual_rank_key(self):
         from core.signal.dual_score import (
             apply_tau_score_fields,
             compute_predicted_score_blend,
@@ -150,26 +246,39 @@ class TestDualScoreFields(unittest.TestCase):
 
         cfg = {
             "dual_score": {
-                "fusion_mode": "f2",
-                "w_eod": 0.5,
-                "w_tau": 0.5,
+                "fusion_mode": "blend",
             }
         }
         item = {"predicted_score": 1.0, "score": 1.0}
         apply_tau_score_fields(
-            item, rem_yhat=0.0, gap_pct=0.0, feats={}, config=cfg
+            item, rem_yhat=0.2, gap_pct=0.0, feats={}, config=cfg, residual_delta=False
         )
-        self.assertAlmostEqual(item["predicted_score_blend"], 0.5, places=5)
+        self.assertAlmostEqual(item["predicted_score_eod_rem"], 1.0, places=5)
+        self.assertAlmostEqual(item["predicted_score_tau"], 0.2, places=5)
+        self.assertAlmostEqual(item["predicted_score_blend"], 0.6, places=5)
         self.assertAlmostEqual(
-            compute_predicted_score_blend(item, config=cfg), 0.5, places=5
+            compute_predicted_score_blend(item, config=cfg), 0.6, places=5
         )
-        self.assertAlmostEqual(
-            rank_key_for_item(item, config=cfg), 0.5, places=5
-        )
-        self.assertEqual(item["dual_score_fusion"], "f2")
+        self.assertAlmostEqual(rank_key_for_item(item, config=cfg), 0.6, places=5)
+        self.assertEqual(item["dual_score_fusion"], "blend")
 
-    def test_blend_weights_survive_flattened_cfg_passthrough(self):
-        """回测 attach→apply 曾二次传入 flatten dual，权重不得回落 0.5/0.5。"""
+    def test_legacy_rem_not_added_to_eod_rem(self):
+        from core.signal.dual_score import apply_tau_score_fields
+
+        item = {"predicted_score": 2.0, "score": 2.0}
+        apply_tau_score_fields(
+            item, rem_yhat=-1.0, gap_pct=1.0, feats={}, residual_delta=False
+        )
+        self.assertAlmostEqual(item["predicted_score_tau"], -1.0, places=5)
+        self.assertIsNone(item.get("predicted_score_tau_delta"))
+        rem = ((1.02 / 1.01) - 1.0) * 100.0
+        self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
+        self.assertAlmostEqual(
+            item["predicted_score_blend"], (rem + (-1.0)) / 2.0, places=5
+        )
+
+    def test_flattened_cfg_passthrough_keeps_tau_fields(self):
+        """回测 attach→apply 二次传入 flatten dual 不得丢 τ 闸。"""
         from core.signal.dual_score import (
             apply_tau_score_fields,
             attach_dual_score_pit,
@@ -178,19 +287,28 @@ class TestDualScoreFields(unittest.TestCase):
 
         nested = {"dual_score": {"w_eod": 0.1, "w_tau": 0.9, "fusion_mode": "f2"}}
         flat = get_dual_score_cfg(nested)
+        self.assertEqual(flat["fusion_mode"], "blend")
         self.assertAlmostEqual(flat["w_eod"], 0.1)
         self.assertAlmostEqual(flat["w_tau"], 0.9)
         again = get_dual_score_cfg(flat)
         self.assertAlmostEqual(again["w_eod"], 0.1)
-        self.assertAlmostEqual(again["w_tau"], 0.9)
 
         item = {"predicted_score": 2.0, "score": 2.0, "stock_code": "T"}
         apply_tau_score_fields(
-            item, rem_yhat=-1.0, gap_pct=1.0, feats={}, config=flat
+            item,
+            rem_yhat=-1.0,
+            gap_pct=1.0,
+            feats={},
+            config=flat,
+            residual_delta=False,
         )
-        self.assertAlmostEqual(item["predicted_score_blend"], -0.7, places=5)
+        rem = ((1.02 / 1.01) - 1.0) * 100.0
+        self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
+        self.assertAlmostEqual(item["predicted_score_tau"], -1.0, places=5)
+        self.assertAlmostEqual(
+            item["predicted_score_blend"], 0.1 * rem + 0.9 * (-1.0), places=5
+        )
         self.assertEqual(item["dual_score_weights"]["w_eod"], 0.1)
-        self.assertEqual(item["dual_score_weights"]["w_tau"], 0.9)
 
         item2 = {
             "predicted_score": 2.0,
@@ -199,15 +317,8 @@ class TestDualScoreFields(unittest.TestCase):
             "sub_scores": {},
         }
         attach_dual_score_pit(item2, quote=None, bars=None, config=nested)
+        self.assertEqual(item2["dual_score_fusion"], "blend")
         self.assertEqual(item2["dual_score_weights"]["w_eod"], 0.1)
-        self.assertEqual(item2["dual_score_weights"]["w_tau"], 0.9)
-        yt = item2.get("predicted_score_tau")
-        if yt is None:
-            self.assertAlmostEqual(item2["predicted_score_blend"], 2.0, places=5)
-        else:
-            self.assertAlmostEqual(
-                item2["predicted_score_blend"], 0.1 * 2.0 + 0.9 * float(yt), places=5
-            )
 
     def test_book_fields_override_stale_fusion(self):
         from core.signal.dual_score import dual_score_book_fields
@@ -215,7 +326,7 @@ class TestDualScoreFields(unittest.TestCase):
         out = dual_score_book_fields(
             {"dual_score_fusion": "f1", "predicted_score_tau": 0.1}
         )
-        self.assertEqual(out["dual_score_fusion"], "f2")
+        self.assertEqual(out["dual_score_fusion"], "blend")
 
     def test_tau_shadow_book_reranks(self):
         from core.signal.dual_score import build_tau_shadow_book, compare_book_overlap
@@ -262,6 +373,7 @@ class TestDualScoreFields(unittest.TestCase):
             feats={"gap_pct": 1.0, "ret_open_to_tau": 0.8},
             as_of_tau="2026-08-14T09:45:00+08:00",
             y_spec_override={"tau": "09:45", "formula": "close[T]/price[09:45]-1"},
+            residual_delta=False,
         )
         self.assertEqual(item["as_of_tau"], "2026-08-14T09:45:00+08:00")
         self.assertEqual(item["features_tau"].get("ret_open_to_tau"), 0.8)
@@ -291,15 +403,15 @@ class TestDualScoreFields(unittest.TestCase):
                     note="test",
                 )
                 self.assertTrue(out["success"])
-                self.assertEqual(out["dual_score"]["fusion_mode"], "f2")
+                self.assertEqual(out["dual_score"]["fusion_mode"], "blend")
                 self.assertEqual(out["dual_score"]["min_predicted_score_tau"], 0.1)
                 self.assertEqual(out["dual_score"]["w_eod"], 0.6)
                 with open(path, encoding="utf-8") as f:
                     raw = json.load(f)
                 self.assertEqual(raw["weights"], {"x": 1})
-                self.assertEqual(raw["dual_score"]["fusion_mode"], "f2")
+                self.assertEqual(raw["dual_score"]["fusion_mode"], "blend")
                 pub = read_dual_score_public()
-                self.assertEqual(pub["fusion_mode"], "f2")
+                self.assertEqual(pub["fusion_mode"], "blend")
             finally:
                 os.environ.pop("INVESTMENT_SIGNAL_CONFIG", None)
                 import core.signal.config as cfg_mod

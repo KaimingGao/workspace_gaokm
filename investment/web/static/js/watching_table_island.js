@@ -28,7 +28,7 @@ const COLS = [
   { id: "price", label: "现价", widthPct: 7, num: true },
   { id: "open", label: "开盘价", widthPct: 7, num: true, title: "当日开盘价" },
   { id: "chg", label: "涨跌", widthPct: 7, num: true, sortable: true },
-  { id: "score", label: "评分", widthPct: 7.5, num: true, sortable: true },
+  { id: "score", label: "评分", widthPct: 7.5, num: true, sortable: true, title: "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ" },
   { id: "stance", label: "倾向", widthPct: 5.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
   { id: "excess", label: "超额", widthPct: 7.5, num: true, sortable: true },
   { id: "vol", label: "量", widthPct: 7, num: true, sortable: true },

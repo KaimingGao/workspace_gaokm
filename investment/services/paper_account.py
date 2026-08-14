@@ -192,6 +192,9 @@ class PaperAccountMixin:
                         "dual_score_weights",
                         "predicted_score_blend",
                         "predicted_score_eod",
+                        "predicted_score_eod_rem",
+                        "predicted_score_tau_delta",
+                        "realized_t1_to_tau",
                     ):
                         if k in score_info:
                             enriched[k] = score_info.get(k)

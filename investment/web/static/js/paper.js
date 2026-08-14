@@ -7,7 +7,11 @@ import {
   metricCls,
   fmtScore,
   scoreCls,
-} from "./paper/fmt.js";
+  resolveTradeScore,
+  resolveEodScore,
+  resolveEodRemScore,
+  scoreSeriesStats,
+} from "./paper/fmt.js?v=p1061";
 import { drawSeries } from "./paper/chart.js";
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
 import {
@@ -45,6 +49,7 @@ import {
   formatFactorWeightsSection,
   formatFormulaTermsSection,
   formatScoreHero,
+  formatEodRemScoreSection,
   formatRemScoreSection,
   formatBlendScoreSection,
   createScoreTooltipController,
@@ -815,6 +820,22 @@ export function initPaper(ctx) {
     const holdingsEl = document.getElementById("paper-holdings-table");
     const rulesEl = document.getElementById("paper-rules-summary");
     const holdingsCountEl = document.getElementById("paper-holdings-count");
+    const holdingsScoreStatsEl = document.getElementById("paper-holdings-score-stats");
+    const paintHoldingsScoreStats = (rows) => {
+      if (!holdingsScoreStatsEl) return;
+      const list = Array.isArray(rows) ? rows : [];
+      const eod = scoreSeriesStats(list.map(resolveEodScore));
+      const rem = scoreSeriesStats(list.map(resolveEodRemScore));
+      const bit = (label, pack) =>
+        pack.n
+          ? `${label} μ ${Number(pack.mean).toFixed(2)}% · med ${Number(
+              pack.median
+            ).toFixed(2)}% · n=${pack.n}`
+          : null;
+      holdingsScoreStatsEl.textContent = [bit("ŷ_EOD", eod), bit("ŷ_EOD_rem", rem)]
+        .filter(Boolean)
+        .join(" · ");
+    };
     if (!holdingsEl && !rulesEl) return;
 
     const summary = (data && data.summary) || {};
@@ -825,10 +846,12 @@ export function initPaper(ctx) {
         holdingsEl.innerHTML = `<p class="watching-table-empty">账户未初始化</p>`;
         clearHoldSelection();
         if (holdingsCountEl) holdingsCountEl.textContent = "";
+        paintHoldingsScoreStats([]);
       } else if (!holdings.length) {
         destroyHoldingsGrid();
         clearHoldSelection();
         if (holdingsCountEl) holdingsCountEl.textContent = "";
+        paintHoldingsScoreStats([]);
         holdingsEl.innerHTML =
           `<div class="paper-holdings-empty">` +
           `<p class="paper-holdings-empty-title">暂无持仓</p>` +
@@ -837,6 +860,7 @@ export function initPaper(ctx) {
           `</div>`;
       } else {
         if (holdingsCountEl) holdingsCountEl.textContent = String(holdings.length);
+        paintHoldingsScoreStats(holdings);
         holdingsEl.__pageSource = lastAccountData;
         // 先画原生表，再升级虚拟网格；失败保留原生表
         const html = renderHoldingsHtml(summary, holdings);
@@ -1489,12 +1513,8 @@ export function initPaper(ctx) {
       // 按分数降序展示（无分排后）
       report = Array.isArray(report)
         ? [...report].sort((a, b) => {
-            const as = a && a.score != null && Number.isFinite(Number(a.score))
-              ? Number(a.score)
-              : null;
-            const bs = b && b.score != null && Number.isFinite(Number(b.score))
-              ? Number(b.score)
-              : null;
+            const as = resolveTradeScore(a);
+            const bs = resolveTradeScore(b);
             if (as == null && bs == null) return 0;
             if (as == null) return 1;
             if (bs == null) return -1;
@@ -1706,8 +1726,8 @@ export function initPaper(ctx) {
 
         let html = '<div class="score-detail">';
         const tipRaw = {
-          predicted_score: r.score,
-          score: r.score,
+          predicted_score: r.predicted_score != null ? r.predicted_score : r.score,
+          score: r.score != null ? r.score : r.predicted_score,
           min_score: r.min_score,
           below_min_score: r.below_min_score,
           formula_terms: r.score_formula_terms,
@@ -1719,6 +1739,10 @@ export function initPaper(ctx) {
           dual_score_fusion: r.dual_score_fusion,
           dual_score_weights: r.dual_score_weights,
           predicted_score_blend: r.predicted_score_blend,
+          predicted_score_eod: r.predicted_score_eod,
+          predicted_score_eod_rem: r.predicted_score_eod_rem,
+          predicted_score_tau_delta: r.predicted_score_tau_delta,
+          realized_t1_to_tau: r.realized_t1_to_tau,
           y_spec_tau: r.y_spec_tau,
           features_tau: r.features_tau,
           formula_terms_tau: r.formula_terms_tau || r.score_formula_terms_tau,
@@ -1734,6 +1758,7 @@ export function initPaper(ctx) {
           factor_coefficients: r.factor_coefficients || {},
         };
         html += formatScoreHero(tipRaw);
+        html += formatEodRemScoreSection(tipRaw);
         html += formatRemScoreSection(tipRaw);
         html += formatFormulaTermsSection(tipRaw, { key: "tau" });
         html += formatFactorWeightsSection(tipRaw, { key: "tau" });
@@ -1784,7 +1809,8 @@ export function initPaper(ctx) {
       const rows = report
         .map((r, idx) => {
           const cls = decisionClass[r.decision] || "rebalance-hold";
-          let scoreText = r.score != null ? fmtScore(r.score) : "—";
+          let tradeScore = resolveTradeScore(r);
+          let scoreText = tradeScore != null ? fmtScore(tradeScore) : "—";
           if (scoreText === "—" && r.hard_reject) {
             scoreText = "拒";
           }
@@ -1793,22 +1819,20 @@ export function initPaper(ctx) {
             scoreText !== "—" && scoreText !== "拒" && belowMin
               ? `${scoreText}↓`
               : scoreText;
-          let scoreClass = scoreCls(r.score);
+          let scoreClass = scoreCls(tradeScore);
           if (belowMin) scoreClass += " below-min";
           if (r.hard_reject) scoreClass += " score-reject";
           let scoreTip = "";
           if (r.hard_reject) {
             scoreTip = String(r.reject_reason || "硬拒绝 · 无收益分");
           } else if (belowMin) {
-            scoreTip = "低于ŷ_EOD门槛 · 悬停看详情";
+            scoreTip = "低于ŷ_EOD门槛 · 表列为 ŷ_trade";
           } else {
-            const tauRaw =
-              r.predicted_score_tau != null
-                ? r.predicted_score_tau
-                : r.score_rem;
-            const tauN = Number(tauRaw);
-            if (Number.isFinite(tauN)) {
-              scoreTip = `ŷ_EOD ${scoreText} · ŷ_τ ${tauN.toFixed(2)}%`;
+            const eodN = Number(r.score != null ? r.score : r.predicted_score);
+            if (tradeScore != null && Number.isFinite(eodN)) {
+              scoreTip = `ŷ_trade ${scoreText} · ŷ_EOD ${eodN.toFixed(2)}%`;
+            } else if (tradeScore != null) {
+              scoreTip = `ŷ_trade ${scoreText}`;
             }
           }
           const oldSh =
@@ -1954,7 +1978,7 @@ export function initPaper(ctx) {
         `<div class="rebalance-table" role="table">` +
         `<div class="rebalance-table-head" role="row" style="${rebalanceRowStyle}">` +
         `<div class="rebalance-th" role="columnheader">股票</div>` +
-        `<div class="rebalance-th num" role="columnheader" title="主轴 ŷ_EOD；悬停/展开见 ŷ_τ">评分</div>` +
+        `<div class="rebalance-th num" role="columnheader" title="ŷ_trade · 展开看 ŷ_EOD_rem / ŷ_τ">评分</div>` +
         `<div class="rebalance-th num" role="columnheader">股数</div>` +
         `<div class="rebalance-th num" role="columnheader">变动</div>` +
         `<div class="rebalance-th" role="columnheader">决策</div>` +

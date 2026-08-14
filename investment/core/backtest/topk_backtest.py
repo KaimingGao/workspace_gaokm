@@ -208,6 +208,8 @@ def _sim_trade_row(
     predicted_score: Optional[float] = None,
     predicted_score_tau: Optional[float] = None,
     predicted_score_blend: Optional[float] = None,
+    predicted_score_eod_rem: Optional[float] = None,
+    realized_t1_to_tau: Optional[float] = None,
     score_rem: Optional[float] = None,
     gap_pct: Optional[float] = None,
     event_prior: Optional[Dict[str, Any]] = None,
@@ -218,12 +220,14 @@ def _sim_trade_row(
     dual_score_fusion: Optional[str] = None,
     dual_score_weights: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
-    return {
+    tip = {
         "stock_code": stock_code,
         "score": score,
         "predicted_score": predicted_score if predicted_score is not None else score,
         "predicted_score_tau": predicted_score_tau,
         "predicted_score_blend": predicted_score_blend,
+        "predicted_score_eod_rem": predicted_score_eod_rem,
+        "realized_t1_to_tau": realized_t1_to_tau,
         "score_rem": score_rem if score_rem is not None else predicted_score_tau,
         "gap_pct": gap_pct,
         "event_prior": event_prior,
@@ -258,6 +262,78 @@ def _sim_trade_row(
         "score_reasons": list(score_reasons or []),
         "score_raw": score_raw,
     }
+    return _enrich_trade_eod_rem_fields(
+        tip, intent_price=intent_price, entry_price=entry_price
+    )
+
+
+def _gap_from_intent_fill(
+    intent_price: Optional[float],
+    entry_price: Optional[float],
+) -> Optional[float]:
+    """次日开盘成交：缺口 ≈ fill/intent − 1（intent=信号日收，fill=开盘）。"""
+    try:
+        intent = float(intent_price) if intent_price is not None else None
+        fill = float(entry_price) if entry_price is not None else None
+    except (TypeError, ValueError):
+        return None
+    if intent is None or fill is None or intent <= 0:
+        return None
+    return round((fill / intent - 1.0) * 100.0, 6)
+
+
+def _enrich_trade_eod_rem_fields(
+    tip: Dict[str, Any],
+    *,
+    intent_price: Optional[float] = None,
+    entry_price: Optional[float] = None,
+) -> Dict[str, Any]:
+    """补齐 tip 的缺口 / ŷ_EOD_rem（信号打分时常无 open，成交后用意图价→开盘价还原）。"""
+    out = dict(tip or {})
+    gap = out.get("gap_pct")
+    realized = out.get("realized_t1_to_tau")
+    derived = False
+    if gap is None and realized is None:
+        gap = _gap_from_intent_fill(intent_price, entry_price)
+        derived = gap is not None
+    if realized is None:
+        realized = gap
+    if gap is not None:
+        out["gap_pct"] = gap
+    if realized is not None:
+        out["realized_t1_to_tau"] = realized
+    y_eod = out.get("predicted_score")
+    if y_eod is None:
+        y_eod = out.get("score")
+    rem = out.get("predicted_score_eod_rem")
+    # 信号日常把 rem 写成 =ŷ_EOD（尚无缺口）；成交后有已实现则必须重算
+    need_remap = rem is None or derived
+    if not need_remap and rem is not None and y_eod is not None and realized is not None:
+        try:
+            if abs(float(rem) - float(y_eod)) < 1e-9 and abs(float(realized)) > 1e-9:
+                need_remap = True
+        except (TypeError, ValueError):
+            need_remap = True
+    if need_remap and y_eod is not None:
+        try:
+            from core.signal.dual_score import eod_remaining_at_tau
+
+            rem = eod_remaining_at_tau(y_eod, realized)
+        except Exception:
+            rem = None
+    if rem is not None:
+        out["predicted_score_eod_rem"] = rem
+    if gap is not None or realized is not None:
+        try:
+            from core.signal.dual_score import ensure_formula_terms_tau
+
+            expl = ensure_formula_terms_tau(out)
+            if isinstance(expl, dict):
+                out["formula_terms_tau"] = expl
+                out["score_formula_terms_tau"] = expl
+        except Exception:
+            pass
+    return out
 
 
 def _score_formula_for_item(
@@ -845,6 +921,8 @@ def backtest_topk_equal_weight(
                 if scored_item.get("predicted_score_tau") is not None
                 else scored_item.get("score_rem"),
                 "predicted_score_blend": scored_item.get("predicted_score_blend"),
+                "predicted_score_eod_rem": scored_item.get("predicted_score_eod_rem"),
+                "realized_t1_to_tau": scored_item.get("realized_t1_to_tau"),
                 "score_rem": scored_item.get("score_rem"),
                 "gap_pct": scored_item.get("gap_pct"),
                 "event_prior": scored_item.get("event_prior"),
@@ -1024,6 +1102,8 @@ def backtest_topk_equal_weight(
                     "predicted_score": tip_kw.get("predicted_score"),
                     "predicted_score_tau": tip_kw.get("predicted_score_tau"),
                     "predicted_score_blend": tip_kw.get("predicted_score_blend"),
+                    "predicted_score_eod_rem": tip_kw.get("predicted_score_eod_rem"),
+                    "realized_t1_to_tau": tip_kw.get("realized_t1_to_tau"),
                     "score_rem": tip_kw.get("score_rem"),
                     "gap_pct": tip_kw.get("gap_pct"),
                     "event_prior": tip_kw.get("event_prior"),
@@ -1166,6 +1246,8 @@ def backtest_topk_equal_weight(
                     predicted_score=leg.get("predicted_score"),
                     predicted_score_tau=leg.get("predicted_score_tau"),
                     predicted_score_blend=leg.get("predicted_score_blend"),
+                    predicted_score_eod_rem=leg.get("predicted_score_eod_rem"),
+                    realized_t1_to_tau=leg.get("realized_t1_to_tau"),
                     score_rem=leg.get("score_rem"),
                     gap_pct=leg.get("gap_pct"),
                     event_prior=leg.get("event_prior"),

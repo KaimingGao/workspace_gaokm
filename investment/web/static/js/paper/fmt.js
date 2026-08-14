@@ -36,6 +36,98 @@ export function metricCls(v) {
   return n > 0 ? "up" : "down";
 }
 
+/** 表列主分：ŷ_trade（w·ŷ_EOD_rem + w·ŷ_τ）→ ŷ_τ → ŷ_EOD。门槛仍看 ŷ_EOD。 */
+export function resolveTradeScore(it) {
+  if (!it || typeof it !== "object") return null;
+  const candidates = [
+    it.predicted_score_blend,
+    it.predicted_score_tau,
+    it.score_rem,
+    it.predicted_score_rem,
+    it.predicted_score,
+    it.score,
+    it.score_cluster,
+  ];
+  for (const c of candidates) {
+    if (c == null || c === "") continue;
+    const n = Number(c);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+/** ŷ_EOD：隔夜主轴（买门槛用这一层）。 */
+export function resolveEodScore(it) {
+  if (!it || typeof it !== "object") return null;
+  const candidates = [
+    it.scoreEodNum,
+    it.predicted_score_eod,
+    it.predicted_score,
+    typeof it.score === "number" ? it.score : null,
+  ];
+  for (const c of candidates) {
+    if (c == null || c === "") continue;
+    const n = Number(c);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+/** (1+ŷ_EOD)/(1+已实现)−1；无已实现时退回 ŷ_EOD（尚未开盘）。 */
+export function eodRemainingAtTau(yEod, realized) {
+  if (yEod == null || yEod === "") return null;
+  const ye = Number(yEod);
+  if (!Number.isFinite(ye)) return null;
+  if (realized == null || realized === "") return ye;
+  const r = Number(realized);
+  if (!Number.isFinite(r)) return ye;
+  const denom = 1 + r / 100;
+  if (Math.abs(denom) < 1e-12) return null;
+  return ((1 + ye / 100) / denom - 1) * 100;
+}
+
+/** ŷ_EOD_rem：有已实现/缺口时一律几何映射；仅缺已实现才信簿上字段。 */
+export function resolveEodRemScore(it) {
+  if (!it || typeof it !== "object") return null;
+  const y = resolveEodScore(it);
+  const realized = it.realized_t1_to_tau;
+  const gap = it.gap_pct;
+  const r =
+    realized != null && realized !== "" && Number.isFinite(Number(realized))
+      ? Number(realized)
+      : gap != null && gap !== "" && Number.isFinite(Number(gap))
+        ? Number(gap)
+        : null;
+  if (y != null && r != null) {
+    return eodRemainingAtTau(y, r);
+  }
+  const candidates = [it.scoreEodRemNum, it.predicted_score_eod_rem];
+  for (const c of candidates) {
+    if (c == null || c === "") continue;
+    const n = Number(c);
+    if (Number.isFinite(n)) return n;
+  }
+  if (y == null) return null;
+  return eodRemainingAtTau(y, null);
+}
+
+/** 截面 μ / med / n（持仓统计等轻量场景）。 */
+export function scoreSeriesStats(vals) {
+  const xs = (vals || [])
+    .filter((x) => x != null && x !== "")
+    .map(Number)
+    .filter((n) => Number.isFinite(n));
+  if (!xs.length) return { n: 0, mean: null, median: null };
+  const sorted = [...xs].sort((a, b) => a - b);
+  const mean = xs.reduce((s, x) => s + x, 0) / xs.length;
+  const pos = (sorted.length - 1) / 2;
+  const lo = Math.floor(pos);
+  const hi = Math.ceil(pos);
+  const median =
+    lo === hi ? sorted[lo] : sorted[lo] * (hi - pos) + sorted[hi] * (pos - lo);
+  return { n: xs.length, mean, median };
+}
+
 /** 表格收益分 score / ŷ：百分点量纲，固定三位小数并带 %。 */
 export function fmtScore(v, { empty = "—", signed = false } = {}) {
   if (v === null || v === undefined || v === "") return empty;

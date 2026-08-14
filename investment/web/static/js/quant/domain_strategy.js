@@ -443,9 +443,8 @@ export function installStrategy(q) {
     const d = ds || {};
     const bits = [
       saved ? "已保存" : "当前",
-      "融合分 blend",
+      `正交加权 w_EOD=${d.w_eod ?? "—"} w_τ=${d.w_tau ?? "—"}`,
       `τ闸 ≥ ${d.min_predicted_score_tau ?? "—"}%`,
-      `w ${d.w_eod ?? "—"}/${d.w_tau ?? "—"}`,
     ];
     return bits.join(" · ");
   }
@@ -477,27 +476,26 @@ export function installStrategy(q) {
   async function saveStrategyDualScore() {
     const st = document.getElementById("strategy-dual-status");
     const floorIn = document.getElementById("strategy-dual-tau-floor");
-    const weIn = document.getElementById("strategy-dual-w-eod");
-    const wtIn = document.getElementById("strategy-dual-w-tau");
     const floor =
       floorIn && floorIn.value !== "" ? Number(floorIn.value) : null;
-    const wEod = weIn && weIn.value !== "" ? Number(weIn.value) : null;
-    const wTau = wtIn && wtIn.value !== "" ? Number(wtIn.value) : null;
-    if (
-      (floor == null || !Number.isFinite(floor)) &&
-      (wEod == null || !Number.isFinite(wEod)) &&
-      (wTau == null || !Number.isFinite(wTau))
-    ) {
-      if (st) st.textContent = "请填写 τ 闸或权重";
+    const weIn = document.getElementById("strategy-dual-w-eod");
+    const wtIn = document.getElementById("strategy-dual-w-tau");
+    const wEod = weIn && weIn.value !== "" ? Number(weIn.value) : 0.5;
+    const wTau = wtIn && wtIn.value !== "" ? Number(wtIn.value) : 0.5;
+    if (floor == null || !Number.isFinite(floor)) {
+      if (st) st.textContent = "请填写 τ 闸";
+      return;
+    }
+    if (!Number.isFinite(wEod) || !Number.isFinite(wTau)) {
+      if (st) st.textContent = "请填写融合权重";
       return;
     }
     const lines = [
       "保存融合分数？",
       "",
-      "· 模式 = blend（簿排序用融合分）",
-      floor != null && Number.isFinite(floor) ? `· τ 闸 ≥ ${floor}%` : "",
-      wEod != null && Number.isFinite(wEod) ? `· w_EOD = ${wEod}` : "",
-      wTau != null && Number.isFinite(wTau) ? `· w_τ = ${wTau}` : "",
+      "· 模式 = 正交加权（ŷ_trade = w·ŷ_EOD_rem + w·ŷ_τ）",
+      `· w_EOD = ${wEod} · w_τ = ${wTau}`,
+      `· τ 闸 ≥ ${floor}%`,
       "",
       "仅改 signal_config.dual_score；不改 weights / scoring。刷簿/预演后生效。",
     ].filter(Boolean);
@@ -507,12 +505,13 @@ export function installStrategy(q) {
       st.textContent = "正在保存…";
     }
     try {
-      const body = { note: "策略中心人审·融合分", fusion_mode: "f2" };
-      if (floor != null && Number.isFinite(floor)) {
-        body.min_predicted_score_tau = floor;
-      }
-      if (wEod != null && Number.isFinite(wEod)) body.w_eod = wEod;
-      if (wTau != null && Number.isFinite(wTau)) body.w_tau = wTau;
+      const body = {
+        note: "策略中心人审·正交加权",
+        fusion_mode: "blend",
+        w_eod: wEod,
+        w_tau: wTau,
+      };
+      body.min_predicted_score_tau = floor;
       const res = await fetch("/api/signal/config/dual-score", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

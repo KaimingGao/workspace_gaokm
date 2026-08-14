@@ -72,6 +72,16 @@ class TestEquityCurve(unittest.TestCase):
             self.assertIn(key, row)
         self.assertIsNotNone(row.get("entry_price"))
         self.assertTrue(str(row.get("factor_weights_note") or ""))
+        # next_open：意图价→开盘价应还原缺口，ŷ_EOD_rem 不再等于裸 ŷ_EOD
+        if row.get("intent_price") and row.get("entry_price") and row.get("predicted_score") is not None:
+            self.assertIsNotNone(row.get("realized_t1_to_tau"))
+            self.assertIsNotNone(row.get("predicted_score_eod_rem"))
+            if abs(float(row["realized_t1_to_tau"])) > 1e-9:
+                self.assertNotAlmostEqual(
+                    float(row["predicted_score_eod_rem"]),
+                    float(row["predicted_score"]),
+                    places=5,
+                )
         # walk-forward 拟合成功后应有分项拆解；样本过短时公式可空
         if row.get("score_formula_terms"):
             self.assertIn("terms", row["score_formula_terms"])

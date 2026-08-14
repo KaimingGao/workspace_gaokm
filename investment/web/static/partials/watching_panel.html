@@ -49,12 +49,22 @@
           <div class="dashboard-kpi-card quant-pro-kpi-card watching-kpi-card is-empty" data-kpi="buy">
             <div class="dashboard-kpi-label quant-pro-kpi-label watching-kpi-label">≥买门</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value watching-kpi-value" id="watching-kpi-buy">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-buy-sub">ŷ 过买门槛占比</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-buy-sub">ŷ_EOD 过买门槛占比</div>
           </div>
           <div class="dashboard-kpi-card quant-pro-kpi-card watching-kpi-card is-empty" data-kpi="mu">
-            <div class="dashboard-kpi-label quant-pro-kpi-label watching-kpi-label">ŷ μ</div>
+            <div class="dashboard-kpi-label quant-pro-kpi-label watching-kpi-label">ŷ_trade μ</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value watching-kpi-value" id="watching-kpi-mu">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-mu-sub">截面均值</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-mu-sub">表列主分</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card watching-kpi-card is-empty" data-kpi="eod">
+            <div class="dashboard-kpi-label quant-pro-kpi-label watching-kpi-label">ŷ_EOD μ</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value watching-kpi-value" id="watching-kpi-eod">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-eod-sub">隔夜主轴</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card watching-kpi-card is-empty" data-kpi="eod-rem">
+            <div class="dashboard-kpi-label quant-pro-kpi-label watching-kpi-label">ŷ_EOD_rem μ</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value watching-kpi-value" id="watching-kpi-eod-rem">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-eod-rem-sub">τ→收盘映射</div>
           </div>
         </div>
       </div>
@@ -92,9 +102,11 @@
       <div class="yhat-viz-block watching-yhat-hist" id="watching-yhat-hist-wrap" hidden>
         <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools watching-card-head watching-yhat-hist-head">
           <div class="watching-yhat-hist-titles">
-            <p class="quant-fingerprint quant-card-head-status">ŷ 截面分布</p>
+            <p class="quant-fingerprint quant-card-head-status">ŷ_trade 截面分布</p>
             <p id="watching-yhat-hist-meta" class="quant-sub watching-yhat-hist-meta-primary"></p>
             <p id="watching-yhat-hist-meta-aux" class="quant-sub watching-yhat-hist-meta-aux"></p>
+            <p id="watching-yhat-hist-meta-eod" class="quant-sub watching-yhat-hist-meta-layer"></p>
+            <p id="watching-yhat-hist-meta-eod-rem" class="quant-sub watching-yhat-hist-meta-layer"></p>
             <p id="watching-yhat-hist-filter" class="quant-sub yhat-hist-filter" hidden></p>
           </div>
           <div class="dashboard-card-tools quant-pro-card-tools watching-card-tools">
@@ -121,7 +133,7 @@
               class="yhat-hist-canvas"
               width="920"
               height="184"
-              aria-label="predicted_score 直方图，悬停查看箱内票，点击筛选观察表"
+              aria-label="ŷ_trade 直方图，悬停查看箱内票，点击筛选观察表"
             ></canvas>
           </div>
         </div>

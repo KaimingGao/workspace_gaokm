@@ -41,6 +41,9 @@ class TestWatchingInsights(unittest.TestCase):
         with patch("core.signal.score_stock.score_stock", return_value=fake_score), patch(
             "core.watching_insights._spot_valuation_map",
             return_value={},
+        ), patch(
+            "core.signal.cluster_live.load_active_cluster_book",
+            return_value={},
         ):
             out = build_watching_insights(
                 ["600519"],
@@ -74,11 +77,82 @@ class TestWatchingInsights(unittest.TestCase):
         with patch("core.signal.score_stock.score_stock", return_value=fake_score), patch(
             "core.watching_insights._spot_valuation_map",
             return_value={},
+        ), patch(
+            "core.signal.cluster_live.load_active_cluster_book",
+            return_value={},
         ):
             out = build_watching_insights(["600519"])
         item = out["items"][0]
         self.assertIsNone(item["excess_return_pct"])
         self.assertEqual(item["excess_label"], "RS66")
+
+    def test_book_row_forwards_trade_score_fields(self):
+        from core.watching_insights import _insight_from_book_row
+
+        row = {
+            "stock_code": "600519",
+            "score": 0.40,
+            "predicted_score": 0.40,
+            "predicted_score_blend": 0.12,
+            "predicted_score_tau": 0.12,
+            "predicted_score_eod_rem": 0.08,
+            "predicted_score_tau_delta": 0.04,
+            "realized_t1_to_tau": 0.30,
+        }
+        # 无新缺口时不覆盖簿上已有 rem
+        with patch("core.ports.market.query_quote", return_value={}), patch(
+            "core.data_service.get_bars", return_value={"bars": []}
+        ), patch("core.stance.compute_buy_stance", return_value={}):
+            out = _insight_from_book_row("600519", row)
+        self.assertAlmostEqual(out["score"], 0.40)
+        self.assertAlmostEqual(out["predicted_score_blend"], 0.12)
+        self.assertAlmostEqual(out["predicted_score_tau"], 0.12)
+        self.assertAlmostEqual(out["predicted_score_eod_rem"], 0.08)
+        self.assertAlmostEqual(out["predicted_score_tau_delta"], 0.04)
+        self.assertAlmostEqual(out["realized_t1_to_tau"], 0.30)
+
+    def test_book_row_hydrates_eod_rem_when_missing(self):
+        from core.watching_insights import _insight_from_book_row
+
+        row = {
+            "stock_code": "600519",
+            "score": 0.40,
+            "predicted_score": 0.40,
+        }
+        with patch("core.ports.market.query_quote", return_value={}), patch(
+            "core.data_service.get_bars", return_value={"bars": []}
+        ), patch("core.stance.compute_buy_stance", return_value={}), patch(
+            "quant.research.rem_ridge.load_rem_model", return_value=None
+        ), patch(
+            "quant.research.rem_ridge.predict_rem_from_features", return_value=None
+        ):
+            out = _insight_from_book_row("600519", row)
+        self.assertAlmostEqual(out["predicted_score_eod_rem"], 0.40)
+        self.assertIsNone(out.get("predicted_score_tau"))
+        self.assertAlmostEqual(out["predicted_score_blend"], 0.40)
+
+    def test_book_row_maps_eod_rem_from_live_gap(self):
+        from core.watching_insights import _insight_from_book_row
+
+        row = {
+            "stock_code": "600519",
+            "score": 0.40,
+            "predicted_score": 0.40,
+        }
+        quote = {"open": 101.0, "pre_close": 100.0}
+        with patch("core.ports.market.query_quote", return_value=quote), patch(
+            "core.data_service.get_bars", return_value={"bars": []}
+        ), patch("core.stance.compute_buy_stance", return_value={}), patch(
+            "quant.research.rem_ridge.load_rem_model", return_value=None
+        ), patch(
+            "quant.research.rem_ridge.predict_rem_from_features", return_value=None
+        ):
+            out = _insight_from_book_row("600519", row)
+        expected = ((1.0 + 0.40 / 100.0) / (1.0 + 1.0 / 100.0) - 1.0) * 100.0
+        self.assertAlmostEqual(out["realized_t1_to_tau"], 1.0, places=4)
+        self.assertAlmostEqual(out["predicted_score_eod_rem"], expected, places=4)
+        self.assertIsNone(out.get("predicted_score_tau"))
+        self.assertAlmostEqual(out["predicted_score_blend"], expected, places=4)
 
     def test_insights_covers_full_watchlist_up_to_hard_cap(self):
         from core.watching_insights import build_watching_insights, _INSIGHT_HARD_CAP
@@ -94,6 +168,9 @@ class TestWatchingInsights(unittest.TestCase):
 
         with patch("core.signal.score_stock.score_stock", side_effect=fake_score), patch(
             "core.watching_insights._spot_valuation_map",
+            return_value={},
+        ), patch(
+            "core.signal.cluster_live.load_active_cluster_book",
             return_value={},
         ):
             out = build_watching_insights(codes)

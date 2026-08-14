@@ -52,15 +52,14 @@ function formatAxisTick(v, step) {
   return s.replace(/(\.\d*?)0+$/, "$1").replace(/\.$/, "");
 }
 
-export function binScores(scores, { bins = 12, min, max } = {}) {
+/** 截面摘要：μ / med / IQR / σ / >0 占比；可选对照买门槛。 */
+export function summarizeScores(scores, { buyFloor } = {}) {
   const vals = (scores || [])
+    .filter((x) => x != null && x !== "")
     .map((x) => Number(x))
     .filter((n) => Number.isFinite(n));
   if (!vals.length) {
     return {
-      bins: [],
-      min: 0,
-      max: 0,
       n: 0,
       mean: null,
       median: null,
@@ -68,8 +67,45 @@ export function binScores(scores, { bins = 12, min, max } = {}) {
       p25: null,
       p75: null,
       pct_pos: null,
+      pct_above_buy: null,
       data_min: null,
       data_max: null,
+    };
+  }
+  const sorted = [...vals].sort((a, b) => a - b);
+  const mean = vals.reduce((s, x) => s + x, 0) / vals.length;
+  const variance =
+    vals.reduce((s, x) => s + (x - mean) * (x - mean), 0) / vals.length;
+  let pct_above_buy = null;
+  if (buyFloor != null && Number.isFinite(Number(buyFloor))) {
+    const thr = Number(buyFloor);
+    pct_above_buy = vals.filter((v) => v >= thr).length / vals.length;
+  }
+  return {
+    n: vals.length,
+    mean,
+    median: _quantile(sorted, 0.5),
+    std: Math.sqrt(variance),
+    p25: _quantile(sorted, 0.25),
+    p75: _quantile(sorted, 0.75),
+    pct_pos: vals.filter((v) => v > 0).length / vals.length,
+    pct_above_buy,
+    data_min: Math.min(...vals),
+    data_max: Math.max(...vals),
+  };
+}
+
+export function binScores(scores, { bins = 12, min, max } = {}) {
+  const vals = (scores || [])
+    .map((x) => Number(x))
+    .filter((n) => Number.isFinite(n));
+  const summary = summarizeScores(vals);
+  if (!vals.length) {
+    return {
+      bins: [],
+      min: 0,
+      max: 0,
+      ...summary,
     };
   }
   let lo = min != null && Number.isFinite(min) ? min : Math.min(...vals);
@@ -93,15 +129,6 @@ export function binScores(scores, { bins = 12, min, max } = {}) {
     if (idx >= k) idx = k - 1;
     counts[idx] += 1;
   }
-  const sorted = [...vals].sort((a, b) => a - b);
-  const mean = vals.reduce((s, x) => s + x, 0) / vals.length;
-  const median = _quantile(sorted, 0.5);
-  const p25 = _quantile(sorted, 0.25);
-  const p75 = _quantile(sorted, 0.75);
-  const variance =
-    vals.reduce((s, x) => s + (x - mean) * (x - mean), 0) / vals.length;
-  const std = Math.sqrt(variance);
-  const pctPos = vals.filter((v) => v > 0).length / vals.length;
   return {
     bins: counts.map((count, i) => ({
       x0: lo + i * width,
@@ -110,13 +137,7 @@ export function binScores(scores, { bins = 12, min, max } = {}) {
     })),
     min: lo,
     max: hi,
-    n: vals.length,
-    mean,
-    median,
-    std,
-    p25,
-    p75,
-    pct_pos: pctPos,
+    ...summary,
     data_min: dataMin,
     data_max: dataMax,
   };

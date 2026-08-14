@@ -163,6 +163,95 @@ def _apply_excess_label(out: Dict[str, Any], excess: Optional[float], item: dict
         out["excess_label"] = "RS" + str(int(round(rs)))
 
 
+def _hydrate_insight_tau_fields(
+    out: Dict[str, Any],
+    item: dict,
+    quote: Optional[dict] = None,
+    bars: Optional[list] = None,
+) -> None:
+    """簿行常只有 ŷ_EOD：用行情缺口现场写出 ŷ_EOD_rem / ŷ_trade。
+
+    有新缺口则重算（开盘后已实现会变）；无缺口且簿上已有 rem 则保留。
+    无已实现时 ŷ_EOD_rem = ŷ_EOD（视作尚未开盘）。
+    ŷ_τ 仍来自 rem 头，缺则保持空，ŷ_trade 退回 ŷ_EOD_rem。
+    """
+    y_eod = out.get("predicted_score")
+    if y_eod is None:
+        y_eod = out.get("score")
+    if y_eod is None and isinstance(item, dict):
+        y_eod = item.get("predicted_score")
+        if y_eod is None:
+            y_eod = item.get("score")
+    if y_eod is None:
+        return
+    q = quote if isinstance(quote, dict) else {}
+    b = list(bars or [])
+    gap = None
+    try:
+        from core.event_prior import gap_pct_from_quote_bars
+
+        gap = gap_pct_from_quote_bars(q, b)
+    except Exception:
+        gap = None
+    if gap is None:
+        gap = _f(out.get("gap_pct"))
+        if gap is None:
+            gap = _f((item or {}).get("gap_pct"))
+    already_rem = out.get("predicted_score_eod_rem") is not None
+    if already_rem and gap is None:
+        return
+    sig = dict(item) if isinstance(item, dict) else {}
+    if sig.get("predicted_score") is None:
+        sig["predicted_score"] = y_eod
+    if sig.get("score") is None:
+        sig["score"] = out.get("score") or y_eod
+    try:
+        from core.signal.dual_score import attach_dual_score_pit, dual_score_book_fields
+
+        attach_dual_score_pit(sig, quote=q, bars=b)
+        out.update(dual_score_book_fields(sig))
+        return
+    except Exception:
+        pass
+    try:
+        from core.signal.dual_score import (
+            eod_remaining_at_tau,
+            realized_t1_to_tau_pct,
+        )
+
+        realized = out.get("realized_t1_to_tau")
+        if realized is None:
+            realized = realized_t1_to_tau_pct(gap)
+        rem = eod_remaining_at_tau(y_eod, realized)
+        if rem is None:
+            return
+        out["predicted_score_eod"] = y_eod
+        out["predicted_score_eod_rem"] = rem
+        if out.get("predicted_score_blend") is None:
+            from core.signal.dual_score import fuse_remaining_heads
+
+            out["predicted_score_blend"] = fuse_remaining_heads(
+                rem, out.get("predicted_score_tau")
+            )
+        if realized is not None:
+            out["realized_t1_to_tau"] = realized
+        if gap is not None:
+            out["gap_pct"] = gap
+        try:
+            from core.signal.dual_score import ensure_formula_terms_tau
+
+            merge = dict(item or {})
+            merge.update(out)
+            expl = ensure_formula_terms_tau(merge)
+            if isinstance(expl, dict):
+                out["formula_terms_tau"] = expl
+                out["score_formula_terms_tau"] = expl
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 def _enrich_book_insight_display_fields(
     out: Dict[str, Any],
     code: str,
@@ -234,6 +323,8 @@ def _enrich_book_insight_display_fields(
 
     if out.get("excess_return_pct") is None and out.get("excess_label") is None:
         _apply_excess_label(out, None, item)
+
+    _hydrate_insight_tau_fields(out, item, quote, bars)
 
 
 def _insight_from_book_row(
@@ -361,6 +452,8 @@ def _insight_one(
             out.update(dual_score_book_fields(item))
         except Exception:
             pass
+        if out.get("predicted_score_eod_rem") is None:
+            _hydrate_insight_tau_fields(out, item, quote, None)
         # 选股门槛仅标注，不抹掉分数
         try:
             from core.signal.score_display import annotate_score_gate

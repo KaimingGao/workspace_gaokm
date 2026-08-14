@@ -138,13 +138,18 @@ class TestRemRidgeFit(unittest.TestCase):
             stock_bars, ridge_lambda=1.0, theme_boost=1.5, train_frac=0.7
         )
         self.assertTrue(report.get("success"), report.get("error"))
+        self.assertFalse(report.get("residualized"))
+        self.assertEqual(report.get("target"), "open_to_close_z")
         self.assertIn("return_model", report)
         self.assertIn("oos", report)
         self.assertEqual(report.get("tau"), "open")
-        self.assertEqual(report.get("schema"), "rem_ridge_v2")
+        self.assertEqual(report.get("schema"), "rem_ridge_v4")
         rm = report["return_model"]
         self.assertIn("coefficients", rm)
         self.assertEqual((rm.get("y_spec") or {}).get("tau"), "open")
+        coefs = rm.get("coefficients") or {}
+        self.assertNotIn("momentum", coefs)
+        self.assertNotIn("quality", coefs)
         # rem 豁免生效：即便合成 K 线缺口小，也不应因 low_variance 进 exclusion_reasons
         reasons = rm.get("exclusion_reasons") or {}
         self.assertNotEqual(reasons.get("gap_pct"), "low_variance")
@@ -155,12 +160,12 @@ class TestRemRidgeFit(unittest.TestCase):
             with patch("core.paths.LIVE_DIR", live):
                 saved = persist_rem_model(report, note="test")
                 self.assertTrue(saved.get("success"))
-                self.assertEqual(saved.get("schema"), "rem_ridge_v2")
+                self.assertEqual(saved.get("schema"), "rem_ridge_v4")
                 from quant.research.rem_ridge import load_rem_model, predict_rem_from_features
 
                 doc = load_rem_model()
                 self.assertIsNotNone(doc)
-                self.assertEqual(doc.get("schema"), "rem_ridge_v2")
+                self.assertEqual(doc.get("schema"), "rem_ridge_v4")
                 self.assertEqual(doc.get("tau"), "open")
                 self.assertEqual(doc.get("dual_score_head"), "predicted_score_tau")
                 yhat = predict_rem_from_features(

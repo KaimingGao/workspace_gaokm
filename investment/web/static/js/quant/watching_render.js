@@ -109,6 +109,10 @@ export function watchingScoreDetail(it) {
           ? it.score_rem
           : it.predicted_score_rem),
     predicted_score_blend: it && it.predicted_score_blend,
+    predicted_score_eod: it && it.predicted_score_eod,
+    predicted_score_eod_rem: it && it.predicted_score_eod_rem,
+    predicted_score_tau_delta: it && it.predicted_score_tau_delta,
+    realized_t1_to_tau: it && it.realized_t1_to_tau,
     score_rem: it && (it.score_rem != null ? it.score_rem : it.predicted_score_rem),
     gap_pct: it && it.gap_pct,
     event_prior: eventPrior,

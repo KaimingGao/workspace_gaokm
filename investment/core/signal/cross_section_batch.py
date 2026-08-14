@@ -146,7 +146,7 @@ def score_and_rank_watching(
         meta["neutralize_skipped"] = "predicted_score_uses_factor_coefs"
     meta["rank_mode"] = mode
 
-    # 双层 ŷ：PIT 挂 ŷ_τ + blend，排序/买入闸对齐 live F2
+    # 双层 ŷ：PIT 挂 ŷ_τ + ŷ_trade 加权融合 + 买入闸
     dual_cfg = None
     rem_doc = None
     try:
