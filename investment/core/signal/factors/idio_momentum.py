@@ -83,9 +83,14 @@ def score_idio_momentum(
     index_bars: Optional[List[dict]] = None,
     **_kw,
 ) -> Tuple[float, Dict[str, Any]]:
-    """无指数或样本不足 → 50。"""
+    """无指数或样本不足 → 不进 ŷ（omit）。"""
     if not bars or not index_bars:
-        return 50.0, {"idio_residual": None, "ok": False, "reason": "no_index"}
+        return 50.0, {
+            "idio_residual": None,
+            "ok": False,
+            "reason": "no_index",
+            "omit_sub_score": True,
+        }
 
     ys, xs = _aligned_returns(bars, index_bars)
     resid = _ols_residual_mean(ys, xs)
@@ -95,6 +100,7 @@ def score_idio_momentum(
             "ok": False,
             "reason": "thin_sample",
             "sample_count": len(ys),
+            "omit_sub_score": True,
         }
 
     pct = resid * 100.0
@@ -114,4 +120,5 @@ def score_idio_momentum(
         "idio_residual_pct": round(pct, 3),
         "ok": True,
         "sample_count": len(ys),
+        "omit_sub_score": False,
     }

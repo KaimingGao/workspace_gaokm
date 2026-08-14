@@ -2,6 +2,12 @@
  * Top-K 回测模拟成交表：列定义与纯变换。
  */
 
+const _V =
+  (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { watchingScoreDetail } = await import(
+  `./watching_render.js?v=${encodeURIComponent(_V)}`
+);
+
 export const BT_SIM_TRADE_COLS_BASE = [
   { id: "signal", label: "信号日", widthPct: 9 },
   { id: "entry", label: "买入日", widthPct: 9 },
@@ -9,11 +15,11 @@ export const BT_SIM_TRADE_COLS_BASE = [
   { id: "name", label: "股票", flex: true },
   {
     id: "score",
-    label: "score",
-    widthPct: 7,
+    label: "融合分",
+    widthPct: 7.5,
     num: true,
     sortable: true,
-    title: "悬停查看评分公式与分组因子权重",
+    title: "表列 = blend 排序键（w_EOD·ŷ_EOD + w_τ·ŷ_τ）· 悬停看 ŷ_EOD / ŷ_τ 组成",
   },
   {
     id: "intent",
@@ -70,12 +76,32 @@ export function flattenTradesToSimLegs(trades) {
         status: "filled",
         port_return_pct: t.return_pct,
         cluster_label: l.cluster_label,
+        cluster_mode: l.cluster_mode,
+        cluster_version: l.cluster_version,
         score_weight_source: l.score_weight_source,
         factor_weights: l.factor_weights,
         factor_weights_note: l.factor_weights_note,
+        factor_coefficients: l.factor_coefficients,
+        return_model_source: l.return_model_source,
         score_formula: l.score_formula,
+        score_formula_terms: l.score_formula_terms,
         score_reasons: l.score_reasons,
         score_raw: l.score_raw,
+        predicted_score: l.predicted_score != null ? l.predicted_score : l.score,
+        predicted_score_tau: l.predicted_score_tau,
+        predicted_score_blend: l.predicted_score_blend,
+        score_rem: l.score_rem != null ? l.score_rem : l.predicted_score_rem,
+        formula_terms_tau: l.formula_terms_tau || l.score_formula_terms_tau,
+        score_formula_tau: l.score_formula_tau,
+        factor_coefficients_tau: l.factor_coefficients_tau,
+        dual_score_fusion: l.dual_score_fusion,
+        dual_score_weights: l.dual_score_weights,
+        gap_pct: l.gap_pct,
+        event_prior: l.event_prior,
+        as_of_tau: l.as_of_tau || l.rem_tau,
+        y_spec_tau: l.y_spec_tau,
+        features_tau: l.features_tau,
+        sector: l.sector,
       });
     }
   }
@@ -208,7 +234,8 @@ export function buildSimTradeRow(r, i, deps) {
   const fullName = nameByCode[code] || code;
   const ret = r.return_pct;
   const st = r.status || "filled";
-  const reasons = Array.isArray(r.score_reasons) ? r.score_reasons.slice(0, 8) : [];
+  // 与观察池同源：slim 分项、优先 τ 字段，避免 data-score-detail 过长截断坏 JSON
+  const reasons = Array.isArray(r.score_reasons) ? r.score_reasons.slice(0, 5) : [];
   if (r.return_model_source === "cluster_group_beta") {
     reasons.push("收益分：分组因子系数 β → ŷ%");
   } else if (r.return_model_source === "walk_forward") {
@@ -220,24 +247,54 @@ export function buildSimTradeRow(r, i, deps) {
   }
   if (r.sector) reasons.push(`行业 ${r.sector}`);
   if (r.port_return_pct != null) reasons.push(`本期组合收益 ${r.port_return_pct}%`);
-  const scoreDetail = JSON.stringify({
-    formula: r.score_formula || "",
-    reasons,
-    hard_reject: false,
-    reject_reason: "",
+  const eodScore =
+    r.predicted_score != null && Number.isFinite(Number(r.predicted_score))
+      ? Number(r.predicted_score)
+      : null;
+  const blendScore =
+    r.predicted_score_blend != null && Number.isFinite(Number(r.predicted_score_blend))
+      ? Number(r.predicted_score_blend)
+      : r.score != null && Number.isFinite(Number(r.score))
+        ? Number(r.score)
+        : null;
+  const scoreDetail = watchingScoreDetail({
+    // tip ① 优先 predicted_score=ŷ_EOD；表列展示用 blend
+    score: eodScore != null ? eodScore : blendScore,
+    predicted_score: eodScore != null ? eodScore : blendScore,
+    predicted_score_tau:
+      r.predicted_score_tau != null
+        ? r.predicted_score_tau
+        : r.score_rem != null
+          ? r.score_rem
+          : r.predicted_score_rem,
+    predicted_score_blend: blendScore,
+    score_rem: r.score_rem != null ? r.score_rem : r.predicted_score_rem,
+    gap_pct: r.gap_pct,
+    event_prior: r.event_prior,
+    as_of_tau: r.as_of_tau || r.rem_tau,
+    rem_tau: r.rem_tau,
+    y_spec_tau: r.y_spec_tau,
+    features_tau: r.features_tau,
+    formula_terms_tau: r.formula_terms_tau || r.score_formula_terms_tau,
+    score_formula_tau: r.score_formula_tau,
+    factor_coefficients_tau: r.factor_coefficients_tau,
+    dual_score_fusion: r.dual_score_fusion,
+    dual_score_weights: r.dual_score_weights,
+    score_formula: r.score_formula,
+    score_reasons: reasons,
+    hard_reject: !!r.hard_reject,
+    reject_reason: r.reject_reason || "",
     weight_source: r.score_weight_source || r.weight_source || "",
     cluster_label: r.cluster_label || "",
     cluster_mode: r.cluster_mode || "",
     cluster_version: r.cluster_version,
     score_global: r.score_global,
     score_cluster: r.score_cluster,
-    factor_weights: r.factor_weights || {},
-    factor_coefficients: r.factor_coefficients || {},
+    min_score: r.min_score,
+    below_min_score: !!r.below_min_score,
     return_model_source: r.return_model_source || "",
-    formula_terms: r.score_formula_terms || null,
-    predicted_score:
-      r.predicted_score != null ? r.predicted_score : r.score != null ? r.score : null,
-    score: r.score,
+    score_formula_terms: r.score_formula_terms,
+    factor_coefficients: r.factor_coefficients || {},
   });
   return {
     code: `sim-${i}-${code}-${r.entry_date || ""}-${r.exit_date || ""}-${st}`,
@@ -255,10 +312,11 @@ export function buildSimTradeRow(r, i, deps) {
     retNum: Number.isFinite(Number(ret)) ? Number(ret) : null,
     retText: ret != null ? fmtPct(ret) : "—",
     retCls: st !== "filled" ? "down" : metricClass(ret),
-    scoreNum: Number.isFinite(Number(r.score)) ? Number(r.score) : null,
-    scoreText: fmtScore(r.score),
-    scoreCls: scoreCls(r.score),
+    scoreNum: blendScore,
+    scoreText: fmtScore(blendScore),
+    scoreCls: scoreCls(blendScore),
     scoreDetail,
+    scoreTitle: "融合分（排序键）· 悬停看 ŷ_EOD / ŷ_τ",
     status: formatSimStatus(st),
   };
 }
@@ -275,7 +333,7 @@ export function simTradesCaptionHtml({ rowsLen, filled, skipped, showIntent }) {
     `模拟成交账（含涨跌停跳过）· ${rowsLen} 笔` +
     `（成交 ${filled}` +
     (skipped ? ` · 跳过 ${skipped}` : "") +
-    `）· 按买入日新→旧 · 信号日→次日买入` +
+    `）· 按买入日新→旧 · 信号日→次日买入 · 表列融合分（悬停看 ŷ_EOD / ŷ_τ）` +
     (showIntent ? "" : " · 意图价=买入价已省略") +
     `<button type="button" id="quant-bt-trades-csv" class="dialog-btn secondary quant-bt-trades-csv">下载 CSV</button>` +
     `</p>` +
@@ -324,12 +382,18 @@ export function btTradesCellHtml(col, d, deps) {
     return `<span class="bt-trade-ret ${d.retCls || ""}">${escapeHtml(d.retText)}</span>`;
   }
   if (col.id === "score") {
+    const title = d.scoreTitle || "悬停查看收益分与因子系数";
+    if (!d.scoreDetail) {
+      return `<span class="bt-trade-score paper-hold-score ${escapeHtml(
+        d.scoreCls || ""
+      )}">${escapeHtml(d.scoreText)}</span>`;
+    }
     return (
       `<span class="bt-trade-score paper-hold-score has-tip ${escapeHtml(
         d.scoreCls || ""
       )}" ` +
       `data-score-detail="${escapeHtml(d.scoreDetail)}" ` +
-      `title="悬停查看收益分与因子系数">${escapeHtml(d.scoreText)}</span>`
+      `title="${escapeHtml(title)}">${escapeHtml(d.scoreText)}</span>`
     );
   }
   if (col.id === "intent") return escapeHtml(d.intentText);

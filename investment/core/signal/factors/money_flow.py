@@ -50,7 +50,7 @@ def score_money_flow(
 ) -> Tuple[float, Dict[str, Any]]:
     """
     优先用 money_flow.net_inflow（真资金流口）；否则 MFI 代理。
-    缺数据 → 50。
+    缺数据 → 不进 ŷ（omit）。
     """
     mf = money_flow or {}
     net = mf.get("net_inflow")
@@ -71,6 +71,7 @@ def score_money_flow(
                 "money_flow_source": "net_inflow",
                 "money_flow_net_inflow": round(net_f, 4),
                 "money_flow_mfi": None,
+                "omit_sub_score": False,
             }
 
     mfi = _mfi_proxy(bars or [])
@@ -79,6 +80,7 @@ def score_money_flow(
             "money_flow_source": "none",
             "money_flow_mfi": None,
             "ok": False,
+            "omit_sub_score": True,
         }
 
     # MFI 中间区友好，极端超买/超卖降分
@@ -97,4 +99,5 @@ def score_money_flow(
         "money_flow_source": "mfi_proxy",
         "money_flow_mfi": round(mfi, 2),
         "ok": True,
+        "omit_sub_score": False,
     }

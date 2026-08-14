@@ -1621,19 +1621,20 @@ def compute_factor_ols_cluster_report(
     labels, promoted_idx = promote_outliers_to_singleton_clusters(labels)
     labels = _relabel_non_negative(labels)
 
-    # 轻量 holdout 贪心换组（大宇宙 / 无日历切分跳过）
+    # 轻量 holdout 贪心换组（B2：大宇宙用 focused 弱组换票，不再整段跳过）
     greedy_refine: Dict[str, Any]
+    n_codes = len(codes)
     if (
-        not large_universe
-        and cut_date
-        and len(codes) >= 4
-        and len(codes) <= 24
+        cut_date
+        and n_codes >= 4
+        and n_codes <= 100
         and len(set(int(v) for v in labels if int(v) >= 0)) >= 2
     ):
         _progress("贪心换组…", 0, 1)
         try:
             from quant.research.cluster_greedy_refine import light_greedy_swap_refine
 
+            greedy_mode = "focused" if (large_universe or n_codes > 32) else "full"
             labels, greedy_refine = light_greedy_swap_refine(
                 labels,
                 codes,
@@ -1647,8 +1648,13 @@ def compute_factor_ols_cluster_report(
                 collinearity_policy=collinearity_policy,
                 respect_regime=respect_regime,
                 y_spec=y_spec,
-                max_rounds=2,
-                max_evals=min(80, max(20, len(codes) * 4)),
+                mode=greedy_mode,
+                max_rounds=2 if greedy_mode == "full" else 3,
+                max_evals=(
+                    min(80, max(20, n_codes * 4))
+                    if greedy_mode == "full"
+                    else min(120, max(30, n_codes * 2))
+                ),
             )
             labels = _relabel_non_negative(np.asarray(labels, dtype=int))
         except Exception as exc:
@@ -1658,13 +1664,9 @@ def compute_factor_ols_cluster_report(
         greedy_refine = {
             "ok": False,
             "reason": (
-                "large_universe_skip"
-                if large_universe
-                else (
-                    "no_calendar_cut"
-                    if not cut_date
-                    else ("n_out_of_range" if len(codes) > 24 else "too_few_codes")
-                )
+                "no_calendar_cut"
+                if not cut_date
+                else ("n_out_of_range" if n_codes > 100 else "too_few_codes")
             ),
         }
     k_selection["greedy_refine"] = greedy_refine

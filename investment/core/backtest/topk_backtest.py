@@ -206,11 +206,33 @@ def _sim_trade_row(
     score_reasons: Optional[List[str]] = None,
     score_raw: Optional[float] = None,
     predicted_score: Optional[float] = None,
+    predicted_score_tau: Optional[float] = None,
+    predicted_score_blend: Optional[float] = None,
+    score_rem: Optional[float] = None,
+    gap_pct: Optional[float] = None,
+    event_prior: Optional[Dict[str, Any]] = None,
+    as_of_tau: Optional[str] = None,
+    y_spec_tau: Optional[Dict[str, Any]] = None,
+    features_tau: Optional[Dict[str, Any]] = None,
+    formula_terms_tau: Optional[Dict[str, Any]] = None,
+    dual_score_fusion: Optional[str] = None,
+    dual_score_weights: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     return {
         "stock_code": stock_code,
         "score": score,
         "predicted_score": predicted_score if predicted_score is not None else score,
+        "predicted_score_tau": predicted_score_tau,
+        "predicted_score_blend": predicted_score_blend,
+        "score_rem": score_rem if score_rem is not None else predicted_score_tau,
+        "gap_pct": gap_pct,
+        "event_prior": event_prior,
+        "as_of_tau": as_of_tau,
+        "y_spec_tau": y_spec_tau,
+        "features_tau": features_tau,
+        "formula_terms_tau": formula_terms_tau,
+        "dual_score_fusion": dual_score_fusion,
+        "dual_score_weights": dual_score_weights,
         "signal_date": signal_date,
         "entry_date": entry_date,
         "exit_date": exit_date,
@@ -640,14 +662,15 @@ def backtest_topk_equal_weight(
         elif use_live_cluster_models:
             try:
                 from core.signal.cluster_live import (
-                    cluster_yhat_primary_allowed,
+                    cluster_yhat_shadow_compute_allowed,
                     get_cluster_scoring_cfg,
                     load_cluster_return_models_by_code,
                 )
 
-                # FH0：live 注入组 β 仅当 mode=active；显式 return_models_by_code 不受此限（研究 OOS）
+                # 历史回测对齐数据中心：shadow|active 均可算组 ŷ（与 insights 同源）。
+                # 纸面 live 主排序仍仅 active（FH0）；此处不放开 paper。
                 cs = get_cluster_scoring_cfg()
-                if cluster_yhat_primary_allowed(str(cs.get("mode") or "off")):
+                if cluster_yhat_shadow_compute_allowed(str(cs.get("mode") or "off")):
                     cluster_return_models = load_cluster_return_models_by_code()
                 else:
                     cluster_return_models = {}
@@ -697,6 +720,9 @@ def backtest_topk_equal_weight(
                 fundamentals=fund,
             )
             if item:
+                # PIT 双层 ŷ：供 score_and_rank 挂 ŷ_τ / blend（信号日 open 缺口）
+                item["_bt_quote"] = quote
+                item["_bt_bars"] = window[-8:] if len(window) >= 2 else list(window)
                 entries.append(item)
 
         # 收益分：优先分组 live OLS β；否则 walk-forward 拟合全局模型
@@ -815,7 +841,30 @@ def backtest_topk_equal_weight(
                 "score_reasons": score_reasons,
                 "score_raw": score_raw,
                 "predicted_score": tip.get("predicted_score"),
+                "predicted_score_tau": scored_item.get("predicted_score_tau")
+                if scored_item.get("predicted_score_tau") is not None
+                else scored_item.get("score_rem"),
+                "predicted_score_blend": scored_item.get("predicted_score_blend"),
+                "score_rem": scored_item.get("score_rem"),
+                "gap_pct": scored_item.get("gap_pct"),
+                "event_prior": scored_item.get("event_prior"),
+                "as_of_tau": scored_item.get("as_of_tau") or scored_item.get("rem_tau"),
+                "y_spec_tau": scored_item.get("y_spec_tau"),
+                "features_tau": scored_item.get("features_tau"),
+                "formula_terms_tau": scored_item.get("formula_terms_tau")
+                or scored_item.get("score_formula_terms_tau"),
+                "dual_score_fusion": scored_item.get("dual_score_fusion"),
+                "dual_score_weights": scored_item.get("dual_score_weights"),
             }
+            # 表列 score = 融合分（排序键）；predicted_score 仍为 ŷ_EOD 供 tip
+            rank_score = tip_kw.get("predicted_score_blend")
+            if rank_score is None:
+                rank_score = score
+            else:
+                try:
+                    rank_score = float(rank_score)
+                except (TypeError, ValueError):
+                    rank_score = score
             dm = date_maps[code]
             entry_bar = dm.get(entry_date)
             if not entry_bar:
@@ -851,7 +900,7 @@ def backtest_topk_equal_weight(
                         "signal_date": signal_date,
                         "entry_date": entry_date,
                         "stock_code": code,
-                        "score": score,
+                        "score": rank_score,
                         "intent_price": intent_f,
                         "fill_price": None,
                         "exit_price": None,
@@ -866,7 +915,7 @@ def backtest_topk_equal_weight(
                     sim_trades.append(
                         _sim_trade_row(
                             stock_code=code,
-                            score=score,
+                            score=rank_score,
                             signal_date=signal_date,
                             entry_date=entry_date,
                             intent_price=intent_f,
@@ -909,7 +958,7 @@ def backtest_topk_equal_weight(
                     "signal_date": signal_date,
                     "entry_date": entry_date,
                     "stock_code": code,
-                    "score": score,
+                    "score": rank_score,
                     "intent_price": intent_f,
                     "fill_price": fill_f,
                     "exit_price": None,
@@ -924,7 +973,7 @@ def backtest_topk_equal_weight(
                 sim_trades.append(
                     _sim_trade_row(
                         stock_code=code,
-                        score=score,
+                        score=rank_score,
                         signal_date=signal_date,
                         entry_date=entry_date,
                         intent_price=intent_f,
@@ -961,7 +1010,7 @@ def backtest_topk_equal_weight(
             legs.append(
                 {
                     "stock_code": code,
-                    "score": score,
+                    "score": rank_score,
                     "score_formula": score_formula,
                     "score_formula_terms": tip_kw.get("score_formula_terms"),
                     "factor_coefficients": tip_kw.get("factor_coefficients") or {},
@@ -973,6 +1022,17 @@ def backtest_topk_equal_weight(
                     "score_reasons": score_reasons,
                     "score_raw": score_raw,
                     "predicted_score": tip_kw.get("predicted_score"),
+                    "predicted_score_tau": tip_kw.get("predicted_score_tau"),
+                    "predicted_score_blend": tip_kw.get("predicted_score_blend"),
+                    "score_rem": tip_kw.get("score_rem"),
+                    "gap_pct": tip_kw.get("gap_pct"),
+                    "event_prior": tip_kw.get("event_prior"),
+                    "as_of_tau": tip_kw.get("as_of_tau"),
+                    "y_spec_tau": tip_kw.get("y_spec_tau"),
+                    "features_tau": tip_kw.get("features_tau"),
+                    "formula_terms_tau": tip_kw.get("formula_terms_tau"),
+                    "dual_score_fusion": tip_kw.get("dual_score_fusion"),
+                    "dual_score_weights": tip_kw.get("dual_score_weights"),
                     "return_pct": round(ret, 2),
                     "sector": _sector_for(code, smap),
                     "exit_date": exit_date,
@@ -991,7 +1051,7 @@ def backtest_topk_equal_weight(
                     "entry_date": entry_date,
                     "exit_date": exit_date,
                     "stock_code": code,
-                    "score": score,
+                    "score": rank_score,
                     "intent_price": round(intent_f, 4) if intent_f is not None else None,
                     "fill_price": round(entry_f, 4) if entry_f is not None else None,
                     "exit_price": round(exit_f, 4) if exit_f is not None else None,
@@ -1104,6 +1164,17 @@ def backtest_topk_equal_weight(
                     score_reasons=leg.get("score_reasons") or [],
                     score_raw=leg.get("score_raw"),
                     predicted_score=leg.get("predicted_score"),
+                    predicted_score_tau=leg.get("predicted_score_tau"),
+                    predicted_score_blend=leg.get("predicted_score_blend"),
+                    score_rem=leg.get("score_rem"),
+                    gap_pct=leg.get("gap_pct"),
+                    event_prior=leg.get("event_prior"),
+                    as_of_tau=leg.get("as_of_tau"),
+                    y_spec_tau=leg.get("y_spec_tau"),
+                    features_tau=leg.get("features_tau"),
+                    formula_terms_tau=leg.get("formula_terms_tau"),
+                    dual_score_fusion=leg.get("dual_score_fusion"),
+                    dual_score_weights=leg.get("dual_score_weights"),
                 )
             )
         trades.append(
@@ -1227,13 +1298,14 @@ def backtest_topk_equal_weight(
             + ("成本按换手计费（续持不扣往返）；" if apply_costs else "")
             + (
                 (
-                    "predicted_score=分组 live OLS β→收益分；"
+                    "predicted_score=分组 live OLS β→ŷ_EOD；"
                     if cluster_return_models
-                    else "predicted_score=walk-forward 拟合后按收益分排序；"
+                    else "predicted_score=walk-forward 拟合→ŷ_EOD；"
                 )
                 if resolved_rank_mode == "predicted_score"
                 else ""
             )
+            + "排序=融合分 blend（ŷ_EOD+ŷ_τ）；表列 score=融合分；tip 仍分列 ŷ_EOD / ŷ_τ；"
             + "非交易所仿真，仅供研究。"
         ),
     }

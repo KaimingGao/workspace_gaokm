@@ -31,9 +31,10 @@ def turnover_ratio(bars: List[dict], short: int = 3, long: int = 10) -> Optional
 
 
 def score_liquidity(bars: List[dict]) -> tuple[float, dict]:
+    """成交额活跃度；缺数据不进 ŷ（omit）。"""
     ratio = turnover_ratio(bars)
     if ratio is None:
-        return 50.0, {"turnover_ratio": None}
+        return 50.0, {"turnover_ratio": None, "omit_sub_score": True}
 
     if 0.75 <= ratio <= 1.8:
         score = 62.0 + min(18.0, (ratio - 0.75) * 12.0)
@@ -44,4 +45,4 @@ def score_liquidity(bars: List[dict]) -> tuple[float, dict]:
     else:
         score = 35.0
 
-    return round(score, 1), {"turnover_ratio": round(ratio, 2)}
+    return round(score, 1), {"turnover_ratio": round(ratio, 2), "omit_sub_score": False}

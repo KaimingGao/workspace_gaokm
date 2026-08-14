@@ -12,7 +12,7 @@ def score_growth(
     fundamentals: Optional[dict] = None,
     **_kw,
 ) -> Tuple[float, Dict[str, Any]]:
-    """缺增速 → 50。优先 profit_growth，否则 revenue_growth。"""
+    """缺增速 → 不进 ŷ（omit）。优先 profit_growth，否则 revenue_growth。"""
     _ = bars
     fund = fundamentals or {}
     profit_growth = _to_float(fund.get("profit_growth"))
@@ -24,6 +24,7 @@ def score_growth(
             "growth_profit": None,
             "growth_revenue": None,
             "growth_used": None,
+            "omit_sub_score": True,
         }
 
     if growth >= 30.0:
@@ -43,5 +44,6 @@ def score_growth(
         "growth_used": round(growth, 2),
         "growth_profit": round(profit_growth, 2) if profit_growth is not None else None,
         "growth_revenue": round(revenue_growth, 2) if revenue_growth is not None else None,
+        "omit_sub_score": False,
     }
     return float(score), meta

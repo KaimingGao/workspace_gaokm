@@ -1,6 +1,6 @@
 # 产品核心设计主轴
 
-[← 文档索引](README.md) · 工程分层见 [architecture.md](architecture.md) · 因子/stance 细节见 [quant.md](quant.md) · ŷ 全链路见 [predicted-score-chain.md](predicted-score-chain.md) · 盘中/实时增强见 [intraday-residual-score.md](intraday-residual-score.md) · Web 主路径见 [quant-ui.md](quant-ui.md)
+[← 文档索引](README.md) · 工程分层见 [architecture.md](architecture.md) · 因子/stance 细节见 [quant.md](quant.md) · ŷ 全链路见 [predicted-score-chain.md](predicted-score-chain.md) · 盘中/实时增强见 [intraday-residual-score.md](intraday-residual-score.md) · τ 契约与分组升级见 [tau-contract-and-partition-upgrade.md](tau-contract-and-partition-upgrade.md) · Web 主路径见 [quant-ui.md](quant-ui.md)
 
 本文是产品的 **核心设计主轴**，分三层读：
 
@@ -59,7 +59,9 @@
     │  normalize · quality · adjust_policy · allows_production_score
     ▼
 影响估计（Alpha / Risk 两条估计）
-    ├─ Alpha：因子 sub_scores → 组 OLS/Ridge β → **predicted_score（ŷ%）** → stance（相对吸引力）
+    ├─ Alpha：**双层 ŷ**
+    │         · ŷ_EOD = predicted_score：T−1 因子 → 组 β → 前瞻 h 日（主排序 / 买入）
+    │         · ŷ_τ = predicted_score_tau（雏形 score_rem）：X+Z_≤τ → 当日剩余（展示/门控→规划买入闸）
     │         heuristic 加权 score 仅研究基线，不驱动 live 选股
     └─ Risk：回撤/集中度/成本/滚动 ŷ IC（能买多少、要不要停）
     ▼
@@ -90,7 +92,7 @@ flowchart LR
 |----------|----------|------------|--------|
 | **事实输入** | 当时可见的价量、财务、资讯、账本 | `ports` · `fetch_daily_bars` · fundamentals · sentiment · `watching` / `paper` | 基本面多为 **snapshot**（非完整 PIT）；须在质量/文档标明 |
 | **清洗门禁** | 能否进入生产估计 | `normalize_bars` · `assess_quality` · `allows_production_score` · manifest `adjust_policy` | thin/empty/fallback → `hard_reject`，不硬塞分 |
-| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· `compute_buy_stance` | 生产 Alpha = **回归 ŷ**（当前线性；解法=OLS/Ridge）；组 β 仅 `cluster_scoring.mode=active` 进主分（off 不算、shadow 只对照，见 FH0）；`heuristic_score` **仅研究对照基线**；LLM **不改** `score` / `stance_label` |
+| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **双层**：`predicted_score`（EOD）+ `score_rem`/`predicted_score_tau`（τ）· `compute_buy_stance` | 生产主排序 = **EOD ŷ**；τ 头独立 Ridge（rem），不改组 β；融合见 [predicted-score-chain §2.5](predicted-score-chain.md)；组 β 仅 `cluster_scoring.mode=active` 进主分（FH0）；`heuristic_score` **仅研究对照基线**；LLM **不改** `score` / `stance_label` |
 | **Risk 估计** | 已发生敞口对「能买多少 / 要不要停」的影响 | `check_account_risk` · `optimize_weights` · `strategy_monitor`（回撤 · 滚动 IC · 行业覆盖） · 成本 `simple_cn` | 监控 **只告警**；不自动改权、不代客下单 |
 | **验证** | 同一规则在历史上是否仍有效 | `backtest` · OOS/regime · `wf_slices` · IC / `weight_suggest` · 纸面 `ops_report` 五问 | 研究结果 ≠ 实盘保证；OOS 失败须可见 |
 | **动作** | 估计如何变成可审计行为 | 观察 · 人建仓 · `run_daily_cycle` / 横截面调仓 · `paper_daily` · DecisionRecord | **现行不接 OMS**（策略验证）；配置变更走 feedback → **人审 promote** |

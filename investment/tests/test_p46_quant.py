@@ -40,6 +40,21 @@ class TestP46FundamentalFactors(unittest.TestCase):
         score, meta = score_value(fundamentals=None)
         self.assertEqual(score, 50.0)
         self.assertIsNone(meta["value_pe"])
+        self.assertTrue(meta.get("omit_sub_score"))
+
+    def test_fund_missing_omitted_from_sub_scores(self):
+        bars = _rising_bars()
+        subs, _c, meta = compute_configured_factors(
+            bars,
+            weights={"value": 0.05, "quality": 0.04, "growth": 0.03, "momentum": 0.2},
+            fundamentals={},
+            required_keys=["value", "quality", "growth", "momentum"],
+        )
+        self.assertNotIn("value", subs)
+        self.assertNotIn("quality", subs)
+        self.assertNotIn("growth", subs)
+        self.assertIn("momentum", subs)
+        self.assertTrue(meta.get("omit_sub_score"))
 
     def test_quality_scores_high_roe(self):
         score, meta = score_quality(fundamentals={"roe": 22.0, "profit_growth": 15.0})
@@ -62,7 +77,7 @@ class TestP46FundamentalFactors(unittest.TestCase):
         self.assertEqual(out["pe_ttm"], 12.5)
         self.assertEqual(out["roe"], 15.0)
 
-    @patch("core.signal.score_stock.fetch_score_fundamentals")
+    @patch("core.signal.live_features.resolve_live_fundamentals")
     @patch("core.signal.score_stock.fetch_daily_bars")
     @patch("core.signal.score_stock.query_quote")
     def test_score_stock_passes_fundamentals(self, mock_quote, mock_bars, mock_fund):
@@ -78,9 +93,21 @@ class TestP46FundamentalFactors(unittest.TestCase):
             "price_raw": 1800.0,
         }
         mock_bars.return_value = (_rising_bars(), "mock")
-        mock_fund.return_value = {"pe": 20.0, "pb": 2.0, "roe": 25.0, "profit_growth": 10.0}
+        mock_fund.return_value = {
+            "metrics": {"pe": 20.0, "pb": 2.0, "roe": 25.0, "profit_growth": 10.0},
+            "fundamentals_pit": {"ok": True, "mode": "as_of"},
+        }
 
-        out = score_stock("600519", bypass_quality_gate=True)
+        with patch(
+            "core.valuation_em.merge_cached_valuation", side_effect=lambda c, m, **k: m
+        ), patch(
+            "core.fundamentals_pit.merge_local_fundamentals_snapshot",
+            side_effect=lambda c, m=None: m,
+        ), patch(
+            "core.signal.live_features.fetch_live_index_bars",
+            return_value={"ok": False, "bars": [], "reason": "test"},
+        ):
+            out = score_stock("600519", bypass_quality_gate=True, skip_sentiment=True)
         self.assertTrue(out["success"])
         subs = out["signal_item"]["sub_scores"]
         self.assertIn("value", subs)

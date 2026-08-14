@@ -67,6 +67,17 @@
     "min_hold_predicted_score": 0.0,
     "horizon_days": 1
   },
+  "dual_score": {
+    "fusion_mode": "f2",
+    "tau": "open",
+    "min_predicted_score_tau": 0.0,
+    "block_buy_if_tau_missing": false,
+    "w_eod": 0.5,
+    "w_tau": 0.5,
+    "enable_tau_shadow_book": true,
+    "enable_minute_tau": false,
+    "minute_tau_hm": "09:45"
+  },
   "stance_thresholds": {
     "avoid": -0.25,
     "wait": 0.25,
@@ -123,7 +134,7 @@
     "size_buckets": 3
   },
   "cluster_scoring": {
-    "mode": "active",
+    "mode": "shadow",
     "enabled": true,
     "top_n_per_group": 10,
     "max_names": 40,
@@ -134,7 +145,8 @@
     "min_yhat_rolling_ic": 0.0,
     "block_active_on_yhat_ic": true,
     "min_sector_map_coverage": 0.5,
-    "exclude_oos_failed_groups": true
+    "exclude_oos_failed_groups": true,
+    "promote_allow_worse_oos_than_active": true
   },
   "event_prior": {
     "mode": "gate",

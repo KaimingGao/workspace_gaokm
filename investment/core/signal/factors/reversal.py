@@ -164,6 +164,7 @@ def score_reversal(bars: List[dict]) -> tuple[float, dict]:
             "rev_consecutive_limit": None,
             "rev_position": None,
             "rev_amplitude": None,
+            "omit_sub_score": True,
         }
     
     # 1. 涨停统计评分

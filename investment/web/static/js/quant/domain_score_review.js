@@ -1,5 +1,5 @@
 /**
- * 昨日复盘：ŷ 方向 vs 前瞻收益。
+ * 双层 ŷ 复盘：ŷ_EOD 方向 vs 前瞻收益；副轴 ŷ_τ 验收。
  */
 import { paintYhatScatter, paintHitSparkline } from "./yhat_viz.js";
 import { syncOverviewFromScoreReview, setProStatusChip, factorCN } from "./factor_corr_ui.js";
@@ -66,6 +66,7 @@ export function installScoreReview(ctx) {
       )}</p>`;
       syncOverviewFromScoreReview(data);
       setProStatusChip("quant-pro-review-status", "warn", "无账本");
+      renderTauShadow(data && data.tau_shadow);
       return;
     }
     const s = data.summary || {};
@@ -111,6 +112,7 @@ export function installScoreReview(ctx) {
       (data.note && s.hit_rate == null
         ? `<p class="quant-attr-note">${esc(String(data.note).slice(0, 160))}</p>`
         : "");
+    renderTauShadow(data.tau_shadow);
     syncOverviewFromScoreReview(data);
     if (s.hit_rate != null && Number.isFinite(Number(s.hit_rate))) {
       const pct = Number(s.hit_rate) * 100;
@@ -127,6 +129,46 @@ export function installScoreReview(ctx) {
         thin > 0 ? `薄样本 ${thin}` : s.blame_line || "样本不足"
       );
     }
+  }
+
+  function renderTauShadow(tau) {
+    const box = document.getElementById("quant-score-review-tau");
+    if (!box) return;
+    if (!tau || tau.success === false) {
+      box.hidden = true;
+      box.innerHTML = "";
+      return;
+    }
+    const ic =
+      tau.tau_ic_spearman != null
+        ? Number(tau.tau_ic_spearman).toFixed(2)
+        : "—";
+    const hit =
+      tau.tau_sign_hit_rate != null
+        ? `${(Number(tau.tau_sign_hit_rate) * 100).toFixed(0)}%`
+        : "—";
+    const vs = tau.vs_eod || {};
+    const j =
+      vs.jaccard != null ? Number(vs.jaccard).toFixed(2) : "—";
+    const ov =
+      vs.overlap != null
+        ? `${vs.overlap}/${vs.n_a ?? "—"}∩${vs.n_b ?? "—"}`
+        : "—";
+    const n = tau.tau_n != null ? String(tau.tau_n) : "—";
+    box.hidden = false;
+    box.innerHTML =
+      `<div class="quant-metric-strip quant-tau-strip" title="A2：ŷ_τ vs open→close；影子簿 vs EOD 重叠">` +
+      `<span><b>ŷ_τ</b> 验收</span>` +
+      `<span>IC <b>${esc(ic)}</b> (n=${esc(n)})</span>` +
+      `<span>命中 <b>${esc(hit)}</b></span>` +
+      `<span>影子重叠 Jaccard <b>${esc(j)}</b> · ${esc(ov)}</span>` +
+      (tau.shadow_exists
+        ? `<span>影子簿 ${esc(String(tau.shadow_n ?? "—"))} 只</span>`
+        : `<span class="quant-attr-note">无 τ 影子成员快照</span>`) +
+      `</div>` +
+      `<p class="quant-attr-note">标签 ${esc(
+        String(tau.y_spec_tau || "close[T]/open[T]-1")
+      )} · 不替代 EOD 复盘</p>`;
   }
 
   function setVizMeta(id, text) {
@@ -249,6 +291,8 @@ export function installScoreReview(ctx) {
       .slice(0, 80)
       .map((r) => {
         const y = r.yhat != null ? Number(r.yhat).toFixed(2) : "—";
+        const yTau =
+          r.yhat_tau != null ? Number(r.yhat_tau).toFixed(2) : "—";
         const ret = r.realized_h != null ? Number(r.realized_h).toFixed(2) : "—";
         const err = r.abs_err != null ? Number(r.abs_err).toFixed(2) : "—";
         const fac = facLabel(r);
@@ -259,6 +303,12 @@ export function installScoreReview(ctx) {
           r.hit === true ? " is-hit" : r.hit === false ? " is-miss" : "";
         const result =
           r.hit === true ? "命中" : r.hit === false ? "失手" : tagLabel(r.tag);
+        const tauTip =
+          r.hit_tau === true
+            ? "τ命中"
+            : r.hit_tau === false
+              ? "τ失手"
+              : "";
         return (
           `<tr class="quant-score-review-row is-clickable${hitCls}" data-code="${esc(code)}" data-name="${esc(
             r.name || ""
@@ -267,7 +317,8 @@ export function installScoreReview(ctx) {
           `<td class="col-name" title="${esc(r.name || "")}">${esc(r.name || "")}</td>` +
           `<td class="col-sector" title="${esc(r.sector || "")}">${esc(r.sector || "—")}</td>` +
           `<td class="col-group">${esc(r.cluster_label || "—")}</td>` +
-          `<td class="num">${esc(y)}</td>` +
+          `<td class="num" title="ŷ_EOD">${esc(y)}</td>` +
+          `<td class="num" title="ŷ_τ · ${esc(tauTip || "—")}">${esc(yTau)}</td>` +
           `<td class="num">${esc(ret)}</td>` +
           `<td class="num">${esc(err)}</td>` +
           `<td class="col-factor" title="${esc(r.dominant_factor || "")}">${esc(fac)}</td>` +
@@ -278,15 +329,17 @@ export function installScoreReview(ctx) {
       })
       .join("");
     box.innerHTML =
-      `<p class="quant-trades-caption">复盘样本 · 命中 ${esc(String(nHit))} / 失手 ${esc(
+      `<p class="quant-trades-caption">复盘样本 · EOD 命中 ${esc(String(nHit))} / 失手 ${esc(
         String(nMiss)
-      )} · 点击行打开单票时间线</p>` +
+      )} · 列 ŷ / ŷ_τ 分轴 · 点击行打开单票时间线</p>` +
       `<div class="quant-score-review-table-scroll">` +
       `<table class="quant-mini-table quant-score-review-mini quant-score-review-mini--wrong">` +
       `<thead><tr>` +
       `<th class="col-code">代码</th><th class="col-name">名称</th>` +
       `<th class="col-sector">行业</th><th class="col-group">组</th>` +
-      `<th class="num">ŷ%</th><th class="num">实现%</th><th class="num">|误差|</th>` +
+      `<th class="num" title="主轴 predicted_score">ŷ%</th>` +
+      `<th class="num" title="副轴 predicted_score_tau">ŷ_τ%</th>` +
+      `<th class="num">实现%</th><th class="num">|误差|</th>` +
       `<th class="col-factor">主导因子</th><th class="num">因子相关</th><th class="col-tag">结果</th>` +
       `</tr></thead><tbody>${body}</tbody></table></div>`;
   }
@@ -501,6 +554,11 @@ export function installScoreReview(ctx) {
       } else {
         setStatus(`已删除 ${d} · 无剩余账本`, { ok: true });
         renderSummary({ empty: true, note: "无该日账本。请先冻结打分。" });
+        const tauBox = document.getElementById("quant-score-review-tau");
+        if (tauBox) {
+          tauBox.hidden = true;
+          tauBox.innerHTML = "";
+        }
         const table = document.getElementById("quant-score-review-table");
         if (table) table.innerHTML = "";
         const scatter = document.getElementById("quant-score-review-scatter-wrap");
@@ -554,12 +612,12 @@ export function installScoreReview(ctx) {
       });
       if (setQuantMeta) {
         const metaLine = data.empty
-          ? "昨日复盘：无账本"
+          ? "双层 ŷ 复盘：无账本"
           : s.hit_rate != null
-            ? `昨日复盘 · 命中 ${hit}${fbNote}`
+            ? `双层 ŷ 复盘 · EOD 命中 ${hit}${fbNote}`
             : thin > 0
-              ? `昨日复盘 · 薄样本 ${thin} · as_of+h 日线未到，请选更早决策日`
-              : `昨日复盘 · ${s.blame_line || "样本不足"}`;
+              ? `双层 ŷ 复盘 · 薄样本 ${thin} · as_of+h 日线未到，请选更早决策日`
+              : `双层 ŷ 复盘 · ${s.blame_line || "样本不足"}`;
         setQuantMeta(metaLine, {
           busy: false,
           error: !!data.empty,
@@ -569,7 +627,7 @@ export function installScoreReview(ctx) {
     } catch (err) {
       setStatus(`复盘失败：${String(err.message || err)}`, { error: true });
       if (setQuantMeta) {
-        setQuantMeta(`昨日复盘失败：${String(err.message || err)}`, {
+        setQuantMeta(`双层 ŷ 复盘失败：${String(err.message || err)}`, {
           busy: false,
           error: true,
         });

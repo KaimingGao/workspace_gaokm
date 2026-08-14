@@ -300,6 +300,7 @@ def cluster_status_public(
     """
     from core.paths import (
         CLUSTER_BOOK_ACTIVE_PATH,
+        CLUSTER_BOOK_TAU_SHADOW_PATH,
         CLUSTER_WEIGHTS_ACTIVE_PATH,
         CLUSTER_WEIGHTS_DRAFT_PATH,
     )
@@ -345,6 +346,11 @@ def cluster_status_public(
     import core.signal.cluster_live as cluster_live_mod
 
     paper_land = cluster_live_mod._paper_cluster_landed(active)
+    tau_shadow = None
+    try:
+        tau_shadow = cluster_live_mod.load_tau_shadow_cluster_book()
+    except Exception:
+        tau_shadow = None
     mode = cs.get("mode") or "off"
     has_draft = bool(draft and draft.get("code_map"))
     has_active = bool(active)
@@ -419,7 +425,7 @@ def cluster_status_public(
             health["alerts"] = [note] + alerts
             health["auto_demoted"] = True
 
-    return {
+    out = {
         "success": True,
         "cluster_scoring": cs,
         "active": {
@@ -458,6 +464,18 @@ def cluster_status_public(
             "top_n_per_group": book_meta.get("top_n_per_group") or cs.get("top_n_per_group"),
             "max_names": book_meta.get("max_names") or cs.get("max_names"),
         },
+        "tau_shadow_book": (
+            {
+                "exists": True,
+                "path": CLUSTER_BOOK_TAU_SHADOW_PATH,
+                "updated_at": (tau_shadow or {}).get("updated_at"),
+                "name_count": len((tau_shadow or {}).get("book") or []),
+                "meta": (tau_shadow or {}).get("meta") or {},
+                "vs_eod": ((tau_shadow or {}).get("meta") or {}).get("vs_eod_book"),
+            }
+            if tau_shadow
+            else {"exists": False, "path": CLUSTER_BOOK_TAU_SHADOW_PATH}
+        ),
         "health": health,
         "landing": {
             "next_step": next_step,
@@ -484,6 +502,36 @@ def cluster_status_public(
         "light": bool(light),
         "note": "组权在 live 产物；调仓仅交易执行页；signal_config 仅开关 mode",
     }
+    # B3：draft vs active 晋升预检（纯本地对照，light 也可带）
+    if has_draft:
+        try:
+            from core.signal.cluster_oos_labels import compare_partition_vs_active
+
+            ccfg = cs
+            max_rate = ccfg.get("max_oos_fail_rate")
+            pf = compare_partition_vs_active(
+                draft,
+                active,
+                max_oos_fail_rate=float(max_rate) if max_rate is not None else None,
+                allow_worse_than_active=bool(
+                    ccfg.get("promote_allow_worse_oos_than_active", True)
+                ),
+            )
+            out["promote_preflight"] = {
+                "promote_ready": pf.get("promote_ready"),
+                "blockers": list(pf.get("blockers") or [])[:4],
+                "warnings": list(pf.get("warnings") or [])[:4],
+                "delta": pf.get("delta"),
+                "draft_oos": (pf.get("draft") or {}).get("oos"),
+                "active_oos": (pf.get("active") or {}).get("oos"),
+                "greedy": (pf.get("draft") or {}).get("greedy_refine"),
+                "focus_draft": pf.get("focus_draft"),
+            }
+        except Exception:
+            out["promote_preflight"] = None
+    else:
+        out["promote_preflight"] = None
+    return out
 
 
 def _paper_cluster_landed(active: Optional[dict]) -> Dict[str, Any]:

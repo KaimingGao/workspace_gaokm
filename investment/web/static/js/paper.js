@@ -45,6 +45,8 @@ import {
   formatFactorWeightsSection,
   formatFormulaTermsSection,
   formatScoreHero,
+  formatRemScoreSection,
+  formatBlendScoreSection,
   createScoreTooltipController,
 } from "./score_tooltip.js";
 
@@ -1703,14 +1705,25 @@ export function initPaper(ctx) {
         }
 
         let html = '<div class="score-detail">';
-        html += formatScoreHero({
+        const tipRaw = {
           predicted_score: r.score,
           score: r.score,
           min_score: r.min_score,
           below_min_score: r.below_min_score,
           formula_terms: r.score_formula_terms,
-        });
-        html += formatWeightSourceNote({
+          predicted_score_tau: r.predicted_score_tau,
+          score_rem: r.score_rem,
+          gap_pct: r.gap_pct,
+          event_prior: r.event_prior,
+          as_of_tau: r.as_of_tau || r.rem_tau,
+          dual_score_fusion: r.dual_score_fusion,
+          dual_score_weights: r.dual_score_weights,
+          predicted_score_blend: r.predicted_score_blend,
+          y_spec_tau: r.y_spec_tau,
+          features_tau: r.features_tau,
+          formula_terms_tau: r.formula_terms_tau || r.score_formula_terms_tau,
+          score_formula_tau: r.score_formula_tau,
+          factor_coefficients_tau: r.factor_coefficients_tau,
           weight_source: r.weight_source,
           cluster_label: r.cluster_label,
           cluster_mode: r.cluster_mode,
@@ -1718,16 +1731,16 @@ export function initPaper(ctx) {
           score_global: r.score_global,
           score_cluster: r.score_cluster,
           return_model_source: r.return_model_source,
-        });
-        html += formatFormulaTermsSection({
-          formula_terms: r.score_formula_terms,
-        });
-        html += formatFactorWeightsSection({
           factor_coefficients: r.factor_coefficients || {},
-          weight_source: r.weight_source,
-          cluster_label: r.cluster_label,
-          formula_terms: r.score_formula_terms,
-        });
+        };
+        html += formatScoreHero(tipRaw);
+        html += formatRemScoreSection(tipRaw);
+        html += formatFormulaTermsSection(tipRaw, { key: "tau" });
+        html += formatFactorWeightsSection(tipRaw, { key: "tau" });
+        html += formatBlendScoreSection(tipRaw);
+        html += formatFormulaTermsSection(tipRaw);
+        html += formatFactorWeightsSection(tipRaw);
+        html += formatWeightSourceNote(tipRaw);
 
         if (r.score_formula && !(r.score_formula_terms && (r.score_formula_terms.terms || []).length)) {
           let formula = String(r.score_formula || "");
@@ -1736,7 +1749,7 @@ export function initPaper(ctx) {
           formula = tempDiv.textContent || tempDiv.innerText || "";
           html +=
             `<div class="score-formula-section">` +
-            `<div class="score-section-title">收益分公式</div>` +
+            `<div class="score-section-title">ŷ_EOD 公式</div>` +
             `<div class="score-formula">${escapeText(formula)}</div>` +
             `</div>`;
         }
@@ -1783,11 +1796,21 @@ export function initPaper(ctx) {
           let scoreClass = scoreCls(r.score);
           if (belowMin) scoreClass += " below-min";
           if (r.hard_reject) scoreClass += " score-reject";
-          const scoreTip = r.hard_reject
-            ? String(r.reject_reason || "硬拒绝 · 无收益分")
-            : belowMin
-              ? `低于ŷ门槛 · 悬停看详情`
-              : "";
+          let scoreTip = "";
+          if (r.hard_reject) {
+            scoreTip = String(r.reject_reason || "硬拒绝 · 无收益分");
+          } else if (belowMin) {
+            scoreTip = "低于ŷ_EOD门槛 · 悬停看详情";
+          } else {
+            const tauRaw =
+              r.predicted_score_tau != null
+                ? r.predicted_score_tau
+                : r.score_rem;
+            const tauN = Number(tauRaw);
+            if (Number.isFinite(tauN)) {
+              scoreTip = `ŷ_EOD ${scoreText} · ŷ_τ ${tauN.toFixed(2)}%`;
+            }
+          }
           const oldSh =
             r.old_shares != null
               ? Number(r.old_shares)
@@ -1931,7 +1954,7 @@ export function initPaper(ctx) {
         `<div class="rebalance-table" role="table">` +
         `<div class="rebalance-table-head" role="row" style="${rebalanceRowStyle}">` +
         `<div class="rebalance-th" role="columnheader">股票</div>` +
-        `<div class="rebalance-th num" role="columnheader">评分</div>` +
+        `<div class="rebalance-th num" role="columnheader" title="主轴 ŷ_EOD；悬停/展开见 ŷ_τ">评分</div>` +
         `<div class="rebalance-th num" role="columnheader">股数</div>` +
         `<div class="rebalance-th num" role="columnheader">变动</div>` +
         `<div class="rebalance-th" role="columnheader">决策</div>` +

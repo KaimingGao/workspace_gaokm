@@ -289,5 +289,305 @@ export function createFactorIcUi(deps) {
     );
   }
 
-  return { factorIcWeightMergedHtml, fmtEmptyCell, fmtOlsCell };
+  const REM_FEAT_LABELS = {
+    gap_pct: "跳空 %",
+    open_gap: "开盘缺口",
+    sector_gap_breadth: "同业缺口广度",
+    theme_day: "主题日",
+    ret_open_to_tau: "开盘→τ 收益 %",
+    // 与 factor_registry 对齐的兜底中文（meta 未加载时仍可读）
+    momentum: "动量",
+    volume_price: "量价",
+    volatility: "波动",
+    relative_strength: "相对强弱",
+    reversal: "反转",
+    liquidity: "流动性",
+    value: "估值",
+    quality: "质量",
+    technical_pattern: "技术形态",
+    weekly_confirm: "周线确认",
+    ma_slope: "均线斜率",
+    alt_sentiment: "舆情",
+    llm_sentiment: "LLM舆情",
+    gap_risk: "跳空风险",
+    size: "规模",
+    earnings_yield: "盈利收益率",
+    growth: "成长",
+    dividend: "股息",
+    money_flow: "资金流",
+    amihud: "非流动性",
+    idio_momentum: "特异动量",
+  };
+
+  function remFactorDisplayLabel(name) {
+    const key = String(name || "").trim();
+    if (!key) return "—";
+    const meta = factorMetaByName[key] || {};
+    const fromMeta = meta.label != null ? String(meta.label).trim() : "";
+    // meta 若仍是英文键名，继续兜底
+    if (fromMeta && fromMeta !== key) return fromMeta;
+    return REM_FEAT_LABELS[key] || fromMeta || key;
+  }
+
+  /**
+   * ŷ_τ rem Ridge 因子系数表：仅入模因子；KPI + 双向 β 图 + 表内条形。
+   * @param {object|null} rm return_model 或含 coefficients 的报告块
+   * @param {{ oos?: object } } [opts]
+   */
+  function remCoefTableHtml(rm, opts = {}) {
+    if (!rm || typeof rm !== "object") return "";
+    const coefs =
+      rm.coefficients && typeof rm.coefficients === "object" ? rm.coefficients : {};
+    const means =
+      (rm.zscore_means && typeof rm.zscore_means === "object" && rm.zscore_means) ||
+      (rm.z_means && typeof rm.z_means === "object" && rm.z_means) ||
+      {};
+    const stds =
+      (rm.zscore_stds && typeof rm.zscore_stds === "object" && rm.zscore_stds) ||
+      (rm.z_stds && typeof rm.z_stds === "object" && rm.z_stds) ||
+      {};
+    const remExtra = new Set([
+      "gap_pct",
+      "open_gap",
+      "sector_gap_breadth",
+      "theme_day",
+      "ret_open_to_tau",
+    ]);
+    const activeList = Array.isArray(rm.active_features)
+      ? rm.active_features.map(String)
+      : Object.keys(coefs);
+    let rows = activeList
+      .map((name) => {
+        const v = coefs[name];
+        if (v == null || !Number.isFinite(Number(v))) return null;
+        const ols = Number(v);
+        const mu =
+          means[name] != null && Number.isFinite(Number(means[name]))
+            ? Number(means[name])
+            : null;
+        const sd =
+          stds[name] != null && Number.isFinite(Number(stds[name]))
+            ? Number(stds[name])
+            : null;
+        return {
+          name,
+          label: remFactorDisplayLabel(name),
+          ols,
+          abs: Math.abs(ols),
+          kind: remExtra.has(name) ? "开盘" : "日线",
+          mu,
+          sd,
+          scanHot: Math.abs(ols) >= 0.05,
+        };
+      })
+      .filter(Boolean);
+    const absSum = rows.reduce((s, r) => s + r.abs, 0) || 1;
+    const maxAbs = Math.max(...rows.map((r) => r.abs), 1e-9);
+    rows = rows
+      .map((r) => ({
+        ...r,
+        share: (r.abs / absSum) * 100,
+      }))
+      .sort((a, b) => b.abs - a.abs)
+      .map((r, i) => ({ ...r, rank: i + 1 }));
+    if (!rows.length) {
+      return `<p class="sub">暂无 rem 入模因子</p>`;
+    }
+
+    const intercept =
+      rm.intercept != null && Number.isFinite(Number(rm.intercept))
+        ? Number(rm.intercept)
+        : null;
+    const n =
+      rm.sample_count != null
+        ? rm.sample_count
+        : rm.n_obs != null
+          ? rm.n_obs
+          : null;
+    const r2 =
+      rm.r_squared != null && Number.isFinite(Number(rm.r_squared))
+        ? Number(rm.r_squared)
+        : null;
+    const lam =
+      rm.ridge_lambda != null && Number.isFinite(Number(rm.ridge_lambda))
+        ? Number(rm.ridge_lambda)
+        : null;
+    const exclN = Object.keys(rm.exclusion_reasons || {}).length;
+    const ySpec = (rm.y_spec && rm.y_spec.formula) || "close[T]/open[T]-1";
+    const oos = opts.oos || {};
+    const openN = rows.filter((r) => r.kind === "开盘").length;
+    const posN = rows.filter((r) => r.ols >= 0).length;
+    const negN = rows.length - posN;
+
+    const kpi = (label, value, tip) =>
+      `<span class="quant-rem-coef-kpi" title="${esc(tip || label)}">` +
+      `<span class="quant-rem-coef-kpi-k">${esc(label)}</span>` +
+      `<span class="quant-rem-coef-kpi-v">${esc(String(value))}</span>` +
+      `</span>`;
+
+    const nFmt =
+      n != null && Number.isFinite(Number(n))
+        ? Number(n).toLocaleString("en-US")
+        : null;
+
+    const kpis =
+      `<div class="quant-rem-coef-kpis" role="group" aria-label="rem 模型摘要">` +
+      kpi("标签", ySpec, "ŷ_τ 训练标签") +
+      (intercept != null ? kpi("截距", intercept.toFixed(3), "模型截距（%）") : "") +
+      (nFmt != null ? kpi("样本 n", nFmt, "入模观测数") : "") +
+      (r2 != null ? kpi("R²", r2.toFixed(3), "样本内拟合优度") : "") +
+      (lam != null ? kpi("λ", lam, "Ridge 收缩") : "") +
+      (oos.ic != null && Number.isFinite(Number(oos.ic))
+        ? kpi("OOS IC", Number(oos.ic).toFixed(3), "时间切分样本外 IC")
+        : "") +
+      (oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))
+        ? kpi(
+            "命中",
+            `${(Number(oos.sign_hit) * 100).toFixed(1)}%`,
+            "样本外方向命中率"
+          )
+        : "") +
+      kpi("入模", `${rows.length}`, `开盘 ${openN} · 日线 ${rows.length - openN}`) +
+      kpi("β±", `${posN}/${negN}`, "正系数 / 负系数个数") +
+      (exclN > 0 ? kpi("省略", exclN, "未入模因子已隐藏") : "") +
+      `</div>`;
+
+    const head =
+      `<div class="quant-rem-coef-head">` +
+      `<div class="quant-rem-coef-head-main">` +
+      `<span class="quant-rem-coef-title">系数表</span>` +
+      `<span class="quant-rem-coef-sub">按 |β| 降序 · 标准化斜率</span>` +
+      `</div>` +
+      `<div class="quant-rem-coef-legend" aria-hidden="true">` +
+      `<span class="quant-rem-leg is-pos">正β</span>` +
+      `<span class="quant-rem-leg is-neg">负β</span>` +
+      `<span class="quant-rem-leg is-open">开盘</span>` +
+      `<span class="quant-rem-leg is-eod">日线</span>` +
+      `</div>` +
+      `</div>`;
+
+    const betaCell = (r) => {
+      const pos = r.ols >= 0;
+      const half = Math.max(6, (r.abs / maxAbs) * 50);
+      const tip = `β=${r.ols.toFixed(4)}：因子高 1σ → ŷ_τ 约 ${pos ? "+" : ""}${r.ols.toFixed(3)}pp`;
+      return (
+        `<div class="quant-rem-beta-cell" title="${esc(tip)}">` +
+        `<div class="quant-rem-beta-track is-bipolar" aria-hidden="true">` +
+        `<span class="quant-rem-coef-bar-zero"></span>` +
+        `<div class="quant-rem-coef-bar-fill ${pos ? "is-pos" : "is-neg"}" style="${
+          pos
+            ? `left:50%;width:${half.toFixed(1)}%`
+            : `right:50%;width:${half.toFixed(1)}%`
+        }"></div>` +
+        `</div>` +
+        `<span class="quant-rem-beta-num ${pos ? "is-pos" : "is-neg"}">${
+          pos ? "+" : ""
+        }${r.ols.toFixed(3)}</span>` +
+        `</div>`
+      );
+    };
+
+    const shareCell = (r) => {
+      const w = Math.max(2, Math.min(100, r.share));
+      return (
+        `<div class="quant-rem-share-cell" title="${esc(
+          `|β|占比 ${r.share.toFixed(1)}%`
+        )}">` +
+        `<div class="quant-rem-share-track" aria-hidden="true">` +
+        `<div class="quant-rem-share-fill" style="width:${w.toFixed(1)}%"></div>` +
+        `</div>` +
+        `<span class="quant-rem-share-num">${r.share.toFixed(1)}%</span>` +
+        `</div>`
+      );
+    };
+
+    const factorCell = (r) =>
+      `<span class="quant-rem-factor">` +
+      `<span class="quant-rem-rank" title="|β| 排名">${esc(String(r.rank))}</span>` +
+      `<span class="quant-rem-factor-main">${factorNameCellHtml(r.name, r.label)}</span>` +
+      `</span>`;
+
+    const grid = researchGridHtml(
+      [
+        { id: "factor", label: "因子", flex: true },
+        {
+          id: "kind",
+          label: "类型",
+          width: 72,
+          center: true,
+          title: "日线=T−1 因子；开盘=缺口/广度等 τ 特征",
+        },
+        {
+          id: "ols",
+          label: "β",
+          width: 300,
+          num: true,
+          title: "标准化斜率：右正左负；数值叠在彩条靠右",
+        },
+        {
+          id: "share",
+          label: "|β|%",
+          width: 200,
+          num: true,
+          title: "|β| / Σ|β|：相对解释权重",
+        },
+        {
+          id: "mu",
+          label: "μ",
+          width: 88,
+          num: true,
+          title: "入模样本内原始特征均值（z-score 前）",
+        },
+        {
+          id: "sd",
+          label: "σ",
+          width: 88,
+          num: true,
+          title: "入模样本内原始特征标准差",
+        },
+      ],
+      rows,
+      (col, r) => {
+        if (col.id === "factor") return factorCell(r);
+        if (col.id === "kind") {
+          const open = r.kind === "开盘";
+          return (
+            `<span class="quant-rem-kind-chip ${open ? "is-open" : "is-eod"}" title="${esc(
+              open ? "开盘/截面特征（τ 特有）" : "T−1 日线因子"
+            )}">${esc(r.kind)}</span>`
+          );
+        }
+        if (col.id === "ols") return betaCell(r);
+        if (col.id === "share") return shareCell(r);
+        if (col.id === "mu") {
+          if (r.mu == null) return fmtEmptyCell();
+          return metricCell(esc(r.mu.toFixed(2)), "");
+        }
+        if (col.id === "sd") {
+          if (r.sd == null) return fmtEmptyCell();
+          return metricCell(esc(r.sd.toFixed(2)), "");
+        }
+        return fmtEmptyCell();
+      },
+      {
+        emptyText: "暂无 rem 入模因子",
+        rowClass: (r) => {
+          const bits = [];
+          if (r && r.scanHot) bits.push("is-scan-hot");
+          if (r && r.ols < 0) bits.push("is-beta-neg");
+          return bits.join(" ");
+        },
+      }
+    );
+
+    return (
+      `<div class="quant-rem-coef">` +
+      head +
+      kpis +
+      `<div class="quant-rem-coef-frame">${grid}</div>` +
+      `</div>`
+    );
+  }
+
+  return { factorIcWeightMergedHtml, remCoefTableHtml, fmtEmptyCell, fmtOlsCell };
 }

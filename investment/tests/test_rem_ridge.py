@@ -69,6 +69,63 @@ class TestRemPanel(unittest.TestCase):
 
 
 class TestRemRidgeFit(unittest.TestCase):
+    def test_gap_pct_not_dropped_as_low_variance(self):
+        """百分点 gap 标准差常 <5，不能按 0–100 分制 min_std 误剔。"""
+        from core.research.factor_ols_fit import _prepare_complete_panel
+
+        xs = []
+        ys = []
+        for i in range(40):
+            gap = (i % 7) * 0.4 - 1.2  # std ≈ 0.8，远低于 min_std=5
+            xs.append(
+                {
+                    "momentum": 40.0 + (i % 11) * 4.0,
+                    "quality": 35.0 + (i % 9) * 5.0,
+                    "relative_strength": 30.0 + (i % 8) * 4.5,
+                    "gap_pct": gap,
+                    "open_gap": gap,
+                    "sector_gap_breadth": 0.02 + (i % 5) * 0.01,
+                    "theme_day": 1.0 if i % 4 == 0 else 0.0,
+                }
+            )
+            ys.append(0.1 * gap + 0.01 * (i % 3))
+        feats = [
+            "momentum",
+            "quality",
+            "relative_strength",
+            "gap_pct",
+            "open_gap",
+            "sector_gap_breadth",
+            "theme_day",
+        ]
+        # 默认门槛：分制因子够多 → 不放松 min_std → gap 被剔
+        _, _, active0, _, meta0 = _prepare_complete_panel(
+            xs, ys, feats, min_std=5.0
+        )
+        dropped = {
+            (d["name"] if isinstance(d, dict) else d)
+            for d in (meta0.get("dropped_low_variance") or [])
+        }
+        self.assertIn("gap_pct", dropped)
+        self.assertNotIn("gap_pct", active0 or [])
+        # rem 豁免：gap 保留
+        _, _, active1, _, meta1 = _prepare_complete_panel(
+            xs,
+            ys,
+            feats,
+            min_std=5.0,
+            min_std_exempt=["gap_pct", "open_gap", "sector_gap_breadth", "theme_day"],
+        )
+        self.assertIn("gap_pct", active1)
+        self.assertNotIn(
+            "gap_pct",
+            {
+                (d["name"] if isinstance(d, dict) else d)
+                for d in (meta1.get("dropped_low_variance") or [])
+            },
+        )
+        self.assertIn("gap_pct", meta1.get("min_std_exempt") or [])
+
     def test_fit_synthetic_pool(self):
         from quant.research.rem_ridge import fit_rem_ridge_report, persist_rem_model
 
@@ -83,8 +140,14 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertIn("return_model", report)
         self.assertIn("oos", report)
+        self.assertEqual(report.get("tau"), "open")
+        self.assertEqual(report.get("schema"), "rem_ridge_v2")
         rm = report["return_model"]
         self.assertIn("coefficients", rm)
+        self.assertEqual((rm.get("y_spec") or {}).get("tau"), "open")
+        # rem 豁免生效：即便合成 K 线缺口小，也不应因 low_variance 进 exclusion_reasons
+        reasons = rm.get("exclusion_reasons") or {}
+        self.assertNotEqual(reasons.get("gap_pct"), "low_variance")
 
         with tempfile.TemporaryDirectory() as tmp:
             live = os.path.join(tmp, "live")
@@ -92,10 +155,14 @@ class TestRemRidgeFit(unittest.TestCase):
             with patch("core.paths.LIVE_DIR", live):
                 saved = persist_rem_model(report, note="test")
                 self.assertTrue(saved.get("success"))
+                self.assertEqual(saved.get("schema"), "rem_ridge_v2")
                 from quant.research.rem_ridge import load_rem_model, predict_rem_from_features
 
                 doc = load_rem_model()
                 self.assertIsNotNone(doc)
+                self.assertEqual(doc.get("schema"), "rem_ridge_v2")
+                self.assertEqual(doc.get("tau"), "open")
+                self.assertEqual(doc.get("dual_score_head"), "predicted_score_tau")
                 yhat = predict_rem_from_features(
                     {"gap_pct": 2.5, "open_gap": 2.5, "sector_gap_breadth": 0.6, "theme_day": 1.0},
                     model_doc=doc,
@@ -103,6 +170,15 @@ class TestRemRidgeFit(unittest.TestCase):
                 # 缺特征按均值填 z=0，应能出数（不再因部分特征缺失整段 None）
                 self.assertIsNotNone(yhat)
                 self.assertTrue(doc.get("return_model"))
+                from quant.research.rem_ridge import explain_rem_prediction
+
+                expl = explain_rem_prediction(
+                    {"gap_pct": 2.5, "open_gap": 2.5, "sector_gap_breadth": 0.6, "theme_day": 1.0},
+                    model_doc=doc,
+                )
+                self.assertIsNotNone(expl)
+                self.assertIn("terms", expl)
+                self.assertAlmostEqual(float(expl["total"]), float(yhat), places=4)
 
 
 class TestSentimentBullish(unittest.TestCase):

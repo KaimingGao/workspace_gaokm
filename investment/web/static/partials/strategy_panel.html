@@ -27,8 +27,12 @@
       <span class="strategy-path-num">2</span> ŷ 门槛
     </a>
     <span class="quant-path-sep strategy-path-sep" aria-hidden="true">/</span>
+    <a class="quant-path-step strategy-path-step" href="#strategy-dual-score" data-step="dual">
+          <span class="strategy-path-num">3</span> 融合分
+    </a>
+    <span class="quant-path-sep strategy-path-sep" aria-hidden="true">/</span>
     <a class="quant-path-step strategy-path-step" href="#strategy-promote-lab" data-step="promote">
-      <span class="strategy-path-num">3</span> 晋升
+      <span class="strategy-path-num">4</span> 晋升
     </a>
   </nav>
 
@@ -94,6 +98,54 @@
             <button type="button" id="strategy-floor-save" class="dialog-btn">保存门槛</button>
           </div>
           <p id="strategy-floor-status" class="quant-fingerprint" aria-live="polite"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ②b 双层 ŷ 融合分 -->
+  <section
+    class="dashboard-section quant-section strategy-section strategy-section-primary"
+    id="strategy-dual-score"
+    aria-labelledby="strategy-section-dual-title"
+  >
+    <header class="dashboard-section-head quant-section-head strategy-section-head">
+      <h3 id="strategy-section-dual-title" class="dashboard-section-title">融合分数</h3>
+      <p class="dashboard-section-desc quant-section-desc">blend 排序 · τ 闸 · 权重 · 人审写盘</p>
+    </header>
+    <div class="dashboard-card quant-pro-card strategy-ops-card">
+      <div class="quant-pro-card-body strategy-ops-card-body">
+        <p class="strategy-prior-contract" role="note">
+          <span class="strategy-prior-contract-k">契约</span>
+          簿排序键 = <code>w_EOD·ŷ_EOD + w_τ·ŷ_τ</code>（不对账单一 y）。表列主分仍是
+          <code>predicted_score</code>；买入另须 ŷ_τ ≥ τ 闸。
+        </p>
+        <div class="quant-control-band strategy-control-band" aria-label="融合分数">
+          <div class="strategy-floors-form quant-actions-inline">
+            <label class="platform-field strategy-inline-field" title="融合分：ŷ_EOD 权重">
+              <span class="strategy-field-label">w_EOD</span>
+              <input id="strategy-dual-w-eod" type="number" min="0" max="1" step="0.05" class="platform-input" />
+              <span class="strategy-field-unit" aria-hidden="true"></span>
+            </label>
+            <label class="platform-field strategy-inline-field" title="融合分：ŷ_τ 权重">
+              <span class="strategy-field-label">w_τ</span>
+              <input id="strategy-dual-w-tau" type="number" min="0" max="1" step="0.05" class="platform-input" />
+              <span class="strategy-field-unit" aria-hidden="true"></span>
+            </label>
+            <label class="platform-field strategy-inline-field" title="ŷ_τ ≥ 此值才买入">
+              <span class="strategy-field-label">τ 闸 ≥</span>
+              <input
+                id="strategy-dual-tau-floor"
+                type="number"
+                step="0.1"
+                class="platform-input"
+                title="min_predicted_score_tau（%）"
+              />
+              <span class="strategy-field-unit">%</span>
+            </label>
+            <button type="button" id="strategy-dual-save" class="dialog-btn">保存融合</button>
+          </div>
+          <p id="strategy-dual-status" class="quant-fingerprint" aria-live="polite"></p>
         </div>
       </div>
     </div>

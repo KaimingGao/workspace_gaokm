@@ -268,6 +268,22 @@ class QuantOpsMixin:
 
         return freeze_from_cluster_book(as_of=as_of)
 
+    def build_tau_shadow_review(
+        self,
+        as_of: Optional[str] = None,
+        *,
+        horizon_days: int = 1,
+        autofill: bool = True,
+    ) -> Dict[str, Any]:
+        """A2：ŷ_τ 影子簿验收摘要（IC / 命中 / vs EOD 重叠）。"""
+        from core.score_ledger import build_tau_shadow_review, default_as_of
+
+        return build_tau_shadow_review(
+            as_of or default_as_of(),
+            horizon_days=horizon_days,
+            autofill=autofill,
+        )
+
     def fill_score_outcomes(
         self,
         as_of: Optional[str] = None,

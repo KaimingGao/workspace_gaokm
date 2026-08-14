@@ -138,14 +138,42 @@ class TestP86FactorOls(unittest.TestCase):
             {"a": 1.0, "b": 9.0, "c": 2.0},
         ]
         ys = [float(i) for i in range(len(xs))]
+        # 测试数据量级小；关闭 min_std 只验常数列逻辑
         xs_c, ys_c, active, excluded, meta = _prepare_complete_panel(
-            xs, ys, ["a", "b", "c"], min_samples_over_p=2
+            xs, ys, ["a", "b", "c"], min_samples_over_p=2, min_std=0.0
         )
         self.assertIsNotNone(xs_c)
         self.assertNotIn("a", active)
         self.assertIn("a", meta["dropped_constant"])
         self.assertIn("b", active)
         self.assertIn("c", active)
+
+    def test_prepare_drops_low_variance(self):
+        from quant.research.factor_ols import _prepare_complete_panel
+
+        # low: 准常数（σ≪5）；hi1/hi2: 正常波动（保留≥2 个以免触发 relax）
+        xs = []
+        for i in range(20):
+            xs.append(
+                {
+                    "low": 50.0 + (0.1 if i % 2 else -0.1),
+                    "hi1": 40.0 + float(i),
+                    "hi2": 60.0 - float(i) * 1.2,
+                }
+            )
+        ys = [float(i) for i in range(len(xs))]
+        _xs_c, _ys_c, active, _excl, meta = _prepare_complete_panel(
+            xs, ys, ["low", "hi1", "hi2"], min_samples_over_p=2, min_std=5.0
+        )
+        self.assertNotIn("low", active)
+        self.assertIn("hi1", active)
+        self.assertIn("hi2", active)
+        self.assertFalse(meta.get("min_std_relaxed"))
+        names = [
+            d["name"] if isinstance(d, dict) else d
+            for d in (meta.get("dropped_low_variance") or [])
+        ]
+        self.assertIn("low", names)
 
 
 if __name__ == "__main__":

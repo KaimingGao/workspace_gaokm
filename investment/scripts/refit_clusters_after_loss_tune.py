@@ -112,6 +112,32 @@ def main() -> int:
     )
     print("draft_fail", draft_fail, flush=True)
 
+    from core.signal.cluster_oos_labels import compare_partition_vs_active
+    from core.signal.cluster_live import get_cluster_scoring_cfg
+
+    ccfg = get_cluster_scoring_cfg()
+    max_rate = ccfg.get("max_oos_fail_rate")
+    preflight = compare_partition_vs_active(
+        rep,
+        active,
+        focus_codes=focus_codes,
+        max_oos_fail_rate=float(max_rate) if max_rate is not None else None,
+        allow_worse_than_active=bool(
+            ccfg.get("promote_allow_worse_oos_than_active", True)
+        ),
+    )
+    print(
+        "promote_preflight",
+        {
+            "promote_ready": preflight.get("promote_ready"),
+            "blockers": preflight.get("blockers"),
+            "warnings": preflight.get("warnings"),
+            "delta": preflight.get("delta"),
+            "greedy": (preflight.get("draft") or {}).get("greedy_refine"),
+        },
+        flush=True,
+    )
+
     ksel = rep.get("k_selection") or {}
     print(
         "k_selection",
@@ -135,6 +161,9 @@ def main() -> int:
         list(ksel.keys())[:20],
         "selected",
         ksel.get("selected_k") or ksel.get("best_k") or ksel.get("k"),
+        "greedy",
+        (ksel.get("greedy_refine") or {}).get("mode"),
+        (ksel.get("greedy_refine") or {}).get("n_swaps"),
         flush=True,
     )
 
@@ -151,9 +180,16 @@ def main() -> int:
         "draft_oos_fail": draft_fail,
         "focus_active": active_focus,
         "focus_draft": draft_focus,
+        "promote_preflight": {
+            "promote_ready": preflight.get("promote_ready"),
+            "blockers": preflight.get("blockers"),
+            "warnings": preflight.get("warnings"),
+            "delta": preflight.get("delta"),
+        },
         "k_selection_selected": ksel.get("selected_k")
         or ksel.get("best_k")
         or ksel.get("k"),
+        "greedy_refine": ksel.get("greedy_refine"),
         "partition_loss_defaults": {
             "ic_ref_scale": 0.05,
             "w_ic": 1.0,

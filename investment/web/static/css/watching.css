@@ -98,6 +98,27 @@
   padding-right: 6px;
 }
 
+/* 评分列整格可悬停：span 撑满单元格，避免只点到窄文字才出 tip */
+body[data-page="watching"] .watching-react-grid-cell.watching-col-score {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+body[data-page="watching"] .watching-react-grid-cell.watching-col-score .watching-score-cell {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  box-sizing: border-box;
+  padding: 8px 6px;
+  cursor: help;
+}
+
 /* 评分红绿（A 股口径：正红 / 负绿），对齐交易执行收益分 */
 .watching-score-cell.paper-hold-score.score-up {
   color: var(--color-up, #f5222d);

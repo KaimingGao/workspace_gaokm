@@ -78,24 +78,47 @@ export function holdingToRow(
       hardReject ? " score-reject" : ""
     }`,
     scoreTitle,
-    scoreDetail: JSON.stringify({
-      formula: h.score_formula || "",
-      reasons: h.score_reasons || [],
-      hard_reject: h.hard_reject,
-      reject_reason: h.reject_reason || "",
-      weight_source: h.weight_source || "",
-      cluster_label: h.cluster_label || "",
-      cluster_mode: h.cluster_mode || "",
-      cluster_version: h.cluster_version,
-      score_global: h.score_global,
-      score_cluster: h.score_cluster,
-      min_score: minScore,
-      below_min_score: belowMin,
-      return_model_source: h.return_model_source || "",
-      factor_coefficients: h.factor_coefficients || {},
-      formula_terms: h.score_formula_terms || null,
-      predicted_score: h.predicted_score != null ? h.predicted_score : score,
-    }),
+    scoreDetail: JSON.stringify((() => {
+      const terms = h.score_formula_terms || null;
+      const hasTerms =
+        terms && Array.isArray(terms.terms) && terms.terms.length > 0;
+      return {
+        predicted_score: h.predicted_score != null ? h.predicted_score : score,
+        predicted_score_tau:
+          h.predicted_score_tau != null
+            ? h.predicted_score_tau
+            : h.score_rem != null
+              ? h.score_rem
+              : h.predicted_score_rem,
+        predicted_score_blend: h.predicted_score_blend,
+        score_rem: h.score_rem != null ? h.score_rem : h.predicted_score_rem,
+        gap_pct: h.gap_pct,
+        event_prior: h.event_prior || null,
+        as_of_tau: h.as_of_tau || h.rem_tau || null,
+        y_spec_tau: h.y_spec_tau || null,
+        features_tau: h.features_tau || null,
+        formula_terms_tau: h.formula_terms_tau || h.score_formula_terms_tau || null,
+        score_formula_tau: h.score_formula_tau || null,
+        factor_coefficients_tau: h.factor_coefficients_tau || null,
+        dual_score_fusion: h.dual_score_fusion || null,
+        dual_score_weights: h.dual_score_weights || null,
+        formula: hasTerms ? "" : h.score_formula || "",
+        reasons: h.score_reasons || [],
+        hard_reject: h.hard_reject,
+        reject_reason: h.reject_reason || "",
+        weight_source: h.weight_source || "",
+        cluster_label: h.cluster_label || "",
+        cluster_mode: h.cluster_mode || "",
+        cluster_version: h.cluster_version,
+        score_global: h.score_global,
+        score_cluster: h.score_cluster,
+        min_score: minScore,
+        below_min_score: belowMin,
+        return_model_source: h.return_model_source || "",
+        formula_terms: terms,
+        factor_coefficients: hasTerms ? {} : h.factor_coefficients || {},
+      };
+    })()),
     chgText,
     chgCls: metricCls(chg),
     chgNum: chg != null && Number.isFinite(Number(chg)) ? Number(chg) : null,
@@ -238,11 +261,16 @@ export async function mountHoldingsTableIsland(host, options = {}) {
       }
       if (col.id === "market_value") return escapeHtml(d.mvText || "—");
       if (col.id === "score") {
+        const detail = d.scoreDetail || "";
+        const title = d.scoreTitle || "悬停查看收益分与因子系数";
+        if (!detail) {
+          return `<span class="paper-hold-score ${escapeHtml(
+            d.scoreCls || ""
+          )}">${escapeHtml(d.scoreText || "—")}</span>`;
+        }
         return (
-          `<span class="paper-hold-score ${escapeHtml(d.scoreCls || "")}" ` +
-          `data-score-detail="${escapeHtml(d.scoreDetail || "")}" title="${escapeHtml(
-            d.scoreTitle || "悬停查看收益分与因子系数"
-          )}">` +
+          `<span class="paper-hold-score has-tip ${escapeHtml(d.scoreCls || "")}" ` +
+          `data-score-detail="${escapeHtml(detail)}" title="${escapeHtml(title)}">` +
           `${escapeHtml(d.scoreText || "—")}</span>`
         );
       }

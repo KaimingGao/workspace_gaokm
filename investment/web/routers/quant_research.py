@@ -169,18 +169,48 @@ def quant_factor_corr(
     min_samples: int = 3,
     threshold: float = 0.7,
 ):
-    """因子相关性矩阵：基于观察池 sub_scores 算截面 Pearson。"""
+    """因子相关性矩阵：基于簿 / 观察池 sub_scores 算截面 Pearson。"""
     try:
         from core.signal.factor_corr import compute_factor_corr_matrix, redundancy_warnings_from_corr
-        from core.watching_insights import load_insights_cache
 
-        items = []
+        items: list = []
+        source = "empty"
+        # 优先 active 簿 scored_all（含 sub_scores，且不重打全池）
         try:
-            insights = load_insights_cache()
-            if insights:
-                items = insights if isinstance(insights, list) else list(insights.values()) if isinstance(insights, dict) else []
+            from core.signal.cluster_live import load_active_cluster_book
+
+            doc = load_active_cluster_book() or {}
+            by_code: dict = {}
+            for row in list(doc.get("scored_all") or []) + list(doc.get("book") or []):
+                if not isinstance(row, dict):
+                    continue
+                code = str(row.get("stock_code") or "").strip()
+                if not code or not (row.get("sub_scores") or {}):
+                    continue
+                by_code[code] = row
+            if len(by_code) >= int(min_samples):
+                items = list(by_code.values())
+                source = "cluster_book"
         except Exception:
             pass
+
+        if not items:
+            try:
+                from core.watching_insights import load_insights_cache
+
+                insights = load_insights_cache()
+                if insights:
+                    raw = (
+                        insights
+                        if isinstance(insights, list)
+                        else list(insights.values())
+                        if isinstance(insights, dict)
+                        else []
+                    )
+                    items = [it for it in raw if isinstance(it, dict) and (it.get("sub_scores") or {})]
+                    source = "watching_insights"
+            except Exception:
+                pass
 
         if not items:
             return {
@@ -190,12 +220,14 @@ def quant_factor_corr(
                 "matrix": {},
                 "pairs": [],
                 "warnings": [],
-                "note": "无观察池数据，请先运行「跑分组」生成因子分数",
+                "source": source,
+                "note": "无 sub_scores：请先「跑分组 / 刷新簿」生成因子分数",
             }
 
         result = compute_factor_corr_matrix(items, min_samples=min_samples)
         warnings = redundancy_warnings_from_corr(result, threshold=threshold)
         result["warnings"] = warnings
+        result["source"] = source
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

@@ -110,8 +110,9 @@ def rank_cluster_pools(
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
     def _score_one(raw: str) -> Dict[str, Any]:
-        # 与纸面持仓打分一致：跳过基本面；刷簿跳过舆情（避免 N×12s）
-        # fetch_sector_breadth 默认关：避免主题日每票再拉 40 行情把「对照」卡死
+        # 跳过完整财务 PIT（避免 N×慢拉取）；score_stock 仍会并入本地 valuation_em
+        # 缓存（市值/PE 等），保证规模等因子不因 skip 打成假中性 50。
+        # 刷簿跳过舆情（避免 N×12s）；fetch_sector_breadth 默认关。
         return score_stock(
             raw,
             horizon_days=horizon_days,
@@ -250,12 +251,22 @@ def rank_cluster_pools(
             "below_min_score": below,
             "return_model_source": item.get("return_model_source"),
             "score_formula_terms": item.get("score_formula_terms"),
+            "sub_scores": item.get("sub_scores"),
+            "formula_terms_tau": item.get("formula_terms_tau")
+            or item.get("score_formula_terms_tau"),
+            "score_formula_tau": item.get("score_formula_tau"),
             "sector": item.get("sector"),
             "score_rem": item.get("score_rem"),
             "predicted_score_rem": item.get("predicted_score_rem"),
             "gap_pct": item.get("gap_pct"),
             "event_prior": item.get("event_prior"),
         }
+        try:
+            from core.signal.dual_score import dual_score_book_fields
+
+            row.update(dual_score_book_fields(item))
+        except Exception:
+            pass
         mapped_rows.append(row)
         by_label.setdefault(str(label), []).append(row)
 
@@ -282,19 +293,40 @@ def rank_cluster_pools(
         )
 
     # 选股簿：全局按组权分降序 → min_score 过滤 → max_names 截断
+    # F2：排序键可用 blend，但 below_min_score / score 主字段仍为 ŷ_EOD
+    try:
+        from core.signal.dual_score import get_dual_score_cfg, rank_key_for_item
+
+        _dual_cfg = get_dual_score_cfg()
+    except Exception:
+        _dual_cfg = {"fusion_mode": "f2"}
+
+        def rank_key_for_item(x, config=None):  # type: ignore
+            try:
+                return float(x.get("score") or 0.0)
+            except (TypeError, ValueError):
+                return 0.0
+
     eligible = [
         dict(r) for r in mapped_rows if not r.get("below_min_score")
     ]
-    eligible.sort(key=lambda x: float(x.get("score") or 0.0), reverse=True)
+    eligible.sort(
+        key=lambda x: float(rank_key_for_item(x, config={"dual_score": _dual_cfg}) or 0.0),
+        reverse=True,
+    )
     book = eligible[:max_n]
     for i, b in enumerate(book):
         b["rank"] = i + 1
+        if _dual_cfg.get("fusion_mode") == "f2":
+            b["rank_key"] = "predicted_score_blend"
 
     scored_all: List[dict] = list(scored_extra) + list(mapped_rows)
     scored_all.sort(
         key=lambda x: (
-            0 if x.get("score") is not None else 1,
-            -(float(x["score"]) if x.get("score") is not None else 0.0),
+            0 if rank_key_for_item(x, config={"dual_score": _dual_cfg}) is not None else 1,
+            -(
+                float(rank_key_for_item(x, config={"dual_score": _dual_cfg}) or 0.0)
+            ),
         )
     )
 
@@ -305,6 +337,8 @@ def rank_cluster_pools(
 
     min_score_out = json_safe_number(min_score)
     path = None
+    tau_shadow_path = None
+    tau_shadow_meta = None
     if persist_book:
         path = save_active_cluster_book(
             book,
@@ -323,6 +357,35 @@ def rank_cluster_pools(
             },
             scored_all=scored_all,
         )
+        # A2：同池按 ŷ_τ 影子簿（默认开；不进 execution）
+        try:
+            from core.signal.dual_score import build_tau_shadow_book, get_dual_score_cfg
+            from core.signal.cluster_live import save_tau_shadow_cluster_book
+
+            ds = get_dual_score_cfg()
+            if ds.get("enable_tau_shadow_book", True):
+                tau_book, tau_shadow_meta = build_tau_shadow_book(
+                    eligible,
+                    max_names=max_n,
+                    eod_book=book,
+                )
+                tau_shadow_meta = {
+                    **tau_shadow_meta,
+                    "version": active.get("version"),
+                    "horizon_days": horizon_days,
+                    "min_score": min_score_out,
+                    "eod_book_path": path,
+                }
+                n_tau = len(tau_book)
+                w_tau = round(100.0 / n_tau, 4) if n_tau else 0.0
+                for b in tau_book:
+                    b["weight_pct"] = w_tau
+                tau_shadow_path = save_tau_shadow_cluster_book(
+                    tau_book, meta=tau_shadow_meta
+                )
+        except Exception:
+            tau_shadow_path = None
+            tau_shadow_meta = None
 
     return {
         "success": True,
@@ -346,9 +409,12 @@ def rank_cluster_pools(
         "below_min_score_count": below_min,
         "rejected": rejected[:20],
         "book_path": path,
+        "tau_shadow_book_path": tau_shadow_path,
+        "tau_shadow_meta": tau_shadow_meta,
         "note": (
             "分池：组ŷ→剔ST→剔OOS失败组→ŷ≥min_predicted_score（h=1 现网约 +0.35）→全局降序→max_names 截断。"
             "不再做组内 Top-N。低于门槛 / 未映射 / 硬拒绝 / OOS阻断仍进 scored_all 供展示。"
             "不写 signal_config.weights。"
+            "另写 A2 τ 影子簿（同池按 ŷ_τ）供对照。"
         ),
     }

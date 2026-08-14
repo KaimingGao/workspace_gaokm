@@ -12,14 +12,18 @@ def score_earnings_yield(
     fundamentals: Optional[dict] = None,
     **_kw,
 ) -> Tuple[float, Dict[str, Any]]:
-    """缺 PE → 50；EP 适中加分，极端低估/高估降分。"""
+    """缺 PE → 不进 ŷ（omit）；EP 适中加分，极端低估/高估降分。"""
     _ = bars
     fund = fundamentals or {}
     pe = _to_float(fund.get("pe_ttm"))
     if pe is None:
         pe = _to_float(fund.get("pe"))
     if pe is None or pe <= 0:
-        return 50.0, {"earnings_yield": None, "earnings_yield_pe": None}
+        return 50.0, {
+            "earnings_yield": None,
+            "earnings_yield_pe": None,
+            "omit_sub_score": True,
+        }
 
     ep = 1.0 / pe  # 例如 PE=20 → 0.05
     ep_pct = ep * 100.0
@@ -39,4 +43,5 @@ def score_earnings_yield(
         "earnings_yield": round(ep, 5),
         "earnings_yield_pct": round(ep_pct, 3),
         "earnings_yield_pe": round(pe, 2),
+        "omit_sub_score": False,
     }

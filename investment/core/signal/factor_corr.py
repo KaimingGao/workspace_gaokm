@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections import Counter
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -36,7 +37,11 @@ def compute_factor_corr_matrix(
     factor_names: Optional[List[str]] = None,
     min_samples: int = 3,
 ) -> Dict[str, Any]:
-    """对一批 signal_item 的 sub_scores 算 pairwise Pearson。"""
+    """对一批 signal_item 的 sub_scores 算 pairwise Pearson。
+
+    用**成对完整观测**（每对因子只取两者都有的票），避免「并集全因子完整个案」
+    被稀疏键（如 gap_risk 仅 1 票）把样本滤成 0。
+    """
     if not items:
         return {
             "success": False,
@@ -46,41 +51,74 @@ def compute_factor_corr_matrix(
             "pairs": [],
         }
 
-    names = list(factor_names or [])
-    if not names:
-        keys = set()
-        for it in items:
-            keys.update((it.get("sub_scores") or {}).keys())
-        names = sorted(keys)
-
-    columns: Dict[str, List[float]] = {f: [] for f in names}
+    rows: List[Dict[str, float]] = []
     for it in items:
         subs = it.get("sub_scores") or {}
-        row = {}
-        ok = True
-        for f in names:
-            if f not in subs:
-                ok = False
-                break
-            row[f] = float(subs[f])
-        if not ok:
+        if not isinstance(subs, dict) or not subs:
             continue
-        for f in names:
-            columns[f].append(row[f])
+        cleaned: Dict[str, float] = {}
+        for k, v in subs.items():
+            if v is None or v == "":
+                continue
+            try:
+                cleaned[str(k)] = float(v)
+            except (TypeError, ValueError):
+                continue
+        if cleaned:
+            rows.append(cleaned)
 
-    sample_count = min((len(columns[f]) for f in names), default=0) if names else 0
+    if not rows:
+        return {
+            "success": False,
+            "error": "no_sub_scores",
+            "factors": [],
+            "matrix": {},
+            "pairs": [],
+            "note": "items 无有效 sub_scores",
+        }
+
+    coverage = Counter()
+    for r in rows:
+        coverage.update(r.keys())
+
+    if factor_names:
+        names = [str(f) for f in factor_names if str(f) in coverage]
+    else:
+        # 自动丢掉覆盖不足的稀疏因子，避免矩阵里一堆 —
+        names = sorted(k for k, n in coverage.items() if n >= int(min_samples))
+
+    if not names:
+        return {
+            "success": False,
+            "error": "sparse_factors",
+            "factors": [],
+            "matrix": {},
+            "pairs": [],
+            "coverage": dict(coverage),
+            "note": f"无因子覆盖 ≥{min_samples}",
+        }
+
     matrix: Dict[str, Dict[str, Optional[float]]] = {f: {} for f in names}
     pairs: List[Dict[str, Any]] = []
+    pair_n: Dict[str, Dict[str, int]] = {f: {} for f in names}
 
     for i, a in enumerate(names):
         for j, b in enumerate(names):
             if i == j:
                 matrix[a][b] = 1.0
+                pair_n[a][b] = int(coverage.get(a) or 0)
                 continue
-            if sample_count < min_samples:
+            xs: List[float] = []
+            ys: List[float] = []
+            for r in rows:
+                if a in r and b in r:
+                    xs.append(r[a])
+                    ys.append(r[b])
+            pair_n[a][b] = len(xs)
+            if len(xs) < int(min_samples):
                 matrix[a][b] = None
                 continue
-            corr = _pearson(columns[a], columns[b])
+            corr = _pearson(xs, ys)
             matrix[a][b] = round(corr, 4) if corr is not None else None
             if i < j and corr is not None:
                 pairs.append(
@@ -89,17 +127,25 @@ def compute_factor_corr_matrix(
                         "b": b,
                         "corr": round(corr, 4),
                         "abs_corr": round(abs(corr), 4),
+                        "n": len(xs),
                     }
                 )
 
     pairs.sort(key=lambda r: r["abs_corr"], reverse=True)
+    sample_count = max((int(coverage.get(f) or 0) for f in names), default=0)
     return {
         "success": True,
         "sample_count": sample_count,
+        "row_count": len(rows),
         "factors": names,
         "matrix": matrix,
+        "pair_n": pair_n,
+        "coverage": {k: int(coverage[k]) for k in names},
         "pairs": pairs,
-        "note": "截面 sub_scores 相关；|corr| 高提示冗余，不自动改权重。",
+        "note": (
+            "截面 sub_scores 成对 Pearson；稀疏因子（覆盖 < min_samples）已剔除。"
+            "|corr| 高提示冗余，不自动改权重。"
+        ),
     }
 
 

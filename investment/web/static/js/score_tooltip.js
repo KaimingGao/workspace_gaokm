@@ -46,12 +46,62 @@ function resolveYhat(raw) {
     candidates.unshift(raw.formula_terms.total);
   }
   for (const c of candidates) {
+    // null/"" 不能走 Number()：Number(null)===0，会把「未打分」显示成 0.000%
+    if (c == null || c === "") continue;
     const n = Number(c);
     if (Number.isFinite(n)) return n;
   }
   return null;
 }
 
+function resolveTau(raw) {
+  const candidates = [
+    raw && raw.predicted_score_tau,
+    raw && raw.score_rem,
+    raw && raw.predicted_score_rem,
+  ];
+  for (const c of candidates) {
+    if (c == null || c === "") continue;
+    const n = Number(c);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+function resolveWeights(raw) {
+  const w = (raw && raw.dual_score_weights) || {};
+  let we = Number(w.w_eod);
+  let wt = Number(w.w_tau);
+  if (!Number.isFinite(we)) we = 0.5;
+  if (!Number.isFinite(wt)) wt = 0.5;
+  return { w_eod: we, w_tau: wt };
+}
+
+function resolveBlend(raw) {
+  const direct = raw && raw.predicted_score_blend;
+  if (direct != null && direct !== "" && Number.isFinite(Number(direct))) {
+    return Number(direct);
+  }
+  const ye = resolveYhat(raw);
+  const yt = resolveTau(raw);
+  if (ye == null && yt == null) return null;
+  if (yt == null) return ye;
+  if (ye == null) return yt;
+  const { w_eod, w_tau } = resolveWeights(raw);
+  const denom = w_eod + w_tau;
+  if (Math.abs(denom) < 1e-12) return ye;
+  return (w_eod * ye + w_tau * yt) / denom;
+}
+
+const TAU_FEAT_LABELS = {
+  gap_pct: "跳空 %",
+  open_gap: "开盘缺口",
+  sector_gap_breadth: "同业缺口广度",
+  theme_day: "主题日",
+  ret_open_to_tau: "开盘→τ 收益 %",
+};
+
+/** ŷ_EOD：表列 score · 含因子组成。 */
 export function formatScoreHero(raw) {
   const y = resolveYhat(raw);
   const yTxt = y == null ? "—" : `${fmtSigned(y, 3)}%`;
@@ -61,43 +111,133 @@ export function formatScoreHero(raw) {
       ? Number(raw.min_score)
       : null;
   let gate = "";
-    if (floor != null) {
-    gate = `<div class="score-hero-gate${below ? " is-warn" : ""}">ŷ门槛 ${escapeText(
+  if (floor != null) {
+    gate = `<div class="score-hero-gate${below ? " is-warn" : ""}">买入门槛 ŷ_EOD ≥ ${escapeText(
       Number.isFinite(floor) ? `${floor}%` : String(floor)
     )}${below ? " · 当前低于门槛" : ""}</div>`;
   }
   return (
-    `<div class="score-hero">` +
-    `<div class="score-hero-label">收益分 ŷ（表格 score）</div>` +
+    `<div class="score-layer score-layer-eod">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">① ŷ_EOD · 隔夜主轴</div>` +
     `<div class="score-hero-value ${signCls(y)}">${escapeText(yTxt)}</div>` +
-    `<div class="score-hero-hint">ŷ = α + Σ β·z（百分点）</div>` +
-    `<div class="score-hero-semantics">` +
-    `语义：模型预测的前瞻收益（%）· 非 0–100 规则分 · β 可正可负` +
     `</div>` +
+    `<div class="score-hero-hint">表列 score · ŷ = α + Σ β·z（百分点）· T−1 因子</div>` +
     gate +
     `</div>`
   );
 }
 
+/** ŷ_τ：当日剩余收益头 · 特征组成。 */
 export function formatRemScoreSection(raw) {
-  const rem = raw && (raw.score_rem != null ? raw.score_rem : raw.predicted_score_rem);
+  const rem = resolveTau(raw);
   const gap = raw && raw.gap_pct;
   const ep = raw && raw.event_prior;
-  const hasRem = rem != null && Number.isFinite(Number(rem));
+  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
+  const hasRem = rem != null;
   const hasGap = gap != null && Number.isFinite(Number(gap));
   const theme = !!(ep && ep.theme);
-  if (!hasRem && !hasGap && !theme) return "";
   const remTxt = hasRem ? `${fmtSigned(Number(rem), 3)}%` : "—";
-  const gapTxt = hasGap ? `${fmtSigned(Number(gap), 2)}%` : "—";
+  const ySpec =
+    (raw && raw.y_spec_tau && raw.y_spec_tau.formula) ||
+    (raw && raw.rem_y_spec) ||
+    "close[T]/open[T]−1";
+
+  const feat = (raw && raw.features_tau) || {};
+  const hasTauTerms = !!(
+    raw &&
+    ((raw.formula_terms_tau && (raw.formula_terms_tau.terms || []).length) ||
+      (raw.score_formula_terms_tau && (raw.score_formula_terms_tau.terms || []).length))
+  );
+  const featRows = [];
+  // 有 β·z 组成表时不再堆特征原值行（组成表更完整）
+  if (!hasTauTerms) {
+    if (hasGap || feat.gap_pct != null) {
+      const g = hasGap ? Number(gap) : Number(feat.gap_pct);
+      if (Number.isFinite(g)) {
+        featRows.push(
+          `<div class="score-layer-row"><span>跳空缺口</span><span class="num ${signCls(
+            g
+          )}">${escapeText(fmtSigned(g, 2))}%</span></div>`
+        );
+      }
+    }
+    for (const [k, label] of Object.entries(TAU_FEAT_LABELS)) {
+      if (k === "gap_pct") continue;
+      const v = feat[k];
+      if (v == null || v === "") continue;
+      if (typeof v === "boolean") {
+        featRows.push(
+          `<div class="score-layer-row"><span>${escapeText(label)}</span><span>${
+            v ? "是" : "否"
+          }</span></div>`
+        );
+        continue;
+      }
+      const n = Number(v);
+      const txt = Number.isFinite(n) ? fmtSigned(n, 2) : String(v);
+      featRows.push(
+        `<div class="score-layer-row"><span>${escapeText(label)}</span><span class="num ${
+          Number.isFinite(n) ? signCls(n) : ""
+        }">${escapeText(txt)}${Number.isFinite(n) && /pct|gap|ret/.test(k) ? "%" : ""}</span></div>`
+      );
+    }
+    if (theme) {
+      featRows.push(
+        `<div class="score-layer-row"><span>事件先验</span><span>主题日</span></div>`
+      );
+    }
+  }
   const warn = Array.isArray(ep && ep.warnings) ? ep.warnings.slice(0, 2).join(" · ") : "";
+  const body = !hasRem
+    ? `<div class="score-hero-hint">未产出（需 rem 模型）</div>`
+    : hasTauTerms
+      ? `<div class="score-hero-hint">组成见表「ŷ_τ 组成」</div>`
+      : featRows.length
+        ? `<div class="score-layer-compose">${featRows.join("")}</div>`
+        : `<div class="score-hero-hint">τ=${escapeText(tau)} · y=${escapeText(String(ySpec))}</div>`;
+
   return (
-    `<div class="score-weight-section">` +
-    `<div class="score-section-title">盘中剩余（不改 EOD ŷ）</div>` +
-    `<div class="score-weight-source">rem ŷ ${escapeText(remTxt)} · 缺口 ${escapeText(gapTxt)}` +
-    `${theme ? " · 主题日" : ""}</div>` +
-    (warn
-      ? `<div class="score-hero-hint">${escapeText(warn)}</div>`
-      : `<div class="score-hero-hint">τ=open · y=close/open−1 · 仅门控/展示</div>`) +
+    `<div class="score-layer score-layer-tau">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">② ŷ_τ · τ→收盘</div>` +
+    `<div class="score-hero-value ${signCls(rem)}">${escapeText(remTxt)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 买入闸</div>` +
+    body +
+    (warn ? `<div class="score-hero-hint">${escapeText(warn)}</div>` : "") +
+    `</div>`
+  );
+}
+
+/** 融合分：w_EOD·ŷ_EOD + w_τ·ŷ_τ。 */
+export function formatBlendScoreSection(raw) {
+  const blend = resolveBlend(raw);
+  const ye = resolveYhat(raw);
+  const yt = resolveTau(raw);
+  const { w_eod, w_tau } = resolveWeights(raw);
+  const blendTxt = blend == null ? "—" : `${fmtSigned(blend, 3)}%`;
+  const yeTxt = ye == null ? "—" : `${fmtSigned(ye, 3)}%`;
+  const ytTxt = yt == null ? "—" : `${fmtSigned(yt, 3)}%`;
+  const rows = [
+    `<div class="score-layer-row"><span>w_EOD × ŷ_EOD</span><span class="num">${escapeText(
+      `${w_eod} × ${yeTxt}`
+    )}</span></div>`,
+    `<div class="score-layer-row"><span>w_τ × ŷ_τ</span><span class="num">${escapeText(
+      `${w_tau} × ${ytTxt}`
+    )}</span></div>`,
+    `<div class="score-layer-row score-layer-row-total"><span>融合分 blend</span><span class="num ${signCls(
+      blend
+    )}">${escapeText(blendTxt)}</span></div>`,
+  ];
+  return (
+    `<div class="score-layer score-layer-blend">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">③ 融合分 · 簿排序</div>` +
+    `<div class="score-hero-value ${signCls(blend)}">${escapeText(blendTxt)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">blend = (w_EOD·ŷ_EOD + w_τ·ŷ_τ) / (w_EOD+w_τ) · 表列仍显示 ŷ_EOD</div>` +
+    `<div class="score-layer-compose">${rows.join("")}</div>` +
     `</div>`
   );
 }
@@ -136,15 +276,22 @@ export function formatWeightSourceNote(raw) {
 }
 
 /** 分项拆解表：因子 / β / z / 贡献。有 terms 时优先于纯系数表。 */
-export function formatFormulaTermsSection(raw) {
-  const expl = raw && (raw.formula_terms || raw.score_formula_terms);
+export function formatFormulaTermsSection(raw, opts = {}) {
+  const key = opts.key || "eod";
+  const expl =
+    key === "tau"
+      ? raw && (raw.formula_terms_tau || raw.score_formula_terms_tau)
+      : raw && (raw.formula_terms || raw.score_formula_terms);
   if (!expl || typeof expl !== "object") return "";
   const terms = Array.isArray(expl.terms) ? expl.terms : [];
-  if (!terms.length) return "";
+  if (!terms.length && expl.intercept == null) return "";
+
+  const title = key === "tau" ? "ŷ_τ 组成" : "ŷ_EOD 组成";
+  const totalLabel = key === "tau" ? "合计 ŷ_τ" : "合计 ŷ_EOD";
 
   const rows = terms
     .map((t) => {
-      const name = t.label || FACTOR_LABELS[t.key] || t.key || "—";
+      const name = t.label || FACTOR_LABELS[t.key] || TAU_FEAT_LABELS[t.key] || t.key || "—";
       const gated = !!t.gated;
       const nameExtra = gated ? "（闸关）" : t.note ? `（${t.note}）` : "";
       const beta = fmtSigned(t.beta, 3);
@@ -171,7 +318,7 @@ export function formatFormulaTermsSection(raw) {
     .filter((t) => t && !t.gated && Number.isFinite(Number(t.contrib)))
     .map((t) => ({
       key: t.key,
-      label: t.label || FACTOR_LABELS[t.key] || t.key,
+      label: t.label || FACTOR_LABELS[t.key] || TAU_FEAT_LABELS[t.key] || t.key,
       contrib: Number(t.contrib),
     }));
   const peak = Math.max(...barTerms.map((t) => Math.abs(t.contrib)), 1e-9);
@@ -201,7 +348,7 @@ export function formatFormulaTermsSection(raw) {
 
   return (
     `<div class="score-formula-section">` +
-    `<div class="score-section-title">分项拆解</div>` +
+    `<div class="score-section-title">${escapeText(title)}</div>` +
     barsHtml +
     `<table class="score-formula-table">` +
     `<thead><tr>` +
@@ -216,13 +363,13 @@ export function formatFormulaTermsSection(raw) {
     `</tr>` +
     rows +
     `<tr class="score-ft-total">` +
-    `<td class="score-ft-name">合计 ŷ</td>` +
+    `<td class="score-ft-name">${escapeText(totalLabel)}</td>` +
     `<td class="num">—</td>` +
     `<td class="num">—</td>` +
     `<td class="num ${signCls(expl.total)}">${escapeText(total)}%</td>` +
     `</tr>` +
     `</tbody></table>` +
-    `<div class="score-formula-caption">β×z = 贡献；条长∝|贡献|；舆情闸关时贡献为 0</div>` +
+    `<div class="score-formula-caption">β×z = 贡献；条长∝|贡献|</div>` +
     `</div>`
   );
 }
@@ -334,6 +481,8 @@ export function formatSentimentGateSection(raw) {
     .map((b) => `<div class="score-sentiment-line">${escapeText(b)}</div>`)
     .join("");
 
+  if (!metaHtml && !notesHtml) return "";
+
   return (
     `<div class="score-sentiment-section">` +
     `<div class="score-section-title">舆情先验</div>` +
@@ -344,8 +493,40 @@ export function formatSentimentGateSection(raw) {
   );
 }
 
-/** 仅系数表（无分项拆解时回退）。 */
-export function formatFactorWeightsSection(raw) {
+/** 仅系数表（无分项拆解时回退）。opts.key=tau → ŷ_τ β。 */
+export function formatFactorWeightsSection(raw, opts = {}) {
+  const key = opts.key || "eod";
+  if (key === "tau") {
+    const expl = raw && (raw.formula_terms_tau || raw.score_formula_terms_tau);
+    if (expl && Array.isArray(expl.terms) && expl.terms.length) return "";
+    const coefs = raw && raw.factor_coefficients_tau;
+    if (!coefs || typeof coefs !== "object") return "";
+    const keys = Object.keys(coefs)
+      .filter((k) => coefs[k] != null && Number.isFinite(Number(coefs[k])))
+      .sort(
+        (a, b) =>
+          Math.abs(Number(coefs[b] || 0)) - Math.abs(Number(coefs[a] || 0)) ||
+          String(a).localeCompare(String(b))
+      );
+    if (!keys.length) return "";
+    const rows = keys
+      .slice(0, 14)
+      .map((k) => {
+        const v = Number(coefs[k]);
+        const name = FACTOR_LABELS[k] || TAU_FEAT_LABELS[k] || k;
+        return (
+          `<tr><td class="score-fw-name" title="${escapeText(k)}">${escapeText(name)}</td>` +
+          `<td class="score-fw-val num ${signCls(v)}">${escapeText(fmtSigned(v, 4))}</td></tr>`
+        );
+      })
+      .join("");
+    return (
+      `<div class="score-factors-section">` +
+      `<div class="score-section-title">ŷ_τ 因子系数 β</div>` +
+      `<table class="score-factor-weights"><tbody>${rows}</tbody></table>` +
+      `</div>`
+    );
+  }
   if (raw && (raw.formula_terms || raw.score_formula_terms)) {
     const expl = raw.formula_terms || raw.score_formula_terms;
     if (expl && Array.isArray(expl.terms) && expl.terms.length) return "";
@@ -505,6 +686,23 @@ export function createScoreTooltipController() {
   let tipAnchor = null;
   let docClickClose = null;
   let docKeyClose = null;
+  let hideTimer = null;
+
+  function cancelHide() {
+    if (hideTimer) {
+      clearTimeout(hideTimer);
+      hideTimer = null;
+    }
+  }
+
+  function scheduleHide(delayMs = 160) {
+    cancelHide();
+    hideTimer = setTimeout(() => {
+      hideTimer = null;
+      if (tipEl && tipEl.dataset.sticky === "1") return;
+      hide();
+    }, delayMs);
+  }
 
   function clearDocClosers() {
     if (docClickClose) {
@@ -518,6 +716,7 @@ export function createScoreTooltipController() {
   }
 
   function hide() {
+    cancelHide();
     clearDocClosers();
     if (tipEl) {
       tipEl.remove();
@@ -527,11 +726,14 @@ export function createScoreTooltipController() {
   }
 
   function attachDismiss(tip, cell, { sticky = false } = {}) {
-    tip.addEventListener("mouseleave", (e) => {
+    tip.addEventListener("pointerenter", () => {
+      cancelHide();
+    });
+    tip.addEventListener("pointerleave", (e) => {
       if (tip.dataset.sticky === "1") return;
       const to = e.relatedTarget;
       if (to && cell && cell.contains(to)) return;
-      hide();
+      scheduleHide();
     });
 
     if (!sticky) return;
@@ -679,7 +881,17 @@ export function createScoreTooltipController() {
       raw.factor_weights &&
       typeof raw.factor_weights === "object" &&
       Object.keys(raw.factor_weights).length > 0;
+    const hasTau =
+      (raw.predicted_score_tau != null &&
+        Number.isFinite(Number(raw.predicted_score_tau))) ||
+      (raw.score_rem != null && Number.isFinite(Number(raw.score_rem))) ||
+      (raw.predicted_score_rem != null &&
+        Number.isFinite(Number(raw.predicted_score_rem))) ||
+      (raw.gap_pct != null && Number.isFinite(Number(raw.gap_pct))) ||
+      !!(raw.event_prior && typeof raw.event_prior === "object") ||
+      !!(raw.dual_score_fusion && String(raw.dual_score_fusion).trim());
 
+    // 空对象（JSON 解析失败）才跳过；未打分也展示 ŷ_EOD/ŷ_τ 占位，避免悬停无反应
     if (
       !formula &&
       !reasons.length &&
@@ -688,31 +900,36 @@ export function createScoreTooltipController() {
       !hasTerms &&
       !hasCoefs &&
       !hasFactorWeights &&
+      !hasTau &&
       resolveYhat(raw) == null &&
       raw.sentiment_include_in_score == null &&
       !(Array.isArray(raw.risk_hints) && raw.risk_hints.length) &&
       !(Array.isArray(raw.warnings) && raw.warnings.length) &&
       !raw.fundamentals_pit &&
       !raw.index_meta &&
-      !raw.fundamentals_depth
+      !raw.fundamentals_depth &&
+      !(raw && Object.keys(raw).length)
     )
       return;
 
     let html = '<div class="score-detail">';
+    // ① EOD 分数 + 组成 → ② τ 分数 + 组成 → ③ 融合分
     html += formatScoreHero(raw);
-    html += formatRemScoreSection(raw);
-    html += formatWeightSourceNote(raw);
     html += formatFormulaTermsSection(raw);
     html += formatFactorWeightsSection(raw);
-    html += formatFeatureIsoSection(raw);
-    html += formatSentimentGateSection(raw);
-    // 有分项表时不再堆一行长公式
     if (formula && !hasTerms) {
       html += `<div class="score-formula-section">
-        <div class="score-section-title">收益分公式</div>
+        <div class="score-section-title">ŷ_EOD 公式</div>
         <div class="score-formula">${escapeText(formula)}</div>
       </div>`;
     }
+    html += formatRemScoreSection(raw);
+    html += formatFormulaTermsSection(raw, { key: "tau" });
+    html += formatFactorWeightsSection(raw, { key: "tau" });
+    html += formatBlendScoreSection(raw);
+    html += formatWeightSourceNote(raw);
+    html += formatFeatureIsoSection(raw);
+    html += formatSentimentGateSection(raw);
     if (hardReject && rejectReason) {
       html += `<div class="score-detail-reject">
         <span class="score-detail-reject-icon">⚠</span>
@@ -761,32 +978,35 @@ export function createScoreTooltipController() {
   function bindHost(host, { scoreSelector = "[data-score-detail]" } = {}) {
     if (!host || host.dataset.scoreTipWired === "1") return;
     host.dataset.scoreTipWired = "1";
+
     host.addEventListener("click", (e) => {
       const cell = e.target.closest(scoreSelector);
       if (!cell || !host.contains(cell)) return;
       e.preventDefault();
       e.stopPropagation();
+      cancelHide();
       if (tipAnchor === cell && tipEl && tipEl.dataset.sticky === "1") {
         hide();
         return;
       }
       show(cell, { sticky: true });
     });
-    host.addEventListener("mouseover", (e) => {
+    host.addEventListener("pointerover", (e) => {
       const cell = e.target.closest(scoreSelector);
       if (!cell || !host.contains(cell)) return;
+      cancelHide();
       if (tipEl && tipEl.dataset.sticky === "1") return;
       if (tipAnchor === cell && tipEl) return;
       show(cell, { sticky: false });
     });
-    host.addEventListener("mouseout", (e) => {
+    host.addEventListener("pointerout", (e) => {
       const from = e.target.closest(scoreSelector);
       if (!from) return;
       const to = e.relatedTarget;
       if (to && from.contains(to)) return;
       if (tipEl && to && tipEl.contains(to)) return;
       if (tipEl && tipEl.dataset.sticky === "1") return;
-      hide();
+      scheduleHide();
     });
   }
 

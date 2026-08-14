@@ -127,6 +127,15 @@ def _supplement_holding_scores(
             "score_cluster": item.get("score_cluster"),
             "below_min_score": bool(item.get("below_min_score")),
             "score_formula_terms": item.get("score_formula_terms"),
+            "predicted_score_tau": item.get(
+                "predicted_score_tau", item.get("score_rem")
+            ),
+            "score_rem": item.get("score_rem"),
+            "gap_pct": item.get("gap_pct"),
+            "event_prior": item.get("event_prior"),
+            "as_of_tau": item.get("as_of_tau"),
+            "dual_score_fusion": item.get("dual_score_fusion"),
+            "y_spec_tau": item.get("y_spec_tau"),
             "holding_supplement": True,
         }
 

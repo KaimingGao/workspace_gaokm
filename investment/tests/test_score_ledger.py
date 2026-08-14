@@ -439,6 +439,199 @@ class TestScoreLedger(unittest.TestCase):
             self.assertEqual(led["meta"].get("feature_as_of"), "2026-08-11")
             self.assertTrue(load_ledger("2026-08-12").get("empty"))
 
+    def test_tau_shadow_freeze_and_review(self):
+        from core.score_ledger import (
+            build_tau_shadow_review,
+            fill_outcomes,
+            freeze_from_tau_shadow_book,
+            load_tau_shadow_membership,
+            row_from_scored_item,
+            upsert_ledger_rows,
+        )
+
+        row = row_from_scored_item(
+            {
+                "stock_code": "600519",
+                "predicted_score": 1.2,
+                "predicted_score_eod": 1.2,
+                "predicted_score_tau": 0.4,
+            },
+            as_of="2026-08-05",
+            source="book",
+        )
+        self.assertAlmostEqual(row["yhat_tau"], 0.4)
+        self.assertAlmostEqual(row["yhat_eod"], 1.2)
+
+        def fake_bars(code, limit=40, offline_ok=True):
+            return [
+                {"date": "2026-08-05", "open": 100.0, "close": 100.0},
+                {"date": "2026-08-06", "open": 100.0, "close": 101.0},  # +1% open→close
+            ], "test"
+
+        shadow_doc = {
+            "updated_at": "2026-08-05T09:00:00",
+            "book": [
+                {
+                    "stock_code": "600519",
+                    "predicted_score": 1.2,
+                    "predicted_score_eod": 1.2,
+                    "predicted_score_tau": 0.5,
+                    "rank": 1,
+                },
+                {
+                    "stock_code": "000001",
+                    "predicted_score": 0.8,
+                    "predicted_score_eod": 0.8,
+                    "predicted_score_tau": -0.2,
+                    "rank": 2,
+                },
+            ],
+            "meta": {
+                "version": 9,
+                "vs_eod_book": {"overlap": 1, "jaccard": 0.5},
+            },
+        }
+        with self._patch_dir(), patch(
+            "core.score_ledger.resolve_freeze_as_of",
+            return_value={
+                "as_of": "2026-08-05",
+                "feature_as_of": "2026-08-05",
+                "remapped": False,
+                "note": None,
+            },
+        ), patch(
+            "core.data_service.bars_and_source", side_effect=fake_bars
+        ), patch(
+            "core.market_calendar.next_trading_day",
+            side_effect=lambda d, n=1, **kw: "2026-08-06",
+        ):
+            fr = freeze_from_tau_shadow_book(
+                as_of="2026-08-05", shadow_doc=shadow_doc
+            )
+            self.assertTrue(fr["success"])
+            mem = load_tau_shadow_membership("2026-08-05")
+            self.assertEqual(len(mem["rows"]), 2)
+            upsert_ledger_rows(
+                "2026-08-05",
+                [
+                    {
+                        "stock_code": "600519",
+                        "predicted_score": 1.2,
+                        "predicted_score_tau": 0.5,
+                    },
+                    {
+                        "stock_code": "000001",
+                        "predicted_score": 0.8,
+                        "predicted_score_tau": -0.2,
+                    },
+                ],
+                source="test",
+            )
+            # 000001: need bars with negative open→close for opposite hit
+            def fake_bars2(code, limit=40, offline_ok=True):
+                if str(code).endswith("001"):
+                    return [
+                        {"date": "2026-08-05", "open": 100.0, "close": 100.0},
+                        {"date": "2026-08-06", "open": 100.0, "close": 99.0},
+                    ], "test"
+                return fake_bars(code, limit=limit, offline_ok=offline_ok)
+
+            with patch(
+                "core.data_service.bars_and_source", side_effect=fake_bars2
+            ):
+                filled = fill_outcomes("2026-08-05", horizon_days=1)
+                self.assertEqual(filled.get("filled_tau"), 2)
+            rev = build_tau_shadow_review(
+                "2026-08-05", horizon_days=1, autofill=False
+            )
+            self.assertTrue(rev["success"])
+            self.assertEqual(rev["tau_n"], 2)
+            self.assertEqual(rev["tau_sign_hit_rate"], 1.0)
+            self.assertEqual(
+                rev["shadow_membership"]["vs_eod_book"]["overlap"], 1
+            )
+            from core.score_ledger import build_score_review
+
+            full = build_score_review(
+                "2026-08-05", horizon_days=1, autofill=False
+            )
+            self.assertIn("tau_shadow", full)
+            self.assertEqual(full["tau_shadow"].get("tau_n"), 2)
+            self.assertTrue(full["tau_shadow"].get("shadow_exists"))
+
+    def test_hydrate_ledger_yhat_tau(self):
+        from core.score_ledger import (
+            hydrate_ledger_yhat_tau,
+            load_ledger,
+            upsert_ledger_rows,
+        )
+
+        with self._patch_dir():
+            upsert_ledger_rows(
+                "2026-08-10",
+                [
+                    {
+                        "stock_code": "600519",
+                        "predicted_score": 1.5,
+                        "rank": 1,
+                    }
+                ],
+                source="test",
+            )
+            led0 = load_ledger("2026-08-10")
+            self.assertIsNone((led0["rows"][0]).get("yhat_tau"))
+
+            def fake_attach(item, **kwargs):
+                item["predicted_score_tau"] = 0.33
+                return item
+
+            with patch(
+                "quant.research.rem_ridge.load_rem_model",
+                return_value={"coef": {"gap_pct": 0.1}, "intercept": 0.0},
+            ), patch(
+                "core.data_service.bars_and_source",
+                return_value=(
+                    [
+                        {
+                            "date": f"2026-07-{i:02d}",
+                            "open": 10.0,
+                            "high": 10.5,
+                            "low": 9.5,
+                            "close": 10.0 + i * 0.01,
+                            "volume": 1e6,
+                        }
+                        for i in range(1, 28)
+                    ]
+                    + [
+                        {
+                            "date": "2026-08-10",
+                            "open": 10.2,
+                            "high": 10.4,
+                            "low": 10.0,
+                            "close": 10.3,
+                            "volume": 1e6,
+                        }
+                    ],
+                    "test",
+                ),
+            ), patch(
+                "core.signal.cross_section_batch.score_window_as_item",
+                return_value={
+                    "stock_code": "600519",
+                    "predicted_score": 1.5,
+                    "sub_scores": {"momentum": 0.2},
+                },
+            ), patch(
+                "core.signal.dual_score.attach_dual_score_pit",
+                side_effect=fake_attach,
+            ):
+                out = hydrate_ledger_yhat_tau("2026-08-10", persist=True)
+            self.assertTrue(out.get("success"))
+            self.assertEqual(out.get("hydrated"), 1)
+            led1 = load_ledger("2026-08-10")
+            self.assertAlmostEqual(led1["rows"][0]["yhat_tau"], 0.33)
+            self.assertTrue(led1["meta"].get("yhat_tau_hydrated"))
+
 
 if __name__ == "__main__":
     unittest.main()

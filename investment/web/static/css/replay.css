@@ -568,6 +568,11 @@ body[data-page="replay"] .replay-page .quant-pro-field select {
   border: 1px solid var(--line);
 }
 
+body[data-page="replay"] .replay-page #quant-benchmark-code {
+  width: 7.75rem !important;
+  min-width: 7.75rem !important;
+}
+
 body[data-page="replay"] .replay-page .dialog-btn {
   font-size: var(--r-fs-caption) !important;
   font-weight: 600 !important;

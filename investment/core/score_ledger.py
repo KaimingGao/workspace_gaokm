@@ -160,6 +160,12 @@ def outcomes_path(as_of: str) -> str:
     return os.path.join(ledger_dir(), f"{d}.outcomes.json")
 
 
+def tau_shadow_membership_path(as_of: str) -> str:
+    """A2：ŷ_τ 影子簿成员快照（与 EOD 账本分文件，避免覆盖）。"""
+    d = date_key(as_of)
+    return os.path.join(ledger_dir(), f"{d}.tau_shadow.json")
+
+
 def _to_float(v: Any) -> Optional[float]:
     if v is None:
         return None
@@ -218,6 +224,14 @@ def row_from_scored_item(
         yhat = _to_float(item.get("score"))
     if yhat is None:
         return None
+    yhat_eod = _to_float(item.get("predicted_score_eod"))
+    if yhat_eod is None:
+        yhat_eod = yhat
+    yhat_tau = _to_float(item.get("predicted_score_tau"))
+    if yhat_tau is None:
+        yhat_tau = _to_float(item.get("score_rem"))
+    if yhat_tau is None:
+        yhat_tau = _to_float(item.get("yhat_tau"))
     terms = _terms_top(
         item.get("score_formula_terms") or item.get("formula_terms_top")
     )
@@ -241,6 +255,8 @@ def row_from_scored_item(
         "code": code.zfill(6) if code.isdigit() else code,
         "name": item.get("stock_name") or item.get("name"),
         "yhat": round(yhat, 6),
+        "yhat_eod": round(yhat_eod, 6) if yhat_eod is not None else round(yhat, 6),
+        "yhat_tau": round(yhat_tau, 6) if yhat_tau is not None else None,
         "heuristic": _to_float(item.get("heuristic_score")),
         "cluster_label": item.get("cluster_label"),
         "sector": sector,
@@ -248,6 +264,7 @@ def row_from_scored_item(
         or item.get("weight_source")
         or item.get("model_id"),
         "rank": item.get("rank") or item.get("rank_in_group"),
+        "rank_key": item.get("rank_key"),
         "formula_terms_top": terms,
         "source": str(source or "scored"),
         "written_at": datetime.now().isoformat(timespec="seconds"),
@@ -418,7 +435,138 @@ def freeze_from_cluster_book(
     out["resolve"] = resolved
     if resolved.get("note"):
         out["note"] = resolved.get("note")
+    # 同步冻结 τ 影子簿成员（失败不影响主账本）
+    try:
+        shadow_out = freeze_from_tau_shadow_book(as_of=d)
+        out["tau_shadow"] = {
+            "success": shadow_out.get("success"),
+            "n_rows": shadow_out.get("n_rows"),
+            "path": shadow_out.get("path"),
+            "error": shadow_out.get("error"),
+        }
+    except Exception as exc:
+        out["tau_shadow"] = {"success": False, "error": str(exc)}
     return out
+
+
+def freeze_from_tau_shadow_book(
+    *,
+    as_of: Optional[str] = None,
+    shadow_doc: Optional[dict] = None,
+) -> Dict[str, Any]:
+    """冻结 A2 τ 影子簿成员与 ŷ_τ（独立文件，不覆盖 EOD 账本）。"""
+    from core.signal.cluster_live import load_tau_shadow_cluster_book
+
+    doc = shadow_doc if isinstance(shadow_doc, dict) else load_tau_shadow_cluster_book()
+    if not doc:
+        return {
+            "success": False,
+            "error": "无 τ 影子簿",
+            "as_of": date_key(as_of) if as_of else None,
+            "n_rows": 0,
+        }
+    book = list(doc.get("book") or [])
+    meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
+    # 与 EOD 书共用 resolve：优先显式 as_of，否则用影子 meta / 书时间
+    resolved = resolve_freeze_as_of(as_of, book_doc={"book": book, "meta": meta, **doc})
+    d = date_key(resolved.get("as_of") or as_of)
+    if not d:
+        return {
+            "success": False,
+            "error": "无法解析冻结决策日",
+            "n_rows": 0,
+            "resolve": resolved,
+        }
+    rows: List[Dict[str, Any]] = []
+    for i, item in enumerate(book):
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("stock_code") or item.get("code") or "").strip()
+        if not code:
+            continue
+        y_tau = _to_float(item.get("predicted_score_tau"))
+        if y_tau is None:
+            y_tau = _to_float(item.get("score_rem"))
+        if y_tau is None:
+            y_tau = _to_float(item.get("predicted_score"))
+        y_eod = _to_float(item.get("predicted_score_eod"))
+        if y_eod is None:
+            y_eod = _to_float(item.get("predicted_score"))
+        if y_eod is None:
+            y_eod = _to_float(item.get("score"))
+        rows.append(
+            {
+                "as_of": d,
+                "code": code.zfill(6) if code.isdigit() else code,
+                "name": item.get("stock_name") or item.get("name"),
+                "rank": item.get("rank") or (i + 1),
+                "rank_key": "predicted_score_tau",
+                "yhat_tau": round(y_tau, 6) if y_tau is not None else None,
+                "yhat_eod": round(y_eod, 6) if y_eod is not None else None,
+                "cluster_label": item.get("cluster_label"),
+                "sector": item.get("sector"),
+            }
+        )
+    path = tau_shadow_membership_path(d)
+    os.makedirs(ledger_dir(), exist_ok=True)
+    payload = {
+        "success": True,
+        "as_of": d,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "n_rows": len(rows),
+        "rows": rows,
+        "meta": {
+            "source": "tau_shadow_book",
+            "cluster_version": meta.get("version"),
+            "vs_eod_book": meta.get("vs_eod_book"),
+            "book_updated_at": doc.get("updated_at"),
+            "feature_as_of": resolved.get("feature_as_of"),
+            "freeze_note": resolved.get("note"),
+            "note": "A2 影子成员快照；不对账单一 y_EOD",
+        },
+    }
+    atomic_write_json(path, payload)
+    return {
+        "success": True,
+        "as_of": d,
+        "n_rows": len(rows),
+        "path": path,
+        "resolve": resolved,
+        "vs_eod_book": meta.get("vs_eod_book"),
+    }
+
+
+def load_tau_shadow_membership(as_of: str) -> Dict[str, Any]:
+    path = tau_shadow_membership_path(as_of)
+    if not os.path.isfile(path):
+        return {
+            "success": True,
+            "empty": True,
+            "as_of": date_key(as_of),
+            "rows": [],
+            "path": path,
+        }
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "as_of": date_key(as_of),
+            "rows": [],
+            "path": path,
+        }
+    rows = list(data.get("rows") or []) if isinstance(data, dict) else []
+    return {
+        "success": True,
+        "empty": not bool(rows),
+        "as_of": date_key(as_of) or (data.get("as_of") if isinstance(data, dict) else None),
+        "rows": rows,
+        "meta": (data.get("meta") if isinstance(data, dict) else None) or {},
+        "path": path,
+        "updated_at": data.get("updated_at") if isinstance(data, dict) else None,
+    }
 
 
 def freeze_from_daily_report(
@@ -505,6 +653,163 @@ def _realized_from_bars(
     return (c1 / c0 - 1.0) * 100.0
 
 
+def _realized_tau_from_bars(
+    bars: Sequence[dict],
+    as_of: str,
+    horizon_days: int = 1,
+) -> Optional[float]:
+    """y_τ：(close[T]/open[T]-1)*100，T=as_of+h（与 open-τ 契约对齐）。"""
+    from core.market_calendar import next_trading_day
+
+    d0 = date_key(as_of)
+    if not d0 or not bars:
+        return None
+    by_date = {}
+    for b in bars:
+        if not isinstance(b, dict):
+            continue
+        k = date_key(b.get("date") or b.get("time") or b.get("datetime"))
+        if k:
+            by_date[k] = b
+    d1 = next_trading_day(d0, n=max(1, int(horizon_days or 1)))
+    if not d1 or d1 not in by_date:
+        return None
+    o = _to_float(by_date[d1].get("open"))
+    c = _to_float(by_date[d1].get("close"))
+    if o is None or c is None or o <= 0:
+        return None
+    return (c / o - 1.0) * 100.0
+
+
+def hydrate_ledger_yhat_tau(
+    as_of: str,
+    *,
+    persist: bool = True,
+    max_names: int = 80,
+) -> Dict[str, Any]:
+    """旧账本缺 ``yhat_tau`` 时，按决策日日线 PIT 重挂 rem ŷ_τ。
+
+    用 as_of 及以前 K 线算因子 + 开盘缺口，再 ``predict_rem``；不拉实时行情。
+    """
+    d = date_key(as_of)
+    if not d:
+        return {"success": False, "error": "bad as_of", "hydrated": 0}
+    ledger = load_ledger(d)
+    if ledger.get("empty") or not ledger.get("success"):
+        return {
+            "success": bool(ledger.get("success")),
+            "empty": True,
+            "as_of": d,
+            "hydrated": 0,
+            "error": ledger.get("error"),
+        }
+    rows = list(ledger.get("rows") or [])
+    missing = [
+        r
+        for r in rows
+        if isinstance(r, dict) and r.get("code") and _to_float(r.get("yhat_tau")) is None
+    ]
+    if not missing:
+        return {
+            "success": True,
+            "as_of": d,
+            "hydrated": 0,
+            "missing": 0,
+            "note": "账本已有 yhat_tau",
+        }
+    rem_doc = None
+    try:
+        from quant.research.rem_ridge import load_rem_model
+
+        rem_doc = load_rem_model()
+    except Exception:
+        rem_doc = None
+    if not rem_doc:
+        return {
+            "success": True,
+            "as_of": d,
+            "hydrated": 0,
+            "missing": len(missing),
+            "note": "无 rem 模型，无法补 ŷ_τ",
+        }
+
+    from core.backtest.engine import _mock_quote_from_bars
+    from core.data_service import bars_and_source
+    from core.signal.cross_section_batch import score_window_as_item
+    from core.signal.dual_score import attach_dual_score_pit
+
+    hydrated = 0
+    errors = 0
+    for r in missing[: max(1, int(max_names or 80))]:
+        code = str(r.get("code") or "").strip()
+        if not code:
+            continue
+        try:
+            bars, _ = bars_and_source(code, limit=90, offline_ok=True)
+            window = [
+                b
+                for b in (bars or [])
+                if isinstance(b, dict)
+                and date_key(b.get("date") or b.get("time") or "") <= d
+            ]
+            if len(window) < 16:
+                continue
+            quote = _mock_quote_from_bars(window, len(window) - 1)
+            item = score_window_as_item(
+                code,
+                window,
+                horizon_days=1,
+                quote=quote,
+            )
+            if not item:
+                continue
+            # 保持账本冻结的 EOD ŷ，只补 τ
+            if r.get("yhat") is not None:
+                item["predicted_score"] = r.get("yhat")
+                item["score"] = r.get("yhat")
+            attach_dual_score_pit(
+                item,
+                quote=quote,
+                bars=window[-8:],
+                rem_model_doc=rem_doc,
+            )
+            yt = _to_float(item.get("predicted_score_tau"))
+            if yt is None:
+                continue
+            r["yhat_tau"] = round(float(yt), 6)
+            if r.get("yhat_eod") is None and r.get("yhat") is not None:
+                r["yhat_eod"] = r.get("yhat")
+            hydrated += 1
+        except Exception:
+            errors += 1
+            continue
+
+    if persist and hydrated:
+        path = ledger_path(d)
+        payload = {
+            "success": True,
+            "as_of": d,
+            "updated_at": datetime.now().isoformat(timespec="seconds"),
+            "n_rows": len(rows),
+            "rows": rows,
+            "meta": {
+                **(ledger.get("meta") or {}),
+                "yhat_tau_hydrated": True,
+                "yhat_tau_hydrated_n": hydrated,
+            },
+        }
+        atomic_write_json(path, payload)
+
+    return {
+        "success": True,
+        "as_of": d,
+        "hydrated": hydrated,
+        "missing": len(missing),
+        "errors": errors,
+        "persisted": bool(persist and hydrated),
+    }
+
+
 def _sign_hit(yhat: Optional[float], realized: Optional[float]) -> Optional[bool]:
     if yhat is None or realized is None:
         return None
@@ -515,14 +820,42 @@ def _sign_hit(yhat: Optional[float], realized: Optional[float]) -> Optional[bool
     return (float(yhat) > 0) == (float(realized) > 0)
 
 
+def _spearman_ic(xs: Sequence[float], ys: Sequence[float]) -> Optional[float]:
+    n = len(xs)
+    if n < 3 or n != len(ys):
+        return None
+    # 平均秩处理 ties：简化为稳定排序秩
+    def _ranks(vals: Sequence[float]) -> List[float]:
+        order = sorted(range(n), key=lambda i: float(vals[i]))
+        ranks = [0.0] * n
+        for r, i in enumerate(order):
+            ranks[i] = float(r + 1)
+        return ranks
+
+    rx, ry = _ranks(xs), _ranks(ys)
+    mx = sum(rx) / n
+    my = sum(ry) / n
+    num = sum((a - mx) * (b - my) for a, b in zip(rx, ry))
+    denx = sum((a - mx) ** 2 for a in rx) ** 0.5
+    deny = sum((b - my) ** 2 for b in ry) ** 0.5
+    if denx < 1e-12 or deny < 1e-12:
+        return None
+    return round(num / (denx * deny), 4)
+
+
 def fill_outcomes(
     as_of: str,
     *,
     horizon_days: int = 3,
 ) -> Dict[str, Any]:
-    """用本地日线回填 realized / sign_hit。"""
+    """用本地日线回填 realized / sign_hit（含 y_τ = open→close）。"""
     from core.data_service import bars_and_source
 
+    # 旧账本缺 ŷ_τ 时先补，便于 outcomes 写 yhat_tau / sign_hit_tau
+    try:
+        hydrate_ledger_yhat_tau(as_of, persist=True)
+    except Exception:
+        pass
     ledger = load_ledger(as_of)
     if not ledger.get("success"):
         return ledger
@@ -538,17 +871,26 @@ def fill_outcomes(
     by_code: Dict[str, Dict[str, Any]] = {}
     filled = 0
     missing = 0
+    filled_tau = 0
     for r in rows:
         code = str(r.get("code") or "").strip()
         if not code:
             continue
         bars, _ = bars_and_source(code, limit=max(40, h + 25), offline_ok=True)
         realized = _realized_from_bars(bars or [], r.get("as_of") or as_of, h)
+        realized_tau = _realized_tau_from_bars(
+            bars or [], r.get("as_of") or as_of, h
+        )
         yhat = _to_float(r.get("yhat"))
+        yhat_tau = _to_float(r.get("yhat_tau"))
         hit = _sign_hit(yhat, realized)
+        hit_tau = _sign_hit(yhat_tau, realized_tau)
         abs_err = None
         if yhat is not None and realized is not None:
             abs_err = round(abs(float(yhat) - float(realized)), 4)
+        abs_err_tau = None
+        if yhat_tau is not None and realized_tau is not None:
+            abs_err_tau = round(abs(float(yhat_tau) - float(realized_tau)), 4)
         dominant = None
         terms = r.get("formula_terms_top") or []
         if terms:
@@ -558,13 +900,24 @@ def fill_outcomes(
             "realized_h": round(realized, 4) if realized is not None else None,
             "sign_hit": hit,
             "abs_err": abs_err,
+            "realized_tau": (
+                round(realized_tau, 4) if realized_tau is not None else None
+            ),
+            "sign_hit_tau": hit_tau,
+            "abs_err_tau": abs_err_tau,
+            "yhat_tau": yhat_tau,
             "dominant_factor": dominant,
             "no_direction": bool(yhat is not None and abs(float(yhat)) < _YHAT_EPS),
+            "no_direction_tau": bool(
+                yhat_tau is not None and abs(float(yhat_tau)) < _YHAT_EPS
+            ),
         }
         if realized is not None:
             filled += 1
         else:
             missing += 1
+        if realized_tau is not None:
+            filled_tau += 1
     path = outcomes_path(as_of)
     os.makedirs(ledger_dir(), exist_ok=True)
     payload = {
@@ -574,7 +927,13 @@ def fill_outcomes(
         "updated_at": datetime.now().isoformat(timespec="seconds"),
         "filled": filled,
         "missing": missing,
+        "filled_tau": filled_tau,
         "by_code": by_code,
+        "y_spec_tau": {
+            "formula": "close[T]/open[T]-1",
+            "T": "as_of+horizon",
+            "unit": "pct",
+        },
     }
     atomic_write_json(path, payload)
     return {
@@ -583,7 +942,95 @@ def fill_outcomes(
         "horizon_days": h,
         "filled": filled,
         "missing": missing,
+        "filled_tau": filled_tau,
         "path": path,
+    }
+
+
+def build_tau_shadow_review(
+    as_of: Optional[str] = None,
+    *,
+    horizon_days: int = 1,
+    autofill: bool = True,
+) -> Dict[str, Any]:
+    """A2 验收摘要：影子重叠 + IC(ŷ_τ, y_τ) + 方向命中。"""
+    d = date_key(as_of) or default_as_of()
+    h = max(1, min(int(horizon_days or 1), 10))
+    try:
+        hydrate_ledger_yhat_tau(d, persist=True)
+    except Exception:
+        pass
+    if autofill:
+        try:
+            fill_outcomes(d, horizon_days=h)
+        except Exception:
+            pass
+    ledger = load_ledger(d)
+    outcomes = load_outcomes(d)
+    shadow = load_tau_shadow_membership(d)
+    by_oc = outcomes.get("by_code") or {}
+
+    xs: List[float] = []
+    ys: List[float] = []
+    hits = 0
+    hit_n = 0
+    for r in ledger.get("rows") or []:
+        if not isinstance(r, dict):
+            continue
+        code = str(r.get("code") or "").strip()
+        yhat_tau = _to_float(r.get("yhat_tau"))
+        oc = by_oc.get(code) or {}
+        y_tau = _to_float(oc.get("realized_tau"))
+        if yhat_tau is None:
+            yhat_tau = _to_float(oc.get("yhat_tau"))
+        if yhat_tau is None or y_tau is None:
+            continue
+        xs.append(float(yhat_tau))
+        ys.append(float(y_tau))
+        hit = oc.get("sign_hit_tau")
+        if hit is None:
+            hit = _sign_hit(yhat_tau, y_tau)
+        if hit is None:
+            continue
+        hit_n += 1
+        if hit:
+            hits += 1
+
+    vs = (shadow.get("meta") or {}).get("vs_eod_book")
+    if not isinstance(vs, dict):
+        vs = None
+        try:
+            from core.signal.cluster_live import load_tau_shadow_cluster_book
+
+            live_sh = load_tau_shadow_cluster_book() or {}
+            vs = ((live_sh.get("meta") or {}).get("vs_eod_book"))
+        except Exception:
+            vs = None
+
+    ic = _spearman_ic(xs, ys)
+    return {
+        "success": True,
+        "as_of": d,
+        "horizon_days": h,
+        "tau_ic_spearman": ic,
+        "tau_n": len(xs),
+        "tau_sign_hit_rate": (
+            round(hits / hit_n, 4) if hit_n else None
+        ),
+        "tau_sign_hit_n": hit_n,
+        "shadow_membership": {
+            "exists": not bool(shadow.get("empty")),
+            "n_rows": len(shadow.get("rows") or []),
+            "path": shadow.get("path"),
+            "vs_eod_book": vs,
+        },
+        "ledger_path": ledger.get("path"),
+        "outcomes_path": outcomes.get("path"),
+        "y_spec_tau": "close[T]/open[T]-1",
+        "note": (
+            "A2：IC/命中对 ŷ_τ↔y_τ；vs_eod 为影子簿与 EOD 簿成员重叠。"
+            "不替代 EOD 复盘。"
+        ),
     }
 
 
@@ -684,14 +1131,38 @@ def build_score_review(
             "factor_blame": [],
             "industry_blame": [],
             "cluster_blame": [],
+            "tau_shadow": _tau_shadow_review_slim(d, horizon_days=h),
         }
+    # 旧冻结账本无 yhat_tau → 复盘列 ŷ_τ 全是 —；按日线 PIT 补挂
+    hydrate_meta: Dict[str, Any] = {}
+    try:
+        hydrate_meta = hydrate_ledger_yhat_tau(d, persist=True) or {}
+        if int(hydrate_meta.get("hydrated") or 0) > 0:
+            ledger = load_ledger(d)
+    except Exception as exc:
+        hydrate_meta = {"success": False, "error": str(exc)}
     outcomes = load_outcomes(d)
+    need_tau_refresh = False
+    if autofill and outcomes.get("by_code"):
+        by_tmp = outcomes.get("by_code") or {}
+        for r0 in ledger.get("rows") or []:
+            if not isinstance(r0, dict):
+                continue
+            yt0 = _to_float(r0.get("yhat_tau"))
+            if yt0 is None:
+                continue
+            oc0 = by_tmp.get(str(r0.get("code") or "")) or {}
+            if _to_float(oc0.get("yhat_tau")) is None:
+                need_tau_refresh = True
+                break
     need_fill = (
         autofill
         and (
             outcomes.get("empty")
             or int(outcomes.get("horizon_days") or 0) != h
             or not outcomes.get("by_code")
+            or int(hydrate_meta.get("hydrated") or 0) > 0
+            or need_tau_refresh
         )
     )
     if need_fill:
@@ -751,14 +1222,22 @@ def build_score_review(
             thin += 1
             continue
         n += 1
+        yhat_tau_row = _to_float(r.get("yhat_tau"))
+        if yhat_tau_row is None:
+            yhat_tau_row = _to_float(oc.get("yhat_tau"))
+        hit_tau = oc.get("sign_hit_tau")
         scored_rows.append(
             {
                 "code": code,
                 "name": r.get("name"),
                 "yhat": yhat,
+                "yhat_tau": yhat_tau_row,
                 "realized_h": realized,
+                "realized_tau": _to_float(oc.get("realized_tau")),
                 "hit": hit if isinstance(hit, bool) else None,
+                "hit_tau": hit_tau if isinstance(hit_tau, bool) else None,
                 "abs_err": oc.get("abs_err"),
+                "abs_err_tau": oc.get("abs_err_tau"),
                 "sector": r.get("sector"),
                 "cluster_label": r.get("cluster_label"),
                 "dominant_factor": dominant,
@@ -898,6 +1377,39 @@ def build_score_review(
             if (hit_rate is not None and hit_rate < 0.5 and n >= 5)
             else None
         ),
+        "tau_shadow": _tau_shadow_review_slim(d, horizon_days=h),
+        "yhat_tau_hydrate": {
+            "hydrated": int(hydrate_meta.get("hydrated") or 0),
+            "note": hydrate_meta.get("note"),
+        }
+        if hydrate_meta
+        else None,
+    }
+
+
+def _tau_shadow_review_slim(as_of: str, *, horizon_days: int = 1) -> Dict[str, Any]:
+    """复盘附带 A2 τ 摘要（不二次 autofill）。"""
+    try:
+        pack = build_tau_shadow_review(
+            as_of, horizon_days=max(1, int(horizon_days or 1)), autofill=False
+        )
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+    if not isinstance(pack, dict):
+        return {"success": False}
+    sh = pack.get("shadow_membership") or {}
+    return {
+        "success": bool(pack.get("success")),
+        "as_of": pack.get("as_of"),
+        "tau_ic_spearman": pack.get("tau_ic_spearman"),
+        "tau_n": pack.get("tau_n"),
+        "tau_sign_hit_rate": pack.get("tau_sign_hit_rate"),
+        "tau_sign_hit_n": pack.get("tau_sign_hit_n"),
+        "shadow_exists": bool(sh.get("exists")),
+        "shadow_n": sh.get("n_rows"),
+        "vs_eod": sh.get("vs_eod_book"),
+        "y_spec_tau": pack.get("y_spec_tau"),
+        "note": pack.get("note"),
     }
 
 
@@ -907,8 +1419,11 @@ def list_ledger_dates(*, limit: int = 30) -> List[str]:
         return []
     dates = []
     for name in os.listdir(root):
-        if name.endswith(".json") and not name.endswith(".outcomes.json"):
-            dates.append(name[:-5])
+        if not name.endswith(".json"):
+            continue
+        if name.endswith(".outcomes.json") or name.endswith(".tau_shadow.json"):
+            continue
+        dates.append(name[:-5])
     dates.sort(reverse=True)
     return dates[: max(1, int(limit))]
 

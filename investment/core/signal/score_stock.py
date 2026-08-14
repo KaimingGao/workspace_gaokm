@@ -283,6 +283,26 @@ def score_stock(
             fundamentals = None
             fundamentals_pit_meta = {"ok": False, "error": str(e), "mode": "error"}
 
+    # 刷簿 / 纸面常 skip_fundamentals：本地补数（不联网）。
+    # 1) valuation_em → 市值/PE/PB；2) fundamentals 快照 → ROE/增速。
+    # 否则财务因子假中性 50 → z 爆炸。
+    try:
+        from core.valuation_em import merge_cached_valuation
+
+        fundamentals = merge_cached_valuation(raw, fundamentals) or fundamentals
+        if fundamentals is None:
+            fundamentals = merge_cached_valuation(str(code), None)
+    except Exception:
+        pass
+    try:
+        from core.fundamentals_pit import merge_local_fundamentals_snapshot
+
+        fundamentals = merge_local_fundamentals_snapshot(raw, fundamentals) or fundamentals
+        if fundamentals is None:
+            fundamentals = merge_local_fundamentals_snapshot(str(code), None)
+    except Exception:
+        pass
+
     # X1：指数日线；X5：财务深度边界
     try:
         from core.signal.live_features import (
@@ -599,8 +619,35 @@ def score_stock(
                         ),
                     }
                 )
-                score_formula_terms = dict(score_formula_terms)
-                score_formula_terms["terms"] = terms
+            # 规模缺市值：不进 sub_scores，公式里仍展示一项（贡献 0）便于对账
+            scored_factors = scored.get("factors") or {}
+            if (
+                "size" in factor_coefficients
+                and "size" not in (scored.get("sub_scores") or {})
+                and not any(str(t.get("key")) == "size" for t in terms)
+            ):
+                from core.signal.factor_registry import factor_label
+
+                try:
+                    size_b = float(factor_coefficients.get("size") or 0.0)
+                except (TypeError, ValueError):
+                    size_b = 0.0
+                note = "缺市值·不进 ŷ"
+                if scored_factors.get("size_missing"):
+                    note = "缺市值·不进 ŷ"
+                terms.append(
+                    {
+                        "key": "size",
+                        "label": factor_label("size"),
+                        "beta": round(size_b, 6),
+                        "z": 0.0,
+                        "contrib": 0.0,
+                        "gated": True,
+                        "note": note,
+                    }
+                )
+            score_formula_terms = dict(score_formula_terms)
+            score_formula_terms["terms"] = terms
             score_formula = build_score_formula(
                 {
                     "sub_scores": {
@@ -682,7 +729,7 @@ def score_stock(
         "feature_isomorphism_track": "X0-X5",
     }
 
-    # R3：盘中剩余收益头（展示字段；不替换 predicted_score）
+    # R3 / A1：双层 ŷ_τ（不替换 predicted_score）
     try:
         from core.event_prior import (
             build_event_prior_from_quote,
@@ -690,6 +737,7 @@ def score_stock(
             gap_pct_from_quote_bars,
             get_event_prior_cfg,
         )
+        from core.signal.dual_score import apply_tau_score_fields
         from quant.research.rem_ridge import predict_rem_from_features
 
         gap_v = gap_pct_from_quote_bars(quote, bars)
@@ -697,7 +745,7 @@ def score_stock(
         trigger = float(ep_cfg.get("gap_trigger_pct") or 2)
         sector_breadth = None
         # 默认不拉同伴行情：刷簿 8 路并行 × 每票 40 行情会把对照卡死数分钟。
-        # 纸面卖出循环已批量算 breadth；单票展示用缺口即可触发 theme soft hold。
+        # 纸面调仓另有批量 compute_sector_gap_breadth_live。
         if (
             fetch_sector_breadth
             and gap_v is not None
@@ -729,13 +777,75 @@ def score_stock(
             if (gap_v is not None and float(gap_v) >= trigger)
             else 0.0,
         }
-        # 并入当日 sub_scores 供 rem 模型（若有）
         for k, v in (scored.get("sub_scores") or {}).items():
             if k not in feats:
                 try:
                     feats[k] = float(v) if v is not None else None
                 except (TypeError, ValueError):
                     feats[k] = None
+
+        # 可选：仅读本地分钟缓存附加 ret_open_to_tau（不拉网）
+        as_of_tau_override = None
+        y_spec_override = None
+        try:
+            from core.signal.dual_score import get_dual_score_cfg
+
+            ds_cfg = get_dual_score_cfg()
+            if ds_cfg.get("enable_minute_tau"):
+                hm = str(ds_cfg.get("minute_tau_hm") or "09:45")
+                trade_day = ""
+                if bars:
+                    trade_day = str((bars[-1] or {}).get("date") or "")[:10]
+                if not trade_day and quote:
+                    trade_day = str(quote.get("date") or quote.get("trade_date") or "")[
+                        :10
+                    ]
+                open_px = None
+                if quote:
+                    try:
+                        open_px = float(
+                            quote.get("open")
+                            or quote.get("open_price")
+                            or 0.0
+                        ) or None
+                    except (TypeError, ValueError):
+                        open_px = None
+                if open_px is None and bars:
+                    try:
+                        open_px = float((bars[-1] or {}).get("open") or 0.0) or None
+                    except (TypeError, ValueError):
+                        open_px = None
+                if trade_day and open_px and open_px > 0:
+                    from core.research.rem_panel import price_at_tau_from_minutes
+                    from core.store import load_minute_cache
+                    from skills.common.history import resolve_market_code
+
+                    mkt, pure = resolve_market_code(str(code))
+                    packed = load_minute_cache(
+                        mkt or "CN",
+                        pure or str(code),
+                        period="5",
+                        min_bars=1,
+                        max_age_hours=36.0,
+                    )
+                    if packed:
+                        minute_bars, _meta = packed
+                        px_tau = price_at_tau_from_minutes(
+                            minute_bars, trade_date=trade_day, tau_hm=hm
+                        )
+                        if px_tau is not None and px_tau > 0:
+                            feats["ret_open_to_tau"] = round(
+                                (float(px_tau) / float(open_px) - 1.0) * 100.0, 6
+                            )
+                            as_of_tau_override = f"{trade_day}T{hm}:00+08:00"
+                            y_spec_override = {
+                                "tau": hm,
+                                "formula": f"close[T]/price[{hm}]-1",
+                                "note": "分钟缓存命中；无网拉；模型缺特征时 z≈0",
+                            }
+        except Exception:
+            logger.debug("minute tau attach skipped for %s", code, exc_info=True)
+
         rem_yhat = predict_rem_from_features(feats)
         ep = build_event_prior_from_quote(
             quote,
@@ -744,12 +854,15 @@ def score_stock(
             sector_breadth=sector_breadth,
             stock_code=str(code),
         )
-        signal_item["gap_pct"] = gap_v
-        signal_item["predicted_score_rem"] = rem_yhat
-        signal_item["score_rem"] = rem_yhat
-        signal_item["event_prior"] = ep
-        signal_item["rem_tau"] = "open"
-        signal_item["rem_y_spec"] = "close[T]/open[T]-1"
+        apply_tau_score_fields(
+            signal_item,
+            rem_yhat=rem_yhat,
+            gap_pct=gap_v,
+            feats=feats,
+            event_prior=ep,
+            as_of_tau=as_of_tau_override,
+            y_spec_override=y_spec_override,
+        )
     except Exception:
         logger.warning("rem/event_prior attach failed for %s", code, exc_info=True)
 

@@ -1,23 +1,28 @@
 # 盘中剩余收益头（Intraday Residual Score）方案
 
-[← 文档索引](README.md) · ŷ 主链 [predicted-score-chain.md](predicted-score-chain.md) · 主轴 [design-spine.md](design-spine.md) · 舆情旁路 [sentiment-layer.md](sentiment-layer.md) · 复盘 [score-review.md](score-review.md)
+[← 文档索引](README.md) · ŷ 主链 [predicted-score-chain.md](predicted-score-chain.md) · 主轴 [design-spine.md](design-spine.md) · 舆情旁路 [sentiment-layer.md](sentiment-layer.md) · 复盘 [score-review.md](score-review.md) · **τ 契约升级** [tau-contract-and-partition-upgrade.md](tau-contract-and-partition-upgrade.md)
 
 本文定义：**在不动乱日线 ŷ 主轴的前提下，如何引入 \(T\) 日实时信息**，以及如何用历史数据拟合、分阶段落地。  
 动机来自典型 miss：日线 ŷ（\(T\!-\!1\) 因子）为负或接近 0，但 \(T\) 日主题脉冲大幅上涨——残差主因是 **信息集外冲击**，不是单纯「不该拿今日涨跌对账」。
 
-**状态**：方案已定稿，**分阶段落地中**。P0～P1c、R0/R0p/R2 与 R3 展示字段已落地；R1 分钟 τ 面板 API 已具备（依赖分钟缓存有数据才出样本）。
+**状态**：方案已定稿，**分阶段落地中**。P0～P1c、R0/R0p/R2 与 R3 展示字段已落地；R1 分钟 τ 面板 API 已具备（依赖分钟缓存有数据才出样本）。  
+**双层 ŷ（2026-08-14）**：A1 字段契约 + F1 买入闸已进代码（`dual_score` · `predicted_score_tau` · `paper_rebalance`）；融合默认 `fusion_mode=f1`。A2 影子簿：刷簿时写 `live/cluster_book_tau_shadow.json`（同池按 ŷ_τ；不驱动买入）；status 含 `tau_shadow_book.vs_eod`。账本：`{as_of}.tau_shadow.json` 成员快照 + outcomes 的 `realized_tau`；验收 API `GET /api/quant/score-review/tau-shadow`。B3：落地卡 / 对照确认展示 `promote_preflight`。rem persist 为 `rem_ridge_v2`（`tau`/`y_spec`）。分钟 τ：`enable_minute_tau`（默认关）。A3 主排序仍待影子簿验收。  
+**诚实边界**：主排序仍为 EOD；τ 层独立头 + 决策闸，不揉改 `predicted_score`。升级顺序见 [tau-contract-and-partition-upgrade.md](tau-contract-and-partition-upgrade.md)。
 
 ---
 
 ## 1. 一句话
 
 ```text
-日线 ŷ_EOD：F_{T-1} → 预测 close[T]/close[T-1]-1     （生产排序主轴，保持）
-盘中 ŷ_rem(τ)：F_τ → 预测 close[T]/price[τ]-1         （剩余收益头，研究→人审）
-事件先验 E_τ：缺口 / 板块广度 / 舆情 → 只改动作，不改 ŷ
+【双层 predicted_score】
+日线 ŷ_EOD = predicted_score：     F_{T-1} → close[t+h]/close[t]-1     （生产排序主轴）
+当日 ŷ_τ   = predicted_score_tau： F_τ     → close[T]/price[τ]-1       （独立头；雏形 score_rem）
+事件先验 E_τ：缺口 / 板块广度 / 舆情 → 只改动作，不改 ŷ_EOD
 ```
 
-禁止：把 \(\tau\) 之后才知道的价格或新闻塞进 \(\mathcal{F}_\tau\)；禁止用「含已实现涨幅的全日收益」去验收「已含盘中特征」的模型。
+禁止：把 \(\tau\) 之后才知道的价格或新闻塞进 \(\mathcal{F}_\tau\)；禁止用「含已实现涨幅的全日收益」去验收「已含盘中特征」的模型；禁止两套标签揉进同一 `predicted_score` 字段。
+
+**双层字段、训练与融合阶梯**的规范表述见 [predicted-score-chain.md §2.5](predicted-score-chain.md) 与 [tau-contract-and-partition-upgrade.md §9](tau-contract-and-partition-upgrade.md)。
 
 ---
 
@@ -88,10 +93,12 @@ A 用分组门禁与重聚类处理；B 用本方案的 **事件先验 + 剩余�
 3. 可选演进到 C 的分栏展示；**不**把分钟特征直接塞进现有 `predicted_score` 而不改标签。
 
 ```text
-【产品叙事】
-score / predicted_score     = 隔夜截面吸引力（EOD ŷ）
-score_rem / event_prior     = 盘中剩余观点或动作约束（另字段 / 旁路）
-禁止混用同一 score 字段不标注 as_of=τ
+【产品叙事 · 双层 predicted_score】
+predicted_score          = ŷ_EOD = 隔夜截面吸引力（EOD；主排序）
+predicted_score_tau      = ŷ_τ   = 当日剩余收益头（规划名；现网雏形 score_rem / predicted_score_rem）
+event_prior              = 动作约束（soft hold / warn；不改 ŷ_EOD）
+禁止混用同一 score 字段不标注 as_of=τ / y_spec
+融合：决策层闸门（F1）优先于加权合成（F2）；见 predicted-score-chain §2.5
 ```
 
 ---
@@ -306,5 +313,6 @@ y_rem ← close[T] / price[τ] - 1
 | 拟合标签 | \(y_{\mathrm{rem}}(\tau)=\mathrm{close}/\mathrm{price}[\tau]-1\) |
 | 与组 β | 残差头优先；错误组 β 靠 OOS 剔组 + 重聚类 |
 | 分钟 RS / regime | R1/R2；有数据与 OOS 再上 |
+| 契约完整态 | 见 [tau-contract-and-partition-upgrade.md](tau-contract-and-partition-upgrade.md) A1→A3；A3 前不替换 EOD 主字段 |
 
-修订本文时：改阶段状态表，并在 [predicted-score-chain.md](predicted-score-chain.md) 保持互链。
+修订本文时：改阶段状态表，并在 [predicted-score-chain.md](predicted-score-chain.md) · [tau-contract-and-partition-upgrade.md](tau-contract-and-partition-upgrade.md) 保持互链。

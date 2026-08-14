@@ -71,10 +71,68 @@ class TestV21FactorThicken(unittest.TestCase):
         self.assertEqual(out["dividend_yield"], 2.5)
 
     def test_size_and_fundamentals_neutral_without_data(self):
-        self.assertEqual(score_size()[0], 50.0)
-        self.assertEqual(score_earnings_yield()[0], 50.0)
-        self.assertEqual(score_growth()[0], 50.0)
-        self.assertEqual(score_dividend()[0], 50.0)
+        score, meta = score_size()
+        self.assertEqual(score, 50.0)
+        self.assertTrue(meta.get("size_missing"))
+        self.assertTrue(meta.get("omit_sub_score"))
+        g_score, g_meta = score_growth()
+        self.assertEqual(g_score, 50.0)
+        self.assertTrue(g_meta.get("omit_sub_score"))
+        ey, ey_m = score_earnings_yield()
+        self.assertEqual(ey, 50.0)
+        self.assertTrue(ey_m.get("omit_sub_score"))
+        dy, dy_m = score_dividend()
+        self.assertEqual(dy, 50.0)
+        self.assertTrue(dy_m.get("omit_sub_score"))
+
+    def test_size_missing_omitted_from_sub_scores(self):
+        from core.signal.factor_registry import compute_configured_factors
+
+        bars = [
+            {
+                "date": "2026-01-01",
+                "open": 10,
+                "high": 11,
+                "low": 9,
+                "close": 10.5,
+                "volume": 1e6,
+            }
+        ] * 30
+        subs, _contrib, meta = compute_configured_factors(
+            bars,
+            weights={"size": 0.03, "momentum": 0.22},
+            fundamentals={},
+            required_keys=["size", "momentum"],
+        )
+        self.assertNotIn("size", subs)
+        self.assertTrue(meta.get("size_missing"))
+        self.assertIn("momentum", subs)
+
+    def test_size_with_market_cap_in_sub_scores(self):
+        import math
+
+        from core.signal.factor_registry import compute_configured_factors
+
+        bars = [
+            {
+                "date": "2026-01-01",
+                "open": 10,
+                "high": 11,
+                "low": 9,
+                "close": 10.5,
+                "volume": 1e6,
+            }
+        ] * 30
+        cap = math.exp(25.0)
+        subs, _contrib, meta = compute_configured_factors(
+            bars,
+            weights={"size": 0.03},
+            fundamentals={"market_cap": cap},
+            required_keys=["size"],
+        )
+        self.assertIn("size", subs)
+        self.assertGreaterEqual(subs["size"], 65)
+        self.assertFalse(meta.get("size_missing"))
 
     def test_size_mid_cap_preferred(self):
         # log(exp(25)) ≈ 25 → 中盘桶
@@ -84,6 +142,7 @@ class TestV21FactorThicken(unittest.TestCase):
         score, meta = score_size(fundamentals={"market_cap": cap})
         self.assertGreaterEqual(score, 65)
         self.assertIsNotNone(meta["size_log_cap"])
+        self.assertFalse(meta.get("omit_sub_score"))
 
     def test_earnings_yield_reasonable(self):
         score, meta = score_earnings_yield(fundamentals={"pe_ttm": 16.0})
@@ -106,11 +165,35 @@ class TestV21FactorThicken(unittest.TestCase):
         bars = _rising_bars()
         score, meta = score_money_flow(bars)
         self.assertIn(meta["money_flow_source"], ("mfi_proxy", "none"))
-        self.assertGreaterEqual(score, 10)
+        if meta.get("money_flow_source") == "none":
+            self.assertTrue(meta.get("omit_sub_score"))
+        else:
+            self.assertGreaterEqual(score, 10)
+            self.assertFalse(meta.get("omit_sub_score"))
 
         score2, meta2 = score_money_flow(bars, money_flow={"net_inflow": 10000})
         self.assertEqual(meta2["money_flow_source"], "net_inflow")
         self.assertGreater(score2, 50)
+
+    def test_bar_factors_omit_on_empty(self):
+        from core.signal.factors.liquidity import score_liquidity
+        from core.signal.factors.volume_price import score_volume_price
+        from core.signal.factors.ma_slope import score_ma_slope
+        from core.signal.factors.weekly_confirm import score_weekly_confirmation
+        from core.signal.factors.technical_pattern import score_technical_pattern
+        from core.signal.factors.reversal import score_reversal
+
+        for fn, kwargs in [
+            (score_liquidity, {"bars": []}),
+            (score_volume_price, {"bars": [], "last_change": None}),
+            (score_ma_slope, {"bars": []}),
+            (score_weekly_confirmation, {"bars": []}),
+            (score_technical_pattern, {"bars": []}),
+            (score_reversal, {"bars": []}),
+            (score_money_flow, {"bars": []}),
+        ]:
+            _sc, meta = fn(**kwargs)
+            self.assertTrue(meta.get("omit_sub_score"), msg=f"{fn.__name__}")
 
     def test_amihud_and_idio_without_index(self):
         bars = _rising_bars()
@@ -121,6 +204,12 @@ class TestV21FactorThicken(unittest.TestCase):
         i_score, i_meta = score_idio_momentum(bars, index_bars=None)
         self.assertEqual(i_score, 50.0)
         self.assertFalse(i_meta.get("ok"))
+        self.assertTrue(i_meta.get("omit_sub_score"))
+
+        # 空 bars → amihud omit
+        empty_score, empty_meta = score_amihud([])
+        self.assertTrue(empty_meta.get("omit_sub_score"))
+        self.assertEqual(empty_score, 50.0)
 
     def test_alt_sentiment_no_hardcoded_adj_in_score_bars(self):
         bars = _rising_bars()
@@ -216,6 +305,20 @@ class TestV21FactorThicken(unittest.TestCase):
         sug = suggest_weights_from_ic(exp, corr_report=report)
         self.assertTrue(sug["success"])
         self.assertIn("redundancy_warnings", sug)
+
+    def test_factor_corr_pairwise_survives_sparse_key(self):
+        """稀疏因子不得把整张矩阵滤成空（旧完整个案 bug）。"""
+        items = [
+            {"sub_scores": {"momentum": 1.0 + i, "value": 2.0 + i, "quality": 3.0}}
+            for i in range(10)
+        ]
+        items[0]["sub_scores"]["gap_risk"] = 9.0
+        report = compute_factor_corr_matrix(items, min_samples=3)
+        self.assertTrue(report["success"])
+        self.assertNotIn("gap_risk", report["factors"])
+        self.assertGreaterEqual(report["row_count"], 10)
+        self.assertGreater(len(report["pairs"]), 0)
+        self.assertIsNotNone(report["matrix"]["momentum"]["value"])
 
     def test_list_factors_descriptions(self):
         rows = list_factors()

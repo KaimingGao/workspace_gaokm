@@ -85,7 +85,7 @@ def score_ma_slope(bars: List[dict]) -> tuple[float, dict]:
     4. 均线加速度 (20%) - 斜率的变化率
     """
     if not bars or len(bars) < 10:
-        return 50.0, {"ma_slope": "insufficient_data"}
+        return 50.0, {"ma_slope": "insufficient_data", "omit_sub_score": True}
     
     closes = [float(b["close"]) for b in bars]
     

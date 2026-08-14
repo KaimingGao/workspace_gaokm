@@ -59,7 +59,59 @@ def get_quote(code: str) -> Dict[str, Any]:
         "fetched_at": datetime.now().isoformat(timespec="seconds"),
         "data_source": "tencent_quote" if (quote or {}).get("success") else "empty",
         "non_pit": False,
-        "note": "现价快照；非历史 PIT 面板。",
+        "note": "现价快照；非历史 PIT 面板。快因子 Z@open 经此取 open/昨收。",
+    }
+
+
+def get_minute_bars(
+    code: str,
+    *,
+    period: str = "5",
+    lookback_days: int = 90,
+    use_cache: bool = True,
+    max_age_hours: float = 12.0,
+) -> Dict[str, Any]:
+    """分钟线读口（快因子 Z@盘中 τ）；委托 ports → minute_history + store。"""
+    from core.ports.market import fetch_minute_bars
+
+    raw = str(code or "").strip()
+    try:
+        bars, meta = fetch_minute_bars(
+            raw,
+            period=str(period or "5"),
+            lookback_days=int(lookback_days or 90),
+            use_cache=bool(use_cache),
+            max_age_hours=float(max_age_hours or 12.0),
+        )
+    except TypeError:
+        # 适配器可能只返回 list
+        packed = fetch_minute_bars(raw)
+        if isinstance(packed, tuple) and len(packed) >= 2:
+            bars, meta = packed[0], packed[1]
+        else:
+            bars, meta = packed, {}
+    except Exception as e:
+        return {
+            "success": False,
+            "stock_code_query": raw,
+            "bars": [],
+            "error": str(e),
+            "fetched_at": datetime.now().isoformat(timespec="seconds"),
+            "data_source": "minute_error",
+            "note": "分钟拉取失败；τ>open 的 Z 不可用。",
+        }
+    meta = meta if isinstance(meta, dict) else {}
+    bar_list = list(bars or []) if not isinstance(bars, dict) else []
+    return {
+        "success": True,
+        "stock_code_query": raw,
+        "bars": bar_list,
+        "bar_count": len(bar_list),
+        "period": str(period or "5"),
+        "meta": meta,
+        "fetched_at": datetime.now().isoformat(timespec="seconds"),
+        "data_source": meta.get("data_source") or "minute",
+        "note": "分钟缓存/拉取；供 ŷ_τ@09:45 等；非 EOD 主轴。",
     }
 
 

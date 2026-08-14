@@ -72,9 +72,56 @@ export function matchWatchlistSource(code, sourceDescs) {
 }
 
 export function watchingScoreDetail(it) {
+  // τ 字段放前：data-score-detail 属性过长时避免被截掉
+  const terms = slimFormulaTerms((it && it.score_formula_terms) || null, 10);
+  const tauTerms = slimFormulaTerms(
+    (it && (it.formula_terms_tau || it.score_formula_terms_tau)) || null,
+    12
+  );
+  const hasTerms =
+    terms && Array.isArray(terms.terms) && terms.terms.length > 0;
+  const hasTauTerms =
+    tauTerms && Array.isArray(tauTerms.terms) && tauTerms.terms.length > 0;
+  // 有分项拆解时不再塞整包系数，缩小属性体积、避免截断坏 JSON
+  const coefs = hasTerms ? {} : (it && it.factor_coefficients) || {};
+  const coefsTau = hasTauTerms
+    ? null
+    : (it && it.factor_coefficients_tau) || null;
+  const sentInc =
+    it && it.sentiment_include_in_score != null
+      ? !!it.sentiment_include_in_score
+      : null;
+  const ep = (it && it.event_prior) || null;
+  const eventPrior = ep
+    ? {
+        theme: !!ep.theme,
+        warnings: Array.isArray(ep.warnings) ? ep.warnings.slice(0, 2) : [],
+      }
+    : null;
   return JSON.stringify({
-    formula: (it && it.score_formula) || "",
-    reasons: (it && it.score_reasons) || [],
+    predicted_score: it && it.predicted_score != null ? it.predicted_score : it && it.score,
+    score: it && it.score != null ? it.score : it && it.predicted_score,
+    predicted_score_tau:
+      it &&
+      (it.predicted_score_tau != null
+        ? it.predicted_score_tau
+        : it.score_rem != null
+          ? it.score_rem
+          : it.predicted_score_rem),
+    predicted_score_blend: it && it.predicted_score_blend,
+    score_rem: it && (it.score_rem != null ? it.score_rem : it.predicted_score_rem),
+    gap_pct: it && it.gap_pct,
+    event_prior: eventPrior,
+    as_of_tau: (it && (it.as_of_tau || it.rem_tau)) || null,
+    rem_tau: (it && it.rem_tau) || null,
+    y_spec_tau: (it && it.y_spec_tau) || null,
+    features_tau: (it && it.features_tau) || null,
+    formula_terms_tau: tauTerms,
+    factor_coefficients_tau: coefsTau,
+    dual_score_fusion: (it && it.dual_score_fusion) || null,
+    dual_score_weights: (it && it.dual_score_weights) || null,
+    formula: hasTerms ? "" : (it && it.score_formula) || "",
+    reasons: ((it && it.score_reasons) || []).slice(0, 5),
     hard_reject: !!(it && it.hard_reject),
     reject_reason: (it && it.reject_reason) || "",
     weight_source: (it && it.weight_source) || "",
@@ -86,20 +133,30 @@ export function watchingScoreDetail(it) {
     min_score: it && it.min_score,
     below_min_score: !!(it && it.below_min_score),
     return_model_source: (it && it.return_model_source) || "",
-    factor_coefficients: (it && it.factor_coefficients) || {},
-    formula_terms: (it && it.score_formula_terms) || null,
-    predicted_score: it && it.predicted_score != null ? it.predicted_score : it && it.score,
-    score_rem: it && (it.score_rem != null ? it.score_rem : it.predicted_score_rem),
-    gap_pct: it && it.gap_pct,
-    event_prior: (it && it.event_prior) || null,
-    rem_tau: (it && it.rem_tau) || null,
-    sentiment_include_in_score: !!(it && it.sentiment_include_in_score),
+    formula_terms: terms,
+    factor_coefficients: coefs,
+    sentiment_include_in_score: sentInc,
     sentiment_prior: (it && it.sentiment_prior) || null,
     alt_sentiment_beta: it && it.alt_sentiment_beta,
     alt_sentiment_in_yhat: !!(it && it.alt_sentiment_in_yhat),
-    risk_hints: (it && it.risk_hints) || [],
-    warnings: (it && it.warnings) || [],
+    risk_hints: ((it && it.risk_hints) || []).slice(0, 3),
+    warnings: ((it && it.warnings) || []).slice(0, 3),
   });
+}
+
+function slimFormulaTerms(expl, maxTerms = 10) {
+  if (!expl || typeof expl !== "object") return expl || null;
+  const terms = Array.isArray(expl.terms) ? expl.terms : [];
+  if (!terms.length) return expl;
+  const sorted = [...terms].sort(
+    (a, b) => Math.abs(Number(b?.contrib) || 0) - Math.abs(Number(a?.contrib) || 0)
+  );
+  return {
+    intercept: expl.intercept,
+    total: expl.total,
+    terms: sorted.slice(0, maxTerms),
+    head: expl.head,
+  };
 }
 
 export function truncateText(s, n) {

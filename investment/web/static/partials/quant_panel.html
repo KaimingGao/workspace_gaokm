@@ -2,13 +2,15 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Research Desk</p>
     <h2>研究枢纽</h2>
-    <p class="dashboard-meta quant-meta" id="quant-meta" aria-live="polite">分组建模 · 截面 IC · ŷ 复盘 · 只读输出不写生产配置</p>
+    <p class="dashboard-meta quant-meta" id="quant-meta" aria-live="polite">分组建模 · 截面 IC · 双层 ŷ 复盘 · 只读输出不写生产配置</p>
     <p class="dashboard-section-desc quant-head-path">
-      <a class="quant-hero-link" href="#quant-section-factors">分组</a>
+      <a class="quant-hero-link" href="#quant-section-factors">ŷ_EOD</a>
+      →
+      <a class="quant-hero-link" href="#quant-section-tau">ŷ_τ</a>
       →
       <a class="quant-hero-link" href="#quant-section-ic-series">IC</a>
       →
-      <a class="quant-hero-link" href="#quant-section-score-review">复盘</a>
+      <a class="quant-hero-link" href="#quant-section-score-review">双层 ŷ 复盘</a>
       →
       <a class="quant-hero-link" href="/follow">交易执行</a>
       · 不写生产配置
@@ -26,7 +28,7 @@
   <section class="dashboard-section quant-section quant-overview-section" id="quant-section-overview" aria-labelledby="quant-section-overview-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-overview-title" class="dashboard-section-title">概览</h3>
-      <p class="dashboard-section-desc quant-section-desc">观察池 · 聚类 · IC · 命中 · 纸面拟合</p>
+      <p class="dashboard-section-desc quant-section-desc">观察池 · 聚类 · IC · ŷ_EOD 命中 · ŷ_τ · 纸面拟合</p>
     </header>
     <div class="dashboard-overview-band quant-pro-desk-top quant-overview-band">
       <div class="dashboard-kpi-row quant-pro-overview-kpis quant-kpi-row" id="quant-pro-overview-kpis" aria-label="研究全景 KPI">
@@ -46,10 +48,15 @@
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
             <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">因子 IC · 非组β</div>
           </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="hit" title="跨日 ŷ 方向命中（评分复盘），不是分组正IC%">
-            <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">方向命中</div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="hit" title="跨日 ŷ_EOD 方向命中（评分复盘），不是分组正IC%">
+            <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">ŷ_EOD 命中</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">ŷ 跨日 · 非分组</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">主轴 · 跨日</div>
+          </div>
+          <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="tau" title="ŷ_τ vs open→close：复盘 IC/命中；副轴不驱动聚类">
+            <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">ŷ_τ</div>
+            <div class="dashboard-kpi-value quant-pro-kpi-value quant-kpi-value">—</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub quant-kpi-sub">副轴 · open→收</div>
           </div>
           <div class="dashboard-kpi-card quant-pro-kpi-card quant-kpi-card is-empty" data-kpi="fit">
             <div class="dashboard-kpi-label quant-pro-kpi-label quant-kpi-label">纸面拟合</div>
@@ -60,29 +67,33 @@
       </div>
       <nav class="quant-path-rail quant-pro-path-rail" aria-label="研究主路径">
         <a class="quant-path-step quant-pro-path-step is-active" href="#quant-section-factors" data-step="cluster" data-state="active" aria-current="step">
-          <span class="quant-pro-path-num">1</span> 分组
+          <span class="quant-pro-path-num">1</span> ŷ_EOD
+        </a>
+        <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
+        <a class="quant-path-step quant-pro-path-step" href="#quant-section-tau" data-step="tau" data-state="idle">
+          <span class="quant-pro-path-num">2</span> ŷ_τ
         </a>
         <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
         <a class="quant-path-step quant-pro-path-step" href="#quant-section-ic-series" data-step="ic" data-state="idle">
-          <span class="quant-pro-path-num">2</span> IC 时序
+          <span class="quant-pro-path-num">3</span> IC 时序
         </a>
         <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
         <a class="quant-path-step quant-pro-path-step" href="#quant-section-score-review" data-step="review" data-state="idle">
-          <span class="quant-pro-path-num">3</span> 昨日复盘
+          <span class="quant-pro-path-num">4</span> 双层 ŷ 复盘
         </a>
         <span class="quant-path-sep quant-pro-path-sep" aria-hidden="true">/</span>
         <a class="quant-path-step quant-pro-path-step" href="/follow" data-step="follow" data-state="idle">
-          <span class="quant-pro-path-num">4</span> 交易执行
+          <span class="quant-pro-path-num">5</span> 交易执行
         </a>
       </nav>
     </div>
   </section>
 
-  <!-- 分组 -->
+  <!-- ŷ_EOD：组 β 聚类主轴（紧挨下方 ŷ_τ） -->
   <section class="dashboard-section quant-section" id="quant-section-factors" aria-labelledby="quant-section-factors-title">
     <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-factors-title" class="dashboard-section-title">分组</h3>
-      <p class="dashboard-section-desc quant-section-desc">观察池按 OLS β 聚类 · 一组一模型 · 同组同建模</p>
+      <h3 id="quant-section-factors-title" class="dashboard-section-title">ŷ_EOD</h3>
+      <p class="dashboard-section-desc quant-section-desc">组 β 聚类 · 主轴排序 / 买入</p>
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -93,17 +104,19 @@
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>目的</strong>：找出 OLS 表现相似的股票，<strong>同组共用一套因子系数</strong>；
-                不同组各自池 OLS → 各自 β → 收益分 ŷ，避免异质票硬套全局模型。
+                不同组各自池 OLS → 各自 β → 收益分 <strong>ŷ_EOD</strong>（主轴），避免异质票硬套全局模型。
               </p>
               <p>
                 「跑分组」：宇宙=观察池<strong>前 Limit 只</strong>（默认 100≈满池），按单票 OLS β 层次聚类。
                 表单默认 <strong>ridge λ=1.0</strong>、<strong>K=自动</strong>（中心约 N/5，夹在 4～10；宇宙日历前段 β 定组；邻域 ±1 × 多折均值尾段 ŷ IC / 前段重拟合选优；定组后有限轮 holdout 贪心换组；另附扩展窗审计；超大组再二分）；
                 <strong>填 ≥2</strong>=按目标 k 切簇（尽量贴近 K；实际上限≈有效票数，不因离群拆成单票堆）。
               </p>
+              <h4>双层 ŷ</h4>
+              <p><strong>本组只产 ŷ_EOD</strong>。<code>ŷ_τ</code>（当日剩余 / rem Ridge）在独立「ŷ_τ」区块拟合与启用，<strong>不进聚类、不改组 β</strong>。</p>
               <h4>OOS 语义</h4>
-              <p><strong>基线</strong>：全局人工预定义线性加权（<code>heuristic_score</code>）。<strong>研究臂</strong>：本页回归模型 → <code>predicted_score</code>（ŷ）。</p>
+              <p><strong>基线</strong>：全局人工预定义线性加权（<code>heuristic_score</code>）。<strong>研究臂</strong>：本页回归模型 → <code>predicted_score</code>（ŷ_EOD）。</p>
               <h4>因子系数 β</h4>
-              <p>分组后为<strong>一组一表</strong>。表里<strong>系数 β</strong>来自该组池 OLS，即 <code>return_model.coefficients</code>，驱动组内收益分 ŷ。</p>
+              <p>分组后为<strong>一组一表</strong>。表里<strong>系数 β</strong>来自该组池 OLS，即 <code>return_model.coefficients</code>，驱动组内收益分 ŷ_EOD。</p>
             </div>
           </details>
         </div>
@@ -166,6 +179,46 @@
     </div>
   </section>
 
+  <!-- ŷ_τ：紧挨分组（ŷ_EOD）；副轴独立、不与「跑分组」并列主 CTA -->
+  <section class="dashboard-section quant-section" id="quant-section-tau" aria-labelledby="quant-section-tau-title">
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="quant-section-tau-title" class="dashboard-section-title">ŷ_τ</h3>
+      <p class="dashboard-section-desc quant-section-desc">open→close rem Ridge · 副轴 / τ 闸</p>
+    </header>
+    <div class="dashboard-card quant-pro-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+        <div id="quant-rem-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
+          <span class="quant-pro-status-chip" data-state="idle">待命</span>
+          <span class="quant-rem-status-msg">拟合后看 OOS · 过门再启用</span>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_τ 操作">
+          <details class="quant-help-fold quant-pro-help-fold">
+            <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
+            <div class="quant-help-body quant-pro-help-body">
+              <p>
+                <strong>ŷ_τ</strong> = rem Ridge，标签 <code>close[T]/open[T]−1</code>；字段
+                <code>predicted_score_tau</code>（别名 <code>score_rem</code>）。
+              </p>
+              <p>
+                <strong>不进聚类、不改 ŷ_EOD</strong>。启用后只影响主题日 soft hold / τ 闸；表列主分仍是 ŷ_EOD。
+                融合权重与 τ 闸在
+                <a class="quant-hero-link" href="/strategy#strategy-dual-score">策略中心 · 融合分数</a>
+                （仅 blend）。
+              </p>
+            </div>
+          </details>
+          <button type="button" id="quant-rem-ridge-run" class="dialog-btn secondary" title="观察池拟合 rem Ridge + 时间 OOS（不写盘）">拟合</button>
+          <button type="button" id="quant-rem-ridge-persist" class="dialog-btn secondary" title="人审后写入 live/rem_ridge_model.json">启用</button>
+          <button type="button" id="quant-rem-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body">
+        <div id="quant-rem-result" class="quant-weight-table-wrap" aria-label="rem 拟合摘要"></div>
+        <div id="quant-rem-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ 因子系数表"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- IC 时序 -->
   <section class="dashboard-section quant-section quant-ic-compare" id="quant-section-ic-series" aria-labelledby="quant-section-ic-series-title">
     <header class="dashboard-section-head quant-section-head">
@@ -196,11 +249,11 @@
     </div>
   </section>
 
-  <!-- 昨日复盘 -->
+  <!-- 双层 ŷ 复盘：主轴 EOD + 副轴 τ 验收条 -->
   <section class="dashboard-section quant-section" id="quant-section-score-review" aria-labelledby="quant-section-score-review-title">
     <header class="dashboard-section-head quant-section-head">
-      <h3 id="quant-section-score-review-title" class="dashboard-section-title">昨日复盘</h3>
-      <p class="dashboard-section-desc quant-section-desc">ŷ 方向 vs 实现收益 · 复盘样本 · 命中率</p>
+      <h3 id="quant-section-score-review-title" class="dashboard-section-title">双层 ŷ 复盘</h3>
+      <p class="dashboard-section-desc quant-section-desc">主轴 ŷ_EOD vs 前瞻收益 · 副轴 ŷ_τ 验收条 · 分标签对账</p>
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -232,6 +285,7 @@
       <div class="quant-pro-card-body">
         <p id="quant-score-review-status" class="quant-fingerprint">尚未加载</p>
         <div id="quant-score-review-summary" class="quant-summary"></div>
+        <div id="quant-score-review-tau" class="quant-score-review-tau" hidden></div>
         <div class="yhat-viz-block quant-review-viz" id="quant-score-review-hit-wrap" hidden>
           <p class="quant-block-cap">
             跨日方向命中率
@@ -273,7 +327,7 @@
   <section class="dashboard-section quant-section" id="quant-probe-fold" aria-labelledby="quant-section-probe-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-probe-title" class="dashboard-section-title">探针</h3>
-      <p class="dashboard-section-desc quant-section-desc">单票 IC/β vs 所在组</p>
+      <p class="dashboard-section-desc quant-section-desc">单票 IC/β vs 所在组 · 对照 ŷ_EOD</p>
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="quant-pro-card-body quant-probe-body">
@@ -299,12 +353,12 @@
     </div>
   </section>
 
-  <!-- 次要：对照 / 日报 / 因子相关性 / 纸面拟合 — 按需展开 -->
+  <!-- 次要：阈值 / 横截面 / 日报 / 因子相关性 / 纸面拟合 — 按需展开 -->
   <section class="dashboard-section quant-section quant-section-secondary" id="quant-global-fold" aria-labelledby="quant-section-global-title">
     <details class="quant-secondary-fold">
       <summary class="quant-secondary-fold-sum">
         <h3 id="quant-section-global-title" class="dashboard-section-title">对照</h3>
-        <p class="dashboard-section-desc quant-section-desc">阈值（ŷ OOS）· 盘中 rem · 横截面</p>
+        <p class="dashboard-section-desc quant-section-desc">阈值（ŷ OOS）· 横截面</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
         <div class="quant-pro-card-body quant-compare-body">
@@ -319,18 +373,6 @@
             </div>
             <p id="quant-threshold-summary" class="quant-fingerprint">点按钮分析 · ŷ% wait OOS · 人审后「应用建议」</p>
             <div id="quant-threshold-table" class="quant-weight-table-wrap" aria-label="阈值建议表"></div>
-          </div>
-          <div class="quant-compare-block" id="quant-section-rem">
-            <div class="quant-section-toolbar">
-              <p class="quant-block-cap" id="quant-section-rem-title" title="open→close 剩余收益头 · 不改 EOD ŷ · 人审后 persist">盘中 rem</p>
-              <div class="quant-actions-inline">
-                <button type="button" id="quant-rem-ridge-run" class="dialog-btn secondary" title="观察池拟合 rem Ridge + 时间 OOS（不写盘）">拟合 rem</button>
-                <button type="button" id="quant-rem-ridge-persist" class="dialog-btn secondary" title="人审后写入 live/rem_ridge_model.json">启用 rem 模型</button>
-                <button type="button" id="quant-rem-ridge-status" class="dialog-btn secondary" title="查看已启用模型">模型状态</button>
-              </div>
-            </div>
-            <p id="quant-rem-summary" class="quant-fingerprint">点「拟合 rem」· y=close/open−1 · OOS 过门后再启用</p>
-            <div id="quant-rem-result" class="quant-weight-table-wrap" aria-label="rem 拟合摘要"></div>
           </div>
           <div class="quant-compare-block" id="quant-section-cross">
             <div class="quant-section-toolbar">

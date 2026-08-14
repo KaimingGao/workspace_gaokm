@@ -146,10 +146,76 @@ def score_and_rank_watching(
         meta["neutralize_skipped"] = "predicted_score_uses_factor_coefs"
     meta["rank_mode"] = mode
 
+    # 双层 ŷ：PIT 挂 ŷ_τ + blend，排序/买入闸对齐 live F2
+    dual_cfg = None
+    rem_doc = None
+    try:
+        from core.signal.dual_score import (
+            attach_dual_score_pit,
+            buy_passes_tau_gate,
+            get_dual_score_cfg,
+            rank_key_for_item,
+            resolve_predicted_score_eod,
+        )
+
+        dual_cfg = get_dual_score_cfg(cfg)
+        try:
+            from quant.research.rem_ridge import load_rem_model
+
+            rem_doc = load_rem_model()
+        except Exception:
+            rem_doc = None
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            attach_dual_score_pit(
+                it,
+                quote=it.get("_bt_quote"),
+                bars=it.get("_bt_bars"),
+                config=cfg,
+                rem_model_doc=rem_doc,
+            )
+        meta["dual_score"] = {
+            "fusion_mode": dual_cfg.get("fusion_mode"),
+            "w_eod": dual_cfg.get("w_eod"),
+            "w_tau": dual_cfg.get("w_tau"),
+            "min_predicted_score_tau": dual_cfg.get("min_predicted_score_tau"),
+            "rem_model": bool(rem_doc),
+        }
+    except Exception as e:
+        meta["dual_score"] = {"ok": False, "reason": str(e)}
+        dual_cfg = None
+
     has_preds = any(it.get("predicted_score") is not None for it in items)
     if not has_preds and return_model is None and not by_code:
         meta["predicted_score_fallback"] = "no_model"
         picks = []
+    elif dual_cfg is not None:
+        floor = None if min_predicted_score is None else float(min_predicted_score)
+        ranked: List[Tuple[str, float, float]] = []
+        gated = 0
+        for it in items:
+            code = str(it.get("stock_code") or "").strip()
+            if not code:
+                continue
+            eod = resolve_predicted_score_eod(it)
+            if eod is None:
+                continue
+            if floor is not None and eod < floor:
+                continue
+            ok, _reason = buy_passes_tau_gate(it, config=cfg)
+            if not ok:
+                gated += 1
+                continue
+            blend = rank_key_for_item(it, config=cfg)
+            if blend is None:
+                continue
+            it["rank_key"] = "predicted_score_blend"
+            ranked.append((code, float(eod), float(blend)))
+        ranked.sort(key=lambda x: x[2], reverse=True)
+        picks = [(c, eod) for c, eod, _b in ranked]
+        meta["dual_score_tau_gated"] = gated
+        meta["rank_key"] = "predicted_score_blend"
     else:
         picks = rank_by_predicted_score(
             items, min_predicted_score=min_predicted_score

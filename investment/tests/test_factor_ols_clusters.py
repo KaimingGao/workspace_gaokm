@@ -783,6 +783,35 @@ class TestFactorOlsClusters(unittest.TestCase):
                 if len(members) >= 2:
                     signs = {1 if m in ("A", "B") else -1 for m in members}
                     self.assertEqual(len(signs), 1, groups)
+
+    def test_light_greedy_focused_mode_skips_when_no_weak(self):
+        from quant.research.cluster_greedy_refine import light_greedy_swap_refine
+
+        dates = [f"2024-01-{i:02d}" for i in range(1, 31)]
+        panel = {}
+        for code, sign in (("A", 1.0), ("B", 1.0), ("C", -1.0), ("D", -1.0)):
+            xs = [{"momentum": float(sign * i)} for i in range(30)]
+            ys = [float(sign * i) * 0.01 for i in range(30)]
+            panel[code] = {"xs": xs, "ys": ys, "dates": list(dates)}
+        # 已对齐的好分区：弱组应为空或换组不破坏
+        good = np.array([0, 0, 1, 1], dtype=int)
+        refined, diag = light_greedy_swap_refine(
+            good,
+            ["A", "B", "C", "D"],
+            panel,
+            holdout_ratio=0.3,
+            cut_date="2024-01-21",
+            use_pit=False,
+            select_ridge=False,
+            respect_regime=False,
+            mode="focused",
+            max_rounds=2,
+            max_evals=30,
+        )
+        self.assertTrue(diag.get("ok"), diag)
+        self.assertEqual(diag.get("mode"), "focused")
+        self.assertEqual(len(refined), 4)
+
     def test_aggregate_expanding_auto_k_score(self):
         from quant.research.factor_ols_clusters import (
             _aggregate_expanding_auto_k_score,

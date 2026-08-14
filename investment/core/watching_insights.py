@@ -146,6 +146,173 @@ def _spot_valuation_map(codes: List[str]) -> Dict[str, Dict[str, Optional[float]
     return out
 
 
+def _apply_excess_label(out: Dict[str, Any], excess: Optional[float], item: dict) -> None:
+    if excess is not None:
+        out["excess_return_pct"] = round(float(excess), 2)
+        if excess >= 2:
+            out["excess_label"] = "强"
+        elif excess <= -2:
+            out["excess_label"] = "弱"
+        else:
+            out["excess_label"] = "平"
+        return
+    if out.get("excess_label"):
+        return
+    rs = _f((item.get("sub_scores") or {}).get("relative_strength"))
+    if rs is not None:
+        out["excess_label"] = "RS" + str(int(round(rs)))
+
+
+def _enrich_book_insight_display_fields(
+    out: Dict[str, Any],
+    code: str,
+    item: dict,
+) -> None:
+    """簿快路径补倾向 / 超额% / 量比（行情 + 本地 bars，不重打分）。"""
+    quote: Dict[str, Any] = {}
+    try:
+        from core.ports.market import query_quote
+
+        quote = query_quote(code) or {}
+    except Exception:
+        quote = {}
+
+    try:
+        from core.stance import compute_buy_stance
+
+        sig = dict(item) if isinstance(item, dict) else {}
+        if sig.get("predicted_score") is None:
+            sig["predicted_score"] = out.get("predicted_score") or out.get("score")
+        if sig.get("score") is None:
+            sig["score"] = out.get("score")
+        stance = compute_buy_stance(quote=quote, signal_item=sig)
+        code_st = stance.get("stance_code")
+        out["stance_code"] = code_st
+        out["stance_label"] = stance.get("stance_label")
+        out["stance_short"] = STANCE_SHORT.get(str(code_st or ""), "—")
+    except Exception:
+        out["stance_short"] = out.get("stance_short") or "—"
+
+    bars: List[dict] = []
+    try:
+        from core.data_service import get_bars
+
+        pack = get_bars(
+            code,
+            limit=45,
+            offline_ok=True,
+            cache_max_age_hours=72.0,
+        )
+        bars = list(pack.get("bars") or [])
+    except Exception:
+        bars = []
+
+    if out.get("volume_ratio") is None and bars:
+        try:
+            from core.signal.factors.volume_price import volume_ratio
+
+            vr = volume_ratio(bars)
+            if vr is not None:
+                out["volume_ratio"] = round(float(vr), 2)
+        except Exception:
+            pass
+
+    if out.get("excess_return_pct") is None and bars:
+        try:
+            from core.signal.factors.relative_strength import excess_return_pct
+            from core.signal.live_features import fetch_live_index_bars
+            from skills.common.history import resolve_market_code
+
+            mkt, _pure = resolve_market_code(str(code))
+            idx_pack = fetch_live_index_bars(market=mkt or "CN", limit=60) or {}
+            idx_bars = list(idx_pack.get("bars") or [])
+            ex = excess_return_pct(bars, idx_bars, window_days=20)
+            if ex is not None:
+                _apply_excess_label(out, float(ex), item)
+        except Exception:
+            pass
+
+    if out.get("excess_return_pct") is None and out.get("excess_label") is None:
+        _apply_excess_label(out, None, item)
+
+
+def _insight_from_book_row(
+    code: str,
+    row: dict,
+    *,
+    added_at: Optional[str] = None,
+    valuation: Optional[Dict[str, Optional[float]]] = None,
+    paper_ctx: Optional[dict] = None,
+) -> Dict[str, Any]:
+    """分池簿快路径：tip 字段与交易执行同源，免 live score_stock。"""
+    out = _blank(code, added_at=added_at)
+    item = row if isinstance(row, dict) else {}
+    out["score"] = _f(item.get("score"))
+    if out["score"] is None:
+        out["score"] = _f(item.get("predicted_score"))
+    if out["score"] is None:
+        out["score"] = _f(item.get("score_cluster"))
+    out["predicted_score"] = _f(item.get("predicted_score"))
+    if out["predicted_score"] is None:
+        out["predicted_score"] = out["score"]
+    out["hard_reject"] = bool(item.get("hard_reject"))
+    out["reject_reason"] = (item.get("reject_reason") or None) if out["hard_reject"] else None
+    out["cluster_mode"] = item.get("cluster_mode")
+    out["weight_source"] = item.get("weight_source")
+    out["cluster_label"] = item.get("cluster_label")
+    out["cluster_version"] = item.get("cluster_version")
+    out["score_global"] = _f(item.get("score_global"))
+    out["score_cluster"] = _f(item.get("score_cluster"))
+    out["delta_vs_global"] = _f(item.get("delta_vs_global"))
+    out["return_model_source"] = item.get("return_model_source")
+    out["factor_coefficients"] = item.get("factor_coefficients")
+    out["sub_scores"] = item.get("sub_scores") or {}
+    out["score_formula_terms"] = item.get("score_formula_terms")
+    out["score_formula"] = item.get("score_formula")
+    # ensure 反推 τ 组成需要 stock_code
+    if not item.get("stock_code"):
+        item = dict(item)
+        item["stock_code"] = code
+    reasons = item.get("reasons") or item.get("score_reasons") or []
+    out["score_reasons"] = list(reasons) if isinstance(reasons, list) else []
+    try:
+        from core.signal.dual_score import dual_score_book_fields
+
+        out.update(dual_score_book_fields(item))
+    except Exception:
+        pass
+    try:
+        from core.signal.score_display import annotate_score_gate
+
+        gate = annotate_score_gate(out["score"], paper=paper_ctx)
+        out["min_score"] = gate["min_score"]
+        out["below_min_score"] = gate["below_min_score"]
+    except Exception:
+        out["min_score"] = None
+        out["below_min_score"] = False
+
+    factors = item.get("factors") or {}
+    out["volume_ratio"] = _f(factors.get("volume_ratio") or factors.get("turnover_ratio"))
+    pe = _f(factors.get("value_pe") or factors.get("pe"))
+    pb = _f(factors.get("value_pb") or factors.get("pb"))
+    if pe is None and valuation:
+        pe = _f(valuation.get("pe"))
+    if pb is None and valuation:
+        pb = _f(valuation.get("pb"))
+    out["pe"] = round(pe, 1) if pe is not None else None
+    out["pb"] = round(pb, 2) if pb is not None else None
+    excess = _f(factors.get("excess_return_pct") or item.get("excess_return_pct"))
+    if excess is not None:
+        _apply_excess_label(out, excess, item)
+
+    # 簿行通常无 factors / stance：用行情 + 本地 K 线补三列
+    _enrich_book_insight_display_fields(out, code, item)
+
+    out["ok"] = out["score"] is not None
+    out["stance_short"] = out.get("stance_short") or "—"
+    return out
+
+
 def _insight_one(
     code: str,
     *,
@@ -188,6 +355,12 @@ def _insight_one(
         out["factor_coefficients"] = item.get("factor_coefficients")
         out["sub_scores"] = item.get("sub_scores") or {}
         out["score_formula_terms"] = item.get("score_formula_terms")
+        try:
+            from core.signal.dual_score import dual_score_book_fields
+
+            out.update(dual_score_book_fields(item))
+        except Exception:
+            pass
         # 选股门槛仅标注，不抹掉分数
         try:
             from core.signal.score_display import annotate_score_gate
@@ -292,23 +465,67 @@ def build_watching_insights(
 
     valuation_by = _spot_valuation_map(cleaned)
     items_by_code: Dict[str, Dict[str, Any]] = {}
-    workers = min(_INSIGHT_MAX_WORKERS, len(cleaned))
-    pool = ThreadPoolExecutor(max_workers=workers)
+
+    # 分池簿快路径：观察 tip / score 与交易执行同源，避免 100 票 live 打分拖死悬浮
+    book_by_code: Dict[str, dict] = {}
+    try:
+        from core.signal.cluster_live import load_active_cluster_book
+
+        book_doc = load_active_cluster_book() or {}
+        for row in list(book_doc.get("scored_all") or []) + list(book_doc.get("book") or []):
+            if not isinstance(row, dict):
+                continue
+            c = str(row.get("stock_code") or row.get("code") or "").strip()
+            if not c or c in book_by_code:
+                continue
+            book_by_code[c] = row
+    except Exception:
+        book_by_code = {}
+
+    missing: List[str] = []
+    book_hits: List[tuple] = []  # (code, row, key)
+    for c in cleaned:
+        key = str(c).zfill(6) if str(c).isdigit() else str(c)
+        row = book_by_code.get(c) or book_by_code.get(key)
+        if row and (
+            row.get("score") is not None
+            or row.get("predicted_score") is not None
+            or row.get("score_formula_terms")
+        ):
+            book_hits.append((c, row, key))
+        else:
+            missing.append(c)
+
+    n_jobs = len(book_hits) + len(missing)
+    workers = min(_INSIGHT_MAX_WORKERS, max(1, n_jobs))
+    pool = ThreadPoolExecutor(max_workers=workers) if n_jobs else None
     try:
         futures = {}
-        for c in cleaned:
-            key = str(c).zfill(6) if str(c).isdigit() else str(c)
-            futures[
-                pool.submit(
-                    _insight_one,
-                    c,
-                    added_at=added.get(c) or added.get(str(c)),
-                    valuation=valuation_by.get(key),
-                    paper_ctx=paper_ctx,
-                )
-            ] = c
+        if pool is not None:
+            for c, row, key in book_hits:
+                futures[
+                    pool.submit(
+                        _insight_from_book_row,
+                        c,
+                        row,
+                        added_at=added.get(c) or added.get(str(c)),
+                        valuation=valuation_by.get(key),
+                        paper_ctx=paper_ctx,
+                    )
+                ] = c
+            for c in missing:
+                key = str(c).zfill(6) if str(c).isdigit() else str(c)
+                futures[
+                    pool.submit(
+                        _insight_one,
+                        c,
+                        added_at=added.get(c) or added.get(str(c)),
+                        valuation=valuation_by.get(key),
+                        paper_ctx=paper_ctx,
+                    )
+                ] = c
         try:
-            for fut in as_completed(futures, timeout=_INSIGHT_BATCH_TIMEOUT):
+            for fut in as_completed(futures, timeout=_INSIGHT_BATCH_TIMEOUT) if futures else []:
                 code = futures[fut]
                 try:
                     items_by_code[code] = fut.result(timeout=_INSIGHT_STOCK_TIMEOUT)
@@ -338,10 +555,11 @@ def build_watching_insights(
                         error="整批超时",
                     )
     finally:
-        try:
-            pool.shutdown(wait=False, cancel_futures=True)
-        except TypeError:
-            pool.shutdown(wait=False)
+        if pool is not None:
+            try:
+                pool.shutdown(wait=False, cancel_futures=True)
+            except TypeError:
+                pool.shutdown(wait=False)
 
     items = [
         items_by_code.get(c)
@@ -349,7 +567,11 @@ def build_watching_insights(
         for c in cleaned
     ]
     truncated = max(0, len([str(c).strip() for c in (codes or []) if str(c).strip()]) - len(cleaned))
-    note = "轻量观察摘要（跳过基本面/同业/独立指数重拉）；不改 stance 主契约。"
+    book_n = sum(1 for c in cleaned if c in items_by_code and c not in missing)
+    note = (
+        "轻量观察摘要（跳过基本面/同业/独立指数重拉）；不改 stance 主契约。"
+        + (f" 分池簿快路径 {book_n}/{len(cleaned)}。" if book_n else "")
+    )
     if truncated:
         note += f" 本次仅返回前 {len(cleaned)} 只（截断 {truncated}）。"
     return {
@@ -358,6 +580,8 @@ def build_watching_insights(
         "items": items,
         "truncated": truncated,
         "note": note,
+        "book_hit": book_n,
+        "live_scored": len(missing),
     }
 
 

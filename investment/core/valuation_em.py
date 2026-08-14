@@ -222,6 +222,38 @@ def fetch_valuation_pack(code: str) -> Dict[str, Optional[float]]:
     return pack
 
 
+def cached_valuation_metrics(
+    code: str, *, max_age_hours: float = 36.0
+) -> Optional[Dict[str, Optional[float]]]:
+    """只读本地 ``valuation_em`` 缓存（不联网）。刷簿 / skip_fundamentals 热路径用。"""
+    pack = read_valuation_cache(code, max_age_hours=max_age_hours)
+    if not pack:
+        return None
+    out = {
+        k: pack.get(k)
+        for k in ("pe", "pb", "pe_ttm", "market_cap", "dividend_yield")
+        if pack.get(k) is not None
+    }
+    return out or None
+
+
+def merge_cached_valuation(
+    code: str,
+    metrics: Optional[dict],
+    *,
+    max_age_hours: float = 36.0,
+) -> Optional[Dict[str, Any]]:
+    """把缓存估值字段并入 metrics（已有键不覆盖；无缓存则原样返回）。"""
+    pack = cached_valuation_metrics(code, max_age_hours=max_age_hours)
+    if not pack:
+        return metrics
+    out = dict(metrics or {})
+    for k, v in pack.items():
+        if out.get(k) is None and v is not None:
+            out[k] = v
+    return out
+
+
 def enrich_fundamentals_metrics(
     code: str, metrics: Optional[dict]
 ) -> Optional[Dict[str, Any]]:

@@ -16,6 +16,10 @@ from core.research.rem_panel import (
 
 
 REM_FEATURE_EXTRA = ("gap_pct", "open_gap", "sector_gap_breadth", "theme_day")
+# gap/breadth 单位是百分点或 [0,1]，勿用 0–100 分制的 min_std=5 误剔
+REM_MIN_STD_EXEMPT = REM_FEATURE_EXTRA
+# open_gap ≡ gap_pct，只拟合其一，避免 Ridge 双计
+REM_FIT_DROP_ALIASES = frozenset({"open_gap"})
 
 
 def _stack_panels(
@@ -206,11 +210,13 @@ def fit_rem_ridge_report(
         else None
     )
 
-    # 特征名：注册因子键 ∪ rem 额外
+    # 特征名：注册因子键 ∪ rem 额外（去掉 open_gap 别名，防与 gap_pct 双计）
     feat_names: List[str] = []
     seen = set()
     for row in xs_tr:
         for k in row.keys():
+            if k in REM_FIT_DROP_ALIASES:
+                continue
             if k not in seen:
                 seen.add(k)
                 feat_names.append(k)
@@ -222,6 +228,7 @@ def fit_rem_ridge_report(
         ridge_lambda=ridge_lambda,
         standardize=True,
         sample_weights=weights,
+        min_std_exempt=list(REM_MIN_STD_EXEMPT),
     )
     if not fit.get("success"):
         return {
@@ -254,6 +261,7 @@ def fit_rem_ridge_report(
         ridge_lambda=ridge_lambda,
         standardize=True,
         sample_weights=w_all,
+        min_std_exempt=list(REM_MIN_STD_EXEMPT),
     )
     model = fit_full if fit_full.get("success") else fit
     model = dict(model)
@@ -273,7 +281,10 @@ def fit_rem_ridge_report(
         "sample_count": len(ys),
         "oos": oos,
         "return_model": model,
-        "note": "研究轨 rem 头；promote 到 live 需显式 persist",
+        "tau": "open",
+        "y_spec": dict(model.get("y_spec") or {}),
+        "schema": "rem_ridge_v2",
+        "note": "研究轨 ŷ_τ（open）；promote 到 live 需显式 persist；不替换 EOD ŷ",
     }
 
 
@@ -284,13 +295,32 @@ def rem_model_path() -> str:
 
 
 def persist_rem_model(report: Dict[str, Any], *, note: str = "") -> Dict[str, Any]:
-    """人审后写入 data/live/rem_ridge_model.json。"""
+    """人审后写入 data/live/rem_ridge_model.json（契约：τ + y_spec）。"""
     if not report.get("success"):
         return {"success": False, "error": report.get("error") or "no report"}
     rm = report.get("return_model")
     if not isinstance(rm, dict) or not rm.get("coefficients"):
         return {"success": False, "error": "return_model missing"}
     from core.numbers import now_iso_utc
+
+    y_spec = dict(rm.get("y_spec") or {})
+    if not y_spec:
+        y_spec = {
+            "formula": "close[T]/open[T]-1",
+            "unit": "pct",
+            "tau": "open",
+            "note": "剩余收益头；不替换 EOD predicted_score",
+        }
+    tau = str(y_spec.get("tau") or rm.get("horizon_mode") or "open")
+    if tau in ("open_to_close", "open→close"):
+        tau = "open"
+    y_spec.setdefault("tau", tau)
+    y_spec.setdefault("formula", "close[T]/open[T]-1")
+    y_spec.setdefault("unit", "pct")
+    rm = dict(rm)
+    rm["y_spec"] = y_spec
+    rm["horizon_mode"] = rm.get("horizon_mode") or "open_to_close"
+    rm["tau"] = tau
 
     doc = {
         "success": True,
@@ -300,12 +330,27 @@ def persist_rem_model(report: Dict[str, Any], *, note: str = "") -> Dict[str, An
         "oos": report.get("oos"),
         "sample_count": report.get("sample_count"),
         "stock_count": report.get("stock_count"),
-        "schema": "rem_ridge_v1",
+        "schema": "rem_ridge_v2",
+        "tau": tau,
+        "as_of_tau": tau,
+        "y_spec": y_spec,
+        "y_spec_tau": y_spec,
+        "dual_score_head": "predicted_score_tau",
+        "contract_note": (
+            "ŷ_τ 头：标签 close/price[τ]-1；不覆盖 EOD predicted_score。"
+            "与 dual_score.fusion_mode 决策层闸门配合。"
+        ),
     }
     path = rem_model_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
-    return {"success": True, "path": path, "promoted_at": doc["promoted_at"]}
+    return {
+        "success": True,
+        "path": path,
+        "promoted_at": doc["promoted_at"],
+        "tau": tau,
+        "schema": doc["schema"],
+    }
 
 
 def load_rem_model() -> Optional[Dict[str, Any]]:
@@ -333,3 +378,88 @@ def predict_rem_from_features(
     rm = doc.get("return_model") or {}
     preds = _predict_rows(rm, [features])
     return preds[0] if preds else None
+
+
+_REM_FEAT_LABELS = {
+    "gap_pct": "跳空 %",
+    "open_gap": "开盘缺口",
+    "sector_gap_breadth": "同业缺口广度",
+    "theme_day": "主题日",
+    "ret_open_to_tau": "开盘→τ 收益 %",
+}
+
+
+def explain_rem_prediction(
+    features: Optional[Dict[str, Any]],
+    *,
+    model_doc: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """结构化拆解 ŷ_τ（与 ``predict_rem_from_features`` 同口径），供 tip 表格。
+
+    缺特征按训练集均值填（z=0），与 live 预测一致。
+    """
+    doc = model_doc if model_doc is not None else load_rem_model()
+    if not doc:
+        return None
+    fit = doc.get("return_model") or {}
+    coefs = fit.get("coefficients") or {}
+    if not coefs:
+        return None
+    intercept = float(fit.get("intercept") or 0.0)
+    means = fit.get("zscore_means") or fit.get("z_means") or {}
+    stds = fit.get("zscore_stds") or fit.get("z_stds") or {}
+    active = [
+        n
+        for n in (fit.get("active_features") or coefs.keys())
+        if coefs.get(n) is not None
+    ]
+    row = features or {}
+    try:
+        from core.signal.factor_registry import factor_label
+    except Exception:
+        factor_label = lambda k: str(k)  # noqa: E731
+
+    terms: List[Dict[str, Any]] = []
+    total = intercept
+    for name in active:
+        beta = float(coefs.get(name) or 0.0)
+        v = row.get(name)
+        imputed = False
+        if v is None:
+            z = 0.0
+            imputed = True
+        else:
+            try:
+                fv = float(v)
+            except (TypeError, ValueError):
+                z = 0.0
+                imputed = True
+            else:
+                mu = float(means.get(name, 0.0)) if means else 0.0
+                sd = float(stds.get(name, 1.0)) if stds else 1.0
+                if sd < 1e-9:
+                    sd = 1.0
+                z = (fv - mu) / sd if means else fv
+        contrib = beta * z
+        total += contrib
+        label = _REM_FEAT_LABELS.get(name) or factor_label(name) or name
+        term: Dict[str, Any] = {
+            "key": str(name),
+            "label": str(label),
+            "beta": round(beta, 6),
+            "z": round(float(z), 4),
+            "contrib": round(float(contrib), 6),
+        }
+        if imputed:
+            term["note"] = "缺特征·z≈0"
+        terms.append(term)
+    if not terms and abs(intercept) < 1e-12:
+        return None
+    terms.sort(key=lambda t: -abs(float(t.get("contrib") or 0)))
+    # tip 默认只展示有贡献或非零 β 的前若干 + 额外 Z；截到 16 行防过长
+    return {
+        "intercept": round(intercept, 6),
+        "terms": terms[:16],
+        "total": round(total, 6),
+        "head": "tau",
+    }

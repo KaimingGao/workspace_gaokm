@@ -27,6 +27,8 @@ CLUSTER_WEIGHTS_ACTIVE_PATH = os.path.join(LIVE_DIR, "cluster_weights_active.jso
 CLUSTER_WEIGHTS_HISTORY_DIR = os.path.join(LIVE_DIR, "cluster_weights_history")
 CLUSTER_WEIGHTS_DRAFT_PATH = os.path.join(LIVE_DIR, "cluster_weights_draft.json")
 CLUSTER_BOOK_ACTIVE_PATH = os.path.join(LIVE_DIR, "cluster_book_active.json")
+# A2：同池按 ŷ_τ 重排的影子簿（不驱动 execution）
+CLUSTER_BOOK_TAU_SHADOW_PATH = os.path.join(LIVE_DIR, "cluster_book_tau_shadow.json")
 # P1：分组全量报告缓存（24h 内 + watchlist 指纹未变直接复用，避免重算 OLS/OOS/分池）
 CLUSTER_REPORT_CACHE_PATH = os.path.join(LIVE_DIR, "cluster_report_cache.json")
 # 最近一次成功分组（不论指纹；刷新进页优先恢复，避免重算导致组变）

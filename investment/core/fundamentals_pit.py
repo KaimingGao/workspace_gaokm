@@ -209,6 +209,36 @@ def select_point_as_of(
     return chosen, meta
 
 
+def merge_local_fundamentals_snapshot(
+    code: str,
+    metrics: Optional[dict] = None,
+) -> Optional[Dict[str, Any]]:
+    """只读本地 fundamentals 快照最新点（不联网、不做 PIT 解析）。
+
+    刷簿 ``skip_fundamentals`` 热路径用：补 ROE / 增速等 valuation_em 没有的字段。
+    已有键不覆盖。
+    """
+    code_s = str(code or "").strip()
+    if not code_s:
+        return metrics
+    try:
+        panel = load_fundamentals_panel(code_s)
+    except Exception:
+        return metrics
+    history = panel.get("history") or []
+    if not history:
+        return metrics
+    latest = history[-1] if isinstance(history[-1], dict) else {}
+    snap = dict(latest.get("metrics") or {})
+    if not snap:
+        return metrics
+    out = dict(metrics or {})
+    for k, v in snap.items():
+        if out.get(k) is None and v is not None:
+            out[k] = v
+    return out or None
+
+
 def resolve_fundamentals_for_score(
     code: str,
     *,

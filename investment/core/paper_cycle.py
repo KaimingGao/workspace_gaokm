@@ -364,6 +364,17 @@ def run_daily_cycle(
             "return_model_source": signal.get("return_model_source") if signal else None,
             "factor_coefficients": signal.get("factor_coefficients") if signal else None,
             "score_formula_terms": signal.get("score_formula_terms") if signal else None,
+            "predicted_score_tau": (
+                signal.get("predicted_score_tau")
+                if signal and signal.get("predicted_score_tau") is not None
+                else (signal.get("score_rem") if signal else None)
+            ),
+            "score_rem": signal.get("score_rem") if signal else None,
+            "gap_pct": signal.get("gap_pct") if signal else None,
+            "event_prior": signal.get("event_prior") if signal else None,
+            "as_of_tau": signal.get("as_of_tau") if signal else None,
+            "dual_score_fusion": signal.get("dual_score_fusion") if signal else None,
+            "y_spec_tau": signal.get("y_spec_tau") if signal else None,
         })
 
     # 按评分降序排列

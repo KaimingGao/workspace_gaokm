@@ -1,26 +1,28 @@
 # predicted_score（ŷ）逻辑链路与执行链
 
-[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 复盘细节 [score-review.md](score-review.md) · 运维定时 [quant-ops.md](quant-ops.md) · **盘中/实时增强** [intraday-residual-score.md](intraday-residual-score.md)
+[← 文档索引](README.md) · 产品主轴 [design-spine.md](design-spine.md) · 复盘细节 [score-review.md](score-review.md) · 运维定时 [quant-ops.md](quant-ops.md) · **盘中/实时增强** [intraday-residual-score.md](intraday-residual-score.md) · **τ 契约与分组升级** [tau-contract-and-partition-upgrade.md](tau-contract-and-partition-upgrade.md)
 
 本文梳理 **训练 → 打分 → 回测 / 复盘 / 验证 → 纸面执行** 的同一套时间口径与产物流转。  
 目标：任何人看到页面上的「评分 / score / ŷ」，都能回答「它在预测什么、该和谁对账、会不会自动改 β」。
 
-> **实时 / 主题日**：EOD ŷ 主轴不变；开盘缺口与剩余收益头的产品定义与阶段规划见 [intraday-residual-score.md](intraday-residual-score.md)，勿与本节 \(T\!-\!1\) 因子契约混读。
+> **实时 / 主题日**：EOD ŷ 主轴不变；开盘缺口与剩余收益头见 [intraday-residual-score.md](intraday-residual-score.md)。  
+> **双层 predicted_score**：日线 ŷ_EOD + 当日 ŷ_τ 并存、分标签对账、决策层融合；见下文 **§2.5** 与 [tau-contract-and-partition-upgrade.md §9](tau-contract-and-partition-upgrade.md)。  
+> **契约缺口与升级**：现网 = EOD 选股 + 卖出保护，尚未完整实现「给定 τ → ℱ_τ → ŷ(τ)」进买卖；升级顺序见同专文。
 
 ---
 
 ## 1. 一句话主轴
 
 ```text
-历史日线 → 因子 sub_scores(t)
-         → OLS/Ridge 估 β（组 return_model）
-         → ŷ = predicted_score(t)   # 预测未来 h 日收益（%）
-         → 排序 / 门槛 / 调仓 / 冻结账本
-         → 用 close[t+h]/close[t]-1 验证
+【层 1 · EOD】历史日线 → sub_scores(t) → 组 β → predicted_score (= ŷ_EOD)
+         → 预测 close[t+h]/close[t]-1（现网 h=1）→ 主排序 / 买入门槛 / 账本
+
+【层 2 · τ】  X_{T-1} + Z_≤τ → γ → predicted_score_tau (= ŷ_τ；现网雏形 score_rem)
+         → 预测 close[T]/price[τ]-1 → 展示 / 卖出 soft hold →（规划）买入闸
 ```
 
-生产选股真源是 **回归 ŷ（因子系数 β）**，不是启发式 0–100 分。  
-`heuristic_score` 仅研究对照基线。
+生产选股真源仍是 **层 1 回归 ŷ（因子系数 β）**，不是启发式 0–100 分。  
+`heuristic_score` 仅研究对照基线。层 2 **不得**覆盖层 1 字段且不改标签混对账。
 
 ---
 
@@ -66,6 +68,42 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 
 **原则**：估 β、打 ŷ、复盘 \(r_h\)、回测持有期应使用**同一 \(h\)**；改 UI 持有期后需重跑分组并 promote，再谈 live 一致性。
 
+### 2.5 双层 predicted_score（ŷ_EOD + ŷ_τ）
+
+产品契约要求「给定 τ、用 τ 前信息预测 τ 之后」。现网用 **两套预测** 逼近，而不是揉成一个 `score`：
+
+| 层 | 字段 | 信息集 | 标签 \(y\) | 现网用途 | 规划用途 |
+|----|------|--------|-----------|----------|----------|
+| **EOD** | `predicted_score` / 表格 `score` | \(X_{\le T-1}\)（日线因子 × 组 β） | \(\mathrm{close}[t+h]/\mathrm{close}[t]-1\) | **主排序 · 买入门槛 · 账本** | 保持主轴直至 A3 |
+| **τ** | `predicted_score_tau`（规划名）；雏形 `score_rem` / `predicted_score_rem` | \(X_{T-1}+Z_{\le\tau}\) | \(\mathrm{close}[T]/\mathrm{price}[\tau]-1\) | 展示 · rem 门控 · 主题 soft hold | F1：买入硬闸；F2 可选加权排序键 |
+
+```text
+ŷ_EOD = f(X_{T-1}; β_cluster)     # 独立训练：分组 OLS/Ridge
+ŷ_τ   = g(X_{T-1}, Z_≤τ; γ)       # 独立训练：rem_ridge 等；不改 β
+```
+
+**硬规则**
+
+1. 两套字段并存；禁止用 τ 特征改写 `predicted_score` 却仍对账 EOD 标签。  
+2. 复盘分别报 IC(ŷ_EOD, y_EOD) 与 IC(ŷ_τ, y_τ)；融合分 \(s\)（若有）**不对账**单一 \(y\)。  
+3. 融合发生在 **决策层**（推荐 F1 闸门），不是先平均再假装一个预测。  
+
+**融合阶梯（摘要）**
+
+| 阶段 | 规则 |
+|------|------|
+| F0 现网 | 买/排 := ŷ_EOD；卖豁免 := gap / ŷ_τ / 舆情 | **已退役**（归一到融合分） |
+| F1 | 候选 := ŷ_EOD≥floor；买入 := 候选 ∧ ŷ_τ≥floor_τ | **已退役**（归一到融合分） |
+| F2 融合分 | \(s=w_E\hat y_E+w_\tau\hat y_\tau\) 簿排序；买入另过 τ 闸；主 `score` 仍 EOD | **现网唯一模式**（`fusion_mode=f2`） |
+| A2 影子簿 | 同池按 ŷ_τ 另写 `cluster_book_tau_shadow.json`；jaccard/spearman vs EOD | **已落地**（`enable_tau_shadow_book`，默认开；不驱动买入） |
+| A2 验收 | 账本 `*.tau_shadow.json` + `realized_tau`；`/api/quant/score-review/tau-shadow` | **已落地** |
+| 分钟 τ 特征 | 缓存命中时写 `ret_open_to_tau` | **可选**（`enable_minute_tau`，默认关） |
+| F3 以后 | 盘中窗以 ŷ_τ 为主（影子簿达标） | 未做 |
+
+**研究枢纽 UI（信息架构）**：主路径「ŷ_EOD → ŷ_τ → IC → 双层 ŷ 复盘 → 交易执行」；两块相邻；概览 KPI 并列两轴命中；rem 为次级 CTA，不与「跑分组」并列主按钮；复盘表列 ŷ | ŷ_τ；执行明细悬停/展开露 ŷ_τ。禁止把两层藏进单一 blend `score` 展示。
+
+建模、训练面板、OOS 与字段细节见 [tau-contract-and-partition-upgrade.md §9](tau-contract-and-partition-upgrade.md)；盘中落地阶段见 [intraday-residual-score.md](intraday-residual-score.md)。
+
 ---
 
 ## 3. 训练链：从日线到组 β
@@ -105,6 +143,8 @@ flowchart LR
 
 ## 4. 预估 / 打分链（live）
 
+### 4.1 EOD 打分链（层 1 · 主轴）
+
 ```text
 日线窗口(≤t) → sub_scores
              → 查 code 的 return_model（组 β，active 时）
@@ -119,6 +159,90 @@ flowchart LR
 | 纸面预演 / 确认调仓 | 读当前 live ŷ 排序与门槛，不训练 |
 
 配置门：`scoring.rank_mode=predicted_score` · `min_predicted_score` · `cluster_scoring.mode`（off / shadow / active）。
+
+### 4.2 τ 打分链（层 2 · 残差头挂载）
+
+`score_stock` 在写完 EOD ŷ 后，**追加** τ 层字段（不改 `predicted_score` / `score` 主值）：
+
+```text
+score_stock(code) 续——
+  → gap_pct = gap_pct_from_quote_bars(quote, bars)       # 开盘缺口%
+  →（缺口≥trigger 时）compute_sector_gap_breadth_live    # 同业开盘截面广度
+  → feats = {gap_pct, open_gap, sector_gap_breadth, theme_day, sub_scores…}
+  →（enable_minute_tau 且有本地缓存）附加 ret_open_to_tau  # 09:45 已实现收益
+  → rem_yhat = predict_rem_from_features(feats)           # rem_ridge 模型预测 ŷ_τ
+  → ep = build_event_prior_from_quote(…)                  # 事件先验（soft hold / warn）
+  → apply_tau_score_fields(signal_item, rem_yhat, gap_pct, feats, ep, …)
+```
+
+`apply_tau_score_fields` 写入的双层契约字段（`dual_score.py`）：
+
+| 字段 | 值 | 说明 |
+|------|----|------|
+| `predicted_score_eod` | = `predicted_score` | EOD 原值备份 |
+| `predicted_score_tau` | `rem_yhat` | ŷ_τ 规范名 |
+| `score_rem` / `predicted_score_rem` | `rem_yhat` | 兼容别名 |
+| `as_of_tau` | `"open"` 或 `"09:45"` | τ 时刻 |
+| `y_spec_tau` | `{formula, tau, unit, note}` | τ 标签规范 |
+| `features_tau` | gap/theme/breadth 快照 | τ 特征留痕 |
+| `gap_pct` | 缺口% | 事件先验输入 |
+| `predicted_score_blend` | `w_eod·ŷ_EOD + w_tau·ŷ_τ` | F2 加权键（缺 τ 退回 EOD） |
+| `dual_score_fusion` | `"f1"` | 当前融合模式 |
+| `dual_score_weights` | `{w_eod: 0.5, w_tau: 0.5}` | blend 权重 |
+
+### 4.3 双层完整调用链
+
+```text
+【训练层】
+  factor_ols_clusters → return_model (β_cluster) → promote → cluster_weights.json
+  rem_ridge           → rem_model    (γ)         → promote → rem_ridge_model.json
+
+【Live 打分层】
+  score_stock(code)
+    ├── sub_scores (日线因子×30+) → return_model.predict() → predicted_score / score (ŷ_EOD)
+    └── gap_pct + theme_day + sector_breadth + sub_scores + (ret_open_to_tau)
+            → rem_model.predict() → rem_yhat
+            → apply_tau_score_fields() 写入 predicted_score_tau / score_rem / blend / features_tau
+
+【建簿层】
+  cluster_rank.rank_cluster_pools()
+    ├── ŷ_EOD ≥ min_predicted_score → eligible
+    ├── (f2) rank_key=predicted_score_blend / (f0/f1) rank_key=predicted_score
+    ├── 全局排序 → max_names 截断 → book → cluster_book.json
+    └── A2：同 eligible 按 ŷ_τ 重排 → tau_shadow_book → cluster_book_tau_shadow.json
+
+【执行层（纸面调仓）】
+  paper_rebalance.rebalance_with_rules()
+    ├── 候选：ŷ_EOD ≥ min_score
+    └── F1 闸：buy_passes_tau_gate() → ŷ_τ ≥ min_predicted_score_tau → 否则 risk_budget_skips
+
+【复盘层】
+  score_ledger 冻结 ŷ_EOD + ŷ_τ
+    → h 日后回填 realized (y_EOD) + realized_tau (y_τ)
+    → 分别报 IC / 方向命中 / 错票归因
+    → tau-shadow 验收 API：GET /api/quant/score-review/tau-shadow
+```
+
+### 4.4 F1 买入闸门（纸面执行）
+
+`paper_rebalance` 在候选过 EOD 门槛后，再过 ŷ_τ 闸（`dual_score.buy_passes_tau_gate`）：
+
+| 条件 | 行为 |
+|------|------|
+| `fusion_mode=f0` | 直接放行（τ 闸关闭） |
+| `y_tau is None` 且 `block_buy_if_tau_missing=False`（默认） | 放行（rem 模型/特征缺失不硬卡） |
+| `y_tau is None` 且 `block_buy_if_tau_missing=True` | 拦截（"ŷ_τ 缺失（dual_score 硬闸）"） |
+| `y_tau < min_predicted_score_tau` | 拦截（"ŷ_τ=X.XXX% < min_predicted_score_tau(Y)"） |
+| `y_tau ≥ min_predicted_score_tau` | 放行 |
+
+### 4.5 A2 影子簿（同池 ŷ_τ 重排对照）
+
+刷簿时**额外**写 `cluster_book_tau_shadow.json`（不驱动 execution / 纸面买入）：
+
+- 同 EOD 入池集合（eligible），按 `predicted_score_tau` 降序截断 → tau_shadow_book
+- 缺失 ŷ_τ 的票排末尾，计入 `missing_tau_count`
+- 与 EOD 主簿对照：`jaccard`（代码重叠）、`spearman_shared`（共享代码秩相关）、`only_eod` / `only_tau`
+- 验收 API：`GET /api/quant/score-review/tau-shadow`
 
 ---
 
@@ -338,10 +462,16 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | y 契约 | `core/research/beta_accuracy.py` · `core/research/panel.py` |
 | 分组 OLS | `quant/research/factor_ols_clusters.py` · `quant/services/quant_service_factors.py` |
 | live 映射 | `core/signal/cluster_live.py` · `core/signal/return_score.py` |
-| 打分 | `core/signal/score_stock.py` · `cross_section_batch.py` |
+| 打分（EOD） | `core/signal/score_stock.py` · `cross_section_batch.py` |
+| **双层 ŷ 契约 / 融合** | **`core/signal/dual_score.py`**（F1 闸 · blend · shadow book · 字段写入） |
+| **τ 残差头训练 / 预测** | **`quant/research/rem_ridge.py`**（fit_rem_ridge_report · predict_rem_from_features） |
+| **τ 打分挂载** | **`core/signal/score_stock.py` § R3/A1 段**（apply_tau_score_fields 调用） |
+| **分池簿 + τ 影子簿** | **`core/signal/cluster_rank.py`**（rank_cluster_pools · build_tau_shadow_book） |
+| **F1 买入闸（纸面）** | **`core/paper_rebalance.py`**（buy_passes_tau_gate 调用） |
+| **账本 / 复盘（双层）** | `core/score_ledger.py`（ŷ_EOD + ŷ_τ 分标签冻结/回填）· [score-review.md](score-review.md) |
 | TopK | `core/backtest/topk_backtest.py` |
-| 账本 / 复盘 | `core/score_ledger.py` · [score-review.md](score-review.md) |
-| 配置 | `data/signal_config.json` → `scoring.horizon_days` / `cluster_scoring` |
+| 配置 | `data/signal_config.json` → `scoring.horizon_days` / `cluster_scoring` / `dual_score` |
 | 日更 | `core/schedule_jobs.py` · [quant-ops.md](quant-ops.md) |
+| 测试 | `tests/test_dual_score.py` · `tests/test_rem_ridge.py` · `tests/test_score_ledger.py` |
 | 产品定位 | [design-spine.md](design-spine.md) · [quant-concepts.md](quant-concepts.md) |
 | RL 边界 | [rl-layer.md](rl-layer.md) |

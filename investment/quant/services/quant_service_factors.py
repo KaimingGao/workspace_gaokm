@@ -3,9 +3,66 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+import re
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
+
+# ============================================================
+# 跑分组阶段编号（共 13 主阶段）
+# 前端状态示例：「分组中… 358s · [2/13] 拉日线 0/100（强制刷新过期票） · 1%」
+# 对应规则：regex 关键词 → (stage_idx, total_stages)
+# ============================================================
+_CLUSTER_STAGE_RULES: "List[Tuple[str, int, int]]" = [
+    # 0：排队中 / 启动 / 缓存命中
+    ("排队中", 0, 13),
+    ("启动中", 0, 13),
+    (r"命中.*缓存", 0, 13),
+    # 1：合并宇宙
+    ("合并宇宙", 1, 13),
+    # 2：拉日线 / 拉指数（并行子步归同一阶段号）
+    ("拉日线", 2, 13),
+    ("拉指数", 2, 13),
+    # 3：单票拟合
+    ("拟合", 3, 13),
+    # 4：聚类定组
+    ("聚类", 4, 13),
+    # 5：组池 OLS
+    ("组池 OLS", 5, 13),
+    # 6：贪心换组
+    ("贪心换组", 6, 13),
+    # 7：扩展窗审计
+    ("扩展窗审计", 7, 13),
+    # 8：OOS / 分池（含 attach_cluster_oos_gates & 逐组 OOS 循环）
+    (r"^OOS", 8, 13),
+    ("OOS / 分池", 8, 13),
+    # 9：组内打分
+    ("组内打分", 9, 13),
+    # 10：分池合成
+    ("分池合成", 10, 13),
+    # 11：分池产物
+    ("分池产物", 11, 13),
+    # 12：多权打分
+    ("多权打分", 12, 13),
+    # 13：收尾
+    ("收尾", 13, 13),
+]
+
+
+def _with_stage_prefix(msg: str) -> str:
+    """为跑分组 progress 消息加 [N/13] 前缀；已编号则跳过。"""
+    if not msg:
+        return msg
+    if re.match(r"\s*\[\s*\d+\s*/\s*\d+\s*\]", str(msg)):
+        return msg
+    text = str(msg).lstrip()
+    for pattern, n, tot in _CLUSTER_STAGE_RULES:
+        try:
+            if re.search(pattern, text):
+                return f"[{n}/{tot}] {msg.lstrip()}"
+        except re.error:
+            continue
+    return f"[-/13] {msg.lstrip()}"
 
 
 class QuantFactorMixin:
@@ -420,7 +477,7 @@ class QuantFactorMixin:
                 if cached is not None:
                     if progress_cb:
                         try:
-                            progress_cb("命中 24h 缓存，直接复用", 1, 1)
+                            progress_cb(_with_stage_prefix("命中 24h 缓存，直接复用"), 1, 1)
                         except Exception:
                             logger.warning("因子服务处理异常", exc_info=True)
                     cached["cache_hit"] = True
@@ -639,10 +696,15 @@ class QuantFactorMixin:
         job_id = quant_ols_clusters_job.start(
             kind="factor_ols_clusters",
             total=job_total,
-            message="排队中…",
+            message=_with_stage_prefix("排队中…"),
         )
 
         def _progress(msg: str, cur: int = 0, tot: int = 0) -> None:
+            # 消息统一加 [N/13] 阶段号（便于前端/日志识别进度）
+            try:
+                msg_out = _with_stage_prefix(msg)
+            except Exception:
+                msg_out = msg
             # 映射到 job：前 80% = 拉日线+拟合；后 20% = OOS/分池
             t = max(1, int(tot or n_watch or 1))
             c = max(0, int(cur or 0))
@@ -658,7 +720,7 @@ class QuantFactorMixin:
             quant_ols_clusters_job.update(
                 current=max(1, min(job_total - 1, mapped)),
                 total=job_total,
-                message=msg,
+                message=msg_out,
                 job_id=job_id,
             )
 
@@ -682,7 +744,7 @@ class QuantFactorMixin:
                 quant_ols_clusters_job.update(
                     current=1,
                     total=job_total,
-                    message=f"合并宇宙… {n_watch} 只",
+                    message=_with_stage_prefix(f"合并宇宙… {n_watch} 只"),
                     job_id=job_id,
                 )
                 if quant_ols_clusters_job.is_cancel_requested():
@@ -751,6 +813,38 @@ class QuantFactorMixin:
             audit_offset=audit_offset,
             light=bool(light),
             run_auto_demote=bool(run_auto_demote),
+        )
+
+    def compare_cluster_partition_vs_active(
+        self,
+        artifact: Optional[Dict[str, Any]] = None,
+        *,
+        from_draft: bool = True,
+        focus_codes: Optional[list] = None,
+    ) -> Dict[str, Any]:
+        """B3：draft/产物 vs active 晋升预检对照。"""
+        from core.signal.cluster_live import (
+            get_cluster_scoring_cfg,
+            load_active_cluster_weights,
+            load_cluster_draft,
+        )
+        from core.signal.cluster_oos_labels import compare_partition_vs_active
+
+        art = artifact
+        if from_draft or not art:
+            art = load_cluster_draft() or art
+        if not art:
+            return {"success": False, "error": "无 draft/产物可对照"}
+        ccfg = get_cluster_scoring_cfg()
+        max_rate = ccfg.get("max_oos_fail_rate")
+        return compare_partition_vs_active(
+            art,
+            load_active_cluster_weights(),
+            focus_codes=focus_codes,
+            max_oos_fail_rate=float(max_rate) if max_rate is not None else None,
+            allow_worse_than_active=bool(
+                ccfg.get("promote_allow_worse_oos_than_active", True)
+            ),
         )
 
     def promote_cluster_live(

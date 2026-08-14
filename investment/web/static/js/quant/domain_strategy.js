@@ -29,6 +29,7 @@ export function installStrategy(q) {
       await ensureFactorMeta();
       renderFactorDict();
       await loadSentimentPriorForm();
+      await loadDualScoreForm();
       return null;
     } catch (_) {
       return null;
@@ -434,7 +435,108 @@ export function installStrategy(q) {
     if (floorSt && floors.min_predicted_score != null) {
       floorSt.textContent = `当前 · 买入 ≥ ${floors.min_predicted_score}% · 卖出 < ${floors.min_hold_predicted_score ?? "—"}%`;
     }
+    fillDualScoreForm(data.dual_score);
     renderPromoteHintsPanel(loadCachedPromoteHints(), "strategy-promote-hints");
+  }
+
+  function formatDualStatus(ds, { saved = false } = {}) {
+    const d = ds || {};
+    const bits = [
+      saved ? "已保存" : "当前",
+      "融合分 blend",
+      `τ闸 ≥ ${d.min_predicted_score_tau ?? "—"}%`,
+      `w ${d.w_eod ?? "—"}/${d.w_tau ?? "—"}`,
+    ];
+    return bits.join(" · ");
+  }
+
+  function fillDualScoreForm(ds) {
+    const d = ds || {};
+    const floor = document.getElementById("strategy-dual-tau-floor");
+    if (floor && d.min_predicted_score_tau != null) {
+      floor.value = String(d.min_predicted_score_tau);
+    }
+    const we = document.getElementById("strategy-dual-w-eod");
+    if (we && d.w_eod != null) we.value = String(d.w_eod);
+    const wt = document.getElementById("strategy-dual-w-tau");
+    if (wt && d.w_tau != null) wt.value = String(d.w_tau);
+    const st = document.getElementById("strategy-dual-status");
+    if (st) st.textContent = formatDualStatus(d);
+  }
+
+  async function loadDualScoreForm() {
+    try {
+      const res = await fetch("/api/signal/config/dual-score");
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.dual_score) fillDualScoreForm(data.dual_score);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  async function saveStrategyDualScore() {
+    const st = document.getElementById("strategy-dual-status");
+    const floorIn = document.getElementById("strategy-dual-tau-floor");
+    const weIn = document.getElementById("strategy-dual-w-eod");
+    const wtIn = document.getElementById("strategy-dual-w-tau");
+    const floor =
+      floorIn && floorIn.value !== "" ? Number(floorIn.value) : null;
+    const wEod = weIn && weIn.value !== "" ? Number(weIn.value) : null;
+    const wTau = wtIn && wtIn.value !== "" ? Number(wtIn.value) : null;
+    if (
+      (floor == null || !Number.isFinite(floor)) &&
+      (wEod == null || !Number.isFinite(wEod)) &&
+      (wTau == null || !Number.isFinite(wTau))
+    ) {
+      if (st) st.textContent = "请填写 τ 闸或权重";
+      return;
+    }
+    const lines = [
+      "保存融合分数？",
+      "",
+      "· 模式 = blend（簿排序用融合分）",
+      floor != null && Number.isFinite(floor) ? `· τ 闸 ≥ ${floor}%` : "",
+      wEod != null && Number.isFinite(wEod) ? `· w_EOD = ${wEod}` : "",
+      wTau != null && Number.isFinite(wTau) ? `· w_τ = ${wTau}` : "",
+      "",
+      "仅改 signal_config.dual_score；不改 weights / scoring。刷簿/预演后生效。",
+    ].filter(Boolean);
+    if (!window.confirm(lines.join("\n"))) return;
+    if (st) {
+      st.classList.add("is-busy");
+      st.textContent = "正在保存…";
+    }
+    try {
+      const body = { note: "策略中心人审·融合分", fusion_mode: "f2" };
+      if (floor != null && Number.isFinite(floor)) {
+        body.min_predicted_score_tau = floor;
+      }
+      if (wEod != null && Number.isFinite(wEod)) body.w_eod = wEod;
+      if (wTau != null && Number.isFinite(wTau)) body.w_tau = wTau;
+      const res = await fetch("/api/signal/config/dual-score", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || data.success === false) {
+        if (st) {
+          st.classList.remove("is-busy");
+          st.textContent = data.detail || data.error || "保存失败";
+        }
+        return;
+      }
+      fillDualScoreForm(data.dual_score);
+      if (st) {
+        st.classList.remove("is-busy");
+        st.textContent = formatDualStatus(data.dual_score, { saved: true });
+      }
+    } catch (err) {
+      if (st) {
+        st.classList.remove("is-busy");
+        st.textContent = String(err.message || err);
+      }
+    }
   }
 
   async function runStrategyWeightSuggest() {
@@ -597,7 +699,9 @@ export function installStrategy(q) {
     runStrategyWeightSuggest,
     saveStrategyScoringFloors,
     saveStrategySentimentPrior,
+    saveStrategyDualScore,
     loadSentimentPriorForm,
+    loadDualScoreForm,
     syncPriorGateOptsVisibility,
     setStrategyFactorExportEnabled,
     strategyIcCode,

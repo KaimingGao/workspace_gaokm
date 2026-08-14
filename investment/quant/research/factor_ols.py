@@ -14,6 +14,9 @@ from typing import Any, Dict, List, Optional
 
 from core.research.factor_ols_fit import (
     _exclusion_reasons_map,
+    _fit_ols_once,
+    _ols_with_intercept,
+    _prepare_complete_panel,
     clamp_ridge_lambda,
     fit_factor_ols_from_panel,
 )
@@ -24,6 +27,9 @@ __all__ = [
     "clamp_ridge_lambda",
     "collect_subscore_forward_panel",
     "fit_factor_ols_from_panel",
+    "_prepare_complete_panel",
+    "_fit_ols_once",
+    "_ols_with_intercept",
     "compute_factor_ols_report",
     "compute_factor_ols_pooled_report",
 ]

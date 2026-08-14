@@ -8,10 +8,10 @@ from typing import Any, Dict, List, Tuple
 def score_gap_risk(bars: List[dict]) -> Tuple[float, Dict[str, Any]]:
     """
     近端隔夜跳空幅度：温和跳空中性偏正；过大跳空降分（缺口风险）。
-    缺数据 → 中性 50。
+    缺数据 → 不进 ŷ（omit），禁止假中性 50 在低 σ 组里炸分。
     """
     if not bars or len(bars) < 3:
-        return 50.0, {"ok": False, "reason": "thin_bars"}
+        return 50.0, {"ok": False, "reason": "thin_bars", "omit_sub_score": True}
 
     gaps = []
     for i in range(1, min(len(bars), 8)):
@@ -27,7 +27,7 @@ def score_gap_risk(bars: List[dict]) -> Tuple[float, Dict[str, Any]]:
         gaps.append((o / pc - 1.0) * 100.0)
 
     if not gaps:
-        return 50.0, {"ok": False, "reason": "no_gap"}
+        return 50.0, {"ok": False, "reason": "no_gap", "omit_sub_score": True}
 
     last = gaps[0]
     abs_last = abs(last)
@@ -45,4 +45,5 @@ def score_gap_risk(bars: List[dict]) -> Tuple[float, Dict[str, Any]]:
         "last_gap_pct": round(last, 3),
         "abs_gap_pct": round(abs_last, 3),
         "sample_gaps": [round(g, 3) for g in gaps[:5]],
+        "omit_sub_score": False,
     }

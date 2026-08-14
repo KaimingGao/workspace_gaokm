@@ -78,6 +78,7 @@ def quant_portfolio_backtest(body: PortfolioBacktestRequest):
             min_score=body.min_score,
             apply_costs=body.apply_costs,
             include_wf_slices=body.include_wf_slices,
+            include_cost_compare=body.include_cost_compare,
             wf_n_splits=body.wf_n_splits,
             fetch_fundamentals=body.fetch_fundamentals,
             weight_mode=body.weight_mode,

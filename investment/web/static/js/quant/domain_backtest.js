@@ -1,11 +1,17 @@
 import { apiFetch } from "../api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "../lw_charts.js";
 import { mountVirtualTable } from "../virtual_table.js";
-import { createScoreTooltipController } from "../score_tooltip.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
 import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload } from "./scoring.js";
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
-import {
+import { downloadBlob } from "../shared.js";
+
+const _V =
+  (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const { createScoreTooltipController } = await import(
+  `../score_tooltip.js?v=${encodeURIComponent(_V)}`
+);
+const {
   simTradesIntentDiffers,
   btSimTradeColumns,
   buildSimTradesCsv,
@@ -17,22 +23,43 @@ import {
   flattenTradesToSimLegs,
   formatFactorWeightsNote,
   formatSimStatus,
-} from "./bt_trades.js";
-import { readPromoteHardGate, buildPromoteHintsPack, savePromoteHintsPack } from "./promote_cache.js";
-import { drawParamHeatmap, paramGridDullness, buildParamGridMetaText, buildParamGridTableHtml } from "./param_grid_ui.js";
-import { renderNeutralCompareTable as renderNeutralCompareTableHtml } from "./neutral_compare.js";
-import { buildUniversePanelHtml } from "./universe_ui.js";
-import {
+} = await import(`./bt_trades.js?v=${encodeURIComponent(_V)}`);
+const { readPromoteHardGate, buildPromoteHintsPack, savePromoteHintsPack } = await import(
+  `./promote_cache.js?v=${encodeURIComponent(_V)}`
+);
+const {
+  drawParamHeatmap,
+  paramGridDullness,
+  buildParamGridMetaText,
+  buildParamGridTableHtml,
+} = await import(`./param_grid_ui.js?v=${encodeURIComponent(_V)}`);
+const { renderNeutralCompareTable: renderNeutralCompareTableHtml } = await import(
+  `./neutral_compare.js?v=${encodeURIComponent(_V)}`
+);
+const { buildUniversePanelHtml } = await import(
+  `./universe_ui.js?v=${encodeURIComponent(_V)}`
+);
+const {
   fmtPct,
   metricClass,
   buildPortfolioBacktestSummaryText,
   buildPortfolioBacktestFailText,
   applyReplayOverviewKpis,
-} from "./bt_result.js?v=p984";
-import { downloadBlob } from "../shared.js";
+} = await import(`./bt_result.js?v=${encodeURIComponent(_V)}`);
 
 /** Top-K 净值图横轴只展示最近 N 个自然日（含末日）。 */
 export const TOPK_NAV_CHART_WINDOW_DAYS = 15;
+
+/** Q1（灰）→ Qn（绿）；与 domain_watching 分层色板一致。 */
+const Q_COLORS = [
+  "#9ca3af",
+  "#93c5fd",
+  "#60a5fa",
+  "#34d399",
+  "#059669",
+  "#047857",
+  "#065f46",
+];
 
 function _curvePointDate(p) {
   return String((p && (p.date || p.ts || p.time)) || "").slice(0, 10);
@@ -361,18 +388,37 @@ export function installBacktest(q) {
     const chartWrap = document.getElementById("quant-quantile-chart-wrap");
     const chartHost = document.getElementById("quant-quantile-chart");
     if (!chartHost || !chartWrap) return;
-    const rows = (qb && qb.quantiles) || [];
-    const series = rows
-      .map((r, i) => {
-        const curve = r.equity_curve_tail || r.equity_curve || [];
-        if (!curve.length) return null;
-        const n = rows.length;
-        const isEdge = i === 0 || i === n - 1;
-        return {
-          label: r.label || `Q${r.quantile}`,
-          color: Q_COLORS[Math.min(i, Q_COLORS.length - 1)],
-          lineWidth: isEdge ? 2.5 : 1.5,
-          points: curve.map((p, j) => {
+    try {
+      const rows = (qb && qb.quantiles) || [];
+      const series = rows
+        .map((r, i) => {
+          const curve = r.equity_curve_tail || r.equity_curve || [];
+          if (!curve.length) return null;
+          const n = rows.length;
+          const isEdge = i === 0 || i === n - 1;
+          return {
+            label: r.label || `Q${r.quantile}`,
+            color: Q_COLORS[Math.min(i, Q_COLORS.length - 1)],
+            lineWidth: isEdge ? 2.5 : 1.5,
+            points: curve.map((p, j) => {
+              const t = String(p.date || "").slice(0, 10);
+              return {
+                time: /^\d{4}-\d{2}-\d{2}$/.test(t)
+                  ? t
+                  : new Date(Date.UTC(2020, 0, 1 + j)).toISOString().slice(0, 10),
+                value: Number(p.equity ?? p.value),
+              };
+            }),
+          };
+        })
+        .filter(Boolean);
+      const ls = (qb && qb.long_short_equity_curve) || [];
+      if (ls.length >= 2) {
+        series.push({
+          label: "Q高−Q低",
+          color: "#b45309",
+          lineWidth: 2.5,
+          points: ls.map((p, j) => {
             const t = String(p.date || "").slice(0, 10);
             return {
               time: /^\d{4}-\d{2}-\d{2}$/.test(t)
@@ -381,35 +427,20 @@ export function installBacktest(q) {
               value: Number(p.equity ?? p.value),
             };
           }),
-        };
-      })
-      .filter(Boolean);
-    const ls = qb.long_short_equity_curve || [];
-    if (ls.length >= 2) {
-      series.push({
-        label: "Q高−Q低",
-        color: "#b45309",
-        lineWidth: 2.5,
-        points: ls.map((p, j) => {
-          const t = String(p.date || "").slice(0, 10);
-          return {
-            time: /^\d{4}-\d{2}-\d{2}$/.test(t)
-              ? t
-              : new Date(Date.UTC(2020, 0, 1 + j)).toISOString().slice(0, 10),
-            value: Number(p.equity ?? p.value),
-          };
-        }),
+        });
+      }
+      if (series.length < 2) {
+        chartWrap.hidden = true;
+        return;
+      }
+      chartWrap.hidden = false;
+      await renderMultiLineChart(chartHost, series, {
+        emptyText: "分层曲线不足",
+        disableZoom: true,
       });
-    }
-    if (series.length < 2) {
+    } catch (_) {
       chartWrap.hidden = true;
-      return;
     }
-    chartWrap.hidden = false;
-    await renderMultiLineChart(chartHost, series, {
-      emptyText: "分层曲线不足",
-      disableZoom: true,
-    });
   }
 
   function paramGridApplyGate() {
@@ -926,7 +957,12 @@ export function installBacktest(q) {
   }
 
   async function runPortfolioBacktest() {
-    setQuantBtBusy(true, "Top-K 回测中（先读本地日线，缺的再补远端；观察池大时可能需一分钟）…");
+    const watchN = Object.keys(state.watchingNameByCode || {}).length;
+    const busyHint =
+      watchN >= 40
+        ? `Top-K 回测中（观察池约 ${watchN} 只 · lookback 越大越慢；已跳过 WF/成本对照）…`
+        : "Top-K 回测中（先读本地日线，缺的再补远端）…";
+    setQuantBtBusy(true, busyHint);
     try {
       const {
         lookback,
@@ -952,12 +988,17 @@ export function installBacktest(q) {
         min_avg_amount_pctile,
         benchmark_code,
         rank_mode,
+        // 大池交互回测：关 WF / 零成本对照（否则再跑 1～N 遍整段引擎易超超时）
+        include_wf_slices: false,
+        include_cost_compare: false,
         include_score_ic: true,
         include_quantile: true,
         include_benchmark: true,
       };
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-      const timer = ctrl ? setTimeout(() => ctrl.abort(), 240000) : null;
+      // 100 票 × lookback120 仍可能数分钟；给足余量，失败文案再提示缩池
+      const abortMs = watchN >= 40 || lookback >= 90 ? 600000 : 300000;
+      const timer = ctrl ? setTimeout(() => ctrl.abort(), abortMs) : null;
       let res;
       try {
         res = await fetch("/api/quant/portfolio-backtest", {
@@ -971,7 +1012,7 @@ export function installBacktest(q) {
           err && (err.name === "AbortError" || /abort/i.test(String(err)))
         );
         els.quantPortfolioSummary.textContent = aborted
-          ? "回测超过 4 分钟仍未返回。可缩小观察池，或等本地日线缓存补齐后再试。"
+          ? `回测超时未返回（观察池大 / lookback 长时常见）。可先把 lookback 降到 40～60，或缩小验证宇宙后再试。`
           : String((err && err.message) || err || "回测请求失败");
         els.quantPortfolioSummary.classList.add("down");
         renderPortfolioBacktestResult(null);

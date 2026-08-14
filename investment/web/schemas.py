@@ -419,6 +419,21 @@ class SentimentPriorRequest(BaseModel):
     note: str = Field(default="", max_length=500)
 
 
+class DualScoreRequest(BaseModel):
+    """双层 ŷ fusion；人审写 dual_score（不改 weights / scoring）。"""
+
+    fusion_mode: Optional[str] = Field(
+        default=None, description="仅保留 f2/blend；其它入参归一为 f2"
+    )
+    min_predicted_score_tau: Optional[float] = Field(
+        default=None, description="ŷ_τ 买入闸下限（%）；省略不改"
+    )
+    w_eod: Optional[float] = Field(default=None, description="F2 blend 权重 · EOD")
+    w_tau: Optional[float] = Field(default=None, description="F2 blend 权重 · τ")
+    block_buy_if_tau_missing: Optional[bool] = None
+    note: str = Field(default="", max_length=500)
+
+
 class ClusterApplyShortcutRequest(BaseModel):
     """一键应用分组：晋升 + mode + 刷新分池簿。"""
 
@@ -458,7 +473,9 @@ class PortfolioBacktestRequest(BaseModel):
     horizon_days: int = Field(default=3, ge=1, le=10)
     min_score: float = Field(default=55.0, ge=0, le=100)
     apply_costs: bool = True
-    include_wf_slices: bool = True
+    # 交互 Top-K 默认关：大观察池时 WF/零成本对照会再跑整段回测，易超前端超时
+    include_wf_slices: bool = False
+    include_cost_compare: bool = False
     wf_n_splits: int = Field(default=3, ge=1, le=6)
     # 交互回测默认跳过慢速基本面批量，避免「回测中」卡住感
     fetch_fundamentals: Optional[bool] = False

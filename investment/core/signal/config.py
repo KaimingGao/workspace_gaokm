@@ -64,6 +64,18 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         # B2：前瞻收益 y 与拟合/TopK/纸面共用 horizon（默认 1 = T−1 因子 → T 日收益）
         "horizon_days": 1,
     },
+    # 双层 ŷ：EOD predicted_score + τ predicted_score_tau（见 dual_score / docs §2.5）
+    "dual_score": {
+        "fusion_mode": "f2",  # 仅 blend：簿排序用融合分；买入另须 ŷ_τ≥floor
+        "tau": "open",
+        "min_predicted_score_tau": 0.0,
+        "block_buy_if_tau_missing": False,
+        "w_eod": 0.5,
+        "w_tau": 0.5,
+        "enable_tau_shadow_book": True,
+        "enable_minute_tau": False,
+        "minute_tau_hm": "09:45",
+    },
     # stance 门槛按收益分 ŷ%（百分点）
     "stance_thresholds": {
         "avoid": -0.5,
@@ -141,6 +153,8 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "min_sector_map_coverage": 0.5,
         # P0：OOS 门禁未过的组不进选股簿（仍可进 scored_all 展示）
         "exclude_oos_failed_groups": True,
+        # B1：相对 active 默认软提示（True）；False=恢复「不得差于 active」硬闸
+        "promote_allow_worse_oos_than_active": True,
     },
     # P1：T 日事件先验（缺口/板块开盘）· 不进 ŷ，只影响调仓动作
     "event_prior": {

@@ -67,6 +67,7 @@ class QuantConfigMixin:
         return export_config_diff_bundle(preview)
 
     def list_strategies(self) -> Dict[str, Any]:
+        from core.signal.dual_score_config import read_dual_score_public
         from core.signal.score_display import resolve_buy_floor, resolve_hold_floor
         from core.signal.sentiment_prior_config import read_sentiment_prior_public
         from core.strategy import list_strategy_specs
@@ -81,6 +82,7 @@ class QuantConfigMixin:
                 "unit": "predicted_score_pct",
             },
             "sentiment_prior": read_sentiment_prior_public(),
+            "dual_score": read_dual_score_public(),
         }
 
     def save_scoring_floors(
@@ -133,3 +135,29 @@ class QuantConfigMixin:
         from core.signal.sentiment_prior_config import read_sentiment_prior_public
 
         return {"success": True, "sentiment_prior": read_sentiment_prior_public()}
+
+    def read_dual_score(self) -> Dict[str, Any]:
+        from core.signal.dual_score_config import read_dual_score_public
+
+        return {"success": True, "dual_score": read_dual_score_public()}
+
+    def save_dual_score(
+        self,
+        *,
+        fusion_mode: Optional[str] = None,
+        min_predicted_score_tau: Optional[float] = None,
+        w_eod: Optional[float] = None,
+        w_tau: Optional[float] = None,
+        block_buy_if_tau_missing: Optional[bool] = None,
+        note: str = "",
+    ) -> Dict[str, Any]:
+        from core.signal.dual_score_config import save_dual_score as _save
+
+        return _save(
+            fusion_mode=fusion_mode,
+            min_predicted_score_tau=min_predicted_score_tau,
+            w_eod=w_eod,
+            w_tau=w_tau,
+            block_buy_if_tau_missing=block_buy_if_tau_missing,
+            note=note,
+        )

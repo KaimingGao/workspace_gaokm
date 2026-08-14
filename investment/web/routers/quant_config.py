@@ -5,7 +5,12 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 
 from web import deps
-from web.schemas import ScoringFloorsRequest, SentimentPriorRequest, StanceThresholdsRequest
+from web.schemas import (
+    DualScoreRequest,
+    ScoringFloorsRequest,
+    SentimentPriorRequest,
+    StanceThresholdsRequest,
+)
 
 router = APIRouter(tags=["quant"])
 
@@ -101,6 +106,34 @@ def signal_config_sentiment_prior_save(body: SentimentPriorRequest):
             scale_buy_pct=body.scale_buy_pct,
             scale_holds=body.scale_holds,
             note=body.note or "策略中心人审·舆情先验",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not out.get("success"):
+        raise HTTPException(status_code=400, detail=out.get("error") or "写入失败")
+    return out
+
+
+@router.get("/api/signal/config/dual-score")
+def signal_config_dual_score_get():
+    """双层 ŷ fusion 只读。"""
+    try:
+        return deps.quant.read_dual_score()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/signal/config/dual-score")
+def signal_config_dual_score_save(body: DualScoreRequest):
+    """人审写入 dual_score.fusion_mode 等；不改 weights / scoring。"""
+    try:
+        out = deps.quant.save_dual_score(
+            fusion_mode=body.fusion_mode,
+            min_predicted_score_tau=body.min_predicted_score_tau,
+            w_eod=body.w_eod,
+            w_tau=body.w_tau,
+            block_buy_if_tau_missing=body.block_buy_if_tau_missing,
+            note=body.note or "策略中心人审·双层ŷ",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

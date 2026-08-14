@@ -91,13 +91,21 @@ def score_weekly_confirmation(bars: List[dict]) -> tuple[float, dict]:
     4. 周线量能 (15%) - 周成交量变化
     """
     if not bars or len(bars) < 10:
-        return 50.0, {"weekly_trend": None, "weekly_position": None}
+        return 50.0, {
+            "weekly_trend": None,
+            "weekly_position": None,
+            "omit_sub_score": True,
+        }
     
     # 聚合为周线
     weekly_bars = _aggregate_to_weekly(bars)
     
     if len(weekly_bars) < 3:
-        return 50.0, {"weekly_trend": "insufficient_data", "weekly_score": 50.0}
+        return 50.0, {
+            "weekly_trend": "insufficient_data",
+            "weekly_score": 50.0,
+            "omit_sub_score": True,
+        }
     
     # 1. 周线趋势评分
     ma5w = _calc_weekly_ma(weekly_bars, 5)

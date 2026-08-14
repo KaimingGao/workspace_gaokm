@@ -40,7 +40,22 @@ import {
   PROMOTE_EXPIRE_HARD_KEY,
 } from "./quant/promote_cache.js";
 import { createFactorMetaCache } from "./quant/factor_meta.js";
-import {
+import { buildUniversePanelHtml } from "./quant/universe_ui.js";
+import { researchGridHtml, metricCell } from "./quant/research_grid.js";
+import { createPromoteHintsRenderer } from "./quant/promote_hints_ui.js";
+import { createFactorIcUi } from "./quant/factor_ic_ui.js";
+import { createBtTablesUi } from "./quant/bt_tables.js";
+import { installClusterProbe } from "./quant/domain_cluster.js";
+import { installSuggest } from "./quant/domain_suggest.js";
+import { installStrategy } from "./quant/domain_strategy.js";
+import { installExportInterpret } from "./quant/domain_export.js";
+import { installScoreReview } from "./quant/domain_score_review.js";
+import { installFitGapHub } from "./quant/domain_fit_gap.js";
+import { loadAndRenderFactorCorr, loadAndRenderFactorIR, loadAndRenderFactorICSeries, setProStatusChip, syncOverviewFromClusters, syncOverviewTau, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
+
+const _QV =
+  (typeof window !== "undefined" && window.__ASSET_V__) || "dev";
+const {
   createBtResultRenderers,
   fmtPct,
   metricClass,
@@ -48,22 +63,16 @@ import {
   buildPortfolioBacktestSummaryText,
   buildPortfolioBacktestFailText,
   applyReplayOverviewKpis,
-} from "./quant/bt_result.js?v=p984";
-import { buildUniversePanelHtml } from "./quant/universe_ui.js";
-import { researchGridHtml, metricCell } from "./quant/research_grid.js";
-import { createPromoteHintsRenderer } from "./quant/promote_hints_ui.js";
-import { createFactorIcUi } from "./quant/factor_ic_ui.js";
-import { createOlsUi } from "./quant/ols_ui.js?v=p910";
-import { createBtTablesUi } from "./quant/bt_tables.js";
-import { installWatching } from "./quant/domain_watching.js?v=p981";
-import { installBacktest } from "./quant/domain_backtest.js?v=p984";
-import { installClusterProbe } from "./quant/domain_cluster.js";
-import { installSuggest } from "./quant/domain_suggest.js";
-import { installStrategy } from "./quant/domain_strategy.js";
-import { installExportInterpret } from "./quant/domain_export.js";
-import { installScoreReview } from "./quant/domain_score_review.js";
-import { installFitGapHub } from "./quant/domain_fit_gap.js";
-import { loadAndRenderFactorCorr, loadAndRenderFactorIR, loadAndRenderFactorICSeries, setProStatusChip, syncOverviewFromClusters, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
+} = await import(`./quant/bt_result.js?v=${encodeURIComponent(_QV)}`);
+const { createOlsUi } = await import(
+  `./quant/ols_ui.js?v=${encodeURIComponent(_QV)}`
+);
+const { installWatching } = await import(
+  `./quant/domain_watching.js?v=${encodeURIComponent(_QV)}`
+);
+const { installBacktest } = await import(
+  `./quant/domain_backtest.js?v=${encodeURIComponent(_QV)}`
+);
 
 /** Quant research panel — shell + domain installs. */
 export function initQuant(ctx) {
@@ -270,6 +279,173 @@ export function initQuant(ctx) {
   q.exportDomain = exportDomain;
   q.scoreReviewDomain = scoreReviewDomain;
   q.fitGapHub = fitGapHub;
+
+  async function renderRemCoefTable(rm, opts = {}) {
+    const host = document.getElementById("quant-rem-coef-table");
+    if (!host) return;
+    try {
+      if (typeof q.ensureFactorMeta === "function") {
+        await q.ensureFactorMeta();
+      }
+    } catch (_) {
+      /* ignore · 仍用内置中文兜底 */
+    }
+    const html =
+      typeof q.remCoefTableHtml === "function"
+        ? q.remCoefTableHtml(rm, opts)
+        : "";
+    host.innerHTML = html || "";
+  }
+
+  function fmtRemTs(iso) {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) {
+      return String(iso).replace("T", " ").replace(/\.\d+Z?$/, "").slice(0, 16);
+    }
+    const p = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  }
+
+  function fmtRemIc(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toFixed(3) : "—";
+  }
+
+  function fmtRemHit(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? `${(n * 100).toFixed(1)}%` : "—";
+  }
+
+  function fmtRemN(v) {
+    const n = Number(v);
+    return Number.isFinite(n) ? n.toLocaleString("en-US") : "—";
+  }
+
+  function remStatusMeta(label, value, tip) {
+    return (
+      `<span class="quant-rem-meta"${tip ? ` title="${escapeHtml(tip)}"` : ""}>` +
+      `<span class="quant-rem-meta-k">${escapeHtml(label)}</span>` +
+      `<span class="quant-rem-meta-v">${escapeHtml(String(value))}</span>` +
+      `</span>`
+    );
+  }
+
+  /**
+   * ŷ_τ 卡头状态：chip + 可选文案 + OOS/n/时间 meta。
+   * @param {HTMLElement|null} el
+   * @param {{
+   *   state?: "idle"|"busy"|"ok"|"warn"|"error",
+   *   chip?: string,
+   *   message?: string,
+   *   oos?: object|null,
+   *   sampleCount?: number|null,
+   *   promotedAt?: string|null,
+   *   busy?: boolean,
+   *   error?: boolean,
+   * }} opts
+   */
+  function renderRemStatus(el, opts = {}) {
+    if (!el) return;
+    const {
+      state = "idle",
+      chip = "待命",
+      message = "",
+      oos = null,
+      sampleCount = null,
+      promotedAt = null,
+      busy = false,
+      error = false,
+    } = opts;
+    const chipState = error ? "error" : busy ? "busy" : state;
+    const metas = [];
+    if (oos && typeof oos === "object") {
+      if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
+        metas.push(remStatusMeta("OOS IC", fmtRemIc(oos.ic), "时间切分样本外 IC"));
+      }
+      if (oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) {
+        metas.push(
+          remStatusMeta("命中", fmtRemHit(oos.sign_hit), "样本外方向命中率")
+        );
+      }
+    }
+    if (sampleCount != null && sampleCount !== "") {
+      metas.push(remStatusMeta("n", fmtRemN(sampleCount), "入模观测数"));
+    }
+    if (promotedAt) {
+      metas.push(
+        `<span class="quant-rem-meta quant-rem-meta--time" title="${escapeHtml(
+          String(promotedAt)
+        )}">${escapeHtml(fmtRemTs(promotedAt))}</span>`
+      );
+    }
+    const html =
+      `<span class="quant-pro-status-chip quant-rem-status-chip" data-state="${escapeHtml(
+        chipState
+      )}">${escapeHtml(chip)}</span>` +
+      (message
+        ? `<span class="quant-rem-status-msg">${escapeHtml(message)}</span>`
+        : "") +
+      (metas.length
+        ? `<span class="quant-rem-status-meta">${metas.join("")}</span>`
+        : "");
+    setBusyText(el, html, { busy: !!busy && !error, html: true });
+    if (error) el.classList.add("is-error");
+    else el.classList.remove("is-error");
+  }
+
+  function clearRemResultBox() {
+    const box = document.getElementById("quant-rem-result");
+    if (box) box.innerHTML = "";
+  }
+
+  // 轻量预填 ŷ_τ KPI / 状态（不阻塞；复盘加载后会用 tau_shadow 覆盖命中）
+  void (async () => {
+    try {
+      const res = await fetch("/api/quant/rem-ridge/model");
+      const data = await res.json().catch(() => ({}));
+      const sum = document.getElementById("quant-rem-summary");
+      if (!data.exists) {
+        renderRemStatus(sum, {
+          state: "idle",
+          chip: "未启用",
+          message: data.note || "点「拟合」开始",
+        });
+        clearRemResultBox();
+        await renderRemCoefTable(null);
+        return;
+      }
+      const oos = data.oos || {};
+      renderRemStatus(sum, {
+        state: "ok",
+        chip: "已启用",
+        oos,
+        sampleCount: data.sample_count,
+        promotedAt: data.promoted_at,
+      });
+      clearRemResultBox();
+      await renderRemCoefTable(data.return_model || {}, { oos });
+      // 仅当概览仍空时写入，避免盖住复盘 tau_shadow
+      const card = document.querySelector(
+        '#quant-pro-overview-kpis .quant-pro-kpi-card[data-kpi="tau"]'
+      );
+      if (card && card.classList.contains("is-empty")) {
+        if (oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) {
+          syncOverviewTau(
+            oos.sign_hit,
+            `模型 OOS · IC ${fmtRemIc(oos.ic)}`,
+            "hit"
+          );
+        } else if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
+          syncOverviewTau(oos.ic, "模型 OOS", "ic");
+        } else {
+          syncOverviewTau("已启用", data.promoted_at || "rem", "text");
+        }
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  })();
 
   cluster.wireOosGateTips(els.quantOlsClusters);
   cluster.wireOosGateTips(els.quantFactorList);
@@ -924,40 +1100,75 @@ export function initQuant(ctx) {
 
   async function runRemRidge({ persist = false } = {}) {
     const sum = document.getElementById("quant-rem-summary");
-    const box = document.getElementById("quant-rem-result");
-    if (sum) sum.textContent = persist ? "写入 rem 模型中…" : "拟合 rem 中…";
-    const res = await fetch("/api/quant/rem-ridge", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        lookback: 120,
-        watching_limit: 12,
-        ridge_lambda: 1.0,
-        persist: !!persist,
-        note: persist ? "ui rem promote" : "",
-      }),
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: persist ? "写入中" : "拟合中",
+      message: persist ? "写入 live…" : "Ridge + 时间 OOS…",
+      busy: true,
     });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.success) {
-      const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
-      if (sum) sum.textContent = `rem 失败 · ${err}`;
-      return;
-    }
-    const oos = data.oos || {};
-    const line = `n=${data.sample_count} · 票=${data.stock_count} · OOS IC=${oos.ic ?? "—"} · 命中=${oos.sign_hit ?? "—"} · train ${oos.n_train ?? "—"}/test ${oos.n_test ?? "—"}`;
-    if (sum) {
-      sum.textContent = persist
-        ? `已启用 · ${line}`
-        : `拟合完成（未写盘）· ${line} · 人审后点「启用 rem 模型」`;
-    }
-    if (box) {
-      const coefs = (data.return_model && data.return_model.coefficients) || {};
-      const top = Object.entries(coefs)
-        .sort((a, b) => Math.abs(Number(b[1]) || 0) - Math.abs(Number(a[1]) || 0))
-        .slice(0, 8)
-        .map(([k, v]) => `${k}:${Number(v).toFixed(3)}`)
-        .join(" · ");
-      box.innerHTML = `<p class="quant-fingerprint">top β · ${top || "—"}</p>`;
+    try {
+      const res = await fetch("/api/quant/rem-ridge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback: 120,
+          watching_limit: 12,
+          ridge_lambda: 1.0,
+          persist: !!persist,
+          note: persist ? "ui rem promote" : "",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+        renderRemStatus(sum, {
+          state: "error",
+          chip: "失败",
+          message: String(err),
+          error: true,
+        });
+        clearRemResultBox();
+        renderRemCoefTable(null);
+        return;
+      }
+      const oos = data.oos || {};
+      if (persist) {
+        renderRemStatus(sum, {
+          state: "ok",
+          chip: "已启用",
+          oos,
+          sampleCount: data.sample_count,
+          promotedAt: data.promoted_at || new Date().toISOString(),
+        });
+      } else {
+        renderRemStatus(sum, {
+          state: "warn",
+          chip: "未写盘",
+          message: "人审后点「启用」",
+          oos,
+          sampleCount: data.sample_count,
+        });
+      }
+      if (oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) {
+        syncOverviewTau(
+          oos.sign_hit,
+          `rem OOS · IC ${fmtRemIc(oos.ic)}${persist ? " · 已启用" : " · 未写盘"}`,
+          "hit"
+        );
+      } else if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
+        syncOverviewTau(oos.ic, persist ? "rem OOS · 已启用" : "rem OOS · 未写盘", "ic");
+      }
+      const rm = data.return_model || {};
+      clearRemResultBox();
+      await renderRemCoefTable(rm, { oos });
+    } catch (err) {
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+      throw err;
     }
   }
 
@@ -967,37 +1178,82 @@ export function initQuant(ctx) {
       await runRemRidge({ persist: false });
     } catch (err) {
       const sum = document.getElementById("quant-rem-summary");
-      if (sum) sum.textContent = String(err.message || err);
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
     }
   });
 
   on("quant-rem-ridge-persist", "click", async (e) => {
     e.preventDefault();
-    if (!window.confirm("将 rem 模型写入 live（不改 EOD ŷ）？仅影响主题日 soft hold。")) return;
+    if (!window.confirm("将 rem / ŷ_τ 模型写入 live（不改 ŷ_EOD、不改聚类）？仅影响主题日 soft hold / τ 闸。")) return;
     try {
       await runRemRidge({ persist: true });
     } catch (err) {
       const sum = document.getElementById("quant-rem-summary");
-      if (sum) sum.textContent = String(err.message || err);
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
     }
   });
 
   on("quant-rem-ridge-status", "click", async (e) => {
     e.preventDefault();
     const sum = document.getElementById("quant-rem-summary");
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: "读取中",
+      message: "live 模型…",
+      busy: true,
+    });
     try {
       const res = await fetch("/api/quant/rem-ridge/model");
       const data = await res.json().catch(() => ({}));
       if (!data.exists) {
-        if (sum) sum.textContent = data.note || "尚无 rem 模型";
+        renderRemStatus(sum, {
+          state: "idle",
+          chip: "未启用",
+          message: data.note || "尚无 live 模型",
+        });
+        syncOverviewTau("未启用", "rem_ridge_model 缺失", "text");
+        clearRemResultBox();
+        await renderRemCoefTable(null);
         return;
       }
       const oos = data.oos || {};
-      if (sum) {
-        sum.textContent = `已启用 · ${data.promoted_at || ""} · OOS IC=${oos.ic ?? "—"} · 命中=${oos.sign_hit ?? "—"} · n=${data.sample_count ?? "—"}`;
+      renderRemStatus(sum, {
+        state: "ok",
+        chip: "已启用",
+        oos,
+        sampleCount: data.sample_count,
+        promotedAt: data.promoted_at,
+      });
+      if (oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) {
+        syncOverviewTau(
+          oos.sign_hit,
+          `已启用 · IC ${fmtRemIc(oos.ic)} · ${fmtRemTs(data.promoted_at) || ""}`,
+          "hit"
+        );
+      } else if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
+        syncOverviewTau(oos.ic, `已启用 · ${fmtRemTs(data.promoted_at) || ""}`, "ic");
+      } else {
+        syncOverviewTau("已启用", data.promoted_at || "rem 模型", "text");
       }
+      clearRemResultBox();
+      await renderRemCoefTable(data.return_model || {}, { oos });
     } catch (err) {
-      if (sum) sum.textContent = String(err.message || err);
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
     }
   });
 
@@ -1551,6 +1807,15 @@ export function initQuant(ctx) {
       strategy.saveStrategyScoringFloors().catch(() => {});
     });
   }
+
+  const dualSaveBtn = document.getElementById("strategy-dual-save");
+  if (dualSaveBtn) {
+    dualSaveBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      strategy.saveStrategyDualScore().catch(() => {});
+    });
+  }
+  strategy.loadDualScoreForm?.().catch(() => {});
 
   const priorSaveBtn = document.getElementById("strategy-prior-save");
   if (priorSaveBtn) {

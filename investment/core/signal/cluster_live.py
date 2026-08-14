@@ -128,6 +128,10 @@ def get_cluster_scoring_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
             if raw.get("exclude_oos_failed_groups") is not None
             else True
         ),
+        # B1：draft OOS 相对 active 默认软提示（True）；False=硬拦差于 active
+        "promote_allow_worse_oos_than_active": bool(
+            raw.get("promote_allow_worse_oos_than_active", True)
+        ),
     }
 
 
@@ -384,6 +388,39 @@ def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
             singletonish += 1
     if singletonish == len(by_label) and len(by_label) > 3:
         return "单票组过多，拒绝晋升（请重聚类或缩小 k）"
+
+    # B1：OOS 失败率 vs 绝对上限 / 相对 active（force 可豁免）
+    try:
+        from core.signal.cluster_oos_labels import (
+            compare_oos_vs_active,
+            compare_partition_vs_active,
+        )
+
+        ccfg = get_cluster_scoring_cfg()
+        max_rate = ccfg.get("max_oos_fail_rate")
+        allow_worse = bool(ccfg.get("promote_allow_worse_oos_than_active", False))
+        active = load_active_cluster_weights()
+        oos_err, oos_detail = compare_oos_vs_active(
+            artifact,
+            active,
+            max_oos_fail_rate=float(max_rate) if max_rate is not None else None,
+            allow_worse_than_active=allow_worse,
+        )
+        if isinstance(artifact, dict):
+            artifact["promote_oos_compare"] = oos_detail
+            try:
+                artifact["promote_preflight"] = compare_partition_vs_active(
+                    artifact,
+                    active,
+                    max_oos_fail_rate=float(max_rate) if max_rate is not None else None,
+                    allow_worse_than_active=allow_worse,
+                )
+            except Exception:
+                pass
+        if oos_err:
+            return oos_err
+    except Exception:
+        pass
     return None
 
 
@@ -861,6 +898,47 @@ def load_active_cluster_book() -> Optional[Dict[str, Any]]:
         return None
     try:
         with open(CLUSTER_BOOK_ACTIVE_PATH, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        return None
+    return None
+
+
+def save_tau_shadow_cluster_book(
+    book: Sequence[Dict[str, Any]],
+    *,
+    meta: Optional[dict] = None,
+) -> str:
+    """A2：ŷ_τ 影子簿落盘；execution / 纸面不读此文件。"""
+    from core.paths import CLUSTER_BOOK_TAU_SHADOW_PATH
+
+    _ensure_dirs()
+    payload = {
+        "success": True,
+        "updated_at": now_iso_utc(),
+        "book": list(book or []),
+        "meta": meta or {},
+        "note": "A2 τ 影子簿；不写 signal_config；不驱动买入",
+    }
+    atomic_write_json(CLUSTER_BOOK_TAU_SHADOW_PATH, payload)
+    try:
+        from core.score_ledger import freeze_from_tau_shadow_book
+
+        freeze_from_tau_shadow_book(shadow_doc=payload)
+    except Exception:
+        pass
+    return CLUSTER_BOOK_TAU_SHADOW_PATH
+
+
+def load_tau_shadow_cluster_book() -> Optional[Dict[str, Any]]:
+    from core.paths import CLUSTER_BOOK_TAU_SHADOW_PATH
+
+    if not os.path.isfile(CLUSTER_BOOK_TAU_SHADOW_PATH):
+        return None
+    try:
+        with open(CLUSTER_BOOK_TAU_SHADOW_PATH, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
             return data

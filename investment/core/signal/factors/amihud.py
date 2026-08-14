@@ -28,10 +28,10 @@ def _amihud_mean(bars: List[dict], window: int = 10) -> Optional[float]:
 
 
 def score_amihud(bars: List[dict], **_kw) -> Tuple[float, Dict[str, Any]]:
-    """缺数据 → 50。冲击越大分越低。"""
+    """缺数据 → 不进 ŷ（omit）。冲击越大分越低。"""
     raw = _amihud_mean(bars or [])
     if raw is None:
-        return 50.0, {"amihud": None, "ok": False}
+        return 50.0, {"amihud": None, "ok": False, "omit_sub_score": True}
 
     # 用数量级粗映射：A 股 volume×price 量级差异大，取 log 友好阈值
     # raw 通常很小；放大后分段
@@ -51,4 +51,5 @@ def score_amihud(bars: List[dict], **_kw) -> Tuple[float, Dict[str, Any]]:
         "amihud": round(raw, 12),
         "amihud_scaled": round(scaled, 4),
         "ok": True,
+        "omit_sub_score": False,
     }

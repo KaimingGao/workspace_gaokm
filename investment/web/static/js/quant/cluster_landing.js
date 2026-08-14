@@ -92,6 +92,54 @@ export function clusterLandingHtml(data) {
     )}</b> 簿</span>` +
     `</div>`;
 
+  const pf = (data && data.promote_preflight) || null;
+  let preflightHtml = "";
+  if (pf && draft.exists) {
+    const ready = pf.promote_ready === true;
+    const dOos = pf.draft_oos || {};
+    const aOos = pf.active_oos || {};
+    const delta = pf.delta || {};
+    const greedy = pf.greedy || {};
+    const blockers = Array.isArray(pf.blockers) ? pf.blockers : [];
+    const warns = Array.isArray(pf.warnings) ? pf.warnings : [];
+    const failLine =
+      dOos.fail_rate != null
+        ? `draft失败率 ${Math.round(Number(dOos.fail_rate) * 100)}%` +
+          (aOos.fail_rate != null
+            ? ` · active ${Math.round(Number(aOos.fail_rate) * 100)}%`
+            : "") +
+          (delta.oos_fail_rate != null
+            ? ` · Δ${Number(delta.oos_fail_rate) >= 0 ? "+" : ""}${Math.round(
+                Number(delta.oos_fail_rate) * 100
+              )}pp`
+            : "")
+        : "OOS —";
+    const greedyLine =
+      greedy && greedy.mode
+        ? ` · greedy ${escapeHtml(String(greedy.mode))}${
+            greedy.n_swaps != null ? `×${escapeHtml(String(greedy.n_swaps))}` : ""
+          }`
+        : "";
+    preflightHtml =
+      `<div class="quant-cluster-preflight${ready ? "" : " is-warn"}" ` +
+      `title="B3 draft vs active；promote_ready 仅看 OOS 闸">` +
+      `<span class="quant-cluster-stat"><b>${
+        ready ? "可晋升" : "暂不可晋升"
+      }</b> 预检</span>` +
+      `<span class="quant-cluster-stat">${escapeHtml(failLine)}${greedyLine}</span>` +
+      (blockers.length
+        ? `<p class="quant-cluster-landing-alerts down">${escapeHtml(
+            blockers.join("；")
+          )}</p>`
+        : "") +
+      (warns.length
+        ? `<p class="quant-cluster-landing-alerts">${escapeHtml(
+            warns.join("；")
+          )}</p>`
+        : "") +
+      `</div>`;
+  }
+
   const alertHtml = alerts.length
     ? `<p class="quant-cluster-landing-alerts">${escapeHtml(
         alerts.join("；")
@@ -188,6 +236,7 @@ export function clusterLandingHtml(data) {
     `<span class="quant-cluster-tables-label">落地</span>` +
     `</div>` +
     stats +
+    preflightHtml +
     alertHtml +
     evidenceHtml +
     actions +

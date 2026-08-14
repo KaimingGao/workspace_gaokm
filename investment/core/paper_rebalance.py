@@ -250,6 +250,7 @@ def simulate_cross_section_rebalance(
     top_items = (ranking or [])[:top_k]
     top_codes = {str(x.get("stock_code") or "") for x in top_items if x.get("stock_code")}
     score_by_code: Dict[str, float] = {}
+    tau_by_code: Dict[str, float] = {}
     hard_reject_by_code: Dict[str, str] = {}
     for src in list(score_lookup or []) + list(ranking or []):
         code = str(src.get("stock_code") or "")
@@ -259,13 +260,21 @@ def simulate_cross_section_rebalance(
             hard_reject_by_code[code] = str(
                 src.get("reject_reason") or "硬拒绝"
             )
-        if code in score_by_code:
-            continue
-        try:
-            if src.get("score") is not None:
-                score_by_code[code] = float(src.get("score"))
-        except (TypeError, ValueError):
-            continue
+        if code not in score_by_code:
+            try:
+                if src.get("score") is not None:
+                    score_by_code[code] = float(src.get("score"))
+            except (TypeError, ValueError):
+                pass
+        if code not in tau_by_code:
+            try:
+                from core.signal.dual_score import resolve_predicted_score_tau
+
+                yt = resolve_predicted_score_tau(src)
+                if yt is not None:
+                    tau_by_code[code] = float(yt)
+            except Exception:
+                pass
 
     holdings = paper.get("holdings") or []
     cash_before = float(paper.get("cash") or 0)
@@ -416,8 +425,10 @@ def simulate_cross_section_rebalance(
                             else 0.0,
                         }
                         rem_yhat = predict_rem_from_features(feats)
+                        if rem_yhat is None and code in tau_by_code:
+                            rem_yhat = tau_by_code[code]
                     except Exception:
-                        rem_yhat = None
+                        rem_yhat = tau_by_code.get(code)
                     ep = build_event_prior_from_quote(
                         q_ep if q_ep.get("success") else None,
                         sector_breadth=_sector_breadth,
@@ -733,6 +744,26 @@ def simulate_cross_section_rebalance(
             score = item.get("score")
             if score is None or float(score) < min_score:
                 continue
+
+            # F1：ŷ_τ 买入闸（不改 EOD score；无 rem 模型时默认放行）
+            try:
+                from core.signal.dual_score import buy_passes_tau_gate
+
+                tau_ok, tau_reason = buy_passes_tau_gate(item)
+                if not tau_ok:
+                    risk_budget_skips.append(
+                        {
+                            "stock_code": code,
+                            "stock_name": item.get("stock_name"),
+                            "reason": tau_reason or "ŷ_τ 买入闸",
+                            "score": score,
+                            "predicted_score_tau": item.get("predicted_score_tau", item.get("score_rem")),
+                            "dual_score_tau_gate": True,
+                        }
+                    )
+                    continue
+            except Exception:
+                logger.warning("buy_loop tau_gate failed for %s", code, exc_info=True)
 
             # 舆情先验（ŷ 外）：不改 score；gate 时 skip / 缩 ratio（用开环批量结果）
             prior_apply = None
@@ -1116,6 +1147,16 @@ def simulate_cross_section_rebalance(
     except Exception:
         exposure_style = None
 
+    try:
+        from core.signal.dual_score import get_dual_score_cfg
+
+        _dual_meta = {
+            "fusion_mode": get_dual_score_cfg().get("fusion_mode"),
+            "note": "融合分：簿排序用 blend；买入另须 ŷ_τ≥min_predicted_score_tau；主排序字段仍为 ŷ_EOD",
+        }
+    except Exception:
+        _dual_meta = {"fusion_mode": None, "note": "dual_score unavailable"}
+
     return {
         "success": True,
         "top_k": top_k,
@@ -1142,10 +1183,11 @@ def simulate_cross_section_rebalance(
         "event_prior": {
             "soft_holds": event_prior_soft_holds,
             "count": len(event_prior_soft_holds),
-            "note": "主题开盘缺口日：低 ŷ 卖出改为 soft hold（不改 ŷ）",
+            "note": "主题开盘缺口日：低 ŷ 卖出改为 soft hold（不改 ŷ_EOD）",
         },
+        "dual_score": _dual_meta,
         "attribution": attribution,
         "cost_assumptions": cost_assumptions,
         "exposure_style": exposure_style,
-        "note": "横截面/分池调仓为纸面模拟，非实盘成交；买入门槛=ŷ min_score，卖出仅 ŷ<min_hold。",
+        "note": "横截面/分池调仓为纸面模拟；买入=ŷ_EOD≥min_score 且（F1）ŷ_τ≥floor；卖出仅 ŷ_EOD<min_hold（可 soft hold）。",
     }

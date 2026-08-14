@@ -184,8 +184,17 @@ def light_greedy_swap_refine(
     y_spec: Optional[Dict[str, Any]] = None,
     max_rounds: int = 2,
     max_evals: int = 80,
+    mode: str = "auto",
+    max_codes_full: int = 32,
+    max_codes_focused: int = 100,
 ) -> Tuple[np.ndarray, Dict[str, Any]]:
-    """有限轮贪心换组。返回 (labels, diagnostics)。"""
+    """有限轮贪心换组。返回 (labels, diagnostics)。
+
+    ``mode``:
+    - ``full``：全票试换（小宇宙）
+    - ``focused``：只动 holdout IC≤0 / 拟合失败的弱组（大宇宙 B2）
+    - ``auto``：n≤max_codes_full → full，否则 focused（n 过大则跳过）
+    """
     best = np.asarray(labels_init, dtype=int).copy()
     n = int(best.shape[0])
     empty = {
@@ -196,12 +205,32 @@ def light_greedy_swap_refine(
         "loss_after": None,
         "swaps": [],
         "reason": None,
+        "mode": None,
     }
     if n < 4:
         return best, {**empty, "reason": "too_few_codes"}
     uniq0 = sorted({int(v) for v in best if int(v) >= 0})
     if len(uniq0) < 2:
         return best, {**empty, "reason": "need_two_clusters"}
+
+    mode_s = str(mode or "auto").strip().lower()
+    max_full = max(8, int(max_codes_full or 32))
+    max_foc = max(max_full, int(max_codes_focused or 100))
+    if mode_s == "auto":
+        if n <= max_full:
+            mode_s = "full"
+        elif n <= max_foc:
+            mode_s = "focused"
+        else:
+            return best, {
+                **empty,
+                "reason": "n_out_of_range",
+                "mode": "auto",
+                "n": n,
+                "max_codes_focused": max_foc,
+            }
+    elif mode_s not in ("full", "focused"):
+        mode_s = "full" if n <= max_full else "focused"
 
     cache: Dict[Tuple[str, ...], Dict[str, Any]] = {}
     base = evaluate_labels_holdout_loss(
@@ -224,20 +253,62 @@ def light_greedy_swap_refine(
     swaps: List[Dict[str, Any]] = []
     n_evals = 0
     max_rounds_i = max(1, min(int(max_rounds or 2), 4))
-    max_evals_i = max(10, min(int(max_evals or 80), 200))
+    max_evals_i = max(10, min(int(max_evals or 80), 240))
+
+    # focused：弱组 = IC≤0 或拟合失败；优先换走这些票
+    weak_cids: set = set()
+    if mode_s == "focused":
+        for g in base.get("groups") or []:
+            if not isinstance(g, dict):
+                continue
+            cid = g.get("cluster_id")
+            if cid is None:
+                continue
+            try:
+                ic_f = float(g.get("ic_mean") if g.get("ic_mean") is not None else 0.0)
+            except (TypeError, ValueError):
+                ic_f = 0.0
+            fit_ok = g.get("fit_ok")
+            if fit_ok is None:
+                fit_ok = g.get("has_return_model")
+            if (fit_ok is False) or ic_f <= 0.0:
+                weak_cids.add(int(cid))
+        if not weak_cids:
+            return best, {
+                "ok": True,
+                "n_swaps": 0,
+                "n_evals": 0,
+                "loss_before": round(float(loss_before), 6),
+                "loss_after": round(float(best_loss), 6),
+                "improved": False,
+                "swaps": [],
+                "mode": mode_s,
+                "weak_cluster_ids": [],
+                "reason": "no_weak_groups",
+                "note": "focused：无弱组（IC≤0/拟合失败），跳过换组",
+            }
 
     for rnd in range(max_rounds_i):
         moved = False
-        # 优先试多票组内的票（换走更可能改善异质）
-        order = list(range(n))
         multi = {
             int(cid)
             for cid, idxs in labels_to_group_indices(best).items()
             if len(idxs) >= 2
         }
+        order = list(range(n))
+        if mode_s == "focused":
+            # 只动弱组成员；组内多票优先
+            order = [
+                i
+                for i in order
+                if int(best[i]) >= 0 and int(best[i]) in weak_cids
+            ]
+            if not order:
+                break
         order.sort(
             key=lambda i: (
                 0 if int(best[i]) in multi else 1,
+                0 if (mode_s == "focused" and int(best[i]) in weak_cids) else 1,
                 int(best[i]),
                 i,
             )
@@ -251,20 +322,21 @@ def light_greedy_swap_refine(
             uniq = sorted({int(v) for v in best if int(v) >= 0})
             if len(uniq) < 2:
                 break
-            # 不允许掏空多票组到 0（允许降到 1=单票）
             own_size = int(sum(1 for v in best if int(v) == own))
-            for other in uniq:
-                if other == own:
-                    continue
+            # focused：优先并入非弱组；否则任意它组
+            targets = [c for c in uniq if c != own]
+            if mode_s == "focused" and weak_cids:
+                strong = [c for c in targets if c not in weak_cids]
+                if strong:
+                    targets = strong + [c for c in targets if c in weak_cids]
+            for other in targets:
                 if n_evals >= max_evals_i:
                     break
                 if own_size <= 1:
-                    # 单票组整票并入它组：允许
                     pass
                 trial = best.copy()
                 trial[i] = int(other)
                 n_evals += 1
-                # 缓存按 (cid, members) —— cid 不变但 members 变，旧缓存仍可复用未动组
                 ev = evaluate_labels_holdout_loss(
                     trial,
                     codes,
@@ -303,7 +375,6 @@ def light_greedy_swap_refine(
         if not moved or n_evals >= max_evals_i:
             break
 
-    # 组被掏空后标签可能跳号；对外返回前重编号（与 research greedy 一致）
     from quant.research.cluster_partition import _relabel_non_negative
 
     best = _relabel_non_negative(np.asarray(best, dtype=int))
@@ -318,9 +389,16 @@ def light_greedy_swap_refine(
         "swaps": swaps,
         "max_rounds": max_rounds_i,
         "max_evals": max_evals_i,
+        "mode": mode_s,
+        "weak_cluster_ids": sorted(weak_cids) if mode_s == "focused" else None,
         "cut_date": str(cut_date or "").strip()[:10] or None,
         "note": (
             "holdout partition_loss 贪心换组（有符号 IC）；"
-            "接受的 swap 改写交付标签，组池仍全样本重估。"
+            + (
+                "focused：仅动弱组票并优先并入强组；"
+                if mode_s == "focused"
+                else "full：全票试换；"
+            )
+            + "接受的 swap 改写交付标签，组池仍全样本重估。"
         ),
     }

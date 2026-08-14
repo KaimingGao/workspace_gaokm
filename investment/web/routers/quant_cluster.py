@@ -153,6 +153,15 @@ def quant_cluster_live_promote(body: ClusterPromoteRequest):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/api/quant/cluster-live/promote-preflight")
+def quant_cluster_promote_preflight(from_draft: bool = True):
+    """B3：draft vs active 晋升预检（OOS / R² / IC / 焦点票）。"""
+    try:
+        return deps.quant.compare_cluster_partition_vs_active(from_draft=bool(from_draft))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.post("/api/quant/cluster-live/rollback")
 def quant_cluster_live_rollback(body: ClusterRollbackRequest):
     try:

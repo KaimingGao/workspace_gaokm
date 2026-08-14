@@ -83,7 +83,7 @@ def score_volume_price(
     4. 成交量分位：当前成交量在历史中的位置
     """
     if not bars or len(bars) < 5:
-        return 50.0, {"volume_ratio": None}
+        return 50.0, {"volume_ratio": None, "omit_sub_score": True}
     
     # 1. 量比评分
     vol_ratio = volume_ratio(bars)

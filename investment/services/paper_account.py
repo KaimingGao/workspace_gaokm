@@ -31,8 +31,8 @@ class PaperAccountMixin:
     def _compute_holding_scores(self, paper: dict, summary: dict) -> dict:
         """计算当前持仓的评分，合并到 summary.holdings 中。
 
-        直调 ``score_stock``（与数据中心同源），**不**经 observation_pool /
-        min_score TopN，避免选股门槛把展示分滤掉。
+        优先读 active 分池簿（与观察/调仓同源 tip 字段，毫秒级）；簿外票才
+        直调 ``score_stock``（带超时）。**不**经 observation_pool / min_score TopN。
         """
         holdings = paper.get("holdings") or []
         holding_codes = [str(h.get("stock_code")) for h in holdings if h.get("stock_code")]
@@ -41,57 +41,114 @@ class PaperAccountMixin:
 
         try:
             import concurrent.futures
+            import logging
 
+            from core.signal.dual_score import dual_score_book_fields
             from core.signal.score_display import annotate_score_gate, selection_min_score
             from core.signal.score_stock import score_stock
 
-            try:
-                from core.signal.cluster_live import lookup_code_weights
-            except Exception:
-                lookup_code_weights = None  # type: ignore
-
+            log = logging.getLogger(__name__)
             rules = paper.get("rules") or {}
             horizon = max(1, min(int(rules.get("horizon_days") or 3), 3))
             gate = selection_min_score(paper)
 
-            def _one(code: str) -> tuple:
+            def _pack_item(item: dict, *, cluster_mode=None) -> Dict[str, Any]:
+                out = {
+                    "score": item.get("score", item.get("predicted_score")),
+                    "predicted_score": item.get(
+                        "predicted_score", item.get("score")
+                    ),
+                    "sub_scores": item.get("sub_scores"),
+                    "factor_contrib": item.get("factor_contrib"),
+                    "reasons": item.get("reasons") or item.get("score_reasons"),
+                    "hard_reject": item.get("hard_reject"),
+                    "reject_reason": item.get("reject_reason"),
+                    "weight_source": item.get("weight_source"),
+                    "cluster_label": item.get("cluster_label"),
+                    "cluster_mode": item.get("cluster_mode") or cluster_mode,
+                    "cluster_version": item.get("cluster_version"),
+                    "score_global": item.get("score_global"),
+                    "score_cluster": item.get("score_cluster"),
+                    "return_model_source": item.get("return_model_source"),
+                    "return_model": item.get("return_model"),
+                    "factor_coefficients": item.get("factor_coefficients"),
+                    "score_formula": item.get("score_formula"),
+                    "score_formula_terms": item.get("score_formula_terms"),
+                }
                 try:
-                    result = score_stock(
-                        code,
-                        horizon_days=horizon,
-                        skip_fundamentals=True,
-                    )
-                except Exception as e:
-                    return code, {"success": False, "error": str(e)}
-                return code, result or {}
+                    out.update(dual_score_book_fields(item))
+                except Exception:
+                    pass
+                return out
 
             score_by_code: Dict[str, Any] = {}
-            workers = min(len(holding_codes), 10)
-            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-                for code, result in ex.map(lambda c: _one(c), holding_codes):
-                    item = (result.get("signal_item") or {}) if result.get("success") else {}
-                    if not item and not result.get("success"):
+            # 1) 分池簿快路径（持仓几乎都在 scored_all 里）
+            try:
+                from core.signal.cluster_live import load_active_cluster_book
+
+                book_doc = load_active_cluster_book() or {}
+                book_rows = list(book_doc.get("scored_all") or []) + list(
+                    book_doc.get("book") or []
+                )
+                book_meta = book_doc.get("meta") or {}
+                book_mode = book_meta.get("cluster_mode") or book_meta.get("mode")
+                for row in book_rows:
+                    if not isinstance(row, dict):
                         continue
-                    score_by_code[code] = {
-                        "score": item.get("score"),
-                        "sub_scores": item.get("sub_scores"),
-                        "factor_contrib": item.get("factor_contrib"),
-                        "reasons": item.get("reasons"),
-                        "hard_reject": item.get("hard_reject"),
-                        "reject_reason": item.get("reject_reason"),
-                        "weight_source": item.get("weight_source"),
-                        "cluster_label": item.get("cluster_label"),
-                        "cluster_mode": item.get("cluster_mode")
-                        or result.get("cluster_mode"),
-                        "cluster_version": item.get("cluster_version"),
-                        "score_global": item.get("score_global"),
-                        "score_cluster": item.get("score_cluster"),
-                        "return_model_source": item.get("return_model_source"),
-                        "return_model": item.get("return_model"),
-                        "factor_coefficients": item.get("factor_coefficients"),
-                        "score_formula": item.get("score_formula"),
-                        "score_formula_terms": item.get("score_formula_terms"),
-                    }
+                    code = str(row.get("stock_code") or row.get("code") or "").strip()
+                    if not code or code in score_by_code:
+                        continue
+                    if code not in holding_codes:
+                        continue
+                    score_by_code[code] = _pack_item(row, cluster_mode=book_mode)
+            except Exception as e:
+                log.debug("cluster book tip hydrate skipped: %s", e)
+
+            missing = [c for c in holding_codes if c not in score_by_code]
+            # 2) 簿外才 live 打分；单票超时，避免拖死 /api/paper
+            if missing:
+                per_timeout = 8.0
+                workers = min(len(missing), 6)
+
+                def _one(code: str) -> tuple:
+                    try:
+                        result = score_stock(
+                            code,
+                            horizon_days=horizon,
+                            skip_fundamentals=True,
+                        )
+                    except Exception as e:
+                        return code, {"success": False, "error": str(e)}
+                    return code, result or {}
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+                    futs = {ex.submit(_one, c): c for c in missing}
+                    try:
+                        for fut in concurrent.futures.as_completed(
+                            futs, timeout=per_timeout * max(1, len(missing) / workers) + 2
+                        ):
+                            code = futs[fut]
+                            try:
+                                _, result = fut.result(timeout=per_timeout)
+                            except Exception as e:
+                                log.warning("holding score timeout/fail %s: %s", code, e)
+                                continue
+                            item = (
+                                (result.get("signal_item") or {})
+                                if result.get("success")
+                                else {}
+                            )
+                            if not item:
+                                continue
+                            score_by_code[code] = _pack_item(
+                                item, cluster_mode=result.get("cluster_mode")
+                            )
+                    except concurrent.futures.TimeoutError:
+                        log.warning(
+                            "holding scores partial timeout; book=%d live_pending=%d",
+                            len(holding_codes) - len(missing),
+                            len(missing),
+                        )
 
             enriched_holdings = []
             for h in summary.get("holdings") or []:
@@ -100,6 +157,7 @@ class PaperAccountMixin:
                 score_info = score_by_code.get(code)
                 if score_info:
                     enriched["score"] = score_info.get("score")
+                    enriched["predicted_score"] = score_info.get("predicted_score")
                     enriched["sub_scores"] = score_info.get("sub_scores")
                     enriched["factor_contrib"] = score_info.get("factor_contrib")
                     enriched["score_reasons"] = score_info.get("reasons")
@@ -114,9 +172,29 @@ class PaperAccountMixin:
                     enriched["return_model_source"] = score_info.get("return_model_source")
                     enriched["factor_coefficients"] = score_info.get("factor_coefficients")
                     enriched["score_formula_terms"] = score_info.get("score_formula_terms")
-                    enriched["score_formula"] = score_info.get("score_formula") or _build_score_formula(
-                        score_info
-                    )
+                    enriched["score_formula"] = score_info.get(
+                        "score_formula"
+                    ) or _build_score_formula(score_info)
+                    for k in (
+                        "predicted_score_tau",
+                        "score_rem",
+                        "predicted_score_rem",
+                        "gap_pct",
+                        "event_prior",
+                        "as_of_tau",
+                        "y_spec_tau",
+                        "features_tau",
+                        "formula_terms_tau",
+                        "score_formula_terms_tau",
+                        "score_formula_tau",
+                        "factor_coefficients_tau",
+                        "dual_score_fusion",
+                        "dual_score_weights",
+                        "predicted_score_blend",
+                        "predicted_score_eod",
+                    ):
+                        if k in score_info:
+                            enriched[k] = score_info.get(k)
                     gate_meta = annotate_score_gate(
                         score_info.get("score"), paper=paper, min_score=gate
                     )

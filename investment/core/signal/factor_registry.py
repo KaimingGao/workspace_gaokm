@@ -180,13 +180,13 @@ _register(
     "value",
     "估值",
     _compute_value,
-    "基于 PE/PB：适中估值区间加分，极端高估/低估降分；缺基本面时中性 50。",
+    "基于 PE/PB：适中估值区间加分，极端高估/低估降分；缺基本面不进 ŷ（omit）。",
 )
 _register(
     "quality",
     "质量",
     _compute_quality,
-    "ROE 盈利质量：更高 ROE 加分；增速见 growth 因子。缺基本面时中性 50。",
+    "ROE 盈利质量：更高 ROE 加分；增速见 growth 因子。缺 ROE 不进 ŷ（omit）。",
 )
 _register(
     "technical_pattern",
@@ -222,13 +222,13 @@ _register(
     "gap_risk",
     "跳空风险",
     _compute_gap_risk,
-    "近端隔夜跳空幅度：过大跳空降分；缺数据中性 50。",
+    "近端隔夜跳空幅度：过大跳空降分；缺数据不进 ŷ（omit）。",
 )
 _register(
     "size",
     "规模",
     _compute_size,
-    "log(市值) 适中区间加分；过大/过小略降分。缺市值中性 50。",
+    "log(市值) 适中区间加分；过大/过小略降分。缺市值不进 ŷ（omit）。",
 )
 _register(
     "earnings_yield",
@@ -246,7 +246,7 @@ _register(
     "dividend",
     "股息",
     _compute_dividend,
-    "股息率适中加分；缺股息率中性 50。",
+    "股息率适中加分；缺股息率不进 ŷ（omit）。",
 )
 _register(
     "money_flow",
@@ -264,7 +264,7 @@ _register(
     "idio_momentum",
     "特异动量",
     _compute_idio_momentum,
-    "个股收益对指数回归残差：市场中性后的短线特异动量；无指数中性 50。",
+    "个股收益对指数回归残差：市场中性后的短线特异动量；无指数不进 ŷ（omit）。",
 )
 
 
@@ -370,9 +370,12 @@ def compute_configured_factors(
             llm_sentiment=llm_sentiment,
             money_flow=money_flow,
         )
+        meta.update(fac_meta or {})
+        # 缺输入（如规模无市值）：不进 sub_scores，ŷ 跳过该项，禁止假中性 50 进 z-score
+        if isinstance(fac_meta, dict) and fac_meta.get("omit_sub_score"):
+            continue
         sub_scores[name] = round(score, 1)
         contribs[name] = round(w * score, 2)
-        meta.update(fac_meta)
 
     return sub_scores, contribs, meta
 

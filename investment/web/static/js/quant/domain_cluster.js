@@ -824,6 +824,51 @@ export function installClusterProbe(q) {
   async function runClusterLiveApply() {
     const art =
       state.quantLastOlsClusters && state.quantLastOlsClusters.pool_artifact;
+    let pfLines = [];
+    try {
+      const pfRes = await fetch(
+        "/api/quant/cluster-live/promote-preflight?from_draft=true"
+      );
+      const pf = await pfRes.json();
+      if (pf && pf.success) {
+        const dOos = (pf.draft && pf.draft.oos) || {};
+        const aOos = (pf.active && pf.active.oos) || {};
+        const delta = pf.delta || {};
+        pfLines = [
+          "",
+          "晋升预检（B3）：",
+          `· promote_ready=${pf.promote_ready ? "是" : "否"}`,
+          `· OOS 失败率 draft ${
+            dOos.fail_rate != null
+              ? Math.round(Number(dOos.fail_rate) * 100) + "%"
+              : "—"
+          } · active ${
+            aOos.fail_rate != null
+              ? Math.round(Number(aOos.fail_rate) * 100) + "%"
+              : "—"
+          }` +
+            (delta.oos_fail_rate != null
+              ? ` · Δ${Number(delta.oos_fail_rate) >= 0 ? "+" : ""}${Math.round(
+                  Number(delta.oos_fail_rate) * 100
+                )}pp`
+              : ""),
+        ];
+        if ((pf.blockers || []).length) {
+          pfLines.push(`· 拦：${(pf.blockers || []).slice(0, 2).join("；")}`);
+        }
+        if ((pf.warnings || []).length) {
+          pfLines.push(`· 提示：${(pf.warnings || []).slice(0, 2).join("；")}`);
+        }
+        if (pf.promote_ready === false) {
+          pfLines.push(
+            "",
+            "预检未过：对照会走 promote，可能被 OOS 闸拒绝（可用 force 或改分区）。"
+          );
+        }
+      }
+    } catch (_) {
+      /* 仍走后端门禁 */
+    }
     if (
       !window.confirm(
         [
@@ -838,6 +883,7 @@ export function installClusterProbe(q) {
           "· 交易执行页选股仍用现行规则，直至「② 启用」",
           "· 不写入 signal_config.weights",
           "· 可随时「关闭 / 回滚」撤销",
+          ...pfLines,
         ].join("\n")
       )
     ) {

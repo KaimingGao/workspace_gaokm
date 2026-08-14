@@ -226,8 +226,10 @@
   color: var(--ink-3);
   text-transform: uppercase;
   display: inline-flex;
+  flex-direction: row; /* 覆盖 .platform-field 的 column，保证标签/输入同一行 */
   align-items: center;
   gap: 5px;
+  margin-bottom: 0;
 }
 
 .strategy-page .strategy-inline-field .platform-input {
@@ -248,6 +250,13 @@
   color: var(--ink-3);
   text-transform: none;
   letter-spacing: 0;
+  min-width: 0.85rem;
+}
+
+/* 融合分：w_EOD · w_τ · τ 闸；标签同宽，输入左缘对齐 */
+.strategy-page #strategy-dual-score .strategy-inline-field .strategy-field-label {
+  min-width: 3.75rem;
+  text-align: right;
 }
 
 .strategy-page .strategy-secondary-band {

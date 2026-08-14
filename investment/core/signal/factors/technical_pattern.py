@@ -335,7 +335,12 @@ def score_technical_pattern(bars: List[dict]) -> tuple[float, dict]:
     4. 趋势强度 (15%) - ADX趋势强度（降权，避免与ma_slope重叠）
     """
     if not bars or len(bars) < 5:
-        return 50.0, {"tech_ma_pattern": None, "tech_breakout": None, "tech_candlestick": None}
+        return 50.0, {
+            "tech_ma_pattern": None,
+            "tech_breakout": None,
+            "tech_candlestick": None,
+            "omit_sub_score": True,
+        }
     
     closes = [float(b["close"]) for b in bars]
     highs = [float(b["high"]) for b in bars]
