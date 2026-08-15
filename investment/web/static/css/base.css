@@ -2185,6 +2185,18 @@ a.dialog-btn[aria-disabled="true"] {
   gap: 10px;
 }
 
+.score-detail.score-detail-cal-only {
+  padding: 10px 12px;
+  gap: 0;
+  min-width: 12rem;
+}
+
+.score-detail.score-detail-cal-only .score-layer-cal {
+  border: 0;
+  padding: 0;
+  background: transparent;
+}
+
 .score-hero {
   padding: 10px 12px;
   border-radius: 8px;
@@ -2222,6 +2234,17 @@ a.dialog-btn[aria-disabled="true"] {
 .score-layer-blend {
   background: linear-gradient(180deg, #f0fdf4 0%, #dcfce7 100%);
   border-color: rgba(34, 197, 94, 0.22);
+}
+
+.score-layer-cal {
+  background: linear-gradient(180deg, #f0fdfa 0%, #ccfbf1 100%);
+  border-color: rgba(13, 148, 136, 0.22);
+}
+
+.score-layer-cal.is-shadow {
+  background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+  border-color: rgba(100, 116, 139, 0.28);
+  border-style: dashed;
 }
 
 .score-layer-head {
@@ -2267,6 +2290,10 @@ a.dialog-btn[aria-disabled="true"] {
   border-top: 1px dashed rgba(100, 116, 139, 0.28);
   font-weight: 650;
   color: #0f172a;
+}
+.score-layer-row-delta {
+  opacity: 0.82;
+  font-size: 0.92em;
 }
 
 .score-hero-label {

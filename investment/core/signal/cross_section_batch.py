@@ -153,6 +153,7 @@ def score_and_rank_watching(
         from core.signal.dual_score import (
             attach_dual_score_pit,
             buy_passes_tau_gate,
+            eod_gate_score_for_item,
             get_dual_score_cfg,
             rank_key_for_item,
             resolve_predicted_score_eod,
@@ -198,10 +199,13 @@ def score_and_rank_watching(
             code = str(it.get("stock_code") or "").strip()
             if not code:
                 continue
-            eod = resolve_predicted_score_eod(it)
-            if eod is None:
+            eod_raw = resolve_predicted_score_eod(it)
+            eod_gate = eod_gate_score_for_item(it, config=cfg)
+            if eod_gate is None:
+                eod_gate = eod_raw
+            if eod_gate is None:
                 continue
-            if floor is not None and eod < floor:
+            if floor is not None and float(eod_gate) < floor:
                 continue
             ok, _reason = buy_passes_tau_gate(it, config=cfg)
             if not ok:
@@ -211,7 +215,10 @@ def score_and_rank_watching(
             if blend is None:
                 continue
             it["rank_key"] = "predicted_score_blend"
-            ranked.append((code, float(eod), float(blend)))
+            # picks 第二元保留原始 ŷ_EOD 便于对照；排序键为 blend/g
+            ranked.append(
+                (code, float(eod_raw if eod_raw is not None else eod_gate), float(blend))
+            )
         ranked.sort(key=lambda x: x[2], reverse=True)
         picks = [(c, eod) for c, eod, _b in ranked]
         meta["dual_score_tau_gated"] = gated

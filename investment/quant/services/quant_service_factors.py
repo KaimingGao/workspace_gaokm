@@ -241,30 +241,75 @@ class QuantFactorMixin:
         report["task"] = "factor_ols"
         return report
 
+    def run_feature_encoding_shadow(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 36,
+        horizon_days: int = 1,
+        ridge_lambda: float = 1.0,
+    ) -> Dict[str, Any]:
+        """启发式 vs raw+分档 特征编码 OOS 影子对照（不写盘）。"""
+        from core.data_service import bars_and_source
+        from core.research.feature_encoding_shadow import compare_feature_encoding_shadow
+        from core.watching_store import read_watching
+
+        uni = read_watching()
+        codes = list(uni.get("watchlist") or [])
+        limit = max(2, min(int(watching_limit or 36), 40))
+        codes = codes[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "研究池至少 2 只",
+                "task": "feature_encoding_shadow",
+            }
+        stock_bars: List[Dict[str, Any]] = []
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            if not bars:
+                continue
+            stock_bars.append({"code": str(code), "bars": bars})
+        out = compare_feature_encoding_shadow(
+            stock_bars,
+            horizon_days=horizon_days,
+            ridge_lambda=ridge_lambda,
+        )
+        out["watching_limit"] = limit
+        out["lookback"] = lookback
+        out["stock_count"] = len(stock_bars)
+        return out
+
     def run_rem_ridge_experiment(
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 12,
+        watching_limit: int = 36,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         persist: bool = False,
         note: str = "",
+        tau_hm: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """R0：观察池 open→close rem 头 Ridge；可选 persist live 模型。"""
+        """R0：观察池 rem 头 Ridge；可选 persist live 模型。
+
+        ``tau_hm`` 缺省跟随 ``dual_score``：enable_minute_tau 时用 minute_tau_hm，否则 open。
+        """
         from quant.research.rem_ridge import (
             fit_rem_ridge_report,
+            load_rem_last_report,
             load_rem_model,
             persist_rem_model,
+            save_rem_last_report,
         )
         from core.data_service import bars_and_source
-        from core.ports.market import default_benchmark, fetch_index_bars, resolve_market_code
+        from core.signal.dual_score import get_dual_score_cfg
         from core.watching_store import read_watching
 
         uni = read_watching()
         codes = list(uni.get("watchlist") or [])
-        limit = max(2, min(int(watching_limit or 12), 40))
+        limit = max(2, min(int(watching_limit or 36), 40))
         codes = codes[:limit]
         if len(codes) < 2:
             return {
@@ -273,34 +318,66 @@ class QuantFactorMixin:
                 "task": "rem_ridge",
             }
 
+        if persist:
+            last = load_rem_last_report()
+            if last:
+                saved = persist_rem_model(
+                    last, note=note or "persist last rem report"
+                )
+                out = dict(last)
+                out["persisted"] = saved
+                out["from_last_report"] = True
+                if saved.get("promoted_at"):
+                    out["promoted_at"] = saved["promoted_at"]
+                return out
+
+        ds = get_dual_score_cfg()
+        if tau_hm is None:
+            if ds.get("enable_minute_tau"):
+                tau_key = str(ds.get("minute_tau_hm") or "09:45")
+            else:
+                tau_key = "open"
+        else:
+            tau_key = str(tau_hm or "open").strip() or "open"
+        use_minute = tau_key.lower() not in ("", "open")
+
         stock_bars: List[Dict[str, Any]] = []
+        minute_hit = 0
         for code in codes:
             bars, _src = bars_and_source(code, limit=lookback + 40)
             if not bars:
                 continue
-            market, _ = resolve_market_code(code)
-            index_bars, _ = fetch_index_bars(
-                default_benchmark(market), limit=lookback + 40
-            )
-            stock_bars.append(
-                {
-                    "code": str(code),
-                    "bars": bars,
-                    "index_bars": index_bars,
-                    "fundamentals": self._experiment_fundamentals(code, code),
-                }
-            )
+            row: Dict[str, Any] = {"code": str(code), "bars": bars}
+            if use_minute:
+                try:
+                    from core.store import load_minute_cache
+
+                    packed = load_minute_cache("A", str(code), "1")
+                    mb = (packed or {}).get("bars") if isinstance(packed, dict) else None
+                    if mb:
+                        row["minute_bars"] = mb
+                        minute_hit += 1
+                except Exception:
+                    pass
+            stock_bars.append(row)
         report = fit_rem_ridge_report(
             stock_bars,
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
             theme_boost=theme_boost,
+            tau_hm=tau_key,
         )
         report["watching_limit"] = limit
         report["lookback"] = lookback
+        report["minute_cache_hit"] = minute_hit if use_minute else None
+        report["minute_cache_universe"] = len(codes) if use_minute else None
+        if report.get("success"):
+            save_rem_last_report(report)
         if persist and report.get("success"):
             saved = persist_rem_model(report, note=note or "api rem-ridge persist")
             report["persisted"] = saved
+            if saved.get("promoted_at"):
+                report["promoted_at"] = saved["promoted_at"]
         else:
             report["persisted"] = {"success": False, "skipped": True}
             live = load_rem_model()

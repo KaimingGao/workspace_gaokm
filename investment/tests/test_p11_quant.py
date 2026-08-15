@@ -68,8 +68,18 @@ class TestEquityCurve(unittest.TestCase):
             "score_formula_terms",
             "factor_coefficients",
             "return_model_source",
+            "predicted_score_cal",
+            "predicted_score_eod_rem_cal",
+            "predicted_score_tau_cal",
+            "predicted_score_blend_cal",
+            "score_calibration_applied",
+            "score_calibration_enabled",
+            "score_calibration_eod_oor",
+            "score_calibration_eod_rem_oor",
+            "score_calibration_tau_oor",
         ):
             self.assertIn(key, row)
+        self.assertFalse(row.get("score_calibration_applied"))
         self.assertIsNotNone(row.get("entry_price"))
         self.assertTrue(str(row.get("factor_weights_note") or ""))
         # next_open：意图价→开盘价应还原缺口，ŷ_EOD_rem 不再等于裸 ŷ_EOD

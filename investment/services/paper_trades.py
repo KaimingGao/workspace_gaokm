@@ -301,12 +301,16 @@ class PaperTradesMixin:
                 from core.signal.score_display import annotate_score_gate
 
                 for row in report:
-                    gate = annotate_score_gate(row.get("score"), paper=work)
+                    gate = annotate_score_gate(
+                        row.get("score"), paper=work, item=row
+                    )
                     row["min_score"] = gate["min_score"]
                     if row.get("below_min_score") is None:
                         row["below_min_score"] = gate["below_min_score"]
                     elif gate["below_min_score"]:
                         row["below_min_score"] = True
+                    if gate.get("gate_score") is not None:
+                        row["eod_gate_score"] = gate.get("gate_score")
             except Exception:
                 pass
 

@@ -224,14 +224,21 @@ def row_from_scored_item(
         yhat = _to_float(item.get("score"))
     if yhat is None:
         return None
+    # ŷ_EOD 必须是收益分口径（%），禁止用 heuristic 0–100 填
     yhat_eod = _to_float(item.get("predicted_score_eod"))
     if yhat_eod is None:
-        yhat_eod = yhat
+        pred = _to_float(item.get("predicted_score"))
+        if pred is not None and abs(pred) <= 20.0:
+            yhat_eod = pred
+    if yhat_eod is not None and abs(float(yhat_eod)) > 20.0:
+        yhat_eod = None
     yhat_tau = _to_float(item.get("predicted_score_tau"))
     if yhat_tau is None:
         yhat_tau = _to_float(item.get("score_rem"))
     if yhat_tau is None:
         yhat_tau = _to_float(item.get("yhat_tau"))
+    if yhat_tau is not None and abs(float(yhat_tau)) > 20.0:
+        yhat_tau = None
     terms = _terms_top(
         item.get("score_formula_terms") or item.get("formula_terms_top")
     )
@@ -255,7 +262,7 @@ def row_from_scored_item(
         "code": code.zfill(6) if code.isdigit() else code,
         "name": item.get("stock_name") or item.get("name"),
         "yhat": round(yhat, 6),
-        "yhat_eod": round(yhat_eod, 6) if yhat_eod is not None else round(yhat, 6),
+        "yhat_eod": round(yhat_eod, 6) if yhat_eod is not None else None,
         "yhat_tau": round(yhat_tau, 6) if yhat_tau is not None else None,
         "heuristic": _to_float(item.get("heuristic_score")),
         "cluster_label": item.get("cluster_label"),
@@ -266,6 +273,10 @@ def row_from_scored_item(
         "rank": item.get("rank") or item.get("rank_in_group"),
         "rank_key": item.get("rank_key"),
         "formula_terms_top": terms,
+        "gap_pct": _to_float(item.get("gap_pct")),
+        "open_price_for_tau_label": _to_float(
+            item.get("open_price_for_tau_label") or item.get("open")
+        ),
         "source": str(source or "scored"),
         "written_at": datetime.now().isoformat(timespec="seconds"),
     }
@@ -777,8 +788,11 @@ def hydrate_ledger_yhat_tau(
             if yt is None:
                 continue
             r["yhat_tau"] = round(float(yt), 6)
-            if r.get("yhat_eod") is None and r.get("yhat") is not None:
-                r["yhat_eod"] = r.get("yhat")
+            if r.get("yhat_eod") is None:
+                ye = _to_float(r.get("yhat"))
+                # 仅收益分口径回填；规则分 0–100 不写入 yhat_eod
+                if ye is not None and abs(ye) <= 20.0:
+                    r["yhat_eod"] = round(float(ye), 6)
             hydrated += 1
         except Exception:
             errors += 1

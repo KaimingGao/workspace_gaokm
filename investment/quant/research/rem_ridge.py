@@ -11,20 +11,31 @@ from core.research.factor_ols_fit import fit_factor_ols_from_panel
 from core.research.rem_panel import (
     attach_cross_section_breadth,
     collect_rem_open_panel,
+    collect_rem_tau_panel,
     theme_sample_weights,
 )
 
 
-REM_FEATURE_EXTRA = ("gap_pct", "open_gap", "sector_gap_breadth", "theme_day")
+REM_FEATURE_EXTRA = (
+    "gap_pct",
+    "open_gap",
+    "sector_gap_breadth",
+    "theme_day",
+    "gap_atr",
+    "gap_vs_sector",
+)
 # τ 头只吃开盘新信息，避免与 ŷ_EOD 的 X 双重计权
 REM_Z_FEATURES = (
     "gap_pct",
     "sector_gap_breadth",
     "theme_day",
+    "gap_atr",
+    "gap_vs_sector",
     "ret_open_to_tau",
+    "sector_ret_to_tau",
 )
 # gap/breadth 单位是百分点或 [0,1]，勿用 0–100 分制的 min_std=5 误剔
-REM_MIN_STD_EXEMPT = REM_FEATURE_EXTRA + ("ret_open_to_tau",)
+REM_MIN_STD_EXEMPT = REM_FEATURE_EXTRA + ("ret_open_to_tau", "sector_ret_to_tau")
 # open_gap ≡ gap_pct，只拟合其一，避免 Ridge 双计
 REM_FIT_DROP_ALIASES = frozenset({"open_gap"})
 
@@ -147,6 +158,52 @@ def _sign_hit(preds: List[Optional[float]], ys: List[float]) -> Optional[float]:
     return round(hits / n, 4)
 
 
+def _residual_var(
+    preds: List[Optional[float]], ys: List[float]
+) -> Optional[float]:
+    errs: List[float] = []
+    for p, y in zip(preds, ys):
+        if p is None:
+            continue
+        try:
+            errs.append((float(y) - float(p)) ** 2)
+        except (TypeError, ValueError):
+            continue
+    if len(errs) < 5:
+        return None
+    return round(sum(errs) / float(len(errs)), 6)
+
+
+def _oos_by_theme(
+    preds: List[Optional[float]],
+    ys: List[float],
+    metas: List[dict],
+) -> Dict[str, Any]:
+    """主题日 vs 普通日分层 OOS（同一切分测试集）。"""
+
+    def _slice(theme_flag: Optional[int]) -> Dict[str, Any]:
+        ps: List[Optional[float]] = []
+        zs: List[float] = []
+        for p, y, m in zip(preds, ys, metas):
+            th = int((m or {}).get("theme_day") or 0)
+            if theme_flag is not None and th != int(theme_flag):
+                continue
+            ps.append(p)
+            zs.append(float(y))
+        return {
+            "n": len(zs),
+            "ic": _ic(ps, zs) if zs else None,
+            "sign_hit": _sign_hit(ps, zs) if zs else None,
+            "residual_var": _residual_var(ps, zs) if zs else None,
+        }
+
+    return {
+        "theme": _slice(1),
+        "normal": _slice(0),
+        "all": _slice(None),
+    }
+
+
 def _z_only_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
     src = row or {}
     out: Dict[str, Optional[float]] = {}
@@ -165,21 +222,37 @@ def build_rem_panels_from_bars(
     *,
     min_history: int = 12,
     gap_trigger_pct: float = 2.0,
+    tau_hm: str = "open",
 ) -> List[Dict[str, Any]]:
-    """``stock_bars``: ``[{code, bars, index_bars?, fundamentals?}, ...]``。"""
+    """``stock_bars``: ``[{code, bars, minute_bars?, index_bars?, fundamentals?}, ...]``。
+
+    ``tau_hm=open``：开盘→收盘标签；否则用分钟价训 τ→收盘（无分钟则跳过该日）。
+    """
+    use_minute = str(tau_hm or "open").strip().lower() not in ("", "open")
     raw: List[Dict[str, Any]] = []
     for item in stock_bars:
         code = str(item.get("code") or item.get("stock_code") or "").strip()
         bars = list(item.get("bars") or [])
         if len(bars) < min_history + 2:
             continue
-        xs, ys, dates, metas = collect_rem_open_panel(
-            bars,
-            min_history=min_history,
-            index_bars=item.get("index_bars"),
-            fundamentals=item.get("fundamentals"),
-            stock_code=code,
-        )
+        if use_minute:
+            xs, ys, dates, metas = collect_rem_tau_panel(
+                bars,
+                item.get("minute_bars"),
+                tau_hm=str(tau_hm),
+                min_history=min_history,
+                index_bars=item.get("index_bars"),
+                fundamentals=item.get("fundamentals"),
+                stock_code=code,
+            )
+        else:
+            xs, ys, dates, metas = collect_rem_open_panel(
+                bars,
+                min_history=min_history,
+                index_bars=item.get("index_bars"),
+                fundamentals=item.get("fundamentals"),
+                stock_code=code,
+            )
         if len(ys) < 4:
             continue
         raw.append(
@@ -203,16 +276,20 @@ def fit_rem_ridge_report(
     theme_boost: float = 1.5,
     train_frac: float = 0.7,
     use_theme_weights: bool = True,
+    tau_hm: str = "open",
 ) -> Dict[str, Any]:
     """池化拟合 rem 头 ŷ_τ(Z) + 时间 OOS。
 
-    标签 = y_oc = close[T]/open[T]−1；特征仅 Z（缺口/广度/主题）。
-    不读 EOD 模型、不残差化；与 ŷ_EOD 解耦，live 才加权。
+    默认标签 = y_oc = close[T]/open[T]−1；``tau_hm`` 非 open 时为 close/price[τ]−1。
+    特征仅 Z；不读 EOD 模型、不残差化；与 ŷ_EOD 解耦，live 才加权。
     """
+    tau_key = str(tau_hm or "open").strip() or "open"
+    use_minute = tau_key.lower() not in ("", "open")
     enriched = build_rem_panels_from_bars(
         stock_bars,
         min_history=min_history,
         gap_trigger_pct=gap_trigger_pct,
+        tau_hm=tau_key,
     )
     xs, ys, dates, metas = _stack_panels(enriched)
     if len(ys) < 20:
@@ -222,15 +299,16 @@ def fit_rem_ridge_report(
             "task": "rem_ridge",
             "sample_count": len(ys),
             "stock_count": len(enriched),
+            "tau": tau_key,
         }
 
     xs_use, ys_use, dates_use, metas_use = xs, ys, dates, metas
-    target = "open_to_close_z"
+    target = "tau_to_close_z" if use_minute else "open_to_close_z"
 
     xs_z = _z_only_xs(xs_use)
     train_idx, test_idx = _time_split_indices(dates_use, train_frac=train_frac)
     xs_tr, ys_tr, metas_tr = _subset(xs_z, ys_use, metas_use, train_idx)
-    xs_te, ys_te, _metas_te = _subset(xs_z, ys_use, metas_use, test_idx)
+    xs_te, ys_te, metas_te = _subset(xs_z, ys_use, metas_use, test_idx)
 
     weights = (
         theme_sample_weights(metas_tr, theme_boost=theme_boost)
@@ -248,7 +326,8 @@ def fit_rem_ridge_report(
                 seen.add(k)
                 feat_names.append(k)
     if not feat_names:
-        feat_names = [k for k in REM_Z_FEATURES if k != "ret_open_to_tau"]
+        drop_opt = set() if use_minute else {"ret_open_to_tau", "sector_ret_to_tau"}
+        feat_names = [k for k in REM_Z_FEATURES if k not in drop_opt]
 
     fit = fit_factor_ols_from_panel(
         xs_tr,
@@ -274,15 +353,19 @@ def fit_rem_ridge_report(
         }
 
     preds_te = _predict_rows(fit, xs_te) if xs_te else []
+    by_theme = _oos_by_theme(preds_te, ys_te, metas_te) if ys_te else {}
     oos = {
         "n_train": len(ys_tr),
         "n_test": len(ys_te),
         "ic": _ic(preds_te, ys_te) if ys_te else None,
         "sign_hit": _sign_hit(preds_te, ys_te) if ys_te else None,
+        "residual_var": _residual_var(preds_te, ys_te) if ys_te else None,
+        "by_theme": by_theme,
         "train_frac": train_frac,
         "theme_boost": theme_boost if use_theme_weights else None,
         "target": target,
         "residualized": False,
+        "tau": tau_key,
     }
 
     w_all = (
@@ -302,14 +385,17 @@ def fit_rem_ridge_report(
     )
     model = fit_full if fit_full.get("success") else fit
     model = dict(model)
-    model["horizon_mode"] = "open_to_close"
+    model["horizon_mode"] = "tau_to_close" if use_minute else "open_to_close"
     model["target"] = target
     model["residualized"] = False
+    y_formula = (
+        f"close[T]/price[{tau_key}]-1" if use_minute else "close[T]/open[T]-1"
+    )
     model["y_spec"] = {
-        "formula": "close[T]/open[T]-1",
+        "formula": y_formula,
         "unit": "pct",
-        "tau": "open",
-        "note": "Z-only open→close；与 ŷ_EOD_rem 正交加权成 ŷ_trade",
+        "tau": tau_key,
+        "note": "Z-only τ→close；与 ŷ_EOD_rem 正交加权成 ŷ_trade",
     }
     model["extra_features"] = list(REM_Z_FEATURES)
 
@@ -321,12 +407,12 @@ def fit_rem_ridge_report(
         "sample_count_raw": len(ys),
         "oos": oos,
         "return_model": model,
-        "tau": "open",
+        "tau": tau_key,
         "y_spec": dict(model.get("y_spec") or {}),
-        "schema": "rem_ridge_v4",
+        "schema": "rem_ridge_v6",
         "target": target,
         "residualized": False,
-        "note": "ŷ_τ(Z) 独立估 open→close；与 EOD 解耦，live 才加权",
+        "note": "ŷ_τ(Z) 独立估 τ→close；与 EOD 解耦，live 才加权",
     }
 
 
@@ -334,6 +420,38 @@ def rem_model_path() -> str:
     from core.paths import LIVE_DIR
 
     return os.path.join(LIVE_DIR, "rem_ridge_model.json")
+
+
+def rem_last_report_path() -> str:
+    from core.paths import LIVE_DIR
+
+    return os.path.join(LIVE_DIR, "rem_ridge_last_report.json")
+
+
+def save_rem_last_report(report: Dict[str, Any]) -> None:
+    if not isinstance(report, dict) or not report.get("success"):
+        return
+    if not isinstance(report.get("return_model"), dict):
+        return
+    path = rem_last_report_path()
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    atomic_write_json(path, report)
+
+
+def load_rem_last_report() -> Optional[Dict[str, Any]]:
+    path = rem_last_report_path()
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+    except Exception:
+        return None
+    if not isinstance(doc, dict) or not doc.get("success"):
+        return None
+    if not isinstance(doc.get("return_model"), dict):
+        return None
+    return doc
 
 
 def persist_rem_model(report: Dict[str, Any], *, note: str = "") -> Dict[str, Any]:
@@ -369,7 +487,7 @@ def persist_rem_model(report: Dict[str, Any], *, note: str = "") -> Dict[str, An
     rm["target"] = target
     rm["residualized"] = residualized
 
-    schema = str(report.get("schema") or "rem_ridge_v4")
+    schema = str(report.get("schema") or "rem_ridge_v6")
     doc = {
         "success": True,
         "promoted_at": now_iso_utc(),
@@ -432,7 +550,10 @@ _REM_FEAT_LABELS = {
     "open_gap": "开盘缺口",
     "sector_gap_breadth": "同业缺口广度",
     "theme_day": "主题日",
+    "gap_atr": "缺口 / ATR",
+    "gap_vs_sector": "行业相对缺口",
     "ret_open_to_tau": "开盘→τ 收益 %",
+    "sector_ret_to_tau": "板块中位开→τ %",
 }
 
 

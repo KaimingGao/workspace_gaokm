@@ -45,6 +45,8 @@ class TestRemPanel(unittest.TestCase):
         self.assertGreater(len(ys), 5)
         self.assertEqual(len(xs), len(ys))
         self.assertIn("gap_pct", xs[0])
+        self.assertIn("gap_atr", xs[0])
+        self.assertNotIn("momentum", xs[0])
         self.assertIn("y_rem", metas[0])
 
     def test_breadth_and_theme_weights(self):
@@ -64,8 +66,46 @@ class TestRemPanel(unittest.TestCase):
             )
         enriched = attach_cross_section_breadth(panels, gap_trigger_pct=0.5)
         self.assertIn("sector_gap_breadth", enriched[0]["xs"][0])
+        self.assertIn("gap_vs_sector", enriched[0]["xs"][0])
         w = theme_sample_weights(enriched[0]["metas"], theme_boost=2.0)
         self.assertEqual(len(w), len(enriched[0]["metas"]))
+
+    def test_sector_relative_gap_uses_peer_median(self):
+        from core.research.rem_panel import (
+            gap_vs_sector_value,
+            sector_gap_reference_by_code,
+        )
+
+        gaps = {"600519": 3.0, "600036": 1.0, "601318": 2.0, "000001": 5.0}
+        sm = {
+            "600519": "银行",
+            "600036": "银行",
+            "601318": "银行",
+            "000001": "地产",
+        }
+        ref = sector_gap_reference_by_code(gaps, sector_map=sm, min_sector_n=3)
+        self.assertAlmostEqual(ref["600519"], 2.0)
+        self.assertAlmostEqual(gap_vs_sector_value(3.0, ref["600519"]), 1.0)
+        # 地产仅 1 只 → 回退全截面中位 2.5
+        self.assertAlmostEqual(ref["000001"], 2.5)
+        self.assertAlmostEqual(gap_vs_sector_value(5.0, ref["000001"]), 2.5)
+
+    def test_gap_atr_scales_by_volatility(self):
+        from core.research.rem_panel import gap_atr_from_hist
+
+        quiet = [
+            {"high": 10.1, "low": 9.9, "close": 10.0},
+            {"high": 10.12, "low": 9.88, "close": 10.0},
+        ] * 8
+        noisy = [
+            {"high": 12.0, "low": 8.0, "close": 10.0},
+            {"high": 11.5, "low": 8.5, "close": 10.0},
+        ] * 8
+        q = gap_atr_from_hist(2.0, quiet)
+        n = gap_atr_from_hist(2.0, noisy)
+        self.assertIsNotNone(q)
+        self.assertIsNotNone(n)
+        self.assertGreater(q, n)
 
 
 class TestRemRidgeFit(unittest.TestCase):
@@ -114,7 +154,14 @@ class TestRemRidgeFit(unittest.TestCase):
             ys,
             feats,
             min_std=5.0,
-            min_std_exempt=["gap_pct", "open_gap", "sector_gap_breadth", "theme_day"],
+            min_std_exempt=[
+                "gap_pct",
+                "open_gap",
+                "sector_gap_breadth",
+                "theme_day",
+                "gap_atr",
+                "gap_vs_sector",
+            ],
         )
         self.assertIn("gap_pct", active1)
         self.assertNotIn(
@@ -143,13 +190,21 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertIn("return_model", report)
         self.assertIn("oos", report)
         self.assertEqual(report.get("tau"), "open")
-        self.assertEqual(report.get("schema"), "rem_ridge_v4")
+        self.assertEqual(report.get("schema"), "rem_ridge_v6")
         rm = report["return_model"]
         self.assertIn("coefficients", rm)
         self.assertEqual((rm.get("y_spec") or {}).get("tau"), "open")
         coefs = rm.get("coefficients") or {}
         self.assertNotIn("momentum", coefs)
         self.assertNotIn("quality", coefs)
+        extras = rm.get("extra_features") or []
+        self.assertIn("gap_atr", extras)
+        self.assertIn("gap_vs_sector", extras)
+        oos = report.get("oos") or {}
+        self.assertIn("by_theme", oos)
+        self.assertIn("theme", oos.get("by_theme") or {})
+        self.assertIn("normal", oos.get("by_theme") or {})
+        self.assertIn("residual_var", oos)
         # rem 豁免生效：即便合成 K 线缺口小，也不应因 low_variance 进 exclusion_reasons
         reasons = rm.get("exclusion_reasons") or {}
         self.assertNotEqual(reasons.get("gap_pct"), "low_variance")
@@ -160,12 +215,12 @@ class TestRemRidgeFit(unittest.TestCase):
             with patch("core.paths.LIVE_DIR", live):
                 saved = persist_rem_model(report, note="test")
                 self.assertTrue(saved.get("success"))
-                self.assertEqual(saved.get("schema"), "rem_ridge_v4")
+                self.assertEqual(saved.get("schema"), "rem_ridge_v6")
                 from quant.research.rem_ridge import load_rem_model, predict_rem_from_features
 
                 doc = load_rem_model()
                 self.assertIsNotNone(doc)
-                self.assertEqual(doc.get("schema"), "rem_ridge_v4")
+                self.assertEqual(doc.get("schema"), "rem_ridge_v6")
                 self.assertEqual(doc.get("tau"), "open")
                 self.assertEqual(doc.get("dual_score_head"), "predicted_score_tau")
                 yhat = predict_rem_from_features(
@@ -184,6 +239,42 @@ class TestRemRidgeFit(unittest.TestCase):
                 self.assertIsNotNone(expl)
                 self.assertIn("terms", expl)
                 self.assertAlmostEqual(float(expl["total"]), float(yhat), places=4)
+
+    def test_persist_uses_last_report_without_refit(self):
+        from quant.research.rem_ridge import (
+            persist_rem_model,
+            save_rem_last_report,
+            load_rem_last_report,
+        )
+
+        dummy = {
+            "success": True,
+            "schema": "rem_ridge_v5",
+            "return_model": {
+                "coefficients": {"gap_pct": 0.1},
+                "intercept": 0.0,
+                "y_spec": {"formula": "close[T]/open[T]-1", "tau": "open", "unit": "pct"},
+            },
+            "oos": {"ic": 0.09},
+            "sample_count": 10,
+            "stock_count": 3,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            live = os.path.join(tmp, "live")
+            os.makedirs(live, exist_ok=True)
+            with patch("core.paths.LIVE_DIR", live):
+                save_rem_last_report(dummy)
+                last = load_rem_last_report()
+                self.assertIsNotNone(last)
+                saved = persist_rem_model(last, note="from last")
+                self.assertTrue(saved.get("success"))
+                from quant.research.rem_ridge import load_rem_model
+
+                doc = load_rem_model()
+                self.assertAlmostEqual(
+                    float((doc.get("return_model") or {}).get("coefficients")["gap_pct"]),
+                    0.1,
+                )
 
 
 class TestSentimentBullish(unittest.TestCase):

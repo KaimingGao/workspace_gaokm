@@ -219,6 +219,17 @@ def _sim_trade_row(
     formula_terms_tau: Optional[Dict[str, Any]] = None,
     dual_score_fusion: Optional[str] = None,
     dual_score_weights: Optional[Dict[str, Any]] = None,
+    predicted_score_cal: Optional[float] = None,
+    predicted_score_eod_rem_cal: Optional[float] = None,
+    predicted_score_tau_cal: Optional[float] = None,
+    predicted_score_blend_cal: Optional[float] = None,
+    score_calibration_applied: Optional[bool] = None,
+    score_calibration_enabled: Optional[bool] = None,
+    score_calibration_eod_oor: Optional[bool] = None,
+    score_calibration_eod_rem_oor: Optional[bool] = None,
+    score_calibration_tau_oor: Optional[bool] = None,
+    score_calibration_note: Optional[str] = None,
+    score_calibration_partial: Optional[str] = None,
 ) -> Dict[str, Any]:
     tip = {
         "stock_code": stock_code,
@@ -227,6 +238,17 @@ def _sim_trade_row(
         "predicted_score_tau": predicted_score_tau,
         "predicted_score_blend": predicted_score_blend,
         "predicted_score_eod_rem": predicted_score_eod_rem,
+        "predicted_score_cal": predicted_score_cal,
+        "predicted_score_eod_rem_cal": predicted_score_eod_rem_cal,
+        "predicted_score_tau_cal": predicted_score_tau_cal,
+        "predicted_score_blend_cal": predicted_score_blend_cal,
+        "score_calibration_applied": bool(score_calibration_applied),
+        "score_calibration_enabled": bool(score_calibration_enabled),
+        "score_calibration_eod_oor": bool(score_calibration_eod_oor),
+        "score_calibration_eod_rem_oor": bool(score_calibration_eod_rem_oor),
+        "score_calibration_tau_oor": bool(score_calibration_tau_oor),
+        "score_calibration_note": score_calibration_note,
+        "score_calibration_partial": score_calibration_partial,
         "realized_t1_to_tau": realized_t1_to_tau,
         "score_rem": score_rem if score_rem is not None else predicted_score_tau,
         "gap_pct": gap_pct,
@@ -636,6 +658,15 @@ def backtest_topk_equal_weight(
     if not stock_bars:
         return {"success": False, "error": "无标的日线"}
 
+    # tip 对照：整次回测共用一份 live g(ŷ)；有 knots 则 force 写出 *_cal
+    cal_model_doc = None
+    try:
+        from core.signal.score_calibration import load_calibration_model
+
+        cal_model_doc = load_calibration_model()
+    except Exception:
+        cal_model_doc = None
+
     cfg = load_signal_config()
     cs_cfg = cfg.get("cross_section") or {}
     use_neutral = cs_cfg.get("neutralize", True) if neutralize is None else bool(neutralize)
@@ -905,6 +936,19 @@ def backtest_topk_equal_weight(
             score_formula = tip.get("score_formula") or ""
             score_reasons = list(tip.get("score_reasons") or [])
             score_raw = tip.get("score_raw")
+            if (
+                isinstance(cal_model_doc, dict)
+                and isinstance(cal_model_doc.get("heads"), dict)
+                and cal_model_doc.get("heads")
+            ):
+                try:
+                    from core.signal.score_calibration import attach_calibrated_scores
+
+                    attach_calibrated_scores(
+                        scored_item, model_doc=cal_model_doc, force=True
+                    )
+                except Exception:
+                    pass
             tip_kw = {
                 "cluster_label": tip.get("cluster_label"),
                 "score_weight_source": tip.get("score_weight_source"),
@@ -922,6 +966,33 @@ def backtest_topk_equal_weight(
                 else scored_item.get("score_rem"),
                 "predicted_score_blend": scored_item.get("predicted_score_blend"),
                 "predicted_score_eod_rem": scored_item.get("predicted_score_eod_rem"),
+                "predicted_score_cal": scored_item.get("predicted_score_cal"),
+                "predicted_score_eod_rem_cal": scored_item.get(
+                    "predicted_score_eod_rem_cal"
+                ),
+                "predicted_score_tau_cal": scored_item.get("predicted_score_tau_cal"),
+                "predicted_score_blend_cal": scored_item.get(
+                    "predicted_score_blend_cal"
+                ),
+                "score_calibration_applied": bool(
+                    scored_item.get("score_calibration_applied")
+                ),
+                "score_calibration_enabled": bool(
+                    scored_item.get("score_calibration_enabled")
+                ),
+                "score_calibration_eod_oor": bool(
+                    scored_item.get("score_calibration_eod_oor")
+                ),
+                "score_calibration_eod_rem_oor": bool(
+                    scored_item.get("score_calibration_eod_rem_oor")
+                ),
+                "score_calibration_tau_oor": bool(
+                    scored_item.get("score_calibration_tau_oor")
+                ),
+                "score_calibration_note": scored_item.get("score_calibration_note"),
+                "score_calibration_partial": scored_item.get(
+                    "score_calibration_partial"
+                ),
                 "realized_t1_to_tau": scored_item.get("realized_t1_to_tau"),
                 "score_rem": scored_item.get("score_rem"),
                 "gap_pct": scored_item.get("gap_pct"),
@@ -934,7 +1005,7 @@ def backtest_topk_equal_weight(
                 "dual_score_fusion": scored_item.get("dual_score_fusion"),
                 "dual_score_weights": scored_item.get("dual_score_weights"),
             }
-            # 表列 score = 融合分（排序键）；predicted_score 仍为 ŷ_EOD 供 tip
+            # 表列 score = 融合分（排序键 = raw ŷ_trade）；*_cal 仅 tip
             rank_score = tip_kw.get("predicted_score_blend")
             if rank_score is None:
                 rank_score = score
@@ -1103,6 +1174,33 @@ def backtest_topk_equal_weight(
                     "predicted_score_tau": tip_kw.get("predicted_score_tau"),
                     "predicted_score_blend": tip_kw.get("predicted_score_blend"),
                     "predicted_score_eod_rem": tip_kw.get("predicted_score_eod_rem"),
+                    "predicted_score_cal": tip_kw.get("predicted_score_cal"),
+                    "predicted_score_eod_rem_cal": tip_kw.get(
+                        "predicted_score_eod_rem_cal"
+                    ),
+                    "predicted_score_tau_cal": tip_kw.get("predicted_score_tau_cal"),
+                    "predicted_score_blend_cal": tip_kw.get(
+                        "predicted_score_blend_cal"
+                    ),
+                    "score_calibration_applied": tip_kw.get(
+                        "score_calibration_applied"
+                    ),
+                    "score_calibration_enabled": tip_kw.get(
+                        "score_calibration_enabled"
+                    ),
+                    "score_calibration_eod_oor": tip_kw.get(
+                        "score_calibration_eod_oor"
+                    ),
+                    "score_calibration_eod_rem_oor": tip_kw.get(
+                        "score_calibration_eod_rem_oor"
+                    ),
+                    "score_calibration_tau_oor": tip_kw.get(
+                        "score_calibration_tau_oor"
+                    ),
+                    "score_calibration_note": tip_kw.get("score_calibration_note"),
+                    "score_calibration_partial": tip_kw.get(
+                        "score_calibration_partial"
+                    ),
                     "realized_t1_to_tau": tip_kw.get("realized_t1_to_tau"),
                     "score_rem": tip_kw.get("score_rem"),
                     "gap_pct": tip_kw.get("gap_pct"),
@@ -1247,6 +1345,19 @@ def backtest_topk_equal_weight(
                     predicted_score_tau=leg.get("predicted_score_tau"),
                     predicted_score_blend=leg.get("predicted_score_blend"),
                     predicted_score_eod_rem=leg.get("predicted_score_eod_rem"),
+                    predicted_score_cal=leg.get("predicted_score_cal"),
+                    predicted_score_eod_rem_cal=leg.get("predicted_score_eod_rem_cal"),
+                    predicted_score_tau_cal=leg.get("predicted_score_tau_cal"),
+                    predicted_score_blend_cal=leg.get("predicted_score_blend_cal"),
+                    score_calibration_applied=leg.get("score_calibration_applied"),
+                    score_calibration_enabled=leg.get("score_calibration_enabled"),
+                    score_calibration_eod_oor=leg.get("score_calibration_eod_oor"),
+                    score_calibration_eod_rem_oor=leg.get(
+                        "score_calibration_eod_rem_oor"
+                    ),
+                    score_calibration_tau_oor=leg.get("score_calibration_tau_oor"),
+                    score_calibration_note=leg.get("score_calibration_note"),
+                    score_calibration_partial=leg.get("score_calibration_partial"),
                     realized_t1_to_tau=leg.get("realized_t1_to_tau"),
                     score_rem=leg.get("score_rem"),
                     gap_pct=leg.get("gap_pct"),

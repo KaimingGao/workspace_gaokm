@@ -330,6 +330,23 @@ class TestScoreLedger(unittest.TestCase):
         self.assertAlmostEqual(row["yhat"], 0.8)
         self.assertEqual(row["sector"], "电池")
 
+    def test_row_rejects_heuristic_as_yhat_eod(self):
+        from core.score_ledger import row_from_scored_item
+
+        row = row_from_scored_item(
+            {
+                "stock_code": "600519",
+                "score": 80.0,
+                "heuristic_score": 80.0,
+                # 无 predicted_score_eod / 合理 predicted_score
+            },
+            as_of="2026-08-05",
+            source="book",
+        )
+        self.assertIsNotNone(row)
+        self.assertAlmostEqual(row["yhat"], 80.0)
+        self.assertIsNone(row.get("yhat_eod"))
+
     def test_delete_ledger(self):
         import json
 

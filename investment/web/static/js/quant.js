@@ -10,8 +10,8 @@ import {
 import { apiFetch } from "./api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "./lw_charts.js";
 import { mountVirtualTable, colStyle } from "./virtual_table.js";
-import { createScoreTooltipController } from "./score_tooltip.js";
-import { fmtScore, scoreCls } from "./paper/fmt.js";
+import { createScoreTooltipController } from "./score_tooltip.js?v=p1092";
+import { fmtScore, scoreCls } from "./paper/fmt.js?v=p1092";
 import {
   defaultScoringFloors,
   mergeScoringFloors,
@@ -366,6 +366,27 @@ export function initQuant(ctx) {
       if (oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) {
         metas.push(
           remStatusMeta("命中", fmtRemHit(oos.sign_hit), "样本外方向命中率")
+        );
+      }
+      const bt = oos.by_theme || {};
+      const th = bt.theme || {};
+      const nm = bt.normal || {};
+      if (th.ic != null && Number.isFinite(Number(th.ic))) {
+        metas.push(
+          remStatusMeta(
+            "主题IC",
+            fmtRemIc(th.ic),
+            `主题日 OOS IC · n=${th.n ?? "—"} · 命中 ${fmtRemHit(th.sign_hit)}`
+          )
+        );
+      }
+      if (nm.ic != null && Number.isFinite(Number(nm.ic))) {
+        metas.push(
+          remStatusMeta(
+            "普通IC",
+            fmtRemIc(nm.ic),
+            `普通日 OOS IC · n=${nm.n ?? "—"} · 命中 ${fmtRemHit(nm.sign_hit)}`
+          )
         );
       }
     }
@@ -1103,16 +1124,17 @@ export function initQuant(ctx) {
     renderRemStatus(sum, {
       state: "busy",
       chip: persist ? "写入中" : "拟合中",
-      message: persist ? "写入 live…" : "Ridge + 时间 OOS…",
+      message: persist ? "写入上次拟合…" : "Ridge + 时间 OOS…",
       busy: true,
     });
     try {
+      const remLimit = Math.min(40, Math.max(2, Number(readWatchingLimit()) || 36));
       const res = await fetch("/api/quant/rem-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: 120,
-          watching_limit: 12,
+          watching_limit: remLimit,
           ridge_lambda: 1.0,
           persist: !!persist,
           note: persist ? "ui rem promote" : "",

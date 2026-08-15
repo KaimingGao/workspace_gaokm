@@ -172,6 +172,8 @@ def score_stock(
     cluster_mode: Optional[str] = None,
     fetch_sector_breadth: bool = False,
     sector_gap_breadth: Optional[float] = None,
+    pool_gaps: Optional[list] = None,
+    sector_gap_median: Optional[float] = None,
     quote_timeout: float = 15.0,
 ) -> Dict[str, Any]:
     """拉行情 + 日线 + score_bars，返回 signal_item 形状 dict。
@@ -181,6 +183,8 @@ def score_stock(
 
     ``skip_sentiment=True``：跳过标题舆情拉取（分池刷簿必开，否则 N×超时极慢）。
     ``sector_gap_breadth``：调用方预计算的截面缺口广度（刷簿一次批量后共享）。
+    ``pool_gaps``：同池缺口列表，供 theme_day 与 rem 训练同构（中位 |gap|）。
+    ``sector_gap_median``：同行/截面参照缺口；有则 ``gap_vs_sector = gap − median``。
     ``fetch_sector_breadth=True``：主题缺口时再拉同伴行情算广度（默认关；
     有预计算值时不再拉；刷簿并行下勿开，否则 N×批量行情卡死）。
     ``quote_timeout``：单票行情秒数（分池刷簿宜 ≤6，避免对照长时间挂起）。
@@ -779,10 +783,47 @@ def score_stock(
         feats = {
             "gap_pct": gap_v,
             "sector_gap_breadth": sector_breadth,
-            "theme_day": 1.0
-            if (gap_v is not None and float(gap_v) >= trigger)
-            else 0.0,
+            "theme_day": 0.0,
         }
+        try:
+            from core.research.rem_panel import (
+                gap_atr_from_hist,
+                gap_vs_sector_value,
+                hist_bars_pit,
+                _finite_median,
+            )
+
+            asof = ""
+            if quote:
+                asof = str(quote.get("date") or quote.get("trade_date") or "")[:10]
+            hist = hist_bars_pit(bars, asof_date=asof)
+            feats["gap_atr"] = gap_atr_from_hist(gap_v, hist)
+            ref = sector_gap_median
+            if ref is None and isinstance(pool_gaps, (list, tuple)) and pool_gaps:
+                try:
+                    ref = _finite_median(
+                        [float(g) for g in pool_gaps if g is not None]
+                    )
+                except (TypeError, ValueError):
+                    ref = None
+            feats["gap_vs_sector"] = gap_vs_sector_value(gap_v, ref)
+        except Exception:
+            logger.debug("tau Z extras skipped for %s", code, exc_info=True)
+        try:
+            from core.research.rem_theme import resolve_theme_day
+
+            feats["theme_day"] = resolve_theme_day(
+                gap_pct=gap_v,
+                sector_breadth=sector_breadth,
+                pool_gaps=pool_gaps if isinstance(pool_gaps, (list, tuple)) else None,
+                gap_trigger_pct=trigger,
+            )
+        except Exception:
+            feats["theme_day"] = (
+                1.0
+                if (gap_v is not None and abs(float(gap_v)) >= trigger)
+                else 0.0
+            )
         # rem 头只吃 Z；日线 sub_scores 已在 ŷ_EOD，勿再塞进 feats
 
         # 可选：仅读本地分钟缓存附加 ret_open_to_tau（不拉网）

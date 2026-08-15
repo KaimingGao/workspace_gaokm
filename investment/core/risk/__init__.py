@@ -9,6 +9,7 @@ from core.risk.budget import (
 )
 from core.risk.checks import check_account_risk
 from core.risk.exposure import board_style_for, build_exposure_matrix
+from core.risk.portfolio_health import build_portfolio_health
 from core.sentiment_prior import (
     apply_prior_to_buy,
     build_sentiment_prior,
@@ -23,6 +24,7 @@ __all__ = [
     "risk_parity_lite_weights",
     "build_exposure_matrix",
     "board_style_for",
+    "build_portfolio_health",
     "list_risk_blocks",
     "annotate_risk_block",
     "build_sentiment_prior",

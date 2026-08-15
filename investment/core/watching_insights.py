@@ -205,6 +205,20 @@ def _hydrate_insight_tau_fields(
         sig["predicted_score"] = y_eod
     if sig.get("score") is None:
         sig["score"] = out.get("score") or y_eod
+    # tip 常无池上下文：保留簿上已齐的 features_tau / 池缺口，避免冲成缺特征
+    book_ft = out.get("features_tau")
+    if not isinstance(book_ft, dict):
+        book_ft = (item or {}).get("features_tau") if isinstance(item, dict) else None
+    if isinstance(book_ft, dict) and book_ft:
+        prior = sig.get("features_tau") if isinstance(sig.get("features_tau"), dict) else {}
+        merged = dict(prior)
+        merged.update({k: v for k, v in book_ft.items() if v is not None and v != ""})
+        sig["features_tau"] = merged
+    for key in ("_pool_gaps", "sector_gap_breadth"):
+        if sig.get(key) is None and isinstance(item, dict) and item.get(key) is not None:
+            sig[key] = item.get(key)
+        if sig.get(key) is None and out.get(key) is not None:
+            sig[key] = out.get(key)
     try:
         from core.signal.dual_score import attach_dual_score_pit, dual_score_book_fields
 
@@ -237,6 +251,15 @@ def _hydrate_insight_tau_fields(
             out["realized_t1_to_tau"] = realized
         if gap is not None:
             out["gap_pct"] = gap
+        try:
+            from core.signal.dual_score import dual_score_book_fields
+
+            # 回退路径也补 tip 对照字段（*_cal / OOR / note）
+            merge = dict(item or {})
+            merge.update(out)
+            out.update(dual_score_book_fields(merge))
+        except Exception:
+            pass
         try:
             from core.signal.dual_score import ensure_formula_terms_tau
 
@@ -375,7 +398,7 @@ def _insight_from_book_row(
     try:
         from core.signal.score_display import annotate_score_gate
 
-        gate = annotate_score_gate(out["score"], paper=paper_ctx)
+        gate = annotate_score_gate(out["score"], paper=paper_ctx, item=out)
         out["min_score"] = gate["min_score"]
         out["below_min_score"] = gate["below_min_score"]
     except Exception:
@@ -458,7 +481,7 @@ def _insight_one(
         try:
             from core.signal.score_display import annotate_score_gate
 
-            gate = annotate_score_gate(out["score"], paper=paper_ctx)
+            gate = annotate_score_gate(out["score"], paper=paper_ctx, item=out)
             out["min_score"] = gate["min_score"]
             out["below_min_score"] = gate["below_min_score"]
         except Exception:

@@ -149,21 +149,35 @@ def annotate_score_gate(
     *,
     paper: Optional[dict] = None,
     min_score: Optional[float] = None,
+    item: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """返回 min_score / below_min_score，供观察表与持仓表展示。"""
+    """返回 min_score / below_min_score，供观察表与持仓表展示。
+
+    有 ``item`` 时门槛对比用 ``eod_gate_score_for_item``（原始 ŷ_EOD），
+    与建簿 / 预演买入门槛同源；否则回退传入的 ``score``。
+    """
     if min_score is not None:
         floor: Optional[float] = json_safe_number(float(min_score))
     else:
         floor = selection_min_score(paper)
     sc = None
-    try:
-        if score is not None and score != "":
-            sc = float(score)
-    except (TypeError, ValueError):
-        sc = None
+    if isinstance(item, dict):
+        try:
+            from core.signal.dual_score import eod_gate_score_for_item
+
+            sc = eod_gate_score_for_item(item)
+        except Exception:
+            sc = None
+    if sc is None:
+        try:
+            if score is not None and score != "":
+                sc = float(score)
+        except (TypeError, ValueError):
+            sc = None
     return {
         "min_score": floor,
         "below_min_score": bool(
             floor is not None and sc is not None and sc < floor
         ),
+        "gate_score": json_safe_number(sc) if sc is not None else None,
     }

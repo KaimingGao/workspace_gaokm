@@ -1245,6 +1245,284 @@
   margin: 0 0 10px;
 }
 
+.quant-page .quant-score-cal-panel {
+  margin: 0;
+}
+
+.quant-page .quant-cal-section-lead {
+  margin: 0;
+  max-width: 36rem;
+}
+
+.quant-page .quant-score-review-cal {
+  margin: 0 0 10px;
+}
+
+.quant-page .quant-cal-panel {
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  border-radius: 2px;
+  background: var(--surface);
+  padding: 8px 10px;
+}
+
+.quant-page .quant-cal-panel.is-on {
+  border-color: color-mix(in srgb, #0d9488 35%, var(--line));
+  background: color-mix(in srgb, #ccfbf1 28%, var(--surface));
+}
+
+.quant-page .quant-cal-panel.is-draft {
+  border-color: color-mix(in srgb, #d97706 35%, var(--line));
+  background: color-mix(in srgb, #fef3c7 22%, var(--surface));
+}
+
+.quant-page .quant-cal-panel.is-warn {
+  border-color: color-mix(in srgb, #b45309 40%, var(--line));
+  background: color-mix(in srgb, #ffedd5 28%, var(--surface));
+}
+
+.quant-page .quant-cal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 12px;
+  margin: 0 0 6px;
+}
+
+.quant-page .quant-cal-badge {
+  display: inline-block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  border-radius: 2px;
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  color: var(--ink-3);
+  background: color-mix(in srgb, var(--surface) 90%, var(--ink-3));
+}
+
+.quant-page .quant-cal-panel.is-on .quant-cal-badge {
+  color: #0f766e;
+  border-color: color-mix(in srgb, #0d9488 40%, transparent);
+  background: color-mix(in srgb, #99f6e4 35%, var(--surface));
+}
+
+.quant-page .quant-cal-panel.is-draft .quant-cal-badge {
+  color: #b45309;
+  border-color: color-mix(in srgb, #d97706 40%, transparent);
+  background: color-mix(in srgb, #fde68a 40%, var(--surface));
+}
+
+.quant-page .quant-cal-panel.is-warn .quant-cal-badge {
+  color: #9a3412;
+  border-color: color-mix(in srgb, #ea580c 45%, transparent);
+  background: color-mix(in srgb, #fdba74 38%, var(--surface));
+}
+
+.quant-page .quant-cal-title {
+  font-size: 0.78rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.quant-page .quant-cal-meta {
+  font-size: 0.68rem;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.quant-page .quant-cal-actions {
+  margin-left: auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.quant-page .quant-cal-actions .dialog-btn {
+  font-size: 0.68rem;
+  padding: 2px 8px;
+}
+
+.quant-page .quant-cal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.72rem;
+  margin: 4px 0 2px;
+}
+
+.quant-page .quant-cal-table th,
+.quant-page .quant-cal-table td {
+  padding: 4px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+  text-align: left;
+  font-variant-numeric: tabular-nums;
+}
+
+.quant-page .quant-cal-table th {
+  font-size: 0.66rem;
+  font-weight: 650;
+  color: var(--ink-3);
+}
+
+.quant-page .quant-cal-table td.num {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+.quant-page .quant-cal-table .is-better {
+  color: #0f766e;
+  font-weight: 650;
+}
+
+.quant-page .quant-cal-table .is-worse {
+  color: #b45309;
+}
+
+.quant-page .quant-cal-note {
+  margin: 4px 0 0;
+  font-size: 0.68rem;
+  color: var(--ink-3);
+  line-height: 1.4;
+}
+
+.quant-page .quant-cal-viz {
+  margin: 8px 0 4px;
+}
+
+.quant-page .quant-cal-viz-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 12px;
+}
+
+.quant-page .quant-cal-viz-cell {
+  border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--surface) 92%, #f8fafc);
+  padding: 8px 8px 6px;
+}
+
+.quant-page .quant-cal-viz-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 0 0 6px;
+}
+
+.quant-page .quant-cal-viz-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: 0.01em;
+}
+
+.quant-page .quant-cal-viz-sub {
+  margin-top: 2px;
+  font-size: 0.64rem;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.quant-page .quant-cal-kpi-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.quant-page .quant-cal-kpi {
+  min-width: 7.5rem;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--line) 75%, transparent);
+  border-radius: 2px;
+  background: var(--surface);
+}
+
+.quant-page .quant-cal-kpi-lab {
+  display: block;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: var(--ink-3);
+  text-transform: uppercase;
+}
+
+.quant-page .quant-cal-kpi-vals {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.quant-page .quant-cal-kpi-vals em {
+  font-style: normal;
+  color: var(--ink-3);
+}
+
+.quant-page .quant-cal-kpi-arrow {
+  color: var(--ink-3);
+  font-size: 0.62rem;
+}
+
+.quant-page .quant-cal-kpi-vals strong {
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.quant-page .quant-cal-kpi-delta {
+  display: block;
+  margin-top: 1px;
+  font-size: 0.62rem;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--ink-3);
+}
+
+.quant-page .quant-cal-kpi.is-better {
+  border-color: color-mix(in srgb, #0d9488 35%, var(--line));
+  background: color-mix(in srgb, #ccfbf1 22%, var(--surface));
+}
+
+.quant-page .quant-cal-kpi.is-better .quant-cal-kpi-vals strong,
+.quant-page .quant-cal-kpi.is-better .quant-cal-kpi-delta {
+  color: #0f766e;
+}
+
+.quant-page .quant-cal-kpi.is-worse {
+  border-color: color-mix(in srgb, #d97706 35%, var(--line));
+  background: color-mix(in srgb, #ffedd5 20%, var(--surface));
+}
+
+.quant-page .quant-cal-kpi.is-worse .quant-cal-kpi-vals strong,
+.quant-page .quant-cal-kpi.is-worse .quant-cal-kpi-delta {
+  color: #b45309;
+}
+
+.quant-page .quant-cal-curve-host {
+  height: 188px;
+  min-height: 188px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 2px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.quant-page .quant-cal-curve {
+  display: block;
+  width: 100%;
+  height: 188px;
+}
+
+.quant-page .quant-cal-viz-hint {
+  margin: 5px 0 0;
+  font-size: 0.62rem;
+  color: var(--ink-3);
+  line-height: 1.35;
+}
+
 .quant-page .quant-tau-strip {
   border-left: 2px solid var(--gold, #c9a227);
   padding-left: 8px;
@@ -3054,9 +3332,11 @@ html[data-density="compact"] .quant-page {
   max-height: min(42vh, 480px);
 }
 
-/* 交易记录 score 列：整格可悬停（对齐观察池） */
+/* 交易记录 score / 校准列：整格可悬停（对齐观察池） */
 body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watching-col-score,
-.quant-bt-trades-host .watching-react-grid-cell.watching-col-score {
+body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watching-col-score_cal,
+.quant-bt-trades-host .watching-react-grid-cell.watching-col-score,
+.quant-bt-trades-host .watching-react-grid-cell.watching-col-score_cal {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -3065,7 +3345,9 @@ body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watchin
 }
 
 body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watching-col-score .bt-trade-score,
-.quant-bt-trades-host .watching-react-grid-cell.watching-col-score .bt-trade-score {
+body[data-page="replay"] .quant-bt-trades-host .watching-react-grid-cell.watching-col-score_cal .bt-trade-score,
+.quant-bt-trades-host .watching-react-grid-cell.watching-col-score .bt-trade-score,
+.quant-bt-trades-host .watching-react-grid-cell.watching-col-score_cal .bt-trade-score {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -9199,6 +9481,11 @@ body[data-page="quant"] .quant-page .quant-cluster-hub > .quant-kpi-row .quant-k
   white-space: nowrap;
   font-weight: 600;
   color: var(--ink);
+}
+
+.quant-page .quant-rem-factor-main .factor-tip {
+  cursor: help;
+  border-bottom: 1px dotted color-mix(in srgb, var(--ink-3) 75%, transparent);
 }
 
 .quant-page .quant-rem-coef-kpis {

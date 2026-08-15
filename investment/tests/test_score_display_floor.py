@@ -63,6 +63,29 @@ class TestSelectionFloor(unittest.TestCase):
             self.assertEqual(resolve_optimize_score_floor(0.5), 0.5)
             self.assertEqual(resolve_buy_floor(explicit=55.0), 1.0)
 
+    def test_annotate_score_gate_uses_eod_raw_when_item(self):
+        from core.signal.score_display import annotate_score_gate
+
+        item = {
+            "predicted_score": 1.5,
+            "predicted_score_cal": 0.2,
+            "score_calibration_enabled": True,
+            # applied 恒 False；即便恶意标 True，闸仍应读 raw EOD
+            "score_calibration_applied": True,
+        }
+        with patch(
+            "core.signal.config.load_signal_config",
+            return_value={"scoring": {"min_predicted_score": 0.35}},
+        ), patch(
+            "core.signal.dual_score.eod_gate_score_for_item",
+            return_value=1.5,
+        ):
+            gate = annotate_score_gate(1.5, min_score=0.35, item=item)
+            self.assertFalse(gate["below_min_score"])
+            self.assertAlmostEqual(gate["gate_score"], 1.5)
+            gate_low = annotate_score_gate(0.2, min_score=0.35)
+            self.assertTrue(gate_low["below_min_score"])
+
 
 if __name__ == "__main__":
     unittest.main()

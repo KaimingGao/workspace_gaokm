@@ -437,6 +437,12 @@ def fit_factor_ols_from_panel(
 
     lam = clamp_ridge_lambda(ridge_lambda, 0.0)
     factor_names = list(feature_names) if feature_names else list(registered_factor_names())
+    try:
+        from core.signal.factors.raw_basis import RAW_BASIS_MIN_STD_EXEMPT
+
+        exempt_merged = list(min_std_exempt or []) + list(RAW_BASIS_MIN_STD_EXEMPT)
+    except Exception:
+        exempt_merged = min_std_exempt
     cfg = load_signal_config()
     current_weights = dict(cfg.get("weights") or {})
     xs_c, ys_c, active, excluded, prep_meta = _prepare_complete_panel(
@@ -444,7 +450,7 @@ def fit_factor_ols_from_panel(
         ys,
         factor_names,
         min_std=float(min_std),
-        min_std_exempt=min_std_exempt,
+        min_std_exempt=exempt_merged,
     )
     collinearity_meta: Dict[str, Any] = {}
     ridge_select_meta: Dict[str, Any] = {}

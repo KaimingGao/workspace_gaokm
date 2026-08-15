@@ -259,8 +259,83 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertAlmostEqual(
             compute_predicted_score_blend(item, config=cfg), 0.6, places=5
         )
+        # 排序键始终 raw ŷ_trade（与校准是否有 live 无关）
         self.assertAlmostEqual(rank_key_for_item(item, config=cfg), 0.6, places=5)
         self.assertEqual(item["dual_score_fusion"], "blend")
+
+    def test_book_fields_exposes_calibration_keys(self):
+        from core.signal import score_calibration as sc
+        from core.signal.dual_score import dual_score_book_fields
+
+        doc = {
+            "enabled": False,
+            "heads": {
+                "eod": {"knots_x": [0.0, 2.0], "knots_y": [0.0, 1.0]},
+                "tau": {"knots_x": [0.0, 1.0], "knots_y": [0.0, 0.5]},
+            },
+        }
+        orig_en = sc.calibration_enabled
+        orig_load = sc.load_calibration_model
+        sc.calibration_enabled = lambda model_doc=None: False  # type: ignore
+        sc.load_calibration_model = lambda: doc  # type: ignore
+        try:
+            out = dual_score_book_fields(
+                {
+                    "predicted_score": 1.0,
+                    "predicted_score_eod_rem": 1.0,
+                    "predicted_score_tau": 0.2,
+                    "predicted_score_blend": 0.6,
+                }
+            )
+        finally:
+            sc.calibration_enabled = orig_en  # type: ignore
+            sc.load_calibration_model = orig_load  # type: ignore
+        self.assertIn("predicted_score_cal", out)
+        self.assertIn("predicted_score_tau_cal", out)
+        self.assertIn("predicted_score_blend_cal", out)
+        self.assertIn("predicted_score_eod_rem_cal", out)
+        self.assertIsNotNone(out["predicted_score_cal"])
+        self.assertIsNotNone(out["predicted_score_eod_rem_cal"])
+        self.assertIn("score_calibration_applied", out)
+        self.assertFalse(out["score_calibration_applied"])
+        self.assertFalse(out.get("score_calibration_enabled"))
+
+    def test_eod_gate_and_decision_stay_raw_with_calibration(self):
+        """方案 A：闸/决策分始终 raw；启用校准只影响 tip 字段。"""
+        from core.signal import score_calibration as sc
+        from core.signal.dual_score import (
+            decision_score_for_item,
+            eod_gate_score_for_item,
+        )
+
+        doc = {
+            "enabled": True,
+            "heads": {
+                "eod": {"knots_x": [0.0, 2.0], "knots_y": [0.5, 1.0]},
+                "tau": {"knots_x": [0.0, 1.0], "knots_y": [0.0, 2.0]},
+            },
+        }
+        item = {
+            "predicted_score": 2.0,
+            "predicted_score_eod": 2.0,
+            "predicted_score_eod_rem": 1.0,
+            "predicted_score_tau": 0.5,
+            "predicted_score_blend": 0.75,
+        }
+        orig_en = sc.calibration_enabled
+        orig_load = sc.load_calibration_model
+        sc.calibration_enabled = lambda model_doc=None: True  # type: ignore
+        sc.load_calibration_model = lambda: doc  # type: ignore
+        try:
+            self.assertAlmostEqual(eod_gate_score_for_item(item), 2.0, places=5)
+            self.assertAlmostEqual(decision_score_for_item(item), 0.75, places=5)
+            sc.attach_calibrated_scores(item, model_doc=doc, force=True)
+            self.assertAlmostEqual(item["predicted_score_cal"], 1.0, places=5)
+            self.assertFalse(item.get("score_calibration_applied"))
+            self.assertTrue(item.get("score_calibration_enabled"))
+        finally:
+            sc.calibration_enabled = orig_en  # type: ignore
+            sc.load_calibration_model = orig_load  # type: ignore
 
     def test_legacy_rem_not_added_to_eod_rem(self):
         from core.signal.dual_score import apply_tau_score_fields
@@ -378,6 +453,70 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertEqual(item["as_of_tau"], "2026-08-14T09:45:00+08:00")
         self.assertEqual(item["features_tau"].get("ret_open_to_tau"), 0.8)
         self.assertEqual(item["y_spec_tau"].get("tau"), "09:45")
+
+    def test_features_tau_includes_gap_atr_and_rel(self):
+        from core.signal.dual_score import apply_tau_score_fields
+
+        item = {"predicted_score": 0.4}
+        apply_tau_score_fields(
+            item,
+            rem_yhat=0.1,
+            gap_pct=1.0,
+            feats={
+                "gap_pct": 1.0,
+                "gap_atr": 0.8,
+                "gap_vs_sector": 0.3,
+                "momentum": 50.0,
+            },
+            residual_delta=False,
+        )
+        self.assertEqual(item["features_tau"].get("gap_atr"), 0.8)
+        self.assertEqual(item["features_tau"].get("gap_vs_sector"), 0.3)
+        self.assertNotIn("momentum", item["features_tau"])
+        self.assertIn("features_tau_fill", item)
+        self.assertEqual(item["features_tau_fill"]["filled"], 3)
+        self.assertIsNotNone(item.get("predicted_score_tau_cascade"))
+
+    def test_merge_tau_features_prefers_base_keeps_prior(self):
+        from core.signal.dual_score import merge_tau_features
+
+        m = merge_tau_features(
+            {"gap_pct": 1.0, "gap_atr": None},
+            {"gap_pct": 9.0, "gap_atr": 0.5, "sector_gap_breadth": 0.4},
+        )
+        self.assertEqual(m["gap_pct"], 1.0)
+        self.assertEqual(m["gap_atr"], 0.5)
+        self.assertEqual(m["sector_gap_breadth"], 0.4)
+
+    def test_resolve_fusion_weights_theme_boost(self):
+        from core.signal.dual_score import resolve_fusion_weights
+
+        we, wt, note = resolve_fusion_weights(
+            {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "theme_boost", "theme_w_tau_boost": 2.0},
+            feats={"theme_day": 1.0},
+        )
+        self.assertAlmostEqual(we + wt, 1.0, places=5)
+        self.assertGreater(wt, we)
+        self.assertIn("theme_boost", note)
+
+    def test_attach_preserves_book_features_tau(self):
+        from core.signal.dual_score import attach_dual_score_pit
+
+        item = {
+            "predicted_score": 1.0,
+            "features_tau": {
+                "gap_pct": 1.2,
+                "sector_gap_breadth": 0.55,
+                "theme_day": 1.0,
+                "gap_atr": 0.7,
+                "gap_vs_sector": 0.2,
+            },
+        }
+        attach_dual_score_pit(item, quote=None, bars=None)
+        ft = item.get("features_tau") or {}
+        self.assertEqual(ft.get("sector_gap_breadth"), 0.55)
+        self.assertEqual(ft.get("gap_atr"), 0.7)
+        self.assertEqual(ft.get("gap_vs_sector"), 0.2)
 
     def test_save_dual_score_fusion_f2(self):
         import json

@@ -1,13 +1,16 @@
-"""开盘 τ 剩余收益面板：y = close[T]/open[T]-1；特征 = T-1 日线因子 + 开盘缺口等。
+"""开盘 τ 剩余收益面板：y = close[T]/open[T]-1；特征 = 开盘 Z（缺口/ATR/截面）。
 
-无未来函数：决策在开盘，标签为开盘→收盘。
+无未来函数：决策在开盘，标签为开盘→收盘。日线因子不在此计算（已在 ŷ_EOD）。
 """
 
 from __future__ import annotations
 
+from statistics import median
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from core.research.panel import _research_sub_scores, _resolve_factor_names
+GAP_ATR_WINDOW = 14
+GAP_ATR_CLIP = 10.0
+_SECTOR_REL_MIN_N = 3
 
 
 def _gap_pct(prev_close: float, open_px: float) -> Optional[float]:
@@ -34,6 +37,112 @@ def _open_to_close_pct(open_px: float, close_px: float) -> Optional[float]:
     return (c / o - 1.0) * 100.0
 
 
+def _finite_median(vals: Sequence[float]) -> Optional[float]:
+    xs = [float(v) for v in vals if v is not None]
+    if not xs:
+        return None
+    return float(median(xs))
+
+
+def hist_bars_pit(
+    bars: Optional[Sequence[dict]],
+    *,
+    asof_date: Optional[str] = None,
+) -> List[dict]:
+    """去掉 asof 当日 K 线，ATR / 日线窗口不吃 T 日振幅。"""
+    hist = list(bars or [])
+    day = str(asof_date or "")[:10]
+    if day and hist and str(hist[-1].get("date") or "")[:10] == day:
+        return hist[:-1]
+    return hist
+
+
+def gap_atr_from_hist(
+    gap_pct: Optional[float],
+    hist_bars: Optional[Sequence[dict]],
+    *,
+    window: int = GAP_ATR_WINDOW,
+    clip: float = GAP_ATR_CLIP,
+) -> Optional[float]:
+    """缺口 / ATR%（T−1 窗口）。量纲：跳了几个 ATR；clip 防极小波动炸值。"""
+    if gap_pct is None:
+        return None
+    try:
+        g = float(gap_pct)
+    except (TypeError, ValueError):
+        return None
+    try:
+        from core.t0.rules import atr_pct_from_bars
+
+        atr = atr_pct_from_bars(list(hist_bars or []), int(window))
+    except Exception:
+        atr = None
+    if atr is None or float(atr) < 1e-6:
+        return None
+    v = g / float(atr)
+    cap = float(clip) if clip is not None else None
+    if cap is not None and cap > 0:
+        v = max(-cap, min(cap, v))
+    return round(v, 4)
+
+
+def sector_gap_reference_by_code(
+    gaps_by_code: Dict[str, Optional[float]],
+    *,
+    sector_map: Optional[Dict[str, str]] = None,
+    min_sector_n: int = _SECTOR_REL_MIN_N,
+) -> Dict[str, Optional[float]]:
+    """每个 code 的参照缺口：同行中位（n≥门槛）否则全截面中位。"""
+    valid = {
+        str(c).strip(): float(g)
+        for c, g in (gaps_by_code or {}).items()
+        if str(c or "").strip() and g is not None
+    }
+    pool_med = _finite_median(list(valid.values()))
+    sm = sector_map if isinstance(sector_map, dict) else {}
+    try:
+        from core.portfolio_optimize import _sector_for
+    except Exception:
+        def _sector_for(code: str, m: Optional[Dict[str, str]] = None) -> str:  # type: ignore
+            return str((m or {}).get(code) or "")
+
+    code_sec: Dict[str, str] = {}
+    by_sec: Dict[str, List[float]] = {}
+    for c, g in valid.items():
+        sec = str(_sector_for(c, sm) or "").strip()
+        if not sec:
+            continue
+        code_sec[c] = sec
+        by_sec.setdefault(sec, []).append(g)
+    need = max(2, int(min_sector_n or _SECTOR_REL_MIN_N))
+    sec_med = {
+        s: _finite_median(gs) for s, gs in by_sec.items() if len(gs) >= need
+    }
+    out: Dict[str, Optional[float]] = {}
+    for c, g in (gaps_by_code or {}).items():
+        key = str(c or "").strip()
+        if not key or g is None:
+            out[key] = None
+            continue
+        med = sec_med.get(code_sec.get(key, ""), None)
+        if med is None:
+            med = pool_med
+        out[key] = round(float(med), 4) if med is not None else None
+    return out
+
+
+def gap_vs_sector_value(
+    gap_pct: Optional[float],
+    sector_median: Optional[float],
+) -> Optional[float]:
+    if gap_pct is None or sector_median is None:
+        return None
+    try:
+        return round(float(gap_pct) - float(sector_median), 4)
+    except (TypeError, ValueError):
+        return None
+
+
 def collect_rem_open_panel(
     bars: List[dict],
     *,
@@ -48,16 +157,13 @@ def collect_rem_open_panel(
     """单票 open→close rem 面板。
 
     返回 ``(xs, ys, decision_dates, meta_rows)``。
-    ``decision_dates`` = 交易日 T（开盘决策日）；因子窗口截止 T-1。
-    ``meta_rows`` 含 gap_pct / theme 辅助字段。
+    ``decision_dates`` = 交易日 T（开盘决策日）；ATR 窗口截止 T-1。
+    只写 Z 特征（缺口 / ATR）；日线因子已在 ŷ_EOD，此处不算。
+    ``meta_rows`` 含 gap_pct 等辅助字段。
     """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
-    factor_names = _resolve_factor_names(
-        respect_regime=respect_regime,
-        index_bars=index_bars,
-        config=config,
-    )
+    _ = (index_bars, fundamentals, respect_regime, config)
     xs: List[Dict[str, Optional[float]]] = []
     ys: List[float] = []
     dates: List[str] = []
@@ -80,19 +186,15 @@ def collect_rem_open_panel(
         gap = _gap_pct(pc, o)
         if y is None or gap is None:
             continue
-        # 因子截止 T-1：窗口 bars[:i] 末根为 T-1
+        # ATR 截止 T-1：窗口 bars[:i] 末根为 T-1
         window = bars[max(0, i - max_window) : i]
         if len(window) < min_history:
             continue
-        row = _research_sub_scores(
-            window,
-            index_bars=index_bars,
-            fundamentals=fundamentals,
-            factor_names=factor_names,
-        )
-        row["gap_pct"] = float(gap)
-        # 开盘已实现相对昨收（与 gap 同义，显式留给模型）
-        row["open_gap"] = float(gap)
+        row: Dict[str, Optional[float]] = {
+            "gap_pct": float(gap),
+            "open_gap": float(gap),
+            "gap_atr": gap_atr_from_hist(gap, window),
+        }
         date_t = str(b_t.get("date") or "")[:10]
         xs.append(row)
         ys.append(float(y))
@@ -115,49 +217,116 @@ def attach_cross_section_breadth(
     panels: Sequence[Dict[str, Any]],
     *,
     gap_trigger_pct: float = 2.0,
+    sector_map: Optional[Dict[str, str]] = None,
 ) -> List[Dict[str, Any]]:
     """多票面板：按日计算 gap 广度，写回每行 xs 的 sector_gap_breadth（全市场代理）。
 
+    同时写 ``gap_vs_sector`` = 个股缺口 − 同行中位（同伴不足则减全截面中位）。
     ``panels`` 元素：``{code, xs, ys, dates, metas}``。
     """
-    # date -> list of gaps
-    by_date: Dict[str, List[float]] = {}
+    # date -> [(code, gap), ...]  and ret_open_to_tau by date
+    by_date: Dict[str, List[Tuple[str, float]]] = {}
+    ret_by_date: Dict[str, List[float]] = {}
     for p in panels:
-        for m in p.get("metas") or []:
+        code_p = str(p.get("code") or "").strip()
+        xs_p = list(p.get("xs") or [])
+        for i, m in enumerate(p.get("metas") or []):
             d = str(m.get("date") or "")[:10]
             g = m.get("gap_pct")
+            c = str(m.get("stock_code") or code_p or "").strip()
             if not d or g is None:
                 continue
-            by_date.setdefault(d, []).append(float(g))
+            by_date.setdefault(d, []).append((c, float(g)))
+            rot = None
+            if i < len(xs_p) and xs_p[i].get("ret_open_to_tau") is not None:
+                try:
+                    rot = float(xs_p[i]["ret_open_to_tau"])
+                except (TypeError, ValueError):
+                    rot = None
+            if rot is None and m.get("ret_open_to_tau") is not None:
+                try:
+                    rot = float(m.get("ret_open_to_tau"))
+                except (TypeError, ValueError):
+                    rot = None
+            if rot is not None:
+                ret_by_date.setdefault(d, []).append(rot)
+
+    sm = sector_map
+    if sm is None:
+        try:
+            from core.portfolio_optimize import load_sector_map
+
+            sm = load_sector_map() or {}
+        except Exception:
+            sm = {}
 
     breadth_by_date: Dict[str, float] = {}
     theme_by_date: Dict[str, int] = {}
+    ref_by_date: Dict[str, Dict[str, Optional[float]]] = {}
+    sector_ret_by_date: Dict[str, Optional[float]] = {}
     trigger = float(gap_trigger_pct)
-    for d, gaps in by_date.items():
-        if not gaps:
+    for d, pairs in by_date.items():
+        if not pairs:
             continue
+        gaps = [g for _c, g in pairs]
         hit = sum(1 for g in gaps if g >= trigger)
         b = hit / len(gaps)
         breadth_by_date[d] = round(b, 4)
-        # 主题日：广度≥0.5 或 |gap| 中位≥trigger
-        gaps_sorted = sorted(abs(g) for g in gaps)
-        med = gaps_sorted[len(gaps_sorted) // 2]
-        theme_by_date[d] = 1 if (b >= 0.5 or med >= trigger) else 0
+        from core.research.rem_theme import resolve_theme_day
+
+        theme_by_date[d] = int(
+            resolve_theme_day(
+                sector_breadth=b,
+                pool_gaps=gaps,
+                gap_trigger_pct=trigger,
+            )
+        )
+        gaps_map: Dict[str, Optional[float]] = {}
+        for c, g in pairs:
+            if c:
+                gaps_map[c] = g
+        ref_by_date[d] = sector_gap_reference_by_code(gaps_map, sector_map=sm)
+        sector_ret_by_date[d] = _finite_median(ret_by_date.get(d) or [])
 
     out: List[Dict[str, Any]] = []
     for p in panels:
+        code_p = str(p.get("code") or "").strip()
         xs = [dict(r) for r in (p.get("xs") or [])]
         metas = [dict(m) for m in (p.get("metas") or [])]
         dates = list(p.get("dates") or [])
         for i, d in enumerate(dates):
             b = breadth_by_date.get(d)
             th = theme_by_date.get(d, 0)
+            code_i = code_p
+            if i < len(metas):
+                code_i = str(metas[i].get("stock_code") or code_p or "").strip()
+            gap_i = None
+            if i < len(xs) and xs[i].get("gap_pct") is not None:
+                try:
+                    gap_i = float(xs[i]["gap_pct"])
+                except (TypeError, ValueError):
+                    gap_i = None
+            elif i < len(metas) and metas[i].get("gap_pct") is not None:
+                try:
+                    gap_i = float(metas[i]["gap_pct"])
+                except (TypeError, ValueError):
+                    gap_i = None
+            ref = (ref_by_date.get(d) or {}).get(code_i)
+            rel = gap_vs_sector_value(gap_i, ref)
+            sret = sector_ret_by_date.get(d)
             if i < len(xs):
                 xs[i]["sector_gap_breadth"] = b
                 xs[i]["theme_day"] = float(th)
+                xs[i]["gap_vs_sector"] = rel
+                if sret is not None:
+                    xs[i]["sector_ret_to_tau"] = round(float(sret), 6)
             if i < len(metas):
                 metas[i]["sector_gap_breadth"] = b
                 metas[i]["theme_day"] = th
+                metas[i]["gap_vs_sector"] = rel
+                metas[i]["sector_gap_median"] = ref
+                if sret is not None:
+                    metas[i]["sector_ret_to_tau"] = round(float(sret), 6)
         out.append({**p, "xs": xs, "metas": metas, "dates": dates})
     return out
 
@@ -229,12 +398,10 @@ def collect_rem_tau_panel(
     fundamentals: Optional[dict] = None,
     stock_code: Optional[str] = None,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
-    """R1：τ=09:45 剩余收益面板；无分钟线时跳过该日（不回退泄漏）。"""
+    """R1：τ=09:45 剩余收益面板；无分钟线时跳过该日（不回退泄漏）。只写 Z，不算日线因子。"""
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
-    factor_names = _resolve_factor_names(
-        respect_regime=False, index_bars=index_bars, config=None
-    )
+    _ = (index_bars, fundamentals)
     xs: List[Dict[str, Optional[float]]] = []
     ys: List[float] = []
     dates: List[str] = []
@@ -261,15 +428,12 @@ def collect_rem_tau_panel(
         window = bars[max(0, i - max_window) : i]
         if len(window) < min_history:
             continue
-        row = _research_sub_scores(
-            window,
-            index_bars=index_bars,
-            fundamentals=fundamentals,
-            factor_names=factor_names,
-        )
-        row["gap_pct"] = float(gap) if gap is not None else None
-        row["open_gap"] = row["gap_pct"]
-        row["ret_open_to_tau"] = ret_open_tau
+        row: Dict[str, Optional[float]] = {
+            "gap_pct": float(gap) if gap is not None else None,
+            "open_gap": float(gap) if gap is not None else None,
+            "gap_atr": gap_atr_from_hist(gap, window),
+            "ret_open_to_tau": ret_open_tau,
+        }
         xs.append(row)
         ys.append(float(y))
         dates.append(date_t)

@@ -1132,6 +1132,328 @@ function _bindYhatScatterHover(canvas, rawPoints, opts = {}) {
 }
 
 
+/**
+ * 校准映射 g(ŷ)：等比例坐标 · 对角=恒等 · 抬/压带填充 · 可悬停读数。
+ * headDoc: { knots_x, knots_y, holdout_metrics?, n? }
+ * opts.hoverIndex: 高亮 knot 下标
+ */
+export function paintCalibrationCurve(canvas, headDoc, opts = {}) {
+  if (!canvas || typeof canvas.getContext !== "function") return null;
+  const kx = Array.isArray(headDoc && headDoc.knots_x) ? headDoc.knots_x : [];
+  const ky = Array.isArray(headDoc && headDoc.knots_y) ? headDoc.knots_y : [];
+  const pts = [];
+  for (let i = 0; i < Math.min(kx.length, ky.length); i++) {
+    const x = Number(kx[i]);
+    const y = Number(ky[i]);
+    if (Number.isFinite(x) && Number.isFinite(y)) pts.push({ x, y, i });
+  }
+  pts.sort((a, b) => a.x - b.x);
+
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const cssW = canvas.clientWidth || opts.width || 360;
+  const cssH = canvas.clientHeight || opts.height || 188;
+  canvas.width = Math.round(cssW * dpr);
+  canvas.height = Math.round(cssH * dpr);
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  const muted = cssVar(canvas, "--ink-3", "#64748b");
+  const text = cssVar(canvas, "--ink", "#0f172a");
+  const border = cssVar(canvas, "--line", "#e2e8f0");
+  const surface = cssVar(canvas, "--surface", "#ffffff");
+  const accent = opts.color || "#0f766e";
+  const liftFill = "rgba(15, 118, 110, 0.12)";
+  const compressFill = "rgba(180, 83, 9, 0.10)";
+  const fontUi = '10px Manrope, "PingFang SC", "Hiragino Sans GB", sans-serif';
+  const fontMono =
+    '10px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+  const pad = { t: 18, r: 14, b: 28, l: 40 };
+  const w = Math.max(8, cssW - pad.l - pad.r);
+  const h = Math.max(8, cssH - pad.t - pad.b);
+
+  ctx.fillStyle = surface;
+  ctx.fillRect(0, 0, cssW, cssH);
+
+  if (pts.length < 2) {
+    ctx.fillStyle = muted;
+    ctx.font = fontUi;
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText("knots 不足 · 无法绘制 g(ŷ)", pad.l, pad.t + 8);
+    return { n: pts.length, pts: [], layout: { pad, cssW, cssH, w, h } };
+  }
+
+  // 等比例域：恒等线为 45°，读图更专业
+  let lo = Math.min(...pts.map((p) => Math.min(p.x, p.y)));
+  let hi = Math.max(...pts.map((p) => Math.max(p.x, p.y)));
+  const span = Math.max(hi - lo, 0.2);
+  const margin = span * 0.08;
+  lo -= margin;
+  hi += margin;
+  // 若跨越 0，略扩展使 0 轴可见
+  if (lo < 0 && hi > 0) {
+    const m = Math.max(Math.abs(lo), Math.abs(hi));
+    lo = -m;
+    hi = m;
+  }
+
+  const xAt = (v) => pad.l + ((v - lo) / (hi - lo)) * w;
+  const yAt = (v) => pad.t + h - ((v - lo) / (hi - lo)) * h;
+  const ticks = niceTicks(lo, hi, 5);
+
+  // frame
+  ctx.strokeStyle = border;
+  ctx.lineWidth = 1;
+  ctx.strokeRect(pad.l + 0.5, pad.t + 0.5, w - 1, h - 1);
+
+  // grid + ticks
+  ctx.font = fontMono;
+  ticks.ticks.forEach((t) => {
+    if (t < lo - 1e-9 || t > hi + 1e-9) return;
+    const x = xAt(t);
+    const y = yAt(t);
+    ctx.strokeStyle = "rgba(100, 116, 139, 0.12)";
+    ctx.beginPath();
+    ctx.moveTo(x, pad.t);
+    ctx.lineTo(x, pad.t + h);
+    ctx.moveTo(pad.l, y);
+    ctx.lineTo(pad.l + w, y);
+    ctx.stroke();
+    ctx.fillStyle = muted;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "top";
+    ctx.fillText(formatAxisTick(t, ticks.step), x, pad.t + h + 5);
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    ctx.fillText(formatAxisTick(t, ticks.step), pad.l - 5, y);
+  });
+
+  // zero axes
+  if (lo < 0 && hi > 0) {
+    ctx.strokeStyle = "rgba(100, 116, 139, 0.35)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(xAt(0), pad.t);
+    ctx.lineTo(xAt(0), pad.t + h);
+    ctx.moveTo(pad.l, yAt(0));
+    ctx.lineTo(pad.l + w, yAt(0));
+    ctx.stroke();
+  }
+
+  // band between identity and g(ŷ)
+  for (let i = 0; i < pts.length - 1; i++) {
+    const a = pts[i];
+    const b = pts[i + 1];
+    const midLift = (a.y + b.y) / 2 - (a.x + b.x) / 2;
+    ctx.beginPath();
+    ctx.moveTo(xAt(a.x), yAt(a.x));
+    ctx.lineTo(xAt(b.x), yAt(b.x));
+    ctx.lineTo(xAt(b.x), yAt(b.y));
+    ctx.lineTo(xAt(a.x), yAt(a.y));
+    ctx.closePath();
+    ctx.fillStyle = midLift >= 0 ? liftFill : compressFill;
+    ctx.fill();
+  }
+
+  // identity
+  ctx.setLineDash([3.5, 3]);
+  ctx.strokeStyle = muted;
+  ctx.lineWidth = 1.15;
+  ctx.beginPath();
+  ctx.moveTo(xAt(lo), yAt(lo));
+  ctx.lineTo(xAt(hi), yAt(hi));
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // g curve
+  ctx.beginPath();
+  pts.forEach((p, i) => {
+    const x = xAt(p.x);
+    const y = yAt(p.y);
+    if (i === 0) ctx.moveTo(x, y);
+    else ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 2.1;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  ctx.stroke();
+
+  const hoverIndex =
+    opts.hoverIndex != null && Number.isFinite(Number(opts.hoverIndex))
+      ? Number(opts.hoverIndex)
+      : -1;
+
+  // knots
+  pts.forEach((p, i) => {
+    const x = xAt(p.x);
+    const y = yAt(p.y);
+    const active = i === hoverIndex;
+    ctx.beginPath();
+    ctx.arc(x, y, active ? 3.6 : 2.3, 0, Math.PI * 2);
+    ctx.fillStyle = accent;
+    ctx.fill();
+    ctx.strokeStyle = surface;
+    ctx.lineWidth = active ? 1.5 : 1;
+    ctx.stroke();
+    if (active) {
+      ctx.beginPath();
+      ctx.arc(x, y, 6, 0, Math.PI * 2);
+      ctx.strokeStyle = accent;
+      ctx.globalAlpha = 0.35;
+      ctx.lineWidth = 1.25;
+      ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+  });
+
+  // axis titles
+  ctx.font = fontUi;
+  ctx.fillStyle = muted;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "bottom";
+  ctx.fillText("ŷ →", pad.l + w / 2, cssH - 2);
+  ctx.save();
+  ctx.translate(11, pad.t + h / 2);
+  ctx.rotate(-Math.PI / 2);
+  ctx.textAlign = "center";
+  ctx.textBaseline = "top";
+  ctx.fillText("g(ŷ)", 0, 0);
+  ctx.restore();
+
+  // legend
+  const legX = pad.l + 8;
+  const legY = pad.t + 8;
+  ctx.font = fontUi;
+  ctx.setLineDash([3, 2]);
+  ctx.strokeStyle = muted;
+  ctx.lineWidth = 1.1;
+  ctx.beginPath();
+  ctx.moveTo(legX, legY);
+  ctx.lineTo(legX + 16, legY);
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = muted;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillText("恒等", legX + 20, legY);
+  ctx.strokeStyle = accent;
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(legX + 52, legY);
+  ctx.lineTo(legX + 68, legY);
+  ctx.stroke();
+  ctx.fillStyle = text;
+  ctx.fillText("g(ŷ)", legX + 72, legY);
+
+  // hover readout
+  if (hoverIndex >= 0 && hoverIndex < pts.length) {
+    const p = pts[hoverIndex];
+    const dlt = p.y - p.x;
+    const tip = `ŷ ${formatAxisTick(p.x, ticks.step)}  →  g ${formatAxisTick(
+      p.y,
+      ticks.step
+    )}  (Δ ${dlt >= 0 ? "+" : ""}${formatAxisTick(dlt, ticks.step)})`;
+    ctx.font = fontMono;
+    const tw = ctx.measureText(tip).width;
+    const bx = Math.min(pad.l + w - tw - 10, Math.max(pad.l + 6, xAt(p.x) + 8));
+    const by = Math.max(pad.t + 22, yAt(p.y) - 18);
+    ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
+    ctx.fillRect(bx - 4, by - 9, tw + 8, 16);
+    ctx.fillStyle = "#f8fafc";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    ctx.fillText(tip, bx, by);
+  }
+
+  return {
+    n: pts.length,
+    pts,
+    lo,
+    hi,
+    xAt,
+    yAt,
+    layout: { pad, cssW, cssH, w, h },
+    accent,
+    hoverIndex,
+  };
+}
+
+/** 挂载校准曲线：悬停最近 knot 读数。返回 { paint, destroy }。 */
+export function mountCalibrationCurve(canvas, headDoc, opts = {}) {
+  if (!canvas) return null;
+  const prev = canvas.__calMount;
+  if (prev && typeof prev.destroy === "function") prev.destroy();
+
+  const st = {
+    hoverIndex: -1,
+    pack: null,
+    destroyed: false,
+  };
+
+  const paint = () => {
+    if (st.destroyed) return null;
+    st.pack = paintCalibrationCurve(canvas, headDoc, {
+      ...opts,
+      hoverIndex: st.hoverIndex,
+    });
+    return st.pack;
+  };
+
+  const nearest = (clientX, clientY) => {
+    const pack = st.pack;
+    if (!pack || !pack.pts || !pack.pts.length) return -1;
+    const rect = canvas.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const y = clientY - rect.top;
+    let best = -1;
+    let bestD = 14 * 14;
+    pack.pts.forEach((p, i) => {
+      const px = pack.xAt(p.x);
+      const py = pack.yAt(p.y);
+      const d = (px - x) * (px - x) + (py - y) * (py - y);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    });
+    return best;
+  };
+
+  const onMove = (e) => {
+    const idx = nearest(e.clientX, e.clientY);
+    if (idx !== st.hoverIndex) {
+      st.hoverIndex = idx;
+      paint();
+    }
+    canvas.style.cursor = idx >= 0 ? "crosshair" : "default";
+  };
+  const onLeave = () => {
+    if (st.hoverIndex === -1) return;
+    st.hoverIndex = -1;
+    paint();
+    canvas.style.cursor = "default";
+  };
+
+  canvas.addEventListener("pointermove", onMove);
+  canvas.addEventListener("pointerleave", onLeave);
+  paint();
+
+  const api = {
+    paint,
+    destroy() {
+      if (st.destroyed) return;
+      st.destroyed = true;
+      canvas.removeEventListener("pointermove", onMove);
+      canvas.removeEventListener("pointerleave", onLeave);
+      if (canvas.__calMount === api) delete canvas.__calMount;
+    },
+  };
+  canvas.__calMount = api;
+  return api;
+}
+
 /** 命中率 sparkline（0–1）。 */
 export function paintHitSparkline(canvas, points, opts = {}) {
   if (!canvas || typeof canvas.getContext !== "function") return null;

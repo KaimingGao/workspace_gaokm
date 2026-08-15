@@ -238,10 +238,15 @@ class FactorOlsPoolRequest(BaseModel):
 
 
 class RemRidgeRequest(BaseModel):
-    """open→close 剩余收益头研究拟合（不写 EOD ŷ）。"""
+    """open→close / τ→close 剩余收益头研究拟合（不写 EOD ŷ）。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
-    watching_limit: int = Field(default=12, ge=2, le=40)
+    watching_limit: int = Field(
+        default=36,
+        ge=2,
+        le=40,
+        description="观察池截断；默认满池级 36（上限 40）",
+    )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
     theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
@@ -250,6 +255,11 @@ class RemRidgeRequest(BaseModel):
         description="True=人审写入 data/live/rem_ridge_model.json",
     )
     note: str = Field(default="", max_length=200)
+    tau_hm: Optional[str] = Field(
+        default=None,
+        description="open | 09:45；缺省跟随 dual_score.enable_minute_tau",
+        max_length=8,
+    )
 
 
 class FactorOlsClusterRequest(BaseModel):
@@ -602,6 +612,28 @@ class ScoreLedgerDeleteRequest(BaseModel):
     dates: Optional[List[str]] = Field(default=None, description="批量日期")
     include_outcomes: bool = Field(
         default=True, description="是否同时删除 outcomes 回填文件"
+    )
+
+
+class FeatureEncodingShadowRequest(BaseModel):
+    """启发式 vs raw_basis 特征编码影子对照。"""
+
+    lookback: int = Field(default=120, ge=40, le=500)
+    watching_limit: int = Field(default=36, ge=2, le=40)
+    horizon_days: int = Field(default=1, ge=1, le=10)
+    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
+
+
+class ScoreCalibrationFitRequest(BaseModel):
+    lookback_dates: int = Field(default=90, ge=20, le=250)
+    train_frac: float = Field(default=0.75, ge=0.5, le=0.95)
+
+
+class ScoreCalibrationPersistRequest(BaseModel):
+    note: str = Field(default="", max_length=200)
+    enable: bool = Field(
+        default=True,
+        description="已废弃：有 knots 即 tip/校准列可读；不进排序/闸。保留字段兼容旧客户端。",
     )
 
 

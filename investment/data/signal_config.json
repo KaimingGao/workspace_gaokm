@@ -65,7 +65,9 @@
     "rank_mode": "predicted_score",
     "min_predicted_score": 0.35,
     "min_hold_predicted_score": 0.0,
-    "horizon_days": 1
+    "horizon_days": 1,
+    "enable_calibration": true,
+    "feature_encoding": "heuristic"
   },
   "dual_score": {
     "fusion_mode": "blend",
@@ -74,6 +76,10 @@
     "block_buy_if_tau_missing": false,
     "w_eod": 0.5,
     "w_tau": 0.5,
+    "w_mode": "fixed",
+    "theme_w_tau_boost": 1.25,
+    "eod_residual_var": 1.0,
+    "enable_cascade_shadow": true,
     "enable_tau_shadow_book": true,
     "enable_minute_tau": false,
     "minute_tau_hm": "09:45"
@@ -146,7 +152,13 @@
     "block_active_on_yhat_ic": true,
     "min_sector_map_coverage": 0.5,
     "exclude_oos_failed_groups": true,
-    "promote_allow_worse_oos_than_active": true
+    "promote_allow_worse_oos_than_active": true,
+    "book_constraints": {
+      "enabled": true,
+      "filter_untradeable": true,
+      "enforce_sector_cap": true,
+      "tau_fail_mode": "defer"
+    }
   },
   "event_prior": {
     "mode": "gate",

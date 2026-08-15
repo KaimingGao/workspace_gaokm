@@ -5,9 +5,9 @@
 本文定义：**在不动乱日线 ŷ 主轴的前提下，如何引入 \(T\) 日实时信息**，以及如何用历史数据拟合、分阶段落地。  
 动机来自典型 miss：日线 ŷ（\(T\!-\!1\) 因子）为负或接近 0，但 \(T\) 日主题脉冲大幅上涨——残差主因是 **信息集外冲击**，不是单纯「不该拿今日涨跌对账」。
 
-**状态**：方案已定稿，**分阶段落地中**。P0～P1c、R0/R0p/R2 与 R3 展示字段已落地；R1 分钟 τ 面板 API 已具备（依赖分钟缓存有数据才出样本）。  
-**双层 ŷ（2026-08-14）**：A1 字段契约 + F1 买入闸已进代码（`dual_score` · `predicted_score_tau` · `paper_rebalance`）；融合默认 `fusion_mode=f1`。A2 影子簿：刷簿时写 `live/cluster_book_tau_shadow.json`（同池按 ŷ_τ；不驱动买入）；status 含 `tau_shadow_book.vs_eod`。账本：`{as_of}.tau_shadow.json` 成员快照 + outcomes 的 `realized_tau`；验收 API `GET /api/quant/score-review/tau-shadow`。B3：落地卡 / 对照确认展示 `promote_preflight`。rem persist 为 `rem_ridge_v2`（`tau`/`y_spec`）。分钟 τ：`enable_minute_tau`（默认关）。A3 主排序仍待影子簿验收。  
-**诚实边界**：主排序仍为 EOD；τ 层独立头 + 决策闸，不揉改 `predicted_score`。升级顺序见 [tau-contract-and-partition-upgrade.md](tau-contract-and-partition-upgrade.md)。
+**状态**：方案已定稿，**P0～P2 研究轨已接线**。刷簿 Z 齐套 / rem 满池 / 主题分层 OOS / 启用后轻量刷簿；分钟 τ 与 `w_mode` / cascade 影子默认关或 fixed，人审后开。  
+**双层 ŷ**：契约 + blend + A2 影子簿已进代码；rem schema `rem_ridge_v6`（含 `oos.by_theme` / `residual_var`）。分钟 τ：`enable_minute_tau`（默认关）。A3 主排序仍待影子簿验收。P3 bandit 未做。  
+**诚实边界**：主排序仍为 EOD；τ 层独立头 + 决策闸，不揉改 `predicted_score`。升级顺序见 [tau-contract-and-partition-upgrade.md](tau-contract-and-partition-upgrade.md) 与 [predicted-score-chain.md §2.5](predicted-score-chain.md)。
 
 ---
 

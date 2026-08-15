@@ -8,6 +8,7 @@ GET /api/dashboard/signals        — 最新信号 / 告警
 GET /api/dashboard/allocation     — 资产配置（按板块汇总市值）
 GET /api/dashboard/risk-metrics   — 组合风险指标（Sharpe / Sortino / VaR / 波动率）
 GET /api/dashboard/factor-exposure — 因子暴露分析
+GET /api/dashboard/portfolio-health — 纸面组合健康度（暴露/建簿约束/衰减）
 GET /api/dashboard/drawdown       — 回撤曲线（含最大回撤与当前回撤）
 GET /api/dashboard/var-historical  — 历史模拟 VaR / CVaR / 收益直方图
 GET /api/dashboard/factor-ic-series — 因子 IC 时序（研究台）
@@ -1635,5 +1636,34 @@ def dashboard_factor_exposure():
     """因子暴露分析：基于持仓的板块/风格暴露。"""
     try:
         return _build_factor_exposure()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/dashboard/portfolio-health")
+def dashboard_portfolio_health():
+    """纸面组合健康度：暴露 · 建簿约束跳过 · α 衰减告警。"""
+    try:
+        from core.risk.portfolio_health import build_portfolio_health
+        from core.signal.cluster_live import load_active_cluster_book
+
+        book_doc = load_active_cluster_book() or {}
+        meta = book_doc.get("meta") or {}
+        paper = _load_raw_paper()
+        rolling = None
+        try:
+            from core.signal.cluster_live_evidence import build_cluster_live_evidence
+
+            ev = build_cluster_live_evidence(light=True) or {}
+            rolling = (ev.get("rolling_ic") or ev.get("yhat_ic") or {})
+        except Exception:
+            rolling = None
+        return build_portfolio_health(
+            paper=paper,
+            book=list(book_doc.get("book") or []),
+            book_constraints=meta.get("book_constraints"),
+            book_skips=list(meta.get("book_skips") or []),
+            rolling_ic=rolling if isinstance(rolling, dict) else None,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

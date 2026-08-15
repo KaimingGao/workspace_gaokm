@@ -262,10 +262,21 @@ def simulate_cross_section_rebalance(
             )
         if code not in score_by_code:
             try:
-                if src.get("score") is not None:
+                from core.signal.dual_score import eod_gate_score_for_item
+
+                gate = eod_gate_score_for_item(src)
+                if gate is not None:
+                    score_by_code[code] = float(gate)
+                elif src.get("score") is not None:
                     score_by_code[code] = float(src.get("score"))
             except (TypeError, ValueError):
                 pass
+            except Exception:
+                try:
+                    if src.get("score") is not None:
+                        score_by_code[code] = float(src.get("score"))
+                except (TypeError, ValueError):
+                    pass
         if code not in tau_by_code:
             try:
                 from core.signal.dual_score import resolve_predicted_score_tau
@@ -742,10 +753,24 @@ def simulate_cross_section_rebalance(
             if item.get("hard_reject"):
                 continue
             score = item.get("score")
-            if score is None or float(score) < min_score:
+            # 买入 EOD 门槛：原始 ŷ_EOD；与建簿 below_min 同源
+            try:
+                from core.signal.dual_score import eod_gate_score_for_item
+
+                gate_sc = eod_gate_score_for_item(item)
+                if gate_sc is None and code in score_by_code:
+                    gate_sc = score_by_code.get(code)
+            except Exception:
+                gate_sc = score_by_code.get(code)
+                if gate_sc is None:
+                    try:
+                        gate_sc = float(score) if score is not None else None
+                    except (TypeError, ValueError):
+                        gate_sc = None
+            if gate_sc is None or float(gate_sc) < min_score:
                 continue
 
-            # F1：ŷ_τ 买入闸（不改 EOD score；无 rem 模型时默认放行）
+            # F1：ŷ_τ 买入闸（原始 ŷ_τ；校准不进闸）
             try:
                 from core.signal.dual_score import buy_passes_tau_gate
 
@@ -757,6 +782,7 @@ def simulate_cross_section_rebalance(
                             "stock_name": item.get("stock_name"),
                             "reason": tau_reason or "ŷ_τ 买入闸",
                             "score": score,
+                            "eod_gate_score": gate_sc,
                             "predicted_score_tau": item.get("predicted_score_tau", item.get("score_rem")),
                             "dual_score_tau_gate": True,
                         }
@@ -1152,7 +1178,9 @@ def simulate_cross_section_rebalance(
 
         _dual_meta = {
             "fusion_mode": get_dual_score_cfg().get("fusion_mode"),
-            "note": "正交加权：簿排序与表列主分为 ŷ_trade=w·ŷ_EOD_rem+w·ŷ_τ；买入另须 ŷ_τ≥min_predicted_score_tau；ŷ_EOD 仅作门槛",
+            "note": (
+                "排序=ŷ_trade（raw）；买入门槛=ŷ_EOD≥min 且 ŷ_τ≥floor；校准 g 仅 tip 对照"
+            ),
         }
     except Exception:
         _dual_meta = {"fusion_mode": None, "note": "dual_score unavailable"}
@@ -1189,5 +1217,5 @@ def simulate_cross_section_rebalance(
         "attribution": attribution,
         "cost_assumptions": cost_assumptions,
         "exposure_style": exposure_style,
-        "note": "横截面/分池调仓为纸面模拟；买入=ŷ_EOD≥min_score 且（F1）ŷ_τ≥floor；卖出仅 ŷ_EOD<min_hold（可 soft hold）。",
+        "note": "横截面/分池调仓为纸面模拟；排序=ŷ_trade（raw）；买入=EOD门槛且 τ 闸（均 raw）；校准 g 仅 tip；卖出看 EOD 持有门槛。",
     }

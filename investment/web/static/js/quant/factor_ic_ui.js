@@ -13,7 +13,7 @@ import { metricClass as defaultMetricClass } from "./bt_result.js";
  *   metricClass?: typeof defaultMetricClass,
  *   factorMetaByName: Record<string, object>,
  *   factorMetaByLabel: Record<string, object>,
- *   factorNameCellHtml: (name: string, label?: string) => string,
+ *   factorNameCellHtml: (name: string, label?: string, fallbackDescription?: string) => string,
  * }} deps
  */
 export function createFactorIcUi(deps) {
@@ -294,7 +294,10 @@ export function createFactorIcUi(deps) {
     open_gap: "开盘缺口",
     sector_gap_breadth: "同业缺口广度",
     theme_day: "主题日",
+    gap_atr: "缺口 / ATR",
+    gap_vs_sector: "行业相对缺口",
     ret_open_to_tau: "开盘→τ 收益 %",
+    sector_ret_to_tau: "板块中位开→τ %",
     // 与 factor_registry 对齐的兜底中文（meta 未加载时仍可读）
     momentum: "动量",
     volume_price: "量价",
@@ -351,7 +354,10 @@ export function createFactorIcUi(deps) {
       "open_gap",
       "sector_gap_breadth",
       "theme_day",
+      "gap_atr",
+      "gap_vs_sector",
       "ret_open_to_tau",
+      "sector_ret_to_tau",
     ]);
     const activeList = Array.isArray(rm.active_features)
       ? rm.active_features.map(String)
@@ -501,15 +507,28 @@ export function createFactorIcUi(deps) {
       );
     };
 
+    const remFactorFallbackTip = (r) => {
+      const shown = r.label || r.name || "因子";
+      const key = r.name ? `（${r.name}）` : "";
+      if (r.kind === "开盘") {
+        return `${shown}${key}：ŷ_τ 开盘/截面特征。正 β 表示该值偏高时 ŷ_τ 更高。`;
+      }
+      return `${shown}${key}：T−1 日线因子，ŷ_τ Ridge 入模。正 β 表示该值偏高时 ŷ_τ 更高。`;
+    };
+
     const factorCell = (r) =>
       `<span class="quant-rem-factor">` +
       `<span class="quant-rem-rank" title="|β| 排名">${esc(String(r.rank))}</span>` +
-      `<span class="quant-rem-factor-main">${factorNameCellHtml(r.name, r.label)}</span>` +
+      `<span class="quant-rem-factor-main">${factorNameCellHtml(
+        r.name,
+        r.label,
+        remFactorFallbackTip(r)
+      )}</span>` +
       `</span>`;
 
     const grid = researchGridHtml(
       [
-        { id: "factor", label: "因子", flex: true },
+        { id: "factor", label: "因子", flex: true, title: "悬停因子名查看口径说明" },
         {
           id: "kind",
           label: "类型",

@@ -195,14 +195,31 @@ class PaperAccountMixin:
                         "predicted_score_eod_rem",
                         "predicted_score_tau_delta",
                         "realized_t1_to_tau",
+                        "predicted_score_cal",
+                        "predicted_score_eod_rem_cal",
+                        "predicted_score_tau_cal",
+                        "predicted_score_blend_cal",
+                        "score_calibration_applied",
+                        "score_calibration_enabled",
+                        "score_calibration_eod_oor",
+                        "score_calibration_eod_rem_oor",
+                        "score_calibration_tau_oor",
+                        "score_calibration_note",
+                        "score_calibration_partial",
+                        "decision_score",
                     ):
                         if k in score_info:
                             enriched[k] = score_info.get(k)
                     gate_meta = annotate_score_gate(
-                        score_info.get("score"), paper=paper, min_score=gate
+                        score_info.get("score"),
+                        paper=paper,
+                        min_score=gate,
+                        item=score_info if isinstance(score_info, dict) else enriched,
                     )
                     enriched["min_score"] = gate_meta["min_score"]
                     enriched["below_min_score"] = gate_meta["below_min_score"]
+                    if gate_meta.get("gate_score") is not None:
+                        enriched["eod_gate_score"] = gate_meta.get("gate_score")
                 else:
                     enriched["score"] = None
                     enriched["min_score"] = gate

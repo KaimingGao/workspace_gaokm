@@ -107,7 +107,8 @@
 }
 
 /* 评分列整格可悬停：span 撑满单元格，避免只点到窄文字才出 tip */
-body[data-page="watching"] .watching-react-grid-cell.watching-col-score {
+body[data-page="watching"] .watching-react-grid-cell.watching-col-score,
+body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -115,7 +116,8 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score {
   padding-bottom: 0;
 }
 
-body[data-page="watching"] .watching-react-grid-cell.watching-col-score .watching-score-cell {
+body[data-page="watching"] .watching-react-grid-cell.watching-col-score .watching-score-cell,
+body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal .watching-score-cell {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -146,6 +148,22 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score .watchin
 
 .watching-score-cell.paper-hold-score.score-below-min {
   opacity: 0.72;
+}
+
+/* 校准对照列：弱化字重/色，避免与决策分抢戏 */
+.watching-score-cell.watching-score-cal.paper-hold-score,
+.paper-hold-score.watching-score-cal,
+.bt-trade-score.watching-score-cal {
+  font-weight: 500;
+  opacity: 0.82;
+}
+
+.watching-score-cell.watching-score-cal.is-cal-oor,
+.paper-hold-score.watching-score-cal.is-cal-oor,
+.bt-trade-score.watching-score-cal.is-cal-oor {
+  opacity: 0.62;
+  text-decoration: underline dotted;
+  text-underline-offset: 2px;
 }
 
 .watching-holdings-card {
@@ -490,7 +508,8 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score .watchin
 }
 
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-pnl,
-.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score {
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score,
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_cal {
   min-width: 3.4rem;
 }
 

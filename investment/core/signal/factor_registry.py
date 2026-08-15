@@ -17,6 +17,17 @@ from core.signal.factors.ma_slope import score_ma_slope
 from core.signal.factors.momentum import pct_change, score_momentum
 from core.signal.factors.money_flow import score_money_flow
 from core.signal.factors.quality import score_quality
+from core.signal.factors.raw_basis import (
+    score_atr_pct_raw,
+    score_atr_pct_sq,
+    score_mom3_pct,
+    score_mom5_pct,
+    score_mom_overheat,
+    score_pe_raw,
+    score_value_expensive,
+    score_value_fair,
+    score_vol_elevated,
+)
 from core.signal.factors.relative_strength import score_relative_strength
 from core.signal.factors.reversal import score_reversal
 from core.signal.factors.size import score_size
@@ -267,6 +278,62 @@ _register(
     "个股收益对指数回归残差：市场中性后的短线特异动量；无指数不进 ŷ（omit）。",
 )
 
+# raw_basis 试点：原始量 + 分档（替代 momentum/volatility/value 启发式分）
+_register(
+    "mom3_pct",
+    "动量3日%",
+    score_mom3_pct,
+    "近 3 日涨跌幅（%）。raw_basis 编码；配合 mom_overheat 表达过热。",
+)
+_register(
+    "mom5_pct",
+    "动量5日%",
+    score_mom5_pct,
+    "近 5 日涨跌幅（%）。raw_basis 编码。",
+)
+_register(
+    "mom_overheat",
+    "动量过热",
+    score_mom_overheat,
+    "mom3>6% 为 1，否则 0。捕捉倒 U 的过热侧，避免启发式分段黑箱。",
+)
+_register(
+    "atr_pct_raw",
+    "ATR%",
+    score_atr_pct_raw,
+    "近端 ATR 占价格比例（%）。raw_basis；与 atr_pct_sq / vol_elevated 表达波动非线性。",
+)
+_register(
+    "atr_pct_sq",
+    "ATR%²",
+    score_atr_pct_sq,
+    "ATR% 的平方项，近似波动倒 U / 凸性。",
+)
+_register(
+    "vol_elevated",
+    "高波动档",
+    score_vol_elevated,
+    "ATR%>4.5 为 1。高波动风险档指示。",
+)
+_register(
+    "pe_raw",
+    "PE",
+    score_pe_raw,
+    "PE/PE_TTM 原始值。缺数据 omit。",
+)
+_register(
+    "value_fair",
+    "估值适中",
+    score_value_fair,
+    "PE∈[8,25] 为 1。估值倒 U 的适中区。",
+)
+_register(
+    "value_expensive",
+    "估值偏贵",
+    score_value_expensive,
+    "PE>40 为 1。高估档。",
+)
+
 
 def list_factors(*, include_meta: bool = False) -> List[Dict[str, str]]:
     """列出注册因子；include_meta=True 时附 FM1 sourced/proxy 状态。"""
@@ -374,7 +441,13 @@ def compute_configured_factors(
         # 缺输入（如规模无市值）：不进 sub_scores，ŷ 跳过该项，禁止假中性 50 进 z-score
         if isinstance(fac_meta, dict) and fac_meta.get("omit_sub_score"):
             continue
-        sub_scores[name] = round(score, 1)
+        try:
+            from core.signal.factors.raw_basis import RAW_BASIS_FACTOR_NAMES
+
+            nd = 4 if name in RAW_BASIS_FACTOR_NAMES else 1
+        except Exception:
+            nd = 1
+        sub_scores[name] = round(score, nd)
         contribs[name] = round(w * score, 2)
 
     return sub_scores, contribs, meta

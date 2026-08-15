@@ -1,6 +1,6 @@
 /** Holdings sort helpers extracted from paper.js (W0.1). */
 
-import { resolveTradeScore } from "./fmt.js";
+import { resolveTradeScore, resolveCalTradeScore } from "./fmt.js?v=p1092";
 
 export function loadHoldingsSort() {
   let key = "market_value";
@@ -12,6 +12,7 @@ export function loadHoldingsSort() {
       (saved.key === "code" ||
         saved.key === "market_value" ||
         saved.key === "score" ||
+        saved.key === "score_cal" ||
         saved.key === "pnl" ||
         saved.key === "chg")
     ) {
@@ -50,6 +51,11 @@ export function sortHoldings(list, key, dir) {
     if (k === "score") {
       av = resolveTradeScore(a);
       bv = resolveTradeScore(b);
+      av = av == null ? NaN : av;
+      bv = bv == null ? NaN : bv;
+    } else if (k === "score_cal") {
+      av = resolveCalTradeScore(a);
+      bv = resolveCalTradeScore(b);
       av = av == null ? NaN : av;
       bv = bv == null ? NaN : bv;
     } else if (k === "pnl") {

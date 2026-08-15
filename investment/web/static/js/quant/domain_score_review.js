@@ -1,7 +1,7 @@
 /**
  * 双层 ŷ 复盘：ŷ_EOD 方向 vs 前瞻收益；副轴 ŷ_τ 验收。
  */
-import { paintYhatScatter, paintHitSparkline } from "./yhat_viz.js";
+import { paintYhatScatter, paintHitSparkline, mountCalibrationCurve } from "./yhat_viz.js";
 import { syncOverviewFromScoreReview, setProStatusChip, factorCN } from "./factor_corr_ui.js";
 
 export function installScoreReview(ctx) {
@@ -48,6 +48,19 @@ export function installScoreReview(ctx) {
     el.classList.toggle("is-busy", !!busy);
     el.classList.toggle("is-error", !!error);
     el.classList.toggle("is-ok", !!ok);
+  }
+
+  function setCalStatus(text, { busy = false, error = false, ok = false } = {}) {
+    const el = document.getElementById("quant-score-cal-status");
+    if (!el) return;
+    el.textContent = text || "";
+    el.classList.toggle("is-busy", !!busy);
+    el.classList.toggle("is-error", !!error);
+    el.classList.toggle("is-ok", !!ok);
+  }
+
+  function calPanelEl() {
+    return document.getElementById("quant-score-cal-panel");
   }
 
   function syncHorizonSelect(horizon) {
@@ -159,6 +172,7 @@ export function installScoreReview(ctx) {
     box.innerHTML =
       `<div class="quant-metric-strip quant-tau-strip" title="A2：ŷ_τ vs open→close；影子簿 vs EOD 重叠">` +
       `<span><b>ŷ_τ</b> 验收</span>` +
+      `<span>τ <b>${esc(String(tau.as_of_tau || tau.tau || "open"))}</b></span>` +
       `<span>IC <b>${esc(ic)}</b> (n=${esc(n)})</span>` +
       `<span>命中 <b>${esc(hit)}</b></span>` +
       `<span>影子重叠 Jaccard <b>${esc(j)}</b> · ${esc(ov)}</span>` +
@@ -168,7 +182,7 @@ export function installScoreReview(ctx) {
       `</div>` +
       `<p class="quant-attr-note">标签 ${esc(
         String(tau.y_spec_tau || "close[T]/open[T]-1")
-      )} · 不替代 EOD 复盘</p>`;
+      )} · 与 EOD 分栏对账 · 禁止混用全日相对昨收验收分钟头</p>`;
   }
 
   function setVizMeta(id, text) {
@@ -746,6 +760,504 @@ export function installScoreReview(ctx) {
       setStatus(`冻结失败：${String(err.message || err)}`, { error: true });
     }
   });
+
+  function fmtCalMae(v) {
+    return v != null && Number.isFinite(Number(v)) ? Number(v).toFixed(3) : "—";
+  }
+  function fmtCalIc(v) {
+    return v != null && Number.isFinite(Number(v)) ? Number(v).toFixed(2) : "—";
+  }
+  function summarizeCalHeads(heads) {
+    const parts = [];
+    for (const [name, h] of Object.entries(heads || {})) {
+      if (!h || !h.success) {
+        parts.push(`${name}失败`);
+        continue;
+      }
+      const ho = h.holdout_metrics || {};
+      parts.push(
+        `${name} n=${h.n ?? "—"} hold MAE ${fmtCalMae(ho.mae_raw)}→${fmtCalMae(
+          ho.mae_cal
+        )} IC ${fmtCalIc(ho.ic_raw)}→${fmtCalIc(ho.ic_cal)}`
+      );
+    }
+    return parts.join(" · ");
+  }
+
+  /** 最近一次拟合（未 promote）快照，供面板对照 */
+  let lastFitSnapshot = null;
+  /** 当前面板用于重绘曲线的 head 文档 */
+  let lastCalVizHeads = null;
+
+  function pickCalHeads(doc) {
+    if (!doc || typeof doc !== "object") return {};
+    const heads = doc.heads;
+    return heads && typeof heads === "object" ? heads : {};
+  }
+
+  function metricDeltaClass(raw, cal, { higherBetter = false } = {}) {
+    const a = Number(raw);
+    const b = Number(cal);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return "";
+    if (Math.abs(a - b) < 1e-9) return "";
+    const better = higherBetter ? b > a : b < a;
+    return better ? "is-better" : "is-worse";
+  }
+
+  function headDocForViz(name, liveHeads, reportHeads, preferLive) {
+    if (preferLive && liveHeads[name]) return liveHeads[name];
+    return reportHeads[name] || liveHeads[name] || null;
+  }
+
+  function fmtDelta(raw, cal, digits = 3) {
+    const a = Number(raw);
+    const b = Number(cal);
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return "—";
+    const d = b - a;
+    const t = Math.abs(d).toFixed(digits);
+    return d > 0 ? `+${t}` : d < 0 ? `−${t}` : "0";
+  }
+
+  function kpiChipHtml(label, raw, cal, { higherBetter = false, digits = 3 } = {}) {
+    const cls = metricDeltaClass(raw, cal, { higherBetter });
+    const rawTxt = higherBetter ? fmtCalIc(raw) : fmtCalMae(raw);
+    const calTxt = higherBetter ? fmtCalIc(cal) : fmtCalMae(cal);
+    const dTxt = fmtDelta(raw, cal, digits);
+    return (
+      `<div class="quant-cal-kpi ${cls}">` +
+      `<span class="quant-cal-kpi-lab">${esc(label)}</span>` +
+      `<span class="quant-cal-kpi-vals">` +
+      `<em title="raw">${esc(rawTxt)}</em>` +
+      `<span class="quant-cal-kpi-arrow" aria-hidden="true">→</span>` +
+      `<strong title="calibrated">${esc(calTxt)}</strong>` +
+      `</span>` +
+      `<span class="quant-cal-kpi-delta" title="cal − raw">${esc(dTxt)}</span>` +
+      `</div>`
+    );
+  }
+
+  function paintCalCharts(headsByName) {
+    lastCalVizHeads = headsByName || null;
+    if (!headsByName) return;
+    const colors = { eod: "#0f766e", tau: "#0369a1" };
+    for (const [name, doc] of Object.entries(headsByName)) {
+      if (!doc) continue;
+      const canvas = document.querySelector(
+        `#quant-score-cal-panel canvas[data-cal-head="${String(name).replace(/"/g, "")}"]`
+      );
+      if (!canvas) continue;
+      mountCalibrationCurve(canvas, doc, {
+        label: name,
+        color: colors[name] || "#0f766e",
+      });
+    }
+  }
+
+  function renderCalibrationPanel(pack) {
+    const box = calPanelEl();
+    if (!box) return;
+    const live = (pack && pack.live) || null;
+    const lastReport =
+      lastFitSnapshot || (pack && pack.last_report) || null;
+    const promoteOk =
+      pack && pack.promote_ok != null
+        ? !!pack.promote_ok
+        : lastReport && lastReport.promote_ok != null
+          ? !!lastReport.promote_ok
+          : true;
+    const promoteBlock =
+      (pack && pack.promote_block_reason) ||
+      (lastReport && lastReport.promote_block_reason) ||
+      "";
+    // 「将跳过：…」仍可写入 live（只挂安全头）
+    const promoteHardBlock =
+      !promoteOk ||
+      (promoteBlock && !String(promoteBlock).startsWith("将跳过"));
+    const liveHeads = pickCalHeads(live);
+    const reportHeads = pickCalHeads(lastReport);
+    const headNames = Array.from(
+      new Set([...Object.keys(liveHeads), ...Object.keys(reportHeads)])
+    ).sort();
+    const hasLive = !!(pack && pack.live_present && Object.keys(liveHeads).length);
+    const hasDraft = !!(lastReport && Object.keys(reportHeads).length);
+    let state = "off";
+    let badge = "未拟合";
+    if (hasLive) {
+      state = promoteHardBlock ? "warn" : "on";
+      badge = promoteHardBlock ? "已上线·映射偏弱" : "已上线";
+    } else if (hasDraft) {
+      state = promoteHardBlock ? "warn" : "draft";
+      badge = promoteHardBlock ? "可写入·映射偏弱" : "已拟合·待写入";
+    }
+    const promoted =
+      (live && (live.promoted_at || live.fitted_at)) ||
+      (lastReport && (lastReport.fitted_at || lastReport.promoted_at)) ||
+      "";
+    const lookback =
+      (live && live.lookback_dates) ||
+      (lastReport && lastReport.lookback_dates) ||
+      "—";
+    const note =
+      (live && live.note) ||
+      (lastReport && lastReport.note) ||
+      "";
+
+    const vizHeads = {};
+    headNames.forEach((name) => {
+      // 有 draft 时优先看报告；已上线且无新拟合则看 live
+      const preferLive = hasLive && !hasDraft;
+      const doc = headDocForViz(name, liveHeads, reportHeads, preferLive);
+      if (doc) vizHeads[name] = doc;
+    });
+
+    const rows = headNames
+      .map((name) => {
+        const src = vizHeads[name] || {};
+        const ho = src.holdout_metrics || {};
+        const maeCls = metricDeltaClass(ho.mae_raw, ho.mae_cal, {
+          higherBetter: false,
+        });
+        const icCls = metricDeltaClass(ho.ic_raw, ho.ic_cal, {
+          higherBetter: true,
+        });
+        const ok =
+          src.success !== false &&
+          ((src.knots_x && src.knots_x.length >= 2) || src.n != null);
+        return (
+          `<tr>` +
+          `<td>${esc(name)}</td>` +
+          `<td class="num">${esc(String(src.n ?? "—"))}</td>` +
+          `<td class="num ${maeCls}">${esc(
+            `${fmtCalMae(ho.mae_raw)}→${fmtCalMae(ho.mae_cal)}`
+          )}</td>` +
+          `<td class="num ${icCls}">${esc(
+            `${fmtCalIc(ho.ic_raw)}→${fmtCalIc(ho.ic_cal)}`
+          )}</td>` +
+          `<td>${esc(ok ? "ok" : "缺")}</td>` +
+          `</tr>`
+        );
+      })
+      .join("");
+
+    const table =
+      headNames.length > 0
+        ? `<table class="quant-cal-table">` +
+          `<thead><tr>` +
+          `<th>头</th><th class="num">n</th><th class="num">hold MAE</th>` +
+          `<th class="num">hold IC</th><th>knots</th>` +
+          `</tr></thead><tbody>${rows}</tbody></table>`
+        : `<p class="quant-cal-note">尚无校准映射。先点「拟合校准」，看 holdout 后再「写入 live」（校准列/tip 可读，不进决策）。</p>`;
+
+    const headTitle = { eod: "ŷ_EOD", tau: "ŷ_τ" };
+    const vizCells = headNames
+      .map((name) => {
+        const src = vizHeads[name] || {};
+        const ho = src.holdout_metrics || {};
+        const nKnots = Math.min(
+          (src.knots_x || []).length,
+          (src.knots_y || []).length
+        );
+        if (nKnots < 2) return "";
+        const nSamp = src.n_holdout ?? src.n ?? "—";
+        const title = headTitle[name] || name;
+        return (
+          `<article class="quant-cal-viz-cell">` +
+          `<header class="quant-cal-viz-head">` +
+          `<div>` +
+          `<div class="quant-cal-viz-title">${esc(title)} 校准映射</div>` +
+          `<div class="quant-cal-viz-sub">isotonic · ${esc(
+            String(nKnots)
+          )} knots · holdout n=${esc(String(nSamp))}</div>` +
+          `</div>` +
+          `<div class="quant-cal-kpi-row">` +
+          kpiChipHtml("MAE", ho.mae_raw, ho.mae_cal, {
+            higherBetter: false,
+            digits: 3,
+          }) +
+          kpiChipHtml("IC", ho.ic_raw, ho.ic_cal, {
+            higherBetter: true,
+            digits: 2,
+          }) +
+          `</div>` +
+          `</header>` +
+          `<div class="dashboard-chart-host quant-cal-curve-host">` +
+          `<canvas class="quant-cal-curve" data-cal-head="${esc(
+            name
+          )}" width="480" height="188" aria-label="${esc(
+            title
+          )} 校准曲线"></canvas>` +
+          `</div>` +
+          `<p class="quant-cal-viz-hint">青带=抬高 · 琥珀带=压低 · 悬停 knot 读 Δ</p>` +
+          `</article>`
+        );
+      })
+      .filter(Boolean)
+      .join("");
+
+    const vizBlock = vizCells
+      ? `<div class="quant-cal-viz" id="quant-cal-viz">` +
+        `<div class="quant-cal-viz-grid">${vizCells}</div>` +
+        `</div>`
+      : "";
+
+    const actions = [];
+    actions.push(
+      `<button type="button" class="dialog-btn secondary" data-cal-action="refresh" title="重新读取 live / 上次报告">刷新</button>`
+    );
+    if (hasDraft || hasLive) {
+      const writeTitle = promoteHardBlock
+        ? `可写入 live（软警告：${promoteBlock || "映射偏弱"}）；不进排序/闸`
+        : hasLive
+          ? "用最新拟合覆盖 live"
+          : "写入 live；tip/校准列可读 g";
+      actions.push(
+        `<button type="button" class="dialog-btn secondary" data-cal-action="persist" title="${esc(
+          writeTitle
+        )}">${hasLive && !hasDraft ? "覆盖写入" : "写入 live"}</button>`
+      );
+    }
+
+    box.innerHTML =
+      `<div class="quant-cal-panel is-${state}">` +
+      `<div class="quant-cal-head">` +
+      `<span class="quant-cal-badge">${esc(badge)}</span>` +
+      `<span class="quant-cal-title">校准 g(ŷ)</span>` +
+      `<span class="quant-cal-meta">lookback ${esc(String(lookback))} · ${esc(
+        promoted ? String(promoted).slice(0, 19).replace("T", " ") : "—"
+      )}</span>` +
+      `<div class="quant-cal-actions">${actions.join("")}</div>` +
+      `</div>` +
+      table +
+      vizBlock +
+      `<p class="quant-cal-note">` +
+      (hasLive
+        ? "tip / 复盘可读 g(ŷ) 对照；排序与买卖/入簿闸仍用原始 ŷ。不改 Ridge β。"
+        : promoteHardBlock
+          ? `映射偏弱（软警告）：${esc(
+              String(promoteBlock || "g(门槛)偏低")
+            )} · 仍可「写入 live」供 tip，不进决策`
+          : promoteBlock
+            ? `${esc(String(promoteBlock))} · 写入 live 后 tip 出现 ⑤`
+            : "写入 live 后 tip 出现 ⑤；排序与闸仍用 raw ŷ；主 predicted_score 保留原值。") +
+      (note ? ` · ${esc(String(note).slice(0, 80))}` : "") +
+      `</p>` +
+      `</div>`;
+
+    // 等布局后再画，避免 clientWidth=0
+    requestAnimationFrame(() => paintCalCharts(vizHeads));
+  }
+
+  async function refreshCalibrationPanel() {
+    const box = calPanelEl();
+    try {
+      const res = await fetch("/api/quant/score-calibration/model");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        if (box) {
+          box.innerHTML = `<p class="quant-attr-note">校准状态读取失败</p>`;
+        }
+        setCalStatus("校准状态读取失败", { error: true });
+        return null;
+      }
+      renderCalibrationPanel(data);
+      const liveHeads =
+        data.live && data.live.heads && typeof data.live.heads === "object"
+          ? Object.keys(data.live.heads).length
+          : 0;
+      const badge = liveHeads
+        ? "已上线"
+        : data.last_report
+          ? "已拟合·待写入"
+          : "未拟合";
+      setCalStatus(`校准 · ${badge}`);
+      return data;
+    } catch (_) {
+      if (box) {
+        box.innerHTML = `<p class="quant-attr-note">校准状态读取失败</p>`;
+      }
+      setCalStatus("校准状态读取失败", { error: true });
+      return null;
+    }
+  }
+
+  async function fitCalibration() {
+    setCalStatus("拟合校准 g(ŷ)…", { busy: true });
+    setQuantMeta("拟合校准中…", { busy: true });
+    const res = await fetch("/api/quant/score-calibration/fit", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ lookback_dates: 90, train_frac: 0.75 }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+      setCalStatus(`校准拟合失败：${err}`, { error: true });
+      setQuantMeta(`校准拟合失败 · ${err}`, { error: true });
+      return;
+    }
+    lastFitSnapshot = data;
+    const msg = summarizeCalHeads(data.heads);
+    if (data.promote_ok === false) {
+      setCalStatus(
+        `校准已拟合 · 可写入 live（软警告：${data.promote_block_reason || msg}）`,
+        { ok: true }
+      );
+      setQuantMeta(
+        `校准已拟合 · 可写入 tip 对照 · ${data.promote_block_reason || msg}`
+      );
+    } else if (
+      data.promote_block_reason &&
+      String(data.promote_block_reason).startsWith("将跳过")
+    ) {
+      setCalStatus(`校准已拟合 · ${data.promote_block_reason} · ${msg}`, {
+        ok: true,
+      });
+      setQuantMeta(`校准可写入（部分头告警）· ${msg}`);
+    } else {
+      setCalStatus(`校准已拟合（未写盘）· ${msg}`, { ok: true });
+      setQuantMeta(`校准已拟合 · 人审后点「写入 live」· ${msg}`);
+    }
+    await refreshCalibrationPanel();
+  }
+
+  async function persistCalibration() {
+    if (
+      !window.confirm(
+        [
+          "写入 ŷ 校准对照层到 live？",
+          "",
+          "将写入 live/score_calibration.json；tip/复盘可读 g(ŷ)。",
+          "排序 / 买卖闸 / 入簿门槛仍用原始 ŷ（不进决策）。",
+          "不改 Ridge β / signal_config.weights。",
+        ].join("\n")
+      )
+    ) {
+      return;
+    }
+    setCalStatus("写入 live…", { busy: true });
+    const res = await fetch("/api/quant/score-calibration/persist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        note: "ui score calibration promote",
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+      setCalStatus(`校准写入失败：${err}`, { error: true });
+      return;
+    }
+    lastFitSnapshot = null;
+    setCalStatus(
+      `校准已写入 live · heads ${(data.heads || []).join(",") || "—"} · ${
+        data.promoted_at || ""
+      }`,
+      { ok: true }
+    );
+    setQuantMeta("校准已上线 · tip 可读 g(ŷ)；排序/闸仍用 raw");
+    await refreshCalibrationPanel();
+  }
+
+  on("quant-score-cal-fit", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await fitCalibration();
+    } catch (err) {
+      setCalStatus(`校准拟合失败：${String(err.message || err)}`, { error: true });
+    }
+  });
+  on("quant-score-cal-persist", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await persistCalibration();
+    } catch (err) {
+      setCalStatus(`校准写入失败：${String(err.message || err)}`, { error: true });
+    }
+  });
+
+  const calBox = calPanelEl();
+  if (calBox && calBox.dataset.calWired !== "1") {
+    calBox.dataset.calWired = "1";
+    calBox.addEventListener("click", (e) => {
+      const btn =
+        e.target && e.target.closest
+          ? e.target.closest("button[data-cal-action]")
+          : null;
+      if (!btn || !calBox.contains(btn)) return;
+      e.preventDefault();
+      const act = btn.getAttribute("data-cal-action");
+      if (act === "refresh") {
+        refreshCalibrationPanel().catch(() => {});
+        return;
+      }
+      if (act === "persist") {
+        persistCalibration().catch((err) => {
+          setCalStatus(`校准写入失败：${String(err.message || err)}`, {
+            error: true,
+          });
+        });
+      }
+    });
+    if (typeof ResizeObserver !== "undefined") {
+      let t = 0;
+      const ro = new ResizeObserver(() => {
+        window.clearTimeout(t);
+        t = window.setTimeout(() => {
+          if (lastCalVizHeads) paintCalCharts(lastCalVizHeads);
+        }, 80);
+      });
+      ro.observe(calBox);
+    }
+  }
+  async function runFeatureEncodingShadow() {
+    setStatus("特征编码对照中…", { busy: true });
+    setQuantMeta("启发式 vs raw+分档对照…", { busy: true });
+    const res = await fetch("/api/quant/feature-encoding/shadow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lookback: 120,
+        watching_limit: 36,
+        horizon_days: 1,
+        ridge_lambda: 1.0,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.success) {
+      const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+      setStatus(`特征对照失败：${err}`, { error: true });
+      setQuantMeta(`特征对照失败 · ${err}`, { error: true });
+      return;
+    }
+    const arms = data.arms || {};
+    const h = arms.heuristic || {};
+    const r = arms.raw_basis || {};
+    const fmt = (arm) => {
+      const o = (arm && arm.oos) || {};
+      const ic = o.ic != null ? Number(o.ic).toFixed(2) : "—";
+      const hit = o.sign_hit != null ? `${(Number(o.sign_hit) * 100).toFixed(0)}%` : "—";
+      return `IC ${ic} · 命中 ${hit} · n=${o.n ?? arm.n ?? "—"}`;
+    };
+    const win = data.winner || "—";
+    setStatus(
+      `特征对照 · 启发式 ${fmt(h)} · raw ${fmt(r)} · 胜者 ${win}`,
+      { ok: true }
+    );
+    setQuantMeta(
+      `特征对照完成 · 胜者 ${win} · ${data.note || "不写盘；优则改 scoring.feature_encoding=raw_basis 后重跑分组"}`
+    );
+  }
+
+  on("quant-feat-enc-shadow", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runFeatureEncodingShadow();
+    } catch (err) {
+      setStatus(`特征对照失败：${String(err.message || err)}`, { error: true });
+    }
+  });
+
   on("quant-score-review-refit", "click", (e) => {
     e.preventDefault();
     jumpRefit();
@@ -808,6 +1320,7 @@ export function installScoreReview(ctx) {
 
   // 仅研究枢纽进页自动加载，避免 /follow 等页抢带宽拖慢纸面主链路
   if (document.body?.dataset?.page === "quant") {
+    refreshCalibrationPanel().catch(() => {});
     loadLedgerIndex()
       .then((pack) => {
         setAsOf(pack.default_as_of || (pack.dates || [])[0] || "");
@@ -824,5 +1337,6 @@ export function installScoreReview(ctx) {
     ensureDefaultAsOf,
     jumpRefit,
     loadLedgerIndex,
+    refreshCalibrationPanel,
   };
 }

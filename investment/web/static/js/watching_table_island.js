@@ -9,6 +9,7 @@ function numSortKey(row, key) {
 
 function compare(id, a, b) {
   if (id === "score") return numSortKey(a, "scoreNum") - numSortKey(b, "scoreNum");
+  if (id === "score_cal") return numSortKey(a, "scoreCalNum") - numSortKey(b, "scoreCalNum");
   if (id === "vol") return numSortKey(a, "volNum") - numSortKey(b, "volNum");
   if (id === "excess") return numSortKey(a, "excessNum") - numSortKey(b, "excessNum");
   if (id === "chg") return numSortKey(a, "chgNum") - numSortKey(b, "chgNum");
@@ -28,7 +29,15 @@ const COLS = [
   { id: "price", label: "现价", widthPct: 7, num: true },
   { id: "open", label: "开盘价", widthPct: 7, num: true, title: "当日开盘价" },
   { id: "chg", label: "涨跌", widthPct: 7, num: true, sortable: true },
-  { id: "score", label: "评分", widthPct: 7.5, num: true, sortable: true, title: "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ" },
+  { id: "score", label: "评分", widthPct: 6.5, num: true, sortable: true, title: "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ" },
+  {
+    id: "score_cal",
+    label: "校准",
+    widthPct: 6.5,
+    num: true,
+    sortable: true,
+    title: "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip",
+  },
   { id: "stance", label: "倾向", widthPct: 5.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
   { id: "excess", label: "超额", widthPct: 7.5, num: true, sortable: true },
   { id: "vol", label: "量", widthPct: 7, num: true, sortable: true },
@@ -135,7 +144,27 @@ export async function mountWatchingTableIsland(host, options = {}) {
           `<span class="watching-score-cell paper-hold-score has-tip${signCls}${
             below ? " score-below-min" : ""
           }" ` +
-          `data-score-detail="${escapeHtml(detail)}" title="${escapeHtml(title)}">` +
+          `data-score-detail="${escapeHtml(detail)}" data-score-tip="trade" title="${escapeHtml(title)}">` +
+          `${escapeHtml(text)}</span>`
+        );
+      }
+      if (col.id === "score_cal") {
+        const text =
+          d.scoreCal != null && d.scoreCal !== "" ? String(d.scoreCal) : "—";
+        const detail = d.scoreDetail || "";
+        const title =
+          d.scoreCalTitle || "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip";
+        const signCls = d.scoreCalCls
+          ? ` ${escapeHtml(String(d.scoreCalCls))}`
+          : "";
+        if (!detail) {
+          return `<span class="watching-score-cell watching-score-cal paper-hold-score${signCls}">${escapeHtml(
+            text
+          )}</span>`;
+        }
+        return (
+          `<span class="watching-score-cell watching-score-cal paper-hold-score has-tip${signCls}" ` +
+          `data-score-detail="${escapeHtml(detail)}" data-score-tip="cal" title="${escapeHtml(title)}">` +
           `${escapeHtml(text)}</span>`
         );
       }

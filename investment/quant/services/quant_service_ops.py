@@ -309,6 +309,64 @@ class QuantOpsMixin:
             autofill=autofill,
         )
 
+    def fit_score_calibration(
+        self,
+        *,
+        lookback_dates: int = 90,
+        train_frac: float = 0.75,
+    ) -> Dict[str, Any]:
+        from core.signal.score_calibration import fit_score_calibration_report
+
+        return fit_score_calibration_report(
+            lookback_dates=lookback_dates,
+            train_frac=train_frac,
+        )
+
+    def persist_score_calibration(
+        self,
+        *,
+        note: str = "",
+        enable: bool = True,
+    ) -> Dict[str, Any]:
+        from core.signal.score_calibration import persist_score_calibration
+
+        return persist_score_calibration(note=note, enable=enable)
+
+    def get_score_calibration_model(self) -> Dict[str, Any]:
+        from core.signal.score_calibration import (
+            calibration_enabled,
+            calibration_model_path,
+            calibration_promote_safe,
+            load_calibration_last_report,
+            load_calibration_model,
+            reconcile_calibration_switch,
+        )
+
+        try:
+            reconcile_calibration_switch()
+        except Exception:
+            pass
+        live = load_calibration_model()
+        last = load_calibration_last_report()
+        promote_ok, promote_block = True, None
+        heads = None
+        if isinstance(live, dict):
+            heads = live.get("heads")
+        elif isinstance(last, dict):
+            heads = last.get("heads")
+        if isinstance(heads, dict):
+            promote_ok, promote_block = calibration_promote_safe(heads)
+        return {
+            "success": True,
+            "enabled": calibration_enabled(model_doc=live),
+            "path": calibration_model_path(),
+            "live": live,
+            "last_report": last,
+            "live_present": bool(live),
+            "promote_ok": bool(promote_ok),
+            "promote_block_reason": None if promote_ok else promote_block,
+        }
+
     def list_score_ledger_dates(self, *, limit: int = 30) -> Dict[str, Any]:
         from core.market_calendar import prev_trading_day, resolve_session_date
         from core.score_ledger import default_as_of, list_ledger_dates, list_ledger_entries

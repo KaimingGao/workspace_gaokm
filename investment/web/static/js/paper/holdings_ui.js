@@ -11,7 +11,8 @@ import {
   fmtScore,
   scoreCls,
   resolveTradeScore,
-} from "./fmt.js";
+  resolveCalTradeScore,
+} from "./fmt.js?v=p1092";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
 
 const ORIGIN_HINT = {
@@ -93,7 +94,9 @@ export function buildPaperHoldingsTableHtml({
         ? "按代码排序"
         : key === "score"
           ? "按评分排序"
-          : key === "pnl"
+          : key === "score_cal"
+            ? "按校准分排序"
+            : key === "pnl"
             ? "按浮盈亏排序 · 相对持仓成本：(现价÷成本−1)×100%"
             : key === "chg"
               ? "按当日涨跌幅排序 · 相对昨收"
@@ -115,17 +118,30 @@ export function buildPaperHoldingsTableHtml({
       const pnl = h.pnl_pct;
       const startDate = h.bought_date || "—";
       const score = resolveTradeScore(h);
+      const scoreCal = resolveCalTradeScore(h);
       const belowMin = !!h.below_min_score;
       const hardReject = !!h.hard_reject;
       const scoreBase = fmtScoreLocal(score);
       let scoreShown =
         scoreBase !== "—" && belowMin ? `${scoreBase}↓` : scoreBase;
       if (scoreShown === "—" && hardReject) scoreShown = "拒";
+      const scoreCalShown = fmtScoreLocal(scoreCal);
       const scoreTitle = hardReject
         ? String(h.reject_reason || "硬拒绝 · 无收益分")
         : belowMin
           ? `低于ŷ_EOD门槛 ${h.min_score ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
           : "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
+      const scoreCalOor = !!(
+        h.score_calibration_eod_oor ||
+        h.score_calibration_eod_rem_oor ||
+        h.score_calibration_tau_oor
+      );
+      const scoreCalTitle =
+        scoreCal == null
+          ? "暂无 g(ŷ) 映射（拟合并写入 live 后可见）"
+          : scoreCalOor
+            ? "g(ŷ_trade) 对照 · 部分落在拟合域外（端点钳制）· 悬停看校准 tip"
+            : "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip";
       const origin = String(h.origin || "");
       const originLabel = h.origin_label || "—";
       const originTitle = ORIGIN_HINT[origin] || "早期记录未标出处";
@@ -144,6 +160,64 @@ export function buildPaperHoldingsTableHtml({
         pendingFocusCode && String(pendingFocusCode) === String(code)
           ? " is-focus-holding"
           : "";
+
+      const terms = h.score_formula_terms || null;
+      const hasTerms =
+        terms && Array.isArray(terms.terms) && terms.terms.length > 0;
+      const scoreDetailJson = escapeText(
+        JSON.stringify({
+          predicted_score: h.predicted_score != null ? h.predicted_score : h.score,
+          score: h.score != null ? h.score : h.predicted_score,
+          predicted_score_tau:
+            h.predicted_score_tau != null
+              ? h.predicted_score_tau
+              : h.score_rem != null
+                ? h.score_rem
+                : h.predicted_score_rem,
+          predicted_score_blend: h.predicted_score_blend,
+          predicted_score_eod: h.predicted_score_eod,
+          predicted_score_eod_rem: h.predicted_score_eod_rem,
+          predicted_score_tau_delta: h.predicted_score_tau_delta,
+          predicted_score_cal: h.predicted_score_cal,
+          predicted_score_eod_rem_cal: h.predicted_score_eod_rem_cal,
+          predicted_score_tau_cal: h.predicted_score_tau_cal,
+          predicted_score_blend_cal: h.predicted_score_blend_cal,
+          score_calibration_applied: !!h.score_calibration_applied,
+          score_calibration_enabled: !!h.score_calibration_enabled,
+          score_calibration_eod_oor: !!h.score_calibration_eod_oor,
+          score_calibration_eod_rem_oor: !!h.score_calibration_eod_rem_oor,
+          score_calibration_tau_oor: !!h.score_calibration_tau_oor,
+          score_calibration_note: h.score_calibration_note || null,
+          score_calibration_partial: h.score_calibration_partial || null,
+          realized_t1_to_tau: h.realized_t1_to_tau,
+          score_rem: h.score_rem != null ? h.score_rem : h.predicted_score_rem,
+          gap_pct: h.gap_pct,
+          event_prior: h.event_prior || null,
+          as_of_tau: h.as_of_tau || h.rem_tau || null,
+          y_spec_tau: h.y_spec_tau || null,
+          features_tau: h.features_tau || null,
+          formula_terms_tau: h.formula_terms_tau || h.score_formula_terms_tau || null,
+          score_formula_tau: h.score_formula_tau || null,
+          factor_coefficients_tau: h.factor_coefficients_tau || null,
+          dual_score_fusion: h.dual_score_fusion || null,
+          dual_score_weights: h.dual_score_weights || null,
+          formula: hasTerms ? "" : h.score_formula || "",
+          reasons: h.score_reasons || [],
+          hard_reject: h.hard_reject,
+          reject_reason: h.reject_reason || "",
+          weight_source: h.weight_source || "",
+          cluster_label: h.cluster_label || "",
+          cluster_mode: h.cluster_mode || "",
+          cluster_version: h.cluster_version,
+          score_global: h.score_global,
+          score_cluster: h.score_cluster,
+          min_score: h.min_score,
+          below_min_score: belowMin,
+          return_model_source: h.return_model_source || "",
+          formula_terms: terms,
+          factor_coefficients: hasTerms ? {} : h.factor_coefficients || {},
+        })
+      );
 
       return (
         `<tr data-code="${escapeText(code)}" data-shares="${escapeText(
@@ -185,54 +259,14 @@ export function buildPaperHoldingsTableHtml({
         `<td class="num paper-hold-score has-tip ${scoreCls(score)}${
           belowMin ? " score-below-min" : ""
         }${hardReject ? " score-reject" : ""}" ` +
-        `data-score-detail="${escapeText(
-          JSON.stringify((() => {
-            const terms = h.score_formula_terms || null;
-            const hasTerms =
-              terms && Array.isArray(terms.terms) && terms.terms.length > 0;
-            return {
-              predicted_score: h.predicted_score != null ? h.predicted_score : h.score,
-              score: h.score != null ? h.score : h.predicted_score,
-              predicted_score_tau:
-                h.predicted_score_tau != null
-                  ? h.predicted_score_tau
-                  : h.score_rem != null
-                    ? h.score_rem
-                    : h.predicted_score_rem,
-              predicted_score_blend: h.predicted_score_blend,
-              predicted_score_eod: h.predicted_score_eod,
-              predicted_score_eod_rem: h.predicted_score_eod_rem,
-              predicted_score_tau_delta: h.predicted_score_tau_delta,
-              realized_t1_to_tau: h.realized_t1_to_tau,
-              score_rem: h.score_rem != null ? h.score_rem : h.predicted_score_rem,
-              gap_pct: h.gap_pct,
-              event_prior: h.event_prior || null,
-              as_of_tau: h.as_of_tau || h.rem_tau || null,
-              y_spec_tau: h.y_spec_tau || null,
-              features_tau: h.features_tau || null,
-              formula_terms_tau: h.formula_terms_tau || h.score_formula_terms_tau || null,
-              score_formula_tau: h.score_formula_tau || null,
-              factor_coefficients_tau: h.factor_coefficients_tau || null,
-              dual_score_fusion: h.dual_score_fusion || null,
-              dual_score_weights: h.dual_score_weights || null,
-              formula: hasTerms ? "" : h.score_formula || "",
-              reasons: h.score_reasons || [],
-              hard_reject: h.hard_reject,
-              reject_reason: h.reject_reason || "",
-              weight_source: h.weight_source || "",
-              cluster_label: h.cluster_label || "",
-              cluster_mode: h.cluster_mode || "",
-              cluster_version: h.cluster_version,
-              score_global: h.score_global,
-              score_cluster: h.score_cluster,
-              min_score: h.min_score,
-              below_min_score: belowMin,
-              return_model_source: h.return_model_source || "",
-              formula_terms: terms,
-              factor_coefficients: hasTerms ? {} : h.factor_coefficients || {},
-            };
-          })())
-        )}" title="${escapeText(scoreTitle)}">${escapeText(scoreShown)}</td>` +
+        `data-score-detail="${scoreDetailJson}" data-score-tip="trade" title="${escapeText(
+          scoreTitle
+        )}">${escapeText(scoreShown)}</td>` +
+        `<td class="num paper-hold-score watching-score-cal has-tip ${scoreCls(
+          scoreCal
+        )}${scoreCalOor ? " is-cal-oor" : ""}" data-score-detail="${scoreDetailJson}" data-score-tip="cal" title="${escapeText(
+          scoreCalTitle
+        )}">${escapeText(scoreCalShown)}</td>` +
         `<td class="num paper-hold-pnl ${metricCls(pnl)}">${fmtPct(pnl, {
           signed: true,
         })}</td>` +
@@ -256,6 +290,7 @@ export function buildPaperHoldingsTableHtml({
     `${sortThHtml("涨跌", "chg")}` +
     `<th title="持仓加权平均成本，对账用">成本</th>` +
     `${sortThHtml("市值", "market_value")}${sortThHtml("评分", "score")}` +
+    `${sortThHtml("校准", "score_cal")}` +
     `${sortThHtml("浮盈亏", "pnl")}` +
     `<th>开始</th><th class="paper-hold-origin">出处</th>` +
     `</tr></thead><tbody>${rows}</tbody></table></div>`;

@@ -112,6 +112,18 @@ export function watchingScoreDetail(it) {
     predicted_score_eod: it && it.predicted_score_eod,
     predicted_score_eod_rem: it && it.predicted_score_eod_rem,
     predicted_score_tau_delta: it && it.predicted_score_tau_delta,
+    // 校准对照：靠前写入，避免属性过长截断
+    predicted_score_cal: it && it.predicted_score_cal,
+    predicted_score_eod_rem_cal: it && it.predicted_score_eod_rem_cal,
+    predicted_score_tau_cal: it && it.predicted_score_tau_cal,
+    predicted_score_blend_cal: it && it.predicted_score_blend_cal,
+    score_calibration_applied: !!(it && it.score_calibration_applied),
+    score_calibration_enabled: !!(it && it.score_calibration_enabled),
+    score_calibration_eod_oor: !!(it && it.score_calibration_eod_oor),
+    score_calibration_eod_rem_oor: !!(it && it.score_calibration_eod_rem_oor),
+    score_calibration_tau_oor: !!(it && it.score_calibration_tau_oor),
+    score_calibration_note: (it && it.score_calibration_note) || null,
+    score_calibration_partial: (it && it.score_calibration_partial) || null,
     realized_t1_to_tau: it && it.realized_t1_to_tau,
     score_rem: it && (it.score_rem != null ? it.score_rem : it.predicted_score_rem),
     gap_pct: it && it.gap_pct,
@@ -360,7 +372,20 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
         `<td class="num watching-col-num" data-q="price">${escapeHtml(String(d.price ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="open">${escapeHtml(String(d.open ?? "—"))}</td>` +
         `<td class="num watching-col-num watching-chg${d.chgCls ? " " + escapeHtml(d.chgCls) : ""}" data-q="chg">${escapeHtml(String(d.chg ?? "—"))}</td>` +
-        `<td class="num watching-col-num" data-q="score">${escapeHtml(String(d.score ?? "—"))}</td>` +
+        `<td class="num watching-col-num watching-score-cell paper-hold-score has-tip ${escapeHtml(
+          d.scoreCls || ""
+        )}" data-q="score" data-score-tip="trade" data-score-detail="${escapeHtml(
+          d.scoreDetail || ""
+        )}" title="${escapeHtml(d.scoreTitle || "ŷ_trade")}">${escapeHtml(
+          String(d.score ?? "—")
+        )}</td>` +
+        `<td class="num watching-col-num watching-score-cell watching-score-cal paper-hold-score has-tip ${escapeHtml(
+          d.scoreCalCls || ""
+        )}" data-q="score_cal" data-score-tip="cal" data-score-detail="${escapeHtml(
+          d.scoreDetail || ""
+        )}" title="${escapeHtml(
+          d.scoreCalTitle || "g(ŷ_trade) 对照 · 不进决策"
+        )}">${escapeHtml(String(d.scoreCal ?? "—"))}</td>` +
         `<td data-q="stance">${escapeHtml(String(d.stance ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="excess">${escapeHtml(String(d.excess ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="vol">${escapeHtml(String(d.vol ?? "—"))}</td>` +
@@ -376,7 +401,8 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
     `<th class="watching-pick-cell"><input type="checkbox" id="watching-select-all" /></th>` +
     `<th>股票</th><th>仓位</th><th>情绪</th><th class="watching-col-num">现价</th>` +
     `<th class="watching-col-num">开盘价</th>` +
-    `<th class="watching-col-num">涨跌</th><th class="watching-col-num">评分</th><th>倾向</th>` +
+    `<th class="watching-col-num">涨跌</th><th class="watching-col-num">评分</th>` +
+    `<th class="watching-col-num" title="g(ŷ_trade) 对照 · 不进决策">校准</th><th>倾向</th>` +
     `<th class="watching-col-num">超额</th><th class="watching-col-num">量</th>` +
     `<th class="watching-col-num">量比</th><th class="watching-col-num">PE</th><th class="watching-col-num">PB</th>` +
     `</tr></thead><tbody>${body}</tbody></table></div>`;
@@ -433,6 +459,10 @@ export function buildWatchingWatchRows(wl, names, paperCodes, scores, deps) {
       score: scoreNum == null ? "…" : fmtScore(scoreNum),
       scoreNum,
       scoreCls: scoreCls(scoreNum),
+      scoreCal: "…",
+      scoreCalNum: null,
+      scoreCalCls: "",
+      scoreCalTitle: "暂无 g(ŷ) 映射（拟合并写入 live 后可见）",
       stance: "…",
       excess: "…",
       excessNum: null,

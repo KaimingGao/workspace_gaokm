@@ -8,6 +8,8 @@ from fastapi import APIRouter, HTTPException
 
 from web import deps
 from web.schemas import (
+    ScoreCalibrationFitRequest,
+    ScoreCalibrationPersistRequest,
     ScoreLedgerFreezeRequest,
     ScoreLedgerDeleteRequest,
     ScoreOutcomesFillRequest,
@@ -151,3 +153,38 @@ def quant_score_outcomes_fill(body: ScoreOutcomesFillRequest):
     if not out.get("success"):
         raise HTTPException(status_code=404, detail=out.get("error") or "回填失败")
     return out
+
+
+@router.post("/api/quant/score-calibration/fit")
+def quant_score_calibration_fit(body: ScoreCalibrationFitRequest):
+    """从账本拟合单调 g(ŷ)；不自动写盘。"""
+    try:
+        return deps.quant.fit_score_calibration(
+            lookback_dates=body.lookback_dates,
+            train_frac=body.train_frac,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/score-calibration/persist")
+def quant_score_calibration_persist(body: ScoreCalibrationPersistRequest):
+    """人审写入 live/score_calibration.json。"""
+    try:
+        out = deps.quant.persist_score_calibration(
+            note=body.note, enable=body.enable
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not out.get("success"):
+        raise HTTPException(status_code=400, detail=out.get("error") or "写入失败")
+    return out
+
+
+@router.get("/api/quant/score-calibration/model")
+def quant_score_calibration_model():
+    """读取已 promote / 上次拟合的校准映射。"""
+    try:
+        return deps.quant.get_score_calibration_model()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e

@@ -61,7 +61,10 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         # 滞回：买入/入簿 ŷ≥+1%；卖出仅 ŷ<-1%；中间带持有不因未进簿清仓
         "min_predicted_score": 1.0,
         "min_hold_predicted_score": -1.0,
-        # B2：前瞻收益 y 与拟合/TopK/纸面共用 horizon（默认 1 = T−1 因子 → T 日收益）
+        # 有 live knots 时 tip/校准列可读 g；此标志仅镜像存在性（非决策开关）
+        "enable_calibration": False,
+        # heuristic=0–100 子分；raw_basis=动量/波动/估值用原始量+分档（须重跑分组）
+        "feature_encoding": "heuristic",
         "horizon_days": 1,
     },
     # 双层 ŷ：EOD predicted_score + τ predicted_score_tau（见 dual_score / docs §2.5）
@@ -72,6 +75,10 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "block_buy_if_tau_missing": False,
         "w_eod": 0.5,
         "w_tau": 0.5,
+        "w_mode": "fixed",  # fixed | theme_boost | variance
+        "theme_w_tau_boost": 1.25,
+        "eod_residual_var": 1.0,
+        "enable_cascade_shadow": True,
         "enable_tau_shadow_book": True,
         "enable_minute_tau": False,
         "minute_tau_hm": "09:45",
@@ -155,6 +162,13 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "exclude_oos_failed_groups": True,
         # B1：相对 active 默认软提示（True）；False=恢复「不得差于 active」硬闸
         "promote_allow_worse_oos_than_active": True,
+        # 建簿约束：可成交过滤 · 行业名额 · τ 闸 defer（与纸面 risk 同配置源）
+        "book_constraints": {
+            "enabled": True,
+            "filter_untradeable": True,
+            "enforce_sector_cap": True,
+            "tau_fail_mode": "defer",
+        },
     },
     # P1：T 日事件先验（缺口/板块开盘）· 不进 ŷ，只影响调仓动作
     "event_prior": {

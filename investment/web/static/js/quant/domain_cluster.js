@@ -951,6 +951,7 @@ export function installClusterProbe(q) {
           `· 映射健康覆盖 ${cov}`,
           "",
           "启用后：",
+          "· 自动轻量刷簿（对齐当日开盘 Z / ŷ_τ）",
           "· 交易执行页「预演调仓」将按组ŷ 排序与目标簿执行",
           "· 不写入 signal_config.weights",
           "· 过门 ≠ 自动 promote；可随时关闭或回滚",
@@ -997,14 +998,35 @@ export function installClusterProbe(q) {
       setQuantMeta(`模式未变更 · ${out.error}`, { error: true });
       return;
     }
+    if (mode === "active") {
+      setQuantMeta("已启用 · 正在轻量刷簿…", { busy: true });
+      const ref = await postClusterLive("/api/quant/cluster-live/refresh-book", {});
+      if (!ref.ok) {
+        setQuantMeta(
+          `已启用组ŷ · 刷簿失败（请手动刷新簿）· ${ref.error}`,
+          { error: true }
+        );
+        refreshClusterLiveStatus();
+        return;
+      }
+      const n = (ref.data.rank && ref.data.rank.name_count) || 0;
+      const fill = (ref.data.rank && ref.data.rank.features_tau_fill) || {};
+      const fillNote =
+        fill.mean_fill_rate != null
+          ? ` · Z齐套 ${(Number(fill.mean_fill_rate) * 100).toFixed(0)}%`
+          : "";
+      setQuantMeta(
+        `已启用组ŷ · 已轻量刷簿 ${n} 只${fillNote} · 交易执行预演按组ŷ 选股`
+      );
+      refreshClusterLiveStatus();
+      return;
+    }
     const doneLabel =
-      mode === "active"
-        ? "已启用组ŷ · 交易执行预演将按组ŷ 选股"
-        : mode === "off"
-          ? "已关闭分组 live"
-          : mode === "shadow"
-            ? "已切回对照（shadow）"
-            : `分组 live mode=${mode}`;
+      mode === "off"
+        ? "已关闭分组 live"
+        : mode === "shadow"
+          ? "已切回对照（shadow）"
+          : `分组 live mode=${mode}`;
     setQuantMeta(doneLabel);
     refreshClusterLiveStatus();
   }

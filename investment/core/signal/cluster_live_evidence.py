@@ -521,6 +521,7 @@ def cluster_status_public(
                 "promote_ready": pf.get("promote_ready"),
                 "blockers": list(pf.get("blockers") or [])[:4],
                 "warnings": list(pf.get("warnings") or [])[:4],
+                "checklist": list(pf.get("checklist") or [])[:8],
                 "delta": pf.get("delta"),
                 "draft_oos": (pf.get("draft") or {}).get("oos"),
                 "active_oos": (pf.get("active") or {}).get("oos"),

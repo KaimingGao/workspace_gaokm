@@ -354,11 +354,75 @@ def compare_partition_vs_active(
     if delta.get("mean_ic") is not None and float(delta["mean_ic"]) < -0.02:
         warnings.append(f"mean_ic 低于 active（Δ={delta['mean_ic']}）")
 
+    # 硬清单扩展：衰减 / 建簿约束告警（研究台，不替代 OOS 闸）
+    checklist: List[Dict[str, Any]] = []
+    checklist.append(
+        {
+            "id": "oos_gate",
+            "ok": oos_err is None,
+            "label": "分组 OOS 过门",
+            "detail": str(oos_err) if oos_err else "通过",
+        }
+    )
+    try:
+        from core.risk.portfolio_health import build_portfolio_health
+        from core.signal.cluster_live import load_active_cluster_book
+
+        book_doc = load_active_cluster_book() or {}
+        health = build_portfolio_health(
+            book=list(book_doc.get("book") or []),
+            book_constraints=(book_doc.get("meta") or {}).get("book_constraints"),
+            rolling_ic={
+                "mean_ic": (d_q or {}).get("mean_ic"),
+            },
+        )
+        decay = bool((health.get("alpha") or {}).get("decay_alert"))
+        checklist.append(
+            {
+                "id": "alpha_decay",
+                "ok": not decay,
+                "label": "α 衰减告警未触发",
+                "detail": (health.get("alerts") or [{}])[0].get("message")
+                if decay
+                else "无衰减告警",
+            }
+        )
+        if decay:
+            warnings.append("组合健康度：α 衰减告警（建议暂缓 promote）")
+        top_pct = (health.get("exposure") or {}).get("book_top_sector_pct")
+        max_sec = float((health.get("limits") or {}).get("max_sector_pct") or 40)
+        sector_ok = top_pct is None or float(top_pct) <= max_sec + 1e-6
+        checklist.append(
+            {
+                "id": "book_sector_cap",
+                "ok": sector_ok,
+                "label": "选股簿行业集中度",
+                "detail": (
+                    f"Top {health.get('exposure', {}).get('book_top_sector')} "
+                    f"{top_pct}% / 上限 {max_sec:g}%"
+                    if top_pct is not None
+                    else "无簿或未计算"
+                ),
+            }
+        )
+        if not sector_ok:
+            warnings.append("选股簿行业占比超上限（约束装填后仍超则检查配置）")
+    except Exception:
+        checklist.append(
+            {
+                "id": "portfolio_health",
+                "ok": True,
+                "label": "组合健康度",
+                "detail": "跳过（无法加载簿/纸面）",
+            }
+        )
+
     return {
         "success": True,
         "promote_ready": oos_err is None,
         "blockers": blockers,
         "warnings": warnings,
+        "checklist": checklist,
         "oos_compare": oos_detail,
         "draft": d_q,
         "active": a_q,
@@ -367,6 +431,6 @@ def compare_partition_vs_active(
         "focus_active": focus_code_assignments(active, focus),
         "note": (
             "B3 对照：promote_ready 看绝对 OOS 上限（max_oos_fail_rate）；"
-            "相对 active 默认软提示。设 promote_allow_worse_oos_than_active=false 可恢复相对硬闸。"
+            "checklist 含衰减/行业集中度软项；相对 active 默认软提示。"
         ),
     }

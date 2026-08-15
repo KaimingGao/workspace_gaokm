@@ -2,8 +2,8 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtScore, scoreCls, resolveTradeScore } from "./paper/fmt.js";
-import { sentimentBadgeHtml } from "./quant/watching_render.js";
+import { fmtPriceUnit, fmtPct, metricCls, fmtScore, scoreCls, resolveTradeScore, resolveCalTradeScore } from "./paper/fmt.js?v=p1092";
+import { sentimentBadgeHtml } from "./quant/watching_render.js?v=p1092";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -35,6 +35,7 @@ export function holdingToRow(
   const name = h.stock_name || code || "";
   const pnl = h.pnl_pct;
   const score = resolveTradeScore(h);
+  const scoreCal = resolveCalTradeScore(h);
   const belowMin = !!h.below_min_score;
   const minScore = h.min_score;
   const hardReject = !!h.hard_reject;
@@ -42,6 +43,7 @@ export function holdingToRow(
   let scoreText =
     scoreBase !== "—" && belowMin ? `${scoreBase}↓` : scoreBase;
   if (scoreText === "—" && hardReject) scoreText = "拒";
+  const scoreCalText = fmtScore(scoreCal);
   const origin = String(h.origin || "");
   const mv = Number(h.market_value ?? h.market_value_approx);
   const scoreTitle = hardReject
@@ -49,6 +51,17 @@ export function holdingToRow(
     : belowMin
       ? `低于ŷ_EOD门槛 ${minScore ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
       : "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
+  const scoreCalOor = !!(
+    h.score_calibration_eod_oor ||
+    h.score_calibration_eod_rem_oor ||
+    h.score_calibration_tau_oor
+  );
+  const scoreCalTitle =
+    scoreCal == null
+      ? "暂无 g(ŷ) 映射（拟合并写入 live 后可见）"
+      : scoreCalOor
+        ? "g(ŷ_trade) 对照 · 部分落在拟合域外（端点钳制）· 悬停看校准 tip"
+        : "g(ŷ_trade) 对照 · 不进决策 · 悬停看校准 tip";
   const fmtSignedPct = (v) => {
     if (v == null || v === "") return "—";
     const n = Number(v);
@@ -78,6 +91,11 @@ export function holdingToRow(
       hardReject ? " score-reject" : ""
     }`,
     scoreTitle,
+    scoreCalText,
+    scoreCalNum:
+      scoreCal != null && Number.isFinite(Number(scoreCal)) ? Number(scoreCal) : null,
+    scoreCalCls: `${scoreCls(scoreCal)}${scoreCalOor ? " is-cal-oor" : ""}`.trim(),
+    scoreCalTitle,
     scoreDetail: JSON.stringify((() => {
       const terms = h.score_formula_terms || null;
       const hasTerms =
@@ -95,6 +113,17 @@ export function holdingToRow(
         predicted_score_eod: h.predicted_score_eod,
         predicted_score_eod_rem: h.predicted_score_eod_rem,
         predicted_score_tau_delta: h.predicted_score_tau_delta,
+        predicted_score_cal: h.predicted_score_cal,
+        predicted_score_eod_rem_cal: h.predicted_score_eod_rem_cal,
+        predicted_score_tau_cal: h.predicted_score_tau_cal,
+        predicted_score_blend_cal: h.predicted_score_blend_cal,
+        score_calibration_applied: !!h.score_calibration_applied,
+        score_calibration_enabled: !!h.score_calibration_enabled,
+        score_calibration_eod_oor: !!h.score_calibration_eod_oor,
+        score_calibration_eod_rem_oor: !!h.score_calibration_eod_rem_oor,
+        score_calibration_tau_oor: !!h.score_calibration_tau_oor,
+        score_calibration_note: h.score_calibration_note || null,
+        score_calibration_partial: h.score_calibration_partial || null,
         realized_t1_to_tau: h.realized_t1_to_tau,
         score_rem: h.score_rem != null ? h.score_rem : h.predicted_score_rem,
         gap_pct: h.gap_pct,
@@ -172,7 +201,15 @@ const COLS = [
   },
   { id: "cost", label: "成本", widthPct: 7, num: true, title: "持仓加权平均成本，对账用" },
   { id: "market_value", label: "市值", widthPct: 7, num: true, sortable: true },
-  { id: "score", label: "评分", widthPct: 7, num: true, sortable: true, title: "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ" },
+  { id: "score", label: "评分", widthPct: 6.5, num: true, sortable: true, title: "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ" },
+  {
+    id: "score_cal",
+    label: "校准",
+    widthPct: 6.5,
+    num: true,
+    sortable: true,
+    title: "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip",
+  },
   {
     id: "pnl",
     label: "浮盈亏",
@@ -194,6 +231,7 @@ function compare(id, a, b) {
     return String(a.code || "").localeCompare(String(b.code || ""), "zh-CN", { numeric: true });
   }
   if (id === "score") return numCmp(Number(a.scoreNum), Number(b.scoreNum));
+  if (id === "score_cal") return numCmp(Number(a.scoreCalNum), Number(b.scoreCalNum));
   if (id === "pnl") return numCmp(Number(a.pnlNum), Number(b.pnlNum));
   if (id === "chg") return numCmp(Number(a.chgNum), Number(b.chgNum));
   return numCmp(Number(a.marketValueNum), Number(b.marketValueNum));
@@ -275,8 +313,26 @@ export async function mountHoldingsTableIsland(host, options = {}) {
         }
         return (
           `<span class="paper-hold-score has-tip ${escapeHtml(d.scoreCls || "")}" ` +
-          `data-score-detail="${escapeHtml(detail)}" title="${escapeHtml(title)}">` +
+          `data-score-detail="${escapeHtml(detail)}" data-score-tip="trade" title="${escapeHtml(title)}">` +
           `${escapeHtml(d.scoreText || "—")}</span>`
+        );
+      }
+      if (col.id === "score_cal") {
+        const detail = d.scoreDetail || "";
+        const title =
+          d.scoreCalTitle || "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip";
+        const text = d.scoreCalText || "—";
+        if (!detail) {
+          return `<span class="paper-hold-score watching-score-cal ${escapeHtml(
+            d.scoreCalCls || ""
+          )}">${escapeHtml(text)}</span>`;
+        }
+        return (
+          `<span class="paper-hold-score watching-score-cal has-tip ${escapeHtml(
+            d.scoreCalCls || ""
+          )}" ` +
+          `data-score-detail="${escapeHtml(detail)}" data-score-tip="cal" title="${escapeHtml(title)}">` +
+          `${escapeHtml(text)}</span>`
         );
       }
       if (col.id === "pnl") {

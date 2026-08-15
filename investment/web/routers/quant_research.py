@@ -10,6 +10,7 @@ from web.schemas import (
     FactorCsIcRequest,
     FactorExperimentRequest,
     FactorOlsPoolRequest,
+    FeatureEncodingShadowRequest,
     RemRidgeRequest,
     ThresholdSuggestRequest,
     WeightSuggestRequest,
@@ -105,6 +106,21 @@ def quant_rem_ridge(body: RemRidgeRequest):
             theme_boost=body.theme_boost,
             persist=body.persist,
             note=body.note,
+            tau_hm=body.tau_hm,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/feature-encoding/shadow")
+def quant_feature_encoding_shadow(body: FeatureEncodingShadowRequest):
+    """启发式 0–100 vs raw+分档：同池时间切分 OOS 影子对照（不写盘）。"""
+    try:
+        return deps.quant.run_feature_encoding_shadow(
+            lookback=body.lookback,
+            watching_limit=body.watching_limit,
+            horizon_days=body.horizon_days,
+            ridge_lambda=body.ridge_lambda,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

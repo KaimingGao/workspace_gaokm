@@ -2,7 +2,7 @@
  * 主叙事：收益分 ŷ + 因子系数 β（可正可负），非规则权重。
  */
 
-import { escapeText, resolveEodScore, resolveEodRemScore } from "./paper/fmt.js?v=p1061";
+import { escapeText, resolveEodScore, resolveEodRemScore } from "./paper/fmt.js?v=p1092";
 
 const FACTOR_LABELS = {
   momentum: "动量",
@@ -100,6 +100,8 @@ const TAU_FEAT_LABELS = {
   open_gap: "开盘缺口",
   sector_gap_breadth: "同业缺口广度",
   theme_day: "主题日",
+  gap_atr: "缺口 / ATR",
+  gap_vs_sector: "行业相对缺口",
   ret_open_to_tau: "开盘→τ 收益 %",
 };
 
@@ -221,10 +223,15 @@ export function formatRemScoreSection(raw) {
       }
       const n = Number(v);
       const txt = Number.isFinite(n) ? fmtSigned(n, 2) : String(v);
+      const pct =
+        k === "gap_pct" ||
+        k === "open_gap" ||
+        k === "gap_vs_sector" ||
+        k === "ret_open_to_tau";
       featRows.push(
         `<div class="score-layer-row"><span>${escapeText(label)}</span><span class="num ${
           Number.isFinite(n) ? signCls(n) : ""
-        }">${escapeText(txt)}${Number.isFinite(n) && /pct|gap|ret/.test(k) ? "%" : ""}</span></div>`
+        }">${escapeText(txt)}${Number.isFinite(n) && pct ? "%" : ""}</span></div>`
       );
     }
     if (theme) {
@@ -255,6 +262,179 @@ export function formatRemScoreSection(raw) {
   );
 }
 
+function resolveCalNum(raw, key) {
+  if (!raw || raw[key] == null || raw[key] === "") return null;
+  const n = Number(raw[key]);
+  return Number.isFinite(n) ? n : null;
+}
+
+function calibrationActive(raw) {
+  if (raw && raw.score_calibration_applied) return true;
+  return (
+    resolveCalNum(raw, "predicted_score_cal") != null ||
+    resolveCalNum(raw, "predicted_score_eod_rem_cal") != null ||
+    resolveCalNum(raw, "predicted_score_tau_cal") != null ||
+    resolveCalNum(raw, "predicted_score_blend_cal") != null
+  );
+}
+
+function calRowHtml(label, value) {
+  if (value == null || !Number.isFinite(Number(value))) return "";
+  const n = Number(value);
+  return `<div class="score-layer-row"><span>${escapeText(
+    label
+  )}</span><span class="num ${signCls(n)}">${escapeText(
+    fmtSigned(n, 3)
+  )}%</span></div>`;
+}
+
+/** Δ = g − ŷ：正=历史上实现偏高（模型偏保守），负=幅度常被夸大。 */
+function calDeltaRowHtml(raw, cal) {
+  const a = Number(raw);
+  const b = Number(cal);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return "";
+  const d = b - a;
+  const t =
+    Math.abs(d) < 1e-9
+      ? "0"
+      : d > 0
+        ? `+${Math.abs(d).toFixed(3)}`
+        : `−${Math.abs(d).toFixed(3)}`;
+  return `<div class="score-layer-row score-layer-row-delta"><span>Δ(g−ŷ)</span><span class="num ${signCls(
+    d
+  )}">${escapeText(t)}%</span></div>`;
+}
+
+/** 校准层 g(ŷ)：有 live knots 即对照。
+ * @param {object} raw
+ * @param {{ calOnly?: boolean }} [opts] calOnly=true 时只列 g(*)，不配 raw ŷ 行
+ */
+export function formatCalibrationSection(raw, opts = {}) {
+  if (!calibrationActive(raw)) return "";
+  const calOnly = !!opts.calOnly;
+  const yEod = resolveEodScore(raw);
+  const yTau = resolveTau(raw);
+  const blend = resolveBlend(raw);
+  const yEodCal = resolveCalNum(raw, "predicted_score_cal");
+  const yTauCal = resolveCalNum(raw, "predicted_score_tau_cal");
+  const blendCal = resolveCalNum(raw, "predicted_score_blend_cal");
+  const hero =
+    blendCal != null ? blendCal : yEodCal != null ? yEodCal : yTauCal;
+  const heroTxt =
+    hero == null ? "—" : `${fmtSigned(hero, 3)}%`;
+  const rows = [];
+  if (yEodCal != null) {
+    if (!calOnly) {
+      const yTxt =
+        yEod == null || !Number.isFinite(Number(yEod))
+          ? "—"
+          : `${fmtSigned(Number(yEod), 3)}%`;
+      rows.push(
+        `<div class="score-layer-row"><span>ŷ_EOD</span><span class="num ${signCls(
+          yEod
+        )}">${escapeText(yTxt)}</span></div>`
+      );
+    }
+    rows.push(calRowHtml("g(ŷ_EOD)", yEodCal));
+    rows.push(calDeltaRowHtml(yEod, yEodCal));
+  }
+  const yEodRem = resolveEodRemScore(raw);
+  const yEodRemCal = resolveCalNum(raw, "predicted_score_eod_rem_cal");
+  if (yEodRemCal != null) {
+    if (!calOnly) {
+      const remTxt =
+        yEodRem == null || !Number.isFinite(Number(yEodRem))
+          ? "—"
+          : `${fmtSigned(Number(yEodRem), 3)}%`;
+      rows.push(
+        `<div class="score-layer-row"><span>ŷ_EOD_rem</span><span class="num ${signCls(
+          yEodRem
+        )}">${escapeText(remTxt)}</span></div>`
+      );
+    }
+    rows.push(calRowHtml("g(ŷ_EOD_rem)", yEodRemCal));
+    rows.push(calDeltaRowHtml(yEodRem, yEodRemCal));
+  }
+  if (yTauCal != null) {
+    if (!calOnly) {
+      const tTxt =
+        yTau == null || !Number.isFinite(Number(yTau))
+          ? "—"
+          : `${fmtSigned(Number(yTau), 3)}%`;
+      rows.push(
+        `<div class="score-layer-row"><span>ŷ_τ</span><span class="num ${signCls(
+          yTau
+        )}">${escapeText(tTxt)}</span></div>`
+      );
+    }
+    rows.push(calRowHtml("g(ŷ_τ)", yTauCal));
+    rows.push(calDeltaRowHtml(yTau, yTauCal));
+  }
+  if (blendCal != null) {
+    if (!calOnly) {
+      const bTxt =
+        blend == null || !Number.isFinite(Number(blend))
+          ? "—"
+          : `${fmtSigned(Number(blend), 3)}%`;
+      rows.push(
+        `<div class="score-layer-row"><span>ŷ_trade</span><span class="num ${signCls(
+          blend
+        )}">${escapeText(bTxt)}</span></div>`
+      );
+    }
+    rows.push(
+      `<div class="score-layer-row score-layer-row-total"><span>g(ŷ_trade)</span><span class="num ${signCls(
+        blendCal
+      )}">${escapeText(fmtSigned(blendCal, 3))}%</span></div>`
+    );
+    rows.push(calDeltaRowHtml(blend, blendCal));
+  }
+  if (!rows.length) return "";
+  const oorBits = [];
+  if (raw && raw.score_calibration_eod_oor) oorBits.push("ŷ_EOD");
+  if (raw && raw.score_calibration_eod_rem_oor) oorBits.push("ŷ_EOD_rem");
+  if (raw && raw.score_calibration_tau_oor) oorBits.push("ŷ_τ");
+  const oorHint = oorBits.length
+    ? ` · ${oorBits.join("/")} 落在拟合域外（端点钳制，对照弱）`
+    : "";
+  const softNote =
+    raw && raw.score_calibration_note
+      ? ` · ${String(raw.score_calibration_note).slice(0, 80)}`
+      : "";
+  // live 仅有一侧 knots 时 blend 会混 raw：明确提示，避免当成全校准
+  let partialHint = "";
+  const partial = raw && raw.score_calibration_partial
+    ? String(raw.score_calibration_partial)
+    : "";
+  if (partial.includes("tau_raw")) {
+    partialHint = " · g(ŷ_trade)=g(EOD)+raw ŷ_τ（尚无 τ 映射）";
+  } else if (partial.includes("eod_raw")) {
+    partialHint = " · g(ŷ_trade)=raw EOD+g(ŷ_τ)（尚无 EOD 映射）";
+  } else if (
+    blendCal != null &&
+    yTauCal == null &&
+    (yEodCal != null || resolveCalNum(raw, "predicted_score_eod_rem_cal") != null) &&
+    yTau != null &&
+    Number.isFinite(Number(yTau))
+  ) {
+    partialHint = " · g(ŷ_trade)=g(EOD)+raw ŷ_τ（尚无 τ 映射）";
+  }
+  const title = calOnly ? "校准 g(ŷ)" : "⑤ 校准 g(ŷ)";
+  const hint = calOnly
+    ? `仅对照 · Δ=历史条件均值相对 raw 的修正 · 不进排序/闸/入簿${partialHint}${oorHint}${softNote}`
+    : `单调映射 · Δ=g−ŷ · 不改 β · 排序/闸/入簿仍用原 ŷ${partialHint}${oorHint}${softNote}`;
+  return (
+    `<div class="score-layer score-layer-cal is-on">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">${escapeText(title)}</div>` +
+    `<div class="score-hero-value ${signCls(hero)}">${escapeText(heroTxt)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">${escapeText(hint)}</div>` +
+    `<div class="score-layer-compose">${rows.join("")}</div>` +
+    `</div>`
+  );
+}
+
 /** 融合分：w·ŷ_EOD_rem + w·ŷ_τ。 */
 export function formatBlendScoreSection(raw) {
   const blend = resolveBlend(raw);
@@ -267,6 +447,18 @@ export function formatBlendScoreSection(raw) {
   const remTxt = remN == null || !Number.isFinite(remN) ? "—" : `${fmtSigned(remN, 3)}%`;
   const tTxt = tN == null || !Number.isFinite(tN) ? "—" : `${fmtSigned(tN, 3)}%`;
   const wTxt = `w_EOD=${Number(w_eod).toFixed(2)} · w_τ=${Number(w_tau).toFixed(2)}`;
+  const wMode =
+    raw && raw.dual_score_weights && raw.dual_score_weights.w_mode
+      ? String(raw.dual_score_weights.w_mode)
+      : "fixed";
+  const cascade =
+    raw && raw.predicted_score_tau_cascade != null
+      ? Number(raw.predicted_score_tau_cascade)
+      : null;
+  const cascadeTxt =
+    cascade == null || !Number.isFinite(cascade)
+      ? null
+      : `${fmtSigned(cascade, 3)}%`;
   const rows = [
     `<div class="score-layer-row"><span>ŷ_EOD_rem</span><span class="num ${signCls(
       remN
@@ -278,6 +470,13 @@ export function formatBlendScoreSection(raw) {
       blend
     )}">${escapeText(blendTxt)}</span></div>`,
   ];
+  if (cascadeTxt) {
+    rows.push(
+      `<div class="score-layer-row"><span>ŷ_cascade·影</span><span class="num ${signCls(
+        cascade
+      )}">${escapeText(cascadeTxt)}</span></div>`
+    );
+  }
   return (
     `<div class="score-layer score-layer-blend">` +
     `<div class="score-layer-head">` +
@@ -286,7 +485,7 @@ export function formatBlendScoreSection(raw) {
     `</div>` +
     `<div class="score-hero-hint">${escapeText(
       wTxt
-    )} · 同为 T收/T开 · 开盘排序键 · 表列主分</div>` +
+    )} · ${escapeText(wMode)} · 同为 T收/T开 · 开盘排序键 · 表列主分</div>` +
     `<div class="score-layer-compose">${rows.join("")}</div>` +
     `</div>`
   );
@@ -881,6 +1080,15 @@ export function createScoreTooltipController() {
     });
   }
 
+  function resolveScoreTipMode(cell) {
+    if (!cell) return "trade";
+    const tip = String(cell.dataset.scoreTip || "").trim().toLowerCase();
+    if (tip === "cal" || tip === "calibration") return "cal";
+    if (tip === "trade" || tip === "score") return "trade";
+    if (cell.classList.contains("watching-score-cal")) return "cal";
+    return "trade";
+  }
+
   function show(cell, { sticky = false } = {}) {
     let raw;
     try {
@@ -906,6 +1114,51 @@ export function createScoreTooltipController() {
     if (!raw.formula_terms && raw.score_formula_terms) {
       raw.formula_terms = raw.score_formula_terms;
     }
+
+    const tipMode = resolveScoreTipMode(cell);
+    // 校准列 tip：只展示 g(*)，不混 ŷ_trade 全栈
+    if (tipMode === "cal") {
+      let calHtml = formatCalibrationSection(raw, { calOnly: true });
+      if (!calHtml) {
+        const soft =
+          raw && raw.score_calibration_note
+            ? String(raw.score_calibration_note).slice(0, 100)
+            : "";
+        const oorBits = [];
+        if (raw && raw.score_calibration_eod_oor) oorBits.push("ŷ_EOD");
+        if (raw && raw.score_calibration_eod_rem_oor) oorBits.push("ŷ_EOD_rem");
+        if (raw && raw.score_calibration_tau_oor) oorBits.push("ŷ_τ");
+        const hintParts = [];
+        if (soft) hintParts.push(soft);
+        if (oorBits.length) {
+          hintParts.push(`${oorBits.join("/")} 落在拟合域外`);
+        }
+        if (!hintParts.length) {
+          hintParts.push("暂无映射 · 研究节拟合并写入 live 后，校准列可读 g(ŷ)");
+        }
+        calHtml =
+          `<div class="score-layer score-layer-cal is-shadow">` +
+          `<div class="score-layer-head">` +
+          `<div class="score-hero-label">校准 g(ŷ)</div>` +
+          `<div class="score-hero-value score-flat">—</div>` +
+          `</div>` +
+          `<div class="score-hero-hint">${escapeText(hintParts.join(" · "))}</div>` +
+          `</div>`;
+      }
+      const html = `<div class="score-detail score-detail-cal-only">${calHtml}</div>`;
+      hide();
+      const tip = document.createElement("div");
+      tip.className = "score-tooltip";
+      tip.innerHTML = html;
+      tip.setAttribute("role", "tooltip");
+      document.body.appendChild(tip);
+      tipEl = tip;
+      tipAnchor = cell;
+      place(tip, cell);
+      attachDismiss(tip, cell, { sticky });
+      return;
+    }
+
     const formula = raw.formula || "";
     const reasons = raw.reasons || [];
     const hardReject = raw.hard_reject;
@@ -963,7 +1216,7 @@ export function createScoreTooltipController() {
       return;
 
     let html = '<div class="score-detail">';
-    // ① EOD → ② EOD_rem → ③ τ → ④ ŷ_trade
+    // ① EOD → ② EOD_rem → ③ τ → ④ ŷ_trade（校准 g 仅在校准列 tip）
     html += formatScoreHero(raw);
     html += formatFormulaTermsSection(raw);
     html += formatFactorWeightsSection(raw);

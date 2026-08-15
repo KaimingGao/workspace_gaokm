@@ -36,17 +36,34 @@ export function metricCls(v) {
   return n > 0 ? "up" : "down";
 }
 
-/** 表列主分：ŷ_trade（w·ŷ_EOD_rem + w·ŷ_τ）→ ŷ_τ → ŷ_EOD。门槛仍看 ŷ_EOD。 */
+/** 表列主分：始终 raw ŷ_trade → ŷ_τ → ŷ_EOD。校准 g 仅校准列 / 校准 tip。 */
 export function resolveTradeScore(it) {
   if (!it || typeof it !== "object") return null;
   const candidates = [
     it.predicted_score_blend,
+    it.decision_score,
     it.predicted_score_tau,
     it.score_rem,
     it.predicted_score_rem,
     it.predicted_score,
     it.score,
     it.score_cluster,
+  ];
+  for (const c of candidates) {
+    if (c == null || c === "") continue;
+    const n = Number(c);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+/** 对照列：g(ŷ_trade) → g(ŷ_EOD)；无映射时 null（表上显示 —）。 */
+export function resolveCalTradeScore(it) {
+  if (!it || typeof it !== "object") return null;
+  const candidates = [
+    it.predicted_score_blend_cal,
+    it.predicted_score_cal,
+    it.predicted_score_eod_rem_cal,
   ];
   for (const c of candidates) {
     if (c == null || c === "") continue;

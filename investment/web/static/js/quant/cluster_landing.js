@@ -137,6 +137,20 @@ export function clusterLandingHtml(data) {
             warns.join("；")
           )}</p>`
         : "") +
+      (() => {
+        const cl = Array.isArray(pf.checklist) ? pf.checklist : [];
+        if (!cl.length) return "";
+        const bits = cl
+          .map((c) => {
+            const ok = c && c.ok !== false;
+            const lab = (c && (c.label || c.id)) || "?";
+            return `${ok ? "✓" : "✗"}${lab}`;
+          })
+          .join(" · ");
+        return `<p class="sub quant-cluster-checklist" title="promote 硬清单（OOS 硬闸；其余多为软项）">${escapeHtml(
+          bits
+        )}</p>`;
+      })() +
       `</div>`;
   }
 

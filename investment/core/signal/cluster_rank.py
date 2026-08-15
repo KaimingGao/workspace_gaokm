@@ -6,6 +6,40 @@ import math
 from typing import Any, Dict, List, Optional
 
 
+def _book_features_tau_fill(book: List[dict]) -> Dict[str, Any]:
+    """簿上 features_tau 五列非空率（P0 验收）。"""
+    from core.signal.dual_score import features_tau_fill_diag
+
+    rates: List[float] = []
+    missing_counts: Dict[str, int] = {}
+    for row in book or []:
+        ft = row.get("features_tau") if isinstance(row, dict) else None
+        diag = (
+            row.get("features_tau_fill")
+            if isinstance(row, dict) and isinstance(row.get("features_tau_fill"), dict)
+            else features_tau_fill_diag(ft)
+        )
+        fr = diag.get("fill_rate")
+        if fr is not None:
+            try:
+                rates.append(float(fr))
+            except (TypeError, ValueError):
+                pass
+        for k in diag.get("missing") or []:
+            missing_counts[str(k)] = missing_counts.get(str(k), 0) + 1
+    n = len(book or [])
+    mean_rate = round(sum(rates) / float(len(rates)), 4) if rates else None
+    full_n = sum(1 for r in rates if r >= 0.999)
+    return {
+        "n": n,
+        "mean_fill_rate": mean_rate,
+        "full_z_count": full_n,
+        "full_z_rate": round(full_n / float(n), 4) if n else None,
+        "missing_counts": missing_counts,
+        "ok": bool(mean_rate is not None and mean_rate >= 0.8),
+    }
+
+
 def rank_cluster_pools(
     codes: Optional[List[str]] = None,
     *,
@@ -110,9 +144,12 @@ def rank_cluster_pools(
     # 一次批量行情 → 池内共享 sector_gap_breadth（对齐 rem 面板按日广度；避免 N×同伴拉取）
     quote_cache: Dict[str, dict] = {}
     pool_breadth: Optional[float] = None
+    pool_gaps_list: List[float] = []
+    ref_by_code: Dict[str, Optional[float]] = {}
     try:
         from core.event_prior import compute_sector_gap_breadth_live, get_event_prior_cfg
         from core.ports.market import batch_query_quotes
+        from core.research.rem_panel import sector_gap_reference_by_code
 
         quote_cache = dict(batch_query_quotes(codes) or {})
         trigger = float(get_event_prior_cfg().get("gap_trigger_pct") or 2.0)
@@ -124,9 +161,30 @@ def rank_cluster_pools(
         )
         if br.get("breadth") is not None:
             pool_breadth = float(br["breadth"])
+        for _g in (br.get("gaps") or {}).values():
+            if _g is not None:
+                try:
+                    pool_gaps_list.append(float(_g))
+                except (TypeError, ValueError):
+                    pass
+        sm = {}
+        try:
+            from core.portfolio_optimize import load_sector_map
+
+            sm = load_sector_map() or {}
+        except Exception:
+            sm = {}
+        try:
+            ref_by_code = sector_gap_reference_by_code(
+                br.get("gaps") or {}, sector_map=sm
+            )
+        except Exception:
+            ref_by_code = {}
     except Exception:
         quote_cache = {}
         pool_breadth = None
+        pool_gaps_list = []
+        ref_by_code = {}
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
@@ -143,6 +201,8 @@ def rank_cluster_pools(
             skip_sentiment=True,
             quote=q if isinstance(q, dict) else None,
             sector_gap_breadth=pool_breadth,
+            pool_gaps=pool_gaps_list or None,
+            sector_gap_median=ref_by_code.get(raw),
             quote_timeout=5.0,
         )
 
@@ -258,7 +318,9 @@ def rank_cluster_pools(
             sc_f = None
         if sc_f is None:
             continue
-        below = sc_f < float(min_score)
+        sc_for_floor = sc_f
+        # 入簿门槛比 raw ŷ；*_cal 仅供 tip 对照（方案 A）
+        below = sc_for_floor < float(min_score)
         if below:
             below_min += 1
         row = {
@@ -266,6 +328,7 @@ def rank_cluster_pools(
             "stock_name": item.get("stock_name"),
             "score": sc_f,
             "predicted_score": item.get("predicted_score"),
+            "predicted_score_cal": item.get("predicted_score_cal"),
             "heuristic_score": item.get("heuristic_score"),
             "cluster_label": str(label),
             "cluster_id": item.get("cluster_id"),
@@ -285,10 +348,29 @@ def rank_cluster_pools(
             "gap_pct": item.get("gap_pct"),
             "event_prior": item.get("event_prior"),
         }
+        # 冻结对账用：刷簿时 quote.open（PIT），避免事后日线复权漂移
+        q_row = quote_cache.get(str(item.get("stock_code") or raw) or "")
+        if isinstance(q_row, dict):
+            try:
+                from core.event_prior import _parse_open_price
+
+                opx = _parse_open_price(q_row)
+                if opx is not None and opx > 0:
+                    row["open_price_for_tau_label"] = float(opx)
+            except Exception:
+                pass
         try:
-            from core.signal.dual_score import dual_score_book_fields
+            from core.signal.dual_score import (
+                decision_score_for_item,
+                dual_score_book_fields,
+            )
 
             row.update(dual_score_book_fields(item))
+            # 簿主分 = raw ŷ_trade（与排序键一致）；*_cal 已在 book_fields
+            d_sc = decision_score_for_item(row)
+            if d_sc is not None:
+                row["score"] = float(d_sc)
+                row["decision_score"] = float(d_sc)
         except Exception:
             pass
         mapped_rows.append(row)
@@ -333,17 +415,55 @@ def rank_cluster_pools(
     eligible = [
         dict(r) for r in mapped_rows if not r.get("below_min_score")
     ]
-    eligible.sort(
-        key=lambda x: float(rank_key_for_item(x, config={"dual_score": _dual_cfg}) or 0.0),
-        reverse=True,
-    )
-    book = eligible[:max_n]
-    for i, b in enumerate(book):
-        b["rank"] = i + 1
+    # 约束感知装填：可成交过滤 · 行业名额 · τ 闸 defer/exclude（与纸面 risk 同配置）
+    book_skips: List[dict] = []
+    book_constraint_stats: Dict[str, Any] = {}
+    try:
+        from core.signal.book_constraints import (
+            fill_book_with_constraints,
+            get_book_constraints_cfg,
+            resolve_book_risk_limits,
+        )
+
+        fill = fill_book_with_constraints(
+            eligible,
+            max_names=max_n,
+            quotes=quote_cache,
+            dual_cfg=_dual_cfg,
+            risk_limits=resolve_book_risk_limits(),
+            constraints=get_book_constraints_cfg(cfg),
+        )
+        book = list(fill.get("book") or [])
+        book_skips = list(fill.get("skipped") or [])
+        book_constraint_stats = dict(fill.get("stats") or {})
+    except Exception:
+        eligible.sort(
+            key=lambda x: float(
+                rank_key_for_item(x, config={"dual_score": _dual_cfg}) or 0.0
+            ),
+            reverse=True,
+        )
+        book = eligible[:max_n]
+        for i, b in enumerate(book):
+            b["rank"] = i + 1
+    for b in book:
         if _dual_cfg.get("fusion_mode") in ("blend", "residual", "f2"):
             b["rank_key"] = "predicted_score_blend"
 
     scored_all: List[dict] = list(scored_extra) + list(mapped_rows)
+    for s in book_skips:
+        # 跳过票保留在 scored_all 展示（若尚未在 mapped）
+        code_s = str(s.get("stock_code") or "")
+        if code_s and not any(
+            str(x.get("stock_code") or "") == code_s for x in scored_all
+        ):
+            scored_all.append({**s, "below_min_score": False, "book_skipped": True})
+        else:
+            for x in scored_all:
+                if str(x.get("stock_code") or "") == code_s:
+                    x["book_skip_reason"] = s.get("skip_reason")
+                    x["book_skipped"] = True
+                    break
     scored_all.sort(
         key=lambda x: (
             0 if rank_key_for_item(x, config={"dual_score": _dual_cfg}) is not None else 1,
@@ -377,6 +497,10 @@ def rank_cluster_pools(
                 "exclude_oos_failed_groups": exclude_oos,
                 "oos_blocked_labels": sorted(oos_blocked_labels),
                 "oos_blocked_count": oos_blocked_count,
+                "sector_gap_breadth": pool_breadth,
+                "book_constraints": book_constraint_stats,
+                "book_skips": book_skips[:40],
+                "book_skips_count": len(book_skips),
             },
             scored_all=scored_all,
         )
@@ -435,11 +559,14 @@ def rank_cluster_pools(
         "tau_shadow_book_path": tau_shadow_path,
         "tau_shadow_meta": tau_shadow_meta,
         "sector_gap_breadth": pool_breadth,
+        "features_tau_fill": _book_features_tau_fill(book),
+        "book_constraints": book_constraint_stats,
+        "book_skips": book_skips[:40],
+        "book_skips_count": len(book_skips),
         "note": (
-            "分池：组ŷ→剔ST→剔OOS失败组→ŷ≥min_predicted_score（h=1 现网约 +0.35）→全局降序→max_names 截断。"
-            "不再做组内 Top-N。低于门槛 / 未映射 / 硬拒绝 / OOS阻断仍进 scored_all 供展示。"
-            "刷簿前批量行情算池内 sector_gap_breadth，写入各票 ŷ_τ。"
-            "不写 signal_config.weights。"
-            "另写 A2 τ 影子簿（同池按 ŷ_τ）供对照。"
+            "分池：组ŷ→剔ST→剔OOS失败组→ŷ≥min_predicted_score→约束装填"
+            "（可成交/行业名额/τ defer）→max_names。"
+            "刷簿前批量行情算池内 sector_gap_breadth + theme_day（与 rem 同构）。"
+            "不写 signal_config.weights。另写 A2 τ 影子簿。"
         ),
     }

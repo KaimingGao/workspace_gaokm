@@ -16,10 +16,18 @@ export const BT_SIM_TRADE_COLS_BASE = [
   {
     id: "score",
     label: "融合分",
-    widthPct: 7.5,
+    widthPct: 6.5,
     num: true,
     sortable: true,
-    title: "表列 = ŷ_trade（w_EOD·ŷ_EOD_rem + w_τ·ŷ_τ）· 悬停看 ŷ_EOD / ŷ_τ",
+    title: "表列 = ŷ_trade（raw）· 悬停看 ŷ_EOD / ŷ_τ",
+  },
+  {
+    id: "score_cal",
+    label: "校准",
+    widthPct: 6.5,
+    num: true,
+    sortable: true,
+    title: "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip",
   },
   {
     id: "intent",
@@ -91,6 +99,17 @@ export function flattenTradesToSimLegs(trades) {
         predicted_score_tau: l.predicted_score_tau,
         predicted_score_blend: l.predicted_score_blend,
         predicted_score_eod_rem: l.predicted_score_eod_rem,
+        predicted_score_cal: l.predicted_score_cal,
+        predicted_score_eod_rem_cal: l.predicted_score_eod_rem_cal,
+        predicted_score_tau_cal: l.predicted_score_tau_cal,
+        predicted_score_blend_cal: l.predicted_score_blend_cal,
+        score_calibration_applied: !!l.score_calibration_applied,
+        score_calibration_enabled: !!l.score_calibration_enabled,
+        score_calibration_eod_oor: !!l.score_calibration_eod_oor,
+        score_calibration_eod_rem_oor: !!l.score_calibration_eod_rem_oor,
+        score_calibration_tau_oor: !!l.score_calibration_tau_oor,
+        score_calibration_note: l.score_calibration_note || null,
+        score_calibration_partial: l.score_calibration_partial || null,
         realized_t1_to_tau: l.realized_t1_to_tau,
         score_rem: l.score_rem != null ? l.score_rem : l.predicted_score_rem,
         formula_terms_tau: l.formula_terms_tau || l.score_formula_terms_tau,
@@ -253,12 +272,25 @@ export function buildSimTradeRow(r, i, deps) {
     r.predicted_score != null && Number.isFinite(Number(r.predicted_score))
       ? Number(r.predicted_score)
       : null;
-  const blendScore =
+  const blendRaw =
     r.predicted_score_blend != null && Number.isFinite(Number(r.predicted_score_blend))
       ? Number(r.predicted_score_blend)
       : r.score != null && Number.isFinite(Number(r.score))
         ? Number(r.score)
         : null;
+  const blendCal =
+    r.predicted_score_blend_cal != null &&
+    Number.isFinite(Number(r.predicted_score_blend_cal))
+      ? Number(r.predicted_score_blend_cal)
+      : r.predicted_score_cal != null &&
+          Number.isFinite(Number(r.predicted_score_cal))
+        ? Number(r.predicted_score_cal)
+        : r.predicted_score_eod_rem_cal != null &&
+            Number.isFinite(Number(r.predicted_score_eod_rem_cal))
+          ? Number(r.predicted_score_eod_rem_cal)
+          : null;
+  // 表列 = 排序键 = raw ŷ_trade；校准 g 仅校准列 tip
+  const blendScore = blendRaw;
   // 回测 tip：信号日打分时常无缺口；成交后用意图价(昨收)→开盘成交价还原
   let gapPct =
     r.gap_pct != null && Number.isFinite(Number(r.gap_pct)) ? Number(r.gap_pct) : null;
@@ -299,9 +331,20 @@ export function buildSimTradeRow(r, i, deps) {
         : r.score_rem != null
           ? r.score_rem
           : r.predicted_score_rem,
-    predicted_score_blend: blendScore,
+    predicted_score_blend: blendRaw != null ? blendRaw : blendScore,
     predicted_score_eod_rem: eodRem,
     predicted_score_tau_delta: r.predicted_score_tau_delta,
+    predicted_score_cal: r.predicted_score_cal,
+    predicted_score_eod_rem_cal: r.predicted_score_eod_rem_cal,
+    predicted_score_tau_cal: r.predicted_score_tau_cal,
+    predicted_score_blend_cal: blendCal != null ? blendCal : r.predicted_score_blend_cal,
+    score_calibration_applied: !!r.score_calibration_applied,
+    score_calibration_enabled: !!r.score_calibration_enabled,
+    score_calibration_eod_oor: !!r.score_calibration_eod_oor,
+    score_calibration_eod_rem_oor: !!r.score_calibration_eod_rem_oor,
+    score_calibration_tau_oor: !!r.score_calibration_tau_oor,
+    score_calibration_note: r.score_calibration_note || null,
+    score_calibration_partial: r.score_calibration_partial || null,
     realized_t1_to_tau: realized,
     score_rem: r.score_rem != null ? r.score_rem : r.predicted_score_rem,
     gap_pct: gapPct,
@@ -331,6 +374,17 @@ export function buildSimTradeRow(r, i, deps) {
     score_formula_terms: r.score_formula_terms,
     factor_coefficients: r.factor_coefficients || {},
   });
+  const scoreCalOor = !!(
+    r.score_calibration_eod_oor ||
+    r.score_calibration_eod_rem_oor ||
+    r.score_calibration_tau_oor
+  );
+  const scoreCalTitle =
+    blendCal == null
+      ? "暂无 g(ŷ) 映射（拟合并写入 live 后可见）"
+      : scoreCalOor
+        ? "g(ŷ_trade) 对照 · 部分落在拟合域外（端点钳制）· 悬停看校准 tip"
+        : "g(ŷ_trade) 对照 · 不进决策 · 悬停看校准 tip";
   return {
     code: `sim-${i}-${code}-${r.entry_date || ""}-${r.exit_date || ""}-${st}`,
     stock_code: code,
@@ -352,6 +406,11 @@ export function buildSimTradeRow(r, i, deps) {
     scoreCls: scoreCls(blendScore),
     scoreDetail,
     scoreTitle: "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ",
+    scoreCalNum: blendCal,
+    scoreCalText: fmtScore(blendCal),
+    scoreCalCls: `${scoreCls(blendCal)}${scoreCalOor ? " is-cal-oor" : ""}`.trim(),
+    scoreCalTitle,
+    scoreCalOor,
     status: formatSimStatus(st),
   };
 }
@@ -382,6 +441,7 @@ const BT_TRADES_NUM_KEYS = {
   sell: "sellNum",
   intent: "intentNum",
   score: "scoreNum",
+  score_cal: "scoreCalNum",
 };
 
 /** Virtual-table compare callback for sim trades. */
@@ -427,8 +487,25 @@ export function btTradesCellHtml(col, d, deps) {
       `<span class="bt-trade-score paper-hold-score has-tip ${escapeHtml(
         d.scoreCls || ""
       )}" ` +
-      `data-score-detail="${escapeHtml(d.scoreDetail)}" ` +
+      `data-score-detail="${escapeHtml(d.scoreDetail)}" data-score-tip="trade" ` +
       `title="${escapeHtml(title)}">${escapeHtml(d.scoreText)}</span>`
+    );
+  }
+  if (col.id === "score_cal") {
+    const title =
+      d.scoreCalTitle || "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip";
+    const text = d.scoreCalText != null ? d.scoreCalText : "—";
+    if (!d.scoreDetail) {
+      return `<span class="bt-trade-score watching-score-cal paper-hold-score ${escapeHtml(
+        d.scoreCalCls || ""
+      )}">${escapeHtml(text)}</span>`;
+    }
+    return (
+      `<span class="bt-trade-score watching-score-cal paper-hold-score has-tip ${escapeHtml(
+        d.scoreCalCls || ""
+      )}" ` +
+      `data-score-detail="${escapeHtml(d.scoreDetail)}" data-score-tip="cal" ` +
+      `title="${escapeHtml(title)}">${escapeHtml(text)}</span>`
     );
   }
   if (col.id === "intent") return escapeHtml(d.intentText);

@@ -11,14 +11,14 @@ import {
   resolveEodScore,
   resolveEodRemScore,
   scoreSeriesStats,
-} from "./paper/fmt.js?v=p1061";
+} from "./paper/fmt.js?v=p1092";
 import { drawSeries } from "./paper/chart.js";
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
 import {
   loadHoldingsSort,
   persistHoldingsSort as persistHoldingsSortSaved,
   sortHoldings as sortHoldingsRows,
-} from "./paper/holdings_sort.js";
+} from "./paper/holdings_sort.js?v=p1092";
 import {
   renderLineChart,
   loadLightweightCharts,
@@ -29,7 +29,7 @@ import {
   buildPaperHoldingsTableHtml,
   buildPaperOriginBarHtml,
   buildPaperHoldActionBarHtml,
-} from "./paper/holdings_ui.js";
+} from "./paper/holdings_ui.js?v=p1092";
 import { renderPaperRulesHtml } from "./paper/rules_ui.js";
 import {
   renderExecutionRulesHtml,
@@ -52,8 +52,9 @@ import {
   formatEodRemScoreSection,
   formatRemScoreSection,
   formatBlendScoreSection,
+  formatCalibrationSection,
   createScoreTooltipController,
-} from "./score_tooltip.js";
+} from "./score_tooltip.js?v=p1092";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 
@@ -1279,6 +1280,7 @@ export function initPaper(ctx) {
           key === "code" ||
           key === "market_value" ||
           key === "score" ||
+          key === "score_cal" ||
           key === "pnl" ||
           key === "chg"
         ) {
@@ -1711,6 +1713,12 @@ export function initPaper(ctx) {
         `align-items:center;width:100%;column-gap:0;`;
 
       function buildScoreDetail(r) {
+        const hasCal =
+          r.predicted_score_cal != null ||
+          r.predicted_score_eod_rem_cal != null ||
+          r.predicted_score_tau_cal != null ||
+          r.predicted_score_blend_cal != null ||
+          r.score_calibration_note;
         if (
           !r.reasons &&
           !r.score_formula &&
@@ -1719,7 +1727,8 @@ export function initPaper(ctx) {
           !r.cluster_label &&
           !r.return_model_source &&
           !(r.factor_coefficients && Object.keys(r.factor_coefficients || {}).length) &&
-          !(r.score_formula_terms && (r.score_formula_terms.terms || []).length)
+          !(r.score_formula_terms && (r.score_formula_terms.terms || []).length) &&
+          !hasCal
         ) {
           return '<div class="score-detail-empty">无评分详情</div>';
         }
@@ -1742,6 +1751,17 @@ export function initPaper(ctx) {
           predicted_score_eod: r.predicted_score_eod,
           predicted_score_eod_rem: r.predicted_score_eod_rem,
           predicted_score_tau_delta: r.predicted_score_tau_delta,
+          predicted_score_cal: r.predicted_score_cal,
+          predicted_score_eod_rem_cal: r.predicted_score_eod_rem_cal,
+          predicted_score_tau_cal: r.predicted_score_tau_cal,
+          predicted_score_blend_cal: r.predicted_score_blend_cal,
+          score_calibration_applied: !!r.score_calibration_applied,
+          score_calibration_enabled: !!r.score_calibration_enabled,
+          score_calibration_eod_oor: !!r.score_calibration_eod_oor,
+          score_calibration_eod_rem_oor: !!r.score_calibration_eod_rem_oor,
+          score_calibration_tau_oor: !!r.score_calibration_tau_oor,
+          score_calibration_note: r.score_calibration_note || null,
+          score_calibration_partial: r.score_calibration_partial || null,
           realized_t1_to_tau: r.realized_t1_to_tau,
           y_spec_tau: r.y_spec_tau,
           features_tau: r.features_tau,
@@ -1763,6 +1783,7 @@ export function initPaper(ctx) {
         html += formatFormulaTermsSection(tipRaw, { key: "tau" });
         html += formatFactorWeightsSection(tipRaw, { key: "tau" });
         html += formatBlendScoreSection(tipRaw);
+        html += formatCalibrationSection(tipRaw);
         html += formatFormulaTermsSection(tipRaw);
         html += formatFactorWeightsSection(tipRaw);
         html += formatWeightSourceNote(tipRaw);

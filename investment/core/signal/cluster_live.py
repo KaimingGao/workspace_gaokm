@@ -1284,6 +1284,8 @@ def refresh_cluster_book_daily(*, light: bool = False) -> Dict[str, Any]:
             "cluster_version": ranked.get("cluster_version"),
             "error": ranked.get("error"),
             "name_count": len(ranked.get("book") or []),
+            "features_tau_fill": ranked.get("features_tau_fill"),
+            "sector_gap_breadth": ranked.get("sector_gap_breadth"),
         },
         "light": bool(light),
         "signal_config_touched": False,

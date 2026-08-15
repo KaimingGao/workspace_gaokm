@@ -102,8 +102,15 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 | **正交加权（现网）** | 候选 := ŷ_EOD≥floor；排序 := ŷ_trade=w·ŷ_EOD_rem+w·ŷ_τ；另过 τ 闸 | **`fusion_mode=blend`** |
 | A2 影子簿 | 同池按 ŷ_τ 另写 `cluster_book_tau_shadow.json`；jaccard/spearman vs EOD | **已落地**（`enable_tau_shadow_book`，默认开；不驱动买入） |
 | A2 验收 | 账本 `*.tau_shadow.json` + `realized_tau`；`/api/quant/score-review/tau-shadow` | **已落地** |
+| P0 Z 齐套 | 刷簿池截面 + tip 合并 `features_tau`；启用后轻量刷簿；`features_tau_fill` | **已落地** |
+| P0 rem 满池 / 主题分层 OOS | `watching_limit` 默认 36；`oos.by_theme` | **已落地** |
+| P1 分钟 τ | 研究轨 `enable_minute_tau` + `tau_hm`；`sector_ret_to_tau`；默认仍关 | **接线已落地**（人审开开关后训） |
+| P2 融合补强 | `w_mode=theme_boost\|variance`；`predicted_score_tau_cascade` 影子 | **研究轨已落地**（默认 `w_mode=fixed`） |
+| **校准层 g(ŷ)** | 账本 Isotonic；tip/复盘对照；排序与买卖闸仍用 raw ŷ | **已接线**（方案 A；写入 live 后可读） |
+| **特征编码 raw_basis** | 动量/波动/估值：原始量+分档替代 0–100；影子对照 API | **试点已接线**（默认 `heuristic`；优则改 `scoring.feature_encoding` 后重跑分组） |
 | 分钟 τ 特征 | 缓存命中时写 `ret_open_to_tau` | **可选**（`enable_minute_tau`，默认关） |
 | F3 以后 | 盘中窗以 ŷ_τ 为主（影子簿达标） | 未做 |
+| P3 决策 bandit | 只学闸/听谁，不进 score | 未做 |
 
 **研究枢纽 UI（信息架构）**：主路径「ŷ_EOD → ŷ_τ → IC → 双层 ŷ 复盘 → 交易执行」；两块相邻；概览 KPI 并列两轴命中；rem 为次级 CTA，不与「跑分组」并列主按钮；复盘表列 ŷ | ŷ_τ；数据中心 / 交易执行表列主分为 ŷ_trade，悬停拆 ŷ_EOD / ŷ_EOD_rem / ŷ_τ。
 
@@ -406,7 +413,12 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 1. **加权再拟合**：下次跑分组 / Ridge 时，对近期或高 \(|e|\) 样本提权（或对命中样本降权防过拟合噪声）。  
 2. **分层重估**：按 `factor_blame` / 行业 / 组 / regime 切片，只对「系统性偏差」切片缩短 `refit` 周期或单独估 β。  
 3. **校准层（isotonic / 分段线性）**：在 \(\hat y\) 之上学 \(g(\hat y)\approx\mathbb{E}[r_h\mid\hat y]\)，不改因子结构，专治「方向对但幅度飘」。  
-   - 服务选股排序时可用 \(g(\hat y)\)；promote 仍冻结可审计映射。
+   - 实现：`core/signal/score_calibration.py`；复盘「拟合校准 / 写入 live」；产物 `data/live/score_calibration.json`。  
+   - 有 live 映射即算 g（`force`）：**观察池 / 持仓 / 回测成交**在评分旁显示「校准」对照列；**排序键、τ 买入闸、分池入簿门槛仍读原始 ŷ**（方案 A）。  
+   - 无「启用/停用」开关；人审「写入 live」后 tip/列可读 g，不把 g 写入决策。  
+   - tip 分流：评分列悬停 = ①–④ raw ŷ 全栈（**不含** g）；校准列悬停 = 仅 g(ŷ_EOD)/g(ŷ_EOD_rem)/g(ŷ_τ)/g(ŷ_trade)。ŷ 落在 knots 域外时校准 tip 提示端点钳制。  
+   - 独立节「校准 g(ŷ)」：状态徽章 · holdout MAE/IC · knots 曲线 · 拟合/写入 live。  
+   - promote 须人审；`g(门槛)<门槛` 仅为**软警告**，仍可写入 tip 对照（因不进决策）。
 
 **L2 — 工况门控（何时信模型）**
 
