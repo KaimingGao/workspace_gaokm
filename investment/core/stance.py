@@ -45,10 +45,8 @@ def compute_buy_stance(
             "confidence": "low",
         }
 
+    # 主分须为 ŷ；无 predicted_score 则信息不足（不回退启发式 score）
     score = _f(signal_item.get("predicted_score"))
-    if score is None:
-        # 主分须为 ŷ；无收益分则信息不足
-        score = None
     score_kind = "predicted"
     hard_reject = bool(signal_item.get("hard_reject"))
     reject_reason = signal_item.get("reject_reason") or ""

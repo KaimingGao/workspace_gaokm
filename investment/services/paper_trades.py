@@ -151,37 +151,96 @@ def _rebalance_report_from_legs(
             or "sentiment_prior" in str(reason or "")
         )
         hard_flag = bool(rank_row.get("hard_reject") or code in hard_by)
-        rows.append(
-            {
-                "stock_code": code,
-                "stock_name": name_by.get(code) or code,
-                "score": score_by.get(code),
-                "decision": decision,
-                "reason": reason,
-                "old_shares": int(o),
-                "new_shares": int(n),
-                "shares_change": int(delta),
-                "shares_before": o,
-                "shares_after": n,
-                "cluster_label": label,
-                "weight_source": rank_row.get("weight_source")
-                or (
-                    f"cluster:{label}"
-                    if label and decision != "卖出"
-                    else None
-                ),
-                "score_global": rank_row.get("score_global"),
-                "score_cluster": rank_row.get("score_cluster")
-                if rank_row.get("score_cluster") is not None
-                else rank_row.get("score"),
-                "below_min_score": below,
-                "hard_reject": hard_flag,
-                "reject_reason": rank_row.get("reject_reason") or hard_by.get(code),
-                "sentiment_prior": bool(prior_flag)
-                if (code in sell_by or code in skip_by)
-                else False,
-            }
-        )
+        row_out = {
+            "stock_code": code,
+            "stock_name": name_by.get(code) or code,
+            "score": score_by.get(code),
+            "decision": decision,
+            "reason": reason,
+            "old_shares": int(o),
+            "new_shares": int(n),
+            "shares_change": int(delta),
+            "shares_before": o,
+            "shares_after": n,
+            "cluster_label": label,
+            "weight_source": rank_row.get("weight_source")
+            or (
+                f"cluster:{label}"
+                if label and decision != "卖出"
+                else None
+            ),
+            "score_global": rank_row.get("score_global"),
+            "score_cluster": rank_row.get("score_cluster")
+            if rank_row.get("score_cluster") is not None
+            else rank_row.get("score"),
+            "below_min_score": below,
+            "hard_reject": hard_flag,
+            "reject_reason": rank_row.get("reject_reason") or hard_by.get(code),
+            "sentiment_prior": bool(prior_flag)
+            if (code in sell_by or code in skip_by)
+            else False,
+        }
+        # tip / 校准列：从打分行透传（book 已含 *_cal；缺则现场补 g）
+        try:
+            from core.signal.dual_score import dual_score_book_fields
+
+            src = dict(rank_row) if isinstance(rank_row, dict) else {}
+            if src.get("predicted_score") is None and src.get("predicted_score_blend") is None:
+                sc = score_by.get(code)
+                if sc is not None:
+                    src.setdefault("score", sc)
+                    src.setdefault("predicted_score", sc)
+            row_out.update(dual_score_book_fields(src))
+            for k in (
+                "predicted_score",
+                "score_formula",
+                "score_formula_terms",
+                "reasons",
+                "factor_coefficients",
+                "return_model_source",
+                "cluster_mode",
+                "cluster_version",
+            ):
+                if src.get(k) is not None and row_out.get(k) is None:
+                    row_out[k] = src.get(k)
+        except Exception:
+            # book_fields 整段失败时仍尽量补校准对照列
+            try:
+                from core.signal.score_calibration import (
+                    attach_calibrated_scores,
+                    load_calibration_model,
+                )
+
+                src = dict(rank_row) if isinstance(rank_row, dict) else {}
+                sc = score_by.get(code)
+                if sc is not None:
+                    src.setdefault("score", sc)
+                    src.setdefault("predicted_score", sc)
+                attach_calibrated_scores(
+                    src, model_doc=load_calibration_model(), force=True
+                )
+                for k in (
+                    "predicted_score_cal",
+                    "predicted_score_eod_rem_cal",
+                    "predicted_score_tau_cal",
+                    "predicted_score_blend_cal",
+                    "score_calibration_applied",
+                    "score_calibration_enabled",
+                    "score_calibration_eod_oor",
+                    "score_calibration_eod_rem_oor",
+                    "score_calibration_tau_oor",
+                    "score_calibration_note",
+                    "score_calibration_partial",
+                    "predicted_score_eod",
+                    "predicted_score_eod_rem",
+                    "predicted_score_tau",
+                    "predicted_score_blend",
+                ):
+                    if k in src:
+                        row_out[k] = src.get(k)
+            except Exception:
+                pass
+        rows.append(row_out)
     def _sort_key(row: dict) -> tuple:
         # 预演调仓：按分数降序；同分时买卖优先于持有
         sc_raw = row.get("score")
@@ -283,6 +342,15 @@ class PaperTradesMixin:
         ranked = result.get("cluster_pools") or result.get("cross_section")
         health = result.get("health")
         use_cluster = mode == "cluster_book"
+        # 兜底：simulate 合并后偶发缺 ranking/score_rows 时从 cluster_pools 取
+        if isinstance(ranked, dict):
+            if not ranking:
+                ranking = list(ranked.get("book") or ranked.get("ranking") or [])
+            if not score_rows:
+                score_rows = list(ranked.get("scored_all") or [])
+                if not score_rows:
+                    for g in ranked.get("groups") or []:
+                        score_rows.extend(list(g.get("ranking") or []))
 
         summary = mark_to_market(work)
         sell_trades = list(result.get("sell_trades") or [])

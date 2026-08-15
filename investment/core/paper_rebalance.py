@@ -199,10 +199,11 @@ def simulate_cross_section_rebalance(
     """
     按横截面 TopK / 分池目标簿调仓。
 
-    - 横截面（``respect_max_positions=True``）：卖出不在 TopK，或分数低于 min_hold_score；
-      再从 TopK 买入 score >= min_score 的未持仓。
-    - 分池（``respect_max_positions=False``）：滞回——买入仍看目标簿且 ŷ≥min_score；
-      **卖出仅当 ŷ < min_hold_score**（默认 -1%），不因「未进簿/截断」清仓。
+    - 横截面（``respect_max_positions=True``）：卖出不在 TopK，或 ŷ_trade 低于 min_hold_score；
+      再从 TopK 买入（EOD≥min_score 且过 τ 闸）的未持仓。
+    - 分池（``respect_max_positions=False``）：滞回——买入仍看目标簿且 ŷ_EOD≥min_score（+τ 闸）；
+      **卖出仅当 ŷ_trade < min_hold_score**，不因「未进簿/截断」清仓。
+      （卖/表/排序同一轴；买入门槛仍用隔夜 ŷ_EOD。）
     买入前强制 check_account_risk；超限则拦截加仓并写 risk_block 日志。
 
     ``score_lookup``：可选全量打分行（含低于 min_score 未进簿的票），供卖出腿带分。
@@ -249,7 +250,9 @@ def simulate_cross_section_rebalance(
 
     top_items = (ranking or [])[:top_k]
     top_codes = {str(x.get("stock_code") or "") for x in top_items if x.get("stock_code")}
-    score_by_code: Dict[str, float] = {}
+    # 卖出门槛 / 报告主分：ŷ_trade；买入 EOD 闸另算
+    trade_score_by_code: Dict[str, float] = {}
+    eod_score_by_code: Dict[str, float] = {}
     tau_by_code: Dict[str, float] = {}
     hard_reject_by_code: Dict[str, str] = {}
     for src in list(score_lookup or []) + list(ranking or []):
@@ -260,23 +263,34 @@ def simulate_cross_section_rebalance(
             hard_reject_by_code[code] = str(
                 src.get("reject_reason") or "硬拒绝"
             )
-        if code not in score_by_code:
+        if code not in trade_score_by_code:
             try:
-                from core.signal.dual_score import eod_gate_score_for_item
+                from core.signal.dual_score import decision_score_for_item
 
-                gate = eod_gate_score_for_item(src)
-                if gate is not None:
-                    score_by_code[code] = float(gate)
+                d_sc = decision_score_for_item(src)
+                if d_sc is not None:
+                    trade_score_by_code[code] = float(d_sc)
                 elif src.get("score") is not None:
-                    score_by_code[code] = float(src.get("score"))
+                    trade_score_by_code[code] = float(src.get("score"))
             except (TypeError, ValueError):
                 pass
             except Exception:
                 try:
                     if src.get("score") is not None:
-                        score_by_code[code] = float(src.get("score"))
+                        trade_score_by_code[code] = float(src.get("score"))
                 except (TypeError, ValueError):
                     pass
+        if code not in eod_score_by_code:
+            try:
+                from core.signal.dual_score import eod_gate_score_for_item
+
+                gate = eod_gate_score_for_item(src)
+                if gate is not None:
+                    eod_score_by_code[code] = float(gate)
+            except (TypeError, ValueError):
+                pass
+            except Exception:
+                pass
         if code not in tau_by_code:
             try:
                 from core.signal.dual_score import resolve_predicted_score_tau
@@ -286,6 +300,8 @@ def simulate_cross_section_rebalance(
                     tau_by_code[code] = float(yt)
             except Exception:
                 pass
+    # 兼容旧引用名：卖出主分 = ŷ_trade
+    score_by_code = trade_score_by_code
 
     holdings = paper.get("holdings") or []
     cash_before = float(paper.get("cash") or 0)
@@ -380,26 +396,26 @@ def simulate_cross_section_rebalance(
         in_top = code in top_codes
         reason = None
         if not respect_max_positions:
-            # 分池滞回：入簿用 min_score；已持仓只在 ŷ < min_hold_score 时卖
+            # 分池滞回：入簿用 ŷ_EOD；已持仓只在 ŷ_trade < min_hold 时卖（与表列同轴）
             # 硬拒绝（如追高）无 ŷ，按卖出处理，避免报告「— / 未变动」挂着
             if code in hard_reject_by_code:
                 reason = hard_reject_by_code[code]
             elif score is not None and score < min_hold_score:
-                reason = f"分数低于卖出门槛 min_hold({min_hold_score})"
+                reason = f"ŷ_trade 低于卖出门槛 min_hold({min_hold_score})"
         else:
             if code in hard_reject_by_code:
                 reason = hard_reject_by_code[code]
             elif not in_top:
                 reason = "不在横截面 TopK"
             elif score is not None and score < min_hold_score:
-                reason = f"分数低于 min_hold_score({min_hold_score})"
+                reason = f"ŷ_trade 低于 min_hold_score({min_hold_score})"
 
         # P1：主题开盘缺口 / rem / 舆情看多 · 卖出改为 soft hold（不改 ŷ）
-        # 分池滞回卖因「分数低于*」；横截面另有「不在 TopK」——主题日同样保护，避免踏空
+        # 分池滞回卖因「低于*」；横截面另有「不在 TopK」——主题日同样保护，避免踏空
         _soft_hold_eligible = bool(
             reason
             and (
-                "分数低于" in str(reason)
+                "低于" in str(reason)
                 or str(reason) == "不在横截面 TopK"
             )
         )
@@ -521,7 +537,11 @@ def simulate_cross_section_rebalance(
         note = (
             sell_note
             if prior_trim
-            else f"横截面调仓卖出：{reason}"
+            else (
+                f"分池调仓卖出：{reason}"
+                if not respect_max_positions
+                else f"横截面调仓卖出：{reason}"
+            )
         )
         trade = annotate_trade(
             {
@@ -758,10 +778,14 @@ def simulate_cross_section_rebalance(
                 from core.signal.dual_score import eod_gate_score_for_item
 
                 gate_sc = eod_gate_score_for_item(item)
+                if gate_sc is None and code in eod_score_by_code:
+                    gate_sc = eod_score_by_code.get(code)
                 if gate_sc is None and code in score_by_code:
                     gate_sc = score_by_code.get(code)
             except Exception:
-                gate_sc = score_by_code.get(code)
+                gate_sc = eod_score_by_code.get(code)
+                if gate_sc is None:
+                    gate_sc = score_by_code.get(code)
                 if gate_sc is None:
                     try:
                         gate_sc = float(score) if score is not None else None
@@ -1217,5 +1241,5 @@ def simulate_cross_section_rebalance(
         "attribution": attribution,
         "cost_assumptions": cost_assumptions,
         "exposure_style": exposure_style,
-        "note": "横截面/分池调仓为纸面模拟；排序=ŷ_trade（raw）；买入=EOD门槛且 τ 闸（均 raw）；校准 g 仅 tip；卖出看 EOD 持有门槛。",
+        "note": "横截面/分池调仓为纸面模拟；排序=ŷ_trade（raw）；买入=EOD门槛且 τ 闸（均 raw）；卖出=ŷ_trade 低于 min_hold；校准 g 仅 tip。",
     }

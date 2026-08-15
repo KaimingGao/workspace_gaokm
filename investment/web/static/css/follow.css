@@ -480,6 +480,24 @@
   margin-top: 12px;
 }
 
+.follow-page .rebalance-table-scroll {
+  border-radius: 2px;
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+.follow-page .rebalance-table {
+  font-size: 12.5px;
+}
+
+.follow-page .rebalance-table-head {
+  background: color-mix(in srgb, var(--bg-accent) 92%, var(--surface));
+}
+
+.follow-page .rebalance-decision-tag {
+  border-radius: 2px;
+}
+
 .paper-ops-report {
   margin: 0 0 10px;
   padding: 8px 10px;

@@ -8,10 +8,11 @@ import {
   fmtScore,
   scoreCls,
   resolveTradeScore,
+  resolveCalTradeScore,
   resolveEodScore,
   resolveEodRemScore,
   scoreSeriesStats,
-} from "./paper/fmt.js?v=p1092";
+} from "./paper/fmt.js?v=p1095";
 import { drawSeries } from "./paper/chart.js";
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
 import {
@@ -54,7 +55,7 @@ import {
   formatBlendScoreSection,
   formatCalibrationSection,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p1092";
+} from "./score_tooltip.js?v=p1094";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 
@@ -1705,36 +1706,9 @@ export function initPaper(ctx) {
         跳过: "rebalance-hold",
       };
 
-      // 表头/数据同行同轨，避免 table auto 列宽 + th/td 对齐不一致
-      const REBALANCE_GRID_COLS =
-        "minmax(7.5rem,1.35fr) 4.8rem minmax(7rem,1fr) 4.5rem 4.8rem minmax(9rem,1.7fr)";
-      const rebalanceRowStyle =
-        `display:grid;grid-template-columns:${REBALANCE_GRID_COLS};` +
-        `align-items:center;width:100%;column-gap:0;`;
-
-      function buildScoreDetail(r) {
-        const hasCal =
-          r.predicted_score_cal != null ||
-          r.predicted_score_eod_rem_cal != null ||
-          r.predicted_score_tau_cal != null ||
-          r.predicted_score_blend_cal != null ||
-          r.score_calibration_note;
-        if (
-          !r.reasons &&
-          !r.score_formula &&
-          !r.hard_reject &&
-          !r.weight_source &&
-          !r.cluster_label &&
-          !r.return_model_source &&
-          !(r.factor_coefficients && Object.keys(r.factor_coefficients || {}).length) &&
-          !(r.score_formula_terms && (r.score_formula_terms.terms || []).length) &&
-          !hasCal
-        ) {
-          return '<div class="score-detail-empty">无评分详情</div>';
-        }
-
-        let html = '<div class="score-detail">';
-        const tipRaw = {
+      // 列宽在 CSS 固定轨定义，避免每行独立 grid 用 fr 按内容各算导致错位
+      function tipDetailPayload(r) {
+        return {
           predicted_score: r.predicted_score != null ? r.predicted_score : r.score,
           score: r.score != null ? r.score : r.predicted_score,
           min_score: r.min_score,
@@ -1776,7 +1750,36 @@ export function initPaper(ctx) {
           score_cluster: r.score_cluster,
           return_model_source: r.return_model_source,
           factor_coefficients: r.factor_coefficients || {},
+          reasons: r.reasons || [],
+          hard_reject: !!r.hard_reject,
+          reject_reason: r.reject_reason || "",
+          score_formula: r.score_formula || "",
         };
+      }
+
+      function buildScoreDetail(r) {
+        const hasCal =
+          r.predicted_score_cal != null ||
+          r.predicted_score_eod_rem_cal != null ||
+          r.predicted_score_tau_cal != null ||
+          r.predicted_score_blend_cal != null ||
+          r.score_calibration_note;
+        if (
+          !r.reasons &&
+          !r.score_formula &&
+          !r.hard_reject &&
+          !r.weight_source &&
+          !r.cluster_label &&
+          !r.return_model_source &&
+          !(r.factor_coefficients && Object.keys(r.factor_coefficients || {}).length) &&
+          !(r.score_formula_terms && (r.score_formula_terms.terms || []).length) &&
+          !hasCal
+        ) {
+          return '<div class="score-detail-empty">无评分详情</div>';
+        }
+
+        let html = '<div class="score-detail">';
+        const tipRaw = tipDetailPayload(r);
         html += formatScoreHero(tipRaw);
         html += formatEodRemScoreSection(tipRaw);
         html += formatRemScoreSection(tipRaw);
@@ -1847,15 +1850,26 @@ export function initPaper(ctx) {
           if (r.hard_reject) {
             scoreTip = String(r.reject_reason || "硬拒绝 · 无收益分");
           } else if (belowMin) {
-            scoreTip = "低于ŷ_EOD门槛 · 表列为 ŷ_trade";
+            scoreTip = "低于ŷ_EOD门槛 · 表列为 ŷ_trade · 悬停看详情";
           } else {
-            const eodN = Number(r.score != null ? r.score : r.predicted_score);
-            if (tradeScore != null && Number.isFinite(eodN)) {
-              scoreTip = `ŷ_trade ${scoreText} · ŷ_EOD ${eodN.toFixed(2)}%`;
-            } else if (tradeScore != null) {
-              scoreTip = `ŷ_trade ${scoreText}`;
-            }
+            scoreTip = "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
           }
+          const scoreCal = resolveCalTradeScore(r);
+          const scoreCalShown = scoreCal != null ? fmtScore(scoreCal) : "—";
+          const scoreCalOor = !!(
+            r.score_calibration_eod_oor ||
+            r.score_calibration_eod_rem_oor ||
+            r.score_calibration_tau_oor
+          );
+          const scoreCalTitle =
+            scoreCal == null
+              ? "暂无 g(ŷ) 映射（拟合并写入 live 后可见）"
+              : scoreCalOor
+                ? "g(ŷ_trade) 对照 · 部分落在拟合域外（端点钳制）· 悬停看校准 tip"
+                : "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip";
+          const tipDetailJson = escapeText(
+            JSON.stringify(tipDetailPayload(r))
+          );
           const oldSh =
             r.old_shares != null
               ? Number(r.old_shares)
@@ -1891,6 +1905,12 @@ export function initPaper(ctx) {
                 : shChange < 0
                   ? `${Math.round(shChange)}`
                   : "0";
+          const changeCls =
+            shChange == null || !Number.isFinite(shChange) || shChange === 0
+              ? "is-flat"
+              : shChange > 0
+                ? "is-up"
+                : "is-down";
           const hasDetail = !!(
             r.factors ||
             r.factor_contrib ||
@@ -1899,7 +1919,7 @@ export function initPaper(ctx) {
             r.weight_source
           );
           const expandIcon = hasDetail
-            ? '<span class="rebalance-expand-icon" aria-hidden="true">▸</span>'
+            ? '<span class="rebalance-expand-icon" aria-hidden="true">›</span>'
             : "";
 
           let decisionTagClass = "hold";
@@ -1913,51 +1933,62 @@ export function initPaper(ctx) {
           )
             decisionTagClass = "sell";
 
-          // 决策标签悬停：按真实原因，勿把舆情缩仓误写成 ŷ/TopK 卖出
-          let decisionTitle = "";
-          const reasonText = String(r.reason || "");
+          // 决策标签悬停 = 原因（不再单独占列）
+          let decisionTip = "";
+          const reasonText = String(r.reason || "").trim();
           const isPrior =
             !!r.sentiment_prior ||
             reasonText.includes("舆情先验") ||
             reasonText.includes("sentiment_prior");
           if (isPrior && (decision.includes("减仓") || decision.includes("卖出"))) {
-            decisionTitle = reasonText
+            decisionTip = reasonText
               ? `${reasonText}（强看空先验 · 不改 ŷ）；点「确认调仓」后才成交`
               : "舆情先验 · 强看空缩仓（不改 ŷ）；点「确认调仓」后才成交";
           } else if (decision.includes("止损卖出")) {
-            decisionTitle = "止损规则触发，预演清仓；点「确认调仓」后才成交";
+            decisionTip = reasonText
+              ? `${reasonText}；点「确认调仓」后才成交`
+              : "止损规则触发，预演清仓；点「确认调仓」后才成交";
           } else if (decision.includes("超时卖出")) {
-            decisionTitle = "持有超时且趋势向下，预演清仓；点「确认调仓」后才成交";
+            decisionTip = reasonText
+              ? `${reasonText}；点「确认调仓」后才成交`
+              : "持有超时且趋势向下，预演清仓；点「确认调仓」后才成交";
           } else if (decision.includes("跳过")) {
-            decisionTitle = isPrior
+            decisionTip = isPrior
               ? reasonText
                 ? `${reasonText}；点「确认调仓」后仍不会新开仓`
                 : "舆情先验 · 跳过新开仓；点「确认调仓」后仍不会买入"
-              : "风险预算（单票/行业上限）未买入；见原因列";
+              : reasonText || "风险预算（单票/行业上限）未买入";
           } else if (decision.includes("减仓")) {
-            decisionTitle = reasonText
+            decisionTip = reasonText
               ? `${reasonText}；点「确认调仓」后才成交`
               : "预演减仓；点「确认调仓」后才成交";
           } else if (decision.includes("卖出")) {
-            decisionTitle =
-              "分池卖出：ŷ 低于卖出门槛（min_hold），或横截面路径不在 TopK；点「确认调仓」后才成交";
+            decisionTip = reasonText
+              ? `${reasonText}；点「确认调仓」后才成交`
+              : "分池卖出：ŷ_trade 低于卖出门槛（min_hold）；点「确认调仓」后才成交";
+          } else if (reasonText) {
+            decisionTip = reasonText;
           }
 
           const name = escapeText(r.stock_name || r.stock_code || "");
           const code = escapeText(r.stock_code || "");
-          const reason = escapeText(r.reason || "—");
 
           return (
             `<div class="rebalance-row ${cls}${hasDetail ? " is-expandable" : ""}" role="row" ` +
-            `style="${rebalanceRowStyle}" data-detail-idx="${idx}"` +
+            `data-detail-idx="${idx}"` +
             `${hasDetail ? ' title="点击展开评分明细"' : ""}>` +
             `<div class="rebalance-stock" role="cell">` +
-            `<span class="rebalance-stock-name">${name}</span>` +
+            `<span class="rebalance-stock-name">${expandIcon}${name}</span>` +
             `<span class="rebalance-stock-code">${code}</span>` +
             `</div>` +
-            `<div class="num rebalance-score ${scoreClass}" role="cell" title="${escapeText(
-              scoreTip || (belowMin ? "低于ŷ门槛（仍显示分数）" : "")
-            )}">${scoreShown}${expandIcon}</div>` +
+            `<div class="num rebalance-score paper-hold-score has-tip ${scoreClass}" ` +
+            `role="cell" data-score-detail="${tipDetailJson}" data-score-tip="trade" ` +
+            `title="${escapeText(scoreTip)}">${escapeText(scoreShown)}</div>` +
+            `<div class="num rebalance-score-cal paper-hold-score watching-score-cal has-tip ${scoreCls(
+              scoreCal
+            )}${scoreCalOor ? " is-cal-oor" : ""}" role="cell" ` +
+            `data-score-detail="${tipDetailJson}" data-score-tip="cal" ` +
+            `title="${escapeText(scoreCalTitle)}">${escapeText(scoreCalShown)}</div>` +
             `<div class="num rebalance-shares" role="cell">` +
             `<span class="rebalance-shares-old">${escapeText(
               String(
@@ -1975,15 +2006,12 @@ export function initPaper(ctx) {
               )
             )}</span>` +
             `</div>` +
-            `<div class="num rebalance-change" role="cell">${escapeText(changeText)}</div>` +
+            `<div class="num rebalance-change ${changeCls}" role="cell">${escapeText(changeText)}</div>` +
             `<div class="rebalance-decision" role="cell"><span class="rebalance-decision-tag ${decisionTagClass}` +
-            `${decisionTitle ? " has-tip" : ""}"` +
+            `${decisionTip ? " has-tip" : ""}"` +
             `${
-              decisionTitle
-                ? ` data-tip="${escapeText(decisionTitle)}"`
-                : ""
+              decisionTip ? ` data-tip="${escapeText(decisionTip)}"` : ""
             }>${escapeText(decision || "—")}</span></div>` +
-            `<div class="rebalance-reason" role="cell">${reason}</div>` +
             `</div>` +
             (hasDetail
               ? `<div class="rebalance-detail-row" data-detail-for="${idx}" hidden>${buildScoreDetail(
@@ -1997,19 +2025,22 @@ export function initPaper(ctx) {
       container.innerHTML =
         `<div class="rebalance-table-scroll">` +
         `<div class="rebalance-table" role="table">` +
-        `<div class="rebalance-table-head" role="row" style="${rebalanceRowStyle}">` +
+        `<div class="rebalance-table-head" role="row">` +
         `<div class="rebalance-th" role="columnheader">股票</div>` +
-        `<div class="rebalance-th num" role="columnheader" title="ŷ_trade · 展开看 ŷ_EOD_rem / ŷ_τ">评分</div>` +
+        `<div class="rebalance-th num" role="columnheader" title="ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ">评分</div>` +
+        `<div class="rebalance-th num" role="columnheader" title="g(ŷ_trade) 对照 · 不进决策">校准</div>` +
         `<div class="rebalance-th num" role="columnheader">股数</div>` +
         `<div class="rebalance-th num" role="columnheader">变动</div>` +
-        `<div class="rebalance-th" role="columnheader">决策</div>` +
-        `<div class="rebalance-th" role="columnheader">原因</div>` +
+        `<div class="rebalance-th rebalance-th-decision" role="columnheader" title="悬停看原因">决策</div>` +
         `</div>` +
         `<div class="rebalance-table-body" role="rowgroup">${rows}</div>` +
         `</div></div>`;
 
       container.querySelectorAll(".rebalance-row[data-detail-idx]").forEach((tr) => {
-        tr.addEventListener("click", () => {
+        tr.addEventListener("click", (e) => {
+          if (e.target.closest("[data-score-detail], .rebalance-decision-tag[data-tip]")) {
+            return;
+          }
           const idx = tr.dataset.detailIdx;
           const detailRow = container.querySelector(`[data-detail-for="${idx}"]`);
           if (!detailRow) return;
@@ -2018,10 +2049,10 @@ export function initPaper(ctx) {
           detailRow.hidden = !open;
           if (open) {
             tr.classList.add("rebalance-row-expanded");
-            if (icon) icon.textContent = "▾";
+            if (icon) icon.textContent = "⌄";
           } else {
             tr.classList.remove("rebalance-row-expanded");
-            if (icon) icon.textContent = "▸";
+            if (icon) icon.textContent = "›";
           }
         });
       });
@@ -2033,6 +2064,10 @@ export function initPaper(ctx) {
         });
         el.addEventListener("mouseleave", () => hideScoreTooltip());
         el.addEventListener("click", (e) => e.stopPropagation());
+      });
+
+      scoreTips.bindHost(container, {
+        scoreSelector: ".rebalance-score[data-score-detail], .rebalance-score-cal[data-score-detail]",
       });
 
       section.hidden = false;

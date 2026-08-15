@@ -406,10 +406,14 @@ export function formatCalibrationSection(raw, opts = {}) {
   const partial = raw && raw.score_calibration_partial
     ? String(raw.score_calibration_partial)
     : "";
-  if (partial.includes("tau_raw")) {
+  if (partial.includes("tau_raw") && !partial.includes("oor")) {
     partialHint = " · g(ŷ_trade)=g(EOD)+raw ŷ_τ（尚无 τ 映射）";
-  } else if (partial.includes("eod_raw")) {
+  } else if (partial.includes("eod_raw") && !partial.includes("oor")) {
     partialHint = " · g(ŷ_trade)=raw EOD+g(ŷ_τ)（尚无 EOD 映射）";
+  } else if (partial.includes("eod_rem_oor_raw")) {
+    partialHint = " · ŷ_EOD_rem 域外：blend 用 raw rem + g(τ)，避免端点撞车";
+  } else if (partial.includes("tau_oor_raw")) {
+    partialHint = " · ŷ_τ 域外：blend 用 g(EOD)+raw τ，避免端点撞车";
   } else if (
     blendCal != null &&
     yTauCal == null &&
@@ -1145,7 +1149,7 @@ export function createScoreTooltipController() {
           `<div class="score-hero-hint">${escapeText(hintParts.join(" · "))}</div>` +
           `</div>`;
       }
-      const html = `<div class="score-detail score-detail-cal-only">${calHtml}</div>`;
+      const html = `<div class="score-detail">${calHtml}</div>`;
       hide();
       const tip = document.createElement("div");
       tip.className = "score-tooltip";

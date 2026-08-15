@@ -318,9 +318,21 @@ class TestClusterSellHysteresis(unittest.TestCase):
                 {"stock_code": "000739", "stock_name": "高分", "score": 1.87},
             ]
             score_lookup = [
-                {"stock_code": "000739", "score": 1.87},
-                {"stock_code": "600938", "score": 0.426},
-                {"stock_code": "601658", "score": -1.5},
+                {
+                    "stock_code": "000739",
+                    "score": 1.87,
+                    "predicted_score_blend": 1.87,
+                },
+                {
+                    "stock_code": "600938",
+                    "score": 0.426,
+                    "predicted_score_blend": 0.426,
+                },
+                {
+                    "stock_code": "601658",
+                    "score": -1.5,
+                    "predicted_score_blend": -1.5,
+                },
             ]
 
             def fake_query(code):
@@ -331,7 +343,20 @@ class TestClusterSellHysteresis(unittest.TestCase):
                     "price_raw": 20.0,
                 }
 
+            def fake_batch(codes, **_kw):
+                return {
+                    c: {
+                        "success": True,
+                        "stock_code": c,
+                        "stock_name": c,
+                        "price_raw": 20.0,
+                    }
+                    for c in (codes or [])
+                }
+
             with patch(
+                "core.paper_rebalance._batch_query_quotes", side_effect=fake_batch
+            ), patch(
                 "skills.common.quote_api.StockAPI.query", side_effect=fake_query
             ), patch(
                 "core.ports.market.query_quote", side_effect=fake_query
@@ -341,6 +366,15 @@ class TestClusterSellHysteresis(unittest.TestCase):
             ), patch(
                 "core.risk.check_account_risk",
                 return_value={"ok": True, "blocks": [], "warnings": []},
+            ), patch(
+                "core.signal.score_display.resolve_hold_floor",
+                return_value=0.0,
+            ), patch(
+                "core.event_prior.get_event_prior_cfg",
+                return_value={"mode": "off"},
+            ), patch(
+                "core.sentiment_prior.get_sentiment_prior_cfg",
+                return_value={"mode": "off"},
             ):
                 result = simulate_cross_section_rebalance(
                     paper,
@@ -349,6 +383,7 @@ class TestClusterSellHysteresis(unittest.TestCase):
                     min_score=1.0,
                     respect_max_positions=False,
                     score_lookup=score_lookup,
+                    skip_sentiment_prior=True,
                 )
 
             self.assertTrue(result["success"])
@@ -361,6 +396,113 @@ class TestClusterSellHysteresis(unittest.TestCase):
             self.assertNotIn("601658", held)
             note = (result["sell_trades"][0].get("note") or "")
             self.assertIn("卖出门槛", note)
+
+    def test_cluster_sell_uses_trade_score_not_eod(self):
+        """分池卖闸看 ŷ_trade：EOD 为负但 trade≥hold 不卖；trade 深负即使 EOD 为正也卖。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            init_from_example(path)
+            paper = load_paper(path)
+            paper["holdings"] = [
+                {
+                    "stock_code": "000550",
+                    "stock_name": "EOD负_trade平",
+                    "shares": 100,
+                    "cost": 10.0,
+                    "bought_at": "2026-01-01T10:00:00",
+                },
+                {
+                    "stock_code": "600030",
+                    "stock_name": "EOD正_trade弱",
+                    "shares": 100,
+                    "cost": 10.0,
+                    "bought_at": "2026-01-01T10:00:00",
+                },
+            ]
+            paper["cash"] = 200000.0
+            paper["rules"] = {
+                **(paper.get("rules") or {}),
+                "max_positions": 5,
+                "position_pct": 0.2,
+            }
+            ranking = [{"stock_code": "000001", "stock_name": "占位", "score": 2.0}]
+            score_lookup = [
+                {
+                    "stock_code": "000550",
+                    "score": 0.05,
+                    "predicted_score_blend": 0.05,
+                    "predicted_score_eod": -0.2,
+                },
+                {
+                    "stock_code": "600030",
+                    "score": -1.2,
+                    "predicted_score_blend": -1.2,
+                    "predicted_score_eod": 0.4,
+                },
+                {"stock_code": "000001", "score": 2.0, "predicted_score_eod": 2.0},
+            ]
+
+            def fake_query(code):
+                return {
+                    "success": True,
+                    "stock_code": str(code),
+                    "stock_name": str(code),
+                    "price_raw": 20.0,
+                }
+
+            def fake_batch(codes, **_kw):
+                return {
+                    c: {
+                        "success": True,
+                        "stock_code": c,
+                        "stock_name": c,
+                        "price_raw": 20.0,
+                    }
+                    for c in (codes or [])
+                }
+
+            with patch(
+                "core.paper_rebalance._batch_query_quotes", side_effect=fake_batch
+            ), patch(
+                "skills.common.quote_api.StockAPI.query", side_effect=fake_query
+            ), patch(
+                "core.ports.market.query_quote", side_effect=fake_query
+            ), patch(
+                "core.paper_rebalance._quote_price",
+                side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
+            ), patch(
+                "core.risk.check_account_risk",
+                return_value={"ok": True, "blocks": [], "warnings": []},
+            ), patch(
+                "core.signal.score_display.resolve_hold_floor",
+                return_value=0.0,
+            ), patch(
+                "core.event_prior.get_event_prior_cfg",
+                return_value={"mode": "off"},
+            ), patch(
+                "core.sentiment_prior.get_sentiment_prior_cfg",
+                return_value={"mode": "off"},
+            ):
+                result = simulate_cross_section_rebalance(
+                    paper,
+                    ranking,
+                    top_k=1,
+                    min_score=0.35,
+                    respect_max_positions=False,
+                    score_lookup=score_lookup,
+                    skip_sentiment_prior=True,
+                )
+
+            sold = {t["stock_code"] for t in result.get("sell_trades") or []}
+            self.assertNotIn("000550", sold)
+            self.assertIn("600030", sold)
+            note = next(
+                t.get("note") or ""
+                for t in (result.get("sell_trades") or [])
+                if t.get("stock_code") == "600030"
+            )
+            self.assertIn("ŷ_trade", note)
+            self.assertIn("分池调仓卖出", note)
 
     def test_cluster_buys_book_while_over_capacity_hysteresis(self):
         """滞回持仓多于簿长时，仍应买入未持仓的目标簿票。"""

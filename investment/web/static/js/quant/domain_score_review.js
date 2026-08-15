@@ -946,7 +946,7 @@ export function installScoreReview(ctx) {
           `<th>头</th><th class="num">n</th><th class="num">hold MAE</th>` +
           `<th class="num">hold IC</th><th>knots</th>` +
           `</tr></thead><tbody>${rows}</tbody></table>`
-        : `<p class="quant-cal-note">尚无校准映射。先点「拟合校准」，看 holdout 后再「写入 live」（校准列/tip 可读，不进决策）。</p>`;
+        : `<p class="quant-cal-note">尚无校准映射。先点顶部「拟合校准」，看 holdout 后再「写入 live」（校准列/tip 可读，不进决策）。</p>`;
 
     const headTitle = { eod: "ŷ_EOD", tau: "ŷ_τ" };
     const vizCells = headNames
@@ -1000,23 +1000,6 @@ export function installScoreReview(ctx) {
         `</div>`
       : "";
 
-    const actions = [];
-    actions.push(
-      `<button type="button" class="dialog-btn secondary" data-cal-action="refresh" title="重新读取 live / 上次报告">刷新</button>`
-    );
-    if (hasDraft || hasLive) {
-      const writeTitle = promoteHardBlock
-        ? `可写入 live（软警告：${promoteBlock || "映射偏弱"}）；不进排序/闸`
-        : hasLive
-          ? "用最新拟合覆盖 live"
-          : "写入 live；tip/校准列可读 g";
-      actions.push(
-        `<button type="button" class="dialog-btn secondary" data-cal-action="persist" title="${esc(
-          writeTitle
-        )}">${hasLive && !hasDraft ? "覆盖写入" : "写入 live"}</button>`
-      );
-    }
-
     box.innerHTML =
       `<div class="quant-cal-panel is-${state}">` +
       `<div class="quant-cal-head">` +
@@ -1025,7 +1008,6 @@ export function installScoreReview(ctx) {
       `<span class="quant-cal-meta">lookback ${esc(String(lookback))} · ${esc(
         promoted ? String(promoted).slice(0, 19).replace("T", " ") : "—"
       )}</span>` +
-      `<div class="quant-cal-actions">${actions.join("")}</div>` +
       `</div>` +
       table +
       vizBlock +
@@ -1035,10 +1017,10 @@ export function installScoreReview(ctx) {
         : promoteHardBlock
           ? `映射偏弱（软警告）：${esc(
               String(promoteBlock || "g(门槛)偏低")
-            )} · 仍可「写入 live」供 tip，不进决策`
+            )} · 仍可顶部「写入 live」供 tip，不进决策`
           : promoteBlock
-            ? `${esc(String(promoteBlock))} · 写入 live 后 tip 出现 ⑤`
-            : "写入 live 后 tip 出现 ⑤；排序与闸仍用 raw ŷ；主 predicted_score 保留原值。") +
+            ? `${esc(String(promoteBlock))} · 顶部「写入 live」后 tip 出现 ⑤`
+            : "顶部「写入 live」后 tip 出现 ⑤；排序与闸仍用 raw ŷ；主 predicted_score 保留原值。") +
       (note ? ` · ${esc(String(note).slice(0, 80))}` : "") +
       `</p>` +
       `</div>`;
@@ -1179,26 +1161,6 @@ export function installScoreReview(ctx) {
   const calBox = calPanelEl();
   if (calBox && calBox.dataset.calWired !== "1") {
     calBox.dataset.calWired = "1";
-    calBox.addEventListener("click", (e) => {
-      const btn =
-        e.target && e.target.closest
-          ? e.target.closest("button[data-cal-action]")
-          : null;
-      if (!btn || !calBox.contains(btn)) return;
-      e.preventDefault();
-      const act = btn.getAttribute("data-cal-action");
-      if (act === "refresh") {
-        refreshCalibrationPanel().catch(() => {});
-        return;
-      }
-      if (act === "persist") {
-        persistCalibration().catch((err) => {
-          setCalStatus(`校准写入失败：${String(err.message || err)}`, {
-            error: true,
-          });
-        });
-      }
-    });
     if (typeof ResizeObserver !== "undefined") {
       let t = 0;
       const ro = new ResizeObserver(() => {

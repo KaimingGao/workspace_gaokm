@@ -10,7 +10,7 @@ import {
 import { apiFetch } from "./api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "./lw_charts.js";
 import { mountVirtualTable, colStyle } from "./virtual_table.js";
-import { createScoreTooltipController } from "./score_tooltip.js?v=p1092";
+import { createScoreTooltipController } from "./score_tooltip.js?v=p1094";
 import { fmtScore, scoreCls } from "./paper/fmt.js?v=p1092";
 import {
   defaultScoringFloors,
@@ -49,7 +49,7 @@ import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
 import { installStrategy } from "./quant/domain_strategy.js";
 import { installExportInterpret } from "./quant/domain_export.js";
-import { installScoreReview } from "./quant/domain_score_review.js";
+import { installScoreReview } from "./quant/domain_score_review.js?v=p1093";
 import { installFitGapHub } from "./quant/domain_fit_gap.js";
 import { loadAndRenderFactorCorr, loadAndRenderFactorIR, loadAndRenderFactorICSeries, setProStatusChip, syncOverviewFromClusters, syncOverviewTau, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
 

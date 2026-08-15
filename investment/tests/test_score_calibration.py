@@ -148,6 +148,43 @@ class TestIsotonicPav(unittest.TestCase):
         self.assertNotIn("score_calibration_tau_oor", item)
         self.assertAlmostEqual(item["predicted_score_cal"], 0.0, places=5)
 
+    def test_blend_cal_keeps_raw_when_eod_rem_oor(self):
+        """EOD_rem 域外时 blend 对照用 raw rem，避免多票撞同一端点。"""
+        from core.signal import score_calibration as sc
+
+        doc = {
+            "enabled": True,
+            "heads": {
+                "eod": {"knots_x": [0.5, 3.0], "knots_y": [-2.0, 1.0]},
+                "tau": {"knots_x": [0.0, 1.0], "knots_y": [-0.3, -0.1]},
+            },
+        }
+        a = {
+            "predicted_score_eod": 0.2,
+            "predicted_score_eod_rem": -0.5,
+            "predicted_score_tau": 0.2,
+            "predicted_score_blend": -0.15,
+        }
+        b = {
+            "predicted_score_eod": 0.1,
+            "predicted_score_eod_rem": -1.5,
+            "predicted_score_tau": 0.2,
+            "predicted_score_blend": -0.65,
+        }
+        sc.attach_calibrated_scores(a, model_doc=doc, force=True)
+        sc.attach_calibrated_scores(b, model_doc=doc, force=True)
+        self.assertTrue(a.get("score_calibration_eod_rem_oor"))
+        self.assertTrue(b.get("score_calibration_eod_rem_oor"))
+        # 端点 g(rem) 相同，但 blend_cal 应随 raw rem 区分
+        self.assertAlmostEqual(a["predicted_score_eod_rem_cal"], -2.0, places=5)
+        self.assertAlmostEqual(b["predicted_score_eod_rem_cal"], -2.0, places=5)
+        self.assertNotAlmostEqual(
+            float(a["predicted_score_blend_cal"]),
+            float(b["predicted_score_blend_cal"]),
+            places=5,
+        )
+        self.assertEqual(a.get("score_calibration_partial"), "eod_rem_oor_raw")
+
     def test_attach_skips_identity_cal_when_head_missing(self):
         """缺 τ 头时不写恒等 predicted_score_tau_cal，避免校准列假对照。"""
         from core.signal import score_calibration as sc

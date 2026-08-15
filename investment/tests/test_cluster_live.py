@@ -518,19 +518,33 @@ class TestClusterLive(unittest.TestCase):
             self.assertIn("exposure_summary", ev)
             self.assertTrue((ev.get("gate") or {}).get("ok"))
 
+    def _all_oos_fail_artifact(self):
+        art = self._artifact()
+        art["clusters"] = [
+            {"label": "G1", "oos_gate": {"ok": True, "passed": False}},
+            {"label": "G2", "oos_gate": {"ok": True, "passed": False}},
+        ]
+        return art
+
+    def test_promote_rejects_all_oos_fail(self):
+        from core.signal.cluster_live import promote_cluster_artifact
+
+        with _live_tmp():
+            out = promote_cluster_artifact(self._all_oos_fail_artifact())
+        self.assertFalse(out.get("success"))
+        self.assertIn("OOS", str(out.get("error") or ""))
+
     def test_enable_evidence_blocks_all_oos_fail(self):
         from core.signal.cluster_live import (
             build_cluster_enable_evidence,
             promote_cluster_artifact,
         )
 
-        art = self._artifact()
-        art["clusters"] = [
-            {"label": "G1", "oos_gate": {"ok": True, "passed": False}},
-            {"label": "G2", "oos_gate": {"ok": True, "passed": False}},
-        ]
         with _live_tmp():
-            promote_cluster_artifact(art)
+            promoted = promote_cluster_artifact(
+                self._all_oos_fail_artifact(), force=True
+            )
+            self.assertTrue(promoted.get("success"), promoted)
             with patch(
                 "core.signal.cluster_live.assess_cluster_live_health",
                 return_value={

@@ -1774,9 +1774,10 @@ a.dialog-btn[aria-disabled="true"] {
 .rebalance-table-scroll {
   width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
   -webkit-overflow-scrolling: touch;
   border: 1px solid var(--line);
-  border-radius: 10px;
+  border-radius: 8px;
   background: var(--surface);
 }
 
@@ -1786,7 +1787,7 @@ a.dialog-btn[aria-disabled="true"] {
   border-spacing: 0;
   font-size: 0.78rem;
   background: transparent;
-  min-width: 560px;
+  min-width: 640px;
 }
 
 .rebalance-table thead th {
@@ -1953,18 +1954,25 @@ a.dialog-btn[aria-disabled="true"] {
   font-size: 0.72rem;
   line-height: 1.4;
   white-space: normal;
-  max-width: 14rem;
+  max-width: none;
 }
 
 .rebalance-row-expanded {
-  background: rgba(23, 105, 170, 0.05) !important;
+  background: color-mix(in srgb, var(--accent) 5%, transparent) !important;
 }
 
 .rebalance-expand-icon {
   display: inline-block;
-  font-size: 0.62rem;
+  width: 0.7rem;
+  font-size: 9px;
   color: var(--ink-3);
-  margin-left: 4px;
+  margin-right: 3px;
+  opacity: 0.7;
+}
+
+.rebalance-score.has-tip,
+.rebalance-score-cal.has-tip {
+  cursor: help;
 }
 
 .rebalance-detail-row td {
@@ -2183,18 +2191,6 @@ a.dialog-btn[aria-disabled="true"] {
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-
-.score-detail.score-detail-cal-only {
-  padding: 10px 12px;
-  gap: 0;
-  min-width: 12rem;
-}
-
-.score-detail.score-detail-cal-only .score-layer-cal {
-  border: 0;
-  padding: 0;
-  background: transparent;
 }
 
 .score-hero {
@@ -4189,40 +4185,56 @@ html[data-density="compact"] .table-pager {
 @media (max-width: 420px) {
 }
 
-/* Rebalance table inside report — CSS grid 同行同轨，表头/数据对齐 */
+/* Rebalance preview — trading blotter denseness, aligned tracks */
 .rebalance-table-scroll {
   width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
   border: 1px solid var(--line);
-  border-radius: 8px;
+  border-radius: var(--r-lg, 8px);
   background: var(--surface);
   -webkit-overflow-scrolling: touch;
 }
 
 .rebalance-table {
+  --rebalance-cols: minmax(7.5rem, 1.35fr) 4.75rem 4.75rem minmax(7rem, 1.1fr) 4.25rem 5.75rem;
   width: 100%;
-  min-width: 560px;
-  font-size: 13px;
+  min-width: 34rem;
+  font-size: 12.5px;
   background: transparent;
+}
+
+.rebalance-table-head,
+.rebalance-row {
+  display: grid;
+  grid-template-columns: var(--rebalance-cols);
+  align-items: center;
+  width: 100%;
+  box-sizing: border-box;
+  column-gap: 0;
 }
 
 .rebalance-table-head {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: var(--bg-accent);
+  background: color-mix(in srgb, var(--bg-accent) 88%, var(--surface));
   border-bottom: 1px solid var(--line);
+  box-shadow: inset 2px 0 0 transparent;
 }
 
 .rebalance-th {
-  padding: 8px 10px;
+  padding: 7px 10px;
   color: var(--ink-3);
   font-weight: 600;
   white-space: nowrap;
-  font-size: 11px;
-  letter-spacing: 0.04em;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
 }
 
 .rebalance-th.num,
@@ -4230,19 +4242,34 @@ html[data-density="compact"] .table-pager {
   text-align: right;
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
+  justify-self: stretch;
+}
+
+.rebalance-th:not(.num),
+.rebalance-stock {
+  text-align: left;
+  justify-self: stretch;
+}
+
+.rebalance-th.rebalance-th-decision,
+.rebalance-decision {
+  text-align: center;
+  justify-self: stretch;
 }
 
 .rebalance-row {
-  border-bottom: 1px solid var(--line-2);
+  border-bottom: 1px solid color-mix(in srgb, var(--line-2) 85%, var(--line));
   min-width: 0;
+  transition: background 0.12s ease;
 }
 
 .rebalance-row > [role="cell"] {
-  padding: 8px 10px;
-  font-size: 13px;
-  line-height: 20px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+  line-height: 18px;
   color: var(--ink);
   min-width: 0;
+  box-sizing: border-box;
 }
 
 .rebalance-table-body .rebalance-row:last-of-type {
@@ -4254,130 +4281,207 @@ html[data-density="compact"] .table-pager {
 }
 
 .rebalance-row.is-expandable:hover {
-  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  background: color-mix(in srgb, var(--accent) 3.5%, transparent);
+}
+
+.rebalance-row-expanded {
+  background: color-mix(in srgb, var(--accent) 5%, transparent) !important;
 }
 
 .rebalance-detail-row {
   padding: 8px 12px 12px;
   border-bottom: 1px solid var(--line-2);
-  background: color-mix(in srgb, var(--bg-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--bg-accent) 50%, var(--surface));
+}
+
+.rebalance-stock {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding-left: 8px !important;
 }
 
 .rebalance-stock-name {
   display: block;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--ink);
-  line-height: 20px;
+  line-height: 18px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: -0.01em;
 }
 
 .rebalance-stock-code {
   display: block;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--ink-3);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  margin-top: 2px;
-  line-height: 18px;
+  line-height: 15px;
+  letter-spacing: 0.02em;
+}
+
+.rebalance-expand-icon {
+  display: inline-block;
+  width: 0.7rem;
+  font-size: 9px;
+  color: var(--ink-3);
+  margin-right: 3px;
+  opacity: 0.7;
+  transform: translateY(-0.5px);
 }
 
 .rebalance-shares {
+  display: inline-flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 0;
+  width: 100%;
   white-space: nowrap;
   color: var(--ink-2);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-  font-size: 12px;
+  font-size: 11.5px;
   line-height: 18px;
 }
 
-.rebalance-shares-arrow { margin: 0 4px; color: var(--ink-3); }
+.rebalance-shares-old {
+  color: var(--ink-3);
+  font-weight: 500;
+}
 
-.rebalance-shares-new { font-weight: 600; color: var(--ink); }
+.rebalance-shares-arrow {
+  margin: 0 5px;
+  color: color-mix(in srgb, var(--ink-3) 70%, transparent);
+  flex: 0 0 auto;
+  font-size: 10px;
+}
+
+.rebalance-shares-new {
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.rebalance-score-cal.watching-score-cal {
+  font-weight: 500;
+  opacity: 0.78;
+  color: var(--ink-2);
+}
 
 .rebalance-change {
-  font-weight: 600;
+  font-weight: 650;
   white-space: nowrap;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  font-size: 12px;
 }
 
-.rebalance-up   .rebalance-change { color: var(--color-up); }
+.rebalance-change.is-flat {
+  color: var(--ink-3);
+  font-weight: 500;
+}
 
-.rebalance-down .rebalance-change { color: var(--color-down); }
+.rebalance-up .rebalance-change:not(.is-flat) { color: var(--color-up); }
 
-.rebalance-sell .rebalance-change { color: var(--color-up); }
+.rebalance-down .rebalance-change:not(.is-flat) { color: var(--color-down); }
 
-/* 3px left bar: up/warn orange, down/hold green, sell red */
+.rebalance-sell .rebalance-change:not(.is-flat) { color: var(--color-up); }
+
+/* 2px action rail — quieter than 3px pills */
 .rebalance-hold {
   background: transparent;
-  box-shadow: inset 3px 0 0 transparent;
+  box-shadow: inset 2px 0 0 transparent;
 }
 
-.rebalance-up   { box-shadow: inset 3px 0 0 var(--gold); }
+.rebalance-up { box-shadow: inset 2px 0 0 color-mix(in srgb, var(--gold) 85%, #b45309); }
 
-.rebalance-down { box-shadow: inset 3px 0 0 var(--color-down); }
+.rebalance-down { box-shadow: inset 2px 0 0 var(--color-down); }
 
-.rebalance-sell { box-shadow: inset 3px 0 0 var(--color-up); }
+.rebalance-sell { box-shadow: inset 2px 0 0 var(--color-up); }
 
 .rebalance-score {
-  font-weight: 600;
+  font-weight: 650;
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  font-size: 13px;
+  font-size: 12.5px;
+  letter-spacing: -0.01em;
 }
 
-.rebalance-score.score-up   { color: var(--color-up); }
+.rebalance-score.has-tip,
+.rebalance-score-cal.has-tip {
+  cursor: help;
+}
+
+.rebalance-score.score-up { color: var(--color-up); }
 
 .rebalance-score.score-down { color: var(--color-down); }
 
 .rebalance-score.score-flat { color: var(--ink-2); }
 
-.rebalance-score.score-na   { color: var(--ink-3); }
+.rebalance-score.score-na { color: var(--ink-3); font-weight: 500; }
+
+.rebalance-decision {
+  min-width: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
 
 .rebalance-decision-tag {
-  display: inline-block;
-  padding: 2px 8px;
-  border-radius: 4px;
-  font-size: 11px;
-  line-height: 18px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  max-width: 100%;
+  min-height: 20px;
+  padding: 1px 7px;
+  border-radius: 2px;
+  font-size: 10.5px;
+  line-height: 16px;
+  font-weight: 650;
   text-align: center;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   border: 1px solid transparent;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
+  box-sizing: border-box;
+}
+
+.rebalance-decision-tag.has-tip {
+  cursor: help;
 }
 
 .rebalance-decision-tag.up {
-  background: color-mix(in srgb, var(--gold) 14%, transparent);
+  background: color-mix(in srgb, var(--gold) 12%, transparent);
   color: #92400e;
-  border-color: color-mix(in srgb, var(--gold) 30%, transparent);
+  border-color: color-mix(in srgb, var(--gold) 28%, transparent);
 }
 
 .rebalance-decision-tag.down {
-  background: color-mix(in srgb, var(--ok) 12%, transparent);
+  background: color-mix(in srgb, var(--ok, var(--color-down)) 10%, transparent);
   color: #065f46;
-  border-color: color-mix(in srgb, var(--ok) 25%, transparent);
+  border-color: color-mix(in srgb, var(--ok, var(--color-down)) 22%, transparent);
 }
 
 .rebalance-decision-tag.sell {
-  background: color-mix(in srgb, var(--color-up) 12%, transparent);
+  background: color-mix(in srgb, var(--color-up) 10%, transparent);
   color: #991b1b;
-  border-color: color-mix(in srgb, var(--color-up) 25%, transparent);
+  border-color: color-mix(in srgb, var(--color-up) 22%, transparent);
 }
 
 .rebalance-decision-tag.hold {
-  background: var(--bg-accent);
+  background: transparent;
   color: var(--ink-3);
   border-color: var(--line);
+  font-weight: 600;
 }
 
 .rebalance-reason {
-  color: var(--ink-2);
-  font-size: 12px;
-  line-height: 18px;
-  white-space: normal;
-  overflow-wrap: anywhere;
+  display: none;
 }
 
 .log-row {

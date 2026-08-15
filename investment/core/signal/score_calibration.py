@@ -916,19 +916,23 @@ def attach_calibrated_scores(
         if _yhat_out_of_domain(y_tau, tau_kx):
             item["score_calibration_tau_oor"] = True
 
-    # blend：有映射的一侧用 g，缺映射侧用 raw，再融（仅 tip/对照列）
+    # blend 对照列：域内用 g，域外保留 raw 再融——避免大量 ŷ 钳到同一端点后 blend_cal 撞车
+    # （*_cal 字段仍写端点 g，供 tip 展示钳制值）
     eod_rem = _f(item.get("predicted_score_eod_rem"))
     eod_rem_cal = None
+    eod_rem_oor = False
     if has_eod:
         if eod_rem is not None:
+            eod_rem_oor = _yhat_out_of_domain(eod_rem, eod_kx)
             eod_rem_cal = apply_calibration(
                 eod_rem, head="eod", model_doc=doc, force=use_force
             )
-            if _yhat_out_of_domain(eod_rem, eod_kx):
+            if eod_rem_oor:
                 item["score_calibration_eod_rem_oor"] = True
         else:
             eod_rem_cal = y_eod_cal
-            if item.get("score_calibration_eod_oor"):
+            eod_rem_oor = bool(item.get("score_calibration_eod_oor"))
+            if eod_rem_oor:
                 item["score_calibration_eod_rem_oor"] = True
         if eod_rem_cal is not None:
             item["predicted_score_eod_rem_cal"] = eod_rem_cal
@@ -936,8 +940,22 @@ def attach_calibrated_scores(
         from core.signal.dual_score import fuse_remaining_heads, get_dual_score_cfg
 
         cfg = get_dual_score_cfg()
-        left = eod_rem_cal if eod_rem_cal is not None else eod_rem
-        right = y_tau_cal if y_tau_cal is not None else y_tau
+        tau_oor = bool(item.get("score_calibration_tau_oor"))
+        # 域内：g；域外：raw（保留截面区分度）；缺头：raw
+        if has_eod and eod_rem_cal is not None and not eod_rem_oor:
+            left = eod_rem_cal
+        elif eod_rem is not None:
+            left = eod_rem
+        elif has_eod and y_eod_cal is not None and not item.get("score_calibration_eod_oor"):
+            left = y_eod_cal
+        else:
+            left = y_eod
+
+        if has_tau and y_tau_cal is not None and not tau_oor:
+            right = y_tau_cal
+        else:
+            right = y_tau
+
         if left is not None or right is not None:
             blend_cal = fuse_remaining_heads(
                 left,
@@ -947,13 +965,21 @@ def attach_calibrated_scores(
             )
             if blend_cal is not None and (has_eod or has_tau):
                 item["predicted_score_blend_cal"] = blend_cal
-                # 一侧缺 knots 时 blend 混 raw：tip 标明部分校准
+                partial = None
                 if has_eod and not has_tau and y_tau is not None:
-                    item["score_calibration_partial"] = "tau_raw"
+                    partial = "tau_raw"
                 elif has_tau and not has_eod and (
                     eod_rem is not None or y_eod is not None
                 ):
-                    item["score_calibration_partial"] = "eod_raw"
+                    partial = "eod_raw"
+                elif eod_rem_oor and has_eod and (y_tau is not None or has_tau):
+                    partial = "eod_rem_oor_raw"
+                elif tau_oor and has_tau and (
+                    eod_rem is not None or eod_rem_cal is not None
+                ):
+                    partial = "tau_oor_raw"
+                if partial:
+                    item["score_calibration_partial"] = partial
                 else:
                     item.pop("score_calibration_partial", None)
     except Exception:
