@@ -146,8 +146,18 @@ class TestPaperRebalance(unittest.TestCase):
             paper["snapshots"] = []
 
             ranking = [
-                {"stock_code": "600519", "stock_name": "茅台", "score": 72},
-                {"stock_code": "300750", "stock_name": "宁德", "score": 68},
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "score": 72,
+                    "predicted_score_tau": 1.0,
+                },
+                {
+                    "stock_code": "300750",
+                    "stock_name": "宁德",
+                    "score": 68,
+                    "predicted_score_tau": 1.0,
+                },
             ]
 
             def fake_query(code):
@@ -159,13 +169,26 @@ class TestPaperRebalance(unittest.TestCase):
                     "price_raw": prices.get(str(code), 100.0),
                 }
 
+            def fake_batch(codes, **_kw):
+                return {c: fake_query(c) for c in (codes or [])}
+
             with patch(
+                "core.paper_rebalance._batch_query_quotes", side_effect=fake_batch
+            ), patch(
                 "skills.common.quote_api.StockAPI.query", side_effect=fake_query
             ), patch(
                 "core.ports.market.query_quote", side_effect=fake_query
             ), patch(
                 "core.paper_rebalance._quote_price",
                 side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
+            ), patch(
+                "core.risk.check_account_risk",
+                return_value={
+                    "ok": True,
+                    "blocks": [],
+                    "warnings": [],
+                    "limits": {"max_position_pct": 25.0, "max_sector_pct": 40.0},
+                },
             ):
                 result = simulate_cross_section_rebalance(paper, ranking, top_k=2)
 
@@ -379,7 +402,7 @@ class TestClusterSellHysteresis(unittest.TestCase):
                 result = simulate_cross_section_rebalance(
                     paper,
                     ranking,
-                    top_k=1,
+                    top_k=3,
                     min_score=1.0,
                     respect_max_positions=False,
                     score_lookup=score_lookup,
@@ -541,12 +564,12 @@ class TestClusterSellHysteresis(unittest.TestCase):
                 "position_pct": 0.2,
             }
             ranking = [
-                {"stock_code": "000739", "stock_name": "簿内新票", "score": 2.5},
-                {"stock_code": "600426", "stock_name": "簿内新票2", "score": 2.0},
+                {"stock_code": "000739", "stock_name": "簿内新票", "score": 2.5, "predicted_score_tau": 1.0},
+                {"stock_code": "600426", "stock_name": "簿内新票2", "score": 2.0, "predicted_score_tau": 1.0},
             ]
             score_lookup = [
-                {"stock_code": "000739", "score": 2.5},
-                {"stock_code": "600426", "score": 2.0},
+                {"stock_code": "000739", "score": 2.5, "predicted_score_tau": 1.0},
+                {"stock_code": "600426", "score": 2.0, "predicted_score_tau": 1.0},
                 {"stock_code": "600938", "score": 0.5},
                 {"stock_code": "600900", "score": 0.4},
                 {"stock_code": "600276", "score": 0.3},
@@ -560,7 +583,20 @@ class TestClusterSellHysteresis(unittest.TestCase):
                     "price_raw": 20.0,
                 }
 
+            def fake_batch(codes, **_kw):
+                return {
+                    c: {
+                        "success": True,
+                        "stock_code": c,
+                        "stock_name": c,
+                        "price_raw": 20.0,
+                    }
+                    for c in (codes or [])
+                }
+
             with patch(
+                "core.paper_rebalance._batch_query_quotes", side_effect=fake_batch
+            ), patch(
                 "skills.common.quote_api.StockAPI.query", side_effect=fake_query
             ), patch(
                 "core.ports.market.query_quote", side_effect=fake_query
@@ -570,6 +606,12 @@ class TestClusterSellHysteresis(unittest.TestCase):
             ), patch(
                 "core.risk.check_account_risk",
                 return_value={"ok": True, "blocks": [], "warnings": []},
+            ), patch(
+                "core.event_prior.get_event_prior_cfg",
+                return_value={"mode": "off"},
+            ), patch(
+                "core.sentiment_prior.get_sentiment_prior_cfg",
+                return_value={"mode": "off"},
             ):
                 result = simulate_cross_section_rebalance(
                     paper,
@@ -578,6 +620,7 @@ class TestClusterSellHysteresis(unittest.TestCase):
                     min_score=1.0,
                     respect_max_positions=False,
                     score_lookup=score_lookup,
+                    skip_sentiment_prior=True,
                 )
 
             self.assertTrue(result["success"])
@@ -587,10 +630,10 @@ class TestClusterSellHysteresis(unittest.TestCase):
             self.assertIn("600426", bought)
             self.assertIn("000739", held)
             self.assertIn("600426", held)
-            # 中间带未清仓
+            # 簿长=2 时 force_trim 会先卸最低分中间带；其余中间带因滞回保留
             self.assertIn("600938", held)
             self.assertIn("600900", held)
-            self.assertIn("600276", held)
+            self.assertNotIn("600276", held)
 
     def test_cluster_hard_reject_sells(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -638,7 +681,12 @@ class TestClusterSellHysteresis(unittest.TestCase):
                     "price_raw": 20.0,
                 }
 
+            def fake_batch(codes, **_kw):
+                return {c: fake_query(c) for c in (codes or [])}
+
             with patch(
+                "core.paper_rebalance._batch_query_quotes", side_effect=fake_batch
+            ), patch(
                 "skills.common.quote_api.StockAPI.query", side_effect=fake_query
             ), patch(
                 "core.ports.market.query_quote", side_effect=fake_query
@@ -648,6 +696,9 @@ class TestClusterSellHysteresis(unittest.TestCase):
             ), patch(
                 "core.risk.check_account_risk",
                 return_value={"ok": True, "blocks": [], "warnings": []},
+            ), patch(
+                "core.sentiment_prior.get_sentiment_prior_cfg",
+                return_value={"mode": "off"},
             ):
                 result = simulate_cross_section_rebalance(
                     paper,
@@ -656,6 +707,7 @@ class TestClusterSellHysteresis(unittest.TestCase):
                     min_score=1.0,
                     respect_max_positions=False,
                     score_lookup=score_lookup,
+                    skip_sentiment_prior=True,
                 )
 
             self.assertTrue(result["success"])
@@ -665,6 +717,92 @@ class TestClusterSellHysteresis(unittest.TestCase):
             held = {h["stock_code"] for h in paper["holdings"]}
             self.assertNotIn("601138", held)
             self.assertIn("000739", held)
+
+
+    def test_cluster_buy_sizes_by_equity_not_cash_ratio(self):
+        """分池买入按净值×权重，而非 cash×position_pct（现金占比低时不再系统性缩仓）。"""
+        paper = {
+            "cash": 25000.0,
+            "strategy_id": "short",
+            "cost_model": "simple_cn",
+            "holdings": [],
+            "rules": {"max_positions": 5, "position_pct": 0.2},
+            "operation_log": [],
+            "trades": [],
+            "initial_cash": 100000.0,
+        }
+        ranking = [
+            {
+                "stock_code": "000001",
+                "stock_name": "新票",
+                "score": 2.0,
+                "predicted_score": 2.0,
+                "predicted_score_eod": 2.0,
+                "predicted_score_tau": 1.0,
+                "predicted_score_blend": 1.5,
+            }
+        ]
+
+        def fake_batch(codes, **_kw):
+            return {
+                c: {
+                    "success": True,
+                    "stock_code": c,
+                    "stock_name": c,
+                    "price_raw": 20.0,
+                }
+                for c in (codes or [])
+            }
+
+        with patch(
+            "core.paper_rebalance._batch_query_quotes", side_effect=fake_batch
+        ), patch(
+            "core.paper_rebalance._quote_price",
+            side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
+        ), patch(
+            "core.paper.mark_to_market",
+            return_value={
+                "equity": 100000.0,
+                "cash": 25000.0,
+                "max_drawdown_pct": 0.0,
+                "current_drawdown_pct": 0.0,
+                "holdings": [],
+            },
+        ), patch(
+            "core.risk.check_account_risk",
+            return_value={
+                "ok": True,
+                "blocks": [],
+                "warnings": [],
+                "limits": {"max_position_pct": 25.0, "max_sector_pct": 40.0},
+            },
+        ), patch(
+            "core.portfolio_optimize.optimize_weights",
+            return_value={"weights_pct": {}, "mode": "score_budget"},
+        ), patch(
+            "core.event_prior.get_event_prior_cfg",
+            return_value={"mode": "off"},
+        ), patch(
+            "core.sentiment_prior.get_sentiment_prior_cfg",
+            return_value={"mode": "off"},
+        ), patch(
+            "core.signal.score_display.resolve_hold_floor",
+            return_value=0.0,
+        ):
+            result = simulate_cross_section_rebalance(
+                paper,
+                ranking,
+                top_k=1,
+                min_score=0.5,
+                respect_max_positions=False,
+                skip_sentiment_prior=True,
+            )
+
+        self.assertTrue(result["success"])
+        buys = result.get("buy_trades") or []
+        self.assertEqual(len(buys), 1)
+        # equity×0.2=20000 → 1000股；旧 cash×0.2=5000 → 仅 200股
+        self.assertEqual(int(buys[0]["shares"]), 1000)
 
 
 if __name__ == "__main__":

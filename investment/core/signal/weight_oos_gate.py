@@ -87,7 +87,11 @@ def _run_topk_predicted(
     ridge_lambda: float = 0.0,
     fundamentals_by_code: Optional[Dict[str, dict]] = None,
 ) -> Dict[str, Any]:
-    """研究臂：注入组/全局 return_model → predicted_score 排序。"""
+    """研究臂：注入组/全局 return_model → predicted_score 排序。
+
+    组内 OOS 只比 EOD 组 β→ŷ vs heuristic；关闭 ŷ_τ 买入闸，避免 live dual_score
+    把研究臂打成 0 成交 → ``insufficient_oos`` / promote 假失败。
+    """
     from core.backtest.topk_backtest import backtest_topk_equal_weight
 
     return backtest_topk_equal_weight(
@@ -106,6 +110,7 @@ def _run_topk_predicted(
         else {},
         return_model_ridge_lambda=float(ridge_lambda or 0.0),
         allow_heuristic_baseline=False,
+        apply_tau_buy_gate=False,
     )
 
 
@@ -152,6 +157,19 @@ def _compare_arms(
             reason = f"oos_worse_{delta_oos}pp"
         else:
             reason = (research_m.get("oos") or {}).get("fail_reason") or "research_oos_failed"
+    else:
+        # 区分「比不过」与「研究臂无成交/曲线过短」——后者常是闸门误杀而非 α 失败
+        res_oos_meta = research_m.get("oos") or {}
+        if int(research_m.get("trade_count") or 0) <= 0:
+            reason = "research_no_trades"
+        elif res_oos is None:
+            reason = str(
+                res_oos_meta.get("reason")
+                or res_oos_meta.get("fail_reason")
+                or "insufficient_oos"
+            )
+        elif base_oos is None:
+            reason = "baseline_insufficient_oos"
 
     return {
         "ok": True,

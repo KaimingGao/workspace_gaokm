@@ -28,7 +28,7 @@ class TestClusterPanelsPit(unittest.TestCase):
             "core.data_service.get_quote",
             return_value={"success": True, "stock_code": "600519", "stock_name": "茅台"},
         ), patch(
-            "core.data_service.bars_and_source", return_value=(bars, "akshare")
+            "core.data_service.bars_and_source_research", return_value=(bars, "akshare")
         ), patch(
             "core.ports.market.resolve_market_code", return_value=("cn", "600519")
         ), patch(
@@ -63,7 +63,7 @@ class TestClusterPanelsPit(unittest.TestCase):
             "core.data_service.get_quote",
             return_value={"success": True, "stock_code": "000001"},
         ), patch(
-            "core.data_service.bars_and_source", return_value=(bars, "akshare")
+            "core.data_service.bars_and_source_research", return_value=(bars, "akshare")
         ), patch(
             "core.ports.market.resolve_market_code", return_value=("cn", "000001")
         ), patch(
@@ -89,7 +89,7 @@ class TestClusterPanelsPit(unittest.TestCase):
             calls.append(dict(kwargs))
             return bars, "cache"
 
-        with patch("core.data_service.bars_and_source", side_effect=fake_bars):
+        with patch("core.data_service.bars_and_source_research", side_effect=fake_bars):
             out_bars, src, remote = _load_bars_for_cluster(
                 "600519", lookback=40, refresh_bars=False
             )
@@ -109,7 +109,7 @@ class TestClusterPanelsPit(unittest.TestCase):
             calls.append(dict(kwargs))
             return bars, "cache"
 
-        with patch("core.data_service.bars_and_source", side_effect=fake_bars):
+        with patch("core.data_service.bars_and_source_research", side_effect=fake_bars):
             out_bars, src, remote = _load_bars_for_cluster(
                 "600519", lookback=40, refresh_bars=True
             )
@@ -133,7 +133,7 @@ class TestClusterPanelsPit(unittest.TestCase):
                 return full, "akshare"
             return thin, "cache:stale"
 
-        with patch("core.data_service.bars_and_source", side_effect=fake_bars):
+        with patch("core.data_service.bars_and_source_research", side_effect=fake_bars):
             out_bars, src, remote = _load_bars_for_cluster(
                 "600519", lookback=40, refresh_bars=True
             )
@@ -149,7 +149,7 @@ class TestClusterPanelsPit(unittest.TestCase):
 
         bars = [{"date": f"2024-01-{i:02d}", "close": 10.0} for i in range(1, 50)]
         with patch(
-            "core.data_service.bars_and_source", return_value=(bars, "cache")
+            "core.data_service.bars_and_source_research", return_value=(bars, "cache")
         ), patch(
             "core.ports.market.resolve_market_code", return_value=("cn", "000001")
         ), patch(
@@ -178,7 +178,7 @@ class TestClusterPanelsPit(unittest.TestCase):
             msgs.append(str(msg))
 
         with patch(
-            "core.data_service.bars_and_source", return_value=(bars, "cache")
+            "core.data_service.bars_and_source_research", return_value=(bars, "cache")
         ), patch(
             "core.ports.market.resolve_market_code", return_value=("CN", "000001")
         ), patch(
@@ -209,7 +209,7 @@ class TestClusterPanelsPit(unittest.TestCase):
             return [], "empty"
 
         with patch(
-            "core.data_service.bars_and_source", return_value=([], "empty")
+            "core.data_service.bars_and_source_research", return_value=([], "empty")
         ), patch(
             "core.ports.market.fetch_index_bars", side_effect=_hang
         ):

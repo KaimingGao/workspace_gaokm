@@ -80,6 +80,7 @@ export function installScoreReview(ctx) {
       syncOverviewFromScoreReview(data);
       setProStatusChip("quant-pro-review-status", "warn", "无账本");
       renderTauShadow(data && data.tau_shadow);
+      renderNowcastShadow(data && data.nowcast_shadow);
       return;
     }
     const s = data.summary || {};
@@ -126,6 +127,7 @@ export function installScoreReview(ctx) {
         ? `<p class="quant-attr-note">${esc(String(data.note).slice(0, 160))}</p>`
         : "");
     renderTauShadow(data.tau_shadow);
+    renderNowcastShadow(data.nowcast_shadow);
     syncOverviewFromScoreReview(data);
     if (s.hit_rate != null && Number.isFinite(Number(s.hit_rate))) {
       const pct = Number(s.hit_rate) * 100;
@@ -183,6 +185,48 @@ export function installScoreReview(ctx) {
       `<p class="quant-attr-note">标签 ${esc(
         String(tau.y_spec_tau || "close[T]/open[T]-1")
       )} · 与 EOD 分栏对账 · 禁止混用全日相对昨收验收分钟头</p>`;
+  }
+
+  function renderNowcastShadow(nc) {
+    const box = document.getElementById("quant-score-review-nowcast");
+    if (!box) return;
+    if (!nc || nc.success === false) {
+      box.hidden = true;
+      box.innerHTML = "";
+      return;
+    }
+    const ic =
+      nc.nowcast_ic_spearman != null
+        ? Number(nc.nowcast_ic_spearman).toFixed(2)
+        : "—";
+    const hit =
+      nc.nowcast_sign_hit_rate != null
+        ? `${(Number(nc.nowcast_sign_hit_rate) * 100).toFixed(0)}%`
+        : "—";
+    const nord =
+      nc.nordhaus_revision_slope != null &&
+      Number.isFinite(Number(nc.nordhaus_revision_slope))
+        ? Number(nc.nordhaus_revision_slope).toFixed(2)
+        : "—";
+    const vs = nc.vs_eod || {};
+    const j =
+      vs.jaccard != null ? Number(vs.jaccard).toFixed(2) : "—";
+    const n = nc.nowcast_n != null ? String(nc.nowcast_n) : "—";
+    box.hidden = false;
+    box.innerHTML =
+      `<div class="quant-metric-strip quant-tau-strip" title="N3：ŷ_nowcast vs 剩余收益；Nordhaus≈0 才考虑升主排序">` +
+      `<span><b>ŷ_nowcast</b> 验收</span>` +
+      `<span>IC <b>${esc(ic)}</b> (n=${esc(n)})</span>` +
+      `<span>命中 <b>${esc(hit)}</b></span>` +
+      `<span>Nordhaus <b>${esc(nord)}</b></span>` +
+      `<span>影子重叠 Jaccard <b>${esc(j)}</b></span>` +
+      (nc.shadow_exists
+        ? `<span>影子簿 ${esc(String(nc.shadow_n ?? "—"))} 只</span>`
+        : `<span class="quant-attr-note">无 nowcast 影子成员快照</span>`) +
+      `</div>` +
+      `<p class="quant-attr-note">标签 ${esc(
+        String(nc.y_spec_nowcast || "close[T]/price[τ]-1")
+      )} · 影子对照 · 默认不改主排序</p>`;
   }
 
   function setVizMeta(id, text) {
@@ -572,6 +616,11 @@ export function installScoreReview(ctx) {
         if (tauBox) {
           tauBox.hidden = true;
           tauBox.innerHTML = "";
+        }
+        const ncBox = document.getElementById("quant-score-review-nowcast");
+        if (ncBox) {
+          ncBox.hidden = true;
+          ncBox.innerHTML = "";
         }
         const table = document.getElementById("quant-score-review-table");
         if (table) table.innerHTML = "";

@@ -27,7 +27,10 @@ def _prepare_scoring_window(
     max_window: int,
     data_mode: str,
 ) -> Tuple[List[dict], str]:
-    """P6.3：full 用完整窗口；quote_fallback 模拟 live 降级。窗口强制 as_of（无未来 bar）。"""
+    """P6.3：full 用完整窗口；quote_fallback 仅显式 data_mode 时模拟 live 降级。
+
+    默认 full 路径拒绝伪日线（DS-R4）。
+    """
     from core.data_pit import window_as_of
 
     quote = _mock_quote_from_bars(bars, index)
@@ -39,6 +42,9 @@ def _prepare_scoring_window(
         if fb:
             return fb, "quote_fallback"
     window, _meta = window_as_of(bars, index, max_window=max_window)
+    # 防御：窗口内若混入伪日期则清空
+    if any(str((b or {}).get("date") or "").lower() in ("d-1", "d0") for b in (window or [])):
+        return [], "rejected_quote_fallback"
     return window, "full_daily"
 
 

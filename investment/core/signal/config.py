@@ -71,17 +71,28 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
     "dual_score": {
         "fusion_mode": "blend",  # ŷ_trade = w·ŷ_EOD_rem + w·ŷ_τ；买入另须 ŷ_τ≥floor
         "tau": "open",
-        "min_predicted_score_tau": 0.0,
-        "block_buy_if_tau_missing": False,
+        "min_predicted_score_tau": 0.3,  # S6: 正门槛；与 DEFAULT_DUAL_SCORE.dual_score 保持一致
+        # rem 未推 ŷ_τ 时阻断买入（与 DEFAULT_DUAL_SCORE 一致；缺模型勿静默放行）
+        "block_buy_if_tau_missing": True,
         "w_eod": 0.5,
         "w_tau": 0.5,
-        "w_mode": "fixed",  # fixed | theme_boost | variance
+        "w_mode": "fixed",  # fixed | theme_boost | variance | kalman
         "theme_w_tau_boost": 1.25,
         "eod_residual_var": 1.0,
         "enable_cascade_shadow": True,
         "enable_tau_shadow_book": True,
         "enable_minute_tau": False,
         "minute_tau_hm": "09:45",
+        "nowcast": {
+            "enabled": False,
+            "write_shadow": True,
+            "use_as_rank_key": False,
+            "taus": ["eod", "open"],
+            "q_process": 0.05,
+            "theme_q_boost": 2.0,
+            "gap_q_trigger_pct": 2.0,
+            "gap_q_boost": 2.0,
+        },
     },
     # stance 门槛按收益分 ŷ%（百分点）
     "stance_thresholds": {
@@ -116,6 +127,10 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "use_in_backtest": True,
         "pit_mode": "as_of",
         "missing_as_of_policy": "zero_weight",
+        # DS-R3：缺公告日 → warn | zero_weight | hard_reject
+        "ann_missing_policy": "zero_weight",
+        "ann_missing_code_ratio_warn": 0.3,
+        "ann_missing_code_ratio_block": 0.5,
     },
     # 舆情：默认不进 ŷ（include_in_score=false）；role=prior 作 ŷ 外旁路。
     "sentiment": {
@@ -158,8 +173,6 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "block_active_on_yhat_ic": True,
         # Y3.3：行业 map 覆盖率低于此值 → 启用警告
         "min_sector_map_coverage": 0.5,
-        # P0：OOS 门禁未过的组不进选股簿（仍可进 scored_all 展示）
-        "exclude_oos_failed_groups": True,
         # B1：相对 active 默认软提示（True）；False=恢复「不得差于 active」硬闸
         "promote_allow_worse_oos_than_active": True,
         # 建簿约束：可成交过滤 · 行业名额 · τ 闸 defer（与纸面 risk 同配置源）
@@ -168,6 +181,17 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
             "filter_untradeable": True,
             "enforce_sector_cap": True,
             "tau_fail_mode": "defer",
+        },
+        # 双轨调仓：predicted ŷ% + heuristic 0–100；按 OOS 是否通过分流
+        "rebalance_tracks": {
+            "enabled": True,
+            "oos_fail_policy": "exclude",
+            "predicted_buy_floor": None,
+            "predicted_hold_floor": None,
+            "heuristic_buy_floor": 55.0,
+            "heuristic_hold_floor": 45.0,
+            "heuristic_sleeve_max": 8,
+            "heuristic_apply_tau_gate": False,
         },
     },
     # P1：T 日事件先验（缺口/板块开盘）· 不进 ŷ，只影响调仓动作
@@ -230,6 +254,12 @@ def load_signal_config(*, reload: bool = False) -> Dict[str, Any]:
         with open(path, "r", encoding="utf-8") as f:
             user = json.load(f)
         cfg = _deep_merge(cfg, user)
+    # 遗留开关已退役：OOS 失败组固定剔主分/主簿
+    cs = cfg.get("cluster_scoring")
+    if isinstance(cs, dict) and "exclude_oos_failed_groups" in cs:
+        cs = dict(cs)
+        cs.pop("exclude_oos_failed_groups", None)
+        cfg["cluster_scoring"] = cs
     _cached = cfg
     return _apply_overlays(deepcopy(cfg))
 

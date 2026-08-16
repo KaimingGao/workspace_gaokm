@@ -444,6 +444,7 @@ export function installStrategy(q) {
     const bits = [
       saved ? "已保存" : "当前",
       `正交加权 w_EOD=${d.w_eod ?? "—"} w_τ=${d.w_tau ?? "—"}`,
+      `w_mode=${d.w_mode ?? "fixed"}`,
       `τ闸 ≥ ${d.min_predicted_score_tau ?? "—"}%`,
     ];
     return bits.join(" · ");
@@ -459,6 +460,8 @@ export function installStrategy(q) {
     if (we && d.w_eod != null) we.value = String(d.w_eod);
     const wt = document.getElementById("strategy-dual-w-tau");
     if (wt && d.w_tau != null) wt.value = String(d.w_tau);
+    const wm = document.getElementById("strategy-dual-w-mode");
+    if (wm && d.w_mode) wm.value = String(d.w_mode);
     const st = document.getElementById("strategy-dual-status");
     if (st) st.textContent = formatDualStatus(d);
   }
@@ -480,8 +483,10 @@ export function installStrategy(q) {
       floorIn && floorIn.value !== "" ? Number(floorIn.value) : null;
     const weIn = document.getElementById("strategy-dual-w-eod");
     const wtIn = document.getElementById("strategy-dual-w-tau");
+    const wmIn = document.getElementById("strategy-dual-w-mode");
     const wEod = weIn && weIn.value !== "" ? Number(weIn.value) : 0.5;
     const wTau = wtIn && wtIn.value !== "" ? Number(wtIn.value) : 0.5;
+    const wMode = wmIn && wmIn.value ? String(wmIn.value) : "fixed";
     if (floor == null || !Number.isFinite(floor)) {
       if (st) st.textContent = "请填写 τ 闸";
       return;
@@ -494,9 +499,10 @@ export function installStrategy(q) {
       "保存融合分数？",
       "",
       "· 模式 = 正交加权（ŷ_trade = w·ŷ_EOD_rem + w·ŷ_τ）",
-      `· w_EOD = ${wEod} · w_τ = ${wTau}`,
+      `· w_EOD = ${wEod} · w_τ = ${wTau} · w_mode = ${wMode}`,
       `· τ 闸 ≥ ${floor}%`,
       "",
+      "Kalman nowcast 默认为影子分，不替换 EOD 主字段。",
       "仅改 signal_config.dual_score；不改 weights / scoring。刷簿/预演后生效。",
     ].filter(Boolean);
     if (!window.confirm(lines.join("\n"))) return;
@@ -510,6 +516,7 @@ export function installStrategy(q) {
         fusion_mode: "blend",
         w_eod: wEod,
         w_tau: wTau,
+        w_mode: wMode,
       };
       body.min_predicted_score_tau = floor;
       const res = await fetch("/api/signal/config/dual-score", {

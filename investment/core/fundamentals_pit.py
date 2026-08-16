@@ -322,15 +322,51 @@ def resolve_fundamentals_for_score(
         }
 
     # as_of PIT 路径
+    from core.data_policy import DEFAULT_ANN_MISSING_POLICY
+
     point, meta = select_point_as_of(history, as_of)
+    ann_pol = str(cfg.get("ann_missing_policy") or DEFAULT_ANN_MISSING_POLICY).strip().lower()
     if point and point.get("metrics"):
         metrics = dict(point.get("metrics") or {})
+        ann_miss = bool(meta.get("ann_missing") or point.get("ann_missing"))
         try:
             from core.valuation_em import enrich_fundamentals_metrics
 
             metrics = enrich_fundamentals_metrics(code, metrics) or metrics
         except Exception:
             pass
+        if ann_miss and ann_pol in ("zero_weight", "omit"):
+            return {
+                "ok": False,
+                "metrics": None,
+                "fundamentals_pit": True,
+                "non_pit": False,
+                "as_of": meta.get("selected_as_of"),
+                "decision_as_of": meta.get("as_of"),
+                "mode": "ann_missing_zero_weight",
+                "history_count": len(history),
+                "pit_meta": meta,
+                "ann_missing": True,
+                "ann_missing_policy": ann_pol,
+                "policy": ann_pol,
+                "note": "缺公告日：财务因子按 zero_weight 中性化（防前视）。",
+            }
+        if ann_miss and ann_pol == "hard_reject":
+            return {
+                "ok": False,
+                "metrics": None,
+                "fundamentals_pit": True,
+                "non_pit": False,
+                "as_of": meta.get("selected_as_of"),
+                "decision_as_of": meta.get("as_of"),
+                "mode": "ann_missing_hard_reject",
+                "history_count": len(history),
+                "pit_meta": meta,
+                "ann_missing": True,
+                "ann_missing_policy": ann_pol,
+                "hard_reject": True,
+                "note": "缺公告日：hard_reject，不进生产财务因子。",
+            }
         return {
             "ok": True,
             "metrics": metrics,
@@ -341,7 +377,8 @@ def resolve_fundamentals_for_score(
             "mode": "as_of",
             "history_count": len(history),
             "pit_meta": meta,
-            "ann_missing": bool(meta.get("ann_missing") or point.get("ann_missing")),
+            "ann_missing": ann_miss,
+            "ann_missing_policy": ann_pol,
             "note": "财务按 as_of 选取；无未来报告期。",
         }
 

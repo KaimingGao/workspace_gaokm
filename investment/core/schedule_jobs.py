@@ -54,7 +54,7 @@ def _resolve_warmup_codes(
 
 def run_watch_alert(*, codes: Optional[List[str]] = None) -> Dict[str, Any]:
     """轻量异动：对观察池/给定代码拉现货涨跌，标记 |涨跌|≥2%。"""
-    from core.ports.market import query_quote
+    from core.data_service import get_quote
 
     slot = job_registry.slot("schedule")
     if slot.is_running():
@@ -75,7 +75,7 @@ def run_watch_alert(*, codes: Optional[List[str]] = None) -> Dict[str, Any]:
     try:
         for i, code in enumerate(watch, start=1):
             slot.update(current=i, message=f"报价 {code}")
-            data = query_quote(str(code))
+            data = get_quote(str(code))
             if not isinstance(data, dict):
                 continue
             if not data.get("success"):
@@ -213,6 +213,15 @@ def run_bars_warmup(
             "alert_outbound": outbound,
             "note": "M1 日线预热（增量）；经 DataService；覆盖率已汇总；不代客下单。",
         }
+        try:
+            from core.data.service import metrics_snapshot
+
+            # summarize 已含 metrics 时仍显式挂顶层，便于 schedule_last_run 扫一眼
+            result["data_service_metrics"] = (
+                summary.get("metrics") or metrics_snapshot()
+            )
+        except Exception:
+            pass
         path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
         result["path"] = path
         slot.finish(result=result)
@@ -222,25 +231,92 @@ def run_bars_warmup(
         return {"ok": False, "error": str(e), "job": slot.get()}
 
 
-def run_spot_refresh(*, force: bool = False) -> Dict[str, Any]:
-    """刷新 A 股现货磁盘缓存（PE/PB 等列表估值用）。"""
+def run_spot_refresh(*, force: bool = False, enrich_sectors: bool = True) -> Dict[str, Any]:
+    """刷新 A 股现货磁盘缓存（PE/PB 等列表估值用）；可选补全 sector_map。"""
     slot = job_registry.slot("schedule")
     if slot.is_running():
         return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
 
-    job_id = slot.start(kind="spot_refresh", total=1, message="刷新现货…")
+    job_id = slot.start(kind="spot_refresh", total=2 if enrich_sectors else 1, message="刷新现货…")
     try:
         from core.data_service import get_spot
 
         slot.update(current=1, message="stock_zh_a_spot_em")
         pack = get_spot(force=bool(force))
+        enrich = None
+        if enrich_sectors:
+            slot.update(current=2, message="sector_map_enrich…")
+            try:
+                from core.sector_map_sync import enrich_sector_map_from_spot
+
+                enrich = enrich_sector_map_from_spot(
+                    write=True,
+                    force_spot=False,
+                    overwrite=False,
+                )
+            except Exception as e:
+                enrich = {"ok": False, "error": str(e)}
         result = {
             "ok": True,
             "kind": "spot_refresh",
             "count": pack.get("count") or 0,
             "source": pack.get("data_source"),
             "fetched_at": pack.get("fetched_at"),
-            "note": "M1 现货刷新；经 DataService.get_spot；不代客下单。",
+            "sector_enrich": enrich,
+            "note": "M1 现货刷新；经 DataService.get_spot；可选 DS-R2.2 行业补全；不代客下单。",
+        }
+        try:
+            from core.data.service import metrics_snapshot
+
+            result["data_service_metrics"] = metrics_snapshot()
+        except Exception:
+            pass
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_sector_map_enrich(
+    *,
+    codes: Optional[List[str]] = None,
+    force_spot: bool = False,
+    overwrite: bool = False,
+) -> Dict[str, Any]:
+    """DS-R2.2：用现货所属行业补全 sector_map。"""
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = slot.start(kind="sector_map_enrich", total=1, message="补全行业 map…")
+    try:
+        from core.sector_map_sync import enrich_sector_map_from_spot
+
+        slot.update(current=1, message="enrich_sector_map_from_spot")
+        enrich = enrich_sector_map_from_spot(
+            codes=codes,
+            write=True,
+            force_spot=bool(force_spot),
+            overwrite=bool(overwrite),
+        )
+        result = {
+            "ok": bool(enrich.get("ok")),
+            "kind": "sector_map_enrich",
+            **{k: enrich.get(k) for k in (
+                "added_count",
+                "updated_count",
+                "coverage",
+                "mapped",
+                "total",
+                "data_source",
+                "unmapped_codes",
+                "note",
+                "error",
+            ) if k in enrich or enrich.get(k) is not None},
+            "enrich": enrich,
         }
         path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
         result["path"] = path
@@ -542,7 +618,16 @@ def run_schedule(kind: str, **kwargs: Any) -> Dict[str, Any]:
     if k == "bars_warmup":
         return run_bars_warmup(codes=kwargs.get("codes"), limit=int(kwargs.get("limit") or 60))
     if k == "spot_refresh":
-        return run_spot_refresh(force=bool(kwargs.get("force")))
+        return run_spot_refresh(
+            force=bool(kwargs.get("force")),
+            enrich_sectors=bool(kwargs.get("enrich_sectors", True)),
+        )
+    if k == "sector_map_enrich":
+        return run_sector_map_enrich(
+            codes=kwargs.get("codes"),
+            force_spot=bool(kwargs.get("force_spot")),
+            overwrite=bool(kwargs.get("overwrite")),
+        )
     if k == "fundamentals_warmup":
         ingest = kwargs.get("ingest_history")
         if ingest is None:

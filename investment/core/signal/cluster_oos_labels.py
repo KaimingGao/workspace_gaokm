@@ -42,6 +42,46 @@ def oos_failed_cluster_labels(
     return failed
 
 
+def is_oos_failed_cluster_label(
+    label: Optional[str],
+    *,
+    clusters: Optional[Sequence[Any]] = None,
+    active: Optional[Dict[str, Any]] = None,
+) -> bool:
+    """单组 label 是否为 OOS 门禁失败（跳过 skipped）。"""
+    lab = str(label or "").strip()
+    if not lab:
+        return False
+    return lab in set(oos_failed_cluster_labels(clusters, active=active))
+
+
+def codes_in_oos_failed_clusters(
+    *,
+    active: Optional[Dict[str, Any]] = None,
+) -> set:
+    """OOS 失败组内全部代码（来自 active code_map）；供 Top-K / 横截面剔榜。"""
+    if active is None:
+        from core.signal.cluster_live import load_active_cluster_weights
+
+        art = load_active_cluster_weights()
+    else:
+        art = active
+    failed = set(oos_failed_cluster_labels(active=art))
+    if not failed:
+        return set()
+    cmap = (art or {}).get("code_map") or {}
+    out: set = set()
+    for code, meta in cmap.items():
+        if not isinstance(meta, dict):
+            continue
+        lab = str(meta.get("cluster_label") or meta.get("label") or "").strip()
+        if lab and lab in failed:
+            key = str(code or "").strip()
+            if key:
+                out.add(key)
+    return out
+
+
 def oos_gate_stats(
     artifact: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:

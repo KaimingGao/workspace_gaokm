@@ -13,9 +13,11 @@ if ROOT not in sys.path:
 
 from core.sentiment_prior import (
     PRIOR_REASON,
+    apply_prior_restore_hold,
     apply_prior_to_buy,
     apply_prior_to_hold,
     build_sentiment_prior,
+    prior_wants_scale_hold,
 )
 from core.signal.config import signal_config_overlay
 from core.signal.return_score import ReturnScoreModel
@@ -249,6 +251,31 @@ class TestSentimentPriorPolicy(unittest.TestCase):
         self.assertNotIn("analysis", subs)
         for v in subs.values():
             self.assertIsInstance(v, (int, float))
+
+    def test_restore_when_prior_no_longer_scales(self):
+        bearish = {
+            "active": True,
+            "actions": [{"type": "scale_hold", "scale": 0.6}],
+        }
+        self.assertTrue(prior_wants_scale_hold(bearish))
+        blocked = apply_prior_restore_hold(
+            bearish, current_shares=600, base_shares=1000
+        )
+        self.assertFalse(blocked.get("restore"))
+
+        neutral = {"active": False, "actions": []}
+        restored = apply_prior_restore_hold(
+            neutral, current_shares=600, base_shares=1000
+        )
+        self.assertTrue(restored.get("restore"))
+        self.assertEqual(float(restored.get("buy_shares") or 0), 400.0)
+        self.assertTrue(restored.get("clear_base"))
+
+        cleared = apply_prior_restore_hold(
+            neutral, current_shares=1000, base_shares=1000
+        )
+        self.assertFalse(cleared.get("restore"))
+        self.assertTrue(cleared.get("clear_base"))
 
 
 if __name__ == "__main__":

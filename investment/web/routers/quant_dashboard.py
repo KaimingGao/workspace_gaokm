@@ -142,9 +142,12 @@ def _north_star_from_paper(paper: Dict[str, Any]) -> Optional[Dict[str, Any]]:
 
 
 def _unpack_index_bars(raw: Any) -> List[dict]:
-    """``fetch_index_bars`` 返回 ``(bars, label)``；兼容误传 list。"""
+    """兼容 DataService 信封 dict、``(bars, label)`` 与 list。"""
     if raw is None:
         return []
+    if isinstance(raw, dict):
+        bars = raw.get("bars")
+        return list(bars) if isinstance(bars, list) else []
     if isinstance(raw, tuple):
         bars = raw[0] if raw else []
         return list(bars) if isinstance(bars, list) else []
@@ -166,7 +169,7 @@ def _fetch_index_bars_bounded(
     import threading
 
     try:
-        from core.ports.market import fetch_index_bars
+        from core.data_service import get_index_bars
     except Exception:
         return []
 
@@ -175,7 +178,7 @@ def _fetch_index_bars_bounded(
 
     def _worker() -> None:
         try:
-            box["raw"] = fetch_index_bars(str(code or "").strip(), limit=int(limit))
+            box["raw"] = get_index_bars(str(code or "").strip(), limit=int(limit))
         except Exception as exc:
             box["err"] = exc
         finally:
@@ -1191,7 +1194,13 @@ def dashboard_signals(limit: int = 20):
             for h in holdings[:limit]:
                 sentiment = h.get("sentiment") or {}
                 label = sentiment.get("label") or ""
-                score = h.get("predicted_score") or h.get("score")
+                score = h.get("predicted_score_blend")
+                if score is None:
+                    score = h.get("decision_score")
+                if score is None:
+                    score = h.get("score")
+                if score is None:
+                    score = h.get("predicted_score")
                 if label or score is not None:
                     direction = (
                         "bearish"
@@ -1270,7 +1279,7 @@ def dashboard_allocation():
 
 
 def _index_quotes_for_overview() -> List[Dict[str, Any]]:
-    """仪表盘指数卡：优先腾讯现价（快），失败再退化空卡。"""
+    """仪表盘指数卡：优先腾讯现价（快），失败再退化空卡。经 DataService。"""
     # (腾讯符号, 展示名, 内部 code)
     specs = [
         ("sh000001", "上证指数", "上证"),
@@ -1280,9 +1289,9 @@ def _index_quotes_for_overview() -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     quotes: Dict[str, Any] = {}
     try:
-        from core.ports.market import batch_query_quotes
+        from core.data_service import batch_get_quotes
 
-        quotes = batch_query_quotes([s[0] for s in specs]) or {}
+        quotes = batch_get_quotes([s[0] for s in specs]) or {}
     except Exception:
         quotes = {}
 
@@ -1291,9 +1300,9 @@ def _index_quotes_for_overview() -> List[Dict[str, Any]]:
         if not isinstance(q, dict):
             # 个别失败时单拉一次（仍远快于 AkShare 日线）
             try:
-                from core.ports.market import query_quote
+                from core.data_service import get_quote
 
-                q = query_quote(symbol) or {}
+                q = get_quote(symbol) or {}
             except Exception:
                 q = {}
         close = None

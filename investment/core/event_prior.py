@@ -97,12 +97,49 @@ def _parse_open_price(quote: Optional[dict]) -> Optional[float]:
     return None
 
 
-def _prev_close_from_bars(bars: Optional[Sequence[dict]]) -> Optional[float]:
-    if not bars:
+def _asof_from_quote(quote: Optional[dict]) -> str:
+    if not isinstance(quote, dict):
+        return ""
+    return str(quote.get("date") or quote.get("trade_date") or "")[:10]
+
+
+def _hist_bars_for_prev_close(
+    bars: Optional[Sequence[dict]],
+    quote: Optional[dict] = None,
+    *,
+    asof_date: Optional[str] = None,
+) -> List[dict]:
+    """去掉与报价同日的 K 线，昨收取 close[T-1]。"""
+    hist = [b for b in (bars or []) if isinstance(b, dict)]
+    asof = str(asof_date or "")[:10] or _asof_from_quote(quote)
+    if not hist:
+        return []
+    last = hist[-1]
+    last_d = str(last.get("date") or "")[:10]
+    strip = bool(asof and last_d and last_d == asof)
+    if not strip and not asof and isinstance(quote, dict):
+        o = _parse_open_price(quote)
+        try:
+            bar_o = float(last.get("open") or 0.0) or None
+        except (TypeError, ValueError):
+            bar_o = None
+        if o is not None and bar_o is not None and abs(bar_o - o) <= max(1e-6, abs(o) * 1e-8):
+            strip = True
+    if strip:
+        return hist[:-1] if len(hist) >= 2 else []
+    return hist
+
+
+def _prev_close_from_bars(
+    bars: Optional[Sequence[dict]],
+    quote: Optional[dict] = None,
+    *,
+    asof_date: Optional[str] = None,
+) -> Optional[float]:
+    hist = _hist_bars_for_prev_close(bars, quote, asof_date=asof_date)
+    if not hist:
         return None
-    last = bars[-1] if isinstance(bars[-1], dict) else None
-    if not last:
-        return None
+    last = hist[-1]
     try:
         return float(last.get("close"))
     except (TypeError, ValueError):
@@ -117,7 +154,14 @@ def gap_pct_from_quote_bars(
 ) -> Optional[float]:
     """开盘相对昨收缺口（%）。只用 open[T] / close[T-1]，无未来函数。"""
     o = _parse_open_price(quote)
-    pc = float(prev_close) if prev_close is not None else _prev_close_from_bars(bars)
+    pc = None
+    if prev_close is not None:
+        try:
+            pc = float(prev_close)
+        except (TypeError, ValueError):
+            pc = None
+    if pc is None:
+        pc = _prev_close_from_bars(bars, quote)
     if pc is None and isinstance(quote, dict):
         # 行情常见：现价 + 涨跌幅 → 昨收；或显式 yc/prev_close
         for k in ("prev_close", "last_close", "yc", "pre_close"):
@@ -279,7 +323,7 @@ def compute_sector_gap_breadth_live(
     刷簿路径传 ``use_sector_peers=False`` + 预取 ``quotes``：整池共享一个 breadth，
     与 rem 训练面板按日广度同构，且只需一次 batch 行情。
     """
-    from core.ports.market import batch_query_quotes
+    from core.data_service import batch_get_quotes
 
     uniq = [str(c).strip() for c in codes if str(c).strip()]
     peer_codes = list(uniq)
@@ -306,7 +350,7 @@ def compute_sector_gap_breadth_live(
     missing = [c for c in peer_codes if c not in got]
     if missing:
         try:
-            got.update(batch_query_quotes(missing) or {})
+            got.update(batch_get_quotes(missing) or {})
         except Exception:
             pass
     gaps: Dict[str, Optional[float]] = {}

@@ -11,7 +11,7 @@ from core.paper_costs import (
     resolve_cost_model,
     cost_params,
 )
-from core.ports.market import query_quote, quote_price
+from core.ports.market import quote_price
 
 # origin constants imported lazily-safe from paper facade via circular-avoid:
 # define locally matching paper.py
@@ -154,7 +154,9 @@ def plan_buy_codes(
 
     quoted: List[tuple] = []
     for code in wanted:
-        quote = query_quote(code)
+        from core.data_service import get_quote
+
+        quote = get_quote(code)
         price = quote_price(quote) if quote.get("success") else None
         if not price or price <= 0:
             skipped.append(

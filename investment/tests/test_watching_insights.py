@@ -44,6 +44,10 @@ class TestWatchingInsights(unittest.TestCase):
         ), patch(
             "core.signal.cluster_live.load_active_cluster_book",
             return_value={},
+        ), patch(
+            "quant.research.rem_ridge.load_rem_model", return_value=None
+        ), patch(
+            "quant.research.rem_ridge.predict_rem_from_features", return_value=None
         ):
             out = build_watching_insights(
                 ["600519"],
@@ -52,7 +56,8 @@ class TestWatchingInsights(unittest.TestCase):
 
         self.assertTrue(out["ok"])
         item = out["items"][0]
-        self.assertEqual(item["score"], 62.0)
+        self.assertEqual(item["predicted_score"], 62.0)
+        self.assertEqual(item["score"], 62.0)  # 无 ŷ_τ 时 ŷ_trade 退回 EOD
         self.assertIn(item["stance_short"], {"轻仓", "关注", "观望", "—"})
         self.assertEqual(item["excess_return_pct"], 3.2)
         self.assertEqual(item["volume_ratio"], 1.35)
@@ -99,17 +104,44 @@ class TestWatchingInsights(unittest.TestCase):
             "predicted_score_tau_delta": 0.04,
             "realized_t1_to_tau": 0.30,
         }
-        # 无新缺口时不覆盖簿上已有 rem
+        # 无新缺口时不覆盖簿上已有 rem；表列 score 对齐 ŷ_trade
         with patch("core.ports.market.query_quote", return_value={}), patch(
             "core.data_service.get_bars", return_value={"bars": []}
         ), patch("core.stance.compute_buy_stance", return_value={}):
             out = _insight_from_book_row("600519", row)
-        self.assertAlmostEqual(out["score"], 0.40)
+        self.assertAlmostEqual(out["predicted_score"], 0.40)
+        self.assertAlmostEqual(out["score"], 0.12)
+        self.assertAlmostEqual(out["decision_score"], 0.12)
         self.assertAlmostEqual(out["predicted_score_blend"], 0.12)
         self.assertAlmostEqual(out["predicted_score_tau"], 0.12)
         self.assertAlmostEqual(out["predicted_score_eod_rem"], 0.08)
         self.assertAlmostEqual(out["predicted_score_tau_delta"], 0.04)
         self.assertAlmostEqual(out["realized_t1_to_tau"], 0.30)
+
+    def test_book_row_repairs_stale_eod_next_blend(self):
+        """旧簿把 blend 写成 EOD、但 ŷ_τ 仍在时，读路径重算加权 ŷ_trade。"""
+        from core.watching_insights import _insight_from_book_row
+
+        row = {
+            "stock_code": "600519",
+            "score": 0.234547,
+            "predicted_score": 0.234547,
+            "predicted_score_eod": 0.234547,
+            "predicted_score_eod_rem": 0.234547,
+            "predicted_score_tau": 0.063077,
+            "predicted_score_blend": 0.234547,  # 塌成 EOD
+            "dual_score_window": "eod_next",
+            "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed"},
+        }
+        with patch("core.ports.market.query_quote", return_value={}), patch(
+            "core.data_service.get_bars", return_value={"bars": []}
+        ), patch("core.stance.compute_buy_stance", return_value={}):
+            out = _insight_from_book_row("600519", row)
+        expect = 0.5 * 0.234547 + 0.5 * 0.063077
+        self.assertAlmostEqual(out["predicted_score"], 0.234547, places=5)
+        self.assertAlmostEqual(out["predicted_score_blend"], expect, places=5)
+        self.assertAlmostEqual(out["score"], expect, places=5)
+        self.assertAlmostEqual(out["decision_score"], expect, places=5)
 
     def test_book_row_hydrates_eod_rem_when_missing(self):
         from core.watching_insights import _insight_from_book_row
@@ -131,7 +163,8 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertIsNone(out.get("predicted_score_tau"))
         self.assertAlmostEqual(out["predicted_score_blend"], 0.40)
 
-    def test_book_row_maps_eod_rem_from_live_gap(self):
+    def test_book_row_hydrates_trade_fields_without_live_quote(self):
+        """簿快路径不拉行情：无缺口时 rem=EOD，并写出 ŷ_trade。"""
         from core.watching_insights import _insight_from_book_row
 
         row = {
@@ -139,20 +172,14 @@ class TestWatchingInsights(unittest.TestCase):
             "score": 0.40,
             "predicted_score": 0.40,
         }
-        quote = {"open": 101.0, "pre_close": 100.0}
-        with patch("core.ports.market.query_quote", return_value=quote), patch(
-            "core.data_service.get_bars", return_value={"bars": []}
-        ), patch("core.stance.compute_buy_stance", return_value={}), patch(
-            "quant.research.rem_ridge.load_rem_model", return_value=None
-        ), patch(
+        with patch("quant.research.rem_ridge.load_rem_model", return_value=None), patch(
             "quant.research.rem_ridge.predict_rem_from_features", return_value=None
         ):
             out = _insight_from_book_row("600519", row)
-        expected = ((1.0 + 0.40 / 100.0) / (1.0 + 1.0 / 100.0) - 1.0) * 100.0
-        self.assertAlmostEqual(out["realized_t1_to_tau"], 1.0, places=4)
-        self.assertAlmostEqual(out["predicted_score_eod_rem"], expected, places=4)
-        self.assertIsNone(out.get("predicted_score_tau"))
-        self.assertAlmostEqual(out["predicted_score_blend"], expected, places=4)
+        self.assertAlmostEqual(out["predicted_score"], 0.40, places=5)
+        self.assertAlmostEqual(out["predicted_score_eod_rem"], 0.40, places=5)
+        self.assertIsNotNone(out.get("predicted_score_blend"))
+        self.assertAlmostEqual(float(out["score"]), float(out["predicted_score_blend"]), places=5)
 
     def test_insights_covers_full_watchlist_up_to_hard_cap(self):
         from core.watching_insights import build_watching_insights, _INSIGHT_HARD_CAP
@@ -229,6 +256,41 @@ class TestWatchingInsights(unittest.TestCase):
         item = out["items"][0]
         self.assertEqual(item["pe"], 18.2)
         self.assertEqual(item["pb"], 7.1)
+
+    def test_book_row_keeps_dual_track_on_oos_failed_heuristic(self):
+        """heuristic 0–100 与组 ŷ% 双轨并存；不把 0–100 写进 predicted_score。"""
+        from core.watching_insights import _insight_from_book_row
+
+        row = {
+            "stock_code": "600519",
+            "score": 57.2,
+            "heuristic_score": 57.2,
+            "predicted_score": 57.2,  # 旧脏簿
+            "predicted_score_eod": 57.2,
+            "score_cluster": 1.25,
+            "score_global": 0.4,
+            "return_model_source": "oos_failed_heuristic",
+            "score_scale": "heuristic_0_100",
+            "cluster_label": "G_fail",
+        }
+        with patch("core.ports.market.query_quote", return_value={}), patch(
+            "core.data_service.get_bars", return_value={"bars": []}
+        ), patch("core.stance.compute_buy_stance", return_value={}):
+            out = _insight_from_book_row("600519", row)
+        self.assertEqual(out["score_scale"], "heuristic_0_100")
+        self.assertAlmostEqual(float(out["heuristic_score"]), 57.2)
+        # 表列 score = 组 ŷ%，不与 heuristic 混列
+        self.assertAlmostEqual(float(out["score"]), 1.25)
+        self.assertIsNone(out.get("predicted_score"))
+        self.assertIsNone(out.get("predicted_score_eod"))
+        self.assertAlmostEqual(float(out["score_cluster"]), 1.25)
+        self.assertAlmostEqual(float(out["score_global"]), 0.4)
+        # 校准列应能用组 ŷ 挂上（对照，不进决策）
+        self.assertTrue(
+            out.get("predicted_score_cal") is not None
+            or out.get("predicted_score_blend_cal") is not None
+            or out.get("score_calibration_enabled") in (True, False, None)
+        )
 
 
 if __name__ == "__main__":

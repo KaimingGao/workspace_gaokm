@@ -958,11 +958,21 @@ export function installBacktest(q) {
 
   async function runPortfolioBacktest() {
     const watchN = Object.keys(state.watchingNameByCode || {}).length;
-    const busyHint =
+    const busyBase =
       watchN >= 40
         ? `Top-K 回测中（观察池约 ${watchN} 只 · lookback 越大越慢；已跳过 WF/成本对照）…`
         : "Top-K 回测中（先读本地日线，缺的再补远端）…";
-    setQuantBtBusy(true, busyHint);
+    const started = Date.now();
+    const fmtElapsed = () => {
+      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+      return sec < 60
+        ? `${sec}s`
+        : `${Math.floor(sec / 60)}m${String(sec % 60).padStart(2, "0")}s`;
+    };
+    setQuantBtBusy(true, `${busyBase} ${fmtElapsed()}`);
+    const tick = setInterval(() => {
+      setQuantBtBusy(true, `${busyBase} ${fmtElapsed()}`);
+    }, 1000);
     try {
       const {
         lookback,
@@ -1034,7 +1044,8 @@ export function installBacktest(q) {
       }
       els.quantPortfolioSummary.classList.remove("down");
       const summary = buildPortfolioBacktestSummaryText(data);
-      els.quantPortfolioSummary.textContent = summary.text;
+      const elapsed = fmtElapsed();
+      els.quantPortfolioSummary.textContent = `${summary.text} · 耗时 ${elapsed}`;
       if (summary.warn) {
         els.quantPortfolioSummary.classList.add("down");
       } else {
@@ -1069,6 +1080,7 @@ export function installBacktest(q) {
       }
       return data;
     } finally {
+      clearInterval(tick);
       setQuantBtBusy(false);
     }
   }

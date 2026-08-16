@@ -86,6 +86,19 @@ class TestSelectionFloor(unittest.TestCase):
             gate_low = annotate_score_gate(0.2, min_score=0.35)
             self.assertTrue(gate_low["below_min_score"])
 
+    def test_heuristic_scale_skips_eod_gate(self):
+        from core.signal.score_display import annotate_score_gate
+
+        item = {
+            "score": 57.2,
+            "heuristic_score": 57.2,
+            "score_scale": "heuristic_0_100",
+            "return_model_source": "oos_failed_heuristic",
+        }
+        gate = annotate_score_gate(57.2, min_score=0.35, item=item)
+        self.assertFalse(gate["below_min_score"])
+        self.assertIsNone(gate["gate_score"])
+
 
 if __name__ == "__main__":
     unittest.main()

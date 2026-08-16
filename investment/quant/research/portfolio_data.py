@@ -67,7 +67,12 @@ def summarize_portfolio_backtest(
     if min_score is not None:
         bt_kwargs["min_score"] = float(min_score)
 
-    bt = backtest_topk_equal_weight(stock_bars, **bt_kwargs)
+    bt = backtest_topk_equal_weight(
+        stock_bars,
+        **bt_kwargs,
+        # 日报只有日线、无可靠分钟 τ；开 ŷ_τ 闸会把调仓打成 0 笔
+        apply_tau_buy_gate=False,
+    )
     if not bt.get("success"):
         return bt
 
@@ -82,12 +87,16 @@ def summarize_portfolio_backtest(
     if params.get("rank_mode") == "predicted_score":
         # 规则分 0–100 门槛不适用；保留 min_predicted_score
         params["min_score"] = None
-    note = None
+    params["apply_tau_buy_gate"] = False
+    params["rank_key"] = "predicted_score_eod"
+    note_bits = []
     if n_all > DAILY_PORTFOLIO_MAX_NAMES:
-        note = (
+        note_bits.append(
             f"日报轻量回测截断观察池 {n_all}→{DAILY_PORTFOLIO_MAX_NAMES}，"
             "基本面仅本地缓存（避免串行远端挂死）"
         )
+    note_bits.append("选股键=ŷ_EOD · 关 τ 闸（日线无可靠分钟 τ；≠ live ŷ_trade）")
+    note = " · ".join(note_bits)
     return {
         "success": True,
         "loaded_stocks": list(stock_bars.keys()),

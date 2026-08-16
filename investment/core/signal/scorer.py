@@ -144,6 +144,7 @@ def score_bars(
     sentiment: Optional[dict] = None,
     required_factor_keys: Optional[List[str]] = None,
     skip_factors: Optional[List[str]] = None,
+    mom3_hard_reject: bool = True,
 ) -> Dict[str, Any]:
     """
     对单票日线打分。产出 sub_scores（ŷ 输入）；不产出规则综合分。
@@ -160,7 +161,7 @@ def score_bars(
     loss_min = float(hr.get("mom3_loss_min_pct", -12))
     stop_pct = float((cfg.get("invalidation") or {}).get("stop_pct", 0.03))
 
-    horizon_days = max(1, min(int(horizon_days or 3), 3))
+    horizon_days = max(1, min(int(horizon_days or 3), 10))
 
     if not bars or len(bars) < min_bars:
         return {
@@ -176,12 +177,11 @@ def score_bars(
 
     # 检查是否配置了"硬拒绝改为降权"
     soft_reject = bool((cfg.get("hard_reject") or {}).get("soft_reject", False))
-    
+    mom3_notes: List[str] = []
+    apply_mom3_reject = bool(mom3_hard_reject) and not soft_reject
+
     if mom3 is not None and mom3 >= gain_max:
-        if soft_reject:
-            # 软拒绝：降权而非拒绝
-            pass
-        else:
+        if apply_mom3_reject:
             return {
                 "score": 0,
                 "hard_reject": True,
@@ -190,11 +190,10 @@ def score_bars(
                 "reasons": [],
                 "invalidation": [],
             }
+        mom3_notes.append(f"近3日涨幅 {mom3:.1f}%（收盘后不硬拒，交给 ŷ）")
 
     if mom3 is not None and mom3 <= loss_min:
-        if soft_reject:
-            pass
-        else:
+        if apply_mom3_reject:
             return {
                 "score": 0,
                 "hard_reject": True,
@@ -203,6 +202,7 @@ def score_bars(
                 "reasons": [],
                 "invalidation": [],
             }
+        mom3_notes.append(f"近3日跌幅 {mom3:.1f}%（收盘后不硬拒，交给 ŷ）")
 
     last_change = None
     if quote and quote.get("change_raw") is not None:
@@ -300,6 +300,8 @@ def score_bars(
         total -= risk_penalty
 
     # 舆情已并入 alt_sentiment 因子，不再硬编码加减分（V2.1）
+    # v2: 非线性打分 — Sigmoid 压缩极端值（线性加总 + 惩罚后应用）
+    total = _sigmoid_score(total)
     total = round(max(0.0, min(100.0, total)), 1)
 
     if last_change is not None:
@@ -313,6 +315,7 @@ def score_bars(
     reasons = []
     if mom3 is not None:
         reasons.append(f"近3日涨跌 {mom3:+.2f}%")
+    reasons.extend(mom3_notes)
     if factors.get("volume_ratio") is not None:
         reasons.append(f"量比约 {factors['volume_ratio']:.2f}")
     if factors.get("turnover_ratio") is not None:

@@ -2,11 +2,11 @@ import { apiFetch } from "../api_client.js";
 import { renderLineChart } from "../lw_charts.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import { mountVirtualTable, colStyle } from "../virtual_table.js";
-import { fmtScore, scoreCls, resolveTradeScore, resolveEodScore, resolveEodRemScore } from "../paper/fmt.js?v=p1092";
+import { fmtScore, scoreCls, resolveTradeScore, resolveEodScore, resolveEodRemScore } from "../paper/fmt.js?v=p1128";
 import { truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode } from "./names.js";
 import { renderWatchingHoldings as renderWatchingHoldingsHtml } from "./watching_holdings.js";
 import { buildWatchingDqMetaText, buildWatchingDqFoldSummary, buildWatchingDqTableHtml } from "./watching_dq_ui.js";
-import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p1092";
+import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p1108";
 import {
   buildWatchingScoreDisplay,
   buildWatchingInsightsGridPatch,
@@ -16,7 +16,7 @@ import {
   buildWatchingInsightsErrorStatus,
   buildWatchingInsightsGridErrorPatch,
   buildWatchingInsightsNativeFields,
-} from "./watching_insights_ui.js?v=p1092";
+} from "./watching_insights_ui.js?v=p1128";
 import {
   parseWatchingVolume,
   formatWatchingChg,
@@ -687,7 +687,7 @@ export function installWatching(q) {
         const scoresByCode = {};
         for (const it of items) {
           const trade = resolveTradeScore(it);
-          if (it.stock_code && trade != null) {
+          if (it.stock_code && trade != null && Math.abs(Number(trade)) <= 20) {
             scoresByCode[it.stock_code] = trade;
           }
         }
@@ -1499,13 +1499,18 @@ export function installWatching(q) {
       if (!code) continue;
       const name = (names[i] && String(names[i]).trim()) || "—";
       const scoreRaw = scores && scores[code];
-      const cached = cachedScores[code];
+      const cachedRaw = cachedScores[code];
+      const cachedN =
+        cachedRaw != null && !Number.isNaN(Number(cachedRaw))
+          ? Number(cachedRaw)
+          : null;
+      // 缓存若是 heuristic 0–100，丢弃（避免与 ŷ% 混列）
+      const cached =
+        cachedN != null && Math.abs(cachedN) <= 20 ? cachedN : null;
       const scoreNum =
-        scoreRaw != null && !Number.isNaN(Number(scoreRaw))
+        scoreRaw != null && !Number.isNaN(Number(scoreRaw)) && Math.abs(Number(scoreRaw)) <= 20
           ? Number(scoreRaw)
-          : cached != null && !Number.isNaN(Number(cached))
-            ? Number(cached)
-            : null;
+          : cached;
       const onPaper = inPaper.has(code);
       const heldShares = onPaper ? inPaper.get(code) : null;
       const bare = normalizeProbeCode(code);

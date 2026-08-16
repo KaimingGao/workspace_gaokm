@@ -1603,6 +1603,24 @@
   padding-top: 6px;
 }
 
+.quant-page .quant-cluster-exclude-oos {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 6px;
+  font-size: 0.78rem;
+  color: var(--ink-2);
+  user-select: none;
+  cursor: pointer;
+}
+
+.quant-page .quant-cluster-exclude-oos input[type="checkbox"] {
+  width: auto;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+
 .quant-page .quant-cluster-ranks {
   margin: 6px 0 4px;
 }

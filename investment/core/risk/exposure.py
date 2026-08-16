@@ -192,7 +192,7 @@ def build_exposure_matrix(
         "over_limit_sectors": over_sectors,
         "over_limit_names": over_names,
         "sector_count": len(sectors),
-        "note": "行业主题来自 sector_map（缺则板块启发式）；风格=板块桶。超限与 check_account_risk 同源。",
+        "note": "行业主题仅 sector_map（未映射=未分类）；风格=板别启发式。超限与 check_account_risk 同源。",
     }
 
 

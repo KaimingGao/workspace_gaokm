@@ -153,6 +153,8 @@ class QuantReplayMixin:
             min_predicted_score=min_predicted_score,
             return_model_min_samples=return_model_min_samples,
             return_model_ridge_lambda=return_model_ridge_lambda,
+            # 历史日线回测无可靠分钟 τ；默认 ŷ_τ 闸会把几乎所有调仓日挡成 0 笔
+            apply_tau_buy_gate=False,
         )
         result = backtest_topk_equal_weight(
             stock_bars,
@@ -176,6 +178,9 @@ class QuantReplayMixin:
             "benchmark_code": str(benchmark_code or "000300"),
             "rank_mode": str(rank_mode or "predicted_score"),
             "min_predicted_score": min_predicted_score,
+            "apply_tau_buy_gate": False,
+            "rank_key": "predicted_score_eod",
+            "score_axis_note": "选股键=ŷ_EOD · 关 τ 闸（日线无可靠分钟 τ；≠ live ŷ_trade）",
             "return_model_min_samples": int(return_model_min_samples or 24),
             "return_model_ridge_lambda": float(return_model_ridge_lambda or 0.0),
         }

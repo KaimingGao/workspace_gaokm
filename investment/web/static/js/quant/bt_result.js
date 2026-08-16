@@ -221,6 +221,15 @@ export function buildPortfolioBacktestSummaryText(data) {
   const matchNote = data.params?.execution_mode
     ? ` · 成交 ${data.params.execution_mode === "next_open" ? "次日开" : "收盘"}`
     : "";
+  const tauOff =
+    data.params?.apply_tau_buy_gate === false ||
+    data.request?.apply_tau_buy_gate === false ||
+    data.request?.rank_key === "predicted_score_eod";
+  const scoreAxisNote = tauOff
+    ? " · 选股 ŷ_EOD·关τ闸"
+    : data.params?.apply_tau_buy_gate === true
+      ? " · 选股 ŷ_trade·τ闸开"
+      : " · 选股 ŷ_EOD·关τ闸";
   const dropN = Number(
     data.params?.dropped_thin_count || (data.dropped_stocks || []).length || 0
   );
@@ -253,7 +262,7 @@ export function buildPortfolioBacktestSummaryText(data) {
   const text =
     `标的 ${(data.loaded_stocks || []).length} · 共同日 ${data.params?.common_dates} · 交易 ${m.trade_count} · 累计 ${m.total_return_pct}% · 胜率 ${m.win_rate_pct}% · 成本 ${
       costModel === "simple_cn" ? "A股简化" : costModel
-    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${wfNote}${attrNote}${pitNote}${auditNote}${matchNote}${dropNote}${dropoutNote}${icNote}${qNote}${benchNote}`;
+    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${wfNote}${attrNote}${pitNote}${auditNote}${matchNote}${scoreAxisNote}${dropNote}${dropoutNote}${icNote}${qNote}${benchNote}`;
   const qBad = qb.ok && qb.monotonic_increasing === false;
   return { text, warn: !!(oosFailed || qBad) };
 }
@@ -319,6 +328,14 @@ export function buildPortfolioBacktestCards(data, { escapeHtml: esc, fmtPct: fmt
             : params.weight_mode === "equal" || !params.weight_mode
               ? "等权"
               : String(params.weight_mode)
+      ),
+    },
+    {
+      label: "选股口径",
+      value: esc(
+        params.apply_tau_buy_gate === true || data.request?.apply_tau_buy_gate === true
+          ? "ŷ_trade · τ闸开"
+          : "ŷ_EOD · 关τ闸"
       ),
     },
     { label: "OOS", value: esc(String(oosLabel)), cls: oosFailed ? "down" : "" },

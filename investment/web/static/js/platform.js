@@ -122,6 +122,7 @@ export function initPlatform(ctx) {
           strategy_id: last.strategy_id,
           cost_model: last.cost_model,
           data_quality: last.data_quality,
+          data_service_metrics: last.data_service_metrics,
           risk_blocks: last.risk_blocks,
           monitor_alerts: last.monitor_alerts,
           buys_blocked: last.buys_blocked,
@@ -630,6 +631,17 @@ export function initPlatform(ctx) {
     const fund = data.fundamentals_history || {};
     const audit = data.source_audit || {};
     const cal = data.calendar || {};
+    const dsMetrics = data.data_service_metrics || {};
+    const dsMetricKeys = Object.keys(dsMetrics);
+    const dsMetricsLine =
+      dsMetricKeys.length > 0
+        ? `<li>DataService 计数：${escapeAttr(
+            dsMetricKeys
+              .filter((k) => Number(dsMetrics[k]) > 0)
+              .map((k) => `${k}=${dsMetrics[k]}`)
+              .join(" · ") || "全 0"
+          )}</li>`
+        : "";
     const warns = (data.warnings || []).map((w) => `<li class="is-warn">${escapeAttr(w)}</li>`).join("");
     body.innerHTML =
       `<p class="platform-hint"><strong>状态</strong> ${escapeAttr(data.status || "—")} · ${escapeAttr(
@@ -660,6 +672,7 @@ export function initPlatform(ctx) {
         (audit.fallback_codes || []).length
       } · thin ${(audit.thin_codes || []).length}</li>` +
       `<li>日历：节假日 ${cal.holiday_count ?? 0} · ${escapeAttr(cal.note || "")}</li>` +
+      dsMetricsLine +
       (data.pit_depth
         ? `<li class="${data.pit_depth.soft_ok ? "" : "is-warn"}">PIT 深度：${escapeAttr(
             data.pit_depth.honest_label || "—"

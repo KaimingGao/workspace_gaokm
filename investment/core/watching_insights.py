@@ -42,6 +42,18 @@ def _days_since(iso: Optional[str]) -> Optional[int]:
         return None
 
 
+def _finalize_insight_trade_fields(out: Dict[str, Any]) -> None:
+    """对齐表列主分：委托 ``align_trade_score_fields``。"""
+    if not isinstance(out, dict):
+        return
+    try:
+        from core.signal.dual_score import align_trade_score_fields
+
+        align_trade_score_fields(out)
+    except Exception:
+        pass
+
+
 def _blank(code: str, *, added_at: Optional[str] = None, error: Optional[str] = None) -> Dict[str, Any]:
     return {
         "stock_code": code,
@@ -66,6 +78,8 @@ def _blank(code: str, *, added_at: Optional[str] = None, error: Optional[str] = 
         "score_global": None,
         "score_cluster": None,
         "delta_vs_global": None,
+        "heuristic_score": None,
+        "score_scale": None,
         "min_score": None,
         "below_min_score": False,
         "score_formula": None,
@@ -146,6 +160,102 @@ def _spot_valuation_map(codes: List[str]) -> Dict[str, Dict[str, Optional[float]
     return out
 
 
+def _is_heuristic_score_scale(item: Optional[dict]) -> bool:
+    if not isinstance(item, dict):
+        return False
+    if str(item.get("score_scale") or "") == "heuristic_0_100":
+        return True
+    return str(item.get("return_model_source") or "") == "oos_failed_heuristic"
+
+
+def _sanitize_heuristic_yhat_fields(out: Dict[str, Any], item: Optional[dict] = None) -> bool:
+    """OOS→heuristic：清掉误写入的 ŷ%；``score`` 只保留 ŷ%（组/全局），0–100 只进 heuristic_score。
+
+    返回 True 表示已按启发式尺度处理（调用方应跳过 τ 融合水合）。
+    """
+    src = item if isinstance(item, dict) else {}
+    if not (_is_heuristic_score_scale(out) or _is_heuristic_score_scale(src)):
+        return False
+    out["return_model_source"] = (
+        out.get("return_model_source")
+        or src.get("return_model_source")
+        or "oos_failed_heuristic"
+    )
+    out["score_scale"] = "heuristic_0_100"
+    hs = _f(out.get("heuristic_score"))
+    if hs is None:
+        hs = _f(src.get("heuristic_score"))
+    # 旧脏簿把 0–100 写进 score/predicted：回收为 heuristic
+    if hs is None:
+        cand = _f(out.get("score"))
+        if cand is not None and abs(cand) > 20:
+            hs = cand
+    if hs is None:
+        cand = _f(src.get("score"))
+        if cand is not None and abs(cand) > 20:
+            hs = cand
+    if hs is not None:
+        out["heuristic_score"] = hs
+    # 组/全局 ŷ 对照 → 表列 score（与 predicted 同量纲，绝不混 0–100）
+    if out.get("score_cluster") is None:
+        out["score_cluster"] = _f(src.get("score_cluster"))
+    if out.get("score_global") is None:
+        out["score_global"] = _f(src.get("score_global"))
+    yhat = out.get("score_cluster")
+    if yhat is None:
+        yhat = out.get("score_global")
+    out["score"] = yhat  # 可为 None → 表列「—」
+    out["predicted_score"] = None
+    out["predicted_score_eod"] = None
+    out["predicted_score_eod_rem"] = None
+    out["predicted_score_blend"] = None
+    out["decision_score"] = None
+    return True
+
+
+def _attach_cal_from_yhat_proxy(out: Dict[str, Any], yhat: Optional[float]) -> None:
+    """OOS heuristic 行：用组/全局 ŷ 挂 g(ŷ) 对照，避免校准列空白。"""
+    if yhat is None:
+        return
+    try:
+        y = float(yhat)
+    except (TypeError, ValueError):
+        return
+    if abs(y) > 20:
+        return
+    try:
+        from core.signal.score_calibration import (
+            attach_calibrated_scores,
+            load_calibration_model,
+        )
+
+        proxy = {
+            "predicted_score": y,
+            "predicted_score_eod": y,
+            "predicted_score_blend": y,
+        }
+        live = load_calibration_model()
+        if isinstance(live, dict) and isinstance(live.get("heads"), dict):
+            attach_calibrated_scores(proxy, model_doc=live, force=True)
+        for k in (
+            "predicted_score_cal",
+            "predicted_score_eod_rem_cal",
+            "predicted_score_tau_cal",
+            "predicted_score_blend_cal",
+            "score_calibration_applied",
+            "score_calibration_enabled",
+            "score_calibration_eod_oor",
+            "score_calibration_eod_rem_oor",
+            "score_calibration_tau_oor",
+            "score_calibration_note",
+            "score_calibration_partial",
+        ):
+            if proxy.get(k) is not None and out.get(k) is None:
+                out[k] = proxy.get(k)
+    except Exception:
+        pass
+
+
 def _apply_excess_label(out: Dict[str, Any], excess: Optional[float], item: dict) -> None:
     if excess is not None:
         out["excess_return_pct"] = round(float(excess), 2)
@@ -175,6 +285,8 @@ def _hydrate_insight_tau_fields(
     无已实现时 ŷ_EOD_rem = ŷ_EOD（视作尚未开盘）。
     ŷ_τ 仍来自 rem 头，缺则保持空，ŷ_trade 退回 ŷ_EOD_rem。
     """
+    if _sanitize_heuristic_yhat_fields(out, item):
+        return
     y_eod = out.get("predicted_score")
     if y_eod is None:
         y_eod = out.get("score")
@@ -197,14 +309,20 @@ def _hydrate_insight_tau_fields(
         gap = _f(out.get("gap_pct"))
         if gap is None:
             gap = _f((item or {}).get("gap_pct"))
+    if gap is not None:
+        out["gap_pct"] = gap
     already_rem = out.get("predicted_score_eod_rem") is not None
     if already_rem and gap is None:
+        # 无新缺口不重映 rem，但仍对齐 ŷ_trade（修旧簿 eod_next 塌成 EOD）
+        _finalize_insight_trade_fields(out)
         return
     sig = dict(item) if isinstance(item, dict) else {}
-    if sig.get("predicted_score") is None:
-        sig["predicted_score"] = y_eod
-    if sig.get("score") is None:
-        sig["score"] = out.get("score") or y_eod
+    # predicted_score 必须是 ŷ_EOD；勿把簿上 trade score 喂进 rem 映射
+    sig["predicted_score"] = y_eod
+    if sig.get("predicted_score_eod") is None:
+        sig["predicted_score_eod"] = y_eod
+    if gap is not None:
+        sig["gap_pct"] = gap
     # tip 常无池上下文：保留簿上已齐的 features_tau / 池缺口，避免冲成缺特征
     book_ft = out.get("features_tau")
     if not isinstance(book_ft, dict):
@@ -222,8 +340,19 @@ def _hydrate_insight_tau_fields(
     try:
         from core.signal.dual_score import attach_dual_score_pit, dual_score_book_fields
 
-        attach_dual_score_pit(sig, quote=q, bars=b)
+        fuse = str(sig.get("dual_score_window") or out.get("dual_score_window") or "") != "eod_next"
+        if fuse:
+            try:
+                from core.signal.session_pit import prepare_eod_bars
+
+                _eod, pit = prepare_eod_bars(b, q)
+                if pit.get("rolled_to_next"):
+                    fuse = False
+            except Exception:
+                pass
+        attach_dual_score_pit(sig, quote=q, bars=b, fuse_intraday=fuse)
         out.update(dual_score_book_fields(sig))
+        _finalize_insight_trade_fields(out)
         return
     except Exception:
         pass
@@ -238,6 +367,7 @@ def _hydrate_insight_tau_fields(
             realized = realized_t1_to_tau_pct(gap)
         rem = eod_remaining_at_tau(y_eod, realized)
         if rem is None:
+            _finalize_insight_trade_fields(out)
             return
         out["predicted_score_eod"] = y_eod
         out["predicted_score_eod_rem"] = rem
@@ -271,8 +401,9 @@ def _hydrate_insight_tau_fields(
                 out["score_formula_terms_tau"] = expl
         except Exception:
             pass
+        _finalize_insight_trade_fields(out)
     except Exception:
-        pass
+        _finalize_insight_trade_fields(out)
 
 
 def _enrich_book_insight_display_fields(
@@ -283,9 +414,9 @@ def _enrich_book_insight_display_fields(
     """簿快路径补倾向 / 超额% / 量比（行情 + 本地 bars，不重打分）。"""
     quote: Dict[str, Any] = {}
     try:
-        from core.ports.market import query_quote
+        from core.data_service import get_quote
 
-        quote = query_quote(code) or {}
+        quote = get_quote(code) or {}
     except Exception:
         quote = {}
 
@@ -331,9 +462,9 @@ def _enrich_book_insight_display_fields(
 
     if out.get("excess_return_pct") is None and bars:
         try:
+            from core.ports.market import resolve_market_code
             from core.signal.factors.relative_strength import excess_return_pct
             from core.signal.live_features import fetch_live_index_bars
-            from skills.common.history import resolve_market_code
 
             mkt, _pure = resolve_market_code(str(code))
             idx_pack = fetch_live_index_bars(market=mkt or "CN", limit=60) or {}
@@ -363,11 +494,16 @@ def _insight_from_book_row(
     item = row if isinstance(row, dict) else {}
     out["score"] = _f(item.get("score"))
     if out["score"] is None:
+        out["score"] = _f(item.get("predicted_score_blend"))
+    if out["score"] is None:
         out["score"] = _f(item.get("predicted_score"))
     if out["score"] is None:
         out["score"] = _f(item.get("score_cluster"))
+    # ŷ_EOD 主轴：勿用 trade score 冒充
     out["predicted_score"] = _f(item.get("predicted_score"))
     if out["predicted_score"] is None:
+        out["predicted_score"] = _f(item.get("predicted_score_eod"))
+    if out["predicted_score"] is None and _f(item.get("predicted_score_blend")) is None:
         out["predicted_score"] = out["score"]
     out["hard_reject"] = bool(item.get("hard_reject"))
     out["reject_reason"] = (item.get("reject_reason") or None) if out["hard_reject"] else None
@@ -379,6 +515,8 @@ def _insight_from_book_row(
     out["score_cluster"] = _f(item.get("score_cluster"))
     out["delta_vs_global"] = _f(item.get("delta_vs_global"))
     out["return_model_source"] = item.get("return_model_source")
+    out["score_scale"] = item.get("score_scale")
+    out["heuristic_score"] = _f(item.get("heuristic_score"))
     out["factor_coefficients"] = item.get("factor_coefficients")
     out["sub_scores"] = item.get("sub_scores") or {}
     out["score_formula_terms"] = item.get("score_formula_terms")
@@ -387,14 +525,39 @@ def _insight_from_book_row(
     if not item.get("stock_code"):
         item = dict(item)
         item["stock_code"] = code
+    # 旧簿曾把 0–100 heuristic 写进 predicted_score：先清再拷 dual 字段
+    _sanitize_heuristic_yhat_fields(out, item)
     reasons = item.get("reasons") or item.get("score_reasons") or []
     out["score_reasons"] = list(reasons) if isinstance(reasons, list) else []
-    try:
-        from core.signal.dual_score import dual_score_book_fields
+    if not _is_heuristic_score_scale(out):
+        try:
+            from core.signal.dual_score import dual_score_book_fields
 
-        out.update(dual_score_book_fields(item))
-    except Exception:
-        pass
+            out.update(dual_score_book_fields(item))
+        except Exception:
+            pass
+        # dual 拷贝可能再次带入脏 ŷ
+        _sanitize_heuristic_yhat_fields(out, item)
+    else:
+        # 仍保留 τ 与组 ŷ 对照；不做 EOD 融合；用组/全局 ŷ 补校准列
+        for k in (
+            "predicted_score_tau",
+            "score_rem",
+            "gap_pct",
+            "features_tau",
+            "formula_terms_tau",
+            "dual_score_weights",
+            "dual_score_window",
+            "score_cluster",
+            "score_global",
+            "delta_vs_global",
+            "heuristic_score",
+        ):
+            if item.get(k) is not None and out.get(k) is None:
+                out[k] = item.get(k)
+        _attach_cal_from_yhat_proxy(
+            out, out.get("score_cluster") or out.get("score_global")
+        )
     try:
         from core.signal.score_display import annotate_score_gate
 
@@ -419,10 +582,17 @@ def _insight_from_book_row(
     if excess is not None:
         _apply_excess_label(out, excess, item)
 
-    # 簿行通常无 factors / stance：用行情 + 本地 K 线补三列
-    _enrich_book_insight_display_fields(out, code, item)
+    # 簿快路径：不拉行情（避免整批超时）；用簿内 gap / 缺省 rem=EOD 水合 ŷ_trade + cal
+    if not _is_heuristic_score_scale(out):
+        _hydrate_insight_tau_fields(out, item, {}, None)
+    else:
+        _finalize_insight_trade_fields(out)
 
-    out["ok"] = out["score"] is not None
+    out["ok"] = (
+        out["score"] is not None
+        or out.get("predicted_score") is not None
+        or out.get("score_cluster") is not None
+    )
     out["stance_short"] = out.get("stance_short") or "—"
     return out
 
@@ -439,15 +609,17 @@ def _insight_one(
     try:
         from core.signal.score_stock import score_stock
         from core.stance import compute_buy_stance
-        from core.ports.market import query_quote
+        from core.data_service import get_quote
 
         # cluster_mode=None → 读 signal_config.cluster_scoring（active 时用组 β，同持仓表）
         scored = score_stock(code, horizon_days=3, skip_fundamentals=True)
         quote = (scored or {}).get("quote") or {}
         if not quote:
-            quote = query_quote(code)
+            quote = get_quote(code)
         item = (scored or {}).get("signal_item") or {}
         out["score"] = _f(item.get("score"))
+        if out["score"] is None:
+            out["score"] = _f(item.get("predicted_score_blend"))
         if out["score"] is None:
             # 兼容：主分为空时回退组 ŷ / predicted（避免观察表全「—」）
             out["score"] = _f(item.get("predicted_score"))
@@ -455,6 +627,8 @@ def _insight_one(
             out["score"] = _f(item.get("score_cluster"))
         out["predicted_score"] = _f(item.get("predicted_score"))
         if out["predicted_score"] is None:
+            out["predicted_score"] = _f(item.get("predicted_score_eod"))
+        if out["predicted_score"] is None and _f(item.get("predicted_score_blend")) is None:
             out["predicted_score"] = out["score"]
         out["hard_reject"] = bool(item.get("hard_reject"))
         out["reject_reason"] = (item.get("reject_reason") or None) if out["hard_reject"] else None
@@ -466,17 +640,24 @@ def _insight_one(
         out["score_cluster"] = _f(item.get("score_cluster"))
         out["delta_vs_global"] = _f(item.get("delta_vs_global"))
         out["return_model_source"] = item.get("return_model_source")
+        out["score_scale"] = item.get("score_scale")
+        out["heuristic_score"] = _f(item.get("heuristic_score"))
         out["factor_coefficients"] = item.get("factor_coefficients")
         out["sub_scores"] = item.get("sub_scores") or {}
         out["score_formula_terms"] = item.get("score_formula_terms")
+        _sanitize_heuristic_yhat_fields(out, item)
         try:
             from core.signal.dual_score import dual_score_book_fields
 
-            out.update(dual_score_book_fields(item))
+            if not _is_heuristic_score_scale(out):
+                out.update(dual_score_book_fields(item))
+                _sanitize_heuristic_yhat_fields(out, item)
         except Exception:
             pass
-        if out.get("predicted_score_eod_rem") is None:
+        if out.get("predicted_score_eod_rem") is None and not _is_heuristic_score_scale(out):
             _hydrate_insight_tau_fields(out, item, quote, None)
+        else:
+            _finalize_insight_trade_fields(out)
         # 选股门槛仅标注，不抹掉分数
         try:
             from core.signal.score_display import annotate_score_gate
@@ -487,6 +668,7 @@ def _insight_one(
         except Exception:
             out["min_score"] = None
             out["below_min_score"] = False
+        _finalize_insight_trade_fields(out)
         reasons = item.get("reasons") or []
         out["score_reasons"] = list(reasons) if isinstance(reasons, list) else []
         # 缺全局模型时提示（不阻断）
@@ -612,23 +794,29 @@ def build_watching_insights(
         else:
             missing.append(c)
 
-    n_jobs = len(book_hits) + len(missing)
-    workers = min(_INSIGHT_MAX_WORKERS, max(1, n_jobs))
+    n_jobs = len(missing)
+    workers = min(_INSIGHT_MAX_WORKERS, max(1, n_jobs)) if n_jobs else 0
+    # 簿快路径同步完成：保证 ŷ / *_cal 不被 live 打分拖死整批超时
+    for c, row, key in book_hits:
+        try:
+            items_by_code[c] = _insight_from_book_row(
+                c,
+                row,
+                added_at=added.get(c) or added.get(str(c)),
+                valuation=valuation_by.get(key),
+                paper_ctx=paper_ctx,
+            )
+        except Exception as e:
+            items_by_code[c] = _blank(
+                c,
+                added_at=added.get(c),
+                error=f"簿快路径失败: {e}",
+            )
+
     pool = ThreadPoolExecutor(max_workers=workers) if n_jobs else None
     try:
         futures = {}
         if pool is not None:
-            for c, row, key in book_hits:
-                futures[
-                    pool.submit(
-                        _insight_from_book_row,
-                        c,
-                        row,
-                        added_at=added.get(c) or added.get(str(c)),
-                        valuation=valuation_by.get(key),
-                        paper_ctx=paper_ctx,
-                    )
-                ] = c
             for c in missing:
                 key = str(c).zfill(6) if str(c).isdigit() else str(c)
                 futures[

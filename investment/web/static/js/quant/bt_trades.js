@@ -7,6 +7,9 @@ const _V =
 const { watchingScoreDetail } = await import(
   `./watching_render.js?v=${encodeURIComponent(_V)}`
 );
+const { resolveTradeScore } = await import(
+  `../paper/fmt.js?v=${encodeURIComponent(_V)}`
+);
 
 export const BT_SIM_TRADE_COLS_BASE = [
   { id: "signal", label: "信号日", widthPct: 9 },
@@ -15,11 +18,11 @@ export const BT_SIM_TRADE_COLS_BASE = [
   { id: "name", label: "股票", flex: true },
   {
     id: "score",
-    label: "融合分",
+    label: "ŷ_EOD",
     widthPct: 6.5,
     num: true,
     sortable: true,
-    title: "表列 = ŷ_trade（raw）· 悬停看 ŷ_EOD / ŷ_τ",
+    title: "历史 Top-K 表列 = ŷ_EOD（选股键）· 关 τ 闸 · 悬停可看字段；日线通常无可靠 ŷ_τ",
   },
   {
     id: "score_cal",
@@ -27,7 +30,7 @@ export const BT_SIM_TRADE_COLS_BASE = [
     widthPct: 6.5,
     num: true,
     sortable: true,
-    title: "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip",
+    title: "g(ŷ) 对照 · 不进决策 · 悬停看 tip",
   },
   {
     id: "intent",
@@ -272,12 +275,8 @@ export function buildSimTradeRow(r, i, deps) {
     r.predicted_score != null && Number.isFinite(Number(r.predicted_score))
       ? Number(r.predicted_score)
       : null;
-  const blendRaw =
-    r.predicted_score_blend != null && Number.isFinite(Number(r.predicted_score_blend))
-      ? Number(r.predicted_score_blend)
-      : r.score != null && Number.isFinite(Number(r.score))
-        ? Number(r.score)
-        : null;
+  // 与持仓/观察池同源：修历史成交里塌成 EOD 的旧 blend
+  const blendRaw = resolveTradeScore(r);
   const blendCal =
     r.predicted_score_blend_cal != null &&
     Number.isFinite(Number(r.predicted_score_blend_cal))
@@ -289,9 +288,23 @@ export function buildSimTradeRow(r, i, deps) {
             Number.isFinite(Number(r.predicted_score_eod_rem_cal))
           ? Number(r.predicted_score_eod_rem_cal)
           : null;
-  // 表列 = 排序键 = raw ŷ_trade；校准 g 仅校准列 tip
-  const blendScore = blendRaw;
-  // 回测 tip：信号日打分时常无缺口；成交后用意图价(昨收)→开盘成交价还原
+  // 表列：历史日线路径无可靠 τ → 展示/选股键均为 ŷ_EOD；有 τ 时才用 ŷ_trade
+  const hasTau =
+    (r.predicted_score_tau != null && Number.isFinite(Number(r.predicted_score_tau))) ||
+    (r.score_rem != null && Number.isFinite(Number(r.score_rem)));
+  const blendScore = hasTau
+    ? blendRaw != null
+      ? blendRaw
+      : eodScore
+    : eodScore != null
+      ? eodScore
+      : blendRaw;
+  const scoreColTitle = hasTau
+    ? "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ"
+    : "ŷ_EOD（历史 Top-K 选股键）· 日线无可靠 ŷ_τ · 关 τ 闸";
+  const scoreCalTitleDefault = hasTau
+    ? "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip"
+    : "g(ŷ_EOD) 对照 · 不进决策 · 悬停看 tip";
   let gapPct =
     r.gap_pct != null && Number.isFinite(Number(r.gap_pct)) ? Number(r.gap_pct) : null;
   let realized =
@@ -334,6 +347,11 @@ export function buildSimTradeRow(r, i, deps) {
     predicted_score_blend: blendRaw != null ? blendRaw : blendScore,
     predicted_score_eod_rem: eodRem,
     predicted_score_tau_delta: r.predicted_score_tau_delta,
+    predicted_score_nowcast: r.predicted_score_nowcast,
+    dual_score_window: r.dual_score_window || null,
+    nowcast_as_of: r.nowcast_as_of || null,
+    nowcast_K: r.nowcast_K,
+    nowcast_q: r.nowcast_q,
     predicted_score_cal: r.predicted_score_cal,
     predicted_score_eod_rem_cal: r.predicted_score_eod_rem_cal,
     predicted_score_tau_cal: r.predicted_score_tau_cal,
@@ -383,8 +401,8 @@ export function buildSimTradeRow(r, i, deps) {
     blendCal == null
       ? "暂无 g(ŷ) 映射（拟合并写入 live 后可见）"
       : scoreCalOor
-        ? "g(ŷ_trade) 对照 · 部分落在拟合域外（端点钳制）· 悬停看校准 tip"
-        : "g(ŷ_trade) 对照 · 不进决策 · 悬停看校准 tip";
+        ? `${scoreCalTitleDefault} · 部分落在拟合域外（端点钳制）`
+        : scoreCalTitleDefault;
   return {
     code: `sim-${i}-${code}-${r.entry_date || ""}-${r.exit_date || ""}-${st}`,
     stock_code: code,
@@ -405,7 +423,7 @@ export function buildSimTradeRow(r, i, deps) {
     scoreText: fmtScore(blendScore),
     scoreCls: scoreCls(blendScore),
     scoreDetail,
-    scoreTitle: "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ",
+    scoreTitle: scoreColTitle,
     scoreCalNum: blendCal,
     scoreCalText: fmtScore(blendCal),
     scoreCalCls: `${scoreCls(blendCal)}${scoreCalOor ? " is-cal-oor" : ""}`.trim(),
@@ -427,7 +445,7 @@ export function simTradesCaptionHtml({ rowsLen, filled, skipped, showIntent }) {
     `模拟成交账（含涨跌停跳过）· ${rowsLen} 笔` +
     `（成交 ${filled}` +
     (skipped ? ` · 跳过 ${skipped}` : "") +
-    `）· 按买入日新→旧 · 信号日→次日买入 · 表列融合分（悬停看 ŷ_EOD / ŷ_τ）` +
+    `）· 按买入日新→旧 · 信号日→次日买入 · 表列 ŷ_EOD（历史选股键；关 τ 闸，日线无可靠 ŷ_τ）` +
     (showIntent ? "" : " · 意图价=买入价已省略") +
     `<button type="button" id="quant-bt-trades-csv" class="dialog-btn secondary quant-bt-trades-csv">下载 CSV</button>` +
     `</p>` +

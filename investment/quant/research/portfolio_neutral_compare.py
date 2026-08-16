@@ -50,6 +50,8 @@ def compare_portfolio_neutralization(
         max_position_pct=max_position_pct,
         max_sector_pct=max_sector_pct,
         dropout_n=dropout_n,
+        # 历史日线无可靠分钟 τ；开闸会把对照臂打成 0 笔
+        apply_tau_buy_gate=False,
     )
     neutral = backtest_topk_equal_weight(stock_bars, neutralize=True, **common_kwargs)
     absolute = backtest_topk_equal_weight(stock_bars, neutralize=False, **common_kwargs)

@@ -43,6 +43,8 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertIn("formula_terms_tau", item)
         self.assertIn("score_formula_terms_tau", item)
         self.assertIsNotNone(item.get("predicted_score_eod_rem"))
+        self.assertIsNotNone(item.get("predicted_score_nowcast"))
+        self.assertEqual(item.get("nowcast_as_of"), "open")
 
     def test_ensure_formula_terms_tau_from_eod_terms(self):
         """旧簿无 τ 组成时，从 EOD z + 组模型反推后与 rem 对齐。"""
@@ -208,7 +210,7 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("ŷ_τ", str(reason))
 
-    def test_buy_gate_allows_missing_by_default(self):
+    def test_buy_gate_allows_missing_when_disabled(self):
         from core.signal.dual_score import buy_passes_tau_gate
 
         ok, _ = buy_passes_tau_gate(
@@ -221,6 +223,18 @@ class TestDualScoreFields(unittest.TestCase):
             },
         )
         self.assertTrue(ok)
+
+    def test_buy_gate_default_blocks_missing_tau(self):
+        from core.signal.dual_score import DEFAULT_DUAL_SCORE, buy_passes_tau_gate, get_dual_score_cfg
+
+        self.assertTrue(DEFAULT_DUAL_SCORE.get("block_buy_if_tau_missing"))
+        self.assertTrue(get_dual_score_cfg({}).get("block_buy_if_tau_missing"))
+        ok, reason = buy_passes_tau_gate(
+            {"predicted_score": 1.0},
+            config={"dual_score": {}},
+        )
+        self.assertFalse(ok)
+        self.assertIn("缺失", str(reason))
 
     def test_buy_gate_can_block_missing(self):
         from core.signal.dual_score import buy_passes_tau_gate

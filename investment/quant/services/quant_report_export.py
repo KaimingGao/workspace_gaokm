@@ -16,13 +16,110 @@ SCORING_DEFAULT_NOTE = (
 
 
 def _fmt_yhat(v: Any, *, digits: int = 3) -> str:
-    """收益分 ŷ 展示：百分点量纲，带 %。"""
+    """收益分 ŷ 展示：百分点量纲，带 %。拒收 0–100 heuristic 脏分。"""
     if v is None or v == "":
         return "—"
     try:
-        return f"{float(v):.{digits}f}%"
+        f = float(v)
     except (TypeError, ValueError):
         return str(v)
+    try:
+        from core.signal.score_display import looks_like_legacy_heuristic_score
+
+        if looks_like_legacy_heuristic_score(f):
+            return "—"
+    except Exception:
+        if abs(f) >= 10.0:
+            return "—"
+    return f"{f:.{digits}f}%"
+
+
+def _fmt_heuristic(v: Any, *, digits: int = 1) -> str:
+    """规则分 0–100 展示：前缀 H，避免被读成 ŷ%。"""
+    if v is None or v == "":
+        return "—"
+    try:
+        return f"H{float(v):.{digits}f}"
+    except (TypeError, ValueError):
+        return str(v)
+
+
+def _heuristic_from_row(row: Optional[dict]) -> Optional[float]:
+    if not isinstance(row, dict):
+        return None
+    try:
+        from core.signal.score_display import looks_like_legacy_heuristic_score
+    except Exception:
+
+        def looks_like_legacy_heuristic_score(value):  # type: ignore
+            try:
+                return float(value) >= 10.0
+            except (TypeError, ValueError):
+                return False
+
+    for key in ("heuristic_score", "heuristic"):
+        v = row.get(key)
+        if v is None or v == "":
+            continue
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            continue
+    # 旧样本只把 0–100 写在 score 上
+    sc = row.get("score")
+    try:
+        f = float(sc) if sc is not None and sc != "" else None
+    except (TypeError, ValueError):
+        f = None
+    if f is not None and looks_like_legacy_heuristic_score(f):
+        return f
+    return None
+
+
+def _yhat_from_row(row: Optional[dict]) -> Optional[float]:
+    """从簿/成交行取 ŷ%（优先 predicted / blend / cluster，拒收 heuristic）。"""
+    if not isinstance(row, dict):
+        return None
+    try:
+        from core.signal.score_display import looks_like_legacy_heuristic_score
+    except Exception:
+
+        def looks_like_legacy_heuristic_score(value):  # type: ignore
+            try:
+                return float(value) >= 10.0
+            except (TypeError, ValueError):
+                return False
+
+    for key in (
+        "predicted_score_blend",
+        "predicted_score",
+        "predicted_score_eod",
+        "score_cluster",
+        "score",
+        "yhat",
+    ):
+        v = row.get(key)
+        if v is None or v == "":
+            continue
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            continue
+        if looks_like_legacy_heuristic_score(f):
+            continue
+        return f
+    return None
+
+
+def _fmt_fill_score(row: Optional[dict]) -> str:
+    """成交样本分数：有 ŷ 用 ŷ%；否则标 H（规则分），不留空列。"""
+    y = _yhat_from_row(row)
+    if y is not None:
+        return _fmt_yhat(y)
+    heu = _heuristic_from_row(row)
+    if heu is not None:
+        return _fmt_heuristic(heu)
+    return "—"
 
 
 def _scoring_meta(report: Dict[str, Any]) -> Dict[str, Any]:
@@ -52,13 +149,9 @@ def _cross_section_ranked_list(cross_section: Dict[str, Any]) -> List[dict]:
 def _score_summary_bullet(ranked: List[dict]) -> str:
     scores = []
     for item in ranked:
-        raw = item.get("score")
-        if raw is None:
-            continue
-        try:
-            scores.append(float(raw))
-        except (TypeError, ValueError):
-            continue
+        y = _yhat_from_row(item if isinstance(item, dict) else None)
+        if y is not None:
+            scores.append(y)
     if not scores:
         return f"横截面 ŷ：Top {len(ranked)} 只"
     med = median(scores)
@@ -78,14 +171,9 @@ def summarize_cross_section_scores(cross_section: Dict[str, Any]) -> Optional[Di
     scores: List[float] = []
     top: List[Dict[str, Any]] = []
     for item in ranked[:5]:
-        raw_score = item.get("score")
-        score_f: Optional[float] = None
-        if raw_score is not None:
-            try:
-                score_f = float(raw_score)
-                scores.append(score_f)
-            except (TypeError, ValueError):
-                pass
+        score_f = _yhat_from_row(item if isinstance(item, dict) else None)
+        if score_f is not None:
+            scores.append(score_f)
         top.append(
             {
                 "stock_code": item.get("stock_code"),
@@ -412,7 +500,7 @@ def build_report_export_toc(report: Dict[str, Any]) -> Dict[str, Any]:
     if cs_section:
         entries.append((cs_section["title"], cs_section["anchor"]))
     if (report.get("portfolio_backtest_summary") or {}).get("success"):
-        entries.append(("Top-K 回测摘要（ŷ）", "topk-回测摘要"))
+        entries.append(("Top-K 回测摘要（ŷ_EOD）", "topk-回测摘要"))
     nc_section = build_neutral_compare_export_section(
         report.get("portfolio_neutral_compare_summary") or {}
     )
@@ -483,8 +571,14 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
     ps = report.get("portfolio_backtest_summary") or {}
     if ps.get("success"):
         bullets.append(
-            f"Top-K 回测（ŷ）：累计 {ps.get('total_return_pct')}% · "
+            f"Top-K 回测（ŷ_EOD）：累计 {ps.get('total_return_pct')}% · "
             f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
+            f" · {_topk_score_axis_note(ps)}"
+            + (
+                " · 无成交"
+                if (ps.get("trade_count") in (0, None) and ps.get("total_return_pct") is None)
+                else ""
+            )
         )
 
     nc = report.get("portfolio_neutral_compare_summary") or {}
@@ -569,7 +663,7 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
     ps = report.get("portfolio_backtest_summary") or {}
     if ps.get("success"):
         detail_lines = build_portfolio_backtest_markdown_lines(ps)
-        parts.extend(_lines("Top-K 回测摘要（ŷ）", detail_lines))
+        parts.extend(_lines("Top-K 回测摘要（ŷ_EOD）", detail_lines))
 
     nc = report.get("portfolio_neutral_compare_summary") or {}
     nc_section = build_neutral_compare_export_section(nc)
@@ -722,7 +816,7 @@ def render_quant_report_html(report: Dict[str, Any]) -> str:
             for line in build_portfolio_backtest_markdown_lines(ps)
             if line.startswith("- ")
         )
-        section("Top-K 回测摘要（ŷ）", f"<ul>{lis}</ul>")
+        section("Top-K 回测摘要（ŷ_EOD）", f"<ul>{lis}</ul>")
 
     nc = report.get("portfolio_neutral_compare_summary") or {}
     nc_section = build_neutral_compare_export_section(nc)
@@ -842,6 +936,17 @@ def export_quant_report_markdown(report: Optional[Dict[str, Any]] = None) -> Dic
     return export_quant_report(report, fmt="markdown")
 
 
+def _topk_score_axis_note(ps: Optional[dict] = None) -> str:
+    """历史 Top-K 分数口径一句（日报 / 导出共用）。"""
+    params = (ps or {}).get("params") if isinstance(ps, dict) else None
+    if not isinstance(params, dict):
+        params = {}
+    tau_on = params.get("apply_tau_buy_gate")
+    if tau_on is True:
+        return "选股键=ŷ_trade · τ 闸开（非默认历史路径）"
+    return "选股键=ŷ_EOD · 关 τ 闸（日线无可靠分钟 τ；≠ live ŷ_trade）"
+
+
 def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
     """R4.4 · 与回溯页块序对齐的 MD 行（KPI · 成本 · 归因 · PIT · OOS · regime · 信号成交）。"""
     lines: List[str] = [
@@ -849,6 +954,7 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
         f"- 胜率：{ps.get('win_rate_pct')}%",
         f"- 最大回撤：{ps.get('max_drawdown_pct')}%",
         f"- 交易次数：{ps.get('trade_count')}",
+        f"- 分数口径：{_topk_score_axis_note(ps)}",
         f"- 标的：{', '.join(ps.get('loaded_stocks') or [])}",
     ]
     m = ps.get("metrics") or {}
@@ -1030,17 +1136,21 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
         lines.append("")
         lines.append("信号–成交样本（最近）：")
         lines.append("")
-        lines.append("| 信号日 | 代码 | score | 意图价 | 成交价 | 出场价 | 状态 |")
+        lines.append("| 信号日 | 代码 | ŷ_EOD | 意图价 | 成交价 | 出场价 | 状态 |")
         lines.append("| --- | --- | ---: | ---: | ---: | ---: | --- |")
         for row in fills[-12:]:
             lines.append(
                 f"| {row.get('signal_date') or ''} | {row.get('stock_code') or ''} | "
-                f"{row.get('score') if row.get('score') is not None else '—'} | "
+                f"{_fmt_fill_score(row if isinstance(row, dict) else None)} | "
                 f"{row.get('intent_price') if row.get('intent_price') is not None else '—'} | "
                 f"{row.get('fill_price') if row.get('fill_price') is not None else '—'} | "
                 f"{row.get('exit_price') if row.get('exit_price') is not None else '—'} | "
                 f"{row.get('status') or '—'} |"
             )
+        lines.append("")
+        lines.append(
+            "_历史 Top-K：选股键=ŷ_EOD、关 τ 闸；有 ŷ 写 `x.xxx%`，仅规则分写 `Hxx.x`；通常无 ŷ_τ_"
+        )
 
     ns = ps.get("north_star") or {}
     if ns:

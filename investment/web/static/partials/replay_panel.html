@@ -2,7 +2,7 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Backtest Desk</p>
     <h2>历史回测</h2>
-    <p id="replay-meta" class="dashboard-meta quant-meta" aria-live="polite">历史验证规则 · Top-K · 归因 · 非实盘</p>
+    <p id="replay-meta" class="dashboard-meta quant-meta" aria-live="polite">历史验证 · Top-K 按 ŷ_EOD · 关 τ 闸 · 非实盘</p>
     <p class="dashboard-section-desc replay-head-path">
       <a class="replay-hero-link" href="/watching">观察</a>
       →
@@ -135,9 +135,9 @@
             </label>
             <span
               class="platform-field replay-rank-hint"
-              title="系统按收益分 predicted_score（ŷ%）排序"
+              title="历史日线 Top-K：按 ŷ_EOD（predicted_score）排序；关 ŷ_τ 闸。日线无可靠分钟 τ，不用 ŷ_trade 选股（与 live 不同）。"
             >
-              排序 · 收益分
+              排序 · ŷ_EOD
             </span>
             <input type="hidden" id="quant-rank-mode" value="predicted_score" />
             <label class="platform-field quant-pro-field" title="TopK-Dropout：掉出 K+N 才卖">
@@ -181,8 +181,10 @@
             </button>
           </div>
           <div class="quant-oos-band replay-oos-band">
-            <span class="quant-oos-band-label">OOS</span>
-            <span class="quant-oos-band-text">有效 ≠ 正确 · 先看 IC / 分层 / 超额，再 Top-K；过门 ≠ 自动 promote</span>
+            <span class="quant-oos-band-label">口径</span>
+            <span class="quant-oos-band-text"
+              >历史 Top-K = ŷ_EOD 排序 · 关 τ 闸（无可靠分钟 τ）· 有效 ≠ 正确 · 过门 ≠ 自动 promote</span
+            >
           </div>
         </div>
 
@@ -240,7 +242,8 @@
         </div>
         <p id="quant-portfolio-legend" class="quant-sub">
           研究用 Top-K 回测净值（非纸面账本；权重可选等权/分数预算/风险平价）。起点 100；每完成一期持有（默认 3
-          日）按组合收益复利更新。单线=当次回测；对照时蓝=中性化、绿=绝对分。
+          日）按组合收益复利更新。选股按 <strong>ŷ_EOD</strong>，关 ŷ_τ 闸（与 live ŷ_trade
+          不同）。单线=当次回测；对照时蓝=中性化、绿=绝对分。
         </p>
         <div id="quant-bt-trades" class="quant-weight-table-wrap" aria-label="模拟成交账"></div>
       </div>
@@ -269,10 +272,15 @@
             池＝观察池 − exclude（验证宇宙），不是纸面持仓。
             页上「等权 / 分数预算」是股票仓位，不是因子权。
           </p>
+          <p class="replay-howto-clarify">
+            <b>分数口径</b>：本页只有日线，<b>不含可靠 ŷ_τ</b>。Top-K 按
+            <code>ŷ_EOD</code>（<code>predicted_score</code>）从高到低选取，并
+            <b>关闭 ŷ_τ 买入闸</b>。live 调仓才用 ŷ_trade / τ 闸——勿把本页成交表当成 live 融合分。
+          </p>
           <ol class="replay-howto-steps">
             <li><b>准备</b>：拉日线对齐；净值从 100 起；读一次全局因子权。</li>
             <li><b>攒历史</b>：前若干日只积累窗口（约需 ≥12 根），不买卖。</li>
-            <li><b>信号日</b>：对池内每票用「当天及以前」K 线打分（可中性化）→ 取 Top-K（默认 3）。</li>
+            <li><b>信号日</b>：对池内每票用「当天及以前」K 线打 <b>ŷ_EOD</b>（可中性化）→ 取 Top-K（默认 3）。</li>
             <li><b>次日开盘</b>（默认 next_open）：假买入；持有 horizon 个交易日。</li>
             <li><b>出场</b>：按规则卖出 → 加权收益 − 换手成本 → 更新净值。</li>
             <li><b>下一轮</b>：指针前进 horizon 天，重复打分→买入→持有→卖出，直到样本不够。</li>

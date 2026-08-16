@@ -160,6 +160,8 @@ export function createOlsUi(deps) {
     const reasonMap = {
       oos_not_worse: "研究臂不劣于基线（容差内）",
       insufficient_oos: "OOS 收益不足，无法判定",
+      research_no_trades: "研究臂无成交（常为 ŷ_τ 闸误杀）",
+      baseline_insufficient_oos: "基线臂 OOS 不足，无法对照",
       backtest_failed: "Top-K 回测失败",
       watching_too_small: "有效标的不足",
       bars_too_few: "有效日线不足",

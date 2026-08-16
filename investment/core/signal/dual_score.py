@@ -2,8 +2,9 @@
 
 ŷ_EOD      预估 close[T]/close[T-1]−1
 ŷ_τ        预估 close[T]/open[T]−1（rem 头，独立）
-ŷ_EOD_rem  = ŷ_EOD − r_{开盘相对昨收}   # 映到同一 OC 目标
+ŷ_EOD_rem  = remaining_at_tau(ŷ_EOD, r_{昨收到 τ})
 ŷ_trade    = (w_eod·ŷ_EOD_rem + w_τ·ŷ_τ) / (w_eod+w_τ)
+ŷ_nowcast  = 顺序 Kalman(EOD → open → 可选分钟 τ)；默认影子，不替换 predicted_score
 
 规范见 docs/predicted-score-chain.md §2.5。
 """
@@ -12,15 +13,31 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from core.signal.nowcast_kf import (
+    DEFAULT_NOWCAST,
+    adaptive_process_q,
+    align_rem_yhat_to_clock,
+    as_process_q,
+    kalman_fusion_weights,
+    merge_nowcast_cfg,
+    nordhaus_from_nowcast_rows,
+    normalize_tau_label,
+    remaining_at_tau,
+    rem_label_is_open_to_close,
+    rem_obs_var,
+    resolve_eod_prior_var,
+    run_live_nowcast,
+)
+
 DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     # 正交加权：簿排序用 ŷ_trade=blend(ŷ_EOD_rem, ŷ_τ)；买入另须 ŷ_τ≥floor
     "fusion_mode": "blend",
     "tau": "open",
-    "min_predicted_score_tau": 0.0,
-    "block_buy_if_tau_missing": False,
+    "min_predicted_score_tau": 0.3,  # S6: 正门槛；与 config 保持一致
+    "block_buy_if_tau_missing": True,
     "w_eod": 0.5,
     "w_tau": 0.5,
-    # fixed | theme_boost | variance — 决策层合成权，不改两套 Ridge
+    # fixed | theme_boost | variance | kalman — 决策层合成权，不改两套 Ridge
     "w_mode": "fixed",
     # theme_boost：主题日把 w_τ 乘以此系数后再归一
     "theme_w_tau_boost": 1.25,
@@ -33,6 +50,8 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     # 有本地分钟缓存时附加 ret_open_to_tau（默认关；开后仍不拉网）
     "enable_minute_tau": False,
     "minute_tau_hm": "09:45",
+    # nowcast / Kalman：默认只写影子字段，不改排序键
+    "nowcast": dict(DEFAULT_NOWCAST),
     "y_spec": {
         "formula": "close[T]/open[T]-1",
         "unit": "pct",
@@ -79,25 +98,9 @@ def eod_remaining_at_tau(
 ) -> Optional[float]:
     """把 ŷ_EOD（昨收→收）严格映成与 ŷ_τ 同一目标：T 收相对 T 开。
 
-    (1+ŷ_EOD/100)/(1+r/100)−1；与 ``realized_t1_to_tau_pct`` 同一复合口径。
-    无已实现时退回 ŷ_EOD（视作尚未开盘）。
+    实现见 ``nowcast_kf.remaining_at_tau``。
     """
-    if y_eod is None:
-        return None
-    try:
-        ye = float(y_eod)
-    except (TypeError, ValueError):
-        return None
-    if realized_pct is None:
-        return round(ye, 6)
-    try:
-        r = float(realized_pct)
-    except (TypeError, ValueError):
-        return round(ye, 6)
-    denom = 1.0 + r / 100.0
-    if abs(denom) < 1e-12:
-        return None
-    return round(((1.0 + ye / 100.0) / denom - 1.0) * 100.0, 6)
+    return remaining_at_tau(y_eod, realized_pct)
 
 
 def _as_float(v: Any) -> Optional[float]:
@@ -192,35 +195,60 @@ def resolve_fusion_weights(
             note = f"theme_boost×{boost:g}"
         else:
             note = "theme_boost(off)"
-    elif mode == "variance":
-        try:
-            ve = float(cfg.get("eod_residual_var") or 1.0)
-        except (TypeError, ValueError):
-            ve = 1.0
-        ve = max(1e-6, ve)
-        vt = None
-        doc = rem_model_doc if isinstance(rem_model_doc, dict) else {}
-        oos = doc.get("oos") if isinstance(doc.get("oos"), dict) else {}
-        if oos.get("residual_var") is not None:
-            try:
-                vt = float(oos.get("residual_var"))
-            except (TypeError, ValueError):
-                vt = None
-        if vt is None:
-            rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else {}
-            oos2 = rm.get("oos") if isinstance(rm.get("oos"), dict) else {}
-            if oos2.get("residual_var") is not None:
-                try:
-                    vt = float(oos2.get("residual_var"))
-                except (TypeError, ValueError):
-                    vt = None
-        if vt is None:
-            vt = 1.0
-        vt = max(1e-6, float(vt))
-        # 精度 ∝ 1/var
-        we = 1.0 / ve
-        wt = 1.0 / vt
-        note = f"variance(ve={ve:g},vt={vt:g})"
+    elif mode in ("variance", "kalman"):
+        rem_ok = isinstance(rem_model_doc, dict) and bool(rem_model_doc)
+        if not rem_ok:
+            # 缺 rem 模型时勿静默当 fixed：告警 + note 降级标记
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "resolve_fusion_weights: w_mode=%s but rem_model missing/empty; "
+                "fallback to fixed w_eod/w_tau",
+                mode,
+            )
+            note = f"{mode}→fixed(rem_missing)"
+        elif mode == "variance":
+            ve, ve_src = resolve_eod_prior_var(
+                cfg_var=cfg.get("eod_residual_var"),
+                prior_var=(
+                    (cfg.get("nowcast") or {}).get("prior_var")
+                    if isinstance(cfg.get("nowcast"), dict)
+                    else None
+                ),
+            )
+            theme = feats.get("theme_day") if isinstance(feats, dict) else None
+            vt = rem_obs_var(rem_model_doc, default=1.0, theme_day=theme)
+            # 精度 ∝ 1/var
+            we = 1.0 / ve
+            wt = 1.0 / vt
+            note = f"variance(ve={ve:g}/{ve_src},vt={vt:g})"
+        else:
+            ve, ve_src = resolve_eod_prior_var(
+                cfg_var=cfg.get("eod_residual_var"),
+                prior_var=(
+                    (cfg.get("nowcast") or {}).get("prior_var")
+                    if isinstance(cfg.get("nowcast"), dict)
+                    else None
+                ),
+            )
+            theme = feats.get("theme_day") if isinstance(feats, dict) else None
+            gap = feats.get("gap_pct") if isinstance(feats, dict) else None
+            vt = rem_obs_var(rem_model_doc, default=1.0, theme_day=theme)
+            nc = cfg.get("nowcast") if isinstance(cfg.get("nowcast"), dict) else {}
+            q, q_note = adaptive_process_q(
+                nc.get("q_process"),
+                theme_day=theme,
+                gap_pct=gap,
+                theme_q_boost=nc.get("theme_q_boost"),
+                gap_q_trigger_pct=nc.get("gap_q_trigger_pct"),
+                gap_q_boost=nc.get("gap_q_boost"),
+            )
+            we, wt, _k, note = kalman_fusion_weights(
+                prior_var=ve, obs_var=vt, q_process=q
+            )
+            note = f"{note}|ve={ve_src}"
+            if q_note and q_note not in ("base", "q=0"):
+                note = f"{note}|{q_note}"
     else:
         mode = "fixed"
         note = "fixed"
@@ -267,6 +295,8 @@ def _dual_patch_from_config(config: Optional[dict]) -> Dict[str, Any]:
         "min_predicted_score_tau",
         "tau",
         "enable_tau_shadow_book",
+        "nowcast",
+        "w_mode",
     )
     if any(k in config for k in markers) and "weights" not in config and "scoring" not in config:
         patch = {k: config[k] for k in DEFAULT_DUAL_SCORE if k in config}
@@ -303,7 +333,7 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
         )
     except (TypeError, ValueError):
         raw["min_predicted_score_tau"] = 0.0
-    raw["block_buy_if_tau_missing"] = bool(raw.get("block_buy_if_tau_missing", False))
+    raw["block_buy_if_tau_missing"] = bool(raw.get("block_buy_if_tau_missing", True))
     try:
         raw["w_eod"] = float(raw["w_eod"] if raw.get("w_eod") is not None else 0.5)
     except (TypeError, ValueError):
@@ -320,9 +350,10 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
         hm = f"{hm[:2]}:{hm[2:]}"
     raw["minute_tau_hm"] = hm
     w_mode = str(raw.get("w_mode") or "fixed").strip().lower()
-    if w_mode not in ("fixed", "theme_boost", "variance"):
+    if w_mode not in ("fixed", "theme_boost", "variance", "kalman"):
         w_mode = "fixed"
     raw["w_mode"] = w_mode
+    raw["nowcast"] = merge_nowcast_cfg(raw.get("nowcast"))
     try:
         raw["theme_w_tau_boost"] = float(
             raw["theme_w_tau_boost"]
@@ -342,10 +373,51 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     return raw
 
 
+def is_heuristic_score_scale(item: Optional[dict]) -> bool:
+    """主分是否为 0–100 启发式（不可当 ŷ_EOD%）。"""
+    if not isinstance(item, dict):
+        return False
+    if str(item.get("score_scale") or "") == "heuristic_0_100":
+        return True
+    return str(item.get("return_model_source") or "") == "oos_failed_heuristic"
+
+
+def dual_track_score_fields(item: Optional[dict]) -> Dict[str, Any]:
+    """heuristic（0–100）与 predicted/组·全局 ŷ% 双轨字段，刷簿/观察摘要共用。
+
+    互不覆盖：失败组降级时 predicted 可空，但 ``score_cluster`` 仍保留组 ŷ 对照。
+    """
+    if not isinstance(item, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    for k in (
+        "heuristic_score",
+        "predicted_score",
+        "predicted_score_eod",
+        "score_cluster",
+        "score_global",
+        "delta_vs_global",
+        "score_scale",
+        "return_model_source",
+    ):
+        if item.get(k) is not None:
+            out[k] = item.get(k)
+    return out
+
+
 def resolve_predicted_score_eod(item: Optional[dict]) -> Optional[float]:
+    """读取 ŷ_EOD。
+
+    优先 ``predicted_score_eod`` / ``predicted_score``。
+    ``score`` 仅作启发式/遗留回退；若 ``score`` 与 ``predicted_score_blend`` 数值相同，
+    视为 align 后的 ŷ_trade，不再当 EOD（避免买入闸吃到 blend）。
+    OOS 失败降级的 heuristic（0–100）不算 ŷ_EOD。
+    """
     if not isinstance(item, dict):
         return None
-    for k in ("predicted_score_eod", "predicted_score", "score"):
+    if is_heuristic_score_scale(item):
+        return None
+    for k in ("predicted_score_eod", "predicted_score"):
         v = item.get(k)
         if v is None:
             continue
@@ -353,7 +425,30 @@ def resolve_predicted_score_eod(item: Optional[dict]) -> Optional[float]:
             return float(v)
         except (TypeError, ValueError):
             continue
-    return None
+    v = item.get("score")
+    if v is None:
+        return None
+    try:
+        score_f = float(v)
+    except (TypeError, ValueError):
+        return None
+    # 0–100 规则分不得冒充 ŷ_EOD（Top-K 无 predicted 时曾靠此漏进榜）
+    try:
+        from core.signal.score_display import looks_like_legacy_heuristic_score
+
+        if looks_like_legacy_heuristic_score(score_f):
+            return None
+    except Exception:
+        if abs(score_f) >= 10.0:
+            return None
+    blend = item.get("predicted_score_blend")
+    if blend is not None:
+        try:
+            if abs(score_f - float(blend)) < 1e-9:
+                return None
+        except (TypeError, ValueError):
+            pass
+    return score_f
 
 
 def resolve_predicted_score_tau(item: Optional[dict]) -> Optional[float]:
@@ -371,28 +466,216 @@ def resolve_predicted_score_tau(item: Optional[dict]) -> Optional[float]:
     return None
 
 
+def resolve_predicted_score_eod_rem(item: Optional[dict]) -> Optional[float]:
+    """从打分行读取 ŷ_EOD_rem（剩余/日内修正后的 EOD 预测）。"""
+    if not isinstance(item, dict):
+        return None
+    for k in ("predicted_score_eod_rem", "score_eod_rem"):
+        v = item.get(k)
+        if v is None:
+            continue
+        try:
+            return float(v)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
 def compute_predicted_score_blend(
     item: Optional[dict],
     *,
     config: Optional[dict] = None,
 ) -> Optional[float]:
-    """ŷ_trade：w_eod·ŷ_EOD_rem + w_τ·ŷ_τ（已归一）。"""
+    """ŷ_trade：w_eod·ŷ_EOD_rem + w_τ·ŷ_τ（已归一）。
+
+    ``eod_next`` 只表示不减缺口（rem≈EOD），表列 / 排序仍走加权融合。
+    """
     if not isinstance(item, dict):
         return None
     cfg = get_dual_score_cfg(config)
     eod_rem = item.get("predicted_score_eod_rem")
     y_t = resolve_predicted_score_tau(item)
+    rem_doc = None
+    if str(cfg.get("w_mode") or "") in ("variance", "kalman"):
+        try:
+            from quant.research.rem_ridge import load_rem_model
+
+            rem_doc = load_rem_model()
+        except Exception:
+            rem_doc = None
     we, wt, _note = resolve_fusion_weights(
         cfg,
         feats=item.get("features_tau")
         if isinstance(item.get("features_tau"), dict)
         else None,
+        rem_model_doc=rem_doc,
     )
+    # 簿上 dual_score_weights 优先（theme/variance 已算）
+    book_w = item.get("dual_score_weights")
+    if isinstance(book_w, dict) and book_w.get("w_eod") is not None:
+        try:
+            we = float(book_w.get("w_eod"))
+            wt = float(book_w.get("w_tau") if book_w.get("w_tau") is not None else 1.0 - we)
+        except (TypeError, ValueError):
+            pass
     fused = fuse_remaining_heads(eod_rem, y_t, w_eod=we, w_tau=wt)
     if fused is not None:
         return fused
     return resolve_predicted_score_eod(item)
 
+
+def align_trade_score_fields(
+    item: Optional[dict],
+    *,
+    config: Optional[dict] = None,
+    write_score: bool = True,
+) -> Optional[dict]:
+    """就地对齐：predicted_score_blend / decision_score = ŷ_trade。
+
+    ``predicted_score`` / ``predicted_score_eod`` 保留 ŷ_EOD。
+    仅当 blend 缺失，或旧簿 ``eod_next`` 把 blend 写成 EOD 且 ŷ_τ 仍分叉时重算。
+    ``write_score=False``：不改 ``score``（score_stock 主分仍为 EOD 时用）。
+    """
+    if not isinstance(item, dict):
+        return item
+    # OOS→heuristic：表列 score 不得写 0–100；有组/全局 ŷ 则写入 score，否则清空
+    if is_heuristic_score_scale(item):
+        item["predicted_score"] = None
+        item["predicted_score_eod"] = None
+        item["predicted_score_eod_rem"] = None
+        item["predicted_score_blend"] = None
+        hs = item.get("heuristic_score")
+        if hs is None:
+            raw = item.get("score")
+            try:
+                raw_f = float(raw) if raw is not None and raw != "" else None
+            except (TypeError, ValueError):
+                raw_f = None
+            if raw_f is not None and abs(raw_f) > 20:
+                hs = raw_f
+        try:
+            hs_f = float(hs) if hs is not None and hs != "" else None
+        except (TypeError, ValueError):
+            hs_f = None
+        if hs_f is not None:
+            item["heuristic_score"] = hs_f
+        yhat = item.get("score_cluster")
+        if yhat is None:
+            yhat = item.get("score_global")
+        try:
+            yhat_f = float(yhat) if yhat is not None and yhat != "" else None
+        except (TypeError, ValueError):
+            yhat_f = None
+        if write_score:
+            item["score"] = yhat_f  # ŷ% 或 None；禁止 0–100
+        item["score_scale"] = "heuristic_0_100"
+        return item
+    y_eod = item.get("predicted_score_eod")
+    if y_eod is None:
+        y_eod = item.get("predicted_score")
+    try:
+        y_eod_f = float(y_eod) if y_eod is not None and y_eod != "" else None
+    except (TypeError, ValueError):
+        y_eod_f = None
+    if y_eod_f is not None:
+        item["predicted_score_eod"] = y_eod_f
+        item["predicted_score"] = y_eod_f
+
+    rem = item.get("predicted_score_eod_rem")
+    tau = resolve_predicted_score_tau(item)
+    try:
+        rem_f = float(rem) if rem is not None and rem != "" else None
+    except (TypeError, ValueError):
+        rem_f = None
+    try:
+        blend = (
+            float(item["predicted_score_blend"])
+            if item.get("predicted_score_blend") is not None
+            and item.get("predicted_score_blend") != ""
+            else None
+        )
+    except (TypeError, ValueError):
+        blend = None
+    stale = (
+        blend is not None
+        and y_eod_f is not None
+        and tau is not None
+        and abs(blend - y_eod_f) < 1e-9
+        and abs(float(tau) - y_eod_f) > 1e-6
+    )
+    if blend is None or stale:
+        recomputed = compute_predicted_score_blend(item, config=config)
+        if recomputed is not None:
+            blend = float(recomputed)
+    if blend is None and rem_f is not None and tau is None:
+        blend = rem_f
+    if blend is not None:
+        item["predicted_score_blend"] = blend
+        item["decision_score"] = blend
+        if write_score:
+            item["score"] = blend
+    return item
+
+
+def decision_score_for_item(
+    item: Optional[dict],
+    *,
+    config: Optional[dict] = None,
+) -> Optional[float]:
+    """排序 / 表列 / 调仓报告主分：与 ``rank_key_for_item`` 相同（raw ŷ_trade）。"""
+    return rank_key_for_item(item, config=config)
+
+
+def rank_key_field(*, config: Optional[dict] = None) -> str:
+    """簿 / 回测上的 rank_key 字段名。默认 blend；opt-in 才是 nowcast。"""
+    cfg = get_dual_score_cfg(config)
+    nc = cfg.get("nowcast") if isinstance(cfg.get("nowcast"), dict) else {}
+    if nc.get("use_as_rank_key"):
+        return "predicted_score_nowcast"
+    return "predicted_score_blend"
+
+
+def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) -> Optional[float]:
+    """排序键：默认 ŷ_trade（blend）。``nowcast.use_as_rank_key`` 才改用 Kalman 分。
+
+    旧簿 eod_next 若把 blend 写成 EOD 且 ŷ_τ 仍在，现场重算加权；否则信簿上 blend。
+    校准 g 仅写入 ``*_cal`` 供 tip/研究对照，不改变排序键。
+    """
+    if not isinstance(item, dict):
+        return None
+    cfg = get_dual_score_cfg(config)
+    nc = cfg.get("nowcast") if isinstance(cfg.get("nowcast"), dict) else {}
+    if nc.get("use_as_rank_key"):
+        n = item.get("predicted_score_nowcast")
+        if n is not None:
+            try:
+                return float(n)
+            except (TypeError, ValueError):
+                pass
+    y_eod = resolve_predicted_score_eod(item)
+    tau = resolve_predicted_score_tau(item)
+    stored = item.get("predicted_score_blend")
+    try:
+        stored_f = float(stored) if stored is not None and stored != "" else None
+    except (TypeError, ValueError):
+        stored_f = None
+    stale = (
+        stored_f is not None
+        and y_eod is not None
+        and tau is not None
+        and abs(stored_f - float(y_eod)) < 1e-9
+        and abs(float(tau) - float(y_eod)) > 1e-6
+    )
+    if stored_f is None or stale:
+        b = compute_predicted_score_blend(item, config=config)
+        if b is not None:
+            try:
+                return float(b)
+            except (TypeError, ValueError):
+                pass
+    if stored_f is not None:
+        return stored_f
+    return resolve_predicted_score_eod(item)
 
 def buy_passes_tau_gate(
     item: Optional[dict],
@@ -402,14 +685,23 @@ def buy_passes_tau_gate(
     """ŷ_τ 买入闸（rem 头的 OC 预估）。返回 (ok, skip_reason)。
 
     始终用原始 ŷ_τ（方案 A：校准 g 只做 tip/研究对照，不进买卖闸）。
+    收盘后 ``eod_next``：不吃当日 ŷ_τ（已实现 OC，再闸会污染下一期决策）；EOD 门槛另走。
     """
     cfg = get_dual_score_cfg(config)
+    if str((item or {}).get("dual_score_window") or "") == "eod_next":
+        return True, None
     y_tau = resolve_predicted_score_tau(item)
     floor = float(cfg["min_predicted_score_tau"])
     if y_tau is None:
         if cfg.get("block_buy_if_tau_missing"):
-            return False, "ŷ_τ 缺失（dual_score 硬闸）"
-        return True, None
+            return False, "ŷ_τ 缺失（dual_score 硬闸：rem 模型未加载或未推 ŷ_τ）"
+        # 非阻断但记录告警：τ 头训练后可实际不生效
+        import logging
+        logging.getLogger(__name__).warning(
+            "buy_passes_tau_gate: ŷ_τ 缺失但 block_buy_if_tau_missing=False；"
+            "τ 买入闸形同虚设，请检查 rem 模型是否已 promote"
+        )
+        return True, "ŷ_τ 缺失（非阻断，但 τ 闸未生效）"
     if y_tau < floor:
         return (
             False,
@@ -471,12 +763,15 @@ def apply_tau_score_fields(
     y_spec_override: Optional[Dict[str, Any]] = None,
     rem_model_doc: Optional[Dict[str, Any]] = None,
     residual_delta: Optional[bool] = None,
+    fuse_intraday: bool = True,
 ) -> Dict[str, Any]:
     """写入双层契约字段（不改 predicted_score / score 主值）。
 
     ``rem_yhat`` 就是独立训出的 ŷ_τ（open→close），不依赖 ŷ_EOD。
     ŷ_EOD_rem 只是把 ŷ_EOD 减缺口，映到同一目标；ŷ_trade 决策时加权。
     ``residual_delta`` 已废弃，忽略。
+    ``fuse_intraday=False``（收盘后 eod_next）：不减缺口（rem=ŷ_EOD），nowcast 不吃当日 ŷ_τ；
+    表列 ŷ_trade 仍 = w·rem + w·ŷ_τ（与盘中同一契约）。
     """
     _ = residual_delta
     cfg = get_dual_score_cfg(config)
@@ -502,12 +797,47 @@ def apply_tau_score_fields(
         ret_ot = feats_merged.get("ret_open_to_tau")
     realized = realized_t1_to_tau_pct(gap_pct, ret_ot)
     y_eod = resolve_predicted_score_eod(signal_item)
-    eod_rem = eod_remaining_at_tau(y_eod, realized)
-    y_tau = rem_yhat
+    fuse = bool(fuse_intraday)
+    eod_rem = y_eod if not fuse else eod_remaining_at_tau(y_eod, realized)
+    clock = normalize_tau_label(as_of) if fuse else "eod"
+    y_tau_raw = rem_yhat
+    y_tau = (
+        align_rem_yhat_to_clock(
+            y_tau_raw,
+            rem_model_doc=rem_model_doc,
+            ret_open_to_tau=ret_ot,
+            clock=clock,
+        )
+        if fuse
+        else y_tau_raw
+    )
     we, wt, w_note = resolve_fusion_weights(
         cfg, feats=feat_snap, rem_model_doc=rem_model_doc
     )
     trade = fuse_remaining_heads(eod_rem, y_tau, w_eod=we, w_tau=wt)
+    if not fuse:
+        w_note = f"{w_note}|eod_next"
+
+    nc = cfg.get("nowcast") if isinstance(cfg.get("nowcast"), dict) else merge_nowcast_cfg(None)
+    ve, ve_src = resolve_eod_prior_var(
+        cfg_var=cfg.get("eod_residual_var"),
+        prior_var=nc.get("prior_var"),
+    )
+    allow_minute = bool(cfg.get("enable_minute_tau")) or ret_ot is not None
+    nowcast_pack = run_live_nowcast(
+        y_eod=y_eod,
+        y_tau=y_tau_raw if fuse else None,
+        gap_pct=gap_pct if fuse else None,
+        ret_open_to_tau=ret_ot if fuse else None,
+        as_of=str(as_of or tau) if fuse else "eod",
+        taus=nc.get("taus"),
+        prior_var=ve,
+        rem_model_doc=rem_model_doc,
+        q_process=as_process_q(nc.get("q_process"), 0.05),
+        theme_day=feat_snap.get("theme_day") if fuse else None,
+        nowcast_cfg=nc,
+        allow_minute=allow_minute if fuse else False,
+    )
 
     rem_intercept = None
     try:
@@ -518,7 +848,7 @@ def apply_tau_score_fields(
     except (TypeError, ValueError):
         rem_intercept = None
     cascade = None
-    if cfg.get("enable_cascade_shadow", True):
+    if fuse and cfg.get("enable_cascade_shadow", True):
         cascade = cascade_tau_shadow(
             eod_rem, y_tau, rem_intercept=rem_intercept
         )
@@ -539,6 +869,7 @@ def apply_tau_score_fields(
     signal_item["rem_tau"] = as_of
     signal_item["rem_y_spec"] = y_spec.get("formula")
     signal_item["dual_score_fusion"] = cfg["fusion_mode"]
+    signal_item["dual_score_window"] = "intraday" if fuse else "eod_next"
     if event_prior is not None:
         signal_item["event_prior"] = event_prior
     formula_terms_tau = None
@@ -551,18 +882,36 @@ def apply_tau_score_fields(
             )
         except Exception:
             formula_terms_tau = None
-    if isinstance(formula_terms_tau, dict):
+    if not isinstance(formula_terms_tau, dict):
+        formula_terms_tau = {}
+    else:
         formula_terms_tau = dict(formula_terms_tau)
-        formula_terms_tau["eod_remaining"] = eod_rem
-        formula_terms_tau["y_tau"] = y_tau
-        formula_terms_tau["trade"] = trade
-        formula_terms_tau["cascade"] = cascade
-        formula_terms_tau["head"] = "tau_oc"
-        formula_terms_tau["features_fill"] = fill_diag
+    formula_terms_tau["eod_remaining"] = eod_rem
+    formula_terms_tau["y_tau"] = y_tau
+    formula_terms_tau["y_tau_raw"] = y_tau_raw
+    formula_terms_tau["trade"] = trade
+    formula_terms_tau["cascade"] = cascade
+    formula_terms_tau["nowcast"] = nowcast_pack.get("predicted_score_nowcast")
+    formula_terms_tau["nowcast_K"] = nowcast_pack.get("nowcast_K")
+    formula_terms_tau["nowcast_q"] = nowcast_pack.get("nowcast_q")
+    formula_terms_tau["nowcast_path"] = nowcast_pack.get("nowcast_path")
+    formula_terms_tau["rem_oc"] = rem_label_is_open_to_close(rem_model_doc)
+    formula_terms_tau["head"] = (
+        "tau_oc" if rem_label_is_open_to_close(rem_model_doc) else "tau_rem"
+    )
+    formula_terms_tau["features_fill"] = fill_diag
     signal_item["formula_terms_tau"] = formula_terms_tau
     signal_item["score_formula_terms_tau"] = formula_terms_tau
     signal_item["score_formula_tau"] = format_tau_formula_string(formula_terms_tau)
     signal_item["predicted_score_blend"] = trade
+    signal_item["predicted_score_nowcast"] = nowcast_pack.get("predicted_score_nowcast")
+    signal_item["nowcast_as_of"] = nowcast_pack.get("nowcast_as_of")
+    signal_item["nowcast_revisions"] = nowcast_pack.get("nowcast_revisions") or []
+    signal_item["nowcast_K"] = nowcast_pack.get("nowcast_K")
+    signal_item["nowcast_x_prior"] = nowcast_pack.get("nowcast_x_prior")
+    signal_item["nowcast_q"] = nowcast_pack.get("nowcast_q")
+    signal_item["nowcast_q_note"] = nowcast_pack.get("nowcast_q_note")
+    signal_item["nowcast_path"] = nowcast_pack.get("nowcast_path")
     signal_item["dual_score_weights"] = {
         "w_eod": round(we, 6),
         "w_tau": round(wt, 6),
@@ -570,8 +919,78 @@ def apply_tau_score_fields(
         "w_note": w_note,
         "mode": "blend",
         "tau_available": y_tau is not None,
+        "nowcast_K": nowcast_pack.get("nowcast_K"),
+        "nowcast_q": nowcast_pack.get("nowcast_q"),
+        "eod_prior_var": round(ve, 6),
+        "eod_prior_var_src": ve_src,
+        "window": "intraday" if fuse else "eod_next",
     }
+    # heuristic 轨：ŷ_EOD 为空；表列 score 只用组/全局 ŷ%，0–100 只留 heuristic_score
+    if is_heuristic_score_scale(signal_item):
+        signal_item["predicted_score"] = None
+        signal_item["predicted_score_eod"] = None
+        signal_item["predicted_score_eod_rem"] = None
+        signal_item["predicted_score_blend"] = None
+        hs = signal_item.get("heuristic_score")
+        if hs is None:
+            hs = signal_item.get("score")
+        try:
+            if hs is not None and hs != "" and abs(float(hs)) > 20:
+                signal_item["heuristic_score"] = float(hs)
+        except (TypeError, ValueError):
+            pass
+        yhat = signal_item.get("score_cluster")
+        if yhat is None:
+            yhat = signal_item.get("score_global")
+        try:
+            signal_item["score"] = (
+                float(yhat) if yhat is not None and yhat != "" else None
+            )
+        except (TypeError, ValueError):
+            signal_item["score"] = None
+        signal_item["score_scale"] = "heuristic_0_100"
     return signal_item
+
+
+def attach_dual_score_bulk(
+    signal_items: Sequence[Dict[str, Any]],
+    *,
+    quotes_by_code: Optional[Dict[str, dict]] = None,
+    bars_by_code: Optional[Dict[str, Sequence[dict]]] = None,
+    config: Optional[dict] = None,
+    rem_model_doc: Optional[Dict[str, Any]] = None,
+    sector_gap_breadth: Optional[float] = None,
+    fuse_intraday: Optional[bool] = None,
+) -> List[Dict[str, Any]]:
+    """S3 批量包装：对序列内每一项调用 attach_dual_score_pit，返回新列表。
+
+    cross_section.rank_cross_section 排序前统一挂 dual score 时使用此入口，
+    与 cluster_rank 单票 attach 的效果保持一致（接口层面给 bulk 友好签名）。
+    """
+    if not signal_items:
+        return []
+    _quotes = dict(quotes_by_code or {})
+    _bars = dict(bars_by_code or {})
+    out: List[Dict[str, Any]] = []
+    _rem = rem_model_doc  # 共享单次加载（pit内部会fallback，外层只传已加载的）
+    for it in signal_items:
+        c = str((it or {}).get("stock_code") or "").strip()
+        try:
+            out.append(
+                attach_dual_score_pit(
+                    dict(it) if isinstance(it, dict) else it,
+                    quote=_quotes.get(c),
+                    bars=_bars.get(c),
+                    config=config,
+                    rem_model_doc=_rem,
+                    sector_gap_breadth=sector_gap_breadth,
+                    fuse_intraday=fuse_intraday,
+                )
+            )
+        except Exception:
+            # 单票失败不影响整体（attach失败时回退原item，cross_section仍能用predicted_score老路）
+            out.append(dict(it) if isinstance(it, dict) else it)
+    return out
 
 
 def attach_dual_score_pit(
@@ -582,15 +1001,25 @@ def attach_dual_score_pit(
     config: Optional[dict] = None,
     rem_model_doc: Optional[Dict[str, Any]] = None,
     sector_gap_breadth: Optional[float] = None,
+    fuse_intraday: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """历史回测 / 无实时行情时：用 PIT 日线 quote·bars 挂 ŷ_τ + blend。
 
     缺口 = open[T]/close[T−1]（与 live ``gap_pct_from_quote_bars`` 同口径）。
     不拉同伴行情；``sector_gap_breadth`` 可由调用方截面预计算后传入。
     无 rem 模型时仍写契约字段（ŷ_τ=None，ŷ_trade 退回 ŷ_EOD_rem）。
+    ``fuse_intraday=False`` / 簿上 ``dual_score_window=eod_next``：不减缺口；
+    ŷ_trade 仍加权，nowcast / τ 买入闸不吃当日 ŷ_τ。
     """
     if not isinstance(signal_item, dict):
         return signal_item
+    if rem_model_doc is None:
+        try:
+            from quant.research.rem_ridge import load_rem_model
+
+            rem_model_doc = load_rem_model()
+        except Exception:
+            rem_model_doc = None
     q = quote if isinstance(quote, dict) else signal_item.get("_bt_quote")
     b = bars if bars is not None else signal_item.get("_bt_bars")
     cfg = get_dual_score_cfg(config)
@@ -696,6 +1125,11 @@ def attach_dual_score_pit(
         config=config,
         as_of_tau=str(cfg.get("tau") or "open"),
         rem_model_doc=rem_model_doc,
+        fuse_intraday=(
+            bool(fuse_intraday)
+            if fuse_intraday is not None
+            else str(signal_item.get("dual_score_window") or "") != "eod_next"
+        ),
     )
     return signal_item
 
@@ -744,6 +1178,176 @@ def build_tau_shadow_book(
     return book, meta
 
 
+def build_nowcast_shadow_book(
+    eligible_rows: Sequence[Dict[str, Any]],
+    *,
+    max_names: int,
+    eod_book: Optional[Sequence[Dict[str, Any]]] = None,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """同 EOD 入池集合按 ŷ_nowcast 降序截断。不改主簿、不驱动买入。"""
+    max_n = max(1, int(max_names or 1))
+    rows: List[Dict[str, Any]] = []
+    missing = 0
+    for r in eligible_rows or []:
+        if not isinstance(r, dict):
+            continue
+        row = dict(r)
+        y_n = row.get("predicted_score_nowcast")
+        if y_n is None:
+            missing += 1
+            key = float("-inf")
+        else:
+            try:
+                key = float(y_n)
+            except (TypeError, ValueError):
+                missing += 1
+                key = float("-inf")
+        row["_nowcast_rank_key"] = key
+        rows.append(row)
+    rows.sort(
+        key=lambda x: float(x.get("_nowcast_rank_key") or float("-inf")), reverse=True
+    )
+    book: List[Dict[str, Any]] = []
+    for i, r in enumerate(rows[:max_n]):
+        r.pop("_nowcast_rank_key", None)
+        r["rank"] = i + 1
+        r["rank_key"] = "predicted_score_nowcast"
+        book.append(r)
+    for r in rows[max_n:]:
+        r.pop("_nowcast_rank_key", None)
+    compare = compare_book_overlap(eod_book or [], book)
+    nordhaus = nordhaus_from_nowcast_rows(rows)
+    meta = {
+        "mode": "nowcast_shadow",
+        "rank_key": "predicted_score_nowcast",
+        "max_names": max_n,
+        "eligible_count": len(rows),
+        "missing_nowcast_count": missing,
+        "nordhaus_revision_slope": nordhaus,
+        "note": "N3 nowcast 影子簿：Kalman 剩余收益重排；不驱动 execution / 纸面买入",
+        "vs_eod_book": compare,
+    }
+    return book, meta
+
+
+def nowcast_shadow_alerts(
+    shadow_book: Sequence[Dict[str, Any]],
+    shadow_meta: Optional[Dict[str, Any]] = None,
+    *,
+    decision_book: Optional[Sequence[Dict[str, Any]]] = None,
+    max_top_divergent: int = 5,
+) -> List[Dict[str, Any]]:
+    """nowcast 影子闭环告警：比较影子簿(ŷ_nowcast)与决策簿(ŷ_trade/EOD)，对显著背离发告警。
+
+    闭环用途：影子预测 → 对照实际决策 → 告警，供 strategy_monitor / 证据层消费。
+    不改决策、不驱动买入；仅产告警列表。
+    """
+    alerts: List[Dict[str, Any]] = []
+    meta = shadow_meta if isinstance(shadow_meta, dict) else {}
+    compare = meta.get("vs_eod_book")
+    if not isinstance(compare, dict) and decision_book is not None:
+        compare = compare_book_overlap(decision_book, shadow_book)
+    if not isinstance(compare, dict):
+        return alerts
+
+    jaccard = compare.get("jaccard")
+    spearman = compare.get("spearman_shared")
+
+    # 1) 重叠过低 — nowcast 与决策簿显著背离
+    if jaccard is not None:
+        if jaccard < 0.3:
+            sev = "critical" if jaccard < 0.15 else "warning"
+            alerts.append({
+                "code": "nowcast_shadow_low_overlap",
+                "severity": sev,
+                "metric": "jaccard",
+                "value": jaccard,
+                "threshold": 0.3,
+                "message": (
+                    f"nowcast 影子簿与决策簿重叠 Jaccard={jaccard:.2f}，"
+                    "intraday 信号与 EOD 决策显著背离"
+                ),
+            })
+
+    # 2) 秩倒挂 — spearman 低/负
+    if spearman is not None:
+        if spearman < 0.3:
+            sev = "critical" if spearman < 0.0 else "warning"
+            alerts.append({
+                "code": "nowcast_shadow_rank_inversion",
+                "severity": sev,
+                "metric": "spearman_shared",
+                "value": spearman,
+                "threshold": 0.3,
+                "message": (
+                    f"nowcast 与决策簿共享票秩 Spearman={spearman:.2f}，排序倒挂"
+                ),
+            })
+
+    # 3) Nordhaus 修正斜率陡 — 预测快速修正，不确定性高
+    nord = meta.get("nordhaus_revision_slope")
+    if nord is not None:
+        try:
+            nord_f = float(nord)
+            if abs(nord_f) > 0.5:
+                alerts.append({
+                    "code": "nowcast_revision_volatile",
+                    "severity": "warning",
+                    "metric": "nordhaus_revision_slope",
+                    "value": nord_f,
+                    "threshold": 0.5,
+                    "message": (
+                        f"nowcast Nordhaus 修正斜率 {nord_f:+.3f}，"
+                        "预测快速修正、不确定性高"
+                    ),
+                })
+        except (TypeError, ValueError):
+            pass
+
+    # 4) nowcast 覆盖不足 — missing 比例高，影子簿不可信
+    missing = meta.get("missing_nowcast_count")
+    eligible = meta.get("eligible_count")
+    if missing is not None and eligible:
+        try:
+            miss_ratio = float(missing) / float(eligible)
+            if miss_ratio > 0.3:
+                alerts.append({
+                    "code": "nowcast_coverage_low",
+                    "severity": "warning",
+                    "metric": "missing_ratio",
+                    "value": round(miss_ratio, 3),
+                    "threshold": 0.3,
+                    "message": (
+                        f"nowcast 缺失率 {miss_ratio:.1%}（{missing}/{eligible}），"
+                        "影子簿不可信"
+                    ),
+                })
+        except (TypeError, ValueError, ZeroDivisionError):
+            pass
+
+    # 5) 高秩 nowcast 票缺席决策簿 — 背离信号点名
+    only_tau = set(compare.get("only_tau") or [])
+    if only_tau:
+        shadow_top = [
+            str(r.get("stock_code") or "").strip()
+            for r in (shadow_book or [])[:max_top_divergent]
+            if isinstance(r, dict)
+        ]
+        divergent = [c for c in shadow_top if c and c in only_tau]
+        if divergent:
+            alerts.append({
+                "code": "nowcast_high_rank_absent",
+                "severity": "info",
+                "metric": "top_rank_absent",
+                "value": divergent,
+                "message": (
+                    f"nowcast 高秩票 {','.join(divergent[:5])} 缺席决策簿，"
+                    "intraday 与 EOD 信号背离"
+                ),
+            })
+    return alerts
+
+
 def compare_book_overlap(
     book_a: Sequence[Dict[str, Any]],
     book_b: Sequence[Dict[str, Any]],
@@ -789,12 +1393,28 @@ def compare_book_overlap(
 def _eod_return_model_for_item(item: dict):
     """取该票打分时同源的 EOD ReturnScoreModel（反推 sub_scores 用）。"""
     code = str(item.get("stock_code") or "").strip()
+    src = str(item.get("return_model_source") or "").strip()
+    # 主分已降级：τ 反推也用全局，避免失败组 β 污染
+    use_cluster = src not in (
+        "oos_failed_global",
+        "oos_failed_heuristic",
+        "global",
+        "oos_failed_degrade",
+    )
+    if use_cluster and src.startswith("oos_failed"):
+        use_cluster = False
     try:
-        from core.signal.cluster_live import load_cluster_return_models_by_code
+        if use_cluster:
+            from core.signal.cluster_live import (
+                filter_primary_cluster_models_by_code,
+                load_cluster_return_models_by_code,
+            )
 
-        models = load_cluster_return_models_by_code() or {}
-        if code and code in models:
-            return models[code]
+            models = filter_primary_cluster_models_by_code(
+                load_cluster_return_models_by_code() or {}
+            )
+            if code and code in models:
+                return models[code]
     except Exception:
         pass
     try:
@@ -1009,13 +1629,20 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
     ``dual_score_fusion`` / ``dual_score_weights`` 一律用当前配置，
     避免簿内旧戳（如 f1 / 旧 w_*）误导 tip。
     旧簿无 ``formula_terms_tau`` 时现场补全组成表。
+    返回前对齐 ŷ_trade（修 eod_next 塌成 EOD 的旧 blend），再挂校准 g。
     """
     if not isinstance(item, dict):
         return {}
+    work = dict(item)
+    try:
+        align_trade_score_fields(work, write_score=False)
+    except Exception:
+        pass
     try:
         cfg = get_dual_score_cfg()
         live_fusion = cfg.get("fusion_mode")
-        book_w = item.get("dual_score_weights")
+        book_w = work.get("dual_score_weights")
+        win = work.get("dual_score_window")
         if isinstance(book_w, dict) and book_w.get("w_eod") is not None:
             live_w = {
                 "w_eod": book_w.get("w_eod"),
@@ -1024,6 +1651,7 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
                 "w_note": book_w.get("w_note"),
                 "mode": "blend",
                 "tau_available": book_w.get("tau_available"),
+                "window": book_w.get("window") or win,
             }
         else:
             live_w = {
@@ -1031,20 +1659,21 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
                 "w_tau": cfg.get("w_tau"),
                 "w_mode": cfg.get("w_mode") or "fixed",
                 "mode": "blend",
+                "window": win,
             }
     except Exception:
         live_fusion = "blend"
         live_w = {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed", "mode": "blend"}
-    formula_terms_tau = ensure_formula_terms_tau(item)
-    score_formula_tau = item.get("score_formula_tau") or format_tau_formula_string(
+    formula_terms_tau = ensure_formula_terms_tau(work)
+    score_formula_tau = work.get("score_formula_tau") or format_tau_formula_string(
         formula_terms_tau
     )
-    coefs_tau = item.get("factor_coefficients_tau")
+    coefs_tau = work.get("factor_coefficients_tau")
     if not isinstance(coefs_tau, dict) or not coefs_tau:
         coefs_tau = rem_factor_coefficients_public()
-    fill = item.get("features_tau_fill")
+    fill = work.get("features_tau_fill")
     if not isinstance(fill, dict):
-        fill = features_tau_fill_diag(item.get("features_tau"))
+        fill = features_tau_fill_diag(work.get("features_tau"))
     # tip：有 live 模型就补 g(ŷ) 对照（force）；排序/买卖闸始终用 raw
     cal_applied = False
     cal_enabled = False
@@ -1058,46 +1687,55 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
         live = load_calibration_model()
         cal_enabled = calibration_enabled(model_doc=live)
         if isinstance(live, dict) and isinstance(live.get("heads"), dict):
-            attach_calibrated_scores(item, model_doc=live, force=True)
-        cal_applied = bool(item.get("score_calibration_applied"))
-        cal_enabled = bool(item.get("score_calibration_enabled", cal_enabled))
+            # 在已对齐的 ŷ_trade 上挂 g，避免 tip 校准列仍对塌缩 EOD
+            attach_calibrated_scores(work, model_doc=live, force=True)
+        cal_applied = bool(work.get("score_calibration_applied"))
+        cal_enabled = bool(work.get("score_calibration_enabled", cal_enabled))
     except Exception:
-        cal_applied = bool(item.get("score_calibration_applied"))
-        cal_enabled = bool(item.get("score_calibration_enabled"))
+        cal_applied = bool(work.get("score_calibration_applied"))
+        cal_enabled = bool(work.get("score_calibration_enabled"))
     # 权重优先簿内已算（含 theme/variance）；缺则用当前配置
     return {
-        "predicted_score_eod": item.get("predicted_score_eod", item.get("predicted_score")),
-        "predicted_score_eod_rem": item.get("predicted_score_eod_rem"),
-        "predicted_score_tau": item.get("predicted_score_tau", item.get("score_rem")),
-        "predicted_score_tau_delta": item.get("predicted_score_tau_delta"),
-        "predicted_score_tau_cascade": item.get("predicted_score_tau_cascade"),
-        "predicted_score_blend": item.get("predicted_score_blend"),
-        "predicted_score_cal": item.get("predicted_score_cal"),
-        "predicted_score_eod_rem_cal": item.get("predicted_score_eod_rem_cal"),
-        "predicted_score_tau_cal": item.get("predicted_score_tau_cal"),
-        "predicted_score_blend_cal": item.get("predicted_score_blend_cal"),
+        "predicted_score_eod": work.get("predicted_score_eod", work.get("predicted_score")),
+        "predicted_score_eod_rem": work.get("predicted_score_eod_rem"),
+        "predicted_score_tau": work.get("predicted_score_tau", work.get("score_rem")),
+        "predicted_score_tau_delta": work.get("predicted_score_tau_delta"),
+        "predicted_score_tau_cascade": work.get("predicted_score_tau_cascade"),
+        "predicted_score_blend": work.get("predicted_score_blend"),
+        "decision_score": work.get("decision_score"),
+        "predicted_score_nowcast": work.get("predicted_score_nowcast"),
+        "nowcast_as_of": work.get("nowcast_as_of"),
+        "nowcast_K": work.get("nowcast_K"),
+        "nowcast_x_prior": work.get("nowcast_x_prior"),
+        "nowcast_q": work.get("nowcast_q"),
+        "nowcast_revisions": work.get("nowcast_revisions"),
+        "predicted_score_cal": work.get("predicted_score_cal"),
+        "predicted_score_eod_rem_cal": work.get("predicted_score_eod_rem_cal"),
+        "predicted_score_tau_cal": work.get("predicted_score_tau_cal"),
+        "predicted_score_blend_cal": work.get("predicted_score_blend_cal"),
         "score_calibration_applied": cal_applied,
         "score_calibration_enabled": cal_enabled,
-        "score_calibration_eod_oor": bool(item.get("score_calibration_eod_oor")),
-        "score_calibration_eod_rem_oor": bool(item.get("score_calibration_eod_rem_oor")),
-        "score_calibration_tau_oor": bool(item.get("score_calibration_tau_oor")),
-        "score_calibration_note": item.get("score_calibration_note"),
-        "score_calibration_partial": item.get("score_calibration_partial"),
-        "realized_t1_to_tau": item.get("realized_t1_to_tau"),
-        "score_rem": item.get("score_rem"),
-        "predicted_score_rem": item.get("predicted_score_rem"),
-        "as_of_tau": item.get("as_of_tau") or item.get("rem_tau"),
-        "y_spec_tau": item.get("y_spec_tau"),
-        "features_tau": item.get("features_tau"),
+        "score_calibration_eod_oor": bool(work.get("score_calibration_eod_oor")),
+        "score_calibration_eod_rem_oor": bool(work.get("score_calibration_eod_rem_oor")),
+        "score_calibration_tau_oor": bool(work.get("score_calibration_tau_oor")),
+        "score_calibration_note": work.get("score_calibration_note"),
+        "score_calibration_partial": work.get("score_calibration_partial"),
+        "realized_t1_to_tau": work.get("realized_t1_to_tau"),
+        "score_rem": work.get("score_rem"),
+        "predicted_score_rem": work.get("predicted_score_rem"),
+        "as_of_tau": work.get("as_of_tau") or work.get("rem_tau"),
+        "y_spec_tau": work.get("y_spec_tau"),
+        "features_tau": work.get("features_tau"),
         "features_tau_fill": fill,
         "formula_terms_tau": formula_terms_tau,
         "score_formula_terms_tau": formula_terms_tau,
         "score_formula_tau": score_formula_tau,
         "factor_coefficients_tau": coefs_tau or None,
-        "gap_pct": item.get("gap_pct"),
-        "event_prior": item.get("event_prior"),
+        "gap_pct": work.get("gap_pct"),
+        "event_prior": work.get("event_prior"),
         "dual_score_fusion": live_fusion or "blend",
         "dual_score_weights": live_w,
+        "dual_score_window": work.get("dual_score_window"),
     }
 
 
@@ -1109,28 +1747,3 @@ def eod_gate_score_for_item(
     """入簿 / 买卖 EOD 门槛用分：始终原始 ŷ_EOD（校准 g 不进闸）。"""
     _ = config
     return resolve_predicted_score_eod(item)
-
-
-def decision_score_for_item(
-    item: Optional[dict],
-    *,
-    config: Optional[dict] = None,
-) -> Optional[float]:
-    """排序 / 表列 / 调仓报告主分：与 ``rank_key_for_item`` 相同（raw ŷ_trade）。"""
-    return rank_key_for_item(item, config=config)
-
-
-def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) -> Optional[float]:
-    """排序键：ŷ_trade = 加权融合 ŷ_EOD_rem 与 ŷ_τ（原始分）。
-
-    校准 g 仅写入 ``*_cal`` 供 tip/研究对照，不改变排序键。
-    """
-    if not isinstance(item, dict):
-        return None
-    b = item.get("predicted_score_blend")
-    if b is None:
-        b = compute_predicted_score_blend(item, config=config)
-    try:
-        return float(b) if b is not None else resolve_predicted_score_eod(item)
-    except (TypeError, ValueError):
-        return resolve_predicted_score_eod(item)

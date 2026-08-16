@@ -149,11 +149,116 @@ class TestOosFailedExclude(unittest.TestCase):
         self.assertNotIn("G5", failed)
         self.assertNotIn("G7", failed)
 
-    def test_cfg_exclude_oos_default_true(self):
+    def test_filter_primary_cluster_models_always_skips_oos_failed(self):
+        from core.signal.cluster_live import filter_primary_cluster_models_by_code
+        from core.signal.return_score import ReturnScoreModel
+
+        m = ReturnScoreModel(
+            intercept=0.0,
+            coefficients={"momentum": 0.1},
+            z_means={"momentum": 0.0},
+            z_stds={"momentum": 1.0},
+            standardized=True,
+        )
+        active = {
+            "clusters": [
+                {"label": "G_ok", "oos_gate": {"passed": True, "ok": True}},
+                {"label": "G_bad", "oos_gate": {"passed": False, "ok": True}},
+            ],
+            "code_map": {
+                "600000": {"cluster_label": "G_ok"},
+                "600001": {"cluster_label": "G_bad"},
+            },
+        }
+        models = {"600000": m, "600001": m}
+        out = filter_primary_cluster_models_by_code(models, active=active)
+        self.assertIn("600000", out)
+        self.assertNotIn("600001", out)
+        # 遗留开关失效：即使配置写 false 仍剔失败组
+        still = filter_primary_cluster_models_by_code(
+            models,
+            config={"cluster_scoring": {"exclude_oos_failed_groups": False}},
+            active=active,
+        )
+        self.assertEqual(set(still), {"600000"})
+
+    def test_codes_in_oos_failed_clusters(self):
+        from core.signal.cluster_oos_labels import codes_in_oos_failed_clusters
+
+        active = {
+            "clusters": [
+                {"label": "G_ok", "oos_gate": {"passed": True, "ok": True}},
+                {"label": "G_bad", "oos_gate": {"passed": False, "ok": True}},
+            ],
+            "code_map": {
+                "600000": {"cluster_label": "G_ok"},
+                "600001": {"cluster_label": "G_bad"},
+                "600002": {"label": "G_bad"},
+            },
+        }
+        codes = codes_in_oos_failed_clusters(active=active)
+        self.assertEqual(codes, {"600001", "600002"})
+
+    def test_score_and_rank_excludes_oos_failed_from_top(self):
+        from unittest.mock import patch
+
+        from core.signal.cross_section_batch import score_and_rank_watching
+
+        entries = [
+            {
+                "stock_code": "600000",
+                "score": 1.0,
+                "predicted_score": 1.5,
+                "sub_scores": {"momentum": 0.1},
+            },
+            {
+                "stock_code": "600001",
+                "score": 80.0,
+                "predicted_score": 2.0,
+                "sub_scores": {"momentum": 0.2},
+            },
+        ]
+        with patch(
+            "core.signal.cluster_oos_labels.codes_in_oos_failed_clusters",
+            return_value={"600001"},
+        ):
+            picks, meta = score_and_rank_watching(
+                entries,
+                min_score=0.0,
+                neutralize=False,
+                apply_tau_buy_gate=False,
+                exclude_oos_failed=True,
+            )
+        codes = [c for c, _ in picks]
+        self.assertIn("600000", codes)
+        self.assertNotIn("600001", codes)
+        self.assertGreaterEqual(int(meta.get("oos_failed_excluded") or 0), 1)
+
+    def test_resolve_eod_rejects_heuristic_score_fallback(self):
+        from core.signal.dual_score import resolve_predicted_score_eod
+
+        self.assertIsNone(
+            resolve_predicted_score_eod({"score": 75.7, "predicted_score": None})
+        )
+        self.assertAlmostEqual(
+            float(resolve_predicted_score_eod({"predicted_score": 0.85}) or 0),
+            0.85,
+            places=5,
+        )
+
+    def test_legacy_exclude_oos_key_stripped_from_cfg(self):
         from core.signal.cluster_live import get_cluster_scoring_cfg
 
-        cfg = get_cluster_scoring_cfg({"cluster_scoring": {"enabled": True, "mode": "active"}})
-        self.assertTrue(cfg.get("exclude_oos_failed_groups"))
+        cfg = get_cluster_scoring_cfg(
+            {
+                "cluster_scoring": {
+                    "enabled": True,
+                    "mode": "active",
+                    "exclude_oos_failed_groups": False,
+                }
+            }
+        )
+        self.assertNotIn("exclude_oos_failed_groups", cfg)
 
 
 class TestEventPrior(unittest.TestCase):
@@ -184,6 +289,26 @@ class TestEventPrior(unittest.TestCase):
         self.assertTrue(prior.get("theme"))
         self.assertTrue(should_soft_hold_for_low_score(prior))
         self.assertTrue(prior.get("predicted_score_unchanged"))
+
+    def test_gap_strips_today_bar_for_prev_close(self):
+        from core.event_prior import gap_pct_from_quote_bars
+
+        quote = {
+            "success": True,
+            "date": "2026-08-15",
+            "open": 10.3,
+            "price_raw": 10.5,
+            "change_raw": 2.0,
+        }
+        bars = [
+            {"date": "2026-08-14", "open": 10.0, "close": 10.0},
+            {"date": "2026-08-15", "open": 10.3, "close": 10.5},
+        ]
+        gap = gap_pct_from_quote_bars(quote, bars)
+        self.assertAlmostEqual(gap, 3.0, places=4)
+        quote2 = {"open": 10.3}
+        gap2 = gap_pct_from_quote_bars(quote2, bars)
+        self.assertAlmostEqual(gap2, 3.0, places=4)
 
     def test_off_mode_no_soft_hold(self):
         from core.event_prior import build_event_prior, should_soft_hold_for_low_score

@@ -11,6 +11,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.data_policy import MINUTE_CACHE_HOURS
 from core.store import load_minute_cache, merge_minute_bars_by_time, save_minute_cache
 from skills.common.history import resolve_market_code
 
@@ -77,7 +78,7 @@ def fetch_a_minute_bars(
     period: str = "5",
     lookback_days: int = 90,
     use_cache: bool = True,
-    max_age_hours: float = 12.0,
+    max_age_hours: float = MINUTE_CACHE_HOURS,
     adjust: str = "qfq",
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """拉取 A 股分钟线；失败返回空列表。
@@ -175,7 +176,7 @@ def fetch_minute_bars(
     period: str = "5",
     lookback_days: int = 90,
     use_cache: bool = True,
-    max_age_hours: float = 12.0,
+    max_age_hours: float = MINUTE_CACHE_HOURS,
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """对外入口：目前仅 A 股。"""
     return fetch_a_minute_bars(

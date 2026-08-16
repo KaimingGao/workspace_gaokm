@@ -69,11 +69,11 @@ class BacktestEngine:
             code = quote.get("stock_code") if quote.get("success") else str(raw)
             market, _ = resolve_market_code(raw)
 
-            pack = get_bars(raw, limit=lookback + 35)
+            pack = get_bars(raw, limit=lookback + 35, reject_quote_fallback=True)
             bars = list(pack.get("bars") or [])
             data_source = str(pack.get("data_source") or "empty")
             if not bars and quote.get("success"):
-                pack = get_bars(code, limit=lookback + 35)
+                pack = get_bars(code, limit=lookback + 35, reject_quote_fallback=True)
                 bars = list(pack.get("bars") or [])
                 data_source = str(pack.get("data_source") or "empty")
 

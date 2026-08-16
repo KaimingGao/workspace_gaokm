@@ -7,7 +7,8 @@ import os
 from datetime import datetime, timedelta
 from typing import Any, Callable, List, Optional, Tuple
 
-from core.store import load_daily_cache, save_daily_cache
+from core.data_policy import DAILY_CACHE_HOURS
+from core.store import load_daily_cache, merge_save_daily_cache
 from skills.common.quote_api import StockAPI
 
 
@@ -130,7 +131,11 @@ def _incremental_remote_plan(
     # 缺口补上后仍凑不够 limit → 需要更早历史，走整窗
     thin = len(existing) < max(5, need - max(gap_days, 3))
     # 长缺口 + 前复权：整窗重拉，避免分红后历史价与本地旧段错位
-    long_qfq_gap = str(adjust or "qfq").lower() == "qfq" and gap_days > 40
+    from core.data_policy import QFQ_LONG_GAP_DAYS
+
+    long_qfq_gap = (
+        str(adjust or "qfq").lower() == "qfq" and gap_days > QFQ_LONG_GAP_DAYS
+    )
 
     if thin or long_qfq_gap:
         fetch_limit = max(need, len(existing) + 5, need + 10)
@@ -382,7 +387,7 @@ def fetch_daily_bars(
     limit: int = 30,
     *,
     use_cache: bool = True,
-    cache_max_age_hours: float = 24.0,
+    cache_max_age_hours: float = DAILY_CACHE_HOURS,
     incremental: bool = True,
     adjust: str = "qfq",
     offline_ok: bool = False,
@@ -399,7 +404,11 @@ def fetch_daily_bars(
     offline_ok=True：本地有足够 bars 时直接返回（可过期），不打远端——研究分组用。
     offline_only=True：只读缓存（含过期），不够也不打远端；批量回测先扫盘再用进程池补缺。
     """
-    from core.store import merge_bars_by_date, peek_daily_cache_meta
+    from core.store import (
+        code_refresh_lock,
+        merge_bars_by_date,
+        peek_daily_cache_meta,
+    )
 
     market, code = resolve_market_code(stock_code)
     policy = str(adjust or "qfq").strip().lower()
@@ -471,62 +480,88 @@ def fetch_daily_bars(
             return trimmed, cached_src
         return [], "empty"
 
-    gap_start: Optional[str] = None
-    fetch_limit = max(int(limit or 30), len(existing) + 5 if existing else int(limit or 30))
-    if incremental and existing:
-        gap_start, fetch_limit, skip_remote = _incremental_remote_plan(
-            existing, limit=int(limit or 30), adjust=policy
-        )
-        if skip_remote:
-            trimmed = existing[-limit:] if limit and len(existing) > limit else existing
-            return trimmed, cached_src
-
-    try:
-        if market == "CN":
-            bars = fetch_a_daily_bars(
-                code, limit=fetch_limit, adjust=policy, start_date=gap_start
-            )
-            src = f"akshare_cn_daily:{policy}" if bars else "empty"
-        elif market == "HK":
-            bars = fetch_hk_daily_bars(code, limit=fetch_limit, start_date=gap_start)
-            src = "akshare_hk_daily" if bars else "empty"
-        elif market == "US":
-            bars = fetch_us_daily_bars(code, limit=fetch_limit, start_date=gap_start)
-            src = "akshare_us_daily" if bars else "empty"
-        else:
-            return [], "empty"
-    except Exception:
-        if existing:
-            trimmed = existing[-limit:] if limit and len(existing) > limit else existing
-            return trimmed, "cache:stale"
-        return [], "empty"
-
-    if incremental and existing:
-        bars = merge_bars_by_date(existing, bars or [])
-        if bars and src == "empty":
-            src = "cache:merged"
-    if not bars and existing:
-        bars = existing
-        src = "cache:stale"
-
-    if bars and use_cache and not disable_cache:
-        try:
-            raw_src = src
-            if str(raw_src).startswith("cache:"):
-                raw_src = str(raw_src).split(":", 1)[-1] or "cache"
-            save_daily_cache(
+    with code_refresh_lock(market, code, kind="daily"):
+        # 进入远端前再读一次本地，避免并发穿透重复拉
+        if use_cache and not disable_cache and not existing:
+            stale = load_daily_cache(
                 market,
                 code,
-                bars,
-                data_source=raw_src,
-                stock_code=code,
-                adjust_policy=policy,
+                min_bars=1,
+                max_age_hours=0,
+                ignore_age=True,
             )
-        except OSError:
-            pass
+            if stale:
+                existing = list(stale[0] or [])
+                cached_src = "cache:stale"
+            if offline_ok and existing and len(existing) >= min_offline:
+                trimmed = (
+                    existing[-limit:] if limit and len(existing) > limit else existing
+                )
+                return trimmed, cached_src
 
-    trimmed = bars[-limit:] if limit and bars and len(bars) > limit else (bars or [])
-    return trimmed, src
+        gap_start: Optional[str] = None
+        fetch_limit = max(
+            int(limit or 30),
+            len(existing) + 5 if existing else int(limit or 30),
+        )
+        if incremental and existing:
+            gap_start, fetch_limit, skip_remote = _incremental_remote_plan(
+                existing, limit=int(limit or 30), adjust=policy
+            )
+            if skip_remote:
+                trimmed = (
+                    existing[-limit:] if limit and len(existing) > limit else existing
+                )
+                return trimmed, cached_src
+
+        try:
+            if market == "CN":
+                bars = fetch_a_daily_bars(
+                    code, limit=fetch_limit, adjust=policy, start_date=gap_start
+                )
+                src = f"akshare_cn_daily:{policy}" if bars else "empty"
+            elif market == "HK":
+                bars = fetch_hk_daily_bars(code, limit=fetch_limit, start_date=gap_start)
+                src = "akshare_hk_daily" if bars else "empty"
+            elif market == "US":
+                bars = fetch_us_daily_bars(code, limit=fetch_limit, start_date=gap_start)
+                src = "akshare_us_daily" if bars else "empty"
+            else:
+                return [], "empty"
+        except Exception:
+            if existing:
+                trimmed = (
+                    existing[-limit:] if limit and len(existing) > limit else existing
+                )
+                return trimmed, "cache:stale"
+            return [], "empty"
+
+        if incremental and existing:
+            bars = merge_bars_by_date(existing, bars or [])
+            if bars and src == "empty":
+                src = "cache:merged"
+        if not bars and existing:
+            bars = existing
+            src = "cache:stale"
+
+        if bars and use_cache and not disable_cache:
+            try:
+                raw_src = src
+                if str(raw_src).startswith("cache:"):
+                    raw_src = str(raw_src).split(":", 1)[-1] or "cache"
+                _, bars = merge_save_daily_cache(
+                    market,
+                    code,
+                    bars,
+                    data_source=raw_src,
+                    stock_code=code,
+                    adjust_policy=policy,
+                )
+            except OSError:
+                pass
+
+        trimmed = bars[-limit:] if limit and bars and len(bars) > limit else (bars or [])
+        return trimmed, src
 
 
 

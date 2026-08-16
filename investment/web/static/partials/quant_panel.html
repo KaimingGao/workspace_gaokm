@@ -123,6 +123,22 @@
               <p><strong>基线</strong>：全局人工预定义线性加权（<code>heuristic_score</code>）。<strong>研究臂</strong>：本页回归模型 → <code>predicted_score</code>（ŷ_EOD）。</p>
               <h4>因子系数 β</h4>
               <p>分组后为<strong>一组一表</strong>。表里<strong>系数 β</strong>来自该组池 OLS，即 <code>return_model.coefficients</code>，驱动组内收益分 ŷ_EOD。</p>
+              <h4>耗时（满池 ≈100 只 · K=自动）</h4>
+              <p>
+                全量重算常见 <strong>30～45+ 分钟</strong>（有心跳可持续等到约 90 分钟；命中 24h 缓存则秒级）。
+                钱主要花在选区，不是卡死：
+              </p>
+              <ul>
+                <li><strong>~15%</strong> 拉日线 + 单票拟合 + β 矩阵（约 5～8 min）</li>
+                <li><strong>~55%</strong> auto-k 选区：邻域 k×配方串行，每步聚类 + holdout 打分（约 15～25 min，6 步）</li>
+                <li><strong>~5%</strong> 组池 OLS + 贪心换组</li>
+                <li><strong>~15%</strong> 组内 OOS 闸门（按组串行，约 20～30 s/组）</li>
+                <li><strong>~10%</strong> 组内打分 / 分池合成 / 收尾（分池对照回测用全局 heuristic，不应再拖数十分钟）</li>
+              </ul>
+              <p>
+                <strong>想快</strong>：缩小 Limit（20～40）、或填固定 K（跳过选区网格）；调试勿勾「刷新过期日线」。
+                大宇宙（≥40）已关逐日 PIT / Ridge 搜 λ / 扩展窗多折，但仍保留选区网格。
+              </p>
             </div>
           </details>
         </div>
@@ -324,6 +340,7 @@
         <p id="quant-score-review-status" class="quant-fingerprint">尚未加载</p>
         <div id="quant-score-review-summary" class="quant-summary"></div>
         <div id="quant-score-review-tau" class="quant-score-review-tau" hidden></div>
+        <div id="quant-score-review-nowcast" class="quant-score-review-tau" hidden></div>
         <div class="yhat-viz-block quant-review-viz" id="quant-score-review-hit-wrap" hidden>
           <p class="quant-block-cap">
             跨日方向命中率
@@ -437,7 +454,7 @@
         <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
           <p id="quant-ops-summary" class="quant-fingerprint quant-card-head-status is-busy">加载中…</p>
           <div class="dashboard-card-tools quant-pro-card-tools">
-            <button type="button" id="quant-ops-run-daily" class="dialog-btn">生成日报</button>
+            <button type="button" id="quant-ops-run-daily" class="dialog-btn" title="quant 预设：刷新 watching · 横截面 · 组合回测 + 中性化对照 · 导出。大宇宙常见 5–15 分钟，状态会显示已用时。">生成日报</button>
             <button type="button" id="quant-interpret-offline" class="dialog-btn secondary">规则解读</button>
             <button type="button" id="quant-interpret" class="dialog-btn secondary">AI 解读</button>
             <button type="button" id="quant-export-md" class="dialog-btn secondary">下载 MD</button>

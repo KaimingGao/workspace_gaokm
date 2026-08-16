@@ -95,26 +95,52 @@ class TestSignalFillAndExport(unittest.TestCase):
                 {
                     "signal_date": "2024-03-20",
                     "stock_code": "600519",
-                    "score": 72,
+                    "score": 0.72,
+                    "predicted_score": 0.72,
                     "intent_price": 10.0,
                     "fill_price": 10.0,
                     "exit_price": 10.2,
                     "status": "filled",
-                }
+                },
+                {
+                    "signal_date": "2024-03-21",
+                    "stock_code": "000858",
+                    "score": 72.0,
+                    "intent_price": 11.0,
+                    "fill_price": 11.0,
+                    "exit_price": 11.1,
+                    "status": "filled",
+                },
             ],
         }
         lines = build_portfolio_backtest_markdown_lines(result)
         text = "\n".join(lines)
+        self.assertIn("分数口径", text)
+        self.assertIn("选股键=ŷ_EOD", text)
+        self.assertIn("关 τ 闸", text)
+        self.assertIn("ŷ_EOD", text)  # fill table header
         self.assertIn("成本对照", text)
         self.assertIn("Brinson", text)
         self.assertIn("OOS", text)
         self.assertIn("失败", text)
         self.assertIn("信号–成交", text)
+        self.assertIn("0.720%", text)
+        # heuristic 脏分不得以裸 72 / 72% 出现；标成 H72.0
+        self.assertNotRegex(text, r"\| 000858 \| 72(\.0)?%? \|")
+        self.assertIn("| 000858 | H72.0 |", text)
+
+        # params 标明 τ 开时 note 切换
+        result_tau = dict(result)
+        result_tau["params"] = {"apply_tau_buy_gate": True}
+        text_tau = "\n".join(build_portfolio_backtest_markdown_lines(result_tau))
+        self.assertIn("选股键=ŷ_trade", text_tau)
+        self.assertIn("τ 闸开", text_tau)
 
         exp = export_portfolio_backtest_report(result, fmt="markdown")
         self.assertTrue(exp["success"])
         self.assertIn("KPI", exp["content"])
         self.assertIn("portfolio_backtest_report.md", exp["filename"])
+        self.assertIn("分数口径", exp["content"])
 
 
 if __name__ == "__main__":

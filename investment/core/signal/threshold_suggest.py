@@ -566,7 +566,7 @@ def suggest_stance_thresholds_from_watching_oos(
 ) -> Dict[str, Any]:
     """对 watching 多票 OOS：ŷ% 门槛用组 β/拟合扫 wait；遗留表仍扫 0–100。"""
     from core.backtest.engine import scan_signal_parameters_oos
-    from core.ports.market import fetch_daily_bars, query_quote
+    from core.data_service import bars_and_source_research, get_quote
 
     if not codes:
         return {"success": False, "error": "候选列表为空"}
@@ -591,12 +591,12 @@ def suggest_stance_thresholds_from_watching_oos(
     limit_n = max(1, min(int(max_stocks or 5), 10))
 
     for raw in codes[:limit_n]:
-        quote = query_quote(str(raw))
+        quote = get_quote(str(raw))
         sym = quote.get("stock_code") if quote.get("success") else str(raw)
         sym = str(sym or raw).strip()
-        bars, src = fetch_daily_bars(raw, limit=lookback + 35)
+        bars, src = bars_and_source_research(raw, limit=lookback + 35)
         if not bars and quote.get("success"):
-            bars, src = fetch_daily_bars(sym, limit=lookback + 35)
+            bars, src = bars_and_source_research(sym, limit=lookback + 35)
         if not bars or len(bars) < 50:
             failures.append(str(raw))
             continue

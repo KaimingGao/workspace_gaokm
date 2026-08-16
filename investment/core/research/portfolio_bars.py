@@ -25,14 +25,26 @@ def should_fetch_backtest_fundamentals(config: Optional[dict] = None) -> bool:
     return bool(fund_cfg.get("use_in_backtest", True))
 
 
-def _resolve_symbol(raw: str) -> str:
-    digits = "".join(ch for ch in str(raw or "") if ch.isdigit())
+def _resolve_symbol(raw: str, *, allow_live: bool = True) -> str:
+    """代码归一：6 位数字 / ports.resolve_market_code；仅允许 live 时才打 quote。"""
+    text = str(raw or "").strip()
+    digits = "".join(ch for ch in text if ch.isdigit())
     if len(digits) == 6:
         return digits
+    try:
+        from core.ports.market import resolve_market_code
+
+        _mkt, code = resolve_market_code(text)
+        if code and str(code).strip():
+            return str(code).strip()
+    except Exception:
+        pass
+    if not allow_live:
+        return text or digits or raw
     from core.data_service import get_quote
 
-    quote = get_quote(str(raw))
-    return str(quote.get("stock_code") if quote.get("success") else raw)
+    quote = get_quote(text)
+    return str(quote.get("stock_code") if quote.get("success") else text)
 
 
 def _fetch_bars_for_raw(
@@ -42,18 +54,19 @@ def _fetch_bars_for_raw(
     offline_ok: bool,
     offline_only: bool = False,
 ) -> Tuple[str, str, List[dict]]:
-    from core.data_service import bars_and_source
+    from core.data.service import get_research_service
 
     code = str(raw or "").strip()
-    sym = _resolve_symbol(code)
-    bars, _ = bars_and_source(
+    allow_live = not bool(offline_only)
+    sym = _resolve_symbol(code, allow_live=allow_live)
+    bars, _ = get_research_service().bars_and_source(
         code,
         limit=limit,
         offline_ok=bool(offline_ok),
         offline_only=bool(offline_only),
     )
     if not bars and str(sym) != code:
-        bars, _ = bars_and_source(
+        bars, _ = get_research_service().bars_and_source(
             str(sym),
             limit=limit,
             offline_ok=bool(offline_ok),
@@ -102,18 +115,17 @@ def _load_bars_parallel(
                     continue
                 by_raw[str(raw)] = (str(sym), list(bars or []))
         for raw in raw_list:
-            by_raw.setdefault(raw, (_resolve_symbol(raw), []))
+            by_raw.setdefault(raw, (_resolve_symbol(raw, allow_live=False), []))
         misses = [raw for raw in raw_list if len(by_raw[raw][1]) < need]
 
     remote_n = 0
     if not misses:
         return by_raw, remote_n
 
-    from core.data_service import get_bars
-    from core.ports.market import batch_map
+    from core.data.service import get_research_service
 
-    packs = batch_map(
-        get_bars,
+    # 远端补数与离线路径一致：拒 quote_fallback（经 ResearchDataService 批量）
+    packs = get_research_service().get_bars_batch(
         misses,
         limit=limit,
         offline_ok=False,
@@ -121,15 +133,19 @@ def _load_bars_parallel(
     )
     for raw, pack in zip(misses, packs):
         bars = _bars_from_pack(pack)
+        # 远端补数阶段允许 live 解析；纯离线扫盘阶段不打 quote
+        allow_live = True
         if not bars:
-            by_raw.setdefault(raw, (_resolve_symbol(raw), []))
+            by_raw.setdefault(raw, (_resolve_symbol(raw, allow_live=allow_live), []))
             continue
         remote_n += 1
         prev = by_raw.get(raw)
-        sym = prev[0] if prev else _resolve_symbol(raw)
+        sym = prev[0] if prev else _resolve_symbol(raw, allow_live=allow_live)
         by_raw[raw] = (str(sym), list(bars))
+    # 最终补缺：仅当本轮允许远端时才 live 解析（offline_ok 扫盘阶段保持离线）
+    final_live = not bool(offline_ok) or remote_n > 0
     for raw in raw_list:
-        by_raw.setdefault(raw, (_resolve_symbol(raw), []))
+        by_raw.setdefault(raw, (_resolve_symbol(raw, allow_live=final_live), []))
     return by_raw, remote_n
 
 

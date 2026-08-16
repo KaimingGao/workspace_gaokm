@@ -360,10 +360,11 @@ def group_cs_ic_panel(
     min_names = 2 if n_stocks == 2 else 3
     index_bars: Optional[List[dict]] = None
     try:
-        from core.ports.market import default_benchmark, fetch_index_bars
+        from core.data_service import index_bars_and_source
+        from core.ports.market import default_benchmark
 
         bench = str(default_benchmark("CN") or "000300")
-        ib, _ = fetch_index_bars(bench, limit=160)
+        ib, _ = index_bars_and_source(bench, limit=160)
         index_bars = list(ib or []) or None
     except Exception:
         index_bars = None

@@ -91,6 +91,76 @@ class TestBookConstraints(unittest.TestCase):
                 any(b.get("tau_gate_fail") for b in book if b["stock_code"] == "600000")
             )
 
+    def test_exclude_mode_sorts_by_rank(self):
+        from core.signal.book_constraints import fill_book_with_constraints
+
+        rows = [
+            {
+                "stock_code": "000002",
+                "stock_name": "000002",
+                "score": 1.0,
+                "predicted_score_blend": 1.0,
+                "predicted_score_tau": 0.2,
+                "sector": "银行",
+            },
+            {
+                "stock_code": "000001",
+                "stock_name": "000001",
+                "score": 3.0,
+                "predicted_score_blend": 3.0,
+                "predicted_score_tau": 0.4,
+                "sector": "银行",
+            },
+            {
+                "stock_code": "000003",
+                "stock_name": "000003",
+                "score": 2.0,
+                "predicted_score_blend": 2.0,
+                "predicted_score_tau": -0.5,
+                "sector": "保险",
+            },
+        ]
+        with patch(
+            "core.signal.book_constraints.tradeable_block_reason", return_value=None
+        ), patch(
+            "core.signal.dual_score.get_dual_score_cfg",
+            return_value={
+                "min_predicted_score_tau": 0.0,
+                "block_buy_if_tau_missing": False,
+                "fusion_mode": "blend",
+            },
+        ):
+            out = fill_book_with_constraints(
+                rows,
+                max_names=4,
+                risk_limits={"max_sector_pct": 100.0, "max_position_pct": 25.0},
+                constraints={
+                    "enabled": True,
+                    "filter_untradeable": True,
+                    "enforce_sector_cap": False,
+                    "tau_fail_mode": "exclude",
+                },
+                dual_cfg={"fusion_mode": "blend", "w_eod": 0.5, "w_tau": 0.5},
+            )
+        codes = [b["stock_code"] for b in out["book"]]
+        self.assertEqual(codes, ["000001", "000002"])
+        self.assertNotIn("000003", codes)
+
+    def test_disabled_constraints_still_sort(self):
+        from core.signal.book_constraints import fill_book_with_constraints
+
+        rows = [
+            {"stock_code": "b", "predicted_score_blend": 0.1, "sector": "A"},
+            {"stock_code": "a", "predicted_score_blend": 2.0, "sector": "A"},
+        ]
+        out = fill_book_with_constraints(
+            rows,
+            max_names=2,
+            constraints={"enabled": False},
+            dual_cfg={"fusion_mode": "blend"},
+        )
+        self.assertEqual([b["stock_code"] for b in out["book"]], ["a", "b"])
+
 
 class TestPortfolioHealth(unittest.TestCase):
     def test_health_smoke(self):

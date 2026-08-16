@@ -2,7 +2,7 @@
  * 观察池 insights 列格式化与 score 单元格 HTML（纯数据 / 字符串）。
  */
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
-import { resolveTradeScore, resolveEodScore, resolveEodRemScore, resolveCalTradeScore } from "../paper/fmt.js?v=p1092";
+import { resolveTradeScore, resolveEodScore, resolveEodRemScore, resolveCalTradeScore, fmtTableScore, isHeuristicScoreScale } from "../paper/fmt.js?v=p1128";
 
 export function formatWatchingExcess(it) {
   // 主表只显示百分比；强弱标签进 title，避免窄列 ellipsis 看起来像空值
@@ -30,15 +30,21 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
   const scoreCalNum = resolveCalTradeScore(it);
   const belowMin = !!it.below_min_score;
   const scoreDetail = watchingScoreDetail(it);
-  const scoreBase = fmtScore(scoreNum);
+  const scoreBase = fmtTableScore(it, scoreNum);
   const scoreText =
     scoreBase === "—" ? "—" : belowMin ? `${scoreBase}↓` : scoreBase;
-  const scoreCalText = fmtScore(scoreCalNum);
-  const scoreTitle = belowMin
-    ? `低于ŷ_EOD门槛 ${it.min_score ?? "—"}（表列为 ŷ_trade）`
-    : it.return_model_source === "cluster_shadow_fallback"
-      ? "缺全局 return_model · 暂用组 ŷ（shadow）"
-      : "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
+  const scoreCalText = fmtTableScore(it, scoreCalNum);
+  const scoreTitle = isHeuristicScoreScale(it)
+    ? scoreNum != null
+      ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
+      : "OOS 失败 · 无 ŷ% · tip 看 heuristic(0–100)"
+    : belowMin
+      ? `低于ŷ_EOD门槛 ${it.min_score ?? "—"}（表列为 ŷ_trade）`
+      : it.return_model_source === "oos_failed_global"
+        ? "OOS 失败 · 主分全局 ŷ% · 悬停看组 ŷ% 对照"
+        : it.return_model_source === "cluster_shadow_fallback"
+          ? "缺全局 return_model · 暂用组 ŷ（shadow）"
+          : "ŷ_trade · 悬停看 ŷ_EOD / heuristic 对照";
   const scoreCalTitle =
     scoreCalNum == null
       ? "暂无 g(ŷ) 映射（拟合并写入 live 后可见）"

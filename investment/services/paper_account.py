@@ -53,32 +53,89 @@ class PaperAccountMixin:
             gate = selection_min_score(paper)
 
             def _pack_item(item: dict, *, cluster_mode=None) -> Dict[str, Any]:
-                out = {
-                    "score": item.get("score", item.get("predicted_score")),
-                    "predicted_score": item.get(
-                        "predicted_score", item.get("score")
-                    ),
-                    "sub_scores": item.get("sub_scores"),
-                    "factor_contrib": item.get("factor_contrib"),
-                    "reasons": item.get("reasons") or item.get("score_reasons"),
-                    "hard_reject": item.get("hard_reject"),
-                    "reject_reason": item.get("reject_reason"),
-                    "weight_source": item.get("weight_source"),
-                    "cluster_label": item.get("cluster_label"),
-                    "cluster_mode": item.get("cluster_mode") or cluster_mode,
-                    "cluster_version": item.get("cluster_version"),
-                    "score_global": item.get("score_global"),
-                    "score_cluster": item.get("score_cluster"),
-                    "return_model_source": item.get("return_model_source"),
-                    "return_model": item.get("return_model"),
-                    "factor_coefficients": item.get("factor_coefficients"),
-                    "score_formula": item.get("score_formula"),
-                    "score_formula_terms": item.get("score_formula_terms"),
-                }
+                from core.signal.dual_score import (
+                    align_trade_score_fields,
+                    decision_score_for_item,
+                )
+
+                # 先透传簿字段，再对齐 ŷ_trade（修 eod_next 塌成 EOD 的旧 blend）
+                packed = dict(item) if isinstance(item, dict) else {}
                 try:
-                    out.update(dual_score_book_fields(item))
+                    packed.update(dual_score_book_fields(item))
                 except Exception:
                     pass
+                align_trade_score_fields(packed)
+                d_sc = decision_score_for_item(packed)
+                try:
+                    from core.signal.dual_score import is_heuristic_score_scale
+
+                    heu = is_heuristic_score_scale(packed)
+                except Exception:
+                    heu = str(packed.get("return_model_source") or "") == "oos_failed_heuristic"
+                if heu:
+                    # 持仓表列用组/全局 ŷ%；0–100 只留 heuristic_score
+                    table_score = packed.get("score_cluster")
+                    if table_score is None:
+                        table_score = packed.get("score_global")
+                    if table_score is None:
+                        table_score = d_sc
+                else:
+                    table_score = (
+                        d_sc
+                        if d_sc is not None
+                        else packed.get("score", packed.get("predicted_score"))
+                    )
+                out = {
+                    "score": table_score,
+                    "decision_score": d_sc
+                    if d_sc is not None
+                    else packed.get("decision_score"),
+                    "predicted_score": packed.get(
+                        "predicted_score", packed.get("score")
+                    )
+                    if not heu
+                    else None,
+                    "sub_scores": packed.get("sub_scores"),
+                    "factor_contrib": packed.get("factor_contrib"),
+                    "reasons": packed.get("reasons") or packed.get("score_reasons"),
+                    "hard_reject": packed.get("hard_reject"),
+                    "reject_reason": packed.get("reject_reason"),
+                    "weight_source": packed.get("weight_source"),
+                    "cluster_label": packed.get("cluster_label"),
+                    "cluster_mode": packed.get("cluster_mode") or cluster_mode,
+                    "cluster_version": packed.get("cluster_version"),
+                    "score_global": packed.get("score_global"),
+                    "score_cluster": packed.get("score_cluster"),
+                    "return_model_source": packed.get("return_model_source"),
+                    "return_model": packed.get("return_model"),
+                    "score_scale": packed.get("score_scale")
+                    or ("heuristic_0_100" if heu else None),
+                    "heuristic_score": packed.get("heuristic_score")
+                    or (packed.get("score") if heu else None),
+                    "score_track": packed.get("score_track"),
+                    "factor_coefficients": packed.get("factor_coefficients"),
+                    "score_formula": packed.get("score_formula"),
+                    "score_formula_terms": packed.get("score_formula_terms"),
+                }
+                # dual 字段已在 packed 对齐后写回
+                for k, v in packed.items():
+                    if k.startswith("predicted_score") or k.startswith("score_") or k in (
+                        "dual_score_fusion",
+                        "dual_score_weights",
+                        "dual_score_window",
+                        "gap_pct",
+                        "event_prior",
+                        "as_of_tau",
+                        "y_spec_tau",
+                        "features_tau",
+                        "formula_terms_tau",
+                        "factor_coefficients_tau",
+                        "realized_t1_to_tau",
+                        "decision_score",
+                        "heuristic_score",
+                        "score_track",
+                    ):
+                        out[k] = v
                 return out
 
             score_by_code: Dict[str, Any] = {}
@@ -170,6 +227,9 @@ class PaperAccountMixin:
                     enriched["score_global"] = score_info.get("score_global")
                     enriched["score_cluster"] = score_info.get("score_cluster")
                     enriched["return_model_source"] = score_info.get("return_model_source")
+                    enriched["score_scale"] = score_info.get("score_scale")
+                    enriched["heuristic_score"] = score_info.get("heuristic_score")
+                    enriched["score_track"] = score_info.get("score_track")
                     enriched["factor_coefficients"] = score_info.get("factor_coefficients")
                     enriched["score_formula_terms"] = score_info.get("score_formula_terms")
                     enriched["score_formula"] = score_info.get(
@@ -190,6 +250,7 @@ class PaperAccountMixin:
                         "factor_coefficients_tau",
                         "dual_score_fusion",
                         "dual_score_weights",
+                        "dual_score_window",
                         "predicted_score_blend",
                         "predicted_score_eod",
                         "predicted_score_eod_rem",
@@ -207,6 +268,9 @@ class PaperAccountMixin:
                         "score_calibration_note",
                         "score_calibration_partial",
                         "decision_score",
+                        "score_scale",
+                        "heuristic_score",
+                        "score_track",
                     ):
                         if k in score_info:
                             enriched[k] = score_info.get(k)

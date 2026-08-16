@@ -43,12 +43,17 @@ def score_and_rank_watching(
     min_return_score: Optional[float] = None,  # 旧名
     min_predicted_return: Optional[float] = None,  # 旧名
     allow_heuristic_baseline: bool = False,
+    apply_tau_buy_gate: bool = True,
+    exclude_oos_failed: bool = True,
 ) -> Tuple[List[Tuple[str, float]], Dict[str, Any]]:
     """
     对一批已算出的 signal_item 形条目做截面中性化（可选）并排序。
 
     默认仅 predicted_score（ŷ）。研究 OOS 可设 allow_heuristic_baseline=True，
     用 heuristic_score（人工线性加权 0–100）作对照基线臂。
+    ``apply_tau_buy_gate=False``：历史/研究路径跳过 ŷ_τ 硬闸，并按 ŷ_EOD 排序
+    （不拿日线近似 ŷ_trade/blend 当选股键）。
+    ``exclude_oos_failed=True``（默认）：OOS 失败组成员不进 Top（含全局 ŷ / 规则分回退）。
     """
     from core.signal.return_score import (
         apply_predicted_scores,
@@ -74,6 +79,15 @@ def score_and_rank_watching(
 
     meta: Dict[str, Any] = {"applied": False, "rank_mode": mode}
     items = list(entries)
+    oos_blocked: set = set()
+    if exclude_oos_failed:
+        try:
+            from core.signal.cluster_oos_labels import codes_in_oos_failed_clusters
+
+            oos_blocked = codes_in_oos_failed_clusters()
+        except Exception:
+            oos_blocked = set()
+    meta["oos_failed_blocked_codes"] = len(oos_blocked)
 
     # —— 研究对照基线：人工线性加权 ——
     if mode == "heuristic_score":
@@ -99,6 +113,14 @@ def score_and_rank_watching(
             meta["neutralize"] = {
                 k: nmeta.get(k) for k in ("applied", "reason", "sample_count") if k in nmeta
             }
+        if oos_blocked:
+            before = len(items)
+            items = [
+                it
+                for it in items
+                if str(it.get("stock_code") or "").strip() not in oos_blocked
+            ]
+            meta["oos_failed_excluded"] = before - len(items)
         picks = rank_scored_items(
             items, min_score=float(min_score), score_key="heuristic_score"
         )
@@ -155,6 +177,7 @@ def score_and_rank_watching(
             buy_passes_tau_gate,
             eod_gate_score_for_item,
             get_dual_score_cfg,
+            rank_key_field,
             rank_key_for_item,
             resolve_predicted_score_eod,
         )
@@ -195,9 +218,13 @@ def score_and_rank_watching(
         floor = None if min_predicted_score is None else float(min_predicted_score)
         ranked: List[Tuple[str, float, float]] = []
         gated = 0
+        oos_excluded = 0
         for it in items:
             code = str(it.get("stock_code") or "").strip()
             if not code:
+                continue
+            if code in oos_blocked:
+                oos_excluded += 1
                 continue
             eod_raw = resolve_predicted_score_eod(it)
             eod_gate = eod_gate_score_for_item(it, config=cfg)
@@ -207,29 +234,51 @@ def score_and_rank_watching(
                 continue
             if floor is not None and float(eod_gate) < floor:
                 continue
-            ok, _reason = buy_passes_tau_gate(it, config=cfg)
-            if not ok:
-                gated += 1
-                continue
-            blend = rank_key_for_item(it, config=cfg)
-            if blend is None:
-                continue
-            it["rank_key"] = "predicted_score_blend"
-            # picks 第二元保留原始 ŷ_EOD 便于对照；排序键为 blend/g
-            ranked.append(
-                (code, float(eod_raw if eod_raw is not None else eod_gate), float(blend))
-            )
+            eod_f = float(eod_raw if eod_raw is not None else eod_gate)
+            if apply_tau_buy_gate:
+                ok, _reason = buy_passes_tau_gate(it, config=cfg)
+                if not ok:
+                    gated += 1
+                    continue
+                sort_key = rank_key_for_item(it, config=cfg)
+                if sort_key is None:
+                    continue
+                rk_name = rank_key_field(config=cfg)
+            else:
+                # 历史日线：ŷ_τ/blend 不可靠，排序只用 ŷ_EOD
+                sort_key = eod_f
+                rk_name = "predicted_score_eod"
+            it["rank_key"] = rk_name
+            # picks 第二元始终是 ŷ_EOD；第三元为实际排序键
+            ranked.append((code, eod_f, float(sort_key)))
         ranked.sort(key=lambda x: x[2], reverse=True)
         picks = [(c, eod) for c, eod, _b in ranked]
         meta["dual_score_tau_gated"] = gated
-        meta["rank_key"] = "predicted_score_blend"
+        meta["oos_failed_excluded"] = oos_excluded
+        meta["rank_key"] = (
+            "predicted_score_eod"
+            if not apply_tau_buy_gate
+            else rank_key_field(config=cfg)
+        )
+        meta["rank_by_eod"] = not bool(apply_tau_buy_gate)
     else:
+        oos_excluded = 0
+        if oos_blocked:
+            kept: List[dict] = []
+            for it in items:
+                code = str(it.get("stock_code") or "").strip()
+                if code and code in oos_blocked:
+                    oos_excluded += 1
+                    continue
+                kept.append(it)
+            items = kept
         picks = rank_by_predicted_score(
             items, min_predicted_score=min_predicted_score
         )
         if not picks:
             meta["predicted_score_fallback"] = "empty_preds"
             picks = []
+        meta["oos_failed_excluded"] = oos_excluded
 
     meta["items_by_code"] = {
         str(it.get("stock_code") or "").strip(): it

@@ -93,14 +93,14 @@ def _clean_name(name: str) -> str:
 
 def _resolve_entry(raw: str, hint_name: str = "") -> tuple:
     """解析标的 → (code, name)。"""
-    from core.ports.market import query_quote, quote_price
+    from core.data_service import get_quote
 
     text = str(raw or "").strip()
     hint = _clean_name(hint_name)
     if not text:
         return "", hint
     try:
-        quote = query_quote(text)
+        quote = get_quote(text)
     except Exception:
         return text, hint
     if quote.get("success") and quote.get("stock_code"):
@@ -309,9 +309,9 @@ def refresh_watchlist(
     # 预热现货缓存，避免多条 screen 各自打远端
     if any(str(s.get("type") or "").lower() == "screen" for s in sources):
         try:
-            from core.ports.market import fetch_a_spot
+            from core.data_service import get_spot
 
-            fetch_a_spot()
+            get_spot()
         except Exception:
             pass
 
@@ -575,9 +575,9 @@ def add_watchlist_item(
     if not code:
         raise ValueError(f"无法识别「{text}」")
 
-    from core.ports.market import query_quote, quote_price
+    from core.data_service import get_quote
 
-    quote = query_quote(text)
+    quote = get_quote(text)
     if quote.get("success") and quote.get("stock_code"):
         code = str(quote["stock_code"]).strip()
         name = _clean_name(str(quote.get("stock_name") or "")) or name or text
@@ -709,7 +709,7 @@ def list_watchlist_quotes(
     codes: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
     """对观察名单（或给定 codes）批量拉现价；单票失败不影响其它。"""
-    from core.ports.market import batch_query_quotes
+    from core.data_service import batch_get_quotes
 
     def _blank(code: str, name: str = "", *, error: str = "") -> Dict[str, Any]:
         return {
@@ -743,7 +743,7 @@ def list_watchlist_quotes(
     for i in range(0, len(watch), chunk_size):
         chunk = watch[i : i + chunk_size]
         try:
-            part = batch_query_quotes(chunk) or {}
+            part = batch_get_quotes(chunk) or {}
         except Exception:
             part = {}
         if isinstance(part, dict):

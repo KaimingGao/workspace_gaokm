@@ -89,10 +89,32 @@ def build_data_quality_report(
         ann_missing_top = []
     if fund.get("ann_missing_code_ratio") is not None:
         try:
-            if float(fund["ann_missing_code_ratio"]) > 0.3:
+            from core.data_policy import (
+                ANN_MISSING_CODE_RATIO_BLOCK,
+                ANN_MISSING_CODE_RATIO_WARN,
+            )
+            from core.signal.config import load_signal_config
+
+            fund_cfg = (load_signal_config().get("fundamentals") or {})
+            warn_th = float(
+                fund_cfg.get("ann_missing_code_ratio_warn")
+                or ANN_MISSING_CODE_RATIO_WARN
+            )
+            block_th = float(
+                fund_cfg.get("ann_missing_code_ratio_block")
+                or ANN_MISSING_CODE_RATIO_BLOCK
+            )
+            ratio = float(fund["ann_missing_code_ratio"])
+            if ratio > block_th:
+                status = "bad"
+                warnings.append(
+                    f"ann_missing 码占比={ratio} > {block_th} "
+                    f"（{fund.get('ann_missing_codes')} 只）· DQ=bad · 补公告日"
+                )
+            elif ratio > warn_th:
                 status = "warn" if status == "ok" else status
                 warnings.append(
-                    f"ann_missing 码占比={fund['ann_missing_code_ratio']} "
+                    f"ann_missing 码占比={ratio} "
                     f"（{fund.get('ann_missing_codes')} 只）· 补公告日以免前视"
                 )
         except (TypeError, ValueError):
@@ -153,11 +175,58 @@ def build_data_quality_report(
     except Exception:
         outcome_nudge = None
 
+    io_stats: Dict[str, Any] = {}
+    try:
+        from core.store import io_error_stats
+
+        io_stats = io_error_stats()
+        if int(io_stats.get("io_error_count") or 0) > 0:
+            status = "warn" if status == "ok" else status
+            warnings.append(
+                f"store IO 错误累计 {io_stats['io_error_count']} 次（见日志 store_io_error）"
+            )
+    except Exception:
+        io_stats = {}
+
+    sector_cov = None
+    try:
+        from core.sector_map_sync import coverage_report
+        from core.data_coverage import universe_codes
+
+        sector_cov = coverage_report(list(universe_codes() or [])[:80])
+        cov_r = (
+            float(sector_cov["coverage"])
+            if sector_cov.get("coverage") is not None
+            else 1.0
+        )
+        board_n = int(sector_cov.get("board_labeled") or 0)
+        if board_n > 0:
+            status = "warn" if status == "ok" else status
+            warnings.append(
+                f"sector_map 仍有 {board_n} 只板别伪主题 · 运行 scrub_board_labels"
+            )
+        if cov_r < 0.5 and int(sector_cov.get("total") or 0) >= 5:
+            status = "warn" if status == "ok" else status
+            warnings.append(
+                f"真实行业覆盖 {sector_cov.get('mapped')}/{sector_cov.get('total')} "
+                f"（{cov_r:.0%}）· 补 sector_map 主题"
+            )
+    except Exception as e:
+        sector_cov = {"ok": False, "error": str(e)}
+
+    ds_metrics: Dict[str, Any] = {}
+    try:
+        from core.data.service import metrics_snapshot
+
+        ds_metrics = metrics_snapshot()
+    except Exception:
+        ds_metrics = {}
+
     return {
         "ok": True,
         "kind": "data_quality_center",
         "status": status,
-        "track": "D0-D4+X+B0+DC/FM/RK",
+        "track": "D0-D4+X+B0+DC/FM/RK+DS-R+E",
         "bars_coverage": coverage,
         "validation_hygiene": hygiene,
         "fundamentals_history": {
@@ -171,9 +240,12 @@ def build_data_quality_report(
         "sample_discipline": disc,
         "source_audit": audit,
         "calendar": cal,
+        "store_io": io_stats,
+        "sector_coverage": sector_cov,
+        "data_service_metrics": ds_metrics,
         "warnings": warnings[:16],
         "note": (
             "数据质量中心：覆盖率/财务多期/ann_missing/因子健康/源审计/日历；"
-            "DC/FM/RK 见 pro-core-strengthen；运营项见 maturity-gate。"
+            "DS-R/E 缓存锁/行业未分类/ann_missing 门禁/读口封装；运营项见 maturity-gate。"
         ),
     }

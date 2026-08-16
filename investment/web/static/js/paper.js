@@ -5,21 +5,22 @@ import {
   escapeText,
   fmtPct,
   metricCls,
-  fmtScore,
+  fmtTableScore,
   scoreCls,
   resolveTradeScore,
   resolveCalTradeScore,
   resolveEodScore,
   resolveEodRemScore,
   scoreSeriesStats,
-} from "./paper/fmt.js?v=p1095";
+  isHeuristicScoreScale,
+} from "./paper/fmt.js?v=p1128";
 import { drawSeries } from "./paper/chart.js";
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
 import {
   loadHoldingsSort,
   persistHoldingsSort as persistHoldingsSortSaved,
   sortHoldings as sortHoldingsRows,
-} from "./paper/holdings_sort.js?v=p1092";
+} from "./paper/holdings_sort.js?v=p1128";
 import {
   renderLineChart,
   loadLightweightCharts,
@@ -30,7 +31,7 @@ import {
   buildPaperHoldingsTableHtml,
   buildPaperOriginBarHtml,
   buildPaperHoldActionBarHtml,
-} from "./paper/holdings_ui.js?v=p1092";
+} from "./paper/holdings_ui.js?v=p1128";
 import { renderPaperRulesHtml } from "./paper/rules_ui.js";
 import {
   renderExecutionRulesHtml,
@@ -55,7 +56,7 @@ import {
   formatBlendScoreSection,
   formatCalibrationSection,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p1094";
+} from "./score_tooltip.js?v=p1128";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 
@@ -1725,6 +1726,11 @@ export function initPaper(ctx) {
           predicted_score_eod: r.predicted_score_eod,
           predicted_score_eod_rem: r.predicted_score_eod_rem,
           predicted_score_tau_delta: r.predicted_score_tau_delta,
+          predicted_score_nowcast: r.predicted_score_nowcast,
+          dual_score_window: r.dual_score_window || null,
+          nowcast_as_of: r.nowcast_as_of || null,
+          nowcast_K: r.nowcast_K,
+          nowcast_q: r.nowcast_q,
           predicted_score_cal: r.predicted_score_cal,
           predicted_score_eod_rem_cal: r.predicted_score_eod_rem_cal,
           predicted_score_tau_cal: r.predicted_score_tau_cal,
@@ -1834,7 +1840,7 @@ export function initPaper(ctx) {
         .map((r, idx) => {
           const cls = decisionClass[r.decision] || "rebalance-hold";
           let tradeScore = resolveTradeScore(r);
-          let scoreText = tradeScore != null ? fmtScore(tradeScore) : "—";
+          let scoreText = tradeScore != null ? fmtTableScore(r, tradeScore) : "—";
           if (scoreText === "—" && r.hard_reject) {
             scoreText = "拒";
           }
@@ -1849,13 +1855,19 @@ export function initPaper(ctx) {
           let scoreTip = "";
           if (r.hard_reject) {
             scoreTip = String(r.reject_reason || "硬拒绝 · 无收益分");
+          } else if (isHeuristicScoreScale(r)) {
+            scoreTip =
+              tradeScore != null
+                ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
+                : "OOS 失败 · 无 ŷ% · tip 看 heuristic(0–100)";
           } else if (belowMin) {
             scoreTip = "低于ŷ_EOD门槛 · 表列为 ŷ_trade · 悬停看详情";
           } else {
             scoreTip = "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
           }
           const scoreCal = resolveCalTradeScore(r);
-          const scoreCalShown = scoreCal != null ? fmtScore(scoreCal) : "—";
+          const scoreCalShown =
+            scoreCal != null ? fmtTableScore(r, scoreCal) : "—";
           const scoreCalOor = !!(
             r.score_calibration_eod_oor ||
             r.score_calibration_eod_rem_oor ||

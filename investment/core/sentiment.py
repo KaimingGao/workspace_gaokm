@@ -517,10 +517,10 @@ def fetch_stock_headlines(
             "error": None,
         }
 
-    from core.ports.market import build_news
+    from core.data_service import get_news
 
     try:
-        raw = build_news(code_key, limit=limit)
+        raw = get_news(code_key, limit=limit)
     except Exception as exc:
         # 超时/网络异常：优先回退过期缓存，避免 UI 永久加载中
         reason = f"资讯源超时：{exc}"

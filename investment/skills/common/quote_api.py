@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import time
+import threading
 from typing import Dict, List, Optional, Tuple
 
 import requests
 
+from core.data_policy import QUOTE_MEM_TTL_SECONDS, QUOTE_STALE_MAX_SECONDS
 from core.http_retry import requests_get_with_retry
 
 
@@ -16,11 +18,11 @@ class StockAPI:
     EM_PUSH_URL = "https://push2.eastmoney.com/api/qt/stock/get"
     EM_ULIST_URL = "https://push2.eastmoney.com/api/qt/ulist.np/get"
     EM_FIELDS = "f43,f44,f45,f46,f47,f48,f57,f58,f59,f60"
-    CACHE_TTL_SECONDS = 60
+    CACHE_TTL_SECONDS = QUOTE_MEM_TTL_SECONDS
     # 批量路径必须低于 /api/watching/quotes 的 wait_for；超时重试会占满默认线程池
     BATCH_HTTP_TIMEOUT = 4.0
     BATCH_HTTP_RETRIES = 1
-    STALE_CACHE_MAX_SECONDS = 1800
+    STALE_CACHE_MAX_SECONDS = QUOTE_STALE_MAX_SECONDS
 
     # 热门名称 → 腾讯行情符号
     STOCK_MAPPING = {
@@ -93,10 +95,12 @@ class StockAPI:
     }
 
     _cache: Dict[str, Tuple[float, dict]] = {}
+    _cache_lock = threading.RLock()
 
     @classmethod
     def clear_cache(cls):
-        cls._cache.clear()
+        with cls._cache_lock:
+            cls._cache.clear()
 
     @classmethod
     def resolve_symbol(cls, stock_code: str) -> Optional[str]:
@@ -156,7 +160,8 @@ class StockAPI:
                 ),
             }
 
-        cached = cls._cache.get(symbol)
+        with cls._cache_lock:
+            cached = cls._cache.get(symbol)
         now = time.time()
         if cached and now - cached[0] < cls.CACHE_TTL_SECONDS:
             result = dict(cached[1])
@@ -169,7 +174,8 @@ class StockAPI:
             try:
                 result = source_fn(stock_code, symbol)
                 if result.get("success"):
-                    cls._cache[symbol] = (now, dict(result))
+                    with cls._cache_lock:
+                        cls._cache[symbol] = (now, dict(result))
                     return result
                 last_error = result.get("error", last_error)
             except Exception as e:
@@ -184,7 +190,8 @@ class StockAPI:
 
     @classmethod
     def _fresh_cached(cls, symbol: str, *, now: float) -> Optional[dict]:
-        cached = cls._cache.get(symbol)
+        with cls._cache_lock:
+            cached = cls._cache.get(symbol)
         if not cached or now - cached[0] >= cls.CACHE_TTL_SECONDS:
             return None
         result = dict(cached[1])
@@ -194,7 +201,8 @@ class StockAPI:
     @classmethod
     def _stale_cached(cls, symbol: str, *, now: float) -> Optional[dict]:
         """TTL 过期但仍在窗口内的缓存；上游超时/失败时保底。"""
-        cached = cls._cache.get(symbol)
+        with cls._cache_lock:
+            cached = cls._cache.get(symbol)
         if not cached:
             return None
         ts, payload = cached
@@ -280,7 +288,8 @@ class StockAPI:
                         if found_code:
                             result = cls._parse_tencent_data(found_code, symbol, data)
                             if result.get("success"):
-                                cls._cache[symbol] = (now, dict(result))
+                                with cls._cache_lock:
+                                    cls._cache[symbol] = (now, dict(result))
                             results[found_code] = result
 
             # 确保所有请求的代码都有结果
@@ -599,7 +608,8 @@ class StockAPI:
                 continue
             parsed = cls._parse_em_data(code, sym, row)
             if parsed.get("success"):
-                cls._cache[sym] = (now, dict(parsed))
+                with cls._cache_lock:
+                    cls._cache[sym] = (now, dict(parsed))
                 out[code] = parsed
         return out
 

@@ -1,6 +1,6 @@
 /** Holdings sort helpers extracted from paper.js (W0.1). */
 
-import { resolveTradeScore, resolveCalTradeScore } from "./fmt.js?v=p1092";
+import { resolveTradeScore, resolveCalTradeScore } from "./fmt.js?v=p1128";
 
 export function loadHoldingsSort() {
   let key = "market_value";

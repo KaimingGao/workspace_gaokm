@@ -209,15 +209,15 @@ def build_topk_benchmark_summary(
     index_bars: List[dict] = []
     if not force_pool:
         try:
-            from core.ports.market import fetch_index_bars
+            from core.data_service import get_index_bars
 
-            raw = fetch_index_bars(code, limit=max(40, int(lookback) + 20))
-            if isinstance(raw, tuple):
+            raw = get_index_bars(code, limit=max(40, int(lookback) + 20))
+            if isinstance(raw, dict):
+                index_bars = list(raw.get("bars") or [])
+            elif isinstance(raw, tuple):
                 index_bars = list(raw[0] or [])
             elif isinstance(raw, list):
                 index_bars = raw
-            elif isinstance(raw, dict) and raw.get("success"):
-                index_bars = list(raw.get("bars") or raw.get("data") or [])
         except Exception as e:
             out["index_error"] = str(e)
 

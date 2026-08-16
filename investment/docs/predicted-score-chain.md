@@ -84,6 +84,8 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 ŷ_trade   = (w_eod·ŷ_EOD_rem + w_τ·ŷ_τ) / (w_eod+w_τ)     # 开盘排序 / 表列主分
 ```
 
+收盘后（`dual_score_window=eod_next`）：日线已完整，**不再从 ŷ_EOD 减当日缺口**（`ŷ_EOD_rem≈ŷ_EOD`）；表列 ŷ_trade **仍正交加权**。τ 买入闸与 nowcast 不吃当日 ŷ_τ（避免把当日 OC 融进下一期决策）。
+
 **硬规则**
 
 1. 两套字段并存；禁止用 τ 特征改写 `predicted_score` 却仍对账 EOD 标签。  
@@ -92,6 +94,22 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 4. **禁止** `ŷ_EOD_rem + ŷ_τ`：ŷ_τ 已是完整 OC 预估，再加 ŷ_EOD_rem 会双重计数。  
 5. **两套模型独立训练、互不依赖**。EOD 不进 rem 的标签/特征；rem 不残差化 EOD。ŷ_EOD_rem 只是映射，不是第三套模型。权重只在决策时合成 ŷ_trade。  
 6. **已知局限**：大跳空日 gap 信息可能在 ŷ_EOD（标签含隔夜）与 ŷ_τ（显式吃 gap）两端重叠；属信息相关而非训练耦合，权重可调。
+
+**Nowcast / Kalman（影子）**
+
+固定事件：终点钉在 T 收。状态是剩余收益 \(x(\tau)=\mathrm{close}[T]/\mathrm{price}[\tau]-1\)，**观测是该 τ 的模型 ŷ，不是 T 收**。顺序：EOD 先验 → open →（可选、已到达的）分钟 τ。每步先把 \(x,P\) 几何映到新窗，加过程噪声 \(Q\)，再用该步 ŷ 更新。同一 ŷ_τ 只观测一次（中间时钟只走时间、不加第二次观测）。
+
+- \(Q\)：`nowcast.q_process`；主题日 / `|gap|≥gap_q_trigger_pct` 放大（`theme_q_boost` / `gap_q_boost`，上限 4×）。不要再叠一层时间衰减权。
+- \(R\)：rem OOS `by_tau` → `by_theme`（当日 `theme_day`）→ `residual_var`。只用已落盘的前向 OOS，不用当日误差。
+- **EOD 先验 \(P_0\)**：`nowcast.prior_var` → 分组 `mean_holdout_rmse²`（`cluster_last_report`）→ `dual_score.eod_residual_var`。
+- **标签对齐**：分钟 as_of 时，若 rem 仍是 open→close，把 ŷ_τ 几何映到剩余窗再进 blend / Kalman；若 rem 已是 τ→close，禁止再映（防双重扣减）。`enable_minute_tau` 或已有 `ret_open_to_tau` 时自动把当前分钟时钟并进滤波路径。
+- 字段：`predicted_score_nowcast` / `nowcast_as_of` / `nowcast_revisions` / `nowcast_K` / `nowcast_x_prior`。**不覆盖** `predicted_score`。
+- 排序：默认仍 ŷ_trade（blend）。仅当 `nowcast.use_as_rank_key=true` 才改 `rank_key`（A3 门禁）。
+- 影子簿：`cluster_book_nowcast_shadow.json`；`meta.nordhaus_revision_slope` 为截面修正效率（接近 0 才考虑升主排序）。复盘：`/api/quant/score-review/nowcast-shadow` 与复盘页 N3 条。
+- `w_mode=kalman`：两点等价 Kalman 权（含同一套自适应 \(Q\)）；默认 `fixed`。
+- 网格：`nowcast.taus` 允许 `eod|open|09:45|14:00`；默认 `eod|open`。09:45 / 14:00 不叠用（无两段已实现则不虚构中间步）。分钟 τ 仍依赖 `enable_minute_tau`。
+
+实现：`core/signal/nowcast_kf.py`。
 
 **融合阶梯（摘要）**
 
@@ -105,7 +123,8 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 | P0 Z 齐套 | 刷簿池截面 + tip 合并 `features_tau`；启用后轻量刷簿；`features_tau_fill` | **已落地** |
 | P0 rem 满池 / 主题分层 OOS | `watching_limit` 默认 36；`oos.by_theme` | **已落地** |
 | P1 分钟 τ | 研究轨 `enable_minute_tau` + `tau_hm`；`sector_ret_to_tau`；默认仍关 | **接线已落地**（人审开开关后训） |
-| P2 融合补强 | `w_mode=theme_boost\|variance`；`predicted_score_tau_cascade` 影子 | **研究轨已落地**（默认 `w_mode=fixed`） |
+| P2 融合补强 | `w_mode=theme_boost\|variance\|kalman`；`predicted_score_tau_cascade` 影子 | **研究轨已落地**（默认 `w_mode=fixed`） |
+| **Nowcast / Kalman** | 顺序滤波 EOD→open→当前分钟 τ；自适应 \(Q\)；\(R\) 走 rem OOS 分层；Nordhaus 影子诊断 | **已落地**（默认 `taus=[eod,open]`；`use_as_rank_key=false`） |
 | **校准层 g(ŷ)** | 账本 Isotonic；tip/复盘对照；排序与买卖闸仍用 raw ŷ | **已接线**（方案 A；写入 live 后可读） |
 | **特征编码 raw_basis** | 动量/波动/估值：原始量+分档替代 0–100；影子对照 API | **试点已接线**（默认 `heuristic`；优则改 `scoring.feature_encoding` 后重跑分组） |
 | 分钟 τ 特征 | 缓存命中时写 `ret_open_to_tau` | **可选**（`enable_minute_tau`，默认关） |
@@ -262,7 +281,19 @@ score_stock(code) 续——
 
 ## 5. 回测链（TopK 历史）
 
-入口：研究枢纽 TopK 回测 · `backtest_topk_equal_weight`。
+入口：历史回测页 / 日报轻量摘要 · `backtest_topk_equal_weight`  
+（Web：`quant_service_replay`；日报：`summarize_portfolio_backtest`）。
+
+### 5.1 分数口径（与 live 不同 · 必读）
+
+| 项 | 历史 Top-K（本页 / 日报） | Live 纸面调仓 |
+|--|--|--|
+| 选股排序键 | **ŷ_EOD**（`predicted_score`） | **ŷ_trade**（blend） |
+| ŷ_τ 买入闸 | **关**（`apply_tau_buy_gate=False`） | 开（predicted 轨） |
+| ŷ_τ 字段 | 日线通常 **不可靠 / 常为空** | rem / 分钟特征可估 |
+| 原因 | 历史只有日线 PIT，无可靠分钟 τ；开闸易 0 笔 | 有开盘/盘中信息 |
+
+UI 已在历史回测页标明「排序 · ŷ_EOD」；勿把成交表当成 live 融合分。
 
 与契约对齐的部分：
 
@@ -277,6 +308,7 @@ score_stock(code) 续——
 | 验证对象 | 单票 ŷ 方向 vs \(r_h\) | 组合 TopK 净值 / 交易 |
 | 成交 | 概念上 close→close 标签 | 默认 `execution_mode=next_open`（信号日收盘决策，**次日开盘**成交） |
 | β | 冻结账本当时的 ŷ | 可注入 live 组 β，或回测内 walk-forward 重拟合 |
+| 排序 | 账本冻结 ŷ | **ŷ_EOD**（关 τ 闸） |
 
 UI 横轴说明（TopK）：权益曲线常标在持有期**结束日**；解读时勿与「决策日」混为一谈。
 

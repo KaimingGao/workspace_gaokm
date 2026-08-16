@@ -291,6 +291,12 @@ def _fit_one_head(
     full_ys = [float(p["realized"]) for p in pairs]
     kx_full, ky_full = isotonic_pav(full_xs, full_ys)
 
+    # S1：部署 knots 改用 train-only 拟合，避免 holdout 泄露；kx_full/ky_full 留存仅作研究对照
+    _kx_deploy = list(kx)
+    _ky_deploy = list(ky)
+    if not _kx_deploy:
+        _kx_deploy = list(kx_full)
+        _ky_deploy = list(ky_full)
     out = {
         "success": True,
         "head": head,
@@ -301,8 +307,10 @@ def _fit_one_head(
         "n_days": len(days),
         "train_days": sorted(train_days),
         "holdout_days": sorted(hold_days),
-        "knots_x": kx_full,
-        "knots_y": ky_full,
+        "knots_x": _kx_deploy,
+        "knots_y": _ky_deploy,
+        "knots_x_full": list(kx_full),
+        "knots_y_full": list(ky_full),
         "knots_x_train": kx,
         "knots_y_train": ky,
         "train_metrics": _eval(tr),
@@ -888,8 +896,20 @@ def attach_calibrated_scores(
     y_eod = _f(item.get("predicted_score_eod"))
     if y_eod is None:
         y_eod = _f(item.get("predicted_score"))
+    # 禁止把 heuristic 0–100 / 表列脏分当成 ŷ_EOD 做 g(·)
+    try:
+        from core.signal.dual_score import is_heuristic_score_scale
+
+        if is_heuristic_score_scale(item):
+            y_eod = None
+    except Exception:
+        pass
     if y_eod is None:
-        y_eod = _f(item.get("score"))
+        y_score = _f(item.get("score"))
+        if y_score is not None and abs(float(y_score)) <= 20:
+            y_eod = y_score
+    if y_eod is not None and abs(float(y_eod)) > 20:
+        y_eod = None
     y_tau = _f(item.get("predicted_score_tau"))
     if y_tau is None:
         y_tau = _f(item.get("score_rem"))

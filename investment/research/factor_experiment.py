@@ -14,10 +14,9 @@ if ROOT not in sys.path:
 
 from core.signal.factor_registry import list_factors, run_factor_experiment  # noqa: E402
 from core.data_service import bars_and_source as fetch_daily_bars  # noqa: E402
-from core.data_service import get_quote  # noqa: E402
+from core.data_service import get_quote, index_bars_and_source  # noqa: E402
 from core.ports.market import (  # noqa: E402
     default_benchmark,
-    fetch_index_bars,
     resolve_market_code,
 )
 
@@ -51,7 +50,7 @@ def main(argv=None) -> int:
         return 1
 
     market, _ = resolve_market_code(args.code)
-    index_bars, _ = fetch_index_bars(default_benchmark(market), limit=args.lookback + 35)
+    index_bars, _ = index_bars_and_source(default_benchmark(market), limit=args.lookback + 35)
     report = run_factor_experiment(
         bars,
         horizon_days=args.horizon,

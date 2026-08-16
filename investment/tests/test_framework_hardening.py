@@ -58,6 +58,40 @@ class TestPortsAdapters(unittest.TestCase):
                 offenders.append(str(rel))
         self.assertEqual(offenders, [])
 
+    def test_core_business_reads_via_data_service(self):
+        """DS-E5：业务模块不得直 import ports.query_quote / fetch_daily_bars。
+
+        允许：core/ports/*、core/data/ports.py（适配器）。
+        """
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1] / "core"
+        allow = {
+            Path("ports/market.py"),
+            Path("ports/__init__.py"),
+            Path("data/ports.py"),
+        }
+        patterns = [
+            re.compile(r"from\s+core\.ports\.market\s+import\s+[^\n]*\bquery_quote\b"),
+            re.compile(r"from\s+core\.ports\.market\s+import\s+[^\n]*\bfetch_daily_bars\b"),
+            re.compile(r"from\s+core\.ports\.market\s+import\s+[^\n]*\bbatch_query_quotes\b"),
+            re.compile(r"from\s+core\.ports\.market\s+import\s+[^\n]*\bfetch_index_bars\b"),
+            re.compile(r"from\s+core\.ports\.market\s+import\s+[^\n]*\bfetch_a_spot\b"),
+            re.compile(r"from\s+core\.ports\.market\s+import\s+[^\n]*\bbuild_news\b"),
+        ]
+        offenders = []
+        for path in root.rglob("*.py"):
+            rel = path.relative_to(root)
+            if rel in allow:
+                continue
+            text = path.read_text(encoding="utf-8")
+            for pat in patterns:
+                if pat.search(text):
+                    offenders.append(f"{rel}: {pat.pattern}")
+                    break
+        self.assertEqual(offenders, [])
+
     def test_quant_services_has_no_skills_imports(self):
         """H2：quant/services 不得直接 import skills（经 ports / services 门面）。"""
         from pathlib import Path

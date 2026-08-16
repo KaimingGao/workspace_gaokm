@@ -148,6 +148,7 @@ class QuantConfigMixin:
         min_predicted_score_tau: Optional[float] = None,
         w_eod: Optional[float] = None,
         w_tau: Optional[float] = None,
+        w_mode: Optional[str] = None,
         block_buy_if_tau_missing: Optional[bool] = None,
         note: str = "",
     ) -> Dict[str, Any]:
@@ -158,6 +159,7 @@ class QuantConfigMixin:
             min_predicted_score_tau=min_predicted_score_tau,
             w_eod=w_eod,
             w_tau=w_tau,
+            w_mode=w_mode,
             block_buy_if_tau_missing=block_buy_if_tau_missing,
             note=note,
         )

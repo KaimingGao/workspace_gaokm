@@ -74,10 +74,74 @@ class TestReturnScoreModel(unittest.TestCase):
             neutralize=False,
             rank_mode="predicted_score",
             return_model=model,
+            apply_tau_buy_gate=False,
         )
         self.assertEqual(meta["rank_mode"], "predicted_score")
         self.assertEqual(picks[0][0], "high")
         self.assertGreater(picks[0][1], picks[1][1])
+
+    def test_rank_by_eod_when_tau_gate_off(self):
+        """历史路径关 τ 闸：排序用 ŷ_EOD，不被近似 blend 倒序。"""
+        from unittest.mock import patch
+
+        model = ReturnScoreModel(
+            intercept=0.0,
+            coefficients={"momentum": 1.0},
+            standardized=False,
+        )
+        entries = [
+            {"stock_code": "low_eod", "sub_scores": {"momentum": 10.0}},
+            {"stock_code": "high_eod", "sub_scores": {"momentum": 80.0}},
+        ]
+
+        def _fake_attach(it, **_kwargs):
+            eod = float(it.get("predicted_score") or 0.0)
+            it["predicted_score_eod"] = eod
+            it["predicted_score_eod_rem"] = eod
+            # 故意把 blend 与 EOD 反序
+            if it.get("stock_code") == "low_eod":
+                it["predicted_score_tau"] = 9.0
+                it["predicted_score_blend"] = 9.0
+            else:
+                it["predicted_score_tau"] = 0.5
+                it["predicted_score_blend"] = 0.5
+            return it
+
+        cfg = {
+            "dual_score": {
+                "min_predicted_score_tau": 0.0,
+                "block_buy_if_tau_missing": False,
+                "w_eod": 0.0,
+                "w_tau": 1.0,
+            },
+            "cross_section": {"neutralize": False},
+        }
+        with patch(
+            "core.signal.dual_score.attach_dual_score_pit", side_effect=_fake_attach
+        ):
+            picks_blend, meta_blend = score_and_rank_watching(
+                [dict(x) for x in entries],
+                min_score=0.0,
+                config=cfg,
+                neutralize=False,
+                rank_mode="predicted_score",
+                return_model=model,
+                apply_tau_buy_gate=True,
+            )
+            picks_eod, meta_eod = score_and_rank_watching(
+                [dict(x) for x in entries],
+                min_score=0.0,
+                config=cfg,
+                neutralize=False,
+                rank_mode="predicted_score",
+                return_model=model,
+                apply_tau_buy_gate=False,
+            )
+        self.assertEqual(picks_blend[0][0], "low_eod")
+        self.assertEqual(meta_blend.get("rank_key"), "predicted_score_blend")
+        self.assertEqual(picks_eod[0][0], "high_eod")
+        self.assertTrue(meta_eod.get("rank_by_eod"))
+        self.assertEqual(meta_eod.get("rank_key"), "predicted_score_eod")
 
     def test_from_ols_skips_none_coefs(self):
         model = ReturnScoreModel.from_ols_report(

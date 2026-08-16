@@ -8,11 +8,12 @@ import {
   escapeText,
   fmtPct,
   metricCls,
-  fmtScore,
+  fmtTableScore,
   scoreCls,
   resolveTradeScore,
   resolveCalTradeScore,
-} from "./fmt.js?v=p1092";
+  isHeuristicScoreScale,
+} from "./fmt.js?v=p1128";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
 
 const ORIGIN_HINT = {
@@ -83,7 +84,6 @@ export function buildPaperHoldingsTableHtml({
   idPrefix = "paper-holdings",
   sentHtmlByCode = null,
 }) {
-  const fmtScoreLocal = fmtScore;
   const sentMap = sentHtmlByCode || {};
 
   function sortThHtml(label, key) {
@@ -121,16 +121,20 @@ export function buildPaperHoldingsTableHtml({
       const scoreCal = resolveCalTradeScore(h);
       const belowMin = !!h.below_min_score;
       const hardReject = !!h.hard_reject;
-      const scoreBase = fmtScoreLocal(score);
+      const scoreBase = fmtTableScore(h, score);
       let scoreShown =
         scoreBase !== "—" && belowMin ? `${scoreBase}↓` : scoreBase;
       if (scoreShown === "—" && hardReject) scoreShown = "拒";
-      const scoreCalShown = fmtScoreLocal(scoreCal);
+      const scoreCalShown = fmtTableScore(h, scoreCal);
       const scoreTitle = hardReject
         ? String(h.reject_reason || "硬拒绝 · 无收益分")
-        : belowMin
-          ? `低于ŷ_EOD门槛 ${h.min_score ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
-          : "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
+        : isHeuristicScoreScale(h)
+          ? score != null
+            ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
+            : "OOS 失败 · 无 ŷ% · tip 看 heuristic(0–100)"
+          : belowMin
+            ? `低于ŷ_EOD门槛 ${h.min_score ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
+            : "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
       const scoreCalOor = !!(
         h.score_calibration_eod_oor ||
         h.score_calibration_eod_rem_oor ||
@@ -178,6 +182,11 @@ export function buildPaperHoldingsTableHtml({
           predicted_score_eod: h.predicted_score_eod,
           predicted_score_eod_rem: h.predicted_score_eod_rem,
           predicted_score_tau_delta: h.predicted_score_tau_delta,
+          predicted_score_nowcast: h.predicted_score_nowcast,
+          dual_score_window: h.dual_score_window || null,
+          nowcast_as_of: h.nowcast_as_of || null,
+          nowcast_K: h.nowcast_K,
+          nowcast_q: h.nowcast_q,
           predicted_score_cal: h.predicted_score_cal,
           predicted_score_eod_rem_cal: h.predicted_score_eod_rem_cal,
           predicted_score_tau_cal: h.predicted_score_tau_cal,

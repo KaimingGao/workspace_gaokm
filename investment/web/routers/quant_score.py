@@ -101,6 +101,23 @@ def quant_score_review_tau_shadow(
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@router.get("/api/quant/score-review/nowcast-shadow")
+def quant_score_review_nowcast_shadow(
+    as_of: Optional[str] = None,
+    horizon_days: int = 1,
+    autofill: bool = True,
+):
+    """N3：ŷ_nowcast 影子簿验收（IC / 命中 / Nordhaus / vs EOD）。"""
+    try:
+        return deps.quant.build_nowcast_shadow_review(
+            as_of=as_of,
+            horizon_days=horizon_days,
+            autofill=autofill,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.post("/api/quant/score-review")
 def quant_score_review_post(body: ScoreReviewRequest):
     try:

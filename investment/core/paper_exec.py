@@ -17,7 +17,6 @@ from core.paper_costs import (
     resolve_cost_model,
 )
 from core.paper_sizing import _lot_shares
-from core.ports.market import fetch_daily_bars, query_quote
 
 from core.paper import (  # noqa: E402
     ORIGIN_LABELS,
@@ -28,6 +27,24 @@ from core.paper import (  # noqa: E402
     _quote_price,
     merge_origin,
 )
+
+
+def _bars_and_source(code: str, *, limit: int, **kwargs):
+    from core.data_service import bars_and_source
+
+    return bars_and_source(code, limit=limit, reject_quote_fallback=True, **kwargs)
+
+
+def _query_quote(code: str) -> dict:
+    from core.data_service import get_quote
+
+    return get_quote(str(code or "").strip())
+
+
+def _batch_query_quotes(codes: List[str]) -> Dict[str, Any]:
+    from core.data.service import get_default_service
+
+    return get_default_service().batch_get_quotes(codes) or {}
 
 
 def _quote_open(quote: dict) -> Optional[float]:
@@ -60,16 +77,14 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
     quotes_by_code: Dict[str, Any] = {}
     if codes:
         try:
-            from core.ports.market import batch_query_quotes
-
-            quotes_by_code = batch_query_quotes(codes) or {}
+            quotes_by_code = _batch_query_quotes(codes)
         except Exception:
             quotes_by_code = {}
     for h in holdings:
         code = h.get("stock_code")
         quote = quotes_by_code.get(str(code or "").strip()) if code else None
         if not isinstance(quote, dict):
-            quote = query_quote(str(code)) if code else {}
+            quote = _query_quote(str(code)) if code else {}
         price = _quote_price(quote) if quote.get("success") else None
         open_px = _quote_open(quote) if quote.get("success") else None
         shares = float(h.get("shares") or 0)
@@ -184,6 +199,11 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
     if peak > 0 and equity < peak:
         max_dd = max(max_dd, (peak - equity) / peak)
 
+    # 当前回撤（从峰值到当前净值；会随反弹收窄，用于风控恢复判断）
+    current_dd = 0.0
+    if peak > 0 and equity < peak:
+        current_dd = (peak - equity) / peak
+
     # E0：策略纯净净值 = 策略仓市值 + 按仓位占比分摊现金（混仓时归因近似）
     strat_bucket = origin_buckets.get(ORIGIN_STRATEGY) or {}
     strategy_stock_value = round(float(strat_bucket.get("market_value") or 0), 2)
@@ -283,6 +303,7 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
         "origin_summary": origin_summary,
         "invested_pct": invested_pct,
         "max_drawdown_pct": round(max_dd * 100.0, 2),
+        "current_drawdown_pct": round(current_dd * 100.0, 2),
         "cost_model": resolve_cost_model(paper),
     }
 
@@ -305,7 +326,7 @@ def manual_buy(
     if shares is not None and float(shares) <= 0:
         raise ValueError("股数须大于 0")
 
-    quote = query_quote(code)
+    quote = _query_quote(code)
     if not quote.get("success"):
         raise ValueError(quote.get("error") or f"无法获取 {code} 行情")
     raw_price = _quote_price(quote)
@@ -425,7 +446,25 @@ def manual_sell(
         else:
             sell_shares = held
 
-        quote = query_quote(code)
+        quote = _query_quote(code)
+        # R3 涨跌停/停牌卖出侧检查：跌停/停牌无法成交则跳过（保留持仓）
+        try:
+            from core.paper_rebalance import _sell_match_block_reason
+        except Exception:
+            _sell_match_block_reason = None
+        if _sell_match_block_reason is not None:
+            block_reason = _sell_match_block_reason(code, quote if isinstance(quote, dict) else {})
+        else:
+            block_reason = None
+        if block_reason:
+            # 保留整笔持仓不卖出（与 rebalance 路径一致：跌停/停牌不模拟成交）
+            paper.setdefault("operation_log", []).append({
+                "ts": _now_iso(),
+                "op": "manual_sell_skip",
+                "stock_code": code,
+                "reason": block_reason,
+            })
+            continue
         raw_price = _quote_price(quote) if quote.get("success") else None
         if not raw_price or raw_price <= 0:
             raw_price = float(h.get("cost") or 0)
@@ -554,7 +593,7 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
             item["skip_reason"] = f"评分{score}<{min_score:.1f}，不满足加仓阈值"
             continue
 
-        quote = query_quote(code)
+        quote = _query_quote(code)
         price = _quote_price(quote)
         if not price or price <= 0:
             item["skip_reason"] = "行情获取失败，无法加仓"
@@ -574,7 +613,7 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
             technical_info = None
             if use_technical_filter:
                 try:
-                    bars, _ = fetch_daily_bars(code, limit=60)
+                    bars, _ = _bars_and_source(code, limit=60)
                     if bars:
                         tech_passed, tech_info = check_technical_filters(bars, min_technical_score)
                         technical_info = tech_info
@@ -652,11 +691,11 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
             try:
                 from core.signal.factors.correlation import suggest_replacement
                 
-                new_bars, _ = fetch_daily_bars(code, limit=30)
+                new_bars, _ = _bars_and_source(code, limit=30)
                 existing_bars = {}
                 for h_code in held_codes:
                     try:
-                        bars, _ = fetch_daily_bars(h_code, limit=30)
+                        bars, _ = _bars_and_source(h_code, limit=30)
                         if bars:
                             existing_bars[h_code] = bars
                     except Exception:
@@ -675,7 +714,7 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
             # 技术指标过滤
             if use_technical_filter:
                 try:
-                    bars, _ = fetch_daily_bars(code, limit=60)
+                    bars, _ = _bars_and_source(code, limit=60)
                     if bars:
                         tech_passed, tech_info = check_technical_filters(bars, min_technical_score)
                         if not tech_passed:
@@ -830,7 +869,7 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
         if not code or shares <= 0:
             continue
 
-        quote = query_quote(code)
+        quote = _query_quote(code)
         price = _quote_price(quote) if quote.get("success") else None
         if not price or cost <= 0:
             kept.append(h)
@@ -865,7 +904,7 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
         
         # 1. 动态止损判断（最高优先级）
         try:
-            bars, _ = fetch_daily_bars(code, limit=30)
+            bars, _ = _bars_and_source(code, limit=30)
             if bars:
                 stop_triggered, _, stop_reason = should_stop_loss(
                     current_price=price,
@@ -906,6 +945,25 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
             kept.append(h)
             continue
 
+        # R3 涨跌停/停牌卖出侧检查：跌停/停牌无法成交则跳过（保留持仓）
+        try:
+            from core.paper_rebalance import _sell_match_block_reason
+        except Exception:
+            _sell_match_block_reason = None
+        if _sell_match_block_reason is not None:
+            block_reason = _sell_match_block_reason(code, quote if isinstance(quote, dict) else {})
+        else:
+            block_reason = None
+        if block_reason:
+            paper.setdefault("operation_log", []).append({
+                "ts": _now_iso(),
+                "op": "simulate_sells_skip",
+                "stock_code": code,
+                "reason": block_reason,
+                "note": f"纸面模拟卖出被跳过：{reason}",
+            })
+            kept.append(h)
+            continue
         fill_px = apply_fill_price(
             "sell", float(price), model=cost_model, params=fee_params
         )

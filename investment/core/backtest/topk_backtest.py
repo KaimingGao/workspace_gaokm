@@ -14,6 +14,73 @@ from core.backtest.engine import _mock_quote_from_bars, _trade_metrics
 WEIGHT_MODES = ("equal", "score_budget", "risk_parity_lite")
 
 
+def _fill_sample_score_fields(
+    rank_score: Any, tip_kw: Optional[Dict[str, Any]] = None
+) -> Dict[str, Any]:
+    """成交样本分数字段：score/predicted=ŷ%；heuristic 另存，不混进 ŷ 列。"""
+    tip = tip_kw if isinstance(tip_kw, dict) else {}
+    heu = tip.get("heuristic_score")
+    try:
+        heu_f = float(heu) if heu is not None else None
+    except (TypeError, ValueError):
+        heu_f = None
+    pred = tip.get("predicted_score")
+    blend = tip.get("predicted_score_blend")
+    try:
+        from core.signal.score_display import looks_like_legacy_heuristic_score
+
+        def _yhat_or_none(v: Any) -> Optional[float]:
+            if v is None or v == "":
+                return None
+            try:
+                f = float(v)
+            except (TypeError, ValueError):
+                return None
+            if looks_like_legacy_heuristic_score(f):
+                return None
+            return f
+
+    except Exception:
+
+        def _yhat_or_none(v: Any) -> Optional[float]:
+            if v is None or v == "":
+                return None
+            try:
+                f = float(v)
+            except (TypeError, ValueError):
+                return None
+            return None if abs(f) >= 10.0 else f
+
+    yhat = _yhat_or_none(rank_score)
+    if yhat is None:
+        yhat = _yhat_or_none(blend)
+    if yhat is None:
+        yhat = _yhat_or_none(pred)
+    if heu_f is None:
+        # 排序分若是 0–100，回收为 heuristic
+        try:
+            rs = float(rank_score) if rank_score is not None else None
+        except (TypeError, ValueError):
+            rs = None
+        if rs is not None:
+            try:
+                from core.signal.score_display import looks_like_legacy_heuristic_score
+
+                if looks_like_legacy_heuristic_score(rs):
+                    heu_f = rs
+            except Exception:
+                if abs(rs) >= 10.0:
+                    heu_f = rs
+    out: Dict[str, Any] = {
+        "score": yhat,
+        "predicted_score": _yhat_or_none(pred) if pred is not None else yhat,
+        "predicted_score_blend": _yhat_or_none(blend) if blend is not None else yhat,
+    }
+    if heu_f is not None:
+        out["heuristic_score"] = round(heu_f, 4)
+    return out
+
+
 def _close_return_pct(
     date_maps: Dict[str, Dict[str, dict]],
     code: str,
@@ -150,12 +217,35 @@ def _score_tooltip_meta(
     out["return_model_source"] = rms
 
     pred = item.get("predicted_score")
-    if pred is None and score is not None:
-        pred = score
+    # 禁止把 heuristic 0–100 排序分写进 predicted_score
+    try:
+        from core.signal.score_display import looks_like_legacy_heuristic_score
+
+        if pred is None and score is not None and not looks_like_legacy_heuristic_score(
+            float(score) if score is not None else None
+        ):
+            pred = score
+    except Exception:
+        if pred is None and score is not None:
+            try:
+                if abs(float(score)) < 10.0:
+                    pred = score
+            except (TypeError, ValueError):
+                pass
     try:
         out["predicted_score"] = float(pred) if pred is not None else None
+        if out["predicted_score"] is not None:
+            from core.signal.score_display import looks_like_legacy_heuristic_score
+
+            if looks_like_legacy_heuristic_score(out["predicted_score"]):
+                out["predicted_score"] = None
     except (TypeError, ValueError):
         out["predicted_score"] = None
+    except Exception:
+        try:
+            out["predicted_score"] = float(pred) if pred is not None else None
+        except (TypeError, ValueError):
+            out["predicted_score"] = None
 
     if model is not None:
         try:
@@ -626,6 +716,7 @@ def backtest_topk_equal_weight(
     return_models_by_code: Optional[Dict[str, Any]] = None,
     use_live_cluster_models: bool = True,
     allow_heuristic_baseline: bool = False,
+    apply_tau_buy_gate: bool = True,
 ) -> Dict[str, Any]:
     """
     多票横截面：每个调仓日对 watching 打分，持有 TopK，持有 horizon_days。
@@ -637,6 +728,7 @@ def backtest_topk_equal_weight(
       - heuristic_score：人工线性加权 0–100（仅研究 OOS 基线；须 allow_heuristic_baseline）
 
     return_models_by_code / use_live_cluster_models：研究 OOS 注入组 β，避免串 live。
+    apply_tau_buy_gate：组内研究 OOS 应 False（只比 EOD 组 β，不套 live ŷ_τ 闸）。
     """
     from core.backtest.attribution import attribute_portfolio_trades
     from core.backtest.matching import (
@@ -770,15 +862,19 @@ def backtest_topk_equal_weight(
             try:
                 from core.signal.cluster_live import (
                     cluster_yhat_shadow_compute_allowed,
+                    filter_primary_cluster_models_by_code,
                     get_cluster_scoring_cfg,
                     load_cluster_return_models_by_code,
                 )
 
                 # 历史回测对齐数据中心：shadow|active 均可算组 ŷ（与 insights 同源）。
                 # 纸面 live 主排序仍仅 active（FH0）；此处不放开 paper。
+                # OOS 失败组主分与 live 对齐：从 by_code 剔除，回退全局模型。
                 cs = get_cluster_scoring_cfg()
                 if cluster_yhat_shadow_compute_allowed(str(cs.get("mode") or "off")):
-                    cluster_return_models = load_cluster_return_models_by_code()
+                    cluster_return_models = filter_primary_cluster_models_by_code(
+                        load_cluster_return_models_by_code()
+                    )
                 else:
                     cluster_return_models = {}
             except Exception:
@@ -890,6 +986,7 @@ def backtest_topk_equal_weight(
             min_predicted_score=min_predicted_score,
             allow_heuristic_baseline=allow_heuristic_baseline
             or resolved_rank_mode == "heuristic_score",
+            apply_tau_buy_gate=bool(apply_tau_buy_gate),
         )
         if resolved_rank_mode == "heuristic_score":
             pred_rank_rebalances += 0
@@ -1005,15 +1102,74 @@ def backtest_topk_equal_weight(
                 "dual_score_fusion": scored_item.get("dual_score_fusion"),
                 "dual_score_weights": scored_item.get("dual_score_weights"),
             }
-            # 表列 score = 融合分（排序键 = raw ŷ_trade）；*_cal 仅 tip
-            rank_score = tip_kw.get("predicted_score_blend")
-            if rank_score is None:
-                rank_score = score
-            else:
+            # 表列 / 成交样本 score：只保留 ŷ%；heuristic 排序分另存
+            if str(scored_item.get("rank_key") or "") == "predicted_score_eod":
                 try:
-                    rank_score = float(rank_score)
+                    rank_score = float(score)
                 except (TypeError, ValueError):
                     rank_score = score
+            else:
+                try:
+                    from core.signal.dual_score import decision_score_for_item
+
+                    rank_score = decision_score_for_item(scored_item)
+                except Exception:
+                    rank_score = tip_kw.get("predicted_score_blend")
+                if rank_score is None:
+                    rank_score = tip_kw.get("predicted_score_blend")
+                if rank_score is None:
+                    rank_score = tip_kw.get("predicted_score")
+                if rank_score is None:
+                    rank_score = score
+                else:
+                    try:
+                        rank_score = float(rank_score)
+                    except (TypeError, ValueError):
+                        rank_score = score
+            try:
+                from core.signal.score_display import looks_like_legacy_heuristic_score
+
+                rs_f = float(rank_score) if rank_score is not None else None
+            except (TypeError, ValueError):
+                rs_f = None
+                looks_like_legacy_heuristic_score = lambda v: False  # type: ignore
+            heu_rank = None
+            if rs_f is not None and looks_like_legacy_heuristic_score(rs_f):
+                heu_rank = rs_f
+                rank_score = tip_kw.get("predicted_score") or scored_item.get(
+                    "score_cluster"
+                )
+                try:
+                    if rank_score is not None:
+                        rank_score = float(rank_score)
+                        if looks_like_legacy_heuristic_score(rank_score):
+                            rank_score = None
+                except (TypeError, ValueError):
+                    rank_score = None
+            if heu_rank is not None and tip_kw.get("heuristic_score") is None:
+                tip_kw["heuristic_score"] = heu_rank
+            if scored_item.get("heuristic_score") is not None:
+                tip_kw["heuristic_score"] = scored_item.get("heuristic_score")
+            # tip 同步对齐后的 blend，避免成交表悬停仍见塌缩 EOD
+            if rank_score is not None and (
+                tip_kw.get("predicted_score_blend") is None
+                or (
+                    tip_kw.get("predicted_score_tau") is not None
+                    and tip_kw.get("predicted_score") is not None
+                    and tip_kw.get("predicted_score_blend") is not None
+                    and abs(
+                        float(tip_kw["predicted_score_blend"])
+                        - float(tip_kw["predicted_score"])
+                    )
+                    < 1e-9
+                    and abs(
+                        float(tip_kw["predicted_score_tau"])
+                        - float(tip_kw["predicted_score"])
+                    )
+                    > 1e-6
+                )
+            ):
+                tip_kw["predicted_score_blend"] = rank_score
             dm = date_maps[code]
             entry_bar = dm.get(entry_date)
             if not entry_bar:
@@ -1049,7 +1205,7 @@ def backtest_topk_equal_weight(
                         "signal_date": signal_date,
                         "entry_date": entry_date,
                         "stock_code": code,
-                        "score": rank_score,
+                        **_fill_sample_score_fields(rank_score, tip_kw),
                         "intent_price": intent_f,
                         "fill_price": None,
                         "exit_price": None,
@@ -1107,7 +1263,7 @@ def backtest_topk_equal_weight(
                     "signal_date": signal_date,
                     "entry_date": entry_date,
                     "stock_code": code,
-                    "score": rank_score,
+                    **_fill_sample_score_fields(rank_score, tip_kw),
                     "intent_price": intent_f,
                     "fill_price": fill_f,
                     "exit_price": None,
@@ -1160,6 +1316,7 @@ def backtest_topk_equal_weight(
                 {
                     "stock_code": code,
                     "score": rank_score,
+                    "heuristic_score": tip_kw.get("heuristic_score"),
                     "score_formula": score_formula,
                     "score_formula_terms": tip_kw.get("score_formula_terms"),
                     "factor_coefficients": tip_kw.get("factor_coefficients") or {},
@@ -1229,7 +1386,7 @@ def backtest_topk_equal_weight(
                     "entry_date": entry_date,
                     "exit_date": exit_date,
                     "stock_code": code,
-                    "score": rank_score,
+                    **_fill_sample_score_fields(rank_score, tip_kw),
                     "intent_price": round(intent_f, 4) if intent_f is not None else None,
                     "fill_price": round(entry_f, 4) if entry_f is not None else None,
                     "exit_price": round(exit_f, 4) if exit_f is not None else None,
@@ -1449,6 +1606,7 @@ def backtest_topk_equal_weight(
             "dropout_n": dropout_n,
             "rank_mode": resolved_rank_mode,
             "min_predicted_score": min_predicted_score,
+            "apply_tau_buy_gate": bool(apply_tau_buy_gate),
             "return_model_source": (
                 "cluster_group_beta"
                 if cluster_return_models

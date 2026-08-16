@@ -83,7 +83,8 @@ class TestDataCoverage(unittest.TestCase):
         with patch("core.data_coverage.universe_codes", return_value=[]):
             cov = build_data_coverage([])
         self.assertEqual(cov["total"], 0)
-        self.assertEqual(cov["coverage"], 1.0)
+        self.assertEqual(cov["coverage"], None)
+        self.assertTrue(cov.get("empty_universe"))
 
     def test_missing_codes_alert(self):
         from core.data_coverage import build_data_coverage
@@ -120,8 +121,18 @@ class TestIncrementalFetch(unittest.TestCase):
         ), patch(
             "skills.common.history.fetch_a_daily_bars", return_value=incoming
         ) as fetch, patch(
-            "skills.common.history.save_daily_cache"
-        ) as save, patch.dict(os.environ, {"INVESTMENT_DISABLE_CACHE": ""}):
+            "skills.common.history.merge_save_daily_cache"
+        ) as save, patch(
+            "core.store.peek_daily_cache_meta",
+            return_value={"adjust_policy": "qfq"},
+        ), patch.dict(os.environ, {"INVESTMENT_DISABLE_CACHE": ""}):
+            def _ms(market, code, bars, **kwargs):
+                from core.store import merge_bars_by_date
+
+                merged = merge_bars_by_date(existing, bars)
+                return "/tmp/x", merged
+
+            save.side_effect = _ms
             bars, src = hist.fetch_daily_bars(
                 "600519",
                 limit=10,
@@ -168,7 +179,8 @@ class TestIncrementalFetch(unittest.TestCase):
         ), patch(
             "skills.common.history.fetch_a_daily_bars", return_value=incoming
         ) as fetch, patch(
-            "skills.common.history.save_daily_cache"
+            "skills.common.history.merge_save_daily_cache",
+            side_effect=lambda market, code, bars, **kw: ("/tmp/x", bars),
         ), patch(
             "core.store.peek_daily_cache_meta",
             return_value={"adjust_policy": "qfq"},

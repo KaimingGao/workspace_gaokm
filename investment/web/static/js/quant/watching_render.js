@@ -112,6 +112,11 @@ export function watchingScoreDetail(it) {
     predicted_score_eod: it && it.predicted_score_eod,
     predicted_score_eod_rem: it && it.predicted_score_eod_rem,
     predicted_score_tau_delta: it && it.predicted_score_tau_delta,
+    predicted_score_nowcast: it && it.predicted_score_nowcast,
+    dual_score_window: (it && it.dual_score_window) || null,
+    nowcast_as_of: (it && it.nowcast_as_of) || null,
+    nowcast_K: it && it.nowcast_K,
+    nowcast_q: it && it.nowcast_q,
     // 校准对照：靠前写入，避免属性过长截断
     predicted_score_cal: it && it.predicted_score_cal,
     predicted_score_eod_rem_cal: it && it.predicted_score_eod_rem_cal,
@@ -149,6 +154,8 @@ export function watchingScoreDetail(it) {
     min_score: it && it.min_score,
     below_min_score: !!(it && it.below_min_score),
     return_model_source: (it && it.return_model_source) || "",
+    score_scale: (it && it.score_scale) || "",
+    heuristic_score: it && it.heuristic_score,
     formula_terms: terms,
     factor_coefficients: coefs,
     sentiment_include_in_score: sentInc,
@@ -436,8 +443,9 @@ export function buildWatchingWatchRows(wl, names, paperCodes, scores, deps) {
     if (!code) continue;
     const name = (names[i] && String(names[i]).trim()) || "—";
     const scoreRaw = scores && scores[code];
-    const scoreNum =
+    const rawN =
       scoreRaw == null || Number.isNaN(Number(scoreRaw)) ? null : Number(scoreRaw);
+    const scoreNum = rawN != null && Math.abs(rawN) <= 20 ? rawN : null;
     const onPaper = inPaper.has(code);
     const heldShares = onPaper ? inPaper.get(code) : null;
     rowByCode.set(code, {

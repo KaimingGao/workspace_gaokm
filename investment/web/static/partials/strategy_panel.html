@@ -118,7 +118,7 @@
         <p class="strategy-prior-contract" role="note">
           <span class="strategy-prior-contract-k">契约</span>
           ŷ_EOD_rem = (1+ŷ_EOD)/(1+开盘缺口)−1，与 ŷ_τ 同为 T收/T开。簿排序键 =
-          <code>w_EOD·ŷ_EOD_rem + w_τ·ŷ_τ</code>。数据中心 / 交易执行表列主分为
+          <code>w_EOD·ŷ_EOD_rem + w_τ·ŷ_τ</code>。Kalman nowcast（ŷ_nowcast）为影子对照，默认不改主排序。数据中心 / 交易执行表列主分为
           <code>ŷ_trade</code>；买入另须 ŷ_EOD ≥ 门槛且 ŷ_τ ≥ τ 闸。
         </p>
         <div class="quant-control-band strategy-control-band" aria-label="融合分数">
@@ -146,6 +146,15 @@
                 class="platform-input"
                 title="w_tau"
               />
+            </label>
+            <label class="platform-field strategy-inline-field" title="决策层合成权">
+              <span class="strategy-field-label">w 模式</span>
+              <select id="strategy-dual-w-mode" class="platform-input" title="w_mode">
+                <option value="fixed">fixed</option>
+                <option value="theme_boost">theme_boost</option>
+                <option value="variance">variance</option>
+                <option value="kalman">kalman</option>
+              </select>
             </label>
             <label class="platform-field strategy-inline-field" title="ŷ_τ ≥ 此值才买入">
               <span class="strategy-field-label">τ 闸 ≥</span>

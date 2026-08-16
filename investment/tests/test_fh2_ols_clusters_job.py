@@ -147,6 +147,34 @@ class TestFh2OlsClustersJob(unittest.TestCase):
             self.assertTrue(slot.touch(job_id=jid))
             self.assertLess(slot.stale_seconds() or 99, 5)
 
+    def test_finish_sanitizes_non_finite_floats(self):
+        """Starlette allow_nan=False：Job result 不得残留 ±inf/NaN。"""
+        import json
+
+        from core.job_progress import JobProgress
+        from core.signal.score_display import json_safe
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "j.json")
+            slot = JobProgress(name="quant-ols-clusters", persist_path=path)
+            jid = slot.start(kind="factor_ols_clusters", total=3, message="run")
+            dirty = {
+                "success": True,
+                "n_clusters": 2,
+                "loss": float("nan"),
+                "ic": float("inf"),
+                "nested": {"sharpe": float("-inf"), "ok": True},
+            }
+            self.assertTrue(slot.finish(result=dirty, job_id=jid))
+            with slot._lock:
+                result = dict(slot._job.get("result") or {})
+            self.assertIsNone(result.get("loss"))
+            self.assertIsNone(result.get("ic"))
+            self.assertIsNone((result.get("nested") or {}).get("sharpe"))
+            self.assertTrue((result.get("nested") or {}).get("ok"))
+            payload = json_safe({"ok": True, "job": {"result": result}})
+            json.dumps(payload, allow_nan=False)
+
 
 if __name__ == "__main__":
     unittest.main()

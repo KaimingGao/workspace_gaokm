@@ -279,5 +279,72 @@ class TestSupplementHoldingScores(unittest.TestCase):
         self.assertTrue(out[0].get("holding_supplement"))
 
 
+class TestClusterBookShockInvalidate(unittest.TestCase):
+    def test_shock_reason_detects_wide_moves(self):
+        from core.paper_rebalance_orchestrator import _cluster_book_market_shock_reason
+
+        book = [{"stock_code": f"00000{i}"} for i in range(4)]
+        quotes = {
+            "000000": {"success": True, "change_raw": 6.0},
+            "000001": {"success": True, "change_raw": -7.0},
+            "000002": {"success": True, "change_raw": 0.5},
+            "000003": {"success": True, "change_raw": 1.0},
+        }
+        with patch(
+            "core.ports.market.batch_query_quotes", return_value=quotes
+        ):
+            reason = _cluster_book_market_shock_reason(book, shock_frac=0.4)
+        self.assertIsNotNone(reason)
+        self.assertIn("book_shock", str(reason))
+
+    def test_reuse_skips_on_shock(self):
+        from datetime import datetime, timezone
+
+        from core.paper_rebalance_orchestrator import try_reuse_active_cluster_book
+
+        doc = {
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "book": [{"stock_code": "600519", "score": 1.0}],
+            "meta": {"version": "v1"},
+            "scored_all": [],
+        }
+        quotes = {"600519": {"success": True, "change_raw": 9.8}}
+        with patch(
+            "core.signal.cluster_live.load_active_cluster_book", return_value=doc
+        ), patch(
+            "core.signal.cluster_live.load_active_cluster_weights",
+            return_value={"version": "v1"},
+        ), patch(
+            "core.ports.market.batch_query_quotes", return_value=quotes
+        ):
+            out = try_reuse_active_cluster_book()
+        self.assertIsNone(out)
+
+    def test_reuse_ok_when_quiet(self):
+        from datetime import datetime, timezone
+
+        from core.paper_rebalance_orchestrator import try_reuse_active_cluster_book
+
+        book = [{"stock_code": "600519", "score": 1.0}]
+        doc = {
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "book": book,
+            "meta": {"version": "v1", "max_names": 1},
+            "scored_all": book,
+        }
+        quotes = {"600519": {"success": True, "change_raw": 0.4}}
+        with patch(
+            "core.signal.cluster_live.load_active_cluster_book", return_value=doc
+        ), patch(
+            "core.signal.cluster_live.load_active_cluster_weights",
+            return_value={"version": "v1"},
+        ), patch(
+            "core.ports.market.batch_query_quotes", return_value=quotes
+        ):
+            out = try_reuse_active_cluster_book()
+        self.assertIsNotNone(out)
+        self.assertTrue(out.get("from_cache"))
+
+
 if __name__ == "__main__":
     unittest.main()

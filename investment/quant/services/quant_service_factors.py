@@ -25,7 +25,8 @@ _CLUSTER_STAGE_RULES: "List[Tuple[str, int, int]]" = [
     ("拉指数", 2, 13),
     # 3：单票拟合
     ("拟合", 3, 13),
-    # 4：聚类定组
+    # 4：聚类定组 / auto-k 选区
+    ("选区", 4, 13),
     ("聚类", 4, 13),
     # 5：组池 OLS
     ("组池 OLS", 5, 13),
@@ -123,8 +124,9 @@ class QuantFactorMixin:
         lookback: int = 120,
     ) -> Dict[str, Any]:
         from quant.research.factor_report import compute_factor_ic_report
-        from core.data_service import bars_and_source, get_quote
-        from core.ports.market import default_benchmark, fetch_index_bars, resolve_market_code
+        from core.data_service import bars_and_source_research as bars_and_source, get_quote
+        from core.data_service import index_bars_and_source
+        from core.ports.market import default_benchmark, resolve_market_code
 
         quote = get_quote(code)
         sym = quote.get("stock_code") if quote.get("success") else code
@@ -135,7 +137,7 @@ class QuantFactorMixin:
             return {"success": False, "error": f"无法获取 {code} 日线"}
 
         market, _ = resolve_market_code(code)
-        index_bars, _ = fetch_index_bars(default_benchmark(market), limit=lookback + 35)
+        index_bars, _ = index_bars_and_source(default_benchmark(market), limit=lookback + 35)
         fundamentals = self._experiment_fundamentals(code, sym)
         report = compute_factor_ic_report(
             bars,
@@ -170,8 +172,9 @@ class QuantFactorMixin:
         horizon_days: int = 3,
     ) -> Dict[str, Any]:
         from core.signal.factor_registry import run_factor_experiment
-        from core.data_service import bars_and_source, get_quote
-        from core.ports.market import default_benchmark, fetch_index_bars, resolve_market_code
+        from core.data_service import bars_and_source_research as bars_and_source, get_quote
+        from core.data_service import index_bars_and_source
+        from core.ports.market import default_benchmark, resolve_market_code
 
         quote = get_quote(code)
         sym = quote.get("stock_code") if quote.get("success") else code
@@ -182,7 +185,7 @@ class QuantFactorMixin:
             return {"success": False, "error": f"无法获取 {code} 日线"}
 
         market, _ = resolve_market_code(code)
-        index_bars, _ = fetch_index_bars(default_benchmark(market), limit=lookback + 35)
+        index_bars, _ = index_bars_and_source(default_benchmark(market), limit=lookback + 35)
         fundamentals = self._experiment_fundamentals(code, sym)
         report = run_factor_experiment(
             bars,
@@ -213,8 +216,9 @@ class QuantFactorMixin:
         ridge_lambda: float = 0.0,
     ) -> Dict[str, Any]:
         from quant.research.factor_ols import compute_factor_ols_report
-        from core.data_service import bars_and_source, get_quote
-        from core.ports.market import default_benchmark, fetch_index_bars, resolve_market_code
+        from core.data_service import bars_and_source_research as bars_and_source, get_quote
+        from core.data_service import index_bars_and_source
+        from core.ports.market import default_benchmark, resolve_market_code
 
         quote = get_quote(code)
         sym = quote.get("stock_code") if quote.get("success") else code
@@ -225,7 +229,7 @@ class QuantFactorMixin:
             return {"success": False, "error": f"无法获取 {code} 日线", "task": "factor_ols"}
 
         market, _ = resolve_market_code(code)
-        index_bars, _ = fetch_index_bars(default_benchmark(market), limit=lookback + 35)
+        index_bars, _ = index_bars_and_source(default_benchmark(market), limit=lookback + 35)
         fundamentals = self._experiment_fundamentals(code, sym)
         report = compute_factor_ols_report(
             bars,
@@ -407,8 +411,9 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """研究池多票堆叠时序 OLS（显式触发；不写 config）。"""
         from quant.research.factor_ols import compute_factor_ols_pooled_report
-        from core.data_service import bars_and_source, get_quote
-        from core.ports.market import default_benchmark, fetch_index_bars, resolve_market_code
+        from core.data_service import bars_and_source_research as bars_and_source, get_quote
+        from core.data_service import index_bars_and_source
+        from core.ports.market import default_benchmark, resolve_market_code
         from core.watching_store import read_watching
 
         uni = read_watching()
@@ -435,7 +440,7 @@ class QuantFactorMixin:
                 panels.append({"code": str(sym), "bars": []})
                 continue
             market, _ = resolve_market_code(code)
-            index_bars, _ = fetch_index_bars(
+            index_bars, _ = index_bars_and_source(
                 default_benchmark(market), limit=lookback + 35
             )
             fundamentals = self._experiment_fundamentals(code, sym)
@@ -782,18 +787,36 @@ class QuantFactorMixin:
                 msg_out = _with_stage_prefix(msg)
             except Exception:
                 msg_out = msg
-            # 映射到 job：前 80% = 拉日线+拟合；后 20% = OOS/分池
+            # 映射到 job（须单调：选区结束后勿掉回 1%）
+            # 0–40% 拉日线 · 40–80% 拟合/选区 · 80–99% 组池及之后
             t = max(1, int(tot or n_watch or 1))
             c = max(0, int(cur or 0))
-            if "OOS" in msg or "分池" in msg or "组池" in msg or "聚类" in msg:
-                mapped = int(job_total * 0.8) + min(
-                    int(job_total * 0.2) - 1, max(1, c)
-                )
-            elif "拟合" in msg:
-                mapped = int(job_total * 0.4) + int((job_total * 0.4) * min(1.0, c / t))
+            within = min(1.0, c / t)
+            msg_s = str(msg or "")
+            late_keys = (
+                ("收尾", 7),
+                ("多权", 6),
+                ("组内", 5),
+                ("OOS", 4),
+                ("分池", 4),
+                ("扩展窗", 3),
+                ("贪心", 2),
+                ("组池", 1),
+                ("聚类", 0),
+            )
+            late_idx = next((i for k, i in late_keys if k in msg_s), None)
+            if "选区" in msg_s:
+                mapped = int(job_total * 0.4) + int(job_total * 0.4 * within)
+            elif late_idx is not None:
+                frac = (late_idx + within) / 8.0
+                mapped = int(job_total * 0.8) + int(job_total * 0.19 * frac)
+            elif "拟合" in msg_s:
+                mapped = int(job_total * 0.4) + int(job_total * 0.4 * within)
+            elif "合并宇宙" in msg_s:
+                mapped = max(1, int(job_total * 0.02))
             else:
-                # 拉日线
-                mapped = int((job_total * 0.4) * min(1.0, c / t))
+                # 拉日线 / 拉指数
+                mapped = int(job_total * 0.4 * within)
             quant_ols_clusters_job.update(
                 current=max(1, min(job_total - 1, mapped)),
                 total=job_total,
@@ -1036,7 +1059,7 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """研究池逐因子日频截面 IC（S1；显式触发，不写 config）。"""
         from core.backtest.factor_cs_ic import compute_factor_cross_section_ic
-        from core.data_service import bars_and_source, get_quote
+        from core.data_service import bars_and_source_research as bars_and_source, get_quote
         from core.watching_store import read_watching
 
         uni = read_watching()
@@ -1184,7 +1207,7 @@ class QuantFactorMixin:
         pit_fundamentals: bool = True,
     ) -> Dict[str, Any]:
         """FS2：观察池 alt_sentiment as_of TS IC（研究只读；不改 live 闸）。"""
-        from core.data_service import bars_and_source, get_quote
+        from core.data_service import bars_and_source_research as bars_and_source, get_quote
         from core.research.sentiment_ic import summarize_alt_sentiment_ic_pool
         from core.watching_store import read_watching
 
@@ -1263,7 +1286,7 @@ class QuantFactorMixin:
             suggest_stance_thresholds_from_watching_oos,
         )
         from core.watching_store import read_watching
-        from core.data_service import bars_and_source, get_quote
+        from core.data_service import bars_and_source_research as bars_and_source, get_quote
 
         if use_watching:
             try:
@@ -1534,6 +1557,12 @@ def _save_last_cluster_report(report: Dict[str, Any]) -> None:
         report_copy = dict(report)
     for k in ("progress_cb", "_progress_cb"):
         report_copy.pop(k, None)
+    try:
+        from core.signal.score_display import json_safe
+
+        report_copy = json_safe(report_copy)
+    except Exception:
+        pass
     doc = {
         "saved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "report": report_copy,

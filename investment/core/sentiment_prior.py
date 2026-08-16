@@ -251,6 +251,58 @@ def should_soft_hold_from_sentiment(prior: Optional[dict]) -> bool:
     return False
 
 
+def prior_wants_scale_hold(prior: Optional[dict]) -> bool:
+    """当前先验是否仍要求已持仓缩仓。"""
+    if not isinstance(prior, dict) or not prior.get("active"):
+        return False
+    for act in prior.get("actions") or []:
+        if act.get("type") == "scale_hold":
+            return True
+    return False
+
+
+def apply_prior_restore_hold(
+    prior: Optional[dict],
+    *,
+    current_shares: float,
+    base_shares: Optional[float],
+    lot: int = 100,
+) -> Dict[str, Any]:
+    """舆情缩仓后若先验已不再要求 scale_hold，则补回至 base_shares。
+
+    返回 {restore, buy_shares, target_shares, reason, clear_base}。
+    """
+    cur = float(current_shares or 0)
+    try:
+        base = float(base_shares) if base_shares is not None else None
+    except (TypeError, ValueError):
+        base = None
+    empty = {
+        "restore": False,
+        "buy_shares": 0.0,
+        "target_shares": cur,
+        "reason": None,
+        "clear_base": False,
+    }
+    if base is None or base <= cur + 1e-9:
+        # 已回到或超过基准 → 清掉标记
+        return {**empty, "clear_base": base is not None and base <= cur + 1e-9}
+    if prior_wants_scale_hold(prior):
+        return empty
+    lot_n = max(1, int(lot or 100))
+    need = base - cur
+    buy = float(int(need // lot_n) * lot_n)
+    if buy < lot_n:
+        return empty
+    return {
+        "restore": True,
+        "buy_shares": buy,
+        "target_shares": cur + buy,
+        "reason": "sentiment_prior_restore",
+        "clear_base": abs((cur + buy) - base) < lot_n,
+    }
+
+
 def apply_prior_to_buy(
     prior: Dict[str, Any],
     *,

@@ -9,6 +9,76 @@ RebalanceMode = Literal["holding_rules", "cross_section", "cluster_book"]
 
 # 确认落账复用预演落盘簿的最长年龄（秒）；超时仍重打分
 _CLUSTER_BOOK_REUSE_MAX_AGE_SEC = 2 * 3600
+# 盘中冲击失效：抽样簿内 |涨跌幅|≥阈值的占比 / 涨跌停只数
+_CLUSTER_BOOK_SHOCK_ABS_CHG_PCT = 5.0
+_CLUSTER_BOOK_SHOCK_FRAC = 0.25
+_CLUSTER_BOOK_LIMIT_EVENT_MIN = 3
+_CLUSTER_BOOK_SHOCK_SAMPLE = 40
+
+
+def _quote_change_pct(quote: Optional[dict]) -> Optional[float]:
+    if not isinstance(quote, dict):
+        return None
+    for key in ("change_raw", "change_pct", "pct_chg"):
+        raw = quote.get(key)
+        if raw is None:
+            continue
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _cluster_book_market_shock_reason(
+    book: List[dict],
+    *,
+    abs_chg_pct: float = _CLUSTER_BOOK_SHOCK_ABS_CHG_PCT,
+    shock_frac: float = _CLUSTER_BOOK_SHOCK_FRAC,
+    limit_min: int = _CLUSTER_BOOK_LIMIT_EVENT_MIN,
+    sample_n: int = _CLUSTER_BOOK_SHOCK_SAMPLE,
+) -> Optional[str]:
+    """复用前轻量行情检查：巨震/涨跌停潮 → 失效缓存。取行情失败则放行（fail-open）。"""
+    codes = [
+        str(b.get("stock_code") or "").strip()
+        for b in (book or [])
+        if str(b.get("stock_code") or "").strip()
+    ][: max(1, int(sample_n))]
+    if not codes:
+        return None
+    try:
+        from core.data.service import get_default_service
+
+        quotes = dict(get_default_service().batch_get_quotes(codes) or {})
+    except Exception:
+        return None
+    if not quotes:
+        return None
+
+    shocked = 0
+    limits = 0
+    scored = 0
+    for code in codes:
+        q = quotes.get(code) or {}
+        if not q.get("success") and q.get("price") is None and q.get("price_raw") is None:
+            continue
+        scored += 1
+        chg = _quote_change_pct(q)
+        if chg is not None and abs(chg) >= float(abs_chg_pct):
+            shocked += 1
+        # 粗判涨跌停：|涨跌幅|接近阈值，或文案含停牌/涨停/跌停
+        tip = str(q.get("trade_status") or q.get("status") or q.get("message") or "")
+        if any(k in tip for k in ("涨停", "跌停", "停牌")):
+            limits += 1
+        elif chg is not None and abs(chg) >= 9.5:
+            limits += 1
+    if scored <= 0:
+        return None
+    if shocked / float(scored) >= float(shock_frac):
+        return f"book_shock:{shocked}/{scored}|chg≥{abs_chg_pct:g}%"
+    if limits >= int(limit_min):
+        return f"book_limit_events:{limits}"
+    return None
 
 
 def resolve_rebalance_mode(
@@ -107,7 +177,17 @@ def _supplement_holding_scores(
                 "error": (result or {}).get("error") or "score_failed",
                 "holding_supplement": True,
             }
-        sc = item.get("predicted_score")
+        sc = None
+        try:
+            from core.signal.dual_score import decision_score_for_item
+
+            sc = decision_score_for_item(item)
+        except Exception:
+            sc = None
+        if sc is None:
+            sc = item.get("predicted_score_blend")
+        if sc is None:
+            sc = item.get("predicted_score")
         if sc is None:
             sc = item.get("score")
         try:
@@ -120,6 +200,7 @@ def _supplement_holding_scores(
             "stock_code": item.get("stock_code") or code,
             "stock_name": item.get("stock_name") or name_by.get(code),
             "score": sc_f,
+            "decision_score": sc_f,
             "predicted_score": item.get("predicted_score"),
             "hard_reject": bool(item.get("hard_reject")),
             "reject_reason": item.get("reject_reason"),
@@ -133,6 +214,9 @@ def _supplement_holding_scores(
         }
         try:
             out.update(dual_score_book_fields(item))
+            from core.signal.dual_score import align_trade_score_fields
+
+            align_trade_score_fields(out, write_score=True)
         except Exception:
             out["predicted_score_tau"] = item.get(
                 "predicted_score_tau", item.get("score_rem")
@@ -317,6 +401,10 @@ def try_reuse_active_cluster_book(
         return None
     age = _cluster_book_age_sec(doc)
     if age is None or age > float(max_age_sec):
+        return None
+
+    shock = _cluster_book_market_shock_reason(book)
+    if shock:
         return None
 
     meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}

@@ -5,7 +5,7 @@
 本文定义：**在不动乱日线 ŷ 主轴的前提下，如何引入 \(T\) 日实时信息**，以及如何用历史数据拟合、分阶段落地。  
 动机来自典型 miss：日线 ŷ（\(T\!-\!1\) 因子）为负或接近 0，但 \(T\) 日主题脉冲大幅上涨——残差主因是 **信息集外冲击**，不是单纯「不该拿今日涨跌对账」。
 
-**状态**：方案已定稿，**P0～P2 研究轨已接线**。刷簿 Z 齐套 / rem 满池 / 主题分层 OOS / 启用后轻量刷簿；分钟 τ 与 `w_mode` / cascade 影子默认关或 fixed，人审后开。  
+**状态**：方案已定稿，**P0～P2 研究轨已接线**；**Nowcast/Kalman 顺序滤波已落地**（EOD→open→可选分钟 τ；主题/缺口放大 \(Q\)；影子 `predicted_score_nowcast`，默认不改主排序）。刷簿 Z 齐套 / rem 满池 / 主题分层 OOS / 启用后轻量刷簿；分钟 τ 与 `w_mode` / cascade 影子默认关或 fixed，人审后开。  
 **双层 ŷ**：契约 + blend + A2 影子簿已进代码；rem schema `rem_ridge_v6`（含 `oos.by_theme` / `residual_var`）。分钟 τ：`enable_minute_tau`（默认关）。A3 主排序仍待影子簿验收。P3 bandit 未做。  
 **诚实边界**：主排序仍为 EOD；τ 层独立头 + 决策闸，不揉改 `predicted_score`。升级顺序见 [tau-contract-and-partition-upgrade.md](tau-contract-and-partition-upgrade.md) 与 [predicted-score-chain.md §2.5](predicted-score-chain.md)。
 
@@ -195,7 +195,7 @@ y_rem ← close[T] / price[τ] - 1
 | 项 | 作用 | 状态 |
 |----|------|------|
 | `scoring.horizon_days` 与组模型一致 | 契约 | **P0 已落地**（默认 1；promote 不一致则拒） |
-| `exclude_oos_failed_groups` | OOS 失败组不进簿 | **P0 已落地** |
+| OOS 失败组 | 固定：不进主簿；主分降为全局 ŷ / heuristic（组 ŷ 仅 `score_cluster`）；袖仓见 `rebalance_tracks` | **已固化** |
 | 异质组重聚类 / 贪心换组 | 缓解错误组 β | 研究枢纽流程；按票重跑 |
 | event_prior 缺口 soft hold | 主题日少因负 ŷ 卖掉 | **P1 已落地钩子** |
 | ŷ_rem 研究面板 / live 门控 | open→close rem + `score_rem` 展示 | **R0/R0p/R3 已落地**（IC 仍弱） |
@@ -215,7 +215,7 @@ y_rem ← close[T] / price[τ] - 1
 
 | 阶段 | 名称 | 交付 | 依赖 | 状态 |
 |------|------|------|------|------|
-| **P0** | 日线契约与坏组门禁 | `horizon_days=1` 对齐；promote 校验；OOS 失败组剔簿 | 现网 cluster | **已落地** |
+| **P0** | 日线契约与坏组门禁 | `horizon_days=1` 对齐；promote 校验；OOS 失败组剔簿 + 主分降级 | 现网 cluster | **已落地** |
 | **P1a** | 事件先验·缺口 | `event_prior`；纸面低 ŷ 卖出 soft hold | quote open + 昨收 | **已落地** |
 | **P1b** | 事件先验·板块广度 | 持仓/候选开盘缺口截面 → theme | `compute_sector_gap_breadth_live` | **已落地** |
 | **P1c** | 舆情对称门控 | `reduce_avoid_on_bullish` → soft_hold | `sentiment_prior` | **已落地** |
@@ -292,7 +292,7 @@ y_rem ← close[T] / price[τ] - 1
 
 | 主题 | 路径 |
 |------|------|
-| 配置 | `data/signal_config.json` → `scoring.horizon_days` · `cluster_scoring.exclude_oos_failed_groups` · `event_prior` · `sentiment.prior.reduce_avoid_on_bullish` |
+| 配置 | `data/signal_config.json` → `scoring.horizon_days` · `cluster_scoring.rebalance_tracks` · `event_prior` · `sentiment.prior.reduce_avoid_on_bullish` |
 | 默认 | `core/signal/config.py` · `get_scoring_horizon_days` |
 | Promote / OOS 剔组 | `core/signal/cluster_live.py` · `cluster_rank.py` |
 | 事件先验 | `core/event_prior.py` · `core/paper_rebalance.py` |

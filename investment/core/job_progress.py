@@ -221,6 +221,14 @@ class JobProgress:
                 return False
             self._job["status"] = "failed" if error else "done"
             self._job["error"] = error
+            # Starlette JSONResponse allow_nan=False；OLS 指标常含 ±inf/NaN
+            if isinstance(result, dict):
+                try:
+                    from core.signal.score_display import json_safe
+
+                    result = json_safe(result)
+                except Exception:
+                    pass
             self._job["result"] = result
             if not error:
                 self._job["pct"] = 100.0

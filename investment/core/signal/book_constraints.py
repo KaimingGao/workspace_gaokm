@@ -192,6 +192,7 @@ def fill_book_with_constraints(
 
     rows = [dict(r) for r in eligible if isinstance(r, dict)]
     if not cfg.get("enabled"):
+        rows.sort(key=lambda x: -_rank_score(x, dual_cfg))
         book = rows[:max_n]
         for i, b in enumerate(book):
             b["rank"] = i + 1
@@ -239,6 +240,7 @@ def fill_book_with_constraints(
                     }
                 )
         candidates = kept
+        candidates.sort(key=lambda x: -float(x.get("_rank_score") or 0.0))
     elif mode == "defer":
         for r in candidates:
             if not r.get("_tau_ok"):

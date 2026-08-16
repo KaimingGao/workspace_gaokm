@@ -123,14 +123,14 @@ def get_cluster_scoring_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
                 1.0,
             ),
         ),
-        "exclude_oos_failed_groups": bool(
-            raw.get("exclude_oos_failed_groups")
-            if raw.get("exclude_oos_failed_groups") is not None
-            else True
-        ),
         # B1：draft OOS 相对 active 默认软提示（True）；False=硬拦差于 active
         "promote_allow_worse_oos_than_active": bool(
             raw.get("promote_allow_worse_oos_than_active", True)
+        ),
+        "rebalance_tracks": (
+            dict(raw["rebalance_tracks"])
+            if isinstance(raw.get("rebalance_tracks"), dict)
+            else {}
         ),
     }
 
@@ -286,6 +286,45 @@ def load_cluster_return_models_by_code(
             model = by_label.get(lab)
         if model is not None:
             out[c] = model
+    return out
+
+
+def filter_primary_cluster_models_by_code(
+    models_by_code: Optional[Dict[str, Any]],
+    *,
+    config: Optional[dict] = None,
+    active: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    """从主分 by_code 图剔除 OOS 失败组代码，使主分回退 default/global。
+
+    与 ``score_stock`` 主分降级对齐（OOS 失败组永不进主分 by_code 图）。
+    研究臂传入显式组模型时勿调用本函数。
+    """
+    del config  # 行为固定，不再读开关
+    raw = dict(models_by_code or {})
+    if not raw:
+        return raw
+    art = active if active is not None else load_active_cluster_weights()
+    from core.signal.cluster_oos_labels import oos_failed_cluster_labels
+
+    failed = set(oos_failed_cluster_labels(active=art))
+    if not failed:
+        return raw
+    cmap = (art or {}).get("code_map") or {}
+    out: Dict[str, Any] = {}
+    for code, model in raw.items():
+        key = str(code or "").strip()
+        meta = cmap.get(key) if isinstance(cmap.get(key), dict) else None
+        if meta is None:
+            for cand in (key, str(code or "")):
+                m = cmap.get(cand)
+                if isinstance(m, dict):
+                    meta = m
+                    break
+        lab = str((meta or {}).get("cluster_label") or (meta or {}).get("label") or "").strip()
+        if lab and lab in failed:
+            continue
+        out[code] = model
     return out
 
 
@@ -900,10 +939,29 @@ def load_active_cluster_book() -> Optional[Dict[str, Any]]:
         with open(CLUSTER_BOOK_ACTIVE_PATH, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict):
+            _align_cluster_book_trade_scores(data)
             return data
     except Exception:
         return None
     return None
+
+
+def _align_cluster_book_trade_scores(doc: Dict[str, Any]) -> None:
+    """读簿时就地修 eod_next 塌成 EOD 的旧 blend（不写盘）。"""
+    try:
+        from core.signal.dual_score import align_trade_score_fields
+    except Exception:
+        return
+    for key in ("scored_all", "book"):
+        rows = doc.get(key)
+        if not isinstance(rows, list):
+            continue
+        for row in rows:
+            if isinstance(row, dict):
+                try:
+                    align_trade_score_fields(row, write_score=True)
+                except Exception:
+                    pass
 
 
 def save_tau_shadow_cluster_book(
@@ -930,6 +988,49 @@ def save_tau_shadow_cluster_book(
     except Exception:
         pass
     return CLUSTER_BOOK_TAU_SHADOW_PATH
+
+
+def save_nowcast_shadow_cluster_book(
+    book: Sequence[Dict[str, Any]],
+    *,
+    meta: Optional[dict] = None,
+) -> str:
+    """N3：ŷ_nowcast 影子簿落盘；execution / 纸面不读此文件。"""
+    from core.paths import LIVE_DIR
+
+    _ensure_dirs()
+    path = os.path.join(LIVE_DIR, "cluster_book_nowcast_shadow.json")
+    payload = {
+        "success": True,
+        "updated_at": now_iso_utc(),
+        "book": list(book or []),
+        "meta": meta or {},
+        "note": "N3 nowcast Kalman 影子簿；不写 signal_config；不驱动买入",
+    }
+    atomic_write_json(path, payload)
+    try:
+        from core.score_ledger import freeze_from_nowcast_shadow_book
+
+        freeze_from_nowcast_shadow_book(shadow_doc=payload)
+    except Exception:
+        pass
+    return path
+
+
+def load_nowcast_shadow_cluster_book() -> Optional[Dict[str, Any]]:
+    from core.paths import LIVE_DIR
+
+    path = os.path.join(LIVE_DIR, "cluster_book_nowcast_shadow.json")
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        return None
+    return None
 
 
 def load_tau_shadow_cluster_book() -> Optional[Dict[str, Any]]:

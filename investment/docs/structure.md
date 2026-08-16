@@ -66,7 +66,7 @@ investment/
 
 | 模块 | 路径 |
 |------|------|
-| DataService | `core/data_service.py` |
+| DataService | `core/data_service.py`（门面）· `core/data/`（Service / Ports / 信封） |
 | 行情端口 | `core/ports/market.py` · 绑定 `skills/ports_bind.py` |
 | 因子打分 | `core/signal/scorer.py` |
 | 回测引擎 | `core/backtest/engine.py` |

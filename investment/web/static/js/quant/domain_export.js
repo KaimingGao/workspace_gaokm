@@ -400,21 +400,37 @@ export function installExportInterpret(q) {
 
   async function runDailyWithPreset(preset, runningLabel) {
     openDailyFold();
-    const busyLine = runningLabel || "生成日报中…";
-    setBusyText(els.quantOpsSummary, busyLine, { busy: true });
-    const res = await fetch("/api/daily/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ preset }),
-    });
-    const data = await res.json();
+    const busyBase = runningLabel || "生成日报中…";
+    const started = Date.now();
+    const tick = setInterval(() => {
+      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+      const tip =
+        sec < 60
+          ? `${busyBase} ${sec}s`
+          : `${busyBase} ${Math.floor(sec / 60)}m${String(sec % 60).padStart(2, "0")}s · 含 watching/横截面/组合回测`;
+      setBusyText(els.quantOpsSummary, tip, { busy: true });
+    }, 1000);
+    setBusyText(els.quantOpsSummary, busyBase, { busy: true });
+    let res;
+    let data;
+    try {
+      res = await fetch("/api/daily/run", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ preset }),
+      });
+      data = await res.json();
+    } finally {
+      clearInterval(tick);
+    }
     if (!res.ok) {
       const detail = data.detail || res.statusText;
       setBusyText(els.quantOpsSummary, `日报失败 · ${detail}`, { busy: false });
       throw new Error(detail);
     }
+    const elapsed = Math.max(1, Math.round((Date.now() - started) / 1000));
     const doneLine = data.ok
-      ? "日报已生成"
+      ? `日报已生成 · ${elapsed}s`
       : `日报部分失败 · ${(data.failures || []).join("；")}`;
     setBusyText(els.quantOpsSummary, doneLine, { busy: false });
     await q.watching.loadWatchingPanel();

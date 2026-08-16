@@ -576,6 +576,103 @@ class TestScoreLedger(unittest.TestCase):
             self.assertEqual(full["tau_shadow"].get("tau_n"), 2)
             self.assertTrue(full["tau_shadow"].get("shadow_exists"))
 
+    def test_nowcast_shadow_freeze_and_review(self):
+        from core.score_ledger import (
+            build_nowcast_shadow_review,
+            build_score_review,
+            fill_outcomes,
+            freeze_from_nowcast_shadow_book,
+            load_nowcast_shadow_membership,
+            upsert_ledger_rows,
+        )
+
+        def fake_bars(code, limit=40, offline_ok=True):
+            return [
+                {"date": "2026-08-05", "open": 100.0, "close": 100.0},
+                {"date": "2026-08-06", "open": 100.0, "close": 101.0},
+            ], "test"
+
+        shadow_doc = {
+            "updated_at": "2026-08-05T09:00:00",
+            "book": [
+                {
+                    "stock_code": "600519",
+                    "predicted_score": 1.2,
+                    "predicted_score_nowcast": 0.8,
+                    "nowcast_as_of": "open",
+                    "nowcast_x_prior": 0.5,
+                    "rank": 1,
+                },
+                {
+                    "stock_code": "000001",
+                    "predicted_score": 0.8,
+                    "predicted_score_nowcast": -0.3,
+                    "nowcast_as_of": "open",
+                    "nowcast_x_prior": 0.0,
+                    "rank": 2,
+                },
+            ],
+            "meta": {
+                "version": 9,
+                "nordhaus_revision_slope": 0.05,
+                "vs_eod_book": {"overlap": 2, "jaccard": 1.0},
+            },
+        }
+        with self._patch_dir(), patch(
+            "core.score_ledger.resolve_freeze_as_of",
+            return_value={
+                "as_of": "2026-08-05",
+                "feature_as_of": "2026-08-05",
+                "remapped": False,
+                "note": None,
+            },
+        ), patch(
+            "core.data_service.bars_and_source", side_effect=fake_bars
+        ), patch(
+            "core.market_calendar.next_trading_day",
+            side_effect=lambda d, n=1, **kw: "2026-08-06",
+        ):
+            fr = freeze_from_nowcast_shadow_book(
+                as_of="2026-08-05", shadow_doc=shadow_doc
+            )
+            self.assertTrue(fr["success"])
+            mem = load_nowcast_shadow_membership("2026-08-05")
+            self.assertEqual(len(mem["rows"]), 2)
+            self.assertEqual(mem["meta"].get("nordhaus_revision_slope"), 0.05)
+            upsert_ledger_rows(
+                "2026-08-05",
+                [
+                    {
+                        "stock_code": "600519",
+                        "predicted_score": 1.2,
+                        "predicted_score_nowcast": 0.8,
+                        "nowcast_as_of": "open",
+                        "nowcast_x_prior": 0.5,
+                    },
+                    {
+                        "stock_code": "000001",
+                        "predicted_score": 0.8,
+                        "predicted_score_nowcast": -0.3,
+                        "nowcast_as_of": "open",
+                        "nowcast_x_prior": 0.0,
+                    },
+                ],
+                source="test",
+            )
+            filled = fill_outcomes("2026-08-05", horizon_days=1)
+            self.assertGreaterEqual(filled.get("filled_tau") or 0, 1)
+            rev = build_nowcast_shadow_review(
+                "2026-08-05", horizon_days=1, autofill=False
+            )
+            self.assertTrue(rev["success"])
+            self.assertEqual(rev["nowcast_n"], 2)
+            self.assertEqual(rev["nordhaus_revision_slope"], 0.05)
+            full = build_score_review(
+                "2026-08-05", horizon_days=1, autofill=False
+            )
+            self.assertIn("nowcast_shadow", full)
+            self.assertTrue(full["nowcast_shadow"].get("shadow_exists"))
+
     def test_hydrate_ledger_yhat_tau(self):
         from core.score_ledger import (
             hydrate_ledger_yhat_tau,

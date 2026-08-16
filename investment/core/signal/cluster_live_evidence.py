@@ -300,6 +300,7 @@ def cluster_status_public(
     """
     from core.paths import (
         CLUSTER_BOOK_ACTIVE_PATH,
+        CLUSTER_BOOK_NOWCAST_SHADOW_PATH,
         CLUSTER_BOOK_TAU_SHADOW_PATH,
         CLUSTER_WEIGHTS_ACTIVE_PATH,
         CLUSTER_WEIGHTS_DRAFT_PATH,
@@ -351,6 +352,11 @@ def cluster_status_public(
         tau_shadow = cluster_live_mod.load_tau_shadow_cluster_book()
     except Exception:
         tau_shadow = None
+    nowcast_shadow = None
+    try:
+        nowcast_shadow = cluster_live_mod.load_nowcast_shadow_cluster_book()
+    except Exception:
+        nowcast_shadow = None
     mode = cs.get("mode") or "off"
     has_draft = bool(draft and draft.get("code_map"))
     has_active = bool(active)
@@ -475,6 +481,21 @@ def cluster_status_public(
             }
             if tau_shadow
             else {"exists": False, "path": CLUSTER_BOOK_TAU_SHADOW_PATH}
+        ),
+        "nowcast_shadow_book": (
+            {
+                "exists": True,
+                "path": CLUSTER_BOOK_NOWCAST_SHADOW_PATH,
+                "updated_at": (nowcast_shadow or {}).get("updated_at"),
+                "name_count": len((nowcast_shadow or {}).get("book") or []),
+                "meta": (nowcast_shadow or {}).get("meta") or {},
+                "vs_eod": ((nowcast_shadow or {}).get("meta") or {}).get("vs_eod_book"),
+                "nordhaus_revision_slope": ((nowcast_shadow or {}).get("meta") or {}).get(
+                    "nordhaus_revision_slope"
+                ),
+            }
+            if nowcast_shadow
+            else {"exists": False, "path": CLUSTER_BOOK_NOWCAST_SHADOW_PATH}
         ),
         "health": health,
         "landing": {

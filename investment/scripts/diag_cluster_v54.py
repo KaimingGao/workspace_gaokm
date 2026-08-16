@@ -27,7 +27,7 @@ def main() -> int:
             print(f"  {k}: {v}")
 
     cs = get_cluster_scoring_cfg()
-    print("MODE", cs.get("mode"), "enabled", cs.get("enabled"), "exclude", cs.get("exclude_oos_failed_groups"))
+    print("MODE", cs.get("mode"), "enabled", cs.get("enabled"))
 
     active = load_active_cluster_weights() or {}
     print("ACTIVE v", active.get("version"), "map", len(active.get("code_map") or {}), "clusters", len(active.get("clusters") or []))

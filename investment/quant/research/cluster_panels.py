@@ -39,7 +39,7 @@ def _load_bars_for_cluster(code: str, *, lookback: int, refresh_bars: bool) -> t
 
     默认缓存优先；``refresh_bars`` 时仅对「超过约 36h / 条数不足」的票打远端，限流由上层 workers 控制。
     """
-    from core.data_service import bars_and_source
+    from core.data_service import bars_and_source_research as bars_and_source
 
     limit = lookback + 35
     min_bars = max(20, min(limit, 40))
@@ -112,8 +112,8 @@ def _load_index_bars_once(
 
     指数失败返回 []，分组仍可继续（相对强度等因子降级）。
     """
-    from core.data_service import bars_and_source
-    from core.ports.market import fetch_index_bars
+    from core.data_service import bars_and_source_research as bars_and_source
+    from core.data_service import get_index_bars
 
     bench_s = str(bench or "").strip()
     if not bench_s:
@@ -153,15 +153,19 @@ def _load_index_bars_once(
             pass
 
     pool = ThreadPoolExecutor(max_workers=1)
-    fut = pool.submit(fetch_index_bars, bench_s, limit=limit)
+    fut = pool.submit(get_index_bars, bench_s, limit=limit)
     t0 = time.time()
     try:
         while True:
             finished, _ = wait([fut], timeout=1.2, return_when=FIRST_COMPLETED)
             if finished:
                 try:
-                    bars, _label = fut.result(timeout=0.1)
-                    return list(bars or [])
+                    pack = fut.result(timeout=0.1)
+                    if isinstance(pack, dict):
+                        return list(pack.get("bars") or [])
+                    if isinstance(pack, tuple):
+                        return list(pack[0] or [])
+                    return list(pack or [])
                 except Exception:
                     logger.warning("拉指数失败 %s", bench_s, exc_info=True)
                     return []

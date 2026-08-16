@@ -327,6 +327,7 @@ def backtest_cluster_pools(
     oos = split_oos_summary(equity_curve)
 
     # 全局权对照：同一宇宙、Top-K ≈ 合成名数
+    # 必须用 heuristic + 关闭 live 组模型；默认 predicted 会拖成数十分钟并像「卡死」
     top_k_global = max(1, min(max_names, max(1, len(specs) * top_n)))
     global_bt: Dict[str, Any]
     try:
@@ -335,11 +336,15 @@ def backtest_cluster_pools(
                 stock_bars,
                 top_k=top_k_global,
                 horizon_days=horizon_days,
-                min_score=min_score,
+                min_score=float(min_score),
                 apply_costs=False,
                 execution_mode="close",
                 respect_limit=False,
                 weight_mode="equal",
+                rank_mode="heuristic_score",
+                allow_heuristic_baseline=True,
+                use_live_cluster_models=False,
+                apply_tau_buy_gate=False,
             )
     except Exception as exc:
         global_bt = {"success": False, "error": str(exc)}

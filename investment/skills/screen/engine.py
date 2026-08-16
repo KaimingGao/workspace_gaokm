@@ -266,6 +266,7 @@ def fetch_a_spot(*, force: bool = False) -> List[dict]:
         and now - _SPOT_MEM[0] < _SPOT_MEM_TTL_SEC
         and _SPOT_MEM[1]
     ):
+        fetch_a_spot.last_source = "mem_cache"  # type: ignore[attr-defined]
         return list(_SPOT_MEM[1])
 
     try:

@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence
 
 from core.paths import DATA_DIR, PAPER_PATH, WATCHING_PATH
+from core.data_policy import COVERAGE_STALE_HOURS
 
 
 def _codes_from_watching() -> List[str]:
@@ -74,7 +75,7 @@ def _parse_fetched(ts: Optional[str]) -> Optional[datetime]:
 def build_data_coverage(
     codes: Optional[Sequence[str]] = None,
     *,
-    stale_hours: float = 36.0,
+    stale_hours: float = COVERAGE_STALE_HOURS,
     include_paper: bool = True,
 ) -> Dict[str, Any]:
     """汇总观察池∪纸面日线缓存覆盖：good/thin/empty、stale、fallback。"""
@@ -138,10 +139,10 @@ def build_data_coverage(
 
     total = len(watch)
     covered = total - missing_n
-    coverage = round(covered / total, 3) if total else 1.0
+    coverage = round(covered / total, 3) if total else None
     good_n = levels.get("good") or 0
     alerts: List[Dict[str, str]] = []
-    if total > 0 and coverage < 0.8:
+    if total > 0 and coverage is not None and coverage < 0.8:
         alerts.append(
             {
                 "level": "warn",
@@ -172,6 +173,7 @@ def build_data_coverage(
         "covered": covered,
         "missing": missing_n,
         "coverage": coverage,
+        "empty_universe": total == 0,
         "levels": levels,
         "good_count": good_n,
         "stale_count": stale_n,

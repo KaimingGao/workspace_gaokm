@@ -44,21 +44,19 @@ def _codes_from_book_doc(book_doc: Optional[dict]) -> List[str]:
 
 
 def _last_bar_date_for_code(code: str) -> Optional[str]:
-    """本地日线末根日期（只读缓存，不拉网）。"""
+    """本地日线末根日期（只读缓存，不拉网；经 DataService）。"""
     raw = str(code or "").strip()
     if not raw:
         return None
     try:
-        from core.ports.market import resolve_market_code
-        from core.store import load_daily_cache
+        from core.data_service import bars_and_source
 
-        market, c = resolve_market_code(raw)
-        if not market or not c:
-            return None
-        cached = load_daily_cache(market, c, min_bars=1, max_age_hours=72.0)
-        if not cached:
-            return None
-        bars, _meta = cached
+        bars, _src = bars_and_source(
+            raw,
+            limit=5,
+            offline_only=True,
+            reject_quote_fallback=True,
+        )
         if not bars:
             return None
         return date_key(bars[-1].get("date") or bars[-1].get("time"))
@@ -166,6 +164,12 @@ def tau_shadow_membership_path(as_of: str) -> str:
     return os.path.join(ledger_dir(), f"{d}.tau_shadow.json")
 
 
+def nowcast_shadow_membership_path(as_of: str) -> str:
+    """N3：Kalman nowcast 影子簿成员快照。"""
+    d = date_key(as_of)
+    return os.path.join(ledger_dir(), f"{d}.nowcast_shadow.json")
+
+
 def _to_float(v: Any) -> Optional[float]:
     if v is None:
         return None
@@ -221,7 +225,16 @@ def row_from_scored_item(
     if yhat is None:
         yhat = _to_float(item.get("yhat"))
     if yhat is None:
-        yhat = _to_float(item.get("score"))
+        yhat = _to_float(item.get("predicted_score_blend"))
+    if yhat is None:
+        yhat = _to_float(item.get("score_cluster"))
+    if yhat is None:
+        cand = _to_float(item.get("score"))
+        if cand is not None and abs(cand) <= 20.0:
+            yhat = cand
+    if yhat is not None and abs(float(yhat)) > 20.0:
+        # 脏 heuristic 误入 yhat → 丢弃，避免账本/日报炸表
+        yhat = None
     if yhat is None:
         return None
     # ŷ_EOD 必须是收益分口径（%），禁止用 heuristic 0–100 填
@@ -239,6 +252,11 @@ def row_from_scored_item(
         yhat_tau = _to_float(item.get("yhat_tau"))
     if yhat_tau is not None and abs(float(yhat_tau)) > 20.0:
         yhat_tau = None
+    yhat_nowcast = _to_float(item.get("predicted_score_nowcast"))
+    if yhat_nowcast is None:
+        yhat_nowcast = _to_float(item.get("yhat_nowcast"))
+    if yhat_nowcast is not None and abs(float(yhat_nowcast)) > 20.0:
+        yhat_nowcast = None
     terms = _terms_top(
         item.get("score_formula_terms") or item.get("formula_terms_top")
     )
@@ -257,6 +275,11 @@ def row_from_scored_item(
             sector = _sector_for(code, load_sector_map()) or None
         except Exception:
             sector = None
+    heuristic = _to_float(item.get("heuristic_score"))
+    if heuristic is None:
+        sc_legacy = _to_float(item.get("score"))
+        if sc_legacy is not None and abs(sc_legacy) > 20.0:
+            heuristic = sc_legacy
     return {
         "as_of": date_key(as_of),
         "code": code.zfill(6) if code.isdigit() else code,
@@ -264,7 +287,13 @@ def row_from_scored_item(
         "yhat": round(yhat, 6),
         "yhat_eod": round(yhat_eod, 6) if yhat_eod is not None else None,
         "yhat_tau": round(yhat_tau, 6) if yhat_tau is not None else None,
-        "heuristic": _to_float(item.get("heuristic_score")),
+        "yhat_nowcast": (
+            round(yhat_nowcast, 6) if yhat_nowcast is not None else None
+        ),
+        "nowcast_as_of": item.get("nowcast_as_of"),
+        "nowcast_K": _to_float(item.get("nowcast_K")),
+        "nowcast_x_prior": _to_float(item.get("nowcast_x_prior")),
+        "heuristic": heuristic,
         "cluster_label": item.get("cluster_label"),
         "sector": sector,
         "model_id": item.get("return_model_source")
@@ -547,8 +576,130 @@ def freeze_from_tau_shadow_book(
     }
 
 
+def freeze_from_nowcast_shadow_book(
+    *,
+    as_of: Optional[str] = None,
+    shadow_doc: Optional[dict] = None,
+) -> Dict[str, Any]:
+    """冻结 N3 nowcast 影子簿成员与 ŷ_nowcast（独立文件）。"""
+    from core.signal.cluster_live import load_nowcast_shadow_cluster_book
+
+    doc = shadow_doc if isinstance(shadow_doc, dict) else load_nowcast_shadow_cluster_book()
+    if not doc:
+        return {
+            "success": False,
+            "error": "无 nowcast 影子簿",
+            "as_of": date_key(as_of) if as_of else None,
+            "n_rows": 0,
+        }
+    book = list(doc.get("book") or [])
+    meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
+    resolved = resolve_freeze_as_of(as_of, book_doc={"book": book, "meta": meta, **doc})
+    d = date_key(resolved.get("as_of") or as_of)
+    if not d:
+        return {
+            "success": False,
+            "error": "无法解析冻结决策日",
+            "n_rows": 0,
+            "resolve": resolved,
+        }
+    rows: List[Dict[str, Any]] = []
+    for i, item in enumerate(book):
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("stock_code") or item.get("code") or "").strip()
+        if not code:
+            continue
+        y_n = _to_float(item.get("predicted_score_nowcast"))
+        y_tau = _to_float(item.get("predicted_score_tau"))
+        if y_tau is None:
+            y_tau = _to_float(item.get("score_rem"))
+        y_eod = _to_float(item.get("predicted_score_eod"))
+        if y_eod is None:
+            y_eod = _to_float(item.get("predicted_score"))
+        rows.append(
+            {
+                "as_of": d,
+                "code": code.zfill(6) if code.isdigit() else code,
+                "name": item.get("stock_name") or item.get("name"),
+                "rank": item.get("rank") or (i + 1),
+                "rank_key": "predicted_score_nowcast",
+                "yhat_nowcast": round(y_n, 6) if y_n is not None else None,
+                "nowcast_as_of": item.get("nowcast_as_of"),
+                "nowcast_K": _to_float(item.get("nowcast_K")),
+                "nowcast_q": _to_float(item.get("nowcast_q")),
+                "nowcast_x_prior": _to_float(item.get("nowcast_x_prior")),
+                "yhat_tau": round(y_tau, 6) if y_tau is not None else None,
+                "yhat_eod": round(y_eod, 6) if y_eod is not None else None,
+                "cluster_label": item.get("cluster_label"),
+                "sector": item.get("sector"),
+            }
+        )
+    path = nowcast_shadow_membership_path(d)
+    os.makedirs(ledger_dir(), exist_ok=True)
+    payload = {
+        "success": True,
+        "as_of": d,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        "n_rows": len(rows),
+        "rows": rows,
+        "meta": {
+            "source": "nowcast_shadow_book",
+            "cluster_version": meta.get("version"),
+            "vs_eod_book": meta.get("vs_eod_book"),
+            "nordhaus_revision_slope": meta.get("nordhaus_revision_slope"),
+            "book_updated_at": doc.get("updated_at"),
+            "feature_as_of": resolved.get("feature_as_of"),
+            "freeze_note": resolved.get("note"),
+            "note": "N3 nowcast 影子成员快照；对账 remaining y(τ)，不对账全日涨跌",
+        },
+    }
+    atomic_write_json(path, payload)
+    return {
+        "success": True,
+        "as_of": d,
+        "n_rows": len(rows),
+        "path": path,
+        "resolve": resolved,
+        "vs_eod_book": meta.get("vs_eod_book"),
+    }
+
+
 def load_tau_shadow_membership(as_of: str) -> Dict[str, Any]:
     path = tau_shadow_membership_path(as_of)
+    if not os.path.isfile(path):
+        return {
+            "success": True,
+            "empty": True,
+            "as_of": date_key(as_of),
+            "rows": [],
+            "path": path,
+        }
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        return {
+            "success": False,
+            "error": str(e),
+            "as_of": date_key(as_of),
+            "rows": [],
+            "path": path,
+        }
+    rows = list(data.get("rows") or []) if isinstance(data, dict) else []
+    return {
+        "success": True,
+        "empty": not bool(rows),
+        "as_of": date_key(as_of) or (data.get("as_of") if isinstance(data, dict) else None),
+        "rows": rows,
+        "meta": (data.get("meta") if isinstance(data, dict) else None) or {},
+        "path": path,
+        "updated_at": data.get("updated_at") if isinstance(data, dict) else None,
+    }
+
+
+def load_nowcast_shadow_membership(as_of: str) -> Dict[str, Any]:
+    path = nowcast_shadow_membership_path(as_of)
     if not os.path.isfile(path):
         return {
             "success": True,
@@ -690,6 +841,75 @@ def _realized_tau_from_bars(
     if o is None or c is None or o <= 0:
         return None
     return (c / o - 1.0) * 100.0
+
+
+def _realized_remaining_for_nowcast(
+    bars: Sequence[dict],
+    as_of: str,
+    *,
+    horizon_days: int = 1,
+    nowcast_as_of: Optional[str] = None,
+    code: Optional[str] = None,
+) -> Optional[float]:
+    """对账 ŷ_nowcast：open/eod 用 OC；分钟 as_of 用 close/price[τ]−1（有分钟缓存时）。"""
+    try:
+        from core.signal.nowcast_kf import normalize_tau_label
+
+        clock = normalize_tau_label(nowcast_as_of or "open")
+    except Exception:
+        clock = "open"
+    oc = _realized_tau_from_bars(bars, as_of, horizon_days)
+    if clock in ("", "eod", "open"):
+        return oc
+    if oc is None:
+        return None
+    # 分钟：尝试本地缓存价；失败则退回 OC（并在 outcomes 里可辨）
+    if not code:
+        return oc
+    try:
+        from core.market_calendar import next_trading_day
+        from core.ports.market import resolve_market_code
+        from core.research.rem_panel import price_at_tau_from_minutes
+        from core.store import load_minute_cache
+
+        d0 = date_key(as_of)
+        d1 = next_trading_day(d0, n=max(1, int(horizon_days or 1)))
+        if not d1:
+            return oc
+        by_date = {}
+        for b in bars or []:
+            if not isinstance(b, dict):
+                continue
+            k = date_key(b.get("date") or b.get("time") or b.get("datetime"))
+            if k:
+                by_date[k] = b
+        bar = by_date.get(d1)
+        if not bar:
+            return oc
+        open_px = _to_float(bar.get("open"))
+        close_px = _to_float(bar.get("close"))
+        if open_px is None or close_px is None or open_px <= 0 or close_px <= 0:
+            return oc
+        mkt, pure = resolve_market_code(str(code))
+        packed = load_minute_cache(
+            mkt or "CN",
+            pure or str(code),
+            period="5",
+            min_bars=1,
+            max_age_hours=36.0 * 30,
+        )
+        if not packed:
+            return oc
+        minute_bars, _meta = packed
+        px_tau = price_at_tau_from_minutes(
+            minute_bars, trade_date=d1, tau_hm=clock
+        )
+        if px_tau is None or px_tau <= 0:
+            return oc
+        # close/price[τ]-1
+        return (float(close_px) / float(px_tau) - 1.0) * 100.0
+    except Exception:
+        return oc
 
 
 def hydrate_ledger_yhat_tau(
@@ -897,14 +1117,29 @@ def fill_outcomes(
         )
         yhat = _to_float(r.get("yhat"))
         yhat_tau = _to_float(r.get("yhat_tau"))
+        yhat_nowcast = _to_float(r.get("yhat_nowcast"))
+        nowcast_as_of = r.get("nowcast_as_of")
+        realized_remaining = _realized_remaining_for_nowcast(
+            bars or [],
+            r.get("as_of") or as_of,
+            horizon_days=h,
+            nowcast_as_of=nowcast_as_of,
+            code=code,
+        )
         hit = _sign_hit(yhat, realized)
         hit_tau = _sign_hit(yhat_tau, realized_tau)
+        hit_nowcast = _sign_hit(yhat_nowcast, realized_remaining)
         abs_err = None
         if yhat is not None and realized is not None:
             abs_err = round(abs(float(yhat) - float(realized)), 4)
         abs_err_tau = None
         if yhat_tau is not None and realized_tau is not None:
             abs_err_tau = round(abs(float(yhat_tau) - float(realized_tau)), 4)
+        abs_err_nowcast = None
+        if yhat_nowcast is not None and realized_remaining is not None:
+            abs_err_nowcast = round(
+                abs(float(yhat_nowcast) - float(realized_remaining)), 4
+            )
         dominant = None
         terms = r.get("formula_terms_top") or []
         if terms:
@@ -920,6 +1155,15 @@ def fill_outcomes(
             "sign_hit_tau": hit_tau,
             "abs_err_tau": abs_err_tau,
             "yhat_tau": yhat_tau,
+            "yhat_nowcast": yhat_nowcast,
+            "nowcast_as_of": nowcast_as_of,
+            "realized_remaining": (
+                round(realized_remaining, 4)
+                if realized_remaining is not None
+                else None
+            ),
+            "sign_hit_nowcast": hit_nowcast,
+            "abs_err_nowcast": abs_err_nowcast,
             "dominant_factor": dominant,
             "no_direction": bool(yhat is not None and abs(float(yhat)) < _YHAT_EPS),
             "no_direction_tau": bool(
@@ -1048,6 +1292,123 @@ def build_tau_shadow_review(
     }
 
 
+def build_nowcast_shadow_review(
+    as_of: Optional[str] = None,
+    *,
+    horizon_days: int = 1,
+    autofill: bool = True,
+) -> Dict[str, Any]:
+    """N3 验收摘要：影子重叠 + IC(ŷ_nowcast, y_remaining) + 方向命中 + Nordhaus。"""
+    d = date_key(as_of) or default_as_of()
+    h = max(1, min(int(horizon_days or 1), 10))
+    try:
+        hydrate_ledger_yhat_tau(d, persist=True)
+    except Exception:
+        pass
+    if autofill:
+        try:
+            fill_outcomes(d, horizon_days=h)
+        except Exception:
+            pass
+    ledger = load_ledger(d)
+    outcomes = load_outcomes(d)
+    shadow = load_nowcast_shadow_membership(d)
+    by_oc = outcomes.get("by_code") or {}
+
+    # 影子成员优先；无则用全账本有 yhat_nowcast 的行
+    shadow_codes = {
+        str(r.get("code") or "").strip()
+        for r in (shadow.get("rows") or [])
+        if isinstance(r, dict) and r.get("code")
+    }
+    xs: List[float] = []
+    ys: List[float] = []
+    hits = 0
+    hit_n = 0
+    priors: List[float] = []
+    posts: List[float] = []
+    for r in ledger.get("rows") or []:
+        if not isinstance(r, dict):
+            continue
+        code = str(r.get("code") or "").strip()
+        if shadow_codes and code not in shadow_codes:
+            continue
+        yhat_n = _to_float(r.get("yhat_nowcast"))
+        if yhat_n is None:
+            continue
+        oc = by_oc.get(code) or {}
+        y_rem = _to_float(oc.get("realized_remaining"))
+        if y_rem is None:
+            y_rem = _to_float(oc.get("realized_tau"))
+        if y_rem is None:
+            continue
+        xs.append(float(yhat_n))
+        ys.append(float(y_rem))
+        hit = oc.get("sign_hit_nowcast")
+        if hit is None:
+            hit = _sign_hit(yhat_n, y_rem)
+        if hit is not None:
+            hit_n += 1
+            if hit:
+                hits += 1
+        p0 = _to_float(r.get("nowcast_x_prior"))
+        if p0 is not None:
+            priors.append(float(p0))
+            posts.append(float(yhat_n))
+
+    vs = (shadow.get("meta") or {}).get("vs_eod_book")
+    nordhaus_meta = (shadow.get("meta") or {}).get("nordhaus_revision_slope")
+    if not isinstance(vs, dict):
+        vs = None
+        try:
+            from core.signal.cluster_live import load_nowcast_shadow_cluster_book
+
+            live_sh = load_nowcast_shadow_cluster_book() or {}
+            live_meta = (live_sh.get("meta") or {}) if isinstance(live_sh, dict) else {}
+            vs = live_meta.get("vs_eod_book")
+            if nordhaus_meta is None:
+                nordhaus_meta = live_meta.get("nordhaus_revision_slope")
+        except Exception:
+            vs = None
+
+    nordhaus = nordhaus_meta
+    if nordhaus is None and len(priors) >= 3:
+        try:
+            from core.signal.nowcast_kf import nordhaus_revision_slope
+
+            nordhaus = nordhaus_revision_slope(priors, posts)
+        except Exception:
+            nordhaus = None
+
+    ic = _spearman_ic(xs, ys)
+    return {
+        "success": True,
+        "as_of": d,
+        "horizon_days": h,
+        "nowcast_ic_spearman": ic,
+        "nowcast_n": len(xs),
+        "nowcast_sign_hit_rate": (
+            round(hits / hit_n, 4) if hit_n else None
+        ),
+        "nowcast_sign_hit_n": hit_n,
+        "nordhaus_revision_slope": nordhaus,
+        "shadow_membership": {
+            "exists": not bool(shadow.get("empty")),
+            "n_rows": len(shadow.get("rows") or []),
+            "path": shadow.get("path"),
+            "vs_eod_book": vs,
+            "nordhaus_revision_slope": nordhaus_meta,
+        },
+        "ledger_path": ledger.get("path"),
+        "outcomes_path": outcomes.get("path"),
+        "y_spec_nowcast": "close[T]/price[τ]-1（τ=nowcast_as_of；open 时=OC）",
+        "note": (
+            "N3：IC/命中对 ŷ_nowcast↔剩余收益；Nordhaus 接近 0 才考虑升主排序。"
+            "不替代 EOD / τ 复盘。"
+        ),
+    }
+
+
 def _blame_tag(
     *,
     sign_hit: Optional[bool],
@@ -1146,6 +1507,7 @@ def build_score_review(
             "industry_blame": [],
             "cluster_blame": [],
             "tau_shadow": _tau_shadow_review_slim(d, horizon_days=h),
+            "nowcast_shadow": _nowcast_shadow_review_slim(d, horizon_days=h),
         }
     # 旧冻结账本无 yhat_tau → 复盘列 ŷ_τ 全是 —；按日线 PIT 补挂
     hydrate_meta: Dict[str, Any] = {}
@@ -1392,6 +1754,7 @@ def build_score_review(
             else None
         ),
         "tau_shadow": _tau_shadow_review_slim(d, horizon_days=h),
+        "nowcast_shadow": _nowcast_shadow_review_slim(d, horizon_days=h),
         "yhat_tau_hydrate": {
             "hydrated": int(hydrate_meta.get("hydrated") or 0),
             "note": hydrate_meta.get("note"),
@@ -1423,6 +1786,33 @@ def _tau_shadow_review_slim(as_of: str, *, horizon_days: int = 1) -> Dict[str, A
         "shadow_n": sh.get("n_rows"),
         "vs_eod": sh.get("vs_eod_book"),
         "y_spec_tau": pack.get("y_spec_tau"),
+        "note": pack.get("note"),
+    }
+
+
+def _nowcast_shadow_review_slim(as_of: str, *, horizon_days: int = 1) -> Dict[str, Any]:
+    """复盘附带 N3 nowcast 摘要（不二次 autofill）。"""
+    try:
+        pack = build_nowcast_shadow_review(
+            as_of, horizon_days=max(1, int(horizon_days or 1)), autofill=False
+        )
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+    if not isinstance(pack, dict):
+        return {"success": False}
+    sh = pack.get("shadow_membership") or {}
+    return {
+        "success": bool(pack.get("success")),
+        "as_of": pack.get("as_of"),
+        "nowcast_ic_spearman": pack.get("nowcast_ic_spearman"),
+        "nowcast_n": pack.get("nowcast_n"),
+        "nowcast_sign_hit_rate": pack.get("nowcast_sign_hit_rate"),
+        "nowcast_sign_hit_n": pack.get("nowcast_sign_hit_n"),
+        "nordhaus_revision_slope": pack.get("nordhaus_revision_slope"),
+        "shadow_exists": bool(sh.get("exists")),
+        "shadow_n": sh.get("n_rows"),
+        "vs_eod": sh.get("vs_eod_book"),
+        "y_spec_nowcast": pack.get("y_spec_nowcast"),
         "note": pack.get("note"),
     }
 

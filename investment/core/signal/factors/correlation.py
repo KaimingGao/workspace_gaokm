@@ -111,35 +111,28 @@ def check_portfolio_correlation(
             "details": high_correlation_pairs,
         })
     
-    # 检查行业集中度（简化版：使用股票代码前缀判断板块）
+    # 检查行业集中度（DS-R2.2：真实 sector_map）
+    from core.portfolio_optimize import _sector_for, load_sector_map
+
+    smap = load_sector_map()
     sector_count: Dict[str, int] = {}
     for code in codes:
-        # 简化的行业分类：按代码前缀
-        if code.startswith("6"):
-            sector = "sh_main"  # 上证主板
-        elif code.startswith("0"):
-            sector = "sz_main"  # 深证主板
-        elif code.startswith("3"):
-            sector = "chinext"  # 创业板
-        elif code.startswith("68"):
-            sector = "star"  # 科创板
-        else:
-            sector = "other"
+        sector = _sector_for(str(code), smap)
         sector_count[sector] = sector_count.get(sector, 0) + 1
-    
+
     concentrated_sectors = [
         {"sector": s, "count": c}
         for s, c in sector_count.items()
         if c > max_same_sector
     ]
-    
+
     if concentrated_sectors:
         issues.append({
             "type": "sector_concentration",
             "message": f"存在 {len(concentrated_sectors)} 个行业持仓过于集中",
             "details": concentrated_sectors,
         })
-    
+
     return len(issues) == 0, issues
 
 

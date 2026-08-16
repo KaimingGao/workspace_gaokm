@@ -3,6 +3,37 @@
  */
 import { escapeHtml } from "../shared.js";
 
+function shadowBookStat(sh, label) {
+  const lab = String(label || "影");
+  if (!sh || !sh.exists) {
+    return (
+      `<span class="quant-cluster-stat" title="${escapeHtml(lab)} 影子簿尚未写出（刷簿后出现；不驱动买入）">` +
+      `<b>—</b> ${escapeHtml(lab)}影</span>`
+    );
+  }
+  const vs = sh.vs_eod || {};
+  const j =
+    vs.jaccard != null && Number.isFinite(Number(vs.jaccard))
+      ? Number(vs.jaccard).toFixed(2)
+      : "—";
+  const n = sh.name_count != null ? sh.name_count : "—";
+  const nord = (sh.meta || {}).nordhaus_revision_slope;
+  const nordTxt =
+    nord != null && Number.isFinite(Number(nord))
+      ? ` · Nordhaus=${Number(nord).toFixed(2)}`
+      : "";
+  return (
+    `<span class="quant-cluster-stat" title="${escapeHtml(
+      lab
+    )} 影子簿 vs EOD 重叠 Jaccard=${escapeHtml(String(j))}${escapeHtml(
+      nordTxt
+    )} · 不驱动 execution">` +
+    `<b>${escapeHtml(String(n))}</b> ${escapeHtml(lab)}影 · J=${escapeHtml(
+      String(j)
+    )}</span>`
+  );
+}
+
 export function clusterLandingHtml(data) {
   const cs = (data && data.cluster_scoring) || {};
   const act = (data && data.active) || {};
@@ -90,6 +121,8 @@ export function clusterLandingHtml(data) {
     `<span class="quant-cluster-stat" title="合并簿只数=账户调仓目标"><b>${escapeHtml(
       String(book.name_count != null ? book.name_count : "—")
     )}</b> 簿</span>` +
+    shadowBookStat(data && data.tau_shadow_book, "τ") +
+    shadowBookStat(data && data.nowcast_shadow_book, "ŷ_nowcast") +
     `</div>`;
 
   const pf = (data && data.promote_preflight) || null;
@@ -191,8 +224,12 @@ export function clusterLandingHtml(data) {
           oos.note ? ` · ${escapeHtml(String(oos.note))}` : ""
         }</li>` +
         `<li class="quant-oos-semantics" title="${escapeHtml(
-          "基线=heuristic（人工加权）；研究臂=predicted_score（ŷ）。过门≠自动 promote。"
-        )}">OOS：heuristic 基线 vs ŷ 研究臂 · 过门≠自动 promote</li>` +
+          excludeOos
+            ? "开：失败组不进簿；主分=全局ŷ/heuristic；组ŷ仅 tip 对照。基线=heuristic；研究臂=ŷ。过门≠自动 promote。"
+            : "关：失败组可进簿且主分可用组 β。基线=heuristic；研究臂=ŷ。过门≠自动 promote。"
+        )}">OOS：heuristic 基线 vs ŷ 研究臂 · ${
+          excludeOos ? "失败组剔簿+主分降级" : "失败组可进簿"
+        }</li>` +
         `<li title="相对纸面 vs 合并簿">换手估计 卖 ${escapeHtml(
           String(turn.would_sell_count ?? "—")
         )} · 买 ${escapeHtml(String(turn.would_buy_count ?? "—"))}</li>` +

@@ -22,12 +22,24 @@ def json_safe_number(value: Any) -> Any:
 
 def json_safe(obj: Any) -> Any:
     """递归把 ±inf/NaN 换成 None，供 Starlette JSONResponse（allow_nan=False）。"""
-    if isinstance(obj, float):
-        return obj if math.isfinite(obj) else None
+    if obj is None or isinstance(obj, (str, bool)):
+        return obj
     if isinstance(obj, dict):
         return {k: json_safe(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
         return [json_safe(v) for v in obj]
+    # Python float / numpy floating（含 float32）；int 原样
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else None
+    if isinstance(obj, int):
+        return obj
+    # numpy scalar（非 float 子类的 floating / integer）
+    item = getattr(obj, "item", None)
+    if callable(item):
+        try:
+            return json_safe(item())
+        except Exception:
+            return None
     return obj
 
 
@@ -163,8 +175,18 @@ def annotate_score_gate(
     sc = None
     if isinstance(item, dict):
         try:
-            from core.signal.dual_score import eod_gate_score_for_item
+            from core.signal.dual_score import (
+                eod_gate_score_for_item,
+                is_heuristic_score_scale,
+            )
 
+            if is_heuristic_score_scale(item):
+                # heuristic 0–100 不与 ŷ% 门槛比；也不把 score 回填成 gate
+                return {
+                    "min_score": floor,
+                    "below_min_score": False,
+                    "gate_score": None,
+                }
             sc = eod_gate_score_for_item(item)
         except Exception:
             sc = None

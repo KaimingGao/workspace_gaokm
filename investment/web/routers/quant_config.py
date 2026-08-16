@@ -132,6 +132,7 @@ def signal_config_dual_score_save(body: DualScoreRequest):
             min_predicted_score_tau=body.min_predicted_score_tau,
             w_eod=body.w_eod,
             w_tau=body.w_tau,
+            w_mode=body.w_mode,
             block_buy_if_tau_missing=body.block_buy_if_tau_missing,
             note=body.note or "策略中心人审·双层ŷ",
         )

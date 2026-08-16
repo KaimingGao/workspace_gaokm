@@ -27,8 +27,9 @@ def read_dual_score_public() -> Dict[str, Any]:
         "enable_tau_shadow_book": bool(cfg.get("enable_tau_shadow_book")),
         "enable_minute_tau": bool(cfg.get("enable_minute_tau")),
         "minute_tau_hm": cfg.get("minute_tau_hm"),
+        "nowcast": cfg.get("nowcast"),
         "y_spec": cfg.get("y_spec"),
-        "note": "簿排序用 ŷ_trade=w·ŷ_EOD_rem+w·ŷ_τ；主 score 仍 EOD；买入另过 τ 闸",
+        "note": "簿排序用 ŷ_trade=w·ŷ_EOD_rem+w·ŷ_τ；主 score 仍 EOD；ŷ_nowcast 为 Kalman 影子；买入另过 τ 闸",
     }
 
 
@@ -38,6 +39,7 @@ def save_dual_score(
     min_predicted_score_tau: Optional[float] = None,
     w_eod: Optional[float] = None,
     w_tau: Optional[float] = None,
+    w_mode: Optional[str] = None,
     block_buy_if_tau_missing: Optional[bool] = None,
     note: str = "",
 ) -> Dict[str, Any]:
@@ -72,6 +74,12 @@ def save_dual_score(
     if w_tau is not None:
         dual["w_tau"] = float(w_tau)
         changed["w_tau"] = float(w_tau)
+    if w_mode is not None:
+        mode_w = str(w_mode or "fixed").strip().lower()
+        if mode_w not in ("fixed", "theme_boost", "variance", "kalman"):
+            mode_w = "fixed"
+        dual["w_mode"] = mode_w
+        changed["w_mode"] = mode_w
     if block_buy_if_tau_missing is not None:
         dual["block_buy_if_tau_missing"] = bool(block_buy_if_tau_missing)
         changed["block_buy_if_tau_missing"] = bool(block_buy_if_tau_missing)
@@ -79,7 +87,7 @@ def save_dual_score(
     if not changed:
         return {
             "success": False,
-            "error": "未提供可写字段（fusion_mode / min_predicted_score_tau / w_eod / w_tau）",
+            "error": "未提供可写字段（fusion_mode / min_predicted_score_tau / w_eod / w_tau / w_mode）",
             "signal_config_weights_touched": False,
         }
 

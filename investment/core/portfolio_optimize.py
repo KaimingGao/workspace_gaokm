@@ -4,24 +4,41 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from core.data_policy import UNMAPPED_SECTOR, is_board_label
+
+
+def _board_for(code: str) -> str:
+    """板别启发式（科创/创业/主板…）；不作行业限额键。"""
+    try:
+        from core.risk.exposure import board_style_for
+
+        return board_style_for(code)
+    except Exception:
+        c = str(code or "").strip()
+        if c.isdigit() and len(c) == 6:
+            if c.startswith(("688", "689")):
+                return "科创"
+            if c.startswith("300"):
+                return "创业板"
+            if c.startswith(("60", "90")):
+                return "主板沪"
+            if c.startswith(("00", "001", "002", "003")):
+                return "主板深"
+        if len(c) <= 5 and c.isdigit():
+            return "港股"
+        return "其他"
+
 
 def _sector_for(code: str, sector_map: Optional[Dict[str, str]] = None) -> str:
+    """行业主题：仅真实主题；板别标签与未映射 → 未分类（DS-R2 / R2.1）。"""
     m = sector_map or {}
     c = str(code or "").strip()
-    if c in m:
-        return str(m[c])
-    if c.isdigit() and len(c) == 6:
-        if c.startswith(("688", "689")):
-            return "科创"
-        if c.startswith("300"):
-            return "创业板"
-        if c.startswith(("60", "90")):
-            return "主板沪"
-        if c.startswith(("00", "001", "002", "003")):
-            return "主板深"
-    if len(c) <= 5 and c.isdigit():
-        return "港股"
-    return "其他"
+    if c in m and str(m[c]).strip():
+        label = str(m[c]).strip()
+        if is_board_label(label):
+            return UNMAPPED_SECTOR
+        return label
+    return UNMAPPED_SECTOR
 
 
 def load_sector_map() -> Dict[str, str]:
@@ -41,6 +58,50 @@ def load_sector_map() -> Dict[str, str]:
     except Exception:
         return {}
     return {}
+
+
+def sector_map_coverage(
+    codes: Optional[List[str]] = None,
+    *,
+    sector_map: Optional[Dict[str, str]] = None,
+) -> Dict[str, Any]:
+    """真实行业映射覆盖率（板别标签不计 mapped）。"""
+    smap = sector_map if sector_map is not None else load_sector_map()
+    raw = [str(c).strip() for c in (codes or []) if str(c).strip()]
+    if not raw:
+        return {
+            "total": 0,
+            "mapped": 0,
+            "unmapped": 0,
+            "board_labeled": 0,
+            "coverage": None,
+            "empty_universe": True,
+            "unmapped_codes": [],
+            "board_codes": [],
+        }
+    mapped: List[str] = []
+    board_codes: List[str] = []
+    unmapped: List[str] = []
+    for c in raw:
+        if c not in smap or not str(smap[c]).strip():
+            unmapped.append(c)
+            continue
+        label = str(smap[c]).strip()
+        if is_board_label(label):
+            board_codes.append(c)
+            unmapped.append(c)
+        else:
+            mapped.append(c)
+    total = len(raw)
+    return {
+        "total": total,
+        "mapped": len(mapped),
+        "unmapped": len(unmapped),
+        "board_labeled": len(board_codes),
+        "coverage": round(len(mapped) / total, 4) if total else None,
+        "unmapped_codes": unmapped[:40],
+        "board_codes": board_codes[:40],
+    }
 
 
 def optimize_weights(
@@ -66,7 +127,8 @@ def optimize_weights(
     - weight_mode=risk_parity_lite：TopN 内 1/vol 或等权，限额裁剪（无 QP）
     - weight_mode=qp_lite：可选 cvxpy（V3.4）；不可用则回退 score_budget 并标 unavailable
     - apply_market_vol：高波时压低有效上限（取数失败则不缩放）
-    - min_score：ŷ% 下限；默认 None → ``resolve_buy_floor``；≥10 视为遗留 0–100 并改走 ŷ 门槛
+    - min_score：ŷ% 入选下限；默认 None → ``resolve_buy_floor``；≥10 视为遗留 0–100 并改走 ŷ 门槛。
+      入选对比用 ``eod_gate_score_for_item``（ŷ_EOD）；权重分配用 ``decision_score_for_item``（ŷ_trade）。
     """
     smap = sector_map if sector_map is not None else load_sector_map()
     max_pos = max(0.1, float(max_position_pct or 2.0))
@@ -172,14 +234,34 @@ def optimize_weights(
         code = str(it.get("stock_code") or "").strip()
         if not code or it.get("hard_reject"):
             continue
+        # 入选门槛用 ŷ_EOD（与买入闸一致）；分配权重用 ŷ_trade，避免 blend 被 EOD floor 误杀
         try:
-            score = float(it.get("score"))
-        except (TypeError, ValueError):
+            from core.signal.dual_score import (
+                decision_score_for_item,
+                eod_gate_score_for_item,
+            )
+
+            gate_sc = eod_gate_score_for_item(it)
+            alloc_sc = decision_score_for_item(it)
+        except Exception:
+            gate_sc = None
+            alloc_sc = None
+        if gate_sc is None:
+            try:
+                gate_sc = float(it.get("score"))
+            except (TypeError, ValueError):
+                continue
+        if float(gate_sc) < floor:
             continue
-        if score < floor:
-            continue
+        if alloc_sc is None:
+            try:
+                alloc_sc = float(it.get("score"))
+            except (TypeError, ValueError):
+                alloc_sc = float(gate_sc)
+        score = float(alloc_sc)
         sector = str(it.get("sector") or _sector_for(code, smap))
-        row = {"stock_code": code, "score": score, "sector": sector}
+        board = str(it.get("board") or _board_for(code))
+        row = {"stock_code": code, "score": score, "sector": sector, "board": board}
         vol = it.get("vol")
         if vol is None:
             vol = it.get("volatility")
@@ -301,8 +383,13 @@ def optimize_weights(
                 "level": "info",
                 "code": "sector_map_thin",
                 "message": (
-                    f"行业 map 显式覆盖 {coverage.get('mapped')}/{coverage.get('total')}，"
-                    "行业预算精度偏弱"
+                    f"真实行业 map 覆盖 {coverage.get('mapped')}/{coverage.get('total')}"
+                    + (
+                        f"（板别伪主题 {coverage.get('board_labeled')}）"
+                        if coverage.get("board_labeled")
+                        else ""
+                    )
+                    + "，未映射进「未分类」· 行业预算精度偏弱"
                 ),
             }
         )

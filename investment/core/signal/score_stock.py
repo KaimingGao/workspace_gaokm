@@ -6,15 +6,13 @@ import logging
 import threading
 from typing import Any, Dict, Optional
 
-from core.signal.scorer import score_bars
-from core.signal.config import load_signal_config
+from core.data_service import allows_production_score, infer_adjust, DEFAULT_ADJUST_POLICY
 from core.ports.market import (
     bars_from_quote_fallback,
-    fetch_daily_bars,
-    query_quote,
 )
+from core.signal.config import load_signal_config
+from core.signal.scorer import score_bars
 from core.store import assess_quality
-from core.data_service import allows_production_score, infer_adjust, DEFAULT_ADJUST_POLICY
 
 logger = logging.getLogger(__name__)
 
@@ -53,55 +51,56 @@ def _call_with_timeout(func, timeout, *args, **kwargs):
 
 
 def _fetch_bars_isolated(stock_code: str, *, limit: int = 40, timeout: float = 10.0):
-    """子进程拉取日线：超时不占用主进程 ak_lock。
+    """评分日线：主进程只读缓存；不足时经 DataService 进程池补远端。
 
-    优先读本地缓存（主进程）；仅缓存不足时走 ak_worker 进程池。
+    不在主进程直调 AkShare（避免超时后仍占 ak_lock）。
     """
     raw = str(stock_code or "").strip()
     if not raw:
         return [], "empty"
-    # 1) 主进程缓存快路径（无网络、无 MiniRacer）
-    try:
-        from core.ports.market import resolve_market_code
-        from core.store import load_daily_cache
 
-        market, code = resolve_market_code(raw)
-        if market and code:
-            cached = load_daily_cache(
-                market, code, min_bars=min(15, limit), max_age_hours=36.0
-            )
-            if cached:
-                bars, meta = cached
-                if bars and len(bars) >= min(15, limit):
-                    src = str((meta or {}).get("data_source") or "cache")
-                    return list(bars)[-int(limit) :], (
-                        src if src.startswith("cache") else f"cache:{src}"
-                    )
+    need = min(15, int(limit or 40))
+    try:
+        from core.data_service import get_bars
+
+        pack = get_bars(
+            raw,
+            limit=int(limit or 40),
+            offline_only=True,
+            reject_quote_fallback=True,
+        )
+        bars = list((pack or {}).get("bars") or [])
+        if bars and len(bars) >= need:
+            src = str((pack or {}).get("data_source") or "cache")
+            return bars[-int(limit) :], src
     except Exception:
         pass
 
-    # 2) 进程池远端拉取
     try:
-        from skills.common.ak_worker import batch_fetch_daily_bars
-        from core.ports.market import resolve_market_code
+        from core.data.service import bars_pack_worker
+        from core.ports.market import batch_map
 
-        market, code = resolve_market_code(raw)
-        if not market or not code:
-            return [], "empty"
-        m = str(market).upper()
-        got = batch_fetch_daily_bars(
-            m, [code], limit=limit, timeout=float(timeout)
+        packs = batch_map(
+            bars_pack_worker,
+            [raw],
+            limit=int(limit or 40),
+            timeout=float(timeout),
+            reject_quote_fallback=True,
         )
-        bars = list((got or {}).get(code) or [])
-        if bars:
-            return bars[-int(limit) :], f"ak_pool:{m.lower()}"
+        pack = packs[0] if packs else None
+        if isinstance(pack, dict):
+            bars = list(pack.get("bars") or [])
+            if bars:
+                src = str(pack.get("data_source") or "ak_pool")
+                return bars[-int(limit) :], src
         return [], "empty"
     except Exception:
-        # 进程池不可用时回退端口（仍可能占锁，但有超时线程兜底）
-        try:
-            return _call_with_timeout(fetch_daily_bars, timeout, raw, limit=limit)
-        except Exception:
-            return [], "empty"
+        return [], "empty"
+
+
+def fetch_daily_bars(stock_code: str, *, limit: int = 40, timeout: float = 10.0, **_kwargs):
+    """评分读日线入口（测试可 patch）；实现见 ``_fetch_bars_isolated``。"""
+    return _fetch_bars_isolated(stock_code, limit=limit, timeout=timeout)
 
 
 def _gated_reject_item(
@@ -191,7 +190,9 @@ def score_stock(
 
     cluster_mode: None=读 signal_config.cluster_scoring；
     off — 不用组 β；shadow — 可算 score_cluster 对照，主分仍全局/空；
-    active — 主分优先组 return_model ŷ（无模型则全局）。
+    active — 主分优先组 return_model ŷ（无模型则全局）；
+    若该组 OOS 失败：主分降为全局 ŷ，再不行表列用 heuristic；
+    组 ŷ 始终写 score_cluster，heuristic_score 始终保留（双轨，互不覆盖）。
     """
     if horizon_days is None:
         from core.signal.config import get_scoring_horizon_days
@@ -203,8 +204,10 @@ def score_stock(
 
     if quote is None:
         try:
+            from core.data_service import get_quote
+
             # 设置超时，防止行情查询卡住
-            quote = _call_with_timeout(query_quote, q_timeout, raw)
+            quote = _call_with_timeout(get_quote, q_timeout, raw)
         except TimeoutError:
             return {
                 "success": False,
@@ -230,9 +233,9 @@ def score_stock(
     bars = []
     data_source = "quote_fallback"
     try:
-        bars, src = _fetch_bars_isolated(raw, limit=40, timeout=10.0)
+        bars, src = fetch_daily_bars(raw, limit=40, timeout=10.0)
         if not bars:
-            bars, src = _fetch_bars_isolated(str(code), limit=40, timeout=10.0)
+            bars, src = fetch_daily_bars(str(code), limit=40, timeout=10.0)
         if bars:
             data_source = src
     except TimeoutError:
@@ -244,7 +247,12 @@ def score_stock(
         bars = bars_from_quote_fallback(quote)
         data_source = "quote_fallback"
 
-    quality = assess_quality(bars or [], data_source=data_source)
+    from core.signal.session_pit import prepare_eod_bars, quote_for_eod_score
+
+    bars_raw = list(bars or [])
+    eod_bars, eod_pit = prepare_eod_bars(bars_raw, quote)
+    quality_bars = eod_bars if len(eod_bars) >= 2 else bars_raw
+    quality = assess_quality(quality_bars or [], data_source=data_source)
     fallback = data_source in ("empty", "quote_fallback") or "fallback" in str(data_source)
     prod_ok, gate_reason = allows_production_score(
         quality_level=(quality or {}).get("level"),
@@ -275,12 +283,20 @@ def score_stock(
         try:
             from core.signal.live_features import resolve_live_fundamentals
 
-            live_fund = resolve_live_fundamentals(raw, bars=bars, config=cfg)
+            live_fund = resolve_live_fundamentals(
+                raw,
+                bars=eod_bars,
+                as_of=eod_pit.get("eod_as_of"),
+                config=cfg,
+            )
             fundamentals = (live_fund or {}).get("metrics")
             fundamentals_pit_meta = dict((live_fund or {}).get("fundamentals_pit") or {})
             if not fundamentals:
                 live_fund2 = resolve_live_fundamentals(
-                    str(code), bars=bars, config=cfg
+                    str(code),
+                    bars=eod_bars,
+                    as_of=eod_pit.get("eod_as_of"),
+                    config=cfg,
                 )
                 fundamentals = (live_fund2 or {}).get("metrics")
                 if live_fund2 and live_fund2.get("fundamentals_pit"):
@@ -397,6 +413,26 @@ def score_stock(
         formula_warnings.append("fundamentals_as_of_missing")
     if fundamentals_pit_meta.get("ann_missing"):
         formula_warnings.append("fundamentals_ann_missing")
+        ann_pol = str(
+            (fundamentals_pit_meta.get("ann_missing_policy") or fund_cfg.get("ann_missing_policy") or "")
+        ).strip().lower()
+        if ann_pol in ("zero_weight", "omit") or fundamentals_pit_meta.get("mode") in (
+            "ann_missing_zero_weight",
+        ):
+            fundamentals = None
+            formula_warnings.append("fundamentals_ann_missing_zero_weight")
+        if ann_pol == "hard_reject" or fundamentals_pit_meta.get("hard_reject"):
+            formula_warnings.append("fundamentals_ann_missing_hard_reject")
+            # 与质量门禁对齐：缺公告日硬拦
+            return _gated_reject_item(
+                code=str(code),
+                name=str(name),
+                quote=quote,
+                data_source=data_source,
+                quality=quality,
+                gate_reason="data_quality_gate:ann_missing",
+                horizon_days=horizon_days,
+            )
     if fundamentals_pit_meta.get("non_pit"):
         formula_warnings.append("fundamentals_non_pit_snapshot")
     if not skip_fundamentals and fund_cfg.get("enabled", True):
@@ -469,15 +505,22 @@ def score_stock(
         global_model_pre = None
 
     sentiment_for_score = sentiment_ui if include_sentiment_in_score else None
+    idx_eod = index_bars
+    if index_bars:
+        idx_eod, _ = prepare_eod_bars(index_bars, quote)
+    eod_quote = quote_for_eod_score(
+        quote, strip_intraday_change=bool(eod_pit.get("stripped_asof_bar"))
+    )
     scored = score_bars(
-        bars,
+        eod_bars,
         horizon_days=horizon_days,
-        quote=quote,
+        quote=eod_quote,
         fundamentals=fundamentals,
-        index_bars=index_bars,
+        index_bars=idx_eod,
         config=cfg,
         sentiment=sentiment_for_score,
         required_factor_keys=required_factor_keys or None,
+        mom3_hard_reject=not bool(eod_pit.get("rolled_to_next")),
     )
     if mapped and cluster_yhat_shadow_compute_allowed(mode):
         cluster_label = mapped.get("cluster_label")
@@ -491,11 +534,14 @@ def score_stock(
         weight_source = "global_fallback"
 
     try:
-        from core.portfolio_optimize import _sector_for, load_sector_map
+        from core.portfolio_optimize import _board_for, _sector_for, load_sector_map
 
-        sector = _sector_for(str(code), load_sector_map())
+        smap = load_sector_map()
+        sector = _sector_for(str(code), smap)
+        board = _board_for(str(code))
     except Exception:
-        sector = "其他"
+        sector = "未分类"
+        board = "其他"
 
     market_cap = None
     if isinstance(fundamentals, dict) and fundamentals.get("market_cap") is not None:
@@ -511,6 +557,14 @@ def score_stock(
     active_model = None
     group_model = group_model_pre
     global_model = global_model_pre
+    oos_primary_blocked = False
+    if cluster_yhat_primary_allowed(mode) and cluster_label:
+        try:
+            from core.signal.cluster_oos_labels import is_oos_failed_cluster_label
+
+            oos_primary_blocked = is_oos_failed_cluster_label(str(cluster_label))
+        except Exception:
+            oos_primary_blocked = False
     try:
         subs = dict(scored.get("sub_scores") or {})
         if not include_sentiment_in_score:
@@ -525,17 +579,27 @@ def score_stock(
             cluster_yhat_primary_allowed(mode)
             and group_model is not None
             and score_cluster is not None
+            and not oos_primary_blocked
         ):
             predicted_score = score_cluster
             return_model_source = "cluster_group_beta"
             active_model = group_model
         elif global_model is not None and score_global is not None:
             predicted_score = score_global
-            return_model_source = "global"
+            return_model_source = (
+                "oos_failed_global" if oos_primary_blocked else "global"
+            )
             active_model = global_model
+            if oos_primary_blocked:
+                weight_source = "oos_failed_degrade"
+                formula_warnings.append(
+                    f"oos_failed_primary_degraded:{cluster_label}:global"
+                )
         elif (
             # shadow 且无全局 return_model 产物时：用组 ŷ 顶住主分，避免全表「—」
+            # OOS 失败组不走此回退（避免失败 β 进主分）
             mode == "shadow"
+            and not oos_primary_blocked
             and group_model is not None
             and score_cluster is not None
         ):
@@ -554,17 +618,41 @@ def score_stock(
         group_model = None
         global_model = None
 
-    # 主分：仅 ŷ；无模型则为 None（启发式分见 heuristic_score）
-    primary_score = None
-    if predicted_score is not None and not scored.get("hard_reject"):
-        primary_score = predicted_score
-
     heuristic_score = None
     try:
         if scored.get("score") is not None and scored.get("score") != "":
             heuristic_score = float(scored.get("score"))
     except (TypeError, ValueError):
         heuristic_score = None
+
+    # OOS 失败且无全局 ŷ：标记 heuristic 轨；表列 score 用组 ŷ%（若有），0–100 只进 heuristic_score
+    if (
+        oos_primary_blocked
+        and predicted_score is None
+        and heuristic_score is not None
+        and not scored.get("hard_reject")
+    ):
+        return_model_source = "oos_failed_heuristic"
+        active_model = None
+        weight_source = "oos_failed_degrade"
+        formula_warnings.append(
+            f"oos_failed_primary_degraded:{cluster_label}:heuristic"
+        )
+
+    # 主分 score：始终 ŷ% 量纲。OOS heuristic 轨用组/全局 ŷ 填表列，禁止把 0–100 写入 score。
+    primary_score = None
+    if predicted_score is not None and not scored.get("hard_reject"):
+        primary_score = predicted_score
+    elif (
+        return_model_source == "oos_failed_heuristic"
+        and not scored.get("hard_reject")
+    ):
+        if score_cluster is not None:
+            primary_score = score_cluster
+        elif score_global is not None:
+            primary_score = score_global
+        else:
+            primary_score = None
 
     delta = None
     if score_cluster is not None and score_global is not None:
@@ -687,6 +775,11 @@ def score_stock(
         "heuristic_score": heuristic_score,
         "predicted_score": predicted_score,
         "return_model_source": return_model_source,
+        "score_scale": (
+            "heuristic_0_100"
+            if return_model_source == "oos_failed_heuristic"
+            else ("predicted_yhat" if predicted_score is not None else None)
+        ),
         "rank_mode": "predicted_score",
         "hard_reject": scored.get("hard_reject"),
         "reject_reason": scored.get("reject_reason"),
@@ -697,6 +790,7 @@ def score_stock(
         "factor_contrib": scored.get("factor_contrib"),
         "regime": scored.get("regime"),
         "sector": sector,
+        "board": board,
         "market_cap": market_cap,
         "data_source": data_source,
         "data_quality": quality,
@@ -733,6 +827,8 @@ def score_stock(
         "fundamentals_depth": fund_depth.get("fundamentals_depth"),
         "fundamentals_depth_meta": fund_depth or None,
         "feature_isomorphism_track": "X0-X5",
+        "eod_feature_as_of": eod_pit.get("eod_as_of"),
+        "dual_score_window": eod_pit.get("dual_score_window"),
     }
 
     # R3 / A1：双层 ŷ_τ（不替换 predicted_score）
@@ -744,7 +840,7 @@ def score_stock(
             get_event_prior_cfg,
         )
         from core.signal.dual_score import apply_tau_score_fields
-        from quant.research.rem_ridge import predict_rem_from_features
+        from quant.research.rem_ridge import load_rem_model, predict_rem_from_features
 
         gap_v = gap_pct_from_quote_bars(quote, bars)
         ep_cfg = get_event_prior_cfg()
@@ -858,9 +954,9 @@ def score_stock(
                     except (TypeError, ValueError):
                         open_px = None
                 if trade_day and open_px and open_px > 0:
+                    from core.ports.market import resolve_market_code
                     from core.research.rem_panel import price_at_tau_from_minutes
                     from core.store import load_minute_cache
-                    from skills.common.history import resolve_market_code
 
                     mkt, pure = resolve_market_code(str(code))
                     packed = load_minute_cache(
@@ -888,7 +984,8 @@ def score_stock(
         except Exception:
             logger.debug("minute tau attach skipped for %s", code, exc_info=True)
 
-        rem_yhat = predict_rem_from_features(feats)
+        rem_model_doc = load_rem_model()
+        rem_yhat = predict_rem_from_features(feats, model_doc=rem_model_doc)
         apply_tau_score_fields(
             signal_item,
             rem_yhat=rem_yhat,
@@ -896,6 +993,8 @@ def score_stock(
             feats=feats,
             as_of_tau=as_of_tau_override,
             y_spec_override=y_spec_override,
+            rem_model_doc=rem_model_doc,
+            fuse_intraday=not bool(eod_pit.get("rolled_to_next")),
         )
         trade = signal_item.get("predicted_score_tau")
         ep = build_event_prior_from_quote(

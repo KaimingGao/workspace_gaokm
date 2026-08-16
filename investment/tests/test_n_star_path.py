@@ -552,8 +552,18 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
             "trades": [],
         }
         ranking = [
-            {"stock_code": "300750", "score": 2.0, "stock_name": "宁德"},
-            {"stock_code": "600519", "score": 3.0, "stock_name": "茅台"},
+            {
+                "stock_code": "300750",
+                "score": 2.0,
+                "stock_name": "宁德",
+                "predicted_score_tau": 1.0,
+            },
+            {
+                "stock_code": "600519",
+                "score": 3.0,
+                "stock_name": "茅台",
+                "predicted_score_tau": 1.0,
+            },
         ]
         risk_out = {
             "ok": False,
@@ -628,7 +638,14 @@ class TestP2PaperOpsLoop(unittest.TestCase):
             "operation_log": [],
             "trades": [],
         }
-        ranking = [{"stock_code": "600519", "score": 90, "stock_name": "茅台"}]
+        ranking = [
+            {
+                "stock_code": "600519",
+                "score": 90,
+                "stock_name": "茅台",
+                "predicted_score_tau": 1.0,
+            }
+        ]
         alerts = [
             {"level": "warn", "code": "drawdown_target", "message": "回撤触及预警"}
         ]

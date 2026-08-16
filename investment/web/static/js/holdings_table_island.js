@@ -2,8 +2,8 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtScore, scoreCls, resolveTradeScore, resolveCalTradeScore } from "./paper/fmt.js?v=p1092";
-import { sentimentBadgeHtml } from "./quant/watching_render.js?v=p1092";
+import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveTradeScore, resolveCalTradeScore, isHeuristicScoreScale } from "./paper/fmt.js?v=p1128";
+import { sentimentBadgeHtml } from "./quant/watching_render.js?v=p1108";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -39,18 +39,22 @@ export function holdingToRow(
   const belowMin = !!h.below_min_score;
   const minScore = h.min_score;
   const hardReject = !!h.hard_reject;
-  const scoreBase = fmtScore(score);
+  const scoreBase = fmtTableScore(h, score);
   let scoreText =
     scoreBase !== "—" && belowMin ? `${scoreBase}↓` : scoreBase;
   if (scoreText === "—" && hardReject) scoreText = "拒";
-  const scoreCalText = fmtScore(scoreCal);
+  const scoreCalText = fmtTableScore(h, scoreCal);
   const origin = String(h.origin || "");
   const mv = Number(h.market_value ?? h.market_value_approx);
   const scoreTitle = hardReject
     ? String(h.reject_reason || "硬拒绝 · 无收益分")
-    : belowMin
-      ? `低于ŷ_EOD门槛 ${minScore ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
-      : "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
+    : isHeuristicScoreScale(h)
+      ? score != null
+        ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
+        : "OOS 失败 · 无 ŷ% · tip 看 heuristic(0–100)"
+      : belowMin
+        ? `低于ŷ_EOD门槛 ${minScore ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
+        : "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
   const scoreCalOor = !!(
     h.score_calibration_eod_oor ||
     h.score_calibration_eod_rem_oor ||
@@ -113,6 +117,11 @@ export function holdingToRow(
         predicted_score_eod: h.predicted_score_eod,
         predicted_score_eod_rem: h.predicted_score_eod_rem,
         predicted_score_tau_delta: h.predicted_score_tau_delta,
+        predicted_score_nowcast: h.predicted_score_nowcast,
+        dual_score_window: h.dual_score_window || null,
+        nowcast_as_of: h.nowcast_as_of || null,
+        nowcast_K: h.nowcast_K,
+        nowcast_q: h.nowcast_q,
         predicted_score_cal: h.predicted_score_cal,
         predicted_score_eod_rem_cal: h.predicted_score_eod_rem_cal,
         predicted_score_tau_cal: h.predicted_score_tau_cal,
@@ -149,6 +158,8 @@ export function holdingToRow(
         min_score: minScore,
         below_min_score: belowMin,
         return_model_source: h.return_model_source || "",
+        score_scale: h.score_scale || "",
+        heuristic_score: h.heuristic_score,
         formula_terms: terms,
         factor_coefficients: hasTerms ? {} : h.factor_coefficients || {},
       };

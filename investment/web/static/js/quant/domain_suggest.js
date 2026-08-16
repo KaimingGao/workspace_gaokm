@@ -355,11 +355,13 @@ export function installSuggest(q) {
 
   async function waitQuantOlsClustersJob(jobId) {
     const started = Date.now();
-    // 墙钟上限 25min；若任务仍有心跳（updated_at 近 90s）则再放宽至 35min
-    const hardCapMs = 35 * 60 * 1000;
+    // soft 25min：无心跳才判超时；有心跳则继续等（满池 auto-k+OOS 常 >35min）
+    // absolute 90min：极端安全阀，避免永久挂起
     const softCapMs = 25 * 60 * 1000;
+    const absoluteCapMs = 90 * 60 * 1000;
+    const heartbeatFreshSec = 90;
     let sawOwnJob = false;
-    while (Date.now() - started < hardCapMs) {
+    while (Date.now() - started < absoluteCapMs) {
       const res = await fetch("/api/jobs/quant-ols-clusters?progress=1");
       const payload = await res.json();
       const job = (payload && payload.job) || {};
@@ -377,17 +379,37 @@ export function installSuggest(q) {
       }
       if (job.status === "done") {
         // progress=1 不含完整 result；再拉一次完整结果
-        const fullRes = await fetch("/api/jobs/quant-ols-clusters");
-        const fullPayload = await fullRes.json();
-        const fullJob = (fullPayload && fullPayload.job) || job;
+        let fullJob = job;
+        try {
+          const fullRes = await fetch("/api/jobs/quant-ols-clusters");
+          const raw = await fullRes.text();
+          let fullPayload = null;
+          try {
+            fullPayload = raw ? JSON.parse(raw) : null;
+          } catch (_) {
+            fullPayload = null;
+          }
+          if (!fullRes.ok || !fullPayload) {
+            throw new Error(
+              fullRes.ok
+                ? "分组结果无法解析（可能含非法浮点）"
+                : `HTTP ${fullRes.status}`
+            );
+          }
+          fullJob = (fullPayload && fullPayload.job) || job;
+        } catch (_) {
+          // 完整 Job 序列化失败时仍可从 last-report 水合
+          fullJob = { ...job, result: (job && job.result) || {} };
+        }
         let result = (fullJob && fullJob.result) || {};
         // 热重载后 Job 可能只剩摘要：从报告缓存水合
         const hasClusters =
           Array.isArray(result.clusters) && result.clusters.length > 0;
-        if (result.success && !hasClusters) {
+        if (!hasClusters) {
           try {
             const hr = await fetch("/api/quant/factor-ols-clusters/last-report");
-            const hydrated = await hr.json();
+            const hrText = await hr.text();
+            const hydrated = hrText ? JSON.parse(hrText) : null;
             if (
               hydrated &&
               hydrated.success &&
@@ -414,9 +436,10 @@ export function installSuggest(q) {
       if (elapsed >= softCapMs) {
         const ua = Number(job.updated_at);
         const fresh =
-          Number.isFinite(ua) && Date.now() / 1000 - ua < 90;
+          Number.isFinite(ua) &&
+          Date.now() / 1000 - ua < heartbeatFreshSec;
         if (!fresh) {
-          throw new Error("分组任务超时");
+          throw new Error("分组任务超时（无心跳进展）");
         }
       }
       const pct = Number(job.pct) || 0;
@@ -428,7 +451,7 @@ export function installSuggest(q) {
       setBusyText(els.quantOlsSummary, line, { busy: true });
       await new Promise((r) => setTimeout(r, 400));
     }
-    throw new Error("分组任务超时");
+    throw new Error("分组任务超时（超过 90 分钟）");
   }
 
   async function runFactorOlsClustersSuggest() {
@@ -692,9 +715,17 @@ export function installSuggest(q) {
           : { code: "茅台", lookback: 120, use_watching: false }
       ),
     });
-    const data = await res.json();
-    if (!data.success) {
-      setBusyText(els.quantThresholdSummary, data.error || "失败", { busy: false });
+    let data = null;
+    try {
+      data = await res.json();
+    } catch (_) {
+      data = null;
+    }
+    if (!res.ok || !data || !data.success) {
+      const err =
+        (data && (data.error || data.detail)) ||
+        (res.ok ? "阈值建议失败" : `HTTP ${res.status}`);
+      setBusyText(els.quantThresholdSummary, String(err), { busy: false });
       renderThresholdTable(null);
       return;
     }

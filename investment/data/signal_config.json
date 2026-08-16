@@ -72,8 +72,8 @@
   "dual_score": {
     "fusion_mode": "blend",
     "tau": "open",
-    "min_predicted_score_tau": 0.0,
-    "block_buy_if_tau_missing": false,
+    "min_predicted_score_tau": 0.3,
+    "block_buy_if_tau_missing": true,
     "w_eod": 0.5,
     "w_tau": 0.5,
     "w_mode": "fixed",
@@ -82,7 +82,20 @@
     "enable_cascade_shadow": true,
     "enable_tau_shadow_book": true,
     "enable_minute_tau": false,
-    "minute_tau_hm": "09:45"
+    "minute_tau_hm": "09:45",
+    "nowcast": {
+      "enabled": false,
+      "write_shadow": true,
+      "use_as_rank_key": false,
+      "taus": [
+        "eod",
+        "open"
+      ],
+      "q_process": 0.05,
+      "theme_q_boost": 2.0,
+      "gap_q_trigger_pct": 2.0,
+      "gap_q_boost": 2.0
+    }
   },
   "stance_thresholds": {
     "avoid": -0.25,
@@ -114,7 +127,10 @@
     "use_in_ic_experiment": true,
     "use_in_backtest": true,
     "pit_mode": "as_of",
-    "missing_as_of_policy": "zero_weight"
+    "missing_as_of_policy": "zero_weight",
+    "ann_missing_policy": "zero_weight",
+    "ann_missing_code_ratio_warn": 0.3,
+    "ann_missing_code_ratio_block": 0.5
   },
   "sentiment": {
     "include_in_score": false,
@@ -151,8 +167,17 @@
     "min_yhat_rolling_ic": 0.0,
     "block_active_on_yhat_ic": true,
     "min_sector_map_coverage": 0.5,
-    "exclude_oos_failed_groups": true,
     "promote_allow_worse_oos_than_active": true,
+    "rebalance_tracks": {
+      "enabled": true,
+      "oos_fail_policy": "exclude",
+      "predicted_buy_floor": null,
+      "predicted_hold_floor": null,
+      "heuristic_buy_floor": 55.0,
+      "heuristic_hold_floor": 45.0,
+      "heuristic_sleeve_max": 0,
+      "heuristic_apply_tau_gate": false
+    },
     "book_constraints": {
       "enabled": true,
       "filter_untradeable": true,

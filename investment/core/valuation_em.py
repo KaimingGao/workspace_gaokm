@@ -12,6 +12,7 @@ import os
 import time
 from typing import Any, Dict, Optional
 
+from core.data_policy import VALUATION_CACHE_HOURS
 from core.io_atomic import atomic_write_json
 
 logger = logging.getLogger(__name__)

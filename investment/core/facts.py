@@ -4,12 +4,12 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from core.data_service import get_quote
 from core.ports.market import (
     build_kline_payload,
     build_peer_compare,
     build_relative,
     default_benchmark,
-    query_quote,
     resolve_market_code,
 )
 from core.ports.signal import build_signal_pool
@@ -34,7 +34,7 @@ def collect_stock_facts(
     供 advise、测试、未来 position 扩展共用。
     """
     raw = (stock_code or "").strip()
-    quote = query_quote(raw)
+    quote = get_quote(raw)
     code = quote.get("stock_code") if quote.get("success") else raw
     name = quote.get("stock_name") if quote.get("success") else raw
 

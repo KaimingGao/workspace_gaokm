@@ -10,8 +10,8 @@ import {
 import { apiFetch } from "./api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "./lw_charts.js";
 import { mountVirtualTable, colStyle } from "./virtual_table.js";
-import { createScoreTooltipController } from "./score_tooltip.js?v=p1094";
-import { fmtScore, scoreCls } from "./paper/fmt.js?v=p1092";
+import { createScoreTooltipController } from "./score_tooltip.js?v=p1128";
+import { fmtScore, scoreCls } from "./paper/fmt.js?v=p1128";
 import {
   defaultScoringFloors,
   mergeScoringFloors,
@@ -99,6 +99,7 @@ export function initQuant(ctx) {
 
   const BT_SCOPE_LIVE =
     "口径：日线 PIT + 可选财务；不含舆情加减分；无 live 质量门禁（thin/fallback 仍可能进分）。" +
+    "历史 Top-K 仅用 ŷ_EOD 排序，关 ŷ_τ 买入闸（日线无可靠分钟 τ；与 live ŷ_trade 不同）。" +
     "成本按换手计费。有效≠正确：先看上方 IC/分层/超额，再解读 Top-K 累计收益。";
   const BT_SCOPE_FROZEN =
     "以下为 quant_daily 冻结摘要，不是刚才点的 Top-K；点「Top-K 回测」或「中性化对照」刷新当次结果。";

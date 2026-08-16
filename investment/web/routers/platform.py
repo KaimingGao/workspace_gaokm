@@ -64,6 +64,8 @@ def list_jobs():
 @router.get("/api/jobs/{name}")
 def get_job(name: str, progress: int = 0):
     """``progress=1``：轮询轻量快照（去掉大 result），避免 3MB JSON 拖垮前端。"""
+    from core.signal.score_display import json_safe
+
     out = deps.platform.get_job(name)
     if progress and isinstance(out.get("job"), dict):
         job = dict(out["job"])
@@ -71,7 +73,8 @@ def get_job(name: str, progress: int = 0):
             job["result"] = None
             job["result_omitted"] = True
         out = {**out, "job": job}
-    return {**out, "canonical": True}
+    # 完整 result 可能含 ±inf/NaN（旧内存 Job）；须清洗后再交给 Starlette
+    return json_safe({**out, "canonical": True})
 
 
 @router.post("/api/jobs/{name}/cancel")

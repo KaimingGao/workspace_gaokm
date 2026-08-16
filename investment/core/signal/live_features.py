@@ -97,8 +97,9 @@ def fetch_live_index_bars(
     limit: int = 75,
     use_cache: bool = True,
 ) -> Dict[str, Any]:
-    """Live 指数日线（短缓存）；失败时 bars=[] 并写 reason。"""
-    from core.ports.market import default_benchmark, fetch_index_bars
+    """Live 指数日线（短缓存）；失败时 bars=[] 并写 reason。经 DataService。"""
+    from core.data.service import get_default_service
+    from core.ports.market import default_benchmark
 
     bench = str(default_benchmark(market) or "").strip() or "sh000300"
     now = time.time()
@@ -119,8 +120,9 @@ def fetch_live_index_bars(
     label = "empty"
     reason = None
     try:
-        bars, label = fetch_index_bars(bench, limit=int(limit))
-        bars = list(bars or [])
+        pack = get_default_service().get_index_bars(bench, limit=int(limit))
+        bars = list(pack.bars or [])
+        label = str(pack.data_source or "index")
         if not bars:
             reason = "no_index"
     except Exception as exc:

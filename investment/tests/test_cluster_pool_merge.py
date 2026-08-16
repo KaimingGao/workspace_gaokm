@@ -123,6 +123,74 @@ class TestClusterPoolMerge(unittest.TestCase):
         self.assertTrue(out["pool_merge"]["backtest"]["success"])
         self.assertIn("分池合成", out["note"])
 
+    def test_global_baseline_uses_heuristic_not_predicted(self):
+        """全局对照须 heuristic；默认 predicted+live 会把分池合成拖成「假卡死」。"""
+        from quant.research.cluster_pool_merge import backtest_cluster_pools
+
+        clusters = [
+            {
+                "cluster_id": 0,
+                "label": "G1",
+                "members": ["a", "b"],
+                "weight_suggest": {
+                    "success": True,
+                    "suggested_weights": {"momentum": 1.0},
+                },
+            }
+        ]
+        bars = {
+            "a": [
+                {
+                    "date": f"2024-01-{i:02d}",
+                    "close": 10 + i * 0.1,
+                    "open": 10,
+                    "high": 11,
+                    "low": 9,
+                    "volume": 1e6,
+                }
+                for i in range(1, 40)
+            ],
+            "b": [
+                {
+                    "date": f"2024-01-{i:02d}",
+                    "close": 20 + i * 0.1,
+                    "open": 20,
+                    "high": 21,
+                    "low": 19,
+                    "volume": 1e6,
+                }
+                for i in range(1, 40)
+            ],
+        }
+        captured = {}
+
+        def fake_bt(stock_bars, **kwargs):
+            captured.update(kwargs)
+            return {
+                "success": True,
+                "metrics": {"total_return_pct": 1.0},
+                "equity_curve": [
+                    {"date": "d1", "equity": 100},
+                    {"date": "d2", "equity": 101},
+                    {"date": "d3", "equity": 102},
+                    {"date": "d4", "equity": 103},
+                ],
+                "trades": [],
+            }
+
+        with patch(
+            "core.backtest.topk_backtest.backtest_topk_equal_weight",
+            side_effect=fake_bt,
+        ):
+            out = backtest_cluster_pools(
+                clusters, bars, horizon_days=1, top_n_per_group=1, max_names=10
+            )
+        self.assertTrue(out.get("success"))
+        self.assertEqual(captured.get("rank_mode"), "heuristic_score")
+        self.assertTrue(captured.get("allow_heuristic_baseline"))
+        self.assertFalse(captured.get("use_live_cluster_models"))
+        self.assertFalse(captured.get("apply_tau_buy_gate"))
+
 
 if __name__ == "__main__":
     unittest.main()

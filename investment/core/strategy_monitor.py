@@ -227,31 +227,30 @@ def estimate_rolling_ic_for_codes(
 
 
 def sector_coverage_report(codes: Sequence[str]) -> Dict[str, Any]:
-    """行业 map 显式覆盖率；未收录的走启发式板块（限额精度弱）。"""
-    from core.portfolio_optimize import _sector_for, load_sector_map
+    """行业 map 显式覆盖率；未收录 → 未分类（DS-R2，不再当板别冒充行业）。"""
+    from core.portfolio_optimize import _board_for, _sector_for, load_sector_map, sector_map_coverage
 
     smap = load_sector_map()
-    mapped: List[str] = []
-    heuristic: List[str] = []
-    for raw in codes or []:
-        code = str(raw or "").strip()
-        if not code:
-            continue
-        if code in smap:
-            mapped.append(code)
-        else:
-            heuristic.append(code)
-    total = len(mapped) + len(heuristic)
-    coverage = round(len(mapped) / total, 3) if total else 1.0
-    sample_sectors = {c: _sector_for(c, smap) for c in (mapped + heuristic)[:12]}
+    cov = sector_map_coverage(list(codes or []), sector_map=smap)
+    sample = {}
+    for c in (list(codes or [])[:12]):
+        code = str(c or "").strip()
+        if code:
+            sample[code] = {
+                "sector": _sector_for(code, smap),
+                "board": _board_for(code),
+            }
     return {
-        "total": total,
-        "mapped": len(mapped),
-        "heuristic": len(heuristic),
-        "coverage": coverage,
-        "unmapped_codes": heuristic[:12],
-        "sectors": sample_sectors,
+        "total": cov["total"],
+        "mapped": cov["mapped"],
+        "heuristic": cov["unmapped"],  # 兼容旧字段名
+        "unmapped": cov["unmapped"],
+        "coverage": cov["coverage"],
+        "unmapped_codes": cov["unmapped_codes"][:12],
+        "sectors": {k: v["sector"] for k, v in sample.items()},
+        "boards": {k: v["board"] for k, v in sample.items()},
         "map_size": len(smap),
+        "note": "未映射码行业=未分类；板别见 boards。",
     }
 
 
@@ -368,14 +367,15 @@ def assess_strategy_health(
             suggestions.append("研究枢纽跑分组→对照重拟合；勿静默改 weights")
 
     coverage = sector_coverage_report(code_list)
-    if coverage["total"] > 0 and coverage["coverage"] < 0.5:
+    cov_r = coverage.get("coverage")
+    if coverage.get("total") and cov_r is not None and float(cov_r) < 0.5:
         alerts.append(
             {
                 "level": "info",
                 "code": "sector_map_thin",
                 "message": (
                     f"行业 map 显式覆盖 {coverage['mapped']}/{coverage['total']}"
-                    f"（{coverage['coverage']:.0%}），限额精度偏弱"
+                    f"（{float(cov_r):.0%}），限额精度偏弱"
                 ),
             }
         )

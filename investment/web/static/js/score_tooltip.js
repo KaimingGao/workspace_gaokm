@@ -2,7 +2,13 @@
  * 主叙事：收益分 ŷ + 因子系数 β（可正可负），非规则权重。
  */
 
-import { escapeText, resolveEodScore, resolveEodRemScore } from "./paper/fmt.js?v=p1092";
+import {
+  escapeText,
+  fuseOrthogonalTrade,
+  resolveEodScore,
+  resolveEodRemScore,
+  resolveTradeScore,
+} from "./paper/fmt.js?v=p1128";
 
 const FACTOR_LABELS = {
   momentum: "动量",
@@ -41,7 +47,14 @@ function signCls(v) {
 }
 
 function resolveYhat(raw) {
-  const candidates = [raw && raw.predicted_score, raw && raw.score];
+  if (
+    raw &&
+    (raw.score_scale === "heuristic_0_100" ||
+      raw.return_model_source === "oos_failed_heuristic")
+  ) {
+    return null;
+  }
+  const candidates = [raw && raw.predicted_score, raw && raw.predicted_score_eod];
   if (raw && raw.formula_terms && raw.formula_terms.total != null) {
     candidates.unshift(raw.formula_terms.total);
   }
@@ -78,18 +91,13 @@ function resolveWeights(raw) {
 }
 
 function resolveBlend(raw) {
-  const direct = raw && raw.predicted_score_blend;
-  if (direct != null && direct !== "" && Number.isFinite(Number(direct))) {
-    return Number(direct);
-  }
+  // 与表列同源：修 eod_next 塌成 EOD 的旧 blend；eod_next 不减缺口
+  const trade = resolveTradeScore(raw);
+  if (trade != null) return trade;
   const eodRem = resolveEodRemScore(raw);
   const yt = resolveTau(raw);
-  const { w_eod, w_tau } = resolveWeights(raw);
-  if (eodRem != null && yt != null) {
-    const s = w_eod + w_tau;
-    if (Math.abs(s) < 1e-12) return 0.5 * eodRem + 0.5 * yt;
-    return (w_eod * eodRem + w_tau * yt) / s;
-  }
+  const fused = fuseOrthogonalTrade(raw, eodRem, yt);
+  if (fused != null) return fused;
   if (yt != null) return yt;
   if (eodRem != null) return eodRem;
   return resolveYhat(raw);
@@ -107,6 +115,35 @@ const TAU_FEAT_LABELS = {
 
 /** ŷ_EOD：表列 score · 含因子组成。 */
 export function formatScoreHero(raw) {
+  const heuristic =
+    raw &&
+    (raw.score_scale === "heuristic_0_100" ||
+      raw.return_model_source === "oos_failed_heuristic");
+  if (heuristic) {
+    const hs =
+      raw.heuristic_score != null && raw.heuristic_score !== ""
+        ? Number(raw.heuristic_score)
+        : raw.score != null && raw.score !== ""
+          ? Number(raw.score)
+          : null;
+    const hsTxt =
+      hs == null || !Number.isFinite(hs) ? "—" : fmtSigned(hs, 1);
+    const cluster =
+      raw.score_cluster != null && Number.isFinite(Number(raw.score_cluster))
+        ? `${fmtSigned(Number(raw.score_cluster), 3)}%`
+        : "—";
+    return (
+      `<div class="score-layer score-layer-eod">` +
+      `<div class="score-layer-head">` +
+      `<div class="score-hero-label">① ŷ_EOD · 已降级</div>` +
+      `<div class="score-hero-value">—</div>` +
+      `</div>` +
+      `<div class="score-hero-hint">OOS 失败组 · 主分=启发式 ${escapeText(
+        hsTxt
+      )}（0–100）· 组 ŷ 对照 ${escapeText(cluster)} · 不当作收益%</div>` +
+      `</div>`
+    );
+  }
   const y = resolveYhat(raw);
   const yTxt = y == null ? "—" : `${fmtSigned(y, 3)}%`;
   const below = !!raw.below_min_score;
@@ -126,7 +163,13 @@ export function formatScoreHero(raw) {
     `<div class="score-hero-label">① ŷ_EOD · 隔夜主轴</div>` +
     `<div class="score-hero-value ${signCls(y)}">${escapeText(yTxt)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">ŷ = α + Σ β·z（百分点）· T−1 因子 · 买入门槛</div>` +
+    `<div class="score-hero-hint">ŷ = α + Σ β·z（百分点）· T−1 因子 · 买入门槛` +
+    (raw &&
+    raw.heuristic_score != null &&
+    Number.isFinite(Number(raw.heuristic_score))
+      ? ` · heuristic对照 ${escapeText(fmtSigned(Number(raw.heuristic_score), 1))}`
+      : "") +
+    `</div>` +
     gate +
     `</div>`
   );
@@ -455,6 +498,13 @@ export function formatBlendScoreSection(raw) {
     raw && raw.dual_score_weights && raw.dual_score_weights.w_mode
       ? String(raw.dual_score_weights.w_mode)
       : "fixed";
+  const window =
+    (raw && (raw.dual_score_window || (raw.dual_score_weights && raw.dual_score_weights.window))) ||
+    "intraday";
+  const eodNext = String(window) === "eod_next";
+  const hint = eodNext
+    ? `${wTxt} · ${wMode} · 收盘后不减缺口 · ŷ_trade 仍正交加权`
+    : `${wTxt} · ${wMode} · 同为 T收/T开 · 开盘排序键 · 表列主分`;
   const cascade =
     raw && raw.predicted_score_tau_cascade != null
       ? Number(raw.predicted_score_tau_cascade)
@@ -474,6 +524,28 @@ export function formatBlendScoreSection(raw) {
       blend
     )}">${escapeText(blendTxt)}</span></div>`,
   ];
+  const nowcast =
+    raw && raw.predicted_score_nowcast != null
+      ? Number(raw.predicted_score_nowcast)
+      : null;
+  if (nowcast != null && Number.isFinite(nowcast)) {
+    const kTxt =
+      raw.nowcast_K != null && Number.isFinite(Number(raw.nowcast_K))
+        ? ` K=${Number(raw.nowcast_K).toFixed(2)}`
+        : "";
+    const qTxt =
+      raw.nowcast_q != null && Number.isFinite(Number(raw.nowcast_q))
+        ? ` q=${Number(raw.nowcast_q).toFixed(3)}`
+        : "";
+    const asOf = raw.nowcast_as_of ? ` @${raw.nowcast_as_of}` : "";
+    rows.push(
+      `<div class="score-layer-row"><span>ŷ_nowcast·影${escapeText(
+        asOf
+      )}${escapeText(kTxt)}${escapeText(qTxt)}</span><span class="num ${signCls(
+        nowcast
+      )}">${escapeText(`${fmtSigned(nowcast, 3)}%`)}</span></div>`
+    );
+  }
   if (cascadeTxt) {
     rows.push(
       `<div class="score-layer-row"><span>ŷ_cascade·影</span><span class="num ${signCls(
@@ -487,9 +559,7 @@ export function formatBlendScoreSection(raw) {
     `<div class="score-hero-label">④ ŷ_trade · 正交加权</div>` +
     `<div class="score-hero-value ${signCls(blend)}">${escapeText(blendTxt)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">${escapeText(
-      wTxt
-    )} · ${escapeText(wMode)} · 同为 T收/T开 · 开盘排序键 · 表列主分</div>` +
+    `<div class="score-hero-hint">${escapeText(hint)}</div>` +
     `<div class="score-layer-compose">${rows.join("")}</div>` +
     `</div>`
   );
@@ -505,11 +575,38 @@ export function formatWeightSourceNote(raw) {
       ? `v${raw.cluster_version}`
       : "";
   let line = "全局收益分模型";
-  if (rms === "cluster_group_beta" || src.startsWith("cluster:")) {
+  if (rms === "oos_failed_global" || rms === "oos_failed_heuristic") {
+    line =
+      rms === "oos_failed_heuristic"
+        ? "OOS 失败组 · 表列=启发式(0–100) · 组 ŷ% 仅对照"
+        : "OOS 失败组 · 主分=全局 ŷ% · 组 ŷ% 仅对照";
+    if (label) line += ` · ${label}`;
+    if (ver) line += ` · ${ver}`;
+    const hs =
+      raw && raw.heuristic_score != null && Number.isFinite(Number(raw.heuristic_score))
+        ? Number(raw.heuristic_score)
+        : null;
+    const sc =
+      raw && raw.score_cluster != null && Number.isFinite(Number(raw.score_cluster))
+        ? Number(raw.score_cluster)
+        : null;
+    const sg =
+      raw && raw.score_global != null && Number.isFinite(Number(raw.score_global))
+        ? Number(raw.score_global)
+        : null;
+    const bitsDual = [];
+    if (hs != null) bitsDual.push(`heuristic ${fmtSigned(hs, 1)}`);
+    if (sc != null) bitsDual.push(`组ŷ ${fmtSigned(sc, 3)}%`);
+    if (sg != null) bitsDual.push(`全局ŷ ${fmtSigned(sg, 3)}%`);
+    if (bitsDual.length) line += ` · ${bitsDual.join(" · ")}`;
+  } else if (rms === "cluster_group_beta" || src.startsWith("cluster:")) {
     line = `分组因子系数 · ${
       src.startsWith("cluster:") ? src.slice("cluster:".length) : label || "组"
     }`;
     if (ver) line += ` · ${ver}`;
+  } else if (src === "oos_failed_degrade") {
+    line = "OOS 失败组 · 主分已降级";
+    if (label) line += `（${label}）`;
   } else if (src === "global+shadow") {
     line = "主分=全局 ŷ · 影子已算组 ŷ";
     if (label) line += `（${label}）`;

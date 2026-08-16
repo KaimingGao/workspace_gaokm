@@ -284,6 +284,22 @@ class QuantOpsMixin:
             autofill=autofill,
         )
 
+    def build_nowcast_shadow_review(
+        self,
+        as_of: Optional[str] = None,
+        *,
+        horizon_days: int = 1,
+        autofill: bool = True,
+    ) -> Dict[str, Any]:
+        """N3：ŷ_nowcast 影子簿验收摘要（IC / 命中 / Nordhaus / vs EOD）。"""
+        from core.score_ledger import build_nowcast_shadow_review, default_as_of
+
+        return build_nowcast_shadow_review(
+            as_of or default_as_of(),
+            horizon_days=horizon_days,
+            autofill=autofill,
+        )
+
     def fill_score_outcomes(
         self,
         as_of: Optional[str] = None,
@@ -586,9 +602,19 @@ class QuantOpsMixin:
                 for r in book_rows[:8]:
                     if not isinstance(r, dict):
                         continue
-                    yhat = r.get("predicted_score")
-                    if yhat is None:
-                        yhat = r.get("score")
+                    try:
+                        from core.signal.rebalance_tracks import table_yhat_score_value
+
+                        yhat = table_yhat_score_value(r)
+                    except Exception:
+                        yhat = r.get("predicted_score")
+                        if yhat is None:
+                            yhat = r.get("score")
+                        try:
+                            if yhat is not None and abs(float(yhat)) >= 10.0:
+                                yhat = None
+                        except (TypeError, ValueError):
+                            yhat = None
                     book_top.append(
                         {
                             "stock_code": r.get("stock_code"),
