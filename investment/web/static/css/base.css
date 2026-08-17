@@ -1830,10 +1830,27 @@ a.dialog-btn[aria-disabled="true"] {
 }
 
 .rebalance-stock-name {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
   font-weight: 600;
   color: var(--ink);
   line-height: 1.3;
+}
+
+.rebalance-stock-name-text {
+  display: inline-block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rebalance-stock-name .watching-book-badge,
+.rebalance-stock-name .watching-oos-badge {
+  flex: none;
 }
 
 .rebalance-stock-code {
@@ -4303,15 +4320,29 @@ html[data-density="compact"] .table-pager {
 }
 
 .rebalance-stock-name {
-  display: block;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
   font-size: 12.5px;
   font-weight: 600;
   color: var(--ink);
   line-height: 18px;
+  letter-spacing: -0.01em;
+}
+
+.rebalance-stock-name-text {
+  display: inline-block;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  letter-spacing: -0.01em;
+}
+
+.rebalance-stock-name .watching-book-badge,
+.rebalance-stock-name .watching-oos-badge {
+  flex: none;
 }
 
 .rebalance-stock-code {

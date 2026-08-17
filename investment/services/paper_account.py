@@ -32,7 +32,7 @@ class PaperAccountMixin:
         """计算当前持仓的评分，合并到 summary.holdings 中。
 
         优先读 active 分池簿（与观察/调仓同源 tip 字段，毫秒级）；簿外票才
-        直调 ``score_stock``（带超时）。**不**经 observation_pool / min_score TopN。
+        簿外票才经 SignalService ``score_one``（带超时）。**不**经 observation_pool / min_score TopN。
         """
         holdings = paper.get("holdings") or []
         holding_codes = [str(h.get("stock_code")) for h in holdings if h.get("stock_code")]
@@ -43,100 +43,17 @@ class PaperAccountMixin:
             import concurrent.futures
             import logging
 
-            from core.signal.dual_score import dual_score_book_fields
             from core.signal.score_display import annotate_score_gate, selection_min_score
-            from core.signal.score_stock import score_stock
+            from core.signal.service import get_default_signal_service
 
             log = logging.getLogger(__name__)
+            svc = get_default_signal_service()
             rules = paper.get("rules") or {}
             horizon = max(1, min(int(rules.get("horizon_days") or 3), 3))
             gate = selection_min_score(paper)
 
             def _pack_item(item: dict, *, cluster_mode=None) -> Dict[str, Any]:
-                from core.signal.dual_score import (
-                    align_trade_score_fields,
-                    decision_score_for_item,
-                )
-
-                # 先透传簿字段，再对齐 ŷ_trade（修 eod_next 塌成 EOD 的旧 blend）
-                packed = dict(item) if isinstance(item, dict) else {}
-                try:
-                    packed.update(dual_score_book_fields(item))
-                except Exception:
-                    pass
-                align_trade_score_fields(packed)
-                d_sc = decision_score_for_item(packed)
-                try:
-                    from core.signal.dual_score import is_heuristic_score_scale
-
-                    heu = is_heuristic_score_scale(packed)
-                except Exception:
-                    heu = str(packed.get("return_model_source") or "") == "oos_failed_heuristic"
-                if heu:
-                    # 持仓表列用组/全局 ŷ%；0–100 只留 heuristic_score
-                    table_score = packed.get("score_cluster")
-                    if table_score is None:
-                        table_score = packed.get("score_global")
-                    if table_score is None:
-                        table_score = d_sc
-                else:
-                    table_score = (
-                        d_sc
-                        if d_sc is not None
-                        else packed.get("score", packed.get("predicted_score"))
-                    )
-                out = {
-                    "score": table_score,
-                    "decision_score": d_sc
-                    if d_sc is not None
-                    else packed.get("decision_score"),
-                    "predicted_score": packed.get(
-                        "predicted_score", packed.get("score")
-                    )
-                    if not heu
-                    else None,
-                    "sub_scores": packed.get("sub_scores"),
-                    "factor_contrib": packed.get("factor_contrib"),
-                    "reasons": packed.get("reasons") or packed.get("score_reasons"),
-                    "hard_reject": packed.get("hard_reject"),
-                    "reject_reason": packed.get("reject_reason"),
-                    "weight_source": packed.get("weight_source"),
-                    "cluster_label": packed.get("cluster_label"),
-                    "cluster_mode": packed.get("cluster_mode") or cluster_mode,
-                    "cluster_version": packed.get("cluster_version"),
-                    "score_global": packed.get("score_global"),
-                    "score_cluster": packed.get("score_cluster"),
-                    "return_model_source": packed.get("return_model_source"),
-                    "return_model": packed.get("return_model"),
-                    "score_scale": packed.get("score_scale")
-                    or ("heuristic_0_100" if heu else None),
-                    "heuristic_score": packed.get("heuristic_score")
-                    or (packed.get("score") if heu else None),
-                    "score_track": packed.get("score_track"),
-                    "factor_coefficients": packed.get("factor_coefficients"),
-                    "score_formula": packed.get("score_formula"),
-                    "score_formula_terms": packed.get("score_formula_terms"),
-                }
-                # dual 字段已在 packed 对齐后写回
-                for k, v in packed.items():
-                    if k.startswith("predicted_score") or k.startswith("score_") or k in (
-                        "dual_score_fusion",
-                        "dual_score_weights",
-                        "dual_score_window",
-                        "gap_pct",
-                        "event_prior",
-                        "as_of_tau",
-                        "y_spec_tau",
-                        "features_tau",
-                        "formula_terms_tau",
-                        "factor_coefficients_tau",
-                        "realized_t1_to_tau",
-                        "decision_score",
-                        "heuristic_score",
-                        "score_track",
-                    ):
-                        out[k] = v
-                return out
+                return svc.pack_holding_row(item, cluster_mode=cluster_mode)
 
             score_by_code: Dict[str, Any] = {}
             # 1) 分池簿快路径（持仓几乎都在 scored_all 里）
@@ -169,14 +86,14 @@ class PaperAccountMixin:
 
                 def _one(code: str) -> tuple:
                     try:
-                        result = score_stock(
+                        result = svc.score_one(
                             code,
                             horizon_days=horizon,
                             skip_fundamentals=True,
                         )
                     except Exception as e:
                         return code, {"success": False, "error": str(e)}
-                    return code, result or {}
+                    return code, result.as_dict() if hasattr(result, "as_dict") else (result or {})
 
                 with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
                     futs = {ex.submit(_one, c): c for c in missing}

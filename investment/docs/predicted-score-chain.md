@@ -513,7 +513,8 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | y 契约 | `core/research/beta_accuracy.py` · `core/research/panel.py` |
 | 分组 OLS | `quant/research/factor_ols_clusters.py` · `quant/services/quant_service_factors.py` |
 | live 映射 | `core/signal/cluster_live.py` · `core/signal/return_score.py` |
-| 打分（EOD） | `core/signal/score_stock.py` · `cross_section_batch.py` |
+| 打分（EOD） | **`core/signal_service.py`**（门面）· `core/signal/service.py` · `score_stock.py` · `cross_section_batch.py` |
+| **SignalService 收口** | **SS encapsulate + E1～E5**：信封/门禁 · tip/观察/Skill/脚本/研究 · `book_fields` · BookResult 拷贝戳章 · metrics→DQ/日更 · 买入 production ŷ 闸 · 框架锁 |
 | **双层 ŷ 契约 / 融合** | **`core/signal/dual_score.py`**（F1 闸 · blend · shadow book · 字段写入） |
 | **τ 残差头训练 / 预测** | **`quant/research/rem_ridge.py`**（fit_rem_ridge_report · predict_rem_from_features） |
 | **τ 打分挂载** | **`core/signal/score_stock.py` § R3/A1 段**（apply_tau_score_fields 调用） |

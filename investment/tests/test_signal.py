@@ -98,7 +98,7 @@ class TestSignalHandler(unittest.TestCase):
         }
 
         with patch(
-            "skills.signal.engine.score_stock",
+            "core.signal.score_stock.score_stock",
             return_value={
                 "success": True,
                 "stock_code": "600519",

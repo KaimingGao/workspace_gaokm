@@ -117,6 +117,25 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertAlmostEqual(out["predicted_score_eod_rem"], 0.08)
         self.assertAlmostEqual(out["predicted_score_tau_delta"], 0.04)
         self.assertAlmostEqual(out["realized_t1_to_tau"], 0.30)
+        self.assertFalse(out.get("oos_failed"))
+
+    def test_book_row_marks_oos_failed_global(self):
+        from core.watching_insights import _insight_from_book_row
+
+        row = {
+            "stock_code": "600519",
+            "score": 0.12,
+            "predicted_score": 0.12,
+            "return_model_source": "oos_failed_global",
+            "score_global": 0.12,
+            "score_cluster": 0.40,
+        }
+        with patch("core.data_service.get_bars", return_value={"bars": []}), patch(
+            "core.stance.compute_buy_stance", return_value={}
+        ):
+            out = _insight_from_book_row("600519", row)
+        self.assertTrue(out["oos_failed"])
+        self.assertEqual(out["return_model_source"], "oos_failed_global")
 
     def test_book_row_repairs_stale_eod_next_blend(self):
         """旧簿把 blend 写成 EOD、但 ŷ_τ 仍在时，读路径重算加权 ŷ_trade。"""
@@ -174,12 +193,44 @@ class TestWatchingInsights(unittest.TestCase):
         }
         with patch("quant.research.rem_ridge.load_rem_model", return_value=None), patch(
             "quant.research.rem_ridge.predict_rem_from_features", return_value=None
+        ), patch(
+            "core.data_service.get_bars", return_value={"bars": []}
         ):
             out = _insight_from_book_row("600519", row)
         self.assertAlmostEqual(out["predicted_score"], 0.40, places=5)
         self.assertAlmostEqual(out["predicted_score_eod_rem"], 0.40, places=5)
         self.assertIsNotNone(out.get("predicted_score_blend"))
         self.assertAlmostEqual(float(out["score"]), float(out["predicted_score_blend"]), places=5)
+
+    def test_book_row_fills_stance_volr_excess_from_local_bars(self):
+        """簿行无 factors 时，仍用本地日线补倾向 / 量比 / 超额，避免表列整列「—」。"""
+        from core.watching_insights import _insight_from_book_row
+
+        row = {
+            "stock_code": "600519",
+            "score": 0.40,
+            "predicted_score": 0.40,
+        }
+        stock_bars = [
+            {"date": f"2026-07-{d:02d}", "close": 10.0 + d * 0.2, "volume": 1000 + d * 50}
+            for d in range(1, 29)
+        ]
+        idx_bars = [
+            {"date": f"2026-07-{d:02d}", "close": 100.0 + d * 0.05}
+            for d in range(1, 29)
+        ]
+        with patch("core.data_service.get_bars", return_value={"bars": stock_bars}), patch(
+            "core.signal.live_features.fetch_live_index_bars",
+            return_value={"ok": True, "bars": idx_bars},
+        ), patch("quant.research.rem_ridge.load_rem_model", return_value=None), patch(
+            "quant.research.rem_ridge.predict_rem_from_features", return_value=None
+        ):
+            out = _insight_from_book_row("600519", row)
+        self.assertIn(out["stance_short"], {"轻仓", "关注", "观望"})
+        self.assertIsNotNone(out["volume_ratio"])
+        self.assertGreater(float(out["volume_ratio"]), 0)
+        self.assertIsNotNone(out["excess_return_pct"])
+        self.assertIn(out["excess_label"], {"强", "弱", "平"})
 
     def test_insights_covers_full_watchlist_up_to_hard_cap(self):
         from core.watching_insights import build_watching_insights, _INSIGHT_HARD_CAP
@@ -199,6 +250,8 @@ class TestWatchingInsights(unittest.TestCase):
         ), patch(
             "core.signal.cluster_live.load_active_cluster_book",
             return_value={},
+        ), patch(
+            "core.data_service.get_bars", return_value={"bars": []}
         ):
             out = build_watching_insights(codes)
         self.assertEqual(out["count"], 100)
@@ -285,6 +338,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertIsNone(out.get("predicted_score_eod"))
         self.assertAlmostEqual(float(out["score_cluster"]), 1.25)
         self.assertAlmostEqual(float(out["score_global"]), 0.4)
+        self.assertTrue(out.get("oos_failed"))
         # 校准列应能用组 ŷ 挂上（对照，不进决策）
         self.assertTrue(
             out.get("predicted_score_cal") is not None

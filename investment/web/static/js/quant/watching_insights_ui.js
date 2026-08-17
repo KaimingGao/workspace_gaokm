@@ -2,7 +2,25 @@
  * 观察池 insights 列格式化与 score 单元格 HTML（纯数据 / 字符串）。
  */
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
-import { resolveTradeScore, resolveEodScore, resolveEodRemScore, resolveCalTradeScore, fmtTableScore, isHeuristicScoreScale } from "../paper/fmt.js?v=p1128";
+import { resolveTradeScore, resolveEodScore, resolveEodRemScore, resolveCalTradeScore, fmtTableScore, isHeuristicScoreScale } from "../paper/fmt.js?v=p1132";
+
+export function isOosFailedItem(it) {
+  if (!it || typeof it !== "object") return false;
+  if (it.oos_failed === true || it.oosFailed === true) return true;
+  const src = String(it.return_model_source || "");
+  if (src.startsWith("oos_failed")) return true;
+  if (String(it.score_scale || "") === "heuristic_0_100") return true;
+  if (String(it.oos_status || "") === "fail" || it.oos_blocked) return true;
+  return false;
+}
+
+export function oosFailedBadgeHtml(escapeHtml = defaultEscapeHtml) {
+  return (
+    `<span class="watching-oos-badge" title="${escapeHtml(
+      "OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照"
+    )}">OOS</span>`
+  );
+}
 
 export function formatWatchingExcess(it) {
   // 主表只显示百分比；强弱标签进 title，避免窄列 ellipsis 看起来像空值
@@ -116,6 +134,7 @@ export function buildWatchingInsightsGridPatch(it, row, deps) {
     pe: it.pe != null && !Number.isNaN(Number(it.pe)) ? Number(it.pe).toFixed(1) : "—",
     pb: it.pb != null && !Number.isNaN(Number(it.pb)) ? Number(it.pb).toFixed(2) : "—",
     isHardReject: !!it.hard_reject,
+    oosFailed: isOosFailedItem(it),
   };
 }
 

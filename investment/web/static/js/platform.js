@@ -123,6 +123,7 @@ export function initPlatform(ctx) {
           cost_model: last.cost_model,
           data_quality: last.data_quality,
           data_service_metrics: last.data_service_metrics,
+          signal_service_metrics: last.signal_service_metrics,
           risk_blocks: last.risk_blocks,
           monitor_alerts: last.monitor_alerts,
           buys_blocked: last.buys_blocked,
@@ -642,6 +643,17 @@ export function initPlatform(ctx) {
               .join(" · ") || "全 0"
           )}</li>`
         : "";
+    const ssMetrics = data.signal_service_metrics || {};
+    const ssMetricKeys = Object.keys(ssMetrics);
+    const ssMetricsLine =
+      ssMetricKeys.length > 0
+        ? `<li>SignalService 计数：${escapeAttr(
+            ssMetricKeys
+              .filter((k) => Number(ssMetrics[k]) > 0)
+              .map((k) => `${k}=${ssMetrics[k]}`)
+              .join(" · ") || "全 0"
+          )}</li>`
+        : "";
     const warns = (data.warnings || []).map((w) => `<li class="is-warn">${escapeAttr(w)}</li>`).join("");
     body.innerHTML =
       `<p class="platform-hint"><strong>状态</strong> ${escapeAttr(data.status || "—")} · ${escapeAttr(
@@ -673,6 +685,7 @@ export function initPlatform(ctx) {
       } · thin ${(audit.thin_codes || []).length}</li>` +
       `<li>日历：节假日 ${cal.holiday_count ?? 0} · ${escapeAttr(cal.note || "")}</li>` +
       dsMetricsLine +
+      ssMetricsLine +
       (data.pit_depth
         ? `<li class="${data.pit_depth.soft_ok ? "" : "is-warn"}">PIT 深度：${escapeAttr(
             data.pit_depth.honest_label || "—"

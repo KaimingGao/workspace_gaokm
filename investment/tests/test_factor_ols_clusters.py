@@ -997,6 +997,7 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertIn("gridTemplateColumns", grid)
         self.assertIn("grid-template-columns", grid)
         self.assertIn("clusterLandingHtml", land)
+        self.assertIn("const excludeOos", land)
         self.assertIn("① 对照", land)
         self.assertIn("live-refit", land)
         self.assertIn("live-refit", cluster)

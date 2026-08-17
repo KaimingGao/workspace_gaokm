@@ -93,6 +93,24 @@ export function installClusterProbe(q) {
       } catch (_) {
         restored = null;
       }
+      if (!restored) {
+        // last-report 断连时再试：可能刚重启
+        try {
+          await new Promise((r) => setTimeout(r, 600));
+          const hr2 = await fetch("/api/quant/factor-ols-clusters/last-report");
+          const data2 = await hr2.json();
+          if (
+            data2 &&
+            data2.success &&
+            Array.isArray(data2.clusters) &&
+            data2.clusters.length
+          ) {
+            restored = data2;
+          }
+        } catch (_) {
+          restored = null;
+        }
+      }
       if (restored) {
         renderOlsClusters(restored);
         const nCl =
@@ -573,9 +591,14 @@ export function installClusterProbe(q) {
         research_n_clusters: researchN,
       });
       paintClusterBookBadges(state.clusterBookCodes);
-    } catch (_) {
+    } catch (err) {
       const host = document.getElementById("quant-cluster-landing");
-      if (host) host.innerHTML = `<p class="sub">落地状态加载失败</p>`;
+      if (host) {
+        const msg = err && err.message ? String(err.message) : "";
+        host.innerHTML = `<p class="sub">落地状态加载失败${
+          msg ? ` · ${escapeHtml(msg)}` : ""
+        }</p>`;
+      }
     }
   }
 

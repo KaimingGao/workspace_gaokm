@@ -1126,7 +1126,8 @@
   vertical-align: middle;
 }
 
-.watching-page .watching-stock .watching-book-badge {
+.watching-page .watching-stock .watching-book-badge,
+.watching-page .watching-stock .watching-oos-badge {
   margin-left: 0;
 }
 

@@ -130,8 +130,9 @@ def _supplement_holding_scores(
     """为纸面持仓补打分：分池宇宙常不含全部持仓，缺分会显示「—」且滞回卖不出去。"""
     from concurrent.futures import ThreadPoolExecutor, as_completed
 
-    from core.signal.score_stock import score_stock
+    from core.signal.service import get_default_signal_service
 
+    svc = get_default_signal_service()
     have = {
         str(r.get("stock_code") or "").strip()
         for r in (score_rows or [])
@@ -153,7 +154,7 @@ def _supplement_holding_scores(
 
     def _one(code: str) -> dict:
         try:
-            result = score_stock(
+            result = svc.score_one(
                 code,
                 horizon_days=horizon,
                 cluster_mode="active",
@@ -168,65 +169,22 @@ def _supplement_holding_scores(
                 "error": str(e),
                 "holding_supplement": True,
             }
-        item = (result or {}).get("signal_item") or {}
-        if not (result or {}).get("success") and not item:
+        item = result.item or {}
+        if not result.success and not item:
             return {
                 "stock_code": code,
                 "stock_name": name_by.get(code),
                 "score": None,
-                "error": (result or {}).get("error") or "score_failed",
+                "error": (result.raw or {}).get("error") or "score_failed",
                 "holding_supplement": True,
             }
-        sc = None
-        try:
-            from core.signal.dual_score import decision_score_for_item
-
-            sc = decision_score_for_item(item)
-        except Exception:
-            sc = None
-        if sc is None:
-            sc = item.get("predicted_score_blend")
-        if sc is None:
-            sc = item.get("predicted_score")
-        if sc is None:
-            sc = item.get("score")
-        try:
-            sc_f = float(sc) if sc is not None else None
-        except (TypeError, ValueError):
-            sc_f = None
-        from core.signal.dual_score import dual_score_book_fields
-
-        out = {
-            "stock_code": item.get("stock_code") or code,
-            "stock_name": item.get("stock_name") or name_by.get(code),
-            "score": sc_f,
-            "decision_score": sc_f,
-            "predicted_score": item.get("predicted_score"),
-            "hard_reject": bool(item.get("hard_reject")),
-            "reject_reason": item.get("reject_reason"),
-            "cluster_label": item.get("cluster_label"),
-            "weight_source": item.get("weight_source"),
-            "score_global": item.get("score_global"),
-            "score_cluster": item.get("score_cluster"),
-            "below_min_score": bool(item.get("below_min_score")),
-            "score_formula_terms": item.get("score_formula_terms"),
-            "holding_supplement": True,
-        }
-        try:
-            out.update(dual_score_book_fields(item))
-            from core.signal.dual_score import align_trade_score_fields
-
-            align_trade_score_fields(out, write_score=True)
-        except Exception:
-            out["predicted_score_tau"] = item.get(
-                "predicted_score_tau", item.get("score_rem")
-            )
-            out["score_rem"] = item.get("score_rem")
-            out["gap_pct"] = item.get("gap_pct")
-            out["event_prior"] = item.get("event_prior")
-            out["as_of_tau"] = item.get("as_of_tau")
-            out["dual_score_fusion"] = item.get("dual_score_fusion")
-            out["y_spec_tau"] = item.get("y_spec_tau")
+        out = svc.pack_holding_row(item, cluster_mode=result.cluster_mode or "active")
+        out["stock_code"] = out.get("stock_code") or code
+        out["stock_name"] = out.get("stock_name") or name_by.get(code)
+        out["holding_supplement"] = True
+        if out.get("score") is None and result.rank_key is not None:
+            out["score"] = result.rank_key
+            out["decision_score"] = result.rank_key
         return out
 
     extra: List[dict] = []
@@ -325,7 +283,7 @@ def _run_cross_section(
     limit: Optional[int],
 ) -> Dict[str, Any]:
     from core.paper_rebalance import simulate_cross_section_rebalance
-    from core.signal.cross_section import rank_cross_section
+    from core.signal.service import get_default_signal_service
     from core.strategy import apply_strategy_to_paper
 
     sid = str(paper.get("strategy_id") or "short_conservative").strip()
@@ -335,7 +293,7 @@ def _run_cross_section(
         pass
 
     k, lim = _resolve_top_k_limit(paper, top_k=top_k, limit=limit)
-    ranked = rank_cross_section(None, limit=lim)
+    ranked = get_default_signal_service().rank_cross_section(None, limit=lim).as_dict()
     if not ranked.get("success"):
         return {
             "success": False,
@@ -442,8 +400,8 @@ def prepare_cluster_book_rank(
 ) -> Dict[str, Any]:
     """分池建簿 / 复用。应在 paper 写锁外调用，避免长时间占锁卡住 /api/paper。"""
     from core.signal.cluster_live import assess_cluster_live_health
-    from core.signal.cluster_rank import rank_cluster_pools
     from core.signal.score_display import selection_min_score
+    from core.signal.service import get_default_signal_service
 
     health = assess_cluster_live_health(compute_ic=False)
     ranked: Optional[Dict[str, Any]] = None
@@ -451,11 +409,11 @@ def prepare_cluster_book_rank(
     ranked = try_reuse_active_cluster_book(max_age_sec=reuse_max_age_sec)
     if ranked is None:
         cluster_min = selection_min_score(paper)
-        ranked = rank_cluster_pools(
+        ranked = get_default_signal_service().rank_cluster_pools(
             None,
             persist_book=True,
             min_score=cluster_min,
-        )
+        ).as_dict()
     if not isinstance(ranked, dict):
         ranked = {"success": False, "error": "rank_failed"}
     ranked = {**ranked, "health": health}

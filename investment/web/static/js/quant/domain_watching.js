@@ -16,7 +16,9 @@ import {
   buildWatchingInsightsErrorStatus,
   buildWatchingInsightsGridErrorPatch,
   buildWatchingInsightsNativeFields,
-} from "./watching_insights_ui.js?v=p1128";
+  isOosFailedItem,
+  oosFailedBadgeHtml,
+} from "./watching_insights_ui.js?v=p1132";
 import {
   parseWatchingVolume,
   formatWatchingChg,
@@ -618,6 +620,17 @@ export function installWatching(q) {
           setTxt("volr", fields.volr);
           setTxt("pe", fields.pe);
           setTxt("pb", fields.pb);
+          const nameRow = tr.querySelector(".watching-name-row");
+          if (nameRow) {
+            const failed = isOosFailedItem(it);
+            let badge = nameRow.querySelector(".watching-oos-badge");
+            if (failed && !badge) {
+              nameRow.insertAdjacentHTML("beforeend", oosFailedBadgeHtml(escapeHtml));
+            } else if (!failed && badge) {
+              badge.remove();
+            }
+            tr.classList.toggle("is-oos-failed", failed);
+          }
         });
       }
       paintWatchingYhatHist();

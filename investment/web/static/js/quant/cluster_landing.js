@@ -77,6 +77,8 @@ export function clusterLandingHtml(data) {
   const turn = ev.turnover_est || {};
   const exp = ev.exposure_summary || {};
   const topSec = exp.top_sector || null;
+  // OOS 失败组固定剔主分/主簿（遗留开关 exclude_oos_failed_groups 已退役）
+  const excludeOos = true;
 
   const maxNames =
     book.max_names != null

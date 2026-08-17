@@ -108,14 +108,14 @@ class QuantFactorMixin:
         min_score: Optional[float] = None,
         horizon_days: int = 3,
     ) -> Dict[str, Any]:
-        from core.signal.cross_section import rank_cross_section
+        from core.signal.service import get_default_signal_service
 
-        return rank_cross_section(
+        return get_default_signal_service().rank_cross_section(
             codes,
             horizon_days=horizon_days,
             limit=limit,
             min_score=min_score,
-        )
+        ).as_dict()
 
     def run_factor_report(
         self,
@@ -999,14 +999,14 @@ class QuantFactorMixin:
         top_n_per_group: Optional[int] = None,
         max_names: Optional[int] = None,
     ) -> Dict[str, Any]:
-        from core.signal.cluster_rank import rank_cluster_pools
+        from core.signal.service import get_default_signal_service
 
-        return rank_cluster_pools(
+        return get_default_signal_service().rank_cluster_pools(
             None,
             top_n_per_group=top_n_per_group,
             max_names=max_names,
             persist_book=True,
-        )
+        ).as_dict()
 
     def apply_cluster_live_shortcut(
         self,
@@ -1239,15 +1239,15 @@ class QuantFactorMixin:
         horizon_days: int = 3,
     ) -> Dict[str, Any]:
         """观察池/候选截面 sub_scores 相关矩阵（研究只读）。"""
-        from core.signal.cross_section import rank_cross_section
         from core.signal.factor_corr import compute_factor_corr_matrix
+        from core.signal.service import get_default_signal_service
 
-        ranked = rank_cross_section(
+        ranked = get_default_signal_service().rank_cross_section(
             codes,
             horizon_days=horizon_days,
             limit=max(3, min(int(limit or 30), 50)),
             min_score=0.0,
-        )
+        ).as_dict()
         if not ranked.get("success"):
             return {
                 "success": False,

@@ -135,6 +135,13 @@ export function buildPaperHoldingsTableHtml({
           : belowMin
             ? `低于ŷ_EOD门槛 ${h.min_score ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
             : "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
+      const oosFailed =
+        !!h.oos_failed ||
+        isHeuristicScoreScale(h) ||
+        String(h.return_model_source || "").startsWith("oos_failed");
+      const oosBadge = oosFailed
+        ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
+        : "";
       const scoreCalOor = !!(
         h.score_calibration_eod_oor ||
         h.score_calibration_eod_rem_oor ||
@@ -232,9 +239,14 @@ export function buildPaperHoldingsTableHtml({
         `<tr data-code="${escapeText(code)}" data-shares="${escapeText(
           h.shares ?? ""
         )}" ` +
-        `class="paper-hold-row${active}${adjustActive}${focusCls}" title="点击选中并查看曲线">` +
+        `class="paper-hold-row${active}${adjustActive}${focusCls}${
+          oosFailed ? " is-oos-failed" : ""
+        }" title="点击选中并查看曲线">` +
         `<td class="paper-wl-name">` +
+        `<span class="watching-name-row">` +
         `<span class="paper-wl-name-text">${escapeText(name)}</span>` +
+        oosBadge +
+        `</span>` +
         `<span class="paper-wl-code">${escapeText(code)}</span>` +
         `</td>` +
         `<td class="watching-col-center paper-hold-sent">${

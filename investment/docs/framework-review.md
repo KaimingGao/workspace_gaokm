@@ -138,7 +138,7 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 |------|------|
 | 整体 | 研究台 + 纸面准实盘分层已理顺 |
 | 框架急债 | **O1–O9 / Y-S / F-C1–C3·H\* 已落地**；维持 ports 与 ŷ 单标尺 + live manifest 纪律 |
-| **下一程（机制化）** | **[framework-harden-plan.md](archive/framework-harden-plan.md)**：**FH0–FH5 已落地**；后续按需持续切巨石（FH4）与财务面板真 PIT 注入（FH5 深化） |
+| **下一程（机制化）** | **SignalService SS-E1～E5**：观察/纸面 tip/Skill/脚本/研究经 Service；`book_fields` 防污染；`BookResult` 不脏写原簿；买入 production ŷ 闸；DQ+日更 last_run 暴露 metrics；框架锁扩到 scripts/research。后续按需切巨石（FH4）与财务真 PIT（FH5） |
 | 产品缺口 | 仍见 roadmap / design-spine / yhat-strengthen（非本表） |
 | 体量债 | `quant.js` 已拆域 + 工厂；`factor_ols_clusters` / `cluster_live` / `north_star` 已拆；巨石按用例再切归 FH4 |
 

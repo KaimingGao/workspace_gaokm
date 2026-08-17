@@ -9,12 +9,14 @@ from core.numbers import date_key
 
 import json
 import os
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.io_atomic import atomic_write_json
 
 _YHAT_EPS = 0.05  # |ŷ| < ε → 无方向
+_LEDGER_DATE_FILE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}\.json$")
 
 
 def default_as_of() -> str:
@@ -1677,6 +1679,7 @@ def build_score_review(
     ]
 
     blame_line = "样本不足"
+    need_bar = None
     if n:
         if hit_rate is not None and hit_rate >= 0.55:
             blame_line = f"方向命中 {hit_rate:.0%}（{hits}/{n}）"
@@ -1694,9 +1697,21 @@ def build_score_review(
         else:
             blame_line = f"方向命中 {hit_rate:.0%}（{hits}/{n}）"
     elif thin > 0:
-        blame_line = (
-            f"薄样本 {thin}/{len(rows)}：本地日线未覆盖 as_of+{h}，尚无实现收益"
-        )
+        try:
+            from core.market_calendar import next_trading_day
+
+            need_bar = next_trading_day(d, n=h)
+        except Exception:
+            need_bar = None
+        if need_bar:
+            blame_line = (
+                f"薄样本 {thin}/{len(rows)}：需要对账日 {need_bar} 的收盘价"
+                f"（as_of+{h}）。盘中日线通常未入库，收盘后再回填。"
+            )
+        else:
+            blame_line = (
+                f"薄样本 {thin}/{len(rows)}：本地日线未覆盖 as_of+{h}，尚无实现收益"
+            )
 
     # h>1 全部薄样本时自动降到 h=1，避免 UI 只显示「命中 —」
     if n == 0 and thin > 0 and h > 1:
@@ -1730,6 +1745,7 @@ def build_score_review(
             "data_thin": thin,
             "tag_counts": tag_counts,
             "blame_line": blame_line,
+            "need_bar_date": need_bar if (n == 0 and thin > 0) else None,
         },
         "wrong_rows": wrong_rows[:80],
         "scored_rows": scored_rows[:200],
@@ -1740,7 +1756,11 @@ def build_score_review(
         "note": (
             (
                 f"h={h} 尚无实现收益（薄样本 {thin}/{len(rows)}）。"
-                "请刷新日线、改小 Horizon，或选更早决策日后再「回填收益」。"
+                + (
+                    f"需要对账日 {need_bar} 收盘价；盘中通常未入库。"
+                    if need_bar
+                    else "请刷新日线、改小 Horizon，或选更早决策日后再「回填收益」。"
+                )
                 if (n == 0 and thin > 0)
                 else ""
             )
@@ -1823,9 +1843,8 @@ def list_ledger_dates(*, limit: int = 30) -> List[str]:
         return []
     dates = []
     for name in os.listdir(root):
-        if not name.endswith(".json"):
-            continue
-        if name.endswith(".outcomes.json") or name.endswith(".tau_shadow.json"):
+        # 只收 YYYY-MM-DD.json；跳过 outcomes / τ·nowcast 影子等 sidecar
+        if not _LEDGER_DATE_FILE_RE.match(name):
             continue
         dates.append(name[:-5])
     dates.sort(reverse=True)
@@ -1834,7 +1853,7 @@ def list_ledger_dates(*, limit: int = 30) -> List[str]:
 
 def list_ledger_entries(*, limit: int = 30) -> List[Dict[str, Any]]:
     """已冻结账本条目：日期 / 票数 / 是否已回填 / 是否未到期。"""
-    from core.market_calendar import resolve_session_date
+    from core.market_calendar import next_trading_day, resolve_session_date
 
     sess = resolve_session_date()
     out: List[Dict[str, Any]] = []
@@ -1850,6 +1869,14 @@ def list_ledger_entries(*, limit: int = 30) -> List[Dict[str, Any]]:
         )
         # 会话日当天的账本：h 未到期，复盘默认勿选
         immature = bool(d and sess and d >= sess)
+        need_h1 = None
+        try:
+            need_h1 = next_trading_day(d, n=1) if d else None
+        except Exception:
+            need_h1 = None
+        pending_close = bool(
+            need_h1 and sess and need_h1 >= sess and int(filled) == 0
+        )
         meta = led.get("meta") if isinstance(led.get("meta"), dict) else {}
         out.append(
             {
@@ -1859,6 +1886,8 @@ def list_ledger_entries(*, limit: int = 30) -> List[Dict[str, Any]]:
                 "outcomes_filled": int(filled),
                 "updated_at": led.get("updated_at"),
                 "immature": immature,
+                "pending_close": pending_close,
+                "need_bar_date": need_h1,
                 "feature_as_of": meta.get("feature_as_of"),
             }
         )

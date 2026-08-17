@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
-from core.signal.score_stock import score_stock
+from core.signal.service import get_default_signal_service
 from core.stance import compute_buy_stance
 
 
@@ -40,8 +40,10 @@ def attach_stance_to_advice(
         )
         signal_item = facts.get("signal_item") or {}
     else:
-        scored = score_stock(str(code), horizon_days=horizon_days, quote=quote)
-        signal_item = scored.get("signal_item") or {}
+        scored = get_default_signal_service().score_one(
+            str(code), horizon_days=horizon_days, quote=quote
+        )
+        signal_item = scored.item or {}
         stance = compute_buy_stance(
             quote=quote,
             signal_item=signal_item,

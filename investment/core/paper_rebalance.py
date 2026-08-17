@@ -1469,6 +1469,30 @@ def simulate_cross_section_rebalance(
                 continue
             if item.get("hard_reject"):
                 continue
+            # SS-E2：predicted 轨须 production ŷ；heuristic 轨仍走 buy_gate_for_item
+            try:
+                from core.signal.gate import allows_production_yhat
+                from core.signal.rebalance_tracks import (
+                    TRACK_HEURISTIC,
+                    resolve_score_track,
+                )
+
+                if resolve_score_track(item) != TRACK_HEURISTIC:
+                    poke, poke_reason = allows_production_yhat(item)
+                    if not poke:
+                        risk_budget_skips.append(
+                            {
+                                "stock_code": code,
+                                "stock_name": item.get("stock_name"),
+                                "reason": poke_reason or "production_yhat_gate",
+                                "score": item.get("score"),
+                                "production_ok": False,
+                                "score_track": item.get("score_track"),
+                            }
+                        )
+                        continue
+            except Exception:
+                pass
             score = item.get("score")
             # 买入门槛：双轨（ŷ_EOD% 或 heuristic 0–100）
             try:

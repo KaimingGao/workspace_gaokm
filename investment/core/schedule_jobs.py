@@ -563,6 +563,14 @@ def run_paper_daily(
             "buys_blocked": bool((cycle or {}).get("buys_blocked")),
             "note": "N5 准实盘日更；含日线覆盖与北极星 KPI；账本冻/回填；告警不自动改权；不代客下单。",
         }
+        try:
+            from core.data.service import metrics_snapshot as data_metrics_snapshot
+            from core.signal.service import metrics_snapshot as signal_metrics_snapshot
+
+            result["data_service_metrics"] = data_metrics_snapshot()
+            result["signal_service_metrics"] = signal_metrics_snapshot()
+        except Exception:
+            pass
         path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
         result["path"] = path
         slot.finish(result=result)

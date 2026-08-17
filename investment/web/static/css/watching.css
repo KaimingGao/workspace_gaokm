@@ -1278,6 +1278,12 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal .wat
 .watching-name-row .watching-name-text {
   display: inline-block;
   min-width: 0;
+  flex: 0 1 auto;
+}
+
+.watching-name-row .watching-book-badge,
+.watching-name-row .watching-oos-badge {
+  flex: none;
 }
 
 .watching-code-sub {
@@ -1323,6 +1329,21 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal .wat
   color: #0f5c4c;
   border: 1px solid rgba(15, 92, 76, 0.28);
   background: rgba(15, 92, 76, 0.08);
+}
+
+.watching-oos-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.03em;
+  color: #9a6700;
+  border: 1px solid rgba(154, 103, 0, 0.38);
+  background: rgba(154, 103, 0, 0.10);
 }
 
 .watching-watch-row.is-cluster-book .watching-name-text {
@@ -3297,9 +3318,9 @@ body[data-page="watching"] .watching-watchlist-card .watching-react-grid-cell.wa
 body[data-page="watching"] .watching-watchlist-card .watching-react-grid-cell.watching-stock,
 body[data-page="watching"] .watching-watchlist-card .watching-react-grid-cell.paper-wl-name-cell,
 body[data-page="watching"] .watching-watchlist-card .watching-react-grid-cell:has(.watching-stock) {
-  /* 名称列由 grid 轨道 minmax(6.5rem,1fr) 控制，勿再强制 flex/max-width 破坏对齐 */
+  /* 名称列由 grid 轨道控制；visible 以免「簿 / OOS」徽标被裁掉 */
   min-width: 0;
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* A 股：涨红跌绿（覆盖主表涨跌列） */

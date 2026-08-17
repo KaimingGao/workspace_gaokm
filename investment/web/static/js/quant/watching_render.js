@@ -361,13 +361,19 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
       const bookBadge = d.inBook
         ? `<span class="watching-book-badge" title="分池目标簿">簿</span>`
         : "";
+      const oosBadge = d.oosFailed
+        ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
+        : "";
       return (
-        `<tr data-code="${code}" class="watching-watch-row${alertCls}${d.inBook ? " is-cluster-book" : ""}">` +
+        `<tr data-code="${code}" class="watching-watch-row${alertCls}${d.inBook ? " is-cluster-book" : ""}${
+          d.oosFailed ? " is-oos-failed" : ""
+        }">` +
         `<td class="watching-pick-cell"><input type="checkbox" class="watching-pick" value="${code}" data-code="${code}" /></td>` +
         `<td class="watching-stock" title="${escapeHtml(name)} ${code}">` +
         `<span class="watching-name-row">` +
         watchingNameSpanHtml(name) +
         bookBadge +
+        oosBadge +
         `</span>` +
         `<span class="watching-code-sub">${code}<span class="watching-mkt"></span></span></td>` +
         `<td class="watching-paper-cell">` +
@@ -456,6 +462,7 @@ export function buildWatchingWatchRows(wl, names, paperCodes, scores, deps) {
       paper: onPaper ? (heldShares != null ? `${heldShares} 股` : "已持") : "建仓",
       onPaper,
       inBook: inBook.has(code),
+      oosFailed: false,
       sentHtml: `<span class="watching-sent-badge is-neutral" data-code="${escapeHtml(
         code
       )}" title="加载中">…</span>`,

@@ -266,6 +266,19 @@ def run_daily_cycle(
     current_shares_by_code = {str(h.get("stock_code")): float(h.get("shares") or 0) for h in current_holdings}
 
     rebalance_report: List[dict] = []
+    book_codes: set = set()
+    try:
+        from core.signal.cluster_live import load_active_cluster_book
+
+        book_doc = load_active_cluster_book() or {}
+        book_codes = {
+            str(r.get("stock_code") or r.get("code") or "").strip()
+            for r in (book_doc.get("book") or [])
+            if isinstance(r, dict)
+            and str(r.get("stock_code") or r.get("code") or "").strip()
+        }
+    except Exception:
+        book_codes = set()
     # 遍历调仓前的所有持仓
     for code, old_shares in old_shares_by_code.items():
         name = name_by_code.get(code) or code
@@ -378,12 +391,29 @@ def run_daily_cycle(
             "as_of_tau": signal.get("as_of_tau") if signal else None,
             "dual_score_fusion": signal.get("dual_score_fusion") if signal else None,
             "y_spec_tau": signal.get("y_spec_tau") if signal else None,
+            "in_book": code in book_codes,
+            "oos_failed": bool(
+                (signal or {}).get("oos_failed")
+                or str((signal or {}).get("return_model_source") or "").startswith(
+                    "oos_failed"
+                )
+                or str((signal or {}).get("score_scale") or "") == "heuristic_0_100"
+            ),
         })
         if signal:
             try:
-                from core.signal.dual_score import dual_score_book_fields
+                from core.signal.service import get_default_signal_service
 
-                rebalance_report[-1].update(dual_score_book_fields(signal))
+                rebalance_report[-1].update(
+                    get_default_signal_service().book_fields(signal)
+                )
+                row = rebalance_report[-1]
+                if not row.get("oos_failed"):
+                    rms = str(row.get("return_model_source") or "")
+                    row["oos_failed"] = rms.startswith("oos_failed") or str(
+                        row.get("score_scale") or ""
+                    ) == "heuristic_0_100"
+                row["in_book"] = code in book_codes
             except Exception:
                 pass
 

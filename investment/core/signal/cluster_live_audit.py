@@ -106,7 +106,9 @@ def cluster_score_audit_sample(
     rows: List[Dict[str, Any]] = []
     fails: List[str] = []
     try:
-        from core.signal.score_stock import score_stock
+        from core.signal.service import get_default_signal_service
+
+        svc = get_default_signal_service()
     except Exception as exc:
         return {
             "success": False,
@@ -116,11 +118,12 @@ def cluster_score_audit_sample(
         }
     for code in codes:
         try:
-            result = score_stock(
+            scored = svc.score_one(
                 code,
                 cluster_mode="shadow",
                 skip_fundamentals=True,
             )
+            result = scored.as_dict()
         except Exception as exc:
             fails.append(f"{code}:{exc}")
             continue
@@ -137,7 +140,11 @@ def cluster_score_audit_sample(
                 "stock_code": code,
                 "stock_name": item.get("stock_name")
                 or result.get("stock_name")
+                or scored.stock_code
                 or code,
+                "production_ok": scored.production_ok,
+                "gate_reason": scored.gate_reason,
+                "scale": scored.scale,
                 "cluster_label": item.get("cluster_label")
                 or (cmap.get(code) or {}).get("cluster_label"),
                 "score_global": item.get("score_global"),

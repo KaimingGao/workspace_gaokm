@@ -1984,13 +1984,31 @@ export function initPaper(ctx) {
 
           const name = escapeText(r.stock_name || r.stock_code || "");
           const code = escapeText(r.stock_code || "");
+          const inBook = !!(r.in_book || r.inBook);
+          const oosFailed =
+            !!r.oos_failed ||
+            !!r.oosFailed ||
+            isHeuristicScoreScale(r) ||
+            String(r.return_model_source || "").startsWith("oos_failed");
+          const bookBadge = inBook
+            ? `<span class="watching-book-badge" title="分池目标簿">簿</span>`
+            : "";
+          const oosBadge = oosFailed
+            ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
+            : "";
 
           return (
-            `<div class="rebalance-row ${cls}${hasDetail ? " is-expandable" : ""}" role="row" ` +
+            `<div class="rebalance-row ${cls}${hasDetail ? " is-expandable" : ""}${
+              oosFailed ? " is-oos-failed" : ""
+            }${inBook ? " is-cluster-book" : ""}" role="row" ` +
             `data-detail-idx="${idx}"` +
             `${hasDetail ? ' title="点击展开评分明细"' : ""}>` +
             `<div class="rebalance-stock" role="cell">` +
-            `<span class="rebalance-stock-name">${expandIcon}${name}</span>` +
+            `<span class="rebalance-stock-name">${expandIcon}` +
+            `<span class="rebalance-stock-name-text">${name}</span>` +
+            bookBadge +
+            oosBadge +
+            `</span>` +
             `<span class="rebalance-stock-code">${code}</span>` +
             `</div>` +
             `<div class="num rebalance-score paper-hold-score has-tip ${scoreClass}" ` +

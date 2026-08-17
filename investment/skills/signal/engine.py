@@ -5,7 +5,7 @@ from __future__ import annotations
 import concurrent.futures
 from typing import Callable, List, Optional
 
-from core.signal.score_stock import score_stock
+from core.signal.service import get_default_signal_service
 from core.signal.scorer import rank_candidates
 from core.ports.market import batch_query_quotes, screen_stocks
 
@@ -40,6 +40,7 @@ class SignalEngine:
         rejected = []
         batch = candidates[:30]
         total = len(batch)
+        svc = get_default_signal_service()
 
         # 预获取所有股票的行情（批量查询，一次网络请求）
         if on_progress:
@@ -53,7 +54,12 @@ class SignalEngine:
             try:
                 # 使用预获取的行情，避免重复网络请求
                 quote = quotes.get(raw)
-                return score_stock(raw, horizon_days=horizon, quote=quote, skip_fundamentals=skip_fundamentals)
+                return svc.score_one(
+                    raw,
+                    horizon_days=horizon,
+                    quote=quote,
+                    skip_fundamentals=skip_fundamentals,
+                ).as_dict()
             except Exception as e:
                 return {"success": False, "stock_code": raw, "error": str(e)}
 

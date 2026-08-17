@@ -71,6 +71,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
         d.yhatHistHit ? "is-yhat-hist-hit" : "",
         d.yhatHistDim ? "is-yhat-hist-dim" : "",
         d.inBook ? "is-cluster-book" : "",
+        d.oosFailed ? "is-oos-failed" : "",
       ]
         .filter(Boolean)
         .join(" "),
@@ -102,6 +103,9 @@ export async function mountWatchingTableIsland(host, options = {}) {
         const bookBadge = d.inBook
           ? `<span class="watching-book-badge" title="分池目标簿">簿</span>`
           : "";
+        const oosBadge = d.oosFailed
+          ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
+          : "";
         return (
           `<div class="watching-stock" title="${escapeHtml((d.name || "") + " " + (d.code || ""))}">` +
           `<span class="watching-name-row">` +
@@ -109,6 +113,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
             d.name || ""
           )}">${escapeHtml(truncateName(d.name || d.code))}</span>` +
           bookBadge +
+          oosBadge +
           `</span>` +
           `<span class="watching-code-sub">${escapeHtml(d.code || "")}` +
           `<span class="watching-mkt">${escapeHtml(d.market || "")}</span></span></div>`

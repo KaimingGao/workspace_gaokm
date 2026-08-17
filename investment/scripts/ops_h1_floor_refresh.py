@@ -14,7 +14,9 @@ def main() -> int:
     from core.signal.scoring_floors import save_scoring_floors
     from core.sector_map_sync import sync_sector_map_from_watching, coverage_report
     from core.signal.cluster_live import refresh_cluster_book_daily, get_cluster_scoring_cfg
-    from core.signal.score_stock import score_stock
+    from core.signal.service import get_default_signal_service
+
+    svc = get_default_signal_service()
 
     # 1) h=1 floor: +1% was calibrated for multi-day; daily ŷ rarely clears 1.0
     #    Use 0.35 (~stance wait/probe band) so OOS-passed groups can form a usable book.
@@ -75,11 +77,13 @@ def main() -> int:
     # 4) rem attach probe
     rem_probe = {}
     for code in ("000938", "603019", "688012"):
-        s = score_stock(code, cluster_mode="active", skip_sentiment=True)
-        si = s.get("signal_item") or {}
+        scored = svc.score_one(code, cluster_mode="active", skip_sentiment=True)
+        si = scored.item or {}
         rem_probe[code] = {
-            "predicted_score": si.get("predicted_score"),
+            "predicted_score": scored.predicted_score or si.get("predicted_score"),
             "score_rem": si.get("score_rem"),
+            "predicted_score_tau": scored.predicted_score_tau,
+            "production_ok": scored.production_ok,
             "gap_pct": si.get("gap_pct"),
             "cluster_label": si.get("cluster_label"),
             "in_book": any(r.get("stock_code") == code for r in book),

@@ -10,6 +10,7 @@ export function installScoreReview(ctx) {
   let panelLoadToken = 0;
   /** 当前复盘决策日（由冻结 chip 选择） */
   let selectedAsOf = null;
+  let reviewGen = 0;
 
   function tagLabel(tag) {
     const map = {
@@ -526,32 +527,42 @@ export function installScoreReview(ctx) {
     row.innerHTML = entries
       .map((e) => {
         const asOf = String(e.as_of || "").trim();
-        if (!asOf) return "";
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) return "";
         const n = e.n_rows != null ? Number(e.n_rows) : null;
         const filled = e.outcomes_filled != null ? Number(e.outcomes_filled) : 0;
         const useful = filled > 0;
         const immature = !!e.immature;
+        const pending = !!e.pending_close && !useful;
+        const needBar = String(e.need_bar_date || "").trim();
         const active = asOf === cur ? " is-active" : "";
         const ocCls = useful
           ? " has-outcomes"
-          : immature
+          : immature || pending
             ? " is-immature"
             : " no-outcomes";
         const ocMark = useful
           ? ` · 已回填 ${filled}`
-          : immature
-            ? " · 未到期"
-            : " · 未回填";
+          : pending && needBar
+            ? ` · 待 ${needBar.slice(5)} 收盘`
+            : immature
+              ? " · 未到期"
+              : " · 未回填";
         const nTxt = n != null && Number.isFinite(n) ? `${n}只` : "—";
-        const title = immature
-          ? `${asOf} · ${nTxt} · 会话日账本，h 未到期，复盘请选更早决策日`
-          : `${asOf} · ${nTxt}${ocMark} · 点击切换决策日`;
+        const title = pending && needBar
+          ? `${asOf} · ${nTxt} · h=1 需 ${needBar} 收盘后对账（盘中日线通常未入库）`
+          : immature
+            ? `${asOf} · ${nTxt} · 会话日账本，h 未到期，复盘请选更早决策日`
+            : `${asOf} · ${nTxt}${ocMark} · 点击切换决策日`;
         return (
-          `<div class="quant-score-ledger-chip-wrap${active}${immature ? " is-immature" : ""}" role="listitem">` +
+          `<div class="quant-score-ledger-chip-wrap${active}${
+            immature || pending ? " is-immature" : ""
+          }" role="listitem">` +
           `<button type="button" class="quant-score-ledger-chip${active}${ocCls}"` +
           ` data-asof="${esc(asOf)}" title="${esc(title)}">` +
           `<span class="chip-date">${esc(shortDate(asOf))}</span>` +
-          `<span class="chip-meta">${esc(nTxt)}${useful ? " ✓" : immature ? " …" : ""}</span>` +
+          `<span class="chip-meta">${esc(nTxt)}${
+            useful ? " ✓" : pending ? " 待收盘" : immature ? " …" : ""
+          }</span>` +
           `</button>` +
           `<button type="button" class="quant-score-ledger-chip-del"` +
           ` data-asof="${esc(asOf)}" data-nrows="${esc(String(n ?? ""))}"` +
@@ -578,7 +589,8 @@ export function installScoreReview(ctx) {
     const d = String(asOf || "").trim();
     if (!d) return;
     setAsOf(d);
-    await runReview({ autofill: true });
+    // 用户点选的决策日必须留下；薄样本只提示，不偷偷切回已回填日
+    await runReview({ autofill: true, allowThinFallback: false });
   }
 
   async function deleteLedgerAsOf(asOf, { nRows } = {}) {
@@ -633,8 +645,10 @@ export function installScoreReview(ctx) {
     return data;
   }
 
-  async function runReview({ autofill = true } = {}) {
+  async function runReview({ autofill = true, allowThinFallback = true } = {}) {
+    const gen = ++reviewGen;
     await ensureDefaultAsOf();
+    if (gen !== reviewGen) return;
     const asOf = readAsOf();
     const horizon = readHorizon();
     setStatus("复盘计算中…", { busy: true });
@@ -645,10 +659,37 @@ export function installScoreReview(ctx) {
       q.set("autofill", autofill ? "true" : "false");
       const res = await fetch(`/api/quant/score-review?${q.toString()}`);
       const data = await res.json().catch(() => ({}));
+      if (gen !== reviewGen) return;
       if (!res.ok) throw new Error(data.detail || res.statusText);
       // 后端可能因薄样本自动降到 h=1；同步控件
       if (data.horizon_days != null) syncHorizonSelect(data.horizon_days);
       const usedH = Number(data.horizon_days) || horizon;
+      const s0 = data.summary || {};
+      const thin0 = Number(s0.data_thin || 0);
+      // 仅自动加载时：as_of+h 未到则改用最近已回填日。手动点 chip 不回跳
+      if (
+        allowThinFallback &&
+        !data.empty &&
+        s0.hit_rate == null &&
+        thin0 > 0
+      ) {
+        const pack = await loadLedgerIndex().catch(() => null);
+        if (gen !== reviewGen) return;
+        const next =
+          (pack && pack.default_as_of) ||
+          ((pack && pack.entries) || []).find(
+            (e) =>
+              /^\d{4}-\d{2}-\d{2}$/.test(String(e.as_of || "")) &&
+              Number(e.outcomes_filled || 0) > 0
+          )?.as_of ||
+          "";
+        if (next && next !== asOf) {
+          setAsOf(next);
+          setStatus(`as_of+h 日线未到，已改用更早决策日 ${next}`, { ok: true });
+          return runReview({ autofill, allowThinFallback: false });
+        }
+      }
+      if (gen !== reviewGen) return;
       renderSummary(data);
       renderScatter(data);
       renderHitSparkline(usedH).catch(() => {});
@@ -662,12 +703,16 @@ export function installScoreReview(ctx) {
         data.horizon_fallback_from != null
           ? ` · 自 h=${data.horizon_fallback_from} 降级`
           : "";
+      const needBar = s.need_bar_date ? String(s.need_bar_date) : "";
+      const thinNeed = needBar
+        ? `需 ${needBar} 收盘后回填`
+        : `日线未覆盖 h=${usedH}`;
       const statusLine = data.empty
         ? data.note || "无账本"
         : s.hit_rate != null
           ? `as_of ${data.as_of} · 命中 ${hit} · 错票 ${s.wrong ?? 0}${fbNote}`
           : thin > 0
-            ? `as_of ${data.as_of} · 薄样本 ${thin}/${data.n_ledger ?? "—"} · 日线未覆盖 h=${usedH}`
+            ? `as_of ${data.as_of} · 薄样本 ${thin}/${data.n_ledger ?? "—"} · ${thinNeed}`
             : `as_of ${data.as_of} · ${s.blame_line || "样本不足"}`;
       setStatus(statusLine, {
         ok: !data.empty && s.hit_rate != null,
@@ -679,7 +724,7 @@ export function installScoreReview(ctx) {
           : s.hit_rate != null
             ? `双层 ŷ 复盘 · EOD 命中 ${hit}${fbNote}`
             : thin > 0
-              ? `双层 ŷ 复盘 · 薄样本 ${thin} · as_of+h 日线未到，请选更早决策日`
+              ? `双层 ŷ 复盘 · 薄样本 ${thin} · ${thinNeed}`
               : `双层 ŷ 复盘 · ${s.blame_line || "样本不足"}`;
         setQuantMeta(metaLine, {
           busy: false,
@@ -688,6 +733,7 @@ export function installScoreReview(ctx) {
       }
       return data;
     } catch (err) {
+      if (gen !== reviewGen) return;
       setStatus(`复盘失败：${String(err.message || err)}`, { error: true });
       if (setQuantMeta) {
         setQuantMeta(`双层 ŷ 复盘失败：${String(err.message || err)}`, {

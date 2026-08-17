@@ -270,5 +270,36 @@ class TestQuantileEngineSmoke(unittest.TestCase):
             self.assertEqual(len(out["quantiles"]), 5)
 
 
+class TestSimTradeRowHeuristicKw(unittest.TestCase):
+    def test_sim_trade_row_accepts_heuristic_score(self):
+        from core.backtest.topk_backtest import _sim_trade_row
+
+        row = _sim_trade_row(
+            stock_code="600519",
+            score=0.12,
+            signal_date="2026-08-13",
+            entry_date="2026-08-14",
+            status="skipped_limit_entry",
+            heuristic_score=57.2,
+        )
+        self.assertAlmostEqual(float(row["heuristic_score"]), 57.2)
+        self.assertAlmostEqual(float(row["score"]), 0.12)
+
+    def test_call_sim_trade_row_ignores_unknown_kwargs(self):
+        from core.backtest.topk_backtest import _call_sim_trade_row
+
+        row = _call_sim_trade_row(
+            stock_code="600519",
+            score=0.12,
+            signal_date="2026-08-13",
+            entry_date="2026-08-14",
+            status="skipped_limit_entry",
+            heuristic_score=57.2,
+            not_a_real_field=True,
+        )
+        self.assertAlmostEqual(float(row["heuristic_score"]), 57.2)
+        self.assertNotIn("not_a_real_field", row)
+
+
 if __name__ == "__main__":
     unittest.main()

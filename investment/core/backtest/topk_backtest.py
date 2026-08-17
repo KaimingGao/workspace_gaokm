@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+from functools import lru_cache
 
 from core.backtest.engine import _mock_quote_from_bars, _trade_metrics
 
@@ -295,6 +296,7 @@ def _sim_trade_row(
     return_model_source: Optional[str] = None,
     score_reasons: Optional[List[str]] = None,
     score_raw: Optional[float] = None,
+    heuristic_score: Optional[float] = None,
     predicted_score: Optional[float] = None,
     predicted_score_tau: Optional[float] = None,
     predicted_score_blend: Optional[float] = None,
@@ -373,10 +375,28 @@ def _sim_trade_row(
         "return_model_source": return_model_source or "",
         "score_reasons": list(score_reasons or []),
         "score_raw": score_raw,
+        "heuristic_score": heuristic_score,
     }
     return _enrich_trade_eod_rem_fields(
         tip, intent_price=intent_price, entry_price=entry_price
     )
+
+
+@lru_cache(maxsize=1)
+def _sim_trade_row_keys() -> frozenset:
+    import inspect
+
+    return frozenset(
+        p.name
+        for p in inspect.signature(_sim_trade_row).parameters.values()
+        if p.kind in (p.KEYWORD_ONLY, p.POSITIONAL_OR_KEYWORD)
+    )
+
+
+def _call_sim_trade_row(**kwargs: Any) -> Dict[str, Any]:
+    """过滤未知关键字，避免 tip 多字段再次打爆跑分组。"""
+    allowed = _sim_trade_row_keys()
+    return _sim_trade_row(**{k: v for k, v in kwargs.items() if k in allowed})
 
 
 def _gap_from_intent_fill(
@@ -1218,7 +1238,7 @@ def backtest_topk_equal_weight(
                     }
                     signal_fill_sample.append(skip_row)
                     sim_trades.append(
-                        _sim_trade_row(
+                        _call_sim_trade_row(
                             stock_code=code,
                             score=rank_score,
                             signal_date=signal_date,
@@ -1276,7 +1296,7 @@ def backtest_topk_equal_weight(
                 }
                 signal_fill_sample.append(skip_exit)
                 sim_trades.append(
-                    _sim_trade_row(
+                    _call_sim_trade_row(
                         stock_code=code,
                         score=rank_score,
                         signal_date=signal_date,
@@ -1498,6 +1518,7 @@ def backtest_topk_equal_weight(
                     return_model_source=leg.get("return_model_source") or "",
                     score_reasons=leg.get("score_reasons") or [],
                     score_raw=leg.get("score_raw"),
+                    heuristic_score=leg.get("heuristic_score"),
                     predicted_score=leg.get("predicted_score"),
                     predicted_score_tau=leg.get("predicted_score_tau"),
                     predicted_score_blend=leg.get("predicted_score_blend"),

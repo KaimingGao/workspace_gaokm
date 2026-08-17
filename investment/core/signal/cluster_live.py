@@ -1365,10 +1365,12 @@ def refresh_cluster_book_daily(*, light: bool = False) -> Dict[str, Any]:
 
     ``light=True``：跳过健康 IC（对照一键应用用，避免再等一轮）。
     """
-    from core.signal.cluster_rank import rank_cluster_pools
+    from core.signal.service import get_default_signal_service
 
     health = assess_cluster_live_health(compute_ic=False if light else None)
-    ranked = rank_cluster_pools(None, persist_book=True)
+    ranked = get_default_signal_service().rank_cluster_pools(
+        None, persist_book=True
+    ).as_dict()
     try:
         from core.live_config_manifest import write_live_config_manifest
 

@@ -222,11 +222,19 @@ def build_data_quality_report(
     except Exception:
         ds_metrics = {}
 
+    ss_metrics: Dict[str, Any] = {}
+    try:
+        from core.signal.service import metrics_snapshot as signal_metrics_snapshot
+
+        ss_metrics = signal_metrics_snapshot()
+    except Exception:
+        ss_metrics = {}
+
     return {
         "ok": True,
         "kind": "data_quality_center",
         "status": status,
-        "track": "D0-D4+X+B0+DC/FM/RK+DS-R+E",
+        "track": "D0-D4+X+B0+DC/FM/RK+DS-R+E+SS-E",
         "bars_coverage": coverage,
         "validation_hygiene": hygiene,
         "fundamentals_history": {
@@ -243,9 +251,11 @@ def build_data_quality_report(
         "store_io": io_stats,
         "sector_coverage": sector_cov,
         "data_service_metrics": ds_metrics,
+        "signal_service_metrics": ss_metrics,
         "warnings": warnings[:16],
         "note": (
             "数据质量中心：覆盖率/财务多期/ann_missing/因子健康/源审计/日历；"
-            "DS-R/E 缓存锁/行业未分类/ann_missing 门禁/读口封装；运营项见 maturity-gate。"
+            "DS-R/E 缓存锁/行业未分类/ann_missing 门禁/读口封装；"
+            "SS-E 打分信封/metrics；运营项见 maturity-gate。"
         ),
     }

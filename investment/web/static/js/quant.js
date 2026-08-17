@@ -926,7 +926,10 @@ export function initQuant(ctx) {
         setProStatusChip("quant-pro-cluster-status", "ok", "完成");
       }
     } catch (err) {
-      const msg = String((err && err.message) || err || "分组失败");
+      const raw = String((err && err.message) || err || "分组失败");
+      const msg = /failed to fetch|networkerror|load failed/i.test(raw)
+        ? "服务断开（可能刚重启），请再点「跑分组」"
+        : raw;
       setBusyText(els.quantOlsSummary, msg, { busy: false });
       setQuantMeta(`分组失败 · ${msg}`, { error: true });
       if (els.quantOlsClusters) {

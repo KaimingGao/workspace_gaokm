@@ -398,9 +398,14 @@ class QuantOpsMixin:
             for e in entries
             if e.get("immature") and e.get("as_of")
         }
-        # 复盘默认再往前一档：今日刚冻结 / 昨收未进缓存时，as_of=昨 → h=1 仍薄样本
+        filled = [
+            str(e.get("as_of") or "")
+            for e in entries
+            if e.get("as_of") and int(e.get("outcomes_filled") or 0) > 0
+        ]
+        # 复盘默认：已回填日 > as_of+h 已到期日。昨收未进缓存时 as_of=昨仍薄样本
         safe = prev_trading_day(sess, n=2) or cal or sess
-        pick = next(
+        pick = next((d for d in filled if d), None) or next(
             (d for d in dates if d and d <= safe and d not in immature_set),
             None,
         ) or next(

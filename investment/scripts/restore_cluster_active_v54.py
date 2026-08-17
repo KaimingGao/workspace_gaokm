@@ -18,8 +18,9 @@ def main() -> int:
         get_cluster_scoring_cfg,
     )
     from core.signal.cluster_pointer import active_enable_blockers
-    from core.signal.score_stock import score_stock
+    from core.signal.service import get_default_signal_service
 
+    svc = get_default_signal_service()
     health = assess_cluster_live_health()
     evidence = build_cluster_enable_evidence(health=health, include_rolling_ic=True)
     blockers = active_enable_blockers(health=health, evidence=evidence)
@@ -55,18 +56,23 @@ def main() -> int:
     focus_scores = {}
     for code, name in (("000938", "紫光股份"), ("603019", "中科曙光")):
         try:
-            s = score_stock(code, use_cluster=True)
+            # score_stock 入参是 cluster_mode，不是 use_cluster；字段在 signal_item
+            scored = svc.score_one(code, cluster_mode="active", skip_sentiment=True)
         except Exception as e:
             focus_scores[code] = {"error": str(e)}
             continue
+        si = scored.item or {}
         focus_scores[code] = {
             "name": name,
-            "predicted_score": s.get("predicted_score"),
-            "cluster_label": s.get("cluster_label") or (s.get("cluster") or {}).get("label"),
-            "weight_source": s.get("weight_source"),
-            "score_rem": s.get("score_rem"),
-            "event_prior": s.get("event_prior"),
-            "gap_pct": s.get("gap_pct"),
+            "predicted_score": scored.predicted_score or si.get("predicted_score"),
+            "cluster_label": si.get("cluster_label") or (si.get("cluster") or {}).get("label"),
+            "weight_source": si.get("weight_source"),
+            "score_rem": si.get("score_rem"),
+            "predicted_score_tau": scored.predicted_score_tau,
+            "production_ok": scored.production_ok,
+            "gate_reason": scored.gate_reason,
+            "event_prior": si.get("event_prior"),
+            "gap_pct": si.get("gap_pct"),
         }
         print(code, focus_scores[code], flush=True)
 

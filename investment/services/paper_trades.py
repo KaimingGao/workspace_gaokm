@@ -151,6 +151,12 @@ def _rebalance_report_from_legs(
             or "sentiment_prior" in str(reason or "")
         )
         hard_flag = bool(rank_row.get("hard_reject") or code in hard_by)
+        oos_failed = bool(rank_row.get("oos_failed"))
+        if not oos_failed:
+            rms = str(rank_row.get("return_model_source") or "")
+            oos_failed = rms.startswith("oos_failed") or str(
+                rank_row.get("score_scale") or ""
+            ) == "heuristic_0_100"
         row_out = {
             "stock_code": code,
             "stock_name": name_by.get(code) or code,
@@ -163,6 +169,8 @@ def _rebalance_report_from_legs(
             "shares_before": o,
             "shares_after": n,
             "cluster_label": label,
+            "in_book": code in book_codes,
+            "oos_failed": oos_failed,
             "weight_source": rank_row.get("weight_source")
             or (
                 f"cluster:{label}"
@@ -182,7 +190,7 @@ def _rebalance_report_from_legs(
         }
         # tip / 校准列：从打分行透传（book 已含 *_cal；缺则现场补 g）
         try:
-            from core.signal.dual_score import dual_score_book_fields
+            from core.signal.service import get_default_signal_service
 
             src = dict(rank_row) if isinstance(rank_row, dict) else {}
             if src.get("predicted_score") is None and src.get("predicted_score_blend") is None:
@@ -190,7 +198,7 @@ def _rebalance_report_from_legs(
                 if sc is not None:
                     src.setdefault("score", sc)
                     src.setdefault("predicted_score", sc)
-            row_out.update(dual_score_book_fields(src))
+            row_out.update(get_default_signal_service().book_fields(src))
             for k in (
                 "predicted_score",
                 "score_formula",
@@ -203,6 +211,12 @@ def _rebalance_report_from_legs(
             ):
                 if src.get(k) is not None and row_out.get(k) is None:
                     row_out[k] = src.get(k)
+            # book_fields 可能带回 return_model_source / score_scale；再对齐 oos 旗标
+            if not row_out.get("oos_failed"):
+                rms = str(row_out.get("return_model_source") or src.get("return_model_source") or "")
+                row_out["oos_failed"] = rms.startswith("oos_failed") or str(
+                    row_out.get("score_scale") or src.get("score_scale") or ""
+                ) == "heuristic_0_100"
         except Exception:
             # book_fields 整段失败时仍尽量补校准对照列
             try:

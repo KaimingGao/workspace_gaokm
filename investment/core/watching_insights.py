@@ -85,6 +85,7 @@ def _blank(code: str, *, added_at: Optional[str] = None, error: Optional[str] = 
         "score_formula": None,
         "score_reasons": None,
         "return_model_source": None,
+        "oos_failed": False,
         "factor_coefficients": None,
         "score_formula_terms": None,
         "added_at": added_at,
@@ -158,6 +159,23 @@ def _spot_valuation_map(codes: List[str]) -> Dict[str, Dict[str, Optional[float]
     except Exception:
         pass
     return out
+
+
+def _attach_oos_flag(out: Dict[str, Any]) -> None:
+    """表列徽标：OOS 失败组禁止新买；heuristic / 全局降级都算失败。"""
+    if not isinstance(out, dict):
+        return
+    try:
+        from core.signal.rebalance_tracks import OOS_FAIL, resolve_oos_status
+
+        out["oos_failed"] = resolve_oos_status(out) == OOS_FAIL
+        return
+    except Exception:
+        pass
+    src = str(out.get("return_model_source") or "")
+    out["oos_failed"] = src.startswith("oos_failed") or str(
+        out.get("score_scale") or ""
+    ) == "heuristic_0_100"
 
 
 def _is_heuristic_score_scale(item: Optional[dict]) -> bool:
@@ -338,7 +356,8 @@ def _hydrate_insight_tau_fields(
         if sig.get(key) is None and out.get(key) is not None:
             sig[key] = out.get(key)
     try:
-        from core.signal.dual_score import attach_dual_score_pit, dual_score_book_fields
+        from core.signal.dual_score import attach_dual_score_pit
+        from core.signal.service import get_default_signal_service
 
         fuse = str(sig.get("dual_score_window") or out.get("dual_score_window") or "") != "eod_next"
         if fuse:
@@ -351,7 +370,7 @@ def _hydrate_insight_tau_fields(
             except Exception:
                 pass
         attach_dual_score_pit(sig, quote=q, bars=b, fuse_intraday=fuse)
-        out.update(dual_score_book_fields(sig))
+        out.update(get_default_signal_service().book_fields(sig))
         _finalize_insight_trade_fields(out)
         return
     except Exception:
@@ -382,12 +401,12 @@ def _hydrate_insight_tau_fields(
         if gap is not None:
             out["gap_pct"] = gap
         try:
-            from core.signal.dual_score import dual_score_book_fields
+            from core.signal.service import get_default_signal_service
 
             # 回退路径也补 tip 对照字段（*_cal / OOR / note）
             merge = dict(item or {})
             merge.update(out)
-            out.update(dual_score_book_fields(merge))
+            out.update(get_default_signal_service().book_fields(merge))
         except Exception:
             pass
         try:
@@ -410,31 +429,35 @@ def _enrich_book_insight_display_fields(
     out: Dict[str, Any],
     code: str,
     item: dict,
+    *,
+    quote: Optional[dict] = None,
+    fill_stance: bool = True,
 ) -> None:
-    """簿快路径补倾向 / 超额% / 量比（行情 + 本地 bars，不重打分）。"""
-    quote: Dict[str, Any] = {}
-    try:
-        from core.data_service import get_quote
+    """补倾向 / 超额% / 量比。默认不拉现货：本地日线 + ŷ；涨跌惩罚仅在 quote.success 时生效。"""
+    q = quote if isinstance(quote, dict) else {}
+    if fill_stance:
+        try:
+            from core.stance import compute_buy_stance
 
-        quote = get_quote(code) or {}
-    except Exception:
-        quote = {}
+            sig = dict(item) if isinstance(item, dict) else {}
+            if sig.get("predicted_score") is None:
+                sig["predicted_score"] = out.get("predicted_score") or out.get("score")
+            if sig.get("score") is None:
+                sig["score"] = out.get("score")
+            # 簿快路径不重拉行情；有 ŷ 仍出倾向，避免表列整列「—」
+            stance_quote = q if q.get("success") else {"success": True}
+            stance = compute_buy_stance(quote=stance_quote, signal_item=sig)
+            code_st = stance.get("stance_code")
+            out["stance_code"] = code_st
+            out["stance_label"] = stance.get("stance_label")
+            out["stance_short"] = STANCE_SHORT.get(str(code_st or ""), "—")
+        except Exception:
+            out["stance_short"] = out.get("stance_short") or "—"
 
-    try:
-        from core.stance import compute_buy_stance
-
-        sig = dict(item) if isinstance(item, dict) else {}
-        if sig.get("predicted_score") is None:
-            sig["predicted_score"] = out.get("predicted_score") or out.get("score")
-        if sig.get("score") is None:
-            sig["score"] = out.get("score")
-        stance = compute_buy_stance(quote=quote, signal_item=sig)
-        code_st = stance.get("stance_code")
-        out["stance_code"] = code_st
-        out["stance_label"] = stance.get("stance_label")
-        out["stance_short"] = STANCE_SHORT.get(str(code_st or ""), "—")
-    except Exception:
-        out["stance_short"] = out.get("stance_short") or "—"
+    if out.get("volume_ratio") is not None and (
+        out.get("excess_return_pct") is not None or out.get("excess_label")
+    ):
+        return
 
     bars: List[dict] = []
     try:
@@ -477,8 +500,6 @@ def _enrich_book_insight_display_fields(
 
     if out.get("excess_return_pct") is None and out.get("excess_label") is None:
         _apply_excess_label(out, None, item)
-
-    _hydrate_insight_tau_fields(out, item, quote, bars)
 
 
 def _insight_from_book_row(
@@ -531,9 +552,9 @@ def _insight_from_book_row(
     out["score_reasons"] = list(reasons) if isinstance(reasons, list) else []
     if not _is_heuristic_score_scale(out):
         try:
-            from core.signal.dual_score import dual_score_book_fields
+            from core.signal.service import get_default_signal_service
 
-            out.update(dual_score_book_fields(item))
+            out.update(get_default_signal_service().book_fields(item))
         except Exception:
             pass
         # dual 拷贝可能再次带入脏 ŷ
@@ -582,7 +603,8 @@ def _insight_from_book_row(
     if excess is not None:
         _apply_excess_label(out, excess, item)
 
-    # 簿快路径：不拉行情（避免整批超时）；用簿内 gap / 缺省 rem=EOD 水合 ŷ_trade + cal
+    # 簿快路径不拉现货（避免整批超时）：本地日线补倾向/超额/量比；ŷ_trade 仍用簿内 gap
+    _enrich_book_insight_display_fields(out, code, item)
     if not _is_heuristic_score_scale(out):
         _hydrate_insight_tau_fields(out, item, {}, None)
     else:
@@ -594,6 +616,7 @@ def _insight_from_book_row(
         or out.get("score_cluster") is not None
     )
     out["stance_short"] = out.get("stance_short") or "—"
+    _attach_oos_flag(out)
     return out
 
 
@@ -604,20 +627,25 @@ def _insight_one(
     valuation: Optional[Dict[str, Optional[float]]] = None,
     paper_ctx: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """单票轻量摘要：与交易执行同源 ``score_stock``（含分组因子系数）；不二次打指数/基本面/同业。"""
+    """单票轻量摘要：与交易执行同源 SignalService（含分组因子系数）；不二次打指数/基本面/同业。"""
     out = _blank(code, added_at=added_at)
     try:
-        from core.signal.score_stock import score_stock
+        from core.signal.service import get_default_signal_service
         from core.stance import compute_buy_stance
         from core.data_service import get_quote
 
         # cluster_mode=None → 读 signal_config.cluster_scoring（active 时用组 β，同持仓表）
-        scored = score_stock(code, horizon_days=3, skip_fundamentals=True)
+        result = get_default_signal_service().score_one(
+            code, horizon_days=3, skip_fundamentals=True
+        )
+        scored = result.as_dict()
         quote = (scored or {}).get("quote") or {}
         if not quote:
             quote = get_quote(code)
-        item = (scored or {}).get("signal_item") or {}
-        out["score"] = _f(item.get("score"))
+        item = dict(result.item or {})
+        out["score"] = _f(result.rank_key)
+        if out["score"] is None:
+            out["score"] = _f(item.get("score"))
         if out["score"] is None:
             out["score"] = _f(item.get("predicted_score_blend"))
         if out["score"] is None:
@@ -625,13 +653,18 @@ def _insight_one(
             out["score"] = _f(item.get("predicted_score"))
         if out["score"] is None:
             out["score"] = _f(item.get("score_cluster"))
-        out["predicted_score"] = _f(item.get("predicted_score"))
+        out["predicted_score"] = _f(result.predicted_score)
+        if out["predicted_score"] is None:
+            out["predicted_score"] = _f(item.get("predicted_score"))
         if out["predicted_score"] is None:
             out["predicted_score"] = _f(item.get("predicted_score_eod"))
         if out["predicted_score"] is None and _f(item.get("predicted_score_blend")) is None:
             out["predicted_score"] = out["score"]
         out["hard_reject"] = bool(item.get("hard_reject"))
         out["reject_reason"] = (item.get("reject_reason") or None) if out["hard_reject"] else None
+        out["production_ok"] = bool(result.production_ok)
+        if result.gate_reason:
+            out["gate_reason"] = result.gate_reason
         out["cluster_mode"] = item.get("cluster_mode") or scored.get("cluster_mode")
         out["weight_source"] = item.get("weight_source")
         out["cluster_label"] = item.get("cluster_label")
@@ -640,17 +673,16 @@ def _insight_one(
         out["score_cluster"] = _f(item.get("score_cluster"))
         out["delta_vs_global"] = _f(item.get("delta_vs_global"))
         out["return_model_source"] = item.get("return_model_source")
-        out["score_scale"] = item.get("score_scale")
+        out["score_scale"] = item.get("score_scale") or result.scale
         out["heuristic_score"] = _f(item.get("heuristic_score"))
         out["factor_coefficients"] = item.get("factor_coefficients")
         out["sub_scores"] = item.get("sub_scores") or {}
         out["score_formula_terms"] = item.get("score_formula_terms")
         _sanitize_heuristic_yhat_fields(out, item)
         try:
-            from core.signal.dual_score import dual_score_book_fields
-
             if not _is_heuristic_score_scale(out):
-                out.update(dual_score_book_fields(item))
+                # 只合并双层 ŷ 字段；勿 annotate_item 整包，以免污染 score/stance
+                out.update(get_default_signal_service().book_fields(item))
                 _sanitize_heuristic_yhat_fields(out, item)
         except Exception:
             pass
@@ -710,23 +742,24 @@ def _insight_one(
 
         excess = _f(factors.get("excess_return_pct"))
         if excess is not None:
-            out["excess_return_pct"] = excess
-            if excess >= 2:
-                out["excess_label"] = "强"
-            elif excess <= -2:
-                out["excess_label"] = "弱"
-            else:
-                out["excess_label"] = "平"
+            _apply_excess_label(out, excess, item)
         else:
             rs = _f((item.get("sub_scores") or {}).get("relative_strength"))
             if rs is not None:
                 out["excess_label"] = "RS" + str(int(round(rs)))
+        if out.get("volume_ratio") is None or (
+            out.get("excess_return_pct") is None and out.get("excess_label") is None
+        ):
+            _enrich_book_insight_display_fields(
+                out, code, item, quote=quote, fill_stance=False
+            )
 
         out["ok"] = bool((scored or {}).get("success")) or quote.get("success") is True
         if not out["ok"] and (scored or {}).get("error"):
             out["error"] = scored.get("error")
     except Exception as e:
         out["error"] = str(e)
+    _attach_oos_flag(out)
     return out
 
 

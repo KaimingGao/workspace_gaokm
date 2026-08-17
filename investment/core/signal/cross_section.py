@@ -16,6 +16,7 @@ def rank_cross_section(
     limit: int = 10,
     min_score: Optional[float] = None,
     watching_path: Optional[str] = None,
+    bypass_quality_gate: bool = False,
 ) -> Dict[str, Any]:
     """对候选列表做短线横截面排序，返回 Top N（按 predicted_score）。"""
     cfg = load_signal_config()
@@ -44,7 +45,11 @@ def rank_cross_section(
     scored_items: List[dict] = []
     rejected: List[dict] = []
     for raw in codes[:50]:
-        result = score_stock(str(raw), horizon_days=horizon_days)
+        result = score_stock(
+            str(raw),
+            horizon_days=horizon_days,
+            bypass_quality_gate=bool(bypass_quality_gate),
+        )
         if not result.get("success"):
             rejected.append({"stock_code": raw, "reason": result.get("error")})
             continue

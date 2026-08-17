@@ -92,6 +92,59 @@ class TestPortsAdapters(unittest.TestCase):
                     break
         self.assertEqual(offenders, [])
 
+    def test_business_scores_via_signal_service(self):
+        """SS-E3：services / web / quant/services / skills 不得直 import score_stock / rank_*。
+
+        允许：core/signal 实现层（service · score_stock · cross_section · cluster_rank · batch）。
+        """
+        import re
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parents[1]
+        scan_dirs = [
+            root / "services",
+            root / "web",
+            root / "quant" / "services",
+            root / "skills",
+            root / "core",
+            root / "scripts",
+            root / "research",
+        ]
+        allow_core = {
+            Path("signal/service.py"),
+            Path("signal/score_stock.py"),
+            Path("signal/cross_section.py"),
+            Path("signal/cross_section_batch.py"),
+            Path("signal/cluster_rank.py"),
+            Path("signal_service.py"),
+        }
+        patterns = [
+            re.compile(r"from\s+core\.signal\.score_stock\s+import\s+[^\n]*\bscore_stock\b"),
+            re.compile(
+                r"from\s+core\.signal\.cross_section\s+import\s+[^\n]*\brank_cross_section\b"
+            ),
+            re.compile(
+                r"from\s+core\.signal\.cluster_rank\s+import\s+[^\n]*\brank_cluster_pools\b"
+            ),
+        ]
+        offenders = []
+        for base in scan_dirs:
+            if not base.is_dir():
+                continue
+            for path in base.rglob("*.py"):
+                rel = path.relative_to(root)
+                if base.name == "core" or str(rel).startswith("core/"):
+                    core_rel = path.relative_to(root / "core")
+                    if core_rel in allow_core:
+                        continue
+                    # core 内其它模块也不得直调打分出口（须经 SignalService）
+                text = path.read_text(encoding="utf-8")
+                for pat in patterns:
+                    if pat.search(text):
+                        offenders.append(str(rel))
+                        break
+        self.assertEqual(offenders, [])
+
     def test_quant_services_has_no_skills_imports(self):
         """H2：quant/services 不得直接 import skills（经 ports / services 门面）。"""
         from pathlib import Path

@@ -390,6 +390,45 @@ class TestScoreLedger(unittest.TestCase):
             miss = delete_ledger("2026-08-05")
             self.assertFalse(miss["success"])
 
+    def test_list_ledger_dates_skips_sidecar_files(self):
+        from core.score_ledger import list_ledger_dates, upsert_ledger_rows
+
+        with self._patch_dir():
+            upsert_ledger_rows(
+                "2026-08-13",
+                [{"stock_code": "600519", "predicted_score": 1.0}],
+                source="test",
+            )
+            root = self.ledger_root
+            for name in (
+                "2026-08-14.nowcast_shadow.json",
+                "2026-08-14.tau_shadow.json",
+                "2026-08-13.outcomes.json",
+                "2026-08-14.nowcast_shadow.outcomes.json",
+            ):
+                with open(os.path.join(root, name), "w", encoding="utf-8") as f:
+                    f.write("{}")
+            dates = list_ledger_dates()
+            self.assertEqual(dates, ["2026-08-13"])
+            self.assertFalse(any("shadow" in d for d in dates))
+
+    def test_list_ledger_entries_marks_pending_close(self):
+        from core.score_ledger import list_ledger_entries, upsert_ledger_rows
+
+        with self._patch_dir(), patch(
+            "core.market_calendar.resolve_session_date", return_value="2026-08-17"
+        ):
+            upsert_ledger_rows(
+                "2026-08-14",
+                [{"stock_code": "600519", "predicted_score": 0.2}],
+                source="test",
+            )
+            ents = list_ledger_entries()
+            row = next(e for e in ents if e["as_of"] == "2026-08-14")
+            self.assertEqual(row["need_bar_date"], "2026-08-17")
+            self.assertTrue(row["pending_close"])
+            self.assertFalse(row["immature"])
+
     def test_resolve_freeze_as_of_clamps_to_feature(self):
         from core.score_ledger import resolve_freeze_as_of
 

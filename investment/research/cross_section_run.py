@@ -12,7 +12,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.signal.cross_section import rank_cross_section  # noqa: E402
+from core.signal.service import get_research_signal_service  # noqa: E402
 
 
 def main(argv=None) -> int:
@@ -28,12 +28,13 @@ def main(argv=None) -> int:
     if args.codes.strip():
         codes = [c.strip() for c in args.codes.replace("，", ",").split(",") if c.strip()]
 
-    result = rank_cross_section(
+    # 研究 CLI：允许绕过日线质量门禁；启发式仍标 production_ok=False
+    result = get_research_signal_service().rank_cross_section(
         codes,
         horizon_days=args.horizon,
         limit=args.limit,
         min_score=args.min_score,
-    )
+    ).as_dict()
 
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=2))

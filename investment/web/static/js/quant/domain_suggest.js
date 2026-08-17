@@ -18,6 +18,37 @@ export function installSuggest(q) {
     return msg && msg !== "请求失败" ? msg : fallback;
   }
 
+  function isNetworkFetchError(err) {
+    const msg = String((err && err.message) || err || "");
+    const name = String((err && err.name) || "");
+    return (
+      name === "TypeError" ||
+      /failed to fetch|networkerror|load failed|network request failed/i.test(msg)
+    );
+  }
+
+  function explainNetworkFetchError(err, retryHint = "请再点「跑分组」") {
+    if (!isNetworkFetchError(err)) {
+      return String((err && err.message) || err || "请求失败");
+    }
+    return `服务断开（可能刚重启），${retryHint}`;
+  }
+
+  async function fetchRetry(url, init, { tries = 6, delayMs = 350 } = {}) {
+    let lastErr = null;
+    for (let i = 0; i < tries; i++) {
+      try {
+        return await fetch(url, init);
+      } catch (err) {
+        lastErr = err;
+        if (i < tries - 1) {
+          await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
+        }
+      }
+    }
+    throw lastErr;
+  }
+
   function weightSuggestStatusHtml(suggest) {
     return buildWeightSuggestStatusHtml(suggest, {
       escapeHtml,
@@ -353,6 +384,33 @@ export function installSuggest(q) {
     renderFactorExperiment(exp, sug);
   }
 
+  async function hydrateClustersFromLastReport(stubResult) {
+    try {
+      const hr = await fetchRetry(
+        "/api/quant/factor-ols-clusters/last-report",
+        undefined,
+        { tries: 4, delayMs: 400 }
+      );
+      const hrText = await hr.text();
+      const hydrated = hrText ? JSON.parse(hrText) : null;
+      if (
+        hydrated &&
+        hydrated.success &&
+        Array.isArray(hydrated.clusters) &&
+        hydrated.clusters.length
+      ) {
+        return {
+          ...hydrated,
+          hydrated_from_job_stub: true,
+          job_stub_n_clusters: stubResult && stubResult.n_clusters,
+        };
+      }
+    } catch (_) {
+      /* keep stub */
+    }
+    return null;
+  }
+
   async function waitQuantOlsClustersJob(jobId) {
     const started = Date.now();
     // soft 25min：无心跳才判超时；有心跳则继续等（满池 auto-k+OOS 常 >35min）
@@ -361,15 +419,49 @@ export function installSuggest(q) {
     const absoluteCapMs = 90 * 60 * 1000;
     const heartbeatFreshSec = 90;
     let sawOwnJob = false;
+    let netFailStreak = 0;
     while (Date.now() - started < absoluteCapMs) {
-      const res = await fetch("/api/jobs/quant-ols-clusters?progress=1");
-      const payload = await res.json();
+      let res;
+      try {
+        // 单次少试几次：断连时由外层循环继续等，避免 6 次就整段失败
+        res = await fetchRetry("/api/jobs/quant-ols-clusters?progress=1", undefined, {
+          tries: 3,
+          delayMs: 400,
+        });
+        netFailStreak = 0;
+      } catch (err) {
+        netFailStreak += 1;
+        const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+        setBusyText(
+          els.quantOlsSummary,
+          `分组中… ${sec}s · 服务短暂断开，重连中（${netFailStreak}）…`,
+          { busy: true }
+        );
+        await new Promise((r) => setTimeout(r, Math.min(4000, 500 * netFailStreak)));
+        continue;
+      }
+      if (!res.ok && res.status >= 500) {
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
+      let payload = {};
+      try {
+        payload = await res.json();
+      } catch (err) {
+        if (isNetworkFetchError(err)) {
+          netFailStreak += 1;
+          await new Promise((r) => setTimeout(r, 500));
+          continue;
+        }
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
       const job = (payload && payload.job) || {};
       const sameJob = !jobId || !job.id || job.id === jobId;
       if (sameJob && job.id) sawOwnJob = true;
       if (job.status === "idle" || !job.id) {
         if (sawOwnJob || Date.now() - started > 2500) {
-          throw new Error("分组任务已中断（可能服务重启），请重试");
+          throw new Error("分组任务已中断（可能服务重启），请再点「跑分组」");
         }
         await new Promise((r) => setTimeout(r, 400));
         continue;
@@ -381,7 +473,10 @@ export function installSuggest(q) {
         // progress=1 不含完整 result；再拉一次完整结果
         let fullJob = job;
         try {
-          const fullRes = await fetch("/api/jobs/quant-ols-clusters");
+          const fullRes = await fetchRetry("/api/jobs/quant-ols-clusters", undefined, {
+            tries: 4,
+            delayMs: 400,
+          });
           const raw = await fullRes.text();
           let fullPayload = null;
           try {
@@ -406,25 +501,10 @@ export function installSuggest(q) {
         const hasClusters =
           Array.isArray(result.clusters) && result.clusters.length > 0;
         if (!hasClusters) {
-          try {
-            const hr = await fetch("/api/quant/factor-ols-clusters/last-report");
-            const hrText = await hr.text();
-            const hydrated = hrText ? JSON.parse(hrText) : null;
-            if (
-              hydrated &&
-              hydrated.success &&
-              Array.isArray(hydrated.clusters) &&
-              hydrated.clusters.length
-            ) {
-              result = {
-                ...hydrated,
-                hydrated_from_job_stub: true,
-                job_stub_n_clusters: result.n_clusters,
-              };
-              fullJob.result = result;
-            }
-          } catch (_) {
-            /* keep stub */
+          const hydrated = await hydrateClustersFromLastReport(result);
+          if (hydrated) {
+            result = hydrated;
+            fullJob.result = result;
           }
         }
         return fullJob;
@@ -486,37 +566,47 @@ export function installSuggest(q) {
     timer = setInterval(tick, 1000);
     await ensureFactorMeta();
     try {
-      const res = await fetch("/api/quant/factor-ols-clusters", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          lookback: 80,
-          horizon_days: readHorizonDays(),
-          watching_limit: readWatchingLimit(),
-          // null → 自动目标 k≈n/5（约 4～10）+ 超大组二分；填了则按目标 k
-          n_clusters: readClusterK(),
-          cluster_method: "hierarchical",
-          cluster_linkage: "complete",
-          within_dist_quantile: 0.75,
-          ridge_lambda: readRidgeLambda(),
-          pit_fundamentals: true,
-          beta_scale: "feature_zscore",
-          run_oos_gate: true,
-          oos_tol_pp: 1.0,
-          run_group_score: true,
-          run_pool_merge: true,
-          top_n_per_group: 10,
-          refresh_bars: !!(
-            (document.getElementById("quant-cluster-refresh-bars") || {})
-              .checked
-          ),
-          // 默认关：研究全因子；勾选=与 live regime 白名单对齐（表里会裁掉许多因子）
-          respect_regime: !!(
-            (document.getElementById("quant-cluster-respect-regime") || {})
-              .checked
-          ),
-        }),
-      });
+      let res;
+      try {
+        res = await fetchRetry(
+          "/api/quant/factor-ols-clusters",
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              lookback: 80,
+              horizon_days: readHorizonDays(),
+              watching_limit: readWatchingLimit(),
+              // null → 自动目标 k≈n/5（约 4～10）+ 超大组二分；填了则按目标 k
+              n_clusters: readClusterK(),
+              cluster_method: "hierarchical",
+              cluster_linkage: "complete",
+              within_dist_quantile: 0.75,
+              ridge_lambda: readRidgeLambda(),
+              pit_fundamentals: true,
+              beta_scale: "feature_zscore",
+              run_oos_gate: true,
+              oos_tol_pp: 1.0,
+              run_group_score: true,
+              run_pool_merge: true,
+              top_n_per_group: 10,
+              refresh_bars: !!(
+                (document.getElementById("quant-cluster-refresh-bars") || {})
+                  .checked
+              ),
+              // 默认关：研究全因子；勾选=与 live regime 白名单对齐（表里会裁掉许多因子）
+              respect_regime: !!(
+                (document.getElementById("quant-cluster-respect-regime") || {})
+                  .checked
+              ),
+            }),
+          },
+          { tries: 4, delayMs: 500 }
+        );
+      } catch (err) {
+        stopTick();
+        throw new Error(explainNetworkFetchError(err));
+      }
       let data = null;
       try {
         data = await res.json();

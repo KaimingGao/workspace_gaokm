@@ -94,7 +94,10 @@ class TestPositionRules(unittest.TestCase):
         from unittest.mock import patch
 
         engine = PositionEngine()
-        with patch("core.position.score_stock", return_value=mock_signal), patch(
+        with patch(
+            "core.signal.score_stock.score_stock",
+            return_value=mock_signal,
+        ), patch(
             "core.position.compute_buy_stance", return_value=mock_stance
         ):
             result = engine.advise(

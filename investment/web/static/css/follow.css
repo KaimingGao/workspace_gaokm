@@ -2196,6 +2196,10 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
   min-width: 0;
 }
 
+.paper-holdings-react-grid .paper-wl-name .watching-name-row {
+  min-width: 0;
+}
+
 .paper-holdings-react-grid .paper-wl-code {
   font-size: 0.72rem;
   color: var(--ink-3);

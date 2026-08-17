@@ -7,9 +7,10 @@ investment/
 ├── core/                        # 领域层（确定性逻辑，无 LLM/Handler）
 │   ├── paths.py · env.py · numbers.py
 │   ├── data_service.py          # 上层唯一读口（质量 / PIT 元数据）
+│   ├── signal_service.py        # 上层打分口（ŷ 信封 / 生产门禁）
 │   ├── data_pit.py · data_coverage.py · store.py
 │   ├── ports/                   # market · adapters · signal（skills 经 ports_bind 注入）
-│   ├── signal/                  # scorer · factors · config · score_stock
+│   ├── signal/                  # Service · scorer · factors · config · score_stock
 │   ├── backtest/                # walk-forward · topk_backtest · strategies
 │   ├── stance.py · advise.py · facts.py · position.py
 │   ├── paper.py                 # 账本 IO / 五问 / signal_scan（再导出 exec）
@@ -57,6 +58,7 @@ investment/
 | 层级 | 路径 | 职责 |
 |------|------|------|
 | 数据读口 | `core/data_service` → `core/ports` → `skills.ports_bind` | 业务/Skill/研究统一质量契约 |
+| 打分口 | `core/signal_service` → `core/signal/service` | 纸面/量化/Skill 统一 ŷ 信封与生产门禁 |
 | 共享领域 | `core/signal` · `core/backtest` · `core/paper*` · `core/risk` | live / 回测 / 纸面同一套规则 |
 | 量化产品 | `quant/` | 研究台服务、运维 preset、因子对照、Agent Skill |
 | 应用服务 | `services/` | Web/CLI 边界；纸面拆 account/jobs/trades |
@@ -67,8 +69,9 @@ investment/
 | 模块 | 路径 |
 |------|------|
 | DataService | `core/data_service.py`（门面）· `core/data/`（Service / Ports / 信封） |
+| SignalService | `core/signal_service.py`（门面）· `core/signal/`（`SignalService` · `ScoreResult` · gate · metrics） |
 | 行情端口 | `core/ports/market.py` · 绑定 `skills/ports_bind.py` |
-| 因子打分 | `core/signal/scorer.py` |
+| 因子打分 | `core/signal/scorer.py`（实现）· 出口经 SignalService |
 | 回测引擎 | `core/backtest/engine.py` |
 | 纸面账本 | `core/paper.py` + `paper_exec` + `paper_cycle` |
 | 风控门禁 | `core/risk/checks.py` |
