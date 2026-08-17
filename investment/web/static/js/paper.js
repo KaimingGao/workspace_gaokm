@@ -1503,6 +1503,7 @@ export function initPaper(ctx) {
         riskGate = null,
         opsReport = null,
         riskBudgetSkips = null,
+        dualScore = null,
       } = {}
     ) {
       const section = document.getElementById("paper-rebalance-section");
@@ -1576,6 +1577,20 @@ export function initPaper(ctx) {
               ? `（上限 ${cashImpact.max_turnover_pct}%）`
               : "";
           note += ` · 换手软上限已截断买入${cap}`;
+        }
+        const tauGate = dualScore && dualScore.tau_gate;
+        if (
+          preview &&
+          tauGate &&
+          String(tauGate.mode || "") === "freeze_breakglass"
+        ) {
+          const ef =
+            tauGate.effective_floor != null
+              ? Number(tauGate.effective_floor)
+              : null;
+          note +=
+            ` · τ 试验档` +
+            (ef != null && Number.isFinite(ef) ? `（门槛 ${ef}）` : "");
         }
         previewNote.textContent = note;
       }
@@ -2216,6 +2231,7 @@ export function initPaper(ctx) {
         const cashImpact = result.cash_impact || null;
         const riskGate = result.risk_gate || null;
         const riskBudgetSkips = result.risk_budget_skips || [];
+        const dualScore = result.dual_score || null;
         const priorSkipN = riskBudgetSkips.filter((s) => s && s.sentiment_prior).length;
         const opsReport =
           result.ops_report ||
@@ -2276,6 +2292,7 @@ export function initPaper(ctx) {
             riskGate,
             opsReport,
             riskBudgetSkips,
+            dualScore,
           });
         } else if (simulateBuy) {
           renderRebalanceReport([], {
@@ -2284,6 +2301,7 @@ export function initPaper(ctx) {
             riskGate,
             opsReport,
             riskBudgetSkips,
+            dualScore,
           });
           setPaperMetaText(
             resultText + (riskGate && riskGate.ok === false ? "" : " · 无可执行变动")
@@ -2454,6 +2472,7 @@ export function initPaper(ctx) {
             cashImpact: ci,
             riskGate: data.risk_gate || null,
             riskBudgetSkips: skips,
+            dualScore: data.dual_score || null,
             opsReport: opsFromApi
               ? {
                   ...opsFromApi,

@@ -1,6 +1,6 @@
 /** Paper operation/fund logs render helper. */
 
-import { escapeText, fmtScore } from "./fmt.js";
+import { escapeText, fmtPct, fmtScore, metricCls } from "./fmt.js";
 
 function typeCls(t) {
   const m = {
@@ -192,13 +192,30 @@ function renderLogItem(l) {
       secondaryParts.push(origin);
     }
   }
+  let pnlHtml = "";
+  if (l.type === "sell") {
+    const pnlPct =
+      meta.pnl_pct != null && meta.pnl_pct !== "" ? Number(meta.pnl_pct) : NaN;
+    const pnlAbs = meta.pnl != null && meta.pnl !== "" ? Number(meta.pnl) : NaN;
+    if (Number.isFinite(pnlPct)) {
+      pnlHtml =
+        `<span class="paper-log-pnl ${metricCls(pnlPct)}">` +
+        `${escapeText(fmtPct(pnlPct, { signed: true }))}</span>`;
+    } else if (Number.isFinite(pnlAbs)) {
+      pnlHtml =
+        `<span class="paper-log-pnl ${metricCls(pnlAbs)}">` +
+        `${escapeText(fmtLogMoney(pnlAbs))}元</span>`;
+    }
+  }
   const secondary = secondaryParts.filter(Boolean).join(" · ");
   const when = fmtTs(l.ts);
   return (
     `<div class="paper-log-item ${cls}" title="${escapeText(when.title || `${when.date} ${when.time}`)}">` +
     `<span class="paper-log-type">${label}</span>` +
     `<div class="paper-log-body">` +
-    `<div class="paper-log-primary">${escapeText(primary)}</div>` +
+    `<div class="paper-log-primary">${escapeText(primary)}` +
+    (pnlHtml ? ` · ${pnlHtml}` : "") +
+    `</div>` +
     (secondary ? `<div class="paper-log-secondary">${escapeText(secondary)}</div>` : "") +
     `</div>` +
     `<span class="paper-log-ts">` +

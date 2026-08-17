@@ -224,6 +224,37 @@ class TestHoldingOrigin(unittest.TestCase):
         self.assertEqual(out[0]["meta"]["commission"], 5.0)
         self.assertEqual(out[0]["meta"]["fees"], 5.0)
 
+    def test_enrich_operation_log_backfills_sell_pnl(self):
+        from core.paper_costs import enrich_operation_log_with_trade_fees
+
+        logs = [
+            {
+                "type": "sell",
+                "meta": {
+                    "stock_code": "600519",
+                    "shares": 100,
+                    "price": 11.0,
+                    "amount": 1100.0,
+                    "commission": 5.0,
+                    "fees": 5.0,
+                },
+            }
+        ]
+        trades = [
+            {
+                "side": "sell",
+                "stock_code": "600519",
+                "shares": 100,
+                "amount": 1100.0,
+                "pnl_pct": 10.0,
+                "commission": 5.0,
+                "fees": 5.0,
+            }
+        ]
+        out = enrich_operation_log_with_trade_fees(logs, trades)
+        self.assertEqual(out[0]["meta"]["pnl_pct"], 10.0)
+        self.assertEqual(out[0]["meta"]["fees"], 5.0)
+
     def test_enrich_estimates_strategy_buy_without_fee_fields(self):
         from core.paper_costs import enrich_operation_log_with_trade_fees
 

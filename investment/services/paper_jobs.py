@@ -62,7 +62,7 @@ class PaperJobsMixin:
                     "cluster_prepare": cluster_prep,
                     **result,
                 }
-            from core.paper_costs import fee_fields_from_trade
+            from core.paper_costs import fee_fields_from_trade, pnl_fields_from_trade
 
             buys = result.get("buy_trades") or result.get("new_trades") or []
             sells = result.get("sell_trades") or []
@@ -89,6 +89,7 @@ class PaperJobsMixin:
                 )
             for t in sells:
                 fee_meta = fee_fields_from_trade(t)
+                pnl_meta = pnl_fields_from_trade(t)
                 append_operation_log(
                     paper,
                     "sell",
@@ -105,6 +106,7 @@ class PaperJobsMixin:
                         "origin": t.get("origin") or "strategy",
                         "note": t.get("note"),
                         **fee_meta,
+                        **pnl_meta,
                     },
                 )
             if buys or sells:

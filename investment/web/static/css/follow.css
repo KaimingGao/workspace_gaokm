@@ -1188,6 +1188,17 @@
   white-space: nowrap;
 }
 
+.paper-log-pnl {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+.paper-log-pnl.up {
+  color: var(--color-up, #c62828);
+}
+.paper-log-pnl.down {
+  color: var(--color-down, #2e7d32);
+}
+
 .paper-log-secondary {
   margin-top: 2px;
   font-size: 0.68rem;

@@ -265,7 +265,7 @@ score_stock(code) 续——
 | `fusion_mode=f0` | 直接放行（τ 闸关闭） |
 | `y_tau is None` 且 `block_buy_if_tau_missing=False`（默认） | 放行（rem 模型/特征缺失不硬卡） |
 | `y_tau is None` 且 `block_buy_if_tau_missing=True` | 拦截（"ŷ_τ 缺失（dual_score 硬闸）"） |
-| `y_tau < min_predicted_score_tau` | 拦截（"ŷ_τ=X.XXX% < min_predicted_score_tau(Y)"） |
+| `y_tau < min_predicted_score_tau` | 拦截（"ŷ_τ=X.XXX% < min_predicted_score_tau(Y)"）；**冻结降级**：候选池无人过基线且 `tau_freeze_breakglass` 时临时用 `min_predicted_score_tau_relax`（预演标「τ 试验档」） |
 | `y_tau ≥ min_predicted_score_tau` | 放行 |
 
 ### 4.5 A2 影子簿（同池 ŷ_τ 重排对照）

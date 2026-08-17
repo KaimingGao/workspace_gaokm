@@ -547,10 +547,11 @@ class PaperTradesMixin:
             trades = manual_sell(paper, codes=codes, stock_code=stock_code, shares=shares)
             summary = mark_to_market(paper)
             append_snapshot(paper, summary)
-            from core.paper_costs import fee_fields_from_trade
+            from core.paper_costs import fee_fields_from_trade, pnl_fields_from_trade
 
             for t in trades:
                 fee_meta = fee_fields_from_trade(t)
+                pnl_meta = pnl_fields_from_trade(t)
                 append_operation_log(
                     paper, "sell",
                     detail=f"卖出 {t.get('stock_name') or t.get('stock_code')} {t.get('shares')}股 @ {t.get('price')}",
@@ -562,6 +563,7 @@ class PaperTradesMixin:
                         "amount": t.get("amount") or t.get("actual_cost"),
                         "origin": t.get("origin") or "manual",
                         **fee_meta,
+                        **pnl_meta,
                     },
                 )
             save_paper(paper, self.path)

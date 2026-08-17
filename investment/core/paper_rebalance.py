@@ -916,6 +916,8 @@ def simulate_cross_section_rebalance(
     risk_gate: Dict[str, Any] = {"ok": True, "blocks": [], "warnings": []}
     mid_summary: Dict[str, Any] = {}
     risk_limits: Dict[str, Any] = {}
+    _tau_floor_meta: Dict[str, Any] = {}
+    _tau_floor: Optional[float] = None
 
     # 卖出后、买入前：账户风控；回撤硬拦，单票/行业改走逐笔预算缩量（P1）
     try:
@@ -1452,6 +1454,31 @@ def simulate_cross_section_rebalance(
             logger.warning("sentiment restore failed: %s", exc, exc_info=True)
 
     if not drawdown_blocks:
+        # τ 买入门槛：候选池无人过基线时冻结降级（可回滚）
+        try:
+            from core.signal.dual_score import resolve_tau_buy_floor_for_pool
+            from core.signal.rebalance_tracks import should_apply_tau_gate
+
+            _tau_pool = [
+                it
+                for it in top_items
+                if isinstance(it, dict)
+                and str(it.get("stock_code") or "") not in held_codes
+                and not it.get("hard_reject")
+                and should_apply_tau_gate(it, tracks_cfg=_tracks_cfg)
+            ]
+            _tau_floor, _tau_floor_meta = resolve_tau_buy_floor_for_pool(_tau_pool)
+            if str(_tau_floor_meta.get("mode") or "") == "freeze_breakglass":
+                note = str(_tau_floor_meta.get("note") or "τ 试验档：买入闸临时放宽")
+                warns = list(risk_gate.get("warnings") or [])
+                if note not in warns:
+                    warns.append(note)
+                    risk_gate["warnings"] = warns
+        except Exception:
+            logger.warning("resolve_tau_buy_floor_for_pool failed", exc_info=True)
+            _tau_floor = None
+            _tau_floor_meta = {}
+
         for item in top_items:
             # 分池滞回：账户可暂时多于簿长（中间带未清仓）；买入上限只看「已持目标簿只数」
             if not respect_max_positions:
@@ -1526,7 +1553,9 @@ def simulate_cross_section_rebalance(
                 from core.signal.dual_score import buy_passes_tau_gate
 
                 if should_apply_tau_gate(item, tracks_cfg=_tracks_cfg):
-                    tau_ok, tau_reason = buy_passes_tau_gate(item)
+                    tau_ok, tau_reason = buy_passes_tau_gate(
+                        item, floor=_tau_floor
+                    )
                     if not tau_ok:
                         risk_budget_skips.append(
                             {
@@ -1539,6 +1568,8 @@ def simulate_cross_section_rebalance(
                                     "predicted_score_tau", item.get("score_rem")
                                 ),
                                 "dual_score_tau_gate": True,
+                                "tau_floor_effective": _tau_floor,
+                                "tau_gate_mode": _tau_floor_meta.get("mode"),
                                 "score_track": item.get("score_track"),
                             }
                         )
@@ -2173,10 +2204,18 @@ def simulate_cross_section_rebalance(
     try:
         from core.signal.dual_score import get_dual_score_cfg
 
+        _cfg_dual = get_dual_score_cfg()
         _dual_meta = {
-            "fusion_mode": get_dual_score_cfg().get("fusion_mode"),
+            "fusion_mode": _cfg_dual.get("fusion_mode"),
+            "min_predicted_score_tau": _cfg_dual.get("min_predicted_score_tau"),
+            "tau_gate": _tau_floor_meta or None,
             "note": (
                 "排序=ŷ_trade（raw）；买入门槛=ŷ_EOD≥min 且 ŷ_τ≥floor；校准 g 仅 tip 对照"
+                + (
+                    f"；{_tau_floor_meta.get('note')}"
+                    if _tau_floor_meta.get("note")
+                    else ""
+                )
             ),
         }
     except Exception:

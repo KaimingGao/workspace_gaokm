@@ -71,7 +71,9 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
     "dual_score": {
         "fusion_mode": "blend",  # ŷ_trade = w·ŷ_EOD_rem + w·ŷ_τ；买入另须 ŷ_τ≥floor
         "tau": "open",
-        "min_predicted_score_tau": 0.3,  # S6: 正门槛；与 DEFAULT_DUAL_SCORE.dual_score 保持一致
+        "min_predicted_score_tau": 0.1,  # 基线；全池无人过闸时见 tau_freeze_breakglass
+        "tau_freeze_breakglass": True,
+        "min_predicted_score_tau_relax": 0.0,
         # rem 未推 ŷ_τ 时阻断买入（与 DEFAULT_DUAL_SCORE 一致；缺模型勿静默放行）
         "block_buy_if_tau_missing": True,
         "w_eod": 0.5,

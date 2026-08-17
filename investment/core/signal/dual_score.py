@@ -33,7 +33,11 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     # 正交加权：簿排序用 ŷ_trade=blend(ŷ_EOD_rem, ŷ_τ)；买入另须 ŷ_τ≥floor
     "fusion_mode": "blend",
     "tau": "open",
-    "min_predicted_score_tau": 0.3,  # S6: 正门槛；与 config 保持一致
+    # 基线门槛；全池无人过闸时见 tau_freeze_breakglass
+    "min_predicted_score_tau": 0.1,
+    # 候选池内无人过基线门槛时，临时降至本值（可回滚：关 breakglass 或抬回 0.3）
+    "tau_freeze_breakglass": True,
+    "min_predicted_score_tau_relax": 0.0,
     "block_buy_if_tau_missing": True,
     "w_eod": 0.5,
     "w_tau": 0.5,
@@ -293,6 +297,8 @@ def _dual_patch_from_config(config: Optional[dict]) -> Dict[str, Any]:
         "w_tau",
         "fusion_mode",
         "min_predicted_score_tau",
+        "min_predicted_score_tau_relax",
+        "tau_freeze_breakglass",
         "tau",
         "enable_tau_shadow_book",
         "nowcast",
@@ -333,6 +339,15 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
         )
     except (TypeError, ValueError):
         raw["min_predicted_score_tau"] = 0.0
+    try:
+        raw["min_predicted_score_tau_relax"] = float(
+            raw["min_predicted_score_tau_relax"]
+            if raw.get("min_predicted_score_tau_relax") is not None
+            else 0.0
+        )
+    except (TypeError, ValueError):
+        raw["min_predicted_score_tau_relax"] = 0.0
+    raw["tau_freeze_breakglass"] = bool(raw.get("tau_freeze_breakglass", True))
     raw["block_buy_if_tau_missing"] = bool(raw.get("block_buy_if_tau_missing", True))
     try:
         raw["w_eod"] = float(raw["w_eod"] if raw.get("w_eod") is not None else 0.5)
@@ -677,21 +692,91 @@ def rank_key_for_item(item: Optional[dict], *, config: Optional[dict] = None) ->
         return stored_f
     return resolve_predicted_score_eod(item)
 
+def resolve_tau_buy_floor_for_pool(
+    items: Optional[Sequence[dict]],
+    *,
+    config: Optional[dict] = None,
+) -> Tuple[float, Dict[str, Any]]:
+    """为买入候选池解析有效 ŷ_τ 门槛。
+
+    默认用 ``min_predicted_score_tau``。若开启 ``tau_freeze_breakglass`` 且池内
+    **有有效 ŷ_τ 却无人过基线**，则临时降至 ``min_predicted_score_tau_relax``，
+    避免整簿买腿被冻死（仍要求有 τ；缺失仍走 block_buy_if_tau_missing）。
+    """
+    cfg = get_dual_score_cfg(config)
+    base = float(cfg.get("min_predicted_score_tau") or 0.0)
+    relax = float(cfg.get("min_predicted_score_tau_relax") or 0.0)
+    meta: Dict[str, Any] = {
+        "base_floor": base,
+        "relax_floor": relax,
+        "effective_floor": base,
+        "mode": "strict",
+        "breakglass": bool(cfg.get("tau_freeze_breakglass", True)),
+        "n_tau_valid": 0,
+        "n_pass_base": 0,
+        "tau_max": None,
+        "note": None,
+    }
+    n_valid = 0
+    n_pass = 0
+    tau_max: Optional[float] = None
+    for it in items or []:
+        if not isinstance(it, dict):
+            continue
+        y = resolve_predicted_score_tau(it)
+        if y is None:
+            continue
+        try:
+            yv = float(y)
+        except (TypeError, ValueError):
+            continue
+        n_valid += 1
+        if tau_max is None or yv > tau_max:
+            tau_max = yv
+        if yv >= base:
+            n_pass += 1
+    meta["n_tau_valid"] = n_valid
+    meta["n_pass_base"] = n_pass
+    if tau_max is not None:
+        meta["tau_max"] = round(tau_max, 6)
+    if (
+        bool(cfg.get("tau_freeze_breakglass", True))
+        and n_valid > 0
+        and n_pass == 0
+    ):
+        meta["effective_floor"] = relax
+        meta["mode"] = "freeze_breakglass"
+        meta["note"] = (
+            f"τ 试验档：候选池无人过 ŷ_τ≥{base:g}（max={tau_max:.3f}%），"
+            f"临时降至 {relax:g}；可回滚 tau_freeze_breakglass / 门槛"
+        )
+        return relax, meta
+    return base, meta
+
+
 def buy_passes_tau_gate(
     item: Optional[dict],
     *,
     config: Optional[dict] = None,
+    floor: Optional[float] = None,
 ) -> Tuple[bool, Optional[str]]:
     """ŷ_τ 买入闸（rem 头的 OC 预估）。返回 (ok, skip_reason)。
 
     始终用原始 ŷ_τ（方案 A：校准 g 只做 tip/研究对照，不进买卖闸）。
     收盘后 ``eod_next``：不吃当日 ŷ_τ（已实现 OC，再闸会污染下一期决策）；EOD 门槛另走。
+    ``floor`` 可覆盖配置门槛（买入池冻结降级时传入有效楼）。
     """
     cfg = get_dual_score_cfg(config)
     if str((item or {}).get("dual_score_window") or "") == "eod_next":
         return True, None
     y_tau = resolve_predicted_score_tau(item)
-    floor = float(cfg["min_predicted_score_tau"])
+    if floor is None:
+        floor_v = float(cfg["min_predicted_score_tau"])
+    else:
+        try:
+            floor_v = float(floor)
+        except (TypeError, ValueError):
+            floor_v = float(cfg["min_predicted_score_tau"])
     if y_tau is None:
         if cfg.get("block_buy_if_tau_missing"):
             return False, "ŷ_τ 缺失（dual_score 硬闸：rem 模型未加载或未推 ŷ_τ）"
@@ -702,10 +787,10 @@ def buy_passes_tau_gate(
             "τ 买入闸形同虚设，请检查 rem 模型是否已 promote"
         )
         return True, "ŷ_τ 缺失（非阻断，但 τ 闸未生效）"
-    if y_tau < floor:
+    if y_tau < floor_v:
         return (
             False,
-            f"ŷ_τ={y_tau:.3f}% < min_predicted_score_tau({floor})",
+            f"ŷ_τ={y_tau:.3f}% < min_predicted_score_tau({floor_v:g})",
         )
     return True, None
 

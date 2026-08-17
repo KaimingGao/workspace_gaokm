@@ -129,16 +129,63 @@ def fee_fields_from_trade(trade: Optional[dict]) -> Dict[str, Any]:
     return out
 
 
+def pnl_fields_from_trade(trade: Optional[dict]) -> Dict[str, Any]:
+    """卖出腿已实现收益字段（相对成本价 %；可选绝对额）。"""
+    if not isinstance(trade, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    if trade.get("pnl_pct") is not None:
+        try:
+            out["pnl_pct"] = round(float(trade["pnl_pct"]), 2)
+        except (TypeError, ValueError):
+            pass
+    if trade.get("pnl") is not None:
+        try:
+            out["pnl"] = round(float(trade["pnl"]), 2)
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def _match_trade_for_log(
+    pool: list,
+    used: set,
+    *,
+    code: str,
+    want_side: str,
+    shares: Optional[float],
+) -> Optional[tuple]:
+    """返回 (index, trade) 或 None。"""
+    if not code:
+        return None
+    for i, trade in enumerate(pool):
+        if i in used:
+            continue
+        if str(trade.get("stock_code") or "").strip() != code:
+            continue
+        side = str(trade.get("side") or "").strip().lower()
+        if side and side != want_side:
+            continue
+        if shares is not None and trade.get("shares") is not None:
+            try:
+                if abs(float(trade.get("shares")) - shares) > 1e-6:
+                    continue
+            except (TypeError, ValueError):
+                continue
+        return i, trade
+    return None
+
+
 def enrich_operation_log_with_trade_fees(
     logs: Optional[list],
     trades: Optional[list],
     *,
     cost_model: Optional[str] = None,
 ) -> list:
-    """把 trades 上的费用补进 operation_log.meta，供交易记录页展示。
+    """把 trades 上的费用/卖出收益补进 operation_log.meta，供交易记录页展示。
 
     策略旧成交若未落盘费用：在 simple_cn 下按金额估显（fees_estimated=True），
-    不改历史现金，仅方便对照。
+    不改历史现金，仅方便对照。卖出收益（pnl_pct）从对应 trades 回填。
     """
     entries = [dict(x) if isinstance(x, dict) else x for x in (logs or [])]
     pool = [t for t in (trades or []) if isinstance(t, dict)]
@@ -148,11 +195,9 @@ def enrich_operation_log_with_trade_fees(
         if not isinstance(entry, dict):
             continue
         meta = dict(entry.get("meta") or {})
-        if meta.get("fees") is not None or meta.get("commission") is not None:
-            entry["meta"] = meta
-            continue
         op = str(entry.get("type") or "")
         if op not in ("buy", "sell", "sync_paper"):
+            entry["meta"] = meta
             continue
         code = str(meta.get("stock_code") or "").strip()
         want_side = "sell" if op == "sell" else "buy"
@@ -160,66 +205,61 @@ def enrich_operation_log_with_trade_fees(
             shares = float(meta["shares"]) if meta.get("shares") is not None else None
         except (TypeError, ValueError):
             shares = None
-        matched = False
-        if code:
-            for i, trade in enumerate(pool):
-                if i in used:
-                    continue
-                if str(trade.get("stock_code") or "").strip() != code:
-                    continue
-                side = str(trade.get("side") or "").strip().lower()
-                if side and side != want_side:
-                    continue
-                if shares is not None and trade.get("shares") is not None:
-                    try:
-                        if abs(float(trade.get("shares")) - shares) > 1e-6:
-                            continue
-                    except (TypeError, ValueError):
-                        continue
+        need_fees = meta.get("fees") is None and meta.get("commission") is None
+        need_pnl = op == "sell" and meta.get("pnl_pct") is None and meta.get("pnl") is None
+        matched = _match_trade_for_log(
+            pool, used, code=code, want_side=want_side, shares=shares
+        )
+        fees_from_trade = False
+        if matched is not None:
+            i, trade = matched
+            consumed = False
+            if need_pnl:
+                pnl = pnl_fields_from_trade(trade)
+                if pnl:
+                    meta.update(pnl)
+                    consumed = True
+            if need_fees:
                 fees = fee_fields_from_trade(trade)
                 if fees:
                     meta.update(fees)
-                    entry["meta"] = meta
-                    used.add(i)
-                    matched = True
-                    break
-                # 成交本身无费用字段：按账户模型估显
-                try:
-                    amt = float(trade.get("amount") or 0)
-                except (TypeError, ValueError):
-                    amt = 0.0
-                if amt > 0 and model == COST_SIMPLE_CN:
-                    est = calc_trade_fees(want_side, amt, model=model)
-                    meta.update(
-                        {
-                            "commission": est.get("commission"),
-                            "stamp_duty": est.get("stamp_duty"),
-                            "fees": est.get("fees"),
-                            "cost_model": est.get("cost_model"),
-                            "fees_estimated": True,
-                        }
-                    )
-                    entry["meta"] = meta
-                    used.add(i)
-                    matched = True
-                    break
-        if matched:
-            continue
-        # 日志无对应成交：仍可按金额估显
-        try:
-            amt = float(meta.get("amount") or 0)
-        except (TypeError, ValueError):
-            amt = 0.0
-        if amt > 0 and model == COST_SIMPLE_CN:
-            est = calc_trade_fees(want_side, amt, model=model)
-            meta.update(
-                {
-                    "commission": est.get("commission"),
-                    "stamp_duty": est.get("stamp_duty"),
-                    "fees": est.get("fees"),
-                    "cost_model": est.get("cost_model"),
-                    "fees_estimated": True,
-                }
-            )
+                    fees_from_trade = True
+                    consumed = True
+                else:
+                    try:
+                        amt = float(trade.get("amount") or 0)
+                    except (TypeError, ValueError):
+                        amt = 0.0
+                    if amt > 0 and model == COST_SIMPLE_CN:
+                        est = calc_trade_fees(want_side, amt, model=model)
+                        meta.update(
+                            {
+                                "commission": est.get("commission"),
+                                "stamp_duty": est.get("stamp_duty"),
+                                "fees": est.get("fees"),
+                                "cost_model": est.get("cost_model"),
+                                "fees_estimated": True,
+                            }
+                        )
+                        fees_from_trade = True
+                        consumed = True
+            if consumed:
+                used.add(i)
+        if need_fees and not fees_from_trade:
+            try:
+                amt = float(meta.get("amount") or 0)
+            except (TypeError, ValueError):
+                amt = 0.0
+            if amt > 0 and model == COST_SIMPLE_CN:
+                est = calc_trade_fees(want_side, amt, model=model)
+                meta.update(
+                    {
+                        "commission": est.get("commission"),
+                        "stamp_duty": est.get("stamp_duty"),
+                        "fees": est.get("fees"),
+                        "cost_model": est.get("cost_model"),
+                        "fees_estimated": True,
+                    }
+                )
         entry["meta"] = meta
     return entries

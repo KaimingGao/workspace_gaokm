@@ -210,6 +210,56 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertFalse(ok)
         self.assertIn("ŷ_τ", str(reason))
 
+    def test_tau_freeze_breakglass_lowers_floor(self):
+        from core.signal.dual_score import resolve_tau_buy_floor_for_pool
+
+        pool = [
+            {"predicted_score_tau": 0.05},
+            {"predicted_score_tau": 0.08},
+        ]
+        floor, meta = resolve_tau_buy_floor_for_pool(
+            pool,
+            config={
+                "dual_score": {
+                    "min_predicted_score_tau": 0.3,
+                    "tau_freeze_breakglass": True,
+                    "min_predicted_score_tau_relax": 0.0,
+                }
+            },
+        )
+        self.assertEqual(meta.get("mode"), "freeze_breakglass")
+        self.assertAlmostEqual(floor, 0.0)
+        self.assertEqual(meta.get("n_pass_base"), 0)
+
+    def test_tau_freeze_breakglass_keeps_strict_when_someone_passes(self):
+        from core.signal.dual_score import (
+            buy_passes_tau_gate,
+            resolve_tau_buy_floor_for_pool,
+        )
+
+        pool = [
+            {"predicted_score_tau": 0.05},
+            {"predicted_score_tau": 0.35},
+        ]
+        floor, meta = resolve_tau_buy_floor_for_pool(
+            pool,
+            config={
+                "dual_score": {
+                    "min_predicted_score_tau": 0.3,
+                    "tau_freeze_breakglass": True,
+                    "min_predicted_score_tau_relax": 0.0,
+                }
+            },
+        )
+        self.assertEqual(meta.get("mode"), "strict")
+        self.assertAlmostEqual(floor, 0.3)
+        ok, _ = buy_passes_tau_gate(
+            {"predicted_score_tau": 0.12},
+            config={"dual_score": {"min_predicted_score_tau": 0.3}},
+            floor=floor,
+        )
+        self.assertFalse(ok)
+
     def test_buy_gate_allows_missing_when_disabled(self):
         from core.signal.dual_score import buy_passes_tau_gate
 

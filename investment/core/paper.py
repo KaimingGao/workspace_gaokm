@@ -435,9 +435,10 @@ def append_trade_legs_to_operation_log(
 ) -> None:
     """把调仓腿写入 operation_log，供交易执行页「交易记录」展示。"""
     try:
-        from core.paper_costs import fee_fields_from_trade
+        from core.paper_costs import fee_fields_from_trade, pnl_fields_from_trade
     except Exception:
         fee_fields_from_trade = None  # type: ignore
+        pnl_fields_from_trade = None  # type: ignore
 
     for trade in list(sell_trades or []) + list(buy_trades or []):
         if not isinstance(trade, dict):
@@ -451,6 +452,12 @@ def append_trade_legs_to_operation_log(
                 fee_meta = fee_fields_from_trade(trade) or {}
             except Exception:
                 fee_meta = {}
+        pnl_meta: Dict[str, Any] = {}
+        if side == "sell" and pnl_fields_from_trade is not None:
+            try:
+                pnl_meta = pnl_fields_from_trade(trade) or {}
+            except Exception:
+                pnl_meta = {}
         name = trade.get("stock_name") or trade.get("stock_code") or "—"
         detail = (
             f"{'买入' if side == 'buy' else '卖出'} {name} "
@@ -471,6 +478,7 @@ def append_trade_legs_to_operation_log(
                 "note": trade.get("note"),
                 "score": trade.get("score"),
                 **fee_meta,
+                **pnl_meta,
             },
         )
 
