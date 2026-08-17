@@ -870,10 +870,12 @@ export function installScoreReview(ctx) {
         continue;
       }
       const ho = h.holdout_metrics || {};
+      const src = h.sample_source || (h.pair_resolve && h.pair_resolve.used) || "";
+      const srcTag = src ? ` · ${src}` : "";
       parts.push(
         `${name} n=${h.n ?? "—"} hold MAE ${fmtCalMae(ho.mae_raw)}→${fmtCalMae(
           ho.mae_cal
-        )} IC ${fmtCalIc(ho.ic_raw)}→${fmtCalIc(ho.ic_cal)}`
+        )} IC ${fmtCalIc(ho.ic_raw)}→${fmtCalIc(ho.ic_cal)}${srcTag}`
       );
     }
     return parts.join(" · ");
@@ -1018,10 +1020,15 @@ export function installScoreReview(ctx) {
         const ok =
           src.success !== false &&
           ((src.knots_x && src.knots_x.length >= 2) || src.n != null);
+        const srcKind =
+          src.sample_source ||
+          (src.pair_resolve && src.pair_resolve.used) ||
+          "";
         return (
           `<tr>` +
           `<td>${esc(name)}</td>` +
           `<td class="num">${esc(String(src.n ?? "—"))}</td>` +
+          `<td>${esc(srcKind || "—")}</td>` +
           `<td class="num ${maeCls}">${esc(
             `${fmtCalMae(ho.mae_raw)}→${fmtCalMae(ho.mae_cal)}`
           )}</td>` +
@@ -1038,7 +1045,7 @@ export function installScoreReview(ctx) {
       headNames.length > 0
         ? `<table class="quant-cal-table">` +
           `<thead><tr>` +
-          `<th>头</th><th class="num">n</th><th class="num">hold MAE</th>` +
+          `<th>头</th><th class="num">n</th><th>样本</th><th class="num">hold MAE</th>` +
           `<th class="num">hold IC</th><th>knots</th>` +
           `</tr></thead><tbody>${rows}</tbody></table>`
         : `<p class="quant-cal-note">尚无校准映射。先点顶部「拟合校准」，看 holdout 后再「写入 live」（校准列/tip 可读，不进决策）。</p>`;
@@ -1163,7 +1170,13 @@ export function installScoreReview(ctx) {
     const res = await fetch("/api/quant/score-calibration/fit", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ lookback_dates: 90, train_frac: 0.75 }),
+      body: JSON.stringify({
+        lookback_dates: 90,
+        train_frac: 0.75,
+        sample_source: "panel",
+        lookback_bars: 80,
+        watching_limit: 100,
+      }),
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok || !data.success) {

@@ -1,20 +1,28 @@
 """ŷ 校准层：单调 g(ŷ)≈E[r|ŷ]（Isotonic / PAV）。
 
+EOD：观察池/scored_all × live 组 β × 前瞻收益（与分组同源）。
+τ：同宇宙 × rem open 面板 × live rem β（与 rem 拟合同源）。
+不足时仅 sample_source=auto 才回退账本。
 不改因子与 Ridge；人审 persist 后写入 live。
-方案 A：g 仅供 tip / 复盘对照；排序键与买卖/入簿闸始终读原始 ŷ。
+第一步：g 仍供 tip / 复盘对照；排序与买卖/入簿闸仍读原始 ŷ。
 """
 
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.io_atomic import atomic_write_json
 
+logger = logging.getLogger(__name__)
+
 SCHEMA = "score_calibration_v1"
 _MIN_PAIRS = 40
 _MIN_HOLD_PAIRS = 15
+_PANEL_WATCHING_LIMIT = 100
+_PANEL_LOOKBACK_DEFAULT = 80
 
 
 def calibration_model_path() -> str:
@@ -173,7 +181,10 @@ def collect_calibration_pairs(
     lookback_dates: int = 90,
     head: str = "eod",
 ) -> List[Dict[str, Any]]:
-    """从账本+outcomes 收集 (yhat, realized, as_of, code)。"""
+    """从账本+outcomes 收集 (yhat, realized, as_of, code)。
+
+    使用 ledger 全量行（含未进簿的 scored_all），以便 g(ŷ) 覆盖负半轴 / 门槛下。
+    """
     from core.score_ledger import list_ledger_dates, load_ledger, load_outcomes
 
     head_k = str(head or "eod").strip().lower()
@@ -228,9 +239,501 @@ def collect_calibration_pairs(
                     "yhat": float(yhat),
                     "realized": float(realized),
                     "head": head_k,
+                    "in_book": r.get("in_book"),
+                    "source": "ledger",
                 }
             )
     return rows_out
+
+
+def _resolve_calibration_horizon(horizon_days: Optional[int] = None) -> int:
+    if horizon_days is not None:
+        return max(1, min(int(horizon_days), 10))
+    try:
+        from core.signal.config import load_signal_config
+
+        h = (load_signal_config().get("scoring") or {}).get("horizon_days")
+        if h is not None and h != "":
+            return max(1, min(int(h), 10))
+    except Exception:
+        pass
+    return 3
+
+
+def _calibration_universe_codes(
+    *,
+    codes: Optional[Sequence[str]] = None,
+    watching_limit: int = _PANEL_WATCHING_LIMIT,
+) -> Tuple[List[str], Dict[str, Any]]:
+    """与分组默认宇宙对齐：观察池前 N（可显式传入 codes）。"""
+    if codes:
+        out = [str(c).strip() for c in codes if str(c).strip()]
+        # 去重保序
+        seen = set()
+        uniq: List[str] = []
+        for c in out:
+            if c in seen:
+                continue
+            seen.add(c)
+            uniq.append(c)
+        return uniq, {
+            "universe_mode": "explicit",
+            "universe_count": len(uniq),
+            "watching_limit": len(uniq),
+        }
+    limit = max(3, min(int(watching_limit or _PANEL_WATCHING_LIMIT), 240))
+    watch: List[str] = []
+    try:
+        from core.watching_store import read_watching
+
+        raw = read_watching() or {}
+        items = (
+            raw.get("watchlist")
+            or raw.get("codes")
+            or raw.get("watching")
+            or raw.get("items")
+            or []
+        )
+        if isinstance(items, list):
+            for it in items:
+                if isinstance(it, dict):
+                    c = str(it.get("stock_code") or it.get("code") or "").strip()
+                else:
+                    c = str(it or "").strip()
+                if c and c not in watch:
+                    watch.append(c)
+    except Exception as exc:
+        logger.warning("calibration universe watching read failed: %s", exc)
+    # 并入当前打分宇宙（scored_all），扩大负 ŷ 覆盖
+    try:
+        from core.signal.cluster_live import load_active_cluster_book
+
+        book = load_active_cluster_book() or {}
+        for row in list(book.get("scored_all") or []) + list(book.get("book") or []):
+            if not isinstance(row, dict):
+                continue
+            c = str(row.get("stock_code") or row.get("code") or "").strip()
+            if c and c not in watch:
+                watch.append(c)
+    except Exception:
+        pass
+    picked = watch[:limit]
+    return picked, {
+        "universe_mode": "watching+scored_all",
+        "universe_count": len(picked),
+        "watching_limit": limit,
+        "watching_available": len(watch),
+    }
+
+
+def collect_calibration_pairs_from_panel(
+    *,
+    codes: Optional[Sequence[str]] = None,
+    lookback: int = _PANEL_LOOKBACK_DEFAULT,
+    horizon_days: Optional[int] = None,
+    head: str = "eod",
+    watching_limit: int = _PANEL_WATCHING_LIMIT,
+    respect_regime: bool = True,
+    refresh_bars: bool = False,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """历史面板打 ŷ 再对齐实现对。
+
+    - ``eod``：与分组同源（子因子 × live 组 β × 前瞻 h 日收益）
+    - ``tau``：与 rem 拟合同源（``collect_rem_open_panel`` + 截面广度 × live rem β × open→close）
+    """
+    head_k = str(head or "eod").strip().lower()
+    meta: Dict[str, Any] = {
+        "source": "panel",
+        "head": head_k,
+        "ok": False,
+    }
+    if head_k not in ("eod", "tau"):
+        meta["error"] = f"未知校准头 {head_k}"
+        return [], meta
+
+    code_list, uni_meta = _calibration_universe_codes(
+        codes=codes, watching_limit=watching_limit
+    )
+    meta.update(uni_meta)
+    if not code_list:
+        meta["error"] = "无校准宇宙（观察池 / scored_all 为空）"
+        return [], meta
+
+    lb = max(40, min(int(lookback or _PANEL_LOOKBACK_DEFAULT), 120))
+    meta["lookback"] = lb
+
+    if head_k == "tau":
+        return _collect_tau_panel_pairs(
+            code_list, lookback=lb, refresh_bars=refresh_bars, meta=meta
+        )
+
+    return _collect_eod_panel_pairs(
+        code_list,
+        lookback=lb,
+        horizon_days=horizon_days,
+        respect_regime=respect_regime,
+        refresh_bars=refresh_bars,
+        meta=meta,
+    )
+
+
+def _finalize_panel_meta(
+    rows_out: List[Dict[str, Any]],
+    meta: Dict[str, Any],
+    *,
+    n_bars_ok: int,
+    n_model_miss: int,
+    n_predict_miss: int,
+    extra: Optional[Dict[str, Any]] = None,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    meta.update(
+        {
+            "ok": len(rows_out) >= _MIN_PAIRS,
+            "n_pairs": len(rows_out),
+            "n_codes": int(meta.get("universe_count") or 0),
+            "n_bars_ok": n_bars_ok,
+            "n_model_miss": n_model_miss,
+            "n_predict_miss": n_predict_miss,
+        }
+    )
+    if extra:
+        meta.update(extra)
+    if rows_out:
+        xs_all = [float(p["yhat"]) for p in rows_out]
+        meta["yhat_min"] = round(min(xs_all), 6)
+        meta["yhat_max"] = round(max(xs_all), 6)
+        meta["n_yhat_neg"] = sum(1 for x in xs_all if x < 0)
+    if not rows_out:
+        meta["error"] = meta.get("error") or "panel 未产出配对样本"
+    elif len(rows_out) < _MIN_PAIRS:
+        meta["error"] = f"panel 样本不足 n={len(rows_out)}（需≥{_MIN_PAIRS}）"
+    return rows_out, meta
+
+
+def _collect_eod_panel_pairs(
+    code_list: Sequence[str],
+    *,
+    lookback: int,
+    horizon_days: Optional[int],
+    respect_regime: bool,
+    refresh_bars: bool,
+    meta: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    h = _resolve_calibration_horizon(horizon_days)
+    lb = int(lookback)
+    meta["horizon_days"] = h
+    pit_fundamentals = len(code_list) < 40
+
+    try:
+        from core.data_service import bars_and_source
+        from core.research.panel import collect_subscore_forward_panel
+        from core.signal.cluster_live import (
+            load_active_cluster_weights,
+            lookup_code_return_model,
+            lookup_code_weights,
+        )
+        from core.signal.return_score_store import load_return_model
+    except Exception as exc:
+        meta["error"] = f"panel 依赖加载失败: {exc}"
+        return [], meta
+
+    active = load_active_cluster_weights()
+    global_model, gmeta = load_return_model(prefer_active=True)
+    meta["has_cluster_weights"] = bool(active and (active.get("code_map") or {}))
+    meta["has_global_model"] = bool(global_model)
+    meta["global_model_meta"] = {
+        k: gmeta.get(k) for k in ("ok", "role", "path") if k in (gmeta or {})
+    }
+    if not meta["has_cluster_weights"] and global_model is None:
+        meta["error"] = "无 live 组权且无全局 return_model，无法打历史 ŷ"
+        return [], meta
+
+    index_bars = None
+    try:
+        from core.ports.market import default_benchmark
+
+        idx_code = str(default_benchmark("CN"))
+        index_bars, _ = bars_and_source(
+            idx_code,
+            limit=lb + 35,
+            offline_only=not refresh_bars,
+            reject_quote_fallback=True,
+        )
+    except Exception:
+        index_bars = None
+
+    rows_out: List[Dict[str, Any]] = []
+    n_bars_ok = 0
+    n_model_miss = 0
+    n_predict_miss = 0
+    for code in code_list:
+        try:
+            bars, _src = bars_and_source(
+                code,
+                limit=lb + 35,
+                offline_only=not refresh_bars,
+                reject_quote_fallback=True,
+            )
+        except Exception:
+            bars = []
+        if not bars or len(bars) < 20:
+            continue
+        n_bars_ok += 1
+        model = lookup_code_return_model(code, active=active)
+        lab = None
+        try:
+            wmeta = lookup_code_weights(code, active=active) or {}
+            lab = wmeta.get("cluster_label")
+        except Exception:
+            lab = None
+        if model is None:
+            model = global_model
+            if model is None:
+                n_model_miss += 1
+                continue
+            model_src = "global"
+        else:
+            model_src = "cluster"
+        try:
+            xs, ys, dates = collect_subscore_forward_panel(
+                list(bars),
+                horizon_days=h,
+                index_bars=index_bars,
+                stock_code=code,
+                pit_fundamentals=pit_fundamentals,
+                respect_regime=respect_regime,
+            )
+        except Exception:
+            logger.debug("eod panel collect failed for %s", code, exc_info=True)
+            continue
+        n_pair = min(len(xs), len(ys), len(dates))
+        for i in range(n_pair):
+            row = xs[i]
+            if not isinstance(row, dict):
+                continue
+            try:
+                realized = float(ys[i])
+            except (TypeError, ValueError):
+                continue
+            yhat = model.predict(row)
+            if yhat is None:
+                n_predict_miss += 1
+                continue
+            try:
+                yv = float(yhat)
+            except (TypeError, ValueError):
+                n_predict_miss += 1
+                continue
+            if yv < -20.0 or yv > 20.0:
+                continue
+            as_of = str(dates[i] or "")[:10]
+            if not as_of:
+                continue
+            rows_out.append(
+                {
+                    "as_of": as_of,
+                    "code": code,
+                    "yhat": yv,
+                    "realized": realized,
+                    "head": "eod",
+                    "cluster_label": lab,
+                    "model_source": model_src,
+                    "source": "panel",
+                }
+            )
+
+    return _finalize_panel_meta(
+        rows_out,
+        meta,
+        n_bars_ok=n_bars_ok,
+        n_model_miss=n_model_miss,
+        n_predict_miss=n_predict_miss,
+        extra={
+            "pit_fundamentals": pit_fundamentals,
+            "respect_regime": bool(respect_regime),
+            "panel_kind": "subscore_forward",
+        },
+    )
+
+
+def _collect_tau_panel_pairs(
+    code_list: Sequence[str],
+    *,
+    lookback: int,
+    refresh_bars: bool,
+    meta: Dict[str, Any],
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """与 rem Ridge 同源：open→close 标签 + Z 特征 × live rem 模型。"""
+    lb = int(lookback)
+    try:
+        from core.data_service import bars_and_source
+        from quant.research.rem_ridge import (
+            build_rem_panels_from_bars,
+            load_rem_model,
+            predict_rem_from_features,
+        )
+    except Exception as exc:
+        meta["error"] = f"τ panel 依赖加载失败: {exc}"
+        return [], meta
+
+    rem_doc = load_rem_model()
+    meta["has_rem_model"] = bool(rem_doc and isinstance(rem_doc.get("return_model"), dict))
+    if not meta["has_rem_model"]:
+        meta["error"] = "无 live rem 模型（rem_ridge_model.json），无法打历史 ŷ_τ"
+        return [], meta
+
+    # rem 默认标签 open→close（与 fit_rem_ridge tau_hm=open 对齐）
+    tau_hm = "open"
+    try:
+        y_spec = (rem_doc or {}).get("y_spec") or {}
+        note = str(y_spec.get("note") or y_spec.get("formula") or "").lower()
+        if "09:45" in note or "tau" in str(y_spec.get("tau") or "").lower():
+            # 若模型注明分钟 τ，仍优先 open 面板（无分钟则样本过稀）；记录
+            meta["rem_y_spec"] = y_spec
+    except Exception:
+        pass
+    meta["tau_hm"] = tau_hm
+    meta["panel_kind"] = "rem_open"
+
+    stock_bars: List[Dict[str, Any]] = []
+    n_bars_ok = 0
+    for code in code_list:
+        try:
+            bars, _src = bars_and_source(
+                code,
+                limit=lb + 35,
+                offline_only=not refresh_bars,
+                reject_quote_fallback=True,
+            )
+        except Exception:
+            bars = []
+        if not bars or len(bars) < 20:
+            continue
+        n_bars_ok += 1
+        stock_bars.append({"code": code, "bars": list(bars)})
+
+    if not stock_bars:
+        meta["error"] = "τ panel：无足够日线"
+        return _finalize_panel_meta(
+            [], meta, n_bars_ok=0, n_model_miss=0, n_predict_miss=0
+        )
+
+    try:
+        enriched = build_rem_panels_from_bars(
+            stock_bars, min_history=12, gap_trigger_pct=2.0, tau_hm=tau_hm
+        )
+    except Exception as exc:
+        meta["error"] = f"rem 面板构建失败: {exc}"
+        return [], meta
+
+    rows_out: List[Dict[str, Any]] = []
+    n_predict_miss = 0
+    for pack in enriched or []:
+        code = str(pack.get("code") or "").strip()
+        xs = pack.get("xs") or []
+        ys = pack.get("ys") or []
+        dates = pack.get("dates") or []
+        n_pair = min(len(xs), len(ys), len(dates))
+        for i in range(n_pair):
+            row = xs[i]
+            if not isinstance(row, dict):
+                continue
+            try:
+                realized = float(ys[i])
+            except (TypeError, ValueError):
+                continue
+            yhat = predict_rem_from_features(row, model_doc=rem_doc)
+            if yhat is None:
+                n_predict_miss += 1
+                continue
+            try:
+                yv = float(yhat)
+            except (TypeError, ValueError):
+                n_predict_miss += 1
+                continue
+            if yv < -20.0 or yv > 20.0:
+                continue
+            as_of = str(dates[i] or "")[:10]
+            if not as_of:
+                continue
+            rows_out.append(
+                {
+                    "as_of": as_of,
+                    "code": code,
+                    "yhat": yv,
+                    "realized": realized,
+                    "head": "tau",
+                    "model_source": "rem",
+                    "source": "panel",
+                }
+            )
+
+    return _finalize_panel_meta(
+        rows_out,
+        meta,
+        n_bars_ok=n_bars_ok,
+        n_model_miss=0,
+        n_predict_miss=n_predict_miss,
+        extra={"n_rem_panels": len(enriched or [])},
+    )
+
+
+def resolve_calibration_pairs(
+    *,
+    head: str,
+    lookback_dates: int = 90,
+    sample_source: str = "panel",
+    lookback_bars: Optional[int] = None,
+    horizon_days: Optional[int] = None,
+    watching_limit: int = _PANEL_WATCHING_LIMIT,
+) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    """选择 panel / ledger 样本。
+
+    默认 ``panel``：EOD=分组面板；τ=rem open 面板。不足时仅 ``auto`` 回退账本。
+    """
+    head_k = str(head or "eod").strip().lower()
+    src = str(sample_source or "panel").strip().lower()
+    if src in ("", "default", "universe", "group", "cluster"):
+        src = "panel"
+    info: Dict[str, Any] = {"head": head_k, "requested": src}
+
+    if head_k in ("eod", "tau") and src in ("auto", "panel"):
+        lb = int(lookback_bars or min(max(40, int(lookback_dates or 90)), 120))
+        pairs, pmeta = collect_calibration_pairs_from_panel(
+            lookback=lb,
+            horizon_days=horizon_days,
+            head=head_k,
+            watching_limit=watching_limit,
+            refresh_bars=False,
+        )
+        info["panel"] = pmeta
+        if len(pairs) >= _MIN_PAIRS:
+            info["used"] = "panel"
+            return pairs, info
+        if src == "panel":
+            info["used"] = "panel_insufficient"
+            info["error"] = pmeta.get("error") or (
+                f"{head_k} panel 样本不足 n={len(pairs)}（需≥{_MIN_PAIRS}）；"
+                "请检查观察池/模型/日线，勿误用账本薄样本"
+            )
+            return pairs, info
+        led = collect_calibration_pairs(
+            lookback_dates=lookback_dates, head=head_k
+        )
+        info["ledger_n"] = len(led)
+        if len(led) >= _MIN_PAIRS:
+            info["used"] = "panel_fallback_ledger"
+            return led, info
+        if len(pairs) >= len(led):
+            info["used"] = "panel_short"
+            return pairs, info
+        info["used"] = "ledger_short"
+        return led, info
+
+    led = collect_calibration_pairs(lookback_dates=lookback_dates, head=head_k)
+    info["used"] = "ledger"
+    info["ledger_n"] = len(led)
+    return led, info
 
 
 def _fit_one_head(
@@ -291,12 +794,37 @@ def _fit_one_head(
     full_ys = [float(p["realized"]) for p in pairs]
     kx_full, ky_full = isotonic_pav(full_xs, full_ys)
 
-    # S1：部署 knots 改用 train-only 拟合，避免 holdout 泄露；kx_full/ky_full 留存仅作研究对照
-    _kx_deploy = list(kx)
-    _ky_deploy = list(ky)
+    # holdout 指标仍用 train-only g，避免评估自嗨。
+    # 部署 knots：短窗口 / 训练域盖不住全样本（常见：宇宙负 ŷ 只在最近日）时用 full，
+    # 否则曲线与 tip 钳制域会继续卡在旧「仅簿」正半轴。
+    train_xmin = min(xs) if xs else None
+    train_xmax = max(xs) if xs else None
+    full_xmin = min(full_xs) if full_xs else None
+    full_xmax = max(full_xs) if full_xs else None
+    coverage_gap = False
+    if train_xmin is not None and full_xmin is not None:
+        if float(train_xmin) > float(full_xmin) + 1e-6:
+            coverage_gap = True
+    if train_xmax is not None and full_xmax is not None:
+        if float(train_xmax) < float(full_xmax) - 1e-6:
+            coverage_gap = True
+    short_window = len(days) < 20
+    use_full_deploy = bool(short_window or coverage_gap)
+    if use_full_deploy:
+        _kx_deploy = list(kx_full)
+        _ky_deploy = list(ky_full)
+        deploy_src = "full_coverage"
+    else:
+        _kx_deploy = list(kx)
+        _ky_deploy = list(ky)
+        deploy_src = "train_only"
     if not _kx_deploy:
         _kx_deploy = list(kx_full)
         _ky_deploy = list(ky_full)
+        deploy_src = "full_coverage"
+    n_neg = sum(1 for x in full_xs if x < 0)
+    n_book = sum(1 for p in pairs if p.get("in_book") is True)
+    n_non_book = sum(1 for p in pairs if p.get("in_book") is False)
     out = {
         "success": True,
         "head": head,
@@ -309,12 +837,32 @@ def _fit_one_head(
         "holdout_days": sorted(hold_days),
         "knots_x": _kx_deploy,
         "knots_y": _ky_deploy,
+        "deploy_knots": deploy_src,
         "knots_x_full": list(kx_full),
         "knots_y_full": list(ky_full),
         "knots_x_train": kx,
         "knots_y_train": ky,
         "train_metrics": _eval(tr),
         "holdout_metrics": _eval(ho) if ho else {"n": 0, "note": "无 holdout 日"},
+        "yhat_min": round(min(full_xs), 6) if full_xs else None,
+        "yhat_max": round(max(full_xs), 6) if full_xs else None,
+        "n_yhat_neg": n_neg,
+        "n_in_book": n_book,
+        "n_non_book": n_non_book,
+        "sample_note": (
+            "panel：观察池/scored_all × live β × 前瞻收益（与分组同源）"
+            if any(str(p.get("source") or "") == "panel" for p in pairs)
+            else (
+                "ledger 全量行（优先 scored_all 冻结）；含簿外以覆盖负 ŷ / 门槛下"
+                if n_non_book or n_neg
+                else "ledger 样本；若无负 ŷ，请重新冻结 scored_all 宇宙后再拟合"
+            )
+        ),
+        "sample_source": (
+            "panel"
+            if any(str(p.get("source") or "") == "panel" for p in pairs)
+            else "ledger"
+        ),
         "y_spec": (
             {"formula": "realized_tau", "unit": "pct", "note": "open→close"}
             if head == "tau"
@@ -345,14 +893,46 @@ def fit_score_calibration_report(
     lookback_dates: int = 90,
     train_frac: float = 0.75,
     heads: Optional[Sequence[str]] = None,
+    sample_source: str = "panel",
+    lookback_bars: Optional[int] = None,
+    horizon_days: Optional[int] = None,
+    watching_limit: int = _PANEL_WATCHING_LIMIT,
 ) -> Dict[str, Any]:
-    """拟合 EOD / τ 校准映射；写 last_report，不自动写盘。"""
+    """拟合 EOD / τ 校准映射；写 last_report，不自动写盘。
+
+    默认 ``sample_source=panel``：EOD=分组面板、τ=rem open 面板，**不**静默缩回账本。
+    ``auto`` 才允许 panel 不足时回退 ledger。
+    """
     want = [str(h).strip().lower() for h in (heads or ("eod", "tau"))]
     head_docs: Dict[str, Any] = {}
     errors: List[str] = []
+    sample_meta: Dict[str, Any] = {}
+    src_req = str(sample_source or "panel").strip().lower() or "panel"
     for h in want:
-        pairs = collect_calibration_pairs(lookback_dates=lookback_dates, head=h)
+        head_src = src_req
+        pairs, sinfo = resolve_calibration_pairs(
+            head=h,
+            lookback_dates=lookback_dates,
+            sample_source=head_src,
+            lookback_bars=lookback_bars,
+            horizon_days=horizon_days,
+            watching_limit=watching_limit,
+        )
+        sample_meta[h] = sinfo
+        if head_src == "panel" and str(sinfo.get("used") or "") == "panel_insufficient":
+            err = sinfo.get("error") or f"{h} panel 样本不足"
+            head_docs[h] = {
+                "success": False,
+                "head": h,
+                "error": err,
+                "n": len(pairs),
+                "pair_resolve": sinfo,
+            }
+            errors.append(f"{h}:{err}")
+            continue
         doc = _fit_one_head(pairs, head=h, train_frac=train_frac)
+        if isinstance(doc, dict):
+            doc["pair_resolve"] = sinfo
         head_docs[h] = doc
         if not doc.get("success"):
             errors.append(f"{h}:{doc.get('error')}")
@@ -364,23 +944,35 @@ def fit_score_calibration_report(
             "error": "；".join(errors) or "无可用校准头",
             "task": "score_calibration",
             "heads": head_docs,
+            "sample_meta": sample_meta,
             "schema": SCHEMA,
         }
 
     promote_ok, promote_block = calibration_promote_safe(ok_heads)
+    used_panel = any(
+        str((sample_meta.get(h) or {}).get("used") or "") == "panel"
+        for h in ok_heads
+    )
     report = {
         "success": True,
         "task": "score_calibration",
         "schema": SCHEMA,
         "lookback_dates": int(lookback_dates),
         "train_frac": float(train_frac),
+        "sample_source": src_req,
+        "sample_meta": sample_meta,
         "heads": head_docs,
         "enabled": False,
         "promote_ok": bool(promote_ok),
         "promote_block_reason": promote_block or None,
         "note": (
-            "单调 g(ŷ)≈E[r|ŷ]；人审写入 live 后 tip/复盘可读对照。"
-            "排序与买卖/入簿闸仍用原始 ŷ；不改 Ridge β。"
+            (
+                "单调 g(ŷ)≈E[r|ŷ]；EOD=分组面板 · τ=rem open 面板（与拟合同源）。"
+                if used_panel
+                else "单调 g(ŷ)≈E[r|ŷ]；样本含账本回退（见 sample_meta.used）。"
+            )
+            + "人审写入 live 后 tip/复盘可读对照。"
+            "第一步：排序与买卖/入簿闸仍用原始 ŷ；不改 Ridge β。"
             + (
                 ""
                 if not promote_block

@@ -174,11 +174,15 @@ def quant_score_outcomes_fill(body: ScoreOutcomesFillRequest):
 
 @router.post("/api/quant/score-calibration/fit")
 def quant_score_calibration_fit(body: ScoreCalibrationFitRequest):
-    """从账本拟合单调 g(ŷ)；不自动写盘。"""
+    """拟合单调 g(ŷ)；EOD 默认分组同源 panel，不足回退账本。不自动写盘。"""
     try:
         return deps.quant.fit_score_calibration(
             lookback_dates=body.lookback_dates,
             train_frac=body.train_frac,
+            sample_source=body.sample_source,
+            lookback_bars=body.lookback_bars,
+            horizon_days=body.horizon_days,
+            watching_limit=body.watching_limit,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

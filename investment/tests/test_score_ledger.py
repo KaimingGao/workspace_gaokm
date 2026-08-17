@@ -495,6 +495,64 @@ class TestScoreLedger(unittest.TestCase):
             self.assertEqual(led["meta"].get("feature_as_of"), "2026-08-11")
             self.assertTrue(load_ledger("2026-08-12").get("empty"))
 
+    def test_freeze_prefers_scored_all_universe_with_in_book(self):
+        from core.score_ledger import (
+            freeze_from_cluster_book,
+            load_ledger,
+            rows_for_book_review,
+        )
+
+        book = {
+            "updated_at": "2026-08-12T07:00:00Z",
+            "book": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "predicted_score": 1.5,
+                    "predicted_score_eod": 1.5,
+                }
+            ],
+            "scored_all": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "predicted_score": 1.5,
+                    "predicted_score_eod": 1.5,
+                },
+                {
+                    "stock_code": "601988",
+                    "stock_name": "中国银行",
+                    "predicted_score": -0.8,
+                    "predicted_score_eod": -0.8,
+                },
+            ],
+            "meta": {"version": 9},
+        }
+        with self._patch_dir(), patch(
+            "core.score_ledger.resolve_freeze_as_of",
+            return_value={
+                "as_of": "2026-08-11",
+                "session_date": "2026-08-12",
+                "prev_trading_day": "2026-08-11",
+                "feature_as_of": "2026-08-11",
+                "requested_as_of": "2026-08-12",
+                "remapped": True,
+                "note": None,
+            },
+        ):
+            out = freeze_from_cluster_book(as_of="2026-08-12", book_doc=book)
+            self.assertTrue(out["success"])
+            self.assertEqual(out["n_rows"], 2)
+            led = load_ledger("2026-08-11")
+            self.assertEqual(led["meta"].get("freeze_universe"), "scored_all")
+            rows = led.get("rows") or []
+            by = {str(r["code"]): r for r in rows}
+            self.assertTrue(by["600519"].get("in_book"))
+            self.assertFalse(by["601988"].get("in_book"))
+            self.assertAlmostEqual(float(by["601988"]["yhat_eod"]), -0.8)
+            book_rows = rows_for_book_review(rows)
+            self.assertEqual(len(book_rows), 1)
+            self.assertEqual(book_rows[0]["code"], "600519")
     def test_tau_shadow_freeze_and_review(self):
         from core.score_ledger import (
             build_tau_shadow_review,

@@ -1,6 +1,7 @@
-"""打分账本：按决策日 as_of 冻结 ŷ，供「昨日复盘」对账。
+"""打分账本：按决策日 as_of 冻结 ŷ，供「昨日复盘」对账与校准拟合。
 
-写入：集群书刷新 / 日报 / 手动冻结。
+写入：集群书刷新 / 日报 / 手动冻结——优先 ``scored_all``（打分宇宙），行带 ``in_book``。
+复盘默认滤簿；校准 Isotonic 用全量行。
 回填：次日或 h 日后用日线算 realized，再生成方向复盘报告。
 """
 
@@ -309,8 +310,27 @@ def row_from_scored_item(
             item.get("open_price_for_tau_label") or item.get("open")
         ),
         "source": str(source or "scored"),
+        "in_book": (
+            bool(item.get("in_book"))
+            if item.get("in_book") is not None
+            else None
+        ),
         "written_at": datetime.now().isoformat(timespec="seconds"),
     }
+
+
+def rows_for_book_review(rows: Optional[Sequence[dict]]) -> List[dict]:
+    """复盘默认只看簿内行；无 ``in_book`` 标记的旧账本原样返回。
+
+    校准拟合用全量 ``ledger.rows``（打分宇宙），与复盘截断刻意分轨。
+    """
+    out = [r for r in (rows or []) if isinstance(r, dict)]
+    if not out:
+        return []
+    if not any(r.get("in_book") is not None for r in out):
+        return out
+    book_only = [r for r in out if r.get("in_book") is True]
+    return book_only if book_only else out
 
 
 def load_ledger(as_of: str) -> Dict[str, Any]:
@@ -437,7 +457,11 @@ def freeze_from_cluster_book(
     as_of: Optional[str] = None,
     book_doc: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """从 active 集群书冻结 ŷ；决策日对齐因子截止（见 resolve_freeze_as_of）。"""
+    """从 active 集群书冻结 ŷ；决策日对齐因子截止（见 resolve_freeze_as_of）。
+
+    优先冻 ``scored_all``（打分宇宙，供校准 g(ŷ) 全轴拟合）；无则回退 ``book``。
+    行上打 ``in_book``：复盘 UI / 命中率仍默认只看簿内。
+    """
     from core.signal.cluster_live import load_active_cluster_book
 
     doc = book_doc if isinstance(book_doc, dict) else load_active_cluster_book()
@@ -451,6 +475,23 @@ def freeze_from_cluster_book(
             "resolve": resolved,
         }
     book = list(doc.get("book") or [])
+    scored_all = list(doc.get("scored_all") or [])
+    book_codes = {
+        str(r.get("stock_code") or r.get("code") or "").strip()
+        for r in book
+        if isinstance(r, dict) and str(r.get("stock_code") or r.get("code") or "").strip()
+    }
+    universe = scored_all if scored_all else book
+    freeze_rows: List[dict] = []
+    for item in universe:
+        if not isinstance(item, dict):
+            continue
+        code = str(item.get("stock_code") or item.get("code") or "").strip()
+        if not code:
+            continue
+        row = dict(item)
+        row["in_book"] = (code in book_codes) if book_codes else True
+        freeze_rows.append(row)
     meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
     resolved = resolve_freeze_as_of(as_of, book_doc=doc)
     d = date_key(resolved.get("as_of"))
@@ -461,10 +502,11 @@ def freeze_from_cluster_book(
             "n_rows": 0,
             "resolve": resolved,
         }
+    src = "cluster_scored_all" if scored_all else "cluster_book"
     out = upsert_ledger_rows(
         d,
-        book,
-        source="cluster_book",
+        freeze_rows,
+        source=src,
         meta={
             "cluster_version": meta.get("version") or doc.get("version"),
             "book_updated_at": doc.get("updated_at"),
@@ -472,6 +514,9 @@ def freeze_from_cluster_book(
             "session_date": resolved.get("session_date"),
             "freeze_remapped": bool(resolved.get("remapped")),
             "freeze_note": resolved.get("note"),
+            "freeze_universe": "scored_all" if scored_all else "book",
+            "n_book": len(book_codes),
+            "n_universe": len(freeze_rows),
         },
     )
     out["resolve"] = resolved
@@ -1547,7 +1592,8 @@ def build_score_review(
         fill_outcomes(d, horizon_days=h)
         outcomes = load_outcomes(d)
     by_code = outcomes.get("by_code") or {}
-    rows = list(ledger.get("rows") or [])
+    rows_universe = [r for r in (ledger.get("rows") or []) if isinstance(r, dict)]
+    rows = rows_for_book_review(rows_universe)
 
     n = 0
     hits = 0
@@ -1734,8 +1780,11 @@ def build_score_review(
         "ledger_path": ledger.get("path"),
         "outcomes_path": outcomes.get("path"),
         "n_ledger": len(rows),
+        "n_ledger_universe": len(rows_universe),
         "summary": {
             "n_scored": n,
+            "n_book": len(rows),
+            "n_universe": len(rows_universe),
             "hit_rate": hit_rate,
             "hits": hits,
             "wrong": len(wrong_rows),
@@ -2128,7 +2177,7 @@ def hit_rate_series(
         by_code = outcomes.get("by_code") or {}
         n = 0
         hits = 0
-        for r in led.get("rows") or []:
+        for r in rows_for_book_review(led.get("rows") or []):
             code = str(r.get("code") or "")
             yhat = _to_float(r.get("yhat"))
             if yhat is None or abs(float(yhat)) < _YHAT_EPS:
@@ -2160,7 +2209,7 @@ def hit_rate_series(
         "horizon_days": h,
         "n": len(series),
         "points": series,
-        "note": "仅含已回填 realized 的决策日；autofill=false 时不拉日线。",
+        "note": "仅含已回填 realized 的决策日；默认按簿内行；autofill=false 时不拉日线。",
     }
 
 

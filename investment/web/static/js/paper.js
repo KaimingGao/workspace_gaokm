@@ -1932,7 +1932,7 @@ export function initPaper(ctx) {
           );
           const expandIcon = hasDetail
             ? '<span class="rebalance-expand-icon" aria-hidden="true">›</span>'
-            : "";
+            : '<span class="rebalance-expand-icon is-empty" aria-hidden="true"></span>';
 
           let decisionTagClass = "hold";
           const decision = String(r.decision || "");
@@ -2004,12 +2004,15 @@ export function initPaper(ctx) {
             `data-detail-idx="${idx}"` +
             `${hasDetail ? ' title="点击展开评分明细"' : ""}>` +
             `<div class="rebalance-stock" role="cell">` +
-            `<span class="rebalance-stock-name">${expandIcon}` +
+            expandIcon +
+            `<span class="rebalance-stock-main">` +
+            `<span class="rebalance-stock-name">` +
             `<span class="rebalance-stock-name-text">${name}</span>` +
             bookBadge +
             oosBadge +
             `</span>` +
             `<span class="rebalance-stock-code">${code}</span>` +
+            `</span>` +
             `</div>` +
             `<div class="num rebalance-score paper-hold-score has-tip ${scoreClass}" ` +
             `role="cell" data-score-detail="${tipDetailJson}" data-score-tip="trade" ` +

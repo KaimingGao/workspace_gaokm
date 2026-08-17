@@ -631,6 +631,17 @@ class FeatureEncodingShadowRequest(BaseModel):
 class ScoreCalibrationFitRequest(BaseModel):
     lookback_dates: int = Field(default=90, ge=20, le=250)
     train_frac: float = Field(default=0.75, ge=0.5, le=0.95)
+    sample_source: str = Field(
+        default="panel",
+        description="panel=分组同源全宇宙历史（默认）；auto=不足才回退账本；ledger=仅账本",
+    )
+    lookback_bars: Optional[int] = Field(
+        default=80, ge=40, le=120, description="panel 日线回看（与分组 lookback 对齐）"
+    )
+    horizon_days: Optional[int] = Field(
+        default=None, ge=1, le=10, description="前瞻收益天数；默认 scoring.horizon_days"
+    )
+    watching_limit: int = Field(default=100, ge=3, le=240)
 
 
 class ScoreCalibrationPersistRequest(BaseModel):

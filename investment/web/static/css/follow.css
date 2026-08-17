@@ -481,17 +481,43 @@
 }
 
 .follow-page .rebalance-table-scroll {
-  border-radius: 2px;
+  border-radius: var(--follow-radius);
   border-color: var(--line);
   background: var(--surface);
+  box-shadow: none;
 }
 
 .follow-page .rebalance-table {
-  font-size: 12.5px;
+  /* 股票吃左侧；后列定宽靠右；列间距适中 */
+  --rebalance-cols: minmax(7rem, 1fr) 4.5rem 4.5rem 6.25rem 3.5rem 4.75rem;
+  font-size: 0.78rem;
+}
+
+.follow-page .rebalance-table-head,
+.follow-page .rebalance-row {
+  column-gap: 10px;
 }
 
 .follow-page .rebalance-table-head {
-  background: color-mix(in srgb, var(--bg-accent) 92%, var(--surface));
+  background: var(--line-2);
+}
+
+.follow-page .rebalance-th {
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: none;
+}
+
+.follow-page .rebalance-row > .num {
+  font-size: 0.76rem;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.follow-page .rebalance-table-head > :last-child,
+.follow-page .rebalance-row > :last-child {
+  padding-right: 8px;
 }
 
 .follow-page .rebalance-decision-tag {

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import unittest
+from unittest import mock
 from unittest.mock import patch
 
 
@@ -78,13 +79,20 @@ class TestIsotonicPav(unittest.TestCase):
             return [dict(p, head=head) for p in pairs]
 
         orig = sc.collect_calibration_pairs
+        orig_resolve = sc.resolve_calibration_pairs
         sc.collect_calibration_pairs = _fake_collect  # type: ignore
+
+        def _fake_resolve(*, head="eod", **_kwargs):
+            return _fake_collect(head=head), {"used": "ledger", "head": head}
+
+        sc.resolve_calibration_pairs = _fake_resolve  # type: ignore
         try:
             report = sc.fit_score_calibration_report(
-                lookback_dates=90, train_frac=0.7, heads=("eod",)
+                lookback_dates=90, train_frac=0.7, heads=("eod",), sample_source="ledger"
             )
         finally:
             sc.collect_calibration_pairs = orig  # type: ignore
+            sc.resolve_calibration_pairs = orig_resolve  # type: ignore
         self.assertTrue(report.get("success"), report.get("error"))
         eod = (report.get("heads") or {}).get("eod") or {}
         self.assertTrue(eod.get("success"))
@@ -93,6 +101,143 @@ class TestIsotonicPav(unittest.TestCase):
         # 校准后 MAE 应不差于原始（允许数值贴边）
         if ho.get("mae_raw") is not None and ho.get("mae_cal") is not None:
             self.assertLessEqual(float(ho["mae_cal"]), float(ho["mae_raw"]) + 0.05)
+
+    def test_panel_pairs_predict_with_model(self):
+        """panel 路径：因子行 × return_model → (ŷ, y)。"""
+        from core.signal import score_calibration as sc
+        from core.signal.return_score import ReturnScoreModel
+
+        model = ReturnScoreModel(
+            intercept=0.0,
+            coefficients={"momentum": 0.5},
+            z_means={"momentum": 50.0},
+            z_stds={"momentum": 10.0},
+            standardized=True,
+        )
+        xs = [{"momentum": 60.0}, {"momentum": 40.0}, {"momentum": 70.0}]
+        ys = [1.0, -0.5, 1.5]
+        dates = ["2026-01-01", "2026-01-02", "2026-01-03"]
+
+        def fake_panel(bars, **kwargs):
+            return xs, ys, dates
+
+        class _M:
+            def predict(self, row):
+                return model.predict(row)
+
+        with mock.patch(
+            "core.research.panel.collect_subscore_forward_panel", fake_panel
+        ), mock.patch(
+            "core.signal.score_calibration._calibration_universe_codes",
+            return_value=(["600519"], {"universe_mode": "explicit", "universe_count": 1}),
+        ), mock.patch(
+            "core.data_service.bars_and_source",
+            return_value=(
+                [{"date": f"2026-01-{i:02d}", "close": 10.0} for i in range(1, 40)],
+                "t",
+            ),
+        ), mock.patch(
+            "core.signal.cluster_live.load_active_cluster_weights",
+            return_value={
+                "code_map": {
+                    "600519": {
+                        "cluster_label": "G1",
+                        "return_model": model.to_dict(),
+                    }
+                }
+            },
+        ), mock.patch(
+            "core.signal.cluster_live.lookup_code_return_model",
+            return_value=model,
+        ), mock.patch(
+            "core.signal.cluster_live.lookup_code_weights",
+            return_value={"cluster_label": "G1"},
+        ), mock.patch(
+            "core.signal.return_score_store.load_return_model",
+            return_value=(None, {"ok": False}),
+        ):
+            pairs, meta = sc.collect_calibration_pairs_from_panel(
+                codes=["600519"], lookback=60, horizon_days=1, head="eod"
+            )
+        self.assertGreaterEqual(len(pairs), 3)
+        self.assertEqual(pairs[0]["source"], "panel")
+        self.assertAlmostEqual(pairs[0]["yhat"], model.predict(xs[0]), places=5)
+        self.assertAlmostEqual(pairs[0]["realized"], 1.0, places=5)
+
+    def test_tau_panel_pairs_predict_with_rem(self):
+        """τ panel：rem 特征 × rem 模型 → (ŷ_τ, open→close)。"""
+        from core.signal import score_calibration as sc
+
+        rem_doc = {
+            "return_model": {
+                "intercept": 0.0,
+                "coefficients": {"z_open_gap": 1.0},
+                "z_means": {"z_open_gap": 0.0},
+                "z_stds": {"z_open_gap": 1.0},
+                "standardized": True,
+            },
+            "y_spec": {"note": "open→close"},
+        }
+
+        def fake_build(stock_bars, **kwargs):
+            self.assertEqual(kwargs.get("tau_hm"), "open")
+            return [
+                {
+                    "code": "600519",
+                    "xs": [{"z_open_gap": 0.5}, {"z_open_gap": -0.2}],
+                    "ys": [0.8, -0.3],
+                    "dates": ["2026-01-02", "2026-01-03"],
+                }
+            ]
+
+        with mock.patch(
+            "core.signal.score_calibration._calibration_universe_codes",
+            return_value=(["600519"], {"universe_mode": "explicit", "universe_count": 1}),
+        ), mock.patch(
+            "core.data_service.bars_and_source",
+            return_value=(
+                [{"date": f"2026-01-{i:02d}", "close": 10.0, "open": 10.0} for i in range(1, 40)],
+                "t",
+            ),
+        ), mock.patch(
+            "quant.research.rem_ridge.load_rem_model",
+            return_value=rem_doc,
+        ), mock.patch(
+            "quant.research.rem_ridge.build_rem_panels_from_bars",
+            side_effect=fake_build,
+        ), mock.patch(
+            "quant.research.rem_ridge.predict_rem_from_features",
+            side_effect=lambda row, model_doc=None: float(row.get("z_open_gap") or 0.0),
+        ):
+            pairs, meta = sc.collect_calibration_pairs_from_panel(
+                codes=["600519"], lookback=60, head="tau"
+            )
+        self.assertEqual(len(pairs), 2)
+        self.assertEqual(pairs[0]["source"], "panel")
+        self.assertEqual(pairs[0]["head"], "tau")
+        self.assertEqual(meta.get("panel_kind"), "rem_open")
+        self.assertAlmostEqual(pairs[0]["yhat"], 0.5, places=5)
+        self.assertAlmostEqual(pairs[0]["realized"], 0.8, places=5)
+
+    def test_resolve_tau_defaults_to_panel(self):
+        from core.signal import score_calibration as sc
+
+        fake_pairs = [
+            {"as_of": "2026-01-01", "code": "1", "yhat": 0.1, "realized": 0.2, "head": "tau"}
+            for _ in range(50)
+        ]
+        with mock.patch.object(
+            sc,
+            "collect_calibration_pairs_from_panel",
+            return_value=(fake_pairs, {"ok": True, "n": 50}),
+        ) as m_panel, mock.patch.object(
+            sc, "collect_calibration_pairs", return_value=[]
+        ) as m_led:
+            pairs, info = sc.resolve_calibration_pairs(head="tau", sample_source="panel")
+        self.assertEqual(info.get("used"), "panel")
+        self.assertEqual(len(pairs), 50)
+        m_panel.assert_called_once()
+        m_led.assert_not_called()
 
     def test_rank_key_stays_raw_when_calibration_enabled(self):
         """方案 A：排序键始终 raw；*_cal 由 attach 写入供 tip。"""

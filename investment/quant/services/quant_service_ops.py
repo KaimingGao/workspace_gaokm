@@ -330,12 +330,20 @@ class QuantOpsMixin:
         *,
         lookback_dates: int = 90,
         train_frac: float = 0.75,
+        sample_source: str = "panel",
+        lookback_bars: Optional[int] = None,
+        horizon_days: Optional[int] = None,
+        watching_limit: int = 100,
     ) -> Dict[str, Any]:
         from core.signal.score_calibration import fit_score_calibration_report
 
         return fit_score_calibration_report(
             lookback_dates=lookback_dates,
             train_frac=train_frac,
+            sample_source=sample_source,
+            lookback_bars=lookback_bars,
+            horizon_days=horizon_days,
+            watching_limit=watching_limit,
         )
 
     def persist_score_calibration(

@@ -125,7 +125,7 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 | P1 分钟 τ | 研究轨 `enable_minute_tau` + `tau_hm`；`sector_ret_to_tau`；默认仍关 | **接线已落地**（人审开开关后训） |
 | P2 融合补强 | `w_mode=theme_boost\|variance\|kalman`；`predicted_score_tau_cascade` 影子 | **研究轨已落地**（默认 `w_mode=fixed`） |
 | **Nowcast / Kalman** | 顺序滤波 EOD→open→当前分钟 τ；自适应 \(Q\)；\(R\) 走 rem OOS 分层；Nordhaus 影子诊断 | **已落地**（默认 `taus=[eod,open]`；`use_as_rank_key=false`） |
-| **校准层 g(ŷ)** | 账本 Isotonic；tip/复盘对照；排序与买卖闸仍用 raw ŷ | **已接线**（方案 A；写入 live 后可读） |
+| **校准层 g(ŷ)** | EOD=分组面板、τ=rem open 面板 Isotonic；仅 `auto` 不足回退账本。tip 对照；决策仍 raw ŷ（第一步） | **panel 拟合已落地（EOD+τ）**；决策读 g 为第二步 |
 | **特征编码 raw_basis** | 动量/波动/估值：原始量+分档替代 0–100；影子对照 API | **试点已接线**（默认 `heuristic`；优则改 `scoring.feature_encoding` 后重跑分组） |
 | 分钟 τ 特征 | 缓存命中时写 `ret_open_to_tau` | **可选**（`enable_minute_tau`，默认关） |
 | F3 以后 | 盘中窗以 ŷ_τ 为主（影子簿达标） | 未做 |
@@ -319,13 +319,14 @@ UI 横轴说明（TopK）：权益曲线常标在持有期**结束日**；解读
 详见 [score-review.md](score-review.md)（覆盖范围、薄样本、日线前置以该页为准）。
 
 ```text
-分池簿 book ŷ → 冻结 score_ledger/YYYYMMDD.json
-              → 回填 r_h = close[as_of+h]/close[as_of]-1
-              → 方向命中 · 散点 · 错票归因 · 命中率序列
+分池 scored_all（优先）→ 冻结 score_ledger/YYYYMMDD.json（行带 in_book）
+                       → 回填 r_h = close[as_of+h]/close[as_of]-1
+                       → 复盘默认滤簿 · 校准用全量
 ```
 
-**宇宙**：默认只冻 / 复盘 **`cluster_book.book`**（入选截断后的名单），**不含** `scored_all`、**不含**纸面持仓。  
-目的是检验 **簿的合理性**（选股截断 OOS）；持仓 Realization 走纸面归因轨，勿与簿命中率混算。
+**宇宙**：冻结优先 **`cluster_book.scored_all`**（打分宇宙），回退 `book`。复盘默认 **`in_book`**；校准 Isotonic 用账本**全量行**，以覆盖负 ŷ / 门槛下。不含纸面持仓并集。
+
+目的拆分：复盘检验 **簿的合理性**；校准学 **全轴 g(ŷ)**。持仓 Realization 走纸面归因轨。
 
 ### 6.1 两种常见「正确对账」例子（\(h=1\)）
 
@@ -400,7 +401,7 @@ flowchart TD
 |------|----------|------|----------|
 | 跑分组 / 估 β | 面板日线（含 PIT） | `return_model` β | 样本内 / 组 OOS（研究） |
 | live 打分 | 决策日 \(t\) 因子 | ŷ% | —（预测） |
-| 冻结账本 | 选定 `as_of`（对齐因子截止） | **簿** `book` → ledger 行 | 待 \(h\) 日后回填；会话日未到期则薄样本 |
+| 冻结账本 | 选定 `as_of`（对齐因子截止） | **宇宙** `scored_all`（优先）→ ledger；行带 `in_book` | 校准用全量；复盘默认簿；待 \(h\) 日后回填 |
 | 昨日复盘 | 已冻结簿 ŷ | 命中 / 归因（检验簿合理性） | \(r_h\) close→close；不含持仓并集 |
 | TopK 回测 | 历史各 \(t\) | 组合曲线 | 持有期收益（+ 成交假设） |
 | 纸面调仓 | 当日可得 ŷ（可补持仓分） | 持仓变动 | 事后用纸面归因 / 净值，非簿命中率 |
@@ -446,11 +447,12 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 2. **分层重估**：按 `factor_blame` / 行业 / 组 / regime 切片，只对「系统性偏差」切片缩短 `refit` 周期或单独估 β。  
 3. **校准层（isotonic / 分段线性）**：在 \(\hat y\) 之上学 \(g(\hat y)\approx\mathbb{E}[r_h\mid\hat y]\)，不改因子结构，专治「方向对但幅度飘」。  
    - 实现：`core/signal/score_calibration.py`；复盘「拟合校准 / 写入 live」；产物 `data/live/score_calibration.json`。  
-   - 有 live 映射即算 g（`force`）：**观察池 / 持仓 / 回测成交**在评分旁显示「校准」对照列；**排序键、τ 买入闸、分池入簿门槛仍读原始 ŷ**（方案 A）。  
-   - 无「启用/停用」开关；人审「写入 live」后 tip/列可读 g，不把 g 写入决策。  
-   - tip 分流：评分列悬停 = ①–④ raw ŷ 全栈（**不含** g）；校准列悬停 = 仅 g(ŷ_EOD)/g(ŷ_EOD_rem)/g(ŷ_τ)/g(ŷ_trade)。ŷ 落在 knots 域外时校准 tip 提示端点钳制。  
-   - 独立节「校准 g(ŷ)」：状态徽章 · holdout MAE/IC · knots 曲线 · 拟合/写入 live。  
-   - promote 须人审；`g(门槛)<门槛` 仅为**软警告**，仍可写入 tip 对照（因不进决策）。
+   - **EOD 样本（默认）**：与分组同源——观察池 ∪ `scored_all`、日线滚动 `collect_subscore_forward_panel`、live 组/全局 β 打出历史 ŷ，对齐同一前瞻收益。  
+   - **τ 样本（默认）**：与 rem 拟合同源——`build_rem_panels_from_bars(tau_hm=open)` + live rem β，对齐 open→close。  
+   - 仅 `sample_source=auto` 且 panel 不足时回退账本；默认 `panel` 不静默缩样本。  
+   - 有 live 映射即算 g（`force`）：**观察池 / 持仓 / 回测成交**在评分旁显示「校准」对照列；**第一步：排序键、τ 买入闸、分池入簿门槛仍读原始 ŷ**。  
+   - tip 分流：评分列悬停 = raw ŷ 全栈（**不含** g）；校准列悬停 = g(·)。ŷ 落在 knots 域外时提示端点钳制。  
+   - promote 须人审；`g(门槛)<门槛` 仅为**软警告**（因不进决策）。
 
 **L2 — 工况门控（何时信模型）**
 

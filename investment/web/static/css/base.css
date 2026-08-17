@@ -1978,15 +1978,6 @@ a.dialog-btn[aria-disabled="true"] {
   background: color-mix(in srgb, var(--accent) 5%, transparent) !important;
 }
 
-.rebalance-expand-icon {
-  display: inline-block;
-  width: 0.7rem;
-  font-size: 9px;
-  color: var(--ink-3);
-  margin-right: 3px;
-  opacity: 0.7;
-}
-
 .rebalance-score.has-tip,
 .rebalance-score-cal.has-tip {
   cursor: help;
@@ -4208,16 +4199,17 @@ html[data-density="compact"] .table-pager {
   overflow-x: auto;
   overflow-y: hidden;
   border: 1px solid var(--line);
-  border-radius: var(--r-lg, 8px);
+  border-radius: var(--follow-radius, var(--r-lg, 8px));
   background: var(--surface);
   -webkit-overflow-scrolling: touch;
 }
 
 .rebalance-table {
-  --rebalance-cols: minmax(7.5rem, 1.35fr) 4.75rem 4.75rem minmax(7rem, 1.1fr) 4.25rem 5.75rem;
+  /* 股票吃左侧弹性；后列定宽靠右，列间留呼吸 */
+  --rebalance-cols: minmax(7rem, 1fr) 4.5rem 4.5rem 6.25rem 3.5rem 4.75rem;
   width: 100%;
-  min-width: 34rem;
-  font-size: 12.5px;
+  min-width: 32rem;
+  font-size: 0.78rem;
   background: transparent;
 }
 
@@ -4228,26 +4220,26 @@ html[data-density="compact"] .table-pager {
   align-items: center;
   width: 100%;
   box-sizing: border-box;
-  column-gap: 0;
+  column-gap: 10px;
 }
 
 .rebalance-table-head {
   position: sticky;
   top: 0;
   z-index: 1;
-  background: color-mix(in srgb, var(--bg-accent) 88%, var(--surface));
+  background: var(--line-2);
   border-bottom: 1px solid var(--line);
   box-shadow: inset 2px 0 0 transparent;
+  min-height: 36px;
 }
 
 .rebalance-th {
-  padding: 7px 10px;
+  padding: 6px 6px;
   color: var(--ink-3);
-  font-weight: 600;
+  font-weight: 700;
   white-space: nowrap;
-  font-size: 10.5px;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 0.66rem;
+  letter-spacing: 0.05em;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -4260,6 +4252,8 @@ html[data-density="compact"] .table-pager {
   font-variant-numeric: tabular-nums;
   font-family: var(--font-mono);
   justify-self: stretch;
+  padding-left: 4px;
+  padding-right: 4px;
 }
 
 .rebalance-th:not(.num),
@@ -4270,23 +4264,30 @@ html[data-density="compact"] .table-pager {
 
 .rebalance-th.rebalance-th-decision,
 .rebalance-decision {
-  text-align: center;
+  text-align: right;
   justify-self: stretch;
+  padding-right: 8px !important;
 }
 
 .rebalance-row {
   border-bottom: 1px solid color-mix(in srgb, var(--line-2) 85%, var(--line));
   min-width: 0;
+  min-height: 40px;
   transition: background 0.12s ease;
 }
 
 .rebalance-row > [role="cell"] {
-  padding: 7px 10px;
-  font-size: 12.5px;
+  padding: 8px 6px;
+  font-size: 0.76rem;
   line-height: 18px;
   color: var(--ink);
   min-width: 0;
   box-sizing: border-box;
+}
+
+.rebalance-table-head > :last-child,
+.rebalance-row > :last-child {
+  padding-right: 8px;
 }
 
 .rebalance-table-body .rebalance-row:last-of-type {
@@ -4298,7 +4299,7 @@ html[data-density="compact"] .table-pager {
 }
 
 .rebalance-row.is-expandable:hover {
-  background: color-mix(in srgb, var(--accent) 3.5%, transparent);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
 }
 
 .rebalance-row-expanded {
@@ -4314,9 +4315,18 @@ html[data-density="compact"] .table-pager {
 .rebalance-stock {
   min-width: 0;
   display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 4px;
+  padding-left: 8px !important;
+}
+
+.rebalance-stock-main {
+  display: flex;
   flex-direction: column;
   gap: 1px;
-  padding-left: 8px !important;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .rebalance-stock-name {
@@ -4325,7 +4335,7 @@ html[data-density="compact"] .table-pager {
   gap: 5px;
   min-width: 0;
   max-width: 100%;
-  font-size: 12.5px;
+  font-size: 0.78rem;
   font-weight: 600;
   color: var(--ink);
   line-height: 18px;
@@ -4347,7 +4357,7 @@ html[data-density="compact"] .table-pager {
 
 .rebalance-stock-code {
   display: block;
-  font-size: 11px;
+  font-size: 0.72rem;
   color: var(--ink-3);
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
@@ -4356,13 +4366,22 @@ html[data-density="compact"] .table-pager {
 }
 
 .rebalance-expand-icon {
-  display: inline-block;
+  flex: 0 0 0.7rem;
   width: 0.7rem;
+  margin-top: 2px;
   font-size: 9px;
+  line-height: 14px;
   color: var(--ink-3);
-  margin-right: 3px;
   opacity: 0.7;
-  transform: translateY(-0.5px);
+  text-align: center;
+}
+
+.rebalance-expand-icon.is-empty {
+  visibility: hidden;
+}
+
+.rebalance-row-expanded .rebalance-expand-icon {
+  transform: rotate(90deg);
 }
 
 .rebalance-shares {
@@ -4398,9 +4417,16 @@ html[data-density="compact"] .table-pager {
 
 .rebalance-score-cal.watching-score-cal {
   font-weight: 500;
-  opacity: 0.78;
-  color: var(--ink-2);
+  opacity: 0.9;
 }
+
+.rebalance-score-cal.score-up { color: var(--color-up); }
+
+.rebalance-score-cal.score-down { color: var(--color-down); }
+
+.rebalance-score-cal.score-flat { color: var(--ink-2); }
+
+.rebalance-score-cal.score-na { color: var(--ink-3); font-weight: 500; }
 
 .rebalance-change {
   font-weight: 650;
@@ -4438,7 +4464,7 @@ html[data-density="compact"] .table-pager {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-  font-size: 12.5px;
+  font-size: 0.76rem;
   letter-spacing: -0.01em;
 }
 
@@ -4458,7 +4484,7 @@ html[data-density="compact"] .table-pager {
 .rebalance-decision {
   min-width: 0;
   display: flex;
-  justify-content: center;
+  justify-content: flex-end;
   align-items: center;
 }
 
