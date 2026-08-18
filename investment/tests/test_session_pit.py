@@ -150,8 +150,15 @@ class TestEodNextFusion(unittest.TestCase):
             )
         rejected = score_bars(bars)
         self.assertTrue(rejected.get("hard_reject"))
+        self.assertIn("sub_scores", rejected)
+        self.assertTrue(rejected.get("sub_scores"))
         kept = score_bars(bars, mom3_hard_reject=False)
         self.assertFalse(kept.get("hard_reject"))
+        self.assertTrue(kept.get("sub_scores"))
+        self.assertTrue(kept.get("mom3_chase_risk"))
+        # 硬拒路径也必须留下 sub_scores，不能掐死 ŷ
+        self.assertTrue(rejected.get("sub_scores"))
+        self.assertGreater(float(rejected.get("score") or 0), 0)
 
     def test_default_still_maps_remaining(self):
         from core.signal.dual_score import apply_tau_score_fields, eod_remaining_at_tau

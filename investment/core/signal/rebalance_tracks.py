@@ -1,8 +1,9 @@
 """调仓双轨：predicted ŷ% + heuristic 0–100，并按 OOS 是否通过分流。
 
 策略（``cluster_scoring.rebalance_tracks.oos_fail_policy``）：
-- ``exclude``（现行默认 / 推荐）：OOS 失败组 **禁止新买入**；已持仓仅用 heuristic
-  门槛决定留/卖（H > heuristic_hold_floor 则保持，否则卖出）
+- ``exclude``（现行默认 / 推荐）：OOS 失败组 **禁止新买入**；已持仓优先用
+  全局/生产 ŷ 的 predicted hold 门槛；仅无 ŷ 的 heuristic 轨才用
+  heuristic_hold_floor（H > 阈值保持，否则卖出）
 - ``heuristic_sleeve`` / ``predicted_degrade``：历史别名，行为已与 ``exclude`` 对齐
   （不再进买簿 / 袖仓加仓）
 
@@ -204,7 +205,12 @@ def predicted_floors(tracks_cfg: Optional[dict] = None) -> Tuple[float, float]:
         if hold is not None and hold != ""
         else float(resolve_hold_floor())
     )
-    return float(buy_f), float(hold_f)
+    buy_f = float(buy_f)
+    hold_f = float(hold_f)
+    # 滞回：持有门槛不得高于买入门槛
+    if hold_f > buy_f:
+        hold_f = buy_f
+    return buy_f, hold_f
 
 
 def heuristic_floors(tracks_cfg: Optional[dict] = None) -> Tuple[float, float]:
@@ -217,6 +223,8 @@ def heuristic_floors(tracks_cfg: Optional[dict] = None) -> Tuple[float, float]:
         hold = float(cfg.get("heuristic_hold_floor", 45.0))
     except (TypeError, ValueError):
         hold = 45.0
+    if hold > buy:
+        hold = buy
     return buy, hold
 
 
@@ -267,6 +275,45 @@ def buy_gate_for_item(
     return True, gate_f, track, None
 
 
+def _oos_predicted_hold_score(item: Optional[dict]) -> Optional[float]:
+    """OOS 失败组若仍有生产 ŷ（全局降级），用 ŷ% 做留/卖，避免与 heuristic 45 混比。
+
+    ``oos_failed_heuristic``（无 ŷ）返回 None，调用方回退 heuristic 门槛。
+    """
+    if not isinstance(item, dict):
+        return None
+    src = str(item.get("return_model_source") or "")
+    if src == "oos_failed_heuristic":
+        return None
+    try:
+        from core.signal.dual_score import (
+            decision_score_for_item,
+            eod_gate_score_for_item,
+            is_heuristic_score_scale,
+        )
+
+        if src != "oos_failed_global" and is_heuristic_score_scale(item):
+            if item.get("predicted_score") is None and item.get("predicted_score_eod") is None:
+                return None
+        sc = decision_score_for_item(item)
+        if sc is None:
+            sc = eod_gate_score_for_item(item)
+        if sc is None:
+            ps = item.get("predicted_score")
+            sc = float(ps) if ps is not None and ps != "" else None
+        if sc is None:
+            return None
+        sc_f = float(sc)
+        # 0–100 启发式不得当 ŷ hold
+        if abs(sc_f) > 20:
+            return None
+        return sc_f
+    except (TypeError, ValueError):
+        return None
+    except Exception:
+        return None
+
+
 def hold_decision_for_item(
     item: Optional[dict],
     *,
@@ -276,8 +323,9 @@ def hold_decision_for_item(
     """是否因分数触发卖出。返回 (should_sell, decision_score, hold_floor, track)。
 
     ``should_sell``：有分且低于该轨 hold 门槛。
-    OOS 失败持仓：只用 heuristic；H > heuristic_hold_floor 才保持，否则卖出
-    （无 heuristic 亦卖，保守）。
+    OOS 失败持仓：优先用全局/生产 ŷ（与正常组同一 predicted hold 门槛）；
+    仅 ``oos_failed_heuristic``（无 ŷ）才用 heuristic_hold_floor
+    （H > 阈值保持，无 heuristic 亦卖，保守）。
     """
     cfg = tracks_cfg or get_rebalance_tracks_cfg()
     oos_fail = False
@@ -288,6 +336,14 @@ def hold_decision_for_item(
             or bool(item.get("oos_blocked"))
         )
     if oos_fail:
+        yhat = _oos_predicted_hold_score(item)
+        if yhat is not None:
+            hold_f = (
+                float(predicted_hold_floor)
+                if predicted_hold_floor is not None
+                else predicted_floors(cfg)[1]
+            )
+            return bool(float(yhat) < float(hold_f)), float(yhat), hold_f, TRACK_PREDICTED
         _, hold_f = heuristic_floors(cfg)
         sc = heuristic_score_value(item) if isinstance(item, dict) else None
         if sc is None:
@@ -301,7 +357,8 @@ def hold_decision_for_item(
         sc = heuristic_score_value(item)
         if sc is None:
             return False, None, hold_f, track
-        return bool(sc < hold_f), sc, hold_f, track
+        # 与 OOS 失败分支同一口径：H > 阈值保持；否则卖（含等于阈值）
+        return bool(float(sc) <= float(hold_f)), sc, hold_f, track
 
     hold_f = (
         float(predicted_hold_floor)

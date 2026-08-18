@@ -35,9 +35,9 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     "tau": "open",
     # 基线门槛；全池无人过闸时见 tau_freeze_breakglass
     "min_predicted_score_tau": 0.1,
-    # 候选池内无人过基线门槛时，临时降至本值（可回滚：关 breakglass 或抬回 0.3）
+    # 候选池内无人过基线门槛时，临时降至本值；None = 0.5 × 基线（不再默认 0.0）
     "tau_freeze_breakglass": True,
-    "min_predicted_score_tau_relax": 0.0,
+    "min_predicted_score_tau_relax": None,
     "block_buy_if_tau_missing": True,
     "w_eod": 0.5,
     "w_tau": 0.5,
@@ -50,12 +50,31 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     # 研究影子：ŷ_cascade = ŷ_EOD_rem + (ŷ_τ − α)；不进主排序
     "enable_cascade_shadow": True,
     # A2：刷簿时同池按 ŷ_τ 另写影子簿（不进 execution）
-    "enable_tau_shadow_book": True,
+    "enable_tau_shadow_book": False,
     # 有本地分钟缓存时附加 ret_open_to_tau（默认关；开后仍不拉网）
     "enable_minute_tau": False,
     "minute_tau_hm": "09:45",
     # nowcast / Kalman：默认只写影子字段，不改排序键
     "nowcast": dict(DEFAULT_NOWCAST),
+    # 高维 Y(τ)：校验 / 展示 / 过滤（不改 predicted_score 语义）
+    "y_state": {
+        "enabled": True,
+        "eps_sign": 0.05,
+        "disagree_warn": 0.5,
+        "sigma_warn": 1.5,
+        "filter_buys": True,
+        "block_on": ["conflict", "missing_tau"],
+        "defer_on": ["low_conf", "single_head"],
+        "show_badge": True,
+        "scale_weights": True,
+        "trust": {
+            "ok": 1.0,
+            "low_conf": 0.5,
+            "single_head": 0.75,
+            "conflict": 0.0,
+            "missing_tau": 0.0,
+        },
+    },
     "y_spec": {
         "formula": "close[T]/open[T]-1",
         "unit": "pct",
@@ -126,6 +145,7 @@ def fuse_remaining_heads(
     """ŷ_trade = 加权融合两个正交的 OC 预估。缺一侧用另一侧。
 
     两套模型独立训练、互不依赖；只在决策时用权重合成。
+    单头降级时调用方应读 ``fuse_remaining_heads_meta`` 或检查返回旁路标记。
     """
     a = _as_float(eod_rem)
     b = _as_float(y_tau)
@@ -147,6 +167,32 @@ def fuse_remaining_heads(
     if abs(s) < 1e-12:
         we, wt, s = 0.5, 0.5, 1.0
     return round((we * a + wt * b) / s, 6)
+
+
+def fuse_remaining_heads_meta(
+    eod_rem: Optional[float],
+    y_tau: Optional[float],
+    *,
+    w_eod: float = 0.5,
+    w_tau: float = 0.5,
+) -> Dict[str, Any]:
+    """同 ``fuse_remaining_heads``，并标 ``dual_score_head``：blend | single_eod | single_tau | none。"""
+    a = _as_float(eod_rem)
+    b = _as_float(y_tau)
+    fused = fuse_remaining_heads(eod_rem, y_tau, w_eod=w_eod, w_tau=w_tau)
+    if a is None and b is None:
+        head = "none"
+    elif a is None:
+        head = "single_tau"
+    elif b is None:
+        head = "single_eod"
+    else:
+        head = "blend"
+    return {
+        "predicted_score_blend": fused,
+        "dual_score_head": head,
+        "single_head": head.startswith("single"),
+    }
 
 
 def merge_tau_features(
@@ -303,6 +349,7 @@ def _dual_patch_from_config(config: Optional[dict]) -> Dict[str, Any]:
         "enable_tau_shadow_book",
         "nowcast",
         "w_mode",
+        "y_state",
     )
     if any(k in config for k in markers) and "weights" not in config and "scoring" not in config:
         patch = {k: config[k] for k in DEFAULT_DUAL_SCORE if k in config}
@@ -321,13 +368,35 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
         except Exception:
             config = {}
     raw = dict(DEFAULT_DUAL_SCORE)
+    raw["y_state"] = dict(DEFAULT_DUAL_SCORE.get("y_state") or {})
+    raw["nowcast"] = dict(DEFAULT_DUAL_SCORE.get("nowcast") or {})
     patch = _dual_patch_from_config(config)
     y_spec_patch = patch.pop("y_spec", None)
+    y_state_patch = patch.pop("y_state", None)
+    nowcast_patch = patch.pop("nowcast", None)
     raw.update(patch)
     if isinstance(y_spec_patch, dict):
         ys = dict(DEFAULT_DUAL_SCORE.get("y_spec") or {})
         ys.update(y_spec_patch)
         raw["y_spec"] = ys
+    if isinstance(y_state_patch, dict):
+        ys = dict(DEFAULT_DUAL_SCORE.get("y_state") or {})
+        trust_p = y_state_patch.get("trust")
+        rank_p = y_state_patch.get("book_check_rank")
+        ys.update({k: v for k, v in y_state_patch.items() if k not in ("trust", "book_check_rank")})
+        if isinstance(ys.get("trust"), dict) and isinstance(trust_p, dict):
+            merged_t = dict(ys.get("trust") or {})
+            merged_t.update(trust_p)
+            ys["trust"] = merged_t
+        elif isinstance(trust_p, dict):
+            ys["trust"] = dict(trust_p)
+        if isinstance(rank_p, dict):
+            ys["book_check_rank"] = dict(rank_p)
+        raw["y_state"] = ys
+    if isinstance(nowcast_patch, dict):
+        nc = dict(DEFAULT_DUAL_SCORE.get("nowcast") or {})
+        nc.update(nowcast_patch)
+        raw["nowcast"] = nc
     raw["fusion_mode"] = normalize_fusion_mode(raw.get("fusion_mode"))
     tau = str(raw.get("tau") or "open").strip().lower() or "open"
     raw["tau"] = tau
@@ -340,13 +409,14 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     except (TypeError, ValueError):
         raw["min_predicted_score_tau"] = 0.0
     try:
-        raw["min_predicted_score_tau_relax"] = float(
-            raw["min_predicted_score_tau_relax"]
-            if raw.get("min_predicted_score_tau_relax") is not None
-            else 0.0
-        )
+        if raw.get("min_predicted_score_tau_relax") is not None:
+            raw["min_predicted_score_tau_relax"] = float(
+                raw["min_predicted_score_tau_relax"]
+            )
+        else:
+            raw["min_predicted_score_tau_relax"] = None
     except (TypeError, ValueError):
-        raw["min_predicted_score_tau_relax"] = 0.0
+        raw["min_predicted_score_tau_relax"] = None
     raw["tau_freeze_breakglass"] = bool(raw.get("tau_freeze_breakglass", True))
     raw["block_buy_if_tau_missing"] = bool(raw.get("block_buy_if_tau_missing", True))
     try:
@@ -357,7 +427,7 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
         raw["w_tau"] = float(raw["w_tau"] if raw.get("w_tau") is not None else 0.5)
     except (TypeError, ValueError):
         raw["w_tau"] = 0.5
-    raw["enable_tau_shadow_book"] = bool(raw.get("enable_tau_shadow_book", True))
+    raw["enable_tau_shadow_book"] = bool(raw.get("enable_tau_shadow_book", False))
     raw["enable_cascade_shadow"] = bool(raw.get("enable_cascade_shadow", True))
     raw["enable_minute_tau"] = bool(raw.get("enable_minute_tau", False))
     hm = str(raw.get("minute_tau_hm") or "09:45").strip() or "09:45"
@@ -451,7 +521,7 @@ def resolve_predicted_score_eod(item: Optional[dict]) -> Optional[float]:
     try:
         from core.signal.score_display import looks_like_legacy_heuristic_score
 
-        if looks_like_legacy_heuristic_score(score_f):
+        if looks_like_legacy_heuristic_score(score_f, item=item):
             return None
     except Exception:
         if abs(score_f) >= 10.0:
@@ -534,6 +604,10 @@ def compute_predicted_score_blend(
         except (TypeError, ValueError):
             pass
     fused = fuse_remaining_heads(eod_rem, y_t, w_eod=we, w_tau=wt)
+    meta = fuse_remaining_heads_meta(eod_rem, y_t, w_eod=we, w_tau=wt)
+    if isinstance(item, dict):
+        item["dual_score_head"] = meta.get("dual_score_head")
+        item["dual_score_single_head"] = bool(meta.get("single_head"))
     if fused is not None:
         return fused
     return resolve_predicted_score_eod(item)
@@ -584,6 +658,12 @@ def align_trade_score_fields(
         if write_score:
             item["score"] = yhat_f  # ŷ% 或 None；禁止 0–100
         item["score_scale"] = "heuristic_0_100"
+        try:
+            from core.signal.y_state import stamp_y_state
+
+            stamp_y_state(item, config=config)
+        except Exception:
+            pass
         return item
     y_eod = item.get("predicted_score_eod")
     if y_eod is None:
@@ -629,6 +709,12 @@ def align_trade_score_fields(
         item["decision_score"] = blend
         if write_score:
             item["score"] = blend
+    try:
+        from core.signal.y_state import stamp_y_state
+
+        stamp_y_state(item, config=config)
+    except Exception:
+        pass
     return item
 
 
@@ -700,12 +786,21 @@ def resolve_tau_buy_floor_for_pool(
     """为买入候选池解析有效 ŷ_τ 门槛。
 
     默认用 ``min_predicted_score_tau``。若开启 ``tau_freeze_breakglass`` 且池内
-    **有有效 ŷ_τ 却无人过基线**，则临时降至 ``min_predicted_score_tau_relax``，
-    避免整簿买腿被冻死（仍要求有 τ；缺失仍走 block_buy_if_tau_missing）。
+    **有有效 ŷ_τ 却无人过基线**，则临时降至 ``min_predicted_score_tau_relax``
+    （缺省为基线的一半，不再默认 0.0），避免整簿买腿被冻死（仍要求有 τ；
+    缺失仍走 block_buy_if_tau_missing）。
     """
     cfg = get_dual_score_cfg(config)
     base = float(cfg.get("min_predicted_score_tau") or 0.0)
-    relax = float(cfg.get("min_predicted_score_tau_relax") or 0.0)
+    relax_raw = cfg.get("min_predicted_score_tau_relax")
+    if relax_raw is None or relax_raw == "":
+        relax = 0.5 * base
+    else:
+        try:
+            relax = float(relax_raw)
+        except (TypeError, ValueError):
+            relax = 0.5 * base
+    relax = max(0.0, min(float(relax), float(base)))
     meta: Dict[str, Any] = {
         "base_floor": base,
         "relax_floor": relax,
@@ -900,6 +995,7 @@ def apply_tau_score_fields(
         cfg, feats=feat_snap, rem_model_doc=rem_model_doc
     )
     trade = fuse_remaining_heads(eod_rem, y_tau, w_eod=we, w_tau=wt)
+    head_meta = fuse_remaining_heads_meta(eod_rem, y_tau, w_eod=we, w_tau=wt)
     if not fuse:
         w_note = f"{w_note}|eod_next"
 
@@ -989,10 +1085,13 @@ def apply_tau_score_fields(
     signal_item["score_formula_terms_tau"] = formula_terms_tau
     signal_item["score_formula_tau"] = format_tau_formula_string(formula_terms_tau)
     signal_item["predicted_score_blend"] = trade
+    signal_item["dual_score_head"] = head_meta.get("dual_score_head")
+    signal_item["dual_score_single_head"] = bool(head_meta.get("single_head"))
     signal_item["predicted_score_nowcast"] = nowcast_pack.get("predicted_score_nowcast")
     signal_item["nowcast_as_of"] = nowcast_pack.get("nowcast_as_of")
     signal_item["nowcast_revisions"] = nowcast_pack.get("nowcast_revisions") or []
     signal_item["nowcast_K"] = nowcast_pack.get("nowcast_K")
+    signal_item["nowcast_P"] = nowcast_pack.get("nowcast_P")
     signal_item["nowcast_x_prior"] = nowcast_pack.get("nowcast_x_prior")
     signal_item["nowcast_q"] = nowcast_pack.get("nowcast_q")
     signal_item["nowcast_q_note"] = nowcast_pack.get("nowcast_q_note")
@@ -1034,6 +1133,12 @@ def apply_tau_score_fields(
         except (TypeError, ValueError):
             signal_item["score"] = None
         signal_item["score_scale"] = "heuristic_0_100"
+    try:
+        from core.signal.y_state import stamp_y_state
+
+        stamp_y_state(signal_item, config=config)
+    except Exception:
+        pass
     return signal_item
 
 
@@ -1724,6 +1829,12 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
     except Exception:
         pass
     try:
+        from core.signal.y_state import stamp_y_state
+
+        stamp_y_state(work)
+    except Exception:
+        pass
+    try:
         cfg = get_dual_score_cfg()
         live_fusion = cfg.get("fusion_mode")
         book_w = work.get("dual_score_weights")
@@ -1821,6 +1932,18 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
         "dual_score_fusion": live_fusion or "blend",
         "dual_score_weights": live_w,
         "dual_score_window": work.get("dual_score_window"),
+        "dual_score_head": work.get("dual_score_head"),
+        "dual_score_single_head": bool(work.get("dual_score_single_head")),
+        "nowcast_P": work.get("nowcast_P"),
+        "y_mu": work.get("y_mu"),
+        "y_sigma": work.get("y_sigma"),
+        "y_disagree": work.get("y_disagree"),
+        "y_check": work.get("y_check"),
+        "y_sign_conflict": bool(work.get("y_sign_conflict")),
+        "eod_trust": work.get("eod_trust"),
+        "y_tau_to_close": work.get("y_tau_to_close"),
+        "y_tau_to_close_src": work.get("y_tau_to_close_src"),
+        "y_state": work.get("y_state"),
     }
 
 

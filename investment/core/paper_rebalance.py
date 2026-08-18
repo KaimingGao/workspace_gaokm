@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -55,6 +55,27 @@ def clip_shares_to_turnover_budget(
     return max(0, min(sh, max_sh))
 
 
+def resolve_buy_turnover_budget(
+    *,
+    sell_trades: List[dict],
+    buy_trades: List[dict],
+    equity_before: float,
+    max_turnover_pct: float,
+) -> Tuple[float, float, float]:
+    """买侧换手预算。返回 (sell_amt, buy_amt_so_far, buy_budget_amt)。
+
+    单边 50% 给买；卖未用可溢出给买（上限再 50%）。卖腿本身不受此帽。
+    """
+    sell_amt = sum(float(t.get("amount") or 0) for t in (sell_trades or []))
+    buy_amt_so_far = sum(float(t.get("amount") or 0) for t in (buy_trades or []))
+    eq = float(equity_before or 0.0)
+    _max_to = float(max_turnover_pct)
+    _single_side_amt = (_max_to / 2.0) / 100.0 * eq
+    _sell_excess = max(0.0, _single_side_amt - sell_amt)
+    buy_budget_amt = _single_side_amt + min(_sell_excess, _single_side_amt)
+    return sell_amt, buy_amt_so_far, buy_budget_amt
+
+
 def select_force_trim_codes(
     holdings: List[dict],
     *,
@@ -81,8 +102,8 @@ def select_force_trim_codes(
         except (TypeError, ValueError):
             key = float("-inf")
         (book if code in top_codes else mid).append((code, key))
-    mid.sort(key=lambda x: x[1])
-    book.sort(key=lambda x: x[1])
+    mid.sort(key=lambda x: (x[1], x[0]))
+    book.sort(key=lambda x: (x[1], x[0]))
     out: List[str] = []
     seen = set()
     for code, _ in mid + book:
@@ -95,6 +116,55 @@ def select_force_trim_codes(
     return out
 
 
+def select_force_trim_codes_sellable(
+    holdings: List[dict],
+    *,
+    score_by_code: Dict[str, Any],
+    top_codes: set,
+    trim_count: int,
+    quote_cache: Optional[Dict[str, dict]] = None,
+    sell_block_fn=None,
+) -> Tuple[List[str], List[Dict[str, Any]]]:
+    """膨胀减仓：跳过跌停/停牌，继续选下一名可卖票。
+
+    返回 (可卖 codes, 被挡 skips)。
+    """
+    n = max(0, int(trim_count or 0))
+    blocked: List[Dict[str, Any]] = []
+    if n <= 0 or not holdings:
+        return [], blocked
+    ordered = select_force_trim_codes(
+        holdings,
+        score_by_code=score_by_code,
+        top_codes=top_codes,
+        trim_count=len(holdings),  # 取全序，再按可卖性截断
+    )
+    out: List[str] = []
+    qcache = quote_cache or {}
+    for code in ordered:
+        if len(out) >= n:
+            break
+        quote = qcache.get(code) or {}
+        reason = None
+        if sell_block_fn is not None:
+            try:
+                reason = sell_block_fn(code, quote)
+            except Exception:
+                reason = None
+        if reason:
+            blocked.append(
+                {
+                    "stock_code": code,
+                    "reason": reason,
+                    "score": score_by_code.get(code),
+                    "path": "force_trim",
+                }
+            )
+            continue
+        out.append(code)
+    return out, blocked
+
+
 
 from core.paper import ORIGIN_STRATEGY, _now_iso, append_operation_log, build_ops_report
 from core.paper_costs import (
@@ -105,6 +175,69 @@ from core.paper_costs import (
     resolve_cost_model,
 )
 from core.ports.market import quote_price as _quote_price
+
+
+def quote_change_pct(quote: Optional[dict]) -> Optional[float]:
+    """从行情 dict 解析当日涨跌幅（%）；缺则 None。"""
+    if not isinstance(quote, dict):
+        return None
+    for key in ("change_raw", "change_pct", "pct_chg"):
+        raw = quote.get(key)
+        if raw is None:
+            continue
+        try:
+            return round(float(raw), 2)
+        except (TypeError, ValueError):
+            continue
+    raw = quote.get("change")
+    if raw is None:
+        return None
+    try:
+        return round(float(str(raw).replace("%", "").strip()), 2)
+    except (TypeError, ValueError):
+        return None
+
+
+def attach_change_pct_to_rebalance_report(
+    report: List[dict],
+    *,
+    summary: Optional[dict] = None,
+) -> List[dict]:
+    """给调仓报告行补 ``change_pct``（相对昨收）。
+
+    优先用 mark_to_market 持仓行；清仓/未入仓票再批量补行情。
+    """
+    rows = list(report or [])
+    if not rows:
+        return rows
+    chg_by: Dict[str, float] = {}
+    for h in (summary or {}).get("holdings") or []:
+        if not isinstance(h, dict):
+            continue
+        code = str(h.get("stock_code") or "").strip()
+        if not code or h.get("change_pct") is None:
+            continue
+        try:
+            chg_by[code] = round(float(h.get("change_pct")), 2)
+        except (TypeError, ValueError):
+            continue
+    missing = [
+        str(r.get("stock_code") or "").strip()
+        for r in rows
+        if str(r.get("stock_code") or "").strip()
+        and str(r.get("stock_code") or "").strip() not in chg_by
+    ]
+    if missing:
+        quotes = _batch_query_quotes(missing)
+        for code in missing:
+            chg = quote_change_pct(quotes.get(code) or {})
+            if chg is not None:
+                chg_by[code] = chg
+    for r in rows:
+        code = str(r.get("stock_code") or "").strip()
+        if code in chg_by:
+            r["change_pct"] = chg_by[code]
+    return rows
 
 
 def _batch_query_quotes(codes: List[str], *, workers: int = 8) -> Dict[str, dict]:
@@ -398,9 +531,10 @@ def simulate_cross_section_rebalance(
     top_items = (ranking or [])[:top_k]
     top_codes = {str(x.get("stock_code") or "") for x in top_items if x.get("stock_code")}
     item_by_code: Dict[str, dict] = {}
+    # lookup 补未进簿持仓；同码以 ranking（簿内行）覆盖，避免旧字段抢卖出门槛
     for src in list(score_lookup or []) + list(ranking or []):
         code = str(src.get("stock_code") or "")
-        if code and code not in item_by_code:
+        if code:
             item_by_code[code] = src
     # 卖出门槛 / 报告主分：ŷ_trade；买入 EOD 闸另算
     trade_score_by_code: Dict[str, float] = {}
@@ -411,17 +545,41 @@ def simulate_cross_section_rebalance(
         code = str(src.get("stock_code") or "")
         if not code:
             continue
-        if src.get("hard_reject") and code not in hard_reject_by_code:
+        if src.get("hard_reject"):
             hard_reject_by_code[code] = str(
                 src.get("reject_reason") or "硬拒绝"
             )
-        if code not in trade_score_by_code:
+        else:
+            hard_reject_by_code.pop(code, None)
+        try:
+            from core.signal.rebalance_tracks import (
+                TRACK_HEURISTIC,
+                resolve_score_track,
+            )
+            from core.signal.dual_score import decision_score_for_item
+
+            if resolve_score_track(src) == TRACK_HEURISTIC:
+                from core.signal.rebalance_tracks import heuristic_score_value
+
+                hs = heuristic_score_value(src)
+                if hs is not None:
+                    trade_score_by_code[code] = float(hs)
+            else:
+                d_sc = decision_score_for_item(src)
+                if d_sc is not None:
+                    trade_score_by_code[code] = float(d_sc)
+                elif src.get("predicted_score_blend") is not None:
+                    trade_score_by_code[code] = float(src.get("predicted_score_blend"))
+                elif src.get("predicted_score") is not None:
+                    trade_score_by_code[code] = float(src.get("predicted_score"))
+        except (TypeError, ValueError):
+            pass
+        except Exception:
             try:
                 from core.signal.rebalance_tracks import (
                     TRACK_HEURISTIC,
                     resolve_score_track,
                 )
-                from core.signal.dual_score import decision_score_for_item
 
                 if resolve_score_track(src) == TRACK_HEURISTIC:
                     from core.signal.rebalance_tracks import heuristic_score_value
@@ -429,63 +587,38 @@ def simulate_cross_section_rebalance(
                     hs = heuristic_score_value(src)
                     if hs is not None:
                         trade_score_by_code[code] = float(hs)
-                else:
-                    d_sc = decision_score_for_item(src)
-                    if d_sc is not None:
-                        trade_score_by_code[code] = float(d_sc)
-                    elif src.get("predicted_score_blend") is not None:
-                        trade_score_by_code[code] = float(src.get("predicted_score_blend"))
-                    elif src.get("predicted_score") is not None:
-                        trade_score_by_code[code] = float(src.get("predicted_score"))
+                elif src.get("predicted_score") is not None:
+                    trade_score_by_code[code] = float(src.get("predicted_score"))
             except (TypeError, ValueError):
                 pass
-            except Exception:
-                try:
-                    from core.signal.rebalance_tracks import (
-                        TRACK_HEURISTIC,
-                        resolve_score_track,
-                    )
+        try:
+            from core.signal.rebalance_tracks import (
+                TRACK_HEURISTIC,
+                resolve_score_track,
+            )
+            from core.signal.dual_score import eod_gate_score_for_item
 
-                    if resolve_score_track(src) == TRACK_HEURISTIC:
-                        from core.signal.rebalance_tracks import heuristic_score_value
+            if resolve_score_track(src) == TRACK_HEURISTIC:
+                from core.signal.rebalance_tracks import heuristic_score_value
 
-                        hs = heuristic_score_value(src)
-                        if hs is not None:
-                            trade_score_by_code[code] = float(hs)
-                    elif src.get("predicted_score") is not None:
-                        trade_score_by_code[code] = float(src.get("predicted_score"))
-                except (TypeError, ValueError):
-                    pass
-        if code not in eod_score_by_code:
-            try:
-                from core.signal.rebalance_tracks import (
-                    TRACK_HEURISTIC,
-                    resolve_score_track,
-                )
-                from core.signal.dual_score import eod_gate_score_for_item
+                hs = heuristic_score_value(src)
+                if hs is not None:
+                    eod_score_by_code[code] = float(hs)
+            else:
+                gate = eod_gate_score_for_item(src)
+                if gate is not None:
+                    eod_score_by_code[code] = float(gate)
+        except (TypeError, ValueError):
+            pass
+        except Exception:
+            pass
+        try:
+            from core.signal.dual_score import resolve_predicted_score_tau
 
-                if resolve_score_track(src) == TRACK_HEURISTIC:
-                    from core.signal.rebalance_tracks import heuristic_score_value
-
-                    hs = heuristic_score_value(src)
-                    if hs is not None:
-                        eod_score_by_code[code] = float(hs)
-                else:
-                    gate = eod_gate_score_for_item(src)
-                    if gate is not None:
-                        eod_score_by_code[code] = float(gate)
-            except (TypeError, ValueError):
-                pass
-            except Exception:
-                pass
-        if code not in tau_by_code:
-            try:
-                from core.signal.dual_score import resolve_predicted_score_tau
-
-                yt = resolve_predicted_score_tau(src)
-                if yt is not None:
-                    tau_by_code[code] = float(yt)
-            except Exception:
+            yt = resolve_predicted_score_tau(src)
+            if yt is not None:
+                tau_by_code[code] = float(yt)
+        except Exception:
                 pass
     # 兼容旧引用名：卖出主分 = ŷ_trade
     score_by_code = trade_score_by_code
@@ -507,10 +640,16 @@ def simulate_cross_section_rebalance(
     kept = []
     turnover_capped = False
     turnover_skipped: List[str] = []
+    # 卖出腿（含分池膨胀减仓）可能写入 warnings；须在首次引用前初始化
+    risk_gate: Dict[str, Any] = {"ok": True, "blocks": [], "warnings": []}
+    force_trim_sold: set = set()
+    force_trim_cut_in_book = False
     # P3-1：换手预算背包再分配 — 首轮被换手软上限跳过的候选，保留重试上下文，半仓榨干剩余预算
     _turnover_retry_pool: List[dict] = []
     # P3-3：卖出侧涨跌停/停牌跳过记录
     sell_match_skips: List[dict] = []
+    # 本轮膨胀减仓砍掉的簿内票，买腿禁止立刻买回
+    force_trim_no_rebuy: set = set()
 
     # 舆情先验：卖/买前一次性批量拉取（gate+scale_holds 时含持仓），禁止循环内 N×串行 AkShare
     prior_by_code: Dict[str, Any] = {}
@@ -700,17 +839,51 @@ def simulate_cross_section_rebalance(
                     sent_soft = should_soft_hold_from_sentiment(
                         prior_by_code.get(code)
                     )
-                    if should_soft_hold_for_low_score(ep) or sent_soft:
+                    y_conflict = False
+                    try:
+                        from core.signal.y_state import stamp_y_state
+
+                        # 卖出保护：双头分歧时暂缓因低分清仓
+                        sig_row = {
+                            "predicted_score": None,
+                            "predicted_score_eod_rem": None,
+                            "predicted_score_tau": rem_yhat,
+                            "gap_pct": ep.get("gap_pct") if isinstance(ep, dict) else None,
+                            "dual_score_window": "intraday",
+                        }
+                        # 尽量用持仓/评分上已有字段
+                        for src in (h,):
+                            if isinstance(src, dict):
+                                for k in (
+                                    "predicted_score",
+                                    "predicted_score_eod",
+                                    "predicted_score_eod_rem",
+                                    "predicted_score_tau",
+                                    "predicted_score_blend",
+                                    "score_rem",
+                                    "dual_score_head",
+                                    "y_check",
+                                ):
+                                    if src.get(k) is not None:
+                                        sig_row[k] = src.get(k)
+                        if sig_row.get("y_check") is None:
+                            stamp_y_state(sig_row)
+                        y_conflict = str(sig_row.get("y_check") or "") == "conflict"
+                    except Exception:
+                        y_conflict = False
+                    if should_soft_hold_for_low_score(ep) or sent_soft or y_conflict:
                         reason = None
                         kept.append(h)
                         event_prior_soft_holds.append(
                             {
                                 "stock_code": code,
-                                "gap_pct": ep.get("gap_pct"),
+                                "gap_pct": ep.get("gap_pct") if isinstance(ep, dict) else None,
                                 "sector_breadth": _sector_breadth,
                                 "rem_yhat": rem_yhat,
                                 "sentiment_soft_hold": bool(sent_soft),
-                                "warnings": list(ep.get("warnings") or []),
+                                "y_check_soft_hold": bool(y_conflict),
+                                "y_check": "conflict" if y_conflict else None,
+                                "warnings": list((ep or {}).get("warnings") or []),
                             }
                         )
                         continue
@@ -825,17 +998,45 @@ def simulate_cross_section_rebalance(
     paper["holdings"] = kept
     paper["cash"] = round(cash, 2)
 
-    # 分池滞回：持仓膨胀时优先卸中间带，再卸簿内最低分
+    # 分池滞回：持仓膨胀时优先卸中间带，再卸簿内最低分；跌停则换下一可卖票
     if not respect_max_positions and len(kept) > max_positions:
         trim_count = len(kept) - max_positions
-        force_sell_codes = set(
-            select_force_trim_codes(
-                kept,
-                score_by_code=score_by_code,
-                top_codes=top_codes,
-                trim_count=trim_count,
-            )
+        sellable, trim_blocked = select_force_trim_codes_sellable(
+            kept,
+            score_by_code=score_by_code,
+            top_codes=top_codes,
+            trim_count=trim_count,
+            quote_cache=_quote_cache,
+            sell_block_fn=_sell_match_block_reason,
         )
+        for b in trim_blocked:
+            sell_match_skips.append(
+                {
+                    "stock_code": b.get("stock_code"),
+                    "stock_name": next(
+                        (
+                            h.get("stock_name")
+                            for h in kept
+                            if str(h.get("stock_code") or "") == b.get("stock_code")
+                        ),
+                        None,
+                    ),
+                    "reason": b.get("reason"),
+                    "score": b.get("score"),
+                    "path": "force_trim",
+                }
+            )
+        if len(sellable) < trim_count:
+            warns = list(risk_gate.get("warnings") or [])
+            msg = (
+                f"分池膨胀减仓：需卸 {trim_count} 只，可卖 {len(sellable)} 只"
+                f"（{len(trim_blocked)} 只跌停/停牌跳过）"
+            )
+            if msg not in warns:
+                warns.append(msg)
+            risk_gate["warnings"] = warns
+            risk_gate["force_trim_incomplete"] = True
+        force_sell_codes = set(sellable)
         new_kept = []
         force_sell_trades: List[dict] = []
         for h in kept:
@@ -851,19 +1052,9 @@ def simulate_cross_section_rebalance(
                 if not price or price <= 0:
                     new_kept.append(h)
                     continue
-                # P3-3：跌停/停牌 → 跳过强制减仓，保留持仓
-                _sell_block = _sell_match_block_reason(code, quote)
-                if _sell_block:
-                    sell_match_skips.append({
-                        "stock_code": code,
-                        "stock_name": h.get("stock_name"),
-                        "reason": _sell_block,
-                        "score": score_by_code.get(code),
-                        "path": "force_trim",
-                    })
-                    new_kept.append(h)
-                    continue
                 band = "中间带" if code not in top_codes else "簿内"
+                if code in top_codes:
+                    force_trim_no_rebuy.add(code)
                 pnl_pct = round((price / cost - 1.0) * 100.0, 2) if cost else None
                 fill_px = apply_fill_price("sell", float(price), model=cost_model, params=fee_params)
                 amount = round(shares * fill_px, 2)
@@ -893,7 +1084,21 @@ def simulate_cross_section_rebalance(
         kept = new_kept
         paper["holdings"] = kept
         paper["cash"] = round(cash, 2)
+        force_trim_sold = {
+            str(t.get("stock_code") or "") for t in force_sell_trades if t.get("stock_code")
+        }
+        force_trim_cut_in_book = any(c in top_codes for c in force_trim_sold)
         if force_sell_trades:
+            if force_trim_no_rebuy:
+                warns = list(risk_gate.get("warnings") or [])
+                msg = (
+                    "膨胀减仓已卸簿内 "
+                    + ",".join(sorted(force_trim_no_rebuy))
+                    + "，本轮不买回"
+                )
+                if msg not in warns:
+                    warns.append(msg)
+                risk_gate["warnings"] = warns
             append_operation_log(
                 paper,
                 "force_trim",
@@ -903,9 +1108,16 @@ def simulate_cross_section_rebalance(
                     "max_positions": max_positions,
                     "codes": [str(t.get("stock_code")) for t in force_sell_trades],
                     "prefer_mid_band": True,
+                    "cut_in_book": force_trim_cut_in_book,
                     "path": "cluster",
                 },
             )
+            if force_trim_cut_in_book:
+                warns = list(risk_gate.get("warnings") or [])
+                msg = "膨胀减仓卸了簿内票（中间带不可卖）：本轮不买回，避免空转"
+                if msg not in warns:
+                    warns.append(msg)
+                risk_gate["warnings"] = warns
 
     buy_trades: List[dict] = []
     sentiment_restore_trades: List[dict] = []
@@ -913,11 +1125,13 @@ def simulate_cross_section_rebalance(
     holdings = kept
     buys_blocked = False
     risk_budget_skips: List[dict] = []
-    risk_gate: Dict[str, Any] = {"ok": True, "blocks": [], "warnings": []}
     mid_summary: Dict[str, Any] = {}
     risk_limits: Dict[str, Any] = {}
     _tau_floor_meta: Dict[str, Any] = {}
     _tau_floor: Optional[float] = None
+    # 膨胀减仓可能已写入 warnings / force_trim_incomplete，账户风控覆盖后并回
+    _trim_warns = list(risk_gate.get("warnings") or [])
+    _trim_incomplete = bool(risk_gate.get("force_trim_incomplete"))
 
     # 卖出后、买入前：账户风控；回撤硬拦，单票/行业改走逐笔预算缩量（P1）
     try:
@@ -930,6 +1144,14 @@ def simulate_cross_section_rebalance(
     except Exception:
         risk_gate = {"ok": True, "blocks": [], "warnings": []}
         risk_limits = {}
+    if _trim_warns:
+        warns = list(risk_gate.get("warnings") or [])
+        for w in _trim_warns:
+            if w not in warns:
+                warns.append(w)
+        risk_gate["warnings"] = warns
+    if _trim_incomplete:
+        risk_gate["force_trim_incomplete"] = True
 
     # 风控超额主动减仓：单票/行业超限 → 部分卖出至限额内（不只拦买入）
     risk_excess_trims: List[dict] = []
@@ -1278,11 +1500,17 @@ def simulate_cross_section_rebalance(
         )
         paper["last_optimize"] = opt
         target_w = opt.get("weights_pct") or {}
-    except Exception:
+    except Exception as e:
         paper["last_optimize"] = None
         target_w = {}
         if not risk_limits:
             risk_limits = {"max_position_pct": 25.0, "max_sector_pct": 40.0}
+        warn = f"optimize_weights 失败，已降级无目标仓约束: {type(e).__name__}: {e}"
+        warns = list(risk_gate.get("warnings") or [])
+        if warn not in warns:
+            warns.append(warn)
+        risk_gate["warnings"] = warns
+        risk_gate["optimize_fallback"] = True
 
     from core.portfolio_optimize import _sector_for, load_sector_map
     from core.risk.budget import (
@@ -1392,6 +1620,43 @@ def simulate_cross_section_rebalance(
                     "buy", float(price), model=cost_model, params=fee_params
                 )
                 amount = round(shares * fill_px, 2)
+                if (
+                    max_turnover_pct is not None
+                    and equity_before
+                    and equity_before > 0
+                ):
+                    sell_amt, buy_amt_so_far, buy_budget_amt = (
+                        resolve_buy_turnover_budget(
+                            sell_trades=sell_trades,
+                            buy_trades=buy_trades,
+                            equity_before=equity_before,
+                            max_turnover_pct=float(max_turnover_pct),
+                        )
+                    )
+                    clipped_sh = clip_shares_to_turnover_budget(
+                        shares=shares,
+                        fill_px=fill_px,
+                        buy_amt_so_far=buy_amt_so_far,
+                        buy_budget_amt=buy_budget_amt,
+                        sell_amt=sell_amt,
+                        equity_before=equity_before,
+                        max_turnover_pct=float(max_turnover_pct),
+                    )
+                    if clipped_sh < 100:
+                        risk_budget_skips.append(
+                            {
+                                "stock_code": code,
+                                "stock_name": h.get("stock_name"),
+                                "reason": "舆情补回跳过：换手预算不足",
+                                "sentiment_restore": True,
+                            }
+                        )
+                        turnover_capped = True
+                        continue
+                    if clipped_sh < shares:
+                        shares = clipped_sh
+                        amount = round(shares * fill_px, 2)
+                        turnover_capped = True
                 fee_info = calc_trade_fees(
                     "buy", amount, model=cost_model, params=fee_params
                 )
@@ -1494,6 +1759,16 @@ def simulate_cross_section_rebalance(
             code = str(item.get("stock_code") or "")
             if not code or code in held_codes:
                 continue
+            if code in force_trim_no_rebuy:
+                risk_budget_skips.append(
+                    {
+                        "stock_code": code,
+                        "stock_name": item.get("stock_name"),
+                        "reason": "force_trim_no_rebuy",
+                        "score": item.get("score"),
+                    }
+                )
+                continue
             if item.get("hard_reject"):
                 continue
             # SS-E2：predicted 轨须 production ŷ；heuristic 轨仍走 buy_gate_for_item
@@ -1534,6 +1809,17 @@ def simulate_cross_section_rebalance(
                     predicted_buy_floor=min_score,
                 )
                 if not ok_buy:
+                    risk_budget_skips.append(
+                        {
+                            "stock_code": code,
+                            "stock_name": item.get("stock_name"),
+                            "reason": skip_r or "below_eod_floor",
+                            "score": score,
+                            "eod_gate_score": gate_sc,
+                            "min_score": min_score,
+                            "score_track": item.get("score_track"),
+                        }
+                    )
                     continue
             except Exception:
                 try:
@@ -1545,6 +1831,16 @@ def simulate_cross_section_rebalance(
                 except Exception:
                     gate_sc = eod_score_by_code.get(code)
                 if gate_sc is None or float(gate_sc) < min_score:
+                    risk_budget_skips.append(
+                        {
+                            "stock_code": code,
+                            "stock_name": item.get("stock_name"),
+                            "reason": "below_eod_floor",
+                            "score": score,
+                            "eod_gate_score": gate_sc,
+                            "min_score": min_score,
+                        }
+                    )
                     continue
 
             # F1：ŷ_τ 买入闸（heuristic 袖仓默认跳过）
@@ -1576,6 +1872,31 @@ def simulate_cross_section_rebalance(
                         continue
             except Exception:
                 logger.warning("buy_loop tau_gate failed for %s", code, exc_info=True)
+
+            # Y(τ) 校验：双头分歧 / 缺 τ → 不按今日 EOD 新开
+            try:
+                from core.signal.y_state import buy_passes_y_check, stamp_y_state
+
+                if item.get("y_check") is None:
+                    stamp_y_state(item)
+                y_ok, y_reason = buy_passes_y_check(item)
+                if not y_ok:
+                    risk_budget_skips.append(
+                        {
+                            "stock_code": code,
+                            "stock_name": item.get("stock_name"),
+                            "reason": y_reason or "Y 校验未过",
+                            "score": score,
+                            "eod_gate_score": gate_sc,
+                            "y_check": item.get("y_check"),
+                            "y_disagree": item.get("y_disagree"),
+                            "eod_trust": item.get("eod_trust"),
+                            "y_state_gate": True,
+                        }
+                    )
+                    continue
+            except Exception:
+                logger.warning("buy_loop y_check failed for %s", code, exc_info=True)
 
             # 舆情先验（ŷ 外）：不改 score；gate 时 skip / 缩 ratio（用开环批量结果）
             prior_apply = None
@@ -1728,12 +2049,12 @@ def simulate_cross_section_rebalance(
             _to_clipped = False
             if max_turnover_pct is not None and equity_before and equity_before > 0:
                 _max_to = float(max_turnover_pct)
-                sell_amt = sum(float(t.get("amount") or 0) for t in sell_trades)
-                _single_side_pct = _max_to / 2.0
-                _single_side_amt = _single_side_pct / 100.0 * equity_before
-                _sell_excess = max(0.0, _single_side_amt - sell_amt)
-                buy_amt_so_far = sum(float(t.get("amount") or 0) for t in buy_trades)
-                buy_budget_amt = _single_side_amt + min(_sell_excess, _single_side_amt)
+                sell_amt, buy_amt_so_far, buy_budget_amt = resolve_buy_turnover_budget(
+                    sell_trades=sell_trades,
+                    buy_trades=buy_trades,
+                    equity_before=equity_before,
+                    max_turnover_pct=_max_to,
+                )
                 buy_amt_after = buy_amt_so_far + amount
                 proj_to = (sell_amt + buy_amt_after) / 2.0 / equity_before * 100.0
                 buy_over = buy_amt_after > buy_budget_amt + 1e-9
@@ -1845,7 +2166,7 @@ def simulate_cross_section_rebalance(
                 break
 
             _code = _rc["code"]
-            if _code in held_codes:
+            if _code in held_codes or _code in force_trim_no_rebuy:
                 continue
             _item = _rc["item"]
             _price = _rc["price"]
@@ -2221,12 +2542,44 @@ def simulate_cross_section_rebalance(
     except Exception:
         _dual_meta = {"fusion_mode": None, "note": "dual_score unavailable"}
 
+    empty_reason = None
+    if not buy_trades and not sell_trades:
+        floor_skips = [
+            s
+            for s in (risk_budget_skips or [])
+            if str(s.get("reason") or "")
+            in ("below_eod_floor", "oos_failed_no_buy")
+            or "floor" in str(s.get("reason") or "").lower()
+            or "门槛" in str(s.get("reason") or "")
+        ]
+        if not ranking and not top_codes:
+            empty_reason = "empty_ranking"
+        elif floor_skips and not buy_trades:
+            empty_reason = "all_below_eod_floor"
+        elif buys_blocked:
+            empty_reason = "buys_blocked"
+        elif risk_blocks:
+            empty_reason = "risk_blocked"
+        else:
+            empty_reason = "no_executable_changes"
+        if empty_reason:
+            warns = list(risk_gate.get("warnings") or [])
+            msg = (
+                f"无可执行变动（{empty_reason}）；"
+                f"min_predicted_score={min_score}；"
+                f"floor_skips={len(floor_skips)} / ranking={len(ranking or [])}"
+            )
+            if msg not in warns:
+                warns.append(msg)
+            risk_gate["warnings"] = warns
+
     return {
         "success": True,
         "top_k": top_k,
         "target_codes": sorted(top_codes),
         "min_score": json_safe_number(min_score),
         "min_hold_score": json_safe_number(min_hold_score),
+        "empty_reason": empty_reason,
         "sell_trades": sell_trades,
         "buy_trades": buy_trades,
         "sentiment_restore_trades": sentiment_restore_trades,

@@ -73,7 +73,7 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "tau": "open",
         "min_predicted_score_tau": 0.1,  # 基线；全池无人过闸时见 tau_freeze_breakglass
         "tau_freeze_breakglass": True,
-        "min_predicted_score_tau_relax": 0.0,
+        "min_predicted_score_tau_relax": None,  # None = 0.5 × 基线
         # rem 未推 ŷ_τ 时阻断买入（与 DEFAULT_DUAL_SCORE 一致；缺模型勿静默放行）
         "block_buy_if_tau_missing": True,
         "w_eod": 0.5,
@@ -82,12 +82,12 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "theme_w_tau_boost": 1.25,
         "eod_residual_var": 1.0,
         "enable_cascade_shadow": True,
-        "enable_tau_shadow_book": True,
+        "enable_tau_shadow_book": False,
         "enable_minute_tau": False,
         "minute_tau_hm": "09:45",
         "nowcast": {
             "enabled": False,
-            "write_shadow": True,
+            "write_shadow": False,
             "use_as_rank_key": False,
             "taus": ["eod", "open"],
             "q_process": 0.05,
@@ -121,6 +121,11 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "weak_trend_days": 20,
         "weak_trend_threshold_pct": -3.0,
         "score_penalty": 5.0,
+        # 阈值附近对罚分/仓位/权数软插值（百分点带宽）；0=硬跳变
+        "blend_width_pct": 1.0,
+        # P3：弱市时 optimize / 仓位缩放（pro_core.regime_position_scale）
+        "apply_position_scale": True,
+        "exposure_note": "仓位闸管 β 敞口；不进选股 ŷ。",
     },
     "fundamentals": {
         "enabled": True,
@@ -157,6 +162,8 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "industry_residual": True,
         "size_residual": True,
         "size_buckets": 3,
+        # P2a：对 predicted 排序键做行业残差（默认关；影子/人审后开）
+        "yhat_residual": False,
     },
     # 分组 live：开关在此；权向量在 data/live/cluster_weights_*.json
     "cluster_scoring": {
@@ -245,6 +252,28 @@ def signal_config_overlay(patch: Optional[Dict[str, Any]]) -> Iterator[None]:
         _config_overlays.reset(token)
 
 
+def _validate_scoring_floors(cfg: Dict[str, Any]) -> List[str]:
+    """启动时校验买入/持有 ŷ 门槛；hold 必须 ≤ buy（滞回）。"""
+    warnings: List[str] = []
+    scoring = cfg.get("scoring") if isinstance(cfg.get("scoring"), dict) else {}
+    try:
+        buy = float(scoring.get("min_predicted_score"))
+    except (TypeError, ValueError):
+        buy = None
+    try:
+        hold = float(scoring.get("min_hold_predicted_score"))
+    except (TypeError, ValueError):
+        hold = None
+    if buy is not None and hold is not None and hold > buy:
+        warnings.append(
+            f"scoring.min_hold_predicted_score({hold}) > "
+            f"min_predicted_score({buy})：刚买即卖风险；已钳制 hold=buy"
+        )
+        scoring["min_hold_predicted_score"] = buy
+        cfg["scoring"] = scoring
+    return warnings
+
+
 def load_signal_config(*, reload: bool = False) -> Dict[str, Any]:
     global _cached
     if _cached is not None and not reload:
@@ -262,6 +291,10 @@ def load_signal_config(*, reload: bool = False) -> Dict[str, Any]:
         cs = dict(cs)
         cs.pop("exclude_oos_failed_groups", None)
         cfg["cluster_scoring"] = cs
+    floor_warns = _validate_scoring_floors(cfg)
+    if floor_warns:
+        cfg.setdefault("_config_warnings", [])
+        cfg["_config_warnings"] = list(cfg.get("_config_warnings") or []) + floor_warns
     _cached = cfg
     return _apply_overlays(deepcopy(cfg))
 

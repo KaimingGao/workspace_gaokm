@@ -63,7 +63,7 @@
   },
   "scoring": {
     "rank_mode": "predicted_score",
-    "min_predicted_score": 0.6,
+    "min_predicted_score": 1.0,
     "min_hold_predicted_score": 0.0,
     "horizon_days": 1,
     "enable_calibration": true,
@@ -74,7 +74,7 @@
     "tau": "open",
     "min_predicted_score_tau": 0.1,
     "tau_freeze_breakglass": true,
-    "min_predicted_score_tau_relax": 0.0,
+    "min_predicted_score_tau_relax": null,
     "block_buy_if_tau_missing": true,
     "w_eod": 0.5,
     "w_tau": 0.5,
@@ -82,12 +82,12 @@
     "theme_w_tau_boost": 1.25,
     "eod_residual_var": 1.0,
     "enable_cascade_shadow": true,
-    "enable_tau_shadow_book": true,
+    "enable_tau_shadow_book": false,
     "enable_minute_tau": false,
     "minute_tau_hm": "09:45",
     "nowcast": {
       "enabled": false,
-      "write_shadow": true,
+      "write_shadow": false,
       "use_as_rank_key": false,
       "taus": [
         "eod",
@@ -97,12 +97,29 @@
       "theme_q_boost": 2.0,
       "gap_q_trigger_pct": 2.0,
       "gap_q_boost": 2.0
+    },
+    "y_state": {
+      "enabled": true,
+      "eps_sign": 0.05,
+      "disagree_warn": 0.5,
+      "sigma_warn": 1.5,
+      "filter_buys": true,
+      "block_on": [
+        "conflict",
+        "missing_tau"
+      ],
+      "defer_on": [
+        "low_conf",
+        "single_head"
+      ],
+      "show_badge": true,
+      "scale_weights": true
     }
   },
   "stance_thresholds": {
-    "avoid": -0.5,
-    "wait": 0.0,
-    "probe": 0.35
+    "avoid": -0.25,
+    "wait": 0.25,
+    "probe": 0.6
   },
   "stance_thresholds_heuristic": {
     "avoid": 45,
@@ -121,7 +138,9 @@
     "enabled": true,
     "weak_trend_days": 20,
     "weak_trend_threshold_pct": -3,
-    "score_penalty": 5
+    "score_penalty": 5,
+    "blend_width_pct": 1.0,
+    "apply_position_scale": true
   },
   "fundamentals": {
     "enabled": true,
@@ -155,7 +174,8 @@
     "zscore_scale": 10,
     "industry_residual": true,
     "size_residual": true,
-    "size_buckets": 3
+    "size_buckets": 3,
+    "yhat_residual": false
   },
   "cluster_scoring": {
     "mode": "active",

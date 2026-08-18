@@ -227,7 +227,6 @@ def rank_cluster_pools(
             TRACK_PREDICTED,
             get_rebalance_tracks_cfg,
             heuristic_score_value,
-            sleeve_policy_allows,
             table_yhat_score_value,
             tag_item_tracks,
         )
@@ -238,9 +237,6 @@ def rank_cluster_pools(
         TRACK_HEURISTIC = "heuristic"  # type: ignore
         TRACK_PREDICTED = "predicted"  # type: ignore
 
-        def sleeve_policy_allows(tracks_cfg=None):  # type: ignore
-            return False
-
         def tag_item_tracks(item, *, oos_failed_labels=None, force_track=None):  # type: ignore
             return item
 
@@ -249,9 +245,6 @@ def rank_cluster_pools(
 
         def table_yhat_score_value(item):  # type: ignore
             return item.get("score") if isinstance(item, dict) else None
-
-        def table_yhat_score_value(item):  # type: ignore
-            return None
 
     active = load_active_cluster_weights()
     if not active or not active.get("code_map"):
@@ -306,11 +299,8 @@ def rank_cluster_pools(
     rejected: List[dict] = []
     scored_extra: List[dict] = []  # hard_reject / 未映射 / OOS 阻断，供展示
     mapped_rows: List[dict] = []
-    sleeve_candidates: List[dict] = []  # OOS 失败 → heuristic 袖仓候选
     below_min = 0
     oos_blocked_count = 0
-    oos_sleeve_count = 0
-    sleeve_added = 0
 
     # 一次批量行情 → 池内共享 sector_gap_breadth（对齐 rem 面板按日广度；避免 N×同伴拉取）
     quote_cache: Dict[str, dict] = {}
@@ -411,6 +401,7 @@ def rank_cluster_pools(
                     "stock_code": item.get("stock_code"),
                     "stock_name": item.get("stock_name"),
                     "score": item.get("score"),
+                    "predicted_score": item.get("predicted_score"),
                     "hard_reject": True,
                     "reject_reason": item.get("reject_reason"),
                     "cluster_label": item.get("cluster_label"),
@@ -546,9 +537,6 @@ def rank_cluster_pools(
             "event_prior": item.get("event_prior"),
         }
         tag_item_tracks(row, oos_failed_labels=oos_blocked_labels, force_track=TRACK_PREDICTED)
-        if exclude_oos and str(label) in oos_blocked_labels:
-            row["oos_status"] = "fail"
-            row["oos_degraded_predicted"] = True
         # 冻结对账用：刷簿时 quote.open（PIT），避免事后日线复权漂移
         q_row = quote_cache.get(str(item.get("stock_code") or raw) or "")
         if isinstance(q_row, dict):
@@ -582,8 +570,10 @@ def rank_cluster_pools(
     for label in sorted(by_label.keys()):
         members = sorted(
             by_label[label],
-            key=lambda x: float(x.get("score") or 0.0),
-            reverse=True,
+            key=lambda x: (
+                -float(x.get("score") or 0.0),
+                str(x.get("stock_code") or ""),
+            ),
         )
         ranked = []
         for i, it in enumerate(members):
@@ -622,10 +612,6 @@ def rank_cluster_pools(
     # 约束感知装填：可成交过滤 · 行业名额 · τ 闸 defer/exclude（与纸面 risk 同配置）
     book_skips: List[dict] = []
     book_constraint_stats: Dict[str, Any] = {}
-    sleeve_max = int((tracks_cfg or {}).get("heuristic_sleeve_max") or 0)
-    primary_cap = max_n
-    if sleeve_policy_allows(tracks_cfg) and sleeve_max > 0:
-        primary_cap = max(1, max_n - sleeve_max)
     try:
         from core.signal.book_constraints import (
             fill_book_with_constraints,
@@ -635,7 +621,7 @@ def rank_cluster_pools(
 
         fill = fill_book_with_constraints(
             eligible,
-            max_names=primary_cap,
+            max_names=max_n,
             quotes=quote_cache,
             dual_cfg=_dual_cfg,
             risk_limits=resolve_book_risk_limits(),
@@ -646,41 +632,16 @@ def rank_cluster_pools(
         book_constraint_stats = dict(fill.get("stats") or {})
     except Exception:
         eligible.sort(
-            key=lambda x: float(
-                rank_key_for_item(x, config={"dual_score": _dual_cfg}) or 0.0
+            key=lambda x: (
+                -float(
+                    rank_key_for_item(x, config={"dual_score": _dual_cfg}) or 0.0
+                ),
+                str(x.get("stock_code") or ""),
             ),
-            reverse=True,
         )
-        book = eligible[:primary_cap]
+        book = eligible[:max_n]
         for i, b in enumerate(book):
             b["rank"] = i + 1
-
-    # heuristic 袖仓：占用剩余名额，最多 sleeve_max；按 heuristic 降序，跳过 τ 约束
-    sleeve_added = 0
-    if sleeve_policy_allows(tracks_cfg) and sleeve_max > 0:
-        slots = max(0, max_n - len(book))
-        take_n = min(slots, sleeve_max)
-        sleeve_eligible = [
-            dict(r)
-            for r in sleeve_candidates
-            if not r.get("below_min_score")
-            and str(r.get("stock_code") or "")
-            not in {str(b.get("stock_code") or "") for b in book}
-        ]
-        sleeve_eligible.sort(
-            key=lambda x: float(x.get("heuristic_score") or -1e9),
-            reverse=True,
-        )
-        for srow in sleeve_eligible[:take_n]:
-            srow = dict(srow)
-            srow["oos_sleeve"] = True
-            srow["score_track"] = TRACK_HEURISTIC
-            srow["rank_key"] = "heuristic_score"
-            book.append(srow)
-            sleeve_added += 1
-        book_constraint_stats["heuristic_sleeve_added"] = sleeve_added
-        book_constraint_stats["heuristic_sleeve_max"] = sleeve_max
-        book_constraint_stats["primary_cap"] = primary_cap
 
     for i, b in enumerate(book):
         b["rank"] = i + 1
@@ -711,6 +672,7 @@ def rank_cluster_pools(
             -(
                 float(rank_key_for_item(x, config={"dual_score": _dual_cfg}) or 0.0)
             ),
+            str(x.get("stock_code") or ""),
         )
     )
 
@@ -739,11 +701,8 @@ def rank_cluster_pools(
                 "top_n_per_group": top_n_cfg,
                 "oos_blocked_labels": sorted(oos_blocked_labels),
                 "oos_blocked_count": oos_blocked_count,
-                "oos_sleeve_candidates": oos_sleeve_count,
-                "oos_sleeve_added": sleeve_added,
                 "rebalance_tracks": {
                     "oos_fail_policy": (tracks_cfg or {}).get("oos_fail_policy"),
-                    "heuristic_sleeve_max": sleeve_max,
                     "heuristic_buy_floor": (tracks_cfg or {}).get("heuristic_buy_floor"),
                     "heuristic_hold_floor": (tracks_cfg or {}).get("heuristic_hold_floor"),
                 },
@@ -760,7 +719,7 @@ def rank_cluster_pools(
             from core.signal.cluster_live import save_tau_shadow_cluster_book
 
             ds = get_dual_score_cfg()
-            if ds.get("enable_tau_shadow_book", True):
+            if ds.get("enable_tau_shadow_book"):
                 tau_book, tau_shadow_meta = build_tau_shadow_book(
                     eligible,
                     max_names=max_n,
@@ -795,7 +754,7 @@ def rank_cluster_pools(
 
             ds_nc = get_dual_score_cfg()
             nc = ds_nc.get("nowcast") if isinstance(ds_nc.get("nowcast"), dict) else {}
-            if nc.get("write_shadow", True) or nc.get("enabled"):
+            if nc.get("write_shadow") or nc.get("enabled"):
                 nc_book, nowcast_shadow_meta = build_nowcast_shadow_book(
                     eligible,
                     max_names=max_n,
@@ -838,6 +797,19 @@ def rank_cluster_pools(
             nowcast_shadow_path = None
             nowcast_shadow_meta = None
 
+    empty_reason = None
+    if not book:
+        if below_min and universe_n and below_min >= universe_n:
+            empty_reason = "all_below_eod_floor"
+        elif below_min and not eligible:
+            empty_reason = "all_below_eod_floor"
+        elif eligible and book_skips and not book:
+            empty_reason = "book_constraints_empty"
+        elif not mapped_rows:
+            empty_reason = "no_mapped_scores"
+        else:
+            empty_reason = "empty_book"
+
     return {
         "success": True,
         "task": "rank_cluster_pools",
@@ -851,15 +823,15 @@ def rank_cluster_pools(
         "horizon_days": horizon_days,
         "oos_blocked_labels": sorted(oos_blocked_labels),
         "oos_blocked_count": oos_blocked_count,
-        "oos_sleeve_candidates": oos_sleeve_count,
-        "oos_sleeve_added": sleeve_added,
         "rebalance_tracks": tracks_cfg,
         "groups": groups_out,
         "book": book,
         "ranking": book,
+        "name_count": len(book),
         "scored_all": scored_all,
         "unmapped_count": len(unmapped),
         "below_min_score_count": below_min,
+        "empty_reason": empty_reason,
         "score_universe_n": universe_n,
         "score_universe_capped": universe_capped,
         "score_universe_pre_ranked": pre_ranked,

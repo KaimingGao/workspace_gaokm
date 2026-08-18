@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 DEFAULT_NOWCAST: Dict[str, Any] = {
     "enabled": False,
-    "write_shadow": True,
+    "write_shadow": False,
     "use_as_rank_key": False,
     "taus": ["eod", "open"],
     "q_process": 0.05,
@@ -213,9 +213,10 @@ def merge_nowcast_cfg(raw: Any) -> Dict[str, Any]:
     if isinstance(raw, dict):
         out.update(raw)
     out["enabled"] = bool(out.get("enabled", False))
-    out["write_shadow"] = bool(
-        out.get("write_shadow") if out.get("write_shadow") is not None else True
-    )
+    if isinstance(raw, dict) and "write_shadow" in raw:
+        out["write_shadow"] = bool(raw.get("write_shadow"))
+    else:
+        out["write_shadow"] = bool(out["enabled"])
     out["use_as_rank_key"] = bool(out.get("use_as_rank_key", False))
     out["q_process"] = as_process_q(out.get("q_process"), 0.05)
     if out.get("prior_var") is not None:

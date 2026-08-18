@@ -103,34 +103,54 @@ class TestRebalanceTracks(unittest.TestCase):
         self.assertAlmostEqual(floor, 45.0)
         self.assertAlmostEqual(sc, 40.0)
 
-        # H=50 > 45 → 保持
-        sell2, sc2, _, track2 = hold_decision_for_item(
+        # H=50 但有全局 ŷ=2.0 → 走 predicted hold（floor=0）保持
+        sell2, sc2, floor2, track2 = hold_decision_for_item(
             {
                 "return_model_source": "oos_failed_global",
                 "cluster_label": "G_bad",
                 "heuristic_score": 50.0,
                 "predicted_score": 2.0,
+                "predicted_score_eod": 2.0,
                 "oos_blocked": True,
             },
             tracks_cfg=cfg,
             predicted_hold_floor=0.0,
         )
         self.assertFalse(sell2)
-        self.assertEqual(track2, "heuristic")
-        self.assertAlmostEqual(sc2, 50.0)
+        self.assertEqual(track2, "predicted")
+        self.assertAlmostEqual(floor2, 0.0)
+        self.assertAlmostEqual(sc2, 2.0)
 
-        # 无 heuristic → 保守卖出
-        sell3, _, _, track3 = hold_decision_for_item(
+        # 无 heuristic、有全局 ŷ=3.0 → 不再保守误杀，按 ŷ hold 保持
+        sell3, sc3, _, track3 = hold_decision_for_item(
             {
                 "return_model_source": "oos_failed_global",
                 "oos_blocked": True,
                 "predicted_score": 3.0,
+                "predicted_score_eod": 3.0,
             },
             tracks_cfg=cfg,
             predicted_hold_floor=0.0,
         )
-        self.assertTrue(sell3)
-        self.assertEqual(track3, "heuristic")
+        self.assertFalse(sell3)
+        self.assertEqual(track3, "predicted")
+        self.assertAlmostEqual(sc3, 3.0)
+
+        # 全局 ŷ 低于 hold → 卖
+        sell_low, sc_low, _, track_low = hold_decision_for_item(
+            {
+                "return_model_source": "oos_failed_global",
+                "oos_blocked": True,
+                "predicted_score": -0.5,
+                "predicted_score_eod": -0.5,
+                "heuristic_score": 80.0,
+            },
+            tracks_cfg=cfg,
+            predicted_hold_floor=0.0,
+        )
+        self.assertTrue(sell_low)
+        self.assertEqual(track_low, "predicted")
+        self.assertAlmostEqual(sc_low, -0.5)
 
         # 非 OOS：仍走 ŷ hold
         sell4, _, _, track4 = hold_decision_for_item(
@@ -168,6 +188,33 @@ class TestRebalanceTracks(unittest.TestCase):
         self.assertFalse(sell)
         self.assertEqual(track, "heuristic")
         self.assertAlmostEqual(sc, 50.0)
+
+        # H 恰好等于阈值 → 卖（H > 阈值才保持）
+        sell_eq, sc_eq, _, track_eq = hold_decision_for_item(
+            {
+                "score_track": "heuristic",
+                "score_scale": "heuristic_0_100",
+                "heuristic_score": 45.0,
+                "score": 45.0,
+            },
+            tracks_cfg=cfg,
+            predicted_hold_floor=0.0,
+        )
+        self.assertTrue(sell_eq)
+        self.assertEqual(track_eq, "heuristic")
+        self.assertAlmostEqual(sc_eq, 45.0)
+
+        sell_oos_eq, _, _, track_oos_eq = hold_decision_for_item(
+            {
+                "oos_blocked": True,
+                "return_model_source": "oos_failed_heuristic",
+                "heuristic_score": 45.0,
+            },
+            tracks_cfg=cfg,
+            predicted_hold_floor=0.0,
+        )
+        self.assertTrue(sell_oos_eq)
+        self.assertEqual(track_oos_eq, "heuristic")
 
 
 if __name__ == "__main__":

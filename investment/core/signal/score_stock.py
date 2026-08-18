@@ -520,7 +520,10 @@ def score_stock(
         config=cfg,
         sentiment=sentiment_for_score,
         required_factor_keys=required_factor_keys or None,
-        mom3_hard_reject=not bool(eod_pit.get("rolled_to_next")),
+        # 生产打分始终算出 sub_scores / ŷ；mom3 追高只作提示，不 hard_reject 掐死入簿
+        mom3_hard_reject=False,
+        stock_code=str(code),
+        stock_name=str(name),
     )
     if mapped and cluster_yhat_shadow_compute_allowed(mode):
         cluster_label = mapped.get("cluster_label")
@@ -783,6 +786,7 @@ def score_stock(
         "rank_mode": "predicted_score",
         "hard_reject": scored.get("hard_reject"),
         "reject_reason": scored.get("reject_reason"),
+        "mom3_chase_risk": scored.get("mom3_chase_risk"),
         "factors": scored.get("factors"),
         "reasons": scored.get("reasons"),
         "invalidation": scored.get("invalidation"),

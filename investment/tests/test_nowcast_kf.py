@@ -136,6 +136,11 @@ class TestNowcastKf(unittest.TestCase):
         self.assertAlmostEqual(as_process_q(None), 0.05)
         merged = merge_nowcast_cfg({"q_process": 0.0})
         self.assertEqual(merged["q_process"], 0.0)
+        self.assertFalse(merged.get("write_shadow"))
+        merged_on = merge_nowcast_cfg({"enabled": True})
+        self.assertTrue(merged_on.get("write_shadow"))
+        merged_off = merge_nowcast_cfg({"enabled": False, "write_shadow": True})
+        self.assertTrue(merged_off.get("write_shadow"))
         cfg = get_dual_score_cfg(
             {"dual_score": {"nowcast": {"q_process": 0.0}}}
         )

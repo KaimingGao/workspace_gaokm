@@ -231,6 +231,26 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertAlmostEqual(floor, 0.0)
         self.assertEqual(meta.get("n_pass_base"), 0)
 
+    def test_tau_freeze_breakglass_default_relax_is_half_base(self):
+        from core.signal.dual_score import resolve_tau_buy_floor_for_pool
+
+        pool = [
+            {"predicted_score_tau": 0.05},
+            {"predicted_score_tau": 0.08},
+        ]
+        floor, meta = resolve_tau_buy_floor_for_pool(
+            pool,
+            config={
+                "dual_score": {
+                    "min_predicted_score_tau": 0.3,
+                    "tau_freeze_breakglass": True,
+                }
+            },
+        )
+        self.assertEqual(meta.get("mode"), "freeze_breakglass")
+        self.assertAlmostEqual(floor, 0.15)
+        self.assertAlmostEqual(meta.get("relax_floor"), 0.15)
+
     def test_tau_freeze_breakglass_keeps_strict_when_someone_passes(self):
         from core.signal.dual_score import (
             buy_passes_tau_gate,
