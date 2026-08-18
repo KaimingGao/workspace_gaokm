@@ -12,58 +12,86 @@ from __future__ import annotations
 
 from typing import List, Optional
 
+from core.backtest.matching import (
+    is_limit_down,
+    is_limit_up,
+    limit_up_threshold_for_code,
+)
 
-def _count_limit_up(bars: List[dict], window: int = 20) -> int:
-    """统计近期涨停次数（假设涨停幅度为9.5%以上）。"""
+
+def _count_limit_up(
+    bars: List[dict],
+    window: int = 20,
+    *,
+    stock_code: Optional[str] = None,
+    stock_name: Optional[str] = None,
+) -> int:
+    """统计近期涨停次数（板别阈值见 matching.limit_up_threshold_for_code）。"""
     if len(bars) < 2:
         return 0
-    
+
     count = 0
     for i in range(max(1, len(bars) - window), len(bars)):
-        prev_close = bars[i-1]["close"]
-        cur_close = bars[i]["close"]
-        if prev_close > 0:
-            change_pct = (cur_close / prev_close - 1) * 100
-            if change_pct >= 9.5:
-                count += 1
+        if is_limit_up(
+            bars[i - 1]["close"],
+            bars[i]["close"],
+            stock_code=stock_code,
+            stock_name=stock_name,
+        ):
+            count += 1
     return count
 
 
-def _count_limit_down(bars: List[dict], window: int = 20) -> int:
+def _count_limit_down(
+    bars: List[dict],
+    window: int = 20,
+    *,
+    stock_code: Optional[str] = None,
+    stock_name: Optional[str] = None,
+) -> int:
     """统计近期跌停次数。"""
     if len(bars) < 2:
         return 0
-    
+
     count = 0
     for i in range(max(1, len(bars) - window), len(bars)):
-        prev_close = bars[i-1]["close"]
-        cur_close = bars[i]["close"]
-        if prev_close > 0:
-            change_pct = (cur_close / prev_close - 1) * 100
-            if change_pct <= -9.5:
-                count += 1
+        if is_limit_down(
+            bars[i - 1]["close"],
+            bars[i]["close"],
+            stock_code=stock_code,
+            stock_name=stock_name,
+        ):
+            count += 1
     return count
 
 
-def _calc_consecutive_limit_up(bars: List[dict]) -> int:
-    """计算最大连板高度（连续涨停天数）。"""
+def _calc_consecutive_limit_up(
+    bars: List[dict],
+    window: int = 20,
+    *,
+    stock_code: Optional[str] = None,
+    stock_name: Optional[str] = None,
+) -> int:
+    """计算近 window 内最大连板高度（连续涨停天数）。"""
     if len(bars) < 2:
         return 0
-    
+
     max_consecutive = 0
     current_consecutive = 0
-    
-    for i in range(1, len(bars)):
-        prev_close = bars[i-1]["close"]
-        cur_close = bars[i]["close"]
-        if prev_close > 0:
-            change_pct = (cur_close / prev_close - 1) * 100
-            if change_pct >= 9.5:
-                current_consecutive += 1
-                max_consecutive = max(max_consecutive, current_consecutive)
-            else:
-                current_consecutive = 0
-    
+    start = max(1, len(bars) - window)
+
+    for i in range(start, len(bars)):
+        if is_limit_up(
+            bars[i - 1]["close"],
+            bars[i]["close"],
+            stock_code=stock_code,
+            stock_name=stock_name,
+        ):
+            current_consecutive += 1
+            max_consecutive = max(max_consecutive, current_consecutive)
+        else:
+            current_consecutive = 0
+
     return max_consecutive
 
 
@@ -147,7 +175,12 @@ def _count_gap(bars: List[dict], window: int = 10) -> dict:
     }
 
 
-def score_reversal(bars: List[dict]) -> tuple[float, dict]:
+def score_reversal(
+    bars: List[dict],
+    *,
+    stock_code: Optional[str] = None,
+    stock_name: Optional[str] = None,
+) -> tuple[float, dict]:
     """
     反转因子评分（基于位置和统计特征，与动量解耦）。
     
@@ -166,10 +199,16 @@ def score_reversal(bars: List[dict]) -> tuple[float, dict]:
             "rev_amplitude": None,
             "omit_sub_score": True,
         }
-    
+
+    up_thr = limit_up_threshold_for_code(stock_code, stock_name=stock_name)
+
     # 1. 涨停统计评分
-    limit_up_count = _count_limit_up(bars, 20)
-    limit_down_count = _count_limit_down(bars, 20)
+    limit_up_count = _count_limit_up(
+        bars, 20, stock_code=stock_code, stock_name=stock_name
+    )
+    limit_down_count = _count_limit_down(
+        bars, 20, stock_code=stock_code, stock_name=stock_name
+    )
     
     limit_score = 50.0
     # 涨停次数多 = 过热，反转可能性大（向下反转）
@@ -179,14 +218,16 @@ def score_reversal(bars: List[dict]) -> tuple[float, dict]:
         limit_score = 38.0  # 两次涨停，谨慎
     elif limit_up_count == 1:
         limit_score = 52.0  # 一次涨停，中性偏好
-    # 跌停次数多 = 超跌，反转可能性大（向上反转）
+    # 跌停次数多 = 超跌，反转可能性大（向上反转）；须抬分故用 max
     if limit_down_count >= 2:
-        limit_score = min(limit_score, 72.0)  # 多次跌停，有反弹机会
+        limit_score = max(limit_score, 72.0)  # 多次跌停，有反弹机会
     elif limit_down_count == 1:
-        limit_score = min(limit_score, 58.0)  # 一次跌停，轻微超卖
+        limit_score = max(limit_score, 58.0)  # 一次跌停，轻微超卖
     
-    # 2. 连板高度评分
-    max_consecutive = _calc_consecutive_limit_up(bars)
+    # 2. 连板高度评分（仅近 window，避免陈旧连板污染）
+    max_consecutive = _calc_consecutive_limit_up(
+        bars, 20, stock_code=stock_code, stock_name=stock_name
+    )
     
     consecutive_score = 50.0
     if max_consecutive >= 3:
@@ -259,4 +300,5 @@ def score_reversal(bars: List[dict]) -> tuple[float, dict]:
         "rev_position": round(position, 1) if position is not None else None,
         "rev_amplitude": amp_feature,
         "rev_gap_info": gap_info,
+        "rev_limit_up_threshold_pct": up_thr,
     }

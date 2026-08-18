@@ -5768,6 +5768,13 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   min-width: 7.75rem;
 }
 
+/* 权重：分数预算 / 等权 / 风险平价 lite */
+#quant-weight-mode,
+.quant-pro-field select#quant-weight-mode {
+  width: 10.75rem;
+  min-width: 10.75rem;
+}
+
 .quant-pro-field select:focus {
   outline: none;
   border-color: var(--accent);

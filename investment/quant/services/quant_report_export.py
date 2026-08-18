@@ -16,21 +16,17 @@ SCORING_DEFAULT_NOTE = (
 
 
 def _fmt_yhat(v: Any, *, digits: int = 3) -> str:
-    """收益分 ŷ 展示：百分点量纲，带 %。拒收 0–100 heuristic 脏分。"""
+    """收益分 ŷ 展示：百分点量纲，带 %。
+
+    调用方应先用 ``_yhat_from_row`` 滤掉 heuristic；此处不再用 ≥10 拒收
+    （涨停板 ŷ% 完全可能 ≥10）。
+    """
     if v is None or v == "":
         return "—"
     try:
         f = float(v)
     except (TypeError, ValueError):
         return str(v)
-    try:
-        from core.signal.score_display import looks_like_legacy_heuristic_score
-
-        if looks_like_legacy_heuristic_score(f):
-            return "—"
-    except Exception:
-        if abs(f) >= 10.0:
-            return "—"
     return f"{f:.{digits}f}%"
 
 
@@ -71,7 +67,7 @@ def _heuristic_from_row(row: Optional[dict]) -> Optional[float]:
         f = float(sc) if sc is not None and sc != "" else None
     except (TypeError, ValueError):
         f = None
-    if f is not None and looks_like_legacy_heuristic_score(f):
+    if f is not None and looks_like_legacy_heuristic_score(f, item=row):
         return f
     return None
 
@@ -105,7 +101,7 @@ def _yhat_from_row(row: Optional[dict]) -> Optional[float]:
             f = float(v)
         except (TypeError, ValueError):
             continue
-        if looks_like_legacy_heuristic_score(f):
+        if looks_like_legacy_heuristic_score(f, item=row):
             continue
         return f
     return None
@@ -588,6 +584,32 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
             f"(Δ累计 {((nc.get('delta') or {}).get('total_return_pct'))}%)"
         )
 
+    yc = report.get("y_check_summary") or {}
+    if yc.get("success") and (yc.get("n") or yc.get("summary_line")):
+        line = yc.get("summary_line")
+        if not line:
+            mix = " · ".join(
+                f"{(r.get('label') or r.get('check'))} {r.get('n')}"
+                for r in (yc.get("by_y_check") or yc.get("rows") or [])[:4]
+                if r.get("n")
+            )
+            line = f"Y校验 {yc.get('as_of') or '—'}：n={yc.get('n')}" + (
+                f" · {mix}" if mix else ""
+            )
+        hr = None
+        for r in yc.get("by_y_check") or []:
+            if r.get("check") == "ok" and r.get("hit_rate") is not None:
+                hr = r.get("hit_rate")
+                break
+        if hr is None and yc.get("hit_rate") is not None:
+            hr = yc.get("hit_rate")
+        if hr is not None:
+            try:
+                line += f" · 全池命中 {float(hr):.0%}"
+            except (TypeError, ValueError):
+                pass
+        bullets.append(line)
+
     # 附录探针（若有）
     ic = report.get("factor_ic") or {}
     factors = ic.get("factors") or []
@@ -673,6 +695,31 @@ def render_quant_report_markdown(report: Dict[str, Any]) -> str:
             + nc_section["markdown_lines"]
             + [""]
         )
+
+    yc = report.get("y_check_summary") or {}
+    if yc.get("success") and (yc.get("n") or yc.get("by_y_check") or yc.get("rows")):
+        yc_lines = [
+            f"- 决策日 **{yc.get('as_of') or '—'}** · 样本 n={yc.get('n') or 0}",
+        ]
+        if yc.get("summary_line"):
+            yc_lines.append(f"- {yc.get('summary_line')}")
+        for r in yc.get("by_y_check") or yc.get("rows") or []:
+            if not isinstance(r, dict):
+                continue
+            lab = r.get("label") or r.get("check") or "—"
+            bit = f"- **{lab}**：n={r.get('n')}"
+            if r.get("hit_rate") is not None:
+                try:
+                    bit += f" · 命中 {float(r['hit_rate']):.0%}"
+                except (TypeError, ValueError):
+                    pass
+            elif r.get("share") is not None:
+                try:
+                    bit += f" · 占比 {float(r['share']):.0%}"
+                except (TypeError, ValueError):
+                    pass
+            yc_lines.append(bit)
+        parts.extend(_lines("Y(τ) 校验分桶", yc_lines))
 
     # 附录：单票遗留探针
     appendix_bits: List[str] = []
@@ -955,6 +1002,8 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
         f"- 最大回撤：{ps.get('max_drawdown_pct')}%",
         f"- 交易次数：{ps.get('trade_count')}",
         f"- 分数口径：{_topk_score_axis_note(ps)}",
+        f"- 成本：{ps.get('cost_model') or (ps.get('params') or {}).get('cost_mode') or '—'}",
+        f"- TopK / 持有期：{(ps.get('params') or {}).get('top_k')} / {(ps.get('params') or {}).get('horizon_days')} 日",
         f"- 标的：{', '.join(ps.get('loaded_stocks') or [])}",
     ]
     m = ps.get("metrics") or {}
@@ -1095,6 +1144,29 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
                 if bench.get("warn_abs_pos_excess_neg")
                 else ""
             )
+        )
+
+    # P0：强制打印 α/β 分账（有则写；与绝对累计收益分列）
+    legs = ps.get("alpha_beta_legs") or m.get("alpha_beta_legs") or {}
+    if isinstance(legs, dict) and (
+        legs.get("alpha_leg_approx_pct") is not None
+        or legs.get("beta_leg_approx_pct") is not None
+        or legs.get("total_return_pct") is not None
+    ):
+        lines.append(
+            "- **收益分账（近似）**："
+            f"绝对 {legs.get('total_return_pct')}% · "
+            f"α腿(超额) {legs.get('alpha_leg_approx_pct')}% · "
+            f"β腿≈ {legs.get('beta_leg_approx_pct')}%"
+            + (f" · IR {legs.get('ir')}" if legs.get("ir") is not None else "")
+            + " · 多头组合绝对收益仍含市场敞口"
+        )
+
+    bex = ps.get("benchmark_excess") or {}
+    if isinstance(bex, dict) and bex.get("ok"):
+        lines.append(
+            f"- 北极星超额包：累计超额≈{bex.get('total_excess_approx_pct')}% · "
+            f"年化IR {bex.get('ann_ir')} · 对齐日 {bex.get('aligned_days')}"
         )
 
     req = ps.get("request") or {}

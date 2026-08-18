@@ -322,11 +322,29 @@ def _metrics_from_pred_act(
     r2 = None
     if ss_tot > 1e-12:
         r2 = float(max(0.0, min(1.0, 1.0 - ss_res / ss_tot)))
+    try:
+        from core.signal.ic_contract import annotate_ic_block
+
+        _ic_ann = annotate_ic_block(
+            {"ic": None if ic is None else round(float(ic), 4)},
+            kind="chrono_pearson",
+            primary=False,
+        )
+    except Exception:
+        _ic_ann = {
+            "ic": None if ic is None else round(float(ic), 4),
+            "ic_kind": "chrono_pearson",
+            "is_primary_ic": False,
+        }
     return {
         "ok": True,
         "n": int(n),
         "n_full": int(n_full),
-        "ic": None if ic is None else round(float(ic), 4),
+        "ic": _ic_ann.get("ic"),
+        "ic_kind": _ic_ann.get("ic_kind"),
+        "ic_label": _ic_ann.get("ic_label"),
+        "ic_role": _ic_ann.get("ic_role"),
+        "is_primary_ic": False,
         "rmse": round(rmse, 4),
         "r2": None if r2 is None else round(float(r2), 4),
         "holdout_ratio": float(holdout_ratio),

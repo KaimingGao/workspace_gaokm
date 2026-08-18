@@ -14,7 +14,7 @@ import {
   scoreSeriesStats,
   isHeuristicScoreScale,
 } from "./paper/fmt.js?v=p1128";
-import { drawSeries } from "./paper/chart.js";
+import { drawSeries, appendLiveNavPoint } from "./paper/chart.js?v=p1163";
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
 import {
   loadHoldingsSort,
@@ -325,6 +325,14 @@ export function initPaper(ctx) {
     }
   }
 
+  function setChartHeadStatus(text) {
+    const el = document.getElementById("paper-chart-head-status");
+    if (!el) return;
+    const s = String(text || "").trim();
+    el.hidden = !s;
+    el.textContent = s;
+  }
+
   function drawPaperChart(snapshots) {
     lastSnapshots = snapshots || [];
     if (chartMode !== "portfolio") return;
@@ -333,11 +341,22 @@ export function initPaper(ctx) {
         // 保留完整时间：同日多笔快照不能截成 YYYY-MM-DD（LWC 不允许重复 time）
         time: s.ts || s.date || "",
         value: Number(s.equity),
+        live: !!s.live,
       }))
       .filter((p) => p.time && Number.isFinite(p.value));
+    const liveEq = Number(
+      lastAccountData && lastAccountData.summary && lastAccountData.summary.equity
+    );
+    const merged = appendLiveNavPoint(pts, liveEq);
+    const hasLive = merged.length && merged[merged.length - 1].live;
     setChartLabel("整账净值");
-    paintPaperLine(pts, {
-      emptyText: pts.length
+    setChartHeadStatus(
+      hasLive
+        ? "末点按现价盯市，与总净值同一口径；历史点为成交/调仓快照"
+        : ""
+    );
+    paintPaperLine(merged, {
+      emptyText: merged.length
         ? "暂无足够数据"
         : "暂无净值快照 · 完成一笔买卖后会自动记录曲线",
       disableZoom: true,
@@ -348,6 +367,7 @@ export function initPaper(ctx) {
     if (!code) return;
     chartMode = "stock";
     chartStockCode = code;
+    setChartHeadStatus("");
     setChartLabel(`${name || code} · 收盘价`);
     await paintPaperLine([], { emptyText: "加载日线…" });
     try {
@@ -626,6 +646,11 @@ export function initPaper(ctx) {
           s.today_pnl != null
             ? `自回零起 ${fmtMoney(s.today_pnl)}`
             : "相对回零价（已去掉昨收）";
+      } else if (todayBasis === "prev_nav") {
+        todaySub =
+          s.today_pnl != null
+            ? `相对昨收账本 ${fmtMoney(s.today_pnl)}`
+            : "相对上一交易日净值";
       } else {
         todaySub = s.today_pnl != null
           ? `今日浮动 ${fmtMoney(s.today_pnl)}`
@@ -683,7 +708,17 @@ export function initPaper(ctx) {
     const calmar = isFull ? pr.calmar : ns.calmar;
     const corr = isFull ? rz.corr : ns.corr;
     const te = isFull ? rz.tracking_error_pct : ns.tracking_error_pct;
-    if (sharpe == null && calmar == null && corr == null && te == null) {
+    const bex = ns.benchmark_excess || {};
+    const legs = ns.alpha_beta_legs || {};
+    const excess = bex.ok ? bex.total_excess_approx_pct : legs.alpha_leg_approx_pct;
+    const annIr = bex.ok ? bex.ann_ir : null;
+    if (
+      sharpe == null &&
+      calmar == null &&
+      corr == null &&
+      te == null &&
+      excess == null
+    ) {
       host.hidden = true;
       host.innerHTML = "";
       return;
@@ -696,6 +731,13 @@ export function initPaper(ctx) {
       ["卡玛", fmt(calmar, 2), "纸面卡玛", "calmar"],
       ["拟合", fmt(corr, 3), "回测–纸面相关", "fit"],
       ["TE", te != null ? `${fmt(te, 2)}%` : "—", "跟踪误差", "te"],
+      [
+        "超额",
+        excess != null ? `${fmt(excess, 2)}%` : "—",
+        "相对指数累计超额近似（α 腿）",
+        "excess",
+      ],
+      ["IR", fmt(annIr, 2), "年化信息比率（超额/波动）", "ir"],
     ];
     host.innerHTML =
       `<div class="follow-north-star-grid dashboard-kpi-row-body" role="list" aria-label="北极星质量">` +
@@ -1495,6 +1537,22 @@ export function initPaper(ctx) {
       followClusterPreviewPending = false;
     }
 
+    function emptyReasonLabel(code) {
+      const map = {
+        empty_ranking: "目标簿为空（无人过闸或未建簿）",
+        all_below_eod_floor: "全部低于 EOD 买入门槛",
+        buys_blocked: "买入被风控/规则拦截",
+        risk_blocked: "风控整批拦截",
+        no_executable_changes: "无可执行买卖",
+        book_constraints_empty: "簿约束装填后为空",
+        no_mapped_scores: "无可用评分映射",
+        empty_book: "选股簿为空",
+      };
+      const k = String(code || "").trim();
+      if (!k) return "";
+      return map[k] || k;
+    }
+
     function renderRebalanceReport(
       report,
       {
@@ -1504,6 +1562,8 @@ export function initPaper(ctx) {
         opsReport = null,
         riskBudgetSkips = null,
         dualScore = null,
+        emptyReason = null,
+        minScore = null,
       } = {}
     ) {
       const section = document.getElementById("paper-rebalance-section");
@@ -1539,9 +1599,18 @@ export function initPaper(ctx) {
           cashImpact.sell_amount != null ||
           cashImpact.turnover_pct != null);
       const hasOps = !!(opsReport && (opsReport.strategy_id || opsReport.cost_model));
+      const emptyReasonText = emptyReasonLabel(emptyReason);
+      const hasEmptyReason = !!emptyReasonText;
       const emptyReport = !report || report.length === 0;
 
-      if (emptyReport && !hasCash && !hasRisk && !hasOps && !hasSkips) {
+      if (
+        emptyReport &&
+        !hasCash &&
+        !hasRisk &&
+        !hasOps &&
+        !hasSkips &&
+        !hasEmptyReason
+      ) {
         section.hidden = true;
         if (previewNote) previewNote.hidden = true;
         if (confirmBtn) confirmBtn.hidden = true;
@@ -1569,7 +1638,7 @@ export function initPaper(ctx) {
         }
       }
       if (previewNote) {
-        previewNote.hidden = !preview;
+        previewNote.hidden = !preview && !hasEmptyReason;
         let note = preview ? "预演未成交 · 确认后才会改仓" : "";
         if (preview && cashImpact && cashImpact.turnover_capped) {
           const cap =
@@ -1592,6 +1661,13 @@ export function initPaper(ctx) {
             ` · τ 试验档` +
             (ef != null && Number.isFinite(ef) ? `（门槛 ${ef}）` : "");
         }
+        if (hasEmptyReason) {
+          const floorHint =
+            minScore != null && Number.isFinite(Number(minScore))
+              ? ` · ŷ_EOD≥${Number(minScore)}%`
+              : "";
+          note += (note ? " · " : "") + emptyReasonText + floorHint;
+        }
         previewNote.textContent = note;
       }
       if (confirmBtn) {
@@ -1601,7 +1677,7 @@ export function initPaper(ctx) {
 
       if (cashEl) {
         const ci = cashImpact || {};
-        if (hasCash || hasRisk || hasSkips) {
+        if (hasCash || hasRisk || hasSkips || hasEmptyReason) {
           const fmt = (v) => {
             const n = Number(v);
             if (!Number.isFinite(n)) return "—";
@@ -1637,22 +1713,54 @@ export function initPaper(ctx) {
                 : "") +
               `</div>`;
           }
+          let emptyHtml = "";
+          if (hasEmptyReason) {
+            emptyHtml =
+              `<div class="paper-rebalance-risk" role="status">` +
+              `<p class="paper-rebalance-risk-title is-warn">空仓/无变动原因</p>` +
+              `<ul><li>${escapeText(emptyReasonText)}` +
+              (minScore != null && Number.isFinite(Number(minScore))
+                ? ` · 当前买入门槛 ŷ_EOD≥${escapeText(String(minScore))}%`
+                : "") +
+              `</li></ul></div>`;
+          }
           let skipHtml = "";
           if (hasSkips) {
             const priorSkips = skips.filter((s) => s && s.sentiment_prior);
-            const otherSkips = skips.filter((s) => !(s && s.sentiment_prior));
+            const floorSkips = skips.filter(
+              (s) =>
+                s &&
+                !s.sentiment_prior &&
+                (String(s.reason || "").includes("floor") ||
+                  String(s.reason || "").includes("门槛") ||
+                  String(s.reason || "") === "below_eod_floor" ||
+                  String(s.reason || "") === "oos_failed_no_buy")
+            );
+            const otherSkips = skips.filter(
+              (s) => s && !s.sentiment_prior && !floorSkips.includes(s)
+            );
             const row = (s) => {
               const code = escapeText(String(s.stock_code || ""));
               const name = escapeText(String(s.stock_name || ""));
               const reason = escapeText(String(s.reason || "跳过"));
+              const gate =
+                s.eod_gate_score != null
+                  ? ` · ŷ_EOD ${escapeText(String(s.eod_gate_score))}`
+                  : "";
               return `<li><code>${code}</code>${
                 name ? ` ${name}` : ""
-              } · ${reason}</li>`;
+              } · ${reason}${gate}</li>`;
             };
             skipHtml =
               `<div class="paper-rebalance-risk" role="status">` +
               (priorSkips.length
                 ? `<p class="paper-rebalance-risk-title">舆情先验 · 跳过新开仓</p><ul>${priorSkips
+                    .slice(0, 12)
+                    .map(row)
+                    .join("")}</ul>`
+                : "") +
+              (floorSkips.length
+                ? `<p class="paper-rebalance-risk-title is-warn">未过买入门槛</p><ul>${floorSkips
                     .slice(0, 12)
                     .map(row)
                     .join("")}</ul>`
@@ -1694,6 +1802,7 @@ export function initPaper(ctx) {
                   : "") +
                 `</dl>`
               : "") +
+            emptyHtml +
             riskHtml +
             skipHtml;
         } else {
@@ -1703,11 +1812,17 @@ export function initPaper(ctx) {
       }
 
       if (emptyReport) {
-        container.innerHTML = hasSkips
-          ? `<p class="follow-ops-note">本轮无加仓清单（含舆情先验跳过 ${skips.filter((s) => s && s.sentiment_prior).length} 只）。</p>`
-          : hasRisk
-            ? `<p class="follow-ops-note">因风控拦截，本轮无加仓清单。</p>`
-            : `<p class="follow-ops-note">无可执行变动。</p>`;
+        container.innerHTML = hasEmptyReason
+          ? `<p class="follow-ops-note">${escapeText(emptyReasonText)}${
+              minScore != null && Number.isFinite(Number(minScore))
+                ? ` · 门槛 ŷ_EOD≥${escapeText(String(minScore))}%`
+                : ""
+            }。</p>`
+          : hasSkips
+            ? `<p class="follow-ops-note">本轮无加仓清单（跳过 ${skips.length} 只）。</p>`
+            : hasRisk
+              ? `<p class="follow-ops-note">因风控拦截，本轮无加仓清单。</p>`
+              : `<p class="follow-ops-note">无可执行变动。</p>`;
         section.hidden = false;
         return;
       }
@@ -1737,6 +1852,16 @@ export function initPaper(ctx) {
           as_of_tau: r.as_of_tau || r.rem_tau,
           dual_score_fusion: r.dual_score_fusion,
           dual_score_weights: r.dual_score_weights,
+          dual_score_head: r.dual_score_head,
+          dual_score_single_head: r.dual_score_single_head,
+          y_check: r.y_check,
+          y_disagree: r.y_disagree,
+          y_sigma: r.y_sigma,
+          y_mu: r.y_mu,
+          eod_trust: r.eod_trust,
+          y_tau_to_close: r.y_tau_to_close,
+          y_tau_to_close_src: r.y_tau_to_close_src,
+          y_state: r.y_state,
           predicted_score_blend: r.predicted_score_blend,
           predicted_score_eod: r.predicted_score_eod,
           predicted_score_eod_rem: r.predicted_score_eod_rem,
@@ -1867,6 +1992,11 @@ export function initPaper(ctx) {
           let scoreClass = scoreCls(tradeScore);
           if (belowMin) scoreClass += " below-min";
           if (r.hard_reject) scoreClass += " score-reject";
+          const singleHead =
+            r.dual_score_single_head === true ||
+            String(r.dual_score_head || "") === "single_eod" ||
+            String(r.dual_score_head || "") === "single_tau";
+          if (singleHead) scoreClass += " score-single-head";
           let scoreTip = "";
           if (r.hard_reject) {
             scoreTip = String(r.reject_reason || "硬拒绝 · 无收益分");
@@ -1875,11 +2005,46 @@ export function initPaper(ctx) {
               tradeScore != null
                 ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
                 : "OOS 失败 · 无 ŷ% · tip 看 heuristic(0–100)";
+          } else if (singleHead) {
+            scoreTip = `ŷ_trade 单头降级（${String(r.dual_score_head || "single")}）· 悬停看详情`;
+          } else if (r.y_check && String(r.y_check) !== "ok") {
+            scoreTip = `Y·EOD 校验 ${String(r.y_check)} · 悬停看分歧/σ`;
           } else if (belowMin) {
             scoreTip = "低于ŷ_EOD门槛 · 表列为 ŷ_trade · 悬停看详情";
           } else {
             scoreTip = "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
           }
+          const head = String(r.dual_score_head || "");
+          const singleHeadBadge = singleHead
+            ? `<span class="watching-single-head-badge" title="${escapeText(
+                head === "single_tau"
+                  ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 EOD rem）· 与双头票不同量纲"
+                  : head === "single_eod"
+                    ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
+                    : "ŷ_trade 单头降级 · 与双头票不同量纲"
+              )}">单</span>`
+            : "";
+          const yCheck = String(r.y_check || "");
+          const yCheckBadge =
+            yCheck && yCheck !== "ok"
+              ? `<span class="watching-y-check-badge is-${escapeText(
+                  yCheck
+                )}" title="${escapeText(
+                  yCheck === "conflict"
+                    ? "Y·EOD 校验：双头分歧"
+                    : yCheck === "low_conf"
+                      ? "Y·EOD 校验：低置信"
+                      : `Y·EOD 校验：${yCheck}`
+                )}">${escapeText(
+                  yCheck === "conflict"
+                    ? "歧"
+                    : yCheck === "low_conf"
+                      ? "弱"
+                      : yCheck === "missing_tau"
+                        ? "缺τ"
+                        : "校"
+                )}</span>`
+              : "";
           const scoreCal = resolveCalTradeScore(r);
           const scoreCalShown =
             scoreCal != null ? fmtTableScore(r, scoreCal) : "—";
@@ -1999,6 +2164,9 @@ export function initPaper(ctx) {
 
           const name = escapeText(r.stock_name || r.stock_code || "");
           const code = escapeText(r.stock_code || "");
+          const chgPct = r.change_pct;
+          const chgText = fmtPct(chgPct, { signed: true });
+          const chgCls = metricCls(chgPct);
           const inBook = !!(r.in_book || r.inBook);
           const oosFailed =
             !!r.oos_failed ||
@@ -2029,9 +2197,12 @@ export function initPaper(ctx) {
             `<span class="rebalance-stock-code">${code}</span>` +
             `</span>` +
             `</div>` +
+            `<div class="num rebalance-chg ${chgCls}" role="cell" title="相对昨收">${escapeText(
+              chgText
+            )}</div>` +
             `<div class="num rebalance-score paper-hold-score has-tip ${scoreClass}" ` +
             `role="cell" data-score-detail="${tipDetailJson}" data-score-tip="trade" ` +
-            `title="${escapeText(scoreTip)}">${escapeText(scoreShown)}</div>` +
+            `title="${escapeText(scoreTip)}">${escapeText(scoreShown)}${singleHeadBadge}${yCheckBadge}</div>` +
             `<div class="num rebalance-score-cal paper-hold-score watching-score-cal has-tip ${scoreCls(
               scoreCal
             )}${scoreCalOor ? " is-cal-oor" : ""}" role="cell" ` +
@@ -2075,6 +2246,7 @@ export function initPaper(ctx) {
         `<div class="rebalance-table" role="table">` +
         `<div class="rebalance-table-head" role="row">` +
         `<div class="rebalance-th" role="columnheader">股票</div>` +
+        `<div class="rebalance-th num" role="columnheader" title="相对昨收的当日涨跌幅">涨跌</div>` +
         `<div class="rebalance-th num" role="columnheader" title="ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ">评分</div>` +
         `<div class="rebalance-th num" role="columnheader" title="g(ŷ_trade) 对照 · 不进决策">校准</div>` +
         `<div class="rebalance-th num" role="columnheader">股数</div>` +
@@ -2232,6 +2404,8 @@ export function initPaper(ctx) {
         const riskGate = result.risk_gate || null;
         const riskBudgetSkips = result.risk_budget_skips || [];
         const dualScore = result.dual_score || null;
+        const emptyReason = result.empty_reason || null;
+        const minScore = result.min_score;
         const priorSkipN = riskBudgetSkips.filter((s) => s && s.sentiment_prior).length;
         const opsReport =
           result.ops_report ||
@@ -2273,6 +2447,10 @@ export function initPaper(ctx) {
         }
         if (buyTrades.length === 0 && sellTrades.length === 0) {
             resultText += dryRun ? " · 预演无调仓" : " · 无调仓操作";
+            if (emptyReason) {
+              const lab = emptyReasonLabel(emptyReason);
+              if (lab) resultText += ` · ${lab}`;
+            }
         }
 
         setPaperMetaText(resultText);
@@ -2293,6 +2471,8 @@ export function initPaper(ctx) {
             opsReport,
             riskBudgetSkips,
             dualScore,
+            emptyReason,
+            minScore,
           });
         } else if (simulateBuy) {
           renderRebalanceReport([], {
@@ -2302,6 +2482,8 @@ export function initPaper(ctx) {
             opsReport,
             riskBudgetSkips,
             dualScore,
+            emptyReason,
+            minScore,
           });
           setPaperMetaText(
             resultText + (riskGate && riskGate.ok === false ? "" : " · 无可执行变动")
@@ -2455,7 +2637,10 @@ export function initPaper(ctx) {
               ? "分池落账·已复用簿"
               : "分池落账") +
             ` · 目标簿 ${bookN} 只 · top_k=${data.top_k ?? "—"} · 卖 ${sellN} · 买 ${buyN}` +
-            (turnPct != null ? ` · 换手 ${turnPct}%` : "")
+            (turnPct != null ? ` · 换手 ${turnPct}%` : "") +
+            (sellN === 0 && buyN === 0 && data.empty_reason
+              ? ` · ${emptyReasonLabel(data.empty_reason)}`
+              : "")
         );
         if (dryRun) {
           const opsFromApi = data.ops_report || null;
@@ -2473,6 +2658,8 @@ export function initPaper(ctx) {
             riskGate: data.risk_gate || null,
             riskBudgetSkips: skips,
             dualScore: data.dual_score || null,
+            emptyReason: data.empty_reason || data.book_empty_reason || null,
+            minScore: data.min_score,
             opsReport: opsFromApi
               ? {
                   ...opsFromApi,

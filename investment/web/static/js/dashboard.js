@@ -143,13 +143,13 @@ function renderMarketOverview(market) {
   for (const idx of indices) {
     const pct = idx.change_pct;
     const cls = pct > 0 ? "is-up" : pct < 0 ? "is-down" : "";
+    const closeTxt =
+      idx.close != null ? `vs 昨收 · ${fmtNum(idx.close, 0)}` : "vs 昨收";
     cards.push(`
-      <div class="dashboard-market-card ${cls}">
+      <div class="dashboard-market-card dashboard-market-card--index ${cls}" title="涨跌幅相对昨收">
         <span class="dashboard-market-label">${escapeHtml(idx.name)}</span>
-        <div class="dashboard-market-metrics">
-          <span class="dashboard-market-value">${idx.close != null ? fmtNum(idx.close, 0) : "—"}</span>
-          <span class="dashboard-market-change">${idx.change_pct != null ? fmtPct(idx.change_pct) : "—"}</span>
-        </div>
+        <span class="dashboard-market-value">${idx.change_pct != null ? fmtPct(idx.change_pct) : "—"}</span>
+        <span class="dashboard-market-sub">${escapeHtml(closeTxt)}</span>
       </div>
     `);
   }
@@ -580,6 +580,12 @@ function renderNavChart(points, range, benchmarkPoints) {
     value: p.value ?? p.equity ?? p.nav,
   }));
 
+  const lastLive = !!(pts.length && (filtered[filtered.length - 1] || {}).live);
+  const subEl = document.querySelector(".dashboard-nav-card .dashboard-card-sub");
+  if (subEl) {
+    subEl.textContent = lastLive ? "起点 100 · 末点现价盯市" : "起点 100";
+  }
+
   if (statsEl && pts.length > 1) {
     const vals = pts.map((p) => p.value).filter((v) => v != null && isFinite(v));
     if (vals.length >= 2) {
@@ -774,7 +780,12 @@ async function loadDashboardData(range = "30", showBenchmark = readBenchmarkFlag
           label: "今日收益",
           value: kpis.today_return,
           formatted: fmtPct(kpis.today_return),
-          sub: "vs 昨收",
+          sub:
+            kpis.today_return_basis === "reset"
+              ? "自回零"
+              : kpis.today_return_basis === "prev_nav"
+                ? "vs 昨收账本"
+                : "vs 昨收",
           sparkline: kpis.sparkline_today,
           direction: kpis.today_return,
           semantic: "return",

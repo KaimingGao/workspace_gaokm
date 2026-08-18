@@ -14,8 +14,14 @@ def build_y_spec(
     formula: str = "close[t+h]/close[t]-1",
     unit: str = "pct",
     note: str = "",
+    excess_mode: str = "none",
 ) -> Dict[str, Any]:
-    """前瞻收益标签契约（写入 return_model / OLS / cluster artifact）。"""
+    """前瞻收益标签契约（写入 return_model / OLS / cluster artifact）。
+
+    ``excess_mode``（P2b 研究臂）：
+      - ``none``：绝对收益（现网默认）
+      - ``index``：个股收益 − 同期指数收益（需面板提供 index 对齐）
+    """
     if horizon_days is None:
         try:
             from core.signal.config import load_signal_config
@@ -25,19 +31,50 @@ def build_y_spec(
         except Exception:
             horizon_days = 3
     h = max(1, min(int(horizon_days or 3), 20))
+    em = str(excess_mode or "none").strip().lower()
+    if em in ("index", "excess", "vs_index", "benchmark"):
+        em = "index"
+        formula = "stock_ret[t→t+h] - index_ret[t→t+h]"
+    else:
+        em = "none"
+    base_note = (
+        f"y=(close[t+{h}]/close[t]-1)*100；"
+        "默认不含交易成本；停牌日若无 bar 则该样本跳过。"
+    )
+    if em == "index":
+        base_note = (
+            f"y=个股前瞻% − 指数同期%（excess_mode=index）；"
+            f"h={h}；研究臂，进生产须人审重跑分组。"
+        )
     return {
         "horizon_days": h,
         "formula": formula,
         "unit": unit,
         "include_cost": bool(include_cost),
         "halt_policy": str(halt_policy or "keep_bar"),
-        "note": note
-        or (
-            f"y=(close[t+{h}]/close[t]-1)*100；"
-            "默认不含交易成本；停牌日若无 bar 则该样本跳过。"
-        ),
+        "excess_mode": em,
+        "note": note or base_note,
         "track": "B2",
     }
+
+
+def apply_excess_to_forward_return(
+    stock_fwd_pct: Optional[float],
+    index_fwd_pct: Optional[float],
+    *,
+    excess_mode: str = "none",
+) -> Optional[float]:
+    """按 y_spec.excess_mode 把绝对前瞻收益映成超额（P2b）。"""
+    if stock_fwd_pct is None:
+        return None
+    em = str(excess_mode or "none").strip().lower()
+    if em in ("", "none", "absolute", "total"):
+        return float(stock_fwd_pct)
+    if em in ("index", "excess", "vs_index", "benchmark"):
+        if index_fwd_pct is None:
+            return None
+        return round(float(stock_fwd_pct) - float(index_fwd_pct), 6)
+    return float(stock_fwd_pct)
 
 
 def sample_fingerprint(

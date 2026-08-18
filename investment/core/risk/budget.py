@@ -292,6 +292,16 @@ def score_budget_weights(
         }
 
     weights = {k: v for k, v in weights.items() if v > 0.05}
+    # 故意不归一到 100%：限额裁剪后留现金（与纸面一致）
+    residual_pct = round(max(0.0, 100.0 - sum(weights.values())), 4)
+    if residual_pct > 0.05:
+        skipped.append(
+            {
+                "stock_code": "_cash_residual",
+                "reason": "cash_residual_after_clip",
+                "residual_pct": residual_pct,
+            }
+        )
     return weights, sector_sum, skipped[:20]
 
 

@@ -49,8 +49,28 @@ def is_predicted_rank_mode(config: Optional[dict] = None) -> bool:
     return True
 
 
-def looks_like_legacy_heuristic_score(value: Optional[float]) -> bool:
-    """≥10 的「门槛」在短线 ŷ% 语境下视为遗留 0–100 分档。"""
+def looks_like_legacy_heuristic_score(
+    value: Optional[float],
+    *,
+    item: Optional[dict] = None,
+) -> bool:
+    """判断裸数值是否像遗留 0–100 启发式分。
+
+    有 ``item`` 时以 ``score_scale`` 为准：``predicted_yhat`` 即使 ≥10（涨停板
+    ŷ%）也不当 heuristic；``heuristic_0_100`` 则是。未标明尺 / 裸门槛配置
+    仍用 ≥10 启发式（短线 ŷ 门槛通常 |x|<10）。
+    """
+    if item is not None:
+        try:
+            from core.signal.gate import SCALE_HEURISTIC, SCALE_YHAT, infer_score_scale
+
+            scale = infer_score_scale(item)
+            if scale == SCALE_HEURISTIC:
+                return True
+            if scale == SCALE_YHAT:
+                return False
+        except Exception:
+            pass
     if value is None:
         return False
     try:

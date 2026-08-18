@@ -680,6 +680,14 @@ class QuantOpsMixin:
             cluster_live = {"success": False, "error": str(exc)}
 
         scoring = (cfg.get("scoring") if isinstance(cfg, dict) else None) or {}
+        y_check_summary = None
+        try:
+            from core.signal.y_state import ledger_y_check_daily_summary
+
+            y_check_summary = ledger_y_check_daily_summary(include_hit=True)
+        except Exception as exc:
+            y_check_summary = {"success": False, "error": str(exc)}
+
         report: Dict[str, Any] = {
             "success": True,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -697,6 +705,7 @@ class QuantOpsMixin:
             "portfolio_backtest_summary": portfolio_summary,
             "portfolio_neutral_compare_summary": neutral_compare_summary,
             "cluster_live": cluster_live,
+            "y_check_summary": y_check_summary,
         }
         if include_cross_section:
             report["cross_section"] = self.run_cross_section(limit=10)

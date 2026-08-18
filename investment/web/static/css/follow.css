@@ -489,7 +489,7 @@
 
 .follow-page .rebalance-table {
   /* 股票吃左侧；后列定宽靠右；列间距适中 */
-  --rebalance-cols: minmax(7rem, 1fr) 4.5rem 4.5rem 6.25rem 3.5rem 4.75rem;
+  --rebalance-cols: minmax(7rem, 1fr) 4.25rem 4.5rem 4.5rem 6.25rem 3.5rem 4.75rem;
   font-size: 0.78rem;
 }
 
@@ -2119,6 +2119,19 @@ body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react
 .paper-holdings-table .paper-hold-pnl.down,
 .paper-holdings-react-grid .paper-hold-chg.down,
 .paper-holdings-table .paper-hold-chg.down {
+  color: var(--color-down, #2e7d32);
+  font-weight: 600;
+}
+
+/* 预演调仓 · 当日涨跌（同持仓表红绿） */
+.follow-page .rebalance-row > .rebalance-chg.up,
+body[data-page="follow"] .rebalance-row > .rebalance-chg.up {
+  color: var(--color-up, #c62828);
+  font-weight: 600;
+}
+
+.follow-page .rebalance-row > .rebalance-chg.down,
+body[data-page="follow"] .rebalance-row > .rebalance-chg.down {
   color: var(--color-down, #2e7d32);
   font-weight: 600;
 }

@@ -119,6 +119,33 @@ def _tau_ok(row: dict) -> bool:
         return True
 
 
+def _y_check_ok(row: dict, dual_cfg: Optional[dict] = None) -> bool:
+    try:
+        from core.signal.y_state import buy_passes_y_check, stamp_y_state
+
+        if row.get("y_check") is None:
+            stamp_y_state(row, config={"dual_score": dual_cfg} if dual_cfg else None)
+        ok, _ = buy_passes_y_check(
+            row, config={"dual_score": dual_cfg} if dual_cfg else None
+        )
+        return bool(ok)
+    except Exception:
+        return True
+
+
+def _y_check_rank(row: dict, dual_cfg: Optional[dict] = None) -> int:
+    try:
+        from core.signal.y_state import book_check_sort_key
+
+        return int(
+            book_check_sort_key(
+                row, config={"dual_score": dual_cfg} if dual_cfg else None
+            )
+        )
+    except Exception:
+        return 9
+
+
 def _rank_score(row: dict, dual_cfg: Optional[dict] = None) -> float:
     try:
         from core.signal.dual_score import rank_key_for_item
@@ -178,6 +205,8 @@ def fill_book_with_constraints(
         "untradeable": 0,
         "tau_fail_deferred": 0,
         "tau_fail_excluded": 0,
+        "y_check_deferred": 0,
+        "y_check_excluded": 0,
         "sector_cap": 0,
         "filled": 0,
         "per_sector_cap": per_sec_cap,
@@ -188,11 +217,17 @@ def fill_book_with_constraints(
             "enforce_sector_cap": cfg.get("enforce_sector_cap"),
             "tau_fail_mode": cfg.get("tau_fail_mode"),
         },
+        "sector_counts": {},
     }
 
     rows = [dict(r) for r in eligible if isinstance(r, dict)]
     if not cfg.get("enabled"):
-        rows.sort(key=lambda x: -_rank_score(x, dual_cfg))
+        rows.sort(
+            key=lambda x: (
+                -_rank_score(x, dual_cfg),
+                str(x.get("stock_code") or ""),
+            )
+        )
         book = rows[:max_n]
         for i, b in enumerate(book):
             b["rank"] = i + 1
@@ -218,6 +253,8 @@ def fill_book_with_constraints(
                 continue
         r["sector"] = _sector_of(r, sector_map)
         r["_tau_ok"] = _tau_ok(r)
+        r["_y_ok"] = _y_check_ok(r, dual_cfg)
+        r["_y_rank"] = _y_check_rank(r, dual_cfg)
         r["_rank_score"] = _rank_score(r, dual_cfg)
         candidates.append(r)
 
@@ -225,34 +262,64 @@ def fill_book_with_constraints(
     if mode == "exclude":
         kept = []
         for r in candidates:
-            if r.get("_tau_ok"):
+            if r.get("_tau_ok") and r.get("_y_ok"):
                 kept.append(r)
             else:
-                stats["tau_fail_excluded"] += 1
-                skipped.append(
-                    {
-                        "stock_code": r.get("stock_code"),
-                        "stock_name": r.get("stock_name"),
-                        "score": r.get("score"),
-                        "predicted_score_tau": r.get("predicted_score_tau"),
-                        "skip_reason": "ŷ_τ 未过买入闸，建簿排除",
-                        "skip_stage": "tau_gate",
-                    }
-                )
+                if not r.get("_tau_ok"):
+                    stats["tau_fail_excluded"] += 1
+                    skipped.append(
+                        {
+                            "stock_code": r.get("stock_code"),
+                            "stock_name": r.get("stock_name"),
+                            "score": r.get("score"),
+                            "predicted_score_tau": r.get("predicted_score_tau"),
+                            "skip_reason": "ŷ_τ 未过买入闸，建簿排除",
+                            "skip_stage": "tau_gate",
+                        }
+                    )
+                elif not r.get("_y_ok"):
+                    stats["y_check_excluded"] = int(stats.get("y_check_excluded") or 0) + 1
+                    skipped.append(
+                        {
+                            "stock_code": r.get("stock_code"),
+                            "stock_name": r.get("stock_name"),
+                            "score": r.get("score"),
+                            "y_check": r.get("y_check"),
+                            "skip_reason": f"Y 校验未过（{r.get('y_check')}），建簿排除",
+                            "skip_stage": "y_check",
+                        }
+                    )
         candidates = kept
-        candidates.sort(key=lambda x: -float(x.get("_rank_score") or 0.0))
+        candidates.sort(
+            key=lambda x: (
+                int(x.get("_y_rank") or 9),
+                -float(x.get("_rank_score") or 0.0),
+                str(x.get("stock_code") or ""),
+            )
+        )
     elif mode == "defer":
         for r in candidates:
             if not r.get("_tau_ok"):
                 stats["tau_fail_deferred"] += 1
+            if not r.get("_y_ok"):
+                stats["y_check_deferred"] = int(stats.get("y_check_deferred") or 0) + 1
         candidates.sort(
             key=lambda x: (
                 0 if x.get("_tau_ok") else 1,
+                0 if x.get("_y_ok") else 1,
+                int(x.get("_y_rank") or 9),
                 -float(x.get("_rank_score") or 0.0),
+                str(x.get("stock_code") or ""),
             )
         )
     else:
-        candidates.sort(key=lambda x: -float(x.get("_rank_score") or 0.0))
+        candidates.sort(
+            key=lambda x: (
+                int(x.get("_y_rank") or 9),
+                -float(x.get("_rank_score") or 0.0),
+                str(x.get("stock_code") or ""),
+            )
+        )
 
     book: List[dict] = []
     sec_count: Dict[str, int] = {}

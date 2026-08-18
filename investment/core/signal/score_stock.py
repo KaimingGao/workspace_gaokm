@@ -644,7 +644,7 @@ def score_stock(
 
     # 主分 score：始终 ŷ% 量纲。OOS heuristic 轨用组/全局 ŷ 填表列，禁止把 0–100 写入 score。
     primary_score = None
-    if predicted_score is not None and not scored.get("hard_reject"):
+    if predicted_score is not None:
         primary_score = predicted_score
     elif (
         return_model_source == "oos_failed_heuristic"

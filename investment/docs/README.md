@@ -4,5 +4,6 @@
 
 - [架构总览 · 子目录索引](../docs/architecture.md#子目录-readme-索引)
 - [predicted_score（ŷ）逻辑链路与执行链](predicted-score-chain.md) — 训练 · 打分 · 回测 · 复盘 · 纸面 · **§2.5 双层 ŷ_EOD+ŷ_τ**
+- [Alpha / IC 补强（P0–P3）](alpha-ic-strengthen.md) — 超额分账 · 主 IC=截面 Spearman · 中性化/残差 y · regime 仓位闸
 - [盘中剩余收益头 · 实时方案与落地规划](intraday-residual-score.md) — 事件先验 · rem 头 · 分阶段 R0–R3
 - [决策时刻 τ 契约 · 双层 predicted_score · 分组目标升级](tau-contract-and-partition-upgrade.md) — ℱ_τ · 建模训练融合 · A/B 升级

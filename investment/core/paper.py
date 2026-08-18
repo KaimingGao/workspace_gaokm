@@ -252,6 +252,49 @@ def append_snapshot(paper: dict, summary: Dict[str, Any]) -> None:
     paper["snapshots"] = paper["snapshots"][-MAX_SNAPSHOTS:]
 
 
+def snapshots_for_ui(
+    paper: dict,
+    summary: Optional[Dict[str, Any]] = None,
+    *,
+    tol: float = 0.01,
+) -> List[dict]:
+    """落盘 snapshots + 未落盘的现价盯市末点（只读，不写 paper.json）。
+
+    曲线只在成交/调仓/资金变动时落点；盘中报价会变，摘要总净值走
+    ``mark_to_market``，末点若不叠现价就会和 KPI 对不上。
+    """
+    snaps = [s for s in (paper.get("snapshots") or []) if isinstance(s, dict)]
+    if not isinstance(summary, dict):
+        return snaps
+    live_eq = summary.get("equity")
+    if live_eq is None:
+        return snaps
+    try:
+        live_f = float(live_eq)
+    except (TypeError, ValueError):
+        return snaps
+    last_eq: Optional[float] = None
+    if snaps:
+        try:
+            last_eq = float(snaps[-1].get("equity"))
+        except (TypeError, ValueError):
+            last_eq = None
+    if last_eq is not None and abs(last_eq - live_f) <= float(tol):
+        return snaps
+    overlay = {
+        "ts": _next_snapshot_ts({"snapshots": snaps}),
+        "equity": round(live_f, 2),
+        "cash": summary.get("cash"),
+        "stock_value": summary.get("stock_value"),
+        "total_pnl_pct": summary.get("total_pnl_pct"),
+        "position_count": summary.get("position_count"),
+        "equity_strategy": summary.get("equity_strategy"),
+        "strategy_stock_value": summary.get("strategy_stock_value"),
+        "live": True,
+    }
+    return snaps + [overlay]
+
+
 def capture_mark_snapshot(paper: dict) -> Dict[str, Any]:
     """改仓前盯市落点：把未实现涨跌从成交快照里拆开，避免曲线「一卖就跳」。"""
     summary = mark_to_market(paper)

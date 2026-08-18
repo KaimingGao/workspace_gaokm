@@ -30,6 +30,7 @@ class TestEquityCurve(unittest.TestCase):
             horizon_days=3,
             min_score=40,
             min_history=10,
+            use_live_cluster_models=False,
         )
         self.assertTrue(result["success"])
         curve = result.get("equity_curve") or []
@@ -48,6 +49,7 @@ class TestEquityCurve(unittest.TestCase):
             horizon_days=3,
             min_score=40,
             min_history=10,
+            use_live_cluster_models=False,
         )
         self.assertTrue(result["success"])
         sim = result.get("sim_trades") or []
@@ -149,14 +151,20 @@ class TestPaperRebalance(unittest.TestCase):
                 {
                     "stock_code": "600519",
                     "stock_name": "茅台",
-                    "score": 72,
+                    "score": 1.2,
+                    "predicted_score": 1.2,
+                    "predicted_score_eod": 1.2,
                     "predicted_score_tau": 1.0,
+                    "score_scale": "predicted_yhat",
                 },
                 {
                     "stock_code": "300750",
                     "stock_name": "宁德",
-                    "score": 68,
+                    "score": 0.9,
+                    "predicted_score": 0.9,
+                    "predicted_score_eod": 0.9,
                     "predicted_score_tau": 1.0,
+                    "score_scale": "predicted_yhat",
                 },
             ]
 
@@ -564,15 +572,45 @@ class TestClusterSellHysteresis(unittest.TestCase):
                 "position_pct": 0.2,
             }
             ranking = [
-                {"stock_code": "000739", "stock_name": "簿内新票", "score": 2.5, "predicted_score_tau": 1.0},
-                {"stock_code": "600426", "stock_name": "簿内新票2", "score": 2.0, "predicted_score_tau": 1.0},
+                {
+                    "stock_code": "000739",
+                    "stock_name": "簿内新票",
+                    "score": 2.5,
+                    "predicted_score": 2.5,
+                    "predicted_score_eod": 2.5,
+                    "predicted_score_tau": 1.0,
+                    "score_scale": "predicted_yhat",
+                },
+                {
+                    "stock_code": "600426",
+                    "stock_name": "簿内新票2",
+                    "score": 2.0,
+                    "predicted_score": 2.0,
+                    "predicted_score_eod": 2.0,
+                    "predicted_score_tau": 1.0,
+                    "score_scale": "predicted_yhat",
+                },
             ]
             score_lookup = [
-                {"stock_code": "000739", "score": 2.5, "predicted_score_tau": 1.0},
-                {"stock_code": "600426", "score": 2.0, "predicted_score_tau": 1.0},
-                {"stock_code": "600938", "score": 0.5},
-                {"stock_code": "600900", "score": 0.4},
-                {"stock_code": "600276", "score": 0.3},
+                {
+                    "stock_code": "000739",
+                    "score": 2.5,
+                    "predicted_score": 2.5,
+                    "predicted_score_eod": 2.5,
+                    "predicted_score_tau": 1.0,
+                    "score_scale": "predicted_yhat",
+                },
+                {
+                    "stock_code": "600426",
+                    "score": 2.0,
+                    "predicted_score": 2.0,
+                    "predicted_score_eod": 2.0,
+                    "predicted_score_tau": 1.0,
+                    "score_scale": "predicted_yhat",
+                },
+                {"stock_code": "600938", "score": 0.5, "predicted_score": 0.5},
+                {"stock_code": "600900", "score": 0.4, "predicted_score": 0.4},
+                {"stock_code": "600276", "score": 0.3, "predicted_score": 0.3},
             ]
 
             def fake_query(code):

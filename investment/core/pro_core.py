@@ -186,7 +186,30 @@ def ingest_nudge_payload(
 
 
 def regime_position_scale(*, regime: Optional[dict] = None) -> Dict[str, Any]:
-    """RK1 · 将 regime 评估映射为仓位上限缩放（与 vol_scale 相乘）。"""
+    """RK1 · 将 regime 评估映射为仓位上限缩放（与 vol_scale 相乘）。
+
+    P3：``regime.apply_position_scale=false`` 时固定 scale=1（只记标签，不缩仓）。
+    """
+    try:
+        from core.signal.config import load_signal_config
+
+        rcfg = (load_signal_config() or {}).get("regime") or {}
+        if rcfg.get("apply_position_scale") is False:
+            label = str(
+                (regime or {}).get("label")
+                or (regime or {}).get("regime")
+                or (regime or {}).get("state")
+                or ""
+            ).lower()
+            return {
+                "ok": True,
+                "track": "RK1",
+                "scale": 1.0,
+                "label": label or None,
+                "source": "apply_position_scale=false",
+            }
+    except Exception:
+        pass
     r = regime or {}
     label = str(r.get("label") or r.get("regime") or r.get("state") or "").lower()
     adj = r.get("adjustments") if isinstance(r.get("adjustments"), dict) else {}

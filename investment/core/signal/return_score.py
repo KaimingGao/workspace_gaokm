@@ -341,7 +341,7 @@ def rank_by_predicted_score(
         if floor is not None and yhat < floor:
             continue
         picks.append((code, yhat))
-    picks.sort(key=lambda x: x[1], reverse=True)
+    picks.sort(key=lambda x: (-float(x[1]), str(x[0])))
     if top_k is not None:
         picks = picks[: max(1, int(top_k))]
     return picks

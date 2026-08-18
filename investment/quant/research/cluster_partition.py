@@ -1008,8 +1008,11 @@ def split_oversized_clusters(
         sub_lab, _ = agglomerative_labels(sub, n_clusters=2, linkage=link)
         n0 = int(np.sum(sub_lab == 0))
         n1 = int(np.sum(sub_lab == 1))
-        if n0 < 1 or n1 < 1:
-            # 退化：按到中心距离对半劈
+        smaller = min(n0, n1)
+        min_side = max(2, len(idx) // 5)
+        # complete 对一团相似点常剥出 1 只 → 单票堆；改对半劈
+        if n0 < 1 or n1 < 1 or smaller < min_side:
+            # 退化 / 失衡：按到中心距离对半劈
             center = sub.mean(axis=0)
             order = sorted(
                 range(len(idx)),
@@ -1088,8 +1091,8 @@ def cluster_beta_vectors(
     默认：目标 k 层次聚类（中心 ≈ n/5，夹 4～10），不做严格直径拆组。
     ``n_clusters`` 显式给定时切到该 k。
     ``auto_postprocess``：None 时仅在 ``n_clusters is None`` 为 True；
-    True 时对显式 k 也走 complete（若传入 average）+ 超大组二分（供 ΔOOS 邻域搜 k）。
-    ``method=kmeans`` 仍可用。
+    True 时对显式 k 也走超大组二分（供 auto-k 邻域搜）。层次若传入 average
+    会改 complete；**kmeans 同样劈超大组**（此前漏了，会留下 30+ 只的团）。
     """
     x = np.asarray(x, dtype=float)
     n = int(x.shape[0])
@@ -1137,6 +1140,7 @@ def cluster_beta_vectors(
     max_size_used: Optional[int] = None
     # 目标 k（自动或手动）都不严踢直径：否则离群升单票组会把 k=2 炸成十几组
     loose_refine = True
+    split_link = link
 
     if method_s == "kmeans":
         k = _clamp_n_clusters(
@@ -1145,6 +1149,8 @@ def cluster_beta_vectors(
         k = max(1, min(k, n))
         labels, _centers = kmeans_labels(x, n_clusters=k, seed=seed)
         target_k = k
+        # 二分超大团用 complete，避免 kmeans 大团再被 average 粘回去
+        split_link = "complete"
     elif auto_k or do_auto_pp:
         k = (
             default_n_clusters(n)
@@ -1156,11 +1162,8 @@ def cluster_beta_vectors(
         link_auto = "complete" if link == "average" else link
         labels, _centers = agglomerative_labels(x, n_clusters=k, linkage=link_auto)
         link = link_auto
+        split_link = link_auto
         target_k = k
-        max_size_used = default_max_cluster_size(n, k)
-        labels, size_splits = split_oversized_clusters(
-            x, labels, max_size=max_size_used, linkage=link_auto
-        )
     else:
         k = _clamp_n_clusters(n_clusters, 3)
         k = max(1, min(k, n))
@@ -1168,6 +1171,12 @@ def cluster_beta_vectors(
             x, n_clusters=k, linkage=link
         )
         target_k = k
+
+    if auto_k or do_auto_pp:
+        max_size_used = default_max_cluster_size(n, k)
+        labels, size_splits = split_oversized_clusters(
+            x, labels, max_size=max_size_used, linkage=split_link
+        )
 
     refined = refine_cluster_labels(
         x,
@@ -1182,7 +1191,7 @@ def cluster_beta_vectors(
     # 精炼后若再胀大，再劈一次
     if do_auto_pp and max_size_used is not None:
         labels, size_splits2 = split_oversized_clusters(
-            x, labels, max_size=max_size_used, linkage=link
+            x, labels, max_size=max_size_used, linkage=split_link
         )
         size_splits = list(size_splits) + list(size_splits2)
         labels = _relabel_non_negative(labels)

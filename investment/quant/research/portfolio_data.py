@@ -13,19 +13,72 @@ from core.research.portfolio_bars import (
 __all__ = [
     "should_fetch_backtest_fundamentals",
     "load_portfolio_stock_bars",
+    "resolve_daily_topk_backtest_kwargs",
     "summarize_portfolio_backtest",
     "DAILY_PORTFOLIO_MAX_NAMES",
 ]
+
+
+def resolve_daily_topk_backtest_kwargs(
+    *,
+    top_k: Optional[int] = None,
+    horizon_days: Optional[int] = None,
+    min_predicted_score: Optional[float] = None,
+    apply_costs: Optional[bool] = None,
+    weight_mode: Optional[str] = None,
+) -> Dict[str, Any]:
+    """日报 / 轻量对照共用：K 与持有期对齐纸面；ŷ 标签窗口单独记录；默认含成本。"""
+    from core.signal.config import get_scoring_horizon_days
+    from core.strategy import backtest_portfolio_defaults
+
+    d = backtest_portfolio_defaults()
+    yhat_h = int(get_scoring_horizon_days())
+    paper_h = int(d.get("horizon_days") or yhat_h)
+    k = int(top_k) if top_k is not None else int(d.get("top_k") or 20)
+    # 持有期跟纸面，避免 ŷ(h=1) 迫使日频换仓把费用吃光；ŷ 仍按 scoring.horizon_days 训练
+    h = int(horizon_days) if horizon_days is not None else paper_h
+    costs = True if apply_costs is None else bool(apply_costs)
+    mode = str(weight_mode or d.get("weight_mode") or "score_budget")
+    pred = min_predicted_score
+    if pred is None:
+        pred = d.get("min_predicted_score")
+    return {
+        "top_k": max(1, k),
+        "horizon_days": max(1, min(h, 10)),
+        "apply_costs": costs,
+        "weight_mode": mode,
+        "max_position_pct": float(d.get("max_position_pct") or 25.0),
+        "max_sector_pct": float(d.get("max_sector_pct") or 40.0),
+        "min_predicted_score": pred,
+        "yhat_horizon_days": yhat_h,
+        "paper_horizon_days": paper_h,
+        "rank_mode": "predicted_score",
+    }
+
+
+def _watching_sector_overlay() -> Dict[str, Any]:
+    """watching 真主题叠加到 sector_map（默认不写盘）。"""
+    try:
+        from core.sector_map_sync import sync_sector_map_from_watching
+
+        sync = sync_sector_map_from_watching(write=False)
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "mapping": None}
+    mapping = sync.get("mapping") if isinstance(sync, dict) else None
+    if not isinstance(mapping, dict):
+        mapping = None
+    return {**sync, "mapping": mapping}
 
 
 def summarize_portfolio_backtest(
     *,
     codes: Optional[List[str]] = None,
     lookback: int = 90,
-    top_k: int = 3,
-    horizon_days: int = 3,
+    top_k: Optional[int] = None,
+    horizon_days: Optional[int] = None,
     min_score: Optional[float] = None,
     min_predicted_score: Optional[float] = None,
+    apply_costs: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """每日报告用的轻量 TopK 回测摘要（ŷ 排序；规则分 min_score 不再默认 55）。"""
     from core.backtest.topk_backtest import backtest_topk_equal_weight
@@ -57,12 +110,25 @@ def summarize_portfolio_backtest(
             "failures": failures,
         }
 
+    resolved = resolve_daily_topk_backtest_kwargs(
+        top_k=top_k,
+        horizon_days=horizon_days,
+        min_predicted_score=min_predicted_score,
+        apply_costs=apply_costs,
+    )
+    sector_sync = _watching_sector_overlay()
     bt_kwargs: Dict[str, Any] = {
-        "top_k": top_k,
-        "horizon_days": horizon_days,
+        "top_k": resolved["top_k"],
+        "horizon_days": resolved["horizon_days"],
         "rank_mode": "predicted_score",
-        "min_predicted_score": min_predicted_score,
+        "min_predicted_score": resolved["min_predicted_score"],
+        "apply_costs": resolved["apply_costs"],
+        "weight_mode": resolved["weight_mode"],
+        "max_position_pct": resolved["max_position_pct"],
+        "max_sector_pct": resolved["max_sector_pct"],
     }
+    if isinstance(sector_sync.get("mapping"), dict) and sector_sync["mapping"]:
+        bt_kwargs["sector_map"] = sector_sync["mapping"]
     # 仅显式传入时才带规则分门槛，避免日报 params 残留 min_score=55
     if min_score is not None:
         bt_kwargs["min_score"] = float(min_score)
@@ -89,13 +155,35 @@ def summarize_portfolio_backtest(
         params["min_score"] = None
     params["apply_tau_buy_gate"] = False
     params["rank_key"] = "predicted_score_eod"
+    params["yhat_horizon_days"] = resolved["yhat_horizon_days"]
+    params["paper_horizon_days"] = resolved["paper_horizon_days"]
     note_bits = []
     if n_all > DAILY_PORTFOLIO_MAX_NAMES:
         note_bits.append(
-            f"日报轻量回测截断观察池 {n_all}→{DAILY_PORTFOLIO_MAX_NAMES}，"
+            f"日报轻量回测截断观察池 {n_all}→{len(stock_bars)}（缓存优先，上限 {DAILY_PORTFOLIO_MAX_NAMES}），"
             "基本面仅本地缓存（避免串行远端挂死）"
         )
     note_bits.append("选股键=ŷ_EOD · 关 τ 闸（日线无可靠分钟 τ；≠ live ŷ_trade）")
+    note_bits.append(
+        f"K={resolved['top_k']}（纸面 max_positions）· h={resolved['horizon_days']}（纸面持有）"
+        f"· 成本={'开' if resolved['apply_costs'] else '关'} · 权重含现金"
+        f"· 止损={params.get('stop_pct') or '关'}"
+        + (
+            f"（已进主路径 · 触及 {params.get('stop_legs_clipped') or 0} 腿）"
+            if params.get("stop_applied")
+            else ""
+        )
+    )
+    if resolved["yhat_horizon_days"] != resolved["paper_horizon_days"]:
+        note_bits.append(
+            f"ŷ 标签仍为 {resolved['yhat_horizon_days']} 日；未改 scoring.horizon_days"
+        )
+    cov = params.get("sector_coverage") or {}
+    if cov.get("coverage") is not None:
+        note_bits.append(f"行业映射 {cov.get('mapped')}/{cov.get('total')}")
+    note_bits.append(
+        "ŷ残差/超额标签对照未自动打开（研究枢纽影子 API）"
+    )
     note = " · ".join(note_bits)
     return {
         "success": True,
@@ -123,6 +211,18 @@ def summarize_portfolio_backtest(
         "regime_summary": regime,
         "regime_buckets": rb,
         "pit_report": pit,
+        "stop_shadow": bt.get("stop_shadow"),
         "signal_fill_sample": (bt.get("signal_fill_sample") or [])[-12:],
         "cost_model": bt.get("cost_model"),
+        "research_next": [
+            "人审 ŷ 残差对照 POST /api/quant/yhat-residual/shadow",
+            "人审 超额标签对照 POST /api/quant/excess-mode/shadow",
+            "过门后再开 cross_section.yhat_residual / y_spec.excess_mode=index",
+        ],
+        "sector_sync": {
+            "ok": sector_sync.get("ok"),
+            "coverage": sector_sync.get("coverage"),
+            "added_count": sector_sync.get("added_count"),
+            "written": False,
+        },
     }

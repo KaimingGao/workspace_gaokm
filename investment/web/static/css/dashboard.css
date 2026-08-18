@@ -851,6 +851,25 @@
   color: var(--ink);
 }
 
+.dashboard-market-card--index {
+  gap: 1px;
+}
+
+.dashboard-market-card--index .dashboard-market-value {
+  font-size: var(--d-fs-kpi, 1.25rem);
+  line-height: 1.15;
+}
+
+.dashboard-market-sub {
+  font-size: var(--d-fs-micro, 0.6875rem);
+  color: var(--ink-3);
+}
+
+.dashboard-market-card.is-up .dashboard-market-sub,
+.dashboard-market-card.is-down .dashboard-market-sub {
+  color: var(--ink-3);
+}
+
 /* ——— Risk Metrics Row ——— */
 .dashboard-risk-row {
   border: 1px solid var(--line);

@@ -3,9 +3,116 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
+
+# 网格「过门」：OOS 累计 ≥0 且全样本回撤 ≤15%；与日报/主回测过门口径对齐。
+PARAM_GRID_MIN_OOS_PCT = 0.0
+PARAM_GRID_MAX_DD_PCT = 15.0
+
+
+def _safe_float(v: Any) -> Optional[float]:
+    if v is None or v == "":
+        return None
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def param_grid_cell_eligible(
+    cell: Dict[str, Any],
+    *,
+    min_oos_pct: float = PARAM_GRID_MIN_OOS_PCT,
+    max_dd_pct: float = PARAM_GRID_MAX_DD_PCT,
+) -> Tuple[bool, Optional[str]]:
+    """格是否过门。返回 (过门, 未过原因码)。"""
+    if not cell.get("success"):
+        return False, "bt_fail"
+    if not cell.get("oos_ok"):
+        return False, "oos_short"
+    oos = _safe_float(cell.get("oos_return_pct"))
+    dd = _safe_float(cell.get("max_drawdown_pct"))
+    if oos is None:
+        return False, "oos_missing"
+    if dd is None:
+        return False, "dd_missing"
+    if oos < float(min_oos_pct):
+        return False, "oos_negative"
+    if dd > float(max_dd_pct):
+        return False, "dd_over"
+    return True, None
+
+
+def select_param_grid_best(
+    cells: Sequence[Dict[str, Any]],
+    *,
+    canonical_lookback: Optional[int] = None,
+    min_oos_pct: float = PARAM_GRID_MIN_OOS_PCT,
+    max_dd_pct: float = PARAM_GRID_MAX_DD_PCT,
+) -> Optional[Dict[str, Any]]:
+    """过门格中选优：固定最长 lookback，再按 OOS 高 → 回撤低 → K 小。
+
+    不同 lookback 不是同一段历史，禁止用短窗样本内收益冒充最优。
+    """
+    pool: List[Dict[str, Any]] = []
+    for c in cells or []:
+        ok, _reason = param_grid_cell_eligible(
+            c, min_oos_pct=min_oos_pct, max_dd_pct=max_dd_pct
+        )
+        if ok:
+            pool.append(c)
+    if canonical_lookback is not None:
+        same_lb = [
+            c
+            for c in pool
+            if int(c.get("lookback") or 0) == int(canonical_lookback)
+        ]
+        if same_lb:
+            pool = same_lb
+        else:
+            return None
+    if not pool:
+        return None
+
+    def _key(c: Dict[str, Any]) -> Tuple[int, float, float, int]:
+        failed = 1 if c.get("oos_failed") else 0
+        oos = _safe_float(c.get("oos_return_pct"))
+        dd = _safe_float(c.get("max_drawdown_pct"))
+        k = int(c.get("top_k") or 0)
+        return (
+            failed,
+            -(oos if oos is not None else -1e18),
+            dd if dd is not None else 1e18,
+            k,
+        )
+
+    return dict(min(pool, key=_key))
+
+
+def mark_equivalent_param_grid_cells(cells: List[Dict[str, Any]]) -> None:
+    """同一 lookback 下收益/OOS/回撤/笔数相同的不同 K，多半是门槛填不满。"""
+    groups: Dict[Tuple[Any, ...], List[int]] = {}
+    for i, c in enumerate(cells or []):
+        if not c.get("success"):
+            continue
+        key = (
+            int(c.get("lookback") or 0),
+            round(_safe_float(c.get("oos_return_pct")) or 0.0, 4),
+            round(_safe_float(c.get("total_return_pct")) or 0.0, 4),
+            round(_safe_float(c.get("max_drawdown_pct")) or 0.0, 4),
+            int(c.get("trade_count") or 0),
+        )
+        groups.setdefault(key, []).append(i)
+    for idxs in groups.values():
+        if len(idxs) < 2:
+            continue
+        ks = sorted(int(cells[i].get("top_k") or 0) for i in idxs)
+        note = f"K={','.join(str(k) for k in ks)} 指标相同（门槛可能填不满更大 K）"
+        for i in idxs:
+            cells[i]["equivalent_ks"] = ks
+            cells[i]["equivalent_note"] = note
 
 
 def _metrics_slice(result: Dict[str, Any]) -> Dict[str, Any]:
@@ -72,7 +179,7 @@ class QuantReplayMixin:
         *,
         codes: Optional[List[str]] = None,
         lookback: int = 120,
-        top_k: int = 3,
+        top_k: int = 20,
         horizon_days: int = 3,
         min_score: float = 55.0,
         apply_costs: bool = True,
@@ -80,11 +187,11 @@ class QuantReplayMixin:
         include_cost_compare: bool = False,
         include_wf_slices: bool = False,
         wf_n_splits: int = 3,
-        weight_mode: str = "equal",
-        max_position_pct: float = 40.0,
-        max_sector_pct: float = 60.0,
+        weight_mode: str = "score_budget",
+        max_position_pct: float = 25.0,
+        max_sector_pct: float = 40.0,
         dropout_n: int = 0,
-        exclude_st: bool = False,
+        exclude_st: bool = True,
         min_avg_amount_pctile: Optional[float] = None,
         include_score_ic: bool = True,
         include_quantile: bool = True,
@@ -94,9 +201,26 @@ class QuantReplayMixin:
         min_predicted_score: Optional[float] = None,
         return_model_min_samples: int = 24,
         return_model_ridge_lambda: float = 0.0,
+        persist_curve: bool = True,
     ) -> Dict[str, Any]:
         from core.backtest.topk_backtest import backtest_topk_equal_weight
+        from core.strategy import backtest_portfolio_defaults
         from quant.research.portfolio_data import load_portfolio_stock_bars
+
+        bt_def = backtest_portfolio_defaults()
+        top_k = int(top_k if top_k is not None else bt_def["top_k"])
+        weight_mode = str(weight_mode or bt_def["weight_mode"])
+        max_position_pct = float(
+            max_position_pct
+            if max_position_pct is not None
+            else bt_def["max_position_pct"]
+        )
+        max_sector_pct = float(
+            max_sector_pct if max_sector_pct is not None else bt_def["max_sector_pct"]
+        )
+        if min_predicted_score is None:
+            min_predicted_score = bt_def.get("min_predicted_score")
+        exclude_st = bool(exclude_st if exclude_st is not None else bt_def["exclude_st"])
 
         resolved = resolve_replay_candidates(codes)
         if not resolved.get("ok", True) and resolved.get("error"):
@@ -234,12 +358,19 @@ class QuantReplayMixin:
         if include_benchmark:
             try:
                 from core.backtest.topk_benchmark import build_topk_benchmark_summary
+                from core.research.bt_excess_attach import attach_benchmark_excess
 
                 result["benchmark"] = build_topk_benchmark_summary(
                     result,
                     stock_bars,
                     lookback=lookback,
                     index_code=benchmark_code or "000300",
+                )
+                result = attach_benchmark_excess(
+                    result,
+                    stock_bars,
+                    index_code=benchmark_code or "sh000300",
+                    lookback=lookback,
                 )
             except Exception as e:
                 result["benchmark"] = {"ok": False, "reason": str(e)}
@@ -405,7 +536,8 @@ class QuantReplayMixin:
             result.setdefault("data_quality", {})
 
         # R0：落盘回测曲线 + TTM backtest_ready（权威 realization 输入）
-        if result.get("success"):
+        # 参数网格逐格调用时必须 persist_curve=False，避免冲掉主回测北极星曲线
+        if persist_curve and result.get("success"):
             try:
                 from core.north_star import (
                     TTM_EVENT_BACKTEST,
@@ -470,25 +602,31 @@ class QuantReplayMixin:
         lookback_values: Optional[List[int]] = None,
         horizon_days: int = 3,
         min_score: float = 55.0,
+        min_predicted_score: Optional[float] = None,
         apply_costs: bool = True,
         max_cells: int = 12,
+        weight_mode: str = "score_budget",
+        dropout_n: int = 0,
+        exclude_st: bool = True,
+        min_avg_amount_pctile: Optional[float] = None,
+        rank_mode: str = "predicted_score",
     ) -> Dict[str, Any]:
-        """W3.3 · top_k × lookback 网格；跳过 WF / 成本对照以控时。"""
-        top_ks = [int(x) for x in (top_k_values or [2, 3, 5]) if 1 <= int(x) <= 10]
+        """top_k × lookback 网格：不落盘北极星；跳过 IC/分层/基准/WF；按 OOS 过门选优。"""
+        top_ks = [int(x) for x in (top_k_values or [10, 15, 20]) if 1 <= int(x) <= 40]
         lookbacks = [
-            int(x) for x in (lookback_values or [60, 90, 120]) if 40 <= int(x) <= 500
+            int(x) for x in (lookback_values or [120]) if 40 <= int(x) <= 500
         ]
         if not top_ks:
-            top_ks = [3]
+            top_ks = [20]
         if not lookbacks:
             lookbacks = [120]
         max_n = max(1, min(int(max_cells or 12), 20))
         pairs = [(lb, tk) for lb in lookbacks for tk in top_ks]
         if len(pairs) > max_n:
             pairs = pairs[:max_n]
+        canonical_lookback = max(lb for lb, _tk in pairs) if pairs else max(lookbacks)
 
         cells: List[Dict[str, Any]] = []
-        best: Optional[Dict[str, Any]] = None
         try:
             from core.north_star import TTM_EVENT_IDEA, append_ttm_event
 
@@ -507,15 +645,26 @@ class QuantReplayMixin:
                     top_k=top_k,
                     horizon_days=horizon_days,
                     min_score=min_score,
+                    min_predicted_score=min_predicted_score,
                     apply_costs=apply_costs,
+                    weight_mode=weight_mode,
+                    dropout_n=dropout_n,
+                    exclude_st=exclude_st,
+                    min_avg_amount_pctile=min_avg_amount_pctile,
+                    rank_mode=rank_mode,
                     include_cost_compare=False,
                     include_wf_slices=False,
+                    include_score_ic=False,
+                    include_quantile=False,
+                    include_benchmark=False,
                     fetch_fundamentals=False,
+                    persist_curve=False,
                 )
             except Exception as e:
                 raw = {"success": False, "error": str(e)}
             m = (raw or {}).get("metrics") or {}
-            cell = {
+            oos = (raw or {}).get("oos_summary") or {}
+            cell: Dict[str, Any] = {
                 "lookback": lookback,
                 "top_k": top_k,
                 "success": bool((raw or {}).get("success")),
@@ -524,55 +673,102 @@ class QuantReplayMixin:
                 "win_rate_pct": m.get("win_rate_pct"),
                 "trade_count": m.get("trade_count") or (raw or {}).get("trade_count"),
                 "sharpe_approx": m.get("sharpe_approx"),
+                "oos_ok": bool(oos.get("ok")),
+                "oos_failed": bool(oos.get("failed")),
+                "oos_return_pct": oos.get("oos_return_pct"),
+                "is_return_pct": oos.get("is_return_pct"),
+                "oos_fail_reason": oos.get("fail_reason"),
+                "oos_max_drawdown_pct": oos.get("oos_max_drawdown_pct"),
+                "is_max_drawdown_pct": oos.get("is_max_drawdown_pct"),
                 "error": None if (raw or {}).get("success") else (raw or {}).get("error"),
             }
+            eligible, gate_fail = param_grid_cell_eligible(cell)
+            cell["eligible"] = eligible
+            cell["gate_fail"] = gate_fail
             cells.append(cell)
-            ret = cell.get("total_return_pct")
-            if cell["success"] and ret is not None:
-                if best is None or float(ret) > float(best.get("total_return_pct") or -1e18):
-                    best = dict(cell)
 
-        # 热力矩阵：行=lookback，列=top_k，值=累计收益
+        mark_equivalent_param_grid_cells(cells)
+        best = select_param_grid_best(cells, canonical_lookback=canonical_lookback)
+        eligible_count = sum(1 for c in cells if c.get("eligible"))
+
         matrix: List[List[Optional[float]]] = []
         by_pair = {(c["lookback"], c["top_k"]): c for c in cells}
         for lb in lookbacks:
             row: List[Optional[float]] = []
             for tk in top_ks:
                 cell = by_pair.get((lb, tk))
-                if cell and cell.get("success") and cell.get("total_return_pct") is not None:
-                    row.append(float(cell["total_return_pct"]))
+                oos_v = _safe_float((cell or {}).get("oos_return_pct"))
+                if cell and cell.get("success") and oos_v is not None:
+                    row.append(oos_v)
                 else:
                     row.append(None)
             matrix.append(row)
+
+        if best:
+            gap_fail = bool(best.get("oos_failed"))
+            if gap_fail:
+                apply_allowed = False
+                gate_reason = (
+                    "过门格 OOS≥0 且回撤合格，但内外缺口旗标失败；"
+                    "可写入表单，须确认后再跑 Top-K。仍勿静默 promote。"
+                )
+            else:
+                apply_allowed = True
+                gate_reason = (
+                    "可将过门最优写入回测表单（非 promote，不落盘北极星）。"
+                    "请再跑 Top-K 看 IC/分层/曲线。仍勿静默 promote。"
+                )
+        else:
+            apply_allowed = False
+            gate_reason = (
+                "无格满足 OOS≥0 且回撤≤15%；网格仅为探路，禁止应用。"
+            )
+
+        lookback_note = ""
+        if len(lookbacks) > 1:
+            lookback_note = (
+                f"不同 lookback 不是同一段历史，勿横比累计；最优只在 lookback={canonical_lookback} 过门格中选。"
+            )
 
         return {
             "success": True,
             "axes": {"lookback": lookbacks, "top_k": top_ks},
             "cells": cells,
             "best": best,
+            "eligible_count": eligible_count,
+            "canonical_lookback": canonical_lookback,
+            "gate": {
+                "min_oos_pct": PARAM_GRID_MIN_OOS_PCT,
+                "max_dd_pct": PARAM_GRID_MAX_DD_PCT,
+            },
             "cell_count": len(cells),
             "trial_count": len(cells),
             "multiple_testing_note": (
-                f"共试验 {len(cells)} 格（样本内累计收益选优）；"
-                "试验次数越多，最优越易过拟合——须 OOS/纸面复核后再应用。"
+                f"共试验 {len(cells)} 格，过门 {eligible_count} 格"
+                f"（OOS≥{PARAM_GRID_MIN_OOS_PCT:g}% 且回撤≤{PARAM_GRID_MAX_DD_PCT:g}%）；"
+                "试验次数越多越易过拟合——须纸面复核后再应用。"
             ),
             "heat": {
-                "metric": "total_return_pct",
+                "metric": "oos_return_pct",
                 "rows": lookbacks,
                 "cols": top_ks,
                 "matrix": matrix,
             },
             "apply_best_gate": {
-                "allowed": False,
-                "reason": (
-                    "网格最优为样本内累计收益；须先用该 lookback/top_k 跑「Top-K 回测」"
-                    "且 OOS 未失败后，方可「应用最优」。"
-                ),
+                "allowed": apply_allowed,
+                "reason": gate_reason,
             },
+            "horizon_days": int(horizon_days),
+            "min_predicted_score": min_predicted_score,
+            "weight_mode": str(weight_mode or "score_budget"),
+            "dropout_n": int(dropout_n or 0),
+            "exclude_st": bool(exclude_st),
+            "rank_mode": str(rank_mode or "predicted_score"),
+            "persist_curve": False,
             "note": (
-                "网格跳过 WF 与成本对照；最优按累计收益选取；"
-                f"trial_count={len(cells)}；"
-                "应用最优受 OOS 闸门约束；已打 TTM idea_opened。"
+                "网格跳过 IC/分层/基准/WF，且不覆盖 north_star 最近回测；"
+                f"trial_count={len(cells)}；过门 {eligible_count} 格；"
+                + (lookback_note or "默认固定页面 lookback，只扫 K。")
             ),
         }
 
@@ -581,17 +777,17 @@ class QuantReplayMixin:
         *,
         codes: Optional[List[str]] = None,
         lookback: int = 120,
-        top_k: int = 3,
+        top_k: int = 20,
         horizon_days: int = 3,
         min_score: float = 55.0,
         min_predicted_score: Optional[float] = None,
         apply_costs: bool = True,
         fetch_fundamentals: Optional[bool] = None,
-        weight_mode: str = "equal",
-        max_position_pct: float = 40.0,
-        max_sector_pct: float = 60.0,
+        weight_mode: str = "score_budget",
+        max_position_pct: float = 25.0,
+        max_sector_pct: float = 40.0,
         dropout_n: int = 0,
-        exclude_st: bool = False,
+        exclude_st: bool = True,
         min_avg_amount_pctile: Optional[float] = None,
         benchmark_code: str = "000300",
     ) -> Dict[str, Any]:
@@ -685,6 +881,7 @@ class QuantReplayMixin:
         if out.get("success"):
             try:
                 from core.backtest.topk_benchmark import build_topk_benchmark_summary
+                from core.research.bt_excess_attach import attach_benchmark_excess
 
                 code = benchmark_code or "000300"
                 for key in ("neutralized", "absolute"):
@@ -696,6 +893,10 @@ class QuantReplayMixin:
                             lookback=lookback,
                             index_code=code,
                         )
+                        enriched = attach_benchmark_excess(
+                            arm, stock_bars, index_code=code, lookback=lookback
+                        )
+                        out[key] = enriched
                 n_ex = ((out.get("neutralized") or {}).get("benchmark") or {}).get("excess_pct")
                 a_ex = ((out.get("absolute") or {}).get("benchmark") or {}).get("excess_pct")
                 d_ex = None

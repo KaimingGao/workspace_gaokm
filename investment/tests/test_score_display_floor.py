@@ -58,6 +58,16 @@ class TestSelectionFloor(unittest.TestCase):
         ):
             self.assertTrue(looks_like_legacy_heuristic_score(55.0))
             self.assertFalse(looks_like_legacy_heuristic_score(1.0))
+            self.assertFalse(
+                looks_like_legacy_heuristic_score(
+                    12.5, item={"score": 12.5, "score_scale": "predicted_yhat"}
+                )
+            )
+            self.assertTrue(
+                looks_like_legacy_heuristic_score(
+                    55.0, item={"score": 55.0, "score_scale": "heuristic_0_100"}
+                )
+            )
             self.assertEqual(resolve_optimize_score_floor(None), 1.0)
             self.assertEqual(resolve_optimize_score_floor(55.0), 1.0)
             self.assertEqual(resolve_optimize_score_floor(0.5), 0.5)

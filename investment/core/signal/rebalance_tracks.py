@@ -104,10 +104,20 @@ def resolve_oos_status(
     return OOS_UNKNOWN
 
 
+def _infer_item_scale(item: Optional[dict]) -> str:
+    try:
+        from core.signal.gate import infer_score_scale
+
+        return str(infer_score_scale(item) or "")
+    except Exception:
+        return str((item or {}).get("score_scale") or "") if isinstance(item, dict) else ""
+
+
 def heuristic_score_value(item: Optional[dict]) -> Optional[float]:
     """读取 0–100 heuristic；不与 ŷ% ``score`` 混用。
 
-    优先 ``heuristic_score``；仅当旧脏行把 0–100 写进 ``score``（|v|>20）时回退。
+    优先 ``heuristic_score``。回退 ``score`` 时以 ``score_scale`` 为准；
+    未标明尺才用 |v|>20 识别旧脏行（创业板 ŷ≈20 不再误当 heuristic）。
     """
     if not isinstance(item, dict):
         return None
@@ -119,7 +129,9 @@ def heuristic_score_value(item: Optional[dict]) -> Optional[float]:
             return float(v)
         except (TypeError, ValueError):
             continue
-    # 旧簿：score 曾被写成 heuristic
+    scale = _infer_item_scale(item)
+    if scale == "predicted_yhat":
+        return None
     v = item.get("score")
     if v is None or v == "":
         return None
@@ -127,15 +139,18 @@ def heuristic_score_value(item: Optional[dict]) -> Optional[float]:
         f = float(v)
     except (TypeError, ValueError):
         return None
+    if scale == "heuristic_0_100":
+        return f
     if abs(f) > 20:
         return f
     return None
 
 
 def table_yhat_score_value(item: Optional[dict]) -> Optional[float]:
-    """表列 / 簿 ``score`` 应用的 ŷ%：组 → 全局 → 已是 ŷ 量级的 score。"""
+    """表列 / 簿 ``score`` 应用的 ŷ%：组 → 全局 → predicted → score。"""
     if not isinstance(item, dict):
         return None
+    scale = _infer_item_scale(item)
     for key in ("score_cluster", "score_global", "predicted_score_blend", "predicted_score"):
         v = item.get(key)
         if v is None or v == "":
@@ -144,8 +159,10 @@ def table_yhat_score_value(item: Optional[dict]) -> Optional[float]:
             f = float(v)
         except (TypeError, ValueError):
             continue
-        if abs(f) <= 20:
+        if scale == "predicted_yhat" or abs(f) <= 20:
             return f
+    if scale == "heuristic_0_100":
+        return None
     v = item.get("score")
     if v is None or v == "":
         return None
@@ -153,7 +170,7 @@ def table_yhat_score_value(item: Optional[dict]) -> Optional[float]:
         f = float(v)
     except (TypeError, ValueError):
         return None
-    if abs(f) <= 20:
+    if scale == "predicted_yhat" or abs(f) <= 20:
         return f
     return None
 
@@ -304,8 +321,7 @@ def _oos_predicted_hold_score(item: Optional[dict]) -> Optional[float]:
         if sc is None:
             return None
         sc_f = float(sc)
-        # 0–100 启发式不得当 ŷ hold
-        if abs(sc_f) > 20:
+        if src != "oos_failed_global" and is_heuristic_score_scale(item):
             return None
         return sc_f
     except (TypeError, ValueError):

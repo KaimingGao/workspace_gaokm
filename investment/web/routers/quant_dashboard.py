@@ -75,6 +75,7 @@ def _equity_curve_from_paper(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
                 "cash": s.get("cash"),
                 "stock_value": s.get("stock_value"),
                 "total_pnl_pct": s.get("total_pnl_pct"),
+                "live": bool(s.get("live")),
             }
         )
     if out:
@@ -91,6 +92,24 @@ def _equity_curve_from_paper(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
         row.setdefault("time", time_key)
         normalized.append(row)
     return normalized
+
+
+def _equity_curve_with_live(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """落盘 snapshots + 现价盯市末点（只读，不写 paper.json）。
+
+    仪表盘 KPI 累计/今日已走 mark_to_market；曲线若只读快照，盘中末点会和摘要分叉。
+    """
+    if not paper:
+        return []
+    try:
+        from core.paper import mark_to_market, snapshots_for_ui
+
+        summary = mark_to_market(paper)
+        work = dict(paper)
+        work["snapshots"] = snapshots_for_ui(paper, summary)
+        return _equity_curve_from_paper(work)
+    except Exception:
+        return _equity_curve_from_paper(paper)
 
 
 def _holdings_from_paper(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -401,6 +420,9 @@ def _build_kpis() -> Dict[str, Any]:
         "ok": True,
         "today_return": round(today_ret, 2) if today_ret is not None else None,
         "total_return": round(total_ret, 2) if total_ret is not None else None,
+        "today_return_basis": (
+            live_summary.get("today_pnl_basis") if isinstance(live_summary, dict) else None
+        ),
         "sharpe": round(sharpe, 2) if sharpe is not None else None,
         "max_drawdown": round(max_dd, 2) if max_dd is not None else None,
         "win_rate": round(win_rate, 2) if win_rate is not None else None,
@@ -566,10 +588,14 @@ def dashboard_nav_curve(range: str = "all", benchmark: str = "hs300"):
     """累计净值曲线（归一到 100）。range: 30 | 90 | ytd | all。含基准对比与相关性。"""
     try:
         paper = _load_raw_paper()
-        eq_curve = _filter_eq_by_range(_equity_curve_from_paper(paper), range)
+        eq_curve = _filter_eq_by_range(_equity_curve_with_live(paper), range)
 
         raw_points = [
-            {"time": e.get("time") or e.get("date"), "value": e.get("equity")}
+            {
+                "time": e.get("time") or e.get("date"),
+                "value": e.get("equity"),
+                "live": bool(e.get("live")),
+            }
             for e in eq_curve
             if e.get("equity") is not None
         ]
@@ -582,7 +608,11 @@ def dashboard_nav_curve(range: str = "all", benchmark: str = "hs300"):
             return {"ok": True, "points": [], "benchmark": [], "correlation": None, "count": 0}
 
         points = [
-            {"time": p["time"], "value": round(p["value"] / base * 100, 2)}
+            {
+                "time": p["time"],
+                "value": round(p["value"] / base * 100, 2),
+                "live": bool(p.get("live")),
+            }
             for p in raw_points
         ]
 

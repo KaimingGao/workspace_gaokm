@@ -284,6 +284,121 @@ class QuantFactorMixin:
         out["stock_count"] = len(stock_bars)
         return out
 
+    def run_yhat_residual_shadow(
+        self,
+        *,
+        watching_limit: int = 36,
+        top_k: int = 10,
+        prefer_cluster_book: bool = True,
+    ) -> Dict[str, Any]:
+        """ŷ 行业残差 on/off 影子对照（不写盘）。"""
+        from core.research.yhat_residual_shadow import compare_yhat_residual_shadow
+        from core.watching_store import read_watching
+
+        items: List[Dict[str, Any]] = []
+        source = "none"
+        if prefer_cluster_book:
+            try:
+                from core.signal.cluster_live import load_active_cluster_book
+
+                book = load_active_cluster_book() or {}
+                ranked = (
+                    book.get("book")
+                    or book.get("scored_all")
+                    or book.get("ranked")
+                    or book.get("items")
+                    or book.get("rows")
+                    or []
+                )
+                if isinstance(ranked, list) and ranked:
+                    items = [dict(x) for x in ranked if isinstance(x, dict)]
+                    source = "cluster_book"
+            except Exception:
+                items = []
+
+        if len(items) < 3:
+            uni = read_watching()
+            codes = list(uni.get("watchlist") or [])[
+                : max(3, min(int(watching_limit or 36), 40))
+            ]
+            try:
+                from core.signal.service import get_default_signal_service
+
+                svc = get_default_signal_service()
+                for code in codes:
+                    try:
+                        packed = svc.score_one(str(code)).as_dict()
+                    except Exception:
+                        continue
+                    if not isinstance(packed, dict):
+                        continue
+                    if packed.get("predicted_score") is None and packed.get("score") is None:
+                        continue
+                    items.append(packed)
+                source = "live_score"
+            except Exception as exc:
+                return {
+                    "success": False,
+                    "ok": False,
+                    "error": f"无法打分：{exc}",
+                    "task": "yhat_residual_shadow",
+                }
+
+        if len(items) < 3:
+            return {
+                "success": False,
+                "ok": False,
+                "error": "至少 3 只有 ŷ/score 的条目才能对照",
+                "task": "yhat_residual_shadow",
+                "sample_count": len(items),
+                "source": source,
+            }
+
+        out = compare_yhat_residual_shadow(items, top_k=top_k)
+        out["source"] = source
+        out["watching_limit"] = watching_limit
+        return out
+
+    def run_excess_mode_shadow(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 36,
+        horizon_days: int = 1,
+        ridge_lambda: float = 1.0,
+    ) -> Dict[str, Any]:
+        """绝对 y vs 指数超额 y：同池 holdout IC 影子对照（不写盘）。"""
+        from core.data_service import bars_and_source
+        from core.research.excess_mode_shadow import compare_excess_mode_shadow
+        from core.watching_store import read_watching
+
+        uni = read_watching()
+        codes = list(uni.get("watchlist") or [])
+        limit = max(2, min(int(watching_limit or 36), 40))
+        codes = codes[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "ok": False,
+                "error": "研究池至少 2 只",
+                "task": "excess_mode_shadow",
+            }
+        stock_bars: List[Dict[str, Any]] = []
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            if not bars:
+                continue
+            stock_bars.append({"code": str(code), "bars": bars})
+        out = compare_excess_mode_shadow(
+            stock_bars,
+            horizon_days=horizon_days,
+            ridge_lambda=ridge_lambda,
+        )
+        out["watching_limit"] = limit
+        out["lookback"] = lookback
+        out["stock_count"] = len(stock_bars)
+        return out
+
     def run_rem_ridge_experiment(
         self,
         *,
@@ -1416,6 +1531,10 @@ def _enrich_cluster_name_by_code(report: Dict[str, Any]) -> Dict[str, Any]:
     return report
 
 
+# 选 k / 拆组算法版本。改分区逻辑时必须 bump，否则 refresh_bars=False 会命中 24h 旧分区。
+CLUSTER_CACHE_ALGO_VERSION = "v4-cluster-oos-rank-only"
+
+
 def _cluster_cache_fingerprint(
     watchlist: List[Any],
     *,
@@ -1439,7 +1558,7 @@ def _cluster_cache_fingerprint(
     select_ridge: bool,
     collinearity_policy: str,
 ) -> str:
-    """watchlist 代码（排序）+ 关键参数 → 稳定指纹；任一变化即视为需重算。"""
+    """watchlist 代码（排序）+ 关键参数 + 算法版本 → 稳定指纹；任一变化即视为需重算。"""
     import hashlib
 
     codes = []
@@ -1472,6 +1591,7 @@ def _cluster_cache_fingerprint(
         f"regime={int(bool(respect_regime))}",
         f"sridge={int(bool(select_ridge))}",
         f"colpol={collinearity_policy}",
+        f"algo={CLUSTER_CACHE_ALGO_VERSION}",
     ]
     raw = "|".join(parts)
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]

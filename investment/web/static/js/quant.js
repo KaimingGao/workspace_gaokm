@@ -1369,7 +1369,7 @@ export function initQuant(ctx) {
     const dull = state.lastParamGrid.dullness || backtest.paramGridDullness(state.lastParamGrid);
     if (dull && dull.sharp) {
       const ok = window.confirm(
-        `最优格相对邻格收益差达 ${dull.max_gap_pp}pp，可能过拟合尖峰。仍应用 lookback=${best.lookback} / top_k=${best.top_k}？`
+        `过门最优格相对邻格 OOS 差达 ${dull.max_gap_pp}pp，可能过拟合尖峰。仍应用 lookback=${best.lookback} / top_k=${best.top_k}？`
       );
       if (!ok) {
         if (meta) meta.textContent = "已取消应用最优（邻格过尖）";
@@ -1381,17 +1381,20 @@ export function initQuant(ctx) {
         `${gate.reason}\n\n仍将最优 lookback=${best.lookback} / top_k=${best.top_k} 写入回测表单？`
       );
       if (!okAlign) {
-        if (meta) meta.textContent = "已取消应用最优（IC对齐警示）";
+        if (meta) meta.textContent = "已取消应用最优（需确认）";
         return;
       }
     }
-    const lb = document.getElementById("quant-lookback");
-    const tk = document.getElementById("quant-top-k");
-    if (lb) lb.value = String(best.lookback);
-    if (tk) tk.value = String(best.top_k);
+    backtest.applyParamGridCellToForm(best, {
+      horizon_days: state.lastParamGrid && state.lastParamGrid.horizon_days,
+    });
     if (meta) {
       meta.textContent =
-        `已确认 lookback=${best.lookback} · top_k=${best.top_k}（OOS 已核对）；仍勿静默 promote` +
+        `已写入 lookback=${best.lookback} · top_k=${best.top_k}` +
+        (state.lastParamGrid && state.lastParamGrid.horizon_days != null
+          ? ` · h=${state.lastParamGrid.horizon_days}`
+          : "") +
+        `；请再跑 Top-K 看完整报告。仍勿静默 promote` +
         (dull && dull.sharp ? ` · 邻格Δ ${dull.max_gap_pp}pp` : "");
     }
   });
@@ -1928,7 +1931,14 @@ export function initQuant(ctx) {
       setTimeout(() => {
         backtest.runParamGrid()
           .then(() => {
-            window.location.href = "/quant";
+            if (meta) meta.textContent = (meta.textContent || "") + " · 键盘链路完成（留在本页看热力）";
+            try {
+              const url = new URL(window.location.href);
+              url.searchParams.delete("auto_param_grid_chain");
+              history.replaceState({}, "", `${url.pathname}${url.search}#param-grid`);
+            } catch (_) {
+              /* ignore */
+            }
           })
           .catch((err) => {
             if (meta) meta.textContent = String(err.message || err);

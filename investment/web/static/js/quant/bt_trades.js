@@ -120,6 +120,8 @@ export function flattenTradesToSimLegs(trades) {
         factor_coefficients_tau: l.factor_coefficients_tau,
         dual_score_fusion: l.dual_score_fusion,
         dual_score_weights: l.dual_score_weights,
+        dual_score_head: l.dual_score_head || null,
+        dual_score_single_head: !!l.dual_score_single_head,
         gap_pct: l.gap_pct,
         event_prior: l.event_prior,
         as_of_tau: l.as_of_tau || l.rem_tau,
@@ -299,9 +301,16 @@ export function buildSimTradeRow(r, i, deps) {
     : eodScore != null
       ? eodScore
       : blendRaw;
-  const scoreColTitle = hasTau
+  const scoreColTitleBase = hasTau
     ? "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ"
     : "ŷ_EOD（历史 Top-K 选股键）· 日线无可靠 ŷ_τ · 关 τ 闸";
+  const singleHead =
+    r.dual_score_single_head === true ||
+    String(r.dual_score_head || "") === "single_eod" ||
+    String(r.dual_score_head || "") === "single_tau";
+  const scoreColTitle = singleHead
+    ? `ŷ_trade 单头降级（${String(r.dual_score_head || "single")}）· 悬停看详情`
+    : scoreColTitleBase;
   const scoreCalTitleDefault = hasTau
     ? "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip"
     : "g(ŷ_EOD) 对照 · 不进决策 · 悬停看 tip";
@@ -376,6 +385,15 @@ export function buildSimTradeRow(r, i, deps) {
     factor_coefficients_tau: r.factor_coefficients_tau,
     dual_score_fusion: r.dual_score_fusion,
     dual_score_weights: r.dual_score_weights,
+    dual_score_head: r.dual_score_head || null,
+    dual_score_single_head: !!r.dual_score_single_head || singleHead,
+    y_check: r.y_check || null,
+    y_disagree: r.y_disagree,
+    y_sigma: r.y_sigma,
+    eod_trust: r.eod_trust,
+    y_tau_to_close: r.y_tau_to_close,
+    y_tau_to_close_src: r.y_tau_to_close_src,
+    y_state: r.y_state,
     score_formula: r.score_formula,
     score_reasons: reasons,
     hard_reject: !!r.hard_reject,
@@ -421,9 +439,11 @@ export function buildSimTradeRow(r, i, deps) {
     retCls: st !== "filled" ? "down" : metricClass(ret),
     scoreNum: blendScore,
     scoreText: fmtScore(blendScore),
-    scoreCls: scoreCls(blendScore),
+    scoreCls: `${scoreCls(blendScore)}${singleHead ? " score-single-head" : ""}`.trim(),
     scoreDetail,
     scoreTitle: scoreColTitle,
+    scoreSingleHead: singleHead,
+    dualScoreHead: r.dual_score_head || null,
     scoreCalNum: blendCal,
     scoreCalText: fmtScore(blendCal),
     scoreCalCls: `${scoreCls(blendCal)}${scoreCalOor ? " is-cal-oor" : ""}`.trim(),
@@ -496,17 +516,30 @@ export function btTradesCellHtml(col, d, deps) {
   }
   if (col.id === "score") {
     const title = d.scoreTitle || "悬停查看收益分与因子系数";
+    const singleHead = !!d.scoreSingleHead;
+    const head = d.dualScoreHead || "";
+    const headTitle =
+      head === "single_tau"
+        ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 EOD rem）· 与双头票不同量纲"
+        : head === "single_eod"
+          ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
+          : "ŷ_trade 单头降级 · 与双头票不同量纲";
+    const badge = singleHead
+      ? `<span class="watching-single-head-badge" title="${escapeHtml(
+          headTitle
+        )}">单</span>`
+      : "";
     if (!d.scoreDetail) {
       return `<span class="bt-trade-score paper-hold-score ${escapeHtml(
         d.scoreCls || ""
-      )}">${escapeHtml(d.scoreText)}</span>`;
+      )}">${escapeHtml(d.scoreText)}${badge}</span>`;
     }
     return (
       `<span class="bt-trade-score paper-hold-score has-tip ${escapeHtml(
         d.scoreCls || ""
       )}" ` +
       `data-score-detail="${escapeHtml(d.scoreDetail)}" data-score-tip="trade" ` +
-      `title="${escapeHtml(title)}">${escapeHtml(d.scoreText)}</span>`
+      `title="${escapeHtml(title)}">${escapeHtml(d.scoreText)}${badge}</span>`
     );
   }
   if (col.id === "score_cal") {

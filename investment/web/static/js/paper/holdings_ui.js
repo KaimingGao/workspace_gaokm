@@ -126,12 +126,18 @@ export function buildPaperHoldingsTableHtml({
         scoreBase !== "—" && belowMin ? `${scoreBase}↓` : scoreBase;
       if (scoreShown === "—" && hardReject) scoreShown = "拒";
       const scoreCalShown = fmtTableScore(h, scoreCal);
+      const singleHead =
+        h.dual_score_single_head === true ||
+        String(h.dual_score_head || "") === "single_eod" ||
+        String(h.dual_score_head || "") === "single_tau";
       const scoreTitle = hardReject
         ? String(h.reject_reason || "硬拒绝 · 无收益分")
         : isHeuristicScoreScale(h)
           ? score != null
             ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
             : "OOS 失败 · 无 ŷ% · tip 看 heuristic(0–100)"
+          : singleHead
+            ? `ŷ_trade 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
           : belowMin
             ? `低于ŷ_EOD门槛 ${h.min_score ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
             : "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
@@ -142,6 +148,39 @@ export function buildPaperHoldingsTableHtml({
       const oosBadge = oosFailed
         ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
         : "";
+      const head = String(h.dual_score_head || "");
+      const singleHeadBadge = singleHead
+        ? `<span class="watching-single-head-badge" title="${escapeText(
+            head === "single_tau"
+              ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 EOD rem）· 与双头票不同量纲"
+              : head === "single_eod"
+                ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
+                : "ŷ_trade 单头降级 · 与双头票不同量纲"
+          )}">单</span>`
+        : "";
+      const yCheck = String(h.y_check || "");
+      const yCheckBadge =
+        yCheck && yCheck !== "ok"
+          ? `<span class="watching-y-check-badge is-${escapeText(
+              yCheck
+            )}" title="${escapeText(
+              yCheck === "conflict"
+                ? "Y·EOD 校验：双头分歧 · 降低今日执行信任"
+                : yCheck === "low_conf"
+                  ? "Y·EOD 校验：低置信"
+                  : yCheck === "missing_tau"
+                    ? "Y·EOD 校验：缺 ŷ_τ"
+                    : `Y·EOD 校验：${yCheck}`
+            )}">${escapeText(
+              yCheck === "conflict"
+                ? "歧"
+                : yCheck === "low_conf"
+                  ? "弱"
+                  : yCheck === "missing_tau"
+                    ? "缺τ"
+                    : "校"
+            )}</span>`
+          : "";
       const scoreCalOor = !!(
         h.score_calibration_eod_oor ||
         h.score_calibration_eod_rem_oor ||
@@ -217,6 +256,15 @@ export function buildPaperHoldingsTableHtml({
           factor_coefficients_tau: h.factor_coefficients_tau || null,
           dual_score_fusion: h.dual_score_fusion || null,
           dual_score_weights: h.dual_score_weights || null,
+          dual_score_head: h.dual_score_head || null,
+          dual_score_single_head: !!h.dual_score_single_head || singleHead,
+          y_check: h.y_check || null,
+          y_disagree: h.y_disagree,
+          y_sigma: h.y_sigma,
+          eod_trust: h.eod_trust,
+          y_tau_to_close: h.y_tau_to_close,
+          y_tau_to_close_src: h.y_tau_to_close_src,
+          y_state: h.y_state,
           formula: hasTerms ? "" : h.score_formula || "",
           reasons: h.score_reasons || [],
           hard_reject: h.hard_reject,
@@ -279,10 +327,12 @@ export function buildPaperHoldingsTableHtml({
         )}</td>` +
         `<td class="num paper-hold-score has-tip ${scoreCls(score)}${
           belowMin ? " score-below-min" : ""
-        }${hardReject ? " score-reject" : ""}" ` +
+        }${hardReject ? " score-reject" : ""}${
+          singleHead ? " score-single-head" : ""
+        }" ` +
         `data-score-detail="${scoreDetailJson}" data-score-tip="trade" title="${escapeText(
           scoreTitle
-        )}">${escapeText(scoreShown)}</td>` +
+        )}">${escapeText(scoreShown)}${singleHeadBadge}${yCheckBadge}</td>` +
         `<td class="num paper-hold-score watching-score-cal has-tip ${scoreCls(
           scoreCal
         )}${scoreCalOor ? " is-cal-oor" : ""}" data-score-detail="${scoreDetailJson}" data-score-tip="cal" title="${escapeText(

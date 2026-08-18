@@ -203,6 +203,10 @@ export function createOlsUi(deps) {
       gate && gate.delta_oos_pp != null && gate.delta_oos_pp !== ""
         ? Number(gate.delta_oos_pp)
         : null;
+    const deltaEx =
+      gate && gate.delta_excess_pp != null && gate.delta_excess_pp !== ""
+        ? Number(gate.delta_excess_pp)
+        : null;
     const tol =
       gate && gate.oos_tol_pp != null && gate.oos_tol_pp !== ""
         ? gate.oos_tol_pp
@@ -217,8 +221,19 @@ export function createOlsUi(deps) {
       delta == null || !Number.isFinite(delta)
         ? "—"
         : `${delta > 0 ? "+" : ""}${delta}pp`;
+    const deltaExCls =
+      deltaEx == null || !Number.isFinite(deltaEx)
+        ? ""
+        : deltaEx >= 0
+          ? "is-pos"
+          : "is-neg";
+    const deltaExText =
+      deltaEx == null || !Number.isFinite(deltaEx)
+        ? "—"
+        : `${deltaEx > 0 ? "+" : ""}${deltaEx}pp`;
     const metrics = [
       ["ΔOOS", deltaText, deltaCls],
+      ["Δ超额", deltaExText, deltaExCls],
       ["容差", `±${tol}pp`, ""],
       [
         "基线 OOS",

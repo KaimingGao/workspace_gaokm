@@ -427,6 +427,13 @@ def run_daily_cycle(
     except Exception:
         rebalance_report.sort(key=lambda x: x.get("score") or 0, reverse=True)
 
+    try:
+        from core.paper_rebalance import attach_change_pct_to_rebalance_report
+
+        attach_change_pct_to_rebalance_report(rebalance_report, summary=summary)
+    except Exception:
+        pass
+
     sid = paper.get("strategy_id") or strategy
     sver = paper.get("strategy_version")
     risk_blocks = (risk_gate or {}).get("blocks") or []

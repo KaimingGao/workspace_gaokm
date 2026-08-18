@@ -63,7 +63,7 @@
   },
   "scoring": {
     "rank_mode": "predicted_score",
-    "min_predicted_score": 1.0,
+    "min_predicted_score": 0.4,
     "min_hold_predicted_score": 0.0,
     "horizon_days": 1,
     "enable_calibration": true,

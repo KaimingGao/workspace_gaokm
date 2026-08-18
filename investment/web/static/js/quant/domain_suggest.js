@@ -272,15 +272,28 @@ export function installSuggest(q) {
     const rows = (data.factors || []).map((f) => {
       const name = f.factor || f.name || "";
       const meta = factorMetaByName[name] || {};
+      const spearMean = f.spearman && f.spearman.ic_mean;
+      const pearMean = f.pearson && f.pearson.ic_mean;
+      const primaryIc =
+        f.ic != null ? f.ic : spearMean != null ? spearMean : pearMean;
       return {
         factor: name,
         name,
         label: f.label || meta.label || name,
-        ic: f.ic != null ? f.ic : (f.pearson && f.pearson.ic_mean),
-        sample_count: f.sample_count != null ? f.sample_count : (f.pearson && f.pearson.day_count),
+        ic: primaryIc,
+        sample_count:
+          f.sample_count != null
+            ? f.sample_count
+            : (f.spearman && f.spearman.day_count) ||
+              (f.pearson && f.pearson.day_count),
         exclusion_reason: f.exclusion_reason || null,
-        spearman_ic: f.spearman && f.spearman.ic_mean,
-        icir: f.icir != null ? f.icir : (f.pearson && f.pearson.icir),
+        spearman_ic: spearMean,
+        pearson_ic: pearMean,
+        icir:
+          f.icir != null
+            ? f.icir
+            : (f.spearman && f.spearman.icir) || (f.pearson && f.pearson.icir),
+        ic_kind: f.ic_kind || data.primary_ic_kind || "cs_spearman",
       };
     });
     const panel = {
@@ -290,24 +303,35 @@ export function installSuggest(q) {
         rows.filter((r) => r.exclusion_reason).map((r) => [r.factor || r.name, r.exclusion_reason])
       ),
       mode: "factor_cross_section",
+      primary_ic_kind: data.primary_ic_kind || "cs_spearman",
     };
     state.lastFactorPanelForMerge = panel;
     if (els.quantFactorList) {
       els.quantFactorList.innerHTML =
         factorIcWeightMergedHtml(panel, state.lastWeightSuggestForMerge, state.lastOlsForMerge) || "";
     }
+    const scoreS = (data.score_ic && data.score_ic.spearman) || {};
     const scoreP = (data.score_ic && data.score_ic.pearson) || {};
     const nOk = rows.filter((r) => r.ic != null).length;
+    const primaryLabel = "主IC=截面Spearman";
     setBusyText(
       els.quantOlsSummary,
-      `截面 IC · ${data.stock_count ?? "—"} 只 · 日 ${data.day_count ?? "—"} · 因子有效 ${nOk}/${rows.length}` +
-        (scoreP.ic_mean != null ? ` · 综合 IC ${scoreP.ic_mean}` : "") +
+      `截面 IC · ${primaryLabel} · ${data.stock_count ?? "—"} 只 · 日 ${data.day_count ?? "—"} · 因子有效 ${nOk}/${rows.length}` +
+        (scoreS.ic_mean != null
+          ? ` · 综合 ${scoreS.ic_mean}`
+          : scoreP.ic_mean != null
+            ? ` · 综合(Pearson) ${scoreP.ic_mean}`
+            : "") +
         (data.pit_fundamentals ? " · PIT" : ""),
       { busy: false }
     );
     setQuantMeta(
-      `截面 IC · ${nOk}/${rows.length} 因子 · horizon ${data.horizon_days ?? 1}` +
-        (scoreP.icir != null ? ` · score ICIR ${scoreP.icir}` : "")
+      `截面 IC（${primaryLabel}）· ${nOk}/${rows.length} 因子 · horizon ${data.horizon_days ?? 1}` +
+        (scoreS.icir != null
+          ? ` · score ICIR ${scoreS.icir}`
+          : scoreP.icir != null
+            ? ` · score ICIR(P) ${scoreP.icir}`
+            : "")
     );
   }
 

@@ -1173,7 +1173,7 @@ def _select_clustered_by_delta_oos(
             "expanding_score": bool(len(cut_packs) > 1),
         }
 
-    best = pick_best_k_selection_row(rows) or rows[0]
+    best = pick_best_k_selection_row(rows, oos_tol_pp=float(oos_tol_pp)) or rows[0]
     chosen_k = int(best["k"])
     chosen_kind = str(best.get("partition_kind") or "hierarchical_complete")
     parts = []
@@ -1206,11 +1206,13 @@ def _select_clustered_by_delta_oos(
         "note": (
             "主排：多折日历前段 β 重聚类的均值 partition_loss"
             "（尾段 ŷ 有符号 IC↑ / 前段重拟合 R²↑；重拟合失败不计分）；"
-            "交付标签取主切点（~70%）；辅：ΔOOS；配方含层次/kmeans"
+            "交付标签取主切点（~70%）；辅门禁：有过门 ΔOOS 时淘汰更差负 ΔOOS；"
+            "kmeans 与层次同样劈超大组"
             if len(cut_packs) > 1
             else (
                 "主排：partition_loss（前段 β 定组 · 尾段 ŷ 有符号 IC↑ / 前段重拟合 R²↑；"
-                "宇宙日历切分优先；重拟合失败不计分）；辅：ΔOOS；配方含层次/kmeans"
+                "宇宙日历切分优先；重拟合失败不计分）；辅门禁：有过门 ΔOOS 时淘汰更差负 ΔOOS；"
+                "kmeans 与层次同样劈超大组；配方含层次/kmeans"
             )
         ),
         "walk_forward": {

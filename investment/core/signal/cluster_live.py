@@ -1207,6 +1207,8 @@ def ensure_active_cluster_oos_gates(
                 oos_tol_pp=float(oos_tol_pp),
                 ridge_lambda=float(rm.get("ridge_lambda") or 0.0),
                 stock_bars=member_bars or None,
+                rank_only=True,
+                require_clean_is_oos=False,
             )
             gate = dict(gate)
             gate["scope"] = "cluster_members"

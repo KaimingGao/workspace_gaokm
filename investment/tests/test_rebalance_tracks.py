@@ -217,5 +217,49 @@ class TestRebalanceTracks(unittest.TestCase):
         self.assertEqual(track_oos_eq, "heuristic")
 
 
+class TestScaleNotNumericRange(unittest.TestCase):
+    def test_chi_next_yhat_not_heuristic(self):
+        from core.signal.rebalance_tracks import (
+            heuristic_score_value,
+            table_yhat_score_value,
+            hold_decision_for_item,
+        )
+
+        item = {
+            "score": 21.0,
+            "predicted_score": 21.0,
+            "predicted_score_eod": 21.0,
+            "score_scale": "predicted_yhat",
+        }
+        self.assertIsNone(heuristic_score_value(item))
+        self.assertAlmostEqual(table_yhat_score_value(item), 21.0)
+        sell, sc, _, track = hold_decision_for_item(
+            item, tracks_cfg={"heuristic_hold_floor": 45.0, "predicted_hold_floor": -1.0}
+        )
+        self.assertFalse(sell)
+        self.assertEqual(track, "predicted")
+        self.assertAlmostEqual(sc, 21.0)
+
+    def test_oos_global_yhat_ge_20_uses_predicted_hold(self):
+        from core.signal.rebalance_tracks import hold_decision_for_item
+
+        sell, sc, floor, track = hold_decision_for_item(
+            {
+                "oos_blocked": True,
+                "return_model_source": "oos_failed_global",
+                "score": 21.0,
+                "predicted_score": 21.0,
+                "predicted_score_eod": 21.0,
+                "score_scale": "predicted_yhat",
+            },
+            tracks_cfg={"heuristic_hold_floor": 45.0, "predicted_hold_floor": -1.0},
+            predicted_hold_floor=-1.0,
+        )
+        self.assertFalse(sell)
+        self.assertEqual(track, "predicted")
+        self.assertAlmostEqual(sc, 21.0)
+        self.assertAlmostEqual(floor, -1.0)
+
+
 if __name__ == "__main__":
     unittest.main()

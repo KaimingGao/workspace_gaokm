@@ -110,8 +110,14 @@ def quant_param_grid(body: ParamGridRequest):
             lookback_values=body.lookback_values,
             horizon_days=body.horizon_days,
             min_score=body.min_score,
+            min_predicted_score=body.min_predicted_score,
             apply_costs=body.apply_costs,
             max_cells=body.max_cells,
+            weight_mode=body.weight_mode,
+            dropout_n=body.dropout_n,
+            exclude_st=body.exclude_st,
+            min_avg_amount_pctile=body.min_avg_amount_pctile,
+            rank_mode=body.rank_mode,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

@@ -248,3 +248,78 @@ def apply_cross_section_neutralization(
         "factor_count": len(factor_names),
         "items": out_items,
     }
+
+
+def residualize_rank_scores(
+    items: List[dict],
+    *,
+    score_keys: Optional[List[str]] = None,
+    by: str = "sector",
+    min_group: int = 2,
+) -> Dict[str, Any]:
+    """对已算出的 ŷ / 排序键做组内减均值（P2a）。
+
+    不改 sub_scores、不重拟合 β；只把截面共同腿从排序分里剥一层。
+    ``by=sector``：按 industry/sector；不足则跳过该组。
+    """
+    keys = list(score_keys or ["predicted_score", "predicted_score_blend", "score"])
+    if not items:
+        return {"applied": False, "reason": "empty", "items": items}
+
+    groups: Dict[str, List[int]] = defaultdict(list)
+    for i, it in enumerate(items):
+        if by == "sector":
+            g = str(it.get("sector") or it.get("industry") or "unknown")
+        else:
+            g = "all"
+        groups[g].append(i)
+
+    out = [dict(it) for it in items]
+    touched = 0
+    for g, idxs in groups.items():
+        if len(idxs) < max(2, int(min_group)):
+            continue
+        for sk in keys:
+            vals: List[Tuple[int, float]] = []
+            for i in idxs:
+                try:
+                    v = float(out[i].get(sk)) if out[i].get(sk) is not None else None
+                except (TypeError, ValueError):
+                    v = None
+                if v is not None:
+                    vals.append((i, v))
+            if len(vals) < 2:
+                continue
+            mean = sum(v for _, v in vals) / len(vals)
+            for i, v in vals:
+                raw_key = f"{sk}_raw_pre_residual"
+                if raw_key not in out[i]:
+                    out[i][raw_key] = v
+                out[i][sk] = round(v - mean, 6)
+                touched += 1
+
+    return {
+        "applied": touched > 0,
+        "by": by,
+        "score_keys": keys,
+        "groups": len(groups),
+        "touched_fields": touched,
+        "items": out,
+        "note": "ŷ 截面残差仅影响排序键；标签 y 与组 β 未改。",
+    }
+
+
+def neutralize_options_from_config(config: Optional[dict] = None) -> Dict[str, Any]:
+    """从 signal_config.cross_section 读中性化开关。"""
+    cfg = config or {}
+    cs = dict(cfg.get("cross_section") or {})
+    return {
+        "neutralize": bool(cs.get("neutralize", True)),
+        "method": str(cs.get("method") or "zscore"),
+        "min_samples": int(cs.get("min_samples") or 3),
+        "zscore_scale": float(cs.get("zscore_scale") or 10.0),
+        "industry_residual": bool(cs.get("industry_residual", True)),
+        "size_residual": bool(cs.get("size_residual", True)),
+        "size_buckets": int(cs.get("size_buckets") or 3),
+        "yhat_residual": bool(cs.get("yhat_residual", False)),
+    }

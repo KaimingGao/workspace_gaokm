@@ -37,6 +37,7 @@ __all__ = [
     "resolve_strategy_id",
     "get_strategy_spec",
     "list_strategy_specs",
+    "backtest_portfolio_defaults",
     "apply_strategy_to_paper",
     "promote_strategy",
     "load_promoted",
@@ -57,6 +58,18 @@ def get_strategy_spec(name: str = DEFAULT_STRATEGY) -> Dict[str, Any]:
     # paper_rules 内嵌 t0 仅作兼容；正式位置在 execution.overlays.t0
     paper_rules.pop("t0", None)
     execution = execution_from_lifecycle(extra)
+    risk = deepcopy(extra.get("risk") or {})
+    # 补全风控真源，避免回测/纸面各自散落 or 25/40/5
+    if risk.get("max_drawdown_pct") is None:
+        risk["max_drawdown_pct"] = 20.0
+    if risk.get("max_position_pct") is None:
+        risk["max_position_pct"] = 25.0
+    if risk.get("max_sector_pct") is None:
+        risk["max_sector_pct"] = 40.0
+    if risk.get("max_positions") is None:
+        risk["max_positions"] = int(paper_rules.get("max_positions") or 20)
+    if risk.get("weight_mode") is None:
+        risk["weight_mode"] = str(paper_rules.get("weight_mode") or "score_budget")
     return {
         "strategy_id": key,
         "version": str(extra.get("version") or "1.0.0"),
@@ -66,14 +79,49 @@ def get_strategy_spec(name: str = DEFAULT_STRATEGY) -> Dict[str, Any]:
         "paper_rules": paper_rules,
         "execution": execution,
         "cost_model": extra.get("cost_model") or "simple_cn",
-        "risk": deepcopy(
-            extra.get("risk")
-            or {
-                "max_drawdown_pct": 20.0,
-                "max_position_pct": 25.0,
-                "max_positions": int(paper_rules.get("max_positions") or 5),
-            }
+        "risk": risk,
+    }
+
+
+def backtest_portfolio_defaults(
+    strategy: str = DEFAULT_STRATEGY,
+) -> Dict[str, Any]:
+    """Top-K / 组合回测默认：与纸面 StrategySpec.risk + scoring ŷ 门槛对齐。"""
+    spec = get_strategy_spec(strategy)
+    risk = spec.get("risk") or {}
+    params = spec.get("params") or {}
+    paper_rules = spec.get("paper_rules") or {}
+    try:
+        from core.signal.score_display import resolve_buy_floor
+
+        min_pred = float(resolve_buy_floor())
+    except Exception:
+        min_pred = 1.0
+    max_pos = int(
+        risk.get("max_positions")
+        or paper_rules.get("max_positions")
+        or 20
+    )
+    return {
+        "strategy_id": spec.get("strategy_id") or DEFAULT_STRATEGY,
+        "top_k": max_pos,
+        "top_k_cap": max(40, max_pos),
+        "horizon_days": int(
+            paper_rules.get("horizon_days")
+            or params.get("horizon_days")
+            or 3
         ),
+        "weight_mode": str(
+            risk.get("weight_mode")
+            or paper_rules.get("weight_mode")
+            or "score_budget"
+        ),
+        "max_position_pct": float(risk.get("max_position_pct") or 25.0),
+        "max_sector_pct": float(risk.get("max_sector_pct") or 40.0),
+        "max_positions": max_pos,
+        "exclude_st": True,
+        "min_predicted_score": min_pred,
+        "min_score": float(params.get("min_score") or 55.0),
     }
 
 
@@ -115,6 +163,17 @@ def apply_strategy_to_paper(paper: dict, strategy: str = DEFAULT_STRATEGY) -> Di
             merged_t0 = dict(prev)
             merged_t0.update(t0_overlay)
         rules["t0"] = merged_t0
+    # 风控限额写入 paper.rules，与回测/optimize 同源
+    risk = spec.get("risk") or {}
+    for rk in (
+        "max_position_pct",
+        "max_sector_pct",
+        "max_positions",
+        "weight_mode",
+        "max_drawdown_pct",
+    ):
+        if risk.get(rk) is not None and rules.get(rk) is None:
+            rules[rk] = risk[rk]
     # 回测 params.min_score 不进纸面
     paper["rules"] = rules
     if not paper.get("cost_model") or paper.get("cost_model") == "zero":

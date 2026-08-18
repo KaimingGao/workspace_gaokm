@@ -14,6 +14,44 @@ export function isOosFailedItem(it) {
   return false;
 }
 
+export function isSingleHeadItem(it) {
+  if (!it || typeof it !== "object") return false;
+  if (it.dual_score_single_head === true) return true;
+  const head = String(it.dual_score_head || "");
+  return head === "single_eod" || head === "single_tau";
+}
+
+export function singleHeadBadgeHtml(it, escapeHtml = defaultEscapeHtml) {
+  const head = String((it && it.dual_score_head) || "");
+  const title =
+    head === "single_tau"
+      ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 EOD rem）· 与双头票不同量纲"
+      : head === "single_eod"
+        ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
+        : "ŷ_trade 单头降级 · 与双头票不同量纲";
+  return `<span class="watching-single-head-badge" title="${escapeHtml(
+    title
+  )}">单</span>`;
+}
+
+export function yCheckBadgeHtml(it, escapeHtml = defaultEscapeHtml) {
+  const check = String((it && it.y_check) || "");
+  if (!check || check === "ok") return "";
+  const labels = {
+    conflict: { text: "歧", title: "Y·EOD 校验：双头分歧 · 降低今日执行信任" },
+    low_conf: { text: "弱", title: "Y·EOD 校验：低置信（分歧或 σ 偏大）" },
+    missing_tau: { text: "缺τ", title: "Y·EOD 校验：缺 ŷ_τ" },
+    single_head: { text: "单", title: "Y·EOD 校验：单头降级" },
+  };
+  const pack = labels[check] || {
+    text: "校",
+    title: `Y·EOD 校验：${check}`,
+  };
+  return `<span class="watching-y-check-badge is-${escapeHtml(
+    check
+  )}" title="${escapeHtml(pack.title)}">${escapeHtml(pack.text)}</span>`;
+}
+
 export function oosFailedBadgeHtml(escapeHtml = defaultEscapeHtml) {
   return (
     `<span class="watching-oos-badge" title="${escapeHtml(
@@ -47,6 +85,9 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
   const scoreNum = resolveTradeScore(it);
   const scoreCalNum = resolveCalTradeScore(it);
   const belowMin = !!it.below_min_score;
+  const singleHead = isSingleHeadItem(it);
+  const yCheck = String(it.y_check || "");
+  const yCheckFail = !!(yCheck && yCheck !== "ok");
   const scoreDetail = watchingScoreDetail(it);
   const scoreBase = fmtTableScore(it, scoreNum);
   const scoreText =
@@ -56,6 +97,10 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
     ? scoreNum != null
       ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
       : "OOS 失败 · 无 ŷ% · tip 看 heuristic(0–100)"
+    : yCheckFail
+      ? `Y·EOD 校验 ${yCheck} · 悬停看分歧/σ`
+    : singleHead
+      ? `ŷ_trade 单头降级（${String(it.dual_score_head || "single")}）· 悬停看详情`
     : belowMin
       ? `低于ŷ_EOD门槛 ${it.min_score ?? "—"}（表列为 ŷ_trade）`
       : it.return_model_source === "oos_failed_global"
@@ -80,6 +125,10 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
     scoreNum,
     scoreCalNum,
     belowMin,
+    singleHead,
+    yCheck,
+    yCheckFail,
+    dualScoreHead: it.dual_score_head || null,
     scoreDetail,
     scoreText,
     scoreCalText,
@@ -98,7 +147,7 @@ export function buildWatchingInsightsGridPatch(it, row, deps) {
   const { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail } = deps;
   const excess = formatWatchingExcess(it);
   const excessTitle = formatWatchingExcessTitle(it);
-  const { scoreNum, scoreCalNum, belowMin, scoreDetail, scoreText, scoreCalText, scoreTitle, scoreCalTitle, scoreCalOor } =
+  const { scoreNum, scoreCalNum, belowMin, singleHead, yCheck, yCheckFail, dualScoreHead, scoreDetail, scoreText, scoreCalText, scoreTitle, scoreCalTitle, scoreCalOor } =
     buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail);
   const scoreEodNum = resolveEodScore(it);
   const scoreEodRemNum = resolveEodRemScore(it);
@@ -114,10 +163,18 @@ export function buildWatchingInsightsGridPatch(it, row, deps) {
     scoreCalOor,
     scoreEodNum,
     scoreEodRemNum,
-    scoreCls: scoreCls(scoreNum),
+    scoreCls: `${scoreCls(scoreNum)}${singleHead ? " score-single-head" : ""}${
+      yCheckFail ? " score-y-check-fail" : ""
+    }`.trim(),
     scoreDetail,
     scoreTitle,
     scoreBelowMin: belowMin,
+    scoreSingleHead: singleHead,
+    yCheck,
+    yCheckFail,
+    yDisagree: it.y_disagree,
+    eodTrust: it.eod_trust,
+    dualScoreHead,
     stance: it.stance_short || "—",
     excess: excess || "—",
     excessTitle: excessTitle || excess || "",
@@ -139,17 +196,30 @@ export function buildWatchingInsightsGridPatch(it, row, deps) {
 }
 
 export function buildWatchingScoreCellHtml(
-  { scoreText, scoreDetail, scoreTitle, scoreNum, belowMin },
+  { scoreText, scoreDetail, scoreTitle, scoreNum, belowMin, singleHead, dualScoreHead, yCheck },
   scoreClsFn,
   escapeHtml = defaultEscapeHtml
 ) {
   const esc = escapeHtml;
+  const badges = [];
+  if (singleHead) {
+    badges.push(
+      singleHeadBadgeHtml(
+        { dual_score_head: dualScoreHead, dual_score_single_head: true },
+        escapeHtml
+      )
+    );
+  }
+  const yBadge = yCheckBadgeHtml({ y_check: yCheck }, escapeHtml);
+  if (yBadge) badges.push(yBadge);
   return (
     `<span class="watching-score-cell paper-hold-score has-tip ${esc(
       scoreClsFn(scoreNum)
-    )}${belowMin ? " score-below-min" : ""}" ` +
+    )}${belowMin ? " score-below-min" : ""}${
+      singleHead ? " score-single-head" : ""
+    }${yCheck && yCheck !== "ok" ? " score-y-check-fail" : ""}" ` +
     `data-score-detail="${esc(scoreDetail)}" data-score-tip="trade" title="${esc(scoreTitle)}">` +
-    `${esc(scoreText)}</span>`
+    `${esc(scoreText)}${badges.join("")}</span>`
   );
 }
 

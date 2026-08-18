@@ -100,6 +100,7 @@ def collect_subscore_forward_panel(
     respect_regime: bool = False,
     config: Optional[dict] = None,
     feature_encoding: Optional[str] = None,
+    excess_mode: str = "none",
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str]]:
     """对齐子因子与 forward return，供 OLS / 研究面板复用。
 
@@ -110,9 +111,15 @@ def collect_subscore_forward_panel(
     FS2：``sentiment_pit=True`` 时按 as_of 注入 alt_sentiment（需标题历史）。
     X4：``respect_regime=True`` 时因子集对齐 live regime.enabled_factors。
     ``feature_encoding``：heuristic | raw_basis（覆盖 config.scoring.feature_encoding）。
+    ``excess_mode``：none | index（P2b；index 时扣同期指数前瞻收益，缺指数则跳过该样本）。
     """
     horizon_days = max(1, min(int(horizon_days or 3), 10))
     min_history = max(5, int(min_history or 12))
+    em = str(excess_mode or "none").strip().lower()
+    if em in ("index", "excess", "vs_index", "benchmark"):
+        em = "index"
+    else:
+        em = "none"
     factor_names = _resolve_factor_names(
         respect_regime=respect_regime,
         index_bars=index_bars,
@@ -160,6 +167,13 @@ def collect_subscore_forward_panel(
     ys: List[float] = []
     dates: List[str] = []
     n = len(bars or [])
+    idx_by_d: Dict[str, int] = {}
+    if index_bars:
+        idx_by_d = {
+            str(b.get("date") or "")[:10]: j
+            for j, b in enumerate(index_bars)
+            if b.get("date")
+        }
     for i in range(min_history - 1, n - horizon_days):
         start = max(0, i - max_window + 1)
         window = bars[start : i + 1]
@@ -178,6 +192,16 @@ def collect_subscore_forward_panel(
         fr = _forward_return(bars, i, horizon_days)
         if fr is None:
             continue
+        if em == "index":
+            from core.research.beta_accuracy import apply_excess_to_forward_return
+
+            idx_fr = None
+            j0 = idx_by_d.get(decision_date) if decision_date else None
+            if j0 is not None:
+                idx_fr = _forward_return(index_bars, j0, horizon_days)
+            fr = apply_excess_to_forward_return(fr, idx_fr, excess_mode="index")
+            if fr is None:
+                continue
 
         row = _research_sub_scores(
             window,

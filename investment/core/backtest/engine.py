@@ -77,7 +77,9 @@ def _hold_return_pct(bars: List[dict], entry_idx: int, hold_days: int) -> Option
     return round((exit_p / entry - 1.0) * 100.0, 2)
 
 
-def _trade_metrics(returns: List[float]) -> Dict[str, Any]:
+def _trade_metrics(
+    returns: List[float], *, holding_days: int = 1
+) -> Dict[str, Any]:
     if not returns:
         return {
             "trade_count": 0,
@@ -108,7 +110,9 @@ def _trade_metrics(returns: List[float]) -> Dict[str, Any]:
         std = math.sqrt(var)
     sharpe = None
     if std > 1e-9:
-        sharpe = round((avg / std) * math.sqrt(252.0 / max(1, len(returns))), 2)
+        # 每段收益对应 holding_days 个交易日；年化 √(252/h)，不用 √(252/n)
+        h = max(1, int(holding_days or 1))
+        sharpe = round((avg / std) * math.sqrt(252.0 / h), 2)
 
     return {
         "trade_count": len(returns),
@@ -387,8 +391,10 @@ def backtest_signal_on_bars(
         else:
             i += 1
 
-    metrics = _trade_metrics(returns)
-    gross_metrics = _trade_metrics(gross_returns) if apply_costs else None
+    metrics = _trade_metrics(returns, holding_days=horizon_days)
+    gross_metrics = (
+        _trade_metrics(gross_returns, holding_days=horizon_days) if apply_costs else None
+    )
     benchmark = build_benchmark_comparison(
         bars,
         trades,

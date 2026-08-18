@@ -26,7 +26,7 @@ def rank_scored_items(
             code = str(item.get("stock_code") or "")
             if code:
                 picks.append((code, score))
-    picks.sort(key=lambda x: x[1], reverse=True)
+    picks.sort(key=lambda x: (-float(x[1]), str(x[0])))
     return picks
 
 
@@ -71,6 +71,20 @@ def score_and_rank_watching(
     cfg = config or load_signal_config()
     cs_cfg = cfg.get("cross_section") or {}
     use_neutral = cs_cfg.get("neutralize", True) if neutralize is None else bool(neutralize)
+    try:
+        from core.signal.neutralize import neutralize_options_from_config
+
+        _nopt = neutralize_options_from_config(cfg)
+    except Exception:
+        _nopt = {
+            "industry_residual": bool(cs_cfg.get("industry_residual", True)),
+            "size_residual": bool(cs_cfg.get("size_residual", True)),
+            "size_buckets": int(cs_cfg.get("size_buckets") or 3),
+            "method": str(cs_cfg.get("method") or "zscore"),
+            "min_samples": int(cs_cfg.get("min_samples") or 3),
+            "zscore_scale": float(cs_cfg.get("zscore_scale") or 10.0),
+            "yhat_residual": bool(cs_cfg.get("yhat_residual", False)),
+        }
     mode = (
         resolve_research_rank_mode(rank_mode)
         if allow_heuristic_baseline
@@ -100,7 +114,16 @@ def score_and_rank_watching(
             it["rank_mode"] = "heuristic_score"
         if use_neutral:
             wmap = dict((cfg.get("weights") or {}))
-            nmeta = apply_cross_section_neutralization(items, weights=wmap)
+            nmeta = apply_cross_section_neutralization(
+                items,
+                weights=wmap,
+                method=str(_nopt.get("method") or "zscore"),
+                min_samples=int(_nopt.get("min_samples") or 3),
+                zscore_scale=float(_nopt.get("zscore_scale") or 10.0),
+                industry_residual=bool(_nopt.get("industry_residual", True)),
+                size_residual=bool(_nopt.get("size_residual", True)),
+                size_buckets=int(_nopt.get("size_buckets") or 3),
+            )
             items = list(nmeta.get("items") or items)
             # 中性化后 score 可能已重算；同步 heuristic_score
             for it in items:
@@ -166,6 +189,10 @@ def score_and_rank_watching(
 
     if use_neutral:
         meta["neutralize_skipped"] = "predicted_score_uses_factor_coefs"
+        meta["neutralize_note"] = (
+            "启发式 sub_scores 中性化不进 ŷ 路径；"
+            "可选 cross_section.yhat_residual 对排序键做行业残差（P2a）。"
+        )
     meta["rank_mode"] = mode
 
     # 双层 ŷ：PIT 挂 ŷ_τ + ŷ_trade 加权融合 + 买入闸
@@ -210,6 +237,29 @@ def score_and_rank_watching(
         meta["dual_score"] = {"ok": False, "reason": str(e)}
         dual_cfg = None
 
+    # P2a：可选对 ŷ 排序键做行业截面残差（默认关；不改组 β）
+    if bool(_nopt.get("yhat_residual")):
+        try:
+            from core.signal.neutralize import residualize_rank_scores
+
+            rmeta = residualize_rank_scores(
+                items,
+                score_keys=[
+                    "predicted_score",
+                    "predicted_score_eod",
+                    "predicted_score_blend",
+                    "score",
+                ],
+                by="sector",
+            )
+            items = list(rmeta.get("items") or items)
+            meta["yhat_residual"] = {
+                k: rmeta.get(k)
+                for k in ("applied", "by", "touched_fields", "groups", "note")
+            }
+        except Exception as exc:
+            meta["yhat_residual"] = {"applied": False, "reason": str(exc)}
+
     has_preds = any(it.get("predicted_score") is not None for it in items)
     if not has_preds and return_model is None and not by_code:
         meta["predicted_score_fallback"] = "no_model"
@@ -240,6 +290,18 @@ def score_and_rank_watching(
                 if not ok:
                     gated += 1
                     continue
+                try:
+                    from core.signal.y_state import buy_passes_y_check, stamp_y_state
+
+                    if it.get("y_check") is None:
+                        stamp_y_state(it, config=cfg)
+                    y_ok, _y_reason = buy_passes_y_check(it, config=cfg)
+                    if not y_ok:
+                        gated += 1
+                        meta["dual_score_y_gated"] = int(meta.get("dual_score_y_gated") or 0) + 1
+                        continue
+                except Exception:
+                    pass
                 sort_key = rank_key_for_item(it, config=cfg)
                 if sort_key is None:
                     continue
@@ -251,7 +313,7 @@ def score_and_rank_watching(
             it["rank_key"] = rk_name
             # picks 第二元始终是 ŷ_EOD；第三元为实际排序键
             ranked.append((code, eod_f, float(sort_key)))
-        ranked.sort(key=lambda x: x[2], reverse=True)
+        ranked.sort(key=lambda x: (-float(x[2]), str(x[0])))
         picks = [(c, eod) for c, eod, _b in ranked]
         meta["dual_score_tau_gated"] = gated
         meta["oos_failed_excluded"] = oos_excluded

@@ -1346,6 +1346,46 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal .wat
   background: rgba(154, 103, 0, 0.10);
 }
 
+.watching-single-head-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  margin-left: 3px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  color: #6941c6;
+  border: 1px solid rgba(105, 65, 198, 0.35);
+  background: rgba(105, 65, 198, 0.10);
+  vertical-align: middle;
+}
+
+.watching-y-check-badge {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  margin-left: 3px;
+  padding: 0 4px;
+  border-radius: 3px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #b42318;
+  border: 1px solid rgba(180, 35, 24, 0.35);
+  background: rgba(180, 35, 24, 0.08);
+  vertical-align: middle;
+}
+
+.watching-y-check-badge.is-low_conf,
+.watching-y-check-badge.is-single_head {
+  color: #9a6700;
+  border-color: rgba(154, 103, 0, 0.38);
+  background: rgba(154, 103, 0, 0.10);
+}
+
 .watching-watch-row.is-cluster-book .watching-name-text {
   font-weight: 650;
 }
@@ -2016,6 +2056,10 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
 /* 回测网格最优格 / 警示行 */
 .quant-research-grid .watching-react-grid-row.is-best {
   background: color-mix(in srgb, var(--accent, #2563eb) 10%, var(--surface));
+}
+
+.quant-research-grid .watching-react-grid-row.is-ineligible {
+  opacity: 0.7;
 }
 
 .quant-research-grid .watching-react-grid-row.is-warn {

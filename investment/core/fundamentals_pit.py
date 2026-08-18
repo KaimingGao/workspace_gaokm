@@ -69,15 +69,25 @@ def load_fundamentals_panel(
         )
         hist_metrics = normalize_fundamentals_metrics(payload.get("data")) or {}
         if as_of and hist_metrics:
-            history = [
-                {
-                    "as_of": as_of,
-                    "fetched_at": payload.get("fetched_at"),
-                    "metrics": hist_metrics,
-                    "data_source": payload.get("data_source"),
-                    "non_pit_origin": True,
-                }
-            ]
+            # 旧快照无公告日：标 ann_missing，避免 _available_date 回退到报告期末造成前视
+            ann = (
+                date_key(hist_metrics.get("ann_date"))
+                or date_key(hist_metrics.get("announce_date"))
+                or date_key(hist_metrics.get("pub_date"))
+            )
+            point = {
+                "as_of": as_of,
+                "fetched_at": payload.get("fetched_at"),
+                "metrics": hist_metrics,
+                "data_source": payload.get("data_source"),
+                "non_pit_origin": True,
+            }
+            if ann:
+                point["ann_date"] = ann
+                point["available_as_of"] = ann
+            else:
+                point["ann_missing"] = True
+            history = [point]
     history = sorted(
         [h for h in history if isinstance(h, dict) and date_key(h.get("as_of"))],
         key=lambda h: date_key(h.get("as_of")),

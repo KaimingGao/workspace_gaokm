@@ -1034,12 +1034,23 @@ export function installClusterProbe(q) {
       }
       const n = (ref.data.rank && ref.data.rank.name_count) || 0;
       const fill = (ref.data.rank && ref.data.rank.features_tau_fill) || {};
+      const emptyReason = (ref.data.rank && ref.data.rank.empty_reason) || "";
+      const belowN =
+        (ref.data.rank && ref.data.rank.below_min_score_count) != null
+          ? Number(ref.data.rank.below_min_score_count)
+          : null;
       const fillNote =
         fill.mean_fill_rate != null
           ? ` · Z齐套 ${(Number(fill.mean_fill_rate) * 100).toFixed(0)}%`
           : "";
+      const emptyNote =
+        n === 0 && emptyReason
+          ? ` · 空簿：${emptyReason}${
+              belowN != null ? `（低于门槛 ${belowN}）` : ""
+            }`
+          : "";
       setQuantMeta(
-        `已启用组ŷ · 已轻量刷簿 ${n} 只${fillNote} · 交易执行预演按组ŷ 选股`
+        `已启用组ŷ · 已轻量刷簿 ${n} 只${fillNote}${emptyNote} · 交易执行预演按组ŷ 选股`
       );
       refreshClusterLiveStatus();
       return;
@@ -1067,7 +1078,20 @@ export function installClusterProbe(q) {
       return;
     }
     const n = (out.data.book || []).length;
-    setQuantMeta(`分池簿 ${n} 只 · v${out.data.cluster_version ?? "—"} · 无跨组总榜`);
+    const emptyReason = out.data.empty_reason || "";
+    const belowN =
+      out.data.below_min_score_count != null
+        ? Number(out.data.below_min_score_count)
+        : null;
+    const emptyNote =
+      n === 0 && emptyReason
+        ? ` · 空簿：${emptyReason}${
+            belowN != null ? `（低于门槛 ${belowN}）` : ""
+          }`
+        : "";
+    setQuantMeta(
+      `分池簿 ${n} 只 · v${out.data.cluster_version ?? "—"} · 无跨组总榜${emptyNote}`
+    );
     refreshClusterLiveStatus();
   }
 
@@ -1079,7 +1103,18 @@ export function installClusterProbe(q) {
       return;
     }
     const n = (out.data.rank && out.data.rank.name_count) || 0;
-    setQuantMeta(`日更完成 · 簿 ${n} 只 · 未重聚类`);
+    const emptyReason = (out.data.rank && out.data.rank.empty_reason) || "";
+    const belowN =
+      out.data.rank && out.data.rank.below_min_score_count != null
+        ? Number(out.data.rank.below_min_score_count)
+        : null;
+    const emptyNote =
+      n === 0 && emptyReason
+        ? ` · 空簿：${emptyReason}${
+            belowN != null ? `（低于门槛 ${belowN}）` : ""
+          }`
+        : "";
+    setQuantMeta(`日更完成 · 簿 ${n} 只 · 未重聚类${emptyNote}`);
     refreshClusterLiveStatus();
   }
 

@@ -118,7 +118,7 @@ class TestT3WeightMode(unittest.TestCase):
 
         body = PortfolioBacktestRequest(weight_mode="score_budget")
         self.assertEqual(body.weight_mode, "score_budget")
-        self.assertEqual(body.max_position_pct, 40.0)
+        self.assertEqual(body.max_position_pct, 25.0)
 
 
 if __name__ == "__main__":

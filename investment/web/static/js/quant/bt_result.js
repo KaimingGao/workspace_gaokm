@@ -52,12 +52,22 @@ export function buildReplayOverviewKpis(data, { source = "" } = {}) {
   const dd = m.max_drawdown_pct;
   const trades = m.trade_count ?? data.trade_count;
   const excess = bench.ok ? bench.excess_pct : m.excess_pct;
+  const legs =
+    data.alpha_beta_legs && typeof data.alpha_beta_legs === "object"
+      ? data.alpha_beta_legs
+      : {};
   const src = source || (data.params ? "当次回测" : "日报冻结");
   const retN = _kpiNum(ret);
   const exN = _kpiNum(excess);
   const ddN = _kpiNum(dd);
   const winN = _kpiNum(win);
   const tradesN = _kpiNum(trades);
+  const excessSub =
+    exN == null
+      ? "相对基准"
+      : legs.beta_leg_approx_pct != null
+        ? `超额 · β腿≈${Number(legs.beta_leg_approx_pct).toFixed(1)}%`
+        : `相对 ${bench.benchmark_label || "基准"}`;
   return {
     return: {
       value: _kpiPct(ret),
@@ -67,7 +77,7 @@ export function buildReplayOverviewKpis(data, { source = "" } = {}) {
     },
     excess: {
       value: _kpiPct(excess),
-      sub: exN == null ? "相对基准" : `相对 ${bench.benchmark_label || "基准"}`,
+      sub: excessSub,
       empty: exN == null,
       cls: metricClass(exN),
     },

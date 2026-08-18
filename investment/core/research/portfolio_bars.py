@@ -9,8 +9,9 @@ from typing import Dict, List, Optional, Tuple
 from core.signal.config import load_signal_config
 from core.signal.fundamentals_bridge import fetch_fundamentals_batch
 
-# 日报/轻量回测：大宇宙超过此数则只读缓存、优先离线日线，并截断候选
-DAILY_PORTFOLIO_MAX_NAMES = 40
+# 日报/轻量回测：超过此数则只读缓存、优先离线日线，并截断候选。
+# 与 watching.max_size 对齐，避免日报 100→40 和满池历史回测不可比。
+DAILY_PORTFOLIO_MAX_NAMES = 100
 _CACHE_WORKERS = 12
 _REMOTE_ITEM_TIMEOUT = 25.0
 
@@ -89,8 +90,12 @@ def _load_bars_parallel(
     limit: int,
     need: int,
     offline_ok: bool,
+    remote_fill: bool = True,
 ) -> Tuple[Dict[str, Tuple[str, List[dict]]], int]:
-    """先并发读本地缓存；不够的再经进程池补远端（避开同进程 AkShare 锁）。"""
+    """先并发读本地缓存；不够的再经进程池补远端（避开同进程 AkShare 锁）。
+
+    ``remote_fill=False``：只扫缓存，不打远端（大宇宙截断前用）。
+    """
     by_raw: Dict[str, Tuple[str, List[dict]]] = {}
     n = len(raw_list)
     misses = list(raw_list)
@@ -119,7 +124,10 @@ def _load_bars_parallel(
         misses = [raw for raw in raw_list if len(by_raw[raw][1]) < need]
 
     remote_n = 0
-    if not misses:
+    if not remote_fill or not misses:
+        if not remote_fill:
+            for raw in raw_list:
+                by_raw.setdefault(raw, (_resolve_symbol(raw, allow_live=False), []))
         return by_raw, remote_n
 
     from core.data.service import get_research_service
@@ -171,22 +179,52 @@ def load_portfolio_stock_bars(
     """
     raw_list = [str(c).strip() for c in (candidates or []) if str(c).strip()]
     truncated = False
-    if max_names is not None and max_names > 0 and len(raw_list) > int(max_names):
-        raw_list = raw_list[: int(max_names)]
-        truncated = True
-
+    cache_first = False
     stock_bars: Dict[str, List[dict]] = {}
     failures: List[str] = []
     sym_by_raw: Dict[str, str] = {}
     need = int(min_bars) if min_bars is not None else max(16, min(40, int(lookback or 120) // 2))
     limit = int(lookback or 120) + 35
+    cap = int(max_names) if max_names is not None and max_names > 0 else 0
 
-    by_raw, remote_n = _load_bars_parallel(
-        raw_list,
-        limit=limit,
-        need=need,
-        offline_ok=bool(offline_ok),
-    )
+    if cap and len(raw_list) > cap and offline_ok:
+        # 大宇宙：先扫全池缓存，优先留有日线的票，避免 watching[:40] 丢掉后面有缓存的名字
+        cache_map, _ = _load_bars_parallel(
+            raw_list,
+            limit=limit,
+            need=need,
+            offline_ok=True,
+            remote_fill=False,
+        )
+        have = [
+            r for r in raw_list if len((cache_map.get(r) or ("", []))[1]) >= need
+        ]
+        if len(have) >= cap:
+            raw_list = have[:cap]
+            by_raw = {k: cache_map[k] for k in raw_list}
+            remote_n = 0
+            truncated = True
+            cache_first = True
+        else:
+            extra = [r for r in raw_list if r not in set(have)][: cap - len(have)]
+            raw_list = have + extra
+            truncated = True
+            by_raw, remote_n = _load_bars_parallel(
+                raw_list,
+                limit=limit,
+                need=need,
+                offline_ok=bool(offline_ok),
+            )
+    else:
+        if cap and len(raw_list) > cap:
+            raw_list = raw_list[:cap]
+            truncated = True
+        by_raw, remote_n = _load_bars_parallel(
+            raw_list,
+            limit=limit,
+            need=need,
+            offline_ok=bool(offline_ok),
+        )
 
     for raw in raw_list:
         sym, bars = by_raw.get(raw, (_resolve_symbol(raw), []))
@@ -200,12 +238,13 @@ def load_portfolio_stock_bars(
             failures.append(str(raw))
 
     logger.info(
-        "portfolio bars loaded=%d fail=%d remote=%d universe=%d truncated=%s",
+        "portfolio bars loaded=%d fail=%d remote=%d universe=%d truncated=%s cache_first=%s",
         len(stock_bars),
         len(failures),
         remote_n,
         len(raw_list),
         truncated,
+        cache_first,
     )
 
     fundamentals_by_code: Dict[str, dict] = {}
@@ -216,8 +255,8 @@ def load_portfolio_stock_bars(
     )
     live_fund = fundamentals_live
     if live_fund is None:
-        # 大宇宙默认不打远端基本面
-        live_fund = len(stock_bars) < DAILY_PORTFOLIO_MAX_NAMES
+        # 大宇宙默认不打远端基本面（阈值不随观察池上限上调，避免日报 100 票串行挂死）
+        live_fund = len(stock_bars) < 40
     if use_fund and stock_bars:
         batch = fetch_fundamentals_batch(
             list(stock_bars.keys()),

@@ -333,6 +333,8 @@
           <button type="button" id="quant-score-review-fill" class="dialog-btn secondary">回填收益</button>
           <button type="button" id="quant-score-ledger-freeze" class="dialog-btn secondary" title="按因子截止日冻结分池簿 ŷ（通常为上一交易日；收盘后日线齐才可能是今日）">冻结打分</button>
           <button type="button" id="quant-feat-enc-shadow" class="dialog-btn secondary" title="启发式 0–100 vs raw+分档：同池 OOS 影子对照，不写盘">特征对照</button>
+          <button type="button" id="quant-yhat-residual-shadow" class="dialog-btn secondary" title="ŷ 行业残差 on/off：同截面 TopK 重叠对照，不写盘">ŷ残差对照</button>
+          <button type="button" id="quant-excess-mode-shadow" class="dialog-btn secondary" title="绝对 y vs 指数超额 y：同池 holdout IC 对照，不写盘">超额标签对照</button>
           <button type="button" id="quant-score-review-refit" class="dialog-btn secondary" title="滚动到「跑分组」并触发重估组 β">建议重估</button>
         </div>
       </div>
@@ -348,6 +350,15 @@
           </p>
           <div class="dashboard-chart-host quant-pro-spark-host">
             <canvas id="quant-score-review-hit-spark" class="yhat-spark-canvas" width="920" height="72" aria-label="命中率 sparkline"></canvas>
+          </div>
+        </div>
+        <div class="yhat-viz-block quant-review-viz" id="quant-score-review-ydisagree-wrap" hidden>
+          <p class="quant-block-cap">
+            Y(τ) 双头分歧
+            <span class="quant-sub" id="quant-score-review-ydisagree-meta">|Δ| vs 实现收益 · 色=校验态</span>
+          </p>
+          <div class="dashboard-chart-host quant-pro-scatter-host">
+            <canvas id="quant-score-review-ydisagree" class="yhat-scatter-canvas" width="920" height="200" aria-label="Y校验分歧散点"></canvas>
           </div>
         </div>
         <div class="yhat-viz-block quant-review-viz" id="quant-score-review-scatter-wrap" hidden>

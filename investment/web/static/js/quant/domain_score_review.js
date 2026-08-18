@@ -2,6 +2,10 @@
  * 双层 ŷ 复盘：ŷ_EOD 方向 vs 前瞻收益；副轴 ŷ_τ 验收。
  */
 import { paintYhatScatter, paintHitSparkline, mountCalibrationCurve } from "./yhat_viz.js";
+import {
+  renderYCheckBucketBars,
+  paintYDisagreeScatter,
+} from "../y_path_viz.js?v=p1169";
 import { syncOverviewFromScoreReview, setProStatusChip, factorCN } from "./factor_corr_ui.js";
 
 export function installScoreReview(ctx) {
@@ -116,6 +120,7 @@ export function installScoreReview(ctx) {
         ? `<span>薄样本 ${esc(String(s.data_thin))}</span>`
         : "") +
       `</div>` +
+      renderYCheckStrip(s.by_y_check) +
       fb +
       thinNote +
       (s.blame_line && s.hit_rate != null
@@ -145,6 +150,71 @@ export function installScoreReview(ctx) {
         thin > 0 ? `薄样本 ${thin}` : s.blame_line || "样本不足"
       );
     }
+  }
+
+  function renderYCheckStrip(rows) {
+    if (!Array.isArray(rows) || !rows.length) return "";
+    const label = {
+      ok: "校验通过",
+      conflict: "双头分歧",
+      low_conf: "低置信",
+      missing_tau: "缺τ",
+      single_head: "单头",
+    };
+    const parts = rows
+      .slice(0, 6)
+      .map((r) => {
+        const ck = String(r.check || "");
+        const hit =
+          r.hit_rate != null
+            ? `${(Number(r.hit_rate) * 100).toFixed(0)}%`
+            : "—";
+        return `<span title="Y·EOD 校验分桶 · EOD 方向命中">${esc(
+          label[ck] || ck
+        )} <b>${esc(hit)}</b> (${esc(String(r.hits ?? 0))}/${esc(
+          String(r.n ?? 0)
+        )})</span>`;
+      })
+      .join("");
+    return (
+      `<div class="quant-metric-strip quant-y-check-strip">` +
+      `<span class="quant-y-check-strip-label">Y校验</span>` +
+      parts +
+      `</div>` +
+      renderYCheckBucketBars(rows)
+    );
+  }
+
+  function renderYDisagreeViz(data) {
+    const wrap = document.getElementById("quant-score-review-ydisagree-wrap");
+    const canvas = document.getElementById("quant-score-review-ydisagree");
+    if (!wrap || !canvas) return;
+    const pts = (data.scored_rows || []).filter(
+      (p) => p.y_disagree != null && Number.isFinite(Number(p.y_disagree))
+    );
+    wrap.hidden = false;
+    if (data.empty || pts.length < 2) {
+      canvas.hidden = true;
+      setVizMeta(
+        "quant-score-review-ydisagree-meta",
+        data.empty ? "无账本样本" : "无 |Δ| 字段或样本不足"
+      );
+      return;
+    }
+    canvas.hidden = false;
+    requestAnimationFrame(() => {
+      const pack = paintYDisagreeScatter(canvas, pts, {
+        onPoint: (p) => {
+          if (p && p.code) openStockPanel(p.code, p.name || "");
+        },
+      });
+      if (pack && pack.n) {
+        setVizMeta(
+          "quant-score-review-ydisagree-meta",
+          `双头分歧 |Δ| vs 实现 · n=${pack.n} · 色=校验态 · 点击打开单票`
+        );
+      }
+    });
   }
 
   function renderTauShadow(tau) {
@@ -638,6 +708,8 @@ export function installScoreReview(ctx) {
         if (table) table.innerHTML = "";
         const scatter = document.getElementById("quant-score-review-scatter-wrap");
         if (scatter) scatter.hidden = true;
+        const ydis = document.getElementById("quant-score-review-ydisagree-wrap");
+        if (ydis) ydis.hidden = true;
       }
     } else {
       setStatus(`已删除 ${d}`, { ok: true });
@@ -692,6 +764,7 @@ export function installScoreReview(ctx) {
       if (gen !== reviewGen) return;
       renderSummary(data);
       renderScatter(data);
+      renderYDisagreeViz(data);
       renderHitSparkline(usedH).catch(() => {});
       renderWrongTable(data);
       markActiveLedgerChip(data.as_of || asOf);
@@ -1325,6 +1398,100 @@ export function installScoreReview(ctx) {
       await runFeatureEncodingShadow();
     } catch (err) {
       setStatus(`特征对照失败：${String(err.message || err)}`, { error: true });
+    }
+  });
+
+  async function runYhatResidualShadow() {
+    setStatus("ŷ 残差对照中…", { busy: true });
+    setQuantMeta("ŷ 行业残差 on/off…", { busy: true });
+    const res = await fetch("/api/quant/yhat-residual/shadow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        watching_limit: 36,
+        top_k: 10,
+        prefer_cluster_book: true,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !(data.success || data.ok)) {
+      const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+      setStatus(`ŷ残差对照失败：${err}`, { error: true });
+      setQuantMeta(`ŷ残差对照失败 · ${err}`, { error: true });
+      return;
+    }
+    const cmp = data.compare || {};
+    const jac =
+      cmp.jaccard_topk != null ? Number(cmp.jaccard_topk).toFixed(2) : "—";
+    const sp =
+      cmp.spearman_topk_ranks != null
+        ? Number(cmp.spearman_topk_ranks).toFixed(2)
+        : "—";
+    const win = data.winner || "—";
+    setStatus(
+      `ŷ残差对照 · Jaccard ${jac} · 秩相关 ${sp} · ${win} · 源 ${data.source || "—"}`,
+      { ok: true }
+    );
+    setQuantMeta(
+      `ŷ残差对照完成 · ${win} · ${data.note || ""} · ${data.promote_hint || "不写盘"}`
+    );
+  }
+
+  on("quant-yhat-residual-shadow", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runYhatResidualShadow();
+    } catch (err) {
+      setStatus(`ŷ残差对照失败：${String(err.message || err)}`, { error: true });
+    }
+  });
+
+  async function runExcessModeShadow() {
+    setStatus("超额标签对照中…", { busy: true });
+    setQuantMeta("绝对 y vs 指数超额 y…", { busy: true });
+    const res = await fetch("/api/quant/excess-mode/shadow", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        lookback: 120,
+        watching_limit: 36,
+        horizon_days: 1,
+        ridge_lambda: 1.0,
+      }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !(data.success || data.ok)) {
+      const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+      setStatus(`超额标签对照失败：${err}`, { error: true });
+      setQuantMeta(`超额标签对照失败 · ${err}`, { error: true });
+      return;
+    }
+    const arms = data.arms || {};
+    const a = arms.none || {};
+    const b = arms.index || {};
+    const fmt = (arm) => {
+      const o = (arm && arm.oos) || {};
+      const ic = o.ic != null ? Number(o.ic).toFixed(2) : "—";
+      const hit =
+        o.sign_hit != null ? `${(Number(o.sign_hit) * 100).toFixed(0)}%` : "—";
+      return `IC ${ic} · 命中 ${hit} · n=${o.n ?? arm.n ?? "—"}`;
+    };
+    const win = data.winner || "—";
+    setStatus(
+      `超额标签 · 绝对 ${fmt(a)} · 超额 ${fmt(b)} · 胜者 ${win}`,
+      { ok: true }
+    );
+    setQuantMeta(
+      `超额标签对照完成 · 胜者 ${win} · ${data.note || ""} · ${data.promote_hint || "不写盘"}`
+    );
+  }
+
+  on("quant-excess-mode-shadow", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runExcessModeShadow();
+    } catch (err) {
+      setStatus(`超额标签对照失败：${String(err.message || err)}`, { error: true });
     }
   });
 

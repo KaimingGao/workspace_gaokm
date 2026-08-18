@@ -83,8 +83,8 @@ def _compute_relative_strength(bars, *, quote=None, index_bars=None, config=None
     )
 
 
-def _compute_reversal(bars, **_kw):
-    return score_reversal(bars)
+def _compute_reversal(bars, *, stock_code=None, stock_name=None, **_kw):
+    return score_reversal(bars, stock_code=stock_code, stock_name=stock_name)
 
 
 def _compute_liquidity(bars, **_kw):
@@ -396,6 +396,8 @@ def compute_configured_factors(
     money_flow: Optional[dict] = None,
     required_keys: Optional[Sequence[str]] = None,
     skip_factors: Optional[Sequence[str]] = None,
+    stock_code: Optional[str] = None,
+    stock_name: Optional[str] = None,
 ) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, Any]]:
     """按 weights 键计算子分；``required_keys`` 即使权为 0 也算（ŷ β 同构，FS0）。"""
     wmap = dict(weights or {})
@@ -407,11 +409,13 @@ def compute_configured_factors(
     sub_scores: Dict[str, float] = {}
     contribs: Dict[str, float] = {}
     meta: Dict[str, Any] = {}
+    code = stock_code or (quote or {}).get("stock_code")
+    name = stock_name or (quote or {}).get("stock_name")
 
-    for name, weight in wmap.items():
-        if name not in _REGISTRY:
+    for name_fac, weight in wmap.items():
+        if name_fac not in _REGISTRY:
             continue
-        if name in skip:
+        if name_fac in skip:
             continue
         try:
             w = float(weight)
@@ -419,14 +423,14 @@ def compute_configured_factors(
             w = 0.0
         # 可选因子：权≈0 且非 required 时可跳过
         required = set(str(x).strip() for x in (required_keys or []) if str(x).strip())
-        if abs(w) < 1e-12 and name not in required and name in (
+        if abs(w) < 1e-12 and name_fac not in required and name_fac in (
             "alt_sentiment",
             "llm_sentiment",
             "money_flow",
         ):
             continue
         score, fac_meta = compute_factor(
-            name,
+            name_fac,
             bars,
             quote=quote,
             index_bars=index_bars,
@@ -436,6 +440,8 @@ def compute_configured_factors(
             sentiment=sentiment,
             llm_sentiment=llm_sentiment,
             money_flow=money_flow,
+            stock_code=code,
+            stock_name=name,
         )
         meta.update(fac_meta or {})
         # 缺输入（如规模无市值）：不进 sub_scores，ŷ 跳过该项，禁止假中性 50 进 z-score
@@ -444,11 +450,11 @@ def compute_configured_factors(
         try:
             from core.signal.factors.raw_basis import RAW_BASIS_FACTOR_NAMES
 
-            nd = 4 if name in RAW_BASIS_FACTOR_NAMES else 1
+            nd = 4 if name_fac in RAW_BASIS_FACTOR_NAMES else 1
         except Exception:
             nd = 1
-        sub_scores[name] = round(score, nd)
-        contribs[name] = round(w * score, 2)
+        sub_scores[name_fac] = round(score, nd)
+        contribs[name_fac] = round(w * score, 2)
 
     return sub_scores, contribs, meta
 

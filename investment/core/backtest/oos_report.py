@@ -35,8 +35,27 @@ def split_oos_summary(
             return None
         return round((b / a - 1.0) * 100.0, 2)
 
+    def _max_dd_pct(part: List[dict]) -> Optional[float]:
+        peak = None
+        max_dd = 0.0
+        saw = False
+        for p in part:
+            eq = _f(p.get("equity") or p.get("value") or p.get("nav"))
+            if eq is None:
+                continue
+            saw = True
+            if peak is None or eq > peak:
+                peak = eq
+            if peak and peak > 0:
+                dd = (peak - eq) / peak * 100.0
+                if dd > max_dd:
+                    max_dd = dd
+        return round(max_dd, 2) if saw else None
+
     is_ret = _ret(is_part)
     oos_ret = _ret(oos_part)
+    is_dd = _max_dd_pct(is_part)
+    oos_dd = _max_dd_pct(oos_part)
     # P1：样本外显著弱于样本内 → 标记失败（报告标红）
     failed = False
     fail_reason = None
@@ -58,6 +77,8 @@ def split_oos_summary(
         "oos_points": len(oos_part),
         "is_return_pct": is_ret,
         "oos_return_pct": oos_ret,
+        "is_max_drawdown_pct": is_dd,
+        "oos_max_drawdown_pct": oos_dd,
         "note": "按权益曲线时间切分；非严格 Walk-forward 标签。",
     }
 

@@ -216,7 +216,10 @@ class TestDashboardPaperContract(unittest.TestCase):
 
             fake = _P()
             fake.path = path
-            with patch.object(qd.deps, "paper", fake):
+            with patch.object(qd.deps, "paper", fake), patch(
+                "core.paper.mark_to_market",
+                return_value={"equity": 99900, "cash": 10000, "today_pnl_pct": 0.0},
+            ):
                 nav = qd.dashboard_nav_curve(range="all", benchmark="none")
                 times = [p["time"] for p in nav["points"]]
                 self.assertEqual(len(times), 3)
@@ -232,6 +235,44 @@ class TestDashboardPaperContract(unittest.TestCase):
                 self.assertIsNotNone(kpis.get("sharpe"))
                 # 99900/100000 - 1 = -0.1%
                 self.assertAlmostEqual(kpis["total_return"], -0.1, places=2)
+
+    def test_nav_curve_overlays_live_mtm(self):
+        """盘中盯市与落盘快照分叉时，仪表盘净值末点应对齐现价。"""
+        from web.routers import quant_dashboard as qd
+
+        paper = {
+            "cash": 55040.3,
+            "initial_cash": 99999.85,
+            "holdings": [],
+            "trades": [],
+            "snapshots": [
+                {"ts": "2026-08-12T09:45:39.040", "equity": 99999.85},
+                {"ts": "2026-08-18T11:48:25.999", "equity": 99976.3},
+            ],
+            "signal_log": [],
+            "operation_log": [],
+            "last_north_star": {"ok": True, "paper_risk": {}},
+        }
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "paper.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(paper, f)
+
+            class _P:
+                pass
+
+            fake = _P()
+            fake.path = path
+            live = {"equity": 100278.3, "cash": 55040.3, "total_pnl_pct": 0.28}
+            with patch.object(qd.deps, "paper", fake), patch(
+                "core.paper.mark_to_market", return_value=live
+            ):
+                nav = qd.dashboard_nav_curve(range="all", benchmark="none")
+            self.assertGreaterEqual(nav["count"], 3)
+            last = nav["points"][-1]
+            self.assertTrue(last.get("live"))
+            self.assertAlmostEqual(last["value"], round(100278.3 / 99999.85 * 100, 2))
+            self.assertFalse(nav["points"][0].get("live"))
 
     def test_kpis_prefer_live_mtm_over_stale_snapshots(self):
         """回零后 snapshots 未续写时，仪表盘收益仍应对齐交易执行盯市。"""

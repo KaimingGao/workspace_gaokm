@@ -67,6 +67,25 @@ def _quote_open(quote: dict) -> Optional[float]:
         return None
 
 
+def _prev_session_equity(paper: dict, today_str: str) -> Optional[float]:
+    """上一交易日账本净值：snapshots 里日期早于今天的最后一点。"""
+    last_eq: Optional[float] = None
+    for snap in paper.get("snapshots") or []:
+        if not isinstance(snap, dict):
+            continue
+        ts = str(snap.get("ts") or snap.get("date") or "").strip()
+        day = ts[:10]
+        if len(day) != 10 or day >= today_str:
+            continue
+        try:
+            eq = float(snap.get("equity"))
+        except (TypeError, ValueError):
+            continue
+        if eq > 1e-6:
+            last_eq = eq
+    return last_eq
+
+
 def mark_to_market(paper: dict) -> Dict[str, Any]:
     cash = float(paper.get("cash") or 0)
     holdings = paper.get("holdings") or []
@@ -214,7 +233,8 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
 
     # 今日浮动：
     # - 当日回零后：相对回零价（去掉昨收），与累计同起点
-    # - 否则：按涨跌幅反推昨收，汇总 (现价−昨收)×股数
+    # - 有上一交易日快照：相对昨收账本净值（含卖出/费用/跳空，可与累计衔接）
+    # - 否则：按涨跌幅反推昨收，汇总 (现价−昨收)×股数（只含当前持仓）
     today_pnl: Optional[float] = None
     today_pnl_pct: Optional[float] = None
     today_pnl_basis = "prev_close"
@@ -228,12 +248,17 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
         and isinstance(anchor_prices, dict)
         and bool(anchor_prices)
     )
+    prev_nav = _prev_session_equity(paper, today_str)
 
     if not rows:
         today_pnl = 0.0
         today_pnl_pct = 0.0
         if use_reset_anchor:
             today_pnl_basis = "reset"
+        elif prev_nav is not None:
+            today_pnl = round(float(equity) - prev_nav, 2)
+            today_pnl_pct = round(today_pnl / prev_nav * 100.0, 2) if prev_nav > 1e-6 else 0.0
+            today_pnl_basis = "prev_nav"
     elif use_reset_anchor:
         day_sum = 0.0
         n_anchored = 0
@@ -262,6 +287,10 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
                 base = float(equity) - today_pnl
             if base > 1e-6:
                 today_pnl_pct = round(today_pnl / base * 100.0, 2)
+    elif prev_nav is not None:
+        today_pnl = round(float(equity) - prev_nav, 2)
+        today_pnl_pct = round(today_pnl / prev_nav * 100.0, 2)
+        today_pnl_basis = "prev_nav"
     else:
         day_sum = 0.0
         n_chg = 0
@@ -474,6 +503,10 @@ def manual_sell(
 
         amount = round(sell_shares * price, 2)
         fee_info = calc_trade_fees("sell", amount, model=model, params=params)
+        cost = float(h.get("cost") or 0)
+        pnl_pct = (
+            round((float(price) / cost - 1.0) * 100.0, 2) if cost > 0 else None
+        )
         trade = annotate_trade(
             {
                 "ts": _now_iso(),
@@ -483,6 +516,7 @@ def manual_sell(
                 "shares": sell_shares,
                 "price": round(price, 4),
                 "amount": amount,
+                "pnl_pct": pnl_pct,
                 "note": "手动清仓" if sell_shares >= held - 1e-9 else "手动减仓",
             },
             fee_info,

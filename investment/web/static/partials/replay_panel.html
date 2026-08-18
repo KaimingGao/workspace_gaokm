@@ -123,13 +123,13 @@
             </button>
             <label class="platform-field quant-pro-field">
               <span class="quant-pro-field-label">Top K</span>
-              <input id="quant-top-k" type="number" min="1" max="10" value="3" />
+              <input id="quant-top-k" type="number" min="1" max="40" value="20" />
             </label>
             <label class="platform-field quant-pro-field">
               <span class="quant-pro-field-label">权重</span>
-              <select id="quant-weight-mode" title="与纸面 optimize 同源；默认等权">
-                <option value="equal" selected>等权</option>
-                <option value="score_budget">分数预算</option>
+              <select id="quant-weight-mode" title="与纸面 StrategySpec 同源；默认分数预算">
+                <option value="score_budget" selected>分数预算</option>
+                <option value="equal">等权</option>
                 <option value="risk_parity_lite">风险平价 lite</option>
               </select>
             </label>
@@ -144,8 +144,8 @@
               <span class="quant-pro-field-label">Dropout N</span>
               <input id="quant-dropout-n" type="number" min="0" max="10" value="0" />
             </label>
-            <label class="platform-field quant-pro-checkbox" title="剔除名称含 ST/退 的标的">
-              <input id="quant-exclude-st" type="checkbox" />
+            <label class="platform-field quant-pro-checkbox" title="剔除名称含 ST/退 的标的（与分池选股一致，默认开）">
+              <input id="quant-exclude-st" type="checkbox" checked />
               <span>剔 ST</span>
             </label>
             <label class="platform-field quant-pro-field" title="池内成交额分位下限；空=不过滤">
@@ -303,12 +303,12 @@ horizon=1 时：每个交易日都可成为信号日，调仓更密、成本更�
     <details class="replay-secondary-fold" id="param-grid" open>
       <summary class="replay-secondary-fold-sum">
         <h3 id="replay-section-grid-title" class="dashboard-section-title">参数扫描</h3>
-        <p class="dashboard-section-desc quant-section-desc">Top-K × 窗口 · 热力图</p>
+        <p class="dashboard-section-desc quant-section-desc">固定窗口扫 K · 热力=OOS · 过门才标最优</p>
       </summary>
       <div class="dashboard-card quant-pro-card">
         <div class="dashboard-card-head quant-pro-card-head replay-card-head">
           <p class="quant-fingerprint quant-card-head-status" id="param-grid-meta">
-            默认 top_k∈{2,3,5} · lookback∈{60,90,120} · 最多 9 格 · 跳过 WF/成本对照
+            固定页面 lookback，扫 K∈{10,15,20} · 过门=OOS≥0 且回撤≤15% · 不覆盖最近回测
           </p>
         </div>
         <div class="quant-pro-card-body replay-card-body">
@@ -342,7 +342,7 @@ horizon=1 时：每个交易日都可成为信号日，调仓更密、成本更�
           <div id="param-grid-progress" class="quant-fingerprint quant-card-head-status paper-progress-status" hidden aria-live="polite">
             <span id="param-grid-progress-text">扫描中…</span>
           </div>
-          <div id="param-grid-heat" class="param-grid-heat" aria-label="参数收益矩阵"></div>
+          <div id="param-grid-heat" class="param-grid-heat" aria-label="参数 OOS 矩阵，点击格子写入表单"></div>
           <div id="param-grid-table" class="quant-weight-table-wrap"></div>
         </div>
       </div>

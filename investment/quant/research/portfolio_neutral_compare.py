@@ -94,15 +94,19 @@ def summarize_portfolio_neutral_compare(
     *,
     codes: Optional[List[str]] = None,
     lookback: int = 90,
-    top_k: int = 3,
-    horizon_days: int = 3,
-    min_score: float = 55.0,
+    top_k: Optional[int] = None,
+    horizon_days: Optional[int] = None,
+    min_score: Optional[float] = None,
     fetch_fundamentals: Optional[bool] = None,
+    apply_costs: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """每日报告用的轻量中性化对照摘要（P54）。"""
     from core.research.portfolio_bars import DAILY_PORTFOLIO_MAX_NAMES
     from core.watching_store import read_watching
-    from quant.research.portfolio_data import load_portfolio_stock_bars
+    from quant.research.portfolio_data import (
+        load_portfolio_stock_bars,
+        resolve_daily_topk_backtest_kwargs,
+    )
 
     candidates = list(codes or [])
     if not candidates:
@@ -131,13 +135,25 @@ def summarize_portfolio_neutral_compare(
             "failures": failures,
         }
 
-    out = compare_portfolio_neutralization(
-        stock_bars,
-        fundamentals_by_code=fundamentals_by_code or None,
+    resolved = resolve_daily_topk_backtest_kwargs(
         top_k=top_k,
         horizon_days=horizon_days,
-        min_score=min_score,
+        apply_costs=apply_costs,
     )
+    cmp_kwargs: Dict[str, Any] = {
+        "fundamentals_by_code": fundamentals_by_code or None,
+        "top_k": resolved["top_k"],
+        "horizon_days": resolved["horizon_days"],
+        "min_predicted_score": resolved["min_predicted_score"],
+        "apply_costs": resolved["apply_costs"],
+        "weight_mode": resolved["weight_mode"],
+        "max_position_pct": resolved["max_position_pct"],
+        "max_sector_pct": resolved["max_sector_pct"],
+    }
+    if min_score is not None:
+        cmp_kwargs["min_score"] = float(min_score)
+
+    out = compare_portfolio_neutralization(stock_bars, **cmp_kwargs)
     if not out.get("success"):
         out["failures"] = failures
         return out

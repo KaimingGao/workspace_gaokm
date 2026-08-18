@@ -124,9 +124,11 @@ class TestWeightOosGate(unittest.TestCase):
                 "metrics": {"total_return_pct": 5.0},
                 "equity_curve": [
                     {"date": "d1", "equity": 100},
-                    {"date": "d2", "equity": 105},
+                    {"date": "d2", "equity": 103},
+                    {"date": "d3", "equity": 104},
+                    {"date": "d4", "equity": 105},
                 ],
-                "trades": [],
+                "trades": [{"id": 1}],
                 "params": {},
             }
 
@@ -165,6 +167,63 @@ class TestWeightOosGate(unittest.TestCase):
         diff = format_weight_config_diff(sug)
         self.assertIn("未过", diff["apply_note"])
         self.assertFalse(diff["promote_ready"])
+
+    def test_no_trades_counts_as_skipped(self):
+        from core.signal.weight_oos_gate import _compare_arms
+
+        base = {
+            "success": True,
+            "trade_count": 80,
+            "oos": {"oos_return_pct": 5.0, "failed": False},
+        }
+        research = {
+            "success": True,
+            "trade_count": 0,
+            "oos": {"reason": "equity_curve_too_short", "failed": True},
+        }
+        out = _compare_arms(
+            base,
+            research,
+            tol=1.0,
+            lookback=80,
+            top_k=2,
+            horizon_days=1,
+            stock_count=12,
+            codes=["a"],
+        )
+        self.assertTrue(out["skipped"])
+        self.assertFalse(out["passed"])
+        self.assertEqual(out["reason"], "research_no_trades")
+
+    def test_cluster_rank_only_ignores_is_oos_gap(self):
+        from core.signal.weight_oos_gate import _compare_arms
+
+        base = {
+            "success": True,
+            "trade_count": 80,
+            "oos": {"oos_return_pct": 3.5, "is_return_pct": -11.0, "failed": False},
+        }
+        research = {
+            "success": True,
+            "trade_count": 11,
+            "oos": {
+                "oos_return_pct": 13.6,
+                "is_return_pct": 41.8,
+                "failed": True,
+                "fail_reason": "oos_underperform_gap_-28.2pp",
+            },
+        }
+        blocked = _compare_arms(
+            base, research, tol=1.0, lookback=80, top_k=2, horizon_days=1,
+            stock_count=11, codes=["a"], require_clean_is_oos=True,
+        )
+        self.assertFalse(blocked["passed"])
+        allowed = _compare_arms(
+            base, research, tol=1.0, lookback=80, top_k=2, horizon_days=1,
+            stock_count=11, codes=["a"], require_clean_is_oos=False,
+        )
+        self.assertTrue(allowed["passed"])
+        self.assertEqual(allowed["reason"], "oos_not_worse_is_gap")
 
 
 if __name__ == "__main__":

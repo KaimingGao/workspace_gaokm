@@ -351,6 +351,15 @@ def merge_north_star_into_metrics(
         base["realization_corr"] = rz.get("corr")
     if rz.get("tracking_error_pct") is not None:
         base["tracking_error_pct"] = rz.get("tracking_error_pct")
+    bex = report.get("benchmark_excess") or {}
+    if bex.get("ok"):
+        base["benchmark_excess_ir"] = bex.get("ann_ir")
+        base["benchmark_excess_pct"] = bex.get("total_excess_approx_pct")
+    legs = report.get("alpha_beta_legs") or {}
+    if legs.get("alpha_leg_approx_pct") is not None:
+        base["alpha_leg_approx_pct"] = legs.get("alpha_leg_approx_pct")
+    if legs.get("beta_leg_approx_pct") is not None:
+        base["beta_leg_approx_pct"] = legs.get("beta_leg_approx_pct")
     return base, report
 
 
@@ -464,6 +473,33 @@ def build_north_star_report(
     except Exception as _exc:
         r1["error"] = f"R1增强计算异常: {_exc}"
 
+    # P0：纸面净值 vs 指数超额（α 腿诊断，只读）
+    bex: Dict[str, Any] = {"ok": False, "reason": "not_computed"}
+    legs: Optional[Dict[str, Any]] = None
+    try:
+        from core.alpha_excess import compute_benchmark_excess_pack, legs_summary
+        from core.backtest_curve_store import _paper_daily_equities
+        from core.ports.market import default_benchmark
+
+        paper_pts = _paper_daily_equities(snaps)
+        idx_code = str(default_benchmark("CN") or "sh000300")
+        bex = compute_benchmark_excess_pack(
+            paper_pts, index_code=idx_code, lookback=max(80, window + 40)
+        )
+        total_ret = None
+        if len(paper_pts) >= 2:
+            try:
+                e0 = float(paper_pts[0][1])
+                e1 = float(paper_pts[-1][1])
+                if e0 > 0:
+                    total_ret = (e1 / e0 - 1.0) * 100.0
+            except (TypeError, ValueError, IndexError):
+                total_ret = None
+        legs = legs_summary(total_return_pct=total_ret, excess_pack=bex)
+    except Exception as _exc:
+        bex = {"ok": False, "reason": f"compute_failed:{_exc}"}
+        legs = None
+
     return {
         "ok": True,
         "computed_at": datetime.now().isoformat(timespec="seconds"),
@@ -487,8 +523,11 @@ def build_north_star_report(
             "align": align_meta,
         },
         "r1": r1,
+        "benchmark_excess": bex,
+        "alpha_beta_legs": legs,
         "note": (
             "E 轨：全账户 vs 策略 scope 分列；缺样本为 unavailable；"
             "拦截有效率需 outcome 标注。R1=拟合趋势/缺口归因/三项乘积/TTM瓶颈/拦截审计/退化告警。"
+            "P0：benchmark_excess / alpha_beta_legs 为相对指数超额分账（只读）。"
         ),
     }

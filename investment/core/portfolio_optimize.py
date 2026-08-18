@@ -261,7 +261,26 @@ def optimize_weights(
         score = float(alloc_sc)
         sector = str(it.get("sector") or _sector_for(code, smap))
         board = str(it.get("board") or _board_for(code))
-        row = {"stock_code": code, "score": score, "sector": sector, "board": board}
+        # Y(τ) 信任：缺字段时惰性盖戳，供仓位缩放
+        eod_trust = it.get("eod_trust")
+        y_check = it.get("y_check")
+        if eod_trust is None or y_check is None:
+            try:
+                from core.signal.y_state import stamp_y_state
+
+                stamp_y_state(it)
+                eod_trust = it.get("eod_trust")
+                y_check = it.get("y_check")
+            except Exception:
+                pass
+        row = {
+            "stock_code": code,
+            "score": score,
+            "sector": sector,
+            "board": board,
+            "eod_trust": eod_trust,
+            "y_check": y_check,
+        }
         vol = it.get("vol")
         if vol is None:
             vol = it.get("volatility")
@@ -359,6 +378,27 @@ def optimize_weights(
             sector_sum[sector] = round(float(sector_sum.get(sector) or 0.0) + alloc, 4)
         skipped = skipped[:20]
 
+    # Y(τ) eod_trust → 目标仓位缩放（不归一）
+    y_trust_meta: Dict[str, Any] = {"applied": False}
+    try:
+        from core.signal.y_state import scale_weights_by_eod_trust
+
+        trust_map = {
+            str(r["stock_code"]): r.get("eod_trust")
+            for r in ranked
+            if r.get("stock_code")
+        }
+        weights, y_trust_meta = scale_weights_by_eod_trust(weights, trust_map)
+        # 缩放后重算行业暴露
+        if y_trust_meta.get("applied") and weights:
+            sector_sum = {}
+            code_sector = {r["stock_code"]: r["sector"] for r in ranked}
+            for c, w in weights.items():
+                sec = code_sector.get(c) or UNMAPPED_SECTOR
+                sector_sum[sec] = round(float(sector_sum.get(sec) or 0.0) + float(w), 4)
+    except Exception as e:
+        y_trust_meta = {"applied": False, "error": str(e)}
+
     total = round(sum(weights.values()), 4)
     codes_for_cov = [r["stock_code"] for r in ranked]
     try:
@@ -393,6 +433,22 @@ def optimize_weights(
                 ),
             }
         )
+    if y_trust_meta.get("applied") and int(y_trust_meta.get("n_scaled") or 0) > 0:
+        budget_alerts.append(
+            {
+                "level": "info",
+                "code": "y_eod_trust_scale",
+                "message": (
+                    f"Y·EOD 信任缩放 {y_trust_meta.get('n_scaled')} 只"
+                    + (
+                        f"· 剔除 {y_trust_meta.get('n_dropped')}"
+                        if int(y_trust_meta.get("n_dropped") or 0) > 0
+                        else ""
+                    )
+                    + f"（目标仓 {y_trust_meta.get('total_before')}%→{y_trust_meta.get('total_after')}%）"
+                ),
+            }
+        )
     for sec, pct in sector_sum.items():
         if pct >= eff_sec * 0.95:
             budget_alerts.append(
@@ -418,6 +474,7 @@ def optimize_weights(
         "qp": qp_meta,
         "vol_scale": vol_meta,
         "regime_scale": regime_meta,
+        "y_trust_scale": y_trust_meta,
         "combined_scale": combined_scale,
         "style_caps": style_caps,
         "limits": {
@@ -439,6 +496,11 @@ def optimize_weights(
                 else ""
             )
             + f"；scale=vol×regime={combined_scale}"
+            + (
+                f"；Y信任缩放 n={y_trust_meta.get('n_scaled')}"
+                if y_trust_meta.get("applied") and int(y_trust_meta.get("n_scaled") or 0) > 0
+                else ""
+            )
             + "；不代客下单。"
         ),
     }

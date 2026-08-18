@@ -150,7 +150,7 @@ def backtest_score_quantiles(
 
     rows = []
     for qi in range(n_quantiles):
-        m = _trade_metrics(rets[qi]) if rets[qi] else {}
+        m = _trade_metrics(rets[qi], holding_days=horizon_days) if rets[qi] else {}
         label = f"Q{qi + 1}"
         if qi == 0:
             label += "（低分）"

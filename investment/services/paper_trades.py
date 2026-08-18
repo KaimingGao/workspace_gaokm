@@ -378,6 +378,12 @@ class PaperTradesMixin:
             risk_budget_skips=result.get("risk_budget_skips"),
             score_rows=score_rows or None,
         )
+        try:
+            from core.paper_rebalance import attach_change_pct_to_rebalance_report
+
+            attach_change_pct_to_rebalance_report(report, summary=summary)
+        except Exception:
+            pass
         if use_cluster:
             try:
                 from core.signal.score_display import annotate_score_gate
@@ -414,11 +420,23 @@ class PaperTradesMixin:
             "attribution": result.get("attribution"),
             "risk_gate": result.get("risk_gate"),
             "ops_report": result.get("ops_report"),
+            "dual_score": result.get("dual_score"),
+            "empty_reason": result.get("empty_reason"),
+            "min_score": result.get("min_score"),
+            "min_hold_score": result.get("min_hold_score"),
             "observation_pool_count": len(ranking),
         }
         if use_cluster:
             base_out["cluster_pools"] = ranked
             base_out["health"] = health
+            # 建簿阶段空簿原因（与调仓 empty_reason 分列）
+            if isinstance(ranked, dict) and ranked.get("empty_reason"):
+                base_out["book_empty_reason"] = ranked.get("empty_reason")
+                base_out["below_min_score_count"] = ranked.get(
+                    "below_min_score_count"
+                )
+                if not base_out.get("empty_reason") and not ranking:
+                    base_out["empty_reason"] = ranked.get("empty_reason")
         else:
             base_out["cross_section"] = ranked
 

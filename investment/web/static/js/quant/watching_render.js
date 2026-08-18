@@ -141,6 +141,16 @@ export function watchingScoreDetail(it) {
     factor_coefficients_tau: coefsTau,
     dual_score_fusion: (it && it.dual_score_fusion) || null,
     dual_score_weights: (it && it.dual_score_weights) || null,
+    dual_score_head: (it && it.dual_score_head) || null,
+    dual_score_single_head: !!(it && it.dual_score_single_head),
+    y_check: (it && it.y_check) || null,
+    y_disagree: it && it.y_disagree,
+    y_sigma: it && it.y_sigma,
+    y_mu: it && it.y_mu,
+    eod_trust: it && it.eod_trust,
+    y_tau_to_close: it && it.y_tau_to_close,
+    y_tau_to_close_src: it && it.y_tau_to_close_src,
+    y_state: it && it.y_state,
     formula: hasTerms ? "" : (it && it.score_formula) || "",
     reasons: ((it && it.score_reasons) || []).slice(0, 5),
     hard_reject: !!(it && it.hard_reject),
@@ -385,13 +395,30 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
         `<td class="num watching-col-num" data-q="price">${escapeHtml(String(d.price ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="open">${escapeHtml(String(d.open ?? "—"))}</td>` +
         `<td class="num watching-col-num watching-chg${d.chgCls ? " " + escapeHtml(d.chgCls) : ""}" data-q="chg">${escapeHtml(String(d.chg ?? "—"))}</td>` +
-        `<td class="num watching-col-num watching-score-cell paper-hold-score has-tip ${escapeHtml(
-          d.scoreCls || ""
-        )}" data-q="score" data-score-tip="trade" data-score-detail="${escapeHtml(
-          d.scoreDetail || ""
-        )}" title="${escapeHtml(d.scoreTitle || "ŷ_trade")}">${escapeHtml(
-          String(d.score ?? "—")
-        )}</td>` +
+        (() => {
+          const singleHead = !!d.scoreSingleHead;
+          const head = d.dualScoreHead || "";
+          const headTitle =
+            head === "single_tau"
+              ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 EOD rem）· 与双头票不同量纲"
+              : head === "single_eod"
+                ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
+                : "ŷ_trade 单头降级 · 与双头票不同量纲";
+          const badge = singleHead
+            ? `<span class="watching-single-head-badge" title="${escapeHtml(
+                headTitle
+              )}">单</span>`
+            : "";
+          return (
+            `<td class="num watching-col-num watching-score-cell paper-hold-score has-tip ${escapeHtml(
+              d.scoreCls || ""
+            )}${singleHead ? " score-single-head" : ""}" data-q="score" data-score-tip="trade" data-score-detail="${escapeHtml(
+              d.scoreDetail || ""
+            )}" title="${escapeHtml(d.scoreTitle || "ŷ_trade")}">${escapeHtml(
+              String(d.score ?? "—")
+            )}${badge}</td>`
+          );
+        })() +
         `<td class="num watching-col-num watching-score-cell watching-score-cal paper-hold-score has-tip ${escapeHtml(
           d.scoreCalCls || ""
         )}" data-q="score_cal" data-score-tip="cal" data-score-detail="${escapeHtml(

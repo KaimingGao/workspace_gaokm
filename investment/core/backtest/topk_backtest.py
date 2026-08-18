@@ -37,7 +37,7 @@ def _fill_sample_score_fields(
                 f = float(v)
             except (TypeError, ValueError):
                 return None
-            if looks_like_legacy_heuristic_score(f):
+            if looks_like_legacy_heuristic_score(f, item=tip):
                 return None
             return f
 
@@ -67,7 +67,7 @@ def _fill_sample_score_fields(
             try:
                 from core.signal.score_display import looks_like_legacy_heuristic_score
 
-                if looks_like_legacy_heuristic_score(rs):
+                if looks_like_legacy_heuristic_score(rs, item=tip):
                     heu_f = rs
             except Exception:
                 if abs(rs) >= 10.0:
@@ -223,7 +223,7 @@ def _score_tooltip_meta(
         from core.signal.score_display import looks_like_legacy_heuristic_score
 
         if pred is None and score is not None and not looks_like_legacy_heuristic_score(
-            float(score) if score is not None else None
+            float(score) if score is not None else None, item=item
         ):
             pred = score
     except Exception:
@@ -238,7 +238,7 @@ def _score_tooltip_meta(
         if out["predicted_score"] is not None:
             from core.signal.score_display import looks_like_legacy_heuristic_score
 
-            if looks_like_legacy_heuristic_score(out["predicted_score"]):
+            if looks_like_legacy_heuristic_score(out["predicted_score"], item=item):
                 out["predicted_score"] = None
     except (TypeError, ValueError):
         out["predicted_score"] = None
@@ -525,13 +525,18 @@ def _vol_from_window(bars: List[dict], *, window: int = 20) -> Optional[float]:
 def allocate_topk_weights(
     legs: List[dict],
     *,
-    weight_mode: str = "equal",
-    max_position_pct: float = 40.0,
-    max_sector_pct: float = 60.0,
+    weight_mode: str = "score_budget",
+    max_position_pct: float = 25.0,
+    max_sector_pct: float = 40.0,
     stock_bars: Optional[Dict[str, List[dict]]] = None,
+    renormalize: Optional[bool] = None,
 ) -> Tuple[Dict[str, float], str]:
-    """为已成交腿分配目标权重（%）。失败回退等权。"""
-    mode = (weight_mode or "equal").strip().lower()
+    """为已成交腿分配目标权重（%）。失败回退等权。
+
+    score_budget / risk_parity_lite 默认**不**再归一到 100%（与纸面 budget 一致，可留现金）。
+    equal 始终满仓。``renormalize=True`` 可强制满仓（旧研究口径）。
+    """
+    mode = (weight_mode or "score_budget").strip().lower()
     if mode not in WEIGHT_MODES:
         mode = "equal"
     n = len(legs)
@@ -577,7 +582,6 @@ def allocate_topk_weights(
     except Exception:
         weights = {}
 
-    # 只保留本腿；归一到 100%
     filtered = {
         str(leg["stock_code"]): float(weights.get(str(leg["stock_code"])) or 0.0)
         for leg in legs
@@ -586,21 +590,208 @@ def allocate_topk_weights(
     if total <= 1e-6:
         w = round(100.0 / n, 4)
         return {str(leg["stock_code"]): w for leg in legs}, "equal"
-    return {c: round(100.0 * v / total, 4) for c, v in filtered.items() if v > 0}, mode
+    do_renorm = bool(renormalize) if renormalize is not None else False
+    if do_renorm:
+        return {
+            c: round(100.0 * v / total, 4) for c, v in filtered.items() if v > 0
+        }, mode
+    # 与纸面一致：保留限额裁剪后的绝对权重（可 <100%）
+    return {c: round(v, 4) for c, v in filtered.items() if v > 0.05}, mode
 
 
 def _weighted_port_return(legs: List[dict], weights: Dict[str, float]) -> float:
+    """组合期收益：权重为净值百分比，未分配部分视为现金（收益 0）。
+
+    不再按已选腿归一。等权（权重和=100）与旧口径一致；score_budget
+    单票/行业帽留下的现金会压低收益与回撤。
+    """
     if not legs:
         return 0.0
-    total_w = sum(float(weights.get(str(leg["stock_code"])) or 0.0) for leg in legs)
-    if total_w <= 1e-9:
+    allocated = sum(
+        float(weights.get(str(leg["stock_code"])) or 0.0) for leg in legs
+    )
+    if allocated <= 1e-9:
         return sum(float(leg.get("return_pct") or 0.0) for leg in legs) / len(legs)
     acc = 0.0
     for leg in legs:
         code = str(leg["stock_code"])
         w = float(weights.get(code) or 0.0)
-        acc += (w / total_w) * float(leg.get("return_pct") or 0.0)
+        acc += (w / 100.0) * float(leg.get("return_pct") or 0.0)
     return acc
+
+
+def _universe_ew_closes(
+    date_maps: Dict[str, Dict[str, dict]],
+    dates: Sequence[str],
+    upto_i: int,
+) -> List[float]:
+    """截至信号日的池内等权收盘（PIT；供 regime / 高波缩仓）。"""
+    closes: List[float] = []
+    end = min(int(upto_i) + 1, len(dates))
+    for j in range(end):
+        d = dates[j]
+        xs: List[float] = []
+        for dm in date_maps.values():
+            bar = dm.get(d) if isinstance(dm, dict) else None
+            if not bar:
+                continue
+            try:
+                px = float(bar.get("close") or 0)
+            except (TypeError, ValueError):
+                continue
+            if px > 0:
+                xs.append(px)
+        if xs:
+            closes.append(sum(xs) / len(xs))
+    return closes
+
+
+def _exposure_scale_at_signal(
+    date_maps: Dict[str, Dict[str, dict]],
+    dates: Sequence[str],
+    signal_i: int,
+) -> Dict[str, Any]:
+    """PIT 高波/弱势 → 仓位上限缩放（不打远端指数）。"""
+    from core.backtest.oos_report import regime_label_from_closes
+    from core.pro_core import regime_position_scale
+
+    closes = _universe_ew_closes(date_maps, dates, signal_i)
+    window = closes[-24:] if len(closes) >= 5 else closes
+    label = regime_label_from_closes(window) if len(window) >= 5 else "unknown"
+    meta = regime_position_scale(regime={"label": label})
+    scale = 1.0
+    try:
+        scale = max(0.2, min(1.0, float(meta.get("scale") or 1.0)))
+    except (TypeError, ValueError):
+        scale = 1.0
+    return {
+        "label": label,
+        "scale": scale,
+        "source": meta.get("source"),
+        "n_closes": len(window),
+    }
+
+
+def _clip_leg_at_close_stop(
+    *,
+    code: str,
+    entry_px: float,
+    entry_date: str,
+    exit_date: str,
+    exit_px: float,
+    date_maps: Dict[str, Dict[str, dict]],
+    dates: Sequence[str],
+    date_i: Dict[str, int],
+    stop_pct: float,
+) -> Tuple[str, float, float, bool]:
+    """持有期收盘触及 −stop 则提前平。返回 (exit_date, exit_px, ret_pct, clipped)。"""
+    try:
+        px0 = float(entry_px or 0)
+        px1 = float(exit_px or 0)
+        sp = float(stop_pct or 0)
+    except (TypeError, ValueError):
+        px0, px1, sp = 0.0, 0.0, 0.0
+    raw_ret = (px1 / px0 - 1.0) * 100.0 if px0 > 0 else 0.0
+    if sp <= 0 or sp >= 1 or px0 <= 0 or not code:
+        return str(exit_date), px1, raw_ret, False
+    i0 = date_i.get(str(entry_date))
+    i1 = date_i.get(str(exit_date))
+    dm = date_maps.get(str(code)) or {}
+    if i0 is None or i1 is None or i1 <= i0:
+        return str(exit_date), px1, raw_ret, False
+    floor_px = px0 * (1.0 - sp)
+    for k in range(i0 + 1, i1 + 1):
+        bar = dm.get(dates[k])
+        if not bar:
+            continue
+        try:
+            px = float(bar.get("close") or 0)
+        except (TypeError, ValueError):
+            continue
+        if px > 0 and px <= floor_px:
+            used = (px / px0 - 1.0) * 100.0
+            return str(dates[k]), px, used, True
+    return str(exit_date), px1, raw_ret, False
+
+
+def _stop_shadow_from_trades(
+    trades: Sequence[dict],
+    date_maps: Dict[str, Dict[str, dict]],
+    dates: Sequence[str],
+    *,
+    stop_pct: float,
+    holding_days: int,
+    applied_to_main: bool = False,
+) -> Dict[str, Any]:
+    """持有期内触及止损则提前平仓的影子净值。"""
+    try:
+        sp = float(stop_pct)
+    except (TypeError, ValueError):
+        sp = 0.0
+    if sp <= 0 or sp >= 1:
+        return {"ok": False, "reason": "stop_pct_off"}
+    date_i = {d: i for i, d in enumerate(dates)}
+    shadow_rets: List[float] = []
+    clipped = 0
+    for t in trades or []:
+        legs = list(t.get("legs") or [])
+        if not legs:
+            continue
+        weights = {
+            str(leg.get("stock_code") or ""): float(leg.get("weight_pct") or 0.0)
+            for leg in legs
+        }
+        shadow_legs: List[dict] = []
+        for leg in legs:
+            code = str(leg.get("stock_code") or "")
+            try:
+                entry_px = float(leg.get("fill_price") or leg.get("entry_price") or 0)
+            except (TypeError, ValueError):
+                entry_px = 0.0
+            try:
+                exit_px = float(leg.get("exit_price") or 0)
+            except (TypeError, ValueError):
+                exit_px = 0.0
+            raw_ret = float(leg.get("return_pct") or 0.0)
+            if not code or entry_px <= 0:
+                shadow_legs.append({"stock_code": code, "return_pct": raw_ret})
+                continue
+            entry_d = str(leg.get("entry_date") or t.get("entry_date") or "")
+            exit_d = str(leg.get("exit_date") or t.get("exit_date") or "")
+            if exit_px <= 0 and entry_px > 0:
+                exit_px = entry_px * (1.0 + raw_ret / 100.0)
+            _ed, _ep, used, hit = _clip_leg_at_close_stop(
+                code=code,
+                entry_px=entry_px,
+                entry_date=entry_d,
+                exit_date=exit_d,
+                exit_px=exit_px,
+                date_maps=date_maps,
+                dates=dates,
+                date_i=date_i,
+                stop_pct=sp,
+            )
+            if hit:
+                clipped += 1
+            shadow_legs.append({"stock_code": code, "return_pct": used})
+        shadow_rets.append(_weighted_port_return(shadow_legs, weights))
+    m = _trade_metrics(shadow_rets, holding_days=holding_days) if shadow_rets else {}
+    note = (
+        "持有期收盘触及 −stop 则该腿提前平；已并入主回测路径。"
+        if applied_to_main
+        else "持有期收盘触及 −stop 则该腿提前平；未进主回测路径。"
+    )
+    return {
+        "ok": bool(shadow_rets),
+        "stop_pct": sp,
+        "legs_clipped": clipped,
+        "applied_to_main": bool(applied_to_main),
+        "trade_count": m.get("trade_count"),
+        "total_return_pct": m.get("total_return_pct"),
+        "max_drawdown_pct": m.get("max_drawdown_pct"),
+        "win_rate_pct": m.get("win_rate_pct"),
+        "note": note,
+    }
 
 
 def _bars_by_date(bars: List[dict]) -> Dict[str, dict]:
@@ -711,7 +902,7 @@ def _window_for_code(
 def backtest_topk_equal_weight(
     stock_bars: Dict[str, List[dict]],
     *,
-    top_k: int = 3,
+    top_k: int = 20,
     horizon_days: int = 3,
     min_score: float = 55.0,
     min_history: int = 12,
@@ -724,10 +915,11 @@ def backtest_topk_equal_weight(
     respect_limit: bool = True,
     slippage_tier: Optional[str] = None,
     exit_max_defer: int = 3,
-    weight_mode: str = "equal",
-    max_position_pct: float = 40.0,
-    max_sector_pct: float = 60.0,
+    weight_mode: str = "score_budget",
+    max_position_pct: float = 25.0,
+    max_sector_pct: float = 40.0,
     dropout_n: int = 0,
+    sector_map: Optional[Dict[str, str]] = None,
     rank_mode: str = "predicted_score",
     min_predicted_score: Optional[float] = None,
     return_model_min_samples: int = 24,
@@ -736,19 +928,23 @@ def backtest_topk_equal_weight(
     return_models_by_code: Optional[Dict[str, Any]] = None,
     use_live_cluster_models: bool = True,
     allow_heuristic_baseline: bool = False,
-    apply_tau_buy_gate: bool = True,
+    apply_tau_buy_gate: bool = False,
+    strategy_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     多票横截面：每个调仓日对 watching 打分，持有 TopK，持有 horizon_days。
     weight_mode: equal | score_budget | risk_parity_lite（与纸面 optimize 同源）。
     dropout_n>0 时启用 TopK-Dropout（K±N 缓冲）。
 
+    默认限额 / weight_mode / top_k 上限对齐 StrategySpec（可用 strategy_id 覆盖）。
+
     rank_mode:
       - predicted_score：walk-forward / 分组因子系数后按收益分（ŷ%）排序（生产默认）
       - heuristic_score：人工线性加权 0–100（仅研究 OOS 基线；须 allow_heuristic_baseline）
 
     return_models_by_code / use_live_cluster_models：研究 OOS 注入组 β，避免串 live。
-    apply_tau_buy_gate：组内研究 OOS 应 False（只比 EOD 组 β，不套 live ŷ_τ 闸）。
+    apply_tau_buy_gate：历史日线默认 False（无可靠分钟 τ；开闸易 0 笔）。
+    纸面 live 买入闸不走本函数。
     """
     from core.backtest.attribution import attribute_portfolio_trades
     from core.backtest.matching import (
@@ -757,7 +953,7 @@ def backtest_topk_equal_weight(
         resolve_exit_index,
     )
     from core.data_pit import pit_report_for_backtest
-    from core.portfolio_optimize import _sector_for, load_sector_map
+    from core.portfolio_optimize import _sector_for, load_sector_map, sector_map_coverage
     from core.signal.config import load_signal_config
     from core.signal.cross_section_batch import score_and_rank_watching, score_window_as_item
     from core.signal.return_score import (
@@ -766,9 +962,13 @@ def backtest_topk_equal_weight(
         fit_return_model_from_panel,
         resolve_research_rank_mode,
     )
+    from core.strategy import backtest_portfolio_defaults
 
     if not stock_bars:
         return {"success": False, "error": "无标的日线"}
+
+    bt_defaults = backtest_portfolio_defaults(strategy_id or "short")
+    top_k_cap = int(bt_defaults.get("top_k_cap") or 40)
 
     # tip 对照：整次回测共用一份 live g(ŷ)；有 knots 则 force 写出 *_cal
     cal_model_doc = None
@@ -796,9 +996,11 @@ def backtest_topk_equal_weight(
         cluster_active = None
     dropout_n = max(0, min(int(dropout_n or 0), 10))
 
-    top_k = max(1, min(int(top_k or 3), 10))
+    top_k = max(1, min(int(top_k or bt_defaults["top_k"]), top_k_cap))
     horizon_days = max(1, min(int(horizon_days or 3), 10))
     min_score = float(min_score or 55.0)
+    if min_predicted_score is None:
+        min_predicted_score = bt_defaults.get("min_predicted_score")
     min_history = max(5, int(min_history or 12))
     defer_cap = max(0, int(exit_max_defer or 0))
     mode = (execution_mode or "next_open").strip().lower()
@@ -809,6 +1011,9 @@ def backtest_topk_equal_weight(
     min_fit = max(8, int(return_model_min_samples or 24))
     refit_every = max(1, int(return_model_refit_every or 1))
     ridge_lam = float(return_model_ridge_lambda or 0.0)
+    weight_mode = str(weight_mode or bt_defaults["weight_mode"]).strip() or "score_budget"
+    max_position_pct = float(max_position_pct if max_position_pct is not None else bt_defaults["max_position_pct"])
+    max_sector_pct = float(max_sector_pct if max_sector_pct is not None else bt_defaults["max_sector_pct"])
 
     # next_open 需要信号日后再留 1 + horizon + 跌停延后
     extra = 1 if mode == "next_open" else 0
@@ -825,6 +1030,7 @@ def backtest_topk_equal_weight(
 
     date_maps = {code: _bars_by_date(bars) for code, bars in stock_bars.items()}
     dates = _common_dates(stock_bars)
+    date_i = {d: i for i, d in enumerate(dates)}
     n = len(dates)
     if n < need:
         return {
@@ -842,6 +1048,7 @@ def backtest_topk_equal_weight(
     equity = 100.0
     neutralized_rebalances = 0
     skipped_limit = 0
+    stop_legs_clipped = 0
     skipped_limit_exit = 0
     exit_deferred = 0
     pit_windows = 0
@@ -855,7 +1062,13 @@ def backtest_topk_equal_weight(
     if resolved_weight_mode not in WEIGHT_MODES:
         resolved_weight_mode = "equal"
     signal_fill_sample: List[dict] = []
-    smap = load_sector_map()
+    smap = dict(sector_map) if sector_map is not None else load_sector_map()
+    try:
+        stop_pct = float((cfg.get("invalidation") or {}).get("stop_pct") or 0.0)
+    except (TypeError, ValueError):
+        stop_pct = 0.0
+    oos_fail_excluded_models = 0
+    cluster_models_raw = 0
     fund_cfg = cfg.get("fundamentals") or {}
     use_fund_pit = bool(fund_cfg.get("enabled", True)) and bool(
         fund_cfg.get("use_in_backtest", True)
@@ -892,8 +1105,13 @@ def backtest_topk_equal_weight(
                 # OOS 失败组主分与 live 对齐：从 by_code 剔除，回退全局模型。
                 cs = get_cluster_scoring_cfg()
                 if cluster_yhat_shadow_compute_allowed(str(cs.get("mode") or "off")):
+                    raw_models = load_cluster_return_models_by_code()
+                    cluster_models_raw = len(raw_models or {})
                     cluster_return_models = filter_primary_cluster_models_by_code(
-                        load_cluster_return_models_by_code()
+                        raw_models
+                    )
+                    oos_fail_excluded_models = max(
+                        0, cluster_models_raw - len(cluster_return_models)
                     )
                 else:
                     cluster_return_models = {}
@@ -903,6 +1121,7 @@ def backtest_topk_equal_weight(
     rebalance_idx = 0
     pred_rank_rebalances = 0
     heuristic_fallback_rebalances = 0
+    exposure_scales: List[Dict[str, Any]] = []
     i = min_history - 1
     if dates:
         equity_curve.append({"date": dates[i], "equity": equity, "return_pct": 0.0})
@@ -1154,7 +1373,7 @@ def backtest_topk_equal_weight(
                 rs_f = None
                 looks_like_legacy_heuristic_score = lambda v: False  # type: ignore
             heu_rank = None
-            if rs_f is not None and looks_like_legacy_heuristic_score(rs_f):
+            if rs_f is not None and looks_like_legacy_heuristic_score(rs_f, item=scored_item):
                 heu_rank = rs_f
                 rank_score = tip_kw.get("predicted_score") or scored_item.get(
                     "score_cluster"
@@ -1162,7 +1381,7 @@ def backtest_topk_equal_weight(
                 try:
                     if rank_score is not None:
                         rank_score = float(rank_score)
-                        if looks_like_legacy_heuristic_score(rank_score):
+                        if looks_like_legacy_heuristic_score(rank_score, item=scored_item):
                             rank_score = None
                 except (TypeError, ValueError):
                     rank_score = None
@@ -1323,15 +1542,30 @@ def backtest_topk_equal_weight(
             exit_p = exit_bar.get("close")
             if not entry:
                 continue
-            ret = (exit_p / entry - 1.0) * 100.0
-            leg_returns.append(ret)
-            leg_exit_dates.append(exit_date)
             try:
                 entry_f = float(entry)
                 exit_f = float(exit_p) if exit_p is not None else None
                 intent_f = float(intent) if intent is not None else entry_f
             except (TypeError, ValueError):
                 entry_f, exit_f, intent_f = None, None, None
+            ret = ((exit_f / entry_f) - 1.0) * 100.0 if entry_f and exit_f else 0.0
+            if stop_pct > 0 and entry_f and exit_f is not None:
+                exit_date, exit_px, ret, hit_stop = _clip_leg_at_close_stop(
+                    code=code,
+                    entry_px=entry_f,
+                    entry_date=entry_date,
+                    exit_date=exit_date,
+                    exit_px=exit_f,
+                    date_maps=date_maps,
+                    dates=dates,
+                    date_i=date_i,
+                    stop_pct=stop_pct,
+                )
+                exit_f = float(exit_px)
+                if hit_stop:
+                    stop_legs_clipped += 1
+            leg_returns.append(ret)
+            leg_exit_dates.append(exit_date)
             legs.append(
                 {
                     "stock_code": code,
@@ -1423,11 +1657,14 @@ def backtest_topk_equal_weight(
             i += 1
             continue
 
+        exp = _exposure_scale_at_signal(date_maps, dates, i)
+        exposure_scales.append(exp)
+        scale = float(exp.get("scale") or 1.0)
         weights_pct, used_mode = allocate_topk_weights(
             legs,
             weight_mode=resolved_weight_mode,
-            max_position_pct=max_position_pct,
-            max_sector_pct=max_sector_pct,
+            max_position_pct=max_position_pct * scale,
+            max_sector_pct=max_sector_pct * scale,
             stock_bars=stock_bars,
         )
         for leg in legs:
@@ -1562,6 +1799,9 @@ def backtest_topk_equal_weight(
                 "neutralization_applied": bool(neut_meta.get("applied")),
                 "execution_mode": mode,
                 "weight_mode": used_mode,
+                "cash_pct": round(max(0.0, 100.0 - sum(weights_pct.values())), 2),
+                "exposure_scale": scale,
+                "exposure_regime": exp.get("label"),
             }
         )
         equity_curve.append(
@@ -1573,7 +1813,7 @@ def backtest_topk_equal_weight(
         )
         i += horizon_days
 
-    metrics = _trade_metrics(returns)
+    metrics = _trade_metrics(returns, holding_days=horizon_days)
     strategy = "cross_section_topk_neutral" if use_neutral else "cross_section_topk"
     fund_map = fundamentals_by_code or {}
     attribution = attribute_portfolio_trades(trades)
@@ -1627,6 +1867,8 @@ def backtest_topk_equal_weight(
             "dropout_n": dropout_n,
             "rank_mode": resolved_rank_mode,
             "min_predicted_score": min_predicted_score,
+            "strategy_id": bt_defaults.get("strategy_id"),
+            "aligned_to_strategy_spec": True,
             "apply_tau_buy_gate": bool(apply_tau_buy_gate),
             "return_model_source": (
                 "cluster_group_beta"
@@ -1634,6 +1876,24 @@ def backtest_topk_equal_weight(
                 else ("walk_forward" if resolved_rank_mode == "predicted_score" else None)
             ),
             "cluster_return_models": len(cluster_return_models),
+            "cluster_return_models_raw": cluster_models_raw or len(cluster_return_models),
+            "oos_fail_excluded_models": oos_fail_excluded_models,
+            "cash_aware_weights": True,
+            "sector_coverage": sector_map_coverage(
+                list(stock_bars.keys()), sector_map=smap
+            ),
+            "exposure_scale_mean": (
+                round(
+                    sum(float(x.get("scale") or 1.0) for x in exposure_scales)
+                    / len(exposure_scales),
+                    3,
+                )
+                if exposure_scales
+                else 1.0
+            ),
+            "stop_pct": stop_pct or None,
+            "stop_applied": bool(stop_pct and stop_pct > 0),
+            "stop_legs_clipped": stop_legs_clipped,
             "return_model_min_samples": min_fit,
             "return_model_ridge_lambda": ridge_lam,
             "return_model_refit_every": refit_every,
@@ -1654,6 +1914,14 @@ def backtest_topk_equal_weight(
         "dropped_stocks": dropped_thin,
         "pit_report": pit,
         "attribution": attribution,
+        "stop_shadow": _stop_shadow_from_trades(
+            trades,
+            date_maps,
+            dates,
+            stop_pct=stop_pct,
+            holding_days=horizon_days,
+            applied_to_main=bool(stop_pct and stop_pct > 0),
+        ),
         "metrics": metrics,
         "trade_count": len(trades),
         "sim_trade_count": len(sim_trades),
@@ -1667,7 +1935,8 @@ def backtest_topk_equal_weight(
             + ("（调仓日截面中性化）" if use_neutral else "")
             + f"；成交={mode}；涨跌停过滤={'开' if respect_limit else '关'}；"
             f"跌停卖出延后≤{defer_cap}日；板别阈值；"
-            + ("成本按换手计费（续持不扣往返）；" if apply_costs else "")
+            + ("成本按换手计费（续持不扣往返）；" if apply_costs else "零成本；")
+            + "权重按净值%计（现金不计收益）；"
             + (
                 (
                     "predicted_score=分组 live OLS β→ŷ_EOD；"

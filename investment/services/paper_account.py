@@ -13,6 +13,7 @@ from core.paper import (
     append_snapshot,
     append_operation_log,
     paper_write_lock,
+    snapshots_for_ui,
     _now_iso,
 )
 from core.paper_costs import enrich_operation_log_with_trade_fees
@@ -425,7 +426,7 @@ class PaperAccountMixin:
             "north_star": north_star,
             "rules": paper.get("rules") or {},
             "summary": summary,
-            "snapshots": paper.get("snapshots") or [],
+            "snapshots": snapshots_for_ui(paper, summary),
             "operation_log": self._operation_log_for_ui(paper, limit=50),
             "recent_trades": (paper.get("trades") or [])[-10:],
             "execution": self._execution_view(paper),

@@ -487,7 +487,8 @@ class AbCompareRequest(BaseModel):
 class PortfolioBacktestRequest(BaseModel):
     codes: Optional[list] = None
     lookback: int = Field(default=120, ge=40, le=500)
-    top_k: int = Field(default=3, ge=1, le=10)
+    # 默认对齐 StrategySpec.short.max_positions；上限放宽到 40
+    top_k: int = Field(default=20, ge=1, le=40)
     horizon_days: int = Field(default=3, ge=1, le=10)
     min_score: float = Field(default=55.0, ge=0, le=100)
     apply_costs: bool = True
@@ -497,13 +498,13 @@ class PortfolioBacktestRequest(BaseModel):
     wf_n_splits: int = Field(default=3, ge=1, le=6)
     # 交互回测默认跳过慢速基本面批量，避免「回测中」卡住感
     fetch_fundamentals: Optional[bool] = False
-    # equal | score_budget | risk_parity_lite（与纸面 optimize 同源）
-    weight_mode: str = "equal"
-    max_position_pct: float = Field(default=40.0, ge=5.0, le=100.0)
-    max_sector_pct: float = Field(default=60.0, ge=10.0, le=100.0)
+    # equal | score_budget | risk_parity_lite（与纸面 optimize 同源；默认 score_budget）
+    weight_mode: str = "score_budget"
+    max_position_pct: float = Field(default=25.0, ge=5.0, le=100.0)
+    max_sector_pct: float = Field(default=40.0, ge=10.0, le=100.0)
     # T7 TopK-Dropout 缓冲；0=硬截断
     dropout_n: int = Field(default=0, ge=0, le=10)
-    exclude_st: bool = False
+    exclude_st: bool = True
     # 池内成交额分位下限（0–100）；None=不过滤
     min_avg_amount_pctile: Optional[float] = Field(default=None, ge=0, le=90)
     include_score_ic: bool = True
@@ -518,7 +519,7 @@ class PortfolioBacktestRequest(BaseModel):
     )
     min_predicted_score: Optional[float] = Field(
         default=None,
-        description="收益分下限（百分点）；默认不截断",
+        description="收益分下限（百分点）；None=用 scoring.min_predicted_score",
     )
     return_model_min_samples: int = Field(default=24, ge=8, le=500)
     return_model_ridge_lambda: float = Field(default=0.0, ge=0.0, le=100.0)
@@ -541,15 +542,24 @@ class ReturnModelPromoteRequest(BaseModel):
 
 
 class ParamGridRequest(BaseModel):
-    """W3.3 · Top-K × lookback 网格（限格，跳过 WF/成本对照以控时）。"""
+    """Top-K × lookback 网格（限格；不落盘北极星；按 OOS 过门选优）。"""
 
     codes: Optional[list] = None
     top_k_values: Optional[list] = None
     lookback_values: Optional[list] = None
     horizon_days: int = Field(default=3, ge=1, le=10)
     min_score: float = Field(default=55.0, ge=0, le=100)
+    min_predicted_score: Optional[float] = Field(
+        default=None,
+        description="ŷ 下限（百分点）；None=用 scoring.min_predicted_score",
+    )
     apply_costs: bool = True
     max_cells: int = Field(default=12, ge=1, le=20)
+    weight_mode: str = Field(default="score_budget")
+    dropout_n: int = Field(default=0, ge=0, le=10)
+    exclude_st: bool = True
+    min_avg_amount_pctile: Optional[float] = Field(default=None, ge=0, le=90)
+    rank_mode: str = Field(default="predicted_score")
 
 
 class WeightSuggestRequest(BaseModel):
@@ -621,6 +631,25 @@ class ScoreLedgerDeleteRequest(BaseModel):
 
 class FeatureEncodingShadowRequest(BaseModel):
     """启发式 vs raw_basis 特征编码影子对照。"""
+
+    lookback: int = Field(default=120, ge=40, le=500)
+    watching_limit: int = Field(default=36, ge=2, le=40)
+    horizon_days: int = Field(default=1, ge=1, le=10)
+    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
+
+
+class YhatResidualShadowRequest(BaseModel):
+    """ŷ 行业残差 on/off 影子对照（不写盘）。"""
+
+    watching_limit: int = Field(default=36, ge=3, le=80)
+    top_k: int = Field(default=10, ge=3, le=40)
+    prefer_cluster_book: bool = Field(
+        default=True, description="优先用 active 分池簿；否则 live 打分观察池"
+    )
+
+
+class ExcessModeShadowRequest(BaseModel):
+    """绝对 y vs 指数超额 y 影子对照。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(default=36, ge=2, le=40)

@@ -138,19 +138,50 @@ export async function mountWatchingTableIsland(host, options = {}) {
         const text = d.score != null && d.score !== "" ? String(d.score) : "—";
         const detail = d.scoreDetail || "";
         const below = !!d.scoreBelowMin;
+        const singleHead = !!d.scoreSingleHead;
+        const head = d.dualScoreHead || "";
+        const headTitle =
+          head === "single_tau"
+            ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 EOD rem）· 与双头票不同量纲"
+            : head === "single_eod"
+              ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
+              : "ŷ_trade 单头降级 · 与双头票不同量纲";
+        const badges = [];
+        if (singleHead) {
+          badges.push(
+            `<span class="watching-single-head-badge" title="${escapeHtml(
+              headTitle
+            )}">单</span>`
+          );
+        }
+        const yCheck = d.yCheck || "";
+        if (yCheck && yCheck !== "ok") {
+          const yMap = {
+            conflict: ["歧", "Y·EOD 校验：双头分歧 · 降低今日执行信任"],
+            low_conf: ["弱", "Y·EOD 校验：低置信"],
+            missing_tau: ["缺τ", "Y·EOD 校验：缺 ŷ_τ"],
+            single_head: ["单", "Y·EOD 校验：单头降级"],
+          };
+          const [t, tip] = yMap[yCheck] || ["校", `Y·EOD 校验：${yCheck}`];
+          badges.push(
+            `<span class="watching-y-check-badge is-${escapeHtml(
+              yCheck
+            )}" title="${escapeHtml(tip)}">${escapeHtml(t)}</span>`
+          );
+        }
         const title = d.scoreTitle || "悬停查看收益分与因子系数";
         const signCls = d.scoreCls ? ` ${escapeHtml(String(d.scoreCls))}` : "";
         if (!detail) {
-          return `<span class="watching-score-cell paper-hold-score${signCls}">${escapeHtml(
-            text
-          )}</span>`;
+          return `<span class="watching-score-cell paper-hold-score${signCls}${
+            singleHead ? " score-single-head" : ""
+          }">${escapeHtml(text)}${badges.join("")}</span>`;
         }
         return (
           `<span class="watching-score-cell paper-hold-score has-tip${signCls}${
             below ? " score-below-min" : ""
-          }" ` +
+          }${singleHead ? " score-single-head" : ""}" ` +
           `data-score-detail="${escapeHtml(detail)}" data-score-tip="trade" title="${escapeHtml(title)}">` +
-          `${escapeHtml(text)}</span>`
+          `${escapeHtml(text)}${badges.join("")}</span>`
         );
       }
       if (col.id === "score_cal") {

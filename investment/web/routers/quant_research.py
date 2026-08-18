@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException
 from web import deps
 from web.schemas import (
     CrossSectionRequest,
+    ExcessModeShadowRequest,
     FactorCsIcRequest,
     FactorExperimentRequest,
     FactorOlsPoolRequest,
@@ -14,6 +15,7 @@ from web.schemas import (
     RemRidgeRequest,
     ThresholdSuggestRequest,
     WeightSuggestRequest,
+    YhatResidualShadowRequest,
 )
 
 router = APIRouter(tags=["quant"])
@@ -117,6 +119,33 @@ def quant_feature_encoding_shadow(body: FeatureEncodingShadowRequest):
     """启发式 0–100 vs raw+分档：同池时间切分 OOS 影子对照（不写盘）。"""
     try:
         return deps.quant.run_feature_encoding_shadow(
+            lookback=body.lookback,
+            watching_limit=body.watching_limit,
+            horizon_days=body.horizon_days,
+            ridge_lambda=body.ridge_lambda,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/yhat-residual/shadow")
+def quant_yhat_residual_shadow(body: YhatResidualShadowRequest):
+    """ŷ 行业残差 on/off：同截面 TopK 重叠影子对照（不写盘）。"""
+    try:
+        return deps.quant.run_yhat_residual_shadow(
+            watching_limit=body.watching_limit,
+            top_k=body.top_k,
+            prefer_cluster_book=body.prefer_cluster_book,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/excess-mode/shadow")
+def quant_excess_mode_shadow(body: ExcessModeShadowRequest):
+    """绝对 y vs 指数超额 y：同池 holdout IC 影子对照（不写盘）。"""
+    try:
+        return deps.quant.run_excess_mode_shadow(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
             horizon_days=body.horizon_days,

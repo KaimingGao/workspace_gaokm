@@ -255,6 +255,33 @@ class TestHoldingOrigin(unittest.TestCase):
         self.assertEqual(out[0]["meta"]["pnl_pct"], 10.0)
         self.assertEqual(out[0]["meta"]["fees"], 5.0)
 
+    def test_manual_sell_writes_pnl_pct(self):
+        from core.paper import manual_sell
+
+        paper = {
+            "cash": 10000.0,
+            "cost_model": "zero",
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 10.0,
+                }
+            ],
+            "trades": [],
+            "operation_log": [],
+        }
+        with patch("core.paper_exec._query_quote", side_effect=_fake_query):
+            with patch("core.paper_exec._quote_price", return_value=12.0):
+                with patch(
+                    "core.paper_rebalance._sell_match_block_reason",
+                    return_value=None,
+                ):
+                    trades = manual_sell(paper, stock_code="600519", shares=100)
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(trades[0]["pnl_pct"], 20.0)
+
     def test_enrich_estimates_strategy_buy_without_fee_fields(self):
         from core.paper_costs import enrich_operation_log_with_trade_fees
 
@@ -374,6 +401,33 @@ class TestHoldingOrigin(unittest.TestCase):
         # ΔMV = 100；equity=5000+1100+2000=8100；昨收净值=8000；pct=1.25
         self.assertEqual(summary2["today_pnl"], 100.0)
         self.assertEqual(summary2["today_pnl_pct"], 1.25)
+
+    def test_mark_to_market_today_pnl_vs_prev_nav(self):
+        """有昨收账本时，今日收益 = 当前净值 − 上一交易日最后快照（含卖出/跳空）。"""
+        paper = _paper(
+            cash=5000.0,
+            holdings=[{"stock_code": "600519", "shares": 100, "cost": 10.0}],
+        )
+        paper["initial_cash"] = 6000.0
+        paper["snapshots"] = [
+            {"ts": "2026-08-17T23:44:12.247", "equity": 6200.0},
+        ]
+        quotes = {
+            "600519": {
+                "success": True,
+                "stock_code": "600519",
+                "price_raw": 11.0,
+                # 若仍按个股涨跌幅，会得到 +100 / ~1.6%；账本口径应对 6200
+                "change_raw": 10.0,
+            },
+        }
+        with patch("core.ports.market.batch_query_quotes", return_value=quotes):
+            summary = mark_to_market(paper)
+        # equity = 5000 + 1100 = 6100；相对昨收账本 6200 → -100 / -1.61%
+        self.assertEqual(summary["today_pnl_basis"], "prev_nav")
+        self.assertEqual(summary["today_pnl"], -100.0)
+        self.assertAlmostEqual(summary["today_pnl_pct"], round(-100.0 / 6200.0 * 100.0, 2))
+        self.assertAlmostEqual(summary["total_pnl_pct"], round((6100 / 6000 - 1) * 100.0, 2))
 
     def test_mark_to_market_today_pnl_cash_only(self):
         paper = _paper(cash=10000.0, holdings=[])
@@ -530,6 +584,55 @@ class TestSellNavCurveSnapshots(unittest.TestCase):
                 )
                 self.assertNotEqual(pre.get("ts"), post.get("ts"))
                 self.assertEqual(paper.get("holdings") or [], [])
+
+
+class TestSnapshotsForUiLiveOverlay(unittest.TestCase):
+    """盘中盯市与落盘快照分叉时，UI 曲线末点应对齐摘要总净值。"""
+
+    def test_appends_live_point_when_mtm_moved(self):
+        from core.paper import snapshots_for_ui
+
+        paper = {
+            "snapshots": [
+                {
+                    "ts": "2026-08-18T11:48:25.999",
+                    "equity": 99976.3,
+                    "cash": 55040.3,
+                    "stock_value": 44936.0,
+                }
+            ]
+        }
+        summary = {
+            "equity": 100238.3,
+            "cash": 55040.3,
+            "stock_value": 45198.0,
+            "total_pnl_pct": 0.24,
+            "position_count": 5,
+        }
+        out = snapshots_for_ui(paper, summary)
+        self.assertEqual(len(out), 2)
+        self.assertFalse(out[0].get("live"))
+        self.assertTrue(out[-1].get("live"))
+        self.assertAlmostEqual(float(out[-1]["equity"]), 100238.3)
+        self.assertGreater(str(out[-1]["ts"]), str(out[0]["ts"]))
+
+    def test_skips_overlay_when_already_aligned(self):
+        from core.paper import snapshots_for_ui
+
+        paper = {
+            "snapshots": [{"ts": "2026-08-18T11:48:25.999", "equity": 99976.3}]
+        }
+        out = snapshots_for_ui(paper, {"equity": 99976.3, "cash": 1})
+        self.assertEqual(len(out), 1)
+        self.assertFalse(out[0].get("live"))
+
+    def test_does_not_mutate_paper_snapshots(self):
+        from core.paper import snapshots_for_ui
+
+        paper = {"snapshots": [{"ts": "2026-08-18T11:48:25.999", "equity": 100.0}]}
+        snapshots_for_ui(paper, {"equity": 110.0})
+        self.assertEqual(len(paper["snapshots"]), 1)
+        self.assertEqual(paper["snapshots"][0]["equity"], 100.0)
 
 
 if __name__ == "__main__":

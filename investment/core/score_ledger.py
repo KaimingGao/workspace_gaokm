@@ -235,19 +235,30 @@ def row_from_scored_item(
         cand = _to_float(item.get("score"))
         if cand is not None and abs(cand) <= 20.0:
             yhat = cand
+    # 无收益分 ŷ 时，允许 heuristic 0–100 进 yhat（展示/对照），但不得进 yhat_eod
+    heuristic_as_yhat = False
     if yhat is not None and abs(float(yhat)) > 20.0:
-        # 脏 heuristic 误入 yhat → 丢弃，避免账本/日报炸表
+        # 脏 heuristic 误入 predicted_score → 丢弃
         yhat = None
+    if yhat is None:
+        hs = _to_float(item.get("heuristic_score"))
+        if hs is None:
+            hs = _to_float(item.get("score"))
+        if hs is not None and abs(float(hs)) > 20.0:
+            yhat = float(hs)
+            heuristic_as_yhat = True
     if yhat is None:
         return None
     # ŷ_EOD 必须是收益分口径（%），禁止用 heuristic 0–100 填
-    yhat_eod = _to_float(item.get("predicted_score_eod"))
-    if yhat_eod is None:
-        pred = _to_float(item.get("predicted_score"))
-        if pred is not None and abs(pred) <= 20.0:
-            yhat_eod = pred
-    if yhat_eod is not None and abs(float(yhat_eod)) > 20.0:
-        yhat_eod = None
+    yhat_eod = None
+    if not heuristic_as_yhat:
+        yhat_eod = _to_float(item.get("predicted_score_eod"))
+        if yhat_eod is None:
+            pred = _to_float(item.get("predicted_score"))
+            if pred is not None and abs(pred) <= 20.0:
+                yhat_eod = pred
+        if yhat_eod is not None and abs(float(yhat_eod)) > 20.0:
+            yhat_eod = None
     yhat_tau = _to_float(item.get("predicted_score_tau"))
     if yhat_tau is None:
         yhat_tau = _to_float(item.get("score_rem"))
@@ -255,6 +266,28 @@ def row_from_scored_item(
         yhat_tau = _to_float(item.get("yhat_tau"))
     if yhat_tau is not None and abs(float(yhat_tau)) > 20.0:
         yhat_tau = None
+    yhat_eod_rem = _to_float(item.get("predicted_score_eod_rem"))
+    if yhat_eod_rem is not None and abs(float(yhat_eod_rem)) > 20.0:
+        yhat_eod_rem = None
+    y_check = item.get("y_check")
+    if y_check is not None:
+        y_check = str(y_check)
+    y_disagree = _to_float(item.get("y_disagree"))
+    eod_trust = _to_float(item.get("eod_trust"))
+    if not y_check:
+        try:
+            from core.signal.y_state import build_y_state
+
+            st = build_y_state(item)
+            y_check = st.get("check")
+            if y_disagree is None:
+                y_disagree = _to_float(st.get("disagree"))
+            if eod_trust is None:
+                eod_trust = _to_float(st.get("eod_trust"))
+            if yhat_eod_rem is None:
+                yhat_eod_rem = _to_float((st.get("heads") or {}).get("eod_rem"))
+        except Exception:
+            pass
     yhat_nowcast = _to_float(item.get("predicted_score_nowcast"))
     if yhat_nowcast is None:
         yhat_nowcast = _to_float(item.get("yhat_nowcast"))
@@ -289,12 +322,17 @@ def row_from_scored_item(
         "name": item.get("stock_name") or item.get("name"),
         "yhat": round(yhat, 6),
         "yhat_eod": round(yhat_eod, 6) if yhat_eod is not None else None,
+        "yhat_eod_rem": round(yhat_eod_rem, 6) if yhat_eod_rem is not None else None,
         "yhat_tau": round(yhat_tau, 6) if yhat_tau is not None else None,
         "yhat_nowcast": (
             round(yhat_nowcast, 6) if yhat_nowcast is not None else None
         ),
+        "y_check": y_check,
+        "y_disagree": round(y_disagree, 6) if y_disagree is not None else None,
+        "eod_trust": round(eod_trust, 4) if eod_trust is not None else None,
         "nowcast_as_of": item.get("nowcast_as_of"),
         "nowcast_K": _to_float(item.get("nowcast_K")),
+        "nowcast_P": _to_float(item.get("nowcast_P")),
         "nowcast_x_prior": _to_float(item.get("nowcast_x_prior")),
         "heuristic": heuristic,
         "cluster_label": item.get("cluster_label"),
@@ -1608,6 +1646,8 @@ def build_score_review(
     industry_wrong: Dict[str, int] = {}
     cluster_wrong: Dict[str, int] = {}
     factor_ic_cache: Dict[str, Optional[float]] = {}
+    # Y(τ) 校验分桶：n / hits（对 EOD 方向命中）
+    y_check_stats: Dict[str, Dict[str, Any]] = {}
 
     for r in rows:
         code = str(r.get("code") or "")
@@ -1639,6 +1679,42 @@ def build_score_review(
             has_realized=realized is not None,
         )
         tag_counts[tag] = tag_counts.get(tag, 0) + 1
+        # 复盘侧装配 / 回放 y_check（旧账本无字段时用 eod/tau 现场算）
+        y_check_row = str(r.get("y_check") or "").strip() or None
+        yhat_tau_preview = _to_float(r.get("yhat_tau"))
+        eod_rem_preview = _to_float(r.get("yhat_eod_rem"))
+        if eod_rem_preview is None:
+            eod_rem_preview = _to_float(r.get("yhat_eod"))
+        if eod_rem_preview is None:
+            eod_rem_preview = yhat
+        if not y_check_row:
+            try:
+                from core.signal.y_state import resolve_eod_check
+
+                y_check_row = resolve_eod_check(
+                    eod_rem=eod_rem_preview,
+                    y_tau=yhat_tau_preview,
+                    head="blend" if (eod_rem_preview is not None and yhat_tau_preview is not None) else (
+                        "single_eod" if yhat_tau_preview is None else "single_tau"
+                    ),
+                    disagree=(
+                        abs(float(eod_rem_preview) - float(yhat_tau_preview))
+                        if eod_rem_preview is not None and yhat_tau_preview is not None
+                        else None
+                    ),
+                    sigma=None,
+                    window="intraday",
+                )
+            except Exception:
+                y_check_row = None
+        y_disagree_row = _to_float(r.get("y_disagree"))
+        if y_disagree_row is None and eod_rem_preview is not None and yhat_tau_preview is not None:
+            try:
+                y_disagree_row = round(
+                    abs(float(eod_rem_preview) - float(yhat_tau_preview)), 6
+                )
+            except (TypeError, ValueError):
+                y_disagree_row = None
         if no_direction:
             no_dir += 1
             continue
@@ -1646,7 +1722,16 @@ def build_score_review(
             thin += 1
             continue
         n += 1
-        yhat_tau_row = _to_float(r.get("yhat_tau"))
+        if y_check_row:
+            bucket = y_check_stats.setdefault(
+                y_check_row, {"n": 0, "hits": 0, "wrong": 0}
+            )
+            bucket["n"] += 1
+            if hit is True:
+                bucket["hits"] += 1
+            elif hit is False:
+                bucket["wrong"] += 1
+        yhat_tau_row = yhat_tau_preview
         if yhat_tau_row is None:
             yhat_tau_row = _to_float(oc.get("yhat_tau"))
         hit_tau = oc.get("sign_hit_tau")
@@ -1656,6 +1741,10 @@ def build_score_review(
                 "name": r.get("name"),
                 "yhat": yhat,
                 "yhat_tau": yhat_tau_row,
+                "yhat_eod_rem": eod_rem_preview,
+                "y_check": y_check_row,
+                "y_disagree": y_disagree_row,
+                "eod_trust": _to_float(r.get("eod_trust")),
                 "realized_h": realized,
                 "realized_tau": _to_float(oc.get("realized_tau")),
                 "hit": hit if isinstance(hit, bool) else None,
@@ -1702,6 +1791,22 @@ def build_score_review(
 
     wrong_rows.sort(key=lambda x: -float(x.get("abs_err") or 0))
     hit_rate = round(hits / n, 4) if n else None
+    by_y_check: List[Dict[str, Any]] = []
+    for ck, st in sorted(
+        y_check_stats.items(),
+        key=lambda kv: -int(kv[1].get("n") or 0),
+    ):
+        nn = int(st.get("n") or 0)
+        hh = int(st.get("hits") or 0)
+        by_y_check.append(
+            {
+                "check": ck,
+                "n": nn,
+                "hits": hh,
+                "wrong": int(st.get("wrong") or 0),
+                "hit_rate": round(hh / nn, 4) if nn else None,
+            }
+        )
     factor_blame = []
     for fac, cnt in sorted(factor_wrong.items(), key=lambda kv: -kv[1])[:8]:
         fic = factor_ic_cache.get(fac)
@@ -1795,6 +1900,7 @@ def build_score_review(
             "tag_counts": tag_counts,
             "blame_line": blame_line,
             "need_bar_date": need_bar if (n == 0 and thin > 0) else None,
+            "by_y_check": by_y_check,
         },
         "wrong_rows": wrong_rows[:80],
         "scored_rows": scored_rows[:200],

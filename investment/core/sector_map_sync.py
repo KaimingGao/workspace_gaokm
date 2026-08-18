@@ -122,6 +122,7 @@ def sync_sector_map_from_watching(
     out = {
         "ok": True,
         "path": path or SECTOR_MAP_PATH,
+        "mapping": current,
         "mapped": cov["mapped"],
         "watching_count": len(codes),
         "coverage": cov["coverage"],

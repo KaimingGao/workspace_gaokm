@@ -109,6 +109,12 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 - `w_mode=kalman`：两点等价 Kalman 权（含同一套自适应 \(Q\)）；默认 `fixed`。
 - 网格：`nowcast.taus` 允许 `eod|open|09:45|14:00`；默认 `eod|open`。09:45 / 14:00 不叠用（无两段已实现则不虚构中间步）。分钟 τ 仍依赖 `enable_minute_tau`。
 
+**Y(τ) 高维状态（校验层）**
+
+装配字段（不改 `predicted_score`）：`y_mu` / `y_sigma` / `y_disagree` / `y_check` / `eod_trust`（整包 `y_state`）。  
+`y_check ∈ {ok, conflict, low_conf, missing_tau, single_head}`：用 EOD_rem 与 τ 的分歧/σ 决定**今日是否信任 EOD 去执行**。  
+选股入池仍看 ŷ_EOD；`filter_buys`（默认开）时 conflict/missing_tau 拦新买；建簿 defer 优先 ok。`scale_weights`（默认开）时目标仓位 × `eod_trust`（不归一留现金）。路径段 `tau_to_close`：分钟特征优先，否则 ŷ_τ / rem 标签代理。展示：tip +「歧/弱」角标。实现：`core/signal/y_state.py`。
+
 实现：`core/signal/nowcast_kf.py`。
 
 **融合阶梯（摘要）**
@@ -127,6 +133,7 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 | **Nowcast / Kalman** | 顺序滤波 EOD→open→当前分钟 τ；自适应 \(Q\)；\(R\) 走 rem OOS 分层；Nordhaus 影子诊断 | **已落地**（默认 `taus=[eod,open]`；`use_as_rank_key=false`） |
 | **校准层 g(ŷ)** | EOD=分组面板、τ=rem open 面板 Isotonic；仅 `auto` 不足回退账本。tip 对照；决策仍 raw ŷ（第一步） | **panel 拟合已落地（EOD+τ）**；决策读 g 为第二步 |
 | **特征编码 raw_basis** | 动量/波动/估值：原始量+分档替代 0–100；影子对照 API | **试点已接线**（默认 `heuristic`；优则改 `scoring.feature_encoding` 后重跑分组） |
+| **Alpha/IC 补强** | 超额分账 · 主 IC=截面 Spearman · yhat/残差 y 研究开关 | **已接线**（见 [alpha-ic-strengthen.md](alpha-ic-strengthen.md)；`yhat_residual`/`excess_mode` 默认关） |
 | 分钟 τ 特征 | 缓存命中时写 `ret_open_to_tau` | **可选**（`enable_minute_tau`，默认关） |
 | F3 以后 | 盘中窗以 ŷ_τ 为主（影子簿达标） | 未做 |
 | P3 决策 bandit | 只学闸/听谁，不进 score | 未做 |
@@ -159,7 +166,7 @@ flowchart LR
 
 - **β 不会在固定钟点自动更新**；`paper_daily` / `daily_quant` 不跑 OLS 分组。
 - 收盘后刷新日线（约 15:05+，实务常 16:30–17:00）再跑分组，最新 K 线可含**当日**；但训练样本仍受 \(h\) 约束：最后一条训练决策日 ≈ 最新 bar 再往前 \(h\) 日。
-- **auto-k**：中心 \(k_0\approx n/5\)（夹 4～10）。**定组 β / 选 k 组池 / holdout 重拟合**共用宇宙日历切分（主切点约前 70%）。邻域 \(\{k_0-1,k_0,k_0+1\}\) × 层次 complete/average + kmeans 等配方；有日历时再加 **~55% 切点**各自前段 β 重聚类，按 **多折均值 `partition_loss`**（尾段有符号 ŷ IC↑ / 前段重拟合误差↓；重拟合失败不计分）选优，ΔOOS 过门作辅。**交付标签取主切点**；组池 `return_model` 仍用**全样本**重估。大宇宙（≥40）跳过多折打分。报告：`k_selection`（含 `expanding_score` / `expanding_folds`）与 `walk_forward`。手动 `n_clusters` 不搜邻域，但定组 β 同样走前段。
+- **auto-k**：中心 \(k_0\approx n/5\)（夹 4～10）。**定组 β / 选 k 组池 / holdout 重拟合**共用宇宙日历切分（主切点约前 70%）。邻域 \(\{k_0-1,k_0,k_0+1\}\) × 层次 complete/average + kmeans 等配方（**kmeans 同样超大组二分**，避免 30+ 只大团）；有日历时再加 **~55% 切点**各自前段 β 重聚类，按 **多折均值 `partition_loss`**（尾段有符号 ŷ IC↑ / 前段重拟合误差↓；重拟合失败不计分）选优。**辅门禁**：若存在 ΔOOS 过门（\(\ge -\)`oos_tol_pp`）的候选，淘汰更差的负 ΔOOS（避免 loss 略优但对照回测明显更差）。**交付标签取主切点**；组池 `return_model` 仍用**全样本**重估。大宇宙（≥40）跳过多折打分。报告：`k_selection`（含 `expanding_score` / `expanding_folds`）与 `walk_forward`。手动 `n_clusters` 不搜邻域，但定组 β 同样走前段。
 - **贪心换组**：定组后（≤24 票、有日历切分）按 holdout `partition_loss` 有限轮试换（`cluster_greedy_refine`；最多 2 轮 / ≤80 次评估）。接受的 swap **改写交付标签**；全样本组池仍后置重估。报告字段 `greedy_refine`。大宇宙跳过。完整 `objective_partition` 贪心仍为研究试点。
 - **`partition_loss` 口径**：默认 **有符号 IC**（`ic_use_abs=False`，与 live 选 k 一致；|IC| 会把反向 ŷ 评成「好」）。IC 项按 ``ic_ref_scale``（默认 0.05）放大到与 (1−R²) 同量级后再乘 ``w_ic``（默认 1.0），避免典型 |IC|≪0.1 被 R² 淹没。失衡罚阈值 ``1.5×ideal``（原 2×）。单票组计入质量先验（``singleton_prior_r2≈0.05``），结构 ``lambda_singleton`` 下调以免双重最重罚；无可用模型 / holdout 重拟合失败的多票组须带 `fit_ok=False`（含 live 贪心 `cluster_greedy_refine`），另计 `penalty_unusable`。`penalty_singleton` 按**票数占比**；`singleton_count` 仍是单票**组数**（展示勿混）。β 异质踢出同时看相对 |Δβ|/scale 与绝对阈值。
 - **研究轨 `objective_partition`**：默认 holdout 评估 + ``auto_k_candidates`` 邻域候选；**不进** promote。生产仍走 `_select_clustered_by_delta_oos` + `light_greedy_swap_refine`。
@@ -298,7 +305,9 @@ UI 已在历史回测页标明「排序 · ŷ_EOD」；勿把成交表当成 liv
 与契约对齐的部分：
 
 - 每个调仓日 \(t\)：仅用到 \(t\) 的窗口打分；
-- 标签 / 持有长度用同一 `horizon_days`；
+- 标签 / 持有长度用同一 `horizon_days`（日报轻量摘要默认 **ŷ 的 `scoring.horizon_days`**，与纸面 `paper_rules.horizon_days` 可能不同，报告会注明）；
+- 日报默认 **含成本**、`top_k` 对齐纸面 `max_positions`、权重按净值%计（现金不计收益）；
+- 大宇宙先扫本地缓存再截断，避免 `watching[:40]` 丢掉后面有日线的票；
 - walk-forward 拟合时，训练 \(y\) 仍是 \(\mathrm{close}[t+h]/\mathrm{close}[t]-1\)。
 
 与复盘的差异（执行假设）：

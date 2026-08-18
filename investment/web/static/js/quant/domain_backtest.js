@@ -202,6 +202,14 @@ export function installBacktest(q) {
           { label: "交易次数", value: escapeHtml(String(ps.trade_count ?? "—")) },
           { label: "结果来源", value: "日报冻结" },
           { label: "冻结时间", value: escapeHtml(at) },
+          {
+            label: "口径",
+            value: escapeHtml(
+              `K${ps.params?.top_k ?? "—"} · h${ps.params?.horizon_days ?? "—"} · ${
+                ps.cost_model === "zero" ? "零成本" : "含成本"
+              }`
+            ),
+          },
         ]);
         if (nc && nc.success) {
           state.neutralCompareSource = "frozen";
@@ -446,52 +454,102 @@ export function installBacktest(q) {
   function paramGridApplyGate() {
     const best = state.lastParamGrid && state.lastParamGrid.best;
     if (!best) {
-      return { ok: false, reason: "无最优单元" };
+      return { ok: false, reason: "无过门格（OOS≥0 且回撤≤15%）" };
+    }
+    const warnBits = [];
+    if (best.oos_failed) {
+      warnBits.push("内外缺口旗标失败");
     }
     const bt = state.lastBacktestPack && state.lastBacktestPack.result;
-    if (!bt || !bt.success) {
-      return {
-        ok: false,
-        reason: "请先用该 lookback/top_k 跑一次「Top-K 回测」",
-      };
+    const req = (bt && bt.request) || {};
+    const matched =
+      bt &&
+      bt.success &&
+      Number(req.lookback) === Number(best.lookback) &&
+      Number(req.top_k) === Number(best.top_k);
+    if (matched) {
+      const align = bt.ic_equity_align || {};
+      const hints = Array.isArray(bt.promote_hints) ? bt.promote_hints : [];
+      const alignWarn =
+        (align.ok && align.aligned_favor_pos_ic === false) ||
+        hints.some((h) => h && h.code === "ic_align_mismatch");
+      if (alignWarn && readPromoteHardGate()) {
+        return {
+          ok: false,
+          reason:
+            "IC硬闸已开：正IC窗未优于非正，禁止应用最优（可关闭硬闸后仅二次确认）",
+        };
+      }
+      if (alignWarn) warnBits.push("正IC窗未优于非正");
     }
-    const req = bt.request || {};
-    const lb = Number(req.lookback);
-    const tk = Number(req.top_k);
-    if (lb !== Number(best.lookback) || tk !== Number(best.top_k)) {
-      return {
-        ok: false,
-        reason: `当次回测为 lookback=${lb || "—"}/top_k=${tk || "—"}，与最优 ${best.lookback}/${best.top_k} 不一致`,
-      };
-    }
-    const oos = bt.oos_summary || {};
-    if (!oos.ok || oos.failed) {
-      return {
-        ok: false,
-        reason: `OOS 未通过（${oos.reason || "失败"}）；禁止仅凭样本内最优应用`,
-      };
-    }
-    const align = bt.ic_equity_align || {};
-    const hints = Array.isArray(bt.promote_hints) ? bt.promote_hints : [];
-    const alignWarn =
-      (align.ok && align.aligned_favor_pos_ic === false) ||
-      hints.some((h) => h && h.code === "ic_align_mismatch");
-    if (alignWarn && readPromoteHardGate()) {
-      return {
-        ok: false,
-        reason:
-          "IC硬闸已开：正IC窗未优于非正，禁止应用最优（可关闭硬闸后仅二次确认）",
-      };
-    }
-    if (alignWarn) {
+    if (warnBits.length) {
       return {
         ok: true,
         warn: true,
-        reason:
-          "OOS 已过，但正IC窗未优于非正（打分与 Top-K 时段可能不同向）；应用前请确认",
+        reason: `${warnBits.join("；")}。可写入表单，请再跑 Top-K 核对。仍勿 promote`,
       };
     }
-    return { ok: true, reason: "已对齐最优参数且 OOS 通过" };
+    return {
+      ok: true,
+      reason: "过门最优可写入表单；请再跑 Top-K 看完整报告。仍勿 promote",
+    };
+  }
+
+  function applyParamGridCellToForm(cell, opts = {}) {
+    if (!cell) return false;
+    const lb = document.getElementById("quant-lookback");
+    const tk = document.getElementById("quant-top-k");
+    if (lb && cell.lookback != null) lb.value = String(cell.lookback);
+    if (tk && cell.top_k != null) tk.value = String(cell.top_k);
+    const h =
+      opts.horizon_days != null
+        ? opts.horizon_days
+        : state.lastParamGrid && state.lastParamGrid.horizon_days;
+    if (h != null && typeof q.syncHorizonInputs === "function") {
+      q.syncHorizonInputs(h);
+      if (typeof q.setPrefsHorizonDays === "function") q.setPrefsHorizonDays(h);
+    } else if (h != null) {
+      document.querySelectorAll("#quant-horizon").forEach((el) => {
+        el.value = String(h);
+      });
+    }
+    return true;
+  }
+
+  function bindParamHeatClicks() {
+    const host = document.getElementById("param-grid-heat");
+    if (!host || host.dataset.boundClick === "1") return;
+    host.dataset.boundClick = "1";
+    const pick = (el) => {
+      if (!el) return;
+      const lb = Number(el.getAttribute("data-pg-lookback"));
+      const tk = Number(el.getAttribute("data-pg-top-k"));
+      const eligible = el.getAttribute("data-pg-eligible") === "1";
+      if (!Number.isFinite(lb) || !Number.isFinite(tk)) return;
+      if (!eligible) {
+        const ok = window.confirm(
+          `该格未过门（OOS<0 或回撤超）。仍把 lookback=${lb} / top_k=${tk} 写入回测表单？`
+        );
+        if (!ok) return;
+      }
+      applyParamGridCellToForm({ lookback: lb, top_k: tk });
+      const meta = document.getElementById("param-grid-meta");
+      if (meta) {
+        meta.textContent = `已写入 lookback=${lb} · top_k=${tk}${
+          eligible ? "" : "（未过门）"
+        }；请再跑 Top-K。仍勿 promote`;
+      }
+    };
+    host.addEventListener("click", (e) => {
+      pick(e.target && e.target.closest ? e.target.closest("[data-pg-lookback]") : null);
+    });
+    host.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      const el = e.target && e.target.closest ? e.target.closest("[data-pg-lookback]") : null;
+      if (!el) return;
+      e.preventDefault();
+      pick(el);
+    });
   }
 
   function readPortfolioBtParams() {
@@ -503,10 +561,10 @@ export function installBacktest(q) {
     const amtEl = document.getElementById("quant-min-amount-pctile");
     const benchEl = document.getElementById("quant-benchmark-code");
     let lookback = 120;
-    let topK = 3;
-    let weightMode = "equal";
+    let topK = 20;
+    let weightMode = "score_budget";
     let dropoutN = 0;
-    let excludeSt = false;
+    let excludeSt = true;
     let minAvgAmountPctile = null;
     let benchmarkCode = "000300";
     if (lbEl && lbEl.value !== "") {
@@ -515,7 +573,7 @@ export function installBacktest(q) {
     }
     if (tkEl && tkEl.value !== "") {
       const n = Number(tkEl.value);
-      if (Number.isFinite(n)) topK = Math.max(1, Math.min(10, Math.round(n)));
+      if (Number.isFinite(n)) topK = Math.max(1, Math.min(40, Math.round(n)));
     }
     if (wmEl && wmEl.value) {
       const allowed = new Set(["equal", "score_budget", "risk_parity_lite"]);
@@ -556,15 +614,23 @@ export function installBacktest(q) {
     if (!applyBestBtn) return;
     const gate = paramGridApplyGate();
     applyBestBtn.disabled = !gate.ok;
-    if (meta && state.lastParamGrid && state.lastParamGrid.best) {
+    if (meta && state.lastParamGrid) {
       const best = state.lastParamGrid.best;
-      const base = `最优(样本内) lookback=${best.lookback} · top_k=${best.top_k} · 收益 ${best.total_return_pct}% · ${state.lastParamGrid.cell_count} 格`;
-      if (!gate.ok) {
-        meta.textContent = `${base} · 不可应用：${gate.reason}`;
-      } else if (gate.warn) {
-        meta.textContent = `${base} · ⚠可应用但需确认：${gate.reason}`;
+      const n = state.lastParamGrid.cell_count;
+      const elig = state.lastParamGrid.eligible_count;
+      if (!best) {
+        meta.textContent = `完成 ${n} 格 · 过门 ${elig ?? 0} · 不可应用：${gate.reason}`;
       } else {
-        meta.textContent = `${base} · 可应用（OOS 已核对）`;
+        const oos = best.oos_return_pct != null ? `${best.oos_return_pct}%` : "—";
+        const base =
+          `过门最优 lookback=${best.lookback} · top_k=${best.top_k} · OOS ${oos} · ${n} 格 / 过门 ${elig ?? "—"}`;
+        if (!gate.ok) {
+          meta.textContent = `${base} · 不可应用：${gate.reason}`;
+        } else if (gate.warn) {
+          meta.textContent = `${base} · ⚠可应用但需确认：${gate.reason}`;
+        } else {
+          meta.textContent = `${base} · 可写入表单（请再跑 Top-K；勿 promote）`;
+        }
       }
     }
   }
@@ -697,6 +763,7 @@ export function installBacktest(q) {
     if (dull) data.dullness = dull;
     if (meta) meta.textContent = buildParamGridMetaText(data, dull);
     drawParamHeatmap(data.cells || [], data.axes || {}, { best: data.best });
+    bindParamHeatClicks();
     refreshParamGridApplyGate();
     if (!table) return;
     table.innerHTML = buildParamGridTableHtml(data, {
@@ -932,22 +999,41 @@ export function installBacktest(q) {
       prog.hidden = false;
       prog.classList.add("is-busy");
     }
-    if (progText) progText.textContent = "参数扫描中…";
+    if (progText) progText.textContent = "固定 lookback 扫 K∈{10,15,20}（不覆盖最近回测）…";
     if (btn) btn.disabled = true;
+    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = ctrl ? setTimeout(() => ctrl.abort(), 720000) : null;
     try {
+      const {
+        lookback,
+        horizon_days,
+        weight_mode,
+        rank_mode,
+        dropout_n,
+        exclude_st,
+        min_avg_amount_pctile,
+      } = readPortfolioBtParams();
       const { ok, data, error } = await apiFetch("/api/quant/param-grid", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          top_k_values: [2, 3, 5],
-          lookback_values: [60, 90, 120],
+          top_k_values: [10, 15, 20],
+          lookback_values: [lookback],
+          horizon_days,
           apply_costs: true,
           max_cells: 9,
+          weight_mode,
+          dropout_n,
+          exclude_st,
+          min_avg_amount_pctile,
+          ...portfolioBtScoreFloorPayload(rank_mode),
         }),
+        signal: ctrl ? ctrl.signal : undefined,
       });
       if (!ok) throw new Error(error || data.detail || "网格失败");
       renderParamGridResult(data);
     } finally {
+      if (timer) clearTimeout(timer);
       if (prog) {
         prog.hidden = true;
         prog.classList.remove("is-busy");
@@ -1210,6 +1296,7 @@ export function installBacktest(q) {
     paintNeutralCompareChart,
     paintPortfolioChart,
     paintQuantileChart,
+    applyParamGridCellToForm,
     paramGridApplyGate,
     portfolioBtScoreFloorPayload,
     readPortfolioBtParams,

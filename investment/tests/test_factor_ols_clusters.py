@@ -178,6 +178,31 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertEqual(out["cluster_linkage"], "complete")
         self.assertIsNotNone(out.get("max_cluster_size"))
 
+    def test_kmeans_auto_postprocess_splits_oversized(self):
+        """kmeans + auto_postprocess 也必须劈超大组（v72 漏劈出 39 只团）。"""
+        rng = np.random.RandomState(0)
+        blob = rng.normal(size=(80, 4)) * 0.1
+        small = rng.normal(size=(10, 4)) * 0.1 + 5.0
+        x = np.vstack([blob, small])
+        out = cluster_beta_vectors(
+            x,
+            method="kmeans",
+            n_clusters=2,
+            seed=42,
+            auto_postprocess=True,
+        )
+        self.assertTrue(out["auto_postprocess"])
+        self.assertEqual(out["target_k"], 2)
+        self.assertIsNotNone(out.get("max_cluster_size"))
+        sizes = [
+            int(np.sum(out["labels"] == c))
+            for c in sorted(set(int(v) for v in out["labels"] if int(v) >= 0))
+        ]
+        self.assertTrue(sizes)
+        self.assertLessEqual(max(sizes), int(out["max_cluster_size"] or 99))
+        self.assertGreater(out["n_clusters"], 2)
+        self.assertGreaterEqual(min(sizes), 2)
+
     def test_manual_k_stays_near_target(self):
         """显式 K：切到目标 k，不因直径/组β踢出升成单票堆。"""
         rng = np.random.RandomState(7)
@@ -325,6 +350,30 @@ class TestFactorOlsClusters(unittest.TestCase):
         best = pick_best_k_selection_row(rows)
         self.assertIsNotNone(best)
         self.assertEqual(best["k"], 6)
+
+    def test_pick_best_rejects_worse_negative_oos(self):
+        """loss 略优但 ΔOOS 明显为负时，让给过门的层次分区。"""
+        from quant.research.cluster_oos import pick_best_k_selection_row
+
+        rows = [
+            {
+                "kind": "kmeans_42",
+                "n_clusters": 9,
+                "partition_loss": 0.227,
+                "mean_delta_oos_pp": -2.48,
+                "sort_key": (-0.227, 4, -2.48, 0.08),
+            },
+            {
+                "kind": "hierarchical_complete",
+                "n_clusters": 13,
+                "partition_loss": 0.250,
+                "mean_delta_oos_pp": 10.02,
+                "sort_key": (-0.250, 7, 10.02, 0.01),
+            },
+        ]
+        best = pick_best_k_selection_row(rows, oos_tol_pp=1.0)
+        self.assertEqual(best["kind"], "hierarchical_complete")
+        self.assertEqual(best["n_clusters"], 13)
 
     def test_align_cluster_labels_to_previous(self):
         from quant.research.cluster_label_align import (

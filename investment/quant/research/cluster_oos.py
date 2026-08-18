@@ -32,7 +32,8 @@ def score_cluster_partition_oos(
     主目标（对齐产品）：组 β→ŷ **尾段有符号 IC↑ / 前段重拟合误差↓**（``partition_loss``）。
     有 ``cut_date`` 时用宇宙日历切分；否则每票比例切尾。
     尾段评估前默认在前段重拟合 β（避免全样本泄漏）。ŷ IC 用**有符号**相关。
-    辅门禁：heuristic vs ŷ 的 ΔOOS 通过组数 / 均 ΔOOS；silhouette 打破平局。
+    辅门禁：若存在 ``mean_ΔOOS ≥ -oos_tol_pp`` 的候选，则淘汰更差的负 ΔOOS
+    （避免 loss 略优但对照回测明显更差的超大团配方）。silhouette 打破平局。
 
     排序键（越大越好）：``(-loss, passed, mean_ΔOOS, sil)``。
     """
@@ -168,6 +169,8 @@ def score_cluster_partition_oos(
             ridge_lambda=float(rm.get("ridge_lambda") or 0.0),
             respect_regime=regime_aligned,
             stock_bars=member_bars,
+            rank_only=True,
+            require_clean_is_oos=False,
         )
         if gate.get("skipped"):
             skipped_n += 1
@@ -202,6 +205,12 @@ def score_cluster_partition_oos(
         except (TypeError, ValueError):
             sil = None
     loss = float(loss_info.get("loss") or 1e9)
+    try:
+        from core.signal.ic_contract import ic_contract_banner
+
+        _ic_banner = ic_contract_banner()
+    except Exception:
+        _ic_banner = {"primary_ic_kind": "cs_spearman"}
     return {
         "passed": int(passed_n),
         "failed": int(failed_n),
@@ -209,6 +218,9 @@ def score_cluster_partition_oos(
         "n_scored": int(passed_n + failed_n),
         "mean_delta_oos_pp": mean_delta,
         "mean_yhat_ic": mean_ic,
+        "mean_yhat_ic_kind": "chrono_pearson",
+        "mean_yhat_ic_note": "组 holdout 时序 Pearson；≠ 截面选股主 IC",
+        "ic_contract": _ic_banner,
         "mean_holdout_r2": mean_r2,
         "mean_holdout_rmse": mean_rmse,
         "partition_loss": round(loss, 6),
@@ -229,25 +241,50 @@ def score_cluster_partition_oos(
 
 def pick_best_k_selection_row(
     rows: List[Dict[str, Any]],
+    *,
+    oos_tol_pp: float = 1.0,
 ) -> Optional[Dict[str, Any]]:
-    """从 ``k_selection.candidates`` 行里挑最优（-loss → passed → ΔOOS → sil）。"""
+    """从 ``k_selection.candidates`` 行里挑最优。
+
+    辅门禁：若有 ``mean_ΔOOS ≥ -oos_tol_pp`` 的候选，丢掉更差的负 ΔOOS；
+    再按 ``(-loss → passed → ΔOOS → sil)``。
+    """
     if not rows:
         return None
-    ranked = sorted(
-        rows,
-        key=lambda r: tuple(
-            (
-                r.get("sort_key")
-                or (
-                    -(float(r.get("partition_loss") or 1e9)),
-                    r.get("passed") or 0,
-                    float("-inf"),
-                    float("-inf"),
-                )
+
+    def _delta(r: Dict[str, Any]) -> Optional[float]:
+        raw = r.get("mean_delta_oos_pp")
+        if raw is None:
+            sk = r.get("sort_key")
+            if isinstance(sk, (list, tuple)) and len(sk) >= 3:
+                raw = sk[2]
+        try:
+            return float(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _sort_key(r: Dict[str, Any]):
+        return tuple(
+            r.get("sort_key")
+            or (
+                -(float(r.get("partition_loss") or 1e9)),
+                r.get("passed") or 0,
+                float("-inf"),
+                float("-inf"),
             )
-        ),
-        reverse=True,
-    )
+        )
+
+    try:
+        tol = float(oos_tol_pp)
+    except (TypeError, ValueError):
+        tol = 1.0
+    gated = []
+    for r in rows:
+        d = _delta(r)
+        if d is None or d >= -tol:
+            gated.append(r)
+    pool = gated if gated else list(rows)
+    ranked = sorted(pool, key=_sort_key, reverse=True)
     return ranked[0]
 
 
@@ -452,6 +489,8 @@ def attach_cluster_oos_gates(
             ridge_lambda=float(rm.get("ridge_lambda") or 0.0),
             respect_regime=regime_aligned,
             stock_bars=member_bars,
+            rank_only=True,
+            require_clean_is_oos=False,
         )
         gate = dict(gate)
         gate["scope"] = "cluster_members"
@@ -484,8 +523,8 @@ def attach_cluster_oos_gates(
         "oos_tol_pp": float(oos_tol_pp),
         "respect_regime": regime_aligned,
         "note": (
-            "各组：heuristic 基线 vs 组 return_model ŷ · 仅组员 Top-K · 后 30% OOS；"
-            "默认 respect_regime 与 live 对齐。"
+            "各组：heuristic vs 组 ŷ · 仅组员 Top-K 排序（无买入门槛）· 后 30% OOS；"
+            "无成交/曲线过短计跳过；ŷ 相对基线过门后不再被自身 IS-OOS gap 否决。"
         ),
     }
     note = str(report.get("note") or "")

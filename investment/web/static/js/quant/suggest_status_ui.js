@@ -98,8 +98,12 @@ export function weightSuggestStatusHtml(suggest, deps) {
     )}）· promote_ready=否</span>`;
   } else if (gate.ok && gate.passed) {
     const d = gate.delta_oos_pp != null ? ` · ΔOOS ${gate.delta_oos_pp}pp` : "";
+    const ex =
+      gate.delta_excess_pp != null && gate.delta_excess_pp !== ""
+        ? ` · Δ超额 ${gate.delta_excess_pp}pp`
+        : "";
     gateLine = `<span class="sub up has-oos-tip"${gateAttr}>OOS 门禁：通过${escapeHtml(
-      d
+      d + ex
     )} · 仍须人审</span>`;
   } else if (gate.ok) {
     gateLine = `<span class="sub down has-oos-tip"${gateAttr}>OOS 门禁：未过（${escapeHtml(

@@ -9,6 +9,7 @@ import {
   resolveEodRemScore,
   resolveTradeScore,
 } from "./paper/fmt.js?v=p1128";
+import { renderYPathVizHtml } from "./y_path_viz.js?v=p1169";
 
 const FACTOR_LABELS = {
   momentum: "动量",
@@ -505,6 +506,20 @@ export function formatBlendScoreSection(raw) {
   const hint = eodNext
     ? `${wTxt} · ${wMode} · 收盘后不减缺口 · ŷ_trade 仍正交加权`
     : `${wTxt} · ${wMode} · 同为 T收/T开 · 开盘排序键 · 表列主分`;
+  const head =
+    raw && raw.dual_score_head != null
+      ? String(raw.dual_score_head)
+      : raw && raw.dual_score_single_head
+        ? "single"
+        : "";
+  let headHint = "";
+  if (head === "single_eod") {
+    headHint = " · 单头降级：仅 ŷ_EOD（缺 ŷ_τ）";
+  } else if (head === "single_tau") {
+    headHint = " · 单头降级：仅 ŷ_τ（缺 EOD rem）";
+  } else if (head === "blend") {
+    headHint = " · 双头融合";
+  }
   const cascade =
     raw && raw.predicted_score_tau_cascade != null
       ? Number(raw.predicted_score_tau_cascade)
@@ -553,13 +568,51 @@ export function formatBlendScoreSection(raw) {
       )}">${escapeText(cascadeTxt)}</span></div>`
     );
   }
+  const yCheck = raw && raw.y_check != null ? String(raw.y_check) : "";
+  const yDisagree =
+    raw && raw.y_disagree != null && Number.isFinite(Number(raw.y_disagree))
+      ? Number(raw.y_disagree)
+      : null;
+  const ySigma =
+    raw && raw.y_sigma != null && Number.isFinite(Number(raw.y_sigma))
+      ? Number(raw.y_sigma)
+      : null;
+  const yTrust =
+    raw && raw.eod_trust != null && Number.isFinite(Number(raw.eod_trust))
+      ? Number(raw.eod_trust)
+      : null;
+  const checkLabel = {
+    ok: "校验通过",
+    conflict: "双头分歧",
+    low_conf: "低置信",
+    missing_tau: "缺 τ",
+    single_head: "单头",
+  };
+  if (yCheck) {
+    const warn = yCheck !== "ok";
+    rows.push(
+      `<div class="score-layer-row${warn ? " is-warn" : ""}"><span>Y·EOD校验</span><span>${escapeText(
+        checkLabel[yCheck] || yCheck
+      )}${
+        yDisagree != null ? ` · |Δ|=${yDisagree.toFixed(2)}` : ""
+      }${ySigma != null ? ` · σ≈${ySigma.toFixed(2)}` : ""}${
+        yTrust != null ? ` · trust=${yTrust.toFixed(2)}` : ""
+      }</span></div>`
+    );
+  }
+  const yPathHtml = renderYPathVizHtml(raw);
   return (
-    `<div class="score-layer score-layer-blend">` +
+    `<div class="score-layer score-layer-blend${
+      head.startsWith("single") || (yCheck && yCheck !== "ok") ? " is-warn" : ""
+    }">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">④ ŷ_trade · 正交加权</div>` +
+    `<div class="score-hero-label">④ ŷ_trade · 正交加权${
+      head.startsWith("single") ? " · 单头" : ""
+    }${yCheck && yCheck !== "ok" ? " · Y校验" : ""}</div>` +
     `<div class="score-hero-value ${signCls(blend)}">${escapeText(blendTxt)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">${escapeText(hint)}</div>` +
+    `<div class="score-hero-hint">${escapeText(hint + headHint)}</div>` +
+    (yPathHtml ? yPathHtml : "") +
     `<div class="score-layer-compose">${rows.join("")}</div>` +
     `</div>`
   );

@@ -113,6 +113,8 @@ class TestP1QualityGate(unittest.TestCase):
         out = split_oos_summary(curve)
         self.assertTrue(out["ok"])
         self.assertTrue(out.get("failed"))
+        self.assertIsNotNone(out.get("oos_max_drawdown_pct"))
+        self.assertGreater(out["oos_max_drawdown_pct"], 0)
 
     def test_ops_report_includes_target_weights(self):
         from core.paper import build_ops_report

@@ -50,12 +50,18 @@ export function holdingToRow(
     !!h.oos_failed ||
     isHeuristicScoreScale(h) ||
     String(h.return_model_source || "").startsWith("oos_failed");
+  const singleHead =
+    h.dual_score_single_head === true ||
+    String(h.dual_score_head || "") === "single_eod" ||
+    String(h.dual_score_head || "") === "single_tau";
   const scoreTitle = hardReject
     ? String(h.reject_reason || "硬拒绝 · 无收益分")
     : isHeuristicScoreScale(h)
       ? score != null
         ? "OOS 失败 · 表列组/全局 ŷ% · heuristic 见 tip"
         : "OOS 失败 · 无 ŷ% · tip 看 heuristic(0–100)"
+      : singleHead
+        ? `ŷ_trade 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
       : belowMin
         ? `低于ŷ_EOD门槛 ${minScore ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
         : "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
@@ -97,8 +103,11 @@ export function holdingToRow(
     scoreNum: score != null && Number.isFinite(Number(score)) ? Number(score) : null,
     scoreCls: `${scoreCls(score)}${belowMin ? " score-below-min" : ""}${
       hardReject ? " score-reject" : ""
-    }`,
+    }${singleHead ? " score-single-head" : ""}`,
     scoreTitle,
+    scoreSingleHead: singleHead,
+    dualScoreHead: h.dual_score_head || null,
+    yCheck: h.y_check || null,
     scoreCalText,
     scoreCalNum:
       scoreCal != null && Number.isFinite(Number(scoreCal)) ? Number(scoreCal) : null,
@@ -149,6 +158,15 @@ export function holdingToRow(
         factor_coefficients_tau: h.factor_coefficients_tau || null,
         dual_score_fusion: h.dual_score_fusion || null,
         dual_score_weights: h.dual_score_weights || null,
+        dual_score_head: h.dual_score_head || null,
+        dual_score_single_head: !!h.dual_score_single_head || singleHead,
+        y_check: h.y_check || null,
+        y_disagree: h.y_disagree,
+        y_sigma: h.y_sigma,
+        eod_trust: h.eod_trust,
+        y_tau_to_close: h.y_tau_to_close,
+        y_tau_to_close_src: h.y_tau_to_close_src,
+        y_state: h.y_state,
         formula: hasTerms ? "" : h.score_formula || "",
         reasons: h.score_reasons || [],
         hard_reject: h.hard_reject,
@@ -329,15 +347,47 @@ export async function mountHoldingsTableIsland(host, options = {}) {
       if (col.id === "score") {
         const detail = d.scoreDetail || "";
         const title = d.scoreTitle || "悬停查看收益分与因子系数";
+        const singleHead = !!d.scoreSingleHead;
+        const head = d.dualScoreHead || "";
+        const headTitle =
+          head === "single_tau"
+            ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 EOD rem）· 与双头票不同量纲"
+            : head === "single_eod"
+              ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
+              : "ŷ_trade 单头降级 · 与双头票不同量纲";
+        const badges = [];
+        if (singleHead) {
+          badges.push(
+            `<span class="watching-single-head-badge" title="${escapeHtml(
+              headTitle
+            )}">单</span>`
+          );
+        }
+        const yCheck = d.yCheck || "";
+        if (yCheck && yCheck !== "ok") {
+          const yMap = {
+            conflict: ["歧", "Y·EOD 校验：双头分歧"],
+            low_conf: ["弱", "Y·EOD 校验：低置信"],
+            missing_tau: ["缺τ", "Y·EOD 校验：缺 ŷ_τ"],
+            single_head: ["单", "Y·EOD 校验：单头"],
+          };
+          const [t, tip] = yMap[yCheck] || ["校", `Y·EOD 校验：${yCheck}`];
+          badges.push(
+            `<span class="watching-y-check-badge is-${escapeHtml(
+              yCheck
+            )}" title="${escapeHtml(tip)}">${escapeHtml(t)}</span>`
+          );
+        }
+        const badge = badges.join("");
         if (!detail) {
           return `<span class="paper-hold-score ${escapeHtml(
             d.scoreCls || ""
-          )}">${escapeHtml(d.scoreText || "—")}</span>`;
+          )}">${escapeHtml(d.scoreText || "—")}${badge}</span>`;
         }
         return (
           `<span class="paper-hold-score has-tip ${escapeHtml(d.scoreCls || "")}" ` +
           `data-score-detail="${escapeHtml(detail)}" data-score-tip="trade" title="${escapeHtml(title)}">` +
-          `${escapeHtml(d.scoreText || "—")}</span>`
+          `${escapeHtml(d.scoreText || "—")}${badge}</span>`
         );
       }
       if (col.id === "score_cal") {
