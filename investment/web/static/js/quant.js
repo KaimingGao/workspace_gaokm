@@ -1944,5 +1944,10 @@ export function initQuant(ctx) {
             if (meta) meta.textContent = String(err.message || err);
       });
       }, 30);
+    } else if (typeof backtest.resumeParamGridJobIfAny === "function") {
+      backtest.resumeParamGridJobIfAny().catch((err) => {
+        const meta = document.getElementById("param-grid-meta");
+        if (meta && err) meta.textContent = String(err.message || err);
+      });
     }
   }}

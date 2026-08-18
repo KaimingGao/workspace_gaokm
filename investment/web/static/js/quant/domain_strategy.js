@@ -422,6 +422,10 @@ export function installStrategy(q) {
     }
     // 顺带填 ŷ 门槛输入
     const floors = data.scoring_floors || {};
+    if (floors.min_predicted_score != null || floors.min_hold_predicted_score != null) {
+      state.quantScoringFloors = mergeScoringFloors(state.quantScoringFloors, floors);
+      state._scoringFloorsHydrated = true;
+    }
     const buyIn = document.getElementById("strategy-floor-buy");
     const holdIn = document.getElementById("strategy-floor-hold");
     if (buyIn && floors.min_predicted_score != null && buyIn.value === "") {

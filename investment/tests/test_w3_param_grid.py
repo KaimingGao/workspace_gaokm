@@ -98,6 +98,26 @@ class TestParamGridSelect(unittest.TestCase):
         self.assertEqual(b["equivalent_ks"], [15, 20])
 
 
+def _fake_bars():
+    return {
+        "A": [{"date": "2026-01-01", "close": 10}] * 20,
+        "B": [{"date": "2026-01-02", "close": 11}] * 20,
+    }
+
+
+def _patch_grid_engine(fake_bt):
+    return (
+        patch(
+            "quant.research.portfolio_data.load_portfolio_stock_bars",
+            return_value=(_fake_bars(), [], {}),
+        ),
+        patch(
+            "core.backtest.topk_backtest.backtest_topk_equal_weight",
+            side_effect=fake_bt,
+        ),
+    )
+
+
 class TestParamGrid(unittest.TestCase):
     def test_run_param_grid_picks_oos_gate_not_is_return(self):
         from quant.services.quant_service import QuantService
@@ -105,7 +125,7 @@ class TestParamGrid(unittest.TestCase):
         svc = QuantService()
         calls = []
 
-        def fake_bt(**kwargs):
+        def fake_bt(*_args, **kwargs):
             calls.append(kwargs)
             tk = int(kwargs.get("top_k") or 0)
             # K=10：样本内最高，OOS 为负 → 不过门
@@ -133,7 +153,8 @@ class TestParamGrid(unittest.TestCase):
                 },
             }
 
-        with patch.object(svc, "run_portfolio_backtest", side_effect=fake_bt):
+        load_p, bt_p = _patch_grid_engine(fake_bt)
+        with load_p, bt_p:
             out = svc.run_param_grid(
                 top_k_values=[10, 15, 20],
                 lookback_values=[120],
@@ -141,19 +162,17 @@ class TestParamGrid(unittest.TestCase):
                 horizon_days=3,
                 min_predicted_score=0.4,
                 weight_mode="score_budget",
+                exclude_st=False,
             )
         self.assertTrue(out["success"])
         self.assertEqual(out["cell_count"], 3)
         self.assertEqual(out["eligible_count"], 2)
         self.assertEqual(len(calls), 3)
-        self.assertFalse(calls[0].get("include_wf_slices"))
-        self.assertFalse(calls[0].get("include_cost_compare"))
-        self.assertFalse(calls[0].get("include_score_ic"))
-        self.assertFalse(calls[0].get("include_quantile"))
-        self.assertFalse(calls[0].get("include_benchmark"))
-        self.assertFalse(calls[0].get("persist_curve"))
         self.assertEqual(calls[0].get("min_predicted_score"), 0.4)
         self.assertEqual(calls[0].get("horizon_days"), 3)
+        self.assertIsNotNone(calls[0].get("precomputed_ranks"))
+        self.assertIs(calls[0].get("precomputed_ranks"), calls[1].get("precomputed_ranks"))
+        self.assertFalse(out.get("persist_curve"))
         best = out["best"]
         self.assertIsNotNone(best)
         self.assertEqual(best["lookback"], 120)
@@ -161,15 +180,66 @@ class TestParamGrid(unittest.TestCase):
         self.assertEqual(best["oos_return_pct"], 1.2)
         self.assertEqual(out["heat"]["metric"], "oos_return_pct")
         self.assertTrue(out["apply_best_gate"]["allowed"])
-        self.assertFalse(out.get("persist_curve"))
-        self.assertTrue(calls[0].get("exclude_st"))
+        self.assertTrue(out.get("align_paper"))
+        self.assertEqual(out.get("horizon_days"), 3)
+
+    def test_run_param_grid_ignores_page_h1_and_yhat_1(self):
+        from quant.services.quant_service import QuantService
+
+        svc = QuantService()
+        calls = []
+
+        def fake_bt(*_args, **kwargs):
+            calls.append(kwargs)
+            return {
+                "success": True,
+                "metrics": {
+                    "total_return_pct": 1.0,
+                    "max_drawdown_pct": 2.0,
+                    "trade_count": 1,
+                },
+                "oos_summary": {
+                    "ok": True,
+                    "failed": False,
+                    "oos_return_pct": 0.2,
+                    "is_return_pct": 1.0,
+                },
+            }
+
+        paper = {
+            "min_predicted_score": 0.4,
+            "horizon_days": 3,
+            "weight_mode": "score_budget",
+            "max_position_pct": 25.0,
+            "max_sector_pct": 40.0,
+            "exclude_st": True,
+            "top_k": 20,
+        }
+        load_p, bt_p = _patch_grid_engine(fake_bt)
+        with load_p, bt_p, patch(
+            "core.strategy.backtest_portfolio_defaults", return_value=paper
+        ):
+            out = svc.run_param_grid(
+                top_k_values=[10],
+                lookback_values=[120],
+                max_cells=1,
+                horizon_days=1,
+                min_predicted_score=1.0,
+                exclude_st=False,
+            )
+        self.assertTrue(out["success"])
+        self.assertEqual(calls[0].get("horizon_days"), 3)
+        self.assertEqual(calls[0].get("min_predicted_score"), 0.4)
+        self.assertTrue(out.get("align_paper"))
+        self.assertEqual(out.get("horizon_days"), 3)
+        self.assertEqual(out.get("min_predicted_score"), 0.4)
 
     def test_run_param_grid_no_best_when_all_fail_gate(self):
         from quant.services.quant_service import QuantService
 
         svc = QuantService()
 
-        def fake_bt(**kwargs):
+        def fake_bt(*_args, **kwargs):
             return {
                 "success": True,
                 "metrics": {
@@ -185,11 +255,13 @@ class TestParamGrid(unittest.TestCase):
                 },
             }
 
-        with patch.object(svc, "run_portfolio_backtest", side_effect=fake_bt):
+        load_p, bt_p = _patch_grid_engine(fake_bt)
+        with load_p, bt_p:
             out = svc.run_param_grid(
                 top_k_values=[10, 20],
                 lookback_values=[120],
                 max_cells=2,
+                exclude_st=False,
             )
         self.assertIsNone(out["best"])
         self.assertEqual(out["eligible_count"], 0)
@@ -200,7 +272,7 @@ class TestParamGrid(unittest.TestCase):
 
         svc = QuantService()
 
-        def fake_bt(**kwargs):
+        def fake_bt(*_args, **kwargs):
             return {
                 "success": True,
                 "metrics": {
@@ -217,11 +289,13 @@ class TestParamGrid(unittest.TestCase):
                 },
             }
 
-        with patch.object(svc, "run_portfolio_backtest", side_effect=fake_bt):
+        load_p, bt_p = _patch_grid_engine(fake_bt)
+        with load_p, bt_p:
             out = svc.run_param_grid(
                 top_k_values=[20],
                 lookback_values=[120],
                 max_cells=1,
+                exclude_st=False,
             )
         self.assertIsNotNone(out["best"])
         self.assertTrue(out["best"]["eligible"])
@@ -279,7 +353,30 @@ class TestParamGrid(unittest.TestCase):
             self.assertTrue(out2.get("success"))
             save.assert_called()
 
-    def test_param_grid_route(self):
+    def test_param_grid_route_starts_job(self):
+        try:
+            from fastapi.testclient import TestClient
+            from web.app import app
+        except ImportError:
+            self.skipTest("fastapi not installed")
+        client = TestClient(app)
+        with patch(
+            "web.deps.quant.start_param_grid_job",
+            return_value={
+                "ok": True,
+                "success": True,
+                "background": True,
+                "job": {"id": "pg1", "status": "running"},
+            },
+        ) as start:
+            res = client.post("/api/quant/param-grid", json={"max_cells": 1})
+        self.assertEqual(res.status_code, 200, res.text)
+        body = res.json()
+        self.assertTrue(body.get("background"))
+        self.assertEqual((body.get("job") or {}).get("id"), "pg1")
+        start.assert_called_once()
+
+    def test_param_grid_route_sync(self):
         try:
             from fastapi.testclient import TestClient
             from web.app import app
@@ -296,10 +393,107 @@ class TestParamGrid(unittest.TestCase):
                 "eligible_count": 0,
                 "axes": {"lookback": [120], "top_k": [10]},
             },
-        ):
-            res = client.post("/api/quant/param-grid", json={"max_cells": 1})
+        ) as run:
+            res = client.post(
+                "/api/quant/param-grid", json={"max_cells": 1, "sync": True}
+            )
         self.assertEqual(res.status_code, 200, res.text)
         self.assertTrue(res.json().get("success"))
+        self.assertFalse(res.json().get("background"))
+        run.assert_called_once()
+
+    def test_run_param_grid_progress_cb(self):
+        from quant.services.quant_service import QuantService
+
+        svc = QuantService()
+        msgs = []
+
+        def fake_bt(*_args, **kwargs):
+            cb = kwargs.get("progress_cb")
+            if cb:
+                cb("2026-01-02 · 4/10 日", 4, 10)
+            return {
+                "success": True,
+                "metrics": {
+                    "total_return_pct": 1.0,
+                    "max_drawdown_pct": 2.0,
+                    "trade_count": 1,
+                },
+                "oos_summary": {
+                    "ok": True,
+                    "failed": False,
+                    "oos_return_pct": 0.2,
+                    "is_return_pct": 1.0,
+                },
+            }
+
+        def prog(msg, cur=0, tot=0):
+            msgs.append(str(msg))
+
+        load_p, bt_p = _patch_grid_engine(fake_bt)
+        with load_p, bt_p:
+            out = svc.run_param_grid(
+                top_k_values=[10],
+                lookback_values=[120],
+                max_cells=1,
+                exclude_st=False,
+                progress_cb=prog,
+            )
+        self.assertTrue(out["success"])
+        joined = " ".join(msgs)
+        self.assertIn("载入", joined)
+        self.assertIn("K=10", joined)
+
+    def test_start_param_grid_job_finishes(self):
+        import tempfile
+        import time
+
+        from core.job_progress import JobProgress
+        from quant.services.quant_service import QuantService
+
+        fake = {
+            "success": True,
+            "cells": [{"lookback": 120, "top_k": 10, "eligible": True}],
+            "best": {"lookback": 120, "top_k": 10},
+            "cell_count": 1,
+        }
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "quant_param_grid.json")
+            slot = JobProgress(name="quant-param-grid", persist_path=path)
+            svc = QuantService()
+            with patch(
+                "core.job_progress.quant_param_grid_job", slot
+            ), patch.object(svc, "run_param_grid", return_value=fake):
+                out = svc.start_param_grid_job(top_k_values=[10], lookback_values=[120])
+                self.assertTrue(out.get("background"))
+                job_id = out["job"]["id"]
+                for _ in range(50):
+                    if slot.get().get("status") in ("done", "failed"):
+                        break
+                    time.sleep(0.05)
+                snap = slot.get()
+                self.assertEqual(snap["id"], job_id)
+                self.assertEqual(snap["status"], "done")
+                self.assertTrue((snap.get("result") or {}).get("success"))
+
+    def test_start_param_grid_job_reuses_running(self):
+        import tempfile
+
+        from core.job_progress import JobProgress
+        from quant.services.quant_service import QuantService
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "quant_param_grid.json")
+            slot = JobProgress(name="quant-param-grid", persist_path=path)
+            job_id = slot.start(kind="param_grid", total=10, message="格 1/3")
+            svc = QuantService()
+            with patch(
+                "core.job_progress.quant_param_grid_job", slot
+            ), patch.object(svc, "run_param_grid") as run_mock:
+                out = svc.start_param_grid_job(top_k_values=[10])
+            self.assertTrue(out.get("reused"))
+            self.assertEqual((out.get("job") or {}).get("id"), job_id)
+            run_mock.assert_not_called()
 
 
 if __name__ == "__main__":

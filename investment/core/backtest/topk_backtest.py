@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from functools import lru_cache
 
 from core.backtest.engine import _mock_quote_from_bars, _trade_metrics
@@ -930,6 +930,9 @@ def backtest_topk_equal_weight(
     allow_heuristic_baseline: bool = False,
     apply_tau_buy_gate: bool = False,
     strategy_id: Optional[str] = None,
+    precomputed_ranks: Optional[Dict[str, Any]] = None,
+    progress_cb: Optional[Callable[..., Any]] = None,
+    cancel_check: Optional[Callable[[], bool]] = None,
 ) -> Dict[str, Any]:
     """
     多票横截面：每个调仓日对 watching 打分，持有 TopK，持有 horizon_days。
@@ -1126,119 +1129,157 @@ def backtest_topk_equal_weight(
     if dates:
         equity_curve.append({"date": dates[i], "equity": equity, "return_pct": 0.0})
     last_signal_i = n - horizon_days - extra - defer_cap - 1
+    first_signal_i = i
+    n_signal_days = max(0, last_signal_i - first_signal_i + 1)
     while i <= last_signal_i:
+        if cancel_check is not None:
+            try:
+                if cancel_check():
+                    return {"success": False, "error": "已取消"}
+            except Exception:
+                pass
         entries: List[dict] = []
         signal_as_of = dates[i]
-        for code in stock_bars:
-            window = _window_for_code(code, dates, date_maps, i, max_window)
-            pit_windows += 1
-            if len(window) < 2:
-                continue
-            quote = _mock_quote_from_bars(window, len(window) - 1)
-            fund = None
-            if use_fund_pit:
-                if pit_mode == "as_of":
-                    try:
-                        from core.fundamentals_pit import resolve_fundamentals_for_score
-
-                        resolved = resolve_fundamentals_for_score(
-                            code,
-                            as_of=signal_as_of,
-                            fund_cfg=fund_cfg,
-                            live_fallback=False,
-                        )
-                        fund_resolves.append(resolved)
-                        fund = resolved.get("metrics")
-                    except Exception:
-                        fund = None
-                else:
-                    fund = (fundamentals_by_code or {}).get(code)
-            item = score_window_as_item(
-                code,
-                window,
-                horizon_days=horizon_days,
-                quote=quote,
-                config=cfg,
-                fundamentals=fund,
-            )
-            if item:
-                # PIT 双层 ŷ：供 score_and_rank 挂 ŷ_τ / blend（信号日 open 缺口）
-                item["_bt_quote"] = quote
-                item["_bt_bars"] = window[-8:] if len(window) >= 2 else list(window)
-                entries.append(item)
-
-        # 收益分：优先分组 live OLS β；否则 walk-forward 拟合全局模型
-        if resolved_rank_mode == "predicted_score" and not cluster_return_models:
-            still_pending: List[dict] = []
-            for p in pending_signals:
-                j = int(p["signal_i"])
-                if j + horizon_days <= i and j + horizon_days < n:
-                    y = _close_return_pct(
-                        date_maps,
-                        str(p["code"]),
-                        str(p["signal_date"]),
-                        dates[j + horizon_days],
-                    )
-                    subs = p.get("sub_scores") or {}
-                    if y is not None and subs:
-                        train_xs.append(dict(subs))
-                        train_ys.append(float(y))
-                else:
-                    still_pending.append(p)
-            pending_signals = still_pending
-            for item in entries:
-                code = str(item.get("stock_code") or "").strip()
-                if not code:
-                    continue
-                pending_signals.append(
-                    {
-                        "signal_i": i,
-                        "signal_date": signal_as_of,
-                        "code": code,
-                        "sub_scores": dict(item.get("sub_scores") or {}),
-                    }
-                )
-            if len(train_ys) >= min_fit and (
-                return_model is None
-                or (rebalance_idx - last_model_fit_rebalance) >= refit_every
-            ):
-                model, _fit_rep = fit_return_model_from_panel(
-                    train_xs,
-                    train_ys,
-                    horizon_days=horizon_days,
-                    ridge_lambda=ridge_lam,
-                    fitted_as_of=signal_as_of,
-                    min_samples=min_fit,
-                )
-                if model is not None:
-                    return_model = model
-                    last_model_fit_rebalance = rebalance_idx
-
-        picks, neut_meta = score_and_rank_watching(
-            entries,
-            min_score=min_score,
-            config=cfg,
-            neutralize=use_neutral,
-            rank_mode=resolved_rank_mode,
-            return_model=return_model,
-            return_models_by_code=cluster_return_models or None,
-            min_predicted_score=min_predicted_score,
-            allow_heuristic_baseline=allow_heuristic_baseline
-            or resolved_rank_mode == "heuristic_score",
-            apply_tau_buy_gate=bool(apply_tau_buy_gate),
+        cached_rank = (
+            (precomputed_ranks or {}).get(signal_as_of)
+            if precomputed_ranks is not None
+            else None
         )
-        if resolved_rank_mode == "heuristic_score":
-            pred_rank_rebalances += 0
-        elif resolved_rank_mode == "predicted_score":
-            if neut_meta.get("predicted_score_fallback") or (
-                return_model is None and not cluster_return_models
-            ):
-                heuristic_fallback_rebalances += 1
-            else:
-                pred_rank_rebalances += 1
-        if neut_meta.get("applied"):
-            neutralized_rebalances += 1
-        items_by_code = neut_meta.get("items_by_code") or {}
+        day_n = i - first_signal_i + 1
+        if (
+            progress_cb is not None
+            and not cached_rank
+            and (day_n <= 1 or day_n % 4 == 0 or i >= last_signal_i)
+        ):
+            try:
+                progress_cb(
+                    f"{signal_as_of} · {day_n}/{n_signal_days} 日",
+                    max(0, day_n),
+                    max(1, n_signal_days),
+                )
+            except Exception:
+                pass
+        if cached_rank:
+            picks = list(cached_rank.get("picks") or [])
+            neut_meta = dict(cached_rank.get("neut_meta") or {})
+            items_by_code = dict(cached_rank.get("items_by_code") or {})
+        else:
+            for code in stock_bars:
+                window = _window_for_code(code, dates, date_maps, i, max_window)
+                pit_windows += 1
+                if len(window) < 2:
+                    continue
+                quote = _mock_quote_from_bars(window, len(window) - 1)
+                fund = None
+                if use_fund_pit:
+                    if pit_mode == "as_of":
+                        try:
+                            from core.fundamentals_pit import resolve_fundamentals_for_score
+
+                            resolved = resolve_fundamentals_for_score(
+                                code,
+                                as_of=signal_as_of,
+                                fund_cfg=fund_cfg,
+                                live_fallback=False,
+                            )
+                            fund_resolves.append(resolved)
+                            fund = resolved.get("metrics")
+                        except Exception:
+                            fund = None
+                    else:
+                        fund = (fundamentals_by_code or {}).get(code)
+                item = score_window_as_item(
+                    code,
+                    window,
+                    horizon_days=horizon_days,
+                    quote=quote,
+                    config=cfg,
+                    fundamentals=fund,
+                )
+                if item:
+                    # PIT 双层 ŷ：供 score_and_rank 挂 ŷ_τ / blend（信号日 open 缺口）
+                    item["_bt_quote"] = quote
+                    item["_bt_bars"] = window[-8:] if len(window) >= 2 else list(window)
+                    entries.append(item)
+
+            # 收益分：优先分组 live OLS β；否则 walk-forward 拟合全局模型
+            if resolved_rank_mode == "predicted_score" and not cluster_return_models:
+                still_pending: List[dict] = []
+                for p in pending_signals:
+                    j = int(p["signal_i"])
+                    if j + horizon_days <= i and j + horizon_days < n:
+                        y = _close_return_pct(
+                            date_maps,
+                            str(p["code"]),
+                            str(p["signal_date"]),
+                            dates[j + horizon_days],
+                        )
+                        subs = p.get("sub_scores") or {}
+                        if y is not None and subs:
+                            train_xs.append(dict(subs))
+                            train_ys.append(float(y))
+                    else:
+                        still_pending.append(p)
+                pending_signals = still_pending
+                for item in entries:
+                    code = str(item.get("stock_code") or "").strip()
+                    if not code:
+                        continue
+                    pending_signals.append(
+                        {
+                            "signal_i": i,
+                            "signal_date": signal_as_of,
+                            "code": code,
+                            "sub_scores": dict(item.get("sub_scores") or {}),
+                        }
+                    )
+                if len(train_ys) >= min_fit and (
+                    return_model is None
+                    or (rebalance_idx - last_model_fit_rebalance) >= refit_every
+                ):
+                    model, _fit_rep = fit_return_model_from_panel(
+                        train_xs,
+                        train_ys,
+                        horizon_days=horizon_days,
+                        ridge_lambda=ridge_lam,
+                        fitted_as_of=signal_as_of,
+                        min_samples=min_fit,
+                    )
+                    if model is not None:
+                        return_model = model
+                        last_model_fit_rebalance = rebalance_idx
+
+            picks, neut_meta = score_and_rank_watching(
+                entries,
+                min_score=min_score,
+                config=cfg,
+                neutralize=use_neutral,
+                rank_mode=resolved_rank_mode,
+                return_model=return_model,
+                return_models_by_code=cluster_return_models or None,
+                min_predicted_score=min_predicted_score,
+                allow_heuristic_baseline=allow_heuristic_baseline
+                or resolved_rank_mode == "heuristic_score",
+                apply_tau_buy_gate=bool(apply_tau_buy_gate),
+            )
+            if resolved_rank_mode == "heuristic_score":
+                pred_rank_rebalances += 0
+            elif resolved_rank_mode == "predicted_score":
+                if neut_meta.get("predicted_score_fallback") or (
+                    return_model is None and not cluster_return_models
+                ):
+                    heuristic_fallback_rebalances += 1
+                else:
+                    pred_rank_rebalances += 1
+            if neut_meta.get("applied"):
+                neutralized_rebalances += 1
+            items_by_code = neut_meta.get("items_by_code") or {}
+            if precomputed_ranks is not None:
+                precomputed_ranks[signal_as_of] = {
+                    "picks": list(picks),
+                    "neut_meta": dict(neut_meta),
+                    "items_by_code": dict(items_by_code),
+                }
         selected = apply_topk_dropout(
             picks, prev_codes, top_k=top_k, dropout_n=dropout_n
         )

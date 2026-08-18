@@ -560,6 +560,10 @@ class ParamGridRequest(BaseModel):
     exclude_st: bool = True
     min_avg_amount_pctile: Optional[float] = Field(default=None, ge=0, le=90)
     rank_mode: str = Field(default="predicted_score")
+    sync: bool = Field(
+        default=False,
+        description="true=同步跑（单测/兼容）；默认入队 Job，轮询 GET /api/jobs/quant-param-grid",
+    )
 
 
 class WeightSuggestRequest(BaseModel):

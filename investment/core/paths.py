@@ -66,6 +66,7 @@ SENTIMENT_LEXICON_PATH = os.path.join(DATA_DIR, "sentiment_lexicon.json")
 JOBS_DIR = os.path.join(DATA_DIR, "jobs")
 PAPER_JOB_PATH = os.path.join(JOBS_DIR, "paper.json")
 QUANT_OLS_CLUSTERS_JOB_PATH = os.path.join(JOBS_DIR, "quant_ols_clusters.json")
+QUANT_PARAM_GRID_JOB_PATH = os.path.join(JOBS_DIR, "quant_param_grid.json")
 
 
 def cluster_weights_versioned_path(version: int) -> str:

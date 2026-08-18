@@ -102,23 +102,29 @@ def quant_portfolio_backtest(body: PortfolioBacktestRequest):
 
 @router.post("/api/quant/param-grid")
 def quant_param_grid(body: ParamGridRequest):
-    """W3.3 · Top-K × lookback 参数扫描（限格）。"""
+    """Top-K × lookback 参数扫描（限格）。
+
+    默认入队 Job（``GET /api/jobs/quant-param-grid``）；``sync=true`` 同步兼容单测。
+    """
+    kwargs = dict(
+        codes=body.codes,
+        top_k_values=body.top_k_values,
+        lookback_values=body.lookback_values,
+        horizon_days=body.horizon_days,
+        min_score=body.min_score,
+        min_predicted_score=body.min_predicted_score,
+        apply_costs=body.apply_costs,
+        max_cells=body.max_cells,
+        weight_mode=body.weight_mode,
+        dropout_n=body.dropout_n,
+        exclude_st=body.exclude_st,
+        min_avg_amount_pctile=body.min_avg_amount_pctile,
+        rank_mode=body.rank_mode,
+    )
     try:
-        return deps.quant.run_param_grid(
-            codes=body.codes,
-            top_k_values=body.top_k_values,
-            lookback_values=body.lookback_values,
-            horizon_days=body.horizon_days,
-            min_score=body.min_score,
-            min_predicted_score=body.min_predicted_score,
-            apply_costs=body.apply_costs,
-            max_cells=body.max_cells,
-            weight_mode=body.weight_mode,
-            dropout_n=body.dropout_n,
-            exclude_st=body.exclude_st,
-            min_avg_amount_pctile=body.min_avg_amount_pctile,
-            rank_mode=body.rank_mode,
-        )
+        if body.sync:
+            return deps.quant.run_param_grid(**kwargs)
+        return deps.quant.start_param_grid_job(**kwargs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

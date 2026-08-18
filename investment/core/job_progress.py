@@ -93,6 +93,9 @@ class JobProgress:
                         "oos_summary": result.get("oos_summary"),
                         "error": result.get("error"),
                     }
+                elif self.name == "quant-param-grid":
+                    # 网格结果本身很小（无净值曲线）；热重载后仍要能画出热力
+                    pass
                 elif self.name != "quant-ols-clusters":
                     try:
                         result_bytes = len(json.dumps(result, default=str))
@@ -355,12 +358,20 @@ class JobRegistry:
 # 全局注册表；paper_job 保持兼容别名（落盘抗 uvicorn reload）
 job_registry = JobRegistry()
 try:
-    from core.paths import PAPER_JOB_PATH, QUANT_OLS_CLUSTERS_JOB_PATH
+    from core.paths import (
+        PAPER_JOB_PATH,
+        QUANT_OLS_CLUSTERS_JOB_PATH,
+        QUANT_PARAM_GRID_JOB_PATH,
+    )
 
     paper_job = job_registry.slot("paper", persist_path=PAPER_JOB_PATH)
     quant_ols_clusters_job = job_registry.slot(
         "quant-ols-clusters", persist_path=QUANT_OLS_CLUSTERS_JOB_PATH
     )
+    quant_param_grid_job = job_registry.slot(
+        "quant-param-grid", persist_path=QUANT_PARAM_GRID_JOB_PATH
+    )
 except Exception:
     paper_job = job_registry.slot("paper")
     quant_ols_clusters_job = job_registry.slot("quant-ols-clusters")
+    quant_param_grid_job = job_registry.slot("quant-param-grid")

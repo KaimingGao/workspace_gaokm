@@ -39,9 +39,18 @@ class TestResolveReplayCandidates(unittest.TestCase):
         from quant.services.quant_service import QuantService
 
         svc = QuantService()
-        with patch.object(
-            svc,
-            "run_portfolio_backtest",
+        with patch(
+            "quant.research.portfolio_data.load_portfolio_stock_bars",
+            return_value=(
+                {
+                    "600519": [{"date": "2026-01-01", "close": 10}] * 20,
+                    "600036": [{"date": "2026-01-01", "close": 10}] * 20,
+                },
+                [],
+                {},
+            ),
+        ), patch(
+            "core.backtest.topk_backtest.backtest_topk_equal_weight",
             return_value={
                 "success": True,
                 "metrics": {"total_return_pct": 1.0, "max_drawdown_pct": 1.0},
@@ -53,6 +62,7 @@ class TestResolveReplayCandidates(unittest.TestCase):
                 top_k_values=[2],
                 lookback_values=[60],
                 max_cells=1,
+                exclude_st=False,
             )
         self.assertTrue(out["success"])
         gate = out.get("apply_best_gate") or {}

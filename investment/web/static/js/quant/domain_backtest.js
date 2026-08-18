@@ -2,7 +2,7 @@ import { apiFetch } from "../api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "../lw_charts.js";
 import { mountVirtualTable } from "../virtual_table.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload } from "./scoring.js";
+import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringFloors } from "./scoring.js";
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { downloadBlob } from "../shared.js";
 
@@ -991,54 +991,249 @@ export function installBacktest(q) {
       );
   }
 
-  async function runParamGrid() {
+  function isNetworkFetchError(err) {
+    const msg = String((err && err.message) || err || "");
+    const name = String((err && err.name) || "");
+    return (
+      name === "TypeError" ||
+      /failed to fetch|networkerror|load failed|network request failed/i.test(msg)
+    );
+  }
+
+  async function fetchRetry(url, init, { tries = 6, delayMs = 350 } = {}) {
+    let lastErr = null;
+    for (let i = 0; i < tries; i++) {
+      try {
+        return await fetch(url, init);
+      } catch (err) {
+        lastErr = err;
+        if (i < tries - 1) {
+          await new Promise((r) => setTimeout(r, delayMs * (i + 1)));
+        }
+      }
+    }
+    throw lastErr;
+  }
+
+  function setParamGridBusy(on, text) {
     const prog = document.getElementById("param-grid-progress");
     const progText = document.getElementById("param-grid-progress-text");
     const btn = document.getElementById("quant-param-grid-run");
     if (prog) {
-      prog.hidden = false;
-      prog.classList.add("is-busy");
+      prog.hidden = !on;
+      prog.classList.toggle("is-busy", !!on);
     }
-    if (progText) progText.textContent = "固定 lookback 扫 K∈{10,15,20}（不覆盖最近回测）…";
-    if (btn) btn.disabled = true;
-    const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-    const timer = ctrl ? setTimeout(() => ctrl.abort(), 720000) : null;
+    if (text && progText) progText.textContent = text;
+    if (btn) btn.disabled = !!on;
+  }
+
+  async function waitParamGridJob(jobId, startedAt) {
+    const started = startedAt || Date.now();
+    const fmtElapsed = () => {
+      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+      return sec < 60
+        ? `${sec}s`
+        : `${Math.floor(sec / 60)}m${String(sec % 60).padStart(2, "0")}s`;
+    };
+    const softCapMs = 25 * 60 * 1000;
+    const absoluteCapMs = 90 * 60 * 1000;
+    const heartbeatFreshSec = 90;
+    let sawOwnJob = false;
+    let netFailStreak = 0;
+    while (Date.now() - started < absoluteCapMs) {
+      let res;
+      try {
+        res = await fetchRetry("/api/jobs/quant-param-grid?progress=1", undefined, {
+          tries: 3,
+          delayMs: 400,
+        });
+        netFailStreak = 0;
+      } catch (err) {
+        netFailStreak += 1;
+        setParamGridBusy(
+          true,
+          `网格扫描中… ${fmtElapsed()} · 服务短暂断开，重连中（${netFailStreak}）…`
+        );
+        await new Promise((r) => setTimeout(r, Math.min(4000, 500 * netFailStreak)));
+        continue;
+      }
+      if (!res.ok && res.status >= 500) {
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
+      let payload = {};
+      try {
+        payload = await res.json();
+      } catch (err) {
+        if (isNetworkFetchError(err)) {
+          netFailStreak += 1;
+          await new Promise((r) => setTimeout(r, 500));
+          continue;
+        }
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
+      const job = (payload && payload.job) || {};
+      const sameJob = !jobId || !job.id || job.id === jobId;
+      if (sameJob && job.id) sawOwnJob = true;
+      if (job.status === "idle" || !job.id) {
+        if (sawOwnJob || Date.now() - started > 2500) {
+          throw new Error("网格任务已中断（可能服务重启），请再点「跑网格」");
+        }
+        await new Promise((r) => setTimeout(r, 400));
+        continue;
+      }
+      if (!sameJob) {
+        throw new Error("网格任务已被其它任务覆盖，请重试");
+      }
+      if (job.status === "done") {
+        let fullJob = job;
+        try {
+          const fullRes = await fetchRetry("/api/jobs/quant-param-grid", undefined, {
+            tries: 4,
+            delayMs: 400,
+          });
+          const fullPayload = await fullRes.json();
+          fullJob = (fullPayload && fullPayload.job) || job;
+        } catch (_) {
+          fullJob = { ...job, result: (job && job.result) || {} };
+        }
+        return fullJob;
+      }
+      if (job.status === "failed") {
+        throw new Error(job.error || job.message || "网格任务失败");
+      }
+      const elapsed = Date.now() - started;
+      if (elapsed >= softCapMs) {
+        const ua = Number(job.updated_at);
+        const fresh =
+          Number.isFinite(ua) && Date.now() / 1000 - ua < heartbeatFreshSec;
+        if (!fresh) {
+          throw new Error("网格任务超时（无心跳进展）");
+        }
+      }
+      const pct = Number(job.pct) || 0;
+      const msg = job.message || "运行中…";
+      setParamGridBusy(
+        true,
+        `网格扫描中… ${fmtElapsed()} · ${msg}${
+          Number.isFinite(pct) && pct > 0 ? ` · ${Math.round(pct)}%` : ""
+        }`
+      );
+      await new Promise((r) => setTimeout(r, 400));
+    }
+    throw new Error("网格任务超时（超过 90 分钟）");
+  }
+
+  async function resumeParamGridJobIfAny() {
+    if (runParamGrid._inflight) return runParamGrid._inflight;
     try {
-      const {
-        lookback,
-        horizon_days,
-        weight_mode,
-        rank_mode,
-        dropout_n,
-        exclude_st,
-        min_avg_amount_pctile,
-      } = readPortfolioBtParams();
-      const { ok, data, error } = await apiFetch("/api/quant/param-grid", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          top_k_values: [10, 15, 20],
-          lookback_values: [lookback],
-          horizon_days,
-          apply_costs: true,
-          max_cells: 9,
+      const res = await fetch("/api/jobs/quant-param-grid?progress=1");
+      if (!res.ok) return null;
+      const payload = await res.json();
+      const job = (payload && payload.job) || {};
+      if (job.status === "running" && job.id) {
+        return runParamGrid({ resumeJobId: job.id });
+      }
+      if (
+        job.status === "done" &&
+        job.result &&
+        Array.isArray(job.result.cells) &&
+        job.result.align_paper
+      ) {
+        renderParamGridResult(job.result);
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    return null;
+  }
+
+  async function runParamGrid(opts) {
+    if (runParamGrid._inflight) return runParamGrid._inflight;
+    runParamGrid._inflight = _runParamGridInner(opts).finally(() => {
+      runParamGrid._inflight = null;
+    });
+    return runParamGrid._inflight;
+  }
+
+  async function _runParamGridInner(opts) {
+    const resumeJobId = opts && opts.resumeJobId;
+    const started = Date.now();
+    const fmtElapsed = () => {
+      const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+      return sec < 60
+        ? `${sec}s`
+        : `${Math.floor(sec / 60)}m${String(sec % 60).padStart(2, "0")}s`;
+    };
+    setParamGridBusy(
+      true,
+      resumeJobId
+        ? `接上已在跑的网格… ${fmtElapsed()}`
+        : "扫 K∈{10,15,20}（对齐纸面持有期与 ŷ 门槛 · 不覆盖最近回测）…"
+    );
+    const tick = setInterval(() => {
+      const el = document.getElementById("param-grid-progress-text");
+      if (!el) return;
+      const cur = String(el.textContent || "");
+      if (/网格扫描中|接上已在跑|后台任务/.test(cur) && !/ · \d/.test(cur.split("…")[0] || "")) {
+        /* job poll overwrites with richer text; keep a fallback clock if still queued */
+      }
+      if (/排队|接上已在跑|后台任务/.test(cur) && !/m\d{2}s|\d+s ·/.test(cur)) {
+        el.textContent = cur.replace(/…(?:\s+\d.*)?$/, `… ${fmtElapsed()}`);
+      }
+    }, 1000);
+    try {
+      let jobId = resumeJobId || null;
+      if (!jobId) {
+        const {
+          lookback,
           weight_mode,
+          rank_mode,
           dropout_n,
           exclude_st,
           min_avg_amount_pctile,
-          ...portfolioBtScoreFloorPayload(rank_mode),
-        }),
-        signal: ctrl ? ctrl.signal : undefined,
-      });
-      if (!ok) throw new Error(error || data.detail || "网格失败");
-      renderParamGridResult(data);
-    } finally {
-      if (timer) clearTimeout(timer);
-      if (prog) {
-        prog.hidden = true;
-        prog.classList.remove("is-busy");
+        } = readPortfolioBtParams();
+        await ensureScoringFloors();
+        const { ok, data, error } = await apiFetch("/api/quant/param-grid", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            top_k_values: [10, 15, 20],
+            lookback_values: [lookback],
+            apply_costs: true,
+            max_cells: 9,
+            weight_mode,
+            dropout_n,
+            exclude_st,
+            min_avg_amount_pctile,
+            rank_mode,
+            // 不传 horizon / ŷ：后端对齐纸面，避免页面 h=1、未水合 ŷ=1.0 污染格子
+          }),
+        });
+        if (!ok) throw new Error(error || (data && data.detail) || "网格失败");
+        if (data && data.background && data.job && data.job.id) {
+          jobId = data.job.id;
+          if (data.reused) {
+            setParamGridBusy(true, `已有网格在跑，接上进度… ${fmtElapsed()}`);
+          }
+        } else if (data && Array.isArray(data.cells)) {
+          renderParamGridResult(data);
+          return data;
+        } else {
+          throw new Error((data && data.error) || "网格未入队");
+        }
       }
-      if (btn) btn.disabled = false;
+      const fullJob = await waitParamGridJob(jobId, started);
+      const result = (fullJob && fullJob.result) || {};
+      if (!result.success && !Array.isArray(result.cells)) {
+        throw new Error(result.error || (fullJob && fullJob.error) || "网格失败");
+      }
+      renderParamGridResult(result);
+      return result;
+    } finally {
+      clearInterval(tick);
+      setParamGridBusy(false);
     }
   }
 
@@ -1060,6 +1255,7 @@ export function installBacktest(q) {
       setQuantBtBusy(true, `${busyBase} ${fmtElapsed()}`);
     }, 1000);
     try {
+      await ensureScoringFloors();
       const {
         lookback,
         top_k,
@@ -1275,6 +1471,22 @@ export function installBacktest(q) {
     }
   }
 
+  async function ensureScoringFloors() {
+    if (state._scoringFloorsHydrated) return state.quantScoringFloors;
+    try {
+      const res = await fetch("/api/quant/strategies");
+      const data = await res.json();
+      const floors = data && data.scoring_floors;
+      if (floors) {
+        state.quantScoringFloors = mergeScoringFloors(state.quantScoringFloors, floors);
+        state._scoringFloorsHydrated = true;
+      }
+    } catch (_) {
+      /* 未水合则 payload 省略，后端用配置 */
+    }
+    return state.quantScoringFloors;
+  }
+
   function portfolioBtScoreFloorPayload(rankMode) {
     return buildBtScoreFloorPayload(state.quantScoringFloors, rankMode);
   }
@@ -1315,6 +1527,7 @@ export function installBacktest(q) {
     renderT0BacktestResult,
     renderUniversePanel,
     renderWfSlices,
+    resumeParamGridJobIfAny,
     runParamGrid,
     runPortfolioBacktest,
     runPortfolioNeutralCompare,

@@ -610,6 +610,8 @@ class QuantReplayMixin:
         exclude_st: bool = True,
         min_avg_amount_pctile: Optional[float] = None,
         rank_mode: str = "predicted_score",
+        progress_cb: Optional[Any] = None,
+        cancel_check: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """top_k × lookback 网格：不落盘北极星；跳过 IC/分层/基准/WF；按 OOS 过门选优。"""
         top_ks = [int(x) for x in (top_k_values or [10, 15, 20]) if 1 <= int(x) <= 40]
@@ -625,6 +627,26 @@ class QuantReplayMixin:
         if len(pairs) > max_n:
             pairs = pairs[:max_n]
         canonical_lookback = max(lb for lb, _tk in pairs) if pairs else max(lookbacks)
+        n_pairs = len(pairs)
+        load_units = 10
+        cell_units = 100
+        job_tot = load_units + max(1, n_pairs) * cell_units
+
+        def _emit(msg: str, cur: int) -> None:
+            if not progress_cb:
+                return
+            try:
+                progress_cb(msg, int(cur), job_tot)
+            except Exception:
+                pass
+
+        def _cancelled() -> bool:
+            if not cancel_check:
+                return False
+            try:
+                return bool(cancel_check())
+            except Exception:
+                return False
 
         cells: List[Dict[str, Any]] = []
         try:
@@ -637,28 +659,167 @@ class QuantReplayMixin:
             )
         except Exception:
             logger.warning("回测导出异常", exc_info=True)
-        for lookback, top_k in pairs:
+
+        from core.backtest.topk_backtest import backtest_topk_equal_weight
+        from core.strategy import backtest_portfolio_defaults
+        from quant.research.portfolio_data import load_portfolio_stock_bars
+
+        bt_def = backtest_portfolio_defaults()
+        # 网格只扫 K：持有期 / ŷ 门槛对齐纸面，不吃页面 research 默认
+        # （replay 未水合时前端曾发 h=1、ŷ=1.0，三格同质且与日报不可比）
+        paper_h = int(bt_def.get("horizon_days") or 3)
+        paper_ymin = bt_def.get("min_predicted_score")
+        horizon_days = paper_h
+        min_predicted_score = paper_ymin
+        weight_mode = str(weight_mode or bt_def.get("weight_mode") or "score_budget")
+        max_position_pct = float(bt_def.get("max_position_pct") or 25.0)
+        max_sector_pct = float(bt_def.get("max_sector_pct") or 40.0)
+
+        resolved = resolve_replay_candidates(codes)
+        if not resolved.get("ok", True) and resolved.get("error"):
+            return {
+                "success": False,
+                "error": resolved["error"],
+                "cells": [],
+                "best": None,
+                "cell_count": 0,
+                "eligible_count": 0,
+                "apply_best_gate": {"allowed": False, "reason": resolved["error"]},
+            }
+        candidates = list(resolved.get("codes") or [])
+        if not candidates:
+            return {
+                "success": False,
+                "error": "验证宇宙为空（检查 watching / validation_universe）",
+                "cells": [],
+                "best": None,
+                "cell_count": 0,
+                "eligible_count": 0,
+                "apply_best_gate": {"allowed": False, "reason": "宇宙为空"},
+            }
+        if _cancelled():
+            return {
+                "success": False,
+                "error": "已取消",
+                "cells": [],
+                "best": None,
+                "cell_count": 0,
+                "eligible_count": 0,
+                "apply_best_gate": {"allowed": False, "reason": "已取消"},
+            }
+
+        load_lb = int(canonical_lookback)
+        logger.info(
+            "param_grid load bars n=%s lookback=%s cells=%s",
+            len(candidates),
+            load_lb,
+            len(pairs),
+        )
+        _emit(f"载入日线 {len(candidates)} 只 · lookback={load_lb}", 2)
+        stock_bars, failures, _fund = load_portfolio_stock_bars(
+            candidates,
+            lookback=load_lb,
+            fetch_fundamentals=False,
+            offline_ok=True,
+        )
+        filter_meta: Dict[str, Any] = {}
+        if exclude_st or min_avg_amount_pctile is not None:
+            from core.backtest.universe_filters import filter_universe_bars
+
+            stock_bars, _dropped, filter_meta = filter_universe_bars(
+                stock_bars,
+                exclude_st=exclude_st,
+                min_avg_amount_pctile=min_avg_amount_pctile,
+            )
+        if len(stock_bars) < 2:
+            err = f"有效日线标的不足（{len(stock_bars)}）"
+            return {
+                "success": False,
+                "error": err,
+                "failures": failures,
+                "cells": [],
+                "best": None,
+                "cell_count": 0,
+                "eligible_count": 0,
+                "apply_best_gate": {"allowed": False, "reason": err},
+            }
+        _emit(f"日线已载入 {len(stock_bars)} 只 · 开始扫格", load_units)
+
+        bars_by_lb: Dict[int, Dict[str, List[dict]]] = {}
+        for lb in {int(x[0]) for x in pairs}:
+            if lb >= load_lb:
+                bars_by_lb[lb] = stock_bars
+            else:
+                bars_by_lb[lb] = {
+                    code: list(bars)[-lb:] for code, bars in stock_bars.items()
+                }
+        ranks_by_lb: Dict[int, Dict[str, Any]] = {}
+        common_kw = dict(
+            horizon_days=horizon_days,
+            min_score=min_score,
+            apply_costs=apply_costs,
+            weight_mode=weight_mode,
+            max_position_pct=max_position_pct,
+            max_sector_pct=max_sector_pct,
+            dropout_n=dropout_n,
+            rank_mode=rank_mode,
+            min_predicted_score=min_predicted_score,
+            apply_tau_buy_gate=False,
+        )
+        for idx, (lookback, top_k) in enumerate(pairs, start=1):
+            if _cancelled():
+                return {
+                    "success": False,
+                    "error": "已取消",
+                    "cells": cells,
+                    "best": None,
+                    "cell_count": len(cells),
+                    "eligible_count": 0,
+                    "apply_best_gate": {"allowed": False, "reason": "已取消"},
+                }
+            logger.info(
+                "param_grid cell %s/%s lookback=%s top_k=%s loaded=%s",
+                idx,
+                len(pairs),
+                lookback,
+                top_k,
+                len(stock_bars),
+            )
+            cell_base = load_units + (idx - 1) * cell_units
+            h_note = (
+                f"h={horizon_days}"
+                + (" 逐日重评分，首格较久" if int(horizon_days) <= 1 else "")
+            )
+            _emit(
+                f"格 {idx}/{n_pairs} · lookback={lookback} K={top_k} · {h_note}",
+                cell_base + 1,
+            )
+            cache = ranks_by_lb.setdefault(int(lookback), {})
+
+            def _bt_progress(
+                msg: str,
+                cur: int = 0,
+                tot: int = 0,
+                _base=cell_base,
+                _idx=idx,
+                _tk=top_k,
+            ) -> None:
+                t = max(1, int(tot or 1))
+                c = max(0, int(cur or 0))
+                within = min(1.0, c / t)
+                _emit(
+                    f"格 {_idx}/{n_pairs} K={_tk} · {msg}",
+                    _base + int(cell_units * 0.9 * within),
+                )
+
             try:
-                raw = self.run_portfolio_backtest(
-                    codes=codes,
-                    lookback=lookback,
+                raw = backtest_topk_equal_weight(
+                    bars_by_lb[int(lookback)],
                     top_k=top_k,
-                    horizon_days=horizon_days,
-                    min_score=min_score,
-                    min_predicted_score=min_predicted_score,
-                    apply_costs=apply_costs,
-                    weight_mode=weight_mode,
-                    dropout_n=dropout_n,
-                    exclude_st=exclude_st,
-                    min_avg_amount_pctile=min_avg_amount_pctile,
-                    rank_mode=rank_mode,
-                    include_cost_compare=False,
-                    include_wf_slices=False,
-                    include_score_ic=False,
-                    include_quantile=False,
-                    include_benchmark=False,
-                    fetch_fundamentals=False,
-                    persist_curve=False,
+                    precomputed_ranks=cache,
+                    progress_cb=_bt_progress if progress_cb else None,
+                    cancel_check=cancel_check,
+                    **common_kw,
                 )
             except Exception as e:
                 raw = {"success": False, "error": str(e)}
@@ -760,6 +921,7 @@ class QuantReplayMixin:
             },
             "horizon_days": int(horizon_days),
             "min_predicted_score": min_predicted_score,
+            "align_paper": True,
             "weight_mode": str(weight_mode or "score_budget"),
             "dropout_n": int(dropout_n or 0),
             "exclude_st": bool(exclude_st),
@@ -767,9 +929,110 @@ class QuantReplayMixin:
             "persist_curve": False,
             "note": (
                 "网格跳过 IC/分层/基准/WF，且不覆盖 north_star 最近回测；"
+                f"口径对齐纸面 h={horizon_days} ŷ≥{min_predicted_score}；"
                 f"trial_count={len(cells)}；过门 {eligible_count} 格；"
-                + (lookback_note or "默认固定页面 lookback，只扫 K。")
+                + (lookback_note or "固定页面 lookback，只扫 K。")
             ),
+        }
+
+    def start_param_grid_job(self, **kwargs: Any) -> Dict[str, Any]:
+        """后台跑参数网格；轮询 ``GET /api/jobs/quant-param-grid``。"""
+        import threading
+
+        from core.job_progress import quant_param_grid_job
+
+        quant_param_grid_job.reclaim_if_stale()
+        if quant_param_grid_job.is_running():
+            return {
+                "ok": True,
+                "success": True,
+                "background": True,
+                "reused": True,
+                "job": quant_param_grid_job.get(),
+            }
+
+        top_ks = [int(x) for x in (kwargs.get("top_k_values") or [10, 15, 20]) if 1 <= int(x) <= 40]
+        lookbacks = [
+            int(x) for x in (kwargs.get("lookback_values") or [120]) if 40 <= int(x) <= 500
+        ]
+        if not top_ks:
+            top_ks = [20]
+        if not lookbacks:
+            lookbacks = [120]
+        max_n = max(1, min(int(kwargs.get("max_cells") or 12), 20))
+        n_pairs = min(max_n, max(1, len(top_ks) * len(lookbacks)))
+        job_total = 10 + n_pairs * 100
+        job_id = quant_param_grid_job.start(
+            kind="param_grid",
+            total=job_total,
+            message=f"排队中… {n_pairs} 格 · 对齐纸面持有期与 ŷ 门槛",
+        )
+
+        def _progress(msg: str, cur: int = 0, tot: int = 0) -> None:
+            t = max(1, int(tot or job_total))
+            c = max(0, int(cur or 0))
+            mapped = max(1, min(job_total - 1, int(round(job_total * c / t))))
+            quant_param_grid_job.update(
+                current=mapped,
+                total=job_total,
+                message=str(msg or "运行中…"),
+                job_id=job_id,
+            )
+
+        def _worker() -> None:
+            stop_hb = threading.Event()
+
+            def _heartbeat() -> None:
+                while not stop_hb.wait(8.0):
+                    if not quant_param_grid_job.touch(job_id=job_id):
+                        return
+
+            hb = threading.Thread(
+                target=_heartbeat, name=f"param-grid-hb-{job_id}", daemon=True
+            )
+            hb.start()
+            try:
+                if quant_param_grid_job.is_cancel_requested():
+                    quant_param_grid_job.finish(error="已取消", job_id=job_id)
+                    return
+                kw = {
+                    k: v
+                    for k, v in kwargs.items()
+                    if k not in ("progress_cb", "cancel_check")
+                }
+                result = self.run_param_grid(
+                    progress_cb=_progress,
+                    cancel_check=quant_param_grid_job.is_cancel_requested,
+                    **kw,
+                )
+                if quant_param_grid_job.is_cancel_requested():
+                    quant_param_grid_job.finish(
+                        error="已取消",
+                        result=result if isinstance(result, dict) else None,
+                        job_id=job_id,
+                    )
+                    return
+                if not result.get("success"):
+                    quant_param_grid_job.finish(
+                        error=str(result.get("error") or "网格失败"),
+                        result=result,
+                        job_id=job_id,
+                    )
+                    return
+                quant_param_grid_job.finish(result=result, job_id=job_id)
+            except Exception as e:
+                quant_param_grid_job.finish(error=str(e), job_id=job_id)
+            finally:
+                stop_hb.set()
+
+        threading.Thread(
+            target=_worker, name=f"param-grid-{job_id}", daemon=True
+        ).start()
+        return {
+            "ok": True,
+            "success": True,
+            "background": True,
+            "job": quant_param_grid_job.get(),
         }
 
     def run_portfolio_neutral_compare(

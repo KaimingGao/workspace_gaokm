@@ -182,6 +182,11 @@ export function buildParamGridMetaText(data, dull) {
   } else {
     t = `完成 ${n} 格 · 过门 ${elig} · 无格满足 OOS≥0 且回撤≤15%`;
   }
+  if (data && data.align_paper) {
+    const h = data.horizon_days != null ? data.horizon_days : "—";
+    const ymin = data.min_predicted_score != null ? data.min_predicted_score : "—";
+    t += ` · 纸面口径 h=${h} ŷ≥${ymin}`;
+  }
   if (data && data.multiple_testing_note) {
     t += ` · ${data.multiple_testing_note}`;
   } else if (data && data.trial_count != null) {
