@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from fastapi import APIRouter, HTTPException
 
 from agent.llm_client import LLMClient
@@ -21,6 +24,7 @@ def health():
         "llm_configured": bool(llm.api_key),
         "llm_available": available,
         "model": llm.model,
+        "model_source": getattr(llm, "model_source", "default"),
         "tools": list(TOOL_NAMES),
         "disclaimer": DISCLAIMER,
         "llm_error": None if available else llm.get_last_error(),

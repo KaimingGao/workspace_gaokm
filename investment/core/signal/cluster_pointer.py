@@ -112,7 +112,8 @@ def publish_cluster_weights_doc(
         from core.signal.factor_taxonomy import strip_removed_factors_from_pool_artifact
 
         strip_removed_factors_from_pool_artifact(active)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_pointer.py", exc_info=True)
         pass
 
     version = int(active.get("version") or 1)

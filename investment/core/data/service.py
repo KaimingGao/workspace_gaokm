@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 import threading
@@ -97,7 +100,8 @@ class MarketDataService:
             return {}
         try:
             return dict(self.ports.quote.batch_query(batch) or {})
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in service.py", exc_info=True)
             return {}
 
     def get_index_bars(
@@ -110,7 +114,8 @@ class MarketDataService:
         raw = str(code or "").strip()
         try:
             bars, label = self.ports.index.fetch_index(raw, limit=int(limit or 120))
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in service.py", exc_info=True)
             bars, label = [], "empty"
         bars = list(bars or [])
         data_source = str(label or "index")
@@ -373,7 +378,8 @@ class MarketDataService:
         if len(codes) == 1:
             try:
                 return [self.get_bars(codes[0], limit=limit, **kwargs).as_dict()]
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in service.py", exc_info=True)
                 _bump_metric("pool_worker_failed")
                 return [self._empty_bars_pack(codes[0])]
 
@@ -387,7 +393,8 @@ class MarketDataService:
                 code = futs[fut]
                 try:
                     out_map[code] = fut.result().as_dict()
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in service.py", exc_info=True)
                     _bump_metric("pool_worker_failed")
                     out_map[code] = self._empty_bars_pack(code)
         return [out_map.get(c) or self._empty_bars_pack(c) for c in codes]
@@ -690,7 +697,8 @@ class MarketDataService:
 
             try:
                 rows = self.ports.spot.load_disk(max_age_hours=SPOT_DISK_MAX_AGE_HOURS)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in service.py", exc_info=True)
                 rows = None
             rows = list(rows or [])
             has_rows = bool(rows)
@@ -720,7 +728,8 @@ class MarketDataService:
             last = getattr(self.ports.spot, "last_source", None)
             if last:
                 src = str(last)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in service.py", exc_info=True)
             pass
         has_rows = bool(rows)
         data = {
@@ -741,6 +750,84 @@ class MarketDataService:
             note=data["note"],
             production_ok=False,
             gate_reason="spot_non_pit" if has_rows else "spot_empty",
+        )
+
+    def get_macro_snapshot(self, *, max_age_hours: float = 36.0) -> DataEnvelope:
+        from core.market_context_store import load_macro_snapshot
+
+        fetched = datetime.now().isoformat(timespec="seconds")
+        snap, meta = load_macro_snapshot(max_age_hours=max_age_hours)
+        ok = isinstance(snap, dict) and bool(snap.get("series"))
+        data = {
+            **(snap or {}),
+            "cache_hit": bool((meta or {}).get("cache_hit")),
+            "success": ok,
+            "note": "跨市场宏观快照；非 PIT。",
+        }
+        return DataEnvelope(
+            kind="macro",
+            code="latest",
+            ok=ok,
+            data=data,
+            data_source=str((meta or {}).get("data_source") or "macro_snapshot"),
+            fetched_at=str((meta or {}).get("fetched_at") or fetched),
+            quality=QualityMeta(level="snapshot" if ok else "empty"),
+            non_pit=True,
+            note=data["note"],
+            production_ok=False,
+            gate_reason="macro_non_pit",
+        )
+
+    def get_market_sentiment_snapshot(self, *, max_age_hours: float = 36.0) -> DataEnvelope:
+        from core.market_context_store import load_market_sentiment_snapshot
+
+        fetched = datetime.now().isoformat(timespec="seconds")
+        snap, meta = load_market_sentiment_snapshot(max_age_hours=max_age_hours)
+        ok = isinstance(snap, dict) and snap.get("success")
+        data = {
+            **(snap or {}),
+            "cache_hit": bool((meta or {}).get("cache_hit")),
+            "success": bool(ok),
+            "note": "市场情绪快照；非 PIT。",
+        }
+        return DataEnvelope(
+            kind="market_sentiment",
+            code="latest",
+            ok=bool(ok),
+            data=data,
+            data_source=str((meta or {}).get("data_source") or "market_sentiment"),
+            fetched_at=str((meta or {}).get("fetched_at") or fetched),
+            quality=QualityMeta(level="snapshot" if ok else "empty"),
+            non_pit=True,
+            note=data["note"],
+            production_ok=False,
+            gate_reason="market_sentiment_non_pit",
+        )
+
+    def get_announcement_snapshot(self, *, max_age_hours: float = 36.0) -> DataEnvelope:
+        from core.market_context_store import load_announcement_snapshot
+
+        fetched = datetime.now().isoformat(timespec="seconds")
+        snap, meta = load_announcement_snapshot(max_age_hours=max_age_hours)
+        ok = isinstance(snap, dict) and snap.get("success")
+        data = {
+            **(snap or {}),
+            "cache_hit": bool((meta or {}).get("cache_hit")),
+            "success": bool(ok),
+            "note": "公告/IPO 扫描快照；非 PIT。",
+        }
+        return DataEnvelope(
+            kind="announcement",
+            code="latest",
+            ok=bool(ok),
+            data=data,
+            data_source=str((meta or {}).get("data_source") or "announcement"),
+            fetched_at=str((meta or {}).get("fetched_at") or fetched),
+            quality=QualityMeta(level="snapshot" if ok else "empty"),
+            non_pit=True,
+            note=data["note"],
+            production_ok=False,
+            gate_reason="announcement_non_pit",
         )
 
     def summarize_data_quality(

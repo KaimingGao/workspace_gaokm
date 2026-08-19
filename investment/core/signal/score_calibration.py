@@ -255,7 +255,8 @@ def _resolve_calibration_horizon(horizon_days: Optional[int] = None) -> int:
         h = (load_signal_config().get("scoring") or {}).get("horizon_days")
         if h is not None and h != "":
             return max(1, min(int(h), 10))
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
         pass
     return 3
 
@@ -315,7 +316,8 @@ def _calibration_universe_codes(
             c = str(row.get("stock_code") or row.get("code") or "").strip()
             if c and c not in watch:
                 watch.append(c)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
         pass
     picked = watch[:limit]
     return picked, {
@@ -459,7 +461,8 @@ def _collect_eod_panel_pairs(
             offline_only=not refresh_bars,
             reject_quote_fallback=True,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
         index_bars = None
 
     rows_out: List[Dict[str, Any]] = []
@@ -474,7 +477,8 @@ def _collect_eod_panel_pairs(
                 offline_only=not refresh_bars,
                 reject_quote_fallback=True,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
             bars = []
         if not bars or len(bars) < 20:
             continue
@@ -484,7 +488,8 @@ def _collect_eod_panel_pairs(
         try:
             wmeta = lookup_code_weights(code, active=active) or {}
             lab = wmeta.get("cluster_label")
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
             lab = None
         if model is None:
             model = global_model
@@ -503,7 +508,8 @@ def _collect_eod_panel_pairs(
                 pit_fundamentals=pit_fundamentals,
                 respect_regime=respect_regime,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
             logger.debug("eod panel collect failed for %s", code, exc_info=True)
             continue
         n_pair = min(len(xs), len(ys), len(dates))
@@ -590,7 +596,8 @@ def _collect_tau_panel_pairs(
         if "09:45" in note or "tau" in str(y_spec.get("tau") or "").lower():
             # 若模型注明分钟 τ，仍优先 open 面板（无分钟则样本过稀）；记录
             meta["rem_y_spec"] = y_spec
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
         pass
     meta["tau_hm"] = tau_hm
     meta["panel_kind"] = "rem_open"
@@ -605,7 +612,8 @@ def _collect_tau_panel_pairs(
                 offline_only=not refresh_bars,
                 reject_quote_fallback=True,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
             bars = []
         if not bars or len(bars) < 20:
             continue
@@ -1003,7 +1011,8 @@ def load_calibration_last_report() -> Optional[Dict[str, Any]]:
     try:
         with open(path, encoding="utf-8") as f:
             doc = json.load(f)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
         return None
     if not isinstance(doc, dict) or not doc.get("success"):
         return None
@@ -1058,7 +1067,8 @@ def eod_calibration_floor_safe(
     if floor is None:
         try:
             fl = float(_resolve_eod_floor())
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
             fl = 0.0
     else:
         fl = float(floor)
@@ -1067,7 +1077,8 @@ def eod_calibration_floor_safe(
         return True, ""
     try:
         g_at = float(apply_isotonic(fl, list(kx), list(ky)))
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
         return False, "eod 校准在门槛处无法求值"
     if g_at + 1e-9 < fl:
         return (
@@ -1082,7 +1093,8 @@ def _resolve_tau_floor() -> float:
         from core.signal.dual_score import get_dual_score_cfg
 
         return float(get_dual_score_cfg().get("min_predicted_score_tau") or 0.0)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
         return 0.0
 
 
@@ -1093,7 +1105,8 @@ def _resolve_eod_floor() -> float:
         scoring = (load_signal_config() or {}).get("scoring") or {}
         if scoring.get("min_predicted_score") is not None:
             return float(scoring.get("min_predicted_score"))
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
         pass
     return 0.0
 
@@ -1122,7 +1135,8 @@ def _head_max_g_clears_floor(
     if floor is None:
         try:
             fl = float(resolve_floor())
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
             fl = float(default_floor)
     else:
         fl = float(floor)
@@ -1199,7 +1213,8 @@ def sync_enable_calibration_flag(enable: bool) -> bool:
 
         load_signal_config(reload=True)
         return True
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
         return False
 
 
@@ -1294,7 +1309,8 @@ def load_calibration_model() -> Optional[Dict[str, Any]]:
     try:
         with open(path, encoding="utf-8") as f:
             doc = json.load(f)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
         return None
     if not isinstance(doc, dict) or not isinstance(doc.get("heads"), dict):
         return None
@@ -1339,7 +1355,8 @@ def reconcile_calibration_switch() -> Dict[str, Any]:
             atomic_write_json(calibration_model_path(), fixed)
             migrated = True
             doc = fixed
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
             pass
     synced = sync_enable_calibration_flag(effective)
     kept, dropped = filter_promotable_heads(
@@ -1494,7 +1511,8 @@ def attach_calibrated_scores(
 
         if is_heuristic_score_scale(item):
             y_eod = None
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
         pass
     if y_eod is None:
         y_score = _f(item.get("score"))
@@ -1594,7 +1612,8 @@ def attach_calibrated_scores(
                     item["score_calibration_partial"] = partial
                 else:
                     item.pop("score_calibration_partial", None)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
         pass
     item["score_calibration_enabled"] = bool(enabled)
     # 方案 A：决策永不吃 g

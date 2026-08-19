@@ -7,6 +7,9 @@
 """
 
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
 from core.numbers import date_key
 
 import json
@@ -281,7 +284,8 @@ def merge_local_fundamentals_snapshot(
         return metrics
     try:
         panel = load_fundamentals_panel(code_s)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in fundamentals_pit.py", exc_info=True)
         return metrics
     history = panel.get("history") or []
     if not history:
@@ -327,7 +331,8 @@ def resolve_fundamentals_for_score(
                 from core.valuation_em import enrich_fundamentals_metrics
 
                 metrics = enrich_fundamentals_metrics(code, metrics) or metrics
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in fundamentals_pit.py", exc_info=True)
                 pass
             return {
                 "ok": bool(metrics),
@@ -349,7 +354,8 @@ def resolve_fundamentals_for_score(
                     from core.valuation_em import enrich_fundamentals_metrics
 
                     metrics = enrich_fundamentals_metrics(code, metrics) or metrics
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in fundamentals_pit.py", exc_info=True)
                     pass
                 return {
                     "ok": bool(metrics),
@@ -391,7 +397,8 @@ def resolve_fundamentals_for_score(
             from core.valuation_em import enrich_fundamentals_metrics
 
             metrics = enrich_fundamentals_metrics(code, metrics) or metrics
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in fundamentals_pit.py", exc_info=True)
             pass
         if ann_miss and ann_pol in ("zero_weight", "omit"):
             return {

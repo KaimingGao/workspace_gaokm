@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 from typing import Any, Dict, List, Optional, Sequence
@@ -445,7 +448,8 @@ def load_rem_last_report() -> Optional[Dict[str, Any]]:
     try:
         with open(path, encoding="utf-8") as f:
             doc = json.load(f)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in rem_ridge.py", exc_info=True)
         return None
     if not isinstance(doc, dict) or not doc.get("success"):
         return None
@@ -527,7 +531,8 @@ def load_rem_model() -> Optional[Dict[str, Any]]:
             doc = json.load(f)
         if isinstance(doc, dict) and isinstance(doc.get("return_model"), dict):
             return doc
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in rem_ridge.py", exc_info=True)
         return None
     return None
 
@@ -584,7 +589,8 @@ def explain_rem_prediction(
     row = features or {}
     try:
         from core.signal.factor_registry import factor_label
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in rem_ridge.py", exc_info=True)
         factor_label = lambda k: str(k)  # noqa: E731
 
     terms: List[Dict[str, Any]] = []

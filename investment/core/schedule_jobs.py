@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 import time
@@ -38,7 +41,8 @@ def _resolve_warmup_codes(
             uni = [str(c).strip() for c in (resolved.get("codes") or []) if str(c).strip()]
             if uni:
                 return uni[: max(1, int(cap))]
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in schedule_jobs.py", exc_info=True)
             pass
     uni_path = os.path.join(DATA_DIR, "watching.json")
     if os.path.isfile(uni_path):
@@ -220,8 +224,72 @@ def run_bars_warmup(
             result["data_service_metrics"] = (
                 summary.get("metrics") or metrics_snapshot()
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in schedule_jobs.py", exc_info=True)
             pass
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def _minute_warmup_core(
+    *,
+    codes: Optional[List[str]] = None,
+    period: str = "5",
+    cap: int = 25,
+) -> Dict[str, Any]:
+    """分钟线预热核心逻辑（无 job slot）。"""
+    from skills.common.minute_history import fetch_a_minute_bars
+
+    watch = _resolve_warmup_codes(codes, cap=max(1, int(cap)))
+    if not watch:
+        return {"ok": False, "error": "无标的：请传 codes 或配置 watching / validation_universe"}
+    warmed = 0
+    errors: List[str] = []
+    for code in watch:
+        bars, meta = fetch_a_minute_bars(
+            code,
+            period=str(period or "5"),
+            use_cache=True,
+            lookback_days=10,
+        )
+        if bars:
+            warmed += 1
+        elif meta.get("error"):
+            errors.append(f"{code}:{meta.get('error')}")
+    return {
+        "ok": warmed > 0 or len(watch) == 0,
+        "kind": "minute_warmup",
+        "period": str(period or "5"),
+        "total": len(watch),
+        "warmed": warmed,
+        "errors": errors[:10],
+        "note": "5 分钟线预热；供 tail_anomaly。",
+    }
+
+
+def run_minute_warmup(
+    *,
+    codes: Optional[List[str]] = None,
+    period: str = "5",
+    cap: int = 25,
+) -> Dict[str, Any]:
+    """预热观察名单 5 分钟线缓存（tail_anomaly / T0 用）。"""
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    watch = _resolve_warmup_codes(codes, cap=max(1, int(cap)))
+    if not watch:
+        return {"ok": False, "error": "无标的：请传 codes 或配置 watching / validation_universe"}
+
+    job_id = slot.start(kind="minute_warmup", total=len(watch), message="预热分钟线…")
+    try:
+        result = _minute_warmup_core(codes=codes, period=period, cap=cap)
         path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
         result["path"] = path
         slot.finish(result=result)
@@ -269,7 +337,8 @@ def run_spot_refresh(*, force: bool = False, enrich_sectors: bool = True) -> Dic
             from core.data.service import metrics_snapshot
 
             result["data_service_metrics"] = metrics_snapshot()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in schedule_jobs.py", exc_info=True)
             pass
         path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
         result["path"] = path
@@ -425,7 +494,14 @@ def run_paper_daily(
         from core.strategy_monitor import assess_strategy_health
         from core.paths import PAPER_PATH
 
-        slot.update(current=1, message="cluster_prepare + run_daily_cycle")
+        slot.update(current=1, message="pre_market + cluster_prepare + run_daily_cycle")
+        pre_market = None
+        try:
+            from core.market_context import ensure_pre_market_context
+
+            pre_market = ensure_pre_market_context()
+        except Exception as exc:
+            pre_market = {"ok": False, "error": str(exc)}
         cluster_prep = None
         try:
             from core.signal.cluster_live import prepare_cluster_for_daily
@@ -516,7 +592,8 @@ def run_paper_daily(
                 north_star = build_north_star_report(paper)
                 paper["last_north_star"] = north_star
                 save_paper(paper, PAPER_PATH)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in schedule_jobs.py", exc_info=True)
                 north_star = None
 
         monitor_alerts = (
@@ -543,6 +620,7 @@ def run_paper_daily(
         result = {
             "ok": True,
             "kind": "paper_daily",
+            "pre_market": pre_market,
             "simulate_buy": bool(simulate_buy),
             "strategy": strategy,
             "cluster_prepare": cluster_prep,
@@ -569,8 +647,77 @@ def run_paper_daily(
 
             result["data_service_metrics"] = data_metrics_snapshot()
             result["signal_service_metrics"] = signal_metrics_snapshot()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in schedule_jobs.py", exc_info=True)
             pass
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_concept_graph_refresh(
+    *,
+    max_concepts: int = 8,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """独立刷新概念成分图谱缓存。"""
+    from core.market_context import refresh_concept_graph
+
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = slot.start(kind="concept_graph_refresh", total=1, message="概念图谱…")
+    try:
+        result = refresh_concept_graph(max_concepts=int(max_concepts or 8), force=bool(force))
+        result = {**result, "kind": "concept_graph_refresh"}
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_macro_backfill(*, lookback: int = 90) -> Dict[str, Any]:
+    """macro 加长 lookback ingest + 历史索引。"""
+    from core.market_context import ingest_macro_backfill
+
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = slot.start(kind="macro_backfill", total=1, message="macro 回填…")
+    try:
+        result = ingest_macro_backfill(lookback=int(lookback or 90))
+        result = {**result, "kind": "macro_backfill"}
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except Exception as e:
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_pre_market_ingest(*, lookback: int = 30) -> Dict[str, Any]:
+    """盘前 bundle：macro + 市场情绪 + 公告/IPO。"""
+    from core.market_context import ingest_pre_market_bundle
+
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = slot.start(kind="pre_market_ingest", total=3, message="盘前上下文…")
+    try:
+        slot.update(current=1, message="macro+sentiment+announcement")
+        result = ingest_pre_market_bundle(lookback=int(lookback or 30))
+        result = {**result, "kind": "pre_market_ingest"}
         path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
         result["path"] = path
         slot.finish(result=result)
@@ -625,6 +772,12 @@ def run_schedule(kind: str, **kwargs: Any) -> Dict[str, Any]:
         return run_sentiment_scan(codes=kwargs.get("codes"), limit=int(kwargs.get("limit") or 5))
     if k == "bars_warmup":
         return run_bars_warmup(codes=kwargs.get("codes"), limit=int(kwargs.get("limit") or 60))
+    if k == "minute_warmup":
+        return run_minute_warmup(
+            codes=kwargs.get("codes"),
+            period=str(kwargs.get("period") or "5"),
+            cap=int(kwargs.get("cap") or 25),
+        )
     if k == "spot_refresh":
         return run_spot_refresh(
             force=bool(kwargs.get("force")),
@@ -659,4 +812,13 @@ def run_schedule(kind: str, **kwargs: Any) -> Dict[str, Any]:
             warmup_sentiment=kwargs.get("warmup_sentiment", True),
             limit=int(kwargs.get("limit") or 60),
         )
+    if k == "pre_market_ingest":
+        return run_pre_market_ingest(lookback=int(kwargs.get("lookback") or 30))
+    if k == "concept_graph_refresh":
+        return run_concept_graph_refresh(
+            max_concepts=int(kwargs.get("max_concepts") or 8),
+            force=bool(kwargs.get("force")),
+        )
+    if k == "macro_backfill":
+        return run_macro_backfill(lookback=int(kwargs.get("lookback") or 90))
     return {"ok": False, "error": f"unknown schedule kind: {kind}"}

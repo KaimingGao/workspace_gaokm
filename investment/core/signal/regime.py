@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.signal.factors.momentum import pct_change
@@ -218,6 +221,7 @@ def _soft_blend_adjustments(
 def assess_regime(
     index_bars: Optional[List[dict]],
     regime_cfg: Optional[dict] = None,
+    macro: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """
     评估市场状态，返回状态信息和参数调整建议。
@@ -359,6 +363,70 @@ def assess_regime(
     adjustments["enabled_factors"] = factor_selection["enabled"]
     adjustments["disabled_factors"] = factor_selection["disabled"]
 
+    macro_overlay: Dict[str, Any] = {"applied": False}
+    if isinstance(macro, dict) and macro.get("overseas_tech_1d_pct") is not None:
+        try:
+            tech_1d = macro.get("overseas_tech_1d_pct")
+            stress = float(macro.get("liquidity_stress_score") or 0.0)
+            macro_cfg = dict((regime_cfg or {}).get("macro_overlay") or {})
+            defer_tech = bool(macro_cfg.get("defer_tech_drag_to_cross_market_prior", True))
+            cross_gate = False
+            if defer_tech:
+                try:
+                    from core.cross_market_prior import get_cross_market_cfg
+
+                    cm = get_cross_market_cfg()
+                    cross_gate = str(cm.get("mode") or "off") == "gate"
+                except Exception:
+                    logger.debug("cross_market cfg read failed", exc_info=True)
+            if macro_cfg.get("enabled", True):
+                trigger = float(macro_cfg.get("tech_drag_trigger_pct") or -1.5)
+                if (
+                    tech_1d is not None
+                    and float(tech_1d) <= trigger
+                    and not (defer_tech and cross_gate)
+                ):
+                    score_penalty = float(score_penalty) + float(
+                        macro_cfg.get("extra_penalty") or 4.0
+                    )
+                    w_adj = dict(adjustments.get("weight_adjustments") or {})
+                    w_adj["momentum"] = round(float(w_adj.get("momentum", 1.0)) * 0.85, 4)
+                    w_adj["relative_strength"] = round(
+                        float(w_adj.get("relative_strength", 1.0)) * 0.9, 4
+                    )
+                    w_adj["quality"] = round(float(w_adj.get("quality", 1.0)) * 1.1, 4)
+                    adjustments["weight_adjustments"] = w_adj
+                    adjustments["position_pct"] = min(
+                        0.15,
+                        float(adjustments.get("position_pct", 0.15)) * 0.85,
+                    )
+                    macro_overlay = {
+                        "applied": True,
+                        "tech_1d_pct": tech_1d,
+                        "liquidity_stress": stress,
+                    }
+                    if reason:
+                        reason = f"{reason}；海外科技拖累({float(tech_1d):+.2f}%)"
+                    else:
+                        reason = f"海外科技拖累({float(tech_1d):+.2f}%)"
+                elif (
+                    tech_1d is not None
+                    and float(tech_1d) <= trigger
+                    and defer_tech
+                    and cross_gate
+                ):
+                    macro_overlay = {
+                        "applied": False,
+                        "deferred_to_cross_market_prior": True,
+                        "tech_1d_pct": tech_1d,
+                    }
+                if stress >= float(macro_cfg.get("liquidity_stress_min") or 1.0):
+                    adjustments["min_score"] = float(adjustments.get("min_score", 65)) + 2
+                    macro_overlay["liquidity_stress"] = stress
+                    macro_overlay["applied"] = True
+        except (TypeError, ValueError):
+            logger.debug("macro overlay skipped", exc_info=True)
+
     return {
         "regime": regime,
         "index_return_pct": round(idx_ret, 2),
@@ -367,6 +435,7 @@ def assess_regime(
         "reason": reason,
         "adjustments": adjustments,
         "blend": blend_meta,
+        "macro_overlay": macro_overlay,
     }
 
 

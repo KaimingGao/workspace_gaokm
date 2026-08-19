@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 from typing import Any, Dict, List, Optional, Sequence
@@ -259,7 +262,8 @@ def persist_pool_artifact(artifact: Dict[str, Any]) -> Optional[str]:
         with open(path, "w", encoding="utf-8") as f:
             json.dump(slim, f, ensure_ascii=False, indent=2)
         return path
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_multi_score.py", exc_info=True)
         return None
 
 
@@ -274,7 +278,8 @@ def load_persisted_pool_artifact() -> Optional[Dict[str, Any]]:
             data = json.load(f)
         if isinstance(data, dict) and data.get("code_map"):
             return data
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_multi_score.py", exc_info=True)
         return None
     return None
 

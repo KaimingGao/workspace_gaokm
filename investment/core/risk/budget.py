@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -429,7 +432,8 @@ def qp_lite_weights(
     problem = cp.Problem(objective, constraints)
     try:
         problem.solve(solver=cp.SCS, warm_start=True, verbose=False)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in budget.py", exc_info=True)
         try:
             problem.solve(verbose=False)
         except Exception as e:
@@ -458,7 +462,8 @@ def qp_lite_weights(
         stats = getattr(problem, "solver_stats", None)
         if stats is not None and getattr(stats, "solver_name", None):
             solver_name = str(stats.solver_name)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in budget.py", exc_info=True)
         pass
     meta.update(
         {

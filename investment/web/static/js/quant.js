@@ -8,6 +8,7 @@ import {
   setUiBusy,
 } from "./shared.js";
 import { apiFetch } from "./api_client.js";
+import { loadAndPaintMacroStrip } from "./macro_context_ui.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "./lw_charts.js";
 import { mountVirtualTable, colStyle } from "./virtual_table.js";
 import { createScoreTooltipController } from "./score_tooltip.js?v=p1128";
@@ -543,6 +544,12 @@ export function initQuant(ctx) {
       if (hasStrategy) {
         foreground.push(strategy.loadSignalConfigPanel().catch(() => {}));
         foreground.push(strategy.loadStrategyList().catch(() => {}));
+      }
+      const macroStrip = document.getElementById("quant-macro-context-strip");
+      if (macroStrip) {
+        foreground.push(
+          loadAndPaintMacroStrip(macroStrip, apiFetch, escapeHtml).catch(() => {})
+        );
       }
       // 前台只等名单/策略骨架，超时也放行，避免右侧一直「加载观察…」
       if (foreground.length) {
@@ -1868,6 +1875,45 @@ export function initQuant(ctx) {
     });
   });
   strategy.loadSentimentPriorForm?.().catch(() => {});
+
+  const mctxRefreshBtn = document.getElementById("strategy-mctx-refresh");
+  if (mctxRefreshBtn) {
+    mctxRefreshBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      strategy.refreshMarketContextPanel?.().catch(() => {});
+    });
+  }
+  const mctxSaveBtn = document.getElementById("strategy-mctx-save");
+  if (mctxSaveBtn) {
+    mctxSaveBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      strategy.saveStrategyMarketPrior?.().catch(() => {});
+    });
+  }
+  document.querySelectorAll('input[name="strategy-mctx-mode"]').forEach((el) => {
+    el.addEventListener("change", () => {
+      strategy.syncMctxGateOptsVisibility?.();
+    });
+  });
+  document.querySelectorAll('input[name="strategy-msp-mode"]').forEach((el) => {
+    el.addEventListener("change", () => {
+      strategy.syncMspGateOptsVisibility?.();
+    });
+  });
+  document.querySelectorAll('input[name="strategy-reg-mode"]').forEach((el) => {
+    el.addEventListener("change", () => {
+      strategy.syncRegGateOptsVisibility?.();
+    });
+  });
+  document.querySelectorAll('input[name="strategy-ipo-mode"]').forEach((el) => {
+    el.addEventListener("change", () => {
+      strategy.syncIpoGateOptsVisibility?.();
+    });
+  });
+  strategy.loadMarketPriorForm?.().catch(() => {});
+  if (page === "strategy") {
+    strategy.loadMarketContextPanel?.().catch(() => {});
+  }
 
   ctx.applyQuantArtifact = async function applyQuantArtifact(art) {
     const data = (art && art.data) || {};

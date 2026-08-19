@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -250,7 +253,8 @@ def summarize_risk_blocks(
                 day = dt.strftime("%Y-%m-%d")
                 iso = dt.isocalendar()
                 week = f"{iso[0]}-W{iso[1]:02d}"
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in north_star.py", exc_info=True)
                 day = raw[:10] if len(raw) >= 10 else raw
                 week = day
         return day, week
@@ -437,7 +441,8 @@ def build_north_star_report(
         # TTM 阶段瓶颈
         try:
             ttm_stage = summarize_ttm_stages()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in north_star.py", exc_info=True)
             ttm_stage = None
         r1["ttm_stage"] = ttm_stage
 
@@ -445,7 +450,8 @@ def build_north_star_report(
         op_log = list(paper.get("operation_log") or [])
         try:
             block_audit_summary = summarize_block_audit(op_log)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in north_star.py", exc_info=True)
             block_audit_summary = None
         r1["block_audit"] = block_audit_summary
 
@@ -468,7 +474,8 @@ def build_north_star_report(
         try:
             from core.north_star_pro import north_star_degradation_report
             r1["degradation"] = north_star_degradation_report(sharpe_series, corr_series, ttm_series, window=3)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in north_star.py", exc_info=True)
             r1["degradation"] = {"alerts": {}, "any_degrading": False, "degrading_dimensions": []}
     except Exception as _exc:
         r1["error"] = f"R1增强计算异常: {_exc}"

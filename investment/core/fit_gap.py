@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
 
@@ -125,7 +128,8 @@ def fit_gap_hints(
                 ),
             }
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in fit_gap.py", exc_info=True)
         pass
     try:
         from core.signal.factor_health import assess_factor_health
@@ -139,7 +143,8 @@ def fit_gap_hints(
                     "message": "伪因子权重：" + "; ".join(fh.get("blockers") or [])[:200],
                 }
             )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in fit_gap.py", exc_info=True)
         pass
 
     status = str(rz.get("status") or "")
@@ -302,7 +307,8 @@ def fit_gap_hints(
                 ),
             }
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in fit_gap.py", exc_info=True)
         pass
 
     if params.get("rebalance_days") or params.get("horizon_days"):
@@ -357,7 +363,8 @@ def fit_gap_hints(
         from core.signal.live_features import build_quality_policy_snapshot
 
         quality_policy = build_quality_policy_snapshot()
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in fit_gap.py", exc_info=True)
         quality_policy = None
     out: Dict[str, Any] = {
         "ok": True,

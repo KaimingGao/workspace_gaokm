@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.signal.config import get_stance_thresholds, load_signal_config
@@ -91,7 +94,8 @@ def _fit_yhat_model_on_bars(
             horizon_days=horizon_days,
             max_window=30,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in threshold_suggest.py", exc_info=True)
         return None
     model, _rep = fit_return_model_from_panel(
         xs,
@@ -581,7 +585,8 @@ def suggest_stance_thresholds_from_watching_oos(
             from core.signal.cluster_live import load_cluster_return_models_by_code
 
             models_by_code = load_cluster_return_models_by_code() or {}
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in threshold_suggest.py", exc_info=True)
             models_by_code = {}
 
     best_waits: List[float] = []

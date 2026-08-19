@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
 VALID_OUTCOMES = frozenset(
@@ -112,7 +115,8 @@ def annotate_risk_block(
             from core.paper import _now_iso
 
             meta["outcome_at"] = _now_iso()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in block_outcome.py", exc_info=True)
             pass
     entry["meta"] = meta
     logs[target_i] = entry

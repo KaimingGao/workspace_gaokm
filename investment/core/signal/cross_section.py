@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.signal.config import get_rank_defaults, load_signal_config
@@ -42,6 +45,13 @@ def rank_cross_section(
     if not codes:
         return {"success": False, "error": "候选池为空"}
 
+    try:
+        from core.signal.minute_prefetch import maybe_prefetch_for_tail_anomaly
+
+        maybe_prefetch_for_tail_anomaly(list(codes), config=cfg)
+    except Exception:
+        logger.debug("tail_anomaly minute prefetch skipped", exc_info=True)
+
     scored_items: List[dict] = []
     rejected: List[dict] = []
     for raw in codes[:50]:
@@ -74,7 +84,8 @@ def rank_cross_section(
         )
 
         oos_blocked = codes_in_oos_failed_clusters()
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cross_section.py", exc_info=True)
         oos_blocked = set()
 
         def is_oos_failed_cluster_label(_lab):  # type: ignore
@@ -130,7 +141,8 @@ def rank_cross_section(
             cluster_models = filter_primary_cluster_models_by_code(
                 load_cluster_return_models_by_code()
             )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cross_section.py", exc_info=True)
         cluster_models = {}
     return_model, model_meta = load_return_model(prefer_active=True)
     if cluster_models:

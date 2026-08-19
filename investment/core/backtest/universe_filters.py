@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -50,7 +53,8 @@ def filter_universe_bars(
                     q = get_quote(code)
                     if q.get("success"):
                         name = str(q.get("stock_name") or q.get("name") or "")
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort / 非阻塞分支降级
+                    logger.debug("exception caught in universe_filters.py line 56", exc_info=True)
                     name = ""
             if _is_st_name(name):
                 dropped.append(

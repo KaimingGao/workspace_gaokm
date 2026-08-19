@@ -8,6 +8,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
 EVENT_PRIOR_REASON = "event_prior_theme_gap"
@@ -39,7 +42,8 @@ def get_event_prior_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
             from core.signal.config import load_signal_config
 
             config = load_signal_config()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in event_prior.py", exc_info=True)
             config = {}
     raw = dict(DEFAULT_EVENT_PRIOR)
     raw.update(dict((config or {}).get("event_prior") or {}))
@@ -343,7 +347,8 @@ def compute_sector_gap_breadth_live(
                 peers.append(str(focus_code).strip())
             if len(peers) >= 3:
                 peer_codes = peers
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in event_prior.py", exc_info=True)
             peer_codes = list(uniq)
 
     got = dict(quotes or {})
@@ -351,7 +356,8 @@ def compute_sector_gap_breadth_live(
     if missing:
         try:
             got.update(batch_get_quotes(missing) or {})
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in event_prior.py", exc_info=True)
             pass
     gaps: Dict[str, Optional[float]] = {}
     for c in peer_codes:

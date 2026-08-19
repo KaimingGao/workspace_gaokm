@@ -12,6 +12,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional, Tuple
 
 TRACK_PREDICTED = "predicted"
@@ -43,7 +46,8 @@ def get_rebalance_tracks_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
         from core.signal.config import load_signal_config
 
         cfg = config if isinstance(config, dict) else load_signal_config()
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in rebalance_tracks.py", exc_info=True)
         cfg = config if isinstance(config, dict) else {}
     cs = (cfg or {}).get("cluster_scoring") if isinstance(cfg, dict) else {}
     if not isinstance(cs, dict):
@@ -97,7 +101,8 @@ def resolve_oos_status(
 
             if is_oos_failed_cluster_label(lab):
                 return OOS_FAIL
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in rebalance_tracks.py", exc_info=True)
             pass
     if src in ("cluster_group_beta", "global", "cluster_shadow_fallback"):
         return OOS_PASS
@@ -109,7 +114,8 @@ def _infer_item_scale(item: Optional[dict]) -> str:
         from core.signal.gate import infer_score_scale
 
         return str(infer_score_scale(item) or "")
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in rebalance_tracks.py", exc_info=True)
         return str((item or {}).get("score_scale") or "") if isinstance(item, dict) else ""
 
 
@@ -187,7 +193,8 @@ def resolve_score_track(item: Optional[dict]) -> str:
 
         if is_heuristic_score_scale(item):
             return TRACK_HEURISTIC
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in rebalance_tracks.py", exc_info=True)
         if str(item.get("return_model_source") or "") == "oos_failed_heuristic":
             return TRACK_HEURISTIC
         if str(item.get("score_scale") or "") == "heuristic_0_100":
@@ -279,7 +286,8 @@ def buy_gate_for_item(
         from core.signal.dual_score import eod_gate_score_for_item
 
         gate = eod_gate_score_for_item(item)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in rebalance_tracks.py", exc_info=True)
         gate = item.get("predicted_score")
     try:
         gate_f = float(gate) if gate is not None and gate != "" else None
@@ -326,7 +334,8 @@ def _oos_predicted_hold_score(item: Optional[dict]) -> Optional[float]:
         return sc_f
     except (TypeError, ValueError):
         return None
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in rebalance_tracks.py", exc_info=True)
         return None
 
 
@@ -392,7 +401,8 @@ def hold_decision_for_item(
             sc = decision_score_for_item(item)
             if sc is not None:
                 sc = float(sc)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in rebalance_tracks.py", exc_info=True)
             sc = None
         if sc is None:
             try:

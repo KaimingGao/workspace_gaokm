@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Literal, Optional
 
@@ -50,7 +53,8 @@ def _cluster_book_market_shock_reason(
         from core.data.service import get_default_service
 
         quotes = dict(get_default_service().batch_get_quotes(codes) or {})
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance_orchestrator.py", exc_info=True)
         return None
     if not quotes:
         return None
@@ -95,7 +99,8 @@ def resolve_rebalance_mode(
         scoring_mode = str(
             (get_cluster_scoring_cfg() or {}).get("mode") or "off"
         ).strip().lower()
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance_orchestrator.py", exc_info=True)
         scoring_mode = "off"
     use_cluster = bool(cluster_mode) or bool(
         (rules.get("cluster_mode") if isinstance(rules, dict) else False)
@@ -289,7 +294,8 @@ def _run_cross_section(
     sid = str(paper.get("strategy_id") or "short_conservative").strip()
     try:
         apply_strategy_to_paper(paper, sid)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance_orchestrator.py", exc_info=True)
         pass
 
     k, lim = _resolve_top_k_limit(paper, top_k=top_k, limit=limit)
@@ -435,7 +441,8 @@ def _run_cluster_book(
     sid = str(paper.get("strategy_id") or "short_conservative").strip()
     try:
         apply_strategy_to_paper(paper, sid)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance_orchestrator.py", exc_info=True)
         pass
 
     if ranked is None:
@@ -446,7 +453,8 @@ def _run_cluster_book(
             from core.signal.cluster_live import assess_cluster_live_health
 
             health = assess_cluster_live_health()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_rebalance_orchestrator.py", exc_info=True)
             health = {"alerts": []}
 
     if not ranked.get("success"):
@@ -482,6 +490,7 @@ def _run_cluster_book(
         respect_max_positions=False,
         score_lookup=score_rows,
         skip_sentiment_prior=(reused and not dry_run),
+        skip_market_prior=(reused and not dry_run),
     )
     return {
         "success": True,

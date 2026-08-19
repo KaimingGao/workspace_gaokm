@@ -5,6 +5,9 @@ ScoreResult / BookResult 提供属性访问；as_dict() 与历史 dict 契约对
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -67,7 +70,8 @@ class ScoreResult:
             from core.signal.dual_score import rank_key_for_item
 
             rank_key = rank_key_for_item(item)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in types.py", exc_info=True)
             rank_key = blend if blend is not None else predicted
         code = str(
             pack.get("stock_code")

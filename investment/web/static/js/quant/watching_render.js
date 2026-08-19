@@ -2,6 +2,7 @@
  * 观察池 HTML 渲染 helpers（纯字符串 / 轻量 DOM 写入）。
  */
 import { escapeHtml } from "../shared.js";
+import { marketPriorDetailFields, tailAnomalyDetailFields } from "../score_tooltip.js";
 import { watchingNameSpanHtml } from "./names.js";
 
 export function describeWatchingSource(src, index) {
@@ -99,6 +100,7 @@ export function watchingScoreDetail(it) {
       }
     : null;
   return JSON.stringify({
+    stock_code: (it && (it.stock_code || it.code)) || null,
     predicted_score: it && it.predicted_score != null ? it.predicted_score : it && it.score,
     score: it && it.score != null ? it.score : it && it.predicted_score,
     predicted_score_tau:
@@ -174,6 +176,8 @@ export function watchingScoreDetail(it) {
     alt_sentiment_in_yhat: !!(it && it.alt_sentiment_in_yhat),
     risk_hints: ((it && it.risk_hints) || []).slice(0, 3),
     warnings: ((it && it.warnings) || []).slice(0, 3),
+    ...marketPriorDetailFields(it),
+    ...tailAnomalyDetailFields(it),
   });
 }
 

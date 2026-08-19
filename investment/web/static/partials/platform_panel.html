@@ -34,6 +34,21 @@
           · <a href="/quant">去研究枢纽修改</a>
         </p>
         <label class="platform-field">
+          LLM 模型
+          <input
+            id="memory-llm-model"
+            type="text"
+            spellcheck="false"
+            autocomplete="off"
+            placeholder="qwen-plus"
+            aria-describedby="memory-llm-model-hint"
+          />
+        </label>
+        <p class="platform-hint" id="memory-llm-model-hint">
+          对话 / 舆情 LLM 模型名（如 <code>qwen-plus</code>）。
+          保存写入 <code>investment/.env</code> 的 <code>DASHSCOPE_MODEL</code>，立即生效。
+        </p>
+        <label class="platform-field">
           备注
           <textarea id="memory-notes" rows="2" spellcheck="false" placeholder="投资风格备注…"></textarea>
         </label>

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 from datetime import datetime, timezone
@@ -123,7 +126,8 @@ def promote_return_model_draft(
                 "factor_health": guard.get("factor_health"),
                 "hint": "proxy 因子系数须为 0；确需放行在 note 写 force=1",
             }
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in return_score_store.py", exc_info=True)
         pass
     _ensure_dirs()
     promoted_at = _utc_now()

@@ -84,7 +84,8 @@ async def _broadcast(payload: Dict[str, Any]) -> None:
     for ws in list(_clients):
         try:
             await ws.send_text(raw)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in live_ws.py", exc_info=True)
             dead.append(ws)
     for ws in dead:
         _clients.discard(ws)
@@ -98,7 +99,8 @@ async def _pump_loop() -> None:
                 await _broadcast(snap)
         except asyncio.CancelledError:
             raise
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in live_ws.py", exc_info=True)
             logger.exception("ws live pump failed")
         await asyncio.sleep(_INTERVAL_SEC)
 
@@ -133,7 +135,8 @@ async def ws_live(websocket: WebSocket):
                 await websocket.send_text(json.dumps({"type": "pong", "ts": time.time()}))
     except WebSocketDisconnect:
         pass
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in live_ws.py", exc_info=True)
         logger.debug("ws client closed", exc_info=True)
     finally:
         _clients.discard(websocket)

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 
@@ -347,7 +350,8 @@ def compare_partition_vs_active(
             from core.signal.cluster_live import load_active_cluster_weights
 
             active = load_active_cluster_weights()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_oos_labels.py", exc_info=True)
             active = None
 
     oos_err, oos_detail = compare_oos_vs_active(
@@ -447,7 +451,8 @@ def compare_partition_vs_active(
         )
         if not sector_ok:
             warnings.append("选股簿行业占比超上限（约束装填后仍超则检查配置）")
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_oos_labels.py", exc_info=True)
         checklist.append(
             {
                 "id": "portfolio_health",

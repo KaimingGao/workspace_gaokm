@@ -1,6 +1,9 @@
 """Golden eval 服务（Web / CLI 共用）。"""
 
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
 from core.numbers import now_iso_local as _now_iso
 
 import json

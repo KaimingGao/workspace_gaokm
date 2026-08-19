@@ -41,6 +41,12 @@ def fetch_index_bars(benchmark: str, limit: int = 30) -> Tuple[List[dict], str]:
         "hsi": ("HSI", "恒生指数"),
         "恒生": ("HSI", "恒生指数"),
         "恒生指数": ("HSI", "恒生指数"),
+        "sox": ("index", "费城半导体"),
+        "费城半导体": ("index", "费城半导体"),
+        "ndx": ("index", "纳斯达克"),
+        "纳斯达克": ("index", "纳斯达克"),
+        "qqq": ("us_etf", "QQQ"),
+        "kweb": ("us_etf", "KWEB"),
     }
     # 允许大小写混合的原始 key（如 SH000001）
     raw_key = (benchmark or "").strip()
@@ -49,6 +55,18 @@ def fetch_index_bars(benchmark: str, limit: int = 30) -> Tuple[List[dict], str]:
         symbol, label = mapping[raw_key.lower()]
     if not symbol:
         return [], ""
+
+    if symbol == "index" and label:
+        from skills.macro.engine import _fetch_global_index
+
+        bars, src = _fetch_global_index(label, limit=limit)
+        return bars, label or src
+
+    if symbol == "us_etf" and label:
+        from skills.macro.engine import _fetch_us_etf
+
+        bars, src = _fetch_us_etf(label, limit=limit)
+        return bars, label or src
 
     end = datetime.now()
     start = end - timedelta(days=max(90, limit * 3))

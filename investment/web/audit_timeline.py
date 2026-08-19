@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 import time
@@ -77,7 +80,8 @@ def build_audit_timeline(*, limit: int = 40) -> Dict[str, Any]:
                     "href": "/platform",
                 }
             )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in audit_timeline.py", exc_info=True)
         try:
             if os.path.isfile(SCHEDULE_LAST_RUN_PATH):
                 with open(SCHEDULE_LAST_RUN_PATH, encoding="utf-8") as f:
@@ -91,7 +95,8 @@ def build_audit_timeline(*, limit: int = 40) -> Dict[str, Any]:
                         "href": "/platform",
                     }
                 )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in audit_timeline.py", exc_info=True)
             pass
 
     try:
@@ -107,7 +112,8 @@ def build_audit_timeline(*, limit: int = 40) -> Dict[str, Any]:
                     "href": "/follow",
                 }
             )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in audit_timeline.py", exc_info=True)
         pass
 
     try:
@@ -123,7 +129,8 @@ def build_audit_timeline(*, limit: int = 40) -> Dict[str, Any]:
                     "href": "/strategy",
                 }
             )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in audit_timeline.py", exc_info=True)
         pass
 
     events.sort(key=lambda ev: str(ev.get("ts") or ""), reverse=True)

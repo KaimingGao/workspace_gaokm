@@ -8,6 +8,8 @@ export function initPlatform(ctx) {
 
   const riskEl = document.getElementById("memory-risk");
   const horizonDisplay = document.getElementById("memory-horizon-display");
+  const llmModelEl = document.getElementById("memory-llm-model");
+  const llmModelHint = document.getElementById("memory-llm-model-hint");
   const notesEl = document.getElementById("memory-notes");
   const decisionList = document.getElementById("decision-list");
   const feedbackOut = document.getElementById("feedback-out");
@@ -49,6 +51,18 @@ export function initPlatform(ctx) {
     return Math.max(1, Math.min(10, Math.round(n)));
   }
 
+  function formatLlmModelHint(prefs) {
+    const effective = prefs.llm_model || "qwen-plus";
+    const source = prefs.llm_model_source || "default";
+    if (source === "env") {
+      return `当前生效 ${effective}（.env · DASHSCOPE_MODEL）`;
+    }
+    if (source === "memory") {
+      return `当前生效 ${effective}（memory.json 遗留项；建议改 .env）`;
+    }
+    return `当前生效 ${effective}（默认；保存后写入 .env）`;
+  }
+
   async function loadMemory() {
     const res = await fetch("/api/memory");
     const data = await res.json();
@@ -56,11 +70,16 @@ export function initPlatform(ctx) {
     if (riskEl && prefs.risk_style) riskEl.value = prefs.risk_style;
     cachedHorizonDays = clampHorizonDays(prefs.horizon_days, 1);
     if (horizonDisplay) horizonDisplay.textContent = String(cachedHorizonDays);
+    if (llmModelEl) {
+      llmModelEl.value = prefs.llm_model_saved || prefs.llm_model || "";
+      llmModelEl.disabled = false;
+    }
+    if (llmModelHint) llmModelHint.textContent = formatLlmModelHint(prefs);
     if (notesEl) notesEl.value = prefs.notes || "";
     setMeta(
       data.exists
-        ? `已加载偏好 · 研究默认 horizon=${cachedHorizonDays}d（只读；改在研究枢纽）`
-        : "尚无 memory.json · 可保存风险风格/备注"
+        ? `已加载偏好 · 研究默认 horizon=${cachedHorizonDays}d · LLM=${prefs.llm_model || "qwen-plus"}`
+        : "尚无 memory.json · 可保存风险风格/LLM 模型/备注"
     );
     return data;
   }
@@ -70,6 +89,7 @@ export function initPlatform(ctx) {
       risk_style: riskEl ? riskEl.value : "balanced",
       // 保留既有研究默认，避免平台保存时把 horizon 冲掉
       horizon_days: cachedHorizonDays,
+      llm_model: llmModelEl ? llmModelEl.value.trim() : "",
       notes: notesEl ? notesEl.value : "",
     };
     const res = await fetch("/api/memory", {
@@ -82,8 +102,13 @@ export function initPlatform(ctx) {
     const eff = data.effective || data.preferences || preferences;
     cachedHorizonDays = clampHorizonDays(eff.horizon_days, cachedHorizonDays);
     if (horizonDisplay) horizonDisplay.textContent = String(cachedHorizonDays);
+    if (llmModelHint) llmModelHint.textContent = formatLlmModelHint(eff);
+    if (llmModelEl) {
+      llmModelEl.value = eff.llm_model_saved || eff.llm_model || llmModelEl.value;
+      llmModelEl.disabled = false;
+    }
     setMeta(
-      `偏好已保存 · 研究默认 horizon=${cachedHorizonDays}d 仍只影响研究/回测`
+      `偏好已保存 · 研究默认 horizon=${cachedHorizonDays}d · LLM=${eff.llm_model || "qwen-plus"}`
     );
     return data;
   }

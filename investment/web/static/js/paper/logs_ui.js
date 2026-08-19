@@ -186,6 +186,12 @@ function renderLogItem(l) {
       secondaryParts.push(`评分 ${fmtScore(meta.score)}`);
     }
     if (meta.note) secondaryParts.push(String(meta.note));
+    if (meta.sentiment_prior) {
+      secondaryParts.unshift("舆情 prior · 不改 ŷ");
+    }
+    if (meta.market_prior) {
+      secondaryParts.unshift("M prior · 不改 ŷ");
+    }
   } else {
     primary = String(l.detail || "—");
     if (origin && (l.type === "buy" || l.type === "sell" || l.type === "sync_paper")) {
@@ -209,11 +215,18 @@ function renderLogItem(l) {
   }
   const secondary = secondaryParts.filter(Boolean).join(" · ");
   const when = fmtTs(l.ts);
+  const priorBadges =
+    (meta.market_prior
+      ? `<span class="paper-market-prior-badge" title="M prior · 不改 ŷ">M</span> `
+      : "") +
+    (meta.sentiment_prior
+      ? `<span class="watching-sent-badge is-bear" title="舆情 prior · 不改 ŷ">S</span> `
+      : "");
   return (
     `<div class="paper-log-item ${cls}" title="${escapeText(when.title || `${when.date} ${when.time}`)}">` +
     `<span class="paper-log-type">${label}</span>` +
     `<div class="paper-log-body">` +
-    `<div class="paper-log-primary">${escapeText(primary)}` +
+    `<div class="paper-log-primary">${priorBadges}${escapeText(primary)}` +
     (pnlHtml ? ` · ${pnlHtml}` : "") +
     `</div>` +
     (secondary ? `<div class="paper-log-secondary">${escapeText(secondary)}</div>` : "") +
@@ -301,6 +314,63 @@ function renderLogs(list, kind, showAllState) {
   return body + more;
 }
 
+export function buildPaperLogsCsv(logs, { tradingOnly = true } = {}) {
+  const tradingTypes = new Set([
+    "buy",
+    "sell",
+    "rebalance",
+    "cluster_pool_rebalance",
+    "sync_paper",
+  ]);
+  const rows = (logs || []).filter((l) =>
+    tradingOnly ? tradingTypes.has(l.type) : true
+  );
+  const esc = (v) => {
+    const s = v == null ? "" : String(v);
+    if (/[",\n]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
+    return s;
+  };
+  const header = [
+    "ts",
+    "type",
+    "type_label",
+    "code",
+    "name",
+    "shares",
+    "price",
+    "amount",
+    "sentiment_prior",
+    "market_prior",
+    "origin",
+    "note",
+    "detail",
+  ];
+  const lines = [header.join(",")];
+  for (const l of rows) {
+    const meta = l.meta || {};
+    lines.push(
+      [
+        l.ts,
+        l.type,
+        l.type_label,
+        meta.stock_code,
+        meta.stock_name,
+        meta.shares,
+        meta.price,
+        meta.amount != null ? meta.amount : meta.actual_cost,
+        meta.sentiment_prior ? 1 : 0,
+        meta.market_prior ? 1 : 0,
+        meta.origin,
+        meta.note,
+        l.detail,
+      ]
+        .map(esc)
+        .join(",")
+    );
+  }
+  return lines.join("\n");
+}
+
 export function buildPaperLogsView(data, showAllState) {
   const logs = (data && data.operation_log) || [];
   const tradingTypes = new Set([
@@ -317,6 +387,9 @@ export function buildPaperLogsView(data, showAllState) {
     tradingHtml: renderLogs(tradingLogs, "trading", showAllState),
     fundHtml: renderLogs(fundLogs, "fund", showAllState),
     hasFundLogs: fundLogs.length > 0,
+    tradingCount: tradingLogs.length,
+    tradingLogs,
+    allLogs: logs,
   };
 }
 

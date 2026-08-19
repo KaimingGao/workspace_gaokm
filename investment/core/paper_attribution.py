@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 
@@ -17,7 +20,8 @@ def _sector_for(code: str, sector: Optional[str] = None) -> str:
         from core.portfolio_optimize import load_sector_map
 
         return _sf(code, load_sector_map())
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_attribution.py", exc_info=True)
         return "其他"
 
 

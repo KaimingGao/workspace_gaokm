@@ -648,6 +648,11 @@
   color: var(--ink-2);
 }
 
+.paper-rebalance-mctx {
+  border-left: 3px solid color-mix(in srgb, var(--warn, #d97706) 45%, transparent);
+  padding-left: 8px;
+}
+
 .follow-reset:hover {
   background: #fee2e2;
 }

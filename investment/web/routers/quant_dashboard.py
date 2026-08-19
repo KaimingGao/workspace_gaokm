@@ -2,6 +2,7 @@
 
 GET /api/dashboard/kpis           — 核心指标（Sharpe / 回撤 / 胜率 …）
 GET /api/dashboard/market-overview — 市场监控（指数 / 涨跌家数 / 成交额 / 涨停跌停）
+GET /api/dashboard/market-context — 盘前 macro/情绪/公告 prior 上下文
 GET /api/dashboard/nav-curve      — 累计净值曲线（含基准对比与相关性）
 GET /api/dashboard/sector-heatmap — 板块/行业涨跌热力（含成交量/市值/个股数）
 GET /api/dashboard/signals        — 最新信号 / 告警
@@ -17,6 +18,9 @@ GET /api/dashboard/drawdown-chart — Dashboard 回撤时序图数据
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
@@ -38,7 +42,8 @@ def _load_raw_paper() -> Dict[str, Any]:
 
         paper = load_paper(path)
         return paper if isinstance(paper, dict) else {}
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return {}
 
 
@@ -108,7 +113,8 @@ def _equity_curve_with_live(paper: Dict[str, Any]) -> List[Dict[str, Any]]:
         work = dict(paper)
         work["snapshots"] = snapshots_for_ui(paper, summary)
         return _equity_curve_from_paper(work)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return _equity_curve_from_paper(paper)
 
 
@@ -140,7 +146,8 @@ def _holding_sector(h: Dict[str, Any], sector_map: Optional[Dict[str, str]] = No
         from core.portfolio_optimize import _sector_for, load_sector_map
 
         return str(_sector_for(code, sector_map if sector_map is not None else load_sector_map()))
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return "其他"
 
 
@@ -156,7 +163,8 @@ def _north_star_from_paper(paper: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         from core.north_star import build_north_star_report
 
         return build_north_star_report(paper)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return None
 
 
@@ -189,7 +197,8 @@ def _fetch_index_bars_bounded(
 
     try:
         from core.data_service import get_index_bars
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return []
 
     box: Dict[str, Any] = {"raw": None, "err": None}
@@ -235,7 +244,8 @@ def _build_kpis() -> Dict[str, Any]:
         from core.paper import mark_to_market
 
         live_summary = mark_to_market(paper) if paper else None
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         live_summary = None
     if isinstance(live_summary, dict):
         tp = live_summary.get("today_pnl_pct")
@@ -395,7 +405,8 @@ def _build_kpis() -> Dict[str, Any]:
                         "return_pct": s.get("total_return_pct") or s.get("return_pct") or 0,
                         "sharpe": s.get("sharpe") or s.get("rolling_sharpe") or 0,
                     })
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         pass
     if strategies and total_ret is not None:
         # 当前策略卡用纸面累计收益/本地 sharpe 覆盖全 0
@@ -502,7 +513,8 @@ def _fetch_benchmark_curve(
             for b in filtered
             if b.get("close") is not None
         ]
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return []
 
 
@@ -750,7 +762,8 @@ def _factor_label(name: str) -> str:
         from core.signal.factor_registry import factor_label
 
         return str(factor_label(name) or name)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return str(name)
 
 
@@ -827,7 +840,8 @@ def _ic_series_from_cluster_cache(lookback: int) -> Optional[Dict[str, Any]]:
     """优先用分组缓存里的真实日频截面 IC。"""
     try:
         from core.paths import CLUSTER_REPORT_CACHE_PATH
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return None
 
     if not os.path.isfile(CLUSTER_REPORT_CACHE_PATH):
@@ -837,7 +851,8 @@ def _ic_series_from_cluster_cache(lookback: int) -> Optional[Dict[str, Any]]:
 
         with open(CLUSTER_REPORT_CACHE_PATH, "r", encoding="utf-8") as fh:
             cached = _json.load(fh)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return None
     if not isinstance(cached, dict):
         return None
@@ -946,7 +961,8 @@ def dashboard_factor_ic_series(
             try:
                 ic_mean = mean(scores)
                 ic_std = stdev(scores) if len(scores) > 1 else 0.0
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
                 continue
             ic_ir = (ic_mean / ic_std) if ic_std > 1e-12 else 0.0
             ic_ir_annual = ic_ir * _math.sqrt(252.0 / max(int(horizon_days or 3), 1))
@@ -1024,7 +1040,8 @@ def dashboard_sector_heatmap():
             from core.portfolio_optimize import load_sector_map
 
             smap = load_sector_map()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
             smap = {}
 
         for h in holdings:
@@ -1119,7 +1136,8 @@ def dashboard_signals(limit: int = 20):
                 n = str(names[i]).strip() if i < len(names) else ""
                 if n and n != c:
                     name_by_code[c] = n
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
             pass
 
         def _with_name(row: Dict[str, Any]) -> Dict[str, Any]:
@@ -1164,7 +1182,8 @@ def dashboard_signals(limit: int = 20):
                 op_log = PaperAccountMixin._operation_log_for_ui(
                     deps.paper, paper, limit=max(limit * 2, 40)
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
                 op_log = (paper.get("operation_log") or [])[-max(limit * 2, 40) :]
             trade_types = {
                 "buy",
@@ -1266,7 +1285,8 @@ def dashboard_allocation():
             from core.portfolio_optimize import load_sector_map
 
             smap = load_sector_map()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
             smap = {}
 
         for h in holdings:
@@ -1322,7 +1342,8 @@ def _index_quotes_for_overview() -> List[Dict[str, Any]]:
         from core.data_service import batch_get_quotes
 
         quotes = batch_get_quotes([s[0] for s in specs]) or {}
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         quotes = {}
 
     for symbol, name, code in specs:
@@ -1333,7 +1354,8 @@ def _index_quotes_for_overview() -> List[Dict[str, Any]]:
                 from core.data_service import get_quote
 
                 q = get_quote(symbol) or {}
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
                 q = {}
         close = None
         change_pct = None
@@ -1453,6 +1475,146 @@ def dashboard_market_overview():
     """市场监控：指数 / 涨跌家数 / 成交额 / 涨停跌停。"""
     try:
         return _build_market_overview()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+def _build_market_context_dashboard() -> Dict[str, Any]:
+    """盘前市场上下文：macro / 情绪 / 公告 prior 快照 + 新鲜度。"""
+    from core.market_context import build_market_priors, load_market_context
+    from core.market_context_merge import _prune_macro_errors
+
+    ctx = load_market_context(use_cache=False)
+    macro = ctx.get("macro") or {}
+    sentiment = ctx.get("market_sentiment") or {}
+    announcement = ctx.get("announcement") or {}
+    reg = announcement.get("regulatory") or {}
+    priors = build_market_priors(ctx)
+    macro_hist = None
+    try:
+        from skills.macro.history import load_macro_history_index
+
+        macro_hist = load_macro_history_index()
+    except Exception:
+        macro_hist = None
+    hist_rows = (macro_hist or {}).get("rows") or []
+    macro_sparkline = [
+        float(r["overseas_tech_1d_pct"])
+        for r in hist_rows[-14:]
+        if r.get("overseas_tech_1d_pct") is not None
+    ]
+    macro_errors = list(macro.get("errors") or [])[:8]
+    macro_series = (macro or {}).get("series") if isinstance(macro, dict) else None
+    macro_errors = _prune_macro_errors(macro_errors, macro_series)[:8]
+    macro_degraded = bool(
+        isinstance(macro, dict)
+        and macro.get("success")
+        and macro.get("overseas_tech_1d_pct") is None
+        and macro_errors
+    )
+    sentiment_ready = isinstance(sentiment, dict) and (
+        sentiment.get("sentiment_cycle_score") is not None
+        or sentiment.get("broken_limit_rate") is not None
+    )
+    announcement_ready = isinstance(announcement, dict) and (
+        (announcement.get("regulatory") or {}).get("active")
+        or (announcement.get("ipo") or {}).get("ipo_today_count") is not None
+    )
+    data_ready = bool(
+        sentiment_ready
+        or announcement_ready
+        or (isinstance(macro, dict) and macro.get("overseas_tech_1d_pct") is not None)
+    )
+    fresh = ctx.get("freshness") or {}
+    if isinstance(fresh, dict) and macro_degraded:
+        fresh = dict(fresh)
+        fresh["macro_degraded"] = True
+        fresh["needs_ingest"] = bool(fresh.get("needs_ingest")) or macro_degraded
+    regime_snapshot: Dict[str, Any] = {}
+    try:
+        from core.signal.config import load_signal_config
+        from core.signal.live_features import fetch_live_index_bars
+        from core.signal.regime import assess_regime
+
+        sig_cfg = load_signal_config()
+        idx_pack = fetch_live_index_bars(limit=75, use_cache=True)
+        regime_info = assess_regime(
+            idx_pack.get("bars") or [],
+            sig_cfg.get("regime"),
+            macro=macro if isinstance(macro, dict) else None,
+        )
+        overlay = regime_info.get("macro_overlay") or {}
+        regime_snapshot = {
+            "regime": regime_info.get("regime"),
+            "index_return_pct": regime_info.get("index_return_pct"),
+            "score_penalty": regime_info.get("score_penalty"),
+            "reason": regime_info.get("reason"),
+            "benchmark": idx_pack.get("benchmark"),
+            "macro_overlay_applied": bool(overlay.get("applied")),
+            "macro_overlay_deferred": bool(overlay.get("deferred_to_cross_market_prior")),
+            "macro_overlay_tech_1d_pct": overlay.get("tech_1d_pct"),
+        }
+    except Exception:
+        logger.debug("dashboard regime snapshot skipped", exc_info=True)
+    return {
+        "ok": True,
+        "data_ready": data_ready,
+        "macro_degraded": macro_degraded,
+        "macro_errors": macro_errors,
+        "freshness": fresh,
+        "macro": {
+            "overseas_tech_1d_pct": macro.get("overseas_tech_1d_pct"),
+            "a50_1d_pct": macro.get("a50_1d_pct"),
+            "lead_lag_expected_gap_pct": macro.get("lead_lag_expected_gap_pct"),
+            "liquidity_stress_score": macro.get("liquidity_stress_score"),
+            "series": macro.get("series"),
+            "errors": macro.get("errors"),
+        },
+        "market_sentiment": {
+            "sentiment_cycle_score": sentiment.get("sentiment_cycle_score"),
+            "limit_up_open_premium_pct": sentiment.get("limit_up_open_premium_pct"),
+            "broken_limit_rate": sentiment.get("broken_limit_rate"),
+            "limit_up_count": sentiment.get("limit_up_count"),
+            "data_source": sentiment.get("data_source"),
+            "market_breadth": sentiment.get("market_breadth"),
+        },
+        "announcement": {
+            "regulatory": reg,
+            "ipo": (announcement.get("ipo") or {}),
+            "concept_index_size": len(announcement.get("concept_index") or {}),
+            "penalty_concepts": list(reg.get("penalty_concepts") or [])[:8],
+            "penalty_codes": list(reg.get("penalty_codes") or [])[:8],
+        },
+        "prior_flags": {
+            "cross_market": bool((priors.get("cross_market_prior") or {}).get("active")),
+            "market_sentiment": bool((priors.get("market_sentiment_prior") or {}).get("active")),
+            "regulatory": bool((priors.get("regulatory_prior") or {}).get("active")),
+            "ipo_drain": bool((priors.get("ipo_drain_prior") or {}).get("active")),
+            "any_active": bool(priors.get("market_prior_active")),
+        },
+        "prior_warnings": list(priors.get("market_prior_warnings") or [])[:6],
+        "regime": regime_snapshot,
+        "macro_sparkline": macro_sparkline,
+        "macro_history": [
+            {
+                "date": str(r.get("date") or "")[:10],
+                "overseas_tech_1d_pct": r.get("overseas_tech_1d_pct"),
+                "a50_1d_pct": r.get("a50_1d_pct"),
+            }
+            for r in hist_rows[-30:]
+            if r.get("overseas_tech_1d_pct") is not None or r.get("a50_1d_pct") is not None
+        ],
+        "macro_history_rows": len(hist_rows),
+        "computed_at": datetime.now().isoformat(timespec="seconds"),
+        "note": "非 PIT；盘前 prior 上下文。过期请 POST schedule pre_market_ingest。",
+    }
+
+
+@router.get("/api/dashboard/market-context")
+def dashboard_market_context():
+    """盘前跨市场 / 情绪 / 公告上下文。"""
+    try:
+        return _build_market_context_dashboard()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
@@ -1632,7 +1794,8 @@ def _build_factor_exposure() -> Dict[str, Any]:
                 "holdings_count": len(holdings),
                 "over_limit_sectors": [x for x in over if x],
             }
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         pass
 
     # Sector exposure fallback
@@ -1642,7 +1805,8 @@ def _build_factor_exposure() -> Dict[str, Any]:
         from core.portfolio_optimize import load_sector_map
 
         smap = load_sector_map()
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         smap = {}
 
     for h in holdings:
@@ -1695,7 +1859,8 @@ def dashboard_portfolio_health():
 
             ev = build_cluster_live_evidence(light=True) or {}
             rolling = (ev.get("rolling_ic") or ev.get("yhat_ic") or {})
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
             rolling = None
         return build_portfolio_health(
             paper=paper,

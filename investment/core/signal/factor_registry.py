@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from core.signal.factors.alt_sentiment import score_alt_sentiment
@@ -19,6 +22,7 @@ from core.signal.factors.money_flow import score_money_flow
 from core.signal.factors.quality import score_quality
 from core.signal.factors.relative_strength import score_relative_strength
 from core.signal.factors.reversal import score_reversal
+from core.signal.factors.tail_anomaly import score_tail_anomaly
 from core.signal.factors.size import score_size
 from core.signal.factors.technical_pattern import score_technical_pattern
 from core.signal.factors.value import score_value
@@ -138,6 +142,15 @@ def _compute_amihud(bars, **_kw):
 
 def _compute_idio_momentum(bars, *, index_bars=None, **_kw):
     return score_idio_momentum(bars, index_bars=index_bars)
+
+
+def _compute_tail_anomaly(bars, *, minute_bars=None, config=None, **_kw):
+    tail_cfg = (config or {}).get("tail_anomaly") or {}
+    return score_tail_anomaly(
+        bars,
+        minute_bars=minute_bars,
+        tail_minutes=int(tail_cfg.get("tail_minutes") or 30),
+    )
 
 
 _register(
@@ -266,6 +279,12 @@ _register(
     _compute_idio_momentum,
     "个股收益对指数回归残差：市场中性后的短线特异动量；无指数不进 ŷ（omit）。",
 )
+_register(
+    "tail_anomaly",
+    "尾盘异动",
+    _compute_tail_anomaly,
+    "尾盘成交量占比与价格斜率：放量下行降分，疑似聪明资金抢跑。",
+)
 
 def list_factors(*, include_meta: bool = False) -> List[Dict[str, str]]:
     """列出注册因子；include_meta=True 时附 FM1 sourced/proxy 状态。"""
@@ -275,7 +294,8 @@ def list_factors(*, include_meta: bool = False) -> List[Dict[str, str]]:
             from core.signal.factor_health import PROXY_OR_UNSOURCED
 
             proxy_meta = dict(PROXY_OR_UNSOURCED)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in factor_registry.py", exc_info=True)
             proxy_meta = {}
     out: List[Dict[str, str]] = []
     for k, v in _REGISTRY.items():
@@ -330,6 +350,8 @@ def compute_configured_factors(
     skip_factors: Optional[Sequence[str]] = None,
     stock_code: Optional[str] = None,
     stock_name: Optional[str] = None,
+    minute_bars: Optional[List[dict]] = None,
+    macro: Optional[dict] = None,
 ) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, Any]]:
     """按 weights 键计算子分；``required_keys`` 即使权为 0 也算（ŷ β 同构，FS0）。"""
     wmap = dict(weights or {})
@@ -359,6 +381,7 @@ def compute_configured_factors(
             "alt_sentiment",
             "llm_sentiment",
             "money_flow",
+            "tail_anomaly",
         ):
             continue
         score, fac_meta = compute_factor(
@@ -374,6 +397,8 @@ def compute_configured_factors(
             money_flow=money_flow,
             stock_code=code,
             stock_name=name,
+            minute_bars=minute_bars,
+            macro=macro,
         )
         meta.update(fac_meta or {})
         # 缺输入（如规模无市值）：不进 sub_scores，ŷ 跳过该项，禁止假中性 50 进 z-score
@@ -426,7 +451,8 @@ def run_factor_experiment(
                 stock_code, as_of=decision_date, live_fallback=False
             )
             metrics = resolved.get("metrics") if resolved.get("ok") else None
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in factor_registry.py", exc_info=True)
             metrics = None
         if metrics:
             pit_hits += 1
@@ -460,7 +486,8 @@ def run_factor_experiment(
                     config=cfg,
                     fundamentals=day_fund,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in factor_registry.py", exc_info=True)
                 continue
             c0 = bars[i]["close"]
             c1 = bars[i + horizon_days]["close"]

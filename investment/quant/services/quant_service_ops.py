@@ -50,7 +50,8 @@ class QuantOpsMixin:
                         hc = str(h.get("stock_code") or "").strip()
                         if hc and hc in codes:
                             holdings_by_code[hc] = dict(h)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in quant_service_ops.py", exc_info=True)
                 logger.warning("运维操作异常", exc_info=True)
         # 评分留给 insights 填充；保持字段存在以免前端判空出错
         uni["watchlist_scores"] = {}
@@ -258,7 +259,8 @@ class QuantOpsMixin:
             from core.score_ledger import freeze_from_daily_report
 
             freeze_from_daily_report(payload)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_service_ops.py", exc_info=True)
             logger.warning("运维后处理异常", exc_info=True)
         return QUANT_DAILY_PATH
 
@@ -368,7 +370,8 @@ class QuantOpsMixin:
 
         try:
             reconcile_calibration_switch()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_service_ops.py", exc_info=True)
             pass
         live = load_calibration_model()
         last = load_calibration_last_report()
@@ -562,7 +565,8 @@ class QuantOpsMixin:
                 cluster_yhat_active = bool(
                     cs.get("enabled") and cs.get("mode") in ("shadow", "active")
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in quant_service_ops.py", exc_info=True)
                 cluster_yhat_active = False
             if not cluster_yhat_active:
                 from core.signal.weight_suggest import suggest_weights_from_ic
@@ -619,7 +623,8 @@ class QuantOpsMixin:
                         from core.signal.rebalance_tracks import table_yhat_score_value
 
                         yhat = table_yhat_score_value(r)
-                    except Exception:
+                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                        logger.debug("catch except Exception: in quant_service_ops.py", exc_info=True)
                         yhat = r.get("predicted_score")
                         if yhat is None:
                             yhat = r.get("score")

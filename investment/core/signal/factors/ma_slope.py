@@ -8,6 +8,9 @@
 """
 
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
 from core.numbers import calc_sma as _calc_ma
 
 from typing import List, Optional

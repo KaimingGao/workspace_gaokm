@@ -1,7 +1,15 @@
-"""波动因子。"""
+"""波动因子（ATR / 收益波动 / 下行波动）。
+
+含：
+- atr_pct(bars, window)：基于 TR / prev_close 的百分比 ATR（窗口内均值）
+- 后续可加：rolling_std、downside_deviation、BollingerBand 宽度等
+"""
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import List, Optional
 
 from core.signal.factors.volume_price import _avg

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -89,7 +92,8 @@ def compute_pool_cross_section_ic(
 
         dates = filter_trading_dates(dates)
         calendar_tag = "cn_lite"
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort / 非阻塞分支降级
+        logger.debug("exception caught in pool_ic.py line 95", exc_info=True)
         calendar_tag = "none"
     n = len(dates)
     need = min_history + horizon_days
@@ -129,7 +133,8 @@ def compute_pool_cross_section_ic(
                     metrics = fundamentals_by_code.get(code)
             fund_cache[key] = metrics
             return metrics
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort / 非阻塞分支降级
+            logger.debug("exception caught in pool_ic.py line 135", exc_info=True)
             pit_miss += 1
             metrics = (fundamentals_by_code or {}).get(code)
             fund_cache[key] = metrics

@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 # —— 缓存 TTL ——
 DAILY_CACHE_HOURS = 24.0
 FUNDAMENTALS_CACHE_HOURS = 24.0

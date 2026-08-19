@@ -10,6 +10,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -330,7 +333,8 @@ def _metrics_from_pred_act(
             kind="chrono_pearson",
             primary=False,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in partition_loss.py", exc_info=True)
         _ic_ann = {
             "ic": None if ic is None else round(float(ic), 4),
             "ic_kind": "chrono_pearson",
@@ -489,7 +493,8 @@ def yhat_group_holdout_metrics(
     if callable(refit_fn):
         try:
             fitted = refit_fn(split["train_xs"], split["train_ys"])
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in partition_loss.py", exc_info=True)
             fitted = None
         if isinstance(fitted, dict) and fitted.get("coefficients"):
             rm = fitted

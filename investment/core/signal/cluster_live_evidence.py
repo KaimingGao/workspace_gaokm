@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
 
@@ -93,7 +96,8 @@ def build_cluster_enable_evidence(
     try:
         ensure_active_cluster_oos_gates(persist=True, force=False)
         active = load_active_cluster_weights() or active
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live_evidence.py", exc_info=True)
         pass
 
     oos_summary = _summarize_cluster_oos((active or {}).get("clusters") or [])
@@ -113,7 +117,8 @@ def build_cluster_enable_evidence(
             c = str(hh.get("stock_code") or "").strip()
             if c and float(hh.get("shares") or 0) > 0:
                 held_codes.add(c)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live_evidence.py", exc_info=True)
         held_codes = set()
     would_sell = sorted(held_codes - book_codes)
     would_buy = sorted(book_codes - held_codes)
@@ -151,7 +156,8 @@ def build_cluster_enable_evidence(
             "top_sector": sectors[0] if sectors else None,
             "note": "按簿内只数占比（非市值）",
         }
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live_evidence.py", exc_info=True)
         pass
 
     if include_audit and audit is None and (cs.get("mode") in ("shadow", "active")):
@@ -243,7 +249,8 @@ def build_cluster_enable_evidence(
             warnings.append(
                 f"行业 map 覆盖 {float(cov_v):.0%} < {min_sec:.0%} · 限额精度偏弱（不硬拦）"
             )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live_evidence.py", exc_info=True)
         pass
 
     gate_ok = len(blockers) == 0
@@ -320,7 +327,8 @@ def cluster_status_public(
     # 跨进程改写 signal_config 后，服务进程缓存可能仍是旧 mode
     try:
         load_signal_config(reload=True)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live_evidence.py", exc_info=True)
         pass
 
     cs = get_cluster_scoring_cfg()
@@ -336,7 +344,8 @@ def cluster_status_public(
             auto_demote = maybe_auto_demote_stale()
             if auto_demote.get("demoted"):
                 cs = get_cluster_scoring_cfg()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_live_evidence.py", exc_info=True)
             auto_demote = None
 
     active = load_active_cluster_weights()
@@ -350,12 +359,14 @@ def cluster_status_public(
     tau_shadow = None
     try:
         tau_shadow = cluster_live_mod.load_tau_shadow_cluster_book()
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live_evidence.py", exc_info=True)
         tau_shadow = None
     nowcast_shadow = None
     try:
         nowcast_shadow = cluster_live_mod.load_nowcast_shadow_cluster_book()
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live_evidence.py", exc_info=True)
         nowcast_shadow = None
     mode = cs.get("mode") or "off"
     has_draft = bool(draft and draft.get("code_map"))
@@ -549,7 +560,8 @@ def cluster_status_public(
                 "greedy": (pf.get("draft") or {}).get("greedy_refine"),
                 "focus_draft": pf.get("focus_draft"),
             }
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_live_evidence.py", exc_info=True)
             out["promote_preflight"] = None
     else:
         out["promote_preflight"] = None
@@ -564,7 +576,8 @@ def _paper_cluster_landed(active: Optional[dict]) -> Dict[str, Any]:
         from core.paper import load_paper
 
         paper = load_paper()
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live_evidence.py", exc_info=True)
         return {"applied": False}
     last = paper.get("last_cluster_pool") if isinstance(paper, dict) else None
     if not isinstance(last, dict):

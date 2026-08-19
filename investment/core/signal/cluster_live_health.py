@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -17,7 +20,8 @@ def _default_health_universe() -> List[str]:
         for h in paper.get("holdings") or []:
             if isinstance(h, dict) and h.get("stock_code"):
                 codes.append(str(h["stock_code"]).strip())
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live_health.py", exc_info=True)
         pass
     if len(codes) >= 2:
         return codes[:40]
@@ -25,7 +29,8 @@ def _default_health_universe() -> List[str]:
         from core.watching_store import read_watching
 
         return list((read_watching().get("watchlist") or [])[:40])
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live_health.py", exc_info=True)
         return codes[:40]
 
 
@@ -63,7 +68,8 @@ def assess_cluster_live_health(
                 alerts.append(
                     f"映射陈旧 {age_days:.1f}d > {cs['max_age_days']}d"
                 )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_live_health.py", exc_info=True)
             pass
 
     if coverage is not None and coverage < float(cs["min_coverage"]):
@@ -114,7 +120,8 @@ def assess_cluster_live_health(
             alerts.append(
                 f"映射年龄 {age_days:.1f}d 接近上限 · 建议研究枢纽跑分组→对照"
             )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live_health.py", exc_info=True)
         pass
 
     # B4：滚动 ŷ IC（默认仅 active；对照刷簿跳过以免久等）
@@ -143,7 +150,8 @@ def assess_cluster_live_health(
                 alerts.append(
                     f"滚动 ŷ IC={float(yhat_ic):.3f} < 阈值 {min_ic} · 建议降级/重估"
                 )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_live_health.py", exc_info=True)
             pass
 
     mode = cs["mode"]

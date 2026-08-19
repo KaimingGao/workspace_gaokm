@@ -14,6 +14,9 @@ macOS/Linux 用 fcntl.flock；无 fcntl 时退化为仅线程锁（仍防同进�
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import threading
 import time

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 
@@ -86,7 +89,8 @@ def fetch_score_fundamentals(
         if not result.get("success"):
             return None
         return normalize_fundamentals_metrics(result)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in fundamentals_bridge.py", exc_info=True)
         return None
 
 
@@ -127,7 +131,8 @@ def fetch_fundamentals_batch(
                     if result.get("success")
                     else None
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in fundamentals_bridge.py", exc_info=True)
                 metrics = None
         if metrics:
             out[key] = metrics

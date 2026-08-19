@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Sequence
 
@@ -46,7 +49,8 @@ def estimate_composite_ic(
             )
         try:
             out = score_bars(window, quote=quote, fundamentals=None, sentiment=None)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
             continue
         if out.get("hard_reject") or out.get("score") is None:
             continue
@@ -97,7 +101,8 @@ def estimate_yhat_ic(
             from core.signal.cluster_live import lookup_code_return_model
 
             model = lookup_code_return_model(str(stock_code))
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
             model = None
 
     start_i = max(min_history - 1, n - horizon_days - max_points)
@@ -110,7 +115,8 @@ def estimate_yhat_ic(
             )
         try:
             out = score_bars(window, quote=quote, fundamentals=None, sentiment=None)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
             continue
         if out.get("hard_reject"):
             continue
@@ -118,7 +124,8 @@ def estimate_yhat_ic(
         if model is not None:
             try:
                 pred = model.predict(out.get("sub_scores") or {})
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
                 pred = None
         if pred is None:
             # 无组模型：跳过（不混 heuristic 以免污染 ŷ IC）
@@ -286,7 +293,8 @@ def assess_strategy_health(
     sid = paper.get("strategy_id") or "short"
     try:
         spec_risk = risk or (get_strategy_spec(str(sid)).get("risk") or {})
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
         spec_risk = risk or {}
 
     max_dd = float(spec_risk.get("max_drawdown_pct") or 20.0)
@@ -324,7 +332,8 @@ def assess_strategy_health(
         try:
             ic_pack = estimate_rolling_ic_for_codes(code_list)
             ic_val = ic_pack.get("rolling_ic")
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
             ic_pack = {"ok": False, "rolling_ic": None}
 
     if ic_val is not None:
@@ -349,7 +358,8 @@ def assess_strategy_health(
         try:
             yhat_ic_pack = estimate_rolling_yhat_ic_for_codes(code_list)
             yhat_ic_val = yhat_ic_pack.get("rolling_ic")
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in strategy_monitor.py", exc_info=True)
             yhat_ic_pack = {"ok": False, "rolling_ic": None}
     if yhat_ic_val is not None:
         try:

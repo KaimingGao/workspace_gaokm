@@ -6,6 +6,9 @@ R0（core/north_star.py）负责基础仪表的可靠产出；本模块在其之
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 

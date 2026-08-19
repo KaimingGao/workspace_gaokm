@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 from functools import lru_cache
 
@@ -22,7 +25,8 @@ def _current_asset_v() -> str:
 
         importlib.reload(av)
         return str(av.ASSET_V)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in page_html.py", exc_info=True)
         return ASSET_V
 
 _PAGE_TITLES = {

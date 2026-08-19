@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from datetime import datetime
 from statistics import median
 from typing import Any, Dict, List, Optional
@@ -45,7 +48,8 @@ def _heuristic_from_row(row: Optional[dict]) -> Optional[float]:
         return None
     try:
         from core.signal.score_display import looks_like_legacy_heuristic_score
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_report_export.py", exc_info=True)
 
         def looks_like_legacy_heuristic_score(value):  # type: ignore
             try:
@@ -78,7 +82,8 @@ def _yhat_from_row(row: Optional[dict]) -> Optional[float]:
         return None
     try:
         from core.signal.score_display import looks_like_legacy_heuristic_score
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_report_export.py", exc_info=True)
 
         def looks_like_legacy_heuristic_score(value):  # type: ignore
             try:
@@ -1196,6 +1201,13 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
             for b in (rb.get("buckets") or [])[:5]
         ]
         lines.append(f"- Regime 分桶：{' · '.join(parts)}")
+    mcs = ps.get("macro_context_summary") or {}
+    if mcs.get("ok"):
+        lines.append(
+            f"- 宏观对齐：海外科技均 {mcs.get('avg_overseas_tech_1d_pct')}% · "
+            f"A50 {mcs.get('avg_a50_1d_pct')}% · "
+            f"压力 {mcs.get('avg_liquidity_stress_score')}"
+        )
 
     sa = ps.get("source_audit") or {}
     if sa.get("status"):

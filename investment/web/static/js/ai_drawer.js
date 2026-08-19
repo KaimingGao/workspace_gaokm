@@ -187,6 +187,68 @@ function appendMsg(container, role, text, pending) {
   return el;
 }
 
+function escapeHtmlLite(s) {
+  return String(s || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+let _marketStripLoadedAt = 0;
+
+async function refreshAiMarketStrip() {
+  const host = document.getElementById("ai-drawer-market");
+  if (!host) return;
+  const now = Date.now();
+  if (now - _marketStripLoadedAt < 45000 && host.dataset.loaded === "1") return;
+  try {
+    const { ok, data } = await apiFetch("/api/dashboard/market-context");
+    const ctx = ok !== false && data ? data : null;
+    if (!ctx || ctx.ok === false) {
+      host.hidden = true;
+      host.innerHTML = "";
+      return;
+    }
+    const flags = ctx.prior_flags || {};
+    const macro = ctx.macro || {};
+    const reg = ctx.regime || {};
+    const warns = (ctx.prior_warnings || []).slice(0, 3);
+    const stale = ctx.freshness && ctx.freshness.needs_ingest;
+    const tech =
+      macro.overseas_tech_1d_pct != null
+        ? `${macro.overseas_tech_1d_pct > 0 ? "+" : ""}${Number(macro.overseas_tech_1d_pct).toFixed(2)}%`
+        : "—";
+    const regShort =
+      reg.regime === "bear"
+        ? "熊"
+        : reg.regime === "weak"
+          ? "弱"
+          : reg.regime === "bull"
+            ? "牛"
+            : reg.regime === "strong"
+              ? "强"
+              : reg.regime === "neutral"
+                ? "中"
+                : "";
+    host.hidden = false;
+    host.dataset.loaded = "1";
+    _marketStripLoadedAt = now;
+    host.className = `ai-drawer-market${stale ? " is-stale" : ""}${flags.any_active ? " is-active" : ""}`;
+    host.innerHTML =
+      `<span class="ai-drawer-market-label">M prior</span>` +
+      (regShort
+        ? `<span class="ai-drawer-market-regime" title="Regime ${escapeHtmlLite(reg.regime || "")}">${escapeHtmlLite(regShort)}</span>`
+        : "") +
+      `<span class="ai-drawer-market-tech">科技 ${escapeHtmlLite(tech)}</span>` +
+      (warns.length
+        ? `<span class="ai-drawer-market-warn">${escapeHtmlLite(warns.join(" · "))}</span>`
+        : `<span class="ai-drawer-market-warn is-muted">${stale ? "快照需刷新" : "环境中性"}</span>`);
+  } catch (_) {
+    host.hidden = true;
+  }
+}
+
 export function openAiDrawer(prefill) {
   const drawer = document.getElementById("ai-drawer");
   if (!drawer) return;
@@ -201,6 +263,7 @@ export function openAiDrawer(prefill) {
       : "";
     ctx.textContent = `上下文 · ${pageContextLabel()}${stockBit} · 研究/纸面`;
   }
+  refreshAiMarketStrip();
   const input = document.getElementById("ai-drawer-input");
   if (input) {
     if (prefill) input.value = prefill;
@@ -400,4 +463,5 @@ export function initAiDrawer() {
 
   window.__investmentOpenAi = openAiDrawer;
   window.__investmentCloseAi = closeAiDrawer;
+  refreshAiMarketStrip();
 }

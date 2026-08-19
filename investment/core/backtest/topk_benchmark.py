@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -136,7 +139,8 @@ def _ann_excess_pct(total_excess_pct: float, start_date: str, end_date: str) -> 
         d0 = date.fromisoformat(str(start_date)[:10])
         d1 = date.fromisoformat(str(end_date)[:10])
         days = max((d1 - d0).days, 1)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort / 非阻塞分支降级
+        logger.debug("exception caught in topk_benchmark.py line 142", exc_info=True)
         return None
     years = days / 365.25
     if years < 1e-6:

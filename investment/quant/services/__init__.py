@@ -1,3 +1,6 @@
+import logging
+
+logger = logging.getLogger(__name__)
 from quant.services.quant_service import QuantService
 from quant.services.quant_report_export import (
     build_report_executive_summary,

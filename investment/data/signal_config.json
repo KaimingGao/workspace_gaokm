@@ -1,7 +1,7 @@
 {
   "version": 3,
   "weights": {
-    "momentum": 0.22,
+    "momentum": 0.2,
     "volume_price": 0.14,
     "relative_strength": 0.11,
     "volatility": 0.06,
@@ -20,7 +20,8 @@
     "money_flow": 0.0,
     "amihud": 0.02,
     "idio_momentum": 0.03,
-    "alt_sentiment": 0.02
+    "alt_sentiment": 0.02,
+    "tail_anomaly": 0.02
   },
   "factor_groups": {
     "trend": [
@@ -44,7 +45,8 @@
     ],
     "risk": [
       "volatility",
-      "gap_risk"
+      "gap_risk",
+      "tail_anomaly"
     ],
     "residual": [
       "relative_strength",
@@ -139,7 +141,14 @@
     "weak_trend_threshold_pct": -3,
     "score_penalty": 5,
     "blend_width_pct": 1.0,
-    "apply_position_scale": true
+    "apply_position_scale": true,
+    "macro_overlay": {
+      "enabled": true,
+      "defer_tech_drag_to_cross_market_prior": true,
+      "tech_drag_trigger_pct": -1.5,
+      "extra_penalty": 4.0,
+      "liquidity_stress_min": 1.0
+    }
   },
   "fundamentals": {
     "enabled": true,
@@ -214,5 +223,48 @@
     "warn_only": false,
     "rem_gate_enabled": true,
     "rem_soft_hold_min": 0.25
+  },
+  "cross_market": {
+    "mode": "gate",
+    "tech_drag_trigger_pct": -1.5,
+    "tech_drag_severe_pct": -3.0,
+    "liquidity_stress_min": 1.0,
+    "scale_buy_pct": 0.5,
+    "scale_holds": true
+  },
+  "market_sentiment_prior": {
+    "mode": "gate",
+    "premium_ebb_pct": 0.0,
+    "broken_rate_high": 0.25,
+    "scale_buy_pct": 0.55,
+    "scale_holds": true,
+    "block_high_board": true,
+    "high_board_min": 3.0
+  },
+  "regulatory_prior": {
+    "mode": "gate",
+    "scale_buy_pct": 0.5
+  },
+  "ipo_drain_prior": {
+    "mode": "gate",
+    "drain_ratio_high": 3.0,
+    "mega_ipo_cap": 100000000000,
+    "scale_buy_pct": 0.45
+  },
+  "pre_market": {
+    "auto_ingest_on_paper_daily": true,
+    "stale_hours": 18.0,
+    "minute_warmup_on_ingest": true,
+    "minute_warmup_cap": 25,
+    "concept_graph_on_ingest": true,
+    "concept_graph_cap": 8
+  },
+  "market_prior_policy": {
+    "merge_mode": "min_scale"
+  },
+  "tail_anomaly": {
+    "tail_minutes": 30,
+    "prefetch_on_rank": true,
+    "prefetch_cap": 30
   }
 }

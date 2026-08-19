@@ -6,6 +6,9 @@ Live 评分默认 ``sentiment.include_in_score=false``（不进 ŷ）；UI 徽�
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import hashlib
 import json
 import os
@@ -57,6 +60,9 @@ _DEFAULT_LEXICON: Dict[str, List[str]] = {
         "暴雷",
         "爆仓",
         "停牌",
+        "停牌核查",
+        "严重异常波动",
+        "异常波动",
         "诉讼",
         "造假",
         "下跌",
@@ -107,7 +113,8 @@ def _annotate_include_gate(sent: Optional[Dict[str, Any]]) -> Dict[str, Any]:
         cfg = (load_signal_config() or {}).get("sentiment") or {}
         out["include_in_score"] = bool(cfg.get("include_in_score", False))
         out["role"] = str(cfg.get("role") or "prior")
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in sentiment.py", exc_info=True)
         out["include_in_score"] = False
         out["role"] = "prior"
     return out
@@ -239,7 +246,8 @@ def _write_cache(code: str, payload: Dict[str, Any]) -> str:
     atomic_write_json(path, payload)
     try:
         append_headline_history(code, payload)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in sentiment.py", exc_info=True)
         pass
     return path
 
@@ -360,7 +368,8 @@ def sentiment_as_of(
         from core.signal.factors.alt_sentiment import score_alt_sentiment
 
         factor_score, _meta = score_alt_sentiment([], sentiment=sent)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in sentiment.py", exc_info=True)
         factor_score = 50.0
     return {
         "ok": n > 0,
@@ -1038,7 +1047,8 @@ def score_headlines_llm(
     try:
         os.makedirs(LLM_SENTIMENT_DIR, exist_ok=True)
         atomic_write_json(_llm_cache_path(code_key), payload)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in sentiment.py", exc_info=True)
         pass
 
     return _annotate_include_gate(payload)

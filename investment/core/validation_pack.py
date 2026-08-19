@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import hashlib
 import json
 from datetime import datetime
@@ -109,7 +112,8 @@ def build_validation_pack(
             "book_count": len(book.get("book") or []),
             "promoted_at": active.get("promoted_at"),
         }
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in validation_pack.py", exc_info=True)
         pass
     try:
         from core.fit_gap import fit_gap_hints
@@ -121,7 +125,8 @@ def build_validation_pack(
             paper_ops=ops_report,
             backtest_params=slim_bt.get("params") or {},
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in validation_pack.py", exc_info=True)
         pass
 
     # FM3 · 中性化配置指纹

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 from typing import Any, Dict, List, Optional
@@ -248,7 +251,8 @@ def enrich_sector_map_from_spot(
                 for c in (read_watching().get("watchlist") or [])
                 if str(c).strip()
             ]
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in sector_map_sync.py", exc_info=True)
             codes = []
 
     current: Dict[str, str] = {}
@@ -324,7 +328,8 @@ def coverage_report(codes: Optional[List[str]] = None) -> Dict[str, Any]:
             from core.watching_store import read_watching
 
             codes = [str(c).strip() for c in (read_watching().get("watchlist") or [])]
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in sector_map_sync.py", exc_info=True)
             codes = []
     cov = sector_map_coverage(list(codes or []), sector_map=smap)
     return {

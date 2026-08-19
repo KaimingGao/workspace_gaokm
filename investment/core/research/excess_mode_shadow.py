@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
 
@@ -196,7 +199,8 @@ def compare_excess_mode_shadow(
                 idx = list(raw[0] or [])
             elif isinstance(raw, list):
                 idx = list(raw)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in excess_mode_shadow.py", exc_info=True)
             idx = []
 
     arms: Dict[str, Any] = {}

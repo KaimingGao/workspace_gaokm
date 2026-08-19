@@ -1,6 +1,7 @@
 import { apiFetch } from "./api_client.js";
 import { renderLineChart, renderDualLineChart } from "./lw_charts.js";
 import { escapeHtml } from "./shared.js";
+import { paintMacroHistoryChart, runMarketContextIngest } from "./macro_context_ui.js";
 
 const V = (typeof window !== "undefined" && window.__ASSET_V__) || "p803";
 
@@ -45,6 +46,24 @@ function clsReturn(v, threshold = 0) {
 function clsQuality(v, threshold = 0) {
   if (v == null || !isFinite(v)) return "";
   return v >= threshold ? "is-quality-good" : "is-quality-bad";
+}
+
+function regimeLabel(code) {
+  const m = {
+    bear: "熊市",
+    weak: "弱势",
+    neutral: "中性",
+    strong: "强势",
+    bull: "牛市",
+  };
+  return m[String(code || "").toLowerCase()] || code || "—";
+}
+
+function regimeCls(code) {
+  const c = String(code || "").toLowerCase();
+  if (c === "bear" || c === "weak") return "is-bad";
+  if (c === "bull" || c === "strong") return "is-good";
+  return "";
 }
 
 function fmtMoney(v) {
@@ -198,6 +217,233 @@ function renderMarketOverview(market) {
   }
 
   host.innerHTML = cards.join("");
+}
+
+function renderMarketContext(ctx) {
+  const host = document.getElementById("dashboard-market-context");
+  if (!host) return;
+
+  if (!ctx || ctx.ok === false) {
+    host.innerHTML =
+      `<div class="dashboard-market-context-empty">盘前上下文未就绪 · 点击「刷新 ingest」拉取 macro/情绪/公告</div>` +
+      `<div class="dashboard-market-context-toolbar"><button type="button" class="dialog-btn secondary dashboard-market-context-refresh" id="dashboard-context-refresh">刷新 ingest</button></div>`;
+    wireMarketContextRefresh(host);
+    return;
+  }
+
+  const fresh = ctx.freshness || {};
+  const macro = ctx.macro || {};
+  const sent = ctx.market_sentiment || {};
+  const macroDegraded = !!ctx.macro_degraded;
+  const dataReady = ctx.data_ready !== false;
+  const ann = ctx.announcement || {};
+  const regulatory = ann.regulatory || {};
+  const ipo = ann.ipo || {};
+  const flags = ctx.prior_flags || {};
+  const regimeSnap = ctx.regime || {};
+  const priorActive = flags.any_active ? "Prior 激活" : "Prior 待机";
+  const penaltySub =
+    (ann.penalty_concepts || []).slice(0, 2).join(" · ") ||
+    (regulatory.concept_tags || []).slice(0, 2).join(" · ") ||
+    "无热点概念";
+  const needHistory =
+    (ctx.macro_history || []).length < 5 && (ctx.macro_history_rows || 0) === 0;
+  const showIngestBtn =
+    !!fresh.needs_ingest || needHistory || macroDegraded || !dataReady;
+  const stale = fresh.needs_ingest || macroDegraded || !dataReady ? "is-stale" : "is-fresh";
+  const freshLabel = fresh.needs_ingest
+    ? "需刷新"
+    : macroDegraded
+      ? "macro 降级"
+      : !dataReady
+        ? "部分空"
+        : "新鲜";
+  const macroErrHint = macroDegraded
+    ? (ctx.macro_errors || macro.errors || []).slice(0, 3).join(" · ") || "海外数据源未返回"
+    : "";
+
+  const cards = [
+    {
+      label: "海外科技",
+      value: macro.overseas_tech_1d_pct != null ? fmtPct(macro.overseas_tech_1d_pct) : "—",
+      sub:
+        macroErrHint ||
+        (macro.a50_1d_pct != null ? `A50 ${fmtPct(macro.a50_1d_pct)}` : "隔夜 · 待 ingest"),
+      cls: clsReturn(macro.overseas_tech_1d_pct, 0),
+    },
+    {
+      label: "Lead-Lag",
+      value:
+        macro.lead_lag_expected_gap_pct != null
+          ? fmtPct(macro.lead_lag_expected_gap_pct)
+          : "—",
+      sub: "预期缺口",
+      cls: clsReturn(macro.lead_lag_expected_gap_pct, 0),
+    },
+    {
+      label: "情绪周期",
+      value: sent.sentiment_cycle_score != null ? String(sent.sentiment_cycle_score) : "—",
+      sub:
+        sent.broken_limit_rate != null
+          ? `炸板 ${(sent.broken_limit_rate * 100).toFixed(0)}%`
+          : "涨停溢价",
+      cls: clsQuality(sent.sentiment_cycle_score, 50),
+    },
+    {
+      label: "监管降温",
+      value: regulatory.active ? `${regulatory.count || 0} 条` : "—",
+      sub: penaltySub,
+      cls: regulatory.active || flags.regulatory ? "is-bad" : "",
+    },
+    {
+      label: "Regime",
+      value: regimeLabel(regimeSnap.regime),
+      sub:
+        regimeSnap.index_return_pct != null
+          ? `基准 ${fmtPct(regimeSnap.index_return_pct)}${
+              regimeSnap.macro_overlay_deferred ? " · overlay→M" : ""
+            }`
+          : (regimeSnap.reason || "—").slice(0, 28),
+      cls: regimeCls(regimeSnap.regime),
+    },
+    {
+      label: "Prior",
+      value: priorActive,
+      sub: (ctx.prior_warnings || []).slice(0, 1).join("") || "M 层",
+      cls: flags.any_active ? "is-bad" : "",
+    },
+    {
+      label: "IPO 虹吸",
+      value:
+        ipo.liquidity_drain_ratio != null
+          ? `${Number(ipo.liquidity_drain_ratio).toFixed(1)}x`
+          : ipo.extreme_ipo_day
+            ? "极端"
+            : "—",
+      sub: ipo.ipo_today_count ? `${ipo.ipo_today_count} 只新股` : "今日",
+      cls: ipo.extreme_ipo_day ? "is-bad" : "",
+    },
+    {
+      label: "快照",
+      value: freshLabel,
+      sub: ctx.computed_at ? ctx.computed_at.slice(0, 16) : "—",
+      cls: stale,
+    },
+  ];
+
+  host.innerHTML = `
+    <div class="dashboard-market-context-band ${stale}">
+      <div class="dashboard-market-context-head">
+        <span class="dashboard-market-context-title">盘前上下文</span>
+        ${
+          (ctx.macro_sparkline || []).length >= 2
+            ? `<canvas class="dashboard-mctx-spark" id="dashboard-mctx-spark" width="72" height="22" aria-label="海外科技近14日"></canvas>`
+            : ""
+        }
+        ${
+          showIngestBtn
+            ? `<button type="button" class="dialog-btn secondary dashboard-market-context-refresh" id="dashboard-context-refresh">刷新 ingest</button>`
+            : ""
+        }
+      </div>
+      <div class="dashboard-market-context-cards">
+        ${cards
+          .map(
+            (c) => `
+          <div class="dashboard-market-context-card ${c.cls || ""}">
+            <span class="dashboard-market-context-label">${escapeHtml(c.label)}</span>
+            <span class="dashboard-market-context-value">${escapeHtml(String(c.value))}</span>
+            <span class="dashboard-market-context-sub">${escapeHtml(c.sub || "")}</span>
+          </div>`
+          )
+          .join("")}
+      </div>
+      ${
+        macroDegraded
+          ? `<p class="dashboard-mctx-degraded-hint">跨市场 macro 未拉到（${escapeHtml(
+              macroErrHint || "akshare/网络"
+            )}）· 情绪/公告/Regime 仍可用</p>`
+          : !dataReady
+            ? `<p class="dashboard-mctx-degraded-hint">尚未 ingest · 点「刷新 ingest」</p>`
+            : ""
+      }
+      ${
+        (ctx.macro_history || []).length >= 5
+          ? `<div class="dashboard-mctx-history" aria-label="宏观历史近30日">
+              <span class="dashboard-mctx-history-label">宏观近30日</span>
+              <canvas class="dashboard-mctx-history-canvas" id="dashboard-mctx-history" width="520" height="56"></canvas>
+            </div>`
+          : ctx.macro_history_rows === 0
+            ? `<p class="dashboard-mctx-history-hint">宏观历史未回填 · 可运行 macro_backfill</p>`
+            : ""
+      }
+    </div>`;
+
+  paintMacroHistoryChart(
+    document.getElementById("dashboard-mctx-history"),
+    ctx.macro_history || [],
+    { cssToken }
+  );
+
+  const spark = document.getElementById("dashboard-mctx-spark");
+  const sparkData = ctx.macro_sparkline || [];
+  if (spark && sparkData.length >= 2) {
+    const sctx = spark.getContext("2d");
+    if (sctx) {
+      const w = spark.width;
+      const h = spark.height;
+      const min = Math.min(...sparkData);
+      const max = Math.max(...sparkData);
+      const range = max - min || 1;
+      const step = w / (sparkData.length - 1);
+      sctx.clearRect(0, 0, w, h);
+      sctx.beginPath();
+      sparkData.forEach((v, i) => {
+        const x = i * step;
+        const y = h - ((v - min) / range) * (h - 4) - 2;
+        if (i === 0) sctx.moveTo(x, y);
+        else sctx.lineTo(x, y);
+      });
+      sctx.strokeStyle =
+        sparkData[sparkData.length - 1] >= 0
+          ? cssToken("--color-up", "#f5222d")
+          : cssToken("--color-down", "#52c41a");
+      sctx.lineWidth = 1.5;
+      sctx.stroke();
+    }
+  }
+
+  const refreshBtn = document.getElementById("dashboard-context-refresh");
+  wireMarketContextRefresh(host, refreshBtn);
+}
+
+function wireMarketContextRefresh(host, btnEl) {
+  const refreshBtn =
+    btnEl || (host && host.querySelector("#dashboard-context-refresh"));
+  if (!refreshBtn || refreshBtn.dataset.bound === "1") return;
+  refreshBtn.dataset.bound = "1";
+  refreshBtn.addEventListener("click", async () => {
+    refreshBtn.disabled = true;
+    refreshBtn.textContent = "ingest…";
+    try {
+      const res = await runMarketContextIngest(apiFetch, { backfill: true });
+      if (res && res.ok !== false) {
+        refreshBtn.textContent = "完成";
+        loadDashboardData(readActiveRange(), readBenchmarkFlag());
+      } else {
+        refreshBtn.textContent = res?.error || "失败";
+      }
+    } catch (_) {
+      refreshBtn.textContent = "失败";
+    } finally {
+      setTimeout(() => {
+        refreshBtn.disabled = false;
+        if (refreshBtn.textContent === "完成" || refreshBtn.textContent === "失败") {
+          refreshBtn.textContent = "刷新 ingest";
+        }
+      }, 1200);
+    }
+  });
 }
 
 function renderSectorHeatmap(sectors) {
@@ -745,6 +991,7 @@ async function loadDashboardData(range = "30", showBenchmark = readBenchmarkFlag
     const benchParam = showBenchmark ? "hs300" : "none";
     const [
       marketData,
+      marketContext,
       kpis,
       riskData,
       navData,
@@ -756,6 +1003,7 @@ async function loadDashboardData(range = "30", showBenchmark = readBenchmarkFlag
       varData,
     ] = await Promise.all([
       fetchDash(`/api/dashboard/market-overview`),
+      fetchDash(`/api/dashboard/market-context`),
       fetchDash(`/api/dashboard/kpis`),
       fetchDash(`/api/dashboard/risk-metrics`),
       fetchDash(`/api/dashboard/nav-curve?range=${range}&benchmark=${benchParam}`, {
@@ -770,7 +1018,22 @@ async function loadDashboardData(range = "30", showBenchmark = readBenchmarkFlag
       fetchDash(`/api/dashboard/var-historical?range=${range}`),
     ]);
 
-    renderMarketOverview(marketData);
+    try {
+      renderMarketOverview(marketData);
+    } catch (e) {
+      console.warn("[Dashboard] market overview", e);
+    }
+    try {
+      renderMarketContext(marketContext);
+    } catch (e) {
+      console.warn("[Dashboard] market context", e);
+      const host = document.getElementById("dashboard-market-context");
+      if (host) {
+        host.innerHTML = `<div class="dashboard-market-context-empty">盘前上下文渲染失败 · ${escapeHtml(
+          String(e.message || e)
+        )}</div>`;
+      }
+    }
 
     const kpiHost = document.getElementById("dashboard-kpi-cards");
     if (kpiHost && kpis.ok !== false) {

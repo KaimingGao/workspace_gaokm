@@ -8,6 +8,9 @@ API URL 不变（P94）；本模块只提供归属说明与机器可读映射。
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List
 
 # 与 docs/quant-ui.md · quant-concepts.md 一致

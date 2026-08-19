@@ -40,7 +40,8 @@ import {
   collectT0BacktestBody,
   renderExecutionDiffHtml,
 } from "./paper/execution_ui.js";
-import { buildPaperLogsView } from "./paper/logs_ui.js";
+import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js";
+import { downloadBlob } from "./shared.js";
 import {
   renderPaperT0 as renderPaperT0Ui,
   renderPaperT0Preview as renderPaperT0PreviewUi,
@@ -55,6 +56,10 @@ import {
   formatRemScoreSection,
   formatBlendScoreSection,
   formatCalibrationSection,
+  formatSentimentGateSection,
+  formatMarketPriorSection,
+  marketPriorDetailFields,
+  tailAnomalyDetailFields,
   createScoreTooltipController,
 } from "./score_tooltip.js?v=p1128";
 
@@ -118,6 +123,7 @@ export function initPaper(ctx) {
   let pendingFocusCode = null;
   let selectedHoldCode = null;
   let paperLogShowAll = { trading: false, fund: false };
+  let lastPaperTradingLogs = [];
   let holdingsGrid = null;
   let holdingsGridReady = false;
   const _sortInit = loadHoldingsSort();
@@ -957,6 +963,7 @@ export function initPaper(ctx) {
     }
 
     const logsView = buildPaperLogsView(data, paperLogShowAll);
+    lastPaperTradingLogs = logsView.tradingLogs || [];
     const logEl = document.getElementById("paper-operation-log");
     if (logEl) {
       logEl.innerHTML = logsView.tradingHtml;
@@ -965,7 +972,7 @@ export function initPaper(ctx) {
       if (headStatus) {
         const cnt = logsView.tradingCount != null
           ? logsView.tradingCount
-          : (logEl.querySelectorAll(".paper-op-row, .paper-op, tr, .log-entry, li").length || 0);
+          : lastPaperTradingLogs.length;
         headStatus.textContent = `共 ${cnt} 条`;
       }
     }
@@ -1564,6 +1571,7 @@ export function initPaper(ctx) {
         dualScore = null,
         emptyReason = null,
         minScore = null,
+        marketContext = null,
       } = {}
     ) {
       const section = document.getElementById("paper-rebalance-section");
@@ -1703,11 +1711,17 @@ export function initPaper(ctx) {
             const warns = (riskGate.warnings || [])
               .map((w) => `<li>${escapeText(String(w))}</li>`)
               .join("");
+            const mp = riskGate.market_prior || {};
+            const mpLine =
+              mp.blocks > 0
+                ? `<li>市场 prior 跳过新开仓 ${escapeText(String(mp.blocks))} 只</li>`
+                : "";
             riskHtml =
               `<div class="paper-rebalance-risk" role="status">` +
               (blocks
                 ? `<p class="paper-rebalance-risk-title">风控拦截加仓</p><ul>${blocks}</ul>`
                 : "") +
+              (mpLine ? `<ul>${mpLine}</ul>` : "") +
               (warns
                 ? `<p class="paper-rebalance-risk-title is-warn">风控提示</p><ul>${warns}</ul>`
                 : "") +
@@ -1725,19 +1739,37 @@ export function initPaper(ctx) {
               `</li></ul></div>`;
           }
           let skipHtml = "";
+          let marketCtxHtml = "";
+          const mctx = marketContext && typeof marketContext === "object" ? marketContext : null;
+          if (mctx && (mctx.prior_active || (mctx.prior_warnings || []).length)) {
+            const macro = mctx.macro || {};
+            const tech =
+              macro.overseas_tech_1d_pct != null
+                ? `${Number(macro.overseas_tech_1d_pct).toFixed(2)}%`
+                : "—";
+            const warns = (mctx.prior_warnings || []).slice(0, 4).map((w) => escapeText(String(w)));
+            marketCtxHtml =
+              `<div class="paper-rebalance-risk paper-rebalance-mctx" role="status">` +
+              `<p class="paper-rebalance-risk-title">盘前 M prior</p>` +
+              `<ul><li>海外科技 ${escapeText(tech)}` +
+              (warns.length ? ` · ${warns.join(" · ")}` : "") +
+              `</li></ul></div>`;
+          }
           if (hasSkips) {
             const priorSkips = skips.filter((s) => s && s.sentiment_prior);
+            const marketSkips = skips.filter((s) => s && s.market_prior);
             const floorSkips = skips.filter(
               (s) =>
                 s &&
                 !s.sentiment_prior &&
+                !s.market_prior &&
                 (String(s.reason || "").includes("floor") ||
                   String(s.reason || "").includes("门槛") ||
                   String(s.reason || "") === "below_eod_floor" ||
                   String(s.reason || "") === "oos_failed_no_buy")
             );
             const otherSkips = skips.filter(
-              (s) => s && !s.sentiment_prior && !floorSkips.includes(s)
+              (s) => s && !s.sentiment_prior && !s.market_prior && !floorSkips.includes(s)
             );
             const row = (s) => {
               const code = escapeText(String(s.stock_code || ""));
@@ -1759,6 +1791,12 @@ export function initPaper(ctx) {
                     .map(row)
                     .join("")}</ul>`
                 : "") +
+              (marketSkips.length
+                ? `<p class="paper-rebalance-risk-title">市场 prior · 跳过新开仓</p><ul>${marketSkips
+                    .slice(0, 12)
+                    .map(row)
+                    .join("")}</ul>`
+                : "") +
               (floorSkips.length
                 ? `<p class="paper-rebalance-risk-title is-warn">未过买入门槛</p><ul>${floorSkips
                     .slice(0, 12)
@@ -1775,6 +1813,7 @@ export function initPaper(ctx) {
           }
           cashEl.hidden = false;
           cashEl.innerHTML =
+            (marketCtxHtml || "") +
             (hasCash
               ? `<div class="paper-rebalance-cash-head">` +
                 `<span class="paper-rebalance-cash-label">资金影响</span>` +
@@ -1840,6 +1879,7 @@ export function initPaper(ctx) {
       // 列宽在 CSS 固定轨定义，避免每行独立 grid 用 fr 按内容各算导致错位
       function tipDetailPayload(r) {
         return {
+          stock_code: r.stock_code || r.code || null,
           predicted_score: r.predicted_score != null ? r.predicted_score : r.score,
           score: r.score != null ? r.score : r.predicted_score,
           min_score: r.min_score,
@@ -1900,6 +1940,9 @@ export function initPaper(ctx) {
           hard_reject: !!r.hard_reject,
           reject_reason: r.reject_reason || "",
           score_formula: r.score_formula || "",
+          sentiment_prior: r.sentiment_prior || null,
+          ...marketPriorDetailFields(r),
+          ...tailAnomalyDetailFields(r),
         };
       }
 
@@ -1936,6 +1979,8 @@ export function initPaper(ctx) {
         html += formatFormulaTermsSection(tipRaw);
         html += formatFactorWeightsSection(tipRaw);
         html += formatWeightSourceNote(tipRaw);
+        html += formatSentimentGateSection(tipRaw);
+        html += formatMarketPriorSection(tipRaw);
 
         if (r.score_formula && !(r.score_formula_terms && (r.score_formula_terms.terms || []).length)) {
           let formula = String(r.score_formula || "");
@@ -2132,10 +2177,22 @@ export function initPaper(ctx) {
             !!r.sentiment_prior ||
             reasonText.includes("舆情先验") ||
             reasonText.includes("sentiment_prior");
+          const isMarketPrior =
+            !!r.market_prior ||
+            reasonText.includes("market_prior") ||
+            reasonText.includes("市场 prior") ||
+            reasonText.includes("cross_market");
           if (isPrior && (decision.includes("减仓") || decision.includes("卖出"))) {
             decisionTip = reasonText
               ? `${reasonText}（强看空先验 · 不改 ŷ）；点「确认调仓」后才成交`
               : "舆情先验 · 强看空缩仓（不改 ŷ）；点「确认调仓」后才成交";
+          } else if (
+            isMarketPrior &&
+            (decision.includes("减仓") || decision.includes("卖出"))
+          ) {
+            decisionTip = reasonText
+              ? `${reasonText}（M prior 缩仓 · 不改 ŷ）；点「确认调仓」后才成交`
+              : "市场 prior · M 层缩仓（不改 ŷ）；点「确认调仓」后才成交";
           } else if (decision.includes("止损卖出")) {
             decisionTip = reasonText
               ? `${reasonText}；点「确认调仓」后才成交`
@@ -2145,7 +2202,11 @@ export function initPaper(ctx) {
               ? `${reasonText}；点「确认调仓」后才成交`
               : "持有超时且趋势向下，预演清仓；点「确认调仓」后才成交";
           } else if (decision.includes("跳过")) {
-            decisionTip = isPrior
+            decisionTip = isMarketPrior
+              ? reasonText
+                ? `${reasonText}；点「确认调仓」后仍不会新开仓`
+                : "市场 prior · 跳过新开仓；点「确认调仓」后仍不会买入"
+              : isPrior
               ? reasonText
                 ? `${reasonText}；点「确认调仓」后仍不会新开仓`
                 : "舆情先验 · 跳过新开仓；点「确认调仓」后仍不会买入"
@@ -2179,6 +2240,20 @@ export function initPaper(ctx) {
           const oosBadge = oosFailed
             ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
             : "";
+          const sentPriorBadge =
+            isPrior &&
+            (decision.includes("减仓") ||
+              decision.includes("卖出") ||
+              decision.includes("跳过"))
+              ? `<span class="watching-sent-badge is-bear" title="舆情 prior · 不改 ŷ">S</span>`
+              : "";
+          const marketPriorBadge =
+            isMarketPrior &&
+            (decision.includes("减仓") ||
+              decision.includes("卖出") ||
+              decision.includes("跳过"))
+              ? `<span class="paper-market-prior-badge" title="M prior · 不改 ŷ">M</span>`
+              : "";
 
           return (
             `<div class="rebalance-row ${cls}${hasDetail ? " is-expandable" : ""}${
@@ -2193,6 +2268,8 @@ export function initPaper(ctx) {
             `<span class="rebalance-stock-name-text">${name}</span>` +
             bookBadge +
             oosBadge +
+            sentPriorBadge +
+            marketPriorBadge +
             `</span>` +
             `<span class="rebalance-stock-code">${code}</span>` +
             `</span>` +
@@ -2407,6 +2484,7 @@ export function initPaper(ctx) {
         const emptyReason = result.empty_reason || null;
         const minScore = result.min_score;
         const priorSkipN = riskBudgetSkips.filter((s) => s && s.sentiment_prior).length;
+        const marketSkipN = riskBudgetSkips.filter((s) => s && s.market_prior).length;
         const opsReport =
           result.ops_report ||
           (result.data_quality || result.risk_blocks || result.cost_model
@@ -2432,11 +2510,18 @@ export function initPaper(ctx) {
             resultText += ` · 减仓 ${sellTrades.length} 只`;
         }
         const priorTrimN = sellTrades.filter((t) => t && t.sentiment_prior).length;
+        const marketTrimN = sellTrades.filter((t) => t && t.market_prior).length;
         if (priorTrimN > 0) {
             resultText += ` · 舆情缩仓 ${priorTrimN}`;
         }
+        if (marketTrimN > 0) {
+            resultText += ` · 市场缩仓 ${marketTrimN}`;
+        }
         if (priorSkipN > 0) {
             resultText += ` · 舆情跳过 ${priorSkipN}`;
+        }
+        if (marketSkipN > 0) {
+            resultText += ` · 市场跳过 ${marketSkipN}`;
         }
         if (riskGate && riskGate.ok === false) {
             resultText += " · 风控拦截加仓";
@@ -2473,6 +2558,7 @@ export function initPaper(ctx) {
             dualScore,
             emptyReason,
             minScore,
+            marketContext: result.market_context,
           });
         } else if (simulateBuy) {
           renderRebalanceReport([], {
@@ -2484,6 +2570,7 @@ export function initPaper(ctx) {
             dualScore,
             emptyReason,
             minScore,
+            marketContext: result.market_context,
           });
           setPaperMetaText(
             resultText + (riskGate && riskGate.ok === false ? "" : " · 无可执行变动")
@@ -2660,6 +2747,7 @@ export function initPaper(ctx) {
             dualScore: data.dual_score || null,
             emptyReason: data.empty_reason || data.book_empty_reason || null,
             minScore: data.min_score,
+            marketContext: data.market_context || null,
             opsReport: opsFromApi
               ? {
                   ...opsFromApi,
@@ -3227,6 +3315,27 @@ export function initPaper(ctx) {
       } catch (err) {
         setPaperMetaText(String(err.message || err));
       }
+    });
+  }
+
+  const paperTradesCsvBtn = document.getElementById("paper-trades-csv");
+  if (paperTradesCsvBtn) {
+    paperTradesCsvBtn.addEventListener("click", (e) => {
+      e.preventDefault();
+      const logs =
+        lastPaperTradingLogs.length > 0
+          ? lastPaperTradingLogs
+          : (lastAccountData && lastAccountData.operation_log) || [];
+      if (!logs.length) {
+        alert("暂无交易记录可导出");
+        return;
+      }
+      const csv = buildPaperLogsCsv(logs, { tradingOnly: true });
+      const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8" });
+      downloadBlob(
+        blob,
+        `paper_trades_${new Date().toISOString().slice(0, 10)}.csv`
+      );
     });
   }
 

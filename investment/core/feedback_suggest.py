@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import copy
 import json
 import os
@@ -40,7 +43,8 @@ def suggest_config_feedback(
         from core.north_star import TTM_EVENT_IDEA, append_ttm_event
 
         append_ttm_event(TTM_EVENT_IDEA, ref="feedback_suggest")
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in feedback_suggest.py", exc_info=True)
         pass
 
     bt = backtest_metrics or {}

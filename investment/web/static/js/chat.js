@@ -178,9 +178,11 @@ export function initChat(ctx) {
       llmAvailable = !!data.llm_available;
       ctx.llmAvailable = llmAvailable;
       if (data.llm_available) {
-        statusEl.textContent = "在线";
+        statusEl.textContent = data.model ? `在线 · ${data.model}` : "在线";
         statusEl.className = "status ok";
-        statusEl.title = data.model || "";
+        statusEl.title = data.model_source
+          ? `模型来源：${data.model_source}`
+          : data.model || "";
       } else if (data.llm_configured) {
         statusEl.textContent = "模型不可用";
         statusEl.className = "status bad";

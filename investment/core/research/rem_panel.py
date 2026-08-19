@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from statistics import median
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -75,7 +78,8 @@ def gap_atr_from_hist(
         from core.t0.rules import atr_pct_from_bars
 
         atr = atr_pct_from_bars(list(hist_bars or []), int(window))
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in rem_panel.py", exc_info=True)
         atr = None
     if atr is None or float(atr) < 1e-6:
         return None
@@ -102,7 +106,8 @@ def sector_gap_reference_by_code(
     sm = sector_map if isinstance(sector_map, dict) else {}
     try:
         from core.portfolio_optimize import _sector_for
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in rem_panel.py", exc_info=True)
         def _sector_for(code: str, m: Optional[Dict[str, str]] = None) -> str:  # type: ignore
             return str((m or {}).get(code) or "")
 
@@ -257,7 +262,8 @@ def attach_cross_section_breadth(
             from core.portfolio_optimize import load_sector_map
 
             sm = load_sector_map() or {}
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in rem_panel.py", exc_info=True)
             sm = {}
 
     breadth_by_date: Dict[str, float] = {}

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 from typing import Any, Dict, Optional
 
@@ -389,14 +392,16 @@ class PaperAccountMixin:
                 from core.north_star import build_north_star_report
 
                 north_star = build_north_star_report(paper)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in paper_account.py", exc_info=True)
                 north_star = None
         exposure = None
         try:
             from core.risk.exposure import build_exposure_matrix
 
             exposure = build_exposure_matrix(paper, summary)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_account.py", exc_info=True)
             exposure = None
         ops = paper.get("last_ops_report") or None
         if isinstance(ops, dict) and exposure and not ops.get("exposure"):
@@ -712,7 +717,8 @@ class PaperAccountMixin:
             out["north_star_risk_blocks"] = (paper["last_north_star"] or {}).get(
                 "risk_blocks"
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_account.py", exc_info=True)
             pass
         return out
 

@@ -1,7 +1,15 @@
-"""动量因子。"""
+"""动量因子（基于 bars 的纯价量动量信号）。
+
+含：
+- pct_change(bars, days)：N 日涨幅 %（用于简单动量）
+- 后续可加：residual_momentum、双均线斜率、ROC 平滑等
+"""
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import List, Optional
 
 

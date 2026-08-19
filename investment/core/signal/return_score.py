@@ -7,6 +7,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -220,7 +223,8 @@ class ReturnScoreModel:
                 from core.research.beta_accuracy import build_y_spec
 
                 y_spec = build_y_spec(horizon_days=int(report.get("horizon_days") or 3))
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in return_score.py", exc_info=True)
                 y_spec = None
         return cls(
             intercept=intercept_f,
@@ -267,7 +271,8 @@ def apply_predicted_scores_by_model(
         model = None
         try:
             model = resolver(code) if callable(resolver) else None
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in return_score.py", exc_info=True)
             model = None
         if model is None:
             model = default_model

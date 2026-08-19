@@ -4,6 +4,7 @@
 
 import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveTradeScore, resolveCalTradeScore, isHeuristicScoreScale } from "./paper/fmt.js?v=p1128";
 import { sentimentBadgeHtml } from "./quant/watching_render.js?v=p1108";
+import { marketPriorDetailFields, tailAnomalyDetailFields } from "./score_tooltip.js";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -118,6 +119,7 @@ export function holdingToRow(
       const hasTerms =
         terms && Array.isArray(terms.terms) && terms.terms.length > 0;
       return {
+        stock_code: h.stock_code || code || null,
         predicted_score: h.predicted_score != null ? h.predicted_score : h.score,
         score: h.score != null ? h.score : h.predicted_score,
         predicted_score_tau:
@@ -184,6 +186,8 @@ export function holdingToRow(
         heuristic_score: h.heuristic_score,
         formula_terms: terms,
         factor_coefficients: hasTerms ? {} : h.factor_coefficients || {},
+        ...marketPriorDetailFields(h),
+        ...tailAnomalyDetailFields(h),
       };
     })()),
     chgText,

@@ -823,7 +823,7 @@ export function installBacktest(q) {
     renderWfSlices(data.wf_slices);
     renderCostAssumptions(data.cost_assumptions);
     renderAttributionTables(data.attribution);
-    renderRegimeBuckets(data.regime_buckets);
+    renderRegimeBuckets(data.regime_buckets, data.macro_context_summary);
     // 信号–成交已并入模拟成交账
     renderSignalFillTable(null);
     renderScoreIc(data.score_ic);
@@ -860,7 +860,7 @@ export function installBacktest(q) {
     if (showChart) paintQuantileChart(qb);
   }
 
-  function renderRegimeBuckets(rb) {
+  function renderRegimeBuckets(rb, macroSummary) {
     const el = document.getElementById("quant-regime-buckets");
     if (!el) return;
     if (!rb || !rb.ok || !(rb.buckets || []).length) {
@@ -869,27 +869,54 @@ export function installBacktest(q) {
         : "";
       return;
     }
+    const hasMacro = !!(rb.macro_history_available || (macroSummary && macroSummary.ok));
+    const macroStrip =
+      macroSummary && macroSummary.ok
+        ? `<p class="quant-trades-caption quant-macro-regime-strip">宏观对齐 ${escapeHtml(
+            String(macroSummary.date_from || "")
+          )}→${escapeHtml(String(macroSummary.date_to || ""))} · 海外科技均 ${fmtPct(
+            macroSummary.avg_overseas_tech_1d_pct
+          )} · A50 ${fmtPct(macroSummary.avg_a50_1d_pct)} · 流动性压力 ${(
+            macroSummary.avg_liquidity_stress_score ?? "—"
+          ).toString()}</p>`
+        : hasMacro
+          ? `<p class="quant-attr-note">宏观 history 已加载，本区间无重叠信号日</p>`
+          : `<p class="quant-attr-note">宏观 history 未就绪 · 运行 macro_backfill</p>`;
+    const cols = [
+      { id: "regime", label: "Regime", flex: true },
+      { id: "n", label: "笔数", widthPct: 12, num: true },
+      { id: "ret", label: "均收益", widthPct: 16, num: true },
+      { id: "win", label: "胜率", widthPct: 14, num: true },
+    ];
+    if (hasMacro) {
+      cols.push(
+        { id: "otech", label: "海外科技", widthPct: 14, num: true },
+        { id: "a50", label: "A50", widthPct: 12, num: true }
+      );
+    }
     el.innerHTML =
       `<p class="quant-trades-caption">Regime 分桶 · 已标注 ${escapeHtml(
         String(rb.tagged_trades ?? 0)
       )} 笔</p>` +
+      macroStrip +
       researchGridHtml(
-        [
-          { id: "regime", label: "Regime", flex: true },
-          { id: "n", label: "笔数", widthPct: 16, num: true },
-          { id: "ret", label: "均收益", widthPct: 20, num: true },
-          { id: "win", label: "胜率", widthPct: 18, num: true },
-        ],
+        cols,
         (rb.buckets || []).map((b) => ({
           regime: b.regime || "—",
           n: String(b.trade_count ?? "—"),
           retText: fmtPct(b.avg_return_pct),
           retCls: metricClass(b.avg_return_pct),
           win: fmtPct(b.win_rate_pct),
+          otechText: fmtPct(b.avg_overseas_tech_1d_pct),
+          otechCls: metricClass(b.avg_overseas_tech_1d_pct),
+          a50Text: fmtPct(b.avg_a50_1d_pct),
+          a50Cls: metricClass(b.avg_a50_1d_pct),
         })),
         (col, d) => {
           if (col.id === "ret") return metricCell(d.retText, d.retCls);
           if (col.id === "win") return escapeHtml(d.win);
+          if (col.id === "otech") return metricCell(d.otechText, d.otechCls);
+          if (col.id === "a50") return metricCell(d.a50Text, d.a50Cls);
           return escapeHtml(d[col.id] ?? "—");
         }
       ) +

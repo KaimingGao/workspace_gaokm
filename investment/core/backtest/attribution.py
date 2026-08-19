@@ -8,6 +8,10 @@
 
 from __future__ import annotations
 
+import logging
+from collections import defaultdict
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
 
@@ -16,7 +20,8 @@ def _sector_for(code: str) -> str:
         from core.portfolio_optimize import _sector_for, load_sector_map
 
         return _sector_for(code, load_sector_map())
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort / 非阻塞分支降级
+        logger.debug("exception caught in attribution.py line 22", exc_info=True)
         return "其他"
 
 
@@ -32,7 +37,7 @@ def _brinson_lite(
     if not legs:
         return {"ok": False, "reason": "no_legs"}
 
-    by_sec: Dict[str, List[float]] = {}
+    by_sec: Dict[str, List[float]] = defaultdict(list)
     all_rets: List[float] = []
     for leg in legs:
         try:
@@ -41,7 +46,7 @@ def _brinson_lite(
             continue
         code = str(leg.get("stock_code") or "").strip()
         sec = str(leg.get("sector") or _sector_for(code))
-        by_sec.setdefault(sec, []).append(ret)
+        by_sec[sec].append(ret)
         all_rets.append(ret)
     if not all_rets or not by_sec:
         return {"ok": False, "reason": "no_returns"}
@@ -102,10 +107,10 @@ def attribute_portfolio_trades(
     """
     trades 项可含 legs: [{stock_code, return_pct, ...}] 或顶层 stock_code/return_pct。
     """
-    stock_sum: Dict[str, float] = {}
-    stock_n: Dict[str, int] = {}
-    sector_sum: Dict[str, float] = {}
-    sector_n: Dict[str, int] = {}
+    stock_sum: Dict[str, float] = defaultdict(float)
+    stock_n: Dict[str, int] = defaultdict(int)
+    sector_sum: Dict[str, float] = defaultdict(float)
+    sector_n: Dict[str, int] = defaultdict(int)
     all_rets: List[float] = []
     flat_legs: List[Dict[str, Any]] = []
 
@@ -120,11 +125,11 @@ def attribute_portfolio_trades(
                     continue
                 if not code:
                     continue
-                stock_sum[code] = stock_sum.get(code, 0.0) + ret
-                stock_n[code] = stock_n.get(code, 0) + 1
+                stock_sum[code] += ret
+                stock_n[code] += 1
                 sec = str(leg.get("sector") or _sector_for(code))
-                sector_sum[sec] = sector_sum.get(sec, 0.0) + ret
-                sector_n[sec] = sector_n.get(sec, 0) + 1
+                sector_sum[sec] += ret
+                sector_n[sec] += 1
                 all_rets.append(ret)
                 flat_legs.append(
                     {
@@ -142,11 +147,11 @@ def attribute_portfolio_trades(
                 continue
             if not code:
                 continue
-            stock_sum[code] = stock_sum.get(code, 0.0) + ret
-            stock_n[code] = stock_n.get(code, 0) + 1
+            stock_sum[code] += ret
+            stock_n[code] += 1
             sec = _sector_for(code)
-            sector_sum[sec] = sector_sum.get(sec, 0.0) + ret
-            sector_n[sec] = sector_n.get(sec, 0) + 1
+            sector_sum[sec] += ret
+            sector_n[sec] += 1
             all_rets.append(ret)
             flat_legs.append({"stock_code": code, "return_pct": ret, "sector": sec})
 
@@ -190,7 +195,8 @@ def attribute_portfolio_trades(
     ]
     try:
         scored = [(r, s) for r, s in scored if r == r and s == s]
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort / 非阻塞分支降级
+        logger.debug("exception caught in attribution.py line 196", exc_info=True)
         scored = []
     if len(scored) >= 2:
         scored.sort(key=lambda x: x[1])

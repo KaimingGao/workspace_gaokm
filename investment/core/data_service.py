@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.data.gate import (
@@ -35,6 +38,9 @@ __all__ = [
     "get_bars_batch",
     "get_fundamentals",
     "get_index_bars",
+    "get_macro_snapshot",
+    "get_market_sentiment_snapshot",
+    "get_announcement_snapshot",
     "index_bars_and_source",
     "get_minute_bars",
     "get_news",
@@ -175,6 +181,22 @@ def get_news(
 
 def get_spot(*, force: bool = False, disk_only: bool = False) -> Dict[str, Any]:
     return get_default_service().get_spot(force=force, disk_only=disk_only).as_dict()
+
+
+def get_macro_snapshot(*, max_age_hours: float = 36.0) -> Dict[str, Any]:
+    return get_default_service().get_macro_snapshot(max_age_hours=max_age_hours).as_dict()
+
+
+def get_market_sentiment_snapshot(*, max_age_hours: float = 36.0) -> Dict[str, Any]:
+    return get_default_service().get_market_sentiment_snapshot(
+        max_age_hours=max_age_hours
+    ).as_dict()
+
+
+def get_announcement_snapshot(*, max_age_hours: float = 36.0) -> Dict[str, Any]:
+    return get_default_service().get_announcement_snapshot(
+        max_age_hours=max_age_hours
+    ).as_dict()
 
 
 def summarize_data_quality(

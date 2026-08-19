@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 import threading
@@ -10,6 +13,35 @@ import uuid
 from typing import Any, Dict, List, Optional
 
 from core.io_atomic import atomic_write_json
+
+_SLOT_STALE_POLICY: Dict[str, Dict[str, Any]] = {
+    # 对话：多轮 tool + 联网 LLM 常 >5min；轮询走 /api/jobs/chat 也会 reclaim
+    "chat": {
+        "stale_sec": 1200.0,
+        "stuck_start_sec": 600.0,
+        "label": "对话任务",
+    },
+    "quant-ols-clusters": {
+        "stale_sec": 600.0,
+        "stuck_start_sec": 360.0,
+        "label": "分组任务",
+    },
+    "quant-param-grid": {
+        "stale_sec": 600.0,
+        "stuck_start_sec": 360.0,
+        "label": "参数网格任务",
+    },
+    "paper": {
+        "stale_sec": 600.0,
+        "stuck_start_sec": 300.0,
+        "label": "纸面任务",
+    },
+}
+_DEFAULT_STALE_POLICY = {
+    "stale_sec": 300.0,
+    "stuck_start_sec": 240.0,
+    "label": "任务",
+}
 
 
 class JobProgress:
@@ -147,7 +179,8 @@ class JobProgress:
                             out["result"] = hydrated
                             # 回填内存，避免每次 get 都读盘
                             self._job["result"] = hydrated
-                    except Exception:
+                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                        logger.debug("catch except Exception: in job_progress.py", exc_info=True)
                         pass
             return out
 
@@ -230,7 +263,8 @@ class JobProgress:
                     from core.signal.score_display import json_safe
 
                     result = json_safe(result)
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in job_progress.py", exc_info=True)
                     pass
             self._job["result"] = result
             if not error:
@@ -273,14 +307,24 @@ class JobProgress:
     def reclaim_if_stale(
         self,
         *,
-        stale_sec: float = 300.0,
-        stuck_start_sec: float = 240.0,
+        stale_sec: Optional[float] = None,
+        stuck_start_sec: Optional[float] = None,
     ) -> bool:
         """轮询路径：无进展过久则 force_fail，释放槽位。
 
         Limit=100 时起点阶段（合并宇宙/拉日线 0）可能数十秒无 done 递增，
         但 touch/心跳会刷新 updated_at；仅当 updated_at 本身过旧才回收。
         """
+        policy = _SLOT_STALE_POLICY.get(self.name, _DEFAULT_STALE_POLICY)
+        stale_sec = float(
+            policy["stale_sec"] if stale_sec is None else stale_sec
+        )
+        stuck_start_sec = float(
+            policy["stuck_start_sec"]
+            if stuck_start_sec is None
+            else stuck_start_sec
+        )
+        label = str(policy.get("label") or "任务")
         with self._lock:
             if self._job.get("status") != "running":
                 return False
@@ -295,6 +339,7 @@ class JobProgress:
                 "远端" in msg
                 or "拉指数" in msg
                 or "心跳" in msg
+                or "思考" in msg
                 or "·" in msg
                 or "s）" in msg
                 or "s)" in msg
@@ -311,7 +356,7 @@ class JobProgress:
             self._job["cancel_requested"] = True
             self._job["status"] = "failed"
             self._job["error"] = (
-                f"分组任务无进展已 {int(stale)}s，已自动释放（{msg or 'running'}）"
+                f"{label}无进展已 {int(stale)}s，已自动释放（{msg or 'running'}）"
             )
             self._job["message"] = "已中断"
             self._job["updated_at"] = time.time()
@@ -371,7 +416,8 @@ try:
     quant_param_grid_job = job_registry.slot(
         "quant-param-grid", persist_path=QUANT_PARAM_GRID_JOB_PATH
     )
-except Exception:
+except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+    logger.debug("catch except Exception: in job_progress.py", exc_info=True)
     paper_job = job_registry.slot("paper")
     quant_ols_clusters_job = job_registry.slot("quant-ols-clusters")
     quant_param_grid_job = job_registry.slot("quant-param-grid")

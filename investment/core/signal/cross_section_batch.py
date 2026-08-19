@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.signal.config import load_signal_config
@@ -75,7 +78,8 @@ def score_and_rank_watching(
         from core.signal.neutralize import neutralize_options_from_config
 
         _nopt = neutralize_options_from_config(cfg)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cross_section_batch.py", exc_info=True)
         _nopt = {
             "industry_residual": bool(cs_cfg.get("industry_residual", True)),
             "size_residual": bool(cs_cfg.get("size_residual", True)),
@@ -99,7 +103,8 @@ def score_and_rank_watching(
             from core.signal.cluster_oos_labels import codes_in_oos_failed_clusters
 
             oos_blocked = codes_in_oos_failed_clusters()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cross_section_batch.py", exc_info=True)
             oos_blocked = set()
     meta["oos_failed_blocked_codes"] = len(oos_blocked)
 
@@ -214,7 +219,8 @@ def score_and_rank_watching(
             from quant.research.rem_ridge import load_rem_model
 
             rem_doc = load_rem_model()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cross_section_batch.py", exc_info=True)
             rem_doc = None
         for it in items:
             if not isinstance(it, dict):
@@ -300,7 +306,8 @@ def score_and_rank_watching(
                         gated += 1
                         meta["dual_score_y_gated"] = int(meta.get("dual_score_y_gated") or 0) + 1
                         continue
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in cross_section_batch.py", exc_info=True)
                     pass
                 sort_key = rank_key_for_item(it, config=cfg)
                 if sort_key is None:
@@ -411,6 +418,7 @@ def score_window_as_item(
             from core.portfolio_optimize import _sector_for, load_sector_map
 
             sec = _sector_for(code, load_sector_map())
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cross_section_batch.py", exc_info=True)
             sec = None
     return score_bars_as_item(code, scored, sector=sec, market_cap=mcap)

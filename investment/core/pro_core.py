@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 
@@ -208,7 +211,8 @@ def regime_position_scale(*, regime: Optional[dict] = None) -> Dict[str, Any]:
                 "label": label or None,
                 "source": "apply_position_scale=false",
             }
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in pro_core.py", exc_info=True)
         pass
     r = regime or {}
     label = str(r.get("label") or r.get("regime") or r.get("state") or "").lower()

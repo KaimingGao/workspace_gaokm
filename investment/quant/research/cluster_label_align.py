@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -121,7 +124,8 @@ def _assign_maximize_overlap(overlap: np.ndarray) -> List[Tuple[int, int]]:
             if int(overlap[int(r), int(c)]) > 0:
                 pairs.append((int(r), int(c)))
         return pairs
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_label_align.py", exc_info=True)
         pass
     # 贪心：按重叠从大到小取互不冲突对
     flat: List[Tuple[int, int, int]] = []
@@ -268,7 +272,8 @@ def align_labels_with_active_live(
             from core.signal.cluster_live import load_active_cluster_weights
 
             art = load_active_cluster_weights()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_label_align.py", exc_info=True)
             art = None
     prev = previous_code_cluster_ids(art)
     return align_cluster_labels(codes, new_labels, prev)

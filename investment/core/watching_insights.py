@@ -5,6 +5,9 @@
 """
 
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
 from core.numbers import to_float as _f
 
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
@@ -38,7 +41,8 @@ def _days_since(iso: Optional[str]) -> Optional[int]:
         else:
             dt = datetime.strptime(raw[:10], "%Y-%m-%d")
         return max(0, (datetime.now() - dt).days)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         return None
 
 
@@ -50,7 +54,8 @@ def _finalize_insight_trade_fields(out: Dict[str, Any]) -> None:
         from core.signal.dual_score import align_trade_score_fields
 
         align_trade_score_fields(out)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         pass
 
 
@@ -115,7 +120,8 @@ def _fill_valuation_from_em(
             from core.valuation_em import fetch_valuation_pack
 
             pack = fetch_valuation_pack(code) or {}
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             return code, None, None
         return code, _f(pack.get("pe")), _f(pack.get("pb"))
 
@@ -125,7 +131,8 @@ def _fill_valuation_from_em(
         for fut in as_completed(futs):
             try:
                 code, pe, pb = fut.result()
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
                 continue
             if pe is None and pb is None:
                 continue
@@ -151,12 +158,14 @@ def _spot_valuation_map(codes: List[str]) -> Dict[str, Dict[str, Optional[float]
                 "pe": spot_to_float(spot_row_get(row, "pe")),
                 "pb": spot_to_float(spot_row_get(row, "pb")),
             }
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         pass
 
     try:
         _fill_valuation_from_em(want, out)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         pass
     return out
 
@@ -170,7 +179,8 @@ def _attach_oos_flag(out: Dict[str, Any]) -> None:
 
         out["oos_failed"] = resolve_oos_status(out) == OOS_FAIL
         return
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         pass
     src = str(out.get("return_model_source") or "")
     out["oos_failed"] = src.startswith("oos_failed") or str(
@@ -270,7 +280,8 @@ def _attach_cal_from_yhat_proxy(out: Dict[str, Any], yhat: Optional[float]) -> N
         ):
             if proxy.get(k) is not None and out.get(k) is None:
                 out[k] = proxy.get(k)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         pass
 
 
@@ -321,7 +332,8 @@ def _hydrate_insight_tau_fields(
         from core.event_prior import gap_pct_from_quote_bars
 
         gap = gap_pct_from_quote_bars(q, b)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         gap = None
     if gap is None:
         gap = _f(out.get("gap_pct"))
@@ -367,13 +379,15 @@ def _hydrate_insight_tau_fields(
                 _eod, pit = prepare_eod_bars(b, q)
                 if pit.get("rolled_to_next"):
                     fuse = False
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
                 pass
         attach_dual_score_pit(sig, quote=q, bars=b, fuse_intraday=fuse)
         out.update(get_default_signal_service().book_fields(sig))
         _finalize_insight_trade_fields(out)
         return
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         pass
     try:
         from core.signal.dual_score import (
@@ -407,7 +421,8 @@ def _hydrate_insight_tau_fields(
             merge = dict(item or {})
             merge.update(out)
             out.update(get_default_signal_service().book_fields(merge))
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             pass
         try:
             from core.signal.dual_score import ensure_formula_terms_tau
@@ -418,10 +433,12 @@ def _hydrate_insight_tau_fields(
             if isinstance(expl, dict):
                 out["formula_terms_tau"] = expl
                 out["score_formula_terms_tau"] = expl
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             pass
         _finalize_insight_trade_fields(out)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         _finalize_insight_trade_fields(out)
 
 
@@ -451,7 +468,8 @@ def _enrich_book_insight_display_fields(
             out["stance_code"] = code_st
             out["stance_label"] = stance.get("stance_label")
             out["stance_short"] = STANCE_SHORT.get(str(code_st or ""), "—")
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             out["stance_short"] = out.get("stance_short") or "—"
 
     if out.get("volume_ratio") is not None and (
@@ -470,7 +488,8 @@ def _enrich_book_insight_display_fields(
             cache_max_age_hours=72.0,
         )
         bars = list(pack.get("bars") or [])
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         bars = []
 
     if out.get("volume_ratio") is None and bars:
@@ -480,7 +499,8 @@ def _enrich_book_insight_display_fields(
             vr = volume_ratio(bars)
             if vr is not None:
                 out["volume_ratio"] = round(float(vr), 2)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             pass
 
     if out.get("excess_return_pct") is None and bars:
@@ -495,7 +515,8 @@ def _enrich_book_insight_display_fields(
             ex = excess_return_pct(bars, idx_bars, window_days=20)
             if ex is not None:
                 _apply_excess_label(out, float(ex), item)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             pass
 
     if out.get("excess_return_pct") is None and out.get("excess_label") is None:
@@ -555,7 +576,8 @@ def _insight_from_book_row(
             from core.signal.service import get_default_signal_service
 
             out.update(get_default_signal_service().book_fields(item))
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             pass
         # dual 拷贝可能再次带入脏 ŷ
         _sanitize_heuristic_yhat_fields(out, item)
@@ -585,7 +607,8 @@ def _insight_from_book_row(
         gate = annotate_score_gate(out["score"], paper=paper_ctx, item=out)
         out["min_score"] = gate["min_score"]
         out["below_min_score"] = gate["below_min_score"]
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         out["min_score"] = None
         out["below_min_score"] = False
 
@@ -684,7 +707,8 @@ def _insight_one(
                 # 只合并双层 ŷ 字段；勿 annotate_item 整包，以免污染 score/stance
                 out.update(get_default_signal_service().book_fields(item))
                 _sanitize_heuristic_yhat_fields(out, item)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             pass
         if out.get("predicted_score_eod_rem") is None and not _is_heuristic_score_scale(out):
             _hydrate_insight_tau_fields(out, item, quote, None)
@@ -697,7 +721,8 @@ def _insight_one(
             gate = annotate_score_gate(out["score"], paper=paper_ctx, item=out)
             out["min_score"] = gate["min_score"]
             out["below_min_score"] = gate["below_min_score"]
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             out["min_score"] = None
             out["below_min_score"] = False
         _finalize_insight_trade_fields(out)
@@ -720,7 +745,8 @@ def _insight_one(
                         "return_model": item.get("return_model"),
                     }
                 ) or None
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
                 out["score_formula"] = None
         out["volume"] = quote.get("volume")
         factors = item.get("factors") or {}
@@ -791,7 +817,8 @@ def build_watching_insights(
 
         if os.path.isfile(PAPER_PATH):
             paper_ctx = load_paper(PAPER_PATH)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         paper_ctx = None
 
     valuation_by = _spot_valuation_map(cleaned)
@@ -810,7 +837,8 @@ def build_watching_insights(
             if not c or c in book_by_code:
                 continue
             book_by_code[c] = row
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         book_by_code = {}
 
     missing: List[str] = []
@@ -936,7 +964,8 @@ def load_insights_cache() -> Optional[List[Dict[str, Any]]]:
                 if key and key not in added_map:
                     added_map[key] = fallback
         codes = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
         return None
     if not codes:
         return None

@@ -7,12 +7,14 @@
 """
 
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
 from core.numbers import now_iso_utc
 
 import json
 import os
 import shutil
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence
 
 from core.io_atomic import atomic_write_json
@@ -61,35 +63,26 @@ def get_cluster_scoring_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     mode = normalize_cluster_scoring_mode(
         raw.get("mode"), enabled=bool(raw.get("enabled", False))
     )
+    # B4：refit_max_age_days 与 max_age_days 同义（配置任一侧即可）
+    refit_max_age_days = max(
+        1,
+        min(
+            int(
+                raw.get("refit_max_age_days")
+                if raw.get("refit_max_age_days") is not None
+                else (raw.get("max_age_days") or 14)
+            ),
+            90,
+        ),
+    )
     return {
         "enabled": bool(raw.get("enabled", False)),
         "mode": mode,
         "top_n_per_group": max(1, min(int(raw.get("top_n_per_group") or 10), 10)),
         "max_names": max(1, min(int(raw.get("max_names") or 40), 80)),
         "min_coverage": float(raw.get("min_coverage") or 0.5),
-        # B4：refit_max_age_days 与 max_age_days 同义（配置任一侧即可）
-        "max_age_days": max(
-            1,
-            min(
-                int(
-                    raw.get("refit_max_age_days")
-                    if raw.get("refit_max_age_days") is not None
-                    else (raw.get("max_age_days") or 14)
-                ),
-                90,
-            ),
-        ),
-        "refit_max_age_days": max(
-            1,
-            min(
-                int(
-                    raw.get("refit_max_age_days")
-                    if raw.get("refit_max_age_days") is not None
-                    else (raw.get("max_age_days") or 14)
-                ),
-                90,
-            ),
-        ),
+        "max_age_days": refit_max_age_days,
+        "refit_max_age_days": refit_max_age_days,
         "auto_demote_on_stale": bool(raw.get("auto_demote_on_stale", True)),
         # FH0：缺省从 1.0 收紧到 0.5（配置显式写出仍优先生效）
         "max_oos_fail_rate": max(
@@ -154,10 +147,12 @@ def load_active_cluster_weights(
                 )
 
                 strip_removed_factors_from_pool_artifact(data)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
                 pass
             return data
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         return None
     return None
 
@@ -365,7 +360,8 @@ def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
                     part = bs.split("n_names=")[1].split("<")[0].strip()
                     if int(float(part)) < 3:
                         continue
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
                     pass
             blockers.append(bs)
         if blockers:
@@ -376,7 +372,8 @@ def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
         ug = universe_sample_gate()
         if not ug.get("ok"):
             return "验证宇宙不足：" + ("；".join(ug.get("blockers") or []) or "min_codes")
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         pass
     # 组表 return_model 回填（校验前）
     by_label_rm: Dict[str, Any] = {}
@@ -404,7 +401,8 @@ def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
                         n_part = bs.split("n_names=")[1].split("<")[0].strip()
                         if int(float(n_part)) < 3:
                             continue
-                    except Exception:
+                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
                         pass
                 bad.append(bs)
             if not bad:
@@ -462,11 +460,13 @@ def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
                     max_oos_fail_rate=float(max_rate) if max_rate is not None else None,
                     allow_worse_than_active=allow_worse,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
                 pass
         if oos_err:
             return oos_err
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         pass
     return None
 
@@ -545,7 +545,8 @@ def promote_cluster_artifact(
         from core.signal.factor_taxonomy import strip_removed_factors_from_pool_artifact
 
         strip_removed_factors_from_pool_artifact(artifact)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         pass
 
     # FM0 · 伪/proxy 因子权重硬门（artifact 内遗留 weights）
@@ -606,9 +607,11 @@ def promote_cluster_artifact(
                             "blockers": (guard.get("factor_health") or {}).get("blockers"),
                         }
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
                     pass
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         pass
 
     _ensure_dirs()
@@ -890,7 +893,8 @@ def save_cluster_draft(artifact: Dict[str, Any]) -> Dict[str, Any]:
         from core.signal.factor_taxonomy import strip_removed_factors_from_pool_artifact
 
         strip_removed_factors_from_pool_artifact(artifact)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         pass
     draft = {
         "success": True,
@@ -924,11 +928,13 @@ def load_cluster_draft() -> Optional[Dict[str, Any]]:
                 )
 
                 strip_removed_factors_from_pool_artifact(data)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
                 pass
             return data
         return None
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         return None
 
 
@@ -957,7 +963,8 @@ def save_active_cluster_book(
         from core.score_ledger import freeze_from_cluster_book
 
         freeze_from_cluster_book(as_of=None, book_doc=payload)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         pass
     return CLUSTER_BOOK_ACTIVE_PATH
 
@@ -973,7 +980,8 @@ def load_active_cluster_book() -> Optional[Dict[str, Any]]:
         if isinstance(data, dict):
             _align_cluster_book_trade_scores(data)
             return data
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         return None
     return None
 
@@ -982,7 +990,8 @@ def _align_cluster_book_trade_scores(doc: Dict[str, Any]) -> None:
     """读簿时就地修 eod_next 塌成 EOD 的旧 blend（不写盘）。"""
     try:
         from core.signal.dual_score import align_trade_score_fields
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         return
     for key in ("scored_all", "book"):
         rows = doc.get(key)
@@ -992,7 +1001,8 @@ def _align_cluster_book_trade_scores(doc: Dict[str, Any]) -> None:
             if isinstance(row, dict):
                 try:
                     align_trade_score_fields(row, write_score=True)
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
                     pass
 
 
@@ -1017,7 +1027,8 @@ def save_tau_shadow_cluster_book(
         from core.score_ledger import freeze_from_tau_shadow_book
 
         freeze_from_tau_shadow_book(shadow_doc=payload)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         pass
     return CLUSTER_BOOK_TAU_SHADOW_PATH
 
@@ -1044,7 +1055,8 @@ def save_nowcast_shadow_cluster_book(
         from core.score_ledger import freeze_from_nowcast_shadow_book
 
         freeze_from_nowcast_shadow_book(shadow_doc=payload)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         pass
     return path
 
@@ -1060,7 +1072,8 @@ def load_nowcast_shadow_cluster_book() -> Optional[Dict[str, Any]]:
             data = json.load(f)
         if isinstance(data, dict):
             return data
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         return None
     return None
 
@@ -1075,7 +1088,8 @@ def load_tau_shadow_cluster_book() -> Optional[Dict[str, Any]]:
             data = json.load(f)
         if isinstance(data, dict):
             return data
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         return None
     return None
 
@@ -1279,12 +1293,6 @@ def ensure_active_cluster_oos_gates(
     }
 
 
-def _default_health_universe() -> List[str]:
-    from core.signal.cluster_live_health import _default_health_universe as _impl
-
-    return _impl()
-
-
 def assess_cluster_live_health(
     *,
     universe: Optional[Sequence[str]] = None,
@@ -1362,7 +1370,8 @@ def set_cluster_scoring_mode(
         from core.signal import config as cfg_mod
 
         cfg_mod._cached = None
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         pass
     load_signal_config(reload=True)
     warnings: List[str] = []
@@ -1409,7 +1418,8 @@ def refresh_cluster_book_daily(*, light: bool = False) -> Dict[str, Any]:
         from core.live_config_manifest import write_live_config_manifest
 
         write_live_config_manifest(note="after cluster_daily_refresh")
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         pass
     return {
         "success": bool(ranked.get("success")),

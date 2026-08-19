@@ -4,6 +4,7 @@ python-dotenv>=1.0.0
 # akshare 运行时依赖 pandas；选股过滤逻辑本身不强制依赖
 pandas>=1.5.0
 numpy>=1.23.0
+yfinance>=0.2.40
 # Web 端（Python 3.8+ 可用 0.109.x；3.10+ 可更高）
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0

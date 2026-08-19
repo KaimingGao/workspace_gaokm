@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 import uuid
@@ -224,7 +227,8 @@ def ingest_real_fundamentals_history(
                 from core.data_coverage import universe_codes
 
                 code_list = list(universe_codes() or [])
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in sample_ops.py", exc_info=True)
                 code_list = []
 
     updated: List[Dict[str, Any]] = []

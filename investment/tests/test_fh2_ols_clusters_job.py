@@ -126,13 +126,25 @@ class TestFh2OlsClustersJob(unittest.TestCase):
             with slot._lock:
                 slot._job["updated_at"] = time.time() - 120
                 slot._save_unlocked()
-            # 满池起点阈值已放宽到 240s；120s 不应误杀
+            # 满池起点阈值 360s；250s 不应误杀
             self.assertFalse(slot.reclaim_if_stale())
             with slot._lock:
-                slot._job["updated_at"] = time.time() - 250
+                slot._job["updated_at"] = time.time() - 370
                 slot._save_unlocked()
             self.assertTrue(slot.reclaim_if_stale())
             self.assertEqual(slot.get()["status"], "failed")
+            self.assertIn("分组任务", slot.get().get("error") or "")
+
+    def test_chat_reclaim_allows_long_think(self):
+        from core.job_progress import JobProgress
+
+        slot = JobProgress(name="chat")
+        slot.start(kind="chat", total=5, message="思考中…")
+        with slot._lock:
+            slot._job["updated_at"] = time.time() - 300
+            slot._save_unlocked()
+        self.assertFalse(slot.reclaim_if_stale())
+        self.assertEqual(slot.get()["status"], "running")
 
     def test_touch_refreshes_updated_at(self):
         from core.job_progress import JobProgress

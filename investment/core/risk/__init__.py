@@ -1,5 +1,8 @@
 """风控包：账户回撤 / 仓位限额门禁 · 暴露矩阵 · 波动缩放风险预算 · 拦截标注。"""
 
+import logging
+
+logger = logging.getLogger(__name__)
 from core.risk.block_outcome import annotate_risk_block, list_risk_blocks
 from core.risk.budget import (
     clip_buy_to_risk_budget,

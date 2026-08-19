@@ -1,6 +1,9 @@
 """单日做 T 模拟（日线 OHLC 代理）。"""
 
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
 from core.numbers import now_iso_local as _now_iso
 
 from datetime import datetime

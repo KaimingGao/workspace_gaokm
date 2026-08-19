@@ -8,6 +8,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
 
@@ -41,7 +44,8 @@ def get_sentiment_prior_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
             from core.signal.config import load_signal_config
 
             config = load_signal_config()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in sentiment_prior.py", exc_info=True)
             config = {}
     sent = (config or {}).get("sentiment") or {}
     raw = dict(DEFAULT_PRIOR)

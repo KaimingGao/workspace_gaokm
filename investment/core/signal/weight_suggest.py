@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -448,7 +451,8 @@ def format_weight_config_diff(suggestion: Dict[str, Any]) -> Dict[str, Any]:
         )
         if factor_health.get("promote_blocked"):
             promote_ready = False
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in weight_suggest.py", exc_info=True)
         factor_health = None
     apply_note = "请手动合并 patch.weights 到 signal_config.json；须先做样本外验证。"
     if factor_health and factor_health.get("blockers"):

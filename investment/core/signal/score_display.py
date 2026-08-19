@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, Optional
 
@@ -38,7 +41,8 @@ def json_safe(obj: Any) -> Any:
     if callable(item):
         try:
             return json_safe(item())
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_display.py", exc_info=True)
             return None
     return obj
 
@@ -69,7 +73,8 @@ def looks_like_legacy_heuristic_score(
                 return True
             if scale == SCALE_YHAT:
                 return False
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_display.py", exc_info=True)
             pass
     if value is None:
         return False
@@ -101,7 +106,8 @@ def selection_min_score(paper: Optional[dict] = None) -> Optional[float]:
         if mp is None or mp == "":
             return None
         return float(mp)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_display.py", exc_info=True)
         return float(DEFAULT_MIN_PREDICTED_SCORE)
 
 
@@ -149,7 +155,8 @@ def resolve_hold_floor(
         if mp is None or mp == "":
             return float("-inf")
         return float(mp)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_display.py", exc_info=True)
         return float(DEFAULT_MIN_HOLD_PREDICTED_SCORE)
 
 
@@ -208,7 +215,8 @@ def annotate_score_gate(
                     "gate_score": None,
                 }
             sc = eod_gate_score_for_item(item)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_display.py", exc_info=True)
             sc = None
     if sc is None:
         try:

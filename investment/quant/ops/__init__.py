@@ -1,3 +1,6 @@
+import logging
+
+logger = logging.getLogger(__name__)
 from quant.ops.daily_presets import DAILY_PRESETS, list_daily_presets, resolve_daily_preset
 
 __all__ = [

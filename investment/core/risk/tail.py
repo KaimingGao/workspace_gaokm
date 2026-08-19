@@ -6,6 +6,9 @@ Halley 迭代修正；卡方分布 p 值用 ``math.erfc`` 闭式计算。
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, Sequence, Tuple
 

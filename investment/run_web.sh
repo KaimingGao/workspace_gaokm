@@ -118,7 +118,11 @@ start() {
   fi
 
   _mkdir_data
-  nohup python3 "$ROOT/run_web.py" >>"$LOG_FILE" 2>&1 &
+  local py="python3"
+  if [[ -x "$ROOT/.venv/bin/python3" ]]; then
+    py="$ROOT/.venv/bin/python3"
+  fi
+  nohup "$py" "$ROOT/run_web.py" >>"$LOG_FILE" 2>&1 &
   pid=$!
   echo "$pid" >"$PID_FILE"
 

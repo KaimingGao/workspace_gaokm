@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Protocol, Sequence, Tuple
 
@@ -148,7 +151,8 @@ class _SpotAdapter:
             impl = get_adapter("fetch_a_spot")
             if impl is not None:
                 return getattr(impl, "last_source", None)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in ports.py", exc_info=True)
             pass
         return None
 

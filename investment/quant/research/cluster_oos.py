@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 ProgressCb = Optional[Callable[[str, int, int], None]]
@@ -209,7 +212,8 @@ def score_cluster_partition_oos(
         from core.signal.ic_contract import ic_contract_banner
 
         _ic_banner = ic_contract_banner()
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_oos.py", exc_info=True)
         _ic_banner = {"primary_ic_kind": "cs_spearman"}
     return {
         "passed": int(passed_n),
@@ -442,7 +446,8 @@ def attach_cluster_oos_gates(
         if progress_cb:
             try:
                 progress_cb(f"OOS {i + 1}/{n_cl} · {label}", i + 1, n_cl)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in cluster_oos.py", exc_info=True)
                 pass
         rm = cl.get("return_model")
         if cl.get("singleton") or len(members) < 2:

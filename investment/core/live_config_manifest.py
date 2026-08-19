@@ -5,6 +5,9 @@
 """
 
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
 from core.numbers import now_iso_utc
 
 import hashlib
@@ -41,7 +44,8 @@ def _read_json(path: str) -> Optional[Dict[str, Any]]:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         return data if isinstance(data, dict) else None
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in live_config_manifest.py", exc_info=True)
         return None
 
 

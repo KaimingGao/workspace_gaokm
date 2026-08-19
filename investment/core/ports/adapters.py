@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Callable, Dict, Optional
 
 _adapters: Dict[str, Callable[..., Any]] = {}

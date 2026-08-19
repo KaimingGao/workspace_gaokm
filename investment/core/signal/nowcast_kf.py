@@ -9,6 +9,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 DEFAULT_NOWCAST: Dict[str, Any] = {
@@ -735,7 +738,8 @@ def cluster_holdout_residual_var(
             with open(path, encoding="utf-8") as f:
                 doc = json.load(f) or {}
             _CLUSTER_VAR_CACHE["mtime"] = mtime
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in nowcast_kf.py", exc_info=True)
             return None
     if not isinstance(doc, dict):
         return None

@@ -12,6 +12,7 @@ SELL_REASON_BELOW_HOLD = "below_hold"          # ŷ_trade 低于卖出门槛
 SELL_REASON_NOT_IN_TOPK = "not_in_topk"        # 不在横截面 TopK
 SELL_REASON_HARD_REJECT = "hard_reject"        # 硬拒绝
 SELL_REASON_SENTIMENT_TRIM = "sentiment_trim"  # 舆情缩仓
+SELL_REASON_MARKET_TRIM = "market_prior_trim"  # 市场 prior 缩仓
 
 # 可被 soft-hold 豁免的卖出原因
 _SOFT_HOLD_ELIGIBLE_REASONS = frozenset({
@@ -149,7 +150,8 @@ def select_force_trim_codes_sellable(
         if sell_block_fn is not None:
             try:
                 reason = sell_block_fn(code, quote)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                 reason = None
         if reason:
             blocked.append(
@@ -261,7 +263,8 @@ def _batch_query_quotes(codes: List[str], *, workers: int = 8) -> Dict[str, dict
                 out[c] = q
         if len(out) >= max(1, len(uniq) // 2):
             return out
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
         logger.warning("batch_query_quotes failed; fallback per-code", exc_info=True)
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -276,15 +279,18 @@ def _batch_query_quotes(codes: List[str], *, workers: int = 8) -> Dict[str, dict
                 code = futures[fut]
                 try:
                     out[code] = fut.result(timeout=0)
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                     out[code] = {}
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
             for code, fut in futures.items():
                 if code in out:
                     continue
                 try:
                     out[code] = fut.result(timeout=0) if fut.done() else {}
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                     out[code] = {}
     return out
 
@@ -326,7 +332,8 @@ def _buy_match_block_reason(code: str, quote: Optional[dict]) -> Optional[str]:
                     return f"涨跌幅 {float(change):.2f}%≥涨停阈值 {thr}%，跳过买入"
             except (TypeError, ValueError):
                 pass
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
         return None
     return None
 
@@ -368,7 +375,8 @@ def _sell_match_block_reason(code: str, quote: Optional[dict]) -> Optional[str]:
                     return f"涨跌幅 {float(change):.2f}%≤跌停阈值 {thr}%，跳过卖出"
             except (TypeError, ValueError):
                 pass
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
         return None
     return None
 
@@ -459,6 +467,7 @@ def simulate_cross_section_rebalance(
     respect_max_positions: bool = True,
     score_lookup: Optional[List[dict]] = None,
     skip_sentiment_prior: bool = False,
+    skip_market_prior: bool = False,
 ) -> Dict[str, Any]:
     """
     按横截面 TopK / 分池目标簿调仓。
@@ -473,6 +482,7 @@ def simulate_cross_section_rebalance(
 
     ``score_lookup``：可选全量打分行（含低于 min_score 未进簿的票），供卖出腿带分。
     ``skip_sentiment_prior``：确认落账复用预演簿时跳过舆情重拉（只成交）。
+    ``skip_market_prior``：与 skip_sentiment_prior 对称，跳过市场级 prior 执行。
     """
     from core.data_service import get_quote
     from core.ports.market import quote_price
@@ -512,7 +522,8 @@ def simulate_cross_section_rebalance(
         if _tracks_cfg.get("predicted_buy_floor") is not None:
             min_score = float(_pred_buy)
         min_hold_score = float(_pred_hold)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
         _tracks_cfg = {}
     # 分池：持仓上限=簿长；买入门槛见 resolve_buy_floor / 双轨
     if not respect_max_positions:
@@ -574,7 +585,8 @@ def simulate_cross_section_rebalance(
                     trade_score_by_code[code] = float(src.get("predicted_score"))
         except (TypeError, ValueError):
             pass
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
             try:
                 from core.signal.rebalance_tracks import (
                     TRACK_HEURISTIC,
@@ -610,7 +622,8 @@ def simulate_cross_section_rebalance(
                     eod_score_by_code[code] = float(gate)
         except (TypeError, ValueError):
             pass
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
             pass
         try:
             from core.signal.dual_score import resolve_predicted_score_tau
@@ -618,8 +631,9 @@ def simulate_cross_section_rebalance(
             yt = resolve_predicted_score_tau(src)
             if yt is not None:
                 tau_by_code[code] = float(yt)
-        except Exception:
-                pass
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
+            pass
     # 兼容旧引用名：卖出主分 = ŷ_trade
     score_by_code = trade_score_by_code
 
@@ -633,7 +647,8 @@ def simulate_cross_section_rebalance(
         from core.paper import mark_to_market as _mtm0
 
         equity_before = float((_mtm0(paper) or {}).get("equity") or 0) or None
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
         equity_before = None
     cash = cash_before
     sell_trades: List[dict] = []
@@ -712,7 +727,8 @@ def simulate_cross_section_rebalance(
                     use_sector_peers=True,
                 )
                 _sector_breadth_by_code[_c] = _br.get("breadth")
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
         _sector_breadth_by_code = {}
 
     for h in holdings:
@@ -754,7 +770,8 @@ def simulate_cross_section_rebalance(
                                 f"ŷ_trade 低于卖出门槛 min_hold({hold_f})"
                             )
                         reason_tag = SELL_REASON_BELOW_HOLD
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                     if score is not None and score < min_hold_score:
                         reason = f"ŷ_trade 低于卖出门槛 min_hold({min_hold_score})"
                         reason_tag = SELL_REASON_BELOW_HOLD
@@ -783,7 +800,8 @@ def simulate_cross_section_rebalance(
                             else f"ŷ_trade 低于 min_hold_score({hold_f})"
                         )
                         reason_tag = SELL_REASON_BELOW_HOLD
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                     if score is not None and score < min_hold_score:
                         reason = f"ŷ_trade 低于 min_hold_score({min_hold_score})"
                         reason_tag = SELL_REASON_BELOW_HOLD
@@ -828,7 +846,8 @@ def simulate_cross_section_rebalance(
                         rem_yhat = tau_by_code.get(code)
                         if rem_yhat is None:
                             rem_yhat = predict_rem_from_features(feats)
-                    except Exception:
+                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                         rem_yhat = tau_by_code.get(code)
                     ep = build_event_prior_from_quote(
                         q_ep if q_ep.get("success") else None,
@@ -869,7 +888,8 @@ def simulate_cross_section_rebalance(
                         if sig_row.get("y_check") is None:
                             stamp_y_state(sig_row)
                         y_conflict = str(sig_row.get("y_check") or "") == "conflict"
-                    except Exception:
+                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                         y_conflict = False
                     if should_soft_hold_for_low_score(ep) or sent_soft or y_conflict:
                         reason = None
@@ -887,13 +907,33 @@ def simulate_cross_section_rebalance(
                             }
                         )
                         continue
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                 logger.warning("sell_loop event_prior failed for %s", code, exc_info=True)
 
         sell_shares = shares
         keep_shares = 0.0
         sell_note = None
-        prior_trim = False
+        sentiment_prior_trim = False
+        market_prior_trim = False
+
+        # 市场级 prior：主动缩仓（不改 ŷ）
+        if not reason and isinstance(src_item, dict) and not skip_market_prior:
+            try:
+                from core.market_prior_policy import apply_market_priors_to_hold
+
+                mp_hold = apply_market_priors_to_hold(src_item, shares=shares)
+                if mp_hold.get("trim") and float(mp_hold.get("sell_shares") or 0) > 0:
+                    sell_shares = float(mp_hold["sell_shares"])
+                    keep_shares = float(mp_hold.get("keep_shares") or 0)
+                    sell_note = "市场 prior 缩仓"
+                    market_prior_trim = True
+                    reason = mp_hold.get("reason") or "market_prior_trim"
+                    reason_tag = SELL_REASON_MARKET_TRIM
+            except Exception:  # noqa: BLE001
+                logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
+                logger.warning("sell_loop market_prior hold failed for %s", code, exc_info=True)
+
         if not reason:
             # 舆情先验：gate + scale_holds → 已持仓缩至 scale_buy_pct（不改 ŷ）
             if str(prior_cfg_live.get("mode") or "off") == "off" or not prior_cfg_live.get(
@@ -918,13 +958,14 @@ def simulate_cross_section_rebalance(
                         if scale_h is not None
                         else "舆情先验缩仓"
                     )
-                    prior_trim = True
+                    sentiment_prior_trim = True
                     reason = hold_apply.get("reason") or "sentiment_prior_bearish"
                     reason_tag = SELL_REASON_SENTIMENT_TRIM
                 else:
                     kept.append(h)
                     continue
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                 logger.warning("sell_loop sentiment_prior failed for %s", code, exc_info=True)
                 kept.append(h)
                 continue
@@ -958,7 +999,7 @@ def simulate_cross_section_rebalance(
         )
         note = (
             sell_note
-            if prior_trim
+            if sentiment_prior_trim or market_prior_trim
             else (
                 f"分池调仓卖出：{reason}"
                 if not respect_max_positions
@@ -978,14 +1019,15 @@ def simulate_cross_section_rebalance(
                 "score": score,
                 "origin": ORIGIN_STRATEGY,
                 "note": note,
-                "sentiment_prior": bool(prior_trim),
+                "sentiment_prior": bool(sentiment_prior_trim),
+                "market_prior": bool(market_prior_trim),
             },
             fee_info,
         )
         paper.setdefault("trades", []).append(trade)
         sell_trades.append(trade)
         cash = round(cash + float(fee_info["net_cash_delta"]), 2)
-        if prior_trim and keep_shares > 0:
+        if (sentiment_prior_trim or market_prior_trim) and keep_shares > 0:
             base_sh = float(h.get("sentiment_trim_base_shares") or shares)
             kept.append(
                 {
@@ -1141,7 +1183,8 @@ def simulate_cross_section_rebalance(
         mid_summary = mark_to_market(paper)
         risk_gate = check_account_risk(paper, mid_summary)
         risk_limits = dict(risk_gate.get("limits") or {})
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
         risk_gate = {"ok": True, "blocks": [], "warnings": []}
         risk_limits = {}
     if _trim_warns:
@@ -1739,7 +1782,8 @@ def simulate_cross_section_rebalance(
                 if note not in warns:
                     warns.append(note)
                     risk_gate["warnings"] = warns
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
             logger.warning("resolve_tau_buy_floor_for_pool failed", exc_info=True)
             _tau_floor = None
             _tau_floor_meta = {}
@@ -1793,7 +1837,8 @@ def simulate_cross_section_rebalance(
                             }
                         )
                         continue
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                 pass
             score = item.get("score")
             # 买入门槛：双轨（ŷ_EOD% 或 heuristic 0–100）
@@ -1821,14 +1866,16 @@ def simulate_cross_section_rebalance(
                         }
                     )
                     continue
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                 try:
                     from core.signal.dual_score import eod_gate_score_for_item
 
                     gate_sc = eod_gate_score_for_item(item)
                     if gate_sc is None and code in eod_score_by_code:
                         gate_sc = eod_score_by_code.get(code)
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                     gate_sc = eod_score_by_code.get(code)
                 if gate_sc is None or float(gate_sc) < min_score:
                     risk_budget_skips.append(
@@ -1870,7 +1917,8 @@ def simulate_cross_section_rebalance(
                             }
                         )
                         continue
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                 logger.warning("buy_loop tau_gate failed for %s", code, exc_info=True)
 
             # Y(τ) 校验：双头分歧 / 缺 τ → 不按今日 EOD 新开
@@ -1895,7 +1943,8 @@ def simulate_cross_section_rebalance(
                         }
                     )
                     continue
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                 logger.warning("buy_loop y_check failed for %s", code, exc_info=True)
 
             # 舆情先验（ŷ 外）：不改 score；gate 时 skip / 缩 ratio（用开环批量结果）
@@ -1934,9 +1983,41 @@ def simulate_cross_section_rebalance(
                             }
                         )
                         continue
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                 logger.warning("buy_loop sentiment_prior failed for %s", code, exc_info=True)
                 prior_apply = None
+
+            # 市场级 prior（跨市场/情绪周期/监管/IPO）
+            market_prior_apply = None
+            if not skip_market_prior:
+                try:
+                    from core.market_prior_policy import apply_market_priors_to_buy
+
+                    market_prior_apply = apply_market_priors_to_buy(
+                        item, position_ratio=position_pct
+                    )
+                    for w in market_prior_apply.get("warnings") or []:
+                        warns = list(risk_gate.get("warnings") or [])
+                        if w and w not in warns:
+                            warns.append(w)
+                            risk_gate["warnings"] = warns
+                    if market_prior_apply.get("skip"):
+                        risk_budget_skips.append(
+                            {
+                                "stock_code": code,
+                                "stock_name": item.get("stock_name"),
+                                "reason": market_prior_apply.get("reason")
+                                or "market_prior",
+                                "score": score,
+                                "market_prior": True,
+                            }
+                        )
+                        continue
+                except Exception:  # noqa: BLE001
+                    logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
+                    logger.warning("buy_loop market_prior failed for %s", code, exc_info=True)
+                    market_prior_apply = None
 
             # 横截面：optimize 未分配则跳过；分池：合并簿即目标集，不因 optimize 漏配而整票跳过
             if (
@@ -1984,6 +2065,11 @@ def simulate_cross_section_rebalance(
             if prior_apply and prior_apply.get("ratio") is not None:
                 try:
                     ratio = min(ratio, float(prior_apply["ratio"]))
+                except (TypeError, ValueError):
+                    pass
+            if market_prior_apply and market_prior_apply.get("ratio") is not None:
+                try:
+                    ratio = min(ratio, float(market_prior_apply["ratio"]))
                 except (TypeError, ValueError):
                     pass
             # 目标仓：横截面硬约束缩量；分池同样吃 optimize（等权回退 1/簿长）
@@ -2335,7 +2421,8 @@ def simulate_cross_section_rebalance(
                 max_positions=int(rr.get("max_positions") or max_positions),
                 min_score=float(min_score),
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
             paper["last_optimize"] = None
 
     paper["holdings"] = holdings
@@ -2387,7 +2474,8 @@ def simulate_cross_section_rebalance(
                 "count": raw_dq.get("count"),
                 "adjust_policy": raw_dq.get("adjust_policy"),
             }
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
         dq = None
     # 使用模块顶层 resolve_cost_model；勿在函数内再 import 同名，否则整函数变 local 未绑定
     cost_model = resolve_cost_model(paper)
@@ -2417,7 +2505,8 @@ def simulate_cross_section_rebalance(
             codes=codes[:12],
         )
         monitor_alerts = list(health.get("alerts") or [])
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
         monitor_alerts = []
         health = {}
     metrics = health.get("metrics") if isinstance(health, dict) else None
@@ -2428,7 +2517,8 @@ def simulate_cross_section_rebalance(
 
         metrics, north_star = merge_north_star_into_metrics(paper, metrics)
         paper["last_north_star"] = north_star
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
         pass
     try:
         from core.data_consistency import audit_code_sources
@@ -2439,14 +2529,16 @@ def simulate_cross_section_rebalance(
             if str(h.get("stock_code") or "").strip()
         ]
         source_audit = audit_code_sources(codes_audit)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
         source_audit = None
     if not summary:
         try:
             from core.paper import mark_to_market as _mtm1
 
             summary = _mtm1(paper) or {}
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
             summary = {}
 
     attribution: Dict[str, Any] = {}
@@ -2454,7 +2546,8 @@ def simulate_cross_section_rebalance(
         from core.paper_attribution import build_paper_attribution_lite
 
         attribution = build_paper_attribution_lite(paper, summary) or {}
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
         attribution = {"ok": False, "reason": "attribution_error"}
 
     ops_report = build_ops_report(
@@ -2519,7 +2612,8 @@ def simulate_cross_section_rebalance(
         from core.risk.exposure import build_exposure_matrix
 
         exposure_style = build_exposure_matrix(paper, summary)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
         exposure_style = None
 
     try:
@@ -2539,7 +2633,8 @@ def simulate_cross_section_rebalance(
                 )
             ),
         }
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
         _dual_meta = {"fusion_mode": None, "note": "dual_score unavailable"}
 
     empty_reason = None
@@ -2573,6 +2668,30 @@ def simulate_cross_section_rebalance(
                 warns.append(msg)
             risk_gate["warnings"] = warns
 
+    market_prior_skips = [
+        s for s in (risk_budget_skips or []) if isinstance(s, dict) and s.get("market_prior")
+    ]
+    if isinstance(risk_gate, dict):
+        risk_gate["market_prior"] = {
+            "skipped": bool(skip_market_prior),
+            "blocks": len(market_prior_skips),
+            "warnings": list(
+                dict.fromkeys(
+                    str(s.get("reason") or s.get("stock_code") or "")
+                    for s in market_prior_skips
+                    if s.get("reason") or s.get("stock_code")
+                )
+            )[:8],
+        }
+
+    market_context_summary: Dict[str, Any] = {}
+    try:
+        from core.market_context import summarize_market_context
+
+        market_context_summary = summarize_market_context()
+    except Exception:
+        logger.debug("rebalance market_context summary skipped", exc_info=True)
+
     return {
         "success": True,
         "top_k": top_k,
@@ -2598,6 +2717,7 @@ def simulate_cross_section_rebalance(
         "max_turnover_pct": max_turnover_pct,
         "risk_budget_skips": risk_budget_skips,
         "sentiment_prior": sentiment_prior_summary,
+        "market_context": market_context_summary,
         "event_prior": {
             "soft_holds": event_prior_soft_holds,
             "count": len(event_prior_soft_holds),

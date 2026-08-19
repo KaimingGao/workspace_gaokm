@@ -9,6 +9,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import hashlib
 import json
 from copy import deepcopy
@@ -406,7 +409,8 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
                 "signal_config_touched": False,
                 "note": "execution 只读分池簿；权重源见 weight_source",
             }
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in execution.py", exc_info=True)
         cluster_book = None
     return {
         "ok": True,

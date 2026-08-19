@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import sys
 
@@ -23,7 +26,8 @@ try:
     from skills.common.ak_lock import install_akshare_lock
 
     install_akshare_lock()
-except Exception:
+except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+    logger.debug("catch except Exception: in app.py", exc_info=True)
     pass
 
 from web import deps  # noqa: E402

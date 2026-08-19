@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 
@@ -36,7 +39,8 @@ def build_portfolio_health(
             from core.paper import load_paper
 
             pap = load_paper()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in portfolio_health.py", exc_info=True)
             pap = {}
     limits = resolve_book_risk_limits(paper=pap if isinstance(pap, dict) else None)
     risk = check_account_risk(pap if isinstance(pap, dict) else {})

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List
 
 from core.paper import (
@@ -34,14 +37,16 @@ def run_daily_cycle(
             from core.strategy import apply_strategy_to_paper
 
             strategy_spec = apply_strategy_to_paper(paper, strategy)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
             from core.backtest.strategies import get_strategy
 
             try:
                 strategy_spec = get_strategy(strategy)
                 paper_rules = paper.get("rules") or {}
                 paper["rules"] = {**paper_rules, **(strategy_spec.get("params") or {})}
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
                 pass
 
     holdings = paper.get("holdings") or []
@@ -83,7 +88,8 @@ def run_daily_cycle(
 
         pre_summary = mark_to_market(paper)
         risk_gate = check_account_risk(paper, pre_summary)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         risk_gate = {"ok": True, "blocks": [], "warnings": []}
 
     buys_blocked = False
@@ -107,7 +113,8 @@ def run_daily_cycle(
                 (paper.get("rules") or {}).get("weight_mode") or "score_budget"
             ),
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         paper["last_optimize"] = None
 
     if simulate_buy:
@@ -145,7 +152,8 @@ def run_daily_cycle(
     equity_before = None
     try:
         equity_before = float((pre_summary or {}).get("equity") or 0) or None
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         equity_before = None
     max_turnover_pct = None
     raw_mto = (paper.get("rules") or {}).get(
@@ -169,7 +177,8 @@ def run_daily_cycle(
             cost_model=cost_model,
             max_turnover_pct=max_turnover_pct,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         buy_amount = round(sum(float(t.get("amount") or 0) for t in new_trades), 2)
         sell_amount = round(sum(float(t.get("amount") or 0) for t in sell_trades), 2)
         cash_after = float((summary or {}).get("cash") or paper.get("cash") or 0)
@@ -206,7 +215,8 @@ def run_daily_cycle(
                 "count": raw_dq.get("count"),
                 "adjust_policy": raw_dq.get("adjust_policy"),
             }
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         dq = None
 
     monitor = None
@@ -219,7 +229,8 @@ def run_daily_cycle(
             compute_rolling_ic=True,
             codes=codes or holding_codes,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         monitor = {"ok": True, "alerts": [], "level": "ok"}
 
     # Q3：运行清单
@@ -246,7 +257,8 @@ def run_daily_cycle(
             },
         )
         manifest["path"] = write_run_manifest(manifest)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         pass
 
     # 构建调仓报告：每只股票的评分和决策
@@ -277,7 +289,8 @@ def run_daily_cycle(
             if isinstance(r, dict)
             and str(r.get("stock_code") or r.get("code") or "").strip()
         }
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         book_codes = set()
     # 遍历调仓前的所有持仓
     for code, old_shares in old_shares_by_code.items():
@@ -294,13 +307,16 @@ def run_daily_cycle(
             t = sell_by_code[code]
             note = t.get("note") or ""
             prior_trim = bool(t.get("sentiment_prior")) or ("舆情先验" in str(note))
+            market_prior_trim = bool(t.get("market_prior")) or ("market_prior" in str(note))
             if "止损" in note:
                 decision = "止损卖出"
             elif "超时" in note:
                 decision = "超时卖出"
-            elif prior_trim and new_shares > 1e-9:
+            elif (prior_trim or market_prior_trim) and new_shares > 1e-9:
                 decision = "减仓"
-            elif "减仓" in note or "清仓" in note or ("舆情先验" in str(note) and "缩仓" in str(note)):
+            elif "减仓" in note or "清仓" in note or (
+                ("舆情先验" in str(note) or "market_prior" in str(note)) and "缩仓" in str(note)
+            ):
                 decision = "减仓" if new_shares > 1e-9 else "卖出"
             else:
                 decision = "卖出"
@@ -361,6 +377,10 @@ def run_daily_cycle(
                 (sell_by_code.get(code) or {}).get("sentiment_prior")
             )
             or ("舆情先验" in str(reason or "")),
+            "market_prior": bool(
+                (sell_by_code.get(code) or {}).get("market_prior")
+            )
+            or ("market_prior" in str(reason or "")),
             "target_weight_pct": (
                 (paper.get("last_optimize") or {}).get("weights_pct") or {}
             ).get(code),
@@ -414,7 +434,8 @@ def run_daily_cycle(
                         row.get("score_scale") or ""
                     ) == "heuristic_0_100"
                 row["in_book"] = code in book_codes
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
                 pass
 
     # 按 ŷ_trade 降序（缺则 ŷ_τ / EOD）
@@ -424,14 +445,16 @@ def run_daily_cycle(
         rebalance_report.sort(
             key=lambda x: rank_key_for_item(x) or 0, reverse=True
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         rebalance_report.sort(key=lambda x: x.get("score") or 0, reverse=True)
 
     try:
         from core.paper_rebalance import attach_change_pct_to_rebalance_report
 
         attach_change_pct_to_rebalance_report(rebalance_report, summary=summary)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         pass
 
     sid = paper.get("strategy_id") or strategy
@@ -446,21 +469,24 @@ def run_daily_cycle(
 
         metrics, north_star = merge_north_star_into_metrics(paper, metrics)
         paper["last_north_star"] = north_star
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         pass
     try:
         from core.data_consistency import audit_code_sources
         from core.paper import holding_codes
 
         source_audit = audit_code_sources(holding_codes(paper) or [])
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         source_audit = None
     attribution = {}
     try:
         from core.paper_attribution import build_paper_attribution_lite
 
         attribution = build_paper_attribution_lite(paper, summary) or {}
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         attribution = {"ok": False, "reason": "attribution_error"}
 
     ops_report = build_ops_report(

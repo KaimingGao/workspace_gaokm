@@ -15,6 +15,7 @@ import {
   isHeuristicScoreScale,
 } from "./fmt.js?v=p1128";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
+import { marketPriorDetailFields, tailAnomalyDetailFields } from "../score_tooltip.js";
 
 const ORIGIN_HINT = {
   manual: "你手动建仓或加仓",
@@ -280,6 +281,8 @@ export function buildPaperHoldingsTableHtml({
           return_model_source: h.return_model_source || "",
           formula_terms: terms,
           factor_coefficients: hasTerms ? {} : h.factor_coefficients || {},
+          ...marketPriorDetailFields(h),
+          ...tailAnomalyDetailFields(h),
         })
       );
 

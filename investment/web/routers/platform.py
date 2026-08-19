@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -26,8 +29,9 @@ class ScheduleBody(BaseModel):
     kind: str = Field(
         ...,
         description=(
-            "watch_alert | daily_review | sentiment_scan | bars_warmup | "
-            "spot_refresh | fundamentals_warmup | paper_daily | validation_prepare"
+            "watch_alert | daily_review | sentiment_scan | bars_warmup | minute_warmup | "
+            "spot_refresh | fundamentals_warmup | paper_daily | validation_prepare | "
+            "pre_market_ingest | concept_graph_refresh | macro_backfill"
         ),
     )
     codes: Optional[List[str]] = None

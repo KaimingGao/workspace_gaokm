@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Dict, List, Optional, Tuple
 
 from core.signal.factor_registry import compute_factor, registered_factor_names
@@ -41,7 +44,8 @@ def _research_sub_scores(
                 money_flow=None,
             )
             row[key] = float(score)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in panel.py", exc_info=True)
             row[key] = None
     return row
 
@@ -51,6 +55,8 @@ def _resolve_factor_names(
     respect_regime: bool,
     index_bars: Optional[List[dict]],
     config: Optional[dict],
+    decision_date: Optional[str] = None,
+    respect_macro_regime: bool = False,
 ) -> Tuple[str, ...]:
     """X4：respect_regime=True 时与 live enabled_factors 对齐。"""
     if not respect_regime:
@@ -61,14 +67,23 @@ def _resolve_factor_names(
         from core.signal.regime import assess_regime
 
         cfg = config or load_signal_config()
-        info = assess_regime(index_bars, (cfg or {}).get("regime"))
+        macro = None
+        if respect_macro_regime and decision_date:
+            try:
+                from core.research.macro_asof import load_macro_view_asof
+
+                macro = load_macro_view_asof(decision_date)
+            except Exception:
+                logger.debug("macro asof for regime skipped", exc_info=True)
+        info = assess_regime(index_bars, (cfg or {}).get("regime"), macro=macro or None)
         adj = (info or {}).get("adjustments") or {} if isinstance(info, dict) else {}
         enabled = adj.get("enabled_factors")
         if enabled:
             names = tuple(str(x) for x in enabled if str(x).strip())
             if names:
                 return names
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in panel.py", exc_info=True)
         pass
     return base
 
@@ -85,6 +100,7 @@ def collect_subscore_forward_panel(
     pit_fundamentals: bool = True,
     sentiment_pit: bool = False,
     respect_regime: bool = False,
+    respect_macro_regime: bool = False,
     config: Optional[dict] = None,
     excess_mode: str = "none",
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str]]:
@@ -109,6 +125,7 @@ def collect_subscore_forward_panel(
         respect_regime=respect_regime,
         index_bars=index_bars,
         config=config,
+        respect_macro_regime=respect_macro_regime,
     )
     fund_cache: Dict[str, Optional[dict]] = {}
     sent_cache: Dict[str, Optional[dict]] = {}
@@ -127,7 +144,8 @@ def collect_subscore_forward_panel(
                 stock_code, as_of=decision_date, live_fallback=False
             )
             metrics = resolved.get("metrics") if resolved.get("ok") else None
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in panel.py", exc_info=True)
             metrics = None
         fund_cache[decision_date] = metrics
         return metrics
@@ -142,7 +160,8 @@ def collect_subscore_forward_panel(
 
             pack = sentiment_as_of(stock_code, decision_date)
             sent = pack.get("sentiment") if pack.get("ok") else None
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in panel.py", exc_info=True)
             sent = None
         sent_cache[decision_date] = sent
         return sent

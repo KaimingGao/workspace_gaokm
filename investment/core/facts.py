@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 from core.data_service import get_quote
@@ -59,6 +62,18 @@ def collect_stock_facts(
         market, _ = resolve_market_code(code)
         index = build_relative(code, benchmark=default_benchmark(market), days=20)
 
+    market_ctx: Dict[str, Any] = {"ok": False}
+    try:
+        from core.market_context import summarize_market_context
+        from core.portfolio_optimize import _sector_for, load_sector_map
+
+        smap = load_sector_map()
+        sector = _sector_for(str(code), smap)
+        market_ctx = summarize_market_context(stock_code=code, sector=sector)
+        market_ctx["ok"] = True
+    except Exception:
+        logger.debug("market context facts skipped for %s", code, exc_info=True)
+
     return {
         "stock_code": code,
         "stock_name": name,
@@ -69,6 +84,7 @@ def collect_stock_facts(
         "kline": kline,
         "peer": peer,
         "index": index,
+        "market_context": market_ctx,
     }
 
 
@@ -79,6 +95,7 @@ def facts_summary(facts: Dict[str, Any]) -> Dict[str, Any]:
     kline = facts.get("kline") or {}
     peer = facts.get("peer") or {}
     index = facts.get("index") or {}
+    mctx = facts.get("market_context") or {}
 
     return {
         "quote": {
@@ -111,4 +128,19 @@ def facts_summary(facts: Dict[str, Any]) -> Dict[str, Any]:
             "summary": index.get("summary") if index.get("success") else None,
             "excess_return_pct": index.get("excess_return_pct") if index.get("success") else None,
         },
+        "market_context": {
+            "prior_active": mctx.get("prior_active"),
+            "prior_warnings": mctx.get("prior_warnings"),
+            "prior_flags": mctx.get("prior_flags"),
+            "macro": mctx.get("macro"),
+            "sentiment": mctx.get("sentiment"),
+            "regulatory": mctx.get("regulatory"),
+            "ipo": mctx.get("ipo"),
+            "freshness_needs_ingest": (mctx.get("freshness") or {}).get("needs_ingest"),
+        },
+        "market_prior": {
+            "active": signal_item.get("market_prior_active"),
+            "warnings": signal_item.get("market_prior_warnings"),
+        },
+        "tail_anomaly": signal_item.get("tail_anomaly"),
     }

@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from core.decision_record import build_decision_record, list_decisions, record_from_advice
 from core.feedback_suggest import suggest_config_feedback
@@ -74,6 +75,23 @@ class TestD2Memory(unittest.TestCase):
             missing = effective_preferences(os.path.join(td, "absent.json"))
             self.assertEqual(missing["horizon_days"], 3)
             self.assertFalse(missing["memory_exists"])
+
+    def test_llm_model_preference(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "memory.json")
+            env_path = os.path.join(td, ".env")
+            with patch("core.env.default_env_path", return_value=env_path):
+                out = write_memory({"llm_model": "qwen-max"}, path=path)
+            self.assertEqual(out["preferences"].get("llm_model"), "")
+            eff = effective_preferences(path)
+            self.assertEqual(eff["llm_model"], "qwen-max")
+            self.assertEqual(eff["llm_model_source"], "env")
+            with open(env_path, encoding="utf-8") as f:
+                self.assertIn("DASHSCOPE_MODEL=qwen-max", f.read())
+            with patch("core.env.default_env_path", return_value=env_path):
+                write_memory({"llm_model": "bad model name"}, path=path)
+            with open(env_path, encoding="utf-8") as f:
+                self.assertIn("DASHSCOPE_MODEL=qwen-max", f.read())
 
 
 class TestD3Decision(unittest.TestCase):

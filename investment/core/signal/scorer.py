@@ -8,6 +8,9 @@ v2 优化：
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional
 
@@ -230,7 +233,15 @@ def score_bars(
         risk_checks = {}
 
     # 先评估市场状态，获取权重调整建议
-    regime_info = assess_regime(index_bars, cfg.get("regime"))
+    macro_ctx = None
+    try:
+        from core.market_context import load_market_context
+
+        macro_ctx = load_market_context().get("macro")
+    except Exception:  # noqa: BLE001
+        logger.debug("macro context load skipped", exc_info=True)
+
+    regime_info = assess_regime(index_bars, cfg.get("regime"), macro=macro_ctx)
     
     # 根据市场环境动态调整因子权重（因子择时）
     adjusted_weights = dict(weights)
@@ -272,6 +283,29 @@ def score_bars(
     if "llm_sentiment" not in skip:
         skip.append("llm_sentiment")
 
+    minute_bars = None
+    code_for_minute = stock_code or (quote or {}).get("stock_code")
+    w_tail = float((weights or {}).get("tail_anomaly") or 0)
+    req_set = {str(x).strip() for x in (required_factor_keys or []) if str(x).strip()}
+    if code_for_minute and (w_tail > 0 or "tail_anomaly" in req_set):
+        try:
+            from core.store import load_minute_cache
+            from skills.common.history import resolve_market_code
+
+            market, bare = resolve_market_code(str(code_for_minute))
+            if market == "CN" and bare:
+                packed = load_minute_cache(
+                    "CN",
+                    bare,
+                    period="5",
+                    min_bars=4,
+                    max_age_hours=12,
+                )
+                if packed:
+                    minute_bars, _meta = packed
+        except Exception:  # noqa: BLE001
+            logger.debug("minute cache for tail_anomaly skipped", exc_info=True)
+
     sub_scores, factor_contrib, factors = compute_configured_factors(
         bars,
         weights=adjusted_weights,
@@ -285,6 +319,8 @@ def score_bars(
         skip_factors=skip,
         stock_code=stock_code or (quote or {}).get("stock_code"),
         stock_name=stock_name or (quote or {}).get("stock_name"),
+        minute_bars=minute_bars,
+        macro=macro_ctx,
     )
 
     # v2: 因子交互调整

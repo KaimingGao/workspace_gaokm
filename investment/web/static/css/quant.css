@@ -8394,6 +8394,55 @@ body[data-page="quant"] .quant-page .quant-pro-desk-top.dashboard-overview-band 
   box-shadow: none;
 }
 
+body[data-page="quant"] .quant-macro-context-strip {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--bg-card);
+  padding: 8px 10px;
+}
+
+body[data-page="quant"] .quant-macro-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  font-size: 0.72rem;
+}
+
+body[data-page="quant"] .quant-macro-strip.is-stale {
+  border-color: color-mix(in srgb, var(--warn, #d97706) 35%, var(--line));
+}
+
+body[data-page="quant"] .quant-macro-strip.is-active {
+  background: color-mix(in srgb, var(--warn, #d97706) 6%, var(--bg-card));
+}
+
+body[data-page="quant"] .quant-macro-strip-k {
+  font-weight: 700;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.62rem;
+}
+
+body[data-page="quant"] .quant-macro-strip-item {
+  color: var(--ink-2);
+  font-variant-numeric: tabular-nums;
+}
+
+body[data-page="quant"] .quant-macro-strip-chart {
+  flex: 1 1 200px;
+  max-width: 100%;
+  height: 44px;
+}
+
+body[data-page="quant"] .quant-macro-strip-hint,
+body[data-page="quant"] .quant-macro-strip-empty {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--ink-3);
+}
+
 /* KPI 分卡 */
 body[data-page="quant"] .quant-page .quant-pro-overview-kpis.dashboard-kpi-row,
 body[data-page="quant"] .quant-kpi-row {

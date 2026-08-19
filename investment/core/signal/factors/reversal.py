@@ -10,6 +10,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import List, Optional
 
 from core.backtest.matching import (

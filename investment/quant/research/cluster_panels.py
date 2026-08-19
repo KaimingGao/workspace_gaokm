@@ -133,7 +133,8 @@ def _load_index_bars_once(
             )
             if bars and len(bars) >= min_bars:
                 return list(bars)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
             logger.debug("指数本地缓存未命中 %s/%s", bench_s, code, exc_info=True)
 
     # 2) 缓存优先：缺指数也不打远端，避免 AkShare 挂死整任务
@@ -141,7 +142,8 @@ def _load_index_bars_once(
         if progress_cb:
             try:
                 progress_cb(f"拉指数跳过（缓存优先·{bench_s}）", 0, progress_n)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
                 pass
         return []
 
@@ -149,7 +151,8 @@ def _load_index_bars_once(
     if progress_cb:
         try:
             progress_cb(f"拉指数 {bench_s}…", 0, progress_n)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
             pass
 
     pool = ThreadPoolExecutor(max_workers=1)
@@ -166,7 +169,8 @@ def _load_index_bars_once(
                     if isinstance(pack, tuple):
                         return list(pack[0] or [])
                     return list(pack or [])
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
                     logger.warning("拉指数失败 %s", bench_s, exc_info=True)
                     return []
             elapsed = time.time() - t0
@@ -177,7 +181,8 @@ def _load_index_bars_once(
                         0,
                         progress_n,
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
                     pass
             if elapsed >= max(4.0, float(timeout_sec)):
                 logger.warning(
@@ -192,7 +197,8 @@ def _load_index_bars_once(
                             0,
                             progress_n,
                         )
-                    except Exception:
+                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                        logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
                         pass
                 return []
     finally:
@@ -256,7 +262,8 @@ def _load_one_panel(
                     fund_metrics = (
                         enrich_fundamentals_metrics(sym_s, fund_metrics) or fund_metrics
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
                     logger.warning("面板加载失败", exc_info=True)
                 fund_mode = "pit_as_of"
             else:
@@ -331,7 +338,8 @@ def build_cluster_ols_panels(
         try:
             mode = "强制刷新过期票" if do_refresh else "缓存优先"
             progress_cb(f"拉日线 0/{n}（{mode}）", 0, n)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
             logger.warning("面板构建失败", exc_info=True)
 
     # 指数只拉一次；缓存优先不阻塞打网（避免卡在「拉日线 0/N」被 90s 回收）
@@ -354,7 +362,8 @@ def build_cluster_ols_panels(
                 progress_n=n,
                 timeout_sec=idx_timeout,
             )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
         logger.warning("指数面板预取失败（继续个股）", exc_info=True)
 
     def _index_for(code: str) -> Optional[List[dict]]:
@@ -364,7 +373,8 @@ def build_cluster_ols_panels(
             return index_by_bench.get(bench) or index_by_bench.get(
                 str(default_benchmark("CN"))
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
             return index_by_bench.get(str(default_benchmark("CN")))
 
     # 强制刷新时降并发，避免 AkShare 打爆；纯缓存可多开
@@ -410,7 +420,8 @@ def build_cluster_ols_panels(
                                 done,
                                 n,
                             )
-                        except Exception:
+                        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                            logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
                             logger.warning("面板子项加载失败", exc_info=True)
                     if time.time() - t0 >= batch_timeout:
                         raise FuturesTimeout()
@@ -435,7 +446,8 @@ def build_cluster_ols_panels(
                                 done,
                                 n,
                             )
-                        except Exception:
+                        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                            logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
                             logger.warning("面板子项处理失败", exc_info=True)
         except FuturesTimeout:
             for fut, i in futs.items():
@@ -459,7 +471,8 @@ def build_cluster_ols_panels(
             if progress_cb:
                 try:
                     progress_cb(f"拉日线超时收尾 {done}/{n}（远端 {remote_n}）", done, n)
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
                     logger.warning("面板汇总失败", exc_info=True)
 
     panels: List[Dict[str, Any]] = []
@@ -497,7 +510,8 @@ def build_cluster_ols_panels(
             from core.market_calendar import filter_halted_bars
 
             bars, halt_audit = filter_halted_bars(bars)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
             halt_audit = None
         fr = row.get("fund_resolve")
         if isinstance(fr, dict):

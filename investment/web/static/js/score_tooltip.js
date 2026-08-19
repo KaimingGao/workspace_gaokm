@@ -10,6 +10,7 @@ import {
   resolveTradeScore,
 } from "./paper/fmt.js?v=p1128";
 import { renderYPathVizHtml } from "./y_path_viz.js?v=p1169";
+import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
 
 const FACTOR_LABELS = {
   momentum: "动量",
@@ -32,6 +33,7 @@ const FACTOR_LABELS = {
   amihud: "Amihud",
   idio_momentum: "特异动量",
   alt_sentiment: "舆情",
+  tail_anomaly: "尾盘异常",
 };
 
 function fmtSigned(v, digits = 3) {
@@ -896,6 +898,166 @@ export function formatSentimentGateSection(raw) {
   );
 }
 
+function _compactPriorPack(p) {
+  if (!p || typeof p !== "object" || !p.active) return null;
+  return {
+    active: true,
+    mode: p.mode || null,
+    role: p.role || null,
+    warnings: Array.isArray(p.warnings) ? p.warnings.slice(0, 3) : [],
+  };
+}
+
+/** 供 data-score-detail 嵌入的 M 层 prior 字段（控制体积）。 */
+export function marketPriorDetailFields(it) {
+  if (!it || typeof it !== "object") return {};
+  const active = !!it.market_prior_active;
+  const warns = Array.isArray(it.market_prior_warnings)
+    ? it.market_prior_warnings.slice(0, 4)
+    : [];
+  if (
+    !active &&
+    !warns.length &&
+    !it.cross_market_prior &&
+    !it.market_sentiment_prior &&
+    !it.regulatory_prior &&
+    !it.ipo_drain_prior
+  ) {
+    return {};
+  }
+  return {
+    market_prior_active: active,
+    market_prior_warnings: warns,
+    cross_market_prior: _compactPriorPack(it.cross_market_prior),
+    market_sentiment_prior: _compactPriorPack(it.market_sentiment_prior),
+    regulatory_prior: _compactPriorPack(it.regulatory_prior),
+    ipo_drain_prior: _compactPriorPack(it.ipo_drain_prior),
+  };
+}
+
+/** 市场级 prior（M 层）旁路提示。 */
+export function formatMarketPriorSection(raw) {
+  if (!raw) return "";
+  const active = !!raw.market_prior_active;
+  const packs = [
+    ["跨市场", raw.cross_market_prior],
+    ["情绪周期", raw.market_sentiment_prior],
+    ["监管", raw.regulatory_prior],
+    ["IPO", raw.ipo_drain_prior],
+  ];
+  const meta = [];
+  for (const [label, p] of packs) {
+    if (!p || !p.active) continue;
+    meta.push({
+      chip: label,
+      chipCls: "is-on",
+      code: p.mode ? `mode=${p.mode}` : "gate",
+    });
+  }
+  if (!meta.length && !active && !(raw.market_prior_warnings || []).length) {
+    return "";
+  }
+  if (!meta.length && active) {
+    meta.push({ chip: "M prior", chipCls: "is-on", code: "active" });
+  }
+  const notes = [];
+  for (const w of (raw.market_prior_warnings || []).slice(0, 5)) {
+    if (w) notes.push(String(w));
+  }
+  for (const [, p] of packs) {
+    if (!p || !p.active) continue;
+    for (const w of (p.warnings || []).slice(0, 2)) {
+      if (w && !notes.includes(String(w))) notes.push(String(w));
+    }
+  }
+  const metaHtml = meta
+    .map(
+      (m) =>
+        `<div class="score-sentiment-meta">` +
+        `<span class="score-sentiment-chip ${m.chipCls}">${escapeText(m.chip)}</span>` +
+        `<span class="score-sentiment-code">${escapeText(m.code)}</span>` +
+        `</div>`
+    )
+    .join("");
+  const notesHtml = notes
+    .map((b) => `<div class="score-sentiment-line">${escapeText(b)}</div>`)
+    .join("");
+  if (!metaHtml && !notesHtml) return "";
+  return (
+    `<div class="score-sentiment-section score-market-prior-section">` +
+    `<div class="score-section-title">市场 prior（M）</div>` +
+    `<div class="score-sentiment-lead">盘前上下文 · 不进 ŷ · 调仓缩放</div>` +
+    metaHtml +
+    notesHtml +
+    `</div>`
+  );
+}
+
+/** 供 data-score-detail 嵌入的 tail_anomaly 字段（控制体积）。 */
+export function tailAnomalyDetailFields(it) {
+  if (!it || typeof it !== "object") return {};
+  const pack = it.tail_anomaly;
+  const fac = it.factors && typeof it.factors === "object" ? it.factors : {};
+  const subs =
+    it.sub_scores && typeof it.sub_scores === "object" ? it.sub_scores : {};
+  const tvr =
+    (pack && pack.tail_volume_ratio != null
+      ? pack.tail_volume_ratio
+      : fac.tail_volume_ratio) ?? null;
+  const slope =
+    (pack && pack.tail_price_slope_pct != null
+      ? pack.tail_price_slope_pct
+      : fac.tail_price_slope_pct) ?? null;
+  const sub =
+    (pack && pack.sub_score != null ? pack.sub_score : subs.tail_anomaly) ?? null;
+  if (tvr == null && slope == null && sub == null) return {};
+  return {
+    tail_anomaly: {
+      sub_score: sub,
+      tail_volume_ratio: tvr,
+      tail_price_slope_pct: slope,
+    },
+  };
+}
+
+/** tail_anomaly 因子：尾盘放量 + 价格斜率（进 ŷ，权重低）。 */
+export function formatTailAnomalySection(raw) {
+  const pack = raw && raw.tail_anomaly;
+  if (!pack || typeof pack !== "object") return "";
+  const sub = pack.sub_score;
+  const tvr = pack.tail_volume_ratio;
+  const slope = pack.tail_price_slope_pct;
+  if (sub == null && tvr == null && slope == null) return "";
+  const lines = [];
+  if (sub != null && Number.isFinite(Number(sub))) {
+    lines.push(`子分 ${Number(sub).toFixed(1)}（权重 0.02）`);
+  }
+  if (tvr != null && Number.isFinite(Number(tvr))) {
+    const pct = (Number(tvr) * 100).toFixed(1);
+    lines.push(`尾盘量比 ${pct}%`);
+  }
+  if (slope != null && Number.isFinite(Number(slope))) {
+    const s = Number(slope);
+    lines.push(`尾盘斜率 ${s > 0 ? "+" : ""}${s.toFixed(2)}%`);
+  }
+  if (!lines.length) return "";
+  const code = String(raw.stock_code || raw.code || "").trim();
+  const chartHtml = code
+    ? `<div class="score-tail-chart-wrap">` +
+      `<canvas class="score-tail-chart" data-tail-code="${escapeText(code)}" width="280" height="72" aria-label="尾盘分钟线"></canvas>` +
+      `<span class="score-tail-chart-hint">加载分钟线…</span>` +
+      `</div>`
+    : "";
+  return (
+    `<div class="score-sentiment-section score-tail-anomaly-section">` +
+    `<div class="score-section-title">尾盘异常 · tail_anomaly</div>` +
+    `<div class="score-sentiment-lead">分钟微观 · 进 ŷ · 非 prior</div>` +
+    lines.map((b) => `<div class="score-sentiment-line">${escapeText(b)}</div>`).join("") +
+    chartHtml +
+    `</div>`
+  );
+}
+
 /** 仅系数表（无分项拆解时回退）。opts.key=tau → ŷ_τ β。 */
 export function formatFactorWeightsSection(raw, opts = {}) {
   const key = opts.key || "eod";
@@ -1346,6 +1508,9 @@ export function createScoreTooltipController() {
         Number.isFinite(Number(raw.predicted_score_rem))) ||
       (raw.gap_pct != null && Number.isFinite(Number(raw.gap_pct))) ||
       !!(raw.event_prior && typeof raw.event_prior === "object") ||
+      !!raw.market_prior_active ||
+      !!(raw.market_prior_warnings && raw.market_prior_warnings.length) ||
+      !!(raw.tail_anomaly && typeof raw.tail_anomaly === "object") ||
       !!(raw.dual_score_fusion && String(raw.dual_score_fusion).trim());
 
     // 空对象（JSON 解析失败）才跳过；未打分也展示 ŷ_EOD/ŷ_τ 占位，避免悬停无反应
@@ -1388,6 +1553,8 @@ export function createScoreTooltipController() {
     html += formatWeightSourceNote(raw);
     html += formatFeatureIsoSection(raw);
     html += formatSentimentGateSection(raw);
+    html += formatMarketPriorSection(raw);
+    html += formatTailAnomalySection(raw);
     if (hardReject && rejectReason) {
       html += `<div class="score-detail-reject">
         <span class="score-detail-reject-icon">⚠</span>
@@ -1407,6 +1574,11 @@ export function createScoreTooltipController() {
     tipAnchor = cell;
     place(tip, cell);
     attachDismiss(tip, cell, { sticky });
+    afterTipMount(tip);
+  }
+
+  function afterTipMount(tip) {
+    hydrateTailAnomalyCharts(tip).catch(() => {});
   }
 
   function place(tip, anchor) {

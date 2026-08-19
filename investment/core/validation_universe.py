@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 from typing import Any, Dict, List, Optional, Sequence
@@ -75,7 +78,8 @@ def resolve_validation_codes(
                 from core.data_coverage import universe_codes
 
                 watching_codes = universe_codes()
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in validation_universe.py", exc_info=True)
                 watching_codes = []
         codes = [str(c).strip() for c in (watching_codes or []) if str(c).strip()]
         codes = [c for c in codes if c not in exclude]

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 
@@ -28,7 +31,8 @@ def check_account_risk(
         sid = paper.get("strategy_id") or "short"
         try:
             spec_risk = get_strategy_spec(str(sid)).get("risk") or {}
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in checks.py", exc_info=True)
             spec_risk = {}
 
     max_dd = float(spec_risk.get("max_drawdown_pct") or 20.0)

@@ -16,6 +16,9 @@ predicted_score 收益分 ŷ%）的样本外评估，提供：
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, Sequence, Tuple
 

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 from core.data_policy import UNMAPPED_SECTOR, is_board_label
@@ -13,7 +16,8 @@ def _board_for(code: str) -> str:
         from core.risk.exposure import board_style_for
 
         return board_style_for(code)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
         c = str(code or "").strip()
         if c.isdigit() and len(c) == 6:
             if c.startswith(("688", "689")):
@@ -55,7 +59,8 @@ def load_sector_map() -> Dict[str, str]:
             raw = json.load(f)
         if isinstance(raw, dict):
             return {str(k): str(v) for k, v in raw.items() if k and v}
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
         return {}
     return {}
 
@@ -195,7 +200,8 @@ def optimize_weights(
                     index_bars = pack.get("bars") or pack.get("index_bars")
                 elif isinstance(pack, list):
                     index_bars = pack
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
                 index_bars = None
             regime_meta = regime_position_scale(
                 regime=assess_regime(index_bars)
@@ -226,7 +232,8 @@ def optimize_weights(
                 # 风格过浓时额外压一档单票上限（软）
                 eff_pos = round(eff_pos * 0.9, 4)
                 eff_sec = round(eff_sec * 0.9, 4)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
         style_caps = None
 
     ranked = []
@@ -243,7 +250,8 @@ def optimize_weights(
 
             gate_sc = eod_gate_score_for_item(it)
             alloc_sc = decision_score_for_item(it)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
             gate_sc = None
             alloc_sc = None
         if gate_sc is None:
@@ -271,7 +279,8 @@ def optimize_weights(
                 stamp_y_state(it)
                 eod_trust = it.get("eod_trust")
                 y_check = it.get("y_check")
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
                 pass
         row = {
             "stock_code": code,
@@ -405,7 +414,8 @@ def optimize_weights(
         from core.strategy_monitor import sector_coverage_report
 
         coverage = sector_coverage_report(codes_for_cov)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
         coverage = {"coverage": None, "mapped": 0, "total": len(codes_for_cov)}
 
     budget_alerts: List[Dict[str, Any]] = []

@@ -516,7 +516,8 @@ class QuantReplayMixin:
             from core.data_consistency import attach_source_audit
 
             result = attach_source_audit(result, codes=list(stock_bars.keys()))
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_service_replay.py", exc_info=True)
             logger.warning("回测后处理异常", exc_info=True)
 
         try:
@@ -532,7 +533,8 @@ class QuantReplayMixin:
                     "count": raw_dq.get("count"),
                     "adjust_policy": raw_dq.get("adjust_policy"),
                 }
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_service_replay.py", exc_info=True)
             result.setdefault("data_quality", {})
 
         # R0：落盘回测曲线 + TTM backtest_ready（权威 realization 输入）
@@ -563,7 +565,8 @@ class QuantReplayMixin:
                     ref="portfolio_backtest",
                     meta={"trade_count": (result.get("metrics") or {}).get("trade_count")},
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in quant_service_replay.py", exc_info=True)
                 logger.warning("回测结果序列化异常", exc_info=True)
         # 线上下发：去掉嵌套 period trades（体积大）；保留腿级 sim_trades 供成交账
         if isinstance(result, dict):
@@ -637,7 +640,8 @@ class QuantReplayMixin:
                 return
             try:
                 progress_cb(msg, int(cur), job_tot)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in quant_service_replay.py", exc_info=True)
                 pass
 
         def _cancelled() -> bool:
@@ -645,7 +649,8 @@ class QuantReplayMixin:
                 return False
             try:
                 return bool(cancel_check())
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in quant_service_replay.py", exc_info=True)
                 return False
 
         cells: List[Dict[str, Any]] = []
@@ -657,7 +662,8 @@ class QuantReplayMixin:
                 ref="param_grid",
                 meta={"pairs": len(pairs), "max_cells": max_n},
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_service_replay.py", exc_info=True)
             logger.warning("回测导出异常", exc_info=True)
 
         from core.backtest.topk_backtest import backtest_topk_equal_weight

@@ -8,6 +8,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 # 产品语义（UI / API note 同源）
@@ -42,7 +45,8 @@ def _metrics_from_backtest(
         from core.research.bt_excess_attach import attach_benchmark_excess
 
         enriched = attach_benchmark_excess(bt, stock_bars or {})
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
         enriched = bt
 
     m = enriched.get("metrics") or {}
@@ -78,7 +82,8 @@ def _shared_oos_backtest_kwargs(
         from core.strategy import backtest_portfolio_defaults
 
         d = backtest_portfolio_defaults()
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
         d = {
             "weight_mode": "equal",
             "max_position_pct": 25.0,
@@ -112,7 +117,8 @@ def _heuristic_oos_floor(min_score: float) -> float:
 
         buy, _ = heuristic_floors()
         return float(buy)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
         return 55.0
 
 
@@ -122,7 +128,8 @@ def _predicted_oos_floor() -> float:
         from core.signal.score_display import resolve_buy_floor
 
         return float(resolve_buy_floor())
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
         return 1.0
 
 
@@ -265,7 +272,8 @@ def _compare_arms(
         from core.research.bt_excess_attach import compare_arms_excess
 
         excess_cmp = compare_arms_excess(baseline_m, research_m)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in weight_oos_gate.py", exc_info=True)
         excess_cmp = {
             "baseline_excess_pct": baseline_m.get("excess_pct"),
             "research_excess_pct": research_m.get("excess_pct"),

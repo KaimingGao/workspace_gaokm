@@ -1,3 +1,14 @@
+"""Agent 提示词（prompt）与对话策略常量。
+
+含：
+- 量化买卖/持仓/诊断三类任务的系统提示词 + 用户侧 HINT 注入
+- advise() / position() / health() 工具调用的强制输出格式约束
+- 合规免责声明（DISCLAIMER）：每次对外生成文案结尾自动追加
+"""
+
+import logging
+
+logger = logging.getLogger(__name__)
 DISCLAIMER = "以上为量化研究与模拟结论，市场有风险，不保证收益，不代客下单。"
 
 BUY_QUESTION_HINT = (
@@ -87,6 +98,12 @@ SYSTEM_PROMPT = (
 - index：相对大盘超额
 - news：相关资讯标题摘要
 - position：持仓规则建议（**默认读模拟账户 paper.json**；可传临时 holdings；可选 include_stance 附加 stance_label）
+
+## 盘前市场上下文（M 层 prior）
+- advise.facts 含 **market_context**（跨市场 macro / 情绪周期 / 监管 / IPO 虹吸）与 **market_prior**（对该票是否激活）。
+- M 层 prior **不改 signal.score（ŷ）**；仅影响纸面调仓执行缩放。解读买卖时：若 prior_active 为 true，须在失效条件中提及对应 warnings（如海外科技拖累、监管降温）。
+- 用户问「今天大盘环境 / 盘前上下文 / 跨市场」→ 引用 facts.market_context；无数据时提示运行 pre_market_ingest。
+- **tail_anomaly** 已进 ŷ（权重 0.02）；facts.tail_anomaly 含尾盘量比/斜率；UI 可展开分钟尾盘图，非 prior。
 
 ## 路由规则
 - 查价 → quote；多票对比 → compare；条件选股 → screen

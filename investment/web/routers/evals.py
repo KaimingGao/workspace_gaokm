@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
@@ -73,7 +76,8 @@ def _evals_background_task(
             with_presets=with_presets,
             quant_only=quant_only,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in evals.py", exc_info=True)
         pass
 
 

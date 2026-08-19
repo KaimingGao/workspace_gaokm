@@ -1,6 +1,9 @@
 """分组 live · 双分对照审计样本（从 cluster_live 按用例拆出）。"""
 
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
 from core.numbers import now_iso_utc
 
 from datetime import datetime, timezone

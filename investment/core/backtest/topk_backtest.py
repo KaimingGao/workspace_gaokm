@@ -6,10 +6,13 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from functools import lru_cache
 
 from core.backtest.engine import _mock_quote_from_bars, _trade_metrics
+
+logger = logging.getLogger(__name__)
 
 
 WEIGHT_MODES = ("equal", "score_budget", "risk_parity_lite")
@@ -41,7 +44,8 @@ def _fill_sample_score_fields(
                 return None
             return f
 
-    except Exception:
+    except Exception:  # noqa: BLE001 — 新函数降级兼容，debug 级别即可
+        logger.debug("score_display.looks_like_legacy_heuristic_score unavailable, falling back", exc_info=True)
 
         def _yhat_or_none(v: Any) -> Optional[float]:
             if v is None or v == "":
@@ -69,7 +73,8 @@ def _fill_sample_score_fields(
 
                 if looks_like_legacy_heuristic_score(rs, item=tip):
                     heu_f = rs
-            except Exception:
+            except Exception:  # noqa: BLE001 — 打分显示兼容降级
+                logger.debug("looks_like_legacy_heuristic_score unavailable in heuristic fallback", exc_info=True)
                 if abs(rs) >= 10.0:
                     heu_f = rs
     out: Dict[str, Any] = {
@@ -129,7 +134,8 @@ def _score_factor_weight_meta(
         from core.signal.cluster_live import lookup_code_weights
 
         mapped = lookup_code_weights(str(code), active=cluster_active)
-    except Exception:
+    except Exception:  # noqa: BLE001 — 分组查询失败，不阻塞回测
+        logger.debug("lookup_code_weights failed for %s", code, exc_info=True)
         mapped = None
     if mapped and isinstance(mapped.get("weights"), dict):
         fw = {str(k): float(v) for k, v in mapped["weights"].items() if v is not None}
@@ -226,7 +232,8 @@ def _score_tooltip_meta(
             float(score) if score is not None else None, item=item
         ):
             pred = score
-    except Exception:
+    except Exception:  # noqa: BLE001 — predicted_score 兼容降级
+        logger.debug("looks_like_legacy_heuristic_score unavailable, using raw score fallback", exc_info=True)
         if pred is None and score is not None:
             try:
                 if abs(float(score)) < 10.0:
@@ -242,7 +249,8 @@ def _score_tooltip_meta(
                 out["predicted_score"] = None
     except (TypeError, ValueError):
         out["predicted_score"] = None
-    except Exception:
+    except Exception:  # noqa: BLE001 — 显示函数异常，回退基础 float 转换
+        logger.debug("predicted_score heuristic guard failed, using basic conversion", exc_info=True)
         try:
             out["predicted_score"] = float(pred) if pred is not None else None
         except (TypeError, ValueError):
@@ -263,7 +271,8 @@ def _score_tooltip_meta(
                     "return_model": model,
                 }
             ) or ""
-        except Exception:
+        except Exception:  # noqa: BLE001 — 分数字段/公式 best-effort，不阻塞主流程
+            logger.debug("build_score_formula failed, skipping score_formula/coefficients fields", exc_info=True)
             pass
     return out
 
@@ -451,7 +460,8 @@ def _enrich_trade_eod_rem_fields(
             from core.signal.dual_score import eod_remaining_at_tau
 
             rem = eod_remaining_at_tau(y_eod, realized)
-        except Exception:
+        except Exception:  # noqa: BLE001 — ŷ 剩余量 best-effort
+            logger.debug("eod_remaining_at_tau failed, skipping predicted_score_eod_rem", exc_info=True)
             rem = None
     if rem is not None:
         out["predicted_score_eod_rem"] = rem
@@ -463,7 +473,8 @@ def _enrich_trade_eod_rem_fields(
             if isinstance(expl, dict):
                 out["formula_terms_tau"] = expl
                 out["score_formula_terms_tau"] = expl
-        except Exception:
+        except Exception:  # noqa: BLE001 — τ 公示项 best-effort
+            logger.debug("ensure_formula_terms_tau failed, skipping tau formula fields", exc_info=True)
             pass
     return out
 
@@ -579,7 +590,11 @@ def allocate_topk_weights(
                 max_sector_pct=max_sector_pct,
                 max_positions=n,
             )
-    except Exception:
+    except Exception:  # noqa: BLE001 — 风控失败降级等权，warning 级别以便定位限额参数问题
+        logger.warning(
+            "weight mode %s compute failed, falling back to equal weight",
+            mode, exc_info=True,
+        )
         weights = {}
 
     filtered = {
@@ -979,7 +994,8 @@ def backtest_topk_equal_weight(
         from core.signal.score_calibration import load_calibration_model
 
         cal_model_doc = load_calibration_model()
-    except Exception:
+    except Exception:  # noqa: BLE001 — 校准模型是加分项，不阻塞
+        logger.debug("load_calibration_model failed, running without calibration scores", exc_info=True)
         cal_model_doc = None
 
     cfg = load_signal_config()
@@ -995,7 +1011,8 @@ def backtest_topk_equal_weight(
         from core.signal.cluster_live import load_active_cluster_weights
 
         cluster_active = load_active_cluster_weights()
-    except Exception:
+    except Exception:  # noqa: BLE001 — 组权是加分项，不阻塞基线回测
+        logger.debug("load_active_cluster_weights failed, running without cluster_active", exc_info=True)
         cluster_active = None
     dropout_n = max(0, min(int(dropout_n or 0), 10))
 
@@ -1118,7 +1135,8 @@ def backtest_topk_equal_weight(
                     )
                 else:
                     cluster_return_models = {}
-            except Exception:
+            except Exception:  # noqa: BLE001 — 组模型预载失败，退化为无 ŷ 对照
+                logger.debug("load cluster return_models failed, falling back to empty", exc_info=True)
                 cluster_return_models = {}
     last_model_fit_rebalance = -10**9
     rebalance_idx = 0
@@ -1136,7 +1154,8 @@ def backtest_topk_equal_weight(
             try:
                 if cancel_check():
                     return {"success": False, "error": "已取消"}
-            except Exception:
+            except Exception:  # noqa: BLE001 — 回调异常不阻塞
+                logger.debug("cancel_check callback raised", exc_info=True)
                 pass
         entries: List[dict] = []
         signal_as_of = dates[i]
@@ -1157,7 +1176,8 @@ def backtest_topk_equal_weight(
                     max(0, day_n),
                     max(1, n_signal_days),
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — 进度回调异常不阻塞
+                logger.debug("progress_cb callback raised on %s", signal_as_of, exc_info=True)
                 pass
         if cached_rank:
             picks = list(cached_rank.get("picks") or [])
@@ -1184,7 +1204,8 @@ def backtest_topk_equal_weight(
                             )
                             fund_resolves.append(resolved)
                             fund = resolved.get("metrics")
-                        except Exception:
+                        except Exception:  # noqa: BLE001 — 基本面 PIT 失败不阻塞打分
+                            logger.debug("resolve_fundamentals_for_score failed for %s as_of %s", code, signal_as_of, exc_info=True)
                             fund = None
                     else:
                         fund = (fundamentals_by_code or {}).get(code)
@@ -1324,7 +1345,8 @@ def backtest_topk_equal_weight(
                     attach_calibrated_scores(
                         scored_item, model_doc=cal_model_doc, force=True
                     )
-                except Exception:
+                except Exception:  # noqa: BLE001 — 校准分数是加分项
+                    logger.debug("attach_calibrated_scores failed, continuing without calibration", exc_info=True)
                     pass
             tip_kw = {
                 "cluster_label": tip.get("cluster_label"),
@@ -1393,7 +1415,8 @@ def backtest_topk_equal_weight(
                     from core.signal.dual_score import decision_score_for_item
 
                     rank_score = decision_score_for_item(scored_item)
-                except Exception:
+                except Exception:  # noqa: BLE001 — 决策分降级，用已打分字段兜底
+                    logger.debug("decision_score_for_item failed, falling back to predicted_score_blend", exc_info=True)
                     rank_score = tip_kw.get("predicted_score_blend")
                 if rank_score is None:
                     rank_score = tip_kw.get("predicted_score_blend")
@@ -2004,7 +2027,8 @@ def backtest_topk_equal_weight(
         from core.data_consistency import attach_source_audit
 
         raw = attach_source_audit(raw, codes=list(stock_bars.keys()))
-    except Exception:
+    except Exception:  # noqa: BLE001 — 源审计 best-effort，不影响回测结果
+        logger.debug("attach_source_audit failed, skipping D1 source audit fields", exc_info=True)
         pass
     return attach_robustness_fields(
         raw,

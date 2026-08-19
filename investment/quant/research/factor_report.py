@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 from core.signal.factor_corr import pearson_with_reason
@@ -43,7 +46,8 @@ def _resolve_fund_for_day(
             live_fallback=False,
         )
         metrics = resolved.get("metrics") if resolved.get("ok") else None
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in factor_report.py", exc_info=True)
         metrics = None
     cache[decision_date] = metrics
     return metrics

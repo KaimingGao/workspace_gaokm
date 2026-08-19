@@ -651,6 +651,13 @@ export function createBtResultRenderers(deps) {
         : "—";
     const foldN = (wf.folds || []).length || wf.fold_count || "—";
     const regimeLabel = regime.regime || (regime.ok === false ? regime.reason || "—" : "—");
+    const mcs = data.macro_context_summary || {};
+    const macroKpi =
+      mcs.ok && mcs.avg_overseas_tech_1d_pct != null
+        ? `<div class="quant-validation-kpi"><span class="k">海外科技均</span><span class="v ${mcls(
+            mcs.avg_overseas_tech_1d_pct
+          )}">${esc(fmt(mcs.avg_overseas_tech_1d_pct))}</span></div>`
+        : "";
     const note =
       oosFailed
         ? oos.reason || "OOS 未过闸：样本内好看不等于样本外有效"
@@ -667,6 +674,7 @@ export function createBtResultRenderers(deps) {
       `<div class="quant-validation-kpi"><span class="k">WF正窗</span><span class="v">${esc(String(wfPos))}</span></div>` +
       `<div class="quant-validation-kpi"><span class="k">WF折</span><span class="v">${esc(String(foldN))}</span></div>` +
       `<div class="quant-validation-kpi"><span class="k">Regime</span><span class="v">${esc(String(regimeLabel))}</span></div>` +
+      macroKpi +
       `</div>` +
       `<p class="quant-sub">${esc(note)}</p>` +
       `</div>`;

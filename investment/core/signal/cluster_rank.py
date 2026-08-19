@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -52,7 +55,8 @@ def _prior_yhat_by_code(codes: Sequence[str]) -> Tuple[Dict[str, float], str]:
         )
         if scores:
             axis = "cluster_book_yhat"
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
         pass
 
     if len(scores) < max(1, len(want) // 10):
@@ -71,7 +75,8 @@ def _prior_yhat_by_code(codes: Sequence[str]) -> Tuple[Dict[str, float], str]:
                     axis = "ledger_yhat"
                 if len(scores) >= len(want) // 2:
                     break
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
             pass
     return scores, axis
 
@@ -232,7 +237,8 @@ def rank_cluster_pools(
         )
 
         tracks_cfg = get_rebalance_tracks_cfg(cfg)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
         tracks_cfg = {"enabled": False, "oos_fail_policy": "exclude"}
         TRACK_HEURISTIC = "heuristic"  # type: ignore
         TRACK_PREDICTED = "predicted"  # type: ignore
@@ -333,15 +339,18 @@ def rank_cluster_pools(
             from core.portfolio_optimize import load_sector_map
 
             sm = load_sector_map() or {}
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
             sm = {}
         try:
             ref_by_code = sector_gap_reference_by_code(
                 br.get("gaps") or {}, sector_map=sm
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
             ref_by_code = {}
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
         quote_cache = {}
         pool_breadth = None
         pool_gaps_list = []
@@ -492,7 +501,8 @@ def rank_cluster_pools(
             from core.signal.dual_score import eod_gate_score_for_item
 
             sc = eod_gate_score_for_item(item)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
             sc = None
         if sc is None:
             sc = item.get("predicted_score")
@@ -546,7 +556,8 @@ def rank_cluster_pools(
                 opx = _parse_open_price(q_row)
                 if opx is not None and opx > 0:
                     row["open_price_for_tau_label"] = float(opx)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
                 pass
         try:
             from core.signal.dual_score import (
@@ -560,7 +571,8 @@ def rank_cluster_pools(
             # 簿主分 = raw ŷ_trade；heuristic 轨 align 会把 score 写成组/全局 ŷ%
             align_trade_score_fields(row, write_score=True)
             row.update(dual_track_score_fields(row))
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
             pass
         mapped_rows.append(row)
         by_label.setdefault(str(label), []).append(row)
@@ -594,7 +606,8 @@ def rank_cluster_pools(
         from core.signal.dual_score import get_dual_score_cfg, rank_key_field, rank_key_for_item
 
         _dual_cfg = get_dual_score_cfg()
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
         _dual_cfg = {"fusion_mode": "blend"}
 
         def rank_key_for_item(x, config=None):  # type: ignore
@@ -630,7 +643,8 @@ def rank_cluster_pools(
         book = list(fill.get("book") or [])
         book_skips = list(fill.get("skipped") or [])
         book_constraint_stats = dict(fill.get("stats") or {})
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
         eligible.sort(
             key=lambda x: (
                 -float(
@@ -739,7 +753,8 @@ def rank_cluster_pools(
                 tau_shadow_path = save_tau_shadow_cluster_book(
                     tau_book, meta=tau_shadow_meta
                 )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
             tau_shadow_path = None
             tau_shadow_meta = None
         nowcast_shadow_path = None
@@ -784,7 +799,8 @@ def rank_cluster_pools(
                             "nowcast shadow alerts: %s",
                             "; ".join(a.get("code", "?") for a in _nc_alerts),
                         )
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
                     pass
                 n_nc = len(nc_book)
                 w_nc = round(100.0 / n_nc, 4) if n_nc else 0.0
@@ -793,7 +809,8 @@ def rank_cluster_pools(
                 nowcast_shadow_path = save_nowcast_shadow_cluster_book(
                     nc_book, meta=nowcast_shadow_meta
                 )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
             nowcast_shadow_path = None
             nowcast_shadow_meta = None
 

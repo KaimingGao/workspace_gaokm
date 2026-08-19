@@ -5,6 +5,9 @@
 - 产品对外叫「模拟」/follow；本包不引入第四套词
 """
 
+import logging
+
+logger = logging.getLogger(__name__)
 from core.ports.market import fetch_daily_bars, query_quote, quote_price
 from core.ports.signal import build_signal_pool
 

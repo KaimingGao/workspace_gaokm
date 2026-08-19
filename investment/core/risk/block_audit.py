@@ -10,6 +10,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import json
 import os
 from datetime import datetime, timedelta
@@ -63,7 +66,8 @@ def _parse_dt(raw: Any) -> Optional[datetime]:
         if len(s) >= 19:
             return datetime.fromisoformat(s[:19])
         return datetime.fromisoformat(s)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in block_audit.py", exc_info=True)
         return None
 
 

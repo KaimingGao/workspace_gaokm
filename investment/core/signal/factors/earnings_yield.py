@@ -1,6 +1,9 @@
 """盈利收益率因子（V2.1）：EP = 1/PE_TTM，与 PE/PB 分段的 value 正交。"""
 
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
 from core.numbers import to_float as _to_float
 
 from typing import Any, Dict, Optional, Tuple

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 import threading
 import time
@@ -126,6 +129,14 @@ class ChatService:
             if not self._run_lock.acquire(blocking=False):
                 chat_job.finish(error="对话任务锁被占用")
                 return
+            stop = threading.Event()
+
+            def _heartbeat() -> None:
+                while not stop.wait(25.0):
+                    chat_job.touch()
+
+            hb = threading.Thread(target=_heartbeat, name="chat-job-hb", daemon=True)
+            hb.start()
             try:
                 chat_job.update(current=1, message="思考中…")
                 result = self.chat_sync(text, session_id=sid)
@@ -134,6 +145,7 @@ class ChatService:
             except Exception as e:
                 chat_job.finish(error=str(e))
             finally:
+                stop.set()
                 self._run_lock.release()
 
         threading.Thread(target=_worker, name=f"chat-job-{job_id}", daemon=True).start()

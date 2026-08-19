@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional
 
@@ -290,7 +293,8 @@ def watching_daily_chart(code: str, lookback: int = 60):
         quote = get_quote(c)
         if quote.get("success"):
             name = str(quote.get("stock_name") or "").strip() or c
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching.py", exc_info=True)
         pass
 
     return {
@@ -301,3 +305,20 @@ def watching_daily_chart(code: str, lookback: int = 60):
         "points": points,
         "point_count": len(points),
     }
+
+
+@router.get("/api/watching/minute-tail")
+def watching_minute_tail(code: str, tail_minutes: int = 30):
+    """5 分钟尾盘序列（tail_anomaly 迷你图）。"""
+    from core.signal.tail_anomaly_view import build_minute_tail_view
+
+    c = str(code or "").strip()
+    if not c:
+        raise HTTPException(status_code=400, detail="请指定股票代码")
+    try:
+        out = build_minute_tail_view(c, tail_minutes=int(tail_minutes or 30))
+        if not out.get("ok"):
+            return out
+        return out
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e

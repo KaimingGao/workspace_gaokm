@@ -73,7 +73,8 @@ def _fetch_bars_isolated(stock_code: str, *, limit: int = 40, timeout: float = 1
         if bars and len(bars) >= need:
             src = str((pack or {}).get("data_source") or "cache")
             return bars[-int(limit) :], src
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         pass
 
     try:
@@ -94,7 +95,8 @@ def _fetch_bars_isolated(stock_code: str, *, limit: int = 40, timeout: float = 1
                 src = str(pack.get("data_source") or "ak_pool")
                 return bars[-int(limit) :], src
         return [], "empty"
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         return [], "empty"
 
 
@@ -240,7 +242,8 @@ def score_stock(
             data_source = src
     except TimeoutError:
         bars = []
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         bars = []
 
     if not bars:
@@ -314,7 +317,8 @@ def score_stock(
         fundamentals = merge_cached_valuation(raw, fundamentals) or fundamentals
         if fundamentals is None:
             fundamentals = merge_cached_valuation(str(code), None)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         pass
     try:
         from core.fundamentals_pit import merge_local_fundamentals_snapshot
@@ -322,7 +326,8 @@ def score_stock(
         fundamentals = merge_local_fundamentals_snapshot(raw, fundamentals) or fundamentals
         if fundamentals is None:
             fundamentals = merge_local_fundamentals_snapshot(str(code), None)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         pass
 
     # X1：指数日线；X5：财务深度边界
@@ -338,7 +343,8 @@ def score_stock(
             mkt = str(
                 resolve_market_code(str(code)) or resolve_market_code(raw) or "CN"
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             mkt = "CN"
         idx_pack = fetch_live_index_bars(market=mkt, limit=75)
         index_meta = {
@@ -499,7 +505,8 @@ def score_stock(
                 kk = str(k).strip()
                 if kk and kk not in required_factor_keys:
                     required_factor_keys.append(kk)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         required_factor_keys = []
         group_model_pre = None
         global_model_pre = None
@@ -542,9 +549,33 @@ def score_stock(
         smap = load_sector_map()
         sector = _sector_for(str(code), smap)
         board = _board_for(str(code))
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         sector = "未分类"
         board = "其他"
+
+    market_priors: Dict[str, Any] = {}
+    try:
+        from core.market_context import build_market_priors, load_market_context
+
+        mctx = load_market_context()
+        fac = scored.get("factors") or {}
+        market_priors = build_market_priors(
+            mctx,
+            config=cfg,
+            stock_code=str(code),
+            sector=sector,
+            rev_limit_up_count=fac.get("rev_limit_up_count"),
+            rev_consecutive_limit=fac.get("rev_consecutive_limit"),
+        )
+        for w in market_priors.get("market_prior_warnings") or []:
+            if w and w not in formula_warnings:
+                formula_warnings.append(str(w))
+            if w and w not in risk_hints:
+                risk_hints.append(str(w))
+    except Exception as e:  # noqa: BLE001
+        logger.debug("market priors attach failed for %s", code, exc_info=True)
+        formula_warnings.append(f"market_prior_failed:{e}")
 
     market_cap = None
     if isinstance(fundamentals, dict) and fundamentals.get("market_cap") is not None:
@@ -566,7 +597,8 @@ def score_stock(
             from core.signal.cluster_oos_labels import is_oos_failed_cluster_label
 
             oos_primary_blocked = is_oos_failed_cluster_label(str(cluster_label))
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             oos_primary_blocked = False
     try:
         subs = dict(scored.get("sub_scores") or {})
@@ -612,7 +644,8 @@ def score_stock(
             formula_warnings.append(
                 "no_global_return_model:shadow_uses_cluster_yhat"
             )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         predicted_score = None
         score_global = None
         score_cluster = None
@@ -817,6 +850,12 @@ def score_stock(
         "warnings": list(formula_warnings),
         "risk_hints": list(risk_hints),
         "sentiment_prior": sentiment_prior,
+        "cross_market_prior": market_priors.get("cross_market_prior"),
+        "market_sentiment_prior": market_priors.get("market_sentiment_prior"),
+        "regulatory_prior": market_priors.get("regulatory_prior"),
+        "ipo_drain_prior": market_priors.get("ipo_drain_prior"),
+        "market_prior_active": market_priors.get("market_prior_active"),
+        "market_prior_warnings": market_priors.get("market_prior_warnings"),
         "sentiment_include_in_score": include_sentiment_in_score,
         "watching_sentiment": sentiment_ui,
         "alt_sentiment_beta": alt_beta,
@@ -834,6 +873,17 @@ def score_stock(
         "eod_feature_as_of": eod_pit.get("eod_as_of"),
         "dual_score_window": eod_pit.get("dual_score_window"),
     }
+
+    _fac = scored.get("factors") if isinstance(scored.get("factors"), dict) else {}
+    _tail_sub = (scored.get("sub_scores") or {}).get("tail_anomaly")
+    _tvr = _fac.get("tail_volume_ratio")
+    _slope = _fac.get("tail_price_slope_pct")
+    if _tail_sub is not None or _tvr is not None or _slope is not None:
+        signal_item["tail_anomaly"] = {
+            "sub_score": _tail_sub,
+            "tail_volume_ratio": _tvr,
+            "tail_price_slope_pct": _slope,
+        }
 
     # R3 / A1：双层 ŷ_τ（不替换 predicted_score）
     try:
@@ -878,7 +928,8 @@ def score_stock(
                         quotes={str(code): quote} if quote else None,
                     )
                     sector_breadth = br.get("breadth")
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in score_stock.py", exc_info=True)
                 logger.warning("sector gap breadth failed for %s", code, exc_info=True)
         feats = {
             "gap_pct": gap_v,
@@ -907,7 +958,8 @@ def score_stock(
                 except (TypeError, ValueError):
                     ref = None
             feats["gap_vs_sector"] = gap_vs_sector_value(gap_v, ref)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             logger.debug("tau Z extras skipped for %s", code, exc_info=True)
         try:
             from core.research.rem_theme import resolve_theme_day
@@ -918,7 +970,8 @@ def score_stock(
                 pool_gaps=pool_gaps if isinstance(pool_gaps, (list, tuple)) else None,
                 gap_trigger_pct=trigger,
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             feats["theme_day"] = (
                 1.0
                 if (gap_v is not None and abs(float(gap_v)) >= trigger)
@@ -985,7 +1038,8 @@ def score_stock(
                                 "formula": f"close[T]/price[{hm}]-1",
                                 "note": "分钟缓存命中；无网拉；模型缺特征时 z≈0",
                             }
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             logger.debug("minute tau attach skipped for %s", code, exc_info=True)
 
         rem_model_doc = load_rem_model()
@@ -1009,7 +1063,8 @@ def score_stock(
             stock_code=str(code),
         )
         signal_item["event_prior"] = ep
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         logger.warning("rem/event_prior attach failed for %s", code, exc_info=True)
 
     return {

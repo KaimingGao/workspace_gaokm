@@ -51,6 +51,57 @@ class TestRegimeBuckets(unittest.TestCase):
         self.assertTrue(out["buckets"])
 
 
+class TestMacroRegimeOverlay(unittest.TestCase):
+    def test_macro_enrichment_on_buckets(self):
+        from core.backtest.oos_report import (
+            macro_context_summary_for_period,
+            regime_buckets_from_trades,
+        )
+
+        bars = [{"date": f"2024-03-{i+1:02d}", "close": 100 + (i % 7) * 2} for i in range(28)]
+        trades = [
+            {"signal_date": "2024-03-20", "return_pct": 1.5},
+            {"signal_date": "2024-03-22", "return_pct": -0.5},
+        ]
+        macro_rows = {
+            "2024-03-20": {
+                "date": "2024-03-20",
+                "overseas_tech_1d_pct": -2.0,
+                "a50_1d_pct": -0.5,
+                "liquidity_stress_score": 1.2,
+            },
+            "2024-03-22": {
+                "date": "2024-03-22",
+                "overseas_tech_1d_pct": -1.0,
+                "a50_1d_pct": 0.3,
+                "liquidity_stress_score": 0.8,
+            },
+        }
+
+        class _Fake:
+            @staticmethod
+            def load_macro_history_index():
+                return {"rows": list(macro_rows.values())}
+
+        import skills.macro.history as mh
+
+        orig = mh.load_macro_history_index
+        try:
+            mh.load_macro_history_index = _Fake.load_macro_history_index
+            out = regime_buckets_from_trades(trades, bars, window=10)
+            self.assertTrue(out["ok"])
+            self.assertTrue(out.get("macro_history_available"))
+            bucket = out["buckets"][0]
+            self.assertEqual(bucket.get("macro_dates_matched"), 2)
+            self.assertEqual(bucket.get("avg_overseas_tech_1d_pct"), -1.5)
+
+            summary = macro_context_summary_for_period(bars, trades)
+            self.assertTrue(summary["ok"])
+            self.assertEqual(summary["macro_dates"], 2)
+        finally:
+            mh.load_macro_history_index = orig
+
+
 class TestSignalFillAndExport(unittest.TestCase):
     def test_export_markdown_contains_sections(self):
         from quant.services.quant_report_export import (

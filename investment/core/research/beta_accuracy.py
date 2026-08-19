@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -28,7 +31,8 @@ def build_y_spec(
 
             cfg_h = (load_signal_config() or {}).get("scoring", {}).get("horizon_days")
             horizon_days = int(cfg_h) if cfg_h is not None else 3
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in beta_accuracy.py", exc_info=True)
             horizon_days = 3
     h = max(1, min(int(horizon_days or 3), 20))
     em = str(excess_mode or "none").strip().lower()

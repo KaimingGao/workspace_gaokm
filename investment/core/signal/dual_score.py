@@ -11,6 +11,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.signal.nowcast_kf import (
@@ -365,7 +368,8 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
             from core.signal.config import load_signal_config
 
             config = load_signal_config()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             config = {}
     raw = dict(DEFAULT_DUAL_SCORE)
     raw["y_state"] = dict(DEFAULT_DUAL_SCORE.get("y_state") or {})
@@ -523,7 +527,8 @@ def resolve_predicted_score_eod(item: Optional[dict]) -> Optional[float]:
 
         if looks_like_legacy_heuristic_score(score_f, item=item):
             return None
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         if abs(score_f) >= 10.0:
             return None
     blend = item.get("predicted_score_blend")
@@ -586,7 +591,8 @@ def compute_predicted_score_blend(
             from quant.research.rem_ridge import load_rem_model
 
             rem_doc = load_rem_model()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             rem_doc = None
     we, wt, _note = resolve_fusion_weights(
         cfg,
@@ -662,7 +668,8 @@ def align_trade_score_fields(
             from core.signal.y_state import stamp_y_state
 
             stamp_y_state(item, config=config)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             pass
         return item
     y_eod = item.get("predicted_score_eod")
@@ -713,7 +720,8 @@ def align_trade_score_fields(
         from core.signal.y_state import stamp_y_state
 
         stamp_y_state(item, config=config)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
     return item
 
@@ -1061,7 +1069,8 @@ def apply_tau_score_fields(
             formula_terms_tau = explain_rem_prediction(
                 feats_merged, model_doc=rem_model_doc
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             formula_terms_tau = None
     if not isinstance(formula_terms_tau, dict):
         formula_terms_tau = {}
@@ -1137,7 +1146,8 @@ def apply_tau_score_fields(
         from core.signal.y_state import stamp_y_state
 
         stamp_y_state(signal_item, config=config)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
     return signal_item
 
@@ -1177,7 +1187,8 @@ def attach_dual_score_bulk(
                     fuse_intraday=fuse_intraday,
                 )
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             # 单票失败不影响整体（attach失败时回退原item，cross_section仍能用predicted_score老路）
             out.append(dict(it) if isinstance(it, dict) else it)
     return out
@@ -1208,7 +1219,8 @@ def attach_dual_score_pit(
             from quant.research.rem_ridge import load_rem_model
 
             rem_model_doc = load_rem_model()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             rem_model_doc = None
     q = quote if isinstance(quote, dict) else signal_item.get("_bt_quote")
     b = bars if bars is not None else signal_item.get("_bt_bars")
@@ -1220,7 +1232,8 @@ def attach_dual_score_pit(
         gap_v = gap_pct_from_quote_bars(q, b)
         ep_cfg = get_event_prior_cfg()
         trigger = float(ep_cfg.get("gap_trigger_pct") or 2)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         trigger = 2.0
     theme = 0.0
     breadth = sector_gap_breadth
@@ -1240,7 +1253,8 @@ def attach_dual_score_pit(
             else None,
             gap_trigger_pct=trigger,
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         theme = 1.0 if (gap_v is not None and abs(float(gap_v)) >= trigger) else 0.0
     feats: Dict[str, Any] = {
         "gap_pct": gap_v,
@@ -1267,7 +1281,8 @@ def attach_dual_score_pit(
                 [float(g) for g in pool if g is not None]
             )
         feats["gap_vs_sector"] = gap_vs_sector_value(gap_v, ref)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
     # 保留刷簿已写齐的截面 Z，避免 tip/PIT 路径冲成缺特征
     prior_ft = signal_item.get("features_tau")
@@ -1293,7 +1308,8 @@ def attach_dual_score_pit(
         from quant.research.rem_ridge import predict_rem_from_features
 
         rem_yhat = predict_rem_from_features(feats, model_doc=rem_model_doc)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         rem_yhat = None
     ep = None
     if gap_v is not None:
@@ -1303,7 +1319,8 @@ def attach_dual_score_pit(
                 "gap_pct": gap_v,
                 "warnings": [],
             }
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             ep = None
     apply_tau_score_fields(
         signal_item,
@@ -1605,14 +1622,16 @@ def _eod_return_model_for_item(item: dict):
             )
             if code and code in models:
                 return models[code]
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
     try:
         from core.signal.return_score_store import load_return_model
 
         rm, _meta = load_return_model(prefer_active=True)
         return rm
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         return None
 
 
@@ -1730,7 +1749,8 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         from quant.research.rem_ridge import REM_Z_FEATURES
 
         z_keys = set(REM_Z_FEATURES) | {"open_gap"}
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         z_keys = {
             "gap_pct",
             "open_gap",
@@ -1773,7 +1793,8 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
 
     try:
         feats.update(recover_sub_scores_for_tau(item))
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
     if feats:
         try:
@@ -1782,7 +1803,8 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
             expl = explain_rem_prediction(feats)
             if expl is not None:
                 return expl
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             pass
     if (
         isinstance(existing, dict)
@@ -1809,7 +1831,8 @@ def rem_factor_coefficients_public() -> Dict[str, float]:
             except (TypeError, ValueError):
                 continue
         return out
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         return {}
 
 
@@ -1826,13 +1849,15 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
     work = dict(item)
     try:
         align_trade_score_fields(work, write_score=False)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
     try:
         from core.signal.y_state import stamp_y_state
 
         stamp_y_state(work)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         pass
     try:
         cfg = get_dual_score_cfg()
@@ -1857,7 +1882,8 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
                 "mode": "blend",
                 "window": win,
             }
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         live_fusion = "blend"
         live_w = {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed", "mode": "blend"}
     formula_terms_tau = ensure_formula_terms_tau(work)
@@ -1887,7 +1913,8 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
             attach_calibrated_scores(work, model_doc=live, force=True)
         cal_applied = bool(work.get("score_calibration_applied"))
         cal_enabled = bool(work.get("score_calibration_enabled", cal_enabled))
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         cal_applied = bool(work.get("score_calibration_applied"))
         cal_enabled = bool(work.get("score_calibration_enabled"))
     # 权重优先簿内已算（含 theme/variance）；缺则用当前配置

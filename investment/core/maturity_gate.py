@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 
@@ -364,7 +367,8 @@ def evaluate_maturity_gate(
             severity="soft",
             action="平台样本覆盖 → 缺 ann 清单 → ingest-history / 预热财务",
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in maturity_gate.py", exc_info=True)
         add(
             "b_track",
             "ann_missing_ops",

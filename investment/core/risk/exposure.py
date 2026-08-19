@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -116,7 +119,8 @@ def build_exposure_matrix(
         sid = paper.get("strategy_id") or "short"
         try:
             spec_risk = get_strategy_spec(str(sid)).get("risk") or {}
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in exposure.py", exc_info=True)
             spec_risk = {}
     max_sector = float((spec_risk or {}).get("max_sector_pct") or 40.0)
     max_pos = float((spec_risk or {}).get("max_position_pct") or 25.0)

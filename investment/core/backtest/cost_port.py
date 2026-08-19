@@ -14,6 +14,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 # —— simple_cn 法定/券商简化费率（bps 为权威单位）——

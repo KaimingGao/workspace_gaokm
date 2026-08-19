@@ -833,8 +833,9 @@
 }
 
 .strategy-logic-ref #quant-section-strategy-detail {
-  margin-top: 8px;
+  margin-top: 0;
   padding: 0;
+  grid-column: 1 / -1;
 }
 
 @media (max-width: 900px) {
@@ -1193,6 +1194,144 @@ body[data-page="strategy"] .strategy-field-label {
   color: var(--ink-3);
 }
 
+.strategy-prior-status {
+  margin: 0;
+  font-size: var(--d-fs-micro, 0.6875rem);
+  color: var(--ink-3);
+}
+
+.strategy-mctx-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 4px;
+}
+
+.strategy-mctx-live-label {
+  margin: 0 0 4px;
+}
+
+.strategy-mctx-hint {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  font-size: 0.68rem;
+  line-height: 1.45;
+  color: var(--warn, #b45309);
+  border: 1px solid color-mix(in srgb, var(--warn, #d97706) 28%, var(--line));
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--warn, #d97706) 6%, var(--surface));
+}
+
+.strategy-mctx-hint[hidden] {
+  display: none !important;
+}
+
+.strategy-mctx-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.strategy-mctx-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--bg-card);
+}
+
+.strategy-mctx-card.is-on {
+  border-color: color-mix(in srgb, var(--warn, #d97706) 35%, var(--line));
+}
+
+.strategy-mctx-card.is-neutral {
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 28%, var(--line));
+}
+
+.strategy-mctx-card.is-neutral .strategy-mctx-state {
+  color: var(--ink-1);
+}
+
+.strategy-mctx-label {
+  font-size: 0.62rem;
+  font-weight: 600;
+  color: var(--ink-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.strategy-mctx-state {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink-1);
+}
+
+.strategy-mctx-card.is-on .strategy-mctx-state {
+  color: var(--warn, #d97706);
+}
+
+.strategy-mctx-sub {
+  font-size: 0.62rem;
+  color: var(--ink-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.strategy-mctx-empty {
+  font-size: 0.72rem;
+  color: var(--ink-3);
+  padding: 8px 0;
+}
+
+.strategy-mctx-form {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.strategy-mctx-modes {
+  margin: 8px 0 10px;
+  border: none;
+  padding: 0;
+}
+
+.strategy-mctx-mode-card {
+  min-width: 0;
+}
+
+.strategy-mctx-gate-opts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.strategy-mctx-merge-row {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--line);
+}
+
+.strategy-mctx-footer {
+  margin-top: 8px;
+}
+
+.strategy-mctx-sent-block {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--line);
+}
+
+.strategy-mctx-extra-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+
 body[data-page="strategy"] .strategy-page .platform-input,
 body[data-page="strategy"] .strategy-page .dialog-btn,
 body[data-page="strategy"] .strategy-page .strategy-prior-card-inner,
@@ -1312,7 +1451,30 @@ body[data-page="strategy"] .strategy-secondary-fold > .dashboard-card.quant-pro-
 }
 
 body[data-page="strategy"] .strategy-logic-ref {
-  padding: 0;
+  padding: 10px 12px 12px;
+}
+
+body[data-page="strategy"] .strategy-logic-ref .strategy-alpha-risk {
+  gap: 8px;
+}
+
+body[data-page="strategy"] .strategy-logic-ref .strategy-alpha-risk-item {
+  margin-bottom: 0;
+}
+
+body[data-page="strategy"] .strategy-logic-ref .strategy-alpha-risk-item .strategy-logic {
+  grid-template-columns: 1fr;
+  gap: 8px;
+}
+
+body[data-page="strategy"] .strategy-logic-ref .strategy-alpha-risk-item.strategy-rebalance .strategy-logic {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+@media (max-width: 900px) {
+  body[data-page="strategy"] .strategy-logic-ref .strategy-alpha-risk-item.strategy-rebalance .strategy-logic {
+    grid-template-columns: 1fr;
+  }
 }
 
 body[data-page="strategy"] .strategy-alpha-risk-item {
@@ -1325,6 +1487,74 @@ body[data-page="strategy"] .strategy-alpha-risk-item {
 
 body[data-page="strategy"] .strategy-alpha-risk-item:last-child {
   margin-bottom: 0;
+}
+
+/* 风控与敞口 · 研究小表（strategy-page 无 quant-page 壳，须覆盖默认 14px 圆角） */
+body[data-page="strategy"] .strategy-ops-card-body .quant-weight-table-wrap {
+  margin: 8px 0 0;
+}
+
+body[data-page="strategy"] .strategy-ops-card-body .quant-weight-table-wrap:first-of-type {
+  margin-top: 0;
+}
+
+body[data-page="strategy"] .strategy-ops-card-body .quant-research-grid,
+body[data-page="strategy"] .strategy-ops-card-body .watching-react-grid {
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  border-radius: 2px !important;
+  box-shadow: none;
+  background: var(--bg-card, var(--surface));
+  font-size: var(--s-fs-caption, 12px);
+  overflow: hidden;
+}
+
+body[data-page="strategy"] .strategy-ops-card-body .quant-research-grid .watching-react-grid-head {
+  background: color-mix(in srgb, var(--ink) 2.5%, var(--surface));
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+}
+
+body[data-page="strategy"] .strategy-ops-card-body .quant-research-grid .watching-react-grid-row {
+  min-height: 28px;
+}
+
+body[data-page="strategy"] .strategy-ops-card-body .quant-research-grid .watching-react-grid-row.is-head {
+  min-height: 26px;
+}
+
+body[data-page="strategy"] .strategy-ops-card-body .quant-research-grid .watching-react-grid-row.is-head .watching-react-grid-cell {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+body[data-page="strategy"] .strategy-ops-card-body .quant-research-grid .watching-react-grid-cell {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+body[data-page="strategy"] .strategy-ops-card-body .quant-research-grid .watching-react-grid-row > .watching-react-grid-cell:first-child {
+  padding-left: 10px;
+}
+
+body[data-page="strategy"] .strategy-ops-card-body .quant-research-grid .watching-react-grid-row > .watching-react-grid-cell:last-child {
+  padding-right: 10px;
+}
+
+body[data-page="strategy"] .strategy-ops-card-body .quant-research-grid .watching-react-grid-body .watching-react-grid-row:nth-child(even):not(.is-over-limit) {
+  background: color-mix(in srgb, var(--ink) 1.5%, var(--surface));
+}
+
+body[data-page="strategy"] .strategy-ops-card-body .quant-trades-caption {
+  margin: 10px 0 4px;
+  font-size: var(--s-fs-caption, 12px);
+}
+
+body[data-page="strategy"] .strategy-ops-card-body .quant-trades-caption:first-child {
+  margin-top: 0;
 }
 
 body[data-page="strategy"] .strategy-promote-toggle {

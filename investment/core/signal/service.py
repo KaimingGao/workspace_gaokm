@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import threading
 from typing import Any, Dict, List, Optional
 
@@ -103,7 +106,8 @@ class SignalService:
             from core.signal.dual_score import dual_score_book_fields
 
             return dict(dual_score_book_fields(item) or {})
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in service.py", exc_info=True)
             return {}
 
     def annotate_item(self, item: Optional[dict]) -> Dict[str, Any]:
@@ -116,7 +120,8 @@ class SignalService:
 
             packed.update(self.book_fields(packed))
             align_trade_score_fields(packed, write_score=False)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in service.py", exc_info=True)
             pass
         return packed
 
@@ -136,7 +141,8 @@ class SignalService:
         d_sc = decision_score_for_item(packed)
         try:
             heu = is_heuristic_score_scale(packed)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in service.py", exc_info=True)
             heu = str(packed.get("return_model_source") or "") == "oos_failed_heuristic"
         if heu:
             table_score = packed.get("score_cluster")

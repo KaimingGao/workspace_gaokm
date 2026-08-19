@@ -1,6 +1,9 @@
 """投资宇宙 Watching：观察池定义与刷新（P9.1）。"""
 
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
 from core.numbers import now_iso_local as _now_iso
 
 import json
@@ -101,7 +104,8 @@ def _resolve_entry(raw: str, hint_name: str = "") -> tuple:
         return "", hint
     try:
         quote = get_quote(text)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in watching_store.py", exc_info=True)
         return text, hint
     if quote.get("success") and quote.get("stock_code"):
         code = str(quote["stock_code"])
@@ -219,7 +223,8 @@ def watchlist_origins_for(data: dict) -> List[str]:
                 code_to_label[raw_s] = label
             try:
                 resolved, _ = _resolve_entry(raw_s)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in watching_store.py", exc_info=True)
                 resolved = ""
             if resolved and resolved not in code_to_label:
                 code_to_label[resolved] = label
@@ -247,7 +252,8 @@ def watchlist_names_for(data: dict) -> List[str]:
                 continue
             try:
                 code, name = _resolve_entry(raw_s, raw_s)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in watching_store.py", exc_info=True)
                 code, name = "", raw_s
             if code and name:
                 code_to_name[code] = name
@@ -264,7 +270,8 @@ def watchlist_names_for(data: dict) -> List[str]:
             _c, name = _resolve_entry(code, hint)
             if name:
                 names[i] = name
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in watching_store.py", exc_info=True)
             pass
     return names
 
@@ -312,7 +319,8 @@ def refresh_watchlist(
             from core.data_service import get_spot
 
             get_spot()
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in watching_store.py", exc_info=True)
             pass
 
     for i, src in enumerate(sources):
@@ -744,7 +752,8 @@ def list_watchlist_quotes(
         chunk = watch[i : i + chunk_size]
         try:
             part = batch_get_quotes(chunk) or {}
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in watching_store.py", exc_info=True)
             part = {}
         if isinstance(part, dict):
             quotes_by.update(part)

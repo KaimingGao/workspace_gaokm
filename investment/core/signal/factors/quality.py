@@ -1,6 +1,9 @@
 """质量因子（P46 / V2.1）：ROE only；增速已拆至 growth 因子。"""
 
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
 from core.numbers import to_float as _to_float
 
 from typing import Any, Dict, Optional

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence
@@ -19,7 +22,8 @@ def _codes_from_watching() -> List[str]:
         with open(WATCHING_PATH, encoding="utf-8") as f:
             uni = json.load(f)
         return [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in data_coverage.py", exc_info=True)
         return []
 
 
@@ -31,7 +35,8 @@ def _codes_from_paper(paper_path: Optional[str] = None) -> List[str]:
         from core.paper import load_paper
 
         paper = load_paper(path)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in data_coverage.py", exc_info=True)
         return []
     out: List[str] = []
     seen = set()

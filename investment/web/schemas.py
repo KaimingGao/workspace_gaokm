@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
@@ -426,6 +429,45 @@ class SentimentPriorRequest(BaseModel):
     block_new_buys: Optional[bool] = None
     scale_buy_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
     scale_holds: Optional[bool] = None
+    note: str = Field(default="", max_length=500)
+
+
+class MarketPriorRequest(BaseModel):
+    """M 层 prior 旁路（不进 ŷ）；人审写 cross_market / market_prior_policy。"""
+
+    cross_market_mode: Optional[str] = Field(
+        default=None, description="off | risk | gate"
+    )
+    tech_drag_trigger_pct: Optional[float] = Field(
+        default=None, description="海外科技隔夜跌幅触发阈值（%）"
+    )
+    scale_buy_pct: Optional[float] = Field(default=None, ge=0.0, le=1.0)
+    scale_holds: Optional[bool] = None
+    market_sentiment_mode: Optional[str] = Field(
+        default=None, description="情绪周期 prior：off | risk | gate"
+    )
+    market_sentiment_scale_buy_pct: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0
+    )
+    market_sentiment_scale_holds: Optional[bool] = None
+    regulatory_mode: Optional[str] = Field(
+        default=None, description="监管 prior：off | risk | gate"
+    )
+    regulatory_scale_buy_pct: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0
+    )
+    ipo_drain_mode: Optional[str] = Field(
+        default=None, description="IPO 虹吸 prior：off | risk | gate"
+    )
+    ipo_drain_scale_buy_pct: Optional[float] = Field(
+        default=None, ge=0.0, le=1.0
+    )
+    ipo_drain_ratio_high: Optional[float] = Field(
+        default=None, description="IPO 虹吸比触发阈值"
+    )
+    merge_mode: Optional[str] = Field(
+        default=None, description="min_scale | chain；多 prior 合并策略"
+    )
     note: str = Field(default="", max_length=500)
 
 

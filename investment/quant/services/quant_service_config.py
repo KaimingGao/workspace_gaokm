@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 from typing import Any, Dict, Optional
 
@@ -135,6 +138,48 @@ class QuantConfigMixin:
         from core.signal.sentiment_prior_config import read_sentiment_prior_public
 
         return {"success": True, "sentiment_prior": read_sentiment_prior_public()}
+
+    def save_market_prior(
+        self,
+        *,
+        cross_market_mode: Optional[str] = None,
+        tech_drag_trigger_pct: Optional[float] = None,
+        scale_buy_pct: Optional[float] = None,
+        scale_holds: Optional[bool] = None,
+        market_sentiment_mode: Optional[str] = None,
+        market_sentiment_scale_buy_pct: Optional[float] = None,
+        market_sentiment_scale_holds: Optional[bool] = None,
+        regulatory_mode: Optional[str] = None,
+        regulatory_scale_buy_pct: Optional[float] = None,
+        ipo_drain_mode: Optional[str] = None,
+        ipo_drain_scale_buy_pct: Optional[float] = None,
+        ipo_drain_ratio_high: Optional[float] = None,
+        merge_mode: Optional[str] = None,
+        note: str = "",
+    ) -> Dict[str, Any]:
+        from core.signal.market_prior_config import save_market_prior as _save
+
+        return _save(
+            cross_market_mode=cross_market_mode,
+            tech_drag_trigger_pct=tech_drag_trigger_pct,
+            scale_buy_pct=scale_buy_pct,
+            scale_holds=scale_holds,
+            market_sentiment_mode=market_sentiment_mode,
+            market_sentiment_scale_buy_pct=market_sentiment_scale_buy_pct,
+            market_sentiment_scale_holds=market_sentiment_scale_holds,
+            regulatory_mode=regulatory_mode,
+            regulatory_scale_buy_pct=regulatory_scale_buy_pct,
+            ipo_drain_mode=ipo_drain_mode,
+            ipo_drain_scale_buy_pct=ipo_drain_scale_buy_pct,
+            ipo_drain_ratio_high=ipo_drain_ratio_high,
+            merge_mode=merge_mode,
+            note=note,
+        )
+
+    def read_market_prior(self) -> Dict[str, Any]:
+        from core.signal.market_prior_config import read_market_prior_public
+
+        return {"success": True, "market_prior": read_market_prior_public()}
 
     def read_dual_score(self) -> Dict[str, Any]:
         from core.signal.dual_score_config import read_dual_score_public

@@ -28,6 +28,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
@@ -79,7 +82,8 @@ def _build_ic_matrix(
     try:
         from scipy.stats import spearmanr  # type: ignore
         have_spearman = True
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in objective_partition.py", exc_info=True)
         have_spearman = False
     use_spearman = have_spearman and str(method).lower() == "spearman"
 
@@ -122,7 +126,8 @@ def _build_ic_matrix(
             if use_spearman:
                 try:
                     icv, _ = spearmanr(fx, fy)
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in objective_partition.py", exc_info=True)
                     icv, _ = pearson_with_reason(fx, fy)
             else:
                 icv, _ = pearson_with_reason(fx, fy)
@@ -304,7 +309,8 @@ def generate_candidate_partitions(
                 if progress_cb:
                     try:
                         progress_cb(f"候选 hstack 跳过: {exc}", 0, 1)
-                    except Exception:
+                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                        logger.debug("catch except Exception: in objective_partition.py", exc_info=True)
                         pass
             try:
                 cw = _candidate_ic_weighted(
@@ -317,7 +323,8 @@ def generate_candidate_partitions(
                 if progress_cb:
                     try:
                         progress_cb(f"候选 ic_weighted 跳过: {exc}", 0, 1)
-                    except Exception:
+                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                        logger.debug("catch except Exception: in objective_partition.py", exc_info=True)
                         pass
     # 去重（labels 完全相同则只留 1）
     seen = set()
@@ -507,7 +514,8 @@ def evaluate_partition(
                 horizon_days=horizon_days,
                 pit_fundamentals=bool(use_pit),
             )
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in objective_partition.py", exc_info=True)
             ic_m = 0.0
         groups_metrics.append(
             {
@@ -695,7 +703,8 @@ def objective_search_partition(
     if progress_cb:
         try:
             progress_cb(f"评估候选分区（共 {n_cand} 个）", 0, n_cand)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in objective_partition.py", exc_info=True)
             pass
 
     scored: List[Dict[str, Any]] = []
@@ -734,7 +743,8 @@ def objective_search_partition(
                     f"候选 {i+1}/{n_cand}: {cand.get('kind')} loss={float(ev['loss']):.4f}",
                     i + 1, n_cand,
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in objective_partition.py", exc_info=True)
                 pass
 
     scored.sort(key=lambda r: float(r["loss"]))
@@ -759,7 +769,8 @@ def objective_search_partition(
         if progress_cb:
             try:
                 progress_cb("贪心交换精修…", 0, 1)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in objective_partition.py", exc_info=True)
                 pass
         new_labels, final_eval, swap_log = greedy_swap_optimize(
             best_labels,

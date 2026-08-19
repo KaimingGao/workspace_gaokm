@@ -1,6 +1,9 @@
 """回测稳健性摘要（N4）：样本内外切分 + 简单 regime 切片。"""
 
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
 from core.numbers import to_float as _f
 
 from typing import Any, Dict, List, Optional, Sequence
@@ -154,6 +157,106 @@ def regime_summary_from_bars(
     }
 
 
+def _macro_rows_by_date() -> Dict[str, Dict[str, Any]]:
+    try:
+        from skills.macro.history import load_macro_history_index
+
+        idx = load_macro_history_index()
+    except Exception:
+        logger.debug("macro history load skipped", exc_info=True)
+        return {}
+    if not idx:
+        return {}
+    out: Dict[str, Dict[str, Any]] = {}
+    for row in idx.get("rows") or []:
+        d = str(row.get("date") or "")[:10]
+        if d:
+            out[d] = row
+    return out
+
+
+def _avg_macro_field(
+    dates: Sequence[str],
+    macro_by_date: Dict[str, Dict[str, Any]],
+    field: str,
+) -> Optional[float]:
+    vals: List[float] = []
+    for d in dates:
+        row = macro_by_date.get(str(d)[:10])
+        if not row:
+            continue
+        try:
+            v = row.get(field)
+            if v is not None:
+                vals.append(float(v))
+        except (TypeError, ValueError):
+            continue
+    if not vals:
+        return None
+    return round(sum(vals) / len(vals), 3)
+
+
+def macro_context_summary_for_period(
+    sample_bars: Optional[List[dict]],
+    trades: Optional[Sequence[dict]] = None,
+) -> Dict[str, Any]:
+    """回测区间与 macro history 对齐的宏观均值（研究轨；非 PIT）。"""
+    macro_by_date = _macro_rows_by_date()
+    if not macro_by_date:
+        return {"ok": False, "reason": "no_macro_history"}
+
+    dates: set = set()
+    for b in sample_bars or []:
+        d = str(b.get("date") or "")[:10]
+        if d:
+            dates.add(d)
+    for t in trades or []:
+        sig = str(t.get("signal_date") or t.get("entry_date") or "")[:10]
+        if sig:
+            dates.add(sig)
+
+    matched = sorted(d for d in dates if d in macro_by_date)
+    if not matched:
+        return {"ok": False, "reason": "no_macro_overlap", "period_dates": len(dates)}
+
+    return {
+        "ok": True,
+        "date_from": matched[0],
+        "date_to": matched[-1],
+        "macro_dates": len(matched),
+        "avg_overseas_tech_1d_pct": _avg_macro_field(
+            matched, macro_by_date, "overseas_tech_1d_pct"
+        ),
+        "avg_a50_1d_pct": _avg_macro_field(matched, macro_by_date, "a50_1d_pct"),
+        "avg_liquidity_stress_score": _avg_macro_field(
+            matched, macro_by_date, "liquidity_stress_score"
+        ),
+        "note": "由 macro/history_index 对齐回测区间；非 PIT。",
+    }
+
+
+def _attach_macro_to_regime_buckets(
+    buckets: List[Dict[str, Any]],
+    raw_buckets: Dict[str, Dict[str, Any]],
+    macro_by_date: Dict[str, Dict[str, Any]],
+) -> None:
+    if not macro_by_date:
+        return
+    for row in buckets:
+        label = str(row.get("regime") or "")
+        raw = raw_buckets.get(label) or {}
+        sig_dates = list(raw.get("signal_dates") or [])
+        matched = [d for d in sig_dates if d in macro_by_date]
+        row["macro_dates_matched"] = len(matched)
+        row["avg_overseas_tech_1d_pct"] = _avg_macro_field(
+            matched, macro_by_date, "overseas_tech_1d_pct"
+        )
+        row["avg_a50_1d_pct"] = _avg_macro_field(matched, macro_by_date, "a50_1d_pct")
+        row["avg_liquidity_stress_score"] = _avg_macro_field(
+            matched, macro_by_date, "liquidity_stress_score"
+        )
+
+
 def regime_buckets_from_trades(
     trades: Sequence[dict],
     sample_bars: Optional[List[dict]] = None,
@@ -199,14 +302,16 @@ def regime_buckets_from_trades(
             continue
         b = buckets.get(label)
         if not b:
-            b = {"regime": label, "returns": [], "n": 0, "wins": 0}
+            b = {"regime": label, "returns": [], "n": 0, "wins": 0, "signal_dates": []}
             buckets[label] = b
         b["returns"].append(ret)
         b["n"] += 1
         if ret > 0:
             b["wins"] += 1
+        b.setdefault("signal_dates", []).append(sig)
         tagged += 1
 
+    macro_by_date = _macro_rows_by_date()
     out_rows: List[Dict[str, Any]] = []
     for label, b in buckets.items():
         rets = b["returns"]
@@ -222,11 +327,16 @@ def regime_buckets_from_trades(
             }
         )
     out_rows.sort(key=lambda r: -int(r.get("trade_count") or 0))
+    _attach_macro_to_regime_buckets(out_rows, buckets, macro_by_date)
+    note = "按信号日+样本日线窗口打标；多 regime 对照，非 HMM。"
+    if macro_by_date:
+        note += " 海外科技/A50 列来自 macro history 对齐信号日。"
     return {
         "ok": bool(out_rows),
         "tagged_trades": tagged,
         "buckets": out_rows,
-        "note": "按信号日+样本日线窗口打标；多 regime 对照，非 HMM。",
+        "macro_history_available": bool(macro_by_date),
+        "note": note,
     }
 
 
@@ -253,7 +363,9 @@ def attach_robustness_fields(
         if out.get("trades"):
             trades = out["trades"]
         out["regime_buckets"] = regime_buckets_from_trades(trades, sample_bars)
+        out["macro_context_summary"] = macro_context_summary_for_period(sample_bars, trades)
     else:
         out["regime_summary"] = {"ok": False, "reason": "no_sample_bars"}
         out["regime_buckets"] = {"ok": False, "reason": "no_sample_bars", "buckets": []}
+        out["macro_context_summary"] = {"ok": False, "reason": "no_sample_bars"}
     return out

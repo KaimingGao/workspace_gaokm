@@ -366,7 +366,8 @@ def group_cs_ic_panel(
         bench = str(default_benchmark("CN") or "000300")
         ib, _ = index_bars_and_source(bench, limit=160)
         index_bars = list(ib or []) or None
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in factor_ols_clusters.py", exc_info=True)
         index_bars = None
     out = compute_factor_cross_section_ic(
         bars_map,
@@ -1033,7 +1034,8 @@ def _select_clustered_by_delta_oos(
             return
         try:
             progress_cb(msg, cur, tot)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in factor_ols_clusters.py", exc_info=True)
             logger.warning("k 选择进度回调异常", exc_info=True)
 
     total_steps = max(1, len(cand_ks) * len(method_specs))
@@ -1310,7 +1312,8 @@ def compute_factor_ols_cluster_report(
             return
         try:
             progress_cb(msg, cur, tot)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in factor_ols_clusters.py", exc_info=True)
             logger.warning("OLS 单票拟合异常", exc_info=True)
 
     def _fit_one(item: Dict[str, Any]) -> Tuple[str, Optional[Dict[str, Any]], Optional[Dict[str, Any]], Optional[str]]:
@@ -2229,7 +2232,8 @@ def _aggregate_sample_fingerprint(clusters: Sequence[Dict[str, Any]]) -> Dict[st
                         n_part = left.split("<")[0].strip()
                         if int(float(n_part)) < 3:
                             continue
-                    except Exception:
+                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                        logger.debug("catch except Exception: in factor_ols_clusters.py", exc_info=True)
                         logger.warning("聚类后处理异常", exc_info=True)
                 blockers.append(bs)
     # 全产物：总映射票数门槛仍用 3（至少覆盖若干票）；obs 用累加

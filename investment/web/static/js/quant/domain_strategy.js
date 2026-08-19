@@ -1,5 +1,6 @@
 import { apiFetch } from "../api_client.js";
 import { mergeScoringFloors } from "./scoring.js";
+import { runMarketContextIngest } from "../macro_context_ui.js";
 import { buildStrategyListHtml, buildStrategyRiskFootnoteHtml } from "./strategy_list_ui.js";
 import { researchGridHtml } from "./research_grid.js";
 import { buildRiskAuditMetaText, buildRiskAuditFoldSummary, buildSectorExposureHtml, buildStyleExposureHtml, buildRiskEffHtml, normalizeRiskBlockRows, buildRiskBlocksHtml } from "./strategy_risk_ui.js";
@@ -30,9 +31,428 @@ export function installStrategy(q) {
       renderFactorDict();
       await loadSentimentPriorForm();
       await loadDualScoreForm();
+      await loadMarketContextPanel();
+      await loadMarketPriorForm();
       return null;
     } catch (_) {
       return null;
+    }
+  }
+
+  function regimeLabel(code) {
+    const m = {
+      bear: "熊市",
+      weak: "弱势",
+      neutral: "中性",
+      strong: "强势",
+      bull: "牛市",
+    };
+    return m[String(code || "").toLowerCase()] || code || "—";
+  }
+
+  function fmtPct(v) {
+    if (v == null || !Number.isFinite(Number(v))) return "—";
+    const n = Number(v);
+    return `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`;
+  }
+
+  function cardStateClass(on, neutral) {
+    if (on) return "is-on";
+    if (neutral) return "is-neutral";
+    return "is-off";
+  }
+
+  async function loadMarketContextPanel() {
+    const grid = document.getElementById("strategy-mctx-grid");
+    const st = document.getElementById("strategy-mctx-status");
+    const hint = document.getElementById("strategy-mctx-hint");
+    if (!grid) return;
+    try {
+      const [ctxRes, priorRes] = await Promise.all([
+        apiFetch("/api/dashboard/market-context"),
+        fetch("/api/signal/config/market-prior").then(async (res) => {
+          const data = await res.json().catch(() => ({}));
+          return res.ok ? data : {};
+        }),
+      ]);
+      const ctx = ctxRes.ok !== false && ctxRes.data ? ctxRes.data : null;
+      if (!ctx || ctx.ok === false) {
+        grid.innerHTML = `<div class="strategy-mctx-empty">盘前上下文未就绪 · 运行 pre_market_ingest</div>`;
+        if (st) st.textContent = ctxRes.error || "无快照";
+        if (hint) hint.hidden = true;
+        return;
+      }
+      const mp = priorRes.market_prior || {};
+      const cmCfg = mp.cross_market || {};
+      const mspCfg = mp.market_sentiment_prior || {};
+      const regCfg = mp.regulatory_prior || {};
+      const ipoCfg = mp.ipo_drain_prior || {};
+      const flags = ctx.prior_flags || {};
+      const reg = ctx.regime || {};
+      const macro = ctx.macro || {};
+      const sent = ctx.market_sentiment || {};
+      const macroErrHint = (ctx.macro_errors || macro.errors || []).slice(0, 3).join(" · ");
+      const macroBlocking =
+        !!ctx.macro_degraded || macro.overseas_tech_1d_pct == null;
+      const regLab = regimeLabel(reg.regime);
+      const cards = [
+        {
+          k: "cross_market",
+          label: "跨市场",
+          on: flags.cross_market,
+          neutral: !flags.cross_market && String(cmCfg.mode || "off") !== "off",
+          state: flags.cross_market ? "触发" : priorModeLabel(cmCfg.mode || "off"),
+          sub:
+            macro.overseas_tech_1d_pct != null
+              ? `科技 ${fmtPct(macro.overseas_tech_1d_pct)}${
+                  macro.a50_1d_pct != null ? ` · A50 ${fmtPct(macro.a50_1d_pct)}` : ""
+                }`
+              : macroErrHint || (String(cmCfg.mode || "off") !== "off" ? `配置 ${cmCfg.mode}` : "—"),
+        },
+        {
+          k: "sentiment",
+          label: "情绪周期",
+          on: flags.market_sentiment,
+          neutral: !flags.market_sentiment && String(mspCfg.mode || "off") !== "off",
+          state: flags.market_sentiment ? "触发" : priorModeLabel(mspCfg.mode || "off"),
+          sub:
+            sent.broken_limit_rate != null
+              ? `炸板 ${(Number(sent.broken_limit_rate) * 100).toFixed(0)}%`
+              : sent.sentiment_cycle_score != null
+                ? `周期 ${sent.sentiment_cycle_score}`
+                : "—",
+        },
+        {
+          k: "regulatory",
+          label: "监管",
+          on: flags.regulatory,
+          neutral: !flags.regulatory && String(regCfg.mode || "off") !== "off",
+          state: flags.regulatory ? "触发" : priorModeLabel(regCfg.mode || "off"),
+          sub:
+            (ctx.announcement && ctx.announcement.penalty_concepts || [])
+              .slice(0, 2)
+              .join(" · ") || "—",
+        },
+        {
+          k: "ipo",
+          label: "IPO 虹吸",
+          on: flags.ipo_drain,
+          neutral: !flags.ipo_drain && String(ipoCfg.mode || "off") !== "off",
+          state: flags.ipo_drain ? "触发" : priorModeLabel(ipoCfg.mode || "off"),
+          sub:
+            ctx.announcement &&
+            ctx.announcement.ipo &&
+            ctx.announcement.ipo.liquidity_drain_ratio != null
+              ? `${Number(ctx.announcement.ipo.liquidity_drain_ratio).toFixed(1)}x`
+              : ctx.announcement &&
+                  ctx.announcement.ipo &&
+                  ctx.announcement.ipo.ipo_today_count != null
+                ? `${ctx.announcement.ipo.ipo_today_count} 只`
+                : "—",
+        },
+        {
+          k: "regime",
+          label: "Regime",
+          on: reg.regime === "bear" || reg.regime === "weak" || !!reg.macro_overlay_applied,
+          neutral:
+            reg.regime === "neutral" ||
+            reg.regime === "strong" ||
+            reg.regime === "bull",
+          state: regLab,
+          sub:
+            reg.index_return_pct != null
+              ? `基准 ${fmtPct(reg.index_return_pct)}${
+                  reg.macro_overlay_deferred ? " · overlay→M" : ""
+                }`
+              : reg.reason
+                ? String(reg.reason).slice(0, 24)
+                : "—",
+        },
+      ];
+      grid.innerHTML = cards
+        .map(
+          (c) =>
+            `<div class="strategy-mctx-card ${cardStateClass(c.on, c.neutral)}">` +
+            `<span class="strategy-mctx-label">${escapeHtml(c.label)}</span>` +
+            `<span class="strategy-mctx-state">${escapeHtml(c.state)}</span>` +
+            `<span class="strategy-mctx-sub">${escapeHtml(c.sub)}</span>` +
+            `</div>`
+        )
+        .join("");
+      const fresh = ctx.freshness && ctx.freshness.needs_ingest ? " · 快照需刷新" : "";
+      const warns = (ctx.prior_warnings || []).slice(0, 2).join(" · ");
+      if (hint) {
+        if (macroBlocking) {
+          hint.hidden = false;
+          hint.textContent = `跨市场 macro 未拉到（${macroErrHint || "empty"}）· 情绪/公告/Regime 仍可用 · 点「刷新 ingest」`;
+        } else {
+          hint.hidden = true;
+          hint.textContent = "";
+        }
+      }
+      if (st) {
+        st.textContent =
+          `cross_market 配置 ${priorModeLabel(cmCfg.mode || "off")}（${cmCfg.mode || "off"}）` +
+          (flags.cross_market ? " · 跨市场已触发" : "") +
+          (flags.any_active && !flags.cross_market ? " · 其它 M prior 触发" : "") +
+          ` · Regime ${regLab}` +
+          (reg.macro_overlay_deferred ? " · overlay→cross_market" : "") +
+          fresh +
+          (warns ? ` · ${warns}` : "");
+      }
+    } catch (err) {
+      grid.innerHTML = `<div class="strategy-mctx-empty">${escapeHtml(String(err.message || err))}</div>`;
+      if (hint) hint.hidden = true;
+    }
+  }
+
+  async function refreshMarketContextPanel() {
+    const btn = document.getElementById("strategy-mctx-refresh");
+    const st = document.getElementById("strategy-mctx-status");
+    if (btn) {
+      btn.disabled = true;
+      btn.textContent = "ingest…";
+    }
+    if (st) st.textContent = "正在刷新盘前快照…";
+    try {
+      const res = await runMarketContextIngest(apiFetch, { backfill: true });
+      if (res && res.ok === false) {
+        if (st) st.textContent = res.error || "ingest 失败";
+        return;
+      }
+      await loadMarketContextPanel();
+      if (btn) btn.textContent = "完成";
+    } catch (err) {
+      if (st) st.textContent = String(err.message || err);
+      if (btn) btn.textContent = "失败";
+    } finally {
+      if (btn) {
+        setTimeout(() => {
+          btn.disabled = false;
+          btn.textContent = "刷新 ingest";
+        }, 1200);
+      }
+    }
+  }
+
+  function syncMctxGateOptsVisibility() {
+    const opts = document.getElementById("strategy-mctx-gate-opts");
+    const checked = document.querySelector('input[name="strategy-mctx-mode"]:checked');
+    const mode = checked ? checked.value : "off";
+    if (opts) opts.hidden = mode !== "gate";
+  }
+
+  function syncMspGateOptsVisibility() {
+    const opts = document.getElementById("strategy-msp-gate-opts");
+    const checked = document.querySelector('input[name="strategy-msp-mode"]:checked');
+    const mode = checked ? checked.value : "off";
+    if (opts) opts.hidden = mode !== "gate";
+  }
+
+  function syncRegGateOptsVisibility() {
+    const opts = document.getElementById("strategy-reg-gate-opts");
+    const checked = document.querySelector('input[name="strategy-reg-mode"]:checked');
+    const mode = checked ? checked.value : "off";
+    if (opts) opts.hidden = mode !== "gate";
+  }
+
+  function syncIpoGateOptsVisibility() {
+    const opts = document.getElementById("strategy-ipo-gate-opts");
+    const checked = document.querySelector('input[name="strategy-ipo-mode"]:checked');
+    const mode = checked ? checked.value : "off";
+    if (opts) opts.hidden = mode !== "gate";
+  }
+
+  function fillMarketPriorForm(mp) {
+    const cm = (mp && mp.cross_market) || {};
+    const msp = (mp && mp.market_sentiment_prior) || {};
+    const reg = (mp && mp.regulatory_prior) || {};
+    const ipo = (mp && mp.ipo_drain_prior) || {};
+    const policy = (mp && mp.market_prior_policy) || {};
+    const mode = String(cm.mode || "off");
+    document.querySelectorAll('input[name="strategy-mctx-mode"]').forEach((el) => {
+      el.checked = el.value === mode;
+    });
+    const mspMode = String(msp.mode || "off");
+    document.querySelectorAll('input[name="strategy-msp-mode"]').forEach((el) => {
+      el.checked = el.value === mspMode;
+    });
+    const regMode = String(reg.mode || "off");
+    document.querySelectorAll('input[name="strategy-reg-mode"]').forEach((el) => {
+      el.checked = el.value === regMode;
+    });
+    const ipoMode = String(ipo.mode || "off");
+    document.querySelectorAll('input[name="strategy-ipo-mode"]').forEach((el) => {
+      el.checked = el.value === ipoMode;
+    });
+    const trig = document.getElementById("strategy-mctx-tech-trigger");
+    if (trig && cm.tech_drag_trigger_pct != null) {
+      trig.value = String(cm.tech_drag_trigger_pct);
+    }
+    const scaleEl = document.getElementById("strategy-mctx-scale");
+    if (scaleEl && cm.scale_buy_pct != null) {
+      scaleEl.value = String(Math.round(Number(cm.scale_buy_pct) * 100));
+    }
+    const holdsEl = document.getElementById("strategy-mctx-scale-holds");
+    if (holdsEl) holdsEl.checked = !!cm.scale_holds;
+    const mspScaleEl = document.getElementById("strategy-msp-scale");
+    if (mspScaleEl && msp.scale_buy_pct != null) {
+      mspScaleEl.value = String(Math.round(Number(msp.scale_buy_pct) * 100));
+    }
+    const mspHoldsEl = document.getElementById("strategy-msp-scale-holds");
+    if (mspHoldsEl) mspHoldsEl.checked = !!msp.scale_holds;
+    const regScaleEl = document.getElementById("strategy-reg-scale");
+    if (regScaleEl && reg.scale_buy_pct != null) {
+      regScaleEl.value = String(Math.round(Number(reg.scale_buy_pct) * 100));
+    }
+    const ipoScaleEl = document.getElementById("strategy-ipo-scale");
+    if (ipoScaleEl && ipo.scale_buy_pct != null) {
+      ipoScaleEl.value = String(Math.round(Number(ipo.scale_buy_pct) * 100));
+    }
+    const ipoRatioEl = document.getElementById("strategy-ipo-drain-ratio");
+    if (ipoRatioEl && ipo.drain_ratio_high != null) {
+      ipoRatioEl.value = String(ipo.drain_ratio_high);
+    }
+    const mergeEl = document.getElementById("strategy-mctx-merge");
+    if (mergeEl) mergeEl.value = String(policy.merge_mode || "min_scale");
+    syncMctxGateOptsVisibility();
+    syncMspGateOptsVisibility();
+    syncRegGateOptsVisibility();
+    syncIpoGateOptsVisibility();
+  }
+
+  async function loadMarketPriorForm() {
+    const st = document.getElementById("strategy-mctx-save-status");
+    try {
+      const res = await fetch("/api/signal/config/market-prior");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.detail || res.statusText);
+      fillMarketPriorForm(data.market_prior || {});
+      if (st && !(st.textContent || "").includes("已保存")) {
+        const cm = (data.market_prior && data.market_prior.cross_market) || {};
+        st.textContent = `cross_market · ${priorModeLabel(cm.mode || "off")}（${cm.mode || "off"}）`;
+      }
+    } catch (err) {
+      if (st) st.textContent = String(err.message || err);
+    }
+  }
+
+  async function saveStrategyMarketPrior() {
+    const st = document.getElementById("strategy-mctx-save-status");
+    const checked = document.querySelector('input[name="strategy-mctx-mode"]:checked');
+    const mode = checked ? checked.value : "off";
+    const mspChecked = document.querySelector('input[name="strategy-msp-mode"]:checked');
+    const mspMode = mspChecked ? mspChecked.value : "off";
+    const trigEl = document.getElementById("strategy-mctx-tech-trigger");
+    const scaleEl = document.getElementById("strategy-mctx-scale");
+    const holdsEl = document.getElementById("strategy-mctx-scale-holds");
+    const mergeEl = document.getElementById("strategy-mctx-merge");
+    const mspScaleEl = document.getElementById("strategy-msp-scale");
+    const mspHoldsEl = document.getElementById("strategy-msp-scale-holds");
+    const regChecked = document.querySelector('input[name="strategy-reg-mode"]:checked');
+    const regMode = regChecked ? regChecked.value : "off";
+    const ipoChecked = document.querySelector('input[name="strategy-ipo-mode"]:checked');
+    const ipoMode = ipoChecked ? ipoChecked.value : "off";
+    const regScaleEl = document.getElementById("strategy-reg-scale");
+    const ipoScaleEl = document.getElementById("strategy-ipo-scale");
+    const ipoRatioEl = document.getElementById("strategy-ipo-drain-ratio");
+    let scalePct = scaleEl && scaleEl.value !== "" ? Number(scaleEl.value) : 50;
+    if (!Number.isFinite(scalePct)) scalePct = 50;
+    const scale = Math.max(0, Math.min(scalePct, 100)) / 100;
+    let techTrig =
+      trigEl && trigEl.value !== "" ? Number(trigEl.value) : -1.5;
+    if (!Number.isFinite(techTrig)) techTrig = -1.5;
+    const mergeMode = mergeEl ? String(mergeEl.value || "min_scale") : "min_scale";
+    let mspScalePct =
+      mspScaleEl && mspScaleEl.value !== "" ? Number(mspScaleEl.value) : 55;
+    if (!Number.isFinite(mspScalePct)) mspScalePct = 55;
+    const mspScale = Math.max(0, Math.min(mspScalePct, 100)) / 100;
+    let regScalePct =
+      regScaleEl && regScaleEl.value !== "" ? Number(regScaleEl.value) : 50;
+    if (!Number.isFinite(regScalePct)) regScalePct = 50;
+    const regScale = Math.max(0, Math.min(regScalePct, 100)) / 100;
+    let ipoScalePct =
+      ipoScaleEl && ipoScaleEl.value !== "" ? Number(ipoScaleEl.value) : 45;
+    if (!Number.isFinite(ipoScalePct)) ipoScalePct = 45;
+    const ipoScale = Math.max(0, Math.min(ipoScalePct, 100)) / 100;
+    let ipoRatio =
+      ipoRatioEl && ipoRatioEl.value !== "" ? Number(ipoRatioEl.value) : 3.0;
+    if (!Number.isFinite(ipoRatio)) ipoRatio = 3.0;
+    if (
+      !window.confirm(
+        [
+          "保存 M 层 prior（4 路）？",
+          "",
+          `· 跨市场：${priorModeLabel(mode)}（${mode}）`,
+          mode === "gate"
+            ? `· 科技拖累 ≤ ${techTrig}% · 缩仓 ${Math.round(scale * 100)}%`
+            : "",
+          `· 情绪周期：${priorModeLabel(mspMode)}（${mspMode}）`,
+          mspMode === "gate"
+            ? `· 缩仓 ${Math.round(mspScale * 100)}%${
+                mspHoldsEl && mspHoldsEl.checked ? " · 持仓同步" : ""
+              }`
+            : "",
+          `· 监管：${priorModeLabel(regMode)}（${regMode}）`,
+          regMode === "gate" ? `· 缩仓 ${Math.round(regScale * 100)}%` : "",
+          `· IPO：${priorModeLabel(ipoMode)}（${ipoMode}）`,
+          ipoMode === "gate"
+            ? `· 虹吸 ≥ ${ipoRatio}x · 缩仓 ${Math.round(ipoScale * 100)}%`
+            : "",
+          `· 合并：${mergeMode}`,
+          "",
+          "契约：不改 predicted_score（ŷ）；不改 weights。",
+        ]
+          .filter(Boolean)
+          .join("\n")
+      )
+    ) {
+      return;
+    }
+    if (st) st.textContent = "正在保存…";
+    try {
+      const body = {
+        cross_market_mode: mode,
+        market_sentiment_mode: mspMode,
+        regulatory_mode: regMode,
+        ipo_drain_mode: ipoMode,
+        merge_mode: mergeMode,
+        note: "策略中心人审·市场 prior",
+      };
+      if (mode === "gate") {
+        body.tech_drag_trigger_pct = techTrig;
+        body.scale_buy_pct = scale;
+        body.scale_holds = !!(holdsEl && holdsEl.checked);
+      }
+      if (mspMode === "gate") {
+        body.market_sentiment_scale_buy_pct = mspScale;
+        body.market_sentiment_scale_holds = !!(mspHoldsEl && mspHoldsEl.checked);
+      }
+      if (regMode === "gate") {
+        body.regulatory_scale_buy_pct = regScale;
+      }
+      if (ipoMode === "gate") {
+        body.ipo_drain_scale_buy_pct = ipoScale;
+        body.ipo_drain_ratio_high = ipoRatio;
+      }
+      const res = await fetch("/api/signal/config/market-prior", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok || data.success === false) {
+        if (st) st.textContent = data.detail || data.error || "保存失败";
+        return;
+      }
+      fillMarketPriorForm(data.market_prior || {});
+      if (st) {
+        st.textContent = `已保存 · cross_market ${priorModeLabel(mode)}（${mode}）`;
+      }
+      loadMarketContextPanel().catch(() => {});
+      loadStrategyList().catch(() => {});
+    } catch (err) {
+      if (st) st.textContent = String(err.message || err);
     }
   }
 
@@ -709,10 +1129,18 @@ export function installStrategy(q) {
     runStrategyWeightSuggest,
     saveStrategyScoringFloors,
     saveStrategySentimentPrior,
+    saveStrategyMarketPrior,
     saveStrategyDualScore,
     loadSentimentPriorForm,
+    loadMarketPriorForm,
+    loadMarketContextPanel,
     loadDualScoreForm,
+    refreshMarketContextPanel,
     syncPriorGateOptsVisibility,
+    syncMctxGateOptsVisibility,
+    syncMspGateOptsVisibility,
+    syncRegGateOptsVisibility,
+    syncIpoGateOptsVisibility,
     setStrategyFactorExportEnabled,
     strategyIcCode,
   };

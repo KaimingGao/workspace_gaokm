@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from fastapi import APIRouter, HTTPException
 
 from web import deps
 from web.schemas import (
     DualScoreRequest,
+    MarketPriorRequest,
     ScoringFloorsRequest,
     SentimentPriorRequest,
     StanceThresholdsRequest,
@@ -106,6 +110,42 @@ def signal_config_sentiment_prior_save(body: SentimentPriorRequest):
             scale_buy_pct=body.scale_buy_pct,
             scale_holds=body.scale_holds,
             note=body.note or "策略中心人审·舆情先验",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+    if not out.get("success"):
+        raise HTTPException(status_code=400, detail=out.get("error") or "写入失败")
+    return out
+
+
+@router.get("/api/signal/config/market-prior")
+def signal_config_market_prior_get():
+    """M 层 prior（cross_market）配置只读。"""
+    try:
+        return deps.quant.read_market_prior()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/signal/config/market-prior")
+def signal_config_market_prior_save(body: MarketPriorRequest):
+    """人审写入 cross_market.mode 等；强制不进 ŷ；不改 weights。"""
+    try:
+        out = deps.quant.save_market_prior(
+            cross_market_mode=body.cross_market_mode,
+            tech_drag_trigger_pct=body.tech_drag_trigger_pct,
+            scale_buy_pct=body.scale_buy_pct,
+            scale_holds=body.scale_holds,
+            market_sentiment_mode=body.market_sentiment_mode,
+            market_sentiment_scale_buy_pct=body.market_sentiment_scale_buy_pct,
+            market_sentiment_scale_holds=body.market_sentiment_scale_holds,
+            regulatory_mode=body.regulatory_mode,
+            regulatory_scale_buy_pct=body.regulatory_scale_buy_pct,
+            ipo_drain_mode=body.ipo_drain_mode,
+            ipo_drain_scale_buy_pct=body.ipo_drain_scale_buy_pct,
+            ipo_drain_ratio_high=body.ipo_drain_ratio_high,
+            merge_mode=body.merge_mode,
+            note=body.note or "策略中心人审·市场 prior",
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

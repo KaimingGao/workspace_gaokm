@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 from core.decision_record import list_decisions, record_from_advice
@@ -123,7 +126,8 @@ class PlatformService:
             paper["last_north_star"] = report
             try:
                 save_paper(paper, PAPER_PATH)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in platform_service.py", exc_info=True)
                 pass
         return {"ok": True, "cached": False, "north_star": report}
 
@@ -139,7 +143,8 @@ class PlatformService:
         if os.path.isfile(PAPER_PATH):
             try:
                 paper = load_paper(PAPER_PATH)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in platform_service.py", exc_info=True)
                 paper = None
         return sample_status(paper=paper)
 
@@ -236,7 +241,8 @@ class PlatformService:
 
             if os.path.isfile(PAPER_PATH):
                 ss = sample_status(paper=load_paper(PAPER_PATH))
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in platform_service.py", exc_info=True)
             pass
         core = None
         try:
@@ -296,7 +302,8 @@ class PlatformService:
                     last_opt = ops_rep.get("last_optimize") or {}
                     if isinstance(last_opt, dict) and last_opt.get("weight_mode"):
                         paper_ops["weight_mode"] = last_opt.get("weight_mode")
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in platform_service.py", exc_info=True)
             pass
 
         snaps = list((paper or {}).get("snapshots") or []) if paper else []
@@ -321,7 +328,8 @@ class PlatformService:
                         if isinstance(pack.get("meta"), dict)
                         else None,
                     }
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in platform_service.py", exc_info=True)
                 pass
 
         day_diff = build_curve_day_diff(snaps, bt_curve)

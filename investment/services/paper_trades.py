@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import copy
 import os
 from typing import Any, Dict, List, Optional
@@ -217,7 +220,8 @@ def _rebalance_report_from_legs(
                 row_out["oos_failed"] = rms.startswith("oos_failed") or str(
                     row_out.get("score_scale") or src.get("score_scale") or ""
                 ) == "heuristic_0_100"
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_trades.py", exc_info=True)
             # book_fields 整段失败时仍尽量补校准对照列
             try:
                 from core.signal.score_calibration import (
@@ -252,7 +256,8 @@ def _rebalance_report_from_legs(
                 ):
                     if k in src:
                         row_out[k] = src.get(k)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in paper_trades.py", exc_info=True)
                 pass
         rows.append(row_out)
     def _sort_key(row: dict) -> tuple:
@@ -382,7 +387,8 @@ class PaperTradesMixin:
             from core.paper_rebalance import attach_change_pct_to_rebalance_report
 
             attach_change_pct_to_rebalance_report(report, summary=summary)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_trades.py", exc_info=True)
             pass
         if use_cluster:
             try:
@@ -399,7 +405,8 @@ class PaperTradesMixin:
                         row["below_min_score"] = True
                     if gate.get("gate_score") is not None:
                         row["eod_gate_score"] = gate.get("gate_score")
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in paper_trades.py", exc_info=True)
                 pass
 
         base_out = {
@@ -730,7 +737,8 @@ class PaperTradesMixin:
                         # 取最近有分钟的一天（盘中可能日线已更新、分钟仍是昨日）
                         last_d = sorted(by_day.keys())[-1]
                         minute_bars_by_code[code] = by_day[last_d]
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in paper_trades.py", exc_info=True)
                     pass
 
         stance_by_code: Dict[str, Any] = {}
@@ -751,7 +759,8 @@ class PaperTradesMixin:
                         signal_item=item,
                     )
                     stance_by_code[c] = st.get("stance_code")
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in paper_trades.py", exc_info=True)
                 stance_by_code = {}
 
         if not dry_run:

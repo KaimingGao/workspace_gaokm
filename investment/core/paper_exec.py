@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
@@ -97,7 +100,8 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
     if codes:
         try:
             quotes_by_code = _batch_query_quotes(codes)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
             quotes_by_code = {}
     for h in holdings:
         code = h.get("stock_code")
@@ -479,7 +483,8 @@ def manual_sell(
         # R3 涨跌停/停牌卖出侧检查：跌停/停牌无法成交则跳过（保留持仓）
         try:
             from core.paper_rebalance import _sell_match_block_reason
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
             _sell_match_block_reason = None
         if _sell_match_block_reason is not None:
             block_reason = _sell_match_block_reason(code, quote if isinstance(quote, dict) else {})
@@ -651,7 +656,8 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
                     if bars:
                         tech_passed, tech_info = check_technical_filters(bars, min_technical_score)
                         technical_info = tech_info
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
                     pass
             
             # 获取完整仓位调整计划
@@ -732,7 +738,8 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
                         bars, _ = _bars_and_source(h_code, limit=30)
                         if bars:
                             existing_bars[h_code] = bars
-                    except Exception:
+                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                        logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
                         pass
                 
                 if new_bars and existing_bars:
@@ -742,7 +749,8 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
                     )
                     if stock_to_replace:
                         continue
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
                 pass
             
             # 技术指标过滤
@@ -754,7 +762,8 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
                         if not tech_passed:
                             continue
                         item["technical_info"] = tech_info
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
                     pass
             
             new_positions_count += 1
@@ -952,7 +961,8 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
                 )
                 if stop_triggered:
                     reason = f"动态止损({stop_reason})"
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
             if pnl_pct <= stop_loss_pnl:
                 reason = f"固定止损({pnl_pct:.2f}%)"
         
@@ -982,7 +992,8 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
         # R3 涨跌停/停牌卖出侧检查：跌停/停牌无法成交则跳过（保留持仓）
         try:
             from core.paper_rebalance import _sell_match_block_reason
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
             _sell_match_block_reason = None
         if _sell_match_block_reason is not None:
             block_reason = _sell_match_block_reason(code, quote if isinstance(quote, dict) else {})

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from quant.services.quant_service_compare import QuantCompareMixin
 from quant.services.quant_service_config import QuantConfigMixin
 from quant.services.quant_service_factors import QuantFactorMixin

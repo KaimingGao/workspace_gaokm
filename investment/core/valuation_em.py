@@ -69,7 +69,8 @@ def read_valuation_cache(
         if all(out.get(k) is None for k in ("pe", "pb", "pe_ttm", "market_cap")):
             return None
         return out
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in valuation_em.py", exc_info=True)
         return None
 
 
@@ -96,7 +97,8 @@ def write_valuation_cache(code: str, vals: Dict[str, Any]) -> None:
                 "fetched_at": time.time(),
             },
         )
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in valuation_em.py", exc_info=True)
         pass
 
 
@@ -120,7 +122,8 @@ def _read_fhps_map_disk(*, max_age_hours: float = 36.0) -> Optional[Dict[str, fl
             if fv is not None:
                 out[str(k).zfill(6)] = fv
         return out or None
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in valuation_em.py", exc_info=True)
         return None
 
 
@@ -128,7 +131,8 @@ def _write_fhps_map_disk(by_code: Dict[str, float]) -> None:
     path = _fhps_map_path()
     try:
         atomic_write_json(path, {"fetched_at": time.time(), "by_code": by_code})
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in valuation_em.py", exc_info=True)
         logger.warning("分红配送映射写盘失败", exc_info=True)
 
 
@@ -147,7 +151,8 @@ def _fetch_fhps_dividend_map() -> Dict[str, float]:
 
         ak = import_akshare()
         df = ak.stock_fhps_em()
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in valuation_em.py", exc_info=True)
         _FHPS_MEM = {"by_code": {}}
         return {}
     if df is None or getattr(df, "empty", True):
@@ -192,7 +197,8 @@ def fetch_valuation_pack(code: str) -> Dict[str, Optional[float]]:
             from skills.fundamentals.engine import fetch_cn_valuation_latest
 
             raw = fetch_cn_valuation_latest(str(code).zfill(6)) or {}
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in valuation_em.py", exc_info=True)
             raw = {}
         pe = _to_float(raw.get("pe"))
         pe_ttm = _to_float(raw.get("pe_ttm"))

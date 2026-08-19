@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from fastapi import APIRouter, HTTPException
 
 from web import deps
@@ -221,7 +224,8 @@ def quant_factor_corr(
             if len(by_code) >= int(min_samples):
                 items = list(by_code.values())
                 source = "cluster_book"
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_research.py", exc_info=True)
             pass
 
         if not items:
@@ -239,7 +243,8 @@ def quant_factor_corr(
                     )
                     items = [it for it in raw if isinstance(it, dict) and (it.get("sub_scores") or {})]
                     source = "watching_insights"
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in quant_research.py", exc_info=True)
                 pass
 
         if not items:

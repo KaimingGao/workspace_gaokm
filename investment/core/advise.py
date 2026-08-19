@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import os
 from typing import Any, Dict
 
@@ -63,6 +66,7 @@ def evaluate_buy_advice(params: dict) -> Dict[str, Any]:
             rec = record_from_advice(out, source="advise", persist=True)
             if rec.get("ok"):
                 out["decision_id"] = (rec.get("record") or {}).get("id")
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in advise.py", exc_info=True)
             pass
     return out

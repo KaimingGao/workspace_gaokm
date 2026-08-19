@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
@@ -66,7 +69,8 @@ def get_y_state_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
             dual = get_dual_score_cfg(load_signal_config())
             if isinstance(dual.get("y_state"), dict):
                 src = dict(dual["y_state"])
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in y_state.py", exc_info=True)
             src = {}
     trust_p = src.pop("trust", None)
     rank_p = src.pop("book_check_rank", None)
@@ -145,7 +149,8 @@ def _resolve_sigma(item: dict, config: Optional[dict] = None) -> Tuple[Optional[
         rv = _f(oos.get("residual_var")) if isinstance(oos, dict) else None
         if rv is not None and rv > 0:
             return round(math.sqrt(rv), 6), "rem_residual_var"
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in y_state.py", exc_info=True)
         pass
     try:
         from core.signal.dual_score import get_dual_score_cfg
@@ -154,7 +159,8 @@ def _resolve_sigma(item: dict, config: Optional[dict] = None) -> Tuple[Optional[
         ve = _f(dual.get("eod_residual_var"))
         if ve is not None and ve > 0:
             return round(math.sqrt(ve), 6), "eod_residual_var"
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in y_state.py", exc_info=True)
         pass
     return None, "none"
 
@@ -387,7 +393,8 @@ def build_y_state(
             from quant.research.rem_ridge import load_rem_model
 
             rem_oc = rem_label_is_open_to_close(load_rem_model())
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in y_state.py", exc_info=True)
             rem_oc = None
 
     # 路径均值：优先 nowcast（若启用为排序或已有值且配置 prefer），默认 trade
@@ -400,7 +407,8 @@ def build_y_state(
         ncfg = dual.get("nowcast") if isinstance(dual.get("nowcast"), dict) else {}
         if ncfg.get("use_as_rank_key") and nc is not None:
             mu = nc
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in y_state.py", exc_info=True)
         pass
 
     check = resolve_eod_check(
@@ -511,7 +519,8 @@ def summarize_y_checks(items: Sequence[Optional[dict]]) -> Dict[str, Any]:
             try:
                 st = build_y_state(it)
                 c = str(st.get("check") or "")
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in y_state.py", exc_info=True)
                 c = ""
         if not c:
             continue
@@ -576,7 +585,8 @@ def ledger_y_check_daily_summary(
                 out["by_y_check"] = by
                 out["hit_rate"] = (rev.get("summary") or {}).get("hit_rate")
                 out["n_scored"] = (rev.get("summary") or {}).get("n_scored")
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in y_state.py", exc_info=True)
             pass
     if not out.get("by_y_check"):
         out["by_y_check"] = [

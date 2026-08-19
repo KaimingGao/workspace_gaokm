@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 from quant.services.quant_service_replay import QuantPortfolioMixin, QuantReplayMixin
 
 __all__ = ["QuantPortfolioMixin", "QuantReplayMixin"]

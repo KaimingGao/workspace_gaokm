@@ -274,7 +274,8 @@ class QuantFactorMixin:
                 if isinstance(ranked, list) and ranked:
                     items = [dict(x) for x in ranked if isinstance(x, dict)]
                     source = "cluster_book"
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
                 items = []
 
         if len(items) < 3:
@@ -289,7 +290,8 @@ class QuantFactorMixin:
                 for code in codes:
                     try:
                         packed = svc.score_one(str(code)).as_dict()
-                    except Exception:
+                    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
                         continue
                     if not isinstance(packed, dict):
                         continue
@@ -437,7 +439,8 @@ class QuantFactorMixin:
                     if mb:
                         row["minute_bars"] = mb
                         minute_hit += 1
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
                     pass
             stock_bars.append(row)
         report = fit_rem_ridge_report(
@@ -593,7 +596,8 @@ class QuantFactorMixin:
 
             if _os.path.isfile(PAPER_PATH):
                 holdings_raw = list(load_paper(PAPER_PATH).get("holdings") or [])
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
             holdings_raw = []
 
         watchlist: List[Any] = []
@@ -601,7 +605,8 @@ class QuantFactorMixin:
             from core.watching_store import read_watching
 
             watchlist = list((read_watching() or {}).get("watchlist") or [])
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
             watchlist = []
 
         # P1：指纹缓存 — 读仅在 refresh_bars=False；写在成功后始终落盘（避免刷新日线路径把缓存留在旧分区）
@@ -636,7 +641,8 @@ class QuantFactorMixin:
                     if progress_cb:
                         try:
                             progress_cb(_with_stage_prefix("命中 24h 缓存，直接复用"), 1, 1)
-                        except Exception:
+                        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
                             logger.warning("因子服务处理异常", exc_info=True)
                     cached["cache_hit"] = True
                     cached["cache_age_hours"] = _cluster_cache_age_hours(cached)
@@ -677,7 +683,8 @@ class QuantFactorMixin:
                 return
             try:
                 progress_cb(msg, int(cur or 0), int(tot or n_codes or 1))
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
                 pass
 
         _on_progress(f"拉日线 0/{n_codes}", 0, n_codes)
@@ -796,7 +803,8 @@ class QuantFactorMixin:
                     if art.get("success") and art.get("code_map"):
                         save_cluster_draft(art)
                         report["cluster_draft_saved"] = True
-                except Exception:
+                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                    logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
                     report["cluster_draft_saved"] = False
             _on_progress("收尾…", n_codes, n_codes)
         flags = dict(built.get("lookahead_flags") or {})
@@ -845,7 +853,8 @@ class QuantFactorMixin:
             from core.watching_store import read_watching
 
             n_watch_all = len(list((read_watching() or {}).get("watchlist") or []))
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
             n_watch_all = 20
         watch_limit = clamp_watching_limit(kwargs.get("watching_limit") or 100, 100)
         n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
@@ -861,7 +870,8 @@ class QuantFactorMixin:
             # 消息统一加 [N/13] 阶段号（便于前端/日志识别进度）
             try:
                 msg_out = _with_stage_prefix(msg)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
                 msg_out = msg
             # 映射到 job（须单调：选区结束后勿掉回 1%）
             # 0–40% 拉日线 · 40–80% 拟合/选区 · 80–99% 组池及之后
@@ -1270,7 +1280,8 @@ class QuantFactorMixin:
                     rows.append(it.get("sub_scores") or it.get("factors"))
             if len(rows) >= 3:
                 suggestion["trend_collinearity"] = trend_family_collinearity(rows)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
             pass
         return suggestion
 
@@ -1406,7 +1417,8 @@ class QuantFactorMixin:
 
                 models = load_cluster_return_models_by_code() or {}
                 model = models.get(str(sym).strip()) or models.get(str(code).strip())
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
                 model = None
             oos = scan_yhat_wait_oos(bars, model=model, horizon_days=3)
         else:
@@ -1469,7 +1481,8 @@ def _enrich_cluster_name_by_code(report: Dict[str, Any]) -> Dict[str, Any]:
             bare = code.replace(".SH", "").replace(".SZ", "").replace(".BJ", "")
             if bare and bare != code:
                 name_by_code[bare] = nm
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         logger.debug("enrich cluster names from watching failed", exc_info=True)
     report["name_by_code"] = name_by_code
     for cl in report.get("clusters") or []:
@@ -1577,7 +1590,8 @@ def _cluster_cache_age_hours(report: Dict[str, Any]) -> Optional[float]:
             dt = dt.replace(tzinfo=timezone.utc)
         age = (datetime.now(timezone.utc) - dt).total_seconds() / 3600.0
         return round(max(0.0, age), 2)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         return None
 
 
@@ -1588,7 +1602,8 @@ def _draft_saved_at_iso() -> Optional[str]:
 
     try:
         from core.paths import CLUSTER_WEIGHTS_DRAFT_PATH
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         return None
     path = CLUSTER_WEIGHTS_DRAFT_PATH
     if not path or not os.path.isfile(path):
@@ -1596,7 +1611,8 @@ def _draft_saved_at_iso() -> Optional[str]:
     try:
         with open(path, encoding="utf-8") as f:
             doc = json.load(f)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         return None
     if not isinstance(doc, dict):
         return None
@@ -1615,7 +1631,8 @@ def _iso_newer(a: Optional[str], b: Optional[str]) -> bool:
             return datetime.fromisoformat(s)
 
         return _p(a) > _p(b)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         return False
 
 
@@ -1634,7 +1651,8 @@ def _save_last_cluster_report(report: Dict[str, Any]) -> None:
         import copy
 
         report_copy = copy.deepcopy(report)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         report_copy = dict(report)
     for k in ("progress_cb", "_progress_cb"):
         report_copy.pop(k, None)
@@ -1642,13 +1660,15 @@ def _save_last_cluster_report(report: Dict[str, Any]) -> None:
         from core.signal.score_display import json_safe
 
         report_copy = json_safe(report_copy)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         pass
     try:
         from core.signal.factor_taxonomy import strip_removed_factors_from_cluster_report
 
         strip_removed_factors_from_cluster_report(report_copy)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         pass
     doc = {
         "saved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
@@ -1656,7 +1676,8 @@ def _save_last_cluster_report(report: Dict[str, Any]) -> None:
     }
     try:
         atomic_write_json(CLUSTER_LAST_REPORT_PATH, doc)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         pass
 
 
@@ -1691,11 +1712,13 @@ def _report_from_cluster_draft() -> Optional[Dict[str, Any]]:
     """把 ``cluster_weights_draft`` 收成研究区可渲染的报告形（缺 ols/IC 面板等全文）。"""
     try:
         from core.signal.cluster_live import load_cluster_draft
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         return None
     try:
         draft = load_cluster_draft()
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         return None
     if not isinstance(draft, dict) or not draft.get("success"):
         return None
@@ -1708,7 +1731,8 @@ def _report_from_cluster_draft() -> Optional[Dict[str, Any]]:
         clusters_copy = copy.deepcopy(clusters)
         code_map = copy.deepcopy(draft.get("code_map") or {})
         pool_book = copy.deepcopy(draft.get("pool_book") or [])
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         clusters_copy = list(clusters)
         code_map = dict(draft.get("code_map") or {})
         pool_book = list(draft.get("pool_book") or [])
@@ -1770,7 +1794,8 @@ def _report_from_cluster_draft() -> Optional[Dict[str, Any]]:
     }
     try:
         _enrich_cluster_name_by_code(report)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         pass
     return report
 
@@ -1790,7 +1815,8 @@ def _load_latest_cluster_report() -> Optional[Dict[str, Any]]:
         try:
             with open(path, encoding="utf-8") as f:
                 doc = json.load(f)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
             return None
         if not isinstance(doc, dict):
             return None
@@ -1812,7 +1838,8 @@ def _load_latest_cluster_report() -> Optional[Dict[str, Any]]:
             import copy
 
             out = copy.deepcopy(report)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
             out = dict(report)
         out["cache_created_at"] = created
         out["hydrated_from_cache"] = True
@@ -1821,7 +1848,8 @@ def _load_latest_cluster_report() -> Optional[Dict[str, Any]]:
             from core.signal.factor_taxonomy import strip_removed_factors_from_cluster_report
 
             strip_removed_factors_from_cluster_report(out)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
             pass
         return out
 
@@ -1874,7 +1902,8 @@ def _load_cluster_cache(
     try:
         with open(CLUSTER_REPORT_CACHE_PATH, encoding="utf-8") as f:
             doc = json.load(f)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         return None
     if not isinstance(doc, dict):
         return None
@@ -1895,14 +1924,16 @@ def _load_cluster_cache(
         import copy
 
         report = copy.deepcopy(report)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         pass
     report["cache_created_at"] = doc.get("cache_created_at") or doc.get("created_at")
     try:
         from core.signal.factor_taxonomy import strip_removed_factors_from_cluster_report
 
         strip_removed_factors_from_cluster_report(report)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         pass
     return report
 
@@ -1920,7 +1951,8 @@ def _save_cluster_cache(report: Dict[str, Any], fingerprint: str) -> None:
         import copy
 
         report_copy = copy.deepcopy(report)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         report_copy = report
     # 去掉进度回调残留字段（不可序列化）
     for k in ("progress_cb", "_progress_cb"):
@@ -1929,7 +1961,8 @@ def _save_cluster_cache(report: Dict[str, Any], fingerprint: str) -> None:
         from core.signal.factor_taxonomy import strip_removed_factors_from_cluster_report
 
         strip_removed_factors_from_cluster_report(report_copy)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         pass
     doc = {
         "fingerprint": str(fingerprint),
@@ -1938,5 +1971,6 @@ def _save_cluster_cache(report: Dict[str, Any], fingerprint: str) -> None:
     }
     try:
         atomic_write_json(CLUSTER_REPORT_CACHE_PATH, doc)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         pass

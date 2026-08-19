@@ -6,6 +6,9 @@
 """
 
 from __future__ import annotations
+import logging
+
+logger = logging.getLogger(__name__)
 from core.numbers import date_key
 
 import json
@@ -63,7 +66,8 @@ def _last_bar_date_for_code(code: str) -> Optional[str]:
         if not bars:
             return None
         return date_key(bars[-1].get("date") or bars[-1].get("time"))
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
         return None
 
 
@@ -286,7 +290,8 @@ def row_from_scored_item(
                 eod_trust = _to_float(st.get("eod_trust"))
             if yhat_eod_rem is None:
                 yhat_eod_rem = _to_float((st.get("heads") or {}).get("eod_rem"))
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
             pass
     yhat_nowcast = _to_float(item.get("predicted_score_nowcast"))
     if yhat_nowcast is None:
@@ -309,7 +314,8 @@ def row_from_scored_item(
             from core.portfolio_optimize import _sector_for, load_sector_map
 
             sector = _sector_for(code, load_sector_map()) or None
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
             sector = None
     heuristic = _to_float(item.get("heuristic_score"))
     if heuristic is None:
@@ -941,7 +947,8 @@ def _realized_remaining_for_nowcast(
         from core.signal.nowcast_kf import normalize_tau_label
 
         clock = normalize_tau_label(nowcast_as_of or "open")
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
         clock = "open"
     oc = _realized_tau_from_bars(bars, as_of, horizon_days)
     if clock in ("", "eod", "open"):
@@ -993,7 +1000,8 @@ def _realized_remaining_for_nowcast(
             return oc
         # close/price[τ]-1
         return (float(close_px) / float(px_tau) - 1.0) * 100.0
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
         return oc
 
 
@@ -1038,7 +1046,8 @@ def hydrate_ledger_yhat_tau(
         from quant.research.rem_ridge import load_rem_model
 
         rem_doc = load_rem_model()
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
         rem_doc = None
     if not rem_doc:
         return {
@@ -1099,7 +1108,8 @@ def hydrate_ledger_yhat_tau(
                 if ye is not None and abs(ye) <= 20.0:
                     r["yhat_eod"] = round(float(ye), 6)
             hydrated += 1
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
             errors += 1
             continue
 
@@ -1173,7 +1183,8 @@ def fill_outcomes(
     # 旧账本缺 ŷ_τ 时先补，便于 outcomes 写 yhat_tau / sign_hit_tau
     try:
         hydrate_ledger_yhat_tau(as_of, persist=True)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
         pass
     ledger = load_ledger(as_of)
     if not ledger.get("success"):
@@ -1301,12 +1312,14 @@ def build_tau_shadow_review(
     h = max(1, min(int(horizon_days or 1), 10))
     try:
         hydrate_ledger_yhat_tau(d, persist=True)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
         pass
     if autofill:
         try:
             fill_outcomes(d, horizon_days=h)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
             pass
     ledger = load_ledger(d)
     outcomes = load_outcomes(d)
@@ -1347,7 +1360,8 @@ def build_tau_shadow_review(
 
             live_sh = load_tau_shadow_cluster_book() or {}
             vs = ((live_sh.get("meta") or {}).get("vs_eod_book"))
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
             vs = None
 
     ic = _spearman_ic(xs, ys)
@@ -1388,12 +1402,14 @@ def build_nowcast_shadow_review(
     h = max(1, min(int(horizon_days or 1), 10))
     try:
         hydrate_ledger_yhat_tau(d, persist=True)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
         pass
     if autofill:
         try:
             fill_outcomes(d, horizon_days=h)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
             pass
     ledger = load_ledger(d)
     outcomes = load_outcomes(d)
@@ -1453,7 +1469,8 @@ def build_nowcast_shadow_review(
             vs = live_meta.get("vs_eod_book")
             if nordhaus_meta is None:
                 nordhaus_meta = live_meta.get("nordhaus_revision_slope")
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
             vs = None
 
     nordhaus = nordhaus_meta
@@ -1462,7 +1479,8 @@ def build_nowcast_shadow_review(
             from core.signal.nowcast_kf import nordhaus_revision_slope
 
             nordhaus = nordhaus_revision_slope(priors, posts)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
             nordhaus = None
 
     ic = _spearman_ic(xs, ys)
@@ -1528,7 +1546,8 @@ def _factor_cn(name: Optional[str]) -> str:
         from core.signal.factor_registry import factor_label
 
         return factor_label(key) or key
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
         return key
 
 
@@ -1563,7 +1582,8 @@ def _day_factor_ic_proxy(
         from core.backtest.pool_ic import _pearson
 
         return _pearson(xs, ys)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
         return None
 
 
@@ -1705,7 +1725,8 @@ def build_score_review(
                     sigma=None,
                     window="intraday",
                 )
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
                 y_check_row = None
         y_disagree_row = _to_float(r.get("y_disagree"))
         if y_disagree_row is None and eod_rem_preview is not None and yhat_tau_preview is not None:
@@ -1852,7 +1873,8 @@ def build_score_review(
             from core.market_calendar import next_trading_day
 
             need_bar = next_trading_day(d, n=h)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
             need_bar = None
         if need_bar:
             blame_line = (
@@ -2027,7 +2049,8 @@ def list_ledger_entries(*, limit: int = 30) -> List[Dict[str, Any]]:
         need_h1 = None
         try:
             need_h1 = next_trading_day(d, n=1) if d else None
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
             need_h1 = None
         pending_close = bool(
             need_h1 and sess and need_h1 >= sess and int(filled) == 0
@@ -2278,7 +2301,8 @@ def hit_rate_series(
             try:
                 fill_outcomes(d, horizon_days=h)
                 outcomes = load_outcomes(d)
-            except Exception:
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
                 pass
         by_code = outcomes.get("by_code") or {}
         n = 0
@@ -2340,7 +2364,8 @@ def run_score_ledger_daily(
 
             scoring = (load_signal_config() or {}).get("scoring") or {}
             h = int(scoring.get("horizon_days") or 3)
-        except Exception:
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
             h = 3
     h = max(1, min(int(h or 3), 10))
 

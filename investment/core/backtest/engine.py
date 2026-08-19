@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -454,7 +457,8 @@ def backtest_signal_on_bars(
 
         codes = [str(stock_code)] if stock_code else []
         out = attach_source_audit(out, codes=codes or None)
-    except Exception:
+    except Exception:  # noqa: BLE001 — best-effort / 非阻塞分支降级
+        logger.debug("exception caught in engine.py line 460", exc_info=True)
         pass
     return out
 
