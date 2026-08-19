@@ -617,6 +617,106 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal .wat
   background: color-mix(in srgb, var(--line-2) 48%, var(--surface));
 }
 
+/* 因子列带徽章：勿被单元格 overflow:hidden / nowrap 裁切 */
+.quant-page .quant-research-grid .watching-react-grid-cell:has(.quant-factor-cell) {
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+}
+
+.quant-page .quant-factor-cell {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 3px 5px;
+  max-width: 100%;
+  min-width: 0;
+  vertical-align: middle;
+}
+
+.quant-page .quant-factor-cell > .quant-factor-name {
+  min-width: 0;
+  max-width: 7.5rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quant-page .quant-factor-cell > .quant-factor-name .factor-tip {
+  display: inline;
+}
+
+.quant-page .quant-factor-family-chip,
+.quant-page .quant-factor-family-badge,
+.quant-page .quant-factor-src-badge {
+  display: inline-block;
+  flex: 0 0 auto;
+  padding: 1px 5px;
+  border-radius: 2px;
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  line-height: 1.35;
+  border: 1px solid color-mix(in srgb, var(--line) 90%, transparent);
+  color: var(--ink-2);
+  background: color-mix(in srgb, var(--ink) 2%, var(--surface));
+  white-space: nowrap;
+}
+
+.quant-page .quant-factor-family-chip[data-family="other"],
+.quant-page .quant-factor-family-badge[data-family="other"] {
+  color: var(--ink-3);
+}
+
+.quant-page .quant-factor-family-chip[data-family="trend"] {
+  color: color-mix(in srgb, #3b6fd4 75%, var(--ink));
+  border-color: color-mix(in srgb, #3b6fd4 32%, var(--line));
+  background: color-mix(in srgb, #3b6fd4 10%, var(--surface));
+}
+
+.quant-page .quant-factor-family-chip[data-family="value_quality"] {
+  color: color-mix(in srgb, #2f8a5a 75%, var(--ink));
+  border-color: color-mix(in srgb, #2f8a5a 32%, var(--line));
+  background: color-mix(in srgb, #2f8a5a 10%, var(--surface));
+}
+
+.quant-page .quant-factor-family-chip[data-family="liquidity_flow"] {
+  color: color-mix(in srgb, #c27812 80%, var(--ink));
+  border-color: color-mix(in srgb, #c27812 32%, var(--line));
+  background: color-mix(in srgb, #c27812 10%, var(--surface));
+}
+
+.quant-page .quant-factor-family-chip[data-family="risk"] {
+  color: color-mix(in srgb, #c4503a 80%, var(--ink));
+  border-color: color-mix(in srgb, #c4503a 32%, var(--line));
+  background: color-mix(in srgb, #c4503a 10%, var(--surface));
+}
+
+.quant-page .quant-factor-family-chip[data-family="residual"] {
+  color: color-mix(in srgb, #6b5cb0 80%, var(--ink));
+  border-color: color-mix(in srgb, #6b5cb0 32%, var(--line));
+  background: color-mix(in srgb, #6b5cb0 10%, var(--surface));
+}
+
+.quant-page .quant-factor-family-chip[data-family="reversal"] {
+  color: color-mix(in srgb, #3a8a8a 80%, var(--ink));
+  border-color: color-mix(in srgb, #3a8a8a 32%, var(--line));
+  background: color-mix(in srgb, #3a8a8a 10%, var(--surface));
+}
+
+.quant-page .quant-factor-family-chip[data-family="sentiment"],
+.quant-page .quant-factor-src-badge.is-prior_only {
+  color: color-mix(in srgb, var(--ink-3) 90%, var(--ink));
+  border-color: color-mix(in srgb, var(--line) 80%, transparent);
+  background: color-mix(in srgb, var(--ink) 3%, var(--surface));
+}
+
+.quant-page .quant-factor-src-badge.is-proxy {
+  color: color-mix(in srgb, #c27812 85%, var(--ink));
+  border-color: color-mix(in srgb, #c27812 28%, var(--line));
+  background: color-mix(in srgb, #c27812 8%, var(--surface));
+}
+
 .quant-page .quant-research-grid .watching-react-grid-body .watching-react-grid-row:hover {
   background: color-mix(in srgb, var(--accent) 5%, var(--surface));
 }

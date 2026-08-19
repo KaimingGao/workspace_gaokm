@@ -169,7 +169,9 @@ class TestTopkParamsDisclose(unittest.TestCase):
         params = out.get("params") or {}
         self.assertTrue(params.get("apply_costs"))
         self.assertEqual(out.get("cost_model"), "simple_cn")
-        self.assertGreaterEqual(int(params.get("top_k") or 0), 8)
+        from core.strategy import backtest_portfolio_defaults
+
+        self.assertEqual(int(params.get("top_k") or 0), backtest_portfolio_defaults()["top_k"])
         self.assertEqual(params.get("horizon_days"), params.get("paper_horizon_days"))
         self.assertIn("research_next", out)
 

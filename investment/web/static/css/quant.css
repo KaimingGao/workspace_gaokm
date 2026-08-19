@@ -3309,7 +3309,8 @@ html[data-density="compact"] .quant-page {
 
 /* 研究小表：与数据中心同套 watching-react-grid（非虚拟） */
 .quant-page .quant-weight-table-wrap {
-  overflow-x: hidden;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .quant-research-grid {
@@ -5771,8 +5772,8 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 /* 权重：分数预算 / 等权 / 风险平价 lite */
 #quant-weight-mode,
 .quant-pro-field select#quant-weight-mode {
-  width: 10.75rem;
-  min-width: 10.75rem;
+  width: 8.25rem;
+  min-width: 8.25rem;
 }
 
 .quant-pro-field select:focus {

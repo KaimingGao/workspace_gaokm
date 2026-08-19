@@ -389,6 +389,8 @@ def build_fundamentals(stock_code: str) -> dict:
                     metrics["pe_ttm"] = val.get("pe_ttm")
                 if val.get("dv_ttm") is not None:
                     metrics["dividend_yield"] = val.get("dv_ttm")
+                if metrics.get("market_cap") is None and val.get("total_mv") is not None:
+                    metrics["market_cap"] = val.get("total_mv")
                 if val.get("as_of"):
                     metrics["valuation_as_of"] = val["as_of"]
                 sources.append(val["source"])

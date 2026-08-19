@@ -148,6 +148,14 @@ def load_active_cluster_weights(
         with open(p, encoding="utf-8") as f:
             data = json.load(f)
         if isinstance(data, dict) and isinstance(data.get("code_map"), dict):
+            try:
+                from core.signal.factor_taxonomy import (
+                    strip_removed_factors_from_pool_artifact,
+                )
+
+                strip_removed_factors_from_pool_artifact(data)
+            except Exception:
+                pass
             return data
     except Exception:
         return None
@@ -533,6 +541,13 @@ def promote_cluster_artifact(
     if err and not force:
         return {"success": False, "error": err, "task": "cluster_promote"}
 
+    try:
+        from core.signal.factor_taxonomy import strip_removed_factors_from_pool_artifact
+
+        strip_removed_factors_from_pool_artifact(artifact)
+    except Exception:
+        pass
+
     # FM0 · 伪/proxy 因子权重硬门（artifact 内遗留 weights）
     try:
         from core.signal.factor_health import guard_weights_for_promote
@@ -871,6 +886,12 @@ def save_cluster_draft(artifact: Dict[str, Any]) -> Dict[str, Any]:
     from core.paths import CLUSTER_WEIGHTS_DRAFT_PATH
 
     _ensure_dirs()
+    try:
+        from core.signal.factor_taxonomy import strip_removed_factors_from_pool_artifact
+
+        strip_removed_factors_from_pool_artifact(artifact)
+    except Exception:
+        pass
     draft = {
         "success": True,
         "is_draft": True,
@@ -895,7 +916,18 @@ def load_cluster_draft() -> Optional[Dict[str, Any]]:
         return None
     try:
         with open(CLUSTER_WEIGHTS_DRAFT_PATH, encoding="utf-8") as f:
-            return json.load(f)
+            data = json.load(f)
+        if isinstance(data, dict):
+            try:
+                from core.signal.factor_taxonomy import (
+                    strip_removed_factors_from_pool_artifact,
+                )
+
+                strip_removed_factors_from_pool_artifact(data)
+            except Exception:
+                pass
+            return data
+        return None
     except Exception:
         return None
 

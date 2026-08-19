@@ -902,7 +902,7 @@ def _window_for_code(
 def backtest_topk_equal_weight(
     stock_bars: Dict[str, List[dict]],
     *,
-    top_k: int = 20,
+    top_k: int = 3,
     horizon_days: int = 3,
     min_score: float = 55.0,
     min_history: int = 12,

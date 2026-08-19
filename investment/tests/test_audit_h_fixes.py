@@ -157,6 +157,66 @@ class TestH6LegacyAnnMissing(unittest.TestCase):
             self.assertFalse(hist[0].get("ann_missing"))
             self.assertEqual(hist[0].get("available_as_of"), "2024-04-28")
 
+    def test_live_snapshot_fetch_date_not_ann_missing(self):
+        """现货/估值快照 as_of 是观测日，不是财报期末 → 可进 PIT，不 zero_weight。"""
+        from core.fundamentals_pit import load_fundamentals_panel, resolve_fundamentals_for_score
+
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "f.json")
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(
+                    '{"code":"300750","fetched_at":"2026-08-14T19:13:48",'
+                    '"data":{"metrics":{"pe":21.4,"roe":12.0,"pb":4.8,'
+                    '"valuation_as_of":"2026-08-05"}}}'
+                )
+            with patch(
+                "core.fundamentals_pit.snapshot_cache_path",
+                return_value=path,
+            ):
+                panel = load_fundamentals_panel("300750")
+                hist = panel.get("history") or []
+                self.assertTrue(hist)
+                self.assertFalse(hist[0].get("ann_missing"))
+                self.assertEqual(hist[0].get("available_as_of"), "2026-08-05")
+                got = resolve_fundamentals_for_score(
+                    "300750",
+                    as_of="2026-08-17",
+                    fund_cfg={"ann_missing_policy": "zero_weight"},
+                    live_fallback=False,
+                )
+            self.assertTrue(got.get("ok"))
+            self.assertIsNotNone(got.get("metrics"))
+            self.assertAlmostEqual(float((got.get("metrics") or {}).get("pe")), 21.4)
+
+    def test_save_snapshot_writes_history(self):
+        from core.store import save_snapshot_cache, snapshot_cache_path
+
+        with tempfile.TemporaryDirectory() as td:
+            save_snapshot_cache(
+                "fundamentals",
+                "600519",
+                {
+                    "success": True,
+                    "metrics": {
+                        "pe": 15.0,
+                        "roe": 8.0,
+                        "valuation_as_of": "2026-08-05",
+                    },
+                },
+                data_source="akshare_value_em",
+                store_dir=td,
+            )
+            path = snapshot_cache_path("fundamentals", "600519", td)
+            self.assertTrue(os.path.isfile(path))
+            import json
+
+            with open(path, encoding="utf-8") as f:
+                doc = json.loads(f.read())
+            hist = doc.get("history") or []
+            self.assertTrue(hist, "save_snapshot 必须写入 history（勿再 import 已删除的 _date_key）")
+            self.assertFalse(hist[0].get("ann_missing"))
+            self.assertEqual(hist[0].get("available_as_of"), "2026-08-05")
+
 
 class TestH8RegimeConfig(unittest.TestCase):
     def test_weak_threshold_from_config(self):

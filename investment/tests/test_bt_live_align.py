@@ -21,7 +21,8 @@ class TestBacktestDefaultsAlign(unittest.TestCase):
         self.assertEqual(d["weight_mode"], "score_budget")
         self.assertAlmostEqual(d["max_position_pct"], float(risk["max_position_pct"]))
         self.assertAlmostEqual(d["max_sector_pct"], float(risk["max_sector_pct"]))
-        self.assertEqual(d["top_k"], int(risk["max_positions"]))
+        self.assertEqual(d["top_k"], 3)
+        self.assertEqual(d["max_positions"], int(risk["max_positions"]))
         self.assertTrue(d["exclude_st"])
         self.assertIn("weight_mode", risk)
 

@@ -453,17 +453,17 @@ def save_snapshot_cache(
         if str(kind).lower() == "fundamentals":
             try:
                 from core.fundamentals_pit import (
-                    _date_key,
                     _metrics_as_of_hint,
                     merge_history_point,
                 )
+                from core.numbers import date_key
                 from core.signal.fundamentals_bridge import normalize_fundamentals_metrics
 
                 metrics = normalize_fundamentals_metrics(data) or {}
                 point_as_of = (
-                    _date_key(as_of)
+                    date_key(as_of)
                     or _metrics_as_of_hint(data)
-                    or _date_key(fetched_s)
+                    or date_key(fetched_s)
                 )
                 if metrics and point_as_of:
                     hist = merge_history_point(
@@ -472,6 +472,9 @@ def save_snapshot_cache(
                         metrics=metrics,
                         fetched_at=fetched_s,
                         data_source=data_source,
+                        ann_date=metrics.get("ann_date"),
+                        available_as_of=metrics.get("valuation_as_of")
+                        or metrics.get("available_as_of"),
                     )
                     if len(hist) > FUNDAMENTALS_HISTORY_MAX_POINTS:
                         hist = hist[-FUNDAMENTALS_HISTORY_MAX_POINTS:]

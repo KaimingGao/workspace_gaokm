@@ -17,6 +17,65 @@ from typing import Any, Dict, List, Optional, Tuple
 from core.signal.fundamentals_bridge import normalize_fundamentals_metrics
 from core.store import snapshot_cache_path
 
+# 财报报告期末（无公告日时不得把期末当天当「市场可知」）
+_FISCAL_MD = frozenset({"03-31", "06-30", "09-30", "12-31"})
+
+
+def is_fiscal_period_end(d: Optional[str]) -> bool:
+    key = date_key(d)
+    return bool(key) and key[5:] in _FISCAL_MD
+
+
+def apply_point_availability(
+    point: dict,
+    *,
+    fetched_at: Optional[str] = None,
+) -> dict:
+    """补全 available_as_of；报告期末无公告日仍标 ann_missing（防前视）。
+
+    估值/现货快照的 as_of 是观测日（交易日），不是财报期末：该日 PE/PB 已可知，
+    不得按 ann_missing 整票 zero_weight（否则分组表基本面全空）。
+    报告期末点仅当 metrics 带 valuation_as_of（明确晚于期末的市场观测）才可解禁。
+    fetched_at 只是写盘时间，不能给财报点当公告日。
+    """
+    if not isinstance(point, dict):
+        return point
+    metrics = point.get("metrics") if isinstance(point.get("metrics"), dict) else {}
+    ann = (
+        date_key(point.get("ann_date"))
+        or date_key(metrics.get("ann_date"))
+        or date_key(point.get("announce_date"))
+        or date_key(metrics.get("announce_date"))
+        or date_key(metrics.get("pub_date"))
+    )
+    as_of = date_key(point.get("as_of"))
+    val_obs = date_key(metrics.get("valuation_as_of")) or date_key(
+        point.get("valuation_as_of")
+    )
+    existing_avail = date_key(point.get("available_as_of")) or date_key(
+        metrics.get("available_as_of")
+    )
+    if ann:
+        point["ann_date"] = ann
+        point["available_as_of"] = existing_avail or ann
+        point.pop("ann_missing", None)
+        return point
+    if not is_fiscal_period_end(as_of):
+        avail = existing_avail or val_obs or as_of
+        if avail:
+            point["available_as_of"] = avail
+            point.pop("ann_missing", None)
+            return point
+        point["ann_missing"] = True
+        return point
+    # 报告期末：只认明确估值观测日（≥ 报告期末），不认 fetched_at
+    if val_obs and val_obs >= as_of:
+        point["available_as_of"] = val_obs
+        point.pop("ann_missing", None)
+        return point
+    point["ann_missing"] = True
+    return point
+
 
 def _metrics_as_of_hint(payload: Any) -> str:
     """从 metrics / notes 猜报告期；否则用空串。"""
@@ -69,12 +128,6 @@ def load_fundamentals_panel(
         )
         hist_metrics = normalize_fundamentals_metrics(payload.get("data")) or {}
         if as_of and hist_metrics:
-            # 旧快照无公告日：标 ann_missing，避免 _available_date 回退到报告期末造成前视
-            ann = (
-                date_key(hist_metrics.get("ann_date"))
-                or date_key(hist_metrics.get("announce_date"))
-                or date_key(hist_metrics.get("pub_date"))
-            )
             point = {
                 "as_of": as_of,
                 "fetched_at": payload.get("fetched_at"),
@@ -82,16 +135,14 @@ def load_fundamentals_panel(
                 "data_source": payload.get("data_source"),
                 "non_pit_origin": True,
             }
-            if ann:
-                point["ann_date"] = ann
-                point["available_as_of"] = ann
-            else:
-                point["ann_missing"] = True
+            apply_point_availability(point, fetched_at=payload.get("fetched_at"))
             history = [point]
     history = sorted(
         [h for h in history if isinstance(h, dict) and date_key(h.get("as_of"))],
         key=lambda h: date_key(h.get("as_of")),
     )
+    for h in history:
+        apply_point_availability(h, fetched_at=payload.get("fetched_at"))
     return {
         "ok": True,
         "empty": not bool(history),
@@ -141,10 +192,7 @@ def merge_history_point(
         point["metrics"] = {**point["metrics"], "ann_date": ann}
     if avail:
         point["available_as_of"] = avail
-    elif ann:
-        point["available_as_of"] = ann
-    else:
-        point["ann_missing"] = True
+    apply_point_availability(point, fetched_at=fetched_at)
     by[key] = point
     keys = sorted(by.keys())
     if max_points > 0 and len(keys) > max_points:

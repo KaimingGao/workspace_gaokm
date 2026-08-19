@@ -86,7 +86,7 @@ def get_strategy_spec(name: str = DEFAULT_STRATEGY) -> Dict[str, Any]:
 def backtest_portfolio_defaults(
     strategy: str = DEFAULT_STRATEGY,
 ) -> Dict[str, Any]:
-    """Top-K / 组合回测默认：与纸面 StrategySpec.risk + scoring ŷ 门槛对齐。"""
+    """Top-K / 组合回测默认：权重/限额/持有期对齐纸面；K 默认 3（研究用小组合，≠纸面 max_positions）。"""
     spec = get_strategy_spec(strategy)
     risk = spec.get("risk") or {}
     params = spec.get("params") or {}
@@ -104,7 +104,7 @@ def backtest_portfolio_defaults(
     )
     return {
         "strategy_id": spec.get("strategy_id") or DEFAULT_STRATEGY,
-        "top_k": max_pos,
+        "top_k": 3,
         "top_k_cap": max(40, max_pos),
         "horizon_days": int(
             paper_rules.get("horizon_days")

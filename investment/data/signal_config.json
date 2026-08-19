@@ -66,8 +66,7 @@
     "min_predicted_score": 0.4,
     "min_hold_predicted_score": 0.0,
     "horizon_days": 1,
-    "enable_calibration": true,
-    "feature_encoding": "heuristic"
+    "enable_calibration": true
   },
   "dual_score": {
     "fusion_mode": "blend",

@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 from core.signal.config import load_signal_config
 from core.signal.factor_registry import list_factors
+from core.signal.factor_taxonomy import attach_taxonomy
 
 
 def build_factor_panel_rows(
@@ -15,6 +16,7 @@ def build_factor_panel_rows(
 ) -> List[Dict[str, Any]]:
     cfg = config or load_signal_config()
     weights = cfg.get("weights") or {}
+    factor_groups = cfg.get("factor_groups") or {}
     ic_map: Dict[str, dict] = {}
     for row in (experiment or {}).get("factors") or []:
         name = row.get("factor")
@@ -27,16 +29,19 @@ def build_factor_panel_rows(
         ic_row = ic_map.get(name) or {}
         weight = float(weights.get(name, 0.0))
         rows.append(
-            {
-                "factor": name,
-                "label": fac.get("label") or name,
-                "description": fac.get("description") or "",
-                "weight": round(weight, 3),
-                "weight_pct": round(weight * 100.0, 1),
-                "ic": ic_row.get("ic"),
-                "sample_count": ic_row.get("sample_count"),
-                "exclusion_reason": ic_row.get("exclusion_reason"),
-            }
+            attach_taxonomy(
+                {
+                    "factor": name,
+                    "label": fac.get("label") or name,
+                    "description": fac.get("description") or "",
+                    "weight": round(weight, 3),
+                    "weight_pct": round(weight * 100.0, 1),
+                    "ic": ic_row.get("ic"),
+                    "sample_count": ic_row.get("sample_count"),
+                    "exclusion_reason": ic_row.get("exclusion_reason"),
+                },
+                factor_groups=factor_groups,
+            )
         )
     return rows
 
@@ -76,6 +81,12 @@ def build_factor_panel(
                 "name": r["factor"],
                 "label": r["label"],
                 "description": r.get("description") or "",
+                "family": r.get("family") or "",
+                "family_label": r.get("family_label") or "",
+                "family_tip": r.get("family_tip") or "",
+                "source": r.get("source") or "",
+                "source_label": r.get("source_label") or "",
+                "source_note": r.get("source_note") or "",
             }
             for r in rows
         ],

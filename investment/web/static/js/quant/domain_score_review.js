@@ -1353,54 +1353,6 @@ export function installScoreReview(ctx) {
       ro.observe(calBox);
     }
   }
-  async function runFeatureEncodingShadow() {
-    setStatus("特征编码对照中…", { busy: true });
-    setQuantMeta("启发式 vs raw+分档对照…", { busy: true });
-    const res = await fetch("/api/quant/feature-encoding/shadow", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        lookback: 120,
-        watching_limit: 36,
-        horizon_days: 1,
-        ridge_lambda: 1.0,
-      }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok || !data.success) {
-      const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
-      setStatus(`特征对照失败：${err}`, { error: true });
-      setQuantMeta(`特征对照失败 · ${err}`, { error: true });
-      return;
-    }
-    const arms = data.arms || {};
-    const h = arms.heuristic || {};
-    const r = arms.raw_basis || {};
-    const fmt = (arm) => {
-      const o = (arm && arm.oos) || {};
-      const ic = o.ic != null ? Number(o.ic).toFixed(2) : "—";
-      const hit = o.sign_hit != null ? `${(Number(o.sign_hit) * 100).toFixed(0)}%` : "—";
-      return `IC ${ic} · 命中 ${hit} · n=${o.n ?? arm.n ?? "—"}`;
-    };
-    const win = data.winner || "—";
-    setStatus(
-      `特征对照 · 启发式 ${fmt(h)} · raw ${fmt(r)} · 胜者 ${win}`,
-      { ok: true }
-    );
-    setQuantMeta(
-      `特征对照完成 · 胜者 ${win} · ${data.note || "不写盘；优则改 scoring.feature_encoding=raw_basis 后重跑分组"}`
-    );
-  }
-
-  on("quant-feat-enc-shadow", "click", async (e) => {
-    e.preventDefault();
-    try {
-      await runFeatureEncodingShadow();
-    } catch (err) {
-      setStatus(`特征对照失败：${String(err.message || err)}`, { error: true });
-    }
-  });
-
   async function runYhatResidualShadow() {
     setStatus("ŷ 残差对照中…", { busy: true });
     setQuantMeta("ŷ 行业残差 on/off…", { busy: true });

@@ -95,6 +95,7 @@ export function initQuant(ctx) {
     ensureFactorMeta,
     factorDescription,
     factorNameCellHtml,
+    factorTaxonomyCellHtml,
   } = factorMeta;
 
   const BT_SCOPE_LIVE =
@@ -234,7 +235,7 @@ export function initQuant(ctx) {
     clampHorizonDays, syncHorizonInputs, readHorizonDays, readRidgeLambda, readClusterK,
     readWatchingLimit, setPrefsHorizonDays, getPrefsHorizonDays,
     factorMetaByName, factorMetaByLabel, rememberFactorMeta, ensureFactorMeta,
-    factorDescription, factorNameCellHtml,
+    factorDescription, factorNameCellHtml, factorTaxonomyCellHtml,
     BT_SCOPE_LIVE, BT_SCOPE_FROZEN, quantBtBusyIds, PRESET_FLAG_LABELS, QUANT_EXPORT_PRESETS,
     setQuantMeta, setBusyText, watchingScoreTips, btSimScoreTips,
     buildUniversePanelHtml, buildResearchCurves, buildResearchPromoteMeta,
@@ -250,9 +251,9 @@ export function initQuant(ctx) {
 
   Object.assign(q, createBtResultRenderers({ escapeHtml, fmtPct, metricClass, researchGridHtml }));
   q.renderPromoteHintsPanel = createPromoteHintsRenderer({ escapeHtml, researchGridHtml, promoteHintsTtlMs });
-  Object.assign(q, createFactorIcUi({ escapeHtml, researchGridHtml, metricCell, metricClass, factorMetaByName, factorMetaByLabel, factorNameCellHtml }));
+  Object.assign(q, createFactorIcUi({ escapeHtml, researchGridHtml, metricCell, metricClass, factorMetaByName, factorMetaByLabel, factorNameCellHtml, factorTaxonomyCellHtml }));
   Object.assign(q, createOlsUi({
-    escapeHtml, researchGridHtml, metricCell, metricClass, factorNameCellHtml, factorMetaByName,
+    escapeHtml, researchGridHtml, metricCell, metricClass, factorNameCellHtml, factorTaxonomyCellHtml, factorMetaByName,
     factorIcWeightMergedHtml: q.factorIcWeightMergedHtml,
     getWatchingNameByCode: () => state.watchingNameByCode,
     normalizeProbeCode,

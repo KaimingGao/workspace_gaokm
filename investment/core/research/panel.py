@@ -51,39 +51,26 @@ def _resolve_factor_names(
     respect_regime: bool,
     index_bars: Optional[List[dict]],
     config: Optional[dict],
-    feature_encoding: Optional[str] = None,
 ) -> Tuple[str, ...]:
-    """X4：respect_regime=True 时与 live enabled_factors 对齐。
-
-    ``feature_encoding=raw_basis`` 时用 raw+分档替换 momentum/volatility/value。
-    """
-    from core.signal.factors.raw_basis import apply_feature_encoding, get_feature_encoding
-
-    base: Tuple[str, ...]
+    """X4：respect_regime=True 时与 live enabled_factors 对齐。"""
     if not respect_regime:
-        base = registered_factor_names()
-    else:
-        base = registered_factor_names()
-        try:
-            from core.signal.config import load_signal_config
-            from core.signal.regime import assess_regime
+        return registered_factor_names()
+    base = registered_factor_names()
+    try:
+        from core.signal.config import load_signal_config
+        from core.signal.regime import assess_regime
 
-            cfg = config or load_signal_config()
-            info = assess_regime(index_bars, (cfg or {}).get("regime"))
-            adj = (info or {}).get("adjustments") or {} if isinstance(info, dict) else {}
-            enabled = adj.get("enabled_factors")
-            if enabled:
-                names = tuple(str(x) for x in enabled if str(x).strip())
-                if names:
-                    base = names
-        except Exception:
-            pass
-    # 去掉 registry 里的 raw 名（避免 heuristic 模式双计）；raw_basis 再加回
-    from core.signal.factors.raw_basis import RAW_BASIS_FACTOR_NAMES
-
-    base_heur = tuple(n for n in base if n not in RAW_BASIS_FACTOR_NAMES)
-    enc = feature_encoding if feature_encoding is not None else get_feature_encoding(config)
-    return apply_feature_encoding(base_heur, encoding=enc)
+        cfg = config or load_signal_config()
+        info = assess_regime(index_bars, (cfg or {}).get("regime"))
+        adj = (info or {}).get("adjustments") or {} if isinstance(info, dict) else {}
+        enabled = adj.get("enabled_factors")
+        if enabled:
+            names = tuple(str(x) for x in enabled if str(x).strip())
+            if names:
+                return names
+    except Exception:
+        pass
+    return base
 
 
 def collect_subscore_forward_panel(
@@ -99,7 +86,6 @@ def collect_subscore_forward_panel(
     sentiment_pit: bool = False,
     respect_regime: bool = False,
     config: Optional[dict] = None,
-    feature_encoding: Optional[str] = None,
     excess_mode: str = "none",
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str]]:
     """对齐子因子与 forward return，供 OLS / 研究面板复用。
@@ -110,7 +96,6 @@ def collect_subscore_forward_panel(
     E2：默认按决策日 PIT 解析财务。
     FS2：``sentiment_pit=True`` 时按 as_of 注入 alt_sentiment（需标题历史）。
     X4：``respect_regime=True`` 时因子集对齐 live regime.enabled_factors。
-    ``feature_encoding``：heuristic | raw_basis（覆盖 config.scoring.feature_encoding）。
     ``excess_mode``：none | index（P2b；index 时扣同期指数前瞻收益，缺指数则跳过该样本）。
     """
     horizon_days = max(1, min(int(horizon_days or 3), 10))
@@ -124,7 +109,6 @@ def collect_subscore_forward_panel(
         respect_regime=respect_regime,
         index_bars=index_bars,
         config=config,
-        feature_encoding=feature_encoding,
     )
     fund_cache: Dict[str, Optional[dict]] = {}
     sent_cache: Dict[str, Optional[dict]] = {}

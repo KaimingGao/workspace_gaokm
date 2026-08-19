@@ -63,8 +63,6 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "min_hold_predicted_score": -1.0,
         # 有 live knots 时 tip/校准列可读 g；此标志仅镜像存在性（非决策开关）
         "enable_calibration": False,
-        # heuristic=0–100 子分；raw_basis=动量/波动/估值用原始量+分档（须重跑分组）
-        "feature_encoding": "heuristic",
         "horizon_days": 1,
     },
     # 双层 ŷ：EOD predicted_score + τ predicted_score_tau（见 dual_score / docs §2.5）

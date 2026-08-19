@@ -108,6 +108,13 @@ def publish_cluster_weights_doc(
         cluster_weights_versioned_path,
     )
 
+    try:
+        from core.signal.factor_taxonomy import strip_removed_factors_from_pool_artifact
+
+        strip_removed_factors_from_pool_artifact(active)
+    except Exception:
+        pass
+
     version = int(active.get("version") or 1)
     # 版本化路径跟随 LIVE_DIR（测试可 patch LIVE_DIR）
     artifact = os.path.join(LIVE_DIR, f"cluster_weights_v{version}.json")

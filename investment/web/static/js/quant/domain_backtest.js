@@ -561,7 +561,7 @@ export function installBacktest(q) {
     const amtEl = document.getElementById("quant-min-amount-pctile");
     const benchEl = document.getElementById("quant-benchmark-code");
     let lookback = 120;
-    let topK = 20;
+    let topK = 3;
     let weightMode = "score_budget";
     let dropoutN = 0;
     let excludeSt = true;
@@ -1241,8 +1241,8 @@ export function installBacktest(q) {
     const watchN = Object.keys(state.watchingNameByCode || {}).length;
     const busyBase =
       watchN >= 40
-        ? `Top-K 回测中（观察池约 ${watchN} 只 · lookback 越大越慢；已跳过 WF/成本对照）…`
-        : "Top-K 回测中（先读本地日线，缺的再补远端）…";
+        ? `Top-K 回测中（观察池约 ${watchN} 只 · 已跳过 IC/分层/WF；lookback/horizon 越大越慢）…`
+        : "Top-K 回测中（先读本地日线，缺的再补远端；已跳过 IC/分层）…";
     const started = Date.now();
     const fmtElapsed = () => {
       const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
@@ -1280,16 +1280,18 @@ export function installBacktest(q) {
         min_avg_amount_pctile,
         benchmark_code,
         rank_mode,
-        // 大池交互回测：关 WF / 零成本对照（否则再跑 1～N 遍整段引擎易超超时）
+        // 大池交互回测：关 WF / 零成本 / 截面 IC / 分层（各再跑一遍横截面，易超前端超时）
         include_wf_slices: false,
         include_cost_compare: false,
-        include_score_ic: true,
-        include_quantile: true,
+        include_score_ic: false,
+        include_quantile: false,
         include_benchmark: true,
       };
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
-      // 100 票 × lookback120 仍可能数分钟；给足余量，失败文案再提示缩池
-      const abortMs = watchN >= 40 || lookback >= 90 ? 600000 : 300000;
+      // 满池 × lookback120 × horizon1 可 >10min；留 20min 余量
+      const heavyRun =
+        watchN >= 40 || lookback >= 90 || horizon_days <= 1;
+      const abortMs = heavyRun ? 1200000 : 480000;
       const timer = ctrl ? setTimeout(() => ctrl.abort(), abortMs) : null;
       let res;
       try {
@@ -1304,7 +1306,7 @@ export function installBacktest(q) {
           err && (err.name === "AbortError" || /abort/i.test(String(err)))
         );
         els.quantPortfolioSummary.textContent = aborted
-          ? `回测超时未返回（观察池大 / lookback 长时常见）。可先把 lookback 降到 40～60，或缩小验证宇宙后再试。`
+          ? `回测超时未返回（满池 + lookback 长 + horizon=1 时常见，需 10～20 分钟）。可试：lookback 60、horizon 3，或等分组任务跑完再点。`
           : String((err && err.message) || err || "回测请求失败");
         els.quantPortfolioSummary.classList.add("down");
         renderPortfolioBacktestResult(null);

@@ -574,8 +574,8 @@ body[data-page="replay"] .replay-page #quant-benchmark-code {
 }
 
 body[data-page="replay"] .replay-page #quant-weight-mode {
-  width: 10.75rem !important;
-  min-width: 10.75rem !important;
+  width: 8.25rem !important;
+  min-width: 8.25rem !important;
 }
 
 body[data-page="replay"] .replay-page .dialog-btn {

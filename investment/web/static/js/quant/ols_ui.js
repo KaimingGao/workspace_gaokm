@@ -11,6 +11,7 @@ import {
 } from "./names.js";
 import { probeStatusBadge } from "./probe_ui.js";
 import { buildClustersHealthMatrixHtml } from "./yhat_viz.js?v=p868";
+import { classifyFactor, isRemovedFactor } from "./factor_meta.js";
 
 /**
  * @param {{
@@ -33,6 +34,8 @@ export function createOlsUi(deps) {
   const mcls = deps.metricClass || defaultMetricClass;
   const normalizeProbeCode = deps.normalizeProbeCode || defaultNormalizeProbeCode;
   const factorNameCellHtml = deps.factorNameCellHtml;
+  const factorTaxonomyCellHtml =
+    deps.factorTaxonomyCellHtml || factorNameCellHtml;
   const factorMetaByName = deps.factorMetaByName;
   const factorIcWeightMergedHtml = deps.factorIcWeightMergedHtml;
   const getWatchingNameByCodeRaw =
@@ -575,7 +578,7 @@ export function createOlsUi(deps) {
     return (
       `<div class="quant-cluster-tables-head">` +
       `<span class="quant-cluster-tables-label">因子系数</span>` +
-      `<span class="sub">健康矩阵 · 展开组加载</span>` +
+      `<span class="sub">按经济族排序 · 族/来源见徽章</span>` +
       `</div>` +
       __matrixGrid +
       __partsHtml
@@ -685,8 +688,9 @@ export function createOlsUi(deps) {
       ...Object.keys(groupCoefs).filter(
         (k) => !["intercept", "_intercept", "const"].includes(k)
       ),
-    ]);
-    const rows = [...names].sort().map((name) => {
+    ].filter((n) => !isRemovedFactor(n)));
+    const rows = [...names]
+      .map((name) => {
       const meta = factorMetaByName[name] || {};
       const sIc = stockIc[name] || {};
       const gIc = groupIc[name] || {};
@@ -701,6 +705,7 @@ export function createOlsUi(deps) {
       const dIc =
         sIc.ic != null && gIc.ic != null ? sIc.ic - gIc.ic : null;
       const dB = sB != null && gB != null ? sB - gB : null;
+      const tax = classifyFactor(name, meta);
       return {
         name,
         label: meta.label || name,
@@ -715,12 +720,18 @@ export function createOlsUi(deps) {
         stockN: sIc.n,
         groupN: gIc.n,
         stockTsIc: !singleton,
+        familyOrder: tax.familyOrder,
         flag: singleton
           ? false
           : (dIc != null && Math.abs(dIc) >= 0.08) ||
             (dB != null && Math.abs(dB) >= 0.25),
       };
-    });
+    })
+      .sort(
+        (a, b) =>
+          (a.familyOrder ?? 99) - (b.familyOrder ?? 99) ||
+          String(a.name).localeCompare(String(b.name))
+      );
     const fmtN = (v, digits) =>
       v == null || !Number.isFinite(Number(v))
         ? "—"
@@ -729,10 +740,17 @@ export function createOlsUi(deps) {
       !!(cluster && cluster.factor_ic_panel && cluster.factor_ic_panel.mode === "group_cs_ic");
     const html = researchGridHtml(
       [
-        { id: "factor", label: "因子", flex: true },
-        { id: "stockIc", label: "单票IC", widthPct: 9, num: true },
-        { id: "groupIc", label: "组IC", widthPct: 9, num: true },
-        { id: "dIc", label: "ΔIC", widthPct: 8, num: true },
+        {
+          id: "factor",
+          label: "因子",
+          flex: true,
+          flexMin: "13.5rem",
+          flexFr: 2.1,
+          title: "名称 + 经济族 / 来源徽章",
+        },
+        { id: "stockIc", label: "单票IC", widthPct: 8, num: true },
+        { id: "groupIc", label: "组IC", widthPct: 8, num: true },
+        { id: "dIc", label: "ΔIC", widthPct: 7, num: true },
         {
           id: "groupIcir",
           label: "组ICIR",
@@ -756,7 +774,7 @@ export function createOlsUi(deps) {
       rows,
       (col, r) => {
         if (col.id === "factor") {
-          const base = factorNameCellHtml(r.name, r.label);
+          const base = factorTaxonomyCellHtml(r.name, r.label);
           return r.flag
             ? `${base} <span class="quant-factor-reason" title="与所在组差异偏大">异质</span>`
             : base;

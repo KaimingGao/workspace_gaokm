@@ -487,8 +487,8 @@ class AbCompareRequest(BaseModel):
 class PortfolioBacktestRequest(BaseModel):
     codes: Optional[list] = None
     lookback: int = Field(default=120, ge=40, le=500)
-    # 默认对齐 StrategySpec.short.max_positions；上限放宽到 40
-    top_k: int = Field(default=20, ge=1, le=40)
+    # 历史 Top-K 默认 3（研究用小组合；纸面 max_positions 仍见 StrategySpec）
+    top_k: int = Field(default=3, ge=1, le=40)
     horizon_days: int = Field(default=3, ge=1, le=10)
     min_score: float = Field(default=55.0, ge=0, le=100)
     apply_costs: bool = True
@@ -507,8 +507,8 @@ class PortfolioBacktestRequest(BaseModel):
     exclude_st: bool = True
     # 池内成交额分位下限（0–100）；None=不过滤
     min_avg_amount_pctile: Optional[float] = Field(default=None, ge=0, le=90)
-    include_score_ic: bool = True
-    include_quantile: bool = True
+    include_score_ic: bool = False
+    include_quantile: bool = False
     include_benchmark: bool = True
     # T10：000300 / 000905 / 399006 / pool（强制池等权）
     benchmark_code: str = "000300"
@@ -631,15 +631,6 @@ class ScoreLedgerDeleteRequest(BaseModel):
     include_outcomes: bool = Field(
         default=True, description="是否同时删除 outcomes 回填文件"
     )
-
-
-class FeatureEncodingShadowRequest(BaseModel):
-    """启发式 vs raw_basis 特征编码影子对照。"""
-
-    lookback: int = Field(default=120, ge=40, le=500)
-    watching_limit: int = Field(default=36, ge=2, le=40)
-    horizon_days: int = Field(default=1, ge=1, le=10)
-    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
 
 
 class YhatResidualShadowRequest(BaseModel):

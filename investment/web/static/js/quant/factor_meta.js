@@ -1,7 +1,122 @@
 /**
- * 因子元数据缓存（/api/quant/factors）。
+ * 因子元数据缓存（/api/quant/factors）+ 经济族/来源分类（与 core.signal.factor_taxonomy 对齐）。
  */
 import { escapeHtml } from "../shared.js";
+
+/** 与 Python FAMILY_META 顺序一致 */
+export const FACTOR_FAMILY_DEFS = [
+  { id: "trend", label: "趋势", tip: "价格方向、均线、形态；OLS 趋势族共线只打这一组" },
+  { id: "value_quality", label: "价值质量", tip: "基本面：估值、盈利收益率、质量、成长、股息" },
+  { id: "liquidity_flow", label: "流动性", tip: "成交、冲击成本、资金流" },
+  { id: "risk", label: "风险", tip: "波动、跳空" },
+  { id: "residual", label: "残差", tip: "相对市场、特异动量、规模" },
+  { id: "reversal", label: "反转", tip: "短线反转，与动量拆开避免双计" },
+  { id: "sentiment", label: "舆情", tip: "研究旁路，默认不进 ŷ" },
+  { id: "other", label: "其他", tip: "未编入 factor_groups" },
+];
+
+const FAMILY_MEMBERS = {
+  trend: ["momentum", "ma_slope", "technical_pattern", "weekly_confirm"],
+  value_quality: ["value", "earnings_yield", "quality", "growth", "dividend"],
+  liquidity_flow: ["liquidity", "money_flow", "amihud", "volume_price"],
+  risk: ["volatility", "gap_risk"],
+  residual: ["relative_strength", "idio_momentum", "size"],
+  reversal: ["reversal"],
+  sentiment: ["alt_sentiment", "llm_sentiment"],
+};
+
+const SOURCE_OVERRIDE = {
+  money_flow: {
+    status: "proxy",
+    label: "代理",
+    note: "无净流入 ingest；默认 MFI 代理；权重须保持 0 除非人审有真源",
+  },
+  alt_sentiment: {
+    status: "prior_only",
+    label: "旁路",
+    note: "无历史 news 面板；不进 ŷ；仅 sentiment.prior 旁路",
+  },
+  llm_sentiment: {
+    status: "prior_only",
+    label: "旁路",
+    note: "Qwen LLM 舆情（研究轨）；不进 ŷ；仅作 alt_sentiment 研究对照",
+  },
+};
+
+/** 已退役 raw_basis 因子（旧分组报告键；表格不再展示） */
+export const REMOVED_RAW_BASIS_NAMES = new Set([
+  "mom3_pct",
+  "mom5_pct",
+  "mom_overheat",
+  "atr_pct_raw",
+  "atr_pct_sq",
+  "vol_elevated",
+  "pe_raw",
+  "value_fair",
+  "value_expensive",
+]);
+
+export function isRemovedFactor(name) {
+  return REMOVED_RAW_BASIS_NAMES.has(String(name || "").trim());
+}
+
+const FAMILY_ORDER = Object.fromEntries(
+  FACTOR_FAMILY_DEFS.map((d, i) => [d.id, i])
+);
+const FAMILY_BY_ID = Object.fromEntries(FACTOR_FAMILY_DEFS.map((d) => [d.id, d]));
+const NAME_TO_FAMILY = {};
+for (const [fid, members] of Object.entries(FAMILY_MEMBERS)) {
+  for (const n of members) NAME_TO_FAMILY[n] = fid;
+}
+
+function fallbackClassify(name) {
+  const key = String(name || "").trim();
+  const family = NAME_TO_FAMILY[key] || "other";
+  let source = "sourced";
+  let sourceLabel = "真源";
+  let sourceNote = "";
+  const ov = SOURCE_OVERRIDE[key];
+  if (ov) {
+    source = ov.status;
+    sourceLabel = ov.label;
+    sourceNote = ov.note;
+  }
+  const def = FAMILY_BY_ID[family] || FAMILY_BY_ID.other;
+  return {
+    family: def.id,
+    familyLabel: def.label,
+    familyTip: def.tip,
+    familyOrder: FAMILY_ORDER[def.id] ?? FAMILY_ORDER.other,
+    source,
+    sourceLabel,
+    sourceNote,
+    sourced: source === "sourced",
+  };
+}
+
+/**
+ * @param {string} name
+ * @param {object} [meta] factorMeta 行（API 优先）
+ */
+export function classifyFactor(name, meta) {
+  const m = meta && typeof meta === "object" ? meta : {};
+  if (m.family && m.family_label) {
+    const fid = String(m.family);
+    const def = FAMILY_BY_ID[fid];
+    const source = String(m.source || "sourced");
+    return {
+      family: fid,
+      familyLabel: String(m.family_label),
+      familyTip: String(m.family_tip || (def && def.tip) || ""),
+      familyOrder: FAMILY_ORDER[fid] ?? FAMILY_ORDER.other,
+      source,
+      sourceLabel: String(m.source_label || ""),
+      sourceNote: String(m.source_note || m.status_note || ""),
+      sourced: source === "sourced",
+    };
+  }
+  return fallbackClassify(name);
+}
 
 /** ŷ_τ 开盘/截面特征不在因子注册表，本地兜底注释。 */
 export const TAU_FEAT_META = {
@@ -84,6 +199,12 @@ export function createFactorMetaCache(opts = {}) {
             name: r.name || r.factor,
             label: r.label,
             description: r.description || "",
+            family: r.family || "",
+            family_label: r.family_label || "",
+            family_tip: r.family_tip || "",
+            source: r.source || "",
+            source_label: r.source_label || "",
+            source_note: r.source_note || "",
           }))
         );
       } catch (_) {
@@ -131,6 +252,45 @@ export function createFactorMetaCache(opts = {}) {
     return `<span class="factor-tip" title="${escapeHtml(tip)}">${text}</span>`;
   }
 
+  function factorSourceBadgeHtml(name, meta) {
+    const t = classifyFactor(name, meta || (name && factorMetaByName[name]));
+    if (!t.source || t.source === "sourced") return "";
+    if (t.sourceLabel === t.familyLabel) return "";
+    const tip = t.sourceNote || t.sourceLabel;
+    return (
+      `<span class="quant-factor-src-badge is-${escapeHtml(t.source)}" title="${escapeHtml(
+        tip
+      )}">${escapeHtml(t.sourceLabel)}</span>`
+    );
+  }
+
+  function factorFamilyChipHtml(name, meta) {
+    const t = classifyFactor(name, meta || (name && factorMetaByName[name]));
+    return (
+      `<span class="quant-factor-family-badge quant-factor-family-chip" data-family="${escapeHtml(
+        t.family
+      )}" title="${escapeHtml(t.familyTip || t.familyLabel)}">${escapeHtml(
+        t.familyLabel
+      )}</span>`
+    );
+  }
+
+  /** 因子名 + 经济族徽章 + 来源徽章（代理 / 旁路） */
+  function factorTaxonomyCellHtml(name, label, fallbackDescription) {
+    const meta = (name && factorMetaByName[name]) || {};
+    return (
+      `<span class="quant-factor-cell">` +
+      `<span class="quant-factor-name">${factorNameCellHtml(
+        name,
+        label,
+        fallbackDescription
+      )}</span>` +
+      factorFamilyChipHtml(name, meta) +
+      factorSourceBadgeHtml(name, meta) +
+      `</span>`
+    );
+  }
+
   return {
     factorMetaByName,
     factorMetaByLabel,
@@ -138,5 +298,9 @@ export function createFactorMetaCache(opts = {}) {
     ensureFactorMeta,
     factorDescription,
     factorNameCellHtml,
+    classifyFactor: (name) => classifyFactor(name, factorMetaByName[name]),
+    factorSourceBadgeHtml,
+    factorFamilyChipHtml,
+    factorTaxonomyCellHtml,
   };
 }

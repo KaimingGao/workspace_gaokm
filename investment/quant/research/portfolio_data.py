@@ -34,7 +34,7 @@ def resolve_daily_topk_backtest_kwargs(
     d = backtest_portfolio_defaults()
     yhat_h = int(get_scoring_horizon_days())
     paper_h = int(d.get("horizon_days") or yhat_h)
-    k = int(top_k) if top_k is not None else int(d.get("top_k") or 20)
+    k = int(top_k) if top_k is not None else int(d.get("top_k") or 3)
     # 持有期跟纸面，避免 ŷ(h=1) 迫使日频换仓把费用吃光；ŷ 仍按 scoring.horizon_days 训练
     h = int(horizon_days) if horizon_days is not None else paper_h
     costs = True if apply_costs is None else bool(apply_costs)

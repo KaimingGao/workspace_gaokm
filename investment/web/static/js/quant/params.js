@@ -33,7 +33,7 @@ export function readClusterKFromEl(el) {
  * @param {{ getHorizonEl?: () => HTMLElement|null, getRidgeEl?: () => HTMLElement|null, getClusterKEl?: () => HTMLElement|null, getWatchingLimitEl?: () => HTMLElement|null, initialHorizon?: number }} opts
  */
 export function createResearchParams(opts = {}) {
-  let prefsHorizonDays = clampHorizonDays(opts.initialHorizon ?? 1, 1);
+  let prefsHorizonDays = clampHorizonDays(opts.initialHorizon ?? 3, 3);
   const getHorizonEl =
     opts.getHorizonEl || (() => document.getElementById("quant-horizon"));
   const getRidgeEl =

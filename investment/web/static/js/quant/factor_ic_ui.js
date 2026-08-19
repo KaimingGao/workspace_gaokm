@@ -4,6 +4,7 @@
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
 import { researchGridHtml as defaultResearchGridHtml, metricCell as defaultMetricCell } from "./research_grid.js";
 import { metricClass as defaultMetricClass } from "./bt_result.js";
+import { classifyFactor, isRemovedFactor } from "./factor_meta.js";
 
 /**
  * @param {{
@@ -14,6 +15,7 @@ import { metricClass as defaultMetricClass } from "./bt_result.js";
  *   factorMetaByName: Record<string, object>,
  *   factorMetaByLabel: Record<string, object>,
  *   factorNameCellHtml: (name: string, label?: string, fallbackDescription?: string) => string,
+ *   factorTaxonomyCellHtml?: (name: string, label?: string, fallbackDescription?: string) => string,
  * }} deps
  */
 export function createFactorIcUi(deps) {
@@ -24,6 +26,10 @@ export function createFactorIcUi(deps) {
   const factorMetaByName = deps.factorMetaByName;
   const factorMetaByLabel = deps.factorMetaByLabel;
   const factorNameCellHtml = deps.factorNameCellHtml;
+  const factorTaxonomyCellHtml =
+    deps.factorTaxonomyCellHtml ||
+    ((name, label, fallbackDescription) =>
+      factorNameCellHtml(name, label, fallbackDescription));
 
   function fmtEmptyCell() {
     return `<span class="quant-cell-empty">—</span>`;
@@ -87,7 +93,7 @@ export function createFactorIcUi(deps) {
     const byName = {};
     for (const r of list) {
       const name = r.factor || r.name || "";
-      if (!name) continue;
+      if (!name || isRemovedFactor(name)) continue;
       const meta0 = factorMetaByName[name] || {};
       const label =
         (r.label && r.label !== name ? r.label : null) ||
@@ -138,53 +144,73 @@ export function createFactorIcUi(deps) {
       ...Object.keys(coefFromSuggest),
       ...Object.keys(olsReasons),
       ...Object.keys(icReasonsTop),
-    ]);
+    ].filter((n) => !isRemovedFactor(n)));
     if (!nameSet.size) return "";
 
-    const rows = [...nameSet].sort().map((name) => {
-      const meta = factorMetaByName[name] || {};
-      const base = byName[name] || {
-        name,
-        label: meta.label || name,
-        ic: null,
-        n: null,
-        icir: null,
-        icReason: icReasonsTop[name] || null,
-      };
-      if (meta.label && (!base.label || base.label === name)) {
-        base.label = meta.label;
-      }
-      const hasOlsKey =
-        Object.prototype.hasOwnProperty.call(olsCoefs, name) ||
-        Object.prototype.hasOwnProperty.call(coefFromSuggest, name);
-      const olsVal = hasOlsKey
-        ? olsCoefs[name] != null
-          ? olsCoefs[name]
-          : coefFromSuggest[name]
-        : null;
-      const olsReason = olsReasons[name] || null;
-      let icReason = base.icReason || (base.ic == null ? icReasonsTop[name] : null) || null;
-      if (base.ic == null && !icReason && list.length) icReason = "other";
-      const absBeta =
-        olsVal != null && Number.isFinite(Number(olsVal))
-          ? Math.abs(Number(olsVal))
-          : 0;
-      return {
-        ...base,
-        ols: olsVal,
-        olsReason,
-        icReason,
-        scanHot: absBeta >= 0.05,
-      };
-    });
+    const rows = [...nameSet]
+      .map((name) => {
+        const meta = factorMetaByName[name] || {};
+        const base = byName[name] || {
+          name,
+          label: meta.label || name,
+          ic: null,
+          n: null,
+          icir: null,
+          icReason: icReasonsTop[name] || null,
+        };
+        if (meta.label && (!base.label || base.label === name)) {
+          base.label = meta.label;
+        }
+        const hasOlsKey =
+          Object.prototype.hasOwnProperty.call(olsCoefs, name) ||
+          Object.prototype.hasOwnProperty.call(coefFromSuggest, name);
+        const olsVal = hasOlsKey
+          ? olsCoefs[name] != null
+            ? olsCoefs[name]
+            : coefFromSuggest[name]
+          : null;
+        const olsReason = olsReasons[name] || null;
+        let icReason =
+          base.icReason || (base.ic == null ? icReasonsTop[name] : null) || null;
+        if (base.ic == null && !icReason && list.length) icReason = "other";
+        const absBeta =
+          olsVal != null && Number.isFinite(Number(olsVal))
+            ? Math.abs(Number(olsVal))
+            : 0;
+        const tax = classifyFactor(name, meta);
+        return {
+          ...base,
+          ols: olsVal,
+          olsReason,
+          icReason,
+          scanHot: absBeta >= 0.05,
+          family: tax.family,
+          familyLabel: tax.familyLabel,
+          familyTip: tax.familyTip,
+          familyOrder: tax.familyOrder,
+          source: tax.source,
+        };
+      })
+      .sort(
+        (a, b) =>
+          (a.familyOrder ?? 99) - (b.familyOrder ?? 99) ||
+          String(a.name).localeCompare(String(b.name))
+      );
 
     return researchGridHtml(
       [
-        { id: "factor", label: "因子", flex: true },
+        {
+          id: "factor",
+          label: "因子",
+          flex: true,
+          flexMin: "13.5rem",
+          flexFr: 2.1,
+          title: "名称 + 经济族 / 来源徽章",
+        },
         {
           id: "ic",
           label: "IC",
-          widthPct: 12,
+          widthPct: 11,
           num: true,
           title: isGroupCsIc
             ? "组内日截面 IC 均值：每日组员横截面 corr(因子, 前瞻收益) 再对日平均"
@@ -226,7 +252,7 @@ export function createFactorIcUi(deps) {
       ],
       rows,
       (col, r) => {
-        if (col.id === "factor") return factorNameCellHtml(r.name, r.label);
+        if (col.id === "factor") return factorTaxonomyCellHtml(r.name, r.label);
         if (col.id === "ic") {
           if (r.ic != null) {
             const cls = r.ic >= 0.03 ? "up" : r.ic <= -0.03 ? "down" : "";

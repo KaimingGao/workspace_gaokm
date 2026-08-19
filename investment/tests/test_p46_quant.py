@@ -72,10 +72,11 @@ class TestP46FundamentalFactors(unittest.TestCase):
         self.assertGreater(subs["quality"], 50)
 
     def test_normalize_fundamentals_metrics(self):
-        raw = {"metrics": {"pe_ttm": 12.5, "roe": 15.0}}
+        raw = {"metrics": {"pe_ttm": 12.5, "roe": 15.0, "total_mv": 1.2e11}}
         out = normalize_fundamentals_metrics(raw)
         self.assertEqual(out["pe_ttm"], 12.5)
         self.assertEqual(out["roe"], 15.0)
+        self.assertEqual(out["market_cap"], 1.2e11)
 
     @patch("core.signal.live_features.resolve_live_fundamentals")
     @patch("core.signal.score_stock.fetch_daily_bars")

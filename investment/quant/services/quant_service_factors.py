@@ -245,45 +245,6 @@ class QuantFactorMixin:
         report["task"] = "factor_ols"
         return report
 
-    def run_feature_encoding_shadow(
-        self,
-        *,
-        lookback: int = 120,
-        watching_limit: int = 36,
-        horizon_days: int = 1,
-        ridge_lambda: float = 1.0,
-    ) -> Dict[str, Any]:
-        """启发式 vs raw+分档 特征编码 OOS 影子对照（不写盘）。"""
-        from core.data_service import bars_and_source
-        from core.research.feature_encoding_shadow import compare_feature_encoding_shadow
-        from core.watching_store import read_watching
-
-        uni = read_watching()
-        codes = list(uni.get("watchlist") or [])
-        limit = max(2, min(int(watching_limit or 36), 40))
-        codes = codes[:limit]
-        if len(codes) < 2:
-            return {
-                "success": False,
-                "error": "研究池至少 2 只",
-                "task": "feature_encoding_shadow",
-            }
-        stock_bars: List[Dict[str, Any]] = []
-        for code in codes:
-            bars, _src = bars_and_source(code, limit=lookback + 40)
-            if not bars:
-                continue
-            stock_bars.append({"code": str(code), "bars": bars})
-        out = compare_feature_encoding_shadow(
-            stock_bars,
-            horizon_days=horizon_days,
-            ridge_lambda=ridge_lambda,
-        )
-        out["watching_limit"] = limit
-        out["lookback"] = lookback
-        out["stock_count"] = len(stock_bars)
-        return out
-
     def run_yhat_residual_shadow(
         self,
         *,
@@ -1683,6 +1644,12 @@ def _save_last_cluster_report(report: Dict[str, Any]) -> None:
         report_copy = json_safe(report_copy)
     except Exception:
         pass
+    try:
+        from core.signal.factor_taxonomy import strip_removed_factors_from_cluster_report
+
+        strip_removed_factors_from_cluster_report(report_copy)
+    except Exception:
+        pass
     doc = {
         "saved_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         "report": report_copy,
@@ -1850,6 +1817,12 @@ def _load_latest_cluster_report() -> Optional[Dict[str, Any]]:
         out["cache_created_at"] = created
         out["hydrated_from_cache"] = True
         out["restored_from"] = source
+        try:
+            from core.signal.factor_taxonomy import strip_removed_factors_from_cluster_report
+
+            strip_removed_factors_from_cluster_report(out)
+        except Exception:
+            pass
         return out
 
     last = _unpack(CLUSTER_LAST_REPORT_PATH, source="last_report")
@@ -1925,6 +1898,12 @@ def _load_cluster_cache(
     except Exception:
         pass
     report["cache_created_at"] = doc.get("cache_created_at") or doc.get("created_at")
+    try:
+        from core.signal.factor_taxonomy import strip_removed_factors_from_cluster_report
+
+        strip_removed_factors_from_cluster_report(report)
+    except Exception:
+        pass
     return report
 
 
@@ -1946,6 +1925,12 @@ def _save_cluster_cache(report: Dict[str, Any], fingerprint: str) -> None:
     # 去掉进度回调残留字段（不可序列化）
     for k in ("progress_cb", "_progress_cb"):
         report_copy.pop(k, None)
+    try:
+        from core.signal.factor_taxonomy import strip_removed_factors_from_cluster_report
+
+        strip_removed_factors_from_cluster_report(report_copy)
+    except Exception:
+        pass
     doc = {
         "fingerprint": str(fingerprint),
         "cache_created_at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

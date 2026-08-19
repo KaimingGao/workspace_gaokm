@@ -132,7 +132,6 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 | P2 融合补强 | `w_mode=theme_boost\|variance\|kalman`；`predicted_score_tau_cascade` 影子 | **研究轨已落地**（默认 `w_mode=fixed`） |
 | **Nowcast / Kalman** | 顺序滤波 EOD→open→当前分钟 τ；自适应 \(Q\)；\(R\) 走 rem OOS 分层；Nordhaus 影子诊断 | **已落地**（默认 `taus=[eod,open]`；`use_as_rank_key=false`） |
 | **校准层 g(ŷ)** | EOD=分组面板、τ=rem open 面板 Isotonic；仅 `auto` 不足回退账本。tip 对照；决策仍 raw ŷ（第一步） | **panel 拟合已落地（EOD+τ）**；决策读 g 为第二步 |
-| **特征编码 raw_basis** | 动量/波动/估值：原始量+分档替代 0–100；影子对照 API | **试点已接线**（默认 `heuristic`；优则改 `scoring.feature_encoding` 后重跑分组） |
 | **Alpha/IC 补强** | 超额分账 · 主 IC=截面 Spearman · yhat/残差 y 研究开关 | **已接线**（见 [alpha-ic-strengthen.md](alpha-ic-strengthen.md)；`yhat_residual`/`excess_mode` 默认关） |
 | 分钟 τ 特征 | 缓存命中时写 `ret_open_to_tau` | **可选**（`enable_minute_tau`，默认关） |
 | F3 以后 | 盘中窗以 ŷ_τ 为主（影子簿达标） | 未做 |
@@ -306,7 +305,7 @@ UI 已在历史回测页标明「排序 · ŷ_EOD」；勿把成交表当成 liv
 
 - 每个调仓日 \(t\)：仅用到 \(t\) 的窗口打分；
 - 标签 / 持有长度用同一 `horizon_days`（日报轻量摘要默认 **ŷ 的 `scoring.horizon_days`**，与纸面 `paper_rules.horizon_days` 可能不同，报告会注明）；
-- 日报默认 **含成本**、`top_k` 对齐纸面 `max_positions`、权重按净值%计（现金不计收益）；
+- 日报默认 **含成本**、历史 Top-K 默认 **K=3**（纸面 `max_positions` 仍独立）、权重按净值%计（现金不计收益）；
 - 大宇宙先扫本地缓存再截断，避免 `watching[:40]` 丢掉后面有日线的票；
 - walk-forward 拟合时，训练 \(y\) 仍是 \(\mathrm{close}[t+h]/\mathrm{close}[t]-1\)。
 

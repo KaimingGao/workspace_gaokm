@@ -25,7 +25,10 @@ export function truncateName(name, max = 6) {
 
 export function colStyle(col) {
   // 兼容旧调用；行级已改用 grid-template-columns，单元格需可读下限，防窄屏挤成「空」
-  if (col.flex) return "min-width:0;";
+  if (col.flex) {
+    const min = col.flexMin != null ? String(col.flexMin) : "0";
+    return `min-width:${min};`;
+  }
   if (col.widthPct != null) return "min-width:3.1rem;";
   if (col.width != null) {
     const w = Number(col.width);
@@ -38,7 +41,15 @@ export function colStyle(col) {
 export function gridTemplateColumns(columns) {
   return (columns || [])
     .map((col) => {
-      if (col.flex) return "minmax(6.5rem, 1.35fr)";
+      if (col.flex) {
+        // flexMin：因子+徽章等需要更宽下限，避免被 overflow 裁切
+        const min = col.flexMin != null ? String(col.flexMin) : "6.5rem";
+        const fr =
+          col.flexFr != null && Number(col.flexFr) > 0
+            ? Number(col.flexFr)
+            : 1.35;
+        return `minmax(${min}, ${fr}fr)`;
+      }
       // widthPct 作相对权重（fr），并设 rem 下限，避免 % 轨在窄容器里塌成 0
       if (col.widthPct != null) {
         const w = Math.max(2, Number(col.widthPct) || 8);
