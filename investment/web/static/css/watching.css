@@ -1914,13 +1914,15 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal .wat
 }
 
 .watching-chg.is-up,
-.watching-amt.is-up {
+.watching-amt.is-up,
+.watching-residual.is-up {
   color: var(--color-up, #f5222d);
   font-weight: 600;
 }
 
 .watching-chg.is-down,
-.watching-amt.is-down {
+.watching-amt.is-down,
+.watching-residual.is-down {
   color: var(--color-down, #52c41a);
   font-weight: 600;
 }
@@ -3467,13 +3469,15 @@ body[data-page="watching"] .watching-watchlist-card .watching-react-grid-cell:ha
   overflow: visible;
 }
 
-/* A 股：涨红跌绿（覆盖主表涨跌列） */
-body[data-page="watching"] .watching-chg.is-up {
+/* A 股：涨红跌绿（覆盖主表涨跌 / 残差列） */
+body[data-page="watching"] .watching-chg.is-up,
+body[data-page="watching"] .watching-residual.is-up {
   color: var(--color-up, #f5222d) !important;
   font-weight: 650;
 }
 
-body[data-page="watching"] .watching-chg.is-down {
+body[data-page="watching"] .watching-chg.is-down,
+body[data-page="watching"] .watching-residual.is-down {
   color: var(--color-down, #52c41a) !important;
   font-weight: 650;
 }

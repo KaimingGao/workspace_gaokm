@@ -350,8 +350,12 @@ class FactorOlsClusterRequest(BaseModel):
         description="每组取组内排名前 N 只合成候选（默认 10）",
     )
     refresh_bars: bool = Field(
-        default=True,
-        description="刷新过期日线（默认开）：约 36h 内缓存仍复用；过期/缺条限流拉网。关=纯缓存重算（改参快跑，行情未变则结果几乎不变）",
+        default=False,
+        description=(
+            "兼容字段：true=本跑强制增量拉日线到最新（脚本/调试用）。"
+            "UI 已移除勾选；默认 false。"
+            "无论本字段如何，当日第一次分组仍会自动强制更新日线。"
+        ),
     )
 
 

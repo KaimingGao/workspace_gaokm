@@ -1482,7 +1482,7 @@ def dashboard_market_overview():
 def _build_market_context_dashboard() -> Dict[str, Any]:
     """盘前市场上下文：macro / 情绪 / 公告 prior 快照 + 新鲜度。"""
     from core.market_context import build_market_priors, load_market_context
-    from core.market_context_merge import _prune_macro_errors
+    from core.market_context_merge import prune_macro_errors
 
     ctx = load_market_context(use_cache=False)
     macro = ctx.get("macro") or {}
@@ -1505,7 +1505,7 @@ def _build_market_context_dashboard() -> Dict[str, Any]:
     ]
     macro_errors = list(macro.get("errors") or [])[:8]
     macro_series = (macro or {}).get("series") if isinstance(macro, dict) else None
-    macro_errors = _prune_macro_errors(macro_errors, macro_series)[:8]
+    macro_errors = prune_macro_errors(macro_errors, macro_series)[:8]
     macro_degraded = bool(
         isinstance(macro, dict)
         and macro.get("success")

@@ -33,6 +33,24 @@ export function formatWatchingChg(changePercent) {
   };
 }
 
+/** 残差 = 校准 − 涨跌（百分点）。 */
+export function formatWatchingResidual(scoreCalNum, chgNum) {
+  if (
+    scoreCalNum == null ||
+    !Number.isFinite(Number(scoreCalNum)) ||
+    chgNum == null ||
+    !Number.isFinite(Number(chgNum))
+  ) {
+    return { residualNum: null, residual: "—", residualCls: "" };
+  }
+  const n = Number(scoreCalNum) - Number(chgNum);
+  return {
+    residualNum: n,
+    residual: `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`,
+    residualCls: n === 0 ? "" : n > 0 ? "is-up" : "is-down",
+  };
+}
+
 export function formatWatchingMarketLabel(market) {
   const m = String(market || "").toUpperCase();
   if (m === "CN") return "A股";
@@ -50,6 +68,10 @@ export function buildWatchingQuoteGridPatch(it, row, parseWatchingVolume) {
   const prev = row && typeof row.getData === "function" ? row.getData() : row || {};
   const ok = !!(it && it.ok);
   const { chgNum, chgTxt, chgCls } = formatWatchingChg(ok ? it.change_percent : null);
+  const { residualNum, residual, residualCls } = formatWatchingResidual(
+    prev.scoreCalNum,
+    chgNum
+  );
   const volNum = ok && typeof parseWatchingVolume === "function" ? parseWatchingVolume(it.volume) : NaN;
   return {
     price: ok && it.price != null ? String(it.price) : "—",
@@ -57,6 +79,10 @@ export function buildWatchingQuoteGridPatch(it, row, parseWatchingVolume) {
     chg: chgTxt,
     chgCls,
     chgNum,
+    residual,
+    residualCls,
+    residualNum,
+    residualTitle: "残差 = 校准 − 涨跌（百分点）；正=校准高于当日涨跌",
     vol: ok && it.volume != null ? String(it.volume) : "—",
     volNum: Number.isFinite(volNum) ? volNum : null,
     market: formatWatchingMarketLabel(it.market),

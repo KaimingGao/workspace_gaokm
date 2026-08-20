@@ -58,14 +58,87 @@ export function installStrategy(q) {
 
   function cardStateClass(on, neutral) {
     if (on) return "is-on";
-    if (neutral) return "is-neutral";
+    if (neutral) return "is-armed";
     return "is-off";
+  }
+
+  function toneClass(v) {
+    if (v == null || !Number.isFinite(Number(v))) return "";
+    const n = Number(v);
+    if (n > 0.05) return "is-up";
+    if (n < -0.05) return "is-down";
+    return "is-flat";
+  }
+
+  function ageLabel(parts) {
+    const ages = ["macro", "market_sentiment", "announcement"]
+      .map((k) => (parts && parts[k] && parts[k].age_hours != null ? Number(parts[k].age_hours) : null))
+      .filter((x) => x != null && Number.isFinite(x));
+    if (!ages.length) return null;
+    const h = Math.min(...ages);
+    if (h < 1) return `${Math.round(h * 60)}m`;
+    if (h < 24) return `${h.toFixed(1)}h`;
+    return `${(h / 24).toFixed(1)}d`;
+  }
+
+  function paintMctxSpark(canvas, data) {
+    if (!canvas || !data || data.length < 2) {
+      if (canvas) canvas.hidden = true;
+      return;
+    }
+    const sctx = canvas.getContext("2d");
+    if (!sctx) return;
+    canvas.hidden = false;
+    const w = canvas.width;
+    const h = canvas.height;
+    const min = Math.min(...data);
+    const max = Math.max(...data);
+    const range = max - min || 1;
+    const step = w / (data.length - 1);
+    const last = data[data.length - 1];
+    const root = document.documentElement;
+    const up = getComputedStyle(root).getPropertyValue("--color-up").trim() || "#f5222d";
+    const down = getComputedStyle(root).getPropertyValue("--color-down").trim() || "#52c41a";
+    sctx.clearRect(0, 0, w, h);
+    sctx.beginPath();
+    data.forEach((v, i) => {
+      const x = i * step;
+      const y = h - ((v - min) / range) * (h - 4) - 2;
+      if (i === 0) sctx.moveTo(x, y);
+      else sctx.lineTo(x, y);
+    });
+    sctx.strokeStyle = last >= 0 ? up : down;
+    sctx.lineWidth = 1.4;
+    sctx.stroke();
+  }
+
+  function renderMctxCard(c) {
+    const badge = c.on ? "触发" : c.modeCode && c.modeCode !== "off" ? "武装" : "待机";
+    const badgeCls = c.on ? "is-fire" : c.modeCode && c.modeCode !== "off" ? "is-armed" : "is-idle";
+    const metricTone = c.metricTone || "";
+    const tipAttr = c.tip ? ` title="${escapeHtml(c.tip)}"` : "";
+    return (
+      `<div class="strategy-mctx-cell ${cardStateClass(c.on, c.neutral)}" data-k="${escapeHtml(c.k)}"${tipAttr}>` +
+      `<div class="strategy-mctx-cell-top">` +
+      `<span class="strategy-mctx-label">${escapeHtml(c.label)}</span>` +
+      `<span class="strategy-mctx-badge ${badgeCls}">${escapeHtml(badge)}</span>` +
+      `</div>` +
+      `<span class="strategy-mctx-metric ${metricTone}">${escapeHtml(c.metric)}</span>` +
+      `<span class="strategy-mctx-sub">${escapeHtml(c.sub)}</span>` +
+      (c.modeHint
+        ? `<span class="strategy-mctx-mode">${escapeHtml(c.modeHint)}</span>`
+        : "") +
+      `</div>`
+    );
   }
 
   async function loadMarketContextPanel() {
     const grid = document.getElementById("strategy-mctx-grid");
     const st = document.getElementById("strategy-mctx-status");
     const hint = document.getElementById("strategy-mctx-hint");
+    const freshPill = document.getElementById("strategy-mctx-fresh-pill");
+    const mPill = document.getElementById("strategy-mctx-m-pill");
+    const spark = document.getElementById("strategy-mctx-spark");
     if (!grid) return;
     try {
       const [ctxRes, priorRes] = await Promise.all([
@@ -78,8 +151,17 @@ export function installStrategy(q) {
       const ctx = ctxRes.ok !== false && ctxRes.data ? ctxRes.data : null;
       if (!ctx || ctx.ok === false) {
         grid.innerHTML = `<div class="strategy-mctx-empty">盘前上下文未就绪 · 运行 pre_market_ingest</div>`;
-        if (st) st.textContent = ctxRes.error || "无快照";
+        if (st) st.innerHTML = "";
         if (hint) hint.hidden = true;
+        if (freshPill) {
+          freshPill.textContent = "无快照";
+          freshPill.className = "strategy-mctx-pill is-warn";
+        }
+        if (mPill) {
+          mPill.textContent = "M —";
+          mPill.className = "strategy-mctx-pill is-muted";
+        }
+        if (spark) spark.hidden = true;
         return;
       }
       const mp = priorRes.market_prior || {};
@@ -91,35 +173,88 @@ export function installStrategy(q) {
       const reg = ctx.regime || {};
       const macro = ctx.macro || {};
       const sent = ctx.market_sentiment || {};
+      const fresh = ctx.freshness || {};
       const macroErrHint = (ctx.macro_errors || macro.errors || []).slice(0, 3).join(" · ");
       const macroBlocking =
         !!ctx.macro_degraded || macro.overseas_tech_1d_pct == null;
       const regLab = regimeLabel(reg.regime);
+      const regCode = String(reg.regime || "").toLowerCase();
+
+      const activeCount = [
+        flags.cross_market,
+        flags.market_sentiment,
+        flags.regulatory,
+        flags.ipo_drain,
+      ].filter(Boolean).length;
+
+      if (freshPill) {
+        const age = ageLabel(fresh.parts);
+        if (fresh.needs_ingest || ctx.macro_degraded) {
+          freshPill.textContent = ctx.macro_degraded ? "macro 降级" : "需刷新";
+          freshPill.className = "strategy-mctx-pill is-warn";
+        } else if (ctx.data_ready === false) {
+          freshPill.textContent = "部分空";
+          freshPill.className = "strategy-mctx-pill is-warn";
+        } else {
+          freshPill.textContent = age ? `新鲜 · ${age}` : "新鲜";
+          freshPill.className = "strategy-mctx-pill is-ok";
+        }
+      }
+      if (mPill) {
+        if (activeCount > 0) {
+          mPill.textContent = `M 触发 ${activeCount}/4`;
+          mPill.className = "strategy-mctx-pill is-fire";
+        } else {
+          mPill.textContent = "M 待机";
+          mPill.className = "strategy-mctx-pill is-muted";
+        }
+      }
+
+      paintMctxSpark(spark, ctx.macro_sparkline || []);
+
       const cards = [
         {
           k: "cross_market",
           label: "跨市场",
           on: flags.cross_market,
           neutral: !flags.cross_market && String(cmCfg.mode || "off") !== "off",
-          state: flags.cross_market ? "触发" : priorModeLabel(cmCfg.mode || "off"),
-          sub:
+          modeCode: String(cmCfg.mode || "off"),
+          modeHint: `mode ${cmCfg.mode || "off"}`,
+          tip:
+            "海外科技/A50 等隔夜冲击。触发后由 cross_market prior 在调仓时缩仓或警告；不改 ŷ。overlay→M 时科技拖累优先走此路。",
+          metric:
             macro.overseas_tech_1d_pct != null
-              ? `科技 ${fmtPct(macro.overseas_tech_1d_pct)}${
-                  macro.a50_1d_pct != null ? ` · A50 ${fmtPct(macro.a50_1d_pct)}` : ""
-                }`
-              : macroErrHint || (String(cmCfg.mode || "off") !== "off" ? `配置 ${cmCfg.mode}` : "—"),
+              ? fmtPct(macro.overseas_tech_1d_pct)
+              : "—",
+          metricTone: toneClass(macro.overseas_tech_1d_pct),
+          sub:
+            macro.a50_1d_pct != null
+              ? `A50 ${fmtPct(macro.a50_1d_pct)}`
+              : macroBlocking
+                ? macroErrHint || "macro 未就绪"
+                : "海外科技 1D",
         },
         {
           k: "sentiment",
           label: "情绪周期",
           on: flags.market_sentiment,
           neutral: !flags.market_sentiment && String(mspCfg.mode || "off") !== "off",
-          state: flags.market_sentiment ? "触发" : priorModeLabel(mspCfg.mode || "off"),
+          modeCode: String(mspCfg.mode || "off"),
+          modeHint: `mode ${mspCfg.mode || "off"}`,
+          tip:
+            "情绪周期分 / 炸板率。market_sentiment_prior：过热或脆弱时可在调仓缩仓；不改 ŷ。",
+          metric:
+            sent.broken_limit_rate != null
+              ? `${(Number(sent.broken_limit_rate) * 100).toFixed(0)}%`
+              : sent.sentiment_cycle_score != null
+                ? String(sent.sentiment_cycle_score)
+                : "—",
+          metricTone: "",
           sub:
             sent.broken_limit_rate != null
-              ? `炸板 ${(Number(sent.broken_limit_rate) * 100).toFixed(0)}%`
+              ? "炸板率"
               : sent.sentiment_cycle_score != null
-                ? `周期 ${sent.sentiment_cycle_score}`
+                ? "周期分"
                 : "—",
         },
         {
@@ -127,60 +262,79 @@ export function installStrategy(q) {
           label: "监管",
           on: flags.regulatory,
           neutral: !flags.regulatory && String(regCfg.mode || "off") !== "off",
-          state: flags.regulatory ? "触发" : priorModeLabel(regCfg.mode || "off"),
+          modeCode: String(regCfg.mode || "off"),
+          modeHint: `mode ${regCfg.mode || "off"}`,
+          tip:
+            "监管/处罚公告与概念映射。命中时 regulatory_prior 可警告或约束开仓；不改 ŷ。",
+          metric: flags.regulatory ? "命中" : "清静",
+          metricTone: flags.regulatory ? "is-down" : "",
           sub:
             (ctx.announcement && ctx.announcement.penalty_concepts || [])
               .slice(0, 2)
-              .join(" · ") || "—",
+              .join(" · ") || "无处罚概念",
         },
         {
           k: "ipo",
           label: "IPO 虹吸",
           on: flags.ipo_drain,
           neutral: !flags.ipo_drain && String(ipoCfg.mode || "off") !== "off",
-          state: flags.ipo_drain ? "触发" : priorModeLabel(ipoCfg.mode || "off"),
+          modeCode: String(ipoCfg.mode || "off"),
+          modeHint: `mode ${ipoCfg.mode || "off"}`,
+          tip:
+            "新股对流动性的虹吸（比值/只数）。极端日由 ipo_drain_prior 参与调仓缩仓；不改 ŷ。",
+          metric:
+            ctx.announcement &&
+            ctx.announcement.ipo &&
+            ctx.announcement.ipo.liquidity_drain_ratio != null
+              ? `${Number(ctx.announcement.ipo.liquidity_drain_ratio).toFixed(1)}×`
+              : ctx.announcement &&
+                  ctx.announcement.ipo &&
+                  ctx.announcement.ipo.ipo_today_count != null
+                ? `${ctx.announcement.ipo.ipo_today_count}`
+                : "—",
+          metricTone: "",
           sub:
             ctx.announcement &&
             ctx.announcement.ipo &&
             ctx.announcement.ipo.liquidity_drain_ratio != null
-              ? `${Number(ctx.announcement.ipo.liquidity_drain_ratio).toFixed(1)}x`
+              ? "虹吸比"
               : ctx.announcement &&
                   ctx.announcement.ipo &&
                   ctx.announcement.ipo.ipo_today_count != null
-                ? `${ctx.announcement.ipo.ipo_today_count} 只`
+                ? "今日新股"
                 : "—",
         },
         {
           k: "regime",
           label: "Regime",
-          on: reg.regime === "bear" || reg.regime === "weak" || !!reg.macro_overlay_applied,
+          on: regCode === "bear" || regCode === "weak" || !!reg.macro_overlay_applied,
           neutral:
-            reg.regime === "neutral" ||
-            reg.regime === "strong" ||
-            reg.regime === "bull",
-          state: regLab,
+            regCode === "neutral" || regCode === "strong" || regCode === "bull",
+          modeCode: regCode || "—",
+          modeHint: reg.macro_overlay_deferred
+            ? "overlay → M"
+            : reg.macro_overlay_applied
+              ? "overlay on"
+              : "权重层",
+          tip:
+            "基准近端趋势分档（熊/弱/中/强/牛），影响因子权重环境。overlay→M：科技拖累 defer 给跨市场 prior，避免双重惩罚。",
+          metric: regLab,
+          metricTone:
+            regCode === "bear" || regCode === "weak"
+              ? "is-down"
+              : regCode === "bull" || regCode === "strong"
+                ? "is-up"
+                : "is-flat",
           sub:
             reg.index_return_pct != null
-              ? `基准 ${fmtPct(reg.index_return_pct)}${
-                  reg.macro_overlay_deferred ? " · overlay→M" : ""
-                }`
+              ? `基准 ${fmtPct(reg.index_return_pct)}`
               : reg.reason
-                ? String(reg.reason).slice(0, 24)
+                ? String(reg.reason).slice(0, 28)
                 : "—",
         },
       ];
-      grid.innerHTML = cards
-        .map(
-          (c) =>
-            `<div class="strategy-mctx-card ${cardStateClass(c.on, c.neutral)}">` +
-            `<span class="strategy-mctx-label">${escapeHtml(c.label)}</span>` +
-            `<span class="strategy-mctx-state">${escapeHtml(c.state)}</span>` +
-            `<span class="strategy-mctx-sub">${escapeHtml(c.sub)}</span>` +
-            `</div>`
-        )
-        .join("");
-      const fresh = ctx.freshness && ctx.freshness.needs_ingest ? " · 快照需刷新" : "";
-      const warns = (ctx.prior_warnings || []).slice(0, 2).join(" · ");
+      grid.innerHTML = cards.map(renderMctxCard).join("");
+
       if (hint) {
         if (macroBlocking) {
           hint.hidden = false;
@@ -190,19 +344,27 @@ export function installStrategy(q) {
           hint.textContent = "";
         }
       }
+
       if (st) {
-        st.textContent =
-          `cross_market 配置 ${priorModeLabel(cmCfg.mode || "off")}（${cmCfg.mode || "off"}）` +
-          (flags.cross_market ? " · 跨市场已触发" : "") +
-          (flags.any_active && !flags.cross_market ? " · 其它 M prior 触发" : "") +
-          ` · Regime ${regLab}` +
-          (reg.macro_overlay_deferred ? " · overlay→cross_market" : "") +
-          fresh +
-          (warns ? ` · ${warns}` : "");
+        const warns = (ctx.prior_warnings || []).slice(0, 2);
+        const chips = [
+          { t: `cross_market · ${cmCfg.mode || "off"}`, cls: flags.cross_market ? "is-fire" : "" },
+          { t: `Regime · ${regLab}`, cls: regCode === "bear" || regCode === "weak" ? "is-fire" : "" },
+        ];
+        if (reg.macro_overlay_deferred) chips.push({ t: "overlay→cross_market", cls: "" });
+        if (fresh.needs_ingest) chips.push({ t: "快照需刷新", cls: "is-warn" });
+        warns.forEach((w) => chips.push({ t: String(w).slice(0, 36), cls: "is-warn" }));
+        st.innerHTML = chips
+          .map(
+            (c) =>
+              `<span class="strategy-mctx-chip ${c.cls}">${escapeHtml(c.t)}</span>`
+          )
+          .join("");
       }
     } catch (err) {
       grid.innerHTML = `<div class="strategy-mctx-empty">${escapeHtml(String(err.message || err))}</div>`;
       if (hint) hint.hidden = true;
+      if (st) st.innerHTML = "";
     }
   }
 
@@ -213,17 +375,27 @@ export function installStrategy(q) {
       btn.disabled = true;
       btn.textContent = "ingest…";
     }
-    if (st) st.textContent = "正在刷新盘前快照…";
+    if (st) {
+      st.innerHTML = `<span class="strategy-mctx-chip">正在刷新盘前快照…</span>`;
+    }
     try {
       const res = await runMarketContextIngest(apiFetch, { backfill: true });
       if (res && res.ok === false) {
-        if (st) st.textContent = res.error || "ingest 失败";
+        if (st) {
+          st.innerHTML = `<span class="strategy-mctx-chip is-warn">${escapeHtml(
+            res.error || "ingest 失败"
+          )}</span>`;
+        }
         return;
       }
       await loadMarketContextPanel();
       if (btn) btn.textContent = "完成";
     } catch (err) {
-      if (st) st.textContent = String(err.message || err);
+      if (st) {
+        st.innerHTML = `<span class="strategy-mctx-chip is-warn">${escapeHtml(
+          String(err.message || err)
+        )}</span>`;
+      }
       if (btn) btn.textContent = "失败";
     } finally {
       if (btn) {

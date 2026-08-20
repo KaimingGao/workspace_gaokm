@@ -144,6 +144,59 @@ class TestClusterPanelsPit(unittest.TestCase):
         self.assertEqual(src, "akshare")
         self.assertEqual(len(out_bars), 49)
 
+    def test_force_latest_skips_36h_reuse(self):
+        from quant.research.cluster_panels import _load_bars_for_cluster
+
+        bars = [{"date": f"2024-01-{i:02d}", "close": 10.0} for i in range(1, 50)]
+        calls = []
+
+        def fake_bars(code, **kwargs):
+            calls.append(dict(kwargs))
+            return bars, "akshare_cn_daily:qfq"
+
+        with patch("core.data_service.bars_and_source_research", side_effect=fake_bars):
+            out_bars, src, remote = _load_bars_for_cluster(
+                "600519",
+                lookback=40,
+                refresh_bars=True,
+                force_latest_bars=True,
+            )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0].get("cache_max_age_hours"), 0)
+        self.assertTrue(calls[0].get("incremental"))
+        self.assertTrue(remote)
+        self.assertIn("akshare", src)
+        self.assertEqual(len(out_bars), 49)
+
+    def test_build_panels_force_latest_stats(self):
+        from quant.research.cluster_panels import build_cluster_ols_panels
+
+        bars = [{"date": f"2024-01-{i:02d}", "close": 10.0} for i in range(1, 50)]
+        with patch(
+            "core.data_service.bars_and_source_research",
+            return_value=(bars, "akshare_cn_daily:qfq"),
+        ), patch(
+            "core.ports.market.resolve_market_code", return_value=("cn", "000001")
+        ), patch(
+            "core.ports.market.default_benchmark", return_value="000300"
+        ), patch(
+            "core.ports.market.fetch_index_bars", return_value=([], "empty")
+        ), patch(
+            "core.signal.config.load_signal_config", return_value={}
+        ):
+            out = build_cluster_ols_panels(
+                ["000001"],
+                lookback=30,
+                pit_fundamentals=False,
+                refresh_bars=False,
+                force_latest_bars=True,
+            )
+        br = out.get("bars_refresh") or {}
+        self.assertTrue(br.get("requested"))
+        self.assertTrue(br.get("force_latest"))
+        self.assertEqual(br.get("remote_count"), 1)
+        self.assertIn("强制增量", str(br.get("note") or ""))
+
     def test_build_panels_bars_refresh_stats(self):
         from quant.research.cluster_panels import build_cluster_ols_panels
 

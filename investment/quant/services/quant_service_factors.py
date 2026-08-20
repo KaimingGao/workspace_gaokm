@@ -565,15 +565,16 @@ class QuantFactorMixin:
         select_ridge: bool = True,
         collinearity_policy: str = "drop_redundant",
         progress_cb: Optional[Any] = None,
-        refresh_bars: bool = True,
+        refresh_bars: bool = False,
         use_cache: bool = True,
     ) -> Dict[str, Any]:
         """研究池：β 聚类 → 组权 → 组内 OOS → 分组 score → 分池合成（不写 config）。
 
         默认：complete-linkage + τ 切树；β 因子维 z-score；PIT 默认开（FH5）；
         B5 respect_regime；B3 选 λ + drop_redundant。
-        refresh_bars 默认 True：过期/缺条日线限流拉网（约 36h 内仍复用）；False=纯缓存重算。
-        P1 use_cache：``refresh_bars=False`` 时可命中 24h 指纹缓存；成功落盘时**始终**更新指纹缓存
+        日线：当日会话**第一次**分组强制增量更新到最新；同日再跑纯本地缓存（改参快跑）。
+        ``refresh_bars=True`` 仅作 API/脚本逃生舱（本跑再强制拉新）；UI 不再暴露。
+        P1 use_cache：非强制日线时可命中 24h 指纹缓存；成功落盘时**始终**更新指纹缓存
         与 ``cluster_last_report``（进页优先恢复，避免刷新重算/旧缓存导致组变）。
         草稿比指纹缓存更新时，指纹缓存自动作废。
         """
@@ -587,6 +588,15 @@ class QuantFactorMixin:
         from quant.research.cluster_pool_merge import attach_cluster_pool_merge
         from quant.research.cluster_pool_artifact import attach_cluster_pool_artifact
         from quant.research.cluster_multi_score import attach_cluster_multi_score
+        from quant.research.cluster_bars_daily import (
+            cluster_bars_session_date,
+            mark_force_latest_bars_done,
+            needs_force_latest_bars,
+        )
+
+        # 简洁策略：只保留「当日首次 / API 显式强制」→ force_latest；不再走 36h 过期刷新
+        force_latest_bars = bool(needs_force_latest_bars()) or bool(refresh_bars)
+        bars_session = cluster_bars_session_date()
 
         holdings_raw: List[Any] = []
         try:
@@ -609,8 +619,8 @@ class QuantFactorMixin:
             logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
             watchlist = []
 
-        # P1：指纹缓存 — 读仅在 refresh_bars=False；写在成功后始终落盘（避免刷新日线路径把缓存留在旧分区）
-        cache_enabled = use_cache and not bool(refresh_bars)
+        # P1：指纹缓存 — 读仅在非强制日线时；写在成功后始终落盘
+        cache_enabled = use_cache and not bool(force_latest_bars)
         cache_fp = None
         if use_cache:
             cache_fp = _cluster_cache_fingerprint(
@@ -688,13 +698,18 @@ class QuantFactorMixin:
                 pass
 
         _on_progress(f"拉日线 0/{n_codes}", 0, n_codes)
+        if force_latest_bars:
+            _on_progress(
+                f"强制更新日线到最新 0/{n_codes}", 0, n_codes
+            )
         built = build_cluster_ols_panels(
             codes,
             lookback=lookback,
             pit_fundamentals=bool(pit_fundamentals),
             code_roles=dict(uni_meta.get("code_roles") or {}),
             progress_cb=_on_progress,
-            refresh_bars=bool(refresh_bars),
+            refresh_bars=False,
+            force_latest_bars=bool(force_latest_bars),
         )
         panels = list(built.get("panels") or [])
         bars_by_code = dict(built.get("bars_by_code") or {})
@@ -704,6 +719,15 @@ class QuantFactorMixin:
         holdings_resolved = list(built.get("holdings_resolved") or [])
         holdings_added_resolved = list(built.get("holdings_added_resolved") or [])
         bars_refresh = dict(built.get("bars_refresh") or {})
+        if force_latest_bars:
+            bars_refresh["first_of_day"] = True
+            bars_refresh["session_date"] = bars_session
+            # 面板拉完即标记，避免拟合失败导致同日反复打满网
+            mark_force_latest_bars_done(
+                session_date=bars_session,
+                remote_count=int(bars_refresh.get("remote_count") or 0),
+                total=int(bars_refresh.get("total") or n_codes),
+            )
 
         _on_progress(f"拟合 0/{n_codes}", 0, n_codes)
         report = compute_factor_ols_cluster_report(
@@ -728,7 +752,9 @@ class QuantFactorMixin:
         report["task"] = "factor_ols_clusters"
         report["lookback"] = lookback
         report["watching_limit"] = limit
-        report["refresh_bars"] = bool(refresh_bars)
+        report["refresh_bars"] = bool(force_latest_bars)
+        report["refresh_bars_requested"] = bool(refresh_bars)
+        report["force_latest_bars"] = bool(force_latest_bars)
         report["bars_refresh"] = bars_refresh
         report["universe_mode"] = "watching"
         # 统计以观察池宇宙为准；解析失败时回退原始列表，避免 UI 显示 0

@@ -50,7 +50,6 @@ import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
 import { installStrategy } from "./quant/domain_strategy.js";
 import { installExportInterpret } from "./quant/domain_export.js";
-import { installScoreReview } from "./quant/domain_score_review.js?v=p1093";
 import { installFitGapHub } from "./quant/domain_fit_gap.js";
 import { loadAndRenderFactorCorr, loadAndRenderFactorIR, loadAndRenderFactorICSeries, setProStatusChip, syncOverviewFromClusters, syncOverviewTau, renderFactorSummaryCards } from "./quant/factor_corr_ui.js";
 
@@ -73,6 +72,9 @@ const { installWatching } = await import(
 );
 const { installBacktest } = await import(
   `./quant/domain_backtest.js?v=${encodeURIComponent(_QV)}`
+);
+const { installScoreReview } = await import(
+  `./quant/domain_score_review.js?v=${encodeURIComponent(_QV)}`
 );
 
 /** Quant research panel — shell + domain installs. */
@@ -569,7 +571,7 @@ export function initQuant(ctx) {
         background.push(suggest.loadFactorPanel().catch(() => {}));
       }
       if (hasReplay) background.push(backtest.loadLastBacktestSnapshot().catch(() => {}));
-      // 研究枢纽：进页自动跑分组（refresh_bars 默认 false → 24h 缓存命中秒级返回；未命中用本地日线重算 ~30s）
+      // 研究枢纽：进页恢复上次分组；点「跑分组」才重算（当日首次自动强制日线，其后纯缓存）
       if (page === "quant" && (els.quantFactorList || els.quantOlsClusters)) {
         background.push(cluster.bootstrapClusterHub().catch(() => {}));
       }

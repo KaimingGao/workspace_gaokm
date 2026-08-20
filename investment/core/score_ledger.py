@@ -566,6 +566,8 @@ def freeze_from_cluster_book(
     out["resolve"] = resolved
     if resolved.get("note"):
         out["note"] = resolved.get("note")
+    prev = date_key(resolved.get("prev_trading_day"))
+    out["skipped_newer"] = prev if prev and d and prev > d else None
     # 同步冻结 τ 影子簿成员（失败不影响主账本）
     try:
         shadow_out = freeze_from_tau_shadow_book(as_of=d)

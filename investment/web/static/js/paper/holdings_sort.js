@@ -13,6 +13,7 @@ export function loadHoldingsSort() {
         saved.key === "market_value" ||
         saved.key === "score" ||
         saved.key === "score_cal" ||
+        saved.key === "residual" ||
         saved.key === "pnl" ||
         saved.key === "chg")
     ) {
@@ -58,6 +59,19 @@ export function sortHoldings(list, key, dir) {
       bv = resolveCalTradeScore(b);
       av = av == null ? NaN : av;
       bv = bv == null ? NaN : bv;
+    } else if (k === "residual") {
+      const ac = resolveCalTradeScore(a);
+      const bc = resolveCalTradeScore(b);
+      const achg = Number(a.change_pct);
+      const bchg = Number(b.change_pct);
+      av =
+        ac != null && Number.isFinite(Number(ac)) && Number.isFinite(achg)
+          ? Number(ac) - achg
+          : NaN;
+      bv =
+        bc != null && Number.isFinite(Number(bc)) && Number.isFinite(bchg)
+          ? Number(bc) - bchg
+          : NaN;
     } else if (k === "pnl") {
       av = Number(a.pnl_pct);
       bv = Number(b.pnl_pct);

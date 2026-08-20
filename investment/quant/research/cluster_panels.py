@@ -7,6 +7,7 @@
 
 拉日线默认 **刷新过期票**（约 36h 内缓存仍复用）；
 ``refresh_bars=False`` 时纯缓存优先，供改参快跑。
+``force_latest_bars=True``：跳过 36h 复用，增量拉网合并到最新（当日首次分组自动开）。
 """
 
 from __future__ import annotations
@@ -34,15 +35,43 @@ def _last_bar_date(bars: Sequence[dict]) -> Optional[str]:
     return d or None
 
 
-def _load_bars_for_cluster(code: str, *, lookback: int, refresh_bars: bool) -> tuple:
+def _load_bars_for_cluster(
+    code: str,
+    *,
+    lookback: int,
+    refresh_bars: bool,
+    force_latest_bars: bool = False,
+) -> tuple:
     """返回 (bars, src, fetched_remote).
 
-    默认缓存优先；``refresh_bars`` 时仅对「超过约 36h / 条数不足」的票打远端，限流由上层 workers 控制。
+    默认缓存优先；``refresh_bars`` 时仅对「超过约 36h / 条数不足」的票打远端；
+    ``force_latest_bars`` 时跳过 36h 复用，``cache_max_age_hours<=0`` 增量拉到最新。
     """
     from core.data_service import bars_and_source_research as bars_and_source
 
     limit = lookback + 35
     min_bars = max(20, min(limit, 40))
+    if force_latest_bars:
+        bars, src = bars_and_source(
+            code,
+            limit=limit,
+            cache_max_age_hours=0,
+            incremental=True,
+            offline_ok=False,
+        )
+        src_s = str(src or "empty")
+        remote = bool(bars) and (
+            "akshare" in src_s
+            or src_s.startswith("empty")
+            or not src_s.startswith("cache")
+        )
+        # skip_remote（末根已到今天）仍算完成强制路径，不计远端
+        if src_s.startswith("cache"):
+            remote = False
+        if bars:
+            return list(bars), src_s, remote
+        return [], "empty", True
+
     if not refresh_bars:
         bars, src = bars_and_source(
             code,
@@ -64,7 +93,7 @@ def _load_bars_for_cluster(code: str, *, lookback: int, refresh_bars: bool) -> t
     if bars and len(bars) >= min_bars:
         return list(bars), str(src or "cache"), False
 
-    # 过期或缺条：增量拉网合并
+    # 过期或缺条：增量拉网合并（cache_max_age<=0 → 不短路，缺口合并落盘）
     bars2, src2 = bars_and_source(
         code,
         limit=limit,
@@ -104,6 +133,7 @@ def _load_index_bars_once(
     *,
     limit: int,
     refresh_bars: bool,
+    force_latest_bars: bool = False,
     progress_cb: ProgressCb = None,
     progress_n: int = 1,
     timeout_sec: float = 12.0,
@@ -119,26 +149,28 @@ def _load_index_bars_once(
     if not bench_s:
         return []
     min_bars = max(15, min(limit, 30))
-    age = 36.0 if refresh_bars else 24.0 * 14
+    do_net = bool(refresh_bars or force_latest_bars)
+    age = 0.0 if force_latest_bars else (36.0 if refresh_bars else 24.0 * 14)
 
-    # 1) 本地缓存（含指数代码若曾入库）
-    for code in _index_symbol_candidates(bench_s):
-        try:
-            bars, _src = bars_and_source(
-                code,
-                limit=limit,
-                cache_max_age_hours=age,
-                incremental=False,
-                offline_ok=True,
-            )
-            if bars and len(bars) >= min_bars:
-                return list(bars)
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
-            logger.debug("指数本地缓存未命中 %s/%s", bench_s, code, exc_info=True)
+    # 1) 本地缓存（含指数代码若曾入库）；强制最新时仍先试盘，不够再打网
+    if not force_latest_bars:
+        for code in _index_symbol_candidates(bench_s):
+            try:
+                bars, _src = bars_and_source(
+                    code,
+                    limit=limit,
+                    cache_max_age_hours=age,
+                    incremental=False,
+                    offline_ok=True,
+                )
+                if bars and len(bars) >= min_bars:
+                    return list(bars)
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
+                logger.debug("指数本地缓存未命中 %s/%s", bench_s, code, exc_info=True)
 
     # 2) 缓存优先：缺指数也不打远端，避免 AkShare 挂死整任务
-    if not refresh_bars:
+    if not do_net:
         if progress_cb:
             try:
                 progress_cb(f"拉指数跳过（缓存优先·{bench_s}）", 0, progress_n)
@@ -217,13 +249,17 @@ def _load_one_panel(
     fund_cfg: dict,
     index_bars: Optional[List[dict]],
     refresh_bars: bool = False,
+    force_latest_bars: bool = False,
 ) -> Dict[str, Any]:
     from core.fundamentals_pit import resolve_fundamentals_for_score
 
     # 研究分组不打现价：腾讯接口慢/挂起时会把整批卡在 0/N
     sym_s = str(code or "").strip()
     bars, src, fetched_remote = _load_bars_for_cluster(
-        code, lookback=lookback, refresh_bars=bool(refresh_bars)
+        code,
+        lookback=lookback,
+        refresh_bars=bool(refresh_bars),
+        force_latest_bars=bool(force_latest_bars),
     )
     out: Dict[str, Any] = {
         "input_code": code,
@@ -317,18 +353,21 @@ def build_cluster_ols_panels(
     progress_cb: ProgressCb = None,
     max_workers: int = 12,
     refresh_bars: bool = True,
+    force_latest_bars: bool = False,
 ) -> Dict[str, Any]:
     """构建分组 OLS 输入面板，并汇总财务 PIT 覆盖。
 
     refresh_bars=True（默认）：缓存未过期（约 36h）仍用本地；过期/缺条才限流拉网。
     refresh_bars=False：本地有足够日线即用，不打 AkShare（改参快跑）。
+    force_latest_bars=True：增量强制对齐最新（覆盖 refresh 的 36h 复用）。
     """
     from core.fundamentals_pit import fundamentals_pit_summary
     from core.ports.market import default_benchmark, resolve_market_code
     from core.signal.config import load_signal_config
 
     use_pit = bool(pit_fundamentals)
-    do_refresh = bool(refresh_bars)
+    do_force = bool(force_latest_bars)
+    do_refresh = bool(refresh_bars) or do_force
     roles = dict(code_roles or {})
     fund_cfg = (load_signal_config() or {}).get("fundamentals") or {}
     code_list = [str(c).strip() for c in codes if str(c).strip()]
@@ -336,7 +375,12 @@ def build_cluster_ols_panels(
 
     if progress_cb:
         try:
-            mode = "强制刷新过期票" if do_refresh else "缓存优先"
+            if do_force:
+                mode = "强制更新日线到最新"
+            elif do_refresh:
+                mode = "刷新过期票"
+            else:
+                mode = "缓存优先"
             progress_cb(f"拉日线 0/{n}（{mode}）", 0, n)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
@@ -358,6 +402,7 @@ def build_cluster_ols_panels(
                 bench,
                 limit=lookback + 35,
                 refresh_bars=do_refresh,
+                force_latest_bars=do_force,
                 progress_cb=progress_cb,
                 progress_n=n,
                 timeout_sec=idx_timeout,
@@ -402,6 +447,7 @@ def build_cluster_ols_panels(
                 fund_cfg=fund_cfg,
                 index_bars=_index_for(code),
                 refresh_bars=do_refresh,
+                force_latest_bars=do_force,
             ): i
             for i, code in enumerate(code_list)
         }
@@ -589,13 +635,18 @@ def build_cluster_ols_panels(
         "pit_fundamentals": use_pit,
         "bars_refresh": {
             "requested": do_refresh,
+            "force_latest": do_force,
             "remote_count": int(remote_n),
             "total": int(n),
             "cache_count": max(0, int(n) - int(remote_n)),
             "note": (
-                f"强制刷新：远端更新 {remote_n}/{n}，其余用本地缓存"
-                if do_refresh
-                else f"缓存优先：未强制拉网（本批远端回退 {remote_n}/{n}）"
+                f"强制增量更新到最新（远端 {remote_n}/{n}）"
+                if do_force
+                else (
+                    f"刷新过期：远端更新 {remote_n}/{n}，其余用本地缓存"
+                    if do_refresh
+                    else f"缓存优先：未强制拉网（本批远端回退 {remote_n}/{n}）"
+                )
             ),
         },
     }

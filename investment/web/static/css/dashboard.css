@@ -931,6 +931,7 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
   padding: 4px 8px;
   border-right: 1px solid var(--line);
   min-width: 0;
+  cursor: help;
 }
 
 .dashboard-market-context-card:last-child {

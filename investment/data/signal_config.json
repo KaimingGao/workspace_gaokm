@@ -166,7 +166,7 @@
     "role": "prior",
     "prior": {
       "mode": "gate",
-      "block_new_buys": false,
+      "block_new_buys": true,
       "scale_buy_pct": 0.6,
       "scale_holds": true,
       "warn_only": true,
@@ -230,7 +230,16 @@
     "tech_drag_severe_pct": -3.0,
     "liquidity_stress_min": 1.0,
     "scale_buy_pct": 0.5,
-    "scale_holds": true
+    "scale_holds": true,
+    "sector_penalty_tags": [
+      "半导体",
+      "芯片",
+      "通信",
+      "电子",
+      "计算机",
+      "机器人",
+      "人工智能"
+    ]
   },
   "market_sentiment_prior": {
     "mode": "gate",
@@ -243,13 +252,26 @@
   },
   "regulatory_prior": {
     "mode": "gate",
-    "scale_buy_pct": 0.5
+    "scale_buy_pct": 0.5,
+    "concept_penalty_tags": [
+      "机器人",
+      "人形机器人",
+      "半导体",
+      "芯片",
+      "人工智能"
+    ]
   },
   "ipo_drain_prior": {
     "mode": "gate",
     "drain_ratio_high": 3.0,
-    "mega_ipo_cap": 100000000000,
-    "scale_buy_pct": 0.45
+    "scale_buy_pct": 0.45,
+    "concept_tags": [
+      "机器人",
+      "人形机器人",
+      "人工智能",
+      "AI"
+    ],
+    "mega_ipo_cap": 100000000000
   },
   "pre_market": {
     "auto_ingest_on_paper_daily": true,

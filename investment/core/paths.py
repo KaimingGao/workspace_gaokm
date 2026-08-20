@@ -38,6 +38,10 @@ CLUSTER_BOOK_NOWCAST_SHADOW_PATH = os.path.join(LIVE_DIR, "cluster_book_nowcast_
 CLUSTER_REPORT_CACHE_PATH = os.path.join(LIVE_DIR, "cluster_report_cache.json")
 # 最近一次成功分组（不论指纹；刷新进页优先恢复，避免重算导致组变）
 CLUSTER_LAST_REPORT_PATH = os.path.join(LIVE_DIR, "cluster_last_report.json")
+# 当日首次分组已强制刷新日线到最新（按会话日标记，避免同日重复打网）
+CLUSTER_BARS_FORCED_SESSION_PATH = os.path.join(
+    LIVE_DIR, "cluster_bars_forced_session.json"
+)
 # FH1：指针指向版本化 artifact；active 文件为镜像兼容层
 CLUSTER_POINTER_PATH = os.path.join(LIVE_DIR, "cluster_pointer.json")
 PROMOTE_AUDIT_PATH = os.path.join(LIVE_DIR, "promote_audit.jsonl")

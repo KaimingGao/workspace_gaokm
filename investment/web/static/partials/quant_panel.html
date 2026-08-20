@@ -137,7 +137,8 @@
                 <li><strong>~10%</strong> 组内打分 / 分池合成 / 收尾（分池对照回测用全局 heuristic，不应再拖数十分钟）</li>
               </ul>
               <p>
-                <strong>想快</strong>：缩小 Limit（20～40）、或填固定 K（跳过选区网格）；调试勿勾「刷新过期日线」。
+                <strong>想快</strong>：缩小 Limit（20～40）、或填固定 K（跳过选区网格）。
+                日线：当日第一次跑分组自动强制更新到最新；同日再跑用本地缓存（改参更快）。
                 大宇宙（≥40）已关逐日 PIT / Ridge 搜 λ / 扩展窗多折，但仍保留选区网格。
               </p>
             </div>
@@ -165,10 +166,6 @@
             <label class="platform-field quant-pro-field" title="观察池截断：取名单前 N 只跑 OLS 分组（3～100）；默认 100≈满池">
               <span class="quant-pro-field-label">Limit</span>
               <input id="quant-watching-limit" type="number" min="3" max="100" step="1" value="100" inputmode="numeric" />
-            </label>
-            <label class="platform-field quant-cluster-refresh quant-pro-checkbox" title="默认不勾：纯本地缓存重算（改 K/λ 更快）">
-              <input id="quant-cluster-refresh-bars" type="checkbox" />
-              <span>刷新过期日线</span>
             </label>
             <label class="platform-field quant-cluster-refresh quant-pro-checkbox" title="勾选后因子集对齐当前大盘 regime 白名单">
               <input id="quant-cluster-respect-regime" type="checkbox" />

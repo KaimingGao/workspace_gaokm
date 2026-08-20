@@ -95,8 +95,10 @@ export function buildPaperHoldingsTableHtml({
         ? "按代码排序"
         : key === "score"
           ? "按评分排序"
-          : key === "score_cal"
+            : key === "score_cal"
             ? "按校准分排序"
+            : key === "residual"
+              ? "按残差排序 · 校准 − 涨跌"
             : key === "pnl"
             ? "按浮盈亏排序 · 相对持仓成本：(现价÷成本−1)×100%"
             : key === "chg"
@@ -193,6 +195,16 @@ export function buildPaperHoldingsTableHtml({
           : scoreCalOor
             ? "g(ŷ_trade) 对照 · 部分落在拟合域外（端点钳制）· 悬停看校准 tip"
             : "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip";
+      let residual = null;
+      if (
+        scoreCal != null &&
+        Number.isFinite(Number(scoreCal)) &&
+        h.change_pct != null &&
+        h.change_pct !== "" &&
+        Number.isFinite(Number(h.change_pct))
+      ) {
+        residual = Number(scoreCal) - Number(h.change_pct);
+      }
       const origin = String(h.origin || "");
       const originLabel = h.origin_label || "—";
       const originTitle = ORIGIN_HINT[origin] || "早期记录未标出处";
@@ -341,6 +353,11 @@ export function buildPaperHoldingsTableHtml({
         )}${scoreCalOor ? " is-cal-oor" : ""}" data-score-detail="${scoreDetailJson}" data-score-tip="cal" title="${escapeText(
           scoreCalTitle
         )}">${escapeText(scoreCalShown)}</td>` +
+        `<td class="num paper-hold-residual ${metricCls(
+          residual
+        )}" title="残差 = 校准 − 涨跌（百分点）">${fmtPct(residual, {
+          signed: true,
+        })}</td>` +
         `<td class="num paper-hold-pnl ${metricCls(pnl)}">${fmtPct(pnl, {
           signed: true,
         })}</td>` +
@@ -365,6 +382,7 @@ export function buildPaperHoldingsTableHtml({
     `<th title="持仓加权平均成本，对账用">成本</th>` +
     `${sortThHtml("市值", "market_value")}${sortThHtml("评分", "score")}` +
     `${sortThHtml("校准", "score_cal")}` +
+    `${sortThHtml("残差", "residual")}` +
     `${sortThHtml("浮盈亏", "pnl")}` +
     `<th>开始</th><th class="paper-hold-origin">出处</th>` +
     `</tr></thead><tbody>${rows}</tbody></table></div>`;

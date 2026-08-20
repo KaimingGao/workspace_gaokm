@@ -53,7 +53,7 @@ def merge_series_dict(
     return out
 
 
-def _prune_macro_errors(errors: list, series: Optional[dict]) -> list:
+def prune_macro_errors(errors: list, series: Optional[dict]) -> list:
     """去掉 series 已有 close 的键对应 error，避免 merge 后 stale empty 误报。"""
     ser = series if isinstance(series, dict) else {}
     kept = []
@@ -67,13 +67,17 @@ def _prune_macro_errors(errors: list, series: Optional[dict]) -> list:
     return sorted(set(kept))[:20]
 
 
+# 兼容旧私有名（热重载 / 外部引用）
+_prune_macro_errors = prune_macro_errors
+
+
 def merge_macro_snapshots(
     fresh: Dict[str, Any],
     prior: Optional[Dict[str, Any]],
 ) -> Dict[str, Any]:
     if not isinstance(prior, dict):
         out = dict(fresh or {})
-        out["errors"] = _prune_macro_errors(out.get("errors"), out.get("series"))
+        out["errors"] = prune_macro_errors(out.get("errors"), out.get("series"))
         return out
     merged = dict(prior)
     merged.update({k: v for k, v in fresh.items() if k not in ("series", "errors")})
@@ -83,7 +87,7 @@ def merge_macro_snapshots(
     )
     errs = list(prior.get("errors") or [])
     errs.extend(list(fresh.get("errors") or []))
-    merged["errors"] = _prune_macro_errors(errs, merged.get("series"))
+    merged["errors"] = prune_macro_errors(errs, merged.get("series"))
     # 重算聚合字段
     tech_rets = []
     for key in ("sox", "ndx", "qqq", "kweb"):

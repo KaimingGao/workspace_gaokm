@@ -87,6 +87,18 @@ export function holdingToRow(
   const pnlText = fmtSignedPct(pnl);
   const chg = h.change_pct;
   const chgText = fmtSignedPct(chg);
+  let residualNum = null;
+  let residualText = "—";
+  if (
+    scoreCal != null &&
+    Number.isFinite(Number(scoreCal)) &&
+    chg != null &&
+    chg !== "" &&
+    Number.isFinite(Number(chg))
+  ) {
+    residualNum = Number(scoreCal) - Number(chg);
+    residualText = fmtSignedPct(residualNum);
+  }
   return {
     code,
     name,
@@ -114,6 +126,10 @@ export function holdingToRow(
       scoreCal != null && Number.isFinite(Number(scoreCal)) ? Number(scoreCal) : null,
     scoreCalCls: `${scoreCls(scoreCal)}${scoreCalOor ? " is-cal-oor" : ""}`.trim(),
     scoreCalTitle,
+    residualText,
+    residualNum,
+    residualCls: metricCls(residualNum),
+    residualTitle: "残差 = 校准 − 涨跌（百分点）；正=校准高于当日涨跌",
     scoreDetail: JSON.stringify((() => {
       const terms = h.score_formula_terms || null;
       const hasTerms =
@@ -243,15 +259,23 @@ const COLS = [
   {
     id: "score_cal",
     label: "校准",
-    widthPct: 6.5,
+    widthPct: 6,
     num: true,
     sortable: true,
     title: "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip",
   },
   {
+    id: "residual",
+    label: "残差",
+    widthPct: 6,
+    num: true,
+    sortable: true,
+    title: "残差 = 校准 − 涨跌（百分点）；正=校准高于当日涨跌",
+  },
+  {
     id: "pnl",
     label: "浮盈亏",
-    widthPct: 7,
+    widthPct: 6.5,
     num: true,
     sortable: true,
     title: "相对持仓成本：(现价÷成本−1)×100%；加仓则为加权成本，非当日涨跌",
@@ -270,6 +294,7 @@ function compare(id, a, b) {
   }
   if (id === "score") return numCmp(Number(a.scoreNum), Number(b.scoreNum));
   if (id === "score_cal") return numCmp(Number(a.scoreCalNum), Number(b.scoreCalNum));
+  if (id === "residual") return numCmp(Number(a.residualNum), Number(b.residualNum));
   if (id === "pnl") return numCmp(Number(a.pnlNum), Number(b.pnlNum));
   if (id === "chg") return numCmp(Number(a.chgNum), Number(b.chgNum));
   return numCmp(Number(a.marketValueNum), Number(b.marketValueNum));
@@ -411,6 +436,13 @@ export async function mountHoldingsTableIsland(host, options = {}) {
           `data-score-detail="${escapeHtml(detail)}" data-score-tip="cal" title="${escapeHtml(title)}">` +
           `${escapeHtml(text)}</span>`
         );
+      }
+      if (col.id === "residual") {
+        return `<span class="paper-hold-residual ${escapeHtml(
+          d.residualCls || ""
+        )}" title="${escapeHtml(
+          d.residualTitle || "残差 = 校准 − 涨跌"
+        )}">${escapeHtml(d.residualText || "—")}</span>`;
       }
       if (col.id === "pnl") {
         return `<span class="paper-hold-pnl ${escapeHtml(d.pnlCls || "")}">${escapeHtml(

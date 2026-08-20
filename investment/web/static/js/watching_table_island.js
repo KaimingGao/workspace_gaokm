@@ -10,6 +10,7 @@ function numSortKey(row, key) {
 function compare(id, a, b) {
   if (id === "score") return numSortKey(a, "scoreNum") - numSortKey(b, "scoreNum");
   if (id === "score_cal") return numSortKey(a, "scoreCalNum") - numSortKey(b, "scoreCalNum");
+  if (id === "residual") return numSortKey(a, "residualNum") - numSortKey(b, "residualNum");
   if (id === "vol") return numSortKey(a, "volNum") - numSortKey(b, "volNum");
   if (id === "excess") return numSortKey(a, "excessNum") - numSortKey(b, "excessNum");
   if (id === "chg") return numSortKey(a, "chgNum") - numSortKey(b, "chgNum");
@@ -26,24 +27,32 @@ const COLS = [
   { id: "name", label: "股票", flex: true, sortable: true, cellClass: "watching-stock" },
   { id: "paper", label: "仓位", widthPct: 6, headClass: "watching-col-center", cellClass: "watching-col-center" },
   { id: "sent", label: "情绪", widthPct: 4.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  { id: "price", label: "现价", widthPct: 7, num: true },
-  { id: "open", label: "开盘价", widthPct: 7, num: true, title: "当日开盘价" },
-  { id: "chg", label: "涨跌", widthPct: 7, num: true, sortable: true },
-  { id: "score", label: "评分", widthPct: 6.5, num: true, sortable: true, title: "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ" },
+  { id: "price", label: "现价", widthPct: 6.5, num: true },
+  { id: "open", label: "开盘价", widthPct: 6.5, num: true, title: "当日开盘价" },
+  { id: "chg", label: "涨跌", widthPct: 6.5, num: true, sortable: true },
+  { id: "score", label: "评分", widthPct: 6, num: true, sortable: true, title: "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ" },
   {
     id: "score_cal",
     label: "校准",
-    widthPct: 6.5,
+    widthPct: 6,
     num: true,
     sortable: true,
     title: "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip",
   },
-  { id: "stance", label: "倾向", widthPct: 5.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  { id: "excess", label: "超额", widthPct: 7.5, num: true, sortable: true },
-  { id: "vol", label: "量", widthPct: 7, num: true, sortable: true },
-  { id: "volr", label: "量比", widthPct: 6, num: true },
-  { id: "pe", label: "PE", widthPct: 6, num: true },
-  { id: "pb", label: "PB", widthPct: 6, num: true },
+  {
+    id: "residual",
+    label: "残差",
+    widthPct: 6,
+    num: true,
+    sortable: true,
+    title: "残差 = 校准 − 涨跌（百分点）；正=校准高于当日涨跌",
+  },
+  { id: "stance", label: "倾向", widthPct: 5, headClass: "watching-col-center", cellClass: "watching-col-center" },
+  { id: "excess", label: "超额", widthPct: 7, num: true, sortable: true },
+  { id: "vol", label: "量", widthPct: 6.5, num: true, sortable: true },
+  { id: "volr", label: "量比", widthPct: 5.5, num: true },
+  { id: "pe", label: "PE", widthPct: 5.5, num: true },
+  { id: "pb", label: "PB", widthPct: 5.5, num: true },
 ];
 
 /**
@@ -203,6 +212,16 @@ export async function mountWatchingTableIsland(host, options = {}) {
           `data-score-detail="${escapeHtml(detail)}" data-score-tip="cal" title="${escapeHtml(title)}">` +
           `${escapeHtml(text)}</span>`
         );
+      }
+      if (col.id === "residual") {
+        const text =
+          d.residual != null && d.residual !== "" ? String(d.residual) : "—";
+        const cls = d.residualCls ? ` ${escapeHtml(d.residualCls)}` : "";
+        const tip =
+          d.residualTitle || "残差 = 校准 − 涨跌（百分点）；正=校准高于当日涨跌";
+        return `<span class="watching-residual${cls}" title="${escapeHtml(
+          tip
+        )}">${escapeHtml(text)}</span>`;
       }
       const v = d[col.id];
       if (v == null || v === "") return "—";

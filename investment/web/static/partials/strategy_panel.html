@@ -300,27 +300,65 @@
   >
     <header class="dashboard-section-head quant-section-head strategy-section-head">
       <h3 id="strategy-section-mctx-title" class="dashboard-section-title">盘前 prior · Regime</h3>
-      <p class="dashboard-section-desc quant-section-desc">Live 快照 + 人审写 cross_market</p>
+      <p class="dashboard-section-desc quant-section-desc">
+        M 层旁路约束调仓 · Regime 叠加权重 · ŷ 轴不变
+      </p>
     </header>
-    <div class="dashboard-card quant-pro-card strategy-ops-card">
+    <div class="dashboard-card quant-pro-card strategy-ops-card strategy-mctx-panel">
       <div class="quant-pro-card-body strategy-ops-card-body">
-        <p class="strategy-prior-contract" role="note">
+        <p class="strategy-prior-contract strategy-mctx-contract" role="note">
           <span class="strategy-prior-contract-k">契约</span>
-          <code>cross_market</code> / <code>market_sentiment_prior</code> / <code>regulatory_prior</code> /
-          <code>ipo_drain_prior</code> 为调仓旁路；<code>regime.macro_overlay</code> 影响因子权重（科技拖累默认 defer 到 cross_market）。
+          <span class="strategy-mctx-contract-body">
+            <code>M</code> =
+            <code>cross_market</code> ·
+            <code>sentiment</code> ·
+            <code>regulatory</code> ·
+            <code>ipo_drain</code>
+            → 调仓旁路；
+            <code>Regime</code> 可 defer 科技拖累至 cross_market；
+            <strong>ŷ 不改</strong>
+          </span>
         </p>
-        <div class="strategy-mctx-toolbar">
-          <button type="button" id="strategy-mctx-refresh" class="dialog-btn secondary">刷新 ingest</button>
+
+        <div class="strategy-mctx-live" id="strategy-mctx-live">
+          <div class="strategy-mctx-live-head">
+            <div class="strategy-mctx-live-title-row">
+              <span class="strategy-mctx-kicker">Live</span>
+              <span class="strategy-mctx-live-title">盘前快照</span>
+              <span id="strategy-mctx-fresh-pill" class="strategy-mctx-pill is-muted">—</span>
+              <span id="strategy-mctx-m-pill" class="strategy-mctx-pill is-muted">M 待机</span>
+            </div>
+            <div class="strategy-mctx-live-actions">
+              <canvas
+                class="strategy-mctx-spark"
+                id="strategy-mctx-spark"
+                width="84"
+                height="22"
+                aria-label="海外科技近14日"
+                hidden
+              ></canvas>
+              <button type="button" id="strategy-mctx-refresh" class="dialog-btn secondary strategy-mctx-refresh-btn">
+                刷新 ingest
+              </button>
+            </div>
+          </div>
+          <div class="strategy-mctx-strip" id="strategy-mctx-grid" aria-live="polite">
+            <div class="strategy-mctx-empty">加载盘前上下文…</div>
+          </div>
+          <p id="strategy-mctx-hint" class="strategy-mctx-hint" hidden aria-live="polite"></p>
+          <div id="strategy-mctx-status" class="strategy-mctx-meta" aria-live="polite"></div>
         </div>
-        <p class="strategy-prior-label strategy-mctx-live-label">Live 快照</p>
-        <div class="strategy-mctx-grid" id="strategy-mctx-grid" aria-live="polite">
-          <div class="strategy-mctx-empty">加载盘前上下文…</div>
-        </div>
-        <p id="strategy-mctx-hint" class="strategy-mctx-hint" hidden aria-live="polite"></p>
-        <p id="strategy-mctx-status" class="quant-fingerprint strategy-prior-status" aria-live="polite"></p>
 
         <div class="strategy-mctx-form" id="strategy-mctx-form">
-          <p class="strategy-prior-label">跨市场 prior · 人审写 cross_market.mode</p>
+          <div class="strategy-mctx-form-head">
+            <span class="strategy-mctx-kicker">Config</span>
+            <span class="strategy-mctx-form-title">人审 M prior</span>
+            <span class="strategy-mctx-form-sub">写入 signal_config · 四路独立 mode</span>
+          </div>
+          <p class="strategy-prior-label strategy-mctx-channel-label">
+            <span class="strategy-mctx-channel-id">01</span>
+            跨市场 · <code>cross_market.mode</code>
+          </p>
           <fieldset
             class="strategy-prior-modes strategy-mctx-modes"
             id="strategy-mctx-mode-group"
@@ -383,7 +421,10 @@
           </div>
 
           <div class="strategy-mctx-sent-block" id="strategy-mctx-sent-block">
-            <p class="strategy-prior-label">情绪周期 prior · 人审</p>
+            <p class="strategy-prior-label strategy-mctx-channel-label">
+              <span class="strategy-mctx-channel-id">02</span>
+              情绪周期 · <code>market_sentiment_prior.mode</code>
+            </p>
             <fieldset class="strategy-prior-modes strategy-mctx-modes" aria-label="market_sentiment_prior.mode">
               <label class="strategy-prior-card strategy-mctx-mode-card">
                 <input type="radio" name="strategy-msp-mode" value="off" />
@@ -421,7 +462,10 @@
 
           <div class="strategy-mctx-extra-grid">
             <div class="strategy-mctx-sent-block" id="strategy-mctx-reg-block">
-              <p class="strategy-prior-label">监管 prior · 人审</p>
+              <p class="strategy-prior-label strategy-mctx-channel-label">
+                <span class="strategy-mctx-channel-id">03</span>
+                监管 · <code>regulatory_prior.mode</code>
+              </p>
               <fieldset class="strategy-prior-modes strategy-mctx-modes" aria-label="regulatory_prior.mode">
                 <label class="strategy-prior-card strategy-mctx-mode-card">
                   <input type="radio" name="strategy-reg-mode" value="off" />
@@ -447,7 +491,10 @@
               </div>
             </div>
             <div class="strategy-mctx-sent-block" id="strategy-mctx-ipo-block">
-              <p class="strategy-prior-label">IPO 虹吸 prior · 人审</p>
+              <p class="strategy-prior-label strategy-mctx-channel-label">
+                <span class="strategy-mctx-channel-id">04</span>
+                IPO 虹吸 · <code>ipo_drain_prior.mode</code>
+              </p>
               <fieldset class="strategy-prior-modes strategy-mctx-modes" aria-label="ipo_drain_prior.mode">
                 <label class="strategy-prior-card strategy-mctx-mode-card">
                   <input type="radio" name="strategy-ipo-mode" value="off" />
@@ -480,10 +527,10 @@
 
           <div class="strategy-mctx-merge-row">
             <label class="strategy-prior-field">
-              <span class="strategy-prior-field-title">多 prior 合并</span>
+              <span class="strategy-prior-field-title">多 prior 合并策略</span>
               <select id="strategy-mctx-merge" class="platform-input">
-                <option value="min_scale">min_scale（取最严）</option>
-                <option value="chain">chain（串联）</option>
+                <option value="min_scale">min_scale · 取最严缩仓</option>
+                <option value="chain">chain · 串联乘积</option>
               </select>
             </label>
           </div>

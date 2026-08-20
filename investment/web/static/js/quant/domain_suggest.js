@@ -614,10 +614,7 @@ export function installSuggest(q) {
               run_group_score: true,
               run_pool_merge: true,
               top_n_per_group: 10,
-              refresh_bars: !!(
-                (document.getElementById("quant-cluster-refresh-bars") || {})
-                  .checked
-              ),
+              // 日线：当日首次分组服务端自动强制拉新；同日再跑纯缓存（不再传 refresh_bars）
               // 默认关：研究全因子；勾选=与 live regime 白名单对齐（表里会裁掉许多因子）
               respect_regime: !!(
                 (document.getElementById("quant-cluster-respect-regime") || {})
@@ -732,9 +729,9 @@ export function installSuggest(q) {
           ? " · 非PIT"
           : " · PIT";
       const br = data.bars_refresh || {};
-      const barsTag = data.refresh_bars
-        ? ` · 日线远端 ${br.remote_count ?? 0}/${br.total ?? "—"}`
-        : " · 仅缓存日线";
+      const barsTag = data.force_latest_bars
+        ? ` · 当日首次强制日线 ${br.remote_count ?? 0}/${br.total ?? "—"}`
+        : " · 缓存日线";
       const regimeTag = data.respect_regime ? " · regime裁剪" : " · 全因子";
       const cacheTag = data.cache_hit
         ? ` · 缓存命中${data.cache_age_hours != null ? ` ${data.cache_age_hours}h` : ""}`

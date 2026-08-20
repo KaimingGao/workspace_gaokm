@@ -9,7 +9,6 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.numbers import to_float as _to_float
-from core.market_context_merge import _prune_macro_errors
 from skills.common.history import fetch_us_daily_bars, normalize_bars
 
 logger = logging.getLogger(__name__)
@@ -600,6 +599,9 @@ def build_macro_snapshot(*, lookback: int = 30) -> Dict[str, Any]:
     )
 
     as_of = datetime.now().strftime("%Y-%m-%d")
+    # 延迟导入，避免与 market_context 编排形成热重载半加载 ImportError
+    from core.market_context_merge import prune_macro_errors
+
     return {
         "success": bool(series),
         "as_of": as_of,
@@ -609,6 +611,6 @@ def build_macro_snapshot(*, lookback: int = 30) -> Dict[str, Any]:
         "lead_lag_expected_gap_pct": lead_lag_expected_gap,
         "lead_lag_beta": lead_lag_beta,
         "liquidity_stress_score": liquidity_stress,
-        "errors": _prune_macro_errors(errors, series),
+        "errors": prune_macro_errors(errors, series),
         "note": "跨市场宏观快照；非 PIT，仅供盘前 prior / regime 叠加。",
     }

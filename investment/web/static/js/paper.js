@@ -1332,6 +1332,7 @@ export function initPaper(ctx) {
           key === "market_value" ||
           key === "score" ||
           key === "score_cal" ||
+          key === "residual" ||
           key === "pnl" ||
           key === "chg"
         ) {

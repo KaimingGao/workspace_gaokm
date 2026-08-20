@@ -3,6 +3,7 @@
  */
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
 import { resolveTradeScore, resolveEodScore, resolveEodRemScore, resolveCalTradeScore, fmtTableScore, isHeuristicScoreScale } from "../paper/fmt.js?v=p1132";
+import { formatWatchingResidual } from "./watching_quotes_ui.js";
 
 export function isOosFailedItem(it) {
   if (!it || typeof it !== "object") return false;
@@ -153,6 +154,10 @@ export function buildWatchingInsightsGridPatch(it, row, deps) {
   const scoreEodRemNum = resolveEodRemScore(it);
   const volNum = it.volume != null ? parseWatchingVolume(it.volume) : NaN;
   const prev = row && row.getData ? row.getData() : row || {};
+  const { residualNum, residual, residualCls } = formatWatchingResidual(
+    scoreCalNum,
+    prev.chgNum
+  );
   return {
     score: scoreText,
     scoreNum,
@@ -161,6 +166,10 @@ export function buildWatchingInsightsGridPatch(it, row, deps) {
     scoreCalCls: `${scoreCls(scoreCalNum)}${scoreCalOor ? " is-cal-oor" : ""}`.trim(),
     scoreCalTitle,
     scoreCalOor,
+    residual,
+    residualCls,
+    residualNum,
+    residualTitle: "残差 = 校准 − 涨跌（百分点）；正=校准高于当日涨跌",
     scoreEodNum,
     scoreEodRemNum,
     scoreCls: `${scoreCls(scoreNum)}${singleHead ? " score-single-head" : ""}${

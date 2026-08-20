@@ -270,6 +270,8 @@ function renderMarketContext(ctx) {
         macroErrHint ||
         (macro.a50_1d_pct != null ? `A50 ${fmtPct(macro.a50_1d_pct)}` : "隔夜 · 待 ingest"),
       cls: clsReturn(macro.overseas_tech_1d_pct, 0),
+      tip:
+        "SOX/NDX/QQQ/KWEB 等隔夜均涨跌。越负越利空 A 股科技；下方 A50 为富时 A50 期指近端。不改 ŷ，供跨市场 M prior 触发。",
     },
     {
       label: "Lead-Lag",
@@ -279,6 +281,8 @@ function renderMarketContext(ctx) {
           : "—",
       sub: "预期缺口",
       cls: clsReturn(macro.lead_lag_expected_gap_pct, 0),
+      tip:
+        "海外科技 × 经验 β（约 0.55）得到的开盘缺口粗估，不是收盘涨跌预测。用于跨市场风险提示。",
     },
     {
       label: "情绪周期",
@@ -288,12 +292,16 @@ function renderMarketContext(ctx) {
           ? `炸板 ${(sent.broken_limit_rate * 100).toFixed(0)}%`
           : "涨停溢价",
       cls: clsQuality(sent.sentiment_cycle_score, 50),
+      tip:
+        "市场情绪温度（周期分）。炸板率=涨停后开板比例，偏高表示跟风脆弱。对应 market_sentiment_prior，不改 ŷ。",
     },
     {
       label: "监管降温",
       value: regulatory.active ? `${regulatory.count || 0} 条` : "—",
       sub: penaltySub,
       cls: regulatory.active || flags.regulatory ? "is-bad" : "",
+      tip:
+        "盘前抓取的监管/处罚类公告条数；副文案为命中概念。对应 regulatory_prior，可在调仓时缩仓或警告。",
     },
     {
       label: "Regime",
@@ -305,12 +313,16 @@ function renderMarketContext(ctx) {
             }`
           : (regimeSnap.reason || "—").slice(0, 28),
       cls: regimeCls(regimeSnap.regime),
+      tip:
+        "按基准近端涨跌划分熊/弱/中/强/牛，影响因子权重环境。overlay→M 表示科技拖累已交给跨市场 prior，避免与 Regime 双重惩罚。",
     },
     {
       label: "Prior",
       value: priorActive,
       sub: (ctx.prior_warnings || []).slice(0, 1).join("") || "M 层",
       cls: flags.any_active ? "is-bad" : "",
+      tip:
+        "M 层 prior（跨市场/情绪/监管/IPO）是否触发。激活时调仓可缩仓或禁买；ŷ 排名轴不变。副文案为当前警告摘要。",
     },
     {
       label: "IPO 虹吸",
@@ -322,27 +334,31 @@ function renderMarketContext(ctx) {
             : "—",
       sub: ipo.ipo_today_count ? `${ipo.ipo_today_count} 只新股` : "今日",
       cls: ipo.extreme_ipo_day ? "is-bad" : "",
+      tip:
+        "今日新股对流动性的虹吸压力。比值或「极端」偏高时，ipo_drain_prior 可能在调仓时缩仓。不改 ŷ。",
     },
     {
       label: "快照",
       value: freshLabel,
       sub: ctx.computed_at ? ctx.computed_at.slice(0, 16) : "—",
       cls: stale,
+      tip:
+        "盘前上下文最近一次计算/展示时间。需刷新时请点「刷新 ingest」或等 paper_daily 自动拉取（过期约 18h）。非盘中 tick。",
     },
   ];
 
   host.innerHTML = `
     <div class="dashboard-market-context-band ${stale}">
       <div class="dashboard-market-context-head">
-        <span class="dashboard-market-context-title">盘前上下文</span>
+        <span class="dashboard-market-context-title" title="盘前 macro / 情绪 / 公告快照。用于 M prior 与 Regime 环境判断；不预测当日大盘收盘，不改 ŷ。">盘前上下文</span>
         ${
           (ctx.macro_sparkline || []).length >= 2
-            ? `<canvas class="dashboard-mctx-spark" id="dashboard-mctx-spark" width="72" height="22" aria-label="海外科技近14日"></canvas>`
+            ? `<canvas class="dashboard-mctx-spark" id="dashboard-mctx-spark" width="72" height="22" aria-label="海外科技近14日" title="海外科技近14日走势"></canvas>`
             : ""
         }
         ${
           showIngestBtn
-            ? `<button type="button" class="dialog-btn secondary dashboard-market-context-refresh" id="dashboard-context-refresh">刷新 ingest</button>`
+            ? `<button type="button" class="dialog-btn secondary dashboard-market-context-refresh" id="dashboard-context-refresh" title="重新拉取 macro / 情绪 / 公告快照">刷新 ingest</button>`
             : ""
         }
       </div>
@@ -350,7 +366,7 @@ function renderMarketContext(ctx) {
         ${cards
           .map(
             (c) => `
-          <div class="dashboard-market-context-card ${c.cls || ""}">
+          <div class="dashboard-market-context-card ${c.cls || ""}" title="${escapeHtml(c.tip || "")}">
             <span class="dashboard-market-context-label">${escapeHtml(c.label)}</span>
             <span class="dashboard-market-context-value">${escapeHtml(String(c.value))}</span>
             <span class="dashboard-market-context-sub">${escapeHtml(c.sub || "")}</span>

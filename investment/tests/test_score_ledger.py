@@ -494,6 +494,38 @@ class TestScoreLedger(unittest.TestCase):
             self.assertFalse(led.get("empty"))
             self.assertEqual(led["meta"].get("feature_as_of"), "2026-08-11")
             self.assertTrue(load_ledger("2026-08-12").get("empty"))
+            self.assertIsNone(out.get("skipped_newer"))
+
+    def test_freeze_reports_skipped_newer_when_bars_lag(self):
+        from core.score_ledger import freeze_from_cluster_book
+
+        book = {
+            "updated_at": "2026-08-18T07:00:00Z",
+            "book": [
+                {
+                    "stock_code": "600519",
+                    "predicted_score": 1.5,
+                    "cluster_label": "G1",
+                }
+            ],
+            "meta": {"version": 1},
+        }
+        with self._patch_dir(), patch(
+            "core.score_ledger.resolve_freeze_as_of",
+            return_value={
+                "as_of": "2026-08-18",
+                "session_date": "2026-08-20",
+                "prev_trading_day": "2026-08-19",
+                "feature_as_of": "2026-08-18",
+                "requested_as_of": None,
+                "remapped": False,
+                "note": "按因子截止日 2026-08-18 冻结",
+            },
+        ):
+            out = freeze_from_cluster_book(book_doc=book)
+            self.assertTrue(out["success"])
+            self.assertEqual(out["as_of"], "2026-08-18")
+            self.assertEqual(out.get("skipped_newer"), "2026-08-19")
 
     def test_freeze_prefers_scored_all_universe_with_in_book(self):
         from core.score_ledger import (

@@ -2111,11 +2111,13 @@ body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react
   color: var(--ink-2);
 }
 
-/* 交易执行 · 浮盈亏 / 当日涨跌红绿（虚拟表 span + 原生表 td） */
+/* 交易执行 · 浮盈亏 / 当日涨跌 / 残差红绿（虚拟表 span + 原生表 td） */
 .paper-holdings-react-grid .paper-hold-pnl.up,
 .paper-holdings-table .paper-hold-pnl.up,
 .paper-holdings-react-grid .paper-hold-chg.up,
-.paper-holdings-table .paper-hold-chg.up {
+.paper-holdings-table .paper-hold-chg.up,
+.paper-holdings-react-grid .paper-hold-residual.up,
+.paper-holdings-table .paper-hold-residual.up {
   color: var(--color-up, #c62828);
   font-weight: 600;
 }
@@ -2123,7 +2125,9 @@ body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react
 .paper-holdings-react-grid .paper-hold-pnl.down,
 .paper-holdings-table .paper-hold-pnl.down,
 .paper-holdings-react-grid .paper-hold-chg.down,
-.paper-holdings-table .paper-hold-chg.down {
+.paper-holdings-table .paper-hold-chg.down,
+.paper-holdings-react-grid .paper-hold-residual.down,
+.paper-holdings-table .paper-hold-residual.down {
   color: var(--color-down, #2e7d32);
   font-weight: 600;
 }

@@ -430,6 +430,11 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
         )}" title="${escapeHtml(
           d.scoreCalTitle || "g(ŷ_trade) 对照 · 不进决策"
         )}">${escapeHtml(String(d.scoreCal ?? "—"))}</td>` +
+        `<td class="num watching-col-num watching-residual${
+          d.residualCls ? " " + escapeHtml(d.residualCls) : ""
+        }" data-q="residual" title="${escapeHtml(
+          d.residualTitle || "残差 = 校准 − 涨跌"
+        )}">${escapeHtml(String(d.residual ?? "—"))}</td>` +
         `<td data-q="stance">${escapeHtml(String(d.stance ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="excess">${escapeHtml(String(d.excess ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="vol">${escapeHtml(String(d.vol ?? "—"))}</td>` +
@@ -446,7 +451,9 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
     `<th>股票</th><th>仓位</th><th>情绪</th><th class="watching-col-num">现价</th>` +
     `<th class="watching-col-num">开盘价</th>` +
     `<th class="watching-col-num">涨跌</th><th class="watching-col-num">评分</th>` +
-    `<th class="watching-col-num" title="g(ŷ_trade) 对照 · 不进决策">校准</th><th>倾向</th>` +
+    `<th class="watching-col-num" title="g(ŷ_trade) 对照 · 不进决策">校准</th>` +
+    `<th class="watching-col-num" title="残差 = 校准 − 涨跌（百分点）">残差</th>` +
+    `<th>倾向</th>` +
     `<th class="watching-col-num">超额</th><th class="watching-col-num">量</th>` +
     `<th class="watching-col-num">量比</th><th class="watching-col-num">PE</th><th class="watching-col-num">PB</th>` +
     `</tr></thead><tbody>${body}</tbody></table></div>`;
@@ -509,6 +516,10 @@ export function buildWatchingWatchRows(wl, names, paperCodes, scores, deps) {
       scoreCalNum: null,
       scoreCalCls: "",
       scoreCalTitle: "暂无 g(ŷ) 映射（拟合并写入 live 后可见）",
+      residual: "—",
+      residualNum: null,
+      residualCls: "",
+      residualTitle: "残差 = 校准 − 涨跌（百分点）；正=校准高于当日涨跌",
       stance: "…",
       excess: "…",
       excessNum: null,

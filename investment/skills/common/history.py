@@ -403,6 +403,8 @@ def fetch_daily_bars(
     adjust：qfq|raw|hfq（写入缓存 adjust_policy；与请求不一致则跳过缓存防混用）。
     offline_ok=True：本地有足够 bars 时直接返回（可过期），不打远端——研究分组用。
     offline_only=True：只读缓存（含过期），不够也不打远端；批量回测先扫盘再用进程池补缺。
+    cache_max_age_hours<=0：不因「条数够」短路返回；把本地当 existing，配合
+    incremental 走缺口拉网（末根已到今天则仍可 skip_remote）。用于强制刷新到最新。
     """
     from core.store import (
         code_refresh_lock,
@@ -425,6 +427,8 @@ def fetch_daily_bars(
         "true",
         "yes",
     )
+    # <=0：强制刷新语义（不短路命中缓存）；store 侧 max_age<=0 本就忽略年龄
+    force_refresh = float(cache_max_age_hours or 0) <= 0
     existing: List[dict] = []
     cached_src = "cache"
     if use_cache and not disable_cache:
@@ -439,24 +443,8 @@ def fetch_daily_bars(
             policy == "qfq" and cached_adj in ("qfq", "cached", "")
         )
         if cache_ok:
-            cached = load_daily_cache(
-                market,
-                code,
-                min_bars=min(5, limit),
-                max_age_hours=cache_max_age_hours,
-            )
-            if cached:
-                bars, meta = cached
-                src = meta.get("data_source") or "cache"
-                if src and not str(src).startswith("cache:"):
-                    src = f"cache:{src}"
-                cached_src = str(src)
-                if len(bars) >= limit:
-                    trimmed = bars[-limit:] if limit and len(bars) > limit else bars
-                    return trimmed, str(src)
-                existing = list(bars)
-
-            if (incremental or offline_ok) and not existing:
+            if force_refresh:
+                # 强制刷新：直接读盘作 existing，再走增量远端
                 stale = load_daily_cache(
                     market,
                     code,
@@ -467,6 +455,35 @@ def fetch_daily_bars(
                 if stale:
                     existing = list(stale[0] or [])
                     cached_src = "cache:stale"
+            else:
+                cached = load_daily_cache(
+                    market,
+                    code,
+                    min_bars=min(5, limit),
+                    max_age_hours=cache_max_age_hours,
+                )
+                if cached:
+                    bars, meta = cached
+                    src = meta.get("data_source") or "cache"
+                    if src and not str(src).startswith("cache:"):
+                        src = f"cache:{src}"
+                    cached_src = str(src)
+                    if len(bars) >= limit:
+                        trimmed = bars[-limit:] if limit and len(bars) > limit else bars
+                        return trimmed, str(src)
+                    existing = list(bars)
+
+                if (incremental or offline_ok) and not existing:
+                    stale = load_daily_cache(
+                        market,
+                        code,
+                        min_bars=1,
+                        max_age_hours=0,
+                        ignore_age=True,
+                    )
+                    if stale:
+                        existing = list(stale[0] or [])
+                        cached_src = "cache:stale"
 
     # 研究路径：本地够用就不打 AkShare（避免 100 票并行挂死）
     min_offline = max(20, min(int(limit or 30), 40))

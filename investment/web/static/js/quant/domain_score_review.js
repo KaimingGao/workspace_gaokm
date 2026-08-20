@@ -594,6 +594,15 @@ export function installScoreReview(ctx) {
     wrap.hidden = false;
     const cur = readAsOf() || data.default_as_of || "";
     if (!readAsOf() && cur) selectedAsOf = cur;
+    const freezeBtn = document.getElementById("quant-score-ledger-freeze");
+    if (freezeBtn) {
+      const cal = String(data.calendar_as_of || "").trim();
+      const dates = Array.isArray(data.dates) ? data.dates.map(String) : [];
+      freezeBtn.title =
+        cal && dates.length && !dates.includes(cal)
+          ? `按因子截止日冻结。上一交易日 ${cal} 尚无账本；日线未齐时会覆盖已有截止日，看起来像没变化`
+          : "按因子截止日冻结分池簿 ŷ（通常为上一交易日；收盘后日线齐才可能是今日）";
+    }
     row.innerHTML = entries
       .map((e) => {
         const asOf = String(e.as_of || "").trim();
@@ -842,51 +851,86 @@ export function installScoreReview(ctx) {
     return runReview({ autofill: false });
   }
 
-  async function freezeLedger() {
-    setStatus("冻结打分中…", { busy: true });
-    // as_of=null：后端按因子截止日解析，避免会话日空标签
-    const res = await fetch("/api/quant/score-ledger/freeze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ as_of: null }),
-    });
-    const data = await res.json().catch(() => ({}));
-    if (!res.ok) throw new Error(data.detail || res.statusText);
-    const freezeAsOf = data.as_of || "";
-    const resolveNote =
-      (data.resolve && data.resolve.note) || data.note || "";
-    let reviewAsOf = null;
-    try {
-      const pack = await loadLedgerIndex();
-      reviewAsOf = pack.default_as_of || pack.safe_as_of || null;
-    } catch (_) {
-      /* ignore */
+  function freezeSkippedNote(data) {
+    const freezeAsOf = String((data && data.as_of) || "").trim();
+    const resolve = (data && data.resolve) || {};
+    const skipped = String(
+      (data && data.skipped_newer) || resolve.prev_trading_day || ""
+    ).trim();
+    const feature = String(resolve.feature_as_of || freezeAsOf || "").trim();
+    if (skipped && freezeAsOf && skipped > freezeAsOf) {
+      return `${skipped} 未冻（日线未齐，因子截止 ${feature || freezeAsOf}）`;
     }
-    if (reviewAsOf) setAsOf(reviewAsOf);
-    setStatus(
-      `已冻结 ${data.n_rows ?? 0} 只（决策日 ${freezeAsOf || "—"}）` +
-        (resolveNote ? ` · ${resolveNote}` : "") +
-        (reviewAsOf && reviewAsOf !== freezeAsOf
-          ? ` · 复盘改用 ${reviewAsOf}`
-          : ""),
-      { ok: true }
-    );
-    const out = await runReview({ autofill: true });
-    if (setQuantMeta && freezeAsOf) {
-      const s = (out && out.summary) || {};
-      if (s.hit_rate != null) {
-        setQuantMeta(
-          `已冻结 ${freezeAsOf} · 复盘 ${out.as_of || reviewAsOf || ""} · 命中 ${(Number(s.hit_rate) * 100).toFixed(0)}%`,
-          { busy: false, error: false }
-        );
-      } else if (Number(s.data_thin || 0) > 0) {
-        setQuantMeta(
-          `已冻结 ${freezeAsOf}（${data.n_rows ?? 0} 只）· 复盘日线未覆盖 as_of+h，请选更早决策日`,
-          { busy: false, error: false }
-        );
+    return "";
+  }
+
+  async function freezeLedger() {
+    const freezeBtn = document.getElementById("quant-score-ledger-freeze");
+    if (freezeBtn) {
+      freezeBtn.disabled = true;
+      freezeBtn.setAttribute("aria-busy", "true");
+    }
+    setStatus("冻结打分中…", { busy: true });
+    try {
+      // as_of=null：后端按因子截止日解析，避免会话日空标签
+      const res = await fetch("/api/quant/score-ledger/freeze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ as_of: null }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.detail || res.statusText);
+      const freezeAsOf = String(data.as_of || "").trim();
+      const resolveNote =
+        (data.resolve && data.resolve.note) || data.note || "";
+      const skippedNote = freezeSkippedNote(data);
+      // 停在实际冻到的决策日，不要跳回「已回填默认日」（会看起来像没冻）
+      if (freezeAsOf) setAsOf(freezeAsOf);
+      try {
+        await loadLedgerIndex();
+      } catch (_) {
+        /* ignore */
+      }
+      const freezeHead =
+        `已冻结 ${data.n_rows ?? 0} 只 · 决策日 ${freezeAsOf || "—"}` +
+        (skippedNote
+          ? ` · ${skippedNote}`
+          : resolveNote
+            ? ` · ${resolveNote}`
+            : "");
+      setStatus(freezeHead, { ok: true, error: !!skippedNote });
+      if (setQuantMeta) {
+        setQuantMeta(freezeHead, { busy: true, error: !!skippedNote });
+      }
+      // 刚冻的日子可能还没 outcomes；禁止 thin-fallback 偷偷切走
+      const out = await runReview({
+        autofill: true,
+        allowThinFallback: false,
+      });
+      const reviewLine =
+        document.getElementById("quant-score-review-status")?.textContent ||
+        "";
+      const keepFreeze =
+        reviewLine && !reviewLine.startsWith("已冻结")
+          ? `${freezeHead} · ${reviewLine}`
+          : freezeHead;
+      setStatus(keepFreeze, {
+        ok: !skippedNote && !!(out && out.summary && out.summary.hit_rate != null),
+        error: !!skippedNote || !!(out && out.empty),
+      });
+      if (setQuantMeta) {
+        setQuantMeta(keepFreeze, {
+          busy: false,
+          error: !!skippedNote || !!(out && out.empty),
+        });
+      }
+      return out;
+    } finally {
+      if (freezeBtn) {
+        freezeBtn.disabled = false;
+        freezeBtn.removeAttribute("aria-busy");
       }
     }
-    return out;
   }
 
   function jumpRefit() {
