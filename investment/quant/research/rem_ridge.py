@@ -1,4 +1,4 @@
-"""剩余收益头 Ridge：Z 上拟合 open→close；与 ŷ_EOD_rem 正交后加权成 ŷ_trade。"""
+"""剩余收益头 Ridge：Z 上拟合 open→close；与 ŷ_EOD 正交后（缺口∘ŷ_τ）加权成 ŷ_trade。"""
 
 from __future__ import annotations
 
@@ -398,7 +398,7 @@ def fit_rem_ridge_report(
         "formula": y_formula,
         "unit": "pct",
         "tau": tau_key,
-        "note": "Z-only τ→close；与 ŷ_EOD_rem 正交加权成 ŷ_trade",
+        "note": "Z-only τ→close；live 与 ŷ_EOD 正交加权成 ŷ_trade（缺口∘ŷ_τ）",
     }
     model["extra_features"] = list(REM_Z_FEATURES)
 
@@ -508,7 +508,7 @@ def persist_rem_model(report: Dict[str, Any], *, note: str = "") -> Dict[str, An
         "y_spec": y_spec,
         "y_spec_tau": y_spec,
         "dual_score_head": "predicted_score_tau",
-        "contract_note": "ŷ_τ(Z) 估 open→close；live 与 ŷ_EOD_rem 加权融合；不覆盖 EOD predicted_score。",
+        "contract_note": "ŷ_τ(Z) 估 open→close；live 与 ŷ_EOD 加权融合（缺口∘ŷ_τ）；不覆盖 EOD predicted_score。",
     }
     path = rem_model_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)

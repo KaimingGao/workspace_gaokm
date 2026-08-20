@@ -26,6 +26,15 @@ class TestVirtualTableContract(unittest.TestCase):
             text = f.read()
         self.assertIn("VIRTUAL_TABLE_ROW_BUDGET", text)
         self.assertIn("500", text)
+        self.assertIn("点击排序", text)
+        self.assertIn("col.title", text)
+
+    def test_residual_pairs_trade_with_day_change(self):
+        path = os.path.join(ROOT, "web/static/js/quant/watching_quotes_ui.js")
+        with open(path, encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("trade − 涨跌", text)
+        self.assertIn("ŷ_trade", text)
 
 
 class TestCoreGoldenPaths(unittest.TestCase):

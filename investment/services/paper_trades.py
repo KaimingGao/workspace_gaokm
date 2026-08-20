@@ -253,6 +253,12 @@ def _rebalance_report_from_legs(
                     "predicted_score_eod_rem",
                     "predicted_score_tau",
                     "predicted_score_blend",
+                    "predicted_score_nowcast",
+                    "nowcast_vs",
+                    "nowcast_as_of",
+                    "nowcast_K",
+                    "nowcast_q",
+                    "nowcast_x_prior",
                 ):
                     if k in src:
                         row_out[k] = src.get(k)

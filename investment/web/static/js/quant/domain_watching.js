@@ -2,30 +2,32 @@ import { apiFetch } from "../api_client.js";
 import { renderLineChart } from "../lw_charts.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import { mountVirtualTable, colStyle } from "../virtual_table.js";
-import { fmtScore, scoreCls, resolveTradeScore, resolveEodScore, resolveEodRemScore } from "../paper/fmt.js?v=p1128";
+import { fmtScore, scoreCls, resolveTradeScore, resolveEodScore } from "../paper/fmt.js?v=p1226";
 import { truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode } from "./names.js";
 import { renderWatchingHoldings as renderWatchingHoldingsHtml } from "./watching_holdings.js";
 import { buildWatchingDqMetaText, buildWatchingDqFoldSummary, buildWatchingDqTableHtml } from "./watching_dq_ui.js";
-import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p1108";
+import { watchingScoreDetail, sentimentBadgeHtml, renderWatchingBuildPlan as renderWatchingBuildPlanHtml, renderWatchingWatchTableFallback, buildWatchingWatchRows, buildWatchingNewsTitleHtml, buildWatchingNewsMetaText, buildWatchingNewsListHtml, WATCHING_NEWS_AI_LOADING_HTML, buildWatchingNewsAiAnalysisHtml, buildWatchingNewsAiErrorHtml, describeWatchingSource, matchWatchlistSource, truncateText, sentimentLabelZh, shortOriginLabel } from "./watching_render.js?v=p1221";
 import {
   buildWatchingScoreDisplay,
   buildWatchingInsightsGridPatch,
   buildWatchingScoreCellHtml,
   buildWatchingCalScoreCellHtml,
+  buildWatchingNowcastScoreCellHtml,
   buildWatchingInsightsStatusText,
   buildWatchingInsightsErrorStatus,
   buildWatchingInsightsGridErrorPatch,
   buildWatchingInsightsNativeFields,
   isOosFailedItem,
   oosFailedBadgeHtml,
-} from "./watching_insights_ui.js?v=p1132";
+} from "./watching_insights_ui.js?v=p1221";
 import {
   parseWatchingVolume,
   formatWatchingChg,
   buildWatchingQuoteGridPatch,
   buildWatchingQuotesStatusText,
   buildWatchingQuotesErrorStatus,
-} from "./watching_quotes_ui.js?v=p910";
+  withQuoteGap,
+} from "./watching_quotes_ui.js?v=p1221";
 import {
   watchingBuildInvalidTip,
   watchingBuildTitleText,
@@ -45,10 +47,19 @@ import {
   applyWatchingPanelShell,
   watchingChartSeriesFromPoints,
   watchingChartLabelText,
-} from "./watching_panel_ui.js?v=p1061";
+} from "./watching_panel_ui.js?v=p1221";
 
 const WATCHING_SORT_STORAGE = "watching_table_sort_v1";
-const WATCHING_SORT_KEYS = new Set(["name", "chg", "score", "excess", "vol"]);
+const WATCHING_SORT_KEYS = new Set([
+  "name",
+  "chg",
+  "score",
+  "score_cal",
+  "score_nowcast",
+  "residual",
+  "excess",
+  "vol",
+]);
 const Q_COLORS = ["#9ca3af", "#93c5fd", "#60a5fa", "#34d399", "#059669", "#047857", "#065f46"];
 
 /** Quant domain: watching */
@@ -73,7 +84,6 @@ export function installWatching(q) {
       const it = insightBy[watchingCodeKey(code)] || row;
       return {
         scoreEod: resolveEodScore(it) ?? resolveEodScore(row),
-        scoreEodRem: resolveEodRemScore(it) ?? resolveEodRemScore(row),
       };
     };
     const out = [];
@@ -107,7 +117,6 @@ export function installWatching(q) {
         "";
       const row = {
         scoreEodNum: Number(tr.dataset.scoreEod),
-        scoreEodRemNum: Number(tr.dataset.scoreEodRem),
       };
       out.push({
         code,
@@ -209,15 +218,10 @@ export function installWatching(q) {
         eodMu: null,
         eodMed: null,
         eodN: null,
-        eodRemMu: null,
-        eodRemMed: null,
-        eodRemN: null,
       });
       const metaEod = document.getElementById("watching-yhat-hist-meta-eod");
-      const metaEodRem = document.getElementById("watching-yhat-hist-meta-eod-rem");
       if (meta) meta.textContent = "";
       if (metaEod) metaEod.textContent = "";
-      if (metaEodRem) metaEodRem.textContent = "";
       return;
     }
     wrap.hidden = false;
@@ -239,7 +243,6 @@ export function installWatching(q) {
           items.map((it) => it.scoreEod),
           { buyFloor: floorsBuy }
         );
-        const eodRemPack = summarizeScores(items.map((it) => it.scoreEodRem));
         const pos =
           pack.pct_pos != null
             ? `ŷ_trade>0 ${(pack.pct_pos * 100).toFixed(0)}%`
@@ -266,10 +269,6 @@ export function installWatching(q) {
             buy: true,
           });
         }
-        const metaEodRem = document.getElementById("watching-yhat-hist-meta-eod-rem");
-        if (metaEodRem) {
-          metaEodRem.textContent = formatYhatLayerMeta("ŷ_EOD_rem", eodRemPack);
-        }
         applyWatchingOverviewKpis({
           buyPct: eodPack.n ? eodPack.pct_above_buy : null,
           mu: pack.mean,
@@ -278,9 +277,6 @@ export function installWatching(q) {
           eodMu: eodPack.mean,
           eodMed: eodPack.median,
           eodN: eodPack.n || null,
-          eodRemMu: eodRemPack.mean,
-          eodRemMed: eodRemPack.median,
-          eodRemN: eodRemPack.n || null,
         });
       }
     });
@@ -606,13 +602,18 @@ export function installWatching(q) {
               escapeHtml
             );
           }
+          const scoreNowcastEl = tr.querySelector(`[data-q='score_nowcast']`);
+          if (scoreNowcastEl) {
+            scoreNowcastEl.innerHTML = buildWatchingNowcastScoreCellHtml(
+              disp,
+              scoreCls,
+              escapeHtml
+            );
+          }
           const eod = resolveEodScore(it);
-          const eodRem = resolveEodRemScore(it);
           if (disp.scoreNum != null) tr.dataset.score = String(disp.scoreNum);
           if (eod != null) tr.dataset.scoreEod = String(eod);
           else delete tr.dataset.scoreEod;
-          if (eodRem != null) tr.dataset.scoreEodRem = String(eodRem);
-          else delete tr.dataset.scoreEodRem;
           const fields = buildWatchingInsightsNativeFields(it);
           setTxt("stance", fields.stance);
           setTxt("excess", fields.excess);
@@ -753,6 +754,7 @@ export function installWatching(q) {
       const firstCodes = codes.slice(0, FIRST_BATCH);
       const restCodes = codes.slice(FIRST_BATCH);
       let totalOk = 0;
+      const insightDeps = { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail };
       const applyQuoteBatch = (items) => {
         const byCode = indexByWatchingCode(items || []);
         codes.forEach((code) => {
@@ -760,7 +762,19 @@ export function installWatching(q) {
           if (!it.stock_code) return;
           const row = state.watchingGrid.getRow(code);
           if (!row) return;
-          row.update(buildWatchingQuoteGridPatch(it, row, parseWatchingVolume));
+          const insight = (state.watchingInsightByCode || {})[watchingCodeKey(code)];
+          const quotePatch = buildWatchingQuoteGridPatch(it, row, parseWatchingVolume);
+          if (insight && insight.stock_code) {
+            const merged = withQuoteGap(insight, it);
+            const scorePatch = buildWatchingInsightsGridPatch(
+              merged,
+              { getData: () => ({ ...(row.getData() || {}), ...quotePatch }) },
+              insightDeps
+            );
+            row.update({ ...quotePatch, ...scorePatch });
+          } else {
+            row.update(quotePatch);
+          }
         });
         return (items || []).filter((x) => x.ok).length;
       };
@@ -1116,9 +1130,6 @@ export function installWatching(q) {
         eodMu: null,
         eodMed: null,
         eodN: null,
-        eodRemMu: null,
-        eodRemMed: null,
-        eodRemN: null,
       });
       const watchTable = document.getElementById("watching-watchlist-table");
       if (state.watchingGrid && typeof state.watchingGrid.destroy === "function") {
@@ -1668,9 +1679,6 @@ export function installWatching(q) {
         eodMu: null,
         eodMed: null,
         eodN: null,
-        eodRemMu: null,
-        eodRemMed: null,
-        eodRemN: null,
       });
     }
   }

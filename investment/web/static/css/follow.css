@@ -489,7 +489,7 @@
 
 .follow-page .rebalance-table {
   /* 股票吃左侧；后列定宽靠右；列间距适中 */
-  --rebalance-cols: minmax(7rem, 1fr) 4.25rem 4.5rem 4.5rem 6.25rem 3.5rem 4.75rem;
+  --rebalance-cols: minmax(7rem, 1fr) 4.25rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem 4.75rem;
   font-size: 0.78rem;
 }
 
@@ -1070,7 +1070,10 @@
 
 .paper-holdings-table .paper-hold-score.watching-score-cal,
 .paper-holdings-react-grid .paper-hold-score.watching-score-cal,
-.bt-trade-score.watching-score-cal {
+.bt-trade-score.watching-score-cal,
+.paper-holdings-table .paper-hold-score.watching-score-nowcast,
+.paper-holdings-react-grid .paper-hold-score.watching-score-nowcast,
+.bt-trade-score.watching-score-nowcast {
   font-weight: 500;
   opacity: 0.82;
 }

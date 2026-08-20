@@ -282,21 +282,28 @@ export function installScoreReview(ctx) {
     const vs = nc.vs_eod || {};
     const j =
       vs.jaccard != null ? Number(vs.jaccard).toFixed(2) : "—";
+    const ov =
+      vs.overlap != null
+        ? `${vs.overlap}/${vs.n_a ?? "—"}∩${vs.n_b ?? "—"}`
+        : "";
     const n = nc.nowcast_n != null ? String(nc.nowcast_n) : "—";
+    const shadowNote = nc.shadow_exists
+      ? `<span>影子簿 ${esc(String(nc.shadow_n ?? "—"))} 只</span>`
+      : vs.jaccard != null
+        ? `<span class="quant-attr-note">无成员快照 · 重叠按当日账本 Top-K 估</span>`
+        : `<span class="quant-attr-note">无 nowcast 影子成员快照</span>`;
     box.hidden = false;
     box.innerHTML =
-      `<div class="quant-metric-strip quant-tau-strip" title="N3：ŷ_nowcast vs 剩余收益；Nordhaus≈0 才考虑升主排序">` +
+      `<div class="quant-metric-strip quant-tau-strip" title="N3：ŷ_nowcast vs 涨跌（昨收口径，同 ŷ_trade）；Nordhaus≈0 才考虑升主排序">` +
       `<span><b>ŷ_nowcast</b> 验收</span>` +
       `<span>IC <b>${esc(ic)}</b> (n=${esc(n)})</span>` +
       `<span>命中 <b>${esc(hit)}</b></span>` +
       `<span>Nordhaus <b>${esc(nord)}</b></span>` +
-      `<span>影子重叠 Jaccard <b>${esc(j)}</b></span>` +
-      (nc.shadow_exists
-        ? `<span>影子簿 ${esc(String(nc.shadow_n ?? "—"))} 只</span>`
-        : `<span class="quant-attr-note">无 nowcast 影子成员快照</span>`) +
+      `<span>影子重叠 Jaccard <b>${esc(j)}</b>${ov ? ` · ${esc(ov)}` : ""}</span>` +
+      shadowNote +
       `</div>` +
       `<p class="quant-attr-note">标签 ${esc(
-        String(nc.y_spec_nowcast || "close[T]/price[τ]-1")
+        String(nc.y_spec_nowcast || "close[T]/close[T-1]−1（与 ŷ_trade / 涨跌同一口径）")
       )} · 影子对照 · 默认不改主排序</p>`;
   }
 

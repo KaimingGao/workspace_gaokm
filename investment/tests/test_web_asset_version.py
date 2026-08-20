@@ -26,14 +26,14 @@ class TestAssetVersionInjection(unittest.TestCase):
                 text = f.read()
             self.assertIn("{{ASSET_V}}", text)
             self.assertIn("window.__ASSET_V__", text)
-            self.assertNotRegex(text, r"styles\.css\?v=p\d+")
+            self.assertNotRegex(text, r"tokens\.css\?v=p\d+")
 
     def test_render_replaces_asset_v(self):
         from web.asset_version import ASSET_V
         from web.page_html import render_chat_html, render_tool_html
 
         chat = render_chat_html()
-        self.assertIn(f"styles.css?v={ASSET_V}", chat)
+        self.assertIn(f"tokens.css?v={ASSET_V}", chat)
         self.assertIn(f'window.__ASSET_V__ = "{ASSET_V}"', chat)
         self.assertNotIn("{{ASSET_V}}", chat)
 

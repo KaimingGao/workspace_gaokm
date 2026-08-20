@@ -32,7 +32,7 @@ def read_dual_score_public() -> Dict[str, Any]:
         "minute_tau_hm": cfg.get("minute_tau_hm"),
         "nowcast": cfg.get("nowcast"),
         "y_spec": cfg.get("y_spec"),
-        "note": "簿排序用 ŷ_trade=w·ŷ_EOD_rem+w·ŷ_τ；主 score 仍 EOD；ŷ_nowcast 为 Kalman 影子；买入另过 τ 闸",
+        "note": "簿排序用 ŷ_trade=w·ŷ_EOD+w·(缺口∘ŷ_τ)；主 score 仍 EOD；ŷ_nowcast 为 Kalman 影子；买入另过 τ 闸",
     }
 
 

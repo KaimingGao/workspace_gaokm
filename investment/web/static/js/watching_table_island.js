@@ -10,6 +10,7 @@ function numSortKey(row, key) {
 function compare(id, a, b) {
   if (id === "score") return numSortKey(a, "scoreNum") - numSortKey(b, "scoreNum");
   if (id === "score_cal") return numSortKey(a, "scoreCalNum") - numSortKey(b, "scoreCalNum");
+  if (id === "score_nowcast") return numSortKey(a, "scoreNowcastNum") - numSortKey(b, "scoreNowcastNum");
   if (id === "residual") return numSortKey(a, "residualNum") - numSortKey(b, "residualNum");
   if (id === "vol") return numSortKey(a, "volNum") - numSortKey(b, "volNum");
   if (id === "excess") return numSortKey(a, "excessNum") - numSortKey(b, "excessNum");
@@ -23,21 +24,64 @@ function compare(id, a, b) {
 /** 短文案列居中；数值列略宽；轨道由 virtual_table grid-template 统一 */
 const COLS = [
   // 固定 px：双栏缩窄时 % 列会小于「首列 18px 内边距 + checkbox」，溢到股票列上无法点击
-  { id: "picked", label: "", width: 42, headClass: "watching-pick-cell", cellClass: "watching-pick-cell" },
-  { id: "name", label: "股票", flex: true, sortable: true, cellClass: "watching-stock" },
-  { id: "paper", label: "仓位", widthPct: 6, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  { id: "sent", label: "情绪", widthPct: 4.5, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  { id: "price", label: "现价", widthPct: 6.5, num: true },
+  {
+    id: "picked",
+    label: "",
+    width: 42,
+    headClass: "watching-pick-cell",
+    cellClass: "watching-pick-cell",
+    title: "勾选后可加入模拟持仓",
+  },
+  { id: "name", label: "股票", flex: true, sortable: true, cellClass: "watching-stock", title: "股票名称与代码" },
+  {
+    id: "paper",
+    label: "仓位",
+    widthPct: 6,
+    headClass: "watching-col-center",
+    cellClass: "watching-col-center",
+    title: "是否已在模拟持仓",
+  },
+  {
+    id: "sent",
+    label: "情绪",
+    widthPct: 4.5,
+    headClass: "watching-col-center",
+    cellClass: "watching-col-center",
+    title: "标题情绪摘要",
+  },
+  { id: "price", label: "现价", widthPct: 6.5, num: true, title: "最新成交价" },
   { id: "open", label: "开盘价", widthPct: 6.5, num: true, title: "当日开盘价" },
-  { id: "chg", label: "涨跌", widthPct: 6.5, num: true, sortable: true },
-  { id: "score", label: "评分", widthPct: 6, num: true, sortable: true, title: "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ" },
+  {
+    id: "chg",
+    label: "涨跌",
+    widthPct: 6.5,
+    num: true,
+    sortable: true,
+    title: "相对昨收的涨跌幅 %。与 EOD / ŷ_trade 同一口径"
+  },
   {
     id: "score_cal",
-    label: "校准",
+    label: "EOD",
     widthPct: 6,
     num: true,
     sortable: true,
-    title: "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip",
+    title: "eod = g(ŷ_EOD)，对涨跌的回归预估（现价对昨收）；不含缺口；不进决策",
+  },
+  {
+    id: "score",
+    label: "TRADE",
+    widthPct: 6,
+    num: true,
+    sortable: true,
+    title: "ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ) · 现价对昨收（与涨跌同一口径）· 排序/卖门槛",
+  },
+  {
+    id: "score_nowcast",
+    label: "NOWCAST",
+    widthPct: 6,
+    num: true,
+    sortable: true,
+    title: "ŷ_nowcast · Kalman 权昨收口径对照（与 ŷ_trade / 涨跌同一目标），不进决策",
   },
   {
     id: "residual",
@@ -45,14 +89,21 @@ const COLS = [
     widthPct: 6,
     num: true,
     sortable: true,
-    title: "残差 = 校准 − 涨跌（百分点）；正=校准高于当日涨跌",
+    title: "残差 = trade − 涨跌。trade 是 ŷ_trade，与涨跌同一目标",
   },
-  { id: "stance", label: "倾向", widthPct: 5, headClass: "watching-col-center", cellClass: "watching-col-center" },
-  { id: "excess", label: "超额", widthPct: 7, num: true, sortable: true },
-  { id: "vol", label: "量", widthPct: 6.5, num: true, sortable: true },
-  { id: "volr", label: "量比", widthPct: 5.5, num: true },
-  { id: "pe", label: "PE", widthPct: 5.5, num: true },
-  { id: "pb", label: "PB", widthPct: 5.5, num: true },
+  {
+    id: "stance",
+    label: "倾向",
+    widthPct: 5,
+    headClass: "watching-col-center",
+    cellClass: "watching-col-center",
+    title: "规则倾向（买入 / 观望等），不是 ŷ 本身",
+  },
+  { id: "excess", label: "超额", widthPct: 7, num: true, sortable: true, title: "相对基准（指数）的超额收益" },
+  { id: "vol", label: "量", widthPct: 6.5, num: true, sortable: true, title: "成交量" },
+  { id: "volr", label: "量比", widthPct: 5.5, num: true, title: "近期成交量 / 均量" },
+  { id: "pe", label: "PE", widthPct: 5.5, num: true, title: "市盈率" },
+  { id: "pb", label: "PB", widthPct: 5.5, num: true, title: "市净率" },
 ];
 
 /**
@@ -151,7 +202,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
         const head = d.dualScoreHead || "";
         const headTitle =
           head === "single_tau"
-            ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 EOD rem）· 与双头票不同量纲"
+            ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 ŷ_EOD）· 与双头票不同量纲"
             : head === "single_eod"
               ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
               : "ŷ_trade 单头降级 · 与双头票不同量纲";
@@ -198,7 +249,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
           d.scoreCal != null && d.scoreCal !== "" ? String(d.scoreCal) : "—";
         const detail = d.scoreDetail || "";
         const title =
-          d.scoreCalTitle || "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip";
+          d.scoreCalTitle || "g(ŷ_EOD) · 对涨跌";
         const signCls = d.scoreCalCls
           ? ` ${escapeHtml(String(d.scoreCalCls))}`
           : "";
@@ -213,12 +264,31 @@ export async function mountWatchingTableIsland(host, options = {}) {
           `${escapeHtml(text)}</span>`
         );
       }
+      if (col.id === "score_nowcast") {
+        const text =
+          d.scoreNowcast != null && d.scoreNowcast !== "" ? String(d.scoreNowcast) : "—";
+        const detail = d.scoreDetail || "";
+        const title = d.scoreNowcastTitle || "ŷ_nowcast · 昨收口径对照";
+        const signCls = d.scoreNowcastCls
+          ? ` ${escapeHtml(String(d.scoreNowcastCls))}`
+          : "";
+        if (!detail) {
+          return `<span class="watching-score-cell watching-score-nowcast paper-hold-score${signCls}">${escapeHtml(
+            text
+          )}</span>`;
+        }
+        return (
+          `<span class="watching-score-cell watching-score-nowcast paper-hold-score has-tip${signCls}" ` +
+          `data-score-detail="${escapeHtml(detail)}" data-score-tip="nowcast" title="${escapeHtml(title)}">` +
+          `${escapeHtml(text)}</span>`
+        );
+      }
       if (col.id === "residual") {
         const text =
           d.residual != null && d.residual !== "" ? String(d.residual) : "—";
         const cls = d.residualCls ? ` ${escapeHtml(d.residualCls)}` : "";
         const tip =
-          d.residualTitle || "残差 = 校准 − 涨跌（百分点）；正=校准高于当日涨跌";
+          d.residualTitle || "残差 = trade − 涨跌";
         return `<span class="watching-residual${cls}" title="${escapeHtml(
           tip
         )}">${escapeHtml(text)}</span>`;

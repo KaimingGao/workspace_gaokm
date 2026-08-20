@@ -5,10 +5,11 @@
 import {
   escapeText,
   fuseOrthogonalTrade,
+  liftTauVsPrevClose,
   resolveEodScore,
-  resolveEodRemScore,
+  resolveNowcastScore,
   resolveTradeScore,
-} from "./paper/fmt.js?v=p1128";
+} from "./paper/fmt.js?v=p1226";
 import { renderYPathVizHtml } from "./y_path_viz.js?v=p1169";
 import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
 
@@ -94,15 +95,14 @@ function resolveWeights(raw) {
 }
 
 function resolveBlend(raw) {
-  // 与表列同源：修 eod_next 塌成 EOD 的旧 blend；eod_next 不减缺口
+  // 与表列同源：ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ)
   const trade = resolveTradeScore(raw);
   if (trade != null) return trade;
-  const eodRem = resolveEodRemScore(raw);
+  const eod = resolveEodScore(raw);
   const yt = resolveTau(raw);
-  const fused = fuseOrthogonalTrade(raw, eodRem, yt);
+  const fused = fuseOrthogonalTrade(raw, eod, liftTauVsPrevClose(raw, yt));
   if (fused != null) return fused;
-  if (yt != null) return yt;
-  if (eodRem != null) return eodRem;
+  if (eod != null) return eod;
   return resolveYhat(raw);
 }
 
@@ -138,7 +138,7 @@ export function formatScoreHero(raw) {
     return (
       `<div class="score-layer score-layer-eod">` +
       `<div class="score-layer-head">` +
-      `<div class="score-hero-label">① ŷ_EOD · 已降级</div>` +
+      `<div class="score-hero-label">ŷ_EOD · 隔夜主轴</div>` +
       `<div class="score-hero-value">—</div>` +
       `</div>` +
       `<div class="score-hero-hint">OOS 失败组 · 主分=启发式 ${escapeText(
@@ -163,7 +163,7 @@ export function formatScoreHero(raw) {
   return (
     `<div class="score-layer score-layer-eod">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">① ŷ_EOD · 隔夜主轴</div>` +
+    `<div class="score-hero-label">ŷ_EOD · 隔夜主轴</div>` +
     `<div class="score-hero-value ${signCls(y)}">${escapeText(yTxt)}</div>` +
     `</div>` +
     `<div class="score-hero-hint">ŷ = α + Σ β·z（百分点）· T−1 因子 · 买入门槛` +
@@ -174,49 +174,6 @@ export function formatScoreHero(raw) {
       : "") +
     `</div>` +
     gate +
-    `</div>`
-  );
-}
-
-/** ŷ_EOD_rem：与 ŷ_EOD 同级 · 剥掉昨收→τ 后的剩余。 */
-export function formatEodRemScoreSection(raw) {
-  const yEod = resolveEodScore(raw);
-  const rem = resolveEodRemScore(raw);
-  const realized = raw && raw.realized_t1_to_tau;
-  const gap = raw && raw.gap_pct;
-  const remN = rem == null ? null : Number(rem);
-  const yN = yEod == null ? null : Number(yEod);
-  const rN =
-    realized != null && realized !== "" && Number.isFinite(Number(realized))
-      ? Number(realized)
-      : gap != null && gap !== "" && Number.isFinite(Number(gap))
-        ? Number(gap)
-        : null;
-  const remTxt = remN == null || !Number.isFinite(remN) ? "—" : `${fmtSigned(remN, 3)}%`;
-  const yTxt = yN == null || !Number.isFinite(yN) ? "—" : `${fmtSigned(yN, 3)}%`;
-  const rTxt = rN == null || !Number.isFinite(rN) ? "—" : `${fmtSigned(rN, 3)}%`;
-  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
-  const rows = [
-    `<div class="score-layer-row"><span>ŷ_EOD</span><span class="num ${signCls(
-      yN
-    )}">${escapeText(yTxt)}</span></div>`,
-    `<div class="score-layer-row"><span>昨收→τ 已实现</span><span class="num ${signCls(
-      rN
-    )}">${escapeText(rTxt)}</span></div>`,
-    `<div class="score-layer-row score-layer-row-total"><span>ŷ_EOD_rem</span><span class="num ${signCls(
-      remN
-    )}">${escapeText(remTxt)}</span></div>`,
-  ];
-  return (
-    `<div class="score-layer score-layer-eod-rem">` +
-    `<div class="score-layer-head">` +
-    `<div class="score-hero-label">② ŷ_EOD_rem · τ→收盘映射</div>` +
-    `<div class="score-hero-value ${signCls(remN)}">${escapeText(remTxt)}</div>` +
-    `</div>` +
-    `<div class="score-hero-hint">(1+ŷ_EOD)/(1+已实现)−1 · τ=${escapeText(
-      tau
-    )} · 与 ŷ_τ 同目标（T 收/T 开）</div>` +
-    `<div class="score-layer-compose">${rows.join("")}</div>` +
     `</div>`
   );
 }
@@ -298,7 +255,7 @@ export function formatRemScoreSection(raw) {
   return (
     `<div class="score-layer score-layer-tau">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">③ ŷ_τ · T收 / T开（rem 头）</div>` +
+    `<div class="score-hero-label">ŷ_τ · T收 / T开（rem 头）</div>` +
     `<div class="score-hero-value ${signCls(rem)}">${escapeText(remTxt)}</div>` +
     `</div>` +
     `<div class="score-hero-hint">τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 买入闸</div>` +
@@ -316,12 +273,7 @@ function resolveCalNum(raw, key) {
 
 function calibrationActive(raw) {
   if (raw && raw.score_calibration_applied) return true;
-  return (
-    resolveCalNum(raw, "predicted_score_cal") != null ||
-    resolveCalNum(raw, "predicted_score_eod_rem_cal") != null ||
-    resolveCalNum(raw, "predicted_score_tau_cal") != null ||
-    resolveCalNum(raw, "predicted_score_blend_cal") != null
-  );
+  return resolveCalNum(raw, "predicted_score_cal") != null;
 }
 
 function calRowHtml(label, value) {
@@ -351,133 +303,46 @@ function calDeltaRowHtml(raw, cal) {
   )}">${escapeText(t)}%</span></div>`;
 }
 
-/** 校准层 g(ŷ)：有 live knots 即对照。
+/** eod 列 tip：g(ŷ_EOD) 对涨跌，不含缺口 / τ；对照列出原 ŷ_EOD。
  * @param {object} raw
- * @param {{ calOnly?: boolean }} [opts] calOnly=true 时只列 g(*)，不配 raw ŷ 行
+ * @param {{ calOnly?: boolean }} [opts]
  */
 export function formatCalibrationSection(raw, opts = {}) {
   if (!calibrationActive(raw)) return "";
   const calOnly = !!opts.calOnly;
   const yEod = resolveEodScore(raw);
-  const yTau = resolveTau(raw);
-  const blend = resolveBlend(raw);
   const yEodCal = resolveCalNum(raw, "predicted_score_cal");
-  const yTauCal = resolveCalNum(raw, "predicted_score_tau_cal");
-  const blendCal = resolveCalNum(raw, "predicted_score_blend_cal");
-  const hero =
-    blendCal != null ? blendCal : yEodCal != null ? yEodCal : yTauCal;
-  const heroTxt =
-    hero == null ? "—" : `${fmtSigned(hero, 3)}%`;
+  if (yEodCal == null) return "";
+  const heroTxt = `${fmtSigned(yEodCal, 3)}%`;
   const rows = [];
-  if (yEodCal != null) {
-    if (!calOnly) {
-      const yTxt =
-        yEod == null || !Number.isFinite(Number(yEod))
-          ? "—"
-          : `${fmtSigned(Number(yEod), 3)}%`;
-      rows.push(
-        `<div class="score-layer-row"><span>ŷ_EOD</span><span class="num ${signCls(
-          yEod
-        )}">${escapeText(yTxt)}</span></div>`
-      );
-    }
-    rows.push(calRowHtml("g(ŷ_EOD)", yEodCal));
-    rows.push(calDeltaRowHtml(yEod, yEodCal));
-  }
-  const yEodRem = resolveEodRemScore(raw);
-  const yEodRemCal = resolveCalNum(raw, "predicted_score_eod_rem_cal");
-  if (yEodRemCal != null) {
-    if (!calOnly) {
-      const remTxt =
-        yEodRem == null || !Number.isFinite(Number(yEodRem))
-          ? "—"
-          : `${fmtSigned(Number(yEodRem), 3)}%`;
-      rows.push(
-        `<div class="score-layer-row"><span>ŷ_EOD_rem</span><span class="num ${signCls(
-          yEodRem
-        )}">${escapeText(remTxt)}</span></div>`
-      );
-    }
-    rows.push(calRowHtml("g(ŷ_EOD_rem)", yEodRemCal));
-    rows.push(calDeltaRowHtml(yEodRem, yEodRemCal));
-  }
-  if (yTauCal != null) {
-    if (!calOnly) {
-      const tTxt =
-        yTau == null || !Number.isFinite(Number(yTau))
-          ? "—"
-          : `${fmtSigned(Number(yTau), 3)}%`;
-      rows.push(
-        `<div class="score-layer-row"><span>ŷ_τ</span><span class="num ${signCls(
-          yTau
-        )}">${escapeText(tTxt)}</span></div>`
-      );
-    }
-    rows.push(calRowHtml("g(ŷ_τ)", yTauCal));
-    rows.push(calDeltaRowHtml(yTau, yTauCal));
-  }
-  if (blendCal != null) {
-    if (!calOnly) {
-      const bTxt =
-        blend == null || !Number.isFinite(Number(blend))
-          ? "—"
-          : `${fmtSigned(Number(blend), 3)}%`;
-      rows.push(
-        `<div class="score-layer-row"><span>ŷ_trade</span><span class="num ${signCls(
-          blend
-        )}">${escapeText(bTxt)}</span></div>`
-      );
-    }
-    rows.push(
-      `<div class="score-layer-row score-layer-row-total"><span>g(ŷ_trade)</span><span class="num ${signCls(
-        blendCal
-      )}">${escapeText(fmtSigned(blendCal, 3))}%</span></div>`
-    );
-    rows.push(calDeltaRowHtml(blend, blendCal));
-  }
-  if (!rows.length) return "";
-  const oorBits = [];
-  if (raw && raw.score_calibration_eod_oor) oorBits.push("ŷ_EOD");
-  if (raw && raw.score_calibration_eod_rem_oor) oorBits.push("ŷ_EOD_rem");
-  if (raw && raw.score_calibration_tau_oor) oorBits.push("ŷ_τ");
-  const oorHint = oorBits.length
-    ? ` · ${oorBits.join("/")} 落在拟合域外（端点钳制，对照弱）`
-    : "";
+  const yTxt =
+    yEod == null || !Number.isFinite(Number(yEod))
+      ? "—"
+      : `${fmtSigned(Number(yEod), 3)}%`;
+  rows.push(
+    `<div class="score-layer-row"><span>原 ŷ_EOD</span><span class="num ${signCls(
+      yEod
+    )}">${escapeText(yTxt)}</span></div>`
+  );
+  rows.push(calRowHtml("g(ŷ_EOD)", yEodCal));
+  rows.push(calDeltaRowHtml(yEod, yEodCal));
+  const oorHint =
+    raw && raw.score_calibration_eod_oor
+      ? " · ŷ_EOD 落在拟合域外（端点钳制，对照弱）"
+      : "";
   const softNote =
     raw && raw.score_calibration_note
       ? ` · ${String(raw.score_calibration_note).slice(0, 80)}`
       : "";
-  // live 仅有一侧 knots 时 blend 会混 raw：明确提示，避免当成全校准
-  let partialHint = "";
-  const partial = raw && raw.score_calibration_partial
-    ? String(raw.score_calibration_partial)
-    : "";
-  if (partial.includes("tau_raw") && !partial.includes("oor")) {
-    partialHint = " · g(ŷ_trade)=g(EOD)+raw ŷ_τ（尚无 τ 映射）";
-  } else if (partial.includes("eod_raw") && !partial.includes("oor")) {
-    partialHint = " · g(ŷ_trade)=raw EOD+g(ŷ_τ)（尚无 EOD 映射）";
-  } else if (partial.includes("eod_rem_oor_raw")) {
-    partialHint = " · ŷ_EOD_rem 域外：blend 用 raw rem + g(τ)，避免端点撞车";
-  } else if (partial.includes("tau_oor_raw")) {
-    partialHint = " · ŷ_τ 域外：blend 用 g(EOD)+raw τ，避免端点撞车";
-  } else if (
-    blendCal != null &&
-    yTauCal == null &&
-    (yEodCal != null || resolveCalNum(raw, "predicted_score_eod_rem_cal") != null) &&
-    yTau != null &&
-    Number.isFinite(Number(yTau))
-  ) {
-    partialHint = " · g(ŷ_trade)=g(EOD)+raw ŷ_τ（尚无 τ 映射）";
-  }
-  const title = calOnly ? "校准 g(ŷ)" : "⑤ 校准 g(ŷ)";
+  const title = calOnly ? "eod · g(ŷ_EOD)" : "g(ŷ_EOD)";
   const hint = calOnly
-    ? `仅对照 · Δ=历史条件均值相对 raw 的修正 · 不进排序/闸/入簿${partialHint}${oorHint}${softNote}`
-    : `单调映射 · Δ=g−ŷ · 不改 β · 排序/闸/入簿仍用原 ŷ${partialHint}${oorHint}${softNote}`;
+    ? `对涨跌（现价对昨收）· 不含缺口 · 不进排序/闸/入簿 · Δ=g−原ŷ${oorHint}${softNote}`
+    : `单调映射 · Δ=g−原ŷ_EOD · 不含缺口 · 排序/闸/入簿仍用原 ŷ${oorHint}${softNote}`;
   return (
     `<div class="score-layer score-layer-cal is-on">` +
     `<div class="score-layer-head">` +
     `<div class="score-hero-label">${escapeText(title)}</div>` +
-    `<div class="score-hero-value ${signCls(hero)}">${escapeText(heroTxt)}</div>` +
+    `<div class="score-hero-value ${signCls(yEodCal)}">${escapeText(heroTxt)}</div>` +
     `</div>` +
     `<div class="score-hero-hint">${escapeText(hint)}</div>` +
     `<div class="score-layer-compose">${rows.join("")}</div>` +
@@ -485,29 +350,101 @@ export function formatCalibrationSection(raw, opts = {}) {
   );
 }
 
-/** 融合分：w·ŷ_EOD_rem + w·ŷ_τ。 */
+/** nowcast 列 tip：Kalman 权昨收口径，对照 ŷ_trade，不进决策。 */
+export function formatNowcastSection(raw) {
+  const ncN = resolveNowcastScore(raw);
+  if (ncN == null || !Number.isFinite(Number(ncN))) return "";
+  const yEod = resolveEodScore(raw);
+  const yt = resolveTau(raw);
+  const ytCc = liftTauVsPrevClose(raw, yt);
+  const k = raw && raw.nowcast_K != null ? Number(raw.nowcast_K) : null;
+  const q = raw && raw.nowcast_q != null ? Number(raw.nowcast_q) : null;
+  const asOf = raw && raw.nowcast_as_of ? String(raw.nowcast_as_of) : "";
+  const blend = resolveBlend(raw);
+  const rows = [];
+  const eodN = yEod == null || yEod === "" ? null : Number(yEod);
+  const priorN =
+    raw && raw.nowcast_x_prior != null && Number.isFinite(Number(raw.nowcast_x_prior))
+      ? Number(raw.nowcast_x_prior)
+      : eodN;
+  const tCcN = ytCc == null || ytCc === "" ? null : Number(ytCc);
+  if (priorN != null && Number.isFinite(priorN)) {
+    rows.push(
+      `<div class="score-layer-row"><span>先验 ŷ_EOD</span><span class="num ${signCls(
+        priorN
+      )}">${escapeText(`${fmtSigned(priorN, 3)}%`)}</span></div>`
+    );
+  }
+  if (tCcN != null && Number.isFinite(tCcN)) {
+    rows.push(
+      `<div class="score-layer-row"><span>ŷ_τ 昨收</span><span class="num ${signCls(
+        tCcN
+      )}">${escapeText(`${fmtSigned(tCcN, 3)}%`)}</span></div>`
+    );
+  }
+  if (k != null && Number.isFinite(k)) {
+    rows.push(
+      `<div class="score-layer-row"><span>K</span><span class="num">${escapeText(
+        k.toFixed(3)
+      )}</span></div>`
+    );
+  }
+  if (blend != null && Number.isFinite(Number(blend))) {
+    rows.push(
+      `<div class="score-layer-row"><span>ŷ_trade</span><span class="num ${signCls(
+        blend
+      )}">${escapeText(`${fmtSigned(Number(blend), 3)}%`)}</span></div>`
+    );
+  }
+  rows.push(
+    `<div class="score-layer-row score-layer-row-total"><span>ŷ_nowcast</span><span class="num ${signCls(
+      ncN
+    )}">${escapeText(`${fmtSigned(ncN, 3)}%`)}</span></div>`
+  );
+  const bits = ["Kalman 权 · 现价对昨收 · 不进排序/闸/入簿"];
+  if (asOf) bits.push(`@${asOf}`);
+  if (q != null && Number.isFinite(q)) bits.push(`q=${q.toFixed(3)}`);
+  if (
+    priorN != null &&
+    Number.isFinite(priorN) &&
+    Math.abs(Number(ncN) - priorN) < 1e-4
+  ) {
+    bits.push("后验≈先验（未观测 ŷ_τ 或 K≈0）");
+  }
+  return (
+    `<div class="score-layer score-layer-nowcast is-on">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">nowcast 对照</div>` +
+    `<div class="score-hero-value ${signCls(ncN)}">${escapeText(
+      `${fmtSigned(ncN, 3)}%`
+    )}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">${escapeText(bits.join(" · "))}</div>` +
+    `<div class="score-layer-compose">${rows.join("")}</div>` +
+    `</div>`
+  );
+}
+
+/** 融合分：w·ŷ_EOD + w·(缺口∘ŷ_τ)，同为现价对昨收。 */
 export function formatBlendScoreSection(raw) {
   const blend = resolveBlend(raw);
-  const eodRem = resolveEodRemScore(raw);
+  const yEod = resolveEodScore(raw);
   const yt = resolveTau(raw);
+  const ytCc = liftTauVsPrevClose(raw, yt);
   const { w_eod, w_tau } = resolveWeights(raw);
   const blendTxt = blend == null ? "—" : `${fmtSigned(blend, 3)}%`;
-  const remN = eodRem == null || eodRem === "" ? null : Number(eodRem);
+  const eodN = yEod == null || yEod === "" ? null : Number(yEod);
   const tN = yt == null || yt === "" ? null : Number(yt);
-  const remTxt = remN == null || !Number.isFinite(remN) ? "—" : `${fmtSigned(remN, 3)}%`;
+  const tCcN = ytCc == null || ytCc === "" ? null : Number(ytCc);
+  const eodTxt = eodN == null || !Number.isFinite(eodN) ? "—" : `${fmtSigned(eodN, 3)}%`;
   const tTxt = tN == null || !Number.isFinite(tN) ? "—" : `${fmtSigned(tN, 3)}%`;
+  const tCcTxt = tCcN == null || !Number.isFinite(tCcN) ? "—" : `${fmtSigned(tCcN, 3)}%`;
   const wTxt = `w_EOD=${Number(w_eod).toFixed(2)} · w_τ=${Number(w_tau).toFixed(2)}`;
   const wMode =
     raw && raw.dual_score_weights && raw.dual_score_weights.w_mode
       ? String(raw.dual_score_weights.w_mode)
       : "fixed";
-  const window =
-    (raw && (raw.dual_score_window || (raw.dual_score_weights && raw.dual_score_weights.window))) ||
-    "intraday";
-  const eodNext = String(window) === "eod_next";
-  const hint = eodNext
-    ? `${wTxt} · ${wMode} · 收盘后不减缺口 · ŷ_trade 仍正交加权`
-    : `${wTxt} · ${wMode} · 同为 T收/T开 · 开盘排序键 · 表列主分`;
+  const hint = `${wTxt} · ${wMode} · 现价对昨收 · 表列 trade`;
   const head =
     raw && raw.dual_score_head != null
       ? String(raw.dual_score_head)
@@ -515,10 +452,18 @@ export function formatBlendScoreSection(raw) {
         ? "single"
         : "";
   let headHint = "";
-  if (head === "single_eod") {
+  const win = raw && raw.dual_score_window != null ? String(raw.dual_score_window) : "";
+  const tauInTrade =
+    raw && raw.dual_score_weights && raw.dual_score_weights.tau_in_trade;
+  if (head === "single_eod" && tN != null && Number.isFinite(tN)) {
+    headHint =
+      win === "eod_next" || tauInTrade === false
+        ? " · 收盘后 trade=ŷ_EOD（τ 仍对照，不进融合）"
+        : " · 单头：trade=ŷ_EOD（τ 未进融合）";
+  } else if (head === "single_eod") {
     headHint = " · 单头降级：仅 ŷ_EOD（缺 ŷ_τ）";
   } else if (head === "single_tau") {
-    headHint = " · 单头降级：仅 ŷ_τ（缺 EOD rem）";
+    headHint = " · 单头降级：仅 ŷ_τ（缺 ŷ_EOD）";
   } else if (head === "blend") {
     headHint = " · 双头融合";
   }
@@ -531,38 +476,19 @@ export function formatBlendScoreSection(raw) {
       ? null
       : `${fmtSigned(cascade, 3)}%`;
   const rows = [
-    `<div class="score-layer-row"><span>ŷ_EOD_rem</span><span class="num ${signCls(
-      remN
-    )}">${escapeText(remTxt)}</span></div>`,
+    `<div class="score-layer-row"><span>ŷ_EOD</span><span class="num ${signCls(
+      eodN
+    )}">${escapeText(eodTxt)}</span></div>`,
     `<div class="score-layer-row"><span>ŷ_τ</span><span class="num ${signCls(
       tN
     )}">${escapeText(tTxt)}</span></div>`,
+    `<div class="score-layer-row"><span>ŷ_τ 昨收</span><span class="num ${signCls(
+      tCcN
+    )}">${escapeText(tCcTxt)}</span></div>`,
     `<div class="score-layer-row score-layer-row-total"><span>ŷ_trade</span><span class="num ${signCls(
       blend
     )}">${escapeText(blendTxt)}</span></div>`,
   ];
-  const nowcast =
-    raw && raw.predicted_score_nowcast != null
-      ? Number(raw.predicted_score_nowcast)
-      : null;
-  if (nowcast != null && Number.isFinite(nowcast)) {
-    const kTxt =
-      raw.nowcast_K != null && Number.isFinite(Number(raw.nowcast_K))
-        ? ` K=${Number(raw.nowcast_K).toFixed(2)}`
-        : "";
-    const qTxt =
-      raw.nowcast_q != null && Number.isFinite(Number(raw.nowcast_q))
-        ? ` q=${Number(raw.nowcast_q).toFixed(3)}`
-        : "";
-    const asOf = raw.nowcast_as_of ? ` @${raw.nowcast_as_of}` : "";
-    rows.push(
-      `<div class="score-layer-row"><span>ŷ_nowcast·影${escapeText(
-        asOf
-      )}${escapeText(kTxt)}${escapeText(qTxt)}</span><span class="num ${signCls(
-        nowcast
-      )}">${escapeText(`${fmtSigned(nowcast, 3)}%`)}</span></div>`
-    );
-  }
   if (cascadeTxt) {
     rows.push(
       `<div class="score-layer-row"><span>ŷ_cascade·影</span><span class="num ${signCls(
@@ -608,7 +534,7 @@ export function formatBlendScoreSection(raw) {
       head.startsWith("single") || (yCheck && yCheck !== "ok") ? " is-warn" : ""
     }">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">④ ŷ_trade · 正交加权${
+    `<div class="score-hero-label">ŷ_trade · 正交加权${
       head.startsWith("single") ? " · 单头" : ""
     }${yCheck && yCheck !== "ok" ? " · Y校验" : ""}</div>` +
     `<div class="score-hero-value ${signCls(blend)}">${escapeText(blendTxt)}</div>` +
@@ -1399,9 +1325,11 @@ export function createScoreTooltipController() {
   function resolveScoreTipMode(cell) {
     if (!cell) return "trade";
     const tip = String(cell.dataset.scoreTip || "").trim().toLowerCase();
-    if (tip === "cal" || tip === "calibration") return "cal";
+    if (tip === "cal" || tip === "calibration" || tip === "eod") return "cal";
+    if (tip === "nowcast" || tip === "nc") return "nowcast";
     if (tip === "trade" || tip === "score") return "trade";
     if (cell.classList.contains("watching-score-cal")) return "cal";
+    if (cell.classList.contains("watching-score-nowcast")) return "nowcast";
     return "trade";
   }
 
@@ -1432,7 +1360,7 @@ export function createScoreTooltipController() {
     }
 
     const tipMode = resolveScoreTipMode(cell);
-    // 校准列 tip：只展示 g(*)，不混 ŷ_trade 全栈
+    // eod 列 tip：只展示 g(*)，不混 ŷ_trade 全栈
     if (tipMode === "cal") {
       let calHtml = formatCalibrationSection(raw, { calOnly: true });
       if (!calHtml) {
@@ -1440,28 +1368,50 @@ export function createScoreTooltipController() {
           raw && raw.score_calibration_note
             ? String(raw.score_calibration_note).slice(0, 100)
             : "";
-        const oorBits = [];
-        if (raw && raw.score_calibration_eod_oor) oorBits.push("ŷ_EOD");
-        if (raw && raw.score_calibration_eod_rem_oor) oorBits.push("ŷ_EOD_rem");
-        if (raw && raw.score_calibration_tau_oor) oorBits.push("ŷ_τ");
         const hintParts = [];
         if (soft) hintParts.push(soft);
-        if (oorBits.length) {
-          hintParts.push(`${oorBits.join("/")} 落在拟合域外`);
+        if (raw && raw.score_calibration_eod_oor) {
+          hintParts.push("ŷ_EOD 落在拟合域外");
         }
         if (!hintParts.length) {
-          hintParts.push("暂无映射 · 研究节拟合并写入 live 后，校准列可读 g(ŷ)");
+          hintParts.push("暂无映射 · 研究节拟合并写入 live 后，eod 列可读 g(ŷ_EOD)");
         }
         calHtml =
           `<div class="score-layer score-layer-cal is-shadow">` +
           `<div class="score-layer-head">` +
-          `<div class="score-hero-label">校准 g(ŷ)</div>` +
+          `<div class="score-hero-label">eod · g(ŷ_EOD)</div>` +
           `<div class="score-hero-value score-flat">—</div>` +
           `</div>` +
           `<div class="score-hero-hint">${escapeText(hintParts.join(" · "))}</div>` +
           `</div>`;
       }
       const html = `<div class="score-detail">${calHtml}</div>`;
+      hide();
+      const tip = document.createElement("div");
+      tip.className = "score-tooltip";
+      tip.innerHTML = html;
+      tip.setAttribute("role", "tooltip");
+      document.body.appendChild(tip);
+      tipEl = tip;
+      tipAnchor = cell;
+      place(tip, cell);
+      attachDismiss(tip, cell, { sticky });
+      return;
+    }
+
+    if (tipMode === "nowcast") {
+      let ncHtml = formatNowcastSection(raw);
+      if (!ncHtml) {
+        ncHtml =
+          `<div class="score-layer score-layer-nowcast is-shadow">` +
+          `<div class="score-layer-head">` +
+          `<div class="score-hero-label">nowcast 对照</div>` +
+          `<div class="score-hero-value score-flat">—</div>` +
+          `</div>` +
+          `<div class="score-hero-hint">暂无 Kalman 合成 · 有 ŷ_EOD 与 ŷ_τ 后可见</div>` +
+          `</div>`;
+      }
+      const html = `<div class="score-detail">${ncHtml}</div>`;
       hide();
       const tip = document.createElement("div");
       tip.className = "score-tooltip";
@@ -1535,7 +1485,11 @@ export function createScoreTooltipController() {
       return;
 
     let html = '<div class="score-detail">';
-    // ① EOD → ② EOD_rem → ③ τ → ④ ŷ_trade（校准 g 仅在校准列 tip）
+    // trade 列：先 ŷ_trade 组成，再拆 ŷ_τ / ŷ_EOD（g 只在 eod 列，nowcast 只在 nowcast 列）
+    html += formatBlendScoreSection(raw);
+    html += formatRemScoreSection(raw);
+    html += formatFormulaTermsSection(raw, { key: "tau" });
+    html += formatFactorWeightsSection(raw, { key: "tau" });
     html += formatScoreHero(raw);
     html += formatFormulaTermsSection(raw);
     html += formatFactorWeightsSection(raw);
@@ -1545,11 +1499,6 @@ export function createScoreTooltipController() {
         <div class="score-formula">${escapeText(formula)}</div>
       </div>`;
     }
-    html += formatEodRemScoreSection(raw);
-    html += formatRemScoreSection(raw);
-    html += formatFormulaTermsSection(raw, { key: "tau" });
-    html += formatFactorWeightsSection(raw, { key: "tau" });
-    html += formatBlendScoreSection(raw);
     html += formatWeightSourceNote(raw);
     html += formatFeatureIsoSection(raw);
     html += formatSentimentGateSection(raw);

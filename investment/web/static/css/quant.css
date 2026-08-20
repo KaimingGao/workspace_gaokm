@@ -1194,17 +1194,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  margin-top: 8px;
-}
-
-.quant-page .quant-cluster-more summary {
-  cursor: pointer;
-  user-select: none;
-}
-
-.quant-page .quant-cluster-more .dialog-btn {
-  margin-top: 6px;
-  margin-right: 4px;
+  margin-top: 0;
 }
 
 .quant-page .quant-cluster-export {

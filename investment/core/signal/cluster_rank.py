@@ -762,53 +762,50 @@ def rank_cluster_pools(
         try:
             from core.signal.dual_score import (
                 build_nowcast_shadow_book,
-                get_dual_score_cfg,
                 nowcast_shadow_alerts,
             )
             from core.signal.cluster_live import save_nowcast_shadow_cluster_book
 
-            ds_nc = get_dual_score_cfg()
-            nc = ds_nc.get("nowcast") if isinstance(ds_nc.get("nowcast"), dict) else {}
-            if nc.get("write_shadow") or nc.get("enabled"):
-                nc_book, nowcast_shadow_meta = build_nowcast_shadow_book(
-                    eligible,
-                    max_names=max_n,
-                    eod_book=book,
+            # nowcast 是表列对照分：刷簿即写影子，不依赖 nowcast.enabled / write_shadow
+            nc_book, nowcast_shadow_meta = build_nowcast_shadow_book(
+                eligible,
+                max_names=max_n,
+                eod_book=book,
+            )
+            nowcast_shadow_meta = {
+                **nowcast_shadow_meta,
+                "version": active.get("version"),
+                "horizon_days": horizon_days,
+                "min_score": min_score_out,
+                "eod_book_path": path,
+            }
+            # P3-2：nowcast 影子闭环告警 — 对照决策簿(EOD/blend)，背离发告警
+            try:
+                _nc_alerts = nowcast_shadow_alerts(
+                    nc_book,
+                    nowcast_shadow_meta,
+                    decision_book=book,
                 )
                 nowcast_shadow_meta = {
                     **nowcast_shadow_meta,
-                    "version": active.get("version"),
-                    "horizon_days": horizon_days,
-                    "min_score": min_score_out,
-                    "eod_book_path": path,
+                    "alerts": _nc_alerts,
                 }
-                # P3-2：nowcast 影子闭环告警 — 对照决策簿(EOD/blend)，背离发告警
-                try:
-                    _nc_alerts = nowcast_shadow_alerts(
-                        nc_book,
-                        nowcast_shadow_meta,
-                        decision_book=book,
+                if _nc_alerts:
+                    import logging as _logging
+                    _logging.getLogger(__name__).warning(
+                        "nowcast shadow alerts: %s",
+                        "; ".join(a.get("code", "?") for a in _nc_alerts),
                     )
-                    nowcast_shadow_meta = {
-                        **nowcast_shadow_meta,
-                        "alerts": _nc_alerts,
-                    }
-                    if _nc_alerts:
-                        import logging as _logging
-                        _logging.getLogger(__name__).warning(
-                            "nowcast shadow alerts: %s",
-                            "; ".join(a.get("code", "?") for a in _nc_alerts),
-                        )
-                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
-                    pass
-                n_nc = len(nc_book)
-                w_nc = round(100.0 / n_nc, 4) if n_nc else 0.0
-                for b in nc_book:
-                    b["weight_pct"] = w_nc
-                nowcast_shadow_path = save_nowcast_shadow_cluster_book(
-                    nc_book, meta=nowcast_shadow_meta
-                )
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
+                pass
+            n_nc = len(nc_book)
+            w_nc = round(100.0 / n_nc, 4) if n_nc else 0.0
+            for b in nc_book:
+                b["weight_pct"] = w_nc
+            nowcast_shadow_path = save_nowcast_shadow_cluster_book(
+                nc_book, meta=nowcast_shadow_meta
+            )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in cluster_rank.py", exc_info=True)
             nowcast_shadow_path = None

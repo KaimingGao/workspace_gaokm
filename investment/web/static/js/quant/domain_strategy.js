@@ -1094,7 +1094,7 @@ export function installStrategy(q) {
     const lines = [
       "保存融合分数？",
       "",
-      "· 模式 = 正交加权（ŷ_trade = w·ŷ_EOD_rem + w·ŷ_τ）",
+      "· 模式 = 正交加权（ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ)）",
       `· w_EOD = ${wEod} · w_τ = ${wTau} · w_mode = ${wMode}`,
       `· τ 闸 ≥ ${floor}%`,
       "",

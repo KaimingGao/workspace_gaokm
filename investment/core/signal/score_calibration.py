@@ -1567,16 +1567,16 @@ def attach_calibrated_scores(
         if eod_rem_cal is not None:
             item["predicted_score_eod_rem_cal"] = eod_rem_cal
     try:
-        from core.signal.dual_score import fuse_remaining_heads, get_dual_score_cfg
+        from core.signal.dual_score import (
+            get_dual_score_cfg,
+            trade_blend_vs_prev_close,
+        )
 
         cfg = get_dual_score_cfg()
         tau_oor = bool(item.get("score_calibration_tau_oor"))
+        eod_oor = bool(item.get("score_calibration_eod_oor"))
         # 域内：g；域外：raw（保留截面区分度）；缺头：raw
-        if has_eod and eod_rem_cal is not None and not eod_rem_oor:
-            left = eod_rem_cal
-        elif eod_rem is not None:
-            left = eod_rem
-        elif has_eod and y_eod_cal is not None and not item.get("score_calibration_eod_oor"):
+        if has_eod and y_eod_cal is not None and not eod_oor:
             left = y_eod_cal
         else:
             left = y_eod
@@ -1587,26 +1587,25 @@ def attach_calibrated_scores(
             right = y_tau
 
         if left is not None or right is not None:
-            blend_cal = fuse_remaining_heads(
+            cc, tau_cc, vs = trade_blend_vs_prev_close(
                 left,
                 right,
+                gap_pct=_f(item.get("gap_pct")),
                 w_eod=float(cfg.get("w_eod") or 0.5),
                 w_tau=float(cfg.get("w_tau") or 0.5),
             )
-            if blend_cal is not None and (has_eod or has_tau):
-                item["predicted_score_blend_cal"] = blend_cal
+            if cc is not None and (has_eod or has_tau):
+                item["predicted_score_blend_cal"] = cc
+                item["predicted_score_blend_cal_tau_cc"] = tau_cc
+                item["predicted_score_blend_cal_vs"] = vs
                 partial = None
                 if has_eod and not has_tau and y_tau is not None:
                     partial = "tau_raw"
-                elif has_tau and not has_eod and (
-                    eod_rem is not None or y_eod is not None
-                ):
+                elif has_tau and not has_eod and y_eod is not None:
                     partial = "eod_raw"
-                elif eod_rem_oor and has_eod and (y_tau is not None or has_tau):
-                    partial = "eod_rem_oor_raw"
-                elif tau_oor and has_tau and (
-                    eod_rem is not None or eod_rem_cal is not None
-                ):
+                elif eod_oor and has_eod and (y_tau is not None or has_tau):
+                    partial = "eod_oor_raw"
+                elif tau_oor and has_tau and (y_eod is not None or y_eod_cal is not None):
                     partial = "tau_oor_raw"
                 if partial:
                     item["score_calibration_partial"] = partial

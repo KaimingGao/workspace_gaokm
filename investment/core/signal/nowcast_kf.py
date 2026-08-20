@@ -1,6 +1,7 @@
-"""Fixed-event nowcast：同一 T 收、多信息集 Kalman 更新剩余收益。
+"""Fixed-event nowcast：同一 T 收、多信息集 Kalman 更新剩余收益，落盘为昨收口径。
 
-状态 x(τ) = close[T]/price[τ]−1（%）。各头独立训练；本模块只在决策层融合。
+内部状态 x(τ) = close[T]/price[τ]−1（%）。滤波结束后用已实现抬回现价对昨收：
+predicted_score_nowcast = (1−K)·ŷ_EOD + K·(缺口∘ŷ_τ)（与 ŷ_trade 同一目标，权是 K）。
 不改写 predicted_score（ŷ_EOD）。规范见 docs/predicted-score-chain.md §2.5 nowcast。
 
 顺序滤波：EOD 先验 → open →（可选）当前分钟 τ。同一 ŷ_τ 只观测一次。
@@ -399,15 +400,30 @@ def kalman_nowcast_seq(
     if not any_update:
         as_of_out = "eod"
 
-    x_prior = remaining_at_tau(eod_yhat, realized_acc)
+    x_prior_oc = remaining_at_tau(eod_yhat, realized_acc)
+    # 落盘昨收口径：compound(已实现, 剩余) = (1−K)·ŷ_EOD + K·(缺口∘ŷ_τ)
+    vs = "prev_close"
+    if realized_acc is not None:
+        x_cc = compound_pct(realized_acc, x) if x is not None else None
+        x_prior_cc = (
+            compound_pct(realized_acc, x_prior_oc)
+            if x_prior_oc is not None
+            else eod_yhat
+        )
+    else:
+        x_cc = x
+        x_prior_cc = eod_yhat if as_of_out == "eod" else x_prior_oc
+        if as_of_out not in (None, "eod"):
+            vs = "open"
     return {
-        "predicted_score_nowcast": None if x is None else round(float(x), 6),
+        "predicted_score_nowcast": None if x_cc is None else round(float(x_cc), 6),
+        "nowcast_vs": vs,
         "nowcast_as_of": as_of_out,
         "nowcast_revisions": revisions,
         "nowcast_K": last_k,
         "nowcast_P": round(float(P), 6) if P is not None else None,
         "nowcast_q": q_used,
-        "nowcast_x_prior": None if x_prior is None else round(float(x_prior), 6),
+        "nowcast_x_prior": None if x_prior_cc is None else round(float(x_prior_cc), 6),
         "nowcast_path": [str(r.get("tau")) for r in revisions],
     }
 

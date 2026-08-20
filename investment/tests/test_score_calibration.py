@@ -294,7 +294,7 @@ class TestIsotonicPav(unittest.TestCase):
         self.assertAlmostEqual(item["predicted_score_cal"], 0.0, places=5)
 
     def test_blend_cal_keeps_raw_when_eod_rem_oor(self):
-        """EOD_rem 域外时 blend 对照用 raw rem，避免多票撞同一端点。"""
+        """ŷ_EOD 域外时 blend 对照用 raw EOD，避免多票撞同一端点。"""
         from core.signal import score_calibration as sc
 
         doc = {
@@ -328,7 +328,7 @@ class TestIsotonicPav(unittest.TestCase):
             float(b["predicted_score_blend_cal"]),
             places=5,
         )
-        self.assertEqual(a.get("score_calibration_partial"), "eod_rem_oor_raw")
+        self.assertEqual(a.get("score_calibration_partial"), "eod_oor_raw")
 
     def test_attach_skips_identity_cal_when_head_missing(self):
         """缺 τ 头时不写恒等 predicted_score_tau_cal，避免校准列假对照。"""

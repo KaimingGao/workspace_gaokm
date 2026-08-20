@@ -987,7 +987,7 @@ def load_active_cluster_book() -> Optional[Dict[str, Any]]:
 
 
 def _align_cluster_book_trade_scores(doc: Dict[str, Any]) -> None:
-    """读簿时就地修 eod_next 塌成 EOD 的旧 blend（不写盘）。"""
+    """读簿时就地修 eod_next 塌成 EOD 的旧 blend / nowcast（不写盘）。"""
     try:
         from core.signal.dual_score import align_trade_score_fields
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

@@ -2061,7 +2061,8 @@ a.dialog-btn[aria-disabled="true"] {
 }
 
 .rebalance-score.has-tip,
-.rebalance-score-cal.has-tip {
+.rebalance-score-cal.has-tip,
+.rebalance-score-nowcast.has-tip {
   cursor: help;
 }
 
@@ -4624,9 +4625,9 @@ html[data-density="compact"] .table-pager {
 
 .rebalance-table {
   /* 股票吃左侧弹性；后列定宽靠右，列间留呼吸 */
-  --rebalance-cols: minmax(7rem, 1fr) 4.25rem 4.5rem 4.5rem 6.25rem 3.5rem 4.75rem;
+  --rebalance-cols: minmax(7rem, 1fr) 4.25rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem 4.75rem;
   width: 100%;
-  min-width: 36rem;
+  min-width: 40rem;
   font-size: 0.78rem;
   background: transparent;
 }
@@ -4844,18 +4845,23 @@ html[data-density="compact"] .table-pager {
   color: var(--ink);
 }
 
-.rebalance-score-cal.watching-score-cal {
+.rebalance-score-cal.watching-score-cal,
+.rebalance-score-nowcast.watching-score-nowcast {
   font-weight: 500;
   opacity: 0.9;
 }
 
-.rebalance-score-cal.score-up { color: var(--color-up); }
+.rebalance-score-cal.score-up,
+.rebalance-score-nowcast.score-up { color: var(--color-up); }
 
-.rebalance-score-cal.score-down { color: var(--color-down); }
+.rebalance-score-cal.score-down,
+.rebalance-score-nowcast.score-down { color: var(--color-down); }
 
-.rebalance-score-cal.score-flat { color: var(--ink-2); }
+.rebalance-score-cal.score-flat,
+.rebalance-score-nowcast.score-flat { color: var(--ink-2); }
 
-.rebalance-score-cal.score-na { color: var(--ink-3); font-weight: 500; }
+.rebalance-score-cal.score-na,
+.rebalance-score-nowcast.score-na { color: var(--ink-3); font-weight: 500; }
 
 .rebalance-change {
   font-weight: 650;
@@ -4898,7 +4904,8 @@ html[data-density="compact"] .table-pager {
 }
 
 .rebalance-score.has-tip,
-.rebalance-score-cal.has-tip {
+.rebalance-score-cal.has-tip,
+.rebalance-score-nowcast.has-tip {
   cursor: help;
 }
 

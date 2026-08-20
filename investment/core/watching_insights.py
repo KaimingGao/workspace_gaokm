@@ -308,11 +308,11 @@ def _hydrate_insight_tau_fields(
     quote: Optional[dict] = None,
     bars: Optional[list] = None,
 ) -> None:
-    """簿行常只有 ŷ_EOD：用行情缺口现场写出 ŷ_EOD_rem / ŷ_trade。
+    """簿行常只有 ŷ_EOD：用行情缺口现场写出 ŷ_trade（昨收口径）。
 
-    有新缺口则重算（开盘后已实现会变）；无缺口且簿上已有 rem 则保留。
-    无已实现时 ŷ_EOD_rem = ŷ_EOD（视作尚未开盘）。
-    ŷ_τ 仍来自 rem 头，缺则保持空，ŷ_trade 退回 ŷ_EOD_rem。
+    有新缺口则重算；无缺口且簿上已有 blend 则对齐即可。
+    ŷ_τ 仍来自 rem 头，缺则 ŷ_trade 退回 ŷ_EOD。
+    ŷ_EOD_rem 仅派生对照，不进融合。
     """
     if _sanitize_heuristic_yhat_fields(out, item):
         return
@@ -405,11 +405,20 @@ def _hydrate_insight_tau_fields(
         out["predicted_score_eod"] = y_eod
         out["predicted_score_eod_rem"] = rem
         if out.get("predicted_score_blend") is None:
-            from core.signal.dual_score import fuse_remaining_heads
+            win = str(out.get("dual_score_window") or "")
+            if win == "eod_next":
+                out["predicted_score_blend"] = y_eod
+                out["predicted_score_blend_tau_cc"] = None
+                out["predicted_score_blend_vs"] = "prev_close"
+            else:
+                from core.signal.dual_score import trade_blend_vs_prev_close
 
-            out["predicted_score_blend"] = fuse_remaining_heads(
-                rem, out.get("predicted_score_tau")
-            )
+                cc, tau_cc, vs = trade_blend_vs_prev_close(
+                    y_eod, out.get("predicted_score_tau"), gap_pct=gap
+                )
+                out["predicted_score_blend"] = cc
+                out["predicted_score_blend_tau_cc"] = tau_cc
+                out["predicted_score_blend_vs"] = vs
         if realized is not None:
             out["realized_t1_to_tau"] = realized
         if gap is not None:

@@ -138,29 +138,29 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertEqual(out["return_model_source"], "oos_failed_global")
 
     def test_book_row_repairs_stale_eod_next_blend(self):
-        """旧簿把 blend 写成 EOD、但 ŷ_τ 仍在时，读路径重算加权 ŷ_trade。"""
+        """旧簿 eod_next 掺了 τ 时，读路径剥离为 ŷ_EOD。"""
         from core.watching_insights import _insight_from_book_row
 
         row = {
             "stock_code": "600519",
-            "score": 0.234547,
+            "score": 0.148812,
             "predicted_score": 0.234547,
             "predicted_score_eod": 0.234547,
             "predicted_score_eod_rem": 0.234547,
             "predicted_score_tau": 0.063077,
-            "predicted_score_blend": 0.234547,  # 塌成 EOD
+            "predicted_score_blend": 0.148812,  # 旧错：掺 τ
             "dual_score_window": "eod_next",
             "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed"},
+            "gap_pct": 1.0,
         }
         with patch("core.ports.market.query_quote", return_value={}), patch(
             "core.data_service.get_bars", return_value={"bars": []}
         ), patch("core.stance.compute_buy_stance", return_value={}):
             out = _insight_from_book_row("600519", row)
-        expect = 0.5 * 0.234547 + 0.5 * 0.063077
         self.assertAlmostEqual(out["predicted_score"], 0.234547, places=5)
-        self.assertAlmostEqual(out["predicted_score_blend"], expect, places=5)
-        self.assertAlmostEqual(out["score"], expect, places=5)
-        self.assertAlmostEqual(out["decision_score"], expect, places=5)
+        self.assertAlmostEqual(out["predicted_score_blend"], 0.234547, places=5)
+        self.assertAlmostEqual(out["score"], 0.234547, places=5)
+        self.assertAlmostEqual(out["decision_score"], 0.234547, places=5)
 
     def test_book_row_hydrates_eod_rem_when_missing(self):
         from core.watching_insights import _insight_from_book_row

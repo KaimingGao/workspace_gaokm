@@ -12,10 +12,17 @@ import {
   scoreCls,
   resolveTradeScore,
   resolveCalTradeScore,
+  resolveNowcastScore,
   isHeuristicScoreScale,
-} from "./fmt.js?v=p1128";
+} from "./fmt.js?v=p1227";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
-import { marketPriorDetailFields, tailAnomalyDetailFields } from "../score_tooltip.js";
+import { watchingScoreDetail } from "../quant/watching_render.js?v=p1227";
+import {
+  isSingleHeadItem,
+  singleHeadBadgeHtml,
+  yCheckBadgeHtml,
+} from "../quant/watching_insights_ui.js?v=p1227";
+import { formatWatchingResidual, RESIDUAL_TITLE, NOWCAST_TITLE, TRADE_TITLE, EOD_CAL_TITLE } from "../quant/watching_quotes_ui.js?v=p1227";
 
 const ORIGIN_HINT = {
   manual: "你手动建仓或加仓",
@@ -92,18 +99,20 @@ export function buildPaperHoldingsTableHtml({
     const arrow = !active ? "" : holdingsSortDir === "asc" ? " ↑" : " ↓";
     const nextHint =
       key === "code"
-        ? "按代码排序"
+        ? "股票代码 · 点击排序"
         : key === "score"
-          ? "按评分排序"
+          ? `${TRADE_TITLE} · 点击排序`
             : key === "score_cal"
-            ? "按校准分排序"
+            ? `${EOD_CAL_TITLE} · 点击排序`
+            : key === "score_nowcast"
+              ? `${NOWCAST_TITLE} · 点击排序`
             : key === "residual"
-              ? "按残差排序 · 校准 − 涨跌"
+              ? `${RESIDUAL_TITLE} · 点击排序`
             : key === "pnl"
-            ? "按浮盈亏排序 · 相对持仓成本：(现价÷成本−1)×100%"
+            ? "浮盈亏 = 现价 − 成本价（相对成本的浮动盈亏 %）· 点击排序"
             : key === "chg"
-              ? "按当日涨跌幅排序 · 相对昨收"
-              : "按市值排序";
+              ? "相对昨收的涨跌幅 %。与 EOD / ŷ_trade 同一口径 · 点击排序"
+              : "市值 = 现价 × 股数 · 点击排序";
     return (
       `<th class="paper-hold-sort${active ? " is-sorted" : ""}" ` +
       `data-sort="${key}" role="button" tabindex="0" title="${nextHint}">${label}${arrow}</th>`
@@ -122,6 +131,7 @@ export function buildPaperHoldingsTableHtml({
       const startDate = h.bought_date || "—";
       const score = resolveTradeScore(h);
       const scoreCal = resolveCalTradeScore(h);
+      const scoreNowcast = resolveNowcastScore(h);
       const belowMin = !!h.below_min_score;
       const hardReject = !!h.hard_reject;
       const scoreBase = fmtTableScore(h, score);
@@ -129,10 +139,8 @@ export function buildPaperHoldingsTableHtml({
         scoreBase !== "—" && belowMin ? `${scoreBase}↓` : scoreBase;
       if (scoreShown === "—" && hardReject) scoreShown = "拒";
       const scoreCalShown = fmtTableScore(h, scoreCal);
-      const singleHead =
-        h.dual_score_single_head === true ||
-        String(h.dual_score_head || "") === "single_eod" ||
-        String(h.dual_score_head || "") === "single_tau";
+      const scoreNowcastShown = fmtTableScore(h, scoreNowcast);
+      const singleHead = isSingleHeadItem(h);
       const scoreTitle = hardReject
         ? String(h.reject_reason || "硬拒绝 · 无收益分")
         : isHeuristicScoreScale(h)
@@ -143,7 +151,7 @@ export function buildPaperHoldingsTableHtml({
             ? `ŷ_trade 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
           : belowMin
             ? `低于ŷ_EOD门槛 ${h.min_score ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
-            : "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
+            : TRADE_TITLE;
       const oosFailed =
         !!h.oos_failed ||
         isHeuristicScoreScale(h) ||
@@ -151,59 +159,25 @@ export function buildPaperHoldingsTableHtml({
       const oosBadge = oosFailed
         ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
         : "";
-      const head = String(h.dual_score_head || "");
-      const singleHeadBadge = singleHead
-        ? `<span class="watching-single-head-badge" title="${escapeText(
-            head === "single_tau"
-              ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 EOD rem）· 与双头票不同量纲"
-              : head === "single_eod"
-                ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
-                : "ŷ_trade 单头降级 · 与双头票不同量纲"
-          )}">单</span>`
-        : "";
-      const yCheck = String(h.y_check || "");
-      const yCheckBadge =
-        yCheck && yCheck !== "ok"
-          ? `<span class="watching-y-check-badge is-${escapeText(
-              yCheck
-            )}" title="${escapeText(
-              yCheck === "conflict"
-                ? "Y·EOD 校验：双头分歧 · 降低今日执行信任"
-                : yCheck === "low_conf"
-                  ? "Y·EOD 校验：低置信"
-                  : yCheck === "missing_tau"
-                    ? "Y·EOD 校验：缺 ŷ_τ"
-                    : `Y·EOD 校验：${yCheck}`
-            )}">${escapeText(
-              yCheck === "conflict"
-                ? "歧"
-                : yCheck === "low_conf"
-                  ? "弱"
-                  : yCheck === "missing_tau"
-                    ? "缺τ"
-                    : "校"
-            )}</span>`
-          : "";
-      const scoreCalOor = !!(
-        h.score_calibration_eod_oor ||
-        h.score_calibration_eod_rem_oor ||
-        h.score_calibration_tau_oor
-      );
+      const singleHeadBadge = singleHead ? singleHeadBadgeHtml(h, escapeText) : "";
+      const yCheckBadge = yCheckBadgeHtml(h, escapeText);
+      const scoreCalOor = !!h.score_calibration_eod_oor;
       const scoreCalTitle =
         scoreCal == null
-          ? "暂无 g(ŷ) 映射（拟合并写入 live 后可见）"
+          ? "暂无 g(ŷ_EOD) 映射（拟合并写入 live 后可见）"
           : scoreCalOor
-            ? "g(ŷ_trade) 对照 · 部分落在拟合域外（端点钳制）· 悬停看校准 tip"
-            : "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip";
+            ? "g(ŷ_EOD) 域外钳制 · 悬停看 eod tip"
+            : EOD_CAL_TITLE;
+      const scoreNowcastTitle =
+        scoreNowcast == null ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见" : NOWCAST_TITLE;
       let residual = null;
       if (
-        scoreCal != null &&
-        Number.isFinite(Number(scoreCal)) &&
+        score != null &&
         h.change_pct != null &&
         h.change_pct !== "" &&
         Number.isFinite(Number(h.change_pct))
       ) {
-        residual = Number(scoreCal) - Number(h.change_pct);
+        residual = formatWatchingResidual(score, h.change_pct).residualNum;
       }
       const origin = String(h.origin || "");
       const originLabel = h.origin_label || "—";
@@ -224,79 +198,7 @@ export function buildPaperHoldingsTableHtml({
           ? " is-focus-holding"
           : "";
 
-      const terms = h.score_formula_terms || null;
-      const hasTerms =
-        terms && Array.isArray(terms.terms) && terms.terms.length > 0;
-      const scoreDetailJson = escapeText(
-        JSON.stringify({
-          predicted_score: h.predicted_score != null ? h.predicted_score : h.score,
-          score: h.score != null ? h.score : h.predicted_score,
-          predicted_score_tau:
-            h.predicted_score_tau != null
-              ? h.predicted_score_tau
-              : h.score_rem != null
-                ? h.score_rem
-                : h.predicted_score_rem,
-          predicted_score_blend: h.predicted_score_blend,
-          predicted_score_eod: h.predicted_score_eod,
-          predicted_score_eod_rem: h.predicted_score_eod_rem,
-          predicted_score_tau_delta: h.predicted_score_tau_delta,
-          predicted_score_nowcast: h.predicted_score_nowcast,
-          dual_score_window: h.dual_score_window || null,
-          nowcast_as_of: h.nowcast_as_of || null,
-          nowcast_K: h.nowcast_K,
-          nowcast_q: h.nowcast_q,
-          predicted_score_cal: h.predicted_score_cal,
-          predicted_score_eod_rem_cal: h.predicted_score_eod_rem_cal,
-          predicted_score_tau_cal: h.predicted_score_tau_cal,
-          predicted_score_blend_cal: h.predicted_score_blend_cal,
-          score_calibration_applied: !!h.score_calibration_applied,
-          score_calibration_enabled: !!h.score_calibration_enabled,
-          score_calibration_eod_oor: !!h.score_calibration_eod_oor,
-          score_calibration_eod_rem_oor: !!h.score_calibration_eod_rem_oor,
-          score_calibration_tau_oor: !!h.score_calibration_tau_oor,
-          score_calibration_note: h.score_calibration_note || null,
-          score_calibration_partial: h.score_calibration_partial || null,
-          realized_t1_to_tau: h.realized_t1_to_tau,
-          score_rem: h.score_rem != null ? h.score_rem : h.predicted_score_rem,
-          gap_pct: h.gap_pct,
-          event_prior: h.event_prior || null,
-          as_of_tau: h.as_of_tau || h.rem_tau || null,
-          y_spec_tau: h.y_spec_tau || null,
-          features_tau: h.features_tau || null,
-          formula_terms_tau: h.formula_terms_tau || h.score_formula_terms_tau || null,
-          score_formula_tau: h.score_formula_tau || null,
-          factor_coefficients_tau: h.factor_coefficients_tau || null,
-          dual_score_fusion: h.dual_score_fusion || null,
-          dual_score_weights: h.dual_score_weights || null,
-          dual_score_head: h.dual_score_head || null,
-          dual_score_single_head: !!h.dual_score_single_head || singleHead,
-          y_check: h.y_check || null,
-          y_disagree: h.y_disagree,
-          y_sigma: h.y_sigma,
-          eod_trust: h.eod_trust,
-          y_tau_to_close: h.y_tau_to_close,
-          y_tau_to_close_src: h.y_tau_to_close_src,
-          y_state: h.y_state,
-          formula: hasTerms ? "" : h.score_formula || "",
-          reasons: h.score_reasons || [],
-          hard_reject: h.hard_reject,
-          reject_reason: h.reject_reason || "",
-          weight_source: h.weight_source || "",
-          cluster_label: h.cluster_label || "",
-          cluster_mode: h.cluster_mode || "",
-          cluster_version: h.cluster_version,
-          score_global: h.score_global,
-          score_cluster: h.score_cluster,
-          min_score: h.min_score,
-          below_min_score: belowMin,
-          return_model_source: h.return_model_source || "",
-          formula_terms: terms,
-          factor_coefficients: hasTerms ? {} : h.factor_coefficients || {},
-          ...marketPriorDetailFields(h),
-          ...tailAnomalyDetailFields(h),
-        })
-      );
+      const scoreDetailJson = escapeText(watchingScoreDetail(h));
 
       return (
         `<tr data-code="${escapeText(code)}" data-shares="${escapeText(
@@ -330,6 +232,29 @@ export function buildPaperHoldingsTableHtml({
           h.change_pct,
           { signed: true }
         )}</td>` +
+        `<td class="num paper-hold-score watching-score-cal has-tip ${scoreCls(
+          scoreCal
+        )}${scoreCalOor ? " is-cal-oor" : ""}" data-score-detail="${scoreDetailJson}" data-score-tip="cal" title="${escapeText(
+          scoreCalTitle
+        )}">${escapeText(scoreCalShown)}</td>` +
+        `<td class="num paper-hold-score has-tip ${scoreCls(score)}${
+          belowMin ? " score-below-min" : ""
+        }${hardReject ? " score-reject" : ""}${
+          singleHead ? " score-single-head" : ""
+        }" ` +
+        `data-score-detail="${scoreDetailJson}" data-score-tip="trade" title="${escapeText(
+          scoreTitle
+        )}">${escapeText(scoreShown)}${singleHeadBadge}${yCheckBadge}</td>` +
+        `<td class="num paper-hold-score watching-score-nowcast has-tip ${scoreCls(
+          scoreNowcast
+        )}" data-score-detail="${scoreDetailJson}" data-score-tip="nowcast" title="${escapeText(
+          scoreNowcastTitle
+        )}">${escapeText(scoreNowcastShown)}</td>` +
+        `<td class="num paper-hold-residual ${metricCls(
+          residual
+        )}" title="${RESIDUAL_TITLE}">${fmtPct(residual, {
+          signed: true,
+        })}</td>` +
         `<td class="num paper-hold-cost" title="持仓加权平均成本">${fmtPriceUnit(
           h.cost,
           h.unit,
@@ -340,24 +265,6 @@ export function buildPaperHoldingsTableHtml({
           h.unit,
           h.currency
         )}</td>` +
-        `<td class="num paper-hold-score has-tip ${scoreCls(score)}${
-          belowMin ? " score-below-min" : ""
-        }${hardReject ? " score-reject" : ""}${
-          singleHead ? " score-single-head" : ""
-        }" ` +
-        `data-score-detail="${scoreDetailJson}" data-score-tip="trade" title="${escapeText(
-          scoreTitle
-        )}">${escapeText(scoreShown)}${singleHeadBadge}${yCheckBadge}</td>` +
-        `<td class="num paper-hold-score watching-score-cal has-tip ${scoreCls(
-          scoreCal
-        )}${scoreCalOor ? " is-cal-oor" : ""}" data-score-detail="${scoreDetailJson}" data-score-tip="cal" title="${escapeText(
-          scoreCalTitle
-        )}">${escapeText(scoreCalShown)}</td>` +
-        `<td class="num paper-hold-residual ${metricCls(
-          residual
-        )}" title="残差 = 校准 − 涨跌（百分点）">${fmtPct(residual, {
-          signed: true,
-        })}</td>` +
         `<td class="num paper-hold-pnl ${metricCls(pnl)}">${fmtPct(pnl, {
           signed: true,
         })}</td>` +
@@ -376,15 +283,21 @@ export function buildPaperHoldingsTableHtml({
   const tableHtml =
     `<div class="paper-holdings-scroll">` +
     `<table class="quant-weight-table paper-holdings-table"><thead><tr>` +
-    `<th>股票</th><th class="watching-col-center">情绪</th><th>股数</th><th>现价</th>` +
+    `<th title="股票名称与代码">股票</th>` +
+    `<th class="watching-col-center" title="标题情绪摘要">情绪</th>` +
+    `<th title="持仓股数">股数</th>` +
+    `<th title="最新成交价">现价</th>` +
     `<th title="当日开盘价">开盘价</th>` +
     `${sortThHtml("涨跌", "chg")}` +
-    `<th title="持仓加权平均成本，对账用">成本</th>` +
-    `${sortThHtml("市值", "market_value")}${sortThHtml("评分", "score")}` +
-    `${sortThHtml("校准", "score_cal")}` +
+    `${sortThHtml("EOD", "score_cal")}` +
+    `${sortThHtml("TRADE", "score")}` +
+    `${sortThHtml("NOWCAST", "score_nowcast")}` +
     `${sortThHtml("残差", "residual")}` +
+    `<th title="持仓加权平均成本">成本</th>` +
+    `${sortThHtml("市值", "market_value")}` +
     `${sortThHtml("浮盈亏", "pnl")}` +
-    `<th>开始</th><th class="paper-hold-origin">出处</th>` +
+    `<th title="建仓日期">开始</th>` +
+    `<th class="paper-hold-origin" title="仓位来源：手动 / 策略 / 混合">出处</th>` +
     `</tr></thead><tbody>${rows}</tbody></table></div>`;
 
   const action = buildPaperHoldActionBarHtml({ selectedHoldCode, holdings });

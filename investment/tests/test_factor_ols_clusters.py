@@ -1046,10 +1046,18 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertIn("gridTemplateColumns", grid)
         self.assertIn("grid-template-columns", grid)
         self.assertIn("clusterLandingHtml", land)
+        self.assertIn("fmtClusterTs", land)
+        self.assertIn("拟合", land)
+        self.assertIn("晋升", land)
+        self.assertIn("source_created_at", land)
+        self.assertIn("刷簿", land)
+        self.assertIn("book.updated_at", land)
         self.assertIn("const excludeOos", land)
         self.assertIn("① 对照", land)
         self.assertIn("live-refit", land)
         self.assertIn("live-refit", cluster)
+        self.assertIn("live-refresh", land)
+        self.assertNotIn('details class="quant-cluster-more', land)
         self.assertNotIn("① 花名册", land)
 
     def test_api_clusters_mocked(self):

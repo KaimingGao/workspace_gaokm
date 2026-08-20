@@ -188,21 +188,25 @@ class SignalService:
             "below_min_score": bool(packed.get("below_min_score")),
         }
         for k, v in packed.items():
-            if k.startswith("predicted_score") or k.startswith("score_") or k in (
-                "dual_score_fusion",
-                "dual_score_weights",
-                "dual_score_window",
-                "gap_pct",
-                "event_prior",
-                "as_of_tau",
-                "y_spec_tau",
-                "features_tau",
-                "formula_terms_tau",
-                "factor_coefficients_tau",
-                "realized_t1_to_tau",
-                "decision_score",
-                "heuristic_score",
-                "score_track",
+            if (
+                k.startswith("predicted_score")
+                or k.startswith("score_")
+                or k.startswith("nowcast_")
+                or k.startswith("dual_score_")
+                or k.startswith("y_")
+                or k in (
+                    "gap_pct",
+                    "event_prior",
+                    "as_of_tau",
+                    "features_tau",
+                    "formula_terms_tau",
+                    "factor_coefficients_tau",
+                    "realized_t1_to_tau",
+                    "decision_score",
+                    "heuristic_score",
+                    "score_track",
+                    "eod_trust",
+                )
             ):
                 out[k] = v
         sr = ScoreResult.from_score_stock(

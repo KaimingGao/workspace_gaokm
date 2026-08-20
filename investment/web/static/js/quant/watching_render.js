@@ -2,7 +2,7 @@
  * 观察池 HTML 渲染 helpers（纯字符串 / 轻量 DOM 写入）。
  */
 import { escapeHtml } from "../shared.js";
-import { marketPriorDetailFields, tailAnomalyDetailFields } from "../score_tooltip.js";
+import { marketPriorDetailFields, tailAnomalyDetailFields } from "../score_tooltip.js?v=p1227";
 import { watchingNameSpanHtml } from "./names.js";
 
 export function describeWatchingSource(src, index) {
@@ -73,7 +73,7 @@ export function matchWatchlistSource(code, sourceDescs) {
 }
 
 export function watchingScoreDetail(it) {
-  // τ 字段放前：data-score-detail 属性过长时避免被截掉
+  // nowcast / ŷ_EOD / ŷ_τ / 缺口放前：data-score-detail 过长时避免被截掉
   const terms = slimFormulaTerms((it && it.score_formula_terms) || null, 10);
   const tauTerms = slimFormulaTerms(
     (it && (it.formula_terms_tau || it.score_formula_terms_tau)) || null,
@@ -101,8 +101,13 @@ export function watchingScoreDetail(it) {
     : null;
   return JSON.stringify({
     stock_code: (it && (it.stock_code || it.code)) || null,
-    predicted_score: it && it.predicted_score != null ? it.predicted_score : it && it.score,
-    score: it && it.score != null ? it.score : it && it.predicted_score,
+    predicted_score_nowcast: it && it.predicted_score_nowcast,
+    nowcast_vs: (it && it.nowcast_vs) || null,
+    nowcast_as_of: (it && it.nowcast_as_of) || null,
+    nowcast_K: it && it.nowcast_K,
+    nowcast_q: it && it.nowcast_q,
+    nowcast_x_prior: it && it.nowcast_x_prior,
+    predicted_score_eod: it && it.predicted_score_eod,
     predicted_score_tau:
       it &&
       (it.predicted_score_tau != null
@@ -110,15 +115,13 @@ export function watchingScoreDetail(it) {
         : it.score_rem != null
           ? it.score_rem
           : it.predicted_score_rem),
+    gap_pct: it && it.gap_pct,
+    predicted_score: it && it.predicted_score != null ? it.predicted_score : it && it.score,
+    score: it && it.score != null ? it.score : it && it.predicted_score,
     predicted_score_blend: it && it.predicted_score_blend,
-    predicted_score_eod: it && it.predicted_score_eod,
     predicted_score_eod_rem: it && it.predicted_score_eod_rem,
     predicted_score_tau_delta: it && it.predicted_score_tau_delta,
-    predicted_score_nowcast: it && it.predicted_score_nowcast,
     dual_score_window: (it && it.dual_score_window) || null,
-    nowcast_as_of: (it && it.nowcast_as_of) || null,
-    nowcast_K: it && it.nowcast_K,
-    nowcast_q: it && it.nowcast_q,
     // 校准对照：靠前写入，避免属性过长截断
     predicted_score_cal: it && it.predicted_score_cal,
     predicted_score_eod_rem_cal: it && it.predicted_score_eod_rem_cal,
@@ -133,7 +136,6 @@ export function watchingScoreDetail(it) {
     score_calibration_partial: (it && it.score_calibration_partial) || null,
     realized_t1_to_tau: it && it.realized_t1_to_tau,
     score_rem: it && (it.score_rem != null ? it.score_rem : it.predicted_score_rem),
-    gap_pct: it && it.gap_pct,
     event_prior: eventPrior,
     as_of_tau: (it && (it.as_of_tau || it.rem_tau)) || null,
     rem_tau: (it && it.rem_tau) || null,
@@ -399,12 +401,19 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
         `<td class="num watching-col-num" data-q="price">${escapeHtml(String(d.price ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="open">${escapeHtml(String(d.open ?? "—"))}</td>` +
         `<td class="num watching-col-num watching-chg${d.chgCls ? " " + escapeHtml(d.chgCls) : ""}" data-q="chg">${escapeHtml(String(d.chg ?? "—"))}</td>` +
+        `<td class="num watching-col-num watching-score-cell watching-score-cal paper-hold-score has-tip ${escapeHtml(
+          d.scoreCalCls || ""
+        )}" data-q="score_cal" data-score-tip="cal" data-score-detail="${escapeHtml(
+          d.scoreDetail || ""
+        )}" title="${escapeHtml(
+          d.scoreCalTitle || "eod = g(ŷ_EOD) · 对涨跌"
+        )}">${escapeHtml(String(d.scoreCal ?? "—"))}</td>` +
         (() => {
           const singleHead = !!d.scoreSingleHead;
           const head = d.dualScoreHead || "";
           const headTitle =
             head === "single_tau"
-              ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 EOD rem）· 与双头票不同量纲"
+              ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 ŷ_EOD）· 与双头票不同量纲"
               : head === "single_eod"
                 ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
                 : "ŷ_trade 单头降级 · 与双头票不同量纲";
@@ -423,17 +432,17 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
             )}${badge}</td>`
           );
         })() +
-        `<td class="num watching-col-num watching-score-cell watching-score-cal paper-hold-score has-tip ${escapeHtml(
-          d.scoreCalCls || ""
-        )}" data-q="score_cal" data-score-tip="cal" data-score-detail="${escapeHtml(
+        `<td class="num watching-col-num watching-score-cell watching-score-nowcast paper-hold-score has-tip ${escapeHtml(
+          d.scoreNowcastCls || ""
+        )}" data-q="score_nowcast" data-score-tip="nowcast" data-score-detail="${escapeHtml(
           d.scoreDetail || ""
         )}" title="${escapeHtml(
-          d.scoreCalTitle || "g(ŷ_trade) 对照 · 不进决策"
-        )}">${escapeHtml(String(d.scoreCal ?? "—"))}</td>` +
+          d.scoreNowcastTitle || "ŷ_nowcast · 昨收口径对照"
+        )}">${escapeHtml(String(d.scoreNowcast ?? "—"))}</td>` +
         `<td class="num watching-col-num watching-residual${
           d.residualCls ? " " + escapeHtml(d.residualCls) : ""
         }" data-q="residual" title="${escapeHtml(
-          d.residualTitle || "残差 = 校准 − 涨跌"
+          d.residualTitle || "残差 = trade − 涨跌"
         )}">${escapeHtml(String(d.residual ?? "—"))}</td>` +
         `<td data-q="stance">${escapeHtml(String(d.stance ?? "—"))}</td>` +
         `<td class="num watching-col-num" data-q="excess">${escapeHtml(String(d.excess ?? "—"))}</td>` +
@@ -447,15 +456,23 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
     .join("");
   watchTable.innerHTML =
     `<div class="watching-table-scroll"><table class="quant-weight-table watching-result-table"><thead><tr>` +
-    `<th class="watching-pick-cell"><input type="checkbox" id="watching-select-all" /></th>` +
-    `<th>股票</th><th>仓位</th><th>情绪</th><th class="watching-col-num">现价</th>` +
-    `<th class="watching-col-num">开盘价</th>` +
-    `<th class="watching-col-num">涨跌</th><th class="watching-col-num">评分</th>` +
-    `<th class="watching-col-num" title="g(ŷ_trade) 对照 · 不进决策">校准</th>` +
-    `<th class="watching-col-num" title="残差 = 校准 − 涨跌（百分点）">残差</th>` +
-    `<th>倾向</th>` +
-    `<th class="watching-col-num">超额</th><th class="watching-col-num">量</th>` +
-    `<th class="watching-col-num">量比</th><th class="watching-col-num">PE</th><th class="watching-col-num">PB</th>` +
+    `<th class="watching-pick-cell" title="勾选后可加入模拟持仓"><input type="checkbox" id="watching-select-all" /></th>` +
+    `<th title="股票名称与代码">股票</th>` +
+    `<th title="是否已在模拟持仓">仓位</th>` +
+    `<th title="标题情绪摘要">情绪</th>` +
+    `<th class="watching-col-num" title="最新成交价">现价</th>` +
+    `<th class="watching-col-num" title="当日开盘价">开盘价</th>` +
+    `<th class="watching-col-num" title="相对昨收的涨跌幅（与 EOD / ŷ_trade 同一口径）">涨跌</th>` +
+    `<th class="watching-col-num" title="eod = g(ŷ_EOD)，对涨跌的回归预估；不含缺口；不进决策">EOD</th>` +
+    `<th class="watching-col-num" title="ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ) · 现价对昨收 · 排序/卖门槛">TRADE</th>` +
+    `<th class="watching-col-num" title="ŷ_nowcast · Kalman 权昨收口径对照，不进决策">NOWCAST</th>` +
+    `<th class="watching-col-num" title="残差 = trade − 涨跌">残差</th>` +
+    `<th title="规则倾向（买入 / 观望等），不是 ŷ 本身">倾向</th>` +
+    `<th class="watching-col-num" title="相对基准（指数）的超额收益">超额</th>` +
+    `<th class="watching-col-num" title="成交量">量</th>` +
+    `<th class="watching-col-num" title="近期成交量 / 均量">量比</th>` +
+    `<th class="watching-col-num" title="市盈率">PE</th>` +
+    `<th class="watching-col-num" title="市净率">PB</th>` +
     `</tr></thead><tbody>${body}</tbody></table></div>`;
   if (typeof onPickCountUpdate === "function") onPickCountUpdate();
 }
@@ -516,10 +533,14 @@ export function buildWatchingWatchRows(wl, names, paperCodes, scores, deps) {
       scoreCalNum: null,
       scoreCalCls: "",
       scoreCalTitle: "暂无 g(ŷ) 映射（拟合并写入 live 后可见）",
+      scoreNowcast: "…",
+      scoreNowcastNum: null,
+      scoreNowcastCls: "",
+      scoreNowcastTitle: "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见",
       residual: "—",
       residualNum: null,
       residualCls: "",
-      residualTitle: "残差 = 校准 − 涨跌（百分点）；正=校准高于当日涨跌",
+      residualTitle: "残差 = trade − 涨跌",
       stance: "…",
       excess: "…",
       excessNum: null,

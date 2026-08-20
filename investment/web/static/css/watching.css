@@ -153,7 +153,10 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal .wat
 /* 校准对照列：弱化字重/色，避免与决策分抢戏 */
 .watching-score-cell.watching-score-cal.paper-hold-score,
 .paper-hold-score.watching-score-cal,
-.bt-trade-score.watching-score-cal {
+.bt-trade-score.watching-score-cal,
+.watching-score-cell.watching-score-nowcast.paper-hold-score,
+.paper-hold-score.watching-score-nowcast,
+.bt-trade-score.watching-score-nowcast {
   font-weight: 500;
   opacity: 0.82;
 }

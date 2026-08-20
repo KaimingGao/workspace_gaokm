@@ -33,17 +33,71 @@ export function formatWatchingChg(changePercent) {
   };
 }
 
-/** 残差 = 校准 − 涨跌（百分点）。 */
-export function formatWatchingResidual(scoreCalNum, chgNum) {
+/** 从「1780.00元」一类展示串取出数值。 */
+export function parseWatchingPx(raw) {
+  if (raw == null || raw === "") return NaN;
+  if (typeof raw === "number") return Number.isFinite(raw) ? raw : NaN;
+  const m = String(raw).replace(/,/g, "").match(/-?\d+(?:\.\d+)?/);
+  return m ? Number(m[0]) : NaN;
+}
+
+/** 开盘相对昨收缺口 %。昨收由现价与涨跌反推。 */
+export function gapPctFromQuote(q) {
+  if (!q || typeof q !== "object") return null;
+  const open = parseWatchingPx(q.open);
+  const px = parseWatchingPx(q.price_raw != null && q.price_raw !== "" ? q.price_raw : q.price);
+  const chg = Number(
+    q.change_percent != null && q.change_percent !== ""
+      ? q.change_percent
+      : q.change_pct != null && q.change_pct !== ""
+        ? q.change_pct
+        : q.chgNum
+  );
+  if (!Number.isFinite(open) || !(open > 0) || !Number.isFinite(px) || !(px > 0) || !Number.isFinite(chg)) {
+    return null;
+  }
+  const prev = px / (1 + chg / 100);
+  if (!(prev > 0)) return null;
+  return (open / prev - 1) * 100;
+}
+
+/** 洞察行缺 gap 时用行情补上，并清 vs，逼 resolveTradeScore 按昨收重算。 */
+export function withQuoteGap(it, quoteLike) {
+  if (!it || typeof it !== "object") return it;
+  const had = it.gap_pct;
+  if (had != null && had !== "" && Number.isFinite(Number(had))) return it;
+  const ft = it.features_tau;
+  if (ft && typeof ft === "object" && ft.gap_pct != null && Number.isFinite(Number(ft.gap_pct))) {
+    return it;
+  }
+  const g = gapPctFromQuote(quoteLike);
+  if (g == null) return it;
+  return { ...it, gap_pct: g, predicted_score_blend_vs: "", predicted_score_blend_cal_vs: "" };
+}
+
+export const TRADE_TITLE =
+  "ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ) · 现价对昨收（与涨跌同一口径）· 排序/卖门槛";
+
+export const EOD_CAL_TITLE =
+  "eod = g(ŷ_EOD) · 对涨跌的回归预估（现价对昨收）· 不含缺口 · 不进决策";
+
+export const RESIDUAL_TITLE =
+  "残差 = trade − 涨跌。trade 是 ŷ_trade（现价对昨收），与涨跌同一目标";
+
+export const NOWCAST_TITLE =
+  "ŷ_nowcast · Kalman 权昨收口径对照（与 ŷ_trade / 涨跌同一目标），不进决策";
+
+/** 残差 = trade − 涨跌（百分点）。用 ŷ_trade，不用 g(ŷ_EOD)。 */
+export function formatWatchingResidual(tradeCalOrTrade, chgNum) {
   if (
-    scoreCalNum == null ||
-    !Number.isFinite(Number(scoreCalNum)) ||
+    tradeCalOrTrade == null ||
+    !Number.isFinite(Number(tradeCalOrTrade)) ||
     chgNum == null ||
     !Number.isFinite(Number(chgNum))
   ) {
     return { residualNum: null, residual: "—", residualCls: "" };
   }
-  const n = Number(scoreCalNum) - Number(chgNum);
+  const n = Number(tradeCalOrTrade) - Number(chgNum);
   return {
     residualNum: n,
     residual: `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`,
@@ -69,7 +123,7 @@ export function buildWatchingQuoteGridPatch(it, row, parseWatchingVolume) {
   const ok = !!(it && it.ok);
   const { chgNum, chgTxt, chgCls } = formatWatchingChg(ok ? it.change_percent : null);
   const { residualNum, residual, residualCls } = formatWatchingResidual(
-    prev.scoreCalNum,
+    prev.scoreNum,
     chgNum
   );
   const volNum = ok && typeof parseWatchingVolume === "function" ? parseWatchingVolume(it.volume) : NaN;
@@ -82,7 +136,7 @@ export function buildWatchingQuoteGridPatch(it, row, parseWatchingVolume) {
     residual,
     residualCls,
     residualNum,
-    residualTitle: "残差 = 校准 − 涨跌（百分点）；正=校准高于当日涨跌",
+    residualTitle: RESIDUAL_TITLE,
     vol: ok && it.volume != null ? String(it.volume) : "—",
     volNum: Number.isFinite(volNum) ? volNum : null,
     market: formatWatchingMarketLabel(it.market),

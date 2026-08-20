@@ -42,17 +42,61 @@ function _numField(v) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** 正交加权 ŷ_trade；权重缺省 0.5/0.5。 */
-export function fuseOrthogonalTrade(it, rem, tau) {
-  if (rem == null || tau == null) return null;
+/** 正交加权 ŷ_trade；权重缺省 0.5/0.5。允许单头。 */
+export function fuseOrthogonalTrade(it, left, right) {
+  const a = _numField(left);
+  const b = _numField(right);
+  if (a == null && b == null) return null;
   const w = (it && it.dual_score_weights) || {};
   let we = Number(w.w_eod);
   let wt = Number(w.w_tau);
   if (!Number.isFinite(we)) we = 0.5;
   if (!Number.isFinite(wt)) wt = 0.5;
   const s = we + wt;
-  if (Math.abs(s) < 1e-12) return 0.5 * rem + 0.5 * tau;
-  return (we * rem + wt * tau) / s;
+  if (a == null) return b;
+  if (b == null) return a;
+  if (Math.abs(s) < 1e-12) return 0.5 * a + 0.5 * b;
+  return (we * a + wt * b) / s;
+}
+
+/** (1+a%)(1+b%)−1，百分点。 */
+export function compoundPct(a, b) {
+  const fa = Number(a);
+  const fb = Number(b);
+  if (!Number.isFinite(fa) || !Number.isFinite(fb)) return null;
+  return ((1 + fa / 100) * (1 + fb / 100) - 1) * 100;
+}
+
+export function resolveGapPct(it) {
+  if (!it || typeof it !== "object") return null;
+  const g = _numField(it.gap_pct);
+  if (g != null) return g;
+  const ft = it.features_tau;
+  if (ft && typeof ft === "object") return _numField(ft.gap_pct);
+  return null;
+}
+
+/** ŷ_τ（开盘后）按缺口映到现价对昨收。 */
+export function liftTauVsPrevClose(it, yTau) {
+  const t = _numField(yTau);
+  if (t == null) return null;
+  const gap = resolveGapPct(it);
+  if (gap == null) return t;
+  const lifted = compoundPct(gap, t);
+  return lifted != null && Number.isFinite(lifted) ? lifted : t;
+}
+export function expressTradeVsPrevClose(it, yOc) {
+  if (yOc == null || !Number.isFinite(Number(yOc))) return null;
+  const n = Number(yOc);
+  if (!it || typeof it !== "object") return n;
+  if (isHeuristicScoreScale(it)) return n;
+  const vs = String(it.predicted_score_blend_vs || it.predicted_score_blend_cal_vs || "");
+  if (vs === "prev_close") return n;
+  if (String(it.dual_score_window || "") === "eod_next") return n;
+  const gap = resolveGapPct(it);
+  if (gap == null) return n;
+  const lifted = compoundPct(gap, n);
+  return lifted != null && Number.isFinite(lifted) ? lifted : n;
 }
 
 /** 是否为 0–100 启发式轨（表列仍只展示 ŷ%；heuristic 只在 tip）。 */
@@ -75,7 +119,7 @@ function _looksLikeYhatPct(n) {
   return n != null && Number.isFinite(n) && Math.abs(n) <= 20;
 }
 
-/** 表列主分：始终 ŷ_trade / 组ŷ%；绝不返回 heuristic 0–100。 */
+/** 表列主分：始终 ŷ_trade / 组ŷ%；绝不返回 heuristic 0–100。口径=现价对昨收。 */
 export function resolveTradeScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) {
@@ -96,22 +140,34 @@ export function resolveTradeScore(it) {
   }
   const eod = resolveEodScore(it);
   const tau = _numField(it.predicted_score_tau ?? it.score_rem);
-  let blend = _numField(it.predicted_score_blend);
+  const blend = _numField(it.predicted_score_blend);
+  const win = String(it.dual_score_window || "");
+  const eodNext = win === "eod_next";
+  const weights = it.dual_score_weights;
+  // 收盘后 / 显式剥离 τ：blend≈EOD 且仍有 ŷ_τ 是契约，不是旧簿；禁止前端再融回双头
+  const tauStripped =
+    eodNext ||
+    (weights && weights.tau_in_trade === false) ||
+    (String(it.dual_score_head || "") === "single_eod" && tau != null);
   const stale =
+    !tauStripped &&
     blend != null &&
     eod != null &&
     tau != null &&
     Math.abs(blend - eod) < 1e-9 &&
     Math.abs(tau - eod) > 1e-6;
-  if (blend == null || stale) {
-    const rem = resolveEodRemScore(it);
-    const fused = fuseOrthogonalTrade(it, rem, tau);
+  const needCc =
+    !tauStripped &&
+    resolveGapPct(it) != null &&
+    String(it.predicted_score_blend_vs || "") !== "prev_close";
+  if (!tauStripped && (blend == null || stale || needCc)) {
+    const tauCc = liftTauVsPrevClose(it, tau);
+    const fused = fuseOrthogonalTrade(it, eod, tauCc);
     if (_looksLikeYhatPct(fused)) return fused;
   }
-  if (_looksLikeYhatPct(blend)) return blend;
+  if (_looksLikeYhatPct(blend)) return expressTradeVsPrevClose(it, blend);
   const candidates = [
     it.decision_score,
-    it.predicted_score_eod_rem,
     it.predicted_score,
     it.score_cluster,
     it.score, // 最后：且必须像 ŷ%
@@ -121,25 +177,78 @@ export function resolveTradeScore(it) {
     if (_numField(it.heuristic_score) != null && n != null && Math.abs(n - _numField(it.heuristic_score)) < 1e-6 && Math.abs(n) > 20) {
       continue;
     }
-    if (_looksLikeYhatPct(n)) return n;
+    if (_looksLikeYhatPct(n)) return expressTradeVsPrevClose(it, n);
   }
   return null;
 }
 
-/** 对照列：g(ŷ_trade) → g(ŷ_EOD)；无映射时 null（表上显示 —）。 */
+/** eod 列：g(ŷ_EOD)，就是对涨跌（现价对昨收）的回归预估。不含缺口。 */
 export function resolveCalTradeScore(it) {
   if (!it || typeof it !== "object") return null;
-  const candidates = [
-    it.predicted_score_blend_cal,
-    it.predicted_score_cal,
-    it.predicted_score_eod_rem_cal,
-  ];
-  for (const c of candidates) {
-    if (c == null || c === "") continue;
-    const n = Number(c);
-    if (Number.isFinite(n)) return n;
+  if (isHeuristicScoreScale(it)) return null;
+  const eodCal = resolveCalEodScore(it);
+  if (eodCal != null) return eodCal;
+  return resolveEodScore(it);
+}
+
+/** g(ŷ_EOD)：与涨跌同口径（现价对昨收）；表列 eod，不进残差。 */
+export function resolveCalEodScore(it) {
+  if (!it || typeof it !== "object") return null;
+  const n = Number(it.predicted_score_cal);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** ŷ_nowcast：Kalman 权对照，口径=现价对昨收（与 ŷ_trade 相同）。 */
+export function resolveNowcastScore(it) {
+  if (!it || typeof it !== "object") return null;
+  if (isHeuristicScoreScale(it)) return null;
+  const n = _numField(it.predicted_score_nowcast);
+  let stored = null;
+  if (n != null && _looksLikeYhatPct(n)) {
+    const vs = String(it.nowcast_vs || "");
+    if (vs === "prev_close" || String(it.dual_score_window || "") === "eod_next") {
+      stored = n;
+    } else {
+      const gap = resolveGapPct(it);
+      if (gap == null) stored = n;
+      else {
+        const lifted = compoundPct(gap, n);
+        stored = lifted != null && Number.isFinite(lifted) ? lifted : n;
+      }
+    }
   }
-  return null;
+  const fused = reconstructNowcastPrevClose(it);
+  const eod = resolveEodScore(it);
+  // 收盘后曾把 nowcast 塌成 ŷ_EOD：有 K 与 ŷ_τ 时用公式现算
+  if (
+    fused != null &&
+    (stored == null ||
+      (eod != null &&
+        Math.abs(stored - eod) < 1e-4 &&
+        Math.abs(fused - eod) > 5e-4))
+  ) {
+    return fused;
+  }
+  return stored;
+}
+
+/** (1−K)·ŷ_EOD + K·(缺口∘ŷ_τ)。旧簿缺 K 时用 Kalman 默认增益。 */
+export function reconstructNowcastPrevClose(it) {
+  if (!it || typeof it !== "object") return null;
+  const eod = resolveEodScore(it);
+  const tauCc = liftTauVsPrevClose(
+    it,
+    it.predicted_score_tau != null ? it.predicted_score_tau : it.score_rem
+  );
+  let k = _numField(it.nowcast_K);
+  if (k == null && it.dual_score_weights) {
+    k = _numField(it.dual_score_weights.nowcast_K);
+  }
+  if (k == null) k = 1.05 / 2.05; // ve=1, q=0.05, R=1
+  if (eod == null || tauCc == null) return null;
+  if (k < 0 || k > 1) return null;
+  const n = (1 - k) * eod + k * tauCc;
+  return Number.isFinite(n) ? n : null;
 }
 
 /** ŷ_EOD：隔夜主轴（买门槛用这一层）。 */

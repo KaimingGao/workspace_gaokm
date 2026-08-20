@@ -9,18 +9,18 @@ import {
   scoreCls,
   resolveTradeScore,
   resolveCalTradeScore,
+  resolveNowcastScore,
   resolveEodScore,
-  resolveEodRemScore,
   scoreSeriesStats,
   isHeuristicScoreScale,
-} from "./paper/fmt.js?v=p1128";
+} from "./paper/fmt.js?v=p1227";
 import { drawSeries, appendLiveNavPoint } from "./paper/chart.js?v=p1163";
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
 import {
   loadHoldingsSort,
   persistHoldingsSort as persistHoldingsSortSaved,
   sortHoldings as sortHoldingsRows,
-} from "./paper/holdings_sort.js?v=p1128";
+} from "./paper/holdings_sort.js?v=p1227";
 import {
   renderLineChart,
   loadLightweightCharts,
@@ -31,7 +31,7 @@ import {
   buildPaperHoldingsTableHtml,
   buildPaperOriginBarHtml,
   buildPaperHoldActionBarHtml,
-} from "./paper/holdings_ui.js?v=p1128";
+} from "./paper/holdings_ui.js?v=p1227";
 import { renderPaperRulesHtml } from "./paper/rules_ui.js";
 import {
   renderExecutionRulesHtml,
@@ -52,16 +52,14 @@ import {
   formatFactorWeightsSection,
   formatFormulaTermsSection,
   formatScoreHero,
-  formatEodRemScoreSection,
   formatRemScoreSection,
   formatBlendScoreSection,
-  formatCalibrationSection,
   formatSentimentGateSection,
   formatMarketPriorSection,
   marketPriorDetailFields,
   tailAnomalyDetailFields,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p1128";
+} from "./score_tooltip.js?v=p1226";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 
@@ -876,14 +874,14 @@ export function initPaper(ctx) {
       if (!holdingsScoreStatsEl) return;
       const list = Array.isArray(rows) ? rows : [];
       const eod = scoreSeriesStats(list.map(resolveEodScore));
-      const rem = scoreSeriesStats(list.map(resolveEodRemScore));
+      const trade = scoreSeriesStats(list.map(resolveTradeScore));
       const bit = (label, pack) =>
         pack.n
           ? `${label} μ ${Number(pack.mean).toFixed(2)}% · med ${Number(
               pack.median
             ).toFixed(2)}% · n=${pack.n}`
           : null;
-      holdingsScoreStatsEl.textContent = [bit("ŷ_EOD", eod), bit("ŷ_EOD_rem", rem)]
+      holdingsScoreStatsEl.textContent = [bit("ŷ_EOD", eod), bit("ŷ_trade", trade)]
         .filter(Boolean)
         .join(" · ");
     };
@@ -1332,6 +1330,7 @@ export function initPaper(ctx) {
           key === "market_value" ||
           key === "score" ||
           key === "score_cal" ||
+          key === "score_nowcast" ||
           key === "residual" ||
           key === "pnl" ||
           key === "chg"
@@ -1881,14 +1880,21 @@ export function initPaper(ctx) {
       function tipDetailPayload(r) {
         return {
           stock_code: r.stock_code || r.code || null,
+          predicted_score_nowcast: r.predicted_score_nowcast,
+          nowcast_vs: r.nowcast_vs || null,
+          nowcast_as_of: r.nowcast_as_of || null,
+          nowcast_K: r.nowcast_K,
+          nowcast_q: r.nowcast_q,
+          nowcast_x_prior: r.nowcast_x_prior,
+          predicted_score_eod: r.predicted_score_eod,
+          predicted_score_tau: r.predicted_score_tau,
+          gap_pct: r.gap_pct,
           predicted_score: r.predicted_score != null ? r.predicted_score : r.score,
           score: r.score != null ? r.score : r.predicted_score,
           min_score: r.min_score,
           below_min_score: r.below_min_score,
           formula_terms: r.score_formula_terms,
-          predicted_score_tau: r.predicted_score_tau,
           score_rem: r.score_rem,
-          gap_pct: r.gap_pct,
           event_prior: r.event_prior,
           as_of_tau: r.as_of_tau || r.rem_tau,
           dual_score_fusion: r.dual_score_fusion,
@@ -1904,14 +1910,9 @@ export function initPaper(ctx) {
           y_tau_to_close_src: r.y_tau_to_close_src,
           y_state: r.y_state,
           predicted_score_blend: r.predicted_score_blend,
-          predicted_score_eod: r.predicted_score_eod,
           predicted_score_eod_rem: r.predicted_score_eod_rem,
           predicted_score_tau_delta: r.predicted_score_tau_delta,
-          predicted_score_nowcast: r.predicted_score_nowcast,
           dual_score_window: r.dual_score_window || null,
-          nowcast_as_of: r.nowcast_as_of || null,
-          nowcast_K: r.nowcast_K,
-          nowcast_q: r.nowcast_q,
           predicted_score_cal: r.predicted_score_cal,
           predicted_score_eod_rem_cal: r.predicted_score_eod_rem_cal,
           predicted_score_tau_cal: r.predicted_score_tau_cal,
@@ -1970,13 +1971,11 @@ export function initPaper(ctx) {
 
         let html = '<div class="score-detail">';
         const tipRaw = tipDetailPayload(r);
-        html += formatScoreHero(tipRaw);
-        html += formatEodRemScoreSection(tipRaw);
+        html += formatBlendScoreSection(tipRaw);
         html += formatRemScoreSection(tipRaw);
         html += formatFormulaTermsSection(tipRaw, { key: "tau" });
         html += formatFactorWeightsSection(tipRaw, { key: "tau" });
-        html += formatBlendScoreSection(tipRaw);
-        html += formatCalibrationSection(tipRaw);
+        html += formatScoreHero(tipRaw);
         html += formatFormulaTermsSection(tipRaw);
         html += formatFactorWeightsSection(tipRaw);
         html += formatWeightSourceNote(tipRaw);
@@ -2056,15 +2055,15 @@ export function initPaper(ctx) {
           } else if (r.y_check && String(r.y_check) !== "ok") {
             scoreTip = `Y·EOD 校验 ${String(r.y_check)} · 悬停看分歧/σ`;
           } else if (belowMin) {
-            scoreTip = "低于ŷ_EOD门槛 · 表列为 ŷ_trade · 悬停看详情";
+            scoreTip = "低于ŷ_EOD门槛 · 表列为 ŷ_trade · 悬停看组成";
           } else {
-            scoreTip = "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
+            scoreTip = "ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ) · 现价对昨收 · 悬停看组成";
           }
           const head = String(r.dual_score_head || "");
           const singleHeadBadge = singleHead
             ? `<span class="watching-single-head-badge" title="${escapeText(
                 head === "single_tau"
-                  ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 EOD rem）· 与双头票不同量纲"
+                  ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 ŷ_EOD）· 与双头票不同量纲"
                   : head === "single_eod"
                     ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
                     : "ŷ_trade 单头降级 · 与双头票不同量纲"
@@ -2094,17 +2093,20 @@ export function initPaper(ctx) {
           const scoreCal = resolveCalTradeScore(r);
           const scoreCalShown =
             scoreCal != null ? fmtTableScore(r, scoreCal) : "—";
-          const scoreCalOor = !!(
-            r.score_calibration_eod_oor ||
-            r.score_calibration_eod_rem_oor ||
-            r.score_calibration_tau_oor
-          );
+          const scoreCalOor = !!r.score_calibration_eod_oor;
           const scoreCalTitle =
             scoreCal == null
-              ? "暂无 g(ŷ) 映射（拟合并写入 live 后可见）"
+              ? "暂无 g(ŷ_EOD) 映射（拟合并写入 live 后可见）"
               : scoreCalOor
-                ? "g(ŷ_trade) 对照 · 部分落在拟合域外（端点钳制）· 悬停看校准 tip"
-                : "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip";
+                ? "g(ŷ_EOD) 域外钳制 · 悬停看 eod tip"
+                : "eod = g(ŷ_EOD) · 对涨跌的回归预估，不含缺口，不进决策";
+          const scoreNowcast = resolveNowcastScore(r);
+          const scoreNowcastShown =
+            scoreNowcast != null ? fmtTableScore(r, scoreNowcast) : "—";
+          const scoreNowcastTitle =
+            scoreNowcast == null
+              ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见"
+              : "ŷ_nowcast · Kalman 权昨收口径对照（与 ŷ_trade / 涨跌同一目标），不进决策";
           const tipDetailJson = escapeText(
             JSON.stringify(tipDetailPayload(r))
           );
@@ -2278,14 +2280,19 @@ export function initPaper(ctx) {
             `<div class="num rebalance-chg ${chgCls}" role="cell" title="相对昨收">${escapeText(
               chgText
             )}</div>` +
-            `<div class="num rebalance-score paper-hold-score has-tip ${scoreClass}" ` +
-            `role="cell" data-score-detail="${tipDetailJson}" data-score-tip="trade" ` +
-            `title="${escapeText(scoreTip)}">${escapeText(scoreShown)}${singleHeadBadge}${yCheckBadge}</div>` +
             `<div class="num rebalance-score-cal paper-hold-score watching-score-cal has-tip ${scoreCls(
               scoreCal
             )}${scoreCalOor ? " is-cal-oor" : ""}" role="cell" ` +
             `data-score-detail="${tipDetailJson}" data-score-tip="cal" ` +
             `title="${escapeText(scoreCalTitle)}">${escapeText(scoreCalShown)}</div>` +
+            `<div class="num rebalance-score paper-hold-score has-tip ${scoreClass}" ` +
+            `role="cell" data-score-detail="${tipDetailJson}" data-score-tip="trade" ` +
+            `title="${escapeText(scoreTip)}">${escapeText(scoreShown)}${singleHeadBadge}${yCheckBadge}</div>` +
+            `<div class="num rebalance-score-nowcast paper-hold-score watching-score-nowcast has-tip ${scoreCls(
+              scoreNowcast
+            )}" role="cell" ` +
+            `data-score-detail="${tipDetailJson}" data-score-tip="nowcast" ` +
+            `title="${escapeText(scoreNowcastTitle)}">${escapeText(scoreNowcastShown)}</div>` +
             `<div class="num rebalance-shares" role="cell">` +
             `<span class="rebalance-shares-old">${escapeText(
               String(
@@ -2325,8 +2332,9 @@ export function initPaper(ctx) {
         `<div class="rebalance-table-head" role="row">` +
         `<div class="rebalance-th" role="columnheader">股票</div>` +
         `<div class="rebalance-th num" role="columnheader" title="相对昨收的当日涨跌幅">涨跌</div>` +
-        `<div class="rebalance-th num" role="columnheader" title="ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ">评分</div>` +
-        `<div class="rebalance-th num" role="columnheader" title="g(ŷ_trade) 对照 · 不进决策">校准</div>` +
+        `<div class="rebalance-th num" role="columnheader" title="eod = g(ŷ_EOD) · 对涨跌，不含缺口，不进决策">EOD</div>` +
+        `<div class="rebalance-th num" role="columnheader" title="ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ) · 现价对昨收 · 排序/卖门槛">TRADE</div>` +
+        `<div class="rebalance-th num" role="columnheader" title="ŷ_nowcast · Kalman 权昨收口径对照，不进决策">NOWCAST</div>` +
         `<div class="rebalance-th num" role="columnheader">股数</div>` +
         `<div class="rebalance-th num" role="columnheader">变动</div>` +
         `<div class="rebalance-th rebalance-th-decision" role="columnheader" title="悬停看原因">决策</div>` +
@@ -2606,11 +2614,32 @@ export function initPaper(ctx) {
     let followClusterActive = false;
     let followClusterPreviewPending = false;
 
+    function fmtFollowBookTs(iso) {
+      if (!iso) return "";
+      let raw = String(iso).trim();
+      if (!raw) return "";
+      if (
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw) &&
+        !/[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)
+      ) {
+        raw = raw.replace(/\.\d+$/, "") + "Z";
+      }
+      const d = new Date(raw);
+      if (Number.isNaN(d.getTime())) {
+        return raw.replace("T", " ").replace(/\.\d+Z?$/, "").slice(0, 16);
+      }
+      const p = (n) => String(n).padStart(2, "0");
+      return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(
+        d.getMinutes()
+      )}`;
+    }
+
     function formatFollowClusterStatus(data) {
       const cs = (data && data.cluster_scoring) || {};
       const act = (data && data.active) || {};
       const book = (data && data.book) || {};
       const mode = cs.mode || "off";
+      const bookTs = fmtFollowBookTs(book.updated_at);
       const maxNames =
         book.max_names != null
           ? book.max_names
@@ -2632,14 +2661,16 @@ export function initPaper(ctx) {
       if (mode === "shadow") {
         return {
           active: false,
-          text: `分组打分：对照中 · v${act.version ?? "—"} · 组权分全局排序 · 上限 ${maxNames} · 主分仍全局`,
+          text: `分组打分：对照中 · v${act.version ?? "—"} · 组权分全局排序 · 上限 ${maxNames}${
+          bookTs ? ` · 刷簿 ${bookTs}` : ""
+        } · 主分仍全局`,
         };
       }
       return {
         active: !!act.exists,
         text: `分组打分：已启用 · v${act.version ?? "—"} · 组权分全局排序 · 簿 ${
           book.name_count ?? "—"
-        }/${maxNames}（ŷ门槛过滤后截断）`,
+        }/${maxNames}${bookTs ? ` · 刷簿 ${bookTs}` : ""}（ŷ门槛过滤后截断）`,
       };
     }
 

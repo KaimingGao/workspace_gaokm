@@ -59,12 +59,7 @@
           <div class="dashboard-kpi-card quant-pro-kpi-card watching-kpi-card is-empty" data-kpi="eod">
             <div class="dashboard-kpi-label quant-pro-kpi-label watching-kpi-label">ŷ_EOD μ</div>
             <div class="dashboard-kpi-value quant-pro-kpi-value watching-kpi-value" id="watching-kpi-eod">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-eod-sub">隔夜主轴</div>
-          </div>
-          <div class="dashboard-kpi-card quant-pro-kpi-card watching-kpi-card is-empty" data-kpi="eod-rem">
-            <div class="dashboard-kpi-label quant-pro-kpi-label watching-kpi-label">ŷ_EOD_rem μ</div>
-            <div class="dashboard-kpi-value quant-pro-kpi-value watching-kpi-value" id="watching-kpi-eod-rem">—</div>
-            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-eod-rem-sub">τ→收盘映射</div>
+            <div class="dashboard-kpi-sub quant-pro-kpi-sub watching-kpi-sub" id="watching-kpi-eod-sub">隔夜主轴 · 对涨跌</div>
           </div>
         </div>
       </div>
@@ -106,7 +101,6 @@
             <p id="watching-yhat-hist-meta" class="quant-sub watching-yhat-hist-meta-primary"></p>
             <p id="watching-yhat-hist-meta-aux" class="quant-sub watching-yhat-hist-meta-aux"></p>
             <p id="watching-yhat-hist-meta-eod" class="quant-sub watching-yhat-hist-meta-layer"></p>
-            <p id="watching-yhat-hist-meta-eod-rem" class="quant-sub watching-yhat-hist-meta-layer"></p>
             <p id="watching-yhat-hist-filter" class="quant-sub yhat-hist-filter" hidden></p>
           </div>
           <div class="dashboard-card-tools quant-pro-card-tools watching-card-tools">
@@ -150,7 +144,7 @@
     <header class="dashboard-section-head quant-section-head watching-section-head">
       <h3 id="watching-section-watchlist-title" class="dashboard-section-title">观察名单</h3>
       <p class="dashboard-section-desc quant-section-desc">
-        行情 · 评分 · 倾向 · 勾选后加入纸面 · 共
+        行情 · eod / trade / nowcast · 倾向 · 勾选后加入纸面 · 共
         <span id="watching-holdings-count" class="watching-section-count"></span>
         只
       </p>

@@ -192,12 +192,18 @@ export function mountVirtualTable(host, options = {}) {
             typeof options.headHtml === "function"
               ? options.headHtml(col, ctx)
               : `${escapeHtml(col.label || "")}${arrow}`;
+          const tipParts = [];
+          if (col.title) tipParts.push(String(col.title));
+          else if (col.label) tipParts.push(String(col.label));
+          if (col.sortable) tipParts.push("点击排序");
+          const tip = tipParts.join(" · ");
           return (
             `<div class="watching-react-grid-cell${extraCls ? ` ${extraCls}` : ""}" ` +
             `style="${colStyle(col)}" ` +
             (col.sortable
-              ? `data-sort="${escapeHtml(col.id)}" role="button" tabindex="0" title="点击排序"`
-              : `title="${escapeHtml(col.title || col.label || "")}"`) +
+              ? `data-sort="${escapeHtml(col.id)}" role="button" tabindex="0"`
+              : "") +
+            (tip ? ` title="${escapeHtml(tip)}"` : "") +
             `>${inner}</div>`
           );
         })

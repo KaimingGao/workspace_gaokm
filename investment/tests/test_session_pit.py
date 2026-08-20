@@ -72,7 +72,7 @@ class TestSessionPit(unittest.TestCase):
 
 
 class TestEodNextFusion(unittest.TestCase):
-    def test_fuse_intraday_false_keeps_weighted_trade(self):
+    def test_fuse_intraday_false_strips_tau_from_trade(self):
         from core.signal.dual_score import apply_tau_score_fields, rank_key_for_item
 
         item = {"predicted_score": 1.2, "score": 1.2}
@@ -86,11 +86,14 @@ class TestEodNextFusion(unittest.TestCase):
         self.assertEqual(item["dual_score_window"], "eod_next")
         # 收盘后不减缺口
         self.assertAlmostEqual(item["predicted_score_eod_rem"], 1.2)
-        # 表列 ŷ_trade 仍正交加权
-        self.assertAlmostEqual(item["predicted_score_blend"], 1.0)
+        # 主排序分剥离 τ：ŷ_trade = ŷ_EOD
+        self.assertAlmostEqual(item["predicted_score_blend"], 1.2)
         self.assertAlmostEqual(item["predicted_score_tau"], 0.8)
-        self.assertAlmostEqual(rank_key_for_item(item), 1.0)
-        self.assertEqual(item["nowcast_as_of"], "eod")
+        self.assertAlmostEqual(rank_key_for_item(item), 1.2)
+        self.assertFalse((item.get("dual_score_weights") or {}).get("tau_in_trade"))
+        # nowcast 对照仍吃 ŷ_τ，不能塌成 ŷ_EOD
+        self.assertEqual(item["nowcast_as_of"], "open")
+        self.assertNotAlmostEqual(item["predicted_score_nowcast"], 1.2, places=3)
 
     def test_eod_next_skips_stale_tau_buy_gate(self):
         from core.signal.dual_score import buy_passes_tau_gate
@@ -119,17 +122,10 @@ class TestEodNextFusion(unittest.TestCase):
         ]
         attach_dual_score_pit(item, quote=quote, bars=bars)
         self.assertEqual(item["dual_score_window"], "eod_next")
-        # rem=EOD；若 rem 头给出 ŷ_τ，则 blend 为加权（无 τ 时退回 EOD）
+        # rem=EOD；收盘后主排序分 = ŷ_EOD（剥离 τ）
         self.assertAlmostEqual(item["predicted_score_eod_rem"], 1.5)
-        tau = item.get("predicted_score_tau")
-        blend = item.get("predicted_score_blend")
-        if tau is None:
-            self.assertAlmostEqual(blend, 1.5)
-            self.assertAlmostEqual(rank_key_for_item(item), 1.5)
-        else:
-            expect = 0.5 * 1.5 + 0.5 * float(tau)
-            self.assertAlmostEqual(blend, expect, places=5)
-            self.assertAlmostEqual(rank_key_for_item(item), expect, places=5)
+        self.assertAlmostEqual(item.get("predicted_score_blend"), 1.5)
+        self.assertAlmostEqual(rank_key_for_item(item), 1.5)
 
     def test_mom3_hard_reject_can_be_skipped(self):
         from core.signal.scorer import score_bars
@@ -182,16 +178,17 @@ class TestEodNextFusion(unittest.TestCase):
             "predicted_score_eod": 0.542957,
             "predicted_score_eod_rem": 0.542957,
             "predicted_score_tau": 0.047501,
-            "predicted_score_blend": 0.542957,
+            "predicted_score_blend": 0.295229,  # 旧错：掺了 τ
             "dual_score_window": "eod_next",
             "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed"},
+            "gap_pct": 1.0,
         }
-        expect = 0.5 * 0.542957 + 0.5 * 0.047501
-        self.assertAlmostEqual(rank_key_for_item(item), expect, places=5)
-        self.assertAlmostEqual(decision_score_for_item(item), expect, places=5)
+        # 收盘后排序 / 决策分 = ŷ_EOD
+        self.assertAlmostEqual(rank_key_for_item(item), 0.542957, places=5)
+        self.assertAlmostEqual(decision_score_for_item(item), 0.542957, places=5)
         align_trade_score_fields(item)
-        self.assertAlmostEqual(item["predicted_score_blend"], expect, places=5)
-        self.assertAlmostEqual(item["score"], expect, places=5)
+        self.assertAlmostEqual(item["predicted_score_blend"], 0.542957, places=5)
+        self.assertAlmostEqual(item["score"], 0.542957, places=5)
         self.assertAlmostEqual(item["predicted_score"], 0.542957, places=5)
 
         # book_fields 返回已对齐 blend，且不改写调用方 score（仍为 EOD 主分场景）
@@ -199,13 +196,14 @@ class TestEodNextFusion(unittest.TestCase):
             "predicted_score": 0.542957,
             "predicted_score_eod_rem": 0.542957,
             "predicted_score_tau": 0.047501,
-            "predicted_score_blend": 0.542957,
+            "predicted_score_blend": 0.295229,
             "score": 0.542957,
             "dual_score_window": "eod_next",
             "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5},
+            "gap_pct": 1.0,
         }
         fields = dual_score_book_fields(src)
-        self.assertAlmostEqual(fields["predicted_score_blend"], expect, places=5)
+        self.assertAlmostEqual(fields["predicted_score_blend"], 0.542957, places=5)
         self.assertEqual(src["score"], 0.542957)
 
     def test_load_active_cluster_book_aligns_stale_blend(self):
@@ -218,8 +216,8 @@ class TestEodNextFusion(unittest.TestCase):
                     "predicted_score": 1.896714,
                     "predicted_score_eod_rem": 1.896714,
                     "predicted_score_tau": 0.04579,
-                    "predicted_score_blend": 1.896714,
-                    "score": 1.896714,
+                    "predicted_score_blend": 0.971252,  # 旧错：0.5*(eod+tau)
+                    "score": 0.971252,
                     "dual_score_window": "eod_next",
                     "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5},
                     "gap_pct": 0.0223,
@@ -229,10 +227,31 @@ class TestEodNextFusion(unittest.TestCase):
         }
         _align_cluster_book_trade_scores(doc)
         row = doc["scored_all"][0]
-        expect = 0.5 * 1.896714 + 0.5 * 0.04579
-        self.assertAlmostEqual(row["predicted_score_blend"], expect, places=5)
-        self.assertAlmostEqual(row["score"], expect, places=5)
+        self.assertAlmostEqual(row["predicted_score_blend"], 1.896714, places=5)
+        self.assertAlmostEqual(row["score"], 1.896714, places=5)
         self.assertAlmostEqual(row["predicted_score"], 1.896714, places=5)
+
+    def test_align_repairs_unlifted_intraday_blend(self):
+        """盘中旧簿用 w·ŷ_EOD+w·ŷ_τ（未抬缺口）时，读路径重算缺口∘ŷ_τ。"""
+        from core.signal.dual_score import align_trade_score_fields
+        from core.signal.nowcast_kf import compound_pct
+
+        y_eod, y_tau, gap = 2.381498, 0.236315, -0.3114
+        item = {
+            "predicted_score": y_eod,
+            "predicted_score_eod": y_eod,
+            "predicted_score_tau": y_tau,
+            "predicted_score_blend": 0.5 * y_eod + 0.5 * y_tau,
+            "dual_score_window": "intraday",
+            "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5},
+            "gap_pct": gap,
+        }
+        align_trade_score_fields(item)
+        tau_cc = compound_pct(gap, y_tau)
+        expect = 0.5 * y_eod + 0.5 * tau_cc
+        self.assertAlmostEqual(item["predicted_score_blend"], expect, places=5)
+        self.assertAlmostEqual(item["predicted_score_blend_tau_cc"], tau_cc, places=5)
+        self.assertEqual(item["predicted_score_blend_vs"], "prev_close")
 
 
 if __name__ == "__main__":

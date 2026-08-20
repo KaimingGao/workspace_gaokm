@@ -38,7 +38,7 @@ export function watchingPoolMetaText(wlLen, paperN, maxSize) {
   return `观察 ${wlLen} 只 · 已持 ${paperN}/${wlLen} · 上限 ${maxSize || "—"}`;
 }
 
-/** @param {{ pool?: number|string|null, held?: number|string|null, maxSize?: number|string|null, buyPct?: number|null, mu?: number|null, med?: number|null, n?: number|null, eodMu?: number|null, eodMed?: number|null, eodN?: number|null, eodRemMu?: number|null, eodRemMed?: number|null, eodRemN?: number|null }} opts */
+/** @param {{ pool?: number|string|null, held?: number|string|null, maxSize?: number|string|null, buyPct?: number|null, mu?: number|null, med?: number|null, n?: number|null, eodMu?: number|null, eodMed?: number|null, eodN?: number|null }} opts */
 export function applyWatchingOverviewKpis(opts = {}) {
   const set = (id, value, sub, empty) => {
     const el = document.getElementById(id);
@@ -62,9 +62,6 @@ export function applyWatchingOverviewKpis(opts = {}) {
   const eodMu = opts.eodMu;
   const eodMed = opts.eodMed;
   const eodN = opts.eodN;
-  const eodRemMu = opts.eodRemMu;
-  const eodRemMed = opts.eodRemMed;
-  const eodRemN = opts.eodRemN;
 
   if (pool !== undefined) {
     set(
@@ -106,26 +103,8 @@ export function applyWatchingOverviewKpis(opts = {}) {
     const sub =
       eodMed != null && Number.isFinite(eodMed)
         ? `med ${Number(eodMed).toFixed(2)}%${eodN != null ? ` · n=${eodN}` : ""}`
-        : "隔夜主轴";
+        : "隔夜主轴 · 对涨跌";
     set("watching-kpi-eod", txt, sub, eodMu == null || !Number.isFinite(eodMu));
-  }
-  if (eodRemMu !== undefined) {
-    const txt =
-      eodRemMu == null || !Number.isFinite(eodRemMu)
-        ? "—"
-        : `${Number(eodRemMu).toFixed(2)}%`;
-    const sub =
-      eodRemMed != null && Number.isFinite(eodRemMed)
-        ? `med ${Number(eodRemMed).toFixed(2)}%${
-            eodRemN != null ? ` · n=${eodRemN}` : ""
-          }`
-        : "τ→收盘映射";
-    set(
-      "watching-kpi-eod-rem",
-      txt,
-      sub,
-      eodRemMu == null || !Number.isFinite(eodRemMu)
-    );
   }
 }
 

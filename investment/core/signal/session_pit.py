@@ -1,7 +1,8 @@
 """Live 日线 PIT：盘中不把未完成的 T 日 K 线喂给 ŷ_EOD。
 
-收盘后 T 日 K 线完整，ŷ_EOD 滚到预测下一期；此时不再从 ŷ_EOD 减当日缺口
-（rem=ŷ_EOD）。表列 ŷ_trade 仍 = w·rem + w·ŷ_τ；τ 买入闸 / nowcast 不吃当日 ŷ_τ。
+收盘后 T 日 K 线完整，ŷ_EOD 滚到预测下一期。
+盘中 ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ)；收盘后 ŷ_trade = ŷ_EOD（剥离当日 τ）。
+τ 买入闸收盘后不吃当日 ŷ_τ；nowcast 对照列仍吃 ŷ_τ。
 """
 
 from __future__ import annotations

@@ -337,6 +337,7 @@ def row_from_scored_item(
         "y_disagree": round(y_disagree, 6) if y_disagree is not None else None,
         "eod_trust": round(eod_trust, 4) if eod_trust is not None else None,
         "nowcast_as_of": item.get("nowcast_as_of"),
+        "nowcast_vs": item.get("nowcast_vs"),
         "nowcast_K": _to_float(item.get("nowcast_K")),
         "nowcast_P": _to_float(item.get("nowcast_P")),
         "nowcast_x_prior": _to_float(item.get("nowcast_x_prior")),
@@ -579,6 +580,16 @@ def freeze_from_cluster_book(
         }
     except Exception as exc:
         out["tau_shadow"] = {"success": False, "error": str(exc)}
+    try:
+        nc_out = freeze_from_nowcast_shadow_book(as_of=d)
+        out["nowcast_shadow"] = {
+            "success": nc_out.get("success"),
+            "n_rows": nc_out.get("n_rows"),
+            "path": nc_out.get("path"),
+            "error": nc_out.get("error"),
+        }
+    except Exception as exc:
+        out["nowcast_shadow"] = {"success": False, "error": str(exc)}
     return out
 
 
@@ -744,7 +755,7 @@ def freeze_from_nowcast_shadow_book(
             "book_updated_at": doc.get("updated_at"),
             "feature_as_of": resolved.get("feature_as_of"),
             "freeze_note": resolved.get("note"),
-            "note": "N3 nowcast 影子成员快照；对账 remaining y(τ)，不对账全日涨跌",
+            "note": "N3 nowcast 影子成员快照；对账 ŷ_nowcast↔涨跌（昨收口径），不进决策",
         },
     }
     atomic_write_json(path, payload)
@@ -1226,7 +1237,7 @@ def fill_outcomes(
         )
         hit = _sign_hit(yhat, realized)
         hit_tau = _sign_hit(yhat_tau, realized_tau)
-        hit_nowcast = _sign_hit(yhat_nowcast, realized_remaining)
+        hit_nowcast = _sign_hit(yhat_nowcast, realized)
         abs_err = None
         if yhat is not None and realized is not None:
             abs_err = round(abs(float(yhat) - float(realized)), 4)
@@ -1234,9 +1245,9 @@ def fill_outcomes(
         if yhat_tau is not None and realized_tau is not None:
             abs_err_tau = round(abs(float(yhat_tau) - float(realized_tau)), 4)
         abs_err_nowcast = None
-        if yhat_nowcast is not None and realized_remaining is not None:
+        if yhat_nowcast is not None and realized is not None:
             abs_err_nowcast = round(
-                abs(float(yhat_nowcast) - float(realized_remaining)), 4
+                abs(float(yhat_nowcast) - float(realized)), 4
             )
         dominant = None
         terms = r.get("formula_terms_top") or []
@@ -1393,13 +1404,67 @@ def build_tau_shadow_review(
     }
 
 
+def _nowcast_vs_eod_from_ledger(
+    ledger: Optional[dict],
+    *,
+    max_names: Optional[int] = None,
+) -> Optional[Dict[str, Any]]:
+    """无影子快照时：用当日账本 Top-K(ŷ_nowcast) vs Top-K(ŷ) 估 Jaccard。"""
+    if not isinstance(ledger, dict):
+        return None
+    rows = [r for r in (ledger.get("rows") or []) if isinstance(r, dict)]
+    pool = [r for r in rows if r.get("in_book") is not False]
+    if not pool:
+        pool = rows
+    if len(pool) < 2:
+        return None
+    meta = ledger.get("meta") if isinstance(ledger.get("meta"), dict) else {}
+    n_book = 0
+    try:
+        n_book = int(meta.get("n_book") or 0)
+    except (TypeError, ValueError):
+        n_book = 0
+    if n_book <= 0:
+        n_book = sum(1 for r in pool if r.get("in_book"))
+    cap = max_names or n_book or min(len(pool), 30)
+    cap = max(1, int(cap))
+
+    def _code(r: dict) -> str:
+        return str(r.get("code") or r.get("stock_code") or "").strip()
+
+    def _key(r: dict, *fields: str) -> float:
+        for f in fields:
+            v = _to_float(r.get(f))
+            if v is not None:
+                return float(v)
+        return float("-inf")
+
+    eod_sorted = sorted(pool, key=lambda r: _key(r, "yhat", "yhat_eod"), reverse=True)
+    nc_pool = [r for r in pool if _to_float(r.get("yhat_nowcast")) is not None]
+    if not nc_pool:
+        return None
+    nc_sorted = sorted(nc_pool, key=lambda r: _key(r, "yhat_nowcast"), reverse=True)
+    try:
+        from core.signal.dual_score import compare_book_overlap
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
+        return None
+    eod_book = [{"stock_code": _code(r)} for r in eod_sorted[:cap] if _code(r)]
+    nc_book = [{"stock_code": _code(r)} for r in nc_sorted[:cap] if _code(r)]
+    if not eod_book or not nc_book:
+        return None
+    out = compare_book_overlap(eod_book, nc_book)
+    out["source"] = "ledger_topk"
+    return out
+
+
 def build_nowcast_shadow_review(
     as_of: Optional[str] = None,
     *,
     horizon_days: int = 1,
     autofill: bool = True,
 ) -> Dict[str, Any]:
-    """N3 验收摘要：影子重叠 + IC(ŷ_nowcast, y_remaining) + 方向命中 + Nordhaus。"""
+    """N3 验收摘要：影子重叠 + IC(ŷ_nowcast, 涨跌) + 方向命中 + Nordhaus。"""
     d = date_key(as_of) or default_as_of()
     h = max(1, min(int(horizon_days or 1), 10))
     try:
@@ -1440,16 +1505,16 @@ def build_nowcast_shadow_review(
         if yhat_n is None:
             continue
         oc = by_oc.get(code) or {}
-        y_rem = _to_float(oc.get("realized_remaining"))
-        if y_rem is None:
-            y_rem = _to_float(oc.get("realized_tau"))
-        if y_rem is None:
+        y_cc = _to_float(oc.get("realized_h"))
+        if y_cc is None:
+            y_cc = _to_float(oc.get("realized"))
+        if y_cc is None:
             continue
         xs.append(float(yhat_n))
-        ys.append(float(y_rem))
+        ys.append(float(y_cc))
         hit = oc.get("sign_hit_nowcast")
         if hit is None:
-            hit = _sign_hit(yhat_n, y_rem)
+            hit = _sign_hit(yhat_n, y_cc)
         if hit is not None:
             hit_n += 1
             if hit:
@@ -1474,6 +1539,8 @@ def build_nowcast_shadow_review(
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
             vs = None
+    if not isinstance(vs, dict):
+        vs = _nowcast_vs_eod_from_ledger(ledger)
 
     nordhaus = nordhaus_meta
     if nordhaus is None and len(priors) >= 3:
@@ -1506,10 +1573,10 @@ def build_nowcast_shadow_review(
         },
         "ledger_path": ledger.get("path"),
         "outcomes_path": outcomes.get("path"),
-        "y_spec_nowcast": "close[T]/price[τ]-1（τ=nowcast_as_of；open 时=OC）",
+        "y_spec_nowcast": "close[T]/close[T-1]−1（与 ŷ_trade / 涨跌同一口径）",
         "note": (
-            "N3：IC/命中对 ŷ_nowcast↔剩余收益；Nordhaus 接近 0 才考虑升主排序。"
-            "不替代 EOD / τ 复盘。"
+            "N3：IC/命中对 ŷ_nowcast↔涨跌（昨收口径）；Nordhaus 接近 0 才考虑升主排序。"
+            "不替代 EOD / τ 复盘。对照分，不进决策。"
         ),
     }
 

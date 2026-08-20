@@ -5,9 +5,9 @@ import {
   resolveStockDisplayName,
 } from "./names.js";
 import { postClusterLive as postClusterLiveApi, formatClusterApiError } from "./cluster_api.js";
-import { clusterLandingHtml } from "./cluster_landing.js";
+import { clusterLandingHtml } from "./cluster_landing.js?v=p1224";
 import { PROBE_EMPTY_CLUSTER_FAILED, PROBE_EMPTY_NO_CLUSTER, PROBE_EMPTY_COMPARE_FAILED, probePickerTriggerHtml, probePickerIdentityHtml, summarizeProbeHeterogeneity, buildProbeReadySummaryHtml, buildProbeNotReadySummaryHtml, buildProbeSingletonSummaryHtml, buildProbeNotInClusterPlainText, buildProbeHeteroSummaryHtml, buildProbeMetaSingleton, buildProbeMetaNotInCluster, buildProbeMetaHetero, buildProbePickerMenuHtml, probeStatusBadge } from "./probe_ui.js";
-import { createScoreTooltipController } from "../score_tooltip.js?v=p1110";
+import { createScoreTooltipController } from "../score_tooltip.js?v=p1226";
 import {
   syncOverviewFromClusters,
   setProStatusChip,

@@ -44,6 +44,7 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertIn("score_formula_terms_tau", item)
         self.assertIsNotNone(item.get("predicted_score_eod_rem"))
         self.assertIsNotNone(item.get("predicted_score_nowcast"))
+        self.assertEqual(item.get("nowcast_vs"), "prev_close")
         self.assertEqual(item.get("nowcast_as_of"), "open")
 
     def test_ensure_formula_terms_tau_from_eod_terms(self):
@@ -178,11 +179,26 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
         self.assertIsNone(item.get("predicted_score_tau_delta"))
         self.assertAlmostEqual(item["predicted_score_tau"], 0.3, places=5)
+        from core.signal.nowcast_kf import compound_pct
+
+        tau_cc = compound_pct(1.0, 0.3)
+        self.assertAlmostEqual(item["predicted_score_blend_tau_cc"], tau_cc, places=5)
         self.assertAlmostEqual(
-            item["predicted_score_blend"], (rem + 0.3) / 2.0, places=5
+            item["predicted_score_blend"], (2.0 + tau_cc) / 2.0, places=5
         )
+        self.assertEqual(item["predicted_score_blend_vs"], "prev_close")
         self.assertEqual(item["predicted_score"], 2.0)
         self.assertTrue(item["dual_score_weights"].get("tau_available"))
+
+    def test_trade_blend_vs_prev_close_fuses_eod_with_lifted_tau(self):
+        from core.signal.dual_score import trade_blend_vs_prev_close
+        from core.signal.nowcast_kf import compound_pct
+
+        tau_cc_exp = compound_pct(1.0, 0.3)
+        cc, tau_cc, vs = trade_blend_vs_prev_close(2.0, 0.3, gap_pct=1.0)
+        self.assertEqual(vs, "prev_close")
+        self.assertAlmostEqual(tau_cc, tau_cc_exp, places=6)
+        self.assertAlmostEqual(cc, (2.0 + tau_cc_exp) / 2.0, places=6)
 
     def test_buy_gate_legacy_f0_still_blocks(self):
         """f0 已废弃，归一为 f2 后 τ 闸仍生效。"""
@@ -432,8 +448,12 @@ class TestDualScoreFields(unittest.TestCase):
         self.assertIsNone(item.get("predicted_score_tau_delta"))
         rem = ((1.02 / 1.01) - 1.0) * 100.0
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
+        self.assertAlmostEqual(item["predicted_score_tau"], -1.0, places=5)
+        from core.signal.nowcast_kf import compound_pct
+
+        tau_cc = compound_pct(1.0, -1.0)
         self.assertAlmostEqual(
-            item["predicted_score_blend"], (rem + (-1.0)) / 2.0, places=5
+            item["predicted_score_blend"], (2.0 + tau_cc) / 2.0, places=5
         )
 
     def test_flattened_cfg_passthrough_keeps_tau_fields(self):
@@ -464,8 +484,11 @@ class TestDualScoreFields(unittest.TestCase):
         rem = ((1.02 / 1.01) - 1.0) * 100.0
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
         self.assertAlmostEqual(item["predicted_score_tau"], -1.0, places=5)
+        from core.signal.nowcast_kf import compound_pct
+
+        tau_cc = compound_pct(1.0, -1.0)
         self.assertAlmostEqual(
-            item["predicted_score_blend"], 0.1 * rem + 0.9 * (-1.0), places=5
+            item["predicted_score_blend"], 0.1 * 2.0 + 0.9 * tau_cc, places=5
         )
         self.assertEqual(item["dual_score_weights"]["w_eod"], 0.1)
 
@@ -483,9 +506,42 @@ class TestDualScoreFields(unittest.TestCase):
         from core.signal.dual_score import dual_score_book_fields
 
         out = dual_score_book_fields(
-            {"dual_score_fusion": "f1", "predicted_score_tau": 0.1}
+            {
+                "dual_score_fusion": "f1",
+                "predicted_score_tau": 0.1,
+                "predicted_score_nowcast": 1.2,
+                "nowcast_vs": "prev_close",
+            }
         )
         self.assertEqual(out["dual_score_fusion"], "blend")
+        self.assertEqual(out["predicted_score_nowcast"], 1.2)
+        self.assertEqual(out["nowcast_vs"], "prev_close")
+
+    def test_book_fields_repairs_collapsed_nowcast(self):
+        from core.signal.dual_score import dual_score_book_fields
+
+        src = {
+            "stock_code": "000001",
+            "predicted_score": 1.2,
+            "predicted_score_eod": 1.2,
+            "predicted_score_tau": 0.8,
+            "predicted_score_blend": 1.2,
+            "predicted_score_nowcast": 1.2,
+            "nowcast_as_of": "eod",
+            "nowcast_K": None,
+            "gap_pct": 2.0,
+            "dual_score_window": "eod_next",
+            "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5},
+        }
+        out = dual_score_book_fields(src)
+        self.assertEqual(out["nowcast_as_of"], "open")
+        self.assertIsNotNone(out.get("nowcast_K"))
+        self.assertNotAlmostEqual(out["predicted_score_nowcast"], 1.2, places=3)
+        from core.signal.service import SignalService
+
+        row = SignalService().pack_holding_row(src)
+        self.assertIsNotNone(row.get("nowcast_K"))
+        self.assertNotAlmostEqual(row["predicted_score_nowcast"], 1.2, places=3)
 
     def test_tau_shadow_book_reranks(self):
         from core.signal.dual_score import build_tau_shadow_book, compare_book_overlap

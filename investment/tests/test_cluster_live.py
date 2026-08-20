@@ -504,6 +504,9 @@ class TestClusterLive(unittest.TestCase):
                 set_cluster_scoring_mode("shadow")
                 st = cluster_status_public(include_audit=True)
             self.assertTrue(st["success"])
+            act = st.get("active") or {}
+            self.assertEqual(act.get("source_created_at"), "2026-08-01T00:00:00Z")
+            self.assertTrue(act.get("promoted_at"))
             land = st.get("landing") or {}
             self.assertEqual(land.get("next_step"), "enable_active")
             self.assertTrue(land.get("can_activate"))

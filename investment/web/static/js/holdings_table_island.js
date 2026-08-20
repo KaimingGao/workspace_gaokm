@@ -2,9 +2,14 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveTradeScore, resolveCalTradeScore, isHeuristicScoreScale } from "./paper/fmt.js?v=p1128";
-import { sentimentBadgeHtml } from "./quant/watching_render.js?v=p1108";
-import { marketPriorDetailFields, tailAnomalyDetailFields } from "./score_tooltip.js";
+import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveTradeScore, resolveCalTradeScore, resolveNowcastScore, isHeuristicScoreScale } from "./paper/fmt.js?v=p1227";
+import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p1227";
+import {
+  isSingleHeadItem,
+  singleHeadBadgeHtml,
+  yCheckBadgeHtml,
+} from "./quant/watching_insights_ui.js?v=p1227";
+import { formatWatchingResidual, RESIDUAL_TITLE, NOWCAST_TITLE, TRADE_TITLE, EOD_CAL_TITLE } from "./quant/watching_quotes_ui.js?v=p1227";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -37,6 +42,7 @@ export function holdingToRow(
   const pnl = h.pnl_pct;
   const score = resolveTradeScore(h);
   const scoreCal = resolveCalTradeScore(h);
+  const scoreNowcast = resolveNowcastScore(h);
   const belowMin = !!h.below_min_score;
   const minScore = h.min_score;
   const hardReject = !!h.hard_reject;
@@ -45,16 +51,14 @@ export function holdingToRow(
     scoreBase !== "—" && belowMin ? `${scoreBase}↓` : scoreBase;
   if (scoreText === "—" && hardReject) scoreText = "拒";
   const scoreCalText = fmtTableScore(h, scoreCal);
+  const scoreNowcastText = fmtTableScore(h, scoreNowcast);
   const origin = String(h.origin || "");
   const mv = Number(h.market_value ?? h.market_value_approx);
   const oosFailed =
     !!h.oos_failed ||
     isHeuristicScoreScale(h) ||
     String(h.return_model_source || "").startsWith("oos_failed");
-  const singleHead =
-    h.dual_score_single_head === true ||
-    String(h.dual_score_head || "") === "single_eod" ||
-    String(h.dual_score_head || "") === "single_tau";
+  const singleHead = isSingleHeadItem(h);
   const scoreTitle = hardReject
     ? String(h.reject_reason || "硬拒绝 · 无收益分")
     : isHeuristicScoreScale(h)
@@ -65,18 +69,16 @@ export function holdingToRow(
         ? `ŷ_trade 单头降级（${String(h.dual_score_head || "single")}）· 悬停看详情`
       : belowMin
         ? `低于ŷ_EOD门槛 ${minScore ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
-        : "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ";
-  const scoreCalOor = !!(
-    h.score_calibration_eod_oor ||
-    h.score_calibration_eod_rem_oor ||
-    h.score_calibration_tau_oor
-  );
+        : TRADE_TITLE;
+  const scoreCalOor = !!h.score_calibration_eod_oor;
   const scoreCalTitle =
     scoreCal == null
-      ? "暂无 g(ŷ) 映射（拟合并写入 live 后可见）"
+      ? "暂无 g(ŷ_EOD) 映射（拟合并写入 live 后可见）"
       : scoreCalOor
-        ? "g(ŷ_trade) 对照 · 部分落在拟合域外（端点钳制）· 悬停看校准 tip"
-        : "g(ŷ_trade) 对照 · 不进决策 · 悬停看校准 tip";
+        ? "g(ŷ_EOD) 域外钳制 · 悬停看 eod tip"
+        : EOD_CAL_TITLE;
+  const scoreNowcastTitle =
+    scoreNowcast == null ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见" : NOWCAST_TITLE;
   const fmtSignedPct = (v) => {
     if (v == null || v === "") return "—";
     const n = Number(v);
@@ -90,14 +92,14 @@ export function holdingToRow(
   let residualNum = null;
   let residualText = "—";
   if (
-    scoreCal != null &&
-    Number.isFinite(Number(scoreCal)) &&
+    score != null &&
     chg != null &&
     chg !== "" &&
     Number.isFinite(Number(chg))
   ) {
-    residualNum = Number(scoreCal) - Number(chg);
-    residualText = fmtSignedPct(residualNum);
+    const fmt = formatWatchingResidual(score, chg);
+    residualNum = fmt.residualNum;
+    residualText = fmt.residual;
   }
   return {
     code,
@@ -120,92 +122,27 @@ export function holdingToRow(
     scoreTitle,
     scoreSingleHead: singleHead,
     dualScoreHead: h.dual_score_head || null,
+    dualScoreWindow: h.dual_score_window || null,
+    dualScoreWeights: h.dual_score_weights || null,
+    predictedScoreTau: h.predicted_score_tau ?? h.score_rem ?? null,
     yCheck: h.y_check || null,
     scoreCalText,
     scoreCalNum:
       scoreCal != null && Number.isFinite(Number(scoreCal)) ? Number(scoreCal) : null,
     scoreCalCls: `${scoreCls(scoreCal)}${scoreCalOor ? " is-cal-oor" : ""}`.trim(),
     scoreCalTitle,
+    scoreNowcastText,
+    scoreNowcastNum:
+      scoreNowcast != null && Number.isFinite(Number(scoreNowcast))
+        ? Number(scoreNowcast)
+        : null,
+    scoreNowcastCls: scoreCls(scoreNowcast),
+    scoreNowcastTitle,
     residualText,
     residualNum,
     residualCls: metricCls(residualNum),
-    residualTitle: "残差 = 校准 − 涨跌（百分点）；正=校准高于当日涨跌",
-    scoreDetail: JSON.stringify((() => {
-      const terms = h.score_formula_terms || null;
-      const hasTerms =
-        terms && Array.isArray(terms.terms) && terms.terms.length > 0;
-      return {
-        stock_code: h.stock_code || code || null,
-        predicted_score: h.predicted_score != null ? h.predicted_score : h.score,
-        score: h.score != null ? h.score : h.predicted_score,
-        predicted_score_tau:
-          h.predicted_score_tau != null
-            ? h.predicted_score_tau
-            : h.score_rem != null
-              ? h.score_rem
-              : h.predicted_score_rem,
-        predicted_score_blend: h.predicted_score_blend,
-        predicted_score_eod: h.predicted_score_eod,
-        predicted_score_eod_rem: h.predicted_score_eod_rem,
-        predicted_score_tau_delta: h.predicted_score_tau_delta,
-        predicted_score_nowcast: h.predicted_score_nowcast,
-        dual_score_window: h.dual_score_window || null,
-        nowcast_as_of: h.nowcast_as_of || null,
-        nowcast_K: h.nowcast_K,
-        nowcast_q: h.nowcast_q,
-        predicted_score_cal: h.predicted_score_cal,
-        predicted_score_eod_rem_cal: h.predicted_score_eod_rem_cal,
-        predicted_score_tau_cal: h.predicted_score_tau_cal,
-        predicted_score_blend_cal: h.predicted_score_blend_cal,
-        score_calibration_applied: !!h.score_calibration_applied,
-        score_calibration_enabled: !!h.score_calibration_enabled,
-        score_calibration_eod_oor: !!h.score_calibration_eod_oor,
-        score_calibration_eod_rem_oor: !!h.score_calibration_eod_rem_oor,
-        score_calibration_tau_oor: !!h.score_calibration_tau_oor,
-        score_calibration_note: h.score_calibration_note || null,
-        score_calibration_partial: h.score_calibration_partial || null,
-        realized_t1_to_tau: h.realized_t1_to_tau,
-        score_rem: h.score_rem != null ? h.score_rem : h.predicted_score_rem,
-        gap_pct: h.gap_pct,
-        event_prior: h.event_prior || null,
-        as_of_tau: h.as_of_tau || h.rem_tau || null,
-        y_spec_tau: h.y_spec_tau || null,
-        features_tau: h.features_tau || null,
-        formula_terms_tau: h.formula_terms_tau || h.score_formula_terms_tau || null,
-        score_formula_tau: h.score_formula_tau || null,
-        factor_coefficients_tau: h.factor_coefficients_tau || null,
-        dual_score_fusion: h.dual_score_fusion || null,
-        dual_score_weights: h.dual_score_weights || null,
-        dual_score_head: h.dual_score_head || null,
-        dual_score_single_head: !!h.dual_score_single_head || singleHead,
-        y_check: h.y_check || null,
-        y_disagree: h.y_disagree,
-        y_sigma: h.y_sigma,
-        eod_trust: h.eod_trust,
-        y_tau_to_close: h.y_tau_to_close,
-        y_tau_to_close_src: h.y_tau_to_close_src,
-        y_state: h.y_state,
-        formula: hasTerms ? "" : h.score_formula || "",
-        reasons: h.score_reasons || [],
-        hard_reject: h.hard_reject,
-        reject_reason: h.reject_reason || "",
-        weight_source: h.weight_source || "",
-        cluster_label: h.cluster_label || "",
-        cluster_mode: h.cluster_mode || "",
-        cluster_version: h.cluster_version,
-        score_global: h.score_global,
-        score_cluster: h.score_cluster,
-        min_score: minScore,
-        below_min_score: belowMin,
-        return_model_source: h.return_model_source || "",
-        score_scale: h.score_scale || "",
-        heuristic_score: h.heuristic_score,
-        formula_terms: terms,
-        factor_coefficients: hasTerms ? {} : h.factor_coefficients || {},
-        ...marketPriorDetailFields(h),
-        ...tailAnomalyDetailFields(h),
-      };
-    })()),
+    residualTitle: RESIDUAL_TITLE,
+    scoreDetail: watchingScoreDetail(h),
     chgText,
     chgCls: metricCls(chg),
     chgNum: chg != null && Number.isFinite(Number(chg)) ? Number(chg) : null,
@@ -234,16 +171,17 @@ const ORIGIN_HINT = {
 };
 
 const COLS = [
-  { id: "name", label: "股票", flex: true },
+  { id: "name", label: "股票", flex: true, title: "股票名称与代码" },
   {
     id: "sent",
     label: "情绪",
     widthPct: 5,
     headClass: "watching-col-center",
     cellClass: "watching-col-center paper-hold-sent",
+    title: "标题情绪摘要",
   },
-  { id: "shares", label: "股数", widthPct: 6, num: true },
-  { id: "price", label: "现价", widthPct: 7, num: true },
+  { id: "shares", label: "股数", widthPct: 6, num: true, title: "持仓股数" },
+  { id: "price", label: "现价", widthPct: 7, num: true, title: "最新成交价" },
   { id: "open", label: "开盘价", widthPct: 7, num: true, title: "当日开盘价" },
   {
     id: "chg",
@@ -251,18 +189,31 @@ const COLS = [
     widthPct: 7,
     num: true,
     sortable: true,
-    title: "相对昨收的当日涨跌幅（行情）；与「浮盈亏」不同",
+    title: "相对昨收的涨跌幅 %。与 EOD / ŷ_trade 同一口径",
   },
-  { id: "cost", label: "成本", widthPct: 7, num: true, title: "持仓加权平均成本，对账用" },
-  { id: "market_value", label: "市值", widthPct: 7, num: true, sortable: true },
-  { id: "score", label: "评分", widthPct: 6.5, num: true, sortable: true, title: "ŷ_trade · 悬停看 ŷ_EOD_rem / ŷ_τ" },
   {
     id: "score_cal",
-    label: "校准",
+    label: "EOD",
     widthPct: 6,
     num: true,
     sortable: true,
-    title: "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip",
+    title: "eod = g(ŷ_EOD)，对涨跌的回归预估（现价对昨收）；不含缺口；不进决策",
+  },
+  {
+    id: "score",
+    label: "TRADE",
+    widthPct: 6.5,
+    num: true,
+    sortable: true,
+    title: "ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ) · 现价对昨收（与涨跌同一口径）· 排序/卖门槛",
+  },
+  {
+    id: "score_nowcast",
+    label: "NOWCAST",
+    widthPct: 6,
+    num: true,
+    sortable: true,
+    title: "ŷ_nowcast · Kalman 权昨收口径对照（与 ŷ_trade / 涨跌同一目标），不进决策",
   },
   {
     id: "residual",
@@ -270,18 +221,27 @@ const COLS = [
     widthPct: 6,
     num: true,
     sortable: true,
-    title: "残差 = 校准 − 涨跌（百分点）；正=校准高于当日涨跌",
+    title: "残差 = trade − 涨跌。trade 是 ŷ_trade，与涨跌同一目标",
   },
+  { id: "cost", label: "成本", widthPct: 7, num: true, title: "持仓加权平均成本" },
+  { id: "market_value", label: "市值", widthPct: 7, num: true, sortable: true, title: "现价 × 股数" },
   {
     id: "pnl",
     label: "浮盈亏",
     widthPct: 6.5,
     num: true,
     sortable: true,
-    title: "相对持仓成本：(现价÷成本−1)×100%；加仓则为加权成本，非当日涨跌",
+    title: "浮盈亏 = 现价 − 成本价（表内为相对成本的浮动盈亏 %）；加仓为加权成本，不是当日涨跌",
   },
-  { id: "since", label: "开始", widthPct: 11 },
-  { id: "origin", label: "出处", widthPct: 7, cellClass: "paper-hold-origin", headClass: "paper-hold-origin" },
+  { id: "since", label: "开始", widthPct: 11, title: "建仓日期" },
+  {
+    id: "origin",
+    label: "出处",
+    widthPct: 7,
+    cellClass: "paper-hold-origin",
+    headClass: "paper-hold-origin",
+    title: "仓位来源：手动 / 策略 / 混合",
+  },
 ];
 
 function numCmp(av, bv) {
@@ -294,6 +254,7 @@ function compare(id, a, b) {
   }
   if (id === "score") return numCmp(Number(a.scoreNum), Number(b.scoreNum));
   if (id === "score_cal") return numCmp(Number(a.scoreCalNum), Number(b.scoreCalNum));
+  if (id === "score_nowcast") return numCmp(Number(a.scoreNowcastNum), Number(b.scoreNowcastNum));
   if (id === "residual") return numCmp(Number(a.residualNum), Number(b.residualNum));
   if (id === "pnl") return numCmp(Number(a.pnlNum), Number(b.pnlNum));
   if (id === "chg") return numCmp(Number(a.chgNum), Number(b.chgNum));
@@ -377,36 +338,23 @@ export async function mountHoldingsTableIsland(host, options = {}) {
         const detail = d.scoreDetail || "";
         const title = d.scoreTitle || "悬停查看收益分与因子系数";
         const singleHead = !!d.scoreSingleHead;
-        const head = d.dualScoreHead || "";
-        const headTitle =
-          head === "single_tau"
-            ? "ŷ_trade 单头降级：仅 ŷ_τ（缺 EOD rem）· 与双头票不同量纲"
-            : head === "single_eod"
-              ? "ŷ_trade 单头降级：仅 ŷ_EOD（缺 ŷ_τ）· 与双头票不同量纲"
-              : "ŷ_trade 单头降级 · 与双头票不同量纲";
         const badges = [];
         if (singleHead) {
           badges.push(
-            `<span class="watching-single-head-badge" title="${escapeHtml(
-              headTitle
-            )}">单</span>`
+            singleHeadBadgeHtml(
+              {
+                dual_score_head: d.dualScoreHead,
+                dual_score_single_head: true,
+                dual_score_window: d.dualScoreWindow,
+                dual_score_weights: d.dualScoreWeights,
+                predicted_score_tau: d.predictedScoreTau,
+              },
+              escapeHtml
+            )
           );
         }
-        const yCheck = d.yCheck || "";
-        if (yCheck && yCheck !== "ok") {
-          const yMap = {
-            conflict: ["歧", "Y·EOD 校验：双头分歧"],
-            low_conf: ["弱", "Y·EOD 校验：低置信"],
-            missing_tau: ["缺τ", "Y·EOD 校验：缺 ŷ_τ"],
-            single_head: ["单", "Y·EOD 校验：单头"],
-          };
-          const [t, tip] = yMap[yCheck] || ["校", `Y·EOD 校验：${yCheck}`];
-          badges.push(
-            `<span class="watching-y-check-badge is-${escapeHtml(
-              yCheck
-            )}" title="${escapeHtml(tip)}">${escapeHtml(t)}</span>`
-          );
-        }
+        const yBadge = yCheckBadgeHtml({ y_check: d.yCheck }, escapeHtml);
+        if (yBadge) badges.push(yBadge);
         const badge = badges.join("");
         if (!detail) {
           return `<span class="paper-hold-score ${escapeHtml(
@@ -422,7 +370,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
       if (col.id === "score_cal") {
         const detail = d.scoreDetail || "";
         const title =
-          d.scoreCalTitle || "g(ŷ_trade) 对照 · 不进决策 · 悬停看 tip";
+          d.scoreCalTitle || "g(ŷ_EOD) · 对涨跌";
         const text = d.scoreCalText || "—";
         if (!detail) {
           return `<span class="paper-hold-score watching-score-cal ${escapeHtml(
@@ -437,11 +385,28 @@ export async function mountHoldingsTableIsland(host, options = {}) {
           `${escapeHtml(text)}</span>`
         );
       }
+      if (col.id === "score_nowcast") {
+        const detail = d.scoreDetail || "";
+        const title = d.scoreNowcastTitle || NOWCAST_TITLE;
+        const text = d.scoreNowcastText || "—";
+        if (!detail) {
+          return `<span class="paper-hold-score watching-score-nowcast ${escapeHtml(
+            d.scoreNowcastCls || ""
+          )}">${escapeHtml(text)}</span>`;
+        }
+        return (
+          `<span class="paper-hold-score watching-score-nowcast has-tip ${escapeHtml(
+            d.scoreNowcastCls || ""
+          )}" ` +
+          `data-score-detail="${escapeHtml(detail)}" data-score-tip="nowcast" title="${escapeHtml(title)}">` +
+          `${escapeHtml(text)}</span>`
+        );
+      }
       if (col.id === "residual") {
         return `<span class="paper-hold-residual ${escapeHtml(
           d.residualCls || ""
         )}" title="${escapeHtml(
-          d.residualTitle || "残差 = 校准 − 涨跌"
+          d.residualTitle || RESIDUAL_TITLE
         )}">${escapeHtml(d.residualText || "—")}</span>`;
       }
       if (col.id === "pnl") {

@@ -70,7 +70,7 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
     },
     # 双层 ŷ：EOD predicted_score + τ predicted_score_tau（见 dual_score / docs §2.5）
     "dual_score": {
-        "fusion_mode": "blend",  # ŷ_trade = w·ŷ_EOD_rem + w·ŷ_τ；买入另须 ŷ_τ≥floor
+        "fusion_mode": "blend",  # ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ)；买入另须 ŷ_τ≥floor
         "tau": "open",
         "min_predicted_score_tau": 0.1,  # 基线；全池无人过闸时见 tau_freeze_breakglass
         "tau_freeze_breakglass": True,

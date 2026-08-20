@@ -128,73 +128,44 @@ class PaperAccountMixin:
                             len(missing),
                         )
 
+            # 持仓经济字段勿被评分包覆盖；其余与数据中心同源透传
+            _HOLDING_KEEP = frozenset(
+                {
+                    "stock_code",
+                    "stock_name",
+                    "shares",
+                    "cost",
+                    "avg_cost",
+                    "price",
+                    "open",
+                    "prev_close",
+                    "change_pct",
+                    "market_value",
+                    "market_value_approx",
+                    "pnl",
+                    "pnl_pct",
+                    "bought_date",
+                    "origin",
+                    "origin_label",
+                    "currency",
+                    "unit",
+                    "market",
+                }
+            )
             enriched_holdings = []
             for h in summary.get("holdings") or []:
                 code = str(h.get("stock_code") or "")
                 enriched = dict(h)
                 score_info = score_by_code.get(code)
                 if score_info:
-                    enriched["score"] = score_info.get("score")
-                    enriched["predicted_score"] = score_info.get("predicted_score")
-                    enriched["sub_scores"] = score_info.get("sub_scores")
-                    enriched["factor_contrib"] = score_info.get("factor_contrib")
-                    enriched["score_reasons"] = score_info.get("reasons")
-                    enriched["hard_reject"] = score_info.get("hard_reject")
-                    enriched["reject_reason"] = score_info.get("reject_reason")
-                    enriched["weight_source"] = score_info.get("weight_source")
-                    enriched["cluster_label"] = score_info.get("cluster_label")
-                    enriched["cluster_mode"] = score_info.get("cluster_mode")
-                    enriched["cluster_version"] = score_info.get("cluster_version")
-                    enriched["score_global"] = score_info.get("score_global")
-                    enriched["score_cluster"] = score_info.get("score_cluster")
-                    enriched["return_model_source"] = score_info.get("return_model_source")
-                    enriched["score_scale"] = score_info.get("score_scale")
-                    enriched["heuristic_score"] = score_info.get("heuristic_score")
-                    enriched["score_track"] = score_info.get("score_track")
-                    enriched["factor_coefficients"] = score_info.get("factor_coefficients")
-                    enriched["score_formula_terms"] = score_info.get("score_formula_terms")
-                    enriched["score_formula"] = score_info.get(
-                        "score_formula"
-                    ) or _build_score_formula(score_info)
-                    for k in (
-                        "predicted_score_tau",
-                        "score_rem",
-                        "predicted_score_rem",
-                        "gap_pct",
-                        "event_prior",
-                        "as_of_tau",
-                        "y_spec_tau",
-                        "features_tau",
-                        "formula_terms_tau",
-                        "score_formula_terms_tau",
-                        "score_formula_tau",
-                        "factor_coefficients_tau",
-                        "dual_score_fusion",
-                        "dual_score_weights",
-                        "dual_score_window",
-                        "predicted_score_blend",
-                        "predicted_score_eod",
-                        "predicted_score_eod_rem",
-                        "predicted_score_tau_delta",
-                        "realized_t1_to_tau",
-                        "predicted_score_cal",
-                        "predicted_score_eod_rem_cal",
-                        "predicted_score_tau_cal",
-                        "predicted_score_blend_cal",
-                        "score_calibration_applied",
-                        "score_calibration_enabled",
-                        "score_calibration_eod_oor",
-                        "score_calibration_eod_rem_oor",
-                        "score_calibration_tau_oor",
-                        "score_calibration_note",
-                        "score_calibration_partial",
-                        "decision_score",
-                        "score_scale",
-                        "heuristic_score",
-                        "score_track",
-                    ):
-                        if k in score_info:
-                            enriched[k] = score_info.get(k)
+                    for k, v in score_info.items():
+                        if k in _HOLDING_KEEP:
+                            continue
+                        enriched[k] = v
+                    if score_info.get("reasons") is not None:
+                        enriched["score_reasons"] = score_info.get("reasons")
+                    if not enriched.get("score_formula"):
+                        enriched["score_formula"] = _build_score_formula(score_info)
                     gate_meta = annotate_score_gate(
                         score_info.get("score"),
                         paper=paper,

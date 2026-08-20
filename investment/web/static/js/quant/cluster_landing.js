@@ -3,6 +3,54 @@
  */
 import { escapeHtml } from "../shared.js";
 
+/** naive ISO（无 Z）按 UTC，与 live JSON 一致。 */
+function fmtClusterTs(iso) {
+  if (!iso) return "";
+  let raw = String(iso).trim();
+  if (!raw) return "";
+  if (
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(raw) &&
+    !/[zZ]$|[+-]\d{2}:?\d{2}$/.test(raw)
+  ) {
+    raw = raw.replace(/\.\d+$/, "") + "Z";
+  }
+  const d = new Date(raw);
+  if (Number.isNaN(d.getTime())) {
+    return raw.replace("T", " ").replace(/\.\d+Z?$/, "").slice(0, 16);
+  }
+  const p = (n) => String(n).padStart(2, "0");
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(
+    d.getMinutes()
+  )}`;
+}
+
+function clockStat(iso, label, title) {
+  const txt = fmtClusterTs(iso);
+  if (!txt) return "";
+  return (
+    `<span class="quant-cluster-stat" title="${escapeHtml(title || "")}">` +
+    `<b>${escapeHtml(txt)}</b> ${escapeHtml(label)}</span>`
+  );
+}
+
+function clusterClockStats(act, h) {
+  const fitIso = (act && act.source_created_at) || (h && h.fitted_as_of) || "";
+  const promoIso = (act && act.promoted_at) || (h && h.promoted_at) || "";
+  const fitTxt = fmtClusterTs(fitIso);
+  const promoTxt = fmtClusterTs(promoIso);
+  if (fitTxt && promoTxt && fitTxt === promoTxt) {
+    return clockStat(
+      promoIso,
+      "拟合/晋升",
+      `组 β 拟合并写入 live · ${promoIso}`
+    );
+  }
+  return (
+    clockStat(fitIso, "拟合", `组 β 产物时刻 source_created_at · ${fitIso}`) +
+    clockStat(promoIso, "晋升", `写入 live 映射 promoted_at · ${promoIso}`)
+  );
+}
+
 function shadowBookStat(sh, label) {
   const lab = String(label || "影");
   if (!sh || !sh.exists) {
@@ -27,7 +75,9 @@ function shadowBookStat(sh, label) {
       lab
     )} 影子簿 vs EOD 重叠 Jaccard=${escapeHtml(String(j))}${escapeHtml(
       nordTxt
-    )} · 不驱动 execution">` +
+    )}${
+      sh.updated_at ? ` · 落盘 ${fmtClusterTs(sh.updated_at)}` : ""
+    } · 不驱动 execution">` +
     `<b>${escapeHtml(String(n))}</b> ${escapeHtml(lab)}影 · J=${escapeHtml(
       String(j)
     )}</span>`
@@ -111,6 +161,7 @@ export function clusterLandingHtml(data) {
         : "") +
     `<span class="quant-cluster-stat" title="组ŷ 打分后全局按 score 排序，再按 ŷ 门槛 / max 截断"><b>全局</b> 排序</span>` +
     `<span class="quant-cluster-stat"><b>${escapeHtml(cov)}</b> 覆盖</span>` +
+    clusterClockStats(act, h) +
     `<span class="quant-cluster-stat${h.stale ? " is-warn" : ""}"><b>${escapeHtml(
       age
     )}</b> 龄</span>` +
@@ -120,9 +171,16 @@ export function clusterLandingHtml(data) {
     (h.ic_demote
       ? `<span class="quant-cluster-stat is-warn"><b>IC</b> 破线</span>`
       : "") +
-    `<span class="quant-cluster-stat" title="合并簿只数=账户调仓目标"><b>${escapeHtml(
+    `<span class="quant-cluster-stat" title="合并簿只数=账户调仓目标${
+      book.updated_at ? ` · 落盘 ${book.updated_at}` : ""
+    }"><b>${escapeHtml(
       String(book.name_count != null ? book.name_count : "—")
     )}</b> 簿</span>` +
+    clockStat(
+      book.updated_at,
+      "刷簿",
+      `目标簿落盘 updated_at · ${book.updated_at || ""}`
+    ) +
     shadowBookStat(data && data.tau_shadow_book, "τ") +
     shadowBookStat(data && data.nowcast_shadow_book, "ŷ_nowcast") +
     `</div>`;
@@ -271,9 +329,7 @@ export function clusterLandingHtml(data) {
     `</div>`;
 
   const more =
-    `<details class="quant-cluster-more quant-cluster-advanced" id="quant-cluster-live-bar">` +
-    `<summary>更多 ` +
-    `<span class="sub" id="quant-cluster-live-status">回滚 / 关闭 / 导出</span></summary>` +
+    `<div class="quant-cluster-more quant-cluster-advanced" id="quant-cluster-live-bar">` +
     `<div class="quant-cluster-advanced-actions">` +
     `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="live-off">关闭</button>` +
     `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="live-rollback">回滚</button>` +
@@ -281,7 +337,7 @@ export function clusterLandingHtml(data) {
     `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="live-refresh">刷新簿</button>` +
     `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="live-refit" ` +
     `title="跳到研究枢纽「跑分组」重估组 β（人审后对照/启用）。">建议重估</button>` +
-    `</div></details>`;
+    `</div></div>`;
 
   return (
     `<div class="quant-cluster-landing-card">` +

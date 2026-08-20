@@ -70,6 +70,67 @@ class TestNowcastKf(unittest.TestCase):
         )
         self.assertAlmostEqual(pack["predicted_score_nowcast"], 1.0, places=5)
 
+    def test_nowcast_expresses_prev_close_with_gap(self):
+        from core.signal.nowcast_kf import (
+            compound_pct,
+            kalman_fusion_weights,
+            remaining_at_tau,
+            run_live_nowcast,
+        )
+
+        gap, y_eod, y_tau = 1.0, 2.0, 1.0
+        pack = run_live_nowcast(
+            y_eod=y_eod,
+            y_tau=y_tau,
+            gap_pct=gap,
+            as_of="open",
+            taus=["eod", "open"],
+            prior_var=1.0,
+            rem_model_doc={"oos": {"residual_var": 1.0}},
+            q_process=0.0,
+        )
+        _we, _wt, k, _ = kalman_fusion_weights(
+            prior_var=1.0, obs_var=1.0, q_process=0.0
+        )
+        # 内部在剩余窗滤波，再 compound 抬回昨收（与线性 CC 混权差在 round-6）
+        x_rem = (1.0 - k) * remaining_at_tau(y_eod, gap) + k * y_tau
+        expect = compound_pct(gap, x_rem)
+        self.assertEqual(pack.get("nowcast_vs"), "prev_close")
+        self.assertAlmostEqual(pack["predicted_score_nowcast"], expect, delta=1e-3)
+        self.assertAlmostEqual(
+            pack["predicted_score_nowcast"],
+            (1.0 - k) * y_eod + k * compound_pct(gap, y_tau),
+            delta=1e-3,
+        )
+        self.assertAlmostEqual(pack["nowcast_x_prior"], y_eod, places=5)
+
+    def test_apply_tau_nowcast_vs_prev_close(self):
+        from core.signal.dual_score import apply_tau_score_fields
+        from core.signal.nowcast_kf import compound_pct, kalman_fusion_weights, remaining_at_tau
+
+        item = {"predicted_score": 2.0}
+        apply_tau_score_fields(
+            item,
+            rem_yhat=1.0,
+            gap_pct=1.0,
+            feats={"gap_pct": 1.0},
+            config={
+                "dual_score": {
+                    "eod_residual_var": 1.0,
+                    "nowcast": {"q_process": 0.0},
+                }
+            },
+            rem_model_doc={"oos": {"residual_var": 1.0}},
+        )
+        self.assertEqual(item.get("nowcast_vs"), "prev_close")
+        _we, _wt, k, _ = kalman_fusion_weights(
+            prior_var=1.0, obs_var=1.0, q_process=0.0
+        )
+        x_rem = (1.0 - k) * remaining_at_tau(2.0, 1.0) + k * 1.0
+        expect = compound_pct(1.0, x_rem)
+        self.assertAlmostEqual(item["predicted_score_nowcast"], expect, places=4)
+        self.assertAlmostEqual(item["nowcast_x_prior"], 2.0, places=4)
+
     def test_nordhaus_efficient_revisions_near_zero(self):
         from core.signal.nowcast_kf import nordhaus_revision_slope
 
@@ -95,6 +156,22 @@ class TestNowcastKf(unittest.TestCase):
         self.assertTrue(item.get("nowcast_revisions"))
         blend = item["predicted_score_blend"]
         self.assertAlmostEqual(rank_key_for_item(item), blend)
+
+    def test_eod_next_nowcast_still_observes_tau(self):
+        from core.signal.dual_score import apply_tau_score_fields
+
+        item = {"predicted_score": 1.2, "score": 1.2}
+        apply_tau_score_fields(
+            item,
+            rem_yhat=0.8,
+            gap_pct=2.0,
+            feats={"gap_pct": 2.0},
+            fuse_intraday=False,
+        )
+        self.assertEqual(item["nowcast_as_of"], "open")
+        self.assertIsNotNone(item.get("nowcast_K"))
+        self.assertNotAlmostEqual(item["predicted_score_nowcast"], 1.2, places=3)
+        self.assertAlmostEqual(item["nowcast_x_prior"], 1.2, places=4)
 
     def test_use_as_rank_key_opt_in(self):
         from core.signal.dual_score import apply_tau_score_fields, rank_key_for_item

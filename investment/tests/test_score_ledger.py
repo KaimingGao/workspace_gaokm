@@ -802,6 +802,49 @@ class TestScoreLedger(unittest.TestCase):
             self.assertIn("nowcast_shadow", full)
             self.assertTrue(full["nowcast_shadow"].get("shadow_exists"))
 
+    def test_nowcast_review_jaccard_from_ledger_without_snapshot(self):
+        from core.score_ledger import build_nowcast_shadow_review, upsert_ledger_rows
+
+        with self._patch_dir(), patch(
+            "core.signal.cluster_live.load_nowcast_shadow_cluster_book",
+            return_value=None,
+        ):
+            upsert_ledger_rows(
+                "2026-08-05",
+                [
+                    {
+                        "stock_code": "600519",
+                        "predicted_score": 2.0,
+                        "predicted_score_nowcast": 0.1,
+                        "predicted_score_tau": 0.1,
+                        "in_book": True,
+                    },
+                    {
+                        "stock_code": "000001",
+                        "predicted_score": 1.0,
+                        "predicted_score_nowcast": 1.5,
+                        "predicted_score_tau": 0.4,
+                        "in_book": True,
+                    },
+                    {
+                        "stock_code": "000002",
+                        "predicted_score": 0.5,
+                        "predicted_score_nowcast": 0.2,
+                        "predicted_score_tau": 0.2,
+                        "in_book": True,
+                    },
+                ],
+                source="test",
+                meta={"n_book": 2},
+            )
+            rev = build_nowcast_shadow_review(
+                "2026-08-05", horizon_days=1, autofill=False
+            )
+            vs = (rev.get("shadow_membership") or {}).get("vs_eod_book") or {}
+            self.assertIsNotNone(vs.get("jaccard"))
+            self.assertEqual(vs.get("source"), "ledger_topk")
+            self.assertFalse((rev.get("shadow_membership") or {}).get("exists"))
+
     def test_hydrate_ledger_yhat_tau(self):
         from core.score_ledger import (
             hydrate_ledger_yhat_tau,

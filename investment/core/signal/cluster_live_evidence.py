@@ -450,6 +450,7 @@ def cluster_status_public(
             "path": CLUSTER_WEIGHTS_ACTIVE_PATH,
             "version": (active or {}).get("version"),
             "promoted_at": (active or {}).get("promoted_at"),
+            "source_created_at": (active or {}).get("source_created_at"),
             "n_mapped_codes": (active or {}).get("n_mapped_codes"),
             "n_clusters": (active or {}).get("n_clusters"),
         },
