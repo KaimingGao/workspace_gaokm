@@ -6,20 +6,21 @@
 仅 ``active`` 时组 β 写入 ``predicted_score`` / primary。
 """
 
-from __future__ import annotations
 import logging
 
 logger = logging.getLogger(__name__)
-from core.numbers import now_iso_utc
-
 import json
 import os
 import shutil
 from typing import Any, Dict, List, Optional, Sequence
 
 from core.io_atomic import atomic_write_json
+from core.numbers import now_iso_utc
+from core.signal.cluster_live_evidence import (
+    _summarize_cluster_oos,
+    build_cluster_enable_evidence,
+)
 from core.signal.factor_health import PROXY_OR_UNSOURCED
-
 
 SCHEMA_VERSION = 1
 
@@ -308,7 +309,6 @@ def filter_primary_cluster_models_by_code(
     if not raw:
         return raw
     art = active if active is not None else load_active_cluster_weights()
-    from core.signal.cluster_oos_labels import oos_failed_cluster_labels
 
     failed = set(oos_failed_cluster_labels(active=art))
     if not failed:
@@ -332,8 +332,8 @@ def filter_primary_cluster_models_by_code(
 
 
 def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
-    from core.signal.factor_coefs import has_factor_coefficients
     from core.signal.config import get_scoring_horizon_days
+    from core.signal.factor_coefs import has_factor_coefficients
 
     cmap = artifact.get("code_map") if isinstance(artifact, dict) else None
     if not isinstance(cmap, dict) or not cmap:
@@ -633,6 +633,7 @@ def promote_cluster_artifact(
         try:
             shutil.copy2(prev_path, hist)
         except Exception as e:
+            logger.exception('unexpected error in promote_cluster_artifact')
             # FH4：历史备份失败可见，不阻断晋升
             hist_warn = f"history_backup_failed:{e}"
         else:
@@ -750,6 +751,7 @@ def promote_cluster_artifact(
 
         manifest = write_live_config_manifest(note=f"after cluster_promote v{version}")
     except Exception as e:
+        logger.exception('unexpected error in promote_cluster_artifact')
         warnings.append(f"live_manifest_write_failed:{e}")
 
     return {
@@ -827,12 +829,14 @@ def rollback_cluster_weights(*, to_version: Optional[int] = None) -> Dict[str, A
         try:
             shutil.copy2(cur_path, bak)
         except Exception as e:
+            logger.exception('unexpected error in rollback_cluster_weights')
             warnings.append(f"pre_rollback_backup_failed:{e}")
 
     try:
         with open(src, encoding="utf-8") as f:
             restored_doc = json.load(f)
     except Exception as e:
+        logger.exception('unexpected error in rollback_cluster_weights')
         return {"success": False, "error": f"读取历史失败: {e}"}
     if not isinstance(restored_doc, dict) or not isinstance(
         restored_doc.get("code_map"), dict
@@ -869,6 +873,7 @@ def rollback_cluster_weights(*, to_version: Optional[int] = None) -> Dict[str, A
 
         write_live_config_manifest(note=f"after cluster_rollback v{new_ver}")
     except Exception as e:
+        logger.exception('unexpected error in rollback_cluster_weights')
         warnings.append(f"live_manifest_write_failed:{e}")
 
     restored = load_active_cluster_weights()
@@ -1116,10 +1121,9 @@ def ensure_active_cluster_oos_gates(
     oos_tol_pp: float = 1.0,
 ) -> Dict[str, Any]:
     """给 live active 各组补算 / 刷新 ``oos_gate``（heuristic 基线 vs 组 ŷ）。"""
-    from core.signal.cluster_live_evidence import _summarize_cluster_oos
+    from core.research.oos_slim import slim_oos_gate
     from core.signal.config import load_signal_config
     from core.signal.weight_oos_gate import evaluate_research_oos
-    from core.research.oos_slim import slim_oos_gate
 
     active = load_active_cluster_weights()
     if not active:
@@ -1243,7 +1247,7 @@ def ensure_active_cluster_oos_gates(
             }
             gate = evaluate_research_oos(
                 codes=members,
-                research_models_by_code={m: rm for m in members},
+                research_models_by_code=dict.fromkeys(members, rm),
                 baseline_weights=cur_w,
                 watching_limit=min(40, len(members)),
                 min_names=2,
@@ -1316,9 +1320,8 @@ def set_cluster_scoring_mode(
     ``force=True`` 可豁免并写 ``promote_audit.jsonl``。
     """
     from core.io_atomic import atomic_write_json
-    from core.paths import SIGNAL_CONFIG_PATH
     from core.signal.cluster_pointer import active_enable_blockers, append_promote_audit
-    from core.signal.config import load_signal_config
+    from core.signal.config import get_signal_config_path, load_signal_config
 
     mode = str(mode or "off").strip().lower()
     if mode not in ("off", "shadow", "active"):
@@ -1352,7 +1355,7 @@ def set_cluster_scoring_mode(
                 }
             )
 
-    path = os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH)
+    path = get_signal_config_path()
     raw: Dict[str, Any] = {}
     if os.path.isfile(path):
         with open(path, encoding="utf-8") as f:
@@ -1381,6 +1384,7 @@ def set_cluster_scoring_mode(
 
         manifest = write_live_config_manifest(note=f"after cluster_set_mode={mode}")
     except Exception as e:
+        logger.exception('unexpected error in set_cluster_scoring_mode')
         warnings.append(f"live_manifest_write_failed:{e}")
     return {
         "success": True,
@@ -1584,11 +1588,3 @@ def _num(v: Any) -> bool:
         return True
     except (TypeError, ValueError):
         return False
-
-
-from core.signal.cluster_live_evidence import (  # noqa: E402
-    _paper_cluster_landed,
-    _summarize_cluster_oos,
-    build_cluster_enable_evidence,
-    cluster_status_public,
-)

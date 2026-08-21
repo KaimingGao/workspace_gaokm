@@ -1,6 +1,5 @@
 """基于 signal/scorer 的简易历史回测（研究用途，非实盘）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -353,11 +352,11 @@ def backtest_signal_on_bars(
             exit_idx = int(exit_res["exit_index"])
             exit_bar = bars[exit_idx]
             exit_price = exit_bar["close"]
-            
+
             if not entry or not exit_price:
                 i += 1
                 continue
-            
+
             ret_pct = (exit_price / entry - 1.0) * 100.0
             gross_returns.append(ret_pct)
             net_ret = ret_pct
@@ -365,11 +364,11 @@ def backtest_signal_on_bars(
                 from core.backtest.costs import apply_trade_cost
                 net_ret = apply_trade_cost(ret_pct, config=cost_config)
             returns.append(net_ret)
-            
+
             entry_date = bars[i + 1].get("date") if execution_mode == "next_open" else bars[i].get("date")
             exit_date = exit_bar.get("date")
             hold_days_actual = exit_idx - match_idx if execution_mode == "next_open" else exit_idx - i
-            
+
             trades.append(
                 {
                     "entry_date": entry_date,
@@ -510,7 +509,7 @@ def scan_signal_parameters_oos(
     **kwargs: Any,
 ) -> Dict[str, Any]:
     """P7.5：train 搜参，valid 选优，test 一次性评估。"""
-    from research.split import time_series_split
+    from core.research.split import time_series_split
 
     split = time_series_split(len(bars), train_ratio=train_ratio, valid_ratio=valid_ratio)
     train_bars = bars[: split.train_end]

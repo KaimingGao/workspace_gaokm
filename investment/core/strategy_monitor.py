@@ -1,6 +1,5 @@
 """策略健康 / 衰减监控（N5）：只告警与建议，不自动改权。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -179,6 +178,7 @@ def estimate_rolling_yhat_ic_for_codes(
             if one.get("ic") is not None:
                 ics.append(float(one["ic"]))
         except Exception as e:
+            logger.exception('unexpected error in estimate_rolling_yhat_ic_for_codes')
             details.append(
                 {"stock_code": code, "ok": False, "ic": None, "error": str(e)}
             )
@@ -221,6 +221,7 @@ def estimate_rolling_ic_for_codes(
             if one.get("ic") is not None:
                 ics.append(float(one["ic"]))
         except Exception as e:
+            logger.exception('unexpected error in estimate_rolling_ic_for_codes')
             details.append({"stock_code": code, "ok": False, "ic": None, "error": str(e)})
 
     avg = round(sum(ics) / len(ics), 4) if ics else None

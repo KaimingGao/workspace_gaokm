@@ -4,7 +4,6 @@
 买入路径：``clip_buy_to_risk_budget`` 按单票/行业剩余额度缩量或跳过。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -197,6 +196,7 @@ def market_vol_scale(
             out["message"] = f"市场波动正常（比值 {ratio:.2f}），目标仓位不缩放"
         return out
     except Exception as e:
+        logger.exception('unexpected error in market_vol_scale')
         out["message"] = f"波动缩放不可用: {e}"
         return out
 
@@ -242,7 +242,7 @@ def score_budget_weights(
         for r in selected
     }
 
-    weights: Dict[str, float] = {c: 0.0 for c in raw}
+    weights: Dict[str, float] = dict.fromkeys(raw, 0.0)
     sector_sum: Dict[str, float] = {}
     # 多轮裁剪：超单票/行业的部分回收再分配
     pending = dict(raw)
@@ -361,7 +361,7 @@ def risk_parity_lite_weights(
     total_budget = min(100.0, max_n * max_pos)
     raw = {c: total_budget * (inv[c] / inv_sum) for c in inv}
 
-    weights: Dict[str, float] = {c: 0.0 for c in raw}
+    weights: Dict[str, float] = dict.fromkeys(raw, 0.0)
     sector_sum: Dict[str, float] = {}
     for code, want in sorted(raw.items(), key=lambda x: -x[1]):
         row = next(r for r in selected if r["stock_code"] == code)
@@ -437,6 +437,7 @@ def qp_lite_weights(
         try:
             problem.solve(verbose=False)
         except Exception as e:
+            logger.exception('unexpected error in qp_lite_weights')
             meta["message"] = f"求解失败: {e}"
             return {}, {}, skipped, meta
 

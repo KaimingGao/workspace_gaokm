@@ -1,6 +1,5 @@
 """非交易指令通道：订单预填导出（人工到券商 App 确认）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -8,8 +7,7 @@ logger = logging.getLogger(__name__)
 import csv
 import io
 import time
-from typing import Any, Dict, List, Optional
-
+from typing import Any, Dict, List
 
 DISCLAIMER = (
     "非交易指令通道：本文件仅为预填建议，不提交券商、不划拨资金。"

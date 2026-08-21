@@ -1,6 +1,5 @@
 """横截面因子中性化（P47）：对 sub_scores 做 z-score / rank 后再加权。"""
 
-from __future__ import annotations
 
 import logging
 

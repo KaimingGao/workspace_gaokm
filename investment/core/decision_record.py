@@ -1,6 +1,5 @@
 """DecisionRecord：一次可审计的建议快照（输入 → stance → 失效条件）。"""
 
-from __future__ import annotations
 
 import logging
 

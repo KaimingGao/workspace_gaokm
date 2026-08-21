@@ -1,13 +1,15 @@
 """短线观察池编排：候选 → 日线/行情 → 评分 → TopN。"""
 
-from __future__ import annotations
 
 import concurrent.futures
+import logging
 from typing import Callable, List, Optional
 
-from core.signal.service import get_default_signal_service
-from core.signal.scorer import rank_candidates
 from core.ports.market import batch_query_quotes, screen_stocks
+from core.signal.scorer import rank_candidates
+from core.signal.service import get_default_signal_service
+
+logger = logging.getLogger(__name__)
 
 ProgressCb = Optional[Callable[[int, int, str], None]]
 
@@ -61,6 +63,7 @@ class SignalEngine:
                     skip_fundamentals=skip_fundamentals,
                 ).as_dict()
             except Exception as e:
+                logger.exception('unexpected error in _score_one')
                 return {"success": False, "stock_code": raw, "error": str(e)}
 
         if on_progress:
@@ -75,6 +78,7 @@ class SignalEngine:
                 try:
                     result = future.result()
                 except Exception as e:
+                    logger.exception('unexpected error in build_pool')
                     result = {"success": False, "stock_code": raw, "error": str(e)}
 
                 if on_progress:
@@ -129,7 +133,7 @@ class SignalEngine:
                 if result.get("success") and result.get("stocks"):
                     return [s["stock_code"] for s in result["stocks"]]
             except Exception:
-                pass
+                logger.exception('unexpected error in _bootstrap_candidates')
 
         return [
             "贵州茅台",

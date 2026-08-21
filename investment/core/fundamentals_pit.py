@@ -6,17 +6,15 @@
 - 不伪造历史财报；只能选用已落盘的 as_of 点。
 """
 
-from __future__ import annotations
 import logging
 
 logger = logging.getLogger(__name__)
-from core.numbers import date_key
-
 import json
 import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.numbers import date_key
 from core.signal.fundamentals_bridge import normalize_fundamentals_metrics
 from core.store import snapshot_cache_path
 
@@ -111,7 +109,7 @@ def load_fundamentals_panel(
             "fetched_at": None,
         }
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
     except (OSError, json.JSONDecodeError) as e:
         return {
@@ -368,6 +366,7 @@ def resolve_fundamentals_for_score(
                     "note": "实时/缓存快照；非 PIT。",
                 }
             except Exception as e:
+                logger.exception('unexpected error in resolve_fundamentals_for_score')
                 return {
                     "ok": False,
                     "metrics": None,

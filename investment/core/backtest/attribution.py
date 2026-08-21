@@ -6,7 +6,6 @@
 - 简化 Brinson：allocation / selection / interaction（相对等权行业基准）
 """
 
-from __future__ import annotations
 
 import logging
 from collections import defaultdict

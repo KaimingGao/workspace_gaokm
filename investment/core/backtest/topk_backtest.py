@@ -4,11 +4,10 @@
 历史文件名曾为 portfolio.py；勿与 paper.json 持仓混淆。
 """
 
-from __future__ import annotations
 
 import logging
-from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 from functools import lru_cache
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from core.backtest.engine import _mock_quote_from_bars, _trade_metrics
 

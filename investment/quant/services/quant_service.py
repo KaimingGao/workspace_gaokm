@@ -1,6 +1,5 @@
 """量化研究服务门面（P8.4 Web / daily 共用；P94 Mixin；对齐 ①模拟·②回溯·③联动）。"""
 
-from __future__ import annotations
 
 import logging
 

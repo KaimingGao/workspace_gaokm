@@ -26,13 +26,11 @@
     )
 """
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
 import math
-from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
@@ -40,7 +38,6 @@ import numpy as np
 from quant.research.cluster_partition import (
     agglomerative_labels,
     auto_k_candidates,
-    cluster_beta_vectors,
     default_n_clusters,
     fit_beta_scale_transform,
     kmeans_labels,
@@ -377,6 +374,7 @@ def _fit_group_pooled(
             y_spec=dict(y_spec or {}),
         )
     except Exception as exc:
+        logger.exception('unexpected error in _fit_group_pooled')
         return None, {"success": False, "error": str(exc)}
     r2 = extract_group_r2_from_pooled(pooled)
     return r2, pooled
@@ -502,9 +500,7 @@ def evaluate_partition(
         has_rm = False
         if isinstance(pooled, dict):
             coefs = pooled.get("coefficients")
-            if isinstance(coefs, dict) and coefs:
-                has_rm = True
-            elif pooled.get("success") and r2 is not None:
+            if isinstance(coefs, dict) and coefs or pooled.get("success") and r2 is not None:
                 has_rm = True
         try:
             ic_m = _fit_group_ic(

@@ -3,14 +3,11 @@
 生产选股门槛为 ŷ 滞回（scoring.*）；不再建议改 0–100 rank.min_score。
 """
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
-import copy
 import json
-import os
 from typing import Any, Dict, Optional
 
 from core.paths import SIGNAL_CONFIG_PATH

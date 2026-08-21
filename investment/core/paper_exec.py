@@ -3,7 +3,6 @@
 对外仍从 ``core.paper`` 再导出，保持原有 import 路径。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -11,15 +10,6 @@ logger = logging.getLogger(__name__)
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
-
-from core.paper_costs import (
-    annotate_trade,
-    apply_fill_price,
-    calc_trade_fees,
-    cost_params,
-    resolve_cost_model,
-)
-from core.paper_sizing import _lot_shares
 
 from core.paper import (  # noqa: E402
     ORIGIN_LABELS,
@@ -30,6 +20,14 @@ from core.paper import (  # noqa: E402
     _quote_price,
     merge_origin,
 )
+from core.paper_costs import (
+    annotate_trade,
+    apply_fill_price,
+    calc_trade_fees,
+    cost_params,
+    resolve_cost_model,
+)
+from core.paper_sizing import _lot_shares
 
 
 def _bars_and_source(code: str, *, limit: int, **kwargs):
@@ -561,11 +559,11 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
     - 评分 ≥ min_score
     - 自适应仓位管理
     """
-    from core.signal.factors.kelly import adaptive_position_sizing
     from core.signal.factors.adaptive import adaptive_thresholds, get_risk_controls
-    from core.signal.factors.technicals import check_technical_filters
     from core.signal.factors.dynamic_position import get_full_position_plan
-    
+    from core.signal.factors.kelly import adaptive_position_sizing
+    from core.signal.factors.technicals import check_technical_filters
+
     rules = paper.get("rules") or {}
     from core.signal.score_display import (
         resolve_buy_floor,
@@ -580,23 +578,23 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
     add_size_pct = float(rules.get("add_size_pct") or 0.5)  # 加仓比例50%
     cost_model = resolve_cost_model(paper)
     fee_params = cost_params(paper)
-    
+
     # 自适应仓位配置
     use_adaptive_position = rules.get("use_adaptive_position", True)
-    
+
     # 0–100 加减仓分档已退役（score_gates_use_heuristic_bands=False）
     use_adaptive_threshold = (
         bool(rules.get("use_adaptive_threshold", True))
         and score_gates_use_heuristic_bands()
     )
-    
+
     # 技术指标过滤（加仓时使用）
     use_technical_filter = rules.get("use_technical_filter", True)
     min_technical_score = float(rules.get("min_technical_score") or 40.0)
-    
+
     # 获取风控状态
     risk_controls = get_risk_controls(paper, rules)
-    
+
     # 自适应调整阈值
     if use_adaptive_threshold:
         min_score, sell_score, threshold_info = adaptive_thresholds(
@@ -606,11 +604,11 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
     else:
         min_score = base_min_score
         sell_score = base_sell_score
-    
+
     # 应用风控限制
     if risk_controls.get("trading_allowed") is False:
         return []  # 暂停交易
-    
+
     max_positions = min(max_positions, risk_controls.get("max_positions", max_positions))
 
     holdings = paper.get("holdings") or []
@@ -619,7 +617,7 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
 
     cash = float(paper.get("cash") or 0)
     new_positions_count = len(holdings)
-    
+
     for item in pool:
         code = str(item.get("stock_code") or "")
         if not code:
@@ -647,7 +645,7 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
             if not score_gates_use_heuristic_bands():
                 item["skip_reason"] = "收益分模式：持仓加减仓不按 0–100 分档（靠调仓簿）"
                 continue
-            
+
             # 技术指标检查（提前获取）
             technical_info = None
             if use_technical_filter:
@@ -659,7 +657,7 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                     logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
                     pass
-            
+
             # 获取完整仓位调整计划
             position_plan = get_full_position_plan(
                 score_val,
@@ -674,7 +672,7 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
                 paper=paper,
                 rules=rules,
             )
-            
+
             if position_plan["action"] == "add":
                 add_shares = position_plan["shares"]
                 fill_px = apply_fill_price(
@@ -726,11 +724,11 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
             # 新标的，评分达标则买入（受max_positions限制）
             if new_positions_count >= max_positions:
                 continue
-            
+
             # 相关性风控
             try:
                 from core.signal.factors.correlation import suggest_replacement
-                
+
                 new_bars, _ = _bars_and_source(code, limit=30)
                 existing_bars = {}
                 for h_code in held_codes:
@@ -741,7 +739,7 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
                     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                         logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
                         pass
-                
+
                 if new_bars and existing_bars:
                     temp_bars = {code: new_bars, **existing_bars}
                     stock_to_replace = suggest_replacement(
@@ -752,7 +750,7 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                 logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
                 pass
-            
+
             # 技术指标过滤
             if use_technical_filter:
                 try:
@@ -765,15 +763,15 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                     logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
                     pass
-            
+
             new_positions_count += 1
-            
+
             # 计算仓位比例
             if use_adaptive_position:
                 position_ratio = adaptive_position_sizing(paper, score, rules)
             else:
                 position_ratio = position_pct
-            
+
             position_ratio = min(position_ratio, risk_controls.get("position_limit", 1.0))
 
             # P1：贪心目标权重上限（optimize_weights → last_optimize）
@@ -792,7 +790,7 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
                 item["skip_reason"] = "不在 optimize_weights 目标仓"
                 new_positions_count -= 1
                 continue
-            
+
             budget = cash * position_ratio
             if budget < price * 100:
                 continue
@@ -865,11 +863,12 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
     优先级：止损 > 超时 > 梯度减仓
     """
     from datetime import datetime
+
+    from core.signal.factors.dynamic_position import get_reduce_position_plan
     from core.signal.factors.risk import (
         should_stop_loss,
         update_peak_price,
     )
-    from core.signal.factors.dynamic_position import get_reduce_position_plan
     from core.signal.score_display import (
         resolve_buy_floor,
         score_gates_use_heuristic_bands,
@@ -880,7 +879,7 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
     max_hold_days = int(rules.get("max_hold_days") or 5)
     min_score = resolve_buy_floor(paper, heuristic_default=60.0)
     use_score_reduce = score_gates_use_heuristic_bands()
-    
+
     # 动态止损配置
     stop_loss_mode = rules.get("stop_loss_mode", "adaptive")
     atr_multiplier = float(rules.get("atr_multiplier", 2.0))
@@ -944,7 +943,7 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
 
         reason = None
         sell_shares = shares  # 默认全部卖出
-        
+
         # 1. 动态止损判断（最高优先级）
         try:
             bars, _ = _bars_and_source(code, limit=30)
@@ -965,11 +964,11 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
             logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
             if pnl_pct <= stop_loss_pnl:
                 reason = f"固定止损({pnl_pct:.2f}%)"
-        
+
         # 2. 固定止损（最后防线）
         if not reason and pnl_pct <= stop_loss_pnl:
             reason = f"固定止损({pnl_pct:.2f}%)"
-        
+
         # 3. 时间止损（持有超时且趋势向下）
         if not reason and hold_days is not None and hold_days >= max_hold_days:
             if is_trending_up:
@@ -977,14 +976,14 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
                 continue
             else:
                 reason = f"持有超时({hold_days}天)且趋势向下"
-        
+
         # 4. 梯度减仓（根据评分等级；收益分模式下跳过 0–100 分档）
         if not reason and score is not None and use_score_reduce:
             reduce_plan = get_reduce_position_plan(score, shares, min_score=min_score)
             if reduce_plan["should_reduce"]:
                 sell_shares = reduce_plan["reduce_shares"]
                 reason = reduce_plan["reason"]
-        
+
         if not reason:
             kept.append(h)
             continue

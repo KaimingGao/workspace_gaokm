@@ -1,6 +1,5 @@
 """隔夜跳空风险因子（V2.1 有界扩面）。"""
 
-from __future__ import annotations
 
 import logging
 

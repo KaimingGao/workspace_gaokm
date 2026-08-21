@@ -1,6 +1,5 @@
 """Pure risk / return metrics for paper snapshots and curve alignment."""
 
-from __future__ import annotations
 
 import logging
 

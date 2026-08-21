@@ -1,6 +1,5 @@
 """动态止损模块：ATR止损、移动止损、波动率调整止损。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -32,19 +31,19 @@ def calculate_atr_stop_loss(
     """
     if not bars or len(bars) < 2:
         return None
-    
+
     # 计算ATR
     atr_pct_value = atr_pct(bars, window)
     if atr_pct_value is None:
         return None
-    
+
     # 将ATR百分比转换为绝对值
     last_close = bars[-1]["close"]
     atr_absolute = last_close * atr_pct_value / 100
-    
+
     # 计算止损价
     stop_price = entry_price - atr_absolute * atr_multiplier
-    
+
     return round(stop_price, 4)
 
 
@@ -94,7 +93,7 @@ def calculate_volatility_adjusted_stop_loss(
         止损价格
     """
     atr_pct_value = atr_pct(bars, window=5)
-    
+
     if atr_pct_value is None:
         adjusted_pct = base_stop_pct
     elif atr_pct_value > 5.0:
@@ -106,7 +105,7 @@ def calculate_volatility_adjusted_stop_loss(
     else:
         # 正常波动：使用基础止损
         adjusted_pct = base_stop_pct
-    
+
     return round(entry_price * (1 - adjusted_pct), 4)
 
 
@@ -142,40 +141,40 @@ def should_stop_loss(
         if current_price <= stop_price:
             return True, stop_price, f"固定止损({stop_pct*100:.0f}%)"
         return False, stop_price, ""
-    
+
     elif mode == "atr":
         atr_multiplier = kwargs.get("atr_multiplier", 2.0)
         stop_price = calculate_atr_stop_loss(bars, entry_price, atr_multiplier)
         if stop_price and current_price <= stop_price:
             return True, stop_price, f"ATR止损({atr_multiplier}倍ATR)"
         return False, stop_price or 0, ""
-    
+
     elif mode == "trailing":
         trail_pct = kwargs.get("trail_pct", 0.10)
         stop_price = calculate_moving_stop_loss(bars, peak_price, trail_pct)
         if current_price <= stop_price:
             return True, stop_price, f"移动止损(跟踪{trail_pct*100:.0f}%)"
         return False, stop_price, ""
-    
+
     elif mode == "adaptive":
         # 自适应模式：组合多种止损
         reasons = []
         min_stop_price = float('-inf')
-        
+
         # 1. 固定止损（最后防线）
         fixed_pct = kwargs.get("fixed_stop_pct", 0.12)  # 12% 硬止损
         fixed_stop = entry_price * (1 - fixed_pct)
         if current_price <= fixed_stop:
             return True, fixed_stop, f"硬止损({fixed_pct*100:.0f}%)"
-        
+
         # 2. ATR止损
         atr_mult = kwargs.get("atr_multiplier", 2.0)
         atr_stop = calculate_atr_stop_loss(bars, entry_price, atr_mult)
         if atr_stop:
             min_stop_price = max(min_stop_price, atr_stop)
             if current_price <= atr_stop:
-                reasons.append(f"ATR止损")
-        
+                reasons.append("ATR止损")
+
         # 3. 移动止损（盈利保护）
         if peak_price > entry_price * 1.05:  # 盈利超过5%时启用
             trail_pct = kwargs.get("trail_pct", 0.10)
@@ -183,18 +182,18 @@ def should_stop_loss(
             min_stop_price = max(min_stop_price, trail_stop)
             if current_price <= trail_stop and trail_stop > entry_price:
                 reasons.append("移动止损(锁定利润)")
-        
+
         # 4. 波动率调整止损
         vol_adj_stop = calculate_volatility_adjusted_stop_loss(bars, entry_price)
         min_stop_price = max(min_stop_price, vol_adj_stop)
         if current_price <= vol_adj_stop:
             reasons.append("波动调整止损")
-        
+
         if reasons:
             return True, min_stop_price, "+".join(reasons)
-        
+
         return False, min_stop_price, ""
-    
+
     else:
         raise ValueError(f"Unknown stop loss mode: {mode}")
 

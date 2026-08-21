@@ -1,6 +1,5 @@
 """S2.2 · A/B 对照指纹：两套配置/结果并排，供验证包与研究导出。"""
 
-from __future__ import annotations
 
 import logging
 

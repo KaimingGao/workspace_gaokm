@@ -1,13 +1,11 @@
 """规则引擎：由 quote/signal/kline 等事实合成买卖 stance（确定性，供 LLM 引用）。"""
 
-from __future__ import annotations
 import logging
 
 logger = logging.getLogger(__name__)
-from core.numbers import to_float as _f
-
 from typing import Any, Dict, List, Optional
 
+from core.numbers import to_float as _f
 from core.signal.config import get_stance_thresholds, load_signal_config
 
 STANCE_LABELS = {

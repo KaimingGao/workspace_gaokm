@@ -1,6 +1,5 @@
 """组合回测 Walk-forward 最小切片（P1）。"""
 
-from __future__ import annotations
 
 import logging
 

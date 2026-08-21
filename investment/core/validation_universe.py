@@ -1,6 +1,5 @@
 """策略验证宇宙（V0.5）：可配置纳入/排除；空财务码治理。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -9,8 +8,8 @@ import json
 import os
 from typing import Any, Dict, List, Optional, Sequence
 
-from core.paths import DATA_DIR
 from core.io_atomic import atomic_write_json
+from core.paths import DATA_DIR
 
 UNIVERSE_PATH = os.path.join(DATA_DIR, "validation_universe.json")
 
@@ -201,6 +200,7 @@ def build_validation_hygiene_report(
     try:
         coverage = build_data_coverage(codes=code_list, include_paper=False) or {}
     except Exception as e:
+        logger.exception('unexpected error in build_validation_hygiene_report')
         coverage = {"ok": False, "error": str(e)}
 
     empty_rep = empty_fundamentals_report(codes=code_list)
@@ -222,6 +222,7 @@ def build_validation_hygiene_report(
             code_list, as_of=as_of
         )
     except Exception as e:
+        logger.exception('unexpected error in build_validation_hygiene_report')
         sentiment_panel = {"ok": False, "error": str(e)}
 
     actions: List[str] = []
@@ -290,6 +291,7 @@ def prepare_validation_universe(
             bars_summary["skipped"] = False
             bars_summary["warmed_codes"] = need[:40]
         except Exception as e:
+            logger.exception('unexpected error in prepare_validation_universe')
             bars_summary = {"skipped": False, "ok": False, "error": str(e)}
 
     sentiment_summary: Dict[str, Any] = {"skipped": True}
@@ -302,6 +304,7 @@ def prepare_validation_universe(
             )
             sentiment_summary["skipped"] = False
         except Exception as e:
+            logger.exception('unexpected error in prepare_validation_universe')
             sentiment_summary = {"skipped": False, "ok": False, "error": str(e)}
 
     return {

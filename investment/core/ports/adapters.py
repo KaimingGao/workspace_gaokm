@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import logging
+from typing import Any, Callable, Dict, Optional
 
 logger = logging.getLogger(__name__)
-from typing import Any, Callable, Dict, Optional
 
 _adapters: Dict[str, Callable[..., Any]] = {}
 _bound = False

@@ -1,6 +1,5 @@
 """PaperService · 买卖 / 图表 / T0。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -10,14 +9,14 @@ import os
 from typing import Any, Dict, List, Optional
 
 from core.paper import (
-    load_paper,
-    mark_to_market,
-    save_paper,
-    append_snapshot,
     append_operation_log,
+    append_snapshot,
     append_trade_legs_to_operation_log,
     capture_mark_snapshot,
+    load_paper,
+    mark_to_market,
     paper_write_lock,
+    save_paper,
 )
 
 
@@ -361,6 +360,16 @@ class PaperTradesMixin:
         if not (result.get("success") or result.get("ok")):
             return {**result, "mode": mode}
 
+        from core.paper_open_fill import apply_next_open_commit
+
+        work, result = apply_next_open_commit(
+            paper_ro,
+            work,
+            result,
+            dry_run=dry_run,
+            source="cluster" if mode == "cluster_book" else "rebalance",
+        )
+
         ranking = list(result.get("ranking") or [])
         score_rows = list(result.get("score_rows") or [])
         k = int(result.get("top_k") or top_k or 0)
@@ -453,34 +462,52 @@ class PaperTradesMixin:
         else:
             base_out["cross_section"] = ranked
 
+        if result.get("fill_action"):
+            base_out["fill_action"] = result.get("fill_action")
+            base_out["fill_phase"] = result.get("fill_phase")
+            base_out["execution_mode"] = result.get("execution_mode")
+        if result.get("pending_orders") is not None:
+            base_out["pending_orders"] = result.get("pending_orders")
+        if result.get("staged"):
+            base_out["staged"] = True
+        if result.get("note"):
+            base_out["note"] = result.get("note")
+
         if dry_run:
-            if use_cluster:
+            if use_cluster and not base_out.get("note"):
                 base_out["note"] = (
                     "分池预演 · 复用目标簿 · 未写 paper.json"
                     if result.get("book_reused")
                     else "分池预演 · 未写 paper.json"
                 )
-                if result.get("book_reused"):
-                    base_out["book_reused"] = True
+            if use_cluster and result.get("book_reused"):
+                base_out["book_reused"] = True
             return base_out
 
+        fill_action = str(result.get("fill_action") or "immediate")
         if use_cluster and result.get("book_reused"):
             base_out["book_reused"] = True
-            base_out["note"] = "分池落账 · 复用预演目标簿"
+            if not base_out.get("note"):
+                base_out["note"] = "分池落账 · 复用预演目标簿"
         append_snapshot(work, summary)
+        staged = fill_action == "staged"
         if use_cluster:
-            append_trade_legs_to_operation_log(
-                work,
-                sell_trades,
-                buy_trades,
-                origin="cluster",
-                source="follow",
+            if not staged:
+                append_trade_legs_to_operation_log(
+                    work,
+                    sell_trades,
+                    buy_trades,
+                    origin="cluster",
+                    source="follow",
+                )
+            verb = "挂开盘单" if staged else (
+                "开盘成交" if fill_action.startswith("open_fill") else "调仓"
             )
             append_operation_log(
                 work,
                 "cluster_pool_rebalance",
                 detail=(
-                    f"分池 live 调仓 Top{k} · v{(ranked or {}).get('cluster_version')} · "
+                    f"分池 live {verb} Top{k} · v{(ranked or {}).get('cluster_version')} · "
                     f"卖 {len(sell_trades)} · 买 {len(buy_trades)}"
                 ),
                 meta={
@@ -490,6 +517,7 @@ class PaperTradesMixin:
                     "book_codes": [r.get("stock_code") for r in ranking],
                     "buy_count": len(buy_trades),
                     "sell_count": len(sell_trades),
+                    "fill_action": fill_action,
                     "health_alerts": ((health or {}).get("alerts") or [])[:5],
                     "signal_config_touched": False,
                     "origin": "cluster",
@@ -532,6 +560,11 @@ class PaperTradesMixin:
 
         with paper_write_lock(self.path):
             paper = load_paper(self.path)
+            from core.paper_open_fill import require_open_fill
+
+            blocked = require_open_fill(paper, action="手动买入")
+            if blocked:
+                raise ValueError(blocked)
             capture_mark_snapshot(paper)
             trade = manual_buy(paper, stock_code, amount=amount, shares=shares)
             summary = mark_to_market(paper)
@@ -574,6 +607,11 @@ class PaperTradesMixin:
 
         with paper_write_lock(self.path):
             paper = load_paper(self.path)
+            from core.paper_open_fill import require_open_fill
+
+            blocked = require_open_fill(paper, action="手动卖出")
+            if blocked:
+                raise ValueError(blocked)
             capture_mark_snapshot(paper)
             trades = manual_sell(paper, codes=codes, stock_code=stock_code, shares=shares)
             summary = mark_to_market(paper)
@@ -671,10 +709,23 @@ class PaperTradesMixin:
         """
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
-        from core.t0.rules import atr_pct_from_bars, simulate_t0_on_holdings
         from core.data_service import bars_and_source
+        from core.t0.rules import atr_pct_from_bars, simulate_t0_on_holdings
 
         paper = load_paper(self.path)
+
+        if not dry_run:
+            from core.paper_open_fill import is_next_open_mode
+
+            if is_next_open_mode(paper):
+                blocked = "next_open 模式不做盘中做 T；只在开盘窗成交隔夜调仓单。"
+                return {
+                    "ok": False,
+                    "success": False,
+                    "dry_run": False,
+                    "error": blocked,
+                    "note": blocked,
+                }
         holdings = paper.get("holdings") or []
         if not holdings:
             return {
@@ -689,8 +740,8 @@ class PaperTradesMixin:
 
         run_rules = dict(rules or {})
         from core.execution import (
-            resolve_effective_execution,
             execution_public_view,
+            resolve_effective_execution,
             strip_execution_meta,
         )
 

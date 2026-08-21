@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """Watching 管理 CLI（P9.1）。"""
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -12,13 +11,16 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
+import logging
+
 from core.watching_store import (  # noqa: E402
     init_from_example,
     read_watching,
     refresh_watchlist,
     sync_paper_watchlist,
-    write_watching,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def main(argv=None) -> int:
@@ -47,6 +49,7 @@ def main(argv=None) -> int:
         if args.show:
             out = {"success": True, "watching": read_watching()}
     except Exception as e:
+        logger.exception('unexpected error in main')
         out = {"success": False, "error": str(e)}
 
     if args.json:

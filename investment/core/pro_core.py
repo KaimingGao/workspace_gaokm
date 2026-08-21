@@ -3,13 +3,11 @@
 见 docs/pro-core-strengthen.md。不写 OMS；只加深路径内可信度。
 """
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, Iterable, List, Optional, Tuple
-
 
 # 财务可用日覆盖软/硬阈值（与 maturity/DQ 同口径）
 ANN_MISSING_SOFT_MAX = 0.35

@@ -1,6 +1,5 @@
 """FastAPI Web：量化交易工作台（对话 + 观察/模拟/回溯 + 校验）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -9,7 +8,7 @@ import os
 import sys
 
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -32,7 +31,24 @@ except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流
 
 from web import deps  # noqa: E402
 from web.page_html import render_tool_html  # noqa: E402
-from web.routers import quant_config, quant_research, quant_cluster, quant_backtest, quant_score, quant_dashboard, chat, daily, evals, live_ws, meta, paper, platform, quant, strategy, watching  # noqa: E402
+from web.routers import (  # noqa: E402
+    chat,
+    daily,
+    evals,
+    live_ws,
+    meta,
+    paper,
+    platform,
+    quant,
+    quant_backtest,
+    quant_cluster,
+    quant_config,
+    quant_dashboard,
+    quant_research,
+    quant_score,
+    strategy,
+    watching,
+)
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 
@@ -68,13 +84,13 @@ app.include_router(live_ws.router)
 
 
 @app.get("/")
-def index():
+def index() -> RedirectResponse:
     """根路径进入仪表盘。"""
     return RedirectResponse(url="/dashboard", status_code=302)
 
 
 @app.get("/chat")
-def chat_page(tab: str | None = None):
+def chat_page(tab: str | None = None) -> RedirectResponse:
     """全屏对话已下线：统一走顶栏 AI 抽屉（⌘K）；旧书签重定向。"""
     if tab == "platform":
         return RedirectResponse(url="/platform", status_code=302)
@@ -82,7 +98,7 @@ def chat_page(tab: str | None = None):
 
 
 @app.get("/platform")
-def platform_page():
+def platform_page() -> HTMLResponse:
     """系统设置（平台面板）：不复用全屏对话壳层。"""
     return HTMLResponse(
         render_tool_html("platform"),
@@ -94,7 +110,7 @@ def platform_page():
 
 
 @app.get("/quant")
-def quant_page():
+def quant_page() -> HTMLResponse:
     return HTMLResponse(
         render_tool_html("quant"),
         headers={"Cache-Control": "no-store"},
@@ -102,7 +118,7 @@ def quant_page():
 
 
 @app.get("/watching")
-def watching_page():
+def watching_page() -> HTMLResponse:
     return HTMLResponse(
         render_tool_html("watching"),
         headers={"Cache-Control": "no-store"},
@@ -110,7 +126,7 @@ def watching_page():
 
 
 @app.get("/dashboard")
-def dashboard_page():
+def dashboard_page() -> HTMLResponse:
     """仪表盘：全局 KPI · 净值曲线 · 板块热力 · 信号告警。"""
     return HTMLResponse(
         render_tool_html("dashboard"),
@@ -119,7 +135,7 @@ def dashboard_page():
 
 
 @app.get("/strategy")
-def strategy_page():
+def strategy_page() -> HTMLResponse:
     return HTMLResponse(
         render_tool_html("strategy"),
         headers={"Cache-Control": "no-store"},
@@ -127,7 +143,7 @@ def strategy_page():
 
 
 @app.get("/replay")
-def replay_page():
+def replay_page() -> HTMLResponse:
     return HTMLResponse(
         render_tool_html("replay"),
         headers={"Cache-Control": "no-store"},
@@ -135,7 +151,7 @@ def replay_page():
 
 
 @app.get("/follow")
-def follow_page():
+def follow_page() -> HTMLResponse:
     return HTMLResponse(
         render_tool_html("follow"),
         headers={"Cache-Control": "no-store"},
@@ -143,15 +159,13 @@ def follow_page():
 
 
 @app.get("/paper")
-def paper_page():
+def paper_page() -> RedirectResponse:
     """旧「纸面」入口并入模拟页；API 仍为 /api/paper（内部 canonical）。"""
     return RedirectResponse(url="/follow", status_code=302)
 
 
 @app.get("/favicon.ico")
-def favicon():
-    from fastapi.responses import Response
-
+def favicon() -> Response:
     return Response(status_code=204)
 
 

@@ -3,7 +3,6 @@
 持仓联动 ``build_portfolio_bridge`` 已迁至 QuantCompareMixin（③）。
 """
 
-from __future__ import annotations
 
 import json
 import logging
@@ -513,7 +512,7 @@ class QuantOpsMixin:
     def load_last_daily(self) -> Dict[str, Any]:
         if not os.path.isfile(QUANT_DAILY_PATH):
             return {"success": True, "empty": True}
-        with open(QUANT_DAILY_PATH, "r", encoding="utf-8") as f:
+        with open(QUANT_DAILY_PATH, encoding="utf-8") as f:
             data = json.load(f)
         if not isinstance(data, dict):
             return {"success": True, "empty": True}
@@ -682,6 +681,7 @@ class QuantOpsMixin:
                     ),
                 }
         except Exception as exc:
+            logger.exception('unexpected error in build_daily_report')
             cluster_live = {"success": False, "error": str(exc)}
 
         scoring = (cfg.get("scoring") if isinstance(cfg, dict) else None) or {}
@@ -691,6 +691,7 @@ class QuantOpsMixin:
 
             y_check_summary = ledger_y_check_daily_summary(include_hit=True)
         except Exception as exc:
+            logger.exception('unexpected error in build_daily_report')
             y_check_summary = {"success": False, "error": str(exc)}
 
         report: Dict[str, Any] = {

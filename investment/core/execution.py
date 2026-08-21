@@ -17,7 +17,7 @@ import json
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.t0.config import DEFAULT_T0_RULES, load_t0_rules
+from core.t0.config import load_t0_rules
 
 DEFAULT_COUPLING: Dict[str, Any] = {
     "t0_vs_stance": "independent",  # independent | skip_if_avoid | only_if_hold
@@ -74,11 +74,18 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     # direction / path_mode 留给 runtime_defaults，避免与 DEFAULT_T0 的 auto/dual_touch 双轨
 }
 
+DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
+    "execution_mode": "next_open",  # next_open=收盘挂单/开盘成交；close=确认即成交
+    "open_fill_after_hm": "09:15",
+    "open_fill_until_hm": "10:00",
+}
+
 DEFAULT_EXECUTION: Dict[str, Any] = {
     "version": "1.0.0",
     "overlays": {"t0": deepcopy(DEFAULT_T0_OVERLAY)},
     "coupling": deepcopy(DEFAULT_COUPLING),
     "runtime_defaults": deepcopy(DEFAULT_RUNTIME),
+    "rebalance_timing": deepcopy(DEFAULT_REBALANCE_TIMING),
 }
 
 _REBALANCE_KEYS = (
@@ -288,11 +295,37 @@ def resolve_effective_execution(
             if k in paper_rules and paper_rules[k] is not None:
                 rebalance[k] = paper_rules[k]
 
+    timing = deepcopy(DEFAULT_REBALANCE_TIMING)
+    spec_timing = strategy_exe.get("rebalance_timing")
+    if isinstance(spec_timing, dict):
+        timing.update({k: v for k, v in spec_timing.items() if v is not None})
+    if isinstance(paper_rules, dict):
+        if paper_rules.get("execution_mode"):
+            timing["execution_mode"] = paper_rules.get("execution_mode")
+        paper_exe = paper_rules.get("execution")
+        if isinstance(paper_exe, dict):
+            if paper_exe.get("execution_mode"):
+                timing["execution_mode"] = paper_exe.get("execution_mode")
+            rt = paper_exe.get("rebalance_timing")
+            if isinstance(rt, dict):
+                timing.update({k: v for k, v in rt.items() if v is not None})
+    if isinstance(request_override, dict):
+        if request_override.get("execution_mode"):
+            timing["execution_mode"] = request_override.get("execution_mode")
+        req_t = request_override.get("rebalance_timing")
+        if isinstance(req_t, dict):
+            timing.update({k: v for k, v in req_t.items() if v is not None})
+    mode = str(timing.get("execution_mode") or "next_open").strip().lower()
+    if mode not in ("next_open", "close"):
+        mode = "next_open"
+    timing["execution_mode"] = mode
+
     execution = {
         "version": strategy_exe.get("version") or DEFAULT_EXECUTION["version"],
         "overlays": {"t0": {k: t0[k] for k in t0 if k != "note"}},
         "coupling": coupling,
         "runtime_defaults": runtime,
+        "rebalance_timing": timing,
     }
 
     hash_payload = {
@@ -316,6 +349,7 @@ def resolve_effective_execution(
         },
         "coupling": coupling,
         "rebalance": {k: rebalance.get(k) for k in _REBALANCE_KEYS if k in rebalance},
+        "rebalance_timing": timing,
     }
 
     return {
@@ -329,9 +363,12 @@ def resolve_effective_execution(
         "t0_sources": sources,
         "coupling": coupling,
         "runtime_defaults": runtime,
+        "rebalance_timing": timing,
         "effective_hash": _effective_hash(hash_payload),
         "notes": notes,
-        "summary": _human_summary(t0, coupling, channel=(channel or "paper")),
+        "summary": _human_summary(
+            t0, coupling, channel=(channel or "paper"), timing=timing
+        ),
     }
 
 
@@ -370,7 +407,9 @@ def strip_execution_meta(rules: Optional[dict]) -> dict:
     return {k: v for k, v in rules.items() if not str(k).startswith("_")}
 
 
-def _human_summary(t0: dict, coupling: dict, *, channel: str) -> str:
+def _human_summary(
+    t0: dict, coupling: dict, *, channel: str, timing: Optional[dict] = None
+) -> str:
     ratio = t0.get("t0_ratio")
     ratio_s = f"{int(round(float(ratio) * 100))}%" if ratio is not None else "—"
     sell = t0.get("sell_trigger_pct")
@@ -380,8 +419,18 @@ def _human_summary(t0: dict, coupling: dict, *, channel: str) -> str:
     return (
         f"{channel} · 仓{ratio_s} · {t0.get('direction') or '—'} · "
         f"{t0.get('fill_mode') or '—'} · 触发{trig} · path={t0.get('path_mode') or '—'} · "
-        f"耦合={coup}"
+        f"耦合={coup} · {_timing_summary(timing)}"
     )
+
+
+def _timing_summary(timing: Optional[dict]) -> str:
+    t = timing or {}
+    mode = str(t.get("execution_mode") or "next_open")
+    if mode == "close":
+        return "成交=确认即成交"
+    after = t.get("open_fill_after_hm") or "09:15"
+    until = t.get("open_fill_until_hm") or "10:00"
+    return f"成交=次日开盘 {after}–{until}"
 
 
 def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
@@ -443,6 +492,9 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
         },
         "t0_sources": bundle.get("t0_sources") or {},
         "rebalance": bundle.get("rebalance") or {},
+        "rebalance_timing": bundle.get("rebalance_timing")
+        or (bundle.get("execution") or {}).get("rebalance_timing")
+        or {},
         "runtime_defaults": bundle.get("runtime_defaults") or {},
         "cluster_book": cluster_book,
     }
@@ -510,6 +562,7 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
             {k: v for k, v in t0_in.items() if k in ALLOWED_T0_PATCH_KEYS}
         )
     except Exception as e:
+        logger.exception('unexpected error in validate_execution_patch')
         return False, {}, [f"t0 校验失败: {e}"]
 
     t0_out = {k: normalized_full[k] for k in t0_in if k in ALLOWED_T0_PATCH_KEYS and k in normalized_full}

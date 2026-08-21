@@ -6,7 +6,6 @@ API URL 不变（P94）；本模块只提供归属说明与机器可读映射。
 共享打分：`core/signal/scorer.score_bars` + `compute_buy_stance`（模拟与回溯共用）。
 """
 
-from __future__ import annotations
 
 import logging
 

@@ -1,6 +1,5 @@
 """回测–纸面拟合落差启发式归因（V1.3 · 运营加深）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -82,26 +81,24 @@ def build_curve_day_diff(
     }
 
 
-def fit_gap_hints(
-    *,
-    realization: Optional[dict] = None,
-    cost_compare: Optional[dict] = None,
-    source_audit: Optional[dict] = None,
-    paper_ops: Optional[dict] = None,
-    backtest_params: Optional[dict] = None,
-    universe: Optional[dict] = None,
-    day_diff: Optional[dict] = None,
-) -> Dict[str, Any]:
-    """规则启发式：解释 Corr/TE unavailable 或偏弱的可能原因。"""
-    rz = realization or {}
-    cc = cost_compare or {}
-    sa = source_audit or {}
-    ops = paper_ops or {}
-    params = backtest_params or {}
-    uni = universe or {}
-    dd = day_diff or {}
-    hints: List[Dict[str, str]] = []
+def _safe_float(value: Any) -> Optional[float]:
+    """容错数值转换：None→None；非法→None。"""
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
 
+
+def _safe_int(value: Any, default: int = 0) -> int:
+    """容错整数转换：失败回退 default。"""
+    try:
+        return int(value) if value is not None else default
+    except (TypeError, ValueError):
+        return default
+
+
+def _append_scope_hint(hints: List[Dict[str, str]]) -> None:
+    """基线口径提示：回测 vs live 信号域差异。"""
     hints.append(
         {
             "code": "live_vs_bt_scope",
@@ -113,6 +110,9 @@ def fit_gap_hints(
         }
     )
 
+
+def _append_quality_policy_hint(hints: List[Dict[str, str]]) -> "Optional[Dict[str, Any]]":
+    """附加 X 政策快照提示；返回 quality_policy 供最终汇总。"""
     try:
         from core.signal.live_features import build_quality_policy_snapshot
 
@@ -128,9 +128,14 @@ def fit_gap_hints(
                 ),
             }
         )
+        return qp
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in fit_gap.py", exc_info=True)
-        pass
+        return None
+
+
+def _append_factor_health_hint(hints: List[Dict[str, str]]) -> None:
+    """伪因子 blocker 提示（best-effort）。"""
     try:
         from core.signal.factor_health import assess_factor_health
 
@@ -145,8 +150,10 @@ def fit_gap_hints(
             )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in fit_gap.py", exc_info=True)
-        pass
 
+
+def _append_realization_hints(hints: List[Dict[str, str]], rz: Dict[str, Any]) -> None:
+    """realization 状态提示：不可用 / 低 Corr / 高 TE。"""
     status = str(rz.get("status") or "")
     if status == "unavailable":
         reason = str(rz.get("reason") or "unavailable")
@@ -160,11 +167,7 @@ def fit_gap_hints(
             }
         )
     elif status in ("ok", "partial"):
-        corr = rz.get("corr")
-        try:
-            corr_f = float(corr) if corr is not None else None
-        except (TypeError, ValueError):
-            corr_f = None
+        corr_f = _safe_float(rz.get("corr"))
         if corr_f is not None and corr_f < 0.3:
             hints.append(
                 {
@@ -173,11 +176,7 @@ def fit_gap_hints(
                     "message": f"Corr≈{corr_f:.3f} 偏低；检查宇宙、调仓日与成本假设是否一致",
                 }
             )
-        te = rz.get("tracking_error_pct")
-        try:
-            te_f = float(te) if te is not None else None
-        except (TypeError, ValueError):
-            te_f = None
+        te_f = _safe_float(rz.get("tracking_error_pct"))
         if te_f is not None and te_f >= 3.0:
             hints.append(
                 {
@@ -187,12 +186,12 @@ def fit_gap_hints(
                 }
             )
 
-    try:
-        po = int(dd.get("paper_only_days") or 0)
-        bo = int(dd.get("bt_only_days") or 0)
-        al = int(dd.get("aligned_days") or 0)
-    except (TypeError, ValueError):
-        po = bo = al = 0
+
+def _append_day_diff_hint(hints: List[Dict[str, str]], dd: Dict[str, Any]) -> None:
+    """同窗日集合 Diff 提示。"""
+    po = _safe_int(dd.get("paper_only_days"))
+    bo = _safe_int(dd.get("bt_only_days"))
+    al = _safe_int(dd.get("aligned_days"))
     if po or bo:
         level = "warn" if (po >= 5 or bo >= 5 or al < 10) else "info"
         hints.append(
@@ -206,11 +205,10 @@ def fit_gap_hints(
             }
         )
 
-    gap = cc.get("return_gap_pp")
-    try:
-        gap_f = float(gap) if gap is not None else None
-    except (TypeError, ValueError):
-        gap_f = None
+
+def _append_cost_compare_hints(hints: List[Dict[str, str]], cc: Dict[str, Any]) -> None:
+    """成本比较：收益差与冲击成本提示。"""
+    gap_f = _safe_float(cc.get("return_gap_pp"))
     if gap_f is not None and abs(gap_f) >= 1.0:
         hints.append(
             {
@@ -219,12 +217,7 @@ def fit_gap_hints(
                 "message": f"零成本 vs 含成本收益差约 {gap_f:.2f}pp；纸面若用 simple_cn 更接近含成本",
             }
         )
-
-    impact = cc.get("avg_impact_bps")
-    try:
-        impact_f = float(impact) if impact is not None else None
-    except (TypeError, ValueError):
-        impact_f = None
+    impact_f = _safe_float(cc.get("avg_impact_bps"))
     if impact_f is not None and impact_f >= 8:
         hints.append(
             {
@@ -234,7 +227,10 @@ def fit_gap_hints(
             }
         )
 
-    fb = int(sa.get("fallback_count") or 0)
+
+def _append_source_audit_hint(hints: List[Dict[str, str]], sa: Dict[str, Any]) -> None:
+    """源审计 fallback 提示。"""
+    fb = _safe_int(sa.get("fallback_count"))
     if fb > 0:
         hints.append(
             {
@@ -244,6 +240,14 @@ def fit_gap_hints(
             }
         )
 
+
+def _append_cost_model_mismatch_hint(
+    hints: List[Dict[str, str]],
+    ops: Dict[str, Any],
+    params: Dict[str, Any],
+    cc: Dict[str, Any],
+) -> None:
+    """成本假设不一致提示。"""
     paper_cost = str(ops.get("cost_model") or "")
     bt_cost = str(params.get("cost_model") or "")
     if not bt_cost and cc.get("simple_cn"):
@@ -259,6 +263,13 @@ def fit_gap_hints(
             }
         )
 
+
+def _append_weight_mode_mismatch_hint(
+    hints: List[Dict[str, str]],
+    ops: Dict[str, Any],
+    params: Dict[str, Any],
+) -> None:
+    """权重模式不一致提示。"""
     paper_wm = str(ops.get("weight_mode") or ops.get("last_weight_mode") or "")
     bt_wm = str(params.get("weight_mode") or "")
     if paper_wm and bt_wm and paper_wm != bt_wm:
@@ -270,9 +281,14 @@ def fit_gap_hints(
             }
         )
 
+
+def _append_horizon_and_y_spec_hints(
+    hints: List[Dict[str, str]], params: Dict[str, Any]
+) -> None:
+    """horizon 一致性 + y_spec 说明（best-effort）。"""
     try:
-        from core.signal.config import load_signal_config
         from core.research.beta_accuracy import build_y_spec
+        from core.signal.config import load_signal_config
 
         cfg = load_signal_config() or {}
         scoring = cfg.get("scoring") or {}
@@ -309,8 +325,12 @@ def fit_gap_hints(
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in fit_gap.py", exc_info=True)
-        pass
 
+
+def _append_rebalance_freq_hint(
+    hints: List[Dict[str, str]], params: Dict[str, Any]
+) -> None:
+    """调仓/持有周期分化提示。"""
     if params.get("rebalance_days") or params.get("horizon_days"):
         hints.append(
             {
@@ -320,16 +340,21 @@ def fit_gap_hints(
             }
         )
 
+
+def _append_universe_hints(
+    hints: List[Dict[str, str]],
+    uni: Dict[str, Any],
+    params: Dict[str, Any],
+) -> None:
+    """宇宙规模与短序列剔除提示。"""
     cand = uni.get("candidate_count") or params.get("stock_count")
     dropped = uni.get("dropped_thin_count") or params.get("dropped_thin_count")
+    cand_n: Optional[int]
     try:
         cand_n = int(cand) if cand is not None else None
     except (TypeError, ValueError):
         cand_n = None
-    try:
-        drop_n = int(dropped) if dropped is not None else 0
-    except (TypeError, ValueError):
-        drop_n = 0
+    drop_n = _safe_int(dropped) if dropped is not None else 0
     if cand_n is not None and cand_n < 8:
         hints.append(
             {
@@ -347,6 +372,14 @@ def fit_gap_hints(
             }
         )
 
+
+def _finalize_hints_output(
+    hints: List[Dict[str, str]],
+    quality_policy: Optional[Dict[str, Any]],
+    dd: Dict[str, Any],
+    rz: Dict[str, Any],
+) -> Dict[str, Any]:
+    """汇总最终输出：无实质提示时补 ok 提示，附 quality_policy/realization 摘要。"""
     substantive = [h for h in hints if h.get("code") != "live_vs_bt_scope"]
     if not substantive:
         hints.append(
@@ -356,16 +389,7 @@ def fit_gap_hints(
                 "message": "未发现明显结构落差信号；若 Corr 仍低，检查宇宙与调仓日对齐",
             }
         )
-
     warn_n = sum(1 for h in hints if h.get("level") == "warn")
-    quality_policy = None
-    try:
-        from core.signal.live_features import build_quality_policy_snapshot
-
-        quality_policy = build_quality_policy_snapshot()
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in fit_gap.py", exc_info=True)
-        quality_policy = None
     out: Dict[str, Any] = {
         "ok": True,
         "hints": hints,
@@ -387,3 +411,40 @@ def fit_gap_hints(
             "note": rz.get("note"),
         }
     return out
+
+
+def fit_gap_hints(
+    *,
+    realization: Optional[dict] = None,
+    cost_compare: Optional[dict] = None,
+    source_audit: Optional[dict] = None,
+    paper_ops: Optional[dict] = None,
+    backtest_params: Optional[dict] = None,
+    universe: Optional[dict] = None,
+    day_diff: Optional[dict] = None,
+) -> Dict[str, Any]:
+    """规则启发式：解释 Corr/TE unavailable 或偏弱的可能原因。"""
+    rz = realization or {}
+    cc = cost_compare or {}
+    sa = source_audit or {}
+    ops = paper_ops or {}
+    params = backtest_params or {}
+    uni = universe or {}
+    dd = day_diff or {}
+
+    hints: List[Dict[str, str]] = []
+    _append_scope_hint(hints)
+    # quality_policy 快照最终汇总用，这里同步收集提示
+    quality_policy: Optional[Dict[str, Any]] = _append_quality_policy_hint(hints)
+    _append_factor_health_hint(hints)
+    _append_realization_hints(hints, rz)
+    _append_day_diff_hint(hints, dd)
+    _append_cost_compare_hints(hints, cc)
+    _append_source_audit_hint(hints, sa)
+    _append_cost_model_mismatch_hint(hints, ops, params, cc)
+    _append_weight_mode_mismatch_hint(hints, ops, params)
+    _append_horizon_and_y_spec_hints(hints, params)
+    _append_rebalance_freq_hint(hints, params)
+    _append_universe_hints(hints, uni, params)
+
+    return _finalize_hints_output(hints, quality_policy, dd, rz)

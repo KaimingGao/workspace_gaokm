@@ -35,6 +35,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Install quality-gate tools
+        run: pip install -r requirements-dev.txt
+
+      - name: Compile check
+        run: python3 -m compileall -q -j 4 core agent quant web skills services research
+
+      - name: Lint (ruff — bug/hygiene rules)
+        run: ruff check core/ quant/ agent/ services/ skills/ web/ research/
+
       - name: Unit tests
         run: python3 -m unittest discover -s tests -v
 

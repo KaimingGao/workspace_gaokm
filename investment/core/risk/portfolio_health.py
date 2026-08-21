@@ -1,6 +1,5 @@
 """纸面组合健康度：暴露 · 过程跳过 · α 衰减告警（研究台，非实盘）。"""
 
-from __future__ import annotations
 
 import logging
 

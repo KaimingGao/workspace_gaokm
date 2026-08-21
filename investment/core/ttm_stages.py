@@ -11,7 +11,6 @@
 仅使用标准库，不引入 numpy。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -536,20 +535,20 @@ if __name__ == "__main__":
         events.append({"ts": (base + timedelta(hours=i * 72 + 5 + b2p_hours)).isoformat(), "event": "paper_rule_live", "meta": {"cycle_id": cid}})
 
     sb = compute_ttm_stage_breakdown(events)
-    print("stage_breakdown: bottleneck=%s, share=%.2f" % (sb["bottleneck_stage"], sb["bottleneck_share"]))
-    print("  i2b median=%.1fh, b2p median=%.1fh" % (sb["stages"]["idea_to_backtest"]["median_h"], sb["stages"]["backtest_to_paper"]["median_h"]))
+    logger.info("stage_breakdown: bottleneck=%s, share=%.2f" % (sb["bottleneck_stage"], sb["bottleneck_share"]))
+    logger.info("  i2b median=%.1fh, b2p median=%.1fh" % (sb["stages"]["idea_to_backtest"]["median_h"], sb["stages"]["backtest_to_paper"]["median_h"]))
 
     tr = ttm_trend(events, window=4)
-    print("trend: recent=%.1fh, baseline=%.1fh, %s" % (tr["recent_median_h"] or 0, tr["baseline_median_h"] or 0, tr["trend"]))
+    logger.info("trend: recent=%.1fh, baseline=%.1fh, %s" % (tr["recent_median_h"] or 0, tr["baseline_median_h"] or 0, tr["trend"]))
 
     bn = identify_bottleneck(events)
-    print("bottleneck: %s, worsening=%s, suggestion=%s" % (bn["bottleneck_stage"], bn["is_worsening"], bn["actionable_suggestion"][:30]))
+    logger.info("bottleneck: %s, worsening=%s, suggestion=%s" % (bn["bottleneck_stage"], bn["is_worsening"], bn["actionable_suggestion"][:30]))
 
     th = parallel_hypothesis_throughput(events, window_days=30)
-    print("throughput: weekly=%.1f, parallel=%.1f" % (th["weekly_throughput"], th["avg_parallel"]))
+    logger.info("throughput: weekly=%.1f, parallel=%.1f" % (th["weekly_throughput"], th["avg_parallel"]))
 
     vt = ttm_vs_target(events, target_hours=8.0)
-    print("vs_target: actual=%.1fh, achievement=%.2f, %s" % (vt["actual_median_hours"] or 0, vt["achievement_rate"] or 0, vt["verdict"]))
+    logger.info("vs_target: actual=%.1fh, achievement=%.2f, %s" % (vt["actual_median_hours"] or 0, vt["achievement_rate"] or 0, vt["verdict"]))
 
     summary = summarize_ttm_stages(events)
-    print("headline:", summary["headline"])
+    logger.info("headline:", summary["headline"])

@@ -5,7 +5,6 @@
 - 基本面/资讯：本模块不伪造历史；调用方须标明 non_pit。
 """
 
-from __future__ import annotations
 
 import logging
 

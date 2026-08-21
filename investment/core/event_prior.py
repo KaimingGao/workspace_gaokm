@@ -6,7 +6,6 @@
   action = policy(ŷ, E)         ← soft_hold / warn
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -334,7 +333,7 @@ def compute_sector_gap_breadth_live(
     sector_label = None
     if use_sector_peers and focus_code:
         try:
-            from core.portfolio_optimize import load_sector_map, _sector_for
+            from core.portfolio_optimize import _sector_for, load_sector_map
 
             sm = load_sector_map() or {}
             sector_label = _sector_for(str(focus_code).strip(), sm)

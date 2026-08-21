@@ -273,7 +273,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
   return mountVirtualTable(host, {
     columns: COLS,
     emptyText: "暂无持仓",
-    rowHeight: 40,
+    rowHeight: 50,
     rootClass: "watching-react-grid paper-holdings-react-grid",
     bodyClass: "paper-holdings-react-body",
     initialSort: options.initialSort,

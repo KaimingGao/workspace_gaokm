@@ -1,6 +1,5 @@
 """流动性因子（P45）：近端成交额活跃度，过低或异常放量均降分。"""
 
-from __future__ import annotations
 
 import logging
 

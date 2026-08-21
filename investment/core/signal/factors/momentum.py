@@ -5,7 +5,6 @@
 - 后续可加：residual_momentum、双均线斜率、ROC 平滑等
 """
 
-from __future__ import annotations
 
 import logging
 

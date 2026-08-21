@@ -4,7 +4,6 @@
 不写 config；优则人审改面板/分组 ``excess_mode`` 后重跑。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -77,7 +76,7 @@ def _fit_excess_arm(
 ) -> Dict[str, Any]:
     from core.research.factor_ols_fit import fit_factor_ols_from_panel
     from core.research.panel import collect_subscore_forward_panel
-    from quant.research.rem_ridge import _predict_rows
+    from core.research.rem_ridge import _predict_rows
 
     em = str(excess_mode or "none").strip().lower()
     if em in ("index", "excess", "vs_index", "benchmark"):

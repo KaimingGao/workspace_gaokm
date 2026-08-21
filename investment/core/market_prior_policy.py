@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any, Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 
 def _prior_keys_from_item(item: Optional[dict]) -> List[str]:
@@ -21,6 +24,7 @@ def _merge_mode(config: Optional[dict] = None) -> str:
 
             config = load_signal_config()
         except Exception:
+            logger.exception('unexpected error in _merge_mode')
             config = {}
     raw = str((config or {}).get("market_prior_policy", {}).get("merge_mode") or "min_scale")
     return raw if raw in ("min_scale", "chain") else "min_scale"

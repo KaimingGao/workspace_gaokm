@@ -1,6 +1,5 @@
 """K 线形态摘要：基于 OHLCV 的可解释描述（非买卖信号）。"""
 
-from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 

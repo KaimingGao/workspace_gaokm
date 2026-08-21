@@ -1,13 +1,12 @@
 """规模因子（V2.1）：log(market_cap) 适中区间加分。"""
 
-from __future__ import annotations
 import logging
 
 logger = logging.getLogger(__name__)
-from core.numbers import to_float as _to_float
-
 import math
 from typing import Any, Dict, Optional, Tuple
+
+from core.numbers import to_float as _to_float
 
 
 def score_size(

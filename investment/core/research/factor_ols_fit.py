@@ -1,6 +1,5 @@
 """因子面板 OLS 拟合（domain 层；不依赖 quant）。"""
 
-from __future__ import annotations
 
 import logging
 

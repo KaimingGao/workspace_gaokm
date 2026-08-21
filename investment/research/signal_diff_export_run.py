@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """导出 signal_config diff 合并包 CLI（P21.2）。"""
 
-from __future__ import annotations
 
 import argparse
 import json

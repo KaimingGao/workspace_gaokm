@@ -1,6 +1,5 @@
 """回测宇宙轻量过滤（T7）：ST 名 / 成交额分位（池内，非全 A）。"""
 
-from __future__ import annotations
 
 import logging
 

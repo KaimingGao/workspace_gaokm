@@ -1,6 +1,5 @@
 """调度 Job 骨架：异动扫描 / 盘后复盘（写入报告，不推送实盘）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -10,9 +9,9 @@ import os
 import time
 from typing import Any, Dict, List, Optional
 
+from core.io_atomic import atomic_write_json
 from core.job_progress import job_registry
 from core.paths import DATA_DIR, SCHEDULE_LAST_RUN_PATH
-from core.io_atomic import atomic_write_json
 
 
 def _write_last_run(payload: Dict[str, Any]) -> str:
@@ -113,6 +112,7 @@ def run_watch_alert(*, codes: Optional[List[str]] = None) -> Dict[str, Any]:
         slot.finish(result=result)
         return result
     except Exception as e:
+        logger.exception('unexpected error in run_watch_alert')
         slot.finish(error=str(e))
         return {"ok": False, "error": str(e), "job": slot.get()}
 
@@ -138,6 +138,7 @@ def run_daily_review(*, limit: int = 5) -> Dict[str, Any]:
 
                 paper_summary = mark_to_market(load_paper(paper_path))
             except Exception as e:
+                logger.exception('unexpected error in run_daily_review')
                 paper_summary = {"error": str(e)}
         slot.update(current=3, message="写报告")
         result = {
@@ -152,6 +153,7 @@ def run_daily_review(*, limit: int = 5) -> Dict[str, Any]:
         slot.finish(result=result)
         return result
     except Exception as e:
+        logger.exception('unexpected error in run_daily_review')
         slot.finish(error=str(e))
         return {"ok": False, "error": str(e), "job": slot.get()}
 
@@ -177,6 +179,7 @@ def run_sentiment_scan(*, codes: Optional[List[str]] = None, limit: int = 5) -> 
         slot.finish(result=result)
         return result
     except Exception as e:
+        logger.exception('unexpected error in run_sentiment_scan')
         slot.finish(error=str(e))
         return {"ok": False, "error": str(e), "job": slot.get()}
 
@@ -187,9 +190,9 @@ def run_bars_warmup(
     limit: int = 60,
 ) -> Dict[str, Any]:
     """预热观察名单日线缓存（N1/M1 批式收集入口；默认增量合并）。"""
+    from core.alert_outbound import dispatch_monitor_alerts
     from core.data_coverage import build_data_coverage, coverage_alerts_for_outbound
     from core.data_service import summarize_data_quality
-    from core.alert_outbound import dispatch_monitor_alerts
 
     slot = job_registry.slot("schedule")
     if slot.is_running():
@@ -232,6 +235,7 @@ def run_bars_warmup(
         slot.finish(result=result)
         return result
     except Exception as e:
+        logger.exception('unexpected error in run_bars_warmup')
         slot.finish(error=str(e))
         return {"ok": False, "error": str(e), "job": slot.get()}
 
@@ -243,7 +247,7 @@ def _minute_warmup_core(
     cap: int = 25,
 ) -> Dict[str, Any]:
     """分钟线预热核心逻辑（无 job slot）。"""
-    from skills.common.minute_history import fetch_a_minute_bars
+    from core.ports.market import fetch_minute_bars
 
     watch = _resolve_warmup_codes(codes, cap=max(1, int(cap)))
     if not watch:
@@ -251,7 +255,7 @@ def _minute_warmup_core(
     warmed = 0
     errors: List[str] = []
     for code in watch:
-        bars, meta = fetch_a_minute_bars(
+        bars, meta = fetch_minute_bars(
             code,
             period=str(period or "5"),
             use_cache=True,
@@ -295,6 +299,7 @@ def run_minute_warmup(
         slot.finish(result=result)
         return result
     except Exception as e:
+        logger.exception('unexpected error in run_minute_warmup')
         slot.finish(error=str(e))
         return {"ok": False, "error": str(e), "job": slot.get()}
 
@@ -323,6 +328,7 @@ def run_spot_refresh(*, force: bool = False, enrich_sectors: bool = True) -> Dic
                     overwrite=False,
                 )
             except Exception as e:
+                logger.exception('unexpected error in run_spot_refresh')
                 enrich = {"ok": False, "error": str(e)}
         result = {
             "ok": True,
@@ -345,6 +351,7 @@ def run_spot_refresh(*, force: bool = False, enrich_sectors: bool = True) -> Dic
         slot.finish(result=result)
         return result
     except Exception as e:
+        logger.exception('unexpected error in run_spot_refresh')
         slot.finish(error=str(e))
         return {"ok": False, "error": str(e), "job": slot.get()}
 
@@ -392,6 +399,7 @@ def run_sector_map_enrich(
         slot.finish(result=result)
         return result
     except Exception as e:
+        logger.exception('unexpected error in run_sector_map_enrich')
         slot.finish(error=str(e))
         return {"ok": False, "error": str(e), "job": slot.get()}
 
@@ -428,6 +436,7 @@ def run_fundamentals_warmup(
                 if pack.get("cache_hit"):
                     cache_hits += 1
             except Exception as e:
+                logger.exception('unexpected error in run_fundamentals_warmup')
                 errors.append(f"{code}:{e}")
 
         ingest: Dict[str, Any] = {"ok": False, "skipped": True}
@@ -455,6 +464,7 @@ def run_fundamentals_warmup(
                         "note": "无 A 股 6 位码，跳过 ingest-history",
                     }
             except Exception as e:
+                logger.exception('unexpected error in run_fundamentals_warmup')
                 ingest = {"ok": False, "error": str(e)}
                 errors.append(f"ingest_history:{e}")
 
@@ -473,6 +483,7 @@ def run_fundamentals_warmup(
         slot.finish(result=result)
         return result
     except Exception as e:
+        logger.exception('unexpected error in run_fundamentals_warmup')
         slot.finish(error=str(e))
         return {"ok": False, "error": str(e), "job": slot.get()}
 
@@ -489,10 +500,10 @@ def run_paper_daily(
 
     job_id = slot.start(kind="paper_daily", total=3, message="纸面日更…")
     try:
-        from core.paper import load_paper, mark_to_market, run_daily_cycle, save_paper
         from core.decision_record import append_decision
-        from core.strategy_monitor import assess_strategy_health
+        from core.paper import load_paper, mark_to_market, run_daily_cycle, save_paper
         from core.paths import PAPER_PATH
+        from core.strategy_monitor import assess_strategy_health
 
         slot.update(current=1, message="pre_market + cluster_prepare + run_daily_cycle")
         pre_market = None
@@ -501,6 +512,7 @@ def run_paper_daily(
 
             pre_market = ensure_pre_market_context()
         except Exception as exc:
+            logger.exception('unexpected error in run_paper_daily')
             pre_market = {"ok": False, "error": str(exc)}
         cluster_prep = None
         try:
@@ -508,16 +520,30 @@ def run_paper_daily(
 
             cluster_prep = prepare_cluster_for_daily()
         except Exception as exc:
+            logger.exception('unexpected error in run_paper_daily')
             cluster_prep = {
                 "success": False,
                 "error": str(exc),
                 "task": "cluster_prepare_daily",
             }
-        paper = load_paper(PAPER_PATH)
+        from copy import deepcopy
+
+        loaded = load_paper(PAPER_PATH)
+        original = deepcopy(loaded)
+        paper = loaded
         cycle = run_daily_cycle(
             paper,
             simulate_buy=bool(simulate_buy),
             strategy=str(strategy or "short"),
+        )
+        from core.paper_open_fill import apply_next_open_commit
+
+        paper, cycle = apply_next_open_commit(
+            original,
+            paper,
+            cycle,
+            dry_run=False,
+            source="paper_daily",
         )
         save_paper(paper, PAPER_PATH)
         summary = mark_to_market(paper)
@@ -581,6 +607,7 @@ def run_paper_daily(
 
             score_ledger = run_score_ledger_daily()
         except Exception as exc:
+            logger.exception('unexpected error in run_paper_daily')
             score_ledger = {"success": False, "error": str(exc)}
 
         # R0：确保日更结果含权威北极星包（cycle 内已算则复用）
@@ -639,7 +666,12 @@ def run_paper_daily(
             "monitor_alerts": merged_alerts,
             "alert_outbound": alert_outbound,
             "buys_blocked": bool((cycle or {}).get("buys_blocked")),
-            "note": "N5 准实盘日更；含日线覆盖与北极星 KPI；账本冻/回填；告警不自动改权；不代客下单。",
+            "fill_action": (cycle or {}).get("fill_action"),
+            "fill_phase": (cycle or {}).get("fill_phase"),
+            "pending_orders": (cycle or {}).get("pending_orders")
+            or paper.get("pending_orders"),
+            "note": (cycle or {}).get("note")
+            or "N5 准实盘日更；next_open 时收盘后只挂次日开盘单；含日线覆盖与北极星 KPI；不代客下单。",
         }
         try:
             from core.data.service import metrics_snapshot as data_metrics_snapshot
@@ -655,6 +687,7 @@ def run_paper_daily(
         slot.finish(result=result)
         return result
     except Exception as e:
+        logger.exception('unexpected error in run_paper_daily')
         slot.finish(error=str(e))
         return {"ok": False, "error": str(e), "job": slot.get()}
 
@@ -680,6 +713,7 @@ def run_concept_graph_refresh(
         slot.finish(result=result)
         return result
     except Exception as e:
+        logger.exception('unexpected error in run_concept_graph_refresh')
         slot.finish(error=str(e))
         return {"ok": False, "error": str(e), "job": slot.get()}
 
@@ -701,6 +735,7 @@ def run_macro_backfill(*, lookback: int = 90) -> Dict[str, Any]:
         slot.finish(result=result)
         return result
     except Exception as e:
+        logger.exception('unexpected error in run_macro_backfill')
         slot.finish(error=str(e))
         return {"ok": False, "error": str(e), "job": slot.get()}
 
@@ -723,6 +758,7 @@ def run_pre_market_ingest(*, lookback: int = 30) -> Dict[str, Any]:
         slot.finish(result=result)
         return result
     except Exception as e:
+        logger.exception('unexpected error in run_pre_market_ingest')
         slot.finish(error=str(e))
         return {"ok": False, "error": str(e), "job": slot.get()}
 
@@ -758,6 +794,60 @@ def run_validation_prepare(
         slot.finish(result=result)
         return result
     except Exception as e:
+        logger.exception('unexpected error in run_validation_prepare')
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_paper_open_fill() -> Dict[str, Any]:
+    """开盘窗：把隔夜挂单按开盘价成交。"""
+    slot = job_registry.slot("schedule")
+    if slot.is_running():
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = slot.start(kind="paper_open_fill", total=2, message="开盘成交挂单…")
+    try:
+        from core.paper import append_operation_log, load_paper, mark_to_market, save_paper
+        from core.paper_open_fill import fill_pending_at_open, paper_fill_phase
+        from core.paths import PAPER_PATH
+
+        slot.update(current=1, message="fill_pending_at_open")
+        paper = load_paper(PAPER_PATH)
+        fill = fill_pending_at_open(paper)
+        if fill.get("filled"):
+            summary = mark_to_market(paper)
+            trades = fill.get("trades") or []
+            n_buy = sum(1 for t in trades if t.get("side") == "buy")
+            n_sell = sum(1 for t in trades if t.get("side") == "sell")
+            append_operation_log(
+                paper,
+                "rebalance",
+                detail=f"开盘成交挂单 · 买{n_buy} · 卖{n_sell}",
+                meta={"fill_action": "open_fill", "buy_count": n_buy, "sell_count": n_sell},
+            )
+            save_paper(paper, PAPER_PATH)
+        else:
+            summary = mark_to_market(paper)
+        result = {
+            "ok": True,
+            "kind": "paper_open_fill",
+            "phase": fill.get("phase") or paper_fill_phase(),
+            "fill": fill,
+            "summary": {
+                "equity": summary.get("equity"),
+                "holdings": len(summary.get("holdings") or []),
+            },
+            "note": "只在 09:15–10:00 成交隔夜挂单；非开盘窗会跳过。",
+        }
+        path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+        result["path"] = path
+        slot.finish(result=result)
+        return result
+    except FileNotFoundError as e:
+        slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get()}
+    except Exception as e:
+        logger.exception("unexpected error in run_paper_open_fill")
         slot.finish(error=str(e))
         return {"ok": False, "error": str(e), "job": slot.get()}
 
@@ -804,6 +894,8 @@ def run_schedule(kind: str, **kwargs: Any) -> Dict[str, Any]:
             simulate_buy=bool(kwargs.get("simulate_buy")),
             strategy=str(kwargs.get("strategy") or "short"),
         )
+    if k == "paper_open_fill":
+        return run_paper_open_fill()
     if k == "validation_prepare":
         return run_validation_prepare(
             codes=kwargs.get("codes"),

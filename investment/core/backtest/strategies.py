@@ -1,6 +1,5 @@
 """回测策略注册表（P9.3）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -61,6 +60,11 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
                     "backtest_path_mode_no_minute": "veto",
                     "backtest_path_mode_with_minute": "first_touch",
                 },
+                "rebalance_timing": {
+                    "execution_mode": "next_open",
+                    "open_fill_after_hm": "09:15",
+                    "open_fill_until_hm": "10:00",
+                },
             },
             "risk": {
                 "max_drawdown_pct": 20.0,
@@ -112,6 +116,11 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
                     "backtest_direction_fallback": "signal",
                     "backtest_path_mode_no_minute": "veto",
                     "backtest_path_mode_with_minute": "first_touch",
+                },
+                "rebalance_timing": {
+                    "execution_mode": "next_open",
+                    "open_fill_after_hm": "09:15",
+                    "open_fill_until_hm": "10:00",
                 },
             },
             "risk": {

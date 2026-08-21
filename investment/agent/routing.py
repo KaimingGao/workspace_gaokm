@@ -1,6 +1,5 @@
 """用户意图路由：关键词检测与 Agent 提示注入（单一事实源）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -11,12 +10,12 @@ from agent.prompts import (
     ANALYSIS_HINT,
     BUY_QUESTION_HINT,
     DEEP_ANALYSIS_KEYWORDS,
+    MODEL_POLICY_HINT,
     POSITION_BASE_HINT,
     POSITION_HINT,
-    SCORE_STANCE_HINT,
-    MODEL_POLICY_HINT,
-    SHORT_HORIZON_HINT,
     QUANT_HINT,
+    SCORE_STANCE_HINT,
+    SHORT_HORIZON_HINT,
 )
 
 BUY_QUESTION_KEYS = (

@@ -4,7 +4,6 @@
 ``cross_section.yhat_residual``。
 """
 
-from __future__ import annotations
 
 import logging
 

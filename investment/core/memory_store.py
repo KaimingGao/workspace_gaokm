@@ -4,7 +4,6 @@
 ``horizon_days`` 驱动 IC · OLS · Top-K 请求默认（页内可临时覆盖）。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -14,8 +13,8 @@ import os
 import time
 from typing import Any, Dict, Optional
 
-from core.paths import MEMORY_PATH
 from core.io_atomic import atomic_write_json
+from core.paths import MEMORY_PATH
 
 # 与 quant schemas（IC/OLS/回测）对齐：1～10 交易日
 HORIZON_MIN = 1

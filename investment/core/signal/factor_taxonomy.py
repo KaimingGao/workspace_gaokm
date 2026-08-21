@@ -4,7 +4,6 @@
 来源徽章：真源 / 代理 / 旁路。
 """
 
-from __future__ import annotations
 
 import logging
 

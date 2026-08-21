@@ -1,6 +1,5 @@
 """因子 IC/IR 报告（P7.2 / P50 全因子 + fundamentals）。"""
 
-from __future__ import annotations
 
 import logging
 

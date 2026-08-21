@@ -1,10 +1,13 @@
 """K 线 Skill：经 DataService 拉日线 + 形态摘要；失败时用现价构造可解释 K。"""
 
-from __future__ import annotations
+
+import logging
 
 from core.data_service import get_bars, get_quote
 from core.ports.market import bars_from_quote_fallback
 from skills.kline.analyzer import summarize_bars
+
+logger = logging.getLogger(__name__)
 
 
 class KlineEngine:
@@ -40,6 +43,7 @@ class KlineEngine:
             if not bars:
                 fetch_notes.append("完整日线暂不可用，已尝试多接口")
         except Exception as e:
+            logger.exception('unexpected error in analyze')
             fetch_notes.append(f"日线拉取异常: {e}")
             bars, data_source = [], "empty"
 

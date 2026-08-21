@@ -1,6 +1,5 @@
 """sector_map 维护：清洗板别 + 现货行业补全（DS-R2.1 / R2.2）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -195,6 +194,7 @@ def industry_map_from_spot(
                 rows = list(pack.get("rows") or [])
                 src = str(pack.get("data_source") or "live_or_cache")
     except Exception as e:
+        logger.exception('unexpected error in industry_map_from_spot')
         return {"ok": False, "error": str(e), "mapping": {}, "data_source": src}
 
     by_code: Dict[str, str] = {}

@@ -1,6 +1,5 @@
 """量化报告 LLM 解读（P13.2）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -228,6 +227,7 @@ def interpret_quant_report(
         text = llm.get_response_content(response) or ""
         usage = parse_usage(response)
     except Exception as e:
+        logger.exception('unexpected error in interpret_quant_report')
         return {"success": False, "error": str(e)}
 
     if not text.strip():

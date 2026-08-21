@@ -12,7 +12,6 @@ macOS/Linux 用 fcntl.flock；无 fcntl 时退化为仅线程锁（仍防同进�
 同线程可重入：``with path_lock: ... save_paper()``（内部再次 path_lock）不会自锁。
 """
 
-from __future__ import annotations
 
 import logging
 

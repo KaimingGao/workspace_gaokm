@@ -1,6 +1,5 @@
 """单票行情查询（经 DataService，附带质量/来源元数据）。"""
 
-from __future__ import annotations
 
 from typing import Callable, Optional
 

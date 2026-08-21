@@ -3,7 +3,6 @@
 BarsResult / DataEnvelope 提供属性访问；as_dict() 与历史 dict 契约对齐。
 """
 
-from __future__ import annotations
 
 import logging
 

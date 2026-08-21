@@ -1,6 +1,5 @@
 """因子权重微调建议：截面 IC/ICIR 优先，OLS / 近零降权回退（研究只读）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -212,7 +211,7 @@ def suggest_weights_from_ic(
 
     ic_map = _ic_index(factor_experiment)
     ols_coefs = _ols_coefficients(ols_report)
-    deltas = {k: 0.0 for k in base}
+    deltas = dict.fromkeys(base, 0.0)
     rationale: List[str] = []
     sources: Dict[str, str] = {}
 

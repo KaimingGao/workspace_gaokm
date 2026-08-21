@@ -1,6 +1,5 @@
 """MarketDataService / ResearchDataService（DS encapsulate C）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -182,6 +181,7 @@ class MarketDataService:
             else:
                 bars, meta = packed, {}
         except Exception as e:
+            logger.exception('unexpected error in get_minute_bars')
             return DataEnvelope(
                 kind="minute",
                 code=raw,
@@ -548,6 +548,7 @@ class MarketDataService:
         try:
             payload_live = self.ports.fundamentals.build(raw, **kwargs)
         except Exception as e:
+            logger.exception('unexpected error in get_fundamentals')
             return DataEnvelope(
                 kind="fundamentals",
                 code=raw,
@@ -642,6 +643,7 @@ class MarketDataService:
         try:
             live = self.ports.news.build(raw, limit=limit, **kwargs)
         except Exception as e:
+            logger.exception('unexpected error in get_news')
             return DataEnvelope(
                 kind="news",
                 code=raw,

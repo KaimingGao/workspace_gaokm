@@ -3,7 +3,6 @@
 节流推送；断线由前端重连。不代客下单、不推 Tick 盘口。
 """
 
-from __future__ import annotations
 
 import asyncio
 import json
@@ -52,6 +51,7 @@ def _snapshot() -> Dict[str, Any]:
                 "snapshot_tail": snaps[-3:] if isinstance(snaps, list) else [],
             }
     except Exception as e:
+        logger.exception('unexpected error in _snapshot')
         out["paper_error"] = str(e)
 
     try:
@@ -64,6 +64,7 @@ def _snapshot() -> Dict[str, Any]:
             "warnings": (h.get("warnings") or [])[:5],
         }
     except Exception as e:
+        logger.exception('unexpected error in _snapshot')
         out["health_error"] = str(e)
 
     try:
@@ -71,6 +72,7 @@ def _snapshot() -> Dict[str, Any]:
 
         out["alerts"] = read_alerts_last()
     except Exception as e:
+        logger.exception('unexpected error in _snapshot')
         out["alerts_error"] = str(e)
 
     return out

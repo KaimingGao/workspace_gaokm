@@ -3,7 +3,6 @@
 不写 signal_config，不进纸面/live；供人审分池调仓前预览。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -350,6 +349,7 @@ def backtest_cluster_pools(
                 apply_tau_buy_gate=False,
             )
     except Exception as exc:
+        logger.exception('unexpected error in backtest_cluster_pools')
         global_bt = {"success": False, "error": str(exc)}
 
     global_oos = None

@@ -1,6 +1,5 @@
 """横截面排序：对 watching 候选批量打分（P9.2）。仅收益分 ŷ。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -189,11 +188,11 @@ def rank_cross_section(
         _cs_log = logging.getLogger(__name__)
         try:
             from core.signal.dual_score import (
-                get_dual_score_cfg,
                 attach_dual_score_bulk,
                 buy_passes_tau_gate,
-                rank_key_for_item,
                 eod_gate_score_for_item,
+                get_dual_score_cfg,
+                rank_key_for_item,
             )
             _ds_cfg = get_dual_score_cfg(scoring_cfg.get("dual_score") if isinstance(scoring_cfg, dict) else None)
             scored_items = attach_dual_score_bulk(scored_items, config=_ds_cfg) or scored_items

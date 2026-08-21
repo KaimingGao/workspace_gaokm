@@ -1,6 +1,5 @@
 """批量预热分钟线缓存（tail_anomaly 覆盖率）。"""
 
-from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
@@ -17,8 +16,8 @@ def prefetch_minute_bars(
     max_age_hours: float = 12.0,
 ) -> Dict[str, Any]:
     """对 codes 批量检查/拉取分钟线；返回 warmed/skipped 统计。"""
+    from core.market import resolve_market_code
     from core.store import load_minute_cache
-    from skills.common.history import resolve_market_code
 
     warmed = 0
     cached = 0
@@ -45,9 +44,9 @@ def prefetch_minute_bars(
             failed += 1
             continue
         try:
-            from skills.common.minute_history import fetch_a_minute_bars
+            from core.ports.market import fetch_minute_bars
 
-            bars, meta = fetch_a_minute_bars(
+            bars, meta = fetch_minute_bars(
                 code,
                 period=str(period or "5"),
                 use_cache=True,
@@ -87,6 +86,7 @@ def maybe_prefetch_for_tail_anomaly(
 
             config = load_signal_config()
         except Exception:
+            logger.exception('unexpected error in maybe_prefetch_for_tail_anomaly')
             config = {}
     weights = (config or {}).get("weights") or {}
     w_tail = float(weights.get("tail_anomaly") or 0)

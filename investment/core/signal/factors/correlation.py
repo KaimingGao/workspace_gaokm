@@ -1,13 +1,11 @@
 """相关性风控模块：检测持仓股票之间的相关性，避免过度集中。"""
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
-from typing import Dict, List, Optional, Tuple
-
 import math
+from typing import Dict, List, Optional, Tuple
 
 
 def calculate_correlation(returns1: List[float], returns2: List[float]) -> Optional[float]:
@@ -24,19 +22,19 @@ def calculate_correlation(returns1: List[float], returns2: List[float]) -> Optio
     n = len(returns1)
     if n < 3 or len(returns2) != n:
         return None
-    
+
     # 计算均值
     mean1 = sum(returns1) / n
     mean2 = sum(returns2) / n
-    
+
     # 计算协方差和标准差
     cov = sum((returns1[i] - mean1) * (returns2[i] - mean2) for i in range(n))
     std1 = math.sqrt(sum((r - mean1) ** 2 for r in returns1))
     std2 = math.sqrt(sum((r - mean2) ** 2 for r in returns2))
-    
+
     if std1 == 0 or std2 == 0:
         return None
-    
+
     # 计算相关系数
     correlation = cov / (std1 * std2)
     return round(correlation, 4)
@@ -82,22 +80,22 @@ def check_portfolio_correlation(
     """
     codes = list(holdings_bars.keys())
     issues = []
-    
+
     if len(codes) <= 1:
         return True, issues
-    
+
     # 计算每只股票的收益率
     returns_map = {}
     for code, bars in holdings_bars.items():
         returns_map[code] = calculate_returns(bars, window=10)
-    
+
     # 检查两两相关性
     high_correlation_pairs = []
     for i in range(len(codes)):
         for j in range(i + 1, len(codes)):
             code1, code2 = codes[i], codes[j]
             ret1, ret2 = returns_map.get(code1, []), returns_map.get(code2, [])
-            
+
             if len(ret1) >= 5 and len(ret2) >= 5:
                 corr = calculate_correlation(ret1, ret2)
                 if corr is not None and abs(corr) > max_correlation:
@@ -106,14 +104,14 @@ def check_portfolio_correlation(
                         "stock2": code2,
                         "correlation": corr,
                     })
-    
+
     if high_correlation_pairs:
         issues.append({
             "type": "high_correlation",
             "message": f"存在 {len(high_correlation_pairs)} 对高相关性股票（>{max_correlation}）",
             "details": high_correlation_pairs,
         })
-    
+
     # 检查行业集中度（DS-R2.2：真实 sector_map）
     from core.portfolio_optimize import _sector_for, load_sector_map
 
@@ -154,12 +152,12 @@ def get_diversification_score(holdings_bars: Dict[str, List[dict]]) -> float:
     codes = list(holdings_bars.keys())
     if len(codes) <= 1:
         return 50.0  # 单只股票，中等分散
-    
+
     # 计算所有两两相关系数
     returns_map = {}
     for code, bars in holdings_bars.items():
         returns_map[code] = calculate_returns(bars, window=10)
-    
+
     correlations = []
     for i in range(len(codes)):
         for j in range(i + 1, len(codes)):
@@ -169,16 +167,16 @@ def get_diversification_score(holdings_bars: Dict[str, List[dict]]) -> float:
                 corr = calculate_correlation(ret1, ret2)
                 if corr is not None:
                     correlations.append(abs(corr))
-    
+
     if not correlations:
         return 50.0
-    
+
     # 平均相关系数
     avg_corr = sum(correlations) / len(correlations)
-    
+
     # 分散化分数 = 100 * (1 - 平均相关系数)
     score = 100.0 * (1.0 - avg_corr)
-    
+
     return round(max(0.0, min(100.0, score)), 1)
 
 
@@ -202,18 +200,18 @@ def suggest_replacement(
     """
     if new_code not in holdings_bars:
         return None
-    
+
     new_returns = calculate_returns(holdings_bars[new_code], window=10)
     if len(new_returns) < 5:
         return None
-    
+
     max_corr_found = 0.0
     stock_to_replace = None
-    
+
     for code, bars in holdings_bars.items():
         if code == new_code:
             continue
-        
+
         existing_returns = calculate_returns(bars, window=10)
         if len(existing_returns) >= 5:
             corr = calculate_correlation(new_returns, existing_returns)
@@ -221,5 +219,5 @@ def suggest_replacement(
                 if abs(corr) > max_corr_found:
                     max_corr_found = abs(corr)
                     stock_to_replace = code
-    
+
     return stock_to_replace

@@ -1,6 +1,5 @@
 """模拟建仓定量：金额 / 仓位% / 股数预演与执行。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -11,8 +10,8 @@ from core.paper_costs import (
     annotate_trade,
     apply_fill_price,
     calc_trade_fees,
-    resolve_cost_model,
     cost_params,
+    resolve_cost_model,
 )
 from core.ports.market import quote_price
 

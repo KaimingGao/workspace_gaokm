@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """组合横截面回测 CLI（P10.2）。"""
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -13,9 +12,9 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.backtest.topk_backtest import backtest_topk_equal_weight  # noqa: E402
-from core.watching_store import read_watching  # noqa: E402
 from core.data_service import bars_and_source as fetch_daily_bars  # noqa: E402
 from core.data_service import get_quote  # noqa: E402
+from core.watching_store import read_watching  # noqa: E402
 
 
 def _load_bars_for_codes(codes, lookback: int) -> dict:

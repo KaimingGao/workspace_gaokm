@@ -1,6 +1,5 @@
 """组内软异质：Δβ 大的票降权再池 OLS（不拆成单票堆）。"""
 
-from __future__ import annotations
 
 import logging
 

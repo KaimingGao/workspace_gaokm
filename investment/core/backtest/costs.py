@@ -7,7 +7,6 @@
 - 组合调仓：按真实换手计费（续持不扣往返）
 """
 
-from __future__ import annotations
 
 import logging
 

@@ -1934,6 +1934,11 @@ body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react
   font-family: var(--font-mono);
   font-size: 0.68rem;
   letter-spacing: 0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .follow-page .paper-holdings-react-grid .paper-hold-row.is-adjust-active {
@@ -2254,21 +2259,35 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 .paper-holdings-react-grid .paper-wl-name {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  justify-content: center;
+  gap: 2px;
   min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .paper-holdings-react-grid .paper-wl-name .watching-name-row {
   min-width: 0;
 }
 
+.paper-holdings-react-grid .paper-wl-name-text {
+  line-height: 1.25;
+  white-space: nowrap;
+}
+
 .paper-holdings-react-grid .paper-wl-code {
   font-size: 0.72rem;
   color: var(--ink-3);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score,
-.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_cal {
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_cal,
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_nowcast {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -2277,7 +2296,8 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 }
 
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score .paper-hold-score,
-.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_cal .paper-hold-score {
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_cal .paper-hold-score,
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_nowcast .paper-hold-score {
   display: flex;
   align-items: center;
   justify-content: flex-end;

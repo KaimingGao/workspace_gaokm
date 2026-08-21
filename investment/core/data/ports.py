@@ -3,7 +3,6 @@
 实现侧仍走 core.ports.adapters / skills.ports_bind；此处只定契约。
 """
 
-from __future__ import annotations
 
 import logging
 

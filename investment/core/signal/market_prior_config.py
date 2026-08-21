@@ -1,6 +1,5 @@
 """人审写入 signal_config 的 M 层 prior（cross_market / merge_policy；不改 weights / 不进 ŷ）。"""
 
-from __future__ import annotations
 
 import json
 import logging
@@ -25,10 +24,9 @@ logger = logging.getLogger(__name__)
 
 
 def _config_path() -> str:
-    from core.paths import SIGNAL_CONFIG_PATH
-    from core.signal.config import SIGNAL_CONFIG_PATH as CFG_PATH
+    from core.signal.config import get_signal_config_path
 
-    return os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH or CFG_PATH)
+    return get_signal_config_path()
 
 
 def read_market_prior_public(*, config: Optional[dict] = None) -> Dict[str, Any]:
@@ -39,6 +37,7 @@ def read_market_prior_public(*, config: Optional[dict] = None) -> Dict[str, Any]
 
             config = load_signal_config()
         except Exception:
+            logger.exception('unexpected error in read_market_prior_public')
             config = {}
     cm = get_cross_market_cfg(config)
     msp = get_market_sentiment_prior_cfg(config)

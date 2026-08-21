@@ -4,23 +4,19 @@
 不写 signal_config。
 """
 
-from __future__ import annotations
 import logging
 
 logger = logging.getLogger(__name__)
-from core.numbers import now_iso_utc
-
 import copy
 import os
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from core.numbers import now_iso_utc
 from core.research.oos_slim import slim_oos_gate
 from core.signal.factor_coefs import (
     display_weights_from_return_model,
     has_factor_coefficients,
 )
-
 
 SCHEMA_VERSION = 1
 
@@ -342,7 +338,6 @@ def preview_paper_pool_rebalance(
     - ``confirm=True``：写 ``paper.json``，记 ``last_cluster_pool``；**永不**写 signal_config
     - ``dry_run=False`` 且未 confirm：拒绝（防误触）
     """
-    from core.paths import PAPER_PATH
     from core.paper import (
         append_operation_log,
         append_snapshot,
@@ -352,6 +347,7 @@ def preview_paper_pool_rebalance(
         mark_to_market,
         save_paper,
     )
+    from core.paths import PAPER_PATH
 
     write = bool(confirm)
     if not dry_run and not write:
@@ -408,6 +404,7 @@ def preview_paper_pool_rebalance(
             respect_max_positions=False,
         )
     except Exception as exc:
+        logger.exception('unexpected error in preview_paper_pool_rebalance')
         return {
             "success": False,
             "ok": False,
@@ -512,11 +509,11 @@ def preview_paper_pool_rebalance(
         "summary": summary,
         "last_cluster_pool": target.get("last_cluster_pool") if write else None,
         "note": (
-            (
+
                 "分池候选簿已写入纸面账户；组权未写入 signal_config。"
                 if write
                 else "分池候选簿 → 纸面调仓预演（deepcopy，未写 paper.json）。"
-            )
+
         ),
         "apply_note": (
             "已落账 · 仅 paper.json"
@@ -554,8 +551,8 @@ def attach_cluster_pool_artifact(
     holdings: List[dict] = []
     if include_intent:
         try:
-            from core.paths import PAPER_PATH
             from core.paper import load_paper
+            from core.paths import PAPER_PATH
 
             if os.path.isfile(PAPER_PATH):
                 holdings = load_paper(PAPER_PATH).get("holdings") or []
@@ -563,6 +560,7 @@ def attach_cluster_pool_artifact(
                 art.get("pool_book") or [], holdings
             )
         except Exception as exc:
+            logger.exception('unexpected error in attach_cluster_pool_artifact')
             art["intent_preview"] = {
                 "success": False,
                 "error": str(exc),
@@ -594,6 +592,7 @@ def attach_cluster_pool_artifact(
         art["holdings_assignment"] = assign
         report["holdings_assignment"] = assign
     except Exception as exc:
+        logger.exception('unexpected error in attach_cluster_pool_artifact')
         art["holdings_assignment"] = {"success": False, "error": str(exc)}
         report["holdings_assignment"] = art["holdings_assignment"]
 

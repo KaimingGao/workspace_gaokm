@@ -8,14 +8,13 @@ P798+ 集中原分散在各模块的私有工具函数：
 - calc_sma      （原 _calc_ma 私有函数统一）
 """
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
 import math
 from datetime import datetime, timezone
-from typing import Any, List, Optional, Sequence
+from typing import Any, Optional, Sequence
 
 
 def to_float(v: Any) -> Optional[float]:

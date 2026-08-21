@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """short 参数扫描 CLI（min_score × horizon_days）。"""
 
-from __future__ import annotations
 
 import argparse
 import json

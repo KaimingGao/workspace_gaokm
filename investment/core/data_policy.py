@@ -3,7 +3,6 @@
 上层与 skills 应引用本模块常量，避免魔法数字散落。
 """
 
-from __future__ import annotations
 
 import logging
 

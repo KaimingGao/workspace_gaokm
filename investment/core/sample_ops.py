@@ -3,7 +3,6 @@
 不伪造生产分数；demo 阶梯点须标 synthetic_demo，仅用于 PIT 路径演示。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -14,8 +13,8 @@ import uuid
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence
 
-from core.store import snapshot_cache_path
 from core.io_atomic import atomic_write_json
+from core.store import snapshot_cache_path
 
 
 def _date_offset(base: str, days: int) -> str:
@@ -146,7 +145,7 @@ def persist_fundamentals_history(
             skipped.append({"code": code, "reason": "missing_file"})
             continue
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 payload = json.load(f)
         except (OSError, json.JSONDecodeError) as e:
             skipped.append({"code": code, "reason": str(e)})
@@ -244,6 +243,7 @@ def ingest_real_fundamentals_history(
         try:
             series = fetch_cn_financial_series(digits, max_points=n_pts)
         except Exception as e:
+            logger.exception('unexpected error in ingest_real_fundamentals_history')
             errors.append({"code": code, "reason": str(e)[:120]})
             continue
         if len(series) < 2:
@@ -259,7 +259,7 @@ def ingest_real_fundamentals_history(
         payload: Dict[str, Any] = {}
         if os.path.isfile(path):
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, encoding="utf-8") as f:
                     payload = json.load(f)
             except (OSError, json.JSONDecodeError):
                 payload = {}
@@ -418,7 +418,7 @@ def seed_fundamentals_history_ladder(
         metrics = dict(latest.get("metrics") or {})
         if not metrics:
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, encoding="utf-8") as f:
                     payload0 = json.load(f)
                 metrics = normalize_fundamentals_metrics(payload0.get("data")) or {}
             except (OSError, json.JSONDecodeError):
@@ -453,7 +453,7 @@ def seed_fundamentals_history_ladder(
             skipped.append({"code": code, "reason": "no_new_points"})
             continue
         if write:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 payload = json.load(f)
             payload["history"] = history
             payload["latest_as_of"] = history[-1].get("as_of") if history else None

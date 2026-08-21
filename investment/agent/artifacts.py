@@ -1,6 +1,5 @@
 """对话轮次工具结果 → Web 右侧结果台 artifacts。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -160,9 +159,7 @@ def compact_payload(data: Dict[str, Any]) -> Dict[str, Any]:
         for k, v in list(data.items())[:30]:
             if isinstance(v, list):
                 out[k] = _truncate_list(v, 10)
-            elif isinstance(v, (str, int, float, bool, type(None))):
-                out[k] = v
-            elif isinstance(v, dict) and len(json.dumps(v, ensure_ascii=False)) < 4000:
+            elif isinstance(v, (str, int, float, bool, type(None))) or isinstance(v, dict) and len(json.dumps(v, ensure_ascii=False)) < 4000:
                 out[k] = v
     return out
 

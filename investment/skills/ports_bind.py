@@ -1,6 +1,5 @@
 """将 skills 行情实现绑定到 core.ports（单向：skills → ports，避免 market 硬 import skills）。"""
 
-from __future__ import annotations
 
 _BOUND = False
 
@@ -15,6 +14,8 @@ def bind_market_adapters(*, force: bool = False) -> None:
             return
 
     from core.ports.adapters import mark_bound, set_adapter
+    from skills.announcement.concept_graph import build_code_concept_index
+    from skills.announcement.engine import build_announcement_snapshot
     from skills.common.ak_worker import get_pool as _get_ak_pool
     from skills.common.history import (
         bars_from_quote_fallback,
@@ -27,9 +28,15 @@ def bind_market_adapters(*, force: bool = False) -> None:
     )
     from skills.common.quote_api import StockAPI
     from skills.common.stock_search import search_stocks
-    from skills.fundamentals.engine import build_fundamentals, fetch_cn_financial_series
+    from skills.fundamentals.engine import (
+        build_fundamentals,
+        fetch_cn_financial_series,
+        fetch_cn_valuation_latest,
+    )
     from skills.index.engine import build_relative, default_benchmark, fetch_index_bars
     from skills.kline.engine import KlineEngine
+    from skills.macro.engine import build_macro_snapshot
+    from skills.market_sentiment.engine import build_market_sentiment_snapshot
     from skills.news.engine import build_news
     from skills.peer.engine import build_peer_compare
     from skills.screen.engine import (
@@ -51,12 +58,17 @@ def bind_market_adapters(*, force: bool = False) -> None:
     set_adapter("fetch_minute_bars", fetch_minute_bars)
     set_adapter("group_minute_bars_by_date", group_minute_bars_by_date)
     set_adapter("fetch_cn_financial_series", fetch_cn_financial_series)
+    set_adapter("fetch_cn_valuation_latest", fetch_cn_valuation_latest)
     set_adapter("build_fundamentals", build_fundamentals)
     set_adapter("build_news", build_news)
     set_adapter("build_relative", build_relative)
     set_adapter("default_benchmark", default_benchmark)
     set_adapter("fetch_index_bars", fetch_index_bars)
     set_adapter("build_peer_compare", build_peer_compare)
+    set_adapter("build_macro_snapshot", build_macro_snapshot)
+    set_adapter("build_market_sentiment_snapshot", build_market_sentiment_snapshot)
+    set_adapter("build_announcement_snapshot", build_announcement_snapshot)
+    set_adapter("build_code_concept_index", build_code_concept_index)
     set_adapter(
         "build_kline_payload",
         lambda payload: KlineEngine().analyze(payload or {}),

@@ -3,7 +3,6 @@
 无未来函数：决策在开盘，标签为开盘→收盘。日线因子不在此计算（已在 ŷ_EOD）。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -129,7 +128,7 @@ def sector_gap_reference_by_code(
         if not key or g is None:
             out[key] = None
             continue
-        med = sec_med.get(code_sec.get(key, ""), None)
+        med = sec_med.get(code_sec.get(key, ""))
         if med is None:
             med = pool_med
         out[key] = round(float(med), 4) if med is not None else None

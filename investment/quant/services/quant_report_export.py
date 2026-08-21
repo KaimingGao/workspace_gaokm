@@ -1,6 +1,5 @@
 """量化日报 Markdown / HTML 导出（P14.2 / P15.2）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -653,7 +652,7 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
 def render_quant_report_markdown(report: Dict[str, Any]) -> str:
     """将 quant_daily 报告渲染为 Markdown（不含自动交易建议）。"""
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
-    parts = [f"# 量化研究日报", "", f"_生成时间 {ts}_", ""]
+    parts = ["# 量化研究日报", "", f"_生成时间 {ts}_", ""]
 
     toc = build_report_export_toc(report)
     if toc.get("markdown_lines"):

@@ -1,6 +1,5 @@
 """单票多层事实采集（领域层，直接调 engine / API，不经 Handler JSON 往返）。"""
 
-from __future__ import annotations
 
 import logging
 

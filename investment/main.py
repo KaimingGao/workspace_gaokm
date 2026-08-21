@@ -15,6 +15,18 @@ load_env_file(os.path.join(ROOT_DIR, ".env"))
 
 from agent.agent import InvestmentAgent
 
+import logging
+
+from core.market import register_symbol_resolver
+try:
+    from skills.common.quote_api import StockAPI
+    register_symbol_resolver(StockAPI.resolve_symbol)
+except Exception:
+    logger = logging.getLogger(__name__)
+    logger.debug("StockAPI resolver not registered (skills layer unavailable at import time)")
+
+logger = logging.getLogger(__name__)
+
 
 def main():
     print("=" * 60)
@@ -75,6 +87,7 @@ def main():
             reply = agent.chat(user_input)
             print(f"\n投顾: {reply}\n")
         except Exception as e:
+            logger.exception('unexpected error in main')
             print(f"\n出错了: {e}\n")
 
 

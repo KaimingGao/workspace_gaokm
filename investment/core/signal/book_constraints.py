@@ -3,13 +3,11 @@
 纸面阶段：不碰实盘；约束前移到 ``rank_cluster_pools``，避免簿内占坑买时被 clip。
 """
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
-from typing import Any, Dict, List, Optional, Sequence, Tuple
-
+from typing import Any, Dict, List, Optional, Sequence
 
 DEFAULT_BOOK_CONSTRAINTS: Dict[str, Any] = {
     "enabled": True,

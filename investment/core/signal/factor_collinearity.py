@@ -1,6 +1,5 @@
 """趋势族共线性摘要（FS1）：辅助人审 β，不自动删因子。"""
 
-from __future__ import annotations
 
 import logging
 

@@ -61,6 +61,51 @@ class TestSessionPit(unittest.TestCase):
         self.assertEqual(len(eod), 1)
         self.assertTrue(pit["rolled_to_next"])
 
+    def test_refresh_flips_stale_eod_next_after_open(self):
+        """簿上昨晚 eod_next，次日盘中应翻回 intraday。"""
+        from core.signal.session_pit import refresh_dual_score_window
+        from core.signal.dual_score import align_trade_score_fields
+
+        item = {
+            "predicted_score": 1.2,
+            "predicted_score_eod": 1.2,
+            "predicted_score_tau": 0.8,
+            "predicted_score_blend": 1.2,
+            "gap_pct": 1.0,
+            "dual_score_window": "eod_next",
+            "dual_score_head": "single_eod",
+            "dual_score_single_head": True,
+            "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5},
+        }
+        now = datetime(2026, 8, 21, 10, 15)
+        quote = {"date": "2026-08-21", "open": 10.0}
+        bars = [
+            {"date": "2026-08-20", "open": 10.0, "close": 10.0},
+            {"date": "2026-08-21", "open": 10.0, "close": 10.2},
+        ]
+        win = refresh_dual_score_window(item, quote=quote, bars=bars, now=now)
+        self.assertEqual(win, "intraday")
+        self.assertEqual(item["dual_score_window"], "intraday")
+        align_trade_score_fields(item, write_score=True)
+        self.assertEqual(item["dual_score_window"], "intraday")
+        self.assertFalse(item.get("dual_score_single_head"))
+        self.assertEqual(item.get("dual_score_head"), "blend")
+        # 0.5·1.2 + 0.5·缺口∘0.8；缺口=1 → tau_cc=(1.01)(1.008)-1)*100
+        self.assertNotAlmostEqual(float(item["predicted_score_blend"]), 1.2, places=3)
+
+    def test_refresh_keeps_eod_next_after_close(self):
+        from core.signal.session_pit import refresh_dual_score_window
+
+        item = {"dual_score_window": "eod_next"}
+        now = datetime(2026, 8, 21, 15, 30)
+        quote = {"date": "2026-08-21", "open": 10.0}
+        bars = [
+            {"date": "2026-08-20", "open": 10.0, "close": 10.0},
+            {"date": "2026-08-21", "open": 10.0, "close": 10.5},
+        ]
+        win = refresh_dual_score_window(item, quote=quote, bars=bars, now=now)
+        self.assertEqual(win, "eod_next")
+
     def test_quote_change_stripped_when_intraday(self):
         from core.signal.session_pit import quote_for_eod_score
 
@@ -166,6 +211,8 @@ class TestEodNextFusion(unittest.TestCase):
         self.assertAlmostEqual(item["predicted_score_eod_rem"], rem, places=5)
 
     def test_rank_key_recomputes_stale_eod_next_blend(self):
+        from unittest.mock import patch
+        from datetime import timezone, timedelta
         from core.signal.dual_score import (
             align_trade_score_fields,
             decision_score_for_item,
@@ -173,6 +220,8 @@ class TestEodNextFusion(unittest.TestCase):
             rank_key_for_item,
         )
 
+        cn = timezone(timedelta(hours=8))
+        after_close = datetime(2026, 8, 20, 16, 0, tzinfo=cn)
         item = {
             "predicted_score": 0.542957,
             "predicted_score_eod": 0.542957,
@@ -183,32 +232,37 @@ class TestEodNextFusion(unittest.TestCase):
             "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed"},
             "gap_pct": 1.0,
         }
-        # 收盘后排序 / 决策分 = ŷ_EOD
-        self.assertAlmostEqual(rank_key_for_item(item), 0.542957, places=5)
-        self.assertAlmostEqual(decision_score_for_item(item), 0.542957, places=5)
-        align_trade_score_fields(item)
-        self.assertAlmostEqual(item["predicted_score_blend"], 0.542957, places=5)
-        self.assertAlmostEqual(item["score"], 0.542957, places=5)
-        self.assertAlmostEqual(item["predicted_score"], 0.542957, places=5)
+        with patch("core.signal.session_pit.shanghai_now", return_value=after_close):
+            # 收盘后排序 / 决策分 = ŷ_EOD
+            self.assertAlmostEqual(rank_key_for_item(item), 0.542957, places=5)
+            self.assertAlmostEqual(decision_score_for_item(item), 0.542957, places=5)
+            align_trade_score_fields(item)
+            self.assertAlmostEqual(item["predicted_score_blend"], 0.542957, places=5)
+            self.assertAlmostEqual(item["score"], 0.542957, places=5)
+            self.assertAlmostEqual(item["predicted_score"], 0.542957, places=5)
 
-        # book_fields 返回已对齐 blend，且不改写调用方 score（仍为 EOD 主分场景）
-        src = {
-            "predicted_score": 0.542957,
-            "predicted_score_eod_rem": 0.542957,
-            "predicted_score_tau": 0.047501,
-            "predicted_score_blend": 0.295229,
-            "score": 0.542957,
-            "dual_score_window": "eod_next",
-            "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5},
-            "gap_pct": 1.0,
-        }
-        fields = dual_score_book_fields(src)
-        self.assertAlmostEqual(fields["predicted_score_blend"], 0.542957, places=5)
-        self.assertEqual(src["score"], 0.542957)
+            # book_fields 返回已对齐 blend，且不改写调用方 score（仍为 EOD 主分场景）
+            src = {
+                "predicted_score": 0.542957,
+                "predicted_score_eod_rem": 0.542957,
+                "predicted_score_tau": 0.047501,
+                "predicted_score_blend": 0.295229,
+                "score": 0.542957,
+                "dual_score_window": "eod_next",
+                "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5},
+                "gap_pct": 1.0,
+            }
+            fields = dual_score_book_fields(src)
+            self.assertAlmostEqual(fields["predicted_score_blend"], 0.542957, places=5)
+            self.assertEqual(src["score"], 0.542957)
 
     def test_load_active_cluster_book_aligns_stale_blend(self):
+        from unittest.mock import patch
+        from datetime import timezone, timedelta
         from core.signal.cluster_live import _align_cluster_book_trade_scores
 
+        cn = timezone(timedelta(hours=8))
+        after_close = datetime(2026, 8, 20, 16, 0, tzinfo=cn)
         doc = {
             "scored_all": [
                 {
@@ -225,11 +279,12 @@ class TestEodNextFusion(unittest.TestCase):
             ],
             "book": [],
         }
-        _align_cluster_book_trade_scores(doc)
-        row = doc["scored_all"][0]
-        self.assertAlmostEqual(row["predicted_score_blend"], 1.896714, places=5)
-        self.assertAlmostEqual(row["score"], 1.896714, places=5)
-        self.assertAlmostEqual(row["predicted_score"], 1.896714, places=5)
+        with patch("core.signal.session_pit.shanghai_now", return_value=after_close):
+            _align_cluster_book_trade_scores(doc)
+            row = doc["scored_all"][0]
+            self.assertAlmostEqual(row["predicted_score_blend"], 1.896714, places=5)
+            self.assertAlmostEqual(row["score"], 1.896714, places=5)
+            self.assertAlmostEqual(row["predicted_score"], 1.896714, places=5)
 
     def test_align_repairs_unlifted_intraday_blend(self):
         """盘中旧簿用 w·ŷ_EOD+w·ŷ_τ（未抬缺口）时，读路径重算缺口∘ŷ_τ。"""

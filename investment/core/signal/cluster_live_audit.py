@@ -1,13 +1,12 @@
 """分组 live · 双分对照审计样本（从 cluster_live 按用例拆出）。"""
 
-from __future__ import annotations
 import logging
 
 logger = logging.getLogger(__name__)
-from core.numbers import now_iso_utc
-
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+from core.numbers import now_iso_utc
 
 
 def pick_audit_codes(
@@ -28,7 +27,7 @@ def pick_audit_codes(
 
     by_label: Dict[str, List[str]] = {}
     seed_order = list(book_codes)
-    for code in cmap.keys():
+    for code in cmap:
         c = str(code).strip()
         if c and c not in seed_order:
             seed_order.append(c)
@@ -113,6 +112,7 @@ def cluster_score_audit_sample(
 
         svc = get_default_signal_service()
     except Exception as exc:
+        logger.exception('unexpected error in cluster_score_audit_sample')
         return {
             "success": False,
             "task": "cluster_score_audit",
@@ -128,6 +128,7 @@ def cluster_score_audit_sample(
             )
             result = scored.as_dict()
         except Exception as exc:
+            logger.exception('unexpected error in cluster_score_audit_sample')
             fails.append(f"{code}:{exc}")
             continue
         if not isinstance(result, dict) or not result.get("success"):

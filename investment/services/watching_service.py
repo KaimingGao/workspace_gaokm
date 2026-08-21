@@ -1,6 +1,5 @@
 """观察名单应用服务：Web / CLI 与 core.watching_store 的边界。"""
 
-from __future__ import annotations
 
 import logging
 

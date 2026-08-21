@@ -1,6 +1,5 @@
 """β 分组：组内 OOS 对照 + 组权 diff 导出（只读，不写盘）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -41,12 +40,10 @@ def score_cluster_partition_oos(
     排序键（越大越好）：``(-loss, passed, mean_ΔOOS, sil)``。
     """
     from core.research.factor_ols_fit import fit_factor_ols_from_panel
-    from core.signal.weight_oos_gate import evaluate_research_oos
     from core.signal.config import load_signal_config
+    from core.signal.weight_oos_gate import evaluate_research_oos
     from quant.research.cluster_weight_display import _return_model_from_ols
     from quant.research.partition_loss import (
-        DEFAULT_W_IC,
-        DEFAULT_W_R2,
         compute_partition_loss,
         yhat_group_holdout_metrics,
     )
@@ -153,7 +150,7 @@ def score_cluster_partition_oos(
         )
 
         top_k = 1 if n_mem <= 2 else min(2, n_mem)
-        models_by_code = {m: rm for m in members}
+        models_by_code = dict.fromkeys(members, rm)
         member_bars = None
         if bars_by_code:
             member_bars = {
@@ -430,8 +427,8 @@ def attach_cluster_oos_gates(
         }
         return attach_cluster_export_diffs(report)
 
-    from core.signal.weight_oos_gate import evaluate_research_oos
     from core.signal.config import load_signal_config
+    from core.signal.weight_oos_gate import evaluate_research_oos
 
     passed_n = 0
     failed_n = 0
@@ -475,7 +472,7 @@ def attach_cluster_oos_gates(
             continue
 
         top_k = 1 if len(members) <= 2 else min(2, len(members))
-        models_by_code = {m: rm for m in members}
+        models_by_code = dict.fromkeys(members, rm)
         member_bars = None
         if bars_by_code:
             member_bars = {

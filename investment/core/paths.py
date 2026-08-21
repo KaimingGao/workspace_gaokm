@@ -1,6 +1,5 @@
 """项目路径常量（单一事实源）。"""
 
-from __future__ import annotations
 
 import logging
 

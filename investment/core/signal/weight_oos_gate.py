@@ -6,7 +6,6 @@
 - 目的：验证枢纽方案是否在样本外不劣于人工基线；过门 ≠ 自动 promote
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -346,9 +345,9 @@ def evaluate_research_oos(
     ``require_clean_is_oos``：False 时，ŷ 相对 heuristic 已过门则不再被
     「自身 IS≫OOS」旗标否决（小组 Top-K 曲线噪声大）。
     """
+    from core.research.portfolio_bars import load_portfolio_stock_bars
     from core.signal.config import load_signal_config
     from core.watching_store import read_watching
-    from core.research.portfolio_bars import load_portfolio_stock_bars
 
     if codes:
         use_codes = [str(c).strip() for c in codes if str(c).strip()]

@@ -1,11 +1,10 @@
 """分组 OLS / return_model → 展示权与公开字段（从 factor_ols_clusters 拆出）。"""
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 
 def _public_cluster_ols(report: Dict[str, Any], *, mode: str) -> Dict[str, Any]:
@@ -74,11 +73,11 @@ def _display_weight_suggest_from_return_model(
     ols_report: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """由 |β| 派生展示权；已退役为选股主轴（deprecated_for_scoring）。"""
+    from core.signal.config import load_signal_config
     from core.signal.factor_coefs import (
         coefficients_from_return_model,
         display_weights_from_return_model,
     )
-    from core.signal.config import load_signal_config
 
     rm = return_model
     if not isinstance(rm, dict) and isinstance(ols_report, dict):
@@ -108,7 +107,7 @@ def _display_weight_suggest_from_return_model(
         "suggested_weights": suggested,
         "current_weights": {k: float(current.get(k) or 0.0) for k in suggested},
         "deltas": deltas,
-        "delta_sources": {k: "derived_from_beta" for k in suggested},
+        "delta_sources": dict.fromkeys(suggested, "derived_from_beta"),
         "coefficients": coefs,
         "rationale": [
             f"{k} |β|={abs(float(coefs.get(k) or 0)):.4f} → 展示权 {suggested[k]:.4f}"

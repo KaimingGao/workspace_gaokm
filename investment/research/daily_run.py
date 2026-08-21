@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """每日自动化：纸面观察池 + 可选 golden checklist（供 cron / launchd 调用）。"""
 
-from __future__ import annotations
 
 import argparse
 import json

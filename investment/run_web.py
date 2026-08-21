@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """启动 Investment Web 端。"""
 
-from __future__ import annotations
 
 import os
 import sys
@@ -14,6 +13,14 @@ from core.env import load_env_file
 from core.paths import ROOT_DIR
 
 load_env_file(os.path.join(ROOT_DIR, ".env"))
+
+from core.market import register_symbol_resolver
+try:
+    from skills.common.quote_api import StockAPI
+    register_symbol_resolver(StockAPI.resolve_symbol)
+except Exception:
+    import logging
+    logging.getLogger(__name__).debug("StockAPI resolver not registered (skills layer unavailable at import time)")
 
 # Web 进程不在终端刷 tqdm 进度条（进度改由页面展示）
 os.environ.setdefault("TQDM_DISABLE", "1")

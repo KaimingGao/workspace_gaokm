@@ -1,6 +1,5 @@
 """因子系数（收益分）模型产物：研究草稿 / live 生效（不写 signal_config.weights）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -10,6 +9,7 @@ import os
 from datetime import datetime, timezone
 from typing import Any, Dict, Optional, Tuple
 
+from core.io_atomic import atomic_write_json
 from core.paths import (
     LIVE_DIR,
     QUANT_REPORTS_DIR,
@@ -17,7 +17,6 @@ from core.paths import (
     RETURN_SCORE_MODEL_DRAFT_PATH,
 )
 from core.signal.return_score import ReturnScoreModel, clamp_rank_mode
-from core.io_atomic import atomic_write_json
 
 
 def _ensure_dirs() -> None:
@@ -60,7 +59,7 @@ def load_return_model_payload(path: str) -> Optional[Dict[str, Any]]:
     if not path or not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError):
         return None
@@ -191,10 +190,10 @@ def fit_watching_return_model(
     save_draft: bool = True,
 ) -> Dict[str, Any]:
     """研究池堆叠面板拟合收益模型，可选落草稿。"""
-    from core.signal.return_score import fit_return_model_from_panel
-    from core.watching_store import read_watching
     from core.research.panel import collect_subscore_forward_panel
     from core.research.portfolio_bars import load_portfolio_stock_bars
+    from core.signal.return_score import fit_return_model_from_panel
+    from core.watching_store import read_watching
 
     if codes:
         use_codes = [str(c).strip() for c in codes if str(c).strip()]

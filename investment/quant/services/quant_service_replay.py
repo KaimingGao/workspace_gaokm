@@ -1,6 +1,5 @@
 """QuantService · ② 回溯（研究池 Top-K 回测 / 中性化对照）。"""
 
-from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
@@ -339,6 +338,7 @@ class QuantReplayMixin:
                     fundamentals_by_code=fundamentals_by_code or None,
                 )
             except Exception as e:
+                logger.exception('unexpected error in run_portfolio_backtest')
                 result["score_ic"] = {"ok": False, "reason": str(e)}
 
         # T5.2 分层
@@ -352,6 +352,7 @@ class QuantReplayMixin:
                     fundamentals_by_code=fundamentals_by_code or None,
                 )
             except Exception as e:
+                logger.exception('unexpected error in run_portfolio_backtest')
                 result["quantile_backtest"] = {"ok": False, "reason": str(e)}
 
         # T6 基准
@@ -373,6 +374,7 @@ class QuantReplayMixin:
                     lookback=lookback,
                 )
             except Exception as e:
+                logger.exception('unexpected error in run_portfolio_backtest')
                 result["benchmark"] = {"ok": False, "reason": str(e)}
 
         # T13：IC ↔ Top-K 期收益对齐
@@ -385,6 +387,7 @@ class QuantReplayMixin:
                     result.get("equity_curve") or [],
                 )
             except Exception as e:
+                logger.exception('unexpected error in run_portfolio_backtest')
                 result["ic_equity_align"] = {"ok": False, "reason": str(e)}
 
         # T14：promote 软提示（不硬拦）
@@ -463,6 +466,7 @@ class QuantReplayMixin:
                     ),
                 }
             except Exception as e:
+                logger.exception('unexpected error in run_portfolio_backtest')
                 result["cost_compare"] = {"ok": False, "reason": str(e)}
 
         # P1：Walk-forward 最小切片
@@ -477,6 +481,7 @@ class QuantReplayMixin:
                     **common_kw,
                 )
             except Exception as e:
+                logger.exception('unexpected error in run_portfolio_backtest')
                 result["wf_slices"] = {"ok": False, "reason": str(e), "folds": []}
 
         try:
@@ -510,6 +515,7 @@ class QuantReplayMixin:
                 ),
             }
         except Exception as e:
+            logger.exception('unexpected error in run_portfolio_backtest')
             result["cost_assumptions"] = {"ok": False, "reason": str(e)}
 
         try:
@@ -828,6 +834,7 @@ class QuantReplayMixin:
                     **common_kw,
                 )
             except Exception as e:
+                logger.exception('unexpected error in run_param_grid')
                 raw = {"success": False, "error": str(e)}
             m = (raw or {}).get("metrics") or {}
             oos = (raw or {}).get("oos_summary") or {}
@@ -1027,6 +1034,7 @@ class QuantReplayMixin:
                     return
                 quant_param_grid_job.finish(result=result, job_id=job_id)
             except Exception as e:
+                logger.exception('unexpected error in _worker')
                 quant_param_grid_job.finish(error=str(e), job_id=job_id)
             finally:
                 stop_hb.set()
@@ -1188,6 +1196,7 @@ class QuantReplayMixin:
                     "note": "两侧相对同一基准的超额；Δ超额 = 中性化超额 − 绝对分超额。",
                 }
             except Exception as e:
+                logger.exception('unexpected error in run_portfolio_neutral_compare')
                 out["benchmark_compare"] = {"ok": False, "reason": str(e)}
 
         return out

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """stance 阈值 OOS 校准建议 CLI（P13.3）。"""
 
-from __future__ import annotations
 
 import argparse
 import json

@@ -1,6 +1,5 @@
 """观察池 / 纸面日线采集覆盖率（M1.2）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -9,8 +8,8 @@ import os
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Sequence
 
-from core.paths import DATA_DIR, PAPER_PATH, WATCHING_PATH
 from core.data_policy import COVERAGE_STALE_HOURS
+from core.paths import PAPER_PATH, WATCHING_PATH
 
 
 def _codes_from_watching() -> List[str]:

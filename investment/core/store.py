@@ -1,6 +1,5 @@
 """日线/分钟本地缓存：data/store/daily|minute；快照缓存 fundamentals/news。"""
 
-from __future__ import annotations
 
 import json
 import logging
@@ -244,7 +243,7 @@ def load_daily_cache(
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
     except (OSError, json.JSONDecodeError) as e:
         _note_io_error(f"load_daily:{path}", e)
@@ -361,7 +360,7 @@ def merge_save_daily_cache(
         existing: List[dict] = []
         if os.path.isfile(path):
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, encoding="utf-8") as f:
                     payload = json.load(f)
                 existing = list(payload.get("bars") or [])
             except (OSError, json.JSONDecodeError) as e:
@@ -391,7 +390,7 @@ def load_snapshot_cache(
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
     except (OSError, json.JSONDecodeError) as e:
         _note_io_error(f"load_snapshot:{path}", e)
@@ -433,7 +432,7 @@ def save_snapshot_cache(
         existing_history: List[dict] = []
         if os.path.isfile(path):
             try:
-                with open(path, "r", encoding="utf-8") as f:
+                with open(path, encoding="utf-8") as f:
                     old = json.load(f)
                 existing_history = list(old.get("history") or [])
             except (OSError, json.JSONDecodeError) as e:
@@ -509,7 +508,7 @@ def peek_daily_cache_meta(
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
     except (OSError, json.JSONDecodeError) as e:
         _note_io_error(f"peek_daily:{path}", e)
@@ -580,7 +579,7 @@ def load_minute_cache(
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
     except (OSError, json.JSONDecodeError) as e:
         _note_io_error(f"load_minute:{path}", e)

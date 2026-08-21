@@ -75,6 +75,8 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertIn("t0", paper["rules"])
         self.assertAlmostEqual(float(paper["rules"]["t0"]["t0_ratio"]), 0.4)
         self.assertEqual(paper.get("execution_version"), "1.0.0")
+        self.assertEqual(paper["rules"].get("execution_mode"), "next_open")
+        self.assertFalse(paper["rules"]["t0"].get("enabled"))
 
     def test_public_view(self):
         from core.execution import execution_public_view, resolve_effective_execution

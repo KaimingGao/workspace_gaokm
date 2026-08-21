@@ -2,17 +2,17 @@
 
 from __future__ import annotations
 
-import logging
-
-logger = logging.getLogger(__name__)
 import json
+import logging
 import os
 import time
 from typing import Any, Dict, List
 
 from core.alert_outbound import ALERTS_LAST_PATH
-from core.paths import DATA_DIR, SCHEDULE_LAST_RUN_PATH
+from core.paths import SCHEDULE_LAST_RUN_PATH
 from core.strategy import load_promoted
+
+logger = logging.getLogger(__name__)
 
 
 def _ts_key(raw: Any) -> str:
@@ -24,6 +24,29 @@ def _ts_key(raw: Any) -> str:
         except (OSError, ValueError, OverflowError):
             return str(raw)
     return str(raw)
+
+
+def _append_schedule_from_file(events: List[Dict[str, Any]]) -> None:
+    """调度服务失败时，降级读落盘 last_run。"""
+    if not os.path.isfile(SCHEDULE_LAST_RUN_PATH):
+        return
+    try:
+        with open(SCHEDULE_LAST_RUN_PATH, encoding="utf-8") as f:
+            last = json.load(f)
+    except (OSError, json.JSONDecodeError) as exc:
+        logger.info("audit timeline: schedule file unreadable: %s", exc)
+        return
+    if not isinstance(last, dict):
+        return
+    events.append(
+        {
+            "kind": "schedule",
+            "ts": last.get("finished_at") or last.get("ts") or "",
+            "title": f"调度 {last.get('kind') or 'job'}",
+            "detail": last.get("note") or last.get("error") or "",
+            "href": "/platform",
+        }
+    )
 
 
 def build_audit_timeline(*, limit: int = 40) -> Dict[str, Any]:
@@ -41,12 +64,16 @@ def build_audit_timeline(*, limit: int = 40) -> Dict[str, Any]:
                 {
                     "kind": "decision",
                     "ts": d.get("ts") or d.get("created_at") or d.get("id") or "",
-                    "title": f"{d.get('stock_name') or d.get('stock_code') or '—'} · {d.get('stance_label') or '决策'}",
+                    "title": (
+                        f"{d.get('stock_name') or d.get('stock_code') or '—'} · "
+                        f"{d.get('stance_label') or '决策'}"
+                    ),
                     "detail": f"{d.get('source') or ''} · {d.get('id') or ''}".strip(" ·"),
                     "href": "/platform",
                 }
             )
     except Exception as e:
+        logger.exception("audit timeline: decisions unavailable")
         events.append(
             {
                 "kind": "error",
@@ -80,24 +107,9 @@ def build_audit_timeline(*, limit: int = 40) -> Dict[str, Any]:
                     "href": "/platform",
                 }
             )
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in audit_timeline.py", exc_info=True)
-        try:
-            if os.path.isfile(SCHEDULE_LAST_RUN_PATH):
-                with open(SCHEDULE_LAST_RUN_PATH, encoding="utf-8") as f:
-                    last = json.load(f)
-                events.append(
-                    {
-                        "kind": "schedule",
-                        "ts": last.get("finished_at") or last.get("ts") or "",
-                        "title": f"调度 {last.get('kind') or 'job'}",
-                        "detail": last.get("note") or last.get("error") or "",
-                        "href": "/platform",
-                    }
-                )
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in audit_timeline.py", exc_info=True)
-            pass
+    except Exception as exc:
+        logger.info("audit timeline: schedule via service failed: %s", exc)
+        _append_schedule_from_file(events)
 
     try:
         if os.path.isfile(ALERTS_LAST_PATH):
@@ -107,14 +119,16 @@ def build_audit_timeline(*, limit: int = 40) -> Dict[str, Any]:
                 {
                     "kind": "alert",
                     "ts": _ts_key(alert.get("ts")),
-                    "title": f"出站告警 ×{alert.get('alert_count') or len(alert.get('alerts') or [])}",
+                    "title": (
+                        f"出站告警 ×"
+                        f"{alert.get('alert_count') or len(alert.get('alerts') or [])}"
+                    ),
                     "detail": alert.get("source") or alert.get("path") or "",
                     "href": "/follow",
                 }
             )
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in audit_timeline.py", exc_info=True)
-        pass
+    except (OSError, json.JSONDecodeError, TypeError, AttributeError) as exc:
+        logger.info("audit timeline: alerts last skipped: %s", exc)
 
     try:
         promo = load_promoted()
@@ -124,14 +138,16 @@ def build_audit_timeline(*, limit: int = 40) -> Dict[str, Any]:
                 {
                     "kind": "promote",
                     "ts": promo.get("promoted_at") or "",
-                    "title": f"策略晋升 {spec.get('strategy_id') or '—'}@{spec.get('version') or '—'}",
+                    "title": (
+                        f"策略晋升 {spec.get('strategy_id') or '—'}@"
+                        f"{spec.get('version') or '—'}"
+                    ),
                     "detail": promo.get("note") or "",
                     "href": "/strategy",
                 }
             )
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in audit_timeline.py", exc_info=True)
-        pass
+    except (OSError, TypeError, AttributeError, ValueError) as exc:
+        logger.info("audit timeline: promote skipped: %s", exc)
 
     events.sort(key=lambda ev: str(ev.get("ts") or ""), reverse=True)
     return {
@@ -157,5 +173,6 @@ def read_alerts_last() -> Dict[str, Any]:
             "alerts": data.get("alerts") or [],
             "path": data.get("path"),
         }
-    except Exception as e:
+    except (OSError, json.JSONDecodeError) as e:
+        logger.exception("read_alerts_last failed")
         return {"success": False, "error": str(e), "alerts": [], "alert_count": 0}

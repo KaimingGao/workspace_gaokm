@@ -5,15 +5,18 @@
 """
 
 from __future__ import annotations
-from core.numbers import to_float as _to_float
 
+import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from core.data_policy import MINUTE_CACHE_HOURS
+from core.numbers import to_float as _to_float
 from core.store import load_minute_cache, merge_minute_bars_by_time, save_minute_cache
 from skills.common.history import resolve_market_code
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_minute_bars(rows: List[dict]) -> List[dict]:
@@ -130,6 +133,7 @@ def fetch_a_minute_bars(
             adjust=adj,
         )
     except Exception as e:
+        logger.exception('unexpected error in fetch_a_minute_bars')
         return [], {"data_source": "empty", "error": str(e), "period": period}
 
     records = df.to_dict(orient="records") if df is not None and hasattr(df, "to_dict") else []

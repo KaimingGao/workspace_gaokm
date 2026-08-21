@@ -4,12 +4,10 @@
 未匹配的新组分配新 id（接在旧 max id 之后）。
 """
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
-import math
 import re
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 

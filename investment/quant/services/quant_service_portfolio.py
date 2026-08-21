@@ -4,7 +4,6 @@
 本模块保留 ``QuantPortfolioMixin`` 别名，避免旧 import 断裂。
 """
 
-from __future__ import annotations
 
 import logging
 

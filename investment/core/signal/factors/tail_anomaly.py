@@ -1,6 +1,5 @@
 """尾盘微观结构因子：Tail_Volume_Ratio + 尾盘价格斜率。"""
 
-from __future__ import annotations
 
 from typing import List, Optional, Tuple
 

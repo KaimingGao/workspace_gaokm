@@ -1,11 +1,12 @@
 """量化研究台 API — factor research。"""
 
-from __future__ import annotations
 
 import logging
+from typing import Any, Dict, List
+
+from fastapi import APIRouter, HTTPException
 
 logger = logging.getLogger(__name__)
-from fastapi import APIRouter, HTTPException
 
 from web import deps
 from web.schemas import (
@@ -24,7 +25,7 @@ router = APIRouter(tags=["quant"])
 
 
 @router.get("/api/quant/factors")
-def quant_factors():
+def quant_factors() -> Any:
     return deps.quant.list_factors()
 
 
@@ -34,7 +35,7 @@ def quant_factor_panel(
     with_experiment: bool = False,
     lookback: int = 120,
     horizon_days: int = 3,
-):
+) -> Dict[str, Any]:
     try:
         return deps.quant.build_factor_panel(
             code,
@@ -47,7 +48,7 @@ def quant_factor_panel(
 
 
 @router.post("/api/quant/cross-section")
-def quant_cross_section(body: CrossSectionRequest):
+def quant_cross_section(body: CrossSectionRequest) -> Dict[str, Any]:
     try:
         return deps.quant.run_cross_section(
             codes=body.codes,
@@ -60,7 +61,7 @@ def quant_cross_section(body: CrossSectionRequest):
 
 
 @router.post("/api/quant/factor-experiment")
-def quant_factor_experiment(body: FactorExperimentRequest):
+def quant_factor_experiment(body: FactorExperimentRequest) -> Dict[str, Any]:
     try:
         return deps.quant.run_factor_experiment(
             body.code,
@@ -72,7 +73,7 @@ def quant_factor_experiment(body: FactorExperimentRequest):
 
 
 @router.post("/api/quant/factor-ols")
-def quant_factor_ols(body: FactorExperimentRequest):
+def quant_factor_ols(body: FactorExperimentRequest) -> Dict[str, Any]:
     try:
         return deps.quant.run_factor_ols_experiment(
             body.code,
@@ -85,7 +86,7 @@ def quant_factor_ols(body: FactorExperimentRequest):
 
 
 @router.post("/api/quant/factor-ols-pool")
-def quant_factor_ols_pool(body: FactorOlsPoolRequest):
+def quant_factor_ols_pool(body: FactorOlsPoolRequest) -> Dict[str, Any]:
     """研究池堆叠时序 OLS；显式触发，默认不进页自动跑。"""
     try:
         return deps.quant.run_factor_ols_pool_experiment(
@@ -99,7 +100,7 @@ def quant_factor_ols_pool(body: FactorOlsPoolRequest):
 
 
 @router.post("/api/quant/rem-ridge")
-def quant_rem_ridge(body: RemRidgeRequest):
+def quant_rem_ridge(body: RemRidgeRequest) -> Dict[str, Any]:
     """R0：open→close 剩余收益头 Ridge + 时间 OOS；可选 persist 到 live。"""
     try:
         return deps.quant.run_rem_ridge_experiment(
@@ -117,7 +118,7 @@ def quant_rem_ridge(body: RemRidgeRequest):
 
 
 @router.post("/api/quant/yhat-residual/shadow")
-def quant_yhat_residual_shadow(body: YhatResidualShadowRequest):
+def quant_yhat_residual_shadow(body: YhatResidualShadowRequest) -> Dict[str, Any]:
     """ŷ 行业残差 on/off：同截面 TopK 重叠影子对照（不写盘）。"""
     try:
         return deps.quant.run_yhat_residual_shadow(
@@ -130,7 +131,7 @@ def quant_yhat_residual_shadow(body: YhatResidualShadowRequest):
 
 
 @router.post("/api/quant/excess-mode/shadow")
-def quant_excess_mode_shadow(body: ExcessModeShadowRequest):
+def quant_excess_mode_shadow(body: ExcessModeShadowRequest) -> Dict[str, Any]:
     """绝对 y vs 指数超额 y：同池 holdout IC 影子对照（不写盘）。"""
     try:
         return deps.quant.run_excess_mode_shadow(
@@ -144,7 +145,7 @@ def quant_excess_mode_shadow(body: ExcessModeShadowRequest):
 
 
 @router.get("/api/quant/rem-ridge/model")
-def quant_rem_ridge_model():
+def quant_rem_ridge_model() -> Dict[str, Any]:
     """读取已 promote 的 rem 模型（若有）。"""
     try:
         return deps.quant.get_rem_ridge_model()
@@ -153,7 +154,7 @@ def quant_rem_ridge_model():
 
 
 @router.post("/api/quant/factor-cs-ic")
-def quant_factor_cs_ic(body: FactorCsIcRequest):
+def quant_factor_cs_ic(body: FactorCsIcRequest) -> Dict[str, Any]:
     """S1 · 研究池逐因子日频截面 IC（Pearson + Spearman）；不写 config。"""
     try:
         return deps.quant.run_factor_cs_ic_experiment(
@@ -168,7 +169,7 @@ def quant_factor_cs_ic(body: FactorCsIcRequest):
 
 
 @router.post("/api/quant/weight-suggest")
-def quant_weight_suggest(body: WeightSuggestRequest):
+def quant_weight_suggest(body: WeightSuggestRequest) -> Dict[str, Any]:
     try:
         return deps.quant.suggest_weights(
             body.code,
@@ -185,7 +186,7 @@ def quant_weight_suggest(body: WeightSuggestRequest):
 
 
 @router.post("/api/quant/threshold-suggest")
-def quant_threshold_suggest(body: ThresholdSuggestRequest):
+def quant_threshold_suggest(body: ThresholdSuggestRequest) -> Dict[str, Any]:
     try:
         return deps.quant.suggest_thresholds(
             body.code,
@@ -201,7 +202,7 @@ def quant_threshold_suggest(body: ThresholdSuggestRequest):
 def quant_factor_corr(
     min_samples: int = 3,
     threshold: float = 0.7,
-):
+) -> Dict[str, Any]:
     """因子相关性矩阵：基于簿 / 观察池 sub_scores 算截面 Pearson。"""
     try:
         from core.signal.factor_corr import compute_factor_corr_matrix, redundancy_warnings_from_corr
@@ -272,7 +273,7 @@ def quant_factor_corr(
 def quant_factor_ir(
     lookback: int = 60,
     horizon_days: int = 3,
-):
+) -> Dict[str, Any]:
     """因子 IR 分析：因子信息比率 = IC 均值 / IC 标准差 × sqrt(252/horizon)。"""
     try:
         from core.watching_insights import load_insights_cache

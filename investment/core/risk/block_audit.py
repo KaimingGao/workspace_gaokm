@@ -8,7 +8,6 @@
 不改动 north_star.py；复核记录独立落盘于 data/block_audit.jsonl。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -626,12 +625,12 @@ if __name__ == "__main__":
         {"ts": "2024-01-16T18:00:00", "block_ts": "2024-01-16T09:30:00", "code": "600003", "reason_code": "sector_limit", "outcome": "true_positive", "reviewer": "b", "note": "对的"},
     ]
     m = match_audits_to_blocks(op_log, audits)
-    print("match: labeled=%d/%d, eff=%.2f, false=%.2f" % (m["labeled"], m["total_blocks"], m["effective_rate"] or 0, m["false_block_rate"] or 0))
+    logger.info("match: labeled=%d/%d, eff=%.2f, false=%.2f" % (m["labeled"], m["total_blocks"], m["effective_rate"] or 0, m["false_block_rate"] or 0))
     t = block_effectiveness_trend(op_log, audits, bucket_days=7)
-    print("trend: buckets=%d, direction=%s" % (len(t["trend"]), t["trend_direction"]))
+    logger.info("trend: buckets=%d, direction=%s" % (len(t["trend"]), t["trend_direction"]))
     rb = block_reason_breakdown(op_log, audits)
-    print("reasons: worst=%s, best=%s" % (rb["worst_precision_reason"], rb["best_precision_reason"]))
+    logger.info("reasons: worst=%s, best=%s" % (rb["worst_precision_reason"], rb["best_precision_reason"]))
     sug = suggest_block_rule_tuning(op_log, audits)
-    print("suggestions: %d items" % len(sug["suggestions"]))
+    logger.info("suggestions: %d items" % len(sug["suggestions"]))
     summary = summarize_block_audit(op_log, audits=audits)
-    print("headline:", summary["headline"])
+    logger.info("headline:", summary["headline"])

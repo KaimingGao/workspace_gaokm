@@ -9,7 +9,6 @@
   - <60分：梯度减仓
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -41,7 +40,7 @@ def _check_technical_confirmation(
             return False, "需要技术指标确认"
         else:
             return False, "评分不足以加仓"
-    
+
     tech_score = technical_info.get("technical_score", 0)
     if tech_score >= min_technical_score:
         return True, f"技术分{tech_score:.1f}≥{min_technical_score:.0f}，确认加仓"
@@ -89,12 +88,12 @@ def get_add_position_plan(
         "kelly_position": None,
         "technical_confirmed": None,
     }
-    
+
     # 检查评分是否达标
     if score < add_threshold:
         plan["reason"] = f"评分{score:.1f}<{add_threshold}，不满足加仓条件"
         return plan
-    
+
     # 技术指标确认
     if use_technical:
         tech_confirmed, tech_reason = _check_technical_confirmation(
@@ -105,33 +104,33 @@ def get_add_position_plan(
             plan["reason"] = f"技术指标未确认：{tech_reason}"
             return plan
         plan["reason"] = tech_reason
-    
+
     # 计算加仓比例
     actual_ratio = add_ratio
-    
+
     # 使用凯利公式调整
     if use_kelly and paper:
         from core.signal.factors.kelly import adaptive_position_sizing
         kelly_pos = adaptive_position_sizing(paper, score, rules or {})
         plan["kelly_position"] = kelly_pos
-        
+
         # 凯利仓位作为加仓比例的上限
         # 实际加仓比例 = min(配置的加仓比例, 凯利建议)
         adjusted_ratio = min(add_ratio, max(0.1, kelly_pos * 2))
         actual_ratio = adjusted_ratio
-    
+
     # 计算加仓股数
     add_shares = int(current_shares * actual_ratio)
     add_shares = (add_shares // 100) * 100  # 向下取整到100股
-    
+
     if add_shares <= 0:
         add_shares = 100  # 至少100股
-    
+
     plan["should_add"] = True
     plan["add_shares"] = add_shares
     plan["add_ratio"] = actual_ratio
     plan["reason"] = f"加仓{add_ratio*100:.0f}%（评分{score:.1f}分）"
-    
+
     return plan
 
 
@@ -165,12 +164,12 @@ def get_reduce_position_plan(
         "reduce_ratio": 0,
         "reason": "",
     }
-    
+
     # 评分≥60分不减仓（与加仓阈值对齐）
     if score >= min_score:
         plan["reason"] = f"评分{score:.1f}≥{min_score:.0f}，不减仓"
         return plan
-    
+
     # 根据评分确定减仓比例
     if score < 45:
         reduce_ratio = 0.8
@@ -184,12 +183,12 @@ def get_reduce_position_plan(
     else:
         plan["reason"] = f"评分{score:.1f}，无需减仓"
         return plan
-    
+
     # 持仓不足100股，无法减仓
     if current_shares < 100:
         plan["reason"] = f"持仓{current_shares}股不足100股，无法减仓"
         return plan
-    
+
     # 计算目标减仓股数
     target_reduce = int(current_shares * reduce_ratio)
     target_reduce = (target_reduce // 100) * 100
@@ -210,14 +209,14 @@ def get_reduce_position_plan(
     else:
         reduce_shares = target_reduce
         action_type = "减仓"
-    
+
     plan["should_reduce"] = True
     plan["reduce_shares"] = reduce_shares
     plan["reduce_ratio"] = reduce_ratio
     plan["reason"] = f"{action_type}{reduce_ratio*100:.0f}%（评分{score:.1f}，{tier}）"
     plan["tier"] = tier
     plan["action_type"] = action_type
-    
+
     return plan
 
 
@@ -259,7 +258,7 @@ def get_full_position_plan(
                 "reason": add_plan["reason"],
                 "details": add_plan,
             }
-    
+
     # 考虑减仓
     reduce_plan = get_reduce_position_plan(score, current_shares, min_score=min_score)
     if reduce_plan["should_reduce"]:
@@ -269,7 +268,7 @@ def get_full_position_plan(
             "reason": reduce_plan["reason"],
             "details": reduce_plan,
         }
-    
+
     # 持有
     return {
         "action": "hold",

@@ -4,7 +4,6 @@
 不重写 dual_score / scorer。上层经本 Service 取信封；历史 dict 走 ``as_dict()``。
 """
 
-from __future__ import annotations
 
 import logging
 

@@ -1,6 +1,5 @@
 """生产门禁与复权标签（纯函数）。"""
 
-from __future__ import annotations
 
 import logging
 

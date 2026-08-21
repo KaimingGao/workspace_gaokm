@@ -1,12 +1,11 @@
 """回测稳健性摘要（N4）：样本内外切分 + 简单 regime 切片。"""
 
-from __future__ import annotations
 import logging
 
 logger = logging.getLogger(__name__)
-from core.numbers import to_float as _f
-
 from typing import Any, Dict, List, Optional, Sequence
+
+from core.numbers import to_float as _f
 
 
 def split_oos_summary(
@@ -159,7 +158,7 @@ def regime_summary_from_bars(
 
 def _macro_rows_by_date() -> Dict[str, Dict[str, Any]]:
     try:
-        from skills.macro.history import load_macro_history_index
+        from core.research.macro_history import load_macro_history_index
 
         idx = load_macro_history_index()
     except Exception:

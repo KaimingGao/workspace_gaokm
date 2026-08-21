@@ -1,6 +1,5 @@
 """观察池横截面 score IC（T5.1）：验证打分区分度，非 Top-K 截断本身。"""
 
-from __future__ import annotations
 
 import logging
 

@@ -3,7 +3,6 @@
 拆分为 account / jobs / trades mixin；本文件只组装 PaperService。
 """
 
-from __future__ import annotations
 
 import logging
 

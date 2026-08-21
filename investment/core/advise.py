@@ -1,6 +1,5 @@
 """买卖建议领域管线：facts → stance → 结构化输出。"""
 
-from __future__ import annotations
 
 import logging
 

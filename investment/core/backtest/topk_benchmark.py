@@ -1,6 +1,5 @@
 """TopK 回测相对基准（T6/T9）：指数优先，失败则池等权买持；净值曲线 + 年化超额/IR。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -223,6 +222,7 @@ def build_topk_benchmark_summary(
             elif isinstance(raw, list):
                 index_bars = raw
         except Exception as e:
+            logger.exception('unexpected error in build_topk_benchmark_summary')
             out["index_error"] = str(e)
 
     bench_ret: Optional[float] = None

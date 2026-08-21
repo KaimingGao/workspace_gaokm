@@ -4,7 +4,6 @@
 勿在此硬编码第二套印花税/佣金。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -21,7 +20,7 @@ class TransactionCostCalculator:
 
     def __init__(self, config: Optional[Dict] = None):
         self.config = {**DEFAULT_COST_CONFIG, **(config or {})}
-    
+
     def calculate_buy_cost(
         self,
         price: float,
@@ -40,28 +39,28 @@ class TransactionCostCalculator:
             (总成本, 成本明细)
         """
         gross_amount = price * shares
-        
+
         # 1. 滑点成本
         slippage = 0.0
         if self.config["use_slippage"]:
             # 买入时价格上浮
             slippage = gross_amount * self.config["slippage_pct"]
-        
+
         # 2. 佣金
         commission = max(
             gross_amount * self.config["commission_rate"],
             self.config["commission_min"]
         )
-        
+
         # 3. 过户费（仅沪市）
         transfer_fee = 0.0
         if stock_code.startswith("6") or stock_code.startswith("68"):
             transfer_fee = gross_amount * self.config["transfer_fee_rate"]
-        
+
         # 汇总
         total_cost = slippage + commission + transfer_fee
         actual_cost = gross_amount + total_cost
-        
+
         details = {
             "gross_amount": round(gross_amount, 2),
             "slippage": round(slippage, 2),
@@ -71,9 +70,9 @@ class TransactionCostCalculator:
             "total_cost": round(total_cost, 2),
             "cost_rate": round(total_cost / gross_amount * 100, 4),
         }
-        
+
         return actual_cost, details
-    
+
     def calculate_sell_cost(
         self,
         price: float,
@@ -92,31 +91,31 @@ class TransactionCostCalculator:
             (实际到手金额, 成本明细)
         """
         gross_amount = price * shares
-        
+
         # 1. 滑点成本
         slippage = 0.0
         if self.config["use_slippage"]:
             # 卖出时价格下浮
             slippage = gross_amount * self.config["slippage_pct"]
-        
+
         # 2. 佣金
         commission = max(
             gross_amount * self.config["commission_rate"],
             self.config["commission_min"]
         )
-        
+
         # 3. 印花税（仅卖出）
         stamp_tax = gross_amount * self.config["stamp_tax_rate"]
-        
+
         # 4. 过户费（仅沪市）
         transfer_fee = 0.0
         if stock_code.startswith("6") or stock_code.startswith("68"):
             transfer_fee = gross_amount * self.config["transfer_fee_rate"]
-        
+
         # 汇总
         total_cost = slippage + commission + stamp_tax + transfer_fee
         net_amount = gross_amount - total_cost
-        
+
         details = {
             "gross_amount": round(gross_amount, 2),
             "slippage": round(slippage, 2),
@@ -126,9 +125,9 @@ class TransactionCostCalculator:
             "total_cost": round(total_cost, 2),
             "cost_rate": round(total_cost / gross_amount * 100, 4),
         }
-        
+
         return net_amount, details
-    
+
     def calculate_round_trip_cost(
         self,
         buy_price: float,
@@ -150,11 +149,11 @@ class TransactionCostCalculator:
         """
         buy_cost, buy_details = self.calculate_buy_cost(buy_price, shares, stock_code)
         sell_proceeds, sell_details = self.calculate_sell_cost(sell_price, shares, stock_code)
-        
+
         total_cost = buy_details["total_cost"] + sell_details["total_cost"]
         gross_profit = sell_price * shares - buy_price * shares
         net_profit = sell_proceeds - buy_cost
-        
+
         return {
             "buy_cost": round(buy_cost, 2),
             "sell_proceeds": round(sell_proceeds, 2),
@@ -201,21 +200,21 @@ def estimate_strategy_costs(
         成本估算明细
     """
     calculator = TransactionCostCalculator()
-    
+
     # 每笔交易成本（买+卖）
     sample_costs = calculator.calculate_round_trip_cost(
         buy_price=10.0, sell_price=10.0, shares=1000
     )
     per_trade_cost_rate = sample_costs["cost_rate"] / 100
-    
+
     # 年度总成本
     annual_cost = num_trades * avg_trade_value * per_trade_cost_rate
-    
+
     # 资金占用成本
     capital_cost = avg_trade_value * num_trades * holding_days / 252 * 0.02
-    
+
     total_annual_cost = annual_cost + capital_cost
-    
+
     return {
         "annual_trade_cost": round(annual_cost, 2),
         "annual_capital_cost": round(capital_cost, 2),

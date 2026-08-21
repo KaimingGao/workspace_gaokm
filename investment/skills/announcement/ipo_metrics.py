@@ -1,6 +1,5 @@
 """IPO 虹吸：概念板块成交额 + 新股市值估算。"""
 
-from __future__ import annotations
 
 import logging
 import re

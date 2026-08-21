@@ -1,6 +1,5 @@
 """相对强弱因子（P6.2）：个股 vs 基准超额收益。"""
 
-from __future__ import annotations
 
 import logging
 

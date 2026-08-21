@@ -14,7 +14,6 @@ predicted_score 收益分 ŷ%）的样本外评估，提供：
 仅依赖 numpy + 标准库，不引入 scipy/sklearn；IC 一律用 numpy 实现的 Spearman 秩相关。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -660,10 +659,10 @@ if __name__ == "__main__":
     forward_returns = factor_scores @ true_beta + rng.standard_normal(T) * 0.5
     names = ["mom", "value", "qual", "size"]
     res = rolling_window_fit(factor_scores, forward_returns, names, train_size=60, test_size=20, step=20)
-    print("rolling:", summarize_walk_forward(res))
+    logger.info("rolling:", summarize_walk_forward(res))
     res2 = expanding_window_fit(factor_scores, forward_returns, names, min_train=60, test_size=20, step=20)
-    print("expanding:", summarize_walk_forward(res2))
+    logger.info("expanding:", summarize_walk_forward(res2))
     decay = ic_decay_curve(factor_scores[:, 0], forward_returns, max_lag=5)
-    print("decay:", decay)
+    logger.info("decay:", decay)
     scan = param_stability_scan(factor_scores, forward_returns, names)
-    print("scan:", {k: v for k, v in scan.items() if k != "param_values"})
+    logger.info("scan:", {k: v for k, v in scan.items() if k != "param_values"})

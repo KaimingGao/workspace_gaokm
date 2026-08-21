@@ -1,6 +1,5 @@
 """策略验证成熟闸门（V5 / §11）只读评估。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -44,6 +43,45 @@ def evaluate_maturity_gate(
             }
         )
 
+    _data_gate(fund, add)
+    _fit_gate(ns, add)
+    _ops_gate(snaps, ttm, add)
+    _risk_gate(rb, add)
+    _eng_gate(core_paths, add)
+    _s_track_gate(add)
+    _e_track_gate(ns, add)
+    _y_track_gate(snaps, add)
+    _x_track_gate(fund, add)
+    _b_track_gate(fund, add)
+    _dc_fm_rk_gate(ss, fund, add)
+
+    hard_items = [i for i in items if i.get("severity") != "soft"]
+    soft_items = [i for i in items if i.get("severity") == "soft"]
+    hard_passed = sum(1 for i in hard_items if i["ok"])
+    soft_passed = sum(1 for i in soft_items if i["ok"])
+    passed = sum(1 for i in items if i["ok"])
+    total = len(items)
+    # N6 评审就绪：硬项全过；软项失败仍可评审但标注
+    ready = hard_passed == len(hard_items)
+    return {
+        "ok": True,
+        "ready_for_n6_review": ready,
+        "passed": passed,
+        "total": total,
+        "hard_passed": hard_passed,
+        "hard_total": len(hard_items),
+        "soft_passed": soft_passed,
+        "soft_total": len(soft_items),
+        "items": items,
+        "next_actions": [i["action"] for i in items if not i["ok"] and i.get("action")][:6],
+        "note": "硬项全部通过仅表示「可评估是否立项 N6」，不自动开通实盘。"
+        if ready
+        else "硬项未过：继续样本/拟合加深或书面豁免单项；软项为质量提示。",
+        "track": "S0-S4+Y0-Y5+X0-X5+B0-B5+DC/FM/RK",
+    }
+
+
+def _data_gate(fund: dict, add) -> None:
     real_cov = fund.get("real_multi_coverage")
     add(
         "data",
@@ -70,6 +108,8 @@ def evaluate_maturity_gate(
         action="勿用 seed-ladder 宣称已验证；改跑 ingest-history",
     )
 
+
+def _fit_gate(ns, add) -> None:
     rz = (ns.get("realization") or {}) if isinstance(ns, dict) else {}
     rz_status = str(rz.get("status") or "")
     # unavailable 不得当作「拟合可读」通过（此前几乎恒绿）
@@ -110,6 +150,8 @@ def evaluate_maturity_gate(
         action="历史回测页看落差归因卡；对齐成本模型/宇宙/调仓频率",
     )
 
+
+def _ops_gate(snaps: dict, ttm: dict, add) -> None:
     add(
         "ops",
         "paper_snapshots",
@@ -126,6 +168,9 @@ def evaluate_maturity_gate(
         f"real_events={ttm.get('real_events')} seeded={ttm.get('seeded_events')}",
         action="走真实回测/promote 链路，少用 seed-ttm",
     )
+
+
+def _risk_gate(rb: dict, add) -> None:
     labeled = int(rb.get("labeled_count") or 0)
     blocks = int(rb.get("block_count") or 0)
     outcome_need = min(20, blocks) if blocks > 0 else 0
@@ -138,6 +183,8 @@ def evaluate_maturity_gate(
         action="策略中心「拦截流水」点真拦/误拦",
     )
 
+
+def _eng_gate(core_paths, add) -> None:
     cp_ok = True if core_paths is None else bool(core_paths.get("ok"))
     add(
         "eng",
@@ -153,6 +200,8 @@ def evaluate_maturity_gate(
         "现行定位策略验证；未接 OMS（阶段约束）",
     )
 
+
+def _s_track_gate(add) -> None:
     # S4.1 · S 轨能力可达性（软项：有代码即可，不依赖运营样本）
     add(
         "s_track",
@@ -179,6 +228,8 @@ def evaluate_maturity_gate(
         action="ingest 时尽量带 ann_date；见 fundamentals_pit",
     )
 
+
+def _e_track_gate(ns, add) -> None:
     # E0 · 策略 scope 可读（软项）
     prs = (ns.get("paper_risk_strategy") or {}) if isinstance(ns, dict) else {}
     prs_status = str(prs.get("status") or "")
@@ -201,10 +252,12 @@ def evaluate_maturity_gate(
         action="策略调仓写入 origin=strategy；日更快照含 equity_strategy 后可读策略夏普",
     )
 
+
+def _y_track_gate(snaps: dict, add) -> None:
     # Y4.2 · ŷ 生产硬化闸门
     try:
-        from core.signal.score_display import resolve_buy_floor, resolve_hold_floor
         from core.signal.config import load_signal_config
+        from core.signal.score_display import resolve_buy_floor, resolve_hold_floor
 
         cfg = load_signal_config()
         scoring = cfg.get("scoring") or {}
@@ -222,6 +275,7 @@ def evaluate_maturity_gate(
             action="策略中心写入 min_predicted_score / min_hold_predicted_score",
         )
     except Exception as exc:
+        logger.exception('unexpected error in evaluate_maturity_gate')
         add(
             "y_track",
             "yhat_hysteresis_configured",
@@ -255,6 +309,7 @@ def evaluate_maturity_gate(
             action="研究枢纽刷新簿 / 跑分组→对照；陈旧则勿长期 active",
         )
     except Exception as exc:
+        logger.exception('unexpected error in evaluate_maturity_gate')
         add(
             "y_track",
             "yhat_live_health",
@@ -275,6 +330,8 @@ def evaluate_maturity_gate(
         action="平台/交易页运行纸面日更，积累真实净值序列",
     )
 
+
+def _x_track_gate(fund: dict, add) -> None:
     # X 轨 · 特征同构
     ann_ratio = fund.get("ann_missing_code_ratio")
     ann_ok = True
@@ -292,8 +349,8 @@ def evaluate_maturity_gate(
         action="ingest 时写入 ann_date；见 fundamentals_pit / sample_ops",
     )
     try:
-        from core.signal.factor_health import assess_factor_health
         from core.signal.config import load_signal_config as _lsc
+        from core.signal.factor_health import assess_factor_health
 
         fh = assess_factor_health(config=_lsc())
         add(
@@ -309,6 +366,7 @@ def evaluate_maturity_gate(
             action="money_flow 等无真源时权重保持 0；见 factor_health",
         )
     except Exception as exc:
+        logger.exception('unexpected error in evaluate_maturity_gate')
         add(
             "x_track",
             "factor_health_proxy",
@@ -326,6 +384,8 @@ def evaluate_maturity_gate(
         action="打分响应查 fundamentals_pit / index_meta",
     )
 
+
+def _b_track_gate(fund: dict, add) -> None:
     # B 轨
     try:
         from core.validation_universe import universe_sample_gate
@@ -340,6 +400,7 @@ def evaluate_maturity_gate(
             action="扩观察池或调 validation_universe.min_codes",
         )
     except Exception as exc:
+        logger.exception('unexpected error in evaluate_maturity_gate')
         add(
             "b_track",
             "universe_min_codes",
@@ -394,6 +455,7 @@ def evaluate_maturity_gate(
             action="研究枢纽跑分组重估；陈旧/IC 破线会 auto demote active→shadow",
         )
     except Exception as exc:
+        logger.exception('unexpected error in evaluate_maturity_gate')
         add(
             "b_track",
             "refit_discipline",
@@ -403,6 +465,8 @@ def evaluate_maturity_gate(
             action="可忽略（无分组 live 时）",
         )
 
+
+def _dc_fm_rk_gate(ss: dict, fund: dict, add) -> None:
     # DC / FM / RK · 专业核心三轨
     try:
         from core.pro_core import assess_pit_depth
@@ -433,6 +497,7 @@ def evaluate_maturity_gate(
             action="ann_missing 过高时先补财务公告日再评估 N6",
         )
     except Exception as exc:
+        logger.exception('unexpected error in evaluate_maturity_gate')
         add(
             "dc_track",
             "pit_depth_soft",
@@ -457,6 +522,7 @@ def evaluate_maturity_gate(
             action="策略页标注真拦/误拦；见 pro-core-strengthen RK2",
         )
     except Exception as exc:
+        logger.exception('unexpected error in evaluate_maturity_gate')
         add(
             "rk_track",
             "outcome_unlabeled_nudge",
@@ -465,28 +531,3 @@ def evaluate_maturity_gate(
             severity="soft",
             action="",
         )
-
-    hard_items = [i for i in items if i.get("severity") != "soft"]
-    soft_items = [i for i in items if i.get("severity") == "soft"]
-    hard_passed = sum(1 for i in hard_items if i["ok"])
-    soft_passed = sum(1 for i in soft_items if i["ok"])
-    passed = sum(1 for i in items if i["ok"])
-    total = len(items)
-    # N6 评审就绪：硬项全过；软项失败仍可评审但标注
-    ready = hard_passed == len(hard_items)
-    return {
-        "ok": True,
-        "ready_for_n6_review": ready,
-        "passed": passed,
-        "total": total,
-        "hard_passed": hard_passed,
-        "hard_total": len(hard_items),
-        "soft_passed": soft_passed,
-        "soft_total": len(soft_items),
-        "items": items,
-        "next_actions": [i["action"] for i in items if not i["ok"] and i.get("action")][:6],
-        "note": "硬项全部通过仅表示「可评估是否立项 N6」，不自动开通实盘。"
-        if ready
-        else "硬项未过：继续样本/拟合加深或书面豁免单项；软项为质量提示。",
-        "track": "S0-S4+Y0-Y5+X0-X5+B0-B5+DC/FM/RK",
-    }

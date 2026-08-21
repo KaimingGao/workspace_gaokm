@@ -1,6 +1,5 @@
 """现货广度回退：涨停池接口不可用时的 limit up/down 统计。"""
 
-from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
@@ -16,6 +15,7 @@ def _limit_threshold(code: str, name: str = "") -> float:
 
         return float(limit_up_threshold_for_code(code, stock_name=name))
     except Exception:
+        logger.exception('unexpected error in _limit_threshold')
         c = str(code or "")
         if c.startswith(("688", "300", "301")):
             return 19.5

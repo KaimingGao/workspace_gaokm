@@ -1,6 +1,5 @@
 """做 T 规则配置（纸面 / 回测共用）。"""
 
-from __future__ import annotations
 
 import logging
 

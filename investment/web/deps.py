@@ -1,6 +1,5 @@
 """Web 层共享服务实例（路由拆分后共用）。"""
 
-from __future__ import annotations
 
 import logging
 

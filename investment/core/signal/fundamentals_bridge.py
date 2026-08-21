@@ -1,6 +1,5 @@
 """基本面指标桥接：供 value/quality 因子使用（P46 + R1 PIT）。"""
 
-from __future__ import annotations
 
 import logging
 

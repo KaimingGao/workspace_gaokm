@@ -1,10 +1,10 @@
 """跨市场宏观数据采集：美股科技 / A50 / 汇率 / 美债。"""
 
-from __future__ import annotations
 
 import logging
 import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
+from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -261,6 +261,7 @@ def _fetch_global_index_akshare(name: str, *, limit: int = 30) -> Tuple[List[dic
             if bars:
                 return bars[-limit:], f"index_global_hist_em:{sym}"
         except Exception:
+            logger.exception('unexpected error in _fetch_global_index_akshare')
             continue
     return [], "empty"
 
@@ -292,12 +293,7 @@ def _fetch_global_index(name: str, *, limit: int = 30) -> Tuple[List[dict], str]
             return got
         if got is None:
             return [], "timeout"
-    if _YFINANCE_FIRST:
-        for sym in _YF_INDEX_BY_NAME.get(name, ()):
-            bars, src = _fetch_yfinance_bars(sym, limit=limit)
-            if bars:
-                return bars, src
-    elif not skip_ak:
+    if _YFINANCE_FIRST or not skip_ak:
         for sym in _YF_INDEX_BY_NAME.get(name, ()):
             bars, src = _fetch_yfinance_bars(sym, limit=limit)
             if bars:
@@ -357,6 +353,7 @@ def _fetch_a50_futures(*, limit: int = 30) -> Tuple[List[dict], str]:
                 if bars:
                     return bars[-limit:], f"{fn_name}:{sym}"
             except Exception:
+                logger.exception('unexpected error in _fetch_a50_futures')
                 continue
     return [], "empty"
 

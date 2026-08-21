@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """检查 daily_last_run.json，供 cron MAILTO / scripts/daily_check.sh 调用（P18.3）。"""
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -26,7 +25,7 @@ def check_daily_last_run(path: str | None = None, *, require_run: bool = False) 
             "message": "尚无 daily 运行记录",
         }
 
-    with open(p, "r", encoding="utf-8") as f:
+    with open(p, encoding="utf-8") as f:
         data = json.load(f)
 
     if data.get("empty"):

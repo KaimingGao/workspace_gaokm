@@ -3,7 +3,6 @@
 禁止把时序 Pearson、全样本回放 IC 与主 IC 混称为同一个「IC」。
 """
 
-from __future__ import annotations
 
 import logging
 

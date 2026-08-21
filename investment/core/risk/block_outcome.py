@@ -1,6 +1,5 @@
 """risk_block 人工标注 outcome（R3.2 / 运营收尾）：供有效率计算。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -106,7 +105,7 @@ def annotate_risk_block(
             return {
                 "ok": False,
                 "success": False,
-                "error": f"无效 outcome；允许 true_positive|false_positive|unknown|clear",
+                "error": "无效 outcome；允许 true_positive|false_positive|unknown|clear",
             }
         meta["outcome"] = normalized
         if note:

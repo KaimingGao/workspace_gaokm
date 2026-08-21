@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """横截面排序 CLI（P9.2）。"""
 
-from __future__ import annotations
 
 import argparse
 import json

@@ -1,6 +1,5 @@
 """Persist and load last portfolio backtest equity curve for north-star realization."""
 
-from __future__ import annotations
 
 import logging
 
@@ -10,9 +9,9 @@ import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from core.io_atomic import atomic_write_json
 from core.paths import NORTH_STAR_LAST_BACKTEST_PATH
 from core.risk_metrics import _MIN_ALIGN, _parse_ts, _safe_float
-from core.io_atomic import atomic_write_json
 
 
 def _curve_points(curve: Sequence[dict]) -> List[Tuple[str, float]]:

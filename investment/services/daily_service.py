@@ -1,6 +1,5 @@
 """每日任务编排（纸面 + eval + 量化，Web / cron / CLI 共用）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -30,7 +29,7 @@ class DailyRunService:
     def load_last_run(self) -> Dict[str, Any]:
         if not os.path.isfile(self.last_run_path):
             return {"success": True, "empty": True}
-        with open(self.last_run_path, "r", encoding="utf-8") as f:
+        with open(self.last_run_path, encoding="utf-8") as f:
             return json.load(f)
 
     def _save_last_run(self, payload: Dict[str, Any]) -> None:
@@ -121,6 +120,7 @@ class DailyRunService:
                 steps.append({"name": "watching_refresh", "ok": False, "error": msg, "code": "watching_not_initialized"})
                 failures.append(f"watching: {msg}")
             except Exception as e:
+                logger.exception('unexpected error in run')
                 msg = str(e)
                 steps.append({"name": "watching_refresh", "ok": False, "error": msg})
                 failures.append(f"watching: {msg}")
@@ -141,6 +141,7 @@ class DailyRunService:
                 if not ranked.get("success"):
                     failures.append(f"cross_section: {ranked.get('error')}")
             except Exception as e:
+                logger.exception('unexpected error in run')
                 msg = str(e)
                 steps.append({"name": "cross_section", "ok": False, "error": msg})
                 failures.append(f"cross_section: {msg}")
@@ -175,6 +176,7 @@ class DailyRunService:
                 steps.append({"name": "paper_rebalance", "ok": False, "error": msg})
                 failures.append(f"paper_rebalance: {msg}")
             except Exception as e:
+                logger.exception('unexpected error in run')
                 msg = str(e)
                 steps.append({"name": "paper_rebalance", "ok": False, "error": msg})
                 failures.append(f"paper_rebalance: {msg}")
@@ -209,6 +211,7 @@ class DailyRunService:
                 )
                 failures.append(f"paper: {msg}")
             except Exception as e:
+                logger.exception('unexpected error in run')
                 msg = str(e)
                 steps.append({"name": "paper", "ok": False, "error": msg, "code": "paper_error"})
                 failures.append(f"paper: {msg}")
@@ -277,6 +280,7 @@ class DailyRunService:
                         failures.append(f"quant_export: {exported.get('error')}")
                 steps.append(step)
             except Exception as e:
+                logger.exception('unexpected error in run')
                 msg = str(e)
                 steps.append({"name": "quant_report", "ok": False, "error": msg})
                 failures.append(f"quant_report: {msg}")

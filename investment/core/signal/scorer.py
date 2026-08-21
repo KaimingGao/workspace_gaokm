@@ -6,7 +6,6 @@ v2 优化：
 - 前置风控检查集成
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -242,30 +241,30 @@ def score_bars(
         logger.debug("macro context load skipped", exc_info=True)
 
     regime_info = assess_regime(index_bars, cfg.get("regime"), macro=macro_ctx)
-    
+
     # 根据市场环境动态调整因子权重（因子择时）
     adjusted_weights = dict(weights)
     weight_adjustments = regime_info.get("adjustments", {}).get("weight_adjustments", {})
-    
+
     # 获取因子择时配置
     enabled_factors = regime_info.get("adjustments", {}).get("enabled_factors", [])
     disabled_factors = regime_info.get("adjustments", {}).get("disabled_factors", [])
-    
+
     # 应用因子择时：禁用的因子权重设为0
     for factor in disabled_factors:
         if factor in adjusted_weights:
             adjusted_weights[factor] = 0.0
-    
+
     # 应用权重乘数调整
     for factor_name, multiplier in weight_adjustments.items():
         if factor_name in adjusted_weights:
             adjusted_weights[factor_name] = weights[factor_name] * multiplier
-    
+
     # 只保留启用的因子（启发式权）；ŷ required keys 仍经 required_factor_keys 补算
     if enabled_factors:
         filtered_weights = {k: v for k, v in adjusted_weights.items() if k in enabled_factors}
         adjusted_weights = filtered_weights
-    
+
     # 归一化权重，确保总和为1
     total_weight = sum(adjusted_weights.values())
     if total_weight > 0:
@@ -289,8 +288,8 @@ def score_bars(
     req_set = {str(x).strip() for x in (required_factor_keys or []) if str(x).strip()}
     if code_for_minute and (w_tail > 0 or "tail_anomaly" in req_set):
         try:
+            from core.market import resolve_market_code
             from core.store import load_minute_cache
-            from skills.common.history import resolve_market_code
 
             market, bare = resolve_market_code(str(code_for_minute))
             if market == "CN" and bare:
@@ -327,18 +326,18 @@ def score_bars(
     interaction_bonus = _interaction_bonus(sub_scores)
     interaction_penalty = _interaction_penalty(sub_scores)
     interaction_adj = interaction_bonus - interaction_penalty
-    
+
     # v2: 非线性打分（先线性加总，再Sigmoid压缩）
     raw_total = sum(factor_contrib.values()) + interaction_adj
-    
+
     # 基础分 + 交互调整
     total = raw_total
-    
+
     # 应用市场状态惩罚
     penalty = float(regime_info.get("score_penalty") or 0)
     if penalty > 0:
         total -= penalty
-    
+
     # 应用风控惩罚
     if risk_penalty > 0:
         total -= risk_penalty
@@ -351,7 +350,7 @@ def score_bars(
     if last_change is not None:
         factors["last_change"] = round(last_change, 2)
     factors["last_close"] = bars[-1]["close"]
-    
+
     # 风控检查结果
     if risk_checks:
         factors["risk_check"] = risk_checks
@@ -376,13 +375,13 @@ def score_bars(
         reasons.append(f"当日涨跌 {last_change:+.2f}%")
     if factors.get("atr_pct") is not None:
         reasons.append(f"近5日波动(ATR%) {factors['atr_pct']:.2f}%")
-    
+
     # 交互相关的reason
     if interaction_bonus > 0:
         reasons.append(f"因子交互加分 +{interaction_bonus:.1f}")
     if interaction_penalty > 0:
         reasons.append(f"因子冲突扣分 -{interaction_penalty:.1f}")
-    
+
     if regime_info.get("reason"):
         reasons.append(regime_info["reason"])
 

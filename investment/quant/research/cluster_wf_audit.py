@@ -4,12 +4,11 @@
 相邻折标签对齐后记稳定性。生产 return_model 仍走主路径全样本组池。
 """
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
 
@@ -110,10 +109,10 @@ def expanding_cluster_wf_audit(
     from quant.research.cluster_label_align import pair_label_stability
     from quant.research.cluster_oos import score_cluster_partition_oos
     from quant.research.cluster_partition import (
+        _relabel_non_negative,
         cluster_beta_vectors,
         fit_beta_scale_transform,
         promote_outliers_to_singleton_clusters,
-        _relabel_non_negative,
     )
     from quant.research.factor_ols_clusters import (
         _slim_pool_clusters_for_oos,

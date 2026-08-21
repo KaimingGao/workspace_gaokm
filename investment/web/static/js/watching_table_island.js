@@ -120,7 +120,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
   const api = mountVirtualTable(host, {
     columns: COLS,
     emptyText: "暂无观察",
-    rowHeight: 38,
+    rowHeight: 50,
     initialSort: options.initialSort,
     compare,
     rowClass: (d) =>

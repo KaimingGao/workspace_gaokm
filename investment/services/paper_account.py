@@ -1,6 +1,5 @@
 """PaperService · 账户状态 / 资金 / 策略晋升。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -9,15 +8,15 @@ import os
 from typing import Any, Dict, Optional
 
 from core.paper import (
+    _now_iso,
+    append_operation_log,
+    append_snapshot,
     init_from_example,
     load_paper,
     mark_to_market,
-    save_paper,
-    append_snapshot,
-    append_operation_log,
     paper_write_lock,
+    save_paper,
     snapshots_for_ui,
-    _now_iso,
 )
 from core.paper_costs import enrich_operation_log_with_trade_fees
 from services.paper_helpers import _build_score_formula
@@ -96,6 +95,7 @@ class PaperAccountMixin:
                             skip_fundamentals=True,
                         )
                     except Exception as e:
+                        logger.exception('unexpected error in _one')
                         return code, {"success": False, "error": str(e)}
                     return code, result.as_dict() if hasattr(result, "as_dict") else (result or {})
 
@@ -208,6 +208,7 @@ class PaperAccountMixin:
             )
             return execution_public_view(bundle)
         except Exception as e:
+            logger.exception('unexpected error in _execution_view')
             return {"ok": False, "error": str(e)}
 
     def execution_status(self, channel: str = "paper") -> Dict[str, Any]:
@@ -405,6 +406,7 @@ class PaperAccountMixin:
             "snapshots": snapshots_for_ui(paper, summary),
             "operation_log": self._operation_log_for_ui(paper, limit=50),
             "recent_trades": (paper.get("trades") or [])[-10:],
+            "pending_orders": paper.get("pending_orders"),
             "execution": self._execution_view(paper),
             "config_preview": {
                 "version": paper.get("version"),

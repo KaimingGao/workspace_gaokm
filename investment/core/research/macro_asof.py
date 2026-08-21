@@ -1,6 +1,5 @@
 """宏观快照 as-of 视图（研究 / 历史 regime 用；非 PIT）。"""
 
-from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 

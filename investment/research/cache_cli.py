@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """查看 / 清理日线本地缓存。"""
 
-from __future__ import annotations
 
 import argparse
 import os

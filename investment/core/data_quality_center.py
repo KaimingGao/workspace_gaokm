@@ -1,6 +1,5 @@
 """D4 · 数据质量中心：聚合 coverage / 财务样本 / 源审计 / 日历状态。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -28,20 +27,24 @@ def build_data_quality_report(
         try:
             coverage = build_data_coverage() or {}
         except Exception as e:
+            logger.exception('unexpected error in build_data_quality_report')
             coverage = {"ok": False, "error": str(e)}
     except Exception as e:
+        logger.exception('unexpected error in build_data_quality_report')
         coverage = {"ok": False, "error": str(e)}
 
     fund = {}
     try:
         fund = fundamentals_history_coverage() or {}
     except Exception as e:
+        logger.exception('unexpected error in build_data_quality_report')
         fund = {"error": str(e)}
 
     ss = {}
     try:
         ss = sample_status(paper=None) or {}
     except Exception as e:
+        logger.exception('unexpected error in build_data_quality_report')
         ss = {"error": str(e)}
 
     audit = None
@@ -53,6 +56,7 @@ def build_data_quality_report(
             audit_codes = code_list or list(universe_codes() or [])[:20]
             audit = audit_code_sources(audit_codes, lookback=lookback)
         except Exception as e:
+            logger.exception('unexpected error in build_data_quality_report')
             audit = {"ok": False, "error": str(e)}
 
     cal = calendar_status()
@@ -62,6 +66,7 @@ def build_data_quality_report(
 
         hygiene = build_validation_hygiene_report(codes=code_list or None)
     except Exception as e:
+        logger.exception('unexpected error in build_data_quality_report')
         hygiene = {"ok": False, "error": str(e)}
 
     disc = (ss.get("discipline") or {}) if isinstance(ss, dict) else {}
@@ -133,6 +138,7 @@ def build_data_quality_report(
             status = "warn" if status == "ok" else status
             warnings.extend(list(factor_health.get("blockers") or [])[:4])
     except Exception as e:
+        logger.exception('unexpected error in build_data_quality_report')
         factor_health = {"ok": False, "error": str(e)}
 
     if audit and audit.get("status") in ("warn", "bad"):
@@ -162,6 +168,7 @@ def build_data_quality_report(
             }
         )
     except Exception as e:
+        logger.exception('unexpected error in build_data_quality_report')
         pit_depth = {"ok": False, "error": str(e)}
         ingest_nudge = None
 
@@ -196,8 +203,8 @@ def build_data_quality_report(
 
     sector_cov = None
     try:
-        from core.sector_map_sync import coverage_report
         from core.data_coverage import universe_codes
+        from core.sector_map_sync import coverage_report
 
         sector_cov = coverage_report(list(universe_codes() or [])[:80])
         cov_r = (
@@ -218,6 +225,7 @@ def build_data_quality_report(
                 f"（{cov_r:.0%}）· 补 sector_map 主题"
             )
     except Exception as e:
+        logger.exception('unexpected error in build_data_quality_report')
         sector_cov = {"ok": False, "error": str(e)}
 
     ds_metrics: Dict[str, Any] = {}

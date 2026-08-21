@@ -1,6 +1,5 @@
 """底仓做 T 日线代理回测。"""
 
-from __future__ import annotations
 
 import logging
 

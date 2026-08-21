@@ -4,7 +4,6 @@
 归一化 |β| 仅供旧路径/诊断展示，不是选股权。
 """
 
-from __future__ import annotations
 
 import logging
 

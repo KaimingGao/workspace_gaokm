@@ -1,6 +1,5 @@
 """生产 ŷ 门禁（纯函数）：启发式 0–100 不得冒充 predicted_score。"""
 
-from __future__ import annotations
 
 import logging
 

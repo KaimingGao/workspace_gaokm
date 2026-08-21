@@ -3,16 +3,15 @@
 非交易所官方全文；用于研究日对齐。停牌仅提供关键词 hint，不伪造全日停牌库。
 """
 
-from __future__ import annotations
 import logging
 
 logger = logging.getLogger(__name__)
-from core.numbers import date_key
-
 import json
 import os
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
+
+from core.numbers import date_key
 
 
 def _load_holidays(store_dir: Optional[str] = None) -> Set[str]:
@@ -23,7 +22,7 @@ def _load_holidays(store_dir: Optional[str] = None) -> Set[str]:
     if not os.path.isfile(path):
         return set()
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
     except (OSError, json.JSONDecodeError):
         return set()

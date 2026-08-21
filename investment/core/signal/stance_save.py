@@ -1,6 +1,5 @@
 """人审写入 stance_thresholds（只改立场分档，永不改 weights / scoring）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -30,11 +29,9 @@ def save_stance_thresholds(
     note: str = "",
 ) -> Dict[str, Any]:
     """人审写入 ``signal_config.stance_thresholds``；清缓存；不碰 weights/scoring。"""
-    from core.paths import SIGNAL_CONFIG_PATH
-    from core.signal.config import SIGNAL_CONFIG_PATH as CFG_PATH
-    from core.signal.config import get_stance_thresholds, load_signal_config
+    from core.signal.config import get_signal_config_path, get_stance_thresholds, load_signal_config
 
-    path = os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH or CFG_PATH)
+    path = get_signal_config_path()
     raw: Dict[str, Any] = {}
     if os.path.isfile(path):
         with open(path, encoding="utf-8") as f:

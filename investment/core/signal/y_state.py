@@ -4,13 +4,12 @@
 规范见会话方案：展示投影 · 校验 · 过滤 · 按时刻读分量。
 """
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
 import math
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, Optional, Sequence, Tuple
 
 CHECK_OK = "ok"
 CHECK_CONFLICT = "conflict"
@@ -142,7 +141,7 @@ def _resolve_sigma(item: dict, config: Optional[dict] = None) -> Tuple[Optional[
             return round(s, 6), k
     # rem 模型落盘 OOS
     try:
-        from quant.research.rem_ridge import load_rem_model
+        from core.research.rem_ridge import load_rem_model
 
         doc = load_rem_model() or {}
         oos = doc.get("oos") if isinstance(doc.get("oos"), dict) else {}
@@ -343,10 +342,10 @@ def build_y_state(
     ycfg = get_y_state_cfg(config)
     it = item if isinstance(item, dict) else {}
     from core.signal.dual_score import (
+        rank_key_for_item,
         resolve_predicted_score_eod,
         resolve_predicted_score_eod_rem,
         resolve_predicted_score_tau,
-        rank_key_for_item,
     )
 
     eod = resolve_predicted_score_eod(it)
@@ -389,8 +388,8 @@ def build_y_state(
         rem_oc = bool(it.get("rem_oc"))
     else:
         try:
+            from core.research.rem_ridge import load_rem_model
             from core.signal.nowcast_kf import rem_label_is_open_to_close
-            from quant.research.rem_ridge import load_rem_model
 
             rem_oc = rem_label_is_open_to_close(load_rem_model())
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -556,6 +555,7 @@ def ledger_y_check_daily_summary(
     try:
         from core.score_ledger import build_score_review, list_ledger_dates, load_ledger
     except Exception as exc:
+        logger.exception('unexpected error in ledger_y_check_daily_summary')
         out["note"] = f"账本不可用: {exc}"
         return out
     d = str(as_of or "").strip() or None
@@ -570,6 +570,7 @@ def ledger_y_check_daily_summary(
         ledger = load_ledger(d) or {}
         rows = list(ledger.get("rows") or [])
     except Exception as exc:
+        logger.exception('unexpected error in ledger_y_check_daily_summary')
         out["note"] = f"读账本失败: {exc}"
         return out
     base = summarize_y_checks(rows)

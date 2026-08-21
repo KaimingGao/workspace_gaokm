@@ -1,16 +1,18 @@
 """新闻/资讯标题摘要（东财搜索公开源）。"""
 
-from __future__ import annotations
 
 import json
+import logging
 import re
 import time
-from typing import Any, Dict, List, Optional
+from typing import Any, List, Optional
 from urllib.parse import quote as url_quote
 
 import requests
 
 from core.ports.market import query_quote, resolve_market_code
+
+logger = logging.getLogger(__name__)
 
 # 单次 HTTP 超时；勿走 akshare.stock_news_em（其 requests 无 timeout，
 # 挂死后会占住全局 ak_lock，导致整站资讯/部分行情链路卡死）。
@@ -66,6 +68,7 @@ def fetch_content(url: str, *, timeout: int = 5, max_chars: int = 500) -> str:
         response.raise_for_status()
         return _extract_text(response.text, max_chars)
     except Exception:
+        logger.exception('unexpected error in fetch_content')
         return ""
 
 
@@ -214,6 +217,7 @@ def _build_news_inner(stock_code: str, limit: int = 8, *, with_content: bool = F
                 used_query = q
                 break
         except Exception as e:
+            logger.exception('unexpected error in _build_news_inner')
             errors.append(f"{q}: {e}")
             # 超时类错误：别名重试价值低，直接结束
             msg = str(e).lower()

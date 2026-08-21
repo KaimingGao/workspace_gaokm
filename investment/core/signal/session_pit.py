@@ -5,7 +5,6 @@
 τ 买入闸收盘后不吃当日 ŷ_τ；nowcast 对照列仍吃 ŷ_τ。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -77,6 +76,44 @@ def prepare_eod_bars(
         "rolled_to_next": rolled,
         "dual_score_window": "eod_next" if rolled else "intraday",
     }
+
+
+def refresh_dual_score_window(
+    item: Optional[dict],
+    *,
+    quote: Optional[dict] = None,
+    bars: Optional[Sequence[dict]] = None,
+    now: Optional[datetime] = None,
+) -> str:
+    """按当前沪市时钟刷新 ``dual_score_window``（写回 item）。
+
+    簿上昨晚 ``eod_next`` 不得锁死次日盘中：开盘后应回到 ``intraday``，
+    否则读路径会一直剥离 τ、表列 TRADE 假「单」。
+    有 quote/bars 时走 ``prepare_eod_bars``；否则仅用今日是否已收盘判断。
+    """
+    win = "intraday"
+    q = quote if isinstance(quote, dict) else None
+    b = list(bars) if bars is not None else None
+    if q is not None or b is not None:
+        _eod, pit = prepare_eod_bars(b, q, now=now)
+        win = str(pit.get("dual_score_window") or "intraday")
+    else:
+        n = shanghai_now(now)
+        today = n.strftime("%Y-%m-%d")
+        # 今日会话未收完 → 盘中；已收完则保留簿上 eod_next（若有），否则 eod_next
+        if asof_session_final(today, now=n):
+            prev = ""
+            if isinstance(item, dict):
+                prev = str(item.get("dual_score_window") or "")
+            win = prev if prev in ("eod_next", "intraday") else "eod_next"
+            if win == "intraday":
+                # 收盘后不应再停在 intraday：强制滚窗
+                win = "eod_next"
+        else:
+            win = "intraday"
+    if isinstance(item, dict):
+        item["dual_score_window"] = win
+    return win
 
 
 def quote_for_eod_score(

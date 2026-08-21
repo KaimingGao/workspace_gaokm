@@ -1,6 +1,5 @@
 """跨市场 prior（ŷ 外）：海外科技拖累 + 流动性收紧。"""
 
-from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional

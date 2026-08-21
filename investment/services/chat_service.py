@@ -1,6 +1,5 @@
 """Web / CLI 会话服务。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -11,7 +10,7 @@ import time
 import uuid
 from typing import Any, Dict, Optional, Tuple
 
-from agent.agent import InvestmentAgent, MAX_TOOL_ROUNDS
+from agent.agent import MAX_TOOL_ROUNDS, InvestmentAgent
 from agent.artifacts import primary_tab
 from agent.prompts import SYSTEM_PROMPT
 from core.job_progress import job_registry
@@ -143,6 +142,7 @@ class ChatService:
                 chat_job.update(current=MAX_TOOL_ROUNDS + 2, message="完成")
                 chat_job.finish(result=result)
             except Exception as e:
+                logger.exception('unexpected error in _worker')
                 chat_job.finish(error=str(e))
             finally:
                 stop.set()

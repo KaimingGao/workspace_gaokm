@@ -1,15 +1,22 @@
 """日线数据获取：A 股 / 港股 / 美股，多接口重试；失败可用 quote 退化。"""
 
 from __future__ import annotations
-from core.numbers import to_float as _to_float
 
 import os
 from datetime import datetime, timedelta
 from typing import Any, Callable, List, Optional, Tuple
 
 from core.data_policy import DAILY_CACHE_HOURS
+from core.market import register_symbol_resolver, resolve_market_code
+from core.numbers import to_float as _to_float
 from core.store import load_daily_cache, merge_save_daily_cache
 from skills.common.quote_api import StockAPI
+
+register_symbol_resolver(StockAPI.resolve_symbol)
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 def normalize_bars(rows: List[dict]) -> List[dict]:
@@ -48,31 +55,6 @@ def normalize_bars(rows: List[dict]) -> List[dict]:
         bars.append(bar)
     bars.sort(key=lambda x: x["date"])
     return bars
-
-
-def resolve_market_code(raw: str) -> Tuple[Optional[str], Optional[str]]:
-    """
-    返回 (market, code)：
-    - market: CN / HK / US / None
-    - code: 拉取日线用的裸代码（A 股 6 位，港股 5 位等）
-    """
-    symbol = StockAPI.resolve_symbol(raw)
-    if not symbol:
-        text = (raw or "").strip()
-        if text.isdigit() and len(text) == 6:
-            return "CN", text
-        if text.isdigit() and 4 <= len(text) <= 5:
-            return "HK", text.zfill(5)
-        return None, None
-
-    s = symbol.lower()
-    if s.startswith(("sh", "sz")):
-        return "CN", s[2:]
-    if s.startswith("hk"):
-        return "HK", s[2:].zfill(5)
-    if s.startswith("us"):
-        return "US", s[2:].upper()
-    return None, None
 
 
 def _df_to_bars(df: Any, limit: int) -> List[dict]:
@@ -159,7 +141,7 @@ def fetch_a_daily_bars(
     adjust: qfq | raw | hfq（hfq 不可用时回退 qfq）。
     start_date: 可选 YYYYMMDD / YYYY-MM-DD；给定则缩小请求窗口（增量补缺）。
     """
-    from skills.common.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
 
@@ -242,6 +224,7 @@ def fetch_a_daily_bars(
             if bars:
                 return bars
         except Exception as e:
+            logger.exception('unexpected error in fetch_a_daily_bars')
             errors.append(f"{label}: {e}")
             continue
 
@@ -261,7 +244,7 @@ def fetch_hk_daily_bars(
     start_date：可选，缩小增量窗口。
     注意：单次接口异常应 continue，不要整段中断。
     """
-    from skills.common.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
 
@@ -324,6 +307,7 @@ def fetch_hk_daily_bars(
             if bars:
                 return bars
         except Exception as e:
+            logger.exception('unexpected error in fetch_hk_daily_bars')
             errors.append(f"{label}: {e}")
             continue
 
@@ -340,7 +324,7 @@ def fetch_us_daily_bars(
     start_date: Optional[str] = None,
 ) -> List[dict]:
     """拉取美股日线。code 如 AAPL。start_date：可选，缩小增量窗口。"""
-    from skills.common.ak_lock import import_akshare
+    from core.data.ak_lock import import_akshare
 
     ak = import_akshare()
 
@@ -378,6 +362,7 @@ def fetch_us_daily_bars(
         except TypeError:
             continue
         except Exception:
+            logger.exception('unexpected error in fetch_us_daily_bars')
             continue
     return []
 
@@ -437,6 +422,7 @@ def fetch_daily_bars(
         try:
             meta_peek = peek_daily_cache_meta(market, code)
         except Exception:
+            logger.exception('unexpected error in fetch_daily_bars')
             meta_peek = None
         cached_adj = str((meta_peek or {}).get("adjust_policy") or "qfq").lower()
         cache_ok = cached_adj == policy or (
@@ -546,6 +532,7 @@ def fetch_daily_bars(
             else:
                 return [], "empty"
         except Exception:
+            logger.exception('unexpected error in fetch_daily_bars')
             if existing:
                 trimmed = (
                     existing[-limit:] if limit and len(existing) > limit else existing

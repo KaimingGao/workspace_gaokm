@@ -1,6 +1,5 @@
 """策略验证包导出（V4.1）：配置快照 + 回测摘要 + 源审计 + 成本 + 暴露 + 指纹。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -160,6 +159,7 @@ def build_validation_pack(
                     "note": "无 candidates；调用方可传入 ab_compare",
                 }
         except Exception as exc:
+            logger.exception('unexpected error in build_validation_pack')
             pack["ab_compare"] = {"weight_modes": None, "error": str(exc), "track": "RK3"}
     else:
         pack["ab_compare"] = ab_compare
@@ -180,13 +180,13 @@ def build_validation_pack(
 def render_validation_pack_markdown(pack: dict) -> str:
     p = pack.get("pack") if "pack" in pack else pack
     lines = [
-        f"# 策略验证包",
-        f"",
+        "# 策略验证包",
+        "",
         f"- 导出时间：`{p.get('exported_at')}`",
         f"- 指纹：`{p.get('fingerprint')}`",
         f"- 说明：{p.get('note')}",
-        f"",
-        f"## 成本对照",
+        "",
+        "## 成本对照",
     ]
     cc = (p.get("backtest") or {}).get("cost_compare") or {}
     if cc:

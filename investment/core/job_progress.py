@@ -1,6 +1,5 @@
 """简单内存任务进度（Web 轮询用）+ 多槽 JobRegistry；paper 槽可落盘抗 reload。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -79,7 +78,7 @@ class JobProgress:
         if not path or not os.path.isfile(path):
             return
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 data = json.load(f)
             if not isinstance(data, dict):
                 return
@@ -166,7 +165,7 @@ class JobProgress:
                     and len(result.get("clusters") or []) > 0
                 ):
                     try:
-                        from quant.services.quant_service_factors import (
+                        from core.signal.cluster_job_hydrate import (
                             hydrate_ols_clusters_job_result,
                         )
 

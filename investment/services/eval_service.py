@@ -1,16 +1,13 @@
 """Golden eval 服务（Web / CLI 共用）。"""
 
-from __future__ import annotations
 import logging
 
 logger = logging.getLogger(__name__)
-from core.numbers import now_iso_local as _now_iso
-
 import json
 import os
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from core.numbers import now_iso_local as _now_iso
 from core.paths import EVALS_JOB_PATH, EVALS_LAST_RUN_PATH
 from evals.run_checklist import (
     CASES_PATH,
@@ -109,7 +106,7 @@ class EvalService:
         if not os.path.isfile(self.last_run_path):
             return None
         try:
-            with open(self.last_run_path, "r", encoding="utf-8") as f:
+            with open(self.last_run_path, encoding="utf-8") as f:
                 data = json.load(f)
             return data if isinstance(data, dict) else None
         except (OSError, json.JSONDecodeError):
@@ -127,7 +124,7 @@ class EvalService:
         if not os.path.isfile(self.job_path):
             return {"status": "idle"}
         try:
-            with open(self.job_path, "r", encoding="utf-8") as f:
+            with open(self.job_path, encoding="utf-8") as f:
                 data = json.load(f)
             return data if isinstance(data, dict) else {"status": "idle"}
         except (OSError, json.JSONDecodeError):

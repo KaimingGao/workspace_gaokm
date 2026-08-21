@@ -1,6 +1,5 @@
 """D1–D6 平台 API：jobs / memory / decisions / feedback / schedule / order prefill。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -30,7 +29,7 @@ class ScheduleBody(BaseModel):
         ...,
         description=(
             "watch_alert | daily_review | sentiment_scan | bars_warmup | minute_warmup | "
-            "spot_refresh | fundamentals_warmup | paper_daily | validation_prepare | "
+            "spot_refresh | fundamentals_warmup | paper_daily | paper_open_fill | validation_prepare | "
             "pre_market_ingest | concept_graph_refresh | macro_backfill"
         ),
     )
@@ -61,12 +60,12 @@ class PrefillQuery(BaseModel):
 
 
 @router.get("/api/jobs")
-def list_jobs():
+def list_jobs() -> Dict[str, Any]:
     return deps.platform.list_jobs()
 
 
 @router.get("/api/jobs/{name}")
-def get_job(name: str, progress: int = 0):
+def get_job(name: str, progress: int = 0) -> Dict[str, Any]:
     """``progress=1``：轮询轻量快照（去掉大 result），避免 3MB JSON 拖垮前端。"""
     from core.signal.score_display import json_safe
 
@@ -82,7 +81,7 @@ def get_job(name: str, progress: int = 0):
 
 
 @router.post("/api/jobs/{name}/cancel")
-def cancel_job(name: str, force: bool = False):
+def cancel_job(name: str, force: bool = False) -> Dict[str, Any]:
     """取消运行中任务。``force=true`` 时立即标失败并释放槽位（卡住的拉数线程仍可能在后台收尾）。"""
     from core.job_progress import job_registry
 
@@ -106,28 +105,28 @@ def cancel_job(name: str, force: bool = False):
     }
 
 @router.get("/api/memory")
-def get_memory():
+def get_memory() -> Dict[str, Any]:
     return deps.platform.get_memory()
 
 
 @router.get("/api/prefs")
-def get_prefs():
+def get_prefs() -> Dict[str, Any]:
     """研究/回测默认偏好（已钳制 horizon 等）。"""
     return deps.platform.get_effective_prefs()
 
 
 @router.put("/api/memory")
-def put_memory(body: MemoryBody):
+def put_memory(body: MemoryBody) -> Dict[str, Any]:
     return deps.platform.save_memory(body.preferences)
 
 
 @router.get("/api/decisions")
-def get_decisions(limit: int = 50):
+def get_decisions(limit: int = 50) -> Dict[str, Any]:
     return deps.platform.list_decisions(limit=limit)
 
 
 @router.post("/api/decisions/record")
-def post_decision(body: RecordAdviceBody):
+def post_decision(body: RecordAdviceBody) -> Dict[str, Any]:
     out = deps.platform.record_advice(
         body.advice,
         source=body.source,
@@ -140,7 +139,7 @@ def post_decision(body: RecordAdviceBody):
 
 
 @router.post("/api/feedback/suggest")
-def post_feedback(body: FeedbackBody):
+def post_feedback(body: FeedbackBody) -> Dict[str, Any]:
     return deps.platform.suggest_feedback(
         paper_metrics=body.paper_metrics,
         backtest_metrics=body.backtest_metrics,
@@ -149,7 +148,7 @@ def post_feedback(body: FeedbackBody):
 
 
 @router.post("/api/schedule/run")
-def post_schedule(body: ScheduleBody):
+def post_schedule(body: ScheduleBody) -> Dict[str, Any]:
     out = deps.platform.run_schedule(
         body.kind,
         codes=body.codes,
@@ -169,18 +168,18 @@ def post_schedule(body: ScheduleBody):
 
 
 @router.get("/api/schedule/job")
-def schedule_job():
+def schedule_job() -> Dict[str, Any]:
     out = deps.platform.get_job("schedule")
     return {**out, "deprecated": True, "canonical": "/api/jobs/schedule"}
 
 
 @router.get("/api/schedule/last")
-def schedule_last():
+def schedule_last() -> Dict[str, Any]:
     return deps.platform.get_schedule_last()
 
 
 @router.get("/api/audit/timeline")
-def audit_timeline(limit: int = 40):
+def audit_timeline(limit: int = 40) -> Dict[str, Any]:
     """W2.5 · 决策 / 调度 / 告警 / promote 只读时间线。"""
     from web.audit_timeline import build_audit_timeline
 
@@ -188,7 +187,7 @@ def audit_timeline(limit: int = 40):
 
 
 @router.get("/api/north-star")
-def north_star(refresh: bool = True):
+def north_star(refresh: bool = True) -> Dict[str, Any]:
     """R0 · 产品北极星二级指标（纸面夏普/卡玛 · 拟合 · TTM · 拦截流水）。"""
     out = deps.platform.get_north_star(refresh=refresh)
     if not out.get("ok"):
@@ -197,19 +196,19 @@ def north_star(refresh: bool = True):
 
 
 @router.get("/api/ops/sample-status")
-def ops_sample_status():
+def ops_sample_status() -> Dict[str, Any]:
     """样本运营覆盖（TTM / 财务 history / 纸面快照 / 拦截标注）。"""
     return deps.platform.get_sample_status()
 
 
 @router.get("/api/ops/empty-fundamentals")
-def ops_empty_fundamentals():
+def ops_empty_fundamentals() -> Dict[str, Any]:
     """V0.5 · 空财务码列表（补拉或移出验证宇宙）。"""
     return deps.platform.get_empty_fundamentals()
 
 
 @router.get("/api/ops/validation-hygiene")
-def ops_validation_hygiene(as_of: str = ""):
+def ops_validation_hygiene(as_of: str = "") -> Dict[str, Any]:
     """验证宇宙卫生：日线覆盖 + 空财务 + 舆情 history 面板。"""
     return deps.platform.get_validation_hygiene(as_of=as_of or None)
 
@@ -223,7 +222,7 @@ class ValidationPrepareBody(BaseModel):
 
 
 @router.post("/api/ops/validation-prepare")
-def ops_validation_prepare(body: ValidationPrepareBody | None = None):
+def ops_validation_prepare(body: ValidationPrepareBody | None = None) -> Dict[str, Any]:
     """一键准备验证宇宙（可写 exclude + 预热日线/舆情 history）。"""
     body = body or ValidationPrepareBody()
     return deps.platform.run_validation_prepare(
@@ -236,7 +235,7 @@ def ops_validation_prepare(body: ValidationPrepareBody | None = None):
 
 
 @router.get("/api/ops/sentiment-as-of")
-def ops_sentiment_as_of(code: str, as_of: str):
+def ops_sentiment_as_of(code: str, as_of: str) -> Dict[str, Any]:
     """FS · 决策日 as_of 舆情面板（history jsonl；不进 ŷ）。"""
     from core.sentiment import sentiment_as_of
 
@@ -246,7 +245,7 @@ def ops_sentiment_as_of(code: str, as_of: str):
 
 
 @router.get("/api/ops/data-quality")
-def ops_data_quality():
+def ops_data_quality() -> Dict[str, Any]:
     """D4 · 数据质量中心（覆盖率/财务多期/源审计/日历）。"""
     return deps.platform.get_data_quality()
 
@@ -258,7 +257,7 @@ class IngestNudgeBody(BaseModel):
 
 
 @router.post("/api/ops/fundamentals-ingest-nudge")
-def ops_fundamentals_ingest_nudge(body: IngestNudgeBody | None = None):
+def ops_fundamentals_ingest_nudge(body: IngestNudgeBody | None = None) -> Dict[str, Any]:
     """DC3 · ann_missing TopN 催办 ingest（路径内运营）。"""
     body = body or IngestNudgeBody()
     return deps.platform.run_fundamentals_ingest_nudge(
@@ -269,7 +268,7 @@ def ops_fundamentals_ingest_nudge(body: IngestNudgeBody | None = None):
 
 
 @router.get("/api/ops/factor-health")
-def ops_factor_health():
+def ops_factor_health() -> Dict[str, Any]:
     """X3 · 生产面因子健康（proxy / 无源权重）。"""
     from core.signal.factor_health import assess_factor_health
 
@@ -277,19 +276,19 @@ def ops_factor_health():
 
 
 @router.get("/api/ops/source-audit")
-def ops_source_audit(lookback: int = 40):
+def ops_source_audit(lookback: int = 40) -> Dict[str, Any]:
     """D1 · live/回测源一致性审计。"""
     return deps.platform.get_source_audit(lookback=lookback)
 
 
 @router.get("/api/ops/maturity-gate")
-def ops_maturity_gate():
+def ops_maturity_gate() -> Dict[str, Any]:
     """V5 · 策略验证成熟闸门只读评估。"""
     return deps.platform.get_maturity_gate()
 
 
 @router.post("/api/ops/validation-pack")
-def ops_validation_pack(body: dict = None):
+def ops_validation_pack(body: dict = None) -> Dict[str, Any]:
     """V4.1 · 导出策略验证包（JSON + markdown）。"""
     body = body or {}
     return deps.platform.export_validation_pack(
@@ -299,7 +298,7 @@ def ops_validation_pack(body: dict = None):
 
 
 @router.post("/api/ops/fit-gap")
-def ops_fit_gap(body: dict = None):
+def ops_fit_gap(body: dict = None) -> Dict[str, Any]:
     """V1.3 · 回测–纸面拟合落差启发式归因。"""
     body = body or {}
     return deps.platform.get_fit_gap(
@@ -308,7 +307,7 @@ def ops_fit_gap(body: dict = None):
 
 
 @router.get("/api/alerts/last")
-def alerts_last():
+def alerts_last() -> Dict[str, Any]:
     """最近一次出站告警（页内铃铛 / Notification）。"""
     from web.audit_timeline import read_alerts_last
 
@@ -316,7 +315,7 @@ def alerts_last():
 
 
 @router.get("/api/orders/prefill")
-def orders_prefill(limit: int = 10, fmt: str = "json"):
+def orders_prefill(limit: int = 10, fmt: str = "json") -> Any:
     if fmt not in ("json", "csv"):
         raise HTTPException(status_code=400, detail="fmt must be json|csv")
     return deps.platform.order_prefill(limit=limit, fmt=fmt)

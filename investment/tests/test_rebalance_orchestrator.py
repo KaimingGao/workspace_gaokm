@@ -65,9 +65,16 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
     def test_cross_section_delegates_to_simulator(self):
         paper = {"holdings": [], "rules": {"max_positions": 5}, "strategy_id": "short"}
         ranking = [{"stock_code": "600519", "score": 80}]
+
+        class _Book:
+            def as_dict(self):
+                return {"success": True, "ranking": ranking}
+
+        mock_svc = MagicMock()
+        mock_svc.rank_cross_section.return_value = _Book()
         with patch(
-            "core.signal.cross_section.rank_cross_section",
-            return_value={"success": True, "ranking": ranking},
+            "core.signal.service.get_default_signal_service",
+            return_value=mock_svc,
         ), patch(
             "core.paper_rebalance.simulate_cross_section_rebalance",
             return_value={"sell_trades": [], "buy_trades": []},
@@ -76,6 +83,7 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
         ):
             out = run_paper_rebalance(paper, mode="cross_section", top_k=3)
         mock_sim.assert_called_once()
+        mock_svc.rank_cross_section.assert_called_once()
         self.assertEqual(out["mode"], "cross_section")
         self.assertFalse(out["cluster_mode"])
         self.assertEqual(out["ranking"], ranking)

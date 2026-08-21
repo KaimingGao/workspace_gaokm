@@ -1,6 +1,5 @@
 """live / 回测数据源一致性审计（R1.4）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -38,6 +37,7 @@ def audit_code_sources(
         try:
             pack = get_bars(code, limit=lookback)
         except Exception as e:
+            logger.exception('unexpected error in audit_code_sources')
             empty_codes.append(code)
             details.append({"stock_code": code, "error": str(e), "level": "empty"})
             continue
@@ -112,5 +112,6 @@ def attach_source_audit(
     try:
         out["source_audit"] = audit_code_sources(code_list)
     except Exception as e:
+        logger.exception('unexpected error in attach_source_audit')
         out["source_audit"] = {"ok": False, "error": str(e)}
     return out

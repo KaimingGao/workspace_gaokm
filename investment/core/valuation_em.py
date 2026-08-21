@@ -4,7 +4,6 @@
 列表与研究分组共用，避免全表现货挂掉后估值因子长期「未算」。
 """
 
-from __future__ import annotations
 
 import json
 import logging
@@ -12,7 +11,6 @@ import os
 import time
 from typing import Any, Dict, Optional
 
-from core.data_policy import VALUATION_CACHE_HOURS
 from core.io_atomic import atomic_write_json
 
 logger = logging.getLogger(__name__)
@@ -51,7 +49,7 @@ def read_valuation_cache(
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
         fetched_at = float(payload.get("fetched_at") or 0)
         if fetched_at <= 0:
@@ -107,7 +105,7 @@ def _read_fhps_map_disk(*, max_age_hours: float = 36.0) -> Optional[Dict[str, fl
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
         fetched_at = float(payload.get("fetched_at") or 0)
         if fetched_at <= 0:
@@ -147,7 +145,7 @@ def _fetch_fhps_dividend_map() -> Dict[str, float]:
         return dict(disk)
     by_code: Dict[str, float] = {}
     try:
-        from skills.common.ak_lock import import_akshare
+        from core.data.ak_lock import import_akshare
 
         ak = import_akshare()
         df = ak.stock_fhps_em()
@@ -194,7 +192,7 @@ def fetch_valuation_pack(code: str) -> Dict[str, Optional[float]]:
     pack: Dict[str, Optional[float]] = dict(cached)
     if need_val or not cached:
         try:
-            from skills.fundamentals.engine import fetch_cn_valuation_latest
+            from core.ports.market import fetch_cn_valuation_latest
 
             raw = fetch_cn_valuation_latest(str(code).zfill(6)) or {}
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

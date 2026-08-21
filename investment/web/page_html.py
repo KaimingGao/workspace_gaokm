@@ -1,6 +1,5 @@
 """组装 Web HTML：对话工作台 / 研究分页全页壳。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -9,7 +8,6 @@ import os
 from functools import lru_cache
 
 from web.asset_version import ASSET_V
-
 
 STATIC_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 PARTIALS = os.path.join(STATIC_DIR, "partials")

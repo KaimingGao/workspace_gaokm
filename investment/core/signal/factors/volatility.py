@@ -5,7 +5,6 @@
 - 后续可加：rolling_std、downside_deviation、BollingerBand 宽度等
 """
 
-from __future__ import annotations
 
 import logging
 

@@ -13,7 +13,6 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
-
 PRIOR_REASON = "sentiment_prior_bearish"
 PRIOR_REASON_BULLISH = "sentiment_prior_bullish_theme"
 
@@ -436,6 +435,7 @@ def resolve_prior_for_code(
             if pack.get("ok"):
                 sent = pack.get("sentiment")
         except Exception as exc:
+            logger.exception('unexpected error in resolve_prior_for_code')
             return {
                 "success": False,
                 "role": "prior",

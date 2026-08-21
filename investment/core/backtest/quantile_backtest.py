@@ -1,6 +1,5 @@
 """分层（分位数）回测（T5.2）：检验 score 全池单调性，相对 Top-K 截断更细。"""
 
-from __future__ import annotations
 
 import logging
 

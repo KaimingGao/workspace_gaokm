@@ -1,6 +1,5 @@
 """FS2：alt_sentiment as_of 面板 IC（与 live 闸独立）。"""
 
-from __future__ import annotations
 
 import logging
 

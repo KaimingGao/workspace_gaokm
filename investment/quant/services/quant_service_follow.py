@@ -1,6 +1,5 @@
 """QuantService · ① 模拟（T0 研究回测；账户执行见 PaperService）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -53,9 +52,10 @@ class QuantFollowMixin:
     def _t0_holdings_for_backtest(
         self, *, codes: Optional[list] = None, code: str = ""
     ) -> list:
+        import os
+
         from core.paper import load_paper
         from core.paths import PAPER_PATH
-        import os
 
         if not os.path.isfile(PAPER_PATH):
             return []

@@ -4,7 +4,6 @@ Live 评分默认 ``sentiment.include_in_score=false``（不进 ŷ）；UI 徽�
 研究可用 ``sentiment_as_of`` 做 PIT 面板。LLM 分析不得写入 sub_scores。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -16,6 +15,7 @@ import re
 import time
 from typing import Any, Dict, List, Optional, Sequence, Set
 
+from core.io_atomic import atomic_write_json
 from core.paths import (
     LLM_SENTIMENT_DIR,
     NEWS_HISTORY_DIR,
@@ -24,7 +24,7 @@ from core.paths import (
     SENTIMENT_LEXICON_PATH,
     WATCHING_PATH,
 )
-from core.io_atomic import atomic_write_json
+
 DEFAULT_TTL_SEC = 15 * 60
 MAX_BATCH = 20
 ALERT_SCORE_THRESHOLD = 0.6
@@ -86,7 +86,7 @@ def load_lexicon(path: Optional[str] = None) -> Dict[str, List[str]]:
     p = path or SENTIMENT_LEXICON_PATH
     if os.path.isfile(p):
         try:
-            with open(p, "r", encoding="utf-8") as f:
+            with open(p, encoding="utf-8") as f:
                 data = json.load(f)
             if isinstance(data, dict):
                 pos = data.get("positive") or data.get("bullish") or []
@@ -233,7 +233,7 @@ def _read_cache(code: str) -> Optional[Dict[str, Any]]:
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         return data if isinstance(data, dict) else None
     except (OSError, json.JSONDecodeError, TypeError):
@@ -293,10 +293,9 @@ def append_headline_history(code: str, payload: Dict[str, Any]) -> Optional[str]
     # 截断过长日志
     max_lines = max(50, min(int(cfg.get("history_max_lines_per_code") or 500), 5000))
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             lines = f.readlines()
         if len(lines) > max_lines:
-            import tempfile
 
             tmp = path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
@@ -329,7 +328,7 @@ def sentiment_as_of(
     titles: List[dict] = []
     if os.path.isfile(path):
         try:
-            with open(path, "r", encoding="utf-8") as f:
+            with open(path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -443,6 +442,7 @@ def warmup_sentiment_history(
                 c, limit=limit, force=True, lexicon=lexicon
             )
         except Exception as exc:
+            logger.exception('unexpected error in warmup_sentiment_history')
             row = {
                 "ok": False,
                 "stock_code": c,
@@ -531,6 +531,7 @@ def fetch_stock_headlines(
     try:
         raw = get_news(code_key, limit=limit)
     except Exception as exc:
+        logger.exception('unexpected error in fetch_stock_headlines')
         # 超时/网络异常：优先回退过期缓存，避免 UI 永久加载中
         reason = f"资讯源超时：{exc}"
         if cached:
@@ -637,7 +638,7 @@ def _watchlist_codes(codes: Optional[Sequence[str]] = None) -> List[str]:
     if not os.path.isfile(WATCHING_PATH):
         return []
     try:
-        with open(WATCHING_PATH, "r", encoding="utf-8") as f:
+        with open(WATCHING_PATH, encoding="utf-8") as f:
             uni = json.load(f)
         wl = uni.get("watchlist") or []
         return [str(c).strip() for c in wl if str(c).strip()][:MAX_BATCH]
@@ -667,6 +668,7 @@ def list_watchlist_sentiment(
                 lexicon=lexicon,
             )
         except Exception as exc:
+            logger.exception('unexpected error in list_watchlist_sentiment')
             row = {
                 "ok": False,
                 "stock_code": code,
@@ -805,7 +807,7 @@ def read_last_sentiment_alerts() -> Dict[str, Any]:
             "note": "尚无扫描记录",
         }
     try:
-        with open(SCHEDULE_LAST_RUN_PATH, "r", encoding="utf-8") as f:
+        with open(SCHEDULE_LAST_RUN_PATH, encoding="utf-8") as f:
             data = json.load(f)
     except (OSError, json.JSONDecodeError, TypeError):
         return {
@@ -884,7 +886,7 @@ def _read_llm_cache(code: str) -> Optional[Dict[str, Any]]:
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             data = json.load(f)
         return data if isinstance(data, dict) else None
     except (OSError, json.JSONDecodeError, TypeError):
@@ -1018,6 +1020,7 @@ def score_headlines_llm(
         content = client.get_response_content(response)
         parsed = _parse_llm_response(content)
     except Exception as e:
+        logger.exception('unexpected error in score_headlines_llm')
         return _annotate_include_gate(
             {
                 "label": "neutral",

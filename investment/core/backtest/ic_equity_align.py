@@ -1,11 +1,10 @@
 """IC 与 Top-K 净值时段对齐（T13）：正/负 IC 窗下的组合期收益对照。"""
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 
 def _ic_map(score_ic: Dict[str, Any]) -> Dict[str, float]:

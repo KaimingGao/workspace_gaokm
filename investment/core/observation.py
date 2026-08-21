@@ -1,6 +1,5 @@
 """统一观测信封（Skill / Job / Agent 共用）。"""
 
-from __future__ import annotations
 
 import logging
 

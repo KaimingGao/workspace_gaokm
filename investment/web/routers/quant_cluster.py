@@ -1,11 +1,10 @@
 """量化研究台 API — cluster live management。"""
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 
@@ -24,7 +23,7 @@ router = APIRouter(tags=["quant"])
 
 
 @router.post("/api/quant/factor-ols-clusters")
-def quant_factor_ols_clusters(body: FactorOlsClusterRequest):
+def quant_factor_ols_clusters(body: FactorOlsClusterRequest) -> Dict[str, Any]:
     """研究池：单票 OLS β 聚类 → 组内共用池 OLS / 小步权草案；不写 config。
 
     默认入队 Job（``GET /api/jobs/quant-ols-clusters``）；``sync=true`` 同步兼容单测。
@@ -60,7 +59,7 @@ def quant_factor_ols_clusters(body: FactorOlsClusterRequest):
 
 
 @router.get("/api/quant/factor-ols-clusters/last-report")
-def quant_factor_ols_clusters_last_report():
+def quant_factor_ols_clusters_last_report() -> Dict[str, Any]:
     """最近一次成功分组报告（优先 ``cluster_last_report``；供进页恢复 / Job 水合）。"""
     try:
         from core.signal.score_display import json_safe
@@ -78,7 +77,7 @@ def quant_factor_ols_clusters_last_report():
 
 
 @router.post("/api/quant/cluster-paper-preview")
-def quant_cluster_paper_preview(body: ClusterPaperPreviewRequest):
+def quant_cluster_paper_preview(body: ClusterPaperPreviewRequest) -> Dict[str, Any]:
     """分池候选簿 → 纸面调仓预演；confirm=true 写 paper.json（不写 signal_config）。"""
     try:
         return deps.quant.preview_cluster_paper_rebalance(
@@ -92,7 +91,7 @@ def quant_cluster_paper_preview(body: ClusterPaperPreviewRequest):
 
 
 @router.post("/api/quant/cluster-multi-score")
-def quant_cluster_multi_score(body: ClusterMultiScoreRequest):
+def quant_cluster_multi_score(body: ClusterMultiScoreRequest) -> Dict[str, Any]:
     """code_map 多权复打分：仅组内排序，不写 signal_config。"""
     try:
         return deps.quant.run_cluster_multi_score(
@@ -111,7 +110,7 @@ def quant_cluster_live_status(
     audit_offset: Optional[int] = None,
     light: bool = False,
     run_auto_demote: bool = False,
-):
+) -> Dict[str, Any]:
     """分组 live 状态：active / draft / health / mode。
 
     ``light=1``：只读 mode/簿长（交易执行状态条）；不跑证据包/自动降级。
@@ -129,7 +128,7 @@ def quant_cluster_live_status(
 
 
 @router.post("/api/quant/cluster-live/apply")
-def quant_cluster_live_apply(body: ClusterApplyShortcutRequest):
+def quant_cluster_live_apply(body: ClusterApplyShortcutRequest) -> Dict[str, Any]:
     """一键：晋升 + 设 mode（默认 shadow）+ 刷新分池簿。"""
     try:
         return deps.quant.apply_cluster_live_shortcut(
@@ -144,7 +143,7 @@ def quant_cluster_live_apply(body: ClusterApplyShortcutRequest):
 
 
 @router.post("/api/quant/cluster-live/promote")
-def quant_cluster_live_promote(body: ClusterPromoteRequest):
+def quant_cluster_live_promote(body: ClusterPromoteRequest) -> Dict[str, Any]:
     """研究产物/草稿 → live active（不写全局 weights）。"""
     try:
         return deps.quant.promote_cluster_live(
@@ -158,7 +157,7 @@ def quant_cluster_live_promote(body: ClusterPromoteRequest):
 
 
 @router.get("/api/quant/cluster-live/promote-preflight")
-def quant_cluster_promote_preflight(from_draft: bool = True):
+def quant_cluster_promote_preflight(from_draft: bool = True) -> Dict[str, Any]:
     """B3：draft vs active 晋升预检（OOS / R² / IC / 焦点票）。"""
     try:
         return deps.quant.compare_cluster_partition_vs_active(from_draft=bool(from_draft))
@@ -167,7 +166,7 @@ def quant_cluster_promote_preflight(from_draft: bool = True):
 
 
 @router.post("/api/quant/cluster-live/rollback")
-def quant_cluster_live_rollback(body: ClusterRollbackRequest):
+def quant_cluster_live_rollback(body: ClusterRollbackRequest) -> Dict[str, Any]:
     try:
         return deps.quant.rollback_cluster_live(to_version=body.to_version)
     except Exception as e:
@@ -175,7 +174,7 @@ def quant_cluster_live_rollback(body: ClusterRollbackRequest):
 
 
 @router.post("/api/quant/cluster-live/mode")
-def quant_cluster_live_mode(body: ClusterModeRequest):
+def quant_cluster_live_mode(body: ClusterModeRequest) -> Dict[str, Any]:
     """设置 cluster_scoring.mode = off|shadow|active。"""
     try:
         return deps.quant.set_cluster_live_mode(
@@ -186,7 +185,7 @@ def quant_cluster_live_mode(body: ClusterModeRequest):
 
 
 @router.post("/api/quant/cluster-live/refresh-book")
-def quant_cluster_live_refresh_book():
+def quant_cluster_live_refresh_book() -> Dict[str, Any]:
     """日更：按 active map 重打分并刷新合并簿（不重聚类）。"""
     try:
         return deps.quant.refresh_cluster_live_book()
@@ -195,7 +194,7 @@ def quant_cluster_live_refresh_book():
 
 
 @router.post("/api/quant/cluster-live/rank")
-def quant_cluster_live_rank():
+def quant_cluster_live_rank() -> Dict[str, Any]:
     """分池排序：组权打分 → 全局按 score 排序截断。"""
     try:
         return deps.quant.rank_cluster_live_pools()

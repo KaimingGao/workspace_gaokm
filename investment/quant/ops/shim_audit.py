@@ -1,6 +1,5 @@
 """检测 quant 兼容 shim 的非法 import（P39，非破坏性守卫）。"""
 
-from __future__ import annotations
 
 import logging
 

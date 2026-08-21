@@ -1,6 +1,5 @@
 """子因子 + 前瞻收益面板对齐（研究用，不依赖 quant）。"""
 
-from __future__ import annotations
 
 import logging
 

@@ -4,7 +4,6 @@
 - simple_cn：A 股简化；费率来自 CostPort（`core.backtest.cost_port`）
 """
 
-from __future__ import annotations
 
 import logging
 

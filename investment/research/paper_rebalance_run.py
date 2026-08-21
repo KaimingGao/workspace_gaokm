@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """横截面 TopK 纸面调仓 CLI（P11.3）。"""
 
-from __future__ import annotations
 
 import argparse
 import json

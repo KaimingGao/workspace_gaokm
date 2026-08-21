@@ -3,7 +3,6 @@
 按交易会话日（``resolve_session_date``）落盘标记；同日后续分组可走 36h 过期刷新 / 纯缓存。
 """
 
-from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone

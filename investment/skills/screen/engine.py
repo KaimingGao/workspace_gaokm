@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from typing import Any, Dict, List, Optional, Sequence, Tuple
+
+logger = logging.getLogger(__name__)
 
 # 常见行业关键词 → 名称模糊匹配用词
 SECTOR_ALIASES = {
@@ -51,7 +54,7 @@ def _to_float(value: Any) -> Optional[float]:
             if value != value:  # NaN
                 return None
         except Exception:
-            pass
+            logger.exception('unexpected error in _to_float')
         return float(value)
     text = str(value).strip().replace(",", "")
     if text in ("", "-", "--", "None", "nan", "NaN"):
@@ -79,7 +82,7 @@ def _normalize_rows(rows: Sequence[Any]) -> List[dict]:
         try:
             return rows.to_dict(orient="records")
         except Exception:
-            pass
+            logger.exception('unexpected error in _normalize_rows')
 
     if isinstance(rows, dict):
         # 单行
@@ -191,7 +194,7 @@ def _load_disk_spot(max_age_hours: float = _SPOT_DISK_MAX_AGE_HOURS) -> Optional
     if not os.path.isfile(path):
         return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             payload = json.load(f)
         fetched_at = float(payload.get("fetched_at") or 0)
         if fetched_at <= 0:
@@ -204,6 +207,7 @@ def _load_disk_spot(max_age_hours: float = _SPOT_DISK_MAX_AGE_HOURS) -> Optional
             return None
         return rows
     except Exception:
+        logger.exception('unexpected error in _load_disk_spot')
         return None
 
 
@@ -233,7 +237,7 @@ def _save_disk_spot(rows: List[dict]) -> None:
                 ensure_ascii=False,
             )
     except Exception:
-        pass
+        logger.exception('unexpected error in _save_disk_spot')
 
 
 def _fetch_a_spot_live() -> List[dict]:
@@ -250,6 +254,7 @@ def _fetch_a_spot_live() -> List[dict]:
                 raise RuntimeError("现货表为空")
             return rows
         except Exception as e:
+            logger.exception('unexpected error in _fetch_a_spot_live')
             last_err = e
             if attempt + 1 < _SPOT_FETCH_RETRIES:
                 time.sleep(0.6 * (attempt + 1))
@@ -316,6 +321,7 @@ class StockScreener:
         try:
             rows = fetch_a_spot()
         except Exception as e:
+            logger.exception('unexpected error in screen')
             return {
                 "success": False,
                 "error": str(e),
@@ -333,6 +339,7 @@ class StockScreener:
                 limit=limit if limit is not None else 10,
             )
         except Exception as e:
+            logger.exception('unexpected error in screen')
             return {"success": False, "error": f"筛选失败: {e}"}
 
         filters = {

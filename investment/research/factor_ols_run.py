@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """因子面板 OLS 实验 CLI（P86，研究用，不写 signal_config）。"""
 
-from __future__ import annotations
 
 import argparse
 import json

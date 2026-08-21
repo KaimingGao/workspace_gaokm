@@ -1,15 +1,12 @@
 """QuantService · 配置 / 策略列表（P94 拆分）。"""
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
-import os
 from typing import Any, Dict, Optional
 
-from core.paths import SIGNAL_CONFIG_PATH
-from core.signal.config import load_signal_config
+from core.signal.config import get_signal_config_path, load_signal_config
 
 
 class QuantConfigMixin:
@@ -19,7 +16,7 @@ class QuantConfigMixin:
         rank_mode = scoring.get("rank_mode") or "predicted_score"
         return {
             "success": True,
-            "config_path": os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH),
+            "config_path": get_signal_config_path(),
             "weights": cfg.get("weights"),
             "stance_thresholds": cfg.get("stance_thresholds"),
             "regime": cfg.get("regime"),

@@ -4,15 +4,13 @@
 ``cluster_weights_active.json`` 为镜像，兼容旧读者；真源以指针为准。
 """
 
-from __future__ import annotations
-from core.numbers import now_iso_utc
-
 import glob
 import json
 import logging
 import os
-from datetime import datetime, timezone
 from typing import Any, Dict, Optional
+
+from core.numbers import now_iso_utc
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +103,6 @@ def publish_cluster_weights_doc(
     from core.paths import (
         CLUSTER_WEIGHTS_ACTIVE_PATH,
         LIVE_DIR,
-        cluster_weights_versioned_path,
     )
 
     try:
@@ -128,6 +125,7 @@ def publish_cluster_weights_doc(
         if not isinstance(loaded, dict) or not isinstance(loaded.get("code_map"), dict):
             raise ValueError("artifact code_map 无效")
     except Exception as e:
+        logger.exception('unexpected error in publish_cluster_weights_doc')
         try:
             os.remove(artifact)
         except OSError:
@@ -155,7 +153,7 @@ def prune_old_cluster_weight_artifacts(keep: int = CLUSTER_WEIGHTS_PRUNE_KEEP) -
     同时清理 history 目录中超出 ``keep`` 的旧备份。
     当前指针指向的版本永远不会被删除。
     """
-    from core.paths import LIVE_DIR, CLUSTER_WEIGHTS_HISTORY_DIR
+    from core.paths import CLUSTER_WEIGHTS_HISTORY_DIR, LIVE_DIR
 
     removed = []
 

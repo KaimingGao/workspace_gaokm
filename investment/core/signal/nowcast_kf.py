@@ -8,7 +8,6 @@ predicted_score_nowcast = (1−K)·ŷ_EOD + K·(缺口∘ŷ_τ)（与 ŷ_trade �
 观测是模型输出，不是 T 收；T 收盘后剩余为 0，滤波结束。
 """
 
-from __future__ import annotations
 
 import logging
 

@@ -1,10 +1,11 @@
 """量化研究台 API — backtesting。"""
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
+from typing import Any, Dict
+
 from fastapi import APIRouter, HTTPException
 
 from web import deps
@@ -21,7 +22,7 @@ router = APIRouter(tags=["quant"])
 
 
 @router.post("/api/quant/t0-backtest")
-def quant_t0_backtest(body: T0BacktestRequest):
+def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
     try:
         rules = {
             "t0_ratio": body.t0_ratio,
@@ -71,7 +72,7 @@ def quant_t0_backtest(body: T0BacktestRequest):
 
 
 @router.post("/api/quant/portfolio-backtest")
-def quant_portfolio_backtest(body: PortfolioBacktestRequest):
+def quant_portfolio_backtest(body: PortfolioBacktestRequest) -> Dict[str, Any]:
     try:
         return deps.quant.run_portfolio_backtest(
             codes=body.codes,
@@ -104,7 +105,7 @@ def quant_portfolio_backtest(body: PortfolioBacktestRequest):
 
 
 @router.post("/api/quant/param-grid")
-def quant_param_grid(body: ParamGridRequest):
+def quant_param_grid(body: ParamGridRequest) -> Dict[str, Any]:
     """Top-K × lookback 参数扫描（限格）。
 
     默认入队 Job（``GET /api/jobs/quant-param-grid``）；``sync=true`` 同步兼容单测。
@@ -133,7 +134,7 @@ def quant_param_grid(body: ParamGridRequest):
 
 
 @router.post("/api/quant/portfolio-neutral-compare")
-def quant_portfolio_neutral_compare(body: PortfolioBacktestRequest):
+def quant_portfolio_neutral_compare(body: PortfolioBacktestRequest) -> Dict[str, Any]:
     try:
         return deps.quant.run_portfolio_neutral_compare(
             codes=body.codes,
@@ -157,7 +158,7 @@ def quant_portfolio_neutral_compare(body: PortfolioBacktestRequest):
 
 
 @router.post("/api/quant/ab-compare")
-def quant_ab_compare(body: AbCompareRequest):
+def quant_ab_compare(body: AbCompareRequest) -> Dict[str, Any]:
     """S2 · A/B 对照指纹。"""
     try:
         from core.ab_compare import build_ab_compare
@@ -176,7 +177,7 @@ def quant_ab_compare(body: AbCompareRequest):
 
 
 @router.post("/api/quant/return-model/fit")
-def quant_return_model_fit(body: ReturnModelFitRequest):
+def quant_return_model_fit(body: ReturnModelFitRequest) -> Dict[str, Any]:
     try:
         return deps.quant.fit_return_score_model(
             codes=body.codes,
@@ -192,7 +193,7 @@ def quant_return_model_fit(body: ReturnModelFitRequest):
 
 
 @router.post("/api/quant/return-model/promote")
-def quant_return_model_promote(body: ReturnModelPromoteRequest):
+def quant_return_model_promote(body: ReturnModelPromoteRequest) -> Dict[str, Any]:
     try:
         return deps.quant.promote_return_score_model(note=body.note)
     except Exception as e:
@@ -200,7 +201,7 @@ def quant_return_model_promote(body: ReturnModelPromoteRequest):
 
 
 @router.get("/api/quant/return-model/status")
-def quant_return_model_status():
+def quant_return_model_status() -> Dict[str, Any]:
     try:
         return deps.quant.return_score_model_status()
     except Exception as e:

@@ -1,6 +1,5 @@
 """X 轨 · live 特征同构：财务 PIT / 指数 / 市场深度（与 research panel 同源 resolve）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -131,6 +130,7 @@ def fetch_live_index_bars(
         if not bars:
             reason = "no_index"
     except Exception as exc:
+        logger.exception('unexpected error in fetch_live_index_bars')
         bars = []
         label = "error"
         reason = f"index_fetch_failed:{exc}"

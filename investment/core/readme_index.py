@@ -1,6 +1,5 @@
 """仓库子目录 README 覆盖索引（P42）与内容读取（P43）。"""
 
-from __future__ import annotations
 
 import logging
 

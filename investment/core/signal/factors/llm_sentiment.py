@@ -4,7 +4,6 @@
 LLM 情绪打分逻辑见 ``core.sentiment.score_headlines_llm``。
 """
 
-from __future__ import annotations
 
 import logging
 

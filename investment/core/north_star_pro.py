@@ -4,23 +4,21 @@ R0（core/north_star.py）负责基础仪表的可靠产出；本模块在其之
 不破坏 R0 现有接口，也不改变数据文件格式。
 """
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
 import math
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 import numpy as np
-
 
 # ========== 工具：从 R0 模块导入（延迟导入避免循环） ==========
 
 def _import_r0():
     from core.backtest_curve_store import _curve_points, _paper_daily_equities
     from core.north_star import compute_realization
-    from core.risk_metrics import period_returns, pearson, rolling_sharpe, tracking_error_pct
+    from core.risk_metrics import pearson, period_returns, rolling_sharpe, tracking_error_pct
     return _paper_daily_equities, _curve_points, compute_realization, period_returns, pearson, rolling_sharpe, tracking_error_pct
 
 
@@ -444,13 +442,13 @@ if __name__ == "__main__":
     paper_snap = [{"ts": f"{d}T15:00:00", "equity": 1.0 + i * 0.001 + rng.standard_normal() * 0.002} for i, d in enumerate(dates)]
     bt_curve = [{"date": d, "equity": 1.0 + i * 0.001 + rng.standard_normal() * 0.002} for i, d in enumerate(dates)]
     rr = rolling_realization(paper_snap, bt_curve, window=15, step=3)
-    print("rolling_realization: n_windows=%d, corr_trend=%s" % (rr["n_windows"], rr["corr_trend"]))
+    logger.info("rolling_realization: n_windows=%d, corr_trend=%s" % (rr["n_windows"], rr["corr_trend"]))
 
     # 量化归因
     pr_arr = np.array([0.01, -0.005, 0.008, -0.01, 0.003, 0.012, -0.006, 0.004, -0.002, 0.009])
     br_arr = np.array([0.008, -0.004, 0.006, -0.008, 0.002, 0.010, -0.005, 0.003, -0.001, 0.007])
     qa = quantify_fit_gap_attribution(pr_arr.tolist(), br_arr.tolist(), cost_pct=0.05)
-    print("quantify_fit_gap: dominant=%s, factors=%s" % (qa["dominant_factor"], {k: round(v, 4) for k, v in qa["factor_pct"].items()}))
+    logger.info("quantify_fit_gap: dominant=%s, factors=%s" % (qa["dominant_factor"], {k: round(v, 4) for k, v in qa["factor_pct"].items()}))
 
     # 收益归因
     T, K = 60, 3
@@ -458,17 +456,17 @@ if __name__ == "__main__":
     true_beta = np.array([0.4, 0.3, 0.2])
     port_ret = fr_arr @ true_beta + rng.standard_normal(T) * 0.002
     attr = north_star_attribution(port_ret, fr_arr, factor_names=["mom", "val", "qual"])
-    print("attribution: verdict=%s, dominant=%s, sys_pct=%.2f" % (attr["verdict"], attr["factor_dominant"], attr["systematic_pct"]))
+    logger.info("attribution: verdict=%s, dominant=%s, sys_pct=%.2f" % (attr["verdict"], attr["factor_dominant"], attr["systematic_pct"]))
 
     # 三项乘积
     cs = composite_north_star_score(sharpe=1.2, ttm_hours=6.0, corr=0.65, te=1.5)
-    print("composite: score=%.3f, verdict=%s, bottleneck=%s" % (cs["composite_score"], cs["verdict"], cs["bottleneck_dimension"]))
+    logger.info("composite: score=%.3f, verdict=%s, bottleneck=%s" % (cs["composite_score"], cs["verdict"], cs["bottleneck_dimension"]))
 
     # 退化告警
     series = [1.0, 1.1, 1.05, 0.95, 0.85, 0.8, 0.7]
     da = degradation_alert(series, metric_name="sharpe", window=3)
     dr = da["decline_rate"] if da["decline_rate"] is not None else 0.0
-    print("degradation: alert=%s, decline_rate=%.3f, consec=%d" % (da["alert"], dr, da["consecutive_decline"]))
+    logger.info("degradation: alert=%s, decline_rate=%.3f, consec=%d" % (da["alert"], dr, da["consecutive_decline"]))
 
     # 退化报告
     rep = north_star_degradation_report(
@@ -477,4 +475,4 @@ if __name__ == "__main__":
         [4, 5, 6, 7, 8, 9],
         window=3,
     )
-    print("degradation_report: any_degrading=%s, dims=%s" % (rep["any_degrading"], rep["degrading_dimensions"]))
+    logger.info("degradation_report: any_degrading=%s, dims=%s" % (rep["any_degrading"], rep["degrading_dimensions"]))

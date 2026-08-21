@@ -1,6 +1,5 @@
 """组合目标权重（N3）：限额内贪心 / 分数风险预算；可选市场波动缩放。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -109,43 +108,13 @@ def sector_map_coverage(
     }
 
 
-def optimize_weights(
-    candidates: List[dict],
-    *,
-    max_position_pct: float = 2.0,
-    max_sector_pct: float = 5.0,
-    max_positions: int = 20,
-    min_score: Optional[float] = None,
-    sector_map: Optional[Dict[str, str]] = None,
-    weight_mode: str = "score_budget",
-    vol_scale: Optional[float] = None,
-    apply_market_vol: bool = True,
-    apply_regime_scale: bool = True,
-    exposure: Optional[dict] = None,
-    max_style_pct: Optional[float] = 40.0,
-) -> Dict[str, Any]:
-    """
-    目标权重（百分比）。
+# ---------------------------------------------------------------------------
+# optimize_weights 的私有子步骤（行为保持一致；仅做结构拆分）
+# ---------------------------------------------------------------------------
 
-    - weight_mode=score_budget：按 score 比例分配（风险预算轻量，默认）
-    - weight_mode=greedy_cap：按分数降序填满单票/行业上限（旧行为）
-    - weight_mode=risk_parity_lite：TopN 内 1/vol 或等权，限额裁剪（无 QP）
-    - weight_mode=qp_lite：可选 cvxpy（V3.4）；不可用则回退 score_budget 并标 unavailable
-    - apply_market_vol：高波时压低有效上限（取数失败则不缩放）
-    - min_score：ŷ% 入选下限；默认 None → ``resolve_buy_floor``；≥10 视为遗留 0–100 并改走 ŷ 门槛。
-      入选对比用 ``eod_gate_score_for_item``（ŷ_EOD）；权重分配用 ``decision_score_for_item``（ŷ_trade）。
-    """
-    smap = sector_map if sector_map is not None else load_sector_map()
-    max_pos = max(0.1, float(max_position_pct or 2.0))
-    max_sec = max(0.1, float(max_sector_pct or 5.0))
-    max_n = max(1, int(max_positions or 20))
-    from core.signal.score_display import json_safe_number, resolve_optimize_score_floor
 
-    floor = resolve_optimize_score_floor(min_score)
-    mode = (weight_mode or "score_budget").strip().lower()
-    if mode not in ("score_budget", "greedy_cap", "risk_parity_lite", "qp_lite"):
-        mode = "score_budget"
-
+def _resolve_vol_scale(vol_scale, apply_market_vol):
+    """解析外部指定 / 市场波动缩放；返回 (vol_meta, scale)。"""
     vol_meta: Dict[str, Any] = {
         "ok": False,
         "scale": 1.0,
@@ -171,6 +140,7 @@ def optimize_weights(
             vol_meta = market_vol_scale()
             scale = float(vol_meta.get("scale") or 1.0)
         except Exception as e:
+            logger.exception('unexpected error in optimize_weights')
             vol_meta = {
                 "ok": False,
                 "scale": 1.0,
@@ -178,8 +148,11 @@ def optimize_weights(
                 "message": f"波动缩放失败: {e}",
             }
             scale = 1.0
+    return vol_meta, scale
 
-    # RK1 · regime 仓位缩放（与波动缩放相乘）
+
+def _resolve_regime_scale(apply_regime_scale):
+    """RK1 · regime 仓位缩放（与波动缩放相乘）；返回 (regime_meta, regime_scale)。"""
     regime_meta: Dict[str, Any] = {
         "ok": False,
         "scale": 1.0,
@@ -208,18 +181,26 @@ def optimize_weights(
             )
             regime_scale = float(regime_meta.get("scale") or 1.0)
         except Exception as e:
+            logger.exception('unexpected error in optimize_weights')
             regime_meta = {
                 "ok": False,
                 "scale": 1.0,
                 "message": f"regime 缩放失败: {e}",
             }
             regime_scale = 1.0
+    return regime_meta, regime_scale
 
+
+def _compute_combined_scale(max_pos, max_sec, scale, regime_scale):
+    """合并 vol×regime 缩放并算有效单票/行业上限；返回 (combined_scale, eff_pos, eff_sec)。"""
     combined_scale = max(0.2, min(1.0, float(scale) * float(regime_scale)))
     eff_pos = round(max_pos * combined_scale, 4)
     eff_sec = round(max_sec * combined_scale, 4)
+    return combined_scale, eff_pos, eff_sec
 
-    # RK0 · 风格暴露软约束告警
+
+def _resolve_style_caps(exposure, max_style_pct, eff_pos, eff_sec):
+    """RK0 · 风格暴露软约束告警；返回 (style_caps, eff_pos, eff_sec)。"""
     style_caps = None
     try:
         from core.pro_core import style_soft_caps_from_exposure
@@ -235,7 +216,32 @@ def optimize_weights(
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
         style_caps = None
+    return style_caps, eff_pos, eff_sec
 
+
+def _build_ranked_row(it, code, score, sector, board, eod_trust, y_check):
+    """构造 ranked 列表的单行（含 vol）。"""
+    row = {
+        "stock_code": code,
+        "score": score,
+        "sector": sector,
+        "board": board,
+        "eod_trust": eod_trust,
+        "y_check": y_check,
+    }
+    vol = it.get("vol")
+    if vol is None:
+        vol = it.get("volatility")
+    if vol is not None:
+        try:
+            row["vol"] = float(vol)
+        except (TypeError, ValueError):
+            pass
+    return row
+
+
+def _filter_and_score_candidates(candidates, smap, floor):
+    """过滤候选、解析双分数、盖戳 Y(τ)、构造 ranked（按 score 降序）。"""
     ranked = []
     for it in candidates or []:
         code = str(it.get("stock_code") or "").strip()
@@ -282,112 +288,78 @@ def optimize_weights(
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                 logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
                 pass
-        row = {
-            "stock_code": code,
-            "score": score,
-            "sector": sector,
-            "board": board,
-            "eod_trust": eod_trust,
-            "y_check": y_check,
-        }
-        vol = it.get("vol")
-        if vol is None:
-            vol = it.get("volatility")
-        if vol is not None:
-            try:
-                row["vol"] = float(vol)
-            except (TypeError, ValueError):
-                pass
-        ranked.append(row)
+        ranked.append(
+            _build_ranked_row(it, code, score, sector, board, eod_trust, y_check)
+        )
     ranked.sort(key=lambda x: x["score"], reverse=True)
+    return ranked
 
-    qp_meta: Optional[Dict[str, Any]] = None
-    requested_mode = mode
 
-    if mode == "score_budget":
-        from core.risk.budget import score_budget_weights
+def _score_budget_weights(ranked, eff_pos, eff_sec, max_n):
+    """score_budget 模式：按 score 比例分配（风险预算轻量，默认）。"""
+    from core.risk.budget import score_budget_weights
 
-        weights, sector_sum, skipped = score_budget_weights(
-            ranked,
-            max_position_pct=eff_pos,
-            max_sector_pct=eff_sec,
-            max_positions=max_n,
-        )
-    elif mode == "risk_parity_lite":
-        from core.risk.budget import risk_parity_lite_weights
+    weights, sector_sum, skipped = score_budget_weights(
+        ranked,
+        max_position_pct=eff_pos,
+        max_sector_pct=eff_sec,
+        max_positions=max_n,
+    )
+    return weights, sector_sum, skipped
 
-        weights, sector_sum, skipped = risk_parity_lite_weights(
-            ranked,
-            max_position_pct=eff_pos,
-            max_sector_pct=eff_sec,
-            max_positions=max_n,
-        )
-        if not weights:
-            # 失败回退贪心
-            mode = "greedy_cap"
-            weights = {}
-            sector_sum = {}
-            skipped = list(skipped)
-            for row in ranked:
-                if len(weights) >= max_n:
-                    skipped.append({**row, "reason": "max_positions"})
-                    continue
-                code = row["stock_code"]
-                sector = row["sector"]
-                room_sec = eff_sec - float(sector_sum.get(sector) or 0.0)
-                if room_sec <= 0.05:
-                    skipped.append({**row, "reason": "max_sector_pct"})
-                    continue
-                alloc = min(eff_pos, room_sec)
-                if alloc <= 0.05:
-                    skipped.append({**row, "reason": "alloc_too_small"})
-                    continue
-                weights[code] = round(alloc, 4)
-                sector_sum[sector] = round(float(sector_sum.get(sector) or 0.0) + alloc, 4)
-            skipped = skipped[:20]
-    elif mode == "qp_lite":
-        from core.risk.budget import qp_lite_weights, score_budget_weights
 
-        weights, sector_sum, skipped, qp_meta = qp_lite_weights(
-            ranked,
-            max_position_pct=eff_pos,
-            max_sector_pct=eff_sec,
-            max_positions=max_n,
-        )
-        if not weights or not (qp_meta or {}).get("available"):
-            mode = "score_budget"
-            weights, sector_sum, skipped = score_budget_weights(
-                ranked,
-                max_position_pct=eff_pos,
-                max_sector_pct=eff_sec,
-                max_positions=max_n,
-            )
-            if qp_meta is None:
-                qp_meta = {}
-            qp_meta["fallback"] = "score_budget"
-    else:
-        weights = {}
-        sector_sum = {}
-        skipped = []
-        for row in ranked:
-            if len(weights) >= max_n:
-                skipped.append({**row, "reason": "max_positions"})
-                continue
-            code = row["stock_code"]
-            sector = row["sector"]
-            room_sec = eff_sec - float(sector_sum.get(sector) or 0.0)
-            if room_sec <= 0.05:
-                skipped.append({**row, "reason": "max_sector_pct"})
-                continue
-            alloc = min(eff_pos, room_sec)
-            if alloc <= 0.05:
-                skipped.append({**row, "reason": "alloc_too_small"})
-                continue
-            weights[code] = round(alloc, 4)
-            sector_sum[sector] = round(float(sector_sum.get(sector) or 0.0) + alloc, 4)
-        skipped = skipped[:20]
+def _risk_parity_lite_weights(ranked, eff_pos, eff_sec, max_n):
+    """risk_parity_lite 模式：TopN 内 1/vol 或等权，限额裁剪（无 QP）。"""
+    from core.risk.budget import risk_parity_lite_weights
 
-    # Y(τ) eod_trust → 目标仓位缩放（不归一）
+    weights, sector_sum, skipped = risk_parity_lite_weights(
+        ranked,
+        max_position_pct=eff_pos,
+        max_sector_pct=eff_sec,
+        max_positions=max_n,
+    )
+    return weights, sector_sum, skipped
+
+
+def _qp_lite_weights(ranked, eff_pos, eff_sec, max_n):
+    """qp_lite 模式：可选 cvxpy（V3.4）；返回 (weights, sector_sum, skipped, qp_meta)。"""
+    from core.risk.budget import qp_lite_weights
+
+    weights, sector_sum, skipped, qp_meta = qp_lite_weights(
+        ranked,
+        max_position_pct=eff_pos,
+        max_sector_pct=eff_sec,
+        max_positions=max_n,
+    )
+    return weights, sector_sum, skipped, qp_meta
+
+
+def _greedy_cap_weights(ranked, eff_pos, eff_sec, max_n, skipped=None):
+    """贪心按分数降序填满单票/行业上限（旧行为）；skipped 可携带上游已跳过项。"""
+    weights = {}
+    sector_sum = {}
+    out_skipped = list(skipped) if skipped else []
+    for row in ranked:
+        if len(weights) >= max_n:
+            out_skipped.append({**row, "reason": "max_positions"})
+            continue
+        code = row["stock_code"]
+        sector = row["sector"]
+        room_sec = eff_sec - float(sector_sum.get(sector) or 0.0)
+        if room_sec <= 0.05:
+            out_skipped.append({**row, "reason": "max_sector_pct"})
+            continue
+        alloc = min(eff_pos, room_sec)
+        if alloc <= 0.05:
+            out_skipped.append({**row, "reason": "alloc_too_small"})
+            continue
+        weights[code] = round(alloc, 4)
+        sector_sum[sector] = round(float(sector_sum.get(sector) or 0.0) + alloc, 4)
+    return weights, sector_sum, out_skipped[:20]
+
+
+def _apply_y_trust_scale(weights, ranked, sector_sum):
+    """Y(τ) eod_trust → 目标仓位缩放（不归一）；返回 (weights, y_trust_meta, sector_sum)。"""
     y_trust_meta: Dict[str, Any] = {"applied": False}
     try:
         from core.signal.y_state import scale_weights_by_eod_trust
@@ -406,9 +378,13 @@ def optimize_weights(
                 sec = code_sector.get(c) or UNMAPPED_SECTOR
                 sector_sum[sec] = round(float(sector_sum.get(sec) or 0.0) + float(w), 4)
     except Exception as e:
+        logger.exception('unexpected error in optimize_weights')
         y_trust_meta = {"applied": False, "error": str(e)}
+    return weights, y_trust_meta, sector_sum
 
-    total = round(sum(weights.values()), 4)
+
+def _compute_coverage(ranked):
+    """行业覆盖率报告（best-effort，取数失败不阻塞主流程）。"""
     codes_for_cov = [r["stock_code"] for r in ranked]
     try:
         from core.strategy_monitor import sector_coverage_report
@@ -417,7 +393,11 @@ def optimize_weights(
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in portfolio_optimize.py", exc_info=True)
         coverage = {"coverage": None, "mapped": 0, "total": len(codes_for_cov)}
+    return coverage
 
+
+def _build_budget_alerts(vol_meta, coverage, y_trust_meta, sector_sum, eff_sec):
+    """汇总预算告警列表（高波 / 行业 map 薄 / Y 信任缩放 / 行业接近上限）。"""
     budget_alerts: List[Dict[str, Any]] = []
     if vol_meta.get("high_vol"):
         budget_alerts.append(
@@ -468,6 +448,35 @@ def optimize_weights(
                     "message": f"行业 {sec} 目标仓位 {pct}% 接近上限 {eff_sec}%",
                 }
             )
+    return budget_alerts
+
+
+def _build_optimize_result(
+    weights,
+    sector_sum,
+    total,
+    skipped,
+    coverage,
+    budget_alerts,
+    mode,
+    requested_mode,
+    qp_meta,
+    vol_meta,
+    regime_meta,
+    y_trust_meta,
+    combined_scale,
+    style_caps,
+    max_pos,
+    max_sec,
+    max_n,
+    floor,
+    eff_pos,
+    eff_sec,
+    scale,
+    regime_scale,
+):
+    """组装 optimize_weights 的最终返回字典。"""
+    from core.signal.score_display import json_safe_number
 
     return {
         "ok": True,
@@ -514,3 +523,88 @@ def optimize_weights(
             + "；不代客下单。"
         ),
     }
+
+
+def optimize_weights(
+    candidates: List[dict],
+    *,
+    max_position_pct: float = 2.0,
+    max_sector_pct: float = 5.0,
+    max_positions: int = 20,
+    min_score: Optional[float] = None,
+    sector_map: Optional[Dict[str, str]] = None,
+    weight_mode: str = "score_budget",
+    vol_scale: Optional[float] = None,
+    apply_market_vol: bool = True,
+    apply_regime_scale: bool = True,
+    exposure: Optional[dict] = None,
+    max_style_pct: Optional[float] = 40.0,
+) -> Dict[str, Any]:
+    """
+    目标权重（百分比）。
+
+    - weight_mode=score_budget：按 score 比例分配（风险预算轻量，默认）
+    - weight_mode=greedy_cap：按分数降序填满单票/行业上限（旧行为）
+    - weight_mode=risk_parity_lite：TopN 内 1/vol 或等权，限额裁剪（无 QP）
+    - weight_mode=qp_lite：可选 cvxpy（V3.4）；不可用则回退 score_budget 并标 unavailable
+    - apply_market_vol：高波时压低有效上限（取数失败则不缩放）
+    - min_score：ŷ% 入选下限；默认 None → ``resolve_buy_floor``；≥10 视为遗留 0–100 并改走 ŷ 门槛。
+      入选对比用 ``eod_gate_score_for_item``（ŷ_EOD）；权重分配用 ``decision_score_for_item``（ŷ_trade）。
+    """
+    smap = sector_map if sector_map is not None else load_sector_map()
+    max_pos = max(0.1, float(max_position_pct or 2.0))
+    max_sec = max(0.1, float(max_sector_pct or 5.0))
+    max_n = max(1, int(max_positions or 20))
+    from core.signal.score_display import resolve_optimize_score_floor
+
+    floor = resolve_optimize_score_floor(min_score)
+    mode = (weight_mode or "score_budget").strip().lower()
+    if mode not in ("score_budget", "greedy_cap", "risk_parity_lite", "qp_lite"):
+        mode = "score_budget"
+
+    vol_meta, scale = _resolve_vol_scale(vol_scale, apply_market_vol)
+    regime_meta, regime_scale = _resolve_regime_scale(apply_regime_scale)
+    combined_scale, eff_pos, eff_sec = _compute_combined_scale(
+        max_pos, max_sec, scale, regime_scale
+    )
+    style_caps, eff_pos, eff_sec = _resolve_style_caps(
+        exposure, max_style_pct, eff_pos, eff_sec
+    )
+
+    ranked = _filter_and_score_candidates(candidates, smap, floor)
+
+    qp_meta: Optional[Dict[str, Any]] = None
+    requested_mode = mode
+    if mode == "score_budget":
+        weights, sector_sum, skipped = _score_budget_weights(ranked, eff_pos, eff_sec, max_n)
+    elif mode == "risk_parity_lite":
+        weights, sector_sum, skipped = _risk_parity_lite_weights(ranked, eff_pos, eff_sec, max_n)
+        if not weights:
+            # 失败回退贪心
+            mode = "greedy_cap"
+            weights, sector_sum, skipped = _greedy_cap_weights(
+                ranked, eff_pos, eff_sec, max_n, skipped
+            )
+    elif mode == "qp_lite":
+        weights, sector_sum, skipped, qp_meta = _qp_lite_weights(ranked, eff_pos, eff_sec, max_n)
+        if not weights or not (qp_meta or {}).get("available"):
+            mode = "score_budget"
+            weights, sector_sum, skipped = _score_budget_weights(ranked, eff_pos, eff_sec, max_n)
+            if qp_meta is None:
+                qp_meta = {}
+            qp_meta["fallback"] = "score_budget"
+    else:
+        weights, sector_sum, skipped = _greedy_cap_weights(ranked, eff_pos, eff_sec, max_n)
+
+    weights, y_trust_meta, sector_sum = _apply_y_trust_scale(weights, ranked, sector_sum)
+
+    total = round(sum(weights.values()), 4)
+    coverage = _compute_coverage(ranked)
+    budget_alerts = _build_budget_alerts(vol_meta, coverage, y_trust_meta, sector_sum, eff_sec)
+
+    return _build_optimize_result(
+        weights, sector_sum, total, skipped, coverage, budget_alerts,
+        mode, requested_mode, qp_meta, vol_meta, regime_meta, y_trust_meta,
+        combined_scale, style_caps, max_pos, max_sec, max_n, floor,
+        eff_pos, eff_sec, scale, regime_scale,
+    )

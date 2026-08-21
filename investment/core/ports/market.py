@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
 from core.ports.adapters import call, set_adapter
+
+logger = logging.getLogger(__name__)
 
 # 供测试 / 启动显式绑定
 set_market_adapter = set_adapter
@@ -140,3 +140,28 @@ def batch_map(fn, items, **kwargs: Any) -> List[Any]:
     if not items:
         return []
     return call("batch_map", fn, items, **kwargs)
+
+
+def fetch_cn_valuation_latest(code: str, **kwargs: Any) -> Any:
+    """A 股估值最新一条（乐咕 / 东财）。"""
+    return call("fetch_cn_valuation_latest", str(code or "").strip(), **kwargs)
+
+
+def build_macro_snapshot(**kwargs: Any) -> Any:
+    """宏观快照构建（跨境/利率等）。"""
+    return call("build_macro_snapshot", **kwargs)
+
+
+def build_market_sentiment_snapshot(**kwargs: Any) -> Any:
+    """市场情绪快照。"""
+    return call("build_market_sentiment_snapshot", **kwargs)
+
+
+def build_announcement_snapshot(**kwargs: Any) -> Any:
+    """监管/公告扫描快照。"""
+    return call("build_announcement_snapshot", **kwargs)
+
+
+def build_code_concept_index(concepts: Sequence[str], **kwargs: Any) -> Any:
+    """概念提示 → code 所属概念索引（可走磁盘缓存）。"""
+    return call("build_code_concept_index", list(concepts or []), **kwargs)

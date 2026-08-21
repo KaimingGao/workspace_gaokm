@@ -17,8 +17,9 @@
     "max_hold_days": 5,
     "min_hold_score": 45,
     "max_turnover_pct": 40,
+    "execution_mode": "next_open",
     "t0": {
-      "enabled": true,
+      "enabled": false,
       "t0_ratio": 0.4,
       "sell_trigger_pct": 2.0,
       "buy_trigger_pct": 1.5,

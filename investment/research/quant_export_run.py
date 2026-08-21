@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """量化日报 Markdown 导出 CLI（P14.2）。"""
 
-from __future__ import annotations
 
 import argparse
 import os

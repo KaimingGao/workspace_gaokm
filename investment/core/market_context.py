@@ -1,6 +1,5 @@
 """市场上下文编排：加载快照 + 构建 prior 包。"""
 
-from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
@@ -59,7 +58,7 @@ def invalidate_market_context_cache() -> None:
 
 
 def ingest_macro(*, lookback: int = 30) -> Dict[str, Any]:
-    from skills.macro.engine import build_macro_snapshot
+    from core.ports.market import build_macro_snapshot
 
     prior, _meta = load_macro_snapshot(max_age_hours=168.0)
     snap = build_macro_snapshot(lookback=lookback)
@@ -71,7 +70,7 @@ def ingest_macro(*, lookback: int = 30) -> Dict[str, Any]:
 
 
 def ingest_market_sentiment(*, trade_date: Optional[str] = None) -> Dict[str, Any]:
-    from skills.market_sentiment.engine import build_market_sentiment_snapshot
+    from core.ports.market import build_market_sentiment_snapshot
 
     snap = build_market_sentiment_snapshot(trade_date=trade_date)
     path = save_market_snapshot("market_sentiment", snap, data_source="market_sentiment_ingest")
@@ -80,7 +79,7 @@ def ingest_market_sentiment(*, trade_date: Optional[str] = None) -> Dict[str, An
 
 
 def ingest_announcement(*, sector_daily_amount: Optional[float] = None) -> Dict[str, Any]:
-    from skills.announcement.engine import build_announcement_snapshot
+    from core.ports.market import build_announcement_snapshot
 
     snap = build_announcement_snapshot(sector_daily_amount=sector_daily_amount)
     path = save_market_snapshot("announcement", snap, data_source="announcement_ingest")
@@ -257,7 +256,7 @@ def summarize_market_context(
 
 def ingest_macro_backfill(*, lookback: int = 90) -> Dict[str, Any]:
     """加长 lookback ingest + 写入 macro 历史索引。"""
-    from skills.macro.history import save_macro_history_index
+    from core.research.macro_history import save_macro_history_index
 
     r = ingest_macro(lookback=max(30, int(lookback or 90)))
     snap = r.get("snapshot") or {}
@@ -278,11 +277,12 @@ def refresh_concept_graph(
     force: bool = False,
 ) -> Dict[str, Any]:
     """刷新概念成分图谱磁盘缓存。"""
-    from core.concept_graph_store import load_concept_graph_cache, save_concept_graph_cache
-    from skills.announcement.concept_graph import (
+    from core.concept_graph_store import (
         DEFAULT_CONCEPT_HINTS,
-        build_code_concept_index,
+        load_concept_graph_cache,
+        save_concept_graph_cache,
     )
+    from core.ports.market import build_code_concept_index
 
     hints = list(concepts or DEFAULT_CONCEPT_HINTS)
     if not force:

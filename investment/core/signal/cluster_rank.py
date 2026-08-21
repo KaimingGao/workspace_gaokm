@@ -1,6 +1,5 @@
 """分池选股：各组 ŷ（return_model）打分 → 全局按 score 排序 → min_score 过滤 + max_names 截断。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -314,8 +313,8 @@ def rank_cluster_pools(
     pool_gaps_list: List[float] = []
     ref_by_code: Dict[str, Optional[float]] = {}
     try:
-        from core.event_prior import compute_sector_gap_breadth_live, get_event_prior_cfg
         from core.data_service import batch_get_quotes
+        from core.event_prior import compute_sector_gap_breadth_live, get_event_prior_cfg
         from core.research.rem_panel import sector_gap_reference_by_code
 
         quote_cache = dict(batch_get_quotes(codes) or {})
@@ -385,6 +384,7 @@ def rank_cluster_pools(
             try:
                 scored_by_code[raw] = fut.result()
             except Exception as e:
+                logger.exception('unexpected error in rank_cluster_pools')
                 scored_by_code[raw] = {
                     "success": False,
                     "stock_code": raw,
@@ -729,8 +729,8 @@ def rank_cluster_pools(
         )
         # A2：同池按 ŷ_τ 影子簿（默认开；不进 execution）
         try:
-            from core.signal.dual_score import build_tau_shadow_book, get_dual_score_cfg
             from core.signal.cluster_live import save_tau_shadow_cluster_book
+            from core.signal.dual_score import build_tau_shadow_book, get_dual_score_cfg
 
             ds = get_dual_score_cfg()
             if ds.get("enable_tau_shadow_book"):
@@ -760,11 +760,11 @@ def rank_cluster_pools(
         nowcast_shadow_path = None
         nowcast_shadow_meta = None
         try:
+            from core.signal.cluster_live import save_nowcast_shadow_cluster_book
             from core.signal.dual_score import (
                 build_nowcast_shadow_book,
                 nowcast_shadow_alerts,
             )
-            from core.signal.cluster_live import save_nowcast_shadow_cluster_book
 
             # nowcast 是表列对照分：刷簿即写影子，不依赖 nowcast.enabled / write_shadow
             nc_book, nowcast_shadow_meta = build_nowcast_shadow_book(
@@ -813,9 +813,7 @@ def rank_cluster_pools(
 
     empty_reason = None
     if not book:
-        if below_min and universe_n and below_min >= universe_n:
-            empty_reason = "all_below_eod_floor"
-        elif below_min and not eligible:
+        if below_min and universe_n and below_min >= universe_n or below_min and not eligible:
             empty_reason = "all_below_eod_floor"
         elif eligible and book_skips and not book:
             empty_reason = "book_constraints_empty"

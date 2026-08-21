@@ -1,6 +1,5 @@
 """日线字段辅助：成交额与成交量分离（模拟验证诚实度）。"""
 
-from __future__ import annotations
 
 import logging
 

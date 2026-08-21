@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
 from core.data_service import bars_and_source
 from core.ports.market import query_quote, resolve_market_code
 from skills.common.history import normalize_bars
+
+logger = logging.getLogger(__name__)
 
 
 def _pct(start: float, end: float) -> Optional[float]:
@@ -95,6 +98,7 @@ def fetch_index_bars(benchmark: str, limit: int = 30) -> Tuple[List[dict], str]:
                 if bars:
                     break
             except Exception:
+                logger.exception('unexpected error in fetch_index_bars')
                 continue
     else:
         # 恒生：多接口 + 多 symbol 形态
@@ -122,6 +126,7 @@ def fetch_index_bars(benchmark: str, limit: int = 30) -> Tuple[List[dict], str]:
                     if bars and len(bars) >= 3:
                         break
                 except Exception:
+                    logger.exception('unexpected error in fetch_index_bars')
                     continue
             if bars and len(bars) >= 3:
                 break
@@ -172,6 +177,7 @@ def build_relative(stock_code: str, benchmark: Optional[str] = None, days: int =
     try:
         index_bars, bench_label = fetch_index_bars(bench_key, limit=days + 5)
     except Exception as e:
+        logger.exception('unexpected error in build_relative')
         return {
             "success": False,
             "stock_code": code,

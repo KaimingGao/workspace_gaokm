@@ -4,7 +4,6 @@
 缺省键 → 默认 +1（ŷ&lt;1% 不入簿）；显式 ``null`` → 不设下限（研究用）。
 """
 
-from __future__ import annotations
 
 import logging
 

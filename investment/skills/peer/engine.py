@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Dict, List, Optional, Tuple
 
 from core.ports.market import query_quote, resolve_market_code, resolve_symbol
+
+logger = logging.getLogger(__name__)
 
 PEER_GROUPS: Dict[str, List[str]] = {
     "白酒": ["贵州茅台", "五粮液", "泸州老窖", "山西汾酒"],
@@ -86,6 +89,7 @@ def build_peer_compare(stock_code: str, sector: Optional[str] = None) -> dict:
                     r["pe"] = m.get("pe")
                     r["pb"] = m.get("pb")
     except Exception as e:
+        logger.exception('unexpected error in build_peer_compare')
         pe_notes.append(f"估值补充失败: {e}")
 
     target_row = None

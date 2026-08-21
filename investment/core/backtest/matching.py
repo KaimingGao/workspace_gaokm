@@ -8,13 +8,11 @@
 - 滑点档：low / mid / high → 覆盖 cost_config base_slippage_bps
 """
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
-
 
 LIMIT_UP_PCT = 9.5
 LIMIT_DOWN_PCT = -9.5

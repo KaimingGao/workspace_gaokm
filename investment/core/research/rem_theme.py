@@ -1,6 +1,5 @@
 """rem 主题日口径：与 ``attach_cross_section_breadth`` 训练侧对齐。"""
 
-from __future__ import annotations
 
 import logging
 

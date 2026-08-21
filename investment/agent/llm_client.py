@@ -207,6 +207,7 @@ class LLMClient:
             self._last_error = None
             return True
         except Exception as e:
+            logger.exception('unexpected error in is_available')
             friendly = _friendly_request_error(e, kind="探测")
             self._last_error = friendly
             self._available = False

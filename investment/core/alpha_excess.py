@@ -4,7 +4,6 @@
 本模块只算诊断字段，不改 ŷ / 调仓。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -111,6 +110,7 @@ def fetch_index_equity_curve(
         elif isinstance(raw, list):
             bars = list(raw)
     except Exception as exc:
+        logger.exception('unexpected error in fetch_index_equity_curve')
         return {"ok": False, "index_code": code, "reason": str(exc), "points": []}
 
     pts: List[Tuple[str, float]] = []

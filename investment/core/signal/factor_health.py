@@ -1,12 +1,10 @@
 """X3 · 生产面因子健康：有源 / proxy / 稀疏 / 权重冲突。"""
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
-
 
 # 无真数据 ingest、仅代理或常稀疏的因子
 PROXY_OR_UNSOURCED = {

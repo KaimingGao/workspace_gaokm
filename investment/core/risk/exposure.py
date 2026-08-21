@@ -1,6 +1,5 @@
 """持仓行业 / 风格暴露矩阵（R3.1）。"""
 
-from __future__ import annotations
 
 import logging
 

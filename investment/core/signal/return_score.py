@@ -5,14 +5,12 @@
 不自动写 ``signal_config``。
 """
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
 from dataclasses import asdict, dataclass, field
 from typing import Any, Dict, List, Optional, Sequence, Tuple
-
 
 RANK_MODES = ("predicted_score",)
 DEFAULT_RANK_MODE = "predicted_score"

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """底仓做 T 日线代理回测 CLI（仅模拟，不接实盘）。"""
 
-from __future__ import annotations
 
 import argparse
 import json

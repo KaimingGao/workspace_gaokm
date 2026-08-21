@@ -1,12 +1,11 @@
 """Watching / 观察名单 API。路由只做 HTTP；业务进 WatchingService / QuantService。"""
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
 from concurrent.futures import ThreadPoolExecutor
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
 
@@ -51,7 +50,7 @@ def _parse_codes(codes: str = "") -> Optional[list]:
 
 
 @router.get("/api/watching/file")
-def watching_file():
+def watching_file() -> Dict[str, Any]:
     try:
         return deps.quant.read_watching_file()
     except Exception as e:
@@ -59,12 +58,12 @@ def watching_file():
 
 
 @router.get("/api/watching")
-def watching_get():
+def watching_get() -> Dict[str, Any]:
     return deps.quant.read_watching()
 
 
 @router.get("/api/watching/search")
-def watching_search(q: str = "", limit: int = 8):
+def watching_search(q: str = "", limit: int = 8) -> Dict[str, Any]:
     try:
         return deps.watching.search(q, limit=limit)
     except Exception as e:
@@ -72,7 +71,7 @@ def watching_search(q: str = "", limit: int = 8):
 
 
 @router.get("/api/watching/quotes")
-async def watching_quotes(codes: str = ""):
+async def watching_quotes(codes: str = "") -> Dict[str, Any]:
     import asyncio
 
     parsed = _parse_codes(codes)
@@ -90,7 +89,7 @@ async def watching_quotes(codes: str = ""):
 
 
 @router.get("/api/watching/insights")
-async def watching_insights(codes: str = ""):
+async def watching_insights(codes: str = "") -> Dict[str, Any]:
     """观察研究摘要（评分/倾向/超额等）。放到线程池，避免堵住 Web 事件循环。"""
     import asyncio
 
@@ -102,7 +101,7 @@ async def watching_insights(codes: str = ""):
 
 
 @router.get("/api/watching/sentiment/alerts")
-async def watching_sentiment_alerts():
+async def watching_sentiment_alerts() -> Dict[str, Any]:
     import asyncio
 
     try:
@@ -112,7 +111,7 @@ async def watching_sentiment_alerts():
 
 
 @router.get("/api/watching/sentiment")
-async def watching_sentiment(codes: str = "", limit: int = 3, force: bool = False):
+async def watching_sentiment(codes: str = "", limit: int = 3, force: bool = False) -> Dict[str, Any]:
     import asyncio
 
     try:
@@ -130,7 +129,7 @@ async def watching_sentiment(codes: str = "", limit: int = 3, force: bool = Fals
 
 
 @router.get("/api/watching/sentiment/{code}")
-async def watching_sentiment_one(code: str, limit: int = 8, force: bool = False):
+async def watching_sentiment_one(code: str, limit: int = 8, force: bool = False) -> Dict[str, Any]:
     import asyncio
 
     try:
@@ -146,7 +145,7 @@ async def watching_sentiment_one(code: str, limit: int = 8, force: bool = False)
 
 
 @router.get("/api/watching/sentiment/{code}/analysis")
-async def watching_sentiment_analysis(code: str):
+async def watching_sentiment_analysis(code: str) -> Dict[str, Any]:
     import asyncio
 
     try:
@@ -157,11 +156,12 @@ async def watching_sentiment_analysis(code: str):
     except asyncio.TimeoutError:
         return {"ok": False, "analysis": "AI 分析超时，请稍后重试"}
     except Exception as e:
+        logger.exception('unexpected error in watching_sentiment_analysis')
         return {"ok": False, "analysis": f"分析失败: {str(e)}"}
 
 
 @router.post("/api/watching/watchlist/add")
-def watching_watchlist_add(body: WatchingWatchAdd):
+def watching_watchlist_add(body: WatchingWatchAdd) -> Dict[str, Any]:
     try:
         return deps.watching.add_watch(body.query, sync_paper=body.sync_paper)
     except FileNotFoundError as e:
@@ -173,7 +173,7 @@ def watching_watchlist_add(body: WatchingWatchAdd):
 
 
 @router.post("/api/watching/watchlist/remove")
-def watching_watchlist_remove(body: WatchingWatchRemove):
+def watching_watchlist_remove(body: WatchingWatchRemove) -> Dict[str, Any]:
     try:
         return deps.watching.remove_watch(body.code, sync_paper=body.sync_paper)
     except FileNotFoundError as e:
@@ -185,12 +185,12 @@ def watching_watchlist_remove(body: WatchingWatchRemove):
 
 
 @router.get("/api/watching/health")
-def watching_health():
+def watching_health() -> Dict[str, Any]:
     return deps.quant.check_watching_health()
 
 
 @router.post("/api/watching/init")
-def watching_init():
+def watching_init() -> Dict[str, Any]:
     try:
         path = deps.watching.init()
     except FileExistsError as e:
@@ -199,7 +199,7 @@ def watching_init():
 
 
 @router.post("/api/watching/refresh")
-def watching_refresh(sync_paper: bool = False):
+def watching_refresh(sync_paper: bool = False) -> Dict[str, Any]:
     try:
         return deps.quant.refresh_watching(sync_paper=sync_paper)
     except FileNotFoundError as e:
@@ -209,7 +209,7 @@ def watching_refresh(sync_paper: bool = False):
 
 
 @router.post("/api/watching/sync-paper/preview")
-def watching_sync_paper_preview(body: Optional[WatchingSyncPaper] = None):
+def watching_sync_paper_preview(body: Optional[WatchingSyncPaper] = None) -> Dict[str, Any]:
     try:
         b = body
         return deps.quant.plan_watching_to_paper(
@@ -229,7 +229,7 @@ def watching_sync_paper_preview(body: Optional[WatchingSyncPaper] = None):
 
 
 @router.post("/api/watching/sync-paper")
-def watching_sync_paper(body: Optional[WatchingSyncPaper] = None):
+def watching_sync_paper(body: Optional[WatchingSyncPaper] = None) -> Dict[str, Any]:
     try:
         b = body
         return deps.quant.sync_watching_to_paper(
@@ -249,7 +249,7 @@ def watching_sync_paper(body: Optional[WatchingSyncPaper] = None):
 
 
 @router.put("/api/watching/file")
-def watching_save(body: WatchingFile):
+def watching_save(body: WatchingFile) -> Dict[str, Any]:
     try:
         path = deps.watching.save_file(body.model_dump())
     except ValueError as e:
@@ -258,7 +258,7 @@ def watching_save(body: WatchingFile):
 
 
 @router.get("/api/watching/daily-chart")
-def watching_daily_chart(code: str, lookback: int = 60):
+def watching_daily_chart(code: str, lookback: int = 60) -> Dict[str, Any]:
     """通用日线数据，供观察页展示日线图。"""
     from core.data_service import get_bars, get_quote
 
@@ -308,7 +308,7 @@ def watching_daily_chart(code: str, lookback: int = 60):
 
 
 @router.get("/api/watching/minute-tail")
-def watching_minute_tail(code: str, tail_minutes: int = 30):
+def watching_minute_tail(code: str, tail_minutes: int = 30) -> Dict[str, Any]:
     """5 分钟尾盘序列（tail_anomaly 迷你图）。"""
     from core.signal.tail_anomaly_view import build_minute_tail_view
 

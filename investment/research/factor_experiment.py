@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """因子实验 CLI（P9.4）。"""
 
-from __future__ import annotations
 
 import argparse
 import json
@@ -12,13 +11,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.signal.factor_registry import list_factors, run_factor_experiment  # noqa: E402
 from core.data_service import bars_and_source as fetch_daily_bars  # noqa: E402
 from core.data_service import get_quote, index_bars_and_source  # noqa: E402
 from core.ports.market import (  # noqa: E402
     default_benchmark,
     resolve_market_code,
 )
+from core.signal.factor_registry import list_factors, run_factor_experiment  # noqa: E402
 
 
 def main(argv=None) -> int:

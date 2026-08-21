@@ -1,12 +1,10 @@
 """市场级快照读写：macro / market_sentiment / announcement（非 PIT 盘前上下文）。"""
 
-from __future__ import annotations
 
 import logging
 from datetime import datetime
 from typing import Any, Dict, Optional, Tuple
 
-from core.io_atomic import atomic_write_json
 from core.paths import STORE_DIR
 from core.store import load_snapshot_cache, save_snapshot_cache
 

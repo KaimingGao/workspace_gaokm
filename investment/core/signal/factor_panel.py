@@ -1,6 +1,5 @@
 """因子面板：注册表 + 权重 + IC 合并展示（P48）。"""
 
-from __future__ import annotations
 
 import logging
 

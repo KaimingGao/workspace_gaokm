@@ -1,6 +1,5 @@
 """quant Skill：量化研究台（组合回测、横截面、对照、建议）。"""
 
-from __future__ import annotations
 
 import logging
 

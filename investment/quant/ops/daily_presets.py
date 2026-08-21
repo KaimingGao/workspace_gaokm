@@ -1,6 +1,5 @@
 """每日任务 preset（Web / CLI / cron 共用）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -126,7 +125,7 @@ def resolve_daily_preset(
 ) -> Dict[str, Any]:
     """合并 preset 与显式 overrides；显式 True/False 覆盖 preset。"""
     overrides = _normalize_overrides(overrides)
-    base: Dict[str, Any] = {k: False for k in _BOOL_KEYS}
+    base: Dict[str, Any] = dict.fromkeys(_BOOL_KEYS, False)
     preset_name = (preset or "").strip().lower() or None
     if preset_name:
         if preset_name not in DAILY_PRESETS:

@@ -1,6 +1,5 @@
 """横截面批量打分：组合回测与 rank_cross_section 共用（P49）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -118,7 +117,7 @@ def score_and_rank_watching(
                     pass
             it["rank_mode"] = "heuristic_score"
         if use_neutral:
-            wmap = dict((cfg.get("weights") or {}))
+            wmap = dict(cfg.get("weights") or {})
             nmeta = apply_cross_section_neutralization(
                 items,
                 weights=wmap,
@@ -216,7 +215,7 @@ def score_and_rank_watching(
 
         dual_cfg = get_dual_score_cfg(cfg)
         try:
-            from quant.research.rem_ridge import load_rem_model
+            from core.research.rem_ridge import load_rem_model
 
             rem_doc = load_rem_model()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -240,6 +239,7 @@ def score_and_rank_watching(
             "rem_model": bool(rem_doc),
         }
     except Exception as e:
+        logger.exception('unexpected error in score_and_rank_watching')
         meta["dual_score"] = {"ok": False, "reason": str(e)}
         dual_cfg = None
 
@@ -264,6 +264,7 @@ def score_and_rank_watching(
                 for k in ("applied", "by", "touched_fields", "groups", "note")
             }
         except Exception as exc:
+            logger.exception('unexpected error in score_and_rank_watching')
             meta["yhat_residual"] = {"applied": False, "reason": str(exc)}
 
     has_preds = any(it.get("predicted_score") is not None for it in items)

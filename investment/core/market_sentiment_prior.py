@@ -1,6 +1,5 @@
 """市场情绪 prior（ŷ 外）：连板溢价 / 炸板率退潮。"""
 
-from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional

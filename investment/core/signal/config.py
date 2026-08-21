@@ -1,6 +1,5 @@
 """signal / stance 配置加载（P6.1 / V2.1）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -15,6 +14,12 @@ from typing import Any, Dict, Iterator, List, Optional, Tuple
 from core.paths import DATA_DIR
 
 SIGNAL_CONFIG_PATH = os.path.join(DATA_DIR, "signal_config.json")
+
+
+def get_signal_config_path() -> str:
+    """统一入口：读取 INVESTMENT_SIGNAL_CONFIG 环境变量，回退到 SIGNAL_CONFIG_PATH。"""
+    return os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH)
+
 
 DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
     "version": 3,
@@ -281,9 +286,9 @@ def load_signal_config(*, reload: bool = False) -> Dict[str, Any]:
         return _apply_overlays(deepcopy(_cached))
 
     cfg = deepcopy(DEFAULT_SIGNAL_CONFIG)
-    path = os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH)
+    path = get_signal_config_path()
     if os.path.isfile(path):
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             user = json.load(f)
         cfg = _deep_merge(cfg, user)
     # 遗留开关已退役：OOS 失败组固定剔主分/主簿
@@ -392,11 +397,11 @@ def get_scoring_horizon_days(config: Optional[Dict[str, Any]] = None) -> int:
 
 def read_signal_config_file(*, reload: bool = True) -> Dict[str, Any]:
     """读取 signal_config（合并后配置 + 文件元信息，只读）。"""
-    path = os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH)
+    path = get_signal_config_path()
     exists = os.path.isfile(path)
     raw = None
     if exists:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             raw = json.load(f)
     merged = load_signal_config(reload=reload)
     return {

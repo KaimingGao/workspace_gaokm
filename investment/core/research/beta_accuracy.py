@@ -1,6 +1,5 @@
 """B 轨 · 回归准确性：y_spec、样本指纹、共线进模、λ 网格。"""
 
-from __future__ import annotations
 
 import logging
 

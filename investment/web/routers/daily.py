@@ -1,10 +1,11 @@
 """Daily preset / health API。"""
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
+from typing import Any, Dict
+
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
@@ -16,22 +17,22 @@ router = APIRouter(tags=["daily"])
 
 
 @router.get("/api/daily/presets")
-def daily_presets():
+def daily_presets() -> Dict[str, Any]:
     return {"success": True, "presets": list_daily_presets()}
 
 
 @router.get("/api/daily/last")
-def daily_last():
+def daily_last() -> Dict[str, Any]:
     return deps.daily.load_last_run()
 
 
 @router.get("/api/daily/health")
-def daily_health():
+def daily_health() -> Dict[str, Any]:
     return deps.quant.build_health_summary()
 
 
 @router.post("/api/daily/run")
-def daily_run(body: DailyRunRequest):
+def daily_run(body: DailyRunRequest) -> Any:
     try:
         result = deps.daily.run(
             preset=body.preset,

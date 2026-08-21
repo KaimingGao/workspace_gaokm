@@ -1,6 +1,5 @@
 """原子 JSON 写盘（tmp + os.replace）。"""
 
-from __future__ import annotations
 
 import logging
 

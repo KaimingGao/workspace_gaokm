@@ -4,7 +4,6 @@
 风险贡献分解等工具。仅依赖 numpy 与标准库，不引入 scipy。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -134,7 +133,7 @@ def ewma_covariance(
     if X.ndim != 2:
         raise ValueError("returns 必须为二维数组 (T, N)")
     T = X.shape[0]
-    if T < max(2, int(min_periods)):
+    if max(2, int(min_periods)) > T:
         raise ValueError(f"数据长度 T={T} 小于 min_periods={int(min_periods)}")
     if halflife <= 0:
         raise ValueError("halflife 必须为正数")
@@ -306,11 +305,11 @@ if __name__ == "__main__":
     rng = np.random.default_rng(42)
     raw = rng.standard_normal((60, 5)) * 0.02
     res = ledoit_wolf_shrinkage(raw)
-    print(f"shrinkage={res['shrinkage']:.4f}, shape={res['cov'].shape}")
-    print(f"sample diag={np.diag(res['sample_cov'])}")
-    print(f"shrunk diag={np.diag(res['cov'])}")
+    logger.info(f"shrinkage={res['shrinkage']:.4f}, shape={res['cov'].shape}")
+    logger.info(f"sample diag={np.diag(res['sample_cov'])}")
+    logger.info(f"shrunk diag={np.diag(res['cov'])}")
     ewma = ewma_covariance(raw, halflife=21)
-    print(f"ewma diag={np.diag(ewma)}")
+    logger.info(f"ewma diag={np.diag(ewma)}")
     w = np.array([0.2, 0.2, 0.2, 0.2, 0.2])
-    print(f"port vol={portfolio_volatility(w, res['cov']):.6f}")
-    print(f"component contrib={component_contribution(w, res['cov'])}")
+    logger.info(f"port vol={portfolio_volatility(w, res['cov']):.6f}")
+    logger.info(f"component contrib={component_contribution(w, res['cov'])}")

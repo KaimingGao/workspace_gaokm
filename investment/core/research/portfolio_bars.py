@@ -1,6 +1,5 @@
 """组合回测数据加载：日线 + 基本面批量（P51）；经 DataService。"""
 
-from __future__ import annotations
 
 import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed

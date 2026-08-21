@@ -1,6 +1,5 @@
 """V3.3 · score_budget vs risk_parity_lite 目标权重对照（同宇宙）。"""
 
-from __future__ import annotations
 
 import logging
 

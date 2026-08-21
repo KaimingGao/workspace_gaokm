@@ -1,20 +1,19 @@
 """PaperService · 调仓 job。"""
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
 import os
 import threading
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from core.job_progress import paper_job
 from core.paper import (
-    load_paper,
-    save_paper,
     append_operation_log,
+    load_paper,
     paper_write_lock,
+    save_paper,
 )
 from core.paper_rebalance_orchestrator import run_paper_rebalance
 
@@ -41,6 +40,7 @@ class PaperJobsMixin:
 
             cluster_prep = prepare_cluster_for_daily()
         except Exception as exc:
+            logger.exception('unexpected error in run')
             cluster_prep = {
                 "success": False,
                 "error": str(exc),
@@ -48,6 +48,7 @@ class PaperJobsMixin:
             }
         with paper_write_lock(self.path):
             paper = load_paper(self.path)
+            original = copy.deepcopy(paper)
             if dry_run:
                 paper = copy.deepcopy(paper)
             result = run_paper_rebalance(
@@ -57,6 +58,15 @@ class PaperJobsMixin:
                 strategy=strategy,
                 on_progress=on_progress,
                 dry_run=dry_run,
+            )
+            from core.paper_open_fill import apply_next_open_commit
+
+            paper, result = apply_next_open_commit(
+                original,
+                paper,
+                result,
+                dry_run=dry_run,
+                source="paper_daily",
             )
             if dry_run:
                 return {
@@ -69,54 +79,65 @@ class PaperJobsMixin:
 
             buys = result.get("buy_trades") or result.get("new_trades") or []
             sells = result.get("sell_trades") or []
-            for t in buys:
-                fee_meta = fee_fields_from_trade(t)
-                append_operation_log(
-                    paper,
-                    "buy",
-                    detail=(
-                        f"[调仓] 买入 {t.get('stock_name') or t.get('stock_code')} "
-                        f"{t.get('shares')}股 @ {t.get('price')}"
-                    ),
-                    meta={
-                        "stock_code": t.get("stock_code"),
-                        "stock_name": t.get("stock_name"),
-                        "shares": t.get("shares"),
-                        "price": t.get("price"),
-                        "amount": t.get("amount") or t.get("actual_cost"),
-                        "origin": t.get("origin") or "strategy",
-                        "score": t.get("score"),
-                        "note": t.get("note"),
-                        **fee_meta,
-                    },
-                )
-            for t in sells:
-                fee_meta = fee_fields_from_trade(t)
-                pnl_meta = pnl_fields_from_trade(t)
-                append_operation_log(
-                    paper,
-                    "sell",
-                    detail=(
-                        f"[调仓] 卖出 {t.get('stock_name') or t.get('stock_code')} "
-                        f"{t.get('shares')}股 @ {t.get('price')}"
-                    ),
-                    meta={
-                        "stock_code": t.get("stock_code"),
-                        "stock_name": t.get("stock_name"),
-                        "shares": t.get("shares"),
-                        "price": t.get("price"),
-                        "amount": t.get("amount") or t.get("actual_cost"),
-                        "origin": t.get("origin") or "strategy",
-                        "note": t.get("note"),
-                        **fee_meta,
-                        **pnl_meta,
-                    },
-                )
+            fill_action = str(result.get("fill_action") or "immediate")
+            staged = fill_action == "staged"
+            if not staged:
+                for t in buys:
+                    fee_meta = fee_fields_from_trade(t)
+                    append_operation_log(
+                        paper,
+                        "buy",
+                        detail=(
+                            f"[调仓] 买入 {t.get('stock_name') or t.get('stock_code')} "
+                            f"{t.get('shares')}股 @ {t.get('price')}"
+                        ),
+                        meta={
+                            "stock_code": t.get("stock_code"),
+                            "stock_name": t.get("stock_name"),
+                            "shares": t.get("shares"),
+                            "price": t.get("price"),
+                            "amount": t.get("amount") or t.get("actual_cost"),
+                            "origin": t.get("origin") or "strategy",
+                            "score": t.get("score"),
+                            "note": t.get("note"),
+                            **fee_meta,
+                        },
+                    )
+                for t in sells:
+                    fee_meta = fee_fields_from_trade(t)
+                    pnl_meta = pnl_fields_from_trade(t)
+                    append_operation_log(
+                        paper,
+                        "sell",
+                        detail=(
+                            f"[调仓] 卖出 {t.get('stock_name') or t.get('stock_code')} "
+                            f"{t.get('shares')}股 @ {t.get('price')}"
+                        ),
+                        meta={
+                            "stock_code": t.get("stock_code"),
+                            "stock_name": t.get("stock_name"),
+                            "shares": t.get("shares"),
+                            "price": t.get("price"),
+                            "amount": t.get("amount") or t.get("actual_cost"),
+                            "origin": t.get("origin") or "strategy",
+                            "note": t.get("note"),
+                            **fee_meta,
+                            **pnl_meta,
+                        },
+                    )
             if buys or sells:
+                verb = "挂开盘单" if staged else (
+                    "开盘成交" if fill_action.startswith("open_fill") else "调仓"
+                )
                 append_operation_log(
                     paper, "rebalance",
-                    detail=f"策略{strategy} · 买入{len(buys)}笔 · 卖出{len(sells)}笔",
-                    meta={"strategy": strategy, "buy_count": len(buys), "sell_count": len(sells)},
+                    detail=f"策略{strategy} · {verb} · 买入{len(buys)}笔 · 卖出{len(sells)}笔",
+                    meta={
+                        "strategy": strategy,
+                        "buy_count": len(buys),
+                        "sell_count": len(sells),
+                        "fill_action": fill_action,
+                    },
                 )
             elif result.get("buys_blocked"):
                 # risk_block 已在 run_daily_cycle 写入；再记一条调仓摘要便于列表扫描
@@ -178,6 +199,7 @@ class PaperJobsMixin:
                 )
                 paper_job.finish(result=result)
             except Exception as e:
+                logger.exception('unexpected error in _worker')
                 paper_job.finish(error=str(e))
             finally:
                 self._run_lock.release()

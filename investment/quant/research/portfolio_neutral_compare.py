@@ -1,6 +1,5 @@
 """组合回测：中性化 vs 绝对分对照（P52）。"""
 
-from __future__ import annotations
 
 import logging
 

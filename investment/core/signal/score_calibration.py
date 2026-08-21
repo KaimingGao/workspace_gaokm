@@ -7,7 +7,6 @@ EOD：观察池/scored_all × live 组 β × 前瞻收益（与分组同源）�
 第一步：g 仍供 tip / 复盘对照；排序与买卖/入簿闸仍读原始 ŷ。
 """
 
-from __future__ import annotations
 
 import json
 import logging
@@ -436,6 +435,7 @@ def _collect_eod_panel_pairs(
         )
         from core.signal.return_score_store import load_return_model
     except Exception as exc:
+        logger.exception('unexpected error in _collect_eod_panel_pairs')
         meta["error"] = f"panel 依赖加载失败: {exc}"
         return [], meta
 
@@ -573,12 +573,13 @@ def _collect_tau_panel_pairs(
     lb = int(lookback)
     try:
         from core.data_service import bars_and_source
-        from quant.research.rem_ridge import (
+        from core.research.rem_ridge import (
             build_rem_panels_from_bars,
             load_rem_model,
             predict_rem_from_features,
         )
     except Exception as exc:
+        logger.exception('unexpected error in _collect_tau_panel_pairs')
         meta["error"] = f"τ panel 依赖加载失败: {exc}"
         return [], meta
 
@@ -631,6 +632,7 @@ def _collect_tau_panel_pairs(
             stock_bars, min_history=12, gap_trigger_pct=2.0, tau_hm=tau_hm
         )
     except Exception as exc:
+        logger.exception('unexpected error in _collect_tau_panel_pairs')
         meta["error"] = f"rem 面板构建失败: {exc}"
         return [], meta
 
@@ -1189,13 +1191,10 @@ def calibration_promote_safe(
 def sync_enable_calibration_flag(enable: bool) -> bool:
     """镜像「live 是否有校准映射」到 signal_config.scoring.enable_calibration（展示用，非决策）。"""
     try:
-        from core.paths import SIGNAL_CONFIG_PATH
-        from core.signal.config import SIGNAL_CONFIG_PATH as CFG_PATH
         import core.signal.config as cfg_mod
+        from core.signal.config import get_signal_config_path
 
-        path_cfg = os.environ.get(
-            "INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH or CFG_PATH
-        )
+        path_cfg = get_signal_config_path()
         raw_cfg: Dict[str, Any] = {}
         if path_cfg and os.path.isfile(path_cfg):
             with open(path_cfg, encoding="utf-8") as f:

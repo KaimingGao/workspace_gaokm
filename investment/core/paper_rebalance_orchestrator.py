@@ -1,6 +1,5 @@
 """Unified paper rebalance orchestrator with explicit modes (C3)."""
 
-from __future__ import annotations
 
 import logging
 
@@ -72,9 +71,7 @@ def _cluster_book_market_shock_reason(
             shocked += 1
         # 粗判涨跌停：|涨跌幅|接近阈值，或文案含停牌/涨停/跌停
         tip = str(q.get("trade_status") or q.get("status") or q.get("message") or "")
-        if any(k in tip for k in ("涨停", "跌停", "停牌")):
-            limits += 1
-        elif chg is not None and abs(chg) >= 9.5:
+        if any(k in tip for k in ("涨停", "跌停", "停牌")) or chg is not None and abs(chg) >= 9.5:
             limits += 1
     if scored <= 0:
         return None
@@ -103,7 +100,7 @@ def resolve_rebalance_mode(
         logger.debug("catch except Exception: in paper_rebalance_orchestrator.py", exc_info=True)
         scoring_mode = "off"
     use_cluster = bool(cluster_mode) or bool(
-        (rules.get("cluster_mode") if isinstance(rules, dict) else False)
+        rules.get("cluster_mode") if isinstance(rules, dict) else False
     ) or scoring_mode == "active"
     return "cluster_book" if use_cluster else "cross_section"
 
@@ -167,6 +164,7 @@ def _supplement_holding_scores(
                 skip_sentiment=True,
             )
         except Exception as e:
+            logger.exception('unexpected error in _one')
             return {
                 "stock_code": code,
                 "stock_name": name_by.get(code),
@@ -200,6 +198,7 @@ def _supplement_holding_scores(
             try:
                 extra.append(fut.result())
             except Exception as e:
+                logger.exception('unexpected error in _supplement_holding_scores')
                 code = futs[fut]
                 extra.append(
                     {

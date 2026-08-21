@@ -1,6 +1,5 @@
 """人审写入 ``signal_config.sentiment.prior``（不改 weights / 不进 ŷ）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -9,8 +8,8 @@ import json
 import os
 from typing import Any, Dict, Optional
 
-from core.sentiment_prior import DEFAULT_PRIOR, get_sentiment_prior_cfg, normalize_prior_mode
 from core.io_atomic import atomic_write_json
+from core.sentiment_prior import DEFAULT_PRIOR, get_sentiment_prior_cfg, normalize_prior_mode
 
 
 def read_sentiment_prior_public(*, config: Optional[dict] = None) -> Dict[str, Any]:
@@ -37,11 +36,9 @@ def save_sentiment_prior(
     note: str = "",
 ) -> Dict[str, Any]:
     """写入 prior.*；强制 ``include_in_score=false``、``role=prior``。"""
-    from core.paths import SIGNAL_CONFIG_PATH
-    from core.signal.config import SIGNAL_CONFIG_PATH as CFG_PATH
-    from core.signal.config import load_signal_config
+    from core.signal.config import get_signal_config_path, load_signal_config
 
-    path = os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH or CFG_PATH)
+    path = get_signal_config_path()
     raw: Dict[str, Any] = {}
     if os.path.isfile(path):
         with open(path, encoding="utf-8") as f:

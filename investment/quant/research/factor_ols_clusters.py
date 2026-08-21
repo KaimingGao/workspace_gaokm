@@ -12,7 +12,6 @@
 - ``none``：原始 β（易被极端票主导）
 """
 
-from __future__ import annotations
 
 import logging
 import math
@@ -227,38 +226,23 @@ def merge_cluster_universe(
 
 
 from quant.research.cluster_partition import (
-    OUTLIER_LABEL,
     _beta_matrix,
-    _centers_from_labels,
     _feature_union,
     _ols_coef_dict,
     _relabel_non_negative,
-    agglomerative_cut_by_tau,
-    agglomerative_labels,
     apply_beta_scale_transform,
-    auto_cluster_range,
     auto_k_candidates,
     beta_delta_mismatch,
     cluster_beta_vectors,
-    cluster_diameter,
     cluster_within_stats,
     coef_vector_from_report,
-    complete_linkage_distance,
-    default_max_cluster_size,
     default_n_clusters,
     eject_by_group_beta_delta,
     eject_far_from_group_beta,
-    enforce_diameter_cap,
-    enforce_min_cluster_size,
     fit_beta_scale_transform,
-    kmeans_labels,
     promote_outliers_to_singleton_clusters,
     refine_cluster_labels,
     resolve_beta_scale,
-    scale_beta_matrix,
-    silhouette_score,
-    split_oversized_clusters,
-    within_dist_tau,
 )
 
 
@@ -2026,6 +2010,7 @@ def compute_factor_ols_cluster_report(
                 mem_xs.extend((panel_by_code.get(str(code)) or {}).get("xs") or [])
             cl["trend_collinearity"] = collinearity_from_panel_rows(mem_xs)
         except Exception as exc:
+            logger.exception('unexpected error in compute_factor_ols_cluster_report')
             cl["trend_collinearity"] = {"success": False, "error": str(exc)}
 
     panel_xs: List[Dict[str, Any]] = []
@@ -2036,6 +2021,7 @@ def compute_factor_ols_cluster_report(
 
         trend_collinearity = collinearity_from_panel_rows(panel_xs)
     except Exception as exc:
+        logger.exception('unexpected error in compute_factor_ols_cluster_report')
         trend_collinearity = {"success": False, "error": str(exc)}
 
     alt_sentiment_ic = None
@@ -2057,6 +2043,7 @@ def compute_factor_ols_cluster_report(
                 pit_fundamentals=use_pit,
             )
         except Exception as exc:
+            logger.exception('unexpected error in compute_factor_ols_cluster_report')
             alt_sentiment_ic = {"success": False, "error": str(exc)}
 
     in_codes = [codes[i] for i in range(len(codes)) if int(labels[i]) >= 0]

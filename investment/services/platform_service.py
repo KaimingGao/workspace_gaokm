@@ -1,11 +1,10 @@
 """平台能力门面：Job / Memory / Decision / Feedback / Schedule / Prefill（D1–D6）。"""
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from core.decision_record import list_decisions, record_from_advice
 from core.feedback_suggest import suggest_config_feedback
@@ -118,6 +117,7 @@ class PlatformService:
             try:
                 paper = load_paper(PAPER_PATH)
             except Exception as e:
+                logger.exception('unexpected error in get_north_star')
                 return {"ok": False, "error": str(e)}
         if not refresh and isinstance(paper, dict) and paper.get("last_north_star"):
             return {"ok": True, "cached": True, "north_star": paper["last_north_star"]}
@@ -250,6 +250,7 @@ class PlatformService:
 
             core = run_all_core_paths()
         except Exception as e:
+            logger.exception('unexpected error in get_maturity_gate')
             core = {"ok": False, "failures": [str(e)]}
         return evaluate_maturity_gate(
             sample_status=ss,

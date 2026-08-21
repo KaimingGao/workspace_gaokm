@@ -1,6 +1,5 @@
 """基本面数据拉取与字段归一（便于 mock）。"""
 
-from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
@@ -22,6 +21,7 @@ def fetch_cn_spot_row(code: str) -> Optional[dict]:
         try:
             rows = list(fetch_a_spot() or [])
         except Exception:
+            logger.exception('unexpected error in fetch_cn_spot_row')
             rows = []
     for row in rows:
         c = str(spot_row_get(row, "code") or "").zfill(6)
@@ -65,7 +65,7 @@ def fetch_cn_valuation_latest(code: str) -> Dict[str, Any]:
                         "source": "akshare_lg_indicator",
                     }
         except Exception:
-            pass
+            logger.exception('unexpected error in fetch_cn_valuation_latest')
 
     # 乐咕不可用 / 东财全表现货挂掉时：单票估值序列仍常可用
     try:
@@ -94,6 +94,7 @@ def fetch_cn_valuation_latest(code: str) -> Dict[str, Any]:
             "source": "akshare_value_em",
         }
     except Exception:
+        logger.exception('unexpected error in fetch_cn_valuation_latest')
         return {}
 
 
@@ -210,6 +211,7 @@ def _fetch_cn_financial_rows(code: str) -> List[dict]:
             df = ak.stock_financial_analysis_indicator(stock=code)
             rows = _records(df)
         except Exception:
+            logger.exception('unexpected error in _fetch_cn_financial_rows')
             rows = []
     if rows:
         for r in rows:
@@ -223,9 +225,11 @@ def _fetch_cn_financial_rows(code: str) -> List[dict]:
     try:
         df = fn(symbol=code)
     except Exception:
+        logger.exception('unexpected error in _fetch_cn_financial_rows')
         try:
             df = fn(stock=code)
         except Exception:
+            logger.exception('unexpected error in _fetch_cn_financial_rows')
             return []
     rows = _records(df)
     for r in rows:
@@ -287,6 +291,10 @@ def spot_to_metrics(row: dict) -> Dict[str, Any]:
         "source": "akshare_spot_em",
     }
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def fetch_hk_spot_row(code: str) -> Optional[dict]:
     """港股现货表中取单行（PE/市值等，字段随 akshare 版本变化）。"""
@@ -304,6 +312,7 @@ def fetch_hk_spot_row(code: str) -> Optional[dict]:
         try:
             df = fn()
         except Exception:
+            logger.exception('unexpected error in fetch_hk_spot_row')
             continue
         rows = _records(df)
         for row in rows:
@@ -374,6 +383,7 @@ def build_fundamentals(stock_code: str) -> dict:
                 )
                 sources.append(spot["source"])
         except Exception as e:
+            logger.exception('unexpected error in build_fundamentals')
             notes.append(f"现货估值拉取失败: {e}")
 
         try:
@@ -395,6 +405,7 @@ def build_fundamentals(stock_code: str) -> dict:
                     metrics["valuation_as_of"] = val["as_of"]
                 sources.append(val["source"])
         except Exception as e:
+            logger.exception('unexpected error in build_fundamentals')
             notes.append(f"乐咕估值拉取失败: {e}")
 
         try:
@@ -407,6 +418,7 @@ def build_fundamentals(stock_code: str) -> dict:
                 metrics["financial_as_of"] = fin.get("as_of")
                 sources.append(fin["source"])
         except Exception as e:
+            logger.exception('unexpected error in build_fundamentals')
             notes.append(f"财务指标拉取失败: {e}")
     elif market == "HK":
         if quote.get("success"):
@@ -424,6 +436,7 @@ def build_fundamentals(stock_code: str) -> dict:
             else:
                 notes.append("港股现货表未匹配到该代码，估值字段可能缺失")
         except Exception as e:
+            logger.exception('unexpected error in build_fundamentals')
             notes.append(f"港股现货估值拉取失败: {e}")
         if metrics.get("pe") is None and metrics.get("pb") is None:
             notes.append("港股 ROE/增速等深度财务暂未接入；已尽量提供 PE/市值/行情")

@@ -1,6 +1,5 @@
 """做 T：分钟线第一触达路径（比日线 dual_touch/veto 更贴近盘中先后）。"""
 
-from __future__ import annotations
 
 import logging
 

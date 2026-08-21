@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """sector_map 对齐 / 清洗 / 现货行业补全（DS-R2.1 / R2.2）。"""
 
-from __future__ import annotations
 
 import argparse
 import json

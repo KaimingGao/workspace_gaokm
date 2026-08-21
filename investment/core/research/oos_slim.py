@@ -1,6 +1,5 @@
 """归档用精简 OOS 门禁结构（避免整份回测曲线落盘）。"""
 
-from __future__ import annotations
 
 import logging
 

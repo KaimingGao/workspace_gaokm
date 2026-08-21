@@ -4,7 +4,6 @@
 缺样本时字段为 None 且 status=unavailable，禁止编造。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -398,15 +397,15 @@ def build_north_star_report(
     # ===== R1 增强：滚动拟合 / 三项乘积 / TTM 瓶颈 / 拦截审计 / 退化告警 =====
     r1: Dict[str, Any] = {}
     try:
+        from core.backtest_curve_store import _curve_points, _paper_daily_equities
         from core.north_star_pro import (
             composite_north_star_score,
             quantify_fit_gap_attribution,
             rolling_realization,
         )
         from core.risk.block_audit import summarize_block_audit
-        from core.ttm_stages import summarize_ttm_stages
-        from core.backtest_curve_store import _paper_daily_equities, _curve_points
         from core.risk_metrics import period_returns
+        from core.ttm_stages import summarize_ttm_stages
 
         # 拟合度趋势 + 缺口归因
         roll = rolling_realization(snaps, curve or [], window=max(15, window // 4), step=max(5, window // 12))
@@ -478,6 +477,7 @@ def build_north_star_report(
             logger.debug("catch except Exception: in north_star.py", exc_info=True)
             r1["degradation"] = {"alerts": {}, "any_degrading": False, "degrading_dimensions": []}
     except Exception as _exc:
+        logger.exception('unexpected error in build_north_star_report')
         r1["error"] = f"R1增强计算异常: {_exc}"
 
     # P0：纸面净值 vs 指数超额（α 腿诊断，只读）
@@ -504,6 +504,7 @@ def build_north_star_report(
                 total_ret = None
         legs = legs_summary(total_return_pct=total_ret, excess_pack=bex)
     except Exception as _exc:
+        logger.exception('unexpected error in build_north_star_report')
         bex = {"ok": False, "reason": f"compute_failed:{_exc}"}
         legs = None
 

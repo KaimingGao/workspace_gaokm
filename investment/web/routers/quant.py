@@ -8,7 +8,6 @@
 映射：GET /api/quant/actions
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -32,12 +31,12 @@ class PortfolioBacktestExportBody(BaseModel):
 
 
 @router.get("/api/quant/last")
-def quant_last():
+def quant_last() -> Dict[str, Any]:
     return deps.quant.load_last_daily()
 
 
 @router.post("/api/quant/report")
-def quant_report(body: QuantReportRequest):
+def quant_report(body: QuantReportRequest) -> Dict[str, Any]:
     try:
         report = deps.quant.build_daily_report(
             body.code,
@@ -52,12 +51,12 @@ def quant_report(body: QuantReportRequest):
 
 
 @router.get("/api/quant/strategies")
-def quant_strategies():
+def quant_strategies() -> Dict[str, Any]:
     return deps.quant.list_strategies()
 
 
 @router.post("/api/quant/interpret")
-def quant_interpret(body: QuantInterpretRequest):
+def quant_interpret(body: QuantInterpretRequest) -> Dict[str, Any]:
     try:
         report = None
         if body.save_before_interpret:
@@ -80,7 +79,7 @@ def quant_interpret(body: QuantInterpretRequest):
 
 
 @router.get("/api/quant/export")
-def quant_export(format: str = "markdown", use_saved: bool = True):
+def quant_export(format: str = "markdown", use_saved: bool = True) -> Dict[str, Any]:
     fmt = (format or "markdown").strip().lower()
     if fmt not in ("markdown", "html"):
         raise HTTPException(status_code=400, detail="仅支持 format=markdown|html")
@@ -91,7 +90,7 @@ def quant_export(format: str = "markdown", use_saved: bool = True):
 
 
 @router.post("/api/quant/export/backtest")
-def quant_export_backtest(body: PortfolioBacktestExportBody):
+def quant_export_backtest(body: PortfolioBacktestExportBody) -> Dict[str, Any]:
     """R4.4 · 导出单次 Top-K 回测机构报告（与页内块序对齐）。"""
     fmt = (body.format or "markdown").strip().lower()
     if fmt not in ("markdown", "html"):
@@ -103,7 +102,7 @@ def quant_export_backtest(body: PortfolioBacktestExportBody):
 
 
 @router.get("/api/quant/export/summary")
-def quant_export_summary(use_saved: bool = True):
+def quant_export_summary(use_saved: bool = True) -> Dict[str, Any]:
     result = deps.quant.export_executive_summary(use_saved=use_saved)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error") or "无摘要")
@@ -111,13 +110,13 @@ def quant_export_summary(use_saved: bool = True):
 
 
 @router.get("/api/quant/reports")
-def quant_reports(limit: int = 20):
+def quant_reports(limit: int = 20) -> Dict[str, Any]:
     limit = max(1, min(int(limit or 20), 100))
     return deps.quant.list_report_archive(limit=limit)
 
 
 @router.post("/api/quant/reports/delete")
-def quant_reports_delete(body: QuantReportDeleteRequest):
+def quant_reports_delete(body: QuantReportDeleteRequest) -> Dict[str, Any]:
     """删除指定日（或批量）归档日报 quant_daily_*.{md,html}。"""
     try:
         out = deps.quant.delete_report_archive(
@@ -134,7 +133,7 @@ def quant_reports_delete(body: QuantReportDeleteRequest):
 
 
 @router.get("/api/quant/reports/{filename}")
-def quant_report_file(filename: str):
+def quant_report_file(filename: str) -> Dict[str, Any]:
     result = deps.quant.read_report_archive(filename)
     if not result.get("success"):
         raise HTTPException(status_code=404, detail=result.get("error") or "未找到报告")
@@ -142,7 +141,7 @@ def quant_report_file(filename: str):
 
 
 @router.get("/api/paper/quant-bridge")
-def paper_quant_bridge(include_stance: bool = False):
+def paper_quant_bridge(include_stance: bool = False) -> Dict[str, Any]:
     """模拟持仓联动摘要（canonical；持仓取自 paper）。"""
     try:
         out = deps.quant.build_portfolio_bridge(include_stance=include_stance)
@@ -155,7 +154,7 @@ def paper_quant_bridge(include_stance: bool = False):
 
 
 @router.get("/api/portfolio/quant-bridge")
-def portfolio_quant_bridge(include_stance: bool = False):
+def portfolio_quant_bridge(include_stance: bool = False) -> Dict[str, Any]:
     """已弃用别名 → 请用 ``GET /api/paper/quant-bridge``（对照仓已下线）。"""
     try:
         out = deps.quant.build_portfolio_bridge(include_stance=include_stance)

@@ -1,6 +1,5 @@
 """分池 live 健康：覆盖率 / 陈旧 / 重拟合提示（从 cluster_live 拆出）。"""
 
-from __future__ import annotations
 
 import logging
 

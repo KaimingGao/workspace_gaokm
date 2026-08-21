@@ -1,6 +1,5 @@
 """Y 轨：ŷ 买卖门槛人审写盘（只改 scoring.*，永不改 weights）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -23,12 +22,10 @@ def save_scoring_floors(
     传 ``None`` 表示该项不改；显式要「关闭门槛」请传字符串 ``\"null\"`` 或使用
     ``clear_buy`` / ``clear_hold``（由 API 层解析）。
     """
-    from core.paths import SIGNAL_CONFIG_PATH
-    from core.signal.config import SIGNAL_CONFIG_PATH as CFG_PATH
-    from core.signal.config import load_signal_config
+    from core.signal.config import get_signal_config_path, load_signal_config
     from core.signal.score_display import resolve_buy_floor, resolve_hold_floor
 
-    path = os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH or CFG_PATH)
+    path = get_signal_config_path()
     raw: Dict[str, Any] = {}
     if os.path.isfile(path):
         with open(path, encoding="utf-8") as f:

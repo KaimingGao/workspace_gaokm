@@ -10,7 +10,6 @@
 买卖门槛分轨，禁止 0–100 与 ŷ% 混比。
 """
 
-from __future__ import annotations
 
 import logging
 

@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+import logging
+from typing import Any, Dict, List
 
 from core.signal.factors.tail_anomaly import (
     _tail_bars,
@@ -10,6 +11,8 @@ from core.signal.factors.tail_anomaly import (
     tail_price_slope,
     tail_volume_ratio,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _last_day_bars(minute_bars: List[dict]) -> List[dict]:
@@ -48,9 +51,9 @@ def build_minute_tail_view(
         return {"ok": False, "reason": "missing_code"}
 
     try:
+        from core.market import resolve_market_code
         from core.signal.config import load_signal_config
         from core.store import load_minute_cache
-        from skills.common.history import resolve_market_code
 
         cfg = load_signal_config() or {}
         tail_cfg = (cfg.get("tail_anomaly") or {}) if isinstance(cfg, dict) else {}
@@ -115,4 +118,5 @@ def build_minute_tail_view(
             },
         }
     except Exception as exc:
+        logger.exception('unexpected error in build_minute_tail_view')
         return {"ok": False, "reason": "error", "stock_code": code, "error": str(exc)}

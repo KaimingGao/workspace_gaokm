@@ -1,6 +1,5 @@
 """TTM (time-to-market) event logging and metrics."""
 
-from __future__ import annotations
 
 import logging
 

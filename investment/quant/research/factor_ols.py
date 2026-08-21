@@ -8,7 +8,6 @@
 求解：默认 QR 最小二乘；``ridge_lambda>0`` 时用 Ridge（截距不惩罚），缓解共线与过拟合。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -16,7 +15,6 @@ logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 from core.research.factor_ols_fit import (
-    _exclusion_reasons_map,
     _fit_ols_once,
     _ols_with_intercept,
     _prepare_complete_panel,

@@ -21,7 +21,7 @@ class TestScoreLedger(unittest.TestCase):
         os.makedirs(self.ledger_root, exist_ok=True)
 
     def _patch_dir(self):
-        return patch("core.score_ledger.ledger_dir", return_value=self.ledger_root)
+        return patch("core.score_ledger_io.ledger_dir", return_value=self.ledger_root)
 
     def test_upsert_and_load(self):
         from core.score_ledger import load_ledger, upsert_ledger_rows
@@ -283,7 +283,7 @@ class TestScoreLedger(unittest.TestCase):
             )
 
         with self._patch_dir(), patch(
-            "core.score_ledger.freeze_from_cluster_book",
+            "core.score_ledger_series.freeze_from_cluster_book",
             return_value={"success": True, "as_of": "2026-08-05", "n_rows": 0},
         ), patch(
             "core.market_calendar.resolve_session_date", return_value="2026-08-05"
@@ -433,9 +433,9 @@ class TestScoreLedger(unittest.TestCase):
         from core.score_ledger import resolve_freeze_as_of
 
         with patch(
-            "core.score_ledger.infer_feature_as_of", return_value="2026-08-11"
+            "core.score_ledger_asof.infer_feature_as_of", return_value="2026-08-11"
         ), patch(
-            "core.score_ledger.default_as_of", return_value="2026-08-11"
+            "core.score_ledger_asof.default_as_of", return_value="2026-08-11"
         ), patch(
             "core.market_calendar.resolve_session_date", return_value="2026-08-12"
         ):
@@ -448,9 +448,9 @@ class TestScoreLedger(unittest.TestCase):
         from core.score_ledger import resolve_freeze_as_of
 
         with patch(
-            "core.score_ledger.infer_feature_as_of", return_value=None
+            "core.score_ledger_asof.infer_feature_as_of", return_value=None
         ), patch(
-            "core.score_ledger.default_as_of", return_value="2026-08-11"
+            "core.score_ledger_asof.default_as_of", return_value="2026-08-11"
         ), patch(
             "core.market_calendar.resolve_session_date", return_value="2026-08-12"
         ):
@@ -476,7 +476,7 @@ class TestScoreLedger(unittest.TestCase):
             "meta": {"version": 1},
         }
         with self._patch_dir(), patch(
-            "core.score_ledger.resolve_freeze_as_of",
+            "core.score_ledger_freeze.resolve_freeze_as_of",
             return_value={
                 "as_of": "2026-08-11",
                 "session_date": "2026-08-12",
@@ -511,7 +511,7 @@ class TestScoreLedger(unittest.TestCase):
             "meta": {"version": 1},
         }
         with self._patch_dir(), patch(
-            "core.score_ledger.resolve_freeze_as_of",
+            "core.score_ledger_freeze.resolve_freeze_as_of",
             return_value={
                 "as_of": "2026-08-18",
                 "session_date": "2026-08-20",
@@ -561,7 +561,7 @@ class TestScoreLedger(unittest.TestCase):
             "meta": {"version": 9},
         }
         with self._patch_dir(), patch(
-            "core.score_ledger.resolve_freeze_as_of",
+            "core.score_ledger_freeze.resolve_freeze_as_of",
             return_value={
                 "as_of": "2026-08-11",
                 "session_date": "2026-08-12",
@@ -638,7 +638,7 @@ class TestScoreLedger(unittest.TestCase):
             },
         }
         with self._patch_dir(), patch(
-            "core.score_ledger.resolve_freeze_as_of",
+            "core.score_ledger_freeze.resolve_freeze_as_of",
             return_value={
                 "as_of": "2026-08-05",
                 "feature_as_of": "2026-08-05",
@@ -748,7 +748,7 @@ class TestScoreLedger(unittest.TestCase):
             },
         }
         with self._patch_dir(), patch(
-            "core.score_ledger.resolve_freeze_as_of",
+            "core.score_ledger_freeze.resolve_freeze_as_of",
             return_value={
                 "as_of": "2026-08-05",
                 "feature_as_of": "2026-08-05",

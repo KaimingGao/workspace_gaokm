@@ -1,10 +1,9 @@
 """QuantService · 因子面板 / IC / OLS / 权重与阈值（进阶）；``run_cross_section`` 属 ② 回溯。"""
 
-from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -123,10 +122,10 @@ class QuantFactorMixin:
         *,
         lookback: int = 120,
     ) -> Dict[str, Any]:
-        from quant.research.factor_report import compute_factor_ic_report
-        from core.data_service import bars_and_source_research as bars_and_source, get_quote
-        from core.data_service import index_bars_and_source
+        from core.data_service import bars_and_source_research as bars_and_source
+        from core.data_service import get_quote, index_bars_and_source
         from core.ports.market import default_benchmark, resolve_market_code
+        from quant.research.factor_report import compute_factor_ic_report
 
         quote = get_quote(code)
         sym = quote.get("stock_code") if quote.get("success") else code
@@ -171,10 +170,10 @@ class QuantFactorMixin:
         lookback: int = 120,
         horizon_days: int = 3,
     ) -> Dict[str, Any]:
-        from core.signal.factor_registry import run_factor_experiment
-        from core.data_service import bars_and_source_research as bars_and_source, get_quote
-        from core.data_service import index_bars_and_source
+        from core.data_service import bars_and_source_research as bars_and_source
+        from core.data_service import get_quote, index_bars_and_source
         from core.ports.market import default_benchmark, resolve_market_code
+        from core.signal.factor_registry import run_factor_experiment
 
         quote = get_quote(code)
         sym = quote.get("stock_code") if quote.get("success") else code
@@ -215,10 +214,10 @@ class QuantFactorMixin:
         horizon_days: int = 3,
         ridge_lambda: float = 0.0,
     ) -> Dict[str, Any]:
-        from quant.research.factor_ols import compute_factor_ols_report
-        from core.data_service import bars_and_source_research as bars_and_source, get_quote
-        from core.data_service import index_bars_and_source
+        from core.data_service import bars_and_source_research as bars_and_source
+        from core.data_service import get_quote, index_bars_and_source
         from core.ports.market import default_benchmark, resolve_market_code
+        from quant.research.factor_ols import compute_factor_ols_report
 
         quote = get_quote(code)
         sym = quote.get("stock_code") if quote.get("success") else code
@@ -300,6 +299,7 @@ class QuantFactorMixin:
                     items.append(packed)
                 source = "live_score"
             except Exception as exc:
+                logger.exception('unexpected error in run_yhat_residual_shadow')
                 return {
                     "success": False,
                     "ok": False,
@@ -378,6 +378,9 @@ class QuantFactorMixin:
 
         ``tau_hm`` 缺省跟随 ``dual_score``：enable_minute_tau 时用 minute_tau_hm，否则 open。
         """
+        from core.data_service import bars_and_source
+        from core.signal.dual_score import get_dual_score_cfg
+        from core.watching_store import read_watching
         from quant.research.rem_ridge import (
             fit_rem_ridge_report,
             load_rem_last_report,
@@ -385,9 +388,6 @@ class QuantFactorMixin:
             persist_rem_model,
             save_rem_last_report,
         )
-        from core.data_service import bars_and_source
-        from core.signal.dual_score import get_dual_score_cfg
-        from core.watching_store import read_watching
 
         uni = read_watching()
         codes = list(uni.get("watchlist") or [])
@@ -489,11 +489,11 @@ class QuantFactorMixin:
         ridge_lambda: float = 0.0,
     ) -> Dict[str, Any]:
         """研究池多票堆叠时序 OLS（显式触发；不写 config）。"""
-        from quant.research.factor_ols import compute_factor_ols_pooled_report
-        from core.data_service import bars_and_source_research as bars_and_source, get_quote
-        from core.data_service import index_bars_and_source
+        from core.data_service import bars_and_source_research as bars_and_source
+        from core.data_service import get_quote, index_bars_and_source
         from core.ports.market import default_benchmark, resolve_market_code
         from core.watching_store import read_watching
+        from quant.research.factor_ols import compute_factor_ols_pooled_report
 
         uni = read_watching()
         codes = list(uni.get("watchlist") or [])
@@ -578,20 +578,20 @@ class QuantFactorMixin:
         与 ``cluster_last_report``（进页优先恢复，避免刷新重算/旧缓存导致组变）。
         草稿比指纹缓存更新时，指纹缓存自动作废。
         """
-        from quant.research.factor_ols_clusters import (
-            compute_factor_ols_cluster_report,
-            merge_cluster_universe,
-        )
-        from quant.research.cluster_panels import build_cluster_ols_panels
-        from quant.research.cluster_oos import attach_cluster_oos_gates
-        from quant.research.cluster_group_score import attach_cluster_group_scores
-        from quant.research.cluster_pool_merge import attach_cluster_pool_merge
-        from quant.research.cluster_pool_artifact import attach_cluster_pool_artifact
-        from quant.research.cluster_multi_score import attach_cluster_multi_score
         from quant.research.cluster_bars_daily import (
             cluster_bars_session_date,
             mark_force_latest_bars_done,
             needs_force_latest_bars,
+        )
+        from quant.research.cluster_group_score import attach_cluster_group_scores
+        from quant.research.cluster_multi_score import attach_cluster_multi_score
+        from quant.research.cluster_oos import attach_cluster_oos_gates
+        from quant.research.cluster_panels import build_cluster_ols_panels
+        from quant.research.cluster_pool_artifact import attach_cluster_pool_artifact
+        from quant.research.cluster_pool_merge import attach_cluster_pool_merge
+        from quant.research.factor_ols_clusters import (
+            compute_factor_ols_cluster_report,
+            merge_cluster_universe,
         )
 
         # 简洁策略：只保留「当日首次 / API 显式强制」→ force_latest；不再走 36h 过期刷新
@@ -600,9 +600,10 @@ class QuantFactorMixin:
 
         holdings_raw: List[Any] = []
         try:
-            from core.paths import PAPER_PATH
-            from core.paper import load_paper
             import os as _os
+
+            from core.paper import load_paper
+            from core.paths import PAPER_PATH
 
             if _os.path.isfile(PAPER_PATH):
                 holdings_raw = list(load_paper(PAPER_PATH).get("holdings") or [])
@@ -978,6 +979,7 @@ class QuantFactorMixin:
                     return
                 quant_ols_clusters_job.finish(result=result, job_id=job_id)
             except Exception as e:
+                logger.exception('unexpected error in _worker')
                 quant_ols_clusters_job.finish(error=str(e), job_id=job_id)
             finally:
                 stop_hb.set()
@@ -1171,7 +1173,8 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """研究池逐因子日频截面 IC（S1；显式触发，不写 config）。"""
         from core.backtest.factor_cs_ic import compute_factor_cross_section_ic
-        from core.data_service import bars_and_source_research as bars_and_source, get_quote
+        from core.data_service import bars_and_source_research as bars_and_source
+        from core.data_service import get_quote
         from core.watching_store import read_watching
 
         uni = read_watching()
@@ -1320,7 +1323,8 @@ class QuantFactorMixin:
         pit_fundamentals: bool = True,
     ) -> Dict[str, Any]:
         """FS2：观察池 alt_sentiment as_of TS IC（研究只读；不改 live 闸）。"""
-        from core.data_service import bars_and_source_research as bars_and_source, get_quote
+        from core.data_service import bars_and_source_research as bars_and_source
+        from core.data_service import get_quote
         from core.research.sentiment_ic import summarize_alt_sentiment_ic_pool
         from core.watching_store import read_watching
 
@@ -1393,13 +1397,14 @@ class QuantFactorMixin:
         watching_limit: int = 5,
     ) -> Dict[str, Any]:
         from core.backtest.engine import scan_signal_parameters_oos
+        from core.data_service import bars_and_source_research as bars_and_source
+        from core.data_service import get_quote
         from core.signal.threshold_suggest import (
             format_threshold_config_diff,
             suggest_stance_thresholds_from_oos,
             suggest_stance_thresholds_from_watching_oos,
         )
         from core.watching_store import read_watching
-        from core.data_service import bars_and_source_research as bars_and_source, get_quote
 
         if use_watching:
             try:
@@ -1891,7 +1896,21 @@ def _load_latest_cluster_report() -> Optional[Dict[str, Any]]:
 def hydrate_ols_clusters_job_result(
     result: Optional[Dict[str, Any]],
 ) -> Optional[Dict[str, Any]]:
-    """Job 落盘摘要缺 ``clusters`` 时，从最近报告补全（抗热重载）。"""
+    """Job 落盘摘要缺 ``clusters`` 时，从最近报告补全（抗热重载）。
+
+    canonical：``core.signal.cluster_job_hydrate``；此处先走 core，再尝试草稿回退。
+    """
+    from core.signal.cluster_job_hydrate import (
+        hydrate_ols_clusters_job_result as _core_hydrate,
+    )
+
+    out = _core_hydrate(result)
+    if (
+        isinstance(out, dict)
+        and isinstance(out.get("clusters"), list)
+        and out.get("clusters")
+    ):
+        return out
     if not isinstance(result, dict):
         return result
     clusters = result.get("clusters")

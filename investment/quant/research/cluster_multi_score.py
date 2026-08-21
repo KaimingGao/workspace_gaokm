@@ -3,7 +3,6 @@
 与统一全局权排名对照；**不做跨组总榜**（分数不可跨组直接比）。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -35,6 +34,7 @@ def _score_one(
             sentiment=None,
         )
     except Exception as exc:
+        logger.exception('unexpected error in _score_one')
         return {"success": False, "stock_code": code, "error": str(exc)}
     return {
         "success": True,
@@ -292,7 +292,8 @@ def run_multi_score_from_artifact(
     watching_limit: int = 20,
 ) -> Dict[str, Any]:
     """用归档/传入的 code_map 对研究池（或 map 内代码）复打分。"""
-    from core.data_service import bars_and_source_research as bars_and_source, get_quote
+    from core.data_service import bars_and_source_research as bars_and_source
+    from core.data_service import get_quote
     from core.watching_store import read_watching
 
     art = artifact if isinstance(artifact, dict) else None

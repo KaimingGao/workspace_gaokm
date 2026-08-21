@@ -1,6 +1,5 @@
 """量化 Agent：多轮对话 + 多工具调度（可多轮串联工具）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -8,6 +7,7 @@ logger = logging.getLogger(__name__)
 import json
 from typing import Dict, List
 
+from agent.artifacts import build_artifact
 from agent.contracts import SkillHandler
 from agent.llm_client import (
     LLMClient,
@@ -28,7 +28,6 @@ from agent.routing import (
     needs_disclaimer,
     prepare_tool_params,
 )
-from agent.artifacts import build_artifact
 
 MAX_TOOL_ROUNDS = 5
 
@@ -107,6 +106,7 @@ class InvestmentAgent:
                         ensure_ascii=False,
                     )
                 except Exception as e:
+                    logger.exception('unexpected error in chat')
                     result = json.dumps(
                         {"success": False, "error": str(e)},
                         ensure_ascii=False,

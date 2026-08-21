@@ -1,6 +1,5 @@
 """Daily / quant 运维健康聚合（P17.3）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -8,8 +7,8 @@ logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
 from core.watching_health import check_watching_health
-from services.daily_service import DailyRunService
 from quant.services.quant_report_index import list_quant_reports
+from services.daily_service import DailyRunService
 
 
 def build_daily_health(

@@ -4,15 +4,15 @@
 超额优先用 score 内已有 factors；超时不阻塞关池。
 """
 
-from __future__ import annotations
 import logging
 
 logger = logging.getLogger(__name__)
-from core.numbers import to_float as _f
-
-from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeout
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+from core.numbers import to_float as _f
 
 STANCE_SHORT = {
     "buy_light": "轻仓",
@@ -370,18 +370,11 @@ def _hydrate_insight_tau_fields(
     try:
         from core.signal.dual_score import attach_dual_score_pit
         from core.signal.service import get_default_signal_service
+        from core.signal.session_pit import refresh_dual_score_window
 
-        fuse = str(sig.get("dual_score_window") or out.get("dual_score_window") or "") != "eod_next"
-        if fuse:
-            try:
-                from core.signal.session_pit import prepare_eod_bars
-
-                _eod, pit = prepare_eod_bars(b, q)
-                if pit.get("rolled_to_next"):
-                    fuse = False
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
-                pass
+        # 以当前时钟/行情为准，勿沿用簿上昨晚 eod_next
+        win = refresh_dual_score_window(sig, quote=q, bars=b)
+        fuse = win != "eod_next"
         attach_dual_score_pit(sig, quote=q, bars=b, fuse_intraday=fuse)
         out.update(get_default_signal_service().book_fields(sig))
         _finalize_insight_trade_fields(out)
@@ -662,9 +655,9 @@ def _insight_one(
     """单票轻量摘要：与交易执行同源 SignalService（含分组因子系数）；不二次打指数/基本面/同业。"""
     out = _blank(code, added_at=added_at)
     try:
+        from core.data_service import get_quote
         from core.signal.service import get_default_signal_service
         from core.stance import compute_buy_stance
-        from core.data_service import get_quote
 
         # cluster_mode=None → 读 signal_config.cluster_scoring（active 时用组 β，同持仓表）
         result = get_default_signal_service().score_one(
@@ -793,6 +786,7 @@ def _insight_one(
         if not out["ok"] and (scored or {}).get("error"):
             out["error"] = scored.get("error")
     except Exception as e:
+        logger.exception('unexpected error in _insight_one')
         out["error"] = str(e)
     _attach_oos_flag(out)
     return out
@@ -820,9 +814,10 @@ def build_watching_insights(
     # paper 门槛只读一次，避免每票 load_paper
     paper_ctx = None
     try:
-        from core.paths import PAPER_PATH
-        from core.paper import load_paper
         import os
+
+        from core.paper import load_paper
+        from core.paths import PAPER_PATH
 
         if os.path.isfile(PAPER_PATH):
             paper_ctx = load_paper(PAPER_PATH)
@@ -877,6 +872,7 @@ def build_watching_insights(
                 paper_ctx=paper_ctx,
             )
         except Exception as e:
+            logger.exception('unexpected error in build_watching_insights')
             items_by_code[c] = _blank(
                 c,
                 added_at=added.get(c),
@@ -904,6 +900,7 @@ def build_watching_insights(
                 try:
                     items_by_code[code] = fut.result(timeout=_INSIGHT_STOCK_TIMEOUT)
                 except Exception as e:
+                    logger.exception('unexpected error in build_watching_insights')
                     items_by_code[code] = _blank(
                         code,
                         added_at=added.get(code),
@@ -917,6 +914,7 @@ def build_watching_insights(
                     try:
                         items_by_code[code] = fut.result(timeout=0)
                     except Exception as e:
+                        logger.exception('unexpected error in build_watching_insights')
                         items_by_code[code] = _blank(
                             code,
                             added_at=added.get(code),

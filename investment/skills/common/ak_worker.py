@@ -27,7 +27,6 @@ Python 3.8 兼容
     # → {"600519": [...], "000858": [...]}，失败 code 值为 []
 """
 
-from __future__ import annotations
 
 import atexit
 import logging

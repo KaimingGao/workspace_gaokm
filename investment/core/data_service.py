@@ -4,7 +4,6 @@
 类型化 API：``from core.data import MarketDataService, BarsResult``。
 """
 
-from __future__ import annotations
 
 import logging
 

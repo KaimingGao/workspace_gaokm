@@ -4,15 +4,13 @@
 promote：research 配置 → 人工确认后写入 paper 使用的策略快照，禁止静默覆盖。
 """
 
-from __future__ import annotations
-from core.numbers import now_iso_local as _now_iso
-
 import json
 import logging
 import os
 from copy import deepcopy
-from datetime import datetime
 from typing import Any, Dict, List, Optional
+
+from core.numbers import now_iso_local as _now_iso
 
 logger = logging.getLogger(__name__)
 
@@ -24,8 +22,8 @@ from core.backtest.strategies import (
     merge_strategy_params,
     resolve_strategy_id,
 )
-from core.paths import DATA_DIR
 from core.io_atomic import atomic_write_json
+from core.paths import DATA_DIR
 
 # 重新导出，保持单入口
 __all__ = [
@@ -164,6 +162,16 @@ def apply_strategy_to_paper(paper: dict, strategy: str = DEFAULT_STRATEGY) -> Di
             merged_t0 = dict(prev)
             merged_t0.update(t0_overlay)
         rules["t0"] = merged_t0
+    timing = (exe.get("rebalance_timing") or {}) if isinstance(exe, dict) else {}
+    mode = str(timing.get("execution_mode") or rules.get("execution_mode") or "next_open")
+    rules["execution_mode"] = mode
+    if isinstance(timing, dict) and timing:
+        rules["execution"] = dict(rules.get("execution") or {})
+        rules["execution"]["rebalance_timing"] = dict(timing)
+    if mode == "next_open" and not paper.get("t0_rules_locked"):
+        t0_rules = dict(rules.get("t0") or {}) if isinstance(rules.get("t0"), dict) else {}
+        t0_rules["enabled"] = False
+        rules["t0"] = t0_rules
     # 风控限额写入 paper.rules，与回测/optimize 同源
     risk = spec.get("risk") or {}
     for rk in (
@@ -193,7 +201,7 @@ def load_promoted(path: Optional[str] = None) -> Optional[Dict[str, Any]]:
     p = path or PROMOTED_PATH
     if not os.path.isfile(p):
         return None
-    with open(p, "r", encoding="utf-8") as f:
+    with open(p, encoding="utf-8") as f:
         return json.load(f)
 
 

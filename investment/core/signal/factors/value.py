@@ -1,6 +1,5 @@
 """估值因子（P46）：PE/PB 适中区间加分，极端估值降分。"""
 
-from __future__ import annotations
 
 import logging
 

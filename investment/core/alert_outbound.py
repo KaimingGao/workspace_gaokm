@@ -1,6 +1,5 @@
 """监控告警出站（本地文件 + 可选 Webhook）。不代客下单、不自动改权。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -12,8 +11,8 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, List, Optional
 
-from core.paths import DATA_DIR
 from core.io_atomic import atomic_write_json
+from core.paths import DATA_DIR
 
 ALERTS_DIR = os.path.join(DATA_DIR, "alerts")
 ALERTS_LAST_PATH = os.path.join(DATA_DIR, "alerts_last.json")
@@ -49,6 +48,7 @@ def post_webhook(url: str, payload: Dict[str, Any], *, timeout: float = 8.0) -> 
     except urllib.error.HTTPError as e:
         return {"ok": False, "status": e.code, "error": str(e)}
     except Exception as e:
+        logger.exception('unexpected error in post_webhook')
         return {"ok": False, "error": str(e)}
 
 

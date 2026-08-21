@@ -1,12 +1,11 @@
 """单票短线评分（与 SignalEngine 共用逻辑）。"""
 
-from __future__ import annotations
 
 import logging
 import threading
 from typing import Any, Dict, Optional
 
-from core.data_service import allows_production_score, infer_adjust, DEFAULT_ADJUST_POLICY
+from core.data_service import DEFAULT_ADJUST_POLICY, allows_production_score, infer_adjust
 from core.ports.market import (
     bars_from_quote_fallback,
 )
@@ -34,6 +33,7 @@ def _call_with_timeout(func, timeout, *args, **kwargs):
         try:
             result[0] = func(*args, **kwargs)
         except Exception as e:
+            logger.exception('unexpected error in worker')
             exception[0] = e
         finally:
             socket.setdefaulttimeout(old_timeout)
@@ -217,6 +217,7 @@ def score_stock(
                 "error": "行情查询超时",
             }
         except Exception as e:
+            logger.exception('unexpected error in score_stock')
             return {
                 "success": False,
                 "stock_code": raw,
@@ -305,6 +306,7 @@ def score_stock(
                 if live_fund2 and live_fund2.get("fundamentals_pit"):
                     fundamentals_pit_meta = dict(live_fund2["fundamentals_pit"])
         except Exception as e:
+            logger.exception('unexpected error in score_stock')
             fundamentals = None
             fundamentals_pit_meta = {"ok": False, "error": str(e), "mode": "error"}
 
@@ -359,6 +361,7 @@ def score_stock(
             index_bars = idx_pack["bars"]
         fund_depth = infer_fundamentals_depth(str(code), quote=quote)
     except Exception as e:
+        logger.exception('unexpected error in score_stock')
         index_meta = {"ok": False, "reason": f"index_setup_failed:{e}"}
         fund_depth = {"fundamentals_depth": "unknown", "note": str(e)}
 
@@ -392,6 +395,7 @@ def score_stock(
             else:
                 formula_warnings.append("sentiment_empty")
         except Exception as e:
+            logger.exception('unexpected error in score_stock')
             formula_warnings.append(f"sentiment_fetch_failed:{e}")
 
         try:
@@ -407,6 +411,7 @@ def score_stock(
                 if w and w not in formula_warnings:
                     formula_warnings.append(w)
         except Exception as e:
+            logger.exception('unexpected error in score_stock')
             formula_warnings.append(f"sentiment_prior_failed:{e}")
             sentiment_prior = {"success": False, "role": "prior", "error": str(e)}
 
@@ -420,7 +425,7 @@ def score_stock(
     if fundamentals_pit_meta.get("ann_missing"):
         formula_warnings.append("fundamentals_ann_missing")
         ann_pol = str(
-            (fundamentals_pit_meta.get("ann_missing_policy") or fund_cfg.get("ann_missing_policy") or "")
+            fundamentals_pit_meta.get("ann_missing_policy") or fund_cfg.get("ann_missing_policy") or ""
         ).strip().lower()
         if ann_pol in ("zero_weight", "omit") or fundamentals_pit_meta.get("mode") in (
             "ann_missing_zero_weight",
@@ -485,8 +490,8 @@ def score_stock(
     group_model_pre = None
     global_model_pre = None
     try:
-        from core.signal.return_score import ReturnScoreModel
         from core.signal.cluster_live import lookup_code_return_model
+        from core.signal.return_score import ReturnScoreModel
         from core.signal.return_score_store import load_return_model
 
         if cluster_yhat_shadow_compute_allowed(mode):
@@ -789,6 +794,7 @@ def score_stock(
                 }
             )
         except Exception as e:
+            logger.exception('unexpected error in score_stock')
             return_model_payload = None
             score_formula = ""
             score_formula_terms = None
@@ -893,8 +899,8 @@ def score_stock(
             gap_pct_from_quote_bars,
             get_event_prior_cfg,
         )
+        from core.research.rem_ridge import load_rem_model, predict_rem_from_features
         from core.signal.dual_score import apply_tau_score_fields
-        from quant.research.rem_ridge import load_rem_model, predict_rem_from_features
 
         gap_v = gap_pct_from_quote_bars(quote, bars)
         ep_cfg = get_event_prior_cfg()
@@ -938,10 +944,10 @@ def score_stock(
         }
         try:
             from core.research.rem_panel import (
+                _finite_median,
                 gap_atr_from_hist,
                 gap_vs_sector_value,
                 hist_bars_pit,
-                _finite_median,
             )
 
             asof = ""

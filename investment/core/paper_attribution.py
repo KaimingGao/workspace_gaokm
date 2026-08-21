@@ -4,7 +4,6 @@
 并给出个股贡献 Top-N。研究回测归因见 ``core.backtest.attribution``。
 """
 
-from __future__ import annotations
 
 import logging
 

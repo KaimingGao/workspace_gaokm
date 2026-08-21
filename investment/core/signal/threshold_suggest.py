@@ -5,12 +5,11 @@
 不自动写 ``signal_config``。
 """
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence
 
 from core.signal.config import get_stance_thresholds, load_signal_config
 
@@ -196,7 +195,7 @@ def scan_yhat_wait_oos(
     min_test_trades: int = 3,
 ) -> Dict[str, Any]:
     """ŷ% wait 的 train/valid/test OOS 扫描。"""
-    from research.split import time_series_split
+    from core.research.split import time_series_split
 
     n = len(bars or [])
     if n < 50:
@@ -285,7 +284,7 @@ def _apply_yhat_suggestion(
     wait_cur = float(base["wait"])
     test_trades = int(test_metrics.get("trade_count") or 0)
     test_win = test_metrics.get("win_rate_pct")
-    deltas = {k: 0.0 for k in STANCE_KEYS}
+    deltas = dict.fromkeys(STANCE_KEYS, 0.0)
     suggested = {k: round(float(base[k]), 2) for k in STANCE_KEYS}
     rationale: List[str] = []
 
@@ -440,7 +439,7 @@ def suggest_stance_thresholds_from_oos(
             "skipped_apply": True,
             "current_thresholds": base_rounded,
             "suggested_thresholds": dict(base_rounded),
-            "deltas": {k: 0.0 for k in STANCE_KEYS},
+            "deltas": dict.fromkeys(STANCE_KEYS, 0.0),
             "oos": {
                 "best_params": best_params,
                 "test_metrics": test_metrics,
@@ -457,7 +456,7 @@ def suggest_stance_thresholds_from_oos(
 
     # —— 遗留启发式门槛路径 ——
     rationale: List[str] = []
-    deltas = {k: 0.0 for k in STANCE_KEYS}
+    deltas = dict.fromkeys(STANCE_KEYS, 0.0)
     suggested = {k: round(float(base[k]), 1) for k in STANCE_KEYS}
     best_min = best_params.get("min_score")
 

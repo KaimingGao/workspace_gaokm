@@ -1,17 +1,16 @@
 """对话 / 会话 API。"""
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Header, HTTPException
 
-from web import deps
-from web.schemas import ChatRequest, ChatResponse, ChatAsyncResponse
 from agent.artifacts import primary_tab
+from web import deps
+from web.schemas import ChatAsyncResponse, ChatRequest, ChatResponse
 
 router = APIRouter(tags=["chat"])
 
@@ -20,7 +19,7 @@ router = APIRouter(tags=["chat"])
 def chat(
     body: ChatRequest,
     x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id"),
-):
+) -> Any:
     """同步对话（兼容单测 / 旧客户端）。UI 请优先 ``/api/chat/async``。"""
     text = body.message.strip()
     if not text:
@@ -49,7 +48,7 @@ def chat(
 def chat_async(
     body: ChatRequest,
     x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id"),
-):
+) -> Any:
     """立即返回；轮询 ``GET /api/jobs/chat`` 取结果。"""
     text = body.message.strip()
     if not text:
@@ -67,14 +66,14 @@ def chat_async(
 
 
 @router.get("/api/chat/job")
-def chat_job():
+def chat_job() -> Dict[str, Any]:
     """兼容别名；规范入口 ``/api/jobs/chat``。"""
     out = deps.chat.get_job()
     return {**out, "deprecated": True, "canonical": "/api/jobs/chat"}
 
 
 @router.post("/api/reset")
-def reset(x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id")):
+def reset(x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id")) -> Dict[str, Any]:
     sid, agent = deps.chat.reset(x_session_id)
     return {
         "session_id": sid,
@@ -84,7 +83,7 @@ def reset(x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id
 
 
 @router.get("/api/usage")
-def usage(x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id")):
+def usage(x_session_id: Optional[str] = Header(default=None, alias="X-Session-Id")) -> Dict[str, Any]:
     sid, agent = deps.chat.get_or_create(x_session_id)
     return {
         "session_id": sid,

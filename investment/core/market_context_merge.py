@@ -1,9 +1,8 @@
 """市场上下文 ingest 合并与新鲜度工具。"""
 
-from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Dict, Optional
 
 
 def _parse_ts(raw: Any) -> Optional[datetime]:
@@ -46,9 +45,7 @@ def merge_series_dict(
     """按 key 合并 macro series：fresh 优先，缺失项保留 prior。"""
     out = dict(prior or {})
     for k, v in dict(fresh or {}).items():
-        if isinstance(v, dict) and v.get("close") is not None:
-            out[k] = v
-        elif k not in out:
+        if isinstance(v, dict) and v.get("close") is not None or k not in out:
             out[k] = v
     return out
 

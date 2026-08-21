@@ -1,6 +1,5 @@
 """signal_config 权重/阈值 diff 预览（P20.1，只读、不写盘）。"""
 
-from __future__ import annotations
 
 import logging
 

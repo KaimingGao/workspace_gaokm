@@ -5,7 +5,6 @@
 曾用名：代码表只有现名（如中直股份），用户常搜旧名（哈飞股份）→ 靠 SEARCH_ALIASES。
 """
 
-from __future__ import annotations
 
 import json
 import os
@@ -131,6 +130,7 @@ def _spot_pairs_cheap() -> List[Tuple[str, str]]:
                 if disk:
                     rows = list(disk)
     except Exception:
+        logger.exception('unexpected error in _spot_pairs_cheap')
         rows = []
 
     pairs: List[Tuple[str, str]] = []
@@ -168,6 +168,7 @@ def _load_code_name_disk() -> List[Tuple[str, str]]:
                 out.append((str(it[0]), str(it[1])))
         return out
     except Exception:
+        logger.exception('unexpected error in _load_code_name_disk')
         return []
 
 
@@ -186,9 +187,13 @@ def _save_code_name_disk(pairs: List[Tuple[str, str]]) -> None:
                 ensure_ascii=False,
             )
     except Exception:
-        pass
+        logger.exception('unexpected error in _save_code_name_disk')
 
 
+
+import logging
+
+logger = logging.getLogger(__name__)
 def _fetch_code_name_live() -> List[Tuple[str, str]]:
     from skills.common.ak_lock import import_akshare
 
@@ -236,7 +241,7 @@ def _code_name_pairs(*, allow_fetch: bool = True) -> List[Tuple[str, str]]:
             _CODE_NAME_TS = now
             return live
     except Exception:
-        pass
+        logger.exception('unexpected error in _code_name_pairs')
     finally:
         _CODE_NAME_FETCHING = False
     return []
@@ -370,6 +375,7 @@ def search_stocks(query: str, limit: int = 8) -> Dict[str, Any]:
         try:
             quote = StockAPI.query(q)
         except Exception:
+            logger.exception('unexpected error in search_stocks')
             quote = {"success": False}
         if quote.get("success") and quote.get("stock_code"):
             _add_item(

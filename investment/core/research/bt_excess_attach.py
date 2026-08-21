@@ -1,6 +1,5 @@
 """回测/OOS 结果附带相对指数超额（P0 深化）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -37,6 +36,7 @@ def attach_benchmark_excess(
             )
             out["benchmark"] = bench
         except Exception as exc:
+            logger.exception('unexpected error in attach_benchmark_excess')
             out["benchmark"] = {"ok": False, "reason": str(exc)}
             bench = out["benchmark"]
 

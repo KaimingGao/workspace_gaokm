@@ -1,6 +1,5 @@
 """分组 score：组因子系数 → 收益分 ŷ 组内排序（不写 signal_config）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -34,6 +33,7 @@ def _score_one(
             sentiment=None,
         )
     except Exception as exc:
+        logger.exception('unexpected error in _score_one')
         return {
             "success": False,
             "stock_code": code,

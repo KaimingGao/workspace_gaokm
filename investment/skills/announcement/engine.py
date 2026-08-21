@@ -1,6 +1,5 @@
 """交易所公告扫描：停牌核查 / 异常波动 / 监管降温。"""
 
-from __future__ import annotations
 
 import logging
 import re

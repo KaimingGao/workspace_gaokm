@@ -10,7 +10,6 @@
 ``force_latest_bars=True``：跳过 36h 复用，增量拉网合并到最新（当日首次分组自动开）。
 """
 
-from __future__ import annotations
 
 import logging
 import threading
@@ -18,8 +17,10 @@ import time
 from concurrent.futures import (
     FIRST_COMPLETED,
     ThreadPoolExecutor,
-    TimeoutError as FuturesTimeout,
     wait,
+)
+from concurrent.futures import (
+    TimeoutError as FuturesTimeout,
 )
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
@@ -305,6 +306,7 @@ def _load_one_panel(
             else:
                 fund_mode = str(resolved.get("mode") or "as_of_missing")
         except Exception as e:
+            logger.exception('unexpected error in _load_one_panel')
             out["fund_resolve"] = {
                 "ok": False,
                 "metrics": None,
@@ -477,6 +479,7 @@ def build_cluster_ols_panels(
                     try:
                         raw_rows[i] = fut.result(timeout=0.1)
                     except Exception as e:
+                        logger.exception('unexpected error in build_cluster_ols_panels')
                         raw_rows[i] = _empty_row(
                             code_list[i], roles.get(code_list[i]) or {}, str(e)
                         )
@@ -503,6 +506,7 @@ def build_cluster_ols_panels(
                     try:
                         raw_rows[i] = fut.result(timeout=0)
                     except Exception as e:
+                        logger.exception('unexpected error in build_cluster_ols_panels')
                         raw_rows[i] = _empty_row(
                             code_list[i], roles.get(code_list[i]) or {}, str(e)
                         )

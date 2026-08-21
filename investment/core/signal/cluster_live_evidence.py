@@ -1,6 +1,5 @@
 """分组 live 启用证据包与公开状态（从 cluster_live 拆出）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -164,6 +163,7 @@ def build_cluster_enable_evidence(
         try:
             audit = cluster_score_audit_sample(limit=6)
         except Exception as exc:
+            logger.exception('unexpected error in build_cluster_enable_evidence')
             audit = {"success": False, "rows": [], "error": str(exc)}
     # 主路径无全局ŷ；双分样本仅遗留调试（默认不采）
     audit_rows = list((audit or {}).get("rows") or [])[:6] if include_audit else []
@@ -213,6 +213,7 @@ def build_cluster_enable_evidence(
             if ic_codes:
                 rolling_ic_pack = estimate_rolling_yhat_ic_for_codes(ic_codes, limit=4)
         except Exception as exc:
+            logger.exception('unexpected error in build_cluster_enable_evidence')
             rolling_ic_pack = {"ok": False, "rolling_ic": None, "error": str(exc)}
         yhat_ic = rolling_ic_pack.get("rolling_ic")
         min_yhat_ic = float(cs.get("min_yhat_rolling_ic") or 0.0)
@@ -390,6 +391,7 @@ def cluster_status_public(
                 rotate=bool(audit_rotate),
             )
         except Exception as exc:
+            logger.exception('unexpected error in cluster_status_public')
             audit = {"success": False, "rows": [], "error": str(exc)}
 
     if light:

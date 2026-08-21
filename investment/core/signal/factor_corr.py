@@ -1,6 +1,5 @@
 """截面因子相关性（研究只读，V2.1 去冗）。"""
 
-from __future__ import annotations
 
 import logging
 

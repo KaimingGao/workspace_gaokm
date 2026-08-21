@@ -1,15 +1,17 @@
 """股票行情 API：统一走腾讯财经 qt.gtimg.cn，带短时缓存。"""
 
-from __future__ import annotations
 
-import time
+import logging
 import threading
+import time
 from typing import Dict, List, Optional, Tuple
 
 import requests
 
 from core.data_policy import QUOTE_MEM_TTL_SECONDS, QUOTE_STALE_MAX_SECONDS
 from core.http_retry import requests_get_with_retry
+
+logger = logging.getLogger(__name__)
 
 
 class StockAPI:
@@ -179,6 +181,7 @@ class StockAPI:
                     return result
                 last_error = result.get("error", last_error)
             except Exception as e:
+                logger.exception('unexpected error in query')
                 last_error = str(e)
                 continue
 
@@ -309,6 +312,7 @@ class StockAPI:
                     "error": f"股票查询失败: {e}",
                 }
         except Exception as e:
+            logger.exception('unexpected error in batch_query')
             for code in uncached_codes:
                 results[code] = {
                     "success": False,
@@ -584,6 +588,7 @@ class StockAPI:
             response.raise_for_status()
             body = response.json()
         except Exception:
+            logger.exception('unexpected error in _query_eastmoney_batch')
             return {}
         data = body.get("data") if isinstance(body, dict) else None
         if not isinstance(data, dict):

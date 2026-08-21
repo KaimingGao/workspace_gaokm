@@ -1,6 +1,5 @@
 """市场状态门控（P6.5）。"""
 
-from __future__ import annotations
 
 import logging
 

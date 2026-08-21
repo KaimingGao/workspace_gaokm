@@ -4,7 +4,6 @@
 Halley 迭代修正；卡方分布 p 值用 ``math.erfc`` 闭式计算。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -397,19 +396,19 @@ def tail_ratio(returns: np.ndarray, alpha: float = 0.05) -> float:
 if __name__ == "__main__":
     rng = np.random.default_rng(42)
     rets = rng.standard_normal(250) * 0.01 - 0.0002
-    print("historical_var:", historical_var(rets))
-    print("parametric_var:", parametric_var(float(rets.mean()), float(rets.std())))
-    print("conditional_var:", conditional_var(rets))
-    print("tail_ratio:", tail_ratio(rets))
+    logger.info("historical_var:", historical_var(rets))
+    logger.info("parametric_var:", parametric_var(float(rets.mean()), float(rets.std())))
+    logger.info("conditional_var:", conditional_var(rets))
+    logger.info("tail_ratio:", tail_ratio(rets))
     # 蒙特卡洛
     mean = np.array([0.001, 0.0005, -0.0002])
     cov = np.array([[0.0004, 0.0001, 0.0], [0.0001, 0.0003, 0.0001], [0.0, 0.0001, 0.0005]])
     w = np.array([0.4, 0.3, 0.3])
-    print("monte_carlo_var:", monte_carlo_var(mean, cov, w, n_sims=5000))
+    logger.info("monte_carlo_var:", monte_carlo_var(mean, cov, w, n_sims=5000))
     # 情景回放
     dates = [f"2020-{m:02d}-{d:02d}" for m in range(1, 13) for d in range(1, 29)][:250]
     scenarios = {"2020疫情": ("2020-02-01", "2020-04-30")}
-    print("scenario_replay:", scenario_replay(rets, dates, scenarios))
+    logger.info("scenario_replay:", scenario_replay(rets, dates, scenarios))
     # VaR 回测
     var_arr = np.full(250, -0.0164)
-    print("var_backtest:", var_backtest(rets, var_arr))
+    logger.info("var_backtest:", var_backtest(rets, var_arr))

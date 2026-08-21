@@ -1,6 +1,5 @@
 """β 向量聚类 / 分区算法（从 factor_ols_clusters 拆出，纯 numpy）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -1100,9 +1099,7 @@ def cluster_beta_vectors(
     x = np.asarray(x, dtype=float)
     n = int(x.shape[0])
     method_s = str(method or "hierarchical").strip().lower()
-    if method_s in ("auto", "hierarchical", "complete"):
-        method_s = "hierarchical"
-    elif method_s != "kmeans":
+    if method_s in ("auto", "hierarchical", "complete") or method_s != "kmeans":
         method_s = "hierarchical"
     link = str(cluster_linkage or "average").strip().lower()
     if link not in ("complete", "average"):

@@ -1,18 +1,15 @@
 """投资宇宙 Watching：观察池定义与刷新（P9.1）。"""
 
-from __future__ import annotations
 import logging
 
 logger = logging.getLogger(__name__)
-from core.numbers import now_iso_local as _now_iso
-
 import json
 import os
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from core.paths import WATCHING_EXAMPLE_PATH, WATCHING_PATH
 from core.io_atomic import atomic_write_json
+from core.numbers import now_iso_local as _now_iso
+from core.paths import WATCHING_EXAMPLE_PATH, WATCHING_PATH
 
 
 def validate_watching(data: Any) -> Dict[str, Any]:
@@ -61,7 +58,7 @@ def read_watching(path: Optional[str] = None) -> Dict[str, Any]:
         raise FileNotFoundError(
             f"未找到 watching: {p}。可复制 watching.example.json 为 watching.json"
         )
-    with open(p, "r", encoding="utf-8") as f:
+    with open(p, encoding="utf-8") as f:
         return validate_watching(json.load(f))
 
 
@@ -77,7 +74,7 @@ def init_from_example(path: Optional[str] = None) -> str:
     p = path or WATCHING_PATH
     if os.path.isfile(p):
         raise FileExistsError(f"已存在: {p}")
-    with open(WATCHING_EXAMPLE_PATH, "r", encoding="utf-8") as f:
+    with open(WATCHING_EXAMPLE_PATH, encoding="utf-8") as f:
         data = json.load(f)
     data["updated_at"] = _now_iso()
     wl = [str(c).strip() for c in (data.get("watchlist") or []) if str(c).strip()]
@@ -140,6 +137,7 @@ def _pull_source(source: dict) -> Dict[str, Any]:
         try:
             result = screen_stocks(params)
         except Exception as e:
+            logger.exception('unexpected error in _pull_source')
             return {"entries": [], "error": f"筛选异常: {e}", "note": None}
         if not result.get("success"):
             return {

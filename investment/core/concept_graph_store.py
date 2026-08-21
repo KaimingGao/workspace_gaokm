@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 from core.io_atomic import atomic_write_json
 from core.paths import STORE_DIR
@@ -14,6 +15,49 @@ logger = logging.getLogger(__name__)
 
 _CACHE_REL = os.path.join("concept_graph", "daily.json")
 _DEFAULT_MAX_AGE_HOURS = 24.0
+
+# 盘前 / 监管 prior 默认概念提示（canonical；skills 侧再导出）
+DEFAULT_CONCEPT_HINTS = (
+    "机器人",
+    "人形机器人",
+    "半导体",
+    "芯片",
+    "人工智能",
+    "AI",
+    "光通信",
+    "算力",
+)
+
+
+def _norm_code(raw: Any) -> str:
+    digits = re.sub(r"\D", "", str(raw or ""))
+    return digits[-6:] if len(digits) >= 6 else ""
+
+
+def stock_in_penalty_concepts(
+    stock_code: Optional[str],
+    regulatory: Optional[dict],
+    *,
+    fallback_tags: Optional[List[str]] = None,
+) -> bool:
+    """个股是否落在核查 code 的概念图谱内（纯领域逻辑，无外部 IO）。"""
+    if not stock_code or not isinstance(regulatory, dict):
+        return False
+    code = _norm_code(stock_code)
+    if not code:
+        return False
+    graph = regulatory.get("penalty_concept_graph") or {}
+    if code in graph:
+        return True
+    code_concepts = regulatory.get("code_concepts") or {}
+    stock_concepts: Set[str] = set(code_concepts.get(code) or [])
+    if not stock_concepts:
+        return False
+    penalty = set(regulatory.get("penalty_concepts") or [])
+    if penalty and stock_concepts & penalty:
+        return True
+    tags = set(fallback_tags or [])
+    return bool(stock_concepts & tags)
 
 
 def _cache_path() -> str:

@@ -1,6 +1,5 @@
 """信号扫描端口。默认经 skills.ports_bind 注入；单测可 set_adapter 覆盖。"""
 
-from __future__ import annotations
 
 import logging
 

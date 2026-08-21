@@ -1,6 +1,5 @@
 """监管公告 prior + IPO 虹吸 prior（ŷ 外）。"""
 
-from __future__ import annotations
 
 import logging
 from typing import Any, Dict, List, Optional
@@ -31,6 +30,7 @@ def get_regulatory_prior_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
 
             config = load_signal_config()
         except Exception:
+            logger.exception('unexpected error in get_regulatory_prior_cfg')
             config = {}
     raw = dict(DEFAULT_REGULATORY)
     raw.update(dict((config or {}).get("regulatory_prior") or {}))
@@ -46,6 +46,7 @@ def get_ipo_drain_prior_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
 
             config = load_signal_config()
         except Exception:
+            logger.exception('unexpected error in get_ipo_drain_prior_cfg')
             config = {}
     raw = dict(DEFAULT_IPO_DRAIN)
     raw.update(dict((config or {}).get("ipo_drain_prior") or {}))
@@ -92,7 +93,7 @@ def build_regulatory_prior(
     graph_hit = False
     if stock_code and reg.get("concept_graph_built"):
         try:
-            from skills.announcement.concept_graph import stock_in_penalty_concepts
+            from core.concept_graph_store import stock_in_penalty_concepts
 
             graph_hit = stock_in_penalty_concepts(
                 stock_code,

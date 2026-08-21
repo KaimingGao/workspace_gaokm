@@ -3,7 +3,6 @@
 与单票时序 IC（factor_report）不同：每个决策日横截面 corr(因子分, 前瞻收益)，再对日序列汇总。
 """
 
-from __future__ import annotations
 
 import logging
 

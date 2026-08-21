@@ -3,7 +3,6 @@
 原 ``services.paper_helpers`` 中逻辑迁此，避免 core→services。
 """
 
-from __future__ import annotations
 
 import logging
 

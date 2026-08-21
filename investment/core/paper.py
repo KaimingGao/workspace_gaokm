@@ -3,7 +3,6 @@
 非实盘。定量见 paper_sizing；成本见 paper_costs；行情经 core.ports。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -14,8 +13,10 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any, Callable, Dict, Iterator, List, Optional, TypeVar
 
+from core.file_lock import path_lock
+from core.io_atomic import atomic_write_json
 from core.paper_costs import resolve_cost_model  # noqa: F401 — re-export for paper_cycle / callers
-from core.paper_sizing import (
+from core.paper_sizing import (  # noqa: F401 — re-export for watching_store / callers
     DEFAULT_SYNC_AMOUNT,
     DEFAULT_SYNC_LOT_SHARES,
     buy_codes_direct,
@@ -24,8 +25,6 @@ from core.paper_sizing import (
 from core.paths import PAPER_EXAMPLE_PATH, PAPER_PATH
 from core.ports.market import quote_price
 from core.ports.signal import build_signal_pool
-from core.io_atomic import atomic_write_json
-from core.file_lock import path_lock
 
 DEFAULT_PAPER_PATH = PAPER_PATH
 EXAMPLE_PATH = PAPER_EXAMPLE_PATH
@@ -105,7 +104,7 @@ def load_paper(path: Optional[str] = None) -> dict:
     p = path or DEFAULT_PAPER_PATH
     if not os.path.isfile(p):
         raise FileNotFoundError(f"模拟账户不存在: {p}（可先初始化）")
-    with open(p, "r", encoding="utf-8") as f:
+    with open(p, encoding="utf-8") as f:
         data = json.load(f)
     if "cash" not in data:
         raise ValueError("paper.json 缺少 cash")
@@ -146,7 +145,7 @@ def init_from_example(path: Optional[str] = None) -> str:
     p = path or DEFAULT_PAPER_PATH
     if os.path.isfile(p):
         raise FileExistsError(f"已存在: {p}")
-    with open(EXAMPLE_PATH, "r", encoding="utf-8") as f:
+    with open(EXAMPLE_PATH, encoding="utf-8") as f:
         data = json.load(f)
     data.setdefault("cost_model", "simple_cn")
     data["created_at"] = _now_iso()
@@ -231,13 +230,12 @@ def merge_origin(existing: Optional[str], incoming: str) -> str:
 
 # 盯市 / 手动与模拟成交：见 paper_exec
 from core.paper_exec import (  # noqa: E402,F401
-    mark_to_market,
     manual_buy,
     manual_sell,
+    mark_to_market,
     simulate_buys,
     simulate_sells,
 )
-
 
 
 def append_snapshot(paper: dict, summary: Dict[str, Any]) -> None:

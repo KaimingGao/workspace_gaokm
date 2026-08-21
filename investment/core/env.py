@@ -1,6 +1,5 @@
 """环境变量加载（CLI / Web 共用）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -31,7 +30,7 @@ def load_env_file(path: str) -> bool:
         pass
 
     try:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             for raw in f:
                 line = raw.strip()
                 if not line or line.startswith("#") or "=" not in line:
@@ -53,7 +52,7 @@ def read_env_file_keys(path: Optional[str] = None) -> Dict[str, str]:
     if not os.path.isfile(p):
         return out
     try:
-        with open(p, "r", encoding="utf-8") as f:
+        with open(p, encoding="utf-8") as f:
             for raw in f:
                 line = raw.strip()
                 if not line or line.startswith("#") or "=" not in line:

@@ -1,6 +1,5 @@
 """Watching 健康检查（P17.1）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -48,6 +47,7 @@ def check_watching_health(
     try:
         data = read_watching(p)
     except Exception as e:
+        logger.exception('unexpected error in check_watching_health')
         return {
             "success": False,
             "exists": True,

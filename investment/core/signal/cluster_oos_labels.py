@@ -1,6 +1,5 @@
 """OOS 失败组 label 提取（无循环依赖，供 rank / live / 证据包共用）。"""
 
-from __future__ import annotations
 
 import logging
 

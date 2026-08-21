@@ -5,7 +5,6 @@
 仅依赖 numpy + 标准库，不引入 scipy。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -267,7 +266,7 @@ def brinson_attribution(
     """
     codes = list(set(portfolio_weights) | set(benchmark_weights) | set(asset_returns))
     if sectors is None:
-        sector_of = {c: "__ALL__" for c in codes}
+        sector_of = dict.fromkeys(codes, "__ALL__")
     else:
         sector_of = {c: sectors.get(c, "__UNKNOWN__") for c in codes}
 
@@ -445,12 +444,12 @@ if __name__ == "__main__":
     # 正交化
     orth_sym, trans_sym = symmetric_orthogonalize(F)
     orth_gs, trans_gs = gram_schmidt_orthogonalize(F)
-    print("原始因子相关:", np.corrcoef(F.T)[0, 1])
-    print("对称正交后相关:", np.corrcoef(orth_sym.T)[0, 1])
+    logger.info("原始因子相关:", np.corrcoef(F.T)[0, 1])
+    logger.info("对称正交后相关:", np.corrcoef(orth_sym.T)[0, 1])
 
     # 共线性诊断
     diag = summarize_factor_collinearity(F, names)
-    print(
+    logger.info(
         "共线性诊断:",
         diag["recommendation"],
         "cond=",
@@ -463,11 +462,11 @@ if __name__ == "__main__":
     true_beta = np.array([0.5, 0.3, 0.2])
     port_ret = F @ true_beta + rng.standard_normal(T) * 0.1
     attr = risk_attribution(port_ret, F, factor_names=names)
-    print(
+    logger.info(
         "风险归因: systematic=%.4f, idio=%.4f, R²=%.3f"
         % (attr["systematic_risk"], attr["idiosyncratic_risk"], attr["r_squared"])
     )
-    print("因子贡献:", attr["factor_contrib_pct"])
+    logger.info("因子贡献:", attr["factor_contrib_pct"])
 
     # Brinson
     pw = {"000001": 0.3, "000002": 0.4, "600001": 0.3}
@@ -475,7 +474,7 @@ if __name__ == "__main__":
     ar = {"000001": 0.05, "000002": 0.02, "600001": -0.01}
     sec = {"000001": "主板", "000002": "主板", "600001": "科创"}
     br = brinson_attribution(pw, bw, ar, sectors=sec)
-    print(
+    logger.info(
         "Brinson: excess=%.4f, alloc=%.4f, select=%.4f, inter=%.4f"
         % (
             br["excess_return"],

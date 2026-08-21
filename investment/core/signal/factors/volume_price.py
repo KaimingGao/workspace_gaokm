@@ -8,14 +8,11 @@
 5. 量价背离检测
 """
 
-from __future__ import annotations
 
 import logging
 
 logger = logging.getLogger(__name__)
 from typing import List, Optional
-
-from core.signal.factors.momentum import pct_change
 
 
 def _avg(values: List[float]) -> Optional[float]:
@@ -28,7 +25,7 @@ def _calc_obv(bars: List[dict]) -> List[float]:
     """计算OBV（能量潮）。"""
     if len(bars) < 2:
         return [0.0]
-    
+
     obv = [0.0]
     for i in range(1, len(bars)):
         vol = float(bars[i].get("volume", 0))
@@ -45,12 +42,12 @@ def _calc_volume_percentile(bars: List[dict], window: int = 60) -> Optional[floa
     """计算当前成交量在历史窗口中的分位。"""
     if len(bars) < 10:
         return None
-    
+
     volumes = [float(b.get("volume", 0)) for b in bars[-window:]]
     volumes = [v for v in volumes if v > 0]
     if len(volumes) < 5:
         return None
-    
+
     current = volumes[-1]
     below_count = sum(1 for v in volumes if v < current)
     return below_count / len(volumes) * 100
@@ -87,7 +84,7 @@ def score_volume_price(
     """
     if not bars or len(bars) < 5:
         return 50.0, {"volume_ratio": None, "omit_sub_score": True}
-    
+
     # 1. 量比评分
     vol_ratio = volume_ratio(bars)
     vr_score = 50.0
@@ -104,7 +101,7 @@ def score_volume_price(
             vr_score = 42.0  # 温和缩量
         else:
             vr_score = 50.0
-    
+
     # 2. 价量配合评分
     vp_score = 50.0
     if last_change is not None and vol_ratio is not None:
@@ -128,7 +125,7 @@ def score_volume_price(
             vp_score = 35.0
         else:
             vp_score = 50.0
-    
+
     # 3. OBV趋势评分
     obv_score = 50.0
     obv = _calc_obv(bars)
@@ -141,7 +138,7 @@ def score_volume_price(
             obv_score = 35.0  # OBV下降
         else:
             obv_score = 50.0
-    
+
     # 4. 成交量分位评分
     vol_percentile = _calc_volume_percentile(bars)
     percentile_score = 50.0
@@ -156,7 +153,7 @@ def score_volume_price(
             percentile_score = 42.0  # 成交量萎缩
         else:
             percentile_score = 50.0
-    
+
     # 5. 量价背离检测
     divergence_score = 50.0
     closes = [float(b["close"]) for b in bars[-10:]]
@@ -165,7 +162,7 @@ def score_volume_price(
         # 价格创新低但成交量萎缩 → 底背离
         price_trend = closes[-1] - closes[-5]
         vol_trend = sum(vols[-3:]) / 3 - sum(vols[-5:-2]) / 3
-        
+
         if price_trend < 0 and vol_trend > 0:
             # 价格下跌，成交量放大 → 继续下跌
             divergence_score = 30.0
@@ -178,7 +175,7 @@ def score_volume_price(
         elif price_trend > 0 and vol_trend > 0:
             # 上涨放量 → 健康
             divergence_score = 68.0
-    
+
     # 综合评分
     total = (
         0.20 * vr_score +
@@ -187,7 +184,7 @@ def score_volume_price(
         0.15 * percentile_score +
         0.20 * divergence_score
     )
-    
+
     return round(total, 1), {
         "volume_ratio": round(vol_ratio, 2) if vol_ratio is not None else None,
         "volume_percentile": round(vol_percentile, 1) if vol_percentile is not None else None,

@@ -1,6 +1,5 @@
 """做 T 回测研究封装（供 QuantService / CLI）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -8,7 +7,6 @@ logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.t0.backtest import backtest_t0_on_bars, derive_t0_quality_metrics
-
 
 # 东财分钟接口偶发挂死；多持仓串行时会把整次「做T回测」拖成无响应。
 _MINUTE_FETCH_TIMEOUT_SEC = 5.0
@@ -23,7 +21,9 @@ def _fetch_minute_by_date(
 ) -> Tuple[Dict[str, List[dict]], Dict[str, Any]]:
     """返回 (minute_by_date, meta)；失败则 ({}, meta)。"""
     try:
-        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+        from concurrent.futures import ThreadPoolExecutor
+        from concurrent.futures import TimeoutError as FuturesTimeout
+
         from core.ports.market import fetch_minute_bars, group_minute_bars_by_date
 
         def _load():
@@ -45,6 +45,7 @@ def _fetch_minute_by_date(
             return {}, meta or {"ok": False}
         return group_minute_bars_by_date(bars), meta
     except Exception as e:
+        logger.exception('unexpected error in _fetch_minute_by_date')
         return {}, {"ok": False, "error": str(e), "period": period}
 
 

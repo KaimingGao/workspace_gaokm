@@ -1,6 +1,5 @@
 """纸面调仓 / 日循环流水线（从 paper.py 拆出，降低单文件集中度）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -30,6 +29,96 @@ def run_daily_cycle(
         if on_progress:
             on_progress(cur, tot, msg)
 
+    _resolve_strategy_spec(paper, strategy)
+
+    holdings, holding_codes, name_by_code, grand = _get_holdings_info(paper)
+
+    def _score_progress(i: int, n: int, msg: str) -> None:
+        _p(i, grand, msg)
+
+    _p(0, grand, f"开始扫描持仓评分…（策略: {strategy}）")
+    # 扫描持仓股票评分
+    pool = run_signal_scan(paper, on_progress=_score_progress, stock_codes=holding_codes)
+    new_trades: List[dict] = []
+    sell_trades: List[dict] = []
+
+    old_shares_by_code, cash_before, position_count_before = _snapshot_pre_rebalance_state(
+        holdings, paper
+    )
+
+    risk_gate, pre_summary = _check_pre_rebalance_risk(paper)
+
+    buys_blocked = False
+    _p(len(holding_codes) + 1, grand, "减仓/卖出规则")
+    sell_trades = simulate_sells(paper, pool)
+
+    _optimize_target_weights(paper, pool, strategy)
+
+    if simulate_buy:
+        if risk_gate and not risk_gate.get("ok"):
+            _p(len(holding_codes) + 2, grand, "风控拦截加仓")
+            new_trades = []
+            buys_blocked = True
+            _log_risk_block(paper, risk_gate)
+        else:
+            _p(len(holding_codes) + 2, grand, "加仓/买入…")
+            new_trades = simulate_buys(paper, pool)
+    else:
+        _p(len(holding_codes) + 2, grand, "跳过加仓")
+    _p(len(holding_codes) + 3, grand, "更新净值…")
+    summary = mark_to_market(paper)
+    append_snapshot(paper, summary)
+    _p(grand, grand, "完成")
+
+    cost_model, cash_impact = _build_cash_impact(
+        paper, pre_summary, cash_before, position_count_before, sell_trades, new_trades, summary
+    )
+
+    dq, codes = _summarize_data_quality(pool, holding_codes)
+
+    monitor = _assess_strategy_health(paper, summary, codes, holding_codes)
+
+    manifest = _build_and_write_manifest(
+        paper, strategy, cost_model, dq, simulate_buy,
+        new_trades, sell_trades, risk_gate, buys_blocked, monitor,
+    )
+
+    rebalance_report = _build_rebalance_report(
+        paper, pool, new_trades, sell_trades,
+        old_shares_by_code, name_by_code, summary, simulate_buy,
+    )
+
+    sid, sver, risk_blocks, monitor_alerts, ops_report, attribution = _assemble_extras_and_ops_report(
+        paper, strategy, risk_gate, monitor, dq, cost_model, buys_blocked, summary
+    )
+
+    return {
+        "success": True,
+        "observation_pool_count": len(pool),
+        "new_trades": new_trades,
+        "sell_trades": sell_trades,
+        "summary": summary,
+        "top_signals": pool[:5],
+        "rebalance_report": rebalance_report,
+        "cash_impact": cash_impact,
+        "risk_gate": risk_gate,
+        "manifest": manifest,
+        "strategy_id": sid,
+        "strategy_version": sver,
+        "cost_model": cost_model,
+        "data_quality": dq or {},
+        "risk_blocks": risk_blocks,
+        "monitor_alerts": monitor_alerts,
+        "buys_blocked": buys_blocked,
+        "ops_report": ops_report,
+        "attribution": attribution,
+        "last_optimize": paper.get("last_optimize"),
+        "target_weights": (paper.get("last_optimize") or {}).get("weights_pct"),
+        "health": monitor,
+    }
+
+
+def _resolve_strategy_spec(paper: dict, strategy: str) -> None:
     # 根据策略规格合并 paper.rules / 成本默认（Q2）
     strategy_spec = None
     if strategy:
@@ -49,6 +138,8 @@ def run_daily_cycle(
                 logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
                 pass
 
+
+def _get_holdings_info(paper: dict):
     holdings = paper.get("holdings") or []
     holding_codes = [str(h.get("stock_code")) for h in holdings if h.get("stock_code")]
     # 保存调仓前的名称映射（清仓后仍可用于报告展示）
@@ -57,16 +148,10 @@ def run_daily_cycle(
     score_total = max(len(holding_codes), 1)
     phase_extra = 3
     grand = score_total + phase_extra
+    return holdings, holding_codes, name_by_code, grand
 
-    def _score_progress(i: int, n: int, msg: str) -> None:
-        _p(i, grand, msg)
 
-    _p(0, grand, f"开始扫描持仓评分…（策略: {strategy}）")
-    # 扫描持仓股票评分
-    pool = run_signal_scan(paper, on_progress=_score_progress, stock_codes=holding_codes)
-    new_trades: List[dict] = []
-    sell_trades: List[dict] = []
-
+def _snapshot_pre_rebalance_state(holdings: list, paper: dict):
     # 保存调仓前的持仓快照（股数）
     old_shares_by_code: Dict[str, float] = {}
     for h in holdings:
@@ -79,7 +164,10 @@ def run_daily_cycle(
     position_count_before = len(
         [h for h in holdings if float(h.get("shares") or 0) > 0]
     )
+    return old_shares_by_code, cash_before, position_count_before
 
+
+def _check_pre_rebalance_risk(paper: dict):
     # Q4：调仓前风控（基于当前市值快照）
     risk_gate = None
     pre_summary = None
@@ -91,11 +179,10 @@ def run_daily_cycle(
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         risk_gate = {"ok": True, "blocks": [], "warnings": []}
+    return risk_gate, pre_summary
 
-    buys_blocked = False
-    _p(len(holding_codes) + 1, grand, "减仓/卖出规则")
-    sell_trades = simulate_sells(paper, pool)
 
+def _optimize_target_weights(paper: dict, pool: list, strategy: str) -> None:
     # P1：目标权重建议（风控拦截时仍可见）
     try:
         from core.portfolio_optimize import optimize_weights
@@ -117,37 +204,35 @@ def run_daily_cycle(
         logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         paper["last_optimize"] = None
 
-    if simulate_buy:
-        if risk_gate and not risk_gate.get("ok"):
-            _p(len(holding_codes) + 2, grand, "风控拦截加仓")
-            new_trades = []
-            buys_blocked = True
-            blocks = (risk_gate or {}).get("blocks") or []
-            block_items = (risk_gate or {}).get("block_items") or []
-            append_operation_log(
-                paper,
-                "risk_block",
-                detail="风控拦截加仓：" + ("；".join(str(b) for b in blocks) or "超限"),
-                meta={
-                    "codes": (risk_gate or {}).get("block_codes")
-                    or [i.get("code") for i in block_items if isinstance(i, dict)],
-                    "block_items": block_items,
-                    "blocks": blocks,
-                    "warnings": (risk_gate or {}).get("warnings") or [],
-                    "limits": (risk_gate or {}).get("limits"),
-                    "simulate_buy": True,
-                },
-            )
-        else:
-            _p(len(holding_codes) + 2, grand, "加仓/买入…")
-            new_trades = simulate_buys(paper, pool)
-    else:
-        _p(len(holding_codes) + 2, grand, "跳过加仓")
-    _p(len(holding_codes) + 3, grand, "更新净值…")
-    summary = mark_to_market(paper)
-    append_snapshot(paper, summary)
-    _p(grand, grand, "完成")
 
+def _log_risk_block(paper: dict, risk_gate) -> None:
+    blocks = (risk_gate or {}).get("blocks") or []
+    block_items = (risk_gate or {}).get("block_items") or []
+    append_operation_log(
+        paper,
+        "risk_block",
+        detail="风控拦截加仓：" + ("；".join(str(b) for b in blocks) or "超限"),
+        meta={
+            "codes": (risk_gate or {}).get("block_codes")
+            or [i.get("code") for i in block_items if isinstance(i, dict)],
+            "block_items": block_items,
+            "blocks": blocks,
+            "warnings": (risk_gate or {}).get("warnings") or [],
+            "limits": (risk_gate or {}).get("limits"),
+            "simulate_buy": True,
+        },
+    )
+
+
+def _build_cash_impact(
+    paper: dict,
+    pre_summary,
+    cash_before: float,
+    position_count_before: int,
+    sell_trades: list,
+    new_trades: list,
+    summary,
+):
     cost_model = resolve_cost_model(paper)
     equity_before = None
     try:
@@ -193,7 +278,10 @@ def run_daily_cycle(
             "equity_after": (summary or {}).get("equity"),
             "cost_model": cost_model,
         }
+    return cost_model, cash_impact
 
+
+def _summarize_data_quality(pool: list, holding_codes: list):
     dq = None
     codes: list = []
     try:
@@ -218,7 +306,10 @@ def run_daily_cycle(
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         dq = None
+    return dq, codes
 
+
+def _assess_strategy_health(paper: dict, summary, codes: list, holding_codes: list):
     monitor = None
     try:
         from core.strategy_monitor import assess_strategy_health
@@ -232,7 +323,21 @@ def run_daily_cycle(
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         monitor = {"ok": True, "alerts": [], "level": "ok"}
+    return monitor
 
+
+def _build_and_write_manifest(
+    paper: dict,
+    strategy: str,
+    cost_model,
+    dq,
+    simulate_buy: bool,
+    new_trades: list,
+    sell_trades: list,
+    risk_gate,
+    buys_blocked: bool,
+    monitor,
+):
     # Q3：运行清单
     manifest = None
     try:
@@ -260,7 +365,19 @@ def run_daily_cycle(
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         pass
+    return manifest
 
+
+def _build_rebalance_report(
+    paper: dict,
+    pool: list,
+    new_trades: list,
+    sell_trades: list,
+    old_shares_by_code: Dict[str, float],
+    name_by_code: dict,
+    summary,
+    simulate_buy: bool,
+) -> List[dict]:
     # 构建调仓报告：每只股票的评分和决策
     rules = paper.get("rules") or {}
     add_score_threshold = float(rules.get("add_score") or 60.0)
@@ -457,6 +574,19 @@ def run_daily_cycle(
         logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)
         pass
 
+    return rebalance_report
+
+
+def _assemble_extras_and_ops_report(
+    paper: dict,
+    strategy: str,
+    risk_gate,
+    monitor,
+    dq,
+    cost_model,
+    buys_blocked: bool,
+    summary,
+):
     sid = paper.get("strategy_id") or strategy
     sver = paper.get("strategy_version")
     risk_blocks = (risk_gate or {}).get("blocks") or []
@@ -507,28 +637,4 @@ def run_daily_cycle(
         attribution=attribution,
     )
     paper["last_ops_report"] = ops_report
-
-    return {
-        "success": True,
-        "observation_pool_count": len(pool),
-        "new_trades": new_trades,
-        "sell_trades": sell_trades,
-        "summary": summary,
-        "top_signals": pool[:5],
-        "rebalance_report": rebalance_report,
-        "cash_impact": cash_impact,
-        "risk_gate": risk_gate,
-        "manifest": manifest,
-        "strategy_id": sid,
-        "strategy_version": sver,
-        "cost_model": cost_model,
-        "data_quality": dq or {},
-        "risk_blocks": risk_blocks,
-        "monitor_alerts": monitor_alerts,
-        "buys_blocked": buys_blocked,
-        "ops_report": ops_report,
-        "attribution": attribution,
-        "last_optimize": paper.get("last_optimize"),
-        "target_weights": (paper.get("last_optimize") or {}).get("weights_pct"),
-        "health": monitor,
-    }
+    return sid, sver, risk_blocks, monitor_alerts, ops_report, attribution

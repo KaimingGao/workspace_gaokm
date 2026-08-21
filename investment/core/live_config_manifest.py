@@ -4,17 +4,15 @@
 ``data/live/live_config_manifest.json``，便于发现「有权重但 mode=off」等半成功态。
 """
 
-from __future__ import annotations
 import logging
 
 logger = logging.getLogger(__name__)
-from core.numbers import now_iso_utc
-
 import hashlib
 import json
 import os
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+from core.numbers import now_iso_utc
 
 
 def _file_fingerprint(path: str) -> Dict[str, Any]:
@@ -34,6 +32,7 @@ def _file_fingerprint(path: str) -> Dict[str, Any]:
             "bytes": int(st.st_size),
         }
     except Exception as e:
+        logger.exception('unexpected error in _file_fingerprint')
         return {"path": path, "exists": True, "sha1": None, "error": str(e)[:120]}
 
 
@@ -61,11 +60,12 @@ def build_live_config_manifest(*, note: str = "") -> Dict[str, Any]:
         SIGNAL_CONFIG_PATH,
     )
     from core.signal.cluster_pointer import load_cluster_pointer, resolve_cluster_weights_path
+    from core.signal.config import get_signal_config_path
 
     promoted_path = os.path.join(
         os.path.dirname(SIGNAL_CONFIG_PATH), "strategy_promoted.json"
     )
-    signal_path = os.environ.get("INVESTMENT_SIGNAL_CONFIG", SIGNAL_CONFIG_PATH)
+    signal_path = get_signal_config_path()
     resolved_weights = resolve_cluster_weights_path()
 
     artifacts = {

@@ -7,8 +7,6 @@
 from __future__ import annotations
 
 import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 from core.signal.gate import (
@@ -23,6 +21,8 @@ from core.signal.service import (
     metrics_snapshot,
     reset_metrics,
 )
+
+logger = logging.getLogger(__name__)
 
 __all__ = [
     "SCALE_HEURISTIC",

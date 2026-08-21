@@ -108,7 +108,8 @@
 
 /* 评分列整格可悬停：span 撑满单元格，避免只点到窄文字才出 tip */
 body[data-page="watching"] .watching-react-grid-cell.watching-col-score,
-body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal {
+body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal,
+body[data-page="watching"] .watching-react-grid-cell.watching-col-score_nowcast {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -117,7 +118,8 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal {
 }
 
 body[data-page="watching"] .watching-react-grid-cell.watching-col-score .watching-score-cell,
-body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal .watching-score-cell {
+body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal .watching-score-cell,
+body[data-page="watching"] .watching-react-grid-cell.watching-col-score_nowcast .watching-score-cell {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -463,7 +465,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal .wat
 }
 
 .follow-page .paper-holdings-react-grid .watching-react-grid-row {
-  min-height: 40px;
+  min-height: 50px;
 }
 
 .follow-page .paper-holdings-react-grid .watching-react-grid-row.is-head {
@@ -512,7 +514,8 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal .wat
 
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-pnl,
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score,
-.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_cal {
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_cal,
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_nowcast {
   min-width: 3.4rem;
 }
 
@@ -1350,14 +1353,15 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal .wat
 .watching-stock {
   display: flex;
   flex-direction: column;
+  justify-content: center;
   align-items: flex-start;
   gap: 2px;
-  line-height: 1.3;
+  line-height: 1.25;
   min-width: 7.5em;
   max-width: 100%;
   width: 100%;
   cursor: pointer;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .watching-name-text {
@@ -1367,7 +1371,7 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal .wat
   color: var(--ink);
   white-space: nowrap;
   overflow: visible;
-  line-height: 1.35;
+  line-height: 1.25;
 }
 
 .watching-name-row {
@@ -1394,7 +1398,11 @@ body[data-page="watching"] .watching-react-grid-cell.watching-col-score_cal .wat
   font-size: 0.72rem;
   font-variant-numeric: tabular-nums;
   color: var(--ink-3);
+  line-height: 1.2;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
 }
 
 .watching-mkt:not(:empty)::before {
@@ -2016,21 +2024,21 @@ html[data-density="compact"] .watching-page {
 }
 
 html[data-density="compact"] .watching-page .watching-react-grid-row {
-  min-height: 28px;
+  min-height: 46px;
 }
 
 html[data-density="compact"] .watching-page .watching-react-grid-cell {
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding-top: 5px;
+  padding-bottom: 5px;
 }
 
 html[data-density="compact"] .follow-page .paper-holdings-react-grid .watching-react-grid-row {
-  min-height: 28px;
+  min-height: 46px;
 }
 
 html[data-density="compact"] .follow-page .paper-holdings-react-grid .watching-react-grid-cell {
-  padding-top: 4px;
-  padding-bottom: 4px;
+  padding-top: 5px;
+  padding-bottom: 5px;
 }
 
 html[data-density="compact"] .quant-page .quant-research-grid .watching-react-grid-row {
@@ -2069,6 +2077,11 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
   border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
 }
 
+/* 数据中心主表：名称+代码两行，38px 会把代码挤进下一行 */
+.watching-page .watching-react-grid-row:not(.is-head) {
+  min-height: 50px;
+}
+
 .watching-react-grid-row:last-child {
   border-bottom: 0;
 }
@@ -2096,6 +2109,26 @@ html[data-density="compact"] .quant-page .quant-research-grid .watching-react-gr
   /* 左右对称，避免右对齐列贴邻列过近、另一侧又过空 */
   padding-left: 8px;
   padding-right: 8px;
+}
+
+/* ŷ 三列底色：EOD 对照 · TRADE 决策 · NOWCAST 影子；红绿只留给涨跌数字 */
+.watching-react-grid-cell.watching-col-score_cal {
+  background: color-mix(in srgb, var(--ink) 5%, var(--surface));
+}
+.watching-react-grid-cell.watching-col-score {
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+}
+.watching-react-grid-cell.watching-col-score_nowcast {
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+.watching-react-grid-row.is-head .watching-react-grid-cell.watching-col-score_cal {
+  background: color-mix(in srgb, var(--ink) 7.5%, var(--surface));
+}
+.watching-react-grid-row.is-head .watching-react-grid-cell.watching-col-score {
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+}
+.watching-react-grid-row.is-head .watching-react-grid-cell.watching-col-score_nowcast {
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface));
 }
 
 .watching-react-grid-cell.watching-col-center {

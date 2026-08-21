@@ -3,7 +3,6 @@
 持仓来源：paper.json（对照仓 portfolio.json 已下线）。
 """
 
-from __future__ import annotations
 
 import logging
 
@@ -63,6 +62,7 @@ def build_portfolio_quant_bridge(
             holdings_block["codes"] = codes
             holdings_block["count"] = len(codes)
         except Exception as e:
+            logger.exception('unexpected error in build_portfolio_quant_bridge')
             paper_block["error"] = str(e)
             holdings_block["error"] = str(e)
 
@@ -75,6 +75,7 @@ def build_portfolio_quant_bridge(
                 holdings_block["total_equity"] = adv.get("total_equity")
                 holdings_block["stance_summary"] = _stance_summary(adv.get("advice") or [])
         except Exception as e:
+            logger.exception('unexpected error in build_portfolio_quant_bridge')
             holdings_block["stance_error"] = str(e)
 
     watchlist: List[str] = []

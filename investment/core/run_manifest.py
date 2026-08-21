@@ -1,19 +1,16 @@
 """运行清单（Q3）：每次回测 / 调仓写出可复现指纹。"""
 
-from __future__ import annotations
 import logging
 
 logger = logging.getLogger(__name__)
-from core.numbers import now_iso_local as _now_iso
-
 import hashlib
 import json
 import os
-from datetime import datetime
 from typing import Any, Dict, Optional
 
-from core.paths import DATA_DIR
 from core.io_atomic import atomic_write_json
+from core.numbers import now_iso_local as _now_iso
+from core.paths import DATA_DIR
 
 MANIFEST_DIR = os.path.join(DATA_DIR, "run_manifests")
 

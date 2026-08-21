@@ -8,7 +8,6 @@
 交付标签可被接受的 swap 改写；组池 return_model 仍由后续全样本路径重估。
 """
 
-from __future__ import annotations
 
 import logging
 

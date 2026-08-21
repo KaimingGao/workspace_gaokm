@@ -1,6 +1,5 @@
 """组合回测数据加载：日线 + 基本面批量（P51）；经 DataService。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -66,6 +65,7 @@ def _watching_sector_overlay() -> Dict[str, Any]:
 
         sync = sync_sector_map_from_watching(write=False)
     except Exception as exc:
+        logger.exception('unexpected error in _watching_sector_overlay')
         return {"ok": False, "error": str(exc), "mapping": None}
     mapping = sync.get("mapping") if isinstance(sync, dict) else None
     if not isinstance(mapping, dict):

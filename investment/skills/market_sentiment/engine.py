@@ -1,9 +1,8 @@
 """A 股市场情绪统计：涨停池 / 连板溢价 / 炸板率代理。"""
 
-from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from core.numbers import to_float as _to_float

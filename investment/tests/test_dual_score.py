@@ -82,9 +82,9 @@ class TestDualScoreFields(unittest.TestCase):
             "features_tau": {"gap_pct": 0.5},
         }
         with patch(
-            "core.signal.dual_score._eod_return_model_for_item", return_value=eod_rm
+            "core.signal.dual_score_tau._eod_return_model_for_item", return_value=eod_rm
         ), patch(
-            "quant.research.rem_ridge.load_rem_model", return_value=rem_doc
+            "core.research.rem_ridge.load_rem_model", return_value=rem_doc
         ):
             expl = ensure_formula_terms_tau(item)
         self.assertIsNotNone(expl)
@@ -137,7 +137,7 @@ class TestDualScoreFields(unittest.TestCase):
             "gap_pct": 0.313,
             "features_tau": {"gap_pct": 0.313},
         }
-        with patch("quant.research.rem_ridge.load_rem_model", return_value=rem_doc):
+        with patch("core.research.rem_ridge.load_rem_model", return_value=rem_doc):
             expl = ensure_formula_terms_tau(item)
         self.assertIsNotNone(expl)
         by_key = {t["key"]: t for t in expl["terms"]}

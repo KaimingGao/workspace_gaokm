@@ -1,6 +1,5 @@
 """量化报告归档索引（P17.2）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -253,7 +252,7 @@ def read_quant_report_file(
         return {"success": False, "error": "文件不存在"}
 
     ext = match.group(2)
-    with open(path, "r", encoding="utf-8") as f:
+    with open(path, encoding="utf-8") as f:
         content = f.read()
 
     return {

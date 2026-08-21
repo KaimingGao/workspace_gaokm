@@ -8,7 +8,6 @@
 ``ic_ref_scale``（默认 0.05），使「IC≈+5pp」与「完美拟合」同量级后再加权。
 """
 
-from __future__ import annotations
 
 import logging
 

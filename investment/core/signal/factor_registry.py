@@ -1,6 +1,5 @@
 """因子注册表与实验框架（P9.4 / P45 / V2.1 扩展）。"""
 
-from __future__ import annotations
 
 import logging
 
@@ -14,16 +13,16 @@ from core.signal.factors.earnings_yield import score_earnings_yield
 from core.signal.factors.gap_risk import score_gap_risk
 from core.signal.factors.growth import score_growth
 from core.signal.factors.idio_momentum import score_idio_momentum
-from core.signal.factors.llm_sentiment import score_llm_sentiment
 from core.signal.factors.liquidity import score_liquidity
+from core.signal.factors.llm_sentiment import score_llm_sentiment
 from core.signal.factors.ma_slope import score_ma_slope
 from core.signal.factors.momentum import pct_change, score_momentum
 from core.signal.factors.money_flow import score_money_flow
 from core.signal.factors.quality import score_quality
 from core.signal.factors.relative_strength import score_relative_strength
 from core.signal.factors.reversal import score_reversal
-from core.signal.factors.tail_anomaly import score_tail_anomaly
 from core.signal.factors.size import score_size
+from core.signal.factors.tail_anomaly import score_tail_anomaly
 from core.signal.factors.technical_pattern import score_technical_pattern
 from core.signal.factors.value import score_value
 from core.signal.factors.volatility import score_volatility
