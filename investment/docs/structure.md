@@ -1,6 +1,6 @@
 # 目录结构
 
-[← 文档索引](README.md)
+[← 文档索引](README.md) · 完整架构说明见 [system-architecture.md](system-architecture.md)
 
 ```
 investment/
@@ -57,25 +57,29 @@ investment/
 
 | 层级 | 路径 | 职责 |
 |------|------|------|
-| 数据读口 | `core/data_service` → `core/ports` → `skills.ports_bind` | 业务/Skill/研究统一质量契约 |
-| 打分口 | `core/signal_service` → `core/signal/service` | 纸面/量化/Skill 统一 ŷ 信封与生产门禁 |
+| **Domain Facade · DS** | `core/data_service` → `core/ports` → `skills.ports_bind` | 读口；业务/Skill/研究统一质量契约 |
+| **Domain Facade · SS** | `core/signal_service` → `core/signal/service` | 打分；纸面/量化/Skill 统一 ŷ 信封与生产门禁 |
+| **Domain Facade · BS** | `core/backtest_service` → `core/backtest/service` | 回测信封；TopK / signal 回测 |
 | 共享领域 | `core/signal` · `core/backtest` · `core/paper*` · `core/risk` | live / 回测 / 纸面同一套规则 |
-| 量化产品 | `quant/` | 研究台服务、运维 preset、因子对照、Agent Skill |
-| 应用服务 | `services/` | Web/CLI 边界；纸面拆 account/jobs/trades |
+| **Application Service** | `services/` | Web/CLI 用例；纸面拆 account/jobs/trades |
+| **Application Service** | `quant/services/`（`QuantService`） | 研究台用例；向下调 DS/SS/BS |
 | Agent 编排 | `agent/` · `skills/*` | LLM 路由、tool loop |
+
+**命名**：文档里 **Application Service** = `services/*` 与 `QuantService`；**Domain Facade** = DS/SS/BS（`core/*_service.py`，文件名历史保留）。见 [architecture · Service 命名约定](architecture.md#service-命名约定)。
 
 ## Canonical 入口速查
 
 | 模块 | 路径 |
 |------|------|
-| DataService | `core/data_service.py`（门面）· `core/data/`（Service / Ports / 信封） |
-| SignalService | `core/signal_service.py`（门面）· `core/signal/`（`SignalService` · `ScoreResult` · gate · metrics） |
+| DS（Domain Facade） | `core/data_service.py` · `core/data/`（`MarketDataService` / Ports / 信封） |
+| SS（Domain Facade） | `core/signal_service.py` · `core/signal/`（`SignalService` · `ScoreResult` · gate · metrics） |
 | 行情端口 | `core/ports/market.py` · 绑定 `skills/ports_bind.py` |
 | 因子打分 | `core/signal/scorer.py`（实现）· 出口经 SignalService |
-| 回测引擎 | `core/backtest/engine.py` |
+| BS（Domain Facade） | `core/backtest_service.py` · `core/backtest/`（`BacktestService` · `engine`） |
+| TopK 权重 | `core/backtest/topk_weights.py`（`topk_backtest` 再导出） |
 | 纸面账本 | `core/paper.py` + `paper_exec` + `paper_cycle` |
 | 风控门禁 | `core/risk/checks.py` |
-| 量化服务 | `quant/services/quant_service.py` |
+| QuantService（Application Service） | `quant/services/quant_service.py` |
 | Agent quant Skill | `quant/skill/` · 注册 `skills/quant/` |
 | 模拟账本 | `core/paper.py`（`paper.json`）；对话 position 默认读此 |
 | 观察池 | `core/watching_store.py` |

@@ -9,34 +9,44 @@ function numSortKey(row, key) {
 
 function compare(id, a, b) {
   if (id === "score") return numSortKey(a, "scoreNum") - numSortKey(b, "scoreNum");
-  if (id === "score_cal") return numSortKey(a, "scoreCalNum") - numSortKey(b, "scoreCalNum");
+  if (id === "score_eod") return numSortKey(a, "scoreEodNum") - numSortKey(b, "scoreEodNum");
+  if (id === "score_tau") return numSortKey(a, "scoreTauNum") - numSortKey(b, "scoreTauNum");
+  if (id === "score_on") return numSortKey(a, "scoreOnNum") - numSortKey(b, "scoreOnNum");
   if (id === "score_nowcast") return numSortKey(a, "scoreNowcastNum") - numSortKey(b, "scoreNowcastNum");
-  if (id === "residual") return numSortKey(a, "residualNum") - numSortKey(b, "residualNum");
   if (id === "vol") return numSortKey(a, "volNum") - numSortKey(b, "volNum");
   if (id === "excess") return numSortKey(a, "excessNum") - numSortKey(b, "excessNum");
   if (id === "chg") return numSortKey(a, "chgNum") - numSortKey(b, "chgNum");
+  if (id === "open") return numSortKey(a, "openNum") - numSortKey(b, "openNum");
   if (id === "name") {
     return String(a.name || "").localeCompare(String(b.name || ""), "zh-CN");
   }
   return String(a[id] ?? "").localeCompare(String(b[id] ?? ""), "zh-CN", { numeric: true });
 }
 
-/** 短文案列居中；数值列略宽；轨道由 virtual_table grid-template 统一 */
+/** 数据中心主表列轨：除「股票」外固定 px，避免 fr 权重把间距拉散。 */
 const COLS = [
-  // 固定 px：双栏缩窄时 % 列会小于「首列 18px 内边距 + checkbox」，溢到股票列上无法点击
   {
     id: "picked",
     label: "",
-    width: 42,
+    width: 40,
     headClass: "watching-pick-cell",
     cellClass: "watching-pick-cell",
     title: "勾选后可加入模拟持仓",
   },
-  { id: "name", label: "股票", flex: true, sortable: true, cellClass: "watching-stock", title: "股票名称与代码" },
+  {
+    id: "name",
+    label: "股票",
+    flex: true,
+    flexMin: "10.5rem",
+    flexFr: 1,
+    sortable: true,
+    cellClass: "watching-stock",
+    title: "股票名称与代码",
+  },
   {
     id: "paper",
     label: "仓位",
-    widthPct: 6,
+    width: 60,
     headClass: "watching-col-center",
     cellClass: "watching-col-center",
     title: "是否已在模拟持仓",
@@ -44,66 +54,85 @@ const COLS = [
   {
     id: "sent",
     label: "情绪",
-    widthPct: 4.5,
+    width: 36,
     headClass: "watching-col-center",
     cellClass: "watching-col-center",
     title: "标题情绪摘要",
   },
-  { id: "price", label: "现价", widthPct: 6.5, num: true, title: "最新成交价" },
-  { id: "open", label: "开盘价", widthPct: 6.5, num: true, title: "当日开盘价" },
+  { id: "prev_close", label: "昨收", width: 78, num: true, title: "上一交易日收盘价" },
+  { id: "open", label: "今开", width: 78, num: true, title: "今日开盘价" },
+  { id: "price", label: "现价", width: 78, num: true, title: "最新成交价" },
   {
     id: "chg",
     label: "涨跌",
-    widthPct: 6.5,
+    width: 68,
     num: true,
     sortable: true,
-    title: "相对昨收的涨跌幅 %。与 EOD / ŷ_trade 同一口径"
+    title: "相对昨收的涨跌幅 %。与 EOD / ŷ_trade 同一口径",
   },
   {
-    id: "score_cal",
-    label: "EOD",
-    widthPct: 6,
+    id: "score_eod",
+    label: "y_eod",
+    width: 82,
     num: true,
     sortable: true,
-    title: "eod = g(ŷ_EOD)，对涨跌的回归预估（现价对昨收）；不含缺口；不进决策",
+    headClass: "watching-col-y",
+    cellClass: "watching-col-y",
+    title: "ŷ_EOD · 隔夜主轴 open[T]/open[T−1]−1（%）",
+  },
+  {
+    id: "score_tau",
+    label: "y_τ",
+    width: 82,
+    num: true,
+    sortable: true,
+    headClass: "watching-col-y",
+    cellClass: "watching-col-y",
+    title: "τ→收盘 · 昨收口径",
+  },
+  {
+    id: "score_on",
+    label: "y_on",
+    width: 82,
+    num: true,
+    sortable: true,
+    headClass: "watching-col-y",
+    cellClass: "watching-col-y",
+    title: "隔夜 open · 旁路",
   },
   {
     id: "score",
-    label: "TRADE",
-    widthPct: 6,
+    label: "y_trade",
+    width: 94,
     num: true,
     sortable: true,
-    title: "ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ) · 现价对昨收（与涨跌同一口径）· 排序/卖门槛",
+    headClass: "watching-col-y watching-col-y-trade",
+    cellClass: "watching-col-y watching-col-y-trade",
+    title: "双头融合 · 排序/卖门槛",
   },
   {
     id: "score_nowcast",
-    label: "NOWCAST",
-    widthPct: 6,
+    label: "y_nc",
+    width: 82,
     num: true,
     sortable: true,
-    title: "ŷ_nowcast · Kalman 权昨收口径对照（与 ŷ_trade / 涨跌同一目标），不进决策",
-  },
-  {
-    id: "residual",
-    label: "残差",
-    widthPct: 6,
-    num: true,
-    sortable: true,
-    title: "残差 = trade − 涨跌。trade 是 ŷ_trade，与涨跌同一目标",
+    headClass: "watching-col-y",
+    cellClass: "watching-col-y",
+    title: "Kalman 合成 · 昨收口径 · 不进决策",
   },
   {
     id: "stance",
     label: "倾向",
-    widthPct: 5,
+    width: 48,
     headClass: "watching-col-center",
     cellClass: "watching-col-center",
     title: "规则倾向（买入 / 观望等），不是 ŷ 本身",
   },
-  { id: "excess", label: "超额", widthPct: 7, num: true, sortable: true, title: "相对基准（指数）的超额收益" },
-  { id: "vol", label: "量", widthPct: 6.5, num: true, sortable: true, title: "成交量" },
-  { id: "volr", label: "量比", widthPct: 5.5, num: true, title: "近期成交量 / 均量" },
-  { id: "pe", label: "PE", widthPct: 5.5, num: true, title: "市盈率" },
-  { id: "pb", label: "PB", widthPct: 5.5, num: true, title: "市净率" },
+  { id: "excess", label: "超额", width: 62, num: true, sortable: true, title: "相对基准（指数）的超额收益" },
+  { id: "vol", label: "量", width: 88, num: true, sortable: true, title: "成交量" },
+  { id: "volr", label: "量比", width: 56, num: true, title: "近期成交量 / 均量" },
+  { id: "pe", label: "PE", width: 56, num: true, title: "市盈率" },
+  { id: "pb", label: "PB", width: 56, num: true, title: "市净率" },
 ];
 
 /**
@@ -244,54 +273,48 @@ export async function mountWatchingTableIsland(host, options = {}) {
           `${escapeHtml(text)}${badges.join("")}</span>`
         );
       }
-      if (col.id === "score_cal") {
-        const text =
-          d.scoreCal != null && d.scoreCal !== "" ? String(d.scoreCal) : "—";
+      if (col.id === "score_eod" || col.id === "score_tau" || col.id === "score_on" || col.id === "score_nowcast") {
+        const tipMap = { score_eod: "eod", score_tau: "tau", score_on: "on", score_nowcast: "nowcast" };
+        const skinMap = { score_eod: "eod", score_tau: "tau", score_on: "on", score_nowcast: "nowcast" };
+        const textKey =
+          col.id === "score_eod"
+            ? "scoreEod"
+            : col.id === "score_tau"
+              ? "scoreTau"
+              : col.id === "score_on"
+                ? "scoreOn"
+                : "scoreNowcast";
+        const clsKey =
+          col.id === "score_eod"
+            ? "scoreEodCls"
+            : col.id === "score_tau"
+              ? "scoreTauCls"
+              : col.id === "score_on"
+                ? "scoreOnCls"
+                : "scoreNowcastCls";
+        const titleKey =
+          col.id === "score_eod"
+            ? "scoreEodTitle"
+            : col.id === "score_tau"
+              ? "scoreTauTitle"
+              : col.id === "score_on"
+                ? "scoreOnTitle"
+                : "scoreNowcastTitle";
+        const text = d[textKey] != null && d[textKey] !== "" ? String(d[textKey]) : "—";
         const detail = d.scoreDetail || "";
-        const title =
-          d.scoreCalTitle || "g(ŷ_EOD) · 对涨跌";
-        const signCls = d.scoreCalCls
-          ? ` ${escapeHtml(String(d.scoreCalCls))}`
-          : "";
+        const title = d[titleKey] || "";
+        const signCls = d[clsKey] ? ` ${escapeHtml(String(d[clsKey]))}` : "";
+        const skin = skinMap[col.id];
         if (!detail) {
-          return `<span class="watching-score-cell watching-score-cal paper-hold-score${signCls}">${escapeHtml(
+          return `<span class="watching-score-cell watching-score-${skin} paper-hold-score${signCls}">${escapeHtml(
             text
           )}</span>`;
         }
         return (
-          `<span class="watching-score-cell watching-score-cal paper-hold-score has-tip${signCls}" ` +
-          `data-score-detail="${escapeHtml(detail)}" data-score-tip="cal" title="${escapeHtml(title)}">` +
+          `<span class="watching-score-cell watching-score-${skin} paper-hold-score has-tip${signCls}" ` +
+          `data-score-detail="${escapeHtml(detail)}" data-score-tip="${tipMap[col.id]}" title="${escapeHtml(title)}">` +
           `${escapeHtml(text)}</span>`
         );
-      }
-      if (col.id === "score_nowcast") {
-        const text =
-          d.scoreNowcast != null && d.scoreNowcast !== "" ? String(d.scoreNowcast) : "—";
-        const detail = d.scoreDetail || "";
-        const title = d.scoreNowcastTitle || "ŷ_nowcast · 昨收口径对照";
-        const signCls = d.scoreNowcastCls
-          ? ` ${escapeHtml(String(d.scoreNowcastCls))}`
-          : "";
-        if (!detail) {
-          return `<span class="watching-score-cell watching-score-nowcast paper-hold-score${signCls}">${escapeHtml(
-            text
-          )}</span>`;
-        }
-        return (
-          `<span class="watching-score-cell watching-score-nowcast paper-hold-score has-tip${signCls}" ` +
-          `data-score-detail="${escapeHtml(detail)}" data-score-tip="nowcast" title="${escapeHtml(title)}">` +
-          `${escapeHtml(text)}</span>`
-        );
-      }
-      if (col.id === "residual") {
-        const text =
-          d.residual != null && d.residual !== "" ? String(d.residual) : "—";
-        const cls = d.residualCls ? ` ${escapeHtml(d.residualCls)}` : "";
-        const tip =
-          d.residualTitle || "残差 = trade − 涨跌";
-        return `<span class="watching-residual${cls}" title="${escapeHtml(
-          tip
-        )}">${escapeHtml(text)}</span>`;
       }
       const v = d[col.id];
       if (v == null || v === "") return "—";
@@ -302,7 +325,7 @@ export async function mountWatchingTableIsland(host, options = {}) {
         const m = text.match(/^([+-]?\d+(?:\.\d+)?%)/);
         if (m) text = m[1];
         tip = d.excessTitle || String(v);
-      } else if (col.id === "price" || col.id === "open") {
+      } else if (col.id === "price" || col.id === "prev_close" || col.id === "open") {
         // 「元」占宽，窄列易被裁成「…」
         text = text.replace(/元$/u, "");
         tip = String(v);

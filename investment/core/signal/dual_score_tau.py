@@ -501,6 +501,20 @@ def attach_dual_score_pit(
             signal_item, fuse_intraday=fuse_intraday, quote=q, bars=b
         ),
     )
+    try:
+        from core.signal.dual_score_on import attach_on_score_pit
+
+        attach_on_score_pit(
+            signal_item,
+            quote=q,
+            bars=b,
+            config=config,
+            sector_gap_breadth=breadth,
+            theme_day=feats.get("theme_day"),
+            gap_pct=gap_v,
+        )
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in dual_score_tau on", exc_info=True)
     return signal_item
 
 

@@ -24,17 +24,19 @@ class PlatformService:
         return {"ok": True, "job": slot.get()}
 
     def list_jobs(self) -> Dict[str, Any]:
+        job_registry.reclaim_all_stale()
         jobs = []
         for snap in job_registry.list_jobs():
             name = (snap or {}).get("slot") or (snap or {}).get("name")
             if name:
-                slot = job_registry.slot(str(name))
-                if hasattr(slot, "reclaim_if_stale"):
-                    slot.reclaim_if_stale()
-                jobs.append(slot.get())
+                jobs.append(job_registry.slot(str(name)).get())
             else:
                 jobs.append(snap)
-        return {"ok": True, "jobs": jobs}
+        return {
+            "ok": True,
+            "jobs": jobs,
+            "policies": job_registry.list_policies(),
+        }
 
     def get_memory(self) -> Dict[str, Any]:
         mem = read_memory()

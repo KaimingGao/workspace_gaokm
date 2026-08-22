@@ -12,9 +12,14 @@ if ROOT not in sys.path:
 
 from core.store import (
     assess_quality,
+    bars_backend,
+    clear_daily_cache,
     load_daily_cache,
+    load_minute_cache,
     save_daily_cache,
+    save_minute_cache,
 )
+from core.store_bars_sqlite import reset_conn_cache, touch_daily_fetched_at
 from skills.common.history import fetch_daily_bars
 
 
@@ -36,11 +41,25 @@ def _sample_bars(n=20):
     return bars
 
 
-class TestDailyStore(unittest.TestCase):
+class _StoreBackendMixin:
+    backend = "sqlite"
+
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
+        reset_conn_cache()
+        self._env = patch.dict(
+            os.environ,
+            {
+                "INVESTMENT_STORE_DIR": self.tmp,
+                "INVESTMENT_BARS_BACKEND": self.backend,
+            },
+        )
+        self._env.start()
+        self.addCleanup(self._env.stop)
+        self.addCleanup(reset_conn_cache)
 
     def test_save_load_and_quality(self):
+        self.assertEqual(bars_backend(), self.backend if self.backend != "file" else "json")
         bars = _sample_bars(25)
         path = save_daily_cache(
             "CN",
@@ -50,16 +69,17 @@ class TestDailyStore(unittest.TestCase):
             stock_code="600519",
             store_dir=self.tmp,
         )
-        self.assertTrue(os.path.isfile(path))
+        self.assertTrue(path)
         loaded = load_daily_cache("CN", "600519", store_dir=self.tmp)
         self.assertIsNotNone(loaded)
         lb, meta = loaded
         self.assertEqual(len(lb), 25)
         self.assertEqual(meta["quality"]["level"], "good")
+        self.assertEqual(meta.get("bars_backend"), self.backend)
 
     def test_cache_expired(self):
         bars = _sample_bars(10)
-        path = save_daily_cache(
+        save_daily_cache(
             "CN",
             "000001",
             bars,
@@ -67,11 +87,17 @@ class TestDailyStore(unittest.TestCase):
             store_dir=self.tmp,
         )
         old = datetime.now() - timedelta(hours=48)
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
-        payload["fetched_at"] = old.isoformat(timespec="seconds")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(payload, f)
+        if self.backend == "sqlite":
+            self.assertTrue(
+                touch_daily_fetched_at("CN", "000001", old, store_dir=self.tmp)
+            )
+        else:
+            path = os.path.join(self.tmp, "daily", "CN", "000001.json")
+            with open(path, "r", encoding="utf-8") as f:
+                payload = json.load(f)
+            payload["fetched_at"] = old.isoformat(timespec="seconds")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(payload, f)
         self.assertIsNone(
             load_daily_cache("CN", "000001", max_age_hours=24, store_dir=self.tmp)
         )
@@ -89,13 +115,61 @@ class TestDailyStore(unittest.TestCase):
             data_source="akshare_cn_daily",
             store_dir=self.tmp,
         )
-        with patch.dict(os.environ, {"INVESTMENT_STORE_DIR": self.tmp}), patch(
-            "skills.common.history.fetch_a_daily_bars"
-        ) as mock_fetch:
+        with patch("skills.common.history.fetch_a_daily_bars") as mock_fetch:
             out, src = fetch_daily_bars("600519", limit=20)
         self.assertEqual(len(out), 20)
         self.assertTrue(str(src).startswith("cache:"))
         mock_fetch.assert_not_called()
+
+    def test_minute_roundtrip(self):
+        bars = []
+        start = datetime.now() - timedelta(days=2)
+        for i in range(12):
+            ts = (start + timedelta(minutes=5 * i)).strftime("%Y-%m-%d %H:%M")
+            bars.append(
+                {
+                    "datetime": ts,
+                    "date": ts[:10],
+                    "open": 10,
+                    "high": 11,
+                    "low": 9,
+                    "close": 10.5,
+                    "volume": 100,
+                }
+            )
+        save_minute_cache(
+            "CN",
+            "600519",
+            bars,
+            period="5",
+            data_source="test_minute",
+            store_dir=self.tmp,
+        )
+        loaded = load_minute_cache("CN", "600519", "5", store_dir=self.tmp)
+        self.assertIsNotNone(loaded)
+        lb, meta = loaded
+        self.assertEqual(len(lb), 12)
+        self.assertEqual(meta.get("bars_backend"), self.backend)
+
+    def test_clear_daily(self):
+        save_daily_cache(
+            "CN",
+            "600519",
+            _sample_bars(15),
+            data_source="akshare_cn_daily",
+            store_dir=self.tmp,
+        )
+        n = clear_daily_cache(market="CN", store_dir=self.tmp)
+        self.assertGreaterEqual(n, 1)
+        self.assertIsNone(load_daily_cache("CN", "600519", store_dir=self.tmp))
+
+
+class TestDailyStoreSqlite(_StoreBackendMixin, unittest.TestCase):
+    backend = "sqlite"
+
+
+class TestDailyStoreJson(_StoreBackendMixin, unittest.TestCase):
+    backend = "json"
 
 
 if __name__ == "__main__":

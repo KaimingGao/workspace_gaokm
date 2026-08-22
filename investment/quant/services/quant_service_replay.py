@@ -202,7 +202,7 @@ class QuantReplayMixin:
         return_model_ridge_lambda: float = 0.0,
         persist_curve: bool = True,
     ) -> Dict[str, Any]:
-        from core.backtest.topk_backtest import backtest_topk_equal_weight
+        from core.backtest_service import run_topk as backtest_topk_equal_weight
         from core.strategy import backtest_portfolio_defaults
         from quant.research.portfolio_data import load_portfolio_stock_bars
 
@@ -672,7 +672,7 @@ class QuantReplayMixin:
             logger.debug("catch except Exception: in quant_service_replay.py", exc_info=True)
             logger.warning("回测导出异常", exc_info=True)
 
-        from core.backtest.topk_backtest import backtest_topk_equal_weight
+        from core.backtest_service import run_topk as backtest_topk_equal_weight
         from core.strategy import backtest_portfolio_defaults
         from quant.research.portfolio_data import load_portfolio_stock_bars
 

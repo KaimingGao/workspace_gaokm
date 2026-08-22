@@ -22,7 +22,7 @@
 
 禁止：把 \(\tau\) 之后才知道的价格或新闻塞进 \(\mathcal{F}_\tau\)；禁止用「含已实现涨幅的全日收益」去验收「已含盘中特征」的模型；禁止两套标签揉进同一 `predicted_score` 字段。
 
-**双层字段、训练与融合阶梯**的规范表述见 [predicted-score-chain.md §2.5](predicted-score-chain.md) 与 [tau-contract-and-partition-upgrade.md §9](tau-contract-and-partition-upgrade.md)。
+**双层字段、训练与融合阶梯**的规范表述见 [predicted-score-chain.md §2.5](predicted-score-chain.md) 与 [tau-contract-and-partition-upgrade.md §9](tau-contract-and-partition-upgrade.md)。**\(y_{\mathrm{EOD}}\)·\(y_\tau\)·\(y_{\mathrm{ON}}\) 预估周期**见 [predicted-score-chain.md §2.6](predicted-score-chain.md)。
 
 ---
 
@@ -79,18 +79,20 @@ A 用分组门禁与重聚类处理；B 用本方案的 **事件先验 + 剩余�
 | 输出 | \(\hat y(\tau)\) |
 | 目标 | \(y(\tau)=\mathrm{close}[T]/\mathrm{price}[\tau]-1\) |
 
-### 方案 C — 隔夜头 + 盘中头
+### 方案 C — 跨日开盘头 + 盘中头（规划）
 
-| 头 | 目标 |
-|----|------|
-| \(\hat y_{ON}\) | \(\mathrm{open}[T]/\mathrm{close}[T\!-\!1]-1\) |
-| \(\hat y_{ID}(\tau)\) | \(\mathrm{close}[T]/\mathrm{price}[\tau]-1\) |
+| 头 | 目标 | 状态 |
+|----|------|------|
+| \(\hat y_{\mathrm{ON}}\) | \(\mathrm{open}[t]/\mathrm{open}[t-1]-1\) | `predicted_score_on`；见 [predicted-score-chain.md §2.6](predicted-score-chain.md) |
+| \(\hat y_{ID}(\tau)\) | \(\mathrm{close}[T]/\mathrm{price}[\tau]-1\) | 接近现网 rem / \(\hat y_\tau\) |
+
+**注意**：现网 **`gap_pct`** = \(\mathrm{open}[t]/\mathrm{close}[t-1]-1\)（收→开**已实现**缺口），**不是** \(y_{\mathrm{ON}}\)。
 
 **本仓库选定路径：**
 
 1. **生产主轴长期保持方案 A 的 ŷ_EOD**（可审计、与账本/分组兼容）。  
 2. **研究与增强走「残差头」**（结构上接近 B 的 \(y(\tau)\)，但不替换 EOD 主字段）。  
-3. 可选演进到 C 的分栏展示；**不**把分钟特征直接塞进现有 `predicted_score` 而不改标签。
+3. **\(y_{\mathrm{EOD}}\) · \(y_\tau\) · \(y_{\mathrm{ON}}\)** 组成 open 锚 **预估周期**（与 EOD 收锚并行）；§2.6 有图。\(y_{\mathrm{ON}}\) 落地前仅文档契约，**不**把分钟特征直接塞进 `predicted_score`。
 
 ```text
 【产品叙事 · 双层 predicted_score】
@@ -310,7 +312,8 @@ y_rem ← close[T] / price[τ] - 1
 |------|------|
 | 今日涨跌 vs EOD ŷ（h=1） | **对账合理**；巨大残差才是问题 |
 | 实时信息先进哪 | 先 **动作层 \(E\)**，再 **rem 研究头**，最后才考虑进排序 |
-| 拟合标签 | \(y_{\mathrm{rem}}(\tau)=\mathrm{close}/\mathrm{price}[\tau]-1\) |
+| 拟合标签 | \(y_{\mathrm{rem}}(\tau)=\mathrm{close}/\mathrm{price}[\tau]-1\)（≈ \(y_\tau\)） |
+| \(y_{\mathrm{ON}}\) | \(\mathrm{open}[t]/\mathrm{open}[t-1]-1\) · live 估 \(open[t+1]/open[t]\)；`predicted_score_on`；见 [predicted-score-chain §2.6](predicted-score-chain.md) |
 | 与组 β | 残差头优先；错误组 β 靠 OOS 剔组 + 重聚类 |
 | 分钟 RS / regime | R1/R2；有数据与 OOS 再上 |
 | 契约完整态 | 见 [tau-contract-and-partition-upgrade.md](tau-contract-and-partition-upgrade.md) A1→A3；A3 前不替换 EOD 主字段 |

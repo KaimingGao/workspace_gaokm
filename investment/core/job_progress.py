@@ -70,6 +70,7 @@ class JobProgress:
             "message": "",
             "error": None,
             "result": None,
+            "cancel_requested": False,
             "updated_at": None,
         }
 
@@ -157,6 +158,13 @@ class JobProgress:
         with self._lock:
             out = dict(self._job)
             out["slot"] = self.name
+            policy = _SLOT_STALE_POLICY.get(self.name, _DEFAULT_STALE_POLICY)
+            out["stale_policy"] = {
+                "stale_sec": float(policy["stale_sec"]),
+                "stuck_start_sec": float(policy["stuck_start_sec"]),
+                "label": str(policy.get("label") or "任务"),
+            }
+            out["persisted"] = bool(self._persist_path)
             # 分组 Job：落盘摘要缺 clusters 时从报告缓存水合（热重载后仍可渲染）
             if self.name == "quant-ols-clusters":
                 result = out.get("result")
@@ -182,6 +190,16 @@ class JobProgress:
                         logger.debug("catch except Exception: in job_progress.py", exc_info=True)
                         pass
             return out
+
+    def policy(self) -> Dict[str, Any]:
+        p = _SLOT_STALE_POLICY.get(self.name, _DEFAULT_STALE_POLICY)
+        return {
+            "slot": self.name,
+            "stale_sec": float(p["stale_sec"]),
+            "stuck_start_sec": float(p["stuck_start_sec"]),
+            "label": str(p.get("label") or "任务"),
+            "persisted": bool(self._persist_path),
+        }
 
     def start(self, *, kind: str, total: int = 0, message: str = "") -> str:
         job_id = uuid.uuid4().hex[:12]
@@ -398,11 +416,38 @@ class JobRegistry:
     def get(self, name: str) -> Dict[str, Any]:
         return self.slot(name).get()
 
+    def reclaim_all_stale(self) -> List[str]:
+        """对已注册槽统一跑 reclaim；返回被回收的槽名。"""
+        reclaimed: List[str] = []
+        with self._lock:
+            names = list(self._slots.keys())
+        for name in names:
+            slot = self.slot(name)
+            if slot.reclaim_if_stale():
+                reclaimed.append(name)
+        return reclaimed
 
-# 全局注册表；paper_job 保持兼容别名（落盘抗 uvicorn reload）
+    def list_policies(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            slots = list(self._slots.values())
+        # 保证长任务槽出现在策略表（即便尚未 start）
+        for name in (
+            "paper",
+            "chat",
+            "quant-ols-clusters",
+            "quant-param-grid",
+        ):
+            self.slot(name)
+        with self._lock:
+            slots = list(self._slots.values())
+        return [s.policy() for s in slots]
+
+
+# 全局注册表；paper / ols / param-grid / chat 落盘抗 uvicorn reload
 job_registry = JobRegistry()
 try:
     from core.paths import (
+        CHAT_JOB_PATH,
         PAPER_JOB_PATH,
         QUANT_OLS_CLUSTERS_JOB_PATH,
         QUANT_PARAM_GRID_JOB_PATH,
@@ -415,8 +460,10 @@ try:
     quant_param_grid_job = job_registry.slot(
         "quant-param-grid", persist_path=QUANT_PARAM_GRID_JOB_PATH
     )
+    chat_job = job_registry.slot("chat", persist_path=CHAT_JOB_PATH)
 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
     logger.debug("catch except Exception: in job_progress.py", exc_info=True)
     paper_job = job_registry.slot("paper")
     quant_ols_clusters_job = job_registry.slot("quant-ols-clusters")
     quant_param_grid_job = job_registry.slot("quant-param-grid")
+    chat_job = job_registry.slot("chat")

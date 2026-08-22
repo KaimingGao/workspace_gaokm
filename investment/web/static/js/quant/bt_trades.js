@@ -34,7 +34,7 @@ export const BT_SIM_TRADE_COLS_BASE = [
   },
   {
     id: "score_nowcast",
-    label: "NOWCAST",
+    label: "y_nc",
     widthPct: 6,
     num: true,
     sortable: true,

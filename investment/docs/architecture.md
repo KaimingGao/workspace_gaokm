@@ -1,6 +1,6 @@
 # 架构总览
 
-[← 文档索引](README.md)
+[← 文档索引](README.md) · **推荐**：[系统架构文档](system-architecture.md)（架构图 + 模块说明 + 代码组成）
 
 ### 定位
 
@@ -185,7 +185,7 @@ flowchart TB
 ┌─────────────────────────────────────────────────────────┐
 │  接入层    main.py / run_web.py / web/app.py + routers/  │
 ├─────────────────────────────────────────────────────────┤
-│  服务层    services/* · quant/services（Mixin 门面）     │
+│  应用服务  services/* · quant/services（Application Service）│
 ├─────────────────────────────────────────────────────────┤
 │  编排层    agent/agent.py · routing.py · registry    │
 ├─────────────────────────────────────────────────────────┤
@@ -193,11 +193,30 @@ flowchart TB
 ├─────────────────────────────────────────────────────────┤
 │  适配层    skills/*/handler.py（薄包装，委托 engine/core）│
 ├─────────────────────────────────────────────────────────┤
-│  领域层    core/（facts · advise · stance · store · t0） │
+│  领域层    core/（门面 DS·SS·BS + facts · paper · risk） │
 ├─────────────────────────────────────────────────────────┤
 │  数据层    skills/common/ · AkShare · data/*.json        │
 └─────────────────────────────────────────────────────────┘
 ```
+
+### Service 命名约定
+
+代码里大量 `*Service` **不是微服务**，而是分层里的**稳定入口**。口语与文档固定两套叫法，**文件名暂不 rename**（避免 patch 路径与 import 大面积抖动）。
+
+| 叫法 | 代码落点 | 职责 | 典型入口 |
+|------|----------|------|----------|
+| **Application Service**（应用服务） | `services/*` · `quant/services/` | Web/CLI **用例组装**；编排多步业务、定 API 边界 | `PaperService` · `WatchingService` · `QuantService` |
+| **Domain Facade**（领域门面） | `core/data_service` · `signal_service` · `backtest_service` | **单一领域能力**的统一出口；委托 `core/data` · `signal` · `backtest` | DS · SS · BS（`get_bars` · `score_one` · `run_topk`） |
+
+**原则**
+
+1. 只有「给 router / CLI / Agent 用的**用例入口**」在文档里称 **Application Service**。  
+2. `core` 里的读口 / 打分 / 回测在文档里称 **Domain Facade**（口语 **DS / SS / BS**），与业务服务**不同层**。  
+3. `QuantService` 是研究台 **Application Service**，向下调 DS/SS/BS，**不替代**领域门面。  
+4. 纯函数、helpers、engine **不要**叫 Service。  
+5. **新代码**：`services/` 与 `quant/services/` 可继续 `XxxService`；`core` 新门面优先包入口（`core.data` / `get_default_*()`），少再造并列 `XxxService` 文件名。
+
+详见 [structure.md · 分层说明](structure.md#分层说明) · [services/README.md](../services/README.md)。
 
 ## 技术栈
 
@@ -213,7 +232,7 @@ flowchart TB
 | **前端增强（CDN）** | Lightweight Charts · marked；局部 React 岛（非全站 SPA） |
 | **AI** | 通义千问（DashScope，OpenAI 兼容 HTTP）；自研 `InvestmentAgent` + Skills |
 | **行情 / 基本面** | 腾讯 qt（现价）· AkShare（日线/选股等）· pandas |
-| **存储** | 本地 JSON / JSONL（无 SQLite / Redis）；见 [data-layer · 存储选型](data-layer.md#存储选型为何是-json何时才上数据库) |
+| **存储** | 配置/账本/流水：本地 JSON / JSONL；**日线/分钟线缓存**：默认 SQLite WAL（`INVESTMENT_BARS_BACKEND=sqlite\|json`）；见 [data-layer · 存储选型](data-layer.md#存储选型为何是-json何时才上数据库) · [sqlite-migration](sqlite-migration.md) · [工程结构轨 A](architecture-upgrade-a.md) |
 | **量化主轴** | 组 OLS/Ridge β → **predicted_score（ŷ%）** 选股；`heuristic_score` / `signal_config.weights` 仅研究基线；ML 旁路见 `research/ml/` |
 | **任务 / 运维** | 进程内 `POST /api/schedule/run` + shell cron / launchd；`unittest` + `evals` |
 | **部署形态** | 单机本地（默认 `127.0.0.1:8000`）；暂不接实盘 OMS |
@@ -222,11 +241,11 @@ flowchart TB
 
 ```text
 接入     CLI (main.py) · Web (run_web.py → FastAPI web/app.py)
-服务     services/* · quant/services
+应用服务 services/* · quant/services（Application Service）
 编排     agent/（LLM Function Calling，最多 5 轮）
-领域     core/（信号 · 回测 · 纸面 · 风控 · store）
+领域门面 core/*_service（DS · SS · BS）→ core/（信号 · 回测 · 纸面 · 风控）
 能力     skills/*（13 工具，薄 handler）
-数据     DataService + AkShare/腾讯 + data/*.json
+数据     DS + AkShare/腾讯 + data/*.json · bars.db
 前端     web/static（vanilla + CDN 图表）
 ```
 
@@ -238,7 +257,7 @@ flowchart TB
 | **Web** | `fastapi` · `uvicorn[standard]` · `httpx` |
 | **LLM** | 无官方 SDK；`agent/llm_client.py` 直接 HTTP 调 DashScope（`DASHSCOPE_*`） |
 
-**未默认安装**：SQLite ORM、React/Vite 工程、sklearn / torch（舆情或 ML 实验另装）、消息队列、Docker 编排。
+**未默认安装**：SQLAlchemy 等 ORM、React/Vite 工程、sklearn / torch（舆情或 ML 实验另装）、消息队列、Docker 编排。日线/分钟线缓存用标准库 `sqlite3`（见 `core/store_bars_sqlite.py`）。
 
 ### 前端细节
 

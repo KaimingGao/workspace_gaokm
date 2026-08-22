@@ -239,6 +239,44 @@
     </div>
   </section>
 
+  <!-- ŷ_ON：隔夜 open 链；风控旁路，不进主排序 -->
+  <section class="dashboard-section quant-section" id="quant-section-on" aria-labelledby="quant-section-on-title">
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="quant-section-on-title" class="dashboard-section-title">ŷ_ON</h3>
+      <p class="dashboard-section-desc quant-section-desc">open[T+1]/open[T]−1 · 隔夜链 Ridge · 风控旁路</p>
+    </header>
+    <div class="dashboard-card quant-pro-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+        <div id="quant-on-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
+          <span class="quant-pro-status-chip" data-state="idle">待命</span>
+          <span class="quant-rem-status-msg">拟合后看 OOS · 过门再启用</span>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_ON 操作">
+          <details class="quant-help-fold quant-pro-help-fold">
+            <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
+            <div class="quant-help-body quant-pro-help-body">
+              <p>
+                <strong>ŷ_ON</strong> = 隔夜 open 链 Ridge，标签 <code>open[T+1]/open[T]−1</code>；字段
+                <code>predicted_score_on</code>。
+              </p>
+              <p>
+                <strong>不进主排序、不改 ŷ_EOD / ŷ_τ</strong>。用于收盘前评估「今开→明开」路径；后续可接缩仓闸。
+                与 <code>gap_pct</code>（收→开缺口）勿混名。
+              </p>
+            </div>
+          </details>
+          <button type="button" id="quant-on-ridge-run" class="dialog-btn secondary" title="观察池拟合 on Ridge + 时间 OOS（不写盘）">拟合</button>
+          <button type="button" id="quant-on-ridge-persist" class="dialog-btn secondary" title="人审后写入 live/on_ridge_model.json">启用</button>
+          <button type="button" id="quant-on-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body">
+        <div id="quant-on-result" class="quant-weight-table-wrap" aria-label="on 拟合摘要"></div>
+        <div id="quant-on-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_ON 因子系数表"></div>
+      </div>
+    </div>
+  </section>
+
   <!-- 校准 g(ŷ)：账本 Isotonic · 人审写入 live · 独立节（在 IC 时序之上） -->
   <section class="dashboard-section quant-section" id="quant-section-score-cal" aria-labelledby="quant-section-score-cal-title">
     <header class="dashboard-section-head quant-section-head">

@@ -41,11 +41,16 @@ export function parseWatchingPx(raw) {
   return m ? Number(m[0]) : NaN;
 }
 
-/** 开盘相对昨收缺口 %。昨收由现价与涨跌反推。 */
-export function gapPctFromQuote(q) {
+/** 昨收：显式字段或由现价+涨跌反推。 */
+export function resolvePrevClose(q) {
   if (!q || typeof q !== "object") return null;
-  const open = parseWatchingPx(q.open);
-  const px = parseWatchingPx(q.price_raw != null && q.price_raw !== "" ? q.price_raw : q.price);
+  for (const k of ["prev_close", "last_close", "yc", "pre_close", "yesterday_close"]) {
+    const v = parseWatchingPx(q[k]);
+    if (Number.isFinite(v) && v > 0) return v;
+  }
+  const px = parseWatchingPx(
+    q.price_raw != null && q.price_raw !== "" ? q.price_raw : q.price
+  );
   const chg = Number(
     q.change_percent != null && q.change_percent !== ""
       ? q.change_percent
@@ -53,11 +58,51 @@ export function gapPctFromQuote(q) {
         ? q.change_pct
         : q.chgNum
   );
-  if (!Number.isFinite(open) || !(open > 0) || !Number.isFinite(px) || !(px > 0) || !Number.isFinite(chg)) {
+  if (Number.isFinite(px) && px > 0 && Number.isFinite(chg)) {
+    const prev = px / (1 + chg / 100);
+    return prev > 0 ? prev : null;
+  }
+  return null;
+}
+
+/** 表列展示昨收（固定两位小数）。 */
+export function formatPrevCloseDisplay(q, { unit, currency } = {}) {
+  const n = resolvePrevClose(q);
+  if (n == null || !Number.isFinite(n)) return "—";
+  const shown = n.toFixed(2);
+  const u = unit || q?.unit || "元";
+  const c = currency || q?.currency || "CNY";
+  return c === "CNY" || !c ? `${shown}${u}` : `${u}${shown}`;
+}
+
+/** 今开：open / open_raw。 */
+export function resolveOpenPx(q) {
+  if (!q || typeof q !== "object") return null;
+  for (const k of ["open_raw", "open"]) {
+    const v = parseWatchingPx(q[k]);
+    if (Number.isFinite(v) && v > 0) return v;
+  }
+  return null;
+}
+
+/** 表列展示今开（固定两位小数）。 */
+export function formatOpenDisplay(q, { unit, currency } = {}) {
+  const n = resolveOpenPx(q);
+  if (n == null || !Number.isFinite(n)) return "—";
+  const shown = n.toFixed(2);
+  const u = unit || q?.unit || "元";
+  const c = currency || q?.currency || "CNY";
+  return c === "CNY" || !c ? `${shown}${u}` : `${u}${shown}`;
+}
+
+/** 开盘相对昨收缺口 %。昨收由 resolvePrevClose 解析。 */
+export function gapPctFromQuote(q) {
+  if (!q || typeof q !== "object") return null;
+  const open = parseWatchingPx(q.open);
+  const prev = resolvePrevClose(q);
+  if (!Number.isFinite(open) || !(open > 0) || prev == null || !(prev > 0)) {
     return null;
   }
-  const prev = px / (1 + chg / 100);
-  if (!(prev > 0)) return null;
   return (open / prev - 1) * 100;
 }
 
@@ -75,35 +120,10 @@ export function withQuoteGap(it, quoteLike) {
   return { ...it, gap_pct: g, predicted_score_blend_vs: "", predicted_score_blend_cal_vs: "" };
 }
 
-export const TRADE_TITLE =
-  "ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ) · 现价对昨收（与涨跌同一口径）· 排序/卖门槛";
+export const TRADE_TITLE = "双头融合 · 排序/卖门槛";
 
 export const EOD_CAL_TITLE =
   "eod = g(ŷ_EOD) · 对涨跌的回归预估（现价对昨收）· 不含缺口 · 不进决策";
-
-export const RESIDUAL_TITLE =
-  "残差 = trade − 涨跌。trade 是 ŷ_trade（现价对昨收），与涨跌同一目标";
-
-export const NOWCAST_TITLE =
-  "ŷ_nowcast · Kalman 权昨收口径对照（与 ŷ_trade / 涨跌同一目标），不进决策";
-
-/** 残差 = trade − 涨跌（百分点）。用 ŷ_trade，不用 g(ŷ_EOD)。 */
-export function formatWatchingResidual(tradeCalOrTrade, chgNum) {
-  if (
-    tradeCalOrTrade == null ||
-    !Number.isFinite(Number(tradeCalOrTrade)) ||
-    chgNum == null ||
-    !Number.isFinite(Number(chgNum))
-  ) {
-    return { residualNum: null, residual: "—", residualCls: "" };
-  }
-  const n = Number(tradeCalOrTrade) - Number(chgNum);
-  return {
-    residualNum: n,
-    residual: `${n >= 0 ? "+" : ""}${n.toFixed(2)}%`,
-    residualCls: n === 0 ? "" : n > 0 ? "is-up" : "is-down",
-  };
-}
 
 export function formatWatchingMarketLabel(market) {
   const m = String(market || "").toUpperCase();
@@ -122,21 +142,28 @@ export function buildWatchingQuoteGridPatch(it, row, parseWatchingVolume) {
   const prev = row && typeof row.getData === "function" ? row.getData() : row || {};
   const ok = !!(it && it.ok);
   const { chgNum, chgTxt, chgCls } = formatWatchingChg(ok ? it.change_percent : null);
-  const { residualNum, residual, residualCls } = formatWatchingResidual(
-    prev.scoreNum,
-    chgNum
-  );
   const volNum = ok && typeof parseWatchingVolume === "function" ? parseWatchingVolume(it.volume) : NaN;
+  const prevClose = ok
+    ? formatPrevCloseDisplay(it, {
+        unit: it.unit,
+        currency: it.currency,
+      })
+    : "—";
+  const openPx = ok ? resolveOpenPx(it) : null;
+  const openDisplay = ok
+    ? formatOpenDisplay(it, {
+        unit: it.unit,
+        currency: it.currency,
+      })
+    : "—";
   return {
     price: ok && it.price != null ? String(it.price) : "—",
-    open: ok && it.open != null && it.open !== "" ? String(it.open) : "—",
+    prev_close: prevClose,
+    open: openDisplay,
+    openNum: openPx != null && Number.isFinite(openPx) ? openPx : null,
     chg: chgTxt,
     chgCls,
     chgNum,
-    residual,
-    residualCls,
-    residualNum,
-    residualTitle: RESIDUAL_TITLE,
     vol: ok && it.volume != null ? String(it.volume) : "—",
     volNum: Number.isFinite(volNum) ? volNum : null,
     market: formatWatchingMarketLabel(it.market),

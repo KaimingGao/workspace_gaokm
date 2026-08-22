@@ -3229,9 +3229,11 @@ a.dialog-btn[aria-disabled="true"] {
 
 .dashboard-mctx-degraded-hint,
 .dashboard-market-context-toolbar {
-  margin: 6px 0 0;
+  margin: 0;
+  padding: 6px 10px 8px;
   font-size: 0.72rem;
   color: var(--ink-3, #64748b);
+  border-top: 1px solid var(--line);
 }
 
 .dashboard-market-context-toolbar {
@@ -4625,7 +4627,7 @@ html[data-density="compact"] .table-pager {
 
 .rebalance-table {
   /* 股票吃左侧弹性；后列定宽靠右，列间留呼吸 */
-  --rebalance-cols: minmax(7rem, 1fr) 4.25rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem 4.75rem;
+  --rebalance-cols: minmax(7rem, 1fr) 4.25rem 4.25rem 4.25rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem 4.75rem;
   width: 100%;
   min-width: 40rem;
   font-size: 0.78rem;

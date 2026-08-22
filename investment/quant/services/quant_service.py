@@ -1,4 +1,7 @@
-"""量化研究服务门面（P8.4 Web / daily 共用；P94 Mixin；对齐 ①模拟·②回溯·③联动）。"""
+"""量化研究 Application Service（P8.4 Web / daily 共用；P94 Mixin；①模拟·②回溯·③联动）。
+
+文档称 Application Service，不是 Domain Facade；向下调 DS/SS/BS 与 PaperService。
+"""
 
 
 import logging

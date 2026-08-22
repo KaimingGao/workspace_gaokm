@@ -2,7 +2,7 @@ import { apiFetch } from "../api_client.js";
 import { renderLineChart } from "../lw_charts.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import { mountVirtualTable, colStyle } from "../virtual_table.js";
-import { fmtScore, scoreCls, resolveTradeScore, resolveEodScore } from "../paper/fmt.js?v=p1226";
+import { fmtScore, fmtTableScore, scoreCls, resolveTradeScore, resolveEodScore } from "../paper/fmt.js?v=p1226";
 import { truncateStockName, watchingNameSpanHtml, watchingNameFromEl, applyWatchingNameEl, normalizeProbeCode } from "./names.js";
 import { renderWatchingHoldings as renderWatchingHoldingsHtml } from "./watching_holdings.js";
 import { buildWatchingDqMetaText, buildWatchingDqFoldSummary, buildWatchingDqTableHtml } from "./watching_dq_ui.js";
@@ -12,6 +12,8 @@ import {
   buildWatchingInsightsGridPatch,
   buildWatchingScoreCellHtml,
   buildWatchingCalScoreCellHtml,
+  buildWatchingTauScoreCellHtml,
+  buildWatchingOnScoreCellHtml,
   buildWatchingNowcastScoreCellHtml,
   buildWatchingInsightsStatusText,
   buildWatchingInsightsErrorStatus,
@@ -23,6 +25,7 @@ import {
 import {
   parseWatchingVolume,
   formatWatchingChg,
+  formatOpenDisplay,
   buildWatchingQuoteGridPatch,
   buildWatchingQuotesStatusText,
   buildWatchingQuotesErrorStatus,
@@ -54,9 +57,10 @@ const WATCHING_SORT_KEYS = new Set([
   "name",
   "chg",
   "score",
-  "score_cal",
+  "score_eod",
+  "score_tau",
+  "score_on",
   "score_nowcast",
-  "residual",
   "excess",
   "vol",
 ]);
@@ -594,9 +598,25 @@ export function installWatching(q) {
           if (scoreEl) {
             scoreEl.innerHTML = buildWatchingScoreCellHtml(disp, scoreCls, escapeHtml);
           }
-          const scoreCalEl = tr.querySelector(`[data-q='score_cal']`);
+          const scoreCalEl = tr.querySelector(`[data-q='score_eod']`);
           if (scoreCalEl) {
             scoreCalEl.innerHTML = buildWatchingCalScoreCellHtml(
+              disp,
+              scoreCls,
+              escapeHtml
+            );
+          }
+          const scoreTauEl = tr.querySelector(`[data-q='score_tau']`);
+          if (scoreTauEl) {
+            scoreTauEl.innerHTML = buildWatchingTauScoreCellHtml(
+              disp,
+              scoreCls,
+              escapeHtml
+            );
+          }
+          const scoreOnEl = tr.querySelector(`[data-q='score_on']`);
+          if (scoreOnEl) {
+            scoreOnEl.innerHTML = buildWatchingOnScoreCellHtml(
               disp,
               scoreCls,
               escapeHtml
@@ -857,6 +877,12 @@ export function installWatching(q) {
           if (el) el.textContent = val != null && val !== "" ? String(val) : "—";
         };
         setTxt("price", it.ok ? it.price : null);
+        setTxt(
+          "open",
+          it.ok
+            ? formatOpenDisplay(it, { unit: it.unit, currency: it.currency })
+            : null
+        );
         setTxt("vol", it.ok ? it.volume : null);
         const chgEl = tr.querySelector(`[data-q='chg']`);
         if (chgEl) {
@@ -1548,10 +1574,12 @@ export function installWatching(q) {
         inBook: bookCodes.has(bare) || bookCodes.has(code),
         sentHtml: `<span class="watching-sent-badge is-neutral" data-code="${escapeHtml(code)}" title="加载中">…</span>`,
         price: "—",
+        prev_close: "—",
         open: "—",
+        openNum: null,
         chg: "—",
         chgCls: "",
-        score: scoreNum == null ? "…" : fmtScore(scoreNum),
+        score: scoreNum == null ? "…" : fmtTableScore(null, scoreNum),
         scoreNum,
         scoreCls: scoreCls(scoreNum),
         stance: "…",

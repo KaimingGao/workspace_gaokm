@@ -11,8 +11,15 @@ export function createRebalanceReportController(deps) {
     fmtTableScore,
     scoreCls,
     resolveTradeScore,
-    resolveCalTradeScore,
+    resolveEodScore,
+    resolveTauScore,
+    resolveOnScore,
     resolveNowcastScore,
+    Y_EOD_TITLE,
+    Y_TAU_TITLE,
+    Y_ON_TITLE,
+    Y_NOWCAST_TITLE,
+    TRADE_TITLE,
     isHeuristicScoreScale,
     renderOpsReport,
     showValidateNext,
@@ -76,6 +83,27 @@ function emptyReasonLabel(code) {
   const k = String(code || "").trim();
   if (!k) return "";
   return map[k] || k;
+}
+
+function fmtRebalancePx(v) {
+  if (v == null || v === "") return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return String(v);
+  return `${n}元`;
+}
+
+function rebalancePrevCloseText(r) {
+  if (r.prev_close != null && r.prev_close !== "") {
+    const n = Number(r.prev_close);
+    if (Number.isFinite(n)) return `${n.toFixed(2)}元`;
+    return String(r.prev_close);
+  }
+  const px = Number(r.price);
+  const chg = Number(r.change_pct);
+  if (Number.isFinite(px) && px > 0 && Number.isFinite(chg)) {
+    return `${(px / (1 + chg / 100)).toFixed(2)}元`;
+  }
+  return "—";
 }
 
 function renderRebalanceReport(
@@ -406,6 +434,7 @@ function renderRebalanceReport(
       nowcast_x_prior: r.nowcast_x_prior,
       predicted_score_eod: r.predicted_score_eod,
       predicted_score_tau: r.predicted_score_tau,
+      predicted_score_on: r.predicted_score_on,
       gap_pct: r.gap_pct,
       predicted_score: r.predicted_score != null ? r.predicted_score : r.score,
       score: r.score != null ? r.score : r.predicted_score,
@@ -448,6 +477,9 @@ function renderRebalanceReport(
       formula_terms_tau: r.formula_terms_tau || r.score_formula_terms_tau,
       score_formula_tau: r.score_formula_tau,
       factor_coefficients_tau: r.factor_coefficients_tau,
+      formula_terms_on: r.formula_terms_on || r.score_formula_terms_on,
+      features_on: r.features_on || null,
+      y_spec_on: r.y_spec_on || null,
       weight_source: r.weight_source,
       cluster_label: r.cluster_label,
       cluster_mode: r.cluster_mode,
@@ -573,9 +605,9 @@ function renderRebalanceReport(
       } else if (r.y_check && String(r.y_check) !== "ok") {
         scoreTip = `Y·EOD 校验 ${String(r.y_check)} · 悬停看分歧/σ`;
       } else if (belowMin) {
-        scoreTip = "低于ŷ_EOD门槛 · 表列为 ŷ_trade · 悬停看组成";
+        scoreTip = "低于 ŷ_EOD 门槛";
       } else {
-        scoreTip = "ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ) · 现价对昨收 · 悬停看组成";
+        scoreTip = TRADE_TITLE;
       }
       const head = String(r.dual_score_head || "");
       const singleHeadBadge = singleHead
@@ -608,23 +640,23 @@ function renderRebalanceReport(
                     : "校"
             )}</span>`
           : "";
-      const scoreCal = resolveCalTradeScore(r);
-      const scoreCalShown =
-        scoreCal != null ? fmtTableScore(r, scoreCal) : "—";
-      const scoreCalOor = !!r.score_calibration_eod_oor;
-      const scoreCalTitle =
-        scoreCal == null
-          ? "暂无 g(ŷ_EOD) 映射（拟合并写入 live 后可见）"
-          : scoreCalOor
-            ? "g(ŷ_EOD) 域外钳制 · 悬停看 eod tip"
-            : "eod = g(ŷ_EOD) · 对涨跌的回归预估，不含缺口，不进决策";
+      const scoreEod = resolveEodScore(r);
+      const scoreEodShown =
+        scoreEod != null ? fmtTableScore(r, scoreEod) : "—";
+      const scoreEodTitle = scoreEod == null ? "暂无 ŷ_EOD" : Y_EOD_TITLE;
+      const scoreTau = resolveTauScore(r);
+      const scoreTauShown =
+        scoreTau != null ? fmtTableScore(r, scoreTau) : "—";
+      const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τ" : Y_TAU_TITLE;
+      const scoreOn = resolveOnScore(r);
+      const scoreOnShown =
+        scoreOn != null ? fmtTableScore(r, scoreOn) : "—";
+      const scoreOnTitle = scoreOn == null ? "暂无 ŷ_ON" : Y_ON_TITLE;
       const scoreNowcast = resolveNowcastScore(r);
       const scoreNowcastShown =
         scoreNowcast != null ? fmtTableScore(r, scoreNowcast) : "—";
       const scoreNowcastTitle =
-        scoreNowcast == null
-          ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见"
-          : "ŷ_nowcast · Kalman 权昨收口径对照（与 ŷ_trade / 涨跌同一目标），不进决策";
+        scoreNowcast == null ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见" : Y_NOWCAST_TITLE;
       const tipDetailJson = escapeText(
         JSON.stringify(tipDetailPayload(r))
       );
@@ -749,6 +781,8 @@ function renderRebalanceReport(
       const chgPct = r.change_pct;
       const chgText = fmtPct(chgPct, { signed: true });
       const chgCls = metricCls(chgPct);
+      const prevCloseText = rebalancePrevCloseText(r);
+      const priceText = fmtRebalancePx(r.price);
       const inBook = !!(r.in_book || r.inBook);
       const oosFailed =
         !!r.oos_failed ||
@@ -795,14 +829,30 @@ function renderRebalanceReport(
         `<span class="rebalance-stock-code">${code}</span>` +
         `</span>` +
         `</div>` +
+        `<div class="num rebalance-prev-close" role="cell" title="上一交易日收盘价">${escapeText(
+          prevCloseText
+        )}</div>` +
+        `<div class="num rebalance-price" role="cell" title="最新成交价">${escapeText(
+          priceText
+        )}</div>` +
         `<div class="num rebalance-chg ${chgCls}" role="cell" title="相对昨收">${escapeText(
           chgText
         )}</div>` +
-        `<div class="num rebalance-score-cal paper-hold-score watching-score-cal has-tip ${scoreCls(
-          scoreCal
-        )}${scoreCalOor ? " is-cal-oor" : ""}" role="cell" ` +
-        `data-score-detail="${tipDetailJson}" data-score-tip="cal" ` +
-        `title="${escapeText(scoreCalTitle)}">${escapeText(scoreCalShown)}</div>` +
+        `<div class="num rebalance-score-eod paper-hold-score watching-score-eod has-tip ${scoreCls(
+          scoreEod
+        )}" role="cell" ` +
+        `data-score-detail="${tipDetailJson}" data-score-tip="eod" ` +
+        `title="${escapeText(scoreEodTitle)}">${escapeText(scoreEodShown)}</div>` +
+        `<div class="num rebalance-score-tau paper-hold-score watching-score-tau has-tip ${scoreCls(
+          scoreTau
+        )}" role="cell" ` +
+        `data-score-detail="${tipDetailJson}" data-score-tip="tau" ` +
+        `title="${escapeText(scoreTauTitle)}">${escapeText(scoreTauShown)}</div>` +
+        `<div class="num rebalance-score-on paper-hold-score watching-score-on has-tip ${scoreCls(
+          scoreOn
+        )}" role="cell" ` +
+        `data-score-detail="${tipDetailJson}" data-score-tip="on" ` +
+        `title="${escapeText(scoreOnTitle)}">${escapeText(scoreOnShown)}</div>` +
         `<div class="num rebalance-score paper-hold-score has-tip ${scoreClass}" ` +
         `role="cell" data-score-detail="${tipDetailJson}" data-score-tip="trade" ` +
         `title="${escapeText(scoreTip)}">${escapeText(scoreShown)}${singleHeadBadge}${yCheckBadge}</div>` +
@@ -849,10 +899,14 @@ function renderRebalanceReport(
     `<div class="rebalance-table" role="table">` +
     `<div class="rebalance-table-head" role="row">` +
     `<div class="rebalance-th" role="columnheader">股票</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="上一交易日收盘价">昨收</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="最新成交价">现价</div>` +
     `<div class="rebalance-th num" role="columnheader" title="相对昨收的当日涨跌幅">涨跌</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="eod = g(ŷ_EOD) · 对涨跌，不含缺口，不进决策">EOD</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ) · 现价对昨收 · 排序/卖门槛">TRADE</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="ŷ_nowcast · Kalman 权昨收口径对照，不进决策">NOWCAST</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ŷ_EOD · 隔夜主轴">y_eod</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ŷ_τ · τ→收盘剩余">y_τ</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ŷ_ON · open 链旁路">y_on</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ŷ_trade · 排序/卖门槛">y_trade</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ŷ_nowcast · Kalman 权昨收对照">y_nc</div>` +
     `<div class="rebalance-th num" role="columnheader">股数</div>` +
     `<div class="rebalance-th num" role="columnheader">变动</div>` +
     `<div class="rebalance-th rebalance-th-decision" role="columnheader" title="悬停看原因">决策</div>` +

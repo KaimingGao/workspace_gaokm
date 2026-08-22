@@ -302,6 +302,41 @@ def _apply_excess_label(out: Dict[str, Any], excess: Optional[float], item: dict
         out["excess_label"] = "RS" + str(int(round(rs)))
 
 
+def _insight_quote_bars(
+    code: str,
+    quote: Optional[dict] = None,
+    bars: Optional[list] = None,
+) -> tuple:
+    """观察簿 hydrate：缺 bars/quote 时本地补日线（ON/τ 特征需要）。"""
+    q = dict(quote) if isinstance(quote, dict) else {}
+    b = list(bars or [])
+    if not b:
+        try:
+            from core.data_service import get_bars
+
+            pack = get_bars(
+                code,
+                limit=45,
+                offline_ok=True,
+                cache_max_age_hours=72.0,
+            )
+            b = list(pack.get("bars") or [])
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
+            b = []
+    if not q.get("success") and q.get("price_raw") is None and q.get("open") is None:
+        try:
+            from core.data_service import get_quote
+
+            q2 = get_quote(code) or {}
+            if isinstance(q2, dict) and q2.get("success"):
+                q = q2
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
+            pass
+    return q, b
+
+
 def _hydrate_insight_tau_fields(
     out: Dict[str, Any],
     item: dict,
@@ -327,6 +362,14 @@ def _hydrate_insight_tau_fields(
         return
     q = quote if isinstance(quote, dict) else {}
     b = list(bars or [])
+    code = str(
+        (item or {}).get("stock_code")
+        or out.get("stock_code")
+        or (item or {}).get("code")
+        or ""
+    ).strip()
+    if code and (not b or not q.get("success")):
+        q, b = _insight_quote_bars(code, quote=q, bars=b)
     gap = None
     try:
         from core.event_prior import gap_pct_from_quote_bars

@@ -150,6 +150,70 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 
 建模、训练面板、OOS 与字段细节见 [tau-contract-and-partition-upgrade.md §9](tau-contract-and-partition-upgrade.md)；盘中落地阶段见 [intraday-residual-score.md](intraday-residual-score.md)。
 
+### 2.6 预估周期：\(y_{\mathrm{EOD}}\) · \(y_\tau\) · \(y_{\mathrm{ON}}\)
+
+团队约定用 **三个标签** 描述同一交易日上的价格路径；**open 锚链** 与 **close 锚的 EOD 轴** 并行，不是「EOD 输出喂给 τ 再喂给 ON」的串行模型链。
+
+| 符号 | 定义（% 口径 ×100 同下） | 锚点 | 现网字段 / 状态 |
+|------|---------------------------|------|-----------------|
+| **\(y_{\mathrm{EOD}}(t)\)** | \(\mathrm{close}[t]/\mathrm{close}[t-1]-1\) | 收→收 | `predicted_score` · **已落地** |
+| **\(y_\tau(t)\)** | \(\mathrm{close}[t]/\mathrm{open}[t]-1\) | 今开→今收 | `predicted_score_tau` · **已落地** |
+| **\(y_{\mathrm{ON}}(t)\)** | \(\mathrm{open}[t]/\mathrm{open}[t-1]-1\) | 昨开→今开 | `predicted_score_on` · **已落地**（`on_ridge`） |
+
+**open 锚周期（几何乘法，非加法）**
+
+```text
+open(t-1) ──y_ON(t)──► open(t) ──y_τ(t)──► close(t)
+                              │
+                              └── 在 t 日 τ 预估 y_ON(t+1)=open(t+1)/open(t)-1
+                                  → 收盘前保守控「今开→明开」隔夜路径（风控，非主排序）
+```
+
+展开 \(y_{\mathrm{ON}}(t)\)（便于和已实现缺口区分）：
+
+\[
+\frac{\mathrm{open}[t]}{\mathrm{open}[t-1]}
+= \underbrace{\frac{\mathrm{close}[t-1]}{\mathrm{open}[t-1]}}_{y_\tau(t-1)}
+\times \underbrace{\frac{\mathrm{open}[t]}{\mathrm{close}[t-1]}}_{\text{收→开缺口}}
+\]
+
+故 **\(y_{\mathrm{ON}}\)** 含 **上一交易日开→收** 与 **昨夜收→今开**，**不等于** 纯隔夜缺口。
+
+**与现网 `gap_pct` 勿混名**
+
+| 量 | 公式 | 含义 |
+|----|------|------|
+| **`gap_pct`**（已实现） | \(\mathrm{open}[t]/\mathrm{close}[t-1]-1\) | 今开相对**昨收**；`gap_pct_from_quote_bars` |
+| **\(y_{\mathrm{ON}}(t)\)**（规划标签） | \(\mathrm{open}[t]/\mathrm{open}[t-1]-1\) | 今开相对**昨开** |
+
+旧文档 [intraday-residual-score.md §3 方案 C](intraday-residual-score.md) 曾写 \(\mathrm{open}/\mathrm{close}[T-1]\) 为「隔夜头」——**收→开缺口** 口径；与本节 **\(y_{\mathrm{ON}}=\mathrm{open}/\mathrm{open}\)** 不同，以本节为准。
+
+**与 \(y_{\mathrm{EOD}}\) 的关系**
+
+\[
+\frac{\mathrm{close}[t]}{\mathrm{close}[t-1]}
+= \frac{\mathrm{open}[t]}{\mathrm{close}[t-1]} \times \frac{\mathrm{close}[t]}{\mathrm{open}[t]}
+\]
+
+EOD 锚在 **收**，与 open 链 **并列**（选股主轴），不是 open 链的第三段输出。
+
+**决策分工（规划 + 现网）**
+
+| 时点 | 主用 y | 用途 |
+|------|--------|------|
+| 选股 / 入簿 / 收盘后挂次日单 | \(y_{\mathrm{EOD}}\) | 截面排序（现网） |
+| 盘中（今开→今收） | \(y_\tau\) · ŷ_trade 融合 | 买入闸 · 调仓（现网） |
+| **收盘前 τ** | **\(y_{\mathrm{ON}}(t+1)\)** 的预估 | **保守减仓、控今开→明开路径**（`predicted_score_on`；默认不进主排序） |
+
+**硬规则（与 §2.5 一致并延伸）**
+
+1. 三个 y **各用独立 `y_spec`、独立训练**；禁止写进同一 `predicted_score` 字段。  
+2. **禁止**用 \(\mathrm{open}[t+1]/\mathrm{close}[t]-1\) 作盘中标签（依赖当日收盘，不满足收盘前风控）。盘中锚 **`open[t]`** 或 **`price[τ]`**，标签 **`open[t+1]/open[t]-1`**。  
+3. \(y_{\mathrm{ON}}\) 规划为 **风控旁路**（缩仓 / 撤买单），**默认不进主排序**；落地前以 `gap_risk` · `event_prior` 作弱替代。  
+4. 执行：收盘前减仓若要 **挡当夜隔夜**，须 **当日收盘前可成交** 路径；默认 `next_open` 只挂 **次日开盘** 单，**挡不住当夜**（见 [quant-ops.md](quant-ops.md)）。
+
+规划字段：`predicted_score_on` / `y_spec_on` / `data/live/on_ridge_model.json`；复盘 IC(\(\hat y_{\mathrm{ON}}, y_{\mathrm{ON}}\)) 与 open 链分段单独报。训练：`POST /api/quant/on-ridge`。
+
 ---
 
 ## 3. 训练链：从日线到组 β
@@ -240,12 +304,32 @@ score_stock(code) 续——
 | `nowcast_vs` | `prev_close` | 落盘口径；缺缺口时可能为 `open` |
 | `dual_score_fusion` | `"blend"` | 正交加权 |
 
-### 4.3 双层完整调用链
+### 4.3 ON 打分链（层 3 · 隔夜 open 链，风控旁路）
+
+`score_stock` / `attach_dual_score_pit` 在 τ 字段之后 **追加** ŷ_ON（不改 `predicted_score` / `predicted_score_blend`）：
+
+```text
+score_stock(code) 续——
+  → on_feats = build_on_features_from_quote_bars(quote, bars)   # ret_oc / ret_cc / y_on_today + Z
+  → on_yhat = predict_on_from_features(on_feats)                 # on_ridge 模型
+  → apply_on_score_fields(signal_item, on_yhat, on_feats, …)
+```
+
+| 字段 | 值 | 说明 |
+|------|----|------|
+| `predicted_score_on` | ŷ_ON | **open[T+1]/open[T]−1**（决策锚 open[T]） |
+| `y_spec_on` | `{formula, anchor, unit}` | ON 标签规范 |
+| `features_on` | ret_oc / gap / ret_cc / … | T 日路径快照 |
+
+训练：`POST /api/quant/on-ridge` → `on_ridge_model.json`（人审 persist）。**默认不进主排序**；收盘前减仓策略后续接线。
+
+### 4.4 双层完整调用链
 
 ```text
 【训练层】
   factor_ols_clusters → return_model (β_cluster) → promote → cluster_weights.json
   rem_ridge           → rem_model    (γ)         → promote → rem_ridge_model.json
+  on_ridge            → on_model     (ζ)         → promote → on_ridge_model.json
 
 【Live 打分层】
   score_stock(code)

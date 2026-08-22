@@ -29,7 +29,10 @@ export function colStyle(col) {
     const min = col.flexMin != null ? String(col.flexMin) : "0";
     return `min-width:${min};`;
   }
-  if (col.widthPct != null) return "min-width:3.1rem;";
+  if (col.widthPct != null) {
+    const min = col.widthMin != null ? String(col.widthMin) : "3.1rem";
+    return `min-width:${min};`;
+  }
   if (col.width != null) {
     const w = Number(col.width);
     return `min-width:0;width:${w}px;`;
@@ -53,7 +56,8 @@ export function gridTemplateColumns(columns) {
       // widthPct 作相对权重（fr），并设 rem 下限，避免 % 轨在窄容器里塌成 0
       if (col.widthPct != null) {
         const w = Math.max(2, Number(col.widthPct) || 8);
-        return `minmax(3.1rem, ${w}fr)`;
+        const min = col.widthMin != null ? String(col.widthMin) : "3.1rem";
+        return `minmax(${min}, ${w}fr)`;
       }
       if (col.width != null) return `${Number(col.width)}px`;
       return "minmax(3.1rem, 1fr)";

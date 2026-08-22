@@ -1,4 +1,4 @@
-"""服务层导出。"""
+"""Application Service 层导出（见 docs/architecture.md#service-命名约定）。"""
 
 import logging
 

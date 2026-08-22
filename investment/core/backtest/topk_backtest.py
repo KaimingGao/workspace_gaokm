@@ -14,7 +14,7 @@ from core.backtest.engine import _mock_quote_from_bars, _trade_metrics
 logger = logging.getLogger(__name__)
 
 
-WEIGHT_MODES = ("equal", "score_budget", "risk_parity_lite")
+from core.backtest.topk_weights import WEIGHT_MODES
 
 
 def _fill_sample_score_fields(
@@ -512,24 +512,9 @@ def _intent_and_fill_prices(
 
 
 def _vol_from_window(bars: List[dict], *, window: int = 20) -> Optional[float]:
-    closes: List[float] = []
-    for b in (bars or [])[-max(window + 2, 5) :]:
-        try:
-            closes.append(float(b.get("close")))
-        except (TypeError, ValueError):
-            continue
-    if len(closes) < 5:
-        return None
-    rets = []
-    for i in range(1, len(closes)):
-        a, b = closes[i - 1], closes[i]
-        if a > 0 and b > 0:
-            rets.append(b / a - 1.0)
-    if len(rets) < 4:
-        return None
-    mean = sum(rets) / len(rets)
-    var = sum((r - mean) ** 2 for r in rets) / max(1, len(rets) - 1)
-    return var**0.5
+    from core.backtest.topk_weights import vol_from_window
+
+    return vol_from_window(bars, window=window)
 
 
 def allocate_topk_weights(
@@ -543,74 +528,20 @@ def allocate_topk_weights(
 ) -> Tuple[Dict[str, float], str]:
     """为已成交腿分配目标权重（%）。失败回退等权。
 
+    实现见 ``core.backtest.topk_weights``（A3 按用例拆出）。
     score_budget / risk_parity_lite 默认**不**再归一到 100%（与纸面 budget 一致，可留现金）。
     equal 始终满仓。``renormalize=True`` 可强制满仓（旧研究口径）。
     """
-    mode = (weight_mode or "score_budget").strip().lower()
-    if mode not in WEIGHT_MODES:
-        mode = "equal"
-    n = len(legs)
-    if n <= 0:
-        return {}, mode
-    if mode == "equal":
-        w = round(100.0 / n, 4)
-        return {str(leg["stock_code"]): w for leg in legs}, "equal"
+    from core.backtest.topk_weights import allocate_topk_weights as _alloc
 
-    ranked: List[dict] = []
-    for leg in legs:
-        code = str(leg.get("stock_code") or "")
-        row = {
-            "stock_code": code,
-            "score": float(leg.get("score") or 50.0),
-            "sector": leg.get("sector") or "未知",
-        }
-        if mode == "risk_parity_lite" and stock_bars:
-            vol = _vol_from_window(stock_bars.get(code) or [])
-            if vol is not None:
-                row["vol"] = vol
-        ranked.append(row)
-
-    try:
-        if mode == "score_budget":
-            from core.risk.budget import score_budget_weights
-
-            weights, _, _ = score_budget_weights(
-                ranked,
-                max_position_pct=max_position_pct,
-                max_sector_pct=max_sector_pct,
-                max_positions=n,
-            )
-        else:
-            from core.risk.budget import risk_parity_lite_weights
-
-            weights, _, _ = risk_parity_lite_weights(
-                ranked,
-                max_position_pct=max_position_pct,
-                max_sector_pct=max_sector_pct,
-                max_positions=n,
-            )
-    except Exception:  # noqa: BLE001 — 风控失败降级等权，warning 级别以便定位限额参数问题
-        logger.warning(
-            "weight mode %s compute failed, falling back to equal weight",
-            mode, exc_info=True,
-        )
-        weights = {}
-
-    filtered = {
-        str(leg["stock_code"]): float(weights.get(str(leg["stock_code"])) or 0.0)
-        for leg in legs
-    }
-    total = sum(filtered.values())
-    if total <= 1e-6:
-        w = round(100.0 / n, 4)
-        return {str(leg["stock_code"]): w for leg in legs}, "equal"
-    do_renorm = bool(renormalize) if renormalize is not None else False
-    if do_renorm:
-        return {
-            c: round(100.0 * v / total, 4) for c, v in filtered.items() if v > 0
-        }, mode
-    # 与纸面一致：保留限额裁剪后的绝对权重（可 <100%）
-    return {c: round(v, 4) for c, v in filtered.items() if v > 0.05}, mode
+    return _alloc(
+        legs,
+        weight_mode=weight_mode,
+        max_position_pct=max_position_pct,
+        max_sector_pct=max_sector_pct,
+        stock_bars=stock_bars,
+        renormalize=renormalize,
+    )
 
 
 def _weighted_port_return(legs: List[dict], weights: Dict[str, float]) -> float:

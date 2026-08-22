@@ -8,13 +8,19 @@ import {
   fmtTableScore,
   scoreCls,
   resolveTradeScore,
-  resolveCalTradeScore,
-  resolveNowcastScore,
   resolveEodScore,
+  resolveTauScore,
+  resolveOnScore,
+  resolveNowcastScore,
+  Y_EOD_TITLE,
+  Y_TAU_TITLE,
+  Y_ON_TITLE,
+  Y_NOWCAST_TITLE,
   scoreSeriesStats,
   isHeuristicScoreScale,
 } from "./paper/fmt.js?v=p1227";
 import { drawSeries, appendLiveNavPoint } from "./paper/chart.js?v=p1163";
+import { TRADE_TITLE } from "./quant/watching_quotes_ui.js?v=p1227";
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
 import {
   loadHoldingsSort,
@@ -49,6 +55,8 @@ import {
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p1232";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1232";
+import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1234";
+import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p1234";
 import {
   formatWeightSourceNote,
   formatFactorWeightsSection,
@@ -700,66 +708,7 @@ export function initPaper(ctx) {
   }
 
   function renderFollowNorthStar(ns) {
-    const host = document.getElementById("follow-north-star");
-    if (!host) return;
-    if (!ns || typeof ns !== "object") {
-      host.hidden = true;
-      host.innerHTML = "";
-      return;
-    }
-    const pr = ns.paper_risk || {};
-    const rz = ns.realization || {};
-    const isFull = !!ns.paper_risk;
-    const sharpe = isFull ? pr.rolling_sharpe : ns.rolling_sharpe;
-    const calmar = isFull ? pr.calmar : ns.calmar;
-    const corr = isFull ? rz.corr : ns.corr;
-    const te = isFull ? rz.tracking_error_pct : ns.tracking_error_pct;
-    const bex = ns.benchmark_excess || {};
-    const legs = ns.alpha_beta_legs || {};
-    const excess = bex.ok ? bex.total_excess_approx_pct : legs.alpha_leg_approx_pct;
-    const annIr = bex.ok ? bex.ann_ir : null;
-    if (
-      sharpe == null &&
-      calmar == null &&
-      corr == null &&
-      te == null &&
-      excess == null
-    ) {
-      host.hidden = true;
-      host.innerHTML = "";
-      return;
-    }
-    host.hidden = false;
-    const fmt = (v, d) =>
-      v == null || Number.isNaN(Number(v)) ? "—" : Number(v).toFixed(d);
-    const items = [
-      ["夏普", fmt(sharpe, 2), "滚动纸面夏普", "sharpe"],
-      ["卡玛", fmt(calmar, 2), "纸面卡玛", "calmar"],
-      ["拟合", fmt(corr, 3), "回测–纸面相关", "fit"],
-      ["TE", te != null ? `${fmt(te, 2)}%` : "—", "跟踪误差", "te"],
-      [
-        "超额",
-        excess != null ? `${fmt(excess, 2)}%` : "—",
-        "相对指数累计超额近似（α 腿）",
-        "excess",
-      ],
-      ["IR", fmt(annIr, 2), "年化信息比率（超额/波动）", "ir"],
-    ];
-    host.innerHTML =
-      `<div class="follow-north-star-grid dashboard-kpi-row-body" role="list" aria-label="北极星质量">` +
-      items
-        .map(([label, val, sub, key]) => {
-          const empty = val === "—";
-          return (
-            `<div class="dashboard-kpi-card quant-pro-kpi-card follow-kpi-card follow-north-star-item${empty ? " is-empty" : ""}" role="listitem" data-kpi="${key}" title="${sub}">` +
-            `<div class="dashboard-kpi-label quant-pro-kpi-label follow-kpi-label follow-north-star-label">${label}</div>` +
-            `<div class="dashboard-kpi-value quant-pro-kpi-value follow-kpi-value follow-north-star-val">${val}</div>` +
-            `<div class="dashboard-kpi-sub quant-pro-kpi-sub follow-kpi-sub follow-north-star-sub">${sub}</div>` +
-            `</div>`
-          );
-        })
-        .join("") +
-      `</div>`;
+    renderFollowNorthStarUi(document.getElementById("follow-north-star"), ns);
   }
 
   const scoreTips = createScoreTooltipController();
@@ -1331,9 +1280,10 @@ export function initPaper(ctx) {
           key === "code" ||
           key === "market_value" ||
           key === "score" ||
-          key === "score_cal" ||
+          key === "score_eod" ||
+          key === "score_tau" ||
+          key === "score_on" ||
           key === "score_nowcast" ||
-          key === "residual" ||
           key === "pnl" ||
           key === "chg"
         ) {
@@ -1524,8 +1474,15 @@ export function initPaper(ctx) {
       fmtTableScore,
       scoreCls,
       resolveTradeScore,
-      resolveCalTradeScore,
+      resolveEodScore,
+      resolveTauScore,
+      resolveOnScore,
       resolveNowcastScore,
+      Y_EOD_TITLE,
+      Y_TAU_TITLE,
+      Y_ON_TITLE,
+      Y_NOWCAST_TITLE,
+      TRADE_TITLE,
       isHeuristicScoreScale,
       renderOpsReport,
       showValidateNext,
@@ -1554,57 +1511,13 @@ export function initPaper(ctx) {
       rebalanceReportUi.renderRebalanceReport(...args);
 
     async function waitPaperJob(jobId) {
-      const started = Date.now();
-      const hardCapMs = 25 * 60 * 1000;
-      const softCapMs = 15 * 60 * 1000;
-      let sawOwnJob = false;
-      while (Date.now() - started < hardCapMs) {
-        const res = await fetch("/api/jobs/paper?progress=1");
-        const data = await res.json();
-        const job = (data && data.job) || {};
-        const sameJob = !jobId || !job.id || job.id === jobId;
-        if (sameJob && job.id) sawOwnJob = true;
-
-        // 服务热重载 / 进程重启后槽位回到 idle，旧逻辑会空转到超时
-        if (job.status === "idle" || !job.id) {
-          if (sawOwnJob || Date.now() - started > 2500) {
-            throw new Error("纸面任务已中断（可能服务重启），请重试确认调仓");
-          }
-          await new Promise((r) => setTimeout(r, 400));
-          continue;
-        }
-        if (!sameJob) {
-          throw new Error("纸面任务已被其它任务覆盖，请重试");
-        }
-
-        const pct = Number(job.pct) || 0;
-        const msg =
-          job.message ||
-          (job.total
-            ? `${job.current || 0}/${job.total}`
-            : job.status === "running"
-              ? "运行中…"
-              : "");
-        showProgress(pct, msg);
-        if (paperMeta && msg) setPaperMetaText(msg);
-        if (job.status === "done") {
-          const fullRes = await fetch("/api/jobs/paper");
-          const fullData = await fullRes.json();
-          return (fullData && fullData.job) || job;
-        }
-        if (job.status === "failed") {
-          throw new Error(job.error || "纸面任务失败");
-        }
-        const elapsed = Date.now() - started;
-        if (elapsed >= softCapMs) {
-          const ua = Number(job.updated_at);
-          const fresh =
-            Number.isFinite(ua) && Date.now() / 1000 - ua < 90;
-          if (!fresh) throw new Error("纸面任务超时");
-        }
-        await new Promise((r) => setTimeout(r, 400));
-      }
-      throw new Error("纸面任务超时");
+      return waitPaperJobPoll({
+        jobId,
+        showProgress,
+        setMeta: (msg) => {
+          if (paperMeta && msg) setPaperMetaText(msg);
+        },
+      });
     }
 
     const paperInitBtn = document.getElementById("paper-init");

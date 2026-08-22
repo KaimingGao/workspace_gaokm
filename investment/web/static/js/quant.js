@@ -77,7 +77,9 @@ const { installScoreReview } = await import(
   `./quant/domain_score_review.js?v=${encodeURIComponent(_QV)}`
 );
 
-/** Quant research panel — shell + domain installs. */
+/** Quant research panel — shell + domain installs.
+ * A4: 禁止再往根文件堆域逻辑；新能力进 quant/domain_* 或子模块，按页懒加载。
+ */
 export function initQuant(ctx) {
   const researchParams = createResearchParams();
   const {
@@ -425,6 +427,28 @@ export function initQuant(ctx) {
     if (box) box.innerHTML = "";
   }
 
+  async function renderOnCoefTable(rm, opts = {}) {
+    const host = document.getElementById("quant-on-coef-table");
+    if (!host) return;
+    try {
+      if (typeof q.ensureFactorMeta === "function") {
+        await q.ensureFactorMeta();
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    const html =
+      typeof q.remCoefTableHtml === "function"
+        ? q.remCoefTableHtml(rm, { ...opts, head: "on" })
+        : "";
+    host.innerHTML = html || "";
+  }
+
+  function clearOnResultBox() {
+    const box = document.getElementById("quant-on-result");
+    if (box) box.innerHTML = "";
+  }
+
   // 轻量预填 ŷ_τ KPI / 状态（不阻塞；复盘加载后会用 tau_shadow 覆盖命中）
   void (async () => {
     try {
@@ -468,6 +492,38 @@ export function initQuant(ctx) {
           syncOverviewTau("已启用", data.promoted_at || "rem", "text");
         }
       }
+    } catch (_) {
+      /* ignore */
+    }
+  })();
+
+  // 轻量预填 ŷ_ON 状态
+  void (async () => {
+    try {
+      const res = await fetch("/api/quant/on-ridge/model");
+      const data = await res.json().catch(() => ({}));
+      const sum = document.getElementById("quant-on-summary");
+      if (!sum) return;
+      if (!data.exists) {
+        renderRemStatus(sum, {
+          state: "idle",
+          chip: "未启用",
+          message: data.note || "点「拟合」开始",
+        });
+        clearOnResultBox();
+        await renderOnCoefTable(null);
+        return;
+      }
+      const oos = data.oos || {};
+      renderRemStatus(sum, {
+        state: "ok",
+        chip: "已启用",
+        oos,
+        sampleCount: data.sample_count,
+        promotedAt: data.promoted_at,
+      });
+      clearOnResultBox();
+      await renderOnCoefTable(data.return_model || {}, { oos });
     } catch (_) {
       /* ignore */
     }
@@ -1208,6 +1264,72 @@ export function initQuant(ctx) {
     }
   }
 
+  async function runOnRidge({ persist = false } = {}) {
+    const sum = document.getElementById("quant-on-summary");
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: persist ? "写入中" : "拟合中",
+      message: persist ? "写入上次拟合…" : "ON Ridge + 时间 OOS…",
+      busy: true,
+    });
+    try {
+      const onLimit = Math.min(40, Math.max(2, Number(readWatchingLimit()) || 36));
+      const res = await fetch("/api/quant/on-ridge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback: 120,
+          watching_limit: onLimit,
+          ridge_lambda: 1.0,
+          persist: !!persist,
+          note: persist ? "ui on promote" : "",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+        renderRemStatus(sum, {
+          state: "error",
+          chip: "失败",
+          message: String(err),
+          error: true,
+        });
+        clearOnResultBox();
+        renderOnCoefTable(null);
+        return;
+      }
+      const oos = data.oos || {};
+      if (persist) {
+        renderRemStatus(sum, {
+          state: "ok",
+          chip: "已启用",
+          oos,
+          sampleCount: data.sample_count,
+          promotedAt: data.promoted_at || (data.persisted && data.persisted.promoted_at),
+        });
+      } else {
+        renderRemStatus(sum, {
+          state: "ok",
+          chip: "已拟合",
+          message: "未写 live · 过门后点「启用」",
+          oos,
+          sampleCount: data.sample_count,
+        });
+      }
+      const rm = data.return_model || {};
+      clearOnResultBox();
+      await renderOnCoefTable(rm, { oos });
+    } catch (err) {
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+      throw err;
+    }
+  }
+
   on("quant-rem-ridge-run", "click", async (e) => {
     e.preventDefault();
     try {
@@ -1230,6 +1352,85 @@ export function initQuant(ctx) {
       await runRemRidge({ persist: true });
     } catch (err) {
       const sum = document.getElementById("quant-rem-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+    }
+  });
+
+  on("quant-on-ridge-run", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runOnRidge({ persist: false });
+    } catch (err) {
+      const sum = document.getElementById("quant-on-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+    }
+  });
+
+  on("quant-on-ridge-persist", "click", async (e) => {
+    e.preventDefault();
+    if (
+      !window.confirm(
+        "将 on / ŷ_ON 模型写入 live（不改 ŷ_EOD、不改 ŷ_τ、不进主排序）？仅输出 predicted_score_on 风控旁路。"
+      )
+    ) {
+      return;
+    }
+    try {
+      await runOnRidge({ persist: true });
+    } catch (err) {
+      const sum = document.getElementById("quant-on-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+    }
+  });
+
+  on("quant-on-ridge-status", "click", async (e) => {
+    e.preventDefault();
+    const sum = document.getElementById("quant-on-summary");
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: "读取中",
+      message: "live 模型…",
+      busy: true,
+    });
+    try {
+      const res = await fetch("/api/quant/on-ridge/model");
+      const data = await res.json().catch(() => ({}));
+      if (!data.exists) {
+        renderRemStatus(sum, {
+          state: "idle",
+          chip: "未启用",
+          message: data.note || "尚无 live 模型",
+        });
+        clearOnResultBox();
+        await renderOnCoefTable(null);
+        return;
+      }
+      const oos = data.oos || {};
+      renderRemStatus(sum, {
+        state: "ok",
+        chip: "已启用",
+        oos,
+        sampleCount: data.sample_count,
+        promotedAt: data.promoted_at,
+      });
+      clearOnResultBox();
+      await renderOnCoefTable(data.return_model || {}, { oos });
+    } catch (err) {
       renderRemStatus(sum, {
         state: "error",
         chip: "失败",

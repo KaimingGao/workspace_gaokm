@@ -148,9 +148,9 @@ flowchart LR
 
 ## 存储选型：为何是 JSON，何时才上数据库
 
-**结论（现行）**：不需要为「专业感」上 SQLite / 时序库。账户、行情缓存、信号配置、交易流水等 **几乎全部用本地 JSON / JSONL** 管理；这是与「本地策略验证、观察池级规模、暂不接实盘」对齐的刻意选择，不是疏漏。
+**结论（现行）**：配置与账本继续 JSON；**日线/分钟线缓存**走工程结构轨 **A1**：默认 SQLite WAL（`INVESTMENT_BARS_BACKEND=sqlite`），可回滚 `json`。账户、信号配置、交易流水仍 **本地 JSON / JSONL**——与「策略验证、观察池级规模、暂不接实盘」对齐。
 
-与 [architecture · 刻意不做](architecture.md#7-刻意不做的抽象)、[upgrade-refactor-plan · 明确不做的重构](archive/upgrade-refactor-plan.md#92-明确不做的重构) 一致：不为重构而换存储；除非 JSON 在 PIT / 规模上证明不可维护，再单独立项。
+与 [architecture · 刻意不做](architecture.md#7-刻意不做的抽象)、[architecture-upgrade-a](architecture-upgrade-a.md)、[sqlite-migration](sqlite-migration.md) 一致：不为「专业感」把全部状态塞进一个库；行情按规模升 SQLite，配置保持可 diff。
 
 ### 各类数据落盘对照
 
@@ -159,7 +159,8 @@ flowchart LR
 | **模拟账户** | JSON | `data/paper.json` | 假钱账本（现金 · 持仓 · 成交）；非券商实盘 |
 | **观察池** | JSON | `data/watching.json` | 产品状态，非行情仓 |
 | **信号 / 规则配置** | JSON | `signal_config.json` · `position_rules.json` | 人审可改；晋升有备份约定 |
-| **日线 / 基本面 / 资讯** | 按标的 JSON | `data/store/daily|fundamentals|news/` | 观察池增量缓存，非全市场仓 |
+| **日线 / 分钟线** | SQLite（默认）或 JSON | `data/store/bars.db` · 或 `daily|minute/**/*.json` | `INVESTMENT_BARS_BACKEND`；上层经 DataService / ports |
+| **基本面 / 资讯** | 按标的 JSON | `data/store/fundamentals|news/` | 快照 + PIT 面板；不进 bars.db |
 | **决策 / TTM 事件** | JSONL 追加 | `decisions.jsonl` · `ttm_events.jsonl` | 流水审计，轻量追加写 |
 | **日报 / 告警** | JSON · MD | `quant_daily.json` · `reports/` · `alerts/` | 运行时产物 |
 
@@ -187,8 +188,8 @@ flowchart LR
 
 | 触发条件 | 建议方向 |
 |----------|----------|
-| 现行（策略验证 / 纸面） | **继续 JSON**；读写收口 DataService / store |
-| 观察池变大、日线缓存难维护 | 优先 **Parquet / 按日分区**，或 SQLite **仅存 bars** |
+| 现行（策略验证 / 纸面） | 配置/账本 **JSON**；bars **SQLite 默认**（可切 `json`）；读写收口 DataService / store |
+| 观察池再变大、跨票聚合仍痛 | 可再评估 **Parquet / 按日分区**（与 bars.db 并存，不吞配置） |
 | 接实盘 OMS、多账户、强审计（N6 闸门后） | 账户与成交 → **SQLite / Postgres**；行情仍可用文件或时序库 |
 | 全市场批式研究 | 专门行情仓；**与产品配置 JSON 分开** |
 
@@ -223,6 +224,7 @@ flowchart LR
 | **DS-E3 quote/指数/惰性包** | **已落地**：paper quote/batch 经 DS；`get_index_bars`；`portfolio_bars` 离线不打 quote；lazy `core.data.__getattr__`；DQ 暴露 `data_service_metrics` |
 | **DS-E4 收口扫尾** | **已落地**：`as_dict` 保留 kind/ok；score/watching/facts/schedule/cluster/event 行情经 DS；warmup 挂 metrics；topk 指数经 DS；portfolio 最终 resolve 跟 offline 语义 |
 | **DS-E5 可观测 + 锁** | **已落地**：平台 DQ/调度 last 展示 `data_service_metrics`；`spot_refresh` 挂 metrics；`reset_metrics` 导出；框架锁业务禁直 import ports 读行情；仪表盘指数经 DS |
+| **A1 Bars SQLite** | **已落地**：`INVESTMENT_BARS_BACKEND` · `core/store_bars_sqlite.py` · `scripts/migrate_bars_to_sqlite.py`；见 [sqlite-migration](sqlite-migration.md) · [architecture-upgrade-a](architecture-upgrade-a.md) |
 | 全市场数仓 / Tick / 多源对齐 | **不做**（锁定） |
 
 ### 采集运维

@@ -70,7 +70,8 @@ python3 run_web.py
 | 顶栏 | 主路径：**对话 · 观察 · 策略 · 模拟 · 回溯**；进阶页仍有 `/paper`（→模拟）、`/quant` |
 | 会话 | 请求头 `X-Session-Id`（前端存 localStorage） |
 | 端口 | 环境变量 `WEB_HOST`（默认 127.0.0.1）、`WEB_PORT`（默认 8000） |
-| 热重载 | 默认 **关**（`WEB_RELOAD=0`）。开发改 py 时设 `WEB_RELOAD=1`；热重载会中断纸面后台任务，确认调仓时勿触发。纸面 job 状态落盘 `data/jobs/paper.json` |
+| 热重载 | 默认 **关**（`WEB_RELOAD=0`）。开发改 py 时设 `WEB_RELOAD=1`；热重载会中断纸面后台任务，确认调仓时勿触发。纸面/分组/网格/对话 job 落盘 `data/jobs/*.json` |
+| 日线缓存后端 | `INVESTMENT_BARS_BACKEND=sqlite`（默认）或 `json`；见 [sqlite-migration](sqlite-migration.md) · [architecture-upgrade-a](architecture-upgrade-a.md) |
 
 Web 与 CLI 共用同一套 `InvestmentAgent` / Skills / prompts；仍需配置 `DASHSCOPE_*`。
 

@@ -251,6 +251,30 @@ export function reconstructNowcastPrevClose(it) {
   return Number.isFinite(n) ? n : null;
 }
 
+export const Y_EOD_TITLE = "ŷ_EOD · 隔夜主轴 open[T]/open[T−1]−1（%）";
+export const Y_TAU_TITLE = "τ→收盘 · 昨收口径";
+export const Y_ON_TITLE = "隔夜 open · 旁路";
+export const Y_NOWCAST_TITLE =
+  "ŷ_nowcast · Kalman 权昨收口径对照（与 y_trade / 涨跌同一目标），不进决策";
+
+/** ŷ_τ 表列：映到现价对昨收（与 ŷ_trade 同一展示口径）。 */
+export function resolveTauScore(it) {
+  if (!it || typeof it !== "object") return null;
+  if (isHeuristicScoreScale(it)) return null;
+  const tau = _numField(it.predicted_score_tau ?? it.score_rem);
+  if (tau == null) return null;
+  const lifted = liftTauVsPrevClose(it, tau);
+  return _looksLikeYhatPct(lifted) ? lifted : null;
+}
+
+/** ŷ_ON：隔夜 open 链旁路头。 */
+export function resolveOnScore(it) {
+  if (!it || typeof it !== "object") return null;
+  if (isHeuristicScoreScale(it)) return null;
+  const n = _numField(it.predicted_score_on);
+  return _looksLikeYhatPct(n) ? n : null;
+}
+
 /** ŷ_EOD：隔夜主轴（买门槛用这一层）。 */
 export function resolveEodScore(it) {
   if (!it || typeof it !== "object") return null;
@@ -333,19 +357,19 @@ export function scoreSeriesStats(vals) {
 }
 
 /** 表格收益分：只格式化 ŷ%。|v|>20 视为脏 heuristic，显示 —（不把两种量纲混一列）。 */
-export function fmtScore(v, { empty = "—", signed = false, heuristic = false } = {}) {
+export function fmtScore(v, { empty = "—", signed = false, heuristic = false, digits = 3 } = {}) {
   if (v === null || v === undefined || v === "") return empty;
   const n = Number(v);
   if (!Number.isFinite(n)) return empty;
   if (heuristic || Math.abs(n) > 20) return empty;
   const sign = signed && n > 0 ? "+" : "";
-  return `${sign}${n.toFixed(3)}%`;
+  return `${sign}${n.toFixed(digits)}%`;
 }
 
-/** 表列格式：主分已由 resolveTradeScore 约束为 ŷ%；再加 |v|>20 兜底。 */
+/** 表列 Y 轴：与涨跌同列展示，固定两位小数。 */
 export function fmtTableScore(it, v, opts = {}) {
   void it;
-  return fmtScore(v, opts);
+  return fmtScore(v, { digits: 2, ...opts });
 }
 
 /** 收益分红绿：正 → score-up（红），负 → score-down（绿），零 → score-flat。 */

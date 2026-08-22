@@ -8,10 +8,13 @@ import {
   liftTauVsPrevClose,
   resolveEodScore,
   resolveNowcastScore,
+  resolveOnScore,
+  resolveTauScore,
   resolveTradeScore,
 } from "./paper/fmt.js?v=p1226";
 import { renderYPathVizHtml } from "./y_path_viz.js?v=p1169";
 import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
+import { ON_FEAT_META } from "./quant/factor_meta.js?v=p1226";
 
 const FACTOR_LABELS = {
   momentum: "动量",
@@ -174,6 +177,77 @@ export function formatScoreHero(raw) {
       : "") +
     `</div>` +
     gate +
+    `</div>`
+  );
+}
+
+function termFeatLabel(t, key) {
+  if (t && t.label) return t.label;
+  const k = t && t.key;
+  if (key === "on" && k && ON_FEAT_META[k] && ON_FEAT_META[k].label) {
+    return ON_FEAT_META[k].label;
+  }
+  return FACTOR_LABELS[k] || TAU_FEAT_LABELS[k] || k || "—";
+}
+
+/** y_eod 列：头值 + 因子表（不含 trade 全栈）。 */
+function formatCompactEodTip(raw) {
+  const y = resolveEodScore(raw);
+  const val = y == null ? "—" : `${fmtSigned(y, 2)}%`;
+  const below = !!raw.below_min_score;
+  const floor =
+    raw && raw.min_score != null && Number.isFinite(Number(raw.min_score))
+      ? Number(raw.min_score)
+      : null;
+  let gate = "";
+  if (floor != null) {
+    gate = `<div class="score-hero-gate${below ? " is-warn" : ""}">买入门槛 ŷ_EOD ≥ ${escapeText(
+      Number.isFinite(floor) ? `${floor}%` : String(floor)
+    )}${below ? " · 当前低于门槛" : ""}</div>`;
+  }
+  return (
+    `<div class="score-layer score-layer-eod">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">y_eod</div>` +
+    `<div class="score-hero-value ${signCls(y)}">${escapeText(val)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">ŷ_EOD · T−1 因子 · α+Σβ·z</div>` +
+    gate +
+    `</div>`
+  );
+}
+
+/** y_τ 列：只展示头值与口径，不展开全栈。 */
+function formatCompactTauTip(raw) {
+  const shown = resolveTauScore(raw);
+  const val = shown == null ? "—" : `${fmtSigned(shown, 2)}%`;
+  const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
+  return (
+    `<div class="score-layer score-layer-tau">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">y_τ</div>` +
+    `<div class="score-hero-value ${signCls(shown)}">${escapeText(val)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">τ=${escapeText(tau)} · τ→收盘 · 昨收口径</div>` +
+    `</div>`
+  );
+}
+
+/** y_on 列：旁路 open 链头。 */
+function formatCompactOnTip(raw) {
+  const on = resolveOnScore(raw);
+  const val = on == null ? "—" : `${fmtSigned(on, 2)}%`;
+  const ySpec =
+    (raw && raw.y_spec_on && raw.y_spec_on.formula) ||
+    (raw && raw.on_y_spec) ||
+    "open[T+1]/open[T]−1";
+  return (
+    `<div class="score-layer score-layer-on">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">y_on</div>` +
+    `<div class="score-hero-value ${signCls(on)}">${escapeText(val)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">${escapeText(String(ySpec))} · 旁路 · 不进排序</div>` +
     `</div>`
   );
 }
@@ -372,14 +446,14 @@ export function formatNowcastSection(raw) {
     rows.push(
       `<div class="score-layer-row"><span>先验 ŷ_EOD</span><span class="num ${signCls(
         priorN
-      )}">${escapeText(`${fmtSigned(priorN, 3)}%`)}</span></div>`
+      )}">${escapeText(`${fmtSigned(priorN, 2)}%`)}</span></div>`
     );
   }
   if (tCcN != null && Number.isFinite(tCcN)) {
     rows.push(
       `<div class="score-layer-row"><span>ŷ_τ 昨收</span><span class="num ${signCls(
         tCcN
-      )}">${escapeText(`${fmtSigned(tCcN, 3)}%`)}</span></div>`
+      )}">${escapeText(`${fmtSigned(tCcN, 2)}%`)}</span></div>`
     );
   }
   if (k != null && Number.isFinite(k)) {
@@ -393,13 +467,13 @@ export function formatNowcastSection(raw) {
     rows.push(
       `<div class="score-layer-row"><span>ŷ_trade</span><span class="num ${signCls(
         blend
-      )}">${escapeText(`${fmtSigned(Number(blend), 3)}%`)}</span></div>`
+      )}">${escapeText(`${fmtSigned(Number(blend), 2)}%`)}</span></div>`
     );
   }
   rows.push(
     `<div class="score-layer-row score-layer-row-total"><span>ŷ_nowcast</span><span class="num ${signCls(
       ncN
-    )}">${escapeText(`${fmtSigned(ncN, 3)}%`)}</span></div>`
+    )}">${escapeText(`${fmtSigned(ncN, 2)}%`)}</span></div>`
   );
   const bits = ["Kalman 权 · 现价对昨收 · 不进排序/闸/入簿"];
   if (asOf) bits.push(`@${asOf}`);
@@ -416,7 +490,7 @@ export function formatNowcastSection(raw) {
     `<div class="score-layer-head">` +
     `<div class="score-hero-label">nowcast 对照</div>` +
     `<div class="score-hero-value ${signCls(ncN)}">${escapeText(
-      `${fmtSigned(ncN, 3)}%`
+      `${fmtSigned(ncN, 2)}%`
     )}</div>` +
     `</div>` +
     `<div class="score-hero-hint">${escapeText(bits.join(" · "))}</div>` +
@@ -432,13 +506,13 @@ export function formatBlendScoreSection(raw) {
   const yt = resolveTau(raw);
   const ytCc = liftTauVsPrevClose(raw, yt);
   const { w_eod, w_tau } = resolveWeights(raw);
-  const blendTxt = blend == null ? "—" : `${fmtSigned(blend, 3)}%`;
+  const blendTxt = blend == null ? "—" : `${fmtSigned(blend, 2)}%`;
   const eodN = yEod == null || yEod === "" ? null : Number(yEod);
   const tN = yt == null || yt === "" ? null : Number(yt);
   const tCcN = ytCc == null || ytCc === "" ? null : Number(ytCc);
-  const eodTxt = eodN == null || !Number.isFinite(eodN) ? "—" : `${fmtSigned(eodN, 3)}%`;
-  const tTxt = tN == null || !Number.isFinite(tN) ? "—" : `${fmtSigned(tN, 3)}%`;
-  const tCcTxt = tCcN == null || !Number.isFinite(tCcN) ? "—" : `${fmtSigned(tCcN, 3)}%`;
+  const eodTxt = eodN == null || !Number.isFinite(eodN) ? "—" : `${fmtSigned(eodN, 2)}%`;
+  const tTxt = tN == null || !Number.isFinite(tN) ? "—" : `${fmtSigned(tN, 2)}%`;
+  const tCcTxt = tCcN == null || !Number.isFinite(tCcN) ? "—" : `${fmtSigned(tCcN, 2)}%`;
   const wTxt = `w_EOD=${Number(w_eod).toFixed(2)} · w_τ=${Number(w_tau).toFixed(2)}`;
   const wMode =
     raw && raw.dual_score_weights && raw.dual_score_weights.w_mode
@@ -612,17 +686,21 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   const expl =
     key === "tau"
       ? raw && (raw.formula_terms_tau || raw.score_formula_terms_tau)
-      : raw && (raw.formula_terms || raw.score_formula_terms);
+      : key === "on"
+        ? raw && (raw.formula_terms_on || raw.score_formula_terms_on)
+        : raw && (raw.formula_terms || raw.score_formula_terms);
   if (!expl || typeof expl !== "object") return "";
   const terms = Array.isArray(expl.terms) ? expl.terms : [];
   if (!terms.length && expl.intercept == null) return "";
 
-  const title = key === "tau" ? "ŷ_τ 组成" : "ŷ_EOD 组成";
-  const totalLabel = key === "tau" ? "合计 ŷ_τ" : "合计 ŷ_EOD";
+  const title =
+    key === "tau" ? "ŷ_τ 组成" : key === "on" ? "ŷ_ON 组成" : "ŷ_EOD 组成";
+  const totalLabel =
+    key === "tau" ? "合计 ŷ_τ" : key === "on" ? "合计 ŷ_ON" : "合计 ŷ_EOD";
 
   const rows = terms
     .map((t) => {
-      const name = t.label || FACTOR_LABELS[t.key] || TAU_FEAT_LABELS[t.key] || t.key || "—";
+      const name = termFeatLabel(t, key);
       const gated = !!t.gated;
       const nameExtra = gated ? "（闸关）" : t.note ? `（${t.note}）` : "";
       const beta = fmtSigned(t.beta, 3);
@@ -649,7 +727,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     .filter((t) => t && !t.gated && Number.isFinite(Number(t.contrib)))
     .map((t) => ({
       key: t.key,
-      label: t.label || FACTOR_LABELS[t.key] || TAU_FEAT_LABELS[t.key] || t.key,
+      label: termFeatLabel(t, key),
       contrib: Number(t.contrib),
     }));
   const peak = Math.max(...barTerms.map((t) => Math.abs(t.contrib)), 1e-9);
@@ -1325,12 +1403,31 @@ export function createScoreTooltipController() {
   function resolveScoreTipMode(cell) {
     if (!cell) return "trade";
     const tip = String(cell.dataset.scoreTip || "").trim().toLowerCase();
-    if (tip === "cal" || tip === "calibration" || tip === "eod") return "cal";
+    if (tip === "cal" || tip === "calibration") return "cal";
+    if (tip === "eod") return "eod";
     if (tip === "nowcast" || tip === "nc") return "nowcast";
+    if (tip === "tau" || tip === "rem") return "tau";
+    if (tip === "on") return "on";
     if (tip === "trade" || tip === "score") return "trade";
+    if (cell.classList.contains("watching-score-eod")) return "eod";
     if (cell.classList.contains("watching-score-cal")) return "cal";
     if (cell.classList.contains("watching-score-nowcast")) return "nowcast";
+    if (cell.classList.contains("watching-score-tau")) return "tau";
+    if (cell.classList.contains("watching-score-on")) return "on";
     return "trade";
+  }
+
+  function showCompactScoreTip(cell, html, { sticky = false } = {}) {
+    hide();
+    const tip = document.createElement("div");
+    tip.className = "score-tooltip";
+    tip.innerHTML = `<div class="score-detail">${html}</div>`;
+    tip.setAttribute("role", "tooltip");
+    document.body.appendChild(tip);
+    tipEl = tip;
+    tipAnchor = cell;
+    place(tip, cell);
+    attachDismiss(tip, cell, { sticky });
   }
 
   function show(cell, { sticky = false } = {}) {
@@ -1360,7 +1457,18 @@ export function createScoreTooltipController() {
     }
 
     const tipMode = resolveScoreTipMode(cell);
-    // eod 列 tip：只展示 g(*)，不混 ŷ_trade 全栈
+
+    if (tipMode === "eod") {
+      const parts = [
+        formatCompactEodTip(raw),
+        formatFormulaTermsSection(raw),
+        formatFactorWeightsSection(raw),
+      ].filter(Boolean);
+      showCompactScoreTip(cell, parts.join(""), { sticky });
+      return;
+    }
+
+    // 校准列 tip：只展示 g(*)，不混 ŷ_trade 全栈
     if (tipMode === "cal") {
       let calHtml = formatCalibrationSection(raw, { calOnly: true });
       if (!calHtml) {
@@ -1405,10 +1513,10 @@ export function createScoreTooltipController() {
         ncHtml =
           `<div class="score-layer score-layer-nowcast is-shadow">` +
           `<div class="score-layer-head">` +
-          `<div class="score-hero-label">nowcast 对照</div>` +
+          `<div class="score-hero-label">y_nc</div>` +
           `<div class="score-hero-value score-flat">—</div>` +
           `</div>` +
-          `<div class="score-hero-hint">暂无 Kalman 合成 · 有 ŷ_EOD 与 ŷ_τ 后可见</div>` +
+          `<div class="score-hero-hint">Kalman 合成 · 昨收口径</div>` +
           `</div>`;
       }
       const html = `<div class="score-detail">${ncHtml}</div>`;
@@ -1422,6 +1530,43 @@ export function createScoreTooltipController() {
       tipAnchor = cell;
       place(tip, cell);
       attachDismiss(tip, cell, { sticky });
+      return;
+    }
+
+    if (tipMode === "tau") {
+      const parts = [
+        formatCompactTauTip(raw),
+        formatFormulaTermsSection(raw, { key: "tau" }),
+        formatFactorWeightsSection(raw, { key: "tau" }),
+      ].filter(Boolean);
+      showCompactScoreTip(cell, parts.join(""), { sticky });
+      return;
+    }
+
+    if (tipMode === "on") {
+      const parts = [
+        formatCompactOnTip(raw),
+        formatFormulaTermsSection(raw, { key: "on" }),
+      ].filter(Boolean);
+      showCompactScoreTip(cell, parts.join(""), { sticky });
+      return;
+    }
+
+    if (tipMode === "trade") {
+      let blendHtml = formatBlendScoreSection(raw);
+      if (!blendHtml) {
+        const trade = resolveTradeScore(raw);
+        const val = trade == null ? "—" : `${fmtSigned(trade, 2)}%`;
+        blendHtml =
+          `<div class="score-layer score-layer-blend">` +
+          `<div class="score-layer-head">` +
+          `<div class="score-hero-label">y_trade</div>` +
+          `<div class="score-hero-value ${signCls(trade)}">${escapeText(val)}</div>` +
+          `</div>` +
+          `<div class="score-hero-hint">双头融合 · 排序/卖门槛</div>` +
+          `</div>`;
+      }
+      showCompactScoreTip(cell, blendHtml, { sticky });
       return;
     }
 

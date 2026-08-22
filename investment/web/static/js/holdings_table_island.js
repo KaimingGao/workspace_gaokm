@@ -2,14 +2,14 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveTradeScore, resolveCalTradeScore, resolveNowcastScore, isHeuristicScoreScale } from "./paper/fmt.js?v=p1227";
+import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveTradeScore, resolveEodScore, resolveTauScore, resolveOnScore, resolveNowcastScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_ON_TITLE, Y_NOWCAST_TITLE } from "./paper/fmt.js?v=p1227";
 import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p1227";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,
   yCheckBadgeHtml,
 } from "./quant/watching_insights_ui.js?v=p1227";
-import { formatWatchingResidual, RESIDUAL_TITLE, NOWCAST_TITLE, TRADE_TITLE, EOD_CAL_TITLE } from "./quant/watching_quotes_ui.js?v=p1227";
+import { TRADE_TITLE, formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } from "./quant/watching_quotes_ui.js?v=p1227";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -41,7 +41,9 @@ export function holdingToRow(
   const name = h.stock_name || code || "";
   const pnl = h.pnl_pct;
   const score = resolveTradeScore(h);
-  const scoreCal = resolveCalTradeScore(h);
+  const scoreEod = resolveEodScore(h);
+  const scoreTau = resolveTauScore(h);
+  const scoreOn = resolveOnScore(h);
   const scoreNowcast = resolveNowcastScore(h);
   const belowMin = !!h.below_min_score;
   const minScore = h.min_score;
@@ -50,7 +52,9 @@ export function holdingToRow(
   let scoreText =
     scoreBase !== "—" && belowMin ? `${scoreBase}↓` : scoreBase;
   if (scoreText === "—" && hardReject) scoreText = "拒";
-  const scoreCalText = fmtTableScore(h, scoreCal);
+  const scoreEodText = fmtTableScore(h, scoreEod);
+  const scoreTauText = fmtTableScore(h, scoreTau);
+  const scoreOnText = fmtTableScore(h, scoreOn);
   const scoreNowcastText = fmtTableScore(h, scoreNowcast);
   const origin = String(h.origin || "");
   const mv = Number(h.market_value ?? h.market_value_approx);
@@ -70,15 +74,11 @@ export function holdingToRow(
       : belowMin
         ? `低于ŷ_EOD门槛 ${minScore ?? "—"}（表列为 ŷ_trade）· 悬停看详情`
         : TRADE_TITLE;
-  const scoreCalOor = !!h.score_calibration_eod_oor;
-  const scoreCalTitle =
-    scoreCal == null
-      ? "暂无 g(ŷ_EOD) 映射（拟合并写入 live 后可见）"
-      : scoreCalOor
-        ? "g(ŷ_EOD) 域外钳制 · 悬停看 eod tip"
-        : EOD_CAL_TITLE;
+  const scoreEodTitle = scoreEod == null ? "暂无 ŷ_EOD" : Y_EOD_TITLE;
+  const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τ" : Y_TAU_TITLE;
+  const scoreOnTitle = scoreOn == null ? "暂无 ŷ_ON" : Y_ON_TITLE;
   const scoreNowcastTitle =
-    scoreNowcast == null ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见" : NOWCAST_TITLE;
+    scoreNowcast == null ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见" : Y_NOWCAST_TITLE;
   const fmtSignedPct = (v) => {
     if (v == null || v === "") return "—";
     const n = Number(v);
@@ -89,18 +89,6 @@ export function holdingToRow(
   const pnlText = fmtSignedPct(pnl);
   const chg = h.change_pct;
   const chgText = fmtSignedPct(chg);
-  let residualNum = null;
-  let residualText = "—";
-  if (
-    score != null &&
-    chg != null &&
-    chg !== "" &&
-    Number.isFinite(Number(chg))
-  ) {
-    const fmt = formatWatchingResidual(score, chg);
-    residualNum = fmt.residualNum;
-    residualText = fmt.residual;
-  }
   return {
     code,
     name,
@@ -110,7 +98,12 @@ export function holdingToRow(
         ? sentHtml
         : holdingSentPlaceholder(code),
     priceText: fmtPriceUnit(h.price, h.unit, h.currency),
-    openText: fmtPriceUnit(h.open, h.unit, h.currency),
+    prevCloseText: formatPrevCloseDisplay(h, { unit: h.unit, currency: h.currency }),
+    openText: formatOpenDisplay(h, { unit: h.unit, currency: h.currency }),
+    openNum: (() => {
+      const n = resolveOpenPx(h);
+      return n != null && Number.isFinite(n) ? n : null;
+    })(),
     costText: fmtPriceUnit(h.cost, h.unit, h.currency),
     mvText: fmtPriceUnit(h.market_value, h.unit, h.currency),
     marketValueNum: Number.isFinite(mv) ? mv : null,
@@ -125,12 +118,23 @@ export function holdingToRow(
     dualScoreWindow: h.dual_score_window || null,
     dualScoreWeights: h.dual_score_weights || null,
     predictedScoreTau: h.predicted_score_tau ?? h.score_rem ?? null,
+    predictedScoreOn: h.predicted_score_on ?? null,
     yCheck: h.y_check || null,
-    scoreCalText,
-    scoreCalNum:
-      scoreCal != null && Number.isFinite(Number(scoreCal)) ? Number(scoreCal) : null,
-    scoreCalCls: `${scoreCls(scoreCal)}${scoreCalOor ? " is-cal-oor" : ""}`.trim(),
-    scoreCalTitle,
+    scoreEodText,
+    scoreEodNum:
+      scoreEod != null && Number.isFinite(Number(scoreEod)) ? Number(scoreEod) : null,
+    scoreEodCls: scoreCls(scoreEod),
+    scoreEodTitle,
+    scoreTauText,
+    scoreTauNum:
+      scoreTau != null && Number.isFinite(Number(scoreTau)) ? Number(scoreTau) : null,
+    scoreTauCls: scoreCls(scoreTau),
+    scoreTauTitle,
+    scoreOnText,
+    scoreOnNum:
+      scoreOn != null && Number.isFinite(Number(scoreOn)) ? Number(scoreOn) : null,
+    scoreOnCls: scoreCls(scoreOn),
+    scoreOnTitle,
     scoreNowcastText,
     scoreNowcastNum:
       scoreNowcast != null && Number.isFinite(Number(scoreNowcast))
@@ -138,10 +142,6 @@ export function holdingToRow(
         : null,
     scoreNowcastCls: scoreCls(scoreNowcast),
     scoreNowcastTitle,
-    residualText,
-    residualNum,
-    residualCls: metricCls(residualNum),
-    residualTitle: RESIDUAL_TITLE,
     scoreDetail: watchingScoreDetail(h),
     chgText,
     chgCls: metricCls(chg),
@@ -170,74 +170,108 @@ const ORIGIN_HINT = {
   mixed: "手动建仓后被策略加过仓",
 };
 
+/** 持仓主表列轨：对齐数据中心固定 px + Y 组间距。 */
 const COLS = [
-  { id: "name", label: "股票", flex: true, title: "股票名称与代码" },
+  {
+    id: "name",
+    label: "股票",
+    flex: true,
+    flexMin: "10.5rem",
+    flexFr: 1,
+    title: "股票名称与代码",
+  },
   {
     id: "sent",
     label: "情绪",
-    widthPct: 5,
+    width: 36,
     headClass: "watching-col-center",
     cellClass: "watching-col-center paper-hold-sent",
     title: "标题情绪摘要",
   },
-  { id: "shares", label: "股数", widthPct: 6, num: true, title: "持仓股数" },
-  { id: "price", label: "现价", widthPct: 7, num: true, title: "最新成交价" },
-  { id: "open", label: "开盘价", widthPct: 7, num: true, title: "当日开盘价" },
+  { id: "shares", label: "股数", width: 56, num: true, title: "持仓股数" },
+  { id: "prev_close", label: "昨收", width: 78, num: true, title: "上一交易日收盘价" },
+  { id: "open", label: "今开", width: 78, num: true, title: "今日开盘价" },
+  { id: "price", label: "现价", width: 78, num: true, title: "最新成交价" },
   {
     id: "chg",
     label: "涨跌",
-    widthPct: 7,
+    width: 68,
     num: true,
     sortable: true,
     title: "相对昨收的涨跌幅 %。与 EOD / ŷ_trade 同一口径",
   },
   {
-    id: "score_cal",
-    label: "EOD",
-    widthPct: 6,
+    id: "score_eod",
+    label: "y_eod",
+    width: 82,
     num: true,
     sortable: true,
-    title: "eod = g(ŷ_EOD)，对涨跌的回归预估（现价对昨收）；不含缺口；不进决策",
+    headClass: "watching-col-y",
+    cellClass: "watching-col-y",
+    title: Y_EOD_TITLE,
+  },
+  {
+    id: "score_tau",
+    label: "y_τ",
+    width: 82,
+    num: true,
+    sortable: true,
+    headClass: "watching-col-y",
+    cellClass: "watching-col-y",
+    title: Y_TAU_TITLE,
+  },
+  {
+    id: "score_on",
+    label: "y_on",
+    width: 82,
+    num: true,
+    sortable: true,
+    headClass: "watching-col-y",
+    cellClass: "watching-col-y",
+    title: Y_ON_TITLE,
   },
   {
     id: "score",
-    label: "TRADE",
-    widthPct: 6.5,
+    label: "y_trade",
+    width: 94,
     num: true,
     sortable: true,
-    title: "ŷ_trade = w·ŷ_EOD + w·(缺口∘ŷ_τ) · 现价对昨收（与涨跌同一口径）· 排序/卖门槛",
+    headClass: "watching-col-y watching-col-y-trade",
+    cellClass: "watching-col-y watching-col-y-trade",
+    title: "双头融合 · 排序/卖门槛",
   },
   {
     id: "score_nowcast",
-    label: "NOWCAST",
-    widthPct: 6,
+    label: "y_nc",
+    width: 82,
     num: true,
     sortable: true,
-    title: "ŷ_nowcast · Kalman 权昨收口径对照（与 ŷ_trade / 涨跌同一目标），不进决策",
+    headClass: "watching-col-y",
+    cellClass: "watching-col-y",
+    title: Y_NOWCAST_TITLE,
   },
+  { id: "cost", label: "成本", width: 78, num: true, title: "持仓加权平均成本" },
   {
-    id: "residual",
-    label: "残差",
-    widthPct: 6,
+    id: "market_value",
+    label: "市值",
+    width: 78,
     num: true,
     sortable: true,
-    title: "残差 = trade − 涨跌。trade 是 ŷ_trade，与涨跌同一目标",
+    title: "现价 × 股数",
   },
-  { id: "cost", label: "成本", widthPct: 7, num: true, title: "持仓加权平均成本" },
-  { id: "market_value", label: "市值", widthPct: 7, num: true, sortable: true, title: "现价 × 股数" },
   {
     id: "pnl",
     label: "浮盈亏",
-    widthPct: 6.5,
+    width: 68,
     num: true,
     sortable: true,
     title: "浮盈亏 = 现价 − 成本价（表内为相对成本的浮动盈亏 %）；加仓为加权成本，不是当日涨跌",
   },
-  { id: "since", label: "开始", widthPct: 11, title: "建仓日期" },
+  { id: "since", label: "开始", width: 100, cellClass: "watching-col-since", title: "建仓日期" },
   {
     id: "origin",
     label: "出处",
-    widthPct: 7,
+    width: 56,
     cellClass: "paper-hold-origin",
     headClass: "paper-hold-origin",
     title: "仓位来源：手动 / 策略 / 混合",
@@ -253,11 +287,13 @@ function compare(id, a, b) {
     return String(a.code || "").localeCompare(String(b.code || ""), "zh-CN", { numeric: true });
   }
   if (id === "score") return numCmp(Number(a.scoreNum), Number(b.scoreNum));
-  if (id === "score_cal") return numCmp(Number(a.scoreCalNum), Number(b.scoreCalNum));
+  if (id === "score_eod") return numCmp(Number(a.scoreEodNum), Number(b.scoreEodNum));
+  if (id === "score_tau") return numCmp(Number(a.scoreTauNum), Number(b.scoreTauNum));
+  if (id === "score_on") return numCmp(Number(a.scoreOnNum), Number(b.scoreOnNum));
   if (id === "score_nowcast") return numCmp(Number(a.scoreNowcastNum), Number(b.scoreNowcastNum));
-  if (id === "residual") return numCmp(Number(a.residualNum), Number(b.residualNum));
   if (id === "pnl") return numCmp(Number(a.pnlNum), Number(b.pnlNum));
   if (id === "chg") return numCmp(Number(a.chgNum), Number(b.chgNum));
+  if (id === "open") return numCmp(Number(a.openNum), Number(b.openNum));
   return numCmp(Number(a.marketValueNum), Number(b.marketValueNum));
 }
 
@@ -318,10 +354,15 @@ export async function mountHoldingsTableIsland(host, options = {}) {
       if (col.id === "sent") return d.sentHtml || holdingSentPlaceholder(d.code);
       if (col.id === "shares") return escapeHtml(d.shares != null ? String(d.shares) : "—");
       if (col.id === "price") return escapeHtml(d.priceText || "—");
-      if (col.id === "open") {
-        return `<span class="paper-hold-open" title="当日开盘价">${escapeHtml(
-          d.openText || "—"
+      if (col.id === "prev_close") {
+        return `<span class="paper-hold-prev-close" title="上一交易日收盘价">${escapeHtml(
+          d.prevCloseText || "—"
         )}</span>`;
+      }
+      if (col.id === "open") {
+        const full = d.openText || "—";
+        const text = String(full).replace(/元$/u, "");
+        return `<span class="paper-hold-open" title="${escapeHtml(full)}">${escapeHtml(text)}</span>`;
       }
       if (col.id === "chg") {
         return `<span class="paper-hold-chg ${escapeHtml(d.chgCls || "")}" title="相对昨收">${escapeHtml(
@@ -367,54 +408,58 @@ export async function mountHoldingsTableIsland(host, options = {}) {
           `${escapeHtml(d.scoreText || "—")}${badge}</span>`
         );
       }
-      if (col.id === "score_cal") {
+      if (col.id === "score_eod" || col.id === "score_tau" || col.id === "score_on" || col.id === "score_nowcast") {
+        const tipMap = { score_eod: "eod", score_tau: "tau", score_on: "on", score_nowcast: "nowcast" };
+        const skinMap = { score_eod: "eod", score_tau: "tau", score_on: "on", score_nowcast: "nowcast" };
+        const textKey =
+          col.id === "score_eod"
+            ? "scoreEodText"
+            : col.id === "score_tau"
+              ? "scoreTauText"
+              : col.id === "score_on"
+                ? "scoreOnText"
+                : "scoreNowcastText";
+        const clsKey =
+          col.id === "score_eod"
+            ? "scoreEodCls"
+            : col.id === "score_tau"
+              ? "scoreTauCls"
+              : col.id === "score_on"
+                ? "scoreOnCls"
+                : "scoreNowcastCls";
+        const titleKey =
+          col.id === "score_eod"
+            ? "scoreEodTitle"
+            : col.id === "score_tau"
+              ? "scoreTauTitle"
+              : col.id === "score_on"
+                ? "scoreOnTitle"
+                : "scoreNowcastTitle";
         const detail = d.scoreDetail || "";
-        const title =
-          d.scoreCalTitle || "g(ŷ_EOD) · 对涨跌";
-        const text = d.scoreCalText || "—";
+        const title = d[titleKey] || "";
+        const text = d[textKey] || "—";
         if (!detail) {
-          return `<span class="paper-hold-score watching-score-cal ${escapeHtml(
-            d.scoreCalCls || ""
+          return `<span class="paper-hold-score watching-score-${skinMap[col.id]} ${escapeHtml(
+            d[clsKey] || ""
           )}">${escapeHtml(text)}</span>`;
         }
         return (
-          `<span class="paper-hold-score watching-score-cal has-tip ${escapeHtml(
-            d.scoreCalCls || ""
+          `<span class="paper-hold-score watching-score-${skinMap[col.id]} has-tip ${escapeHtml(
+            d[clsKey] || ""
           )}" ` +
-          `data-score-detail="${escapeHtml(detail)}" data-score-tip="cal" title="${escapeHtml(title)}">` +
+          `data-score-detail="${escapeHtml(detail)}" data-score-tip="${tipMap[col.id]}" title="${escapeHtml(title)}">` +
           `${escapeHtml(text)}</span>`
         );
-      }
-      if (col.id === "score_nowcast") {
-        const detail = d.scoreDetail || "";
-        const title = d.scoreNowcastTitle || NOWCAST_TITLE;
-        const text = d.scoreNowcastText || "—";
-        if (!detail) {
-          return `<span class="paper-hold-score watching-score-nowcast ${escapeHtml(
-            d.scoreNowcastCls || ""
-          )}">${escapeHtml(text)}</span>`;
-        }
-        return (
-          `<span class="paper-hold-score watching-score-nowcast has-tip ${escapeHtml(
-            d.scoreNowcastCls || ""
-          )}" ` +
-          `data-score-detail="${escapeHtml(detail)}" data-score-tip="nowcast" title="${escapeHtml(title)}">` +
-          `${escapeHtml(text)}</span>`
-        );
-      }
-      if (col.id === "residual") {
-        return `<span class="paper-hold-residual ${escapeHtml(
-          d.residualCls || ""
-        )}" title="${escapeHtml(
-          d.residualTitle || RESIDUAL_TITLE
-        )}">${escapeHtml(d.residualText || "—")}</span>`;
       }
       if (col.id === "pnl") {
         return `<span class="paper-hold-pnl ${escapeHtml(d.pnlCls || "")}">${escapeHtml(
           d.pnlText || "—"
         )}</span>`;
       }
-      if (col.id === "since") return escapeHtml(d.boughtDate || "—");
+      if (col.id === "since") {
+        const text = d.boughtDate || "—";
+        return `<span class="paper-hold-since" title="建仓日期 ${escapeHtml(text)}">${escapeHtml(text)}</span>`;
+      }
       if (col.id === "origin") {
         const title = ORIGIN_HINT[d.origin] || "早期记录未标出处";
         return (

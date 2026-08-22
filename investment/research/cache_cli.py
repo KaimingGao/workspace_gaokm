@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""查看 / 清理日线本地缓存。"""
+"""查看 / 清理日线本地缓存（JSON 或 SQLite，随 INVESTMENT_BARS_BACKEND）。"""
 
 
 import argparse
@@ -10,7 +10,12 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.store import get_store_dir, list_cached_symbols  # noqa: E402
+from core.store import (  # noqa: E402
+    bars_backend,
+    clear_daily_cache,
+    get_store_dir,
+    list_cached_symbols,
+)
 
 
 def main(argv=None) -> int:
@@ -27,29 +32,17 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--clear",
         action="store_true",
-        help="删除全部或指定 market 下的缓存 json",
+        help="删除全部或指定 market 下的日线缓存",
     )
     args = parser.parse_args(argv)
 
     store = get_store_dir()
     print(f"store: {store}")
+    print(f"bars_backend: {bars_backend()}")
 
     if args.clear:
-        base = os.path.join(store, "daily")
-        if not os.path.isdir(base):
-            print("无缓存")
-            return 0
-        removed = 0
-        markets = [args.market.upper()] if args.market else os.listdir(base)
-        for mkt in markets:
-            mdir = os.path.join(base, mkt)
-            if not os.path.isdir(mdir):
-                continue
-            for name in os.listdir(mdir):
-                if name.endswith(".json"):
-                    os.remove(os.path.join(mdir, name))
-                    removed += 1
-        print(f"已删除 {removed} 个缓存文件")
+        removed = clear_daily_cache(market=args.market, store_dir=store)
+        print(f"已删除 {removed} 条日线缓存")
         return 0
 
     rows = list_cached_symbols(market=args.market)

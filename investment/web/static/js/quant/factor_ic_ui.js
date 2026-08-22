@@ -324,6 +324,9 @@ export function createFactorIcUi(deps) {
     gap_vs_sector: "行业相对缺口",
     ret_open_to_tau: "开盘→τ 收益 %",
     sector_ret_to_tau: "板块中位开→τ %",
+    ret_oc: "开→收 %",
+    ret_cc: "收→收 %",
+    y_on_today: "今开/昨开 %",
     // 与 factor_registry 对齐的兜底中文（meta 未加载时仍可读）
     momentum: "动量",
     volume_price: "量价",
@@ -359,12 +362,13 @@ export function createFactorIcUi(deps) {
   }
 
   /**
-   * ŷ_τ rem Ridge 因子系数表：仅入模因子；KPI + 双向 β 图 + 表内条形。
+   * ŷ_τ / ŷ_ON Ridge 因子系数表：仅入模因子；KPI + 双向 β 图 + 表内条形。
    * @param {object|null} rm return_model 或含 coefficients 的报告块
-   * @param {{ oos?: object } } [opts]
+   * @param {{ oos?: object, head?: "tau"|"on" } } [opts]
    */
   function remCoefTableHtml(rm, opts = {}) {
     if (!rm || typeof rm !== "object") return "";
+    const isOn = opts.head === "on";
     const coefs =
       rm.coefficients && typeof rm.coefficients === "object" ? rm.coefficients : {};
     const means =
@@ -385,6 +389,18 @@ export function createFactorIcUi(deps) {
       "ret_open_to_tau",
       "sector_ret_to_tau",
     ]);
+    const onExtra = new Set([
+      "ret_oc",
+      "gap_pct",
+      "ret_cc",
+      "y_on_today",
+      "sector_gap_breadth",
+      "theme_day",
+      "gap_atr",
+      "gap_vs_sector",
+      "ret_open_to_tau",
+    ]);
+    const zExtra = isOn ? onExtra : remExtra;
     const activeList = Array.isArray(rm.active_features)
       ? rm.active_features.map(String)
       : Object.keys(coefs);
@@ -401,12 +417,13 @@ export function createFactorIcUi(deps) {
           stds[name] != null && Number.isFinite(Number(stds[name]))
             ? Number(stds[name])
             : null;
+        const inZ = zExtra.has(name);
         return {
           name,
           label: remFactorDisplayLabel(name),
           ols,
           abs: Math.abs(ols),
-          kind: remExtra.has(name) ? "开盘" : "日线",
+          kind: isOn ? (inZ ? "路径" : "其它") : inZ ? "开盘" : "日线",
           mu,
           sd,
           scanHot: Math.abs(ols) >= 0.05,
@@ -423,7 +440,7 @@ export function createFactorIcUi(deps) {
       .sort((a, b) => b.abs - a.abs)
       .map((r, i) => ({ ...r, rank: i + 1 }));
     if (!rows.length) {
-      return `<p class="sub">暂无 rem 入模因子</p>`;
+      return `<p class="sub">${isOn ? "暂无 ŷ_ON 入模因子" : "暂无 rem 入模因子"}</p>`;
     }
 
     const intercept =
@@ -445,11 +462,14 @@ export function createFactorIcUi(deps) {
         ? Number(rm.ridge_lambda)
         : null;
     const exclN = Object.keys(rm.exclusion_reasons || {}).length;
-    const ySpec = (rm.y_spec && rm.y_spec.formula) || "close[T]/open[T]-1";
+    const ySpec =
+      (rm.y_spec && rm.y_spec.formula) ||
+      (isOn ? "open[T+1]/open[T]-1" : "close[T]/open[T]-1");
     const oos = opts.oos || {};
-    const openN = rows.filter((r) => r.kind === "开盘").length;
+    const openN = rows.filter((r) => r.kind === "开盘" || r.kind === "路径").length;
     const posN = rows.filter((r) => r.ols >= 0).length;
     const negN = rows.length - posN;
+    const yhatTag = isOn ? "ŷ_ON" : "ŷ_τ";
 
     const kpi = (label, value, tip) =>
       `<span class="quant-rem-coef-kpi" title="${esc(tip || label)}">` +
@@ -463,8 +483,10 @@ export function createFactorIcUi(deps) {
         : null;
 
     const kpis =
-      `<div class="quant-rem-coef-kpis" role="group" aria-label="rem 模型摘要">` +
-      kpi("标签", ySpec, "ŷ_τ 训练标签") +
+      `<div class="quant-rem-coef-kpis" role="group" aria-label="${esc(
+        isOn ? "on 模型摘要" : "rem 模型摘要"
+      )}">` +
+      kpi("标签", ySpec, `${yhatTag} 训练标签`) +
       (intercept != null ? kpi("截距", intercept.toFixed(3), "模型截距（%）") : "") +
       (nFmt != null ? kpi("样本 n", nFmt, "入模观测数") : "") +
       (r2 != null ? kpi("R²", r2.toFixed(3), "样本内拟合优度") : "") +
@@ -479,7 +501,7 @@ export function createFactorIcUi(deps) {
             "样本外方向命中率"
           )
         : "") +
-      kpi("入模", `${rows.length}`, `开盘 ${openN} · 日线 ${rows.length - openN}`) +
+      kpi("入模", `${rows.length}`, isOn ? `路径 ${openN}` : `开盘 ${openN} · 日线 ${rows.length - openN}`) +
       kpi("β±", `${posN}/${negN}`, "正系数 / 负系数个数") +
       (exclN > 0 ? kpi("省略", exclN, "未入模因子已隐藏") : "") +
       `</div>`;
@@ -487,21 +509,23 @@ export function createFactorIcUi(deps) {
     const head =
       `<div class="quant-rem-coef-head">` +
       `<div class="quant-rem-coef-head-main">` +
-      `<span class="quant-rem-coef-title">系数表</span>` +
+      `<span class="quant-rem-coef-title">${isOn ? "ŷ_ON 系数表" : "系数表"}</span>` +
       `<span class="quant-rem-coef-sub">按 |β| 降序 · 标准化斜率</span>` +
       `</div>` +
       `<div class="quant-rem-coef-legend" aria-hidden="true">` +
       `<span class="quant-rem-leg is-pos">正β</span>` +
       `<span class="quant-rem-leg is-neg">负β</span>` +
-      `<span class="quant-rem-leg is-open">开盘</span>` +
-      `<span class="quant-rem-leg is-eod">日线</span>` +
+      (isOn
+        ? `<span class="quant-rem-leg is-open">路径</span>`
+        : `<span class="quant-rem-leg is-open">开盘</span>` +
+          `<span class="quant-rem-leg is-eod">日线</span>`) +
       `</div>` +
       `</div>`;
 
     const betaCell = (r) => {
       const pos = r.ols >= 0;
       const half = Math.max(6, (r.abs / maxAbs) * 50);
-      const tip = `β=${r.ols.toFixed(4)}：因子高 1σ → ŷ_τ 约 ${pos ? "+" : ""}${r.ols.toFixed(3)}pp`;
+      const tip = `β=${r.ols.toFixed(4)}：因子高 1σ → ${yhatTag} 约 ${pos ? "+" : ""}${r.ols.toFixed(3)}pp`;
       return (
         `<div class="quant-rem-beta-cell" title="${esc(tip)}">` +
         `<div class="quant-rem-beta-track is-bipolar" aria-hidden="true">` +
@@ -536,6 +560,9 @@ export function createFactorIcUi(deps) {
     const remFactorFallbackTip = (r) => {
       const shown = r.label || r.name || "因子";
       const key = r.name ? `（${r.name}）` : "";
+      if (isOn) {
+        return `${shown}${key}：T 日路径 / 开盘 Z，用于估 open[T+1]/open[T]−1。正 β 表示该值偏高时 ŷ_ON 更高。`;
+      }
       if (r.kind === "开盘") {
         return `${shown}${key}：ŷ_τ 开盘/截面特征。正 β 表示该值偏高时 ŷ_τ 更高。`;
       }
@@ -560,7 +587,9 @@ export function createFactorIcUi(deps) {
           label: "类型",
           width: 72,
           center: true,
-          title: "日线=T−1 因子；开盘=缺口/广度等 τ 特征",
+          title: isOn
+            ? "路径=T 日已实现 + 开盘 Z"
+            : "日线=T−1 因子；开盘=缺口/广度等 τ 特征",
         },
         {
           id: "ols",
@@ -595,10 +624,14 @@ export function createFactorIcUi(deps) {
       (col, r) => {
         if (col.id === "factor") return factorCell(r);
         if (col.id === "kind") {
-          const open = r.kind === "开盘";
+          const pathLike = r.kind === "开盘" || r.kind === "路径";
           return (
-            `<span class="quant-rem-kind-chip ${open ? "is-open" : "is-eod"}" title="${esc(
-              open ? "开盘/截面特征（τ 特有）" : "T−1 日线因子"
+            `<span class="quant-rem-kind-chip ${pathLike ? "is-open" : "is-eod"}" title="${esc(
+              isOn
+                ? "T 日路径 / 开盘 Z（ON 头）"
+                : pathLike
+                  ? "开盘/截面特征（τ 特有）"
+                  : "T−1 日线因子"
             )}">${esc(r.kind)}</span>`
           );
         }
@@ -615,7 +648,7 @@ export function createFactorIcUi(deps) {
         return fmtEmptyCell();
       },
       {
-        emptyText: "暂无 rem 入模因子",
+        emptyText: isOn ? "暂无 ŷ_ON 入模因子" : "暂无 rem 入模因子",
         rowClass: (r) => {
           const bits = [];
           if (r && r.scanHot) bits.push("is-scan-hot");

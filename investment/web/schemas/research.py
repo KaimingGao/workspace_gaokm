@@ -62,6 +62,26 @@ class RemRidgeRequest(BaseModel):
     )
 
 
+class OnRidgeRequest(BaseModel):
+    """open[T+1]/open[T]-1 隔夜链头研究拟合（风控旁路 ŷ_ON）。"""
+
+    lookback: int = Field(default=120, ge=40, le=500)
+    watching_limit: int = Field(
+        default=36,
+        ge=2,
+        le=40,
+        description="观察池截断；默认满池级 36（上限 40）",
+    )
+    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
+    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
+    theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
+    persist: bool = Field(
+        default=False,
+        description="True=人审写入 data/live/on_ridge_model.json",
+    )
+    note: str = Field(default="", max_length=200)
+
+
 class FactorOlsClusterRequest(BaseModel):
     """研究池：单票 OLS β 聚类 → 组内共用权草案（不写 config）。"""
 

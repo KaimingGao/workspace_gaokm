@@ -2,8 +2,8 @@
  * 观察池 insights 列格式化与 score 单元格 HTML（纯数据 / 字符串）。
  */
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
-import { resolveTradeScore, resolveEodScore, resolveCalTradeScore, resolveNowcastScore, fmtTableScore, isHeuristicScoreScale } from "../paper/fmt.js?v=p1227";
-import { formatWatchingResidual, RESIDUAL_TITLE, NOWCAST_TITLE, TRADE_TITLE, EOD_CAL_TITLE, withQuoteGap } from "./watching_quotes_ui.js?v=p1227";
+import { resolveTradeScore, resolveEodScore, resolveTauScore, resolveOnScore, resolveNowcastScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_ON_TITLE, Y_NOWCAST_TITLE } from "../paper/fmt.js?v=p1227";
+import { TRADE_TITLE, withQuoteGap } from "./watching_quotes_ui.js?v=p1227";
 
 export function isOosFailedItem(it) {
   if (!it || typeof it !== "object") return false;
@@ -92,7 +92,9 @@ export function formatWatchingExcessTitle(it) {
  */
 export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
   const scoreNum = resolveTradeScore(it);
-  const scoreCalNum = resolveCalTradeScore(it);
+  const scoreEodNum = resolveEodScore(it);
+  const scoreTauNum = resolveTauScore(it);
+  const scoreOnNum = resolveOnScore(it);
   const scoreNowcastNum = resolveNowcastScore(it);
   const belowMin = !!it.below_min_score;
   const singleHead = isSingleHeadItem(it);
@@ -102,7 +104,9 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
   const scoreBase = fmtTableScore(it, scoreNum);
   const scoreText =
     scoreBase === "—" ? "—" : belowMin ? `${scoreBase}↓` : scoreBase;
-  const scoreCalText = fmtTableScore(it, scoreCalNum);
+  const scoreEodText = fmtTableScore(it, scoreEodNum);
+  const scoreTauText = fmtTableScore(it, scoreTauNum);
+  const scoreOnText = fmtTableScore(it, scoreOnNum);
   const scoreNowcastText = fmtTableScore(it, scoreNowcastNum);
   const scoreTitle = isHeuristicScoreScale(it)
     ? scoreNum != null
@@ -113,26 +117,22 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
     : singleHead
       ? `ŷ_trade 单头降级（${String(it.dual_score_head || "single")}）· 悬停看详情`
     : belowMin
-      ? `低于ŷ_EOD门槛 ${it.min_score ?? "—"}（表列为 ŷ_trade）`
+      ? `低于 ŷ_EOD 门槛（表列 y_trade）`
       : it.return_model_source === "oos_failed_global"
-        ? "OOS 失败 · 主分全局 ŷ% · 悬停看组 ŷ% 对照"
+        ? "OOS 失败 · 组/全局 ŷ 对照"
         : it.return_model_source === "cluster_shadow_fallback"
-          ? "缺全局 return_model · 暂用组 ŷ（shadow）"
+          ? "缺全局模型 · 组 ŷ shadow"
           : TRADE_TITLE;
-  const scoreCalTitle =
-    scoreCalNum == null
-      ? "暂无 g(ŷ_EOD) 映射（拟合并写入 live 后可见）"
-      : it.score_calibration_eod_oor
-        ? "g(ŷ_EOD) 域外钳制 · 悬停看 eod tip"
-        : EOD_CAL_TITLE;
-  const scoreCalOor = !!it.score_calibration_eod_oor;
+  const scoreEodTitle = scoreEodNum == null ? "暂无 ŷ_EOD" : Y_EOD_TITLE;
+  const scoreTauTitle = scoreTauNum == null ? "暂无 ŷ_τ" : Y_TAU_TITLE;
+  const scoreOnTitle = scoreOnNum == null ? "暂无 ŷ_ON" : Y_ON_TITLE;
   const scoreNowcastTitle =
-    scoreNowcastNum == null
-      ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见"
-      : NOWCAST_TITLE;
+    scoreNowcastNum == null ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见" : Y_NOWCAST_TITLE;
   return {
     scoreNum,
-    scoreCalNum,
+    scoreEodNum,
+    scoreTauNum,
+    scoreOnNum,
     scoreNowcastNum,
     belowMin,
     singleHead,
@@ -141,13 +141,28 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
     dualScoreHead: it.dual_score_head || null,
     scoreDetail,
     scoreText,
-    scoreCalText,
-    scoreTitle,
-    scoreCalTitle,
-    scoreCalOor,
+    scoreEodText,
+    scoreTauText,
+    scoreOnText,
     scoreNowcastText,
+    scoreTitle,
+    scoreEodTitle,
+    scoreTauTitle,
+    scoreOnTitle,
     scoreNowcastTitle,
+    scoreEodCls: scoreClsName(scoreEodNum),
+    scoreTauCls: scoreClsName(scoreTauNum),
+    scoreOnCls: scoreClsName(scoreOnNum),
+    scoreNowcastCls: scoreClsName(scoreNowcastNum),
   };
+}
+
+function scoreClsName(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "score-na";
+  if (n > 0) return "score-up";
+  if (n < 0) return "score-down";
+  return "score-flat";
 }
 
 /**
@@ -158,40 +173,38 @@ export function buildWatchingScoreDisplay(it, fmtScore, watchingScoreDetail) {
 export function buildWatchingInsightsGridPatch(it, row, deps) {
   const prev = row && row.getData ? row.getData() : row || {};
   const scored = withQuoteGap(it, {
-    open: prev.open,
+    open: it.open != null ? it.open : prev.open,
     price: prev.price,
     price_raw: prev.price,
     change_percent: prev.chgNum,
     chgNum: prev.chgNum,
+    prev_close: prev.prev_close,
   });
   const { fmtScore, scoreCls, parseWatchingVolume, watchingScoreDetail } = deps;
   const excess = formatWatchingExcess(scored);
   const excessTitle = formatWatchingExcessTitle(scored);
-  const { scoreNum, scoreCalNum, scoreNowcastNum, belowMin, singleHead, yCheck, yCheckFail, dualScoreHead, scoreDetail, scoreText, scoreCalText, scoreNowcastText, scoreTitle, scoreCalTitle, scoreNowcastTitle, scoreCalOor } =
+  const { scoreNum, scoreEodNum, scoreTauNum, scoreOnNum, scoreNowcastNum, belowMin, singleHead, yCheck, yCheckFail, dualScoreHead, scoreDetail, scoreText, scoreEodText, scoreTauText, scoreOnText, scoreNowcastText, scoreTitle, scoreEodTitle, scoreTauTitle, scoreOnTitle, scoreNowcastTitle, scoreEodCls, scoreTauCls, scoreOnCls, scoreNowcastCls } =
     buildWatchingScoreDisplay(scored, fmtScore, watchingScoreDetail);
-  const scoreEodNum = resolveEodScore(scored);
   const volNum = it.volume != null ? parseWatchingVolume(it.volume) : NaN;
-  const { residualNum, residual, residualCls } = formatWatchingResidual(
-    scoreNum,
-    prev.chgNum
-  );
   return {
     score: scoreText,
     scoreNum,
-    scoreCal: scoreCalText,
-    scoreCalNum,
-    scoreCalCls: `${scoreCls(scoreCalNum)}${scoreCalOor ? " is-cal-oor" : ""}`.trim(),
-    scoreCalTitle,
-    scoreCalOor,
+    scoreEod: scoreEodText,
+    scoreEodNum,
+    scoreEodCls,
+    scoreEodTitle,
+    scoreTau: scoreTauText,
+    scoreTauNum,
+    scoreTauCls,
+    scoreTauTitle,
+    scoreOn: scoreOnText,
+    scoreOnNum,
+    scoreOnCls,
+    scoreOnTitle,
     scoreNowcast: scoreNowcastText,
     scoreNowcastNum,
-    scoreNowcastCls: scoreCls(scoreNowcastNum),
+    scoreNowcastCls,
     scoreNowcastTitle,
-    residual,
-    residualCls,
-    residualNum,
-    residualTitle: RESIDUAL_TITLE,
-    scoreEodNum,
     scoreCls: `${scoreCls(scoreNum)}${singleHead ? " score-single-head" : ""}${
       yCheckFail ? " score-y-check-fail" : ""
     }`.trim(),
@@ -252,49 +265,94 @@ export function buildWatchingScoreCellHtml(
   );
 }
 
-export function buildWatchingCalScoreCellHtml(
-  { scoreCalText, scoreDetail, scoreCalTitle, scoreCalNum, scoreCalOor },
+export function buildWatchingYScoreCellHtml(
+  { text, num, title, detail, tip = "eod", skin = "eod" },
   scoreClsFn,
   escapeHtml = defaultEscapeHtml
 ) {
   const esc = escapeHtml;
-  const text = scoreCalText != null && scoreCalText !== "" ? scoreCalText : "—";
-  const title = scoreCalTitle || "g(ŷ) 对照";
-  const oor = scoreCalOor ? " is-cal-oor" : "";
-  if (!scoreDetail) {
-    return `<span class="watching-score-cell watching-score-cal paper-hold-score ${esc(
-      scoreClsFn(scoreCalNum)
-    )}${oor}">${esc(text)}</span>`;
+  const shown = text != null && text !== "" ? text : "—";
+  const cls = scoreClsFn(num);
+  const skinCls =
+    skin === "tau"
+      ? "watching-score-tau"
+      : skin === "on"
+        ? "watching-score-on"
+        : skin === "nowcast"
+          ? "watching-score-nowcast"
+          : "watching-score-eod";
+  if (!detail) {
+    return `<span class="watching-score-cell ${skinCls} paper-hold-score ${esc(cls)}">${esc(
+      shown
+    )}</span>`;
   }
   return (
-    `<span class="watching-score-cell watching-score-cal paper-hold-score has-tip ${esc(
-      scoreClsFn(scoreCalNum)
-    )}${oor}" ` +
-    `data-score-detail="${esc(scoreDetail)}" data-score-tip="cal" title="${esc(title)}">` +
-    `${esc(text)}</span>`
+    `<span class="watching-score-cell ${skinCls} paper-hold-score has-tip ${esc(cls)}" ` +
+    `data-score-detail="${esc(detail)}" data-score-tip="${esc(tip)}" title="${esc(
+      title || ""
+    )}">` +
+    `${esc(shown)}</span>`
   );
 }
 
-export function buildWatchingNowcastScoreCellHtml(
-  { scoreNowcastText, scoreDetail, scoreNowcastTitle, scoreNowcastNum },
-  scoreClsFn,
-  escapeHtml = defaultEscapeHtml
-) {
-  const esc = escapeHtml;
-  const text =
-    scoreNowcastText != null && scoreNowcastText !== "" ? scoreNowcastText : "—";
-  const title = scoreNowcastTitle || NOWCAST_TITLE;
-  if (!scoreDetail) {
-    return `<span class="watching-score-cell watching-score-nowcast paper-hold-score ${esc(
-      scoreClsFn(scoreNowcastNum)
-    )}">${esc(text)}</span>`;
-  }
-  return (
-    `<span class="watching-score-cell watching-score-nowcast paper-hold-score has-tip ${esc(
-      scoreClsFn(scoreNowcastNum)
-    )}" ` +
-    `data-score-detail="${esc(scoreDetail)}" data-score-tip="nowcast" title="${esc(title)}">` +
-    `${esc(text)}</span>`
+export function buildWatchingCalScoreCellHtml(disp, scoreClsFn, escapeHtml = defaultEscapeHtml) {
+  return buildWatchingYScoreCellHtml(
+    {
+      text: disp.scoreEodText,
+      num: disp.scoreEodNum,
+      title: disp.scoreEodTitle,
+      detail: disp.scoreDetail,
+      tip: "eod",
+      skin: "eod",
+    },
+    scoreClsFn,
+    escapeHtml
+  );
+}
+
+export function buildWatchingTauScoreCellHtml(disp, scoreClsFn, escapeHtml = defaultEscapeHtml) {
+  return buildWatchingYScoreCellHtml(
+    {
+      text: disp.scoreTauText,
+      num: disp.scoreTauNum,
+      title: disp.scoreTauTitle,
+      detail: disp.scoreDetail,
+      tip: "tau",
+      skin: "tau",
+    },
+    scoreClsFn,
+    escapeHtml
+  );
+}
+
+export function buildWatchingOnScoreCellHtml(disp, scoreClsFn, escapeHtml = defaultEscapeHtml) {
+  return buildWatchingYScoreCellHtml(
+    {
+      text: disp.scoreOnText,
+      num: disp.scoreOnNum,
+      title: disp.scoreOnTitle,
+      detail: disp.scoreDetail,
+      tip: "on",
+      skin: "on",
+    },
+    scoreClsFn,
+    escapeHtml
+  );
+}
+
+/** nowcast 列（y_nc）。 */
+export function buildWatchingNowcastScoreCellHtml(disp, scoreClsFn, escapeHtml = defaultEscapeHtml) {
+  return buildWatchingYScoreCellHtml(
+    {
+      text: disp.scoreNowcastText,
+      num: disp.scoreNowcastNum,
+      title: disp.scoreNowcastTitle,
+      detail: disp.scoreDetail,
+      tip: "nowcast",
+      skin: "nowcast",
+    },
+    scoreClsFn,
+    escapeHtml
   );
 }
 
@@ -320,7 +378,9 @@ export function buildWatchingInsightsGridErrorPatch(d) {
   const row = d || {};
   return {
     score: row.score === "…" ? "—" : row.score,
-    scoreCal: row.scoreCal === "…" ? "—" : row.scoreCal,
+    scoreEod: row.scoreEod === "…" ? "—" : row.scoreEod,
+    scoreTau: row.scoreTau === "…" ? "—" : row.scoreTau,
+    scoreOn: row.scoreOn === "…" ? "—" : row.scoreOn,
     scoreNowcast: row.scoreNowcast === "…" ? "—" : row.scoreNowcast,
     stance: row.stance === "…" ? "—" : row.stance,
     excess: row.excess === "…" ? "—" : row.excess,

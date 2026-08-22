@@ -63,7 +63,7 @@ Input (State) → Policy (Model) → Action (Tool) → Reward (Feedback) → Upd
 ┌─────────────────────────────────────────────────────────────┐
 │  接入层    main.py / run_web.py / web/app.py + routers/     │
 ├─────────────────────────────────────────────────────────────┤
-│  服务层    services/* · quant/services（Mixin 门面）         │
+│  应用服务  services/* · quant/services（Application Service） │
 ├─────────────────────────────────────────────────────────────┤
 │  编排层    agent/agent.py · routing.py · registry        │
 ├─────────────────────────────────────────────────────────────┤
@@ -133,7 +133,7 @@ investment/
 │   ├── app.py                  # FastAPI 入口
 │   ├── routers/                # 各域路由（chat/paper/quant/watching）
 │   └── static/                 # 前端资源（HTML/CSS/JS）
-├── quant/                      # 量化服务层
+├── quant/                      # 量化研究台（Application Service + research）
 │   ├── services/               # QuantService Mixin（配置/因子/组合/运维）
 │   └── research/               # 研究脚本
 ├── research/                   # 量化研究入口脚本
@@ -271,6 +271,7 @@ Web 主路径：**对话** · **观察** · **模拟** · **回溯**。说明见
 
 | 文档 | 说明 |
 |------|------|
+| [docs/system-architecture.md](docs/system-architecture.md) | **系统架构**：架构图、分层模块说明、代码组成 |
 | [docs/structure.md](docs/structure.md) | 目录结构与模块索引 |
 | [docs/architecture.md](docs/architecture.md) | 分层架构、Agent 生命周期、registry |
 | [docs/data-layer.md](docs/data-layer.md) | 数据层：采集/清洗/存储/服务/监控 · 现状与演进 |

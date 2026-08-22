@@ -13,14 +13,12 @@ from typing import Any, Dict, Optional, Tuple
 from agent.agent import MAX_TOOL_ROUNDS, InvestmentAgent
 from agent.artifacts import primary_tab
 from agent.prompts import SYSTEM_PROMPT
-from core.job_progress import job_registry
+from core.job_progress import chat_job
 
 # 会话空闲淘汰；消息滑动窗口（含 system）
 _SESSION_TTL_SEC = float(os.environ.get("CHAT_SESSION_TTL_SEC", "3600") or 3600)
 _MAX_MESSAGES = int(os.environ.get("CHAT_MAX_MESSAGES", "40") or 40)
 _MAX_SESSIONS = int(os.environ.get("CHAT_MAX_SESSIONS", "64") or 64)
-
-chat_job = job_registry.slot("chat")
 
 
 class ChatService:

@@ -1,6 +1,6 @@
 /** Holdings sort helpers extracted from paper.js (W0.1). */
 
-import { resolveTradeScore, resolveCalTradeScore, resolveNowcastScore } from "./fmt.js?v=p1227";
+import { resolveTradeScore, resolveEodScore, resolveTauScore, resolveOnScore, resolveNowcastScore } from "./fmt.js?v=p1227";
 
 export function loadHoldingsSort() {
   let key = "market_value";
@@ -12,9 +12,10 @@ export function loadHoldingsSort() {
       (saved.key === "code" ||
         saved.key === "market_value" ||
         saved.key === "score" ||
-        saved.key === "score_cal" ||
+        saved.key === "score_eod" ||
+        saved.key === "score_tau" ||
+        saved.key === "score_on" ||
         saved.key === "score_nowcast" ||
-        saved.key === "residual" ||
         saved.key === "pnl" ||
         saved.key === "chg")
     ) {
@@ -55,9 +56,19 @@ export function sortHoldings(list, key, dir) {
       bv = resolveTradeScore(b);
       av = av == null ? NaN : av;
       bv = bv == null ? NaN : bv;
-    } else if (k === "score_cal") {
-      av = resolveCalTradeScore(a);
-      bv = resolveCalTradeScore(b);
+    } else if (k === "score_eod") {
+      av = resolveEodScore(a);
+      bv = resolveEodScore(b);
+      av = av == null ? NaN : av;
+      bv = bv == null ? NaN : bv;
+    } else if (k === "score_tau") {
+      av = resolveTauScore(a);
+      bv = resolveTauScore(b);
+      av = av == null ? NaN : av;
+      bv = bv == null ? NaN : bv;
+    } else if (k === "score_on") {
+      av = resolveOnScore(a);
+      bv = resolveOnScore(b);
       av = av == null ? NaN : av;
       bv = bv == null ? NaN : bv;
     } else if (k === "score_nowcast") {
@@ -65,19 +76,6 @@ export function sortHoldings(list, key, dir) {
       bv = resolveNowcastScore(b);
       av = av == null ? NaN : av;
       bv = bv == null ? NaN : bv;
-    } else if (k === "residual") {
-      const ac = resolveCalTradeScore(a);
-      const bc = resolveCalTradeScore(b);
-      const achg = Number(a.change_pct);
-      const bchg = Number(b.change_pct);
-      av =
-        ac != null && Number.isFinite(Number(ac)) && Number.isFinite(achg)
-          ? Number(ac) - achg
-          : NaN;
-      bv =
-        bc != null && Number.isFinite(Number(bc)) && Number.isFinite(bchg)
-          ? Number(bc) - bchg
-          : NaN;
     } else if (k === "pnl") {
       av = Number(a.pnl_pct);
       bv = Number(b.pnl_pct);

@@ -15,6 +15,7 @@ from web.schemas import (
     FactorCsIcRequest,
     FactorExperimentRequest,
     FactorOlsPoolRequest,
+    OnRidgeRequest,
     RemRidgeRequest,
     ThresholdSuggestRequest,
     WeightSuggestRequest,
@@ -149,6 +150,32 @@ def quant_rem_ridge_model() -> Dict[str, Any]:
     """读取已 promote 的 rem 模型（若有）。"""
     try:
         return deps.quant.get_rem_ridge_model()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/on-ridge")
+def quant_on_ridge(body: OnRidgeRequest) -> Dict[str, Any]:
+    """隔夜 open 链 Ridge：open[T+1]/open[T]-1 + 时间 OOS；可选 persist 到 live。"""
+    try:
+        return deps.quant.run_on_ridge_experiment(
+            lookback=body.lookback,
+            watching_limit=body.watching_limit,
+            ridge_lambda=body.ridge_lambda,
+            gap_trigger_pct=body.gap_trigger_pct,
+            theme_boost=body.theme_boost,
+            persist=body.persist,
+            note=body.note,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/on-ridge/model")
+def quant_on_ridge_model() -> Dict[str, Any]:
+    """读取已 promote 的 on 模型（若有）。"""
+    try:
+        return deps.quant.get_on_ridge_model()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

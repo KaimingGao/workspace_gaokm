@@ -1,5 +1,6 @@
-"""薄 SignalService 门面：上层打分窗口（委托 core.signal.SignalService）。
+"""薄 SignalService 门面（Domain Facade · SS）：上层打分窗口。
 
+委托 core.signal.SignalService。文档称 Domain Facade，与 Application Service 不同层。
 历史兼容：本模块函数仍返回 dict（``.as_dict()``）。
 类型化 API：``from core.signal.service import SignalService, ScoreResult``。
 """

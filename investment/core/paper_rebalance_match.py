@@ -34,40 +34,80 @@ def attach_change_pct_to_rebalance_report(
     *,
     summary: Optional[dict] = None,
 ) -> List[dict]:
-    """给调仓报告行补 ``change_pct``（相对昨收）。
+    """给调仓报告行补 ``change_pct`` / ``price`` / ``prev_close``（相对昨收）。
 
     优先用 mark_to_market 持仓行；清仓/未入仓票再批量补行情。
     """
     rows = list(report or [])
     if not rows:
         return rows
-    chg_by: Dict[str, float] = {}
+    fields_by: Dict[str, dict] = {}
+
+    def _merge(code: str, **kw) -> None:
+        if not code:
+            return
+        cur = fields_by.setdefault(code, {})
+        for k, v in kw.items():
+            if v is not None and v != "":
+                cur[k] = v
+
     for h in (summary or {}).get("holdings") or []:
         if not isinstance(h, dict):
             continue
         code = str(h.get("stock_code") or "").strip()
-        if not code or h.get("change_pct") is None:
+        if not code:
             continue
-        try:
-            chg_by[code] = round(float(h.get("change_pct")), 2)
-        except (TypeError, ValueError):
-            continue
+        _merge(
+            code,
+            change_pct=h.get("change_pct"),
+            price=h.get("price"),
+            prev_close=h.get("prev_close"),
+        )
+
     missing = [
         str(r.get("stock_code") or "").strip()
         for r in rows
         if str(r.get("stock_code") or "").strip()
-        and str(r.get("stock_code") or "").strip() not in chg_by
+        and str(r.get("stock_code") or "").strip() not in fields_by
     ]
     if missing:
         quotes = _batch_query_quotes(missing)
         for code in missing:
-            chg = quote_change_pct(quotes.get(code) or {})
-            if chg is not None:
-                chg_by[code] = chg
+            q = quotes.get(code) or {}
+            chg = quote_change_pct(q)
+            price = q.get("price_raw")
+            if price is None:
+                price = q.get("price")
+            prev = (
+                q.get("prev_close")
+                or q.get("pre_close")
+                or q.get("yesterday_close")
+            )
+            _merge(
+                code,
+                change_pct=chg,
+                price=price,
+                prev_close=prev,
+            )
+
     for r in rows:
         code = str(r.get("stock_code") or "").strip()
-        if code in chg_by:
-            r["change_pct"] = chg_by[code]
+        f = fields_by.get(code) or {}
+        if f.get("change_pct") is not None:
+            try:
+                r["change_pct"] = round(float(f["change_pct"]), 2)
+            except (TypeError, ValueError):
+                pass
+        if f.get("price") is not None:
+            try:
+                r["price"] = round(float(f["price"]), 4)
+            except (TypeError, ValueError):
+                r["price"] = f.get("price")
+        if f.get("prev_close") is not None:
+            try:
+                r["prev_close"] = round(float(f["prev_close"]), 4)
+            except (TypeError, ValueError):
+                r["prev_close"] = f.get("prev_close")
     return rows
 
 

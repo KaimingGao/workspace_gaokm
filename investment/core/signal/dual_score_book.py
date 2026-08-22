@@ -17,6 +17,7 @@ from core.signal.dual_score_tau import (
     format_tau_formula_string,
     rem_factor_coefficients_public,
 )
+from core.signal.dual_score_on import ensure_formula_terms_on
 
 
 def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
@@ -70,6 +71,7 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
         live_fusion = "blend"
         live_w = {"w_eod": 0.5, "w_tau": 0.5, "w_mode": "fixed", "mode": "blend"}
     formula_terms_tau = ensure_formula_terms_tau(work)
+    formula_terms_on = ensure_formula_terms_on(work)
     score_formula_tau = work.get("score_formula_tau") or format_tau_formula_string(
         formula_terms_tau
     )
@@ -157,5 +159,17 @@ def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:
         "y_tau_to_close": work.get("y_tau_to_close"),
         "y_tau_to_close_src": work.get("y_tau_to_close_src"),
         "y_state": work.get("y_state"),
+        "predicted_score_on": work.get("predicted_score_on"),
+        "y_spec_on": work.get("y_spec_on"),
+        "features_on": work.get("features_on"),
+        "formula_terms_on": formula_terms_on
+        or work.get("formula_terms_on")
+        or work.get("score_formula_terms_on"),
+        "score_formula_terms_on": formula_terms_on
+        or work.get("score_formula_terms_on")
+        or work.get("formula_terms_on"),
+        "score_formula_on": work.get("score_formula_on"),
+        "on_y_spec": work.get("on_y_spec"),
+        "dual_score_on_head": work.get("dual_score_on_head"),
     }
 

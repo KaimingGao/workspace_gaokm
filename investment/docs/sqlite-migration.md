@@ -1,9 +1,9 @@
 # 日线/分钟线缓存 SQLite 改造方案
 
-> 状态：**排队中**（P0/P1 稳定性项已落地；本方案仍为下一阶段性能升级，**本次未迁库**）
-> 范围：`core/store.py` 日线/分钟线缓存后端由 JSON 文件改为 SQLite（WAL）；配置与账本保持 JSON
-> 前置调研：见 `docs/data-layer.md` 的存储选型原则（"行情按规模升级列式/时序"）
-> 依赖前置：`core/file_lock.py` 账本锁 · Chat 异步 job · 评分日线进程隔离（见 perf-stability 落地）
+> 状态：**已落地（A1）** · 双后端 `INVESTMENT_BARS_BACKEND=sqlite|json`（默认 sqlite）  
+> 范围：`core/store.py` + `core/store_bars_sqlite.py`；配置与账本保持 JSON  
+> 迁移：`python3 scripts/migrate_bars_to_sqlite.py [--dry-run]`（不删原 JSON）  
+> 工程轨：[architecture-upgrade-a.md](architecture-upgrade-a.md)
 
 ## 一、背景与目标
 
@@ -323,8 +323,8 @@ def migrate(store_dir):
 | `core/data_service.py` / ports / signal / backtest / paper | **不改** | 0 |
 | 测试 | test_store.py 直测需过；其余 mock 点不变 | 验证 |
 
-## 十一、待确认决策点
+## 十一、决策点（已拍板 · A1）
 
-1. `quality` 存 JSON 串是否可接受（还是规范化成列）？倾向 JSON 串，收益/成本比最高
-2. 是否需要 `INVESTMENT_BARS_BACKEND` 双后端开关？还是直接切死 SQLite（靠 git 回滚）？
-3. 分钟线是否同步迁，还是先只迁日线、分钟线二期？
+1. `quality` 存 JSON 串 — **采用**
+2. `INVESTMENT_BARS_BACKEND` 双后端 — **采用**（默认 `sqlite`，可切 `json`）
+3. 分钟线同步迁 — **采用**（与日线同库）

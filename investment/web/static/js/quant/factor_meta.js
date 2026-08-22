@@ -162,6 +162,31 @@ export const TAU_FEAT_META = {
   },
 };
 
+/** ŷ_ON 路径/开盘 Z 特征（不在因子注册表）。 */
+export const ON_FEAT_META = {
+  ret_oc: {
+    label: "开→收 %",
+    description:
+      "T 日已实现开→收收益（%）。收盘前决策时，刻画当日 intraday 路径，用于估 open[T+1]/open[T]−1。",
+  },
+  ret_cc: {
+    label: "收→收 %",
+    description:
+      "T 日收→收涨跌（%）。与 EOD 标签同口径的当日已实现部分，辅助 ON 头看路径惯性。",
+  },
+  y_on_today: {
+    label: "今开/昨开 %",
+    description:
+      "T 日已实现 open/open[T−1]−1（%）。即 y_ON(T) 的当日段，不是训练标签（标签为 open[T+1]/open[T]−1）。",
+  },
+  gap_pct: TAU_FEAT_META.gap_pct,
+  sector_gap_breadth: TAU_FEAT_META.sector_gap_breadth,
+  theme_day: TAU_FEAT_META.theme_day,
+  gap_atr: TAU_FEAT_META.gap_atr,
+  gap_vs_sector: TAU_FEAT_META.gap_vs_sector,
+  ret_open_to_tau: TAU_FEAT_META.ret_open_to_tau,
+};
+
 /**
  * @param {{ fetchImpl?: typeof fetch }} [opts]
  */
@@ -230,6 +255,17 @@ export function createFactorMetaCache(opts = {}) {
     return null;
   }
 
+  function onFeatMeta(name, label) {
+    const key = name != null ? String(name).trim() : "";
+    if (key && ON_FEAT_META[key]) return ON_FEAT_META[key];
+    const lab = label != null ? String(label).trim() : "";
+    if (!lab) return null;
+    for (const m of Object.values(ON_FEAT_META)) {
+      if (m && m.label === lab) return m;
+    }
+    return null;
+  }
+
   function factorDescription(name, label) {
     const meta =
       (name && factorMetaByName[name]) ||
@@ -238,6 +274,8 @@ export function createFactorMetaCache(opts = {}) {
       {};
     const fromApi = String(meta.description || "").trim();
     if (fromApi) return fromApi;
+    const on = onFeatMeta(name, label);
+    if (on && on.description) return String(on.description).trim();
     const tau = tauFeatMeta(name, label);
     return String((tau && tau.description) || "").trim();
   }

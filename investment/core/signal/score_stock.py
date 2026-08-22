@@ -1060,6 +1060,29 @@ def score_stock(
             rem_model_doc=rem_model_doc,
             fuse_intraday=not bool(eod_pit.get("rolled_to_next")),
         )
+        try:
+            from core.research.on_panel import build_on_features_from_quote_bars
+            from core.research.on_ridge import load_on_model, predict_on_from_features
+            from core.signal.dual_score_on import apply_on_score_fields
+
+            on_feats = build_on_features_from_quote_bars(
+                quote,
+                bars,
+                gap_pct=gap_v,
+                ret_open_to_tau=feats.get("ret_open_to_tau"),
+            )
+            on_feats["sector_gap_breadth"] = sector_breadth
+            on_feats["theme_day"] = feats.get("theme_day")
+            on_model_doc = load_on_model()
+            on_yhat = predict_on_from_features(on_feats, model_doc=on_model_doc)
+            apply_on_score_fields(
+                signal_item,
+                on_yhat=on_yhat,
+                feats=on_feats,
+                on_model_doc=on_model_doc,
+            )
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_stock.py on", exc_info=True)
         trade = signal_item.get("predicted_score_tau")
         ep = build_event_prior_from_quote(
             quote,

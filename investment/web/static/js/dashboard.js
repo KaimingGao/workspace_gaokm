@@ -1,7 +1,8 @@
 import { apiFetch } from "./api_client.js";
 import { renderLineChart, renderDualLineChart } from "./lw_charts.js";
 import { escapeHtml } from "./shared.js";
-import { paintMacroHistoryChart, runMarketContextIngest } from "./macro_context_ui.js";
+import { macroHistoryLegendHtml, paintMacroHistoryChart, runMarketContextIngest } from "./macro_context_ui.js";
+import { fetchDash, fetchDashboardBundle } from "./dashboard_api.js?v=p1234";
 
 const V = (typeof window !== "undefined" && window.__ASSET_V__) || "p803";
 
@@ -241,7 +242,17 @@ function renderMarketContext(ctx) {
   const ipo = ann.ipo || {};
   const flags = ctx.prior_flags || {};
   const regimeSnap = ctx.regime || {};
-  const priorActive = flags.any_active ? "Prior 激活" : "Prior 待机";
+  const priorActiveN = [
+    flags.cross_market,
+    flags.market_sentiment,
+    flags.regulatory,
+    flags.ipo_drain,
+  ].filter(Boolean).length;
+  const priorActive = flags.any_active
+    ? priorActiveN > 0
+      ? `激活 · ${priorActiveN}/4`
+      : "激活"
+    : "待机";
   const penaltySub =
     (ann.penalty_concepts || []).slice(0, 2).join(" · ") ||
     (regulatory.concept_tags || []).slice(0, 2).join(" · ") ||
@@ -319,7 +330,7 @@ function renderMarketContext(ctx) {
     {
       label: "Prior",
       value: priorActive,
-      sub: (ctx.prior_warnings || []).slice(0, 1).join("") || "M 层",
+      sub: (ctx.prior_warnings || []).slice(0, 1).join("") || "M 层闸",
       cls: flags.any_active ? "is-bad" : "",
       tip:
         "M 层 prior（跨市场/情绪/监管/IPO）是否触发。激活时调仓可缩仓或禁买；ŷ 排名轴不变。副文案为当前警告摘要。",
@@ -385,9 +396,10 @@ function renderMarketContext(ctx) {
       }
       ${
         (ctx.macro_history || []).length >= 5
-          ? `<div class="dashboard-mctx-history" aria-label="宏观历史近30日">
+          ? `<div class="dashboard-mctx-history" aria-label="宏观历史近30日" title="海外科技 / 富时A50 近30日日涨跌%（灰线=0）">
               <span class="dashboard-mctx-history-label">宏观近30日</span>
-              <canvas class="dashboard-mctx-history-canvas" id="dashboard-mctx-history" width="520" height="56"></canvas>
+              <canvas class="dashboard-mctx-history-canvas" id="dashboard-mctx-history" width="520" height="56" aria-label="海外科技与A50近30日日涨跌"></canvas>
+              ${macroHistoryLegendHtml()}
             </div>`
           : ctx.macro_history_rows === 0
             ? `<p class="dashboard-mctx-history-hint">宏观历史未回填 · 可运行 macro_backfill</p>`
@@ -987,21 +999,7 @@ async function loadDashboardData(range = "30", showBenchmark = readBenchmarkFlag
     updated.setAttribute("aria-busy", "true");
   }
 
-  const unwrap = (res, fallback = {}) => {
-    if (!res || res.ok === false) {
-      // apiFetch 失败：{ ok:false, data, error }；本地兜底也可能直接是 payload
-      if (res && res.data && typeof res.data === "object")
-        return { ...fallback, ...res.data, ok: false };
-      return { ok: false, ...fallback };
-    }
-    if (res.data && typeof res.data === "object") return res.data;
-    return res;
-  };
-
-  const fetchDash = (url, fallback = {}) =>
-    apiFetch(url)
-      .then((res) => unwrap(res, fallback))
-      .catch(() => ({ ok: false, ...fallback }));
+  // A4: fetchDash / unwrap 见 dashboard_api.js
 
   try {
     const benchParam = showBenchmark ? "hs300" : "none";
@@ -1017,22 +1015,7 @@ async function loadDashboardData(range = "30", showBenchmark = readBenchmarkFlag
       exposure,
       drawdownData,
       varData,
-    ] = await Promise.all([
-      fetchDash(`/api/dashboard/market-overview`),
-      fetchDash(`/api/dashboard/market-context`),
-      fetchDash(`/api/dashboard/kpis`),
-      fetchDash(`/api/dashboard/risk-metrics`),
-      fetchDash(`/api/dashboard/nav-curve?range=${range}&benchmark=${benchParam}`, {
-        points: [],
-        benchmark_points: [],
-      }),
-      fetchDash(`/api/dashboard/sector-heatmap`, { sectors: [] }),
-      fetchDash(`/api/dashboard/signals`, { signals: [] }),
-      fetchDash(`/api/dashboard/allocation`, { sectors: [], total_value: 0 }),
-      fetchDash(`/api/dashboard/factor-exposure`),
-      fetchDash(`/api/dashboard/drawdown?range=${range}`, { points: [] }),
-      fetchDash(`/api/dashboard/var-historical?range=${range}`),
-    ]);
+    ] = await fetchDashboardBundle({ range, benchmark: benchParam });
 
     try {
       renderMarketOverview(marketData);

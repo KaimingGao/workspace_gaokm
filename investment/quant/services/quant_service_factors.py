@@ -480,6 +480,92 @@ class QuantFactorMixin:
             }
         return {"success": True, "exists": True, "path": rem_model_path(), **doc}
 
+    def run_on_ridge_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 36,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        theme_boost: float = 1.5,
+        persist: bool = False,
+        note: str = "",
+    ) -> Dict[str, Any]:
+        """R0+：观察池 ŷ_ON Ridge；可选 persist live 模型。"""
+        from core.data_service import bars_and_source
+        from core.watching_store import read_watching
+        from quant.research.on_ridge import (
+            fit_on_ridge_report,
+            load_on_last_report,
+            load_on_model,
+            persist_on_model,
+            save_on_last_report,
+        )
+
+        uni = read_watching()
+        codes = list(uni.get("watchlist") or [])
+        limit = max(2, min(int(watching_limit or 36), 40))
+        codes = codes[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "研究池至少 2 只才可跑 on Ridge",
+                "task": "on_ridge",
+            }
+
+        if persist:
+            last = load_on_last_report()
+            if last:
+                saved = persist_on_model(
+                    last, note=note or "persist last on report"
+                )
+                out = dict(last)
+                out["persisted"] = saved
+                out["from_last_report"] = True
+                if saved.get("promoted_at"):
+                    out["promoted_at"] = saved["promoted_at"]
+                return out
+
+        stock_bars: List[Dict[str, Any]] = []
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            if not bars:
+                continue
+            stock_bars.append({"code": str(code), "bars": bars})
+        report = fit_on_ridge_report(
+            stock_bars,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            theme_boost=theme_boost,
+        )
+        report["watching_limit"] = limit
+        report["lookback"] = lookback
+        if report.get("success"):
+            save_on_last_report(report)
+        if persist and report.get("success"):
+            saved = persist_on_model(report, note=note or "api on-ridge persist")
+            report["persisted"] = saved
+            if saved.get("promoted_at"):
+                report["promoted_at"] = saved["promoted_at"]
+        else:
+            report["persisted"] = {"success": False, "skipped": True}
+            live = load_on_model()
+            report["live_model_present"] = bool(live)
+        return report
+
+    def get_on_ridge_model(self) -> Dict[str, Any]:
+        from quant.research.on_ridge import load_on_model, on_model_path
+
+        doc = load_on_model()
+        if not doc:
+            return {
+                "success": False,
+                "exists": False,
+                "path": on_model_path(),
+                "note": "尚无 on 模型；POST /api/quant/on-ridge persist=true",
+            }
+        return {"success": True, "exists": True, "path": on_model_path(), **doc}
+
     def run_factor_ols_pool_experiment(
         self,
         *,

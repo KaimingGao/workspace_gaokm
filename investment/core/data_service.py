@@ -1,5 +1,6 @@
-"""薄 DataService 门面：上层唯一读窗口（委托 core.data.MarketDataService）。
+"""薄 DataService 门面（Domain Facade · DS）：上层唯一读窗口。
 
+委托 core.data.MarketDataService。文档称 Domain Facade，与 Application Service 不同层。
 历史兼容：本模块函数仍返回 dict（``.as_dict()``）。
 类型化 API：``from core.data import MarketDataService, BarsResult``。
 """

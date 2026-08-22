@@ -489,7 +489,7 @@
 
 .follow-page .rebalance-table {
   /* 股票吃左侧；后列定宽靠右；列间距适中 */
-  --rebalance-cols: minmax(7rem, 1fr) 4.25rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem 4.75rem;
+  --rebalance-cols: minmax(7rem, 1fr) 4.25rem 4.25rem 4.25rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem 4.75rem;
   font-size: 0.78rem;
 }
 
@@ -1000,7 +1000,7 @@
   text-align: left;
 }
 
-.follow-holdings-card .paper-holdings-table thead th:nth-child(7) {
+.follow-holdings-card .paper-holdings-table thead th:nth-child(8) {
   text-align: right;
 }
 
@@ -1467,23 +1467,28 @@
 }
 
 .paper-hold-since {
+  display: inline-block;
   text-align: right;
-  padding-left: 20px;
-  min-width: 6.5rem;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .paper-holdings-table td.paper-hold-pnl {
-  padding-right: 28px;
+  padding-right: 18px;
 }
 
-/* 交易执行持仓虚拟表：浮盈亏 / 开始日再拉开（覆盖紧凑 num 列 4px 内边距） */
+/* 交易执行持仓虚拟表：浮盈亏 / 开始日 */
 body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-pnl {
-  padding-right: 28px !important;
+  padding-right: 18px !important;
 }
 
 body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-since {
-  padding-left: 20px !important;
-  min-width: 6.5rem;
+  padding-left: 8px !important;
+  padding-right: 8px !important;
+  overflow: visible;
+  text-overflow: unset;
+  white-space: nowrap;
 }
 
 .paper-hold-shares {
@@ -2286,26 +2291,36 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 }
 
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score,
-.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_cal,
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_eod,
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_tau,
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_on,
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_nowcast {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   padding-top: 0;
   padding-bottom: 0;
+  overflow: visible;
+  text-overflow: unset;
 }
 
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score .paper-hold-score,
-.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_cal .paper-hold-score,
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_eod .paper-hold-score,
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_tau .paper-hold-score,
+.follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_on .paper-hold-score,
 .follow-page .paper-holdings-react-grid .watching-react-grid-cell.watching-col-score_nowcast .paper-hold-score {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   justify-content: flex-end;
-  width: 100%;
-  height: 100%;
-  min-height: 100%;
+  width: auto;
+  max-width: none;
+  height: auto;
+  min-height: 0;
+  min-width: min-content;
+  flex: 0 0 auto;
   box-sizing: border-box;
-  padding: 8px 6px;
+  padding: 0;
+  white-space: nowrap;
   cursor: help;
 }
 

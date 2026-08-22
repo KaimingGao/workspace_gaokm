@@ -1,4 +1,8 @@
-"""日线/分钟本地缓存：data/store/daily|minute；快照缓存 fundamentals/news。"""
+"""日线/分钟本地缓存：data/store/daily|minute 或 bars.db；快照缓存 fundamentals/news。
+
+Bars 后端由 ``INVESTMENT_BARS_BACKEND`` 选择：``sqlite``（默认）| ``json``。
+配置/账本/基本面快照仍走 JSON 文件。
+"""
 
 
 import json
@@ -37,6 +41,14 @@ _REFRESH_GUARD = threading.Lock()
 
 def get_store_dir() -> str:
     return os.environ.get("INVESTMENT_STORE_DIR", STORE_DIR)
+
+
+def bars_backend() -> str:
+    """``sqlite`` | ``json``；非法值回退 sqlite。"""
+    raw = str(os.environ.get("INVESTMENT_BARS_BACKEND") or "sqlite").strip().lower()
+    if raw in ("json", "file", "files"):
+        return "json"
+    return "sqlite"
 
 
 def daily_cache_path(market: str, code: str, store_dir: Optional[str] = None) -> str:
@@ -239,6 +251,38 @@ def load_daily_cache(
     store_dir: Optional[str] = None,
     ignore_age: bool = False,
 ) -> Optional[Tuple[List[dict], Dict[str, Any]]]:
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.load_daily(
+            market,
+            code,
+            min_bars=min_bars,
+            max_age_hours=max_age_hours,
+            store_dir=base,
+            ignore_age=ignore_age,
+            assess_quality=assess_quality,
+        )
+    return _load_daily_cache_json(
+        market,
+        code,
+        min_bars=min_bars,
+        max_age_hours=max_age_hours,
+        store_dir=base,
+        ignore_age=ignore_age,
+    )
+
+
+def _load_daily_cache_json(
+    market: str,
+    code: str,
+    *,
+    min_bars: int = 1,
+    max_age_hours: float = DAILY_CACHE_HOURS,
+    store_dir: Optional[str] = None,
+    ignore_age: bool = False,
+) -> Optional[Tuple[List[dict], Dict[str, Any]]]:
     path = daily_cache_path(market, code, store_dir)
     if not os.path.isfile(path):
         return None
@@ -278,6 +322,7 @@ def load_daily_cache(
         "date_max": payload.get("date_max") or (bars[-1].get("date") if bars else None),
         "bar_count": payload.get("bar_count") or len(bars),
         "adjust_policy": payload.get("adjust_policy"),
+        "bars_backend": "json",
     }
     return bars, meta
 
@@ -329,7 +374,22 @@ def save_daily_cache(
     store_dir: Optional[str] = None,
     adjust_policy: Optional[str] = "qfq",
 ) -> str:
-    path = daily_cache_path(market, code, store_dir)
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.save_daily(
+            market,
+            code,
+            list(bars or []),
+            data_source=data_source,
+            stock_code=stock_code,
+            store_dir=base,
+            adjust_policy=adjust_policy,
+            assess_quality=assess_quality,
+            trim_daily_bars=trim_daily_bars,
+        )
+    path = daily_cache_path(market, code, base)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with path_lock(path):
         return _write_daily_payload(
@@ -354,7 +414,23 @@ def merge_save_daily_cache(
     adjust_policy: Optional[str] = "qfq",
 ) -> Tuple[str, List[dict]]:
     """持锁读盘 → 按 date 合并 → 裁剪 → 写回（DS-R0 防丢更新）。"""
-    path = daily_cache_path(market, code, store_dir)
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.merge_save_daily(
+            market,
+            code,
+            list(incoming or []),
+            data_source=data_source,
+            stock_code=stock_code,
+            store_dir=base,
+            adjust_policy=adjust_policy,
+            assess_quality=assess_quality,
+            trim_daily_bars=trim_daily_bars,
+            merge_bars_by_date=merge_bars_by_date,
+        )
+    path = daily_cache_path(market, code, base)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with path_lock(path):
         existing: List[dict] = []
@@ -504,7 +580,12 @@ def peek_daily_cache_meta(
     store_dir: Optional[str] = None,
 ) -> Optional[Dict[str, Any]]:
     """读日线缓存元数据（不校验 TTL）。"""
-    path = daily_cache_path(market, code, store_dir)
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.peek_daily_meta(market, code, base)
+    path = daily_cache_path(market, code, base)
     if not os.path.isfile(path):
         return None
     try:
@@ -526,6 +607,7 @@ def peek_daily_cache_meta(
         "date_min": payload.get("date_min") or (bars[0].get("date") if bars else None),
         "date_max": payload.get("date_max") or (bars[-1].get("date") if bars else None),
         "adjust_policy": payload.get("adjust_policy"),
+        "bars_backend": "json",
     }
 
 
@@ -533,13 +615,18 @@ def list_cached_symbols(
     market: Optional[str] = None,
     store_dir: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    base = os.path.join(store_dir or get_store_dir(), DAILY_SUBDIR)
-    if not os.path.isdir(base):
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.list_daily_symbols(market, base)
+    daily_base = os.path.join(base, DAILY_SUBDIR)
+    if not os.path.isdir(daily_base):
         return []
     out: List[Dict[str, Any]] = []
-    markets = [market.upper()] if market else os.listdir(base)
+    markets = [market.upper()] if market else os.listdir(daily_base)
     for mkt in markets:
-        mdir = os.path.join(base, mkt)
+        mdir = os.path.join(daily_base, mkt)
         if not os.path.isdir(mdir):
             continue
         for name in os.listdir(mdir):
@@ -558,11 +645,76 @@ def list_cached_symbols(
                         "fetched_at": payload.get("fetched_at"),
                         "quality": payload.get("quality"),
                         "path": path,
+                        "bars_backend": "json",
                     }
                 )
             except (OSError, json.JSONDecodeError):
                 continue
     return out
+
+
+def clear_daily_cache(
+    market: Optional[str] = None,
+    store_dir: Optional[str] = None,
+) -> int:
+    """清除日线缓存；返回删除条目数（sqlite=meta 行；json=文件数）。"""
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.clear_daily(market, base)
+    daily_base = os.path.join(base, DAILY_SUBDIR)
+    if not os.path.isdir(daily_base):
+        return 0
+    removed = 0
+    markets = [market.upper()] if market else os.listdir(daily_base)
+    for mkt in markets:
+        mdir = os.path.join(daily_base, mkt)
+        if not os.path.isdir(mdir):
+            continue
+        for name in os.listdir(mdir):
+            if name.endswith(".json"):
+                try:
+                    os.remove(os.path.join(mdir, name))
+                    removed += 1
+                except OSError as e:
+                    _note_io_error(f"clear_daily:{mdir}/{name}", e)
+    return removed
+
+
+def clear_minute_cache(
+    market: Optional[str] = None,
+    *,
+    period: Optional[str] = None,
+    store_dir: Optional[str] = None,
+) -> int:
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.clear_minute(market, period=period, store_dir=base)
+    minute_base = os.path.join(base, MINUTE_SUBDIR)
+    if not os.path.isdir(minute_base):
+        return 0
+    removed = 0
+    periods = [str(period)] if period else os.listdir(minute_base)
+    for per in periods:
+        pdir = os.path.join(minute_base, per)
+        if not os.path.isdir(pdir):
+            continue
+        markets = [market.upper()] if market else os.listdir(pdir)
+        for mkt in markets:
+            mdir = os.path.join(pdir, mkt)
+            if not os.path.isdir(mdir):
+                continue
+            for name in os.listdir(mdir):
+                if name.endswith(".json"):
+                    try:
+                        os.remove(os.path.join(mdir, name))
+                        removed += 1
+                    except OSError as e:
+                        _note_io_error(f"clear_minute:{mdir}/{name}", e)
+    return removed
 
 
 def load_minute_cache(
@@ -575,7 +727,20 @@ def load_minute_cache(
     store_dir: Optional[str] = None,
     ignore_age: bool = False,
 ) -> Optional[Tuple[List[dict], Dict[str, Any]]]:
-    path = minute_cache_path(market, code, period, store_dir)
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.load_minute(
+            market,
+            code,
+            period,
+            min_bars=min_bars,
+            max_age_hours=max_age_hours,
+            store_dir=base,
+            ignore_age=ignore_age,
+        )
+    path = minute_cache_path(market, code, period, base)
     if not os.path.isfile(path):
         return None
     try:
@@ -611,6 +776,7 @@ def load_minute_cache(
         "date_max": payload.get("date_max"),
         "bar_count": payload.get("bar_count") or len(bars),
         "adjust_policy": payload.get("adjust_policy"),
+        "bars_backend": "json",
     }
     return bars, meta
 
@@ -626,7 +792,22 @@ def save_minute_cache(
     store_dir: Optional[str] = None,
     adjust_policy: Optional[str] = "qfq",
 ) -> str:
-    path = minute_cache_path(market, code, period, store_dir)
+    base = store_dir or get_store_dir()
+    if bars_backend() == "sqlite":
+        from core import store_bars_sqlite as sq
+
+        return sq.save_minute(
+            market,
+            code,
+            list(bars or []),
+            period=period,
+            data_source=data_source,
+            stock_code=stock_code,
+            store_dir=base,
+            adjust_policy=adjust_policy,
+            trim_minute_bars=trim_minute_bars,
+        )
+    path = minute_cache_path(market, code, period, base)
     os.makedirs(os.path.dirname(path), exist_ok=True)
     bars = trim_minute_bars(list(bars or []))
     fetched_at = datetime.now()
