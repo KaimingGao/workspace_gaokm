@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # 投顾日常：纸面观察池 + 离线 golden checklist
-# 用法：crontab 示例见 docs/quant-ops.md
+# 用法：crontab 示例见 docs/quant.md § 量化运维
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

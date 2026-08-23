@@ -396,9 +396,9 @@ function renderMarketContext(ctx) {
       }
       ${
         (ctx.macro_history || []).length >= 5
-          ? `<div class="dashboard-mctx-history" aria-label="宏观历史近30日" title="海外科技 / 富时A50 近30日日涨跌%（灰线=0）">
+          ? `<div class="dashboard-mctx-history" aria-label="宏观历史近30日" title="海外科技 / 富时A50 近30日累计涨跌%（窗口起点=0；灰虚线=0；悬停看当日累计）">
               <span class="dashboard-mctx-history-label">宏观近30日</span>
-              <canvas class="dashboard-mctx-history-canvas" id="dashboard-mctx-history" width="520" height="56" aria-label="海外科技与A50近30日日涨跌"></canvas>
+              <div class="dashboard-mctx-history-canvas" id="dashboard-mctx-history" role="img" aria-label="海外科技与A50近30日累计涨跌"></div>
               ${macroHistoryLegendHtml()}
             </div>`
           : ctx.macro_history_rows === 0

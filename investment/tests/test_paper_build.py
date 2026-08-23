@@ -196,7 +196,7 @@ class TestHoldingOrigin(unittest.TestCase):
         self.assertEqual(plan["sizing_mode"], "pct")
 
     def test_enrich_operation_log_shows_trade_fees(self):
-        from core.paper_costs import enrich_operation_log_with_trade_fees
+        from core.paper.costs import enrich_operation_log_with_trade_fees
 
         logs = [
             {
@@ -225,7 +225,7 @@ class TestHoldingOrigin(unittest.TestCase):
         self.assertEqual(out[0]["meta"]["fees"], 5.0)
 
     def test_enrich_operation_log_backfills_sell_pnl(self):
-        from core.paper_costs import enrich_operation_log_with_trade_fees
+        from core.paper.costs import enrich_operation_log_with_trade_fees
 
         logs = [
             {
@@ -272,10 +272,10 @@ class TestHoldingOrigin(unittest.TestCase):
             "trades": [],
             "operation_log": [],
         }
-        with patch("core.paper_exec._query_quote", side_effect=_fake_query):
-            with patch("core.paper_exec._quote_price", return_value=12.0):
+        with patch("core.paper.exec._query_quote", side_effect=_fake_query):
+            with patch("core.paper.exec._quote_price", return_value=12.0):
                 with patch(
-                    "core.paper_rebalance._sell_match_block_reason",
+                    "core.paper.rebalance._sell_match_block_reason",
                     return_value=None,
                 ):
                     trades = manual_sell(paper, stock_code="600519", shares=100)
@@ -283,7 +283,7 @@ class TestHoldingOrigin(unittest.TestCase):
         self.assertEqual(trades[0]["pnl_pct"], 20.0)
 
     def test_enrich_estimates_strategy_buy_without_fee_fields(self):
-        from core.paper_costs import enrich_operation_log_with_trade_fees
+        from core.paper.costs import enrich_operation_log_with_trade_fees
 
         logs = [
             {
@@ -313,7 +313,7 @@ class TestHoldingOrigin(unittest.TestCase):
         self.assertGreater(float(out[0]["meta"].get("commission") or 0), 0)
 
     def test_simple_cn_fees_reduce_cash(self):
-        from core.paper_costs import calc_trade_fees
+        from core.paper.costs import calc_trade_fees
 
         fee = calc_trade_fees("buy", 10000.0, model="simple_cn")
         self.assertEqual(fee["cost_model"], "simple_cn")
@@ -501,7 +501,7 @@ class TestHoldingOrigin(unittest.TestCase):
 
 class TestPlanSyncToPaper(unittest.TestCase):
     def test_preview_limited_to_watchlist(self):
-        from core.watching_store import plan_sync_to_paper, read_watching, write_watching
+        from core.watching.store import plan_sync_to_paper, read_watching, write_watching
 
         with tempfile.TemporaryDirectory() as tmp:
             uni_path = os.path.join(tmp, "watching.json")
@@ -518,7 +518,7 @@ class TestPlanSyncToPaper(unittest.TestCase):
             with open(paper_path, "w", encoding="utf-8") as f:
                 json.dump(_paper(), f)
 
-            with patch("core.watching_store.read_watching", return_value=read_watching(uni_path)):
+            with patch("core.watching.store.read_watching", return_value=read_watching(uni_path)):
                 with patch("skills.common.quote_api.StockAPI.query", side_effect=_fake_query):
                     plan = plan_sync_to_paper(
                         paper_path,
@@ -550,40 +550,45 @@ class TestSellNavCurveSnapshots(unittest.TestCase):
                 "price_raw": prices[code],
             }
 
+        def _batch(codes):
+            return {str(c): _q(c) for c in codes}
+
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "paper.json")
             svc = PaperService(path)
             svc.init()
-            with patch("core.paper_exec.query_quote", side_effect=_q):
-                svc.set_cost_model("zero")
-                svc.buy(stock_code="600519", amount=5000)
+            with patch("core.paper.open_fill.require_open_fill", return_value=None):
+                with patch("core.paper.exec._query_quote", side_effect=_q):
+                    with patch("core.paper.exec._batch_query_quotes", side_effect=_batch):
+                        svc.set_cost_model("zero")
+                        svc.buy(stock_code="600519", amount=5000)
 
-                paper = load_paper(path)
-                stale_equity = float(paper["snapshots"][-1]["equity"])
-                paper["snapshots"] = [
-                    {
-                        "ts": "2024-01-01T00:00:00.000",
-                        "equity": stale_equity,
-                        "cash": paper.get("cash"),
-                        "stock_value": 5000.0,
-                    }
-                ]
-                save_paper(paper, path)
+                        paper = load_paper(path)
+                        stale_equity = float(paper["snapshots"][-1]["equity"])
+                        paper["snapshots"] = [
+                            {
+                                "ts": "2024-01-01T00:00:00.000",
+                                "equity": stale_equity,
+                                "cash": paper.get("cash"),
+                                "stock_value": 5000.0,
+                            }
+                        ]
+                        save_paper(paper, path)
 
-                prices["600519"] = 12.0
-                out = svc.sell(codes=["600519"])
-                self.assertTrue(out.get("ok"), out)
+                        prices["600519"] = 12.0
+                        out = svc.sell(codes=["600519"])
+                        self.assertTrue(out.get("ok"), out)
 
-                paper = load_paper(path)
-                snaps = paper.get("snapshots") or []
-                self.assertGreaterEqual(len(snaps), 2)
-                pre, post = snaps[-2], snaps[-1]
-                self.assertGreater(float(pre["equity"]), stale_equity)
-                self.assertAlmostEqual(
-                    float(pre["equity"]), float(post["equity"]), delta=1.0
-                )
-                self.assertNotEqual(pre.get("ts"), post.get("ts"))
-                self.assertEqual(paper.get("holdings") or [], [])
+                        paper = load_paper(path)
+                        snaps = paper.get("snapshots") or []
+                        self.assertGreaterEqual(len(snaps), 2)
+                        pre, post = snaps[-2], snaps[-1]
+                        self.assertGreater(float(pre["equity"]), stale_equity)
+                        self.assertAlmostEqual(
+                            float(pre["equity"]), float(post["equity"]), delta=1.0
+                        )
+                        self.assertNotEqual(pre.get("ts"), post.get("ts"))
+                        self.assertEqual(paper.get("holdings") or [], [])
 
 
 class TestSnapshotsForUiLiveOverlay(unittest.TestCase):

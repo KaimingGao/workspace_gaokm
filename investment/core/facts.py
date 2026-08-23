@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
-from core.data_service import get_quote
+from core.data.facade import get_quote
 from core.ports.market import (
     build_kline_payload,
     build_peer_compare,
@@ -63,7 +63,7 @@ def collect_stock_facts(
 
     market_ctx: Dict[str, Any] = {"ok": False}
     try:
-        from core.market_context import summarize_market_context
+        from core.market.context import summarize_market_context
         from core.portfolio_optimize import _sector_for, load_sector_map
 
         smap = load_sector_map()

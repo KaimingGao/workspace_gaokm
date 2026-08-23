@@ -82,7 +82,7 @@ def fetch_score_fundamentals(
             )
             return resolved.get("metrics")
 
-        from core.data_service import get_fundamentals
+        from core.data.facade import get_fundamentals
 
         result = get_fundamentals(stock_code)
         if not result.get("success"):
@@ -117,7 +117,7 @@ def fetch_fundamentals_batch(
             metrics = fetch_score_fundamentals(key)
         else:
             try:
-                from core.data_service import get_fundamentals
+                from core.data.facade import get_fundamentals
 
                 result = get_fundamentals(
                     key,

@@ -12,8 +12,8 @@ from typing import Any, Dict, Optional
 #   optimistic  — 卖用 high、买用 low（上界，对照用）
 #
 # direction:
-#   long_t  — 正 T（先卖后买）
-#   reverse_t — 反 T（先买后卖，需现金）
+#   long_t  — 正 T（先卖旧底仓，再低位买回；T+1 可卖额度）
+#   reverse_t — 反 T（先低吸加仓，再卖旧底仓换仓；禁止卖当日新买股）
 #   auto    — 按跳空（今开 vs 昨收）强弱选择；不明则正 T
 #   signal  — 开盘可用隔夜/昨收特征打分；低置信跳过（回测默认）
 #
@@ -47,7 +47,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "atr_window": 14,
     "atr_sell_mult": 0.9,
     "atr_buy_mult": 0.7,
-    "note": "日线代理；回测默认可启用 5m first_touch；非实盘。",
+    "note": "日线代理；A股T+1底仓做T（正T卖旧买回 / 反T买新卖旧）；回测默认可启用5m first_touch；非实盘。",
 }
 
 
@@ -119,8 +119,8 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
 def resolve_min_range_pct(cfg: dict) -> float:
     if cfg.get("min_range_pct") is not None:
         return float(cfg["min_range_pct"])
-    # 相对触发阈值略宽一点即可；避免 ATR 抬升阈值后门禁二次收紧
+    # 相对触发阈值略宽；回测/纸面「自动」不宜高于 1.0%，否则横盘股整日跳过
     return round(
-        max(0.8, (float(cfg["sell_trigger_pct"]) + float(cfg["buy_trigger_pct"])) * 0.45),
+        max(0.5, (float(cfg["sell_trigger_pct"]) + float(cfg["buy_trigger_pct"])) * 0.35),
         4,
     )

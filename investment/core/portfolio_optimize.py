@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
-from core.data_policy import UNMAPPED_SECTOR, is_board_label
+from core.data.policy import UNMAPPED_SECTOR, is_board_label
 
 
 def _board_for(code: str) -> str:

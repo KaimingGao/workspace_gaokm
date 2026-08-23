@@ -25,7 +25,7 @@ def _default_health_universe() -> List[str]:
     if len(codes) >= 2:
         return codes[:40]
     try:
-        from core.watching_store import read_watching
+        from core.watching.store import read_watching
 
         return list((read_watching().get("watchlist") or [])[:40])
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

@@ -4,7 +4,7 @@
 
 | 路径 | 入口 | 计费形态 |
 |------|------|----------|
-| 纸面现金账 | `core.paper_costs.calc_trade_fees` | 金额级（含最低佣金） |
+| 纸面现金账 | `core.paper.costs.calc_trade_fees` | 金额级（含最低佣金） |
 | 回测单票 | `costs.apply_trade_cost` | bps 往返近似 |
 | 回测组合 TopK | `costs.rebalance_cost_pct` | **换手**（续持不扣往返） |
 | 研究辅助 | `signal.factors.cost.TransactionCostCalculator` | 金额级，须同源 |
@@ -80,7 +80,7 @@ def _almost(a: float, b: float, tol: float = 1e-9) -> bool:
 def cost_port_snapshot() -> Dict[str, Any]:
     """对照纸面 / 回测 / 因子计算器与本端口；供 evals 闸门。"""
     from core.backtest.costs import DEFAULT_COSTS, load_cost_config
-    from core.paper_costs import cost_params
+    from core.paper.costs import cost_params
     from core.signal.factors.cost import DEFAULT_COST_CONFIG
 
     mismatches: List[str] = []

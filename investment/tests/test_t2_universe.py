@@ -18,7 +18,7 @@ class TestResolveReplayCandidates(unittest.TestCase):
         from quant.services.quant_service_replay import resolve_replay_candidates
 
         with patch(
-            "core.watching_store.read_watching",
+            "core.watching.store.read_watching",
             return_value={"watchlist": ["A", "B", "C"]},
         ):
             with patch(

@@ -112,7 +112,7 @@ def _build_signals(limit: int = 20) -> Dict[str, Any]:
             if c and n:
                 name_by_code[c] = n
         try:
-            from core.watching_store import read_watching, watchlist_names_for
+            from core.watching.store import read_watching, watchlist_names_for
 
             uni = read_watching()
             codes = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]

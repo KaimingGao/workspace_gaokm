@@ -48,7 +48,7 @@ ACTIONS: List[Dict[str, Any]] = [
             "quant.services.quant_service_ops.QuantOpsMixin（watching）",
         ],
         "core": [
-            "core.watching_store",
+            "core.watching.store",
             "core.backtest.topk_backtest",
             "core.signal.cross_section",
         ],
@@ -70,7 +70,7 @@ ACTIONS: List[Dict[str, Any]] = [
             "services.paper_service.PaperService",
             "quant.services.quant_service_follow.QuantFollowMixin",
         ],
-        "core": ["core.paper", "core.paper_rebalance", "core.t0"],
+        "core": ["core.paper", "core.paper.rebalance", "core.t0"],
     },
     {
         "id": "compare",
@@ -85,7 +85,7 @@ ACTIONS: List[Dict[str, Any]] = [
             "quant.services.quant_service_compare.QuantCompareMixin",
             "quant.services.portfolio_quant_bridge",
         ],
-        "core": ["core.paper", "core.watching_store"],
+        "core": ["core.paper", "core.watching.store"],
         "notes": [
             "纸面 vs TopK 对照已下线（口径不公平）",
             "portfolio-neutral-compare 属历史验证（规则变体对照），不是对照层",
@@ -125,6 +125,6 @@ def action_map() -> Dict[str, Any]:
         "actions": ACTIONS,
         "docs": [
             "docs/quant-ui.md",
-            "docs/quant-concepts.md",
+            "docs/quant.md",
         ],
     }

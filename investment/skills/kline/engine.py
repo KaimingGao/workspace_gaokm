@@ -3,7 +3,7 @@
 
 import logging
 
-from core.data_service import get_bars, get_quote
+from core.data.facade import get_bars, get_quote
 from core.ports.market import bars_from_quote_fallback
 from skills.kline.analyzer import summarize_bars
 

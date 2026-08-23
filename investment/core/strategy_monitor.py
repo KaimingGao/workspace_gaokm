@@ -156,7 +156,7 @@ def estimate_rolling_yhat_ic_for_codes(
     horizon_days: int = 3,
 ) -> Dict[str, Any]:
     """多标的 ŷ IC 均值。"""
-    from core.data_service import get_bars
+    from core.data.facade import get_bars
 
     ics: List[float] = []
     details: List[Dict[str, Any]] = []
@@ -201,7 +201,7 @@ def estimate_rolling_ic_for_codes(
     horizon_days: int = 3,
 ) -> Dict[str, Any]:
     """对持仓/观察池前几只估滚动 IC，取均值（失败则跳过）。"""
-    from core.data_service import get_bars
+    from core.data.facade import get_bars
 
     ics: List[float] = []
     details: List[Dict[str, Any]] = []

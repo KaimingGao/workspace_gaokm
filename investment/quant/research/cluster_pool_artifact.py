@@ -386,7 +386,7 @@ def preview_paper_pool_rebalance(
             "intent": intent,
         }
 
-    from core.paper_rebalance import simulate_cross_section_rebalance
+    from core.paper.rebalance import simulate_cross_section_rebalance
 
     target = paper if write else copy.deepcopy(paper)
     k = top_k if top_k is not None else len(ranking)

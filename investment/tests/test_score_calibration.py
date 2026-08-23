@@ -131,7 +131,7 @@ class TestIsotonicPav(unittest.TestCase):
             "core.signal.score_calibration._calibration_universe_codes",
             return_value=(["600519"], {"universe_mode": "explicit", "universe_count": 1}),
         ), mock.patch(
-            "core.data_service.bars_and_source",
+            "core.data.facade.bars_and_source",
             return_value=(
                 [{"date": f"2026-01-{i:02d}", "close": 10.0} for i in range(1, 40)],
                 "t",
@@ -194,7 +194,7 @@ class TestIsotonicPav(unittest.TestCase):
             "core.signal.score_calibration._calibration_universe_codes",
             return_value=(["600519"], {"universe_mode": "explicit", "universe_count": 1}),
         ), mock.patch(
-            "core.data_service.bars_and_source",
+            "core.data.facade.bars_and_source",
             return_value=(
                 [{"date": f"2026-01-{i:02d}", "close": 10.0, "open": 10.0} for i in range(1, 40)],
                 "t",

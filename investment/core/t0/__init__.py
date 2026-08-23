@@ -1,4 +1,4 @@
-"""做 T（T+0 底仓）规则与日线代理回测。"""
+"""底仓做 T（A 股 T+1：卖旧仓 / 换仓，非无底仓当日买卖）。"""
 
 import logging
 
@@ -8,9 +8,7 @@ from core.t0.config import DEFAULT_T0_RULES, load_t0_rules
 from core.t0.minute_path import simulate_t0_day_minute
 from core.t0.rules import (
     atr_pct_from_bars,
-    choose_direction,
     resolve_direction,
-    score_t0_direction,
     simulate_t0_day,
     simulate_t0_on_holdings,
 )
@@ -19,9 +17,7 @@ __all__ = [
     "DEFAULT_T0_RULES",
     "load_t0_rules",
     "atr_pct_from_bars",
-    "choose_direction",
     "resolve_direction",
-    "score_t0_direction",
     "simulate_t0_day",
     "simulate_t0_day_minute",
     "simulate_t0_on_holdings",

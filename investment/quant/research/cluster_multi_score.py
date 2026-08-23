@@ -292,9 +292,9 @@ def run_multi_score_from_artifact(
     watching_limit: int = 20,
 ) -> Dict[str, Any]:
     """用归档/传入的 code_map 对研究池（或 map 内代码）复打分。"""
-    from core.data_service import bars_and_source_research as bars_and_source
-    from core.data_service import get_quote
-    from core.watching_store import read_watching
+    from core.data.facade import bars_and_source_research as bars_and_source
+    from core.data.facade import get_quote
+    from core.watching.store import read_watching
 
     art = artifact if isinstance(artifact, dict) else None
     if not art or not art.get("code_map"):

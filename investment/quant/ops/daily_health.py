@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
-from core.watching_health import check_watching_health
+from core.watching.health import check_watching_health
 from quant.services.quant_report_index import list_quant_reports
 from services.daily_service import DailyRunService
 

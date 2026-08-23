@@ -15,7 +15,7 @@ from core.paper import (
     paper_write_lock,
     save_paper,
 )
-from core.paper_rebalance_orchestrator import run_paper_rebalance
+from core.paper.rebalance.orchestrator import run_paper_rebalance
 
 
 class PaperJobsMixin:
@@ -59,7 +59,7 @@ class PaperJobsMixin:
                 on_progress=on_progress,
                 dry_run=dry_run,
             )
-            from core.paper_open_fill import apply_next_open_commit
+            from core.paper.open_fill import apply_next_open_commit
 
             paper, result = apply_next_open_commit(
                 original,
@@ -75,7 +75,7 @@ class PaperJobsMixin:
                     "cluster_prepare": cluster_prep,
                     **result,
                 }
-            from core.paper_costs import fee_fields_from_trade, pnl_fields_from_trade
+            from core.paper.costs import fee_fields_from_trade, pnl_fields_from_trade
 
             buys = result.get("buy_trades") or result.get("new_trades") or []
             sells = result.get("sell_trades") or []

@@ -121,7 +121,8 @@ class TestT0Core(unittest.TestCase):
         )
         self.assertEqual(out["sold_qty"], 100)
 
-    def test_reverse_t_buy_then_sell(self):
+    def test_reverse_t_buy_then_sell_old(self):
+        """反T：低吸加仓 + 卖旧底仓；完成往返后仓位不变。"""
         bar = _bar("2026-01-10", 99, 103, 97, 101)
         out = simulate_t0_day(
             bar=bar,
@@ -141,8 +142,58 @@ class TestT0Core(unittest.TestCase):
         self.assertTrue(out["success"])
         self.assertEqual(out["direction_used"], "reverse_t")
         self.assertGreater(out["bought_qty"], 0)
-        self.assertGreater(out["sold_back_qty"], 0)
+        self.assertEqual(out["sold_back_qty"], out["bought_qty"])
+        self.assertEqual(out["shares_end"], 1000)
         self.assertGreater(out["pnl"], 0)
+        notes = " ".join(str(t.get("note") or "") for t in out.get("trades") or [])
+        self.assertIn("旧底仓", notes)
+        self.assertNotIn("卖回加的", notes)
+
+    def test_reverse_t_requires_sellable_old(self):
+        """无可卖旧仓时反T不能靠卖当日新买股完成。"""
+        bar = _bar("2026-01-10", 99, 103, 97, 101)
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            sellable_shares=0,
+            rules=_rules(
+                t0_ratio=0.4,
+                sell_trigger_pct=1.5,
+                buy_trigger_pct=1.5,
+                direction="reverse_t",
+                fill_mode="trigger",
+                min_range_pct=1.0,
+            ),
+        )
+        self.assertTrue(out["success"])
+        self.assertTrue(out.get("skipped"))
+        self.assertEqual(out.get("bought_qty") or 0, 0)
+        self.assertIn("可卖", out.get("reason") or "")
+
+    def test_reverse_t_sellable_caps_round_trip(self):
+        bar = _bar("2026-01-10", 99, 103, 97, 101)
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            sellable_shares=100,
+            rules=_rules(
+                t0_ratio=0.4,
+                sell_trigger_pct=1.5,
+                buy_trigger_pct=1.5,
+                direction="reverse_t",
+                fill_mode="trigger",
+                min_range_pct=1.0,
+            ),
+        )
+        self.assertTrue(out["success"])
+        self.assertFalse(out.get("skipped"))
+        self.assertEqual(out["bought_qty"], 100)
+        self.assertEqual(out["sold_back_qty"], 100)
+        self.assertEqual(out["shares_end"], 1000)
 
     def test_auto_gap_down_picks_reverse_t(self):
         # 默认 ref=open 时，auto 必须看昨收跳空，否则永远正 T
@@ -356,7 +407,7 @@ class TestT0Core(unittest.TestCase):
         self.assertNotIn("round_trip_profit_rate_pct", report)
 
     def test_backtest_defaults_path_veto(self):
-        # 收近高：正T会被 veto；显式不传 path_mode/direction 时回测应启用 veto+signal
+        # 收近高：正T会被 veto；显式不传 path_mode/direction 时回测应启用 veto+long_t
         bars = [_bar("d0", 100, 105, 98, 104.5) for _ in range(20)]
         for i, b in enumerate(bars):
             b["date"] = f"d{i}"
@@ -369,8 +420,8 @@ class TestT0Core(unittest.TestCase):
         )
         self.assertTrue(report["success"])
         self.assertEqual((report.get("rules") or {}).get("path_mode"), "veto")
-        self.assertEqual((report.get("rules") or {}).get("direction"), "signal")
-        self.assertIn("signal_skip_days", report)
+        self.assertEqual((report.get("rules") or {}).get("direction"), "long_t")
+        self.assertEqual(report.get("signal_skip_days"), 0)
 
     def test_minute_first_touch_avoids_false_cover(self):
         """先砸后拉：正T卖在尾盘，分钟路径不应再用早盘低点虚回补。"""

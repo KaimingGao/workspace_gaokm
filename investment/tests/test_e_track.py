@@ -170,7 +170,7 @@ class TestE2FactorIcPit(unittest.TestCase):
 class TestE3Calendar(unittest.TestCase):
     def test_pool_ic_filters_weekend(self):
         from core.backtest.pool_ic import compute_pool_cross_section_ic
-        from core.market_calendar import filter_trading_dates
+        from core.market.calendar import filter_trading_dates
 
         # 含周末的共同日期应被滤掉
         raw = ["2024-01-05", "2024-01-06", "2024-01-07", "2024-01-08"]  # Fri Sat Sun Mon

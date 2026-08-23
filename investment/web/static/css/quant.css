@@ -8394,7 +8394,7 @@ body[data-page="quant"] .quant-macro-context-strip {
 
 body[data-page="quant"] .quant-macro-strip {
   display: grid;
-  grid-template-columns: minmax(88px, auto) minmax(0, 1fr) minmax(140px, 0.55fr);
+  grid-template-columns: minmax(88px, auto) minmax(0, 1fr) max-content;
   align-items: stretch;
   gap: 0;
   min-height: 64px;
@@ -8404,7 +8404,7 @@ body[data-page="quant"] .quant-macro-strip.no-side {
   grid-template-columns: minmax(88px, auto) minmax(0, 1fr);
 }
 
-@media (max-width: 920px) {
+@media (max-width: 720px) {
   body[data-page="quant"] .quant-macro-strip,
   body[data-page="quant"] .quant-macro-strip.no-side {
     grid-template-columns: 1fr;
@@ -8429,7 +8429,7 @@ body[data-page="quant"] .quant-macro-strip-brand {
   background: color-mix(in srgb, var(--ink) 2.5%, transparent);
 }
 
-@media (max-width: 920px) {
+@media (max-width: 720px) {
   body[data-page="quant"] .quant-macro-strip-brand {
     flex-direction: row;
     align-items: center;
@@ -8597,15 +8597,17 @@ body[data-page="quant"] .quant-macro-strip-sub {
 body[data-page="quant"] .quant-macro-strip-chart-wrap {
   display: flex;
   flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 8px;
   min-width: 0;
   padding: 6px 10px 8px;
   border-left: 1px solid var(--line);
   background: color-mix(in srgb, var(--ink) 1.5%, transparent);
+  white-space: nowrap;
 }
 
-@media (max-width: 920px) {
+@media (max-width: 720px) {
   body[data-page="quant"] .quant-macro-strip-chart-wrap {
     border-left: none;
     border-top: 1px solid var(--line);
@@ -8613,11 +8615,13 @@ body[data-page="quant"] .quant-macro-strip-chart-wrap {
 }
 
 body[data-page="quant"] .quant-macro-strip-chart-label {
+  flex: 0 0 auto;
   font-size: 0.52rem;
   font-weight: 650;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  letter-spacing: 0.04em;
   color: var(--ink-3);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 
 body[data-page="quant"] .quant-macro-strip-chart-wrap .macro-hist-legend {
@@ -8639,6 +8643,11 @@ body[data-page="quant"] .quant-macro-strip-chart-wrap .macro-hist-legend-item {
   line-height: 1.2;
 }
 
+body[data-page="quant"] .quant-macro-strip-chart-wrap .macro-hist-legend-val {
+  font-size: 0.52rem;
+  min-width: 3.2em;
+}
+
 body[data-page="quant"] .quant-macro-strip-chart-wrap .macro-hist-legend-swatch {
   display: inline-block;
   width: 10px;
@@ -8657,11 +8666,19 @@ body[data-page="quant"] .quant-macro-strip-chart-wrap .macro-hist-legend-swatch.
 
 body[data-page="quant"] .quant-macro-strip-chart {
   display: block;
-  flex: 1 1 auto;
-  min-width: 0;
-  width: 100%;
-  max-width: 100%;
+  flex: 0 0 156px;
+  width: 156px;
+  max-width: 156px;
   height: 40px;
+  overflow: hidden;
+  position: relative;
+  cursor: crosshair;
+}
+
+body[data-page="quant"] .quant-macro-strip-chart-fallback {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
 
 body[data-page="quant"] .quant-macro-strip-hint,
@@ -8674,7 +8691,7 @@ body[data-page="quant"] .quant-macro-strip-empty {
   border-left: 1px solid var(--line);
 }
 
-@media (max-width: 920px) {
+@media (max-width: 720px) {
   body[data-page="quant"] .quant-macro-strip-hint {
     border-left: none;
     border-top: 1px solid var(--line);

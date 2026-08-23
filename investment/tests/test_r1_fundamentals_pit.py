@@ -179,7 +179,7 @@ class TestImpactCost(unittest.TestCase):
 
 class TestSourceAudit(unittest.TestCase):
     def test_audit_empty_codes(self):
-        from core.data_consistency import audit_code_sources
+        from core.data.consistency import audit_code_sources
 
         out = audit_code_sources([])
         self.assertEqual(out["status"], "empty")
@@ -187,10 +187,10 @@ class TestSourceAudit(unittest.TestCase):
     def test_attach_source_audit(self):
         from unittest.mock import patch
 
-        from core.data_consistency import attach_source_audit
+        from core.data.consistency import attach_source_audit
 
         with patch(
-            "core.data_consistency.audit_code_sources",
+            "core.data.consistency.audit_code_sources",
             return_value={"ok": True, "status": "ok", "fallback_count": 0},
         ):
             out = attach_source_audit({"success": True}, codes=["600519"])

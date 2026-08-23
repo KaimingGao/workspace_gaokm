@@ -193,7 +193,7 @@ def fit_watching_return_model(
     from core.research.panel import collect_subscore_forward_panel
     from core.research.portfolio_bars import load_portfolio_stock_bars
     from core.signal.return_score import fit_return_model_from_panel
-    from core.watching_store import read_watching
+    from core.watching.store import read_watching
 
     if codes:
         use_codes = [str(c).strip() for c in codes if str(c).strip()]

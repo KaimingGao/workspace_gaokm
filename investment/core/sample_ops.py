@@ -223,7 +223,7 @@ def ingest_real_fundamentals_history(
                     code_list.append(name[:-5])
         if not code_list:
             try:
-                from core.data_coverage import universe_codes
+                from core.data.coverage import universe_codes
 
                 code_list = list(universe_codes() or [])
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

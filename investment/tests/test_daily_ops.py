@@ -16,7 +16,7 @@ from services.daily_service import DailyRunService
 from services.eval_service import EvalService
 from quant.services.quant_service import QuantService
 from unittest.mock import MagicMock, patch
-from core.watching_health import check_watching_health
+from core.watching.health import check_watching_health
 from quant.ops.daily_health import build_daily_health
 from quant.services.quant_report_index import list_quant_reports, read_quant_report_file
 from quant.skill.engine import QuantEngine
@@ -220,7 +220,7 @@ class TestWatchingFileApi(unittest.TestCase):
     def test_read_watching_file_missing(self):
         with tempfile.TemporaryDirectory(dir=os.path.join(ROOT, "data")) as tmp:
             path = os.path.join(tmp, "watching.json")
-            with patch("core.watching_store.WATCHING_PATH", path):
+            with patch("core.watching.store.WATCHING_PATH", path):
                 out = QuantService().read_watching_file()
         self.assertFalse(out["exists"])
     def test_api_watching_file(self):
@@ -402,7 +402,7 @@ class TestSignalDiffExportCli(unittest.TestCase):
 
 # --- test_p22_quant.py::TestQuantPaperDailyIntegration ---
 class TestQuantPaperDailyIntegration(unittest.TestCase):
-    @patch("core.watching_health.check_watching_health")
+    @patch("core.watching.health.check_watching_health")
     def test_quant_paper_preset_runs_rebalance(self, mock_health):
         mock_health.return_value = {
             "success": True,

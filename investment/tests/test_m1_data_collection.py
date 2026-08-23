@@ -43,7 +43,7 @@ class TestSnapshotCache(unittest.TestCase):
 
 class TestDataServiceWrappers(unittest.TestCase):
     def test_get_bars_shape(self):
-        from core.data_service import get_bars
+        from core.data.facade import get_bars
 
         fake_bars = [
             {"date": f"2024-01-{i:02d}", "open": 10, "high": 11, "low": 9, "close": 10 + i * 0.1, "volume": 1}
@@ -60,7 +60,7 @@ class TestDataServiceWrappers(unittest.TestCase):
         self.assertIn("production_ok", pack)
 
     def test_get_fundamentals_cache(self):
-        from core import data_service as ds
+        from core.data import facade as ds
 
         with patch(
             "core.store.load_snapshot_cache",
@@ -78,18 +78,18 @@ class TestDataServiceWrappers(unittest.TestCase):
 
 class TestDataCoverage(unittest.TestCase):
     def test_empty_universe(self):
-        from core.data_coverage import build_data_coverage
+        from core.data.coverage import build_data_coverage
 
-        with patch("core.data_coverage.universe_codes", return_value=[]):
+        with patch("core.data.coverage.universe_codes", return_value=[]):
             cov = build_data_coverage([])
         self.assertEqual(cov["total"], 0)
         self.assertEqual(cov["coverage"], None)
         self.assertTrue(cov.get("empty_universe"))
 
     def test_missing_codes_alert(self):
-        from core.data_coverage import build_data_coverage
+        from core.data.coverage import build_data_coverage
 
-        with patch("core.data_coverage.universe_codes", return_value=["600519", "300750"]), patch(
+        with patch("core.data.coverage.universe_codes", return_value=["600519", "300750"]), patch(
             "core.ports.market.resolve_market_code",
             side_effect=lambda c: ("CN", c),
         ), patch("core.store.peek_daily_cache_meta", return_value=None):

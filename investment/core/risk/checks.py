@@ -14,13 +14,13 @@ def check_account_risk(
     risk: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """返回 {ok, blocks, block_items, warnings, exposure, limits}。blocks 非空时应跳过加仓。"""
-    from core.data_policy import (
+    from core.data.policy import (
         DEFAULT_REQUIRE_SECTOR_MAP,
         MIN_SECTOR_MAP_COVERAGE_BLOCK,
         MIN_SECTOR_MAP_COVERAGE_WARN,
         UNMAPPED_SECTOR,
     )
-    from core.paper_costs import resolve_cost_model
+    from core.paper.costs import resolve_cost_model
     from core.portfolio_optimize import _sector_for, load_sector_map, sector_map_coverage
     from core.risk.exposure import build_exposure_matrix
     from core.strategy import get_strategy_spec

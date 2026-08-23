@@ -212,7 +212,7 @@ def build_topk_benchmark_summary(
     index_bars: List[dict] = []
     if not force_pool:
         try:
-            from core.data_service import get_index_bars
+            from core.data.facade import get_index_bars
 
             raw = get_index_bars(code, limit=max(40, int(lookback) + 20))
             if isinstance(raw, dict):

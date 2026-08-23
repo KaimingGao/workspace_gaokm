@@ -57,7 +57,7 @@ def _resolve_warmup_codes(
 
 def run_watch_alert(*, codes: Optional[List[str]] = None) -> Dict[str, Any]:
     """轻量异动：对观察池/给定代码拉现货涨跌，标记 |涨跌|≥2%。"""
-    from core.data_service import get_quote
+    from core.data.facade import get_quote
 
     slot = job_registry.slot("schedule")
     if slot.is_running():
@@ -191,8 +191,8 @@ def run_bars_warmup(
 ) -> Dict[str, Any]:
     """预热观察名单日线缓存（N1/M1 批式收集入口；默认增量合并）。"""
     from core.alert_outbound import dispatch_monitor_alerts
-    from core.data_coverage import build_data_coverage, coverage_alerts_for_outbound
-    from core.data_service import summarize_data_quality
+    from core.data.coverage import build_data_coverage, coverage_alerts_for_outbound
+    from core.data.facade import summarize_data_quality
 
     slot = job_registry.slot("schedule")
     if slot.is_running():
@@ -312,7 +312,7 @@ def run_spot_refresh(*, force: bool = False, enrich_sectors: bool = True) -> Dic
 
     job_id = slot.start(kind="spot_refresh", total=2 if enrich_sectors else 1, message="刷新现货…")
     try:
-        from core.data_service import get_spot
+        from core.data.facade import get_spot
 
         slot.update(current=1, message="stock_zh_a_spot_em")
         pack = get_spot(force=bool(force))
@@ -412,7 +412,7 @@ def run_fundamentals_warmup(
     ingest_max_points: int = 8,
 ) -> Dict[str, Any]:
     """预热观察池基本面快照；默认再对 A 股 6 位码入库真实多期 history（C2）。"""
-    from core.data_service import get_fundamentals
+    from core.data.facade import get_fundamentals
 
     slot = job_registry.slot("schedule")
     if slot.is_running():
@@ -508,7 +508,7 @@ def run_paper_daily(
         slot.update(current=1, message="pre_market + cluster_prepare + run_daily_cycle")
         pre_market = None
         try:
-            from core.market_context import ensure_pre_market_context
+            from core.market.context import ensure_pre_market_context
 
             pre_market = ensure_pre_market_context()
         except Exception as exc:
@@ -536,7 +536,7 @@ def run_paper_daily(
             simulate_buy=bool(simulate_buy),
             strategy=str(strategy or "short"),
         )
-        from core.paper_open_fill import apply_next_open_commit
+        from core.paper.open_fill import apply_next_open_commit
 
         paper, cycle = apply_next_open_commit(
             original,
@@ -629,7 +629,7 @@ def run_paper_daily(
             or []
         )
         from core.alert_outbound import dispatch_monitor_alerts
-        from core.data_coverage import build_data_coverage, coverage_alerts_for_outbound
+        from core.data.coverage import build_data_coverage, coverage_alerts_for_outbound
 
         coverage = build_data_coverage()
         cov_alerts = coverage_alerts_for_outbound(coverage)
@@ -698,7 +698,7 @@ def run_concept_graph_refresh(
     force: bool = False,
 ) -> Dict[str, Any]:
     """独立刷新概念成分图谱缓存。"""
-    from core.market_context import refresh_concept_graph
+    from core.market.context import refresh_concept_graph
 
     slot = job_registry.slot("schedule")
     if slot.is_running():
@@ -720,7 +720,7 @@ def run_concept_graph_refresh(
 
 def run_macro_backfill(*, lookback: int = 90) -> Dict[str, Any]:
     """macro 加长 lookback ingest + 历史索引。"""
-    from core.market_context import ingest_macro_backfill
+    from core.market.context import ingest_macro_backfill
 
     slot = job_registry.slot("schedule")
     if slot.is_running():
@@ -742,7 +742,7 @@ def run_macro_backfill(*, lookback: int = 90) -> Dict[str, Any]:
 
 def run_pre_market_ingest(*, lookback: int = 30) -> Dict[str, Any]:
     """盘前 bundle：macro + 市场情绪 + 公告/IPO。"""
-    from core.market_context import ingest_pre_market_bundle
+    from core.market.context import ingest_pre_market_bundle
 
     slot = job_registry.slot("schedule")
     if slot.is_running():
@@ -808,7 +808,7 @@ def run_paper_open_fill() -> Dict[str, Any]:
     job_id = slot.start(kind="paper_open_fill", total=2, message="开盘成交挂单…")
     try:
         from core.paper import append_operation_log, load_paper, mark_to_market, save_paper
-        from core.paper_open_fill import fill_pending_at_open, paper_fill_phase
+        from core.paper.open_fill import fill_pending_at_open, paper_fill_phase
         from core.paths import PAPER_PATH
 
         slot.update(current=1, message="fill_pending_at_open")

@@ -31,7 +31,7 @@ class TestProCoreDC(unittest.TestCase):
         self.assertEqual(hard["honest_label"], "pit_hard_debt")
 
     def test_filter_halted_bars(self):
-        from core.market_calendar import filter_halted_bars
+        from core.market.calendar import filter_halted_bars
 
         bars = [
             {"date": "2024-01-02", "volume": 100, "close": 10},

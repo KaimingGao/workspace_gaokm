@@ -320,7 +320,7 @@ class PaperTradesMixin:
     ) -> Dict[str, Any]:
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
-        from core.paper_rebalance_orchestrator import (
+        from core.paper.rebalance.orchestrator import (
             prepare_cluster_book_rank,
             resolve_rebalance_mode,
             run_paper_rebalance,
@@ -360,7 +360,7 @@ class PaperTradesMixin:
         if not (result.get("success") or result.get("ok")):
             return {**result, "mode": mode}
 
-        from core.paper_open_fill import apply_next_open_commit
+        from core.paper.open_fill import apply_next_open_commit
 
         work, result = apply_next_open_commit(
             paper_ro,
@@ -399,7 +399,7 @@ class PaperTradesMixin:
             score_rows=score_rows or None,
         )
         try:
-            from core.paper_rebalance import attach_change_pct_to_rebalance_report
+            from core.paper.rebalance import attach_change_pct_to_rebalance_report
 
             attach_change_pct_to_rebalance_report(report, summary=summary)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -560,7 +560,7 @@ class PaperTradesMixin:
 
         with paper_write_lock(self.path):
             paper = load_paper(self.path)
-            from core.paper_open_fill import require_open_fill
+            from core.paper.open_fill import require_open_fill
 
             blocked = require_open_fill(paper, action="手动买入")
             if blocked:
@@ -569,7 +569,7 @@ class PaperTradesMixin:
             trade = manual_buy(paper, stock_code, amount=amount, shares=shares)
             summary = mark_to_market(paper)
             append_snapshot(paper, summary)
-            from core.paper_costs import fee_fields_from_trade
+            from core.paper.costs import fee_fields_from_trade
 
             fee_meta = fee_fields_from_trade(trade)
             append_operation_log(
@@ -607,7 +607,7 @@ class PaperTradesMixin:
 
         with paper_write_lock(self.path):
             paper = load_paper(self.path)
-            from core.paper_open_fill import require_open_fill
+            from core.paper.open_fill import require_open_fill
 
             blocked = require_open_fill(paper, action="手动卖出")
             if blocked:
@@ -616,7 +616,7 @@ class PaperTradesMixin:
             trades = manual_sell(paper, codes=codes, stock_code=stock_code, shares=shares)
             summary = mark_to_market(paper)
             append_snapshot(paper, summary)
-            from core.paper_costs import fee_fields_from_trade, pnl_fields_from_trade
+            from core.paper.costs import fee_fields_from_trade, pnl_fields_from_trade
 
             for t in trades:
                 fee_meta = fee_fields_from_trade(t)
@@ -649,7 +649,7 @@ class PaperTradesMixin:
         if not code:
             raise ValueError("请指定股票代码")
 
-        from core.data_service import bars_and_source
+        from core.data.facade import bars_and_source
 
         paper = load_paper(self.path)
         holding = next(
@@ -709,13 +709,13 @@ class PaperTradesMixin:
         """
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
-        from core.data_service import bars_and_source
+        from core.data.facade import bars_and_source
         from core.t0.rules import atr_pct_from_bars, simulate_t0_on_holdings
 
         paper = load_paper(self.path)
 
         if not dry_run:
-            from core.paper_open_fill import is_next_open_mode
+            from core.paper.open_fill import is_next_open_mode
 
             if is_next_open_mode(paper):
                 blocked = "next_open 模式不做盘中做 T；只在开盘窗成交隔夜调仓单。"

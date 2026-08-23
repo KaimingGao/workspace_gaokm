@@ -14,7 +14,7 @@ if ROOT not in sys.path:
 
 class TestWatchingInsights(unittest.TestCase):
     def test_insight_fields(self):
-        from core.watching_insights import build_watching_insights
+        from core.watching.insights import build_watching_insights
 
         fake_score = {
             "success": True,
@@ -39,7 +39,7 @@ class TestWatchingInsights(unittest.TestCase):
         }
 
         with patch("core.signal.score_stock.score_stock", return_value=fake_score), patch(
-            "core.watching_insights._spot_valuation_map",
+            "core.watching.insights._spot_valuation_map",
             return_value={},
         ), patch(
             "core.signal.cluster_live.load_active_cluster_book",
@@ -67,7 +67,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertFalse(item["hard_reject"])
 
     def test_rs_fallback_when_no_excess(self):
-        from core.watching_insights import build_watching_insights
+        from core.watching.insights import build_watching_insights
 
         fake_score = {
             "success": True,
@@ -80,7 +80,7 @@ class TestWatchingInsights(unittest.TestCase):
             },
         }
         with patch("core.signal.score_stock.score_stock", return_value=fake_score), patch(
-            "core.watching_insights._spot_valuation_map",
+            "core.watching.insights._spot_valuation_map",
             return_value={},
         ), patch(
             "core.signal.cluster_live.load_active_cluster_book",
@@ -92,7 +92,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertEqual(item["excess_label"], "RS66")
 
     def test_book_row_forwards_trade_score_fields(self):
-        from core.watching_insights import _insight_from_book_row
+        from core.watching.insights import _insight_from_book_row
 
         row = {
             "stock_code": "600519",
@@ -106,7 +106,7 @@ class TestWatchingInsights(unittest.TestCase):
         }
         # 无新缺口时不覆盖簿上已有 rem；表列 score 对齐 ŷ_trade
         with patch("core.ports.market.query_quote", return_value={}), patch(
-            "core.data_service.get_bars", return_value={"bars": []}
+            "core.data.facade.get_bars", return_value={"bars": []}
         ), patch("core.stance.compute_buy_stance", return_value={}):
             out = _insight_from_book_row("600519", row)
         self.assertAlmostEqual(out["predicted_score"], 0.40)
@@ -120,7 +120,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertFalse(out.get("oos_failed"))
 
     def test_book_row_marks_oos_failed_global(self):
-        from core.watching_insights import _insight_from_book_row
+        from core.watching.insights import _insight_from_book_row
 
         row = {
             "stock_code": "600519",
@@ -130,7 +130,7 @@ class TestWatchingInsights(unittest.TestCase):
             "score_global": 0.12,
             "score_cluster": 0.40,
         }
-        with patch("core.data_service.get_bars", return_value={"bars": []}), patch(
+        with patch("core.data.facade.get_bars", return_value={"bars": []}), patch(
             "core.stance.compute_buy_stance", return_value={}
         ):
             out = _insight_from_book_row("600519", row)
@@ -139,7 +139,7 @@ class TestWatchingInsights(unittest.TestCase):
 
     def test_book_row_repairs_stale_eod_next_blend(self):
         """旧簿 eod_next 掺了 τ 时，读路径剥离为 ŷ_EOD。"""
-        from core.watching_insights import _insight_from_book_row
+        from core.watching.insights import _insight_from_book_row
 
         row = {
             "stock_code": "600519",
@@ -154,7 +154,7 @@ class TestWatchingInsights(unittest.TestCase):
             "gap_pct": 1.0,
         }
         with patch("core.ports.market.query_quote", return_value={}), patch(
-            "core.data_service.get_bars", return_value={"bars": []}
+            "core.data.facade.get_bars", return_value={"bars": []}
         ), patch("core.stance.compute_buy_stance", return_value={}):
             out = _insight_from_book_row("600519", row)
         self.assertAlmostEqual(out["predicted_score"], 0.234547, places=5)
@@ -163,7 +163,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertAlmostEqual(out["decision_score"], 0.234547, places=5)
 
     def test_book_row_hydrates_eod_rem_when_missing(self):
-        from core.watching_insights import _insight_from_book_row
+        from core.watching.insights import _insight_from_book_row
 
         row = {
             "stock_code": "600519",
@@ -171,7 +171,7 @@ class TestWatchingInsights(unittest.TestCase):
             "predicted_score": 0.40,
         }
         with patch("core.ports.market.query_quote", return_value={}), patch(
-            "core.data_service.get_bars", return_value={"bars": []}
+            "core.data.facade.get_bars", return_value={"bars": []}
         ), patch("core.stance.compute_buy_stance", return_value={}), patch(
             "quant.research.rem_ridge.load_rem_model", return_value=None
         ), patch(
@@ -184,7 +184,7 @@ class TestWatchingInsights(unittest.TestCase):
 
     def test_book_row_hydrates_trade_fields_without_live_quote(self):
         """簿快路径不拉行情：无缺口时 rem=EOD，并写出 ŷ_trade。"""
-        from core.watching_insights import _insight_from_book_row
+        from core.watching.insights import _insight_from_book_row
 
         row = {
             "stock_code": "600519",
@@ -194,7 +194,7 @@ class TestWatchingInsights(unittest.TestCase):
         with patch("quant.research.rem_ridge.load_rem_model", return_value=None), patch(
             "quant.research.rem_ridge.predict_rem_from_features", return_value=None
         ), patch(
-            "core.data_service.get_bars", return_value={"bars": []}
+            "core.data.facade.get_bars", return_value={"bars": []}
         ):
             out = _insight_from_book_row("600519", row)
         self.assertAlmostEqual(out["predicted_score"], 0.40, places=5)
@@ -204,7 +204,7 @@ class TestWatchingInsights(unittest.TestCase):
 
     def test_book_row_fills_stance_volr_excess_from_local_bars(self):
         """簿行无 factors 时，仍用本地日线补倾向 / 量比 / 超额，避免表列整列「—」。"""
-        from core.watching_insights import _insight_from_book_row
+        from core.watching.insights import _insight_from_book_row
 
         row = {
             "stock_code": "600519",
@@ -219,7 +219,7 @@ class TestWatchingInsights(unittest.TestCase):
             {"date": f"2026-07-{d:02d}", "close": 100.0 + d * 0.05}
             for d in range(1, 29)
         ]
-        with patch("core.data_service.get_bars", return_value={"bars": stock_bars}), patch(
+        with patch("core.data.facade.get_bars", return_value={"bars": stock_bars}), patch(
             "core.signal.live_features.fetch_live_index_bars",
             return_value={"ok": True, "bars": idx_bars},
         ), patch("quant.research.rem_ridge.load_rem_model", return_value=None), patch(
@@ -233,7 +233,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertIn(out["excess_label"], {"强", "弱", "平"})
 
     def test_insights_covers_full_watchlist_up_to_hard_cap(self):
-        from core.watching_insights import build_watching_insights, _INSIGHT_HARD_CAP
+        from core.watching.insights import build_watching_insights, _INSIGHT_HARD_CAP
 
         codes = [f"{i:06d}" for i in range(1, 101)]
 
@@ -245,13 +245,13 @@ class TestWatchingInsights(unittest.TestCase):
             }
 
         with patch("core.signal.score_stock.score_stock", side_effect=fake_score), patch(
-            "core.watching_insights._spot_valuation_map",
+            "core.watching.insights._spot_valuation_map",
             return_value={},
         ), patch(
             "core.signal.cluster_live.load_active_cluster_book",
             return_value={},
         ), patch(
-            "core.data_service.get_bars", return_value={"bars": []}
+            "core.data.facade.get_bars", return_value={"bars": []}
         ):
             out = build_watching_insights(codes)
         self.assertEqual(out["count"], 100)
@@ -260,7 +260,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertGreaterEqual(_INSIGHT_HARD_CAP, 100)
 
     def test_spot_valuation_warms_when_disk_empty(self):
-        from core.watching_insights import _spot_valuation_map
+        from core.watching.insights import _spot_valuation_map
 
         rows = [
             {"代码": "600519", "市盈率-动态": "20.5", "市净率": "8.25"},
@@ -269,7 +269,7 @@ class TestWatchingInsights(unittest.TestCase):
         with patch(
             "core.ports.market.load_disk_spot", return_value=rows
         ), patch(
-            "core.watching_insights._fill_valuation_from_em"
+            "core.watching.insights._fill_valuation_from_em"
         ):
             out = _spot_valuation_map(["600519", "000001"])
         self.assertEqual(out["600519"]["pe"], 20.5)
@@ -277,7 +277,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertEqual(out["000001"]["pe"], 5.1)
 
     def test_spot_valuation_falls_back_to_em_when_spot_fails(self):
-        from core.watching_insights import _spot_valuation_map
+        from core.watching.insights import _spot_valuation_map
 
         with patch(
             "core.ports.market.load_disk_spot", return_value=[]
@@ -290,7 +290,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertEqual(out["600519"]["pb"], 6.03)
 
     def test_pe_pb_from_spot_when_factors_missing(self):
-        from core.watching_insights import build_watching_insights
+        from core.watching.insights import build_watching_insights
 
         fake_score = {
             "success": True,
@@ -302,7 +302,7 @@ class TestWatchingInsights(unittest.TestCase):
             },
         }
         with patch("core.signal.score_stock.score_stock", return_value=fake_score), patch(
-            "core.watching_insights._spot_valuation_map",
+            "core.watching.insights._spot_valuation_map",
             return_value={"600519": {"pe": 18.2, "pb": 7.1}},
         ):
             out = build_watching_insights(["600519"])
@@ -312,7 +312,7 @@ class TestWatchingInsights(unittest.TestCase):
 
     def test_book_row_keeps_dual_track_on_oos_failed_heuristic(self):
         """heuristic 0–100 与组 ŷ% 双轨并存；不把 0–100 写进 predicted_score。"""
-        from core.watching_insights import _insight_from_book_row
+        from core.watching.insights import _insight_from_book_row
 
         row = {
             "stock_code": "600519",
@@ -327,7 +327,7 @@ class TestWatchingInsights(unittest.TestCase):
             "cluster_label": "G_fail",
         }
         with patch("core.ports.market.query_quote", return_value={}), patch(
-            "core.data_service.get_bars", return_value={"bars": []}
+            "core.data.facade.get_bars", return_value={"bars": []}
         ), patch("core.stance.compute_buy_stance", return_value={}):
             out = _insight_from_book_row("600519", row)
         self.assertEqual(out["score_scale"], "heuristic_0_100")

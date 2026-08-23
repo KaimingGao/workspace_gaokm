@@ -85,7 +85,7 @@ def summarize_portfolio_backtest(
 ) -> Dict[str, Any]:
     """每日报告用的轻量 TopK 回测摘要（ŷ 排序；规则分 min_score 不再默认 55）。"""
     from core.backtest.topk_backtest import backtest_topk_equal_weight
-    from core.watching_store import read_watching
+    from core.watching.store import read_watching
 
     candidates = list(codes or [])
     if not candidates:

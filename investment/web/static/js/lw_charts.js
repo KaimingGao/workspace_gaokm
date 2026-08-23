@@ -1088,3 +1088,167 @@ export async function renderDualScaleOverlayChart(container, opts = {}) {
   }
   return chart;
 }
+
+/**
+ * 紧凑 sparkline（条带 / 页头）：无轴、无网格、禁止缩放，保留十字线。
+ * seriesList: [{ label?, color, points: {time, value}[] }]
+ */
+export async function renderCompactSparkline(container, seriesList, opts = {}) {
+  if (!container) return null;
+  const prepared = (Array.isArray(seriesList) ? seriesList : [])
+    .map((s) => ({
+      label: s.label || "",
+      color: s.color || cssVar("--accent", "#1890ff"),
+      points: normalizeSeriesPoints(s.points || s.data || []),
+    }))
+    .filter((s) => s.points.length >= 2);
+  if (!prepared.length) {
+    if (opts.emptyText) showEmpty(container, opts.emptyText);
+    return null;
+  }
+
+  let LC;
+  try {
+    LC = await loadLightweightCharts();
+  } catch (_) {
+    return null;
+  }
+
+  if ((container.clientWidth || 0) < 16) {
+    await new Promise((r) => requestAnimationFrame(r));
+  }
+
+  disposeChart(container);
+  const mount = ensureIsolatedMount(container);
+  mount.replaceChildren();
+  const size = measureHost(container, { minWidth: 72, minHeight: 28 });
+  applyMountSize(mount, size);
+
+  const theme = chartTheme();
+  const magnet =
+    (LC.CrosshairMode && LC.CrosshairMode.Magnet) || theme.crosshair.mode || 1;
+  let chart;
+  try {
+    chart = LC.createChart(mount, {
+    ...theme,
+    autoSize: false,
+    width: size.width,
+    height: size.height,
+    layout: {
+      ...theme.layout,
+      fontSize: 9,
+    },
+    grid: {
+      vertLines: { visible: false },
+      horzLines: { visible: false },
+    },
+    rightPriceScale: { visible: false, borderVisible: false },
+    leftPriceScale: { visible: false, borderVisible: false },
+    timeScale: {
+      visible: false,
+      borderVisible: false,
+      fixLeftEdge: true,
+      fixRightEdge: true,
+    },
+    crosshair: {
+      mode: magnet,
+      vertLine: {
+        visible: true,
+        width: 1,
+        color: "rgba(100, 116, 139, 0.45)",
+        style: 3,
+        labelVisible: false,
+      },
+      horzLine: { visible: false, labelVisible: false },
+    },
+    ...interactionOptions(true),
+  });
+  } catch (_) {
+    return null;
+  }
+
+  const bound = [];
+  try {
+    prepared.forEach((s, idx) => {
+      const series = chart.addLineSeries({
+        color: s.color,
+        lineWidth: idx === 0 ? 2 : 1,
+        priceLineVisible: false,
+        lastValueVisible: false,
+        crosshairMarkerVisible: true,
+        crosshairMarkerRadius: 3,
+      });
+      series.setData(s.points);
+      if (opts.zeroLine !== false && idx === 0) {
+        try {
+          series.createPriceLine({
+            price: 0,
+            color: "rgba(100, 116, 139, 0.5)",
+            lineWidth: 1,
+            lineStyle: 2,
+            axisLabelVisible: false,
+            title: "",
+          });
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      bound.push({ ...s, series });
+    });
+  } catch (_) {
+    try {
+      chart.remove();
+    } catch (__) {
+      /* ignore */
+    }
+    return null;
+  }
+
+  syncLegend(container, []);
+  try {
+    chart.timeScale().fitContent();
+  } catch (_) {
+    /* ignore */
+  }
+
+  if (typeof opts.onCrosshair === "function") {
+    chart.subscribeCrosshairMove((param) => {
+      if (!param || param.time == null || !param.point) {
+        opts.onCrosshair(null);
+        return;
+      }
+      const values = bound.map((s) => {
+        let v = null;
+        try {
+          const sd = param.seriesData && param.seriesData.get(s.series);
+          const raw = sd && (sd.value ?? sd.close);
+          v = Number.isFinite(Number(raw)) ? Number(raw) : null;
+        } catch (_) {
+          v = null;
+        }
+        return { label: s.label, value: v, color: s.color };
+      });
+      opts.onCrosshair({ time: param.time, values, point: param.point });
+    });
+  }
+
+  container.__lwChart = chart;
+  const ro =
+    typeof ResizeObserver !== "undefined"
+      ? new ResizeObserver(() => {
+          if (!container.__lwChart || !container.__lwMount) return;
+          const next = measureHost(container, { minWidth: 72, minHeight: 28 });
+          applyMountSize(container.__lwMount, next);
+          try {
+            container.__lwChart.applyOptions(next);
+          } catch (_) {
+            /* ignore */
+          }
+        })
+      : null;
+  if (ro) {
+    ro.observe(container);
+    container.__lwRo = ro;
+  }
+  return chart;
+}

@@ -16,9 +16,11 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from core.io_atomic import atomic_write_json
 from core.numbers import now_iso_utc
-from core.signal.cluster_live_evidence import (
+from core.signal.cluster_live_evidence import (  # noqa: F401 — 门面再导出
+    _paper_cluster_landed,
     _summarize_cluster_oos,
     build_cluster_enable_evidence,
+    cluster_status_public,
 )
 from core.signal.factor_health import PROXY_OR_UNSOURCED
 

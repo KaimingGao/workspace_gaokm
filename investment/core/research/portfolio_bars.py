@@ -42,7 +42,7 @@ def _resolve_symbol(raw: str, *, allow_live: bool = True) -> str:
         pass
     if not allow_live:
         return text or digits or raw
-    from core.data_service import get_quote
+    from core.data.facade import get_quote
 
     quote = get_quote(text)
     return str(quote.get("stock_code") if quote.get("success") else text)

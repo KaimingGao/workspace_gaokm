@@ -44,6 +44,8 @@ import {
   fillExecutionForm,
   collectExecutionForm,
   collectT0BacktestBody,
+  resolveT0BacktestScope,
+  normalizeExecutionView,
   renderExecutionDiffHtml,
 } from "./paper/execution_ui.js";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js";
@@ -1985,11 +1987,19 @@ export function initPaper(ctx) {
     paperT0Bt.addEventListener("click", async (e) => {
       e.preventDefault();
       if (paperT0Bt.disabled) return;
-      // 默认回测全部持仓（日线代理，快）；Alt+选中行 = 单票并尝试 5m
-      const onlySelected = !!(e.altKey && selectedHoldCode);
-      const useMinute = onlySelected;
+      const formRoot = document.getElementById("paper-t0-form");
+      const scope = resolveT0BacktestScope(formRoot, {
+        altKey: e.altKey,
+        selectedCode: selectedHoldCode,
+      });
+      if (scope.error) {
+        if (paperT0ActionStatus) paperT0ActionStatus.textContent = scope.error;
+        if (paperT0Summary) paperT0Summary.textContent = scope.error;
+        return;
+      }
+      const { onlySelected, useMinute } = scope;
       const busyLabel = onlySelected
-        ? `回测中（${selectedHoldCode}·5m）…`
+        ? `回测中（${selectedHoldCode}${useMinute ? "·5m" : "·日线"}）…`
         : "回测中（全部持仓·日线）…";
       const setT0Busy = (busy, msg) => {
         paperT0Bt.disabled = !!busy;
@@ -2009,7 +2019,6 @@ export function initPaper(ctx) {
           }
         }, 90000);
       try {
-        const formRoot = document.getElementById("paper-t0-form");
         const body = collectT0BacktestBody(formRoot, {
           useMinute,
           onlySelected,
@@ -2047,6 +2056,11 @@ export function initPaper(ctx) {
           (daily.delta_pnl != null ? ` · 相对日线Δ ${daily.delta_pnl}` : "") +
           ` · 路径${(data.rules && data.rules.path_mode) || data.path_mode || (data.use_minute ? "first_touch" : "veto")}` +
           (data.minute_path_days != null ? ` · 5m日${data.minute_path_days}` : "") +
+          (data.minute_meta && data.minute_meta.error
+            ? ` · 5m失败 ${String(data.minute_meta.error).slice(0, 48)}`
+            : useMinute && (data.minute_path_days || 0) === 0
+              ? " · 5m无数据(已回退日线)"
+              : "") +
           ` · 选向${(data.rules && data.rules.direction) || data.direction || "signal"}` +
           (data.rules && data.rules.dir_enter != null
             ? ` · 入场±${data.rules.dir_enter}`
@@ -2068,7 +2082,9 @@ export function initPaper(ctx) {
         showValidateNext("t0");
         const t0RulesEl = document.getElementById("paper-t0-rules");
         if (t0RulesEl && data.execution) {
-          t0RulesEl.innerHTML = renderExecutionRulesHtml(data.execution);
+          t0RulesEl.innerHTML = renderExecutionRulesHtml(
+            normalizeExecutionView(data.execution, data.rules)
+          );
         }
         paperT0Bt.disabled = false;
         paperT0Bt.textContent = "做T回测";
@@ -2114,7 +2130,11 @@ export function initPaper(ctx) {
         }
         if (data.execution) {
           const t0RulesEl = document.getElementById("paper-t0-rules");
-          if (t0RulesEl) t0RulesEl.innerHTML = renderExecutionRulesHtml(data.execution);
+          if (t0RulesEl) {
+            t0RulesEl.innerHTML = renderExecutionRulesHtml(
+              normalizeExecutionView(data.execution, data.rules)
+            );
+          }
         }
         renderPaperT0Preview(data);
       } catch (err) {

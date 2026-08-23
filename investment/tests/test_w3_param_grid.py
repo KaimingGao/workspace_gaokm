@@ -328,10 +328,10 @@ class TestParamGrid(unittest.TestCase):
         ) as save, patch(
             "core.north_star.append_ttm_event",
         ), patch(
-            "core.data_service.summarize_data_quality",
+            "core.data.facade.summarize_data_quality",
             return_value={},
         ), patch(
-            "core.data_consistency.attach_source_audit",
+            "core.data.consistency.attach_source_audit",
             side_effect=lambda result, **kwargs: result,
         ):
             out = svc.run_portfolio_backtest(

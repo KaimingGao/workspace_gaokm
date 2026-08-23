@@ -1046,10 +1046,32 @@ body[data-page="dashboard"] .dashboard-overview-band .dashboard-market-context-r
   background: var(--accent, #1890ff);
 }
 
+.macro-hist-legend-val {
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+  min-width: 3.6em;
+}
+
+.macro-hist-legend-val.is-up {
+  color: var(--color-up, #f5222d);
+}
+
+.macro-hist-legend-val.is-down {
+  color: var(--color-down, #52c41a);
+}
+
+.macro-hist-legend-val.is-flat {
+  color: var(--ink-3);
+}
+
 .dashboard-mctx-history-canvas {
   flex: 1 1 auto;
   max-width: 100%;
   height: 56px;
+  min-width: 0;
+  overflow: hidden;
+  position: relative;
+  cursor: crosshair;
 }
 
 .dashboard-mctx-history-hint {

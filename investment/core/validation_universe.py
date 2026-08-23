@@ -74,7 +74,7 @@ def resolve_validation_codes(
     else:
         if watching_codes is None:
             try:
-                from core.data_coverage import universe_codes
+                from core.data.coverage import universe_codes
 
                 watching_codes = universe_codes()
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -182,7 +182,7 @@ def build_validation_hygiene_report(
     as_of: Optional[str] = None,
 ) -> Dict[str, Any]:
     """验证宇宙一页卫生：日线覆盖 + 空财务 + 舆情 history 面板覆盖。"""
-    from core.data_coverage import build_data_coverage
+    from core.data.coverage import build_data_coverage
 
     resolved = resolve_validation_codes(watching_codes=codes) if codes is None else {
         "ok": True,
@@ -281,7 +281,7 @@ def prepare_validation_universe(
     bars_summary: Dict[str, Any] = {"skipped": True}
     if warmup_bars and code_list:
         try:
-            from core.data_service import summarize_data_quality
+            from core.data.facade import summarize_data_quality
 
             need = list(hygiene.get("bars_need_warmup") or []) or code_list
             bars_summary = summarize_data_quality(

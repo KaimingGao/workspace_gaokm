@@ -8,7 +8,7 @@ import json
 import os
 from typing import Any, Dict, List, Optional
 
-from core.data_policy import is_board_label
+from core.data.policy import is_board_label
 from core.io_atomic import atomic_write_json
 from core.paths import DATA_DIR
 from core.portfolio_optimize import _board_for, load_sector_map, sector_map_coverage
@@ -80,7 +80,7 @@ def sync_sector_map_from_watching(
     scrub_boards: bool = True,
 ) -> Dict[str, Any]:
     """对齐 watching：默认清洗板别；仅当 watching 提供真主题时补键。"""
-    from core.watching_store import read_watching
+    from core.watching.store import read_watching
 
     current = dict(load_sector_map())
     scrubbed = 0
@@ -172,7 +172,7 @@ def industry_map_from_spot(
     force_spot: bool = False,
 ) -> Dict[str, Any]:
     """从 A 股现货「所属行业」建 code→industry（经 DataService）。"""
-    from core.data_service import get_spot
+    from core.data.facade import get_spot
     from core.ports.market import spot_row_get
 
     want_raw = {str(c).strip() for c in (codes or []) if str(c).strip()}
@@ -242,7 +242,7 @@ def enrich_sector_map_from_spot(
     scrub_boards: bool = True,
 ) -> Dict[str, Any]:
     """用现货行业补全 sector_map（默认不覆盖已有真主题）。"""
-    from core.watching_store import read_watching
+    from core.watching.store import read_watching
 
     if codes is None:
         try:
@@ -325,7 +325,7 @@ def coverage_report(codes: Optional[List[str]] = None) -> Dict[str, Any]:
     smap = load_sector_map()
     if codes is None:
         try:
-            from core.watching_store import read_watching
+            from core.watching.store import read_watching
 
             codes = [str(c).strip() for c in (read_watching().get("watchlist") or [])]
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

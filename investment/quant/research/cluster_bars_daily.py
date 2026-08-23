@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 def cluster_bars_session_date() -> str:
     """分组日线强制刷新所用的会话日（YYYY-MM-DD）。"""
     try:
-        from core.market_calendar import resolve_session_date
+        from core.market.calendar import resolve_session_date
 
         return str(resolve_session_date() or "")[:10]
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

@@ -20,7 +20,7 @@ from services.daily_service import DailyRunService
 from services.eval_service import EvalService
 from quant.services.quant_service import QuantService
 from unittest.mock import MagicMock, patch
-from core.watching_health import check_watching_health
+from core.watching.health import check_watching_health
 from quant.ops.daily_health import build_daily_health
 from quant.services.quant_report_index import list_quant_reports, read_quant_report_file
 from quant.skill.engine import QuantEngine

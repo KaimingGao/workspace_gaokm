@@ -347,7 +347,7 @@ def evaluate_research_oos(
     """
     from core.research.portfolio_bars import load_portfolio_stock_bars
     from core.signal.config import load_signal_config
-    from core.watching_store import read_watching
+    from core.watching.store import read_watching
 
     if codes:
         use_codes = [str(c).strip() for c in codes if str(c).strip()]

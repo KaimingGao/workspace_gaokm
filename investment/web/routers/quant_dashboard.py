@@ -259,7 +259,7 @@ def dashboard_factor_ic_series(
             return from_cache
 
         # 回退：观察池截面因子分（非真 IC，仅占位）
-        from core.watching_insights import load_insights_cache
+        from core.watching.insights import load_insights_cache
 
         insights = load_insights_cache()
         if not insights:

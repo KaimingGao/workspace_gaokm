@@ -145,7 +145,7 @@ def resolve_replay_candidates(
 
     watching: List[str] = []
     try:
-        from core.watching_store import read_watching
+        from core.watching.store import read_watching
 
         watching = [
             str(c).strip()
@@ -519,7 +519,7 @@ class QuantReplayMixin:
             result["cost_assumptions"] = {"ok": False, "reason": str(e)}
 
         try:
-            from core.data_consistency import attach_source_audit
+            from core.data.consistency import attach_source_audit
 
             result = attach_source_audit(result, codes=list(stock_bars.keys()))
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -527,7 +527,7 @@ class QuantReplayMixin:
             logger.warning("回测后处理异常", exc_info=True)
 
         try:
-            from core.data_service import summarize_data_quality
+            from core.data.facade import summarize_data_quality
 
             codes_ok = list(stock_bars.keys())[:12]
             if codes_ok:

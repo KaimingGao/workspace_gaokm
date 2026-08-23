@@ -234,7 +234,7 @@ def score_bars(
     # 先评估市场状态，获取权重调整建议
     macro_ctx = None
     try:
-        from core.market_context import load_market_context
+        from core.market.context import load_market_context
 
         macro_ctx = load_market_context().get("macro")
     except Exception:  # noqa: BLE001

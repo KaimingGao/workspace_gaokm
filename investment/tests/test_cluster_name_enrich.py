@@ -34,9 +34,9 @@ class TestClusterNameEnrich(unittest.TestCase):
             "watchlist_names": ["宁德时代", "贵州茅台"],
         }
         with patch(
-            "core.watching_store.read_watching", return_value=watching
+            "core.watching.store.read_watching", return_value=watching
         ), patch(
-            "core.watching_store.watchlist_names_for",
+            "core.watching.store.watchlist_names_for",
             return_value=["宁德时代", "贵州茅台"],
         ):
             out = _enrich_cluster_name_by_code(report)

@@ -2,7 +2,7 @@
 
 内部状态 x(τ) = close[T]/price[τ]−1（%）。滤波结束后用已实现抬回现价对昨收：
 predicted_score_nowcast = (1−K)·ŷ_EOD + K·(缺口∘ŷ_τ)（与 ŷ_trade 同一目标，权是 K）。
-不改写 predicted_score（ŷ_EOD）。规范见 docs/predicted-score-chain.md §2.5 nowcast。
+不改写 predicted_score（ŷ_EOD）。规范见 docs/quant.md · ŷ 全链路（nowcast 段）。
 
 顺序滤波：EOD 先验 → open →（可选）当前分钟 τ。同一 ŷ_τ 只观测一次。
 观测是模型输出，不是 T 收；T 收盘后剩余为 0，滤波结束。

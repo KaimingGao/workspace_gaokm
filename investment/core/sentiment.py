@@ -526,7 +526,7 @@ def fetch_stock_headlines(
             "error": None,
         }
 
-    from core.data_service import get_news
+    from core.data.facade import get_news
 
     try:
         raw = get_news(code_key, limit=limit)

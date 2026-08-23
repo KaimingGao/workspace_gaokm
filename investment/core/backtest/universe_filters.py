@@ -47,7 +47,7 @@ def filter_universe_bars(
             if not name:
                 # 尝试从 quote 补名
                 try:
-                    from core.data_service import get_quote
+                    from core.data.facade import get_quote
 
                     q = get_quote(code)
                     if q.get("success"):

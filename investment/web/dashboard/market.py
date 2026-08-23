@@ -26,7 +26,7 @@ def _index_quotes_for_overview() -> List[Dict[str, Any]]:
     out: List[Dict[str, Any]] = []
     quotes: Dict[str, Any] = {}
     try:
-        from core.data_service import batch_get_quotes
+        from core.data.facade import batch_get_quotes
 
         quotes = batch_get_quotes([s[0] for s in specs]) or {}
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -38,7 +38,7 @@ def _index_quotes_for_overview() -> List[Dict[str, Any]]:
         if not isinstance(q, dict):
             # 个别失败时单拉一次（仍远快于 AkShare 日线）
             try:
-                from core.data_service import get_quote
+                from core.data.facade import get_quote
 
                 q = get_quote(symbol) or {}
             except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -159,8 +159,8 @@ def _build_market_overview() -> Dict[str, Any]:
 
 def _build_market_context_dashboard() -> Dict[str, Any]:
     """盘前市场上下文：macro / 情绪 / 公告 prior 快照 + 新鲜度。"""
-    from core.market_context import build_market_priors, load_market_context
-    from core.market_context_merge import prune_macro_errors
+    from core.market.context import build_market_priors, load_market_context
+    from core.market.context_merge import prune_macro_errors
 
     ctx = load_market_context(use_cache=False)
     macro = ctx.get("macro") or {}

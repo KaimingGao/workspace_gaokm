@@ -87,7 +87,7 @@ def compute_pool_cross_section_ic(
     date_maps = {c: _bars_by_date(b) for c, b in stock_bars.items()}
     dates = _common_dates(stock_bars)
     try:
-        from core.market_calendar import filter_trading_dates
+        from core.market.calendar import filter_trading_dates
 
         dates = filter_trading_dates(dates)
         calendar_tag = "cn_lite"

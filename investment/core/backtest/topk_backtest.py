@@ -900,7 +900,7 @@ def backtest_topk_equal_weight(
         cost_config_for_slippage_tier,
         resolve_exit_index,
     )
-    from core.data_pit import pit_report_for_backtest
+    from core.data.pit import pit_report_for_backtest
     from core.portfolio_optimize import _sector_for, load_sector_map, sector_map_coverage
     from core.signal.config import load_signal_config
     from core.signal.cross_section_batch import score_and_rank_watching, score_window_as_item
@@ -1954,7 +1954,7 @@ def backtest_topk_equal_weight(
             break
     # D1：TopK 默认挂源审计
     try:
-        from core.data_consistency import attach_source_audit
+        from core.data.consistency import attach_source_audit
 
         raw = attach_source_audit(raw, codes=list(stock_bars.keys()))
     except Exception:  # noqa: BLE001 — 源审计 best-effort，不影响回测结果

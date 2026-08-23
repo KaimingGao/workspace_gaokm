@@ -33,7 +33,7 @@ def _prepare_scoring_window(
 
     默认 full 路径拒绝伪日线（DS-R4）。
     """
-    from core.data_pit import window_as_of
+    from core.data.pit import window_as_of
 
     quote = _mock_quote_from_bars(bars, index)
     mode = (data_mode or "full").strip().lower()
@@ -253,7 +253,7 @@ def backtest_signal_on_bars(
         cost_config_for_slippage_tier,
         resolve_exit_index,
     )
-    from core.data_pit import pit_report_for_backtest
+    from core.data.pit import pit_report_for_backtest
     from core.signal.scorer import score_bars
 
     horizon_days = max(1, min(int(horizon_days or 3), 10))
@@ -452,7 +452,7 @@ def backtest_signal_on_bars(
     }
     # D1：core 引擎默认挂源审计（不依赖 QuantService）
     try:
-        from core.data_consistency import attach_source_audit
+        from core.data.consistency import attach_source_audit
 
         codes = [str(stock_code)] if stock_code else []
         out = attach_source_audit(out, codes=codes or None)

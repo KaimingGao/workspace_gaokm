@@ -40,6 +40,8 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             rules["dir_enter"] = body.dir_enter
         if body.min_range_pct is not None:
             rules["min_range_pct"] = body.min_range_pct
+        if body.use_atr is not None:
+            rules["use_atr"] = body.use_atr
 
         code = (body.code or "").strip()
         from_paper = bool(body.from_paper)

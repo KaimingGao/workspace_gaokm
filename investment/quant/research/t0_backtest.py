@@ -12,6 +12,54 @@ from core.t0.backtest import backtest_t0_on_bars, derive_t0_quality_metrics
 _MINUTE_FETCH_TIMEOUT_SEC = 5.0
 
 
+def _execution_view_for_backtest(
+    bt_rules: dict, exec_meta: Optional[dict]
+) -> Dict[str, Any]:
+    """回测结果里的 execution 视图，与 /api/paper/execution 的 t0 字段对齐。"""
+    meta = exec_meta or {}
+    coupling = meta.get("coupling") or {}
+    t0 = {
+        "enabled": bt_rules.get("enabled", True),
+        "t0_ratio": bt_rules.get("t0_ratio"),
+        "sell_trigger_pct": bt_rules.get("sell_trigger_pct"),
+        "buy_trigger_pct": bt_rules.get("buy_trigger_pct"),
+        "fill_mode": bt_rules.get("fill_mode"),
+        "direction": bt_rules.get("direction"),
+        "path_mode": bt_rules.get("path_mode"),
+        "use_atr": bt_rules.get("use_atr"),
+        "atr_window": bt_rules.get("atr_window"),
+        "dir_enter": bt_rules.get("dir_enter"),
+        "min_range_pct": bt_rules.get("min_range_pct"),
+        "must_cover_same_day": bt_rules.get("must_cover_same_day"),
+        "minute_period": bt_rules.get("minute_period"),
+    }
+    return {
+        "ok": True,
+        "channel": meta.get("channel") or "backtest",
+        "effective_hash": meta.get("effective_hash"),
+        "t0_sources": meta.get("t0_sources") or {},
+        "notes": meta.get("notes") or [],
+        "summary": meta.get("summary"),
+        "coupling": coupling,
+        "t0": t0,
+    }
+
+
+def _rules_summary(bt_rules: dict) -> Dict[str, Any]:
+    return {
+        "direction": bt_rules.get("direction"),
+        "path_mode": bt_rules.get("path_mode"),
+        "fill_mode": bt_rules.get("fill_mode"),
+        "t0_ratio": bt_rules.get("t0_ratio"),
+        "dir_enter": bt_rules.get("dir_enter"),
+        "min_range_pct": bt_rules.get("min_range_pct"),
+        "sell_trigger_pct": bt_rules.get("sell_trigger_pct"),
+        "buy_trigger_pct": bt_rules.get("buy_trigger_pct"),
+        "use_atr": bt_rules.get("use_atr"),
+        "must_cover_same_day": bt_rules.get("must_cover_same_day"),
+    }
+
+
 def _fetch_minute_by_date(
     code: str,
     *,
@@ -61,8 +109,8 @@ def run_t0_backtest_for_code(
     compare_daily: bool = True,
     compare_no_t0: bool = True,
 ) -> Dict[str, Any]:
-    from core.data_service import bars_and_source as fetch_daily_bars
-    from core.data_service import get_quote
+    from core.data.facade import bars_and_source as fetch_daily_bars
+    from core.data.facade import get_quote
 
     quote = get_quote(code)
     sym = quote.get("stock_code") if quote.get("success") else code
@@ -129,23 +177,8 @@ def run_t0_backtest_for_code(
         "error": minute_meta.get("error"),
     }
     if exec_meta:
-        report["execution"] = {
-            "effective_hash": exec_meta.get("effective_hash"),
-            "t0_sources": exec_meta.get("t0_sources"),
-            "notes": exec_meta.get("notes"),
-            "summary": exec_meta.get("summary"),
-            "channel": "backtest",
-        }
-    report["rules"] = {
-        "direction": bt_rules.get("direction"),
-        "path_mode": bt_rules.get("path_mode"),
-        "fill_mode": bt_rules.get("fill_mode"),
-        "t0_ratio": bt_rules.get("t0_ratio"),
-        "dir_enter": bt_rules.get("dir_enter"),
-        "min_range_pct": bt_rules.get("min_range_pct"),
-        "sell_trigger_pct": bt_rules.get("sell_trigger_pct"),
-        "buy_trigger_pct": bt_rules.get("buy_trigger_pct"),
-    }
+        report["execution"] = _execution_view_for_backtest(bt_rules, exec_meta)
+    report["rules"] = _rules_summary(bt_rules)
     if compare_no_t0 and report.get("success"):
         off_rules = dict(bt_rules)
         off_rules["enabled"] = False
@@ -254,6 +287,19 @@ def run_t0_backtest_for_holdings(
             daily_fallback_days += int(one.get("daily_fallback_days") or 0)
 
     ok = [x for x in per if x.get("success")]
+    if not ok:
+        failed = [x for x in per if not x.get("success")]
+        err_bits = [str(x.get("error") or "失败") for x in failed[:3]]
+        return {
+            "success": False,
+            "error": "持仓回测均未成功" + (f"：{'；'.join(err_bits)}" if err_bits else ""),
+            "task": "t0_backtest",
+            "from_holdings": True,
+            "holding_count": len(holdings),
+            "ok_count": 0,
+            "results": per,
+        }
+
     skip_days = sum(int(x.get("skip_days") or 0) for x in ok)
     signal_skip_days = sum(int(x.get("signal_skip_days") or 0) for x in ok)
     long_days = sum(int(x.get("long_t_days") or 0) for x in ok)
@@ -374,16 +420,7 @@ def run_t0_backtest_for_holdings(
         "path_mode": cfg.get("path_mode"),
         "direction": cfg.get("direction"),
         "use_minute": use_minute and minute_path_days > 0,
-        "rules": {
-            "direction": cfg.get("direction"),
-            "path_mode": cfg.get("path_mode"),
-            "fill_mode": cfg.get("fill_mode"),
-            "t0_ratio": cfg.get("t0_ratio"),
-            "dir_enter": cfg.get("dir_enter"),
-            "min_range_pct": cfg.get("min_range_pct"),
-            "sell_trigger_pct": cfg.get("sell_trigger_pct"),
-            "buy_trigger_pct": cfg.get("buy_trigger_pct"),
-        },
+        "rules": _rules_summary(cfg),
         "note": (
             "按模拟持仓底仓回测；"
             f"direction={cfg.get('direction')} · path={cfg.get('path_mode')} · "
@@ -397,13 +434,7 @@ def run_t0_backtest_for_holdings(
         ),
     }
     if exec_meta:
-        out["execution"] = {
-            "effective_hash": exec_meta.get("effective_hash"),
-            "t0_sources": exec_meta.get("t0_sources"),
-            "notes": exec_meta.get("notes"),
-            "summary": exec_meta.get("summary"),
-            "channel": "backtest",
-        }
+        out["execution"] = _execution_view_for_backtest(cfg, exec_meta)
     contrib = round(total_pnl + total_exposure, 2)
     out["no_t0_compare"] = {
         "t0_pnl_with_exposure": contrib,

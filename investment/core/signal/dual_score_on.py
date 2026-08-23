@@ -325,7 +325,7 @@ def hydrate_holding_on_fields(row: dict) -> None:
     quote = holding_row_as_quote(row)
     bars: list = []
     try:
-        from core.data_service import get_bars
+        from core.data.facade import get_bars
 
         pack = get_bars(
             code,

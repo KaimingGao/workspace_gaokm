@@ -571,7 +571,12 @@ export function installClusterProbe(q) {
       const host = document.getElementById("quant-cluster-landing");
       if (!host) return;
       if (!data || !data.success) {
-        host.innerHTML = `<p class="sub">落地状态不可用</p>`;
+        const reason =
+          (data && (data.error || data.detail)) ||
+          (!res.ok ? `HTTP ${res.status}` : "");
+        host.innerHTML = `<p class="sub">落地状态不可用${
+          reason ? ` · ${escapeHtml(String(reason))}` : ""
+        }</p>`;
         return;
       }
       const bookCodes = (data.book && data.book.codes) || [];

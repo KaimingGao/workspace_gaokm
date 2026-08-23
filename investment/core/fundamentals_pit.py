@@ -344,7 +344,7 @@ def resolve_fundamentals_for_score(
             }
         if live_fallback:
             try:
-                from core.data_service import get_fundamentals
+                from core.data.facade import get_fundamentals
 
                 live = get_fundamentals(code, use_cache=True)
                 metrics = normalize_fundamentals_metrics(live)
@@ -385,7 +385,7 @@ def resolve_fundamentals_for_score(
         }
 
     # as_of PIT 路径
-    from core.data_policy import DEFAULT_ANN_MISSING_POLICY
+    from core.data.policy import DEFAULT_ANN_MISSING_POLICY
 
     point, meta = select_point_as_of(history, as_of)
     ann_pol = str(cfg.get("ann_missing_policy") or DEFAULT_ANN_MISSING_POLICY).strip().lower()

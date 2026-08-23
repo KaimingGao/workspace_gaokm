@@ -15,7 +15,7 @@ if ROOT not in sys.path:
 
 class TestP1QualityGate(unittest.TestCase):
     def test_allows_production_score_rules(self):
-        from core.data_service import allows_production_score
+        from core.data.facade import allows_production_score
 
         self.assertTrue(allows_production_score(quality_level="good", fallback=False)[0])
         self.assertFalse(allows_production_score(quality_level="thin", fallback=False)[0])
@@ -99,7 +99,7 @@ class TestP1QualityGate(unittest.TestCase):
 
     def test_manifest_has_adjust_policy(self):
         from core.run_manifest import build_run_manifest
-        from core.data_service import DEFAULT_ADJUST_POLICY
+        from core.data.facade import DEFAULT_ADJUST_POLICY
 
         m = build_run_manifest(kind="test", cost_model="simple_cn")
         self.assertEqual(m["adjust_policy"], DEFAULT_ADJUST_POLICY)
@@ -212,7 +212,7 @@ class TestP1QualityGate(unittest.TestCase):
 
 class TestN1DataService(unittest.TestCase):
     def test_get_bars_shape(self):
-        from core.data_service import get_bars
+        from core.data.facade import get_bars
 
         fake_bars = [
             {"date": "2026-01-0%d" % i, "open": 10, "high": 11, "low": 9, "close": 10.5, "volume": 1}
@@ -513,7 +513,7 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
             "core.risk.check_account_risk",
             return_value={"ok": False, "blocks": ["行业 新能源 敞口 55.0% > 上限 40%"], "warnings": [], "limits": risk},
         ), patch(
-            "core.data_service.summarize_data_quality",
+            "core.data.facade.summarize_data_quality",
             return_value={"levels": {"good": 0}, "fallback_count": 1, "count": 2},
         ), patch(
             "core.strategy_monitor.assess_strategy_health",
@@ -535,7 +535,7 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
 
     def test_cross_section_soft_sector_budget(self):
         """行业超限不整批 buys_blocked，走 risk_budget 缩量。"""
-        from core.paper_rebalance import simulate_cross_section_rebalance
+        from core.paper.rebalance import simulate_cross_section_rebalance
 
         paper = {
             "cash": 50000,
@@ -586,7 +586,7 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
             "core.ports.market.query_quote",
             return_value={"success": True, "stock_name": "茅台", "price": 100},
         ), patch(
-            "core.paper_rebalance._quote_price", return_value=100.0
+            "core.paper.rebalance._quote_price", return_value=100.0
         ), patch(
             "core.paper.mark_to_market",
             return_value={
@@ -598,7 +598,7 @@ class TestP0OpsReportAndRiskBlock(unittest.TestCase):
                 ],
             },
         ), patch("core.risk.check_account_risk", return_value=risk_out), patch(
-            "core.data_service.summarize_data_quality",
+            "core.data.facade.summarize_data_quality",
             return_value={"levels": {}, "fallback_count": 0, "count": 1},
         ):
             out = simulate_cross_section_rebalance(paper, ranking, top_k=2)
@@ -629,7 +629,7 @@ class TestP2PaperOpsLoop(unittest.TestCase):
         self.assertFalse(out.get("auto_apply"))
 
     def test_cross_section_ops_report_carries_monitor_alerts(self):
-        from core.paper_rebalance import simulate_cross_section_rebalance
+        from core.paper.rebalance import simulate_cross_section_rebalance
 
         paper = {
             "cash": 50000,
@@ -655,7 +655,7 @@ class TestP2PaperOpsLoop(unittest.TestCase):
             "core.ports.market.query_quote",
             return_value={"success": True, "stock_name": "茅台", "price": 100},
         ), patch(
-            "core.paper_rebalance._quote_price", return_value=100.0
+            "core.paper.rebalance._quote_price", return_value=100.0
         ), patch(
             "core.paper.mark_to_market",
             return_value={
@@ -668,7 +668,7 @@ class TestP2PaperOpsLoop(unittest.TestCase):
             "core.risk.check_account_risk",
             return_value={"ok": True, "blocks": [], "warnings": [], "limits": {}},
         ), patch(
-            "core.data_service.summarize_data_quality",
+            "core.data.facade.summarize_data_quality",
             return_value={"levels": {}, "fallback_count": 0, "count": 1},
         ), patch(
             "core.strategy_monitor.assess_strategy_health",

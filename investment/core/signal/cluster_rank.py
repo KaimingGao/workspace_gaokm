@@ -191,7 +191,7 @@ def rank_cluster_pools(
     from core.signal.config import get_rank_defaults, get_scoring_horizon_days, load_signal_config
     from core.signal.score_display import json_safe_number, selection_min_score
     from core.signal.score_stock import score_stock
-    from core.watching_store import read_watching, refresh_watchlist
+    from core.watching.store import read_watching, refresh_watchlist
 
     cs = get_cluster_scoring_cfg()
     cfg = load_signal_config()
@@ -313,7 +313,7 @@ def rank_cluster_pools(
     pool_gaps_list: List[float] = []
     ref_by_code: Dict[str, Optional[float]] = {}
     try:
-        from core.data_service import batch_get_quotes
+        from core.data.facade import batch_get_quotes
         from core.event_prior import compute_sector_gap_breadth_live, get_event_prior_cfg
         from core.research.rem_panel import sector_gap_reference_by_code
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from core.market_context_merge import merge_macro_snapshots, freshness_report
+from core.market.context_merge import merge_macro_snapshots, freshness_report
 from skills.announcement.ipo_metrics import compute_drain_ratios
 
 

@@ -67,6 +67,7 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("dir_enter", req.dir_enter),
             ("min_range_pct", req.min_range_pct),
             ("use_atr", req.use_atr),
+            ("must_cover_same_day", req.must_cover_same_day),
         ):
             if v is not None and k not in t0:
                 t0[k] = v

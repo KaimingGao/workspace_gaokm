@@ -2,6 +2,25 @@
 
 import { escapeText } from "./fmt.js";
 
+/** 回测/预演响应可能只有 rules 或残缺 execution；补齐 t0 供规则卡渲染。 */
+export function normalizeExecutionView(execution, rules) {
+  if (!execution && !rules) return null;
+  const base = execution ? { ...execution } : { ok: true };
+  const t0 = { ...(rules || {}), ...(base.t0 || {}) };
+  const hasDetail =
+    t0.direction != null ||
+    t0.path_mode != null ||
+    t0.sell_trigger_pct != null ||
+    t0.t0_ratio != null;
+  if (!hasDetail && !base.effective_hash) return execution || null;
+  return {
+    ...base,
+    ok: base.ok !== false,
+    t0,
+    coupling: base.coupling || {},
+  };
+}
+
 export function renderExecutionRulesHtml(execution) {
   if (!execution || execution.ok === false) {
     const err = (execution && execution.error) || "无法加载 ExecutionSpec";
@@ -36,6 +55,7 @@ export function renderExecutionRulesHtml(execution) {
     ["动仓", ratio],
     ["触发", `${sell} / ${buy}`],
     ["ATR", t0.use_atr ? `开 · ${t0.atr_window ?? 14}日` : "关"],
+    ["回补", t0.must_cover_same_day ? "收盘强制" : "关"],
     ["耦合", coup],
     ["hash", hash],
   ];
@@ -97,13 +117,13 @@ export function fillExecutionForm(root, execution) {
   if (t0.min_range_pct != null && t0.min_range_pct !== "") {
     set("min_range_pct", t0.min_range_pct);
   } else {
-    const rangeEl = root.querySelector('[name="min_range_pct"]');
-    if (rangeEl) rangeEl.value = "";
+    set("min_range_pct", 0.5);
   }
   set("fill_mode", t0.fill_mode || "trigger");
-  set("direction", t0.direction || "signal");
+  set("direction", t0.direction || "long_t");
   set("path_mode", t0.path_mode || "dual_touch");
   set("use_atr", t0.use_atr !== false);
+  set("must_cover_same_day", !!t0.must_cover_same_day);
   set("t0_vs_stance", coup);
 }
 
@@ -138,9 +158,10 @@ export function collectExecutionForm(root) {
     buy_trigger_pct: num("buy_trigger_pct", 1.5),
     dir_enter: Math.max(0.05, Math.min(num("dir_enter", 0.35), 1)),
     fill_mode: str("fill_mode", "trigger"),
-    direction: str("direction", "signal"),
+    direction: str("direction", "long_t"),
     path_mode: str("path_mode", "dual_touch"),
     use_atr: chk("use_atr", true),
+    must_cover_same_day: chk("must_cover_same_day", false),
   };
   const minRange = numOrNull("min_range_pct");
   if (minRange != null) t0.min_range_pct = Math.max(0.2, Math.min(minRange, 30));
@@ -150,6 +171,39 @@ export function collectExecutionForm(root) {
     coupling: {
       t0_vs_stance: str("t0_vs_stance", "independent"),
     },
+  };
+}
+
+/**
+ * 做T回测范围/路径：表单复选框 + Alt 快捷键。
+ * @param {HTMLElement|null} root
+ * @param {{ altKey?: boolean, selectedCode?: string|null }} evt
+ */
+export function resolveT0BacktestScope(root, evt = {}) {
+  const selectedCode = String(evt.selectedCode || "").trim();
+  const alt = !!evt.altKey;
+  const onlyEl = root && root.querySelector('[name="t0_bt_only_selected"]');
+  const minuteEl = root && root.querySelector('[name="t0_bt_use_minute"]');
+  const wantOnly = alt || !!(onlyEl && onlyEl.checked);
+  const wantMinute = alt || !!(minuteEl && minuteEl.checked);
+  if (wantMinute && !selectedCode) {
+    return {
+      onlySelected: false,
+      useMinute: false,
+      error: "5分钟路径需先点击持仓行选中一只股票",
+    };
+  }
+  if (wantOnly && !selectedCode) {
+    return {
+      onlySelected: false,
+      useMinute: false,
+      error: "请先点击持仓表选中一只股票，或取消「仅选中」",
+    };
+  }
+  return {
+    onlySelected: wantOnly && !!selectedCode,
+    useMinute: wantMinute && !!selectedCode,
+    error: null,
   };
 }
 
@@ -177,11 +231,14 @@ export function collectT0BacktestBody(root, opts = {}) {
     sell_trigger_pct: t0.sell_trigger_pct != null ? t0.sell_trigger_pct : 2,
     buy_trigger_pct: t0.buy_trigger_pct != null ? t0.buy_trigger_pct : 1.5,
     fill_mode: t0.fill_mode || "trigger",
-    direction: t0.direction || "signal",
+    direction: t0.direction || "long_t",
     path_mode: t0.path_mode || "dual_touch",
     dir_enter: t0.dir_enter != null ? t0.dir_enter : 0.35,
+    must_cover_same_day: !!t0.must_cover_same_day,
+    use_atr: t0.use_atr !== false,
   };
   if (t0.min_range_pct != null) body.min_range_pct = t0.min_range_pct;
+  else body.min_range_pct = 0.5;
   if (opts.onlySelected && opts.selectedCode) body.code = opts.selectedCode;
   return body;
 }

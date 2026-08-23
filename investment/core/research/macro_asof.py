@@ -89,7 +89,7 @@ def macro_view_asof(macro: Optional[dict], as_of: str) -> Dict[str, Any]:
 
 def load_macro_view_asof(as_of: str) -> Dict[str, Any]:
     """加载磁盘 macro 快照并切 as-of 视图。"""
-    from core.market_context_store import load_macro_snapshot
+    from core.market.context_store import load_macro_snapshot
 
     snap, _meta = load_macro_snapshot(max_age_hours=168.0)
     if not snap:

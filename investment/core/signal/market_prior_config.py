@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional
 
 from core.cross_market_prior import DEFAULT_CROSS_MARKET, get_cross_market_cfg
 from core.io_atomic import atomic_write_json
-from core.market_sentiment_prior import (
+from core.market.sentiment_prior import (
     DEFAULT_MARKET_SENTIMENT,
     get_market_sentiment_prior_cfg,
 )
@@ -191,7 +191,7 @@ def save_market_prior(
     load_signal_config(reload=True)
 
     try:
-        from core.market_context import invalidate_market_context_cache
+        from core.market.context import invalidate_market_context_cache
 
         invalidate_market_context_cache()
     except Exception:

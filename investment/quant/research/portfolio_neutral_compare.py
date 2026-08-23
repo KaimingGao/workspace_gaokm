@@ -104,7 +104,7 @@ def summarize_portfolio_neutral_compare(
 ) -> Dict[str, Any]:
     """每日报告用的轻量中性化对照摘要（P54）。"""
     from core.research.portfolio_bars import DAILY_PORTFOLIO_MAX_NAMES
-    from core.watching_store import read_watching
+    from core.watching.store import read_watching
     from quant.research.portfolio_data import (
         load_portfolio_stock_bars,
         resolve_daily_topk_backtest_kwargs,

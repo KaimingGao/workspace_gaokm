@@ -1,4 +1,4 @@
-"""观察名单应用服务：Web / CLI 与 core.watching_store 的边界。"""
+"""观察名单应用服务：Web / CLI 与 core.watching.store 的边界。"""
 
 
 import logging
@@ -16,14 +16,14 @@ class WatchingService:
         return search_stocks(q, limit=limit)
 
     def quotes(self, codes: Optional[List[str]] = None) -> Dict[str, Any]:
-        from core.watching_store import list_watchlist_quotes
+        from core.watching.store import list_watchlist_quotes
 
         return list_watchlist_quotes(codes=codes)
 
     def insights(self, codes: Optional[List[str]] = None) -> Dict[str, Any]:
         """观察摘要：评分/倾向/超额/量比/估值/同业/观察天数。"""
-        from core.watching_insights import build_watching_insights
-        from core.watching_store import read_watching, watchlist_added_map
+        from core.watching.insights import build_watching_insights
+        from core.watching.store import read_watching, watchlist_added_map
 
         added_map: Dict[str, str] = {}
         try:
@@ -106,21 +106,21 @@ class WatchingService:
         return {"ok": True, "analysis": content.strip()}
 
     def add_watch(self, query: str, *, sync_paper: bool = False) -> Dict[str, Any]:
-        from core.watching_store import add_watchlist_item
+        from core.watching.store import add_watchlist_item
 
         return add_watchlist_item(query, sync_paper=sync_paper)
 
     def remove_watch(self, code: str, *, sync_paper: bool = False) -> Dict[str, Any]:
-        from core.watching_store import remove_watchlist_item
+        from core.watching.store import remove_watchlist_item
 
         return remove_watchlist_item(code, sync_paper=sync_paper)
 
     def init(self) -> str:
-        from core.watching_store import init_from_example
+        from core.watching.store import init_from_example
 
         return init_from_example()
 
     def save_file(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        from core.watching_store import write_watching
+        from core.watching.store import write_watching
 
         return write_watching(payload)

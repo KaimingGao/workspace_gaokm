@@ -181,7 +181,7 @@ class PlatformService:
 
     def get_data_quality(self, *, codes: Optional[list] = None) -> Dict[str, Any]:
         """D4 · 数据质量中心聚合。"""
-        from core.data_quality_center import build_data_quality_report
+        from core.data.quality_center import build_data_quality_report
 
         return build_data_quality_report(codes=codes)
 
@@ -221,8 +221,8 @@ class PlatformService:
 
     def get_source_audit(self, *, codes: Optional[list] = None, lookback: int = 40) -> Dict[str, Any]:
         """D1 · 独立源审计。"""
-        from core.data_consistency import audit_code_sources
-        from core.data_coverage import universe_codes
+        from core.data.consistency import audit_code_sources
+        from core.data.coverage import universe_codes
 
         code_list = [str(c).strip() for c in (codes or []) if str(c).strip()]
         if not code_list:

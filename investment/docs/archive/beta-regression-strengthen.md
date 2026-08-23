@@ -1,6 +1,6 @@
 # 回归准确性深化补强（B 轨）
 
-[← 文档索引](../README.md) · 选股主轴 [weight-suggest-deepen.md](weight-suggest-deepen.md) · 特征同构 [feature-signal-strengthen.md](feature-signal-strengthen.md)（X **已落地**）· ŷ 硬化 [yhat-strengthen.md](yhat-strengthen.md) · N6 [n6-live-gate.md](../n6-live-gate.md)
+[← 文档索引](../README.md) · 选股主轴 weight-suggest-deepen（已归档）· 特征同构 feature-signal-strengthen（已归档，X **已落地**）· ŷ 硬化 yhat-strengthen（已归档）· N6 [n6-live-gate.md](../n6-live-gate.md)
 
 **规划日期**：2026-08-05 · **落地**：2026-08-05  
 **定位**：在 X 轨把 live/研究 **特征 X 对齐** 之后，专攻 **回归估 β 的准确性与稳定性**——样本、标签 y、共线/正则、滚动重估、截面范式。  
@@ -171,6 +171,6 @@ S/E：验证与证据诚实（样本/PIT 工具）
 
 - [x] 本文件阶段 → 已落地  
 - [x] [docs/README.md](../README.md) B 轨一行  
-- [x] [weight-suggest-deepen.md](weight-suggest-deepen.md) 链到 B  
-- [x] [feature-signal-strengthen.md](feature-signal-strengthen.md)「后继 B」  
+- [x] weight-suggest-deepen（已归档）链到 B  
+- [x] feature-signal-strengthen（已归档）「后继 B」  
 - [x] maturity_gate `track` 含 B

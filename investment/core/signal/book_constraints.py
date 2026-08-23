@@ -101,7 +101,7 @@ def resolve_book_risk_limits(
 def tradeable_block_reason(code: str, quote: Optional[dict]) -> Optional[str]:
     """与纸面 ``_buy_match_block_reason`` 同口径（涨停/停牌/无价）。"""
     try:
-        from core.paper_rebalance import _buy_match_block_reason
+        from core.paper.rebalance import _buy_match_block_reason
 
         return _buy_match_block_reason(code, quote)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

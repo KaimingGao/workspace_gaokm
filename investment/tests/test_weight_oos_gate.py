@@ -84,7 +84,7 @@ class TestWeightOosGate(unittest.TestCase):
             "core.research.portfolio_bars.load_portfolio_stock_bars",
             side_effect=fake_load,
         ), patch(
-            "core.watching_store.read_watching",
+            "core.watching.store.read_watching",
             return_value={"watchlist": ["a", "b", "c"]},
         ), patch(
             "core.backtest.topk_backtest.backtest_topk_equal_weight",

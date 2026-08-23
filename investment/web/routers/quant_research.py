@@ -258,7 +258,7 @@ def quant_factor_corr(
 
         if not items:
             try:
-                from core.watching_insights import load_insights_cache
+                from core.watching.insights import load_insights_cache
 
                 insights = load_insights_cache()
                 if insights:
@@ -303,7 +303,7 @@ def quant_factor_ir(
 ) -> Dict[str, Any]:
     """因子 IR 分析：因子信息比率 = IC 均值 / IC 标准差 × sqrt(252/horizon)。"""
     try:
-        from core.watching_insights import load_insights_cache
+        from core.watching.insights import load_insights_cache
 
         insights = load_insights_cache()
         if not insights:

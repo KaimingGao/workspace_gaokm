@@ -10,7 +10,7 @@ if ROOT not in sys.path:
 
 from core.backtest.topk_backtest import backtest_topk_equal_weight
 from core.paper import init_from_example, load_paper
-from core.paper_rebalance import (
+from core.paper.rebalance import (
     compute_turnover_stats,
     simulate_cross_section_rebalance,
 )
@@ -181,13 +181,13 @@ class TestPaperRebalance(unittest.TestCase):
                 return {c: fake_query(c) for c in (codes or [])}
 
             with patch(
-                "core.paper_rebalance._batch_query_quotes", side_effect=fake_batch
+                "core.paper.rebalance._batch_query_quotes", side_effect=fake_batch
             ), patch(
                 "skills.common.quote_api.StockAPI.query", side_effect=fake_query
             ), patch(
                 "core.ports.market.query_quote", side_effect=fake_query
             ), patch(
-                "core.paper_rebalance._quote_price",
+                "core.paper.rebalance._quote_price",
                 side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
             ), patch(
                 "core.risk.check_account_risk",
@@ -268,7 +268,7 @@ class TestTurnoverStats(unittest.TestCase):
             ), patch(
                 "core.ports.market.query_quote", side_effect=fake_query
             ), patch(
-                "core.paper_rebalance._quote_price",
+                "core.paper.rebalance._quote_price",
                 side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
             ), patch(
                 "core.paper.mark_to_market",
@@ -386,13 +386,13 @@ class TestClusterSellHysteresis(unittest.TestCase):
                 }
 
             with patch(
-                "core.paper_rebalance._batch_query_quotes", side_effect=fake_batch
+                "core.paper.rebalance._batch_query_quotes", side_effect=fake_batch
             ), patch(
                 "skills.common.quote_api.StockAPI.query", side_effect=fake_query
             ), patch(
                 "core.ports.market.query_quote", side_effect=fake_query
             ), patch(
-                "core.paper_rebalance._quote_price",
+                "core.paper.rebalance._quote_price",
                 side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
             ), patch(
                 "core.risk.check_account_risk",
@@ -493,13 +493,13 @@ class TestClusterSellHysteresis(unittest.TestCase):
                 }
 
             with patch(
-                "core.paper_rebalance._batch_query_quotes", side_effect=fake_batch
+                "core.paper.rebalance._batch_query_quotes", side_effect=fake_batch
             ), patch(
                 "skills.common.quote_api.StockAPI.query", side_effect=fake_query
             ), patch(
                 "core.ports.market.query_quote", side_effect=fake_query
             ), patch(
-                "core.paper_rebalance._quote_price",
+                "core.paper.rebalance._quote_price",
                 side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
             ), patch(
                 "core.risk.check_account_risk",
@@ -633,13 +633,13 @@ class TestClusterSellHysteresis(unittest.TestCase):
                 }
 
             with patch(
-                "core.paper_rebalance._batch_query_quotes", side_effect=fake_batch
+                "core.paper.rebalance._batch_query_quotes", side_effect=fake_batch
             ), patch(
                 "skills.common.quote_api.StockAPI.query", side_effect=fake_query
             ), patch(
                 "core.ports.market.query_quote", side_effect=fake_query
             ), patch(
-                "core.paper_rebalance._quote_price",
+                "core.paper.rebalance._quote_price",
                 side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
             ), patch(
                 "core.risk.check_account_risk",
@@ -723,13 +723,13 @@ class TestClusterSellHysteresis(unittest.TestCase):
                 return {c: fake_query(c) for c in (codes or [])}
 
             with patch(
-                "core.paper_rebalance._batch_query_quotes", side_effect=fake_batch
+                "core.paper.rebalance._batch_query_quotes", side_effect=fake_batch
             ), patch(
                 "skills.common.quote_api.StockAPI.query", side_effect=fake_query
             ), patch(
                 "core.ports.market.query_quote", side_effect=fake_query
             ), patch(
-                "core.paper_rebalance._quote_price",
+                "core.paper.rebalance._quote_price",
                 side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
             ), patch(
                 "core.risk.check_account_risk",
@@ -793,9 +793,9 @@ class TestClusterSellHysteresis(unittest.TestCase):
             }
 
         with patch(
-            "core.paper_rebalance._batch_query_quotes", side_effect=fake_batch
+            "core.paper.rebalance._batch_query_quotes", side_effect=fake_batch
         ), patch(
-            "core.paper_rebalance._quote_price",
+            "core.paper.rebalance._quote_price",
             side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
         ), patch(
             "core.paper.mark_to_market",

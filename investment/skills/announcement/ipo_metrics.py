@@ -49,7 +49,7 @@ def estimate_ipo_market_cap(
     """估算 IPO 首日市值：优先 quote 总市值，否则 issue_shares × price。"""
     if code:
         try:
-            from core.data_service import get_quote
+            from core.data.facade import get_quote
 
             q = get_quote(str(code))
             if isinstance(q, dict) and q.get("success"):

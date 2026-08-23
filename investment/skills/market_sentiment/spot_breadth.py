@@ -28,7 +28,7 @@ def spot_breadth_stats(rows: Optional[List[dict]] = None) -> Dict[str, Any]:
     """从 A 股现货快照统计涨跌家数 / 涨停跌停（全市场 proxy）。"""
     if rows is None:
         try:
-            from core.data_service import get_spot
+            from core.data.facade import get_spot
 
             pack = get_spot(disk_only=True)
             data = pack.get("data") if isinstance(pack.get("data"), dict) else pack

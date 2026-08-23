@@ -22,7 +22,7 @@ class QuantOpsMixin:
         评分由 ``/api/watching/insights`` 异步补全；持仓仅挂接纸面落盘字段
         （成本/股数），避免 GET /api/watching 被行情锁拖过前端超时。
         """
-        from core.watching_store import (
+        from core.watching.store import (
             read_watching,
             watchlist_names_for,
             watchlist_origins_for,
@@ -59,7 +59,7 @@ class QuantOpsMixin:
         return {"success": True, "exists": True, "watching": uni}
 
     def read_watching_file(self) -> Dict[str, Any]:
-        from core.watching_store import read_watching
+        from core.watching.store import read_watching
 
         try:
             data = read_watching()
@@ -68,7 +68,7 @@ class QuantOpsMixin:
         return {"ok": True, "exists": True, "path": WATCHING_PATH, "watching": data}
 
     def check_watching_health(self) -> Dict[str, Any]:
-        from core.watching_health import check_watching_health
+        from core.watching.health import check_watching_health
 
         return check_watching_health()
 
@@ -109,7 +109,7 @@ class QuantOpsMixin:
         return build_quant_package_info()
 
     def refresh_watching(self, *, sync_paper: bool = False) -> Dict[str, Any]:
-        from core.watching_store import refresh_watchlist, sync_paper_watchlist
+        from core.watching.store import refresh_watchlist, sync_paper_watchlist
 
         result = refresh_watchlist()
         out = {"success": True, "refresh": result}
@@ -128,7 +128,7 @@ class QuantOpsMixin:
         position_pct: Optional[float] = None,
     ) -> Dict[str, Any]:
         """建仓预览：确认前先看每只买多少、合计多少、剩余现金。"""
-        from core.watching_store import plan_sync_to_paper
+        from core.watching.store import plan_sync_to_paper
 
         return plan_sync_to_paper(
             codes=codes,
@@ -150,7 +150,7 @@ class QuantOpsMixin:
         position_pct: Optional[float] = None,
     ) -> Dict[str, Any]:
         """把观察名单（或所选 codes）写入模拟账户并按现价假买进持仓。"""
-        from core.watching_store import sync_paper_watchlist
+        from core.watching.store import sync_paper_watchlist
 
         return {
             "success": True,
@@ -394,7 +394,7 @@ class QuantOpsMixin:
         }
 
     def list_score_ledger_dates(self, *, limit: int = 30) -> Dict[str, Any]:
-        from core.market_calendar import prev_trading_day, resolve_session_date
+        from core.market.calendar import prev_trading_day, resolve_session_date
         from core.score_ledger import default_as_of, list_ledger_dates, list_ledger_entries
 
         entries = list_ledger_entries(limit=limit)

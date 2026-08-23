@@ -179,9 +179,9 @@ V5  验证成熟闸门与文档收口（清单 · 回归套件 · N6 准入备�
 | V1.2 | **涨跌停/延后卖纪律表** | 复用 `skipped_limit*` · `exit_deferred`；Web 对照表可筛 | 至少 1 次回测能指出被纪律改写的成交 |
 | V1.3 | **回测–纸面落差归因卡** | 在 Corr/TE 旁增加「可能原因」清单（成本 · 宇宙 · 调仓频率 · 数据源） | 平台/回溯各一处；规则启发式即可 |
 | V1.4 | **纸面日更成本假设落盘** | `ops_report.cost_model` 与回测默认对齐可查 | 五问含成本模型版本 |
-| V1.5 | **TopK 按换手计费**（续持不扣往返；印花税 5bps；滑点上限 10bps） | `costs.rebalance_cost_pct` · `topk_backtest` · [topk-backtest-upgrade.md](topk-backtest-upgrade.md) T0 | 单测续持/半换/全换；`cost_mode=turnover` |
-| V1.6 | **TopK 可选权重**（equal / score_budget / risk_parity_lite） | `allocate_topk_weights` · Web `#quant-weight-mode` · [T3](topk-backtest-upgrade.md#5b-t3--组合层加深已落地) | 默认等权；报告披露 weight_mode |
-| V1.7 | **CostPort 单源 + evals** | `cost_port.py` · `path_cost_port_aligned` · [T4](topk-backtest-upgrade.md#5c-t4--架构稳态已落地) | 纸面/回测/因子费率对齐；禁第二套隐性费率 |
+| V1.5 | **TopK 按换手计费**（续持不扣往返；印花税 5bps；滑点上限 10bps） | `costs.rebalance_cost_pct` · `topk_backtest` · topk-backtest-upgrade T0（已归档） | 单测续持/半换/全换；`cost_mode=turnover` |
+| V1.6 | **TopK 可选权重**（equal / score_budget / risk_parity_lite） | `allocate_topk_weights` · Web `#quant-weight-mode` · T3（已归档） | 默认等权；报告披露 weight_mode |
+| V1.7 | **CostPort 单源 + evals** | `cost_port.py` · `path_cost_port_aligned` · T4（已归档） | 纸面/回测/因子费率对齐；禁第二套隐性费率 |
 
 ### 5.2 不做
 
@@ -192,7 +192,7 @@ V5  验证成熟闸门与文档收口（清单 · 回归套件 · N6 准入备�
 - [x] 同策略「回测报告 + 纸面一段」并排可读成本假设  
 - [x] 至少 1 条集成测：改冲击档 → metrics 单调变化  
 - [x] [quant.md](../quant.md) / 回测脚注更新方法论  
-- [x] TopK 含成本按换手计费（见 [topk-backtest-upgrade · T0](topk-backtest-upgrade.md#3-t0--成本诚实度本期--已实现)）
+- [x] TopK 含成本按换手计费（见 topk-backtest-upgrade · T0，已归档）
 
 ---
 
@@ -378,7 +378,7 @@ V4（吞吐）可与 V2/V3 后半并行 ─────────────�
 ## 14. 立即开工建议（下一刀）
 
 **V0–V5 主干已落地（2026-07-29）。**  
-**现行下一程**见 **[evidence-strengthen.md](evidence-strengthen.md)**（**E0–E4** 北极星证据诚实）。S0–S4 已收口。
+**现行下一程**见 **evidence-strengthen.md**（已归档；**E0–E4** 北极星证据诚实）。S0–S4 已收口。
 
 运营仍须持续：
 

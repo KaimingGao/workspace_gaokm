@@ -286,7 +286,7 @@ class DailyRunService:
                 failures.append(f"quant_report: {msg}")
 
         if any([watching_refresh, cross_section, quant_report, sync_paper_watchlist, paper_rebalance]):
-            from core.watching_health import check_watching_health
+            from core.watching.health import check_watching_health
 
             health = check_watching_health()
             health_step = {

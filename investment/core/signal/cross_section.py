@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from core.signal.config import get_rank_defaults, load_signal_config
 from core.signal.score_stock import score_stock
-from core.watching_store import read_watching, refresh_watchlist
+from core.watching.store import read_watching, refresh_watchlist
 
 
 def rank_cross_section(

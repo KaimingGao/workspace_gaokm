@@ -5,7 +5,7 @@ from __future__ import annotations
 import unittest
 
 from core.paper import build_ops_report
-from core.paper_attribution import build_paper_attribution_lite
+from core.paper.attribution import build_paper_attribution_lite
 
 
 class TestPaperAttributionLite(unittest.TestCase):

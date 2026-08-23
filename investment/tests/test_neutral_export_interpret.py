@@ -148,7 +148,7 @@ class TestP56DailyPresetNeutralCompare(unittest.TestCase):
                 "quant.services.quant_service.QuantService.run_cross_section",
                 return_value={"success": True, "ranked_count": 2},
             ), patch(
-                "core.watching_health.check_watching_health",
+                "core.watching.health.check_watching_health",
                 return_value={"success": True, "warnings": [], "issues": []},
             ):
                 out = svc.run(preset="quant")
@@ -176,7 +176,7 @@ class TestP56DailyPresetNeutralCompare(unittest.TestCase):
                 "quant.services.quant_service.QuantService.save_daily_report",
                 return_value="/tmp/quant_daily.json",
             ), patch(
-                "core.watching_health.check_watching_health",
+                "core.watching.health.check_watching_health",
                 return_value={"success": True, "warnings": [], "issues": []},
             ):
                 out = svc.run(preset="quant", portfolio_neutral_compare=False)

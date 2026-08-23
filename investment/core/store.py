@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from datetime import datetime, timedelta
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
-from core.data_policy import (
+from core.data.policy import (
     DAILY_BARS_MAX_KEEP,
     DAILY_CACHE_HOURS,
     FUNDAMENTALS_HISTORY_MAX_POINTS,

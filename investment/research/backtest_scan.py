@@ -12,8 +12,8 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.backtest.engine import scan_signal_parameters, scan_signal_parameters_oos  # noqa: E402
-from core.data_service import bars_and_source as fetch_daily_bars  # noqa: E402
-from core.data_service import get_quote  # noqa: E402
+from core.data.facade import bars_and_source as fetch_daily_bars  # noqa: E402
+from core.data.facade import get_quote  # noqa: E402
 
 
 def _parse_float_list(text: str) -> list:

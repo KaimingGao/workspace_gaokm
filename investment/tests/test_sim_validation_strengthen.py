@@ -120,7 +120,7 @@ class TestValidationHygiene(unittest.TestCase):
             self.assertIn("AAA001", loaded["exclude_codes"])
 
             with patch(
-                "core.data_coverage.build_data_coverage",
+                "core.data.coverage.build_data_coverage",
                 return_value={
                     "ok": True,
                     "items": [

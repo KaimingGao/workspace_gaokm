@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Tuple
 
 import requests
 
-from core.data_policy import QUOTE_MEM_TTL_SECONDS, QUOTE_STALE_MAX_SECONDS
+from core.data.policy import QUOTE_MEM_TTL_SECONDS, QUOTE_STALE_MAX_SECONDS
 from core.http_retry import requests_get_with_retry
 
 logger = logging.getLogger(__name__)

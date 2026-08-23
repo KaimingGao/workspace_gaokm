@@ -6,7 +6,7 @@ import os
 from datetime import datetime, timedelta
 from typing import Any, Callable, List, Optional, Tuple
 
-from core.data_policy import DAILY_CACHE_HOURS
+from core.data.policy import DAILY_CACHE_HOURS
 from core.market import register_symbol_resolver, resolve_market_code
 from core.numbers import to_float as _to_float
 from core.store import load_daily_cache, merge_save_daily_cache
@@ -113,7 +113,7 @@ def _incremental_remote_plan(
     # 缺口补上后仍凑不够 limit → 需要更早历史，走整窗
     thin = len(existing) < max(5, need - max(gap_days, 3))
     # 长缺口 + 前复权：整窗重拉，避免分红后历史价与本地旧段错位
-    from core.data_policy import QFQ_LONG_GAP_DAYS
+    from core.data.policy import QFQ_LONG_GAP_DAYS
 
     long_qfq_gap = (
         str(adjust or "qfq").lower() == "qfq" and gap_days > QFQ_LONG_GAP_DAYS

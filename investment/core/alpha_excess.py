@@ -100,7 +100,7 @@ def fetch_index_equity_curve(
     code = str(index_code or "sh000300").strip() or "sh000300"
     bars: List[dict] = []
     try:
-        from core.data_service import get_index_bars
+        from core.data.facade import get_index_bars
 
         raw = get_index_bars(code, limit=max(40, int(limit)))
         if isinstance(raw, dict):

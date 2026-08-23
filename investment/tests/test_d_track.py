@@ -45,10 +45,10 @@ class TestD0AnnIngest(unittest.TestCase):
 
 class TestD1SourceAuditDefault(unittest.TestCase):
     def test_attach_source_audit_shape(self):
-        from core.data_consistency import attach_source_audit
+        from core.data.consistency import attach_source_audit
 
         with patch(
-            "core.data_consistency.audit_code_sources",
+            "core.data.consistency.audit_code_sources",
             return_value={"ok": True, "status": "ok", "codes": ["600519"]},
         ):
             out = attach_source_audit({"success": True}, codes=["600519"])
@@ -58,7 +58,7 @@ class TestD1SourceAuditDefault(unittest.TestCase):
 
 class TestD2Adjust(unittest.TestCase):
     def test_normalize_adjust(self):
-        from core.data_service import normalize_adjust_policy
+        from core.data.facade import normalize_adjust_policy
 
         self.assertEqual(normalize_adjust_policy("raw"), "raw")
         self.assertEqual(normalize_adjust_policy("none"), "raw")
@@ -66,7 +66,7 @@ class TestD2Adjust(unittest.TestCase):
         self.assertEqual(normalize_adjust_policy(None), "qfq")
 
     def test_get_bars_passes_adjust(self):
-        from core import data_service as ds
+        from core.data import facade as ds
 
         with patch(
             "core.ports.market.fetch_daily_bars",
@@ -80,7 +80,7 @@ class TestD2Adjust(unittest.TestCase):
 
 class TestD3Calendar(unittest.TestCase):
     def test_weekend_not_trading(self):
-        from core.market_calendar import filter_trading_dates, is_trading_day
+        from core.market.calendar import filter_trading_dates, is_trading_day
 
         self.assertFalse(is_trading_day("2024-01-06"))  # Sat
         self.assertTrue(is_trading_day("2024-01-08", holidays=set()))  # Mon
@@ -90,10 +90,10 @@ class TestD3Calendar(unittest.TestCase):
 
 class TestD4DataQuality(unittest.TestCase):
     def test_build_report(self):
-        from core.data_quality_center import build_data_quality_report
+        from core.data.quality_center import build_data_quality_report
 
         with patch(
-            "core.data_coverage.build_data_coverage",
+            "core.data.coverage.build_data_coverage",
             return_value={"ok": True, "mapped": 1},
         ), patch(
             "core.sample_ops.fundamentals_history_coverage",
@@ -102,7 +102,7 @@ class TestD4DataQuality(unittest.TestCase):
             "core.sample_ops.sample_status",
             return_value={"discipline": {"warnings": []}},
         ), patch(
-            "core.data_consistency.audit_code_sources",
+            "core.data.consistency.audit_code_sources",
             return_value={"ok": True, "status": "ok", "fallback_codes": [], "thin_codes": []},
         ):
             out = build_data_quality_report(codes=["600519"], include_source_audit=True)

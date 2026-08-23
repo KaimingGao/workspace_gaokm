@@ -155,7 +155,7 @@ def market_vol_scale(
         "message": "",
     }
     try:
-        from core.data_service import get_bars
+        from core.data.facade import get_bars
 
         pack = get_bars(index_code, limit=max(lookback, short_win * 2 + 5))
         bars = (pack or {}).get("bars") or (pack or {}).get("data") or []

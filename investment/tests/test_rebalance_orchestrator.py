@@ -11,7 +11,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.paper_rebalance_orchestrator import (  # noqa: E402
+from core.paper.rebalance.orchestrator import (  # noqa: E402
     resolve_rebalance_mode,
     run_paper_rebalance,
 )
@@ -49,7 +49,7 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
     def test_holding_rules_delegates_to_daily_cycle(self):
         paper = {"holdings": [], "rules": {}}
         with patch(
-            "core.paper_cycle.run_daily_cycle",
+            "core.paper.cycle.run_daily_cycle",
             return_value={"sell_trades": [], "buy_trades": []},
         ) as mock_cycle:
             out = run_paper_rebalance(
@@ -76,7 +76,7 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
             "core.signal.service.get_default_signal_service",
             return_value=mock_svc,
         ), patch(
-            "core.paper_rebalance.simulate_cross_section_rebalance",
+            "core.paper.rebalance.simulate_cross_section_rebalance",
             return_value={"sell_trades": [], "buy_trades": []},
         ) as mock_sim, patch(
             "core.strategy.apply_strategy_to_paper",
@@ -108,7 +108,7 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
             },
         ]
         with patch(
-            "core.paper_rebalance_orchestrator.try_reuse_active_cluster_book",
+            "core.paper.rebalance.orchestrator.try_reuse_active_cluster_book",
             return_value=None,
         ), patch(
             "core.signal.cluster_rank.rank_cluster_pools",
@@ -121,7 +121,7 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
             "core.signal.cluster_live.assess_cluster_live_health",
             return_value={"alerts": []},
         ), patch(
-            "core.paper_rebalance_orchestrator._supplement_holding_scores",
+            "core.paper.rebalance.orchestrator._supplement_holding_scores",
             side_effect=lambda paper, rows, **kw: list(rows)
             + [
                 {
@@ -132,7 +132,7 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
                 }
             ],
         ), patch(
-            "core.paper_rebalance.simulate_cross_section_rebalance",
+            "core.paper.rebalance.simulate_cross_section_rebalance",
             return_value={"sell_trades": [], "buy_trades": []},
         ) as mock_sim, patch(
             "core.strategy.apply_strategy_to_paper",
@@ -164,7 +164,7 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
             "health": {"alerts": []},
         }
         with patch(
-            "core.paper_rebalance_orchestrator.try_reuse_active_cluster_book",
+            "core.paper.rebalance.orchestrator.try_reuse_active_cluster_book",
             return_value=cached,
         ), patch(
             "core.signal.cluster_rank.rank_cluster_pools",
@@ -172,7 +172,7 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
             "core.signal.cluster_live.assess_cluster_live_health",
             return_value={"alerts": []},
         ), patch(
-            "core.paper_rebalance.simulate_cross_section_rebalance",
+            "core.paper.rebalance.simulate_cross_section_rebalance",
             return_value={"sell_trades": [], "buy_trades": []},
         ) as mock_sim, patch(
             "core.strategy.apply_strategy_to_paper",
@@ -202,7 +202,7 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
             "health": {"alerts": []},
         }
         with patch(
-            "core.paper_rebalance_orchestrator.try_reuse_active_cluster_book",
+            "core.paper.rebalance.orchestrator.try_reuse_active_cluster_book",
             return_value=cached,
         ), patch(
             "core.signal.cluster_rank.rank_cluster_pools",
@@ -210,7 +210,7 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
             "core.signal.cluster_live.assess_cluster_live_health",
             return_value={"alerts": []},
         ), patch(
-            "core.paper_rebalance.simulate_cross_section_rebalance",
+            "core.paper.rebalance.simulate_cross_section_rebalance",
             return_value={"sell_trades": [], "buy_trades": []},
         ) as mock_sim, patch(
             "core.strategy.apply_strategy_to_paper",
@@ -225,11 +225,11 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
         self.assertFalse(mock_sim.call_args.kwargs.get("skip_sentiment_prior"))
 
     def test_prepare_reuses_book_for_preview_and_confirm(self):
-        from core.paper_rebalance_orchestrator import prepare_cluster_book_rank
+        from core.paper.rebalance.orchestrator import prepare_cluster_book_rank
 
         book = [{"stock_code": "000001", "score": 1.0}]
         with patch(
-            "core.paper_rebalance_orchestrator.try_reuse_active_cluster_book",
+            "core.paper.rebalance.orchestrator.try_reuse_active_cluster_book",
             return_value={
                 "success": True,
                 "from_cache": True,
@@ -253,7 +253,7 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
 
 class TestSupplementHoldingScores(unittest.TestCase):
     def test_noop_when_all_present(self):
-        from core.paper_rebalance_orchestrator import _supplement_holding_scores
+        from core.paper.rebalance.orchestrator import _supplement_holding_scores
 
         rows = [{"stock_code": "000001", "score": 1.0}]
         paper = {"holdings": [{"stock_code": "000001", "shares": 100}]}
@@ -261,7 +261,7 @@ class TestSupplementHoldingScores(unittest.TestCase):
         self.assertEqual(len(out), 1)
 
     def test_scores_missing_holding(self):
-        from core.paper_rebalance_orchestrator import _supplement_holding_scores
+        from core.paper.rebalance.orchestrator import _supplement_holding_scores
 
         paper = {
             "holdings": [
@@ -289,7 +289,7 @@ class TestSupplementHoldingScores(unittest.TestCase):
 
 class TestClusterBookShockInvalidate(unittest.TestCase):
     def test_shock_reason_detects_wide_moves(self):
-        from core.paper_rebalance_orchestrator import _cluster_book_market_shock_reason
+        from core.paper.rebalance.orchestrator import _cluster_book_market_shock_reason
 
         book = [{"stock_code": f"00000{i}"} for i in range(4)]
         quotes = {
@@ -308,7 +308,7 @@ class TestClusterBookShockInvalidate(unittest.TestCase):
     def test_reuse_skips_on_shock(self):
         from datetime import datetime, timezone
 
-        from core.paper_rebalance_orchestrator import try_reuse_active_cluster_book
+        from core.paper.rebalance.orchestrator import try_reuse_active_cluster_book
 
         doc = {
             "updated_at": datetime.now(timezone.utc).isoformat(),
@@ -331,7 +331,7 @@ class TestClusterBookShockInvalidate(unittest.TestCase):
     def test_reuse_ok_when_quiet(self):
         from datetime import datetime, timezone
 
-        from core.paper_rebalance_orchestrator import try_reuse_active_cluster_book
+        from core.paper.rebalance.orchestrator import try_reuse_active_cluster_book
 
         book = [{"stock_code": "600519", "score": 1.0}]
         doc = {

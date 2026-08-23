@@ -1,6 +1,8 @@
-"""数据层领域包：信封 · Ports · MarketDataService。
+"""数据层领域包：信封 · Ports · MarketDataService · 策略/覆盖/质量。
 
-兼容入口仍为 ``core.data_service``（模块函数 → 默认 Service.as_dict()）。
+- ``service``：MarketDataService / ResearchDataService
+- ``facade``：dict 兼容门面（``get_quote`` / ``get_bars`` …）
+- ``policy`` · ``coverage`` · ``consistency`` · ``pit`` · ``quality_center``
 惰性导出，避免 ``import core.data`` 过早拉起 service→ports 全图。
 """
 

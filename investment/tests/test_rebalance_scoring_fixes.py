@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 class TestSelectForceTrimCodes(unittest.TestCase):
     def test_prefers_mid_band_over_low_score_book(self):
-        from core.paper_rebalance import select_force_trim_codes
+        from core.paper.rebalance import select_force_trim_codes
 
         holdings = [
             {"stock_code": "A"},
@@ -51,7 +51,7 @@ class TestScoreUniversePrefilter(unittest.TestCase):
 
 class TestForceTrimIntegration(unittest.TestCase):
     def test_force_trim_sells_mid_band_keeps_book(self):
-        from core.paper_rebalance import simulate_cross_section_rebalance
+        from core.paper.rebalance import simulate_cross_section_rebalance
 
         paper = {
             "cash": 50000.0,
@@ -151,7 +151,7 @@ class TestForceTrimIntegration(unittest.TestCase):
             }
 
         with patch(
-            "core.paper_rebalance._batch_query_quotes", side_effect=fake_quotes
+            "core.paper.rebalance._batch_query_quotes", side_effect=fake_quotes
         ), patch(
             "core.ports.market.batch_query_quotes", side_effect=fake_quotes
         ), patch(
@@ -197,7 +197,7 @@ class TestForceTrimIntegration(unittest.TestCase):
 class TestForceTrimIncompleteNoCrash(unittest.TestCase):
     def test_limit_down_overflow_sets_warning_not_unbound(self):
         """膨胀 + 全员跌停：可卖 < 需卸时不得 UnboundLocalError，并保留 warning。"""
-        from core.paper_rebalance import simulate_cross_section_rebalance
+        from core.paper.rebalance import simulate_cross_section_rebalance
 
         paper = {
             "cash": 50000.0,
@@ -258,7 +258,7 @@ class TestForceTrimIncompleteNoCrash(unittest.TestCase):
             }
 
         with patch(
-            "core.paper_rebalance._batch_query_quotes", side_effect=fake_quotes
+            "core.paper.rebalance._batch_query_quotes", side_effect=fake_quotes
         ), patch(
             "core.ports.market.batch_query_quotes", side_effect=fake_quotes
         ), patch(
@@ -298,7 +298,7 @@ class TestForceTrimIncompleteNoCrash(unittest.TestCase):
 class TestForceTrimDoesNotBuyBackInBook(unittest.TestCase):
     def test_limit_down_mid_band_does_not_rebuy_cut_book(self):
         """中间带跌停时卸簿内：本轮不得立刻买回同一批簿内票。"""
-        from core.paper_rebalance import simulate_cross_section_rebalance
+        from core.paper.rebalance import simulate_cross_section_rebalance
 
         paper = {
             "cash": 50000.0,
@@ -371,7 +371,7 @@ class TestForceTrimDoesNotBuyBackInBook(unittest.TestCase):
             return out
 
         with patch(
-            "core.paper_rebalance._batch_query_quotes", side_effect=fake_quotes
+            "core.paper.rebalance._batch_query_quotes", side_effect=fake_quotes
         ), patch(
             "core.ports.market.batch_query_quotes", side_effect=fake_quotes
         ), patch(
@@ -418,7 +418,7 @@ class TestForceTrimDoesNotBuyBackInBook(unittest.TestCase):
 
 class TestSentimentRestoreUnderDrawdown(unittest.TestCase):
     def test_restore_runs_when_drawdown_blocks_new_buys(self):
-        from core.paper_rebalance import simulate_cross_section_rebalance
+        from core.paper.rebalance import simulate_cross_section_rebalance
 
         paper = {
             "cash": 100000.0,
@@ -470,7 +470,7 @@ class TestSentimentRestoreUnderDrawdown(unittest.TestCase):
         }
 
         with patch(
-            "core.paper_rebalance._batch_query_quotes", side_effect=fake_quotes
+            "core.paper.rebalance._batch_query_quotes", side_effect=fake_quotes
         ), patch(
             "core.ports.market.batch_query_quotes", side_effect=fake_quotes
         ), patch(
@@ -538,7 +538,7 @@ class TestSentimentRestoreUnderDrawdown(unittest.TestCase):
 
 class TestSentimentRestoreTurnoverBudget(unittest.TestCase):
     def test_restore_respects_turnover_budget(self):
-        from core.paper_rebalance import simulate_cross_section_rebalance
+        from core.paper.rebalance import simulate_cross_section_rebalance
 
         paper = {
             "cash": 100000.0,
@@ -596,7 +596,7 @@ class TestSentimentRestoreTurnoverBudget(unittest.TestCase):
         }
 
         with patch(
-            "core.paper_rebalance._batch_query_quotes", side_effect=fake_quotes
+            "core.paper.rebalance._batch_query_quotes", side_effect=fake_quotes
         ), patch(
             "core.ports.market.batch_query_quotes", side_effect=fake_quotes
         ), patch(
@@ -652,7 +652,7 @@ class TestSentimentRestoreTurnoverBudget(unittest.TestCase):
 
 class TestSectorRiskTrim(unittest.TestCase):
     def test_sector_overweight_trims_lowest_score(self):
-        from core.paper_rebalance import simulate_cross_section_rebalance
+        from core.paper.rebalance import simulate_cross_section_rebalance
 
         # equity ~ 100k; two names same sector each 30k → sector 60% > 40%
         paper = {
@@ -712,7 +712,7 @@ class TestSectorRiskTrim(unittest.TestCase):
             }
 
         with patch(
-            "core.paper_rebalance._batch_query_quotes", side_effect=fake_quotes
+            "core.paper.rebalance._batch_query_quotes", side_effect=fake_quotes
         ), patch(
             "core.ports.market.batch_query_quotes", side_effect=fake_quotes
         ), patch(
@@ -855,7 +855,7 @@ class TestOptimizeEligibilityUsesEod(unittest.TestCase):
 
 class TestTurnoverBudgetClip(unittest.TestCase):
     def test_clips_to_remaining_buy_budget(self):
-        from core.paper_rebalance import clip_shares_to_turnover_budget
+        from core.paper.rebalance import clip_shares_to_turnover_budget
 
         # equity=100k, max_to=2% → single-side 1k；已买 800 → 剩 200
         # px=10 → 最多 20 股，取整 0 手？ 200/10=20 → 0*100
@@ -872,7 +872,7 @@ class TestTurnoverBudgetClip(unittest.TestCase):
         self.assertEqual(sh, 200)
 
     def test_zero_when_budget_exhausted(self):
-        from core.paper_rebalance import clip_shares_to_turnover_budget
+        from core.paper.rebalance import clip_shares_to_turnover_budget
 
         sh = clip_shares_to_turnover_budget(
             shares=500,

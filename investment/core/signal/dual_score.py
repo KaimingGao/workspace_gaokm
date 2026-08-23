@@ -6,7 +6,7 @@
 ŷ_EOD_rem  仅派生对照（y_state / cascade / nowcast），不进 ŷ_trade
 ŷ_nowcast  = 顺序 Kalman(EOD → open → 可选分钟 τ)；默认影子，不替换 predicted_score
 
-规范见 docs/predicted-score-chain.md §2.5。
+规范见 docs/quant.md · ŷ 全链路。
 
 实现按用例拆到 ``dual_score_*``；本模块再导出。
 """

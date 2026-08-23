@@ -15,7 +15,7 @@ from quant.services.quant_report_export import export_quant_report, render_quant
 import json
 import tempfile
 from unittest.mock import MagicMock, patch
-from core.watching_health import check_watching_health
+from core.watching.health import check_watching_health
 from quant.ops.daily_health import build_daily_health
 from quant.services.quant_report_index import list_quant_reports, read_quant_report_file
 from quant.services.quant_service import QuantService
@@ -157,7 +157,7 @@ class TestP24PortfolioBridge(unittest.TestCase):
         mock_isfile.side_effect = isfile
         mock_daily.return_value = {"empty": False}
         with patch("core.paper.load_paper") as mock_paper, patch(
-            "core.watching_store.read_watching"
+            "core.watching.store.read_watching"
         ) as mock_uni:
             mock_paper.return_value = {
                 "cash": 10000,

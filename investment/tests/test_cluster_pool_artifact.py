@@ -245,7 +245,7 @@ class TestClusterPoolArtifact(unittest.TestCase):
                 }
 
             with patch(
-                "core.paper_rebalance.simulate_cross_section_rebalance",
+                "core.paper.rebalance.simulate_cross_section_rebalance",
                 side_effect=fake_sim,
             ):
                 out = preview_paper_pool_rebalance(book, paper_path=path, dry_run=True)
@@ -318,7 +318,7 @@ class TestClusterPoolArtifact(unittest.TestCase):
                 }
 
             with patch(
-                "core.paper_rebalance.simulate_cross_section_rebalance",
+                "core.paper.rebalance.simulate_cross_section_rebalance",
                 side_effect=fake_sim,
             ), patch(
                 "core.paper.mark_to_market",

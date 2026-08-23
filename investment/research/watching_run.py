@@ -13,7 +13,7 @@ if ROOT not in sys.path:
 
 import logging
 
-from core.watching_store import (  # noqa: E402
+from core.watching.store import (  # noqa: E402
     init_from_example,
     read_watching,
     refresh_watchlist,

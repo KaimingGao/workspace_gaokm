@@ -31,7 +31,7 @@ def build_run_manifest(
     data_quality: Optional[dict] = None,
     adjust_policy: Optional[str] = None,
 ) -> Dict[str, Any]:
-    from core.data_service import DEFAULT_ADJUST_POLICY
+    from core.data.facade import DEFAULT_ADJUST_POLICY
 
     dq = data_quality or (extra or {}).get("data_quality") or {}
     policy = adjust_policy or dq.get("adjust_policy") or DEFAULT_ADJUST_POLICY

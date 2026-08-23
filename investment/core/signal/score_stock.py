@@ -5,7 +5,7 @@ import logging
 import threading
 from typing import Any, Dict, Optional
 
-from core.data_service import DEFAULT_ADJUST_POLICY, allows_production_score, infer_adjust
+from core.data.facade import DEFAULT_ADJUST_POLICY, allows_production_score, infer_adjust
 from core.ports.market import (
     bars_from_quote_fallback,
 )
@@ -61,7 +61,7 @@ def _fetch_bars_isolated(stock_code: str, *, limit: int = 40, timeout: float = 1
 
     need = min(15, int(limit or 40))
     try:
-        from core.data_service import get_bars
+        from core.data.facade import get_bars
 
         pack = get_bars(
             raw,
@@ -206,7 +206,7 @@ def score_stock(
 
     if quote is None:
         try:
-            from core.data_service import get_quote
+            from core.data.facade import get_quote
 
             # 设置超时，防止行情查询卡住
             quote = _call_with_timeout(get_quote, q_timeout, raw)
@@ -561,7 +561,7 @@ def score_stock(
 
     market_priors: Dict[str, Any] = {}
     try:
-        from core.market_context import build_market_priors, load_market_context
+        from core.market.context import build_market_priors, load_market_context
 
         mctx = load_market_context()
         fac = scored.get("factors") or {}
@@ -919,7 +919,7 @@ def score_stock(
             and float(gap_v) >= trigger
         ):
             try:
-                from core.watching_store import read_watching
+                from core.watching.store import read_watching
 
                 watch_codes = [
                     str(c).strip()

@@ -20,7 +20,7 @@ def live_decision_as_of(*, bars: Optional[List[dict]] = None) -> str:
         if len(d) >= 10 and d[4] == "-" and d[7] == "-":
             return d
     try:
-        from core.market_calendar import resolve_session_date
+        from core.market.calendar import resolve_session_date
 
         return resolve_session_date()
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

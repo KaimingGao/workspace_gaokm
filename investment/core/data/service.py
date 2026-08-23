@@ -16,7 +16,7 @@ from core.data.gate import (
 )
 from core.data.ports import MarketPorts, default_ports
 from core.data.types import BarsResult, DataEnvelope, PitMeta, QualityMeta
-from core.data_policy import (
+from core.data.policy import (
     DAILY_CACHE_HOURS,
     FUNDAMENTALS_CACHE_HOURS,
     MINUTE_CACHE_HOURS,
@@ -243,7 +243,7 @@ class MarketDataService:
     ) -> BarsResult:
         if reject_quote_fallback is None:
             reject_quote_fallback = bool(offline_ok or offline_only)
-        from core.data_pit import bars_as_of
+        from core.data.pit import bars_as_of
 
         policy = normalize_adjust_policy(adjust)
         raw = str(code or "").strip()
@@ -695,7 +695,7 @@ class MarketDataService:
     def get_spot(self, *, force: bool = False, disk_only: bool = False) -> DataEnvelope:
         fetched = datetime.now().isoformat(timespec="seconds")
         if disk_only:
-            from core.data_policy import SPOT_DISK_MAX_AGE_HOURS
+            from core.data.policy import SPOT_DISK_MAX_AGE_HOURS
 
             try:
                 rows = self.ports.spot.load_disk(max_age_hours=SPOT_DISK_MAX_AGE_HOURS)
@@ -755,7 +755,7 @@ class MarketDataService:
         )
 
     def get_macro_snapshot(self, *, max_age_hours: float = 36.0) -> DataEnvelope:
-        from core.market_context_store import load_macro_snapshot
+        from core.market.context_store import load_macro_snapshot
 
         fetched = datetime.now().isoformat(timespec="seconds")
         snap, meta = load_macro_snapshot(max_age_hours=max_age_hours)
@@ -781,7 +781,7 @@ class MarketDataService:
         )
 
     def get_market_sentiment_snapshot(self, *, max_age_hours: float = 36.0) -> DataEnvelope:
-        from core.market_context_store import load_market_sentiment_snapshot
+        from core.market.context_store import load_market_sentiment_snapshot
 
         fetched = datetime.now().isoformat(timespec="seconds")
         snap, meta = load_market_sentiment_snapshot(max_age_hours=max_age_hours)
@@ -807,7 +807,7 @@ class MarketDataService:
         )
 
     def get_announcement_snapshot(self, *, max_age_hours: float = 36.0) -> DataEnvelope:
-        from core.market_context_store import load_announcement_snapshot
+        from core.market.context_store import load_announcement_snapshot
 
         fetched = datetime.now().isoformat(timespec="seconds")
         snap, meta = load_announcement_snapshot(max_age_hours=max_age_hours)

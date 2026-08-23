@@ -108,6 +108,31 @@ export function renderPaperT0(els, data) {
         `<span class="val ${paperMetricClass(val)}">${val ?? "—"}</span></div>`
     )
     .join("");
+  const tradeDays = Number(data.t0_trade_days) || 0;
+  if (tradeDays <= 0) {
+    const reasons = data.skip_reason_top || [];
+    const top = reasons[0];
+    const ampSkip = reasons.some((r) => String(r.reason || "").includes("振幅"));
+    const dir = (data.rules && data.rules.direction) || data.direction || "—";
+    const sell = (data.rules && data.rules.sell_trigger_pct) ?? "2";
+    const buy = (data.rules && data.rules.buy_trigger_pct) ?? "1.5";
+    const tips = ampSkip
+      ? `振幅门禁偏严；「振幅下限」保持 0.5 或关 ATR 调阈`
+      : `日线未触及卖触发 +${sell}%（或买 -${buy}%）；可降触发，或勾选「仅选中」+「5分钟」`;
+    const mm = data.minute_meta || {};
+    const minuteHint =
+      data.use_minute === false && (mm.error || (data.minute_path_days || 0) === 0)
+        ? ` · 5m${mm.error ? `失败：${String(mm.error).slice(0, 60)}` : "无覆盖"}，已用日线`
+        : "";
+    metricsEl.insertAdjacentHTML(
+      "afterbegin",
+      `<p class="quant-trades-caption paper-t0-zero-hint">` +
+        `未成交${data.skip_days != null ? `：${data.skip_days} 日跳过` : ""}` +
+        (top ? ` · 主因 ${escapeHtml(top.reason)}×${top.count}` : "") +
+        ` · 选向 ${escapeHtml(String(dir))} · ${escapeHtml(tips)}${escapeHtml(minuteHint)}` +
+        `</p>`
+    );
+  }
   const sample = data.trade_days_sample || data.days || [];
   const days = sample.filter(
     (d) =>
@@ -123,7 +148,7 @@ export function renderPaperT0(els, data) {
     const trades =
       data.t0_trade_days != null ? `指标成交日 ${data.t0_trade_days}` : "无成交样本";
     daysEl.innerHTML =
-      `<p class="quant-trades-caption">${trades}${skip} · 明细为空（可 Alt+点选中行试 5m）</p>` +
+      `<p class="quant-trades-caption">${trades}${skip} · 明细为空（可勾选「仅选中」+「5分钟」）</p>` +
       skipHtml;
     return;
   }

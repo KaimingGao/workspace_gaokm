@@ -82,7 +82,7 @@ def build_portfolio_quant_bridge(
     watching_exists = os.path.isfile(WATCHING_PATH)
     if watching_exists:
         try:
-            from core.watching_store import read_watching
+            from core.watching.store import read_watching
 
             watchlist = list(read_watching(WATCHING_PATH).get("watchlist") or [])
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

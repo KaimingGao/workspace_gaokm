@@ -56,7 +56,7 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
 
 DEFAULT_RUNTIME: Dict[str, Any] = {
     "paper_direction_fallback": "signal",
-    "backtest_direction_fallback": "signal",
+    "backtest_direction_fallback": "long_t",
     "backtest_path_mode_no_minute": "veto",
     "backtest_path_mode_with_minute": "first_touch",
 }

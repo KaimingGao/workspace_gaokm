@@ -21,7 +21,7 @@ class TestScoreLedger(unittest.TestCase):
         os.makedirs(self.ledger_root, exist_ok=True)
 
     def _patch_dir(self):
-        return patch("core.score_ledger_io.ledger_dir", return_value=self.ledger_root)
+        return patch("core.score_ledger.io.ledger_dir", return_value=self.ledger_root)
 
     def test_upsert_and_load(self):
         from core.score_ledger import load_ledger, upsert_ledger_rows
@@ -91,15 +91,15 @@ class TestScoreLedger(unittest.TestCase):
             return bars, "test"
 
         with self._patch_dir(), patch(
-            "core.data_service.bars_and_source", side_effect=fake_bars
+            "core.data.facade.bars_and_source", side_effect=fake_bars
         ), patch(
-            "core.market_calendar.next_trading_day",
+            "core.market.calendar.next_trading_day",
             side_effect=lambda d, n=1, **kw: {
                 1: "2026-08-06",
                 3: "2026-08-08",
             }.get(int(n), "2026-08-06"),
         ), patch(
-            "core.market_calendar.is_trading_day", return_value=True
+            "core.market.calendar.is_trading_day", return_value=True
         ):
             upsert_ledger_rows(
                 "2026-08-05",
@@ -155,11 +155,11 @@ class TestScoreLedger(unittest.TestCase):
             )
 
         with self._patch_dir(), patch(
-            "core.data_service.bars_and_source", side_effect=fake_bars
+            "core.data.facade.bars_and_source", side_effect=fake_bars
         ), patch(
-            "core.market_calendar.next_trading_day",
+            "core.market.calendar.next_trading_day",
             side_effect=lambda d, n=1, **kw: "2026-08-06",
-        ), patch("core.market_calendar.is_trading_day", return_value=True):
+        ), patch("core.market.calendar.is_trading_day", return_value=True):
             for d, y in (("2026-08-04", 0.5), ("2026-08-05", 1.2)):
                 upsert_ledger_rows(
                     d,
@@ -190,7 +190,7 @@ class TestScoreLedger(unittest.TestCase):
             )
 
         with self._patch_dir(), patch(
-            "core.data_service.bars_and_source", side_effect=fake_bars
+            "core.data.facade.bars_and_source", side_effect=fake_bars
         ):
             upsert_ledger_rows(
                 "2026-08-05",
@@ -228,11 +228,11 @@ class TestScoreLedger(unittest.TestCase):
             )
 
         with self._patch_dir(), patch(
-            "core.data_service.bars_and_source", side_effect=fake_bars
+            "core.data.facade.bars_and_source", side_effect=fake_bars
         ), patch(
-            "core.market_calendar.next_trading_day",
+            "core.market.calendar.next_trading_day",
             side_effect=lambda d, n=1, **kw: "2026-08-06",
-        ), patch("core.market_calendar.is_trading_day", return_value=True):
+        ), patch("core.market.calendar.is_trading_day", return_value=True):
             upsert_ledger_rows(
                 "2026-08-05",
                 [
@@ -283,22 +283,22 @@ class TestScoreLedger(unittest.TestCase):
             )
 
         with self._patch_dir(), patch(
-            "core.score_ledger_series.freeze_from_cluster_book",
+            "core.score_ledger.series.freeze_from_cluster_book",
             return_value={"success": True, "as_of": "2026-08-05", "n_rows": 0},
         ), patch(
-            "core.market_calendar.resolve_session_date", return_value="2026-08-05"
+            "core.market.calendar.resolve_session_date", return_value="2026-08-05"
         ), patch(
-            "core.market_calendar.prev_trading_day",
+            "core.market.calendar.prev_trading_day",
             side_effect=lambda d, n=1, **kw: {
                 1: "2026-08-04",
                 2: "2026-08-01",
                 3: "2026-07-31",
             }.get(int(n), "2026-08-04"),
         ), patch(
-            "core.market_calendar.next_trading_day",
+            "core.market.calendar.next_trading_day",
             side_effect=lambda d, n=1, **kw: "2026-08-05",
         ), patch(
-            "core.data_service.bars_and_source", side_effect=fake_bars
+            "core.data.facade.bars_and_source", side_effect=fake_bars
         ):
             upsert_ledger_rows(
                 "2026-08-04",
@@ -416,7 +416,7 @@ class TestScoreLedger(unittest.TestCase):
         from core.score_ledger import list_ledger_entries, upsert_ledger_rows
 
         with self._patch_dir(), patch(
-            "core.market_calendar.resolve_session_date", return_value="2026-08-17"
+            "core.market.calendar.resolve_session_date", return_value="2026-08-17"
         ):
             upsert_ledger_rows(
                 "2026-08-14",
@@ -433,11 +433,11 @@ class TestScoreLedger(unittest.TestCase):
         from core.score_ledger import resolve_freeze_as_of
 
         with patch(
-            "core.score_ledger_asof.infer_feature_as_of", return_value="2026-08-11"
+            "core.score_ledger.asof.infer_feature_as_of", return_value="2026-08-11"
         ), patch(
-            "core.score_ledger_asof.default_as_of", return_value="2026-08-11"
+            "core.score_ledger.asof.default_as_of", return_value="2026-08-11"
         ), patch(
-            "core.market_calendar.resolve_session_date", return_value="2026-08-12"
+            "core.market.calendar.resolve_session_date", return_value="2026-08-12"
         ):
             out = resolve_freeze_as_of("2026-08-12")
             self.assertEqual(out["as_of"], "2026-08-11")
@@ -448,11 +448,11 @@ class TestScoreLedger(unittest.TestCase):
         from core.score_ledger import resolve_freeze_as_of
 
         with patch(
-            "core.score_ledger_asof.infer_feature_as_of", return_value=None
+            "core.score_ledger.asof.infer_feature_as_of", return_value=None
         ), patch(
-            "core.score_ledger_asof.default_as_of", return_value="2026-08-11"
+            "core.score_ledger.asof.default_as_of", return_value="2026-08-11"
         ), patch(
-            "core.market_calendar.resolve_session_date", return_value="2026-08-12"
+            "core.market.calendar.resolve_session_date", return_value="2026-08-12"
         ):
             out = resolve_freeze_as_of(None)
             self.assertEqual(out["as_of"], "2026-08-11")
@@ -476,7 +476,7 @@ class TestScoreLedger(unittest.TestCase):
             "meta": {"version": 1},
         }
         with self._patch_dir(), patch(
-            "core.score_ledger_freeze.resolve_freeze_as_of",
+            "core.score_ledger.freeze.resolve_freeze_as_of",
             return_value={
                 "as_of": "2026-08-11",
                 "session_date": "2026-08-12",
@@ -511,7 +511,7 @@ class TestScoreLedger(unittest.TestCase):
             "meta": {"version": 1},
         }
         with self._patch_dir(), patch(
-            "core.score_ledger_freeze.resolve_freeze_as_of",
+            "core.score_ledger.freeze.resolve_freeze_as_of",
             return_value={
                 "as_of": "2026-08-18",
                 "session_date": "2026-08-20",
@@ -561,7 +561,7 @@ class TestScoreLedger(unittest.TestCase):
             "meta": {"version": 9},
         }
         with self._patch_dir(), patch(
-            "core.score_ledger_freeze.resolve_freeze_as_of",
+            "core.score_ledger.freeze.resolve_freeze_as_of",
             return_value={
                 "as_of": "2026-08-11",
                 "session_date": "2026-08-12",
@@ -638,7 +638,7 @@ class TestScoreLedger(unittest.TestCase):
             },
         }
         with self._patch_dir(), patch(
-            "core.score_ledger_freeze.resolve_freeze_as_of",
+            "core.score_ledger.freeze.resolve_freeze_as_of",
             return_value={
                 "as_of": "2026-08-05",
                 "feature_as_of": "2026-08-05",
@@ -646,9 +646,9 @@ class TestScoreLedger(unittest.TestCase):
                 "note": None,
             },
         ), patch(
-            "core.data_service.bars_and_source", side_effect=fake_bars
+            "core.data.facade.bars_and_source", side_effect=fake_bars
         ), patch(
-            "core.market_calendar.next_trading_day",
+            "core.market.calendar.next_trading_day",
             side_effect=lambda d, n=1, **kw: "2026-08-06",
         ):
             fr = freeze_from_tau_shadow_book(
@@ -683,7 +683,7 @@ class TestScoreLedger(unittest.TestCase):
                 return fake_bars(code, limit=limit, offline_ok=offline_ok)
 
             with patch(
-                "core.data_service.bars_and_source", side_effect=fake_bars2
+                "core.data.facade.bars_and_source", side_effect=fake_bars2
             ):
                 filled = fill_outcomes("2026-08-05", horizon_days=1)
                 self.assertEqual(filled.get("filled_tau"), 2)
@@ -748,7 +748,7 @@ class TestScoreLedger(unittest.TestCase):
             },
         }
         with self._patch_dir(), patch(
-            "core.score_ledger_freeze.resolve_freeze_as_of",
+            "core.score_ledger.freeze.resolve_freeze_as_of",
             return_value={
                 "as_of": "2026-08-05",
                 "feature_as_of": "2026-08-05",
@@ -756,9 +756,9 @@ class TestScoreLedger(unittest.TestCase):
                 "note": None,
             },
         ), patch(
-            "core.data_service.bars_and_source", side_effect=fake_bars
+            "core.data.facade.bars_and_source", side_effect=fake_bars
         ), patch(
-            "core.market_calendar.next_trading_day",
+            "core.market.calendar.next_trading_day",
             side_effect=lambda d, n=1, **kw: "2026-08-06",
         ):
             fr = freeze_from_nowcast_shadow_book(
@@ -875,7 +875,7 @@ class TestScoreLedger(unittest.TestCase):
                 "quant.research.rem_ridge.load_rem_model",
                 return_value={"coef": {"gap_pct": 0.1}, "intercept": 0.0},
             ), patch(
-                "core.data_service.bars_and_source",
+                "core.data.facade.bars_and_source",
                 return_value=(
                     [
                         {

@@ -18,7 +18,7 @@ from core.paper import (
     save_paper,
     snapshots_for_ui,
 )
-from core.paper_costs import enrich_operation_log_with_trade_fees
+from core.paper.costs import enrich_operation_log_with_trade_fees
 from services.paper_helpers import _build_score_formula
 
 
@@ -438,7 +438,7 @@ class PaperAccountMixin:
 
     def set_cost_model(self, model: str) -> Dict[str, Any]:
         """切换成交成本模型：zero | simple_cn。"""
-        from core.paper_costs import COST_MODELS, resolve_cost_model
+        from core.paper.costs import COST_MODELS, resolve_cost_model
 
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化模拟账户")

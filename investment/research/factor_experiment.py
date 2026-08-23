@@ -11,8 +11,8 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.data_service import bars_and_source as fetch_daily_bars  # noqa: E402
-from core.data_service import get_quote, index_bars_and_source  # noqa: E402
+from core.data.facade import bars_and_source as fetch_daily_bars  # noqa: E402
+from core.data.facade import get_quote, index_bars_and_source  # noqa: E402
 from core.ports.market import (  # noqa: E402
     default_benchmark,
     resolve_market_code,

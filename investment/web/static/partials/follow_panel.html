@@ -373,7 +373,7 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="日振幅%下限；空=自动 max(卖+买)×0.6。调低→更少振幅跳过"
+                    title="日振幅%下限；空=回测默认0.5%。自动≈(卖+买)×0.35，最低0.5"
                   >
                     <span>振幅下限%</span>
                     <input
@@ -382,7 +382,8 @@
                       min="0.2"
                       max="30"
                       step="0.1"
-                      placeholder="自动"
+                      value="0.5"
+                      title="回测建议 0.5；留空则按卖/买触发自动估算"
                     />
                   </label>
                   <label
@@ -391,9 +392,9 @@
                   >
                     <span>选向</span>
                     <select name="direction">
+                      <option value="long_t" selected>long_t</option>
                       <option value="signal">signal</option>
                       <option value="auto">auto</option>
-                      <option value="long_t">long_t</option>
                       <option value="reverse_t">reverse_t</option>
                     </select>
                   </label>
@@ -427,7 +428,14 @@
                   </label>
                   <label class="paper-t0-field">
                     <span>ATR 调阈</span>
-                    <input type="checkbox" name="use_atr" checked />
+                    <input type="checkbox" name="use_atr" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="正T未买回 / 反T未卖旧仓时，收盘强制完成第二腿，减少半腿敞口"
+                  >
+                    <span>当日回补</span>
+                    <input type="checkbox" name="must_cover_same_day" />
                   </label>
                   <label class="paper-t0-field" title="仅做T回测；不写入账本覆盖">
                     <span>回测窗</span>
@@ -453,11 +461,22 @@
               <button type="button" id="paper-t0-confirm" class="dialog-btn" hidden title="确认后写入模拟账本">
                 确认做T
               </button>
+              <label class="paper-t0-bt-opt" title="仅回测下方持仓表中当前选中的股票">
+                <input type="checkbox" name="t0_bt_only_selected" />
+                仅选中
+              </label>
+              <label
+                class="paper-t0-bt-opt"
+                title="拉东财 5 分钟 K 走路径；需勾选「仅选中」或 Alt+点。失败时回退日线"
+              >
+                <input type="checkbox" name="t0_bt_use_minute" />
+                5分钟
+              </label>
               <button
                 type="button"
                 id="paper-t0-backtest"
                 class="dialog-btn secondary"
-                title="默认日线代理回测全部持仓（快）；Alt+点 = 仅选中行并尝试 5m 路径"
+                title="默认日线回测全部持仓；勾选「仅选中」+「5分钟」或 Alt+点 = 单票 5m"
               >
                 做T回测
               </button>

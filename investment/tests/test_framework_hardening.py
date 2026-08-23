@@ -189,7 +189,7 @@ class TestPortsAdapters(unittest.TestCase):
         from skills.quote.engine import QuoteEngine
 
         with patch(
-            "core.data_service.get_quote",
+            "core.data.facade.get_quote",
             return_value={"success": True, "stock_code": "600519", "data_source": "tencent_quote"},
         ) as mock_gq:
             out = QuoteEngine().query({"stock_code": "茅台"})
@@ -235,7 +235,7 @@ class TestPaperCycleExport(unittest.TestCase):
         self.assertIs(paper.run_daily_cycle, paper_cycle.run_daily_cycle)
 
     def test_run_daily_cycle_callable_with_mocks(self):
-        from core.paper_cycle import run_daily_cycle
+        from core.paper.cycle import run_daily_cycle
 
         paper = {
             "cash": 100000,
@@ -244,17 +244,17 @@ class TestPaperCycleExport(unittest.TestCase):
             "operation_log": [],
             "snapshots": [],
         }
-        with patch("core.paper_cycle.run_signal_scan", return_value=[]), patch(
-            "core.paper_cycle.simulate_sells", return_value=[]
-        ), patch("core.paper_cycle.simulate_buys", return_value=[]), patch(
-            "core.paper_cycle.mark_to_market",
+        with patch("core.paper.cycle.run_signal_scan", return_value=[]), patch(
+            "core.paper.cycle.simulate_sells", return_value=[]
+        ), patch("core.paper.cycle.simulate_buys", return_value=[]), patch(
+            "core.paper.cycle.mark_to_market",
             return_value={"cash": 100000, "equity": 100000, "position_count": 0},
-        ), patch("core.paper_cycle.append_snapshot"), patch(
-            "core.paper_cycle.summarize_data_quality", create=True
+        ), patch("core.paper.cycle.append_snapshot"), patch(
+            "core.paper.cycle.summarize_data_quality", create=True
         ):
             # summarize is imported inside function; patch data_service instead
             with patch(
-                "core.data_service.summarize_data_quality",
+                "core.data.facade.summarize_data_quality",
                 return_value={"levels": {}, "fallback_count": 0, "count": 0},
             ), patch(
                 "core.strategy_monitor.assess_strategy_health",

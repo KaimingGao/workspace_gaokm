@@ -122,8 +122,8 @@ class QuantFactorMixin:
         *,
         lookback: int = 120,
     ) -> Dict[str, Any]:
-        from core.data_service import bars_and_source_research as bars_and_source
-        from core.data_service import get_quote, index_bars_and_source
+        from core.data.facade import bars_and_source_research as bars_and_source
+        from core.data.facade import get_quote, index_bars_and_source
         from core.ports.market import default_benchmark, resolve_market_code
         from quant.research.factor_report import compute_factor_ic_report
 
@@ -170,8 +170,8 @@ class QuantFactorMixin:
         lookback: int = 120,
         horizon_days: int = 3,
     ) -> Dict[str, Any]:
-        from core.data_service import bars_and_source_research as bars_and_source
-        from core.data_service import get_quote, index_bars_and_source
+        from core.data.facade import bars_and_source_research as bars_and_source
+        from core.data.facade import get_quote, index_bars_and_source
         from core.ports.market import default_benchmark, resolve_market_code
         from core.signal.factor_registry import run_factor_experiment
 
@@ -214,8 +214,8 @@ class QuantFactorMixin:
         horizon_days: int = 3,
         ridge_lambda: float = 0.0,
     ) -> Dict[str, Any]:
-        from core.data_service import bars_and_source_research as bars_and_source
-        from core.data_service import get_quote, index_bars_and_source
+        from core.data.facade import bars_and_source_research as bars_and_source
+        from core.data.facade import get_quote, index_bars_and_source
         from core.ports.market import default_benchmark, resolve_market_code
         from quant.research.factor_ols import compute_factor_ols_report
 
@@ -253,7 +253,7 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """ŷ 行业残差 on/off 影子对照（不写盘）。"""
         from core.research.yhat_residual_shadow import compare_yhat_residual_shadow
-        from core.watching_store import read_watching
+        from core.watching.store import read_watching
 
         items: List[Dict[str, Any]] = []
         source = "none"
@@ -331,9 +331,9 @@ class QuantFactorMixin:
         ridge_lambda: float = 1.0,
     ) -> Dict[str, Any]:
         """绝对 y vs 指数超额 y：同池 holdout IC 影子对照（不写盘）。"""
-        from core.data_service import bars_and_source
+        from core.data.facade import bars_and_source
         from core.research.excess_mode_shadow import compare_excess_mode_shadow
-        from core.watching_store import read_watching
+        from core.watching.store import read_watching
 
         uni = read_watching()
         codes = list(uni.get("watchlist") or [])
@@ -378,9 +378,9 @@ class QuantFactorMixin:
 
         ``tau_hm`` 缺省跟随 ``dual_score``：enable_minute_tau 时用 minute_tau_hm，否则 open。
         """
-        from core.data_service import bars_and_source
+        from core.data.facade import bars_and_source
         from core.signal.dual_score import get_dual_score_cfg
-        from core.watching_store import read_watching
+        from core.watching.store import read_watching
         from quant.research.rem_ridge import (
             fit_rem_ridge_report,
             load_rem_last_report,
@@ -492,8 +492,8 @@ class QuantFactorMixin:
         note: str = "",
     ) -> Dict[str, Any]:
         """R0+：观察池 ŷ_ON Ridge；可选 persist live 模型。"""
-        from core.data_service import bars_and_source
-        from core.watching_store import read_watching
+        from core.data.facade import bars_and_source
+        from core.watching.store import read_watching
         from quant.research.on_ridge import (
             fit_on_ridge_report,
             load_on_last_report,
@@ -575,10 +575,10 @@ class QuantFactorMixin:
         ridge_lambda: float = 0.0,
     ) -> Dict[str, Any]:
         """研究池多票堆叠时序 OLS（显式触发；不写 config）。"""
-        from core.data_service import bars_and_source_research as bars_and_source
-        from core.data_service import get_quote, index_bars_and_source
+        from core.data.facade import bars_and_source_research as bars_and_source
+        from core.data.facade import get_quote, index_bars_and_source
         from core.ports.market import default_benchmark, resolve_market_code
-        from core.watching_store import read_watching
+        from core.watching.store import read_watching
         from quant.research.factor_ols import compute_factor_ols_pooled_report
 
         uni = read_watching()
@@ -699,7 +699,7 @@ class QuantFactorMixin:
 
         watchlist: List[Any] = []
         try:
-            from core.watching_store import read_watching
+            from core.watching.store import read_watching
 
             watchlist = list((read_watching() or {}).get("watchlist") or [])
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -963,7 +963,7 @@ class QuantFactorMixin:
 
         # 进度按「票数」量级：尊重 watching_limit，避免按百票满池估 total
         try:
-            from core.watching_store import read_watching
+            from core.watching.store import read_watching
 
             n_watch_all = len(list((read_watching() or {}).get("watchlist") or []))
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -1259,9 +1259,9 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """研究池逐因子日频截面 IC（S1；显式触发，不写 config）。"""
         from core.backtest.factor_cs_ic import compute_factor_cross_section_ic
-        from core.data_service import bars_and_source_research as bars_and_source
-        from core.data_service import get_quote
-        from core.watching_store import read_watching
+        from core.data.facade import bars_and_source_research as bars_and_source
+        from core.data.facade import get_quote
+        from core.watching.store import read_watching
 
         uni = read_watching()
         codes = list(uni.get("watchlist") or [])
@@ -1409,10 +1409,10 @@ class QuantFactorMixin:
         pit_fundamentals: bool = True,
     ) -> Dict[str, Any]:
         """FS2：观察池 alt_sentiment as_of TS IC（研究只读；不改 live 闸）。"""
-        from core.data_service import bars_and_source_research as bars_and_source
-        from core.data_service import get_quote
+        from core.data.facade import bars_and_source_research as bars_and_source
+        from core.data.facade import get_quote
         from core.research.sentiment_ic import summarize_alt_sentiment_ic_pool
-        from core.watching_store import read_watching
+        from core.watching.store import read_watching
 
         uni = read_watching()
         codes = list(uni.get("watchlist") or [])[: max(1, min(int(watching_limit or 8), 20))]
@@ -1483,14 +1483,14 @@ class QuantFactorMixin:
         watching_limit: int = 5,
     ) -> Dict[str, Any]:
         from core.backtest.engine import scan_signal_parameters_oos
-        from core.data_service import bars_and_source_research as bars_and_source
-        from core.data_service import get_quote
+        from core.data.facade import bars_and_source_research as bars_and_source
+        from core.data.facade import get_quote
         from core.signal.threshold_suggest import (
             format_threshold_config_diff,
             suggest_stance_thresholds_from_oos,
             suggest_stance_thresholds_from_watching_oos,
         )
-        from core.watching_store import read_watching
+        from core.watching.store import read_watching
 
         if use_watching:
             try:
@@ -1585,7 +1585,7 @@ def _enrich_cluster_name_by_code(report: Dict[str, Any]) -> Dict[str, Any]:
             if bare and bare != c:
                 name_by_code.setdefault(bare, nm)
     try:
-        from core.watching_store import read_watching, watchlist_names_for
+        from core.watching.store import read_watching, watchlist_names_for
 
         data = read_watching() or {}
         wl = [str(c).strip() for c in (data.get("watchlist") or []) if str(c).strip()]

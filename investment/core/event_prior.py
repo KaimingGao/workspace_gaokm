@@ -326,7 +326,7 @@ def compute_sector_gap_breadth_live(
     刷簿路径传 ``use_sector_peers=False`` + 预取 ``quotes``：整池共享一个 breadth，
     与 rem 训练面板按日广度同构，且只需一次 batch 行情。
     """
-    from core.data_service import batch_get_quotes
+    from core.data.facade import batch_get_quotes
 
     uniq = [str(c).strip() for c in codes if str(c).strip()]
     peer_codes = list(uniq)

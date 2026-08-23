@@ -84,6 +84,7 @@ class T0BacktestRequest(BaseModel):
     compare_optimistic: bool = True
     use_minute: bool = True
     compare_daily: bool = True
+    use_atr: Optional[bool] = None
 
 
 class PaperT0Request(BaseModel):
@@ -109,4 +110,5 @@ class PaperExecutionPatchRequest(BaseModel):
     dir_enter: Optional[float] = None
     min_range_pct: Optional[float] = None
     use_atr: Optional[bool] = None
+    must_cover_same_day: Optional[bool] = None
 

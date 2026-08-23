@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 from core.facts import facts_summary
-from core.market_context import summarize_market_context
+from core.market.context import summarize_market_context
 from skills.macro.history import build_macro_history_rows, save_macro_history_index
 
 

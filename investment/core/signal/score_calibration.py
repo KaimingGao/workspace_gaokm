@@ -284,7 +284,7 @@ def _calibration_universe_codes(
     limit = max(3, min(int(watching_limit or _PANEL_WATCHING_LIMIT), 240))
     watch: List[str] = []
     try:
-        from core.watching_store import read_watching
+        from core.watching.store import read_watching
 
         raw = read_watching() or {}
         items = (
@@ -426,7 +426,7 @@ def _collect_eod_panel_pairs(
     pit_fundamentals = len(code_list) < 40
 
     try:
-        from core.data_service import bars_and_source
+        from core.data.facade import bars_and_source
         from core.research.panel import collect_subscore_forward_panel
         from core.signal.cluster_live import (
             load_active_cluster_weights,
@@ -572,7 +572,7 @@ def _collect_tau_panel_pairs(
     """与 rem Ridge 同源：open→close 标签 + Z 特征 × live rem 模型。"""
     lb = int(lookback)
     try:
-        from core.data_service import bars_and_source
+        from core.data.facade import bars_and_source
         from core.research.rem_ridge import (
             build_rem_panels_from_bars,
             load_rem_model,

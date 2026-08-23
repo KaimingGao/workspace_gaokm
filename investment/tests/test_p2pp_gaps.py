@@ -29,7 +29,7 @@ def _bars(n: int = 40, start: float = 10.0, step: float = 0.1):
 
 class TestDataPit(unittest.TestCase):
     def test_window_as_of_no_lookahead(self):
-        from core.data_pit import assert_window_pit, window_as_of
+        from core.data.pit import assert_window_pit, window_as_of
 
         bars = _bars(20)
         window, meta = window_as_of(bars, 10, max_window=5)
@@ -41,7 +41,7 @@ class TestDataPit(unittest.TestCase):
         self.assertEqual(chk["lookahead_bars"], 0)
 
     def test_bars_as_of_cutoff(self):
-        from core.data_pit import bars_as_of
+        from core.data.pit import bars_as_of
 
         bars = _bars(10)
         cut = bars[4]["date"]

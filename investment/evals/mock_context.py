@@ -111,10 +111,10 @@ def _patch_daily_bars(stack, mock_cfg: dict) -> None:
     bars, src = resolve_daily_bars(mock_cfg["daily_bars"])
     ret = (bars, src)
     pack = {"bars": bars, "data_source": src, "production_ok": True}
-    # 只 patch 仍存在的符号；日线入口已收敛到 core.data_service
+    # 只 patch 仍存在的符号；日线入口已收敛到 core.data.facade
     for target, value in (
-        ("core.data_service.bars_and_source", ret),
-        ("core.data_service.get_bars", pack),
+        ("core.data.facade.bars_and_source", ret),
+        ("core.data.facade.get_bars", pack),
         ("skills.common.history.fetch_daily_bars", ret),
         ("core.signal.score_stock.fetch_daily_bars", ret),
     ):
@@ -267,7 +267,7 @@ def apply_case_mocks(mock_cfg: Optional[dict]) -> Iterator[None]:
     watching = mock_cfg.get("watching")
     if watching is not None:
         stack.enter_context(
-            patch("core.watching_store.read_watching", return_value=watching)
+            patch("core.watching.store.read_watching", return_value=watching)
         )
         stack.enter_context(
             patch("core.signal.cross_section.read_watching", return_value=watching)

@@ -13,12 +13,12 @@ class TestWatchingLoadFast(unittest.TestCase):
     def test_read_watching_skips_live_market(self):
         svc = QuantService()
         with patch(
-            "core.watching_store.read_watching",
+            "core.watching.store.read_watching",
             return_value={"watchlist": ["600519"], "max_size": 50},
         ), patch(
-            "core.watching_store.watchlist_names_for", return_value=["茅台"]
+            "core.watching.store.watchlist_names_for", return_value=["茅台"]
         ), patch(
-            "core.watching_store.watchlist_origins_for", return_value={}
+            "core.watching.store.watchlist_origins_for", return_value={}
         ), patch(
             "core.paper.load_paper",
             return_value={

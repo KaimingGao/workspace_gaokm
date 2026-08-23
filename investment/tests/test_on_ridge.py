@@ -264,7 +264,7 @@ class TestOnScoreAttach(unittest.TestCase):
             {"date": "2026-01-01", "open": 98.0, "close": 99.0, "high": 100.0, "low": 97.0},
             {"date": "2026-01-02", "open": 99.0, "close": 100.0, "high": 101.0, "low": 98.0},
         ]
-        with patch("core.data_service.get_bars", return_value={"bars": bars}):
+        with patch("core.data.facade.get_bars", return_value={"bars": bars}):
             with patch(
                 "core.research.on_ridge.predict_on_from_features",
                 return_value=-0.33,

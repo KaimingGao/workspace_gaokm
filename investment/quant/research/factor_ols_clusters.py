@@ -333,7 +333,7 @@ def group_cs_ic_panel(
     min_names = 2 if n_stocks == 2 else 3
     index_bars: Optional[List[dict]] = None
     try:
-        from core.data_service import index_bars_and_source
+        from core.data.facade import index_bars_and_source
         from core.ports.market import default_benchmark
 
         bench = str(default_benchmark("CN") or "000300")

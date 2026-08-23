@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional, Sequence
 from core.backtest.costs import round_trip_cost_pct
 from core.t0.config import load_t0_rules, resolve_min_range_pct
 from core.t0.rules import (
+    _error_result,
     _fill_buy,
     _fill_sell,
     _lot_floor,
@@ -205,6 +206,7 @@ def _first_touch_reverse(
     bar: dict,
     shares: float,
     cash: float,
+    sellable_shares: Optional[float],
     ref: float,
     sell_trig: float,
     buy_trig: float,
@@ -216,23 +218,44 @@ def _first_touch_reverse(
     atr_pct: Optional[float],
     range_pct: float,
 ) -> Dict[str, Any]:
+    """反 T 分钟路径：低吸加仓后卖旧底仓（T+1），不卖当日新买股。"""
     close = float(bar.get("close") or 0)
     t0_ratio = float(cfg["t0_ratio"])
     buy_level = ref * (1.0 - buy_trig / 100.0)
     max_shares = _lot_floor(shares * t0_ratio, lot)
-    if cash <= 0 or max_shares <= 0:
+    sellable = float(sellable_shares if sellable_shares is not None else shares)
+    sellable = min(sellable, shares)
+    if max_shares <= 0:
         return _skip_result(
-            reason="反T缺现金或可加仓额度为0",
+            reason=f"反T动仓不足1手（持仓{int(shares)}×{t0_ratio:.0%}<{lot}股）",
             shares=shares,
             bar=bar,
             extra={"direction_used": "reverse_t", "path_mode": "first_touch"},
         )
+    if cash <= 0:
+        return _skip_result(
+            reason="反T缺现金（低吸需预留现金）",
+            shares=shares,
+            bar=bar,
+            extra={"direction_used": "reverse_t", "path_mode": "first_touch"},
+        )
+    if sellable < lot:
+        return _skip_result(
+            reason="反T无可卖旧仓（T+1）",
+            shares=shares,
+            bar=bar,
+            extra={
+                "direction_used": "reverse_t",
+                "path_mode": "first_touch",
+                "sellable_shares": sellable,
+            },
+        )
 
     afford = _lot_floor(cash / max(buy_level, 1e-6), lot)
-    qty = min(max_shares, afford)
+    qty = min(max_shares, afford, _lot_floor(sellable, lot))
     if qty <= 0:
         return _skip_result(
-            reason="反T买不起",
+            reason="反T买不起或无可卖旧仓",
             shares=shares,
             bar=bar,
             extra={"direction_used": "reverse_t", "path_mode": "first_touch"},
@@ -248,6 +271,7 @@ def _first_touch_reverse(
     exposure_pnl = 0.0
     touch_buy_at = None
     touch_sell_at = None
+    sell_old_cap = _lot_floor(sellable, lot)
 
     for mb in minute_bars:
         hi = float(mb.get("high") or 0)
@@ -263,6 +287,7 @@ def _first_touch_reverse(
             buy_amount = qty * fill_buy
             if buy_amount > cash + 1e-6:
                 qty = _lot_floor(cash / max(fill_buy, 1e-6), lot)
+                qty = min(qty, sell_old_cap)
                 if qty <= 0:
                     continue
                 buy_amount = qty * fill_buy
@@ -275,7 +300,7 @@ def _first_touch_reverse(
                     "amount": round(buy_amount, 2),
                     "trigger": round(buy_level, 4),
                     "at": ts,
-                    "note": "反T低吸（分钟第一触达）",
+                    "note": "反T低吸加仓（分钟第一触达；新股T+1锁仓）",
                 }
             )
             cash_delta -= buy_amount
@@ -283,33 +308,34 @@ def _first_touch_reverse(
             bought_qty = qty
             buy_price = fill_buy
             touch_buy_at = ts
-            # 同根不明先后：低吸后不在同一根卖回
+            # 同根不明先后：低吸后不在同一根卖旧仓
             continue
 
         if bought_qty > 0 and sold_back <= 0:
             sell_level = buy_price * (1.0 + sell_trig / 100.0)
-            if hi >= sell_level:
+            sell_old_qty = min(bought_qty, sell_old_cap)
+            if sell_old_qty > 0 and hi >= sell_level:
                 fill_sell = _fill_sell(hi, sell_level, fill_mode)
-                amount_s = bought_qty * fill_sell
+                amount_s = sell_old_qty * fill_sell
                 trades.append(
                     {
                         "side": "t0_sell",
                         "stock_code": stock_code,
-                        "shares": bought_qty,
+                        "shares": sell_old_qty,
                         "price": round(fill_sell, 4),
                         "amount": round(amount_s, 2),
                         "trigger": round(sell_level, 4),
                         "at": ts,
-                        "note": "反T卖回（分钟第一触达）",
+                        "note": "反T卖旧底仓（分钟第一触达；T+1可卖）",
                     }
                 )
                 cash_delta += amount_s
-                shares_now -= bought_qty
-                sold_back = bought_qty
+                shares_now -= sell_old_qty
+                sold_back = sell_old_qty
                 touch_sell_at = ts
                 gross = (fill_sell - buy_price) / buy_price * 100.0
                 cost_pct = round_trip_cost_pct(cost_config)
-                pnl = round((gross - cost_pct) * (bought_qty * buy_price) / 100.0, 2)
+                pnl = round((gross - cost_pct) * (sell_old_qty * buy_price) / 100.0, 2)
 
     if bought_qty <= 0:
         return _skip_result(
@@ -325,26 +351,27 @@ def _first_touch_reverse(
         )
 
     if sold_back <= 0:
-        if cfg.get("must_cover_same_day"):
+        sell_old_qty = min(bought_qty, sell_old_cap)
+        if cfg.get("must_cover_same_day") and sell_old_qty > 0:
             fill_sell = close
-            amount_s = bought_qty * fill_sell
+            amount_s = sell_old_qty * fill_sell
             trades.append(
                 {
                     "side": "t0_sell",
                     "stock_code": stock_code,
-                    "shares": bought_qty,
+                    "shares": sell_old_qty,
                     "price": round(fill_sell, 4),
                     "amount": round(amount_s, 2),
                     "trigger": round(close, 4),
-                    "note": "强制当日卖回（收盘）",
+                    "note": "强制收盘卖旧底仓（T+1）",
                 }
             )
             cash_delta += amount_s
-            shares_now -= bought_qty
-            sold_back = bought_qty
+            shares_now -= sell_old_qty
+            sold_back = sell_old_qty
             gross = (fill_sell - buy_price) / buy_price * 100.0
             cost_pct = round_trip_cost_pct(cost_config)
-            pnl = round((gross - cost_pct) * (bought_qty * buy_price) / 100.0, 2)
+            pnl = round((gross - cost_pct) * (sell_old_qty * buy_price) / 100.0, 2)
         else:
             exposure_pnl = round((close - buy_price) * bought_qty, 2)
 
@@ -374,7 +401,7 @@ def _first_touch_reverse(
         "intraday_path": "first_touch",
         "touch_buy_at": touch_buy_at,
         "touch_sell_at": touch_sell_at,
-        "note": "分钟第一触达（反T）",
+        "note": "分钟第一触达（反T·T+1换仓）",
     }
 
 
@@ -412,14 +439,7 @@ def simulate_t0_day_minute(
     high = float(bar_day.get("high") or 0)
     low = float(bar_day.get("low") or 0)
     if high <= 0 or low <= 0 or shares <= 0:
-        return {
-            "success": False,
-            "error": "无效 bar 或持仓",
-            "trades": [],
-            "pnl": 0.0,
-            "shares_end": shares,
-            "cash_delta": 0.0,
-        }
+        return _error_result("无效 bar 或持仓", shares)
 
     scaled = scale_triggers_with_atr(cfg, atr_pct=atr_pct)
     sell_trig = float(scaled["sell_trigger_pct"])
@@ -432,17 +452,10 @@ def simulate_t0_day_minute(
 
     ref = _ref_price(bar_day, cost, cfg_day)
     if ref <= 0:
-        return {
-            "success": False,
-            "error": "无效参考价",
-            "trades": [],
-            "pnl": 0.0,
-            "shares_end": shares,
-            "cash_delta": 0.0,
-        }
+        return _error_result("无效参考价", shares)
 
     range_pct = (high - low) / ref * 100.0
-    min_range = resolve_min_range_pct(cfg_day)
+    min_range = resolve_min_range_pct(cfg)
     if range_pct < min_range:
         return _skip_result(
             reason=f"振幅不足 {range_pct:.2f}% < {min_range:.2f}%",
@@ -491,6 +504,7 @@ def simulate_t0_day_minute(
             bar=bar_day,
             shares=shares,
             cash=float(cash or 0),
+            sellable_shares=sellable_shares,
             ref=ref,
             sell_trig=sell_trig,
             buy_trig=buy_trig,

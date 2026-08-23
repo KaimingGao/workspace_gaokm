@@ -102,7 +102,7 @@ def fetch_a_spot(**kwargs: Any) -> Any:
 
 def load_disk_spot(*, max_age_hours: Optional[float] = None) -> Optional[List[dict]]:
     """只读本地现货缓存（不触发远端）；供估值摘要等。"""
-    from core.data_policy import SPOT_DISK_MAX_AGE_HOURS
+    from core.data.policy import SPOT_DISK_MAX_AGE_HOURS
 
     age = SPOT_DISK_MAX_AGE_HOURS if max_age_hours is None else float(max_age_hours)
     return call("load_disk_spot", max_age_hours=age)

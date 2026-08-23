@@ -95,7 +95,7 @@ class TestFacadeCompat(unittest.TestCase):
     def test_facade_get_bars_returns_dict(self):
         from core.data import MarketDataService
         from core.data.service import set_default_service
-        from core.data_service import get_bars
+        from core.data.facade import get_bars
 
         set_default_service(MarketDataService(_ports_with_bars(_FakeBars())))
         pack = get_bars("600519", limit=60)
@@ -105,7 +105,7 @@ class TestFacadeCompat(unittest.TestCase):
         self.assertGreater(pack.get("bar_count", 0), 0)
 
     def test_gate_reexports(self):
-        from core.data_service import (
+        from core.data.facade import (
             DEFAULT_ADJUST_POLICY,
             allows_production_score,
             infer_adjust,
@@ -198,7 +198,7 @@ class TestResearchInjectAndBatch(unittest.TestCase):
     def test_facade_get_bars_batch(self):
         from core.data import MarketDataService
         from core.data.service import set_default_service
-        from core.data_service import get_bars_batch
+        from core.data.facade import get_bars_batch
         from unittest.mock import patch
 
         set_default_service(MarketDataService(_ports_with_bars(_FakeBars())))
@@ -229,7 +229,7 @@ class TestScoreStockViaDs(unittest.TestCase):
             "data_source": "cache:akshare",
             "production_ok": True,
         }
-        with patch("core.data_service.get_bars", return_value=offline) as m_get:
+        with patch("core.data.facade.get_bars", return_value=offline) as m_get:
             bars, src = _fetch_bars_isolated("600519", limit=40)
         m_get.assert_called()
         self.assertEqual(len(bars), 40)
@@ -245,7 +245,7 @@ class TestScoreStockViaDs(unittest.TestCase):
             "data_source": "akshare_cn_daily:qfq",
             "production_ok": True,
         }
-        with patch("core.data_service.get_bars", return_value=empty), patch(
+        with patch("core.data.facade.get_bars", return_value=empty), patch(
             "core.ports.market.batch_map", return_value=[pool_pack]
         ) as m_batch:
             bars, src = _fetch_bars_isolated("600519", limit=40, timeout=5.0)
@@ -267,7 +267,7 @@ class TestMetrics(unittest.TestCase):
 
         reset_metrics()
         set_default_service(MarketDataService(_ports_with_bars(_FakeBars())))
-        from core.data_service import get_bars
+        from core.data.facade import get_bars
 
         get_bars("600519", limit=60)
         snap = metrics_snapshot()
@@ -279,7 +279,7 @@ class TestPortfolioResolveOffline(unittest.TestCase):
         from unittest.mock import patch
         from core.research.portfolio_bars import _resolve_symbol
 
-        with patch("core.data_service.get_quote") as m_q:
+        with patch("core.data.facade.get_quote") as m_q:
             sym = _resolve_symbol("茅台", allow_live=False)
         m_q.assert_not_called()
         self.assertTrue(sym)
@@ -288,7 +288,7 @@ class TestPortfolioResolveOffline(unittest.TestCase):
         from unittest.mock import patch
         from core.research.portfolio_bars import _resolve_symbol
 
-        with patch("core.data_service.get_quote") as m_q:
+        with patch("core.data.facade.get_quote") as m_q:
             self.assertEqual(_resolve_symbol("600519", allow_live=True), "600519")
         m_q.assert_not_called()
 

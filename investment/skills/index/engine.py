@@ -6,7 +6,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import List, Optional, Tuple
 
-from core.data_service import bars_and_source
+from core.data.facade import bars_and_source
 from core.ports.market import query_quote, resolve_market_code
 from skills.common.history import normalize_bars
 

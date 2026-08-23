@@ -597,7 +597,7 @@ def build_macro_snapshot(*, lookback: int = 30) -> Dict[str, Any]:
 
     as_of = datetime.now().strftime("%Y-%m-%d")
     # 延迟导入，避免与 market_context 编排形成热重载半加载 ImportError
-    from core.market_context_merge import prune_macro_errors
+    from core.market.context_merge import prune_macro_errors
 
     return {
         "success": bool(series),

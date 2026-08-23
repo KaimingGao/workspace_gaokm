@@ -162,7 +162,7 @@ def backtest_t0_on_bars(
         "底仓做T回测；默认 trigger 成交；"
         f"direction={cfg.get('direction')} · dir_enter={cfg.get('dir_enter')}；"
         + path_note
-        + "T+1 简化；非实盘、不保证收益。"
+        + "T+1（正T卖旧买回 / 反T买新卖旧换仓）；非实盘、不保证收益。"
         "主指标看含敞口净PnL / 完成往返率 / 参与率 / 敞口。"
     )
     return primary
@@ -214,6 +214,13 @@ def _walk_t0(
         fallback_cfg["path_mode"] = "veto"
 
     for i, bar in enumerate(bars):
+        # signal/auto/reverse_t 需现金；每日补足研究用现金（防前日半腿耗尽）
+        if str(cfg.get("direction") or "") in {"auto", "reverse_t", "signal"}:
+            px = float(bar.get("close") or bar.get("open") or cost or 0)
+            if px > 0 and shares > 0:
+                need = shares * px * float(cfg.get("t0_ratio") or 0.4)
+                if cash < need * 0.25:
+                    cash = max(cash, need)
         # auto/signal 依赖昨收；日线源未必带 prev_close
         bar_day = dict(bar)
         if i > 0 and not bar_day.get("prev_close"):

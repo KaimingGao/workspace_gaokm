@@ -160,38 +160,15 @@ def score_t0_direction(
     }
 
 
-def choose_direction(
+def _auto_direction(
     *,
     bar: dict,
     ref: float,
     cfg: dict,
     cash: float,
     shares: float,
-    hist_bars: Optional[Sequence[dict]] = None,
-    atr_pct: Optional[float] = None,
 ) -> str:
-    """返回 long_t | reverse_t。
-
-    auto：按跳空选向，不明默认正 T。
-    signal：请用 resolve_direction（可 skip）；此处缺历史时回退 auto。
-    """
-    direction = str(cfg.get("direction") or "auto")
-    if direction == "long_t":
-        return "long_t"
-    if direction == "reverse_t":
-        return "reverse_t"
-    if direction == "signal":
-        resolved = resolve_direction(
-            bar=bar,
-            ref=ref,
-            cfg=cfg,
-            cash=cash,
-            shares=shares,
-            hist_bars=hist_bars,
-            atr_pct=atr_pct,
-        )
-        return resolved.get("direction") or "long_t"
-    # auto：用昨收衡量开盘强弱；无昨收时回退到触发 ref（仅当 ref≠open 才有意义）
+    """auto 选向：按跳空强弱返回 long_t | reverse_t，不明默认正 T。"""
     open_px = float(bar.get("open") or 0)
     gap_ref = float(bar.get("prev_close") or 0)
     if gap_ref <= 0:
@@ -240,9 +217,7 @@ def resolve_direction(
         scored = score_t0_direction(bar=bar, cfg=cfg, hist_bars=hist_bars, atr_pct=atr_pct)
         if not scored.get("ok"):
             # 缺特征：回退 auto，避免纸面完全不能做
-            d = choose_direction(
-                bar=bar, ref=ref, cfg={**cfg, "direction": "auto"}, cash=cash, shares=shares
-            )
+            d = _auto_direction(bar=bar, ref=ref, cfg=cfg, cash=cash, shares=shares)
             return {
                 "direction": d,
                 "skip": False,
@@ -284,7 +259,7 @@ def resolve_direction(
             "features": scored.get("features"),
         }
     # auto
-    d = choose_direction(bar=bar, ref=ref, cfg=cfg, cash=cash, shares=shares)
+    d = _auto_direction(bar=bar, ref=ref, cfg=cfg, cash=cash, shares=shares)
     return {
         "direction": d,
         "skip": False,
@@ -307,6 +282,17 @@ def _fill_buy(optimistic_low: float, buy_level: float, mode: str) -> float:
     if mode == "mid":
         return (optimistic_low + buy_level) / 2.0
     return buy_level
+
+
+def _error_result(msg: str, shares: float) -> Dict[str, Any]:
+    return {
+        "success": False,
+        "error": msg,
+        "trades": [],
+        "pnl": 0.0,
+        "shares_end": shares,
+        "cash_delta": 0.0,
+    }
 
 
 def _skip_result(
@@ -412,6 +398,7 @@ def simulate_t0_day(
     """对单票单日做底仓 T 模拟（正 T / 反 T）。
 
     T+1：可卖额度默认 = 开盘前持仓（传入 sellable_shares，缺省等于 shares）。
+    正 T：先卖旧仓再买回；反 T：先低吸加仓再卖旧仓换仓（禁止卖当日新买股）。
     成交：fill_mode=trigger|mid|optimistic。
     path_mode：veto/adverse/dual_touch/first_touch，见 config。
     hist_bars：不含当日的历史日线，供 direction=signal 打分。
@@ -444,14 +431,7 @@ def simulate_t0_day(
     close = float(bar.get("close") or 0)
     open_px = float(bar.get("open") or 0)
     if high <= 0 or low <= 0 or shares <= 0:
-        return {
-            "success": False,
-            "error": "无效 bar 或持仓",
-            "trades": [],
-            "pnl": 0.0,
-            "shares_end": shares,
-            "cash_delta": 0.0,
-        }
+        return _error_result("无效 bar 或持仓", shares)
 
     scaled = scale_triggers_with_atr(cfg, atr_pct=atr_pct)
     sell_trig = float(scaled["sell_trigger_pct"])
@@ -462,17 +442,11 @@ def simulate_t0_day(
 
     ref = _ref_price(bar, cost, cfg_day)
     if ref <= 0:
-        return {
-            "success": False,
-            "error": "无效参考价",
-            "trades": [],
-            "pnl": 0.0,
-            "shares_end": shares,
-            "cash_delta": 0.0,
-        }
+        return _error_result("无效参考价", shares)
 
     range_pct = (high - low) / ref * 100.0
-    min_range = resolve_min_range_pct(cfg_day)
+    # 振幅下限用原始 cfg：勿随 ATR 放大卖/买阈值后再抬门禁
+    min_range = resolve_min_range_pct(cfg)
     if range_pct < min_range:
         return _skip_result(
             reason=f"振幅不足 {range_pct:.2f}% < {min_range:.2f}%",
@@ -533,6 +507,7 @@ def simulate_t0_day(
             shares=shares,
             cost=cost,
             cash=float(cash or 0),
+            sellable_shares=sellable_shares,
             ref=ref,
             sell_trig=sell_trig,
             buy_trig=buy_trig,
@@ -715,6 +690,7 @@ def _simulate_reverse_t(
     shares: float,
     cost: float,
     cash: float,
+    sellable_shares: Optional[float],
     ref: float,
     sell_trig: float,
     buy_trig: float,
@@ -727,45 +703,61 @@ def _simulate_reverse_t(
     range_pct: float,
     intraday_path: str = "any",
 ) -> Dict[str, Any]:
-    """反 T：先低吸加仓，再冲高卖回加的部分。"""
+    """反 T（A 股 T+1）：先低吸加仓（新股当日锁仓），再冲高卖旧底仓换仓。
+
+    禁止卖出当日新买股；第二腿只能动 sellable_shares。
+    sold_back_qty = 卖出的旧仓股数（与 bought_qty 对齐即完成往返）。
+    """
     high = float(bar["high"])
     low = float(bar["low"])
     close = float(bar.get("close") or 0)
     t0_ratio = float(cfg["t0_ratio"])
-    # hl=先高后低：低吸可在后半段，但高点已过，不能再按高点卖回
-    allow_trigger_sellback = intraday_path != "hl"
+    # hl=先高后低：低吸可在后半段，但高点已过，不能再按高点卖旧仓
+    allow_trigger_sell_old = intraday_path != "hl"
 
+    sellable = float(sellable_shares if sellable_shares is not None else shares)
+    sellable = min(sellable, shares)
     buy_level = ref * (1.0 - buy_trig / 100.0)
     max_shares = _lot_floor(shares * t0_ratio, lot)
-    if cash <= 0 or max_shares <= 0:
+    if max_shares <= 0:
         return _skip_result(
-            reason="反T缺现金或可加仓额度为0",
+            reason=f"反T动仓不足1手（持仓{int(shares)}×{t0_ratio:.0%}<{lot}股）",
             shares=shares,
             bar=bar,
-            extra={"direction_used": "reverse_t"},
+            extra={"direction_used": "reverse_t", "max_shares": max_shares},
+        )
+    if cash <= 0:
+        return _skip_result(
+            reason="反T缺现金（低吸需预留现金）",
+            shares=shares,
+            bar=bar,
+            extra={"direction_used": "reverse_t", "cash": round(cash, 2)},
+        )
+    if sellable < lot:
+        return _skip_result(
+            reason="反T无可卖旧仓（T+1）",
+            shares=shares,
+            bar=bar,
+            extra={"direction_used": "reverse_t", "sellable_shares": sellable},
         )
 
     afford = _lot_floor(cash / max(buy_level, 1e-6), lot)
-    qty = min(max_shares, afford)
+    # 往返规模受：目标比例、现金、可卖旧仓 三者约束
+    qty = min(max_shares, afford, _lot_floor(sellable, lot))
     if qty <= 0 or low > buy_level:
         return _skip_result(
-            reason="反T未触及低吸位或买不起",
+            reason="反T未触及低吸位或买不起/无可卖旧仓",
             shares=shares,
             bar=bar,
             extra={
                 "direction_used": "reverse_t",
                 "buy_level": round(buy_level, 4),
                 "range_pct": round(range_pct, 4),
+                "sellable_shares": sellable,
             },
         )
 
-    # 反T买：乐观用 low，保守用 buy_level
-    if fill_mode == "optimistic":
-        fill_buy = low
-    elif fill_mode == "mid":
-        fill_buy = (low + buy_level) / 2.0
-    else:
-        fill_buy = buy_level
+    fill_buy = _fill_buy(low, buy_level, fill_mode)
 
     trades: List[dict] = []
     cash_delta = 0.0
@@ -773,6 +765,7 @@ def _simulate_reverse_t(
     buy_amount = qty * fill_buy
     if buy_amount > cash + 1e-6:
         qty = _lot_floor(cash / fill_buy, lot)
+        qty = min(qty, _lot_floor(sellable, lot))
         if qty <= 0:
             return _skip_result(reason="反T现金不足", shares=shares, bar=bar)
         buy_amount = qty * fill_buy
@@ -785,65 +778,62 @@ def _simulate_reverse_t(
             "price": round(fill_buy, 4),
             "amount": round(buy_amount, 2),
             "trigger": round(buy_level, 4),
-            "note": "反T低吸（日线代理）",
+            "note": "反T低吸加仓（日线代理；新股T+1锁仓）",
         }
     )
     cash_delta -= buy_amount
     shares_now += qty
     bought_qty = qty
 
+    # 第二腿：卖旧底仓（可卖额度），不是卖刚买的股
     sell_level = fill_buy * (1.0 + sell_trig / 100.0)
     sold_back = 0
     pnl = 0.0
     exposure_pnl = 0.0
+    sell_old_qty = min(qty, _lot_floor(sellable, lot))
 
-    if allow_trigger_sellback and high >= sell_level:
-        if fill_mode == "optimistic":
-            fill_sell = high
-        elif fill_mode == "mid":
-            fill_sell = (high + sell_level) / 2.0
-        else:
-            fill_sell = sell_level
-        sell_amount = qty * fill_sell
+    if allow_trigger_sell_old and sell_old_qty > 0 and high >= sell_level:
+        fill_sell = _fill_sell(high, sell_level, fill_mode)
+        sell_amount = sell_old_qty * fill_sell
         trades.append(
             {
                 "side": "t0_sell",
                 "stock_code": stock_code,
-                "shares": qty,
+                "shares": sell_old_qty,
                 "price": round(fill_sell, 4),
                 "amount": round(sell_amount, 2),
                 "trigger": round(sell_level, 4),
-                "note": "反T卖回（日线代理）",
+                "note": "反T卖旧底仓（日线代理；T+1可卖）",
             }
         )
         cash_delta += sell_amount
-        shares_now -= qty
-        sold_back = qty
+        shares_now -= sell_old_qty
+        sold_back = sell_old_qty
         gross = (fill_sell - fill_buy) / fill_buy * 100.0
         cost_pct = round_trip_cost_pct(cost_config)
-        pnl = round((gross - cost_pct) * buy_amount / 100.0, 2)
-    elif cfg.get("must_cover_same_day"):
+        pnl = round((gross - cost_pct) * (sell_old_qty * fill_buy) / 100.0, 2)
+    elif cfg.get("must_cover_same_day") and sell_old_qty > 0:
         fill_sell = close
-        sell_amount = qty * fill_sell
+        sell_amount = sell_old_qty * fill_sell
         trades.append(
             {
                 "side": "t0_sell",
                 "stock_code": stock_code,
-                "shares": qty,
+                "shares": sell_old_qty,
                 "price": round(fill_sell, 4),
                 "amount": round(sell_amount, 2),
                 "trigger": round(close, 4),
-                "note": "反T强制收盘卖回",
+                "note": "反T强制收盘卖旧底仓（T+1）",
             }
         )
         cash_delta += sell_amount
-        shares_now -= qty
-        sold_back = qty
+        shares_now -= sell_old_qty
+        sold_back = sell_old_qty
         gross = (fill_sell - fill_buy) / fill_buy * 100.0
         cost_pct = round_trip_cost_pct(cost_config)
-        pnl = round((gross - cost_pct) * buy_amount / 100.0, 2)
+        pnl = round((gross - cost_pct) * (sell_old_qty * fill_buy) / 100.0, 2)
     else:
-        # 未卖回：临时加仓敞口按收盘浮动
+        # 未卖旧仓：临时加仓敞口按收盘浮动（新股仍锁仓）
         exposure_pnl = round((close - fill_buy) * qty, 2)
 
     return {

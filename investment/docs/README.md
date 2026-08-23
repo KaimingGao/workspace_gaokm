@@ -1,13 +1,14 @@
 # docs
 
-产品与工程文档：架构 · UI · 量化 · 运维。入口：README.md
+产品与工程文档。合并后仅 **6 个核心文档** + archive/ 历史归档。
 
-- **[系统架构文档](system-architecture.md)** — 架构图 · 分层模块说明 · 代码组成（推荐入口）
-- [工程结构轨 A0–A4](architecture-upgrade-a.md) — Bars SQLite · Job · BacktestService · 前端稳态
-- [架构 · Service 命名约定](architecture.md#service-命名约定) — Application Service vs Domain Facade
-- [日线/分钟线 SQLite 改造](sqlite-migration.md)
-- [架构总览 · 子目录索引](../docs/architecture.md#子目录-readme-索引)
-- [predicted_score（ŷ）逻辑链路与执行链](predicted-score-chain.md) — 训练 · 打分 · 回测 · 复盘 · 纸面 · **§2.5 双层 ŷ_EOD+ŷ_τ** · **§2.6 预估周期 y_EOD·y_τ·y_ON**
-- [Alpha / IC 补强（P0–P3）](alpha-ic-strengthen.md) — 超额分账 · 主 IC=截面 Spearman · 中性化/残差 y · regime 仓位闸
-- [盘中剩余收益头 · 实时方案与落地规划](intraday-residual-score.md) — 事件先验 · rem 头 · 分阶段 R0–R3
-- [决策时刻 τ 契约 · 双层 predicted_score · 分组目标升级](tau-contract-and-partition-upgrade.md) — ℱ_τ · 建模训练融合 · A/B 升级
+---
+
+## 核心文档索引（推荐阅读顺序）
+
+1. **[系统架构与分层说明](architecture.md)** — 架构图 · 代码目录结构 · Service 命名约定 · 技术栈 · 数据层/策略层/风控层/舆情层/RL 层 · 框架梳理 · A0–A4 工程轨 · SQLite 改造
+2. **[产品核心设计主轴与路线图](design-spine.md)** — 本质与因果链 · 产品北极星 · 能力地图 · N1–N6 路径 · 决策链路 · N6 实盘准入 · **能力评估 · P4/P5 落地详情 · Q1–Q5 规划 · D1–D6 平台骨架**
+3. **[量化原理、ŷ 全链路与运维](quant.md)** — 入门概念 · 因子 ŷ / stance / 回测 / 纸面原理 · **训练/打分/回测/复盘链 · 双层 ŷ_EOD+ŷ_τ · 盘中剩余收益头 · τ 契约分组升级** · 运维 preset & cron · 昨日复盘对账
+4. **[量化研究台（Web）](quant-ui.md)** — 说明书 · 页面契约与验收清单 · 相对专业终端差距分析 · W0–W5 升级方案
+5. **[开发与入门手册](development.md)** — 环境安装 · 操作入门 · 运行测试与 evals · 10 个 Skill 详解
+6. **[历史归档](archive/)** — 已收口的 strengthen / upgrade / refactor 计划文档（P 流水账、R0–R5、V 轨、UI 简史等）

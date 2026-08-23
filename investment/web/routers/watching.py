@@ -260,7 +260,7 @@ def watching_save(body: WatchingFile) -> Dict[str, Any]:
 @router.get("/api/watching/daily-chart")
 def watching_daily_chart(code: str, lookback: int = 60) -> Dict[str, Any]:
     """通用日线数据，供观察页展示日线图。"""
-    from core.data_service import get_bars, get_quote
+    from core.data.facade import get_bars, get_quote
 
     c = str(code or "").strip()
     if not c:

@@ -11,7 +11,7 @@ if ROOT not in sys.path:
 
 from core.signal.cross_section import rank_cross_section
 from core.signal.factor_registry import list_factors, run_factor_experiment
-from core.watching_store import (
+from core.watching.store import (
     init_from_example,
     read_watching,
     refresh_watchlist,
@@ -167,7 +167,7 @@ class TestWatching(unittest.TestCase):
         self.assertEqual(ss._query_variants("中船股份"), ["中船股份", "中船"])
 
     def test_list_watchlist_quotes(self):
-        from core.watching_store import list_watchlist_quotes
+        from core.watching.store import list_watchlist_quotes
 
         def fake_batch(codes):
             out = {}
@@ -206,7 +206,7 @@ class TestWatching(unittest.TestCase):
         self.assertIsNone(out["items"][1]["high"])
 
     def test_add_watchlist_item(self):
-        from core.watching_store import add_watchlist_item, write_watching
+        from core.watching.store import add_watchlist_item, write_watching
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "watching.json")
@@ -235,7 +235,7 @@ class TestWatching(unittest.TestCase):
             self.assertEqual(uni.get("sources") or [], [])
 
     def test_remove_watchlist_item(self):
-        from core.watching_store import remove_watchlist_item, write_watching
+        from core.watching.store import remove_watchlist_item, write_watching
 
         with tempfile.TemporaryDirectory() as tmp:
             path = os.path.join(tmp, "watching.json")
@@ -256,7 +256,7 @@ class TestWatching(unittest.TestCase):
             self.assertEqual(uni.get("sources") or [], [])
 
     def test_sync_paper_watchlist_subset(self):
-        from core.watching_store import sync_paper_watchlist, write_watching
+        from core.watching.store import sync_paper_watchlist, write_watching
 
         def _fake_query(code):
             return {
@@ -291,14 +291,15 @@ class TestWatching(unittest.TestCase):
                     },
                     f,
                 )
-            with patch("core.watching_store.read_watching", return_value=read_watching(uni_path)):
-                with patch("skills.common.quote_api.StockAPI.query", side_effect=_fake_query):
-                    out = sync_paper_watchlist(
-                        paper_path,
-                        codes=["000568", "601318", "999999"],
-                        buy=True,
-                        lot_shares=100,
-                    )
+            with patch("core.watching.store.read_watching", return_value=read_watching(uni_path)):
+                with patch("core.paper.open_fill.require_open_fill", return_value=None):
+                    with patch("core.data.facade.get_quote", side_effect=_fake_query):
+                        out = sync_paper_watchlist(
+                            paper_path,
+                            codes=["000568", "601318", "999999"],
+                            buy=True,
+                            lot_shares=100,
+                        )
             self.assertTrue(out["success"])
             self.assertTrue(out["selected"])
             # buy=True：只写入持仓，不再维护 paper.watchlist
@@ -314,7 +315,7 @@ class TestWatching(unittest.TestCase):
                 self.assertEqual(h["shares"], 100)
                 self.assertEqual(h["origin"], "manual")
             self.assertAlmostEqual(paper["cash"], 100000 - 2 * 100 * 10.0, places=2)
-            with patch("core.watching_store.read_watching", return_value=read_watching(uni_path)):
+            with patch("core.watching.store.read_watching", return_value=read_watching(uni_path)):
                 with self.assertRaises(ValueError):
                     sync_paper_watchlist(paper_path, codes=[])
 

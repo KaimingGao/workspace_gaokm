@@ -8,9 +8,9 @@ import tempfile
 import unittest
 
 from core.cross_market_prior import build_cross_market_prior
-from core.market_context import build_market_priors
-from core.market_context_store import save_market_snapshot, load_macro_snapshot
-from core.market_sentiment_prior import build_market_sentiment_prior
+from core.market.context import build_market_priors
+from core.market.context_store import save_market_snapshot, load_macro_snapshot
+from core.market.sentiment_prior import build_market_sentiment_prior
 from core.regulatory_prior import build_ipo_drain_prior, build_regulatory_prior
 from core.signal.factors.tail_anomaly import score_tail_anomaly
 from core.signal.regime import assess_regime

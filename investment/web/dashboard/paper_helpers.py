@@ -174,7 +174,7 @@ def _fetch_index_bars_bounded(
     import threading
 
     try:
-        from core.data_service import get_index_bars
+        from core.data.facade import get_index_bars
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
         return []

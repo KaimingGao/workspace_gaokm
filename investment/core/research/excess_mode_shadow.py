@@ -187,7 +187,7 @@ def compare_excess_mode_shadow(
     idx = list(index_bars or [])
     if not idx:
         try:
-            from core.data_service import get_index_bars
+            from core.data.facade import get_index_bars
             from core.ports.market import default_benchmark
 
             code = str(default_benchmark("CN") or "sh000300")

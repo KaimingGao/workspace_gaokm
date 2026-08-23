@@ -264,7 +264,7 @@ class TestClusterLive(unittest.TestCase):
             with patch(
                 "core.signal.score_stock.score_stock", side_effect=fake_score
             ), patch(
-                "core.watching_store.read_watching",
+                "core.watching.store.read_watching",
                 return_value={"watchlist": ["600519", "000001", "601318"]},
             ), patch(
                 "core.ports.market.batch_query_quotes",

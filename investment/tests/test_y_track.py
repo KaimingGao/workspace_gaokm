@@ -113,7 +113,7 @@ class TestStanceSave(unittest.TestCase):
 
 class TestY2BuyBlock(unittest.TestCase):
     def test_limit_up_skip_reason(self):
-        from core.paper_rebalance import _buy_match_block_reason
+        from core.paper.rebalance import _buy_match_block_reason
 
         reason = _buy_match_block_reason(
             "600519",

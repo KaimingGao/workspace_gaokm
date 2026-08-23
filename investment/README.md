@@ -21,7 +21,7 @@
 **产品核心设计主轴**：**本质** 已发生事实 → 影响估计 → 验证 → 动作（[因果链](docs/design-spine.md#因果链已发生--影响估计--动作)）；**现行** 数据 → 信号 → 因子 → 倾向 → 动作（量化主轴 + AI 旁路）；**北极星** = 纸面风险调整收益 × 迭代速度 × 回测–纸面拟合度（[产品北极星](docs/design-spine.md#产品北极星)）——六大模块是 [能力地图](docs/design-spine.md#能力地图六大模块)；**现行只收口研究台 + 模拟账户做策略验证**，真·实盘 OMS 待验证成熟后另立项（N6）——见 **[docs/design-spine.md](docs/design-spine.md)**。实现节奏见 **[北极星实现规划 P0–P3](docs/roadmap.md#北极星实现规划p0p3)**。
 
 架构一句话：**量化领域层（`core` 信号/回测/模拟）+ Skills 取数与规则 + AI Agent（意图理解 · 工具编排 · 研究话术）**。  
-Web 主路径见 [docs/quant-ui.md](docs/quant-ui.md)；改 UI 契约见 [docs/quant-ui-standard.md](docs/quant-ui-standard.md)；**现行加强验收**见 [docs/pro-core-strengthen.md](docs/pro-core-strengthen.md)（DC/FM/RK）；已收口历史轨见 [docs/archive/](docs/archive/README.md)；历史节奏见 [docs/roadmap.md](docs/roadmap.md)。
+Web 主路径见 [docs/quant-ui.md](docs/quant-ui.md)（含 Web 契约与升级方案）；**已收口加强验收**见 [docs/archive/pro-core-strengthen.md](docs/archive/pro-core-strengthen.md)（DC/FM/RK）；已收口历史轨见 [docs/archive/](docs/archive/)；历史节奏见 [docs/design-spine.md · 路线图](docs/design-spine.md#能力评估与升级规划路线图视角)。
 
 > **现行仅限研究与模拟账户（策略验证）。不涉及真实账户交易。** 待策略验证成熟后再评估实盘。市场有风险，不保证收益，不代客下单。
 
@@ -222,7 +222,7 @@ class InvestmentAgent:
 ```bash
 cd investment
 python3 -m pip install -r requirements.txt
-# 新建 .env，填入 DASHSCOPE_API_KEY / DASHSCOPE_MODEL（见 docs/getting-started.md）
+# 新建 .env，填入 DASHSCOPE_API_KEY / DASHSCOPE_MODEL（见 docs/development.md）
 
 python3 main.py        # CLI
 python3 run_web.py     # Web → http://127.0.0.1:8000
@@ -267,32 +267,22 @@ Web 主路径：**对话** · **观察** · **模拟** · **回溯**。说明见
 
 ## 文档
 
-详细说明已拆到 [`docs/`](docs/) 子目录：
+详细说明已拆到 [`docs/`](docs/) 子目录（合并后 **8 个核心文档** + archive 归档）：
 
 | 文档 | 说明 |
 |------|------|
-| [docs/system-architecture.md](docs/system-architecture.md) | **系统架构**：架构图、分层模块说明、代码组成 |
-| [docs/structure.md](docs/structure.md) | 目录结构与模块索引 |
-| [docs/architecture.md](docs/architecture.md) | 分层架构、Agent 生命周期、registry |
-| [docs/data-layer.md](docs/data-layer.md) | 数据层：采集/清洗/存储/服务/监控 · 现状与演进 |
-| [docs/strategy-layer.md](docs/strategy-layer.md) | 策略层：选股择时/仓位/风控 · 设计文档模板 |
-| [docs/risk-layer.md](docs/risk-layer.md) | 风控模型：风险因子 · Alpha×Risk · 现状与演进 |
-| [docs/rl-layer.md](docs/rl-layer.md) | 强化学习：Policy/Reward 映射 · 奖励函数 · 非生产默认 |
-| [docs/sentiment-layer.md](docs/sentiment-layer.md) | 舆情/另类：新闻→风险分 · 与 news 对照 |
-| [docs/skills.md](docs/skills.md) | 各 Skill 能力、买入决策流程 |
-| [docs/getting-started.md](docs/getting-started.md) | 安装、运行、示例 walkthrough |
-| [docs/development.md](docs/development.md) | 单测、黄金用例 evals、扩展约定 |
-| [docs/quant-concepts.md](docs/quant-concepts.md) | 入门：信号→策略→验证；测试类型与是否要纸面 |
-| [docs/quant.md](docs/quant.md) | 量化层：score_bars → stance → 回测 → 纸面 |
-| [docs/quant-ui.md](docs/quant-ui.md) | Web 主路径说明书：观察 · 模拟 · 回溯 |
-| [docs/quant-ui-standard.md](docs/quant-ui-standard.md) | 改 UI 契约 · `ASSET_V` · 验收清单 |
-| [docs/archive/quant-upgrade.md](docs/archive/quant-upgrade.md) | P6～P26 量化升级规划与落地状态 |
-| [docs/archive/quant-summary.md](docs/archive/quant-summary.md) | P6～P26 一页总览与验收命令 |
-| [docs/quant-ops.md](docs/quant-ops.md) | preset、cron、报告归档与分享链接 |
-| [docs/roadmap.md](docs/roadmap.md) | 能力评估、Q1–Q5、**北极星实现规划 P0–P3** |
+| [docs/architecture.md](docs/architecture.md) | **架构总览**：架构图、分层模块、目录结构、Service 命名、技术栈、数据/策略/风控/舆情/RL 各层、框架梳理、A0–A4 工程轨、SQLite 改造 |
+| [docs/design-spine.md](docs/design-spine.md) | 产品核心设计主轴：因果链、北极星、能力地图、N1–N6 路径、两条轨、决策链路、N6 实盘准入 |
+| [docs/quant.md](docs/quant.md) | 量化层：入门概念 + score_bars/stance/回测/纸面原理 + 运维 preset & cron + 昨日复盘对账 |
+| [docs/quant.md · ŷ 全链路](docs/quant.md#predicted_scoreŷ全链路) | ŷ 全链路：训练/打分/回测/复盘/纸面 + 双层 ŷ_EOD+ŷ_τ + 盘中 rem + τ 契约与分组升级 |
+| [docs/quant-ui.md](docs/quant-ui.md) | Web：说明书 + UI 契约与验收 + 差距分析 + W0–W5 升级方案 |
+| [docs/design-spine.md · 路线图](docs/design-spine.md#能力评估与升级规划路线图视角) | 能力评估、Q1–Q5、**北极星实现规划 P0–P3** |
+| [docs/development.md](docs/development.md) | 开发手册：环境安装入门 + 单测/evals/扩展约定 + 10 个 Skill 详解 |
+| [docs/archive/quant-upgrade.md](docs/archive/quant-upgrade.md) | P6～P26 量化升级规划与落地状态（已归档） |
+| [docs/archive/quant-summary.md](docs/archive/quant-summary.md) | P6～P26 一页总览（已归档） |
 | [docs/archive/upgrade-refactor-plan.md](docs/archive/upgrade-refactor-plan.md) | 已收口 R0–R5 归档 |
-| [docs/archive/strategy-validation-upgrade.md](docs/archive/strategy-validation-upgrade.md) | **已收口**：策略验证 V0–V5 |
-| [docs/pro-core-strengthen.md](docs/pro-core-strengthen.md) | **现行加强**：DC/FM/RK |
+| [docs/archive/strategy-validation-upgrade.md](docs/archive/strategy-validation-upgrade.md) | 已收口：策略验证 V0–V5 |
+| [docs/archive/pro-core-strengthen.md](docs/archive/pro-core-strengthen.md) | 已收口：DC/FM/RK 三轨深化补强 |
 
 完整索引：[docs/README.md](docs/README.md)
 

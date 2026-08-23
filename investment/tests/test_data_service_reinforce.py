@@ -87,7 +87,7 @@ class TestStoreLockMerge(unittest.TestCase):
 
 class TestSectorBoardSplit(unittest.TestCase):
     def test_unmapped_is_not_board(self):
-        from core.data_policy import UNMAPPED_SECTOR
+        from core.data.policy import UNMAPPED_SECTOR
         from core.portfolio_optimize import _board_for, _sector_for
 
         self.assertEqual(_sector_for("600519", {}), UNMAPPED_SECTOR)
@@ -99,7 +99,7 @@ class TestRejectQuoteFallback(unittest.TestCase):
     def test_get_bars_reject(self):
         from unittest.mock import patch
 
-        from core.data_service import get_bars
+        from core.data.facade import get_bars
 
         fake = (
             [
@@ -145,8 +145,8 @@ class TestAnnMissingPolicy(unittest.TestCase):
 
 class TestDataPolicyImports(unittest.TestCase):
     def test_constants(self):
-        from core import data_policy as p
-        from core.data_service import FUNDAMENTALS_CACHE_HOURS, NEWS_CACHE_HOURS
+        from core.data import policy as p
+        from core.data.facade import FUNDAMENTALS_CACHE_HOURS, NEWS_CACHE_HOURS
 
         self.assertEqual(FUNDAMENTALS_CACHE_HOURS, p.FUNDAMENTALS_CACHE_HOURS)
         self.assertEqual(NEWS_CACHE_HOURS, p.NEWS_CACHE_HOURS)
@@ -159,7 +159,7 @@ if __name__ == "__main__":
 
 class TestBoardLabelScrub(unittest.TestCase):
     def test_board_in_map_counts_unmapped(self):
-        from core.data_policy import UNMAPPED_SECTOR
+        from core.data.policy import UNMAPPED_SECTOR
         from core.portfolio_optimize import _sector_for, sector_map_coverage
 
         smap = {"600519": "白酒", "000001": "主板沪", "300750": "新能源"}
@@ -230,7 +230,7 @@ class TestSpotIndustryEnrich(unittest.TestCase):
         ), patch(
             "core.ports.market.spot_row_get", side_effect=fake_spot_get
         ), patch(
-            "core.watching_store.read_watching",
+            "core.watching.store.read_watching",
             return_value={"watchlist": ["600519", "300750", "000001"]},
         ):
             out = enrich_sector_map_from_spot(

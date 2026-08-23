@@ -11,7 +11,7 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Tuple
 
-from core.data_policy import MINUTE_CACHE_HOURS
+from core.data.policy import MINUTE_CACHE_HOURS
 from core.numbers import to_float as _to_float
 from core.store import load_minute_cache, merge_minute_bars_by_time, save_minute_cache
 from skills.common.history import resolve_market_code

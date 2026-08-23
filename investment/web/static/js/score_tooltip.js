@@ -1185,8 +1185,8 @@ export function formatT0DirectionDetail(raw) {
       : 0.35;
   let decision = "低置信跳过";
   if (Number.isFinite(score)) {
-    if (score >= enter) decision = "正 T（先卖后买）";
-    else if (score <= -enter) decision = "反 T（先买后卖）";
+    if (score >= enter) decision = "正 T（卖旧仓再买回）";
+    else if (score <= -enter) decision = "反 T（买新仓再卖旧仓）";
   } else if (dir === "long_t" || dir === "reverse_t") {
     decision = dirLabel;
   }

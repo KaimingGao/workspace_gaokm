@@ -3391,6 +3391,21 @@ html[data-density="compact"] .follow-page #paper-chart.lw-host {
 
 .follow-ops-t0 #paper-t0-edit-fold summary:hover { color: var(--ink); }
 
+.follow-ops-t0 .paper-t0-bt-opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--ink-2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.follow-ops-t0 .paper-t0-bt-opt input[type="checkbox"] {
+  margin: 0;
+  cursor: pointer;
+}
+
 /* ============================================================
  * 8. HOLDINGS CARD — TIGHTEN INNER WHITESPACE
  * ============================================================ */

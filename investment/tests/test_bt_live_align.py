@@ -58,7 +58,7 @@ class TestAllocateNoRenorm(unittest.TestCase):
 
 class TestForceTrimSellable(unittest.TestCase):
     def test_skips_blocked_picks_next(self):
-        from core.paper_rebalance import select_force_trim_codes_sellable
+        from core.paper.rebalance import select_force_trim_codes_sellable
 
         holdings = [
             {"stock_code": "600001"},

@@ -48,7 +48,7 @@ def _load_bars_for_cluster(
     默认缓存优先；``refresh_bars`` 时仅对「超过约 36h / 条数不足」的票打远端；
     ``force_latest_bars`` 时跳过 36h 复用，``cache_max_age_hours<=0`` 增量拉到最新。
     """
-    from core.data_service import bars_and_source_research as bars_and_source
+    from core.data.facade import bars_and_source_research as bars_and_source
 
     limit = lookback + 35
     min_bars = max(20, min(limit, 40))
@@ -143,8 +143,8 @@ def _load_index_bars_once(
 
     指数失败返回 []，分组仍可继续（相对强度等因子降级）。
     """
-    from core.data_service import bars_and_source_research as bars_and_source
-    from core.data_service import get_index_bars
+    from core.data.facade import bars_and_source_research as bars_and_source
+    from core.data.facade import get_index_bars
 
     bench_s = str(bench or "").strip()
     if not bench_s:
@@ -557,7 +557,7 @@ def build_cluster_ols_panels(
         # DC1 · 最小停牌过滤（零量 / 关键词）
         halt_audit = None
         try:
-            from core.market_calendar import filter_halted_bars
+            from core.market.calendar import filter_halted_bars
 
             bars, halt_audit = filter_halted_bars(bars)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

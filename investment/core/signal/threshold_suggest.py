@@ -569,7 +569,7 @@ def suggest_stance_thresholds_from_watching_oos(
 ) -> Dict[str, Any]:
     """对 watching 多票 OOS：ŷ% 门槛用组 β/拟合扫 wait；遗留表仍扫 0–100。"""
     from core.backtest.engine import scan_signal_parameters_oos
-    from core.data_service import bars_and_source_research, get_quote
+    from core.data.facade import bars_and_source_research, get_quote
 
     if not codes:
         return {"success": False, "error": "候选列表为空"}

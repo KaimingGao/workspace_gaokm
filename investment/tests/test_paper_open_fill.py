@@ -20,7 +20,7 @@ def _dt(h: int, m: int, day: str = "2026-08-21") -> datetime:
 
 class TestPaperFillPhase(unittest.TestCase):
     def test_open_session_closed(self):
-        from core.paper_open_fill import paper_fill_phase
+        from core.paper.open_fill import paper_fill_phase
 
         self.assertEqual(paper_fill_phase(_dt(9, 30)), "open")
         self.assertEqual(paper_fill_phase(_dt(10, 30)), "session")
@@ -47,7 +47,7 @@ class TestNextOpenCommit(unittest.TestCase):
         }
 
     def test_stage_after_close(self):
-        from core.paper_open_fill import apply_next_open_commit
+        from core.paper.open_fill import apply_next_open_commit
 
         original = self._paper()
         mutated = {
@@ -82,7 +82,7 @@ class TestNextOpenCommit(unittest.TestCase):
         self.assertEqual(paper.get("last_optimize"), {"ok": True})
 
     def test_close_mode_keeps_mutated(self):
-        from core.paper_open_fill import apply_next_open_commit
+        from core.paper.open_fill import apply_next_open_commit
 
         original = self._paper()
         original["rules"]["execution_mode"] = "close"
@@ -97,7 +97,7 @@ class TestNextOpenCommit(unittest.TestCase):
         self.assertEqual(paper.get("holdings"), [])
 
     def test_fill_pending_at_open(self):
-        from core.paper_open_fill import fill_pending_at_open, pending_from_trades, stage_pending
+        from core.paper.open_fill import fill_pending_at_open, pending_from_trades, stage_pending
 
         paper = self._paper()
         pending = pending_from_trades(
@@ -124,7 +124,7 @@ class TestNextOpenCommit(unittest.TestCase):
         self.assertGreater(float(paper.get("cash") or 0), 100000.0)
 
     def test_require_open_fill_blocks_after_close(self):
-        from core.paper_open_fill import require_open_fill
+        from core.paper.open_fill import require_open_fill
 
         msg = require_open_fill(self._paper(), now=_dt(16, 0), action="做 T")
         self.assertIsNotNone(msg)

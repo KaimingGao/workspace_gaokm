@@ -1,6 +1,6 @@
 """专业核心三轨（DC / FM / RK）共享工具。
 
-见 docs/pro-core-strengthen.md。不写 OMS；只加深路径内可信度。
+见 docs/archive/pro-core-strengthen.md。不写 OMS；只加深路径内可信度。
 """
 
 
@@ -113,7 +113,7 @@ def filter_halted_bars(
                 str(b.get(k) or "")
                 for k in ("status", "trade_status", "remark", "name", "stock_name")
             )
-            from core.market_calendar import halt_hint
+            from core.market.calendar import halt_hint
 
             if halt_hint(blob).get("possible_halt"):
                 why = "halt_keyword"
@@ -140,7 +140,7 @@ def assert_adjust_policy_consistent(
     allow_missing_observed: bool = True,
 ) -> Dict[str, Any]:
     """DC2 · 复权策略一致性；混用则 ok=False。"""
-    from core.data_service import normalize_adjust_policy
+    from core.data.facade import normalize_adjust_policy
 
     req = normalize_adjust_policy(requested or "qfq")
     obs_raw = (observed or "").strip().lower() if observed else ""
