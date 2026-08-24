@@ -1,4 +1,4 @@
-"""R0/R1/R2 rem 面板与事件/舆情扩展测试。"""
+"""R0/R1/R2 ŷ_τ 面板与事件/舆情扩展测试（`tau_*` 为主，`rem_*` 兼容别名仍覆盖）。"""
 
 from __future__ import annotations
 
@@ -173,18 +173,27 @@ class TestRemRidgeFit(unittest.TestCase):
         )
         self.assertIn("gap_pct", meta1.get("min_std_exempt") or [])
 
+    def test_tau_aliases_match_canonical(self):
+        from core.research import tau_ridge as tr
+        from core.research import rem_ridge as rr
+
+        self.assertIs(tr.load_tau_model, rr.load_rem_model)
+        self.assertIs(tr.predict_tau_from_features, rr.predict_rem_from_features)
+        self.assertEqual(tr.TAU_Z_FEATURES, rr.REM_Z_FEATURES)
+
     def test_fit_synthetic_pool(self):
-        from quant.research.rem_ridge import fit_rem_ridge_report, persist_rem_model
+        from quant.research.tau_ridge import fit_tau_ridge_report, persist_tau_model
 
         stock_bars = [
             {"code": "A", "bars": _bars(40, 10)},
             {"code": "B", "bars": _bars(40, 12)},
             {"code": "C", "bars": _bars(40, 8)},
         ]
-        report = fit_rem_ridge_report(
+        report = fit_tau_ridge_report(
             stock_bars, ridge_lambda=1.0, theme_boost=1.5, train_frac=0.7
         )
         self.assertTrue(report.get("success"), report.get("error"))
+        self.assertEqual(report.get("task"), "tau_ridge")
         self.assertFalse(report.get("residualized"))
         self.assertEqual(report.get("target"), "open_to_close_z")
         self.assertIn("return_model", report)
@@ -213,26 +222,26 @@ class TestRemRidgeFit(unittest.TestCase):
             live = os.path.join(tmp, "live")
             os.makedirs(live, exist_ok=True)
             with patch("core.paths.LIVE_DIR", live):
-                saved = persist_rem_model(report, note="test")
+                saved = persist_tau_model(report, note="test")
                 self.assertTrue(saved.get("success"))
                 self.assertEqual(saved.get("schema"), "rem_ridge_v6")
-                from quant.research.rem_ridge import load_rem_model, predict_rem_from_features
+                from quant.research.tau_ridge import load_tau_model, predict_tau_from_features
 
-                doc = load_rem_model()
+                doc = load_tau_model()
                 self.assertIsNotNone(doc)
                 self.assertEqual(doc.get("schema"), "rem_ridge_v6")
                 self.assertEqual(doc.get("tau"), "open")
                 self.assertEqual(doc.get("dual_score_head"), "predicted_score_tau")
-                yhat = predict_rem_from_features(
+                yhat = predict_tau_from_features(
                     {"gap_pct": 2.5, "open_gap": 2.5, "sector_gap_breadth": 0.6, "theme_day": 1.0},
                     model_doc=doc,
                 )
                 # 缺特征按均值填 z=0，应能出数（不再因部分特征缺失整段 None）
                 self.assertIsNotNone(yhat)
                 self.assertTrue(doc.get("return_model"))
-                from quant.research.rem_ridge import explain_rem_prediction
+                from quant.research.tau_ridge import explain_tau_prediction
 
-                expl = explain_rem_prediction(
+                expl = explain_tau_prediction(
                     {"gap_pct": 2.5, "open_gap": 2.5, "sector_gap_breadth": 0.6, "theme_day": 1.0},
                     model_doc=doc,
                 )
@@ -241,10 +250,10 @@ class TestRemRidgeFit(unittest.TestCase):
                 self.assertAlmostEqual(float(expl["total"]), float(yhat), places=4)
 
     def test_persist_uses_last_report_without_refit(self):
-        from quant.research.rem_ridge import (
-            persist_rem_model,
-            save_rem_last_report,
-            load_rem_last_report,
+        from quant.research.tau_ridge import (
+            persist_tau_model,
+            save_tau_last_report,
+            load_tau_last_report,
         )
 
         dummy = {
@@ -263,14 +272,14 @@ class TestRemRidgeFit(unittest.TestCase):
             live = os.path.join(tmp, "live")
             os.makedirs(live, exist_ok=True)
             with patch("core.paths.LIVE_DIR", live):
-                save_rem_last_report(dummy)
-                last = load_rem_last_report()
+                save_tau_last_report(dummy)
+                last = load_tau_last_report()
                 self.assertIsNotNone(last)
-                saved = persist_rem_model(last, note="from last")
+                saved = persist_tau_model(last, note="from last")
                 self.assertTrue(saved.get("success"))
-                from quant.research.rem_ridge import load_rem_model
+                from quant.research.tau_ridge import load_tau_model
 
-                doc = load_rem_model()
+                doc = load_tau_model()
                 self.assertAlmostEqual(
                     float((doc.get("return_model") or {}).get("coefficients")["gap_pct"]),
                     0.1,

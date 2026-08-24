@@ -99,7 +99,7 @@ def _realized_remaining_for_nowcast(
     try:
         from core.market.calendar import next_trading_day
         from core.ports.market import resolve_market_code
-        from core.research.rem_panel import price_at_tau_from_minutes
+        from core.research.tau_panel import price_at_tau_from_minutes
         from core.store import load_minute_cache
 
         d0 = date_key(as_of)
@@ -151,7 +151,7 @@ def hydrate_ledger_yhat_tau(
 ) -> Dict[str, Any]:
     """旧账本缺 ``yhat_tau`` 时，按决策日日线 PIT 重挂 rem ŷ_τ。
 
-    用 as_of 及以前 K 线算因子 + 开盘缺口，再 ``predict_rem``；不拉实时行情。
+    用 as_of 及以前 K 线算因子 + 开盘缺口，再 ``predict_tau``；不拉实时行情。
     """
     d = date_key(as_of)
     if not d:
@@ -181,9 +181,9 @@ def hydrate_ledger_yhat_tau(
         }
     rem_doc = None
     try:
-        from core.research.rem_ridge import load_rem_model
+        from core.research.tau_ridge import load_tau_model
 
-        rem_doc = load_rem_model()
+        rem_doc = load_tau_model()
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in score_ledger.py", exc_info=True)
         rem_doc = None
@@ -193,7 +193,7 @@ def hydrate_ledger_yhat_tau(
             "as_of": d,
             "hydrated": 0,
             "missing": len(missing),
-            "note": "无 rem 模型，无法补 ŷ_τ",
+            "note": "无 ŷ_τ 模型，无法补 ŷ_τ",
         }
 
     from core.backtest.engine import _mock_quote_from_bars

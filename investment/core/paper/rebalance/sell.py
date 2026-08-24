@@ -166,7 +166,7 @@ def run_sell_leg(state: RebalanceState) -> None:
                     should_soft_hold_for_low_score,
                 )
                 from core.sentiment_prior import should_soft_hold_from_sentiment
-                from core.research.rem_ridge import predict_rem_from_features
+                from core.research.tau_ridge import predict_tau_from_features
 
                 ep_cfg = get_event_prior_cfg()
                 rem_yhat = None
@@ -192,7 +192,7 @@ def run_sell_leg(state: RebalanceState) -> None:
                         }
                         rem_yhat = tau_by_code.get(code)
                         if rem_yhat is None:
-                            rem_yhat = predict_rem_from_features(feats)
+                            rem_yhat = predict_tau_from_features(feats)
                     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                         logger.debug("catch except Exception: in paper_rebalance.py", exc_info=True)
                         rem_yhat = tau_by_code.get(code)

@@ -1,4 +1,4 @@
-"""Deprecated alias: use ``core.research.tau_ridge`` (ŷ_τ / open→close 头)。"""
+"""兼容再导出：canonical 在 core.research.tau_ridge。"""
 from core.research import tau_ridge as _m
 from core.research.tau_ridge import *  # noqa: F401,F403
 

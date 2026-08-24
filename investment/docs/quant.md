@@ -287,7 +287,7 @@ ML 视角见 [机器学习视角 · 四件套对照](#四件套对照)。
 
 **ŷ_τ 是「重复使用」吗？**
 
-**模型层共用、决策层不重复。** rem 头产出的 **ŷ_τ**（预估 open→close）在调仓与做 T 都会用到，但回答的问题不同：
+**模型层共用、决策层不重复。** **ŷ_τ 头**（`tau_ridge`）产出的 **ŷ_τ**（预估 open→close）在调仓与做 T 都会用到，但回答的问题不同：
 
 | | 策略调仓 | 底仓做 T（`dual_y`） |
 |--|----------|----------------------|
@@ -340,7 +340,7 @@ watchlist
 | 语义 | A 股 **底仓做 T（T+1）**：正 T 先卖旧仓再买回；反 T 先低吸加仓再卖旧仓换仓（禁卖当日新买股） |
 | 选向 | 默认 **`direction=dual_y`** + **`y_score_source=compute`**：开盘信息集（昨收因子 + 今开缺口）即时算 ŷ；**y_τ 定正/反 T**，y_eod 仅冲突先验，\|y_trade\| 为幅度闸（与调仓 ŷ_τ **买入闸**分工不同，见上节）；批量共享截面缺口；失败回退 live 簿（**不读冻结账本**）；`ledger` 仅对照 |
 | 成交 | 默认 **`fill_mode=trigger`**（偏保守）；回测附带 optimistic 上界对照 |
-| 门禁 | 振幅不足 / 一字板跳过；阈值可按 ATR% 放大 |
+| 门禁 | **滚动振幅**：仅用截至当前 5m 前缀 high/low；不足则跳过（live 下根 K 重试）；回测与 Worker 同口径 |
 | 纸面 | `POST /api/paper/t0` 默认 **dry_run 预演**，`confirm=true` 才写账 |
 | 自动落账 | Follow Worker · **5m 盯盘触达即落账**（交易时段 **5 分钟**轮询 + 分钟缓存，不再日终整段回放） |
 | 手动补跑 | Follow「手动预演 / 手动落账」· `POST /api/paper/t0`（预演 dry_run / 确认 confirm） |
@@ -976,7 +976,7 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 
 ```text
 ŷ_EOD     = f(X_{T-1}; β_cluster)                          # 组 β；标签 close[T]/close[T-1]−1（= 涨跌）
-ŷ_τ       = g(Z_≤τ; γ)                                     # rem 头；标签 close[T]/open[T]−1
+ŷ_τ       = g(Z_≤τ; γ)                                     # ŷ_τ 头；标签 close[T]/open[T]−1
 ŷ_τ_CC    = 缺口 ∘ ŷ_τ                                     # 把开→收抬到现价对昨收；(1+缺口)(1+ŷ_τ)−1
 ŷ_trade   = (w_eod·ŷ_EOD + w_τ·ŷ_τ_CC) / (w_eod+w_τ)      # 开盘排序 / 表列「评分」
 校准         = g(ŷ_EOD)                                      # 表列 eod；不含缺口
@@ -1177,9 +1177,9 @@ score_stock(code) 续——
   → gap_pct = gap_pct_from_quote_bars(quote, bars)       # 开盘缺口%
   → sector_gap_breadth：刷簿由 rank_cluster_pools 批量注入池共享值；
     单票可选 fetch_sector_breadth / 纸面调仓批量 compute_sector_gap_breadth_live
-  → feats = {gap_pct, sector_gap_breadth, theme_day, …}  # rem 仅 Z
+  → feats = {gap_pct, sector_gap_breadth, theme_day, …}  # τ 头仅 Z
   →（enable_minute_tau 且有本地缓存）附加 ret_open_to_tau  # 09:45 已实现收益
-  → rem_yhat = predict_rem_from_features(feats)           # rem_ridge 模型预测 ŷ_τ
+  → rem_yhat = predict_tau_from_features(feats)           # tau_ridge 模型预测 ŷ_τ
   → ep = build_event_prior_from_quote(…)                  # 事件先验（soft hold / warn）
   → apply_tau_score_fields(signal_item, rem_yhat, gap_pct, feats, ep, …)
 ```
@@ -1191,7 +1191,7 @@ score_stock(code) 续——
 | `predicted_score_eod` | = `predicted_score` | EOD 原值备份 |
 | `predicted_score_eod_rem` | (1+ŷ_EOD)/(1+缺口)−1 | 派生对照（y_state / nowcast）；**不进** ŷ_trade |
 | `predicted_score_tau_delta` | 旧残差头 Δ | 仅兼容；现网 rem 直接出 ŷ_τ |
-| `predicted_score_tau` | rem 头 ŷ_τ | close[T]/open[T]−1 |
+| `predicted_score_tau` | ŷ_τ 头 | close[T]/open[T]−1 |
 | `score_rem` / `predicted_score_rem` | = ŷ_τ | 兼容别名 |
 | `as_of_tau` | `"open"` 或 `"09:45"` | τ 时刻 |
 | `y_spec_tau` | `{formula, tau, unit, note}` | τ 标签规范 |
@@ -1226,7 +1226,7 @@ score_stock(code) 续——
 ```text
 【训练层】
   factor_ols_clusters → return_model (β_cluster) → promote → cluster_weights.json
-  rem_ridge           → rem_model    (γ)         → promote → rem_ridge_model.json
+  tau_ridge           → tau_model    (γ)         → promote → rem_ridge_model.json  # 文件名历史兼容
   on_ridge            → on_model     (ζ)         → promote → on_ridge_model.json
 
 【Live 打分层】
@@ -1262,7 +1262,7 @@ score_stock(code) 续——
 | 条件 | 行为 |
 |------|------|
 | `fusion_mode=f0` | 直接放行（τ 闸关闭） |
-| `y_tau is None` 且 `block_buy_if_tau_missing=False`（默认） | 放行（rem 模型/特征缺失不硬卡） |
+| `y_tau is None` 且 `block_buy_if_tau_missing=False`（默认） | 放行（ŷ_τ 模型/特征缺失不硬卡） |
 | `y_tau is None` 且 `block_buy_if_tau_missing=True` | 拦截（"ŷ_τ 缺失（dual_score 硬闸）"） |
 | `y_tau < min_predicted_score_tau` | 拦截（"ŷ_τ=X.XXX% < min_predicted_score_tau(Y)"）；**冻结降级**：候选池无人过基线且 `tau_freeze_breakglass` 时临时用 `min_predicted_score_tau_relax`（预演标「τ 试验档」） |
 | `y_tau ≥ min_predicted_score_tau` | 放行 |
@@ -1449,7 +1449,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 3. **校准层（isotonic / 分段线性）**：在 \(\hat y\) 之上学 \(g(\hat y)\approx\mathbb{E}[r_h\mid\hat y]\)，不改因子结构，专治「方向对但幅度飘」。  
    - 实现：`core/signal/score_calibration.py`；复盘「拟合校准 / 写入 live」；产物 `data/live/score_calibration.json`。  
    - **EOD 样本（默认）**：与分组同源——观察池 ∪ `scored_all`、日线滚动 `collect_subscore_forward_panel`、live 组/全局 β 打出历史 ŷ，对齐同一前瞻收益。  
-   - **τ 样本（默认）**：与 rem 拟合同源——`build_rem_panels_from_bars(tau_hm=open)` + live rem β，对齐 open→close。  
+   - **τ 样本（默认）**：与 ŷ_τ 拟合同源——`build_tau_panels_from_bars(tau_hm=open)` + live τ β，对齐 open→close。  
    - 仅 `sample_source=auto` 且 panel 不足时回退账本；默认 `panel` 不静默缩样本。  
    - 有 live 映射即算 g（`force`）：**观察池 / 持仓 / 回测成交**在评分旁显示「校准」对照列；**第一步：排序键、τ 买入闸、分池入簿门槛仍读原始 ŷ**。  
    - tip 分流：评分列悬停 = raw ŷ 全栈（**不含** g）；校准列悬停 = g(·)。ŷ 落在 knots 域外时提示端点钳制。  
@@ -1519,7 +1519,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | 打分（EOD） | **`core/signal_service.py`**（门面）· `core/signal/service.py` · `score_stock.py` · `cross_section_batch.py` |
 | **SignalService 收口** | **SS encapsulate + E1～E5**：信封/门禁 · tip/观察/Skill/脚本/研究 · `book_fields` · BookResult 拷贝戳章 · metrics→DQ/日更 · 买入 production ŷ 闸 · 框架锁 |
 | **双层 ŷ 契约 / 融合** | **`core/signal/dual_score/`**（F1 闸 · blend · shadow book · 字段写入） |
-| **τ 残差头训练 / 预测** | **`quant/research/rem_ridge.py`**（fit_rem_ridge_report · predict_rem_from_features） |
+| **τ 头训练 / 预测** | **`core/research/tau_ridge.py`**（`fit_tau_ridge_report` · `predict_tau_from_features`）；`rem_*` 为兼容别名 |
 | **τ 打分挂载** | **`core/signal/score_stock.py` § R3/A1 段**（apply_tau_score_fields 调用） |
 | **分池簿 + τ 影子簿** | **`core/signal/cluster/rank.py`**（rank_cluster_pools · build_tau_shadow_book） |
 | **F1 买入闸（纸面）** | **`core/paper_rebalance.py`**（buy_passes_tau_gate 调用） |
@@ -1527,7 +1527,7 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 | TopK | `core/backtest/topk_backtest.py` |
 | 配置 | `data/signal_config.json` → `scoring.horizon_days` / `cluster_scoring` / `dual_score` |
 | 日更 | `core/schedule_jobs.py` · [quant.md · 运维](quant.md#量化运维) |
-| 测试 | `tests/test_dual_score.py` · `tests/test_rem_ridge.py` · `tests/test_score_ledger.py` |
+| 测试 | `tests/test_dual_score.py` · `tests/test_rem_ridge.py`（覆盖 `tau_*` 与 `rem_*` 别名）· `tests/test_score_ledger.py` |
 | 产品定位 | [design-spine.md](design-spine.md) · [quant.md · 入门概念](quant.md#量化入门概念) |
 | RL 边界 | [architecture.md · RL 视角](architecture.md#强化学习rl视角) |
 

@@ -139,11 +139,11 @@ def _resolve_sigma(item: dict, config: Optional[dict] = None) -> Tuple[Optional[
             if k == "nowcast_var" and s > 0:
                 return round(math.sqrt(s), 6), k
             return round(s, 6), k
-    # rem 模型落盘 OOS
+    # τ 模型落盘 OOS
     try:
-        from core.research.rem_ridge import load_rem_model
+        from core.research.tau_ridge import load_tau_model
 
-        doc = load_rem_model() or {}
+        doc = load_tau_model() or {}
         oos = doc.get("oos") if isinstance(doc.get("oos"), dict) else {}
         rv = _f(oos.get("residual_var")) if isinstance(oos, dict) else None
         if rv is not None and rv > 0:
@@ -388,10 +388,10 @@ def build_y_state(
         rem_oc = bool(it.get("rem_oc"))
     else:
         try:
-            from core.research.rem_ridge import load_rem_model
+            from core.research.tau_ridge import load_tau_model
             from core.signal.nowcast_kf import rem_label_is_open_to_close
 
-            rem_oc = rem_label_is_open_to_close(load_rem_model())
+            rem_oc = rem_label_is_open_to_close(load_tau_model())
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in y_state.py", exc_info=True)
             rem_oc = None

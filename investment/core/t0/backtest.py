@@ -62,6 +62,16 @@ def summarize_t0_day_legs(day: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _t0_range_fields(day: Dict[str, Any]) -> Dict[str, Any]:
+    """回测日明细：滚动振幅审计字段（与 Worker / simulate_t0_day_minute 同口径）。"""
+    out: Dict[str, Any] = {}
+    for k in ("range_mode", "prefix_bars", "range_pct", "min_range_pct"):
+        v = day.get(k)
+        if v is not None:
+            out[k] = v
+    return out
+
+
 def _optimistic_delta_ratio_pct(
     delta: float,
     primary_pnl: float,
@@ -423,6 +433,7 @@ def _walk_t0(
                     "signal_skip": bool(day.get("signal_skip")),
                     "path_mode": day.get("path_mode") or day_rules.get("path_mode"),
                     "minute_path": used_minute,
+                    **_t0_range_fields(day),
                 }
             )
             continue
@@ -492,6 +503,7 @@ def _walk_t0(
                 "touch_cover_at": day.get("touch_cover_at") or day.get("touch_buy_at"),
                 "touch_buy_at": day.get("touch_buy_at"),
                 "trades": day.get("trades") or [],
+                **_t0_range_fields(day),
                 **summarize_t0_day_legs(day),
             }
         )

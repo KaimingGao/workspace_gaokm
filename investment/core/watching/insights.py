@@ -346,7 +346,7 @@ def _hydrate_insight_tau_fields(
     """簿行常只有 ŷ_EOD：用行情缺口现场写出 ŷ_trade（昨收口径）。
 
     有新缺口则重算；无缺口且簿上已有 blend 则对齐即可。
-    ŷ_τ 仍来自 rem 头，缺则 ŷ_trade 退回 ŷ_EOD。
+    ŷ_τ 仍来自 τ 头（`tau_ridge`），缺则 ŷ_trade 退回 ŷ_EOD。
     ŷ_EOD_rem 仅派生对照，不进融合。
     """
     if _sanitize_heuristic_yhat_fields(out, item):

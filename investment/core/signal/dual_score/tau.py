@@ -223,9 +223,9 @@ def apply_tau_score_fields(
     formula_terms_tau = None
     if feats_merged:
         try:
-            from core.research.rem_ridge import explain_rem_prediction
+            from core.research.tau_ridge import explain_tau_prediction
 
-            formula_terms_tau = explain_rem_prediction(
+            formula_terms_tau = explain_tau_prediction(
                 feats_merged, model_doc=rem_model_doc
             )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -371,7 +371,7 @@ def attach_dual_score_pit(
 
     缺口 = open[T]/close[T−1]（与 live ``gap_pct_from_quote_bars`` 同口径）。
     不拉同伴行情；``sector_gap_breadth`` 可由调用方截面预计算后传入。
-    无 rem 模型时仍写契约字段（ŷ_τ=None，ŷ_trade 退回 ŷ_EOD）。
+    无 ŷ_τ 模型时仍写契约字段（ŷ_τ=None，ŷ_trade 退回 ŷ_EOD）。
     ``fuse_intraday=False`` / 簿上 ``dual_score_window=eod_next``：
     - τ 买入闸不吃当日 ŷ_τ；
     - 主排序分 ŷ_trade 停用 τ 侧（缺口∘ŷ_τ ≈ T日已实现涨跌幅，不得污染 T+1 前瞻决策）；
@@ -381,9 +381,9 @@ def attach_dual_score_pit(
         return signal_item
     if rem_model_doc is None:
         try:
-            from core.research.rem_ridge import load_rem_model
+            from core.research.tau_ridge import load_tau_model
 
-            rem_model_doc = load_rem_model()
+            rem_model_doc = load_tau_model()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             rem_model_doc = None
@@ -408,7 +408,7 @@ def attach_dual_score_pit(
         except (TypeError, ValueError):
             breadth = None
     try:
-        from core.research.rem_theme import resolve_theme_day
+        from core.research.tau_theme import resolve_theme_day
 
         theme = resolve_theme_day(
             gap_pct=gap_v,
@@ -427,7 +427,7 @@ def attach_dual_score_pit(
         "theme_day": theme,
     }
     try:
-        from core.research.rem_panel import (
+        from core.research.tau_panel import (
             _finite_median,
             gap_atr_from_hist,
             gap_vs_sector_value,
@@ -467,12 +467,12 @@ def attach_dual_score_pit(
                 "gap_vs_sector"
             ) is None:
                 feats["gap_vs_sector"] = prior_ft.get("gap_vs_sector")
-    # 只传 rem 头 Z 特征；勿塞全日线 sub_scores（训练未用，易误导）
+    # 只传 τ 头 Z 特征；勿塞全日线 sub_scores（训练未用，易误导）
     rem_yhat = None
     try:
-        from core.research.rem_ridge import predict_rem_from_features
+        from core.research.tau_ridge import predict_tau_from_features
 
-        rem_yhat = predict_rem_from_features(feats, model_doc=rem_model_doc)
+        rem_yhat = predict_tau_from_features(feats, model_doc=rem_model_doc)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         rem_yhat = None
@@ -688,9 +688,9 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
             feats.setdefault(k, v)
 
     try:
-        from core.research.rem_ridge import REM_Z_FEATURES
+        from core.research.tau_ridge import TAU_Z_FEATURES
 
-        z_keys = set(REM_Z_FEATURES) | {"open_gap"}
+        z_keys = set(TAU_Z_FEATURES) | {"open_gap"}
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in dual_score.py", exc_info=True)
         z_keys = {
@@ -740,9 +740,9 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
         pass
     if feats:
         try:
-            from core.research.rem_ridge import explain_rem_prediction
+            from core.research.tau_ridge import explain_tau_prediction
 
-            expl = explain_rem_prediction(feats)
+            expl = explain_tau_prediction(feats)
             if expl is not None:
                 return expl
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -758,11 +758,11 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
 
 
 def rem_factor_coefficients_public() -> Dict[str, float]:
-    """rem Ridge β 快照（tip「τ 因子系数」）。"""
+    """τ Ridge β 快照（tip「τ 因子系数」）。"""
     try:
-        from core.research.rem_ridge import load_rem_model
+        from core.research.tau_ridge import load_tau_model
 
-        doc = load_rem_model() or {}
+        doc = load_tau_model() or {}
         coefs = (doc.get("return_model") or {}).get("coefficients") or {}
         out: Dict[str, float] = {}
         for k, v in coefs.items():

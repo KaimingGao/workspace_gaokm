@@ -899,7 +899,7 @@ def score_stock(
             gap_pct_from_quote_bars,
             get_event_prior_cfg,
         )
-        from core.research.rem_ridge import load_rem_model, predict_rem_from_features
+        from core.research.tau_ridge import load_tau_model, predict_tau_from_features
         from core.signal.dual_score import apply_tau_score_fields
 
         gap_v = gap_pct_from_quote_bars(quote, bars)
@@ -943,7 +943,7 @@ def score_stock(
             "theme_day": 0.0,
         }
         try:
-            from core.research.rem_panel import (
+            from core.research.tau_panel import (
                 _finite_median,
                 gap_atr_from_hist,
                 gap_vs_sector_value,
@@ -968,7 +968,7 @@ def score_stock(
             logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             logger.debug("tau Z extras skipped for %s", code, exc_info=True)
         try:
-            from core.research.rem_theme import resolve_theme_day
+            from core.research.tau_theme import resolve_theme_day
 
             feats["theme_day"] = resolve_theme_day(
                 gap_pct=gap_v,
@@ -983,7 +983,7 @@ def score_stock(
                 if (gap_v is not None and abs(float(gap_v)) >= trigger)
                 else 0.0
             )
-        # rem 头只吃 Z；日线 sub_scores 已在 ŷ_EOD，勿再塞进 feats
+        # τ 头只吃 Z；日线 sub_scores 已在 ŷ_EOD，勿再塞进 feats
 
         # 可选：仅读本地分钟缓存附加 ret_open_to_tau（不拉网）
         as_of_tau_override = None
@@ -1018,7 +1018,7 @@ def score_stock(
                         open_px = None
                 if trade_day and open_px and open_px > 0:
                     from core.ports.market import resolve_market_code
-                    from core.research.rem_panel import price_at_tau_from_minutes
+                    from core.research.tau_panel import price_at_tau_from_minutes
                     from core.store import load_minute_cache
 
                     mkt, pure = resolve_market_code(str(code))
@@ -1048,8 +1048,8 @@ def score_stock(
             logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             logger.debug("minute tau attach skipped for %s", code, exc_info=True)
 
-        rem_model_doc = load_rem_model()
-        rem_yhat = predict_rem_from_features(feats, model_doc=rem_model_doc)
+        rem_model_doc = load_tau_model()
+        rem_yhat = predict_tau_from_features(feats, model_doc=rem_model_doc)
         apply_tau_score_fields(
             signal_item,
             rem_yhat=rem_yhat,

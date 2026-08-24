@@ -340,7 +340,7 @@ def collect_calibration_pairs_from_panel(
     """历史面板打 ŷ 再对齐实现对。
 
     - ``eod``：与分组同源（子因子 × live 组 β × 前瞻 h 日收益）
-    - ``tau``：与 rem 拟合同源（``collect_rem_open_panel`` + 截面广度 × live rem β × open→close）
+    - ``tau``：与 rem 拟合同源（``collect_tau_open_panel`` + 截面广度 × live rem β × open→close）
     """
     head_k = str(head or "eod").strip().lower()
     meta: Dict[str, Any] = {
@@ -569,27 +569,29 @@ def _collect_tau_panel_pairs(
     refresh_bars: bool,
     meta: Dict[str, Any],
 ) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-    """与 rem Ridge 同源：open→close 标签 + Z 特征 × live rem 模型。"""
+    """与 τ Ridge 同源：open→close 标签 + Z 特征 × live ŷ_τ 模型。"""
     lb = int(lookback)
     try:
         from core.data.facade import bars_and_source
-        from core.research.rem_ridge import (
-            build_rem_panels_from_bars,
-            load_rem_model,
-            predict_rem_from_features,
+        from core.research.tau_ridge import (
+            build_tau_panels_from_bars,
+            load_tau_model,
+            predict_tau_from_features,
         )
     except Exception as exc:
         logger.exception('unexpected error in _collect_tau_panel_pairs')
         meta["error"] = f"τ panel 依赖加载失败: {exc}"
         return [], meta
 
-    rem_doc = load_rem_model()
-    meta["has_rem_model"] = bool(rem_doc and isinstance(rem_doc.get("return_model"), dict))
-    if not meta["has_rem_model"]:
-        meta["error"] = "无 live rem 模型（rem_ridge_model.json），无法打历史 ŷ_τ"
+    rem_doc = load_tau_model()
+    has_tau = bool(rem_doc and isinstance(rem_doc.get("return_model"), dict))
+    meta["has_tau_model"] = has_tau
+    meta["has_rem_model"] = has_tau  # 历史 meta 键
+    if not has_tau:
+        meta["error"] = "无 live ŷ_τ 模型（rem_ridge_model.json），无法打历史 ŷ_τ"
         return [], meta
 
-    # rem 默认标签 open→close（与 fit_rem_ridge tau_hm=open 对齐）
+    # rem 默认标签 open→close（与 fit_tau_ridge tau_hm=open 对齐）
     tau_hm = "open"
     try:
         y_spec = (rem_doc or {}).get("y_spec") or {}
@@ -601,7 +603,7 @@ def _collect_tau_panel_pairs(
         logger.debug("catch except Exception: in score_calibration.py", exc_info=True)
         pass
     meta["tau_hm"] = tau_hm
-    meta["panel_kind"] = "rem_open"
+    meta["panel_kind"] = "tau_open"
 
     stock_bars: List[Dict[str, Any]] = []
     n_bars_ok = 0
@@ -628,7 +630,7 @@ def _collect_tau_panel_pairs(
         )
 
     try:
-        enriched = build_rem_panels_from_bars(
+        enriched = build_tau_panels_from_bars(
             stock_bars, min_history=12, gap_trigger_pct=2.0, tau_hm=tau_hm
         )
     except Exception as exc:
@@ -652,7 +654,7 @@ def _collect_tau_panel_pairs(
                 realized = float(ys[i])
             except (TypeError, ValueError):
                 continue
-            yhat = predict_rem_from_features(row, model_doc=rem_doc)
+            yhat = predict_tau_from_features(row, model_doc=rem_doc)
             if yhat is None:
                 n_predict_miss += 1
                 continue
@@ -684,7 +686,7 @@ def _collect_tau_panel_pairs(
         n_bars_ok=n_bars_ok,
         n_model_miss=0,
         n_predict_miss=n_predict_miss,
-        extra={"n_rem_panels": len(enriched or [])},
+        extra={"n_tau_panels": len(enriched or [])},
     )
 
 

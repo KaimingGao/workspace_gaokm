@@ -482,9 +482,9 @@ def _scoring_models() -> Tuple[Any, Dict[str, Any], Any]:
         )
     rem = None
     try:
-        from core.research.rem_ridge import load_rem_model
+        from core.research.tau_ridge import load_tau_model
 
-        rem = load_rem_model()
+        rem = load_tau_model()
     except Exception:  # noqa: BLE001
         logger.debug("load rem model failed", exc_info=True)
     cluster: Dict[str, Any] = {}

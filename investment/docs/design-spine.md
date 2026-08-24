@@ -697,7 +697,7 @@ data/*.json   → 配置与账本落盘
 ### 盘中 / 实时增强（进行中）
 
 EOD ŷ 主轴不变；事件先验 + open→close 剩余收益头的**能力定义与阶段表（P0–R3）**见专文：  
-[quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。**P0～R3 代码已落地**；生产排序仍只用 EOD ŷ；rem 需 `POST /api/quant/rem-ridge`（`persist=true`）后人审启用门控。
+[quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。**P0～R3 代码已落地**；生产排序仍只用 EOD ŷ；ŷ_τ 需 `POST /api/quant/rem-ridge`（`persist=true`，落盘 `rem_ridge_model.json` 历史文件名）后人审启用门控。
 
 **契约缺口与下一步**：**双层 ŷ** A1+F1 已落地；**F2** `predicted_score_blend` 可选（`fusion_mode=f2`）；**B1** promote 相对 active 的 OOS 失败率硬闸已落地；**B2/B3** focused 贪心 + promote-preflight / 落地卡已接通；A2 影子簿 + 复盘页 ŷ_τ 验收条已接。未做：**A3** 主轴切换（须影子簿达标）、分钟 τ 默认 live、分组重跑并成功 promote。见
 [quant.md · τ 契约升级](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级) · [quant.md · ŷ 全链路 §2.5](quant.md#predicted_scoreŷ全链路)。

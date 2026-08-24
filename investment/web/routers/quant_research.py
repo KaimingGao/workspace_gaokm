@@ -102,7 +102,7 @@ def quant_factor_ols_pool(body: FactorOlsPoolRequest) -> Dict[str, Any]:
 
 @router.post("/api/quant/rem-ridge")
 def quant_rem_ridge(body: RemRidgeRequest) -> Dict[str, Any]:
-    """R0：open→close 剩余收益头 Ridge + 时间 OOS；可选 persist 到 live。"""
+    """R0：open→close ŷ_τ 头 Ridge + 时间 OOS；可选 persist 到 live。"""
     try:
         return deps.quant.run_rem_ridge_experiment(
             lookback=body.lookback,
@@ -147,7 +147,7 @@ def quant_excess_mode_shadow(body: ExcessModeShadowRequest) -> Dict[str, Any]:
 
 @router.get("/api/quant/rem-ridge/model")
 def quant_rem_ridge_model() -> Dict[str, Any]:
-    """读取已 promote 的 rem 模型（若有）。"""
+    """读取已 promote 的 ŷ_τ 模型（若有；落盘文件名 rem_ridge_model.json 为历史兼容）。"""
     try:
         return deps.quant.get_rem_ridge_model()
     except Exception as e:

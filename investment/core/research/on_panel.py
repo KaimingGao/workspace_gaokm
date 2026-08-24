@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
-from core.research.rem_panel import (
+from core.research.tau_panel import (
     _gap_pct,
     _open_to_close_pct,
     attach_cross_section_breadth,

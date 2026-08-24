@@ -306,7 +306,7 @@ def resolve_fusion_weights(
     elif mode in ("variance", "kalman"):
         rem_ok = isinstance(rem_model_doc, dict) and bool(rem_model_doc)
         if not rem_ok:
-            # 缺 rem 模型时勿静默当 fixed：告警 + note 降级标记
+            # 缺 ŷ_τ 模型时勿静默当 fixed：告警 + note 降级标记
             import logging
 
             logging.getLogger(__name__).warning(

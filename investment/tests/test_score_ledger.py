@@ -874,7 +874,7 @@ class TestScoreLedger(unittest.TestCase):
                 return item
 
             with patch(
-                "quant.research.rem_ridge.load_rem_model",
+                "core.research.tau_ridge.load_tau_model",
                 return_value={"coef": {"gap_pct": 0.1}, "intercept": 0.0},
             ), patch(
                 "core.data.facade.bars_and_source",

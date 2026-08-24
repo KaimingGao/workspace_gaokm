@@ -319,7 +319,7 @@ export function formatRemScoreSection(raw) {
   }
   const warn = Array.isArray(ep && ep.warnings) ? ep.warnings.slice(0, 2).join(" · ") : "";
   const body = !hasRem
-    ? `<div class="score-hero-hint">未产出（需 rem 模型）</div>`
+    ? `<div class="score-hero-hint">未产出（需 ŷ_τ 模型）</div>`
     : hasTauTerms
       ? `<div class="score-hero-hint">组成见表「ŷ_τ 组成」</div>`
       : featRows.length
@@ -329,7 +329,7 @@ export function formatRemScoreSection(raw) {
   return (
     `<div class="score-layer score-layer-tau">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_τ · T收 / T开（rem 头）</div>` +
+    `<div class="score-hero-label">ŷ_τ · T收 / T开（τ 头）</div>` +
     `<div class="score-hero-value ${signCls(rem)}">${escapeText(remTxt)}</div>` +
     `</div>` +
     `<div class="score-hero-hint">τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 买入闸</div>` +

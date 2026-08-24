@@ -138,6 +138,33 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(out["sold_qty"], 0)
         self.assertIn("振幅", out.get("reason") or "")
 
+    def test_rolling_range_gate_waits_for_prefix(self):
+        """前缀振幅未达标时不跑触达；午后扩幅后才评估（对齐 live Worker）。"""
+        bar = _bar("2026-01-10", 100, 103, 99.5, 100)
+        mins = _mins(
+            "2026-01-10",
+            [
+                (935, 100, 102.0, 99.98, 101.0),  # 触卖价 102，但前缀振幅仍小
+                (940, 100, 100.05, 99.99, 100.0),
+                (1400, 100, 103.0, 99.5, 100.0),  # 扩幅后过闸
+            ],
+        )
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            rules=_rules(
+                sell_trigger_pct=2.0,
+                buy_trigger_pct=1.5,
+                direction="long_t",
+                min_range_pct=2.5,
+            ),
+            minute_bars=mins,
+        )
+        self.assertEqual(out.get("range_mode"), "rolling")
+        self.assertGreaterEqual(int(out.get("prefix_bars") or 0), 3)
+        self.assertGreater(out.get("sold_qty") or 0, 0)
+
     def test_no_trigger_when_range_ok_but_levels_miss(self):
         # 振幅够，但高点未到卖出阈值
         bar = _bar("2026-01-10", 100, 101.2, 98.5, 100)

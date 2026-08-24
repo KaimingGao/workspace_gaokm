@@ -341,9 +341,9 @@ def compute_predicted_score_blend(
     rem_doc = None
     if str(cfg.get("w_mode") or "") in ("variance", "kalman"):
         try:
-            from core.research.rem_ridge import load_rem_model
+            from core.research.tau_ridge import load_tau_model
 
-            rem_doc = load_rem_model()
+            rem_doc = load_tau_model()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             rem_doc = None
@@ -704,7 +704,7 @@ def buy_passes_tau_gate(
     config: Optional[dict] = None,
     floor: Optional[float] = None,
 ) -> Tuple[bool, Optional[str]]:
-    """ŷ_τ 买入闸（rem 头的 OC 预估）。返回 (ok, skip_reason)。
+    """ŷ_τ 买入闸（τ 头的 OC 预估）。返回 (ok, skip_reason)。
 
     始终用原始 ŷ_τ（方案 A：校准 g 只做 tip/研究对照，不进买卖闸）。
     收盘后 ``eod_next``：不吃当日 ŷ_τ（已实现 OC，再闸会污染下一期决策）；EOD 门槛另走。
@@ -723,12 +723,12 @@ def buy_passes_tau_gate(
             floor_v = float(cfg["min_predicted_score_tau"])
     if y_tau is None:
         if cfg.get("block_buy_if_tau_missing"):
-            return False, "ŷ_τ 缺失（dual_score 硬闸：rem 模型未加载或未推 ŷ_τ）"
+            return False, "ŷ_τ 缺失（dual_score 硬闸：τ 模型未加载或未推 ŷ_τ）"
         # 非阻断但记录告警：τ 头训练后可实际不生效
         import logging
         logging.getLogger(__name__).warning(
             "buy_passes_tau_gate: ŷ_τ 缺失但 block_buy_if_tau_missing=False；"
-            "τ 买入闸形同虚设，请检查 rem 模型是否已 promote"
+            "τ 买入闸形同虚设，请检查 ŷ_τ 模型是否已 promote"
         )
         return True, "ŷ_τ 缺失（非阻断，但 τ 闸未生效）"
     if y_tau < floor_v:

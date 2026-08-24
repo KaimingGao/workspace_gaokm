@@ -43,6 +43,60 @@ def _day_ohlc_from_minutes(minute_bars: Sequence[dict], daily_bar: Optional[dict
     return base
 
 
+def prefix_range_gate(
+    minute_bars: Sequence[dict],
+    daily_bar: Optional[dict],
+    *,
+    cost: float,
+    cfg: dict,
+) -> Dict[str, Any]:
+    """滚动前缀振幅门禁：仅用 ``minute_bars`` 前缀合成 high/low（与 Worker 单 tick 同口径）。
+
+    Returns ok/range_pct/min_range_pct/bar_day/ref/prefix_bars；无效输入时 ok=False。
+    """
+    min_range = resolve_min_range_pct(cfg)
+    prefix_bars = len(minute_bars or [])
+    if prefix_bars < 2:
+        return {
+            "ok": False,
+            "range_pct": None,
+            "min_range_pct": min_range,
+            "bar_day": dict(daily_bar or {}),
+            "ref": None,
+            "prefix_bars": prefix_bars,
+            "range_mode": "rolling",
+            "reason": "分钟线不足",
+        }
+    bar_n = _day_ohlc_from_minutes(minute_bars, daily_bar)
+    ref = _ref_price(bar_n, cost, cfg)
+    hi = float(bar_n.get("high") or 0)
+    lo = float(bar_n.get("low") or 0)
+    if ref <= 0 or hi <= 0 or lo <= 0:
+        return {
+            "ok": False,
+            "range_pct": None,
+            "min_range_pct": min_range,
+            "bar_day": bar_n,
+            "ref": ref,
+            "prefix_bars": prefix_bars,
+            "range_mode": "rolling",
+            "reason": "无效 bar",
+        }
+    range_pct = (hi - lo) / ref * 100.0
+    flat = hi > 0 and abs(hi - lo) / hi < 0.001
+    ok = range_pct >= min_range and not flat
+    return {
+        "ok": ok,
+        "range_pct": round(range_pct, 4),
+        "min_range_pct": min_range,
+        "bar_day": bar_n,
+        "ref": ref,
+        "prefix_bars": prefix_bars,
+        "range_mode": "rolling",
+        "flat": flat,
+    }
+
+
 def _session_close_at(minute_bars: Sequence[dict], bar: Optional[dict] = None) -> str:
     """分钟路径收盘腿时点：末根 K 线时间，否则当日 15:00。"""
     if minute_bars:
@@ -474,7 +528,10 @@ def simulate_t0_day_minute(
     hist_bars: Optional[Sequence[dict]] = None,
     scores: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """单日做 T：选向仍用开盘/隔夜特征；成交路径按分钟第一触达。"""
+    """单日做 T：选向仍用开盘/隔夜特征；成交路径按分钟第一触达。
+
+    振幅门禁与 live Worker 一致：按 5m 前缀滚动 high/low，前缀未过闸则不触达。
+    """
     from core.t0.score_policy import (
         resolve_scores_for_code,
         resolve_y_score_source,
@@ -524,7 +581,6 @@ def simulate_t0_day_minute(
     cfg_day = dict(cfg)
     cfg_day["sell_trigger_pct"] = sell_trig
     cfg_day["buy_trigger_pct"] = buy_trig
-    # 分钟路径不再用日线 veto/adverse
     cfg_day["path_mode"] = "first_touch"
 
     if str(cfg_day.get("direction") or "") == "dual_y" and scores_have_any(score_snap):
@@ -534,112 +590,149 @@ def simulate_t0_day_minute(
             cfg_day,
         )
 
-    ref = _ref_price(bar_day, cost, cfg_day)
-    if ref <= 0:
-        return _error_result("无效参考价", shares)
-
-    range_pct = (high - low) / ref * 100.0
-    min_range = resolve_min_range_pct(cfg)
-    if range_pct < min_range:
-        return _skip_result(
-            reason=f"振幅不足 {range_pct:.2f}% < {min_range:.2f}%",
-            shares=shares,
-            bar=bar_day,
-            extra={"range_pct": round(range_pct, 4), "min_range_pct": min_range, "path_mode": "first_touch"},
-        )
-    if high > 0 and abs(high - low) / high < 0.001:
-        return _skip_result(
-            reason="一字板/无波动",
-            shares=shares,
-            bar=bar_day,
-            extra={"path_mode": "first_touch"},
-        )
-
-    dir_res = resolve_direction(
-        bar=bar_day,
-        ref=ref,
-        cfg=cfg_day,
-        cash=float(cash or 0),
-        shares=shares,
-        hist_bars=hist_bars,
-        atr_pct=scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct,
-        scores=score_snap,
-    )
-    if dir_res.get("skip") or not dir_res.get("direction"):
-        return _skip_result(
-            reason=str(dir_res.get("direction_reason") or "选向跳过"),
-            shares=shares,
-            bar=bar_day,
-            extra={
-                "direction_used": None,
-                "direction_score": dir_res.get("direction_score"),
-                "direction_reason": dir_res.get("direction_reason"),
-                "direction_features": dir_res.get("features"),
-                "signal_skip": True,
-                "range_pct": round(range_pct, 4),
-                "path_mode": "first_touch",
-            },
-        )
-
-    direction = str(dir_res["direction"])
-    cover_meta = None
-    if str(cfg.get("direction") or "") == "dual_y":
-        cover_meta = resolve_cover_policy(
-            scores=score_snap or {},
-            direction=direction,
-            cfg=cfg_day,
-        )
-        cfg_day["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
     fill_mode = str(cfg_day.get("fill_mode") or "trigger")
-    if direction == "reverse_t":
-        out = _first_touch_reverse(
-            minute_bars=mins,
-            bar=bar_day,
-            shares=shares,
+    last_amp_skip: Optional[Dict[str, Any]] = None
+    last_wait: Optional[Dict[str, Any]] = None
+
+    for n in range(2, len(mins) + 1):
+        prefix = mins[:n]
+        gate = prefix_range_gate(prefix, bar, cost=cost, cfg=cfg_day)
+        bar_n = gate["bar_day"]
+        ref = gate.get("ref")
+        if ref is None or float(ref) <= 0:
+            continue
+        range_pct = gate.get("range_pct")
+        if range_pct is None:
+            continue
+        if not gate.get("ok"):
+            last_amp_skip = _skip_result(
+                reason=(
+                    f"振幅不足 {float(range_pct):.2f}% < {float(gate['min_range_pct']):.2f}%"
+                    if not gate.get("flat")
+                    else "一字板/无波动"
+                ),
+                shares=shares,
+                bar=bar_n,
+                extra={
+                    "range_pct": range_pct,
+                    "min_range_pct": gate["min_range_pct"],
+                    "path_mode": "first_touch",
+                    "range_mode": "rolling",
+                    "prefix_bars": n,
+                },
+            )
+            continue
+
+        dir_res = resolve_direction(
+            bar=bar_n,
+            ref=ref,
+            cfg=cfg_day,
             cash=float(cash or 0),
-            sellable_shares=sellable_shares,
-            ref=ref,
-            sell_trig=sell_trig,
-            buy_trig=buy_trig,
-            lot=lot,
-            fill_mode=fill_mode,
-            cfg=cfg_day,
-            cost_config=cost_config,
-            stock_code=stock_code,
-            atr_pct=scaled.get("atr_pct"),
-            range_pct=range_pct,
-        )
-    else:
-        out = _first_touch_long(
-            minute_bars=mins,
-            bar=bar_day,
             shares=shares,
-            sellable_shares=sellable_shares,
-            ref=ref,
-            sell_trig=sell_trig,
-            buy_trig=buy_trig,
-            lot=lot,
-            fill_mode=fill_mode,
-            cfg=cfg_day,
-            cost_config=cost_config,
-            stock_code=stock_code,
-            atr_pct=scaled.get("atr_pct"),
-            range_pct=range_pct,
-            t0_ratio=float(cfg_day["t0_ratio"]),
+            hist_bars=hist_bars,
+            atr_pct=scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct,
+            scores=score_snap,
         )
-    if isinstance(out, dict):
-        out["path_mode"] = "first_touch"
-        out["intraday_path"] = "first_touch"
-        out["direction_score"] = dir_res.get("direction_score")
-        out["direction_reason"] = dir_res.get("direction_reason")
-        out["direction_features"] = dir_res.get("features")
-        out["minute_bars"] = len(mins)
-        if cover_meta:
-            out["cover_policy"] = cover_meta
-            out["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
-        if score_snap and scores_have_any(score_snap):
-            out["scores"] = {
-                k: score_snap.get(k)
-                for k in ("y_eod", "y_tau", "y_trade", "y_on", "y_nowcast", "y_check")
-            }
-    return out
+        if dir_res.get("skip") or not dir_res.get("direction"):
+            return _skip_result(
+                reason=str(dir_res.get("direction_reason") or "选向跳过"),
+                shares=shares,
+                bar=bar_n,
+                extra={
+                    "direction_used": None,
+                    "direction_score": dir_res.get("direction_score"),
+                    "direction_reason": dir_res.get("direction_reason"),
+                    "direction_features": dir_res.get("features"),
+                    "signal_skip": True,
+                    "range_pct": round(range_pct, 4),
+                    "path_mode": "first_touch",
+                    "range_mode": "rolling",
+                    "prefix_bars": n,
+                },
+            )
+
+        direction = str(dir_res["direction"])
+        cover_meta = None
+        if str(cfg.get("direction") or "") == "dual_y":
+            cover_meta = resolve_cover_policy(
+                scores=score_snap or {},
+                direction=direction,
+                cfg=cfg_day,
+            )
+            cfg_day["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
+
+        if direction == "reverse_t":
+            out = _first_touch_reverse(
+                minute_bars=prefix,
+                bar=bar_n,
+                shares=shares,
+                cash=float(cash or 0),
+                sellable_shares=sellable_shares,
+                ref=ref,
+                sell_trig=sell_trig,
+                buy_trig=buy_trig,
+                lot=lot,
+                fill_mode=fill_mode,
+                cfg=cfg_day,
+                cost_config=cost_config,
+                stock_code=stock_code,
+                atr_pct=scaled.get("atr_pct"),
+                range_pct=range_pct,
+            )
+        else:
+            out = _first_touch_long(
+                minute_bars=prefix,
+                bar=bar_n,
+                shares=shares,
+                sellable_shares=sellable_shares,
+                ref=ref,
+                sell_trig=sell_trig,
+                buy_trig=buy_trig,
+                lot=lot,
+                fill_mode=fill_mode,
+                cfg=cfg_day,
+                cost_config=cost_config,
+                stock_code=stock_code,
+                atr_pct=scaled.get("atr_pct"),
+                range_pct=range_pct,
+                t0_ratio=float(cfg_day["t0_ratio"]),
+            )
+
+        if isinstance(out, dict):
+            out["path_mode"] = "first_touch"
+            out["intraday_path"] = "first_touch"
+            out["direction_score"] = dir_res.get("direction_score")
+            out["direction_reason"] = dir_res.get("direction_reason")
+            out["direction_features"] = dir_res.get("features")
+            out["minute_bars"] = n
+            out["range_mode"] = "rolling"
+            out["prefix_bars"] = n
+            if cover_meta:
+                out["cover_policy"] = cover_meta
+                out["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
+            if score_snap and scores_have_any(score_snap):
+                out["scores"] = {
+                    k: score_snap.get(k)
+                    for k in ("y_eod", "y_tau", "y_trade", "y_on", "y_nowcast", "y_check")
+                }
+
+        trades = list((out or {}).get("trades") or [])
+        if trades:
+            return out
+        reason = str((out or {}).get("reason") or "")
+        if (out or {}).get("skipped") and any(x in reason for x in ("未触", "等待")):
+            last_wait = out
+            continue
+        if (out or {}).get("skipped"):
+            return out
+
+    if last_wait is not None:
+        return last_wait
+    if last_amp_skip is not None:
+        return last_amp_skip
+    return _skip_result(
+        reason="分钟线不足，无法第一触达",
+        shares=shares,
+        bar=bar_day,
+        extra={"path_mode": "first_touch", "range_mode": "rolling"},
+    )

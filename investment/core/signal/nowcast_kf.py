@@ -609,7 +609,7 @@ def nordhaus_from_nowcast_rows(rows: Sequence[Dict[str, Any]]) -> Optional[float
 
 
 def rem_label_is_open_to_close(rem_model_doc: Optional[dict]) -> bool:
-    """rem 头是否估 open→close。分钟 τ 模型估 τ→close 时返回 False。"""
+    """τ 头是否估 open→close。分钟 τ 模型估 τ→close 时返回 False。"""
     doc = rem_model_doc if isinstance(rem_model_doc, dict) else {}
     rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else doc
     if not isinstance(rm, dict):

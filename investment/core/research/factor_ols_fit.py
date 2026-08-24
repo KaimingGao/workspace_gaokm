@@ -427,7 +427,7 @@ def fit_factor_ols_from_panel(
     ``ridge_lambda>0`` 时收缩斜率系数（截距不惩罚），共线时尽量保留因子。
     B3：``select_ridge=True`` 时网格选 λ；``collinearity_policy`` 控趋势族冗余。
     ``sample_weights``：与 ``xs/ys`` 等长的非负样本权（组内软异质降权）；拟合时 √w 变换。
-    ``feature_names``：可选覆盖默认注册因子集（rem 头可并入 gap_pct 等）。
+    ``feature_names``：可选覆盖默认注册因子集（τ 头可并入 gap_pct 等）。
     ``min_std`` / ``min_std_exempt``：透传 ``_prepare_complete_panel``（分制因子 vs 百分点列）。
     """
     from core.research.beta_accuracy import (

@@ -165,7 +165,7 @@ class TestIsotonicPav(unittest.TestCase):
         self.assertAlmostEqual(pairs[0]["realized"], 1.0, places=5)
 
     def test_tau_panel_pairs_predict_with_rem(self):
-        """τ panel：rem 特征 × rem 模型 → (ŷ_τ, open→close)。"""
+        """τ panel：τ 特征 × τ 模型 → (ŷ_τ, open→close)。"""
         from core.signal import score_calibration as sc
 
         rem_doc = {
@@ -200,13 +200,13 @@ class TestIsotonicPav(unittest.TestCase):
                 "t",
             ),
         ), mock.patch(
-            "quant.research.rem_ridge.load_rem_model",
+            "core.research.tau_ridge.load_tau_model",
             return_value=rem_doc,
         ), mock.patch(
-            "quant.research.rem_ridge.build_rem_panels_from_bars",
+            "core.research.tau_ridge.build_tau_panels_from_bars",
             side_effect=fake_build,
         ), mock.patch(
-            "quant.research.rem_ridge.predict_rem_from_features",
+            "core.research.tau_ridge.predict_tau_from_features",
             side_effect=lambda row, model_doc=None: float(row.get("z_open_gap") or 0.0),
         ):
             pairs, meta = sc.collect_calibration_pairs_from_panel(
@@ -215,7 +215,7 @@ class TestIsotonicPav(unittest.TestCase):
         self.assertEqual(len(pairs), 2)
         self.assertEqual(pairs[0]["source"], "panel")
         self.assertEqual(pairs[0]["head"], "tau")
-        self.assertEqual(meta.get("panel_kind"), "rem_open")
+        self.assertEqual(meta.get("panel_kind"), "tau_open")
         self.assertAlmostEqual(pairs[0]["yhat"], 0.5, places=5)
         self.assertAlmostEqual(pairs[0]["realized"], 0.8, places=5)
 

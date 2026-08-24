@@ -140,7 +140,7 @@ export function syncOverviewHit(hitRate, subText) {
   );
 }
 
-/** ŷ_τ 复盘 / rem 模型 → 概览副轴 KPI
+/** ŷ_τ 复盘 / τ 模型 → 概览副轴 KPI
  * @param {"hit"|"ic"|"text"} mode
  */
 export function syncOverviewTau(value, subText, mode = "hit") {

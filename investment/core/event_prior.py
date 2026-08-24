@@ -20,7 +20,7 @@ DEFAULT_EVENT_PRIOR = {
     "sector_breadth_min": 0.5,
     "soft_hold_on_theme": True,
     "warn_only": False,
-    # R0p：剩余收益头门控（需 live rem_ridge_model）
+    # R0p：ŷ_τ 头门控（需 live rem_ridge_model.json，文件名历史兼容）
     "rem_gate_enabled": True,
     "rem_soft_hold_min": 0.25,
 }

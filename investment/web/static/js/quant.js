@@ -1459,7 +1459,7 @@ export function initQuant(ctx) {
           chip: "未启用",
           message: data.note || "尚无 live 模型",
         });
-        syncOverviewTau("未启用", "rem_ridge_model 缺失", "text");
+        syncOverviewTau("未启用", "ŷ_τ 模型缺失", "text");
         clearRemResultBox();
         await renderRemCoefTable(null);
         return;
@@ -1481,7 +1481,7 @@ export function initQuant(ctx) {
       } else if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
         syncOverviewTau(oos.ic, `已启用 · ${fmtRemTs(data.promoted_at) || ""}`, "ic");
       } else {
-        syncOverviewTau("已启用", data.promoted_at || "rem 模型", "text");
+        syncOverviewTau("已启用", data.promoted_at || "ŷ_τ 模型", "text");
       }
       clearRemResultBox();
       await renderRemCoefTable(data.return_model || {}, { oos });

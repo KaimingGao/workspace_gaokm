@@ -115,15 +115,13 @@ def _intraday_setup(
     stance_code: Optional[str],
     coupling_mode: str,
 ) -> Dict[str, Any]:
-    from core.t0.minute_path import _day_ohlc_from_minutes
+    from core.t0.minute_path import _day_ohlc_from_minutes, prefix_range_gate
     from core.t0.rules import (
-        _ref_price,
         _skip_result,
         _t0_qty_lots,
         resolve_direction,
         scale_triggers_with_atr,
     )
-    from core.t0.config import resolve_min_range_pct
 
     if coupling_mode == "skip_if_avoid" and stance_code == "avoid":
         return _skip_result(reason="stance=avoid 跳过做T", shares=float(holding.get("shares") or 0), bar=bar)
@@ -139,21 +137,39 @@ def _intraday_setup(
     scaled = scale_triggers_with_atr(cfg, atr_pct=atr_pct)
     sell_trig = float(scaled["sell_trigger_pct"])
     buy_trig = float(scaled["buy_trigger_pct"])
-    ref = _ref_price(bar_day, float(holding.get("cost") or 0), cfg)
-    high = float(bar_day.get("high") or 0)
-    low = float(bar_day.get("low") or 0)
-    if ref <= 0 or high <= 0 or low <= 0 or shares <= 0:
+    cost = float(holding.get("cost") or 0)
+    if shares <= 0:
         return _skip_result(reason="无效 bar 或持仓", shares=shares, bar=bar_day)
 
-    range_pct = (high - low) / ref * 100.0
-    min_range = resolve_min_range_pct(cfg)
-    if range_pct < min_range:
+    gate = prefix_range_gate(minute_bars, bar, cost=cost, cfg=cfg)
+    ref = float(gate.get("ref") or 0)
+    bar_day = gate.get("bar_day") or bar_day
+    if ref <= 0:
+        return _skip_result(reason="无效 bar 或持仓", shares=shares, bar=bar_day)
+
+    if not gate.get("ok"):
+        range_pct = gate.get("range_pct")
+        min_range = gate.get("min_range_pct")
+        reason = (
+            f"振幅不足 {float(range_pct):.2f}% < {float(min_range):.2f}%"
+            if range_pct is not None and not gate.get("flat")
+            else "一字板/无波动"
+            if gate.get("flat")
+            else f"振幅不足 < {float(min_range):.2f}%"
+        )
         return _skip_result(
-            reason=f"振幅不足 {range_pct:.2f}% < {min_range:.2f}%",
+            reason=reason,
             shares=shares,
             bar=bar_day,
-            extra={"range_pct": round(range_pct, 4)},
+            extra={
+                "range_pct": range_pct,
+                "min_range_pct": min_range,
+                "range_mode": "rolling",
+                "prefix_bars": gate.get("prefix_bars"),
+            },
         )
+
+    range_pct = float(gate.get("range_pct") or 0)
 
     dir_res = resolve_direction(
         bar=bar_day,

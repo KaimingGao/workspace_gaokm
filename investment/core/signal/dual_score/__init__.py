@@ -1,7 +1,7 @@
 """双层 predicted_score：ŷ_EOD + ŷ_τ；昨收口径正交加权融合。
 
 ŷ_EOD      预估 close[T]/close[T-1]−1（现价对昨收）
-ŷ_τ        预估 close[T]/open[T]−1（独立 rem 头；买入闸仍用这一层）
+ŷ_τ        预估 close[T]/open[T]−1（独立 τ 头；买入闸仍用这一层）
 ŷ_trade    = w·ŷ_EOD + w·(缺口∘ŷ_τ)  同为现价对昨收，不经过 ŷ_EOD_rem
 ŷ_EOD_rem  仅派生对照（y_state / cascade / nowcast），不进 ŷ_trade
 ŷ_nowcast  = 顺序 Kalman(EOD → open → 可选分钟 τ)；默认影子，不替换 predicted_score

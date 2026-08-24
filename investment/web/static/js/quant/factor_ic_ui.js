@@ -484,7 +484,7 @@ export function createFactorIcUi(deps) {
 
     const kpis =
       `<div class="quant-rem-coef-kpis" role="group" aria-label="${esc(
-        isOn ? "on 模型摘要" : "rem 模型摘要"
+        isOn ? "on 模型摘要" : "τ 模型摘要"
       )}">` +
       kpi("标签", ySpec, `${yhatTag} 训练标签`) +
       (intercept != null ? kpi("截距", intercept.toFixed(3), "模型截距（%）") : "") +

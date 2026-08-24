@@ -362,7 +362,7 @@ class QuantFactorMixin:
         out["stock_count"] = len(stock_bars)
         return out
 
-    def run_rem_ridge_experiment(
+    def run_tau_ridge_experiment(
         self,
         *,
         lookback: int = 120,
@@ -374,19 +374,19 @@ class QuantFactorMixin:
         note: str = "",
         tau_hm: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """R0：观察池 rem 头 Ridge；可选 persist live 模型。
+        """R0：观察池 ŷ_τ 头 Ridge；可选 persist live 模型。
 
         ``tau_hm`` 缺省跟随 ``dual_score``：enable_minute_tau 时用 minute_tau_hm，否则 open。
         """
         from core.data.facade import bars_and_source
         from core.signal.dual_score import get_dual_score_cfg
         from core.watching.store import read_watching
-        from quant.research.rem_ridge import (
-            fit_rem_ridge_report,
-            load_rem_last_report,
-            load_rem_model,
-            persist_rem_model,
-            save_rem_last_report,
+        from quant.research.tau_ridge import (
+            fit_tau_ridge_report,
+            load_tau_last_report,
+            load_tau_model,
+            persist_tau_model,
+            save_tau_last_report,
         )
 
         uni = read_watching()
@@ -396,14 +396,14 @@ class QuantFactorMixin:
         if len(codes) < 2:
             return {
                 "success": False,
-                "error": "研究池至少 2 只才可跑 rem Ridge",
-                "task": "rem_ridge",
+                "error": "研究池至少 2 只才可跑 ŷ_τ Ridge",
+                "task": "tau_ridge",
             }
 
         if persist:
-            last = load_rem_last_report()
+            last = load_tau_last_report()
             if last:
-                saved = persist_rem_model(
+                saved = persist_tau_model(
                     last, note=note or "persist last rem report"
                 )
                 out = dict(last)
@@ -443,7 +443,7 @@ class QuantFactorMixin:
                     logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
                     pass
             stock_bars.append(row)
-        report = fit_rem_ridge_report(
+        report = fit_tau_ridge_report(
             stock_bars,
             ridge_lambda=ridge_lambda,
             gap_trigger_pct=gap_trigger_pct,
@@ -455,30 +455,33 @@ class QuantFactorMixin:
         report["minute_cache_hit"] = minute_hit if use_minute else None
         report["minute_cache_universe"] = len(codes) if use_minute else None
         if report.get("success"):
-            save_rem_last_report(report)
+            save_tau_last_report(report)
         if persist and report.get("success"):
-            saved = persist_rem_model(report, note=note or "api rem-ridge persist")
+            saved = persist_tau_model(report, note=note or "api tau-ridge persist")
             report["persisted"] = saved
             if saved.get("promoted_at"):
                 report["promoted_at"] = saved["promoted_at"]
         else:
             report["persisted"] = {"success": False, "skipped": True}
-            live = load_rem_model()
+            live = load_tau_model()
             report["live_model_present"] = bool(live)
         return report
 
-    def get_rem_ridge_model(self) -> Dict[str, Any]:
-        from quant.research.rem_ridge import load_rem_model, rem_model_path
+    def get_tau_ridge_model(self) -> Dict[str, Any]:
+        from quant.research.tau_ridge import load_tau_model, tau_model_path
 
-        doc = load_rem_model()
+        doc = load_tau_model()
         if not doc:
             return {
                 "success": False,
                 "exists": False,
-                "path": rem_model_path(),
-                "note": "尚无 rem 模型；POST /api/quant/rem-ridge persist=true",
+                "path": tau_model_path(),
+                "note": "尚无 ŷ_τ 模型；POST /api/quant/rem-ridge persist=true",
             }
-        return {"success": True, "exists": True, "path": rem_model_path(), **doc}
+        return {"success": True, "exists": True, "path": tau_model_path(), **doc}
+
+    run_rem_ridge_experiment = run_tau_ridge_experiment
+    get_rem_ridge_model = get_tau_ridge_model
 
     def run_on_ridge_experiment(
         self,

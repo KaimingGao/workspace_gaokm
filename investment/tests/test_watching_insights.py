@@ -45,9 +45,9 @@ class TestWatchingInsights(unittest.TestCase):
             "core.signal.cluster.live.load_active_cluster_book",
             return_value={},
         ), patch(
-            "quant.research.rem_ridge.load_rem_model", return_value=None
+            "core.research.tau_ridge.load_tau_model", return_value=None
         ), patch(
-            "quant.research.rem_ridge.predict_rem_from_features", return_value=None
+            "core.research.tau_ridge.predict_tau_from_features", return_value=None
         ):
             out = build_watching_insights(
                 ["600519"],
@@ -155,7 +155,13 @@ class TestWatchingInsights(unittest.TestCase):
         }
         with patch("core.ports.market.query_quote", return_value={}), patch(
             "core.data.facade.get_bars", return_value={"bars": []}
-        ), patch("core.stance.compute_buy_stance", return_value={}):
+        ), patch("core.stance.compute_buy_stance", return_value={}), patch(
+            "core.signal.session_pit.refresh_dual_score_window", return_value="eod_next"
+        ), patch(
+            "core.research.tau_ridge.load_tau_model", return_value=None
+        ), patch(
+            "core.research.tau_ridge.predict_tau_from_features", return_value=None
+        ):
             out = _insight_from_book_row("600519", row)
         self.assertAlmostEqual(out["predicted_score"], 0.234547, places=5)
         self.assertAlmostEqual(out["predicted_score_blend"], 0.234547, places=5)
@@ -173,9 +179,9 @@ class TestWatchingInsights(unittest.TestCase):
         with patch("core.ports.market.query_quote", return_value={}), patch(
             "core.data.facade.get_bars", return_value={"bars": []}
         ), patch("core.stance.compute_buy_stance", return_value={}), patch(
-            "quant.research.rem_ridge.load_rem_model", return_value=None
+            "core.research.tau_ridge.load_tau_model", return_value=None
         ), patch(
-            "quant.research.rem_ridge.predict_rem_from_features", return_value=None
+            "core.research.tau_ridge.predict_tau_from_features", return_value=None
         ):
             out = _insight_from_book_row("600519", row)
         self.assertAlmostEqual(out["predicted_score_eod_rem"], 0.40)
@@ -191,8 +197,10 @@ class TestWatchingInsights(unittest.TestCase):
             "score": 0.40,
             "predicted_score": 0.40,
         }
-        with patch("quant.research.rem_ridge.load_rem_model", return_value=None), patch(
-            "quant.research.rem_ridge.predict_rem_from_features", return_value=None
+        with patch("core.research.tau_ridge.load_tau_model", return_value=None), patch(
+            "core.research.tau_ridge.predict_tau_from_features", return_value=None
+        ), patch(
+            "core.signal.session_pit.refresh_dual_score_window", return_value="eod_next"
         ), patch(
             "core.data.facade.get_bars", return_value={"bars": []}
         ):
@@ -222,8 +230,8 @@ class TestWatchingInsights(unittest.TestCase):
         with patch("core.data.facade.get_bars", return_value={"bars": stock_bars}), patch(
             "core.signal.live_features.fetch_live_index_bars",
             return_value={"ok": True, "bars": idx_bars},
-        ), patch("quant.research.rem_ridge.load_rem_model", return_value=None), patch(
-            "quant.research.rem_ridge.predict_rem_from_features", return_value=None
+        ), patch("core.research.tau_ridge.load_tau_model", return_value=None), patch(
+            "core.research.tau_ridge.predict_tau_from_features", return_value=None
         ):
             out = _insight_from_book_row("600519", row)
         self.assertIn(out["stance_short"], {"轻仓", "关注", "观望"})

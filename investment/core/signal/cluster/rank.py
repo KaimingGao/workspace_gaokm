@@ -315,7 +315,7 @@ def rank_cluster_pools(
     try:
         from core.data.facade import batch_get_quotes
         from core.event_prior import compute_sector_gap_breadth_live, get_event_prior_cfg
-        from core.research.rem_panel import sector_gap_reference_by_code
+        from core.research.tau_panel import sector_gap_reference_by_code
 
         quote_cache = dict(batch_get_quotes(codes) or {})
         trigger = float(get_event_prior_cfg().get("gap_trigger_pct") or 2.0)

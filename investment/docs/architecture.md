@@ -1334,8 +1334,8 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 
 | 模块 | 功能 |
 |------|------|
-| `core/research/` | OLS fit、walk-forward、rem 头等研究算法 |
-| `t0/` | 做 T 回测内核 · `intraday.py` · `auto_worker.py`（Web 内 5m 盯盘自动落账） |
+| `core/research/` | OLS fit、walk-forward、ŷ_τ 头（`tau_ridge`）等研究算法 |
+| `t0/` | 做 T 回测内核 · `minute_path.prefix_range_gate`（滚动前缀振幅，回测=Worker 同口径）· `intraday.py` · `auto_worker.py` |
 
 ---
 
@@ -1862,7 +1862,7 @@ flowchart LR
 Web：`GET/POST /api/paper/execution` · `GET .../diff` · `POST .../reset` · 交易执行页规则卡与账户覆盖表单 · 策略晋升回显做 T 摘要。  
 耦合：`coupling.t0_vs_stance` = `independent` | `skip_if_avoid` | `only_if_hold`（纸面预演按持仓 stance 跳过）。
 
-**自动做 T 落账（Web Worker）**：Follow 页 Worker = 本 Web 进程内后台线程，**5 分钟轮询 + 5m 盯盘**（与 K 线周期对齐；分钟线 `use_cache` TTL ≈5min，无新 bar 跳过打网；交易时段内触达即落账，不再日终整段回放）；开关写 `data/t0_auto_worker.json`，状态写 `data/t0_intraday_state.json`，并同步 `paper.rules.t0_auto.enabled`。  
+**自动做 T 落账（Web Worker）**：Follow 页 Worker = 本 Web 进程内后台线程，**5 分钟轮询 + 5m 盯盘**（与 K 线周期对齐；分钟线 `use_cache` TTL ≈5min，无新 bar 跳过打网；**振幅门禁按 5m 前缀 high/low 滚动**，不足则下根 K 重试；交易时段内触达即落账，不再日终整段回放）；开关写 `data/t0_auto_worker.json`，状态写 `data/t0_intraday_state.json`，并同步 `paper.rules.t0_auto.enabled`。  
 API：`GET/POST /api/paper/t0/worker`（启停 + 状态）· `GET /api/paper/t0/auto`（`last_run` 只读轮询）。  
 手动补跑：Follow「手动预演 / 手动落账」· `POST /api/paper/t0`（不依赖 Worker）。`run_web.py` lifespan 启动时若 worker 开关为 ON 则自动 restore；进程退出 stop。  
 外部 cron 仍可用 `schedule_jobs.run_paper_t0`；`paper_daily` 链式触发需 `t0_auto.enabled` 且 `schedule=with_paper_daily`（UI 已移除 schedule 下拉，默认 `after_close`）。
