@@ -488,8 +488,8 @@
 }
 
 .follow-page .rebalance-table {
-  /* 股票吃左侧；后列定宽靠右；列间距适中 */
-  --rebalance-cols: minmax(7rem, 1fr) 4.25rem 4.25rem 4.25rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem 4.75rem;
+  /* 与 base.css 同步：决策列 max-content，防「持有（评分…）」被截 */
+  --rebalance-cols: minmax(6.5rem, 1fr) 4.25rem 4.25rem 4.25rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem minmax(9rem, max-content);
   font-size: 0.78rem;
 }
 
@@ -517,11 +517,26 @@
 
 .follow-page .rebalance-table-head > :last-child,
 .follow-page .rebalance-row > :last-child {
-  padding-right: 8px;
+  padding-right: 10px;
+}
+
+.follow-page .rebalance-th.rebalance-th-decision,
+.follow-page .rebalance-decision {
+  overflow: visible;
 }
 
 .follow-page .rebalance-decision-tag {
   border-radius: 2px;
+  max-width: none;
+  overflow: visible;
+  flex-shrink: 0;
+}
+
+/* 预演调仓表：外层 wrap 不裁切末列，横向滚动交给 rebalance-table-scroll */
+body[data-page="follow"] #paper-rebalance-report.quant-weight-table-wrap,
+.follow-rebalance-card #paper-rebalance-report {
+  overflow-x: visible;
+  max-width: 100%;
 }
 
 .paper-ops-report {

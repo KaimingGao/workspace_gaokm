@@ -4629,13 +4629,14 @@ html[data-density="compact"] .table-pager {
   border-radius: var(--follow-radius, var(--r-lg, 8px));
   background: var(--surface);
   -webkit-overflow-scrolling: touch;
+  scroll-padding-inline-end: 12px;
 }
 
 .rebalance-table {
-  /* 股票吃左侧弹性；后列定宽靠右，列间留呼吸 */
-  --rebalance-cols: minmax(7rem, 1fr) 4.25rem 4.25rem 4.25rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem 4.75rem;
-  width: 100%;
-  min-width: 40rem;
+  /* 股票吃左侧弹性；后列定宽；决策列随文案加长，避免 ellipsis 截断 */
+  --rebalance-cols: minmax(6.5rem, 1fr) 4.25rem 4.25rem 4.25rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem minmax(9rem, max-content);
+  width: max(100%, 64rem);
+  min-width: 64rem;
   font-size: 0.78rem;
   background: transparent;
 }
@@ -4692,8 +4693,9 @@ html[data-density="compact"] .table-pager {
 .rebalance-th.rebalance-th-decision,
 .rebalance-decision {
   text-align: right;
-  justify-self: stretch;
-  padding-right: 8px !important;
+  justify-self: end;
+  padding-right: 10px !important;
+  overflow: visible;
 }
 
 .rebalance-row {
@@ -4926,30 +4928,32 @@ html[data-density="compact"] .table-pager {
 .rebalance-score.score-na { color: var(--ink-3); font-weight: 500; }
 
 .rebalance-decision {
-  min-width: 0;
+  min-width: 9rem;
   display: flex;
   justify-content: flex-end;
   align-items: center;
+  overflow: visible;
 }
 
 .rebalance-decision-tag {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  max-width: 100%;
+  max-width: none;
   min-height: 20px;
-  padding: 1px 7px;
+  padding: 1px 8px;
   border-radius: 2px;
   font-size: 10.5px;
   line-height: 16px;
   font-weight: 650;
   text-align: center;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow: visible;
+  text-overflow: clip;
   border: 1px solid transparent;
   letter-spacing: 0.02em;
   box-sizing: border-box;
+  flex-shrink: 0;
 }
 
 .rebalance-decision-tag.has-tip {
