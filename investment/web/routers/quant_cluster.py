@@ -16,10 +16,35 @@ from web.schemas import (
     ClusterPaperPreviewRequest,
     ClusterPromoteRequest,
     ClusterRollbackRequest,
+    ClusterBarsRefreshRequest,
     FactorOlsClusterRequest,
 )
 
 router = APIRouter(tags=["quant"])
+
+
+@router.get("/api/quant/cluster-bars/status")
+def quant_cluster_bars_status(watching_limit: int = 100) -> Dict[str, Any]:
+    """观察池日线末 bar 覆盖（研究枢纽状态条）。"""
+    try:
+        return deps.quant.cluster_bars_status(watching_limit=watching_limit)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/cluster-bars/refresh")
+def quant_cluster_bars_refresh(body: ClusterBarsRefreshRequest) -> Dict[str, Any]:
+    """强制增量更新观察池日线；默认后台 Job（``GET /api/jobs/cluster-bars-refresh``）。"""
+    kwargs = dict(
+        lookback=body.lookback,
+        watching_limit=body.watching_limit,
+    )
+    try:
+        if body.sync:
+            return deps.quant.run_cluster_bars_refresh(**kwargs)
+        return deps.quant.start_cluster_bars_refresh_job(**kwargs)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/api/quant/factor-ols-clusters")

@@ -745,6 +745,11 @@ export function installSuggest(q) {
       const doneLine = `分组 · ${nCl} 组${kTag} · 观察 ${nWatch || nUni} · 入组 ${nIn} · ${sec}s${oosTag}${pmOk}${pitTag}${barsTag}${regimeTag}${cacheTag}${liveHint}`;
       setBusyText(els.quantOlsSummary, doneLine, { busy: false });
       setQuantMeta(doneLine);
+      try {
+        await q.clusterBars?.refreshStatus?.();
+      } catch (_) {
+        /* ignore */
+      }
     } finally {
       stopTick();
     }

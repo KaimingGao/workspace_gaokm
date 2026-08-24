@@ -22,6 +22,11 @@ def cluster_bars_session_date() -> str:
         return datetime.now().strftime("%Y-%m-%d")
 
 
+def read_force_latest_bars_marker() -> Dict[str, Any]:
+    """当日强制日线标记（无文件则 {}）。"""
+    return _read_forced_marker()
+
+
 def _read_forced_marker() -> Dict[str, Any]:
     from core.paths import CLUSTER_BARS_FORCED_SESSION_PATH
 

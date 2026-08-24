@@ -114,14 +114,24 @@ def _intraday_setup(
     scores: Optional[dict],
     stance_code: Optional[str],
     coupling_mode: str,
+    paper: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    from core.t0.minute_path import _day_ohlc_from_minutes, prefix_range_gate
+    from core.t0.costs import resolve_t0_cost_context
+    from core.t0.minute_path import (
+        _day_ohlc_from_minutes,
+        _first_touch_long,
+        _first_touch_reverse,
+        prefix_directional_amplitude_ok,
+        prefix_range_gate,
+    )
     from core.t0.rules import (
         _skip_result,
         _t0_qty_lots,
         resolve_direction,
         scale_triggers_with_atr,
     )
+
+    cost_model, cost_params = resolve_t0_cost_context(paper=paper)
 
     if coupling_mode == "skip_if_avoid" and stance_code == "avoid":
         return _skip_result(reason="stance=avoid 跳过做T", shares=float(holding.get("shares") or 0), bar=bar)
@@ -200,12 +210,6 @@ def _intraday_setup(
     cfg_exec["t0_ratio"] = t0_ratio
     fill_mode = str(cfg_exec.get("fill_mode") or "trigger")
 
-    from core.t0.minute_path import (
-        _first_touch_long,
-        _first_touch_reverse,
-        prefix_directional_amplitude_ok,
-    )
-
     last_ts = str((minute_bars[-1] or {}).get("datetime") or "")
     at_session_end = "15:00" in last_ts or "14:55" in last_ts
     dir_amp = prefix_directional_amplitude_ok(
@@ -242,7 +246,8 @@ def _intraday_setup(
             lot=lot,
             fill_mode=fill_mode,
             cfg=cfg_exec,
-            cost_config=None,
+            cost_model=cost_model,
+            cost_params=cost_params,
             stock_code=code,
             atr_pct=scaled.get("atr_pct"),
             range_pct=range_pct,
@@ -259,7 +264,8 @@ def _intraday_setup(
             lot=lot,
             fill_mode=fill_mode,
             cfg=cfg_exec,
-            cost_config=None,
+            cost_model=cost_model,
+            cost_params=cost_params,
             stock_code=code,
             atr_pct=scaled.get("atr_pct"),
             range_pct=range_pct,
@@ -301,6 +307,8 @@ def _apply_trades_to_paper(
     from core.paper.tplus1 import apply_t0_trades, sellable_shares as t1_after
     from core.paper.ledger import _now_iso
 
+    from core.t0.costs import t0_leg_cash_delta
+
     if not trades:
         return 0.0
     ts = _now_iso()
@@ -313,12 +321,7 @@ def _apply_trades_to_paper(
         row["stock_name"] = holding.get("stock_name")
         legs.append(row)
         paper.setdefault("trades", []).append(row)
-        side = str(row.get("side") or "").lower()
-        amt = float(row.get("amount") or 0)
-        if side.endswith("sell"):
-            cash += amt
-        elif side.endswith("buy"):
-            cash -= amt
+        cash += t0_leg_cash_delta(row)
 
     apply_t0_trades(holding, legs, as_of=as_of, ts=ts)
     paper["cash"] = round(cash, 2)
@@ -389,6 +392,7 @@ def process_holding_intraday(
         scores=scores,
         stance_code=stance_code,
         coupling_mode=coupling_mode,
+        paper=paper,
     )
     if setup.get("pending"):
         st.setdefault("phase", PHASE_IDLE)

@@ -4,6 +4,8 @@
     <h2>研究枢纽</h2>
     <p class="dashboard-meta quant-meta" id="quant-meta" aria-live="polite">分组建模 · 校准 g(ŷ) · 截面 IC · 双层 ŷ 复盘 · 只读输出不写生产配置</p>
     <p class="dashboard-section-desc quant-head-path">
+      <a class="quant-hero-link" href="#quant-section-bars">日线</a>
+      →
       <a class="quant-hero-link" href="#quant-section-factors">ŷ_EOD</a>
       →
       <a class="quant-hero-link" href="#quant-section-tau">ŷ_τ</a>
@@ -96,6 +98,79 @@
     </div>
   </section>
 
+  <!-- 日线：观察池日 K 缓存（与 ŷ_EOD 同级） -->
+  <section class="dashboard-section quant-section" id="quant-section-bars" aria-labelledby="quant-section-bars-title">
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="quant-section-bars-title" class="dashboard-section-title">日线</h3>
+      <p class="dashboard-section-desc quant-section-desc" id="quant-section-bars-desc">
+        日 K 本地缓存 · 观察池末 bar 对齐 · 分组 / IC / OOS 共用（非 5m 分钟线）
+      </p>
+    </header>
+    <div class="dashboard-card quant-pro-card quant-bars-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+        <div id="quant-cluster-bars-strip" class="quant-cluster-bars-strip quant-bars-desk-status quant-card-head-status" aria-live="polite">
+          <span id="quant-cluster-bars-chip" class="quant-pro-status-chip" data-state="idle">—</span>
+          <span id="quant-cluster-bars-msg" class="quant-cluster-bars-msg">加载状态…</span>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="日线操作">
+          <button type="button" id="quant-cluster-bars-refresh" class="dialog-btn secondary" title="强制增量拉取观察池日 K 到最新（不跑分组）">
+            更新日线
+          </button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body quant-bars-body">
+        <div class="quant-bars-kpi-row" id="quant-bars-kpis" aria-label="日线覆盖 KPI">
+          <div class="quant-bars-kpi quant-pro-kpi-card" data-bars-kpi="align">
+            <span class="quant-pro-kpi-label">对齐覆盖</span>
+            <span class="quant-pro-kpi-value" id="quant-bars-kpi-align">—</span>
+            <span class="quant-pro-kpi-sub" id="quant-bars-kpi-align-sub">— / — 只</span>
+          </div>
+          <div class="quant-bars-kpi quant-pro-kpi-card" data-bars-kpi="expected">
+            <span class="quant-pro-kpi-label">期望末 bar</span>
+            <span class="quant-pro-kpi-value quant-bars-kpi-date" id="quant-bars-kpi-expected">—</span>
+            <span class="quant-pro-kpi-sub">完整日 K 目标日</span>
+          </div>
+          <div class="quant-bars-kpi quant-pro-kpi-card" data-bars-kpi="stale">
+            <span class="quant-pro-kpi-label">滞后</span>
+            <span class="quant-pro-kpi-value" id="quant-bars-kpi-stale">—</span>
+            <span class="quant-pro-kpi-sub">末 bar 早于期望</span>
+          </div>
+          <div class="quant-bars-kpi quant-pro-kpi-card" data-bars-kpi="missing">
+            <span class="quant-pro-kpi-label">缺缓存</span>
+            <span class="quant-pro-kpi-value" id="quant-bars-kpi-missing">—</span>
+            <span class="quant-pro-kpi-sub">无本地日 K</span>
+          </div>
+        </div>
+        <div class="quant-bars-viz-grid">
+          <div class="quant-bars-viz-panel">
+            <div class="quant-bars-viz-head">
+              <span class="quant-bars-viz-title">覆盖构成</span>
+              <span class="quant-bars-viz-meta" id="quant-bars-cov-pct">—</span>
+            </div>
+            <div
+              class="quant-bars-viz-body quant-bars-bar-rows"
+              id="quant-bars-cov-body"
+              role="img"
+              aria-label="覆盖构成"
+            ></div>
+          </div>
+          <div class="quant-bars-viz-panel">
+            <div class="quant-bars-viz-head">
+              <span class="quant-bars-viz-title">末 bar 日期分布</span>
+              <span class="quant-bars-viz-meta">Top 日期 · 柱长=只数</span>
+            </div>
+            <div
+              class="quant-bars-viz-body quant-bars-bar-rows"
+              id="quant-bars-dist"
+              aria-label="末 bar 日期分布"
+            ></div>
+          </div>
+        </div>
+        <p class="quant-bars-foot" id="quant-bars-meta">—</p>
+      </div>
+    </div>
+  </section>
+
   <!-- ŷ_EOD：组 β 聚类主轴（紧挨下方 ŷ_τ） -->
   <section class="dashboard-section quant-section" id="quant-section-factors" aria-labelledby="quant-section-factors-title">
     <header class="dashboard-section-head quant-section-head">
@@ -138,7 +213,7 @@
               </ul>
               <p>
                 <strong>想快</strong>：缩小 Limit（20～40）、或填固定 K（跳过选区网格）。
-                日线：当日第一次跑分组自动强制更新到最新；同日再跑用本地缓存（改参更快）。
+                日线：先在上方「日线」区更新到最新，或当日第一次跑分组自动强更；同日再跑分组用本地缓存（改参更快）。
                 大宇宙（≥40）已关逐日 PIT / Ridge 搜 λ / 扩展窗多折，但仍保留选区网格。
               </p>
             </div>

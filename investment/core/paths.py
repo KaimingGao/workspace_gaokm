@@ -74,6 +74,7 @@ SENTIMENT_LEXICON_PATH = os.path.join(DATA_DIR, "sentiment_lexicon.json")
 JOBS_DIR = os.path.join(DATA_DIR, "jobs")
 PAPER_JOB_PATH = os.path.join(JOBS_DIR, "paper.json")
 QUANT_OLS_CLUSTERS_JOB_PATH = os.path.join(JOBS_DIR, "quant_ols_clusters.json")
+CLUSTER_BARS_REFRESH_JOB_PATH = os.path.join(JOBS_DIR, "cluster_bars_refresh.json")
 QUANT_PARAM_GRID_JOB_PATH = os.path.join(JOBS_DIR, "quant_param_grid.json")
 CHAT_JOB_PATH = os.path.join(JOBS_DIR, "chat.json")
 

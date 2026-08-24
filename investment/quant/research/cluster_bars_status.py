@@ -1,0 +1,201 @@
+"""观察池日线缓存覆盖与仅刷新日线（研究枢纽 UI）。"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from core.numbers import date_key
+from core.store import load_daily_cache
+
+logger = logging.getLogger(__name__)
+
+
+def expected_latest_daily_bar_date(*, now: Optional[datetime] = None) -> str:
+    """研究侧期望的最新完整日线日期（A 股 15:05 前仍用上一交易日）。"""
+    from core.market.calendar import is_trading_day, prev_trading_day, resolve_session_date
+
+    dt = now or datetime.now()
+    session = str(resolve_session_date(now=dt) or "")[:10]
+    if not session:
+        return ""
+    if not is_trading_day(session):
+        return session
+    today = dt.strftime("%Y-%m-%d")
+    cutoff = dt.replace(hour=15, minute=5, second=0, microsecond=0)
+    if today == session and dt < cutoff:
+        prev = prev_trading_day(session)
+        return prev or session
+    return session
+
+
+def _last_bar_date_for_code(code: str) -> Optional[str]:
+    try:
+        from core.ports.market import resolve_market_code
+
+        market, sym = resolve_market_code(code)
+        pack = load_daily_cache(market, sym, ignore_age=True)
+        if not pack:
+            return None
+        bars = pack[0] if isinstance(pack, tuple) else pack
+        if not bars:
+            return None
+        return date_key((bars[-1] or {}).get("date")) or None
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_bars_status.py", exc_info=True)
+        return None
+
+
+def build_cluster_bars_status(*, watching_limit: int = 100) -> Dict[str, Any]:
+    """汇总观察池截断后的日线末 bar 覆盖。"""
+    from quant.research.cluster_bars_daily import (
+        cluster_bars_session_date,
+        needs_force_latest_bars,
+        read_force_latest_bars_marker,
+    )
+    from quant.research.factor_ols_clusters import clamp_watching_limit, merge_cluster_universe
+
+    limit = clamp_watching_limit(watching_limit, 100)
+    watchlist: List[Any] = []
+    try:
+        from core.watching.store import read_watching
+
+        watchlist = list((read_watching() or {}).get("watchlist") or [])
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_bars_status.py", exc_info=True)
+        watchlist = []
+
+    uni = merge_cluster_universe(
+        watchlist,
+        [],
+        watching_limit=limit,
+        universe_mode="watching",
+    )
+    codes = [str(c).strip() for c in (uni.get("codes") or []) if str(c).strip()]
+    expected = expected_latest_daily_bar_date()
+    session = cluster_bars_session_date()
+
+    at_expected = 0
+    stale = 0
+    missing = 0
+    date_counts: Dict[str, int] = {}
+    last_min = ""
+    last_max = ""
+
+    for code in codes:
+        lb = _last_bar_date_for_code(code)
+        if not lb:
+            missing += 1
+            continue
+        date_counts[lb] = date_counts.get(lb, 0) + 1
+        if not last_min or lb < last_min:
+            last_min = lb
+        if not last_max or lb > last_max:
+            last_max = lb
+        if expected and lb >= expected:
+            at_expected += 1
+        else:
+            stale += 1
+
+    total = len(codes)
+    coverage_ok = bool(total) and stale == 0 and missing == 0
+    dist = sorted(date_counts.items(), key=lambda x: (-x[1], x[0]))[:6]
+    marker = read_force_latest_bars_marker()
+
+    return {
+        "success": True,
+        "session_date": session,
+        "expected_latest_bar": expected or None,
+        "watching_limit": limit,
+        "universe_count": total,
+        "at_expected": at_expected,
+        "stale": stale,
+        "missing": missing,
+        "coverage_ok": coverage_ok,
+        "needs_force_latest_bars": bool(needs_force_latest_bars(session_date=session)),
+        "last_bar_min": last_min or None,
+        "last_bar_max": last_max or None,
+        "date_distribution": [{"date": d, "count": c} for d, c in dist],
+        "forced_marker": marker if marker else None,
+    }
+
+
+def refresh_cluster_bars_only(
+    *,
+    watching_limit: int = 100,
+    lookback: int = 80,
+    progress_cb: Optional[Any] = None,
+) -> Dict[str, Any]:
+    """仅强制增量更新观察池日线，不跑 OLS 分组。"""
+    from quant.research.cluster_bars_daily import (
+        cluster_bars_session_date,
+        mark_force_latest_bars_done,
+    )
+    from quant.research.cluster_panels import build_cluster_ols_panels
+    from quant.research.factor_ols_clusters import clamp_watching_limit, merge_cluster_universe
+
+    limit = clamp_watching_limit(watching_limit, 100)
+    lb = max(40, int(lookback or 80))
+    watchlist: List[Any] = []
+    try:
+        from core.watching.store import read_watching
+
+        watchlist = list((read_watching() or {}).get("watchlist") or [])
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in cluster_bars_status.py", exc_info=True)
+        watchlist = []
+
+    uni = merge_cluster_universe(
+        watchlist,
+        [],
+        watching_limit=limit,
+        universe_mode="watching",
+    )
+    codes = [str(c).strip() for c in (uni.get("codes") or []) if str(c).strip()]
+    n_codes = len(codes)
+    if n_codes < 1:
+        return {
+            "success": False,
+            "error": "观察池为空，无法更新日线",
+            "watching_limit": limit,
+            "universe_count": 0,
+        }
+
+    bars_session = cluster_bars_session_date()
+
+    def _on_progress(msg: str, cur: int = 0, tot: int = 0) -> None:
+        if not progress_cb:
+            return
+        try:
+            progress_cb(msg, int(cur or 0), int(tot or n_codes or 1))
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in cluster_bars_status.py", exc_info=True)
+
+    built = build_cluster_ols_panels(
+        codes,
+        lookback=lb,
+        pit_fundamentals=False,
+        code_roles=dict(uni.get("code_roles") or {}),
+        progress_cb=_on_progress,
+        refresh_bars=False,
+        force_latest_bars=True,
+    )
+    bars_refresh = dict(built.get("bars_refresh") or {})
+    bars_refresh["manual_refresh"] = True
+    bars_refresh["session_date"] = bars_session
+    mark_force_latest_bars_done(
+        session_date=bars_session,
+        remote_count=int(bars_refresh.get("remote_count") or 0),
+        total=int(bars_refresh.get("total") or n_codes),
+    )
+    status = build_cluster_bars_status(watching_limit=limit)
+    return {
+        "success": True,
+        "task": "cluster_bars_refresh",
+        "watching_limit": limit,
+        "universe_count": n_codes,
+        "lookback": lb,
+        "bars_refresh": bars_refresh,
+        "status": status,
+    }

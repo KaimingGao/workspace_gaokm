@@ -5,7 +5,6 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
-from core.backtest.costs import round_trip_cost_pct
 from core.numbers import now_iso_local as _now_iso
 from core.t0.config import load_t0_rules, resolve_min_range_pct
 from core.t0.score_policy import (
@@ -373,6 +372,7 @@ def simulate_t0_day(
     sellable_shares: Optional[float] = None,
     rules: Optional[dict] = None,
     cost_config: Optional[dict] = None,
+    paper: Optional[dict] = None,
     stock_code: str = "",
     cash: float = 0.0,
     atr_pct: Optional[float] = None,
@@ -425,6 +425,7 @@ def simulate_t0_day(
         sellable_shares=sellable_shares,
         rules=cfg,
         cost_config=cost_config,
+        paper=paper,
         stock_code=stock_code,
         cash=cash,
         atr_pct=atr_pct,
@@ -563,6 +564,7 @@ def simulate_t0_on_holdings(
             cost=cost,
             sellable_shares=float(sellable),
             rules=cfg,
+            paper=paper,
             stock_code=code,
             cash=working_cash,
             atr_pct=atr,

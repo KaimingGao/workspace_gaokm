@@ -944,6 +944,126 @@ class QuantFactorMixin:
             _save_last_cluster_report(report)
         return report
 
+    def cluster_bars_status(self, *, watching_limit: int = 100) -> Dict[str, Any]:
+        """观察池日线末 bar 覆盖（研究枢纽 UI）。"""
+        from quant.research.cluster_bars_status import build_cluster_bars_status
+
+        return build_cluster_bars_status(watching_limit=watching_limit)
+
+    def run_cluster_bars_refresh(
+        self,
+        *,
+        watching_limit: int = 100,
+        lookback: int = 80,
+        progress_cb: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """同步：仅强制增量更新观察池日线。"""
+        from quant.research.cluster_bars_status import refresh_cluster_bars_only
+
+        return refresh_cluster_bars_only(
+            watching_limit=watching_limit,
+            lookback=lookback,
+            progress_cb=progress_cb,
+        )
+
+    def start_cluster_bars_refresh_job(
+        self,
+        *,
+        watching_limit: int = 100,
+        lookback: int = 80,
+    ) -> Dict[str, Any]:
+        """后台 Job：仅更新日线；轮询 ``GET /api/jobs/cluster-bars-refresh``。"""
+        import threading
+
+        from core.job_progress import cluster_bars_refresh_job
+        from quant.research.factor_ols_clusters import clamp_watching_limit
+
+        cluster_bars_refresh_job.reclaim_if_stale()
+        if cluster_bars_refresh_job.is_running():
+            return {
+                "ok": True,
+                "success": True,
+                "background": True,
+                "reused": True,
+                "job": cluster_bars_refresh_job.get(),
+            }
+
+        watch_limit = clamp_watching_limit(watching_limit or 100, 100)
+        try:
+            from core.watching.store import read_watching
+
+            n_watch_all = len(list((read_watching() or {}).get("watchlist") or []))
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
+            n_watch_all = watch_limit
+        n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
+        job_total = max(10, n_watch + 5)
+
+        job_id = cluster_bars_refresh_job.start(
+            kind="cluster_bars_refresh",
+            total=job_total,
+            message="排队中…",
+        )
+
+        def _progress(msg: str, cur: int = 0, tot: int = 0) -> None:
+            t = max(1, int(tot or n_watch or 1))
+            c = max(0, int(cur or 0))
+            mapped = max(1, min(job_total - 1, int(job_total * min(1.0, c / t))))
+            cluster_bars_refresh_job.update(
+                current=mapped,
+                total=job_total,
+                message=str(msg or "更新日线…"),
+                job_id=job_id,
+            )
+
+        def _worker() -> None:
+            stop_hb = threading.Event()
+
+            def _heartbeat() -> None:
+                while not stop_hb.wait(8.0):
+                    if not cluster_bars_refresh_job.touch(job_id=job_id):
+                        return
+
+            hb = threading.Thread(
+                target=_heartbeat, name=f"cluster-bars-hb-{job_id}", daemon=True
+            )
+            hb.start()
+            try:
+                if cluster_bars_refresh_job.is_cancel_requested():
+                    cluster_bars_refresh_job.finish(error="已取消", job_id=job_id)
+                    return
+                result = self.run_cluster_bars_refresh(
+                    watching_limit=watch_limit,
+                    lookback=lookback,
+                    progress_cb=_progress,
+                )
+                if cluster_bars_refresh_job.is_cancel_requested():
+                    cluster_bars_refresh_job.finish(error="已取消", job_id=job_id)
+                    return
+                if not result.get("success"):
+                    cluster_bars_refresh_job.finish(
+                        error=str(result.get("error") or "日线更新失败"),
+                        result=result,
+                        job_id=job_id,
+                    )
+                    return
+                cluster_bars_refresh_job.finish(result=result, job_id=job_id)
+            except Exception as e:
+                logger.exception("unexpected error in cluster_bars_refresh worker")
+                cluster_bars_refresh_job.finish(error=str(e), job_id=job_id)
+            finally:
+                stop_hb.set()
+
+        threading.Thread(
+            target=_worker, name=f"cluster-bars-{job_id}", daemon=True
+        ).start()
+        return {
+            "ok": True,
+            "success": True,
+            "background": True,
+            "job": cluster_bars_refresh_job.get(),
+        }
+
     def start_factor_ols_cluster_job(self, **kwargs: Any) -> Dict[str, Any]:
         """FH2：后台跑分组 OLS；轮询 ``GET /api/jobs/quant-ols-clusters``。"""
         import threading

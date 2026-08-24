@@ -274,6 +274,10 @@ export function initQuant(ctx) {
   const backtest = installBacktest(q);
   const cluster = installClusterProbe(q);
   const suggest = installSuggest(q);
+  const { installClusterBarsUi } = await import(
+    `./quant/cluster_bars_ui.js?v=${encodeURIComponent(_QV)}`
+  );
+  const clusterBars = installClusterBarsUi(q);
   const strategy = installStrategy(q);
   const exportDomain = installExportInterpret(q);
   const scoreReviewDomain = installScoreReview(q);
@@ -282,6 +286,7 @@ export function initQuant(ctx) {
   q.backtest = backtest;
   q.cluster = cluster;
   q.suggest = suggest;
+  q.clusterBars = clusterBars;
   q.strategy = strategy;
   q.exportDomain = exportDomain;
   q.scoreReviewDomain = scoreReviewDomain;

@@ -6,7 +6,12 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
-from core.backtest.costs import round_trip_cost_pct
+from core.t0.costs import (
+    append_t0_leg,
+    resolve_t0_cost_context,
+    t0_fees_total,
+    t0_pnl_from_trades,
+)
 from core.t0.config import load_t0_rules, resolve_min_range_pct
 from core.t0.rules import (
     _error_result,
@@ -181,7 +186,8 @@ def _first_touch_long(
     lot: int,
     fill_mode: str,
     cfg: dict,
-    cost_config: Optional[dict],
+    cost_model: str,
+    cost_params: dict,
     stock_code: str,
     atr_pct: Optional[float],
     range_pct: float,
@@ -228,26 +234,23 @@ def _first_touch_long(
         ts = mb.get("datetime") or mb.get("date")
         if sold_qty <= 0 and qty > 0 and hi >= sell_level:
             fill_sell = _fill_sell(hi, sell_level, fill_mode)
-            amount = qty * fill_sell
-            trades.append(
-                {
-                    "side": "t0_sell",
-                    "stock_code": stock_code,
-                    "shares": qty,
-                    "price": round(fill_sell, 4),
-                    "amount": round(amount, 2),
-                    "trigger": round(sell_level, 4),
-                    "at": ts,
-                    "leg_kind": "trigger",
-                    "note": "正T卖出（分钟第一触达）",
-                }
+            cash_delta += append_t0_leg(
+                trades,
+                cost_model=cost_model,
+                cost_params=cost_params,
+                side="t0_sell",
+                stock_code=stock_code,
+                shares=qty,
+                price=fill_sell,
+                trigger=sell_level,
+                at=ts,
+                leg_kind="trigger",
+                note="正T卖出（分钟第一触达）",
             )
-            cash_delta += amount
             shares_now -= qty
             sold_qty = qty
             sold_price = fill_sell
             touch_sell_at = ts
-            # 同根 5m OHLC 不知先后：卖出后不在同一根回补，等后续分钟
             continue
 
         if sold_qty > 0 and covered <= 0:
@@ -255,55 +258,45 @@ def _first_touch_long(
             if lo <= buy_level:
                 fill_buy = _fill_buy(lo, buy_level, fill_mode)
                 cover = sold_qty
-                amount_b = cover * fill_buy
-                trades.append(
-                    {
-                        "side": "t0_buy",
-                        "stock_code": stock_code,
-                        "shares": cover,
-                        "price": round(fill_buy, 4),
-                        "amount": round(amount_b, 2),
-                        "trigger": round(buy_level, 4),
-                        "at": ts,
-                        "leg_kind": "trigger",
-                        "note": "正T买回（分钟第一触达）",
-                    }
+                cash_delta += append_t0_leg(
+                    trades,
+                    cost_model=cost_model,
+                    cost_params=cost_params,
+                    side="t0_buy",
+                    stock_code=stock_code,
+                    shares=cover,
+                    price=fill_buy,
+                    trigger=buy_level,
+                    at=ts,
+                    leg_kind="trigger",
+                    note="正T买回（分钟第一触达）",
                 )
-                cash_delta -= amount_b
                 shares_now += cover
                 covered = cover
                 touch_cover_at = ts
-                gross = (sold_price - fill_buy) / sold_price * 100.0
-                cost_pct = round_trip_cost_pct(cost_config)
-                pnl = round((gross - cost_pct) * (sold_qty * sold_price) / 100.0, 2)
 
     if sold_qty > 0 and covered <= 0 and (at_session_end or not defer_eod):
         sess_close = float(sess_bar.get("close") or close)
         if cfg.get("must_cover_same_day"):
             fill_buy = sess_close
             cover = sold_qty
-            amount_b = cover * fill_buy
             close_at = _session_close_at(sess_bars, sess_bar)
-            trades.append(
-                {
-                    "side": "t0_buy",
-                    "stock_code": stock_code,
-                    "shares": cover,
-                    "price": round(fill_buy, 4),
-                    "amount": round(amount_b, 2),
-                    "trigger": round(sess_close, 4),
-                    "at": close_at,
-                    "leg_kind": "eod_cover",
-                    "note": "强制当日回补（收盘）",
-                }
+            cash_delta += append_t0_leg(
+                trades,
+                cost_model=cost_model,
+                cost_params=cost_params,
+                side="t0_buy",
+                stock_code=stock_code,
+                shares=cover,
+                price=fill_buy,
+                trigger=sess_close,
+                at=close_at,
+                leg_kind="eod_cover",
+                note="强制当日回补（收盘）",
             )
-            cash_delta -= amount_b
             shares_now += cover
             covered = cover
             touch_cover_at = close_at or touch_cover_at
-            gross = (sold_price - fill_buy) / sold_price * 100.0
-            cost_pct = round_trip_cost_pct(cost_config)
-            pnl = round((gross - cost_pct) * (sold_qty * sold_price) / 100.0, 2)
         else:
             exposure_pnl = round((sold_price - sess_close) * sold_qty, 2)
 
@@ -321,6 +314,8 @@ def _first_touch_long(
         )
 
     uncovered = sold_qty - covered
+    if covered > 0:
+        pnl = t0_pnl_from_trades(trades)
     return {
         "success": True,
         "skipped": False,
@@ -335,6 +330,8 @@ def _first_touch_long(
         "trades": trades,
         "pnl": pnl,
         "exposure_pnl": exposure_pnl,
+        "fees_total": t0_fees_total(trades),
+        "cost_model": cost_model,
         "shares_end": shares_now,
         "cash_delta": round(cash_delta, 2),
         "direction_used": "long_t",
@@ -364,7 +361,8 @@ def _first_touch_reverse(
     lot: int,
     fill_mode: str,
     cfg: dict,
-    cost_config: Optional[dict],
+    cost_model: str,
+    cost_params: dict,
     stock_code: str,
     atr_pct: Optional[float],
     range_pct: float,
@@ -465,20 +463,19 @@ def _first_touch_reverse(
                 if qty <= 0:
                     continue
                 buy_amount = qty * fill_buy
-            trades.append(
-                {
-                    "side": "t0_buy",
-                    "stock_code": stock_code,
-                    "shares": qty,
-                    "price": round(fill_buy, 4),
-                    "amount": round(buy_amount, 2),
-                    "trigger": round(buy_level, 4),
-                    "at": ts,
-                    "leg_kind": "trigger",
-                    "note": "反T低吸加仓（分钟第一触达；新股T+1锁仓）",
-                }
+            cash_delta += append_t0_leg(
+                trades,
+                cost_model=cost_model,
+                cost_params=cost_params,
+                side="t0_buy",
+                stock_code=stock_code,
+                shares=qty,
+                price=fill_buy,
+                trigger=buy_level,
+                at=ts,
+                leg_kind="trigger",
+                note="反T低吸加仓（分钟第一触达；新股T+1锁仓）",
             )
-            cash_delta -= buy_amount
             shares_now += qty
             bought_qty = qty
             buy_price = fill_buy
@@ -491,27 +488,22 @@ def _first_touch_reverse(
             sell_old_qty = min(bought_qty, sell_old_cap)
             if sell_old_qty > 0 and hi >= sell_level:
                 fill_sell = _fill_sell(hi, sell_level, fill_mode)
-                amount_s = sell_old_qty * fill_sell
-                trades.append(
-                    {
-                        "side": "t0_sell",
-                        "stock_code": stock_code,
-                        "shares": sell_old_qty,
-                        "price": round(fill_sell, 4),
-                        "amount": round(amount_s, 2),
-                        "trigger": round(sell_level, 4),
-                        "at": ts,
-                        "leg_kind": "trigger",
-                        "note": "反T卖旧底仓（分钟第一触达；T+1可卖）",
-                    }
+                cash_delta += append_t0_leg(
+                    trades,
+                    cost_model=cost_model,
+                    cost_params=cost_params,
+                    side="t0_sell",
+                    stock_code=stock_code,
+                    shares=sell_old_qty,
+                    price=fill_sell,
+                    trigger=sell_level,
+                    at=ts,
+                    leg_kind="trigger",
+                    note="反T卖旧底仓（分钟第一触达；T+1可卖）",
                 )
-                cash_delta += amount_s
                 shares_now -= sell_old_qty
                 sold_back = sell_old_qty
                 touch_sell_at = ts
-                gross = (fill_sell - buy_price) / buy_price * 100.0
-                cost_pct = round_trip_cost_pct(cost_config)
-                pnl = round((gross - cost_pct) * (sell_old_qty * buy_price) / 100.0, 2)
 
     if bought_qty <= 0:
         return _skip_result(
@@ -531,31 +523,28 @@ def _first_touch_reverse(
         sess_close = float(sess_bar.get("close") or close)
         if cfg.get("must_cover_same_day") and sell_old_qty > 0:
             fill_sell = sess_close
-            amount_s = sell_old_qty * fill_sell
             close_at = _session_close_at(sess_bars, sess_bar)
-            trades.append(
-                {
-                    "side": "t0_sell",
-                    "stock_code": stock_code,
-                    "shares": sell_old_qty,
-                    "price": round(fill_sell, 4),
-                    "amount": round(amount_s, 2),
-                    "trigger": round(sess_close, 4),
-                    "at": close_at,
-                    "leg_kind": "eod_cover",
-                    "note": "强制收盘卖旧底仓（T+1）",
-                }
+            cash_delta += append_t0_leg(
+                trades,
+                cost_model=cost_model,
+                cost_params=cost_params,
+                side="t0_sell",
+                stock_code=stock_code,
+                shares=sell_old_qty,
+                price=fill_sell,
+                trigger=sess_close,
+                at=close_at,
+                leg_kind="eod_cover",
+                note="强制收盘卖旧底仓（T+1）",
             )
-            cash_delta += amount_s
             shares_now -= sell_old_qty
             sold_back = sell_old_qty
             touch_sell_at = close_at or touch_sell_at
-            gross = (fill_sell - buy_price) / buy_price * 100.0
-            cost_pct = round_trip_cost_pct(cost_config)
-            pnl = round((gross - cost_pct) * (sell_old_qty * buy_price) / 100.0, 2)
         elif not cfg.get("must_cover_same_day"):
             exposure_pnl = round((sess_close - buy_price) * bought_qty, 2)
 
+    if sold_back > 0:
+        pnl = t0_pnl_from_trades(trades)
     return {
         "success": True,
         "skipped": False,
@@ -570,6 +559,8 @@ def _first_touch_reverse(
         "trades": trades,
         "pnl": pnl,
         "exposure_pnl": exposure_pnl,
+        "fees_total": t0_fees_total(trades),
+        "cost_model": cost_model,
         "shares_end": shares_now,
         "cash_delta": round(cash_delta, 2),
         "direction_used": "reverse_t",
@@ -616,6 +607,7 @@ def simulate_t0_day_minute(
     sellable_shares: Optional[float] = None,
     rules: Optional[dict] = None,
     cost_config: Optional[dict] = None,
+    paper: Optional[dict] = None,
     stock_code: str = "",
     cash: float = 0.0,
     atr_pct: Optional[float] = None,
@@ -635,6 +627,7 @@ def simulate_t0_day_minute(
     )
 
     cfg = load_t0_rules(rules)
+    cost_model, cost_params = resolve_t0_cost_context(paper=paper, cost_config=cost_config)
     if not cfg.get("enabled", True):
         return _skip_result(reason="t0 disabled", shares=shares, bar=bar)
 
@@ -801,7 +794,8 @@ def simulate_t0_day_minute(
                 lot=lot,
                 fill_mode=fill_mode,
                 cfg=cfg_day,
-                cost_config=cost_config,
+                cost_model=cost_model,
+                cost_params=cost_params,
                 stock_code=stock_code,
                 atr_pct=scaled.get("atr_pct"),
                 range_pct=range_pct,
@@ -819,7 +813,8 @@ def simulate_t0_day_minute(
                 lot=lot,
                 fill_mode=fill_mode,
                 cfg=cfg_day,
-                cost_config=cost_config,
+                cost_model=cost_model,
+                cost_params=cost_params,
                 stock_code=stock_code,
                 atr_pct=scaled.get("atr_pct"),
                 range_pct=range_pct,
