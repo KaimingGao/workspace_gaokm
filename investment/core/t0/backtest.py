@@ -431,7 +431,7 @@ def _walk_t0(
                     "direction_features": day.get("direction_features"),
                     "scores": day.get("scores"),
                     "signal_skip": bool(day.get("signal_skip")),
-                    "path_mode": day.get("path_mode") or day_rules.get("path_mode"),
+                    "path_mode": day.get("path_mode") or cfg.get("path_mode") or "first_touch",
                     "minute_path": used_minute,
                     **_t0_range_fields(day),
                 }
@@ -497,7 +497,7 @@ def _walk_t0(
                 "direction_features": day.get("direction_features"),
                 "scores": day.get("scores"),
                 "cover_policy": day.get("cover_policy"),
-                "path_mode": day.get("path_mode") or day_rules.get("path_mode"),
+                "path_mode": day.get("path_mode") or cfg.get("path_mode") or "first_touch",
                 "minute_path": used_minute,
                 "touch_sell_at": day.get("touch_sell_at"),
                 "touch_cover_at": day.get("touch_cover_at") or day.get("touch_buy_at"),
