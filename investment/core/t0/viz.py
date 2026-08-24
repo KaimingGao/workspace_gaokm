@@ -12,6 +12,7 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "y_trade_weak": "y_trade幅度不足",
     "conflict": "先验冲突",
     "amplitude": "振幅不足",
+    "directional_amplitude": "方向振幅",
     "lot_size": "手数不足",
     "path": "路径否决",
     "trigger_miss": "未触达",
@@ -25,6 +26,7 @@ SKIP_CAT_COLORS: Dict[str, str] = {
     "y_trade_weak": "#fb923c",
     "conflict": "#ef4444",
     "amplitude": "#64748b",
+    "directional_amplitude": "#78716c",
     "lot_size": "#a78bfa",
     "path": "#6366f1",
     "trigger_miss": "#cbd5e1",
@@ -44,6 +46,8 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "conflict"
     if "|y_τ|" in r or ("y_τ" in r and "横盘" in r):
         return "y_tau_flat"
+    if "上移振幅" in r or "下移振幅" in r or "方向振幅" in r:
+        return "directional_amplitude"
     if "振幅" in r:
         return "amplitude"
     if "不足1手" in r or ("手" in r and "不足" in r):

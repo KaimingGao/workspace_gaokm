@@ -697,6 +697,89 @@ class TestT0Core(unittest.TestCase):
         self.assertIn("15:00", str(buys[0].get("at") or ""))
         self.assertEqual(out.get("touch_cover_at"), buys[0].get("at"))
 
+    def test_deferred_eod_allows_afternoon_trigger_buy(self):
+        """滚动前缀过关后卖；第二腿应能等到下午 trigger，而非前缀末 eod_cover。"""
+        d = "2024-01-03"
+        bar = _bar(d, 100, 106, 99, 100)
+        mins = _mins(
+            d,
+            [
+                (935, 100, 100.3, 99.7, 100),
+                (940, 100, 100.3, 99.7, 100),
+                (945, 100, 100.3, 99.7, 100),
+                (950, 100, 100.3, 99.7, 100),
+                (955, 100, 100.3, 99.7, 100),
+                (1000, 100, 100.3, 99.7, 100),
+                (1005, 100, 100.3, 99.7, 100),
+                (1010, 100, 106, 100, 105),
+                (1015, 105, 105.2, 104.8, 105),
+                (1020, 105, 105.2, 104.8, 105),
+                (1100, 105, 105.2, 104.8, 105),
+                (1430, 101, 101.2, 100.3, 100.5),
+                (1500, 100, 100, 99.5, 100),
+            ],
+        )
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            minute_bars=mins,
+            rules=_rules(
+                direction="long_t",
+                fill_mode="trigger",
+                min_range_pct=1.0,
+                sell_trigger_pct=2.0,
+                buy_trigger_pct=1.5,
+                must_cover_same_day=True,
+            ),
+        )
+        self.assertTrue(out["success"], out.get("reason"))
+        trades = out.get("trades") or []
+        buys = [t for t in trades if str(t.get("side", "")).endswith("buy")]
+        self.assertEqual(len(buys), 1, trades)
+        self.assertEqual(buys[0].get("leg_kind"), "trigger")
+        self.assertIn("14:30", str(buys[0].get("at") or ""))
+        self.assertGreaterEqual(int(out.get("prefix_bars") or 0), 12)
+
+    def test_directional_amplitude_waits_for_long_t_upside(self):
+        """总量振幅过关但上移不足时不触达；冲高后再卖，下午买回。"""
+        d = "2024-01-03"
+        bar = _bar(d, 100, 106, 94, 100)
+        mins = _mins(
+            d,
+            [
+                (935, 100, 100.1, 99.5, 99.8),
+                (940, 100, 100.1, 98.0, 98.5),
+                (945, 100, 100.1, 96.0, 96.5),
+                (950, 100, 100.1, 94.0, 94.5),
+                (1000, 94.5, 106, 94.5, 105),
+                (1430, 101, 101.2, 100.3, 100.5),
+                (1500, 100, 100, 99.5, 100),
+            ],
+        )
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            minute_bars=mins,
+            rules=_rules(
+                direction="long_t",
+                fill_mode="trigger",
+                min_range_pct=1.0,
+                sell_trigger_pct=2.0,
+                buy_trigger_pct=1.5,
+                must_cover_same_day=True,
+            ),
+        )
+        self.assertTrue(out["success"], out.get("reason"))
+        trades = out.get("trades") or []
+        sells = [t for t in trades if str(t.get("side", "")).endswith("sell")]
+        buys = [t for t in trades if str(t.get("side", "")).endswith("buy")]
+        self.assertEqual(len(sells), 1)
+        self.assertEqual(len(buys), 1)
+        self.assertIn("10:00", str(sells[0].get("at") or ""))
+        self.assertEqual(buys[0].get("leg_kind"), "trigger")
+
     def test_backtest_minute_by_date_sets_first_touch(self):
         bars = []
         for i in range(8):
@@ -1084,8 +1167,8 @@ class TestDualYDirection(unittest.TestCase):
             ),
             scores={
                 "y_trade": 0.3,
-                "y_tau": 0.8,
-                "y_eod": 0.4,
+                "y_tau": -0.8,
+                "y_eod": -0.4,
                 "y_on": 0.2,
             },
             minute_bars=_mins_hl(bar=bar))
@@ -1113,8 +1196,8 @@ class TestDualYDirection(unittest.TestCase):
             ),
             scores={
                 "y_trade": 0.2,
-                "y_tau": -0.8,
-                "y_eod": -0.5,
+                "y_tau": 0.8,
+                "y_eod": 0.5,
                 "y_on": 0.1,
             },
             minute_bars=_mins_hl(bar=bar))
@@ -1157,8 +1240,8 @@ class TestDualYDirection(unittest.TestCase):
         from core.t0.score_policy import resolve_cover_policy
 
         cover = resolve_cover_policy(
-            scores={"y_on": -1.5, "y_trade": 0.3},
-            direction="long_t",
+            scores={"y_on": 1.5, "y_trade": 0.3},
+            direction="reverse_t",
             cfg={"must_cover_same_day": False, "y_on_allow": 1.2, "y_trade_floor": 0.15},
         )
         self.assertFalse(cover["must_cover"])
@@ -1219,6 +1302,10 @@ class TestT0Viz(unittest.TestCase):
         self.assertEqual(
             classify_t0_skip_reason("dual_y：y_trade=-0.381%<floor-0.15% 资格不足"),
             "y_trade_weak",
+        )
+        self.assertEqual(
+            classify_t0_skip_reason("正T上移振幅 0.80%<2.00%"),
+            "directional_amplitude",
         )
 
     def test_build_and_merge_viz(self):

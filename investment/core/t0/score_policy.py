@@ -28,13 +28,13 @@ DEFAULT_RATIO_BOOST_CAP = 1.25
 DEFAULT_RATIO_CUT = 0.75
 
 # dual_y 下 y_τ 符号 → 正/反 T 映射（回测对照）
-# scalp: y_τ>0→正T（高抛低吸启发式，现网默认）
-# trend: y_τ>0→反T（趋势跟随：涨预期先买后卖）
+# scalp / trend: y_τ>0→反T（趋势跟随：OC 向上，日内更可能 low→high，先买后卖）
+#   scalp 与 trend 语义一致，保留 scalp 仅作向后兼容别名
 # fixed_long / fixed_reverse: 忽略 y_τ 符号，固定方向（仍过 |y_τ| 门槛）
-Y_TAU_MAP_DEFAULT = "scalp"
+Y_TAU_MAP_DEFAULT = "trend"
 Y_TAU_MAP_CHOICES = ("scalp", "trend", "fixed_long", "fixed_reverse")
 Y_TAU_MAP_LABELS = {
-    "scalp": "高抛低吸（y_τ>0→正T）",
+    "scalp": "高抛低吸（y_τ>0→反T；与 trend 等价，保留兼容）",
     "trend": "趋势跟随（y_τ>0→反T）",
     "fixed_long": "固定正T",
     "fixed_reverse": "固定反T",
@@ -187,6 +187,7 @@ def normalize_y_tau_map(raw: Any) -> str:
         "follow": "trend",
         "momentum": "trend",
         "invert": "trend",
+        "scalp": "trend",  # 语义修正后与 trend 等价
         "long": "fixed_long",
         "always_long": "fixed_long",
         "reverse": "fixed_reverse",
@@ -199,15 +200,19 @@ def normalize_y_tau_map(raw: Any) -> str:
 
 
 def direction_from_y_tau_sign(tau_sign: int, cfg: dict) -> str:
-    """由 y_τ 符号（±1）与 y_tau_map 解析 long_t / reverse_t。"""
+    """由 y_τ 符号（±1）与 y_tau_map 解析 long_t / reverse_t。
+
+    y_τ>0（OC 向上，日内更可能 low→high）→ reverse_t（先买后卖）
+    y_τ<0（OC 向下，日内更可能 high→low）→ long_t（先卖后买）
+    scalp 与 trend 语义一致，保留 scalp 仅作向后兼容别名。
+    """
     mode = normalize_y_tau_map(cfg.get("y_tau_map"))
-    if mode == "trend":
-        return "reverse_t" if tau_sign > 0 else "long_t"
     if mode == "fixed_long":
         return "long_t"
     if mode == "fixed_reverse":
         return "reverse_t"
-    return "long_t" if tau_sign > 0 else "reverse_t"
+    # scalp / trend：趋势跟随
+    return "reverse_t" if tau_sign > 0 else "long_t"
 
 
 def resolve_dual_y_direction(
@@ -355,11 +360,23 @@ def resolve_cover_policy(
     direction: Optional[str],
     cfg: dict,
 ) -> Dict[str, Any]:
-    """尾盘回补：默认强制；仅当 y_on 强烈支持隔夜敞口时放行。"""
+    """尾盘回补：默认强制；仅当 y_on 强烈支持隔夜敞口时放行。
+
+    long_t 默认强制当日回补：卖空后若买不回会留下隔夜空头敞口，
+    风险不对称，故不论 y_on 一律回补（仅 reverse_t 在 y_on 强烈看涨时放行）。
+    """
     if bool(cfg.get("must_cover_same_day")):
         return {
             "must_cover": True,
             "reason": "表单强制当日回补",
+            "allow_overnight": False,
+        }
+
+    # long_t 一律当日回补，防未回补空头敞口（风险不对称）
+    if direction == "long_t":
+        return {
+            "must_cover": True,
+            "reason": "long_t 默认强制回补（防未回补空头敞口）",
             "allow_overnight": False,
         }
 
@@ -397,15 +414,8 @@ def resolve_cover_policy(
             "allow_overnight": False,
         }
 
-    # |y_on| 很大：仅当方向与敞口一致才允许隔夜
-    # 正T未回补 = 隔夜空头敞口 → 需要 y_on 显著为负（看跌隔夜）
-    # 反T买了未卖旧 = 多头增量 → 需要 y_on 显著为正
-    if direction == "long_t" and y_on <= -on_allow:
-        return {
-            "must_cover": False,
-            "reason": f"y_on={y_on:.3f}%支持正T隔夜空头敞口",
-            "allow_overnight": True,
-        }
+    # |y_on| 很大：仅反T在 y_on 强烈看涨时允许隔夜多头敞口
+    # （long_t 已在函数开头一律回补，不在此放行）
     if direction == "reverse_t" and y_on >= on_allow:
         return {
             "must_cover": False,

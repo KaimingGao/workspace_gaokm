@@ -538,7 +538,7 @@ export function buildT0TradeTableHtml(opts) {
       : "";
 
   const timeHint = showTime
-    ? `<p class="quant-trades-caption paper-t0-table-more">5m 路径：过程列时间为第一触达时点（收盘回补取末根 K 线）</p>`
+    ? `<p class="quant-trades-caption paper-t0-table-more">5m 路径：过程列为第一触达时点；<strong>收</strong>= 全日末强制回补（15:00/末根 K），非前缀中途假收</p>`
     : `<p class="quant-trades-caption paper-t0-table-more">5m 第一触达：还原卖买触达时刻；缺分钟日已跳过（已删除日线模拟）</p>`;
 
   return (

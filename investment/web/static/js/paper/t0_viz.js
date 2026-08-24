@@ -408,10 +408,10 @@ function drawYtauScatter(canvas, points, threshold = 0.25) {
     return pad.l + (base + jitter) * plotW;
   };
 
-  // 方向分区底色
-  ctx.fillStyle = THEME.longTLight;
-  ctx.fillRect(pad.l, yLine(maxY), plotW, yLine(threshold) - yLine(maxY));
+  // 方向分区底色（y_τ>0→反T，y_τ<0→正T）
   ctx.fillStyle = THEME.reverseTLight;
+  ctx.fillRect(pad.l, yLine(maxY), plotW, yLine(threshold) - yLine(maxY));
+  ctx.fillStyle = THEME.longTLight;
   ctx.fillRect(pad.l, yLine(-threshold), plotW, yLine(minY) - yLine(-threshold));
   ctx.fillStyle = "rgba(148,163,184,0.07)";
   ctx.fillRect(pad.l, yLine(threshold), plotW, yLine(-threshold) - yLine(threshold));
@@ -927,7 +927,7 @@ export function renderT0Viz(host, data) {
     cards.push(
       vizCard(
         "y_τ 散点",
-        `|y_τ|≥${tauEnter}% 门槛 · 中间灰带=|y_τ|<τ 横盘 · 橙=未成交`,
+        `|y_τ|≥${tauEnter}% 门槛 · 中间灰带=|y_τ|<τ · 橙=信号跳过（不含振幅/未触达跳过）`,
         chartCanvas("scatter"),
         `<div data-role="scatter-foot"></div>`,
         legendChips([

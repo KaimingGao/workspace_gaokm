@@ -97,7 +97,7 @@ def should_process_intraday_stock(
 
 def _retryable_skip(reason: str) -> bool:
     r = str(reason or "")
-    return any(x in r for x in ("振幅", "分钟", "未触及", "等待"))
+    return any(x in r for x in ("振幅", "分钟", "未触及", "等待", "上移振幅", "下移振幅", "方向振幅"))
 
 
 def _intraday_setup(
@@ -193,7 +193,34 @@ def _intraday_setup(
     fill_mode = str(cfg.get("fill_mode") or "trigger")
     t0_ratio = float(cfg.get("t0_ratio") or 0.4)
 
-    from core.t0.minute_path import _first_touch_long, _first_touch_reverse
+    from core.t0.minute_path import (
+        _first_touch_long,
+        _first_touch_reverse,
+        prefix_directional_amplitude_ok,
+    )
+
+    last_ts = str((minute_bars[-1] or {}).get("datetime") or "")
+    at_session_end = "15:00" in last_ts or "14:55" in last_ts
+    dir_amp = prefix_directional_amplitude_ok(
+        minute_bars,
+        direction=direction,
+        ref=ref,
+        sell_trig=sell_trig,
+        buy_trig=buy_trig,
+    )
+    if not dir_amp.get("ok") and not at_session_end:
+        return _skip_result(
+            reason=str(dir_amp.get("reason") or "方向振幅未达标"),
+            shares=shares,
+            bar=bar_day,
+            extra={
+                "direction_used": direction,
+                "range_mode": "rolling",
+                "prefix_bars": gate.get("prefix_bars"),
+                "range_pct": range_pct,
+                "directional_amplitude": dir_amp,
+            },
+        )
 
     if direction == "reverse_t":
         day = _first_touch_reverse(

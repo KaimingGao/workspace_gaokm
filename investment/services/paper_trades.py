@@ -910,11 +910,30 @@ class PaperTradesMixin:
         log_source: str = "paper_t0",
         skip_open_fill_gate: bool = False,
     ) -> Dict[str, Any]:
-        """纸面底仓做 T（非实盘）。dry_run=True：只预演，不写账本。
+        """纸面底仓做 T（非实盘）。全程加写锁，防与调仓/其他做T并发覆盖账本。
+
+        dry_run=True：只预演，不写账本（仍加锁，保证读到一致快照）。
         仅 5m 第一触达；缺分钟线的票跳过（已删除日线模拟）。
         """
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
+        with paper_write_lock(self.path):
+            return self._simulate_t0_impl(
+                rules=rules,
+                dry_run=dry_run,
+                log_source=log_source,
+                skip_open_fill_gate=skip_open_fill_gate,
+            )
+
+    def _simulate_t0_impl(
+        self,
+        *,
+        rules: Optional[dict] = None,
+        dry_run: bool = False,
+        log_source: str = "paper_t0",
+        skip_open_fill_gate: bool = False,
+    ) -> Dict[str, Any]:
+        """simulate_t0 的加锁实现：拉行情 → 做T模拟 → 写账本。"""
         from core.data.facade import bars_and_source
         from core.t0.rules import atr_pct_from_bars, simulate_t0_on_holdings
 

@@ -52,6 +52,9 @@ def prefix_range_gate(
 ) -> Dict[str, Any]:
     """滚动前缀振幅门禁：仅用 ``minute_bars`` 前缀合成 high/low（与 Worker 单 tick 同口径）。
 
+    仅判断波动幅度是否达 min_range_pct；第一腿方向是否具备空间见
+    ``prefix_directional_amplitude_ok``。
+
     Returns ok/range_pct/min_range_pct/bar_day/ref/prefix_bars；无效输入时 ok=False。
     """
     min_range = resolve_min_range_pct(cfg)
@@ -97,6 +100,62 @@ def prefix_range_gate(
     }
 
 
+def prefix_directional_amplitude_ok(
+    minute_bars: Sequence[dict],
+    *,
+    direction: str,
+    ref: float,
+    sell_trig: float,
+    buy_trig: float,
+) -> Dict[str, Any]:
+    """方向振幅：前缀是否已具备第一腿方向的触达空间（与总量振幅门禁分离）。
+
+    long_t — 前缀 high 达卖出触发（向上振幅）；reverse_t — 前缀 low 达低吸触发（向下振幅）。
+    """
+    if ref <= 0 or len(minute_bars or []) < 1:
+        return {"ok": False, "reason": "无效 ref 或分钟线"}
+    highs = [float(b.get("high") or 0) for b in minute_bars if float(b.get("high") or 0) > 0]
+    lows = [float(b.get("low") or 0) for b in minute_bars if float(b.get("low") or 0) > 0]
+    if not highs or not lows:
+        return {"ok": False, "reason": "无效 OHLC"}
+    hi = max(highs)
+    lo = min(lows)
+    direction = str(direction or "").strip().lower()
+    if direction == "long_t":
+        sell_level = ref * (1.0 + float(sell_trig) / 100.0)
+        up_pct = (hi - ref) / ref * 100.0
+        ok = hi >= sell_level
+        return {
+            "ok": ok,
+            "direction": direction,
+            "up_pct": round(up_pct, 4),
+            "down_pct": None,
+            "trigger_level": round(sell_level, 4),
+            "reason": (
+                f"正T上移振幅 {up_pct:.2f}%≥{float(sell_trig):.2f}%"
+                if ok
+                else f"正T上移振幅 {up_pct:.2f}%<{float(sell_trig):.2f}%"
+            ),
+        }
+    if direction == "reverse_t":
+        buy_level = ref * (1.0 - float(buy_trig) / 100.0)
+        down_pct = (ref - lo) / ref * 100.0
+        ok = lo <= buy_level
+        return {
+            "ok": ok,
+            "direction": direction,
+            "up_pct": None,
+            "down_pct": round(down_pct, 4),
+            "trigger_level": round(buy_level, 4),
+            "reason": (
+                f"反T下移振幅 {down_pct:.2f}%≥{float(buy_trig):.2f}%"
+                if ok
+                else f"反T下移振幅 {down_pct:.2f}%<{float(buy_trig):.2f}%"
+            ),
+        }
+    return {"ok": True, "reason": "未知方向，跳过方向振幅", "direction": direction}
+
+
 def _session_close_at(minute_bars: Sequence[dict], bar: Optional[dict] = None) -> str:
     """分钟路径收盘腿时点：末根 K 线时间，否则当日 15:00。"""
     if minute_bars:
@@ -127,8 +186,14 @@ def _first_touch_long(
     atr_pct: Optional[float],
     range_pct: float,
     t0_ratio: float,
+    session_bars: Optional[Sequence[dict]] = None,
+    session_bar: Optional[dict] = None,
+    defer_eod: bool = False,
 ) -> Dict[str, Any]:
     close = float(bar.get("close") or 0)
+    sess_bars = session_bars if session_bars is not None else minute_bars
+    sess_bar = session_bar if session_bar is not None else bar
+    at_session_end = len(minute_bars) >= len(sess_bars)
     sellable = float(sellable_shares if sellable_shares is not None else shares)
     sellable = min(sellable, shares)
     sell_level = ref * (1.0 + sell_trig / 100.0)
@@ -212,12 +277,13 @@ def _first_touch_long(
                 cost_pct = round_trip_cost_pct(cost_config)
                 pnl = round((gross - cost_pct) * (sold_qty * sold_price) / 100.0, 2)
 
-    if sold_qty > 0 and covered <= 0:
+    if sold_qty > 0 and covered <= 0 and (at_session_end or not defer_eod):
+        sess_close = float(sess_bar.get("close") or close)
         if cfg.get("must_cover_same_day"):
-            fill_buy = close
+            fill_buy = sess_close
             cover = sold_qty
             amount_b = cover * fill_buy
-            close_at = _session_close_at(minute_bars, bar)
+            close_at = _session_close_at(sess_bars, sess_bar)
             trades.append(
                 {
                     "side": "t0_buy",
@@ -225,7 +291,7 @@ def _first_touch_long(
                     "shares": cover,
                     "price": round(fill_buy, 4),
                     "amount": round(amount_b, 2),
-                    "trigger": round(close, 4),
+                    "trigger": round(sess_close, 4),
                     "at": close_at,
                     "leg_kind": "eod_cover",
                     "note": "强制当日回补（收盘）",
@@ -239,7 +305,7 @@ def _first_touch_long(
             cost_pct = round_trip_cost_pct(cost_config)
             pnl = round((gross - cost_pct) * (sold_qty * sold_price) / 100.0, 2)
         else:
-            exposure_pnl = round((sold_price - close) * sold_qty, 2)
+            exposure_pnl = round((sold_price - sess_close) * sold_qty, 2)
 
     if sold_qty <= 0:
         return _skip_result(
@@ -302,9 +368,15 @@ def _first_touch_reverse(
     stock_code: str,
     atr_pct: Optional[float],
     range_pct: float,
+    session_bars: Optional[Sequence[dict]] = None,
+    session_bar: Optional[dict] = None,
+    defer_eod: bool = False,
 ) -> Dict[str, Any]:
     """反 T 分钟路径：低吸加仓后卖旧底仓（T+1），不卖当日新买股。"""
     close = float(bar.get("close") or 0)
+    sess_bars = session_bars if session_bars is not None else minute_bars
+    sess_bar = session_bar if session_bar is not None else bar
+    at_session_end = len(minute_bars) >= len(sess_bars)
     t0_ratio = float(cfg["t0_ratio"])
     buy_level = ref * (1.0 - buy_trig / 100.0)
     sellable = float(sellable_shares if sellable_shares is not None else shares)
@@ -454,12 +526,13 @@ def _first_touch_reverse(
             },
         )
 
-    if sold_back <= 0:
+    if sold_back <= 0 and (at_session_end or not defer_eod):
         sell_old_qty = min(bought_qty, sell_old_cap)
+        sess_close = float(sess_bar.get("close") or close)
         if cfg.get("must_cover_same_day") and sell_old_qty > 0:
-            fill_sell = close
+            fill_sell = sess_close
             amount_s = sell_old_qty * fill_sell
-            close_at = _session_close_at(minute_bars, bar)
+            close_at = _session_close_at(sess_bars, sess_bar)
             trades.append(
                 {
                     "side": "t0_sell",
@@ -467,7 +540,7 @@ def _first_touch_reverse(
                     "shares": sell_old_qty,
                     "price": round(fill_sell, 4),
                     "amount": round(amount_s, 2),
-                    "trigger": round(close, 4),
+                    "trigger": round(sess_close, 4),
                     "at": close_at,
                     "leg_kind": "eod_cover",
                     "note": "强制收盘卖旧底仓（T+1）",
@@ -480,8 +553,8 @@ def _first_touch_reverse(
             gross = (fill_sell - buy_price) / buy_price * 100.0
             cost_pct = round_trip_cost_pct(cost_config)
             pnl = round((gross - cost_pct) * (sell_old_qty * buy_price) / 100.0, 2)
-        else:
-            exposure_pnl = round((close - buy_price) * bought_qty, 2)
+        elif not cfg.get("must_cover_same_day"):
+            exposure_pnl = round((sess_close - buy_price) * bought_qty, 2)
 
     return {
         "success": True,
@@ -511,6 +584,27 @@ def _first_touch_reverse(
         "touch_sell_at": touch_sell_at,
         "note": "分钟第一触达（反T·T+1换仓）",
     }
+
+
+def _touch_path_complete(out: dict, direction: str) -> bool:
+    """第二腿 intraday 完成，或 session 末 eod / 敞口已入账。"""
+    if direction == "long_t":
+        sold = int(out.get("sold_qty") or 0)
+        covered = int(out.get("covered_qty") or 0)
+        if sold <= 0:
+            return False
+        if covered >= sold:
+            return True
+        return abs(float(out.get("exposure_pnl") or 0)) > 1e-9
+    if direction == "reverse_t":
+        bought = int(out.get("bought_qty") or 0)
+        sold_back = int(out.get("sold_back_qty") or 0)
+        if bought <= 0:
+            return False
+        if sold_back >= bought:
+            return True
+        return abs(float(out.get("exposure_pnl") or 0)) > 1e-9
+    return bool(out.get("trades"))
 
 
 def simulate_t0_day_minute(
@@ -569,6 +663,7 @@ def simulate_t0_day_minute(
         )
 
     bar_day = _day_ohlc_from_minutes(mins, bar)
+    bar_session = bar_day
     lot = int(cfg["lot_size"])
     high = float(bar_day.get("high") or 0)
     low = float(bar_day.get("low") or 0)
@@ -593,6 +688,13 @@ def simulate_t0_day_minute(
     fill_mode = str(cfg_day.get("fill_mode") or "trigger")
     last_amp_skip: Optional[Dict[str, Any]] = None
     last_wait: Optional[Dict[str, Any]] = None
+    last_dir_wait: Optional[Dict[str, Any]] = None
+    last_partial: Optional[Dict[str, Any]] = None
+    path_kwargs = {
+        "session_bars": mins,
+        "session_bar": bar_session,
+        "defer_eod": True,
+    }
 
     for n in range(2, len(mins) + 1):
         prefix = mins[:n]
@@ -652,6 +754,30 @@ def simulate_t0_day_minute(
             )
 
         direction = str(dir_res["direction"])
+        at_session_end = n >= len(mins)
+        dir_amp = prefix_directional_amplitude_ok(
+            prefix,
+            direction=direction,
+            ref=float(ref),
+            sell_trig=sell_trig,
+            buy_trig=buy_trig,
+        )
+        if not dir_amp.get("ok") and not at_session_end:
+            last_dir_wait = _skip_result(
+                reason=str(dir_amp.get("reason") or "方向振幅未达标"),
+                shares=shares,
+                bar=bar_n,
+                extra={
+                    "direction_used": direction,
+                    "path_mode": "first_touch",
+                    "range_mode": "rolling",
+                    "prefix_bars": n,
+                    "range_pct": range_pct,
+                    "directional_amplitude": dir_amp,
+                },
+            )
+            continue
+
         cover_meta = None
         if str(cfg.get("direction") or "") == "dual_y":
             cover_meta = resolve_cover_policy(
@@ -678,6 +804,7 @@ def simulate_t0_day_minute(
                 stock_code=stock_code,
                 atr_pct=scaled.get("atr_pct"),
                 range_pct=range_pct,
+                **path_kwargs,
             )
         else:
             out = _first_touch_long(
@@ -696,6 +823,7 @@ def simulate_t0_day_minute(
                 atr_pct=scaled.get("atr_pct"),
                 range_pct=range_pct,
                 t0_ratio=float(cfg_day["t0_ratio"]),
+                **path_kwargs,
             )
 
         if isinstance(out, dict):
@@ -718,6 +846,11 @@ def simulate_t0_day_minute(
 
         trades = list((out or {}).get("trades") or [])
         if trades:
+            if _touch_path_complete(out, direction):
+                return out
+            if n < len(mins):
+                last_partial = out
+                continue
             return out
         reason = str((out or {}).get("reason") or "")
         if (out or {}).get("skipped") and any(x in reason for x in ("未触", "等待")):
@@ -726,8 +859,12 @@ def simulate_t0_day_minute(
         if (out or {}).get("skipped"):
             return out
 
+    if last_partial is not None:
+        return last_partial
     if last_wait is not None:
         return last_wait
+    if last_dir_wait is not None:
+        return last_dir_wait
     if last_amp_skip is not None:
         return last_amp_skip
     return _skip_result(
