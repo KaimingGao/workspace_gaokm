@@ -35,6 +35,7 @@ const SKIP_CAT_COLORS = {
   y_trade_weak: "#fb923c",
   conflict: "#ef4444",
   amplitude: "#64748b",
+  directional_amplitude: "#78716c",
   lot_size: "#a78bfa",
   path: "#6366f1",
   trigger_miss: "#cbd5e1",

@@ -345,8 +345,8 @@ watchlist
 | 纸面 | `POST /api/paper/t0` 默认 **dry_run 预演**，`confirm=true` 才写账 |
 | 自动落账 | Follow Worker · **5m 盯盘触达即落账**（交易时段 **5 分钟**轮询 + 分钟缓存，不再日终整段回放） |
 | 手动补跑 | Follow「手动预演 / 手动落账」· `POST /api/paper/t0`（预演 dry_run / 确认 confirm） |
-| 回测 | **仅 5m 第一触达**（缺分钟日跳过）；**已删除日线模拟**；默认绑模拟持仓 |
-| 边界 | **不接实盘**；不做日线 high/low 顺序猜测；不改变 `advice.stance_label` |
+| 回测 | **仅 5m 第一触达**（缺分钟日跳过）；**已删除日线模拟**；默认绑模拟持仓；**可卖量=日初总持仓**（不维护 lots 级 T+1 冻结，跨日连续反 T 与实盘 Worker 可有细微差） |
+| 边界 | **不接实盘**；不做日线 high/low 顺序猜测；不改变 `advice.stance_label`；正/反 T **PnL 基数**分别为卖出/买入名义（汇总 long_pnl/reverse_pnl 口径略异，量级通常很小） |
 
 
 ```bash

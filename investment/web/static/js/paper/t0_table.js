@@ -10,6 +10,7 @@ export const SKIP_CAT_LABEL = {
   y_trade_weak: "y_trade幅度不足",
   conflict: "先验冲突",
   amplitude: "振幅不足",
+  directional_amplitude: "方向振幅",
   lot_size: "手数不足",
   path: "路径否决",
   trigger_miss: "未触达",

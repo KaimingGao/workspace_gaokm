@@ -275,7 +275,7 @@ def _walk_t0(
     if shares <= 0 or cost <= 0:
         return {"success": False, "error": "无效初始仓位"}
 
-    sellable = shares
+    sellable = shares  # 回测简化：日初持仓均可卖；实盘 Worker 用 tplus1 FIFO 批次
     cash = float(initial_cash or 0)
     lot = max(int(cfg.get("lot_size") or 100), 1)
     ratio = float(cfg.get("t0_ratio") or 0.4)
@@ -470,7 +470,7 @@ def _walk_t0(
                     long_pnl += day_pnl
                 elif direction == "reverse_t":
                     reverse_pnl += day_pnl
-        sellable = shares
+        sellable = shares  # 日末重置；不跟踪当日新买股的 T+1 冻结
 
         if day_pnl:
             pnls.append(day_pnl)

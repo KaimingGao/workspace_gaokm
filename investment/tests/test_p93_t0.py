@@ -1308,6 +1308,14 @@ class TestT0Viz(unittest.TestCase):
             "directional_amplitude",
         )
 
+    def test_walk_t0_skip_row_path_mode_uses_cfg_not_day_rules(self):
+        """跳过日明细 path_mode 回退 cfg，不引用未定义的 day_rules。"""
+        import inspect
+        from core.t0 import backtest as bt
+
+        src = inspect.getsource(bt._walk_t0)
+        self.assertNotIn("day_rules", src)
+
     def test_build_and_merge_viz(self):
         from core.t0.viz import build_t0_viz_payload, merge_t0_viz_payloads
 
