@@ -1,0 +1,49 @@
+{
+  "session_date": "2026-08-24",
+  "stocks": {
+    "601899": {
+      "phase": "idle"
+    },
+    "601995": {
+      "phase": "idle"
+    },
+    "600028": {
+      "phase": "idle"
+    },
+    "601898": {
+      "phase": "idle"
+    },
+    "601225": {
+      "phase": "idle"
+    },
+    "600066": {
+      "phase": "idle"
+    },
+    "601288": {
+      "phase": "idle"
+    },
+    "601600": {
+      "phase": "idle"
+    },
+    "300059": {
+      "phase": "idle"
+    },
+    "000739": {
+      "phase": "idle"
+    },
+    "600188": {
+      "phase": "idle"
+    },
+    "600030": {
+      "phase": "idle"
+    },
+    "600482": {
+      "phase": "idle"
+    },
+    "600150": {
+      "phase": "idle"
+    }
+  },
+  "results": [],
+  "updated_at": 1787585743.4161642
+}

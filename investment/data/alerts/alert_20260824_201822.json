@@ -14,6 +14,5 @@
     "strategy": "short_conservative",
     "equity": 98405.44,
     "bars_coverage": 1.0
-  },
-  "path": "/Users/gaokaiming/Workspace/workspace_gaokm/investment/data/alerts/alert_20260824_201822.json"
+  }
 }
