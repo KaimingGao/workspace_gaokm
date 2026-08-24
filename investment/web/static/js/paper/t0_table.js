@@ -1,7 +1,13 @@
 /** 做 T 回测表格：统一列定义，避免表头/数据错位。 */
 
 import { escapeText, paperMetricClass } from "./fmt.js";
-import { yTauMapLabel, yTauMapScoreTip } from "./execution_ui.js";
+import {
+  adaptiveSizingDayTip,
+  adaptiveSizingRuleLabel,
+  normalizeYTauMap,
+  yTauMapLabel,
+  yTauMapScoreTip,
+} from "./execution_ui.js";
 
 export const SKIP_CAT_LABEL = {
   missing_scores: "缺ŷ快照",
@@ -148,6 +154,30 @@ function exposureTableFootnote(data, days) {
   );
 }
 
+function adaptiveSizingTableFootnote(data, days) {
+  const rules = data?.rules || {};
+  const dir = String(rules.direction || "dual_y").trim().toLowerCase();
+  if (dir !== "dual_y") return "";
+  const traded = (days || []).filter(
+    (d) => Number(d.sold_qty) > 0 || Number(d.bought_qty) > 0
+  );
+  if (!traded.length) return "";
+  const hasScaled = traded.some((d) => {
+    const eff = Number(d.t0_ratio);
+    const base = Number(d.t0_ratio_base ?? rules.t0_ratio);
+    return Number.isFinite(eff) && Number.isFinite(base) && Math.abs(eff - base) > 0.005;
+  });
+  const sizing = adaptiveSizingRuleLabel(rules);
+  const scaledNote = hasScaled
+    ? "部分成交日有效动仓≠基准（见过程列悬停）。"
+    : "本样本有效动仓与基准一致或后端未回传 t0_ratio。";
+  return (
+    `<p class="quant-trades-caption paper-t0-table-more">` +
+    `动仓缩放：${escapeText(sizing)}。${escapeText(scaledNote)}` +
+    `</p>`
+  );
+}
+
 function tauSignFootnote(data, days) {
   const traded = (days || []).filter(
     (d) => Number(d.sold_qty) > 0 || Number(d.bought_qty) > 0
@@ -163,20 +193,19 @@ function tauSignFootnote(data, days) {
     })
     .filter((n) => n != null);
   if (!tauVals.length || tauVals.some((n) => n < 0)) return "";
-  const map = String(data?.rules?.y_tau_map || "scalp").trim().toLowerCase();
+  const map = normalizeYTauMap(data?.rules?.y_tau_map);
   const mapLbl = yTauMapLabel(map);
   if (map === "trend") {
     return (
       `<p class="quant-trades-caption paper-t0-table-more">` +
-      `y_τ 全为正：${escapeText(mapLbl)} — 成交行 y_τ≥+τ 对应<strong>反T</strong>（向=反）；` +
-      `y_τ≤−τ 的正T 在本样本未成交或未入选。看全分布请用下方 y_τ 散点（含跳过日）。</p>`
+      `y_τ 全为正：${escapeText(mapLbl)} — 仅 y_τ≥+τ 的反T 在本样本成交；` +
+      `y_τ≤−τ 的正T 需路径触达且可卖足，样本内常未出现。散点图可看负 τ 跳过日。</p>`
     );
   }
-  if (map === "scalp") {
+  if (map === "fixed_long") {
     return (
       `<p class="quant-trades-caption paper-t0-table-more">` +
-      `y_τ 全为正：${escapeText(mapLbl)} — 仅 y_τ≥+τ 的正T 成交；` +
-      `y_τ≤−τ 的反T 需路径触达且现金/可卖足，样本内常未出现。散点图可看负 τ 跳过日。</p>`
+      `y_τ 全为正：${escapeText(mapLbl)} — 固定正T 模式；看全分布请用下方 y_τ 散点（含跳过日）。</p>`
     );
   }
   return "";
@@ -457,7 +486,7 @@ export function buildT0TradeTableHtml(opts) {
   const showStock = shouldShowStockColumn(data, days);
   const showTime = daysHaveIntradayTime(days);
   const enter = yTauEnter(data);
-  const tauMap = (data.rules && data.rules.y_tau_map) || "scalp";
+  const tauMap = normalizeYTauMap(data.rules && data.rules.y_tau_map);
   const scoreTip = yTauMapScoreTip(tauMap, enter);
   const fallback = {
     stock_code: data.stock_code,
@@ -504,11 +533,13 @@ export function buildT0TradeTableHtml(opts) {
       const process = fmtLegProcess(d);
       const expCell = fmtExposureCell(d);
       const retCell = fmtDayReturnPct(d);
+      const sizingTip = adaptiveSizingDayTip(d, data.rules || {});
       const legTip =
-        process !== "—"
+        (sizingTip ? `${sizingTip} · ` : "") +
+        (process !== "—"
           ? process
           : `卖 ${qty.sellQty}股 @ ${fmtT0LegPrice(legs.sellPx)} · 买 ${qty.buyQty}股 @ ${fmtT0LegPrice(legs.buyPx)}` +
-            (showTime ? "" : " · 缺触达时刻");
+            (showTime ? "" : " · 缺触达时刻"));
       return (
         `<tr>` +
         (showStock ? stockCellHtml(d, fallback) : "") +
@@ -548,6 +579,7 @@ export function buildT0TradeTableHtml(opts) {
     tradeColgroup(showStock) +
     `<thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>` +
     timeHint +
+    adaptiveSizingTableFootnote(data, days) +
     tauSignFootnote(data, days) +
     exposureTableFootnote(data, days) +
     moreHint

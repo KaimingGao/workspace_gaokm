@@ -60,6 +60,8 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_tau_map",
         "y_ratio_boost_cap",
         "y_ratio_cut",
+        "y_ratio_tau_boost_cap",
+        "y_ratio_eod_align_boost",
         "y_score_source",
     }
 )
@@ -434,12 +436,25 @@ def _human_summary(
     ratio_s = f"{int(round(float(ratio) * 100))}%" if ratio is not None else "—"
     sell = t0.get("sell_trigger_pct")
     buy = t0.get("buy_trigger_pct")
-    trig = f"+{sell}/-{buy}%" if sell is not None and buy is not None else "—"
+    trig = f"卖+{sell}%/买−{buy}%" if sell is not None and buy is not None else "—"
     coup = (coupling or {}).get("t0_vs_stance") or "independent"
+    coup_lbl = {
+        "independent": "独立",
+        "skip_if_avoid": "avoid跳过",
+        "only_if_hold": "仅持有",
+    }.get(str(coup), str(coup))
+    fill_lbl = {
+        "trigger": "触价",
+        "mid": "中点",
+        "optimistic": "乐观",
+    }.get(str(t0.get("fill_mode") or "trigger"), str(t0.get("fill_mode") or "—"))
+    path_lbl = {
+        "first_touch": "5m首触",
+    }.get(str(t0.get("path_mode") or "first_touch"), str(t0.get("path_mode") or "—"))
+    ch_lbl = {"backtest": "回测", "paper": "纸面"}.get(str(channel), str(channel))
     return (
-        f"{channel} · 仓{ratio_s} · {t0.get('direction') or '—'} · "
-        f"{t0.get('fill_mode') or '—'} · 触发{trig} · path={t0.get('path_mode') or '—'} · "
-        f"耦合={coup} · {_timing_summary(timing)}"
+        f"{ch_lbl} · 动仓 {ratio_s} · dual_y · {path_lbl} · {trig} · {fill_lbl} · "
+        f"stance {coup_lbl} · {_timing_summary(timing)}"
     )
 
 
@@ -447,10 +462,10 @@ def _timing_summary(timing: Optional[dict]) -> str:
     t = timing or {}
     mode = str(t.get("execution_mode") or "next_open")
     if mode == "close":
-        return "成交=确认即成交"
+        return "调仓：确认即成交"
     after = t.get("open_fill_after_hm") or "09:15"
     until = t.get("open_fill_until_hm") or "10:00"
-    return f"成交=盘中现价；收盘后挂次日开盘 {after}–{until}"
+    return f"调仓：盘中现价 · 收盘挂次日开盘 {after}–{until}"
 
 
 def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
@@ -514,6 +529,8 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_tau_map": t0.get("y_tau_map"),
             "y_ratio_boost_cap": t0.get("y_ratio_boost_cap"),
             "y_ratio_cut": t0.get("y_ratio_cut"),
+            "y_ratio_tau_boost_cap": t0.get("y_ratio_tau_boost_cap"),
+            "y_ratio_eod_align_boost": t0.get("y_ratio_eod_align_boost"),
             "y_score_source": t0.get("y_score_source"),
         },
         "t0_sources": bundle.get("t0_sources") or {},

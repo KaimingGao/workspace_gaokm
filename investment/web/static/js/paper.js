@@ -2208,7 +2208,6 @@ export function initPaper(ctx) {
   };
 
   const paperRebalanceSummary = document.getElementById("paper-rebalance-summary");
-  const paperT0Summary = document.getElementById("paper-t0-summary");
   const paperT0Metrics = document.getElementById("paper-t0-metrics");
   const paperT0Viz = document.getElementById("paper-t0-viz");
   const paperT0Days = document.getElementById("paper-t0-days");
@@ -2278,7 +2277,6 @@ export function initPaper(ctx) {
         const fold = document.getElementById("follow-section-t0");
         if (fold) fold.scrollIntoView({ behavior: "smooth", block: "start" });
         if (paperT0ActionStatus) paperT0ActionStatus.textContent = scope.error;
-        if (paperT0Summary) paperT0Summary.textContent = scope.error;
         return;
       }
       const { onlySelected, useMinute } = scope;
@@ -2323,12 +2321,9 @@ export function initPaper(ctx) {
           return;
         }
         const summary = buildT0SummaryLine(data);
-        if (paperT0Summary) paperT0Summary.textContent = summary || "做 T 回测完成";
         if (paperT0ActionStatus) {
           paperT0ActionStatus.classList.remove("is-busy");
-          paperT0ActionStatus.textContent = `完成 · PnL ${
-            data.t0_pnl_with_exposure ?? data.t0_pnl_total ?? "—"
-          }`;
+          paperT0ActionStatus.textContent = summary || "做 T 回测完成";
         }
         renderPaperT0(data);
         showValidateNext("t0");
@@ -2356,7 +2351,7 @@ export function initPaper(ctx) {
   if (paperT0Run) {
     paperT0Run.addEventListener("click", async (e) => {
       e.preventDefault();
-      if (paperT0Summary) paperT0Summary.textContent = "预演做T中…";
+      if (paperT0ActionStatus) paperT0ActionStatus.textContent = "预演做T中…";
       try {
         const res = await fetch("/api/paper/t0", {
           method: "POST",
@@ -2365,12 +2360,12 @@ export function initPaper(ctx) {
         });
         const data = await res.json();
         if (!res.ok || data.success === false) {
-          if (paperT0Summary) paperT0Summary.textContent = data.error || data.detail || "预演失败";
+          if (paperT0ActionStatus) paperT0ActionStatus.textContent = data.error || data.detail || "预演失败";
           renderPaperT0Preview(null);
           return;
         }
-        if (paperT0Summary) {
-          paperT0Summary.textContent =
+        if (paperT0ActionStatus) {
+          paperT0ActionStatus.textContent =
             `预演完成 · 成交 ${(data.trades || []).length} · PnL ${data.pnl_total ?? 0} · ` +
             `跳过 ${data.skip_count ?? 0}` +
             (data.coupling_skip_count
@@ -2388,7 +2383,7 @@ export function initPaper(ctx) {
         }
         renderPaperT0Preview(data);
       } catch (err) {
-        if (paperT0Summary) paperT0Summary.textContent = String(err.message || err);
+        if (paperT0ActionStatus) paperT0ActionStatus.textContent = String(err.message || err);
       }
     });
   }
@@ -2493,7 +2488,7 @@ export function initPaper(ctx) {
   if (paperT0Confirm) {
     paperT0Confirm.addEventListener("click", async (e) => {
       e.preventDefault();
-      if (paperT0Summary) paperT0Summary.textContent = "手动落账做T…";
+      if (paperT0ActionStatus) paperT0ActionStatus.textContent = "手动落账做T…";
       try {
         const res = await fetch("/api/paper/t0", {
           method: "POST",
@@ -2502,17 +2497,17 @@ export function initPaper(ctx) {
         });
         const data = await res.json();
         if (!res.ok || data.success === false) {
-          if (paperT0Summary) paperT0Summary.textContent = data.error || data.detail || "写入失败";
+          if (paperT0ActionStatus) paperT0ActionStatus.textContent = data.error || data.detail || "写入失败";
           return;
         }
-        if (paperT0Summary) {
-          paperT0Summary.textContent =
+        if (paperT0ActionStatus) {
+          paperT0ActionStatus.textContent =
             `已手动落账 · 成交 ${(data.trades || []).length} · PnL ${data.pnl_total ?? 0}`;
         }
         renderPaperT0Preview(null);
         await loadPaper({ quiet: true });
       } catch (err) {
-        if (paperT0Summary) paperT0Summary.textContent = String(err.message || err);
+        if (paperT0ActionStatus) paperT0ActionStatus.textContent = String(err.message || err);
       }
     });
   }

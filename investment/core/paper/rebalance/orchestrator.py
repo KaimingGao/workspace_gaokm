@@ -40,7 +40,10 @@ def _cluster_book_market_shock_reason(
     limit_min: int = _CLUSTER_BOOK_LIMIT_EVENT_MIN,
     sample_n: int = _CLUSTER_BOOK_SHOCK_SAMPLE,
 ) -> Optional[str]:
-    """复用前轻量行情检查：巨震/涨跌停潮 → 失效缓存。取行情失败则放行（fail-open）。"""
+    """复用前轻量行情检查：巨震/涨跌停潮 → 失效缓存。
+
+    取行情失败或样本无可校验现价 → fail-closed 失效缓存（强制重打分，不复用旧簿）。
+    """
     codes = [
         str(b.get("stock_code") or "").strip()
         for b in (book or [])
@@ -52,11 +55,15 @@ def _cluster_book_market_shock_reason(
         from core.data.service import get_default_service
 
         quotes = dict(get_default_service().batch_get_quotes(codes) or {})
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_rebalance_orchestrator.py", exc_info=True)
-        return None
+    except Exception as exc:  # noqa: BLE001 — 行情不可用时不复用未验证旧簿
+        logger.warning(
+            "cluster_book cache: quote check failed (%s), invalidate reuse",
+            exc,
+        )
+        return "quote_check_failed:exception"
     if not quotes:
-        return None
+        logger.warning("cluster_book cache: empty quotes, invalidate reuse")
+        return "quote_check_failed:empty"
 
     shocked = 0
     limits = 0
@@ -74,7 +81,8 @@ def _cluster_book_market_shock_reason(
         if any(k in tip for k in ("涨停", "跌停", "停牌")) or chg is not None and abs(chg) >= 9.5:
             limits += 1
     if scored <= 0:
-        return None
+        logger.warning("cluster_book cache: no usable prices in sample, invalidate reuse")
+        return "quote_check_failed:no_prices"
     if shocked / float(scored) >= float(shock_frac):
         return f"book_shock:{shocked}/{scored}|chg≥{abs_chg_pct:g}%"
     if limits >= int(limit_min):

@@ -190,8 +190,15 @@ def _intraday_setup(
         )
 
     direction = str(dir_res["direction"])
-    fill_mode = str(cfg.get("fill_mode") or "trigger")
-    t0_ratio = float(cfg.get("t0_ratio") or 0.4)
+    from core.t0.score_policy import scale_t0_ratio, scores_have_any
+
+    cfg_exec = dict(cfg)
+    base_ratio = float(cfg_exec.get("t0_ratio") or 0.4)
+    t0_ratio = base_ratio
+    if str(cfg_exec.get("direction") or "") == "dual_y" and scores_have_any(scores):
+        t0_ratio = scale_t0_ratio(base_ratio, scores or {}, cfg_exec)
+    cfg_exec["t0_ratio"] = t0_ratio
+    fill_mode = str(cfg_exec.get("fill_mode") or "trigger")
 
     from core.t0.minute_path import (
         _first_touch_long,
@@ -234,7 +241,7 @@ def _intraday_setup(
             buy_trig=buy_trig,
             lot=lot,
             fill_mode=fill_mode,
-            cfg=cfg,
+            cfg=cfg_exec,
             cost_config=None,
             stock_code=code,
             atr_pct=scaled.get("atr_pct"),
@@ -251,7 +258,7 @@ def _intraday_setup(
             buy_trig=buy_trig,
             lot=lot,
             fill_mode=fill_mode,
-            cfg=cfg,
+            cfg=cfg_exec,
             cost_config=None,
             stock_code=code,
             atr_pct=scaled.get("atr_pct"),
@@ -265,6 +272,10 @@ def _intraday_setup(
     if not trades:
         return day
 
+    if isinstance(day, dict):
+        day["t0_ratio_base"] = round(base_ratio, 4)
+        day["t0_ratio"] = round(t0_ratio, 4)
+
     # 增量：只落尚未写入的腿
     return {
         "ready": True,
@@ -273,6 +284,8 @@ def _intraday_setup(
         "day_result": day,
         "trades": trades,
         "last_bar_ts": _bar_ts(minute_bars[-1]) if minute_bars else "",
+        "t0_ratio_base": round(base_ratio, 4),
+        "t0_ratio": round(t0_ratio, 4),
     }
 
 

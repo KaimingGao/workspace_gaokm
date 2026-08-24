@@ -1205,6 +1205,117 @@ class TestDualYDirection(unittest.TestCase):
         self.assertFalse(out.get("skipped"), out.get("reason"))
         self.assertEqual(out.get("direction_used"), "reverse_t")
 
+    def test_scale_t0_ratio_trade_cut_and_boost(self):
+        from core.t0.score_policy import scale_t0_ratio
+
+        cfg = load_t0_rules(
+            {
+                "y_trade_floor": 0.15,
+                "y_ratio_boost_cap": 1.25,
+                "y_ratio_cut": 0.75,
+                "y_tau_enter": 0.25,
+            }
+        )
+        weak = scale_t0_ratio(0.4, {"y_trade": 0.10}, cfg)
+        self.assertAlmostEqual(weak, 0.3)
+        strong = scale_t0_ratio(0.4, {"y_trade": 1.30}, cfg)
+        self.assertAlmostEqual(strong, 0.5)
+
+    def test_scale_t0_ratio_tau_and_eod_align(self):
+        from core.t0.score_policy import scale_t0_ratio
+
+        cfg = load_t0_rules(
+            {
+                "y_trade_floor": 0.15,
+                "y_tau_enter": 0.25,
+                "y_eod_prior": 0.35,
+                "y_ratio_tau_boost_cap": 1.15,
+                "y_ratio_eod_align_boost": 1.10,
+            }
+        )
+        base = scale_t0_ratio(
+            0.4,
+            {"y_trade": 0.30, "y_tau": -0.80, "y_eod": -0.40},
+            cfg,
+        )
+        self.assertGreater(base, 0.43)
+        self.assertLessEqual(base, 1.0)
+        no_eod = scale_t0_ratio(
+            0.4,
+            {"y_trade": 0.30, "y_tau": -0.80, "y_eod": 0.05},
+            cfg,
+        )
+        self.assertLess(no_eod, base)
+
+    def test_dual_y_scaled_sold_qty_vs_weak_trade(self):
+        bar = _bar("2026-01-10", 100, 105, 98, 101)
+        rules = _rules(
+            direction="dual_y",
+            path_mode="first_touch",
+            min_range_pct=1.0,
+            sell_trigger_pct=2.0,
+            buy_trigger_pct=1.5,
+            fill_mode="optimistic",
+            t0_ratio=0.4,
+            y_tau_enter=0.25,
+        )
+        strong = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            rules=rules,
+            scores={"y_trade": 1.20, "y_tau": -0.80, "y_eod": -0.40},
+            minute_bars=_mins_hl(bar=bar),
+        )
+        weak = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            rules=rules,
+            scores={"y_trade": 0.20, "y_tau": -0.80, "y_eod": -0.40},
+            minute_bars=_mins_hl(bar=bar),
+        )
+        self.assertTrue(strong["success"])
+        self.assertTrue(weak["success"])
+        self.assertGreater(strong.get("sold_qty") or 0, weak.get("sold_qty") or 0)
+        self.assertGreater(float(strong.get("t0_ratio") or 0), float(weak.get("t0_ratio") or 0))
+
+    def test_intraday_setup_applies_scaled_ratio(self):
+        from core.t0.intraday import _intraday_setup
+
+        bar = _bar("2026-01-10", 100, 105, 98, 101)
+        mins = _mins_hl(bar=bar)
+        holding = {"shares": 1000, "cost": 100, "stock_name": "测试"}
+        cfg = load_t0_rules(
+            {
+                "direction": "dual_y",
+                "use_atr": False,
+                "min_range_pct": 1.0,
+                "fill_mode": "optimistic",
+                "t0_ratio": 0.4,
+            }
+        )
+        out = _intraday_setup(
+            code="000001",
+            holding=holding,
+            bar=bar,
+            minute_bars=mins,
+            cfg=cfg,
+            sellable=1000,
+            cash=50000,
+            atr_pct=None,
+            hist_bars=None,
+            scores={"y_trade": 1.20, "y_tau": -0.80, "y_eod": -0.40},
+            stance_code="hold",
+            coupling_mode="independent",
+        )
+        self.assertTrue(out.get("ready"))
+        day = out.get("day_result") or {}
+        self.assertGreater(float(day.get("t0_ratio") or 0), 0.45)
+        self.assertEqual(day.get("sold_qty"), 500)
+
     def test_dual_y_trend_map_inverts_positive_tau(self):
         from core.t0.score_policy import resolve_dual_y_direction
 

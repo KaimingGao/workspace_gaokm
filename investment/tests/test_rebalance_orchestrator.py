@@ -288,6 +288,17 @@ class TestSupplementHoldingScores(unittest.TestCase):
 
 
 class TestClusterBookShockInvalidate(unittest.TestCase):
+    def _mock_quotes_service(self, quotes=None, *, side_effect=None):
+        svc = MagicMock()
+        if side_effect is not None:
+            svc.batch_get_quotes.side_effect = side_effect
+        else:
+            svc.batch_get_quotes.return_value = quotes or {}
+        return patch(
+            "core.data.service.get_default_service",
+            return_value=svc,
+        )
+
     def test_shock_reason_detects_wide_moves(self):
         from core.paper.rebalance.orchestrator import _cluster_book_market_shock_reason
 
@@ -298,12 +309,26 @@ class TestClusterBookShockInvalidate(unittest.TestCase):
             "000002": {"success": True, "change_raw": 0.5},
             "000003": {"success": True, "change_raw": 1.0},
         }
-        with patch(
-            "core.ports.market.batch_query_quotes", return_value=quotes
-        ):
+        with self._mock_quotes_service(quotes):
             reason = _cluster_book_market_shock_reason(book, shock_frac=0.4)
         self.assertIsNotNone(reason)
         self.assertIn("book_shock", str(reason))
+
+    def test_shock_reason_fail_closed_on_quote_exception(self):
+        from core.paper.rebalance.orchestrator import _cluster_book_market_shock_reason
+
+        book = [{"stock_code": "600519"}]
+        with self._mock_quotes_service(side_effect=RuntimeError("quote down")):
+            reason = _cluster_book_market_shock_reason(book)
+        self.assertEqual(reason, "quote_check_failed:exception")
+
+    def test_shock_reason_fail_closed_on_empty_quotes(self):
+        from core.paper.rebalance.orchestrator import _cluster_book_market_shock_reason
+
+        book = [{"stock_code": "600519"}]
+        with self._mock_quotes_service({}):
+            reason = _cluster_book_market_shock_reason(book)
+        self.assertEqual(reason, "quote_check_failed:empty")
 
     def test_reuse_skips_on_shock(self):
         from datetime import datetime, timezone
@@ -322,9 +347,27 @@ class TestClusterBookShockInvalidate(unittest.TestCase):
         ), patch(
             "core.signal.cluster.live.load_active_cluster_weights",
             return_value={"version": "v1"},
+        ), self._mock_quotes_service(quotes):
+            out = try_reuse_active_cluster_book()
+        self.assertIsNone(out)
+
+    def test_reuse_skips_when_quotes_fail(self):
+        from datetime import datetime, timezone
+
+        from core.paper.rebalance.orchestrator import try_reuse_active_cluster_book
+
+        doc = {
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "book": [{"stock_code": "600519", "score": 1.0}],
+            "meta": {"version": "v1"},
+            "scored_all": [],
+        }
+        with patch(
+            "core.signal.cluster.live.load_active_cluster_book", return_value=doc
         ), patch(
-            "core.ports.market.batch_query_quotes", return_value=quotes
-        ):
+            "core.signal.cluster.live.load_active_cluster_weights",
+            return_value={"version": "v1"},
+        ), self._mock_quotes_service(side_effect=OSError("network")):
             out = try_reuse_active_cluster_book()
         self.assertIsNone(out)
 
@@ -346,9 +389,7 @@ class TestClusterBookShockInvalidate(unittest.TestCase):
         ), patch(
             "core.signal.cluster.live.load_active_cluster_weights",
             return_value={"version": "v1"},
-        ), patch(
-            "core.ports.market.batch_query_quotes", return_value=quotes
-        ):
+        ), self._mock_quotes_service(quotes):
             out = try_reuse_active_cluster_book()
         self.assertIsNotNone(out)
         self.assertTrue(out.get("from_cache"))

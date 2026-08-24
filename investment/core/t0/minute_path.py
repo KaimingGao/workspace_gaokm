@@ -678,9 +678,10 @@ def simulate_t0_day_minute(
     cfg_day["buy_trigger_pct"] = buy_trig
     cfg_day["path_mode"] = "first_touch"
 
+    base_t0_ratio = float(cfg_day.get("t0_ratio") or 0.4)
     if str(cfg_day.get("direction") or "") == "dual_y" and scores_have_any(score_snap):
         cfg_day["t0_ratio"] = scale_t0_ratio(
-            float(cfg_day.get("t0_ratio") or 0.4),
+            base_t0_ratio,
             score_snap or {},
             cfg_day,
         )
@@ -843,6 +844,8 @@ def simulate_t0_day_minute(
                     k: score_snap.get(k)
                     for k in ("y_eod", "y_tau", "y_trade", "y_on", "y_nowcast", "y_check")
                 }
+                out["t0_ratio_base"] = round(base_t0_ratio, 4)
+                out["t0_ratio"] = round(float(cfg_day.get("t0_ratio") or base_t0_ratio), 4)
 
         trades = list((out or {}).get("trades") or [])
         if trades:

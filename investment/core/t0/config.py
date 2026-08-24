@@ -52,6 +52,8 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_tau_map": "scalp",
     "y_ratio_boost_cap": 1.25,
     "y_ratio_cut": 0.75,
+    "y_ratio_tau_boost_cap": 1.15,
+    "y_ratio_eod_align_boost": 1.10,
     # dual_y 分数来源：compute=开盘信息集即时算（默认）；live_book/ledger 仅兜底或对照
     "y_score_source": "compute",
     "note": "A股T+1底仓做T；仅5m first_touch（已删除日线模拟）；非实盘。",
@@ -110,6 +112,8 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_on_allow", 0.1, 10.0, 1.20),
         ("y_ratio_boost_cap", 1.0, 2.0, 1.25),
         ("y_ratio_cut", 0.2, 1.0, 0.75),
+        ("y_ratio_tau_boost_cap", 1.0, 1.5, 1.15),
+        ("y_ratio_eod_align_boost", 1.0, 1.5, 1.10),
     ):
         try:
             raw = cfg.get(yk)

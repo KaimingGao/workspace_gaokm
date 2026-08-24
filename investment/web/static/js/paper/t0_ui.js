@@ -1,7 +1,7 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
 import { paperMetricClass } from "./fmt.js";
-import { yTauMapScoreTip } from "./execution_ui.js";
+import { yTauMapScoreTip, normalizeYTauMap } from "./execution_ui.js";
 import { renderT0Viz } from "./t0_viz.js";
 import { buildT0ReportHtml } from "./t0_report.js";
 import {
@@ -117,7 +117,7 @@ export function renderPaperT0(els, data) {
     data.rules && data.rules.y_tau_enter != null && Number.isFinite(Number(data.rules.y_tau_enter))
       ? Number(data.rules.y_tau_enter)
       : 0.25;
-  const tauMap = (data.rules && data.rules.y_tau_map) || "scalp";
+  const tauMap = normalizeYTauMap(data.rules && data.rules.y_tau_map);
   const captionBits = [
     days.length > T0_TRADE_TABLE_MAX_ROWS
       ? `样本 ${days.length} 笔（表内最近 ${T0_TRADE_TABLE_MAX_ROWS} 笔）`
@@ -256,7 +256,7 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution } = {}) {
     data.rules && data.rules.y_tau_enter != null && Number.isFinite(Number(data.rules.y_tau_enter))
       ? Number(data.rules.y_tau_enter)
       : 0.25;
-  const tauMap = (data.rules && data.rules.y_tau_map) || "scalp";
+  const tauMap = normalizeYTauMap(data.rules && data.rules.y_tau_map);
   const tag = data.workerTag || "—";
   const sess = data.sessionDate ? ` · ${escapeHtml(data.sessionDate)}` : "";
   const longN = days.filter((d) => d.direction === "long_t").length;

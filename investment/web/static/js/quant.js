@@ -170,7 +170,6 @@ export function initQuant(ctx) {
     quantBtTrades: document.getElementById("quant-bt-trades"),
     quantNeutralCompareTable: document.getElementById("quant-neutral-compare-table"),
     quantPortfolioChart: document.getElementById("quant-portfolio-chart"),
-    quantT0Summary: document.getElementById("paper-t0-summary"),
     quantT0Metrics: document.getElementById("paper-t0-metrics"),
     quantT0Viz: document.getElementById("paper-t0-viz"),
     quantT0Days: document.getElementById("paper-t0-days"),
@@ -2135,7 +2134,8 @@ export function initQuant(ctx) {
     }
     if (data.t0_pnl_total != null || data.t0_trade_days != null || (data.days && task.includes("t0"))) {
       backtest.renderT0BacktestResult(data);
-      if (els.quantT0Summary) els.quantT0Summary.textContent = summary;
+      const t0Status = document.getElementById("paper-t0-action-status");
+      if (t0Status) t0Status.textContent = summary;
       else if (els.quantMeta) els.quantMeta.textContent = `${summary} · 详情见纸面 Tab`;
       return;
     }

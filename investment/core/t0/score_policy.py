@@ -1,9 +1,9 @@
 """多层 ŷ 驱动的 A 股底仓做 T 策略（dual_y）。
 
 角色（PIT）：
-  y_trade  — |ŷ_trade| 下限（预期日波动幅度）/ 额度缩放
-  y_eod    — T−1 冻结先验（仅冲突检测）
-  y_τ      — 盘中主方向（开→收）
+  y_trade  — |ŷ_trade| 下限（预期日波动幅度）/ 额度主缩放
+  y_eod    — T−1 冻结先验（冲突检测；与 y_τ 同向时略放大额度）
+  y_τ      — 盘中主方向（开→收）；|y_τ| 超 enter 门槛后连续放大额度
   y_on     — 尾盘是否强制回补
   y_nowcast— 影子置信（默认可记录，不改方向）
 
@@ -26,6 +26,8 @@ DEFAULT_ON_RISK = 0.80
 DEFAULT_ON_ALLOW = 1.20
 DEFAULT_RATIO_BOOST_CAP = 1.25
 DEFAULT_RATIO_CUT = 0.75
+DEFAULT_TAU_BOOST_CAP = 1.15
+DEFAULT_EOD_ALIGN_BOOST = 1.10
 
 # dual_y 下 y_τ 符号 → 正/反 T 映射（回测对照）
 # scalp / trend: y_τ>0→反T（趋势跟随：OC 向上，日内更可能 low→high，先买后卖）
@@ -164,21 +166,64 @@ def _cfg_float(cfg: dict, key: str, default: float) -> float:
         return float(default)
 
 
+def _eod_prior_sign(y_eod: Optional[float], eod_prior: float) -> int:
+    if y_eod is None:
+        return 0
+    if y_eod >= eod_prior:
+        return 1
+    if y_eod <= -eod_prior:
+        return -1
+    return 0
+
+
+def _tau_direction_sign(y_tau: Optional[float], tau_enter: float) -> int:
+    if y_tau is None:
+        return 0
+    if y_tau >= tau_enter:
+        return 1
+    if y_tau <= -tau_enter:
+        return -1
+    return 0
+
+
 def scale_t0_ratio(base_ratio: float, scores: dict, cfg: dict) -> float:
-    """按 |y_trade| 缩放做T比例；缺分则不改。"""
-    y_trade = _f(scores.get("y_trade"))
-    if y_trade is None:
-        return float(base_ratio)
+    """按 dual_y 分数缩放做 T 比例：|y_trade| · |y_τ| · eod 同向。"""
+    r = float(base_ratio)
+    if not isinstance(scores, dict):
+        return max(0.05, min(1.0, r))
+
     floor = trade_mag_floor(cfg)
     boost_cap = _cfg_float(cfg, "y_ratio_boost_cap", DEFAULT_RATIO_BOOST_CAP)
     cut = _cfg_float(cfg, "y_ratio_cut", DEFAULT_RATIO_CUT)
-    r = float(base_ratio)
-    mag = abs(y_trade)
-    if mag < floor:
-        return max(0.05, r * cut)
-    span = max(0.5, floor + 1.0)
-    t = min(1.0, max(0.0, (mag - floor) / span))
-    return min(1.0, r * (1.0 + (boost_cap - 1.0) * t))
+    tau_enter = _cfg_float(cfg, "y_tau_enter", DEFAULT_TAU_ENTER)
+    tau_boost_cap = _cfg_float(cfg, "y_ratio_tau_boost_cap", DEFAULT_TAU_BOOST_CAP)
+    eod_prior = _cfg_float(cfg, "y_eod_prior", DEFAULT_EOD_PRIOR)
+    eod_align_boost = _cfg_float(cfg, "y_ratio_eod_align_boost", DEFAULT_EOD_ALIGN_BOOST)
+
+    y_trade = _f(scores.get("y_trade"))
+    if y_trade is not None:
+        mag = abs(y_trade)
+        if mag < floor:
+            r = r * cut
+        else:
+            span = max(0.5, floor + 1.0)
+            t = min(1.0, max(0.0, (mag - floor) / span))
+            r = r * (1.0 + (boost_cap - 1.0) * t)
+
+    y_tau = _f(scores.get("y_tau"))
+    if y_tau is not None and abs(y_tau) >= tau_enter:
+        span_t = max(0.5, tau_enter + 0.5)
+        t_tau = min(1.0, max(0.0, (abs(y_tau) - tau_enter) / span_t))
+        r = r * (1.0 + (tau_boost_cap - 1.0) * t_tau)
+
+    y_eod = _f(scores.get("y_eod"))
+    if y_tau is not None and y_eod is not None:
+        prior = _eod_prior_sign(y_eod, eod_prior)
+        main = _tau_direction_sign(y_tau, tau_enter)
+        if prior != 0 and main != 0 and prior == main:
+            r = r * eod_align_boost
+
+    return max(0.05, min(1.0, r))
 
 
 def normalize_y_tau_map(raw: Any) -> str:

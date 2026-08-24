@@ -388,9 +388,6 @@
       </div>
       <div class="dashboard-card quant-pro-card follow-ops-card follow-ops-t0 follow-t0-rules-card" id="follow-fold-t0">
         <div class="quant-pro-card-body follow-card-body">
-            <div id="paper-t0-summary" class="quant-summary paper-t0-summary-line">
-              底仓 overlay · dual_y 方向门控 · 回测仅 5m 第一触达 · 例行自动落账 · 非实盘
-            </div>
             <div id="paper-t0-rules" class="paper-t0-rules" aria-label="生效做T规则"></div>
             <details class="quant-fold follow-fold" id="paper-t0-edit-fold">
               <summary>编辑账户覆盖（不改策略源）</summary>
@@ -433,8 +430,7 @@
                   >
                     <span>τ映射</span>
                     <select name="y_tau_map">
-                      <option value="scalp" selected>y_τ&gt;0→正T</option>
-                      <option value="trend">y_τ&gt;0→反T</option>
+                      <option value="trend" selected>符号定方向</option>
                       <option value="fixed_long">固定正T</option>
                       <option value="fixed_reverse">固定反T</option>
                     </select>

@@ -503,6 +503,8 @@ def _walk_t0(
                 "touch_cover_at": day.get("touch_cover_at") or day.get("touch_buy_at"),
                 "touch_buy_at": day.get("touch_buy_at"),
                 "trades": day.get("trades") or [],
+                "t0_ratio_base": day.get("t0_ratio_base"),
+                "t0_ratio": day.get("t0_ratio"),
                 **_t0_range_fields(day),
                 **summarize_t0_day_legs(day),
             }

@@ -304,6 +304,18 @@ ML 视角见 [机器学习视角 · 四件套对照](#四件套对照)。
 - 上午刚通过 τ 买入闸的票，下午做 T 仍会重算 y_τ 问「今天怎么动底仓」；\|y_τ\| 太小或与 y_eod 冲突时 **0 成交** 也正常。
 - 归因应分开：调仓 PnL（`origin=strategy`）vs 做 T leg（`t0_batch`）。双层 ŷ 契约见 [§2.5](quant.md#25-双层-predicted_scoreŷ_eod--ŷ_τ) · 实现 `core/signal/dual_score/` · `core/t0/score_policy.py`。
 
+**双层耦合（回测解读）**
+
+做 T 与调仓 **不是** 两个正交、可简单叠加的 Alpha 源；解读合并 PnL 时需分层：
+
+| 耦合点 | 说明 |
+|--------|------|
+| **资金回流** | 做 T leg 盈亏进入 `cash` / `shares_end` → 次日调仓的 equity、可用现金与回撤风控都会变。未回补敞口（`exposure_pnl`）也会进入净值。 |
+| **选股域依赖** | 做 T 在调仓给的底仓上运行；振幅小、缺分钟、流动性差 → 门禁跳过或整手不足，做 T 有效 α 高度依赖调仓选股域质量。 |
+| **成交口径** | 调仓预演/落账用实时 quote；做 T 回测默认 `fill_mode=trigger`（触价假设价）。两层 PnL 混看时，做 T 部分无法用真实 tick 成交验证。 |
+
+系统通过 **每日重置研究现金**（`backtest.py` 日循环）与 **`dry_run` 预演** 部分缓解资金耦合；`coupling.t0_vs_stance=independent` 可跳过 stance 联动。可接受，但 **必须** 把 `origin=strategy` 与 `t0_batch` 分开归因，否则无法判断 α 来自截面选股还是日内振幅。
+
 实现入口：`core/execution.resolve_effective_execution` · 调仓 `run_daily_cycle` / `POST /api/paper/run` · 做 T `core/t0/` · Web Follow 页。
 
 #### 日循环（`run_daily_cycle`）
@@ -339,6 +351,7 @@ watchlist
 | 目标 | **底仓 overlay**：在既定持仓上对可卖量做日内往返，验 timing 规则；**非**独立选股 Alpha（见上节对照表） |
 | 语义 | A 股 **底仓做 T（T+1）**：正 T 先卖旧仓再买回；反 T 先低吸加仓再卖旧仓换仓（禁卖当日新买股） |
 | 选向 | 默认 **`direction=dual_y`** + **`y_score_source=compute`**：开盘信息集（昨收因子 + 今开缺口）即时算 ŷ；**y_τ 定正/反 T**，y_eod 仅冲突先验，\|y_trade\| 为幅度闸（与调仓 ŷ_τ **买入闸**分工不同，见上节）；批量共享截面缺口；失败回退 live 簿（**不读冻结账本**）；`ledger` 仅对照 |
+| 动仓 | 基准 **`t0_ratio`**（如 40%）；**`scale_t0_ratio`** 按 \|y_trade\|、\|y_τ\|、eod 对齐在 `[y_ratio_cut, boost×τ×eod]` 内缩放当日有效动仓（回测 / Worker / 规则卡只读展示） |
 | 成交 | 默认 **`fill_mode=trigger`**（偏保守）；回测附带 optimistic 上界对照 |
 | 门禁 | **双层滚动**（回测 / Worker 同口径）：① **总量振幅** — 前缀 `(high−low)/ref ≥ min_range`；② **方向振幅** — 正 T 要求前缀 high 达卖出触发，反 T 要求 low 达低吸触发；未达标则下根 5m 重试，**扫到方向振幅或全日末** |
 | 路径 | 第一触达沿前缀 **逐根加长**；第二腿 **defer 至 session 末** 再 `eod_cover`（价/时点用全日末根，非前缀末 10:xx） |
