@@ -85,6 +85,12 @@ class T0BacktestRequest(BaseModel):
     use_minute: bool = True
     compare_daily: bool = True
     use_atr: Optional[bool] = None
+    y_trade_floor: Optional[float] = Field(default=None, ge=-5.0, le=5.0)
+    y_tau_enter: Optional[float] = Field(default=None, ge=0.05, le=5.0)
+    y_eod_prior: Optional[float] = Field(default=None, ge=0.05, le=5.0)
+    y_on_allow: Optional[float] = Field(default=None, ge=0.1, le=10.0)
+    y_on_risk: Optional[float] = Field(default=None, ge=0.1, le=10.0)
+    y_block_conflict: Optional[bool] = None
 
 
 class PaperT0Request(BaseModel):
@@ -111,4 +117,10 @@ class PaperExecutionPatchRequest(BaseModel):
     min_range_pct: Optional[float] = None
     use_atr: Optional[bool] = None
     must_cover_same_day: Optional[bool] = None
+    y_trade_floor: Optional[float] = None
+    y_tau_enter: Optional[float] = None
+    y_eod_prior: Optional[float] = None
+    y_on_allow: Optional[float] = None
+    y_on_risk: Optional[float] = None
+    y_block_conflict: Optional[bool] = None
 

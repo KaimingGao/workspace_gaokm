@@ -13,7 +13,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.signal.config import load_signal_config, signal_config_overlay
-from core.signal.factor_collinearity import trend_family_collinearity
+from core.signal.factors.meta.collinearity import trend_family_collinearity
 from core.signal.return_score import ReturnScoreModel
 from core.signal.scorer import score_bars
 from core.signal.score_stock import score_stock

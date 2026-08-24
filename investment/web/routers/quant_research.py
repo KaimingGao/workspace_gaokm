@@ -232,13 +232,13 @@ def quant_factor_corr(
 ) -> Dict[str, Any]:
     """因子相关性矩阵：基于簿 / 观察池 sub_scores 算截面 Pearson。"""
     try:
-        from core.signal.factor_corr import compute_factor_corr_matrix, redundancy_warnings_from_corr
+        from core.signal.factors.meta.corr import compute_factor_corr_matrix, redundancy_warnings_from_corr
 
         items: list = []
         source = "empty"
         # 优先 active 簿 scored_all（含 sub_scores，且不重打全池）
         try:
-            from core.signal.cluster_live import load_active_cluster_book
+            from core.signal.cluster.live import load_active_cluster_book
 
             doc = load_active_cluster_book() or {}
             by_code: dict = {}

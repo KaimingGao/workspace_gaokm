@@ -13,7 +13,7 @@ sys.path.insert(0, str(ROOT))
 def main() -> int:
     from core.signal.scoring_floors import save_scoring_floors
     from core.sector_map_sync import sync_sector_map_from_watching, coverage_report
-    from core.signal.cluster_live import refresh_cluster_book_daily, get_cluster_scoring_cfg
+    from core.signal.cluster.live import refresh_cluster_book_daily, get_cluster_scoring_cfg
     from core.signal.service import get_default_signal_service
 
     svc = get_default_signal_service()

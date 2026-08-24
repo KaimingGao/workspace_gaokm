@@ -9,7 +9,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from core.t0.backtest import backtest_t0_on_bars, derive_t0_quality_metrics
 
 # 东财分钟接口偶发挂死；多持仓串行时会把整次「做T回测」拖成无响应。
-_MINUTE_FETCH_TIMEOUT_SEC = 5.0
+_MINUTE_FETCH_TIMEOUT_SEC = 18.0
 
 
 def _execution_view_for_backtest(
@@ -32,6 +32,12 @@ def _execution_view_for_backtest(
         "min_range_pct": bt_rules.get("min_range_pct"),
         "must_cover_same_day": bt_rules.get("must_cover_same_day"),
         "minute_period": bt_rules.get("minute_period"),
+        "y_trade_floor": bt_rules.get("y_trade_floor"),
+        "y_tau_enter": bt_rules.get("y_tau_enter"),
+        "y_eod_prior": bt_rules.get("y_eod_prior"),
+        "y_on_allow": bt_rules.get("y_on_allow"),
+        "y_on_risk": bt_rules.get("y_on_risk"),
+        "y_block_conflict": bt_rules.get("y_block_conflict"),
     }
     return {
         "ok": True,
@@ -57,6 +63,12 @@ def _rules_summary(bt_rules: dict) -> Dict[str, Any]:
         "buy_trigger_pct": bt_rules.get("buy_trigger_pct"),
         "use_atr": bt_rules.get("use_atr"),
         "must_cover_same_day": bt_rules.get("must_cover_same_day"),
+        "y_trade_floor": bt_rules.get("y_trade_floor"),
+        "y_tau_enter": bt_rules.get("y_tau_enter"),
+        "y_eod_prior": bt_rules.get("y_eod_prior"),
+        "y_on_allow": bt_rules.get("y_on_allow"),
+        "y_on_risk": bt_rules.get("y_on_risk"),
+        "y_block_conflict": bt_rules.get("y_block_conflict"),
     }
 
 
@@ -165,6 +177,11 @@ def run_t0_backtest_for_code(
     )
     report["data_source"] = src
     report["stock_name"] = quote.get("stock_name") if quote.get("success") else None
+    if report.get("viz") and isinstance(report["viz"], dict):
+        for row in report["viz"].get("stock_contrib") or []:
+            if isinstance(row, dict):
+                row["stock_code"] = report.get("stock_code") or sym
+                row["stock_name"] = report.get("stock_name")
     report["use_minute"] = bool(minute_by_date)
     report["minute_meta"] = {
         "period": minute_meta.get("period") or bt_rules.get("minute_period"),
@@ -225,6 +242,7 @@ def run_t0_backtest_for_holdings(
         }
 
     from core.execution import resolve_t0_rules, strip_execution_meta
+    from core.t0.viz import classify_t0_skip_reason, merge_t0_viz_payloads
 
     resolved = resolve_t0_rules(
         rules=rules, channel="backtest", has_minute=bool(use_minute)
@@ -272,6 +290,11 @@ def run_t0_backtest_for_holdings(
             compare_daily=compare_daily,
         )
         one["stock_name"] = one.get("stock_name") or h.get("stock_name")
+        if one.get("viz") and isinstance(one["viz"], dict):
+            for row in one["viz"].get("stock_contrib") or []:
+                if isinstance(row, dict):
+                    row["stock_code"] = code
+                    row["stock_name"] = one.get("stock_name")
         per.append(one)
         if one.get("success"):
             total_pnl += float(one.get("t0_pnl_total") or 0)
@@ -305,6 +328,9 @@ def run_t0_backtest_for_holdings(
     long_days = sum(int(x.get("long_t_days") or 0) for x in ok)
     reverse_days = sum(int(x.get("reverse_t_days") or 0) for x in ok)
     uncover_days = sum(int(x.get("uncover_days") or 0) for x in ok)
+    win_days = sum(int(x.get("t0_win_days") or 0) for x in ok)
+    loss_days = sum(int(x.get("t0_loss_days") or 0) for x in ok)
+    pnl_day_cnt = win_days + loss_days
 
     # 乐观 / 日线对照合计
     opt_pnl = 0.0
@@ -363,13 +389,16 @@ def run_t0_backtest_for_holdings(
                     "stock_code": code,
                     "stock_name": name,
                     "reason": reason_key,
+                    "skip_category": classify_t0_skip_reason(reason),
                     "direction_score": d.get("direction_score"),
+                    "scores": d.get("scores"),
                     "signal_skip": bool(d.get("signal_skip")),
                     "path_mode": d.get("path_mode"),
                 }
             )
     trade_sample.sort(key=lambda r: str(r.get("date") or ""))
-    recent = trade_sample[-15:]
+    ui_limit = 50
+    recent = trade_sample[-ui_limit:]
     seen = {(r.get("stock_code"), r.get("date"), r.get("direction")) for r in recent}
     rev_extra: List[Dict[str, Any]] = []
     for r in reversed(trade_sample):
@@ -380,9 +409,9 @@ def run_t0_backtest_for_holdings(
             continue
         rev_extra.append(r)
         seen.add(key)
-        if len(rev_extra) >= 5:
+        if len(rev_extra) >= 8:
             break
-    trade_sample = sorted(recent + rev_extra, key=lambda r: str(r.get("date") or ""))
+    trade_sample = sorted(recent + rev_extra, key=lambda r: str(r.get("date") or ""))[-ui_limit:]
 
     skip_sample.sort(key=lambda r: str(r.get("date") or ""), reverse=True)
     skip_reason_top = sorted(
@@ -412,6 +441,11 @@ def run_t0_backtest_for_holdings(
         "minute_path_days": minute_path_days,
         "daily_fallback_days": daily_fallback_days,
         "hold_mv_start": round(total_hold_mv, 2),
+        "t0_win_days": win_days,
+        "t0_loss_days": loss_days,
+        "t0_win_rate_pct": (
+            round(win_days / pnl_day_cnt * 100.0, 2) if pnl_day_cnt else None
+        ),
         "results": per,
         "days": trade_sample,
         "trade_days_sample": trade_sample,
@@ -463,6 +497,8 @@ def run_t0_backtest_for_holdings(
             "note": "同窗日线 veto 对照合计；主结果含分钟第一触达",
         }
     out.update(derive_t0_quality_metrics(out))
+
+    out["viz"] = merge_t0_viz_payloads([x.get("viz") for x in ok], rules=cfg)
     if len(ok) == 1:
         one = ok[0]
         out.update(
@@ -488,4 +524,8 @@ def run_t0_backtest_for_holdings(
             }
         )
         out.update(derive_t0_quality_metrics(out))
+        out["viz"] = ok[0].get("viz") or out.get("viz")
+    from core.t0.viz import attach_compare_to_viz
+
+    attach_compare_to_viz(out)
     return out

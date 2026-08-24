@@ -51,12 +51,20 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "w_yclose_loc",
         "w_mom3",
         "w_gap_atr",
+        "y_trade_floor",
+        "y_eod_prior",
+        "y_tau_enter",
+        "y_on_risk",
+        "y_on_allow",
+        "y_block_conflict",
+        "y_ratio_boost_cap",
+        "y_ratio_cut",
     }
 )
 
 DEFAULT_RUNTIME: Dict[str, Any] = {
-    "paper_direction_fallback": "signal",
-    "backtest_direction_fallback": "long_t",
+    "paper_direction_fallback": "dual_y",
+    "backtest_direction_fallback": "dual_y",
     "backtest_path_mode_no_minute": "veto",
     "backtest_path_mode_with_minute": "first_touch",
 }
@@ -214,12 +222,19 @@ def _apply_channel_fallbacks(
 
     if "direction" not in out:
         if ch == "backtest":
-            fb = runtime.get("backtest_direction_fallback") or "signal"
+            fb = runtime.get("backtest_direction_fallback") or "dual_y"
         else:
-            fb = runtime.get("paper_direction_fallback") or "signal"
+            fb = runtime.get("paper_direction_fallback") or "dual_y"
         out["direction"] = fb
         sources["direction"] = "runtime_fallback"
         notes.append(f"{ch}: direction 未显式声明 → {fb}")
+
+    # 生产仅保留 dual_y；旧 long_t/signal/auto/reverse_t 一律收敛
+    dir_now = str(out.get("direction") or "").strip().lower()
+    if dir_now != "dual_y":
+        notes.append(f"direction={dir_now} 已下线 → dual_y")
+        out["direction"] = "dual_y"
+        sources["direction"] = f"{sources.get('direction') or 'unknown'}→dual_y"
 
     if ch == "backtest" and "path_mode" not in out:
         if has_minute:
@@ -439,7 +454,7 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
     # L4：只读分池合并簿（不改全局 weights）
     cluster_book = None
     try:
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             get_cluster_scoring_cfg,
             load_active_cluster_book,
             load_active_cluster_weights,
@@ -475,6 +490,7 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "t0_ratio": t0.get("t0_ratio"),
             "sell_trigger_pct": t0.get("sell_trigger_pct"),
             "buy_trigger_pct": t0.get("buy_trigger_pct"),
+            "must_cover_same_day": bool(t0.get("must_cover_same_day")),
             "fill_mode": t0.get("fill_mode"),
             "direction": t0.get("direction"),
             "path_mode": t0.get("path_mode"),
@@ -489,6 +505,14 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "w_yclose_loc": t0.get("w_yclose_loc"),
             "w_mom3": t0.get("w_mom3"),
             "w_gap_atr": t0.get("w_gap_atr"),
+            "y_trade_floor": t0.get("y_trade_floor"),
+            "y_eod_prior": t0.get("y_eod_prior"),
+            "y_tau_enter": t0.get("y_tau_enter"),
+            "y_on_risk": t0.get("y_on_risk"),
+            "y_on_allow": t0.get("y_on_allow"),
+            "y_block_conflict": t0.get("y_block_conflict"),
+            "y_ratio_boost_cap": t0.get("y_ratio_boost_cap"),
+            "y_ratio_cut": t0.get("y_ratio_cut"),
         },
         "t0_sources": bundle.get("t0_sources") or {},
         "rebalance": bundle.get("rebalance") or {},
@@ -571,6 +595,12 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_out["enabled"] = bool(t0_in.get("enabled"))
     if "use_atr" in t0_in:
         t0_out["use_atr"] = bool(t0_in.get("use_atr"))
+    if "must_cover_same_day" in t0_in:
+        t0_out["must_cover_same_day"] = bool(t0_in.get("must_cover_same_day"))
+    if "y_block_conflict" in t0_in:
+        t0_out["y_block_conflict"] = bool(t0_in.get("y_block_conflict"))
+    # 选向仅 dual_y
+    t0_out["direction"] = "dual_y"
 
     coupling_out: Dict[str, Any] = {}
     if coupling_in is not None:

@@ -11,7 +11,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.signal.cluster_live import (
+from core.signal.cluster.live import (
     cluster_yhat_primary_allowed,
     cluster_yhat_shadow_compute_allowed,
     get_cluster_scoring_cfg,
@@ -90,9 +90,9 @@ class TestScoreStockModeYhatGate(unittest.TestCase):
             "core.sentiment.fetch_stock_headlines",
             return_value={"ok": False},
         ), patch(
-            "core.signal.cluster_live.lookup_code_weights", return_value=mapped
+            "core.signal.cluster.live.lookup_code_weights", return_value=mapped
         ), patch(
-            "core.signal.cluster_live.lookup_code_return_model", return_value=group_m
+            "core.signal.cluster.live.lookup_code_return_model", return_value=group_m
         ), patch(
             "core.signal.return_score_store.load_return_model",
             return_value=(global_m, {}),
@@ -178,9 +178,9 @@ class TestScoreStockModeYhatGate(unittest.TestCase):
             "core.sentiment.fetch_stock_headlines",
             return_value={"ok": False},
         ), patch(
-            "core.signal.cluster_live.lookup_code_weights", return_value=mapped
+            "core.signal.cluster.live.lookup_code_weights", return_value=mapped
         ), patch(
-            "core.signal.cluster_live.lookup_code_return_model", return_value=group_m
+            "core.signal.cluster.live.lookup_code_return_model", return_value=group_m
         ), patch(
             "core.signal.return_score_store.load_return_model",
             return_value=(None, {}),
@@ -246,14 +246,14 @@ class TestScoreStockModeYhatGate(unittest.TestCase):
             "core.sentiment.fetch_stock_headlines",
             return_value={"ok": False},
         ), patch(
-            "core.signal.cluster_live.lookup_code_weights", return_value=mapped
+            "core.signal.cluster.live.lookup_code_weights", return_value=mapped
         ), patch(
-            "core.signal.cluster_live.lookup_code_return_model", return_value=group_m
+            "core.signal.cluster.live.lookup_code_return_model", return_value=group_m
         ), patch(
             "core.signal.return_score_store.load_return_model",
             return_value=(global_m, {}),
         ), patch(
-            "core.signal.cluster_oos_labels.is_oos_failed_cluster_label",
+            "core.signal.cluster.oos_labels.is_oos_failed_cluster_label",
             return_value=True,
         ), patch(
             "core.signal.score_stock.load_signal_config",
@@ -321,14 +321,14 @@ class TestScoreStockModeYhatGate(unittest.TestCase):
             "core.sentiment.fetch_stock_headlines",
             return_value={"ok": False},
         ), patch(
-            "core.signal.cluster_live.lookup_code_weights", return_value=mapped
+            "core.signal.cluster.live.lookup_code_weights", return_value=mapped
         ), patch(
-            "core.signal.cluster_live.lookup_code_return_model", return_value=group_m
+            "core.signal.cluster.live.lookup_code_return_model", return_value=group_m
         ), patch(
             "core.signal.return_score_store.load_return_model",
             return_value=(None, {}),
         ), patch(
-            "core.signal.cluster_oos_labels.is_oos_failed_cluster_label",
+            "core.signal.cluster.oos_labels.is_oos_failed_cluster_label",
             return_value=True,
         ), patch(
             "core.signal.score_stock.load_signal_config",

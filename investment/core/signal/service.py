@@ -87,7 +87,7 @@ class SignalService:
         codes: Optional[List[str]] = None,
         **kw: Any,
     ) -> BookResult:
-        from core.signal.cluster_rank import rank_cluster_pools
+        from core.signal.cluster.rank import rank_cluster_pools
 
         raw = rank_cluster_pools(codes, **kw)
         book = BookResult.from_rank(

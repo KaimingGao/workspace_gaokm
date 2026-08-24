@@ -8,12 +8,43 @@ from typing import Any, Dict, List, Optional, Sequence
 from core.backtest.costs import round_trip_cost_pct
 from core.numbers import now_iso_local as _now_iso
 from core.t0.config import load_t0_rules, resolve_min_range_pct
+from core.t0.score_policy import (
+    load_scores_for_code_date,
+    resolve_cover_policy,
+    resolve_dual_y_direction,
+    scale_t0_ratio,
+    scores_from_item,
+    scores_have_any,
+)
 
 
 def _lot_floor(shares: float, lot: int) -> int:
     if shares <= 0:
         return 0
     return int(shares // lot) * lot
+
+
+def _t0_qty_lots(
+    shares: float,
+    t0_ratio: float,
+    lot: int,
+    sellable: Optional[float] = None,
+) -> int:
+    """做T目标股数（整手）。
+
+    ``shares * t0_ratio`` 取整不足 1 手、但可卖 ≥1 手时，抬到 1 手——
+    否则小仓（100～200 股 × 40%）会整段回测静默 0 成交。
+    """
+    lot_i = max(int(lot or 0), 0)
+    if lot_i <= 0 or shares <= 0 or float(t0_ratio or 0) <= 0:
+        return 0
+    cap = float(shares if sellable is None else sellable)
+    cap = min(max(cap, 0.0), float(shares))
+    raw = float(shares) * float(t0_ratio)
+    qty = _lot_floor(min(cap, raw), lot_i)
+    if qty <= 0 and cap >= lot_i and raw > 0:
+        qty = lot_i
+    return int(qty)
 
 
 def _ref_price(bar: dict, cost: float, rules: dict) -> float:
@@ -196,6 +227,7 @@ def resolve_direction(
     shares: float,
     hist_bars: Optional[Sequence[dict]] = None,
     atr_pct: Optional[float] = None,
+    scores: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """统一选向：返回 direction / skip / score / reason。"""
     mode = str(cfg.get("direction") or "auto")
@@ -213,6 +245,14 @@ def resolve_direction(
             "direction_score": None,
             "direction_reason": "强制反T",
         }
+    if mode == "dual_y":
+        sc = scores if isinstance(scores, dict) else scores_from_item(None)
+        return resolve_dual_y_direction(
+            scores=sc,
+            cfg=cfg,
+            cash=float(cash or 0),
+            shares=float(shares or 0),
+        )
     if mode == "signal":
         scored = score_t0_direction(bar=bar, cfg=cfg, hist_bars=hist_bars, atr_pct=atr_pct)
         if not scored.get("ok"):
@@ -394,6 +434,7 @@ def simulate_t0_day(
     atr_pct: Optional[float] = None,
     hist_bars: Optional[Sequence[dict]] = None,
     minute_bars: Optional[Sequence[dict]] = None,
+    scores: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """对单票单日做底仓 T 模拟（正 T / 反 T）。
 
@@ -403,10 +444,17 @@ def simulate_t0_day(
     path_mode：veto/adverse/dual_touch/first_touch，见 config。
     hist_bars：不含当日的历史日线，供 direction=signal 打分。
     minute_bars：当日分钟线；有则走第一触达（忽略日线 veto）。
+    scores：direction=dual_y 时的多层 ŷ 快照（缺则尝试账本）。
     """
     cfg = load_t0_rules(rules)
     if not cfg.get("enabled", True):
         return _skip_result(reason="t0 disabled", shares=shares, bar=bar)
+
+    score_snap = scores if isinstance(scores, dict) else None
+    if str(cfg.get("direction") or "") == "dual_y" and not scores_have_any(score_snap):
+        as_of = str((bar or {}).get("date") or "")[:10]
+        if stock_code and as_of:
+            score_snap = load_scores_for_code_date(stock_code, as_of)
 
     if minute_bars and len(list(minute_bars)) >= 2:
         from core.t0.minute_path import simulate_t0_day_minute
@@ -423,6 +471,7 @@ def simulate_t0_day(
             cash=cash,
             atr_pct=atr_pct,
             hist_bars=hist_bars,
+            scores=score_snap,
         )
 
     lot = int(cfg["lot_size"])
@@ -439,6 +488,13 @@ def simulate_t0_day(
     cfg_day = dict(cfg)
     cfg_day["sell_trigger_pct"] = sell_trig
     cfg_day["buy_trigger_pct"] = buy_trig
+
+    if str(cfg_day.get("direction") or "") == "dual_y" and scores_have_any(score_snap):
+        cfg_day["t0_ratio"] = scale_t0_ratio(
+            float(cfg_day.get("t0_ratio") or 0.4),
+            score_snap or {},
+            cfg_day,
+        )
 
     ref = _ref_price(bar, cost, cfg_day)
     if ref <= 0:
@@ -466,6 +522,7 @@ def simulate_t0_day(
         shares=shares,
         hist_bars=hist_bars,
         atr_pct=scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct,
+        scores=score_snap,
     )
     if dir_res.get("skip") or not dir_res.get("direction"):
         return _skip_result(
@@ -482,6 +539,14 @@ def simulate_t0_day(
             },
         )
     direction = str(dir_res["direction"])
+    cover_meta = None
+    if str(cfg.get("direction") or "") == "dual_y":
+        cover_meta = resolve_cover_policy(
+            scores=score_snap or {},
+            direction=direction,
+            cfg=cfg_day,
+        )
+        cfg_day["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
     path_res = resolve_path_for_direction(direction, cfg_day.get("path_mode"), bar)
     if not path_res.get("ok"):
         return _skip_result(
@@ -546,6 +611,14 @@ def simulate_t0_day(
         out["direction_score"] = dir_res.get("direction_score")
         out["direction_reason"] = dir_res.get("direction_reason")
         out["direction_features"] = dir_res.get("features")
+        if cover_meta:
+            out["cover_policy"] = cover_meta
+            out["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
+        if score_snap and scores_have_any(score_snap):
+            out["scores"] = {
+                k: score_snap.get(k)
+                for k in ("y_eod", "y_tau", "y_trade", "y_on", "y_nowcast", "y_check")
+            }
     return out
 
 
@@ -575,8 +648,18 @@ def _simulate_long_t(
     sellable = float(sellable_shares if sellable_shares is not None else shares)
     sellable = min(sellable, shares)
     sell_level = ref * (1.0 + sell_trig / 100.0)
-    max_t0 = _lot_floor(shares * t0_ratio, lot)
-    qty = _lot_floor(min(sellable, max_t0), lot)
+    qty = _t0_qty_lots(shares, t0_ratio, lot, sellable)
+    if qty <= 0:
+        return _skip_result(
+            reason=f"正T动仓不足1手（持仓{int(shares)}×{t0_ratio:.0%} 可卖{int(sellable)}<{lot}股）",
+            shares=shares,
+            bar=bar,
+            extra={
+                "direction_used": "long_t",
+                "sellable_shares": sellable,
+                "t0_ratio": t0_ratio,
+            },
+        )
 
     trades: List[dict] = []
     cash_delta = 0.0
@@ -718,10 +801,10 @@ def _simulate_reverse_t(
     sellable = float(sellable_shares if sellable_shares is not None else shares)
     sellable = min(sellable, shares)
     buy_level = ref * (1.0 - buy_trig / 100.0)
-    max_shares = _lot_floor(shares * t0_ratio, lot)
+    max_shares = _t0_qty_lots(shares, t0_ratio, lot, sellable)
     if max_shares <= 0:
         return _skip_result(
-            reason=f"反T动仓不足1手（持仓{int(shares)}×{t0_ratio:.0%}<{lot}股）",
+            reason=f"反T动仓不足1手（持仓{int(shares)}×{t0_ratio:.0%} 可卖{int(sellable)}<{lot}股）",
             shares=shares,
             bar=bar,
             extra={"direction_used": "reverse_t", "max_shares": max_shares},
@@ -874,6 +957,7 @@ def simulate_t0_on_holdings(
     minute_bars_by_code: Optional[Dict[str, List[dict]]] = None,
     stance_by_code: Optional[Dict[str, Any]] = None,
     coupling: Optional[dict] = None,
+    scores_by_code: Optional[Dict[str, dict]] = None,
 ) -> Dict[str, Any]:
     """对纸面持仓逐票跑单日做 T（需传入当日 bar）。
 
@@ -881,6 +965,7 @@ def simulate_t0_on_holdings(
     hist_bars_by_code：各票历史日线（不含当日），供 signal 选向。
     minute_bars_by_code：各票当日分钟线，有则第一触达。
     stance_by_code：code → stance_code 或 {stance_code,...}；配合 coupling.t0_vs_stance。
+    scores_by_code：code → dual_y ŷ 快照。
     """
     from core.execution import stance_allows_t0
 
@@ -895,7 +980,12 @@ def simulate_t0_on_holdings(
         coup = (exe.get("coupling") if isinstance(exe, dict) else None) or {}
     coup_mode = str((coup or {}).get("t0_vs_stance") or "independent")
 
-    holdings = [dict(h) for h in (paper.get("holdings") or [])]
+    holdings = []
+    for h in paper.get("holdings") or []:
+        row = dict(h)
+        if isinstance(row.get("lots"), list):
+            row["lots"] = [dict(x) for x in row["lots"] if isinstance(x, dict)]
+        holdings.append(row)
     if not holdings:
         return {
             "success": True,
@@ -928,10 +1018,10 @@ def simulate_t0_on_holdings(
             continue
         shares = float(h.get("shares") or 0)
         cost = float(h.get("cost") or 0)
-        t0_meta = h.get("t0") or {}
-        sellable = t0_meta.get("sellable_shares")
-        if sellable is None:
-            sellable = shares
+        from core.paper.tplus1 import apply_t0_trades, sellable_shares as t1_sellable
+
+        as_of = str(bar.get("date") or "")[:10]
+        sellable = t1_sellable(h, as_of=as_of or None)
 
         # coupling vs stance
         stance_raw = None
@@ -974,6 +1064,10 @@ def simulate_t0_on_holdings(
         if minute_bars_by_code and code in minute_bars_by_code:
             mins = minute_bars_by_code.get(code)
 
+        score_snap = None
+        if scores_by_code and code in scores_by_code:
+            score_snap = scores_by_code.get(code)
+
         day = simulate_t0_day(
             bar=bar,
             shares=shares,
@@ -985,6 +1079,7 @@ def simulate_t0_on_holdings(
             atr_pct=atr,
             hist_bars=hist,
             minute_bars=mins,
+            scores=score_snap,
         )
         if mins and len(mins) >= 2 and day.get("path_mode") == "first_touch":
             minute_path_count += 1
@@ -1005,10 +1100,17 @@ def simulate_t0_on_holdings(
             row["stock_name"] = h.get("stock_name")
             all_trades.append(row)
 
-        h["shares"] = day["shares_end"]
+        apply_t0_trades(
+            h,
+            day.get("trades") or [],
+            as_of=as_of or str(ts)[:10],
+            ts=ts,
+        )
+        from core.paper.tplus1 import sellable_shares as t1_after
+
         h["t0"] = {
             "enabled": True,
-            "sellable_shares": day["shares_end"],
+            "sellable_shares": t1_after(h, as_of=as_of or None),
             "day_sold": day.get("sold_qty") or 0,
             "day_bought": (day.get("covered_qty") or 0) + (day.get("bought_qty") or 0),
             "day_pnl": day.get("pnl") or 0,
@@ -1024,6 +1126,24 @@ def simulate_t0_on_holdings(
     if not dry_run:
         for t in all_trades:
             paper.setdefault("trades", []).append(t)
+        if all_trades:
+            from core.paper.ledger import append_trade_legs_to_operation_log
+
+            append_trade_legs_to_operation_log(
+                paper,
+                sell_trades=[
+                    t
+                    for t in all_trades
+                    if str(t.get("side") or "").strip().lower() in ("sell", "t0_sell")
+                ],
+                buy_trades=[
+                    t
+                    for t in all_trades
+                    if str(t.get("side") or "").strip().lower() in ("buy", "t0_buy")
+                ],
+                origin="t0",
+                source="paper_t0",
+            )
         paper["holdings"] = [h for h in work_holdings if float(h.get("shares") or 0) > 0]
         paper["cash"] = round(working_cash, 2)
         paper["updated_at"] = _now_iso()

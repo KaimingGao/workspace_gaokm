@@ -5,6 +5,8 @@ import { escapeHtml as defaultEscapeHtml } from "../shared.js";
 import { researchGridHtml as defaultResearchGridHtml, metricCell as defaultMetricCell } from "./research_grid.js";
 import { fmtPct as defaultFmtPct, metricClass as defaultMetricClass } from "./bt_result.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
+import { buildT0TradeTableHtml, pickTradeDays } from "../paper/t0_table.js";
+import { buildT0MetricCards } from "../paper/t0_report.js";
 import { watchingNameSpanHtml } from "./names.js";
 
 /**
@@ -264,98 +266,25 @@ export function createBtTablesUi(deps = {}) {
   }
 
   function buildT0BacktestMetrics(data) {
-    if (!data || !data.success) return [];
-    const opt = data.optimistic_compare || {};
-    const deltaRatio = data.optimistic_delta_ratio_pct ?? opt.delta_pnl_ratio_pct;
-    return [
-      {
-        label: "含敞口净 PnL",
-        value: esc(String(data.t0_pnl_with_exposure ?? "—")),
-        cls: mcls(data.t0_pnl_with_exposure),
-      },
-      { label: "完成往返率", value: fmtPct(data.cover_rate_pct) },
-      {
-        label: "日均 PnL",
-        value: esc(String(data.avg_pnl_per_trade_day ?? "—")),
-        cls: mcls(data.avg_pnl_per_trade_day),
-      },
-      { label: "参与率", value: fmtPct(data.participate_rate_pct) },
-      { label: "乐观Δ占比", value: fmtPct(deltaRatio) },
-      { label: "相对底仓%", value: fmtPct(data.pnl_vs_hold_mv_pct) },
-      { label: "做T天数", value: esc(String(data.t0_trade_days ?? "—")) },
-      {
-        label: "累计 PnL",
-        value: esc(String(data.t0_pnl_total ?? "—")),
-        cls: mcls(data.t0_pnl_total),
-      },
-      {
-        label: "敞口 PnL",
-        value: esc(String(data.exposure_pnl_total ?? "—")),
-        cls: mcls(data.exposure_pnl_total),
-      },
-      {
-        label: "正T PnL",
-        value: esc(String(data.long_t_pnl ?? "—")),
-        cls: mcls(data.long_t_pnl),
-      },
-      {
-        label: "反T PnL",
-        value: esc(String(data.reverse_t_pnl ?? "—")),
-        cls: mcls(data.reverse_t_pnl),
-      },
-      {
-        label: "正/反日",
-        value: esc(`${data.long_t_days ?? 0}/${data.reverse_t_days ?? 0}`),
-      },
-      { label: "跳过日", value: esc(String(data.skip_days ?? "—")) },
-      { label: "信号跳过", value: esc(String(data.signal_skip_days ?? "—")) },
-      { label: "分钟路径日", value: esc(String(data.minute_path_days ?? "—")) },
-      {
-        label: "相对日线Δ",
-        value: esc(
-          String(
-            (data.daily_compare && data.daily_compare.delta_pnl != null
-              ? data.daily_compare.delta_pnl
-              : "—")
-          )
-        ),
-        cls: mcls(data.daily_compare && data.daily_compare.delta_pnl),
-      },
-    ];
+    return buildT0MetricCards(data).map((row) => ({
+      label: row.label,
+      value: esc(String(row.value ?? "—")),
+      cls: row.cls || "",
+    }));
   }
 
   function buildT0BacktestDaysHtml(data) {
     if (!data || !data.success) return "";
-    const days = (data.days || []).filter(
-      (d) =>
-        Number(d.sold_qty) > 0 ||
-        Number(d.bought_qty) > 0 ||
-        Number(d.pnl) !== 0 ||
-        Number(d.exposure_pnl) !== 0
-    );
+    const days = pickTradeDays(data);
     if (!days.length) {
       return `<p class="quant-trades-caption">区间内无做 T 成交日</p>`;
     }
-    const rows = days
-      .slice(-20)
-      .reverse()
-      .map((d) => {
-        const cls = mcls(d.pnl);
-        return (
-          `<tr><td>${esc(d.date || "")}</td>` +
-          `<td class="num">${esc(String(d.sold_qty ?? 0))}</td>` +
-          `<td class="num">${esc(String(d.covered_qty ?? 0))}</td>` +
-          `<td class="num">${esc(String(d.uncovered_qty ?? 0))}</td>` +
-          `<td class="num ${cls}">${esc(String(d.pnl ?? 0))}</td></tr>`
-        );
-      })
-      .join("");
-    return (
-      `<p class="quant-trades-caption">做 T 日明细（最多 20 条，新→旧）</p>` +
-      `<table class="quant-weight-table"><thead><tr>` +
-      `<th>日期</th><th>卖出</th><th>买回</th><th>未回补</th><th>PnL</th>` +
-      `</tr></thead><tbody>${rows}</tbody></table>`
-    );
+    return buildT0TradeTableHtml({
+      data,
+      days,
+      caption: `<p class="quant-trades-caption">做 T 日明细（最多 20 条，新→旧）</p>`,
+      maxRows: 20,
+    });
   }
 
   function buildCrossSectionResult(data) {

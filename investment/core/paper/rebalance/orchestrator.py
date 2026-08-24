@@ -91,7 +91,7 @@ def resolve_rebalance_mode(
     rules = paper.get("rules") or {}
     scoring_mode = "off"
     try:
-        from core.signal.cluster_live import get_cluster_scoring_cfg
+        from core.signal.cluster.live import get_cluster_scoring_cfg
 
         scoring_mode = str(
             (get_cluster_scoring_cfg() or {}).get("mode") or "off"
@@ -351,7 +351,7 @@ def try_reuse_active_cluster_book(
     max_age_sec: float = _CLUSTER_BOOK_REUSE_MAX_AGE_SEC,
 ) -> Optional[Dict[str, Any]]:
     """确认落账：若预演刚写入的 active book 仍新鲜，直接复用（跳过 N 票重打分）。"""
-    from core.signal.cluster_live import (
+    from core.signal.cluster.live import (
         load_active_cluster_book,
         load_active_cluster_weights,
     )
@@ -404,7 +404,7 @@ def prepare_cluster_book_rank(
     reuse_max_age_sec: float = _CLUSTER_BOOK_REUSE_MAX_AGE_SEC,
 ) -> Dict[str, Any]:
     """分池建簿 / 复用。应在 paper 写锁外调用，避免长时间占锁卡住 /api/paper。"""
-    from core.signal.cluster_live import assess_cluster_live_health
+    from core.signal.cluster.live import assess_cluster_live_health
     from core.signal.score_display import selection_min_score
     from core.signal.service import get_default_signal_service
 
@@ -449,7 +449,7 @@ def _run_cluster_book(
     health = ranked.get("health") if isinstance(ranked, dict) else None
     if health is None:
         try:
-            from core.signal.cluster_live import assess_cluster_live_health
+            from core.signal.cluster.live import assess_cluster_live_health
 
             health = assess_cluster_live_health()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

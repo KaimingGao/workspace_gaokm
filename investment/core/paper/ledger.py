@@ -286,10 +286,15 @@ def snapshots_for_ui(
     return snaps + [overlay]
 
 
+def mark_to_market(paper: dict) -> Dict[str, Any]:
+    """盯市快照。实现在 exec；此处再导出，供调仓等 ``from core.paper.ledger import mark_to_market``。"""
+    from core.paper.exec import mark_to_market as _mark_to_market
+
+    return _mark_to_market(paper)
+
+
 def capture_mark_snapshot(paper: dict) -> Dict[str, Any]:
     """改仓前盯市落点：把未实现涨跌从成交快照里拆开，避免曲线「一卖就跳」。"""
-    from core.paper.exec import mark_to_market
-
     summary = mark_to_market(paper)
     append_snapshot(paper, summary)
     return summary
@@ -481,9 +486,16 @@ def append_trade_legs_to_operation_log(
     for trade in list(sell_trades or []) + list(buy_trades or []):
         if not isinstance(trade, dict):
             continue
-        side = str(trade.get("side") or "").strip().lower()
+        raw_side = str(trade.get("side") or "").strip().lower()
+        if raw_side in ("t0_sell",):
+            side = "sell"
+        elif raw_side in ("t0_buy",):
+            side = "buy"
+        else:
+            side = raw_side
         if side not in ("buy", "sell"):
             continue
+        t0_leg = raw_side.startswith("t0_")
         fee_meta: Dict[str, Any] = {}
         if fee_fields_from_trade is not None:
             try:
@@ -499,8 +511,9 @@ def append_trade_legs_to_operation_log(
                 logger.debug("catch except Exception: in paper.py", exc_info=True)
                 pnl_meta = {}
         name = trade.get("stock_name") or trade.get("stock_code") or "—"
+        leg = "做T" if t0_leg or origin == "t0" else ""
         detail = (
-            f"{'买入' if side == 'buy' else '卖出'} {name} "
+            f"{leg}{'买入' if side == 'buy' else '卖出'} {name} "
             f"{trade.get('shares')}股 @ {trade.get('price')}"
         )
         append_operation_log(
@@ -513,7 +526,7 @@ def append_trade_legs_to_operation_log(
                 "shares": trade.get("shares"),
                 "price": trade.get("price"),
                 "amount": trade.get("amount") or trade.get("actual_cost"),
-                "origin": origin,
+                "origin": "t0" if t0_leg or origin == "t0" else origin,
                 "source": source,
                 "note": trade.get("note"),
                 "score": trade.get("score"),

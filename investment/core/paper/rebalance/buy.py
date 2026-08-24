@@ -247,17 +247,20 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
                 paper.setdefault("trades", []).append(trade)
                 buy_trades.append(trade)
                 sentiment_restore_trades.append(trade)
+                from core.paper.tplus1 import add_buy_lot
+
+                old_cost = float(h.get("cost") or 0)
                 new_shares = cur_sh + shares
-                h2 = {
-                    **h,
-                    "shares": new_shares,
-                    "market_value": round(new_shares * fill_px, 2),
-                }
-                if restore.get("clear_base") or new_shares + 1e-9 >= float(
+                if new_shares > 0:
+                    h["cost"] = round(
+                        (old_cost * cur_sh + fill_px * shares) / new_shares, 4
+                    )
+                add_buy_lot(h, shares, ts=trade["ts"])
+                h["market_value"] = round(float(h.get("shares") or 0) * fill_px, 2)
+                if restore.get("clear_base") or float(h.get("shares") or 0) + 1e-9 >= float(
                     base_sh
                 ):
-                    h2.pop("sentiment_trim_base_shares", None)
-                holdings[hi] = h2
+                    h.pop("sentiment_trim_base_shares", None)
                 cash = round(cash + float(fee_info["net_cash_delta"]), 2)
                 name_mv[code] = float(name_mv.get(code) or 0.0) + amount
                 sector_mv[sector] = float(sector_mv.get(sector) or 0.0) + amount
@@ -733,18 +736,20 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
             )
             paper.setdefault("trades", []).append(trade)
             buy_trades.append(trade)
-            holdings.append(
-                {
-                    "stock_code": code,
-                    "stock_name": trade["stock_name"],
-                    "shares": shares,
-                    "cost": round(fill_px, 4),
-                    "bought_at": trade["ts"],
-                    "origin": ORIGIN_STRATEGY,
-                    "sector": sector,
-                    "market_value": amount,
-                }
-            )
+            from core.paper.tplus1 import stamp_new_holding
+
+            row = {
+                "stock_code": code,
+                "stock_name": trade["stock_name"],
+                "shares": shares,
+                "cost": round(fill_px, 4),
+                "bought_at": trade["ts"],
+                "origin": ORIGIN_STRATEGY,
+                "sector": sector,
+                "market_value": amount,
+            }
+            stamp_new_holding(row, ts=trade["ts"])
+            holdings.append(row)
             held_codes.add(code)
             cash = round(cash + float(fee_info["net_cash_delta"]), 2)
             name_mv[code] = float(name_mv.get(code) or 0.0) + amount
@@ -900,18 +905,20 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
             )
             paper.setdefault("trades", []).append(_trade)
             buy_trades.append(_trade)
-            holdings.append(
-                {
-                    "stock_code": _code,
-                    "stock_name": _trade["stock_name"],
-                    "shares": _shares,
-                    "cost": round(_fill_px, 4),
-                    "bought_at": _trade["ts"],
-                    "origin": ORIGIN_STRATEGY,
-                    "sector": _sector,
-                    "market_value": _amount,
-                }
-            )
+            from core.paper.tplus1 import stamp_new_holding
+
+            _row = {
+                "stock_code": _code,
+                "stock_name": _trade["stock_name"],
+                "shares": _shares,
+                "cost": round(_fill_px, 4),
+                "bought_at": _trade["ts"],
+                "origin": ORIGIN_STRATEGY,
+                "sector": _sector,
+                "market_value": _amount,
+            }
+            stamp_new_holding(_row, ts=_trade["ts"])
+            holdings.append(_row)
             held_codes.add(_code)
             cash = round(cash + float(_fee_info["net_cash_delta"]), 2)
             name_mv[_code] = float(name_mv.get(_code) or 0.0) + _amount

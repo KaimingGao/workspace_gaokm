@@ -28,13 +28,13 @@ class TestSelectForceTrimCodes(unittest.TestCase):
 
 class TestScoreUniversePrefilter(unittest.TestCase):
     def test_uses_prior_yhat_not_day_change(self):
-        from core.signal.cluster_rank import select_score_universe
+        from core.signal.cluster.rank import select_score_universe
 
         codes = [f"{i:06d}" for i in range(1, 301)]
         prior = {c: float(i) for i, c in enumerate(codes)}  # higher index = higher ŷ
         # 当日涨跌：低序号动量更高（若误用涨跌幅会选错）
         with patch(
-            "core.signal.cluster_rank._prior_yhat_by_code",
+            "core.signal.cluster.rank._prior_yhat_by_code",
             return_value=(prior, "ledger_yhat"),
         ), patch("core.ports.market.batch_query_quotes") as mock_q:
             selected, ranked, axis = select_score_universe(codes, cap=240)

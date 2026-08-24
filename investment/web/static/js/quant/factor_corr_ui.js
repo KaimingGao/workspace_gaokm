@@ -2,7 +2,7 @@ import { apiFetch } from "../api_client.js";
 import { escapeHtml } from "../shared.js";
 import { renderMultiLineChart } from "../lw_charts.js";
 
-/* ===== 因子中文名映射（与 core.signal.factor_registry 同步） ===== */
+/* ===== 因子中文名映射（与 core.signal.factors.meta.registry 同步） ===== */
 const FACTOR_CN = {
   momentum: "动量",
   volume_price: "量价",

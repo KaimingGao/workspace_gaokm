@@ -11,7 +11,7 @@ logger = logging.getLogger(__name__)
 
 def _factor_label(name: str) -> str:
     try:
-        from core.signal.factor_registry import factor_label
+        from core.signal.factors.meta.registry import factor_label
 
         return str(factor_label(name) or name)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

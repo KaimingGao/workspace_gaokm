@@ -41,7 +41,7 @@ def main() -> int:
     )
 
     # Focus check on active after promote
-    from core.signal.cluster_live import load_active_cluster_weights
+    from core.signal.cluster.live import load_active_cluster_weights
 
     active = load_active_cluster_weights() or {}
     cm = active.get("code_map") or {}

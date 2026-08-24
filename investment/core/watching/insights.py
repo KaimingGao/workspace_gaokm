@@ -874,7 +874,7 @@ def build_watching_insights(
     # 分池簿快路径：观察 tip / score 与交易执行同源，避免 100 票 live 打分拖死悬浮
     book_by_code: Dict[str, dict] = {}
     try:
-        from core.signal.cluster_live import load_active_cluster_book
+        from core.signal.cluster.live import load_active_cluster_book
 
         book_doc = load_active_cluster_book() or {}
         for row in list(book_doc.get("scored_all") or []) + list(book_doc.get("book") or []):

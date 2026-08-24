@@ -399,7 +399,7 @@ def _build_rebalance_report(
     rebalance_report: List[dict] = []
     book_codes: set = set()
     try:
-        from core.signal.cluster_live import load_active_cluster_book
+        from core.signal.cluster.live import load_active_cluster_book
 
         book_doc = load_active_cluster_book() or {}
         book_codes = {

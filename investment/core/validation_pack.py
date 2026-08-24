@@ -95,7 +95,7 @@ def build_validation_pack(
         "cluster_fingerprint": None,
     }
     try:
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             get_cluster_scoring_cfg,
             load_active_cluster_book,
             load_active_cluster_weights,

@@ -61,7 +61,7 @@ class PaperAccountMixin:
             score_by_code: Dict[str, Any] = {}
             # 1) 分池簿快路径（持仓几乎都在 scored_all 里）
             try:
-                from core.signal.cluster_live import load_active_cluster_book
+                from core.signal.cluster.live import load_active_cluster_book
 
                 book_doc = load_active_cluster_book() or {}
                 book_rows = list(book_doc.get("scored_all") or []) + list(
@@ -145,6 +145,11 @@ class PaperAccountMixin:
                     "pnl",
                     "pnl_pct",
                     "bought_date",
+                    "bought_at",
+                    "hold_days",
+                    "sellable_shares",
+                    "locked_shares",
+                    "lots",
                     "origin",
                     "origin_label",
                     "currency",
@@ -181,7 +186,7 @@ class PaperAccountMixin:
                     enriched["min_score"] = gate
                     enriched["below_min_score"] = False
                 try:
-                    from core.signal.dual_score_on import hydrate_holding_on_fields
+                    from core.signal.dual_score.on import hydrate_holding_on_fields
 
                     hydrate_holding_on_fields(enriched)
                 except Exception as e:
@@ -338,7 +343,10 @@ class PaperAccountMixin:
         paper = load_paper(self.path)
         if lite:
             raw_holdings = []
+            from core.paper.tplus1 import snapshot_tplus1
+
             for h in paper.get("holdings") or []:
+                t1 = snapshot_tplus1(h)
                 raw_holdings.append(
                     {
                         "stock_code": h.get("stock_code"),
@@ -346,6 +354,8 @@ class PaperAccountMixin:
                         "shares": h.get("shares"),
                         "cost": h.get("cost"),
                         "bought_at": h.get("bought_at"),
+                        "sellable_shares": t1["sellable_shares"],
+                        "locked_shares": t1["locked_shares"],
                         "origin": h.get("origin"),
                     }
                 )

@@ -67,7 +67,7 @@ class QuantConfigMixin:
         return export_config_diff_bundle(preview)
 
     def list_strategies(self) -> Dict[str, Any]:
-        from core.signal.dual_score_config import read_dual_score_public
+        from core.signal.dual_score.config import read_dual_score_public
         from core.signal.score_display import resolve_buy_floor, resolve_hold_floor
         from core.signal.sentiment_prior_config import read_sentiment_prior_public
         from core.strategy import list_strategy_specs
@@ -179,7 +179,7 @@ class QuantConfigMixin:
         return {"success": True, "market_prior": read_market_prior_public()}
 
     def read_dual_score(self) -> Dict[str, Any]:
-        from core.signal.dual_score_config import read_dual_score_public
+        from core.signal.dual_score.config import read_dual_score_public
 
         return {"success": True, "dual_score": read_dual_score_public()}
 
@@ -194,7 +194,7 @@ class QuantConfigMixin:
         block_buy_if_tau_missing: Optional[bool] = None,
         note: str = "",
     ) -> Dict[str, Any]:
-        from core.signal.dual_score_config import save_dual_score as _save
+        from core.signal.dual_score.config import save_dual_score as _save
 
         return _save(
             fusion_mode=fusion_mode,

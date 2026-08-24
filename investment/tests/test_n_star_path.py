@@ -85,7 +85,7 @@ class TestP1QualityGate(unittest.TestCase):
             "core.signal.score_stock.load_signal_config",
             return_value={"fundamentals": {"enabled": False}},
         ), patch(
-            "core.signal.cluster_live.lookup_code_return_model",
+            "core.signal.cluster.live.lookup_code_return_model",
             return_value=None,
         ), patch(
             "core.signal.return_score_store.load_return_model",
@@ -244,7 +244,7 @@ class TestN1DataService(unittest.TestCase):
 
 class TestN2FactorAndMl(unittest.TestCase):
     def test_alt_sentiment_registered_and_skippable(self):
-        from core.signal.factor_registry import compute_configured_factors, registered_factor_names
+        from core.signal.factors.meta.registry import compute_configured_factors, registered_factor_names
 
         self.assertIn("alt_sentiment", registered_factor_names())
         bars = [

@@ -439,14 +439,14 @@ def dashboard_portfolio_health() -> Dict[str, Any]:
     """纸面组合健康度：暴露 · 建簿约束跳过 · α 衰减告警。"""
     try:
         from core.risk.portfolio_health import build_portfolio_health
-        from core.signal.cluster_live import load_active_cluster_book
+        from core.signal.cluster.live import load_active_cluster_book
 
         book_doc = load_active_cluster_book() or {}
         meta = book_doc.get("meta") or {}
         paper = _load_raw_paper()
         rolling = None
         try:
-            from core.signal.cluster_live_evidence import build_cluster_live_evidence
+            from core.signal.cluster.live_evidence import build_cluster_live_evidence
 
             ev = build_cluster_live_evidence(light=True) or {}
             rolling = (ev.get("rolling_ic") or ev.get("yhat_ic") or {})

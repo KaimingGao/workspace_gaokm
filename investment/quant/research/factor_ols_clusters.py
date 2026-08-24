@@ -241,7 +241,7 @@ def group_ts_ic_panel(
     feature_names: Sequence[str],
 ) -> Dict[str, Any]:
     """单票组回退：堆叠时序 IC（无日截面序列，ICIR 恒 null）。"""
-    from core.signal.factor_corr import pearson_with_reason
+    from core.signal.factors.meta.corr import pearson_with_reason
 
     rows: List[Dict[str, Any]] = []
     exclusion_reasons: Dict[str, str] = {}
@@ -1977,7 +1977,7 @@ def compute_factor_ols_cluster_report(
         ]
         # FS1：组内趋势族共线性（晋升人审提示）
         try:
-            from core.signal.factor_collinearity import collinearity_from_panel_rows
+            from core.signal.factors.meta.collinearity import collinearity_from_panel_rows
 
             mem_xs: List[Dict[str, Any]] = []
             for code in cl.get("members") or []:
@@ -1991,7 +1991,7 @@ def compute_factor_ols_cluster_report(
     for p in panel_by_code.values():
         panel_xs.extend(p.get("xs") or [])
     try:
-        from core.signal.factor_collinearity import collinearity_from_panel_rows
+        from core.signal.factors.meta.collinearity import collinearity_from_panel_rows
 
         trend_collinearity = collinearity_from_panel_rows(panel_xs)
     except Exception as exc:

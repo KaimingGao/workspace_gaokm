@@ -8,7 +8,7 @@ import math
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.signal.config import load_signal_config
-from core.signal.factor_registry import list_factors
+from core.signal.factors.meta.registry import list_factors
 
 DEFAULT_FACTOR_NAMES = {f["name"] for f in list_factors()}
 
@@ -348,7 +348,7 @@ def suggest_weights_from_ic(
             k: (0.0 if k in frozen else round(v / total, 3)) for k, v in suggested.items()
         }
 
-    from core.signal.factor_corr import redundancy_warnings_from_corr
+    from core.signal.factors.meta.corr import redundancy_warnings_from_corr
 
     redundancy_warnings = redundancy_warnings_from_corr(
         corr_report or {},
@@ -443,7 +443,7 @@ def format_weight_config_diff(suggestion: Dict[str, Any]) -> Dict[str, Any]:
     promote_ready = bool(suggestion.get("promote_ready"))
     factor_health = None
     try:
-        from core.signal.factor_health import assess_factor_health
+        from core.signal.factors.meta.health import assess_factor_health
 
         factor_health = assess_factor_health(
             config={"weights": suggestion.get("suggested_weights") or suggested}

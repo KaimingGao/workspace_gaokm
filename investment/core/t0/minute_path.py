@@ -15,6 +15,7 @@ from core.t0.rules import (
     _lot_floor,
     _ref_price,
     _skip_result,
+    _t0_qty_lots,
     resolve_direction,
     scale_triggers_with_atr,
 )
@@ -42,6 +43,19 @@ def _day_ohlc_from_minutes(minute_bars: Sequence[dict], daily_bar: Optional[dict
     return base
 
 
+def _session_close_at(minute_bars: Sequence[dict], bar: Optional[dict] = None) -> str:
+    """分钟路径收盘腿时点：末根 K 线时间，否则当日 15:00。"""
+    if minute_bars:
+        last = minute_bars[-1]
+        ts = last.get("datetime") or last.get("date")
+        if ts:
+            return str(ts)
+    dkey = str((bar or {}).get("date") or "")[:10]
+    if dkey:
+        return f"{dkey} 15:00:00"
+    return ""
+
+
 def _first_touch_long(
     *,
     minute_bars: Sequence[dict],
@@ -64,8 +78,19 @@ def _first_touch_long(
     sellable = float(sellable_shares if sellable_shares is not None else shares)
     sellable = min(sellable, shares)
     sell_level = ref * (1.0 + sell_trig / 100.0)
-    max_t0 = _lot_floor(shares * t0_ratio, lot)
-    qty = _lot_floor(min(sellable, max_t0), lot)
+    qty = _t0_qty_lots(shares, t0_ratio, lot, sellable)
+    if qty <= 0:
+        return _skip_result(
+            reason=f"正T动仓不足1手（持仓{int(shares)}×{t0_ratio:.0%} 可卖{int(sellable)}<{lot}股）",
+            shares=shares,
+            bar=bar,
+            extra={
+                "direction_used": "long_t",
+                "sellable_shares": sellable,
+                "t0_ratio": t0_ratio,
+                "path_mode": "first_touch",
+            },
+        )
 
     trades: List[dict] = []
     cash_delta = 0.0
@@ -94,6 +119,7 @@ def _first_touch_long(
                     "amount": round(amount, 2),
                     "trigger": round(sell_level, 4),
                     "at": ts,
+                    "leg_kind": "trigger",
                     "note": "正T卖出（分钟第一触达）",
                 }
             )
@@ -120,6 +146,7 @@ def _first_touch_long(
                         "amount": round(amount_b, 2),
                         "trigger": round(buy_level, 4),
                         "at": ts,
+                        "leg_kind": "trigger",
                         "note": "正T买回（分钟第一触达）",
                     }
                 )
@@ -136,6 +163,7 @@ def _first_touch_long(
             fill_buy = close
             cover = sold_qty
             amount_b = cover * fill_buy
+            close_at = _session_close_at(minute_bars, bar)
             trades.append(
                 {
                     "side": "t0_buy",
@@ -144,12 +172,15 @@ def _first_touch_long(
                     "price": round(fill_buy, 4),
                     "amount": round(amount_b, 2),
                     "trigger": round(close, 4),
+                    "at": close_at,
+                    "leg_kind": "eod_cover",
                     "note": "强制当日回补（收盘）",
                 }
             )
             cash_delta -= amount_b
             shares_now += cover
             covered = cover
+            touch_cover_at = close_at or touch_cover_at
             gross = (sold_price - fill_buy) / sold_price * 100.0
             cost_pct = round_trip_cost_pct(cost_config)
             pnl = round((gross - cost_pct) * (sold_qty * sold_price) / 100.0, 2)
@@ -222,12 +253,12 @@ def _first_touch_reverse(
     close = float(bar.get("close") or 0)
     t0_ratio = float(cfg["t0_ratio"])
     buy_level = ref * (1.0 - buy_trig / 100.0)
-    max_shares = _lot_floor(shares * t0_ratio, lot)
     sellable = float(sellable_shares if sellable_shares is not None else shares)
     sellable = min(sellable, shares)
+    max_shares = _t0_qty_lots(shares, t0_ratio, lot, sellable)
     if max_shares <= 0:
         return _skip_result(
-            reason=f"反T动仓不足1手（持仓{int(shares)}×{t0_ratio:.0%}<{lot}股）",
+            reason=f"反T动仓不足1手（持仓{int(shares)}×{t0_ratio:.0%} 可卖{int(sellable)}<{lot}股）",
             shares=shares,
             bar=bar,
             extra={"direction_used": "reverse_t", "path_mode": "first_touch"},
@@ -300,6 +331,7 @@ def _first_touch_reverse(
                     "amount": round(buy_amount, 2),
                     "trigger": round(buy_level, 4),
                     "at": ts,
+                    "leg_kind": "trigger",
                     "note": "反T低吸加仓（分钟第一触达；新股T+1锁仓）",
                 }
             )
@@ -326,6 +358,7 @@ def _first_touch_reverse(
                         "amount": round(amount_s, 2),
                         "trigger": round(sell_level, 4),
                         "at": ts,
+                        "leg_kind": "trigger",
                         "note": "反T卖旧底仓（分钟第一触达；T+1可卖）",
                     }
                 )
@@ -355,6 +388,7 @@ def _first_touch_reverse(
         if cfg.get("must_cover_same_day") and sell_old_qty > 0:
             fill_sell = close
             amount_s = sell_old_qty * fill_sell
+            close_at = _session_close_at(minute_bars, bar)
             trades.append(
                 {
                     "side": "t0_sell",
@@ -363,12 +397,15 @@ def _first_touch_reverse(
                     "price": round(fill_sell, 4),
                     "amount": round(amount_s, 2),
                     "trigger": round(close, 4),
+                    "at": close_at,
+                    "leg_kind": "eod_cover",
                     "note": "强制收盘卖旧底仓（T+1）",
                 }
             )
             cash_delta += amount_s
             shares_now -= sell_old_qty
             sold_back = sell_old_qty
+            touch_sell_at = close_at or touch_sell_at
             gross = (fill_sell - buy_price) / buy_price * 100.0
             cost_pct = round_trip_cost_pct(cost_config)
             pnl = round((gross - cost_pct) * (sell_old_qty * buy_price) / 100.0, 2)
@@ -418,11 +455,25 @@ def simulate_t0_day_minute(
     cash: float = 0.0,
     atr_pct: Optional[float] = None,
     hist_bars: Optional[Sequence[dict]] = None,
+    scores: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """单日做 T：选向仍用开盘/隔夜特征；成交路径按分钟第一触达。"""
+    from core.t0.score_policy import (
+        load_scores_for_code_date,
+        resolve_cover_policy,
+        scale_t0_ratio,
+        scores_have_any,
+    )
+
     cfg = load_t0_rules(rules)
     if not cfg.get("enabled", True):
         return _skip_result(reason="t0 disabled", shares=shares, bar=bar)
+
+    score_snap = scores if isinstance(scores, dict) else None
+    if str(cfg.get("direction") or "") == "dual_y" and not scores_have_any(score_snap):
+        as_of = str((bar or {}).get("date") or "")[:10]
+        if stock_code and as_of:
+            score_snap = load_scores_for_code_date(stock_code, as_of)
 
     mins = [dict(m) for m in (minute_bars or [])]
     mins.sort(key=lambda x: str(x.get("datetime") or ""))
@@ -449,6 +500,13 @@ def simulate_t0_day_minute(
     cfg_day["buy_trigger_pct"] = buy_trig
     # 分钟路径不再用日线 veto/adverse
     cfg_day["path_mode"] = "first_touch"
+
+    if str(cfg_day.get("direction") or "") == "dual_y" and scores_have_any(score_snap):
+        cfg_day["t0_ratio"] = scale_t0_ratio(
+            float(cfg_day.get("t0_ratio") or 0.4),
+            score_snap or {},
+            cfg_day,
+        )
 
     ref = _ref_price(bar_day, cost, cfg_day)
     if ref <= 0:
@@ -479,6 +537,7 @@ def simulate_t0_day_minute(
         shares=shares,
         hist_bars=hist_bars,
         atr_pct=scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct,
+        scores=score_snap,
     )
     if dir_res.get("skip") or not dir_res.get("direction"):
         return _skip_result(
@@ -497,6 +556,14 @@ def simulate_t0_day_minute(
         )
 
     direction = str(dir_res["direction"])
+    cover_meta = None
+    if str(cfg.get("direction") or "") == "dual_y":
+        cover_meta = resolve_cover_policy(
+            scores=score_snap or {},
+            direction=direction,
+            cfg=cfg_day,
+        )
+        cfg_day["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
     fill_mode = str(cfg_day.get("fill_mode") or "trigger")
     if direction == "reverse_t":
         out = _first_touch_reverse(
@@ -541,4 +608,12 @@ def simulate_t0_day_minute(
         out["direction_reason"] = dir_res.get("direction_reason")
         out["direction_features"] = dir_res.get("features")
         out["minute_bars"] = len(mins)
+        if cover_meta:
+            out["cover_policy"] = cover_meta
+            out["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
+        if score_snap and scores_have_any(score_snap):
+            out["scores"] = {
+                k: score_snap.get(k)
+                for k in ("y_eod", "y_tau", "y_trade", "y_on", "y_nowcast", "y_check")
+            }
     return out

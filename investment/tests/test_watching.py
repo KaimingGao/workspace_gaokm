@@ -10,7 +10,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.signal.cross_section import rank_cross_section
-from core.signal.factor_registry import list_factors, run_factor_experiment
+from core.signal.factors.meta.registry import list_factors, run_factor_experiment
 from core.watching.store import (
     init_from_example,
     read_watching,

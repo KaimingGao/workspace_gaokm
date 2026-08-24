@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
 
-from core.signal.dual_score_fusion import (
+from core.signal.dual_score.fusion import (
     _as_float,
     cascade_tau_shadow,
     eod_remaining_at_tau,
@@ -17,7 +17,7 @@ from core.signal.dual_score_fusion import (
     resolve_fusion_weights,
     stamp_trade_prev_close,
 )
-from core.signal.dual_score_resolve import (
+from core.signal.dual_score.resolve import (
     DEFAULT_DUAL_SCORE,
     get_dual_score_cfg,
     is_heuristic_score_scale,
@@ -502,7 +502,7 @@ def attach_dual_score_pit(
         ),
     )
     try:
-        from core.signal.dual_score_on import attach_on_score_pit
+        from core.signal.dual_score.on import attach_on_score_pit
 
         attach_on_score_pit(
             signal_item,
@@ -552,7 +552,7 @@ def _eod_return_model_for_item(item: dict):
         use_cluster = False
     try:
         if use_cluster:
-            from core.signal.cluster_live import (
+            from core.signal.cluster.live import (
                 filter_primary_cluster_models_by_code,
                 load_cluster_return_models_by_code,
             )

@@ -97,7 +97,7 @@ def estimate_yhat_ic(
     model = None
     if stock_code:
         try:
-            from core.signal.cluster_live import lookup_code_return_model
+            from core.signal.cluster.live import lookup_code_return_model
 
             model = lookup_code_return_model(str(stock_code))
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

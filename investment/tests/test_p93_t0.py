@@ -121,6 +121,31 @@ class TestT0Core(unittest.TestCase):
         )
         self.assertEqual(out["sold_qty"], 100)
 
+    def test_small_holding_ratio_bumps_to_one_lot(self):
+        """100 股 × 40% 取整为 0 时，应抬到 1 手，避免小仓静默无成交。"""
+        from core.t0.rules import _t0_qty_lots
+
+        self.assertEqual(_t0_qty_lots(100, 0.4, 100), 100)
+        self.assertEqual(_t0_qty_lots(200, 0.4, 100), 100)
+        self.assertEqual(_t0_qty_lots(250, 0.4, 100), 100)
+        self.assertEqual(_t0_qty_lots(300, 0.4, 100), 100)
+        bar = _bar("2026-01-10", 100, 105, 98, 101)
+        out = simulate_t0_day(
+            bar=bar,
+            shares=100,
+            cost=100,
+            rules=_rules(
+                t0_ratio=0.4,
+                sell_trigger_pct=2.0,
+                buy_trigger_pct=1.5,
+                fill_mode="optimistic",
+                direction="long_t",
+                min_range_pct=1.0,
+            ),
+        )
+        self.assertFalse(out.get("skipped"))
+        self.assertEqual(out["sold_qty"], 100)
+
     def test_reverse_t_buy_then_sell_old(self):
         """反T：低吸加仓 + 卖旧底仓；完成往返后仓位不变。"""
         bar = _bar("2026-01-10", 99, 103, 97, 101)
@@ -405,9 +430,16 @@ class TestT0Core(unittest.TestCase):
         )
         self.assertIn("delta_pnl_ratio_pct", report["optimistic_compare"])
         self.assertNotIn("round_trip_profit_rate_pct", report)
+        sample = report.get("trade_days_sample") or []
+        if report["t0_trade_days"] > 0 and sample:
+            self.assertTrue(any((d.get("trades") or []) for d in sample))
+            legs = next(d.get("trades") for d in sample if d.get("trades"))
+            self.assertIn("price", legs[0])
+            row = next(d for d in sample if d.get("trades"))
+            self.assertIn("sell_price", row)
 
     def test_backtest_defaults_path_veto(self):
-        # 收近高：正T会被 veto；显式不传 path_mode/direction 时回测应启用 veto+long_t
+        # 显式 long_t+veto：测路径否决（不经 Execution 收敛）
         bars = [_bar("d0", 100, 105, 98, 104.5) for _ in range(20)]
         for i, b in enumerate(bars):
             b["date"] = f"d{i}"
@@ -415,13 +447,27 @@ class TestT0Core(unittest.TestCase):
             bars,
             initial_shares=1000,
             initial_cost=100,
-            rules={"use_atr": False, "min_range_pct": 1.0},
+            rules={
+                "use_atr": False,
+                "min_range_pct": 1.0,
+                "direction": "long_t",
+                "path_mode": "veto",
+            },
             compare_optimistic=False,
         )
         self.assertTrue(report["success"])
         self.assertEqual((report.get("rules") or {}).get("path_mode"), "veto")
         self.assertEqual((report.get("rules") or {}).get("direction"), "long_t")
         self.assertEqual(report.get("signal_skip_days"), 0)
+
+    def test_backtest_resolve_defaults_dual_y(self):
+        from core.execution import resolve_t0_rules, strip_execution_meta
+
+        cfg = strip_execution_meta(
+            resolve_t0_rules(rules={"use_atr": False}, channel="backtest", has_minute=False)
+        )
+        self.assertEqual(cfg.get("direction"), "dual_y")
+        self.assertEqual(cfg.get("path_mode"), "veto")
 
     def test_minute_first_touch_avoids_false_cover(self):
         """先砸后拉：正T卖在尾盘，分钟路径不应再用早盘低点虚回补。"""
@@ -522,6 +568,51 @@ class TestT0Core(unittest.TestCase):
         self.assertGreater(int(out.get("sold_qty") or 0), 0)
         self.assertEqual(int(out.get("covered_qty") or 0), int(out.get("sold_qty") or 0))
         self.assertGreater(float(out.get("pnl") or 0), 0)
+        trades = out.get("trades") or []
+        self.assertTrue(all(t.get("at") for t in trades), trades)
+        self.assertEqual(trades[0].get("leg_kind"), "trigger")
+        self.assertEqual(trades[1].get("leg_kind"), "trigger")
+
+    def test_minute_forced_eod_cover_stamps_at(self):
+        bar = _bar("2024-01-03", 100, 105, 99, 100)
+        minutes = [
+            {
+                "datetime": "2024-01-03 10:00:00",
+                "date": "2024-01-03",
+                "open": 100,
+                "high": 105,
+                "low": 101,
+                "close": 104,
+            },
+            {
+                "datetime": "2024-01-03 15:00:00",
+                "date": "2024-01-03",
+                "open": 104,
+                "high": 104,
+                "low": 100.5,
+                "close": 100,
+            },
+        ]
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            minute_bars=minutes,
+            rules=_rules(
+                direction="long_t",
+                fill_mode="trigger",
+                min_range_pct=1.0,
+                sell_trigger_pct=2.0,
+                buy_trigger_pct=1.5,
+                must_cover_same_day=True,
+            ),
+        )
+        self.assertTrue(out["success"])
+        buys = [t for t in (out.get("trades") or []) if str(t.get("side", "")).endswith("buy")]
+        self.assertEqual(len(buys), 1)
+        self.assertEqual(buys[0].get("leg_kind"), "eod_cover")
+        self.assertIn("15:00", str(buys[0].get("at") or ""))
+        self.assertEqual(out.get("touch_cover_at"), buys[0].get("at"))
 
     def test_backtest_minute_by_date_sets_first_touch(self):
         bars = []
@@ -591,7 +682,7 @@ class TestT0Core(unittest.TestCase):
                 }
             },
         }
-        bars = {"600519": _bar("2026-01-10", 100, 105, 98, 101)}
+        bars = {"600519": _bar("2026-01-09", 100, 105, 98, 101)}
         out = simulate_t0_on_holdings(paper, bars_by_code=bars, dry_run=True)
         self.assertTrue(out["success"])
         self.assertTrue(out["dry_run"])
@@ -602,6 +693,12 @@ class TestT0Core(unittest.TestCase):
         out2 = simulate_t0_on_holdings(paper, bars_by_code=bars, dry_run=False)
         self.assertFalse(out2["dry_run"])
         self.assertGreater(len(paper["trades"]), 0)
+        t0_logs = [
+            e
+            for e in paper.get("operation_log") or []
+            if (e.get("meta") or {}).get("origin") == "t0"
+        ]
+        self.assertGreater(len(t0_logs), 0)
 
     def test_routing_and_skill_task(self):
         self.assertEqual(infer_quant_task("茅台底仓做T回测一下"), "t0_backtest")
@@ -626,6 +723,232 @@ class TestT0Core(unittest.TestCase):
             )
         self.assertTrue(out.get("success"))
         self.assertEqual(out.get("task"), "t0_backtest")
+
+
+class TestDualYDirection(unittest.TestCase):
+    def test_load_dual_y_alias(self):
+        cfg = load_t0_rules({"direction": "yhat"})
+        self.assertEqual(cfg["direction"], "dual_y")
+        self.assertIn("y_trade_floor", cfg)
+        self.assertEqual(cfg["y_tau_enter"], 0.25)
+
+    def test_dual_y_missing_scores_skips(self):
+        bar = _bar("2026-01-10", 100, 105, 98, 101)
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            rules=_rules(direction="dual_y", min_range_pct=1.0),
+            scores={},
+        )
+        self.assertTrue(out.get("skipped"))
+        self.assertTrue(out.get("signal_skip"))
+        self.assertIn("缺", out.get("reason") or "")
+
+    def test_dual_y_trade_floor_skips(self):
+        bar = _bar("2026-01-10", 100, 105, 98, 101)
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            rules=_rules(direction="dual_y", min_range_pct=1.0, y_trade_floor=-0.15),
+            scores={"y_trade": -0.5, "y_tau": 0.8, "y_eod": 0.1},
+        )
+        self.assertTrue(out.get("skipped"))
+        self.assertIn("y_trade", out.get("reason") or "")
+
+    def test_dual_y_conflict_skips(self):
+        bar = _bar("2026-01-10", 100, 105, 98, 101)
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            rules=_rules(
+                direction="dual_y",
+                min_range_pct=1.0,
+                y_eod_prior=0.35,
+                y_tau_enter=0.25,
+            ),
+            scores={"y_trade": 0.2, "y_tau": 0.8, "y_eod": -0.5},
+        )
+        self.assertTrue(out.get("skipped"))
+        self.assertIn("冲突", out.get("reason") or "")
+
+    def test_dual_y_long_t_and_cover(self):
+        bar = _bar("2026-01-10", 100, 105, 98, 101)
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            rules=_rules(
+                direction="dual_y",
+                path_mode="dual_touch",
+                min_range_pct=1.0,
+                sell_trigger_pct=2.0,
+                buy_trigger_pct=1.5,
+                fill_mode="optimistic",
+                must_cover_same_day=False,
+                y_tau_enter=0.25,
+            ),
+            scores={
+                "y_trade": 0.3,
+                "y_tau": 0.8,
+                "y_eod": 0.4,
+                "y_on": 0.2,
+            },
+        )
+        self.assertTrue(out["success"])
+        self.assertFalse(out.get("skipped"), out.get("reason"))
+        self.assertEqual(out.get("direction_used"), "long_t")
+        self.assertTrue((out.get("cover_policy") or {}).get("must_cover"))
+        self.assertGreater(out.get("sold_qty") or 0, 0)
+
+    def test_dual_y_reverse_t(self):
+        bar = _bar("2026-01-10", 100, 105, 96, 101)
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            rules=_rules(
+                direction="dual_y",
+                path_mode="dual_touch",
+                min_range_pct=1.0,
+                sell_trigger_pct=2.0,
+                buy_trigger_pct=1.5,
+                fill_mode="optimistic",
+                y_tau_enter=0.25,
+            ),
+            scores={
+                "y_trade": 0.2,
+                "y_tau": -0.8,
+                "y_eod": -0.5,
+                "y_on": 0.1,
+            },
+        )
+        self.assertTrue(out["success"])
+        self.assertFalse(out.get("skipped"), out.get("reason"))
+        self.assertEqual(out.get("direction_used"), "reverse_t")
+
+    def test_dual_y_overnight_allow_when_yon_aligns(self):
+        from core.t0.score_policy import resolve_cover_policy
+
+        cover = resolve_cover_policy(
+            scores={"y_on": -1.5, "y_trade": 0.3},
+            direction="long_t",
+            cfg={"must_cover_same_day": False, "y_on_allow": 1.2, "y_trade_floor": -0.15},
+        )
+        self.assertFalse(cover["must_cover"])
+        self.assertTrue(cover["allow_overnight"])
+
+
+class TestT0Viz(unittest.TestCase):
+    def test_backtest_includes_viz(self):
+        bars = [_bar("d0", 100, 105, 98, 101) for _ in range(25)]
+        for i, b in enumerate(bars):
+            b["date"] = f"2026-01-{i+1:02d}"
+        report = backtest_t0_on_bars(
+            bars,
+            initial_shares=1000,
+            initial_cost=100,
+            rules=_rules(
+                direction="dual_y",
+                path_mode="dual_touch",
+                min_range_pct=0.5,
+                sell_trigger_pct=1.0,
+                buy_trigger_pct=1.0,
+            ),
+            compare_optimistic=False,
+            stock_code="688047",
+        )
+        self.assertTrue(report.get("success"))
+        self.assertIn("viz", report)
+        self.assertIn("skip_categories", report["viz"])
+        self.assertIn("daily_activity", report["viz"])
+
+    def test_classify_skip_reason(self):
+        from core.t0.viz import classify_t0_skip_reason
+
+        self.assertEqual(
+            classify_t0_skip_reason("dual_y：缺 y_eod/y_τ/y_trade 快照"),
+            "missing_scores",
+        )
+        self.assertEqual(
+            classify_t0_skip_reason("dual_y：|y_τ|=0.116<0.25 横盘跳过"),
+            "y_tau_flat",
+        )
+
+    def test_build_and_merge_viz(self):
+        from core.t0.viz import build_t0_viz_payload, merge_t0_viz_payloads
+
+        days = [
+            {
+                "date": "2026-08-11",
+                "skipped": True,
+                "reason": "dual_y：缺 y_eod/y_τ/y_trade 快照",
+                "signal_skip": True,
+            },
+            {
+                "date": "2026-08-12",
+                "direction": "long_t",
+                "sold_qty": 100,
+                "covered_qty": 100,
+                "pnl": 150.0,
+                "exposure_pnl": 0,
+                "direction_score": 0.55,
+            },
+        ]
+        viz = build_t0_viz_payload(days, stock_code="688047", stock_name="龙芯")
+        self.assertEqual(viz["trade_count"], 1)
+        self.assertEqual(viz["skip_count"], 1)
+        self.assertEqual(len(viz["cumulative_pnl"]), 1)
+        self.assertEqual(viz["cumulative_pnl"][0]["cum_pnl"], 150.0)
+        self.assertTrue(any(c["id"] == "missing_scores" for c in viz["skip_categories"]))
+
+        viz2 = build_t0_viz_payload(
+            [
+                {
+                    "date": "2026-08-13",
+                    "direction": "reverse_t",
+                    "bought_qty": 100,
+                    "sold_back_qty": 100,
+                    "pnl": -20.0,
+                    "exposure_pnl": 0,
+                    "direction_score": -0.4,
+                }
+            ],
+            stock_code="600519",
+            stock_name="茅台",
+        )
+        merged = merge_t0_viz_payloads([viz, viz2])
+        self.assertEqual(merged["trade_count"], 2)
+        self.assertEqual(len(merged["stock_contrib"]), 2)
+        self.assertEqual(merged["cumulative_pnl"][-1]["cum_pnl"], 130.0)
+        self.assertIn("summary", merged)
+        self.assertIn("y_tau_scatter", viz)
+        self.assertEqual(viz["summary"]["y_tau_enter"], 0.25)
+
+    def test_attach_compare_to_viz(self):
+        from core.t0.viz import attach_compare_to_viz, build_t0_viz_payload
+
+        report = {
+            "t0_pnl_total": 100.0,
+            "optimistic_compare": {
+                "t0_pnl_total": 150.0,
+                "delta_pnl": 50.0,
+                "delta_pnl_ratio_pct": 50.0,
+            },
+            "participate_rate_pct": 12.5,
+            "viz": build_t0_viz_payload([]),
+        }
+        attach_compare_to_viz(report)
+        self.assertIn("compare", report["viz"])
+        self.assertEqual(report["viz"]["compare"]["optimistic_pnl"], 150.0)
+        self.assertEqual(report["viz"]["summary"]["participate_rate_pct"], 12.5)
 
 
 class TestT0Api(unittest.TestCase):
@@ -662,6 +985,7 @@ class TestT0Api(unittest.TestCase):
         self.assertIn("paper-t0-action-status", text)
         self.assertIn("paper-t0-run", text)
         self.assertIn("paper-t0-confirm", text)
+        self.assertIn("dual_y", text)
         self.assertIn("预演做T", text)
         self.assertIn("paper-holdings-table", text)
         self.assertNotIn('id="paper-rebalance"', text)

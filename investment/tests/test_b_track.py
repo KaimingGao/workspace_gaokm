@@ -77,7 +77,7 @@ class TestB2YSpec(unittest.TestCase):
 class TestB3CollinearityAndRidge(unittest.TestCase):
     def test_drop_redundant_on_correlated_pair(self):
         from core.research.beta_accuracy import apply_collinearity_policy
-        from core.signal.factor_collinearity import TREND_FAMILY
+        from core.signal.factors.meta.collinearity import TREND_FAMILY
 
         a, b = TREND_FAMILY[0], TREND_FAMILY[1]
         xs = []
@@ -96,7 +96,7 @@ class TestB3CollinearityAndRidge(unittest.TestCase):
 
     def test_keep_all_policy(self):
         from core.research.beta_accuracy import apply_collinearity_policy
-        from core.signal.factor_collinearity import TREND_FAMILY
+        from core.signal.factors.meta.collinearity import TREND_FAMILY
 
         a, b = TREND_FAMILY[0], TREND_FAMILY[1]
         xs = [{a: float(i), b: float(i)} for i in range(20)]
@@ -118,10 +118,10 @@ class TestB3CollinearityAndRidge(unittest.TestCase):
 
 class TestB4Demote(unittest.TestCase):
     def test_health_exposes_ic_demote_and_refit(self):
-        from core.signal.cluster_live_health import assess_cluster_live_health
+        from core.signal.cluster.live_health import assess_cluster_live_health
 
         with patch(
-            "core.signal.cluster_live.get_cluster_scoring_cfg",
+            "core.signal.cluster.live.get_cluster_scoring_cfg",
             return_value={
                 "mode": "shadow",
                 "enabled": True,
@@ -132,7 +132,7 @@ class TestB4Demote(unittest.TestCase):
                 "block_active_on_yhat_ic": True,
             },
         ), patch(
-            "core.signal.cluster_live.load_active_cluster_weights",
+            "core.signal.cluster.live.load_active_cluster_weights",
             return_value=None,
         ):
             h = assess_cluster_live_health(universe=["600000", "000001"])
@@ -141,7 +141,7 @@ class TestB4Demote(unittest.TestCase):
         self.assertEqual(h.get("track"), "B4")
 
     def test_cfg_refit_max_age_alias(self):
-        from core.signal.cluster_live import get_cluster_scoring_cfg
+        from core.signal.cluster.live import get_cluster_scoring_cfg
 
         cfg = get_cluster_scoring_cfg(
             {"cluster_scoring": {"refit_max_age_days": 7, "mode": "off"}}

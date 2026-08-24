@@ -29,6 +29,7 @@ import {
   yCheckBadgeHtml,
 } from "../quant/watching_insights_ui.js?v=p1227";
 import { TRADE_TITLE, formatPrevCloseDisplay, formatOpenDisplay } from "../quant/watching_quotes_ui.js?v=p1227";
+import { buildHoldingSharesTip } from "./holding_lots_tip.js?v=p1227";
 
 const ORIGIN_HINT = {
   manual: "你手动建仓或加仓",
@@ -216,7 +217,9 @@ export function buildPaperHoldingsTableHtml({
         `<td class="watching-col-center paper-hold-sent">${
           sentMap[code] || sentPlaceholderHtml(code)
         }</td>` +
-        `<td class="num">${escapeText(h.shares ?? "—")}</td>` +
+        `<td class="num"><span class="paper-hold-shares-qty has-tip" title="${escapeText(
+          buildHoldingSharesTip(h) || `持仓 ${h.shares ?? "—"} 股`
+        )}">${escapeText(h.shares ?? "—")}</span></td>` +
         `<td class="num paper-hold-prev-close" title="上一交易日收盘价">${escapeText(
           formatPrevCloseDisplay(h, { unit: h.unit, currency: h.currency })
         )}</td>` +

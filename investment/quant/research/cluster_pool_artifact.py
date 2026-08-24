@@ -13,7 +13,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.numbers import now_iso_utc
 from core.research.oos_slim import slim_oos_gate
-from core.signal.factor_coefs import (
+from core.signal.factors.meta.coefs import (
     display_weights_from_return_model,
     has_factor_coefficients,
 )

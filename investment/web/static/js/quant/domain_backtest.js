@@ -2,6 +2,7 @@ import { apiFetch } from "../api_client.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "../lw_charts.js";
 import { mountVirtualTable } from "../virtual_table.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
+import { renderT0Viz } from "../paper/t0_viz.js";
 import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringFloors } from "./scoring.js";
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { downloadBlob } from "../shared.js";
@@ -950,10 +951,12 @@ export function installBacktest(q) {
     if (!data || !data.success) {
       renderMetricCards(els.quantT0Metrics, []);
       if (els.quantT0Days) els.quantT0Days.innerHTML = "";
+      renderT0Viz(els.quantT0Viz, null);
       return;
     }
     renderMetricCards(els.quantT0Metrics, buildT0BacktestMetrics(data));
     if (els.quantT0Days) els.quantT0Days.innerHTML = buildT0BacktestDaysHtml(data);
+    renderT0Viz(els.quantT0Viz, data);
   }
 
   function renderUniversePanel(uni) {

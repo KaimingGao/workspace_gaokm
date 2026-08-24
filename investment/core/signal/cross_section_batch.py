@@ -99,7 +99,7 @@ def score_and_rank_watching(
     oos_blocked: set = set()
     if exclude_oos_failed:
         try:
-            from core.signal.cluster_oos_labels import codes_in_oos_failed_clusters
+            from core.signal.cluster.oos_labels import codes_in_oos_failed_clusters
 
             oos_blocked = codes_in_oos_failed_clusters()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

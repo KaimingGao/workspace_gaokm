@@ -10,9 +10,9 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.signal.factor_panel import build_factor_panel
-from core.signal.factor_registry import list_factors, registered_factor_names
-from core.signal.factor_taxonomy import (
+from core.signal.factors.meta.panel import build_factor_panel
+from core.signal.factors.meta.registry import list_factors, registered_factor_names
+from core.signal.factors.meta.taxonomy import (
     REMOVED_RAW_BASIS_NAMES,
     classify_factor,
     classify_factors,
@@ -104,7 +104,7 @@ class TestFactorTaxonomy(unittest.TestCase):
         self.assertEqual(cl["factor_ic_panel"]["exclusion_reasons"], {})
 
     def test_strip_keeps_empty_ic_rows_list(self):
-        from core.signal.factor_taxonomy import strip_removed_factors_from_cluster_report
+        from core.signal.factors.meta.taxonomy import strip_removed_factors_from_cluster_report
 
         report = {
             "clusters": [
@@ -121,7 +121,7 @@ class TestFactorTaxonomy(unittest.TestCase):
         self.assertEqual(out["clusters"][0]["factor_ic_panel"]["exclusion_reasons"], {})
 
     def test_strip_removed_from_pool_artifact(self):
-        from core.signal.factor_taxonomy import strip_removed_factors_from_pool_artifact
+        from core.signal.factors.meta.taxonomy import strip_removed_factors_from_pool_artifact
 
         art = {
             "code_map": {

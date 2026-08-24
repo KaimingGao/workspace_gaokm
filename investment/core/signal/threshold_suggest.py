@@ -581,7 +581,7 @@ def suggest_stance_thresholds_from_watching_oos(
     models_by_code: Dict[str, Any] = {}
     if predicted_scale:
         try:
-            from core.signal.cluster_live import load_cluster_return_models_by_code
+            from core.signal.cluster.live import load_cluster_return_models_by_code
 
             models_by_code = load_cluster_return_models_by_code() or {}
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

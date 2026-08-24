@@ -10,25 +10,69 @@ from core.t0.config import load_t0_rules
 from core.t0.rules import atr_pct_from_bars, simulate_t0_day
 
 
+def summarize_t0_day_legs(day: Dict[str, Any]) -> Dict[str, Any]:
+    """从单日 trades / touch_* 提炼 UI 校验字段（价必有；时仅分钟路径）。"""
+    trades = [t for t in (day.get("trades") or []) if isinstance(t, dict)]
+    direction = str(day.get("direction_used") or day.get("direction") or "")
+    sells = [t for t in trades if str(t.get("side") or "").lower().endswith("sell")]
+    buys = [t for t in trades if str(t.get("side") or "").lower().endswith("buy")]
+    rev = direction == "reverse_t"
+    if rev:
+        sell_t = sells[-1] if sells else None
+        buy_t = buys[0] if buys else None
+        sell_at = (sell_t or {}).get("at") or day.get("touch_sell_at")
+        buy_at = (buy_t or {}).get("at") or day.get("touch_buy_at")
+    else:
+        sell_t = sells[0] if sells else None
+        buy_t = buys[-1] if buys else None
+        sell_at = (sell_t or {}).get("at") or day.get("touch_sell_at")
+        buy_at = (buy_t or {}).get("at") or day.get("touch_cover_at") or day.get("touch_buy_at")
+
+    out: Dict[str, Any] = {}
+    if sell_t:
+        if sell_t.get("price") is not None:
+            out["sell_price"] = sell_t.get("price")
+        if sell_t.get("shares") is not None:
+            out["sell_shares"] = sell_t.get("shares")
+    if buy_t:
+        if buy_t.get("price") is not None:
+            out["buy_price"] = buy_t.get("price")
+        if buy_t.get("shares") is not None:
+            out["buy_shares"] = buy_t.get("shares")
+    if sell_at:
+        out["sell_at"] = sell_at
+    if buy_at:
+        out["buy_at"] = buy_at
+    return out
+
+
 def derive_t0_quality_metrics(report: Dict[str, Any]) -> Dict[str, Any]:
     """从回测汇总字段推导决策向指标（单票 / 多持仓共用）。"""
     trades = int(report.get("t0_trade_days") or 0)
     covers = int(report.get("t0_cover_days") or 0)
     skips = int(report.get("skip_days") or 0)
+    signal_skips = int(report.get("signal_skip_days") or 0)
     uncovers = int(report.get("uncover_days") or 0)
     pnl = float(report.get("t0_pnl_total") or 0)
     exposure = float(report.get("exposure_pnl_total") or 0)
     hold_mv = float(report.get("hold_mv_start") or 0)
+    eval_days = trades + skips
 
     out: Dict[str, Any] = {
         "t0_pnl_with_exposure": round(pnl + exposure, 2),
         "cover_rate_pct": round(covers / trades * 100.0, 2) if trades else None,
         "uncover_rate_pct": round(uncovers / trades * 100.0, 2) if trades else None,
         "participate_rate_pct": (
-            round(trades / (trades + skips) * 100.0, 2) if (trades + skips) else None
+            round(trades / eval_days * 100.0, 2) if eval_days else None
         ),
+        "signal_skip_rate_pct": (
+            round(signal_skips / eval_days * 100.0, 2) if eval_days else None
+        ),
+        "eval_days": eval_days,
         "avg_pnl_per_trade_day": round(pnl / trades, 2) if trades else None,
         "pnl_vs_hold_mv_pct": round(pnl / hold_mv * 100.0, 4) if hold_mv > 0 else None,
+        "win_rate_pct": report.get("t0_win_rate_pct"),
+        "profit_factor": report.get("profit_factor"),
     }
     opt = report.get("optimistic_compare")
     if isinstance(opt, dict) and opt.get("delta_pnl") is not None:
@@ -188,7 +232,12 @@ def _walk_t0(
     sellable = shares
     cash = float(initial_cash or 0)
     # 反T / signal 可能需要现金：给一笔与底仓市值相当的研究现金
-    if cash <= 0 and str(cfg.get("direction") or "auto") in {"auto", "reverse_t", "signal"}:
+    if cash <= 0 and str(cfg.get("direction") or "auto") in {
+        "auto",
+        "reverse_t",
+        "signal",
+        "dual_y",
+    }:
         cash = shares * cost * float(cfg.get("t0_ratio") or 0.4)
 
     days: List[dict] = []
@@ -215,7 +264,7 @@ def _walk_t0(
 
     for i, bar in enumerate(bars):
         # signal/auto/reverse_t 需现金；每日补足研究用现金（防前日半腿耗尽）
-        if str(cfg.get("direction") or "") in {"auto", "reverse_t", "signal"}:
+        if str(cfg.get("direction") or "") in {"auto", "reverse_t", "signal", "dual_y"}:
             px = float(bar.get("close") or bar.get("open") or cost or 0)
             if px > 0 and shares > 0:
                 need = shares * px * float(cfg.get("t0_ratio") or 0.4)
@@ -240,6 +289,13 @@ def _walk_t0(
             if mins and len(mins) >= 2:
                 used_minute = True
         day_rules = cfg if used_minute else fallback_cfg
+        score_snap = None
+        if str(cfg.get("direction") or "") == "dual_y" and stock_code and dkey:
+            from core.t0.score_policy import load_scores_for_code_date
+
+            # 用 T−1 账本（as_of=昨收日）避免当日收盘后才有的 ŷ 前视
+            prior_asof = str(bars[i - 1].get("date") or "")[:10] if i > 0 else dkey[:10]
+            score_snap = load_scores_for_code_date(stock_code, prior_asof or dkey[:10])
         day = simulate_t0_day(
             bar=bar_day,
             shares=shares,
@@ -252,6 +308,7 @@ def _walk_t0(
             atr_pct=atr if atr is not None else atr_for_dir,
             hist_bars=hist_prior,
             minute_bars=mins if used_minute else None,
+            scores=score_snap,
         )
         if used_minute:
             minute_days += 1
@@ -261,17 +318,22 @@ def _walk_t0(
             skip_count += 1
             if day.get("signal_skip"):
                 signal_skip_days += 1
+            skip_reason = str(day.get("reason") or day.get("direction_reason") or "")
+            from core.t0.viz import classify_t0_skip_reason
+
             days.append(
                 {
                     "date": bar.get("date"),
                     "skipped": True,
                     "reason": day.get("reason"),
+                    "skip_category": classify_t0_skip_reason(skip_reason),
                     "shares": shares,
                     "pnl": 0,
                     "exposure_pnl": 0,
                     "direction_score": day.get("direction_score"),
                     "direction_reason": day.get("direction_reason"),
                     "direction_features": day.get("direction_features"),
+                    "scores": day.get("scores"),
                     "signal_skip": bool(day.get("signal_skip")),
                     "path_mode": day.get("path_mode") or day_rules.get("path_mode"),
                     "minute_path": used_minute,
@@ -335,14 +397,25 @@ def _walk_t0(
                 "direction_score": day.get("direction_score"),
                 "direction_reason": day.get("direction_reason"),
                 "direction_features": day.get("direction_features"),
+                "scores": day.get("scores"),
+                "cover_policy": day.get("cover_policy"),
                 "path_mode": day.get("path_mode") or day_rules.get("path_mode"),
                 "minute_path": used_minute,
                 "touch_sell_at": day.get("touch_sell_at"),
                 "touch_cover_at": day.get("touch_cover_at") or day.get("touch_buy_at"),
+                "touch_buy_at": day.get("touch_buy_at"),
+                "trades": day.get("trades") or [],
+                **summarize_t0_day_legs(day),
             }
         )
 
     win = sum(1 for p in pnls if p > 0)
+    loss = sum(1 for p in pnls if p < 0)
+    gross_win = sum(p for p in pnls if p > 0)
+    gross_loss = sum(abs(p) for p in pnls if p < 0)
+    profit_factor = (
+        round(gross_win / gross_loss, 2) if gross_loss > 1e-9 else None
+    )
     total_pnl = round(sum(pnls), 2)
     exposure_total = round(sum(exposures), 2)
     hold_end = shares * float(bars[-1].get("close") or 0)
@@ -357,6 +430,14 @@ def _walk_t0(
             or float(d.get("exposure_pnl") or 0) != 0
         )
     ]
+    from core.t0.viz import build_t0_viz_payload
+
+    viz = build_t0_viz_payload(
+        days,
+        stock_code=str(stock_code or ""),
+        stock_name="",
+        rules=cfg,
+    )
     report: Dict[str, Any] = {
         "success": True,
         "task": "t0_backtest",
@@ -385,6 +466,9 @@ def _walk_t0(
         "exposure_pnl_total": exposure_total,
         "t0_pnl_with_exposure": round(total_pnl + exposure_total, 2),
         "t0_win_rate_pct": round(win / len(pnls) * 100.0, 2) if pnls else None,
+        "t0_win_days": win,
+        "t0_loss_days": loss,
+        "profit_factor": profit_factor,
         "rules": {
             "t0_ratio": cfg["t0_ratio"],
             "sell_trigger_pct": cfg["sell_trigger_pct"],
@@ -398,10 +482,20 @@ def _walk_t0(
             "min_range_pct": cfg.get("min_range_pct"),
             "use_atr": cfg.get("use_atr"),
             "ref": cfg.get("ref"),
+            "y_trade_floor": cfg.get("y_trade_floor"),
+            "y_eod_prior": cfg.get("y_eod_prior"),
+            "y_tau_enter": cfg.get("y_tau_enter"),
+            "y_on_risk": cfg.get("y_on_risk"),
+            "y_on_allow": cfg.get("y_on_allow"),
+            "y_block_conflict": cfg.get("y_block_conflict"),
         },
         "days": days[-30:],
         # 成交样本：不限于最近 30 根日历日（避免近期全跳过时误以为全程无成交）
-        "trade_days_sample": traded_days[-20:],
+        "trade_days_sample": traded_days[-50:],
+        "viz": viz,
     }
     report.update(derive_t0_quality_metrics(report))
+    from core.t0.viz import attach_compare_to_viz
+
+    attach_compare_to_viz(report)
     return report

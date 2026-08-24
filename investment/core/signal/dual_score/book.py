@@ -7,17 +7,17 @@ from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-from core.signal.dual_score_resolve import (
+from core.signal.dual_score.resolve import (
     align_trade_score_fields,
     get_dual_score_cfg,
 )
-from core.signal.dual_score_tau import (
+from core.signal.dual_score.tau import (
     ensure_formula_terms_tau,
     features_tau_fill_diag,
     format_tau_formula_string,
     rem_factor_coefficients_public,
 )
-from core.signal.dual_score_on import ensure_formula_terms_on
+from core.signal.dual_score.on import ensure_formula_terms_on
 
 
 def dual_score_book_fields(item: Optional[dict]) -> Dict[str, Any]:

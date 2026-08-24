@@ -1248,11 +1248,13 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 |--------|------|
 | `service.py` | SignalService 实现 |
 | `scorer.py` · `score_stock.py` | 单票打分主路径 |
-| `factors/` | 价值、动量、波动、股息等因子 |
+| `factors/` | 单因子 `score_*` 实现 |
+| `factors/meta/` | 注册表、面板、IC/相关、健康、分类、系数、共线、风险归因 |
 | `config.py` | `signal_config` 读写 |
 | `gate.py` | ŷ 生产门禁、scale 推断 |
 | `cross_section_batch.py` | 截面批量 |
-| `cluster_live_audit.py` | 分组 live 审计 |
+| `cluster/` | 分组 live：晋升/指针、排名、OOS 标签、健康、审计、证据、Job 水合 |
+| `dual_score/` | 双层 ŷ：融合、解析、τ/ON 头、簿字段、影子簿、人审配置 |
 
 #### 回测 `core/backtest/`
 
@@ -2597,7 +2599,7 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 | **F-H5/H6** | weight_suggest / Job 多入口 | 日报跳过 IC suggest；`/api/jobs/{name}` canonical |
 | **F-M1/M2** | 守卫不全 · 双 config GET | quant/services+core→quant 守卫；signal config 标 canonical |
 | **F-B1** | north_star 巨石 | `risk_metrics` · `ttm_events` · `backtest_curve_store`；north_star 再导出 |
-| **F-B2** | cluster_live 证据/状态 | `cluster_live_evidence.py` |
+| **F-B2** | cluster live 证据/状态 | `cluster/live_evidence.py` |
 | **F-B3** | factor_ols_clusters 巨石 | `cluster_partition` · `cluster_weight_display` |
 | **F-B4** | quant.js 门槛逻辑 | `web/static/js/quant/scoring.js` |
 | **F-B5** | quant.js 功能域迁出 | `quant/` 工厂 + **6 域** `domain_*`；watching helpers→`watching_*_ui`·`watching_panel_ui`；分组结果按需展开因子表（避免主线程卡在「分组中…」）；建议 tip→`suggest_status_ui`；已修回测 `min_score:55`→`portfolioBtScoreFloorPayload`；`ASSET_V=p670` |
@@ -2607,7 +2609,7 @@ Web 主路径：观察建仓 → 确认调仓（`run_daily_cycle`）→ 轮询 *
 | **FH3** | core→services · legacy 55 | `core/signal/score_view.py`；守卫禁 services；`rank.min_score` deprecated |
 | **FH4** | 静默 except | `score_stock.warnings`（舆情）；promote/mode manifest 失败进 warnings；`test_fh4_score_warnings` |
 | **FH5** | 分组默认非 PIT | 默认 `pit_fundamentals=true`；`lookahead_flags`；UI PIT/非 PIT 旗标；**深化** `cluster_panels` 末日 as_of 探针 + `pit_as_of` 诚实旗标 |
-| **FH4+** | 巨石再切 | `cluster_live_audit` · `cluster_panels` 按用例拆出（非为行数） |
+| **FH4+** | 巨石再切 | `cluster/live_audit` · `cluster_panels` 按用例拆出（非为行数） |
 
 ### 5.2 设计保留（勿当缺陷乱拆）
 

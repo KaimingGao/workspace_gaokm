@@ -461,7 +461,7 @@ def score_stock(
         formula_warnings.append(f"fundamentals_depth:{fund_depth.get('fundamentals_depth')}")
 
     # 分组 live：解析模式；组 β 仅 active 进主分（FH0）
-    from core.signal.cluster_live import (
+    from core.signal.cluster.live import (
         cluster_yhat_primary_allowed,
         cluster_yhat_shadow_compute_allowed,
         get_cluster_scoring_cfg,
@@ -490,7 +490,7 @@ def score_stock(
     group_model_pre = None
     global_model_pre = None
     try:
-        from core.signal.cluster_live import lookup_code_return_model
+        from core.signal.cluster.live import lookup_code_return_model
         from core.signal.return_score import ReturnScoreModel
         from core.signal.return_score_store import load_return_model
 
@@ -599,7 +599,7 @@ def score_stock(
     oos_primary_blocked = False
     if cluster_yhat_primary_allowed(mode) and cluster_label:
         try:
-            from core.signal.cluster_oos_labels import is_oos_failed_cluster_label
+            from core.signal.cluster.oos_labels import is_oos_failed_cluster_label
 
             oos_primary_blocked = is_oos_failed_cluster_label(str(cluster_label))
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -737,7 +737,7 @@ def score_stock(
                 }
             terms = list(score_formula_terms.get("terms") or [])
             if not any(str(t.get("key")) == "alt_sentiment" for t in terms):
-                from core.signal.factor_registry import factor_label
+                from core.signal.factors.meta.registry import factor_label
 
                 terms.append(
                     {
@@ -761,7 +761,7 @@ def score_stock(
                 and "size" not in (scored.get("sub_scores") or {})
                 and not any(str(t.get("key")) == "size" for t in terms)
             ):
-                from core.signal.factor_registry import factor_label
+                from core.signal.factors.meta.registry import factor_label
 
                 try:
                     size_b = float(factor_coefficients.get("size") or 0.0)
@@ -1063,7 +1063,7 @@ def score_stock(
         try:
             from core.research.on_panel import build_on_features_from_quote_bars
             from core.research.on_ridge import load_on_model, predict_on_from_features
-            from core.signal.dual_score_on import apply_on_score_fields
+            from core.signal.dual_score.on import apply_on_score_fields
 
             on_feats = build_on_features_from_quote_bars(
                 quote,

@@ -79,7 +79,7 @@ def build_tau_shadow_review(
     if not isinstance(vs, dict):
         vs = None
         try:
-            from core.signal.cluster_live import load_tau_shadow_cluster_book
+            from core.signal.cluster.live import load_tau_shadow_cluster_book
 
             live_sh = load_tau_shadow_cluster_book() or {}
             vs = ((live_sh.get("meta") or {}).get("vs_eod_book"))
@@ -239,7 +239,7 @@ def build_nowcast_shadow_review(
     if not isinstance(vs, dict):
         vs = None
         try:
-            from core.signal.cluster_live import load_nowcast_shadow_cluster_book
+            from core.signal.cluster.live import load_nowcast_shadow_cluster_book
 
             live_sh = load_nowcast_shadow_cluster_book() or {}
             live_meta = (live_sh.get("meta") or {}) if isinstance(live_sh, dict) else {}
@@ -322,7 +322,7 @@ def _factor_cn(name: Optional[str]) -> str:
     if not key:
         return ""
     try:
-        from core.signal.factor_registry import factor_label
+        from core.signal.factors.meta.registry import factor_label
 
         return factor_label(key) or key
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

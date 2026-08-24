@@ -10,7 +10,7 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple
 
-from core.signal.factor_health import PROXY_OR_UNSOURCED
+from core.signal.factors.meta.health import PROXY_OR_UNSOURCED
 
 # id, 短标, 悬停说明
 FAMILY_META: Tuple[Tuple[str, str, str], ...] = (

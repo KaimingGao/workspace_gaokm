@@ -173,7 +173,7 @@ class JobProgress:
                     and len(result.get("clusters") or []) > 0
                 ):
                     try:
-                        from core.signal.cluster_job_hydrate import (
+                        from core.signal.cluster.job_hydrate import (
                             hydrate_ols_clusters_job_result,
                         )
 

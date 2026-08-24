@@ -68,6 +68,12 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("min_range_pct", req.min_range_pct),
             ("use_atr", req.use_atr),
             ("must_cover_same_day", req.must_cover_same_day),
+            ("y_trade_floor", req.y_trade_floor),
+            ("y_tau_enter", req.y_tau_enter),
+            ("y_eod_prior", req.y_eod_prior),
+            ("y_on_allow", req.y_on_allow),
+            ("y_on_risk", req.y_on_risk),
+            ("y_block_conflict", req.y_block_conflict),
         ):
             if v is not None and k not in t0:
                 t0[k] = v

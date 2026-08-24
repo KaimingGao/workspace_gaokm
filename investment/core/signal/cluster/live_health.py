@@ -42,7 +42,7 @@ def assess_cluster_live_health(
 
     ``compute_ic``：默认仅 ``mode=active`` 时算滚动 ŷ IC（shadow 刷簿/对照免等）。
     """
-    from core.signal.cluster_live import get_cluster_scoring_cfg, load_active_cluster_weights
+    from core.signal.cluster.live import get_cluster_scoring_cfg, load_active_cluster_weights
 
     cs = get_cluster_scoring_cfg()
     active = load_active_cluster_weights()

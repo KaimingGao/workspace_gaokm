@@ -131,7 +131,7 @@ def build_data_quality_report(
 
     factor_health = None
     try:
-        from core.signal.factor_health import assess_factor_health
+        from core.signal.factors.meta.health import assess_factor_health
 
         factor_health = assess_factor_health()
         if factor_health.get("blockers"):

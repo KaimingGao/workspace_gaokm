@@ -150,7 +150,7 @@ def apply_collinearity_policy(
     keep_all | drop_redundant（默认）| orthogonalize_lite（当前等同 drop_redundant 记录）。
     返回 (kept_active, dropped, meta)。
     """
-    from core.signal.factor_collinearity import TREND_FAMILY
+    from core.signal.factors.meta.collinearity import TREND_FAMILY
 
     pol = str(policy or "drop_redundant").strip().lower()
     meta: Dict[str, Any] = {

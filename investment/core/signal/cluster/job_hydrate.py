@@ -44,7 +44,7 @@ def _unpack_cluster_report(path: str) -> Optional[Dict[str, Any]]:
     )
     out["hydrated_from_cache"] = True
     try:
-        from core.signal.factor_taxonomy import strip_removed_factors_from_cluster_report
+        from core.signal.factors.meta.taxonomy import strip_removed_factors_from_cluster_report
 
         strip_removed_factors_from_cluster_report(out)
     except Exception:

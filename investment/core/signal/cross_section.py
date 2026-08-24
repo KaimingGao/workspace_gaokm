@@ -77,7 +77,7 @@ def rank_cross_section(
     # OOS 失败组：不进横截面 Top（与 Top-K / 主簿一致）
     oos_ex = 0
     try:
-        from core.signal.cluster_oos_labels import (
+        from core.signal.cluster.oos_labels import (
             codes_in_oos_failed_clusters,
             is_oos_failed_cluster_label,
         )
@@ -126,7 +126,7 @@ def rank_cross_section(
     }
     cluster_models: Dict[str, Any] = {}
     try:
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             cluster_yhat_primary_allowed,
             filter_primary_cluster_models_by_code,
             get_cluster_scoring_cfg,

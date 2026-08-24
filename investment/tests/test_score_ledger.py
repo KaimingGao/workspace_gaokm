@@ -806,7 +806,7 @@ class TestScoreLedger(unittest.TestCase):
         from core.score_ledger import build_nowcast_shadow_review, upsert_ledger_rows
 
         with self._patch_dir(), patch(
-            "core.signal.cluster_live.load_nowcast_shadow_cluster_book",
+            "core.signal.cluster.live.load_nowcast_shadow_cluster_book",
             return_value=None,
         ):
             upsert_ledger_rows(

@@ -11,8 +11,8 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.signal.config import DEFAULT_SIGNAL_CONFIG, load_signal_config
-from core.signal.factor_corr import compute_factor_corr_matrix, redundancy_warnings_from_corr
-from core.signal.factor_registry import (
+from core.signal.factors.meta.corr import compute_factor_corr_matrix, redundancy_warnings_from_corr
+from core.signal.factors.meta.registry import (
     compute_configured_factors,
     list_factors,
     registered_factor_names,
@@ -86,7 +86,7 @@ class TestV21FactorThicken(unittest.TestCase):
         self.assertTrue(dy_m.get("omit_sub_score"))
 
     def test_size_missing_omitted_from_sub_scores(self):
-        from core.signal.factor_registry import compute_configured_factors
+        from core.signal.factors.meta.registry import compute_configured_factors
 
         bars = [
             {
@@ -111,7 +111,7 @@ class TestV21FactorThicken(unittest.TestCase):
     def test_size_with_market_cap_in_sub_scores(self):
         import math
 
-        from core.signal.factor_registry import compute_configured_factors
+        from core.signal.factors.meta.registry import compute_configured_factors
 
         bars = [
             {

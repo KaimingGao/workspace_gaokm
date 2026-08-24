@@ -282,6 +282,7 @@ watchlist
 | `position_pct` | 0.15 | 单票预算 ≈ 可用现金 × 15% |
 | 硬拒绝 | — | `hard_reject=True` 不买 |
 | 整手 | — | A 股按 100 股整数 |
+| **T+1** | 结算锁 | 买入按批次 FIFO；**当日新买股不可卖**，下一交易日才计入可卖。加仓不把旧仓锁死。无批次的旧持仓视为已过 T+1。调仓/手动/止损/开盘成交/做 T 共用 `core/paper/tplus1.py` |
 
 **非实盘、不代客下单**；可配合 cron 每日 `paper_run.py --run`。
 
@@ -1094,7 +1095,7 @@ flowchart LR
 - **软异质**：多票组先等权池 OLS 得组 β，再按单票 max\|Δβ\| 降样本权（\(w=1/(1+(Δ/0.25)^2)\)，下限 0.2）重拟合；**不拆组**。组字段 `soft_hetero` / `member_beta_gaps[].soft_weight`。
 - **研究区持久化**：成功分组始终写 `data/live/cluster_last_report.json`（并更新指纹缓存）。刷新进页 `GET .../last-report` 恢复同一分区（顺序：last_report → 指纹缓存 → `cluster_weights_draft`）；仅点「跑分组」才重算。勾选刷新日线时也会覆盖指纹缓存，避免旧分区残留。概览「全局 IC / 方向命中 / 因子摘要」来自全样本因子与 ŷ 复盘，**不是**组内 β 表。
 
-相关实现：`quant/research/factor_ols_clusters.py` · `quant/research/partition_loss.py` · `quant/research/cluster_wf_audit.py` · `quant/research/cluster_greedy_refine.py` · `core/signal/cluster_live.py` · `core/signal/return_score.py`。
+相关实现：`quant/research/factor_ols_clusters.py` · `quant/research/partition_loss.py` · `quant/research/cluster_wf_audit.py` · `quant/research/cluster_greedy_refine.py` · `core/signal/cluster/live.py` · `core/signal/return_score.py`。
 
 ---
 
@@ -1464,13 +1465,13 @@ A 改进「估得准」；B 改进「做得对」。北极星乘积两者都要�
 |------|------|
 | y 契约 | `core/research/beta_accuracy.py` · `core/research/panel.py` |
 | 分组 OLS | `quant/research/factor_ols_clusters.py` · `quant/services/quant_service_factors.py` |
-| live 映射 | `core/signal/cluster_live.py` · `core/signal/return_score.py` |
+| live 映射 | `core/signal/cluster/live.py` · `core/signal/return_score.py` |
 | 打分（EOD） | **`core/signal_service.py`**（门面）· `core/signal/service.py` · `score_stock.py` · `cross_section_batch.py` |
 | **SignalService 收口** | **SS encapsulate + E1～E5**：信封/门禁 · tip/观察/Skill/脚本/研究 · `book_fields` · BookResult 拷贝戳章 · metrics→DQ/日更 · 买入 production ŷ 闸 · 框架锁 |
-| **双层 ŷ 契约 / 融合** | **`core/signal/dual_score.py`**（F1 闸 · blend · shadow book · 字段写入） |
+| **双层 ŷ 契约 / 融合** | **`core/signal/dual_score/`**（F1 闸 · blend · shadow book · 字段写入） |
 | **τ 残差头训练 / 预测** | **`quant/research/rem_ridge.py`**（fit_rem_ridge_report · predict_rem_from_features） |
 | **τ 打分挂载** | **`core/signal/score_stock.py` § R3/A1 段**（apply_tau_score_fields 调用） |
-| **分池簿 + τ 影子簿** | **`core/signal/cluster_rank.py`**（rank_cluster_pools · build_tau_shadow_book） |
+| **分池簿 + τ 影子簿** | **`core/signal/cluster/rank.py`**（rank_cluster_pools · build_tau_shadow_book） |
 | **F1 买入闸（纸面）** | **`core/paper_rebalance.py`**（buy_passes_tau_gate 调用） |
 | **账本 / 复盘（双层）** | `core/score_ledger.py`（ŷ_EOD + ŷ_τ 分标签冻结/回填）· [quant.md · 复盘](quant.md#昨日复盘score-review) |
 | TopK | `core/backtest/topk_backtest.py` |

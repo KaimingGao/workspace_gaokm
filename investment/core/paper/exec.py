@@ -105,7 +105,13 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
         code = h.get("stock_code")
         quote = quotes_by_code.get(str(code or "").strip()) if code else None
         if not isinstance(quote, dict):
-            quote = _query_quote(str(code)) if code else {}
+            try:
+                quote = _query_quote(str(code)) if code else {}
+            except Exception:  # noqa: BLE001 — 单票行情失败时用成本价盯市
+                logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
+                quote = {}
+        if not isinstance(quote, dict):
+            quote = {}
         price = _quote_price(quote) if quote.get("success") else None
         open_px = _quote_open(quote) if quote.get("success") else None
         shares = float(h.get("shares") or 0)
@@ -140,6 +146,9 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
                 bought_date = dt.strftime("%Y-%m-%d")
             except ValueError:
                 bought_date = str(bought_at)[:10] or None
+        from core.paper.tplus1 import snapshot_tplus1
+
+        t1 = snapshot_tplus1(h)
         rows.append(
             {
                 "stock_code": code,
@@ -156,6 +165,9 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
                 "bought_at": bought_at,
                 "bought_date": bought_date,
                 "hold_days": hold_days,
+                "sellable_shares": t1["sellable_shares"],
+                "locked_shares": t1["locked_shares"],
+                "lots": t1["lots"],
                 "origin": h.get("origin") or None,
                 "origin_label": ORIGIN_LABELS.get(str(h.get("origin") or ""), ""),
             }
@@ -400,6 +412,8 @@ def manual_buy(
         fee_info,
     )
     paper.setdefault("trades", []).append(trade)
+    from core.paper.tplus1 import add_buy_lot, stamp_new_holding
+
     if existing:
         old_shares = float(existing.get("shares") or 0)
         old_cost = float(existing.get("cost") or 0)
@@ -408,21 +422,21 @@ def manual_buy(
             existing["cost"] = round(
                 (old_cost * old_shares + price * buy_shares) / new_shares, 4
             )
-        existing["shares"] = new_shares
+        add_buy_lot(existing, buy_shares, ts=trade["ts"])
         existing["origin"] = merge_origin(existing.get("origin"), ORIGIN_MANUAL)
         if name and not existing.get("stock_name"):
             existing["stock_name"] = name
     else:
-        holdings.append(
-            {
-                "stock_code": code,
-                "stock_name": name,
-                "shares": buy_shares,
-                "cost": round(price, 4),
-                "bought_at": trade["ts"],
-                "origin": ORIGIN_MANUAL,
-            }
-        )
+        row = {
+            "stock_code": code,
+            "stock_name": name,
+            "shares": buy_shares,
+            "cost": round(price, 4),
+            "bought_at": trade["ts"],
+            "origin": ORIGIN_MANUAL,
+        }
+        stamp_new_holding(row, ts=trade["ts"])
+        holdings.append(row)
         paper["holdings"] = holdings
 
     paper["cash"] = round(cash + float(fee_info["net_cash_delta"]), 2)
@@ -477,6 +491,19 @@ def manual_sell(
         else:
             sell_shares = held
 
+        from core.paper.tplus1 import TPLUS1_LOCK_REASON, clip_sell_shares, consume_sell_lots
+
+        sell_shares, t1_meta = clip_sell_shares(h, sell_shares)
+        if sell_shares <= 1e-9:
+            paper.setdefault("operation_log", []).append({
+                "ts": _now_iso(),
+                "op": "manual_sell_skip",
+                "stock_code": code,
+                "reason": t1_meta.get("reason") or TPLUS1_LOCK_REASON,
+            })
+            remain_by_code[code] = h
+            continue
+
         quote = _query_quote(code)
         # R3 涨跌停/停牌卖出侧检查：跌停/停牌无法成交则跳过（保留持仓）
         try:
@@ -496,6 +523,7 @@ def manual_sell(
                 "stock_code": code,
                 "reason": block_reason,
             })
+            remain_by_code[code] = h
             continue
         raw_price = _quote_price(quote) if quote.get("success") else None
         if not raw_price or raw_price <= 0:
@@ -521,17 +549,17 @@ def manual_sell(
                 "amount": amount,
                 "pnl_pct": pnl_pct,
                 "note": "手动清仓" if sell_shares >= held - 1e-9 else "手动减仓",
+                "tplus1_locked_shares": t1_meta.get("locked"),
             },
             fee_info,
         )
         paper.setdefault("trades", []).append(trade)
         trades.append(trade)
         cash += float(fee_info["net_cash_delta"])
-        left = held - sell_shares
+        consume_sell_lots(h, sell_shares)
+        left = float(h.get("shares") or 0)
         if left > 1e-6:
-            row = dict(h)
-            row["shares"] = left
-            remain_by_code[code] = row
+            remain_by_code[code] = h
 
     kept: List[dict] = []
     for h in holdings:
@@ -544,6 +572,14 @@ def manual_sell(
     paper["holdings"] = kept
     paper["cash"] = round(cash, 2)
     paper["updated_at"] = _now_iso()
+    if not trades:
+        skipped = [
+            e
+            for e in (paper.get("operation_log") or [])
+            if e.get("op") == "manual_sell_skip" and e.get("stock_code") in target_set
+        ]
+        if skipped and all(str(e.get("reason") or "").startswith("T+1") for e in skipped):
+            raise ValueError("T+1 锁定：当日买入的股票下一交易日才可卖")
     return trades
 
 
@@ -707,14 +743,15 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
                 )
                 paper.setdefault("trades", []).append(trade)
                 trades.append(trade)
-                holding["shares"] = round(current_shares + add_shares, 0)
-                holding["origin"] = merge_origin(holding.get("origin"), ORIGIN_STRATEGY)
-                # 更新成本（加权平均）
+                from core.paper.tplus1 import add_buy_lot
+
                 old_cost = float(holding.get("cost") or 0)
                 new_avg_cost = (
                     old_cost * current_shares + fill_px * add_shares
                 ) / (current_shares + add_shares)
                 holding["cost"] = round(new_avg_cost, 4)
+                add_buy_lot(holding, add_shares, ts=trade["ts"])
+                holding["origin"] = merge_origin(holding.get("origin"), ORIGIN_STRATEGY)
                 cash = round(cash + float(fee_info["net_cash_delta"]), 2)
             else:
                 # 评分达标但未加仓，记录真实原因（技术未确认/凯利仓位不足等）
@@ -833,16 +870,18 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
 
             paper.setdefault("trades", []).append(trade)
             trades.append(trade)
-            holdings.append(
-                {
-                    "stock_code": code,
-                    "stock_name": trade["stock_name"],
-                    "shares": shares,
-                    "cost": round(fill_px, 4),
-                    "bought_at": trade["ts"],
-                    "origin": ORIGIN_STRATEGY,
-                }
-            )
+            from core.paper.tplus1 import stamp_new_holding
+
+            row = {
+                "stock_code": code,
+                "stock_name": trade["stock_name"],
+                "shares": shares,
+                "cost": round(fill_px, 4),
+                "bought_at": trade["ts"],
+                "origin": ORIGIN_STRATEGY,
+            }
+            stamp_new_holding(row, ts=trade["ts"])
+            holdings.append(row)
             held_codes[code] = holdings[-1]
             cash = round(cash + float(fee_info["net_cash_delta"]), 2)
 
@@ -988,6 +1027,20 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
             kept.append(h)
             continue
 
+        from core.paper.tplus1 import TPLUS1_LOCK_REASON, clip_sell_shares, consume_sell_lots
+
+        sell_shares, t1_meta = clip_sell_shares(h, sell_shares)
+        if sell_shares <= 1e-9:
+            paper.setdefault("operation_log", []).append({
+                "ts": _now_iso(),
+                "op": "simulate_sells_skip",
+                "stock_code": code,
+                "reason": t1_meta.get("reason") or TPLUS1_LOCK_REASON,
+                "note": f"纸面模拟卖出被跳过：{reason}",
+            })
+            kept.append(h)
+            continue
+
         # R3 涨跌停/停牌卖出侧检查：跌停/停牌无法成交则跳过（保留持仓）
         try:
             from core.paper.rebalance import _sell_match_block_reason
@@ -1033,10 +1086,8 @@ def simulate_sells(paper: dict, pool=None) -> List[dict]:
         paper.setdefault("trades", []).append(trade)
         trades.append(trade)
         cash = round(cash + float(fee_info["net_cash_delta"]), 2)
-
-        # 如果是减仓（非清仓），保留剩余持仓
-        if sell_shares < shares:
-            h["shares"] = round(shares - sell_shares, 0)
+        consume_sell_lots(h, sell_shares)
+        if float(h.get("shares") or 0) > 1e-6:
             kept.append(h)
 
     paper["holdings"] = kept

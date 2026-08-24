@@ -82,7 +82,7 @@ class TestDualScoreFields(unittest.TestCase):
             "features_tau": {"gap_pct": 0.5},
         }
         with patch(
-            "core.signal.dual_score_tau._eod_return_model_for_item", return_value=eod_rm
+            "core.signal.dual_score.tau._eod_return_model_for_item", return_value=eod_rm
         ), patch(
             "core.research.rem_ridge.load_rem_model", return_value=rem_doc
         ):
@@ -663,7 +663,7 @@ class TestDualScoreFields(unittest.TestCase):
         import os
         import tempfile
 
-        from core.signal.dual_score_config import read_dual_score_public, save_dual_score
+        from core.signal.dual_score.config import read_dual_score_public, save_dual_score
 
         with tempfile.TemporaryDirectory() as td:
             path = os.path.join(td, "signal_config.json")
@@ -701,7 +701,7 @@ class TestDualScoreFields(unittest.TestCase):
 class TestPromoteOosCompare(unittest.TestCase):
     def test_compare_blocks_worse_than_active_when_strict(self):
         """显式关闭 allow_worse 时，相对 active 仍硬拦。"""
-        from core.signal.cluster_oos_labels import compare_oos_vs_active
+        from core.signal.cluster.oos_labels import compare_oos_vs_active
 
         draft = {
             "clusters": [
@@ -723,7 +723,7 @@ class TestPromoteOosCompare(unittest.TestCase):
         self.assertEqual(detail["draft"]["fail_rate"], 0.5)
 
     def test_compare_worse_than_active_is_soft_by_default(self):
-        from core.signal.cluster_oos_labels import compare_oos_vs_active
+        from core.signal.cluster.oos_labels import compare_oos_vs_active
 
         draft = {
             "clusters": [
@@ -744,7 +744,7 @@ class TestPromoteOosCompare(unittest.TestCase):
         self.assertTrue(any("差于 active" in str(w) for w in (detail.get("warnings") or [])))
 
     def test_compare_allows_when_configured(self):
-        from core.signal.cluster_oos_labels import compare_oos_vs_active
+        from core.signal.cluster.oos_labels import compare_oos_vs_active
 
         draft = {
             "clusters": [
@@ -764,7 +764,7 @@ class TestPromoteOosCompare(unittest.TestCase):
         self.assertIsNone(err)
 
     def test_absolute_max_rate(self):
-        from core.signal.cluster_oos_labels import compare_oos_vs_active
+        from core.signal.cluster.oos_labels import compare_oos_vs_active
 
         draft = {
             "clusters": [
@@ -779,7 +779,7 @@ class TestPromoteOosCompare(unittest.TestCase):
         self.assertIn("过高", str(err))
 
     def test_partition_preflight_promote_ready(self):
-        from core.signal.cluster_oos_labels import compare_partition_vs_active
+        from core.signal.cluster.oos_labels import compare_partition_vs_active
 
         draft = {
             "horizon_days": 1,

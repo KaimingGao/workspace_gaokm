@@ -68,6 +68,7 @@ function originLabelOf(l) {
   const meta = l.meta || {};
   const origin = String(meta.origin || "").trim();
   if (origin === "manual") return "手动";
+  if (origin === "t0") return "做T";
   if (origin === "strategy") return "策略";
   if (origin === "mixed") return "手动+策略";
   if (origin === "cluster" || origin === "research") return "研究枢纽";
@@ -81,7 +82,7 @@ function originLabelOf(l) {
   return "";
 }
 
-function renderLogItem(l) {
+function renderLogItem(l, { tradeCols = false } = {}) {
   const meta = l.meta || {};
   const cls = typeCls(l.type);
   const label = escapeText(l.type_label || l.type || "");
@@ -101,7 +102,7 @@ function renderLogItem(l) {
   ) {
     const detail = String(l.detail || "");
     const m = detail.match(
-      /(?:买入|卖出|加入模拟)\s+(.+?)\s+(\d+(?:\.\d+)?)\s*股(?:\s*@\s*(\d+(?:\.\d+)?))?/
+      /(?:做T)?(?:买入|卖出|加入模拟)\s+(.+?)\s+(\d+(?:\.\d+)?)\s*股(?:\s*@\s*(\d+(?:\.\d+)?))?/
     );
     if (m) {
       const token = String(m[1] || "").trim();
@@ -144,7 +145,6 @@ function renderLogItem(l) {
     const bits = [];
     bits.push(name || code || "—");
     if (Number.isFinite(shares)) bits.push(`${shares}股`);
-    if (Number.isFinite(price)) bits.push(`@${fmtLogPrice(price)}`);
     if (Number.isFinite(amount)) bits.push(`${fmtLogMoney(amount)}元`);
     primary = bits.join(" · ");
     if (code && name) secondaryParts.push(code);
@@ -215,6 +215,15 @@ function renderLogItem(l) {
   }
   const secondary = secondaryParts.filter(Boolean).join(" · ");
   const when = fmtTs(l.ts);
+  const priceHtml = Number.isFinite(price)
+    ? `<span class="paper-log-price" title="成交价">${escapeText(fmtLogPrice(price))}</span>`
+    : `<span class="paper-log-price is-empty" title="成交价">—</span>`;
+  const timeHtml =
+    `<span class="paper-log-ts">` +
+    `<span class="paper-log-date">${escapeText(when.date)}</span>` +
+    `<span class="paper-log-time">${escapeText(when.time || "—")}</span>` +
+    `</span>`;
+  const colCls = tradeCols ? " has-cols-4" : "";
   const priorBadges =
     (meta.market_prior
       ? `<span class="paper-market-prior-badge" title="M prior · 不改 ŷ">M</span> `
@@ -223,7 +232,7 @@ function renderLogItem(l) {
       ? `<span class="watching-sent-badge is-bear" title="舆情 prior · 不改 ŷ">S</span> `
       : "");
   return (
-    `<div class="paper-log-item ${cls}" title="${escapeText(when.title || `${when.date} ${when.time}`)}">` +
+    `<div class="paper-log-item ${cls}${colCls}" title="${escapeText(when.title || `${when.date} ${when.time}`)}">` +
     `<span class="paper-log-type">${label}</span>` +
     `<div class="paper-log-body">` +
     `<div class="paper-log-primary">${priorBadges}${escapeText(primary)}` +
@@ -231,10 +240,19 @@ function renderLogItem(l) {
     `</div>` +
     (secondary ? `<div class="paper-log-secondary">${escapeText(secondary)}</div>` : "") +
     `</div>` +
-    `<span class="paper-log-ts">` +
-    `<span class="paper-log-date">${escapeText(when.date)}</span>` +
-    `<span class="paper-log-time">${escapeText(when.time)}</span>` +
-    `</span>` +
+    timeHtml +
+    (tradeCols ? priceHtml : "") +
+    `</div>`
+  );
+}
+
+function renderTradingLogHead() {
+  return (
+    `<div class="paper-log-head" aria-hidden="true">` +
+    `<span class="paper-log-head-type">类型</span>` +
+    `<span class="paper-log-head-body">标的</span>` +
+    `<span class="paper-log-head-time">时间</span>` +
+    `<span class="paper-log-head-price">价格</span>` +
     `</div>`
   );
 }
@@ -292,7 +310,7 @@ function renderLogs(list, kind, showAllState) {
   });
   const body = groups
     .map((g) => {
-      const items = g.items.map((l) => renderLogItem(l)).join("");
+      const items = g.items.map((l) => renderLogItem(l, { tradeCols: kind === "trading" })).join("");
       return (
         `<div class="paper-log-day">` +
         `<div class="paper-log-day-label">${escapeText(dayLabel(g.key, g.items))}</div>` +
@@ -301,6 +319,7 @@ function renderLogs(list, kind, showAllState) {
       );
     })
     .join("");
+  const head = kind === "trading" ? renderTradingLogHead() : "";
   const more =
     !showAll && reversed.length > limit
       ? `<button type="button" class="dialog-btn secondary paper-log-more" data-log-kind="${escapeText(
@@ -311,7 +330,7 @@ function renderLogs(list, kind, showAllState) {
             kind
           )}">只看近 ${limit} 笔</button>`
         : "";
-  return body + more;
+  return head + body + more;
 }
 
 export function buildPaperLogsCsv(logs, { tradingOnly = true } = {}) {

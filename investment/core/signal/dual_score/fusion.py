@@ -164,7 +164,7 @@ def _fusion_weights_from_item(
     *,
     config: Optional[dict] = None,
 ) -> Tuple[float, float]:
-    from core.signal.dual_score_resolve import get_dual_score_cfg
+    from core.signal.dual_score.resolve import get_dual_score_cfg
 
     cfg = get_dual_score_cfg(config)
     try:
@@ -197,7 +197,7 @@ def unlifted_trade_blend_stale(
         return False
     if str(item.get("dual_score_window") or "") == "eod_next":
         return False  # eod_next 另走剥离 τ
-    from core.signal.dual_score_resolve import (
+    from core.signal.dual_score.resolve import (
         resolve_predicted_score_eod,
         resolve_predicted_score_tau,
     )

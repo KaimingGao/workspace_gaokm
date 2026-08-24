@@ -15,7 +15,7 @@ def oos_failed_cluster_labels(
     """返回 OOS 门禁未过的组 label 列表（跳过 skipped）。"""
     if clusters is None:
         if active is None:
-            from core.signal.cluster_live import load_active_cluster_weights
+            from core.signal.cluster.live import load_active_cluster_weights
 
             art = load_active_cluster_weights()
         else:
@@ -63,7 +63,7 @@ def codes_in_oos_failed_clusters(
 ) -> set:
     """OOS 失败组内全部代码（来自 active code_map）；供 Top-K / 横截面剔榜。"""
     if active is None:
-        from core.signal.cluster_live import load_active_cluster_weights
+        from core.signal.cluster.live import load_active_cluster_weights
 
         art = load_active_cluster_weights()
     else:
@@ -346,7 +346,7 @@ def compare_partition_vs_active(
     """B2/B3：draft vs active 晋升预检对照表（不写盘）。"""
     if active is None:
         try:
-            from core.signal.cluster_live import load_active_cluster_weights
+            from core.signal.cluster.live import load_active_cluster_weights
 
             active = load_active_cluster_weights()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -409,7 +409,7 @@ def compare_partition_vs_active(
     )
     try:
         from core.risk.portfolio_health import build_portfolio_health
-        from core.signal.cluster_live import load_active_cluster_book
+        from core.signal.cluster.live import load_active_cluster_book
 
         book_doc = load_active_cluster_book() or {}
         health = build_portfolio_health(

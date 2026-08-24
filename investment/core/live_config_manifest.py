@@ -59,7 +59,7 @@ def build_live_config_manifest(*, note: str = "") -> Dict[str, Any]:
         RETURN_SCORE_MODEL_ACTIVE_PATH,
         SIGNAL_CONFIG_PATH,
     )
-    from core.signal.cluster_pointer import load_cluster_pointer, resolve_cluster_weights_path
+    from core.signal.cluster.pointer import load_cluster_pointer, resolve_cluster_weights_path
     from core.signal.config import get_signal_config_path
 
     promoted_path = os.path.join(

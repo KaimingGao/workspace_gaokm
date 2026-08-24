@@ -558,7 +558,7 @@ class QuantOpsMixin:
             factor_ols = self.run_factor_ols_experiment(code)
             cluster_yhat_active = False
             try:
-                from core.signal.cluster_live import cluster_status_public
+                from core.signal.cluster.live import cluster_status_public
 
                 cs = (cluster_status_public(include_audit=False) or {}).get("cluster_scoring") or {}
                 cluster_yhat_active = bool(
@@ -599,7 +599,7 @@ class QuantOpsMixin:
             neutral_compare_summary = self.portfolio_neutral_compare_summary()
         cluster_live = None
         try:
-            from core.signal.cluster_live import (
+            from core.signal.cluster.live import (
                 _summarize_cluster_oos,
                 cluster_status_public,
                 load_active_cluster_book,

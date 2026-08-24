@@ -28,7 +28,7 @@ def freeze_from_cluster_book(
     优先冻 ``scored_all``（打分宇宙，供校准 g(ŷ) 全轴拟合）；无则回退 ``book``。
     行上打 ``in_book``：复盘 UI / 命中率仍默认只看簿内。
     """
-    from core.signal.cluster_live import load_active_cluster_book
+    from core.signal.cluster.live import load_active_cluster_book
 
     doc = book_doc if isinstance(book_doc, dict) else load_active_cluster_book()
     if not doc:
@@ -122,7 +122,7 @@ def freeze_from_tau_shadow_book(
     shadow_doc: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """冻结 A2 τ 影子簿成员与 ŷ_τ（独立文件，不覆盖 EOD 账本）。"""
-    from core.signal.cluster_live import load_tau_shadow_cluster_book
+    from core.signal.cluster.live import load_tau_shadow_cluster_book
 
     doc = shadow_doc if isinstance(shadow_doc, dict) else load_tau_shadow_cluster_book()
     if not doc:
@@ -209,7 +209,7 @@ def freeze_from_nowcast_shadow_book(
     shadow_doc: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """冻结 N3 nowcast 影子簿成员与 ŷ_nowcast（独立文件）。"""
-    from core.signal.cluster_live import load_nowcast_shadow_cluster_book
+    from core.signal.cluster.live import load_nowcast_shadow_cluster_book
 
     doc = shadow_doc if isinstance(shadow_doc, dict) else load_nowcast_shadow_cluster_book()
     if not doc:

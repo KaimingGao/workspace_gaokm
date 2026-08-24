@@ -83,7 +83,7 @@ def compute_factor_cross_section_ic(
     """
     from core.backtest.engine import _mock_quote_from_bars
     from core.signal.cross_section_batch import score_window_as_item
-    from core.signal.factor_registry import registered_factor_names
+    from core.signal.factors.meta.registry import registered_factor_names
 
     if not stock_bars or len(stock_bars) < 2:
         return {"success": False, "ok": False, "error": "标的不足", "factors": []}

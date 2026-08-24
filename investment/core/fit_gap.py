@@ -137,7 +137,7 @@ def _append_quality_policy_hint(hints: List[Dict[str, str]]) -> "Optional[Dict[s
 def _append_factor_health_hint(hints: List[Dict[str, str]]) -> None:
     """伪因子 blocker 提示（best-effort）。"""
     try:
-        from core.signal.factor_health import assess_factor_health
+        from core.signal.factors.meta.health import assess_factor_health
 
         fh = assess_factor_health()
         if fh.get("blockers"):

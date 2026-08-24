@@ -65,7 +65,7 @@ class ReturnScoreModel:
         self, sub_scores: Optional[Dict[str, float]]
     ) -> Optional[Dict[str, Any]]:
         """结构化拆解 ŷ（与 ``predict`` 同口径），供悬浮注释表格渲染。"""
-        from core.signal.factor_registry import factor_label
+        from core.signal.factors.meta.registry import factor_label
 
         subs = sub_scores or {}
         if not self.coefficients:

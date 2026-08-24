@@ -21,7 +21,7 @@ class TestResolveRebalanceMode(unittest.TestCase):
     def test_defaults_to_cross_section(self):
         paper = {"rules": {}}
         with patch(
-            "core.signal.cluster_live.get_cluster_scoring_cfg",
+            "core.signal.cluster.live.get_cluster_scoring_cfg",
             return_value={"mode": "off"},
         ):
             self.assertEqual(resolve_rebalance_mode(paper), "cross_section")
@@ -29,7 +29,7 @@ class TestResolveRebalanceMode(unittest.TestCase):
     def test_cluster_scoring_active(self):
         paper = {"rules": {}}
         with patch(
-            "core.signal.cluster_live.get_cluster_scoring_cfg",
+            "core.signal.cluster.live.get_cluster_scoring_cfg",
             return_value={"mode": "active"},
         ):
             self.assertEqual(resolve_rebalance_mode(paper), "cluster_book")
@@ -37,7 +37,7 @@ class TestResolveRebalanceMode(unittest.TestCase):
     def test_cluster_mode_flag(self):
         paper = {"rules": {"cluster_mode": True}}
         with patch(
-            "core.signal.cluster_live.get_cluster_scoring_cfg",
+            "core.signal.cluster.live.get_cluster_scoring_cfg",
             return_value={"mode": "off"},
         ):
             self.assertEqual(
@@ -111,14 +111,14 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
             "core.paper.rebalance.orchestrator.try_reuse_active_cluster_book",
             return_value=None,
         ), patch(
-            "core.signal.cluster_rank.rank_cluster_pools",
+            "core.signal.cluster.rank.rank_cluster_pools",
             return_value={
                 "success": True,
                 "book": ranking,
                 "scored_all": scored_all,
             },
         ), patch(
-            "core.signal.cluster_live.assess_cluster_live_health",
+            "core.signal.cluster.live.assess_cluster_live_health",
             return_value={"alerts": []},
         ), patch(
             "core.paper.rebalance.orchestrator._supplement_holding_scores",
@@ -167,9 +167,9 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
             "core.paper.rebalance.orchestrator.try_reuse_active_cluster_book",
             return_value=cached,
         ), patch(
-            "core.signal.cluster_rank.rank_cluster_pools",
+            "core.signal.cluster.rank.rank_cluster_pools",
         ) as mock_rank, patch(
-            "core.signal.cluster_live.assess_cluster_live_health",
+            "core.signal.cluster.live.assess_cluster_live_health",
             return_value={"alerts": []},
         ), patch(
             "core.paper.rebalance.simulate_cross_section_rebalance",
@@ -205,9 +205,9 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
             "core.paper.rebalance.orchestrator.try_reuse_active_cluster_book",
             return_value=cached,
         ), patch(
-            "core.signal.cluster_rank.rank_cluster_pools",
+            "core.signal.cluster.rank.rank_cluster_pools",
         ) as mock_rank, patch(
-            "core.signal.cluster_live.assess_cluster_live_health",
+            "core.signal.cluster.live.assess_cluster_live_health",
             return_value={"alerts": []},
         ), patch(
             "core.paper.rebalance.simulate_cross_section_rebalance",
@@ -238,10 +238,10 @@ class TestRunPaperRebalanceRouting(unittest.TestCase):
                 "scored_all": book,
             },
         ), patch(
-            "core.signal.cluster_live.assess_cluster_live_health",
+            "core.signal.cluster.live.assess_cluster_live_health",
             return_value={"alerts": []},
         ), patch(
-            "core.signal.cluster_rank.rank_cluster_pools",
+            "core.signal.cluster.rank.rank_cluster_pools",
         ) as mock_rank:
             out_prev = prepare_cluster_book_rank({"rules": {}}, dry_run=True)
             out_cfm = prepare_cluster_book_rank({"rules": {}}, dry_run=False)
@@ -318,9 +318,9 @@ class TestClusterBookShockInvalidate(unittest.TestCase):
         }
         quotes = {"600519": {"success": True, "change_raw": 9.8}}
         with patch(
-            "core.signal.cluster_live.load_active_cluster_book", return_value=doc
+            "core.signal.cluster.live.load_active_cluster_book", return_value=doc
         ), patch(
-            "core.signal.cluster_live.load_active_cluster_weights",
+            "core.signal.cluster.live.load_active_cluster_weights",
             return_value={"version": "v1"},
         ), patch(
             "core.ports.market.batch_query_quotes", return_value=quotes
@@ -342,9 +342,9 @@ class TestClusterBookShockInvalidate(unittest.TestCase):
         }
         quotes = {"600519": {"success": True, "change_raw": 0.4}}
         with patch(
-            "core.signal.cluster_live.load_active_cluster_book", return_value=doc
+            "core.signal.cluster.live.load_active_cluster_book", return_value=doc
         ), patch(
-            "core.signal.cluster_live.load_active_cluster_weights",
+            "core.signal.cluster.live.load_active_cluster_weights",
             return_value={"version": "v1"},
         ), patch(
             "core.ports.market.batch_query_quotes", return_value=quotes

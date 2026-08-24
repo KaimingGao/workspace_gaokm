@@ -313,16 +313,18 @@ def buy_codes_direct(
         )
         paper.setdefault("trades", []).append(trade)
         trades.append(trade)
-        holdings.append(
-            {
-                "stock_code": it["stock_code"],
-                "stock_name": trade["stock_name"],
-                "shares": it["shares"],
-                "cost": it["price"],
-                "bought_at": trade["ts"],
-                "origin": ORIGIN_MANUAL,
-            }
-        )
+        from core.paper.tplus1 import stamp_new_holding
+
+        row = {
+            "stock_code": it["stock_code"],
+            "stock_name": trade["stock_name"],
+            "shares": it["shares"],
+            "cost": it["price"],
+            "bought_at": trade["ts"],
+            "origin": ORIGIN_MANUAL,
+        }
+        stamp_new_holding(row, ts=trade["ts"])
+        holdings.append(row)
         cash += float(fee_info["net_cash_delta"])
 
     paper["holdings"] = holdings

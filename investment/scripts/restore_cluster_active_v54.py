@@ -11,13 +11,13 @@ sys.path.insert(0, str(ROOT))
 
 
 def main() -> int:
-    from core.signal.cluster_live import (
+    from core.signal.cluster.live import (
         assess_cluster_live_health,
         build_cluster_enable_evidence,
         set_cluster_scoring_mode,
         get_cluster_scoring_cfg,
     )
-    from core.signal.cluster_pointer import active_enable_blockers
+    from core.signal.cluster.pointer import active_enable_blockers
     from core.signal.service import get_default_signal_service
 
     svc = get_default_signal_service()

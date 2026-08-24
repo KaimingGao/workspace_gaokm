@@ -73,7 +73,7 @@ def _build_ic_matrix(
 
     用 scipy spearman；没装则退回 pearson。结果仅用作候选特征，不参与最终打分。
     """
-    from core.signal.factor_corr import pearson_with_reason
+    from core.signal.factors.meta.corr import pearson_with_reason
 
     rows: List[np.ndarray] = []
     try:

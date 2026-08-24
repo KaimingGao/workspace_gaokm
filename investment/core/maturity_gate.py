@@ -286,7 +286,7 @@ def _y_track_gate(snaps: dict, add) -> None:
         )
 
     try:
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             assess_cluster_live_health,
             get_cluster_scoring_cfg,
             load_active_cluster_weights,
@@ -350,7 +350,7 @@ def _x_track_gate(fund: dict, add) -> None:
     )
     try:
         from core.signal.config import load_signal_config as _lsc
-        from core.signal.factor_health import assess_factor_health
+        from core.signal.factors.meta.health import assess_factor_health
 
         fh = assess_factor_health(config=_lsc())
         add(
@@ -373,7 +373,7 @@ def _x_track_gate(fund: dict, add) -> None:
             False,
             f"factor_health 失败：{exc}",
             severity="soft",
-            action="检查 core.signal.factor_health",
+            action="检查 core.signal.factors.meta.health",
         )
     add(
         "x_track",
@@ -439,7 +439,7 @@ def _b_track_gate(fund: dict, add) -> None:
             action="检查 sample_ops / fundamentals store",
         )
     try:
-        from core.signal.cluster_live_health import assess_cluster_live_health
+        from core.signal.cluster.live_health import assess_cluster_live_health
 
         health = assess_cluster_live_health()
         refit_ok = not bool(health.get("refit_suggested") or health.get("stale") or health.get("ic_demote"))

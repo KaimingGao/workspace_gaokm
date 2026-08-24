@@ -67,7 +67,7 @@ def _with_stage_prefix(msg: str) -> str:
 
 class QuantFactorMixin:
     def list_factors(self) -> Dict[str, Any]:
-        from core.signal.factor_panel import build_factor_panel
+        from core.signal.factors.meta.panel import build_factor_panel
 
         return build_factor_panel()
 
@@ -79,7 +79,7 @@ class QuantFactorMixin:
         horizon_days: int = 3,
         with_experiment: bool = False,
     ) -> Dict[str, Any]:
-        from core.signal.factor_panel import build_factor_panel
+        from core.signal.factors.meta.panel import build_factor_panel
 
         if not with_experiment:
             return build_factor_panel()
@@ -173,7 +173,7 @@ class QuantFactorMixin:
         from core.data.facade import bars_and_source_research as bars_and_source
         from core.data.facade import get_quote, index_bars_and_source
         from core.ports.market import default_benchmark, resolve_market_code
-        from core.signal.factor_registry import run_factor_experiment
+        from core.signal.factors.meta.registry import run_factor_experiment
 
         quote = get_quote(code)
         sym = quote.get("stock_code") if quote.get("success") else code
@@ -196,7 +196,7 @@ class QuantFactorMixin:
         )
         report["stock_code"] = sym
         report["data_source"] = src
-        from core.signal.factor_panel import build_factor_panel
+        from core.signal.factors.meta.panel import build_factor_panel
 
         report["panel"] = build_factor_panel(
             experiment=report,
@@ -259,7 +259,7 @@ class QuantFactorMixin:
         source = "none"
         if prefer_cluster_book:
             try:
-                from core.signal.cluster_live import load_active_cluster_book
+                from core.signal.cluster.live import load_active_cluster_book
 
                 book = load_active_cluster_book() or {}
                 ranked = (
@@ -910,7 +910,7 @@ class QuantFactorMixin:
                 )
                 # L3：重聚类结果进草稿（≠ active），待人审 promote
                 try:
-                    from core.signal.cluster_live import save_cluster_draft
+                    from core.signal.cluster.live import save_cluster_draft
 
                     art = report.get("pool_artifact") or {}
                     if art.get("success") and art.get("code_map"):
@@ -1106,7 +1106,7 @@ class QuantFactorMixin:
         light: bool = False,
         run_auto_demote: bool = False,
     ) -> Dict[str, Any]:
-        from core.signal.cluster_live import cluster_status_public
+        from core.signal.cluster.live import cluster_status_public
 
         return cluster_status_public(
             audit_rotate=bool(audit_rotate),
@@ -1123,12 +1123,12 @@ class QuantFactorMixin:
         focus_codes: Optional[list] = None,
     ) -> Dict[str, Any]:
         """B3：draft/产物 vs active 晋升预检对照。"""
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             get_cluster_scoring_cfg,
             load_active_cluster_weights,
             load_cluster_draft,
         )
-        from core.signal.cluster_oos_labels import compare_partition_vs_active
+        from core.signal.cluster.oos_labels import compare_partition_vs_active
 
         art = artifact
         if from_draft or not art:
@@ -1155,7 +1155,7 @@ class QuantFactorMixin:
         force: bool = False,
         from_draft: bool = False,
     ) -> Dict[str, Any]:
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             load_cluster_draft,
             promote_cluster_artifact,
         )
@@ -1168,7 +1168,7 @@ class QuantFactorMixin:
         return promote_cluster_artifact(art, note=note, force=force)
 
     def rollback_cluster_live(self, *, to_version: Optional[int] = None) -> Dict[str, Any]:
-        from core.signal.cluster_live import rollback_cluster_weights
+        from core.signal.cluster.live import rollback_cluster_weights
 
         return rollback_cluster_weights(to_version=to_version)
 
@@ -1179,17 +1179,17 @@ class QuantFactorMixin:
         enabled: Optional[bool] = None,
         force: bool = False,
     ) -> Dict[str, Any]:
-        from core.signal.cluster_live import set_cluster_scoring_mode
+        from core.signal.cluster.live import set_cluster_scoring_mode
 
         return set_cluster_scoring_mode(mode, enabled=enabled, force=force)
 
     def save_cluster_live_draft(self, artifact: Dict[str, Any]) -> Dict[str, Any]:
-        from core.signal.cluster_live import save_cluster_draft
+        from core.signal.cluster.live import save_cluster_draft
 
         return save_cluster_draft(artifact or {})
 
     def refresh_cluster_live_book(self) -> Dict[str, Any]:
-        from core.signal.cluster_live import refresh_cluster_book_daily
+        from core.signal.cluster.live import refresh_cluster_book_daily
 
         return refresh_cluster_book_daily()
 
@@ -1218,7 +1218,7 @@ class QuantFactorMixin:
         force: bool = False,
     ) -> Dict[str, Any]:
         """一键：晋升 + 影子/激活 + 刷新分池簿。"""
-        from core.signal.cluster_live import apply_cluster_live_shortcut
+        from core.signal.cluster.live import apply_cluster_live_shortcut
 
         return apply_cluster_live_shortcut(
             artifact,
@@ -1387,7 +1387,7 @@ class QuantFactorMixin:
         suggestion["config_diff"] = format_weight_config_diff(suggestion)
         # FS1：趋势族共线提示挂到晋升建议
         try:
-            from core.signal.factor_collinearity import trend_family_collinearity
+            from core.signal.factors.meta.collinearity import trend_family_collinearity
 
             rows = []
             for it in (corr.get("items") or corr.get("rows") or []):
@@ -1442,7 +1442,7 @@ class QuantFactorMixin:
         horizon_days: int = 3,
     ) -> Dict[str, Any]:
         """观察池/候选截面 sub_scores 相关矩阵（研究只读）。"""
-        from core.signal.factor_corr import compute_factor_corr_matrix
+        from core.signal.factors.meta.corr import compute_factor_corr_matrix
         from core.signal.service import get_default_signal_service
 
         ranked = get_default_signal_service().rank_cross_section(
@@ -1459,7 +1459,7 @@ class QuantFactorMixin:
             }
         items = ranked.get("ranking") or []
         from core.signal.config import load_signal_config
-        from core.signal.factor_corr import redundancy_warnings_from_corr
+        from core.signal.factors.meta.corr import redundancy_warnings_from_corr
 
         report = compute_factor_corr_matrix(items)
         cfg = load_signal_config()
@@ -1530,7 +1530,7 @@ class QuantFactorMixin:
         if predicted:
             model = None
             try:
-                from core.signal.cluster_live import load_cluster_return_models_by_code
+                from core.signal.cluster.live import load_cluster_return_models_by_code
 
                 models = load_cluster_return_models_by_code() or {}
                 model = models.get(str(sym).strip()) or models.get(str(code).strip())
@@ -1781,7 +1781,7 @@ def _save_last_cluster_report(report: Dict[str, Any]) -> None:
         logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         pass
     try:
-        from core.signal.factor_taxonomy import strip_removed_factors_from_cluster_report
+        from core.signal.factors.meta.taxonomy import strip_removed_factors_from_cluster_report
 
         strip_removed_factors_from_cluster_report(report_copy)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -1828,7 +1828,7 @@ def _oos_summary_from_clusters(clusters: list) -> Dict[str, Any]:
 def _report_from_cluster_draft() -> Optional[Dict[str, Any]]:
     """把 ``cluster_weights_draft`` 收成研究区可渲染的报告形（缺 ols/IC 面板等全文）。"""
     try:
-        from core.signal.cluster_live import load_cluster_draft
+        from core.signal.cluster.live import load_cluster_draft
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
         return None
@@ -1962,7 +1962,7 @@ def _load_latest_cluster_report() -> Optional[Dict[str, Any]]:
         out["hydrated_from_cache"] = True
         out["restored_from"] = source
         try:
-            from core.signal.factor_taxonomy import strip_removed_factors_from_cluster_report
+            from core.signal.factors.meta.taxonomy import strip_removed_factors_from_cluster_report
 
             strip_removed_factors_from_cluster_report(out)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -1984,9 +1984,9 @@ def hydrate_ols_clusters_job_result(
 ) -> Optional[Dict[str, Any]]:
     """Job 落盘摘要缺 ``clusters`` 时，从最近报告补全（抗热重载）。
 
-    canonical：``core.signal.cluster_job_hydrate``；此处先走 core，再尝试草稿回退。
+    canonical：``core.signal.cluster.job_hydrate``；此处先走 core，再尝试草稿回退。
     """
-    from core.signal.cluster_job_hydrate import (
+    from core.signal.cluster.job_hydrate import (
         hydrate_ols_clusters_job_result as _core_hydrate,
     )
 
@@ -2060,7 +2060,7 @@ def _load_cluster_cache(
         pass
     report["cache_created_at"] = doc.get("cache_created_at") or doc.get("created_at")
     try:
-        from core.signal.factor_taxonomy import strip_removed_factors_from_cluster_report
+        from core.signal.factors.meta.taxonomy import strip_removed_factors_from_cluster_report
 
         strip_removed_factors_from_cluster_report(report)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -2089,7 +2089,7 @@ def _save_cluster_cache(report: Dict[str, Any], fingerprint: str) -> None:
     for k in ("progress_cb", "_progress_cb"):
         report_copy.pop(k, None)
     try:
-        from core.signal.factor_taxonomy import strip_removed_factors_from_cluster_report
+        from core.signal.factors.meta.taxonomy import strip_removed_factors_from_cluster_report
 
         strip_removed_factors_from_cluster_report(report_copy)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

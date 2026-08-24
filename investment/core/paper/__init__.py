@@ -13,6 +13,10 @@ from core.paper.exec import (
     simulate_buys,
     simulate_sells,
 )
+from core.paper.tplus1 import (  # noqa: F401 — 再导出供测试 / 调用方
+    TPLUS1_LOCK_REASON,
+    sellable_shares,
+)
 from core.paper.ledger import (
     DEFAULT_PAPER_PATH,
     EXAMPLE_PATH,
@@ -89,5 +93,7 @@ __all__ = [
     "simulate_buys",
     "simulate_sells",
     "snapshots_for_ui",
+    "sellable_shares",
+    "TPLUS1_LOCK_REASON",
     "trim_paper_lists",
 ]

@@ -133,7 +133,7 @@ class TestOnRidgeFit(unittest.TestCase):
 
 class TestOnScoreAttach(unittest.TestCase):
     def test_apply_on_fields(self):
-        from core.signal.dual_score_on import apply_on_score_fields
+        from core.signal.dual_score.on import apply_on_score_fields
 
         item = {"stock_code": "600519", "predicted_score": 1.2}
         apply_on_score_fields(item, on_yhat=-0.35, feats={"ret_oc": 0.1, "gap_pct": 2.0})
@@ -144,7 +144,7 @@ class TestOnScoreAttach(unittest.TestCase):
         self.assertEqual(item["predicted_score"], 1.2)
 
     def test_attach_pit_without_model(self):
-        from core.signal.dual_score_on import attach_on_score_pit
+        from core.signal.dual_score.on import attach_on_score_pit
 
         bars = _bars(25)
         item = {"stock_code": "000001", "predicted_score": 0.5}
@@ -186,7 +186,7 @@ class TestOnScoreAttach(unittest.TestCase):
                 self.assertEqual(load_on_last_report(), doc)
 
     def test_dual_score_book_fields_passes_on(self):
-        from core.signal.dual_score_book import dual_score_book_fields
+        from core.signal.dual_score.book import dual_score_book_fields
 
         item = {
             "predicted_score": 1.0,
@@ -200,7 +200,7 @@ class TestOnScoreAttach(unittest.TestCase):
         self.assertEqual(out.get("features_on"), {"gap_pct": 1.2})
 
     def test_ensure_formula_terms_on_refreshes_stale_z(self):
-        from core.signal.dual_score_on import ensure_formula_terms_on
+        from core.signal.dual_score.on import ensure_formula_terms_on
 
         item = {
             "predicted_score_on": -0.5,
@@ -234,7 +234,7 @@ class TestOnScoreAttach(unittest.TestCase):
         self.assertNotEqual(float(ret_oc.get("z") or 0.0), 0.0)
 
     def test_holding_row_as_quote_parses_open(self):
-        from core.signal.dual_score_on import holding_row_as_quote
+        from core.signal.dual_score.on import holding_row_as_quote
 
         q = holding_row_as_quote(
             {
@@ -250,7 +250,7 @@ class TestOnScoreAttach(unittest.TestCase):
         self.assertIn("元", str(q.get("open") or ""))
 
     def test_hydrate_holding_on_fields_fills_predicted_score_on(self):
-        from core.signal.dual_score_on import hydrate_holding_on_fields
+        from core.signal.dual_score.on import hydrate_holding_on_fields
 
         row = {
             "stock_code": "600519",

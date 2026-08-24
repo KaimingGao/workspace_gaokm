@@ -267,7 +267,7 @@ def align_labels_with_active_live(
     art = active
     if art is None:
         try:
-            from core.signal.cluster_live import load_active_cluster_weights
+            from core.signal.cluster.live import load_active_cluster_weights
 
             art = load_active_cluster_weights()
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

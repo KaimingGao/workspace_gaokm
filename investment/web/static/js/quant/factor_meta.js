@@ -1,5 +1,5 @@
 /**
- * 因子元数据缓存（/api/quant/factors）+ 经济族/来源分类（与 core.signal.factor_taxonomy 对齐）。
+ * 因子元数据缓存（/api/quant/factors）+ 经济族/来源分类（与 core.signal.factors.meta.taxonomy 对齐）。
  */
 import { escapeHtml } from "../shared.js";
 

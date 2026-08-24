@@ -149,6 +149,15 @@ def pnl_fields_from_trade(trade: Optional[dict]) -> Dict[str, Any]:
     return out
 
 
+def _norm_trade_side(side: str) -> str:
+    s = str(side or "").strip().lower()
+    if s in ("t0_sell", "sell"):
+        return "sell"
+    if s in ("t0_buy", "buy"):
+        return "buy"
+    return s
+
+
 def _match_trade_for_log(
     pool: list,
     used: set,
@@ -165,7 +174,7 @@ def _match_trade_for_log(
             continue
         if str(trade.get("stock_code") or "").strip() != code:
             continue
-        side = str(trade.get("side") or "").strip().lower()
+        side = _norm_trade_side(trade.get("side") or "")
         if side and side != want_side:
             continue
         if shares is not None and trade.get("shares") is not None:
@@ -209,6 +218,7 @@ def enrich_operation_log_with_trade_fees(
             shares = None
         need_fees = meta.get("fees") is None and meta.get("commission") is None
         need_pnl = op == "sell" and meta.get("pnl_pct") is None and meta.get("pnl") is None
+        need_price = meta.get("price") is None
         matched = _match_trade_for_log(
             pool, used, code=code, want_side=want_side, shares=shares
         )
@@ -216,6 +226,12 @@ def enrich_operation_log_with_trade_fees(
         if matched is not None:
             i, trade = matched
             consumed = False
+            if need_price and trade.get("price") is not None:
+                try:
+                    meta["price"] = round(float(trade["price"]), 4)
+                    consumed = True
+                except (TypeError, ValueError):
+                    pass
             if need_pnl:
                 pnl = pnl_fields_from_trade(trade)
                 if pnl:

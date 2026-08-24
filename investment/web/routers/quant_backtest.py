@@ -42,6 +42,17 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             rules["min_range_pct"] = body.min_range_pct
         if body.use_atr is not None:
             rules["use_atr"] = body.use_atr
+        for yk in (
+            "y_trade_floor",
+            "y_tau_enter",
+            "y_eod_prior",
+            "y_on_allow",
+            "y_on_risk",
+            "y_block_conflict",
+        ):
+            val = getattr(body, yk, None)
+            if val is not None:
+                rules[yk] = val
 
         code = (body.code or "").strip()
         from_paper = bool(body.from_paper)

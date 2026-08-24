@@ -238,7 +238,7 @@ class TestSignalServiceWrap(unittest.TestCase):
 
         fake = {"success": True, "book": [_yhat_item()], "ranking": [_yhat_item()]}
         with patch(
-            "core.signal.cluster_rank.rank_cluster_pools",
+            "core.signal.cluster.rank.rank_cluster_pools",
             return_value=fake,
         ):
             b = SignalService().rank_cluster_pools(None, persist_book=False)
@@ -297,7 +297,7 @@ class TestMainCallersUseService(unittest.TestCase):
         self.assertIn("get_default_signal_service", text)
         self.assertNotIn("from core.signal.score_stock import score_stock", text)
         self.assertNotIn("from core.signal.cross_section import rank_cross_section", text)
-        self.assertNotIn("from core.signal.cluster_rank import rank_cluster_pools", text)
+        self.assertNotIn("from core.signal.cluster.rank import rank_cluster_pools", text)
 
     def test_paper_account_imports_service(self):
         from pathlib import Path
@@ -314,7 +314,7 @@ class TestMainCallersUseService(unittest.TestCase):
         )
         self.assertIn("get_default_signal_service", text)
         self.assertNotIn("from core.signal.cross_section import rank_cross_section", text)
-        self.assertNotIn("from core.signal.cluster_rank import rank_cluster_pools", text)
+        self.assertNotIn("from core.signal.cluster.rank import rank_cluster_pools", text)
 
     def test_watching_insights_imports_service(self):
         from pathlib import Path
@@ -326,10 +326,10 @@ class TestMainCallersUseService(unittest.TestCase):
     def test_cluster_live_refresh_imports_service(self):
         from pathlib import Path
 
-        text = Path(ROOT, "core/signal/cluster_live.py").read_text(encoding="utf-8")
+        text = Path(ROOT, "core/signal/cluster/live.py").read_text(encoding="utf-8")
         self.assertIn("get_default_signal_service", text)
         self.assertNotIn(
-            "from core.signal.cluster_rank import rank_cluster_pools", text
+            "from core.signal.cluster.rank import rank_cluster_pools", text
         )
 
     def test_skill_signal_imports_service(self):

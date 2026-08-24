@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 import numpy as np
 
 from core.signal.config import load_signal_config
-from core.signal.factor_registry import registered_factor_names
+from core.signal.factors.meta.registry import registered_factor_names
 
 
 def clamp_ridge_lambda(value: Any, default: float = 0.0) -> float:

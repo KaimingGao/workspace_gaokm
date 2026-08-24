@@ -64,7 +64,7 @@ def build_cluster_enable_evidence(
     默认不采全局/组双分样本（系统主路径无全局 return_model）。
     ``include_rolling_ic`` 默认关：状态/UI 路径避免拉行情卡死；启用门禁显式打开。
     """
-    from core.signal.cluster_live import (
+    from core.signal.cluster.live import (
         assess_cluster_live_health,
         cluster_score_audit_sample,
         ensure_active_cluster_oos_gates,
@@ -313,7 +313,7 @@ def cluster_status_public(
         CLUSTER_WEIGHTS_ACTIVE_PATH,
         CLUSTER_WEIGHTS_DRAFT_PATH,
     )
-    from core.signal.cluster_live import (
+    from core.signal.cluster.live import (
         assess_cluster_live_health,
         cluster_score_audit_sample,
         get_cluster_scoring_cfg,
@@ -354,7 +354,7 @@ def cluster_status_public(
     health = assess_cluster_live_health(compute_ic=False)
     draft = load_cluster_draft()
     book = load_active_cluster_book()
-    import core.signal.cluster_live as cluster_live_mod
+    import core.signal.cluster.live as cluster_live_mod
 
     paper_land = cluster_live_mod._paper_cluster_landed(active)
     tau_shadow = None
@@ -540,7 +540,7 @@ def cluster_status_public(
     # B3：draft vs active 晋升预检（纯本地对照，light 也可带）
     if has_draft:
         try:
-            from core.signal.cluster_oos_labels import compare_partition_vs_active
+            from core.signal.cluster.oos_labels import compare_partition_vs_active
 
             ccfg = cs
             max_rate = ccfg.get("max_oos_fail_rate")

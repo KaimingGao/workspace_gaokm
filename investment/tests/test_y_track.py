@@ -185,7 +185,7 @@ class TestY3StanceThresholds(unittest.TestCase):
 
 class TestY1OosFailRate(unittest.TestCase):
     def test_max_oos_fail_rate_in_cfg(self):
-        from core.signal.cluster_live import get_cluster_scoring_cfg
+        from core.signal.cluster.live import get_cluster_scoring_cfg
 
         cs = get_cluster_scoring_cfg(
             {

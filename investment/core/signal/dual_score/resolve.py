@@ -7,7 +7,7 @@ from typing import Any, Dict, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-from core.signal.dual_score_fusion import (
+from core.signal.dual_score.fusion import (
     _as_float,
     fuse_remaining_heads_meta,
     item_gap_pct,

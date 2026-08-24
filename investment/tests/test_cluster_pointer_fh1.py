@@ -95,11 +95,11 @@ def _artifact():
 
 class TestClusterPointerFh1(unittest.TestCase):
     def test_promote_writes_pointer_and_versioned(self):
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             load_active_cluster_weights,
             promote_cluster_artifact,
         )
-        from core.signal.cluster_pointer import load_cluster_pointer
+        from core.signal.cluster.pointer import load_cluster_pointer
 
         with _live_tmp() as ctx:
             out = promote_cluster_artifact(_artifact())
@@ -115,8 +115,8 @@ class TestClusterPointerFh1(unittest.TestCase):
             self.assertEqual(act["n_mapped_codes"], 2)
 
     def test_validation_fail_leaves_pointer_untouched(self):
-        from core.signal.cluster_live import promote_cluster_artifact
-        from core.signal.cluster_pointer import load_cluster_pointer
+        from core.signal.cluster.live import promote_cluster_artifact
+        from core.signal.cluster.pointer import load_cluster_pointer
 
         with _live_tmp() as ctx:
             bad = promote_cluster_artifact({"code_map": {}})
@@ -134,7 +134,7 @@ class TestClusterPointerFh1(unittest.TestCase):
             self.assertEqual(ptr1["version"], ptr2["version"])
 
     def test_force_active_writes_audit(self):
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             promote_cluster_artifact,
             set_cluster_scoring_mode,
         )
@@ -146,10 +146,10 @@ class TestClusterPointerFh1(unittest.TestCase):
             self.assertFalse(blocked["success"])
             # force 豁免并写审计
             with patch(
-                "core.signal.cluster_live.assess_cluster_live_health",
+                "core.signal.cluster.live.assess_cluster_live_health",
                 return_value={"allow_active": True, "alerts": []},
             ), patch(
-                "core.signal.cluster_live.build_cluster_enable_evidence",
+                "core.signal.cluster.live.build_cluster_enable_evidence",
                 return_value={"gate": {"ok": True, "blockers": []}},
             ):
                 forced = set_cluster_scoring_mode("active", force=True)

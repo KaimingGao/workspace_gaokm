@@ -38,7 +38,7 @@ def _prior_yhat_by_code(codes: Sequence[str]) -> Tuple[Dict[str, float], str]:
                     continue
 
     try:
-        from core.signal.cluster_live import load_active_cluster_book
+        from core.signal.cluster.live import load_active_cluster_book
 
         doc = load_active_cluster_book() or {}
         _ingest(
@@ -182,12 +182,12 @@ def rank_cluster_pools(
 
     ``top_n_per_group`` 已废弃（保留入参兼容旧 API），不再做组内 Top-N。
     """
-    from core.signal.cluster_live import (
+    from core.signal.cluster.live import (
         get_cluster_scoring_cfg,
         load_active_cluster_weights,
         save_active_cluster_book,
     )
-    from core.signal.cluster_oos_labels import oos_failed_cluster_labels
+    from core.signal.cluster.oos_labels import oos_failed_cluster_labels
     from core.signal.config import get_rank_defaults, get_scoring_horizon_days, load_signal_config
     from core.signal.score_display import json_safe_number, selection_min_score
     from core.signal.score_stock import score_stock
@@ -729,7 +729,7 @@ def rank_cluster_pools(
         )
         # A2：同池按 ŷ_τ 影子簿（默认开；不进 execution）
         try:
-            from core.signal.cluster_live import save_tau_shadow_cluster_book
+            from core.signal.cluster.live import save_tau_shadow_cluster_book
             from core.signal.dual_score import build_tau_shadow_book, get_dual_score_cfg
 
             ds = get_dual_score_cfg()
@@ -760,7 +760,7 @@ def rank_cluster_pools(
         nowcast_shadow_path = None
         nowcast_shadow_meta = None
         try:
-            from core.signal.cluster_live import save_nowcast_shadow_cluster_book
+            from core.signal.cluster.live import save_nowcast_shadow_cluster_book
             from core.signal.dual_score import (
                 build_nowcast_shadow_book,
                 nowcast_shadow_alerts,

@@ -270,7 +270,7 @@ def ops_fundamentals_ingest_nudge(body: IngestNudgeBody | None = None) -> Dict[s
 @router.get("/api/ops/factor-health")
 def ops_factor_health() -> Dict[str, Any]:
     """X3 · 生产面因子健康（proxy / 无源权重）。"""
-    from core.signal.factor_health import assess_factor_health
+    from core.signal.factors.meta.health import assess_factor_health
 
     return assess_factor_health()
 

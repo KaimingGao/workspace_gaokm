@@ -8,7 +8,7 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from core.signal.factor_coefs import (
+from core.signal.factors.meta.coefs import (
     coefficients_from_return_model,
     display_weights_from_coefficients,
     display_weights_from_return_model,

@@ -172,6 +172,7 @@ export function initQuant(ctx) {
     quantPortfolioChart: document.getElementById("quant-portfolio-chart"),
     quantT0Summary: document.getElementById("paper-t0-summary"),
     quantT0Metrics: document.getElementById("paper-t0-metrics"),
+    quantT0Viz: document.getElementById("paper-t0-viz"),
     quantT0Days: document.getElementById("paper-t0-days"),
     quantThresholdSummary: document.getElementById("quant-threshold-summary"),
     quantThresholdTable: document.getElementById("quant-threshold-table"),

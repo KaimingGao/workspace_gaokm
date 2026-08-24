@@ -24,7 +24,7 @@ class TestScoringHorizon(unittest.TestCase):
             self.assertEqual(get_scoring_horizon_days(), 1)
 
     def test_promote_blocks_horizon_mismatch(self):
-        from core.signal.cluster_live import _validate_artifact_for_promote
+        from core.signal.cluster.live import _validate_artifact_for_promote
 
         art = {
             "horizon_days": 3,
@@ -62,7 +62,7 @@ class TestScoringHorizon(unittest.TestCase):
         self.assertIn("horizon_days", str(err))
 
     def test_promote_allows_matching_horizon(self):
-        from core.signal.cluster_live import _validate_artifact_for_promote
+        from core.signal.cluster.live import _validate_artifact_for_promote
 
         art = {
             "horizon_days": 1,
@@ -99,7 +99,7 @@ class TestScoringHorizon(unittest.TestCase):
         self.assertIsNone(err)
 
     def test_legacy_artifact_without_horizon_still_ok(self):
-        from core.signal.cluster_live import _validate_artifact_for_promote
+        from core.signal.cluster.live import _validate_artifact_for_promote
 
         art = {
             "code_map": {
@@ -135,7 +135,7 @@ class TestScoringHorizon(unittest.TestCase):
 
 class TestOosFailedExclude(unittest.TestCase):
     def test_oos_failed_cluster_labels(self):
-        from core.signal.cluster_live import oos_failed_cluster_labels
+        from core.signal.cluster.live import oos_failed_cluster_labels
 
         clusters = [
             {"label": "G6", "oos_gate": {"ok": True, "passed": False}},
@@ -150,7 +150,7 @@ class TestOosFailedExclude(unittest.TestCase):
         self.assertNotIn("G7", failed)
 
     def test_filter_primary_cluster_models_always_skips_oos_failed(self):
-        from core.signal.cluster_live import filter_primary_cluster_models_by_code
+        from core.signal.cluster.live import filter_primary_cluster_models_by_code
         from core.signal.return_score import ReturnScoreModel
 
         m = ReturnScoreModel(
@@ -183,7 +183,7 @@ class TestOosFailedExclude(unittest.TestCase):
         self.assertEqual(set(still), {"600000"})
 
     def test_codes_in_oos_failed_clusters(self):
-        from core.signal.cluster_oos_labels import codes_in_oos_failed_clusters
+        from core.signal.cluster.oos_labels import codes_in_oos_failed_clusters
 
         active = {
             "clusters": [
@@ -219,7 +219,7 @@ class TestOosFailedExclude(unittest.TestCase):
             },
         ]
         with patch(
-            "core.signal.cluster_oos_labels.codes_in_oos_failed_clusters",
+            "core.signal.cluster.oos_labels.codes_in_oos_failed_clusters",
             return_value={"600001"},
         ):
             picks, meta = score_and_rank_watching(
@@ -247,7 +247,7 @@ class TestOosFailedExclude(unittest.TestCase):
         )
 
     def test_legacy_exclude_oos_key_stripped_from_cfg(self):
-        from core.signal.cluster_live import get_cluster_scoring_cfg
+        from core.signal.cluster.live import get_cluster_scoring_cfg
 
         cfg = get_cluster_scoring_cfg(
             {

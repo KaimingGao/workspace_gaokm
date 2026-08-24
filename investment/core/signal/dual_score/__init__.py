@@ -8,13 +8,13 @@
 
 规范见 docs/quant.md · ŷ 全链路。
 
-实现按用例拆到 ``dual_score_*``；本模块再导出。
+实现按用例拆到本包子模块（``fusion`` / ``resolve`` / ``tau`` / ``book`` 等）；本包再导出。
 """
 
 from __future__ import annotations
 
-from core.signal.dual_score_book import dual_score_book_fields
-from core.signal.dual_score_fusion import (
+from core.signal.dual_score.book import dual_score_book_fields
+from core.signal.dual_score.fusion import (
     cascade_tau_shadow,
     eod_remaining_at_tau,
     fuse_remaining_heads,
@@ -29,7 +29,7 @@ from core.signal.dual_score_fusion import (
     trade_blend_vs_prev_close,
     unlifted_trade_blend_stale,
 )
-from core.signal.dual_score_resolve import (
+from core.signal.dual_score.resolve import (
     DEFAULT_DUAL_SCORE,
     align_nowcast_score_fields,
     align_trade_score_fields,
@@ -47,7 +47,7 @@ from core.signal.dual_score_resolve import (
     resolve_predicted_score_tau,
     resolve_tau_buy_floor_for_pool,
 )
-from core.signal.dual_score_shadow import (
+from core.signal.dual_score.shadow import (
     build_nowcast_shadow_book,
     build_tau_shadow_book,
     compare_book_overlap,
@@ -55,7 +55,7 @@ from core.signal.dual_score_shadow import (
 )
 
 # 单测 patch 路径：core.signal.dual_score._eod_return_model_for_item
-from core.signal.dual_score_tau import (
+from core.signal.dual_score.tau import (
     _TAU_CORE_Z_KEYS,
     _TAU_FEATURE_KEYS,
     _eod_return_model_for_item,

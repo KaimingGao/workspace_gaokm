@@ -6,7 +6,7 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Dict, List, Optional, Tuple
 
-from core.signal.factor_registry import compute_factor, registered_factor_names
+from core.signal.factors.meta.registry import compute_factor, registered_factor_names
 
 
 def _forward_return(bars: List[dict], idx: int, horizon: int) -> Optional[float]:

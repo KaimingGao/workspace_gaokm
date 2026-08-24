@@ -137,7 +137,7 @@ class TestIsotonicPav(unittest.TestCase):
                 "t",
             ),
         ), mock.patch(
-            "core.signal.cluster_live.load_active_cluster_weights",
+            "core.signal.cluster.live.load_active_cluster_weights",
             return_value={
                 "code_map": {
                     "600519": {
@@ -147,10 +147,10 @@ class TestIsotonicPav(unittest.TestCase):
                 }
             },
         ), mock.patch(
-            "core.signal.cluster_live.lookup_code_return_model",
+            "core.signal.cluster.live.lookup_code_return_model",
             return_value=model,
         ), mock.patch(
-            "core.signal.cluster_live.lookup_code_weights",
+            "core.signal.cluster.live.lookup_code_weights",
             return_value={"cluster_label": "G1"},
         ), mock.patch(
             "core.signal.return_score_store.load_return_model",

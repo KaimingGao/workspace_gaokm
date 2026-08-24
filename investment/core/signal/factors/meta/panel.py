@@ -7,8 +7,8 @@ logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 from core.signal.config import load_signal_config
-from core.signal.factor_registry import list_factors
-from core.signal.factor_taxonomy import attach_taxonomy
+from core.signal.factors.meta.registry import list_factors
+from core.signal.factors.meta.taxonomy import attach_taxonomy
 
 
 def build_factor_panel_rows(

@@ -1862,6 +1862,13 @@
   text-overflow: ellipsis;
 }
 
+.quant-page .paper-t0-table td,
+.quant-page .paper-t0-table th {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .strategy-page .quant-weight-table-wrap {
   margin-top: 0;
   margin-bottom: 0;

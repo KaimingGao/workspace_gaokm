@@ -822,6 +822,25 @@ class PaperTradesMixin:
 
         if not dry_run:
             capture_mark_snapshot(paper)
+
+        scores_by_code = None
+        if str(eff_t0.get("direction") or "") == "dual_y":
+            try:
+                from core.t0.score_policy import load_scores_map_for_codes
+
+                codes = [str(h.get("stock_code") or "") for h in holdings if h.get("stock_code")]
+                as_of = None
+                for bar in bars_by_code.values():
+                    if isinstance(bar, dict) and bar.get("date"):
+                        as_of = str(bar.get("date"))[:10]
+                        break
+                scores_by_code = load_scores_map_for_codes(
+                    codes, as_of=as_of, prefer_live_book=True
+                )
+            except Exception:  # noqa: BLE001
+                logger.debug("dual_y scores hydrate failed", exc_info=True)
+                scores_by_code = None
+
         result = simulate_t0_on_holdings(
             paper,
             bars_by_code=bars_by_code,
@@ -832,6 +851,7 @@ class PaperTradesMixin:
             minute_bars_by_code=minute_bars_by_code or None,
             stance_by_code=stance_by_code or None,
             coupling=bundle.get("coupling"),
+            scores_by_code=scores_by_code or None,
         )
         result["execution"] = execution_public_view(bundle)
         if dry_run:

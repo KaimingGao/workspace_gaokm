@@ -103,7 +103,7 @@ class TestWatchingThreshold(unittest.TestCase):
                     return_value=yhat_th,
                 ):
                     with patch(
-                        "core.signal.cluster_live.load_cluster_return_models_by_code",
+                        "core.signal.cluster.live.load_cluster_return_models_by_code",
                         return_value={},
                     ):
                         with patch(

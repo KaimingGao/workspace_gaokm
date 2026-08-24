@@ -55,8 +55,8 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
                 },
                 "coupling": {"t0_vs_stance": "independent"},
                 "runtime_defaults": {
-                    "paper_direction_fallback": "signal",
-                    "backtest_direction_fallback": "long_t",
+                    "paper_direction_fallback": "dual_y",
+                    "backtest_direction_fallback": "dual_y",
                     "backtest_path_mode_no_minute": "veto",
                     "backtest_path_mode_with_minute": "first_touch",
                 },
@@ -112,8 +112,8 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
                 },
                 "coupling": {"t0_vs_stance": "independent"},
                 "runtime_defaults": {
-                    "paper_direction_fallback": "signal",
-                    "backtest_direction_fallback": "long_t",
+                    "paper_direction_fallback": "dual_y",
+                    "backtest_direction_fallback": "dual_y",
                     "backtest_path_mode_no_minute": "veto",
                     "backtest_path_mode_with_minute": "first_touch",
                 },

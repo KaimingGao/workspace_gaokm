@@ -16,13 +16,13 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from core.io_atomic import atomic_write_json
 from core.numbers import now_iso_utc
-from core.signal.cluster_live_evidence import (  # noqa: F401 — 门面再导出
+from core.signal.cluster.live_evidence import (  # noqa: F401 — 门面再导出
     _paper_cluster_landed,
     _summarize_cluster_oos,
     build_cluster_enable_evidence,
     cluster_status_public,
 )
-from core.signal.factor_health import PROXY_OR_UNSOURCED
+from core.signal.factors.meta.health import PROXY_OR_UNSOURCED
 
 SCHEMA_VERSION = 1
 
@@ -135,7 +135,7 @@ def load_active_cluster_weights(
     *, path: Optional[str] = None
 ) -> Optional[Dict[str, Any]]:
     """读 live 组权：优先指针指向的版本化 artifact，否则回退 active 镜像。"""
-    from core.signal.cluster_pointer import resolve_cluster_weights_path
+    from core.signal.cluster.pointer import resolve_cluster_weights_path
 
     p = path or resolve_cluster_weights_path()
     if not p or not os.path.isfile(p):
@@ -145,7 +145,7 @@ def load_active_cluster_weights(
             data = json.load(f)
         if isinstance(data, dict) and isinstance(data.get("code_map"), dict):
             try:
-                from core.signal.factor_taxonomy import (
+                from core.signal.factors.meta.taxonomy import (
                     strip_removed_factors_from_pool_artifact,
                 )
 
@@ -169,7 +169,7 @@ def lookup_code_weights(
 
     派生权仅诊断/兼容；选股真源是 return_model。
     """
-    from core.signal.factor_coefs import display_weights_from_return_model
+    from core.signal.factors.meta.coefs import display_weights_from_return_model
 
     art = active if active is not None else load_active_cluster_weights()
     if not art:
@@ -335,7 +335,7 @@ def filter_primary_cluster_models_by_code(
 
 def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
     from core.signal.config import get_scoring_horizon_days
-    from core.signal.factor_coefs import has_factor_coefficients
+    from core.signal.factors.meta.coefs import has_factor_coefficients
 
     cmap = artifact.get("code_map") if isinstance(artifact, dict) else None
     if not isinstance(cmap, dict) or not cmap:
@@ -438,7 +438,7 @@ def _validate_artifact_for_promote(artifact: Dict[str, Any]) -> Optional[str]:
 
     # B1：OOS 失败率 vs 绝对上限 / 相对 active（force 可豁免）
     try:
-        from core.signal.cluster_oos_labels import (
+        from core.signal.cluster.oos_labels import (
             compare_oos_vs_active,
             compare_partition_vs_active,
         )
@@ -519,7 +519,7 @@ def _artifact_horizon_days(artifact: Dict[str, Any]) -> Optional[int]:
     return None
 
 
-from core.signal.cluster_oos_labels import oos_failed_cluster_labels  # noqa: F401
+from core.signal.cluster.oos_labels import oos_failed_cluster_labels  # noqa: F401
 
 
 def promote_cluster_artifact(
@@ -533,7 +533,7 @@ def promote_cluster_artifact(
         CLUSTER_WEIGHTS_ACTIVE_PATH,
         CLUSTER_WEIGHTS_HISTORY_DIR,
     )
-    from core.signal.cluster_pointer import (
+    from core.signal.cluster.pointer import (
         append_promote_audit,
         publish_cluster_weights_doc,
         resolve_cluster_weights_path,
@@ -544,7 +544,7 @@ def promote_cluster_artifact(
         return {"success": False, "error": err, "task": "cluster_promote"}
 
     try:
-        from core.signal.factor_taxonomy import strip_removed_factors_from_pool_artifact
+        from core.signal.factors.meta.taxonomy import strip_removed_factors_from_pool_artifact
 
         strip_removed_factors_from_pool_artifact(artifact)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -553,7 +553,7 @@ def promote_cluster_artifact(
 
     # FM0 · 伪/proxy 因子权重硬门（artifact 内遗留 weights）
     try:
-        from core.signal.factor_health import guard_weights_for_promote
+        from core.signal.factors.meta.health import guard_weights_for_promote
 
         merged_w: Dict[str, float] = {}
         for meta in (artifact.get("code_map") or {}).values():
@@ -600,7 +600,7 @@ def promote_cluster_artifact(
                 }
             if guard.get("forced"):
                 try:
-                    from core.signal.cluster_pointer import append_promote_audit
+                    from core.signal.cluster.pointer import append_promote_audit
 
                     append_promote_audit(
                         {
@@ -643,7 +643,7 @@ def promote_cluster_artifact(
     else:
         hist_warn = None
 
-    from core.signal.factor_coefs import (
+    from core.signal.factors.meta.coefs import (
         display_weights_from_return_model,
         has_factor_coefficients,
     )
@@ -783,7 +783,7 @@ def promote_cluster_artifact(
 def rollback_cluster_weights(*, to_version: Optional[int] = None) -> Dict[str, Any]:
     """回滚到 history 中上一版或指定 version（经指针原子切换）。"""
     from core.paths import CLUSTER_WEIGHTS_HISTORY_DIR
-    from core.signal.cluster_pointer import (
+    from core.signal.cluster.pointer import (
         append_promote_audit,
         publish_cluster_weights_doc,
         resolve_cluster_weights_path,
@@ -897,7 +897,7 @@ def save_cluster_draft(artifact: Dict[str, Any]) -> Dict[str, Any]:
 
     _ensure_dirs()
     try:
-        from core.signal.factor_taxonomy import strip_removed_factors_from_pool_artifact
+        from core.signal.factors.meta.taxonomy import strip_removed_factors_from_pool_artifact
 
         strip_removed_factors_from_pool_artifact(artifact)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -930,7 +930,7 @@ def load_cluster_draft() -> Optional[Dict[str, Any]]:
             data = json.load(f)
         if isinstance(data, dict):
             try:
-                from core.signal.factor_taxonomy import (
+                from core.signal.factors.meta.taxonomy import (
                     strip_removed_factors_from_pool_artifact,
                 )
 
@@ -1103,7 +1103,7 @@ def load_tau_shadow_cluster_book() -> Optional[Dict[str, Any]]:
 
 def _save_active_doc(active: Dict[str, Any]) -> str:
     """写回当前 live 组权（OOS 补丁等）：经指针发布，避免半文件。"""
-    from core.signal.cluster_pointer import publish_cluster_weights_doc
+    from core.signal.cluster.pointer import publish_cluster_weights_doc
 
     _ensure_dirs()
     published = publish_cluster_weights_doc(
@@ -1305,7 +1305,7 @@ def assess_cluster_live_health(
     compute_ic: Optional[bool] = None,
 ) -> Dict[str, Any]:
     """覆盖率 / 陈旧 / 模式门禁（L3）。实现见 ``cluster_live_health``。"""
-    from core.signal.cluster_live_health import assess_cluster_live_health as _impl
+    from core.signal.cluster.live_health import assess_cluster_live_health as _impl
 
     return _impl(universe=universe, compute_ic=compute_ic)
 
@@ -1322,7 +1322,7 @@ def set_cluster_scoring_mode(
     ``force=True`` 可豁免并写 ``promote_audit.jsonl``。
     """
     from core.io_atomic import atomic_write_json
-    from core.signal.cluster_pointer import active_enable_blockers, append_promote_audit
+    from core.signal.cluster.pointer import active_enable_blockers, append_promote_audit
     from core.signal.config import get_signal_config_path, load_signal_config
 
     mode = str(mode or "off").strip().lower()
@@ -1504,7 +1504,7 @@ def _pick_audit_codes(
     *,
     offset: int = 0,
 ) -> List[str]:
-    from core.signal.cluster_live_audit import pick_audit_codes
+    from core.signal.cluster.live_audit import pick_audit_codes
 
     return pick_audit_codes(cmap, book_rows, n, offset=offset)
 
@@ -1516,7 +1516,7 @@ def cluster_score_audit_sample(
     rotate: bool = False,
 ) -> Dict[str, Any]:
     """对照审计：优先分池簿样本（实现见 cluster_live_audit）。"""
-    from core.signal.cluster_live_audit import (
+    from core.signal.cluster.live_audit import (
         cluster_score_audit_sample as _impl,
     )
 

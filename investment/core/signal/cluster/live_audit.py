@@ -75,7 +75,7 @@ def cluster_score_audit_sample(
     rotate: bool = False,
 ) -> Dict[str, Any]:
     """对照审计：优先分池簿样本，按组轮询取票，算 score_global vs score_cluster。"""
-    from core.signal.cluster_live import (
+    from core.signal.cluster.live import (
         get_cluster_scoring_cfg,
         load_active_cluster_book,
         load_active_cluster_weights,

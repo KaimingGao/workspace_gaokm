@@ -10,6 +10,7 @@ import {
   yCheckBadgeHtml,
 } from "./quant/watching_insights_ui.js?v=p1227";
 import { TRADE_TITLE, formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } from "./quant/watching_quotes_ui.js?v=p1227";
+import { buildHoldingSharesTip } from "./paper/holding_lots_tip.js?v=p1227";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -150,6 +151,7 @@ export function holdingToRow(
     pnlCls: metricCls(pnl),
     pnlNum: pnl != null && Number.isFinite(Number(pnl)) ? Number(pnl) : null,
     boughtDate: h.bought_date || "—",
+    sharesTip: buildHoldingSharesTip(h),
     origin,
     originLabel: h.origin_label || "—",
     oosFailed,
@@ -188,7 +190,7 @@ const COLS = [
     cellClass: "watching-col-center paper-hold-sent",
     title: "标题情绪摘要",
   },
-  { id: "shares", label: "股数", width: 56, num: true, title: "持仓股数" },
+  { id: "shares", label: "股数", width: 56, num: true, title: "持仓股数；悬停查看买入批次与 T+1 可卖" },
   { id: "prev_close", label: "昨收", width: 78, num: true, title: "上一交易日收盘价" },
   { id: "open", label: "今开", width: 78, num: true, title: "今日开盘价" },
   { id: "price", label: "现价", width: 78, num: true, title: "最新成交价" },
@@ -352,7 +354,13 @@ export async function mountHoldingsTableIsland(host, options = {}) {
         );
       }
       if (col.id === "sent") return d.sentHtml || holdingSentPlaceholder(d.code);
-      if (col.id === "shares") return escapeHtml(d.shares != null ? String(d.shares) : "—");
+      if (col.id === "shares") {
+        const text = d.shares != null ? String(d.shares) : "—";
+        const tip = d.sharesTip || (d.shares != null ? `持仓 ${text} 股` : "");
+        return `<span class="paper-hold-shares-qty has-tip" title="${escapeHtml(tip)}">${escapeHtml(
+          text
+        )}</span>`;
+      }
       if (col.id === "price") return escapeHtml(d.priceText || "—");
       if (col.id === "prev_close") {
         return `<span class="paper-hold-prev-close" title="上一交易日收盘价">${escapeHtml(

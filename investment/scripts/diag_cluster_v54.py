@@ -10,7 +10,7 @@ sys.path.insert(0, str(ROOT))
 
 
 def main() -> int:
-    from core.signal.cluster_live import (
+    from core.signal.cluster.live import (
         assess_cluster_live_health,
         get_cluster_scoring_cfg,
         load_active_cluster_weights,

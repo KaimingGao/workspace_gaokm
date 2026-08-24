@@ -14,7 +14,7 @@ import math
 from typing import Any, Dict, List, Optional
 
 from core.signal.config import get_rank_defaults, load_signal_config
-from core.signal.factor_registry import compute_configured_factors
+from core.signal.factors.meta.registry import compute_configured_factors
 from core.signal.factors.momentum import pct_change
 from core.signal.factors.pre_trade import pre_trade_check
 from core.signal.regime import assess_regime

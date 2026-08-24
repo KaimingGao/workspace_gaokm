@@ -6,8 +6,8 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
-from core.signal.factor_corr import pearson_with_reason
-from core.signal.factor_registry import registered_factor_names
+from core.signal.factors.meta.corr import pearson_with_reason
+from core.signal.factors.meta.registry import registered_factor_names
 from core.signal.scorer import score_bars
 
 

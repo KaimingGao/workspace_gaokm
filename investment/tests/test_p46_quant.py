@@ -8,7 +8,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from core.signal.config import DEFAULT_SIGNAL_CONFIG, load_signal_config
-from core.signal.factor_registry import compute_configured_factors, list_factors
+from core.signal.factors.meta.registry import compute_configured_factors, list_factors
 from core.signal.factors.quality import score_quality
 from core.signal.factors.value import score_value
 from core.signal.fundamentals_bridge import normalize_fundamentals_metrics

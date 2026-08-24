@@ -294,9 +294,11 @@ def _load_daily_cache_json(
         return None
 
     fetched_s = payload.get("fetched_at") or ""
+    if not isinstance(fetched_s, str):
+        fetched_s = str(fetched_s) if fetched_s else ""
     try:
         fetched_at = datetime.fromisoformat(fetched_s)
-    except ValueError:
+    except (ValueError, TypeError):
         fetched_at = datetime.fromtimestamp(os.path.getmtime(path))
 
     if not ignore_age and max_age_hours > 0:
@@ -472,9 +474,11 @@ def load_snapshot_cache(
         _note_io_error(f"load_snapshot:{path}", e)
         return None
     fetched_s = payload.get("fetched_at") or ""
+    if not isinstance(fetched_s, str):
+        fetched_s = str(fetched_s) if fetched_s else ""
     try:
         fetched_at = datetime.fromisoformat(fetched_s)
-    except ValueError:
+    except (ValueError, TypeError):
         fetched_at = datetime.fromtimestamp(os.path.getmtime(path))
     if max_age_hours > 0 and datetime.now() - fetched_at > timedelta(hours=max_age_hours):
         return None
@@ -751,9 +755,11 @@ def load_minute_cache(
         return None
 
     fetched_s = payload.get("fetched_at") or ""
+    if not isinstance(fetched_s, str):
+        fetched_s = str(fetched_s) if fetched_s else ""
     try:
         fetched_at = datetime.fromisoformat(fetched_s)
-    except ValueError:
+    except (ValueError, TypeError):
         fetched_at = datetime.fromtimestamp(os.path.getmtime(path))
 
     if not ignore_age and max_age_hours > 0:

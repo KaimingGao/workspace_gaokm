@@ -7,7 +7,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
-from core.signal.dual_score_resolve import (
+from core.signal.dual_score.resolve import (
     resolve_predicted_score_tau,
 )
 from core.signal.nowcast_kf import nordhaus_from_nowcast_rows

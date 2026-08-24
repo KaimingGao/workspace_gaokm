@@ -106,7 +106,7 @@ def publish_cluster_weights_doc(
     )
 
     try:
-        from core.signal.factor_taxonomy import strip_removed_factors_from_pool_artifact
+        from core.signal.factors.meta.taxonomy import strip_removed_factors_from_pool_artifact
 
         strip_removed_factors_from_pool_artifact(active)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程

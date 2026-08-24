@@ -42,7 +42,7 @@ class TestWatchingInsights(unittest.TestCase):
             "core.watching.insights._spot_valuation_map",
             return_value={},
         ), patch(
-            "core.signal.cluster_live.load_active_cluster_book",
+            "core.signal.cluster.live.load_active_cluster_book",
             return_value={},
         ), patch(
             "quant.research.rem_ridge.load_rem_model", return_value=None
@@ -83,7 +83,7 @@ class TestWatchingInsights(unittest.TestCase):
             "core.watching.insights._spot_valuation_map",
             return_value={},
         ), patch(
-            "core.signal.cluster_live.load_active_cluster_book",
+            "core.signal.cluster.live.load_active_cluster_book",
             return_value={},
         ):
             out = build_watching_insights(["600519"])
@@ -248,7 +248,7 @@ class TestWatchingInsights(unittest.TestCase):
             "core.watching.insights._spot_valuation_map",
             return_value={},
         ), patch(
-            "core.signal.cluster_live.load_active_cluster_book",
+            "core.signal.cluster.live.load_active_cluster_book",
             return_value={},
         ), patch(
             "core.data.facade.get_bars", return_value={"bars": []}

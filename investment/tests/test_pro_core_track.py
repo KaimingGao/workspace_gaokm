@@ -55,7 +55,7 @@ class TestProCoreDC(unittest.TestCase):
 
 class TestProCoreFM(unittest.TestCase):
     def test_guard_weights_blocks_proxy(self):
-        from core.signal.factor_health import guard_weights_for_promote
+        from core.signal.factors.meta.health import guard_weights_for_promote
 
         g = guard_weights_for_promote({"money_flow": 0.15})
         self.assertTrue(g.get("blocked"))
@@ -64,7 +64,7 @@ class TestProCoreFM(unittest.TestCase):
         self.assertTrue(g2.get("forced"))
 
     def test_list_factors_meta(self):
-        from core.signal.factor_registry import list_factors
+        from core.signal.factors.meta.registry import list_factors
 
         rows = list_factors(include_meta=True)
         mf = next((r for r in rows if r["name"] == "money_flow"), None)

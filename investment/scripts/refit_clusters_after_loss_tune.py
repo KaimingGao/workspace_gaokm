@@ -53,7 +53,7 @@ def _oos_fail(clusters: list) -> list:
 
 def main() -> int:
     from quant.services.quant_service import QuantService
-    from core.signal.cluster_live import load_active_cluster_weights
+    from core.signal.cluster.live import load_active_cluster_weights
 
     try:
         qs = QuantService()
@@ -112,8 +112,8 @@ def main() -> int:
     )
     print("draft_fail", draft_fail, flush=True)
 
-    from core.signal.cluster_oos_labels import compare_partition_vs_active
-    from core.signal.cluster_live import get_cluster_scoring_cfg
+    from core.signal.cluster.oos_labels import compare_partition_vs_active
+    from core.signal.cluster.live import get_cluster_scoring_cfg
 
     ccfg = get_cluster_scoring_cfg()
     max_rate = ccfg.get("max_oos_fail_rate")

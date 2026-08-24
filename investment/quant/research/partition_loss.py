@@ -299,7 +299,7 @@ def _metrics_from_pred_act(
     n_full: int,
     reason: Optional[str] = None,
 ) -> Dict[str, Any]:
-    from core.signal.factor_corr import pearson_with_reason
+    from core.signal.factors.meta.corr import pearson_with_reason
 
     empty: Dict[str, Any] = {
         "ok": False,

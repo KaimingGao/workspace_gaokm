@@ -50,7 +50,16 @@ def _paper(cash=100000.0, holdings=None):
     }
 
 
-class TestPlanBuyCodes(unittest.TestCase):
+class _QuotePatchMixin:
+    """plan_buy_codes / 盯市走 facade.get_quote，不能只补 StockAPI.query。"""
+
+    def setUp(self):
+        p = patch("core.data.facade.get_quote", side_effect=_fake_query)
+        p.start()
+        self.addCleanup(p.stop)
+
+
+class TestPlanBuyCodes(_QuotePatchMixin, unittest.TestCase):
     def test_plan_reports_shares_cost_and_remaining_cash(self):
         paper = _paper()
         with patch("skills.common.quote_api.StockAPI.query", side_effect=_fake_query):
@@ -101,7 +110,7 @@ class TestPlanBuyCodes(unittest.TestCase):
         self.assertEqual(paper["cash"], plan["cash_after"])
 
 
-class TestHoldingOrigin(unittest.TestCase):
+class TestHoldingOrigin(_QuotePatchMixin, unittest.TestCase):
     def test_merge_origin(self):
         self.assertEqual(merge_origin(None, ORIGIN_MANUAL), ORIGIN_MANUAL)
         self.assertEqual(merge_origin("", ORIGIN_STRATEGY), ORIGIN_STRATEGY)
@@ -344,8 +353,10 @@ class TestHoldingOrigin(unittest.TestCase):
             {"equity": 12000.0},
             {"equity": 9000.0},
         ]
-        with patch("skills.common.quote_api.StockAPI.query", side_effect=_fake_query):
-            summary = mark_to_market(paper)
+        with patch("core.paper.exec._query_quote", side_effect=_fake_query):
+            with patch("core.paper.exec._batch_query_quotes", return_value={}):
+                with patch("skills.common.quote_api.StockAPI.query", side_effect=_fake_query):
+                    summary = mark_to_market(paper)
         # cash 5000 + mv 1000 = 6000；仓位 1000/6000
         self.assertAlmostEqual(summary["invested_pct"], round(1000 / 6000 * 100, 1))
         self.assertEqual(summary["cost_model"], "zero")
@@ -490,8 +501,10 @@ class TestHoldingOrigin(unittest.TestCase):
                 },
             ]
         )
-        with patch("skills.common.quote_api.StockAPI.query", side_effect=_fake_query):
-            summary = mark_to_market(paper)
+        with patch("core.paper.exec._query_quote", side_effect=_fake_query):
+            with patch("core.paper.exec._batch_query_quotes", return_value={}):
+                with patch("skills.common.quote_api.StockAPI.query", side_effect=_fake_query):
+                    summary = mark_to_market(paper)
         labels = {o["origin_label"]: o for o in summary["origin_summary"]}
         self.assertEqual(labels["手动"]["count"], 1)
         self.assertEqual(labels["策略"]["count"], 1)
@@ -499,7 +512,7 @@ class TestHoldingOrigin(unittest.TestCase):
         self.assertAlmostEqual(labels["策略"]["market_value"], 2000.0)
 
 
-class TestPlanSyncToPaper(unittest.TestCase):
+class TestPlanSyncToPaper(_QuotePatchMixin, unittest.TestCase):
     def test_preview_limited_to_watchlist(self):
         from core.watching.store import plan_sync_to_paper, read_watching, write_watching
 
@@ -576,6 +589,22 @@ class TestSellNavCurveSnapshots(unittest.TestCase):
                         save_paper(paper, path)
 
                         prices["600519"] = 12.0
+                        paper = load_paper(path)
+                        from core.market.calendar import prev_trading_day
+                        from core.paper.tplus1 import session_date
+
+                        sess = session_date()
+                        prev = prev_trading_day(sess) or "2026-08-20"
+                        for h in paper.get("holdings") or []:
+                            h["bought_at"] = f"{prev}T10:00:00"
+                            h["lots"] = [
+                                {
+                                    "shares": float(h.get("shares") or 0),
+                                    "bought_at": h["bought_at"],
+                                    "bought_date": prev,
+                                }
+                            ]
+                        save_paper(paper, path)
                         out = svc.sell(codes=["600519"])
                         self.assertTrue(out.get("ok"), out)
 

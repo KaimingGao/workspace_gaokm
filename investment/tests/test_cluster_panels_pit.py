@@ -279,7 +279,7 @@ class TestClusterPanelsPit(unittest.TestCase):
 
 class TestClusterLiveAuditSplit(unittest.TestCase):
     def test_pick_audit_codes_round_robin(self):
-        from core.signal.cluster_live_audit import pick_audit_codes
+        from core.signal.cluster.live_audit import pick_audit_codes
 
         cmap = {
             "a": {"cluster_label": "G1"},

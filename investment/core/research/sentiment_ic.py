@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence
 
 from core.research.panel import collect_subscore_forward_panel
-from core.signal.factor_corr import pearson_with_reason
+from core.signal.factors.meta.corr import pearson_with_reason
 
 
 def compute_alt_sentiment_ic(

@@ -259,7 +259,7 @@ class TestEodNextFusion(unittest.TestCase):
     def test_load_active_cluster_book_aligns_stale_blend(self):
         from unittest.mock import patch
         from datetime import timezone, timedelta
-        from core.signal.cluster_live import _align_cluster_book_trade_scores
+        from core.signal.cluster.live import _align_cluster_book_trade_scores
 
         cn = timezone(timedelta(hours=8))
         after_close = datetime(2026, 8, 20, 16, 0, tzinfo=cn)

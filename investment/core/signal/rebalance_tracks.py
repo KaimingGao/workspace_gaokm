@@ -96,7 +96,7 @@ def resolve_oos_status(
         return OOS_FAIL
     if lab:
         try:
-            from core.signal.cluster_oos_labels import is_oos_failed_cluster_label
+            from core.signal.cluster.oos_labels import is_oos_failed_cluster_label
 
             if is_oos_failed_cluster_label(lab):
                 return OOS_FAIL

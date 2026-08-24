@@ -33,37 +33,26 @@ export function renderExecutionRulesHtml(execution) {
   const buy = t0.buy_trigger_pct != null ? `-${t0.buy_trigger_pct}%` : "—";
   const coup = (execution.coupling && execution.coupling.t0_vs_stance) || "independent";
   const hash = execution.effective_hash || "—";
-  const dirMode = String(t0.direction ?? "—");
-  const enter =
-    t0.dir_enter != null && Number.isFinite(Number(t0.dir_enter))
-      ? Number(t0.dir_enter)
-      : 0.35;
   const rangeLbl =
     t0.min_range_pct != null && t0.min_range_pct !== ""
       ? `${t0.min_range_pct}%`
       : "自动";
-  const dirLabel =
-    dirMode === "signal"
-      ? `signal（±${enter}）`
-      : dirMode;
   const rows = [
-    ["选向", dirLabel],
-    ["入场", `±${enter}`],
+    ["选向", "dual_y（ŷ）"],
+    ["入场", `τ±${t0.y_tau_enter ?? 0.25}`],
     ["振幅", rangeLbl],
     ["成交", t0.fill_mode ?? "—"],
     ["路径", t0.path_mode ?? "—"],
     ["动仓", ratio],
     ["触发", `${sell} / ${buy}`],
     ["ATR", t0.use_atr ? `开 · ${t0.atr_window ?? 14}日` : "关"],
-    ["回补", t0.must_cover_same_day ? "收盘强制" : "关"],
+    ["回补", t0.must_cover_same_day ? "收盘强制" : "y_on策略"],
     ["耦合", coup],
     ["hash", hash],
   ];
   const notes = (execution.notes || []).slice(0, 3);
   const dirNote =
-    dirMode === "signal"
-      ? `方向分≈跳空/昨位/mom3/gap·ATR（±${enter}）；非选股 predicted_score。做T回测读表单，无需先保存。`
-      : "做T回测读表单当前值，无需先保存。";
+    "dual_y：y_trade资格 · y_τ主方向 · y_eod冲突跳过 · y_on回补；ŷ 来自分池簿/账本。";
   return (
     `<dl class="paper-t0-rules-grid">` +
     rows
@@ -71,10 +60,10 @@ export function renderExecutionRulesHtml(execution) {
         ([k, v]) =>
           `<div class="paper-t0-rules-row"><dt>${escapeText(k)}</dt>` +
           `<dd title="${escapeText(
-            k === "选向" && dirMode === "signal"
-              ? "开盘方向分 direction_score；≠ 选股 ŷ / predicted_score"
+            k === "选向"
+              ? "多层 ŷ：y_trade / y_τ / y_eod / y_on"
               : k === "入场"
-                ? "|方向分|≥门槛才入场；调低→更少信号跳过"
+                ? "|y_τ|≥门槛才入场"
                 : k === "振幅"
                   ? "日振幅下限；空=自动"
                   : k === "路径"
@@ -120,11 +109,15 @@ export function fillExecutionForm(root, execution) {
     set("min_range_pct", 0.5);
   }
   set("fill_mode", t0.fill_mode || "trigger");
-  set("direction", t0.direction || "long_t");
+  set("direction", "dual_y");
   set("path_mode", t0.path_mode || "dual_touch");
   set("use_atr", t0.use_atr !== false);
   set("must_cover_same_day", !!t0.must_cover_same_day);
   set("t0_vs_stance", coup);
+  set("y_trade_floor", t0.y_trade_floor != null ? t0.y_trade_floor : -0.15);
+  set("y_tau_enter", t0.y_tau_enter != null ? t0.y_tau_enter : 0.25);
+  set("y_eod_prior", t0.y_eod_prior != null ? t0.y_eod_prior : 0.35);
+  set("y_on_allow", t0.y_on_allow != null ? t0.y_on_allow : 1.2);
 }
 
 /** 从表单收集 PATCH body。 */
@@ -158,10 +151,14 @@ export function collectExecutionForm(root) {
     buy_trigger_pct: num("buy_trigger_pct", 1.5),
     dir_enter: Math.max(0.05, Math.min(num("dir_enter", 0.35), 1)),
     fill_mode: str("fill_mode", "trigger"),
-    direction: str("direction", "long_t"),
+    direction: "dual_y",
     path_mode: str("path_mode", "dual_touch"),
     use_atr: chk("use_atr", true),
     must_cover_same_day: chk("must_cover_same_day", false),
+    y_trade_floor: num("y_trade_floor", -0.15),
+    y_tau_enter: Math.max(0.05, Math.min(num("y_tau_enter", 0.25), 5)),
+    y_eod_prior: Math.max(0.05, Math.min(num("y_eod_prior", 0.35), 5)),
+    y_on_allow: Math.max(0.1, Math.min(num("y_on_allow", 1.2), 10)),
   };
   const minRange = numOrNull("min_range_pct");
   if (minRange != null) t0.min_range_pct = Math.max(0.2, Math.min(minRange, 30));
@@ -174,16 +171,31 @@ export function collectExecutionForm(root) {
   };
 }
 
+/** 做 T 区块根节点：复选框在 form 外，须从 section 查找。 */
+function t0PanelRoot(formRoot) {
+  if (formRoot) {
+    const fromForm = formRoot.closest("#follow-section-t0, .follow-ops-t0");
+    if (fromForm) return fromForm;
+  }
+  return (
+    document.getElementById("follow-section-t0") ||
+    document.querySelector(".follow-ops-t0") ||
+    formRoot ||
+    document
+  );
+}
+
 /**
  * 做T回测范围/路径：表单复选框 + Alt 快捷键。
- * @param {HTMLElement|null} root
+ * @param {HTMLElement|null} root 通常为 #paper-t0-form；复选框在同 section 内 form 外
  * @param {{ altKey?: boolean, selectedCode?: string|null }} evt
  */
 export function resolveT0BacktestScope(root, evt = {}) {
+  const panel = t0PanelRoot(root);
   const selectedCode = String(evt.selectedCode || "").trim();
   const alt = !!evt.altKey;
-  const onlyEl = root && root.querySelector('[name="t0_bt_only_selected"]');
-  const minuteEl = root && root.querySelector('[name="t0_bt_use_minute"]');
+  const onlyEl = panel.querySelector('[name="t0_bt_only_selected"]');
+  const minuteEl = panel.querySelector('[name="t0_bt_use_minute"]');
   const wantOnly = alt || !!(onlyEl && onlyEl.checked);
   const wantMinute = alt || !!(minuteEl && minuteEl.checked);
   if (wantMinute && !selectedCode) {
@@ -231,11 +243,15 @@ export function collectT0BacktestBody(root, opts = {}) {
     sell_trigger_pct: t0.sell_trigger_pct != null ? t0.sell_trigger_pct : 2,
     buy_trigger_pct: t0.buy_trigger_pct != null ? t0.buy_trigger_pct : 1.5,
     fill_mode: t0.fill_mode || "trigger",
-    direction: t0.direction || "long_t",
+    direction: "dual_y",
     path_mode: t0.path_mode || "dual_touch",
     dir_enter: t0.dir_enter != null ? t0.dir_enter : 0.35,
     must_cover_same_day: !!t0.must_cover_same_day,
     use_atr: t0.use_atr !== false,
+    y_trade_floor: t0.y_trade_floor != null ? t0.y_trade_floor : -0.15,
+    y_tau_enter: t0.y_tau_enter != null ? t0.y_tau_enter : 0.25,
+    y_eod_prior: t0.y_eod_prior != null ? t0.y_eod_prior : 0.35,
+    y_on_allow: t0.y_on_allow != null ? t0.y_on_allow : 1.2,
   };
   if (t0.min_range_pct != null) body.min_range_pct = t0.min_range_pct;
   else body.min_range_pct = 0.5;

@@ -130,7 +130,7 @@ def _score_factor_weight_meta(
 ) -> Dict[str, Any]:
     """分组标签 / 展示权（|β| 派生）；选股真源仍是 return_model。"""
     try:
-        from core.signal.cluster_live import lookup_code_weights
+        from core.signal.cluster.live import lookup_code_weights
 
         mapped = lookup_code_weights(str(code), active=cluster_active)
     except Exception:  # noqa: BLE001 — 分组查询失败，不阻塞回测
@@ -938,7 +938,7 @@ def backtest_topk_equal_weight(
         else clamp_rank_mode(rank_mode)
     )
     try:
-        from core.signal.cluster_live import load_active_cluster_weights
+        from core.signal.cluster.live import load_active_cluster_weights
 
         cluster_active = load_active_cluster_weights()
     except Exception:  # noqa: BLE001 — 组权是加分项，不阻塞基线回测
@@ -1043,7 +1043,7 @@ def backtest_topk_equal_weight(
                         cluster_return_models[key] = m
         elif use_live_cluster_models:
             try:
-                from core.signal.cluster_live import (
+                from core.signal.cluster.live import (
                     cluster_yhat_shadow_compute_allowed,
                     filter_primary_cluster_models_by_code,
                     get_cluster_scoring_cfg,

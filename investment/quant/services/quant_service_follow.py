@@ -57,6 +57,12 @@ class QuantFollowMixin:
         from core.paper import load_paper
         from core.paths import PAPER_PATH
 
+        def _code_key(c: object) -> str:
+            s = str(c or "").strip().upper()
+            if "." in s:
+                s = s.split(".", 1)[0]
+            return s
+
         if not os.path.isfile(PAPER_PATH):
             return []
         paper = load_paper(PAPER_PATH)
@@ -67,10 +73,11 @@ class QuantFollowMixin:
         elif str(code or "").strip():
             want = {str(code).strip()}
         if want:
+            want_keys = {_code_key(w) for w in want}
             holdings = [
                 h
                 for h in holdings
-                if str(h.get("stock_code") or "").strip() in want
+                if _code_key(h.get("stock_code")) in want_keys
                 or str(h.get("stock_name") or "").strip() in want
                 or any(
                     w and w in str(h.get("stock_name") or "")

@@ -221,7 +221,7 @@ def north_star_attribution(
 
     返回：alpha 年化、alpha 占比、主因子、系统/特质占比、风格判定。
     """
-    from core.signal.factor_risk import risk_attribution
+    from core.signal.factors.meta.risk_attribution import risk_attribution
 
     names = list(factor_names) if factor_names else [f"f{i}" for i in range(np.asarray(factor_returns).shape[1])]
     attr = risk_attribution(

@@ -290,7 +290,7 @@ def list_factors(*, include_meta: bool = False) -> List[Dict[str, str]]:
     proxy_meta = {}
     if include_meta:
         try:
-            from core.signal.factor_health import PROXY_OR_UNSOURCED
+            from core.signal.factors.meta.health import PROXY_OR_UNSOURCED
 
             proxy_meta = dict(PROXY_OR_UNSOURCED)
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
@@ -426,7 +426,7 @@ def run_factor_experiment(
     E2：默认按 bar 日期 PIT 解析财务；缺史当日该因子用 None 基本面（价量因子不受影响）。
     """
     from core.signal.config import load_signal_config
-    from core.signal.factor_corr import pearson_with_reason
+    from core.signal.factors.meta.corr import pearson_with_reason
 
     cfg = config or load_signal_config()
     horizon_days = max(1, min(int(horizon_days or 3), 10))

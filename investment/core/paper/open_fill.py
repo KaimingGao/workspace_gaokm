@@ -266,10 +266,12 @@ def _apply_leg_at_open(
 
     if side == "sell":
         have = float((existing or {}).get("shares") or 0)
-        sell_shares = min(shares, have)
+        from core.paper.tplus1 import TPLUS1_LOCK_REASON, clip_sell_shares, consume_sell_lots
+
+        sell_shares, t1_meta = clip_sell_shares(existing or {}, min(shares, have))
         sell_shares = float(_lot_shares(sell_shares) or sell_shares)
         if sell_shares <= 0 or not existing:
-            return None, "no_position"
+            return None, t1_meta.get("reason") or TPLUS1_LOCK_REASON if have > 0 else "no_position"
         cost = float(existing.get("cost") or 0)
         amount = round(sell_shares * fill_px, 2)
         fee_info = calc_trade_fees("sell", amount, model=model, params=params)
@@ -294,10 +296,8 @@ def _apply_leg_at_open(
         )
         paper.setdefault("trades", []).append(trade)
         paper["cash"] = round(cash + float(fee_info.get("net_cash_delta") or 0), 2)
-        left = have - sell_shares
-        if left > 1e-6:
-            existing["shares"] = left
-        else:
+        consume_sell_lots(existing, sell_shares)
+        if float(existing.get("shares") or 0) <= 1e-6:
             paper["holdings"] = [h for h in holdings if str(h.get("stock_code")) != code]
         return trade, None
 
@@ -328,27 +328,27 @@ def _apply_leg_at_open(
     )
     paper.setdefault("trades", []).append(trade)
     paper["cash"] = round(cash - need, 2)
+    from core.paper.tplus1 import add_buy_lot, stamp_new_holding
+
     if existing:
         old_sh = float(existing.get("shares") or 0)
         old_cost = float(existing.get("cost") or 0)
         new_sh = old_sh + buy_shares
-        existing["shares"] = new_sh
         if new_sh > 0:
             existing["cost"] = round((old_cost * old_sh + fill_px * buy_shares) / new_sh, 4)
+        add_buy_lot(existing, buy_shares, ts=trade["ts"])
         existing["origin"] = merge_origin(existing.get("origin"), trade.get("origin"))
     else:
-        from core.paper.ledger import _now_iso as _ts
-
-        holdings.append(
-            {
-                "stock_code": code,
-                "stock_name": name,
-                "shares": buy_shares,
-                "cost": round(fill_px, 4),
-                "bought_at": _ts(),
-                "origin": trade.get("origin") or ORIGIN_STRATEGY,
-            }
-        )
+        row = {
+            "stock_code": code,
+            "stock_name": name,
+            "shares": buy_shares,
+            "cost": round(fill_px, 4),
+            "bought_at": trade["ts"],
+            "origin": trade.get("origin") or ORIGIN_STRATEGY,
+        }
+        stamp_new_holding(row, ts=trade["ts"])
+        holdings.append(row)
         paper["holdings"] = holdings
     return trade, None
 

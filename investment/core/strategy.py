@@ -219,7 +219,7 @@ def promote_strategy(
     # FM0 · 当前 signal_config.weights 健康门（不写权，但晋级前可见）
     try:
         from core.signal.config import load_signal_config
-        from core.signal.factor_health import guard_weights_for_promote
+        from core.signal.factors.meta.health import guard_weights_for_promote
 
         cfg = load_signal_config() or {}
         guard = guard_weights_for_promote(cfg.get("weights") or {}, force=False)

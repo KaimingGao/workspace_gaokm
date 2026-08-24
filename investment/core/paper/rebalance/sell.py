@@ -336,6 +336,20 @@ def run_sell_leg(state: RebalanceState) -> None:
             kept.append(h)
             continue
 
+        from core.paper.tplus1 import TPLUS1_LOCK_REASON, clip_sell_shares, consume_sell_lots
+
+        sell_shares, t1_meta = clip_sell_shares(h, sell_shares)
+        if sell_shares <= 1e-9:
+            sell_match_skips.append({
+                "stock_code": code,
+                "stock_name": h.get("stock_name"),
+                "reason": t1_meta.get("reason") or TPLUS1_LOCK_REASON,
+                "score": score,
+                "path": "tplus1",
+            })
+            kept.append(h)
+            continue
+
         pnl_pct = round((price / cost - 1.0) * 100.0, 2) if cost else None
         fill_px = apply_fill_price(
             "sell", float(price), model=cost_model, params=fee_params
@@ -374,21 +388,28 @@ def run_sell_leg(state: RebalanceState) -> None:
         paper.setdefault("trades", []).append(trade)
         sell_trades.append(trade)
         cash = round(cash + float(fee_info["net_cash_delta"]), 2)
-        if (sentiment_prior_trim or market_prior_trim) and keep_shares > 0:
-            base_sh = float(h.get("sentiment_trim_base_shares") or shares)
-            kept.append(
-                {
-                    **h,
-                    "shares": keep_shares,
-                    "sentiment_trim_base_shares": base_sh,
-                }
-            )
+        consume_sell_lots(h, sell_shares)
+        if float(h.get("shares") or 0) > 1e-6:
+            kept.append(h)
 
     paper["holdings"] = kept
     paper["cash"] = round(cash, 2)
 
     # 分池滞回：持仓膨胀时优先卸中间带，再卸簿内最低分；跌停则换下一可卖票
     if not respect_max_positions and len(kept) > max_positions:
+        from core.paper.tplus1 import TPLUS1_LOCK_REASON, consume_sell_lots, is_fully_sellable
+
+        kept_by_code = {str(x.get("stock_code") or ""): x for x in kept}
+
+        def _force_trim_sell_block(code, quote):
+            r = _sell_match_block_reason(code, quote)
+            if r:
+                return r
+            row = kept_by_code.get(str(code or ""))
+            if row is not None and not is_fully_sellable(row):
+                return TPLUS1_LOCK_REASON
+            return None
+
         trim_count = len(kept) - max_positions
         sellable, trim_blocked = select_force_trim_codes_sellable(
             kept,
@@ -396,7 +417,7 @@ def run_sell_leg(state: RebalanceState) -> None:
             top_codes=top_codes,
             trim_count=trim_count,
             quote_cache=_quote_cache,
-            sell_block_fn=_sell_match_block_reason,
+            sell_block_fn=_force_trim_sell_block,
         )
         for b in trim_blocked:
             sell_match_skips.append(
@@ -468,6 +489,9 @@ def run_sell_leg(state: RebalanceState) -> None:
                 sell_trades.append(trade)
                 force_sell_trades.append(trade)
                 cash = round(cash + float(fee_info["net_cash_delta"]), 2)
+                consume_sell_lots(h, shares)
+                if float(h.get("shares") or 0) > 1e-6:
+                    new_kept.append(h)
             else:
                 new_kept.append(h)
         kept = new_kept
@@ -582,6 +606,23 @@ def run_sell_leg(state: RebalanceState) -> None:
                                     "path": "risk_excess_name",
                                 })
                                 continue
+                            from core.paper.tplus1 import (
+                                TPLUS1_LOCK_REASON,
+                                clip_sell_shares,
+                                consume_sell_lots,
+                            )
+
+                            trim_shares, t1_meta = clip_sell_shares(h, trim_shares)
+                            if trim_shares < 100:
+                                if t1_meta.get("reason"):
+                                    sell_match_skips.append({
+                                        "stock_code": code,
+                                        "stock_name": h.get("stock_name"),
+                                        "reason": t1_meta.get("reason") or TPLUS1_LOCK_REASON,
+                                        "score": score_by_code.get(code),
+                                        "path": "tplus1",
+                                    })
+                                continue
                             fill_px = apply_fill_price("sell", float(price), model=cost_model, params=fee_params)
                             amount = round(trim_shares * fill_px, 2)
                             fee_info = calc_trade_fees("sell", amount, model=cost_model, params=fee_params)
@@ -604,10 +645,8 @@ def run_sell_leg(state: RebalanceState) -> None:
                             sell_trades.append(trade)
                             risk_excess_trims.append(trade)
                             cash = round(cash + float(fee_info["net_cash_delta"]), 2)
-                            # 更新持仓（shares + market_value 同步，避免后续行业减仓读旧市值导致过度减仓）
-                            before_shares = float(shares or 0)
-                            after_shares = before_shares - float(trim_shares or 0)
-                            h["shares"] = after_shares
+                            consume_sell_lots(h, trim_shares)
+                            after_shares = float(h.get("shares") or 0)
                             if after_shares <= 0:
                                 kept.remove(h)
                             else:
@@ -674,6 +713,23 @@ def run_sell_leg(state: RebalanceState) -> None:
                         fill_px = apply_fill_price(
                             "sell", float(price), model=cost_model, params=fee_params
                         )
+                        from core.paper.tplus1 import (
+                            TPLUS1_LOCK_REASON,
+                            clip_sell_shares,
+                            consume_sell_lots,
+                        )
+
+                        trim_shares, t1_meta = clip_sell_shares(h, trim_shares)
+                        if trim_shares < 100:
+                            if t1_meta.get("reason"):
+                                sell_match_skips.append({
+                                    "stock_code": code,
+                                    "stock_name": h.get("stock_name"),
+                                    "reason": t1_meta.get("reason") or TPLUS1_LOCK_REASON,
+                                    "score": score_by_code.get(code),
+                                    "path": "tplus1",
+                                })
+                            continue
                         amount = round(trim_shares * fill_px, 2)
                         fee_info = calc_trade_fees(
                             "sell", amount, model=cost_model, params=fee_params
@@ -701,9 +757,10 @@ def run_sell_leg(state: RebalanceState) -> None:
                         risk_excess_trims.append(trade)
                         cash = round(cash + float(fee_info["net_cash_delta"]), 2)
                         before_mv = mv
-                        h["shares"] = shares - trim_shares
-                        h["market_value"] = round(float(h["shares"]) * float(fill_px), 2)
-                        if h["shares"] <= 0:
+                        consume_sell_lots(h, trim_shares)
+                        after_shares = float(h.get("shares") or 0)
+                        h["market_value"] = round(after_shares * float(fill_px), 2)
+                        if after_shares <= 0:
                             kept.remove(h)
                             sold_mv = before_mv
                         else:

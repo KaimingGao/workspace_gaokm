@@ -115,7 +115,7 @@ class TestPortsAdapters(unittest.TestCase):
             Path("signal/score_stock.py"),
             Path("signal/cross_section.py"),
             Path("signal/cross_section_batch.py"),
-            Path("signal/cluster_rank.py"),
+            Path("signal/cluster/rank.py"),
             Path("signal_service.py"),
         }
         patterns = [
@@ -124,7 +124,7 @@ class TestPortsAdapters(unittest.TestCase):
                 r"from\s+core\.signal\.cross_section\s+import\s+[^\n]*\brank_cross_section\b"
             ),
             re.compile(
-                r"from\s+core\.signal\.cluster_rank\s+import\s+[^\n]*\brank_cluster_pools\b"
+                r"from\s+core\.signal\.cluster\.rank\s+import\s+[^\n]*\brank_cluster_pools\b"
             ),
         ]
         offenders = []
@@ -230,7 +230,7 @@ class TestPaperJobPersist(unittest.TestCase):
 class TestPaperCycleExport(unittest.TestCase):
     def test_reexport_from_paper(self):
         from core import paper
-        from core import paper_cycle
+        from core.paper import cycle as paper_cycle
 
         self.assertIs(paper.run_daily_cycle, paper_cycle.run_daily_cycle)
 

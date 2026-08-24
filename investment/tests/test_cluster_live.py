@@ -97,7 +97,7 @@ class TestClusterLive(unittest.TestCase):
         }
 
     def test_promote_requires_return_model_not_weights(self):
-        from core.signal.cluster_live import promote_cluster_artifact
+        from core.signal.cluster.live import promote_cluster_artifact
 
         art = {
             "created_at": "2026-08-01T00:00:00Z",
@@ -116,7 +116,7 @@ class TestClusterLive(unittest.TestCase):
         with _live_tmp():
             out = promote_cluster_artifact(art)
             self.assertTrue(out["success"], out)
-            from core.signal.cluster_live import load_active_cluster_weights, lookup_code_weights
+            from core.signal.cluster.live import load_active_cluster_weights, lookup_code_weights
 
             act = load_active_cluster_weights()
             self.assertEqual(act["n_mapped_codes"], 2)
@@ -128,7 +128,7 @@ class TestClusterLive(unittest.TestCase):
             )
 
     def test_promote_rejects_weights_only(self):
-        from core.signal.cluster_live import promote_cluster_artifact
+        from core.signal.cluster.live import promote_cluster_artifact
 
         art = {
             "code_map": {
@@ -148,7 +148,7 @@ class TestClusterLive(unittest.TestCase):
             self.assertIn("return_model", out.get("error") or "")
 
     def test_audit_sample_rotates_with_offset(self):
-        from core.signal.cluster_live import _pick_audit_codes
+        from core.signal.cluster.live import _pick_audit_codes
 
         cmap = {
             f"c{i}": {"cluster_label": f"G{i % 3}"}
@@ -162,7 +162,7 @@ class TestClusterLive(unittest.TestCase):
         self.assertNotEqual(a, b)
 
     def test_promote_and_rollback(self):
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             load_active_cluster_weights,
             promote_cluster_artifact,
             rollback_cluster_weights,
@@ -186,7 +186,7 @@ class TestClusterLive(unittest.TestCase):
             self.assertIsNotNone(act2)
 
     def test_set_mode_active_requires_health(self):
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             promote_cluster_artifact,
             set_cluster_scoring_mode,
         )
@@ -198,7 +198,7 @@ class TestClusterLive(unittest.TestCase):
 
             promote_cluster_artifact(self._artifact())
             with patch(
-                "core.signal.cluster_live.assess_cluster_live_health",
+                "core.signal.cluster.live.assess_cluster_live_health",
                 return_value={
                     "allow_active": True,
                     "alerts": [],
@@ -210,17 +210,17 @@ class TestClusterLive(unittest.TestCase):
             self.assertFalse(ok["signal_config_weights_touched"])
 
     def test_apply_shortcut_promote_shadow_refresh(self):
-        from core.signal.cluster_live import apply_cluster_live_shortcut
+        from core.signal.cluster.live import apply_cluster_live_shortcut
 
         with _live_tmp():
             with patch(
-                "core.signal.cluster_live.refresh_cluster_book_daily",
+                "core.signal.cluster.live.refresh_cluster_book_daily",
                 return_value={
                     "success": True,
                     "rank": {"name_count": 2, "success": True},
                 },
             ), patch(
-                "core.signal.cluster_live.assess_cluster_live_health",
+                "core.signal.cluster.live.assess_cluster_live_health",
                 return_value={"allow_active": True, "alerts": []},
             ):
                 out = apply_cluster_live_shortcut(
@@ -236,8 +236,8 @@ class TestClusterLive(unittest.TestCase):
             )
 
     def test_rank_cluster_pools_global_sort(self):
-        from core.signal.cluster_live import promote_cluster_artifact
-        from core.signal.cluster_rank import rank_cluster_pools
+        from core.signal.cluster.live import promote_cluster_artifact
+        from core.signal.cluster.rank import rank_cluster_pools
 
         with _live_tmp():
             promote_cluster_artifact(self._artifact())
@@ -357,8 +357,8 @@ class TestClusterLive(unittest.TestCase):
 
     def test_rank_passes_pool_sector_gap_breadth(self):
         """刷簿预计算池内广度并注入 score_stock。"""
-        from core.signal.cluster_live import promote_cluster_artifact
-        from core.signal.cluster_rank import rank_cluster_pools
+        from core.signal.cluster.live import promote_cluster_artifact
+        from core.signal.cluster.rank import rank_cluster_pools
 
         seen = []
 
@@ -423,7 +423,7 @@ class TestClusterLive(unittest.TestCase):
             self.assertIn("quote", kw)
 
     def test_auto_demote_stale_and_prepare_daily(self):
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             maybe_auto_demote_stale,
             prepare_cluster_for_daily,
             promote_cluster_artifact,
@@ -435,7 +435,7 @@ class TestClusterLive(unittest.TestCase):
             with open(ctx["book"], "w", encoding="utf-8") as f:
                 json.dump({"book": [{"stock_code": "600519"}], "meta": {}}, f)
             with patch(
-                "core.signal.cluster_live.assess_cluster_live_health",
+                "core.signal.cluster.live.assess_cluster_live_health",
                 return_value={
                     "allow_active": True,
                     "alerts": [],
@@ -443,14 +443,14 @@ class TestClusterLive(unittest.TestCase):
                     "suggest_demote": False,
                 },
             ), patch(
-                "core.signal.cluster_live.build_cluster_enable_evidence",
+                "core.signal.cluster.live.build_cluster_enable_evidence",
                 return_value={"gate": {"ok": True, "blockers": []}},
             ):
                 ok = set_cluster_scoring_mode("active")
             self.assertTrue(ok["success"])
 
             with patch(
-                "core.signal.cluster_live.assess_cluster_live_health",
+                "core.signal.cluster.live.assess_cluster_live_health",
                 return_value={
                     "allow_active": False,
                     "alerts": ["映射陈旧"],
@@ -464,16 +464,16 @@ class TestClusterLive(unittest.TestCase):
             self.assertEqual(dem["cluster_scoring"]["mode"], "shadow")
 
             with patch(
-                "core.signal.cluster_live.maybe_auto_demote_stale",
+                "core.signal.cluster.live.maybe_auto_demote_stale",
                 return_value={"success": True, "demoted": False},
             ), patch(
-                "core.signal.cluster_live.refresh_cluster_book_daily",
+                "core.signal.cluster.live.refresh_cluster_book_daily",
                 return_value={
                     "success": True,
                     "rank": {"name_count": 2, "success": True},
                 },
             ), patch(
-                "core.signal.cluster_live.assess_cluster_live_health",
+                "core.signal.cluster.live.assess_cluster_live_health",
                 return_value={"allow_active": True, "alerts": []},
             ):
                 prep = prepare_cluster_for_daily()
@@ -481,7 +481,7 @@ class TestClusterLive(unittest.TestCase):
             self.assertIsNotNone(prep.get("refresh"))
 
     def test_status_landing_fields(self):
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             cluster_status_public,
             promote_cluster_artifact,
             set_cluster_scoring_mode,
@@ -490,7 +490,7 @@ class TestClusterLive(unittest.TestCase):
         with _live_tmp():
             promote_cluster_artifact(self._artifact())
             with patch(
-                "core.signal.cluster_live.assess_cluster_live_health",
+                "core.signal.cluster.live.assess_cluster_live_health",
                 return_value={
                     "allow_active": True,
                     "alerts": [],
@@ -498,7 +498,7 @@ class TestClusterLive(unittest.TestCase):
                     "stale": False,
                 },
             ), patch(
-                "core.signal.cluster_live.cluster_score_audit_sample",
+                "core.signal.cluster.live.cluster_score_audit_sample",
                 return_value={"success": True, "rows": []},
             ):
                 set_cluster_scoring_mode("shadow")
@@ -530,7 +530,7 @@ class TestClusterLive(unittest.TestCase):
         return art
 
     def test_promote_rejects_all_oos_fail(self):
-        from core.signal.cluster_live import promote_cluster_artifact
+        from core.signal.cluster.live import promote_cluster_artifact
 
         with _live_tmp():
             out = promote_cluster_artifact(self._all_oos_fail_artifact())
@@ -538,7 +538,7 @@ class TestClusterLive(unittest.TestCase):
         self.assertIn("OOS", str(out.get("error") or ""))
 
     def test_enable_evidence_blocks_all_oos_fail(self):
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             build_cluster_enable_evidence,
             promote_cluster_artifact,
         )
@@ -549,7 +549,7 @@ class TestClusterLive(unittest.TestCase):
             )
             self.assertTrue(promoted.get("success"), promoted)
             with patch(
-                "core.signal.cluster_live.assess_cluster_live_health",
+                "core.signal.cluster.live.assess_cluster_live_health",
                 return_value={
                     "allow_active": True,
                     "alerts": [],
@@ -564,7 +564,7 @@ class TestClusterLive(unittest.TestCase):
             )
 
     def test_summarize_and_ensure_oos_gates(self):
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             _summarize_cluster_oos,
             ensure_active_cluster_oos_gates,
             promote_cluster_artifact,
@@ -611,13 +611,13 @@ class TestClusterLive(unittest.TestCase):
             self.assertTrue(out["success"])
             self.assertEqual(out["filled"], 1)
             self.assertEqual(out["oos_summary"]["pass_count"], 1)
-            from core.signal.cluster_live import load_active_cluster_weights
+            from core.signal.cluster.live import load_active_cluster_weights
 
             active = load_active_cluster_weights()
             self.assertTrue((active["clusters"][0].get("oos_gate") or {}).get("passed"))
 
     def test_status_landing_after_paper_applied(self):
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             cluster_status_public,
             promote_cluster_artifact,
             set_cluster_scoring_mode,
@@ -629,7 +629,7 @@ class TestClusterLive(unittest.TestCase):
             with open(ctx["book"], "w", encoding="utf-8") as f:
                 json.dump({"book": [{"stock_code": "600519"}], "meta": {}}, f)
             with patch(
-                "core.signal.cluster_live.assess_cluster_live_health",
+                "core.signal.cluster.live.assess_cluster_live_health",
                 return_value={
                     "allow_active": True,
                     "alerts": [],
@@ -637,10 +637,10 @@ class TestClusterLive(unittest.TestCase):
                     "stale": False,
                 },
             ), patch(
-                "core.signal.cluster_live.build_cluster_enable_evidence",
+                "core.signal.cluster.live.build_cluster_enable_evidence",
                 return_value={"gate": {"ok": True, "blockers": []}},
             ), patch(
-                "core.signal.cluster_live._paper_cluster_landed",
+                "core.signal.cluster.live._paper_cluster_landed",
                 return_value={
                     "applied": True,
                     "applied_at": "2026-08-01",

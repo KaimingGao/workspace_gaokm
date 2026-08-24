@@ -306,7 +306,7 @@ def _calibration_universe_codes(
         logger.warning("calibration universe watching read failed: %s", exc)
     # 并入当前打分宇宙（scored_all），扩大负 ŷ 覆盖
     try:
-        from core.signal.cluster_live import load_active_cluster_book
+        from core.signal.cluster.live import load_active_cluster_book
 
         book = load_active_cluster_book() or {}
         for row in list(book.get("scored_all") or []) + list(book.get("book") or []):
@@ -428,7 +428,7 @@ def _collect_eod_panel_pairs(
     try:
         from core.data.facade import bars_and_source
         from core.research.panel import collect_subscore_forward_panel
-        from core.signal.cluster_live import (
+        from core.signal.cluster.live import (
             load_active_cluster_weights,
             lookup_code_return_model,
             lookup_code_weights,

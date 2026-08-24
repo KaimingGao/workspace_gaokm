@@ -74,7 +74,7 @@ def _display_weight_suggest_from_return_model(
 ) -> Dict[str, Any]:
     """由 |β| 派生展示权；已退役为选股主轴（deprecated_for_scoring）。"""
     from core.signal.config import load_signal_config
-    from core.signal.factor_coefs import (
+    from core.signal.factors.meta.coefs import (
         coefficients_from_return_model,
         display_weights_from_return_model,
     )

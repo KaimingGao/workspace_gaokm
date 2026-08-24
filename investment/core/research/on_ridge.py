@@ -366,7 +366,7 @@ def explain_on_prediction(
     ]
     row = features or {}
     try:
-        from core.signal.factor_registry import factor_label
+        from core.signal.factors.meta.registry import factor_label
     except Exception:  # noqa: BLE001
         factor_label = lambda k: str(k)  # noqa: E731
 

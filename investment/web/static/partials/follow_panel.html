@@ -340,8 +340,8 @@
         </summary>
         <div class="dashboard-card quant-pro-card follow-ops-card follow-ops-t0">
           <div class="quant-pro-card-body follow-card-body">
-            <div id="paper-t0-summary" class="quant-summary">
-              底仓 overlay 验证 · 日线代理 · 预演后确认 · 非独立选股 · 非实盘。明细「分」= 开盘方向分（跳空等），≠ 选股 ŷ。
+            <div id="paper-t0-summary" class="quant-summary paper-t0-summary-line">
+              底仓 overlay · dual_y 方向门控 · 日线/5m 路径代理 · 预演后确认 · 非实盘
             </div>
             <div id="paper-t0-rules" class="paper-t0-rules" aria-label="生效做T规则"></div>
             <details class="quant-fold follow-fold" id="paper-t0-edit-fold">
@@ -388,15 +388,11 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="signal：开盘方向分（跳空/昨位/mom3/gap·ATR）；≠ 选股 predicted_score"
+                    title="y_trade资格 · y_τ主方向 · y_eod冲突跳过 · y_on回补"
                   >
                     <span>选向</span>
-                    <select name="direction">
-                      <option value="long_t" selected>long_t</option>
-                      <option value="signal">signal</option>
-                      <option value="auto">auto</option>
-                      <option value="reverse_t">reverse_t</option>
-                    </select>
+                    <input type="hidden" name="direction" value="dual_y" />
+                    <span class="paper-t0-fixed-val">dual_y（ŷ）</span>
                   </label>
                   <label class="paper-t0-field">
                     <span>成交</span>
@@ -432,10 +428,38 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="正T未买回 / 反T未卖旧仓时，收盘强制完成第二腿，减少半腿敞口"
+                    title="正T未买回 / 反T未卖旧仓时，收盘强制完成第二腿。dual_y 下可由 y_on 覆盖"
                   >
                     <span>当日回补</span>
                     <input type="checkbox" name="must_cover_same_day" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="dual_y：y_trade 低于此值跳过或缩仓（%点）"
+                  >
+                    <span>y_trade门槛</span>
+                    <input type="number" name="y_trade_floor" min="-5" max="5" step="0.05" value="-0.15" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="dual_y：|y_τ|≥此值才入场（%点）"
+                  >
+                    <span>y_τ入场</span>
+                    <input type="number" name="y_tau_enter" min="0.05" max="5" step="0.05" value="0.25" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="dual_y：|y_eod|≥此值才参与与 y_τ 冲突检测（%点）"
+                  >
+                    <span>y_eod先验</span>
+                    <input type="number" name="y_eod_prior" min="0.05" max="5" step="0.05" value="0.35" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="dual_y：|y_on|≥此值才允许与敞口同向的隔夜（默认仍强制回补）"
+                  >
+                    <span>y_on放行</span>
+                    <input type="number" name="y_on_allow" min="0.1" max="10" step="0.1" value="1.2" />
                   </label>
                   <label class="paper-t0-field" title="仅做T回测；不写入账本覆盖">
                     <span>回测窗</span>
@@ -452,6 +476,7 @@
               </form>
             </details>
             <div id="paper-t0-metrics" class="quant-metrics" aria-live="polite"></div>
+            <div id="paper-t0-viz" class="paper-t0-viz" hidden aria-label="做T回测可视化"></div>
             <div id="paper-t0-preview" class="quant-weight-table-wrap" hidden></div>
             <div id="paper-t0-days" class="quant-weight-table-wrap"></div>
             <div class="quant-actions-inline">

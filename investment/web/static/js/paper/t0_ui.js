@@ -1,6 +1,15 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
-import { paperFmtPct, paperMetricClass } from "./fmt.js";
+import { paperMetricClass } from "./fmt.js";
+import { renderT0Viz } from "./t0_viz.js";
+import { buildT0ReportHtml } from "./t0_report.js";
+import {
+  buildT0SkipTableHtml,
+  buildT0TradeTableHtml,
+  pickTradeDays,
+  stockCellHtml,
+  T0_TRADE_TABLE_MAX_ROWS,
+} from "./t0_table.js";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -8,31 +17,6 @@ function escapeHtml(s) {
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;");
-}
-
-/** 股票名 + 代码（名优先；无名时退回代码） */
-function stockCellHtml(row, fallback = {}) {
-  const code = String(
-    (row && row.stock_code) || fallback.stock_code || ""
-  ).trim();
-  const name = String(
-    (row && row.stock_name) || fallback.stock_name || ""
-  ).trim();
-  const title = name && code && name !== code ? `${name} ${code}` : name || code;
-  if (!name && !code) return `<td class="rebalance-stock">—</td>`;
-  if (!name || name === code) {
-    return (
-      `<td class="rebalance-stock" title="${escapeHtml(title)}">` +
-      `<span class="rebalance-stock-name">${escapeHtml(code || "—")}</span>` +
-      `</td>`
-    );
-  }
-  return (
-    `<td class="rebalance-stock" title="${escapeHtml(title)}">` +
-    `<span class="rebalance-stock-name">${escapeHtml(name)}</span>` +
-    `<span class="rebalance-stock-code">${escapeHtml(code)}</span>` +
-    `</td>`
-  );
 }
 
 function renderSkipContext(data) {
@@ -49,187 +33,104 @@ function renderSkipContext(data) {
     .map((r) => `${escapeHtml(r.reason)} ×${r.count}`)
     .join(" · ");
   let html =
-    `<p class="quant-trades-caption">日线 ${escapeHtml(path)} 下多数日被跳过` +
-    (data.skip_days != null ? `（合计 ${data.skip_days} 日）` : "") +
-    (reasonBits ? `：${reasonBits}` : "") +
-    `。成交表明细只列真实成交日。</p>`;
+    `<details class="paper-t0-skip-fold">` +
+    `<summary class="quant-trades-caption">跳过诊断 · 日线 ${escapeHtml(path)}` +
+    (data.skip_days != null ? ` · 合计 ${data.skip_days} 日` : "") +
+    (reasonBits ? ` · ${reasonBits}` : "") +
+    `</summary>`;
   if (skips.length) {
-    html +=
-      `<p class="quant-trades-caption">近期跳过样例</p>` +
-      `<table class="quant-weight-table"><thead><tr>` +
-      `<th>股票</th><th>日</th><th>原因</th></tr></thead><tbody>` +
-      skips
-        .slice(0, 10)
-        .map(
-          (d) =>
-            `<tr>${stockCellHtml(d, fallback)}` +
-            `<td>${escapeHtml(d.date || "")}</td>` +
-            `<td>${escapeHtml(d.reason || "跳过")}</td></tr>`
-        )
-        .join("") +
-      `</tbody></table>`;
+    html += buildT0SkipTableHtml(skips, fallback);
   }
+  html += `</details>`;
   return html;
 }
 
+function buildZeroTradeHint(data) {
+  const reasons = data.skip_reason_top || [];
+  const top = reasons[0];
+  const ampSkip = reasons.some((r) => String(r.reason || "").includes("振幅"));
+  const lotSkip = reasons.some((r) => String(r.reason || "").includes("不足1手"));
+  const dir = (data.rules && data.rules.direction) || data.direction || "—";
+  const sell = (data.rules && data.rules.sell_trigger_pct) ?? "2";
+  const buy = (data.rules && data.rules.buy_trigger_pct) ?? "1.5";
+  const tips = ampSkip
+    ? "振幅门禁偏严；可调低振幅下限或关闭 ATR 自适应"
+    : lotSkip
+      ? "仓位×做T比例不足 1 手；可提高做T比例或加仓"
+      : `未触及卖 +${sell}% / 买 -${buy}% 触发；可降阈值或启用 5 分钟路径`;
+  const mm = data.minute_meta || {};
+  const minuteHint =
+    data.use_minute === false && (mm.error || (data.minute_path_days || 0) === 0)
+      ? ` · 5m${mm.error ? `失败：${escapeHtml(String(mm.error).slice(0, 60))}` : "无覆盖"}，已回退日线`
+      : "";
+  return (
+    `未成交${data.skip_days != null ? `（${data.skip_days} 日跳过）` : ""}` +
+    (top ? ` · 主因 ${escapeHtml(top.reason)}×${top.count}` : "") +
+    ` · ${escapeHtml(String(dir))} · ${escapeHtml(tips)}${minuteHint}`
+  );
+}
+
 export function renderPaperT0(els, data) {
-  const { metricsEl, daysEl } = els || {};
+  const { metricsEl, daysEl, vizEl, previewEl } = els || {};
   if (!metricsEl) return;
   if (!data || !data.success) {
     metricsEl.innerHTML = "";
     if (daysEl) daysEl.innerHTML = "";
+    renderT0Viz(vizEl, null);
     return;
   }
-  const opt = data.optimistic_compare || {};
-  const deltaRatio = data.optimistic_delta_ratio_pct ?? opt.delta_pnl_ratio_pct;
-  const items = [
-    ["含敞口净 PnL", data.t0_pnl_with_exposure],
-    ["完成往返率", paperFmtPct(data.cover_rate_pct)],
-    ["日均 PnL", data.avg_pnl_per_trade_day],
-    ["参与率", paperFmtPct(data.participate_rate_pct)],
-    ["乐观Δ占比", paperFmtPct(deltaRatio)],
-    ["相对底仓%", paperFmtPct(data.pnl_vs_hold_mv_pct)],
-    ["做T天数", data.t0_trade_days],
-    ["累计 PnL", data.t0_pnl_total],
-    ["敞口 PnL", data.exposure_pnl_total],
-    ["正T PnL", data.long_t_pnl],
-    ["反T PnL", data.reverse_t_pnl],
-    ["正T日", data.long_t_days ?? 0],
-    ["反T日", data.reverse_t_days ?? 0],
-    ["跳过日", data.skip_days],
-    ["信号跳过", data.signal_skip_days],
-    ["分钟路径日", data.minute_path_days],
-    ["日线回退日", data.daily_fallback_days],
-  ];
-  metricsEl.innerHTML = items
-    .map(
-      ([label, val]) =>
-        `<div class="quant-metric"><span class="label">${label}</span>` +
-        `<span class="val ${paperMetricClass(val)}">${val ?? "—"}</span></div>`
-    )
-    .join("");
-  const tradeDays = Number(data.t0_trade_days) || 0;
-  if (tradeDays <= 0) {
-    const reasons = data.skip_reason_top || [];
-    const top = reasons[0];
-    const ampSkip = reasons.some((r) => String(r.reason || "").includes("振幅"));
-    const dir = (data.rules && data.rules.direction) || data.direction || "—";
-    const sell = (data.rules && data.rules.sell_trigger_pct) ?? "2";
-    const buy = (data.rules && data.rules.buy_trigger_pct) ?? "1.5";
-    const tips = ampSkip
-      ? `振幅门禁偏严；「振幅下限」保持 0.5 或关 ATR 调阈`
-      : `日线未触及卖触发 +${sell}%（或买 -${buy}%）；可降触发，或勾选「仅选中」+「5分钟」`;
-    const mm = data.minute_meta || {};
-    const minuteHint =
-      data.use_minute === false && (mm.error || (data.minute_path_days || 0) === 0)
-        ? ` · 5m${mm.error ? `失败：${String(mm.error).slice(0, 60)}` : "无覆盖"}，已用日线`
-        : "";
-    metricsEl.insertAdjacentHTML(
-      "afterbegin",
-      `<p class="quant-trades-caption paper-t0-zero-hint">` +
-        `未成交${data.skip_days != null ? `：${data.skip_days} 日跳过` : ""}` +
-        (top ? ` · 主因 ${escapeHtml(top.reason)}×${top.count}` : "") +
-        ` · 选向 ${escapeHtml(String(dir))} · ${escapeHtml(tips)}${escapeHtml(minuteHint)}` +
-        `</p>`
-    );
+
+  if (previewEl) {
+    previewEl.hidden = true;
+    previewEl.innerHTML = "";
   }
-  const sample = data.trade_days_sample || data.days || [];
-  const days = sample.filter(
-    (d) =>
-      Number(d.sold_qty) > 0 ||
-      Number(d.bought_qty) > 0 ||
-      Number(d.pnl) !== 0 ||
-      Number(d.exposure_pnl) !== 0
-  );
-  if (!daysEl) return;
+
+  const tradeDays = Number(data.t0_trade_days) || 0;
+  const zeroHint = tradeDays <= 0 ? buildZeroTradeHint(data) : "";
+  metricsEl.innerHTML = buildT0ReportHtml(data, { zeroHint });
+
+  const days = pickTradeDays(data);
+  if (!daysEl) {
+    renderT0Viz(vizEl, data);
+    return;
+  }
   const skipHtml = renderSkipContext(data);
   if (!days.length) {
     const skip = data.skip_days != null ? ` · 跳过 ${data.skip_days} 日` : "";
     const trades =
       data.t0_trade_days != null ? `指标成交日 ${data.t0_trade_days}` : "无成交样本";
     daysEl.innerHTML =
-      `<p class="quant-trades-caption">${trades}${skip} · 明细为空（可勾选「仅选中」+「5分钟」）</p>` +
+      `<div class="paper-t0-days-head">` +
+      `<h4 class="paper-t0-days-title">成交明细</h4>` +
+      `<p class="quant-trades-caption">${trades}${skip} · 样本为空</p>` +
+      `</div>` +
       skipHtml;
+    renderT0Viz(vizEl, data);
     return;
   }
-  const fallback = {
-    stock_code: data.stock_code,
-    stock_name: data.stock_name,
-  };
-  const showStock = days.some(
-    (d) => d.stock_code || d.stock_name || fallback.stock_code || fallback.stock_name
-  );
-  const captionBits = [];
-  captionBits.push(`成交 ${days.length} 行（指标做T日 ${data.t0_trade_days ?? "—"}）`);
-  if (data.cover_rate_pct != null) {
-    captionBits.push(`完成往返 ${data.cover_rate_pct}%`);
-  }
-  if (data.long_t_days != null || data.reverse_t_days != null) {
-    captionBits.push(`正${data.long_t_days ?? 0}/反${data.reverse_t_days ?? 0}`);
-  }
-  if (days.length <= 3 && (data.skip_days || 0) > 0) {
-    const path = (data.rules && data.rules.path_mode) || data.path_mode || "veto";
-    captionBits.push(`日线 ${path} 偏严 · 多数日未成交`);
-  }
-  captionBits.push(`表内最多 ${Math.min(days.length, 20)} 笔`);
+
   const enter =
-    data.rules && data.rules.dir_enter != null && Number.isFinite(Number(data.rules.dir_enter))
-      ? Number(data.rules.dir_enter)
-      : 0.35;
-  const scoreTip =
-    `开盘方向分 direction_score（约 -1～+1）：跳空/昨位/mom3/gap·ATR；≥+${enter} 正T，≤-${enter} 反T，|分|<${enter} 信号跳过。≠ 选股 predicted_score / ŷ。悬停或点击看详情。`;
-  daysEl.innerHTML =
+    data.rules && data.rules.y_tau_enter != null && Number.isFinite(Number(data.rules.y_tau_enter))
+      ? Number(data.rules.y_tau_enter)
+      : 0.25;
+  const captionBits = [
+    days.length > T0_TRADE_TABLE_MAX_ROWS
+      ? `样本 ${days.length} 笔（表内最近 ${T0_TRADE_TABLE_MAX_ROWS} 笔）`
+      : `${days.length} 笔成交`,
+    `指标日 ${data.t0_trade_days ?? "—"}`,
+    data.cover_rate_pct != null ? `往返 ${data.cover_rate_pct}%` : null,
+    `正${data.long_t_days ?? 0}/反${data.reverse_t_days ?? 0}`,
+  ].filter(Boolean);
+  const caption =
+    `<div class="paper-t0-days-head">` +
+    `<h4 class="paper-t0-days-title">成交明细</h4>` +
     `<p class="quant-trades-caption">${captionBits.join(" · ")}` +
-    ` · <span title="${escapeHtml(scoreTip)}">「分」= 方向分，非 ŷ</span></p>` +
-    `<table class="quant-weight-table"><thead><tr>` +
-    (showStock ? `<th>股票</th>` : "") +
-    `<th>日</th><th>向</th>` +
-    `<th title="${escapeHtml(scoreTip)}">分</th>` +
-    `<th>卖/买</th><th>回补</th><th>PnL</th><th>敞口</th></tr></thead><tbody>` +
-    days
-      .slice(-20)
-      .reverse()
-      .map((d) => {
-        const dir =
-          d.direction === "reverse_t" ? "反" : d.direction === "long_t" ? "正" : "—";
-        const score =
-          d.direction_score != null && d.direction_score !== ""
-            ? Number(d.direction_score).toFixed(2)
-            : "—";
-        const code = d.stock_code || fallback.stock_code || "";
-        const name = d.stock_name || fallback.stock_name || "";
-        const detail = JSON.stringify({
-          kind: "t0_direction",
-          direction_score: d.direction_score,
-          direction_reason: d.direction_reason || "",
-          direction: d.direction || "",
-          features: d.direction_features || d.features || null,
-          direction_features: d.direction_features || d.features || null,
-          stock_code: code,
-          stock_name: name,
-          date: d.date || "",
-          dir_enter: enter,
-        });
-        const flow =
-          Number(d.bought_qty) > 0 ? `买${d.bought_qty}` : `卖${d.sold_qty ?? 0}`;
-        const cover =
-          Number(d.sold_back_qty) > 0 ? d.sold_back_qty : d.covered_qty ?? 0;
-        return (
-          `<tr>` +
-          (showStock ? stockCellHtml(d, fallback) : "") +
-          `<td>${escapeHtml(d.date || "")}</td><td>${dir}</td>` +
-          `<td class="num paper-t0-dir-score has-tip" data-score-detail="${escapeHtml(
-            detail
-          )}" title="悬停查看方向分详情（非 ŷ）">${score}</td>` +
-          `<td class="num">${flow}</td>` +
-          `<td class="num">${cover}</td>` +
-          `<td class="num ${paperMetricClass(d.pnl)}">${d.pnl ?? 0}</td>` +
-          `<td class="num ${paperMetricClass(d.exposure_pnl)}">${d.exposure_pnl ?? 0}</td></tr>`
-        );
-      })
-      .join("") +
-    `</tbody></table>` +
-    (days.length <= 3 ? skipHtml : "");
+    ` · <span title="dual_y：τ≥+${enter} 正T，τ≤-${enter} 反T">τ = y_τ</span></p>` +
+    `</div>`;
+
+  daysEl.innerHTML =
+    caption + buildT0TradeTableHtml({ data, days, maxRows: T0_TRADE_TABLE_MAX_ROWS }) + skipHtml;
+  renderT0Viz(vizEl, data);
 }
 
 export function renderPaperT0Preview(els, data) {
@@ -246,10 +147,21 @@ export function renderPaperT0Preview(els, data) {
   previewEl.hidden = false;
   if (confirmEl) confirmEl.hidden = tradeN === 0 && !(data.pnl_total > 0);
   previewEl.innerHTML =
-    `<p class="quant-trades-caption">预演 · 成交 ${tradeN} 笔 · PnL ${data.pnl_total ?? 0} · ` +
+    `<p class="quant-trades-caption">今日预演 · 成交 ${tradeN} 笔 · PnL ${data.pnl_total ?? 0} · ` +
     `敞口 ${data.exposure_pnl_total ?? 0} · 跳过 ${data.skip_count ?? 0}</p>` +
-    `<table class="quant-weight-table"><thead><tr>` +
-    `<th>股票</th><th>向</th><th>说明</th><th>PnL</th></tr></thead><tbody>` +
+    `<table class="quant-weight-table paper-t0-table paper-t0-preview-table">` +
+    `<colgroup>` +
+    `<col class="paper-t0-col-stock" />` +
+    `<col class="paper-t0-col-dir" />` +
+    `<col class="paper-t0-col-reason" />` +
+    `<col class="paper-t0-col-pnl" />` +
+    `</colgroup>` +
+    `<thead><tr>` +
+    `<th scope="col" class="paper-t0-col-stock">股票</th>` +
+    `<th scope="col" class="paper-t0-col-dir">向</th>` +
+    `<th scope="col" class="paper-t0-col-reason">说明</th>` +
+    `<th scope="col" class="paper-t0-col-pnl num">PnL</th>` +
+    `</tr></thead><tbody>` +
     rows
       .map((r) => {
         const dir =
@@ -263,9 +175,9 @@ export function renderPaperT0Preview(els, data) {
           : r.error || `${(r.trades || []).length} 笔`;
         return (
           `<tr>${stockCellHtml(r)}` +
-          `<td>${dir}</td>` +
-          `<td>${escapeHtml(note)}</td>` +
-          `<td class="num ${paperMetricClass(r.pnl)}">${r.pnl ?? 0}</td></tr>`
+          `<td class="paper-t0-col-dir">${dir}</td>` +
+          `<td class="paper-t0-col-reason">${escapeHtml(note)}</td>` +
+          `<td class="num paper-t0-col-pnl ${paperMetricClass(r.pnl)}">${r.pnl ?? 0}</td></tr>`
         );
       })
       .join("") +

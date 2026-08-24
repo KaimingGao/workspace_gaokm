@@ -54,6 +54,7 @@ import {
   renderPaperT0 as renderPaperT0Ui,
   renderPaperT0Preview as renderPaperT0PreviewUi,
 } from "./paper/t0_ui.js";
+import { buildT0SummaryLine } from "./paper/t0_report.js";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p1232";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1232";
@@ -1934,13 +1935,19 @@ export function initPaper(ctx) {
   const paperRebalanceSummary = document.getElementById("paper-rebalance-summary");
   const paperT0Summary = document.getElementById("paper-t0-summary");
   const paperT0Metrics = document.getElementById("paper-t0-metrics");
+  const paperT0Viz = document.getElementById("paper-t0-viz");
   const paperT0Days = document.getElementById("paper-t0-days");
   const paperT0Preview = document.getElementById("paper-t0-preview");
   const paperT0Confirm = document.getElementById("paper-t0-confirm");
 
   function renderPaperT0(data) {
     renderPaperT0Ui(
-      { metricsEl: paperT0Metrics, daysEl: paperT0Days },
+      {
+        metricsEl: paperT0Metrics,
+        vizEl: paperT0Viz,
+        daysEl: paperT0Days,
+        previewEl: paperT0Preview,
+      },
       data
     );
   }
@@ -1993,6 +2000,8 @@ export function initPaper(ctx) {
         selectedCode: selectedHoldCode,
       });
       if (scope.error) {
+        const fold = document.getElementById("follow-fold-t0");
+        if (fold && !fold.open) fold.open = true;
         if (paperT0ActionStatus) paperT0ActionStatus.textContent = scope.error;
         if (paperT0Summary) paperT0Summary.textContent = scope.error;
         return;
@@ -2017,7 +2026,7 @@ export function initPaper(ctx) {
           } catch (_) {
             /* ignore */
           }
-        }, 90000);
+        }, useMinute ? 180000 : 90000);
       try {
         const body = collectT0BacktestBody(formRoot, {
           useMinute,
@@ -2037,42 +2046,8 @@ export function initPaper(ctx) {
           renderPaperT0(null);
           return;
         }
-        const opt = data.optimistic_compare || {};
-        const daily = data.daily_compare || {};
-        const label =
-          data.scope_label ||
-          (data.from_holdings && data.ok_count > 1
-            ? `持仓 ${data.ok_count} 只`
-            : `${data.stock_name || data.stock_code || "持仓"}`);
-        const summary =
-          `${label} · 做T日 ${data.t0_trade_days ?? "—"}` +
-          ` · 净PnL ${data.t0_pnl_with_exposure ?? data.t0_pnl_total ?? "—"}` +
-          ` · 完成往返 ${data.cover_rate_pct != null ? data.cover_rate_pct + "%" : "—"}` +
-          ` · 参与 ${data.participate_rate_pct != null ? data.participate_rate_pct + "%" : "—"}` +
-          ` · 敞口 ${data.exposure_pnl_total ?? "—"}` +
-          (data.optimistic_delta_ratio_pct != null || opt.delta_pnl_ratio_pct != null
-            ? ` · 乐观Δ占比 ${(data.optimistic_delta_ratio_pct ?? opt.delta_pnl_ratio_pct)}%`
-            : "") +
-          (daily.delta_pnl != null ? ` · 相对日线Δ ${daily.delta_pnl}` : "") +
-          ` · 路径${(data.rules && data.rules.path_mode) || data.path_mode || (data.use_minute ? "first_touch" : "veto")}` +
-          (data.minute_path_days != null ? ` · 5m日${data.minute_path_days}` : "") +
-          (data.minute_meta && data.minute_meta.error
-            ? ` · 5m失败 ${String(data.minute_meta.error).slice(0, 48)}`
-            : useMinute && (data.minute_path_days || 0) === 0
-              ? " · 5m无数据(已回退日线)"
-              : "") +
-          ` · 选向${(data.rules && data.rules.direction) || data.direction || "signal"}` +
-          (data.rules && data.rules.dir_enter != null
-            ? ` · 入场±${data.rules.dir_enter}`
-            : "") +
-          (data.execution && data.execution.effective_hash
-            ? ` · exec ${String(data.execution.effective_hash).slice(0, 8)}`
-            : "") +
-          (data.no_t0_compare && data.no_t0_compare.t0_contribution != null
-            ? ` · T贡献 ${data.no_t0_compare.t0_contribution}`
-            : "") +
-          ` · 非实盘`;
-        if (paperT0Summary) paperT0Summary.textContent = summary;
+        const summary = buildT0SummaryLine(data);
+        if (paperT0Summary) paperT0Summary.textContent = summary || "做 T 回测完成";
         if (paperT0ActionStatus) {
           paperT0ActionStatus.textContent = `完成 · PnL ${
             data.t0_pnl_with_exposure ?? data.t0_pnl_total ?? "—"

@@ -82,7 +82,7 @@ def resolve_book_risk_limits(
         except (TypeError, ValueError):
             max_turnover_pct = None
     try:
-        from core.signal.cluster_live import get_cluster_scoring_cfg
+        from core.signal.cluster.live import get_cluster_scoring_cfg
 
         cs = get_cluster_scoring_cfg()
         if cs.get("max_names") is not None:

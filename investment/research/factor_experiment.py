@@ -17,7 +17,7 @@ from core.ports.market import (  # noqa: E402
     default_benchmark,
     resolve_market_code,
 )
-from core.signal.factor_registry import list_factors, run_factor_experiment  # noqa: E402
+from core.signal.factors.meta.registry import list_factors, run_factor_experiment  # noqa: E402
 
 
 def main(argv=None) -> int:

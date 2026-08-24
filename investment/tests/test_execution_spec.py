@@ -6,17 +6,17 @@ import unittest
 
 
 class TestExecutionResolve(unittest.TestCase):
-    def test_paper_direction_fallback_signal(self):
+    def test_paper_direction_fallback_dual_y(self):
         from core.execution import resolve_effective_execution
 
         bundle = resolve_effective_execution(strategy="short", channel="paper")
         self.assertTrue(bundle["ok"])
-        self.assertEqual(bundle["t0"]["direction"], "signal")
+        self.assertEqual(bundle["t0"]["direction"], "dual_y")
         self.assertEqual(bundle["t0_sources"].get("direction"), "runtime_fallback")
         self.assertEqual(bundle["t0"]["fill_mode"], "trigger")
         self.assertAlmostEqual(float(bundle["t0"]["t0_ratio"]), 0.4)
         self.assertTrue(bundle["effective_hash"])
-        self.assertIn("signal", bundle["summary"])
+        self.assertIn("dual_y", bundle["summary"])
 
     def test_backtest_path_fallback(self):
         from core.execution import resolve_effective_execution
@@ -32,8 +32,8 @@ class TestExecutionResolve(unittest.TestCase):
         paper = {"strategy_id": "short", "rules": {"t0": {"t0_ratio": 0.25, "direction": "long_t"}}}
         bundle = resolve_effective_execution(paper=paper, channel="paper")
         self.assertAlmostEqual(float(bundle["t0"]["t0_ratio"]), 0.25)
-        self.assertEqual(bundle["t0"]["direction"], "long_t")
-        self.assertEqual(bundle["t0_sources"].get("direction"), "paper")
+        # 旧选向已下线，一律收敛 dual_y
+        self.assertEqual(bundle["t0"]["direction"], "dual_y")
         self.assertEqual(bundle["t0_sources"].get("t0_ratio"), "paper")
 
     def test_request_override_wins(self):
@@ -46,9 +46,9 @@ class TestExecutionResolve(unittest.TestCase):
             has_minute=True,
         )
         cfg = strip_execution_meta(raw)
-        self.assertEqual(cfg["direction"], "reverse_t")
+        self.assertEqual(cfg["direction"], "dual_y")
         self.assertEqual(cfg["path_mode"], "adverse")
-        self.assertEqual(raw["_execution_meta"]["t0_sources"]["direction"], "request")
+        self.assertEqual(raw["_execution_meta"]["t0_sources"]["direction"], "request→dual_y")
 
     def test_strategy_spec_includes_execution(self):
         from core.strategy import get_strategy_spec
@@ -84,7 +84,26 @@ class TestExecutionResolve(unittest.TestCase):
         view = execution_public_view(resolve_effective_execution(strategy="short"))
         self.assertTrue(view["ok"])
         self.assertIn("direction", view["t0"])
+        self.assertIn("must_cover_same_day", view["t0"])
+        self.assertFalse(view["t0"]["must_cover_same_day"])
         self.assertNotIn("note", view["t0"])
+
+    def test_public_view_must_cover_after_patch(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_public_view,
+            resolve_effective_execution,
+            validate_execution_patch,
+        )
+
+        ok, norm, errs = validate_execution_patch(
+            {"t0": {"must_cover_same_day": True}, "coupling": {}}
+        )
+        self.assertTrue(ok, errs)
+        paper = {"strategy_id": "short", "rules": {}}
+        apply_execution_patch_to_paper(paper, norm)
+        view = execution_public_view(resolve_effective_execution(paper=paper, channel="paper"))
+        self.assertTrue(view["t0"]["must_cover_same_day"])
 
     def test_validate_and_apply_patch(self):
         from core.execution import (
@@ -107,7 +126,8 @@ class TestExecutionResolve(unittest.TestCase):
         applied = apply_execution_patch_to_paper(paper, norm)
         self.assertTrue(applied["ok"])
         bundle = resolve_effective_execution(paper=paper, channel="paper")
-        self.assertEqual(bundle["t0"]["direction"], "long_t")
+        self.assertEqual(bundle["t0"]["direction"], "dual_y")
+        self.assertEqual(norm["t0"]["direction"], "dual_y")
         self.assertEqual(bundle["coupling"]["t0_vs_stance"], "skip_if_avoid")
         self.assertTrue(paper.get("t0_rules_locked"))
 

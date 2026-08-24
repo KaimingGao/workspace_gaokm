@@ -36,7 +36,7 @@ class PaperJobsMixin:
             raise FileNotFoundError("请先初始化纸面账户")
         cluster_prep = None
         try:
-            from core.signal.cluster_live import prepare_cluster_for_daily
+            from core.signal.cluster.live import prepare_cluster_for_daily
 
             cluster_prep = prepare_cluster_for_daily()
         except Exception as exc:
