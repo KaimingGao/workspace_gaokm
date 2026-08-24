@@ -63,6 +63,8 @@ DECISIONS_PATH = os.environ.get(
     os.path.join(DATA_DIR, "decisions.jsonl"),
 )
 SCHEDULE_LAST_RUN_PATH = os.path.join(DATA_DIR, "schedule_last_run.json")
+T0_AUTO_WORKER_PATH = os.path.join(DATA_DIR, "t0_auto_worker.json")
+T0_INTRADAY_STATE_PATH = os.path.join(DATA_DIR, "t0_intraday_state.json")
 NORTH_STAR_LAST_BACKTEST_PATH = os.path.join(DATA_DIR, "north_star_last_backtest.json")
 TTM_EVENTS_PATH = os.path.join(DATA_DIR, "ttm_events.jsonl")
 NEWS_STORE_DIR = os.path.join(STORE_DIR, "news")

@@ -1172,39 +1172,72 @@ const T0_FEAT_LABELS = {
   atr_pct: "ATR %",
 };
 
-/** 做 T 开盘方向分悬浮（≠ 选股 ŷ）。 */
+/** 做 T dual_y 方向分悬浮（ŷ 百分点，≠ 旧 signal ±1 分）。 */
 export function formatT0DirectionDetail(raw) {
   const score = Number(raw && raw.direction_score);
-  const scoreTxt = Number.isFinite(score) ? fmtSigned(score, 2) : "—";
+  const scoreTxt = Number.isFinite(score) ? `${fmtSigned(score, 2)}%` : "—";
   const dir = String((raw && raw.direction) || "");
   const dirLabel =
     dir === "long_t" ? "正 T" : dir === "reverse_t" ? "反 T" : dir || "—";
-  const enter =
-    raw && raw.dir_enter != null && Number.isFinite(Number(raw.dir_enter))
-      ? Number(raw.dir_enter)
-      : 0.35;
-  let decision = "低置信跳过";
-  if (Number.isFinite(score)) {
-    if (score >= enter) decision = "正 T（卖旧仓再买回）";
-    else if (score <= -enter) decision = "反 T（买新仓再卖旧仓）";
+  const enterRaw =
+    raw && raw.y_tau_enter != null
+      ? Number(raw.y_tau_enter)
+      : raw && raw.dir_enter != null
+        ? Number(raw.dir_enter)
+        : 0.25;
+  const enter = Number.isFinite(enterRaw) ? enterRaw : 0.25;
+  const reason = String((raw && raw.direction_reason) || "").trim();
+  let decision = "未入场 / 跳过";
+  if (reason) decision = reason;
+  else if (Number.isFinite(score)) {
+    if (Math.abs(score) < enter) decision = `|y_τ|<${enter}% 横盘跳过`;
+    else if (dir === "long_t" || dir === "reverse_t") decision = dirLabel;
+    else if (score >= enter) decision = "正 T（依 τ 映射）";
+    else if (score <= -enter) decision = "反 T（依 τ 映射）";
   } else if (dir === "long_t" || dir === "reverse_t") {
     decision = dirLabel;
   }
   let html = '<div class="score-detail">';
   html +=
     `<div class="score-hero">` +
-    `<div class="score-hero-label">做 T 方向分（表格「分」）</div>` +
+    `<div class="score-hero-label">做 T · y_τ（开→收）</div>` +
     `<div class="score-hero-value ${signCls(score)}">${escapeText(scoreTxt)}</div>` +
-    `<div class="score-hero-hint">约 -1～+1 · 开盘可用特征 · 无前视</div>` +
+    `<div class="score-hero-hint">收益百分点 · 与表列 ŷ% 同口径 · dual_y 主方向</div>` +
     `<div class="score-hero-semantics">` +
-    `语义：决定当天正 T / 反 T / 跳过 · <strong>不是</strong> 选股 predicted_score（ŷ）` +
+    `语义：|y_τ|≥门槛才入场，符号经 τ 映射决定正/反 T · <strong>不是</strong> 旧 signal ±1 启发式分` +
     `</div>` +
-    `<div class="score-hero-gate">门槛 ±${escapeText(String(enter))} · 判定 ${escapeText(
+    `<div class="score-hero-gate">门槛 ±${escapeText(String(enter))}% · ${escapeText(
       decision
     )}</div>` +
     `</div>`;
 
   const feats = (raw && raw.features) || (raw && raw.direction_features) || {};
+  const scores = (raw && raw.scores) || {};
+  const yKeys = [
+    ["y_eod", "y_eod"],
+    ["y_tau", "y_τ"],
+    ["y_trade", "y_trade"],
+    ["y_on", "y_on"],
+    ["y_nowcast", "nowcast"],
+  ];
+  const yRows = yKeys
+    .map(([k, label]) => {
+      const v = feats[k] ?? scores[k];
+      if (v == null || v === "") return "";
+      const n = Number(v);
+      const txt = Number.isFinite(n) ? `${fmtSigned(n, 3)}%` : String(v);
+      return (
+        `<div class="score-row"><span class="k">${escapeText(label)}</span>` +
+        `<span class="v ${signCls(n)}">${escapeText(txt)}</span></div>`
+      );
+    })
+    .filter(Boolean)
+    .join("");
+  if (yRows) {
+    html +=
+      `<div class="score-section"><div class="score-section-title">dual_y ŷ</div>${yRows}</div>`;
+  }
+
   const featKeys = ["gap_pct", "yclose_loc", "mom3_pct", "gap_atr", "atr_pct"];
   const featRows = featKeys
     .map((k) => {
@@ -1212,38 +1245,33 @@ export function formatT0DirectionDetail(raw) {
       if (v == null || v === "") return "";
       const n = Number(v);
       const txt = Number.isFinite(n) ? fmtSigned(n, 2) : String(v);
+      const unit = k.endsWith("_pct") || k === "atr_pct" ? "%" : "";
       return (
-        `<tr>` +
-        `<td class="score-fw-name">${escapeText(T0_FEAT_LABELS[k] || k)}</td>` +
-        `<td class="num score-fw-val ${signCls(n)}">${escapeText(txt)}</td>` +
-        `</tr>`
+        `<div class="score-row"><span class="k">${escapeText(k)}</span>` +
+        `<span class="v">${escapeText(txt)}${unit}</span></div>`
       );
     })
-    .filter(Boolean);
-  if (featRows.length) {
+    .filter(Boolean)
+    .join("");
+  if (featRows) {
     html +=
-      `<div class="score-factors-section">` +
-      `<div class="score-section-title">开盘特征</div>` +
-      `<table class="score-factor-weights"><tbody>${featRows.join("")}</tbody></table>` +
-      `<div class="score-hero-hint" style="margin-top:6px">权重默认 跳空0.45 · 昨位0.20 · mom3 0.20 · gap/ATR 0.15</div>` +
-      `</div>`;
+      `<div class="score-section"><div class="score-section-title">开盘特征（对照）</div>${featRows}</div>`;
   }
 
-  const reason = String((raw && (raw.direction_reason || raw.reason)) || "").trim();
-  if (reason) {
+  const code = (raw && (raw.stock_code || raw.code)) || "";
+  const name = (raw && raw.stock_name) || "";
+  const date = (raw && raw.date) || "";
+  if (code || name || date) {
     html +=
-      `<div class="score-reasons-section">` +
-      `<div class="score-section-title">选向说明</div>` +
-      `<ul class="score-reasons"><li class="neutral">${escapeText(reason)}</li></ul>` +
-      `</div>`;
-  }
-
-  if (raw && raw.stock_code) {
-    html +=
-      `<div class="score-hero-hint">` +
-      `${escapeText(raw.stock_code)}` +
-      (raw.date ? ` · ${escapeText(raw.date)}` : "") +
-      (dirLabel !== "—" ? ` · ${escapeText(dirLabel)}` : "") +
+      `<div class="score-section"><div class="score-section-title">样本</div>` +
+      `<div class="score-row"><span class="k">标的</span><span class="v">${escapeText(
+        [name, code].filter(Boolean).join(" ")
+      )}</span></div>` +
+      (date
+        ? `<div class="score-row"><span class="k">日</span><span class="v">${escapeText(
+            date
+          )}</span></div>`
+        : "") +
       `</div>`;
   }
   html += "</div>";

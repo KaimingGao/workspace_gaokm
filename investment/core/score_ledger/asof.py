@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import logging
+from collections import Counter
 from typing import Any, Dict, List, Optional, Sequence
 
 logger = logging.getLogger(__name__)
-
-from collections import Counter
 
 from core.numbers import date_key
 
@@ -66,17 +65,28 @@ def infer_feature_as_of(
     codes: Optional[Sequence[str]] = None,
     sample: int = 16,
 ) -> Optional[str]:
-    """从分池簿标的本地日线推断因子截止日（多数末根日期）。"""
+    """从分池簿标的本地日线推断因子截止日（多数末根日期）。
+
+    盘中未收盘的会话日 K 线（半日代理）不计入截止日，避免把 T 标成已完成因子日。
+    """
+    from core.market.calendar import resolve_session_date
+    from core.signal.session_pit import asof_session_final
 
     pool = list(codes or []) or _codes_from_book_doc(book_doc)
     if not pool:
         return None
     take = max(1, min(int(sample or 16), 40, len(pool)))
     lasts: List[str] = []
+    sess = resolve_session_date()
+    sess_final = bool(asof_session_final(sess)) if sess else True
     for code in pool[:take]:
         d = _last_bar_date_for_code(code)
-        if d:
-            lasts.append(d)
+        if not d:
+            continue
+        # 会话日未收盘：丢掉「今天」末根（半日 K）
+        if sess and d == sess and not sess_final:
+            continue
+        lasts.append(d)
     if not lasts:
         return None
     mode, n = Counter(lasts).most_common(1)[0]
@@ -134,5 +144,82 @@ def resolve_freeze_as_of(
         "requested_as_of": requested,
         "remapped": remapped,
         "note": "；".join(notes) if notes else None,
+    }
+
+
+def session_allows_ledger_freeze(
+    *,
+    as_of: Optional[str] = None,
+    now: Any = None,
+    auto: bool = False,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """账本冻结闸：盘中禁止自动/当日冻结，避免半日 K 线污染复盘快照。
+
+    - ``force=True``：无条件放行（测试 / 显式重建）
+    - ``auto=True``（刷簿附带）：仅当**当前会话已收盘**才写
+    - 显式冻结：``as_of < 会话日`` 可随时重建历史；当日须已收盘
+    """
+    if force:
+        return {"ok": True, "reason": "force", "auto": bool(auto)}
+    try:
+        from core.market.calendar import resolve_session_date
+        from core.signal.session_pit import asof_session_final, shanghai_now
+
+        sess = resolve_session_date()
+        closed = bool(asof_session_final(sess, now=shanghai_now(now)))
+    except Exception:  # noqa: BLE001
+        logger.debug("session_allows_ledger_freeze clock failed", exc_info=True)
+        # 时钟失败时偏保守：auto 拦截；显式历史仍尽量放行
+        if auto:
+            return {
+                "ok": False,
+                "reason": "无法判定会话收盘，盘中跳过自动冻结",
+                "auto": True,
+            }
+        d = date_key(as_of)
+        if d:
+            return {"ok": True, "reason": "clock_fallback_explicit", "as_of": d}
+        return {
+            "ok": False,
+            "reason": "无法判定会话收盘，拒绝无 as_of 冻结",
+            "auto": False,
+        }
+
+    if auto:
+        if closed:
+            return {
+                "ok": True,
+                "reason": "session_closed",
+                "auto": True,
+                "session_date": sess,
+            }
+        return {
+            "ok": False,
+            "reason": "盘中跳过自动冻结账本（等收盘后 paper_daily / 日更）",
+            "auto": True,
+            "session_date": sess,
+        }
+
+    d = date_key(as_of)
+    if d and sess and d < sess:
+        return {
+            "ok": True,
+            "reason": "historical_as_of",
+            "as_of": d,
+            "session_date": sess,
+        }
+    if closed:
+        return {
+            "ok": True,
+            "reason": "session_closed",
+            "as_of": d,
+            "session_date": sess,
+        }
+    return {
+        "ok": False,
+        "reason": "盘中不冻结当日账本（半日 K 线未完成）",
+        "as_of": d,
+        "session_date": sess,
     }
 

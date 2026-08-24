@@ -12,14 +12,11 @@ from typing import Any, Dict, Optional
 #   optimistic  — 卖用 high、买用 low（上界，对照用）
 #
 # direction:
-#   dual_y  — 唯一生产选向：y_trade 资格 · y_τ 主方向 · y_eod 冲突跳过 · y_on 回补
+#   dual_y  — y_trade 资格 · y_τ 主方向 · y_eod 冲突跳过 · y_on 回补
+#   y_tau_map（dual_y 子选项）— scalp|trend|fixed_long|fixed_reverse
 #   （long_t / reverse_t / auto / signal 已下线；仅单测可经 load_t0_rules 显式传入）
 #
-# path_mode: 日线不知盘中先后，用于抑制「方向定反还双触达虚盈」
-#   dual_touch  — 旧行为：高低都触达就当两腿都成（偏乐观）
-#   veto        — 用收盘在当日区间位置推断路径偏向；与开盘方向冲突则跳过（日线回测默认）
-#   adverse     — 按对该方向不利的路径成交（正T假定先低后高，反T假定先高后低）
-#   first_touch — 有分钟线时按时间序第一触达成交（更贴近真实；缺分钟则回退 veto）
+# path_mode: 仅 first_touch（分钟时间序第一触达）。日线 dual_touch/veto/adverse 已删除。
 
 DEFAULT_T0_RULES: Dict[str, Any] = {
     "enabled": True,
@@ -38,7 +35,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "w_yclose_loc": 0.20,
     "w_mom3": 0.20,
     "w_gap_atr": 0.15,
-    "path_mode": "dual_touch",
+    "path_mode": "first_touch",
     "minute_period": "5",
     "min_range_pct": None,  # None → max(sell+buy)*0.6
     "use_atr": True,
@@ -46,15 +43,18 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "atr_sell_mult": 0.9,
     "atr_buy_mult": 0.7,
     # dual_y 阈值（百分比点）
-    "y_trade_floor": -0.15,
+    "y_trade_floor": 0.15,
     "y_eod_prior": 0.35,
     "y_tau_enter": 0.25,
     "y_on_risk": 0.80,
     "y_on_allow": 1.20,
     "y_block_conflict": True,
+    "y_tau_map": "scalp",
     "y_ratio_boost_cap": 1.25,
     "y_ratio_cut": 0.75,
-    "note": "日线代理；A股T+1底仓做T（正T卖旧买回 / 反T买新卖旧）；回测默认可启用5m first_touch；非实盘。",
+    # dual_y 分数来源：compute=开盘信息集即时算（默认）；live_book/ledger 仅兜底或对照
+    "y_score_source": "compute",
+    "note": "A股T+1底仓做T；仅5m first_touch（已删除日线模拟）；非实盘。",
 }
 
 
@@ -104,7 +104,6 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         direction = "dual_y"
     cfg["direction"] = direction
     for yk, lo, hi, default in (
-        ("y_trade_floor", -5.0, 5.0, -0.15),
         ("y_eod_prior", 0.05, 5.0, 0.35),
         ("y_tau_enter", 0.05, 5.0, 0.25),
         ("y_on_risk", 0.1, 10.0, 0.80),
@@ -118,16 +117,28 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         except (TypeError, ValueError):
             val = float(default)
         cfg[yk] = max(lo, min(val, hi))
+    from core.t0.score_policy import normalize_y_trade_floor
+
+    cfg["y_trade_floor"] = normalize_y_trade_floor(cfg.get("y_trade_floor"))
     cfg["y_block_conflict"] = bool(cfg.get("y_block_conflict", True))
-    path_mode = str(cfg.get("path_mode") or "dual_touch").strip().lower()
-    if path_mode in {"dual", "any", "legacy", "optimistic_path"}:
-        path_mode = "dual_touch"
-    if path_mode in {"conservative", "worst"}:
-        path_mode = "adverse"
-    if path_mode in {"minute", "min", "5m", "first"}:
+    from core.t0.score_policy import normalize_y_tau_map
+
+    cfg["y_tau_map"] = normalize_y_tau_map(cfg.get("y_tau_map"))
+    y_src = str(cfg.get("y_score_source") or "compute").strip().lower()
+    if y_src in {"book", "cluster", "cluster_book"}:
+        y_src = "live_book"
+    elif y_src in {"ledger", "score_ledger", "freeze"}:
+        y_src = "ledger"
+    elif y_src in {"compute", "pit", "live", "realtime", "on_the_fly"}:
+        y_src = "compute"
+    else:
+        y_src = "compute"
+    cfg["y_score_source"] = y_src
+    path_mode = str(cfg.get("path_mode") or "first_touch").strip().lower()
+    if path_mode in {"minute", "min", "5m", "first", "dual_touch", "dual", "any", "veto", "adverse", "conservative", "worst"}:
         path_mode = "first_touch"
-    if path_mode not in {"dual_touch", "veto", "adverse", "first_touch"}:
-        path_mode = "dual_touch"
+    if path_mode != "first_touch":
+        path_mode = "first_touch"
     cfg["path_mode"] = path_mode
     period = str(cfg.get("minute_period") or "5").strip()
     if period not in {"1", "5", "15", "30", "60"}:
@@ -149,3 +160,9 @@ def resolve_min_range_pct(cfg: dict) -> float:
         max(0.5, (float(cfg["sell_trigger_pct"]) + float(cfg["buy_trigger_pct"])) * 0.35),
         4,
     )
+
+
+# 盘中 Worker：与 5m K 线对齐的轮询与分钟缓存 TTL
+T0_INTRADAY_TICK_SEC = 300.0
+T0_INTRADAY_MINUTE_CACHE_HOURS = 5.0 / 60.0
+T0_INTRADAY_MINUTE_LOOKBACK_DAYS = 5

@@ -6,9 +6,10 @@ from collections import defaultdict
 from typing import Any, Dict, List, Optional, Sequence
 
 SKIP_CAT_LABELS: Dict[str, str] = {
-    "missing_scores": "缺ŷ快照",
+    "missing_minute": "缺分钟",
+    "missing_scores": "缺ŷ",
     "y_tau_flat": "y_τ横盘",
-    "y_trade_weak": "y_trade不足",
+    "y_trade_weak": "y_trade幅度不足",
     "conflict": "先验冲突",
     "amplitude": "振幅不足",
     "lot_size": "手数不足",
@@ -18,6 +19,7 @@ SKIP_CAT_LABELS: Dict[str, str] = {
 }
 
 SKIP_CAT_COLORS: Dict[str, str] = {
+    "missing_minute": "#94a3b8",
     "missing_scores": "#94a3b8",
     "y_tau_flat": "#f59e0b",
     "y_trade_weak": "#fb923c",
@@ -32,11 +34,13 @@ SKIP_CAT_COLORS: Dict[str, str] = {
 
 def classify_t0_skip_reason(reason: Optional[str]) -> str:
     r = str(reason or "")
-    if "缺" in r and ("y_" in r or "快照" in r):
+    if "缺" in r and ("分钟" in r or "minute" in r.lower()):
+        return "missing_minute"
+    if "缺" in r and ("y_" in r or "快照" in r or "即时算分" in r):
         return "missing_scores"
     if "y_trade" in r:
         return "y_trade_weak"
-    if "冲突" in r:
+    if "冲突" in r or "conflict" in r.lower():
         return "conflict"
     if "|y_τ|" in r or ("y_τ" in r and "横盘" in r):
         return "y_tau_flat"
@@ -48,6 +52,8 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "path"
     if "未触及" in r or "未触" in r:
         return "trigger_miss"
+    if "现金" in r or "买不起" in r:
+        return "lot_size"
     return "other"
 
 
@@ -66,11 +72,11 @@ def _f(x: Any) -> Optional[float]:
 def extract_scores(day: dict) -> Dict[str, Optional[float]]:
     feats = day.get("direction_features") if isinstance(day.get("direction_features"), dict) else {}
     raw = day.get("scores") if isinstance(day.get("scores"), dict) else {}
-    y_tau = _f(day.get("direction_score"))
-    if y_tau is None:
-        y_tau = _f(feats.get("y_tau"))
+    y_tau = _f(feats.get("y_tau"))
     if y_tau is None:
         y_tau = _f(raw.get("y_tau"))
+    if y_tau is None:
+        y_tau = _f(day.get("direction_score"))
     return {
         "y_tau": y_tau,
         "y_eod": _f(feats.get("y_eod")) if feats else _f(raw.get("y_eod")),
@@ -137,6 +143,68 @@ def _bucket_order() -> List[str]:
     ]
 
 
+def _day_market_price(d: dict) -> Optional[float]:
+    for k in ("close", "open", "ref"):
+        v = _f(d.get(k))
+        if v is not None and v > 0:
+            return round(v, 4)
+    return None
+
+
+def _stock_contrib_window(
+    days: Sequence[dict],
+    *,
+    initial_shares: Optional[float] = None,
+) -> Dict[str, Any]:
+    """分票贡献：回测窗口起止日与收盘价、模拟股数。"""
+    dated: Dict[str, dict] = {}
+    for d in days or []:
+        if not isinstance(d, dict):
+            continue
+        dt = str(d.get("date") or "")[:10]
+        if dt:
+            dated[dt] = d
+    if not dated:
+        return {}
+    keys = sorted(dated.keys())
+    start, end = keys[0], keys[-1]
+    start_px = _day_market_price(dated[start])
+    end_px = _day_market_price(dated[end])
+    shares = initial_shares
+    if shares is None:
+        for d in (dated[start], dated[end]):
+            s = _f(d.get("shares"))
+            if s is not None and s > 0:
+                shares = s
+                break
+    out: Dict[str, Any] = {
+        "window_start_date": start,
+        "window_end_date": end,
+    }
+    if shares is not None and float(shares) > 0:
+        out["shares"] = int(float(shares))
+    if start_px is not None:
+        out["start_price"] = start_px
+    if end_px is not None:
+        out["end_price"] = end_px
+    net_pnl = round(
+        sum(
+            float(d.get("pnl") or 0) + float(d.get("exposure_pnl") or 0)
+            for d in days or []
+            if isinstance(d, dict)
+        ),
+        2,
+    )
+    out["net_pnl"] = net_pnl
+    sh = out.get("shares")
+    sp = out.get("start_price")
+    if sh and sp and float(sh) > 0 and float(sp) > 0:
+        hold_mv = round(float(sh) * float(sp), 2)
+        out["hold_mv_start"] = hold_mv
+        out["return_pct"] = round(net_pnl / hold_mv * 100.0, 4)
+    return out
+
+
 def _summary_from_counts(
     *,
     traded_n: int,
@@ -159,7 +227,7 @@ def _summary_from_counts(
         "cover_rate_pct": round(cover_n / traded_n * 100.0, 2) if traded_n else None,
         "score_coverage_pct": round(score_seen / score_total * 100.0, 2) if score_total else None,
         "y_tau_enter": _f(cfg.get("y_tau_enter")) or 0.25,
-        "y_trade_floor": _f(cfg.get("y_trade_floor")) or -0.15,
+        "y_trade_floor": _f(cfg.get("y_trade_floor")) or 0.15,
     }
 
 
@@ -169,6 +237,7 @@ def build_t0_viz_payload(
     stock_code: str = "",
     stock_name: str = "",
     rules: Optional[dict] = None,
+    initial_shares: Optional[float] = None,
 ) -> Dict[str, Any]:
     """从单日 walk 全量 days 生成 viz 块。"""
     skip_counts: Dict[str, int] = defaultdict(int)
@@ -279,7 +348,8 @@ def build_t0_viz_payload(
                         "skip_category": cat,
                     }
                 )
-        if d.get("signal_skip") or cat in {"missing_scores", "y_tau_flat", "conflict", "y_trade_weak"}:
+        # 分母=可评估日（不含缺分钟）；分子=有 y_τ。避免路径跳过有分却不进分母 → 覆盖率>100%
+        if cat != "missing_minute":
             score_total += 1
 
     trade_points.sort(key=lambda x: (str(x.get("date") or ""), str(x.get("stock_code") or "")))
@@ -328,19 +398,27 @@ def build_t0_viz_payload(
     if stock_code or traded_n or skip_n:
         pnl_sum = round(sum(float(tp.get("pnl") or 0) for tp in trade_points), 2)
         total = traded_n + skip_n
-        stock_contrib.append(
-            {
-                "stock_code": stock_code,
-                "stock_name": stock_name,
-                "pnl": pnl_sum,
-                "trade_days": traded_n,
-                "skip_days": skip_n,
-                "long_days": direction_split.get("long_t") or 0,
-                "reverse_days": direction_split.get("reverse_t") or 0,
-                "participate_rate_pct": round(traded_n / total * 100.0, 2) if total else None,
-                "score_coverage_pct": round(score_seen / score_total * 100.0, 2) if score_total else None,
-            }
-        )
+        top_skip = skip_categories[0] if skip_categories else None
+        row: Dict[str, Any] = {
+            "stock_code": stock_code,
+            "stock_name": stock_name,
+            "pnl": pnl_sum,
+            "trade_days": traded_n,
+            "skip_days": skip_n,
+            "long_days": direction_split.get("long_t") or 0,
+            "reverse_days": direction_split.get("reverse_t") or 0,
+            "participate_rate_pct": round(traded_n / total * 100.0, 2) if total else None,
+            "score_coverage_pct": round(score_seen / score_total * 100.0, 2) if score_total else None,
+        }
+        if skip_categories:
+            row["skip_breakdown"] = skip_categories[:4]
+            top_skip = skip_categories[0]
+            row["skip_top_id"] = top_skip.get("id")
+            row["skip_top_label"] = top_skip.get("label")
+            row["skip_top_count"] = top_skip.get("count")
+            row["skip_top_pct"] = top_skip.get("pct")
+        row.update(_stock_contrib_window(days, initial_shares=initial_shares))
+        stock_contrib.append(row)
 
     summary = _summary_from_counts(
         traded_n=traded_n,
@@ -535,14 +613,6 @@ def attach_compare_to_viz(report: dict) -> None:
             "delta_pnl": opt.get("delta_pnl"),
             "delta_ratio_pct": opt.get("delta_pnl_ratio_pct") or report.get("optimistic_delta_ratio_pct"),
         }
-    daily = report.get("daily_compare") or {}
-    if daily.get("t0_pnl_total") is not None:
-        viz["daily_compare"] = {
-            "actual_pnl": report.get("t0_pnl_total"),
-            "daily_veto_pnl": daily.get("t0_pnl_total"),
-            "delta_pnl": daily.get("delta_pnl"),
-            "path_mode": daily.get("path_mode"),
-        }
     sm = dict(viz.get("summary") or {})
     for k in (
         "participate_rate_pct",
@@ -550,6 +620,7 @@ def attach_compare_to_viz(report: dict) -> None:
         "t0_pnl_with_exposure",
         "pnl_vs_hold_mv_pct",
         "avg_pnl_per_trade_day",
+        "missing_minute_days",
     ):
         if report.get(k) is not None:
             sm[k] = report.get(k)

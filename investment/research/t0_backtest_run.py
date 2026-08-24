@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""底仓做 T 日线代理回测 CLI（仅模拟，不接实盘）。"""
+"""底仓做 T 回测 CLI（仅 5m 第一触达；非实盘）。"""
 
 
 import argparse
@@ -15,9 +15,9 @@ from quant.research.t0_backtest import run_t0_backtest_for_code  # noqa: E402
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Investment 底仓做T回测（日线代理，非实盘）")
+    parser = argparse.ArgumentParser(description="Investment 底仓做T回测（5m 第一触达，非实盘）")
     parser.add_argument("--code", default="茅台")
-    parser.add_argument("--lookback", type=int, default=30)
+    parser.add_argument("--lookback", type=int, default=10)
     parser.add_argument("--shares", type=float, default=1000)
     parser.add_argument("--t0-ratio", type=float, default=0.4)
     parser.add_argument("--sell-pct", type=float, default=2.0)

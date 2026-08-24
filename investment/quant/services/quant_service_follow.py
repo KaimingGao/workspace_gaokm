@@ -14,20 +14,22 @@ class QuantFollowMixin:
         self,
         code: str = "",
         *,
-        lookback: int = 30,
+        lookback: int = 10,
         initial_shares: float = 1000,
         rules: Optional[dict] = None,
         from_paper: bool = False,
         codes: Optional[list] = None,
         compare_optimistic: bool = True,
         use_minute: bool = True,
-        compare_daily: bool = True,
+        compare_daily: bool = False,
     ) -> Dict[str, Any]:
+        """研究做T回测：强制 5m 第一触达（已删除日线模拟）。"""
         from quant.research.t0_backtest import (
             run_t0_backtest_for_code,
             run_t0_backtest_for_holdings,
         )
 
+        _ = (use_minute, compare_daily)
         if from_paper or codes is not None or not str(code or "").strip():
             holdings = self._t0_holdings_for_backtest(codes=codes, code=code)
             return run_t0_backtest_for_holdings(
@@ -35,8 +37,8 @@ class QuantFollowMixin:
                 lookback=lookback,
                 rules=rules,
                 compare_optimistic=compare_optimistic,
-                use_minute=use_minute,
-                compare_daily=compare_daily,
+                use_minute=True,
+                compare_daily=False,
             )
 
         return run_t0_backtest_for_code(
@@ -45,8 +47,8 @@ class QuantFollowMixin:
             initial_shares=initial_shares,
             rules=rules,
             compare_optimistic=compare_optimistic,
-            use_minute=use_minute,
-            compare_daily=compare_daily,
+            use_minute=True,
+            compare_daily=False,
         )
 
     def _t0_holdings_for_backtest(

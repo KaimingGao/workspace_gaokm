@@ -6,7 +6,16 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.t0.backtest import backtest_t0_on_bars, derive_t0_quality_metrics
+from core.t0.backtest import (
+    _optimistic_delta_ratio_pct,
+    backtest_t0_on_bars,
+    derive_t0_quality_metrics,
+)
+
+# 持仓做T回测：只用纸面股票池，仓位/现金用虚拟假设（放宽实盘约束）
+T0_BT_DEFAULT_LOOKBACK = 10
+T0_BT_VIRTUAL_SHARES = 10_000.0
+T0_BT_VIRTUAL_CASH = 2_000_000.0
 
 # 东财分钟接口偶发挂死；多持仓串行时会把整次「做T回测」拖成无响应。
 _MINUTE_FETCH_TIMEOUT_SEC = 18.0
@@ -28,7 +37,6 @@ def _execution_view_for_backtest(
         "path_mode": bt_rules.get("path_mode"),
         "use_atr": bt_rules.get("use_atr"),
         "atr_window": bt_rules.get("atr_window"),
-        "dir_enter": bt_rules.get("dir_enter"),
         "min_range_pct": bt_rules.get("min_range_pct"),
         "must_cover_same_day": bt_rules.get("must_cover_same_day"),
         "minute_period": bt_rules.get("minute_period"),
@@ -38,7 +46,11 @@ def _execution_view_for_backtest(
         "y_on_allow": bt_rules.get("y_on_allow"),
         "y_on_risk": bt_rules.get("y_on_risk"),
         "y_block_conflict": bt_rules.get("y_block_conflict"),
+        "y_tau_map": bt_rules.get("y_tau_map"),
     }
+    # 旧 signal 门槛：仅非 dual_y 时透出，避免规则卡/摘要混淆
+    if str(bt_rules.get("direction") or "") != "dual_y":
+        t0["dir_enter"] = bt_rules.get("dir_enter")
     return {
         "ok": True,
         "channel": meta.get("channel") or "backtest",
@@ -52,12 +64,11 @@ def _execution_view_for_backtest(
 
 
 def _rules_summary(bt_rules: dict) -> Dict[str, Any]:
-    return {
+    out = {
         "direction": bt_rules.get("direction"),
         "path_mode": bt_rules.get("path_mode"),
         "fill_mode": bt_rules.get("fill_mode"),
         "t0_ratio": bt_rules.get("t0_ratio"),
-        "dir_enter": bt_rules.get("dir_enter"),
         "min_range_pct": bt_rules.get("min_range_pct"),
         "sell_trigger_pct": bt_rules.get("sell_trigger_pct"),
         "buy_trigger_pct": bt_rules.get("buy_trigger_pct"),
@@ -69,7 +80,11 @@ def _rules_summary(bt_rules: dict) -> Dict[str, Any]:
         "y_on_allow": bt_rules.get("y_on_allow"),
         "y_on_risk": bt_rules.get("y_on_risk"),
         "y_block_conflict": bt_rules.get("y_block_conflict"),
+        "y_tau_map": bt_rules.get("y_tau_map"),
     }
+    if str(bt_rules.get("direction") or "") != "dual_y":
+        out["dir_enter"] = bt_rules.get("dir_enter")
+    return out
 
 
 def _fetch_minute_by_date(
@@ -109,71 +124,134 @@ def _fetch_minute_by_date(
         return {}, {"ok": False, "error": str(e), "period": period}
 
 
+def _align_daily_bars_to_minute(
+    bars: List[dict],
+    minute_by_date: Dict[str, List[dict]],
+) -> Tuple[List[dict], Dict[str, Any]]:
+    """日线窗口对齐到「有可用 5m」的交易日，避免缓存偏短时大量缺分钟跳过冲掉样本。
+
+    东财分钟拉取失败、仅剩过期局部缓存时，日线 lookback 往往更长；不对齐则
+    missing_minute≈一半、成交为 0，UI 无法解读策略。有分钟日 ≥2 根才保留。
+    """
+    if not bars or not minute_by_date:
+        return list(bars or []), {"aligned": False}
+    usable = {
+        str(d)
+        for d, ms in minute_by_date.items()
+        if ms and len(ms) >= 2
+    }
+    if not usable:
+        return list(bars), {"aligned": False, "reason": "no_usable_minute_days"}
+    aligned = [b for b in bars if str(b.get("date") or "") in usable]
+    if not aligned:
+        return list(bars), {"aligned": False, "reason": "no_overlap"}
+    meta = {
+        "aligned": len(aligned) < len(bars),
+        "bars_before": len(bars),
+        "bars_after": len(aligned),
+        "minute_days": len(usable),
+        "date_min": aligned[0].get("date"),
+        "date_max": aligned[-1].get("date"),
+    }
+    return aligned, meta
+
+
 def run_t0_backtest_for_code(
     code: str = "茅台",
     *,
-    lookback: int = 30,
+    lookback: int = T0_BT_DEFAULT_LOOKBACK,
     initial_shares: float = 1000,
     initial_cost: Optional[float] = None,
+    initial_cash: float = 0.0,
     rules: Optional[dict] = None,
     compare_optimistic: bool = True,
     use_minute: bool = True,
-    compare_daily: bool = True,
+    compare_daily: bool = False,
     compare_no_t0: bool = True,
 ) -> Dict[str, Any]:
     from core.data.facade import bars_and_source as fetch_daily_bars
     from core.data.facade import get_quote
 
+    _ = (use_minute, compare_daily)  # 日线模拟已删除；强制分钟
+    from core.t0.score_policy import T0_BACKTEST_SCORE_WARMUP
+
+    eval_lb = max(10, int(lookback or T0_BT_DEFAULT_LOOKBACK))
+    warmup = int(T0_BACKTEST_SCORE_WARMUP)
     quote = get_quote(code)
     sym = quote.get("stock_code") if quote.get("success") else code
-    bars, src = fetch_daily_bars(code, limit=lookback + 5)
-    if not bars and quote.get("success"):
-        bars, src = fetch_daily_bars(sym, limit=lookback + 5)
-    if not bars:
+    fetch_n = eval_lb + warmup + 5
+    bars_all, src = fetch_daily_bars(code, limit=fetch_n)
+    if not bars_all and quote.get("success"):
+        bars_all, src = fetch_daily_bars(sym, limit=fetch_n)
+    if not bars_all:
         return {"success": False, "error": f"无法获取 {code} 日线", "task": "t0_backtest"}
+
+    from core.execution import resolve_t0_rules, strip_execution_meta
+
+    req_rules = dict(rules or {})
+    req_rules.setdefault("path_mode", "first_touch")
+    resolved = resolve_t0_rules(
+        rules=req_rules, channel="backtest", has_minute=True
+    )
+    bt_rules = strip_execution_meta(resolved)
+    bt_rules["path_mode"] = "first_touch"
+    exec_meta = resolved.get("_execution_meta")
+
+    period = str(bt_rules.get("minute_period") or "5")
+    # 分钟只覆盖评估窗；warmup 日仅用于因子 hist_prior
+    minute_span = min(max(eval_lb, 10), 120)
+    minute_by_date, minute_meta = _fetch_minute_by_date(
+        str(sym), period=period, lookback_days=minute_span
+    )
+    if not minute_by_date:
+        err = (minute_meta or {}).get("error") or "无分钟 K"
+        return {
+            "success": False,
+            "error": f"做T回测需 5 分钟 K（已删除日线模拟）：{err}",
+            "task": "t0_backtest",
+            "stock_code": str(sym),
+            "minute_meta": minute_meta,
+            "use_minute": False,
+        }
+
+    usable_minute = {
+        str(d)
+        for d, ms in minute_by_date.items()
+        if ms and len(ms) >= 2
+    }
+    eval_slice = list(bars_all[-eval_lb:])
+    bars_eval, align_meta = _align_daily_bars_to_minute(eval_slice, minute_by_date)
+    if not bars_eval:
+        bars_eval, align_meta = _align_daily_bars_to_minute(bars_all, minute_by_date)
+        if align_meta.get("aligned") and len(bars_eval) > eval_lb:
+            bars_eval = bars_eval[-eval_lb:]
+    if not bars_eval:
+        return {
+            "success": False,
+            "error": "评估窗内无可用分钟覆盖日",
+            "task": "t0_backtest",
+            "stock_code": str(sym),
+            "minute_meta": minute_meta,
+        }
 
     cost = float(
         initial_cost
         if initial_cost is not None
-        else (bars[0].get("close") or 0)
+        else (bars_eval[0].get("close") or 0)
     )
-    from core.execution import resolve_t0_rules, strip_execution_meta
-
-    want_minute = bool(use_minute)
-    resolved = resolve_t0_rules(
-        rules=rules, channel="backtest", has_minute=want_minute
-    )
-    bt_rules = strip_execution_meta(resolved)
-    exec_meta = resolved.get("_execution_meta")
-
-    minute_by_date = None
-    minute_meta: Dict[str, Any] = {}
-
-    if want_minute:
-        period = str(bt_rules.get("minute_period") or "5")
-        # 东财 5m 约近 120 交易日；与 lookback 对齐截断
-        span = min(max(int(lookback or 90), 20), 120)
-        minute_by_date, minute_meta = _fetch_minute_by_date(
-            str(sym), period=period, lookback_days=span
-        )
-        if not minute_by_date:
-            minute_by_date = None
-            if not rules or "path_mode" not in (rules or {}):
-                resolved = resolve_t0_rules(
-                    rules=rules, channel="backtest", has_minute=False
-                )
-                bt_rules = strip_execution_meta(resolved)
-                exec_meta = resolved.get("_execution_meta")
-
     report = backtest_t0_on_bars(
-        bars,
+        bars_eval,
+        bars_history=bars_all,
+        eval_lookback=eval_lb,
         initial_shares=initial_shares,
         initial_cost=cost,
+        initial_cash=float(initial_cash or 0),
         rules=bt_rules,
         stock_code=str(sym),
         compare_optimistic=compare_optimistic,
         minute_by_date=minute_by_date,
-        compare_daily=bool(compare_daily and minute_by_date),
+        compare_daily=False,
+        require_minute=True,
     )
     report["data_source"] = src
     report["stock_name"] = quote.get("stock_name") if quote.get("success") else None
@@ -182,7 +260,7 @@ def run_t0_backtest_for_code(
             if isinstance(row, dict):
                 row["stock_code"] = report.get("stock_code") or sym
                 row["stock_name"] = report.get("stock_name")
-    report["use_minute"] = bool(minute_by_date)
+    report["use_minute"] = True
     report["minute_meta"] = {
         "period": minute_meta.get("period") or bt_rules.get("minute_period"),
         "data_source": minute_meta.get("data_source"),
@@ -192,7 +270,16 @@ def run_t0_backtest_for_code(
         "date_max": minute_meta.get("date_max"),
         "covered_days": len(minute_by_date or {}),
         "error": minute_meta.get("error"),
+        "align": align_meta,
     }
+    if align_meta.get("aligned"):
+        report["lookback_aligned_to_minute"] = True
+        note = str(report.get("note") or "")
+        clip_note = (
+            f"日线已对齐分钟覆盖 {align_meta.get('date_min')}→{align_meta.get('date_max')}"
+            f"（{align_meta.get('bars_before')}→{align_meta.get('bars_after')} 日）"
+        )
+        report["note"] = f"{note}；{clip_note}".strip("；") if note else clip_note
     if exec_meta:
         report["execution"] = _execution_view_for_backtest(bt_rules, exec_meta)
     report["rules"] = _rules_summary(bt_rules)
@@ -200,19 +287,21 @@ def run_t0_backtest_for_code(
         off_rules = dict(bt_rules)
         off_rules["enabled"] = False
         hold_only = backtest_t0_on_bars(
-            bars,
+            bars_eval,
+            bars_history=bars_all,
+            eval_lookback=eval_lb,
             initial_shares=initial_shares,
             initial_cost=cost,
+            initial_cash=float(initial_cash or 0),
             rules=off_rules,
             stock_code=str(sym),
             compare_optimistic=False,
             minute_by_date=None,
             compare_daily=False,
+            require_minute=False,
         )
         if hold_only.get("success"):
             t0_pnl = float(report.get("t0_pnl_with_exposure") or report.get("t0_pnl_total") or 0)
-            # enabled=False → 无做T腿；用期末相对持仓市值变化作底仓参照不在此引擎内，
-            # 贡献近似 = 做T净PnL（含敞口）本身
             report["no_t0_compare"] = {
                 "t0_pnl_with_exposure": t0_pnl,
                 "t0_contribution": round(t0_pnl, 2),
@@ -225,14 +314,20 @@ def run_t0_backtest_for_code(
 def run_t0_backtest_for_holdings(
     holdings: List[dict],
     *,
-    lookback: int = 30,
+    lookback: int = T0_BT_DEFAULT_LOOKBACK,
     rules: Optional[dict] = None,
     compare_optimistic: bool = True,
     cash: float = 0.0,
     use_minute: bool = True,
     compare_daily: bool = True,
+    virtual_shares: float = T0_BT_VIRTUAL_SHARES,
+    virtual_cash: float = T0_BT_VIRTUAL_CASH,
 ) -> Dict[str, Any]:
-    """对持仓列表逐票回测并汇总（研究用，不改账本）。"""
+    """对持仓列表逐票回测并汇总（研究用，不改账本）。
+
+    股票池取自纸面持仓；仓位/现金默认虚拟假设（每票 ``virtual_shares``、
+    研究现金 ``virtual_cash``），放宽小仓/现金不足对反T的约束，主看累计收益比例。
+    """
     if not holdings:
         return {
             "success": False,
@@ -244,11 +339,18 @@ def run_t0_backtest_for_holdings(
     from core.execution import resolve_t0_rules, strip_execution_meta
     from core.t0.viz import classify_t0_skip_reason, merge_t0_viz_payloads
 
+    _ = (use_minute, compare_daily, cash)
+    req_rules = dict(rules or {})
+    req_rules.setdefault("path_mode", "first_touch")
     resolved = resolve_t0_rules(
-        rules=rules, channel="backtest", has_minute=bool(use_minute)
+        rules=req_rules, channel="backtest", has_minute=True
     )
     cfg = strip_execution_meta(resolved)
+    cfg["path_mode"] = "first_touch"
     exec_meta = resolved.get("_execution_meta")
+
+    v_shares = max(100.0, float(virtual_shares or T0_BT_VIRTUAL_SHARES))
+    v_cash = max(0.0, float(virtual_cash if virtual_cash is not None else T0_BT_VIRTUAL_CASH))
 
     per: List[Dict[str, Any]] = []
     total_pnl = 0.0
@@ -261,35 +363,28 @@ def run_t0_backtest_for_holdings(
     long_cover = 0
     reverse_cover = 0
     minute_path_days = 0
-    daily_fallback_days = 0
+    missing_minute_days = 0
 
     for h in holdings:
         code = str(h.get("stock_code") or "").strip()
         if not code:
             continue
-        shares = float(h.get("shares") or 0)
-        cost = float(h.get("cost") or 0) or None
-        if shares < 100:
-            per.append(
-                {
-                    "success": False,
-                    "stock_code": code,
-                    "stock_name": h.get("stock_name"),
-                    "error": "持仓不足 100 股",
-                }
-            )
-            continue
+        # 只用纸面股票名单；股数/成本走虚拟仓（成本由日线开窗决定）
         one = run_t0_backtest_for_code(
             code,
             lookback=lookback,
-            initial_shares=shares,
-            initial_cost=cost,
+            initial_shares=v_shares,
+            initial_cost=None,
+            initial_cash=v_cash,
             rules=cfg,
             compare_optimistic=compare_optimistic,
-            use_minute=use_minute,
-            compare_daily=compare_daily,
+            use_minute=True,
+            compare_daily=False,
         )
         one["stock_name"] = one.get("stock_name") or h.get("stock_name")
+        one["paper_shares"] = float(h.get("shares") or 0)
+        one["virtual_shares"] = v_shares
+        one["virtual_cash"] = v_cash
         if one.get("viz") and isinstance(one["viz"], dict):
             for row in one["viz"].get("stock_contrib") or []:
                 if isinstance(row, dict):
@@ -307,7 +402,7 @@ def run_t0_backtest_for_holdings(
             long_cover += int(one.get("long_t_cover_days") or 0)
             reverse_cover += int(one.get("reverse_t_cover_days") or 0)
             minute_path_days += int(one.get("minute_path_days") or 0)
-            daily_fallback_days += int(one.get("daily_fallback_days") or 0)
+            missing_minute_days += int(one.get("missing_minute_days") or 0)
 
     ok = [x for x in per if x.get("success")]
     if not ok:
@@ -332,14 +427,11 @@ def run_t0_backtest_for_holdings(
     loss_days = sum(int(x.get("t0_loss_days") or 0) for x in ok)
     pnl_day_cnt = win_days + loss_days
 
-    # 乐观 / 日线对照合计
+    # 乐观对照合计
     opt_pnl = 0.0
     opt_trades = 0
     opt_exposure = 0.0
     has_opt = False
-    daily_pnl = 0.0
-    daily_trades = 0
-    has_daily = False
     for x in ok:
         opt = x.get("optimistic_compare")
         if isinstance(opt, dict) and opt.get("t0_pnl_total") is not None:
@@ -347,11 +439,6 @@ def run_t0_backtest_for_holdings(
             opt_pnl += float(opt.get("t0_pnl_total") or 0)
             opt_trades += int(opt.get("t0_trade_days") or 0)
             opt_exposure += float(opt.get("exposure_pnl_total") or 0)
-        dc = x.get("daily_compare")
-        if isinstance(dc, dict) and dc.get("t0_pnl_total") is not None:
-            has_daily = True
-            daily_pnl += float(dc.get("t0_pnl_total") or 0)
-            daily_trades += int(dc.get("t0_trade_days") or 0)
 
     # 合并各票成交样本供 UI；最近按日 + 保留若干反T，避免「近一周全正」误以为没有反T
     # 注意：trade_days_sample=[] 时勿用 `or days`，否则会把全日跳过行灌进样本
@@ -423,6 +510,9 @@ def run_t0_backtest_for_holdings(
         "success": bool(ok),
         "task": "t0_backtest",
         "from_holdings": True,
+        "virtual_sizing": True,
+        "virtual_shares": v_shares,
+        "virtual_cash": v_cash,
         "holding_count": len(holdings),
         "ok_count": len(ok),
         "t0_pnl_total": round(total_pnl, 2),
@@ -439,7 +529,7 @@ def run_t0_backtest_for_holdings(
         "reverse_t_cover_days": reverse_cover,
         "uncover_days": uncover_days,
         "minute_path_days": minute_path_days,
-        "daily_fallback_days": daily_fallback_days,
+        "missing_minute_days": missing_minute_days,
         "hold_mv_start": round(total_hold_mv, 2),
         "t0_win_days": win_days,
         "t0_loss_days": loss_days,
@@ -451,22 +541,34 @@ def run_t0_backtest_for_holdings(
         "trade_days_sample": trade_sample,
         "skip_reason_top": skip_reason_top,
         "skip_days_sample": skip_sample[:12],
-        "path_mode": cfg.get("path_mode"),
+        "path_mode": "first_touch",
         "direction": cfg.get("direction"),
-        "use_minute": use_minute and minute_path_days > 0,
+        "use_minute": True,
         "rules": _rules_summary(cfg),
+        "scope_label": (
+            f"纸面股票池 {len(ok)}/{len(holdings)} 只 · 虚拟每票{int(v_shares)}股"
+            f" · 现金{int(v_cash / 10000)}万"
+        ),
         "note": (
-            "按模拟持仓底仓回测；"
-            f"direction={cfg.get('direction')} · path={cfg.get('path_mode')} · "
-            f"dir_enter={cfg.get('dir_enter')}；"
-            + (
-                "有分钟日 5m 第一触达，缺分钟回退日线 path；"
-                if use_minute
-                else f"日线 path_mode={cfg.get('path_mode')}；"
-            )
-            + "非实盘。主看含敞口净PnL / 完成往返率 / 参与率 / 日线Δ。"
+            "按纸面股票池回测；仓位/现金为虚拟假设"
+            f"（每票 {int(v_shares)} 股 · 研究现金 {int(v_cash):,}）；"
+            "仅 5m 第一触达（有分钟缓存时日线自动对齐覆盖窗口）；"
+            f"direction={cfg.get('direction')} · path=first_touch；非实盘。"
+            "主看累计收益比例（含敞口净PnL / 虚拟底仓市值）。"
         ),
     }
+    failed = [x for x in per if not x.get("success")]
+    if failed:
+        bits = [
+            f"{x.get('stock_code') or '?'}:{(str(x.get('error') or '失败')[:40])}"
+            for x in failed[:4]
+        ]
+        out["note"] = (
+            str(out["note"])
+            + f" 未计入 {len(failed)} 只（缺分钟等）："
+            + "；".join(bits)
+        )
+        out["failed_count"] = len(failed)
     if exec_meta:
         out["execution"] = _execution_view_for_backtest(cfg, exec_meta)
     contrib = round(total_pnl + total_exposure, 2)
@@ -483,20 +585,25 @@ def run_t0_backtest_for_holdings(
             "t0_trade_days": opt_trades,
             "exposure_pnl_total": round(opt_exposure, 2),
             "delta_pnl": delta,
-            "delta_pnl_ratio_pct": (
-                round(delta / abs(total_pnl) * 100.0, 2) if abs(total_pnl) > 1e-9 else None
+            "delta_pnl_ratio_pct": _optimistic_delta_ratio_pct(
+                delta, total_pnl, trade_days=total_trades
             ),
             "note": "各票 optimistic 上界合计（卖 high / 买 low）；勿当真",
         }
-    if has_daily:
-        out["daily_compare"] = {
-            "t0_pnl_total": round(daily_pnl, 2),
-            "t0_trade_days": daily_trades,
-            "delta_pnl": round(total_pnl - daily_pnl, 2),
-            "path_mode": "veto",
-            "note": "同窗日线 veto 对照合计；主结果含分钟第一触达",
-        }
     out.update(derive_t0_quality_metrics(out))
+    # 累计收益比例：含敞口净 PnL / 虚拟底仓市值
+    net = float(out.get("t0_pnl_with_exposure") or contrib)
+    if total_hold_mv > 1e-9:
+        out["cumulative_return_pct"] = round(net / total_hold_mv * 100.0, 4)
+        out["pnl_vs_hold_mv_pct"] = out["cumulative_return_pct"]
+    else:
+        out["cumulative_return_pct"] = None
+    # 相对「底仓+研究现金」的备选口径（每票独立现金，合计 = n * cash）
+    capital = total_hold_mv + v_cash * max(len(ok), 1)
+    if capital > 1e-9:
+        out["cumulative_return_vs_capital_pct"] = round(net / capital * 100.0, 4)
+    else:
+        out["cumulative_return_vs_capital_pct"] = None
 
     out["viz"] = merge_t0_viz_payloads([x.get("viz") for x in ok], rules=cfg)
     if len(ok) == 1:
@@ -506,7 +613,6 @@ def run_t0_backtest_for_holdings(
                 "stock_code": one.get("stock_code"),
                 "stock_name": one.get("stock_name"),
                 "optimistic_compare": one.get("optimistic_compare") or out.get("optimistic_compare"),
-                "daily_compare": one.get("daily_compare") or out.get("daily_compare"),
                 "days": one.get("trade_days_sample") or one.get("days") or trade_sample,
                 "trade_days_sample": one.get("trade_days_sample") or trade_sample,
                 "rules": one.get("rules"),
@@ -518,13 +624,26 @@ def run_t0_backtest_for_holdings(
                 "reverse_t_cover_days": one.get("reverse_t_cover_days"),
                 "t0_cover_days": one.get("t0_cover_days"),
                 "minute_path_days": one.get("minute_path_days"),
-                "daily_fallback_days": one.get("daily_fallback_days"),
+                "missing_minute_days": one.get("missing_minute_days"),
                 "minute_meta": one.get("minute_meta"),
                 "use_minute": one.get("use_minute"),
             }
         )
         out.update(derive_t0_quality_metrics(out))
         out["viz"] = ok[0].get("viz") or out.get("viz")
+        # 单票合并后重算累计收益比例（虚拟底仓）
+        net1 = float(out.get("t0_pnl_with_exposure") or out.get("t0_pnl_total") or 0)
+        hmv1 = float(out.get("hold_mv_start") or 0)
+        if hmv1 > 1e-9:
+            out["cumulative_return_pct"] = round(net1 / hmv1 * 100.0, 4)
+            out["pnl_vs_hold_mv_pct"] = out["cumulative_return_pct"]
+        cap1 = hmv1 + v_cash
+        out["cumulative_return_vs_capital_pct"] = (
+            round(net1 / cap1 * 100.0, 4) if cap1 > 1e-9 else None
+        )
+        out["virtual_sizing"] = True
+        out["virtual_shares"] = v_shares
+        out["virtual_cash"] = v_cash
     from core.t0.viz import attach_compare_to_viz
 
     attach_compare_to_viz(out)

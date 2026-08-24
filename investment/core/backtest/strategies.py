@@ -57,7 +57,7 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
                 "runtime_defaults": {
                     "paper_direction_fallback": "dual_y",
                     "backtest_direction_fallback": "dual_y",
-                    "backtest_path_mode_no_minute": "veto",
+                    "backtest_path_mode_no_minute": "first_touch",
                     "backtest_path_mode_with_minute": "first_touch",
                 },
                 "rebalance_timing": {
@@ -114,7 +114,7 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
                 "runtime_defaults": {
                     "paper_direction_fallback": "dual_y",
                     "backtest_direction_fallback": "dual_y",
-                    "backtest_path_mode_no_minute": "veto",
+                    "backtest_path_mode_no_minute": "first_touch",
                     "backtest_path_mode_with_minute": "first_touch",
                 },
                 "rebalance_timing": {

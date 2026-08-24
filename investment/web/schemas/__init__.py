@@ -17,6 +17,8 @@ from web.schemas.paper import (
     PaperSellRequest,
     T0BacktestRequest,
     PaperT0Request,
+    PaperT0AutoRequest,
+    PaperT0WorkerRequest,
     PaperExecutionPatchRequest,
 )
 
@@ -99,6 +101,8 @@ __all__ = [
     "PaperSellRequest",
     "T0BacktestRequest",
     "PaperT0Request",
+    "PaperT0AutoRequest",
+    "PaperT0WorkerRequest",
     "PaperExecutionPatchRequest",
     "StrategyPromoteRequest",
     "EvalRunRequest",

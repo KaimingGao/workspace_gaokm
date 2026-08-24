@@ -168,10 +168,6 @@ def apply_strategy_to_paper(paper: dict, strategy: str = DEFAULT_STRATEGY) -> Di
     if isinstance(timing, dict) and timing:
         rules["execution"] = dict(rules.get("execution") or {})
         rules["execution"]["rebalance_timing"] = dict(timing)
-    if mode == "next_open" and not paper.get("t0_rules_locked"):
-        t0_rules = dict(rules.get("t0") or {}) if isinstance(rules.get("t0"), dict) else {}
-        t0_rules["enabled"] = False
-        rules["t0"] = t0_rules
     # 风控限额写入 paper.rules，与回测/optimize 同源
     risk = spec.get("risk") or {}
     for rk in (

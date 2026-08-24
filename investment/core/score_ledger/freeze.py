@@ -15,6 +15,7 @@ from core.io_atomic import atomic_write_json
 from core.numbers import date_key
 from core.score_ledger.asof import (
     resolve_freeze_as_of,
+    session_allows_ledger_freeze,
 )
 
 
@@ -22,13 +23,35 @@ def freeze_from_cluster_book(
     *,
     as_of: Optional[str] = None,
     book_doc: Optional[dict] = None,
+    auto: bool = False,
+    force: bool = False,
 ) -> Dict[str, Any]:
     """从 active 集群书冻结 ŷ；决策日对齐因子截止（见 resolve_freeze_as_of）。
 
     优先冻 ``scored_all``（打分宇宙，供校准 g(ŷ) 全轴拟合）；无则回退 ``book``。
     行上打 ``in_book``：复盘 UI / 命中率仍默认只看簿内。
+
+    ``auto=True``：刷簿附带冻结，盘中跳过。
+    ``force=True``：绕过收盘闸（测试 / 显式重建）。
     """
     from core.signal.cluster.live import load_active_cluster_book
+
+    # 自动路径：收盘前直接跳过（不解析、不写盘）
+    if auto and not force:
+        gate0 = session_allows_ledger_freeze(auto=True, force=False)
+        if not gate0.get("ok"):
+            resolved = resolve_freeze_as_of(
+                as_of, book_doc=book_doc if isinstance(book_doc, dict) else None
+            )
+            return {
+                "success": False,
+                "skipped": True,
+                "error": gate0.get("reason") or "盘中跳过冻结",
+                "as_of": resolved.get("as_of"),
+                "n_rows": 0,
+                "resolve": resolved,
+                "gate": gate0,
+            }
 
     doc = book_doc if isinstance(book_doc, dict) else load_active_cluster_book()
     if not doc:
@@ -68,6 +91,18 @@ def freeze_from_cluster_book(
             "n_rows": 0,
             "resolve": resolved,
         }
+    # 显式/日更：按解析后的决策日再闸（禁止盘中冻「当日」半日 K）
+    gate = session_allows_ledger_freeze(as_of=d, auto=False, force=force)
+    if not gate.get("ok"):
+        return {
+            "success": False,
+            "skipped": True,
+            "error": gate.get("reason") or "盘中跳过冻结",
+            "as_of": d,
+            "n_rows": 0,
+            "resolve": resolved,
+            "gate": gate,
+        }
     src = "cluster_scored_all" if scored_all else "cluster_book"
     out = _lio.upsert_ledger_rows(
         d,
@@ -83,18 +118,21 @@ def freeze_from_cluster_book(
             "freeze_universe": "scored_all" if scored_all else "book",
             "n_book": len(book_codes),
             "n_universe": len(freeze_rows),
+            "freeze_gate": gate.get("reason"),
         },
     )
     out["resolve"] = resolved
+    out["gate"] = gate
     if resolved.get("note"):
         out["note"] = resolved.get("note")
     prev = date_key(resolved.get("prev_trading_day"))
     out["skipped_newer"] = prev if prev and d and prev > d else None
     # 同步冻结 τ 影子簿成员（失败不影响主账本）
     try:
-        shadow_out = freeze_from_tau_shadow_book(as_of=d)
+        shadow_out = freeze_from_tau_shadow_book(as_of=d, auto=False, force=force)
         out["tau_shadow"] = {
             "success": shadow_out.get("success"),
+            "skipped": shadow_out.get("skipped"),
             "n_rows": shadow_out.get("n_rows"),
             "path": shadow_out.get("path"),
             "error": shadow_out.get("error"),
@@ -103,9 +141,10 @@ def freeze_from_cluster_book(
         logger.exception('unexpected error in freeze_from_cluster_book')
         out["tau_shadow"] = {"success": False, "error": str(exc)}
     try:
-        nc_out = freeze_from_nowcast_shadow_book(as_of=d)
+        nc_out = freeze_from_nowcast_shadow_book(as_of=d, auto=False, force=force)
         out["nowcast_shadow"] = {
             "success": nc_out.get("success"),
+            "skipped": nc_out.get("skipped"),
             "n_rows": nc_out.get("n_rows"),
             "path": nc_out.get("path"),
             "error": nc_out.get("error"),
@@ -120,9 +159,22 @@ def freeze_from_tau_shadow_book(
     *,
     as_of: Optional[str] = None,
     shadow_doc: Optional[dict] = None,
+    auto: bool = False,
+    force: bool = False,
 ) -> Dict[str, Any]:
     """冻结 A2 τ 影子簿成员与 ŷ_τ（独立文件，不覆盖 EOD 账本）。"""
     from core.signal.cluster.live import load_tau_shadow_cluster_book
+
+    gate = session_allows_ledger_freeze(as_of=as_of, auto=auto, force=force)
+    if not gate.get("ok"):
+        return {
+            "success": False,
+            "skipped": True,
+            "error": gate.get("reason") or "盘中跳过冻结",
+            "as_of": date_key(as_of) if as_of else None,
+            "n_rows": 0,
+            "gate": gate,
+        }
 
     doc = shadow_doc if isinstance(shadow_doc, dict) else load_tau_shadow_cluster_book()
     if not doc:
@@ -207,9 +259,22 @@ def freeze_from_nowcast_shadow_book(
     *,
     as_of: Optional[str] = None,
     shadow_doc: Optional[dict] = None,
+    auto: bool = False,
+    force: bool = False,
 ) -> Dict[str, Any]:
     """冻结 N3 nowcast 影子簿成员与 ŷ_nowcast（独立文件）。"""
     from core.signal.cluster.live import load_nowcast_shadow_cluster_book
+
+    gate = session_allows_ledger_freeze(as_of=as_of, auto=auto, force=force)
+    if not gate.get("ok"):
+        return {
+            "success": False,
+            "skipped": True,
+            "error": gate.get("reason") or "盘中跳过冻结",
+            "as_of": date_key(as_of) if as_of else None,
+            "n_rows": 0,
+            "gate": gate,
+        }
 
     doc = shadow_doc if isinstance(shadow_doc, dict) else load_nowcast_shadow_cluster_book()
     if not doc:

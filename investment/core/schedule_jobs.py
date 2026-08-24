@@ -245,21 +245,32 @@ def _minute_warmup_core(
     codes: Optional[List[str]] = None,
     period: str = "5",
     cap: int = 25,
+    lookback_days: int = 90,
 ) -> Dict[str, Any]:
-    """分钟线预热核心逻辑（无 job slot）。"""
+    """分钟线预热核心逻辑（无 job slot）。
+
+    period=5 默认 lookback≈90 交易日，对齐做T回测窗口；过短会导致回测大量「缺分钟跳过」。
+    """
     from core.ports.market import fetch_minute_bars
 
     watch = _resolve_warmup_codes(codes, cap=max(1, int(cap)))
     if not watch:
         return {"ok": False, "error": "无标的：请传 codes 或配置 watching / validation_universe"}
+    period_s = str(period or "5")
+    # 1 分钟源通常只有近几日；5m+ 拉到回测常用窗口
+    if period_s == "1":
+        span = min(max(int(lookback_days or 5), 3), 8)
+    else:
+        span = min(max(int(lookback_days or 90), 20), 120)
     warmed = 0
     errors: List[str] = []
     for code in watch:
         bars, meta = fetch_minute_bars(
             code,
-            period=str(period or "5"),
+            period=period_s,
             use_cache=True,
-            lookback_days=10,
+            lookback_days=span,
+            max_age_hours=0.01,  # 强制尝试刷新；失败仍可回退过期缓存
         )
         if bars:
             warmed += 1
@@ -268,11 +279,12 @@ def _minute_warmup_core(
     return {
         "ok": warmed > 0 or len(watch) == 0,
         "kind": "minute_warmup",
-        "period": str(period or "5"),
+        "period": period_s,
+        "lookback_days": span,
         "total": len(watch),
         "warmed": warmed,
         "errors": errors[:10],
-        "note": "5 分钟线预热；供 tail_anomaly。",
+        "note": "5 分钟线预热；供 tail_anomaly / 做T回测。",
     }
 
 
@@ -281,6 +293,7 @@ def run_minute_warmup(
     codes: Optional[List[str]] = None,
     period: str = "5",
     cap: int = 25,
+    lookback_days: int = 90,
 ) -> Dict[str, Any]:
     """预热观察名单 5 分钟线缓存（tail_anomaly / T0 用）。"""
     slot = job_registry.slot("schedule")
@@ -293,7 +306,9 @@ def run_minute_warmup(
 
     job_id = slot.start(kind="minute_warmup", total=len(watch), message="预热分钟线…")
     try:
-        result = _minute_warmup_core(codes=codes, period=period, cap=cap)
+        result = _minute_warmup_core(
+            codes=codes, period=period, cap=cap, lookback_days=lookback_days
+        )
         path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
         result["path"] = path
         slot.finish(result=result)
@@ -671,7 +686,7 @@ def run_paper_daily(
             "pending_orders": (cycle or {}).get("pending_orders")
             or paper.get("pending_orders"),
             "note": (cycle or {}).get("note")
-            or "N5 准实盘日更；next_open 时收盘后只挂次日开盘单；含日线覆盖与北极星 KPI；不代客下单。",
+            or "N5 准实盘日更；盘中现价成交，收盘后挂次日开盘单；含日线覆盖与北极星 KPI；不代客下单。",
         }
         try:
             from core.data.service import metrics_snapshot as data_metrics_snapshot
@@ -685,11 +700,58 @@ def run_paper_daily(
         path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
         result["path"] = path
         slot.finish(result=result)
+        try:
+            from core.paper import load_paper
+            from core.paths import PAPER_PATH
+
+            if os.path.isfile(PAPER_PATH):
+                rules = load_paper(PAPER_PATH).get("rules") or {}
+                t0_auto = rules.get("t0_auto") if isinstance(rules, dict) else {}
+                if (
+                    isinstance(t0_auto, dict)
+                    and t0_auto.get("enabled")
+                    and str(t0_auto.get("schedule") or "") == "with_paper_daily"
+                ):
+                    result["t0_auto"] = run_paper_t0(force=True, chained=True)
+        except Exception:
+            logger.debug("paper_daily t0_auto chain skipped", exc_info=True)
         return result
     except Exception as e:
         logger.exception('unexpected error in run_paper_daily')
         slot.finish(error=str(e))
         return {"ok": False, "error": str(e), "job": slot.get()}
+
+
+def run_paper_t0(*, force: bool = False, chained: bool = False) -> Dict[str, Any]:
+    """纸面自动做 T（例行落账）。"""
+    slot = job_registry.slot("schedule")
+    if slot.is_running() and not chained:
+        return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
+
+    job_id = None
+    if not chained:
+        job_id = slot.start(kind="paper_t0", total=1, message="自动做T…")
+    try:
+        from core.paths import PAPER_PATH
+        from services.paper_service import PaperService
+
+        svc = PaperService(PAPER_PATH)
+        out = svc.run_t0_auto(dry_run=False, force=bool(force), skip_open_fill_gate=True)
+        result: Dict[str, Any] = {"ok": True, "kind": "paper_t0", **out}
+        if not chained and job_id:
+            path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
+            result["path"] = path
+            slot.finish(result=result)
+        return result
+    except FileNotFoundError as e:
+        if not chained:
+            slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get() if not chained else None}
+    except Exception as e:
+        logger.exception("unexpected error in run_paper_t0")
+        if not chained:
+            slot.finish(error=str(e))
+        return {"ok": False, "error": str(e), "job": slot.get() if not chained else None}
 
 
 def run_concept_graph_refresh(
@@ -867,6 +929,7 @@ def run_schedule(kind: str, **kwargs: Any) -> Dict[str, Any]:
             codes=kwargs.get("codes"),
             period=str(kwargs.get("period") or "5"),
             cap=int(kwargs.get("cap") or 25),
+            lookback_days=int(kwargs.get("lookback_days") or 90),
         )
     if k == "spot_refresh":
         return run_spot_refresh(
@@ -894,6 +957,8 @@ def run_schedule(kind: str, **kwargs: Any) -> Dict[str, Any]:
             simulate_buy=bool(kwargs.get("simulate_buy")),
             strategy=str(kwargs.get("strategy") or "short"),
         )
+    if k == "paper_t0":
+        return run_paper_t0(force=bool(kwargs.get("force")))
     if k == "paper_open_fill":
         return run_paper_open_fill()
     if k == "validation_prepare":

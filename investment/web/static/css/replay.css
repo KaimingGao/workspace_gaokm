@@ -831,9 +831,48 @@ body[data-page="replay"] .replay-page .quant-neutral-frozen > summary {
 }
 
 
-/* 回测忙碌：三点脉冲，不用不确定进度蓝条 */
+/* 回测忙碌：三点指示 + 胶囊/文案脉动（不用不确定进度蓝条） */
 .paper-progress-status {
   margin: 0 0 10px;
   width: fit-content;
   max-width: 100%;
+}
+
+.paper-progress-status.is-busy {
+  animation: paper-progress-status-pulse 1.35s ease-in-out infinite;
+}
+
+.paper-progress-status.is-busy #quant-bt-progress-text,
+.paper-progress-status.is-busy #param-grid-progress-text {
+  animation: paper-progress-text-pulse 1.35s ease-in-out infinite;
+}
+
+@keyframes paper-progress-status-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ui-busy, var(--accent)) 0%, transparent);
+    border-color: var(--ui-busy-border, var(--line));
+  }
+  50% {
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--ui-busy, var(--accent)) 16%, transparent);
+    border-color: color-mix(in srgb, var(--ui-busy, var(--accent)) 42%, var(--line));
+  }
+}
+
+@keyframes paper-progress-text-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .paper-progress-status.is-busy,
+  .paper-progress-status.is-busy #quant-bt-progress-text,
+  .paper-progress-status.is-busy #param-grid-progress-text {
+    animation: none;
+  }
 }

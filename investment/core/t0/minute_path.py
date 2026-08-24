@@ -1,4 +1,4 @@
-"""做 T：分钟线第一触达路径（比日线 dual_touch/veto 更贴近盘中先后）。"""
+"""做 T：分钟线第一触达路径（已删除日线 high/low 代理）。"""
 
 
 import logging
@@ -285,11 +285,28 @@ def _first_touch_reverse(
     afford = _lot_floor(cash / max(buy_level, 1e-6), lot)
     qty = min(max_shares, afford, _lot_floor(sellable, lot))
     if qty <= 0:
+        afford_n = int(afford)
+        sell_n = int(_lot_floor(sellable, lot))
+        if afford_n < lot:
+            reason = (
+                f"反T现金不够1手（现金{cash:.0f}可买{afford_n}股<"
+                f"{lot}股；目标{int(max_shares)}股）"
+            )
+        elif sell_n < lot:
+            reason = f"反T无可卖旧仓（可卖{int(sellable)}<{lot}股）"
+        else:
+            reason = "反T买不起或无可卖旧仓"
         return _skip_result(
-            reason="反T买不起或无可卖旧仓",
+            reason=reason,
             shares=shares,
             bar=bar,
-            extra={"direction_used": "reverse_t", "path_mode": "first_touch"},
+            extra={
+                "direction_used": "reverse_t",
+                "path_mode": "first_touch",
+                "cash": round(cash, 2),
+                "afford_shares": afford_n,
+                "target_shares": int(max_shares),
+            },
         )
 
     trades: List[dict] = []
@@ -459,7 +476,8 @@ def simulate_t0_day_minute(
 ) -> Dict[str, Any]:
     """单日做 T：选向仍用开盘/隔夜特征；成交路径按分钟第一触达。"""
     from core.t0.score_policy import (
-        load_scores_for_code_date,
+        resolve_scores_for_code,
+        resolve_y_score_source,
         resolve_cover_policy,
         scale_t0_ratio,
         scores_have_any,
@@ -472,8 +490,16 @@ def simulate_t0_day_minute(
     score_snap = scores if isinstance(scores, dict) else None
     if str(cfg.get("direction") or "") == "dual_y" and not scores_have_any(score_snap):
         as_of = str((bar or {}).get("date") or "")[:10]
-        if stock_code and as_of:
-            score_snap = load_scores_for_code_date(stock_code, as_of)
+        if stock_code:
+            score_snap = resolve_scores_for_code(
+                stock_code,
+                hist_bars=hist_bars,
+                day_bar=bar if isinstance(bar, dict) else None,
+                as_of=as_of or None,
+                source=resolve_y_score_source(cfg),
+                fuse_intraday=True,
+                allow_fallback=True,
+            )
 
     mins = [dict(m) for m in (minute_bars or [])]
     mins.sort(key=lambda x: str(x.get("datetime") or ""))

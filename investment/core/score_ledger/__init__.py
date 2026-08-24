@@ -13,6 +13,7 @@ from core.score_ledger.asof import (
     default_as_of,
     infer_feature_as_of,
     resolve_freeze_as_of,
+    session_allows_ledger_freeze,
 )
 from core.score_ledger.freeze import (
     freeze_from_cluster_book,
@@ -86,6 +87,7 @@ __all__ = [
     "row_from_scored_item",
     "rows_for_book_review",
     "run_score_ledger_daily",
+    "session_allows_ledger_freeze",
     "stock_panel_series",
     "tau_shadow_membership_path",
     "upsert_ledger_rows",

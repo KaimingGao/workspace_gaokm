@@ -1,11 +1,13 @@
 /** 做 T 回测表格：统一列定义，避免表头/数据错位。 */
 
 import { escapeText, paperMetricClass } from "./fmt.js";
+import { yTauMapLabel, yTauMapScoreTip } from "./execution_ui.js";
 
 export const SKIP_CAT_LABEL = {
   missing_scores: "缺ŷ快照",
+  missing_minute: "缺分钟线",
   y_tau_flat: "y_τ横盘",
-  y_trade_weak: "y_trade不足",
+  y_trade_weak: "y_trade幅度不足",
   conflict: "先验冲突",
   amplitude: "振幅不足",
   lot_size: "手数不足",
@@ -14,7 +16,7 @@ export const SKIP_CAT_LABEL = {
   other: "其它",
 };
 
-const TABLE_CLASS = "quant-weight-table paper-t0-table";
+const TABLE_CLASS = "quant-weight-table paper-t0-table paper-t0-trades-table";
 
 /** 列轨宽度：colgroup inline width + CSS 同源，避免 fixed 表头/体错位 */
 const T0_TRADE_COL_W = {
@@ -27,35 +29,45 @@ const T0_TRADE_COL_W = {
   nc: "82px",
   dir: "48px",
   process: "272px",
+  retPct: "76px",
   pnl: "72px",
   exp: "72px",
 };
+
+/** 与数据中心主表一致：名称最多 6 字 + … */
+function truncateName(name, max = 6) {
+  const full = String(name || "").trim();
+  const chars = Array.from(full);
+  if (chars.length <= max) return full;
+  return `${chars.slice(0, max).join("")}…`;
+}
 
 function t0Col(cls, key) {
   const w = T0_TRADE_COL_W[key];
   return `<col class="${cls}" style="width:${w}" />`;
 }
 
-/** 股票名 + 代码 */
+/** 股票名 + 代码（对齐数据中心 watching-stock：名上行、码下行） */
 export function stockCellHtml(row, fallback = {}) {
   const code = String((row && row.stock_code) || fallback.stock_code || "").trim();
   const name = String((row && row.stock_name) || fallback.stock_name || "").trim();
+  const fullName = name && name !== code ? name : code || "—";
   const title = name && code && name !== code ? `${name} ${code}` : name || code;
-  if (!name && !code) return `<td class="rebalance-stock paper-t0-col-stock">—</td>`;
-  if (!name || name === code) {
-    return (
-      `<td class="rebalance-stock paper-t0-col-stock" title="${escapeText(title)}">` +
-      `<span class="rebalance-stock-name">${escapeText(code || "—")}</span></td>`
-    );
+  if (!name && !code) {
+    return `<td class="rebalance-stock paper-t0-col-stock watching-stock">—</td>`;
   }
+  const display = truncateName(fullName);
   return (
-    `<td class="rebalance-stock paper-t0-col-stock" title="${escapeText(title)}">` +
-    `<span class="rebalance-stock-main">` +
-    `<span class="rebalance-stock-name">` +
-    `<span class="rebalance-stock-name-text">${escapeText(name)}</span>` +
+    `<td class="rebalance-stock paper-t0-col-stock watching-stock" title="${escapeText(title || fullName)}">` +
+    `<span class="watching-name-row">` +
+    `<span class="watching-name-text" title="${escapeText(fullName)}" data-full-name="${escapeText(
+      fullName
+    )}">${escapeText(display)}</span>` +
     `</span>` +
-    `<span class="rebalance-stock-code">${escapeText(code)}</span>` +
-    `</span></td>`
+    (code
+      ? `<span class="watching-code-sub">${escapeText(code)}</span>`
+      : "") +
+    `</td>`
   );
 }
 
@@ -89,18 +101,102 @@ function yTauEnter(data) {
   return enter != null && Number.isFinite(Number(enter)) ? Number(enter) : 0.25;
 }
 
+/** 敞口列：仅「允许隔夜 + 第二腿未 intraday 完成」时有值；强制回补时损益全在 PnL。 */
+function exposureColTitle(data) {
+  const forced =
+    data?.rules?.must_cover_same_day === true ||
+    data?.execution?.t0?.must_cover_same_day === true;
+  const dualY = String(data?.rules?.direction || data?.execution?.t0?.direction || "dual_y") === "dual_y";
+  if (forced) {
+    return "隔夜敞口损益；已强制当日回补 → 全 0（损益在 PnL）";
+  }
+  if (dualY) {
+    return "隔夜敞口损益；dual_y 默认 y_on 策略多强制收盘回补 → 常为 0（损益在 PnL）";
+  }
+  return "未 intraday 完成第二腿、且允许隔夜时的 mark-to-market；强制回补时为 0";
+}
+
+function fmtExposureCell(d) {
+  const exp = Number(d.exposure_pnl);
+  if (!Number.isFinite(exp) || Math.abs(exp) < 1e-9) {
+    const cp = d.cover_policy;
+    const forced =
+      d.must_cover_same_day === true || (cp && cp.must_cover === true);
+    const tip = forced
+      ? cp?.reason
+        ? `已强制回补：${cp.reason} · 损益计入 PnL`
+        : "已强制收盘回补 · 损益计入 PnL"
+      : "无隔夜敞口或未 mark 敞口";
+    return { text: "0", tip };
+  }
+  return { text: String(exp), tip: "允许隔夜且第二腿未 intraday 完成的敞口损益" };
+}
+
+function exposureTableFootnote(data, days) {
+  const totalExp = Number(data?.exposure_pnl_total);
+  if (Number.isFinite(totalExp) && Math.abs(totalExp) > 1e-6) return "";
+  const traded = (days || []).filter(
+    (d) => Number(d.sold_qty) > 0 || Number(d.bought_qty) > 0
+  );
+  if (!traded.length) return "";
+  return (
+    `<p class="quant-trades-caption paper-t0-table-more">` +
+    `敞口列：当前样本全为 0 — dual_y 多按 y_on 策略<strong>收盘强制回补</strong>，` +
+    `未 intraday 完成的腿在收盘价平仓，损益已计入 PnL 列（非 bug）。` +
+    `若要看到非零敞口：取消「当日回补」且 |y_on|≥放行门槛并方向一致。</p>`
+  );
+}
+
+function tauSignFootnote(data, days) {
+  const traded = (days || []).filter(
+    (d) => Number(d.sold_qty) > 0 || Number(d.bought_qty) > 0
+  );
+  if (traded.length < 2) return "";
+  const tauVals = traded
+    .map((d) => {
+      const feats = d.direction_features || {};
+      const scores = d.scores || {};
+      const raw = feats.y_tau ?? scores.y_tau ?? d.direction_score;
+      const n = Number(raw);
+      return Number.isFinite(n) ? n : null;
+    })
+    .filter((n) => n != null);
+  if (!tauVals.length || tauVals.some((n) => n < 0)) return "";
+  const map = String(data?.rules?.y_tau_map || "scalp").trim().toLowerCase();
+  const mapLbl = yTauMapLabel(map);
+  if (map === "trend") {
+    return (
+      `<p class="quant-trades-caption paper-t0-table-more">` +
+      `y_τ 全为正：${escapeText(mapLbl)} — 成交行 y_τ≥+τ 对应<strong>反T</strong>（向=反）；` +
+      `y_τ≤−τ 的正T 在本样本未成交或未入选。看全分布请用下方 y_τ 散点（含跳过日）。</p>`
+    );
+  }
+  if (map === "scalp") {
+    return (
+      `<p class="quant-trades-caption paper-t0-table-more">` +
+      `y_τ 全为正：${escapeText(mapLbl)} — 仅 y_τ≥+τ 的正T 成交；` +
+      `y_τ≤−τ 的反T 需路径触达且现金/可卖足，样本内常未出现。散点图可看负 τ 跳过日。</p>`
+    );
+  }
+  return "";
+}
+
 function pickScore(d, key) {
   const feats = d.direction_features || d.features || {};
   const scores = d.scores || {};
   const v = feats[key] ?? scores[key];
-  return v != null && v !== "" && Number.isFinite(Number(v)) ? Number(v).toFixed(2) : "—";
+  return v != null && v !== "" && Number.isFinite(Number(v))
+    ? `${Number(v).toFixed(2)}%`
+    : "—";
 }
 
 function pickTau(d) {
   const v = pickScore(d, "y_tau");
   if (v !== "—") return v;
   const ds = d.direction_score;
-  return ds != null && ds !== "" && Number.isFinite(Number(ds)) ? Number(ds).toFixed(2) : "—";
+  return ds != null && ds !== "" && Number.isFinite(Number(ds))
+    ? `${Number(ds).toFixed(2)}%`
+    : "—";
 }
 
 function fmtT0LegTime(v) {
@@ -217,6 +313,38 @@ function legChipHtml(l, showTimes) {
   );
 }
 
+/** 单日做 T 收益率：(PnL+敞口) / 动仓名义。 */
+function dayReturnPct(d) {
+  if (d.day_return_pct != null && Number.isFinite(Number(d.day_return_pct))) {
+    return Number(d.day_return_pct);
+  }
+  const net = Number(d.pnl || 0) + Number(d.exposure_pnl || 0);
+  const rev = d.direction === "reverse_t";
+  const qty = rev
+    ? Number(d.bought_qty || d.buy_shares || 0)
+    : Number(d.sold_qty || d.sell_shares || 0);
+  const legs = tradeLegCells(d);
+  const px = rev
+    ? Number(legs.buyPx || d.buy_price || 0)
+    : Number(legs.sellPx || d.sell_price || 0);
+  const notional = qty * px;
+  if (!(notional > 0)) return null;
+  return (net / notional) * 100;
+}
+
+function fmtDayReturnPct(d) {
+  const pct = dayReturnPct(d);
+  if (pct == null || !Number.isFinite(pct)) {
+    return { text: "—", tip: "缺动仓股数或成交价，无法算收益%" };
+  }
+  const sign = pct > 0 ? "+" : "";
+  return {
+    text: `${sign}${pct.toFixed(2)}%`,
+    tip: `(PnL ${d.pnl ?? 0} + 敞口 ${d.exposure_pnl ?? 0}) / 动仓名义`,
+    pct,
+  };
+}
+
 /** 结构化过程列 HTML（卖/买 chip + 箭头链） */
 export function legProcessFlowHtml(d) {
   const legs = collectLegRecords(d);
@@ -298,6 +426,7 @@ function tradeColgroup(showStock) {
     t0Col("paper-t0-col-nc", "nc") +
     t0Col("paper-t0-col-dir", "dir") +
     t0Col("paper-t0-col-process", "process") +
+    t0Col("paper-t0-col-ret", "retPct") +
     t0Col("paper-t0-col-pnl", "pnl") +
     t0Col("paper-t0-col-exp", "exp");
   return `${html}</colgroup>`;
@@ -327,8 +456,8 @@ export function buildT0TradeTableHtml(opts) {
   const showStock = shouldShowStockColumn(data, days);
   const showTime = daysHaveIntradayTime(days);
   const enter = yTauEnter(data);
-  const scoreTip =
-    `dual_y 方向分≈y_τ（%点）：≥+${enter} 正T，≤-${enter} 反T；与 y_eod 冲突或 y_trade 不足则跳过。`;
+  const tauMap = (data.rules && data.rules.y_tau_map) || "scalp";
+  const scoreTip = yTauMapScoreTip(tauMap, enter);
   const fallback = {
     stock_code: data.stock_code,
     stock_name: data.stock_name,
@@ -343,9 +472,10 @@ export function buildT0TradeTableHtml(opts) {
     `<th scope="col" class="paper-t0-col-on num paper-t0-col-y paper-t0-col-y-on" title="y_on 尾盘/隔夜">y_on</th>` +
     `<th scope="col" class="paper-t0-col-nc num paper-t0-col-y paper-t0-col-y-nc" title="y_nowcast · Kalman 权昨收">y_nc</th>` +
     `<th scope="col" class="paper-t0-col-dir">向</th>` +
-    `<th scope="col" class="paper-t0-col-process" title="5m：第一触达时点；日线：仅价量代理、无具体时刻">过程</th>` +
+    `<th scope="col" class="paper-t0-col-process" title="5m 第一触达时点；缺分钟日已跳过">过程</th>` +
+    `<th scope="col" class="paper-t0-col-ret num" title="(PnL+敞口)/动仓名义">收益%</th>` +
     `<th scope="col" class="paper-t0-col-pnl num">PnL</th>` +
-    `<th scope="col" class="paper-t0-col-exp num">敞口</th>`;
+    `<th scope="col" class="paper-t0-col-exp num" title="${escapeText(exposureColTitle(data))}">敞口</th>`;
 
   const rows = days
     .slice(-maxRows)
@@ -362,19 +492,22 @@ export function buildT0TradeTableHtml(opts) {
         direction: d.direction || "",
         features: d.direction_features || d.features || null,
         direction_features: d.direction_features || d.features || null,
+        scores: d.scores || null,
         stock_code: code,
         stock_name: name,
         date: d.date || "",
-        dir_enter: enter,
+        y_tau_enter: enter,
       });
       const legs = tradeLegCells(d);
       const qty = legQtyCells(d);
       const process = fmtLegProcess(d);
+      const expCell = fmtExposureCell(d);
+      const retCell = fmtDayReturnPct(d);
       const legTip =
         process !== "—"
           ? process
           : `卖 ${qty.sellQty}股 @ ${fmtT0LegPrice(legs.sellPx)} · 买 ${qty.buyQty}股 @ ${fmtT0LegPrice(legs.buyPx)}` +
-            (showTime ? "" : " · 日线代理无日内时点");
+            (showTime ? "" : " · 缺触达时刻");
       return (
         `<tr>` +
         (showStock ? stockCellHtml(d, fallback) : "") +
@@ -388,10 +521,13 @@ export function buildT0TradeTableHtml(opts) {
         `<td class="num paper-t0-col-nc paper-t0-col-y paper-t0-col-y-nc">${pickScore(d, "y_nowcast")}</td>` +
         `<td class="paper-t0-col-dir">${dir}</td>` +
         `<td class="paper-t0-col-process" title="${escapeText(legTip)}">${legProcessFlowHtml(d)}</td>` +
+        `<td class="num paper-t0-col-ret ${paperMetricClass(retCell.pct)}" title="${escapeText(
+          retCell.tip
+        )}">${escapeText(retCell.text)}</td>` +
         `<td class="num paper-t0-col-pnl ${paperMetricClass(d.pnl)}">${escapeText(String(d.pnl ?? 0))}</td>` +
-        `<td class="num paper-t0-col-exp ${paperMetricClass(d.exposure_pnl)}">${escapeText(
-          String(d.exposure_pnl ?? 0)
-        )}</td></tr>`
+        `<td class="num paper-t0-col-exp ${paperMetricClass(d.exposure_pnl)}" title="${escapeText(
+          expCell.tip
+        )}">${escapeText(expCell.text)}</td></tr>`
       );
     })
     .join("");
@@ -403,7 +539,7 @@ export function buildT0TradeTableHtml(opts) {
 
   const timeHint = showTime
     ? `<p class="quant-trades-caption paper-t0-table-more">5m 路径：过程列时间为第一触达时点（收盘回补取末根 K 线）</p>`
-    : `<p class="quant-trades-caption paper-t0-table-more">日线代理：仅还原卖买价量，无日内时点；勾「5分钟」可回溯触达时刻</p>`;
+    : `<p class="quant-trades-caption paper-t0-table-more">5m 第一触达：还原卖买触达时刻；缺分钟日已跳过（已删除日线模拟）</p>`;
 
   return (
     `${caption}` +
@@ -411,6 +547,8 @@ export function buildT0TradeTableHtml(opts) {
     tradeColgroup(showStock) +
     `<thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>` +
     timeHint +
+    tauSignFootnote(data, days) +
+    exposureTableFootnote(data, days) +
     moreHint
   );
 }
@@ -424,10 +562,10 @@ export function buildT0SkipTableHtml(skips, fallback = {}) {
       const cat = SKIP_CAT_LABEL[d.skip_category] || d.skip_category || "—";
       const feats = d.direction_features || {};
       const scores = d.scores || {};
-      const tauRaw = d.direction_score ?? feats.y_tau ?? scores.y_tau;
+      const tauRaw = feats.y_tau ?? scores.y_tau ?? d.direction_score;
       const tau =
         tauRaw != null && tauRaw !== "" && Number.isFinite(Number(tauRaw))
-          ? Number(tauRaw).toFixed(2)
+          ? `${Number(tauRaw).toFixed(2)}%`
           : "—";
       return (
         `<tr>` +
@@ -441,7 +579,7 @@ export function buildT0SkipTableHtml(skips, fallback = {}) {
     .join("");
 
   return (
-    `<table class="${TABLE_CLASS} paper-t0-skip-table">` +
+    `<table class="quant-weight-table paper-t0-table paper-t0-skip-table">` +
     skipColgroup() +
     `<thead><tr>` +
     `<th scope="col" class="paper-t0-col-stock">股票</th>` +

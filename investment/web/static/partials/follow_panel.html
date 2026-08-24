@@ -2,7 +2,7 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Execution Desk</p>
     <h2>交易执行</h2>
-    <p id="follow-meta" class="dashboard-meta quant-meta" aria-live="polite">模拟账户 · 纸面调仓 · 做T验证</p>
+    <p id="follow-meta" class="dashboard-meta quant-meta" aria-live="polite">手动调仓 · 自动做T · 纸面模拟</p>
     <p class="dashboard-section-desc follow-head-path">
       <a class="follow-hero-link" href="/replay">回测</a>
       → 调仓 / 做T →
@@ -87,8 +87,12 @@
           <span class="quant-pro-path-num follow-path-num">3</span> 调仓
         </a>
         <span class="quant-path-sep quant-pro-path-sep follow-path-sep" aria-hidden="true">/</span>
+        <a class="quant-path-step quant-pro-path-step follow-path-step" href="#follow-section-t0" data-step="t0" data-state="idle">
+          <span class="quant-pro-path-num follow-path-num">4</span> 做T
+        </a>
+        <span class="quant-path-sep quant-pro-path-sep follow-path-sep" aria-hidden="true">/</span>
         <a class="quant-path-step quant-pro-path-step follow-path-step" href="/strategy" data-step="strategy" data-state="idle">
-          <span class="quant-pro-path-num follow-path-num">4</span> 晋升
+          <span class="quant-pro-path-num follow-path-num">5</span> 晋升
         </a>
       </nav>
     </div>
@@ -236,7 +240,7 @@
     <section class="dashboard-section quant-section follow-rebalance-section" id="follow-section-rebalance" aria-labelledby="follow-section-rebalance-title" aria-label="策略调仓">
       <header class="dashboard-section-head quant-section-head follow-section-head">
         <h3 id="follow-section-rebalance-title" class="dashboard-section-title">策略调仓</h3>
-        <p class="dashboard-section-desc quant-section-desc" title="研究枢纽对照/启用后，此处吃 live 组权更新 score；买卖只在本页。日常加减仓用上方持仓表">纸面验策略 · 预演后确认</p>
+        <p class="dashboard-section-desc quant-section-desc" title="研究枢纽对照/启用后，此处吃 live 组权更新 score；买卖只在本页。日常加减仓用上方持仓表">手动触发 · 预演后确认</p>
       </header>
       <div class="dashboard-card quant-pro-card follow-ops-card" id="follow-fold-rebalance">
         <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools follow-card-head">
@@ -253,7 +257,7 @@
               type="button"
               id="paper-daily-n5"
               class="dialog-btn secondary"
-              title="调度 paper_daily：五问 + DecisionRecord + 衰减告警"
+              title="调度 paper_daily：五问 + DecisionRecord + 衰减告警（不等同于确认调仓）"
             >
               纸面日更
             </button>
@@ -311,37 +315,81 @@
       </div>
     </section>
 
-    <section class="dashboard-section quant-section follow-section-secondary follow-trades-section" id="follow-section-trades" aria-labelledby="follow-section-trades-title">
-      <details class="quant-secondary-fold follow-secondary-fold">
-        <summary class="quant-secondary-fold-sum follow-secondary-fold-sum">
-          <h3 id="follow-section-trades-title" class="dashboard-section-title">交易记录</h3>
-          <p class="dashboard-section-desc quant-section-desc">纸面成交流水</p>
-        </summary>
-        <div class="dashboard-card quant-pro-card follow-ops-card" id="follow-ops-trades">
-          <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools follow-card-head">
-            <p class="quant-fingerprint quant-card-head-status follow-card-status" id="follow-trades-count">共 0 条</p>
-            <div class="dashboard-card-tools quant-pro-card-tools follow-card-tools">
-              <button type="button" class="dialog-btn secondary" id="paper-trades-csv">导出 CSV</button>
-              <button type="button" class="follow-ops-link paper-clear-records" data-category="trading">清除</button>
+    <section class="dashboard-section quant-section follow-t0-section" id="follow-section-t0" aria-labelledby="follow-section-t0-title">
+      <header class="dashboard-section-head quant-section-head follow-section-head">
+        <h3 id="follow-section-t0-title" class="dashboard-section-title">做 T</h3>
+        <p class="dashboard-section-desc quant-section-desc">例行调度落账 · 底仓 overlay · 非独立选股</p>
+      </header>
+      <div class="dashboard-card quant-pro-card follow-ops-card follow-t0-run-card" id="follow-fold-t0-run">
+        <div class="quant-pro-card-body follow-card-body">
+          <div id="paper-t0-auto-bar" class="paper-t0-auto-bar" aria-label="自动做T运行控制">
+            <div class="paper-t0-worker-panel" id="paper-t0-worker-panel" aria-label="自动做T后台进程">
+              <div class="paper-t0-worker-top">
+                <div class="paper-t0-worker-title-block">
+                  <span class="paper-t0-worker-kicker">Web Worker</span>
+                  <strong class="paper-t0-worker-title">自动做 T 后台进程</strong>
+                  <span class="paper-t0-worker-sub">打开即 5m 盯盘 · 触达即落账 · 5 分钟轮询</span>
+                </div>
+                <div class="paper-t0-worker-controls">
+                  <span
+                    id="paper-t0-worker-badge"
+                    class="paper-t0-worker-badge is-stopped"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <span class="paper-t0-worker-dot" aria-hidden="true"></span>
+                    <span id="paper-t0-worker-badge-label">已停止</span>
+                  </span>
+                  <label
+                    class="paper-t0-toggle"
+                    title="启动/停止 Web 内后台 worker（打开后收盘自动落账）"
+                  >
+                    <input type="checkbox" id="paper-t0-worker-enabled" role="switch" />
+                    <span class="paper-t0-toggle-track" aria-hidden="true"></span>
+                    <span class="paper-t0-toggle-text">运行</span>
+                  </label>
+                </div>
+              </div>
+              <div class="paper-t0-worker-metrics" id="paper-t0-worker-metrics">
+                <div class="paper-t0-worker-metric">
+                  <span class="paper-t0-worker-metric-label">进程状态</span>
+                  <span class="paper-t0-worker-metric-val" id="paper-t0-worker-m-state">—</span>
+                </div>
+                <div class="paper-t0-worker-metric">
+                  <span class="paper-t0-worker-metric-label">最近检查</span>
+                  <span class="paper-t0-worker-metric-val" id="paper-t0-worker-m-tick">—</span>
+                </div>
+                <div class="paper-t0-worker-metric">
+                  <span class="paper-t0-worker-metric-label">下次检查</span>
+                  <span class="paper-t0-worker-metric-val" id="paper-t0-worker-m-next">—</span>
+                </div>
+                <div class="paper-t0-worker-metric paper-t0-worker-metric-wide">
+                  <span class="paper-t0-worker-metric-label">最近动作</span>
+                  <span class="paper-t0-worker-metric-val" id="paper-t0-worker-m-action">—</span>
+                </div>
+                <div class="paper-t0-worker-metric paper-t0-worker-metric-wide">
+                  <span class="paper-t0-worker-metric-label">上次落账</span>
+                  <span class="paper-t0-worker-metric-val" id="paper-t0-worker-m-lastrun">—</span>
+                </div>
+              </div>
+              <p id="paper-t0-worker-hint" class="paper-t0-worker-hint" aria-live="polite">
+                加载后台进程状态…
+              </p>
+              <p id="paper-t0-worker-error" class="paper-t0-worker-error" hidden aria-live="assertive"></p>
             </div>
-          </div>
-          <div class="quant-pro-card-body follow-card-body">
-            <div id="paper-operation-log" class="paper-operation-log follow-ops-log"></div>
+            <div
+              id="paper-t0-worker-trades"
+              class="paper-t0-worker-trades quant-weight-table-wrap"
+              hidden
+              aria-label="做T后台落账明细"
+            ></div>
           </div>
         </div>
-      </details>
-    </section>
-
-    <section class="dashboard-section quant-section follow-section-secondary follow-t0-section" id="follow-section-t0" aria-labelledby="follow-section-t0-title">
-      <details class="quant-secondary-fold follow-secondary-fold" id="follow-fold-t0">
-        <summary class="quant-secondary-fold-sum follow-secondary-fold-sum">
-          <h3 id="follow-section-t0-title" class="dashboard-section-title">做 T</h3>
-          <p class="dashboard-section-desc quant-section-desc">底仓 overlay · 预演后确认 · 非独立选股</p>
-        </summary>
-        <div class="dashboard-card quant-pro-card follow-ops-card follow-ops-t0">
-          <div class="quant-pro-card-body follow-card-body">
+      </div>
+      <div class="dashboard-card quant-pro-card follow-ops-card follow-ops-t0 follow-t0-rules-card" id="follow-fold-t0">
+        <div class="quant-pro-card-body follow-card-body">
             <div id="paper-t0-summary" class="quant-summary paper-t0-summary-line">
-              底仓 overlay · dual_y 方向门控 · 日线/5m 路径代理 · 预演后确认 · 非实盘
+              底仓 overlay · dual_y 方向门控 · 回测仅 5m 第一触达 · 例行自动落账 · 非实盘
             </div>
             <div id="paper-t0-rules" class="paper-t0-rules" aria-label="生效做T规则"></div>
             <details class="quant-fold follow-fold" id="paper-t0-edit-fold">
@@ -366,13 +414,6 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="|方向分|≥此值才入场；调低→更少信号跳过。默认 0.35"
-                  >
-                    <span>入场门槛</span>
-                    <input type="number" name="dir_enter" min="0.05" max="1" step="0.05" value="0.35" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
                     title="日振幅%下限；空=回测默认0.5%。自动≈(卖+买)×0.35，最低0.5"
                   >
                     <span>振幅下限%</span>
@@ -388,30 +429,24 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="y_trade资格 · y_τ主方向 · y_eod冲突跳过 · y_on回补"
+                    title="dual_y 下 y_τ 符号如何映射正/反 T；选向固定 dual_y"
                   >
-                    <span>选向</span>
-                    <input type="hidden" name="direction" value="dual_y" />
-                    <span class="paper-t0-fixed-val">dual_y（ŷ）</span>
+                    <span>τ映射</span>
+                    <select name="y_tau_map">
+                      <option value="scalp" selected>y_τ&gt;0→正T</option>
+                      <option value="trend">y_τ&gt;0→反T</option>
+                      <option value="fixed_long">固定正T</option>
+                      <option value="fixed_reverse">固定反T</option>
+                    </select>
                   </label>
+                  <input type="hidden" name="direction" value="dual_y" />
+                  <input type="hidden" name="path_mode" value="first_touch" />
                   <label class="paper-t0-field">
                     <span>成交</span>
                     <select name="fill_mode">
                       <option value="trigger">trigger</option>
                       <option value="mid">mid</option>
                       <option value="optimistic">optimistic</option>
-                    </select>
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="日线无先后时 veto 最严；研究可改 dual_touch。做T回测直接读此表单，无需先保存"
-                  >
-                    <span>路径</span>
-                    <select name="path_mode">
-                      <option value="dual_touch">dual_touch</option>
-                      <option value="veto">veto</option>
-                      <option value="adverse">adverse</option>
-                      <option value="first_touch">first_touch</option>
                     </select>
                   </label>
                   <label class="paper-t0-field">
@@ -435,35 +470,35 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="dual_y：y_trade 低于此值跳过或缩仓（%点）"
+                    title="dual_y：|y_trade| 低于此值跳过（预期日波动太小；%点）"
                   >
-                    <span>y_trade门槛</span>
-                    <input type="number" name="y_trade_floor" min="-5" max="5" step="0.05" value="-0.15" />
+                    <span>|y_trade|下限%</span>
+                    <input type="number" name="y_trade_floor" min="0" max="5" step="0.05" value="0.15" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="dual_y：|y_τ|≥此值才入场（%点）"
+                    title="dual_y：|y_τ|≥此值才入场；单位=收益百分点（与表列 ŷ% 同口径）。例：0.25 表示 0.25%，不是 25%"
                   >
-                    <span>y_τ入场</span>
+                    <span>y_τ入场%</span>
                     <input type="number" name="y_tau_enter" min="0.05" max="5" step="0.05" value="0.25" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="dual_y：|y_eod|≥此值才参与与 y_τ 冲突检测（%点）"
+                    title="dual_y：|y_eod|≥此值才参与与 y_τ 冲突检测；单位=收益百分点"
                   >
-                    <span>y_eod先验</span>
+                    <span>y_eod先验%</span>
                     <input type="number" name="y_eod_prior" min="0.05" max="5" step="0.05" value="0.35" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="dual_y：|y_on|≥此值才允许与敞口同向的隔夜（默认仍强制回补）"
+                    title="dual_y：|y_on|≥此值才允许与敞口同向的隔夜（默认仍强制回补）；单位=收益百分点"
                   >
-                    <span>y_on放行</span>
+                    <span>y_on放行%</span>
                     <input type="number" name="y_on_allow" min="0.1" max="10" step="0.1" value="1.2" />
                   </label>
-                  <label class="paper-t0-field" title="仅做T回测；不写入账本覆盖">
+                  <label class="paper-t0-field" title="评估窗：统计做T的交易日数；y_τ/ATR 另用 ≥40 日因子缓冲，与窗长无关">
                     <span>回测窗</span>
-                    <input type="number" name="lookback" min="20" max="500" step="5" value="30" />
+                    <input type="number" name="lookback" min="10" max="500" step="5" value="10" />
                   </label>
                 </div>
                 <div class="quant-actions-inline">
@@ -479,34 +514,54 @@
             <div id="paper-t0-viz" class="paper-t0-viz" hidden aria-label="做T回测可视化"></div>
             <div id="paper-t0-preview" class="quant-weight-table-wrap" hidden></div>
             <div id="paper-t0-days" class="quant-weight-table-wrap"></div>
-            <div class="quant-actions-inline">
-              <button type="button" id="paper-t0-run" class="dialog-btn secondary" title="预演今日做T，不改账本">
-                预演做T
+            <div class="quant-actions-inline paper-t0-manual-actions">
+              <button type="button" id="paper-t0-run" class="dialog-btn secondary" title="手动预演今日做T，不改账本">
+                手动预演
               </button>
-              <button type="button" id="paper-t0-confirm" class="dialog-btn" hidden title="确认后写入模拟账本">
-                确认做T
+              <button type="button" id="paper-t0-confirm" class="dialog-btn secondary" hidden title="手动确认落账（补跑；主路径为自动运行）">
+                手动落账
               </button>
               <label class="paper-t0-bt-opt" title="仅回测下方持仓表中当前选中的股票">
                 <input type="checkbox" name="t0_bt_only_selected" />
                 仅选中
               </label>
-              <label
-                class="paper-t0-bt-opt"
-                title="拉东财 5 分钟 K 走路径；需勾选「仅选中」或 Alt+点。失败时回退日线"
-              >
-                <input type="checkbox" name="t0_bt_use_minute" />
-                5分钟
-              </label>
               <button
                 type="button"
                 id="paper-t0-backtest"
                 class="dialog-btn secondary"
-                title="默认日线回测全部持仓；勾选「仅选中」+「5分钟」或 Alt+点 = 单票 5m"
+                title="5 分钟第一触达回测（已删除日线模拟）；默认全部持仓，勾选「仅选中」或 Alt+点 = 单票"
               >
                 做T回测
               </button>
               <span id="paper-t0-action-status" class="quant-sub" aria-live="polite"></span>
             </div>
+          </div>
+        </div>
+    </section>
+
+    <section class="dashboard-section quant-section follow-section-secondary follow-trades-section" id="follow-section-trades" aria-labelledby="follow-section-trades-title">
+      <details class="quant-secondary-fold follow-secondary-fold">
+        <summary class="quant-secondary-fold-sum follow-secondary-fold-sum">
+          <h3 id="follow-section-trades-title" class="dashboard-section-title">交易记录</h3>
+          <p class="dashboard-section-desc quant-section-desc">持仓操作流水 · 含手动 / 策略调仓 / 自动做T</p>
+        </summary>
+        <div class="dashboard-card quant-pro-card follow-ops-card" id="follow-ops-trades">
+          <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools follow-card-head">
+            <p class="quant-fingerprint quant-card-head-status follow-card-status" id="follow-trades-count">共 0 条</p>
+            <div class="dashboard-card-tools quant-pro-card-tools follow-card-tools">
+              <div class="paper-log-filter" id="paper-log-filter" role="group" aria-label="流水筛选">
+                <button type="button" class="paper-log-filter-btn is-active" data-log-filter="all">全部</button>
+                <button type="button" class="paper-log-filter-btn" data-log-filter="manual">手动</button>
+                <button type="button" class="paper-log-filter-btn" data-log-filter="strategy">策略</button>
+                <button type="button" class="paper-log-filter-btn" data-log-filter="t0">做T</button>
+                <button type="button" class="paper-log-filter-btn" data-log-filter="sync">建仓</button>
+              </div>
+              <button type="button" class="dialog-btn secondary" id="paper-trades-csv">导出 CSV</button>
+              <button type="button" class="follow-ops-link paper-clear-records" data-category="trading">清除</button>
+            </div>
+          </div>
+          <div class="quant-pro-card-body follow-card-body">
+            <div id="paper-operation-log" class="paper-operation-log follow-ops-log"></div>
           </div>
         </div>
       </details>

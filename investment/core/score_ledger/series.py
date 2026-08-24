@@ -254,8 +254,8 @@ def run_score_ledger_daily(
 
     freeze_out: Dict[str, Any]
     try:
-        # 默认不传 as_of，由 resolve_freeze_as_of 对齐因子截止
-        freeze_out = freeze_from_cluster_book(as_of=requested)
+        # 默认不传 as_of，由 resolve_freeze_as_of 对齐因子截止；盘中自动跳过
+        freeze_out = freeze_from_cluster_book(as_of=requested, auto=True)
         if not freeze_out.get("success") or int(freeze_out.get("n_rows") or 0) <= 0:
             pass
     except Exception as exc:

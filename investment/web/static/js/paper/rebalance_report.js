@@ -213,7 +213,7 @@ function renderRebalanceReport(
           : null;
       note +=
         ` · τ 试验档` +
-        (ef != null && Number.isFinite(ef) ? `（门槛 ${ef}）` : "");
+        (ef != null && Number.isFinite(ef) ? `（门槛 ${ef}%）` : "");
     }
     if (hasEmptyReason) {
       const floorHint =

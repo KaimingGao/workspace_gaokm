@@ -53,6 +53,7 @@ import { downloadBlob } from "./shared.js";
 import {
   renderPaperT0 as renderPaperT0Ui,
   renderPaperT0Preview as renderPaperT0PreviewUi,
+  renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
 } from "./paper/t0_ui.js";
 import { buildT0SummaryLine } from "./paper/t0_report.js";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
@@ -134,6 +135,7 @@ export function initPaper(ctx) {
   let pendingFocusCode = null;
   let selectedHoldCode = null;
   let paperLogShowAll = { trading: false, fund: false };
+  let paperLogFilter = "all";
   let lastPaperTradingLogs = [];
   let holdingsGrid = null;
   let holdingsGridReady = false;
@@ -914,7 +916,7 @@ export function initPaper(ctx) {
       }
     }
 
-    const logsView = buildPaperLogsView(data, paperLogShowAll);
+    const logsView = buildPaperLogsView(data, paperLogShowAll, paperLogFilter);
     lastPaperTradingLogs = logsView.tradingLogs || [];
     const logEl = document.getElementById("paper-operation-log");
     if (logEl) {
@@ -924,10 +926,18 @@ export function initPaper(ctx) {
       if (headStatus) {
         const cnt = logsView.tradingCount != null
           ? logsView.tradingCount
-          : lastPaperTradingLogs.length;
-        headStatus.textContent = `共 ${cnt} 条`;
+          : (logsView.tradingLogs || []).length;
+        const total = logsView.tradingCountAll != null ? logsView.tradingCountAll : cnt;
+        headStatus.textContent =
+          paperLogFilter !== "all" && total !== cnt
+            ? `筛选 ${cnt} 条 · 共 ${total} 条`
+            : `共 ${cnt} 条`;
       }
     }
+    renderT0LastRun(data);
+    renderT0WorkerDetail(data);
+    refreshT0RunPanel({ quiet: true }).catch(() => {});
+    startT0RunPoll();
     const fundCard = document.getElementById("paper-fund-log-card");
     const fundEl = document.getElementById("paper-fund-log");
     if (fundCard && fundEl) {
@@ -945,6 +955,262 @@ export function initPaper(ctx) {
     for (const id of ["paper-meta", "follow-meta"]) {
       const el = document.getElementById(id);
       if (el) el.textContent = text;
+    }
+  }
+
+  function fmtT0AutoTs(ts) {
+    if (ts == null || ts === "") return "";
+    try {
+      const d = new Date(typeof ts === "number" ? ts * 1000 : ts);
+      if (Number.isNaN(d.getTime())) return String(ts);
+      const pad = (n) => String(n).padStart(2, "0");
+      return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    } catch (_) {
+      return String(ts);
+    }
+  }
+
+  function renderT0WorkerDetail(data) {
+    const el = document.getElementById("paper-t0-worker-trades");
+    if (!el) return;
+    const t0Auto =
+      (data && data.rules && data.rules.t0_auto) || (data && data.t0_auto) || null;
+    const execution = (data && data.execution) || lastAccountData?.execution || null;
+    renderPaperT0WorkerTradesUi(el, { t0Auto, execution });
+  }
+
+  function renderT0LastRun(data) {
+    const cfg = (data && data.rules && data.rules.t0_auto) || (data && data.t0_auto) || {};
+    const lr = cfg.last_run;
+    if (!lr || lr.ts == null) {
+      setWorkerMetric("paper-t0-worker-m-lastrun", "尚无记录", { tone: "is-muted" });
+      return;
+    }
+    const when = fmtT0AutoTs(lr.ts);
+    if (lr.ok === false || lr.error) {
+      setWorkerMetric(
+        "paper-t0-worker-m-lastrun",
+        `${when} · 失败：${lr.error || "未知"}`,
+        { tone: "is-error" }
+      );
+      return;
+    }
+    const trades = lr.trade_count != null ? lr.trade_count : "—";
+    const pnl = lr.pnl_total != null ? lr.pnl_total : "—";
+    const tag = lr.source === "paper_t0_auto" ? "自动" : "手动";
+    if (!trades || trades === 0 || trades === "0") {
+      setWorkerMetric("paper-t0-worker-m-lastrun", "尚无成交", { tone: "is-muted" });
+      return;
+    }
+    setWorkerMetric(
+      "paper-t0-worker-m-lastrun",
+      `${when} · ${tag} · 成交 ${trades} · PnL ${pnl}`,
+      { tone: "" }
+    );
+  }
+
+  function setWorkerMetric(id, text, { tone = "" } = {}) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = text || "—";
+    el.classList.remove("is-ok", "is-warn", "is-error", "is-muted");
+    if (tone) el.classList.add(tone);
+  }
+
+  function renderT0WorkerBar(worker) {
+    const panel = document.getElementById("paper-t0-worker-panel");
+    const switchEl = document.getElementById("paper-t0-worker-enabled");
+    const badgeEl = document.getElementById("paper-t0-worker-badge");
+    const badgeLabelEl = document.getElementById("paper-t0-worker-badge-label");
+    const hintEl = document.getElementById("paper-t0-worker-hint");
+    const errEl = document.getElementById("paper-t0-worker-error");
+    if (!panel && !switchEl && !badgeEl) return;
+
+    const w = worker || {};
+    if (switchEl && document.activeElement !== switchEl) {
+      switchEl.checked = !!w.enabled;
+      switchEl.disabled = false;
+    }
+
+    const running = !!w.running;
+    const err = w.last_error ? String(w.last_error) : "";
+    let state = w.state || (running ? "running" : w.enabled ? "starting" : "stopped");
+    if (err && running) state = "degraded";
+
+    const stateLabels = {
+      running: "运行中",
+      stopped: "已停止",
+      starting: "启动中",
+      degraded: "运行异常",
+    };
+    const badgeLabel = stateLabels[state] || "未知";
+
+    if (badgeEl) {
+      badgeEl.classList.remove("is-running", "is-stopped", "is-starting", "is-degraded");
+      if (state === "running") badgeEl.classList.add("is-running");
+      else if (state === "starting") badgeEl.classList.add("is-starting");
+      else if (state === "degraded") badgeEl.classList.add("is-degraded");
+      else badgeEl.classList.add("is-stopped");
+    }
+    if (badgeLabelEl) badgeLabelEl.textContent = badgeLabel;
+
+    const tickTs = w.last_tick_ts ? fmtT0AutoTs(w.last_tick_ts) : "—";
+    const tickIntervalSec =
+      w.tick_interval_sec != null && Number.isFinite(Number(w.tick_interval_sec))
+        ? Math.max(1, Math.round(Number(w.tick_interval_sec)))
+        : 300;
+    const nextSec =
+      w.next_tick_in_sec != null && Number.isFinite(Number(w.next_tick_in_sec))
+        ? `${Math.max(0, Math.round(Number(w.next_tick_in_sec)))}s`
+        : running
+          ? `≤${tickIntervalSec}s`
+          : "—";
+    const tickMsg = w.last_tick_message ? String(w.last_tick_message) : "—";
+    const started =
+      w.started_at != null && Number.isFinite(Number(w.started_at))
+        ? fmtT0AutoTs(w.started_at)
+        : null;
+
+    setWorkerMetric(
+      "paper-t0-worker-m-state",
+      running ? "线程活跃" : w.enabled ? "待启动" : "未运行",
+      { tone: running ? "is-ok" : w.enabled ? "is-warn" : "is-muted" }
+    );
+    setWorkerMetric("paper-t0-worker-m-tick", tickTs, { tone: tickTs !== "—" ? "" : "is-muted" });
+    setWorkerMetric("paper-t0-worker-m-next", nextSec, {
+      tone: running ? "" : "is-muted",
+    });
+    setWorkerMetric("paper-t0-worker-m-action", tickMsg, {
+      tone: err ? "is-error" : tickMsg !== "—" ? "" : "is-muted",
+    });
+
+    if (hintEl) {
+      const hints = [];
+      if (!w.enabled) {
+        hints.push("后台 worker 已关闭；打开右侧「运行」即可 5m 盯盘自动落账");
+      } else if (!running) {
+        hints.push("开关已开但线程未就绪，请稍候或重启 Web");
+      } else {
+        hints.push("Worker 运行中 · 5m 盯盘触达即落账");
+      }
+      if (started && running) hints.push(`启动于 ${started}`);
+      hintEl.textContent = hints.join(" · ");
+    }
+
+    if (errEl) {
+      if (err) {
+        errEl.hidden = false;
+        errEl.textContent = `异常：${err}`;
+      } else {
+        errEl.hidden = true;
+        errEl.textContent = "";
+      }
+    }
+
+    if (panel) {
+      panel.classList.toggle("is-running", running && !err);
+      panel.classList.toggle("is-degraded", !!err);
+      panel.classList.remove("is-busy");
+    }
+  }
+
+  async function refreshT0RunPanel({ quiet = false } = {}) {
+    if (!document.getElementById("paper-t0-auto-bar")) return null;
+    try {
+      const [autoRes, workerRes] = await Promise.all([
+        fetch("/api/paper/t0/auto"),
+        fetch("/api/paper/t0/worker"),
+      ]);
+      const autoData = await autoRes.json();
+      const workerData = await workerRes.json();
+      if (!autoRes.ok) {
+        const errEl = document.getElementById("paper-t0-worker-error");
+        if (errEl && !quiet) {
+          errEl.hidden = false;
+          errEl.textContent = autoData.detail || autoData.error || "落账状态加载失败";
+        }
+      } else if (lastAccountData && autoData.t0_auto) {
+        lastAccountData.rules = lastAccountData.rules || {};
+        lastAccountData.rules.t0_auto = autoData.t0_auto;
+        renderT0LastRun(lastAccountData);
+        renderT0WorkerDetail(lastAccountData);
+      }
+      if (!workerRes.ok) {
+        const errEl = document.getElementById("paper-t0-worker-error");
+        if (errEl && !quiet) {
+          errEl.hidden = false;
+          errEl.textContent =
+            workerData.detail || workerData.error || "后台状态加载失败";
+        }
+      } else {
+        renderT0WorkerBar(workerData.worker);
+      }
+      return { auto: autoData, worker: workerData };
+    } catch (err) {
+      const errEl = document.getElementById("paper-t0-worker-error");
+      if (errEl && !quiet) {
+        errEl.hidden = false;
+        errEl.textContent = String(err.message || err);
+      }
+      return null;
+    }
+  }
+
+  let t0RunPollTimer = null;
+  function startT0RunPoll() {
+    if (t0RunPollTimer) return;
+    t0RunPollTimer = setInterval(() => {
+      refreshT0RunPanel({ quiet: true }).catch(() => {});
+    }, 10000);
+  }
+  function stopT0RunPoll() {
+    if (!t0RunPollTimer) return;
+    clearInterval(t0RunPollTimer);
+    t0RunPollTimer = null;
+  }
+
+  async function postT0Worker(enabled) {
+    const panel = document.getElementById("paper-t0-worker-panel");
+    const switchEl = document.getElementById("paper-t0-worker-enabled");
+    const badgeLabelEl = document.getElementById("paper-t0-worker-badge-label");
+    if (panel) panel.classList.add("is-busy");
+    if (switchEl) switchEl.disabled = true;
+    if (badgeLabelEl) badgeLabelEl.textContent = enabled ? "启动中" : "停止中";
+    try {
+      const res = await fetch("/api/paper/t0/worker", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: !!enabled }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        const msg = data.detail || data.error || "操作失败";
+        const errEl = document.getElementById("paper-t0-worker-error");
+        if (errEl) {
+          errEl.hidden = false;
+          errEl.textContent = String(msg);
+        }
+        return { ok: false, data };
+      }
+      renderT0WorkerBar(data.worker);
+      if (data.t0_auto && lastAccountData) {
+        lastAccountData.rules = lastAccountData.rules || {};
+        lastAccountData.rules.t0_auto = data.t0_auto;
+        renderT0LastRun(lastAccountData);
+        renderT0WorkerDetail(lastAccountData);
+      }
+      await refreshT0RunPanel({ quiet: true });
+      return { ok: true, data };
+    } catch (err) {
+      const errEl = document.getElementById("paper-t0-worker-error");
+      if (errEl) {
+        errEl.hidden = false;
+        errEl.textContent = String(err.message || err);
+      }
+      return { ok: false, error: err };
+    } finally {
+      if (switchEl) switchEl.disabled = false;
+      if (panel) panel.classList.remove("is-busy");
     }
   }
 
@@ -1148,6 +1414,10 @@ export function initPaper(ctx) {
       } else if (target === "rebalance") {
         e.preventDefault();
         const el = document.getElementById("follow-section-rebalance");
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      } else if (target === "t0") {
+        e.preventDefault();
+        const el = document.getElementById("follow-section-t0");
         if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
       } else if (target === "strategy" || target === "promote") {
         e.preventDefault();
@@ -1636,6 +1906,11 @@ export function initPaper(ctx) {
               if (lab) resultText += ` · ${lab}`;
             }
         }
+        if (!dryRun && result.note) {
+            resultText += ` · ${result.note}`;
+        } else if (!dryRun && result.fill_action === "staged") {
+            resultText += " · 已挂次日开盘单";
+        }
 
         setPaperMetaText(resultText);
         showProgress(100, (document.getElementById("follow-meta")||document.getElementById("paper-meta")||{}).textContent || "");
@@ -2000,21 +2275,22 @@ export function initPaper(ctx) {
         selectedCode: selectedHoldCode,
       });
       if (scope.error) {
-        const fold = document.getElementById("follow-fold-t0");
-        if (fold && !fold.open) fold.open = true;
+        const fold = document.getElementById("follow-section-t0");
+        if (fold) fold.scrollIntoView({ behavior: "smooth", block: "start" });
         if (paperT0ActionStatus) paperT0ActionStatus.textContent = scope.error;
         if (paperT0Summary) paperT0Summary.textContent = scope.error;
         return;
       }
       const { onlySelected, useMinute } = scope;
       const busyLabel = onlySelected
-        ? `回测中（${selectedHoldCode}${useMinute ? "·5m" : "·日线"}）…`
-        : "回测中（全部持仓·日线）…";
+        ? `回测中（${selectedHoldCode}·5m）…`
+        : "回测中（全部持仓·5m）…";
       const setT0Busy = (busy, msg) => {
         paperT0Bt.disabled = !!busy;
-        paperT0Bt.textContent = busy ? "回测中…" : "做T回测";
-        if (paperT0ActionStatus) paperT0ActionStatus.textContent = msg || "";
-        if (paperT0Summary && msg) paperT0Summary.textContent = msg;
+        if (paperT0ActionStatus) {
+          paperT0ActionStatus.classList.toggle("is-busy", !!busy);
+          paperT0ActionStatus.textContent = msg || "";
+        }
       };
       setT0Busy(true, busyLabel);
       const ac = typeof AbortController !== "undefined" ? new AbortController() : null;
@@ -2026,7 +2302,7 @@ export function initPaper(ctx) {
           } catch (_) {
             /* ignore */
           }
-        }, useMinute ? 180000 : 90000);
+        }, 180000);
       try {
         const body = collectT0BacktestBody(formRoot, {
           useMinute,
@@ -2049,6 +2325,7 @@ export function initPaper(ctx) {
         const summary = buildT0SummaryLine(data);
         if (paperT0Summary) paperT0Summary.textContent = summary || "做 T 回测完成";
         if (paperT0ActionStatus) {
+          paperT0ActionStatus.classList.remove("is-busy");
           paperT0ActionStatus.textContent = `完成 · PnL ${
             data.t0_pnl_with_exposure ?? data.t0_pnl_total ?? "—"
           }`;
@@ -2062,7 +2339,6 @@ export function initPaper(ctx) {
           );
         }
         paperT0Bt.disabled = false;
-        paperT0Bt.textContent = "做T回测";
       } catch (err) {
         const aborted = err && (err.name === "AbortError" || /abort/i.test(String(err)));
         setT0Busy(
@@ -2072,7 +2348,6 @@ export function initPaper(ctx) {
       } finally {
         if (timer) clearTimeout(timer);
         paperT0Bt.disabled = false;
-        paperT0Bt.textContent = "做T回测";
       }
     });
   }
@@ -2218,7 +2493,7 @@ export function initPaper(ctx) {
   if (paperT0Confirm) {
     paperT0Confirm.addEventListener("click", async (e) => {
       e.preventDefault();
-      if (paperT0Summary) paperT0Summary.textContent = "确认写入做T…";
+      if (paperT0Summary) paperT0Summary.textContent = "手动落账做T…";
       try {
         const res = await fetch("/api/paper/t0", {
           method: "POST",
@@ -2232,13 +2507,21 @@ export function initPaper(ctx) {
         }
         if (paperT0Summary) {
           paperT0Summary.textContent =
-            `已写入 · 成交 ${(data.trades || []).length} · PnL ${data.pnl_total ?? 0}`;
+            `已手动落账 · 成交 ${(data.trades || []).length} · PnL ${data.pnl_total ?? 0}`;
         }
         renderPaperT0Preview(null);
         await loadPaper({ quiet: true });
       } catch (err) {
         if (paperT0Summary) paperT0Summary.textContent = String(err.message || err);
       }
+    });
+  }
+
+  const paperT0WorkerEnabled = document.getElementById("paper-t0-worker-enabled");
+
+  if (paperT0WorkerEnabled) {
+    paperT0WorkerEnabled.addEventListener("change", () => {
+      postT0Worker(!!paperT0WorkerEnabled.checked);
     });
   }
 
@@ -2312,6 +2595,17 @@ export function initPaper(ctx) {
   });
 
   document.addEventListener("click", (e) => {
+    const filterBtn = e.target.closest(".paper-log-filter-btn");
+    if (filterBtn) {
+      e.preventDefault();
+      const next = filterBtn.dataset.logFilter || "all";
+      paperLogFilter = next;
+      document.querySelectorAll(".paper-log-filter-btn").forEach((btn) => {
+        btn.classList.toggle("is-active", btn.dataset.logFilter === next);
+      });
+      if (lastAccountData) renderPaperAccountDetail(lastAccountData);
+      return;
+    }
     const moreBtn = e.target.closest(".paper-log-more");
     if (!moreBtn) return;
     e.preventDefault();

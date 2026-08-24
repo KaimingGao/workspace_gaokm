@@ -263,6 +263,49 @@ ML 视角见 [机器学习视角 · 四件套对照](#四件套对照)。
 
 策略调仓：`POST /api/paper/run` 传 `dry_run=true` 出 `rebalance_report` + `cash_impact`（买入/卖出金额、净现金流、调仓后现金），确认后再正式跑。
 
+#### 策略调仓 vs 底仓做 T
+
+**一句话**：**调仓决定「持有什么」；做 T 决定在「已经持有的底仓上，今天要不要用波动多赚一点」。**
+
+二者同属纸面 **ExecutionSpec**，但层级不同：横截面调仓 / `run_daily_cycle` = **组合配置（结构层）**；`overlays.t0` = **底仓上的日内 timing overlay（执行层）**。做 T **不是**独立选股 Alpha，而是在既定持仓上验 timing 规则。
+
+| 维度 | 策略调仓 | 底仓做 T |
+|------|----------|----------|
+| 在问什么 | 持有什么、各占多少？ | 在既有底仓上，今天能否用日内波动做往返？ |
+| 层级 | 主策略 · 截面 Alpha · 持仓结构 | Overlay · 不改变选股主线 |
+| 信号头 | **ŷ_trade** 排序 + **ŷ_EOD** 买卖闸 + **ŷ_τ** 买入闸 | **dual_y**：\|y_trade\| 幅度闸 + **y_τ** 定方向 + y_eod 冲突先验 + 5m 触价 |
+| 决策频率 | 常按**日**（日更 / 手动预演→确认） | **5m** 第一触达（Worker **5 分钟** tick） |
+| 收益类型 | **持有期**相对收益 + 换仓带来的结构改善 | **round-trip 价差**（`t0_ratio` 可卖量上；非账户浮动盈亏） |
+| 仓位出处 | `origin=strategy` | 做 T leg（`t0_batch` / 盘中落账明细） |
+| 验证含义 | 规则能否驱动合理的持仓结构 | 在既定底仓上能否条件性增强 |
+
+**常见误区**
+
+- **调仓 ≠ 只赌明天涨**：含减仓、换弱留强、风控拦截；Alpha 假设偏**短～中持有期**，收益在日～周尺度累积，不是单根 K 线。
+- **做 T ≠ 浮动盈亏**：是已实现 leg 价差；振幅不足 / 未触价 / T+1 可卖量等门禁下，很多交易日 **0 成交**。
+- **可独立也可耦合**：`coupling.t0_vs_stance` 默认 `independent`；也可配置为 `avoid` 时跳过做 T。
+
+**ŷ_τ 是「重复使用」吗？**
+
+**模型层共用、决策层不重复。** rem 头产出的 **ŷ_τ**（预估 open→close）在调仓与做 T 都会用到，但回答的问题不同：
+
+| | 策略调仓 | 底仓做 T（`dual_y`） |
+|--|----------|----------------------|
+| **问什么** | 该不该**买/持/卖**、截面排第几 | 已有底仓今天 **正 T 还是反 T**、值不值得动 |
+| **ŷ_trade** | **排序键** / 持有对比（`rank_key_for_item`） | **\|y_trade\|** 幅度闸（不够则跳过） |
+| **ŷ_EOD** | **买入 EOD 闸**（`eod_gate_score_for_item`） | **冲突先验**（与 y_τ 反向则禁止做 T） |
+| **ŷ_τ** | **买入 τ 闸**（`buy_passes_tau_gate`）+ 融合进 ŷ_trade | **定方向主信号**（`y_tau_map` → long_t / reverse_t） |
+| **之后** | 换仓、权重、风控 | **5m first_touch** 触价成交（调仓无此步） |
+
+要点：
+
+- **不是**把调仓用过的 τ 再抄一遍赚第二遍 Alpha；是 **同一预测头、两种决策接口**（结构层 vs timing overlay）。
+- 做 T 默认 **`y_score_source=compute`**：开盘信息集（昨收因子 + 今开缺口）**即时重算** dual_y 各头，不读冻结账本；与调仓扫池 **公式同源、时点可不同**。
+- 上午刚通过 τ 买入闸的票，下午做 T 仍会重算 y_τ 问「今天怎么动底仓」；\|y_τ\| 太小或与 y_eod 冲突时 **0 成交** 也正常。
+- 归因应分开：调仓 PnL（`origin=strategy`）vs 做 T leg（`t0_batch`）。双层 ŷ 契约见 [§2.5](quant.md#25-双层-predicted_scoreŷ_eod--ŷ_τ) · 实现 `core/signal/dual_score/` · `core/t0/score_policy.py`。
+
+实现入口：`core/execution.resolve_effective_execution` · 调仓 `run_daily_cycle` / `POST /api/paper/run` · 做 T `core/t0/` · Web Follow 页。
+
 #### 日循环（`run_daily_cycle`）
 
 ```text
@@ -283,6 +326,7 @@ watchlist
 | 硬拒绝 | — | `hard_reject=True` 不买 |
 | 整手 | — | A 股按 100 股整数 |
 | **T+1** | 结算锁 | 买入按批次 FIFO；**当日新买股不可卖**，下一交易日才计入可卖。加仓不把旧仓锁死。无批次的旧持仓视为已过 T+1。调仓/手动/止损/开盘成交/做 T 共用 `core/paper/tplus1.py` |
+| **成交时点** | `next_open` | **盘中按现价成交**（连续竞价可买卖）；**收盘后**确认调仓只挂次日开盘单。与 T+1 批次锁独立。回测默认 `next_open` 仍是研究侧防未来函数，口径不同。 |
 
 **非实盘、不代客下单**；可配合 cron 每日 `paper_run.py --run`。
 
@@ -292,12 +336,17 @@ watchlist
 
 | 要点 | 说明 |
 |------|------|
+| 目标 | **底仓 overlay**：在既定持仓上对可卖量做日内往返，验 timing 规则；**非**独立选股 Alpha（见上节对照表） |
 | 语义 | A 股 **底仓做 T（T+1）**：正 T 先卖旧仓再买回；反 T 先低吸加仓再卖旧仓换仓（禁卖当日新买股） |
+| 选向 | 默认 **`direction=dual_y`** + **`y_score_source=compute`**：开盘信息集（昨收因子 + 今开缺口）即时算 ŷ；**y_τ 定正/反 T**，y_eod 仅冲突先验，\|y_trade\| 为幅度闸（与调仓 ŷ_τ **买入闸**分工不同，见上节）；批量共享截面缺口；失败回退 live 簿（**不读冻结账本**）；`ledger` 仅对照 |
 | 成交 | 默认 **`fill_mode=trigger`**（偏保守）；回测附带 optimistic 上界对照 |
 | 门禁 | 振幅不足 / 一字板跳过；阈值可按 ATR% 放大 |
 | 纸面 | `POST /api/paper/t0` 默认 **dry_run 预演**，`confirm=true` 才写账 |
-| 回测 | 默认 **绑模拟持仓**（可选选中单票）；不再写死茅台 |
-| 边界 | **不接实盘**；日线代理非分钟路径；不改变 `advise.stance_label` |
+| 自动落账 | Follow Worker · **5m 盯盘触达即落账**（交易时段 **5 分钟**轮询 + 分钟缓存，不再日终整段回放） |
+| 手动补跑 | Follow「手动预演 / 手动落账」· `POST /api/paper/t0`（预演 dry_run / 确认 confirm） |
+| 回测 | **仅 5m 第一触达**（缺分钟日跳过）；**已删除日线模拟**；默认绑模拟持仓 |
+| 边界 | **不接实盘**；不做日线 high/low 顺序猜测；不改变 `advice.stance_label` |
+
 
 ```bash
 python3 research/t0_backtest_run.py --code 茅台 --json
@@ -590,7 +639,7 @@ python3 research/factor_ols_run.py --code 茅台 --json
 | 参数扫描 | `research/backtest_scan.py` |
 | 日线缓存 | `core/store.py` |
 | 纸面账户 | `core/paper.py` |
-| 底仓做 T | `core/t0/` — 日线代理模拟 |
+| 底仓做 T | `core/t0/` — 仅 5m 第一触达（回测/纸面预演；缺分钟跳过；已删除日线模拟） |
 | 信号可复现 evals | `evals/run_repro.py` + `evals/repro_fixtures.json` |
 | Agent 约束 | `agent/prompts.py` — `BUY_QUESTION_HINT`；`agent.py` 注入买入提示 |
 | 因子配置 | `data/signal_config.json` + `core/signal/config.py` |
@@ -923,7 +972,7 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 | 层 | 字段 | 信息集 | 标签 \(y\) | 现网用途 | 规划用途 |
 |----|------|--------|-----------|----------|----------|
 | **EOD** | `predicted_score` / 表格 `score` | \(X_{\le T-1}\)（日线因子 × 组 β） | \(\mathrm{close}[t+h]/\mathrm{close}[t]-1\) | **入池门槛 · 账本主分** | 保持主轴直至 A3 |
-| **τ** | `predicted_score_tau` | \(Z_{\le\tau}\)（缺口 / 广度 / 主题） | \(\mathrm{close}[T]/\mathrm{open}[T]-1\) | **买入闸 · rem 头** | 与 ŷ_EOD_rem 正交融合 |
+| **τ** | `predicted_score_tau` | \(Z_{\le\tau}\)（缺口 / 广度 / 主题） | \(\mathrm{close}[T]/\mathrm{open}[T]-1\) | **买入闸 · ŷ_trade 融合 · dual_y 定方向** | 与 ŷ_EOD_rem 正交融合 |
 
 ```text
 ŷ_EOD     = f(X_{T-1}; β_cluster)                          # 组 β；标签 close[T]/close[T-1]−1（= 涨跌）
@@ -944,7 +993,8 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 3. **禁止** 把缺口折进 ŷ_EOD / 校准。EOD 已经在估涨跌（现价对昨收）；融合时把 **ŷ_τ 用缺口抬到昨收口径**，不要把 ŷ_EOD 映成 rem 再与 ŷ_τ 加权。  
 4. **禁止** `ŷ_EOD_rem + ŷ_τ`：ŷ_τ 已是完整 OC 预估，再加 ŷ_EOD_rem 会双重计数。  
 5. **两套模型独立训练、互不依赖**。EOD 不进 rem 的标签/特征；rem 不残差化 EOD。ŷ_EOD_rem 只是映射，不是第三套模型。权重只在决策时合成 ŷ_trade。  
-6. **已知局限**：大跳空日 gap 信息可能在 ŷ_EOD（标签含隔夜）与 ŷ_τ（显式吃 gap）两端重叠；属信息相关而非训练耦合，权重可调。
+6. **已知局限**：大跳空日 gap 信息可能在 ŷ_EOD（标签含隔夜）与 ŷ_τ（显式吃 gap）两端重叠；属信息相关而非训练耦合，权重可调。  
+7. **调仓 vs 做 T**：ŷ_τ **模型共用**，调仓侧为买入闸 + ŷ_trade 成分，做 T 侧（`dual_y`）为定方向主信号 + 5m 执行；详见 [策略调仓 vs 底仓做 T · ŷ_τ 分工](quant.md#策略调仓-vs-底仓做-t)。
 
 **Nowcast / Kalman（对照分）**
 
@@ -1058,7 +1108,7 @@ EOD 锚在 **收**，与 open 链 **并列**（选股主轴），不是 open 链
 1. 三个 y **各用独立 `y_spec`、独立训练**；禁止写进同一 `predicted_score` 字段。  
 2. **禁止**用 \(\mathrm{open}[t+1]/\mathrm{close}[t]-1\) 作盘中标签（依赖当日收盘，不满足收盘前风控）。盘中锚 **`open[t]`** 或 **`price[τ]`**，标签 **`open[t+1]/open[t]-1`**。  
 3. \(y_{\mathrm{ON}}\) 规划为 **风控旁路**（缩仓 / 撤买单），**默认不进主排序**；落地前以 `gap_risk` · `event_prior` 作弱替代。  
-4. 执行：收盘前减仓若要 **挡当夜隔夜**，须 **当日收盘前可成交** 路径；默认 `next_open` 只挂 **次日开盘** 单，**挡不住当夜**（见 [quant.md · 运维](quant.md#量化运维)）。
+4. 执行：收盘前减仓若要 **挡当夜隔夜**，须 **当日收盘前可成交**。纸面 `next_open`：**盘中按现价可成交**；**收盘后**只挂次日开盘，**挡不住当夜**。回测默认 `next_open` 仍是信号日收盘决策、次日开盘成交（见 [quant.md · 运维](quant.md#量化运维)）。
 
 规划字段：`predicted_score_on` / `y_spec_on` / `data/live/on_ridge_model.json`；复盘 IC(\(\hat y_{\mathrm{ON}}, y_{\mathrm{ON}}\)) 与 open 链分段单独报。训练：`POST /api/quant/on-ridge`。
 
@@ -1801,9 +1851,9 @@ A 股日线主源 `stock_zh_a_hist`：**当日收盘价请在收盘后获取**�
 
 写入触发：
 
-1. **纸面日更** `run_paper_daily` → `run_score_ledger_daily`（按因子截止冻结 + 回填到期决策日）
-2. 集群书刷新、生成日报（经 `resolve_freeze_as_of`）
-3. UI「冻结打分」→ `freeze_from_cluster_book`（优先 **`scored_all`**，行带 `in_book`）
+1. **纸面日更** `run_paper_daily` → `run_score_ledger_daily`（收盘后按因子截止冻结 + 回填到期决策日；盘中自动冻结跳过）
+2. 集群书刷新、生成日报（经 `resolve_freeze_as_of`；刷簿附带冻结仅收盘后）
+3. UI「冻结打分」→ `freeze_from_cluster_book`（优先 **`scored_all`**，行带 `in_book`；当日未收盘则拒绝）
 
 可选：`freeze_from_daily_report` 可从日报 `book_top` / 横截面补行；仍非持仓并集。
 

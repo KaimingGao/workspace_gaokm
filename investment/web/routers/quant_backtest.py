@@ -34,8 +34,7 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             rules["fill_mode"] = body.fill_mode
         if body.direction:
             rules["direction"] = body.direction
-        if body.path_mode:
-            rules["path_mode"] = body.path_mode
+        rules["path_mode"] = "first_touch"
         if body.dir_enter is not None:
             rules["dir_enter"] = body.dir_enter
         if body.min_range_pct is not None:
@@ -49,6 +48,7 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             "y_on_allow",
             "y_on_risk",
             "y_block_conflict",
+            "y_tau_map",
         ):
             val = getattr(body, yk, None)
             if val is not None:
@@ -69,8 +69,8 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             from_paper=from_paper,
             codes=body.codes,
             compare_optimistic=body.compare_optimistic,
-            use_minute=body.use_minute,
-            compare_daily=body.compare_daily,
+            use_minute=True,
+            compare_daily=False,
         )
         if isinstance(out, dict) and out.get("success"):
             if out.get("from_holdings") and int(out.get("ok_count") or 0) > 1:

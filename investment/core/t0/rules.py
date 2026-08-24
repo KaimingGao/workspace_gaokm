@@ -1,4 +1,4 @@
-"""单日做 T 模拟（日线 OHLC 代理）。"""
+"""单日做 T 模拟（仅分钟第一触达；已删除日线 high/low 代理）。"""
 
 import logging
 
@@ -9,7 +9,6 @@ from core.backtest.costs import round_trip_cost_pct
 from core.numbers import now_iso_local as _now_iso
 from core.t0.config import load_t0_rules, resolve_min_range_pct
 from core.t0.score_policy import (
-    load_scores_for_code_date,
     resolve_cover_policy,
     resolve_dual_y_direction,
     scale_t0_ratio,
@@ -365,61 +364,6 @@ def _skip_result(
     return out
 
 
-def infer_intraday_path_bias(bar: dict) -> str:
-    """用收盘在当日高低区间的位置粗分路径偏向（仅回测过滤，非实盘信号）。
-
-    返回 hl | lh | ambiguous
-    - hl：收近低，更像先冲高再回落 → 利好正 T
-    - lh：收近高，更像先杀跌再拉升 → 利好反 T
-    """
-    high = float(bar.get("high") or 0)
-    low = float(bar.get("low") or 0)
-    close = float(bar.get("close") or 0)
-    rng = high - low
-    if rng <= 1e-9 or close <= 0:
-        return "ambiguous"
-    loc = (close - low) / rng
-    if loc <= 0.45:
-        return "hl"
-    if loc >= 0.55:
-        return "lh"
-    return "ambiguous"
-
-
-def resolve_path_for_direction(direction: str, path_mode: str, bar: dict) -> Dict[str, Any]:
-    """返回 {ok, skip_reason, intraday_path}。intraday_path: any|hl|lh。"""
-    mode = str(path_mode or "veto")
-    if mode == "dual_touch":
-        return {"ok": True, "intraday_path": "any", "path_bias": None}
-    if mode == "adverse":
-        # 正T不利=先低后高；反T不利=先高后低
-        path = "lh" if direction == "long_t" else "hl"
-        return {"ok": True, "intraday_path": path, "path_bias": path}
-    # veto
-    bias = infer_intraday_path_bias(bar)
-    if bias == "ambiguous":
-        return {
-            "ok": False,
-            "skip_reason": "路径不明（收盘居中），跳过以免定反",
-            "intraday_path": "any",
-            "path_bias": bias,
-        }
-    if direction == "long_t" and bias != "hl":
-        return {
-            "ok": False,
-            "skip_reason": "开盘选正T但收盘偏强（似先低后高），跳过定反",
-            "intraday_path": "any",
-            "path_bias": bias,
-        }
-    if direction == "reverse_t" and bias != "lh":
-        return {
-            "ok": False,
-            "skip_reason": "开盘选反T但收盘偏弱（似先高后低），跳过定反",
-            "intraday_path": "any",
-            "path_bias": bias,
-        }
-    return {"ok": True, "intraday_path": bias, "path_bias": bias}
-
 
 def simulate_t0_day(
     *,
@@ -436,514 +380,58 @@ def simulate_t0_day(
     minute_bars: Optional[Sequence[dict]] = None,
     scores: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """对单票单日做底仓 T 模拟（正 T / 反 T）。
-
-    T+1：可卖额度默认 = 开盘前持仓（传入 sellable_shares，缺省等于 shares）。
-    正 T：先卖旧仓再买回；反 T：先低吸加仓再卖旧仓换仓（禁止卖当日新买股）。
-    成交：fill_mode=trigger|mid|optimistic。
-    path_mode：veto/adverse/dual_touch/first_touch，见 config。
-    hist_bars：不含当日的历史日线，供 direction=signal 打分。
-    minute_bars：当日分钟线；有则走第一触达（忽略日线 veto）。
-    scores：direction=dual_y 时的多层 ŷ 快照（缺则尝试账本）。
-    """
+    """单票单日做 T：仅 5m 第一触达（已删除日线 high/low 代理）。"""
     cfg = load_t0_rules(rules)
+    cfg["path_mode"] = "first_touch"
     if not cfg.get("enabled", True):
         return _skip_result(reason="t0 disabled", shares=shares, bar=bar)
 
     score_snap = scores if isinstance(scores, dict) else None
     if str(cfg.get("direction") or "") == "dual_y" and not scores_have_any(score_snap):
+        from core.t0.score_policy import resolve_scores_for_code, resolve_y_score_source
+
         as_of = str((bar or {}).get("date") or "")[:10]
-        if stock_code and as_of:
-            score_snap = load_scores_for_code_date(stock_code, as_of)
+        if stock_code:
+            score_snap = resolve_scores_for_code(
+                stock_code,
+                hist_bars=hist_bars,
+                day_bar=bar if isinstance(bar, dict) else None,
+                as_of=as_of or None,
+                source=resolve_y_score_source(cfg),
+                fuse_intraday=True,
+                allow_fallback=True,
+            )
 
-    if minute_bars and len(list(minute_bars)) >= 2:
-        from core.t0.minute_path import simulate_t0_day_minute
-
-        return simulate_t0_day_minute(
-            bar=bar,
-            minute_bars=minute_bars,
-            shares=shares,
-            cost=cost,
-            sellable_shares=sellable_shares,
-            rules=cfg,
-            cost_config=cost_config,
-            stock_code=stock_code,
-            cash=cash,
-            atr_pct=atr_pct,
-            hist_bars=hist_bars,
-            scores=score_snap,
-        )
-
-    lot = int(cfg["lot_size"])
-    high = float(bar.get("high") or 0)
-    low = float(bar.get("low") or 0)
-    close = float(bar.get("close") or 0)
-    open_px = float(bar.get("open") or 0)
-    if high <= 0 or low <= 0 or shares <= 0:
-        return _error_result("无效 bar 或持仓", shares)
-
-    scaled = scale_triggers_with_atr(cfg, atr_pct=atr_pct)
-    sell_trig = float(scaled["sell_trigger_pct"])
-    buy_trig = float(scaled["buy_trigger_pct"])
-    cfg_day = dict(cfg)
-    cfg_day["sell_trigger_pct"] = sell_trig
-    cfg_day["buy_trigger_pct"] = buy_trig
-
-    if str(cfg_day.get("direction") or "") == "dual_y" and scores_have_any(score_snap):
-        cfg_day["t0_ratio"] = scale_t0_ratio(
-            float(cfg_day.get("t0_ratio") or 0.4),
-            score_snap or {},
-            cfg_day,
-        )
-
-    ref = _ref_price(bar, cost, cfg_day)
-    if ref <= 0:
-        return _error_result("无效参考价", shares)
-
-    range_pct = (high - low) / ref * 100.0
-    # 振幅下限用原始 cfg：勿随 ATR 放大卖/买阈值后再抬门禁
-    min_range = resolve_min_range_pct(cfg)
-    if range_pct < min_range:
+    mins = list(minute_bars or [])
+    if len(mins) < 2:
         return _skip_result(
-            reason=f"振幅不足 {range_pct:.2f}% < {min_range:.2f}%",
+            reason="缺分钟线，跳过（已删除日线模拟）",
             shares=shares,
             bar=bar,
-            extra={"range_pct": round(range_pct, 4), "min_range_pct": min_range},
+            extra={
+                "path_mode": "first_touch",
+                "skip_category": "missing_minute",
+                "signal_skip": False,
+            },
         )
-    # 一字板近似
-    if high > 0 and abs(high - low) / high < 0.001:
-        return _skip_result(reason="一字板/无波动", shares=shares, bar=bar)
 
-    dir_res = resolve_direction(
+    from core.t0.minute_path import simulate_t0_day_minute
+
+    return simulate_t0_day_minute(
         bar=bar,
-        ref=ref,
-        cfg=cfg_day,
-        cash=float(cash or 0),
+        minute_bars=mins,
         shares=shares,
+        cost=cost,
+        sellable_shares=sellable_shares,
+        rules=cfg,
+        cost_config=cost_config,
+        stock_code=stock_code,
+        cash=cash,
+        atr_pct=atr_pct,
         hist_bars=hist_bars,
-        atr_pct=scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct,
         scores=score_snap,
     )
-    if dir_res.get("skip") or not dir_res.get("direction"):
-        return _skip_result(
-            reason=str(dir_res.get("direction_reason") or "选向跳过"),
-            shares=shares,
-            bar=bar,
-            extra={
-                "direction_used": None,
-                "direction_score": dir_res.get("direction_score"),
-                "direction_reason": dir_res.get("direction_reason"),
-                "direction_features": dir_res.get("features"),
-                "signal_skip": True,
-                "range_pct": round(range_pct, 4),
-            },
-        )
-    direction = str(dir_res["direction"])
-    cover_meta = None
-    if str(cfg.get("direction") or "") == "dual_y":
-        cover_meta = resolve_cover_policy(
-            scores=score_snap or {},
-            direction=direction,
-            cfg=cfg_day,
-        )
-        cfg_day["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
-    path_res = resolve_path_for_direction(direction, cfg_day.get("path_mode"), bar)
-    if not path_res.get("ok"):
-        return _skip_result(
-            reason=str(path_res.get("skip_reason") or "路径否决"),
-            shares=shares,
-            bar=bar,
-            extra={
-                "direction_used": direction,
-                "direction_score": dir_res.get("direction_score"),
-                "direction_reason": dir_res.get("direction_reason"),
-                "direction_features": dir_res.get("features"),
-                "path_mode": cfg_day.get("path_mode"),
-                "path_bias": path_res.get("path_bias"),
-                "range_pct": round(range_pct, 4),
-            },
-        )
-    fill_mode = str(cfg_day.get("fill_mode") or "trigger")
-    intraday_path = str(path_res.get("intraday_path") or "any")
 
-    if direction == "reverse_t":
-        out = _simulate_reverse_t(
-            bar=bar,
-            shares=shares,
-            cost=cost,
-            cash=float(cash or 0),
-            sellable_shares=sellable_shares,
-            ref=ref,
-            sell_trig=sell_trig,
-            buy_trig=buy_trig,
-            lot=lot,
-            fill_mode=fill_mode,
-            cfg=cfg_day,
-            cost_config=cost_config,
-            stock_code=stock_code,
-            atr_pct=scaled.get("atr_pct"),
-            range_pct=range_pct,
-            intraday_path=intraday_path,
-        )
-    else:
-        out = _simulate_long_t(
-            bar=bar,
-            shares=shares,
-            cost=cost,
-            sellable_shares=sellable_shares,
-            ref=ref,
-            sell_trig=sell_trig,
-            buy_trig=buy_trig,
-            lot=lot,
-            fill_mode=fill_mode,
-            cfg=cfg_day,
-            cost_config=cost_config,
-            stock_code=stock_code,
-            atr_pct=scaled.get("atr_pct"),
-            range_pct=range_pct,
-            t0_ratio=float(cfg_day["t0_ratio"]),
-            intraday_path=intraday_path,
-        )
-    if isinstance(out, dict):
-        out["path_mode"] = cfg_day.get("path_mode")
-        out["path_bias"] = path_res.get("path_bias")
-        out["intraday_path"] = intraday_path
-        out["direction_score"] = dir_res.get("direction_score")
-        out["direction_reason"] = dir_res.get("direction_reason")
-        out["direction_features"] = dir_res.get("features")
-        if cover_meta:
-            out["cover_policy"] = cover_meta
-            out["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
-        if score_snap and scores_have_any(score_snap):
-            out["scores"] = {
-                k: score_snap.get(k)
-                for k in ("y_eod", "y_tau", "y_trade", "y_on", "y_nowcast", "y_check")
-            }
-    return out
-
-
-def _simulate_long_t(
-    *,
-    bar: dict,
-    shares: float,
-    cost: float,
-    sellable_shares: Optional[float],
-    ref: float,
-    sell_trig: float,
-    buy_trig: float,
-    lot: int,
-    fill_mode: str,
-    cfg: dict,
-    cost_config: Optional[dict],
-    stock_code: str,
-    atr_pct: Optional[float],
-    range_pct: float,
-    t0_ratio: float,
-    intraday_path: str = "any",
-) -> Dict[str, Any]:
-    high = float(bar["high"])
-    low = float(bar["low"])
-    close = float(bar.get("close") or 0)
-
-    sellable = float(sellable_shares if sellable_shares is not None else shares)
-    sellable = min(sellable, shares)
-    sell_level = ref * (1.0 + sell_trig / 100.0)
-    qty = _t0_qty_lots(shares, t0_ratio, lot, sellable)
-    if qty <= 0:
-        return _skip_result(
-            reason=f"正T动仓不足1手（持仓{int(shares)}×{t0_ratio:.0%} 可卖{int(sellable)}<{lot}股）",
-            shares=shares,
-            bar=bar,
-            extra={
-                "direction_used": "long_t",
-                "sellable_shares": sellable,
-                "t0_ratio": t0_ratio,
-            },
-        )
-
-    trades: List[dict] = []
-    cash_delta = 0.0
-    shares_now = float(shares)
-    pnl = 0.0
-    exposure_pnl = 0.0
-    sold_qty = 0
-    sold_price = 0.0
-    # lh=先低后高：正T第一腿仍可在冲高时卖，但低点已过，不能再按低点买回
-    allow_trigger_cover = intraday_path != "lh"
-
-    if qty > 0 and high >= sell_level:
-        fill_sell = _fill_sell(high, sell_level, fill_mode)
-        amount = qty * fill_sell
-        trades.append(
-            {
-                "side": "t0_sell",
-                "stock_code": stock_code,
-                "shares": qty,
-                "price": round(fill_sell, 4),
-                "amount": round(amount, 2),
-                "trigger": round(sell_level, 4),
-                "note": "正T卖出（日线代理）",
-            }
-        )
-        cash_delta += amount
-        shares_now -= qty
-        sold_qty = qty
-        sold_price = fill_sell
-
-    covered = 0
-    if sold_qty > 0:
-        buy_level = sold_price * (1.0 - buy_trig / 100.0)
-        if allow_trigger_cover and low <= buy_level:
-            fill_buy = _fill_buy(low, buy_level, fill_mode)
-            cover = sold_qty
-            amount = cover * fill_buy
-            trades.append(
-                {
-                    "side": "t0_buy",
-                    "stock_code": stock_code,
-                    "shares": cover,
-                    "price": round(fill_buy, 4),
-                    "amount": round(amount, 2),
-                    "trigger": round(buy_level, 4),
-                    "note": "正T买回（日线代理）",
-                }
-            )
-            cash_delta -= amount
-            shares_now += cover
-            covered = cover
-            gross = (sold_price - fill_buy) / sold_price * 100.0
-            cost_pct = round_trip_cost_pct(cost_config)
-            pnl = round((gross - cost_pct) * (sold_qty * sold_price) / 100.0, 2)
-        elif cfg.get("must_cover_same_day"):
-            fill_buy = close
-            cover = sold_qty
-            amount = cover * fill_buy
-            trades.append(
-                {
-                    "side": "t0_buy",
-                    "stock_code": stock_code,
-                    "shares": cover,
-                    "price": round(fill_buy, 4),
-                    "amount": round(amount, 2),
-                    "trigger": round(close, 4),
-                    "note": "强制当日回补（收盘）",
-                }
-            )
-            cash_delta -= amount
-            shares_now += cover
-            covered = cover
-            gross = (sold_price - fill_buy) / sold_price * 100.0
-            cost_pct = round_trip_cost_pct(cost_config)
-            pnl = round((gross - cost_pct) * (sold_qty * sold_price) / 100.0, 2)
-        else:
-            # 未回补：按收盘计敞口（卖出价→收盘的浮盈亏，供研究；不改仓）
-            exposure_pnl = round((sold_price - close) * sold_qty, 2)
-
-    uncovered = sold_qty - covered
-    return {
-        "success": True,
-        "skipped": False,
-        "date": bar.get("date"),
-        "ref": round(ref, 4),
-        "sell_level": round(sell_level, 4),
-        "sold_qty": sold_qty,
-        "covered_qty": covered,
-        "uncovered_qty": uncovered,
-        "bought_qty": 0,
-        "sold_back_qty": 0,
-        "trades": trades,
-        "pnl": pnl,
-        "exposure_pnl": exposure_pnl,
-        "shares_end": shares_now,
-        "cash_delta": round(cash_delta, 2),
-        "direction_used": "long_t",
-        "fill_mode": fill_mode,
-        "sell_trigger_pct": sell_trig,
-        "buy_trigger_pct": buy_trig,
-        "atr_pct": atr_pct,
-        "range_pct": round(range_pct, 4),
-        "intraday_path": intraday_path,
-        "note": cfg.get("note"),
-    }
-
-
-def _simulate_reverse_t(
-    *,
-    bar: dict,
-    shares: float,
-    cost: float,
-    cash: float,
-    sellable_shares: Optional[float],
-    ref: float,
-    sell_trig: float,
-    buy_trig: float,
-    lot: int,
-    fill_mode: str,
-    cfg: dict,
-    cost_config: Optional[dict],
-    stock_code: str,
-    atr_pct: Optional[float],
-    range_pct: float,
-    intraday_path: str = "any",
-) -> Dict[str, Any]:
-    """反 T（A 股 T+1）：先低吸加仓（新股当日锁仓），再冲高卖旧底仓换仓。
-
-    禁止卖出当日新买股；第二腿只能动 sellable_shares。
-    sold_back_qty = 卖出的旧仓股数（与 bought_qty 对齐即完成往返）。
-    """
-    high = float(bar["high"])
-    low = float(bar["low"])
-    close = float(bar.get("close") or 0)
-    t0_ratio = float(cfg["t0_ratio"])
-    # hl=先高后低：低吸可在后半段，但高点已过，不能再按高点卖旧仓
-    allow_trigger_sell_old = intraday_path != "hl"
-
-    sellable = float(sellable_shares if sellable_shares is not None else shares)
-    sellable = min(sellable, shares)
-    buy_level = ref * (1.0 - buy_trig / 100.0)
-    max_shares = _t0_qty_lots(shares, t0_ratio, lot, sellable)
-    if max_shares <= 0:
-        return _skip_result(
-            reason=f"反T动仓不足1手（持仓{int(shares)}×{t0_ratio:.0%} 可卖{int(sellable)}<{lot}股）",
-            shares=shares,
-            bar=bar,
-            extra={"direction_used": "reverse_t", "max_shares": max_shares},
-        )
-    if cash <= 0:
-        return _skip_result(
-            reason="反T缺现金（低吸需预留现金）",
-            shares=shares,
-            bar=bar,
-            extra={"direction_used": "reverse_t", "cash": round(cash, 2)},
-        )
-    if sellable < lot:
-        return _skip_result(
-            reason="反T无可卖旧仓（T+1）",
-            shares=shares,
-            bar=bar,
-            extra={"direction_used": "reverse_t", "sellable_shares": sellable},
-        )
-
-    afford = _lot_floor(cash / max(buy_level, 1e-6), lot)
-    # 往返规模受：目标比例、现金、可卖旧仓 三者约束
-    qty = min(max_shares, afford, _lot_floor(sellable, lot))
-    if qty <= 0 or low > buy_level:
-        return _skip_result(
-            reason="反T未触及低吸位或买不起/无可卖旧仓",
-            shares=shares,
-            bar=bar,
-            extra={
-                "direction_used": "reverse_t",
-                "buy_level": round(buy_level, 4),
-                "range_pct": round(range_pct, 4),
-                "sellable_shares": sellable,
-            },
-        )
-
-    fill_buy = _fill_buy(low, buy_level, fill_mode)
-
-    trades: List[dict] = []
-    cash_delta = 0.0
-    shares_now = float(shares)
-    buy_amount = qty * fill_buy
-    if buy_amount > cash + 1e-6:
-        qty = _lot_floor(cash / fill_buy, lot)
-        qty = min(qty, _lot_floor(sellable, lot))
-        if qty <= 0:
-            return _skip_result(reason="反T现金不足", shares=shares, bar=bar)
-        buy_amount = qty * fill_buy
-
-    trades.append(
-        {
-            "side": "t0_buy",
-            "stock_code": stock_code,
-            "shares": qty,
-            "price": round(fill_buy, 4),
-            "amount": round(buy_amount, 2),
-            "trigger": round(buy_level, 4),
-            "note": "反T低吸加仓（日线代理；新股T+1锁仓）",
-        }
-    )
-    cash_delta -= buy_amount
-    shares_now += qty
-    bought_qty = qty
-
-    # 第二腿：卖旧底仓（可卖额度），不是卖刚买的股
-    sell_level = fill_buy * (1.0 + sell_trig / 100.0)
-    sold_back = 0
-    pnl = 0.0
-    exposure_pnl = 0.0
-    sell_old_qty = min(qty, _lot_floor(sellable, lot))
-
-    if allow_trigger_sell_old and sell_old_qty > 0 and high >= sell_level:
-        fill_sell = _fill_sell(high, sell_level, fill_mode)
-        sell_amount = sell_old_qty * fill_sell
-        trades.append(
-            {
-                "side": "t0_sell",
-                "stock_code": stock_code,
-                "shares": sell_old_qty,
-                "price": round(fill_sell, 4),
-                "amount": round(sell_amount, 2),
-                "trigger": round(sell_level, 4),
-                "note": "反T卖旧底仓（日线代理；T+1可卖）",
-            }
-        )
-        cash_delta += sell_amount
-        shares_now -= sell_old_qty
-        sold_back = sell_old_qty
-        gross = (fill_sell - fill_buy) / fill_buy * 100.0
-        cost_pct = round_trip_cost_pct(cost_config)
-        pnl = round((gross - cost_pct) * (sell_old_qty * fill_buy) / 100.0, 2)
-    elif cfg.get("must_cover_same_day") and sell_old_qty > 0:
-        fill_sell = close
-        sell_amount = sell_old_qty * fill_sell
-        trades.append(
-            {
-                "side": "t0_sell",
-                "stock_code": stock_code,
-                "shares": sell_old_qty,
-                "price": round(fill_sell, 4),
-                "amount": round(sell_amount, 2),
-                "trigger": round(close, 4),
-                "note": "反T强制收盘卖旧底仓（T+1）",
-            }
-        )
-        cash_delta += sell_amount
-        shares_now -= sell_old_qty
-        sold_back = sell_old_qty
-        gross = (fill_sell - fill_buy) / fill_buy * 100.0
-        cost_pct = round_trip_cost_pct(cost_config)
-        pnl = round((gross - cost_pct) * (sell_old_qty * fill_buy) / 100.0, 2)
-    else:
-        # 未卖旧仓：临时加仓敞口按收盘浮动（新股仍锁仓）
-        exposure_pnl = round((close - fill_buy) * qty, 2)
-
-    return {
-        "success": True,
-        "skipped": False,
-        "date": bar.get("date"),
-        "ref": round(ref, 4),
-        "buy_level": round(buy_level, 4),
-        "sold_qty": 0,
-        "covered_qty": 0,
-        "uncovered_qty": 0,
-        "bought_qty": bought_qty,
-        "sold_back_qty": sold_back,
-        "trades": trades,
-        "pnl": pnl,
-        "exposure_pnl": exposure_pnl,
-        "shares_end": shares_now,
-        "cash_delta": round(cash_delta, 2),
-        "direction_used": "reverse_t",
-        "fill_mode": fill_mode,
-        "sell_trigger_pct": sell_trig,
-        "buy_trigger_pct": buy_trig,
-        "atr_pct": atr_pct,
-        "range_pct": round(range_pct, 4),
-        "intraday_path": intraday_path,
-        "note": cfg.get("note"),
-    }
 
 
 def simulate_t0_on_holdings(
@@ -958,6 +446,7 @@ def simulate_t0_on_holdings(
     stance_by_code: Optional[Dict[str, Any]] = None,
     coupling: Optional[dict] = None,
     scores_by_code: Optional[Dict[str, dict]] = None,
+    log_source: str = "paper_t0",
 ) -> Dict[str, Any]:
     """对纸面持仓逐票跑单日做 T（需传入当日 bar）。
 
@@ -1127,8 +616,9 @@ def simulate_t0_on_holdings(
         for t in all_trades:
             paper.setdefault("trades", []).append(t)
         if all_trades:
-            from core.paper.ledger import append_trade_legs_to_operation_log
+            from core.paper.ledger import append_operation_log, append_trade_legs_to_operation_log
 
+            src = str(log_source or "paper_t0").strip() or "paper_t0"
             append_trade_legs_to_operation_log(
                 paper,
                 sell_trades=[
@@ -1142,7 +632,24 @@ def simulate_t0_on_holdings(
                     if str(t.get("side") or "").strip().lower() in ("buy", "t0_buy")
                 ],
                 origin="t0",
-                source="paper_t0",
+                source=src,
+            )
+            auto_tag = "自动" if src == "paper_t0_auto" else "手动"
+            append_operation_log(
+                paper,
+                "t0_batch",
+                detail=(
+                    f"做T{auto_tag} · 成交 {len(all_trades)} 笔 · "
+                    f"PnL {round(pnl_total, 2)} · 跳过 {skip_count}"
+                ),
+                meta={
+                    "origin": "t0",
+                    "source": src,
+                    "trade_count": len(all_trades),
+                    "pnl_total": round(pnl_total, 2),
+                    "skip_count": skip_count,
+                    "coupling_skip_count": coupling_skip_count,
+                },
             )
         paper["holdings"] = [h for h in work_holdings if float(h.get("shares") or 0) > 0]
         paper["cash"] = round(working_cash, 2)
@@ -1165,11 +672,7 @@ def simulate_t0_on_holdings(
         "cash_before": round(cash, 2),
         "note": (
             ("预演 · " if dry_run else "")
-            + (
-                "底仓做T；有分钟线走第一触达，否则日线代理；非实盘、不代客下单。"
-                if minute_path_count
-                else "底仓做T纸面模拟；日线代理；非实盘、不代客下单。"
-            )
+            + "底仓做T；仅 5m 第一触达（缺分钟跳过）；非实盘、不代客下单。"
             + (f" · 耦合跳过 {coupling_skip_count}" if coupling_skip_count else "")
         ),
     }

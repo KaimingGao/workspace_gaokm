@@ -1,4 +1,4 @@
-"""纸面 next_open：收盘挂单、开盘成交。"""
+"""纸面 next_open：盘中现价成交；收盘后挂次日开盘单。"""
 
 from __future__ import annotations
 
@@ -96,6 +96,32 @@ class TestNextOpenCommit(unittest.TestCase):
         self.assertEqual(paper.get("cash"), 1.0)
         self.assertEqual(paper.get("holdings"), [])
 
+    def test_session_fills_immediately(self):
+        from core.paper.open_fill import apply_next_open_commit
+
+        original = self._paper()
+        mutated = {**self._paper(), "cash": 1.0, "holdings": []}
+        result = {"ok": True, "sell_trades": [], "buy_trades": []}
+        paper, out = apply_next_open_commit(
+            original, mutated, result, now=_dt(10, 30), dry_run=False
+        )
+        self.assertEqual(out["fill_action"], "immediate")
+        self.assertEqual(paper.get("cash"), 1.0)
+        self.assertEqual(paper.get("holdings"), [])
+
+    def test_open_window_without_pending_uses_quote(self):
+        from core.paper.open_fill import apply_next_open_commit
+
+        original = self._paper()
+        mutated = {**self._paper(), "cash": 1.0, "holdings": []}
+        result = {"ok": True, "sell_trades": [], "buy_trades": []}
+        paper, out = apply_next_open_commit(
+            original, mutated, result, now=_dt(9, 30), dry_run=False
+        )
+        self.assertEqual(out["fill_action"], "immediate")
+        self.assertEqual(paper.get("cash"), 1.0)
+        self.assertEqual(paper.get("holdings"), [])
+
     def test_fill_pending_at_open(self):
         from core.paper.open_fill import fill_pending_at_open, pending_from_trades, stage_pending
 
@@ -129,7 +155,9 @@ class TestNextOpenCommit(unittest.TestCase):
         msg = require_open_fill(self._paper(), now=_dt(16, 0), action="做 T")
         self.assertIsNotNone(msg)
         self.assertIn("next_open", str(msg))
+        self.assertIn("收盘", str(msg))
         self.assertIsNone(require_open_fill(self._paper(), now=_dt(9, 30)))
+        self.assertIsNone(require_open_fill(self._paper(), now=_dt(10, 30)))
 
 
 class TestExecutionTiming(unittest.TestCase):

@@ -64,7 +64,7 @@ QUANT_TASK_ROUTES = (
     ("package_info", "quant 包结构/模块树"),
     ("factor_ols", "因子面板 OLS 实验（研究用，不写 config）"),
     ("factor_corr", "因子相关矩阵（研究用）"),
-    ("t0_backtest", "底仓做T日线代理回测（仅模拟）"),
+    ("t0_backtest", "底仓做T回测（5m第一触达，仅模拟）"),
 )
 
 QUANT_HINT = (

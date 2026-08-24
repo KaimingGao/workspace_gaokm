@@ -18,6 +18,8 @@ from web.schemas import (
     PaperRunRequest,
     PaperSellRequest,
     PaperT0Request,
+    PaperT0AutoRequest,
+    PaperT0WorkerRequest,
 )
 
 router = APIRouter(tags=["paper"])
@@ -74,6 +76,8 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("y_on_allow", req.y_on_allow),
             ("y_on_risk", req.y_on_risk),
             ("y_block_conflict", req.y_block_conflict),
+            ("y_tau_map", req.y_tau_map),
+            ("y_score_source", req.y_score_source),
         ):
             if v is not None and k not in t0:
                 t0[k] = v
@@ -265,13 +269,69 @@ def paper_sell(body: PaperSellRequest) -> Dict[str, Any]:
 
 @router.post("/api/paper/t0")
 def paper_t0(body: PaperT0Request | None = None) -> Dict[str, Any]:
-    """纸面底仓做 T（日线代理，非实盘）。默认 dry_run 预演；confirm=true 才写账。"""
+    """纸面底仓做 T（非实盘）。默认 dry_run 预演；confirm=true 才写账。
+    仅 5m 第一触达；缺分钟线的票跳过（已删除日线模拟）。"""
     try:
         req = body or PaperT0Request()
         dry_run = bool(req.dry_run) and not bool(req.confirm)
-        return deps.paper.simulate_t0(dry_run=dry_run)
+        return deps.paper.simulate_t0(dry_run=dry_run, log_source="paper_t0")
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/paper/t0/auto")
+def paper_t0_auto_get() -> Dict[str, Any]:
+    """自动做 T 配置与上次运行摘要。"""
+    try:
+        return deps.paper.t0_auto_status()
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/paper/t0/auto")
+def paper_t0_auto_post(body: PaperT0AutoRequest | None = None) -> Dict[str, Any]:
+    """保存自动做 T 开关/调度，或立即运行（run_now）。"""
+    try:
+        req = body or PaperT0AutoRequest()
+        patch: Dict[str, Any] = {}
+        if req.enabled is not None:
+            patch["enabled"] = bool(req.enabled)
+        if req.schedule:
+            patch["schedule"] = str(req.schedule).strip()
+        if patch:
+            deps.paper.save_t0_auto(patch)
+        if req.run_now:
+            return deps.paper.run_t0_auto(
+                dry_run=bool(req.dry_run),
+                force=bool(req.force),
+            )
+        return deps.paper.t0_auto_status()
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/paper/t0/worker")
+def paper_t0_worker_get() -> Dict[str, Any]:
+    """自动做 T 后台 worker 状态（是否运行中）。"""
+    try:
+        return deps.paper.t0_worker_status()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/paper/t0/worker")
+def paper_t0_worker_post(body: PaperT0WorkerRequest) -> Dict[str, Any]:
+    """启动/停止 Web 内后台 worker。"""
+    try:
+        return deps.paper.set_t0_worker(bool(body.enabled))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

@@ -22,7 +22,28 @@ const THEME = {
   ink: "#334155",
   inkMuted: "#94a3b8",
   zero: "rgba(51,65,85,0.45)",
+  /** A 股收益色：红涨绿跌（与 --color-up/down 对齐） */
+  pnlUp: "#f5222d",
+  pnlDown: "#52c41a",
 };
+
+/** 与 core/t0/viz.py SKIP_CAT_COLORS 对齐（旧 payload 无 color 时回退） */
+const SKIP_CAT_COLORS = {
+  missing_minute: "#94a3b8",
+  missing_scores: "#94a3b8",
+  y_tau_flat: "#f59e0b",
+  y_trade_weak: "#fb923c",
+  conflict: "#ef4444",
+  amplitude: "#64748b",
+  lot_size: "#a78bfa",
+  path: "#6366f1",
+  trigger_miss: "#cbd5e1",
+  other: "#d1d5db",
+};
+
+function skipCatColor(id) {
+  return SKIP_CAT_COLORS[id] || "#94a3b8";
+}
 
 const FONT = '10px var(--font-mono, ui-monospace, monospace)';
 const FONT_SM = '9px var(--font-mono, ui-monospace, monospace)';
@@ -196,7 +217,7 @@ function drawCumulativePnl(canvas, points) {
     const x = pad.l + (points.length === 1 ? plotW / 2 : (i / (points.length - 1)) * plotW);
     const v = Number(p.cum_pnl ?? p.pnl ?? 0);
     const y = pad.t + ((maxV - v) / span) * plotH;
-    ctx.fillStyle = v >= 0 ? THEME.longT : THEME.reverseT;
+    ctx.fillStyle = v >= 0 ? THEME.pnlUp : THEME.pnlDown;
     ctx.beginPath();
     ctx.arc(x, y, 3.5, 0, Math.PI * 2);
     ctx.fill();
@@ -415,7 +436,7 @@ function drawYtauScatter(canvas, points, threshold = 0.25) {
     ctx.font = FONT_SM;
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
-    ctx.fillText(lv > 0 ? `+${threshold}` : `-${threshold}`, pad.l - 4, y);
+    ctx.fillText(lv > 0 ? `+${threshold}%` : `-${threshold}%`, pad.l - 4, y);
   });
   ctx.setLineDash([]);
 
@@ -423,6 +444,7 @@ function drawYtauScatter(canvas, points, threshold = 0.25) {
   let nSkip = 0;
   let nLong = 0;
   let nRev = 0;
+  let nSkipNeg = 0;
 
   sorted.forEach((p, i) => {
     const yv = Number(p.y_tau);
@@ -435,6 +457,7 @@ function drawYtauScatter(canvas, points, threshold = 0.25) {
       else nLong += 1;
     } else {
       nSkip += 1;
+      if (yv < -0.1) nSkipNeg += 1;
     }
     const color = traded
       ? p.direction === "reverse_t"
@@ -464,7 +487,7 @@ function drawYtauScatter(canvas, points, threshold = 0.25) {
     ctx.fillText(fmtDateShort(dates[idx]), x, h - pad.b + 4);
   });
 
-  return { nTraded, nSkip, nLong, nRev, threshold };
+  return { nTraded, nSkip, nSkipNeg, nLong, nRev, threshold };
 }
 
 /** 跳过构成 — canvas 环形图 */
@@ -566,7 +589,7 @@ function drawDirectionPnl(canvas, pnlByDir, split) {
       ctx.fillText(`${row.days}日`, pad.l - 6, y + barH / 2 + 10);
     }
 
-    ctx.fillStyle = row.val >= 0 ? THEME.longT : THEME.reverseT;
+    ctx.fillStyle = row.val >= 0 ? THEME.pnlUp : THEME.pnlDown;
     ctx.font = FONT;
     ctx.textAlign = row.val >= 0 ? "left" : "right";
     const tx = row.val >= 0 ? x + bw + 6 : x - 6;
@@ -584,11 +607,11 @@ function renderKpiRow(summary, compare) {
     ["参与率", sm.participate_rate_pct != null ? `${sm.participate_rate_pct}%` : null],
     ["ŷ覆盖", sm.score_coverage_pct != null ? `${sm.score_coverage_pct}%` : null],
     ["往返率", sm.cover_rate_pct != null ? `${sm.cover_rate_pct}%` : null],
-    ["τ门槛", sm.y_tau_enter != null ? `±${sm.y_tau_enter}` : null],
+    ["τ门槛", sm.y_tau_enter != null ? `|y_τ|≥${sm.y_tau_enter}%` : null],
     ["信号跳过", sm.signal_skip_rate_pct != null ? `${sm.signal_skip_rate_pct}%` : null],
   ];
-  if (sm.avg_y_tau_traded != null) chips.push(["成交τ̄", fmtNum(sm.avg_y_tau_traded, 2)]);
-  if (sm.avg_y_tau_signal_skip != null) chips.push(["跳过τ̄", fmtNum(sm.avg_y_tau_signal_skip, 2)]);
+  if (sm.avg_y_tau_traded != null) chips.push(["成交τ̄", `${fmtNum(sm.avg_y_tau_traded, 2)}%`]);
+  if (sm.avg_y_tau_signal_skip != null) chips.push(["跳过τ̄", `${fmtNum(sm.avg_y_tau_signal_skip, 2)}%`]);
   if (compare && compare.delta_ratio_pct != null) chips.push(["乐观Δ", `${compare.delta_ratio_pct}%`]);
   const html = chips
     .filter(([, v]) => v != null)
@@ -640,55 +663,171 @@ function skipLegendHtml(categories, total) {
   );
 }
 
+function skipReasonCellHtml(r) {
+  const skipDays = Number(r.skip_days || 0);
+  if (!skipDays) {
+    if (Number(r.trade_days || 0) > 0) {
+      return (
+        `<td class="paper-t0-col-viz-skip">` +
+        `<span class="paper-t0-skip-none paper-t0-skip-none--ok">全成交</span></td>`
+      );
+    }
+    return `<td class="paper-t0-col-viz-skip"><span class="paper-t0-skip-none">—</span></td>`;
+  }
+  const breakdown =
+    r.skip_breakdown && r.skip_breakdown.length
+      ? r.skip_breakdown
+      : r.skip_top_id
+        ? [
+            {
+              id: r.skip_top_id,
+              label: r.skip_top_label,
+              count: r.skip_top_count,
+              pct: r.skip_top_pct,
+              color: skipCatColor(r.skip_top_id),
+            },
+          ]
+        : [];
+  if (!breakdown.length) {
+    return `<td class="paper-t0-col-viz-skip"><span class="paper-t0-skip-none">—</span></td>`;
+  }
+  const top = breakdown[0];
+  const color = top.color || skipCatColor(top.id);
+  const tip = breakdown
+    .map((c) => {
+      const pct =
+        c.pct != null
+          ? c.pct
+          : skipDays
+            ? Math.round((Number(c.count || 0) / skipDays) * 1000) / 10
+            : null;
+      return `${c.label} ${c.count ?? 0}${pct != null ? ` (${pct}%)` : ""}`;
+    })
+    .join(" · ");
+  const stack = breakdown
+    .map((c) => {
+      const w =
+        skipDays > 0 ? Math.round((Number(c.count || 0) / skipDays) * 100) : 0;
+      const bg = c.color || skipCatColor(c.id);
+      return `<i style="width:${Math.max(w, w > 0 ? 2 : 0)}%;background:${esc(bg)}" title="${esc(c.label)}"></i>`;
+    })
+    .join("");
+  const topPct =
+    top.pct != null
+      ? top.pct
+      : skipDays
+        ? Math.round((Number(top.count || 0) / skipDays) * 1000) / 10
+        : null;
+  return (
+    `<td class="paper-t0-col-viz-skip">` +
+    `<div class="paper-t0-skip-cell" title="${esc(tip)}">` +
+    `<div class="paper-t0-skip-head">` +
+    `<span class="paper-t0-skip-pill" style="--skip-c:${esc(color)}">` +
+    `<i class="paper-t0-skip-dot" aria-hidden="true"></i>` +
+    `<span class="paper-t0-skip-lbl">${esc(top.label)}</span>` +
+    `<b class="paper-t0-skip-cnt">${esc(String(top.count ?? ""))}</b>` +
+    `</span>` +
+    (topPct != null ? `<span class="paper-t0-skip-pct">${esc(String(topPct))}%</span>` : "") +
+    `</div>` +
+    `<div class="paper-t0-skip-stack" aria-hidden="true">${stack}</div>` +
+    `</div></td>`
+  );
+}
+
+function fmtContribShares(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return esc(Math.round(n).toLocaleString("zh-CN"));
+}
+
+function fmtContribPrice(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  return esc(n.toFixed(2));
+}
+
+function fmtContribDate(v) {
+  const s = String(v || "").trim();
+  if (!s) return "—";
+  return esc(s.slice(0, 10));
+}
+
+function fmtContribReturn(r) {
+  const pct = r.return_pct != null ? Number(r.return_pct) : null;
+  if (pct == null || !Number.isFinite(pct)) {
+    return { text: "—", cls: "", tip: "缺股数或开始价，无法算累计收益%" };
+  }
+  const sign = pct > 0 ? "+" : "";
+  return {
+    text: `${sign}${pct.toFixed(2)}%`,
+    cls: paperMetricClass(pct),
+    tip: `含敞口净 PnL ${r.net_pnl ?? r.pnl ?? 0} / 虚拟底仓市值 ${r.hold_mv_start ?? "—"}`,
+  };
+}
+
 function renderStockContrib(rows) {
   if (!rows || !rows.length) return "";
-  const max = Math.max(1, ...rows.map((r) => Math.abs(Number(r.pnl || 0))));
   const body = rows
     .map((r) => {
       const pnl = Number(r.pnl || 0);
       const cls = paperMetricClass(pnl);
-      const barW = Math.round((Math.abs(pnl) / max) * 100);
+      const ret = fmtContribReturn(r);
       const fallback = {
         stock_code: r.stock_code,
         stock_name: r.stock_name,
       };
       return (
-        `<tr>` +
+        `<tr class="paper-t0-contrib-row">` +
         stockCellHtml(r, fallback) +
+        `<td class="num paper-t0-col-viz-shares">${fmtContribShares(r.shares)}</td>` +
+        `<td class="paper-t0-col-viz-dt">${fmtContribDate(r.window_start_date)}</td>` +
+        `<td class="num paper-t0-col-viz-px">${fmtContribPrice(r.start_price)}</td>` +
+        `<td class="paper-t0-col-viz-dt">${fmtContribDate(r.window_end_date)}</td>` +
+        `<td class="num paper-t0-col-viz-px">${fmtContribPrice(r.end_price)}</td>` +
         `<td class="num paper-t0-col-viz-lr">${esc(`${r.long_days ?? 0}/${r.reverse_days ?? 0}`)}</td>` +
         `<td class="num paper-t0-col-viz-days">${esc(String(r.trade_days ?? 0))}</td>` +
         `<td class="num paper-t0-col-viz-days">${esc(String(r.skip_days ?? 0))}</td>` +
+        skipReasonCellHtml(r) +
         `<td class="num paper-t0-col-viz-pct">${
           r.participate_rate_pct != null ? esc(`${r.participate_rate_pct}%`) : "—"
         }</td>` +
-        `<td class="num paper-t0-col-viz-pct">${
-          r.score_coverage_pct != null ? esc(`${r.score_coverage_pct}%`) : "—"
-        }</td>` +
-        `<td class="num paper-t0-col-pnl ${cls}">` +
-        `<span class="paper-t0-viz-pnl-bar" style="width:${barW}%"></span>${esc(pnl.toFixed(1))}</td>` +
+        `<td class="num paper-t0-col-viz-ret ${ret.cls}" title="${esc(ret.tip)}">${esc(ret.text)}</td>` +
+        `<td class="num paper-t0-col-pnl ${cls}">${esc(pnl.toFixed(1))}</td>` +
         `</tr>`
       );
     })
     .join("");
   return (
-    `<div class="quant-weight-table-wrap paper-t0-viz-stock-wrap">` +
-    `<table class="quant-weight-table paper-t0-table paper-t0-viz-stock-table">` +
+    `<div class="quant-weight-table-wrap paper-t0-viz-stock-wrap watching-table-scroll">` +
+    `<table class="quant-weight-table paper-t0-table paper-t0-viz-stock-table watching-desk-table">` +
     `<colgroup>` +
     `<col class="paper-t0-col-stock" />` +
+    `<col class="paper-t0-col-viz-shares" />` +
+    `<col class="paper-t0-col-viz-dt" />` +
+    `<col class="paper-t0-col-viz-px" />` +
+    `<col class="paper-t0-col-viz-dt" />` +
+    `<col class="paper-t0-col-viz-px" />` +
     `<col class="paper-t0-col-viz-lr" />` +
     `<col class="paper-t0-col-viz-days" />` +
     `<col class="paper-t0-col-viz-days" />` +
+    `<col class="paper-t0-col-viz-skip" />` +
     `<col class="paper-t0-col-viz-pct" />` +
-    `<col class="paper-t0-col-viz-pct" />` +
+    `<col class="paper-t0-col-viz-ret" />` +
     `<col class="paper-t0-col-pnl" />` +
     `</colgroup>` +
-    `<thead><tr>` +
+    `<thead><tr class="paper-t0-contrib-head">` +
     `<th scope="col" class="paper-t0-col-stock">股票</th>` +
+    `<th scope="col" class="paper-t0-col-viz-shares num" title="回测虚拟底仓股数">股数</th>` +
+    `<th scope="col" class="paper-t0-col-viz-dt" title="评估窗口首日">开始日期</th>` +
+    `<th scope="col" class="paper-t0-col-viz-px num" title="窗口首日收盘价">开始价</th>` +
+    `<th scope="col" class="paper-t0-col-viz-dt" title="评估窗口末日">结束日期</th>` +
+    `<th scope="col" class="paper-t0-col-viz-px num" title="窗口末日收盘价">结束价</th>` +
     `<th scope="col" class="paper-t0-col-viz-lr num" title="正T日 / 反T日">正/反</th>` +
     `<th scope="col" class="paper-t0-col-viz-days num">成交</th>` +
     `<th scope="col" class="paper-t0-col-viz-days num">跳过</th>` +
+    `<th scope="col" class="paper-t0-col-viz-skip" title="跳过主因（色标+占比条；悬停看构成）">主因</th>` +
     `<th scope="col" class="paper-t0-col-viz-pct num" title="成交日占评估日">参与%</th>` +
-    `<th scope="col" class="paper-t0-col-viz-pct num" title="有 ŷ 快照的评估日占比">ŷ%</th>` +
+    `<th scope="col" class="paper-t0-col-viz-ret num" title="含敞口净PnL/虚拟底仓市值">收益%</th>` +
     `<th scope="col" class="paper-t0-col-pnl num">PnL</th>` +
     `</tr></thead><tbody>${body}</tbody></table></div>`
   );
@@ -788,13 +927,13 @@ export function renderT0Viz(host, data) {
     cards.push(
       vizCard(
         "y_τ 散点",
-        `±${tauEnter} 门槛 · 绿正T 红反T 橙跳过`,
+        `|y_τ|≥${tauEnter}% 门槛 · 中间灰带=|y_τ|<τ 横盘 · 橙=未成交`,
         chartCanvas("scatter"),
         `<div data-role="scatter-foot"></div>`,
         legendChips([
           { color: THEME.longT, label: "正T成交" },
           { color: THEME.reverseT, label: "反T成交" },
-          { color: THEME.signalSkip, label: "信号跳过" },
+          { color: THEME.signalSkip, label: "信号跳过(含负τ)" },
         ])
       )
     );
@@ -903,8 +1042,13 @@ export function renderT0Viz(host, data) {
         foot.innerHTML = [
           `<span>成交 <b>${meta.nTraded}</b>（正${meta.nLong}/反${meta.nRev}）</span>`,
           `<span>信号跳过 <b>${meta.nSkip}</b></span>`,
-          `<span>门槛 ±${meta.threshold}</span>`,
-        ].join('<span class="sep">·</span>');
+          meta.nSkipNeg > 0
+            ? `<span>负τ跳过(≤−0.1%) <b>${meta.nSkipNeg}</b> · 多在灰带|y_τ|&lt;τ</span>`
+            : "",
+          `<span>门槛 |y_τ|≥${meta.threshold}%</span>`,
+        ]
+          .filter(Boolean)
+          .join('<span class="sep">·</span>');
       }
     }
 

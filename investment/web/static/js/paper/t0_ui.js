@@ -1,6 +1,7 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
 import { paperMetricClass } from "./fmt.js";
+import { yTauMapScoreTip } from "./execution_ui.js";
 import { renderT0Viz } from "./t0_viz.js";
 import { buildT0ReportHtml } from "./t0_report.js";
 import {
@@ -23,7 +24,7 @@ function renderSkipContext(data) {
   const reasons = data.skip_reason_top || [];
   const skips = data.skip_days_sample || [];
   if (!reasons.length && !skips.length) return "";
-  const path = (data.rules && data.rules.path_mode) || data.path_mode || "veto";
+  const path = (data.rules && data.rules.path_mode) || data.path_mode || "first_touch";
   const fallback = {
     stock_code: data.stock_code,
     stock_name: data.stock_name,
@@ -34,7 +35,7 @@ function renderSkipContext(data) {
     .join(" · ");
   let html =
     `<details class="paper-t0-skip-fold">` +
-    `<summary class="quant-trades-caption">跳过诊断 · 日线 ${escapeHtml(path)}` +
+    `<summary class="quant-trades-caption">跳过诊断 · ${escapeHtml(path)}` +
     (data.skip_days != null ? ` · 合计 ${data.skip_days} 日` : "") +
     (reasonBits ? ` · ${reasonBits}` : "") +
     `</summary>`;
@@ -57,12 +58,15 @@ function buildZeroTradeHint(data) {
     ? "振幅门禁偏严；可调低振幅下限或关闭 ATR 自适应"
     : lotSkip
       ? "仓位×做T比例不足 1 手；可提高做T比例或加仓"
-      : `未触及卖 +${sell}% / 买 -${buy}% 触发；可降阈值或启用 5 分钟路径`;
+      : `未触及卖 +${sell}% / 买 -${buy}% 触发；可降阈值`;
   const mm = data.minute_meta || {};
+  const missingMin = Number(data.missing_minute_days) || 0;
   const minuteHint =
-    data.use_minute === false && (mm.error || (data.minute_path_days || 0) === 0)
-      ? ` · 5m${mm.error ? `失败：${escapeHtml(String(mm.error).slice(0, 60))}` : "无覆盖"}，已回退日线`
-      : "";
+    missingMin > 0
+      ? ` · 缺分钟 ${missingMin} 日已跳过`
+      : data.use_minute === false
+        ? ` · 5m 不可用${mm.error ? `：${escapeHtml(String(mm.error).slice(0, 60))}` : ""}`
+        : "";
   return (
     `未成交${data.skip_days != null ? `（${data.skip_days} 日跳过）` : ""}` +
     (top ? ` · 主因 ${escapeHtml(top.reason)}×${top.count}` : "") +
@@ -113,6 +117,7 @@ export function renderPaperT0(els, data) {
     data.rules && data.rules.y_tau_enter != null && Number.isFinite(Number(data.rules.y_tau_enter))
       ? Number(data.rules.y_tau_enter)
       : 0.25;
+  const tauMap = (data.rules && data.rules.y_tau_map) || "scalp";
   const captionBits = [
     days.length > T0_TRADE_TABLE_MAX_ROWS
       ? `样本 ${days.length} 笔（表内最近 ${T0_TRADE_TABLE_MAX_ROWS} 笔）`
@@ -125,7 +130,7 @@ export function renderPaperT0(els, data) {
     `<div class="paper-t0-days-head">` +
     `<h4 class="paper-t0-days-title">成交明细</h4>` +
     `<p class="quant-trades-caption">${captionBits.join(" · ")}` +
-    ` · <span title="dual_y：τ≥+${enter} 正T，τ≤-${enter} 反T">τ = y_τ</span></p>` +
+    ` · <span title="${escapeHtml(yTauMapScoreTip(tauMap, enter))}">τ = y_τ</span></p>` +
     `</div>`;
 
   daysEl.innerHTML =
@@ -182,4 +187,93 @@ export function renderPaperT0Preview(els, data) {
       })
       .join("") +
     `</tbody></table>`;
+}
+
+function buildSkipReasonTop(skips) {
+  const counts = {};
+  for (const d of skips || []) {
+    const r = String(d.reason || d.skip_category || "other");
+    counts[r] = (counts[r] || 0) + 1;
+  }
+  return Object.entries(counts)
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((a, b) => b.count - a.count);
+}
+
+function workerLastRunToTableData(lastRun, execution) {
+  const results = ((lastRun && lastRun.results) || []).filter(
+    (r) => r && !r.skipped && (r.trades || []).length
+  );
+  const rules = (lastRun && lastRun.rules) || (execution && execution.t0) || {};
+  const days = results.map((r) => ({
+    ...r,
+    direction: r.direction || r.direction_used,
+  }));
+  const traded = pickTradeDays({ trade_days_sample: days, days });
+  const tag = lastRun?.source === "paper_t0_auto" ? "自动" : "手动";
+  return {
+    success: true,
+    rules,
+    execution: execution || { t0: rules },
+    trade_days_sample: days,
+    t0_trade_days: traded.length,
+    holding_count: days.length,
+    workerTag: tag,
+    sessionDate: lastRun?.session_date || "",
+  };
+}
+
+/** Worker 上次落账成交/跳过明细（复用回测成交表）。 */
+export function renderPaperT0WorkerTrades(el, { t0Auto, execution } = {}) {
+  if (!el) return;
+  const lr = (t0Auto && t0Auto.last_run) || null;
+  if (!lr || lr.ts == null) {
+    el.hidden = true;
+    el.innerHTML = "";
+    return;
+  }
+  el.hidden = false;
+  const results = lr.results || [];
+  if (!results.length) {
+    el.innerHTML =
+      `<div class="paper-t0-days-head">` +
+      `<h4 class="paper-t0-days-title">落账明细</h4>` +
+      `<p class="quant-trades-caption">尚无成交明细 · 有买/卖落账后显示</p>` +
+      `</div>`;
+    return;
+  }
+  const data = workerLastRunToTableData(lr, execution);
+  const days = pickTradeDays(data);
+  if (!days.length) {
+    el.innerHTML =
+      `<div class="paper-t0-days-head">` +
+      `<h4 class="paper-t0-days-title">落账明细</h4>` +
+      `<p class="quant-trades-caption">尚无成交明细 · 有买/卖落账后显示</p>` +
+      `</div>`;
+    return;
+  }
+  const enter =
+    data.rules && data.rules.y_tau_enter != null && Number.isFinite(Number(data.rules.y_tau_enter))
+      ? Number(data.rules.y_tau_enter)
+      : 0.25;
+  const tauMap = (data.rules && data.rules.y_tau_map) || "scalp";
+  const tag = data.workerTag || "—";
+  const sess = data.sessionDate ? ` · ${escapeHtml(data.sessionDate)}` : "";
+  const longN = days.filter((d) => d.direction === "long_t").length;
+  const revN = days.filter((d) => d.direction === "reverse_t").length;
+  const captionBits = [
+    `${escapeHtml(tag)}落账${sess}`,
+    days.length > T0_TRADE_TABLE_MAX_ROWS
+      ? `样本 ${days.length} 笔（表内最近 ${T0_TRADE_TABLE_MAX_ROWS} 笔）`
+      : `${days.length} 笔成交`,
+    longN + revN > 0 ? `正${longN}/反${revN}` : null,
+  ].filter(Boolean);
+  const caption =
+    `<div class="paper-t0-days-head">` +
+    `<h4 class="paper-t0-days-title">落账明细</h4>` +
+    `<p class="quant-trades-caption">${captionBits.join(" · ")}` +
+    ` · <span title="${escapeHtml(yTauMapScoreTip(tauMap, enter))}">τ = y_τ</span></p>` +
+    `</div>`;
+  el.innerHTML =
+    caption + buildT0TradeTableHtml({ data, days, maxRows: T0_TRADE_TABLE_MAX_ROWS });
 }

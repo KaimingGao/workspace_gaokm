@@ -1,7 +1,7 @@
-"""纸面 next_open：收盘后只挂单，开盘窗用开盘价成交。
+"""纸面 next_open：交易时段内按现价成交；收盘后挂次日开盘单。
 
-与回测 ``execution_mode=next_open`` 对齐：信号日收盘决策，次日开盘成交。
-盘中做 T / 收盘后即时成交不走这条路径。
+产品口径是准实盘（A 股连续竞价可买卖，T+1 管批次），不是「收盘决策、开盘才执行」。
+回测默认 ``execution_mode=next_open`` 仍是研究侧防未来函数，与纸面盘中成交分开。
 """
 
 from __future__ import annotations
@@ -89,19 +89,19 @@ def require_open_fill(
     now: Optional[datetime] = None,
     action: str = "交易",
 ) -> Optional[str]:
-    """非 next_open 或已在开盘窗 → None；否则返回拒绝原因。"""
+    """收盘后拒绝即时成交；盘中（含连续竞价）放行。非 next_open 一律放行。"""
     if not is_next_open_mode(paper):
         return None
     timing = get_rebalance_timing(paper)
     phase = paper_fill_phase(now, timing=timing)
-    if phase == PHASE_OPEN:
+    if phase != PHASE_CLOSED:
         return None
     after = timing.get("open_fill_after_hm") or "09:15"
     until = timing.get("open_fill_until_hm") or "10:00"
-    when = "收盘后" if phase == PHASE_CLOSED else "非开盘窗"
     return (
-        f"{when}不{action}（next_open）。"
-        f"开盘窗 {after}–{until} 才成交；收盘后请确认调仓以挂次日开盘单。"
+        f"已收盘不{action}（next_open）。"
+        f"请确认调仓以挂次日开盘单；开盘窗 {after}–{until} 成交隔夜单。"
+        "盘中可按现价买卖（当日新买批次仍受 T+1 锁定）。"
     )
 
 
@@ -110,7 +110,7 @@ def paper_fill_phase(
     *,
     timing: Optional[dict] = None,
 ) -> str:
-    """open=开盘窗可成交；session=连续竞价不再下新单；closed=收盘后/非交易日。"""
+    """open=开盘窗（隔夜单按开盘价）；session=连续竞价按现价；closed=收盘后/非交易日。"""
     from core.signal.session_pit import shanghai_now
 
     n = shanghai_now(now)
@@ -480,6 +480,10 @@ def apply_next_open_commit(
     if dry_run or timing.get("execution_mode") != MODE_NEXT_OPEN:
         out["fill_action"] = "preview" if dry_run else "immediate"
         return mutated, out
+    if phase == PHASE_SESSION:
+        out["fill_action"] = "immediate"
+        out["note"] = "盘中：按现价成交"
+        return mutated, out
 
     sell_trades = list(out.get("sell_trades") or [])
     buy_trades = list(out.get("buy_trades") or out.get("new_trades") or [])
@@ -497,16 +501,15 @@ def apply_next_open_commit(
             out["new_trades"] = out["buy_trades"]
             out["note"] = "开盘窗：已按隔夜挂单以开盘价成交（未再套用本次现价模拟）"
             return paper, out
-        pending = pending_from_trades(sell_trades, buy_trades, now=now, source=source)
-        stage_pending(paper, pending)
-        fill_new = fill_pending_at_open(paper, now=now)
-        out["open_fill"] = fill_new
-        out["fill_action"] = "open_fill"
-        out["sell_trades"] = [t for t in fill_new.get("trades") or [] if t.get("side") == "sell"]
-        out["buy_trades"] = [t for t in fill_new.get("trades") or [] if t.get("side") == "buy"]
-        out["new_trades"] = out["buy_trades"]
-        out["note"] = "开盘窗：以开盘价成交"
-        return paper, out
+        leftover = paper.get("pending_orders") if isinstance(paper.get("pending_orders"), dict) else None
+        if leftover and (leftover.get("legs") or []):
+            out["fill_action"] = "kept_pending"
+            out["pending_orders"] = leftover
+            out["note"] = "开盘窗：隔夜单尚未成交，本次未改仓"
+            return paper, out
+        out["fill_action"] = "immediate"
+        out["note"] = "开盘窗：无隔夜单，按现价成交"
+        return mutated, out
 
     pending = pending_from_trades(sell_trades, buy_trades, now=now, source=source)
     stage_pending(paper, pending)
@@ -518,8 +521,7 @@ def apply_next_open_commit(
     out["buy_trades"] = buy_trades
     out["new_trades"] = buy_trades
     n_legs = len(pending.get("legs") or [])
-    when = "收盘后" if phase == PHASE_CLOSED else "非开盘窗"
     out["note"] = (
-        f"{when}不成交：已挂 {n_legs} 笔次日开盘单（目标 {pending.get('target_fill_date')}）"
+        f"收盘后不成交：已挂 {n_legs} 笔次日开盘单（目标 {pending.get('target_fill_date')}）"
     )
     return paper, out

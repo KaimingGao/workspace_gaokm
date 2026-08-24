@@ -965,11 +965,11 @@ def save_active_cluster_book(
         "note": "分池合并簿；execution 只读，不写全局 weights",
     }
     atomic_write_json(CLUSTER_BOOK_ACTIVE_PATH, payload)
-    # 昨日复盘：按因子截止日冻结 ŷ（失败不影响落书）
+    # 昨日复盘：收盘后按因子截止日冻结 ŷ（盘中刷簿不写账本）
     try:
         from core.score_ledger import freeze_from_cluster_book
 
-        freeze_from_cluster_book(as_of=None, book_doc=payload)
+        freeze_from_cluster_book(as_of=None, book_doc=payload, auto=True)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         pass
@@ -1033,7 +1033,7 @@ def save_tau_shadow_cluster_book(
     try:
         from core.score_ledger import freeze_from_tau_shadow_book
 
-        freeze_from_tau_shadow_book(shadow_doc=payload)
+        freeze_from_tau_shadow_book(shadow_doc=payload, auto=True)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         pass
@@ -1061,7 +1061,7 @@ def save_nowcast_shadow_cluster_book(
     try:
         from core.score_ledger import freeze_from_nowcast_shadow_book
 
-        freeze_from_nowcast_shadow_book(shadow_doc=payload)
+        freeze_from_nowcast_shadow_book(shadow_doc=payload, auto=True)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
         pass

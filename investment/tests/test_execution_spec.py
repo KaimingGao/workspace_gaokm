@@ -22,7 +22,7 @@ class TestExecutionResolve(unittest.TestCase):
         from core.execution import resolve_effective_execution
 
         no_m = resolve_effective_execution(strategy="short", channel="backtest", has_minute=False)
-        self.assertEqual(no_m["t0"]["path_mode"], "veto")
+        self.assertEqual(no_m["t0"]["path_mode"], "first_touch")
         with_m = resolve_effective_execution(strategy="short", channel="backtest", has_minute=True)
         self.assertEqual(with_m["t0"]["path_mode"], "first_touch")
 
@@ -47,8 +47,10 @@ class TestExecutionResolve(unittest.TestCase):
         )
         cfg = strip_execution_meta(raw)
         self.assertEqual(cfg["direction"], "dual_y")
-        self.assertEqual(cfg["path_mode"], "adverse")
+        # 研究回测强制 first_touch（日线路径已下线）
+        self.assertEqual(cfg["path_mode"], "first_touch")
         self.assertEqual(raw["_execution_meta"]["t0_sources"]["direction"], "request→dual_y")
+        self.assertIn("first_touch", str(raw["_execution_meta"].get("t0_sources", {}).get("path_mode") or ""))
 
     def test_strategy_spec_includes_execution(self):
         from core.strategy import get_strategy_spec
@@ -76,7 +78,7 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertAlmostEqual(float(paper["rules"]["t0"]["t0_ratio"]), 0.4)
         self.assertEqual(paper.get("execution_version"), "1.0.0")
         self.assertEqual(paper["rules"].get("execution_mode"), "next_open")
-        self.assertFalse(paper["rules"]["t0"].get("enabled"))
+        self.assertTrue(paper["rules"]["t0"].get("enabled"))
 
     def test_public_view(self):
         from core.execution import execution_public_view, resolve_effective_execution
@@ -104,6 +106,16 @@ class TestExecutionResolve(unittest.TestCase):
         apply_execution_patch_to_paper(paper, norm)
         view = execution_public_view(resolve_effective_execution(paper=paper, channel="paper"))
         self.assertTrue(view["t0"]["must_cover_same_day"])
+
+    def test_validate_patch_allows_y_tau_map(self):
+        from core.execution import validate_execution_patch
+
+        ok, norm, errs = validate_execution_patch(
+            {"t0": {"y_tau_map": "trend", "y_score_source": "compute"}}
+        )
+        self.assertTrue(ok, errs)
+        self.assertEqual(norm["t0"]["y_tau_map"], "trend")
+        self.assertEqual(norm["t0"]["y_score_source"], "compute")
 
     def test_validate_and_apply_patch(self):
         from core.execution import (

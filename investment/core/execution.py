@@ -57,15 +57,18 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_on_risk",
         "y_on_allow",
         "y_block_conflict",
+        "y_tau_map",
         "y_ratio_boost_cap",
         "y_ratio_cut",
+        "y_score_source",
     }
 )
 
 DEFAULT_RUNTIME: Dict[str, Any] = {
     "paper_direction_fallback": "dual_y",
     "backtest_direction_fallback": "dual_y",
-    "backtest_path_mode_no_minute": "veto",
+    # 纸面/回测：强制 first_touch（已删除日线模拟）
+    "backtest_path_mode_no_minute": "first_touch",
     "backtest_path_mode_with_minute": "first_touch",
 }
 
@@ -79,11 +82,11 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "use_atr": True,
     "ref": "open",
     "lot_size": 100,
-    # direction / path_mode 留给 runtime_defaults，避免与 DEFAULT_T0 的 auto/dual_touch 双轨
+    # direction / path_mode 留给 runtime_defaults，避免与 DEFAULT_T0 双轨
 }
 
 DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
-    "execution_mode": "next_open",  # next_open=收盘挂单/开盘成交；close=确认即成交
+    "execution_mode": "next_open",  # next_open=盘中现价、收盘后挂次日开盘；close=确认即成交
     "open_fill_after_hm": "09:15",
     "open_fill_until_hm": "10:00",
 }
@@ -215,6 +218,7 @@ def _apply_channel_fallbacks(
     has_minute: Optional[bool],
     notes: List[str],
 ) -> dict:
+    _ = has_minute  # 研究回测已不按有无分钟切换 path；保留形参兼容调用方
     out = dict(raw_t0)
     ch = (channel or "paper").strip().lower()
     if ch not in {"paper", "backtest"}:
@@ -236,14 +240,15 @@ def _apply_channel_fallbacks(
         out["direction"] = "dual_y"
         sources["direction"] = f"{sources.get('direction') or 'unknown'}→dual_y"
 
-    if ch == "backtest" and "path_mode" not in out:
-        if has_minute:
-            fb = runtime.get("backtest_path_mode_with_minute") or "first_touch"
-        else:
-            fb = runtime.get("backtest_path_mode_no_minute") or "veto"
-        out["path_mode"] = fb
+    # 纸面/回测：强制分钟第一触达（已删除日线模拟）
+    if str(out.get("path_mode") or "") != "first_touch":
+        notes.append(f"{ch}: path_mode={out.get('path_mode')} → first_touch")
+        out["path_mode"] = "first_touch"
+        sources["path_mode"] = f"{sources.get('path_mode') or 'unknown'}→first_touch"
+    elif "path_mode" not in out:
+        out["path_mode"] = "first_touch"
         sources["path_mode"] = "runtime_fallback"
-        notes.append(f"backtest: path_mode 未显式声明 → {fb}")
+        notes.append(f"{ch}: path_mode 未显式声明 → first_touch")
 
     return out
 
@@ -445,7 +450,7 @@ def _timing_summary(timing: Optional[dict]) -> str:
         return "成交=确认即成交"
     after = t.get("open_fill_after_hm") or "09:15"
     until = t.get("open_fill_until_hm") or "10:00"
-    return f"成交=次日开盘 {after}–{until}"
+    return f"成交=盘中现价；收盘后挂次日开盘 {after}–{until}"
 
 
 def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
@@ -476,7 +481,7 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in execution.py", exc_info=True)
         cluster_book = None
-    return {
+    view = {
         "ok": True,
         "strategy_id": bundle.get("strategy_id"),
         "strategy_version": bundle.get("strategy_version"),
@@ -496,23 +501,20 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "path_mode": t0.get("path_mode"),
             "use_atr": t0.get("use_atr"),
             "atr_window": t0.get("atr_window"),
-            "dir_enter": t0.get("dir_enter"),
             "min_range_pct": t0.get("min_range_pct"),
             "ref": t0.get("ref"),
             "lot_size": t0.get("lot_size"),
             "minute_period": t0.get("minute_period"),
-            "w_gap": t0.get("w_gap"),
-            "w_yclose_loc": t0.get("w_yclose_loc"),
-            "w_mom3": t0.get("w_mom3"),
-            "w_gap_atr": t0.get("w_gap_atr"),
             "y_trade_floor": t0.get("y_trade_floor"),
             "y_eod_prior": t0.get("y_eod_prior"),
             "y_tau_enter": t0.get("y_tau_enter"),
             "y_on_risk": t0.get("y_on_risk"),
             "y_on_allow": t0.get("y_on_allow"),
             "y_block_conflict": t0.get("y_block_conflict"),
+            "y_tau_map": t0.get("y_tau_map"),
             "y_ratio_boost_cap": t0.get("y_ratio_boost_cap"),
             "y_ratio_cut": t0.get("y_ratio_cut"),
+            "y_score_source": t0.get("y_score_source"),
         },
         "t0_sources": bundle.get("t0_sources") or {},
         "rebalance": bundle.get("rebalance") or {},
@@ -522,6 +524,14 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
         "runtime_defaults": bundle.get("runtime_defaults") or {},
         "cluster_book": cluster_book,
     }
+    # 旧 signal 选向字段：仅非 dual_y 时透出，避免与 y_τ 门槛混淆
+    if str(t0.get("direction") or "") != "dual_y":
+        view["t0"]["dir_enter"] = t0.get("dir_enter")
+        view["t0"]["w_gap"] = t0.get("w_gap")
+        view["t0"]["w_yclose_loc"] = t0.get("w_yclose_loc")
+        view["t0"]["w_mom3"] = t0.get("w_mom3")
+        view["t0"]["w_gap_atr"] = t0.get("w_gap_atr")
+    return view
 
 
 def stance_allows_t0(

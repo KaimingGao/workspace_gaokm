@@ -48,7 +48,7 @@ class QuantEngine:
 
         code = str(params.get("stock_code") or params.get("code") or "茅台").strip()
         default_lb = 30 if task == "t0_backtest" else 120
-        min_lb = 20 if task == "t0_backtest" else 40
+        min_lb = 10 if task == "t0_backtest" else 40
         lookback = max(
             min_lb,
             min(int(params.get("lookback") or params.get("lookback_days") or default_lb), 500),
@@ -126,9 +126,10 @@ class QuantEngine:
                 "buy_trigger_pct": params.get("buy_trigger_pct"),
                 "must_cover_same_day": bool(params.get("must_cover_same_day")),
             }
-            for key in ("fill_mode", "direction", "min_range_pct", "path_mode"):
+            for key in ("fill_mode", "direction", "min_range_pct", "y_tau_map"):
                 if params.get(key) is not None:
                     rules[key] = params.get(key)
+            rules["path_mode"] = "first_touch"
             if "use_atr" in params:
                 rules["use_atr"] = bool(params.get("use_atr"))
             from_paper = bool(params.get("from_paper"))
@@ -142,8 +143,8 @@ class QuantEngine:
                 from_paper=from_paper,
                 codes=params.get("codes"),
                 compare_optimistic=bool(params.get("compare_optimistic", True)),
-                use_minute=bool(params.get("use_minute", True)),
-                compare_daily=bool(params.get("compare_daily", True)),
+                use_minute=True,
+                compare_daily=False,
             )
 
         if task == "weight_suggest":

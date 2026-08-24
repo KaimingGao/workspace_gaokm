@@ -1,6 +1,7 @@
 /** 做 T 回测专业报告渲染（纸面 / 量化共用）。 */
 
 import { escapeText, paperFmtPct, paperMetricClass } from "./fmt.js";
+import { yTauMapShortLabel } from "./execution_ui.js";
 import { SKIP_CAT_LABEL } from "./t0_table.js";
 
 function fmtMoney(v, { signed = false, digits = 0 } = {}) {
@@ -22,6 +23,10 @@ function fmtPct(v, digits = 1) {
   return `${n.toFixed(digits)}%`;
 }
 
+/** 做 T 回测「累计收益%」指标卡 tooltip。 */
+const CUMRET_DEF =
+  "评估窗内做T净盈亏+敞口盈亏，÷ 期初虚拟底仓市值；多票为各票假仓合计，非账户真实收益率";
+
 export function resolveT0ScopeLabel(data) {
   if (!data) return "—";
   if (data.scope_label) return String(data.scope_label);
@@ -33,14 +38,13 @@ export function resolveT0ScopeLabel(data) {
 }
 
 function pathLabel(data) {
-  const rules = data.rules || {};
-  const path = rules.path_mode || data.path_mode || (data.use_minute ? "first_touch" : "veto");
   const minute = Number(data.minute_path_days) || 0;
-  const fallback = Number(data.daily_fallback_days) || 0;
+  const missing = Number(data.missing_minute_days) || 0;
   if (minute > 0) {
-    return `5m 第一触达 · ${minute} 日` + (fallback ? ` · 日线回退 ${fallback}` : "");
+    return `5m 第一触达 · ${minute} 日` + (missing ? ` · 缺分钟跳过 ${missing}` : "");
   }
-  return `日线 ${path}`;
+  if (missing > 0) return `缺分钟跳过 ${missing} 日`;
+  return "5m 第一触达";
 }
 
 function resolveVerdict(data) {
@@ -49,7 +53,17 @@ function resolveVerdict(data) {
   const participate = Number(data.participate_rate_pct);
   const cover = Number(data.cover_rate_pct);
   const signalSkip = Number(data.signal_skip_rate_pct ?? data.viz?.summary?.signal_skip_rate_pct);
+  const missing = Number(data.missing_minute_days) || 0;
+  const minute = Number(data.minute_path_days) || 0;
+  const evalDays = Number(data.eval_days) || trades + (Number(data.skip_days) || 0);
 
+  if (missing > 0 && evalDays > 0 && missing / evalDays >= 0.4) {
+    return {
+      tone: "warn",
+      label: "分钟不足",
+      hint: `缺 5m ${missing}/${evalDays} 日；请先分钟预热（东财失败时仅本地缓存）。有缓存票会自动对齐分钟窗口`,
+    };
+  }
   if (!trades) {
     if (Number(data.skip_days) > 0) {
       return {
@@ -59,6 +73,13 @@ function resolveVerdict(data) {
       };
     }
     return { tone: "neutral", label: "无样本", hint: "区间内无可评估交易日" };
+  }
+  if (trades <= 2 && missing >= Math.max(minute, 1)) {
+    return {
+      tone: "warn",
+      label: "样本不足",
+      hint: `仅 ${trades} 日成交且大量缺分钟，盈亏结论不可靠`,
+    };
   }
   if (Number.isFinite(net) && net > 0 && Number.isFinite(cover) && cover >= 80) {
     return { tone: "pos", label: "有效", hint: "净收益为正且往返完成率良好" };
@@ -112,7 +133,6 @@ function metricSection(title, cells) {
 
 function compareStrip(data) {
   const opt = data.optimistic_compare || {};
-  const daily = data.daily_compare || {};
   const items = [];
   if (opt.t0_pnl_total != null) {
     items.push({
@@ -120,14 +140,6 @@ function compareStrip(data) {
       val: fmtMoney(opt.t0_pnl_total, { signed: true }),
       delta: opt.delta_pnl,
       cls: paperMetricClass(opt.t0_pnl_total),
-    });
-  }
-  if (daily.t0_pnl_total != null) {
-    items.push({
-      label: "日线 veto",
-      val: fmtMoney(daily.t0_pnl_total, { signed: true }),
-      delta: daily.delta_pnl,
-      cls: paperMetricClass(daily.t0_pnl_total),
     });
   }
   if (!items.length) return "";
@@ -187,7 +199,10 @@ export function buildT0MetricCards(data) {
       value: paperFmtPct(data.signal_skip_rate_pct ?? sm.signal_skip_rate_pct),
     },
     { label: "乐观Δ占比", value: paperFmtPct(deltaRatio) },
-    { label: "相对底仓", value: paperFmtPct(data.pnl_vs_hold_mv_pct) },
+    {
+      label: "累计收益%",
+      value: paperFmtPct(data.cumulative_return_pct ?? data.pnl_vs_hold_mv_pct),
+    },
     { label: "做T日", value: String(data.t0_trade_days ?? "—") },
     {
       label: "交易 PnL",
@@ -208,9 +223,8 @@ export function buildT0MetricCards(data) {
       value: `${data.long_t_days ?? 0} / ${data.reverse_t_days ?? 0}`,
     },
     {
-      label: "相对日线Δ",
-      value: fmtMoney(data.daily_compare?.delta_pnl, { signed: true }),
-      cls: paperMetricClass(data.daily_compare?.delta_pnl),
+      label: "缺分钟跳过",
+      value: String(data.missing_minute_days ?? 0),
     },
   ];
 }
@@ -219,10 +233,14 @@ export function buildT0SummaryLine(data) {
   if (!data || !data.success) return "";
   const scope = resolveT0ScopeLabel(data);
   const net = data.t0_pnl_with_exposure ?? data.t0_pnl_total;
+  const ret =
+    data.cumulative_return_pct != null
+      ? data.cumulative_return_pct
+      : data.pnl_vs_hold_mv_pct;
   const verdict = resolveVerdict(data);
   const bits = [
     scope,
-    `净 PnL ${fmtMoney(net, { signed: true })}`,
+    ret != null ? `累计收益 ${fmtPct(ret, 3)}` : `净 PnL ${fmtMoney(net, { signed: true })}`,
     `做T ${data.t0_trade_days ?? "—"} 日`,
     data.cover_rate_pct != null ? `往返 ${fmtPct(data.cover_rate_pct)}` : null,
     data.participate_rate_pct != null ? `参与 ${fmtPct(data.participate_rate_pct)}` : null,
@@ -230,7 +248,7 @@ export function buildT0SummaryLine(data) {
       ? `胜率 ${fmtPct(data.win_rate_pct ?? data.t0_win_rate_pct)}`
       : null,
     pathLabel(data),
-    "dual_y",
+    yTauMapShortLabel(data.rules && data.rules.y_tau_map),
     verdict.label,
     "非实盘",
   ].filter(Boolean);
@@ -247,18 +265,36 @@ export function buildT0ReportHtml(data, opts = {}) {
   const scope = resolveT0ScopeLabel(data);
   const verdict = resolveVerdict(data);
   const net = data.t0_pnl_with_exposure ?? data.t0_pnl_total;
+  const cumRet =
+    data.cumulative_return_pct != null
+      ? Number(data.cumulative_return_pct)
+      : data.pnl_vs_hold_mv_pct != null
+        ? Number(data.pnl_vs_hold_mv_pct)
+        : null;
+  const heroPrimary =
+    cumRet != null && Number.isFinite(cumRet)
+      ? fmtPct(cumRet, 3)
+      : fmtMoney(net, { signed: true });
+  const heroPrimaryCls = paperMetricClass(cumRet != null ? cumRet : net);
   const sm = data.viz?.summary || {};
   const scoreCov = sm.score_coverage_pct;
   const evalDays = data.eval_days ?? (Number(data.t0_trade_days || 0) + Number(data.skip_days || 0));
   const rules = data.rules || {};
   const skipInsight = topSkipInsight(data);
-
+  const virtNote = data.virtual_sizing
+    ? `虚拟仓每票 ${Number(data.virtual_shares || 10000).toLocaleString("zh-CN")} 股` +
+      ` · 现金 ${(Number(data.virtual_cash || 2e6) / 10000).toFixed(0)} 万`
+    : null;
   const hero =
     `<header class="paper-t0-report-hero">` +
     `<div class="paper-t0-report-hero-main">` +
     `<div class="paper-t0-report-scope">${escapeText(scope)}</div>` +
-    `<div class="paper-t0-report-net ${paperMetricClass(net)}">${fmtMoney(net, { signed: true })}</div>` +
-    `<div class="paper-t0-report-sub">含敞口净 PnL · 评估 ${evalDays || "—"} 日 · ${escapeText(pathLabel(data))}</div>` +
+    `<div class="paper-t0-report-net ${heroPrimaryCls}">${escapeText(heroPrimary)}</div>` +
+    `<div class="paper-t0-report-sub">` +
+    (cumRet != null ? "累计收益比例" : "含敞口净 PnL") +
+    ` · 评估 ${evalDays || "—"} 日 · ${escapeText(pathLabel(data))}` +
+    (virtNote ? ` · ${escapeText(virtNote)}` : "") +
+    `</div>` +
     `</div>` +
     `<div class="paper-t0-report-verdict is-${verdict.tone}" title="${escapeText(verdict.hint)}">` +
     `<span class="paper-t0-report-verdict-label">${escapeText(verdict.label)}</span>` +
@@ -267,6 +303,10 @@ export function buildT0ReportHtml(data, opts = {}) {
     `</header>`;
 
   const pnlSection = metricSection("收益", [
+    metricCell("累计收益%", fmtPct(cumRet, 3), {
+      cls: paperMetricClass(cumRet),
+      tip: CUMRET_DEF,
+    }),
     metricCell("交易 PnL", fmtMoney(data.t0_pnl_total, { signed: true }), {
       cls: paperMetricClass(data.t0_pnl_total),
       tip: "不含隔夜敞口的日内做 T 盈亏",
@@ -277,10 +317,6 @@ export function buildT0ReportHtml(data, opts = {}) {
     }),
     metricCell("日均 PnL", fmtMoney(data.avg_pnl_per_trade_day, { signed: true }), {
       cls: paperMetricClass(data.avg_pnl_per_trade_day),
-    }),
-    metricCell("相对底仓", fmtPct(data.pnl_vs_hold_mv_pct, 3), {
-      cls: paperMetricClass(data.pnl_vs_hold_mv_pct),
-      tip: "交易 PnL / 期初底仓市值",
     }),
     metricCell(
       "正T / 反T",
@@ -318,10 +354,10 @@ export function buildT0ReportHtml(data, opts = {}) {
     metricCell(
       "τ 门槛",
       rules.y_tau_enter != null
-        ? `±${rules.y_tau_enter}`
+        ? `|y_τ|≥${rules.y_tau_enter}%`
         : sm.y_tau_enter != null
-          ? `±${sm.y_tau_enter}`
-          : "±0.25"
+          ? `|y_τ|≥${sm.y_tau_enter}%`
+          : "±0.25%"
     ),
     metricCell("跳过日", String(data.skip_days ?? 0), {
       tip: skipInsight ? `主因 ${skipInsight}` : "",
@@ -331,16 +367,17 @@ export function buildT0ReportHtml(data, opts = {}) {
 
   const pathSection = metricSection("路径与对照", [
     metricCell("分钟路径日", String(data.minute_path_days ?? 0)),
-    metricCell("日线回退", String(data.daily_fallback_days ?? 0)),
+    metricCell("缺分钟跳过", String(data.missing_minute_days ?? 0), {
+      tip:
+        Number(data.missing_minute_days) > 0
+          ? "无 5m 覆盖的交易日已跳过；缺缓存票请先分钟预热，勿据此判策略盈亏"
+          : "无 5m 覆盖的交易日；已删除日线模拟",
+    }),
     metricCell(
       "乐观Δ占比",
       fmtPct(data.optimistic_delta_ratio_pct ?? data.optimistic_compare?.delta_pnl_ratio_pct),
-      { tip: "相对乐观上界的额外空间占比" }
+      { tip: "相对 trigger 的乐观上界空间；成交日过少或比值爆炸时不展示" }
     ),
-    metricCell("相对日线Δ", fmtMoney(data.daily_compare?.delta_pnl, { signed: true }), {
-      cls: paperMetricClass(data.daily_compare?.delta_pnl),
-      tip: "分钟路径 vs 纯日线 veto",
-    }),
   ]);
 
   const zeroHint = opts.zeroHint

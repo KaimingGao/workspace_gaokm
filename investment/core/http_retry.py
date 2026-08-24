@@ -23,6 +23,9 @@ _RETRY_NAME_FRAGMENTS = (
     "502",
     "429",
     "reset by peer",
+    "remote end closed",
+    "aborted",
+    "disconnected",
 )
 
 

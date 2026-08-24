@@ -302,7 +302,7 @@ flowchart TB
 
 产品流程（观察 · 模拟 · 回溯；观察≠模拟）：见 [quant-ui.md](quant-ui.md)。路由：`/watching` `/follow` `/replay`（`/paper` `/strategy` `/quant` 等仍可用）。见 `action_map.py`、`GET /api/quant/actions` 与 [quant.md · 入门概念](quant.md#量化入门概念)。
 
-**入口边界**：观察页是唯一开仓入口（建仓前必过 `sync-paper/preview` 预演），模拟页只管已有仓位。凡「买什么、买多少」由规则决定的动作（按策略调仓）收进进阶区，并在持仓 `origin` 上标 `strategy` 与手动区分。
+**入口边界**：观察页是唯一开仓入口（建仓前必过 `sync-paper/preview` 预演），模拟页只管已有仓位。凡「买什么、买多少」由规则决定的动作（按策略调仓）收进进阶区，并在持仓 `origin` 上标 `strategy` 与手动区分。做 T 为 **overlay**，不改变「持有什么」的主线；见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t)。
 
 **命名约定**：产品对外统一称「模拟」/URL `/follow`；内部 canonical 仍为 `paper`（`paper.json`、`/api/paper`）。旧页 `/paper` 302 到 `/follow`。
 
@@ -1290,8 +1290,10 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | 模块 | 职责 |
 |------|------|
 | `__init__.py` | 对外门面（冻结 / 回填 / 复盘） |
-| `asof.py` · `freeze.py` · `io.py` | 决策日、冻结、读写 |
+| `asof.py` · `freeze.py` · `io.py` | 决策日、冻结闸（盘中自动跳过）、读写 |
 | `outcomes.py` · `review.py` · `series.py` | realized 回填、复盘报告、序列 |
+
+**冻结闸**：刷簿附带冻结（`auto=True`）仅在**会话收盘后**写账本；盘中刷新分池簿不覆盖复盘快照。显式冻结历史 `as_of` 仍可随时重建。做 T 选向默认即时算分，不读账本。
 
 #### 风控 `core/risk/`
 
@@ -1333,7 +1335,7 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | 模块 | 功能 |
 |------|------|
 | `core/research/` | OLS fit、walk-forward、rem 头等研究算法 |
-| `t0/` | 做 T 回测内核 |
+| `t0/` | 做 T 回测内核 · `intraday.py` · `auto_worker.py`（Web 内 5m 盯盘自动落账） |
 
 ---
 
@@ -1855,10 +1857,15 @@ flowchart LR
 本仓库 **没有** 经典 `StrategyBase.on_bar` 类体系；等价逻辑拆在 **`score_bars` → `stance` / 回测入场 → 纸面 `rules`**。  
 **Q2**：`short`（短线评分）已收编为版本化 **StrategySpec**（`core/strategy.py` + `STRATEGY_SPECS[].lifecycle`）：回测参数、模拟 `paper_rules`、默认 `cost_model`、账户 `risk` 限额。另有 `short_conservative`（保守短线）。旧 ID `signal_v1` / `signal_v1_conservative` 经别名仍可解析。研究配置经 **`POST /api/strategy/promote`** 显式晋级，禁止静默覆盖。
 
-**ExecutionSpec（v1.1）**：`lifecycle.execution` 收编调仓意图之外的 **overlays**（含底仓做 T）。纸面 / 做 T 回测经 `core/execution.resolve_effective_execution` 合并  
+**ExecutionSpec（v1.1）**：`lifecycle.execution` 收编两类纸面动作——**结构层调仓**（持有什么、各占多少；ŷ_trade 排序 + ŷ_EOD/ŷ_τ 买卖闸）与 **overlay 做 T**（底仓上 dual_y：y_τ 定方向 + 5m 往返 timing；不改变选股主线）。**ŷ_τ 模型共用、决策接口不同**，见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t)。纸面 / 做 T 回测经 `core/execution.resolve_effective_execution` 合并  
 `DEFAULT → Spec → paper.rules → 请求 → channel runtime_defaults`，禁止入口各自硬编码 `direction` / `path_mode`。  
 Web：`GET/POST /api/paper/execution` · `GET .../diff` · `POST .../reset` · 交易执行页规则卡与账户覆盖表单 · 策略晋升回显做 T 摘要。  
 耦合：`coupling.t0_vs_stance` = `independent` | `skip_if_avoid` | `only_if_hold`（纸面预演按持仓 stance 跳过）。
+
+**自动做 T 落账（Web Worker）**：Follow 页 Worker = 本 Web 进程内后台线程，**5 分钟轮询 + 5m 盯盘**（与 K 线周期对齐；分钟线 `use_cache` TTL ≈5min，无新 bar 跳过打网；交易时段内触达即落账，不再日终整段回放）；开关写 `data/t0_auto_worker.json`，状态写 `data/t0_intraday_state.json`，并同步 `paper.rules.t0_auto.enabled`。  
+API：`GET/POST /api/paper/t0/worker`（启停 + 状态）· `GET /api/paper/t0/auto`（`last_run` 只读轮询）。  
+手动补跑：Follow「手动预演 / 手动落账」· `POST /api/paper/t0`（不依赖 Worker）。`run_web.py` lifespan 启动时若 worker 开关为 ON 则自动 restore；进程退出 stop。  
+外部 cron 仍可用 `schedule_jobs.run_paper_t0`；`paper_daily` 链式触发需 `t0_auto.enabled` 且 `schedule=with_paper_daily`（UI 已移除 schedule 下拉，默认 `after_close`）。
 ---
 
 ## 黑盒工厂直觉

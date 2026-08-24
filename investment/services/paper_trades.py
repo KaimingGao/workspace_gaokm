@@ -6,8 +6,9 @@ import logging
 logger = logging.getLogger(__name__)
 import copy
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
+from core.paper.ledger import _now_iso
 from core.paper import (
     append_operation_log,
     append_snapshot,
@@ -18,6 +19,207 @@ from core.paper import (
     paper_write_lock,
     save_paper,
 )
+
+
+def _default_t0_auto() -> Dict[str, Any]:
+    return {
+        "enabled": False,
+        "schedule": "after_close",
+        "last_run": None,
+    }
+
+
+def _normalize_t0_auto(raw: Optional[dict]) -> Dict[str, Any]:
+    base = _default_t0_auto()
+    if not isinstance(raw, dict):
+        return base
+    out = dict(base)
+    if "enabled" in raw:
+        out["enabled"] = bool(raw.get("enabled"))
+    sched = str(raw.get("schedule") or "").strip()
+    if sched in ("after_close", "with_paper_daily"):
+        out["schedule"] = sched
+    lr = raw.get("last_run")
+    if isinstance(lr, dict):
+        out["last_run"] = {
+            "ts": lr.get("ts"),
+            "ok": lr.get("ok"),
+            "trade_count": lr.get("trade_count"),
+            "pnl_total": lr.get("pnl_total"),
+            "skip_count": lr.get("skip_count"),
+            "source": lr.get("source"),
+            "note": lr.get("note"),
+            "error": lr.get("error"),
+            "session_date": lr.get("session_date"),
+            "rules": lr.get("rules") if isinstance(lr.get("rules"), dict) else None,
+            "results": lr.get("results") if isinstance(lr.get("results"), list) else None,
+        }
+        if "skip_count" in lr:
+            out["last_run"]["skip_count"] = lr.get("skip_count")
+    return out
+
+
+def _compact_t0_result_rows(results: Optional[list]) -> List[dict]:
+    """落账 last_run 存档：保留成交表所需字段，去掉冗余 bulk。"""
+    from core.t0.viz import classify_t0_skip_reason
+
+    keys = (
+        "stock_code",
+        "stock_name",
+        "date",
+        "skipped",
+        "reason",
+        "signal_skip",
+        "skip_category",
+        "success",
+        "error",
+        "direction_used",
+        "direction_score",
+        "direction_reason",
+        "direction_features",
+        "scores",
+        "pnl",
+        "exposure_pnl",
+        "sold_qty",
+        "bought_qty",
+        "covered_qty",
+        "sold_back_qty",
+        "touch_sell_at",
+        "touch_buy_at",
+        "touch_cover_at",
+        "path_mode",
+        "minute_path",
+        "intraday_path",
+        "cover_policy",
+        "must_cover_same_day",
+    )
+    out: List[dict] = []
+    for raw in results or []:
+        if not isinstance(raw, dict):
+            continue
+        row = {k: raw[k] for k in keys if k in raw}
+        if raw.get("direction_used") and "direction" not in row:
+            row["direction"] = raw.get("direction_used")
+        if row.get("skipped") and not row.get("skip_category"):
+            row["skip_category"] = classify_t0_skip_reason(str(raw.get("reason") or ""))
+        legs = []
+        for t in raw.get("trades") or []:
+            if not isinstance(t, dict):
+                continue
+            leg = {k: t[k] for k in ("side", "price", "shares", "at") if k in t}
+            if leg:
+                legs.append(leg)
+        if legs:
+            row["trades"] = legs
+        out.append(row)
+    return out
+
+
+def _t0_rules_from_result(result: dict) -> Dict[str, Any]:
+    exe = result.get("execution") if isinstance(result.get("execution"), dict) else {}
+    t0 = exe.get("t0") if isinstance(exe.get("t0"), dict) else {}
+    return dict(t0)
+
+
+def _t0_session_date_from_result(result: dict) -> Optional[str]:
+    for row in result.get("results") or []:
+        if isinstance(row, dict) and row.get("date"):
+            return str(row["date"])[:10]
+    return None
+
+
+def _t0_auto_from_paper(paper: dict) -> Dict[str, Any]:
+    rules = paper.get("rules") if isinstance(paper.get("rules"), dict) else {}
+    return _normalize_t0_auto((rules or {}).get("t0_auto"))
+
+
+def _results_with_trades_only(results: Optional[list]) -> List[dict]:
+    out: List[dict] = []
+    for raw in results or []:
+        if not isinstance(raw, dict):
+            continue
+        if raw.get("skipped"):
+            continue
+        if not (raw.get("trades") or []):
+            continue
+        out.append(raw)
+    return out
+
+
+def _merge_t0_result_rows(
+    prev: Optional[list],
+    new_rows: List[dict],
+    *,
+    session_date: Optional[str],
+    prev_session: Optional[str],
+) -> List[dict]:
+    """同日合并 per-stock 快照；新 session 则替换。"""
+    if session_date and prev_session and str(session_date) != str(prev_session):
+        base: Dict[str, dict] = {}
+    else:
+        base = {
+            str(r.get("stock_code") or ""): r
+            for r in (prev or [])
+            if isinstance(r, dict) and r.get("stock_code")
+        }
+    for row in new_rows or []:
+        code = str(row.get("stock_code") or "")
+        if code:
+            base[code] = row
+    return list(base.values())
+
+
+def _summarize_t0_trade_results(rows: Optional[list]) -> Tuple[int, float]:
+    legs = 0
+    pnl = 0.0
+    for r in rows or []:
+        if not isinstance(r, dict):
+            continue
+        legs += len(r.get("trades") or [])
+        if r.get("pnl") is not None:
+            pnl += float(r.get("pnl") or 0)
+    return legs, round(pnl, 2)
+
+
+def _write_t0_auto_last_run(paper: dict, *, result: dict, source: str) -> None:
+    """写入 last_run；仅在有买/卖腿时落明细（results 只含成交票）。"""
+    legs_in = list(result.get("trades") or [])
+    if not legs_in:
+        return
+    rules = dict(paper.get("rules") or {})
+    cfg = _normalize_t0_auto(rules.get("t0_auto"))
+    import time
+
+    sess = _t0_session_date_from_result(result) or result.get("session_date")
+    prev_lr = cfg.get("last_run") if isinstance(cfg.get("last_run"), dict) else {}
+    prev_sess = prev_lr.get("session_date")
+    trade_rows = _compact_t0_result_rows(
+        _results_with_trades_only(result.get("results"))
+    )
+    merged = _merge_t0_result_rows(
+        prev_lr.get("results"),
+        trade_rows,
+        session_date=sess,
+        prev_session=prev_sess,
+    )
+    if not merged:
+        return
+    trade_count, pnl_total = _summarize_t0_trade_results(merged)
+
+    cfg["last_run"] = {
+        "ts": time.time(),
+        "ok": bool(result.get("success", result.get("ok", True))),
+        "trade_count": trade_count,
+        "pnl_total": pnl_total,
+        "source": source,
+        "note": result.get("note"),
+        "error": result.get("error"),
+        "session_date": sess,
+        "rules": _t0_rules_from_result(result),
+        "results": merged,
+    }
+    rules["t0_auto"] = cfg
+    paper["rules"] = rules
 
 
 def _rebalance_report_from_legs(
@@ -491,8 +693,9 @@ class PaperTradesMixin:
                 base_out["note"] = "分池落账 · 复用预演目标簿"
         append_snapshot(work, summary)
         staged = fill_action == "staged"
+        deferred = fill_action in ("staged", "kept_pending")
         if use_cluster:
-            if not staged:
+            if not deferred:
                 append_trade_legs_to_operation_log(
                     work,
                     sell_trades,
@@ -501,7 +704,9 @@ class PaperTradesMixin:
                     source="follow",
                 )
             verb = "挂开盘单" if staged else (
-                "开盘成交" if fill_action.startswith("open_fill") else "调仓"
+                "保留挂单" if fill_action == "kept_pending" else (
+                    "开盘成交" if fill_action.startswith("open_fill") else "调仓"
+                )
             )
             append_operation_log(
                 work,
@@ -702,10 +907,11 @@ class PaperTradesMixin:
         *,
         rules: Optional[dict] = None,
         dry_run: bool = False,
+        log_source: str = "paper_t0",
+        skip_open_fill_gate: bool = False,
     ) -> Dict[str, Any]:
-        """纸面底仓做 T（日线 high/low 代理，非实盘）。
-
-        dry_run=True：只预演，不写账本。
+        """纸面底仓做 T（非实盘）。dry_run=True：只预演，不写账本。
+        仅 5m 第一触达；缺分钟线的票跳过（已删除日线模拟）。
         """
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
@@ -714,11 +920,11 @@ class PaperTradesMixin:
 
         paper = load_paper(self.path)
 
-        if not dry_run:
-            from core.paper.open_fill import is_next_open_mode
+        if not dry_run and not skip_open_fill_gate:
+            from core.paper.open_fill import require_open_fill
 
-            if is_next_open_mode(paper):
-                blocked = "next_open 模式不做盘中做 T；只在开盘窗成交隔夜调仓单。"
+            blocked = require_open_fill(paper, action="做 T")
+            if blocked:
                 return {
                     "ok": False,
                     "success": False,
@@ -834,8 +1040,14 @@ class PaperTradesMixin:
                     if isinstance(bar, dict) and bar.get("date"):
                         as_of = str(bar.get("date"))[:10]
                         break
+                # 用已拉取的日线即时算（开盘信息集）；不依赖分池簿/冻结账本
                 scores_by_code = load_scores_map_for_codes(
-                    codes, as_of=as_of, prefer_live_book=True
+                    codes,
+                    as_of=as_of,
+                    source=str(eff_t0.get("y_score_source") or "compute"),
+                    hist_bars_by_code=hist_bars_by_code or None,
+                    day_bars_by_code=bars_by_code or None,
+                    allow_fallback=True,
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("dual_y scores hydrate failed", exc_info=True)
@@ -852,13 +1064,321 @@ class PaperTradesMixin:
             stance_by_code=stance_by_code or None,
             coupling=bundle.get("coupling"),
             scores_by_code=scores_by_code or None,
+            log_source=str(log_source or "paper_t0"),
         )
         result["execution"] = execution_public_view(bundle)
         if dry_run:
             return {"ok": True, **result}
 
+        _write_t0_auto_last_run(paper, result=result, source=str(log_source or "paper_t0"))
+        try:
+            from core.t0.intraday import sync_intraday_state_from_full_run
+
+            sync_intraday_state_from_full_run(result.get("results"))
+        except Exception:  # noqa: BLE001
+            logger.debug("sync intraday state after simulate_t0 failed", exc_info=True)
+
         summary = mark_to_market(paper)
         append_snapshot(paper, summary)
         save_paper(paper, self.path)
         return {"ok": True, **result, "summary": summary}
+
+    def t0_auto_status(self) -> Dict[str, Any]:
+        if not os.path.isfile(self.path):
+            raise FileNotFoundError("请先初始化纸面账户")
+        paper = load_paper(self.path)
+        return {"ok": True, "t0_auto": _t0_auto_from_paper(paper)}
+
+    @staticmethod
+    def t0_worker_status() -> Dict[str, Any]:
+        from core.t0.auto_worker import t0_auto_worker
+
+        return {"ok": True, "worker": t0_auto_worker.status()}
+
+    def set_t0_worker(self, enabled: bool) -> Dict[str, Any]:
+        from core.t0.auto_worker import t0_auto_worker
+
+        on = bool(enabled)
+        out = t0_auto_worker.set_enabled(on)
+        if os.path.isfile(self.path):
+            saved = self.save_t0_auto({"enabled": on})
+            out["t0_auto"] = saved.get("t0_auto")
+        return {"ok": True, **out}
+
+    def save_t0_auto(self, patch: Optional[dict] = None) -> Dict[str, Any]:
+        if not os.path.isfile(self.path):
+            raise FileNotFoundError("请先初始化纸面账户")
+        patch = patch or {}
+        with paper_write_lock(self.path):
+            paper = load_paper(self.path)
+            rules = dict(paper.get("rules") or {})
+            cfg = _normalize_t0_auto(rules.get("t0_auto"))
+            if "enabled" in patch:
+                cfg["enabled"] = bool(patch.get("enabled"))
+            sched = str(patch.get("schedule") or "").strip()
+            if sched in ("after_close", "with_paper_daily"):
+                cfg["schedule"] = sched
+            rules["t0_auto"] = cfg
+            paper["rules"] = rules
+            paper["updated_at"] = _now_iso()
+            save_paper(paper, self.path)
+            saved = dict(cfg)
+        return {"ok": True, "t0_auto": saved, "message": "已保存自动做T配置"}
+
+    def run_t0_auto(
+        self,
+        *,
+        dry_run: bool = False,
+        force: bool = False,
+        skip_open_fill_gate: bool = False,
+    ) -> Dict[str, Any]:
+        """例行/立即自动做 T。force=True 时忽略 enabled 开关（仍受 open_fill 等门禁）。"""
+        if not os.path.isfile(self.path):
+            raise FileNotFoundError("请先初始化纸面账户")
+        paper = load_paper(self.path)
+        cfg = _t0_auto_from_paper(paper)
+        if not cfg.get("enabled") and not force and not dry_run:
+            return {
+                "ok": True,
+                "success": True,
+                "skipped": True,
+                "reason": "自动做T未启用",
+                "t0_auto": cfg,
+            }
+        src = "paper_t0_auto" if not dry_run else "paper_t0_preview"
+        out = self.simulate_t0(
+            dry_run=bool(dry_run),
+            log_source=src if not dry_run else "paper_t0",
+            skip_open_fill_gate=bool(skip_open_fill_gate),
+        )
+        out["t0_auto"] = _t0_auto_from_paper(load_paper(self.path)) if not dry_run else cfg
+        if dry_run:
+            out["skipped"] = False
+        return out
+
+    def run_t0_intraday_tick(
+        self,
+        *,
+        log_source: str = "paper_t0_auto",
+        skip_open_fill_gate: bool = True,
+        force_session_close: bool = False,
+    ) -> Dict[str, Any]:
+        """5m 盯盘增量落账：用截至当前的分钟线回放，新触达腿即时写账。"""
+        if not os.path.isfile(self.path):
+            raise FileNotFoundError("请先初始化纸面账户")
+        from core.data.facade import bars_and_source
+        from core.execution import execution_public_view, resolve_effective_execution, strip_execution_meta
+        from core.paper.tplus1 import sellable_shares as t1_sellable
+        from core.t0.config import T0_INTRADAY_MINUTE_CACHE_HOURS, T0_INTRADAY_MINUTE_LOOKBACK_DAYS
+        from core.t0.intraday import (
+            latest_minute_bar_ts,
+            load_intraday_state,
+            run_intraday_session_tick,
+            should_process_intraday_stock,
+        )
+        from core.t0.rules import atr_pct_from_bars
+
+        with paper_write_lock(self.path):
+            paper = load_paper(self.path)
+            if not skip_open_fill_gate:
+                from core.paper.open_fill import require_open_fill
+
+                blocked = require_open_fill(paper, action="做 T")
+                if blocked:
+                    return {"ok": False, "success": False, "error": blocked, "note": blocked}
+
+            holdings = paper.get("holdings") or []
+            if not holdings:
+                return {
+                    "ok": True,
+                    "success": True,
+                    "skipped": True,
+                    "reason": "无持仓",
+                    "trade_count": 0,
+                }
+
+            from core.market.calendar import resolve_session_date
+            from core.signal.session_pit import shanghai_now
+
+            sess = resolve_session_date(now=shanghai_now())
+            intraday_state = load_intraday_state()
+            stock_states = (
+                intraday_state.get("stocks")
+                if str(intraday_state.get("session_date") or "") == str(sess or "")
+                and isinstance(intraday_state.get("stocks"), dict)
+                else {}
+            )
+
+            bundle = resolve_effective_execution(
+                strategy=paper.get("strategy_id"),
+                paper=paper,
+                request_override=None,
+                channel="paper",
+                has_minute=True,
+            )
+            eff_t0 = strip_execution_meta(bundle["t0"])
+            period = str(eff_t0.get("minute_period") or "5")
+            coup_mode = str((bundle.get("coupling") or {}).get("t0_vs_stance") or "independent")
+
+            stance_by_code: Dict[str, Any] = {}
+            if coup_mode != "independent":
+                try:
+                    from core.paper import run_signal_scan
+                    from core.stance import compute_buy_stance
+
+                    codes = [str(h.get("stock_code")) for h in holdings if h.get("stock_code")]
+                    pool = run_signal_scan(paper, stock_codes=codes)
+                    for item in pool or []:
+                        c = str(item.get("stock_code") or "")
+                        if not c:
+                            continue
+                        st = compute_buy_stance(quote={"success": True}, signal_item=item)
+                        stance_by_code[c] = st.get("stance_code")
+                except Exception:  # noqa: BLE001
+                    logger.debug("intraday stance hydrate failed", exc_info=True)
+
+            holdings_ctx: List[dict] = []
+            hist_by_code: Dict[str, list] = {}
+            for h in holdings:
+                code = str(h.get("stock_code") or "")
+                if not code:
+                    continue
+                st0 = stock_states.get(code) if isinstance(stock_states.get(code), dict) else {}
+                if not force_session_close and str(st0.get("phase") or "") in ("done", "skipped"):
+                    continue
+                bars, _src = bars_and_source(code, limit=40)
+                if not bars:
+                    continue
+                bar = dict(bars[-1])
+                if len(bars) >= 2 and not bar.get("prev_close"):
+                    prev_c = float(bars[-2].get("close") or 0)
+                    if prev_c > 0:
+                        bar["prev_close"] = prev_c
+                hist_by_code[code] = bars[:-1]
+                minute_bars: List[dict] = []
+                try:
+                    from core.ports.market import fetch_minute_bars, group_minute_bars_by_date
+
+                    mbars, _meta = fetch_minute_bars(
+                        code,
+                        period=period,
+                        lookback_days=T0_INTRADAY_MINUTE_LOOKBACK_DAYS,
+                        use_cache=True,
+                        max_age_hours=T0_INTRADAY_MINUTE_CACHE_HOURS,
+                    )
+                    by_day = group_minute_bars_by_date(mbars) if mbars else {}
+                    day_key = str(bar.get("date") or "")[:10]
+                    if day_key and by_day.get(day_key):
+                        minute_bars = by_day[day_key]
+                    elif by_day:
+                        last_d = sorted(by_day.keys())[-1]
+                        minute_bars = by_day[last_d]
+                except Exception:  # noqa: BLE001
+                    logger.debug("intraday minute fetch failed for %s", code, exc_info=True)
+
+                latest_ts = latest_minute_bar_ts(minute_bars)
+                if not should_process_intraday_stock(
+                    st0,
+                    latest_ts,
+                    force_session_close=force_session_close,
+                ):
+                    continue
+
+                atr = atr_pct_from_bars(hist_by_code.get(code) or bars[:-1] or bars, 14)
+                scores = None
+                if str(eff_t0.get("direction") or "") == "dual_y":
+                    try:
+                        from core.t0.score_policy import load_scores_map_for_codes
+
+                        scores = load_scores_map_for_codes(
+                            [code],
+                            as_of=str(bar.get("date") or "")[:10] or None,
+                            source=str(eff_t0.get("y_score_source") or "compute"),
+                            hist_bars_by_code={code: hist_by_code.get(code) or []},
+                            day_bars_by_code={code: bar},
+                            allow_fallback=True,
+                        ).get(code)
+                    except Exception:  # noqa: BLE001
+                        scores = None
+
+                as_of = str(bar.get("date") or "")[:10]
+                sellable = t1_sellable(h, as_of=as_of or None)
+                holdings_ctx.append(
+                    {
+                        "code": code,
+                        "holding": h,
+                        "bar": bar,
+                        "minute_bars": minute_bars,
+                        "cfg": dict(eff_t0),
+                        "sellable": sellable,
+                        "atr_pct": atr,
+                        "hist_bars": hist_by_code.get(code),
+                        "scores": scores,
+                        "stance_code": stance_by_code.get(code),
+                        "coupling_mode": coup_mode,
+                    }
+                )
+
+            if not holdings_ctx:
+                return {
+                    "ok": True,
+                    "success": True,
+                    "skipped": True,
+                    "reason": "无新 5m K 线",
+                    "trade_count": 0,
+                }
+
+            capture_mark_snapshot(paper)
+            tick_out = run_intraday_session_tick(
+                paper,
+                holdings_ctx=holdings_ctx,
+                log_source=str(log_source or "paper_t0_auto"),
+            )
+            new_trades = tick_out.get("new_trades") or []
+            pnl_total = 0.0
+            for snap in tick_out.get("results") or []:
+                if isinstance(snap, dict) and snap.get("pnl") is not None and (snap.get("trades") or []):
+                    pnl_total += float(snap.get("pnl") or 0)
+
+            if new_trades:
+                traded_codes = {
+                    str(t.get("stock_code") or "")
+                    for t in new_trades
+                    if t.get("stock_code")
+                }
+                snap_rows = [
+                    r
+                    for r in (tick_out.get("results") or [])
+                    if isinstance(r, dict)
+                    and str(r.get("stock_code") or "") in traded_codes
+                    and (r.get("trades") or [])
+                ]
+                _write_t0_auto_last_run(
+                    paper,
+                    result={
+                        "success": True,
+                        "trades": new_trades,
+                        "session_date": tick_out.get("session_date"),
+                        "results": snap_rows,
+                        "execution": execution_public_view(bundle),
+                    },
+                    source=str(log_source or "paper_t0_auto"),
+                )
+
+            paper["updated_at"] = _now_iso()
+            summary = mark_to_market(paper)
+            append_snapshot(paper, summary)
+            save_paper(paper, self.path)
+
+        return {
+            "ok": True,
+            "success": True,
+            "skipped": not bool(new_trades),
+            "trade_count": len(new_trades),
+            "pnl_total": round(pnl_total, 2),
+            "skip_count": tick_out.get("skip_count"),
+            "session_date": tick_out.get("session_date"),
+            "t0_auto": _t0_auto_from_paper(load_paper(self.path)),
+            "note": "5m 盯盘落账" if new_trades else "5m 盯盘 · 无新成交",
+        }
 

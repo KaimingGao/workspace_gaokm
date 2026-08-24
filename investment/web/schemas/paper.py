@@ -66,7 +66,7 @@ class T0BacktestRequest(BaseModel):
     code: Optional[str] = None
     codes: Optional[list] = None
     from_paper: bool = True
-    lookback: int = Field(default=30, ge=20, le=500)
+    lookback: int = Field(default=10, ge=10, le=500)
     initial_shares: float = Field(default=1000, ge=100, le=100000)
     t0_ratio: float = Field(default=0.4, ge=0.05, le=1.0)
     sell_trigger_pct: float = Field(default=2.0, ge=0.1, le=20)
@@ -76,26 +76,55 @@ class T0BacktestRequest(BaseModel):
     direction: Optional[str] = Field(default=None, max_length=16)
     path_mode: Optional[str] = Field(default=None, max_length=16)
     dir_enter: Optional[float] = Field(
-        default=None, ge=0.05, le=1.0, description="signal 入场门槛 |score|；默认 0.35"
+        default=None,
+        ge=0.05,
+        le=1.0,
+        description="已废弃于 dual_y；仅旧 signal 选向 |score| 门槛（约 ±1），默认 0.35",
     )
     min_range_pct: Optional[float] = Field(
         default=None, ge=0.2, le=30.0, description="振幅下限%；空=自动 max(卖+买)*0.6"
     )
     compare_optimistic: bool = True
     use_minute: bool = True
-    compare_daily: bool = True
+    compare_daily: bool = False  # 已废弃：日线模拟已删除
     use_atr: Optional[bool] = None
-    y_trade_floor: Optional[float] = Field(default=None, ge=-5.0, le=5.0)
-    y_tau_enter: Optional[float] = Field(default=None, ge=0.05, le=5.0)
-    y_eod_prior: Optional[float] = Field(default=None, ge=0.05, le=5.0)
-    y_on_allow: Optional[float] = Field(default=None, ge=0.1, le=10.0)
+    y_trade_floor: Optional[float] = Field(
+        default=None, ge=0.0, le=5.0, description="dual_y：|y_trade|下限（收益百分点，预期日波动幅度）"
+    )
+    y_tau_enter: Optional[float] = Field(
+        default=None, ge=0.05, le=5.0, description="dual_y：|y_τ|入场门槛（收益百分点）"
+    )
+    y_eod_prior: Optional[float] = Field(
+        default=None, ge=0.05, le=5.0, description="dual_y：|y_eod|先验门槛（收益百分点）"
+    )
+    y_on_allow: Optional[float] = Field(
+        default=None, ge=0.1, le=10.0, description="dual_y：|y_on|隔夜放行门槛（收益百分点）"
+    )
     y_on_risk: Optional[float] = Field(default=None, ge=0.1, le=10.0)
     y_block_conflict: Optional[bool] = None
+    y_tau_map: Optional[str] = Field(
+        default=None, max_length=24, description="scalp|trend|fixed_long|fixed_reverse"
+    )
 
 
 class PaperT0Request(BaseModel):
     dry_run: bool = True
     confirm: bool = False
+
+
+class PaperT0AutoRequest(BaseModel):
+    enabled: Optional[bool] = None
+    schedule: Optional[str] = Field(
+        default=None,
+        description="cron 链式触发：after_close | with_paper_daily（Follow UI 已移除，默认 after_close）",
+    )
+    run_now: bool = Field(default=False, description="立即执行（落账）")
+    dry_run: bool = Field(default=False, description="run_now 时仅预演")
+    force: bool = Field(default=False, description="忽略 enabled 开关")
+
+
+class PaperT0WorkerRequest(BaseModel):
+    enabled: bool = Field(description="启动/停止 Web 内后台 worker")
 
 
 class PaperExecutionPatchRequest(BaseModel):
@@ -123,4 +152,10 @@ class PaperExecutionPatchRequest(BaseModel):
     y_on_allow: Optional[float] = None
     y_on_risk: Optional[float] = None
     y_block_conflict: Optional[bool] = None
+    y_tau_map: Optional[str] = Field(
+        default=None, max_length=24, description="scalp|trend|fixed_long|fixed_reverse"
+    )
+    y_score_source: Optional[str] = Field(
+        default=None, max_length=24, description="compute|live_book|ledger"
+    )
 

@@ -1,4 +1,4 @@
-"""底仓做 T 日线代理回测。"""
+"""底仓做 T 回测（仅 5m 第一触达；已删除日线模拟）。"""
 
 
 import logging
@@ -7,7 +7,23 @@ logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 from core.t0.config import load_t0_rules
-from core.t0.rules import atr_pct_from_bars, simulate_t0_day
+from core.t0.rules import _t0_qty_lots, atr_pct_from_bars, simulate_t0_day
+
+
+def _research_cash_for_reverse(
+    shares: float,
+    px: float,
+    *,
+    t0_ratio: float,
+    lot: int = 100,
+) -> float:
+    """反T研究现金：至少够买「抬手后」目标股数（小仓 100～200 股会抬到 1 手）。"""
+    if shares <= 0 or px <= 0:
+        return 0.0
+    lot_i = max(int(lot or 100), 1)
+    qty = _t0_qty_lots(shares, t0_ratio, lot_i, shares)
+    # 相对触发价略低，预留一点缓冲
+    return float(qty) * float(px) * 1.05
 
 
 def summarize_t0_day_legs(day: Dict[str, Any]) -> Dict[str, Any]:
@@ -46,6 +62,24 @@ def summarize_t0_day_legs(day: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+def _optimistic_delta_ratio_pct(
+    delta: float,
+    primary_pnl: float,
+    *,
+    trade_days: int = 0,
+) -> Optional[float]:
+    """乐观Δ占比；样本过薄或比值爆炸时返回 None（避免 -15→+15 显示 200%）。"""
+    if int(trade_days or 0) < 3:
+        return None
+    base = abs(float(primary_pnl or 0))
+    if base < 1e-9:
+        return None
+    ratio = float(delta) / base * 100.0
+    if abs(ratio) > 150.0:
+        return None
+    return round(ratio, 2)
+
+
 def derive_t0_quality_metrics(report: Dict[str, Any]) -> Dict[str, Any]:
     """从回测汇总字段推导决策向指标（单票 / 多持仓共用）。"""
     trades = int(report.get("t0_trade_days") or 0)
@@ -78,10 +112,9 @@ def derive_t0_quality_metrics(report: Dict[str, Any]) -> Dict[str, Any]:
     if isinstance(opt, dict) and opt.get("delta_pnl") is not None:
         delta = float(opt.get("delta_pnl") or 0)
         opt = dict(opt)
-        if abs(pnl) > 1e-9:
-            opt["delta_pnl_ratio_pct"] = round(delta / abs(pnl) * 100.0, 2)
-        else:
-            opt["delta_pnl_ratio_pct"] = None
+        opt["delta_pnl_ratio_pct"] = _optimistic_delta_ratio_pct(
+            delta, pnl, trade_days=trades
+        )
         out["optimistic_compare"] = opt
         out["optimistic_delta_ratio_pct"] = opt.get("delta_pnl_ratio_pct")
     return out
@@ -99,13 +132,25 @@ def backtest_t0_on_bars(
     compare_optimistic: bool = True,
     minute_by_date: Optional[Dict[str, List[dict]]] = None,
     compare_daily: bool = False,
+    require_minute: bool = False,
+    bars_history: Optional[List[dict]] = None,
+    eval_lookback: Optional[int] = None,
 ) -> Dict[str, Any]:
-    """Walk 日线：假设全程持有底仓，每日尝试做 T。
+    """Walk 底仓做 T。
 
     默认 fill_mode=trigger；可选附带 optimistic 上界对照。
-    minute_by_date：有则对应日走 5m 第一触达；缺分钟日回退日线 path_mode。
-    compare_daily：在有分钟覆盖时，另跑纯日线 veto 作对照。
+    仅 5m 第一触达；缺分钟覆盖日跳过（已删除日线模拟）。
+    ``bars`` = 评估窗内交易日；``bars_history``（可选）= 含 warmup 的全量日线，
+    供 dual_y / ATR 的 hist_prior，不改变评估窗长度。
+    compare_daily / require_minute 形参保留兼容；require_minute=True 且无 minute_by_date 时直接失败。
     """
+    _ = compare_daily  # 保留形参兼容旧调用
+    if require_minute and not minute_by_date:
+        return {
+            "success": False,
+            "error": "做T回测已删除日线模拟，需 5 分钟 K 线；请检查分钟源/缓存",
+            "task": "t0_backtest",
+        }
     explicit_path = isinstance(rules, dict) and "path_mode" in rules
     explicit_dir = isinstance(rules, dict) and "direction" in rules
     # 若调用方已传入经 resolve 的规则（含 direction/path），直接用；否则走 Execution resolve
@@ -122,7 +167,10 @@ def backtest_t0_on_bars(
             )
         )
     # 兼容：旧调用只传部分规则时，resolve 已补 direction/path
-    if not bars or len(bars) < 2:
+    if not bars:
+        return {"success": False, "error": "日线不足"}
+    history = list(bars_history or bars)
+    if len(history) < 2:
         return {"success": False, "error": "日线不足"}
 
     primary = _walk_t0(
@@ -134,6 +182,8 @@ def backtest_t0_on_bars(
         cost_config=cost_config,
         stock_code=stock_code,
         minute_by_date=minute_by_date,
+        require_minute=require_minute,
+        bars_history=history,
     )
     if not primary.get("success"):
         return primary
@@ -150,6 +200,8 @@ def backtest_t0_on_bars(
             cost_config=cost_config,
             stock_code=stock_code,
             minute_by_date=minute_by_date,
+            require_minute=require_minute,
+            bars_history=history,
         )
         if opt.get("success"):
             delta = round(
@@ -163,49 +215,27 @@ def backtest_t0_on_bars(
                 "t0_trade_days": opt.get("t0_trade_days"),
                 "exposure_pnl_total": opt.get("exposure_pnl_total"),
                 "delta_pnl": delta,
-                "delta_pnl_ratio_pct": (
-                    round(delta / abs(primary_pnl) * 100.0, 2) if abs(primary_pnl) > 1e-9 else None
+                "delta_pnl_ratio_pct": _optimistic_delta_ratio_pct(
+                    delta, primary_pnl, trade_days=int(opt.get("t0_trade_days") or primary.get("t0_trade_days") or 0)
                 ),
                 "note": "optimistic 为同规则上界对照（卖 high / 买 low）",
             }
 
-    if compare_daily and minute_by_date:
-        daily_rules = dict(cfg)
-        daily_rules["path_mode"] = "veto"
-        daily = _walk_t0(
-            bars,
-            initial_shares=initial_shares,
-            initial_cost=initial_cost,
-            initial_cash=initial_cash,
-            rules=daily_rules,
-            cost_config=cost_config,
-            stock_code=stock_code,
-            minute_by_date=None,
-        )
-        if daily.get("success"):
-            p_pnl = float(primary.get("t0_pnl_total") or 0)
-            d_pnl = float(daily.get("t0_pnl_total") or 0)
-            primary["daily_compare"] = {
-                "t0_pnl_total": daily.get("t0_pnl_total"),
-                "t0_trade_days": daily.get("t0_trade_days"),
-                "t0_cover_days": daily.get("t0_cover_days"),
-                "exposure_pnl_total": daily.get("exposure_pnl_total"),
-                "path_mode": "veto",
-                "delta_pnl": round(p_pnl - d_pnl, 2),
-                "note": "同窗日线 veto 对照；主结果为分钟第一触达（有覆盖日）",
-            }
-
     primary.update(derive_t0_quality_metrics(primary))
-    path_mode = cfg.get("path_mode") or "veto"
-    path_note = (
-        "有分钟日：5m 第一触达；缺分钟日回退日线 path_mode；"
-        if minute_by_date
-        else f"日线代理 path_mode={path_mode}；"
-    )
+    if bars_history is not None and len(history) > len(bars):
+        primary["eval_lookback"] = int(eval_lookback or len(bars))
+        primary["score_warmup_bars"] = max(0, len(history) - len(bars))
     primary["note"] = (
         "底仓做T回测；默认 trigger 成交；"
-        f"direction={cfg.get('direction')} · dir_enter={cfg.get('dir_enter')}；"
-        + path_note
+        f"direction={cfg.get('direction')} · y_tau_map={cfg.get('y_tau_map')} · "
+        f"y_score_source={cfg.get('y_score_source')} · "
+        f"y_tau_enter=±{cfg.get('y_tau_enter')}%；"
+        "仅 5m 第一触达（缺分钟日跳过，已删除日线模拟）；"
+        + (
+            f"评估窗 {len(bars)} 日 · 因子缓冲 {max(0, len(history) - len(bars))} 日；"
+            if bars_history is not None and len(history) > len(bars)
+            else ""
+        )
         + "T+1（正T卖旧买回 / 反T买新卖旧换仓）；非实盘、不保证收益。"
         "主指标看含敞口净PnL / 完成往返率 / 参与率 / 敞口。"
     )
@@ -222,8 +252,14 @@ def _walk_t0(
     cost_config: Optional[dict],
     stock_code: str,
     minute_by_date: Optional[Dict[str, List[dict]]] = None,
+    require_minute: bool = False,
+    bars_history: Optional[List[dict]] = None,
 ) -> Dict[str, Any]:
     cfg = load_t0_rules(rules)
+    history = list(bars_history or bars)
+    hist_index_by_date = {
+        str(b.get("date") or ""): i for i, b in enumerate(history) if b.get("date")
+    }
     shares = float(initial_shares)
     cost = float(initial_cost if initial_cost is not None else bars[0].get("close") or 0)
     if shares <= 0 or cost <= 0:
@@ -231,14 +267,16 @@ def _walk_t0(
 
     sellable = shares
     cash = float(initial_cash or 0)
-    # 反T / signal 可能需要现金：给一笔与底仓市值相当的研究现金
+    lot = max(int(cfg.get("lot_size") or 100), 1)
+    ratio = float(cfg.get("t0_ratio") or 0.4)
+    # 反T / dual_y：研究现金须覆盖「抬手后」目标股数（200×40%→抬到100股）
     if cash <= 0 and str(cfg.get("direction") or "auto") in {
         "auto",
         "reverse_t",
         "signal",
         "dual_y",
     }:
-        cash = shares * cost * float(cfg.get("t0_ratio") or 0.4)
+        cash = _research_cash_for_reverse(shares, cost, t0_ratio=ratio, lot=lot)
 
     days: List[dict] = []
     pnls: List[float] = []
@@ -255,65 +293,112 @@ def _walk_t0(
     long_cover = 0
     reverse_cover = 0
     minute_days = 0
-    daily_fallback_days = 0
+    missing_minute_days = 0
     atr_window = int(cfg.get("atr_window") or 14)
     hold_mv_start = round(shares * cost, 2)
-    fallback_cfg = dict(cfg)
-    if str(cfg.get("path_mode") or "") == "first_touch":
-        fallback_cfg["path_mode"] = "veto"
+    # 已删除日线模拟：无分钟覆盖的交易日一律跳过
+    if str(cfg.get("direction") or "") == "dual_y" and stock_code:
+        try:
+            from core.t0.score_policy import _scoring_models
+
+            _scoring_models()
+        except Exception:  # noqa: BLE001
+            logger.debug("t0 score model warm failed", exc_info=True)
 
     for i, bar in enumerate(bars):
+        dkey = str(bar.get("date") or "")
+        gi = hist_index_by_date.get(dkey, i if history is bars else None)
+        if gi is None:
+            skip_count += 1
+            days.append(
+                {
+                    "date": bar.get("date"),
+                    "skipped": True,
+                    "reason": "评估日不在因子历史索引",
+                    "skip_category": "missing_history",
+                    "shares": shares,
+                    "close": float(bar.get("close") or bar.get("open") or 0) or None,
+                    "pnl": 0,
+                    "exposure_pnl": 0,
+                    "signal_skip": False,
+                    "path_mode": "first_touch",
+                }
+            )
+            continue
         # signal/auto/reverse_t 需现金；每日补足研究用现金（防前日半腿耗尽）
         if str(cfg.get("direction") or "") in {"auto", "reverse_t", "signal", "dual_y"}:
             px = float(bar.get("close") or bar.get("open") or cost or 0)
             if px > 0 and shares > 0:
-                need = shares * px * float(cfg.get("t0_ratio") or 0.4)
-                if cash < need * 0.25:
+                need = _research_cash_for_reverse(shares, px, t0_ratio=ratio, lot=lot)
+                if cash < need * 0.95:
                     cash = max(cash, need)
         # auto/signal 依赖昨收；日线源未必带 prev_close
         bar_day = dict(bar)
-        if i > 0 and not bar_day.get("prev_close"):
-            prev_c = float(bars[i - 1].get("close") or 0)
+        if gi > 0 and not bar_day.get("prev_close"):
+            prev_c = float(history[gi - 1].get("close") or 0)
             if prev_c > 0:
                 bar_day["prev_close"] = prev_c
-        hist_incl = bars[: i + 1]
-        hist_prior = bars[:i]
+        hist_incl = history[: gi + 1]
+        hist_prior = history[:gi]
         atr = atr_pct_from_bars(hist_incl, atr_window) if cfg.get("use_atr") else None
         # ATR 用到当日会略宽；选向只用 hist_prior（无前视）
         atr_for_dir = atr_pct_from_bars(hist_prior, atr_window) if hist_prior else None
-        dkey = str(bar.get("date") or "")
         mins = None
         used_minute = False
         if minute_by_date and dkey:
             mins = minute_by_date.get(dkey)
             if mins and len(mins) >= 2:
                 used_minute = True
-        day_rules = cfg if used_minute else fallback_cfg
+
+        if not used_minute:
+            missing_minute_days += 1
+            skip_count += 1
+            days.append(
+                {
+                    "date": bar.get("date"),
+                    "skipped": True,
+                    "reason": "缺分钟线，跳过（已删除日线模拟）",
+                    "skip_category": "missing_minute",
+                    "shares": shares,
+                    "close": float(bar.get("close") or bar.get("open") or 0) or None,
+                    "pnl": 0,
+                    "exposure_pnl": 0,
+                    "signal_skip": False,
+                    "path_mode": "first_touch",
+                }
+            )
+            continue
+
         score_snap = None
         if str(cfg.get("direction") or "") == "dual_y" and stock_code and dkey:
-            from core.t0.score_policy import load_scores_for_code_date
+            from core.t0.score_policy import resolve_scores_for_code, resolve_y_score_source
 
-            # 用 T−1 账本（as_of=昨收日）避免当日收盘后才有的 ŷ 前视
-            prior_asof = str(bars[i - 1].get("date") or "")[:10] if i > 0 else dkey[:10]
-            score_snap = load_scores_for_code_date(stock_code, prior_asof or dkey[:10])
+            src = resolve_y_score_source(cfg)
+            score_snap = resolve_scores_for_code(
+                stock_code,
+                hist_bars=hist_prior,
+                day_bar=bar_day,
+                source=src,
+                fuse_intraday=True,
+                allow_fallback=(src != "compute"),
+                as_of=str(history[gi - 1].get("date") or "")[:10] if gi > 0 else dkey[:10],
+            )
         day = simulate_t0_day(
             bar=bar_day,
             shares=shares,
             cost=cost,
             sellable_shares=sellable,
-            rules=day_rules,
+            rules=cfg,
             cost_config=cost_config,
             stock_code=stock_code,
             cash=cash,
             atr_pct=atr if atr is not None else atr_for_dir,
             hist_bars=hist_prior,
-            minute_bars=mins if used_minute else None,
+            minute_bars=mins,
             scores=score_snap,
         )
         if used_minute:
             minute_days += 1
-        elif minute_by_date is not None:
-            daily_fallback_days += 1
         if day.get("skipped"):
             skip_count += 1
             if day.get("signal_skip"):
@@ -328,6 +413,7 @@ def _walk_t0(
                     "reason": day.get("reason"),
                     "skip_category": classify_t0_skip_reason(skip_reason),
                     "shares": shares,
+                    "close": float(bar.get("close") or bar.get("open") or 0) or None,
                     "pnl": 0,
                     "exposure_pnl": 0,
                     "direction_score": day.get("direction_score"),
@@ -392,6 +478,7 @@ def _walk_t0(
                 "pnl": day_pnl,
                 "exposure_pnl": day.get("exposure_pnl") or 0,
                 "shares": shares,
+                "close": float(bar.get("close") or bar.get("open") or 0) or None,
                 "fill_mode": day.get("fill_mode"),
                 "atr_pct": day.get("atr_pct"),
                 "direction_score": day.get("direction_score"),
@@ -437,6 +524,7 @@ def _walk_t0(
         stock_code=str(stock_code or ""),
         stock_name="",
         rules=cfg,
+        initial_shares=initial_shares,
     )
     report: Dict[str, Any] = {
         "success": True,
@@ -461,7 +549,7 @@ def _walk_t0(
         "long_t_cover_days": long_cover,
         "reverse_t_cover_days": reverse_cover,
         "minute_path_days": minute_days,
-        "daily_fallback_days": daily_fallback_days,
+        "missing_minute_days": missing_minute_days,
         "t0_pnl_total": total_pnl,
         "exposure_pnl_total": exposure_total,
         "t0_pnl_with_exposure": round(total_pnl + exposure_total, 2),
@@ -478,7 +566,6 @@ def _walk_t0(
             "direction": cfg["direction"],
             "path_mode": cfg.get("path_mode"),
             "minute_period": cfg.get("minute_period"),
-            "dir_enter": cfg.get("dir_enter"),
             "min_range_pct": cfg.get("min_range_pct"),
             "use_atr": cfg.get("use_atr"),
             "ref": cfg.get("ref"),
@@ -488,6 +575,8 @@ def _walk_t0(
             "y_on_risk": cfg.get("y_on_risk"),
             "y_on_allow": cfg.get("y_on_allow"),
             "y_block_conflict": cfg.get("y_block_conflict"),
+            "y_tau_map": cfg.get("y_tau_map"),
+            "y_score_source": cfg.get("y_score_source"),
         },
         "days": days[-30:],
         # 成交样本：不限于最近 30 根日历日（避免近期全跳过时误以为全程无成交）

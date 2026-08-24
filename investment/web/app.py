@@ -7,6 +7,8 @@ logger = logging.getLogger(__name__)
 import os
 import sys
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
@@ -59,10 +61,34 @@ _evals = deps.evals
 _daily = deps.daily
 _quant = deps.quant
 
+@asynccontextmanager
+async def _app_lifespan(app: FastAPI):
+    try:
+        from core.paths import PAPER_PATH
+        from core.t0.auto_worker import _load_enabled_flag, t0_auto_worker
+        from services.paper_service import PaperService
+
+        if _load_enabled_flag():
+            try:
+                PaperService(PAPER_PATH).set_t0_worker(True)
+            except FileNotFoundError:
+                t0_auto_worker.restore()
+    except Exception:  # noqa: BLE001
+        logger.debug("t0 auto worker restore skipped", exc_info=True)
+    yield
+    try:
+        from core.t0.auto_worker import t0_auto_worker
+
+        t0_auto_worker.stop()
+    except Exception:  # noqa: BLE001
+        logger.debug("t0 auto worker shutdown skipped", exc_info=True)
+
+
 app = FastAPI(
     title="QuantLab · 量化交易",
     description="QuantLab 量化交易 Web（融合 AI）：业务模块 + 全局 AI 命令",
     version="0.1.0",
+    lifespan=_app_lifespan,
 )
 
 app.include_router(meta.router)

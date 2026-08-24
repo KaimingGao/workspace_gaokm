@@ -487,7 +487,9 @@ class TestScoreLedger(unittest.TestCase):
                 "note": "下调",
             },
         ):
-            out = freeze_from_cluster_book(as_of="2026-08-12", book_doc=book)
+            out = freeze_from_cluster_book(
+                as_of="2026-08-12", book_doc=book, force=True
+            )
             self.assertTrue(out["success"])
             self.assertEqual(out["as_of"], "2026-08-11")
             led = load_ledger("2026-08-11")
@@ -522,7 +524,7 @@ class TestScoreLedger(unittest.TestCase):
                 "note": "按因子截止日 2026-08-18 冻结",
             },
         ):
-            out = freeze_from_cluster_book(book_doc=book)
+            out = freeze_from_cluster_book(book_doc=book, force=True)
             self.assertTrue(out["success"])
             self.assertEqual(out["as_of"], "2026-08-18")
             self.assertEqual(out.get("skipped_newer"), "2026-08-19")
@@ -572,7 +574,7 @@ class TestScoreLedger(unittest.TestCase):
                 "note": None,
             },
         ):
-            out = freeze_from_cluster_book(as_of="2026-08-12", book_doc=book)
+            out = freeze_from_cluster_book(as_of="2026-08-12", book_doc=book, force=True)
             self.assertTrue(out["success"])
             self.assertEqual(out["n_rows"], 2)
             led = load_ledger("2026-08-11")
@@ -652,7 +654,7 @@ class TestScoreLedger(unittest.TestCase):
             side_effect=lambda d, n=1, **kw: "2026-08-06",
         ):
             fr = freeze_from_tau_shadow_book(
-                as_of="2026-08-05", shadow_doc=shadow_doc
+                as_of="2026-08-05", shadow_doc=shadow_doc, force=True
             )
             self.assertTrue(fr["success"])
             mem = load_tau_shadow_membership("2026-08-05")
@@ -762,7 +764,7 @@ class TestScoreLedger(unittest.TestCase):
             side_effect=lambda d, n=1, **kw: "2026-08-06",
         ):
             fr = freeze_from_nowcast_shadow_book(
-                as_of="2026-08-05", shadow_doc=shadow_doc
+                as_of="2026-08-05", shadow_doc=shadow_doc, force=True
             )
             self.assertTrue(fr["success"])
             mem = load_nowcast_shadow_membership("2026-08-05")
@@ -917,6 +919,109 @@ class TestScoreLedger(unittest.TestCase):
             led1 = load_ledger("2026-08-10")
             self.assertAlmostEqual(led1["rows"][0]["yhat_tau"], 0.33)
             self.assertTrue(led1["meta"].get("yhat_tau_hydrated"))
+
+
+class TestLedgerFreezeGate(unittest.TestCase):
+    def test_auto_freeze_skipped_intraday(self):
+        from datetime import datetime, timezone, timedelta
+        from core.score_ledger.asof import session_allows_ledger_freeze
+
+        cn = timezone(timedelta(hours=8))
+        noon = datetime(2026, 8, 24, 11, 0, tzinfo=cn)
+        with patch(
+            "core.market.calendar.resolve_session_date", return_value="2026-08-24"
+        ), patch(
+            "core.signal.session_pit.shanghai_now", return_value=noon
+        ):
+            gate = session_allows_ledger_freeze(auto=True)
+            self.assertFalse(gate["ok"])
+            self.assertIn("盘中", gate.get("reason") or "")
+
+    def test_auto_freeze_ok_after_close(self):
+        from datetime import datetime, timezone, timedelta
+        from core.score_ledger.asof import session_allows_ledger_freeze
+
+        cn = timezone(timedelta(hours=8))
+        after = datetime(2026, 8, 24, 16, 0, tzinfo=cn)
+        with patch(
+            "core.market.calendar.resolve_session_date", return_value="2026-08-24"
+        ), patch(
+            "core.signal.session_pit.shanghai_now", return_value=after
+        ):
+            gate = session_allows_ledger_freeze(auto=True)
+            self.assertTrue(gate["ok"])
+
+    def test_historical_as_of_ok_intraday(self):
+        from datetime import datetime, timezone, timedelta
+        from core.score_ledger.asof import session_allows_ledger_freeze
+
+        cn = timezone(timedelta(hours=8))
+        noon = datetime(2026, 8, 24, 11, 0, tzinfo=cn)
+        with patch(
+            "core.market.calendar.resolve_session_date", return_value="2026-08-24"
+        ), patch(
+            "core.signal.session_pit.shanghai_now", return_value=noon
+        ):
+            gate = session_allows_ledger_freeze(as_of="2026-08-21", auto=False)
+            self.assertTrue(gate["ok"])
+
+    def test_infer_feature_as_of_skips_incomplete_session_bar(self):
+        from datetime import datetime, timezone, timedelta
+        from core.score_ledger.asof import infer_feature_as_of
+
+        cn = timezone(timedelta(hours=8))
+        noon = datetime(2026, 8, 24, 11, 0, tzinfo=cn)
+        dates = ["2026-08-24", "2026-08-24", "2026-08-21", "2026-08-21"]
+
+        def fake_last(code):
+            return dates.pop(0) if dates else None
+
+        with patch(
+            "core.market.calendar.resolve_session_date", return_value="2026-08-24"
+        ), patch(
+            "core.signal.session_pit.asof_session_final", return_value=False
+        ), patch(
+            "core.score_ledger.asof._last_bar_date_for_code", side_effect=fake_last
+        ):
+            out = infer_feature_as_of(codes=["a", "b", "c", "d"])
+            self.assertEqual(out, "2026-08-21")
+
+    def test_cluster_auto_skip_does_not_write(self):
+        from datetime import datetime, timezone, timedelta
+        from core.score_ledger import freeze_from_cluster_book, load_ledger
+        import tempfile
+        import os
+
+        cn = timezone(timedelta(hours=8))
+        noon = datetime(2026, 8, 24, 11, 0, tzinfo=cn)
+        book = {
+            "updated_at": "2026-08-24T03:00:00Z",
+            "book": [{"stock_code": "600519", "predicted_score": 1.2}],
+            "meta": {"version": 1},
+        }
+        with tempfile.TemporaryDirectory() as td:
+            with patch(
+                "core.score_ledger.io.ledger_dir", return_value=td
+            ), patch(
+                "core.market.calendar.resolve_session_date", return_value="2026-08-24"
+            ), patch(
+                "core.signal.session_pit.shanghai_now", return_value=noon
+            ), patch(
+                "core.score_ledger.freeze.resolve_freeze_as_of",
+                return_value={
+                    "as_of": "2026-08-21",
+                    "session_date": "2026-08-24",
+                    "prev_trading_day": "2026-08-21",
+                    "feature_as_of": "2026-08-21",
+                    "requested_as_of": None,
+                    "remapped": False,
+                    "note": "按因子截止日",
+                },
+            ):
+                out = freeze_from_cluster_book(book_doc=book, auto=True)
+                self.assertTrue(out.get("skipped"))
+                self.assertFalse(out.get("success"))
+                self.assertTrue(load_ledger("2026-08-21").get("empty"))
 
 
 if __name__ == "__main__":

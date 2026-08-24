@@ -81,7 +81,7 @@ class PaperJobsMixin:
             sells = result.get("sell_trades") or []
             fill_action = str(result.get("fill_action") or "immediate")
             staged = fill_action == "staged"
-            if not staged:
+            if fill_action not in ("staged", "kept_pending"):
                 for t in buys:
                     fee_meta = fee_fields_from_trade(t)
                     append_operation_log(
@@ -127,7 +127,9 @@ class PaperJobsMixin:
                     )
             if buys or sells:
                 verb = "挂开盘单" if staged else (
-                    "开盘成交" if fill_action.startswith("open_fill") else "调仓"
+                    "保留挂单" if fill_action == "kept_pending" else (
+                        "开盘成交" if fill_action.startswith("open_fill") else "调仓"
+                    )
                 )
                 append_operation_log(
                     paper, "rebalance",

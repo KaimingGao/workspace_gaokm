@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from core.data.policy import MINUTE_CACHE_HOURS
 from core.numbers import to_float as _to_float
@@ -75,6 +75,25 @@ def group_minute_bars_by_date(bars: List[dict]) -> Dict[str, List[dict]]:
     return dict(out)
 
 
+def _load_stale_minute(
+    market: str, bare: str, period: str, *, min_bars: int = 10
+) -> Optional[Tuple[List[dict], Dict[str, Any]]]:
+    """忽略 TTL 读本地分钟缓存（网络失败 / 研究兜底）。"""
+    packed = load_minute_cache(
+        market, bare, period, min_bars=min_bars, max_age_hours=0, ignore_age=True
+    )
+    if not packed:
+        return None
+    bars, meta = packed
+    meta = dict(meta)
+    meta["ok"] = True
+    meta["from_cache"] = True
+    meta["cache_stale"] = True
+    src = meta.get("data_source") or "cache"
+    meta["data_source"] = f"cache:stale:{src}"
+    return bars, meta
+
+
 def fetch_a_minute_bars(
     code: str,
     *,
@@ -87,6 +106,7 @@ def fetch_a_minute_bars(
     """拉取 A 股分钟线；失败返回空列表。
 
     period: "1"|"5"|"15"|"30"|"60"
+    远端失败时回退本地过期缓存（与日线 fetch 一致），避免做T回测整批挂死。
     """
     market, bare = resolve_market_code(code)
     if market != "CN" or not bare:
@@ -110,6 +130,7 @@ def fetch_a_minute_bars(
             meta["ok"] = True
             return bars, meta
 
+    from core.http_retry import call_with_retry
     from skills.common.ak_lock import import_akshare
 
     ak = import_akshare()
@@ -125,16 +146,33 @@ def fetch_a_minute_bars(
 
     adj = "" if period == "1" else (adjust or "qfq")
     try:
-        df = ak.stock_zh_a_hist_min_em(
-            symbol=bare,
-            start_date=start_s,
-            end_date=end_s,
-            period=period,
-            adjust=adj,
-        )
+        def _once():
+            return ak.stock_zh_a_hist_min_em(
+                symbol=bare,
+                start_date=start_s,
+                end_date=end_s,
+                period=period,
+                adjust=adj,
+            )
+
+        df = call_with_retry(_once, retries=2, base_delay_sec=0.6, max_delay_sec=5.0)
     except Exception as e:
-        logger.exception('unexpected error in fetch_a_minute_bars')
-        return [], {"data_source": "empty", "error": str(e), "period": period}
+        logger.warning(
+            "fetch_a_minute_bars remote failed %s period=%s: %s", bare, period, e
+        )
+        if use_cache:
+            stale = _load_stale_minute(market, bare, period)
+            if stale:
+                bars, meta = stale
+                meta["remote_error"] = str(e)
+                meta["period"] = period
+                return bars, meta
+        return [], {
+            "data_source": "empty",
+            "error": str(e),
+            "period": period,
+            "hint": "东财分钟源断开；可先跑分钟预热或稍后重试",
+        }
 
     records = df.to_dict(orient="records") if df is not None and hasattr(df, "to_dict") else []
     bars = normalize_minute_bars(records)
@@ -171,6 +209,14 @@ def fetch_a_minute_bars(
             )
             meta["bar_count"] = len(bars)
             meta["cached"] = True
+    elif use_cache:
+        # 远端空结果也尽量用本地过期缓存，避免整批做T回测失败
+        stale = _load_stale_minute(market, bare, period)
+        if stale:
+            bars, meta = stale
+            meta["remote_empty"] = True
+            meta["period"] = period
+            return bars, meta
     return bars, meta
 
 

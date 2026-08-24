@@ -606,6 +606,7 @@ class PaperAccountMixin:
             "sell",
             "rebalance",
             "cluster_pool_rebalance",
+            "t0_batch",
             "sync_paper",
         }
         fund_types = {"init", "deposit", "withdraw", "reset"}

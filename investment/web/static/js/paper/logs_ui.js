@@ -11,6 +11,7 @@ function typeCls(t) {
     sell: "is-sell",
     rebalance: "is-rebalance",
     cluster_pool_rebalance: "is-cluster",
+    t0_batch: "is-rebalance",
     sync_paper: "is-sync",
     init: "is-init",
   };
@@ -66,7 +67,9 @@ function fmtLogPrice(v) {
 
 function originLabelOf(l) {
   const meta = l.meta || {};
+  const source = String(meta.source || "").trim();
   const origin = String(meta.origin || "").trim();
+  if (origin === "t0" && source === "paper_t0_auto") return "做T·自动";
   if (origin === "manual") return "手动";
   if (origin === "t0") return "做T";
   if (origin === "strategy") return "策略";
@@ -75,11 +78,45 @@ function originLabelOf(l) {
   const detail = String(l.detail || "");
   if (detail.includes("[调仓]")) return "策略";
   if (l.type === "sync_paper") return "观察建仓";
+  if (l.type === "t0_batch") return source === "paper_t0_auto" ? "做T·自动" : "做T";
   if (l.type === "cluster_pool_rebalance") return "研究枢纽";
   if (l.type === "rebalance") return "策略汇总";
   if (meta.cluster_mode || meta.source === "research_hub") return "研究枢纽";
   if (l.type === "buy" || l.type === "sell") return "手动";
   return "";
+}
+
+export function logMatchesTradingFilter(l, filter) {
+  const f = String(filter || "all").trim() || "all";
+  if (f === "all") return true;
+  const meta = l.meta || {};
+  const origin = String(meta.origin || "").trim();
+  const source = String(meta.source || "").trim();
+  const type = String(l.type || "");
+  const detail = String(l.detail || "");
+  if (f === "manual") {
+    if (type === "sync_paper") return false;
+    if (type === "rebalance" || type === "cluster_pool_rebalance" || type === "t0_batch") return false;
+    if (origin === "t0" || origin === "strategy" || origin === "cluster") return false;
+    if (detail.includes("[调仓]") || detail.startsWith("做T")) return false;
+    return type === "buy" || type === "sell" || origin === "manual" || !origin;
+  }
+  if (f === "strategy") {
+    return (
+      type === "rebalance" ||
+      type === "cluster_pool_rebalance" ||
+      origin === "strategy" ||
+      origin === "cluster" ||
+      detail.includes("[调仓]")
+    );
+  }
+  if (f === "t0") {
+    return origin === "t0" || type === "t0_batch" || detail.includes("做T");
+  }
+  if (f === "sync") {
+    return type === "sync_paper";
+  }
+  return true;
 }
 
 function renderLogItem(l, { tradeCols = false } = {}) {
@@ -126,18 +163,26 @@ function renderLogItem(l, { tradeCols = false } = {}) {
 
   let primary = "";
   let secondaryParts = [];
-  if (l.type === "rebalance" || l.type === "cluster_pool_rebalance") {
+  if (l.type === "rebalance" || l.type === "cluster_pool_rebalance" || l.type === "t0_batch") {
     const buyN = meta.buy_count != null ? Number(meta.buy_count) : NaN;
     const sellN = meta.sell_count != null ? Number(meta.sell_count) : NaN;
+    const tradeN = meta.trade_count != null ? Number(meta.trade_count) : NaN;
     const strategy = String(meta.strategy || "").trim();
     const ver =
       meta.cluster_version != null && meta.cluster_version !== ""
         ? `v${meta.cluster_version}`
         : "";
-    primary =
-      Number.isFinite(buyN) || Number.isFinite(sellN)
-        ? `买入 ${Number.isFinite(buyN) ? buyN : 0} 笔 · 卖出 ${Number.isFinite(sellN) ? sellN : 0} 笔`
-        : String(l.detail || (l.type === "cluster_pool_rebalance" ? "分池调仓" : "策略调仓"));
+    if (l.type === "t0_batch") {
+      primary = String(l.detail || "做T汇总");
+    } else {
+      primary =
+        Number.isFinite(buyN) || Number.isFinite(sellN)
+          ? `买入 ${Number.isFinite(buyN) ? buyN : 0} 笔 · 卖出 ${Number.isFinite(sellN) ? sellN : 0} 笔`
+          : String(l.detail || (l.type === "cluster_pool_rebalance" ? "分池调仓" : "策略调仓"));
+    }
+    if (Number.isFinite(tradeN) && l.type === "t0_batch") {
+      secondaryParts.push(`${tradeN} 笔`);
+    }
     if (ver) secondaryParts.push(ver);
     if (strategy) secondaryParts.push(strategy);
     if (origin) secondaryParts.push(origin);
@@ -390,24 +435,28 @@ export function buildPaperLogsCsv(logs, { tradingOnly = true } = {}) {
   return lines.join("\n");
 }
 
-export function buildPaperLogsView(data, showAllState) {
+export function buildPaperLogsView(data, showAllState, logFilter = "all") {
   const logs = (data && data.operation_log) || [];
   const tradingTypes = new Set([
     "buy",
     "sell",
     "rebalance",
     "cluster_pool_rebalance",
+    "t0_batch",
     "sync_paper",
   ]);
   const fundTypes = new Set(["init", "deposit", "withdraw", "reset"]);
-  const tradingLogs = logs.filter((l) => tradingTypes.has(l.type));
+  const tradingLogsAll = logs.filter((l) => tradingTypes.has(l.type));
+  const tradingLogs = tradingLogsAll.filter((l) => logMatchesTradingFilter(l, logFilter));
   const fundLogs = logs.filter((l) => fundTypes.has(l.type));
   return {
     tradingHtml: renderLogs(tradingLogs, "trading", showAllState),
     fundHtml: renderLogs(fundLogs, "fund", showAllState),
     hasFundLogs: fundLogs.length > 0,
     tradingCount: tradingLogs.length,
+    tradingCountAll: tradingLogsAll.length,
     tradingLogs,
+    tradingLogsAll,
     allLogs: logs,
   };
 }
