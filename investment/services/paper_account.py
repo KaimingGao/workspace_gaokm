@@ -59,11 +59,18 @@ class PaperAccountMixin:
                 return svc.pack_holding_row(item, cluster_mode=cluster_mode)
 
             score_by_code: Dict[str, Any] = {}
+            book_codes: set = set()
             # 1) 分池簿快路径（持仓几乎都在 scored_all 里）
             try:
                 from core.signal.cluster.live import load_active_cluster_book
 
                 book_doc = load_active_cluster_book() or {}
+                book_codes = {
+                    str(r.get("stock_code") or r.get("code") or "").strip()
+                    for r in (book_doc.get("book") or [])
+                    if isinstance(r, dict)
+                    and str(r.get("stock_code") or r.get("code") or "").strip()
+                }
                 book_rows = list(book_doc.get("scored_all") or []) + list(
                     book_doc.get("book") or []
                 )
@@ -80,6 +87,7 @@ class PaperAccountMixin:
                     score_by_code[code] = _pack_item(row, cluster_mode=book_mode)
             except Exception as e:
                 log.debug("cluster book tip hydrate skipped: %s", e)
+                book_codes = set()
 
             missing = [c for c in holding_codes if c not in score_by_code]
             # 2) 簿外才 live 打分；单票超时，避免拖死 /api/paper
@@ -191,6 +199,8 @@ class PaperAccountMixin:
                     hydrate_holding_on_fields(enriched)
                 except Exception as e:
                     log.debug("holding on hydrate skipped %s: %s", code, e)
+                # 与调仓报告 / 观察表同源：仅目标簿 book[]，不含 scored_all 全宇宙
+                enriched["in_book"] = code in book_codes
                 enriched_holdings.append(enriched)
 
             summary["holdings"] = enriched_holdings

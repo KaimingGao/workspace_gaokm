@@ -436,7 +436,7 @@ export function installSuggest(q) {
   }
 
   async function waitQuantOlsClustersJob(jobId) {
-    const started = Date.now();
+    const pollStarted = Date.now();
     // soft 25min：无心跳才判超时；有心跳则继续等（满池 auto-k+OOS 常 >35min）
     // absolute 90min：极端安全阀，避免永久挂起
     const softCapMs = 25 * 60 * 1000;
@@ -444,7 +444,13 @@ export function installSuggest(q) {
     const heartbeatFreshSec = 90;
     let sawOwnJob = false;
     let netFailStreak = 0;
-    while (Date.now() - started < absoluteCapMs) {
+    const originMsFromJob = (job) => {
+      const sa = Number(job && job.started_at);
+      // JobProgress 用 time.time() 秒
+      if (Number.isFinite(sa) && sa > 1e9) return sa * 1000;
+      return pollStarted;
+    };
+    while (true) {
       let res;
       try {
         // 单次少试几次：断连时由外层循环继续等，避免 6 次就整段失败
@@ -455,7 +461,7 @@ export function installSuggest(q) {
         netFailStreak = 0;
       } catch (err) {
         netFailStreak += 1;
-        const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
+        const sec = Math.max(1, Math.round((Date.now() - pollStarted) / 1000));
         setBusyText(
           els.quantOlsSummary,
           `分组中… ${sec}s · 服务短暂断开，重连中（${netFailStreak}）…`,
@@ -484,7 +490,7 @@ export function installSuggest(q) {
       const sameJob = !jobId || !job.id || job.id === jobId;
       if (sameJob && job.id) sawOwnJob = true;
       if (job.status === "idle" || !job.id) {
-        if (sawOwnJob || Date.now() - started > 2500) {
+        if (sawOwnJob || Date.now() - pollStarted > 2500) {
           throw new Error("分组任务已中断（可能服务重启），请再点「跑分组」");
         }
         await new Promise((r) => setTimeout(r, 400));
@@ -536,7 +542,11 @@ export function installSuggest(q) {
       if (job.status === "failed") {
         throw new Error(job.error || job.message || "分组任务失败");
       }
-      const elapsed = Date.now() - started;
+      const originMs = originMsFromJob(job);
+      const elapsed = Date.now() - originMs;
+      if (elapsed >= absoluteCapMs) {
+        throw new Error("分组任务超时（超过 90 分钟）");
+      }
       if (elapsed >= softCapMs) {
         const ua = Number(job.updated_at);
         const fresh =
@@ -555,30 +565,53 @@ export function installSuggest(q) {
       setBusyText(els.quantOlsSummary, line, { busy: true });
       await new Promise((r) => setTimeout(r, 400));
     }
-    throw new Error("分组任务超时（超过 90 分钟）");
   }
 
-  async function runFactorOlsClustersSuggest() {
+  async function runFactorOlsClustersSuggest(opts) {
     // 进页 bootstrap 与手动「跑分组」共用一次执行，避免双 POST 撞槽
     if (runFactorOlsClustersSuggest._inflight) {
       return runFactorOlsClustersSuggest._inflight;
     }
-    runFactorOlsClustersSuggest._inflight = _runFactorOlsClustersSuggestInner()
+    runFactorOlsClustersSuggest._inflight = _runFactorOlsClustersSuggestInner(opts)
       .finally(() => {
         runFactorOlsClustersSuggest._inflight = null;
       });
     return runFactorOlsClustersSuggest._inflight;
   }
 
-  async function _runFactorOlsClustersSuggestInner() {
+  /** 刷新后若后台分组仍在跑，接上轮询（不新开任务）。 */
+  async function resumeQuantOlsClustersJobIfAny() {
+    if (runFactorOlsClustersSuggest._inflight) {
+      return runFactorOlsClustersSuggest._inflight;
+    }
+    try {
+      const res = await fetch("/api/jobs/quant-ols-clusters?progress=1");
+      if (!res.ok) return null;
+      const payload = await res.json();
+      const job = (payload && payload.job) || {};
+      if (job.status === "running" && job.id) {
+        return runFactorOlsClustersSuggest({ resumeJobId: job.id });
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    return null;
+  }
+
+  async function _runFactorOlsClustersSuggestInner(opts) {
+    const resumeJobId = opts && opts.resumeJobId;
     const started = Date.now();
     let timer = null;
     const tick = () => {
       const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
       // 进度走分组卡头（主操作旁）；页顶保留路径说明
-      setBusyText(els.quantOlsSummary, `分组中… ${sec}s · 观察池`, {
-        busy: true,
-      });
+      setBusyText(
+        els.quantOlsSummary,
+        resumeJobId
+          ? `接上已在跑的分组… ${sec}s`
+          : `分组中… ${sec}s · 观察池`,
+        { busy: true }
+      );
     };
     const stopTick = () => {
       if (timer != null) {
@@ -590,92 +623,99 @@ export function installSuggest(q) {
     timer = setInterval(tick, 1000);
     await ensureFactorMeta();
     try {
-      let res;
-      try {
-        res = await fetchRetry(
-          "/api/quant/factor-ols-clusters",
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              lookback: 80,
-              horizon_days: readHorizonDays(),
-              watching_limit: readWatchingLimit(),
-              // null → 自动目标 k≈n/5（约 4～10）+ 超大组二分；填了则按目标 k
-              n_clusters: readClusterK(),
-              cluster_method: "hierarchical",
-              cluster_linkage: "complete",
-              within_dist_quantile: 0.75,
-              ridge_lambda: readRidgeLambda(),
-              pit_fundamentals: true,
-              beta_scale: "feature_zscore",
-              run_oos_gate: true,
-              oos_tol_pp: 1.0,
-              run_group_score: true,
-              run_pool_merge: true,
-              top_n_per_group: 10,
-              // 日线：当日首次分组服务端自动强制拉新；同日再跑纯缓存（不再传 refresh_bars）
-              // 默认关：研究全因子；勾选=与 live regime 白名单对齐（表里会裁掉许多因子）
-              respect_regime: !!(
-                (document.getElementById("quant-cluster-respect-regime") || {})
-                  .checked
-              ),
-            }),
-          },
-          { tries: 4, delayMs: 500 }
-        );
-      } catch (err) {
-        stopTick();
-        throw new Error(explainNetworkFetchError(err));
-      }
       let data = null;
-      try {
-        data = await res.json();
-      } catch (_) {
-        data = null;
-      }
-      if (!res.ok) {
+      if (resumeJobId) {
         stopTick();
-        const detail = formatSuggestError(
-          data,
-          res.status,
-          res.status === 404
-            ? "接口未找到：请重启 Web（WEB_RELOAD=off 时需手动重启）"
-            : `HTTP ${res.status}`
-        );
-        setBusyText(els.quantOlsSummary, detail, { busy: false });
-        setQuantMeta(`分组失败 · ${detail}`, { error: true });
-        if (els.quantOlsClusters) {
-          els.quantOlsClusters.textContent = detail;
-        }
-        throw new Error(detail);
-      }
-      // 兼容旧后端：忙时返回 error + job → 仍附到现任务
-      if (
-        data &&
-        !data.background &&
-        data.job &&
-        (data.job.status === "running" ||
-          String(data.error || "").includes("已有分组任务"))
-      ) {
-        data = {
-          ...data,
-          background: true,
-          reused: true,
-          success: true,
-          ok: true,
-        };
-      }
-      // FH2：后台 Job → 轮询；sync 兼容路径直接带 success 报告
-      if (data && data.background && data.job) {
-        stopTick();
-        if (data.reused) {
-          setBusyText(els.quantOlsSummary, "分组进行中 · 已接入现有任务", {
-            busy: true,
-          });
-        }
-        const job = await waitQuantOlsClustersJob(data.job.id);
+        setBusyText(els.quantOlsSummary, "接上已在跑的分组…", { busy: true });
+        const job = await waitQuantOlsClustersJob(resumeJobId);
         data = job.result || {};
+      } else {
+        let res;
+        try {
+          res = await fetchRetry(
+            "/api/quant/factor-ols-clusters",
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                lookback: 80,
+                horizon_days: readHorizonDays(),
+                watching_limit: readWatchingLimit(),
+                // null → 自动目标 k≈n/5（约 4～10）+ 超大组二分；填了则按目标 k
+                n_clusters: readClusterK(),
+                cluster_method: "hierarchical",
+                cluster_linkage: "complete",
+                within_dist_quantile: 0.75,
+                ridge_lambda: readRidgeLambda(),
+                pit_fundamentals: true,
+                beta_scale: "feature_zscore",
+                run_oos_gate: true,
+                oos_tol_pp: 1.0,
+                run_group_score: true,
+                run_pool_merge: true,
+                top_n_per_group: 10,
+                // 日线：当日首次分组服务端自动强制拉新；同日再跑纯缓存（不再传 refresh_bars）
+                // 默认关：研究全因子；勾选=与 live regime 白名单对齐（表里会裁掉许多因子）
+                respect_regime: !!(
+                  (document.getElementById("quant-cluster-respect-regime") || {})
+                    .checked
+                ),
+              }),
+            },
+            { tries: 4, delayMs: 500 }
+          );
+        } catch (err) {
+          stopTick();
+          throw new Error(explainNetworkFetchError(err));
+        }
+        try {
+          data = await res.json();
+        } catch (_) {
+          data = null;
+        }
+        if (!res.ok) {
+          stopTick();
+          const detail = formatSuggestError(
+            data,
+            res.status,
+            res.status === 404
+              ? "接口未找到：请重启 Web（WEB_RELOAD=off 时需手动重启）"
+              : `HTTP ${res.status}`
+          );
+          setBusyText(els.quantOlsSummary, detail, { busy: false });
+          setQuantMeta(`分组失败 · ${detail}`, { error: true });
+          if (els.quantOlsClusters) {
+            els.quantOlsClusters.textContent = detail;
+          }
+          throw new Error(detail);
+        }
+        // 兼容旧后端：忙时返回 error + job → 仍附到现任务
+        if (
+          data &&
+          !data.background &&
+          data.job &&
+          (data.job.status === "running" ||
+            String(data.error || "").includes("已有分组任务"))
+        ) {
+          data = {
+            ...data,
+            background: true,
+            reused: true,
+            success: true,
+            ok: true,
+          };
+        }
+        // FH2：后台 Job → 轮询；sync 兼容路径直接带 success 报告
+        if (data && data.background && data.job) {
+          stopTick();
+          if (data.reused) {
+            setBusyText(els.quantOlsSummary, "分组进行中 · 已接入现有任务", {
+              busy: true,
+            });
+          }
+          const job = await waitQuantOlsClustersJob(data.job.id);
+          data = job.result || {};
+        }
       }
       stopTick();
       const computeSec = Math.max(1, Math.round((Date.now() - started) / 1000));
@@ -966,6 +1006,7 @@ export function installSuggest(q) {
     runFactorCsIcSuggest,
     runFactorIcSuggest,
     runFactorOlsClustersSuggest,
+    resumeQuantOlsClustersJobIfAny,
     runFactorOlsPoolSuggest,
     runFactorOlsSuggest,
     runThresholdSuggest,

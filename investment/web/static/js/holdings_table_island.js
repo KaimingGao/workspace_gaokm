@@ -63,6 +63,7 @@ export function holdingToRow(
     !!h.oos_failed ||
     isHeuristicScoreScale(h) ||
     String(h.return_model_source || "").startsWith("oos_failed");
+  const inBook = !!(h.in_book || h.inBook);
   const singleHead = isSingleHeadItem(h);
   const scoreTitle = hardReject
     ? String(h.reject_reason || "硬拒绝 · 无收益分")
@@ -154,6 +155,7 @@ export function holdingToRow(
     sharesTip: buildHoldingSharesTip(h),
     origin,
     originLabel: h.origin_label || "—",
+    inBook,
     oosFailed,
     isChartActive: chartMode === "stock" && chartStockCode && String(chartStockCode) === code,
     isAdjustActive: selectedHoldCode && String(selectedHoldCode) === code,
@@ -322,6 +324,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
         d.isChartActive ? "is-chart-active" : "",
         d.isAdjustActive ? "is-adjust-active" : "",
         d.isFocusHolding ? "is-focus-holding" : "",
+        d.inBook ? "is-cluster-book" : "",
         d.oosFailed ? "is-oos-failed" : "",
       ]
         .filter(Boolean)
@@ -339,6 +342,9 @@ export async function mountHoldingsTableIsland(host, options = {}) {
     },
     cellHtml: (col, d) => {
       if (col.id === "name") {
+        const bookBadge = d.inBook
+          ? `<span class="watching-book-badge" title="分池目标簿">簿</span>`
+          : "";
         const oosBadge = d.oosFailed
           ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
           : "";
@@ -348,6 +354,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
           `<span class="paper-wl-name-text" title="${escapeHtml(d.name || "")}" data-full-name="${escapeHtml(
             d.name || ""
           )}">${escapeHtml(truncateName(d.name || d.code))}</span>` +
+          bookBadge +
           oosBadge +
           `</span>` +
           `<span class="paper-wl-code">${escapeHtml(d.code || "")}</span></div>`

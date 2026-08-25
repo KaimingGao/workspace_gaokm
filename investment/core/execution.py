@@ -56,13 +56,17 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_tau_enter",
         "y_on_risk",
         "y_on_allow",
-        "y_block_conflict",
+        "y_block_tau_nowcast_sign",
+        "y_tau_nowcast_sign_eps",
         "y_tau_map",
         "y_ratio_boost_cap",
         "y_ratio_cut",
         "y_ratio_tau_boost_cap",
         "y_ratio_eod_align_boost",
+        "y_ratio_tau_soft_band",
         "y_score_source",
+        "t0_pm_degrade",
+        "t0_pm_chase_interval_min",
     }
 )
 
@@ -525,13 +529,17 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_tau_enter": t0.get("y_tau_enter"),
             "y_on_risk": t0.get("y_on_risk"),
             "y_on_allow": t0.get("y_on_allow"),
-            "y_block_conflict": t0.get("y_block_conflict"),
+            "y_block_tau_nowcast_sign": t0.get("y_block_tau_nowcast_sign"),
+            "y_tau_nowcast_sign_eps": t0.get("y_tau_nowcast_sign_eps"),
             "y_tau_map": t0.get("y_tau_map"),
             "y_ratio_boost_cap": t0.get("y_ratio_boost_cap"),
             "y_ratio_cut": t0.get("y_ratio_cut"),
             "y_ratio_tau_boost_cap": t0.get("y_ratio_tau_boost_cap"),
             "y_ratio_eod_align_boost": t0.get("y_ratio_eod_align_boost"),
+            "y_ratio_tau_soft_band": t0.get("y_ratio_tau_soft_band"),
             "y_score_source": t0.get("y_score_source"),
+            "t0_pm_degrade": t0.get("t0_pm_degrade"),
+            "t0_pm_chase_interval_min": t0.get("t0_pm_chase_interval_min"),
         },
         "t0_sources": bundle.get("t0_sources") or {},
         "rebalance": bundle.get("rebalance") or {},
@@ -603,6 +611,18 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
             if k not in {"lock", "reset", "note", "coupling", "channel"}
         }
 
+    # 旧异号键 → τ↔nowcast
+    if "y_block_tau_nowcast_sign" not in t0_in and "y_block_trade_tau_sign" in t0_in:
+        t0_in["y_block_tau_nowcast_sign"] = t0_in.pop("y_block_trade_tau_sign")
+    elif "y_block_trade_tau_sign" in t0_in:
+        t0_in.pop("y_block_trade_tau_sign", None)
+    if "y_tau_nowcast_sign_eps" not in t0_in and "y_trade_tau_sign_eps" in t0_in:
+        t0_in["y_tau_nowcast_sign_eps"] = t0_in.pop("y_trade_tau_sign_eps")
+    elif "y_trade_tau_sign_eps" in t0_in:
+        t0_in.pop("y_trade_tau_sign_eps", None)
+    # 已下线键：忽略
+    t0_in.pop("y_block_conflict", None)
+
     unknown = [k for k in t0_in.keys() if k not in ALLOWED_T0_PATCH_KEYS]
     if unknown:
         errors.append(f"不允许的 t0 键: {', '.join(sorted(unknown)[:8])}")
@@ -624,8 +644,8 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_out["use_atr"] = bool(t0_in.get("use_atr"))
     if "must_cover_same_day" in t0_in:
         t0_out["must_cover_same_day"] = bool(t0_in.get("must_cover_same_day"))
-    if "y_block_conflict" in t0_in:
-        t0_out["y_block_conflict"] = bool(t0_in.get("y_block_conflict"))
+    if "y_block_tau_nowcast_sign" in t0_in:
+        t0_out["y_block_tau_nowcast_sign"] = bool(t0_in.get("y_block_tau_nowcast_sign"))
     # 选向仅 dual_y
     t0_out["direction"] = "dual_y"
 

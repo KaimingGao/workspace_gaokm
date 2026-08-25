@@ -116,7 +116,7 @@ export function yTauMapScoreTip(mode, enter = 0.25) {
   const m = normalizeYTauMap(mode);
   const e = Number(enter);
   const thr = Number.isFinite(e) ? e : 0.25;
-  const tail = "与 y_eod 冲突或 |y_trade| 不足则跳过。";
+  const tail = "|y_trade| 不足则跳过。";
   if (m === "fixed_long") {
     return `dual_y[固定正T]：|y_τ|≥${thr}% 固定正T；${tail}`;
   }
@@ -251,11 +251,11 @@ function buildDualYPipelineHtml(t0) {
   const pathLbl =
     PATH_MODE_LABELS[String(t0.path_mode || "first_touch").toLowerCase()] || "5m";
   const nodes = [
-    { stage: "trade", role: "资格", label: "trade", sub: fmtThresholdPct(t0.y_trade_floor, 0.15), tip: "ŷ_trade 动仓门槛" },
-    { stage: "tau", role: "方向", label: "τ", sub: fmtThresholdPct(t0.y_tau_enter, 0.25), tip: "ŷ_τ 定正/反 T" },
-    { stage: "eod", role: "先验", label: "eod", sub: fmtThresholdPct(t0.y_eod_prior, 0.35), tip: "ŷ_eod 冲突过滤" },
+    { stage: "trade", role: "资格", label: "trade", sub: fmtThresholdPct(t0.y_trade_floor, 0.01), tip: "ŷ_trade 动仓门槛" },
+    { stage: "tau", role: "方向", label: "τ", sub: fmtThresholdPct(t0.y_tau_enter, 0.4), tip: "ŷ_τ 定正/反 T" },
+    { stage: "eod", role: "先验", label: "eod", sub: fmtThresholdPct(t0.y_eod_prior, 0.01), tip: "ŷ_eod 同向略放大动仓" },
     { stage: "path", role: "触价", label: "5m", sub: pathLbl, tip: "分钟路径首触达" },
-    { stage: "on", role: "回补", label: "on", sub: fmtThresholdPct(t0.y_on_allow, 1.2), tip: "ŷ_on 收盘回补" },
+    { stage: "on", role: "回补", label: "on", sub: fmtThresholdPct(t0.y_on_allow, 0.01), tip: "ŷ_on 收盘回补" },
   ];
   return nodes
     .map(
@@ -291,6 +291,16 @@ export function renderExecutionRulesHtml(execution) {
   const triggerLbl = fmtTriggerPair(t0.sell_trigger_pct, t0.buy_trigger_pct);
   const coverLbl = t0.must_cover_same_day ? "收盘强制" : "y_on 策略";
   const atrLbl = t0.use_atr ? `开 · ${t0.atr_window ?? 14}日` : "关";
+  const pmLbl =
+    t0.t0_pm_degrade != null && String(t0.t0_pm_degrade).trim()
+      ? String(t0.t0_pm_degrade).trim()
+      : "关";
+  const chaseIv =
+    t0.t0_pm_chase_interval_min != null && Number.isFinite(Number(t0.t0_pm_chase_interval_min))
+      ? Math.max(1, Math.min(Math.round(Number(t0.t0_pm_chase_interval_min)), 60))
+      : 10;
+  const pmChaseLbl = pmLbl === "关" ? "关" : `${pmLbl} · ${chaseIv}m`;
+  const signBlkLbl = t0.y_block_tau_nowcast_sign !== false ? "开" : "关";
 
   const notes = (execution.notes || []).slice(0, 2);
   const hashShort = hash ? String(hash).slice(0, 10) : "";
@@ -334,6 +344,8 @@ export function renderExecutionRulesHtml(execution) {
     specMetric("振幅", rangeLbl, "日振幅下限") +
     specMetric("回补", coverLbl, "收盘强制或 y_on") +
     specMetric("ATR", atrLbl, "波动率自适应触发") +
+    specMetric("中点追价", pmChaseLbl, "起算后禁新开 · 中点再触价 · 未触达则收盘平") +
+    specMetric("异号跳过", signBlkLbl, "y_τ↔y_nowcast 异号则跳过（缺 nowcast 不拦；默认开）") +
     specMetric("stance", coupLbl, "与 stance 耦合") +
     `</div></section>` +
     (execution.summary || hashShort
@@ -353,6 +365,47 @@ export function renderExecutionRulesHtml(execution) {
   );
 }
 
+/** 回测窗不进 ExecutionSpec；用 localStorage 跨刷新记住。 */
+const T0_LOOKBACK_KEY = "paper.t0.lookback";
+const T0_LOOKBACK_MIGRATE_KEY = "paper.t0.lookback.migrated_v2";
+
+function _clampLookback(n) {
+  return Math.max(10, Math.min(Math.round(Number(n)), 500));
+}
+
+/** 读表单回测窗并写入 localStorage；无有效值时返回 null。 */
+export function persistT0Lookback(root) {
+  const el = root && root.querySelector('[name="lookback"]');
+  if (!el || el.value === "") return null;
+  const n = Number(el.value);
+  if (!Number.isFinite(n)) return null;
+  const lookback = _clampLookback(n);
+  try {
+    localStorage.setItem(T0_LOOKBACK_KEY, String(lookback));
+  } catch (_) {
+    /* ignore */
+  }
+  return lookback;
+}
+
+function _restoreT0Lookback(root) {
+  try {
+    // 旧默认曾误升到 90：只清一次
+    if (!localStorage.getItem(T0_LOOKBACK_MIGRATE_KEY)) {
+      if (localStorage.getItem(T0_LOOKBACK_KEY) === "90") localStorage.removeItem(T0_LOOKBACK_KEY);
+      localStorage.setItem(T0_LOOKBACK_MIGRATE_KEY, "1");
+    }
+    const saved = localStorage.getItem(T0_LOOKBACK_KEY);
+    const n = saved != null ? Number(saved) : NaN;
+    const el = root && root.querySelector('[name="lookback"]');
+    if (!el) return;
+    if (Number.isFinite(n)) el.value = String(_clampLookback(n));
+    else if (el.value === "" || !Number.isFinite(Number(el.value))) el.value = "10";
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 /** 用生效 execution 填充表单控件。 */
 export function fillExecutionForm(root, execution) {
   if (!root || !execution || !execution.t0) return;
@@ -365,7 +418,7 @@ export function fillExecutionForm(root, execution) {
     else el.value = String(val);
   };
   set("enabled", t0.enabled !== false);
-  set("t0_ratio", t0.t0_ratio != null ? Math.round(Number(t0.t0_ratio) * 100) : 40);
+  set("t0_ratio", t0.t0_ratio != null ? Math.round(Number(t0.t0_ratio) * 100) : 30);
   set("sell_trigger_pct", t0.sell_trigger_pct);
   set("buy_trigger_pct", t0.buy_trigger_pct);
   if (t0.min_range_pct != null && t0.min_range_pct !== "") {
@@ -380,10 +433,20 @@ export function fillExecutionForm(root, execution) {
   set("use_atr", t0.use_atr !== false);
   set("must_cover_same_day", !!t0.must_cover_same_day);
   set("t0_vs_stance", coup);
-  set("y_trade_floor", t0.y_trade_floor != null ? t0.y_trade_floor : 0.15);
-  set("y_tau_enter", t0.y_tau_enter != null ? t0.y_tau_enter : 0.25);
-  set("y_eod_prior", t0.y_eod_prior != null ? t0.y_eod_prior : 0.35);
-  set("y_on_allow", t0.y_on_allow != null ? t0.y_on_allow : 1.2);
+  set("y_trade_floor", t0.y_trade_floor != null ? t0.y_trade_floor : 0.01);
+  set("y_tau_enter", t0.y_tau_enter != null ? t0.y_tau_enter : 0.4);
+  set("y_eod_prior", t0.y_eod_prior != null ? t0.y_eod_prior : 0.01);
+  set("y_on_allow", t0.y_on_allow != null ? t0.y_on_allow : 0.01);
+  set(
+    "y_block_tau_nowcast_sign",
+    t0.y_block_tau_nowcast_sign !== false
+  );
+  set("t0_pm_degrade", t0.t0_pm_degrade != null ? t0.t0_pm_degrade : "14:00");
+  set(
+    "t0_pm_chase_interval_min",
+    t0.t0_pm_chase_interval_min != null ? t0.t0_pm_chase_interval_min : 10
+  );
+  _restoreT0Lookback(root);
 }
 
 /** 从表单收集 PATCH body。 */
@@ -409,7 +472,7 @@ export function collectExecutionForm(root) {
     const el = root.querySelector(`[name="${name}"]`);
     return el ? !!el.checked : fallback;
   };
-  const ratioPct = num("t0_ratio", 40);
+  const ratioPct = num("t0_ratio", 30);
   const t0 = {
     enabled: chk("enabled", true),
     t0_ratio: Math.max(0.05, Math.min(ratioPct / 100, 1)),
@@ -421,10 +484,16 @@ export function collectExecutionForm(root) {
     path_mode: str("path_mode", "first_touch"),
     use_atr: chk("use_atr", true),
     must_cover_same_day: chk("must_cover_same_day", false),
-    y_trade_floor: num("y_trade_floor", 0.15),
-    y_tau_enter: Math.max(0.05, Math.min(num("y_tau_enter", 0.25), 5)),
-    y_eod_prior: Math.max(0.05, Math.min(num("y_eod_prior", 0.35), 5)),
-    y_on_allow: Math.max(0.1, Math.min(num("y_on_allow", 1.2), 10)),
+    y_trade_floor: Math.max(0.01, Math.min(num("y_trade_floor", 0.01), 5)),
+    y_tau_enter: Math.max(0.01, Math.min(num("y_tau_enter", 0.4), 5)),
+    y_eod_prior: Math.max(0.01, Math.min(num("y_eod_prior", 0.01), 5)),
+    y_on_allow: Math.max(0.01, Math.min(num("y_on_allow", 0.01), 10)),
+    y_block_tau_nowcast_sign: chk("y_block_tau_nowcast_sign", true),
+    t0_pm_degrade: str("t0_pm_degrade", "14:00"),
+    t0_pm_chase_interval_min: Math.max(
+      1,
+      Math.min(Math.round(num("t0_pm_chase_interval_min", 10)), 60)
+    ),
   };
   const minRange = numOrNull("min_range_pct");
   if (minRange != null) t0.min_range_pct = Math.max(0.2, Math.min(minRange, 30));
@@ -483,19 +552,14 @@ export function resolveT0BacktestScope(root, evt = {}) {
 export function collectT0BacktestBody(root, opts = {}) {
   const patch = collectExecutionForm(root) || { t0: {} };
   const t0 = patch.t0 || {};
-  const lookbackEl = root && root.querySelector('[name="lookback"]');
-  let lookback = 10;
-  if (lookbackEl && lookbackEl.value !== "") {
-    const n = Number(lookbackEl.value);
-    if (Number.isFinite(n)) lookback = Math.max(10, Math.min(Math.round(n), 500));
-  }
+  const lookback = persistT0Lookback(root) ?? 10;
   const body = {
     from_paper: true,
     lookback,
     compare_optimistic: true,
     use_minute: true,
     compare_daily: false,
-    t0_ratio: t0.t0_ratio != null ? t0.t0_ratio : 0.4,
+    t0_ratio: t0.t0_ratio != null ? t0.t0_ratio : 0.3,
     sell_trigger_pct: t0.sell_trigger_pct != null ? t0.sell_trigger_pct : 2,
     buy_trigger_pct: t0.buy_trigger_pct != null ? t0.buy_trigger_pct : 1.5,
     fill_mode: t0.fill_mode || "trigger",
@@ -504,10 +568,14 @@ export function collectT0BacktestBody(root, opts = {}) {
     path_mode: "first_touch",
     must_cover_same_day: !!t0.must_cover_same_day,
     use_atr: t0.use_atr !== false,
-    y_trade_floor: t0.y_trade_floor != null ? t0.y_trade_floor : 0.15,
-    y_tau_enter: t0.y_tau_enter != null ? t0.y_tau_enter : 0.25,
-    y_eod_prior: t0.y_eod_prior != null ? t0.y_eod_prior : 0.35,
-    y_on_allow: t0.y_on_allow != null ? t0.y_on_allow : 1.2,
+    y_trade_floor: t0.y_trade_floor != null ? t0.y_trade_floor : 0.01,
+    y_tau_enter: t0.y_tau_enter != null ? t0.y_tau_enter : 0.4,
+    y_eod_prior: t0.y_eod_prior != null ? t0.y_eod_prior : 0.01,
+    y_on_allow: t0.y_on_allow != null ? t0.y_on_allow : 0.01,
+    y_block_tau_nowcast_sign: t0.y_block_tau_nowcast_sign !== false,
+    t0_pm_degrade: t0.t0_pm_degrade != null ? t0.t0_pm_degrade : "14:00",
+    t0_pm_chase_interval_min:
+      t0.t0_pm_chase_interval_min != null ? t0.t0_pm_chase_interval_min : 10,
   };
   if (t0.min_range_pct != null) body.min_range_pct = t0.min_range_pct;
   else body.min_range_pct = 0.5;

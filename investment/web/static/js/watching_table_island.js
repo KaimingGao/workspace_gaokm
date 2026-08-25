@@ -88,7 +88,7 @@ const COLS = [
     sortable: true,
     headClass: "watching-col-y",
     cellClass: "watching-col-y",
-    title: "τ→收盘 · 昨收口径",
+    title: "ŷ_τ · T收/T开（拟合原值；τ 闸同源）",
   },
   {
     id: "score_on",

@@ -71,6 +71,7 @@ class JobProgress:
             "error": None,
             "result": None,
             "cancel_requested": False,
+            "started_at": None,
             "updated_at": None,
         }
 
@@ -203,6 +204,7 @@ class JobProgress:
 
     def start(self, *, kind: str, total: int = 0, message: str = "") -> str:
         job_id = uuid.uuid4().hex[:12]
+        now = time.time()
         with self._lock:
             self._job = {
                 "id": job_id,
@@ -216,7 +218,8 @@ class JobProgress:
                 "error": None,
                 "result": None,
                 "cancel_requested": False,
-                "updated_at": time.time(),
+                "started_at": now,
+                "updated_at": now,
             }
             self._save_unlocked()
         return job_id

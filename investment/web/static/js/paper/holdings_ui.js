@@ -169,6 +169,10 @@ export function buildPaperHoldingsTableHtml({
         !!h.oos_failed ||
         isHeuristicScoreScale(h) ||
         String(h.return_model_source || "").startsWith("oos_failed");
+      const inBook = !!(h.in_book || h.inBook);
+      const bookBadge = inBook
+        ? `<span class="watching-book-badge" title="分池目标簿">簿</span>`
+        : "";
       const oosBadge = oosFailed
         ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
         : "";
@@ -205,11 +209,12 @@ export function buildPaperHoldingsTableHtml({
           h.shares ?? ""
         )}" ` +
         `class="paper-hold-row${active}${adjustActive}${focusCls}${
-          oosFailed ? " is-oos-failed" : ""
-        }" title="点击选中并查看曲线">` +
+          inBook ? " is-cluster-book" : ""
+        }${oosFailed ? " is-oos-failed" : ""}" title="点击选中并查看曲线">` +
         `<td class="paper-wl-name">` +
         `<span class="watching-name-row">` +
         `<span class="paper-wl-name-text">${escapeText(name)}</span>` +
+        bookBadge +
         oosBadge +
         `</span>` +
         `<span class="paper-wl-code">${escapeText(code)}</span>` +

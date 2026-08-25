@@ -103,19 +103,48 @@ def build_cluster_bars_status(*, watching_limit: int = 100) -> Dict[str, Any]:
     dist = sorted(date_counts.items(), key=lambda x: (-x[1], x[0]))[:6]
     marker = read_force_latest_bars_marker()
 
+    span_days = 0
+    if last_min and last_max:
+        try:
+            d0 = datetime.strptime(last_min[:10], "%Y-%m-%d")
+            d1 = datetime.strptime(last_max[:10], "%Y-%m-%d")
+            span_days = max(0, (d1 - d0).days)
+        except (ValueError, TypeError):
+            span_days = 0
+
+    try:
+        from core.store import bars_backend
+
+        backend = bars_backend()
+    except Exception:  # noqa: BLE001
+        backend = "unknown"
+
     return {
         "success": True,
         "session_date": session,
         "expected_latest_bar": expected or None,
         "watching_limit": limit,
         "universe_count": total,
+        "universe_mode": "watching",
         "at_expected": at_expected,
         "stale": stale,
         "missing": missing,
         "coverage_ok": coverage_ok,
+        "coverage_pct": round((100 * at_expected) / total, 1) if total else 0.0,
         "needs_force_latest_bars": bool(needs_force_latest_bars(session_date=session)),
         "last_bar_min": last_min or None,
         "last_bar_max": last_max or None,
+        "last_bar_span_days": span_days,
+        "last_bar_aligned": bool(
+            coverage_ok
+            and expected
+            and last_min
+            and last_max
+            and last_min == last_max == expected
+        ),
+        "bars_backend": backend,
+        "bar_fields": ["open", "high", "low", "close", "volume"],
+        "as_of_rule": "trading_day_before_1505_prev",
         "date_distribution": [{"date": d, "count": c} for d, c in dist],
         "forced_marker": marker if marker else None,
     }

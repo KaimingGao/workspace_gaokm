@@ -92,6 +92,7 @@ def _compact_t0_result_rows(results: Optional[list]) -> List[dict]:
         "intraday_path",
         "cover_policy",
         "must_cover_same_day",
+        "exit_reason",
     )
     out: List[dict] = []
     for raw in results or []:
@@ -1059,14 +1060,15 @@ class PaperTradesMixin:
                     if isinstance(bar, dict) and bar.get("date"):
                         as_of = str(bar.get("date"))[:10]
                         break
-                # 用已拉取的日线即时算（开盘信息集）；不依赖分池簿/冻结账本
+                # 用已拉取的日线即时算（开盘信息集）；compute 不回退 live_book
+                y_src = str(eff_t0.get("y_score_source") or "compute")
                 scores_by_code = load_scores_map_for_codes(
                     codes,
                     as_of=as_of,
-                    source=str(eff_t0.get("y_score_source") or "compute"),
+                    source=y_src,
                     hist_bars_by_code=hist_bars_by_code or None,
                     day_bars_by_code=bars_by_code or None,
-                    allow_fallback=True,
+                    allow_fallback=(y_src != "compute"),
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("dual_y scores hydrate failed", exc_info=True)
@@ -1111,8 +1113,14 @@ class PaperTradesMixin:
     @staticmethod
     def t0_worker_status() -> Dict[str, Any]:
         from core.t0.auto_worker import t0_auto_worker
+        from core.t0.intraday import build_intraday_desk_status
 
-        return {"ok": True, "worker": t0_auto_worker.status()}
+        try:
+            desk = build_intraday_desk_status()
+        except Exception:  # noqa: BLE001
+            logger.debug("build_intraday_desk_status failed", exc_info=True)
+            desk = {"rows": [], "universe_count": 0, "note": "盘中状态读取失败"}
+        return {"ok": True, "worker": t0_auto_worker.status(), "intraday": desk}
 
     def set_t0_worker(self, enabled: bool) -> Dict[str, Any]:
         from core.t0.auto_worker import t0_auto_worker
@@ -1190,10 +1198,16 @@ class PaperTradesMixin:
         from core.paper.tplus1 import sellable_shares as t1_sellable
         from core.t0.config import T0_INTRADAY_MINUTE_CACHE_HOURS, T0_INTRADAY_MINUTE_LOOKBACK_DAYS
         from core.t0.intraday import (
+            accept_intraday_dual_y_scores,
+            align_session_day_context,
             latest_minute_bar_ts,
             load_intraday_state,
+            lock_zero_legs_after_morning,
+            needs_midday_dual_y_gate,
+            past_morning_close,
             run_intraday_session_tick,
             should_process_intraday_stock,
+            unlock_retryable_skipped,
         )
         from core.t0.rules import atr_pct_from_bars
 
@@ -1222,11 +1236,28 @@ class PaperTradesMixin:
             sess = resolve_session_date(now=shanghai_now())
             intraday_state = load_intraday_state()
             stock_states = (
-                intraday_state.get("stocks")
+                dict(intraday_state.get("stocks") or {})
                 if str(intraday_state.get("session_date") or "") == str(sess or "")
                 and isinstance(intraday_state.get("stocks"), dict)
                 else {}
             )
+            unlocked_any = False
+            for _code, _st in list(stock_states.items()):
+                _u = unlock_retryable_skipped(_st if isinstance(_st, dict) else {})
+                if _u is not None:
+                    stock_states[_code] = _u
+                    unlocked_any = True
+            if unlocked_any:
+                from core.t0.intraday import save_intraday_state
+
+                save_intraday_state(
+                    {
+                        **intraday_state,
+                        "session_date": sess,
+                        "stocks": stock_states,
+                        "results": list(intraday_state.get("results") or []),
+                    }
+                )
 
             bundle = resolve_effective_execution(
                 strategy=paper.get("strategy_id"),
@@ -1258,6 +1289,9 @@ class PaperTradesMixin:
 
             holdings_ctx: List[dict] = []
             hist_by_code: Dict[str, list] = {}
+            y_src = str(eff_t0.get("y_score_source") or "compute")
+            force_dual_y_gate = bool(force_session_close) or past_morning_close()
+            state_dirty = unlocked_any
             for h in holdings:
                 code = str(h.get("stock_code") or "")
                 if not code:
@@ -1265,16 +1299,19 @@ class PaperTradesMixin:
                 st0 = stock_states.get(code) if isinstance(stock_states.get(code), dict) else {}
                 if not force_session_close and str(st0.get("phase") or "") in ("done", "skipped"):
                     continue
+                # ≥11:30：无成交腿一律终锁（不再等下午触价）
+                if force_dual_y_gate and needs_midday_dual_y_gate(st0):
+                    stock_states[code] = lock_zero_legs_after_morning(
+                        code=code,
+                        holding=h,
+                        session_date=str(sess or "")[:10] or None,
+                    )
+                    state_dirty = True
+                    continue
                 bars, _src = bars_and_source(code, limit=40)
                 if not bars:
                     continue
-                bar = dict(bars[-1])
-                if len(bars) >= 2 and not bar.get("prev_close"):
-                    prev_c = float(bars[-2].get("close") or 0)
-                    if prev_c > 0:
-                        bar["prev_close"] = prev_c
-                hist_by_code[code] = bars[:-1]
-                minute_bars: List[dict] = []
+                minute_by_day: Dict[str, list] = {}
                 try:
                     from core.ports.market import fetch_minute_bars, group_minute_bars_by_date
 
@@ -1285,15 +1322,25 @@ class PaperTradesMixin:
                         use_cache=True,
                         max_age_hours=T0_INTRADAY_MINUTE_CACHE_HOURS,
                     )
-                    by_day = group_minute_bars_by_date(mbars) if mbars else {}
-                    day_key = str(bar.get("date") or "")[:10]
-                    if day_key and by_day.get(day_key):
-                        minute_bars = by_day[day_key]
-                    elif by_day:
-                        last_d = sorted(by_day.keys())[-1]
-                        minute_bars = by_day[last_d]
+                    minute_by_day = group_minute_bars_by_date(mbars) if mbars else {}
                 except Exception:  # noqa: BLE001
                     logger.debug("intraday minute fetch failed for %s", code, exc_info=True)
+                    minute_by_day = {}
+
+                aligned = align_session_day_context(
+                    session_date=str(sess or "")[:10] or None,
+                    daily_bars=list(bars),
+                    minute_by_day=minute_by_day,
+                )
+                if aligned.get("pending") or not aligned.get("ok"):
+                    # 上午：日线未齐则继续等；午盘规则已在上方终锁无腿票
+                    if code not in stock_states or not isinstance(stock_states.get(code), dict):
+                        stock_states[code] = {"phase": "idle", "legs_written": 0}
+                    continue
+
+                bar = dict(aligned.get("bar") or {})
+                hist_by_code[code] = list(aligned.get("hist") or [])
+                minute_bars = list(aligned.get("minute_bars") or [])
 
                 latest_ts = latest_minute_bar_ts(minute_bars)
                 if not should_process_intraday_stock(
@@ -1309,18 +1356,19 @@ class PaperTradesMixin:
                     try:
                         from core.t0.score_policy import load_scores_map_for_codes
 
-                        scores = load_scores_map_for_codes(
+                        raw_scores = load_scores_map_for_codes(
                             [code],
                             as_of=str(bar.get("date") or "")[:10] or None,
-                            source=str(eff_t0.get("y_score_source") or "compute"),
+                            source=y_src,
                             hist_bars_by_code={code: hist_by_code.get(code) or []},
                             day_bars_by_code={code: bar},
-                            allow_fallback=True,
+                            allow_fallback=(y_src != "compute"),
                         ).get(code)
+                        scores = accept_intraday_dual_y_scores(raw_scores, source=y_src)
                     except Exception:  # noqa: BLE001
                         scores = None
 
-                as_of = str(bar.get("date") or "")[:10]
+                as_of = str(sess or bar.get("date") or "")[:10]
                 sellable = t1_sellable(h, as_of=as_of or None)
                 holdings_ctx.append(
                     {
@@ -1335,6 +1383,19 @@ class PaperTradesMixin:
                         "scores": scores,
                         "stance_code": stance_by_code.get(code),
                         "coupling_mode": coup_mode,
+                        "force_dual_y_gate": force_dual_y_gate,
+                    }
+                )
+
+            if state_dirty:
+                from core.t0.intraday import save_intraday_state
+
+                save_intraday_state(
+                    {
+                        **intraday_state,
+                        "session_date": sess,
+                        "stocks": stock_states,
+                        "results": list(intraday_state.get("results") or []),
                     }
                 )
 

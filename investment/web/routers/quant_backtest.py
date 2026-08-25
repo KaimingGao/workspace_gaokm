@@ -47,8 +47,10 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             "y_eod_prior",
             "y_on_allow",
             "y_on_risk",
-            "y_block_conflict",
+            "y_block_tau_nowcast_sign",
             "y_tau_map",
+            "t0_pm_degrade",
+            "t0_pm_chase_interval_min",
         ):
             val = getattr(body, yk, None)
             if val is not None:

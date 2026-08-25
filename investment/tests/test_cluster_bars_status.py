@@ -61,6 +61,9 @@ class TestClusterBarsStatus(unittest.TestCase):
         self.assertEqual(st["at_expected"], 1)
         self.assertEqual(st["missing"], 1)
         self.assertFalse(st["coverage_ok"])
+        self.assertIn("bars_backend", st)
+        self.assertIn("coverage_pct", st)
+        self.assertEqual(st["coverage_pct"], 50.0)
 
 
 if __name__ == "__main__":

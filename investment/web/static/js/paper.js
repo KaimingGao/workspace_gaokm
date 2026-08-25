@@ -43,6 +43,7 @@ import {
   renderExecutionRulesHtml,
   fillExecutionForm,
   collectExecutionForm,
+  persistT0Lookback,
   collectT0BacktestBody,
   resolveT0BacktestScope,
   normalizeExecutionView,
@@ -54,13 +55,14 @@ import {
   renderPaperT0 as renderPaperT0Ui,
   renderPaperT0Preview as renderPaperT0PreviewUi,
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
+  renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
 } from "./paper/t0_ui.js";
 import { buildT0SummaryLine } from "./paper/t0_report.js";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
-import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p1232";
-import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1232";
-import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1234";
-import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p1234";
+import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p1416";
+import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1416";
+import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
+import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p1416";
 import {
   formatWeightSourceNote,
   formatFactorWeightsSection,
@@ -958,6 +960,123 @@ export function initPaper(ctx) {
     }
   }
 
+  /** 次日开盘挂单摘要（收盘后确认调仓不会立刻改持仓）。 */
+  function pendingOrdersBrief(data) {
+    const po = data && data.pending_orders;
+    if (!po || typeof po !== "object") return null;
+    const legs = Array.isArray(po.legs) ? po.legs : [];
+    if (!legs.length) return null;
+    let buys = 0;
+    let sells = 0;
+    for (const leg of legs) {
+      const side = String((leg && leg.side) || "").toLowerCase();
+      if (side === "sell") sells += 1;
+      else if (side === "buy") buys += 1;
+    }
+    const bits = [];
+    if (sells) bits.push(`卖 ${sells}`);
+    if (buys) bits.push(`买 ${buys}`);
+    const target = String(po.target_fill_date || "").trim() || "次日";
+    return {
+      n: legs.length,
+      buys,
+      sells,
+      target,
+      legs,
+      asOf: po.as_of || po.staged_at || "",
+      source: po.source || "",
+      text: `挂开盘单 ${bits.join(" · ") || `${legs.length} 笔`} → ${target} 09:15–10:00 成交`,
+    };
+  }
+
+  function renderPendingOrdersBanner(data) {
+    const el = document.getElementById("paper-pending-orders");
+    if (!el) return;
+    const brief = pendingOrdersBrief(data);
+    if (!brief) {
+      el.hidden = true;
+      el.innerHTML = "";
+      return;
+    }
+    const cols =
+      "56px 72px minmax(72px, 1.1fr) 64px 72px 84px 56px minmax(96px, 1.4fr)";
+    const head = [
+      ["方向", ""],
+      ["代码", "watching-col-num"],
+      ["名称", ""],
+      ["股数", "watching-col-num"],
+      ["意向价", "watching-col-num"],
+      ["意向额", "watching-col-num"],
+      ["ŷ", "watching-col-num"],
+      ["备注", ""],
+    ]
+      .map(
+        ([lab, cls]) =>
+          `<div class="watching-react-grid-cell${cls ? ` ${cls}` : ""}">${escapeText(lab)}</div>`
+      )
+      .join("");
+    const body = [...brief.legs]
+      .sort((a, b) => {
+        const sa = String((a && a.side) || "");
+        const sb = String((b && b.side) || "");
+        if (sa !== sb) return sa.localeCompare(sb);
+        return String((a && a.stock_code) || "").localeCompare(
+          String((b && b.stock_code) || "")
+        );
+      })
+      .map((leg) => {
+        const side = String((leg && leg.side) || "").toLowerCase();
+        const sideLbl = side === "sell" ? "卖" : side === "buy" ? "买" : side || "—";
+        const sideCls = side === "sell" ? "is-sell" : side === "buy" ? "is-buy" : "";
+        const code = String((leg && (leg.stock_code || leg.code)) || "—");
+        const name = String((leg && (leg.stock_name || leg.name)) || "");
+        const shares = Number(leg && leg.shares);
+        const px = Number(leg && (leg.intent_price ?? leg.price));
+        const amt =
+          Number.isFinite(shares) && Number.isFinite(px) ? shares * px : null;
+        const note = String((leg && leg.note) || "").trim();
+        const score =
+          leg && leg.score != null && Number.isFinite(Number(leg.score))
+            ? Number(leg.score)
+            : null;
+        const cells = [
+          `<div class="watching-react-grid-cell follow-pending-side ${sideCls}">${escapeText(sideLbl)}</div>`,
+          `<div class="watching-react-grid-cell watching-col-num follow-pending-code">${escapeText(code)}</div>`,
+          `<div class="watching-react-grid-cell" title="${escapeText(name)}">${escapeText(name || "—")}</div>`,
+          `<div class="watching-react-grid-cell watching-col-num">${Number.isFinite(shares) ? escapeText(String(Math.round(shares))) : "—"}</div>`,
+          `<div class="watching-react-grid-cell watching-col-num">${Number.isFinite(px) ? escapeText(px.toFixed(2)) : "—"}</div>`,
+          `<div class="watching-react-grid-cell watching-col-num">${amt != null ? escapeText(Math.round(amt).toLocaleString("zh-CN")) : "—"}</div>`,
+          `<div class="watching-react-grid-cell watching-col-num">${score != null ? escapeText(score.toFixed(2)) : "—"}</div>`,
+          `<div class="watching-react-grid-cell follow-pending-note" title="${escapeText(note)}">${escapeText(note || "—")}</div>`,
+        ].join("");
+        return (
+          `<div class="watching-react-grid-row ${sideCls}" style="grid-template-columns:${cols}">` +
+          cells +
+          `</div>`
+        );
+      })
+      .join("");
+    const bits = [];
+    if (brief.sells) bits.push(`卖 ${brief.sells}`);
+    if (brief.buys) bits.push(`买 ${brief.buys}`);
+    el.hidden = false;
+    el.innerHTML =
+      `<div class="follow-ops-subhead">` +
+      `<span class="follow-ops-subtitle">次日开盘挂单` +
+      (bits.length ? ` · ${bits.join(" · ")}` : ` · ${brief.n} 笔`) +
+      `</span>` +
+      `<span class="follow-pending-target">目标 ${escapeText(brief.target)} · 09:15–10:00</span>` +
+      `</div>` +
+      `<p class="follow-ops-note">意向价仅供参考；开盘窗按开盘价成交，此前持仓不变。</p>` +
+      `<div class="watching-react-grid-host follow-pending-grid-host">` +
+      `<div class="watching-react-grid follow-pending-grid" role="table" aria-label="次日开盘挂单明细">` +
+      `<div class="watching-react-grid-head">` +
+      `<div class="watching-react-grid-row is-head" style="grid-template-columns:${cols}">${head}</div>` +
+      `</div>` +
+      `<div class="watching-react-grid-body follow-pending-grid-body">${body}</div>` +
+      `</div></div>`;
+  }
+
   function fmtT0AutoTs(ts) {
     if (ts == null || ts === "") return "";
     try {
@@ -1144,6 +1263,10 @@ export function initPaper(ctx) {
         }
       } else {
         renderT0WorkerBar(workerData.worker);
+        renderPaperT0WorkerDeskUi(
+          document.getElementById("paper-t0-worker-desk"),
+          workerData.intraday
+        );
       }
       return { auto: autoData, worker: workerData };
     } catch (err) {
@@ -1357,6 +1480,7 @@ export function initPaper(ctx) {
     }
     if (!data.initialized) {
       setPaperMetaText("未初始化");
+      renderPendingOrdersBanner(null);
       if (emptyEl) emptyEl.hidden = false;
       if (mainEl) mainEl.hidden = true;
       renderPaperStats({});
@@ -1367,9 +1491,12 @@ export function initPaper(ctx) {
     if (emptyEl) emptyEl.hidden = true;
     if (mainEl) mainEl.hidden = false;
     const sm = data.summary || {};
+    const pending = pendingOrdersBrief(data);
     setPaperMetaText(
-      `持仓 ${(sm.holdings || []).length} 只 · 现金 ${sm.cash ?? "—"}`
+      `持仓 ${(sm.holdings || []).length} 只 · 现金 ${sm.cash ?? "—"}` +
+        (pending ? ` · ${pending.text}` : "")
     );
+    renderPendingOrdersBanner(data);
     renderPaperStats(sm);
     renderFollowNorthStar(data.north_star || (data.ops_report && data.ops_report.north_star));
     await renderPaperAccountDetail(data);
@@ -1661,7 +1788,15 @@ export function initPaper(ctx) {
   const paperT0DaysHost = document.getElementById("paper-t0-days");
   if (paperT0DaysHost) {
     scoreTips.bindHost(paperT0DaysHost, {
-      scoreSelector: ".paper-t0-dir-score[data-score-detail]",
+      scoreSelector:
+        ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail]",
+    });
+  }
+  const paperT0WorkerTradesHost = document.getElementById("paper-t0-worker-trades");
+  if (paperT0WorkerTradesHost) {
+    scoreTips.bindHost(paperT0WorkerTradesHost, {
+      scoreSelector:
+        ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail]",
     });
   }
 
@@ -2263,7 +2398,36 @@ export function initPaper(ctx) {
   }
 
   const paperT0Bt = document.getElementById("paper-t0-backtest");
+  const paperT0Run = document.getElementById("paper-t0-run");
   const paperT0ActionStatus = document.getElementById("paper-t0-action-status");
+
+  /** 手动预演 / 回测 / 落账共用：状态行 spinner + 当前按钮禁用 */
+  const setT0ActionBusy = (btn, busy, msg) => {
+    if (btn) {
+      btn.disabled = !!busy;
+      btn.classList.toggle("is-busy", !!busy);
+      if (busy) btn.setAttribute("aria-busy", "true");
+      else btn.removeAttribute("aria-busy");
+    }
+    if (paperT0ActionStatus) {
+      paperT0ActionStatus.classList.toggle("is-busy", !!busy);
+      if (busy) paperT0ActionStatus.setAttribute("aria-busy", "true");
+      else paperT0ActionStatus.removeAttribute("aria-busy");
+      if (msg != null) paperT0ActionStatus.textContent = msg;
+    }
+  };
+  const clearT0ActionBusy = (btn) => {
+    if (btn) {
+      btn.disabled = false;
+      btn.classList.remove("is-busy");
+      btn.removeAttribute("aria-busy");
+    }
+    if (paperT0ActionStatus) {
+      paperT0ActionStatus.classList.remove("is-busy");
+      paperT0ActionStatus.removeAttribute("aria-busy");
+    }
+  };
+
   if (paperT0Bt) {
     paperT0Bt.addEventListener("click", async (e) => {
       e.preventDefault();
@@ -2276,21 +2440,17 @@ export function initPaper(ctx) {
       if (scope.error) {
         const fold = document.getElementById("follow-section-t0");
         if (fold) fold.scrollIntoView({ behavior: "smooth", block: "start" });
-        if (paperT0ActionStatus) paperT0ActionStatus.textContent = scope.error;
+        if (paperT0ActionStatus) {
+          paperT0ActionStatus.classList.remove("is-busy");
+          paperT0ActionStatus.textContent = scope.error;
+        }
         return;
       }
       const { onlySelected, useMinute } = scope;
       const busyLabel = onlySelected
         ? `回测中（${selectedHoldCode}·5m）…`
         : "回测中（全部持仓·5m）…";
-      const setT0Busy = (busy, msg) => {
-        paperT0Bt.disabled = !!busy;
-        if (paperT0ActionStatus) {
-          paperT0ActionStatus.classList.toggle("is-busy", !!busy);
-          paperT0ActionStatus.textContent = msg || "";
-        }
-      };
-      setT0Busy(true, busyLabel);
+      setT0ActionBusy(paperT0Bt, true, busyLabel);
       const ac = typeof AbortController !== "undefined" ? new AbortController() : null;
       const timer =
         ac &&
@@ -2316,15 +2476,12 @@ export function initPaper(ctx) {
         const data = await res.json();
         if (!res.ok || !data.success) {
           const errMsg = data.error || data.detail || "回测失败";
-          setT0Busy(false, errMsg);
+          setT0ActionBusy(paperT0Bt, false, errMsg);
           renderPaperT0(null);
           return;
         }
         const summary = buildT0SummaryLine(data);
-        if (paperT0ActionStatus) {
-          paperT0ActionStatus.classList.remove("is-busy");
-          paperT0ActionStatus.textContent = summary || "做 T 回测完成";
-        }
+        setT0ActionBusy(paperT0Bt, false, summary || "做 T 回测完成");
         renderPaperT0(data);
         showValidateNext("t0");
         const t0RulesEl = document.getElementById("paper-t0-rules");
@@ -2333,25 +2490,25 @@ export function initPaper(ctx) {
             normalizeExecutionView(data.execution, data.rules)
           );
         }
-        paperT0Bt.disabled = false;
       } catch (err) {
         const aborted = err && (err.name === "AbortError" || /abort/i.test(String(err)));
-        setT0Busy(
+        setT0ActionBusy(
+          paperT0Bt,
           false,
           aborted ? "回测超时（已中止；可 Alt+点单票再试）" : String(err.message || err)
         );
       } finally {
         if (timer) clearTimeout(timer);
-        paperT0Bt.disabled = false;
+        clearT0ActionBusy(paperT0Bt);
       }
     });
   }
 
-  const paperT0Run = document.getElementById("paper-t0-run");
   if (paperT0Run) {
     paperT0Run.addEventListener("click", async (e) => {
       e.preventDefault();
-      if (paperT0ActionStatus) paperT0ActionStatus.textContent = "预演做T中…";
+      if (paperT0Run.disabled) return;
+      setT0ActionBusy(paperT0Run, true, "预演中…");
       try {
         const res = await fetch("/api/paper/t0", {
           method: "POST",
@@ -2360,19 +2517,24 @@ export function initPaper(ctx) {
         });
         const data = await res.json();
         if (!res.ok || data.success === false) {
-          if (paperT0ActionStatus) paperT0ActionStatus.textContent = data.error || data.detail || "预演失败";
+          setT0ActionBusy(
+            paperT0Run,
+            false,
+            data.error || data.detail || "预演失败"
+          );
           renderPaperT0Preview(null);
           return;
         }
-        if (paperT0ActionStatus) {
-          paperT0ActionStatus.textContent =
-            `预演完成 · 成交 ${(data.trades || []).length} · PnL ${data.pnl_total ?? 0} · ` +
+        setT0ActionBusy(
+          paperT0Run,
+          false,
+          `预演完成 · 成交 ${(data.trades || []).length} · PnL ${data.pnl_total ?? 0} · ` +
             `跳过 ${data.skip_count ?? 0}` +
             (data.coupling_skip_count
               ? `（耦合 ${data.coupling_skip_count}）`
               : "") +
-            ` · 确认后才会改账`;
-        }
+            ` · 确认后才会改账`
+        );
         if (data.execution) {
           const t0RulesEl = document.getElementById("paper-t0-rules");
           if (t0RulesEl) {
@@ -2383,7 +2545,9 @@ export function initPaper(ctx) {
         }
         renderPaperT0Preview(data);
       } catch (err) {
-        if (paperT0ActionStatus) paperT0ActionStatus.textContent = String(err.message || err);
+        setT0ActionBusy(paperT0Run, false, String(err.message || err));
+      } finally {
+        clearT0ActionBusy(paperT0Run);
       }
     });
   }
@@ -2407,6 +2571,8 @@ export function initPaper(ctx) {
       e.preventDefault();
       const body = collectExecutionForm(paperT0Form);
       if (!body) return;
+      // 回测窗不进 Spec：保存前先记住，避免 fill 用旧 localStorage 盖成 30
+      persistT0Lookback(paperT0Form);
       if (paperT0EditStatus) paperT0EditStatus.textContent = "保存中…";
       try {
         const res = await fetch("/api/paper/execution", {
@@ -2452,6 +2618,7 @@ export function initPaper(ctx) {
           paperT0DiffBox.hidden = true;
           paperT0DiffBox.innerHTML = "";
         }
+        persistT0Lookback(paperT0Form);
         await refreshPaperAfterExecution(data.execution);
       } catch (err) {
         if (paperT0EditStatus) paperT0EditStatus.textContent = String(err.message || err);
@@ -2488,7 +2655,8 @@ export function initPaper(ctx) {
   if (paperT0Confirm) {
     paperT0Confirm.addEventListener("click", async (e) => {
       e.preventDefault();
-      if (paperT0ActionStatus) paperT0ActionStatus.textContent = "手动落账做T…";
+      if (paperT0Confirm.disabled) return;
+      setT0ActionBusy(paperT0Confirm, true, "落账中…");
       try {
         const res = await fetch("/api/paper/t0", {
           method: "POST",
@@ -2497,17 +2665,24 @@ export function initPaper(ctx) {
         });
         const data = await res.json();
         if (!res.ok || data.success === false) {
-          if (paperT0ActionStatus) paperT0ActionStatus.textContent = data.error || data.detail || "写入失败";
+          setT0ActionBusy(
+            paperT0Confirm,
+            false,
+            data.error || data.detail || "写入失败"
+          );
           return;
         }
-        if (paperT0ActionStatus) {
-          paperT0ActionStatus.textContent =
-            `已手动落账 · 成交 ${(data.trades || []).length} · PnL ${data.pnl_total ?? 0}`;
-        }
+        setT0ActionBusy(
+          paperT0Confirm,
+          false,
+          `已手动落账 · 成交 ${(data.trades || []).length} · PnL ${data.pnl_total ?? 0}`
+        );
         renderPaperT0Preview(null);
         await loadPaper({ quiet: true });
       } catch (err) {
-        if (paperT0ActionStatus) paperT0ActionStatus.textContent = String(err.message || err);
+        setT0ActionBusy(paperT0Confirm, false, String(err.message || err));
+      } finally {
+        clearT0ActionBusy(paperT0Confirm);
       }
     });
   }

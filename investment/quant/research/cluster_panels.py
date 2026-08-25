@@ -375,15 +375,28 @@ def build_cluster_ols_panels(
     code_list = [str(c).strip() for c in codes if str(c).strip()]
     n = len(code_list)
 
+    # 强制刷新时降并发，避免 AkShare 打爆；纯缓存可多开
+    if do_refresh:
+        workers = max(1, min(int(max_workers or 4), 4, n or 1))
+        batch_timeout = max(90.0, min(360.0, 1.5 * float(n or 1) + 60.0))
+    else:
+        workers = max(1, min(int(max_workers or 12), 24, n or 1))
+        # Limit≤100：缓存路径给足时间，避免大批次未完成就被收尾
+        batch_timeout = max(45.0, min(240.0, 0.9 * float(n or 1) + 40.0))
+
     if progress_cb:
         try:
             if do_force:
-                mode = "强制更新日线到最新"
+                mode = "强制更新到最新"
             elif do_refresh:
                 mode = "刷新过期票"
             else:
                 mode = "缓存优先"
-            progress_cb(f"拉日线 0/{n}（{mode}）", 0, n)
+            progress_cb(
+                f"拉日线 0/{n}（{mode} · {workers} 并发 · 上限 {int(batch_timeout)}s）",
+                0,
+                n,
+            )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
             logger.warning("面板构建失败", exc_info=True)
@@ -394,6 +407,11 @@ def build_cluster_ols_panels(
         markets = {resolve_market_code(c)[0] for c in code_list[:5]}
         markets.add("CN")
         idx_timeout = 18.0 if do_refresh else 0.0
+        if progress_cb and do_refresh:
+            try:
+                progress_cb(f"拉指数基准…（随后个股 0/{n}）", 0, n)
+            except Exception:  # noqa: BLE001
+                logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
         for m in markets:
             if not m:
                 continue
@@ -423,15 +441,6 @@ def build_cluster_ols_panels(
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
             return index_by_bench.get(str(default_benchmark("CN")))
-
-    # 强制刷新时降并发，避免 AkShare 打爆；纯缓存可多开
-    if do_refresh:
-        workers = max(1, min(int(max_workers or 4), 4, n or 1))
-        batch_timeout = max(90.0, min(360.0, 1.5 * float(n or 1) + 60.0))
-    else:
-        workers = max(1, min(int(max_workers or 12), 24, n or 1))
-        # Limit≤100：缓存路径给足时间，避免大批次未完成就被收尾
-        batch_timeout = max(45.0, min(240.0, 0.9 * float(n or 1) + 40.0))
     raw_rows: List[Optional[Dict[str, Any]]] = [None] * n
     done = 0
     remote_n = 0
@@ -463,8 +472,9 @@ def build_cluster_ols_panels(
                     if progress_cb:
                         try:
                             elapsed = int(time.time() - t0)
+                            remain = max(0, int(batch_timeout) - elapsed)
                             progress_cb(
-                                f"拉日线 {done}/{n}（远端 {remote_n} · {elapsed}s）",
+                                f"拉日线 {done}/{n}（远端 {remote_n} · {elapsed}s · 剩 {remain}s · {workers} 并发）",
                                 done,
                                 n,
                             )
@@ -490,8 +500,11 @@ def build_cluster_ols_panels(
                     done += 1
                     if progress_cb and (done == n or done % 5 == 0 or done <= 3):
                         try:
+                            elapsed = int(time.time() - t0)
+                            remain = max(0, int(batch_timeout) - elapsed)
+                            cache_n = max(0, done - remote_n)
                             progress_cb(
-                                f"拉日线 {done}/{n}（远端 {remote_n}）",
+                                f"拉日线 {done}/{n}（远端 {remote_n} · 缓存 {cache_n} · {elapsed}s · 剩 {remain}s）",
                                 done,
                                 n,
                             )
@@ -520,7 +533,13 @@ def build_cluster_ols_panels(
                 done += 1
             if progress_cb:
                 try:
-                    progress_cb(f"拉日线超时收尾 {done}/{n}（远端 {remote_n}）", done, n)
+                    elapsed = int(time.time() - t0)
+                    cache_n = max(0, done - remote_n)
+                    progress_cb(
+                        f"拉日线超时收尾 {done}/{n}（远端 {remote_n} · 缓存 {cache_n} · {elapsed}s · 上限 {int(batch_timeout)}s）",
+                        done,
+                        n,
+                    )
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                     logger.debug("catch except Exception: in cluster_panels.py", exc_info=True)
                     logger.warning("面板汇总失败", exc_info=True)

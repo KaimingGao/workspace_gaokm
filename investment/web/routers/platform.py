@@ -45,6 +45,10 @@ class ScheduleBody(BaseModel):
     write_excludes: bool = False
     warmup_bars: Optional[bool] = True
     warmup_sentiment: Optional[bool] = True
+    # minute_warmup
+    period: str = "5"
+    cap: int = Field(default=25, ge=1, le=200)
+    lookback_days: int = Field(default=90, ge=5, le=120)
 
 
 class RecordAdviceBody(BaseModel):
@@ -161,6 +165,9 @@ def post_schedule(body: ScheduleBody) -> Dict[str, Any]:
         write_excludes=body.write_excludes,
         warmup_bars=body.warmup_bars,
         warmup_sentiment=body.warmup_sentiment,
+        period=body.period,
+        cap=body.cap,
+        lookback_days=body.lookback_days,
     )
     if not out.get("ok"):
         raise HTTPException(status_code=400, detail=out.get("error") or "schedule failed")

@@ -9,6 +9,7 @@ import {
   resolveEodScore,
   resolveNowcastScore,
   resolveOnScore,
+  resolveTauLiftedScore,
   resolveTauScore,
   resolveTradeScore,
 } from "./paper/fmt.js?v=p1226";
@@ -34,7 +35,7 @@ const FACTOR_LABELS = {
   growth: "成长",
   dividend: "股息",
   money_flow: "资金流",
-  amihud: "Amihud",
+  amihud: "非流动性",
   idio_momentum: "特异动量",
   alt_sentiment: "舆情",
   tail_anomaly: "尾盘异常",
@@ -217,18 +218,47 @@ function formatCompactEodTip(raw) {
   );
 }
 
-/** y_τ 列：只展示头值与口径，不展开全栈。 */
+/** y_τ 列 tip：头值=拟合原值（=组成合计=表列）；昨收口径仅作对照。 */
 function formatCompactTauTip(raw) {
-  const shown = resolveTauScore(raw);
-  const val = shown == null ? "—" : `${fmtSigned(shown, 2)}%`;
+  const fit = resolveTauScore(raw);
+  const lifted = resolveTauLiftedScore(raw);
+  const fitTxt = fit == null ? "—" : `${fmtSigned(fit, 3)}%`;
   const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
+  const rows = [];
+  if (
+    lifted != null &&
+    fit != null &&
+    Number.isFinite(lifted) &&
+    Math.abs(lifted - fit) > 1e-4
+  ) {
+    rows.push(
+      `<div class="score-layer-row"><span>昨收对照（缺口∘ŷ_τ）</span>` +
+        `<span class="num ${signCls(lifted)}">${escapeText(
+          fmtSigned(lifted, 3)
+        )}%</span></div>`
+    );
+  }
+  const gap = raw && raw.gap_pct;
+  if (gap != null && Number.isFinite(Number(gap))) {
+    rows.push(
+      `<div class="score-layer-row"><span>跳空缺口</span>` +
+        `<span class="num ${signCls(gap)}">${escapeText(
+          fmtSigned(Number(gap), 2)
+        )}%</span></div>`
+    );
+  }
   return (
     `<div class="score-layer score-layer-tau">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">y_τ</div>` +
-    `<div class="score-hero-value ${signCls(shown)}">${escapeText(val)}</div>` +
+    `<div class="score-hero-label">ŷ_τ · T收/T开（拟合）</div>` +
+    `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">τ=${escapeText(tau)} · τ→收盘 · 昨收口径</div>` +
+    `<div class="score-hero-hint">τ=${escapeText(
+      tau
+    )} · 与表列 / 组成合计 / τ 闸同口径</div>` +
+    (rows.length
+      ? `<div class="score-layer-compose">${rows.join("")}</div>`
+      : "") +
     `</div>`
   );
 }
@@ -252,9 +282,10 @@ function formatCompactOnTip(raw) {
   );
 }
 
-/** ŷ_τ：独立预估 T 收相对 T 开。 */
+/** ŷ_τ：独立预估 T 收相对 T 开（与表列 / 组成合计同口径）。 */
 export function formatRemScoreSection(raw) {
-  const rem = resolveTau(raw);
+  const rem = resolveTauScore(raw);
+  const lifted = resolveTauLiftedScore(raw);
   const gap = raw && raw.gap_pct;
   const ep = raw && raw.event_prior;
   const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
@@ -274,6 +305,19 @@ export function formatRemScoreSection(raw) {
       (raw.score_formula_terms_tau && (raw.score_formula_terms_tau.terms || []).length))
   );
   const featRows = [];
+  if (
+    hasRem &&
+    lifted != null &&
+    Number.isFinite(lifted) &&
+    Math.abs(lifted - Number(rem)) > 1e-4
+  ) {
+    featRows.push(
+      `<div class="score-layer-row"><span>昨收对照（缺口∘ŷ_τ）</span>` +
+        `<span class="num ${signCls(lifted)}">${escapeText(
+          fmtSigned(lifted, 3)
+        )}%</span></div>`
+    );
+  }
   // 有 β·z 组成表时不再堆特征原值行（组成表更完整）
   if (!hasTauTerms) {
     if (hasGap || feat.gap_pct != null) {
@@ -318,18 +362,22 @@ export function formatRemScoreSection(raw) {
     }
   }
   const warn = Array.isArray(ep && ep.warnings) ? ep.warnings.slice(0, 2).join(" · ") : "";
+  const compose = featRows.length
+    ? `<div class="score-layer-compose">${featRows.join("")}</div>`
+    : "";
   const body = !hasRem
     ? `<div class="score-hero-hint">未产出（需 ŷ_τ 模型）</div>`
     : hasTauTerms
-      ? `<div class="score-hero-hint">组成见表「ŷ_τ 组成」</div>`
-      : featRows.length
-        ? `<div class="score-layer-compose">${featRows.join("")}</div>`
-        : `<div class="score-hero-hint">τ=${escapeText(tau)} · y=${escapeText(String(ySpec))}</div>`;
+      ? `${compose}<div class="score-hero-hint">组成见表「ŷ_τ 组成」· 与表列 / τ 闸同口径</div>`
+      : compose ||
+        `<div class="score-hero-hint">τ=${escapeText(tau)} · y=${escapeText(
+          String(ySpec)
+        )}</div>`;
 
   return (
     `<div class="score-layer score-layer-tau">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_τ · T收 / T开（τ 头）</div>` +
+    `<div class="score-hero-label">ŷ_τ · T收 / T开（拟合）</div>` +
     `<div class="score-hero-value ${signCls(rem)}">${escapeText(remTxt)}</div>` +
     `</div>` +
     `<div class="score-hero-hint">τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 买入闸</div>` +
@@ -696,7 +744,11 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   const title =
     key === "tau" ? "ŷ_τ 组成" : key === "on" ? "ŷ_ON 组成" : "ŷ_EOD 组成";
   const totalLabel =
-    key === "tau" ? "合计 ŷ_τ" : key === "on" ? "合计 ŷ_ON" : "合计 ŷ_EOD";
+    key === "tau"
+      ? "合计 ŷ_τ（T收/T开）"
+      : key === "on"
+        ? "合计 ŷ_ON"
+        : "合计 ŷ_EOD";
 
   const rows = terms
     .map((t) => {
@@ -755,6 +807,10 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       `</div>`
     : "";
 
+  const caption =
+    key === "tau"
+      ? "β×z = 贡献；合计=Ridge 拟合原值（T收/T开），与表列 ŷ_τ / τ 闸同口径。昨收（缺口∘ŷ_τ）只用于 ŷ_trade 融合对照。"
+      : "β×z = 贡献；条长∝|贡献|";
   return (
     `<div class="score-formula-section">` +
     `<div class="score-section-title">${escapeText(title)}</div>` +
@@ -778,7 +834,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     `<td class="num ${signCls(expl.total)}">${escapeText(total)}%</td>` +
     `</tr>` +
     `</tbody></table>` +
-    `<div class="score-formula-caption">β×z = 贡献；条长∝|贡献|</div>` +
+    `<div class="score-formula-caption">${escapeText(caption)}</div>` +
     `</div>`
   );
 }

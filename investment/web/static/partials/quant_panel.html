@@ -103,48 +103,50 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-bars-title" class="dashboard-section-title">日线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-bars-desc">
-        日 K 本地缓存 · 观察池末 bar 对齐 · 分组 / IC / OOS 共用（非 5m 分钟线）
+        PIT 日 K 本地仓 · 观察池末 bar 对齐 as-of · ŷ_EOD / IC / OOS 共用 · ≠ 5m 分钟线
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-bars-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
         <div id="quant-cluster-bars-strip" class="quant-cluster-bars-strip quant-bars-desk-status quant-card-head-status" aria-live="polite">
           <span id="quant-cluster-bars-chip" class="quant-pro-status-chip" data-state="idle">—</span>
-          <span id="quant-cluster-bars-msg" class="quant-cluster-bars-msg">加载状态…</span>
+          <span id="quant-cluster-bars-msg" class="quant-cluster-bars-msg">加载覆盖…</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="日线操作">
-          <button type="button" id="quant-cluster-bars-refresh" class="dialog-btn secondary" title="强制增量拉取观察池日 K 到最新（不跑分组）">
-            更新日线
+          <button type="button" id="quant-cluster-bars-refresh" class="dialog-btn secondary" title="强制增量拉取观察池日 K（跳过 36h 复用 · 约 4 并发 · Limit100 约 2–3.5 分钟，可能超时收尾）">
+            强更日 K
           </button>
         </div>
       </div>
       <div class="quant-pro-card-body quant-bars-body">
+        <div id="quant-bars-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="日 K 强更进度"></div>
+        <div id="quant-bars-context-strip" class="quant-bars-context-strip" aria-live="polite"></div>
         <div class="quant-bars-kpi-row" id="quant-bars-kpis" aria-label="日线覆盖 KPI">
-          <div class="quant-bars-kpi quant-pro-kpi-card" data-bars-kpi="align">
-            <span class="quant-pro-kpi-label">对齐覆盖</span>
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-bars-kpi="align" title="末 bar ≥ 期望 as-of 的标的占比">
+            <span class="quant-pro-kpi-label">Coverage</span>
             <span class="quant-pro-kpi-value" id="quant-bars-kpi-align">—</span>
             <span class="quant-pro-kpi-sub" id="quant-bars-kpi-align-sub">— / — 只</span>
           </div>
-          <div class="quant-bars-kpi quant-pro-kpi-card" data-bars-kpi="expected">
-            <span class="quant-pro-kpi-label">期望末 bar</span>
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-bars-kpi="expected" title="完整日 K 目标日；交易日 15:05 前取上一交易日">
+            <span class="quant-pro-kpi-label">As-of 目标</span>
             <span class="quant-pro-kpi-value quant-bars-kpi-date" id="quant-bars-kpi-expected">—</span>
-            <span class="quant-pro-kpi-sub">完整日 K 目标日</span>
+            <span class="quant-pro-kpi-sub" id="quant-bars-kpi-expected-sub">15:05 规则</span>
           </div>
-          <div class="quant-bars-kpi quant-pro-kpi-card" data-bars-kpi="stale">
-            <span class="quant-pro-kpi-label">滞后</span>
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-bars-kpi="stale" title="本地有缓存但末 bar 早于 as-of 目标">
+            <span class="quant-pro-kpi-label">Stale</span>
             <span class="quant-pro-kpi-value" id="quant-bars-kpi-stale">—</span>
-            <span class="quant-pro-kpi-sub">末 bar 早于期望</span>
+            <span class="quant-pro-kpi-sub">末 bar &lt; 目标</span>
           </div>
-          <div class="quant-bars-kpi quant-pro-kpi-card" data-bars-kpi="missing">
-            <span class="quant-pro-kpi-label">缺缓存</span>
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-bars-kpi="missing" title="观察池内无本地日 K 缓存">
+            <span class="quant-pro-kpi-label">Missing</span>
             <span class="quant-pro-kpi-value" id="quant-bars-kpi-missing">—</span>
-            <span class="quant-pro-kpi-sub">无本地日 K</span>
+            <span class="quant-pro-kpi-sub">无本地仓</span>
           </div>
         </div>
         <div class="quant-bars-viz-grid">
           <div class="quant-bars-viz-panel">
             <div class="quant-bars-viz-head">
-              <span class="quant-bars-viz-title">覆盖构成</span>
+              <span class="quant-bars-viz-title">Coverage mix</span>
               <span class="quant-bars-viz-meta" id="quant-bars-cov-pct">—</span>
             </div>
             <div
@@ -156,8 +158,8 @@
           </div>
           <div class="quant-bars-viz-panel">
             <div class="quant-bars-viz-head">
-              <span class="quant-bars-viz-title">末 bar 日期分布</span>
-              <span class="quant-bars-viz-meta">Top 日期 · 柱长=只数</span>
+              <span class="quant-bars-viz-title">Last bar distribution</span>
+              <span class="quant-bars-viz-meta" id="quant-bars-dist-meta">Top · 柱长=占比</span>
             </div>
             <div
               class="quant-bars-viz-body quant-bars-bar-rows"
@@ -166,7 +168,7 @@
             ></div>
           </div>
         </div>
-        <p class="quant-bars-foot" id="quant-bars-meta">—</p>
+        <footer class="quant-bars-foot" id="quant-bars-foot" aria-label="日线仓元数据"></footer>
       </div>
     </div>
   </section>

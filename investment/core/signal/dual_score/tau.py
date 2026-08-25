@@ -366,11 +366,13 @@ def attach_dual_score_pit(
     rem_model_doc: Optional[Dict[str, Any]] = None,
     sector_gap_breadth: Optional[float] = None,
     fuse_intraday: Optional[bool] = None,
+    sector_gap_median: Optional[float] = None,
 ) -> Dict[str, Any]:
     """历史回测 / 无实时行情时：用 PIT 日线 quote·bars 挂 ŷ_τ + blend。
 
     缺口 = open[T]/close[T−1]（与 live ``gap_pct_from_quote_bars`` 同口径）。
     不拉同伴行情；``sector_gap_breadth`` 可由调用方截面预计算后传入。
+    ``sector_gap_median``：同行/截面参照（有则 ``gap_vs_sector = gap − median``）。
     无 ŷ_τ 模型时仍写契约字段（ŷ_τ=None，ŷ_trade 退回 ŷ_EOD）。
     ``fuse_intraday=False`` / 簿上 ``dual_score_window=eod_next``：
     - τ 买入闸不吃当日 ŷ_τ；
@@ -437,14 +439,29 @@ def attach_dual_score_pit(
         asof = ""
         if isinstance(q, dict):
             asof = str(q.get("date") or q.get("trade_date") or "")[:10]
+        if len(asof) < 10:
+            try:
+                from datetime import datetime
+                from zoneinfo import ZoneInfo
+
+                asof = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
+            except Exception:  # noqa: BLE001
+                if isinstance(b, (list, tuple)) and b:
+                    asof = str((b[-1] or {}).get("date") or "")[:10]
         hist = hist_bars_pit(b, asof_date=asof)
         feats["gap_atr"] = gap_atr_from_hist(gap_v, hist)
-        pool = signal_item.get("_pool_gaps")
-        ref = None
-        if isinstance(pool, (list, tuple)) and pool:
-            ref = _finite_median(
-                [float(g) for g in pool if g is not None]
-            )
+        ref = sector_gap_median
+        if ref is None and signal_item.get("_sector_gap_median") is not None:
+            try:
+                ref = float(signal_item.get("_sector_gap_median"))
+            except (TypeError, ValueError):
+                ref = None
+        if ref is None:
+            pool = signal_item.get("_pool_gaps")
+            if isinstance(pool, (list, tuple)) and pool:
+                ref = _finite_median(
+                    [float(g) for g in pool if g is not None]
+                )
         feats["gap_vs_sector"] = gap_vs_sector_value(gap_v, ref)
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in dual_score.py", exc_info=True)

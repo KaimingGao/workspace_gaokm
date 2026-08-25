@@ -45,7 +45,7 @@ def _execution_view_for_backtest(
         "y_eod_prior": bt_rules.get("y_eod_prior"),
         "y_on_allow": bt_rules.get("y_on_allow"),
         "y_on_risk": bt_rules.get("y_on_risk"),
-        "y_block_conflict": bt_rules.get("y_block_conflict"),
+        "y_block_tau_nowcast_sign": bt_rules.get("y_block_tau_nowcast_sign"),
         "y_tau_map": bt_rules.get("y_tau_map"),
     }
     # 旧 signal 门槛：仅非 dual_y 时透出，避免规则卡/摘要混淆
@@ -79,7 +79,7 @@ def _rules_summary(bt_rules: dict) -> Dict[str, Any]:
         "y_eod_prior": bt_rules.get("y_eod_prior"),
         "y_on_allow": bt_rules.get("y_on_allow"),
         "y_on_risk": bt_rules.get("y_on_risk"),
-        "y_block_conflict": bt_rules.get("y_block_conflict"),
+        "y_block_tau_nowcast_sign": bt_rules.get("y_block_tau_nowcast_sign"),
         "y_tau_map": bt_rules.get("y_tau_map"),
     }
     if str(bt_rules.get("direction") or "") != "dual_y":
@@ -168,12 +168,18 @@ def run_t0_backtest_for_code(
     use_minute: bool = True,
     compare_daily: bool = False,
     compare_no_t0: bool = True,
+    tau_pool_by_date: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     from core.data.facade import bars_and_source as fetch_daily_bars
     from core.data.facade import get_quote
 
     _ = (use_minute, compare_daily)  # 日线模拟已删除；强制分钟
-    from core.t0.score_policy import T0_BACKTEST_SCORE_WARMUP
+    from core.t0.score_policy import (
+        T0_BACKTEST_SCORE_WARMUP,
+        active_book_codes_for_tau_pool,
+        build_tau_pool_by_date,
+        load_bars_by_code_for_tau_pool,
+    )
 
     eval_lb = max(10, int(lookback or T0_BT_DEFAULT_LOOKBACK))
     warmup = int(T0_BACKTEST_SCORE_WARMUP)
@@ -234,6 +240,17 @@ def run_t0_backtest_for_code(
             "minute_meta": minute_meta,
         }
 
+    # ŷ_τ 截面：调用方未传时，用活跃簿宇宙（与刷簿同构）补 pool_gaps
+    tau_pool = tau_pool_by_date if isinstance(tau_pool_by_date, dict) else None
+    if tau_pool is None:
+        pool_codes = active_book_codes_for_tau_pool(cap=120)
+        if str(sym) not in pool_codes:
+            pool_codes = [str(sym)] + list(pool_codes)
+        bars_by_code = load_bars_by_code_for_tau_pool(pool_codes, limit=fetch_n)
+        if str(sym) not in bars_by_code and bars_all:
+            bars_by_code[str(sym)] = list(bars_all)
+        tau_pool = build_tau_pool_by_date(bars_by_code)
+
     cost = float(
         initial_cost
         if initial_cost is not None
@@ -252,6 +269,7 @@ def run_t0_backtest_for_code(
         minute_by_date=minute_by_date,
         compare_daily=False,
         require_minute=True,
+        tau_pool_by_date=tau_pool,
     )
     report["data_source"] = src
     report["stock_name"] = quote.get("stock_name") if quote.get("success") else None
@@ -337,7 +355,7 @@ def run_t0_backtest_for_holdings(
         }
 
     from core.execution import resolve_t0_rules, strip_execution_meta
-    from core.t0.viz import classify_t0_skip_reason, merge_t0_viz_payloads
+    from core.t0.viz import merge_t0_viz_payloads, summarize_skip_reason_label
 
     _ = (use_minute, compare_daily, cash)
     req_rules = dict(rules or {})
@@ -351,6 +369,28 @@ def run_t0_backtest_for_holdings(
 
     v_shares = max(100.0, float(virtual_shares or T0_BT_VIRTUAL_SHARES))
     v_cash = max(0.0, float(virtual_cash if virtual_cash is not None else T0_BT_VIRTUAL_CASH))
+
+    # 持仓 ∪ 活跃簿宇宙 → 共享 τ 截面（与刷簿同构，避免逐票缺 sector_gap_breadth）
+    from core.t0.score_policy import (
+        T0_BACKTEST_SCORE_WARMUP,
+        active_book_codes_for_tau_pool,
+        build_tau_pool_by_date,
+        load_bars_by_code_for_tau_pool,
+    )
+
+    hold_codes = [
+        str(h.get("stock_code") or "").strip()
+        for h in holdings
+        if str(h.get("stock_code") or "").strip()
+    ]
+    pool_codes = list(
+        dict.fromkeys(hold_codes + active_book_codes_for_tau_pool(cap=120))
+    )
+    eval_lb = max(10, int(lookback or T0_BT_DEFAULT_LOOKBACK))
+    fetch_n = eval_lb + int(T0_BACKTEST_SCORE_WARMUP) + 5
+    tau_pool = build_tau_pool_by_date(
+        load_bars_by_code_for_tau_pool(pool_codes, limit=fetch_n)
+    )
 
     per: List[Dict[str, Any]] = []
     total_pnl = 0.0
@@ -380,6 +420,7 @@ def run_t0_backtest_for_holdings(
             compare_optimistic=compare_optimistic,
             use_minute=True,
             compare_daily=False,
+            tau_pool_by_date=tau_pool,
         )
         one["stock_name"] = one.get("stock_name") or h.get("stock_name")
         one["paper_shares"] = float(h.get("shares") or 0)
@@ -444,7 +485,6 @@ def run_t0_backtest_for_holdings(
     # 注意：trade_days_sample=[] 时勿用 `or days`，否则会把全日跳过行灌进样本
     trade_sample: List[Dict[str, Any]] = []
     skip_reason_counts: Dict[str, int] = {}
-    skip_sample: List[Dict[str, Any]] = []
     for x in ok:
         code = x.get("stock_code")
         name = x.get("stock_name")
@@ -469,20 +509,8 @@ def run_t0_backtest_for_holdings(
                 continue
             reason = str(d.get("reason") or d.get("direction_reason") or "跳过").strip()
             reason_key = (reason[:69] + "…") if len(reason) > 72 else (reason or "跳过")
-            skip_reason_counts[reason_key] = skip_reason_counts.get(reason_key, 0) + 1
-            skip_sample.append(
-                {
-                    "date": d.get("date"),
-                    "stock_code": code,
-                    "stock_name": name,
-                    "reason": reason_key,
-                    "skip_category": classify_t0_skip_reason(reason),
-                    "direction_score": d.get("direction_score"),
-                    "scores": d.get("scores"),
-                    "signal_skip": bool(d.get("signal_skip")),
-                    "path_mode": d.get("path_mode"),
-                }
-            )
+            label = summarize_skip_reason_label(reason_key)
+            skip_reason_counts[label] = skip_reason_counts.get(label, 0) + 1
     trade_sample.sort(key=lambda r: str(r.get("date") or ""))
     ui_limit = 50
     recent = trade_sample[-ui_limit:]
@@ -500,7 +528,6 @@ def run_t0_backtest_for_holdings(
             break
     trade_sample = sorted(recent + rev_extra, key=lambda r: str(r.get("date") or ""))[-ui_limit:]
 
-    skip_sample.sort(key=lambda r: str(r.get("date") or ""), reverse=True)
     skip_reason_top = sorted(
         ({"reason": k, "count": v} for k, v in skip_reason_counts.items()),
         key=lambda r: (-int(r["count"]), str(r["reason"])),
@@ -540,7 +567,6 @@ def run_t0_backtest_for_holdings(
         "days": trade_sample,
         "trade_days_sample": trade_sample,
         "skip_reason_top": skip_reason_top,
-        "skip_days_sample": skip_sample[:12],
         "path_mode": "first_touch",
         "direction": cfg.get("direction"),
         "use_minute": True,

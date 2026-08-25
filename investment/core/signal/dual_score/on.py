@@ -227,6 +227,9 @@ def attach_on_score_pit(
             feats.setdefault("theme_day", signal_item.get("theme_day"))
         if signal_item.get("gap_vs_sector") is not None:
             feats.setdefault("gap_vs_sector", signal_item.get("gap_vs_sector"))
+        ft = signal_item.get("features_tau")
+        if isinstance(ft, dict) and ft.get("gap_vs_sector") is not None:
+            feats.setdefault("gap_vs_sector", ft.get("gap_vs_sector"))
         prior = signal_item.get("features_on")
         if isinstance(prior, dict):
             feats = merge_on_features(feats, prior)

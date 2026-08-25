@@ -379,6 +379,7 @@ def simulate_t0_day(
     hist_bars: Optional[Sequence[dict]] = None,
     minute_bars: Optional[Sequence[dict]] = None,
     scores: Optional[dict] = None,
+    tau_pool_day: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """单票单日做 T：仅 5m 第一触达（已删除日线 high/low 代理）。"""
     cfg = load_t0_rules(rules)
@@ -388,31 +389,42 @@ def simulate_t0_day(
 
     score_snap = scores if isinstance(scores, dict) else None
     if str(cfg.get("direction") or "") == "dual_y" and not scores_have_any(score_snap):
-        from core.t0.score_policy import resolve_scores_for_code, resolve_y_score_source
+        from core.t0.score_policy import (
+            resolve_scores_for_code,
+            resolve_y_score_source,
+            tau_pool_day_score_kwargs,
+        )
 
         as_of = str((bar or {}).get("date") or "")[:10]
         if stock_code:
+            y_src = resolve_y_score_source(cfg)
             score_snap = resolve_scores_for_code(
                 stock_code,
                 hist_bars=hist_bars,
                 day_bar=bar if isinstance(bar, dict) else None,
                 as_of=as_of or None,
-                source=resolve_y_score_source(cfg),
+                source=y_src,
                 fuse_intraday=True,
-                allow_fallback=True,
+                allow_fallback=(y_src != "compute"),
+                **tau_pool_day_score_kwargs(tau_pool_day, stock_code),
             )
 
     mins = list(minute_bars or [])
     if len(mins) < 2:
-        return _skip_result(
-            reason="缺分钟线，跳过（已删除日线模拟）",
-            shares=shares,
-            bar=bar,
-            extra={
-                "path_mode": "first_touch",
-                "skip_category": "missing_minute",
-                "signal_skip": False,
-            },
+        from core.t0.score_policy import attach_day_scores
+
+        return attach_day_scores(
+            _skip_result(
+                reason="缺分钟线，跳过（已删除日线模拟）",
+                shares=shares,
+                bar=bar,
+                extra={
+                    "path_mode": "first_touch",
+                    "skip_category": "missing_minute",
+                    "signal_skip": False,
+                },
+            ),
+            score_snap,
         )
 
     from core.t0.minute_path import simulate_t0_day_minute
@@ -431,6 +443,7 @@ def simulate_t0_day(
         atr_pct=atr_pct,
         hist_bars=hist_bars,
         scores=score_snap,
+        tau_pool_day=tau_pool_day,
     )
 
 
@@ -508,10 +521,18 @@ def simulate_t0_on_holdings(
             continue
         shares = float(h.get("shares") or 0)
         cost = float(h.get("cost") or 0)
-        from core.paper.tplus1 import apply_t0_trades, sellable_shares as t1_sellable
+        from core.paper.tplus1 import (
+            apply_t0_trades,
+            sellable_shares as t1_sellable,
+            session_date as t1_session,
+        )
 
-        as_of = str(bar.get("date") or "")[:10]
-        sellable = t1_sellable(h, as_of=as_of or None)
+        # T+1 按「当前交易会话日」解冻。日线 bar.date 凌晨/盘前常停在昨收，
+        # 若用 bar.date 会把昨日买入误判为当日锁定（可卖=0）。
+        bar_day = str(bar.get("date") or "")[:10]
+        sess = t1_session()
+        as_of = sess or bar_day or None
+        sellable = t1_sellable(h, as_of=as_of)
 
         # coupling vs stance
         stance_raw = None

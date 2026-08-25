@@ -953,6 +953,16 @@ def score_stock(
             asof = ""
             if quote:
                 asof = str(quote.get("date") or quote.get("trade_date") or "")[:10]
+            # 实时行情常无 date；用当日会话日剥掉未完成日 K，避免 ATR 吃进今高/今低
+            if len(asof) < 10:
+                try:
+                    from datetime import datetime
+                    from zoneinfo import ZoneInfo
+
+                    asof = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
+                except Exception:  # noqa: BLE001
+                    if bars:
+                        asof = str((bars[-1] or {}).get("date") or "")[:10]
             hist = hist_bars_pit(bars, asof_date=asof)
             feats["gap_atr"] = gap_atr_from_hist(gap_v, hist)
             ref = sector_gap_median

@@ -196,13 +196,28 @@ function slimFormulaTerms(expl, maxTerms = 10) {
   if (!expl || typeof expl !== "object") return expl || null;
   const terms = Array.isArray(expl.terms) ? expl.terms : [];
   if (!terms.length) return expl;
+  const pin = new Set([
+    "amihud",
+    "liquidity",
+    "money_flow",
+    "volume_price",
+    "relative_strength",
+    "size",
+  ]);
   const sorted = [...terms].sort(
+    (a, b) => Math.abs(Number(b?.contrib) || 0) - Math.abs(Number(a?.contrib) || 0)
+  );
+  // 在 limit 内用 pin 替换，不追加，避免 data-score-detail 过长截断
+  const pinTerms = sorted.filter((t) => pin.has(String(t?.key || "")));
+  const nonPin = sorted.filter((t) => !pin.has(String(t?.key || "")));
+  const budget = Math.max(0, maxTerms - pinTerms.length);
+  const kept = [...nonPin.slice(0, budget), ...pinTerms].sort(
     (a, b) => Math.abs(Number(b?.contrib) || 0) - Math.abs(Number(a?.contrib) || 0)
   );
   return {
     intercept: expl.intercept,
     total: expl.total,
-    terms: sorted.slice(0, maxTerms),
+    terms: kept,
     head: expl.head,
   };
 }
@@ -484,7 +499,7 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
     `<th class="watching-col-num" title="最新成交价">现价</th>` +
     `<th class="watching-col-num" title="相对昨收的涨跌幅（与 Y 列同一口径）">涨跌</th>` +
     `<th class="watching-col-num" title="ŷ_EOD · 隔夜主轴">y_eod</th>` +
-    `<th class="watching-col-num" title="τ→收盘 · 昨收口径">y_τ</th>` +
+    `<th class="watching-col-num" title="ŷ_τ · T收/T开（拟合原值；τ 闸同源）">y_τ</th>` +
     `<th class="watching-col-num" title="ŷ_ON · open 链旁路">y_on</th>` +
     `<th class="watching-col-num" title="ŷ_trade · 排序/卖门槛">y_trade</th>` +
     `<th class="watching-col-num" title="ŷ_nowcast · Kalman 权昨收对照">y_nc</th>` +

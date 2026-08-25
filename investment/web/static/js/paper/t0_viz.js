@@ -33,6 +33,7 @@ const SKIP_CAT_COLORS = {
   missing_scores: "#94a3b8",
   y_tau_flat: "#f59e0b",
   y_trade_weak: "#fb923c",
+  trade_tau_sign: "#e11d48",
   conflict: "#ef4444",
   amplitude: "#64748b",
   directional_amplitude: "#78716c",
@@ -854,6 +855,10 @@ function vizCard(title, subtitle, chartInner, footHtml = "", legendHtml = "") {
  */
 export function renderT0Viz(host, data) {
   if (!host) return;
+  // 成交明细可能被挂进 viz；重绘前先挪回宿主后，避免 innerHTML 清掉节点
+  const daysHost = host.querySelector("#paper-t0-days");
+  if (daysHost) host.insertAdjacentElement("afterend", daysHost);
+
   if (!data || !data.success || !data.viz) {
     if (host._t0VizRo) host._t0VizRo.disconnect();
     host.hidden = true;
@@ -968,14 +973,13 @@ export function renderT0Viz(host, data) {
     );
   }
 
-  if (viz.stock_contrib && viz.stock_contrib.length >= 1) {
-    cards.push(
-      `<div class="paper-t0-viz-card paper-t0-viz-card-wide">` +
-        `<div class="paper-t0-viz-card-head"><h4>分票贡献</h4></div>` +
+  const contribHtml =
+    viz.stock_contrib && viz.stock_contrib.length >= 1
+      ? `<section class="paper-t0-viz-contrib">` +
+        `<div class="paper-t0-viz-contrib-head"><h4>分票贡献</h4></div>` +
         renderStockContrib(viz.stock_contrib) +
-        `</div>`
-    );
-  }
+        `</section>`
+      : "";
 
   host.hidden = false;
   host.innerHTML =
@@ -984,7 +988,8 @@ export function renderT0Viz(host, data) {
     `<span class="quant-sub">正T ${ds.long_t ?? 0} · 反T ${ds.reverse_t ?? 0} · 成交 ${viz.trade_count ?? 0} · 跳过 ${viz.skip_count ?? 0}</span>` +
     `</div>` +
     renderKpiRow(sm, viz.compare) +
-    `<div class="paper-t0-viz-grid">${cards.join("")}</div>`;
+    `<div class="paper-t0-viz-grid">${cards.join("")}</div>` +
+    contribHtml;
 
   function paintCharts() {
     const cum = host.querySelector('canvas[data-viz="cum"]');

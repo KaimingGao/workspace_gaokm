@@ -349,7 +349,7 @@ export function buildT0ReportHtml(data, opts = {}) {
   const signalSection = metricSection("信号与覆盖", [
     metricCell("ŷ 覆盖", fmtPct(scoreCov), { tip: "有 y_τ 快照的评估日占比" }),
     metricCell("信号跳过率", fmtPct(data.signal_skip_rate_pct ?? sm.signal_skip_rate_pct), {
-      tip: "dual_y 门槛 / 冲突 / y_trade 不足等",
+      tip: "dual_y 门槛 / y_check / y_trade 不足等",
     }),
     metricCell(
       "τ 门槛",

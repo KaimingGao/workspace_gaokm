@@ -111,6 +111,34 @@ export function installClusterProbe(q) {
           restored = null;
         }
       }
+
+      // 后台分组仍在跑：接上轮询（刷新后进度不丢）；可先画旧报告作对照
+      let runningJobId = null;
+      try {
+        const jr = await fetch("/api/jobs/quant-ols-clusters?progress=1");
+        if (jr.ok) {
+          const jp = await jr.json();
+          const job = (jp && jp.job) || {};
+          if (job.status === "running" && job.id) {
+            runningJobId = job.id;
+          }
+        }
+      } catch (_) {
+        runningJobId = null;
+      }
+      if (runningJobId) {
+        if (restored) {
+          try {
+            renderOlsClusters(restored);
+          } catch (_) {
+            /* ignore stale paint */
+          }
+        }
+        setBusyText(els.quantOlsSummary, "接上已在跑的分组…", { busy: true });
+        await q.suggest.runFactorOlsClustersSuggest({ resumeJobId: runningJobId });
+        return;
+      }
+
       if (restored) {
         renderOlsClusters(restored);
         const nCl =

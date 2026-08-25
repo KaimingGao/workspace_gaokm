@@ -145,6 +145,7 @@ def backtest_t0_on_bars(
     require_minute: bool = False,
     bars_history: Optional[List[dict]] = None,
     eval_lookback: Optional[int] = None,
+    tau_pool_by_date: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """Walk 底仓做 T。
 
@@ -152,6 +153,7 @@ def backtest_t0_on_bars(
     仅 5m 第一触达；缺分钟覆盖日跳过（已删除日线模拟）。
     ``bars`` = 评估窗内交易日；``bars_history``（可选）= 含 warmup 的全量日线，
     供 dual_y / ATR 的 hist_prior，不改变评估窗长度。
+    ``tau_pool_by_date``：按日截面缺口（与刷簿 ŷ_τ 特征对齐）。
     compare_daily / require_minute 形参保留兼容；require_minute=True 且无 minute_by_date 时直接失败。
     """
     _ = compare_daily  # 保留形参兼容旧调用
@@ -194,6 +196,7 @@ def backtest_t0_on_bars(
         minute_by_date=minute_by_date,
         require_minute=require_minute,
         bars_history=history,
+        tau_pool_by_date=tau_pool_by_date,
     )
     if not primary.get("success"):
         return primary
@@ -212,6 +215,7 @@ def backtest_t0_on_bars(
             minute_by_date=minute_by_date,
             require_minute=require_minute,
             bars_history=history,
+            tau_pool_by_date=tau_pool_by_date,
         )
         if opt.get("success"):
             delta = round(
@@ -264,6 +268,7 @@ def _walk_t0(
     minute_by_date: Optional[Dict[str, List[dict]]] = None,
     require_minute: bool = False,
     bars_history: Optional[List[dict]] = None,
+    tau_pool_by_date: Optional[Dict[str, Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     cfg = load_t0_rules(rules)
     history = list(bars_history or bars)
@@ -287,6 +292,7 @@ def _walk_t0(
         "dual_y",
     }:
         cash = _research_cash_for_reverse(shares, cost, t0_ratio=ratio, lot=lot)
+    tau_pool = tau_pool_by_date if isinstance(tau_pool_by_date, dict) else {}
 
     days: List[dict] = []
     pnls: List[float] = []
@@ -380,10 +386,17 @@ def _walk_t0(
             continue
 
         score_snap = None
+        pool_day = None
         if str(cfg.get("direction") or "") == "dual_y" and stock_code and dkey:
             from core.t0.score_policy import resolve_scores_for_code, resolve_y_score_source
 
             src = resolve_y_score_source(cfg)
+            pool_day = tau_pool.get(dkey) if isinstance(tau_pool.get(dkey), dict) else {}
+            ref_map = (
+                pool_day.get("ref_by_code")
+                if isinstance(pool_day.get("ref_by_code"), dict)
+                else {}
+            )
             score_snap = resolve_scores_for_code(
                 stock_code,
                 hist_bars=hist_prior,
@@ -392,6 +405,9 @@ def _walk_t0(
                 fuse_intraday=True,
                 allow_fallback=(src != "compute"),
                 as_of=str(history[gi - 1].get("date") or "")[:10] if gi > 0 else dkey[:10],
+                pool_gaps=pool_day.get("pool_gaps"),
+                sector_gap_breadth=pool_day.get("sector_gap_breadth"),
+                sector_gap_median=ref_map.get(stock_code),
             )
         day = simulate_t0_day(
             bar=bar_day,
@@ -406,6 +422,7 @@ def _walk_t0(
             hist_bars=hist_prior,
             minute_bars=mins,
             scores=score_snap,
+            tau_pool_day=pool_day,
         )
         if used_minute:
             minute_days += 1
@@ -588,8 +605,12 @@ def _walk_t0(
             "y_tau_enter": cfg.get("y_tau_enter"),
             "y_on_risk": cfg.get("y_on_risk"),
             "y_on_allow": cfg.get("y_on_allow"),
-            "y_block_conflict": cfg.get("y_block_conflict"),
+            "y_block_tau_nowcast_sign": cfg.get("y_block_tau_nowcast_sign"),
+            "y_tau_nowcast_sign_eps": cfg.get("y_tau_nowcast_sign_eps"),
             "y_tau_map": cfg.get("y_tau_map"),
+            "t0_pm_degrade": cfg.get("t0_pm_degrade"),
+            "t0_pm_chase_interval_min": cfg.get("t0_pm_chase_interval_min"),
+            "y_ratio_tau_soft_band": cfg.get("y_ratio_tau_soft_band"),
             "y_score_source": cfg.get("y_score_source"),
         },
         "days": days[-30:],

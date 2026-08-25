@@ -2,10 +2,10 @@
 
 角色（PIT）：
   y_trade  — |ŷ_trade| 下限（预期日波动幅度）/ 额度主缩放
-  y_eod    — T−1 冻结先验（冲突检测；与 y_τ 同向时略放大额度）
+  y_eod    — T−1 冻结先验（与 y_τ 同向时略放大额度）
   y_τ      — 盘中主方向（开→收）；|y_τ| 超 enter 门槛后连续放大额度
   y_on     — 尾盘是否强制回补
-  y_nowcast— 影子置信（默认可记录，不改方向）
+  y_nowcast— 对照置信：与 y_τ 异号时可跳过（`y_block_tau_nowcast_sign`）；同向增强仅作影子标注
 
 选向分数默认**即时算**（开盘决策信息集：昨收因子 + 今开缺口），
 不依赖 score_ledger / 分池簿冻结快照；账本与簿仅作可选兜底。
@@ -19,15 +19,17 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 logger = logging.getLogger(__name__)
 
 # 默认阈值（ŷ 为百分比点；可用 rules 覆盖）
-DEFAULT_TRADE_FLOOR = 0.15
-DEFAULT_EOD_PRIOR = 0.35
-DEFAULT_TAU_ENTER = 0.25
-DEFAULT_ON_RISK = 0.80
-DEFAULT_ON_ALLOW = 1.20
+DEFAULT_TRADE_FLOOR = 0.01
+DEFAULT_EOD_PRIOR = 0.01
+DEFAULT_TAU_ENTER = 0.40
+DEFAULT_ON_RISK = 0.01
+DEFAULT_ON_ALLOW = 0.01
 DEFAULT_RATIO_BOOST_CAP = 1.25
 DEFAULT_RATIO_CUT = 0.75
 DEFAULT_TAU_BOOST_CAP = 1.15
 DEFAULT_EOD_ALIGN_BOOST = 1.10
+DEFAULT_RATIO_TAU_SOFT_BAND = 0.20
+DEFAULT_TAU_NOWCAST_SIGN_EPS = 0.05
 
 # dual_y 下 y_τ 符号 → 正/反 T 映射（回测对照）
 # scalp / trend: y_τ>0→反T（趋势跟随：OC 向上，日内更可能 low→high，先买后卖）
@@ -45,11 +47,16 @@ Y_TAU_MAP_LABELS = {
 # compute | live_book | ledger
 DEFAULT_Y_SCORE_SOURCE = "compute"
 _MIN_HIST_BARS = 16
+# 与 score_stock.fetch_daily_bars(limit=40) 对齐：周线确认按「从头每 5 根切桶」，
+# 窗长不同会漂 weekly_confirm / ma_slope / technical_pattern。
+_EOD_FACTOR_BAR_LIMIT = 40
 # 做 T 回测：评估窗与因子窗分离；warmup 仅供 hist_prior，不进成交明细
 T0_BACKTEST_SCORE_WARMUP = max(_MIN_HIST_BARS + 8, 40)
 
 # 进程内轻量缓存：回测逐日重算时复用模型句柄
 _MODEL_CACHE: Dict[str, Any] = {}
+# 单日 τ 截面缓存：day → build_tau_pool_by_date 条目
+_TAU_XS_DAY_CACHE: Dict[str, Dict[str, Any]] = {}
 
 
 def _f(x: Any) -> Optional[float]:
@@ -62,6 +69,272 @@ def _f(x: Any) -> Optional[float]:
     if v != v:  # NaN
         return None
     return v
+
+
+def _slim_formula_terms(
+    expl: Any,
+    *,
+    limit: int = 10,
+    pin_keys: Optional[Sequence[str]] = None,
+) -> Optional[Dict[str, Any]]:
+    """压缩分项拆解，避免成交日 scores / data-score-detail 过大截断。
+
+    ``pin_keys``：对照关心的因子（如非流动性）即使贡献小也保留；
+    在 ``limit`` 内用 pin 替换末位，**不追加**以免属性过长截断坏 JSON。
+    """
+    if not isinstance(expl, dict):
+        return None
+    terms_in = list(expl.get("terms") or [])
+    terms: List[Dict[str, Any]] = []
+    for t in terms_in:
+        if not isinstance(t, dict):
+            continue
+        key = str(t.get("key") or t.get("factor") or "").strip()
+        if not key:
+            continue
+        row: Dict[str, Any] = {
+            "key": key,
+            "label": t.get("label") or key,
+            "beta": _f(t.get("beta")),
+            "z": _f(t.get("z")),
+            "contrib": _f(t.get("contrib")),
+        }
+        if t.get("gated"):
+            row["gated"] = True
+        note = t.get("note")
+        if note:
+            row["note"] = str(note)[:40]
+        terms.append(row)
+    terms.sort(key=lambda x: -abs(float(x.get("contrib") or 0.0)))
+    keep_n = max(1, int(limit))
+    pin = {str(k).strip() for k in (pin_keys or []) if str(k).strip()}
+    if pin and terms:
+        pin_terms = [t for t in terms if str(t.get("key")) in pin]
+        non_pin = [t for t in terms if str(t.get("key")) not in pin]
+        budget = max(0, keep_n - len(pin_terms))
+        kept = list(non_pin[:budget]) + pin_terms
+        kept.sort(key=lambda x: -abs(float(x.get("contrib") or 0.0)))
+    else:
+        kept = list(terms[:keep_n]) if terms else []
+    out: Dict[str, Any] = {
+        "intercept": _f(expl.get("intercept")),
+        "total": _f(expl.get("total")),
+        "terms": kept,
+    }
+    if expl.get("head") is not None:
+        out["head"] = expl.get("head")
+    for meta_k in (
+        "y_eod",
+        "y_tau",
+        "trade",
+        "cascade",
+        "nowcast",
+        "eod_remaining",
+        "rem_oc",
+    ):
+        if expl.get(meta_k) is not None:
+            out[meta_k] = expl.get(meta_k)
+    return out
+
+
+# tip 对照常看、β 往往偏小，slim 时在 limit 内优先保留
+_TIP_PIN_FACTORS = (
+    "amihud",
+    "liquidity",
+    "money_flow",
+    "volume_price",
+    "relative_strength",
+    "size",
+)
+
+
+def _slim_factor_coefs(coefs: Any, *, limit: int = 14) -> Optional[Dict[str, float]]:
+    if not isinstance(coefs, dict) or not coefs:
+        return None
+    pairs: List[Tuple[str, float]] = []
+    for k, v in coefs.items():
+        if str(k) == "intercept":
+            continue
+        fv = _f(v)
+        if fv is None:
+            continue
+        pairs.append((str(k), float(fv)))
+    if not pairs:
+        return None
+    pairs.sort(key=lambda kv: (-abs(kv[1]), kv[0]))
+    return {k: v for k, v in pairs[: max(1, int(limit))]}
+
+
+def _slim_features_tau(feats: Any, *, limit: int = 16) -> Optional[Dict[str, Any]]:
+    if not isinstance(feats, dict) or not feats:
+        return None
+    # 先保住 τ Z 键，避免 dict 截断丢掉 gap_pct / breadth
+    pin = (
+        "gap_pct",
+        "open_gap",
+        "sector_gap_breadth",
+        "theme_day",
+        "gap_atr",
+        "gap_vs_sector",
+        "ret_open_to_tau",
+    )
+    out: Dict[str, Any] = {}
+    lim = max(1, int(limit))
+
+    def _put(key: str, v: Any) -> None:
+        if key in out or len(out) >= lim:
+            return
+        if isinstance(v, bool):
+            out[key] = v
+            return
+        fv = _f(v)
+        if fv is not None:
+            out[key] = fv
+
+    for k in pin:
+        if k in feats:
+            _put(k, feats.get(k))
+    for k, v in feats.items():
+        _put(str(k), v)
+    return out or None
+
+
+def tau_pool_day_score_kwargs(
+    pool_day: Optional[dict],
+    code: str,
+) -> Dict[str, Any]:
+    """从 ``build_tau_pool_by_date`` 单日条目抽出 resolve_scores 截面参数。"""
+    pool = pool_day if isinstance(pool_day, dict) else {}
+    ref = pool.get("ref_by_code") if isinstance(pool.get("ref_by_code"), dict) else {}
+    key = str(code or "").strip()
+    return {
+        "pool_gaps": pool.get("pool_gaps"),
+        "sector_gap_breadth": pool.get("sector_gap_breadth"),
+        "sector_gap_median": ref.get(key) if key else None,
+    }
+
+
+def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
+    """从 signal_item / 簿行抽出 tip 用因子字段（与数据中心对照）。"""
+    if not isinstance(item, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    eod_terms = _slim_formula_terms(
+        item.get("score_formula_terms") or item.get("formula_terms"),
+        limit=10,
+        pin_keys=_TIP_PIN_FACTORS,
+    )
+    if eod_terms and (eod_terms.get("terms") or eod_terms.get("intercept") is not None):
+        out["score_formula_terms"] = eod_terms
+    coefs = _slim_factor_coefs(item.get("factor_coefficients"))
+    if coefs:
+        out["factor_coefficients"] = coefs
+
+    tau_terms = _slim_formula_terms(
+        item.get("formula_terms_tau") or item.get("score_formula_terms_tau"),
+        limit=12,
+    )
+    if tau_terms and (tau_terms.get("terms") or tau_terms.get("total") is not None):
+        out["formula_terms_tau"] = tau_terms
+        out["score_formula_terms_tau"] = tau_terms
+    coefs_tau = _slim_factor_coefs(item.get("factor_coefficients_tau"))
+    if not coefs_tau and (tau_terms or item.get("predicted_score_tau") is not None):
+        try:
+            from core.signal.dual_score import rem_factor_coefficients_public
+
+            coefs_tau = _slim_factor_coefs(rem_factor_coefficients_public())
+        except Exception:  # noqa: BLE001
+            logger.debug("rem_factor_coefficients_public failed", exc_info=True)
+            coefs_tau = None
+    if coefs_tau:
+        out["factor_coefficients_tau"] = coefs_tau
+
+    on_terms = _slim_formula_terms(
+        item.get("formula_terms_on") or item.get("score_formula_terms_on"),
+        limit=10,
+    )
+    if on_terms and (on_terms.get("terms") or on_terms.get("total") is not None):
+        out["formula_terms_on"] = on_terms
+        out["score_formula_terms_on"] = on_terms
+
+    feats_tau = _slim_features_tau(item.get("features_tau"))
+    if feats_tau:
+        out["features_tau"] = feats_tau
+
+    try:
+        from core.signal.dual_score.on import features_on_snapshot
+
+        feats_on = features_on_snapshot(item.get("features_on"))
+        if feats_on:
+            out["features_on"] = feats_on
+    except Exception:  # noqa: BLE001
+        logger.debug("features_on tip slim failed", exc_info=True)
+
+    for k in (
+        "gap_pct",
+        "as_of_tau",
+        "rem_tau",
+        "dual_score_fusion",
+        "dual_score_weights",
+        "dual_score_window",
+        "dual_score_head",
+        "predicted_score_eod_rem",
+        "return_model_source",
+        "cluster_label",
+        "weight_source",
+        "y_spec_tau",
+    ):
+        v = item.get(k)
+        if v is None or v == "" or v == {}:
+            continue
+        out[k] = v
+    return out
+
+
+def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
+    """成交日持久化：ŷ 标量 + tip 因子字段。"""
+    if not isinstance(score_snap, dict) or not scores_have_any(score_snap):
+        return None
+    out: Dict[str, Any] = {}
+    for k in ("y_eod", "y_tau", "y_trade", "y_on", "y_nowcast", "y_check", "eod_trust"):
+        if k in score_snap and score_snap.get(k) is not None:
+            out[k] = score_snap.get(k)
+    for k, v in tip_fields_from_item(score_snap).items():
+        out[k] = v
+    src = score_snap.get("_score_source")
+    if src:
+        out["_score_source"] = src
+    return out or None
+
+
+def attach_day_scores(
+    day: Optional[dict],
+    score_snap: Optional[dict] = None,
+    *,
+    features: Optional[dict] = None,
+) -> Dict[str, Any]:
+    """把 dual_y ŷ 写回日结果（成交/跳过共用），供成交明细 y_* 列读取。"""
+    out: Dict[str, Any] = dict(day or {})
+    feats: Dict[str, Any] = {}
+    if isinstance(out.get("direction_features"), dict):
+        feats.update(out["direction_features"])
+    if isinstance(features, dict):
+        feats.update({k: v for k, v in features.items() if v is not None or k not in feats})
+    snap = score_snap if isinstance(score_snap, dict) else None
+    if scores_have_any(snap):
+        for k in ("y_eod", "y_tau", "y_trade", "y_on", "y_nowcast", "y_check", "eod_trust"):
+            if feats.get(k) is None and snap.get(k) is not None:
+                feats[k] = snap.get(k)
+        packed = pack_day_scores(snap)
+        if packed:
+            out["scores"] = packed
+    elif scores_have_any(feats):
+        packed = pack_day_scores(feats)
+        if packed:
+            out["scores"] = packed
+    if feats:
+        out["direction_features"] = feats
+    return out
 
 
 def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
@@ -90,13 +363,21 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     if y_tau is None:
         y_tau = _f(item.get("yhat_tau"))
 
+    # 契约：predicted_score / predicted_score_eod = ŷ_EOD；ŷ_trade = blend / decision_score。
+    # 旧实现先读 predicted_score，双头下会把 y_trade 塌成 y_eod（成交明细两列相同）。
     y_trade = _f(item.get("y_trade"))
-    if y_trade is None:
-        y_trade = _f(item.get("predicted_score"))
     if y_trade is None:
         y_trade = _f(item.get("predicted_score_blend"))
     if y_trade is None:
+        y_trade = _f(item.get("decision_score"))
+    if y_trade is None:
         y_trade = _f(item.get("yhat"))
+    if y_trade is None:
+        # 旧单头：无 blend / EOD 分叉时 predicted_score 即 trade
+        y_eod_probe = _f(item.get("predicted_score_eod"))
+        y_ps = _f(item.get("predicted_score"))
+        if y_eod_probe is None or y_ps is None or abs(y_ps - y_eod_probe) > 1e-9:
+            y_trade = y_ps
     # 禁止 heuristic 0–100 冒充 trade
     if y_trade is not None and abs(y_trade) > 20.0:
         y_trade = None
@@ -114,7 +395,7 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         y_check = str(y_check)
     eod_trust = _f(item.get("eod_trust"))
 
-    return {
+    out: Dict[str, Any] = {
         "y_eod": y_eod,
         "y_tau": y_tau,
         "y_trade": y_trade,
@@ -123,6 +404,8 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         "y_check": y_check,
         "eod_trust": eod_trust,
     }
+    out.update(tip_fields_from_item(item))
+    return out
 
 
 def scores_from_ledger_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
@@ -199,6 +482,7 @@ def scale_t0_ratio(base_ratio: float, scores: dict, cfg: dict) -> float:
     tau_boost_cap = _cfg_float(cfg, "y_ratio_tau_boost_cap", DEFAULT_TAU_BOOST_CAP)
     eod_prior = _cfg_float(cfg, "y_eod_prior", DEFAULT_EOD_PRIOR)
     eod_align_boost = _cfg_float(cfg, "y_ratio_eod_align_boost", DEFAULT_EOD_ALIGN_BOOST)
+    soft_band = _cfg_float(cfg, "y_ratio_tau_soft_band", DEFAULT_RATIO_TAU_SOFT_BAND)
 
     y_trade = _f(scores.get("y_trade"))
     if y_trade is not None:
@@ -212,9 +496,13 @@ def scale_t0_ratio(base_ratio: float, scores: dict, cfg: dict) -> float:
 
     y_tau = _f(scores.get("y_tau"))
     if y_tau is not None and abs(y_tau) >= tau_enter:
-        span_t = max(0.5, tau_enter + 0.5)
-        t_tau = min(1.0, max(0.0, (abs(y_tau) - tau_enter) / span_t))
-        r = r * (1.0 + (tau_boost_cap - 1.0) * t_tau)
+        # 刚过入场线：额外砍仓，避免紫光那种弱 τ 满仓反T
+        if soft_band > 0 and abs(y_tau) < tau_enter + soft_band:
+            r = r * cut
+        else:
+            span_t = max(0.5, tau_enter + 0.5)
+            t_tau = min(1.0, max(0.0, (abs(y_tau) - tau_enter) / span_t))
+            r = r * (1.0 + (tau_boost_cap - 1.0) * t_tau)
 
     y_eod = _f(scores.get("y_eod"))
     if y_tau is not None and y_eod is not None:
@@ -267,11 +555,25 @@ def resolve_dual_y_direction(
     cash: float,
     shares: float,
 ) -> Dict[str, Any]:
-    """dual_y 选向：|y_trade|下限 → 主方向(y_τ + y_tau_map) → 与 y_eod 冲突则跳过。"""
+    """dual_y 选向：|y_trade|下限 → 主方向(y_τ + y_tau_map) → 可选 τ↔nowcast 异号跳过。
+
+    y_eod 仅用于额度同向加成（与 y_τ 窗口不同：昨收→收 vs 开→收）。
+    """
     trade_floor = trade_mag_floor(cfg)
     eod_prior = _cfg_float(cfg, "y_eod_prior", DEFAULT_EOD_PRIOR)
     tau_enter = _cfg_float(cfg, "y_tau_enter", DEFAULT_TAU_ENTER)
-    block_conflict = bool(cfg.get("y_block_conflict", True))
+    # 新键优先；旧 y_block_trade_tau_sign 仅作迁移别名；皆缺则默认开
+    if "y_block_tau_nowcast_sign" in cfg:
+        block_tau_nc = bool(cfg.get("y_block_tau_nowcast_sign"))
+    elif "y_block_trade_tau_sign" in cfg:
+        block_tau_nc = bool(cfg.get("y_block_trade_tau_sign"))
+    else:
+        block_tau_nc = True
+    sign_eps = _cfg_float(
+        cfg,
+        "y_tau_nowcast_sign_eps",
+        _cfg_float(cfg, "y_trade_tau_sign_eps", DEFAULT_TAU_NOWCAST_SIGN_EPS),
+    )
     tau_map = normalize_y_tau_map(cfg.get("y_tau_map"))
     map_tag = Y_TAU_MAP_LABELS.get(tau_map, tau_map)
 
@@ -312,16 +614,6 @@ def resolve_dual_y_direction(
             "signal_skip": True,
         }
 
-    if block_conflict and y_check in {"conflict"}:
-        return {
-            "direction": None,
-            "skip": True,
-            "direction_score": y_trade,
-            "direction_reason": "dual_y：y_check=conflict 禁止做T",
-            "features": features,
-            "signal_skip": True,
-        }
-
     if y_tau is None:
         return {
             "direction": None,
@@ -342,7 +634,26 @@ def resolve_dual_y_direction(
             "signal_skip": True,
         }
 
-    # 先验：仅用于冲突
+    # 可选：y_τ 与 y_nowcast 异号则跳过（缺 nowcast / 过弱则不拦）
+    if (
+        block_tau_nc
+        and y_nowcast is not None
+        and abs(y_tau) >= sign_eps
+        and abs(y_nowcast) >= sign_eps
+        and (y_tau > 0) != (y_nowcast > 0)
+    ):
+        return {
+            "direction": None,
+            "skip": True,
+            "direction_score": y_tau,
+            "direction_reason": (
+                f"dual_y：y_τ={y_tau:.3f}% 与 y_nowcast={y_nowcast:.3f}% 异号跳过"
+            ),
+            "features": features,
+            "signal_skip": True,
+        }
+
+    # y_eod 仅标注 / 额度同向加成（scale_t0_ratio）
     prior = 0
     if y_eod is not None:
         if y_eod >= eod_prior:
@@ -351,18 +662,6 @@ def resolve_dual_y_direction(
             prior = -1
 
     main = 1 if y_tau >= tau_enter else -1
-    if prior != 0 and prior != main:
-        return {
-            "direction": None,
-            "skip": True,
-            "direction_score": y_tau,
-            "direction_reason": (
-                f"dual_y[{tau_map}]：冲突 y_eod={y_eod:.3f}% vs y_τ={y_tau:.3f}%（先验≠盘中）跳过"
-            ),
-            "features": features,
-            "signal_skip": True,
-        }
-
     direction = direction_from_y_tau_sign(main, cfg)
 
     if direction == "reverse_t" and not (cash > 0 and shares > 0):
@@ -527,6 +826,92 @@ def open_decision_quote(
     }
 
 
+def _enrich_quote_path_price(
+    quote: dict,
+    day_bar: Optional[dict],
+    *,
+    code: str = "",
+) -> Dict[str, Any]:
+    """为 ŷ_ON 补路径现价（开→收 / 收→收）；不改 open / prev_close / change_raw。
+
+    开盘决策报价常把 ``price_raw=open``，会导致 ret_oc≈0、ŷ_ON 与簿相反号。
+    优先用当日已走出路径的 close；当日且日线仍平开时再拉现价对齐刷簿。
+    """
+    if not isinstance(quote, dict):
+        return quote
+    out = dict(quote)
+    open_px = _f(out.get("open") if out.get("open") is not None else out.get("open_raw"))
+    cur_px = _f(
+        out.get("price_raw")
+        if out.get("price_raw") is not None
+        else (out.get("close") if out.get("close") is not None else out.get("price"))
+    )
+    # 已有异于开盘的路径价（盘中 live quote）→ 保留
+    if (
+        cur_px is not None
+        and cur_px > 0
+        and open_px is not None
+        and abs(float(cur_px) - float(open_px)) > 1e-9
+    ):
+        return out
+
+    px: Optional[float] = None
+    day = day_bar if isinstance(day_bar, dict) else None
+    if day is not None:
+        c = _f(day.get("close"))
+        o = _f(day.get("open"))
+        hi = _f(day.get("high"))
+        lo = _f(day.get("low"))
+        if c is not None and c > 0:
+            moved = False
+            if hi is not None and lo is not None and abs(float(hi) - float(lo)) > 1e-9:
+                moved = True
+            if o is not None and abs(float(c) - float(o)) > 1e-9:
+                moved = True
+            if moved:
+                px = float(c)
+
+    if px is None:
+        day_key = str(out.get("date") or out.get("trade_date") or "")[:10]
+        if len(day_key) < 10 and day is not None:
+            day_key = str(day.get("date") or "")[:10]
+        today = ""
+        try:
+            from datetime import datetime
+            from zoneinfo import ZoneInfo
+
+            today = datetime.now(ZoneInfo("Asia/Shanghai")).strftime("%Y-%m-%d")
+        except Exception:  # noqa: BLE001
+            today = ""
+        if today and (not day_key or day_key == today):
+            raw = str(code or out.get("stock_code") or "").strip()
+            if raw:
+                try:
+                    from core.data.facade import get_quote
+
+                    live = get_quote(raw) or {}
+                    if isinstance(live, dict):
+                        lp = _f(
+                            live.get("price_raw")
+                            if live.get("price_raw") is not None
+                            else (
+                                live.get("price")
+                                if live.get("price") is not None
+                                else live.get("close")
+                            )
+                        )
+                        if lp is not None and lp > 0:
+                            px = float(lp)
+                except Exception:  # noqa: BLE001
+                    logger.debug("path price live quote failed for %s", raw, exc_info=True)
+
+    if px is not None and px > 0:
+        out["price_raw"] = px
+        out["close"] = px
+        out["price"] = px
+    return out
+
+
 def _scoring_models() -> Tuple[Any, Dict[str, Any], Any]:
     """(rem_doc, cluster_models_by_code, global_return_model)。"""
     if _MODEL_CACHE.get("ok"):
@@ -571,6 +956,95 @@ def _scoring_models() -> Tuple[Any, Dict[str, Any], Any]:
 def clear_score_model_cache() -> None:
     """测试 / 热更模型后清空缓存。"""
     _MODEL_CACHE.clear()
+    _TAU_XS_DAY_CACHE.clear()
+
+
+def _tau_cross_section_kwargs(code: str, day_key: str) -> Dict[str, Any]:
+    """单票缺截面时：活跃簿宇宙当日缺口 → pool_gaps / breadth / sector_gap_median。"""
+    raw = str(code or "").strip()
+    dkey = str(day_key or "")[:10]
+    if not raw or len(dkey) < 10:
+        return {}
+    pool = _TAU_XS_DAY_CACHE.get(dkey)
+    if not isinstance(pool, dict):
+        try:
+            codes = active_book_codes_for_tau_pool(cap=120)
+            if raw not in codes:
+                codes = list(codes) + [raw]
+            bars_map = load_bars_by_code_for_tau_pool(codes, limit=40)
+            by_day = build_tau_pool_by_date(bars_map)
+            pool = by_day.get(dkey) if isinstance(by_day.get(dkey), dict) else {}
+            _TAU_XS_DAY_CACHE[dkey] = pool or {}
+        except Exception:  # noqa: BLE001
+            logger.debug("tau cross-section fallback failed for %s %s", raw, dkey, exc_info=True)
+            pool = {}
+            _TAU_XS_DAY_CACHE[dkey] = {}
+    if not pool:
+        return {}
+    ref = pool.get("ref_by_code") if isinstance(pool.get("ref_by_code"), dict) else {}
+    return {
+        "pool_gaps": pool.get("pool_gaps"),
+        "sector_gap_breadth": pool.get("sector_gap_breadth"),
+        "sector_gap_median": ref.get(raw),
+    }
+
+
+def _t0_index_bars_for_score(
+    code: str,
+    *,
+    quote: Optional[dict],
+    hist: Sequence[dict],
+) -> Optional[List[dict]]:
+    """与 score_stock 同源：基准指数日线，并裁到个股 hist 末日（开盘决策 T−1）。"""
+    try:
+        from core.signal.live_features import fetch_live_index_bars
+        from core.signal.session_pit import prepare_eod_bars
+        from core.ports.market import resolve_market_code
+
+        mkt = str(resolve_market_code(str(code) or "") or "CN")
+        # 与刷簿相对强弱同口径：多取几根，避免短窗/偶发空包把 RS 打成中性
+        pack = fetch_live_index_bars(market=mkt, limit=120) or {}
+        bars = list(pack.get("bars") or [])
+        if not bars:
+            pack = fetch_live_index_bars(market=mkt, limit=120, use_cache=False) or {}
+            bars = list(pack.get("bars") or [])
+        if not bars:
+            return None
+        idx_eod, _ = prepare_eod_bars(bars, quote)
+        asof_hist = ""
+        if hist:
+            asof_hist = str((hist[-1] or {}).get("date") or "")[:10]
+        if asof_hist:
+            idx_eod = [
+                b
+                for b in idx_eod
+                if str((b or {}).get("date") or "")[:10] <= asof_hist
+            ]
+        return idx_eod or None
+    except Exception:  # noqa: BLE001
+        logger.debug("t0 index bars resolve failed", exc_info=True)
+        return None
+
+
+def _t0_local_fundamentals(code: str) -> Optional[dict]:
+    """与刷簿 skip_fundamentals 路径一致：本地估值/财务快照，避免财务因子假中性。"""
+    fundamentals = None
+    raw = str(code or "").strip()
+    if not raw:
+        return None
+    try:
+        from core.valuation_em import merge_cached_valuation
+
+        fundamentals = merge_cached_valuation(raw, None)
+    except Exception:  # noqa: BLE001
+        logger.debug("t0 valuation merge failed", exc_info=True)
+    try:
+        from core.fundamentals_pit import merge_local_fundamentals_snapshot
+
+        fundamentals = merge_local_fundamentals_snapshot(raw, fundamentals) or fundamentals
+    except Exception:  # noqa: BLE001
+        logger.debug("t0 fundamentals snapshot merge failed", exc_info=True)
+    return fundamentals if isinstance(fundamentals, dict) and fundamentals else None
 
 
 def compute_scores_from_bars(
@@ -587,12 +1061,17 @@ def compute_scores_from_bars(
     horizon_days: int = 1,
     pool_gaps: Optional[Sequence[float]] = None,
     sector_gap_breadth: Optional[float] = None,
+    index_bars: Optional[Sequence[dict]] = None,
+    fundamentals: Optional[dict] = None,
+    sector_gap_median: Optional[float] = None,
 ) -> Dict[str, Optional[float]]:
     """开盘决策信息集即时算 dual_y 分数（不读账本/簿）。
 
     ``hist_bars``：不含当日的日线（因子截止 T−1）。
     ``day_bar`` / ``quote``：提供 open[T]（缺口）；勿用收盘价冒充开盘决策现价。
     ``pool_gaps`` / ``sector_gap_breadth``：截面缺口（批量算分时传入，增强 ŷ_τ）。
+    ``sector_gap_median``：同行/截面参照缺口（``gap_vs_sector = gap − median``）。
+    ``index_bars`` / ``fundamentals``：可选；缺省时拉本地指数+估值，对齐数据中心相对强弱等。
     """
     raw = str(code or "").strip()
     hist = [b for b in (hist_bars or []) if isinstance(b, dict)]
@@ -605,6 +1084,22 @@ def compute_scores_from_bars(
         q = open_decision_quote(day, hist[-1] if hist else None, code=raw)
     if q is None:
         return scores_from_item(None)
+
+    # 单票缺截面时用活跃簿宇宙补 gap_vs_sector / breadth（对齐刷簿）
+    if (
+        sector_gap_median is None
+        or sector_gap_breadth is None
+        or not pool_gaps
+    ):
+        day_key = str((day or {}).get("date") or (q or {}).get("date") or "")[:10]
+        if len(day_key) >= 10:
+            xs = _tau_cross_section_kwargs(raw, day_key)
+            if sector_gap_median is None and xs.get("sector_gap_median") is not None:
+                sector_gap_median = xs.get("sector_gap_median")
+            if sector_gap_breadth is None and xs.get("sector_gap_breadth") is not None:
+                sector_gap_breadth = xs.get("sector_gap_breadth")
+            if not pool_gaps and xs.get("pool_gaps"):
+                pool_gaps = xs.get("pool_gaps")
 
     try:
         from core.signal.cross_section_batch import score_window_as_item
@@ -621,12 +1116,43 @@ def compute_scores_from_bars(
     models = return_models_by_code if return_models_by_code is not None else cluster
     default_rm = default_return_model if default_return_model is not None else global_rm
 
+    idx = [b for b in (index_bars or []) if isinstance(b, dict)]
+    if not idx:
+        idx = _t0_index_bars_for_score(raw, quote=q, hist=hist) or []
+    fund = fundamentals if isinstance(fundamentals, dict) else None
+    if not fund:
+        fund = _t0_local_fundamentals(raw)
+
+    # 与 score_stock 同源：ŷ β 键即使启发式权≈0 / regime 禁用也必须算 sub_scores
+    required_factor_keys: List[str] = []
     try:
+        eod_model_pre = None
+        if isinstance(models, dict):
+            eod_model_pre = models.get(raw)
+        if eod_model_pre is None:
+            eod_model_pre = default_rm
+        for m in (eod_model_pre, default_rm):
+            if m is None:
+                continue
+            for k in (getattr(m, "coefficients", None) or {}).keys():
+                kk = str(k).strip()
+                if kk and kk not in required_factor_keys:
+                    required_factor_keys.append(kk)
+    except Exception:  # noqa: BLE001
+        logger.debug("t0 required_factor_keys resolve failed", exc_info=True)
+        required_factor_keys = []
+
+    try:
+        # EOD 因子窗与刷簿 score_stock(limit=40) 对齐；τ/ATR 仍用更长 hist
+        eod_hist = hist[-int(_EOD_FACTOR_BAR_LIMIT) :]
         item = score_window_as_item(
             raw,
-            list(hist),
+            list(eod_hist),
             horizon_days=max(1, int(horizon_days or 1)),
             quote=q,
+            index_bars=idx or None,
+            fundamentals=fund,
+            required_factor_keys=required_factor_keys or None,
         )
         if not item:
             return scores_from_item(None)
@@ -646,14 +1172,54 @@ def compute_scores_from_bars(
                 item["sector_gap_breadth"] = float(sector_gap_breadth)
             except (TypeError, ValueError):
                 pass
+        if sector_gap_median is not None:
+            try:
+                item["_sector_gap_median"] = float(sector_gap_median)
+            except (TypeError, ValueError):
+                pass
+        try:
+            from core.research.tau_panel import GAP_ATR_WINDOW
+        except Exception:  # noqa: BLE001
+            GAP_ATR_WINDOW = 14
+        # EOD 仍用开盘决策 quote；ŷ_ON 需路径现价 + 含当日 bar（PIT 会切掉 asof）
+        q_dual = _enrich_quote_path_price(q, day, code=raw)
+        dual_bars = list(hist[-max(int(GAP_ATR_WINDOW) + 6, 20) :])
+        if day is not None:
+            dual_bars = dual_bars + [day]
         attach_dual_score_pit(
             item,
-            quote=q,
-            bars=hist[-12:],
+            quote=q_dual,
+            bars=dual_bars,
             rem_model_doc=rem,
             sector_gap_breadth=item.get("sector_gap_breadth"),
             fuse_intraday=bool(fuse_intraday),
+            sector_gap_median=item.get("_sector_gap_median"),
         )
+        # 即时算路径未走 score_stock，补 EOD 组成表供 tip 对照因子
+        try:
+            eod_model = None
+            if isinstance(models, dict):
+                eod_model = models.get(raw)
+            if eod_model is None:
+                eod_model = default_rm
+            if eod_model is not None:
+                if not item.get("score_formula_terms"):
+                    expl = eod_model.explain_prediction(item.get("sub_scores") or {})
+                    if expl:
+                        item["score_formula_terms"] = expl
+                if not item.get("factor_coefficients"):
+                    coefs = dict(getattr(eod_model, "coefficients", None) or {})
+                    coefs.pop("intercept", None)
+                    if coefs:
+                        item["factor_coefficients"] = {
+                            str(k): float(v)
+                            for k, v in coefs.items()
+                            if _f(v) is not None
+                        }
+                if not item.get("return_model_source"):
+                    item["return_model_source"] = "t0_backtest_compute"
+        except Exception:  # noqa: BLE001
+            logger.debug("attach EOD formula terms failed", exc_info=True)
         try:
             st = build_y_state(item)
             if st.get("check") is not None:
@@ -682,6 +1248,135 @@ def _open_gap_pct(day_bar: Optional[dict], prev_bar: Optional[dict]) -> Optional
     return (float(o) / float(pc) - 1.0) * 100.0
 
 
+def build_tau_pool_by_date(
+    bars_by_code: Optional[Dict[str, Sequence[dict]]],
+) -> Dict[str, Dict[str, Any]]:
+    """按日聚合开盘缺口 → 截面字段（对齐刷簿）。
+
+    返回 ``{YYYY-MM-DD: {
+        pool_gaps, sector_gap_breadth, gaps_by_code, ref_by_code
+    }}``。
+    ``sector_gap_breadth`` 即令为 0.0 也会写入（与缺特征不同）。
+    ``ref_by_code``：同行/截面参照缺口（供 gap_vs_sector）。
+    """
+    from collections import defaultdict
+
+    gaps_by_date_code: Dict[str, Dict[str, float]] = defaultdict(dict)
+    for code, bars in (bars_by_code or {}).items():
+        key = str(code or "").strip()
+        if not key:
+            continue
+        seq = [b for b in (bars or []) if isinstance(b, dict)]
+        for i in range(1, len(seq)):
+            day = seq[i]
+            prev = seq[i - 1]
+            dkey = str(day.get("date") or "")[:10]
+            if len(dkey) < 10:
+                continue
+            g = _open_gap_pct(day, prev)
+            if g is None:
+                continue
+            gaps_by_date_code[dkey][key] = float(g)
+
+    trigger = 2.0
+    try:
+        from core.event_prior import get_event_prior_cfg
+
+        trigger = float(get_event_prior_cfg().get("gap_trigger_pct") or 2.0)
+    except Exception:  # noqa: BLE001
+        logger.debug("tau pool trigger cfg failed", exc_info=True)
+
+    sm: Dict[str, str] = {}
+    try:
+        from core.portfolio_optimize import load_sector_map
+
+        sm = load_sector_map() or {}
+    except Exception:  # noqa: BLE001
+        logger.debug("tau pool sector map failed", exc_info=True)
+        sm = {}
+
+    try:
+        from core.research.tau_panel import sector_gap_reference_by_code
+    except Exception:  # noqa: BLE001
+        logger.debug("sector_gap_reference_by_code import failed", exc_info=True)
+        sector_gap_reference_by_code = None  # type: ignore
+
+    out: Dict[str, Dict[str, Any]] = {}
+    for dkey, by_code in gaps_by_date_code.items():
+        if not by_code:
+            continue
+        gaps = list(by_code.values())
+        # 与 tau_panel / event_prior.sector_gap_breadth 同构：仅计正缺口 ≥ trigger
+        hit = sum(1 for g in gaps if float(g) >= trigger)
+        ref_by_code: Dict[str, Optional[float]] = {}
+        if callable(sector_gap_reference_by_code):
+            try:
+                ref_by_code = sector_gap_reference_by_code(by_code, sector_map=sm) or {}
+            except Exception:  # noqa: BLE001
+                logger.debug("sector_gap_reference_by_code failed", exc_info=True)
+                ref_by_code = {}
+        out[dkey] = {
+            "pool_gaps": gaps,
+            "sector_gap_breadth": float(hit) / float(len(gaps)),
+            "gaps_by_code": dict(by_code),
+            "ref_by_code": dict(ref_by_code),
+        }
+    return out
+
+
+def load_bars_by_code_for_tau_pool(
+    codes: Sequence[str],
+    *,
+    limit: int = 80,
+) -> Dict[str, List[dict]]:
+    """批量拉日线（走缓存）供 τ 截面；失败票跳过。"""
+    out: Dict[str, List[dict]] = {}
+    try:
+        from core.data.facade import bars_and_source
+    except Exception:  # noqa: BLE001
+        logger.debug("bars_and_source import failed", exc_info=True)
+        return out
+    seen = set()
+    for raw in codes or []:
+        code = str(raw or "").strip()
+        if not code or code in seen:
+            continue
+        seen.add(code)
+        try:
+            bars, _src = bars_and_source(code, limit=max(20, int(limit or 80)))
+        except Exception:  # noqa: BLE001
+            logger.debug("tau pool bars load failed for %s", code, exc_info=True)
+            continue
+        seq = [b for b in (bars or []) if isinstance(b, dict)]
+        if len(seq) >= 2:
+            out[code] = seq
+    return out
+
+
+def active_book_codes_for_tau_pool(*, cap: int = 120) -> List[str]:
+    """活跃分池簿代码（刷簿同宇宙），供单票 T0 回测补截面。"""
+    try:
+        from core.signal.cluster.live import load_active_cluster_book
+
+        book_doc = load_active_cluster_book() or {}
+    except Exception:  # noqa: BLE001
+        logger.debug("load active book for tau pool failed", exc_info=True)
+        return []
+    codes: List[str] = []
+    seen = set()
+    for row in list(book_doc.get("scored_all") or []) + list(book_doc.get("book") or []):
+        if not isinstance(row, dict):
+            continue
+        c = str(row.get("stock_code") or row.get("code") or "").strip()
+        if not c or c in seen:
+            continue
+        seen.add(c)
+        codes.append(c)
+        if len(codes) >= max(8, int(cap or 120)):
+            break
+    return codes
+
+
 def compute_scores_map_from_bars(
     specs: Sequence[Dict[str, Any]],
     *,
@@ -693,6 +1388,7 @@ def compute_scores_map_from_bars(
     """
     out: Dict[str, Dict[str, Optional[float]]] = {}
     rows: List[Tuple[str, Sequence[dict], Optional[dict], Optional[float]]] = []
+    gaps_by_code: Dict[str, float] = {}
     gaps: List[float] = []
     for spec in specs or []:
         if not isinstance(spec, dict):
@@ -709,6 +1405,7 @@ def compute_scores_map_from_bars(
         rows.append((code, hist, day, g))
         if g is not None:
             gaps.append(float(g))
+            gaps_by_code[code] = float(g)
 
     breadth = None
     if gaps:
@@ -716,11 +1413,24 @@ def compute_scores_map_from_bars(
             from core.event_prior import get_event_prior_cfg
 
             trigger = float(get_event_prior_cfg().get("gap_trigger_pct") or 2.0)
-            hit = sum(1 for g in gaps if abs(g) >= trigger)
+            # 仅正缺口（与刷簿 / 训练面板一致）
+            hit = sum(1 for g in gaps if g >= trigger)
             breadth = hit / float(len(gaps))
         except Exception:  # noqa: BLE001
             logger.debug("pool breadth failed", exc_info=True)
             breadth = None
+
+    ref_by_code: Dict[str, Optional[float]] = {}
+    if gaps_by_code:
+        try:
+            from core.portfolio_optimize import load_sector_map
+            from core.research.tau_panel import sector_gap_reference_by_code
+
+            sm = load_sector_map() or {}
+            ref_by_code = sector_gap_reference_by_code(gaps_by_code, sector_map=sm) or {}
+        except Exception:  # noqa: BLE001
+            logger.debug("batch sector gap ref failed", exc_info=True)
+            ref_by_code = {}
 
     # 预热模型，避免逐票重复 IO
     _scoring_models()
@@ -732,6 +1442,7 @@ def compute_scores_map_from_bars(
             fuse_intraday=fuse_intraday,
             pool_gaps=gaps or None,
             sector_gap_breadth=breadth,
+            sector_gap_median=ref_by_code.get(code),
         )
         if scores_have_any(sc):
             out[code] = sc
@@ -828,6 +1539,7 @@ def resolve_scores_for_code(
     allow_fallback: bool = True,
     pool_gaps: Optional[Sequence[float]] = None,
     sector_gap_breadth: Optional[float] = None,
+    sector_gap_median: Optional[float] = None,
 ) -> Dict[str, Optional[float]]:
     """按 ``source`` 解析 dual_y 分数；默认即时算。
 
@@ -853,6 +1565,7 @@ def resolve_scores_for_code(
             fuse_intraday=fuse_intraday,
             pool_gaps=pool_gaps,
             sector_gap_breadth=sector_gap_breadth,
+            sector_gap_median=sector_gap_median,
         )
         if scores_have_any(sc):
             return sc
@@ -875,6 +1588,7 @@ def resolve_scores_for_code(
             allow_fallback=False,
             pool_gaps=pool_gaps,
             sector_gap_breadth=sector_gap_breadth,
+            sector_gap_median=sector_gap_median,
         )
 
     # ledger（显式对照 / 旧路径）
@@ -896,6 +1610,7 @@ def resolve_scores_for_code(
             allow_fallback=False,
             pool_gaps=pool_gaps,
             sector_gap_breadth=sector_gap_breadth,
+            sector_gap_median=sector_gap_median,
         )
     return sc
 

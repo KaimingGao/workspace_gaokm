@@ -151,6 +151,9 @@ async function runClusterPaperRebalance({ dryRun = true } = {}) {
     const turnPct = ci && ci.turnover_pct != null ? ci.turnover_pct : null;
     const reused =
       data.book_reused || (data.cluster_pools || {}).from_cache;
+    const note = String(data.note || "").trim();
+    const staged =
+      String(data.fill_action || "") === "staged" || /挂.*开盘|收盘后不成交/.test(note);
     setPaperMetaText(
       (dryRun
         ? reused
@@ -163,7 +166,12 @@ async function runClusterPaperRebalance({ dryRun = true } = {}) {
         (turnPct != null ? ` · 换手 ${turnPct}%` : "") +
         (sellN === 0 && buyN === 0 && data.empty_reason
           ? ` · ${emptyReasonLabel(data.empty_reason)}`
-          : "")
+          : "") +
+        (!dryRun && note
+          ? ` · ${note}`
+          : !dryRun && staged
+            ? " · 已挂次日开盘单（持仓开盘窗才变）"
+            : "")
     );
     if (dryRun) {
       const opsFromApi = data.ops_report || null;
@@ -200,8 +208,17 @@ async function runClusterPaperRebalance({ dryRun = true } = {}) {
             },
       });
     } else {
+      const commitMsg =
+        ((document.getElementById("follow-meta") || {}).textContent || "").trim();
       dismissRebalancePreview();
       await loadPaper({ quiet: true });
+      // loadPaper 会改 meta；若刚挂开盘单，叠回落账结果，避免看起来「没生效」
+      if (commitMsg && (note || staged)) {
+        const after = ((document.getElementById("follow-meta") || {}).textContent || "").trim();
+        if (!after.includes("挂开盘") && !after.includes("收盘后不成交")) {
+          setPaperMetaText(after ? `${after} · ${note || "已挂次日开盘单"}` : commitMsg);
+        }
+      }
     }
     showProgress(100, "");
   } finally {

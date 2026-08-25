@@ -117,6 +117,44 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertEqual(norm["t0"]["y_tau_map"], "trend")
         self.assertEqual(norm["t0"]["y_score_source"], "compute")
 
+    def test_validate_patch_allows_pm_chase_risk_keys(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_public_view,
+            resolve_effective_execution,
+            validate_execution_patch,
+        )
+        from core.t0.config import load_t0_rules
+
+        defaults = load_t0_rules()
+        self.assertEqual(defaults["t0_pm_degrade"], "14:00")
+        self.assertEqual(defaults["t0_pm_chase_interval_min"], 10)
+        self.assertTrue(defaults["y_block_tau_nowcast_sign"])
+        self.assertNotIn("t0_adverse_stop_pct", defaults)
+        self.assertNotIn("t0_time_stop", defaults)
+
+        ok, norm, errs = validate_execution_patch(
+            {
+                "t0": {
+                    "y_block_tau_nowcast_sign": True,
+                    "t0_pm_degrade": "14:00",
+                    "t0_pm_chase_interval_min": 10,
+                }
+            }
+        )
+        self.assertTrue(ok, errs)
+        self.assertEqual(norm["t0"]["t0_pm_degrade"], "14:00")
+        self.assertEqual(norm["t0"]["t0_pm_chase_interval_min"], 10)
+        paper = {"strategy_id": "short", "rules": {}}
+        apply_execution_patch_to_paper(paper, norm)
+        view = execution_public_view(
+            resolve_effective_execution(paper=paper, channel="paper")
+        )
+        self.assertEqual(view["t0"]["t0_pm_degrade"], "14:00")
+        self.assertEqual(view["t0"]["t0_pm_chase_interval_min"], 10)
+        self.assertNotIn("t0_adverse_stop_pct", view["t0"])
+        self.assertTrue(view["t0"]["y_block_tau_nowcast_sign"])
+
     def test_validate_and_apply_patch(self):
         from core.execution import (
             apply_execution_patch_to_paper,

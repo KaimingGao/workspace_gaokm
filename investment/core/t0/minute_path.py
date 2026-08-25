@@ -4,7 +4,7 @@
 import logging
 
 logger = logging.getLogger(__name__)
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.t0.costs import (
     append_t0_leg,
@@ -24,6 +24,114 @@ from core.t0.rules import (
     resolve_direction,
     scale_triggers_with_atr,
 )
+
+
+def _tplus1_skip_reason(*, side: str, shares: float, sellable: float, lot: int) -> str:
+    """可卖不足 1 手：主因是 T+1，不是动仓比例。"""
+    sh = int(shares)
+    sv = int(sellable)
+    if side == "reverse_t":
+        if sv <= 0:
+            return (
+                f"反T：可卖旧仓 0 股（持仓 {sh} 全被 T+1 锁定），"
+                f"第二腿卖不掉旧仓"
+            )
+        return (
+            f"反T：可卖旧仓仅 {sv} 股 < {lot}（持仓 {sh}），"
+            f"第二腿不够 1 手"
+        )
+    if sv <= 0:
+        return f"正T：可卖 0 股（持仓 {sh} 全被 T+1 锁定），无法先卖"
+    return f"正T：可卖仅 {sv} 股 < {lot}（持仓 {sh}），不够 1 手"
+
+
+def _ratio_lot_skip_reason(*, side: str, shares: float, t0_ratio: float, lot: int) -> str:
+    """可卖够、但持仓×动仓% 仍不足 1 手。"""
+    sh = int(shares)
+    raw = int(float(shares) * float(t0_ratio))
+    pct = f"{float(t0_ratio):.0%}"
+    tag = "反T" if side == "reverse_t" else "正T"
+    return f"{tag}：动仓不足 1 手（持仓 {sh}×{pct}≈{raw} < {lot}）"
+
+
+def _parse_hm(raw: Any) -> Optional[Tuple[int, int]]:
+    s = str(raw or "").strip()
+    if not s or s.lower() in {"off", "none", "0", "-"}:
+        return None
+    # "11:30" / "1130" / "11:30:00"
+    parts = s.replace("：", ":").split(":")
+    try:
+        if len(parts) >= 2:
+            return int(parts[0]), int(parts[1])
+        if len(s) == 4 and s.isdigit():
+            return int(s[:2]), int(s[2:])
+    except (TypeError, ValueError):
+        return None
+    return None
+
+
+def _ts_hm(ts: Any) -> Optional[Tuple[int, int]]:
+    if ts is None:
+        return None
+    s = str(ts).strip()
+    if "T" in s:
+        s = s.split("T", 1)[1]
+    elif " " in s:
+        s = s.split(" ", 1)[1]
+    return _parse_hm(s[:8] if len(s) >= 5 else s)
+
+
+def _hm_reached(ts: Any, stop_hm: Optional[Tuple[int, int]]) -> bool:
+    if not stop_hm:
+        return False
+    cur = _ts_hm(ts)
+    if not cur:
+        return False
+    return cur[0] > stop_hm[0] or (cur[0] == stop_hm[0] and cur[1] >= stop_hm[1])
+
+
+def _ts_minutes(ts: Any) -> Optional[int]:
+    """当日分钟数（0–1439）；解析失败返回 None。"""
+    hm = _ts_hm(ts)
+    if not hm:
+        return None
+    return int(hm[0]) * 60 + int(hm[1])
+
+
+def _pm_chase_interval_min(cfg: dict) -> int:
+    try:
+        n = int(cfg.get("t0_pm_chase_interval_min") or 10)
+    except (TypeError, ValueError):
+        n = 10
+    return max(1, min(n, 60))
+
+
+def _maybe_pm_chase_level(
+    *,
+    level: float,
+    px: float,
+    ts: Any,
+    pm_hm: Optional[Tuple[int, int]],
+    last_chase_min: Optional[int],
+    interval_min: int,
+) -> Tuple[float, Optional[int], bool]:
+    """中点追价：目标 = 旧目标与现价中点；到点起算，之后每 interval_min 再调。
+
+    纯中点：卖目标仍高于现价、买目标仍低于现价，当根一般不因追价本身成交；
+    需后续分钟 high/low 真正触达，或多次下移后触达；触不到则走收盘强制平。
+
+    Returns (new_level, last_chase_min, adjusted_this_bar).
+    """
+    if not pm_hm or not _hm_reached(ts, pm_hm):
+        return level, last_chase_min, False
+    if not (level > 0 and px > 0):
+        return level, last_chase_min, False
+    cur_min = _ts_minutes(ts)
+    if cur_min is None:
+        return level, last_chase_min, False
+    if last_chase_min is not None and (cur_min - last_chase_min) < interval_min:
+        return level, last_chase_min, False
+    return (level + px) / 2.0, cur_min, True
 
 
 def _day_ohlc_from_minutes(minute_bars: Sequence[dict], daily_bar: Optional[dict] = None) -> dict:
@@ -203,10 +311,26 @@ def _first_touch_long(
     sellable = float(sellable_shares if sellable_shares is not None else shares)
     sellable = min(sellable, shares)
     sell_level = ref * (1.0 + sell_trig / 100.0)
+    if sellable < lot:
+        return _skip_result(
+            reason=_tplus1_skip_reason(
+                side="long_t", shares=shares, sellable=sellable, lot=lot
+            ),
+            shares=shares,
+            bar=bar,
+            extra={
+                "direction_used": "long_t",
+                "sellable_shares": sellable,
+                "t0_ratio": t0_ratio,
+                "path_mode": "first_touch",
+            },
+        )
     qty = _t0_qty_lots(shares, t0_ratio, lot, sellable)
     if qty <= 0:
         return _skip_result(
-            reason=f"正T动仓不足1手（持仓{int(shares)}×{t0_ratio:.0%} 可卖{int(sellable)}<{lot}股）",
+            reason=_ratio_lot_skip_reason(
+                side="long_t", shares=shares, t0_ratio=t0_ratio, lot=lot
+            ),
             shares=shares,
             bar=bar,
             extra={
@@ -227,12 +351,20 @@ def _first_touch_long(
     covered = 0
     touch_sell_at = None
     touch_cover_at = None
+    exit_reason = None
+    pm_hm = _parse_hm(cfg.get("t0_pm_degrade"))
+    pm_chase_iv = _pm_chase_interval_min(cfg)
+    chase_buy_level: Optional[float] = None
+    last_chase_min: Optional[int] = None
 
     for mb in minute_bars:
         hi = float(mb.get("high") or 0)
         lo = float(mb.get("low") or 0)
         ts = mb.get("datetime") or mb.get("date")
-        if sold_qty <= 0 and qty > 0 and hi >= sell_level:
+        pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm))
+
+        # 中点追价窗：未开第一腿则不再新开
+        if sold_qty <= 0 and qty > 0 and hi >= sell_level and not pm_hit:
             fill_sell = _fill_sell(hi, sell_level, fill_mode)
             cash_delta += append_t0_leg(
                 trades,
@@ -251,13 +383,27 @@ def _first_touch_long(
             sold_qty = qty
             sold_price = fill_sell
             touch_sell_at = ts
+            chase_buy_level = sold_price * (1.0 - buy_trig / 100.0)
             continue
 
         if sold_qty > 0 and covered <= 0:
-            buy_level = sold_price * (1.0 - buy_trig / 100.0)
+            base_buy = sold_price * (1.0 - buy_trig / 100.0)
+            if chase_buy_level is None:
+                chase_buy_level = base_buy
+            px = float(mb.get("close") or hi or sold_price)
+            chase_buy_level, last_chase_min, _ = _maybe_pm_chase_level(
+                level=float(chase_buy_level),
+                px=px,
+                ts=ts,
+                pm_hm=pm_hm,
+                last_chase_min=last_chase_min,
+                interval_min=pm_chase_iv,
+            )
+            buy_level = float(chase_buy_level)
             if lo <= buy_level:
                 fill_buy = _fill_buy(lo, buy_level, fill_mode)
                 cover = sold_qty
+                used_chase = last_chase_min is not None
                 cash_delta += append_t0_leg(
                     trades,
                     cost_model=cost_model,
@@ -268,12 +414,18 @@ def _first_touch_long(
                     price=fill_buy,
                     trigger=buy_level,
                     at=ts,
-                    leg_kind="trigger",
-                    note="正T买回（分钟第一触达）",
+                    leg_kind="pm_chase" if used_chase else "trigger",
+                    note=(
+                        f"正T中点追价买回（目标{buy_level:.4f}）"
+                        if used_chase
+                        else "正T买回（分钟第一触达）"
+                    ),
                 )
                 shares_now += cover
                 covered = cover
                 touch_cover_at = ts
+                exit_reason = "pm_chase" if used_chase else "trigger"
+                continue
 
     if sold_qty > 0 and covered <= 0 and (at_session_end or not defer_eod):
         sess_close = float(sess_bar.get("close") or close)
@@ -297,6 +449,7 @@ def _first_touch_long(
             shares_now += cover
             covered = cover
             touch_cover_at = close_at or touch_cover_at
+            exit_reason = "eod_cover"
         else:
             exposure_pnl = round((sold_price - sess_close) * sold_qty, 2)
 
@@ -344,6 +497,7 @@ def _first_touch_long(
         "intraday_path": "first_touch",
         "touch_sell_at": touch_sell_at,
         "touch_cover_at": touch_cover_at,
+        "exit_reason": exit_reason,
         "note": "分钟第一触达（正T）",
     }
 
@@ -379,24 +533,11 @@ def _first_touch_reverse(
     buy_level = ref * (1.0 - buy_trig / 100.0)
     sellable = float(sellable_shares if sellable_shares is not None else shares)
     sellable = min(sellable, shares)
-    max_shares = _t0_qty_lots(shares, t0_ratio, lot, sellable)
-    if max_shares <= 0:
-        return _skip_result(
-            reason=f"反T动仓不足1手（持仓{int(shares)}×{t0_ratio:.0%} 可卖{int(sellable)}<{lot}股）",
-            shares=shares,
-            bar=bar,
-            extra={"direction_used": "reverse_t", "path_mode": "first_touch"},
-        )
-    if cash <= 0:
-        return _skip_result(
-            reason="反T缺现金（低吸需预留现金）",
-            shares=shares,
-            bar=bar,
-            extra={"direction_used": "reverse_t", "path_mode": "first_touch"},
-        )
     if sellable < lot:
         return _skip_result(
-            reason="反T无可卖旧仓（T+1）",
+            reason=_tplus1_skip_reason(
+                side="reverse_t", shares=shares, sellable=sellable, lot=lot
+            ),
             shares=shares,
             bar=bar,
             extra={
@@ -405,21 +546,40 @@ def _first_touch_reverse(
                 "sellable_shares": sellable,
             },
         )
+    if cash <= 0:
+        return _skip_result(
+            reason="反T：缺现金（低吸加仓需要预留现金）",
+            shares=shares,
+            bar=bar,
+            extra={"direction_used": "reverse_t", "path_mode": "first_touch"},
+        )
+    max_shares = _t0_qty_lots(shares, t0_ratio, lot, sellable)
+    if max_shares <= 0:
+        return _skip_result(
+            reason=_ratio_lot_skip_reason(
+                side="reverse_t", shares=shares, t0_ratio=t0_ratio, lot=lot
+            ),
+            shares=shares,
+            bar=bar,
+            extra={
+                "direction_used": "reverse_t",
+                "path_mode": "first_touch",
+                "sellable_shares": sellable,
+                "t0_ratio": t0_ratio,
+            },
+        )
 
     afford = _lot_floor(cash / max(buy_level, 1e-6), lot)
     qty = min(max_shares, afford, _lot_floor(sellable, lot))
     if qty <= 0:
         afford_n = int(afford)
-        sell_n = int(_lot_floor(sellable, lot))
         if afford_n < lot:
             reason = (
-                f"反T现金不够1手（现金{cash:.0f}可买{afford_n}股<"
-                f"{lot}股；目标{int(max_shares)}股）"
+                f"反T：现金不够 1 手（现金 {cash:.0f} 约可买 {afford_n} 股 < {lot}；"
+                f"目标 {int(max_shares)} 股）"
             )
-        elif sell_n < lot:
-            reason = f"反T无可卖旧仓（可卖{int(sellable)}<{lot}股）"
         else:
-            reason = "反T买不起或无可卖旧仓"
+            reason = "反T：买不起或可卖旧仓不足"
         return _skip_result(
             reason=reason,
             shares=shares,
@@ -430,6 +590,7 @@ def _first_touch_reverse(
                 "cash": round(cash, 2),
                 "afford_shares": afford_n,
                 "target_shares": int(max_shares),
+                "sellable_shares": sellable,
             },
         )
 
@@ -443,13 +604,21 @@ def _first_touch_reverse(
     exposure_pnl = 0.0
     touch_buy_at = None
     touch_sell_at = None
+    exit_reason = None
     sell_old_cap = _lot_floor(sellable, lot)
+    pm_hm = _parse_hm(cfg.get("t0_pm_degrade"))
+    pm_chase_iv = _pm_chase_interval_min(cfg)
+    chase_sell_level: Optional[float] = None
+    last_chase_min: Optional[int] = None
 
     for mb in minute_bars:
         hi = float(mb.get("high") or 0)
         lo = float(mb.get("low") or 0)
         ts = mb.get("datetime") or mb.get("date")
-        if bought_qty <= 0 and lo <= buy_level:
+        pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm))
+
+        # 中点追价窗：未开第一腿则不再低吸
+        if bought_qty <= 0 and lo <= buy_level and not pm_hit:
             if fill_mode == "optimistic":
                 fill_buy = lo
             elif fill_mode == "mid":
@@ -480,14 +649,28 @@ def _first_touch_reverse(
             bought_qty = qty
             buy_price = fill_buy
             touch_buy_at = ts
+            chase_sell_level = buy_price * (1.0 + sell_trig / 100.0)
             # 同根不明先后：低吸后不在同一根卖旧仓
             continue
 
         if bought_qty > 0 and sold_back <= 0:
-            sell_level = buy_price * (1.0 + sell_trig / 100.0)
+            base_sell = buy_price * (1.0 + sell_trig / 100.0)
+            if chase_sell_level is None:
+                chase_sell_level = base_sell
             sell_old_qty = min(bought_qty, sell_old_cap)
+            px = float(mb.get("close") or lo or buy_price)
+            chase_sell_level, last_chase_min, _ = _maybe_pm_chase_level(
+                level=float(chase_sell_level),
+                px=px,
+                ts=ts,
+                pm_hm=pm_hm,
+                last_chase_min=last_chase_min,
+                interval_min=pm_chase_iv,
+            )
+            sell_level = float(chase_sell_level)
             if sell_old_qty > 0 and hi >= sell_level:
                 fill_sell = _fill_sell(hi, sell_level, fill_mode)
+                used_chase = last_chase_min is not None
                 cash_delta += append_t0_leg(
                     trades,
                     cost_model=cost_model,
@@ -498,12 +681,18 @@ def _first_touch_reverse(
                     price=fill_sell,
                     trigger=sell_level,
                     at=ts,
-                    leg_kind="trigger",
-                    note="反T卖旧底仓（分钟第一触达；T+1可卖）",
+                    leg_kind="pm_chase" if used_chase else "trigger",
+                    note=(
+                        f"反T中点追价卖旧仓（目标{sell_level:.4f}）"
+                        if used_chase
+                        else "反T卖旧底仓（分钟第一触达；T+1可卖）"
+                    ),
                 )
                 shares_now -= sell_old_qty
                 sold_back = sell_old_qty
                 touch_sell_at = ts
+                exit_reason = "pm_chase" if used_chase else "trigger"
+                continue
 
     if bought_qty <= 0:
         return _skip_result(
@@ -540,6 +729,7 @@ def _first_touch_reverse(
             shares_now -= sell_old_qty
             sold_back = sell_old_qty
             touch_sell_at = close_at or touch_sell_at
+            exit_reason = "eod_cover"
         elif not cfg.get("must_cover_same_day"):
             exposure_pnl = round((sess_close - buy_price) * bought_qty, 2)
 
@@ -573,6 +763,7 @@ def _first_touch_reverse(
         "intraday_path": "first_touch",
         "touch_buy_at": touch_buy_at,
         "touch_sell_at": touch_sell_at,
+        "exit_reason": exit_reason,
         "note": "分钟第一触达（反T·T+1换仓）",
     }
 
@@ -613,17 +804,20 @@ def simulate_t0_day_minute(
     atr_pct: Optional[float] = None,
     hist_bars: Optional[Sequence[dict]] = None,
     scores: Optional[dict] = None,
+    tau_pool_day: Optional[dict] = None,
 ) -> Dict[str, Any]:
     """单日做 T：选向仍用开盘/隔夜特征；成交路径按分钟第一触达。
 
     振幅门禁与 live Worker 一致：按 5m 前缀滚动 high/low，前缀未过闸则不触达。
     """
     from core.t0.score_policy import (
+        attach_day_scores,
         resolve_scores_for_code,
         resolve_y_score_source,
         resolve_cover_policy,
         scale_t0_ratio,
         scores_have_any,
+        tau_pool_day_score_kwargs,
     )
 
     cfg = load_t0_rules(rules)
@@ -642,17 +836,24 @@ def simulate_t0_day_minute(
                 as_of=as_of or None,
                 source=resolve_y_score_source(cfg),
                 fuse_intraday=True,
-                allow_fallback=True,
+                allow_fallback=(resolve_y_score_source(cfg) != "compute"),
+                **tau_pool_day_score_kwargs(tau_pool_day, stock_code),
             )
+
+    def _finish(out: Optional[Dict[str, Any]], dir_res: Optional[dict] = None) -> Dict[str, Any]:
+        feats = (dir_res or {}).get("features") if isinstance(dir_res, dict) else None
+        return attach_day_scores(out, score_snap, features=feats)
 
     mins = [dict(m) for m in (minute_bars or [])]
     mins.sort(key=lambda x: str(x.get("datetime") or ""))
     if len(mins) < 2:
-        return _skip_result(
-            reason="分钟线不足，无法第一触达",
-            shares=shares,
-            bar=bar,
-            extra={"path_mode": "first_touch"},
+        return _finish(
+            _skip_result(
+                reason="分钟线不足，无法第一触达",
+                shares=shares,
+                bar=bar,
+                extra={"path_mode": "first_touch"},
+            )
         )
 
     bar_day = _day_ohlc_from_minutes(mins, bar)
@@ -730,21 +931,24 @@ def simulate_t0_day_minute(
             scores=score_snap,
         )
         if dir_res.get("skip") or not dir_res.get("direction"):
-            return _skip_result(
-                reason=str(dir_res.get("direction_reason") or "选向跳过"),
-                shares=shares,
-                bar=bar_n,
-                extra={
-                    "direction_used": None,
-                    "direction_score": dir_res.get("direction_score"),
-                    "direction_reason": dir_res.get("direction_reason"),
-                    "direction_features": dir_res.get("features"),
-                    "signal_skip": True,
-                    "range_pct": round(range_pct, 4),
-                    "path_mode": "first_touch",
-                    "range_mode": "rolling",
-                    "prefix_bars": n,
-                },
+            return _finish(
+                _skip_result(
+                    reason=str(dir_res.get("direction_reason") or "选向跳过"),
+                    shares=shares,
+                    bar=bar_n,
+                    extra={
+                        "direction_used": None,
+                        "direction_score": dir_res.get("direction_score"),
+                        "direction_reason": dir_res.get("direction_reason"),
+                        "direction_features": dir_res.get("features"),
+                        "signal_skip": True,
+                        "range_pct": round(range_pct, 4),
+                        "path_mode": "first_touch",
+                        "range_mode": "rolling",
+                        "prefix_bars": n,
+                    },
+                ),
+                dir_res,
             )
 
         direction = str(dir_res["direction"])
@@ -834,13 +1038,9 @@ def simulate_t0_day_minute(
             if cover_meta:
                 out["cover_policy"] = cover_meta
                 out["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
-            if score_snap and scores_have_any(score_snap):
-                out["scores"] = {
-                    k: score_snap.get(k)
-                    for k in ("y_eod", "y_tau", "y_trade", "y_on", "y_nowcast", "y_check")
-                }
-                out["t0_ratio_base"] = round(base_t0_ratio, 4)
-                out["t0_ratio"] = round(float(cfg_day.get("t0_ratio") or base_t0_ratio), 4)
+            out = _finish(out, dir_res)
+            out["t0_ratio_base"] = round(base_t0_ratio, 4)
+            out["t0_ratio"] = round(float(cfg_day.get("t0_ratio") or base_t0_ratio), 4)
 
         trades = list((out or {}).get("trades") or [])
         if trades:
@@ -855,19 +1055,21 @@ def simulate_t0_day_minute(
             last_wait = out
             continue
         if (out or {}).get("skipped"):
-            return out
+            return _finish(out, dir_res)
 
     if last_partial is not None:
         return last_partial
     if last_wait is not None:
-        return last_wait
+        return _finish(last_wait)
     if last_dir_wait is not None:
-        return last_dir_wait
+        return _finish(last_dir_wait)
     if last_amp_skip is not None:
-        return last_amp_skip
-    return _skip_result(
-        reason="分钟线不足，无法第一触达",
-        shares=shares,
-        bar=bar_day,
-        extra={"path_mode": "first_touch", "range_mode": "rolling"},
+        return _finish(last_amp_skip)
+    return _finish(
+        _skip_result(
+            reason="分钟线不足，无法第一触达",
+            shares=shares,
+            bar=bar_day,
+            extra={"path_mode": "first_touch", "range_mode": "rolling"},
+        )
     )

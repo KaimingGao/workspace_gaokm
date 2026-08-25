@@ -252,13 +252,25 @@ export function reconstructNowcastPrevClose(it) {
 }
 
 export const Y_EOD_TITLE = "ŷ_EOD · 隔夜主轴 open[T]/open[T−1]−1（%）";
-export const Y_TAU_TITLE = "τ→收盘 · 昨收口径";
+export const Y_TAU_TITLE = "ŷ_τ · T收/T开（拟合原值；τ 闸同源）";
 export const Y_ON_TITLE = "隔夜 open · 旁路";
 export const Y_NOWCAST_TITLE =
   "ŷ_nowcast · Kalman 权昨收口径对照（与 y_trade / 涨跌同一目标），不进决策";
 
-/** ŷ_τ 表列：映到现价对昨收（与 ŷ_trade 同一展示口径）。 */
+/** ŷ_τ 表列 / tip：Ridge 拟合原值（T收/T开），与组成合计、τ 买入闸同口径。
+
+  勿在此做缺口∘抬昨收——那只用于 ŷ_trade / nowcast 融合；抬完会与 tip 拆解对不上，
+  且 |昨收口径| 很大时会误导成「强 τ」（实际闸门看的仍是开→收原值）。
+  */
 export function resolveTauScore(it) {
+  if (!it || typeof it !== "object") return null;
+  if (isHeuristicScoreScale(it)) return null;
+  const tau = _numField(it.predicted_score_tau ?? it.score_rem);
+  return _looksLikeYhatPct(tau) ? tau : null;
+}
+
+/** 缺口∘ŷ_τ（昨收口径）；仅融合/对照用，不进 τ 表列。 */
+export function resolveTauLiftedScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
   const tau = _numField(it.predicted_score_tau ?? it.score_rem);

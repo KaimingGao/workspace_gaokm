@@ -68,7 +68,7 @@ class T0BacktestRequest(BaseModel):
     from_paper: bool = True
     lookback: int = Field(default=10, ge=10, le=500)
     initial_shares: float = Field(default=1000, ge=100, le=100000)
-    t0_ratio: float = Field(default=0.4, ge=0.05, le=1.0)
+    t0_ratio: float = Field(default=0.3, ge=0.05, le=1.0)
     sell_trigger_pct: float = Field(default=2.0, ge=0.1, le=20)
     buy_trigger_pct: float = Field(default=1.5, ge=0.1, le=20)
     must_cover_same_day: bool = False
@@ -92,18 +92,29 @@ class T0BacktestRequest(BaseModel):
         default=None, ge=0.0, le=5.0, description="dual_y：|y_trade|下限（收益百分点，预期日波动幅度）"
     )
     y_tau_enter: Optional[float] = Field(
-        default=None, ge=0.05, le=5.0, description="dual_y：|y_τ|入场门槛（收益百分点）"
+        default=None, ge=0.01, le=5.0, description="dual_y：|y_τ|入场门槛（收益百分点）"
     )
     y_eod_prior: Optional[float] = Field(
-        default=None, ge=0.05, le=5.0, description="dual_y：|y_eod|先验门槛（收益百分点）"
+        default=None, ge=0.01, le=5.0, description="dual_y：|y_eod|同向放大动仓门槛（收益百分点）"
     )
     y_on_allow: Optional[float] = Field(
-        default=None, ge=0.1, le=10.0, description="dual_y：|y_on|隔夜放行门槛（收益百分点）"
+        default=None, ge=0.01, le=10.0, description="dual_y：|y_on|隔夜放行门槛（收益百分点）"
     )
-    y_on_risk: Optional[float] = Field(default=None, ge=0.1, le=10.0)
-    y_block_conflict: Optional[bool] = None
+    y_on_risk: Optional[float] = Field(default=None, ge=0.01, le=10.0)
+    y_block_tau_nowcast_sign: Optional[bool] = None
     y_tau_map: Optional[str] = Field(
         default=None, max_length=24, description="scalp|trend|fixed_long|fixed_reverse"
+    )
+    t0_pm_degrade: Optional[str] = Field(
+        default=None,
+        max_length=8,
+        description="中点追价起算 HH:MM：禁新开；已开未平则旧目标↔现价中点",
+    )
+    t0_pm_chase_interval_min: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=60,
+        description="中点追价间隔（分钟），默认 10",
     )
 
 
@@ -151,11 +162,13 @@ class PaperExecutionPatchRequest(BaseModel):
     y_eod_prior: Optional[float] = None
     y_on_allow: Optional[float] = None
     y_on_risk: Optional[float] = None
-    y_block_conflict: Optional[bool] = None
+    y_block_tau_nowcast_sign: Optional[bool] = None
     y_tau_map: Optional[str] = Field(
         default=None, max_length=24, description="scalp|trend|fixed_long|fixed_reverse"
     )
     y_score_source: Optional[str] = Field(
         default=None, max_length=24, description="compute|live_book|ledger"
     )
+    t0_pm_degrade: Optional[str] = None
+    t0_pm_chase_interval_min: Optional[int] = None
 

@@ -10,10 +10,12 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "missing_scores": "缺ŷ",
     "y_tau_flat": "y_τ横盘",
     "y_trade_weak": "y_trade幅度不足",
-    "conflict": "先验冲突",
+    "trade_tau_sign": "异号跳过",
+    "conflict": "旧冲突(已下线)",
     "amplitude": "振幅不足",
     "directional_amplitude": "方向振幅",
     "lot_size": "手数不足",
+    "tplus1": "T+1无可卖",
     "path": "路径否决",
     "trigger_miss": "未触达",
     "other": "其它",
@@ -24,10 +26,12 @@ SKIP_CAT_COLORS: Dict[str, str] = {
     "missing_scores": "#94a3b8",
     "y_tau_flat": "#f59e0b",
     "y_trade_weak": "#fb923c",
+    "trade_tau_sign": "#e11d48",
     "conflict": "#ef4444",
     "amplitude": "#64748b",
     "directional_amplitude": "#78716c",
     "lot_size": "#a78bfa",
+    "tplus1": "#c084fc",
     "path": "#6366f1",
     "trigger_miss": "#cbd5e1",
     "other": "#d1d5db",
@@ -40,25 +44,50 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "missing_minute"
     if "缺" in r and ("y_" in r or "快照" in r or "即时算分" in r):
         return "missing_scores"
+    if "异号" in r or "trade_tau_sign" in r.lower():
+        return "trade_tau_sign"
     if "y_trade" in r:
         return "y_trade_weak"
-    if "冲突" in r or "conflict" in r.lower():
-        return "conflict"
+    # 已下线的冲突闸（eod↔τ / y_check）→ 其它，避免饼图再标「冲突」
+    if (
+        "先验≠" in r
+        or ("冲突" in r and "y_eod" in r)
+        or ("y_check" in r.lower() and "conflict" in r.lower())
+    ):
+        return "other"
     if "|y_τ|" in r or ("y_τ" in r and "横盘" in r):
         return "y_tau_flat"
     if "上移振幅" in r or "下移振幅" in r or "方向振幅" in r:
         return "directional_amplitude"
     if "振幅" in r:
         return "amplitude"
-    if "不足1手" in r or ("手" in r and "不足" in r):
+    if "T+1" in r or "可卖旧仓" in r or "无可卖" in r or ("可卖" in r and "锁定" in r):
+        return "tplus1"
+    if "不足1手" in r or "动仓不足" in r or ("手" in r and "不足" in r):
         return "lot_size"
-    if "路径" in r or "veto" in r.lower():
-        return "path"
+    # 「分钟路径未触及…」优先归未触达，勿因含「路径」误入 path
     if "未触及" in r or "未触" in r:
         return "trigger_miss"
+    if "路径" in r or "veto" in r.lower():
+        return "path"
     if "现金" in r or "买不起" in r:
         return "lot_size"
     return "other"
+
+
+def summarize_skip_reason_label(reason: Optional[str]) -> str:
+    """跳过诊断摘要用短标签（合并 |y_τ|=0.009% / 0.016% 等同族）。"""
+    r = str(reason or "").strip() or "跳过"
+    cat = classify_t0_skip_reason(r)
+    if cat == "trigger_miss":
+        if "反T" in r:
+            return "反T未触低吸"
+        if "正T" in r:
+            return "正T未触卖出"
+        return SKIP_CAT_LABELS.get(cat, "未触达")
+    if cat == "tplus1":
+        return "T+1无可卖"
+    return SKIP_CAT_LABELS.get(cat, cat)
 
 
 def _f(x: Any) -> Optional[float]:

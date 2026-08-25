@@ -6,13 +6,16 @@ import logging
 logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
+# t0_pm_degrade: HH:MM 起算中点追价（禁新开；已开未平则目标=mid(旧,现价)，触价成交，否则 eod）
+# t0_pm_chase_interval_min: 起算后每隔 N 分钟再中点一次（1–60）
+#
 # fill_mode:
 #   trigger     — 按触发价成交（默认，偏保守）
 #   mid         — 触发价与极值中点
 #   optimistic  — 卖用 high、买用 low（上界，对照用）
 #
 # direction:
-#   dual_y  — y_trade 资格 · y_τ 主方向 · y_eod 冲突跳过 · y_on 回补
+#   dual_y  — y_trade 资格 · y_τ 主方向 · y_eod 额度加成 · y_on 回补
 #   y_tau_map（dual_y 子选项）— scalp|trend|fixed_long|fixed_reverse
 #   （long_t / reverse_t / auto / signal 已下线；仅单测可经 load_t0_rules 显式传入）
 #
@@ -20,7 +23,7 @@ from typing import Any, Dict, Optional
 
 DEFAULT_T0_RULES: Dict[str, Any] = {
     "enabled": True,
-    "t0_ratio": 0.4,
+    "t0_ratio": 0.3,
     "sell_trigger_pct": 2.0,
     "buy_trigger_pct": 1.5,
     "must_cover_same_day": False,
@@ -43,17 +46,24 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "atr_sell_mult": 0.9,
     "atr_buy_mult": 0.7,
     # dual_y 阈值（百分比点）
-    "y_trade_floor": 0.15,
-    "y_eod_prior": 0.35,
-    "y_tau_enter": 0.25,
-    "y_on_risk": 0.80,
-    "y_on_allow": 1.20,
-    "y_block_conflict": True,
+    "y_trade_floor": 0.01,
+    "y_eod_prior": 0.01,
+    "y_tau_enter": 0.40,
+    "y_on_risk": 0.01,
+    "y_on_allow": 0.01,
+    # y_τ 与 y_nowcast 异号：盘中方向与 Kalman 对照拧着则跳过（缺 nowcast 不拦）
+    "y_block_tau_nowcast_sign": True,
+    "y_tau_nowcast_sign_eps": 0.05,
     "y_tau_map": "scalp",
     "y_ratio_boost_cap": 1.25,
     "y_ratio_cut": 0.75,
     "y_ratio_tau_boost_cap": 1.15,
     "y_ratio_eod_align_boost": 1.10,
+    # |y_τ| 刚过入场线时额外砍仓（乘 y_ratio_cut）
+    "y_ratio_tau_soft_band": 0.20,
+    # 中点追价：到点后禁新开；已开未平则旧目标↔现价中点，默认每 10 分钟再调
+    "t0_pm_degrade": "14:00",
+    "t0_pm_chase_interval_min": 10,
     # dual_y 分数来源：compute=开盘信息集即时算（默认）；live_book/ledger 仅兜底或对照
     "y_score_source": "compute",
     "note": "A股T+1底仓做T；仅5m first_touch（已删除日线模拟）；非实盘。",
@@ -66,7 +76,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         for k, v in override.items():
             if v is not None:
                 cfg[k] = v
-    cfg["t0_ratio"] = max(0.05, min(float(cfg.get("t0_ratio") or 0.4), 1.0))
+    cfg["t0_ratio"] = max(0.05, min(float(cfg.get("t0_ratio") or 0.3), 1.0))
     cfg["sell_trigger_pct"] = max(0.1, min(float(cfg.get("sell_trigger_pct") or 2.0), 20.0))
     cfg["buy_trigger_pct"] = max(0.1, min(float(cfg.get("buy_trigger_pct") or 1.5), 20.0))
     cfg["lot_size"] = max(1, int(cfg.get("lot_size") or 100))
@@ -106,17 +116,22 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         direction = "dual_y"
     cfg["direction"] = direction
     for yk, lo, hi, default in (
-        ("y_eod_prior", 0.05, 5.0, 0.35),
-        ("y_tau_enter", 0.05, 5.0, 0.25),
-        ("y_on_risk", 0.1, 10.0, 0.80),
-        ("y_on_allow", 0.1, 10.0, 1.20),
+        ("y_eod_prior", 0.01, 5.0, 0.01),
+        ("y_tau_enter", 0.01, 5.0, 0.40),
+        ("y_on_risk", 0.01, 10.0, 0.01),
+        ("y_on_allow", 0.01, 10.0, 0.01),
         ("y_ratio_boost_cap", 1.0, 2.0, 1.25),
         ("y_ratio_cut", 0.2, 1.0, 0.75),
         ("y_ratio_tau_boost_cap", 1.0, 1.5, 1.15),
         ("y_ratio_eod_align_boost", 1.0, 1.5, 1.10),
+        ("y_ratio_tau_soft_band", 0.0, 2.0, 0.20),
+        ("y_tau_nowcast_sign_eps", 0.0, 1.0, 0.05),
     ):
         try:
+            # 旧键 y_trade_tau_sign_eps → y_tau_nowcast_sign_eps
             raw = cfg.get(yk)
+            if (raw is None or raw == "") and yk == "y_tau_nowcast_sign_eps":
+                raw = cfg.get("y_trade_tau_sign_eps")
             val = float(default if raw is None or raw == "" else raw)
         except (TypeError, ValueError):
             val = float(default)
@@ -124,7 +139,38 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     from core.t0.score_policy import normalize_y_trade_floor
 
     cfg["y_trade_floor"] = normalize_y_trade_floor(cfg.get("y_trade_floor"))
-    cfg["y_block_conflict"] = bool(cfg.get("y_block_conflict", True))
+    # 异号闸：新键 τ↔nowcast；旧 y_block_trade_tau_sign 迁移一次
+    if "y_block_tau_nowcast_sign" in cfg:
+        cfg["y_block_tau_nowcast_sign"] = bool(cfg.get("y_block_tau_nowcast_sign"))
+    elif "y_block_trade_tau_sign" in cfg:
+        cfg["y_block_tau_nowcast_sign"] = bool(cfg.get("y_block_trade_tau_sign"))
+    else:
+        cfg["y_block_tau_nowcast_sign"] = True
+    cfg.pop("y_block_trade_tau_sign", None)
+    cfg.pop("y_trade_tau_sign_eps", None)
+    cfg.pop("y_block_conflict", None)  # 已下线：eod↔τ / y_check 冲突跳过
+    # 丢弃已下线的不利/时间止损字段（旧账户 overlay 可能残留）
+    for _dead in (
+        "t0_adverse_stop_pct",
+        "t0_adverse_stop_atr_mult",
+        "t0_time_stop",
+        "t0_time_stop_underwater_only",
+    ):
+        cfg.pop(_dead, None)
+    pm_raw = cfg.get("t0_pm_degrade")
+    if pm_raw is None:
+        cfg["t0_pm_degrade"] = "14:00"
+    else:
+        s = str(pm_raw).strip()
+        if s in {"", "0", "off", "none", "-"}:
+            cfg["t0_pm_degrade"] = ""
+        else:
+            cfg["t0_pm_degrade"] = s
+    try:
+        iv = int(cfg.get("t0_pm_chase_interval_min") or 10)
+    except (TypeError, ValueError):
+        iv = 10
+    cfg["t0_pm_chase_interval_min"] = max(1, min(iv, 60))
     from core.t0.score_policy import normalize_y_tau_map
 
     cfg["y_tau_map"] = normalize_y_tau_map(cfg.get("y_tau_map"))
