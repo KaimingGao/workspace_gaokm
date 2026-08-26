@@ -69,9 +69,9 @@ class T0BacktestRequest(BaseModel):
     lookback: int = Field(default=10, ge=10, le=500)
     initial_shares: float = Field(default=1000, ge=100, le=100000)
     t0_ratio: float = Field(default=1.0, ge=0.05, le=1.0)
-    sell_trigger_pct: float = Field(default=2.0, ge=0.1, le=20)
-    buy_trigger_pct: float = Field(default=1.5, ge=0.1, le=20)
-    must_cover_same_day: bool = False
+    sell_trigger_pct: float = Field(default=1.0, ge=0.1, le=20)
+    buy_trigger_pct: float = Field(default=1.0, ge=0.1, le=20)
+    must_cover_same_day: bool = True
     fill_mode: Optional[str] = Field(default=None, max_length=16)
     direction: Optional[str] = Field(default=None, max_length=16)
     path_mode: Optional[str] = Field(default=None, max_length=16)
@@ -98,7 +98,19 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.01,
         le=5.0,
-        description="dual_y：|y_τ| 强信号门槛；enter≤|τ|<strong 弱信号跳过",
+        description="已弃用：并入 y_tau_enter（load 时取 max）",
+    )
+    y_ratio_cut: Optional[float] = Field(
+        default=None,
+        ge=0.2,
+        le=1.0,
+        description="目标价弱信号下限倍数（相对基准触发，默认 0.6）",
+    )
+    y_ratio_boost_cap: Optional[float] = Field(
+        default=None,
+        ge=1.0,
+        le=2.0,
+        description="目标价强信号上限倍数（相对基准触发，默认 2.0）",
     )
     y_eod_prior: Optional[float] = Field(
         default=None, ge=0.01, le=5.0, description="dual_y：|y_eod|同向略抬目标价信心门槛（收益百分点）"
@@ -108,6 +120,12 @@ class T0BacktestRequest(BaseModel):
     )
     y_on_risk: Optional[float] = Field(default=None, ge=0.01, le=10.0)
     y_block_tau_nowcast_sign: Optional[bool] = None
+    y_nowcast_enter: Optional[float] = Field(
+        default=None,
+        ge=0.05,
+        le=10.0,
+        description="dual_y：|nowcast|≥此值且与 y_τ 异号才拦（收益百分点）",
+    )
     y_tau_map: Optional[str] = Field(
         default=None, max_length=24, description="scalp|trend|fixed_long|fixed_reverse"
     )
@@ -207,10 +225,13 @@ class PaperExecutionPatchRequest(BaseModel):
     y_trade_floor: Optional[float] = None
     y_tau_enter: Optional[float] = None
     y_tau_enter_strong: Optional[float] = None
+    y_ratio_cut: Optional[float] = None
+    y_ratio_boost_cap: Optional[float] = None
     y_eod_prior: Optional[float] = None
     y_on_allow: Optional[float] = None
     y_on_risk: Optional[float] = None
     y_block_tau_nowcast_sign: Optional[bool] = None
+    y_nowcast_enter: Optional[float] = None
     y_tau_map: Optional[str] = Field(
         default=None, max_length=24, description="scalp|trend|fixed_long|fixed_reverse"
     )

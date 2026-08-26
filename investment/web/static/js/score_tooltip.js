@@ -6,8 +6,11 @@ import {
   escapeText,
   fuseOrthogonalTrade,
   liftTauVsPrevClose,
+  nowcastOcPct,
   resolveEodScore,
+  resolveGapPct,
   resolveNowcastScore,
+  resolveNowcastCcScore,
   resolveOnScore,
   resolvePathScore,
   resolveTauLiftedScore,
@@ -15,7 +18,9 @@ import {
   resolveTradeScore,
   fmtPathScore,
   Y_PATH_TITLE,
-} from "./paper/fmt.js?v=p1472";
+  Y_NC_TITLE,
+  Y_NC_OC_TITLE,
+} from "./paper/fmt.js?v=p1505";
 import { renderYPathVizHtml } from "./y_path_viz.js?v=p1169";
 import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
 import { ON_FEAT_META } from "./quant/factor_meta.js?v=p1226";
@@ -624,9 +629,9 @@ export function formatCalibrationSection(raw, opts = {}) {
   );
 }
 
-/** nowcast 列 tip：Kalman 权昨收口径，对照 ŷ_trade，不进决策。 */
+/** nowcast（nc）列 tip：对照昨收，不进决策。 */
 export function formatNowcastSection(raw) {
-  const ncN = resolveNowcastScore(raw);
+  const ncN = resolveNowcastCcScore(raw);
   if (ncN == null || !Number.isFinite(Number(ncN))) return "";
   const yEod = resolveEodScore(raw);
   const yt = resolveTau(raw);
@@ -675,7 +680,7 @@ export function formatNowcastSection(raw) {
       ncN
     )}">${escapeText(`${fmtSigned(ncN, 2)}%`)}</span></div>`
   );
-  const bits = ["Kalman 权 · 现价对昨收 · 不进排序/闸/入簿"];
+  const bits = ["nowcast = nc · 对照昨收 · 不进排序/闸/入簿"];
   if (asOf) bits.push(`@${asOf}`);
   if (q != null && Number.isFinite(q)) bits.push(`q=${q.toFixed(3)}`);
   if (
@@ -688,12 +693,120 @@ export function formatNowcastSection(raw) {
   return (
     `<div class="score-layer score-layer-nowcast is-on">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">nowcast 对照</div>` +
+    `<div class="score-hero-label">nowcast（nc）· 昨收</div>` +
     `<div class="score-hero-value ${signCls(ncN)}">${escapeText(
       `${fmtSigned(ncN, 2)}%`
     )}</div>` +
     `</div>` +
     `<div class="score-hero-hint">${escapeText(bits.join(" · "))}</div>` +
+    `<div class="score-layer-compose">${rows.join("")}</div>` +
+    `</div>`
+  );
+}
+
+function resolveNcOcGate(raw) {
+  if (!raw || typeof raw !== "object") return false;
+  if (raw.y_nowcast_oc_gate != null) return raw.y_nowcast_oc_gate === true;
+  const rules = raw.rules && typeof raw.rules === "object" ? raw.rules : {};
+  return rules.y_nowcast_oc_gate === true;
+}
+
+function resolveNcOcEnter(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const rules = raw.rules && typeof raw.rules === "object" ? raw.rules : {};
+  const n =
+    raw.y_nowcast_enter != null && raw.y_nowcast_enter !== ""
+      ? Number(raw.y_nowcast_enter)
+      : rules.y_nowcast_enter != null && rules.y_nowcast_enter !== ""
+        ? Number(rules.y_nowcast_enter)
+        : null;
+  return n != null && Number.isFinite(n) ? n : null;
+}
+
+function resolveNcOcValues(raw) {
+  const yNc = resolveNowcastCcScore(raw);
+  const gap = resolveGapPct(raw);
+  let oc =
+    raw && raw.y_nc_oc != null && Number.isFinite(Number(raw.y_nc_oc))
+      ? Number(raw.y_nc_oc)
+      : raw && raw.y_nowcast_oc != null && Number.isFinite(Number(raw.y_nowcast_oc))
+        ? Number(raw.y_nowcast_oc)
+        : null;
+  if (oc == null && yNc != null && gap != null) oc = nowcastOcPct(yNc, gap);
+  return { yNc, gap, oc };
+}
+
+/** nowcast oc 列：nc 映到 open→close。 */
+export function formatNcOcSection(raw) {
+  const { yNc, gap, oc } = resolveNcOcValues(raw);
+  if (oc == null && (yNc == null || gap == null)) return "";
+  const ocTxt = oc == null ? "—" : `${fmtSigned(oc, 2)}%`;
+  const ocGate = resolveNcOcGate(raw);
+  const compareLabel =
+    raw && raw.nowcast_compare_label
+      ? String(raw.nowcast_compare_label)
+      : ocGate
+        ? "y_nc_oc"
+        : "y_nc";
+  const yt = resolveTau(raw);
+  const ncEnter = resolveNcOcEnter(raw);
+  const rows = [];
+  if (yNc != null && Number.isFinite(yNc)) {
+    rows.push(
+      `<div class="score-layer-row"><span>nc（昨收）</span><span class="num ${signCls(
+        yNc
+      )}">${escapeText(`${fmtSigned(yNc, 2)}%`)}</span></div>`
+    );
+  }
+  if (gap != null && Number.isFinite(gap)) {
+    rows.push(
+      `<div class="score-layer-row"><span>gap（开盘缺口）</span><span class="num ${signCls(
+        gap
+      )}">${escapeText(`${fmtSigned(gap, 2)}%`)}</span></div>`
+    );
+  }
+  if (yNc != null && gap != null) {
+    rows.push(
+      `<div class="score-layer-row"><span>换算</span><span>(1+nc)/(1+gap)−1</span></div>`
+    );
+  }
+  rows.push(
+    `<div class="score-layer-row score-layer-row-total"><span>nowcast oc</span><span class="num ${signCls(
+      oc
+    )}">${escapeText(ocTxt)}</span></div>`
+  );
+  if (yt != null && Number.isFinite(Number(yt))) {
+    rows.push(
+      `<div class="score-layer-row"><span>y_τ（对照）</span><span class="num ${signCls(
+        yt
+      )}">${escapeText(`${fmtSigned(Number(yt), 2)}%`)}</span></div>`
+    );
+  }
+  const gateBits = [
+    ocGate ? "异号闸 OC=ON · 比 nowcast oc" : "异号闸 OC=OFF · 比 nc（oc 仅对照）",
+    "open→close",
+  ];
+  if (ncEnter != null) gateBits.push(`|nowcast|≥${ncEnter}% 才拦异号`);
+  if (yt != null && oc != null && ncEnter != null) {
+    const signConflict =
+      Math.abs(Number(yt)) >= 1e-9 &&
+      Math.abs(oc) >= ncEnter &&
+      (Number(yt) > 0) !== (oc > 0);
+    if (signConflict && ocGate) {
+      gateBits.push(`y_τ 与 ${compareLabel} 异号 → 跳过`);
+    } else if (signConflict && !ocGate) {
+      gateBits.push(`y_τ 与 nowcast oc 异号（闸仍看 nc）`);
+    } else if (ocGate) {
+      gateBits.push(`y_τ 与 ${compareLabel} 同号或未达门槛`);
+    }
+  }
+  return (
+    `<div class="score-layer score-layer-nowcast is-on">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">nowcast oc · open→close</div>` +
+    `<div class="score-hero-value ${signCls(oc)}">${escapeText(ocTxt)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">${escapeText(gateBits.join(" · "))}</div>` +
     `<div class="score-layer-compose">${rows.join("")}</div>` +
     `</div>`
   );
@@ -1666,6 +1779,7 @@ export function createScoreTooltipController() {
     if (tip === "cal" || tip === "calibration") return "cal";
     if (tip === "eod") return "eod";
     if (tip === "nowcast" || tip === "nc") return "nowcast";
+    if (tip === "nc_oc") return "nc_oc";
     if (tip === "tau" || tip === "rem") return "tau";
     if (tip === "path") return "path";
     if (tip === "on") return "on";
@@ -1775,13 +1889,39 @@ export function createScoreTooltipController() {
         ncHtml =
           `<div class="score-layer score-layer-nowcast is-shadow">` +
           `<div class="score-layer-head">` +
-          `<div class="score-hero-label">y_nc</div>` +
+          `<div class="score-hero-label">nowcast（nc）</div>` +
           `<div class="score-hero-value score-flat">—</div>` +
           `</div>` +
-          `<div class="score-hero-hint">Kalman 合成 · 昨收口径</div>` +
+          `<div class="score-hero-hint">${escapeText(Y_NC_TITLE)}</div>` +
           `</div>`;
       }
       const html = `<div class="score-detail">${ncHtml}</div>`;
+      hide();
+      const tip = document.createElement("div");
+      tip.className = "score-tooltip";
+      tip.innerHTML = html;
+      tip.setAttribute("role", "tooltip");
+      document.body.appendChild(tip);
+      tipEl = tip;
+      tipAnchor = cell;
+      place(tip, cell);
+      attachDismiss(tip, cell, { sticky });
+      return;
+    }
+
+    if (tipMode === "nc_oc") {
+      let ncOcHtml = formatNcOcSection(raw);
+      if (!ncOcHtml) {
+        ncOcHtml =
+          `<div class="score-layer score-layer-nowcast is-shadow">` +
+          `<div class="score-layer-head">` +
+          `<div class="score-hero-label">nowcast oc</div>` +
+          `<div class="score-hero-value score-flat">—</div>` +
+          `</div>` +
+          `<div class="score-hero-hint">${escapeText(Y_NC_OC_TITLE)} · 需 nc 与 gap</div>` +
+          `</div>`;
+      }
+      const html = `<div class="score-detail">${ncOcHtml}</div>`;
       hide();
       const tip = document.createElement("div");
       tip.className = "score-tooltip";

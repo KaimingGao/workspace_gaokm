@@ -4,22 +4,25 @@ import {
   escapeText,
   paperMetricClass,
   fmtTableScore,
+  fmtScore,
   resolveTradeScore,
   resolveEodScore,
   resolveTauScore,
   resolveOnScore,
-  resolveNowcastScore,
+  resolveNowcastCcScore,
   Y_EOD_TITLE,
   Y_TAU_TITLE,
   Y_ON_TITLE,
-  Y_NOWCAST_TITLE,
+  Y_NC_TITLE,
+  Y_NC_OC_TITLE,
   Y_PATH_TITLE,
   PATH_REALIZED_TITLE,
   EOD_REALIZED_TITLE,
   TAU_REALIZED_TITLE,
   resolvePathScore,
   fmtPathScore,
-} from "./fmt.js?v=p1486";
+  nowcastOcPct,
+} from "./fmt.js?v=p1505";
 import {
   adaptiveSizingDayTip,
   normalizeYTauMap,
@@ -56,9 +59,9 @@ export const SKIP_CAT_TIP = {
   missing_minute:
     "缺当日分钟线，无法模拟触达与成交路径。",
   y_tau_flat:
-    "|ŷ_τ| 低于 enter（默认 0.40%）：视为横盘，不定向、不开仓。",
+    "|ŷ_τ| 低于入场门槛（默认 0.02%）：视为横盘，不定向、不开仓。",
   y_tau_weak:
-    "enter≤|ŷ_τ|<enter_strong（默认 0.40%～0.60%）：弱信号区，故意跳过以免微弱 τ 做错边。",
+    "历史跳过类别（旧双闸弱信号区）；现已并入 y_τ 入场，新跑批不再产生。",
   y_path_flat:
     "|ŷ_path| 低于 path enter（默认 30）：路径头横盘，不参与 dual_y 选向。",
   y_path_disagree:
@@ -70,7 +73,7 @@ export const SKIP_CAT_TIP = {
   y_trade_weak:
     "|ŷ_trade| 幅度不足（相对 floor），融合分太弱不开仓。",
   trade_tau_sign:
-    "ŷ_trade 与 ŷ_τ 异号（或 τ↔nowcast 异号闸开启时拧着），方向冲突跳过。",
+    "ŷ_trade 与 ŷ_τ 异号（或 |nowcast| 够强且 τ↔nowcast 异号闸开启时拧着），方向冲突跳过。",
   conflict:
     "旧版 eod↔τ / y_check 冲突闸（已下线），历史回放可能仍出现。",
   amplitude:
@@ -451,7 +454,31 @@ function t0DayScoreItem(d, fallback = {}, rules = {}) {
     dual_score_single_head: scores.dual_score_single_head ?? feats.dual_score_single_head ?? null,
     as_of_tau: scores.as_of_tau || feats.as_of_tau || null,
     rem_tau: scores.rem_tau || null,
-    gap_pct: scores.gap_pct ?? feats.gap_pct ?? null,
+    gap_pct:
+      scores.gap_pct ??
+      feats.gap_pct ??
+      (scores.features_tau && scores.features_tau.gap_pct != null
+        ? scores.features_tau.gap_pct
+        : null) ??
+      (feats.features_tau && feats.features_tau.gap_pct != null
+        ? feats.features_tau.gap_pct
+        : null),
+    y_nc: feats.y_nc ?? scores.y_nc ?? null,
+    y_nc_oc:
+      feats.y_nc_oc ??
+      feats.y_nowcast_oc ??
+      scores.y_nc_oc ??
+      scores.y_nowcast_oc ??
+      null,
+    y_nowcast_oc_gate:
+      feats.y_nowcast_oc_gate ??
+      scores.y_nowcast_oc_gate ??
+      (rules.y_nowcast_oc_gate != null ? rules.y_nowcast_oc_gate : null),
+    nowcast_compare_label: feats.nowcast_compare_label ?? scores.nowcast_compare_label ?? null,
+    y_nowcast_enter:
+      feats.y_nowcast_enter ??
+      scores.y_nowcast_enter ??
+      (rules.y_nowcast_enter != null ? rules.y_nowcast_enter : null),
     predicted_score_eod_rem: scores.predicted_score_eod_rem ?? null,
     y_spec_tau: scores.y_spec_tau || null,
     features_tau: scores.features_tau || feats.features_tau || null,
@@ -485,14 +512,66 @@ function t0FmtYScore(d, kind, fallback = {}, rules = {}) {
     tau: resolveTauScore,
     trade: resolveTradeScore,
     on: resolveOnScore,
-    nowcast: resolveNowcastScore,
+    nowcast: resolveNowcastCcScore,
   };
   const fn = resolvers[kind];
   return fmtTableScore(it, fn ? fn(it) : null);
 }
 
+function resolveNowcastCcValue(d, fallback, rules) {
+  const it = t0DayScoreItem(d, fallback, rules);
+  const cc = resolveNowcastCcScore(it);
+  if (cc != null && Number.isFinite(Number(cc))) return Number(cc);
+  return pickScoreNum(d, "y_nowcast");
+}
+
+function resolveNowcastOcValue(d, fallback, rules) {
+  const it = t0DayScoreItem(d, fallback, rules);
+  const feats =
+    (d.direction_features && typeof d.direction_features === "object"
+      ? d.direction_features
+      : null) ||
+    (d.features && typeof d.features === "object" ? d.features : {}) ||
+    {};
+  const cc = resolveNowcastCcValue(d, fallback, rules);
+  const gap = it.gap_pct;
+  let oc =
+    feats.y_nc_oc != null && Number.isFinite(Number(feats.y_nc_oc))
+      ? Number(feats.y_nc_oc)
+      : feats.y_nowcast_oc != null && Number.isFinite(Number(feats.y_nowcast_oc))
+        ? Number(feats.y_nowcast_oc)
+        : null;
+  if (oc == null && cc != null && gap != null) oc = nowcastOcPct(cc, gap);
+  return { oc, cc, gap };
+}
+
+function fmtNowcastOcCell(d, fallback, rules, scoreDetailJson) {
+  const ocOn = rules.y_nowcast_oc_gate === true;
+  const { oc, cc, gap } = resolveNowcastOcValue(d, fallback, rules);
+  if (oc == null) {
+    const tip =
+      gap == null
+        ? "缺 gap，无法由 nc 换算 nowcast oc"
+        : cc == null
+          ? "缺 nc，无法换算 nowcast oc"
+          : Y_NC_OC_TITLE;
+    return t0YScoreCell("nc_oc", "—", scoreDetailJson, tip);
+  }
+  const ocText = fmtScore(oc, { digits: 2 });
+  const gapText = gap != null ? fmtScore(gap, { digits: 2 }) : "—";
+  const ccText = cc != null ? fmtScore(cc, { digits: 2 }) : "—";
+  const gateNote = ocOn ? "异号闸用 nowcast oc" : "异号闸用 nc（oc 仅对照）";
+  const title = `${Y_NC_OC_TITLE} · ${gateNote} · nc ${ccText} · gap ${gapText}`;
+  return t0YScoreCell("nc_oc", ocText, scoreDetailJson, title);
+}
+
 function t0YScoreCell(tip, text, detailJson, title) {
-  const colKey = tip === "nowcast" ? "nc" : tip;
+  const colKey =
+    tip === "nowcast"
+      ? "nc"
+      : tip === "nc_oc"
+        ? "nc-oc"
+        : tip;
   return (
     `<td class="num paper-t0-col-${escapeText(colKey)} paper-t0-col-y paper-t0-col-y-${escapeText(
       colKey
@@ -750,6 +829,7 @@ function tradeColgroup(showStock, showReason = false, showDelete = false) {
     t0Col("paper-t0-col-trade", "trade") +
     t0Col("paper-t0-col-on", "on") +
     t0Col("paper-t0-col-nc", "nc") +
+    t0Col("paper-t0-col-nc-oc", "ncOc") +
     t0Col("paper-t0-col-dir", "dir") +
     t0Col("paper-t0-col-process", "process") +
     t0Col("paper-t0-col-ret", "retPct") +
@@ -850,14 +930,16 @@ export function buildT0TradeTableHtml(opts) {
   if (!days || !days.length) return caption || "";
   const showStock = shouldShowStockColumn(data, days);
   const showTime = daysHaveIntradayTime(days);
+  const rules = (data && data.rules) || {};
   const enter = yTauEnter(data);
-  const tauMap = normalizeYTauMap(data.rules && data.rules.y_tau_map);
+  const tauMap = normalizeYTauMap(rules.y_tau_map);
   const scoreTip = yTauMapScoreTip(tauMap, enter);
   const fallback = {
     stock_code: data.stock_code,
     stock_name: data.stock_name,
   };
 
+  const ncHead = "y_nc";
   const head =
     (showStock ? `<th scope="col" class="paper-t0-col-stock">股票</th>` : "") +
     `<th scope="col" class="paper-t0-col-date">日</th>` +
@@ -874,7 +956,12 @@ export function buildT0TradeTableHtml(opts) {
     `<th scope="col" class="paper-t0-col-on num paper-t0-col-y paper-t0-col-y-on" title="${escapeText(
       `${Y_ON_TITLE}`
     )}">y_on</th>` +
-    `<th scope="col" class="paper-t0-col-nc num paper-t0-col-y paper-t0-col-y-nc" title="y_nowcast · Kalman 权昨收">y_nc</th>` +
+    `<th scope="col" class="paper-t0-col-nc num paper-t0-col-y paper-t0-col-y-nc" title="${escapeText(
+      Y_NC_TITLE
+    )}">${escapeText(ncHead)}</th>` +
+    `<th scope="col" class="paper-t0-col-nc-oc num paper-t0-col-y paper-t0-col-y-nc-oc" title="${escapeText(
+      Y_NC_OC_TITLE
+    )}">y_nc_oc</th>` +
     `<th scope="col" class="paper-t0-col-dir">向</th>` +
     `<th scope="col" class="paper-t0-col-process" title="5m 第一触达时点；缺分钟日已跳过">过程</th>` +
     `<th scope="col" class="paper-t0-col-ret num" title="(PnL+敞口)/动仓名义">收益%</th>` +
@@ -939,7 +1026,13 @@ export function buildT0TradeTableHtml(opts) {
         pathMergedCellHtml(d, fallback, rules, scoreDetailJson) +
         t0YScoreCell("trade", t0FmtYScore(d, "trade", fallback, rules), scoreDetailJson, TRADE_TITLE) +
         t0YScoreCell("on", t0FmtYScore(d, "on", fallback, rules), scoreDetailJson, Y_ON_TITLE) +
-        t0YScoreCell("nowcast", t0FmtYScore(d, "nowcast", fallback, rules), scoreDetailJson, Y_NOWCAST_TITLE) +
+        t0YScoreCell(
+          "nowcast",
+          t0FmtYScore(d, "nowcast", fallback, rules),
+          scoreDetailJson,
+          Y_NC_TITLE
+        ) +
+        fmtNowcastOcCell(d, fallback, rules, scoreDetailJson) +
         `<td class="paper-t0-col-dir">${dir}</td>` +
         `<td class="paper-t0-col-process" title="${escapeText(legTip)}">${
           skipped ? `<span class="paper-t0-leg-empty">—</span>` : legProcessFlowHtml(d)

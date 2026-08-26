@@ -513,7 +513,7 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
     `<th class="watching-col-num" title="ŷ_τ · T收/T开（拟合原值；τ 闸同源）">y_τ</th>` +
     `<th class="watching-col-num" title="ŷ_ON · open 链旁路">y_on</th>` +
     `<th class="watching-col-num" title="ŷ_trade · 排序/卖门槛">y_trade</th>` +
-    `<th class="watching-col-num" title="ŷ_nowcast · Kalman 权昨收对照">y_nc</th>` +
+    `<th class="watching-col-num" title="nowcast（nc）· 对照昨收">y_nc</th>` +
     `<th title="规则倾向（买入 / 观望等），不是 ŷ 本身">倾向</th>` +
     `<th class="watching-col-num" title="相对基准（指数）的超额收益">超额</th>` +
     `<th class="watching-col-num" title="成交量">量</th>` +

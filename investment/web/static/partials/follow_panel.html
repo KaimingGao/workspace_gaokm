@@ -423,21 +423,35 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="满目标卖出触发%（相对开盘）；弱 ŷ 信心会按比例压低"
+                    title="基准卖出触发%（相对开盘）；当日按 ŷ 信心在「弱下限～强上限」间缩放"
                   >
                     <span>卖触发%</span>
-                    <input type="number" name="sell_trigger_pct" min="0.1" max="20" step="0.1" value="2" />
+                    <input type="number" name="sell_trigger_pct" min="0.1" max="20" step="0.1" value="1" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="满目标买入触发%（相对开盘）；弱 ŷ 信心会按比例压低"
+                    title="基准买入触发%（相对开盘）；当日按 ŷ 信心在「弱下限～强上限」间缩放"
                   >
                     <span>买触发%</span>
-                    <input type="number" name="buy_trigger_pct" min="0.1" max="20" step="0.1" value="1.5" />
+                    <input type="number" name="buy_trigger_pct" min="0.1" max="20" step="0.1" value="1" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="日振幅%下限；空=回测默认0.5%。自动≈(卖+买)×0.35，最低0.5"
+                    title="目标价弱信号下限：相对基准触发的%（默认 60 → ×0.6）；信心小时压低目标"
+                  >
+                    <span>目标弱%</span>
+                    <input type="number" name="y_ratio_cut" min="20" max="100" step="5" value="60" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="目标价强信号上限：相对基准触发的%（默认 200 → ×2.0）；信心大时抬高目标"
+                  >
+                    <span>目标强%</span>
+                    <input type="number" name="y_ratio_boost_cap" min="100" max="200" step="5" value="200" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="日振幅%下限；空=回测默认0.2%。自动≈(卖+买)×0.35，最低0.2"
                   >
                     <span>振幅下限%</span>
                     <input
@@ -446,8 +460,8 @@
                       min="0.2"
                       max="30"
                       step="0.1"
-                      value="0.5"
-                      title="回测建议 0.5；留空则按卖/买触发自动估算"
+                      value="0.2"
+                      title="回测建议 0.2；留空则按卖/买触发自动估算"
                     />
                   </label>
                   <label
@@ -488,28 +502,21 @@
                     title="正T未买回 / 反T未卖旧仓时，收盘强制完成第二腿。dual_y 下可由 y_on 覆盖"
                   >
                     <span>当日回补</span>
-                    <input type="checkbox" name="must_cover_same_day" />
+                    <input type="checkbox" name="must_cover_same_day" checked />
                   </label>
                   <label
                     class="paper-t0-field"
                     title="dual_y：|y_trade| 低于此值跳过（预期日波动太小；%点）"
                   >
                     <span>|y_trade|下限%</span>
-                    <input type="number" name="y_trade_floor" min="0.01" max="5" step="0.01" value="0.01" />
+                    <input type="number" name="y_trade_floor" min="0.01" max="5" step="0.01" value="0.02" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="dual_y：|y_τ|≥此值才入场；单位=收益百分点（与表列 ŷ% 同口径）。下限 0.01；例：0.40 表示 0.40%，不是 40%"
+                    title="dual_y：|y_τ|≥此值才定方向；单位=收益百分点（与表列 ŷ% 同口径）。下限 0.01；例：0.02 表示 0.02%，不是 2%"
                   >
                     <span>y_τ入场%</span>
-                    <input type="number" name="y_tau_enter" min="0.01" max="5" step="0.01" value="0.40" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="dual_y：|y_τ| 过入场但未达此值视为弱信号区，不定向（默认 0.60）"
-                  >
-                    <span>y_τ强信号%</span>
-                    <input type="number" name="y_tau_enter_strong" min="0.01" max="5" step="0.01" value="0.60" />
+                    <input type="number" name="y_tau_enter" min="0.01" max="5" step="0.01" value="0.02" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -520,10 +527,10 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="dual_y：|y_path|≥此值才入场（标签 ±100，默认 30）；不足则横盘跳过。达门槛后若与 τ 方向冲突仍否决"
+                    title="dual_y：|y_path|≥此值才入场（标签 ±100，默认 2）；不足则横盘跳过。达门槛后若与 τ 方向冲突仍否决"
                   >
                     <span>y_path入场</span>
-                    <input type="number" name="y_path_enter" min="1" max="100" step="1" value="30" />
+                    <input type="number" name="y_path_enter" min="1" max="100" step="1" value="2" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -545,35 +552,42 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="|gap|≥此值（%）触发缺口分档；默认 1.5"
+                    title="|gap|≥此值（%）触发缺口分档；默认 1.0"
                   >
                     <span>缺口阈值%</span>
-                    <input type="number" name="y_gap_tier_pct" min="0.5" max="10" step="0.1" value="1.5" />
+                    <input type="number" name="y_gap_tier_pct" min="0.5" max="10" step="0.1" value="1.0" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="异号闸用 OC 口径对照 y_nowcast（与 y_τ 同为 open→close）；默认开"
+                    title="异号闸：nowcast oc = nc 映到 open→close，与 y_τ 比符号；大缺口日 nc 常异号但 oc 同号→不拦。关=用 nc（昨收）。默认关"
                   >
                     <span>nowcast OC</span>
-                    <input type="checkbox" name="y_nowcast_oc_gate" checked />
+                    <input type="checkbox" name="y_nowcast_oc_gate" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="前 N 根 5m 仍无方向振幅则放弃当日做 T；默认 6"
+                    title="前 N 根 5m 仍无方向振幅则放弃当日做 T；默认 12"
                   >
                     <span>前缀放弃</span>
                     <input type="checkbox" name="y_path_abandon_enabled" checked />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="前缀放弃：连续 5m 根数（2–48）；默认 6"
+                    title="前缀放弃：连续 5m 根数（2–48）；默认 12"
                   >
                     <span>放弃根数</span>
-                    <input type="number" name="y_path_abandon_bars" min="2" max="48" step="1" value="6" />
+                    <input type="number" name="y_path_abandon_bars" min="2" max="48" step="1" value="12" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="y_τ 与 y_nowcast 异号时跳过（盘中方向与 Kalman 对照拧着）。缺 nowcast 或过弱不拦；默认开"
+                    title="|nc|≥此值且与 y_τ 异号则跳过（弱 nc 不否决 τ）；OC 开时比 nowcast oc，关时比 nc"
+                  >
+                    <span>nc异号%</span>
+                    <input type="number" name="y_nowcast_enter" min="0.05" max="10" step="0.05" value="3.0" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="y_τ 与 nc（或 OC 开时 nowcast oc）异号则跳过；缺 nc 或过弱不拦；默认开"
                   >
                     <span>异号跳过</span>
                     <input type="checkbox" name="y_block_tau_nowcast_sign" checked />
@@ -597,14 +611,14 @@
                     title="dual_y：|y_eod|≥此值且与 y_τ 同向时略抬目标价信心"
                   >
                     <span>y_eod先验%</span>
-                    <input type="number" name="y_eod_prior" min="0.01" max="5" step="0.01" value="0.01" />
+                    <input type="number" name="y_eod_prior" min="0.01" max="5" step="0.01" value="0.02" />
                   </label>
                   <label
                     class="paper-t0-field"
                     title="dual_y：|y_on|≥此值才允许与敞口同向的隔夜（默认仍强制回补）；单位=收益百分点"
                   >
                     <span>y_on放行%</span>
-                    <input type="number" name="y_on_allow" min="0.01" max="10" step="0.01" value="0.01" />
+                    <input type="number" name="y_on_allow" min="0.01" max="10" step="0.01" value="0.02" />
                   </label>
                   <label class="paper-t0-field" title="评估窗：统计做T的交易日数（默认 10）；y_τ/ATR 另用 ≥40 日因子缓冲，与窗长无关。改完会记住。">
                     <span>回测窗</span>

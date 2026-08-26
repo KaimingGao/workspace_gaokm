@@ -906,7 +906,7 @@ function renderRebalanceReport(
     `<div class="rebalance-th num" role="columnheader" title="ŷ_τ · τ→收盘剩余">y_τ</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_ON · open 链旁路">y_on</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_trade · 排序/卖门槛">y_trade</div>` +
-    `<div class="rebalance-th num" role="columnheader" title="ŷ_nowcast · Kalman 权昨收对照">y_nc</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="nowcast（nc）· 对照昨收">y_nc</div>` +
     `<div class="rebalance-th num" role="columnheader">股数</div>` +
     `<div class="rebalance-th num" role="columnheader">变动</div>` +
     `<div class="rebalance-th rebalance-th-decision" role="columnheader" title="悬停看原因">决策</div>` +

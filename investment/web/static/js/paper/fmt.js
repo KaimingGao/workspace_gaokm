@@ -67,6 +67,16 @@ export function compoundPct(a, b) {
   return ((1 + fa / 100) * (1 + fb / 100) - 1) * 100;
 }
 
+/** nowcast oc：nc（昨收口径）→ open→close，与 y_τ 同窗口。 */
+export function nowcastOcPct(yNowcastCc, gapPct) {
+  const cc = Number(yNowcastCc);
+  const gap = Number(gapPct);
+  if (!Number.isFinite(cc) || !Number.isFinite(gap)) return null;
+  const denom = 1 + gap / 100;
+  if (Math.abs(denom) < 1e-9) return null;
+  return ((1 + cc / 100) / denom - 1) * 100;
+}
+
 export function resolveGapPct(it) {
   if (!it || typeof it !== "object") return null;
   const g = _numField(it.gap_pct);
@@ -208,38 +218,47 @@ export function resolveCalEodScore(it) {
   return Number.isFinite(n) ? n : null;
 }
 
-/** ŷ_nowcast：Kalman 权对照，口径=现价对昨收（与 ŷ_trade 相同）。 */
-export function resolveNowcastScore(it) {
+/** 簿字段 predicted_score_nowcast（可能失真；仅 fallback）。 */
+function _nowcastFromBookField(it) {
+  const n = _numField(it.predicted_score_nowcast);
+  if (n == null || !_looksLikeYhatPct(n)) return null;
+  const vs = String(it.nowcast_vs || "");
+  if (vs === "prev_close" || String(it.dual_score_window || "") === "eod_next") {
+    return n;
+  }
+  const gap = resolveGapPct(it);
+  if (gap == null) return n;
+  const lifted = compoundPct(gap, n);
+  return lifted != null && Number.isFinite(lifted) ? lifted : n;
+}
+
+/** nowcast = nc：Kalman 对照昨收（EOD+τ+gap 可重算时优先于失真 raw）。 */
+export function resolveNowcastCcScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
-  const n = _numField(it.predicted_score_nowcast);
-  let stored = null;
-  if (n != null && _looksLikeYhatPct(n)) {
-    const vs = String(it.nowcast_vs || "");
-    if (vs === "prev_close" || String(it.dual_score_window || "") === "eod_next") {
-      stored = n;
-    } else {
-      const gap = resolveGapPct(it);
-      if (gap == null) stored = n;
-      else {
-        const lifted = compoundPct(gap, n);
-        stored = lifted != null && Number.isFinite(lifted) ? lifted : n;
-      }
-    }
-  }
   const fused = reconstructNowcastPrevClose(it);
+  const persisted = _numField(it.y_nc);
+  const booked = _nowcastFromBookField(it);
   const eod = resolveEodScore(it);
-  // 收盘后曾把 nowcast 塌成 ŷ_EOD：有 K 与 ŷ_τ 时用公式现算
-  if (
-    fused != null &&
-    (stored == null ||
-      (eod != null &&
-        Math.abs(stored - eod) < 1e-4 &&
-        Math.abs(fused - eod) > 5e-4))
-  ) {
-    return fused;
+  if (fused != null) {
+    const ref = persisted ?? booked;
+    if (ref == null) return fused;
+    if (
+      eod != null &&
+      Math.abs(ref - eod) < 1e-4 &&
+      Math.abs(fused - eod) > 5e-4
+    ) {
+      return fused;
+    }
+    if (Math.abs(ref - fused) > 0.5) return fused;
   }
-  return stored;
+  if (persisted != null) return persisted;
+  return booked;
+}
+
+/** @deprecated 与 resolveNowcastCcScore 同源（nowcast = nc）。 */
+export function resolveNowcastScore(it) {
+  return resolveNowcastCcScore(it);
 }
 
 /** (1−K)·ŷ_EOD + K·(缺口∘ŷ_τ)。旧簿缺 K 时用 Kalman 默认增益。 */
@@ -268,8 +287,14 @@ export const EOD_REALIZED_TITLE =
 export const TAU_REALIZED_TITLE =
   "τ实 · close[T]/open[T]−1（与 ŷ_τ 同标签）";
 export const Y_ON_TITLE = "ŷ_ON · 开盘决策口径（旁路；复盘路径价见 y_on_path）";
-export const Y_NOWCAST_TITLE =
-  "ŷ_nowcast · Kalman 权昨收口径对照（与 y_trade / 涨跌同一目标），不进决策";
+/** nowcast = nc：Kalman 对照昨收（与 y_trade / 涨跌同目标），不进主决策。 */
+export const Y_NC_TITLE =
+  "nowcast（nc）· 对照昨收 · Kalman(ŷ_EOD, ŷ_τ)，不进决策";
+/** nowcast oc：把 nc 映到 open→close（与 y_τ 同窗口）。 */
+export const Y_NC_OC_TITLE =
+  "nowcast oc · nc 映到 open→close（异号闸 OC 开时对照 y_τ）";
+/** @deprecated 用 Y_NC_TITLE */
+export const Y_NOWCAST_TITLE = Y_NC_TITLE;
 
 /** ŷ_path：分钟第一触达顺序头（path_ridge）；dual_y 与 y_τ 联合选向。 */
 export const Y_PATH_TITLE = "ŷ_path · 路径选向 first_touch（±100）";

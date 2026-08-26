@@ -87,33 +87,44 @@ export function adaptiveSizingBounds(t0 = {}) {
   const baseBuy = Number.isFinite(buy) ? buy : 1.5;
   const cut = Number(t0.y_ratio_cut ?? 0.6);
   const cutSafe = Number.isFinite(cut) && cut > 0 && cut <= 1 ? cut : 0.6;
+  const cap = Number(t0.y_ratio_boost_cap ?? 2);
+  const capSafe =
+    Number.isFinite(cap) && cap >= 1 ? Math.min(Math.max(cap, cutSafe), 2) : 2;
   const minSell = Math.max(0.1, +(baseSell * cutSafe).toFixed(2));
   const minBuy = Math.max(0.1, +(baseBuy * cutSafe).toFixed(2));
-  const basePct = Math.round(
+  const maxSell = Math.max(0.1, +(baseSell * capSafe).toFixed(2));
+  const maxBuy = Math.max(0.1, +(baseBuy * capSafe).toFixed(2));
+  const ratioPct = Math.round(
     Number.isFinite(Number(t0.t0_ratio)) ? Number(t0.t0_ratio) * 100 : 100
   );
-  // gauge 用「相对基准」0–100：满目标=100，弱信号≈cut*100
-  const maxPct = 100;
+  // 刻度：相对基准触发 %（基准=100，弱≈cut×100，强上限=cap×100）
+  const maxPct = Math.round(capSafe * 100);
   const minPct = Math.max(5, Math.round(cutSafe * 100));
+  const basePct = 100;
   return {
-    basePct: 100,
+    basePct,
     minPct,
     maxPct,
-    ratioPct: basePct,
+    ratioPct,
     baseSell,
     baseBuy,
     minSell,
     minBuy,
+    maxSell,
+    maxBuy,
     cut: cutSafe,
+    cap: capSafe,
   };
 }
 
 /** dual_y 目标价缩放只读摘要（规则卡 / 表注）。 */
 export function adaptiveSizingRuleLabel(t0 = {}) {
-  const { baseSell, baseBuy, minSell, minBuy, cut } = adaptiveSizingBounds(t0);
+  const { baseSell, baseBuy, minSell, minBuy, maxSell, maxBuy, cut, cap } =
+    adaptiveSizingBounds(t0);
   return (
-    `满目标 卖+${baseSell}%/买−${baseBuy}%` +
-    ` · 弱信号×${cut} → +${minSell}%/−${minBuy}%`
+    `基准 卖+${baseSell}%/买−${baseBuy}%` +
+    ` · 弱×${cut}→+${minSell}%/−${minBuy}%` +
+    ` · 强×${cap}→+${maxSell}%/−${maxBuy}%`
   );
 }
 
@@ -127,7 +138,7 @@ export function adaptiveSizingDayTip(day, rules = {}) {
   if (!Number.isFinite(sellEff) || !Number.isFinite(buyEff)) return "";
   const fmt = (n) => (Number.isFinite(n) ? Number(n).toFixed(2).replace(/\.?0+$/, "") : "—");
   if (!Number.isFinite(scale) || Math.abs(scale - 1) < 0.005) {
-    return `目标 卖+${fmt(sellEff)}% / 买−${fmt(buyEff)}%（满目标）`;
+    return `目标 卖+${fmt(sellEff)}% / 买−${fmt(buyEff)}%（基准）`;
   }
   if (Number.isFinite(sellBase) && Number.isFinite(buyBase)) {
     return (
@@ -155,6 +166,8 @@ export function yTauMapScoreTip(mode, enter = 0.25) {
 }
 
 /** 回测/预演响应可能只有 rules 或残缺 execution；补齐 t0 供规则卡渲染。 */
+export { nowcastOcPct } from "./fmt.js?v=p1505";
+
 export function normalizeExecutionView(execution, rules) {
   if (!execution && !rules) return null;
   const base = execution ? { ...execution } : { ok: true };
@@ -243,34 +256,48 @@ function buildTauMapVisualHtml(mode, enterRaw) {
 }
 
 function buildSizingGaugeHtml(t0) {
-  const { basePct, minPct, maxPct, baseSell, baseBuy, minSell, minBuy } = adaptiveSizingBounds(t0);
-  const bandLeft = Math.max(0, minPct);
-  const bandWidth = Math.max(2, maxPct - bandLeft);
+  const {
+    basePct,
+    minPct,
+    maxPct,
+    baseSell,
+    baseBuy,
+    minSell,
+    minBuy,
+    maxSell,
+    maxBuy,
+  } = adaptiveSizingBounds(t0);
+  const span = Math.max(maxPct, 1);
+  const pos = (v) => Math.max(0, Math.min(100, (Number(v) / span) * 100));
+  const minPos = pos(minPct);
+  const basePos = pos(basePct);
+  const maxPos = pos(maxPct);
+  const bandLeft = minPos;
+  const bandWidth = Math.max(2, maxPos - minPos);
   const tip =
-    `满目标 卖+${baseSell}% / 买−${baseBuy}%；` +
-    `弱信号压至约 +${minSell}% / −${minBuy}%（ŷ 信心）`;
+    `基准 卖+${baseSell}% / 买−${baseBuy}%；` +
+    `弱→+${minSell}%/−${minBuy}% · 强→+${maxSell}%/−${maxBuy}%（ŷ 信心）`;
   return (
     `<div class="paper-t0-spec-panel-viz">` +
-    specSubhead("满目标", `+${baseSell}% / −${baseBuy}%`) +
+    specSubhead("基准", `+${baseSell}% / −${baseBuy}%`) +
     `<div class="paper-t0-spec-panel-body is-gauge" title="${escapeText(tip)}">` +
     `<div class="paper-t0-spec-gauge-wrap">` +
     `<div class="paper-t0-spec-gauge-track" aria-hidden="true">` +
     `<span class="paper-t0-spec-gauge-band" style="left:${bandLeft}%;width:${bandWidth}%"></span>` +
-    `<span class="paper-t0-spec-gauge-mark is-min" style="left:${minPct}%" title="弱信号 ${minPct}%"></span>` +
-    `<span class="paper-t0-spec-gauge-mark is-base" style="left:${basePct}%" title="满目标 ${basePct}%"></span>` +
-    `<span class="paper-t0-spec-gauge-mark is-max" style="left:${maxPct}%" title="上限 ${maxPct}%"></span>` +
+    `<span class="paper-t0-spec-gauge-mark is-min" style="left:${minPos}%" title="弱信号 ${minPct}%"></span>` +
+    `<span class="paper-t0-spec-gauge-mark is-base" style="left:${basePos}%" title="基准 ${basePct}%"></span>` +
+    `<span class="paper-t0-spec-gauge-mark is-max" style="left:${maxPos}%" title="上限 ${maxPct}%"></span>` +
     `</div>` +
     `<div class="paper-t0-spec-gauge-ticks" aria-hidden="true">` +
     `<span class="is-edge" style="left:0%">0</span>` +
-    `<span class="is-min" style="left:${minPct}%">${minPct}</span>` +
-    `<span class="is-base" style="left:${basePct}%">${basePct}</span>` +
-    `<span class="is-max" style="left:${maxPct}%">${maxPct}</span>` +
-    `<span class="is-edge" style="left:100%">100</span>` +
+    `<span class="is-min" style="left:${minPos}%">${minPct}</span>` +
+    `<span class="is-base" style="left:${basePos}%">${basePct}</span>` +
+    `<span class="is-max" style="left:${maxPos}%">${maxPct}</span>` +
     `</div>` +
     `</div>` +
     `<div class="paper-t0-spec-gauge-legend">` +
     `<span class="paper-t0-spec-gauge-key"><i class="dot is-band"></i>有效区间</span>` +
-    `<span class="paper-t0-spec-gauge-key"><i class="dot is-base"></i>满目标</span>` +
+    `<span class="paper-t0-spec-gauge-key"><i class="dot is-base"></i>基准</span>` +
     `<span class="paper-t0-spec-gauge-key is-range">${minPct}–${maxPct}%</span>` +
     `</div>` +
     `</div></div>`
@@ -282,18 +309,18 @@ function buildDualYPipelineHtml(t0) {
     PATH_MODE_LABELS[String(t0.path_mode || "first_touch").toLowerCase()] || "5m";
   const pathSub =
     t0.y_use_path !== false
-      ? `|y_p|≥${fmtThresholdPct(t0.y_path_enter, 30)}`
+      ? `|y_p|≥${fmtThresholdPct(t0.y_path_enter, 2)}`
       : pathLbl;
   const pathTip =
     t0.y_use_path !== false
       ? "ŷ_path 入场闸：|y_p|≥门槛才做 T；达门槛后与 τ 冲突则否决"
       : "分钟路径首触达";
   const nodes = [
-    { stage: "trade", role: "资格", label: "trade", sub: fmtThresholdPct(t0.y_trade_floor, 0.01), tip: "ŷ_trade 幅度门槛" },
-    { stage: "tau", role: "方向", label: "τ", sub: fmtThresholdPct(t0.y_tau_enter_strong ?? t0.y_tau_enter, 0.6), tip: "ŷ_τ 定正/反 T（弱信号区跳过）" },
+    { stage: "trade", role: "资格", label: "trade", sub: fmtThresholdPct(t0.y_trade_floor, 0.02), tip: "ŷ_trade 幅度门槛" },
+    { stage: "tau", role: "方向", label: "τ", sub: fmtThresholdPct(t0.y_tau_enter, 0.02), tip: "ŷ_τ 定正/反 T（|τ|<入场则跳过）" },
     { stage: "path", role: "路径", label: "path", sub: pathSub, tip: pathTip },
-    { stage: "eod", role: "先验", label: "eod", sub: fmtThresholdPct(t0.y_eod_prior, 0.01), tip: "ŷ_eod 同向略抬目标价信心" },
-    { stage: "on", role: "回补", label: "on", sub: fmtThresholdPct(t0.y_on_allow, 0.01), tip: "ŷ_on 收盘回补" },
+    { stage: "eod", role: "先验", label: "eod", sub: fmtThresholdPct(t0.y_eod_prior, 0.02), tip: "ŷ_eod 同向略抬目标价信心" },
+    { stage: "on", role: "回补", label: "on", sub: fmtThresholdPct(t0.y_on_allow, 0.02), tip: "ŷ_on 收盘回补" },
   ];
   return nodes
     .map(
@@ -339,18 +366,22 @@ export function renderExecutionRulesHtml(execution) {
       : 10;
   const pmChaseLbl = pmLbl === "关" ? "关" : `${pmLbl} · ${chaseIv}m`;
   const signBlkLbl = t0.y_block_tau_nowcast_sign !== false ? "开" : "关";
+  const ncEnterLbl =
+    t0.y_nowcast_enter != null
+      ? `${Number(t0.y_nowcast_enter).toFixed(2).replace(/\.?0+$/, "")}%`
+      : "1%";
   const pathUseLbl = t0.y_use_path !== false ? "开" : "关";
   const pathEnterLbl =
-    t0.y_use_path !== false ? fmtThresholdPct(t0.y_path_enter, 30) : "—";
+    t0.y_use_path !== false ? fmtThresholdPct(t0.y_path_enter, 2) : "—";
   const gapTierLbl =
     t0.y_gap_tier_mode && String(t0.y_gap_tier_mode).toLowerCase() !== "off"
-      ? `${t0.y_gap_tier_mode} · ${fmtThresholdPct(t0.y_gap_tier_pct, 1.5)}`
+      ? `${t0.y_gap_tier_mode} · ${fmtThresholdPct(t0.y_gap_tier_pct, 1.0)}`
       : "关";
   const abandonLbl =
     t0.y_path_abandon_enabled !== false
-      ? `${t0.y_path_abandon_bars != null ? t0.y_path_abandon_bars : 6}×5m`
+      ? `${t0.y_path_abandon_bars != null ? t0.y_path_abandon_bars : 12}×5m`
       : "关";
-  const ncOcLbl = t0.y_nowcast_oc_gate !== false ? "OC" : "原值";
+  const ncOcLbl = t0.y_nowcast_oc_gate === true ? "nowcast oc" : "nc";
   const pathModelOk = execution.path_model_present !== false;
   const pathModelWarn =
     t0.y_use_path !== false && !pathModelOk
@@ -399,7 +430,7 @@ export function renderExecutionRulesHtml(execution) {
     `<section class="paper-t0-spec-block is-exec">` +
     `<h5 class="paper-t0-spec-block-title">执行参数</h5>` +
     `<div class="paper-t0-spec-metrics">` +
-    specMetric("触发", triggerLbl, "卖高 / 买低基准；当日按 ŷ 信心压低") +
+    specMetric("触发", triggerLbl, "卖高 / 买低基准；当日按 ŷ 信心在 [弱,强] 间缩放") +
     specMetric("振幅", rangeLbl, "日振幅下限") +
     specMetric("回补", coverLbl, "收盘强制或 y_on") +
     specMetric("ATR", atrLbl, "波动率自适应触发") +
@@ -412,7 +443,7 @@ export function renderExecutionRulesHtml(execution) {
         : "") +
     specMetric("缺口分档", gapTierLbl, "大缺口 skip/revert") +
     specMetric("前缀放弃", abandonLbl, "前 N 根 5m 无空间则放弃") +
-    specMetric("异号跳过", signBlkLbl, `y_τ↔y_nowcast 异号则跳过（${ncOcLbl}；缺 nowcast 不拦）`) +
+    specMetric("异号跳过", signBlkLbl, `|nc|≥${ncEnterLbl} 且与 y_τ 异号则跳过（比 ${ncOcLbl}）`) +
     specMetric("stance", coupLbl, "与 stance 耦合") +
     `</div></section>` +
     (execution.summary || hashShort
@@ -488,38 +519,48 @@ export function fillExecutionForm(root, execution) {
   set("t0_ratio", t0.t0_ratio != null ? Math.round(Number(t0.t0_ratio) * 100) : 100);
   set("sell_trigger_pct", t0.sell_trigger_pct);
   set("buy_trigger_pct", t0.buy_trigger_pct);
+  set(
+    "y_ratio_cut",
+    t0.y_ratio_cut != null ? Math.round(Number(t0.y_ratio_cut) * 100) : 60
+  );
+  set(
+    "y_ratio_boost_cap",
+    t0.y_ratio_boost_cap != null
+      ? Math.round(Number(t0.y_ratio_boost_cap) * 100)
+      : 200
+  );
   if (t0.min_range_pct != null && t0.min_range_pct !== "") {
     set("min_range_pct", t0.min_range_pct);
   } else {
-    set("min_range_pct", 0.5);
+    set("min_range_pct", 0.2);
   }
   set("fill_mode", t0.fill_mode || "trigger");
   set("direction", "dual_y");
   set("y_tau_map", normalizeYTauMap(t0.y_tau_map));
   set("path_mode", t0.path_mode || "first_touch");
-  set("use_atr", t0.use_atr !== false);
-  set("must_cover_same_day", !!t0.must_cover_same_day);
+  set("use_atr", t0.use_atr === true);
+  set("must_cover_same_day", t0.must_cover_same_day !== false);
   set("t0_vs_stance", coup);
-  set("y_trade_floor", t0.y_trade_floor != null ? t0.y_trade_floor : 0.01);
-  set("y_tau_enter", t0.y_tau_enter != null ? t0.y_tau_enter : 0.4);
-  set("y_tau_enter_strong", t0.y_tau_enter_strong != null ? t0.y_tau_enter_strong : 0.6);
+  set("y_trade_floor", t0.y_trade_floor != null ? t0.y_trade_floor : 0.02);
+  set("y_tau_enter", t0.y_tau_enter != null ? t0.y_tau_enter : 0.02);
   set("y_use_path", t0.y_use_path !== false);
-  set("y_path_enter", t0.y_path_enter != null ? t0.y_path_enter : 30);
+  set("y_path_enter", t0.y_path_enter != null ? t0.y_path_enter : 2);
   set("y_path_required", !!t0.y_path_required);
   set("y_gap_tier_mode", t0.y_gap_tier_mode || "skip_opposite");
-  set("y_gap_tier_pct", t0.y_gap_tier_pct != null ? t0.y_gap_tier_pct : 1.5);
-  set("y_nowcast_oc_gate", t0.y_nowcast_oc_gate !== false);
+  set("y_gap_tier_pct", t0.y_gap_tier_pct != null ? t0.y_gap_tier_pct : 1.0);
+  set("y_nowcast_oc_gate", t0.y_nowcast_oc_gate === true);
   set("y_path_abandon_enabled", t0.y_path_abandon_enabled !== false);
   set(
     "y_path_abandon_bars",
-    t0.y_path_abandon_bars != null ? t0.y_path_abandon_bars : 6
+    t0.y_path_abandon_bars != null ? t0.y_path_abandon_bars : 12
   );
-  set("y_eod_prior", t0.y_eod_prior != null ? t0.y_eod_prior : 0.01);
-  set("y_on_allow", t0.y_on_allow != null ? t0.y_on_allow : 0.01);
+  set("y_eod_prior", t0.y_eod_prior != null ? t0.y_eod_prior : 0.02);
+  set("y_on_allow", t0.y_on_allow != null ? t0.y_on_allow : 0.02);
   set(
     "y_block_tau_nowcast_sign",
     t0.y_block_tau_nowcast_sign !== false
   );
+  set("y_nowcast_enter", t0.y_nowcast_enter != null ? t0.y_nowcast_enter : 3.0);
   set("t0_pm_degrade", t0.t0_pm_degrade != null ? t0.t0_pm_degrade : "14:00");
   set(
     "t0_pm_chase_interval_min",
@@ -552,34 +593,41 @@ export function collectExecutionForm(root) {
     return el ? !!el.checked : fallback;
   };
   const ratioPct = num("t0_ratio", 100);
+  const cutPct = Math.max(20, Math.min(num("y_ratio_cut", 60), 100));
+  let boostPct = Math.max(100, Math.min(num("y_ratio_boost_cap", 200), 200));
+  if (boostPct < cutPct) boostPct = cutPct;
   const t0 = {
     enabled: chk("enabled", true),
     t0_ratio: Math.max(0.05, Math.min(ratioPct / 100, 1)),
-    sell_trigger_pct: num("sell_trigger_pct", 2),
-    buy_trigger_pct: num("buy_trigger_pct", 1.5),
+    sell_trigger_pct: num("sell_trigger_pct", 1),
+    buy_trigger_pct: num("buy_trigger_pct", 1),
+    y_ratio_cut: Math.max(0.2, Math.min(cutPct / 100, 1)),
+    y_ratio_boost_cap: Math.max(1.0, Math.min(boostPct / 100, 2)),
     fill_mode: str("fill_mode", "trigger"),
     direction: "dual_y",
     y_tau_map: normalizeYTauMap(str("y_tau_map", "trend")),
     path_mode: str("path_mode", "first_touch"),
-    use_atr: chk("use_atr", true),
-    must_cover_same_day: chk("must_cover_same_day", false),
-    y_trade_floor: Math.max(0.01, Math.min(num("y_trade_floor", 0.01), 5)),
-    y_tau_enter: Math.max(0.01, Math.min(num("y_tau_enter", 0.4), 5)),
-    y_tau_enter_strong: Math.max(0.01, Math.min(num("y_tau_enter_strong", 0.6), 5)),
+    use_atr: chk("use_atr", false),
+    must_cover_same_day: chk("must_cover_same_day", true),
+    y_trade_floor: Math.max(0.01, Math.min(num("y_trade_floor", 0.02), 5)),
+    y_tau_enter: Math.max(0.01, Math.min(num("y_tau_enter", 0.02), 5)),
+    // 兼容旧键：与入场同步，避免纸面残留更高 strong 把闸抬回去
+    y_tau_enter_strong: Math.max(0.01, Math.min(num("y_tau_enter", 0.02), 5)),
     y_use_path: chk("y_use_path", true),
-    y_path_enter: Math.max(1, Math.min(num("y_path_enter", 30), 100)),
+    y_path_enter: Math.max(1, Math.min(num("y_path_enter", 2), 100)),
     y_path_required: chk("y_path_required", false),
     y_gap_tier_mode: str("y_gap_tier_mode", "skip_opposite"),
-    y_gap_tier_pct: Math.max(0.5, Math.min(num("y_gap_tier_pct", 1.5), 10)),
-    y_nowcast_oc_gate: chk("y_nowcast_oc_gate", true),
+    y_gap_tier_pct: Math.max(0.5, Math.min(num("y_gap_tier_pct", 1.0), 10)),
+    y_nowcast_oc_gate: chk("y_nowcast_oc_gate", false),
     y_path_abandon_enabled: chk("y_path_abandon_enabled", true),
     y_path_abandon_bars: Math.max(
       2,
-      Math.min(Math.round(num("y_path_abandon_bars", 6)), 48)
+      Math.min(Math.round(num("y_path_abandon_bars", 12)), 48)
     ),
-    y_eod_prior: Math.max(0.01, Math.min(num("y_eod_prior", 0.01), 5)),
-    y_on_allow: Math.max(0.01, Math.min(num("y_on_allow", 0.01), 10)),
+    y_eod_prior: Math.max(0.01, Math.min(num("y_eod_prior", 0.02), 5)),
+    y_on_allow: Math.max(0.01, Math.min(num("y_on_allow", 0.02), 10)),
     y_block_tau_nowcast_sign: chk("y_block_tau_nowcast_sign", true),
+    y_nowcast_enter: Math.max(0.05, Math.min(num("y_nowcast_enter", 3.0), 10)),
     t0_pm_degrade: str("t0_pm_degrade", "14:00"),
     t0_pm_chase_interval_min: Math.max(
       1,
@@ -651,35 +699,37 @@ export function collectT0BacktestBody(root, opts = {}) {
     use_minute: true,
     compare_daily: false,
     t0_ratio: t0.t0_ratio != null ? t0.t0_ratio : 1.0,
-    sell_trigger_pct: t0.sell_trigger_pct != null ? t0.sell_trigger_pct : 2,
-    buy_trigger_pct: t0.buy_trigger_pct != null ? t0.buy_trigger_pct : 1.5,
+    sell_trigger_pct: t0.sell_trigger_pct != null ? t0.sell_trigger_pct : 1,
+    buy_trigger_pct: t0.buy_trigger_pct != null ? t0.buy_trigger_pct : 1,
+    y_ratio_cut: t0.y_ratio_cut != null ? t0.y_ratio_cut : 0.6,
+    y_ratio_boost_cap: t0.y_ratio_boost_cap != null ? t0.y_ratio_boost_cap : 2.0,
     fill_mode: t0.fill_mode || "trigger",
     direction: "dual_y",
     y_tau_map: normalizeYTauMap(t0.y_tau_map),
     path_mode: "first_touch",
-    must_cover_same_day: !!t0.must_cover_same_day,
-    use_atr: t0.use_atr !== false,
-    y_trade_floor: t0.y_trade_floor != null ? t0.y_trade_floor : 0.01,
-    y_tau_enter: t0.y_tau_enter != null ? t0.y_tau_enter : 0.4,
-    y_tau_enter_strong: t0.y_tau_enter_strong != null ? t0.y_tau_enter_strong : 0.6,
+    must_cover_same_day: t0.must_cover_same_day !== false,
+    use_atr: t0.use_atr === true,
+    y_trade_floor: t0.y_trade_floor != null ? t0.y_trade_floor : 0.02,
+    y_tau_enter: t0.y_tau_enter != null ? t0.y_tau_enter : 0.02,
     y_use_path: t0.y_use_path !== false,
-    y_path_enter: t0.y_path_enter != null ? t0.y_path_enter : 30,
+    y_path_enter: t0.y_path_enter != null ? t0.y_path_enter : 2,
     y_path_required: !!t0.y_path_required,
     y_gap_tier_mode: t0.y_gap_tier_mode || "skip_opposite",
-    y_gap_tier_pct: t0.y_gap_tier_pct != null ? t0.y_gap_tier_pct : 1.5,
-    y_nowcast_oc_gate: t0.y_nowcast_oc_gate !== false,
+    y_gap_tier_pct: t0.y_gap_tier_pct != null ? t0.y_gap_tier_pct : 1.0,
+    y_nowcast_oc_gate: t0.y_nowcast_oc_gate === true,
     y_path_abandon_enabled: t0.y_path_abandon_enabled !== false,
     y_path_abandon_bars:
-      t0.y_path_abandon_bars != null ? t0.y_path_abandon_bars : 6,
-    y_eod_prior: t0.y_eod_prior != null ? t0.y_eod_prior : 0.01,
-    y_on_allow: t0.y_on_allow != null ? t0.y_on_allow : 0.01,
+      t0.y_path_abandon_bars != null ? t0.y_path_abandon_bars : 12,
+    y_eod_prior: t0.y_eod_prior != null ? t0.y_eod_prior : 0.02,
+    y_on_allow: t0.y_on_allow != null ? t0.y_on_allow : 0.02,
     y_block_tau_nowcast_sign: t0.y_block_tau_nowcast_sign !== false,
+    y_nowcast_enter: t0.y_nowcast_enter != null ? t0.y_nowcast_enter : 3.0,
     t0_pm_degrade: t0.t0_pm_degrade != null ? t0.t0_pm_degrade : "14:00",
     t0_pm_chase_interval_min:
       t0.t0_pm_chase_interval_min != null ? t0.t0_pm_chase_interval_min : 10,
   };
   if (t0.min_range_pct != null) body.min_range_pct = t0.min_range_pct;
-  else body.min_range_pct = 0.5;
+  else body.min_range_pct = 0.2;
   if (opts.onlySelected && opts.selectedCode) body.code = opts.selectedCode;
   return body;
 }

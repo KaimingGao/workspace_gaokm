@@ -455,25 +455,21 @@ def summarize_dual_y_upgrade_acceptance(
     *,
     rules: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    """同窗口验收：弱 τ 成交、τ 强桶同号、path 否决笔数（不依赖泄漏 y_on）。"""
+    """同窗口验收：|τ|<enter 成交、τ 强桶同号、path 否决笔数（不依赖泄漏 y_on）。"""
     cfg = rules if isinstance(rules, dict) else {}
     try:
-        enter = float(cfg.get("y_tau_enter") if cfg.get("y_tau_enter") is not None else 0.4)
+        enter = float(cfg.get("y_tau_enter") if cfg.get("y_tau_enter") is not None else 0.02)
     except (TypeError, ValueError):
-        enter = 0.4
+        enter = 0.6
+    # 旧双闸兼容：有效入场 = max(enter, strong)
     try:
-        strong = float(
-            cfg.get("y_tau_enter_strong")
-            if cfg.get("y_tau_enter_strong") is not None
-            else 0.6
-        )
+        strong_legacy = cfg.get("y_tau_enter_strong")
+        if strong_legacy is not None:
+            enter = max(enter, float(strong_legacy))
     except (TypeError, ValueError):
-        strong = 0.6
-    if strong < enter:
-        strong = enter
+        pass
 
     traded = [d for d in (days or []) if isinstance(d, dict) and is_traded_t0_day(d)]
-    weak_trades = 0
     flat_trades = 0
     for d in traded:
         sc = extract_scores(d)
@@ -486,8 +482,6 @@ def summarize_dual_y_upgrade_acceptance(
             continue
         if a < enter:
             flat_trades += 1
-        elif a < strong:
-            weak_trades += 1
 
     att = build_y_tau_attribution(days)
     att_sm = att.get("summary") if isinstance(att.get("summary"), dict) else {}
@@ -502,21 +496,18 @@ def summarize_dual_y_upgrade_acceptance(
         if classify_t0_skip_reason(reason) == "y_path_disagree":
             path_skip += 1
 
-    ok = weak_trades == 0 and flat_trades == 0
+    ok = flat_trades == 0
     return {
         "ok": ok,
         "traded_n": len(traded),
-        "weak_tau_trades": weak_trades,
+        "weak_tau_trades": 0,  # 双闸已合并；保留键兼容旧前端
         "flat_tau_trades": flat_trades,
         "tau_oc_hit_rate_pct": att_sm.get("oc_hit_rate_pct"),
         "strong_bucket": strong_b,
         "path_disagree_skips": path_skip,
         "y_tau_enter": enter,
-        "y_tau_enter_strong": strong,
-        "blockers": (
-            (["存在 |τ|<enter 成交"] if flat_trades else [])
-            + (["存在弱信号区成交"] if weak_trades else [])
-        ),
+        "y_tau_enter_strong": enter,
+        "blockers": (["存在 |τ|<enter 成交"] if flat_trades else []),
     }
 
 
@@ -1031,7 +1022,7 @@ def merge_t0_viz_payloads(
 
     y_path_attribution = _merge_y_path_attribution(
         [p.get("y_path_attribution") for p in (payloads or []) if isinstance(p, dict)],
-        path_enter=float((rules or {}).get("y_path_enter") or 30.0),
+        path_enter=float((rules or {}).get("y_path_enter") or 2.0),
     )
     path_sm = (
         y_path_attribution.get("summary")

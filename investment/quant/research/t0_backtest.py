@@ -21,36 +21,68 @@ T0_BT_VIRTUAL_CASH = 2_000_000.0
 _MINUTE_FETCH_TIMEOUT_SEC = 18.0
 
 
+# 回测响应 rules / execution.t0 与纸面 ExecutionSpec 对齐的字段
+_BT_RULES_VIEW_KEYS = (
+    "enabled",
+    "t0_ratio",
+    "sell_trigger_pct",
+    "buy_trigger_pct",
+    "fill_mode",
+    "direction",
+    "path_mode",
+    "minute_period",
+    "min_range_pct",
+    "use_atr",
+    "atr_window",
+    "must_cover_same_day",
+    "y_trade_floor",
+    "y_tau_enter",
+    "y_eod_prior",
+    "y_on_allow",
+    "y_on_risk",
+    "y_block_tau_nowcast_sign",
+    "y_tau_nowcast_sign_eps",
+    "y_nowcast_enter",
+    "y_tau_map",
+    "y_use_path",
+    "y_path_enter",
+    "y_path_required",
+    "y_gap_tier_mode",
+    "y_gap_tier_pct",
+    "y_nowcast_oc_gate",
+    "y_path_abandon_enabled",
+    "y_path_abandon_bars",
+    "t0_pm_degrade",
+    "t0_pm_chase_interval_min",
+    "y_ratio_cut",
+    "y_ratio_boost_cap",
+    "y_ratio_tau_soft_band",
+    "y_score_source",
+)
+
+
+def _bt_rules_view(bt_rules: dict) -> Dict[str, Any]:
+    """从生效 bt_rules 抽出 UI/表格需要的规则视图。"""
+    src = bt_rules or {}
+    out: Dict[str, Any] = {}
+    for k in _BT_RULES_VIEW_KEYS:
+        if k in src and src[k] is not None:
+            out[k] = src[k]
+    if str(src.get("direction") or "") != "dual_y":
+        if src.get("dir_enter") is not None:
+            out["dir_enter"] = src.get("dir_enter")
+    return out
+
+
 def _execution_view_for_backtest(
     bt_rules: dict, exec_meta: Optional[dict]
 ) -> Dict[str, Any]:
     """回测结果里的 execution 视图，与 /api/paper/execution 的 t0 字段对齐。"""
     meta = exec_meta or {}
     coupling = meta.get("coupling") or {}
-    t0 = {
-        "enabled": bt_rules.get("enabled", True),
-        "t0_ratio": bt_rules.get("t0_ratio"),
-        "sell_trigger_pct": bt_rules.get("sell_trigger_pct"),
-        "buy_trigger_pct": bt_rules.get("buy_trigger_pct"),
-        "fill_mode": bt_rules.get("fill_mode"),
-        "direction": bt_rules.get("direction"),
-        "path_mode": bt_rules.get("path_mode"),
-        "use_atr": bt_rules.get("use_atr"),
-        "atr_window": bt_rules.get("atr_window"),
-        "min_range_pct": bt_rules.get("min_range_pct"),
-        "must_cover_same_day": bt_rules.get("must_cover_same_day"),
-        "minute_period": bt_rules.get("minute_period"),
-        "y_trade_floor": bt_rules.get("y_trade_floor"),
-        "y_tau_enter": bt_rules.get("y_tau_enter"),
-        "y_eod_prior": bt_rules.get("y_eod_prior"),
-        "y_on_allow": bt_rules.get("y_on_allow"),
-        "y_on_risk": bt_rules.get("y_on_risk"),
-        "y_block_tau_nowcast_sign": bt_rules.get("y_block_tau_nowcast_sign"),
-        "y_tau_map": bt_rules.get("y_tau_map"),
-    }
-    # 旧 signal 门槛：仅非 dual_y 时透出，避免规则卡/摘要混淆
-    if str(bt_rules.get("direction") or "") != "dual_y":
-        t0["dir_enter"] = bt_rules.get("dir_enter")
+    t0 = _bt_rules_view(bt_rules)
+    if "enabled" not in t0:
+        t0["enabled"] = bool(bt_rules.get("enabled", True))
     return {
         "ok": True,
         "channel": meta.get("channel") or "backtest",
@@ -64,27 +96,7 @@ def _execution_view_for_backtest(
 
 
 def _rules_summary(bt_rules: dict) -> Dict[str, Any]:
-    out = {
-        "direction": bt_rules.get("direction"),
-        "path_mode": bt_rules.get("path_mode"),
-        "fill_mode": bt_rules.get("fill_mode"),
-        "t0_ratio": bt_rules.get("t0_ratio"),
-        "min_range_pct": bt_rules.get("min_range_pct"),
-        "sell_trigger_pct": bt_rules.get("sell_trigger_pct"),
-        "buy_trigger_pct": bt_rules.get("buy_trigger_pct"),
-        "use_atr": bt_rules.get("use_atr"),
-        "must_cover_same_day": bt_rules.get("must_cover_same_day"),
-        "y_trade_floor": bt_rules.get("y_trade_floor"),
-        "y_tau_enter": bt_rules.get("y_tau_enter"),
-        "y_eod_prior": bt_rules.get("y_eod_prior"),
-        "y_on_allow": bt_rules.get("y_on_allow"),
-        "y_on_risk": bt_rules.get("y_on_risk"),
-        "y_block_tau_nowcast_sign": bt_rules.get("y_block_tau_nowcast_sign"),
-        "y_tau_map": bt_rules.get("y_tau_map"),
-    }
-    if str(bt_rules.get("direction") or "") != "dual_y":
-        out["dir_enter"] = bt_rules.get("dir_enter")
-    return out
+    return _bt_rules_view(bt_rules)
 
 
 def _fetch_minute_by_date(
@@ -164,6 +176,7 @@ def run_t0_backtest_for_code(
     initial_cost: Optional[float] = None,
     initial_cash: float = 0.0,
     rules: Optional[dict] = None,
+    paper: Optional[dict] = None,
     compare_optimistic: bool = True,
     use_minute: bool = True,
     compare_daily: bool = False,
@@ -197,7 +210,10 @@ def run_t0_backtest_for_code(
     req_rules = dict(rules or {})
     req_rules.setdefault("path_mode", "first_touch")
     resolved = resolve_t0_rules(
-        rules=req_rules, channel="backtest", has_minute=True
+        paper=paper,
+        rules=req_rules,
+        channel="backtest",
+        has_minute=True,
     )
     bt_rules = strip_execution_meta(resolved)
     bt_rules["path_mode"] = "first_touch"
@@ -334,6 +350,7 @@ def run_t0_backtest_for_holdings(
     *,
     lookback: int = T0_BT_DEFAULT_LOOKBACK,
     rules: Optional[dict] = None,
+    paper: Optional[dict] = None,
     compare_optimistic: bool = True,
     cash: float = 0.0,
     use_minute: bool = True,
@@ -361,7 +378,10 @@ def run_t0_backtest_for_holdings(
     req_rules = dict(rules or {})
     req_rules.setdefault("path_mode", "first_touch")
     resolved = resolve_t0_rules(
-        rules=req_rules, channel="backtest", has_minute=True
+        paper=paper,
+        rules=req_rules,
+        channel="backtest",
+        has_minute=True,
     )
     cfg = strip_execution_meta(resolved)
     cfg["path_mode"] = "first_touch"
@@ -417,6 +437,7 @@ def run_t0_backtest_for_holdings(
             initial_cost=None,
             initial_cash=v_cash,
             rules=cfg,
+            paper=paper,
             compare_optimistic=compare_optimistic,
             use_minute=True,
             compare_daily=False,

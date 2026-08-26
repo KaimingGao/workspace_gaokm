@@ -634,8 +634,8 @@ class QuantFactorMixin:
         # 训练触发默认对齐纸面/执行 T0（与做 T 可交易口径一致）
         try:
             t0 = resolve_t0_rules(channel="backtest", has_minute=True) or {}
-            paper_sell = float(t0.get("sell_trigger_pct") or 2.0)
-            paper_buy = float(t0.get("buy_trigger_pct") or 1.5)
+            paper_sell = float(t0.get("sell_trigger_pct") or 1.0)
+            paper_buy = float(t0.get("buy_trigger_pct") or 1.0)
         except Exception:  # noqa: BLE001
             logger.debug("path ridge paper triggers fallback", exc_info=True)
             paper_sell, paper_buy = 2.0, 1.5

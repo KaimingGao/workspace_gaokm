@@ -359,16 +359,10 @@ export function buildT0ReportHtml(data, opts = {}) {
             ? Number(rules.y_tau_enter)
             : sm.y_tau_enter != null
               ? Number(sm.y_tau_enter)
-              : 0.4;
-        const strong =
-          rules.y_tau_enter_strong != null
-            ? Number(rules.y_tau_enter_strong)
-            : sm.y_tau_enter_strong != null
-              ? Number(sm.y_tau_enter_strong)
               : 0.6;
-        return `|y_τ|≥${enter}% · 强≥${strong}%`;
+        return `|y_τ|≥${enter}%`;
       })(),
-      { tip: "enter 以下横盘；enter≤|τ|<strong 弱信号跳过" }
+      { tip: "|y_τ| 低于入场则横盘跳过" }
     ),
     metricCell("跳过日", String(data.skip_days ?? 0), {
       tip: skipInsight ? `主因 ${skipInsight}` : "",
@@ -411,7 +405,7 @@ export function buildT0ReportHtml(data, opts = {}) {
     metricCell("y_path选向", pathRules.y_use_path === false ? "关" : "开"),
     metricCell(
       "path门槛",
-      pathRules.y_path_enter != null ? `|y_p|≥${pathRules.y_path_enter}` : "≥30"
+      pathRules.y_path_enter != null ? `|y_p|≥${pathRules.y_path_enter}` : "≥2"
     ),
     metricCell("path跳过", String(sm.path_skip_days ?? data.path_skip_days ?? 0)),
     metricCell("分钟路径日", String(data.minute_path_days ?? 0)),

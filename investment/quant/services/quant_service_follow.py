@@ -31,11 +31,12 @@ class QuantFollowMixin:
 
         _ = (use_minute, compare_daily)
         if from_paper or codes is not None or not str(code or "").strip():
-            holdings = self._t0_holdings_for_backtest(codes=codes, code=code)
+            holdings, paper = self._t0_holdings_for_backtest(codes=codes, code=code)
             return run_t0_backtest_for_holdings(
                 holdings,
                 lookback=lookback,
                 rules=rules,
+                paper=paper if from_paper else None,
                 compare_optimistic=compare_optimistic,
                 use_minute=True,
                 compare_daily=False,
@@ -53,7 +54,7 @@ class QuantFollowMixin:
 
     def _t0_holdings_for_backtest(
         self, *, codes: Optional[list] = None, code: str = ""
-    ) -> list:
+    ) -> tuple:
         import os
 
         from core.paper import load_paper
@@ -66,7 +67,7 @@ class QuantFollowMixin:
             return s
 
         if not os.path.isfile(PAPER_PATH):
-            return []
+            return [], None
         paper = load_paper(PAPER_PATH)
         holdings = list(paper.get("holdings") or [])
         want: set = set()
@@ -86,5 +87,5 @@ class QuantFollowMixin:
                     for w in want
                 )
             ]
-        return holdings
+        return holdings, paper
 

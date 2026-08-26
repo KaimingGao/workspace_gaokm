@@ -28,8 +28,8 @@ function buildZeroTradeHint(data) {
   const lotSkip =
     reasonText.includes("动仓不足") || reasonText.includes("不足1手") || reasonText.includes("不足 1 手");
   const dir = (data.rules && data.rules.direction) || data.direction || "—";
-  const sell = (data.rules && data.rules.sell_trigger_pct) ?? "2";
-  const buy = (data.rules && data.rules.buy_trigger_pct) ?? "1.5";
+  const sell = (data.rules && data.rules.sell_trigger_pct) ?? "1";
+  const buy = (data.rules && data.rules.buy_trigger_pct) ?? "1";
   const tips = tplus1Skip
     ? "旧仓被 T+1 锁定；需隔日可卖仓才能正T先卖 / 反T卖旧"
     : ampSkip

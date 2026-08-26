@@ -69,6 +69,34 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('id="replay-kpi-row"', replay)
         self.assertIn('id="replay-kpi-return"', replay)
 
+    def test_t0_trade_table_has_nc_oc_column(self):
+        table_js = self._read("web", "static", "js", "paper", "t0_table.js")
+        self.assertIn("y_nc_oc", table_js)
+        self.assertIn("paper-t0-col-nc-oc", table_js)
+        self.assertIn("fmtNowcastOcCell", table_js)
+
+    def test_score_tooltip_nc_oc_tip_mode(self):
+        tip_js = self._read("web", "static", "js", "score_tooltip.js")
+        self.assertIn('tip === "nc_oc"', tip_js)
+        self.assertIn("formatNcOcSection", tip_js)
+        self.assertIn('tipMode === "nc_oc"', tip_js)
+
+    def test_y_nc_column_uses_resolve_nowcast_cc_score(self):
+        fmt_js = self._read("web", "static", "js", "paper", "fmt.js")
+        table_js = self._read("web", "static", "js", "paper", "t0_table.js")
+        self.assertIn("resolveNowcastCcScore", fmt_js)
+        self.assertIn("nowcast: resolveNowcastCcScore", table_js)
+        self.assertIn("resolveNowcastScore(it)", fmt_js)
+        self.assertIn("return resolveNowcastCcScore(it)", fmt_js)
+        self.assertIn("Y_NC_TITLE", fmt_js)
+        self.assertIn("Y_NC_OC_TITLE", fmt_js)
+        self.assertIn("nowcast = nc", fmt_js)
+
+    def test_follow_panel_nc_terminology(self):
+        panel = self._read("web", "static", "partials", "follow_panel.html")
+        self.assertIn("nowcast oc", panel)
+        self.assertIn("nc异号", panel)
+
     def test_t0_trades_fullscreen_toggle(self):
         table_js = self._read("web", "static", "js", "paper", "t0_table.js")
         css = self._read("web", "static", "css", "follow.css")
@@ -76,6 +104,25 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("paper-t0-trades-panel", table_js)
         self.assertIn("bindT0TradesFullscreen", table_js)
         self.assertIn(".paper-t0-trades-panel.is-fs", css)
+
+    def test_follow_panel_t0_form_defaults(self):
+        panel = self._read("web", "static", "partials", "follow_panel.html")
+        self.assertIn('name="sell_trigger_pct"', panel)
+        self.assertIn('value="1"', panel)
+        self.assertIn('name="must_cover_same_day" checked', panel)
+        self.assertIn('name="y_path_enter"', panel)
+        self.assertIn('value="2"', panel)
+        self.assertIn('value="3.0"', panel)
+
+    def test_follow_panel_target_price_ratio_controls(self):
+        panel = self._read("web", "static", "partials", "follow_panel.html")
+        ui = self._read("web", "static", "js", "paper", "execution_ui.js")
+        self.assertIn('name="y_ratio_cut"', panel)
+        self.assertIn('name="y_ratio_boost_cap"', panel)
+        self.assertIn("目标弱%", panel)
+        self.assertIn("目标强%", panel)
+        self.assertIn("y_ratio_boost_cap", ui)
+        self.assertIn("adaptiveSizingBounds", ui)
 
     def test_interpret_request_has_offline(self):
         try:

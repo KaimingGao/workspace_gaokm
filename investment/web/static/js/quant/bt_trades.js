@@ -38,7 +38,7 @@ export const BT_SIM_TRADE_COLS_BASE = [
     widthPct: 6,
     num: true,
     sortable: true,
-    title: "ŷ_nowcast · Kalman 权昨收口径对照，不进决策",
+    title: "nowcast（nc）· 对照昨收，不进决策",
   },
   {
     id: "intent",
@@ -453,7 +453,7 @@ export function buildSimTradeRow(r, i, deps) {
     scoreNowcastTitle:
       nowcastScore == null
         ? "暂无 nowcast · 日线路径常无 ŷ_τ"
-        : "ŷ_nowcast · Kalman 权昨收口径对照，不进决策",
+        : "nowcast（nc）· 对照昨收，不进决策",
     status: formatSimStatus(st),
   };
 }
@@ -567,7 +567,7 @@ export function btTradesCellHtml(col, d, deps) {
   }
   if (col.id === "score_nowcast") {
     const title =
-      d.scoreNowcastTitle || "ŷ_nowcast · 昨收口径对照 · 不进决策";
+      d.scoreNowcastTitle || "nowcast（nc）· 对照昨收，不进决策";
     const text = d.scoreNowcastText != null ? d.scoreNowcastText : "—";
     if (!d.scoreDetail) {
       return `<span class="bt-trade-score watching-score-nowcast paper-hold-score ${escapeHtml(

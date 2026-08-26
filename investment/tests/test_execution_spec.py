@@ -87,7 +87,7 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertTrue(view["ok"])
         self.assertIn("direction", view["t0"])
         self.assertIn("must_cover_same_day", view["t0"])
-        self.assertFalse(view["t0"]["must_cover_same_day"])
+        self.assertTrue(view["t0"]["must_cover_same_day"])
         self.assertNotIn("note", view["t0"])
 
     def test_public_view_must_cover_after_patch(self):
@@ -154,6 +154,48 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertEqual(view["t0"]["t0_pm_chase_interval_min"], 10)
         self.assertNotIn("t0_adverse_stop_pct", view["t0"])
         self.assertTrue(view["t0"]["y_block_tau_nowcast_sign"])
+
+    def test_validate_patch_preserves_y_nowcast_oc_gate_false(self):
+        from core.execution import validate_execution_patch
+
+        ok, norm, errs = validate_execution_patch(
+            {"t0": {"y_nowcast_oc_gate": False, "y_use_path": False}}
+        )
+        self.assertTrue(ok, errs)
+        self.assertFalse(norm["t0"]["y_nowcast_oc_gate"])
+        self.assertFalse(norm["t0"]["y_use_path"])
+
+    def test_rules_summary_includes_nowcast_oc_gate(self):
+        from quant.research.t0_backtest import _rules_summary
+
+        out = _rules_summary(
+            {
+                "direction": "dual_y",
+                "y_nowcast_oc_gate": False,
+                "y_nowcast_enter": 6.0,
+                "y_ratio_boost_cap": 2.0,
+            }
+        )
+        self.assertFalse(out["y_nowcast_oc_gate"])
+        self.assertEqual(out["y_nowcast_enter"], 6.0)
+        self.assertEqual(out["y_ratio_boost_cap"], 2.0)
+
+    def test_coerce_cfg_bool_and_paper_oc_gate(self):
+        from core.execution import resolve_t0_rules
+        from core.t0.config import coerce_cfg_bool, load_t0_rules
+
+        self.assertFalse(coerce_cfg_bool("false"))
+        self.assertFalse(load_t0_rules({"y_nowcast_oc_gate": "false"})["y_nowcast_oc_gate"])
+        resolved = resolve_t0_rules(
+            paper={
+                "strategy_id": "short",
+                "rules": {"t0": {"y_nowcast_oc_gate": False}},
+            },
+            rules={"y_tau_enter": 0.02},
+            channel="backtest",
+            has_minute=True,
+        )
+        self.assertFalse(resolved["y_nowcast_oc_gate"])
 
     def test_validate_and_apply_patch(self):
         from core.execution import (

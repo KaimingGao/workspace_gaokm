@@ -16,6 +16,13 @@ STRATEGY_ALIASES: Dict[str, str] = {
     "signal_v1_conservative": "short_conservative",
 }
 
+
+def _strategy_t0_overlay(**overrides: Any) -> Dict[str, Any]:
+    from core.execution import DEFAULT_T0_OVERLAY
+
+    return {**DEFAULT_T0_OVERLAY, **overrides}
+
+
 STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
     "short": {
         "label": "短线评分",
@@ -42,16 +49,7 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
             "execution": {
                 "version": "1.0.0",
                 "overlays": {
-                    "t0": {
-                        "enabled": True,
-                        "t0_ratio": 1.0,
-                        "sell_trigger_pct": 2.0,
-                        "buy_trigger_pct": 1.5,
-                        "fill_mode": "trigger",
-                        "use_atr": True,
-                        "ref": "open",
-                        "lot_size": 100,
-                    }
+                    "t0": _strategy_t0_overlay(),
                 },
                 "coupling": {"t0_vs_stance": "independent"},
                 "runtime_defaults": {
@@ -99,16 +97,7 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
             "execution": {
                 "version": "1.0.0",
                 "overlays": {
-                    "t0": {
-                        "enabled": True,
-                        "t0_ratio": 0.35,
-                        "sell_trigger_pct": 2.0,
-                        "buy_trigger_pct": 1.5,
-                        "fill_mode": "trigger",
-                        "use_atr": True,
-                        "ref": "open",
-                        "lot_size": 100,
-                    }
+                    "t0": _strategy_t0_overlay(t0_ratio=0.35),
                 },
                 "coupling": {"t0_vs_stance": "independent"},
                 "runtime_defaults": {

@@ -55,10 +55,12 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_trade_floor",
         "y_eod_prior",
         "y_tau_enter",
+        "y_tau_enter_strong",
         "y_on_risk",
         "y_on_allow",
         "y_block_tau_nowcast_sign",
         "y_tau_nowcast_sign_eps",
+        "y_nowcast_enter",
         "y_tau_map",
         "y_use_path",
         "y_path_enter",
@@ -91,12 +93,24 @@ DEFAULT_RUNTIME: Dict[str, Any] = {
 DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "enabled": True,
     "t0_ratio": 1.0,
-    "sell_trigger_pct": 2.0,
-    "buy_trigger_pct": 1.5,
+    "sell_trigger_pct": 1.0,
+    "buy_trigger_pct": 1.0,
     "fill_mode": "trigger",
-    "use_atr": True,
+    "use_atr": False,
+    "must_cover_same_day": True,
+    "min_range_pct": 0.2,
     "ref": "open",
     "lot_size": 100,
+    "y_tau_enter": 0.02,
+    "y_trade_floor": 0.02,
+    "y_eod_prior": 0.02,
+    "y_on_allow": 0.02,
+    "y_nowcast_enter": 3.0,
+    "y_nowcast_oc_gate": False,
+    "y_path_enter": 2.0,
+    "y_gap_tier_pct": 1.0,
+    "y_path_abandon_bars": 12,
+    "y_block_tau_nowcast_sign": True,
     # direction / path_mode 留给 runtime_defaults，避免与 DEFAULT_T0 双轨
 }
 
@@ -552,10 +566,12 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_trade_floor": t0.get("y_trade_floor"),
             "y_eod_prior": t0.get("y_eod_prior"),
             "y_tau_enter": t0.get("y_tau_enter"),
+            "y_tau_enter_strong": t0.get("y_tau_enter"),
             "y_on_risk": t0.get("y_on_risk"),
             "y_on_allow": t0.get("y_on_allow"),
             "y_block_tau_nowcast_sign": t0.get("y_block_tau_nowcast_sign"),
             "y_tau_nowcast_sign_eps": t0.get("y_tau_nowcast_sign_eps"),
+            "y_nowcast_enter": t0.get("y_nowcast_enter"),
             "y_tau_map": t0.get("y_tau_map"),
             "y_use_path": t0.get("y_use_path"),
             "y_path_enter": t0.get("y_path_enter"),
@@ -683,6 +699,14 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_out["must_cover_same_day"] = bool(t0_in.get("must_cover_same_day"))
     if "y_block_tau_nowcast_sign" in t0_in:
         t0_out["y_block_tau_nowcast_sign"] = bool(t0_in.get("y_block_tau_nowcast_sign"))
+    if "y_nowcast_oc_gate" in t0_in:
+        t0_out["y_nowcast_oc_gate"] = bool(t0_in.get("y_nowcast_oc_gate"))
+    if "y_use_path" in t0_in:
+        t0_out["y_use_path"] = bool(t0_in.get("y_use_path"))
+    if "y_path_required" in t0_in:
+        t0_out["y_path_required"] = bool(t0_in.get("y_path_required"))
+    if "y_path_abandon_enabled" in t0_in:
+        t0_out["y_path_abandon_enabled"] = bool(t0_in.get("y_path_abandon_enabled"))
     # 选向仅 dual_y
     t0_out["direction"] = "dual_y"
 

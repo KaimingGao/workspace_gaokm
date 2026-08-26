@@ -340,7 +340,7 @@ export function buildWatchingOnScoreCellHtml(disp, scoreClsFn, escapeHtml = defa
   );
 }
 
-/** nowcast 列（y_nc）。 */
+/** nowcast（nc）列；nowcast oc 见做 T 表 y_nc_oc。 */
 export function buildWatchingNowcastScoreCellHtml(disp, scoreClsFn, escapeHtml = defaultEscapeHtml) {
   return buildWatchingYScoreCellHtml(
     {

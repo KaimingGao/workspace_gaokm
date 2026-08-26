@@ -1019,7 +1019,7 @@ def simulate_t0_day_minute(
         )
         if not dir_amp.get("ok") and not at_session_end:
             abandon_on = bool(cfg_day.get("y_path_abandon_enabled", True))
-            abandon_bars = int(cfg_day.get("y_path_abandon_bars") or 6)
+            abandon_bars = int(cfg_day.get("y_path_abandon_bars") or 12)
             if abandon_on and n >= abandon_bars:
                 abandon_reason = str(dir_amp.get("reason") or "方向振幅未达标")
                 if direction == "reverse_t":

@@ -4164,6 +4164,7 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-col-trade { width: 94px; min-width: 94px; }
 .paper-t0-col-on { width: 82px; min-width: 82px; }
 .paper-t0-col-nc { width: 82px; min-width: 82px; }
+.paper-t0-col-nc-oc { width: 82px; min-width: 82px; }
 .paper-t0-table col.paper-t0-col-process {
   width: 272px;
 }
