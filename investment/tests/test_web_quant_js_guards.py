@@ -109,10 +109,18 @@ class TestWebQuantJsGuards(unittest.TestCase):
         panel = self._read("web", "static", "partials", "follow_panel.html")
         self.assertIn('name="sell_trigger_pct"', panel)
         self.assertIn('value="1"', panel)
+        self.assertIn('name="enabled" checked', panel)
         self.assertIn('name="must_cover_same_day" checked', panel)
         self.assertIn('name="y_path_enter"', panel)
         self.assertIn('value="2"', panel)
         self.assertIn('value="3.0"', panel)
+
+    def test_execution_ui_fill_form_sets_checkbox_false(self):
+        ui = self._read("web", "static", "js", "paper", "execution_ui.js")
+        self.assertIn('if (el.type === "checkbox")', ui)
+        self.assertIn("el.checked = !!val", ui)
+        self.assertIn('set("enabled", t0.enabled !== false)', ui)
+        self.assertIn('specKpi("启用", enabledLbl', ui)
 
     def test_follow_panel_target_price_ratio_controls(self):
         panel = self._read("web", "static", "partials", "follow_panel.html")

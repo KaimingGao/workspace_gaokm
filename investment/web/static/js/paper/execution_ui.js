@@ -166,7 +166,7 @@ export function yTauMapScoreTip(mode, enter = 0.25) {
 }
 
 /** 回测/预演响应可能只有 rules 或残缺 execution；补齐 t0 供规则卡渲染。 */
-export { nowcastOcPct } from "./fmt.js?v=p1505";
+export { nowcastOcPct } from "./fmt.js?v=p1507";
 
 export function normalizeExecutionView(execution, rules) {
   if (!execution && !rules) return null;
@@ -393,7 +393,8 @@ export function renderExecutionRulesHtml(execution) {
   const notes = (execution.notes || []).slice(0, 2);
   const hashShort = hash ? String(hash).slice(0, 10) : "";
 
-  const headMeta = `dual_y · ${pathLbl} · ${fillLbl}${
+  const enabledLbl = t0.enabled === false ? "关" : "开";
+  const headMeta = `做T ${enabledLbl} · dual_y · ${pathLbl} · ${fillLbl}${
     pathModelWarn ? ` · ${pathModelWarn}` : ""
   }`;
 
@@ -405,6 +406,7 @@ export function renderExecutionRulesHtml(execution) {
     `<p class="paper-t0-spec-head-meta">${escapeText(headMeta)}</p>` +
     `</div>` +
     `<div class="paper-t0-spec-kpi-strip" aria-label="核心参数">` +
+    specKpi("启用", enabledLbl, "做 T overlay 总开关") +
     specKpi("策略", "dual_y", "多层 ŷ 门控") +
     specKpi("动仓", `${ratioPct}%`, "固定底仓比例（不随 ŷ 缩放）") +
     specKpi("路径", pathLbl, "分钟触价路径") +
@@ -511,9 +513,13 @@ export function fillExecutionForm(root, execution) {
   const coup = (execution.coupling && execution.coupling.t0_vs_stance) || "independent";
   const set = (name, val) => {
     const el = root.querySelector(`[name="${name}"]`);
-    if (!el || val == null) return;
-    if (el.type === "checkbox") el.checked = !!val;
-    else el.value = String(val);
+    if (!el) return;
+    if (el.type === "checkbox") {
+      el.checked = !!val;
+      return;
+    }
+    if (val == null) return;
+    el.value = String(val);
   };
   set("enabled", t0.enabled !== false);
   set("t0_ratio", t0.t0_ratio != null ? Math.round(Number(t0.t0_ratio) * 100) : 100);

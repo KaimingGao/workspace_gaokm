@@ -103,6 +103,7 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(d["y_path_abandon_bars"], 12)
         self.assertEqual(d["y_trade_floor"], 0.02)
         self.assertEqual(d["y_tau_map"], "trend")
+        self.assertTrue(d["enabled"])
 
     def test_sell_and_cover_same_day(self):
         bar = _bar("2026-01-10", 100, 105, 98, 101)

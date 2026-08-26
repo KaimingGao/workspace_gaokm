@@ -90,6 +90,24 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertTrue(view["t0"]["must_cover_same_day"])
         self.assertNotIn("note", view["t0"])
 
+    def test_reset_overlay_restores_t0_enabled(self):
+        from core.execution import (
+            apply_execution_patch_to_paper,
+            execution_public_view,
+            reset_paper_execution_overlay,
+            resolve_effective_execution,
+        )
+
+        paper = {"strategy_id": "short_conservative", "rules": {}, "cash": 100000}
+        apply_execution_patch_to_paper(paper, {"t0": {"enabled": False}, "coupling": {}})
+        self.assertFalse(paper["rules"]["t0"]["enabled"])
+        reset_paper_execution_overlay(paper)
+        self.assertTrue(paper["rules"]["t0"]["enabled"])
+        view = execution_public_view(
+            resolve_effective_execution(paper=paper, channel="paper")
+        )
+        self.assertTrue(view["t0"]["enabled"])
+
     def test_public_view_must_cover_after_patch(self):
         from core.execution import (
             apply_execution_patch_to_paper,

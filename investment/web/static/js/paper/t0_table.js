@@ -22,7 +22,7 @@ import {
   resolvePathScore,
   fmtPathScore,
   nowcastOcPct,
-} from "./fmt.js?v=p1505";
+} from "./fmt.js?v=p1507";
 import {
   adaptiveSizingDayTip,
   normalizeYTauMap,

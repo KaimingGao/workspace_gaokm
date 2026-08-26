@@ -128,6 +128,9 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     if fill not in {"trigger", "mid", "optimistic"}:
         fill = "trigger"
     cfg["fill_mode"] = fill
+    cfg["enabled"] = coerce_cfg_bool(cfg.get("enabled"), True)
+    cfg["must_cover_same_day"] = coerce_cfg_bool(cfg.get("must_cover_same_day"), True)
+    cfg["use_atr"] = coerce_cfg_bool(cfg.get("use_atr"), False)
     direction = str(cfg.get("direction") or "auto").strip().lower()
     if direction in {"long", "正", "正t", "zheng"}:
         direction = "long_t"

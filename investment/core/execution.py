@@ -767,6 +767,10 @@ def reset_paper_execution_overlay(paper: dict) -> Dict[str, Any]:
     paper["rules"] = rules
     paper.pop("t0_rules_locked", None)
     paper.pop("execution_note", None)
+    from core.strategy import apply_strategy_to_paper
+
+    sid = paper.get("strategy_id") or "short"
+    apply_strategy_to_paper(paper, str(sid))
     return {"ok": True}
 
 

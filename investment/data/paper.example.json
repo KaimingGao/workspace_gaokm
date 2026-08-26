@@ -19,7 +19,7 @@
     "max_turnover_pct": 40,
     "execution_mode": "next_open",
     "t0": {
-      "enabled": false,
+      "enabled": true,
       "t0_ratio": 1.0,
       "sell_trigger_pct": 1.0,
       "buy_trigger_pct": 1.0,
