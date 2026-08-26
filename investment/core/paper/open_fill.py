@@ -135,17 +135,40 @@ def paper_fill_phase(
     return PHASE_SESSION
 
 
-def _target_fill_date(now: datetime) -> str:
+def _target_fill_date(now: datetime, *, timing: Optional[dict] = None) -> str:
+    """隔夜/盘前挂单的目标开盘日。
+
+    - 交易日且尚未过开盘窗终点（含盘前 <09:15）→ 今日
+    - 已过开盘窗（连续竞价或收盘后）或非交易日 → 下一交易日
+
+    旧逻辑把盘前也当 closed 并 ``next_trading_day``，会把今日 08:00 的挂单标成「明日」。
+    """
     from core.market.calendar import is_trading_day, next_trading_day
     from core.signal.session_pit import shanghai_now
 
     n = shanghai_now(now)
     day = n.strftime("%Y-%m-%d")
-    phase = paper_fill_phase(n)
-    if phase == PHASE_OPEN and is_trading_day(day):
+    cfg = timing or DEFAULT_TIMING
+    until = _parse_hm(cfg.get("open_fill_until_hm"), (10, 0))
+    hm = (n.hour, n.minute)
+    if is_trading_day(day) and hm < until:
         return day
     nxt = next_trading_day(day)
     return nxt or day
+
+
+def _heal_preopen_target(pending: dict, *, day: str, phase: str) -> str:
+    """盘前误把目标标成次日时，开盘窗内按今日成交。"""
+    target = str(pending.get("target_fill_date") or "")[:10]
+    as_of = str(pending.get("as_of") or "")[:10]
+    if (
+        phase == PHASE_OPEN
+        and target
+        and target > day
+        and as_of == day
+    ):
+        return day
+    return target or day
 
 
 def pending_from_trades(
@@ -193,7 +216,7 @@ def pending_from_trades(
         )
     return {
         "as_of": n.strftime("%Y-%m-%d"),
-        "target_fill_date": _target_fill_date(n),
+        "target_fill_date": _target_fill_date(n, timing=get_rebalance_timing()),
         "source": source,
         "staged_at": n.isoformat(timespec="seconds"),
         "legs": legs,
@@ -377,7 +400,11 @@ def fill_pending_at_open(
     from core.signal.session_pit import shanghai_now
 
     today = shanghai_now(now).strftime("%Y-%m-%d")
-    target = str(pending.get("target_fill_date") or "")[:10]
+    target = _heal_preopen_target(pending, day=today, phase=phase)
+    if target != str(pending.get("target_fill_date") or "")[:10]:
+        pending = dict(pending)
+        pending["target_fill_date"] = target
+        paper["pending_orders"] = pending
     if target and today < target:
         return {
             "ok": True,
@@ -521,7 +548,14 @@ def apply_next_open_commit(
     out["buy_trades"] = buy_trades
     out["new_trades"] = buy_trades
     n_legs = len(pending.get("legs") or [])
-    out["note"] = (
-        f"收盘后不成交：已挂 {n_legs} 笔次日开盘单（目标 {pending.get('target_fill_date')}）"
-    )
+    target = str(pending.get("target_fill_date") or "")[:10]
+    as_of = str(pending.get("as_of") or "")[:10]
+    if target and as_of and target == as_of:
+        out["note"] = (
+            f"盘前不成交：已挂 {n_legs} 笔今日开盘单（目标 {target}）"
+        )
+    else:
+        out["note"] = (
+            f"收盘后不成交：已挂 {n_legs} 笔次日开盘单（目标 {target}）"
+        )
     return paper, out

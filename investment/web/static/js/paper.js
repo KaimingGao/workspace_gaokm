@@ -960,7 +960,7 @@ export function initPaper(ctx) {
     }
   }
 
-  /** 次日开盘挂单摘要（收盘后确认调仓不会立刻改持仓）。 */
+  /** 开盘挂单摘要（盘前/收盘后确认调仓不会立刻改持仓）。 */
   function pendingOrdersBrief(data) {
     const po = data && data.pending_orders;
     if (!po || typeof po !== "object") return null;
@@ -976,7 +976,9 @@ export function initPaper(ctx) {
     const bits = [];
     if (sells) bits.push(`卖 ${sells}`);
     if (buys) bits.push(`买 ${buys}`);
-    const target = String(po.target_fill_date || "").trim() || "次日";
+    const target = String(po.target_fill_date || "").trim() || "开盘";
+    const asOf = String(po.as_of || "").trim().slice(0, 10);
+    const sameDay = asOf && target && asOf === target;
     return {
       n: legs.length,
       buys,
@@ -985,7 +987,8 @@ export function initPaper(ctx) {
       legs,
       asOf: po.as_of || po.staged_at || "",
       source: po.source || "",
-      text: `挂开盘单 ${bits.join(" · ") || `${legs.length} 笔`} → ${target} 09:15–10:00 成交`,
+      text: `挂开盘单 ${bits.join(" · ") || `${legs.length} 笔`} → ${target} 09:15–10:00 成交` +
+        (sameDay ? "（今日）" : ""),
     };
   }
 
@@ -1062,7 +1065,7 @@ export function initPaper(ctx) {
     el.hidden = false;
     el.innerHTML =
       `<div class="follow-ops-subhead">` +
-      `<span class="follow-ops-subtitle">次日开盘挂单` +
+      `<span class="follow-ops-subtitle">开盘挂单` +
       (bits.length ? ` · ${bits.join(" · ")}` : ` · ${brief.n} 笔`) +
       `</span>` +
       `<span class="follow-pending-target">目标 ${escapeText(brief.target)} · 09:15–10:00</span>` +
@@ -1797,6 +1800,120 @@ export function initPaper(ctx) {
     scoreTips.bindHost(paperT0WorkerTradesHost, {
       scoreSelector:
         ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail]",
+    });
+    paperT0WorkerTradesHost.addEventListener("click", async (ev) => {
+      const btn = ev.target && ev.target.closest
+        ? ev.target.closest("button.paper-t0-ledger-del")
+        : null;
+      if (!btn || !paperT0WorkerTradesHost.contains(btn)) return;
+      ev.preventDefault();
+      const code = String(btn.getAttribute("data-code") || "").trim();
+      const name = String(btn.getAttribute("data-name") || code).trim();
+      if (!code) return;
+      if (
+        !window.confirm(
+          `删除 ${name}（${code}）的落账明细，并冲正对应做 T 成交腿（现金/批次）？`
+        )
+      ) {
+        return;
+      }
+      btn.disabled = true;
+      try {
+        const res = await fetch("/api/paper/t0/last-run/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ stock_codes: [code], reverse_ledger: true }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          window.alert(data.detail || data.error || data.message || "删除失败");
+          return;
+        }
+        if (lastAccountData) {
+          lastAccountData.rules = lastAccountData.rules || {};
+          if (data.t0_auto) lastAccountData.rules.t0_auto = data.t0_auto;
+          if (data.summary) {
+            Object.assign(lastAccountData, {
+              cash: data.summary.cash ?? lastAccountData.cash,
+              total_value: data.summary.total_value ?? lastAccountData.total_value,
+            });
+          }
+          renderT0LastRun(lastAccountData);
+          renderT0WorkerDetail(lastAccountData);
+        }
+        if (typeof loadPaper === "function") {
+          await loadPaper({ quiet: true }).catch(() => {});
+        }
+        await refreshT0RunPanel({ quiet: true }).catch(() => {});
+      } catch (err) {
+        window.alert(String(err.message || err));
+      } finally {
+        btn.disabled = false;
+      }
+    });
+  }
+
+  const paperT0WorkerDeskHost = document.getElementById("paper-t0-worker-desk");
+  if (paperT0WorkerDeskHost) {
+    paperT0WorkerDeskHost.addEventListener("click", async (ev) => {
+      const t = ev.target;
+      if (!t || !t.closest) return;
+      const clearBtn = t.closest("button.paper-t0-desk-clear");
+      if (!clearBtn || !paperT0WorkerDeskHost.contains(clearBtn)) return;
+      ev.preventDefault();
+
+      const postClear = async (body, btn) => {
+        if (btn) btn.disabled = true;
+        try {
+          const res = await fetch("/api/paper/t0/intraday/clear", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(body),
+          });
+          const data = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            window.alert(data.detail || data.error || data.message || "删除失败");
+            return;
+          }
+          if (data.intraday) {
+            renderPaperT0WorkerDeskUi(paperT0WorkerDeskHost, data.intraday);
+          }
+          if (data.skipped_with_legs && data.skipped_with_legs.length) {
+            window.alert(
+              (data.message || "已删除") +
+                `\n已落账未删：${data.skipped_with_legs.join("、")}（可先删落账明细，或强制删除）`
+            );
+          }
+          await refreshT0RunPanel({ quiet: true }).catch(() => {});
+        } catch (err) {
+          window.alert(String(err.message || err));
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      };
+
+      const code = String(clearBtn.getAttribute("data-code") || "").trim();
+      const name = String(clearBtn.getAttribute("data-name") || code).trim();
+      const legs = Number(clearBtn.getAttribute("data-legs") || 0);
+      if (!code) return;
+      if (legs > 0) {
+        const ok = window.confirm(
+          `${name}（${code}）已落账 ${legs} 腿。\n` +
+            `删除盯盘状态可能导致 Worker 重复落第一腿。\n` +
+            `若要冲正账本请用「落账明细 → 删除」。\n仍要强制删除盯盘状态？`
+        );
+        if (!ok) return;
+        await postClear({ stock_codes: [code], force: true }, clearBtn);
+        return;
+      }
+      if (
+        !window.confirm(
+          `删除 ${name}（${code}）的盯盘状态？不改账本，Worker 将重新监视。`
+        )
+      ) {
+        return;
+      }
+      await postClear({ stock_codes: [code], force: false }, clearBtn);
     });
   }
 

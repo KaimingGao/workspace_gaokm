@@ -1,5 +1,6 @@
 import os
 import sys
+import json
 import unittest
 from unittest.mock import patch
 
@@ -1720,6 +1721,192 @@ class TestDualYDirection(unittest.TestCase):
         day = out.get("day_result") or {}
         self.assertGreater(float(day.get("t0_ratio") or 0), 0.45)
         self.assertEqual(day.get("sold_qty"), 500)
+        # 落账明细 y_* 列依赖 day.scores / direction_features
+        scores = day.get("scores") or {}
+        self.assertAlmostEqual(float(scores.get("y_tau")), -0.80, places=2)
+        self.assertAlmostEqual(float(scores.get("y_trade")), 1.20, places=2)
+        self.assertAlmostEqual(float(scores.get("y_eod")), -0.40, places=2)
+        feats = day.get("direction_features") or {}
+        self.assertAlmostEqual(float(feats.get("y_tau")), -0.80, places=2)
+        self.assertTrue(day.get("direction_reason"))
+
+    def test_intraday_setup_defers_eod_cover_mid_morning(self):
+        """盘中前缀有第一腿时不得把下一根 5m 当成收盘强平。"""
+        from core.t0.intraday import _intraday_setup, process_holding_intraday
+
+        d = "2026-08-26"
+        bar = _bar(d, 9.38, 9.55, 9.30, 9.40)
+        # 09:35 触卖；09:40 未触买回 — 旧 bug 会在 09:40 打 eod_cover
+        mins = _mins(
+            d,
+            [
+                (930, 9.38, 9.40, 9.35, 9.39),
+                (935, 9.39, 9.50, 9.39, 9.48),
+                (940, 9.48, 9.49, 9.46, 9.47),
+            ],
+        )
+        holding = {"shares": 100, "cost": 9.38, "stock_name": "中国铝业"}
+        cfg = load_t0_rules(
+            {
+                "direction": "long_t",
+                "use_atr": False,
+                "min_range_pct": 0.5,
+                "fill_mode": "trigger",
+                "t0_ratio": 1.0,
+                "sell_trigger_pct": 1.0,
+                "buy_trigger_pct": 1.0,
+                "must_cover_same_day": True,
+                "t0_pm_degrade": "",
+            }
+        )
+        out = _intraday_setup(
+            code="601600",
+            holding=holding,
+            bar=bar,
+            minute_bars=mins,
+            cfg=cfg,
+            sellable=100,
+            cash=50000,
+            atr_pct=None,
+            hist_bars=None,
+            scores=None,
+            stance_code="hold",
+            coupling_mode="independent",
+        )
+        self.assertTrue(out.get("ready"), out)
+        day = out.get("day_result") or {}
+        self.assertEqual(day.get("sold_qty"), 100)
+        self.assertEqual(day.get("covered_qty") or 0, 0)
+        trades = day.get("trades") or []
+        self.assertEqual(len(trades), 1)
+        self.assertNotEqual(trades[0].get("leg_kind"), "eod_cover")
+        self.assertFalse(out.get("path_complete"))
+
+        paper = {"cash": 50000, "holdings": [holding], "trades": []}
+        st, new_trades, _snap = process_holding_intraday(
+            code="601600",
+            holding=holding,
+            stock_state={"phase": "idle", "legs_written": 0},
+            minute_bars=mins,
+            bar=bar,
+            cfg=cfg,
+            sellable=100,
+            cash=50000,
+            atr_pct=None,
+            hist_bars=None,
+            scores=None,
+            stance_code="hold",
+            coupling_mode="independent",
+            as_of=d,
+            log_source="paper_t0_auto",
+            paper=paper,
+            applied_legs=0,
+        )
+        self.assertEqual(len(new_trades), 1)
+        self.assertEqual(st.get("phase"), "after_leg1")
+        self.assertEqual(st.get("legs_written"), 1)
+        self.assertEqual(st.get("shares_day_start"), 100)
+
+        # 同前缀再 tick：持仓已因卖出变少，仍用日初仓重放；无新腿，保持 after_leg1
+        st2, new2, _ = process_holding_intraday(
+            code="601600",
+            holding=holding,
+            stock_state=st,
+            minute_bars=mins,
+            bar=bar,
+            cfg=cfg,
+            sellable=0,
+            cash=float(paper.get("cash") or 0),
+            atr_pct=None,
+            hist_bars=None,
+            scores=None,
+            stance_code="hold",
+            coupling_mode="independent",
+            as_of=d,
+            log_source="paper_t0_auto",
+            paper=paper,
+            applied_legs=1,
+        )
+        self.assertEqual(new2, [])
+        self.assertEqual(st2.get("phase"), "after_leg1")
+
+        # 收到 14:55 收盘 K：强制回补第二腿
+        mins_eod = mins + _mins(d, [(1455, 9.47, 9.48, 9.45, 9.46)])
+        st3, new3, _ = process_holding_intraday(
+            code="601600",
+            holding=holding,
+            stock_state=st2,
+            minute_bars=mins_eod,
+            bar=bar,
+            cfg=cfg,
+            sellable=0,
+            cash=float(paper.get("cash") or 0),
+            atr_pct=None,
+            hist_bars=None,
+            scores=None,
+            stance_code="hold",
+            coupling_mode="independent",
+            as_of=d,
+            log_source="paper_t0_auto",
+            paper=paper,
+            applied_legs=1,
+        )
+        self.assertEqual(len(new3), 1)
+        self.assertTrue(str(new3[0].get("side")).endswith("buy"))
+        self.assertEqual(new3[0].get("leg_kind"), "eod_cover")
+        self.assertEqual(st3.get("phase"), "done")
+        self.assertEqual(st3.get("legs_written"), 2)
+    def test_intraday_setup_eod_cover_at_session_close(self):
+        """末根进入 ≥14:55 收盘窗时，才允许 must_cover 强制回补。"""
+        from core.t0.intraday import _intraday_setup
+
+        d = "2026-08-26"
+        bar = _bar(d, 9.38, 9.55, 9.30, 9.40)
+        mins = _mins(
+            d,
+            [
+                (930, 9.38, 9.40, 9.35, 9.39),
+                (935, 9.39, 9.50, 9.39, 9.48),
+                (1000, 9.48, 9.49, 9.46, 9.47),
+                (1455, 9.47, 9.48, 9.45, 9.46),
+            ],
+        )
+        holding = {"shares": 100, "cost": 9.38, "stock_name": "中国铝业"}
+        cfg = load_t0_rules(
+            {
+                "direction": "long_t",
+                "use_atr": False,
+                "min_range_pct": 0.5,
+                "fill_mode": "trigger",
+                "t0_ratio": 1.0,
+                "sell_trigger_pct": 1.0,
+                "buy_trigger_pct": 1.0,
+                "must_cover_same_day": True,
+                "t0_pm_degrade": "",
+            }
+        )
+        out = _intraday_setup(
+            code="601600",
+            holding=holding,
+            bar=bar,
+            minute_bars=mins,
+            cfg=cfg,
+            sellable=100,
+            cash=50000,
+            atr_pct=None,
+            hist_bars=None,
+            scores=None,
+            stance_code="hold",
+            coupling_mode="independent",
+        )
+        self.assertTrue(out.get("ready"), out)
+        day = out.get("day_result") or {}
+        self.assertEqual(day.get("sold_qty"), 100)
+        self.assertEqual(day.get("covered_qty"), 100)
+        self.assertEqual(day.get("exit_reason"), "eod_cover")
+        buys = [t for t in (day.get("trades") or []) if str(t.get("side")).endswith("buy")]
+        self.assertEqual(buys[0].get("leg_kind"), "eod_cover")
+        self.assertTrue(out.get("path_complete"))
 
     def test_dual_y_trend_map_inverts_positive_tau(self):
         from core.t0.score_policy import resolve_dual_y_direction
@@ -2431,7 +2618,18 @@ class TestIntradaySkipLogic(unittest.TestCase):
                         "signal_skip": True,
                     },
                 },
-                "000001": {"phase": "idle", "legs_written": 0},
+                "000001": {
+                    "phase": "idle",
+                    "legs_written": 0,
+                    "last_bar_ts": "2026-08-25 10:05:00",
+                    # idle 常缺 stock_name，由纸面持仓补全
+                },
+                "600050": {
+                    "phase": "idle",
+                    "legs_written": 0,
+                    "last_bar_ts": "2026-08-25 09:40:00",
+                    "stock_name": "中国联通",
+                },
             },
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -2442,15 +2640,66 @@ class TestIntradaySkipLogic(unittest.TestCase):
                 json.dump(fake, f)
             with patch.object(mod, "_state_path", return_value=path), patch(
                 "core.market.calendar.resolve_session_date", return_value="2026-08-25"
+            ), patch(
+                "core.paper.load_paper",
+                return_value={
+                    "holdings": [
+                        {"stock_code": "000001", "stock_name": "平安银行"},
+                        {"stock_code": "600050", "stock_name": "中国联通"},
+                    ]
+                },
             ):
                 desk = mod.build_intraday_desk_status()
         self.assertTrue(desk["same_session"])
         self.assertEqual(desk["locked_count"], 1)
         self.assertEqual(desk["counts"]["skipped"], 1)
-        self.assertEqual(desk["counts"]["idle"], 1)
-        self.assertEqual(desk["rows"][0]["stock_code"], "600519")
-        self.assertTrue(desk["rows"][0]["locked"])
-        self.assertIn("横盘", desk["rows"][0]["reason"])
+        self.assertEqual(desk["counts"]["idle"], 2)
+        # 有 last_bar_ts 的按时间升序；无时间戳的（终锁）排最后
+        self.assertEqual(
+            [r["stock_code"] for r in desk["rows"]],
+            ["600050", "000001", "600519"],
+        )
+        self.assertEqual(desk["rows"][0]["stock_name"], "中国联通")
+        self.assertEqual(desk["rows"][1]["stock_name"], "平安银行")
+        self.assertEqual(desk["rows"][2]["stock_name"], "贵州茅台")
+        self.assertTrue(desk["rows"][2]["locked"])
+        self.assertIn("横盘", desk["rows"][2]["reason"])
+
+    def test_desk_status_falls_back_to_a_code_name(self):
+        import json
+        import tempfile
+        from unittest.mock import patch
+
+        from core.t0 import intraday as mod
+
+        fake = {
+            "session_date": "2026-08-26",
+            "stocks": {
+                "600029": {
+                    "phase": "idle",
+                    "legs_written": 0,
+                    "last_bar_ts": "2026-08-26 09:40:00",
+                    "wait_reason": "反T下移振幅 0.98%<1.00%",
+                },
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "t0_intraday_state.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(fake, f)
+            with patch.object(mod, "_state_path", return_value=path), patch(
+                "core.market.calendar.resolve_session_date", return_value="2026-08-26"
+            ), patch(
+                "core.paper.load_paper",
+                return_value={"holdings": [{"stock_code": "600029", "stock_name": ""}]},
+            ), patch.object(
+                mod,
+                "_load_a_code_name_map",
+                return_value={"600029": "南方航空"},
+            ):
+                desk = mod.build_intraday_desk_status()
+        self.assertEqual(desk["rows"][0]["stock_code"], "600029")
+        self.assertEqual(desk["rows"][0]["stock_name"], "南方航空")
 
     def test_dual_y_threshold_lock_and_session_align(self):
         from core.t0.intraday import (
@@ -2733,6 +2982,252 @@ class TestT0AutoLastRunDetail(unittest.TestCase):
                 source="paper_t0_auto",
             )
             self.assertNotIn("last_run", paper.get("rules", {}).get("t0_auto", {}))
+
+
+class TestDeleteT0Records(unittest.TestCase):
+    def test_delete_voids_roundtrip_and_restores_sellable(self):
+        import tempfile
+        from core.paper import load_paper, save_paper
+        from core.paper.tplus1 import sellable_shares
+        from services.paper_service import PaperService
+
+        sess = "2026-08-26"
+        prev = "2026-08-25"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            paper = {
+                "cash": 99989.91,
+                "cost_model": "zero",
+                "holdings": [
+                    {
+                        "stock_code": "601600",
+                        "stock_name": "中国铝业",
+                        "shares": 100,
+                        "cost": 10.0,
+                        "lots": [
+                            {
+                                "shares": 100,
+                                "bought_at": f"{sess}T09:40:00",
+                                "bought_date": sess,
+                            }
+                        ],
+                        "t0": {"enabled": True, "last_date": sess},
+                    }
+                ],
+                "trades": [
+                    {
+                        "side": "t0_sell",
+                        "stock_code": "601600",
+                        "stock_name": "中国铝业",
+                        "price": 10.1,
+                        "shares": 100,
+                        "amount": 1010.0,
+                        "fees": 5.0,
+                        "net_cash_delta": 1005.0,
+                        "ts": f"{sess}T09:35:00",
+                        "at": f"{sess} 09:35",
+                    },
+                    {
+                        "side": "t0_buy",
+                        "stock_code": "601600",
+                        "stock_name": "中国铝业",
+                        "price": 10.1,
+                        "shares": 100,
+                        "amount": 1010.0,
+                        "fees": 5.09,
+                        "net_cash_delta": -1015.09,
+                        "ts": f"{sess}T09:40:00",
+                        "at": f"{sess} 09:40",
+                    },
+                ],
+                "rules": {
+                    "t0_auto": {
+                        "enabled": False,
+                        "schedule": "after_close",
+                        "last_run": {
+                            "ts": 1.0,
+                            "ok": True,
+                            "trade_count": 2,
+                            "pnl_total": -10.09,
+                            "source": "paper_t0_auto",
+                            "session_date": sess,
+                            "results": [
+                                {
+                                    "stock_code": "601600",
+                                    "stock_name": "中国铝业",
+                                    "date": sess,
+                                    "direction": "long_t",
+                                    "pnl": -10.09,
+                                    "trades": [
+                                        {
+                                            "side": "t0_sell",
+                                            "price": 10.1,
+                                            "shares": 100,
+                                            "at": "09:35",
+                                        },
+                                        {
+                                            "side": "t0_buy",
+                                            "price": 10.1,
+                                            "shares": 100,
+                                            "at": "09:40",
+                                        },
+                                    ],
+                                }
+                            ],
+                        },
+                    }
+                },
+                "operation_log": [],
+                "snapshots": [],
+            }
+            save_paper(paper, path)
+            svc = PaperService(path)
+            with patch(
+                "services.paper_trades.mark_to_market",
+                return_value={"cash": 100000.0, "total_value": 101000.0},
+            ), patch(
+                "services.paper_trades.append_snapshot",
+                return_value=None,
+            ), patch(
+                "core.market.calendar.prev_trading_day",
+                return_value=prev,
+            ):
+                out = svc.delete_t0_records(stock_codes=["601600"], reverse_ledger=True)
+            self.assertTrue(out.get("ok"), out)
+            self.assertEqual(out.get("voided_legs"), 2)
+            self.assertAlmostEqual(out.get("cash_delta"), 10.09, places=2)
+            paper2 = load_paper(path)
+            self.assertIsNone((paper2.get("rules") or {}).get("t0_auto", {}).get("last_run"))
+            self.assertAlmostEqual(float(paper2.get("cash") or 0), 100000.0, places=2)
+            h = next(x for x in paper2["holdings"] if x["stock_code"] == "601600")
+            self.assertEqual(float(h.get("shares") or 0), 100)
+            self.assertEqual(sellable_shares(h, as_of=sess), 100)
+            voided = [t for t in paper2["trades"] if t.get("voided")]
+            self.assertEqual(len(voided), 2)
+            self.assertTrue(any(e.get("type") == "t0_void" for e in paper2.get("operation_log") or []))
+
+    def test_delete_only_last_run_keeps_other_code(self):
+        import tempfile
+        from core.paper import load_paper, save_paper
+        from services.paper_service import PaperService
+
+        sess = "2026-08-26"
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            paper = {
+                "cash": 100000.0,
+                "holdings": [],
+                "trades": [
+                    {
+                        "side": "t0_sell",
+                        "stock_code": "601600",
+                        "shares": 100,
+                        "price": 10.0,
+                        "net_cash_delta": 1000.0,
+                        "ts": f"{sess}T09:35:00",
+                    },
+                    {
+                        "side": "t0_sell",
+                        "stock_code": "002352",
+                        "shares": 100,
+                        "price": 20.0,
+                        "net_cash_delta": 2000.0,
+                        "ts": f"{sess}T10:00:00",
+                    },
+                ],
+                "rules": {
+                    "t0_auto": {
+                        "enabled": False,
+                        "schedule": "after_close",
+                        "last_run": {
+                            "ts": 1.0,
+                            "ok": True,
+                            "trade_count": 2,
+                            "pnl_total": 0,
+                            "session_date": sess,
+                            "results": [
+                                {
+                                    "stock_code": "601600",
+                                    "date": sess,
+                                    "trades": [{"side": "t0_sell", "shares": 100, "price": 10}],
+                                },
+                                {
+                                    "stock_code": "002352",
+                                    "date": sess,
+                                    "trades": [{"side": "t0_sell", "shares": 100, "price": 20}],
+                                },
+                            ],
+                        },
+                    }
+                },
+                "operation_log": [],
+                "snapshots": [],
+            }
+            save_paper(paper, path)
+            svc = PaperService(path)
+            with patch(
+                "services.paper_trades.mark_to_market",
+                return_value={"cash": 99000.0, "total_value": 99000.0},
+            ), patch("services.paper_trades.append_snapshot", return_value=None), patch(
+                "core.market.calendar.prev_trading_day",
+                return_value="2026-08-25",
+            ):
+                out = svc.delete_t0_records(stock_codes=["601600"], reverse_ledger=True)
+            self.assertTrue(out.get("ok"))
+            lr = load_paper(path)["rules"]["t0_auto"]["last_run"]
+            self.assertEqual(len(lr["results"]), 1)
+            self.assertEqual(lr["results"][0]["stock_code"], "002352")
+            paper2 = load_paper(path)
+            self.assertTrue(
+                any(
+                    t.get("stock_code") == "601600" and t.get("voided")
+                    for t in paper2["trades"]
+                )
+            )
+            self.assertFalse(
+                any(
+                    t.get("stock_code") == "002352" and t.get("voided")
+                    for t in paper2["trades"]
+                )
+            )
+
+
+class TestClearT0Intraday(unittest.TestCase):
+    def test_clear_skips_legs_unless_force(self):
+        import json
+        import tempfile
+        from core.t0 import intraday as intraday_mod
+        from services.paper_service import PaperService
+
+        with tempfile.TemporaryDirectory() as tmp:
+            state_path = os.path.join(tmp, "t0_intraday_state.json")
+            paper_path = os.path.join(tmp, "paper.json")
+            state = {
+                "session_date": "2026-08-26",
+                "stocks": {
+                    "000651": {"phase": "skipped", "legs_written": 0, "score_locked": True},
+                    "002352": {"phase": "after_leg1", "legs_written": 1},
+                },
+            }
+            with open(state_path, "w", encoding="utf-8") as f:
+                json.dump(state, f)
+            svc = PaperService(paper_path)
+            with patch.object(intraday_mod, "_state_path", return_value=state_path), patch(
+                "core.t0.intraday.build_intraday_desk_status",
+                return_value={"rows": [], "universe_count": 0},
+            ):
+                out = svc.clear_t0_intraday(clear_all=True, force=False)
+                self.assertEqual(out["cleared"], 1)
+                self.assertEqual(out["stock_codes"], ["000651"])
+                self.assertEqual(out["skipped_with_legs"], ["002352"])
+                left = json.load(open(state_path, encoding="utf-8"))
+                self.assertIn("002352", left["stocks"])
+                self.assertNotIn("000651", left["stocks"])
+
+                out2 = svc.clear_t0_intraday(stock_codes=["002352"], force=True)
+                self.assertEqual(out2["cleared"], 1)
+                left2 = json.load(open(state_path, encoding="utf-8"))
+                self.assertEqual(left2.get("stocks") or {}, {})
 
 
 if __name__ == "__main__":

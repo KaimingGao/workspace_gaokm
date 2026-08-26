@@ -49,6 +49,7 @@ const T0_TRADE_COL_W = {
   pnl: "72px",
   exp: "72px",
   reason: "12rem",
+  act: "52px",
 };
 
 /** 与数据中心主表一致：名称最多 6 字 + … */
@@ -478,7 +479,7 @@ export function daysHaveIntradayTime(days) {
   return (days || []).some((d) => !!d.minute_path || collectLegRecords(d).some((l) => !!l.time));
 }
 
-function tradeColgroup(showStock, showReason = false) {
+function tradeColgroup(showStock, showReason = false, showDelete = false) {
   let html = "<colgroup>";
   if (showStock) html += t0Col("paper-t0-col-stock", "stock");
   html +=
@@ -494,6 +495,7 @@ function tradeColgroup(showStock, showReason = false) {
     t0Col("paper-t0-col-pnl", "pnl") +
     t0Col("paper-t0-col-exp", "exp");
   if (showReason) html += t0Col("paper-t0-col-reason", "reason");
+  if (showDelete) html += t0Col("paper-t0-col-act", "act");
   return `${html}</colgroup>`;
 }
 
@@ -501,7 +503,7 @@ export const T0_TRADE_TABLE_MAX_ROWS = 50;
 
 /**
  * 成交明细表（纸面 / 量化回测共用）
- * @param {{ data?: object, days: object[], caption?: string, maxRows?: number, showReason?: boolean, preserveOrder?: boolean }} opts
+ * @param {{ data?: object, days: object[], caption?: string, maxRows?: number, showReason?: boolean, preserveOrder?: boolean, showDelete?: boolean }} opts
  */
 export function buildT0TradeTableHtml(opts) {
   const {
@@ -511,6 +513,7 @@ export function buildT0TradeTableHtml(opts) {
     maxRows = T0_TRADE_TABLE_MAX_ROWS,
     showReason = false,
     preserveOrder = false,
+    showDelete = false,
   } = opts || {};
   if (!days || !days.length) return caption || "";
   const showStock = shouldShowStockColumn(data, days);
@@ -536,7 +539,8 @@ export function buildT0TradeTableHtml(opts) {
     `<th scope="col" class="paper-t0-col-ret num" title="(PnL+敞口)/动仓名义">收益%</th>` +
     `<th scope="col" class="paper-t0-col-pnl num">PnL</th>` +
     `<th scope="col" class="paper-t0-col-exp num" title="${escapeText(exposureColTitle(data))}">敞口</th>` +
-    (showReason ? `<th scope="col" class="paper-t0-col-reason">说明</th>` : "");
+    (showReason ? `<th scope="col" class="paper-t0-col-reason">说明</th>` : "") +
+    (showDelete ? `<th scope="col" class="paper-t0-col-act">操作</th>` : "");
 
   const rows = (preserveOrder ? days.slice(0, maxRows) : days.slice(-maxRows).reverse())
     .map((d) => {
@@ -553,6 +557,8 @@ export function buildT0TradeTableHtml(opts) {
       const retCell = fmtDayReturnPct(d);
       const sizingTip = adaptiveSizingDayTip(d, data.rules || {});
       const reason = String(d.reason || d.direction_reason || d.error || "").trim();
+      const code = String(d.stock_code || fallback.stock_code || "").trim();
+      const name = String(d.stock_name || fallback.stock_name || code).trim();
       const legTip =
         (sizingTip ? `${sizingTip} · ` : "") +
         (skipped && reason
@@ -564,8 +570,16 @@ export function buildT0TradeTableHtml(opts) {
       const tauTitle = d.direction_reason
         ? `${Y_TAU_TITLE} · ${d.direction_reason}`
         : Y_TAU_TITLE;
+      const delBtn =
+        showDelete && code && !skipped
+          ? `<button type="button" class="paper-t0-ledger-del" data-code="${escapeText(
+              code
+            )}" data-name="${escapeText(name)}" title="删除并冲正账本">删除</button>`
+          : showDelete
+            ? `<span class="paper-t0-leg-empty">—</span>`
+            : "";
       return (
-        `<tr class="${skipped ? "is-skipped" : ""}">` +
+        `<tr class="${skipped ? "is-skipped" : ""}" data-code="${escapeText(code)}">` +
         (showStock ? stockCellHtml(d, fallback) : "") +
         `<td class="paper-t0-col-date">${escapeText(d.date || "")}</td>` +
         t0YScoreCell("eod", pickScore(d, "y_eod"), scoreDetailJson, Y_EOD_TITLE) +
@@ -589,6 +603,7 @@ export function buildT0TradeTableHtml(opts) {
               reason || (skipped ? "跳过" : "")
             )}</td>`
           : "") +
+        (showDelete ? `<td class="paper-t0-col-act">${delBtn}</td>` : "") +
         `</tr>`
       );
     })
@@ -603,7 +618,7 @@ export function buildT0TradeTableHtml(opts) {
     `${caption}` +
     `<div class="quant-weight-table-wrap paper-t0-trades-wrap">` +
     `<table class="${TABLE_CLASS}">` +
-    tradeColgroup(showStock, showReason) +
+    tradeColgroup(showStock, showReason, showDelete) +
     `<thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>` +
     `</div>` +
     moreHint

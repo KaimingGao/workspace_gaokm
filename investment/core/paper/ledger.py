@@ -310,6 +310,7 @@ OPERATION_LOG_TYPES = {
     "rebalance": "调仓",
     "cluster_pool_rebalance": "分池调仓",
     "t0_batch": "做T汇总",
+    "t0_void": "做T冲正",
     "sync_paper": "建仓",
     "settings": "设置",
     "risk_block": "风控拦截",

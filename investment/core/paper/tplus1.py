@@ -185,6 +185,98 @@ def add_buy_lot(
     _refresh_bought_at(holding)
 
 
+def restore_sellable_lot(
+    holding: dict,
+    qty: float,
+    *,
+    bought_date: str,
+    ts: str = "",
+) -> None:
+    """冲正卖出：加回已过 T+1 的可卖批次（bought_date 须早于当前会话）。"""
+    try:
+        qty_f = float(qty)
+    except (TypeError, ValueError):
+        return
+    if qty_f <= 1e-9:
+        return
+    day = _date_of(bought_date) or _session_of(bought_date)
+    if not day:
+        return
+    ensure_lots(holding, as_of=day)
+    lots: List[dict] = holding["lots"]
+    fill_ts = str(ts or f"{day}T09:30:00")
+    for lot in lots:
+        if str(lot.get("bought_date") or "") == day:
+            lot["shares"] = float(lot.get("shares") or 0) + qty_f
+            holding["shares"] = _sum_lots(lots)
+            _refresh_bought_at(holding)
+            return
+    lots.append({"shares": qty_f, "bought_at": fill_ts, "bought_date": day})
+    holding["shares"] = _sum_lots(lots)
+    _refresh_bought_at(holding)
+
+
+def consume_lots_bought_on(
+    holding: dict,
+    qty: float,
+    *,
+    bought_date: str,
+) -> float:
+    """冲正买入：优先扣减指定买入日的批次；不足再 FIFO 扣其余。返回实际扣减股数。"""
+    try:
+        remaining = float(qty)
+    except (TypeError, ValueError):
+        remaining = 0.0
+    if remaining <= 1e-9:
+        return 0.0
+    day = _date_of(bought_date)
+    ensure_lots(holding, as_of=day or None)
+    sold = 0.0
+    new_lots: List[dict] = []
+    # 先扣同日批次
+    for lot in holding.get("lots") or []:
+        lot_sh = float(lot.get("shares") or 0)
+        if lot_sh <= 1e-9:
+            continue
+        if remaining > 1e-9 and day and str(lot.get("bought_date") or "") == day:
+            take = min(lot_sh, remaining)
+            leftover = lot_sh - take
+            remaining -= take
+            sold += take
+            if leftover > 1e-9:
+                row = dict(lot)
+                row["shares"] = leftover
+                new_lots.append(row)
+            continue
+        new_lots.append(lot)
+    # 再 FIFO 扣其余
+    if remaining > 1e-9:
+        final: List[dict] = []
+        for lot in new_lots:
+            lot_sh = float(lot.get("shares") or 0)
+            if lot_sh <= 1e-9:
+                continue
+            if remaining <= 1e-9:
+                final.append(lot)
+                continue
+            take = min(lot_sh, remaining)
+            leftover = lot_sh - take
+            remaining -= take
+            sold += take
+            if leftover > 1e-9:
+                row = dict(lot)
+                row["shares"] = leftover
+                final.append(row)
+        new_lots = final
+    holding["lots"] = new_lots
+    holding["shares"] = _sum_lots(new_lots)
+    if holding["shares"] <= 1e-9:
+        holding["shares"] = 0.0
+        holding["lots"] = []
+    _refresh_bought_at(holding)
+    return sold
+
+
 def stamp_new_holding(holding: dict, *, ts: str, as_of: Optional[str] = None) -> None:
     """新开仓：按当前 shares 生成一笔当日批次。"""
     as_of = _session_of(as_of or _date_of(ts))

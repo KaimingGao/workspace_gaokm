@@ -14,9 +14,66 @@ PHASE_AFTER_LEG1 = "after_leg1"
 PHASE_DONE = "done"
 PHASE_SKIPPED = "skipped"
 
+_CODE_NAME_CACHE: Dict[str, str] = {}
+_CODE_NAME_CACHE_TS = 0.0
+_CODE_NAME_CACHE_TTL = 3600.0
+
 
 def _now_ts() -> float:
     return time.time()
+
+
+def _load_a_code_name_map(*, ignore_ttl: bool = True) -> Dict[str, str]:
+    """只读 a_code_name 磁盘索引；展示兜底可忽略过期。"""
+    global _CODE_NAME_CACHE, _CODE_NAME_CACHE_TS
+    now = _now_ts()
+    if _CODE_NAME_CACHE and now - _CODE_NAME_CACHE_TS < _CODE_NAME_CACHE_TTL:
+        return _CODE_NAME_CACHE
+    out: Dict[str, str] = {}
+    try:
+        from core.paths import DATA_DIR
+        import json
+
+        path = os.path.join(DATA_DIR, "store", "a_code_name.json")
+        if not os.path.isfile(path):
+            return out
+        with open(path, encoding="utf-8") as f:
+            payload = json.load(f)
+        if not ignore_ttl:
+            fetched = float(payload.get("fetched_at") or 0)
+            if fetched and now - fetched > 86400 * 30:
+                return out
+        for it in payload.get("pairs") or []:
+            if isinstance(it, (list, tuple)) and len(it) >= 2:
+                code = str(it[0] or "").strip()
+                name = str(it[1] or "").strip()
+                if code and name and name != code:
+                    out[code] = name
+        _CODE_NAME_CACHE = out
+        _CODE_NAME_CACHE_TS = now
+    except Exception:  # noqa: BLE001
+        logger.debug("load a_code_name map failed", exc_info=True)
+    return out
+
+
+def resolve_stock_name(
+    code: str,
+    *,
+    fallback: str = "",
+    name_by_code: Optional[Dict[str, str]] = None,
+) -> str:
+    """持仓名 → 传入 map → a_code_name 兜底。"""
+    c = str(code or "").strip()
+    for cand in (
+        str(fallback or "").strip(),
+        str((name_by_code or {}).get(c) or "").strip() if c else "",
+    ):
+        if cand and cand != c:
+            return cand
+    if not c:
+        return str(fallback or "").strip()
+    mapped = _load_a_code_name_map().get(c) or ""
+    return mapped or str(fallback or "").strip()
 
 
 def _state_path() -> str:
@@ -76,6 +133,30 @@ def build_intraday_desk_status() -> Dict[str, Any]:
     stocks_raw = state.get("stocks") if isinstance(state.get("stocks"), dict) else {}
     same_session = bool(sess and state_sess and sess == state_sess)
 
+    # idle 态常缺 stock_name：纸面持仓 → a_code_name 兜底
+    name_by_code: Dict[str, str] = {}
+    try:
+        from core.paths import PAPER_PATH
+        from core.paper import load_paper
+
+        paper = load_paper(PAPER_PATH)
+        for h in paper.get("holdings") or []:
+            if not isinstance(h, dict):
+                continue
+            c = str(h.get("stock_code") or "").strip()
+            n = str(h.get("stock_name") or "").strip()
+            if c and n and n != c:
+                name_by_code[c] = n
+    except Exception:  # noqa: BLE001
+        logger.debug("desk status name enrich from paper failed", exc_info=True)
+    # 磁盘码表：持仓名为空时仍能显示（如 600029 南方航空）
+    try:
+        for c, n in _load_a_code_name_map().items():
+            if c and n and c not in name_by_code:
+                name_by_code[c] = n
+    except Exception:  # noqa: BLE001
+        logger.debug("desk status name enrich from a_code_name failed", exc_info=True)
+
     phase_rank = {
         PHASE_SKIPPED: 0,
         PHASE_IDLE: 1,
@@ -126,10 +207,15 @@ def build_intraday_desk_status() -> Dict[str, Any]:
             ).strip()
             signal_skip = bool(snap.get("signal_skip"))
             unlocked = str(raw.get("unlocked_from_skip") or "").strip()
+            name = resolve_stock_name(
+                c,
+                fallback=str(snap.get("stock_name") or raw.get("stock_name") or ""),
+                name_by_code=name_by_code,
+            )
             rows.append(
                 {
                     "stock_code": c,
-                    "stock_name": str(snap.get("stock_name") or raw.get("stock_name") or ""),
+                    "stock_name": name,
                     "phase": phase,
                     "locked": locked,
                     "signal_skip": signal_skip,
@@ -143,8 +229,11 @@ def build_intraday_desk_status() -> Dict[str, Any]:
                 }
             )
 
+    # 按最近 K 线时间升序（无时间戳的排最后）；同刻再按阶段 / 代码
     rows.sort(
         key=lambda r: (
+            str(r.get("last_bar_ts") or "") == "",
+            str(r.get("last_bar_ts") or ""),
             phase_rank.get(str(r.get("phase")), 9),
             str(r.get("stock_code") or ""),
         )
@@ -289,12 +378,16 @@ def unlock_retryable_skipped(stock_state: Optional[dict]) -> Optional[dict]:
     snap = st.get("day_snapshot") if isinstance(st.get("day_snapshot"), dict) else {}
     reason = str(st.get("reason") or snap.get("reason") or snap.get("direction_reason") or "")
     if _retryable_skip(reason) or _dual_y_threshold_skip(reason):
-        return {
+        out = {
             "phase": PHASE_IDLE,
             "legs_written": int(st.get("legs_written") or 0),
             "last_bar_ts": "",
             "unlocked_from_skip": reason[:160],
         }
+        for k in ("shares_day_start", "sellable_day_start", "cash_day_start", "direction"):
+            if st.get(k) is not None:
+                out[k] = st.get(k)
+        return out
     return None
 
 
@@ -408,6 +501,24 @@ def accept_intraday_dual_y_scores(
     return scores if isinstance(scores, dict) else None
 
 
+def _minute_at_session_close(minute_bars: List[dict]) -> bool:
+    """末根 5m 是否已进入收盘窗（≥14:55），用于真正的 eod_cover。"""
+    if not minute_bars:
+        return False
+    from core.t0.minute_path import _hm_reached
+
+    return bool(_hm_reached(_bar_ts(minute_bars[-1]), (14, 55)))
+
+
+def _roundtrip_complete(day: Optional[dict], direction: Optional[str]) -> bool:
+    """往返是否完成（含 eod_cover / 敞口入账）；未完成应保持 after_leg1。"""
+    if not isinstance(day, dict) or not direction:
+        return False
+    from core.t0.minute_path import _touch_path_complete
+
+    return bool(_touch_path_complete(day, str(direction)))
+
+
 def _intraday_setup(
     *,
     code: str,
@@ -424,6 +535,7 @@ def _intraday_setup(
     coupling_mode: str,
     paper: Optional[dict] = None,
     force_dual_y_gate: bool = False,
+    force_session_close: bool = False,
 ) -> Dict[str, Any]:
     from core.t0.costs import resolve_t0_cost_context
     from core.t0.minute_path import (
@@ -435,7 +547,6 @@ def _intraday_setup(
     )
     from core.t0.rules import (
         _skip_result,
-        _t0_qty_lots,
         resolve_direction,
         scale_triggers_with_atr,
     )
@@ -522,7 +633,7 @@ def _intraday_setup(
         )
 
     direction = str(dir_res["direction"])
-    from core.t0.score_policy import scale_t0_ratio, scores_have_any
+    from core.t0.score_policy import resolve_cover_policy, scale_t0_ratio, scores_have_any
 
     cfg_exec = dict(cfg)
     base_ratio = float(cfg_exec.get("t0_ratio") or 0.4)
@@ -532,8 +643,18 @@ def _intraday_setup(
     cfg_exec["t0_ratio"] = t0_ratio
     fill_mode = str(cfg_exec.get("fill_mode") or "trigger")
 
-    last_ts = str((minute_bars[-1] or {}).get("datetime") or "")
-    at_session_end = "15:00" in last_ts or "14:55" in last_ts
+    cover_meta = None
+    if str(cfg.get("direction") or "") == "dual_y":
+        cover_meta = resolve_cover_policy(
+            scores=scores or {},
+            direction=direction,
+            cfg=cfg_exec,
+        )
+        cfg_exec["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
+
+    # 真正收盘窗才允许 eod_cover：末根 ≥14:55，或 Worker 收盘收尾 tick。
+    # 盘中前缀若 session_bars==minute_bars 且不 defer，会把下一根 5m 误当收盘（伪往返）。
+    at_session_end = bool(force_session_close) or _minute_at_session_close(minute_bars)
     dir_amp = prefix_directional_amplitude_ok(
         minute_bars,
         direction=direction,
@@ -555,6 +676,18 @@ def _intraday_setup(
             },
         )
 
+    # defer_eod=True：第二腿等到真正 session 末；盘中用 pad 让 len(prefix)<len(session)。
+    session_bars: List[dict] = list(minute_bars)
+    if not at_session_end:
+        session_bars = list(minute_bars) + [
+            {"datetime": "eod_pad", "open": 0, "high": 0, "low": 0, "close": 0}
+        ]
+    path_kwargs = {
+        "session_bars": session_bars,
+        "session_bar": bar_day,
+        "defer_eod": True,
+    }
+
     if direction == "reverse_t":
         day = _first_touch_reverse(
             minute_bars=minute_bars,
@@ -573,6 +706,7 @@ def _intraday_setup(
             stock_code=code,
             atr_pct=scaled.get("atr_pct"),
             range_pct=range_pct,
+            **path_kwargs,
         )
     else:
         day = _first_touch_long(
@@ -592,17 +726,46 @@ def _intraday_setup(
             atr_pct=scaled.get("atr_pct"),
             range_pct=range_pct,
             t0_ratio=t0_ratio,
+            **path_kwargs,
         )
 
     if day.get("skipped"):
-        return day
+        from core.t0.score_policy import attach_day_scores
+
+        return attach_day_scores(
+            {
+                **day,
+                "direction_score": dir_res.get("direction_score"),
+                "direction_reason": dir_res.get("direction_reason"),
+            },
+            scores,
+            features=dir_res.get("features"),
+        )
     trades = list(day.get("trades") or [])
     if not trades:
-        return day
+        from core.t0.score_policy import attach_day_scores
+
+        return attach_day_scores(
+            {
+                **day,
+                "direction_score": dir_res.get("direction_score"),
+                "direction_reason": dir_res.get("direction_reason"),
+            },
+            scores,
+            features=dir_res.get("features"),
+        )
 
     if isinstance(day, dict):
         day["t0_ratio_base"] = round(base_ratio, 4)
         day["t0_ratio"] = round(t0_ratio, 4)
+        day["direction_score"] = dir_res.get("direction_score")
+        day["direction_reason"] = dir_res.get("direction_reason")
+        if cover_meta:
+            day["cover_policy"] = cover_meta
+            day["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
+        from core.t0.score_policy import attach_day_scores
+
+        day = attach_day_scores(day, scores, features=dir_res.get("features"))
 
     # 增量：只落尚未写入的腿
     return {
@@ -610,7 +773,8 @@ def _intraday_setup(
         "direction": direction,
         "bar_day": bar_day,
         "day_result": day,
-        "trades": trades,
+        "trades": list(day.get("trades") or []),
+        "path_complete": _roundtrip_complete(day, direction),
         "last_bar_ts": _bar_ts(minute_bars[-1]) if minute_bars else "",
         "t0_ratio_base": round(base_ratio, 4),
         "t0_ratio": round(t0_ratio, 4),
@@ -690,6 +854,7 @@ def process_holding_intraday(
     paper: dict,
     applied_legs: int,
     force_dual_y_gate: bool = False,
+    force_session_close: bool = False,
 ) -> Tuple[dict, List[dict], dict]:
     """返回 (new_stock_state, new_trades, day_snapshot)。"""
     st = dict(stock_state or {})
@@ -702,14 +867,41 @@ def process_holding_intraday(
     if phase == PHASE_SKIPPED:
         return st, [], {}
 
+    name = str(holding.get("stock_name") or st.get("stock_name") or "").strip()
+    if not name or name == code:
+        name = resolve_stock_name(code, fallback=name)
+    if name:
+        st["stock_name"] = name
+        if not str(holding.get("stock_name") or "").strip():
+            holding["stock_name"] = name
+
+    # 路径重放必须用日初仓/可卖/现金；落账后持仓已变，否则会重复开仓或 shares=0 误跳过
+    if st.get("shares_day_start") is not None:
+        sim_shares = float(st.get("shares_day_start") or 0)
+        sim_sellable = float(
+            st["sellable_day_start"]
+            if st.get("sellable_day_start") is not None
+            else sellable
+        )
+        sim_cash = float(
+            st["cash_day_start"] if st.get("cash_day_start") is not None else cash
+        )
+        sim_holding = dict(holding)
+        sim_holding["shares"] = sim_shares
+    else:
+        sim_shares = float(holding.get("shares") or 0)
+        sim_sellable = float(sellable)
+        sim_cash = float(cash)
+        sim_holding = holding
+
     setup = _intraday_setup(
         code=code,
-        holding=holding,
+        holding=sim_holding,
         bar=bar,
         minute_bars=minute_bars,
         cfg=cfg,
-        sellable=sellable,
-        cash=cash,
+        sellable=sim_sellable,
+        cash=sim_cash,
         atr_pct=atr_pct,
         hist_bars=hist_bars,
         scores=scores,
@@ -717,6 +909,7 @@ def process_holding_intraday(
         coupling_mode=coupling_mode,
         paper=paper,
         force_dual_y_gate=bool(force_dual_y_gate),
+        force_session_close=bool(force_session_close),
     )
     if setup.get("pending"):
         st.setdefault("phase", PHASE_IDLE)
@@ -732,6 +925,9 @@ def process_holding_intraday(
             dir_used = setup.get("direction_used") or setup.get("direction")
             if dir_used:
                 st["direction"] = str(dir_used)
+            # 已有第一腿时保持 after_leg1，继续等第二触达 / 收盘回补
+            if legs_written > 0 and phase != PHASE_AFTER_LEG1:
+                st["phase"] = PHASE_AFTER_LEG1
             return st, [], {}
         st["phase"] = PHASE_SKIPPED
         st["reason"] = setup.get("reason")
@@ -743,18 +939,38 @@ def process_holding_intraday(
         return st, [], st["day_snapshot"]
 
     trades = list(setup.get("trades") or [])
+    direction = str(setup.get("direction") or st.get("direction") or "")
+    day_result = setup.get("day_result") or {}
+    path_complete = bool(setup.get("path_complete")) or _roundtrip_complete(
+        day_result, direction
+    )
     new_trades = trades[legs_written:]
+    if setup.get("direction"):
+        st["direction"] = str(setup.get("direction"))
+
     if not new_trades:
         st["last_bar_ts"] = setup.get("last_bar_ts") or last_ts
-        st["phase"] = PHASE_IDLE if legs_written == 0 else (
-            PHASE_DONE if legs_written >= len(trades) else PHASE_AFTER_LEG1
-        )
-        if legs_written >= len(trades) and trades:
+        if path_complete and legs_written > 0:
             st["phase"] = PHASE_DONE
-        if setup.get("direction"):
-            st["direction"] = str(setup.get("direction"))
-        st["wait_reason"] = "已定方向，等待触价 / 下一根 5m"
-        return st, [], setup.get("day_result") or {}
+            st.pop("wait_reason", None)
+        elif legs_written > 0:
+            st["phase"] = PHASE_AFTER_LEG1
+            st["wait_reason"] = "已开第一腿，等待第二触达 / 收盘回补"
+        else:
+            st["phase"] = PHASE_IDLE
+            st["wait_reason"] = "已定方向，等待触价 / 下一根 5m"
+        if day_result:
+            st["day_snapshot"] = {
+                **day_result,
+                "stock_code": code,
+                "stock_name": holding.get("stock_name"),
+            }
+        return st, [], day_result
+
+    if st.get("shares_day_start") is None:
+        st["shares_day_start"] = sim_shares
+        st["sellable_day_start"] = sim_sellable
+        st["cash_day_start"] = sim_cash
 
     _apply_trades_to_paper(
         paper,
@@ -766,9 +982,15 @@ def process_holding_intraday(
     legs_written += len(new_trades)
     st["legs_written"] = legs_written
     st["last_bar_ts"] = setup.get("last_bar_ts") or last_ts
-    st["phase"] = PHASE_DONE if legs_written >= len(trades) else PHASE_AFTER_LEG1
+    # 仅往返完成才 done；单腿落账保持 after_leg1（勿用 len(trades) 误判）
+    if path_complete:
+        st["phase"] = PHASE_DONE
+        st.pop("wait_reason", None)
+    else:
+        st["phase"] = PHASE_AFTER_LEG1
+        st["wait_reason"] = "已开第一腿，等待第二触达 / 收盘回补"
     st["day_snapshot"] = {
-        **(setup.get("day_result") or {}),
+        **day_result,
         "stock_code": code,
         "stock_name": holding.get("stock_name"),
     }
@@ -824,6 +1046,7 @@ def run_intraday_session_tick(
             paper=paper,
             applied_legs=int((stocks.get(code) or {}).get("legs_written") or 0),
             force_dual_y_gate=bool(ctx.get("force_dual_y_gate")),
+            force_session_close=bool(ctx.get("force_session_close")),
         )
         stocks[code] = st
         if new_trades:
@@ -871,7 +1094,14 @@ def sync_intraday_state_from_full_run(results: Optional[List[dict]], *, session_
         trades = list(r.get("trades") or [])
         merged.append(r)
         if r.get("skipped"):
-            entry = {"phase": PHASE_SKIPPED, "legs_written": 0, "day_snapshot": r}
+            entry = {
+                "phase": PHASE_SKIPPED,
+                "legs_written": 0,
+                "day_snapshot": r,
+                "stock_name": resolve_stock_name(
+                    code, fallback=str(r.get("stock_name") or "")
+                ),
+            }
             if _dual_y_threshold_skip(str(r.get("reason") or "")):
                 entry["score_locked"] = True
             stocks[code] = entry
@@ -880,9 +1110,18 @@ def sync_intraday_state_from_full_run(results: Optional[List[dict]], *, session_
                 "phase": PHASE_DONE,
                 "legs_written": len(trades),
                 "day_snapshot": r,
+                "stock_name": resolve_stock_name(
+                    code, fallback=str(r.get("stock_name") or "")
+                ),
             }
         else:
-            stocks[code] = {"phase": PHASE_IDLE, "legs_written": 0}
+            stocks[code] = {
+                "phase": PHASE_IDLE,
+                "legs_written": 0,
+                "stock_name": resolve_stock_name(
+                    code, fallback=str(r.get("stock_name") or "")
+                ),
+            }
     state["session_date"] = sess
     state["stocks"] = stocks
     state["results"] = merged

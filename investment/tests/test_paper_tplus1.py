@@ -155,6 +155,24 @@ class TestTplus1ManualSell(unittest.TestCase):
         self.assertTrue(meta["clipped"])
         self.assertEqual(meta["locked"], 100)
 
+    def test_restore_and_consume_lots_for_void(self):
+        from core.paper.tplus1 import consume_lots_bought_on, restore_sellable_lot
+
+        h = {"shares": 0, "lots": []}
+        # 当日买回 100（T+1 锁）
+        add_buy_lot(h, 100, ts="2026-08-26T14:30:00", as_of="2026-08-26")
+        self.assertEqual(sellable_shares(h, as_of="2026-08-26"), 0)
+        # 冲正买：扣当日批次
+        consumed = consume_lots_bought_on(h, 100, bought_date="2026-08-26")
+        self.assertEqual(consumed, 100)
+        self.assertEqual(float(h.get("shares") or 0), 0)
+        # 冲正卖：加回可卖旧仓
+        restore_sellable_lot(
+            h, 100, bought_date="2026-08-25", ts="2026-08-26T09:35:00"
+        )
+        self.assertEqual(float(h.get("shares") or 0), 100)
+        self.assertEqual(sellable_shares(h, as_of="2026-08-26"), 100)
+
 
 if __name__ == "__main__":
     unittest.main()

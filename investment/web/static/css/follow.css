@@ -4223,6 +4223,45 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-col-buy-at { width: 56px; min-width: 56px; }
 .paper-t0-col-pnl { width: 72px; min-width: 72px; padding-right: 12px !important; }
 .paper-t0-col-exp { width: 72px; min-width: 72px; }
+.paper-t0-col-act { width: 52px; min-width: 52px; text-align: center; }
+.paper-t0-ledger-del {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--danger, #dc2626) 35%, var(--line, #e2e8f0));
+  background: color-mix(in srgb, var(--danger, #dc2626) 8%, transparent);
+  color: var(--danger, #b91c1c);
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.paper-t0-ledger-del:hover {
+  background: color-mix(in srgb, var(--danger, #dc2626) 16%, transparent);
+}
+.paper-t0-ledger-del:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+.paper-t0-desk-clear {
+  appearance: none;
+  border: 1px solid color-mix(in srgb, var(--ink-3, #64748b) 40%, var(--line, #e2e8f0));
+  background: color-mix(in srgb, var(--ink-3, #64748b) 6%, transparent);
+  color: var(--ink-2, #475569);
+  font: inherit;
+  font-size: 0.75rem;
+  line-height: 1.2;
+  padding: 0.2rem 0.4rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.paper-t0-desk-clear:hover {
+  background: color-mix(in srgb, var(--ink-3, #64748b) 14%, transparent);
+}
+.paper-t0-desk-clear:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
 .paper-t0-col-flow { width: 56px; min-width: 56px; }
 .paper-t0-col-cover { width: 56px; min-width: 56px; }
 .paper-t0-col-cum { width: 72px; min-width: 72px; }
@@ -8612,20 +8651,63 @@ body[data-page="follow"] .paper-t0-worker-error {
   border: 1px solid color-mix(in srgb, var(--danger, #f5222d) 22%, transparent);
 }
 
+/* 盯盘状态 + 落账明细：Worker 面板外一层嵌套框 */
+body[data-page="follow"] .paper-t0-worker-ledger {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--paper-t0-r, 8px);
+  border: 1px solid color-mix(in srgb, var(--line) 88%, transparent);
+  background: color-mix(in srgb, var(--bg, #f8fafc) 72%, var(--surface, #fff));
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+body[data-page="follow"] .paper-t0-worker-ledger:not(:has(> :not([hidden]))) {
+  display: none;
+}
+
+body[data-page="follow"] .paper-t0-worker-desk,
 body[data-page="follow"] .paper-t0-worker-trades {
-  margin-top: 10px;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+  min-width: 0;
+  max-width: 100%;
+}
+
+body[data-page="follow"] .paper-t0-worker-desk + .paper-t0-worker-trades:not([hidden]) {
   padding-top: 10px;
   border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
-body[data-page="follow"] .paper-t0-ledger-fold .paper-t0-desk-board {
-  overflow-x: auto;
+/* 盯盘 / 落账表：横纵可滑，表头粘顶 */
+body[data-page="follow"] .paper-t0-desk-board {
+  margin-top: 8px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
+  min-width: 0;
+  max-width: 100%;
 }
 
-body[data-page="follow"] .paper-t0-ledger-fold .quant-weight-table-wrap {
+body[data-page="follow"] .paper-t0-desk-wrap,
+body[data-page="follow"] .paper-t0-ledger-fold .paper-t0-trades-wrap {
   margin: 0;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
   max-height: min(420px, 52vh);
   overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--surface, #fff) 96%, var(--bg, #f8fafc));
+  box-sizing: border-box;
 }
 
 body[data-page="follow"] .paper-t0-desk-fold-meta {
@@ -8634,14 +8716,10 @@ body[data-page="follow"] .paper-t0-desk-fold-meta {
   font-family: var(--font-mono);
 }
 
-body[data-page="follow"] .paper-t0-worker-desk {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
-}
-
 body[data-page="follow"] .paper-t0-desk-fold {
   margin: 0;
+  min-width: 0;
+  max-width: 100%;
 }
 
 body[data-page="follow"] .follow-ops-t0 #paper-t0-viz > #paper-t0-days:not(:empty) {
@@ -8763,32 +8841,24 @@ body[data-page="follow"] .paper-t0-desk-chip.is-done .paper-t0-desk-chip-v {
   color: var(--quant-up, #dc2626);
 }
 
-body[data-page="follow"] .paper-t0-desk-board {
-  margin-top: 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 75%, transparent);
-  border-radius: 4px;
-  background: color-mix(in srgb, var(--surface, #fff) 96%, var(--bg, #f8fafc));
-  overflow: hidden;
-}
-
-body[data-page="follow"] .paper-t0-desk-wrap {
-  margin: 0;
-  max-height: min(420px, 52vh);
-  overflow: auto;
-}
-
 body[data-page="follow"] .paper-t0-desk-table {
   table-layout: fixed;
-  width: 100%;
+  width: max(100%, 44rem);
+  min-width: 44rem;
   border-collapse: separate;
   border-spacing: 0;
   font-size: 0.74rem;
 }
 
+body[data-page="follow"] .paper-t0-ledger-fold .paper-t0-trades-table {
+  width: max(100%, 58rem);
+  min-width: 58rem;
+}
+
 body[data-page="follow"] .paper-t0-desk-table thead th {
   position: sticky;
   top: 0;
-  z-index: 1;
+  z-index: 2;
   background: color-mix(in srgb, var(--bg, #f1f5f9) 88%, var(--surface, #fff));
   border-bottom: 1px solid color-mix(in srgb, var(--border) 85%, transparent);
   font-size: 0.66rem;
@@ -8797,6 +8867,7 @@ body[data-page="follow"] .paper-t0-desk-table thead th {
   text-transform: none;
   color: var(--ink-3, #64748b);
   padding: 7px 8px;
+  box-shadow: 0 1px 0 color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 body[data-page="follow"] .paper-t0-desk-table tbody td {
@@ -8814,7 +8885,8 @@ body[data-page="follow"] .paper-t0-desk-table tbody tr:hover td {
 }
 
 body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-stock {
-  width: 7.5rem;
+  width: 10.5rem;
+  min-width: 9rem;
 }
 
 body[data-page="follow"] .paper-t0-desk-table .paper-t0-col-dir {

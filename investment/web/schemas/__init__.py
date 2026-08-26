@@ -19,6 +19,8 @@ from web.schemas.paper import (
     PaperT0Request,
     PaperT0AutoRequest,
     PaperT0WorkerRequest,
+    PaperT0DeleteRequest,
+    PaperT0IntradayClearRequest,
     PaperExecutionPatchRequest,
 )
 
@@ -104,6 +106,8 @@ __all__ = [
     "PaperT0Request",
     "PaperT0AutoRequest",
     "PaperT0WorkerRequest",
+    "PaperT0DeleteRequest",
+    "PaperT0IntradayClearRequest",
     "PaperExecutionPatchRequest",
     "StrategyPromoteRequest",
     "EvalRunRequest",

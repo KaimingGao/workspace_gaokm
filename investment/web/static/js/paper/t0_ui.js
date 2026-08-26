@@ -369,10 +369,15 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution } = {}) {
   el.innerHTML = foldShell(
     chips,
     `<div class="paper-t0-desk-board">` +
-      buildT0TradeTableHtml({ data, days, maxRows: T0_TRADE_TABLE_MAX_ROWS }) +
+      buildT0TradeTableHtml({
+        data,
+        days,
+        maxRows: T0_TRADE_TABLE_MAX_ROWS,
+        showDelete: true,
+      }) +
       `<p class="paper-t0-desk-foot" title="${tip}">τ = y_τ · ${escapeHtml(
         String(tauMap || "scalp")
-      )}</p>` +
+      )} · 删除将冲正账本</p>` +
       `</div>`
   );
 }
@@ -498,10 +503,17 @@ export function renderPaperT0WorkerDesk(el, desk) {
       const cat = classifyDeskNote(note, r.locked);
       const clock = deskClock(r.last_bar_ts);
       const legs = Number(r.legs_written || 0);
+      const code = String(r.stock_code || "").trim();
+      const name = String(r.stock_name || code).trim();
+      const delBtn = code
+        ? `<button type="button" class="paper-t0-desk-clear" data-code="${escapeHtml(
+            code
+          )}" data-name="${escapeHtml(name)}" data-legs="${legs}" title="删除盯盘状态（不冲正账本）">删除</button>`
+        : `<span class="paper-t0-leg-empty">—</span>`;
       return (
         `<tr class="${r.locked ? "is-locked" : ""}" data-phase="${escapeHtml(
           String(r.phase || "idle")
-        )}">` +
+        )}" data-code="${escapeHtml(code)}">` +
         stockCellHtml(r) +
         deskDirCell(r.direction) +
         `<td class="paper-t0-col-phase">${deskPhaseBadge(r.phase, r.locked)}</td>` +
@@ -517,6 +529,7 @@ export function renderPaperT0WorkerDesk(el, desk) {
         `<td class="paper-t0-col-reason" title="${escapeHtml(note)}">` +
         `<span class="paper-t0-desk-reason">${escapeHtml(note)}</span>` +
         `</td>` +
+        `<td class="paper-t0-col-act">${delBtn}</td>` +
         `</tr>`
       );
     })
@@ -524,8 +537,8 @@ export function renderPaperT0WorkerDesk(el, desk) {
 
   const foot =
     lockedN > 0
-      ? `<p class="paper-t0-desk-foot">终锁票当日不再重评门槛；振幅 / 未触价仍可随 5m 推进。</p>`
-      : `<p class="paper-t0-desk-foot">≥11:30 无成交腿一律终锁；有腿票继续盯盘至收盘回补。</p>`;
+      ? `<p class="paper-t0-desk-foot">终锁票当日不再重评门槛；振幅 / 未触价仍可随 5m 推进。删除后 Worker 可重新监视（不改账本）。</p>`
+      : `<p class="paper-t0-desk-foot">≥11:30 无成交腿一律终锁；有腿票继续盯盘至收盘回补。删除仅去盘中状态。</p>`;
 
   el.innerHTML =
     `<details class="paper-t0-desk-fold"${openAttr}>` +
@@ -545,6 +558,7 @@ export function renderPaperT0WorkerDesk(el, desk) {
     `<col class="paper-t0-col-clock" />` +
     `<col class="paper-t0-col-cat" />` +
     `<col class="paper-t0-col-reason" />` +
+    `<col class="paper-t0-col-act" />` +
     `</colgroup>` +
     `<thead><tr>` +
     `<th scope="col" class="paper-t0-col-stock">标的</th>` +
@@ -554,6 +568,7 @@ export function renderPaperT0WorkerDesk(el, desk) {
     `<th scope="col" class="num paper-t0-col-clock">最近K</th>` +
     `<th scope="col" class="paper-t0-col-cat">类别</th>` +
     `<th scope="col" class="paper-t0-col-reason">说明</th>` +
+    `<th scope="col" class="paper-t0-col-act">操作</th>` +
     `</tr></thead><tbody>${body}</tbody></table></div>` +
     foot +
     `</div></details>`;

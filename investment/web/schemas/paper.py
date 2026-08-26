@@ -138,6 +138,34 @@ class PaperT0WorkerRequest(BaseModel):
     enabled: bool = Field(description="启动/停止 Web 内后台 worker")
 
 
+class PaperT0DeleteRequest(BaseModel):
+    """删除落账明细；默认冲正账本。"""
+
+    stock_codes: List[str] = Field(
+        ...,
+        min_length=1,
+        description="要删除的股票代码列表",
+    )
+    reverse_ledger: bool = Field(
+        default=True,
+        description="是否冲正对应 t0_* 成交腿（现金/批次）",
+    )
+
+
+class PaperT0IntradayClearRequest(BaseModel):
+    """清理今日盯盘状态（不冲正账本）。"""
+
+    stock_codes: Optional[List[str]] = Field(
+        default=None,
+        description="要清理的股票代码；与 clear_all 二选一",
+    )
+    clear_all: bool = Field(default=False, description="清空全部盯盘状态")
+    force: bool = Field(
+        default=False,
+        description="连已落账腿（一腿/完成）一并清；默认跳过以防重复落账",
+    )
+
+
 class PaperExecutionPatchRequest(BaseModel):
     """账户级 Execution / 做T 覆盖。t0 与扁平字段二选一。"""
 

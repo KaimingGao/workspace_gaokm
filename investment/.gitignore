@@ -20,6 +20,8 @@ data/store/minute/**/*.json
 data/store/spot_a_em.json
 data/store/*/*.json
 data/paper.json
+data/t0_intraday_state.json
+data/t0_auto_worker.json
 data/memory.json
 data/decisions.jsonl
 data/ttm_events.jsonl

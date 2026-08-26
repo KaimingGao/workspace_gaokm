@@ -20,6 +20,8 @@ from web.schemas import (
     PaperT0Request,
     PaperT0AutoRequest,
     PaperT0WorkerRequest,
+    PaperT0DeleteRequest,
+    PaperT0IntradayClearRequest,
 )
 
 router = APIRouter(tags=["paper"])
@@ -334,6 +336,37 @@ def paper_t0_worker_post(body: PaperT0WorkerRequest) -> Dict[str, Any]:
     """启动/停止 Web 内后台 worker。"""
     try:
         return deps.paper.set_t0_worker(bool(body.enabled))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/paper/t0/last-run/delete")
+def paper_t0_last_run_delete(body: PaperT0DeleteRequest) -> Dict[str, Any]:
+    """删除落账明细；默认冲正对应做 T 成交腿。"""
+    try:
+        return deps.paper.delete_t0_records(
+            stock_codes=list(body.stock_codes or []),
+            reverse_ledger=bool(body.reverse_ledger),
+        )
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/paper/t0/intraday/clear")
+def paper_t0_intraday_clear(body: PaperT0IntradayClearRequest) -> Dict[str, Any]:
+    """清理今日盯盘状态（不冲正账本）。"""
+    try:
+        return deps.paper.clear_t0_intraday(
+            stock_codes=list(body.stock_codes or []) or None,
+            clear_all=bool(body.clear_all),
+            force=bool(body.force),
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

@@ -223,6 +223,199 @@ def _write_t0_auto_last_run(paper: dict, *, result: dict, source: str) -> None:
     paper["rules"] = rules
 
 
+def _trade_session_date(trade: dict) -> str:
+    for key in ("at", "ts", "date"):
+        raw = str(trade.get(key) or "").strip()
+        if len(raw) >= 10 and raw[4] == "-" and raw[7] == "-":
+            return raw[:10]
+    return ""
+
+
+def _void_t0_trades_for_code(
+    paper: dict,
+    code: str,
+    *,
+    session_date: Optional[str],
+) -> Dict[str, Any]:
+    """冲正某票当日做 T 腿：反转现金、批次，并标记 trades.voided。"""
+    from core.market.calendar import prev_trading_day
+    from core.paper.ledger import _now_iso
+    from core.paper.tplus1 import (
+        consume_lots_bought_on,
+        ensure_lots,
+        restore_sellable_lot,
+    )
+    from core.t0.costs import t0_leg_cash_delta
+
+    code = str(code or "").strip()
+    sess = str(session_date or "")[:10]
+    if not code:
+        return {"voided": 0, "cash_delta": 0.0}
+
+    trades = list(paper.get("trades") or [])
+    matched: List[dict] = []
+    for t in trades:
+        if not isinstance(t, dict):
+            continue
+        if t.get("voided"):
+            continue
+        if str(t.get("stock_code") or "").strip() != code:
+            continue
+        side = str(t.get("side") or "").strip().lower()
+        if not side.startswith("t0_"):
+            continue
+        t_sess = _trade_session_date(t)
+        if sess and t_sess and t_sess != sess:
+            continue
+        if sess and not t_sess:
+            # 无日期时：仅当 last_run 会话日与今日接近时仍匹配同票未作废腿
+            continue
+        matched.append(t)
+
+    if not matched and sess:
+        # 兜底：同票未作废 t0 腿且 ts 前缀匹配会话（部分旧记录 at 缺日期）
+        for t in trades:
+            if not isinstance(t, dict) or t.get("voided"):
+                continue
+            if str(t.get("stock_code") or "").strip() != code:
+                continue
+            side = str(t.get("side") or "").strip().lower()
+            if not side.startswith("t0_"):
+                continue
+            ts = str(t.get("ts") or "")
+            if ts.startswith(sess):
+                matched.append(t)
+
+    if not matched:
+        return {"voided": 0, "cash_delta": 0.0, "stock_code": code}
+
+    def _leg_sort_key(t: dict) -> str:
+        return str(t.get("ts") or t.get("at") or "")
+
+    matched.sort(key=_leg_sort_key)
+
+    holdings = list(paper.get("holdings") or [])
+    holding = next((h for h in holdings if str(h.get("stock_code") or "") == code), None)
+    if holding is None:
+        holding = {
+            "stock_code": code,
+            "stock_name": matched[0].get("stock_name") or code,
+            "shares": 0.0,
+            "cost": float(matched[0].get("price") or 0) or 0.0,
+            "lots": [],
+        }
+        holdings.append(holding)
+        paper["holdings"] = holdings
+
+    ensure_lots(holding, as_of=sess or None)
+    cash_delta = 0.0
+    now = _now_iso()
+    prev_day = prev_trading_day(sess) if sess else ""
+    if not prev_day:
+        prev_day = sess or str(now)[:10]
+
+    # 逆序冲正：后发生的腿先撤（按 ts/at 排序后反转）
+    for t in reversed(matched):
+        leg_cash = float(t0_leg_cash_delta(t) or 0)
+        # 原腿对现金的影响取反
+        cash_delta += -leg_cash
+        qty = float(t.get("shares") or 0)
+        side = str(t.get("side") or "").strip().lower()
+        if qty > 1e-9 and side.endswith("sell"):
+            restore_sellable_lot(
+                holding,
+                qty,
+                bought_date=prev_day,
+                ts=str(t.get("ts") or now),
+            )
+        elif qty > 1e-9 and side.endswith("buy"):
+            consume_lots_bought_on(holding, qty, bought_date=sess or prev_day)
+        t["voided"] = True
+        t["voided_at"] = now
+        note = str(t.get("note") or "").strip()
+        tag = " · 已删除冲正"
+        if tag not in note:
+            t["note"] = (note + tag).strip(" ·")
+
+    paper["cash"] = round(float(paper.get("cash") or 0) + cash_delta, 2)
+    # 清零空仓
+    paper["holdings"] = [
+        h for h in (paper.get("holdings") or []) if float(h.get("shares") or 0) > 1e-9
+    ]
+    # holding 可能已从列表剔除；仅当仍持仓时刷新 t0 元数据
+    still = next(
+        (h for h in (paper.get("holdings") or []) if str(h.get("stock_code") or "") == code),
+        None,
+    )
+    if still is not None:
+        from core.paper.tplus1 import sellable_shares as t1_sellable
+
+        still["t0"] = {
+            **dict(still.get("t0") or {}),
+            "sellable_shares": t1_sellable(still, as_of=sess or None),
+            "last_date": sess or (still.get("t0") or {}).get("last_date"),
+        }
+    return {
+        "voided": len(matched),
+        "cash_delta": round(cash_delta, 2),
+        "stock_code": code,
+        "shares_end": float((still or holding).get("shares") or 0),
+    }
+
+
+def _clear_intraday_for_codes(
+    codes: Optional[List[str]] = None,
+    *,
+    clear_all: bool = False,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """删除盘中盯盘状态，便于 Worker 重新监视。不改账本。
+
+    默认跳过已落账腿（legs_written>0）的票，避免清状态后重复落第一腿；
+    force=True 时一并清除。
+    """
+    try:
+        from core.t0.intraday import load_intraday_state, save_intraday_state
+    except Exception:  # noqa: BLE001
+        logger.debug("import intraday for clear failed", exc_info=True)
+        return {"cleared": 0, "stock_codes": [], "skipped_with_legs": []}
+    state = load_intraday_state()
+    stocks = state.get("stocks") if isinstance(state.get("stocks"), dict) else {}
+    if not stocks:
+        return {"cleared": 0, "stock_codes": [], "skipped_with_legs": []}
+
+    if clear_all:
+        targets = [str(c) for c in stocks.keys()]
+    else:
+        targets = [str(c or "").strip() for c in (codes or []) if str(c or "").strip()]
+
+    removed: List[str] = []
+    skipped_with_legs: List[str] = []
+    for code in targets:
+        if code not in stocks:
+            continue
+        st = stocks.get(code) if isinstance(stocks.get(code), dict) else {}
+        legs = int((st or {}).get("legs_written") or 0)
+        if legs > 0 and not force:
+            skipped_with_legs.append(code)
+            continue
+        del stocks[code]
+        removed.append(code)
+
+    if removed:
+        state["stocks"] = stocks
+        try:
+            save_intraday_state(state)
+        except Exception:  # noqa: BLE001
+            logger.debug("save intraday after clear failed", exc_info=True)
+            return {"cleared": 0, "stock_codes": [], "skipped_with_legs": skipped_with_legs}
+    return {
+        "cleared": len(removed),
+        "stock_codes": removed,
+        "skipped_with_legs": skipped_with_legs,
+    }
+
+
 def _rebalance_report_from_legs(
     *,
     ranking: List[dict],
@@ -1110,6 +1303,158 @@ class PaperTradesMixin:
         paper = load_paper(self.path)
         return {"ok": True, "t0_auto": _t0_auto_from_paper(paper)}
 
+    def delete_t0_records(
+        self,
+        *,
+        stock_codes: Optional[List[str]] = None,
+        reverse_ledger: bool = True,
+    ) -> Dict[str, Any]:
+        """删除落账明细；默认冲正对应 t0_* 成交腿（现金/批次）并清盘中状态。"""
+        if not os.path.isfile(self.path):
+            raise FileNotFoundError("请先初始化纸面账户")
+        codes = [
+            str(c or "").strip()
+            for c in (stock_codes or [])
+            if str(c or "").strip()
+        ]
+        if not codes:
+            raise ValueError("请指定要删除的股票代码")
+        code_set = set(codes)
+
+        with paper_write_lock(self.path):
+            paper = load_paper(self.path)
+            rules = dict(paper.get("rules") or {})
+            cfg = _normalize_t0_auto(rules.get("t0_auto"))
+            lr = cfg.get("last_run") if isinstance(cfg.get("last_run"), dict) else None
+            if not lr:
+                raise ValueError("尚无落账明细可删")
+            sess = str(lr.get("session_date") or "")[:10] or None
+            prev_rows = [
+                r
+                for r in (lr.get("results") or [])
+                if isinstance(r, dict) and r.get("stock_code")
+            ]
+            kept = [r for r in prev_rows if str(r.get("stock_code") or "") not in code_set]
+            removed_rows = [
+                r for r in prev_rows if str(r.get("stock_code") or "") in code_set
+            ]
+            if not removed_rows:
+                raise ValueError("落账明细中未找到指定股票")
+
+            void_stats: List[Dict[str, Any]] = []
+            cash_delta = 0.0
+            voided_legs = 0
+            if reverse_ledger:
+                for row in removed_rows:
+                    code = str(row.get("stock_code") or "").strip()
+                    row_sess = str(row.get("date") or sess or "")[:10] or sess
+                    st = _void_t0_trades_for_code(
+                        paper, code, session_date=row_sess
+                    )
+                    void_stats.append(st)
+                    cash_delta += float(st.get("cash_delta") or 0)
+                    voided_legs += int(st.get("voided") or 0)
+
+            trade_count, pnl_total = _summarize_t0_trade_results(kept)
+            if kept:
+                cfg["last_run"] = {
+                    **dict(lr),
+                    "trade_count": trade_count,
+                    "pnl_total": pnl_total,
+                    "results": kept,
+                    "ts": lr.get("ts"),
+                }
+            else:
+                cfg["last_run"] = None
+            rules["t0_auto"] = cfg
+            paper["rules"] = rules
+            paper["updated_at"] = _now_iso()
+
+            cleared_info = _clear_intraday_for_codes(
+                [str(r.get("stock_code") or "") for r in removed_rows],
+                force=True,
+            )
+            cleared = int(cleared_info.get("cleared") or 0)
+            append_operation_log(
+                paper,
+                "t0_void",
+                detail=(
+                    f"删除做T落账 · {len(removed_rows)} 票"
+                    + (f" · 冲正 {voided_legs} 腿" if reverse_ledger else " · 仅明细")
+                ),
+                meta={
+                    "origin": "t0",
+                    "stock_codes": [str(r.get("stock_code")) for r in removed_rows],
+                    "session_date": sess,
+                    "reverse_ledger": bool(reverse_ledger),
+                    "voided_legs": voided_legs,
+                    "cash_delta": round(cash_delta, 2),
+                    "intraday_cleared": cleared,
+                },
+            )
+            summary = mark_to_market(paper)
+            if reverse_ledger:
+                append_snapshot(paper, summary)
+            save_paper(paper, self.path)
+
+        return {
+            "ok": True,
+            "removed": len(removed_rows),
+            "stock_codes": [str(r.get("stock_code")) for r in removed_rows],
+            "voided_legs": voided_legs,
+            "cash_delta": round(cash_delta, 2),
+            "reverse_ledger": bool(reverse_ledger),
+            "intraday_cleared": cleared,
+            "void_stats": void_stats,
+            "t0_auto": _t0_auto_from_paper(load_paper(self.path)),
+            "summary": summary,
+            "message": (
+                f"已删除 {len(removed_rows)} 票落账"
+                + (f"并冲正 {voided_legs} 腿" if reverse_ledger else "")
+            ),
+        }
+
+    def clear_t0_intraday(
+        self,
+        *,
+        stock_codes: Optional[List[str]] = None,
+        clear_all: bool = False,
+        force: bool = False,
+    ) -> Dict[str, Any]:
+        """清理今日盯盘状态（仅盘中状态文件，不冲正账本）。"""
+        codes = [
+            str(c or "").strip()
+            for c in (stock_codes or [])
+            if str(c or "").strip()
+        ]
+        if not clear_all and not codes:
+            raise ValueError("请指定股票代码，或 clear_all=true")
+        info = _clear_intraday_for_codes(
+            codes if not clear_all else None,
+            clear_all=bool(clear_all),
+            force=bool(force),
+        )
+        desk = {}
+        try:
+            from core.t0.intraday import build_intraday_desk_status
+
+            desk = build_intraday_desk_status()
+        except Exception:  # noqa: BLE001
+            logger.debug("build desk after clear failed", exc_info=True)
+        skipped = list(info.get("skipped_with_legs") or [])
+        cleared_n = int(info.get("cleared") or 0)
+        msg = f"已清理盯盘 {cleared_n} 票"
+        if skipped:
+            msg += f" · 跳过已落账 {len(skipped)} 票（需 force 或先删落账）"
+        return {
+            "ok": True,
+            **info,
+            "force": bool(force),
+            "clear_all": bool(clear_all),
+            "intraday": desk,
+            "message": msg,
+        }
+
     @staticmethod
     def t0_worker_status() -> Dict[str, Any]:
         from core.t0.auto_worker import t0_auto_worker
@@ -1335,7 +1680,13 @@ class PaperTradesMixin:
                 if aligned.get("pending") or not aligned.get("ok"):
                     # 上午：日线未齐则继续等；午盘规则已在上方终锁无腿票
                     if code not in stock_states or not isinstance(stock_states.get(code), dict):
-                        stock_states[code] = {"phase": "idle", "legs_written": 0}
+                        stock_states[code] = {
+                            "phase": "idle",
+                            "legs_written": 0,
+                            "stock_name": str(h.get("stock_name") or ""),
+                        }
+                    elif not stock_states[code].get("stock_name") and h.get("stock_name"):
+                        stock_states[code]["stock_name"] = str(h.get("stock_name") or "")
                     continue
 
                 bar = dict(aligned.get("bar") or {})
@@ -1384,6 +1735,7 @@ class PaperTradesMixin:
                         "stance_code": stance_by_code.get(code),
                         "coupling_mode": coup_mode,
                         "force_dual_y_gate": force_dual_y_gate,
+                        "force_session_close": bool(force_session_close),
                     }
                 )
 
