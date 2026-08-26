@@ -11,8 +11,8 @@ import { apiFetch } from "./api_client.js";
 import { loadAndPaintMacroStrip } from "./macro_context_ui.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "./lw_charts.js";
 import { mountVirtualTable, colStyle } from "./virtual_table.js";
-import { createScoreTooltipController } from "./score_tooltip.js?v=p1226";
-import { fmtScore, scoreCls } from "./paper/fmt.js?v=p1226";
+import { createScoreTooltipController } from "./score_tooltip.js?v=p1472";
+import { fmtScore, scoreCls } from "./paper/fmt.js?v=p1472";
 import {
   defaultScoringFloors,
   mergeScoringFloors,
@@ -293,7 +293,7 @@ export function initQuant(ctx) {
   q.fitGapHub = fitGapHub;
 
   async function renderRemCoefTable(rm, opts = {}) {
-    const host = document.getElementById("quant-rem-coef-table");
+    const host = document.getElementById("quant-tau-coef-table");
     if (!host) return;
     try {
       if (typeof q.ensureFactorMeta === "function") {
@@ -379,6 +379,10 @@ export function initQuant(ctx) {
         metas.push(
           remStatusMeta("命中", fmtRemHit(oos.sign_hit), "样本外方向命中率")
         );
+      } else if (oos.sign_hit_rate != null && Number.isFinite(Number(oos.sign_hit_rate))) {
+        metas.push(
+          remStatusMeta("命中", fmtRemHit(oos.sign_hit_rate), "样本外方向命中率")
+        );
       }
       const bt = oos.by_theme || {};
       const th = bt.theme || {};
@@ -398,6 +402,38 @@ export function initQuant(ctx) {
             "普通IC",
             fmtRemIc(nm.ic),
             `普通日 OOS IC · n=${nm.n ?? "—"} · 命中 ${fmtRemHit(nm.sign_hit)}`
+          )
+        );
+      }
+      const buckets = oos.buckets || {};
+      const b04 = buckets.abs_ge_0_4 || {};
+      const b06 = buckets.abs_ge_0_6 || {};
+      if (b04.sign_hit != null && Number.isFinite(Number(b04.sign_hit))) {
+        metas.push(
+          remStatusMeta(
+            "|ŷ|≥0.4",
+            fmtRemHit(b04.sign_hit),
+            `强于 enter 桶同号 · n=${b04.n ?? "—"}`
+          )
+        );
+      }
+      if (b06.sign_hit != null && Number.isFinite(Number(b06.sign_hit))) {
+        metas.push(
+          remStatusMeta(
+            "|ŷ|≥0.6",
+            fmtRemHit(b06.sign_hit),
+            `强信号桶同号 · n=${b06.n ?? "—"}`
+          )
+        );
+      }
+      const tc = oos.theme_counts || {};
+      const tcAll = tc.all || tc.oos || {};
+      if (tcAll.n_theme != null) {
+        metas.push(
+          remStatusMeta(
+            "主题n",
+            String(tcAll.n_theme),
+            `theme_day=1 样本 · 率 ${fmtRemHit(tcAll.theme_rate)}`
           )
         );
       }
@@ -428,7 +464,7 @@ export function initQuant(ctx) {
   }
 
   function clearRemResultBox() {
-    const box = document.getElementById("quant-rem-result");
+    const box = document.getElementById("quant-tau-result");
     if (box) box.innerHTML = "";
   }
 
@@ -454,30 +490,209 @@ export function initQuant(ctx) {
     if (box) box.innerHTML = "";
   }
 
-  // 轻量预填 ŷ_τ KPI / 状态（不阻塞；复盘加载后会用 tau_shadow 覆盖命中）
+  async function renderPathCoefTable(rm, opts = {}) {
+    const host = document.getElementById("quant-path-coef-table");
+    if (!host) return;
+    try {
+      if (typeof q.ensureFactorMeta === "function") {
+        await q.ensureFactorMeta();
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    const html =
+      typeof q.remCoefTableHtml === "function"
+        ? q.remCoefTableHtml(rm, { ...opts, head: "path" })
+        : "";
+    host.innerHTML = html || "";
+  }
+
+  function clearPathResultBox() {
+    const box = document.getElementById("quant-path-result");
+    if (box) box.innerHTML = "";
+  }
+
+  function renderPathFitSummary(data) {
+    const box = document.getElementById("quant-path-result");
+    if (!box || !data || typeof data !== "object") return;
+    const oos = data.oos || {};
+    const buckets = oos.buckets || {};
+    const b15 = buckets.abs_ge_15 || {};
+    const b30 = buckets.abs_ge_30 || {};
+    const gate = data.promote_gate || {};
+    const fill = oos.feature_fill || {};
+    const fillKeys = fill.keys || {};
+    const ycloseFill = fillKeys.yclose_loc || {};
+    const touch = oos.label_touch || {};
+    const bits = [
+      data.minute_codes_hit != null
+        ? `分钟覆盖 ${data.minute_codes_hit}/${data.minute_codes_universe ?? "—"} 票`
+        : null,
+      data.minute_days_total != null ? `分钟日 ${data.minute_days_total}` : null,
+      data.minute_lookback_days != null
+        ? `回看 ${data.minute_lookback_days}d`
+        : null,
+      data.sell_trig_pct != null && data.buy_trig_pct != null
+        ? `触发 卖${data.sell_trig_pct}% / 买${data.buy_trig_pct}%`
+        : null,
+      data.sample_count != null ? `样本 n=${data.sample_count}` : null,
+      touch.n_labeled != null
+        ? `触达标签 ${touch.n_labeled}（+${touch.n_pos ?? 0}/−${touch.n_neg ?? 0}）`
+        : null,
+      ycloseFill.rate != null
+        ? `yclose非空 ${(Number(ycloseFill.rate) * 100).toFixed(0)}%`
+        : null,
+      oos.sign_hit != null
+        ? `OOS 命中 ${(Number(oos.sign_hit) * 100).toFixed(1)}%（n=${oos.n_valid ?? oos.n_test ?? "—"}）`
+        : null,
+      b15.sign_hit != null
+        ? `|ŷ|≥15 ${(Number(b15.sign_hit) * 100).toFixed(0)}%（n=${b15.n ?? 0}）`
+        : null,
+      b30.sign_hit != null
+        ? `|ŷ|≥30 ${(Number(b30.sign_hit) * 100).toFixed(0)}%（n=${b30.n ?? 0}）`
+        : null,
+      gate.ok === false
+        ? `promote 闸：${(gate.blockers || []).join("；")}`
+        : gate.ok === true
+          ? "promote 闸：通过（强桶）"
+          : null,
+      Array.isArray(gate.warnings) && gate.warnings.length
+        ? `软提示：${gate.warnings.join("；")}`
+        : null,
+    ].filter(Boolean);
+    if (!bits.length) return;
+    box.innerHTML =
+      `<p class="quant-attr-note">${bits.map((b) => escapeHtml(String(b))).join(" · ")}</p>`;
+  }
+
+  /** ŷ_τ 启用：不过闸也可点，确认后 force_promote。 */
+  let _tauPromoteGate = null;
+  function syncTauPersistBtn(gate, { hasReport = true } = {}) {
+    const persistBtn = document.getElementById("quant-tau-ridge-persist");
+    if (!persistBtn) return;
+    _tauPromoteGate = gate && typeof gate === "object" ? gate : null;
+    if (!hasReport) {
+      persistBtn.disabled = true;
+      persistBtn.title = "先拟合，再启用";
+      persistBtn.classList.remove("is-gate-warn");
+      return;
+    }
+    persistBtn.disabled = false;
+    if (_tauPromoteGate && _tauPromoteGate.ok === false) {
+      const blockers = (_tauPromoteGate.blockers || []).join("；") || "未过 OOS 闸";
+      persistBtn.title = `未过闸：${blockers} · 点击可确认后强制启用`;
+      persistBtn.classList.add("is-gate-warn");
+    } else {
+      persistBtn.title = "写入 live/tau_ridge_model.json";
+      persistBtn.classList.remove("is-gate-warn");
+    }
+  }
+
+  /** path 启用：不过闸也可点，确认后 force_promote；无 report 才禁用。 */
+  let _pathPromoteGate = null;
+  function syncPathPersistBtn(gate, { hasReport = true } = {}) {
+    const persistBtn = document.getElementById("quant-path-ridge-persist");
+    if (!persistBtn) return;
+    _pathPromoteGate = gate && typeof gate === "object" ? gate : null;
+    if (!hasReport) {
+      persistBtn.disabled = true;
+      persistBtn.title = "先拟合，再启用";
+      persistBtn.classList.remove("is-gate-warn");
+      return;
+    }
+    persistBtn.disabled = false;
+    if (_pathPromoteGate && _pathPromoteGate.ok === false) {
+      const blockers = (_pathPromoteGate.blockers || []).join("；") || "未过 OOS 闸";
+      persistBtn.title = `未过闸：${blockers} · 点击可确认后强制启用`;
+      persistBtn.classList.add("is-gate-warn");
+    } else {
+      persistBtn.title = "写入 live/path_ridge_model.json";
+      persistBtn.classList.remove("is-gate-warn");
+    }
+  }
+
+  // 轻量预填 ŷ_path 状态
   void (async () => {
     try {
-      const res = await fetch("/api/quant/rem-ridge/model");
+      const res = await fetch("/api/quant/path-ridge/model");
       const data = await res.json().catch(() => ({}));
-      const sum = document.getElementById("quant-rem-summary");
+      const sum = document.getElementById("quant-path-summary");
+      if (!sum) return;
       if (!data.exists) {
         renderRemStatus(sum, {
           state: "idle",
           chip: "未启用",
-          message: data.note || "点「拟合」开始",
+          message: data.last_report_exists
+            ? "有 last report · 点「拟合」或「启用」"
+            : data.note || "点「拟合」开始（需分钟缓存）",
+        });
+        syncPathPersistBtn(data.promote_gate, {
+          hasReport: !!data.last_report_exists,
+        });
+        clearPathResultBox();
+        await renderPathCoefTable(null);
+        return;
+      }
+      const oos = data.oos || {};
+      const gate = data.promote_gate || null;
+      const chip = data.shadow ? "影子" : data.promoted === false ? "拟合" : "已启用";
+      renderRemStatus(sum, {
+        state: "ok",
+        chip,
+        message: data.shadow
+          ? gate && !gate.ok
+            ? `last report · 闸：${(gate.blockers || []).join("；")}（可强制启用）`
+            : "last report 推理 · 过门后点「启用」"
+          : "",
+        oos,
+        sampleCount: data.sample_count,
+        promotedAt: data.promoted_at,
+      });
+      syncPathPersistBtn(gate, { hasReport: true });
+      clearPathResultBox();
+      await renderPathCoefTable(data.return_model || {}, { oos });
+    } catch (_) {
+      /* ignore */
+    }
+  })();
+
+  // 轻量预填 ŷ_τ KPI / 状态（不阻塞；复盘加载后会用 tau_shadow 覆盖命中）
+  void (async () => {
+    try {
+      const res = await fetch("/api/quant/tau-ridge/model");
+      const data = await res.json().catch(() => ({}));
+      const sum = document.getElementById("quant-tau-summary");
+      if (!data.exists) {
+        renderRemStatus(sum, {
+          state: "idle",
+          chip: "未启用",
+          message: data.last_report_exists
+            ? "有 last report · 点「拟合」或「启用」"
+            : data.note || "点「拟合」开始",
+        });
+        syncTauPersistBtn(data.promote_gate, {
+          hasReport: !!data.last_report_exists,
         });
         clearRemResultBox();
         await renderRemCoefTable(null);
         return;
       }
       const oos = data.oos || {};
+      const gate = data.promote_gate || null;
+      const chip = data.shadow ? "影子" : data.promoted === false ? "拟合" : "已启用";
       renderRemStatus(sum, {
         state: "ok",
-        chip: "已启用",
+        chip,
+        message: data.shadow
+          ? gate && !gate.ok
+            ? `last report · 闸：${(gate.blockers || []).join("；")}（可强制启用）`
+            : "last report 推理 · 过门后点「启用」"
+          : "",
         oos,
         sampleCount: data.sample_count,
         promotedAt: data.promoted_at,
       });
+      syncTauPersistBtn(gate, { hasReport: true });
       clearRemResultBox();
       await renderRemCoefTable(data.return_model || {}, { oos });
       // 仅当概览仍空时写入，避免盖住复盘 tau_shadow
@@ -494,7 +709,7 @@ export function initQuant(ctx) {
         } else if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
           syncOverviewTau(oos.ic, "模型 OOS", "ic");
         } else {
-          syncOverviewTau("已启用", data.promoted_at || "rem", "text");
+          syncOverviewTau("已启用", data.promoted_at || "ŷ_τ", "text");
         }
       }
     } catch (_) {
@@ -1194,66 +1409,107 @@ export function initQuant(ctx) {
     }
   });
 
-  async function runRemRidge({ persist = false } = {}) {
-    const sum = document.getElementById("quant-rem-summary");
+  async function runTauRidge({ persist = false, forcePromote = false } = {}) {
+    const sum = document.getElementById("quant-tau-summary");
+    const persistBtn = document.getElementById("quant-tau-ridge-persist");
     renderRemStatus(sum, {
       state: "busy",
       chip: persist ? "写入中" : "拟合中",
-      message: persist ? "写入上次拟合…" : "Ridge + 时间 OOS…",
+      message: persist
+        ? forcePromote
+          ? "强制写入上次拟合…"
+          : "写入上次拟合…"
+        : "Ridge + 时间 OOS…",
       busy: true,
     });
     try {
-      const remLimit = Math.min(40, Math.max(2, Number(readWatchingLimit()) || 36));
-      const res = await fetch("/api/quant/rem-ridge", {
+      const tauLimit = Math.min(40, Math.max(2, Number(readWatchingLimit()) || 36));
+      const res = await fetch("/api/quant/tau-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           lookback: 120,
-          watching_limit: remLimit,
+          watching_limit: tauLimit,
           ridge_lambda: 1.0,
           persist: !!persist,
-          note: persist ? "ui rem promote" : "",
+          force_promote: !!forcePromote,
+          note: persist
+            ? forcePromote
+              ? "ui tau force promote"
+              : "ui tau promote"
+            : "",
         }),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.success) {
-        const err = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+      const gate = data.promote_gate || (data.persisted && data.persisted.promote_gate) || null;
+      const persistFailed =
+        persist &&
+        data.persisted &&
+        data.persisted.success === false &&
+        !data.persisted.skipped;
+      if (!res.ok || (!data.success && !persistFailed) || persistFailed) {
+        const err =
+          (data.persisted && data.persisted.error) ||
+          (data && (data.detail || data.error)) ||
+          `HTTP ${res.status}`;
+        const gateNote =
+          gate && Array.isArray(gate.blockers) && gate.blockers.length
+            ? ` · 闸：${gate.blockers.join("；")}`
+            : "";
         renderRemStatus(sum, {
           state: "error",
-          chip: "失败",
-          message: String(err),
+          chip: persistFailed ? "未过闸" : "失败",
+          message: String(err) + gateNote,
           error: true,
         });
-        clearRemResultBox();
-        renderRemCoefTable(null);
+        if (!persistFailed) {
+          clearRemResultBox();
+          renderRemCoefTable(null);
+        }
+        if (persistBtn && gate) {
+          syncTauPersistBtn(gate, { hasReport: true });
+        }
+        _tauPromoteGate = gate;
         return;
       }
       const oos = data.oos || {};
       if (persist) {
         renderRemStatus(sum, {
           state: "ok",
-          chip: "已启用",
+          chip: forcePromote ? "已强制启用" : "已启用",
           oos,
           sampleCount: data.sample_count,
-          promotedAt: data.promoted_at || new Date().toISOString(),
+          promotedAt: data.promoted_at || (data.persisted && data.persisted.promoted_at),
+          message:
+            forcePromote && gate && !gate.ok
+              ? `已跳过闸：${(gate.blockers || []).join("；")}`
+              : undefined,
         });
       } else {
+        const gateMsg =
+          gate && !gate.ok
+            ? ` · 未过 promote 闸（${(gate.blockers || []).join("；")}；可强制启用）`
+            : gate && gate.ok
+              ? " · 可启用"
+              : "";
         renderRemStatus(sum, {
           state: "warn",
           chip: "未写盘",
-          message: "人审后点「启用」",
+          message: `人审后点「启用」${gateMsg}`,
           oos,
           sampleCount: data.sample_count,
         });
       }
+      _tauPromoteGate = gate;
+      syncTauPersistBtn(gate, { hasReport: true });
       if (oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) {
         syncOverviewTau(
           oos.sign_hit,
-          `rem OOS · IC ${fmtRemIc(oos.ic)}${persist ? " · 已启用" : " · 未写盘"}`,
+          `τ OOS · IC ${fmtRemIc(oos.ic)}${persist ? " · 已启用" : " · 未写盘"}`,
           "hit"
         );
       } else if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
-        syncOverviewTau(oos.ic, persist ? "rem OOS · 已启用" : "rem OOS · 未写盘", "ic");
+        syncOverviewTau(oos.ic, persist ? "τ OOS · 已启用" : "τ OOS · 未写盘", "ic");
       }
       const rm = data.return_model || {};
       clearRemResultBox();
@@ -1335,12 +1591,116 @@ export function initQuant(ctx) {
     }
   }
 
-  on("quant-rem-ridge-run", "click", async (e) => {
+  async function runPathRidge({ persist = false, forcePromote = false } = {}) {
+    const sum = document.getElementById("quant-path-summary");
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: persist ? "写入中" : "拟合中",
+      message: persist
+        ? forcePromote
+          ? "强制写入上次拟合…"
+          : "写入上次拟合…"
+        : "path Ridge + 分钟标签…",
+      busy: true,
+    });
+    try {
+      const pathLimit = Math.min(40, Math.max(2, Number(readWatchingLimit()) || 36));
+      const res = await fetch("/api/quant/path-ridge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lookback: 120,
+          watching_limit: pathLimit,
+          ridge_lambda: 1.0,
+          minute_period: "5",
+          minute_lookback_days: 150,
+          persist: !!persist,
+          force_promote: !!forcePromote,
+          note: persist
+            ? forcePromote
+              ? "ui path force promote"
+              : "ui path promote"
+            : "",
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      const gate = data.promote_gate || (data.persisted && data.persisted.promote_gate) || null;
+      const persistFailed =
+        persist &&
+        data.persisted &&
+        data.persisted.success === false &&
+        !data.persisted.skipped;
+      if (!res.ok || (!data.success && !persistFailed) || persistFailed) {
+        const err =
+          (data.persisted && data.persisted.error) ||
+          (data && (data.detail || data.error)) ||
+          `HTTP ${res.status}`;
+        const gateNote =
+          gate && Array.isArray(gate.blockers) && gate.blockers.length
+            ? ` · 闸：${gate.blockers.join("；")}`
+            : "";
+        renderRemStatus(sum, {
+          state: "error",
+          chip: persistFailed ? "未过闸" : "失败",
+          message: String(err) + gateNote,
+          error: true,
+        });
+        if (!persistFailed) {
+          clearPathResultBox();
+          renderPathCoefTable(null);
+        }
+        syncPathPersistBtn(gate, { hasReport: true });
+        return;
+      }
+      const oos = data.oos || {};
+      if (persist) {
+        renderRemStatus(sum, {
+          state: "ok",
+          chip: forcePromote ? "已强制启用" : "已启用",
+          oos,
+          sampleCount: data.sample_count,
+          promotedAt: data.promoted_at || (data.persisted && data.persisted.promoted_at),
+          message:
+            forcePromote && gate && !gate.ok
+              ? `已跳过闸：${(gate.blockers || []).join("；")}`
+              : undefined,
+        });
+      } else {
+        const gateMsg =
+          gate && !gate.ok
+            ? ` · 未过 promote 闸（${(gate.blockers || []).join("；")}；可强制启用）`
+            : gate && gate.ok
+              ? " · 可启用"
+              : "";
+        renderRemStatus(sum, {
+          state: "ok",
+          chip: "已拟合",
+          message: `未写 live${gateMsg}`,
+          oos,
+          sampleCount: data.sample_count,
+        });
+      }
+      syncPathPersistBtn(gate, { hasReport: true });
+      const rm = data.return_model || {};
+      renderPathFitSummary(data);
+      await renderPathCoefTable(rm, { oos });
+    } catch (err) {
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+      throw err;
+    }
+  }
+
+  on("quant-path-ridge-run", "click", async (e) => {
     e.preventDefault();
     try {
-      await runRemRidge({ persist: false });
+      await runPathRidge({ persist: false });
     } catch (err) {
-      const sum = document.getElementById("quant-rem-summary");
+      const sum = document.getElementById("quant-path-summary");
       renderRemStatus(sum, {
         state: "error",
         chip: "失败",
@@ -1350,13 +1710,131 @@ export function initQuant(ctx) {
     }
   });
 
-  on("quant-rem-ridge-persist", "click", async (e) => {
+  on("quant-path-ridge-persist", "click", async (e) => {
     e.preventDefault();
-    if (!window.confirm("将 rem / ŷ_τ 模型写入 live（不改 ŷ_EOD、不改聚类）？仅影响主题日 soft hold / τ 闸。")) return;
+    const gate = _pathPromoteGate;
+    let forcePromote = false;
+    if (gate && gate.ok === false) {
+      const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
+      if (
+        !window.confirm(
+          `promote 未过闸：${blockers}\n\n仍强制写入 live/path_ridge_model.json 吗？\n（dual_y 会吃到该模型；影子推理也可继续用 last report）`
+        )
+      ) {
+        return;
+      }
+      forcePromote = true;
+    } else if (
+      !window.confirm(
+        "将 ŷ_path 模型写入 live（dual_y 与 y_τ 联合选向；不改 ŷ_EOD / ŷ_τ）？"
+      )
+    ) {
+      return;
+    }
     try {
-      await runRemRidge({ persist: true });
+      await runPathRidge({ persist: true, forcePromote });
     } catch (err) {
-      const sum = document.getElementById("quant-rem-summary");
+      const sum = document.getElementById("quant-path-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+    }
+  });
+
+  on("quant-path-ridge-status", "click", async (e) => {
+    e.preventDefault();
+    const sum = document.getElementById("quant-path-summary");
+    renderRemStatus(sum, {
+      state: "busy",
+      chip: "读取中",
+      message: "live 模型…",
+      busy: true,
+    });
+    try {
+      const res = await fetch("/api/quant/path-ridge/model");
+      const data = await res.json().catch(() => ({}));
+      if (!data.exists) {
+        renderRemStatus(sum, {
+          state: "idle",
+          chip: "未启用",
+          message: data.note || "尚无 live 模型",
+        });
+        syncPathPersistBtn(data.promote_gate, {
+          hasReport: !!data.last_report_exists,
+        });
+        clearPathResultBox();
+        await renderPathCoefTable(null);
+        return;
+      }
+      const oos = data.oos || {};
+      const gate = data.promote_gate || null;
+      renderRemStatus(sum, {
+        state: "ok",
+        chip: data.shadow ? "影子" : "已启用",
+        oos,
+        sampleCount: data.sample_count,
+        promotedAt: data.promoted_at,
+        message:
+          gate && !gate.ok
+            ? `promote 闸：${(gate.blockers || []).join("；")}（可强制启用）`
+            : undefined,
+      });
+      syncPathPersistBtn(gate, { hasReport: true });
+      clearPathResultBox();
+      await renderPathCoefTable(data.return_model || {}, { oos });
+    } catch (err) {
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+    }
+  });
+
+  on("quant-tau-ridge-run", "click", async (e) => {
+    e.preventDefault();
+    try {
+      await runTauRidge({ persist: false });
+    } catch (err) {
+      const sum = document.getElementById("quant-tau-summary");
+      renderRemStatus(sum, {
+        state: "error",
+        chip: "失败",
+        message: String(err.message || err),
+        error: true,
+      });
+    }
+  });
+
+  on("quant-tau-ridge-persist", "click", async (e) => {
+    e.preventDefault();
+    const gate = _tauPromoteGate;
+    let forcePromote = false;
+    if (gate && gate.ok === false) {
+      const blockers = (gate.blockers || []).join("；") || "未过 OOS 闸";
+      if (
+        !window.confirm(
+          `promote 未过闸：${blockers}\n\n仍强制写入 live/tau_ridge_model.json 吗？\n（dual_y τ 闸会吃到该模型；影子推理也可继续用 last report）`
+        )
+      ) {
+        return;
+      }
+      forcePromote = true;
+    } else if (
+      !window.confirm(
+        "将 ŷ_τ 模型写入 live（不改 ŷ_EOD、不改聚类）？仅影响主题日 soft hold / τ 闸。"
+      )
+    ) {
+      return;
+    }
+    try {
+      await runTauRidge({ persist: true, forcePromote });
+    } catch (err) {
+      const sum = document.getElementById("quant-tau-summary");
       renderRemStatus(sum, {
         state: "error",
         chip: "失败",
@@ -1445,9 +1923,9 @@ export function initQuant(ctx) {
     }
   });
 
-  on("quant-rem-ridge-status", "click", async (e) => {
+  on("quant-tau-ridge-status", "click", async (e) => {
     e.preventDefault();
-    const sum = document.getElementById("quant-rem-summary");
+    const sum = document.getElementById("quant-tau-summary");
     renderRemStatus(sum, {
       state: "busy",
       chip: "读取中",
@@ -1455,7 +1933,7 @@ export function initQuant(ctx) {
       busy: true,
     });
     try {
-      const res = await fetch("/api/quant/rem-ridge/model");
+      const res = await fetch("/api/quant/tau-ridge/model");
       const data = await res.json().catch(() => ({}));
       if (!data.exists) {
         renderRemStatus(sum, {

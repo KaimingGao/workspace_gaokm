@@ -44,7 +44,7 @@ STRATEGY_SPECS: Dict[str, Dict[str, Any]] = {
                 "overlays": {
                     "t0": {
                         "enabled": True,
-                        "t0_ratio": 0.4,
+                        "t0_ratio": 1.0,
                         "sell_trigger_pct": 2.0,
                         "buy_trigger_pct": 1.5,
                         "fill_mode": "trigger",

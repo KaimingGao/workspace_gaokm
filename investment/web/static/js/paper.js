@@ -18,15 +18,15 @@ import {
   Y_NOWCAST_TITLE,
   scoreSeriesStats,
   isHeuristicScoreScale,
-} from "./paper/fmt.js?v=p1227";
+} from "./paper/fmt.js?v=p1472";
 import { drawSeries, appendLiveNavPoint } from "./paper/chart.js?v=p1163";
-import { TRADE_TITLE } from "./quant/watching_quotes_ui.js?v=p1227";
+import { TRADE_TITLE } from "./quant/watching_quotes_ui.js?v=p1457";
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
 import {
   loadHoldingsSort,
   persistHoldingsSort as persistHoldingsSortSaved,
   sortHoldings as sortHoldingsRows,
-} from "./paper/holdings_sort.js?v=p1227";
+} from "./paper/holdings_sort.js?v=p1457";
 import {
   renderLineChart,
   loadLightweightCharts,
@@ -37,7 +37,7 @@ import {
   buildPaperHoldingsTableHtml,
   buildPaperOriginBarHtml,
   buildPaperHoldActionBarHtml,
-} from "./paper/holdings_ui.js?v=p1227";
+} from "./paper/holdings_ui.js?v=p1457";
 import { renderPaperRulesHtml } from "./paper/rules_ui.js";
 import {
   renderExecutionRulesHtml,
@@ -75,7 +75,7 @@ import {
   marketPriorDetailFields,
   tailAnomalyDetailFields,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p1226";
+} from "./score_tooltip.js?v=p1472";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 

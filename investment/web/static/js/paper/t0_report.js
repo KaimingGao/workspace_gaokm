@@ -353,19 +353,67 @@ export function buildT0ReportHtml(data, opts = {}) {
     }),
     metricCell(
       "τ 门槛",
-      rules.y_tau_enter != null
-        ? `|y_τ|≥${rules.y_tau_enter}%`
-        : sm.y_tau_enter != null
-          ? `|y_τ|≥${sm.y_tau_enter}%`
-          : "±0.25%"
+      (() => {
+        const enter =
+          rules.y_tau_enter != null
+            ? Number(rules.y_tau_enter)
+            : sm.y_tau_enter != null
+              ? Number(sm.y_tau_enter)
+              : 0.4;
+        const strong =
+          rules.y_tau_enter_strong != null
+            ? Number(rules.y_tau_enter_strong)
+            : sm.y_tau_enter_strong != null
+              ? Number(sm.y_tau_enter_strong)
+              : 0.6;
+        return `|y_τ|≥${enter}% · 强≥${strong}%`;
+      })(),
+      { tip: "enter 以下横盘；enter≤|τ|<strong 弱信号跳过" }
     ),
     metricCell("跳过日", String(data.skip_days ?? 0), {
       tip: skipInsight ? `主因 ${skipInsight}` : "",
     }),
     metricCell("信号跳过", String(data.signal_skip_days ?? 0)),
+    metricCell("τ OC 命中", fmtPct(sm.tau_oc_hit_rate_pct ?? data.tau_oc_hit_rate_pct), {
+      tip: "成交日 y_τ 符号 vs 实际 open→close",
+    }),
+    metricCell(
+      "|τ|≥0.6 同号",
+      (() => {
+        const att = data.y_tau_attribution || sm.y_tau_attribution || {};
+        const buckets = (att.summary && att.summary.abs_buckets) || {};
+        const b = buckets.abs_ge_0_6 || {};
+        if (b.sign_hit == null) return "—";
+        const pct = Number(b.sign_hit) * 100;
+        return `${pct.toFixed(1)}%${b.n != null ? ` · n=${b.n}` : ""}`;
+      })(),
+      { tip: "成交日 |ŷ_τ|≥0.6 桶同号率（验收）" }
+    ),
+    metricCell(
+      "升级验收",
+      (() => {
+        const acc = data.upgrade_acceptance || sm.upgrade_acceptance || {};
+        if (acc.ok === true) return "通过";
+        if (acc.ok === false) return `未过 · ${(acc.blockers || []).join("；") || "—"}`;
+        return "—";
+      })(),
+      {
+        tip: "无弱τ/横盘成交；对照 path 横盘/否决笔",
+      }
+    ),
+    metricCell("path 一致", fmtPct(sm.path_agree_rate_pct ?? data.path_agree_rate_pct), {
+      tip: "成交日 y_path 符号与 τ 方向一致率",
+    }),
   ]);
 
+  const pathRules = rules.y_use_path != null ? rules : sm;
   const pathSection = metricSection("路径与对照", [
+    metricCell("y_path选向", pathRules.y_use_path === false ? "关" : "开"),
+    metricCell(
+      "path门槛",
+      pathRules.y_path_enter != null ? `|y_p|≥${pathRules.y_path_enter}` : "≥30"
+    ),
+    metricCell("path跳过", String(sm.path_skip_days ?? data.path_skip_days ?? 0)),
     metricCell("分钟路径日", String(data.minute_path_days ?? 0)),
     metricCell("缺分钟跳过", String(data.missing_minute_days ?? 0), {
       tip:

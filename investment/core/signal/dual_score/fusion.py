@@ -163,28 +163,101 @@ def _fusion_weights_from_item(
     item: Optional[dict],
     *,
     config: Optional[dict] = None,
+    eod_next: Optional[bool] = None,
+    y_tau: Optional[float] = None,
+    rem_model_doc: Optional[dict] = None,
 ) -> Tuple[float, float]:
-    from core.signal.dual_score.resolve import get_dual_score_cfg
+    return resolve_item_fusion_weights(
+        item,
+        config=config,
+        eod_next=eod_next,
+        y_tau=y_tau,
+        rem_model_doc=rem_model_doc,
+    )[:2]
+
+
+def resolve_item_fusion_weights(
+    item: Optional[dict],
+    *,
+    config: Optional[dict] = None,
+    eod_next: Optional[bool] = None,
+    y_tau: Optional[float] = None,
+    rem_model_doc: Optional[dict] = None,
+) -> Tuple[float, float, bool]:
+    """解析融合权：簿优先；盘中若残留 eod_next 的 w_τ=0 且 ŷ_τ 仍可用则恢复 cfg。
+
+    返回 (w_eod, w_tau, repaired_stale_eod_next_weights)。
+    """
+    from core.signal.dual_score.resolve import (
+        get_dual_score_cfg,
+        resolve_fusion_weights,
+        resolve_predicted_score_tau,
+    )
 
     cfg = get_dual_score_cfg(config)
-    try:
-        we = float(cfg.get("w_eod") if cfg.get("w_eod") is not None else 0.5)
-    except (TypeError, ValueError):
-        we = 0.5
-    try:
-        wt = float(cfg.get("w_tau") if cfg.get("w_tau") is not None else 0.5)
-    except (TypeError, ValueError):
-        wt = 0.5
+    if eod_next is None:
+        eod_next = (
+            str((item or {}).get("dual_score_window") or "") == "eod_next"
+            if isinstance(item, dict)
+            else False
+        )
+    tau_v = y_tau
+    if tau_v is None and isinstance(item, dict) and not eod_next:
+        tau_v = resolve_predicted_score_tau(item)
+        try:
+            tau_v = float(tau_v) if tau_v is not None and tau_v != "" else None
+        except (TypeError, ValueError):
+            tau_v = None
+
+    feats = (
+        item.get("features_tau")
+        if isinstance(item, dict) and isinstance(item.get("features_tau"), dict)
+        else None
+    )
+    we, wt, _note = resolve_fusion_weights(
+        cfg, feats=feats, rem_model_doc=rem_model_doc
+    )
+    repaired = False
     book_w = item.get("dual_score_weights") if isinstance(item, dict) else None
     if isinstance(book_w, dict) and book_w.get("w_eod") is not None:
         try:
             we = float(book_w.get("w_eod"))
-            wt = float(
-                book_w.get("w_tau") if book_w.get("w_tau") is not None else 1.0 - we
-            )
+            wt_raw = book_w.get("w_tau")
+            wt = float(wt_raw if wt_raw is not None else 1.0 - we)
         except (TypeError, ValueError):
             pass
-    return we, wt
+    if eod_next:
+        wt = 0.0
+    elif tau_v is not None and wt <= 1e-12:
+        # 旧簿 eod_next stamp：w_τ=0 / tau_in_trade=false，窗口已回 intraday 须恢复双头权
+        _, wt_cfg, _ = resolve_fusion_weights(
+            cfg, feats=feats, rem_model_doc=rem_model_doc
+        )
+        wt = wt_cfg
+        repaired = True
+    return we, wt, repaired
+
+
+def stamp_item_fusion_weights(
+    item: Optional[dict],
+    *,
+    w_eod: float,
+    w_tau: float,
+    eod_next: bool,
+    tau_available: bool,
+) -> None:
+    """写回 ``dual_score_weights``，与 attach_dual_score_pit / tip 展示一致。"""
+    if not isinstance(item, dict):
+        return
+    prev = item.get("dual_score_weights")
+    base = dict(prev) if isinstance(prev, dict) else {}
+    item["dual_score_weights"] = {
+        **base,
+        "w_eod": round(float(w_eod), 6),
+        "w_tau": round(0.0 if eod_next else float(w_tau), 6),
+        "tau_in_trade": bool(not eod_next and tau_available),
+        "window": "eod_next" if eod_next else "intraday",
+    }
 
 
 def unlifted_trade_blend_stale(
@@ -310,11 +383,11 @@ def resolve_fusion_weights(
             import logging
 
             logging.getLogger(__name__).warning(
-                "resolve_fusion_weights: w_mode=%s but rem_model missing/empty; "
+                "resolve_fusion_weights: w_mode=%s but tau_model missing/empty; "
                 "fallback to fixed w_eod/w_tau",
                 mode,
             )
-            note = f"{mode}→fixed(rem_missing)"
+            note = f"{mode}→fixed(tau_missing)"
         elif mode == "variance":
             ve, ve_src = resolve_eod_prior_var(
                 cfg_var=cfg.get("eod_residual_var"),

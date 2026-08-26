@@ -2,7 +2,7 @@
  * 观察池 insights 列格式化与 score 单元格 HTML（纯数据 / 字符串）。
  */
 import { escapeHtml as defaultEscapeHtml } from "../shared.js";
-import { resolveTradeScore, resolveEodScore, resolveTauScore, resolveOnScore, resolveNowcastScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_ON_TITLE, Y_NOWCAST_TITLE } from "../paper/fmt.js?v=p1227";
+import { resolveTradeScore, resolveEodScore, resolveTauScore, resolveOnScore, resolveNowcastScore, fmtTableScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_ON_TITLE, Y_NOWCAST_TITLE } from "../paper/fmt.js?v=p1472";
 import { TRADE_TITLE, withQuoteGap } from "./watching_quotes_ui.js?v=p1227";
 
 export function isOosFailedItem(it) {

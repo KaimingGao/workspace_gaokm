@@ -119,6 +119,54 @@ class TestDailyWebPresets(unittest.TestCase):
         self.assertEqual(res.status_code, 200)
         run_mock.assert_called_once()
         self.assertEqual(run_mock.call_args.kwargs.get("preset"), "quant")
+        self.assertIsNone(run_mock.call_args.kwargs.get("top_k"))
+        self.assertIsNone(run_mock.call_args.kwargs.get("horizon_days"))
+
+    def test_api_run_passes_bt_overrides(self):
+        from fastapi.testclient import TestClient
+
+        import web.app as web_app
+        import web.deps as deps
+
+        mock_out = {"ok": True, "preset": "quant", "steps": [], "failures": []}
+        with patch.object(deps.daily, "run", return_value=mock_out) as run_mock:
+            client = TestClient(web_app.app)
+            res = client.post(
+                "/api/daily/run",
+                json={"preset": "quant", "top_k": 3, "horizon_days": 1, "lookback": 30},
+            )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(run_mock.call_args.kwargs.get("top_k"), 3)
+        self.assertEqual(run_mock.call_args.kwargs.get("horizon_days"), 1)
+        self.assertEqual(run_mock.call_args.kwargs.get("lookback"), 30)
+
+    def test_api_run_rejects_lookback_below_30(self):
+        from fastapi.testclient import TestClient
+
+        import web.app as web_app
+
+        client = TestClient(web_app.app)
+        res = client.post(
+            "/api/daily/run",
+            json={"preset": "quant", "lookback": 20},
+        )
+        self.assertEqual(res.status_code, 422)
+
+    def test_api_presets_include_bt_defaults(self):
+        from fastapi.testclient import TestClient
+
+        import web.app as web_app
+
+        client = TestClient(web_app.app)
+        res = client.get("/api/daily/presets")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        bt = data.get("bt_defaults") or {}
+        self.assertEqual(int(bt.get("top_k") or 0), 3)
+        self.assertEqual(int(bt.get("horizon_days") or 0), 1)
+        self.assertGreaterEqual(int(bt.get("paper_max_positions") or 0), 8)
+        self.assertIn("paper_horizon_days", bt)
+        self.assertEqual(bt.get("lookback"), 30)
 
 # --- test_p17_quant.py::TestWatchingHealth ---
 class TestWatchingHealth(unittest.TestCase):

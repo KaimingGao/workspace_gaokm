@@ -1,4 +1,4 @@
-"""研究台因子 / REM / 网格 / 影子实验请求模型。"""
+"""研究台因子 / ŷ_τ / 网格 / 影子实验请求模型。"""
 
 from __future__ import annotations
 
@@ -37,8 +37,8 @@ class FactorOlsPoolRequest(BaseModel):
     )
 
 
-class RemRidgeRequest(BaseModel):
-    """open→close / τ→close 剩余收益头研究拟合（不写 EOD ŷ）。"""
+class TauRidgeRequest(BaseModel):
+    """open→close / τ→close ŷ_τ 头研究拟合（不写 EOD ŷ）。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -52,7 +52,11 @@ class RemRidgeRequest(BaseModel):
     theme_boost: float = Field(default=1.5, ge=0.5, le=5.0)
     persist: bool = Field(
         default=False,
-        description="True=人审写入 data/live/rem_ridge_model.json",
+        description="True=人审写入 data/live/tau_ridge_model.json",
+    )
+    force_promote: bool = Field(
+        default=False,
+        description="True=跳过 OOS promote 闸（确认后强制启用）",
     )
     note: str = Field(default="", max_length=200)
     tau_hm: Optional[str] = Field(
@@ -60,6 +64,10 @@ class RemRidgeRequest(BaseModel):
         description="open | 09:45；缺省跟随 dual_score.enable_minute_tau",
         max_length=8,
     )
+
+
+# 旧名兼容（请求体字段同 TauRidgeRequest）
+RemRidgeRequest = TauRidgeRequest
 
 
 class OnRidgeRequest(BaseModel):
@@ -78,6 +86,52 @@ class OnRidgeRequest(BaseModel):
     persist: bool = Field(
         default=False,
         description="True=人审写入 data/live/on_ridge_model.json",
+    )
+    note: str = Field(default="", max_length=200)
+
+
+class PathRidgeRequest(BaseModel):
+    """分钟第一触达顺序 Ridge（做 T dual_y · y_path 选向）。"""
+
+    lookback: int = Field(default=120, ge=40, le=500)
+    watching_limit: int = Field(
+        default=36,
+        ge=2,
+        le=40,
+        description="观察池截断；需分钟缓存覆盖",
+    )
+    ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
+    gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
+    sell_trig_pct: Optional[float] = Field(
+        default=None,
+        ge=0.1,
+        le=20.0,
+        description="卖触发 %；缺省=纸面/执行 T0 sell_trigger_pct",
+    )
+    buy_trig_pct: Optional[float] = Field(
+        default=None,
+        ge=0.1,
+        le=20.0,
+        description="买触发 %；缺省=纸面/执行 T0 buy_trigger_pct",
+    )
+    minute_period: str = Field(
+        default="5",
+        max_length=4,
+        description="分钟周期；默认 5m，与做 T 回测一致",
+    )
+    minute_lookback_days: int = Field(
+        default=150,
+        ge=20,
+        le=240,
+        description="拉分钟线回看自然日（默认 150，抬 path 样本）",
+    )
+    persist: bool = Field(
+        default=False,
+        description="True=人审写入 data/live/path_ridge_model.json",
+    )
+    force_promote: bool = Field(
+        default=False,
+        description="True=跳过 OOS promote 闸（仅调试）",
     )
     note: str = Field(default="", max_length=200)
 

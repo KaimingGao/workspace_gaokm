@@ -199,9 +199,10 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertIn("return_model", report)
         self.assertIn("oos", report)
         self.assertEqual(report.get("tau"), "open")
-        self.assertEqual(report.get("schema"), "rem_ridge_v6")
+        self.assertEqual(report.get("schema"), "tau_ridge_v8")
         rm = report["return_model"]
         self.assertIn("coefficients", rm)
+        self.assertTrue(rm.get("y_demeaned"))
         self.assertEqual((rm.get("y_spec") or {}).get("tau"), "open")
         coefs = rm.get("coefficients") or {}
         self.assertNotIn("momentum", coefs)
@@ -209,12 +210,21 @@ class TestRemRidgeFit(unittest.TestCase):
         extras = rm.get("extra_features") or []
         self.assertIn("gap_atr", extras)
         self.assertIn("gap_vs_sector", extras)
+        self.assertIn("theme_day", extras)
+        self.assertIn("yclose_loc", extras)
+        self.assertIn("mom3_pct", extras)
         oos = report.get("oos") or {}
         self.assertIn("by_theme", oos)
         self.assertIn("theme", oos.get("by_theme") or {})
         self.assertIn("normal", oos.get("by_theme") or {})
+        self.assertIn("theme_counts", oos)
+        self.assertIn("theme_trigger_sensitivity", oos)
+        self.assertIn("buckets", oos)
+        self.assertIn("abs_ge_0_4", oos.get("buckets") or {})
+        self.assertIn("abs_ge_0_6", oos.get("buckets") or {})
         self.assertIn("residual_var", oos)
-        # rem 豁免生效：即便合成 K 线缺口小，也不应因 low_variance 进 exclusion_reasons
+        self.assertIn("promote_gate", report)
+        # τ 豁免生效：即便合成 K 线缺口小，也不应因 low_variance 进 exclusion_reasons
         reasons = rm.get("exclusion_reasons") or {}
         self.assertNotEqual(reasons.get("gap_pct"), "low_variance")
 
@@ -222,18 +232,34 @@ class TestRemRidgeFit(unittest.TestCase):
             live = os.path.join(tmp, "live")
             os.makedirs(live, exist_ok=True)
             with patch("core.paths.LIVE_DIR", live):
-                saved = persist_tau_model(report, note="test")
-                self.assertTrue(saved.get("success"))
-                self.assertEqual(saved.get("schema"), "rem_ridge_v6")
+                blocked = persist_tau_model(report, note="test")
+                gate = report.get("promote_gate") or {}
+                if not gate.get("ok"):
+                    self.assertFalse(blocked.get("success"))
+                    self.assertIn("promote", str(blocked.get("error") or "").lower())
+                    saved = persist_tau_model(report, note="test", force=True)
+                else:
+                    saved = blocked
+                self.assertTrue(saved.get("success"), saved)
+                self.assertEqual(saved.get("schema"), "tau_ridge_v8")
+                self.assertTrue(os.path.isfile(os.path.join(live, "tau_ridge_model.json")))
+                self.assertTrue(os.path.isfile(os.path.join(live, "rem_ridge_model.json")))
                 from quant.research.tau_ridge import load_tau_model, predict_tau_from_features
 
                 doc = load_tau_model()
                 self.assertIsNotNone(doc)
-                self.assertEqual(doc.get("schema"), "rem_ridge_v6")
+                self.assertEqual(doc.get("schema"), "tau_ridge_v8")
                 self.assertEqual(doc.get("tau"), "open")
                 self.assertEqual(doc.get("dual_score_head"), "predicted_score_tau")
                 yhat = predict_tau_from_features(
-                    {"gap_pct": 2.5, "open_gap": 2.5, "sector_gap_breadth": 0.6, "theme_day": 1.0},
+                    {
+                        "gap_pct": 2.5,
+                        "open_gap": 2.5,
+                        "sector_gap_breadth": 0.6,
+                        "theme_day": 1.0,
+                        "yclose_loc": 0.55,
+                        "mom3_pct": 1.2,
+                    },
                     model_doc=doc,
                 )
                 # 缺特征按均值填 z=0，应能出数（不再因部分特征缺失整段 None）
@@ -242,12 +268,48 @@ class TestRemRidgeFit(unittest.TestCase):
                 from quant.research.tau_ridge import explain_tau_prediction
 
                 expl = explain_tau_prediction(
-                    {"gap_pct": 2.5, "open_gap": 2.5, "sector_gap_breadth": 0.6, "theme_day": 1.0},
+                    {
+                        "gap_pct": 2.5,
+                        "open_gap": 2.5,
+                        "sector_gap_breadth": 0.6,
+                        "theme_day": 1.0,
+                        "yclose_loc": 0.55,
+                        "mom3_pct": 1.2,
+                    },
                     model_doc=doc,
                 )
                 self.assertIsNotNone(expl)
                 self.assertIn("terms", expl)
                 self.assertAlmostEqual(float(expl["total"]), float(yhat), places=4)
+
+    def test_tau_promote_gate(self):
+        from core.research.tau_ridge import tau_promote_gate
+
+        bad = tau_promote_gate({"oos": {"sign_hit": 0.5, "n_valid": 40}})
+        self.assertFalse(bad.get("ok"))
+        self.assertTrue(bad.get("blockers"))
+
+        weak_strong = tau_promote_gate(
+            {
+                "oos": {
+                    "sign_hit": 0.58,
+                    "n_valid": 100,
+                    "buckets": {"abs_ge_0_6": {"n": 40, "sign_hit": 0.50}},
+                }
+            }
+        )
+        self.assertFalse(weak_strong.get("ok"))
+
+        ok = tau_promote_gate(
+            {
+                "oos": {
+                    "sign_hit": 0.58,
+                    "n_valid": 100,
+                    "buckets": {"abs_ge_0_6": {"n": 40, "sign_hit": 0.62}},
+                }
+            }
+        )
+        self.assertTrue(ok.get("ok"))
 
     def test_persist_uses_last_report_without_refit(self):
         from quant.research.tau_ridge import (
@@ -258,13 +320,18 @@ class TestRemRidgeFit(unittest.TestCase):
 
         dummy = {
             "success": True,
-            "schema": "rem_ridge_v5",
+            "schema": "tau_ridge_v8",
             "return_model": {
                 "coefficients": {"gap_pct": 0.1},
                 "intercept": 0.0,
                 "y_spec": {"formula": "close[T]/open[T]-1", "tau": "open", "unit": "pct"},
             },
-            "oos": {"ic": 0.09},
+            "oos": {
+                "ic": 0.09,
+                "sign_hit": 0.60,
+                "n_valid": 100,
+                "buckets": {"abs_ge_0_6": {"n": 40, "sign_hit": 0.62}},
+            },
             "sample_count": 10,
             "stock_count": 3,
         }
@@ -276,13 +343,50 @@ class TestRemRidgeFit(unittest.TestCase):
                 last = load_tau_last_report()
                 self.assertIsNotNone(last)
                 saved = persist_tau_model(last, note="from last")
-                self.assertTrue(saved.get("success"))
+                self.assertTrue(saved.get("success"), saved)
                 from quant.research.tau_ridge import load_tau_model
 
                 doc = load_tau_model()
                 self.assertAlmostEqual(
                     float((doc.get("return_model") or {}).get("coefficients")["gap_pct"]),
                     0.1,
+                )
+
+    def test_load_falls_back_to_legacy_rem_filename(self):
+        from quant.research.tau_ridge import load_tau_model, persist_tau_model
+
+        dummy = {
+            "success": True,
+            "schema": "tau_ridge_v8",
+            "return_model": {
+                "coefficients": {"gap_pct": 0.2},
+                "intercept": 0.0,
+                "y_spec": {"formula": "close[T]/open[T]-1", "tau": "open", "unit": "pct"},
+            },
+            "oos": {
+                "ic": 0.09,
+                "sign_hit": 0.60,
+                "n_valid": 100,
+                "buckets": {"abs_ge_0_6": {"n": 40, "sign_hit": 0.62}},
+            },
+            "sample_count": 10,
+            "stock_count": 3,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            live = os.path.join(tmp, "live")
+            os.makedirs(live, exist_ok=True)
+            with patch("core.paths.LIVE_DIR", live):
+                saved = persist_tau_model(dummy, note="legacy-read", force=True)
+                self.assertTrue(saved.get("success"), saved)
+                # 仅保留旧文件名时仍可读
+                os.remove(os.path.join(live, "tau_ridge_model.json"))
+                self.assertTrue(os.path.isfile(os.path.join(live, "rem_ridge_model.json")))
+                doc = load_tau_model()
+                self.assertIsNotNone(doc)
+                self.assertEqual(doc.get("schema"), "tau_ridge_v8")
+                self.assertAlmostEqual(
+                    float((doc.get("return_model") or {}).get("coefficients")["gap_pct"]),
+                    0.2,
                 )
 
 

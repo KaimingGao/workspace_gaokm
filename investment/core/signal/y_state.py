@@ -126,7 +126,7 @@ def _f(v: Any) -> Optional[float]:
 
 
 def _resolve_sigma(item: dict, config: Optional[dict] = None) -> Tuple[Optional[float], str]:
-    """不确定度：nowcast_P → rem OOS residual_var → eod_residual_var。"""
+    """不确定度：nowcast_P → τ OOS residual_var → eod_residual_var。"""
     p = _f(item.get("nowcast_P"))
     if p is not None and p >= 0:
         # P 为方差

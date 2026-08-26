@@ -147,6 +147,36 @@ def gap_vs_sector_value(
         return None
 
 
+def yclose_loc_from_prev(prev_bar: Optional[dict], open_px: float) -> Optional[float]:
+    """昨收相对昨高低的位置 [0,1]；开盘可得，无泄漏。"""
+    if not isinstance(prev_bar, dict):
+        return None
+    try:
+        hi = float(prev_bar.get("high"))
+        lo = float(prev_bar.get("low"))
+        o = float(open_px)
+    except (TypeError, ValueError):
+        return None
+    if hi <= lo or o <= 0:
+        return None
+    return round(max(0.0, min(1.0, (o - lo) / (hi - lo))), 4)
+
+
+def mom3_pct_from_hist(hist: Sequence[dict]) -> Optional[float]:
+    """近 3 日收盘动量 %（窗口末根为 T−1）。"""
+    bars = [b for b in (hist or []) if isinstance(b, dict)]
+    if len(bars) < 4:
+        return None
+    try:
+        c0 = float(bars[-4].get("close"))
+        c1 = float(bars[-1].get("close"))
+    except (TypeError, ValueError):
+        return None
+    if c0 <= 0 or c1 <= 0:
+        return None
+    return round((c1 / c0 - 1.0) * 100.0, 4)
+
+
 def collect_tau_open_panel(
     bars: List[dict],
     *,
@@ -198,6 +228,8 @@ def collect_tau_open_panel(
             "gap_pct": float(gap),
             "open_gap": float(gap),
             "gap_atr": gap_atr_from_hist(gap, window),
+            "yclose_loc": yclose_loc_from_prev(b_prev, o),
+            "mom3_pct": mom3_pct_from_hist(window),
         }
         date_t = str(b_t.get("date") or "")[:10]
         xs.append(row)
@@ -212,6 +244,8 @@ def collect_tau_open_panel(
                 "close": c,
                 "prev_close": pc,
                 "y_rem": float(y),
+                "yclose_loc": row.get("yclose_loc"),
+                "mom3_pct": row.get("mom3_pct"),
             }
         )
     return xs, ys, dates, metas
@@ -267,18 +301,21 @@ def attach_cross_section_breadth(
 
     breadth_by_date: Dict[str, float] = {}
     theme_by_date: Dict[str, int] = {}
+    gaps_by_date: Dict[str, List[float]] = {}
     ref_by_date: Dict[str, Dict[str, Optional[float]]] = {}
     sector_ret_by_date: Dict[str, Optional[float]] = {}
     trigger = float(gap_trigger_pct)
+    from core.research.tau_theme import resolve_theme_day
+
     for d, pairs in by_date.items():
         if not pairs:
             continue
         gaps = [g for _c, g in pairs]
-        hit = sum(1 for g in gaps if g >= trigger)
+        gaps_by_date[d] = gaps
+        # 大缺口广度：|gap|≥trigger（旧实现只计正缺口 → theme 几乎恒 0）
+        hit = sum(1 for g in gaps if abs(float(g)) >= trigger)
         b = hit / len(gaps)
         breadth_by_date[d] = round(b, 4)
-        from core.research.tau_theme import resolve_theme_day
-
         theme_by_date[d] = int(
             resolve_theme_day(
                 sector_breadth=b,
@@ -319,6 +356,17 @@ def attach_cross_section_breadth(
             ref = (ref_by_date.get(d) or {}).get(code_i)
             rel = gap_vs_sector_value(gap_i, ref)
             sret = sector_ret_by_date.get(d)
+            # 日级主题 OR 本票大缺口（与 resolve_theme_day 对齐）
+            th_row = int(
+                resolve_theme_day(
+                    gap_pct=gap_i,
+                    sector_breadth=b,
+                    pool_gaps=gaps_by_date.get(d),
+                    gap_trigger_pct=trigger,
+                )
+            )
+            if th_row:
+                th = 1
             if i < len(xs):
                 xs[i]["sector_gap_breadth"] = b
                 xs[i]["theme_day"] = float(th)

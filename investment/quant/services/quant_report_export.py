@@ -570,6 +570,9 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
 
     ps = report.get("portfolio_backtest_summary") or {}
     if ps.get("success"):
+        cfg = _topk_run_config_line(ps)
+        if cfg:
+            bullets.append(cfg)
         bullets.append(
             f"Top-K 回测（ŷ_EOD）：累计 {ps.get('total_return_pct')}% · "
             f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
@@ -998,26 +1001,100 @@ def _topk_score_axis_note(ps: Optional[dict] = None) -> str:
     return "选股键=ŷ_EOD · 关 τ 闸（日线无可靠分钟 τ；≠ live ŷ_trade）"
 
 
+def _paper_max_positions_for_report() -> Optional[int]:
+    try:
+        from core.strategy import backtest_portfolio_defaults
+
+        v = backtest_portfolio_defaults().get("max_positions")
+        return int(v) if v is not None else None
+    except Exception:  # noqa: BLE001 — 导出展示用，缺省不挡报告
+        logger.debug("paper max_positions fallback failed", exc_info=True)
+        return None
+
+
+def _topk_run_config_line(ps: Optional[dict] = None) -> str:
+    """日报 / 导出：K、持有、ŷ 标签、门槛、成本一行，避免和纸面口径对不上还看不出来。"""
+    params = (ps or {}).get("params") if isinstance(ps, dict) else None
+    if not isinstance(params, dict):
+        params = {}
+    k = params.get("top_k")
+    h = params.get("horizon_days")
+    yhat_h = params.get("yhat_horizon_days")
+    paper_k = params.get("paper_max_positions")
+    if paper_k is None:
+        paper_k = _paper_max_positions_for_report()
+    paper_h = params.get("paper_horizon_days")
+    ymin = params.get("min_predicted_score")
+    n = params.get("stock_count")
+    if n is None and isinstance(ps, dict):
+        n = len(ps.get("loaded_stocks") or []) or None
+    lookback = params.get("lookback")
+    cost = (ps or {}).get("cost_model") or params.get("cost_model") or params.get("cost_mode")
+    apply_costs = params.get("apply_costs")
+    if apply_costs is None and cost:
+        apply_costs = str(cost) not in ("zero", "off")
+
+    def _as_int(v: Any) -> Optional[int]:
+        try:
+            return int(v)
+        except (TypeError, ValueError):
+            return None
+
+    k_i, paper_k_i = _as_int(k), _as_int(paper_k)
+    h_i, paper_h_i, yhat_i = _as_int(h), _as_int(paper_h), _as_int(yhat_h)
+    k_bit = f"K={k if k is not None else '—'}"
+    if k_i is not None and paper_k_i is not None and k_i != paper_k_i:
+        k_bit += f"（≠纸面 {paper_k_i}）"
+    elif k_i is not None and paper_k_i is not None:
+        k_bit += "（纸面）"
+
+    h_bit = f"持有 h={h if h is not None else '—'}日"
+    if h_i is not None and paper_h_i is not None and h_i != paper_h_i:
+        h_bit += f"（≠纸面 {paper_h_i}）"
+
+    bits = [k_bit, h_bit]
+    if yhat_i is not None:
+        bits.append(f"ŷ标签={yhat_i}日")
+    if ymin is not None:
+        bits.append(f"ŷ≥{ymin}%")
+    if apply_costs is True:
+        bits.append(f"成本={cost or '开'}")
+    elif apply_costs is False:
+        bits.append("成本=关")
+    elif cost:
+        bits.append(f"成本={cost}")
+    if lookback is not None:
+        bits.append(f"lookback={lookback}")
+    if n:
+        bits.append(f"池{n}")
+    return "配置：" + " · ".join(bits)
+
+
 def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
     """R4.4 · 与回溯页块序对齐的 MD 行（KPI · 成本 · 归因 · PIT · OOS · regime · 信号成交）。"""
+    m = ps.get("metrics") or {}
+    total_ret = ps.get("total_return_pct")
+    if total_ret is None:
+        total_ret = m.get("total_return_pct")
+    win_rate = ps.get("win_rate_pct")
+    if win_rate is None:
+        win_rate = m.get("win_rate_pct")
+    max_dd = ps.get("max_drawdown_pct")
+    if max_dd is None:
+        max_dd = m.get("max_drawdown_pct")
+    trade_n = ps.get("trade_count")
+    if trade_n is None:
+        trade_n = m.get("trade_count")
     lines: List[str] = [
-        f"- 累计收益：**{ps.get('total_return_pct')}%**",
-        f"- 胜率：{ps.get('win_rate_pct')}%",
-        f"- 最大回撤：{ps.get('max_drawdown_pct')}%",
-        f"- 交易次数：{ps.get('trade_count')}",
+        f"- {_topk_run_config_line(ps)}",
+        f"- 累计收益：**{total_ret}%**",
+        f"- 胜率：{win_rate}%",
+        f"- 最大回撤：{max_dd}%",
+        f"- 交易次数：{trade_n}",
         f"- 分数口径：{_topk_score_axis_note(ps)}",
         f"- 成本：{ps.get('cost_model') or (ps.get('params') or {}).get('cost_mode') or '—'}",
-        f"- TopK / 持有期：{(ps.get('params') or {}).get('top_k')} / {(ps.get('params') or {}).get('horizon_days')} 日",
         f"- 标的：{', '.join(ps.get('loaded_stocks') or [])}",
     ]
-    m = ps.get("metrics") or {}
-    if m.get("total_return_pct") is not None and ps.get("total_return_pct") is None:
-        lines[0] = f"- 累计收益：**{m.get('total_return_pct')}%**"
-    if m.get("win_rate_pct") is not None and ps.get("win_rate_pct") is None:
-        lines[1] = f"- 胜率：{m.get('win_rate_pct')}%"
-    if m.get("max_drawdown_pct") is not None and ps.get("max_drawdown_pct") is None:
-        lines[2] = f"- 最大回撤：{m.get('max_drawdown_pct')}%"
-
     cc = ps.get("cost_compare") or {}
     if cc.get("ok"):
         lines.append(

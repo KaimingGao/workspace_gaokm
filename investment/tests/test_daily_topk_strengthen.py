@@ -48,12 +48,34 @@ class TestDailyTopkDefaults(unittest.TestCase):
 
         d = backtest_portfolio_defaults("short")
         got = resolve_daily_topk_backtest_kwargs()
-        self.assertEqual(got["top_k"], d["top_k"])
+        self.assertEqual(got["top_k"], d["max_positions"])
+        self.assertNotEqual(d["top_k"], d["max_positions"])
         self.assertEqual(got["horizon_days"], d["horizon_days"])
         self.assertTrue(got["apply_costs"])
         self.assertEqual(got["weight_mode"], d["weight_mode"])
         self.assertEqual(got["yhat_horizon_days"], get_scoring_horizon_days())
         self.assertEqual(got["paper_horizon_days"], d["horizon_days"])
+        self.assertEqual(got["paper_max_positions"], d["max_positions"])
+        self.assertEqual(got["top_k"], got["paper_max_positions"])
+        self.assertEqual(got["lookback"], 30)
+
+    def test_daily_bt_option_defaults_ui_not_paper(self):
+        from quant.research.portfolio_data import (
+            DAILY_BT_UI_HORIZON_DAYS,
+            DAILY_BT_UI_LOOKBACK,
+            DAILY_BT_UI_TOP_K,
+            daily_bt_option_defaults,
+        )
+
+        d = resolve_daily_topk_backtest_kwargs()
+        opts = daily_bt_option_defaults()
+        self.assertEqual(opts["top_k"], DAILY_BT_UI_TOP_K)
+        self.assertEqual(opts["horizon_days"], DAILY_BT_UI_HORIZON_DAYS)
+        self.assertEqual(opts["lookback"], DAILY_BT_UI_LOOKBACK)
+        self.assertEqual(opts["paper_max_positions"], d["paper_max_positions"])
+        self.assertEqual(opts["paper_horizon_days"], d["paper_horizon_days"])
+        self.assertNotEqual(opts["top_k"], opts["paper_max_positions"])
+        self.assertTrue(opts["apply_costs"])
 
     def test_explicit_overrides(self):
         got = resolve_daily_topk_backtest_kwargs(
@@ -171,9 +193,35 @@ class TestTopkParamsDisclose(unittest.TestCase):
         self.assertEqual(out.get("cost_model"), "simple_cn")
         from core.strategy import backtest_portfolio_defaults
 
-        self.assertEqual(int(params.get("top_k") or 0), backtest_portfolio_defaults()["top_k"])
+        self.assertEqual(
+            int(params.get("top_k") or 0),
+            backtest_portfolio_defaults()["max_positions"],
+        )
         self.assertEqual(params.get("horizon_days"), params.get("paper_horizon_days"))
+        self.assertEqual(params.get("paper_max_positions"), backtest_portfolio_defaults()["max_positions"])
+        self.assertIn("lookback", params)
         self.assertIn("research_next", out)
+        self.assertIn("纸面 max_positions", out.get("note") or "")
+        self.assertNotIn("≠纸面", out.get("note") or "")
+
+    def test_override_k_does_not_claim_paper(self):
+        stock_bars = {
+            "600519": _aligned_bars("a", n=50),
+            "600036": _aligned_bars("b", n=50, step=0.35),
+        }
+        with patch(
+            "quant.research.portfolio_data.load_portfolio_stock_bars",
+            return_value=(stock_bars, [], {}),
+        ):
+            out = summarize_portfolio_backtest(
+                codes=["600519", "600036"], top_k=3, horizon_days=1
+            )
+        self.assertTrue(out.get("success"), out.get("error"))
+        self.assertEqual(int((out.get("params") or {}).get("top_k") or 0), 3)
+        note = out.get("note") or ""
+        self.assertIn("K=3", note)
+        self.assertIn("≠纸面 max_positions=", note)
+        self.assertIn("≠纸面持有", note)
 
 
 if __name__ == "__main__":

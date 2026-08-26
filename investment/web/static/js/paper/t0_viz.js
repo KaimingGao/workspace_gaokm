@@ -1,7 +1,7 @@
 /** 做T回测可视化（canvas + CSS，无外部图表库）。 */
 
 import { paperMetricClass } from "./fmt.js";
-import { stockCellHtml } from "./t0_table.js";
+import { SKIP_CAT_TIP, stockCellHtml } from "./t0_table.js";
 
 const THEME = {
   actual: "#2563eb",
@@ -32,12 +32,18 @@ const SKIP_CAT_COLORS = {
   missing_minute: "#94a3b8",
   missing_scores: "#94a3b8",
   y_tau_flat: "#f59e0b",
+  y_tau_weak: "#fbbf24",
+  y_path_flat: "#d97706",
+  y_path_disagree: "#dc2626",
+  gap_tier_skip: "#ea580c",
+  path_abandon: "#a8a29e",
   y_trade_weak: "#fb923c",
   trade_tau_sign: "#e11d48",
   conflict: "#ef4444",
   amplitude: "#64748b",
   directional_amplitude: "#78716c",
   lot_size: "#a78bfa",
+  tplus1: "#c084fc",
   path: "#6366f1",
   trigger_miss: "#cbd5e1",
   other: "#d1d5db",
@@ -45,6 +51,12 @@ const SKIP_CAT_COLORS = {
 
 function skipCatColor(id) {
   return SKIP_CAT_COLORS[id] || "#94a3b8";
+}
+
+function skipCatTip(id, label) {
+  const tip = SKIP_CAT_TIP[id];
+  if (tip) return tip;
+  return label ? `${label}：未单独标注口径。` : "未知跳过类型。";
 }
 
 const FONT = '10px var(--font-mono, ui-monospace, monospace)';
@@ -492,7 +504,7 @@ function drawYtauScatter(canvas, points, threshold = 0.25) {
   return { nTraded, nSkip, nSkipNeg, nLong, nRev, threshold };
 }
 
-/** 跳过构成 — canvas 环形图 */
+/** 跳过构成 — canvas 环形图；返回扇区几何供悬停 hit-test */
 function drawSkipDonut(canvas, categories) {
   if (!canvas || !categories || !categories.length) return null;
   const { w, h } = getChartSize(canvas);
@@ -506,19 +518,32 @@ function drawSkipDonut(canvas, categories) {
   const outerR = Math.min(w, h) / 2 - pad;
   const innerR = outerR * 0.58;
   const gap = 0.02;
+  const segments = [];
 
   let start = -Math.PI / 2;
   categories.forEach((c) => {
     const frac = Number(c.count || 0) / total;
     if (frac <= 0) return;
-    const sweep = frac * Math.PI * 2 - gap;
-    const color = c.color || "#94a3b8";
+    const sweep = Math.max(0, frac * Math.PI * 2 - gap);
+    const a0 = start + gap / 2;
+    const a1 = start + sweep;
+    const color = c.color || skipCatColor(c.id);
     ctx.beginPath();
-    ctx.arc(cx, cy, outerR, start + gap / 2, start + sweep);
-    ctx.arc(cx, cy, innerR, start + sweep, start + gap / 2, true);
+    ctx.arc(cx, cy, outerR, a0, a1);
+    ctx.arc(cx, cy, innerR, a1, a0, true);
     ctx.closePath();
     ctx.fillStyle = color;
     ctx.fill();
+    segments.push({
+      id: c.id,
+      label: c.label || c.id,
+      count: Number(c.count || 0),
+      pct: c.pct != null ? c.pct : Math.round(frac * 1000) / 10,
+      color,
+      tip: skipCatTip(c.id, c.label),
+      a0,
+      a1,
+    });
     start += frac * Math.PI * 2;
   });
 
@@ -532,7 +557,84 @@ function drawSkipDonut(canvas, categories) {
   ctx.fillText("跳过", cx, cy + 10);
 
   const top = categories[0];
-  return { total, top };
+  return { total, top, cx, cy, outerR, innerR, segments };
+}
+
+/** 将 canvas 弧度归一到 [0, 2π)，以 -π/2（12 点）为 0 */
+function skipDonutNormAngle(a) {
+  let x = a + Math.PI / 2;
+  x = ((x % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2);
+  return x;
+}
+
+function wireSkipDonutHover(canvas, meta) {
+  if (!canvas || !meta || !meta.segments || !meta.segments.length) return;
+  const box = canvas.closest(".paper-t0-viz-chart-box") || canvas.parentElement;
+  let tipEl = box && box.querySelector('[data-role="skip-hover-tip"]');
+  if (box && !tipEl) {
+    tipEl = document.createElement("div");
+    tipEl.className = "paper-t0-viz-skip-hover-tip";
+    tipEl.setAttribute("data-role", "skip-hover-tip");
+    tipEl.hidden = true;
+    box.appendChild(tipEl);
+  }
+  const size = getChartSize(canvas);
+  meta._w = size.w;
+  meta._h = size.h;
+
+  const show = (seg, ev) => {
+    if (!tipEl) {
+      canvas.title = seg
+        ? `${seg.label} ${seg.count}（${seg.pct}%）\n${seg.tip}`
+        : "";
+      return;
+    }
+    if (!seg) {
+      tipEl.hidden = true;
+      tipEl.textContent = "";
+      canvas.style.cursor = "default";
+      if (box) box.classList.remove("is-skip-tip");
+      return;
+    }
+    tipEl.hidden = false;
+    if (box) box.classList.add("is-skip-tip");
+    tipEl.innerHTML =
+      `<strong>${esc(seg.label)}</strong>` +
+      `<span class="paper-t0-viz-skip-hover-meta">${esc(String(seg.count))} · ${esc(
+        String(seg.pct)
+      )}%</span>` +
+      `<p>${esc(seg.tip)}</p>`;
+    canvas.style.cursor = "pointer";
+    if (ev && box) {
+      const br = box.getBoundingClientRect();
+      const x = Math.min(Math.max(8, ev.clientX - br.left + 12), Math.max(8, br.width - 180));
+      const y = Math.min(Math.max(8, ev.clientY - br.top + 12), Math.max(8, br.height - 72));
+      tipEl.style.left = `${x}px`;
+      tipEl.style.top = `${y}px`;
+    }
+  };
+
+  canvas.onmousemove = (ev) => {
+    const rect = canvas.getBoundingClientRect();
+    const lx = ((ev.clientX - rect.left) / Math.max(1, rect.width)) * meta._w;
+    const ly = ((ev.clientY - rect.top) / Math.max(1, rect.height)) * meta._h;
+    const dx = lx - meta.cx;
+    const dy = ly - meta.cy;
+    const r = Math.sqrt(dx * dx + dy * dy);
+    if (r < meta.innerR || r > meta.outerR) {
+      show(null);
+      return;
+    }
+    const t = skipDonutNormAngle(Math.atan2(dy, dx));
+    const seg = meta.segments.find((s) => {
+      const from = skipDonutNormAngle(s.a0);
+      const to = skipDonutNormAngle(s.a1);
+      if (to >= from) return t >= from && t <= to;
+      return t >= from || t <= to;
+    });
+    show(seg || null, ev);
+  };
+  canvas.onmouseleave = () => show(null);
 }
 
 /** 方向 PnL — 双向水平柱 */
@@ -651,11 +753,15 @@ function skipLegendHtml(categories, total) {
         const cnt = Number(c.count || 0);
         const pct = c.pct != null ? c.pct : Math.round((cnt / total) * 1000) / 10;
         const barW = Math.round((cnt / max) * 100);
+        const tip = skipCatTip(c.id, c.label);
+        const title = `${c.label || c.id} · ${cnt}（${pct}%）\n${tip}`;
         return (
-          `<div class="paper-t0-viz-skip-row">` +
-          `<span class="paper-t0-viz-dot" style="background:${esc(c.color || "#94a3b8")}"></span>` +
+          `<div class="paper-t0-viz-skip-row" title="${esc(title)}" tabindex="0">` +
+          `<span class="paper-t0-viz-dot" style="background:${esc(c.color || skipCatColor(c.id))}"></span>` +
           `<span class="paper-t0-viz-skip-label">${esc(c.label)}</span>` +
-          `<span class="paper-t0-viz-skip-bar"><i style="width:${barW}%;background:${esc(c.color || "#94a3b8")}"></i></span>` +
+          `<span class="paper-t0-viz-skip-bar"><i style="width:${barW}%;background:${esc(
+            c.color || skipCatColor(c.id)
+          )}"></i></span>` +
           `<span class="paper-t0-viz-skip-val">${cnt} <em>${pct}%</em></span>` +
           `</div>`
         );
@@ -703,9 +809,10 @@ function skipReasonCellHtml(r) {
           : skipDays
             ? Math.round((Number(c.count || 0) / skipDays) * 1000) / 10
             : null;
-      return `${c.label} ${c.count ?? 0}${pct != null ? ` (${pct}%)` : ""}`;
+      const def = skipCatTip(c.id, c.label);
+      return `${c.label} ${c.count ?? 0}${pct != null ? ` (${pct}%)` : ""} — ${def}`;
     })
-    .join(" · ");
+    .join("\n");
   const stack = breakdown
     .map((c) => {
       const w =
@@ -950,7 +1057,7 @@ export function renderT0Viz(host, data) {
     cards.push(
       vizCard(
         "跳过构成",
-        `合计 ${total} 次`,
+        `合计 ${total} 次 · 悬停扇区/图例看口径`,
         chartCanvas("skip"),
         skipLegendHtml(viz.skip_categories, total),
         legendChips([{ color: THEME.otherSkip, label: "按跳过原因" }])
@@ -1059,7 +1166,10 @@ export function renderT0Viz(host, data) {
     }
 
     const skip = host.querySelector('canvas[data-viz="skip"]');
-    if (skip) drawSkipDonut(skip, viz.skip_categories);
+    if (skip) {
+      const meta = drawSkipDonut(skip, viz.skip_categories);
+      wireSkipDonutHover(skip, meta);
+    }
 
     const dir = host.querySelector('canvas[data-viz="dirpnl"]');
     if (dir) {

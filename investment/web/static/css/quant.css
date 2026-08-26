@@ -8700,6 +8700,37 @@ body[data-page="quant"] section.dashboard-section.quant-section:last-child {
   gap: 8px 12px;
 }
 
+.quant-page .quant-daily-bt-band {
+  margin: 0 0 10px;
+  overflow-x: auto;
+}
+
+.quant-page .quant-daily-bt-band .quant-pro-params-inline {
+  flex-wrap: nowrap;
+  align-items: center;
+  width: max-content;
+  min-width: 100%;
+}
+
+.quant-page .quant-daily-bt-band .quant-pro-field {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.quant-page .quant-daily-bt-band .quant-pro-field select {
+  width: auto;
+  min-width: 3.25rem;
+}
+
+.quant-page .quant-daily-bt-hint {
+  margin: 0;
+  max-width: none;
+  white-space: nowrap;
+  line-height: 26px;
+  color: var(--ink-3);
+}
+
 .quant-page .quant-pro-params-inline > #quant-ols-clusters-run {
   margin-left: auto;
 }
@@ -9933,6 +9964,11 @@ body[data-page="quant"] .quant-page .dialog-btn {
   min-height: 28px;
   padding: 4px 12px !important;
   line-height: 1.25;
+}
+
+body[data-page="quant"] .quant-page .dialog-btn.is-gate-warn {
+  border-color: color-mix(in srgb, var(--warn, #b45309) 55%, var(--line)) !important;
+  color: var(--warn, #b45309) !important;
 }
 
 body[data-page="quant"] .quant-page .quant-oos-band {

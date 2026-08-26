@@ -474,22 +474,36 @@ function wireMarketContextRefresh(host, btnEl) {
   });
 }
 
-function renderSectorHeatmap(sectors) {
+function renderSectorHeatmap(payload) {
   const grid = document.getElementById("dashboard-sector-grid");
   const sub = document.getElementById("dashboard-sector-sub");
   if (!grid) return;
-  if (!sectors || !sectors.length) {
+  const sectors = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.sectors)
+      ? payload.sectors
+      : [];
+  if (!sectors.length) {
     grid.innerHTML = `<div class="dashboard-empty">暂无板块数据</div>`;
-    if (sub) sub.textContent = "持仓行业";
+    if (sub) sub.textContent = "持仓·相对昨收";
     return;
   }
-  if (sub) sub.textContent = `${sectors.length} 个板块`;
+  const quoteHits = Number(
+    (payload && !Array.isArray(payload) && payload.quote_hits) ??
+      sectors.reduce((n, s) => n + Number(s.quoted || 0), 0)
+  );
+  if (sub) {
+    sub.textContent =
+      quoteHits > 0
+        ? `${sectors.length} 板块 · 相对昨收`
+        : `${sectors.length} 板块 · 行情未回`;
+  }
   grid.innerHTML = sectors
     .map((s) => {
       const pct = s.change_pct ?? 0;
-      const cls = pct > 0 ? "is-up" : pct < 0 ? "is-down" : "";
+      const cls = pct > 0.01 ? "is-up" : pct < -0.01 ? "is-down" : "";
       const upRatio = s.up_ratio || 0;
-      const title = `${s.name}\n涨跌: ${fmtPct(pct)}\n市值: ${fmtMoney(s.value)}\n个股: ${s.count}\n上涨比例: ${upRatio}%`;
+      const title = `${s.name}\n日涨跌(市值加权): ${fmtPct(pct)}\n市值: ${fmtMoney(s.value)}\n个股: ${s.count}\n上涨: ${upRatio}%`;
       return `
       <div class="dashboard-sector-cell ${cls}" data-sector="${escapeHtml(s.name)}" title="${escapeHtml(title)}">
         <span class="dashboard-sector-name">${escapeHtml(s.name)}</span>
@@ -1147,7 +1161,7 @@ async function loadDashboardData(range = "30", showBenchmark = readBenchmarkFlag
     }
 
     try {
-      renderSectorHeatmap(sectors?.sectors || []);
+      renderSectorHeatmap(sectors || { sectors: [] });
     } catch (e) {
       console.warn("[Dashboard] sector", e);
     }

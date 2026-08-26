@@ -17,26 +17,33 @@ class TestWebQuantJsGuards(unittest.TestCase):
 
     def test_quant_js_neutral_compare_and_export(self):
         js = self._read("web", "static", "js", "quant.js")
-        self.assertIn("function renderNeutralCompareTable", js)
+        export_js = self._read("web", "static", "js", "quant", "domain_export.js")
         self.assertIn("QUANT_EXPORT_PRESETS", js)
         self.assertIn('previewQuantExport("markdown")', js)
         self.assertIn("runQuantInterpret", js)
         self.assertIn("forceOffline: true", js)
-        self.assertIn("offline: useOffline", js)
-        self.assertIn("llmAvailable", js)
-        self.assertIn("/api/quant/factor-ols", js)
-        self.assertIn("renderFactorOls", js)
-        self.assertIn("ridge_lambda", js)
-        self.assertIn("readRidgeLambda", js)
-        self.assertIn("readOlsCode", js)
-        self.assertIn("populateOlsCodeOptions", js)
-        self.assertIn("researchGridHtml", js)
-        self.assertIn("watching-react-grid quant-research-grid", js)
-        self.assertIn("score_raw", js)
+        self.assertIn("llmAvailable", export_js)
+        self.assertIn("offline: useOffline", export_js)
+        self.assertIn("readDailyBtOverrides", export_js)
+        self.assertIn("quant_daily_bt_opts_v3", export_js)
+        self.assertIn("quant-daily-top-k", export_js)
+
+    def test_daily_bt_option_js(self):
+        export_js = self._read("web", "static", "js", "quant", "domain_export.js")
+        self.assertIn("readDailyBtOverrides", export_js)
+        self.assertIn("{ preset, ...readDailyBtOverrides() }", export_js)
 
     def test_partials_have_key_controls(self):
         panel = self._read("web", "static", "partials", "quant_panel.html")
         self.assertIn('id="quant-daily-fold"', panel)
+        self.assertIn('id="quant-daily-top-k"', panel)
+        self.assertIn('id="quant-daily-horizon"', panel)
+        self.assertIn('id="quant-daily-lookback"', panel)
+        self.assertIn('<option value="30" selected>30</option>', panel)
+        self.assertIn('<option value="60">60</option>', panel)
+        self.assertIn('<option value="90">90</option>', panel)
+        self.assertIn('<option value="3" selected>3</option>', panel)
+        self.assertIn('<option value="1" selected>1日</option>', panel)
         self.assertIn("quant-interpret-offline", panel)
         self.assertIn("规则解读", panel)
         self.assertIn("quant-interpret-neutral", panel)
@@ -61,6 +68,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-neutral-compare-table", replay)
         self.assertIn('id="replay-kpi-row"', replay)
         self.assertIn('id="replay-kpi-return"', replay)
+
+    def test_t0_trades_fullscreen_toggle(self):
+        table_js = self._read("web", "static", "js", "paper", "t0_table.js")
+        css = self._read("web", "static", "css", "follow.css")
+        self.assertIn("data-trades-fs-toggle", table_js)
+        self.assertIn("paper-t0-trades-panel", table_js)
+        self.assertIn("bindT0TradesFullscreen", table_js)
+        self.assertIn(".paper-t0-trades-panel.is-fs", css)
 
     def test_interpret_request_has_offline(self):
         try:

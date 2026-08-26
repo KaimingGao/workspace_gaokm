@@ -638,7 +638,7 @@ def align_rem_yhat_to_clock(
     ret_open_to_tau: Optional[float] = None,
     clock: Any = "open",
 ) -> Optional[float]:
-    """把 rem ŷ 映到当前时钟的剩余窗，与 ŷ_EOD_rem / y_spec_tau 对齐。
+    """把 ŷ_τ 映到当前时钟的剩余窗，与 ŷ_EOD_rem / y_spec_tau 对齐。
 
     OC 头在 09:45/14:00：用 open→τ 已实现做几何剩余映射。
     已是 τ→close 的模型：不再映射，避免双重扣减。

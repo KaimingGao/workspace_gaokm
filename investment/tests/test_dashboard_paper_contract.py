@@ -88,6 +88,59 @@ class TestDashboardPaperContract(unittest.TestCase):
                 nav = qd.dashboard_nav_curve(range="all", benchmark="none")
                 self.assertEqual(nav["count"], 2)
 
+    def test_sector_heatmap_uses_day_change(self):
+        from web.routers import quant_dashboard as qd
+
+        paper = {
+            "cash": 10000,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 1000,
+                    "sector": "消费",
+                },
+                {
+                    "stock_code": "601318",
+                    "stock_name": "平安",
+                    "shares": 200,
+                    "cost": 50,
+                    "sector": "金融",
+                },
+            ],
+        }
+        live = {
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "market_value": 110000,
+                    "change_pct": 1.5,
+                    "price": 1100,
+                },
+                {
+                    "stock_code": "601318",
+                    "market_value": 9800,
+                    "change_pct": -0.8,
+                    "price": 49,
+                },
+            ]
+        }
+        with patch(
+            "web.dashboard.portfolio_views._load_raw_paper", return_value=paper
+        ), patch(
+            "web.dashboard.portfolio_views._live_holdings_by_code",
+            return_value={h["stock_code"]: h for h in live["holdings"]},
+        ):
+            out = qd.dashboard_sector_heatmap()
+        self.assertTrue(out.get("ok"))
+        self.assertEqual(out.get("basis"), "day_change")
+        by_name = {s["name"]: s for s in out["sectors"]}
+        self.assertAlmostEqual(by_name["消费"]["change_pct"], 1.5, places=2)
+        self.assertAlmostEqual(by_name["金融"]["change_pct"], -0.8, places=2)
+        self.assertGreater(by_name["消费"]["up_count"], 0)
+        self.assertGreater(by_name["金融"]["down_count"], 0)
+
     def test_signals_from_operation_log_meta(self):
         from web.routers import quant_dashboard as qd
 

@@ -20,7 +20,7 @@
     "execution_mode": "next_open",
     "t0": {
       "enabled": false,
-      "t0_ratio": 0.4,
+      "t0_ratio": 1.0,
       "sell_trigger_pct": 2.0,
       "buy_trigger_pct": 1.5,
       "must_cover_same_day": false,

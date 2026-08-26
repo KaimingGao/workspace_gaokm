@@ -157,10 +157,56 @@ class TestP56DailyPresetNeutralCompare(unittest.TestCase):
             build_mock.assert_called_once()
             kwargs = build_mock.call_args.kwargs
             self.assertTrue(kwargs.get("include_portfolio_neutral_compare"))
+            self.assertIsNone(kwargs.get("top_k"))
+            self.assertIsNone(kwargs.get("horizon_days"))
+            self.assertIsNone(kwargs.get("lookback"))
             step = next(s for s in out["steps"] if s["name"] == "quant_report")
             self.assertTrue(step.get("portfolio_neutral_compare"))
             self.assertTrue(step.get("neutral_compare_ok"))
             self.assertEqual(step.get("neutral_compare_winner"), "neutralized")
+
+    def test_daily_service_passes_bt_overrides_to_build(self):
+        mock_report = {"factor_ic": {"sample_count": 1}}
+        with tempfile.TemporaryDirectory() as tmp:
+            svc = DailyRunService(last_run_path=os.path.join(tmp, "daily.json"))
+            with patch(
+                "quant.services.quant_service.QuantService.build_daily_report",
+                return_value=mock_report,
+            ) as build_mock, patch.object(
+                svc,
+                "_save_last_run",
+            ), patch(
+                "quant.services.quant_service.QuantService.save_daily_report",
+                return_value="/tmp/quant_daily.json",
+            ), patch(
+                "quant.services.quant_service.QuantService.save_report_exports",
+                return_value={"success": True, "paths": {}},
+            ), patch(
+                "quant.services.quant_service.QuantService.refresh_watching",
+                return_value={"refresh": {"count": 2}},
+            ), patch(
+                "quant.services.quant_service.QuantService.run_cross_section",
+                return_value={"success": True, "ranked_count": 2},
+            ), patch(
+                "core.watching.health.check_watching_health",
+                return_value={"success": True, "warnings": [], "issues": []},
+            ):
+                out = svc.run(
+                    preset="quant",
+                    top_k=3,
+                    horizon_days=1,
+                    lookback=120,
+                )
+
+            self.assertTrue(out["ok"])
+            kwargs = build_mock.call_args.kwargs
+            self.assertEqual(kwargs.get("top_k"), 3)
+            self.assertEqual(kwargs.get("horizon_days"), 1)
+            self.assertEqual(kwargs.get("lookback"), 120)
+            step = next(s for s in out["steps"] if s["name"] == "quant_report")
+            self.assertEqual(step.get("top_k"), 3)
+            self.assertEqual(step.get("horizon_days"), 1)
+            self.assertEqual(step.get("lookback"), 120)
 
     def test_daily_service_can_disable_neutral_compare(self):
         mock_report = {"factor_ic": {"sample_count": 1}}
@@ -263,11 +309,12 @@ class TestP59WebPresetFlags(unittest.TestCase):
         self.assertIn("quant-ops-preset-flags", html)
 
     def test_app_js_renders_preset_flags(self):
-        path = os.path.join(ROOT, "web", "static", "js", "quant.js")
-        with open(path, encoding="utf-8") as f:
-            js = f.read()
-        self.assertIn("renderPresetFlags", js)
-        self.assertIn("portfolio_neutral_compare", js)
+        export_js = os.path.join(ROOT, "web", "static", "js", "quant", "domain_export.js")
+        quant_js = os.path.join(ROOT, "web", "static", "js", "quant.js")
+        with open(export_js, encoding="utf-8") as f:
+            self.assertIn("renderPresetFlags", f.read())
+        with open(quant_js, encoding="utf-8") as f:
+            self.assertIn("portfolio_neutral_compare", f.read())
 
 # --- p60_exp.py::TestNeutralExportFromSkill ---
 class TestNeutralExportFromSkill(unittest.TestCase):

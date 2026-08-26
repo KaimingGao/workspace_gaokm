@@ -39,6 +39,8 @@ _TAU_FEATURE_KEYS = (
     "theme_day",
     "gap_atr",
     "gap_vs_sector",
+    "yclose_loc",
+    "mom3_pct",
     "ret_open_to_tau",
     "sector_ret_to_tau",
 )
@@ -49,6 +51,8 @@ _TAU_CORE_Z_KEYS = (
     "theme_day",
     "gap_atr",
     "gap_vs_sector",
+    "yclose_loc",
+    "mom3_pct",
 )
 
 
@@ -450,6 +454,20 @@ def attach_dual_score_pit(
                     asof = str((b[-1] or {}).get("date") or "")[:10]
         hist = hist_bars_pit(b, asof_date=asof)
         feats["gap_atr"] = gap_atr_from_hist(gap_v, hist)
+        try:
+            from core.research.tau_panel import mom3_pct_from_hist, yclose_loc_from_prev
+
+            open_px = None
+            if isinstance(q, dict):
+                open_px = q.get("open")
+                if open_px is None:
+                    open_px = q.get("price_raw")
+            prev = hist[-1] if hist else None
+            if open_px is not None:
+                feats["yclose_loc"] = yclose_loc_from_prev(prev, float(open_px))
+            feats["mom3_pct"] = mom3_pct_from_hist(hist)
+        except Exception:  # noqa: BLE001
+            logger.debug("tau yclose/mom3 fill failed", exc_info=True)
         ref = sector_gap_median
         if ref is None and signal_item.get("_sector_gap_median") is not None:
             try:
@@ -699,7 +717,15 @@ def ensure_formula_terms_tau(item: Optional[dict]) -> Optional[Dict[str, Any]]:
     if gap is not None and gap != "":
         feats["gap_pct"] = gap
         feats.setdefault("open_gap", gap)
-    for k in ("sector_gap_breadth", "theme_day", "gap_atr", "gap_vs_sector", "ret_open_to_tau"):
+    for k in (
+        "sector_gap_breadth",
+        "theme_day",
+        "gap_atr",
+        "gap_vs_sector",
+        "yclose_loc",
+        "mom3_pct",
+        "ret_open_to_tau",
+    ):
         v = item.get(k)
         if v is not None and v != "":
             feats.setdefault(k, v)

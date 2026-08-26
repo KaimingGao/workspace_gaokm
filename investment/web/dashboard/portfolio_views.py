@@ -18,8 +18,29 @@ from web.dashboard.paper_helpers import (
     _load_raw_paper,
 )
 
+def _live_holdings_by_code(paper: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    """盯市持仓（相对昨收 change_pct + 现价市值）。行情失败时返回 {}。"""
+    if not paper:
+        return {}
+    try:
+        from core.paper import mark_to_market
+
+        summary = mark_to_market(paper)
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in portfolio_views.py", exc_info=True)
+        return {}
+    out: Dict[str, Dict[str, Any]] = {}
+    for row in summary.get("holdings") or []:
+        if not isinstance(row, dict):
+            continue
+        code = str(row.get("stock_code") or row.get("code") or "").strip()
+        if code:
+            out[code] = row
+    return out
+
+
 def _build_sector_heatmap() -> Dict[str, Any]:
-    """板块热力图。优先用持仓聚合，退化到行业默认列表。含市值/涨跌/个股数。"""
+    """板块热力图：持仓按行业聚合，涨跌=相对昨收（盯市），市值加权。"""
     try:
         paper = _load_raw_paper()
         holdings = _holdings_from_paper(paper)
@@ -32,68 +53,117 @@ def _build_sector_heatmap() -> Dict[str, Any]:
             logger.debug("catch except Exception: in quant_dashboard.py", exc_info=True)
             smap = {}
 
+        live_by_code = _live_holdings_by_code(paper)
+        quote_hits = 0
+
         for h in holdings:
+            code = str(h.get("stock_code") or h.get("code") or "").strip()
+            live = live_by_code.get(code) if code else None
             sector = _holding_sector(h, smap)
-            value = _holding_market_value(h)
-            cost = h.get("cost_value")
-            if cost is None:
+            if live is not None:
                 try:
-                    shares = float(h.get("shares") or 0)
-                    unit_cost = float(h.get("cost") or 0)
-                    cost = shares * unit_cost
+                    value = float(live.get("market_value") or 0)
                 except (TypeError, ValueError):
-                    cost = value
-            try:
-                cost = float(cost or 0)
-            except (TypeError, ValueError):
-                cost = 0.0
-            change_pct = ((value / cost - 1) * 100) if cost and cost > 0 else 0
-            volume = h.get("volume") or h.get("turnover") or 0
+                    value = 0.0
+                if value <= 0:
+                    value = _holding_market_value(h)
+                chg_raw = live.get("change_pct")
+                if chg_raw is None:
+                    # 无日涨跌时不回退成本盈亏（会把热力刷成全 0 或失真）
+                    change_pct = None
+                else:
+                    try:
+                        change_pct = float(chg_raw)
+                        quote_hits += 1
+                    except (TypeError, ValueError):
+                        change_pct = None
+            else:
+                value = _holding_market_value(h)
+                change_pct = None
+
+            volume = 0.0
+            for key in ("volume", "turnover"):
+                src = live if live is not None else h
+                if src.get(key) is not None:
+                    try:
+                        volume = float(src.get(key) or 0)
+                        break
+                    except (TypeError, ValueError):
+                        volume = 0.0
+
             if sector not in sectors_map:
-                sectors_map[sector] = {"name": sector, "value": 0, "cost": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0}
-            sectors_map[sector]["value"] += value
-            sectors_map[sector]["cost"] += cost
-            sectors_map[sector]["count"] += 1
-            sectors_map[sector]["volume"] += volume
-            if change_pct > 0:
-                sectors_map[sector]["up_count"] += 1
-            elif change_pct < 0:
-                sectors_map[sector]["down_count"] += 1
+                sectors_map[sector] = {
+                    "name": sector,
+                    "value": 0.0,
+                    "chg_weight": 0.0,
+                    "chg_value": 0.0,
+                    "count": 0,
+                    "volume": 0.0,
+                    "up_count": 0,
+                    "down_count": 0,
+                    "quoted": 0,
+                }
+            bucket = sectors_map[sector]
+            bucket["value"] += value
+            bucket["count"] += 1
+            bucket["volume"] += volume
+            if change_pct is not None:
+                bucket["quoted"] += 1
+                w = value if value > 0 else 1.0
+                bucket["chg_weight"] += w
+                bucket["chg_value"] += change_pct * w
+                if change_pct > 0.01:
+                    bucket["up_count"] += 1
+                elif change_pct < -0.01:
+                    bucket["down_count"] += 1
 
         sectors = []
         for name, data in sectors_map.items():
-            change = ((data["value"] / data["cost"] - 1) * 100) if data["cost"] > 0 else 0
+            if data["chg_weight"] > 0:
+                change = data["chg_value"] / data["chg_weight"]
+            else:
+                change = 0.0
             total_count = data["count"]
             up_ratio = (data["up_count"] / total_count * 100) if total_count > 0 else 0
-            sectors.append({
-                "name": name,
-                "change_pct": round(change, 2),
-                "value": round(data["value"], 2),
-                "count": data["count"],
-                "volume": round(data["volume"], 2),
-                "up_count": data["up_count"],
-                "down_count": data["down_count"],
-                "up_ratio": round(up_ratio, 1),
-            })
+            sectors.append(
+                {
+                    "name": name,
+                    "change_pct": round(change, 2),
+                    "value": round(data["value"], 2),
+                    "count": data["count"],
+                    "volume": round(data["volume"], 2),
+                    "up_count": data["up_count"],
+                    "down_count": data["down_count"],
+                    "up_ratio": round(up_ratio, 1),
+                    "quoted": data["quoted"],
+                }
+            )
 
         if not sectors:
             sectors = [
-                {"name": "电子", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0},
-                {"name": "电力设备", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0},
-                {"name": "医疗生物", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0},
-                {"name": "计算机", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0},
-                {"name": "通信", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0},
-                {"name": "金融", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0},
-                {"name": "消费", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0},
-                {"name": "化工", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0},
-                {"name": "机械", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0},
-                {"name": "新能源", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0},
-                {"name": "军工", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0},
-                {"name": "其他", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0},
+                {"name": "电子", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0, "quoted": 0},
+                {"name": "电力设备", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0, "quoted": 0},
+                {"name": "医疗生物", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0, "quoted": 0},
+                {"name": "计算机", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0, "quoted": 0},
+                {"name": "通信", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0, "quoted": 0},
+                {"name": "金融", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0, "quoted": 0},
+                {"name": "消费", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0, "quoted": 0},
+                {"name": "化工", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0, "quoted": 0},
+                {"name": "机械", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0, "quoted": 0},
+                {"name": "新能源", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0, "quoted": 0},
+                {"name": "军工", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0, "quoted": 0},
+                {"name": "其他", "change_pct": 0, "value": 0, "count": 0, "volume": 0, "up_count": 0, "down_count": 0, "up_ratio": 0, "quoted": 0},
             ]
 
         sectors.sort(key=lambda x: abs(x["change_pct"]), reverse=True)
-        return {"ok": True, "sectors": sectors}
+        return {
+            "ok": True,
+            "sectors": sectors,
+            "basis": "day_change",
+            "quote_hits": quote_hits,
+            "holding_count": len(holdings),
+            "computed_at": datetime.now().isoformat(timespec="seconds"),
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

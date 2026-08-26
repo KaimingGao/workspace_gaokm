@@ -92,7 +92,7 @@ flowchart LR
 |----------|----------|------------|--------|
 | **事实输入** | 当时可见的价量、财务、资讯、账本 | `ports` · `fetch_daily_bars` · fundamentals · sentiment · `watching` / `paper` | 基本面多为 **snapshot**（非完整 PIT）；须在质量/文档标明 |
 | **清洗门禁** | 能否进入生产估计 | `normalize_bars` · `assess_quality` · `allows_production_score` · manifest `adjust_policy` | thin/empty/fallback → `hard_reject`，不硬塞分 |
-| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **双层**：`predicted_score`（EOD）+ `score_rem`/`predicted_score_tau`（τ）· `compute_buy_stance` | 生产主排序 = **EOD ŷ**；τ 头独立 Ridge（rem），不改组 β；融合见 [predicted-score-chain §2.5](quant.md#predicted_scoreŷ全链路)；组 β 仅 `cluster_scoring.mode=active` 进主分（FH0）；`heuristic_score` **仅研究对照基线**；LLM **不改** `score` / `stance_label` |
+| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **双层**：`predicted_score`（EOD）+ `predicted_score_tau`（τ；兼容 `score_rem`）· `compute_buy_stance` | 生产主排序 = **EOD ŷ**；τ 头独立 Ridge（`tau_ridge`），不改组 β；融合见 [predicted-score-chain §2.5](quant.md#predicted_scoreŷ全链路)；组 β 仅 `cluster_scoring.mode=active` 进主分（FH0）；`heuristic_score` **仅研究对照基线**；LLM **不改** `score` / `stance_label` |
 | **Risk 估计** | 已发生敞口对「能买多少 / 要不要停」的影响 | `check_account_risk` · `optimize_weights` · `strategy_monitor`（回撤 · 滚动 IC · 行业覆盖） · 成本 `simple_cn` | 监控 **只告警**；不自动改权、不代客下单 |
 | **验证** | 同一规则在历史上是否仍有效 | `backtest` · OOS/regime · `wf_slices` · IC / `weight_suggest` · 纸面 `ops_report` 五问 | 研究结果 ≠ 实盘保证；OOS 失败须可见 |
 | **动作** | 估计如何变成可审计行为 | 观察 · 人建仓 · `run_daily_cycle` / 横截面调仓 · `paper_daily` · DecisionRecord | **现行不接 OMS**（策略验证）；配置变更走 feedback → **人审 promote** |
@@ -697,7 +697,7 @@ data/*.json   → 配置与账本落盘
 ### 盘中 / 实时增强（进行中）
 
 EOD ŷ 主轴不变；事件先验 + open→close 剩余收益头的**能力定义与阶段表（P0–R3）**见专文：  
-[quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。**P0～R3 代码已落地**；生产排序仍只用 EOD ŷ；ŷ_τ 需 `POST /api/quant/rem-ridge`（`persist=true`，落盘 `rem_ridge_model.json` 历史文件名）后人审启用门控。
+[quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。**P0～R3 代码已落地**；生产排序仍只用 EOD ŷ；ŷ_τ 需 `POST /api/quant/tau-ridge`（`persist=true`，落盘 `tau_ridge_model.json`；旧 `rem-ridge` / `rem_ridge_*` 仍兼容）后人审启用门控。
 
 **契约缺口与下一步**：**双层 ŷ** A1+F1 已落地；**F2** `predicted_score_blend` 可选（`fusion_mode=f2`）；**B1** promote 相对 active 的 OOS 失败率硬闸已落地；**B2/B3** focused 贪心 + promote-preflight / 落地卡已接通；A2 影子簿 + 复盘页 ŷ_τ 验收条已接。未做：**A3** 主轴切换（须影子簿达标）、分钟 τ 默认 live、分组重跑并成功 promote。见
 [quant.md · τ 契约升级](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级) · [quant.md · ŷ 全链路 §2.5](quant.md#predicted_scoreŷ全链路)。

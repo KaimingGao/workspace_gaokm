@@ -355,6 +355,7 @@ def _dual_y_threshold_skip(reason: str) -> bool:
         x in r
         for x in (
             "横盘跳过",
+            "|y_path|",
             "预期幅度不足",
             "缺 y_τ",
             "缺 y_eod",
@@ -580,6 +581,11 @@ def _intraday_setup(
     scaled = scale_triggers_with_atr(cfg, atr_pct=atr_pct)
     sell_trig = float(scaled["sell_trigger_pct"])
     buy_trig = float(scaled["buy_trigger_pct"])
+    trigger_scale_meta = {
+        "sell_trigger_pct_base": round(sell_trig, 4),
+        "buy_trigger_pct_base": round(buy_trig, 4),
+        "trigger_scale": 1.0,
+    }
     cost = float(holding.get("cost") or 0)
     if shares <= 0:
         return _skip_result(reason="无效 bar 或持仓", shares=shares, bar=bar_day)
@@ -633,14 +639,23 @@ def _intraday_setup(
         )
 
     direction = str(dir_res["direction"])
-    from core.t0.score_policy import resolve_cover_policy, scale_t0_ratio, scores_have_any
+    from core.t0.score_policy import resolve_cover_policy, scale_t0_triggers, scores_have_any
 
     cfg_exec = dict(cfg)
-    base_ratio = float(cfg_exec.get("t0_ratio") or 0.4)
+    base_ratio = float(cfg_exec.get("t0_ratio") or 1.0)
     t0_ratio = base_ratio
-    if str(cfg_exec.get("direction") or "") == "dual_y" and scores_have_any(scores):
-        t0_ratio = scale_t0_ratio(base_ratio, scores or {}, cfg_exec)
     cfg_exec["t0_ratio"] = t0_ratio
+    if str(cfg_exec.get("direction") or "") == "dual_y" and scores_have_any(scores):
+        trig = scale_t0_triggers(sell_trig, buy_trig, scores or {}, cfg_exec)
+        sell_trig = float(trig["sell_trigger_pct"])
+        buy_trig = float(trig["buy_trigger_pct"])
+        cfg_exec["sell_trigger_pct"] = sell_trig
+        cfg_exec["buy_trigger_pct"] = buy_trig
+        trigger_scale_meta = {
+            "sell_trigger_pct_base": float(trig["sell_trigger_pct_base"]),
+            "buy_trigger_pct_base": float(trig["buy_trigger_pct_base"]),
+            "trigger_scale": float(trig["trigger_scale"]),
+        }
     fill_mode = str(cfg_exec.get("fill_mode") or "trigger")
 
     cover_meta = None
@@ -758,6 +773,9 @@ def _intraday_setup(
     if isinstance(day, dict):
         day["t0_ratio_base"] = round(base_ratio, 4)
         day["t0_ratio"] = round(t0_ratio, 4)
+        day.update(trigger_scale_meta)
+        day["sell_trigger_pct"] = round(sell_trig, 4)
+        day["buy_trigger_pct"] = round(buy_trig, 4)
         day["direction_score"] = dir_res.get("direction_score")
         day["direction_reason"] = dir_res.get("direction_reason")
         if cover_meta:
@@ -778,6 +796,7 @@ def _intraday_setup(
         "last_bar_ts": _bar_ts(minute_bars[-1]) if minute_bars else "",
         "t0_ratio_base": round(base_ratio, 4),
         "t0_ratio": round(t0_ratio, 4),
+        **trigger_scale_meta,
     }
 
 

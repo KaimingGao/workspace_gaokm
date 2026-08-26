@@ -308,6 +308,43 @@ class TestEodNextFusion(unittest.TestCase):
         self.assertAlmostEqual(item["predicted_score_blend_tau_cc"], tau_cc, places=5)
         self.assertEqual(item["predicted_score_blend_vs"], "prev_close")
 
+    def test_intraday_repairs_stale_eod_next_zero_w_tau(self):
+        """盘中：旧簿 eod_next 的 w_τ=0 残留时，读路径须恢复双头融合。"""
+        from datetime import datetime, timedelta, timezone
+        from unittest.mock import patch
+
+        from core.signal.dual_score import align_trade_score_fields
+        from core.signal.nowcast_kf import compound_pct
+
+        y_eod, y_tau, gap = 2.5, -0.04, 0.26
+        item = {
+            "predicted_score": y_eod,
+            "predicted_score_eod": y_eod,
+            "predicted_score_blend": y_eod,
+            "predicted_score_tau": y_tau,
+            "score": y_eod,
+            "gap_pct": gap,
+            "dual_score_window": "eod_next",
+            "dual_score_weights": {
+                "w_eod": 0.5,
+                "w_tau": 0.0,
+                "tau_in_trade": False,
+                "window": "eod_next",
+            },
+        }
+        cn = timezone(timedelta(hours=8))
+        midday = datetime(2026, 8, 26, 12, 30, tzinfo=cn)
+        with patch("core.signal.session_pit.shanghai_now", return_value=midday):
+            align_trade_score_fields(item)
+        self.assertEqual(item["dual_score_window"], "intraday")
+        tau_cc = compound_pct(gap, y_tau)
+        expect = 0.5 * y_eod + 0.5 * tau_cc
+        self.assertAlmostEqual(item["predicted_score_blend"], expect, places=4)
+        self.assertNotAlmostEqual(item["predicted_score_blend"], y_eod, places=3)
+        bw = item.get("dual_score_weights") or {}
+        self.assertAlmostEqual(float(bw.get("w_tau") or 0), 0.5, places=4)
+        self.assertTrue(bw.get("tau_in_trade"))
+
 
 if __name__ == "__main__":
     unittest.main()

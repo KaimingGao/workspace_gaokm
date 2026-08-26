@@ -26,6 +26,16 @@ class TestRemTheme(unittest.TestCase):
             resolve_theme_day(sector_breadth=0.1, pool_gaps=[0.5, 0.4], gap_trigger_pct=2.0),
             0.0,
         )
+        # 本票大缺口即使池静也记主题
+        self.assertEqual(
+            resolve_theme_day(
+                sector_breadth=0.1,
+                pool_gaps=[0.5, 0.4],
+                gap_pct=2.5,
+                gap_trigger_pct=2.0,
+            ),
+            1.0,
+        )
 
 
 class TestBookConstraints(unittest.TestCase):

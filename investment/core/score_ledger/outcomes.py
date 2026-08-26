@@ -149,7 +149,7 @@ def hydrate_ledger_yhat_tau(
     persist: bool = True,
     max_names: int = 80,
 ) -> Dict[str, Any]:
-    """旧账本缺 ``yhat_tau`` 时，按决策日日线 PIT 重挂 rem ŷ_τ。
+    """旧账本缺 ``yhat_tau`` 时，按决策日日线 PIT 重挂 ŷ_τ。
 
     用 as_of 及以前 K 线算因子 + 开盘缺口，再 ``predict_tau``；不拉实时行情。
     """

@@ -588,7 +588,7 @@ def _collect_tau_panel_pairs(
     meta["has_tau_model"] = has_tau
     meta["has_rem_model"] = has_tau  # 历史 meta 键
     if not has_tau:
-        meta["error"] = "无 live ŷ_τ 模型（rem_ridge_model.json），无法打历史 ŷ_τ"
+        meta["error"] = "无 live ŷ_τ 模型（tau_ridge_model.json），无法打历史 ŷ_τ"
         return [], meta
 
     # rem 默认标签 open→close（与 fit_tau_ridge tau_hm=open 对齐）
@@ -675,7 +675,7 @@ def _collect_tau_panel_pairs(
                     "yhat": yv,
                     "realized": realized,
                     "head": "tau",
-                    "model_source": "rem",
+                    "model_source": "tau",
                     "source": "panel",
                 }
             )

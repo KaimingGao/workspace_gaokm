@@ -9,6 +9,11 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "missing_minute": "缺分钟",
     "missing_scores": "缺ŷ",
     "y_tau_flat": "y_τ横盘",
+    "y_tau_weak": "y_τ弱信号",
+    "y_path_flat": "y_path横盘",
+    "y_path_disagree": "y_τ↔y_path不一致",
+    "gap_tier_skip": "大缺口反向跳过",
+    "path_abandon": "前缀无空间放弃",
     "y_trade_weak": "y_trade幅度不足",
     "trade_tau_sign": "异号跳过",
     "conflict": "旧冲突(已下线)",
@@ -25,6 +30,11 @@ SKIP_CAT_COLORS: Dict[str, str] = {
     "missing_minute": "#94a3b8",
     "missing_scores": "#94a3b8",
     "y_tau_flat": "#f59e0b",
+    "y_tau_weak": "#fbbf24",
+    "y_path_flat": "#d97706",
+    "y_path_disagree": "#dc2626",
+    "gap_tier_skip": "#ea580c",
+    "path_abandon": "#a8a29e",
     "y_trade_weak": "#fb923c",
     "trade_tau_sign": "#e11d48",
     "conflict": "#ef4444",
@@ -55,8 +65,18 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         or ("y_check" in r.lower() and "conflict" in r.lower())
     ):
         return "other"
+    if "y_path" in r and ("不一致" in r or "预测先" in r):
+        return "y_path_disagree"
+    if "y_path" in r and ("横盘" in r or "|y_path|" in r):
+        return "y_path_flat"
+    if "弱信号" in r:
+        return "y_tau_weak"
     if "|y_τ|" in r or ("y_τ" in r and "横盘" in r):
         return "y_tau_flat"
+    if "大缺口" in r or "gap_tier" in r.lower():
+        return "gap_tier_skip"
+    if "放弃" in r and ("反T" in r or "正T" in r or "前缀" in r):
+        return "path_abandon"
     if "上移振幅" in r or "下移振幅" in r or "方向振幅" in r:
         return "directional_amplitude"
     if "振幅" in r:
@@ -110,11 +130,393 @@ def extract_scores(day: dict) -> Dict[str, Optional[float]]:
         y_tau = _f(raw.get("y_tau"))
     if y_tau is None:
         y_tau = _f(day.get("direction_score"))
+    gap = _f(feats.get("gap_pct"))
+    if gap is None and isinstance(feats.get("features_tau"), dict):
+        gap = _f(feats["features_tau"].get("gap_pct"))
+    if gap is None and isinstance(raw.get("features_tau"), dict):
+        gap = _f(raw["features_tau"].get("gap_pct"))
     return {
         "y_tau": y_tau,
+        "y_path": _f(feats.get("y_path")) if feats else _f(raw.get("y_path")),
         "y_eod": _f(feats.get("y_eod")) if feats else _f(raw.get("y_eod")),
         "y_trade": _f(feats.get("y_trade")) if feats else _f(raw.get("y_trade")),
         "y_on": _f(feats.get("y_on")) if feats else _f(raw.get("y_on")),
+        "gap_pct": gap,
+    }
+
+
+def _gap_bucket(gap: Optional[float]) -> str:
+    if gap is None:
+        return "unknown"
+    g = float(gap)
+    if g <= -2.0:
+        return "≤-2%"
+    if g <= -1.0:
+        return "-2~-1%"
+    if g < -0.3:
+        return "-1~-0.3%"
+    if g <= 0.3:
+        return "≈0"
+    if g < 1.0:
+        return "+0.3~1%"
+    if g < 2.0:
+        return "+1~2%"
+    return "≥+2%"
+
+
+def _gap_bucket_order() -> List[str]:
+    return ["≤-2%", "-2~-1%", "-1~-0.3%", "≈0", "+0.3~1%", "+1~2%", "≥+2%", "unknown"]
+
+
+def _oc_realized_pct(day: dict) -> Optional[float]:
+    o = _f(day.get("open"))
+    c = _f(day.get("close"))
+    if o is None or c is None or o <= 0:
+        return None
+    return round((c / o - 1.0) * 100.0, 4)
+
+
+def _tau_oc_hit(y_tau: Optional[float], oc_real: Optional[float], *, eps: float = 0.05) -> Optional[bool]:
+    if y_tau is None or oc_real is None:
+        return None
+    if abs(y_tau) < eps or abs(oc_real) < eps:
+        return None
+    return (y_tau > 0) == (oc_real > 0)
+
+
+def build_y_tau_attribution(days: Sequence[dict]) -> Dict[str, Any]:
+    """y_τ 方向命中 × 做T方向 × gap 分桶归因（成交日）。"""
+    by_dir: Dict[str, Dict[str, Any]] = {
+        "long_t": {"n": 0, "pnl": 0.0, "hit": 0, "miss": 0, "flat": 0},
+        "reverse_t": {"n": 0, "pnl": 0.0, "hit": 0, "miss": 0, "flat": 0},
+    }
+    by_gap: Dict[str, Dict[str, Any]] = defaultdict(
+        lambda: {"n": 0, "pnl": 0.0, "hit": 0, "miss": 0}
+    )
+    by_hit: Dict[str, Dict[str, Any]] = {
+        "hit": {"n": 0, "pnl": 0.0},
+        "miss": {"n": 0, "pnl": 0.0},
+        "flat": {"n": 0, "pnl": 0.0},
+    }
+    samples: List[Dict[str, Any]] = []
+
+    for d in days or []:
+        if not isinstance(d, dict) or not is_traded_t0_day(d):
+            continue
+        sc = extract_scores(d)
+        y_tau = sc.get("y_tau")
+        oc = _oc_realized_pct(d)
+        hit = _tau_oc_hit(y_tau, oc)
+        direction = str(d.get("direction") or d.get("direction_used") or "")
+        pnl = round(float(d.get("pnl") or 0) + float(d.get("exposure_pnl") or 0), 2)
+        gap_bin = _gap_bucket(sc.get("gap_pct"))
+        row = {
+            "date": str(d.get("date") or "")[:10],
+            "direction": direction,
+            "y_tau": y_tau,
+            "y_path": sc.get("y_path"),
+            "gap_pct": sc.get("gap_pct"),
+            "gap_bin": gap_bin,
+            "oc_real_pct": oc,
+            "tau_oc_hit": hit,
+            "pnl": pnl,
+        }
+        samples.append(row)
+        if direction in by_dir:
+            by_dir[direction]["n"] += 1
+            by_dir[direction]["pnl"] = round(by_dir[direction]["pnl"] + pnl, 2)
+            if hit is True:
+                by_dir[direction]["hit"] += 1
+            elif hit is False:
+                by_dir[direction]["miss"] += 1
+            else:
+                by_dir[direction]["flat"] += 1
+        gb = by_gap[gap_bin]
+        gb["n"] += 1
+        gb["pnl"] = round(gb["pnl"] + pnl, 2)
+        if hit is True:
+            gb["hit"] += 1
+        elif hit is False:
+            gb["miss"] += 1
+        if hit is True:
+            by_hit["hit"]["n"] += 1
+            by_hit["hit"]["pnl"] = round(by_hit["hit"]["pnl"] + pnl, 2)
+        elif hit is False:
+            by_hit["miss"]["n"] += 1
+            by_hit["miss"]["pnl"] = round(by_hit["miss"]["pnl"] + pnl, 2)
+        else:
+            by_hit["flat"]["n"] += 1
+            by_hit["flat"]["pnl"] = round(by_hit["flat"]["pnl"] + pnl, 2)
+
+    total_hit = by_hit["hit"]["n"]
+    total_miss = by_hit["miss"]["n"]
+    denom = total_hit + total_miss
+    # |ŷ_τ| 分桶同号率（验收用；不依赖泄漏 y_on）
+    abs_buckets = {
+        "abs_ge_0_4": {"n": 0, "hit": 0, "miss": 0, "pnl": 0.0},
+        "abs_ge_0_6": {"n": 0, "hit": 0, "miss": 0, "pnl": 0.0},
+    }
+    for row in samples:
+        yt = row.get("y_tau")
+        if yt is None:
+            continue
+        try:
+            ap = abs(float(yt))
+        except (TypeError, ValueError):
+            continue
+        hit = row.get("tau_oc_hit")
+        pnl = float(row.get("pnl") or 0)
+        for key, thr in (("abs_ge_0_4", 0.4), ("abs_ge_0_6", 0.6)):
+            if ap >= thr:
+                pack = abs_buckets[key]
+                pack["n"] += 1
+                pack["pnl"] = round(pack["pnl"] + pnl, 2)
+                if hit is True:
+                    pack["hit"] += 1
+                elif hit is False:
+                    pack["miss"] += 1
+    for pack in abs_buckets.values():
+        n_hm = int(pack["hit"]) + int(pack["miss"])
+        pack["sign_hit"] = round(pack["hit"] / n_hm, 4) if n_hm else None
+    summary = {
+        "traded_with_tau": len(samples),
+        "oc_hit_rate_pct": round(total_hit / denom * 100.0, 2) if denom else None,
+        "pnl_hit": by_hit["hit"]["pnl"],
+        "pnl_miss": by_hit["miss"]["pnl"],
+        "pnl_flat": by_hit["flat"]["pnl"],
+        "abs_buckets": abs_buckets,
+    }
+    gap_rows = [
+        {"bin": b, **dict(by_gap.get(b) or {"n": 0, "pnl": 0.0, "hit": 0, "miss": 0})}
+        for b in _gap_bucket_order()
+        if (by_gap.get(b) or {}).get("n")
+    ]
+    return {
+        "summary": summary,
+        "by_direction": by_dir,
+        "by_gap": gap_rows,
+        "by_oc_hit": by_hit,
+        "samples": samples[-80:],
+    }
+
+
+def _path_agreement(
+    y_path: Optional[float],
+    direction: str,
+    *,
+    path_enter: float = 30.0,
+) -> Optional[str]:
+    """成交日 path 与 τ 方向是否一致：agree / disagree / flat。"""
+    if y_path is None:
+        return None
+    if abs(float(y_path)) < float(path_enter):
+        return "flat"
+    wants_long = float(y_path) >= float(path_enter)
+    wants_reverse = float(y_path) <= -float(path_enter)
+    if direction == "long_t":
+        if wants_long:
+            return "agree"
+        if wants_reverse:
+            return "disagree"
+    elif direction == "reverse_t":
+        if wants_reverse:
+            return "agree"
+        if wants_long:
+            return "disagree"
+    return None
+
+
+def build_y_path_attribution(
+    days: Sequence[dict],
+    *,
+    path_enter: float = 30.0,
+) -> Dict[str, Any]:
+    """y_path 联合选向归因：成交一致率 + path 相关跳过分类。"""
+    path_skip_ids = (
+        "y_path_flat",
+        "y_path_disagree",
+        "path_abandon",
+        "gap_tier_skip",
+    )
+    skip_by_cat: Dict[str, int] = defaultdict(int)
+    traded_agree = 0
+    traded_disagree = 0
+    traded_flat = 0
+    traded_with_path = 0
+    traded_no_path = 0
+    pnl_agree = 0.0
+    pnl_disagree = 0.0
+
+    for d in days or []:
+        if not isinstance(d, dict):
+            continue
+        if d.get("skipped"):
+            reason = str(d.get("reason") or d.get("direction_reason") or "")
+            cat = str(d.get("skip_category") or classify_t0_skip_reason(reason))
+            if cat in path_skip_ids:
+                skip_by_cat[cat] += 1
+            continue
+        if not is_traded_t0_day(d):
+            continue
+        sc = extract_scores(d)
+        y_path = sc.get("y_path")
+        direction = str(d.get("direction") or d.get("direction_used") or "")
+        pnl = round(float(d.get("pnl") or 0) + float(d.get("exposure_pnl") or 0), 2)
+        if y_path is None:
+            traded_no_path += 1
+            continue
+        traded_with_path += 1
+        agree = _path_agreement(y_path, direction, path_enter=path_enter)
+        if agree == "agree":
+            traded_agree += 1
+            pnl_agree = round(pnl_agree + pnl, 2)
+        elif agree == "disagree":
+            traded_disagree += 1
+            pnl_disagree = round(pnl_disagree + pnl, 2)
+        elif agree == "flat":
+            traded_flat += 1
+
+    denom = traded_agree + traded_disagree
+    summary = {
+        "traded_with_path": traded_with_path,
+        "traded_no_path": traded_no_path,
+        "path_agree_n": traded_agree,
+        "path_disagree_n": traded_disagree,
+        "path_flat_n": traded_flat,
+        "path_agree_rate_pct": round(traded_agree / denom * 100.0, 2) if denom else None,
+        "pnl_agree": pnl_agree,
+        "pnl_disagree": pnl_disagree,
+        "path_skip_days": sum(skip_by_cat.values()),
+    }
+    skip_rows = [
+        {
+            "id": cid,
+            "label": SKIP_CAT_LABELS.get(cid, cid),
+            "count": int(cnt),
+        }
+        for cid, cnt in sorted(skip_by_cat.items(), key=lambda x: (-x[1], x[0]))
+    ]
+    return {
+        "summary": summary,
+        "skip_by_category": skip_rows,
+        "path_enter": path_enter,
+    }
+
+
+def _merge_y_path_attribution(
+    parts: Sequence[Optional[dict]],
+    *,
+    path_enter: float = 30.0,
+) -> Dict[str, Any]:
+    """合并多票 y_path 归因块。"""
+    skip_by_cat: Dict[str, int] = defaultdict(int)
+    traded_agree = traded_disagree = traded_flat = 0
+    traded_with_path = traded_no_path = 0
+    pnl_agree = pnl_disagree = 0.0
+    for part in parts or []:
+        if not isinstance(part, dict):
+            continue
+        sm = part.get("summary") if isinstance(part.get("summary"), dict) else {}
+        traded_with_path += int(sm.get("traded_with_path") or 0)
+        traded_no_path += int(sm.get("traded_no_path") or 0)
+        traded_agree += int(sm.get("path_agree_n") or 0)
+        traded_disagree += int(sm.get("path_disagree_n") or 0)
+        traded_flat += int(sm.get("path_flat_n") or 0)
+        pnl_agree = round(pnl_agree + float(sm.get("pnl_agree") or 0), 2)
+        pnl_disagree = round(pnl_disagree + float(sm.get("pnl_disagree") or 0), 2)
+        for row in part.get("skip_by_category") or []:
+            if isinstance(row, dict) and row.get("id"):
+                skip_by_cat[str(row["id"])] += int(row.get("count") or 0)
+    denom = traded_agree + traded_disagree
+    summary = {
+        "traded_with_path": traded_with_path,
+        "traded_no_path": traded_no_path,
+        "path_agree_n": traded_agree,
+        "path_disagree_n": traded_disagree,
+        "path_flat_n": traded_flat,
+        "path_agree_rate_pct": round(traded_agree / denom * 100.0, 2) if denom else None,
+        "pnl_agree": pnl_agree,
+        "pnl_disagree": pnl_disagree,
+        "path_skip_days": sum(skip_by_cat.values()),
+    }
+    skip_rows = [
+        {
+            "id": cid,
+            "label": SKIP_CAT_LABELS.get(cid, cid),
+            "count": int(cnt),
+        }
+        for cid, cnt in sorted(skip_by_cat.items(), key=lambda x: (-x[1], x[0]))
+    ]
+    return {"summary": summary, "skip_by_category": skip_rows, "path_enter": path_enter}
+
+
+def summarize_dual_y_upgrade_acceptance(
+    days: Sequence[dict],
+    *,
+    rules: Optional[dict] = None,
+) -> Dict[str, Any]:
+    """同窗口验收：弱 τ 成交、τ 强桶同号、path 否决笔数（不依赖泄漏 y_on）。"""
+    cfg = rules if isinstance(rules, dict) else {}
+    try:
+        enter = float(cfg.get("y_tau_enter") if cfg.get("y_tau_enter") is not None else 0.4)
+    except (TypeError, ValueError):
+        enter = 0.4
+    try:
+        strong = float(
+            cfg.get("y_tau_enter_strong")
+            if cfg.get("y_tau_enter_strong") is not None
+            else 0.6
+        )
+    except (TypeError, ValueError):
+        strong = 0.6
+    if strong < enter:
+        strong = enter
+
+    traded = [d for d in (days or []) if isinstance(d, dict) and is_traded_t0_day(d)]
+    weak_trades = 0
+    flat_trades = 0
+    for d in traded:
+        sc = extract_scores(d)
+        yt = sc.get("y_tau")
+        if yt is None:
+            continue
+        try:
+            a = abs(float(yt))
+        except (TypeError, ValueError):
+            continue
+        if a < enter:
+            flat_trades += 1
+        elif a < strong:
+            weak_trades += 1
+
+    att = build_y_tau_attribution(days)
+    att_sm = att.get("summary") if isinstance(att.get("summary"), dict) else {}
+    abs_b = att_sm.get("abs_buckets") if isinstance(att_sm.get("abs_buckets"), dict) else {}
+    strong_b = abs_b.get("abs_ge_0_6") if isinstance(abs_b.get("abs_ge_0_6"), dict) else {}
+
+    path_skip = 0
+    for d in days or []:
+        if not isinstance(d, dict) or not d.get("skipped"):
+            continue
+        reason = str(d.get("reason") or d.get("direction_reason") or "")
+        if classify_t0_skip_reason(reason) == "y_path_disagree":
+            path_skip += 1
+
+    ok = weak_trades == 0 and flat_trades == 0
+    return {
+        "ok": ok,
+        "traded_n": len(traded),
+        "weak_tau_trades": weak_trades,
+        "flat_tau_trades": flat_trades,
+        "tau_oc_hit_rate_pct": att_sm.get("oc_hit_rate_pct"),
+        "strong_bucket": strong_b,
+        "path_disagree_skips": path_skip,
+        "y_tau_enter": enter,
+        "y_tau_enter_strong": strong,
+        "blockers": (
+            (["存在 |τ|<enter 成交"] if flat_trades else [])
+            + (["存在弱信号区成交"] if weak_trades else [])
+        ),
     }
 
 
@@ -316,6 +718,7 @@ def build_t0_viz_payload(
             if sc.get("y_tau") is not None:
                 score_seen += 1
                 y_tau_traded.append(float(sc["y_tau"]))
+                y_tau_hist[_y_tau_bucket(float(sc["y_tau"]))] += 1
             score_total += 1
             cp = d.get("cover_policy") if isinstance(d.get("cover_policy"), dict) else {}
             trade_points.append(
@@ -326,6 +729,8 @@ def build_t0_viz_payload(
                     "stock_code": code,
                     "stock_name": name,
                     "y_tau": sc.get("y_tau"),
+                    "y_path": sc.get("y_path"),
+                    "gap_pct": sc.get("gap_pct"),
                     "y_eod": sc.get("y_eod"),
                     "y_trade": sc.get("y_trade"),
                     "y_on": sc.get("y_on"),
@@ -426,6 +831,14 @@ def build_t0_viz_payload(
         for b in _bucket_order()
         if y_tau_hist.get(b)
     ]
+    y_tau_attribution = build_y_tau_attribution(days)
+    path_enter = 30.0
+    if isinstance(rules, dict) and rules.get("y_path_enter") is not None:
+        try:
+            path_enter = float(rules.get("y_path_enter"))
+        except (TypeError, ValueError):
+            path_enter = 30.0
+    y_path_attribution = build_y_path_attribution(days, path_enter=path_enter)
 
     stock_contrib: List[Dict[str, Any]] = []
     if stock_code or traded_n or skip_n:
@@ -468,12 +881,29 @@ def build_t0_viz_payload(
         summary["avg_y_tau_traded"] = round(sum(y_tau_traded) / len(y_tau_traded), 3)
     if y_tau_skipped:
         summary["avg_y_tau_signal_skip"] = round(sum(y_tau_skipped) / len(y_tau_skipped), 3)
+    att_sm = y_tau_attribution.get("summary") if isinstance(y_tau_attribution.get("summary"), dict) else {}
+    if att_sm.get("oc_hit_rate_pct") is not None:
+        summary["tau_oc_hit_rate_pct"] = att_sm.get("oc_hit_rate_pct")
+    path_sm = (
+        y_path_attribution.get("summary")
+        if isinstance(y_path_attribution.get("summary"), dict)
+        else {}
+    )
+    if path_sm.get("path_agree_rate_pct") is not None:
+        summary["path_agree_rate_pct"] = path_sm.get("path_agree_rate_pct")
+    if path_sm.get("path_skip_days") is not None:
+        summary["path_skip_days"] = path_sm.get("path_skip_days")
+
+    upgrade_acc = summarize_dual_y_upgrade_acceptance(days, rules=rules)
+    summary["upgrade_acceptance"] = upgrade_acc
 
     return {
         "skip_categories": skip_categories,
         "cumulative_pnl": cumulative,
         "daily_activity": activity,
         "y_tau_buckets": y_tau_buckets,
+        "y_tau_attribution": y_tau_attribution,
+        "y_path_attribution": y_path_attribution,
         "y_tau_scatter": y_tau_scatter,
         "stock_contrib": stock_contrib,
         "direction_split": direction_split,
@@ -482,6 +912,7 @@ def build_t0_viz_payload(
         },
         "trade_count": traded_n,
         "skip_count": skip_n,
+        "upgrade_acceptance": upgrade_acc,
         "summary": summary,
     }
 
@@ -591,6 +1022,27 @@ def merge_t0_viz_payloads(
     summary["score_seen"] = score_seen
     summary["score_total"] = max(score_total, traded_n + signal_skip_n)
 
+    y_tau_attribution = build_y_tau_attribution(
+        [tp for tp in trade_points if tp.get("date")]
+    )
+    att_sm = y_tau_attribution.get("summary") if isinstance(y_tau_attribution.get("summary"), dict) else {}
+    if att_sm.get("oc_hit_rate_pct") is not None:
+        summary["tau_oc_hit_rate_pct"] = att_sm.get("oc_hit_rate_pct")
+
+    y_path_attribution = _merge_y_path_attribution(
+        [p.get("y_path_attribution") for p in (payloads or []) if isinstance(p, dict)],
+        path_enter=float((rules or {}).get("y_path_enter") or 30.0),
+    )
+    path_sm = (
+        y_path_attribution.get("summary")
+        if isinstance(y_path_attribution.get("summary"), dict)
+        else {}
+    )
+    if path_sm.get("path_agree_rate_pct") is not None:
+        summary["path_agree_rate_pct"] = path_sm.get("path_agree_rate_pct")
+    if path_sm.get("path_skip_days") is not None:
+        summary["path_skip_days"] = path_sm.get("path_skip_days")
+
     stock_contrib.sort(key=lambda x: -abs(float(x.get("pnl") or 0)))
 
     out: Dict[str, Any] = {
@@ -620,6 +1072,8 @@ def merge_t0_viz_payloads(
             for b in _bucket_order()
             if y_tau_hist.get(b)
         ],
+        "y_tau_attribution": y_tau_attribution,
+        "y_path_attribution": y_path_attribution,
         "y_tau_scatter": y_tau_scatter,
         "stock_contrib": stock_contrib,
         "direction_split": direction_split,

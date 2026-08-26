@@ -2,13 +2,13 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveTradeScore, resolveEodScore, resolveTauScore, resolveOnScore, resolveNowcastScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_ON_TITLE, Y_NOWCAST_TITLE } from "./paper/fmt.js?v=p1227";
-import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p1227";
+import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveTradeScore, resolveEodScore, resolveTauScore, resolveOnScore, resolveNowcastScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_ON_TITLE, Y_NOWCAST_TITLE } from "./paper/fmt.js?v=p1472";
+import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p1457";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,
   yCheckBadgeHtml,
-} from "./quant/watching_insights_ui.js?v=p1227";
+} from "./quant/watching_insights_ui.js?v=p1457";
 import { TRADE_TITLE, formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } from "./quant/watching_quotes_ui.js?v=p1227";
 import { buildHoldingSharesTip } from "./paper/holding_lots_tip.js?v=p1227";
 

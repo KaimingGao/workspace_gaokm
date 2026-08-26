@@ -20,7 +20,7 @@ DEFAULT_EVENT_PRIOR = {
     "sector_breadth_min": 0.5,
     "soft_hold_on_theme": True,
     "warn_only": False,
-    # R0p：ŷ_τ 头门控（需 live rem_ridge_model.json，文件名历史兼容）
+    # R0p：ŷ_τ 头门控（需 live tau_ridge_model.json；可读旧 rem_ridge_model.json）
     "rem_gate_enabled": True,
     "rem_soft_hold_min": 0.25,
 }
@@ -216,7 +216,7 @@ def build_event_prior(
     config: Optional[dict] = None,
     stock_code: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """由开盘缺口 + 可选板块广度 / rem ŷ 构建事件先验；不改 EOD ŷ。"""
+    """由开盘缺口 + 可选板块广度 / ŷ_τ 构建事件先验；不改 EOD ŷ。"""
     cfg = get_event_prior_cfg(config)
     mode = cfg["mode"]
     trigger = float(cfg["gap_trigger_pct"])
@@ -279,7 +279,7 @@ def build_event_prior(
                 msg += f" · 板块广度 {float(sector_breadth):.0%}"
             warnings.append(msg)
         if rem_ok:
-            warnings.append(f"事件先验·rem ŷ={float(rem_yhat):+.2f}%")
+            warnings.append(f"事件先验·ŷ_τ={float(rem_yhat):+.2f}%")
         if mode == "risk" or cfg.get("warn_only"):
             actions = [a for a in actions if a.get("type") != "soft_hold"]
             active = bool(warnings)
@@ -302,7 +302,7 @@ def build_event_prior(
 
 
 def should_soft_hold_for_low_score(prior: Optional[dict]) -> bool:
-    """调仓卖出：低 ŷ 触发卖出时，主题缺口 / rem 日改为 soft hold。"""
+    """调仓卖出：低 ŷ 触发卖出时，主题缺口 / ŷ_τ 闸改为 soft hold。"""
     if not isinstance(prior, dict) or not prior.get("active"):
         return False
     for act in prior.get("actions") or []:
@@ -324,7 +324,7 @@ def compute_sector_gap_breadth_live(
     ``use_sector_peers=True`` 且提供 ``focus_code`` 时：优先同 ``sector_map`` 标签同伴；
     同伴不足 3 只则回退全 ``codes`` 宇宙。
     刷簿路径传 ``use_sector_peers=False`` + 预取 ``quotes``：整池共享一个 breadth，
-    与 rem 训练面板按日广度同构，且只需一次 batch 行情。
+    与 τ 训练面板按日广度同构，且只需一次 batch 行情。
     """
     from core.data.facade import batch_get_quotes
 

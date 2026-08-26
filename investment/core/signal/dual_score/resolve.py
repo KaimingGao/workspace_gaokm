@@ -41,7 +41,7 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     "w_mode": "fixed",
     # theme_boost：主题日把 w_τ 乘以此系数后再归一
     "theme_w_tau_boost": 1.25,
-    # variance：EOD 侧残差方差代理（百分点²）；τ 侧优先用 rem OOS
+    # variance：EOD 侧残差方差代理（百分点²）；τ 侧优先用 τ OOS
     "eod_residual_var": 1.0,
     # 研究影子：ŷ_cascade = ŷ_EOD_rem + (ŷ_τ − α)；不进主排序
     "enable_cascade_shadow": True,
@@ -347,21 +347,15 @@ def compute_predicted_score_blend(
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in dual_score.py", exc_info=True)
             rem_doc = None
-    we, wt, _note = resolve_fusion_weights(
-        cfg,
-        feats=item.get("features_tau")
-        if isinstance(item.get("features_tau"), dict)
-        else None,
+    from core.signal.dual_score.fusion import resolve_item_fusion_weights, stamp_item_fusion_weights
+
+    we, wt, _repaired = resolve_item_fusion_weights(
+        item,
+        config=config,
+        eod_next=eod_next,
+        y_tau=y_t,
         rem_model_doc=rem_doc,
     )
-    # 簿上 dual_score_weights 优先（theme/variance 已算）
-    book_w = item.get("dual_score_weights")
-    if isinstance(book_w, dict) and book_w.get("w_eod") is not None:
-        try:
-            we = float(book_w.get("w_eod"))
-            wt = float(book_w.get("w_tau") if book_w.get("w_tau") is not None else 1.0 - we)
-        except (TypeError, ValueError):
-            pass
     tau_cc = lift_tau_vs_prev_close(y_t, item_gap_pct(item))
     meta = fuse_remaining_heads_meta(y_eod, y_t, w_eod=we, w_tau=wt)
     item["dual_score_head"] = meta.get("dual_score_head")
@@ -372,6 +366,13 @@ def compute_predicted_score_blend(
         y_tau=_as_float(y_t),
         w_eod=we,
         w_tau=wt,
+    )
+    stamp_item_fusion_weights(
+        item,
+        w_eod=we,
+        w_tau=wt,
+        eod_next=eod_next,
+        tau_available=y_t is not None,
     )
     if cc is not None:
         return cc
@@ -385,6 +386,7 @@ def align_trade_score_fields(
     *,
     config: Optional[dict] = None,
     write_score: bool = True,
+    refresh_window: bool = True,
 ) -> Optional[dict]:
     """就地对齐：predicted_score_blend / decision_score = ŷ_trade。
 
@@ -448,13 +450,14 @@ def align_trade_score_fields(
         item["predicted_score_eod"] = y_eod_f
         item["predicted_score"] = y_eod_f
 
-    try:
-        from core.signal.session_pit import refresh_dual_score_window
+    if refresh_window:
+        try:
+            from core.signal.session_pit import refresh_dual_score_window
 
-        refresh_dual_score_window(item)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in dual_score.py", exc_info=True)
-        pass
+            refresh_dual_score_window(item)
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in dual_score.py", exc_info=True)
+            pass
 
     tau = resolve_predicted_score_tau(item)
     try:
@@ -477,7 +480,15 @@ def align_trade_score_fields(
     # eod_next：旧簿上的 blend 可能含 τ 侧今日已实现收益，一律重算剥离
     force_recompute = eod_next and blend is not None
     unlifted = (not eod_next) and unlifted_trade_blend_stale(item, config=config)
-    if blend is None or stale or force_recompute or unlifted:
+    stale_zero_w_tau = False
+    if not eod_next and tau is not None:
+        bw = item.get("dual_score_weights")
+        if isinstance(bw, dict):
+            try:
+                stale_zero_w_tau = float(bw.get("w_tau") or 0.0) <= 1e-12
+            except (TypeError, ValueError):
+                stale_zero_w_tau = False
+    if blend is None or stale or force_recompute or unlifted or stale_zero_w_tau:
         recomputed = compute_predicted_score_blend(item, config=config)
         if recomputed is not None:
             blend = float(recomputed)

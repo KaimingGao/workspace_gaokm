@@ -144,10 +144,12 @@ export function resolveTradeScore(it) {
   const win = String(it.dual_score_window || "");
   const eodNext = win === "eod_next";
   const weights = it.dual_score_weights;
-  // 收盘后 / 显式剥离 τ：blend≈EOD 且仍有 ŷ_τ 是契约，不是旧簿；禁止前端再融回双头
+  const weightsWin =
+    weights && weights.window != null ? String(weights.window) : "";
+  // 收盘后 / eod_next 才剥离 τ；盘中 tau_in_trade=false 多为旧簿残留
   const tauStripped =
     eodNext ||
-    (weights && weights.tau_in_trade === false) ||
+    weightsWin === "eod_next" ||
     (String(it.dual_score_head || "") === "single_eod" && tau != null);
   const stale =
     !tauStripped &&
@@ -166,12 +168,20 @@ export function resolveTradeScore(it) {
     if (_looksLikeYhatPct(fused)) return fused;
   }
   if (_looksLikeYhatPct(blend)) return expressTradeVsPrevClose(it, blend);
+  // 契约：predicted_score / predicted_score_eod = ŷ_EOD；ŷ_trade = blend / decision_score / score。
+  // 旧实现把 predicted_score 放在 score 前，双头下 y_trade 塌成 y_eod（数据中心/交易执行两列相同）。
   const candidates = [
     it.decision_score,
-    it.predicted_score,
+    it.score,
+    it.predicted_score_blend,
     it.score_cluster,
-    it.score, // 最后：且必须像 ŷ%
+    it.score_global,
   ];
+  const eodProbe = _numField(it.predicted_score_eod) ?? _numField(it.predicted_score);
+  const ps = _numField(it.predicted_score);
+  if (ps != null && (eodProbe == null || Math.abs(ps - eodProbe) > 1e-9)) {
+    candidates.push(it.predicted_score);
+  }
   for (const c of candidates) {
     const n = _numField(c);
     if (_numField(it.heuristic_score) != null && n != null && Math.abs(n - _numField(it.heuristic_score)) < 1e-6 && Math.abs(n) > 20) {
@@ -251,11 +261,20 @@ export function reconstructNowcastPrevClose(it) {
   return Number.isFinite(n) ? n : null;
 }
 
-export const Y_EOD_TITLE = "ŷ_EOD · 隔夜主轴 open[T]/open[T−1]−1（%）";
+export const Y_EOD_TITLE = "ŷ_EOD · 隔夜主轴 close[T]/close[T−1]−1（%）";
 export const Y_TAU_TITLE = "ŷ_τ · T收/T开（拟合原值；τ 闸同源）";
-export const Y_ON_TITLE = "隔夜 open · 旁路";
+export const EOD_REALIZED_TITLE =
+  "eod实 · close[T]/close[T−1]−1（与 ŷ_EOD 同标签）";
+export const TAU_REALIZED_TITLE =
+  "τ实 · close[T]/open[T]−1（与 ŷ_τ 同标签）";
+export const Y_ON_TITLE = "ŷ_ON · 开盘决策口径（旁路；复盘路径价见 y_on_path）";
 export const Y_NOWCAST_TITLE =
   "ŷ_nowcast · Kalman 权昨收口径对照（与 y_trade / 涨跌同一目标），不进决策";
+
+/** ŷ_path：分钟第一触达顺序头（path_ridge）；dual_y 与 y_τ 联合选向。 */
+export const Y_PATH_TITLE = "ŷ_path · 路径选向 first_touch（±100）";
+export const PATH_REALIZED_TITLE =
+  "path实 · 模型触发口径 first_touch（卖先+100 / 买先−100；与 ŷ_path 同标签）";
 
 /** ŷ_τ 表列 / tip：Ridge 拟合原值（T收/T开），与组成合计、τ 买入闸同口径。
 
@@ -279,6 +298,24 @@ export function resolveTauLiftedScore(it) {
   return _looksLikeYhatPct(lifted) ? lifted : null;
 }
 
+/** ŷ_path：分钟第一触达顺序（±100，非收益%）。 */
+export function resolvePathScore(it) {
+  if (!it || typeof it !== "object") return null;
+  for (const c of [it.predicted_score_path, it.y_path]) {
+    const n = _numField(c);
+    if (n != null) return n;
+  }
+  return null;
+}
+
+/** 表列 y_path：±100 尺度，一位小数。 */
+export function fmtPathScore(v, opts = {}) {
+  const empty = opts.empty ?? "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return empty;
+  return `${n > 0 ? "+" : ""}${n.toFixed(1)}`;
+}
+
 /** ŷ_ON：隔夜 open 链旁路头。 */
 export function resolveOnScore(it) {
   if (!it || typeof it !== "object") return null;
@@ -294,16 +331,15 @@ export function resolveEodScore(it) {
   if (isHeuristicScoreScale(it)) {
     return null;
   }
-  const candidates = [
-    it.scoreEodNum,
-    it.predicted_score_eod,
-    it.predicted_score,
-    typeof it.score === "number" ? it.score : null,
-  ];
-  for (const c of candidates) {
-    if (c == null || c === "") continue;
-    const n = Number(c);
-    if (Number.isFinite(n)) return n;
+  for (const c of [it.scoreEodNum, it.predicted_score_eod, it.predicted_score]) {
+    const n = _numField(c);
+    if (n != null) return n;
+  }
+  // 双头 align 后 score=ŷ_trade，不可当 EOD；仅旧单头无 blend/decision 时用 score
+  const sc = _numField(it.score);
+  if (sc != null) {
+    const tradeProbe = _numField(it.decision_score) ?? _numField(it.predicted_score_blend);
+    if (tradeProbe == null) return sc;
   }
   return null;
 }

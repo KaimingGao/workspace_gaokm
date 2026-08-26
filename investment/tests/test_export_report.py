@@ -216,6 +216,18 @@ class TestP27ExecutiveSummary(unittest.TestCase):
                 "total_return_pct": 3.2,
                 "win_rate_pct": 58,
                 "trade_count": 5,
+                "cost_model": "simple_cn",
+                "params": {
+                    "top_k": 3,
+                    "horizon_days": 3,
+                    "yhat_horizon_days": 1,
+                    "paper_horizon_days": 3,
+                    "paper_max_positions": 20,
+                    "min_predicted_score": 0.4,
+                    "apply_costs": True,
+                    "stock_count": 99,
+                    "lookback": 120,
+                },
             },
             "weight_suggest": {"success": True},
         }
@@ -225,6 +237,12 @@ class TestP27ExecutiveSummary(unittest.TestCase):
         self.assertGreaterEqual(out["bullet_count"], 3)
         self.assertTrue(any("附录·因子 IC" in b or "因子 IC" in b for b in out["bullets"]))
         self.assertTrue(any("选股真源" in b for b in out["bullets"]))
+        self.assertTrue(any(b.startswith("配置：") and "K=3" in b for b in out["bullets"]))
+        cfg = next(b for b in out["bullets"] if b.startswith("配置："))
+        self.assertIn("≠纸面 20", cfg)
+        self.assertIn("持有 h=3日", cfg)
+        self.assertIn("ŷ标签=1日", cfg)
+        self.assertIn("ŷ≥0.4%", cfg)
     def test_markdown_includes_summary_section(self):
         md = render_quant_report_markdown(self._sample_report())
         self.assertIn("一页摘要", md)
@@ -314,8 +332,8 @@ class TestP75ExecutiveSummaryScoreStats(unittest.TestCase):
         cs = {
             "success": True,
             "ranking": [
-                {"stock_code": "600519", "score": 72.5},
-                {"stock_code": "600036", "score": 61.0},
+                {"stock_code": "600519", "score": 1.25},
+                {"stock_code": "600036", "score": 0.61},
             ],
         }
         self.assertEqual(len(_cross_section_ranked_list(cs)), 2)
@@ -324,14 +342,14 @@ class TestP75ExecutiveSummaryScoreStats(unittest.TestCase):
             "cross_section": {
                 "success": True,
                 "ranking": [
-                    {"stock_code": "600519", "score": 72.5},
-                    {"stock_code": "600036", "score": 61.0},
+                    {"stock_code": "600519", "score": 1.25},
+                    {"stock_code": "600036", "score": 0.61},
                 ],
             }
         }
         out = build_report_executive_summary(report)
         self.assertTrue(any("横截面 ŷ" in b for b in out["bullets"]))
-        self.assertTrue(any("72.500%" in b or "72.5" in b for b in out["bullets"]))
+        self.assertTrue(any("1.250%" in b or "1.25" in b for b in out["bullets"]))
 
 # --- test_p80_quant.py::TestP80CrossSectionExportSection ---
 class TestP80CrossSectionExportSection(unittest.TestCase):
@@ -339,8 +357,8 @@ class TestP80CrossSectionExportSection(unittest.TestCase):
         return {
             "success": True,
             "ranking": [
-                {"stock_code": "600519", "stock_name": "贵州茅台", "score": 72.5, "score_raw": 68.0},
-                {"stock_code": "600036", "stock_name": "招商银行", "score": 61.0, "score_raw": 59.0},
+                {"stock_code": "600519", "stock_name": "贵州茅台", "score": 1.25, "score_raw": 1.10},
+                {"stock_code": "600036", "stock_name": "招商银行", "score": 0.61, "score_raw": 0.55},
             ],
             "note": "横截面排序基于 score_bars",
         }
@@ -349,7 +367,7 @@ class TestP80CrossSectionExportSection(unittest.TestCase):
         self.assertIsNotNone(sec)
         self.assertEqual(sec["anchor"], "cross-section")
         self.assertTrue(
-            any("ŷ 72.500%" in line or "ŷ 72.5" in line for line in sec["markdown_lines"])
+            any("ŷ 1.250%" in line or "ŷ 1.25" in line for line in sec["markdown_lines"])
         )
     def test_toc_includes_cross_section(self):
         toc = build_report_export_toc({"cross_section": self._cs()})

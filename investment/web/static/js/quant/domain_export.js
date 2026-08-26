@@ -50,9 +50,16 @@ export function installExportInterpret(q) {
     if (!els.quantOpsSummary) return;
     setBusyText(els.quantOpsSummary, "加载中…", { busy: true });
     try {
-      const healthRes = await fetch("/api/daily/health");
+      const [healthRes, presetsRes] = await Promise.all([
+        fetch("/api/daily/health"),
+        fetch("/api/daily/presets").catch(() => null),
+      ]);
       const data = await healthRes.json();
       if (!healthRes.ok) throw new Error(data.detail || healthRes.statusText);
+      if (presetsRes && presetsRes.ok) {
+        const presetsData = await presetsRes.json();
+        applyDailyPresetsPayload(presetsData);
+      }
 
       // 研究枢纽只暴露 quant 日报；改仓类 preset 不在此页提供
       if (els.quantOpsPreset) {
@@ -398,6 +405,76 @@ export function installExportInterpret(q) {
     }
   }
 
+  const DAILY_BT_OPTS_KEY = "quant_daily_bt_opts_v3";
+
+  function readDailyBtOverrides() {
+    const kEl = document.getElementById("quant-daily-top-k");
+    const hEl = document.getElementById("quant-daily-horizon");
+    const lbEl = document.getElementById("quant-daily-lookback");
+    const k = kEl ? String(kEl.value || "3") : "3";
+    const h = hEl ? String(hEl.value || "1") : "1";
+    const lb = lbEl ? String(lbEl.value || "30") : "30";
+    try {
+      sessionStorage.setItem(DAILY_BT_OPTS_KEY, JSON.stringify({ k, h, lb }));
+    } catch (_) {
+      /* ignore quota / private mode */
+    }
+    const out = {};
+    const kN = Number(k);
+    if (k !== "paper" && Number.isFinite(kN) && kN >= 1) out.top_k = kN;
+    const hN = Number(h);
+    if (h !== "paper" && Number.isFinite(hN) && hN >= 1) out.horizon_days = hN;
+    const lbN = Number(lb);
+    if (Number.isFinite(lbN) && lbN >= 30) out.lookback = lbN;
+    return out;
+  }
+
+  function restoreDailyBtOptions() {
+    let saved = null;
+    try {
+      saved = JSON.parse(sessionStorage.getItem(DAILY_BT_OPTS_KEY) || "null");
+    } catch (_) {
+      saved = null;
+    }
+    if (!saved || typeof saved !== "object") return;
+    const kEl = document.getElementById("quant-daily-top-k");
+    const hEl = document.getElementById("quant-daily-horizon");
+    const lbEl = document.getElementById("quant-daily-lookback");
+    if (kEl && saved.k != null && Array.from(kEl.options).some((o) => o.value === String(saved.k))) {
+      kEl.value = String(saved.k);
+    }
+    if (hEl && saved.h != null && Array.from(hEl.options).some((o) => o.value === String(saved.h))) {
+      hEl.value = String(saved.h);
+    }
+    if (lbEl && saved.lb != null && Array.from(lbEl.options).some((o) => o.value === String(saved.lb))) {
+      lbEl.value = String(saved.lb);
+    }
+  }
+
+  function hydrateDailyBtOptionLabels(bt) {
+    if (!bt || typeof bt !== "object") return;
+    const kEl = document.getElementById("quant-daily-top-k");
+    const hEl = document.getElementById("quant-daily-horizon");
+    const paperK = Number(bt.paper_max_positions);
+    const paperH = Number(bt.paper_horizon_days);
+    const kPaper = kEl && kEl.querySelector('option[value="paper"]');
+    if (kPaper && Number.isFinite(paperK) && paperK > 0) {
+      kPaper.textContent = `跟纸面 · ${paperK}`;
+    }
+    const hPaper = hEl && hEl.querySelector('option[value="paper"]');
+    if (hPaper && Number.isFinite(paperH) && paperH > 0) {
+      hPaper.textContent = `跟纸面 · ${paperH}日`;
+    }
+  }
+
+  function applyDailyPresetsPayload(presetsData) {
+    if (!presetsData || typeof presetsData !== "object") return;
+    if (Array.isArray(presetsData.presets)) {
+      state.dailyPresetsCache = presetsData.presets;
+    }
+    hydrateDailyBtOptionLabels(presetsData.bt_defaults);
+  }
+
   async function runDailyWithPreset(preset, runningLabel) {
     openDailyFold();
     const busyBase = runningLabel || "生成日报中…";
@@ -417,7 +494,7 @@ export function installExportInterpret(q) {
       res = await fetch("/api/daily/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ preset }),
+        body: JSON.stringify({ preset, ...readDailyBtOverrides() }),
       });
       data = await res.json();
     } finally {
@@ -526,6 +603,7 @@ export function installExportInterpret(q) {
   }
 
   bindDailyArchiveActions();
+  restoreDailyBtOptions();
 
   return {
     applyExportPreviewHeadingIds: applyExportPreviewHeadingIdsHtml,

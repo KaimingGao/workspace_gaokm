@@ -815,7 +815,7 @@ def simulate_t0_day_minute(
         resolve_scores_for_code,
         resolve_y_score_source,
         resolve_cover_policy,
-        scale_t0_ratio,
+        scale_t0_triggers,
         scores_have_any,
         tau_pool_day_score_kwargs,
     )
@@ -840,12 +840,82 @@ def simulate_t0_day_minute(
                 **tau_pool_day_score_kwargs(tau_pool_day, stock_code),
             )
 
-    def _finish(out: Optional[Dict[str, Any]], dir_res: Optional[dict] = None) -> Dict[str, Any]:
-        feats = (dir_res or {}).get("features") if isinstance(dir_res, dict) else None
-        return attach_day_scores(out, score_snap, features=feats)
-
     mins = [dict(m) for m in (minute_bars or [])]
     mins.sort(key=lambda x: str(x.get("datetime") or ""))
+    scaled = scale_triggers_with_atr(cfg, atr_pct=atr_pct)
+    sell_trig = float(scaled["sell_trigger_pct"])
+    buy_trig = float(scaled["buy_trigger_pct"])
+    cfg_day = dict(cfg)
+    cfg_day["sell_trigger_pct"] = sell_trig
+    cfg_day["buy_trigger_pct"] = buy_trig
+    cfg_day["path_mode"] = "first_touch"
+    trigger_scale_meta: Dict[str, float] = {
+        "sell_trigger_pct_base": round(sell_trig, 4),
+        "buy_trigger_pct_base": round(buy_trig, 4),
+        "trigger_scale": 1.0,
+    }
+    if str(cfg_day.get("direction") or "") == "dual_y" and scores_have_any(score_snap):
+        trig = scale_t0_triggers(sell_trig, buy_trig, score_snap or {}, cfg_day)
+        sell_trig = float(trig["sell_trigger_pct"])
+        buy_trig = float(trig["buy_trigger_pct"])
+        cfg_day["sell_trigger_pct"] = sell_trig
+        cfg_day["buy_trigger_pct"] = buy_trig
+        trigger_scale_meta = {
+            "sell_trigger_pct_base": float(trig["sell_trigger_pct_base"]),
+            "buy_trigger_pct_base": float(trig["buy_trigger_pct_base"]),
+            "trigger_scale": float(trig["trigger_scale"]),
+        }
+
+    # path实对照：用 path 模型训练触发（与 ŷ_path 同口径）；成交仍用上方 execution 触发
+    try:
+        from core.research.path_ridge import load_path_model, path_label_triggers
+
+        path_sell_trig, path_buy_trig = path_label_triggers(load_path_model())
+    except Exception:  # noqa: BLE001
+        logger.debug("path_label_triggers fallback", exc_info=True)
+        path_sell_trig = float(trigger_scale_meta["sell_trigger_pct_base"])
+        path_buy_trig = float(trigger_scale_meta["buy_trigger_pct_base"])
+
+    def _finish(out: Optional[Dict[str, Any]], dir_res: Optional[dict] = None) -> Dict[str, Any]:
+        feats = (dir_res or {}).get("features") if isinstance(dir_res, dict) else None
+        packed = attach_day_scores(out, score_snap, features=feats)
+        try:
+            from core.t0.score_policy import attach_eod_tau_realized
+
+            packed = attach_eod_tau_realized(
+                packed,
+                open_px=bar.get("open") if isinstance(bar, dict) else None,
+                close_px=bar.get("close") if isinstance(bar, dict) else None,
+                prev_close=bar.get("prev_close") if isinstance(bar, dict) else None,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("attach_eod_tau_realized failed", exc_info=True)
+        try:
+            from core.research.path_panel import attach_path_realized
+
+            ref = None
+            if isinstance(bar, dict):
+                ref = bar.get("open")
+            if ref is None and isinstance(out, dict):
+                ref = out.get("open")
+            packed = attach_path_realized(
+                packed,
+                mins,
+                ref=float(ref) if ref is not None else None,
+                sell_trig_pct=float(path_sell_trig),
+                buy_trig_pct=float(path_buy_trig),
+            )
+            if isinstance(packed, dict):
+                packed["path_realized_trig"] = {
+                    "sell_trig_pct": float(path_sell_trig),
+                    "buy_trig_pct": float(path_buy_trig),
+                    "note": "对照=path模型训练触发",
+                }
+        except Exception:  # noqa: BLE001
+            logger.debug("attach_path_realized failed", exc_info=True)
+        return packed
+
+
     if len(mins) < 2:
         return _finish(
             _skip_result(
@@ -864,21 +934,8 @@ def simulate_t0_day_minute(
     if high <= 0 or low <= 0 or shares <= 0:
         return _error_result("无效 bar 或持仓", shares)
 
-    scaled = scale_triggers_with_atr(cfg, atr_pct=atr_pct)
-    sell_trig = float(scaled["sell_trigger_pct"])
-    buy_trig = float(scaled["buy_trigger_pct"])
-    cfg_day = dict(cfg)
-    cfg_day["sell_trigger_pct"] = sell_trig
-    cfg_day["buy_trigger_pct"] = buy_trig
-    cfg_day["path_mode"] = "first_touch"
-
-    base_t0_ratio = float(cfg_day.get("t0_ratio") or 0.4)
-    if str(cfg_day.get("direction") or "") == "dual_y" and scores_have_any(score_snap):
-        cfg_day["t0_ratio"] = scale_t0_ratio(
-            base_t0_ratio,
-            score_snap or {},
-            cfg_day,
-        )
+    base_t0_ratio = float(cfg_day.get("t0_ratio") or 1.0)
+    # 动仓比例固定为基准；ŷ 信心改缩放卖/买目标价（见 trigger_scale_meta）
 
     fill_mode = str(cfg_day.get("fill_mode") or "trigger")
     last_amp_skip: Optional[Dict[str, Any]] = None
@@ -961,6 +1018,31 @@ def simulate_t0_day_minute(
             buy_trig=buy_trig,
         )
         if not dir_amp.get("ok") and not at_session_end:
+            abandon_on = bool(cfg_day.get("y_path_abandon_enabled", True))
+            abandon_bars = int(cfg_day.get("y_path_abandon_bars") or 6)
+            if abandon_on and n >= abandon_bars:
+                abandon_reason = str(dir_amp.get("reason") or "方向振幅未达标")
+                if direction == "reverse_t":
+                    abandon_reason = f"前缀无低吸空间，放弃反T（{abandon_reason}）"
+                elif direction == "long_t":
+                    abandon_reason = f"前缀无高抛空间，放弃正T（{abandon_reason}）"
+                return _finish(
+                    _skip_result(
+                        reason=abandon_reason,
+                        shares=shares,
+                        bar=bar_n,
+                        extra={
+                            "direction_used": direction,
+                            "path_mode": "first_touch",
+                            "range_mode": "rolling",
+                            "prefix_bars": n,
+                            "range_pct": range_pct,
+                            "directional_amplitude": dir_amp,
+                            "path_abandon": True,
+                        },
+                    ),
+                    dir_res,
+                )
             last_dir_wait = _skip_result(
                 reason=str(dir_amp.get("reason") or "方向振幅未达标"),
                 shares=shares,
@@ -1041,6 +1123,9 @@ def simulate_t0_day_minute(
             out = _finish(out, dir_res)
             out["t0_ratio_base"] = round(base_t0_ratio, 4)
             out["t0_ratio"] = round(float(cfg_day.get("t0_ratio") or base_t0_ratio), 4)
+            out.update(trigger_scale_meta)
+            out["sell_trigger_pct"] = round(sell_trig, 4)
+            out["buy_trigger_pct"] = round(buy_trig, 4)
 
         trades = list((out or {}).get("trades") or [])
         if trades:

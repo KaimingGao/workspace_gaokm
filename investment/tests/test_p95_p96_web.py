@@ -81,6 +81,7 @@ class TestP95P96WebPages(unittest.TestCase):
                 "quant-ols-summary",
                 "quant-ridge-lambda",
                 "quant-daily-fold",
+                "quant-daily-top-k",
                 "quant-interpret-offline",
                 "quant-interpret-neutral",
                 "规则解读",

@@ -3,23 +3,40 @@
 import {
   escapeText,
   paperMetricClass,
+  fmtTableScore,
+  resolveTradeScore,
+  resolveEodScore,
+  resolveTauScore,
+  resolveOnScore,
+  resolveNowcastScore,
   Y_EOD_TITLE,
   Y_TAU_TITLE,
   Y_ON_TITLE,
   Y_NOWCAST_TITLE,
-} from "./fmt.js";
+  Y_PATH_TITLE,
+  PATH_REALIZED_TITLE,
+  EOD_REALIZED_TITLE,
+  TAU_REALIZED_TITLE,
+  resolvePathScore,
+  fmtPathScore,
+} from "./fmt.js?v=p1486";
 import {
   adaptiveSizingDayTip,
   normalizeYTauMap,
   yTauMapScoreTip,
 } from "./execution_ui.js";
-import { watchingScoreDetail } from "../quant/watching_render.js";
+import { watchingScoreDetail } from "../quant/watching_render.js?v=p1486";
 import { TRADE_TITLE } from "../quant/watching_quotes_ui.js";
 
 export const SKIP_CAT_LABEL = {
   missing_scores: "缺ŷ快照",
   missing_minute: "缺分钟线",
   y_tau_flat: "y_τ横盘",
+  y_tau_weak: "y_τ弱信号",
+  y_path_flat: "y_path横盘",
+  y_path_disagree: "y_τ↔y_path不一致",
+  gap_tier_skip: "大缺口反向跳过",
+  path_abandon: "前缀无空间放弃",
   y_trade_weak: "y_trade幅度不足",
   trade_tau_sign: "异号跳过",
   conflict: "旧冲突",
@@ -32,6 +49,46 @@ export const SKIP_CAT_LABEL = {
   other: "其它",
 };
 
+/** 跳过类型口径（环形图 / 图例悬停） */
+export const SKIP_CAT_TIP = {
+  missing_scores:
+    "当日缺 ŷ 快照（ŷ_τ / ŷ_trade 等算不出），无法定方向。",
+  missing_minute:
+    "缺当日分钟线，无法模拟触达与成交路径。",
+  y_tau_flat:
+    "|ŷ_τ| 低于 enter（默认 0.40%）：视为横盘，不定向、不开仓。",
+  y_tau_weak:
+    "enter≤|ŷ_τ|<enter_strong（默认 0.40%～0.60%）：弱信号区，故意跳过以免微弱 τ 做错边。",
+  y_path_flat:
+    "|ŷ_path| 低于 path enter（默认 30）：路径头横盘，不参与 dual_y 选向。",
+  y_path_disagree:
+    "ŷ_τ 与 ŷ_path 方向不一致（dual_y）：两边拧着则跳过。",
+  gap_tier_skip:
+    "大缺口档位与拟做方向冲突（如大高开仍想正 T），规则直接跳过。",
+  path_abandon:
+    "开盘后前缀分钟已无足够空间触达卖/买触发，放弃当日做 T。",
+  y_trade_weak:
+    "|ŷ_trade| 幅度不足（相对 floor），融合分太弱不开仓。",
+  trade_tau_sign:
+    "ŷ_trade 与 ŷ_τ 异号（或 τ↔nowcast 异号闸开启时拧着），方向冲突跳过。",
+  conflict:
+    "旧版 eod↔τ / y_check 冲突闸（已下线），历史回放可能仍出现。",
+  amplitude:
+    "当日高低振幅不足以覆盖触发带，无法形成有效做 T 空间。",
+  directional_amplitude:
+    "沿选定方向（上移/下移）的可用振幅不足。",
+  lot_size:
+    "按规则算出的买卖量不足 1 手，或现金买不起。",
+  tplus1:
+    "T+1 锁定：当日无可卖旧仓（正 T 先卖路径走不通）。",
+  path:
+    "分钟路径规则否决（veto），与预测头 dual_y 不一致类不同。",
+  trigger_miss:
+    "有方向，但全天未触达卖出/低吸触发价。",
+  other:
+    "未归入上述类型的其它跳过原因。",
+};
+
 const TABLE_CLASS = "quant-weight-table paper-t0-table paper-t0-trades-table";
 
 /** 列轨宽度：colgroup inline width + CSS 同源，避免 fixed 表头/体错位 */
@@ -40,6 +97,7 @@ const T0_TRADE_COL_W = {
   date: "78px",
   eod: "82px",
   tau: "82px",
+  path: "110px",
   trade: "94px",
   on: "82px",
   nc: "82px",
@@ -167,8 +225,182 @@ function pickScoreNum(d, key) {
   return v != null && v !== "" && Number.isFinite(n) ? n : null;
 }
 
-/** 成交日 → 与观察/持仓同源的 tip 载荷（ŷ 字段映射到 predicted_score_*）。 */
-function t0DayScoreItem(d, fallback = {}) {
+function pickPathRealized(d) {
+  const n =
+    pickScoreNum(d, "path_realized") ??
+    (d.path_realized != null && Number.isFinite(Number(d.path_realized))
+      ? Number(d.path_realized)
+      : null);
+  if (n == null) return { text: "—", tip: PATH_REALIZED_TITLE, n: null };
+  const reason = String(
+    (d.direction_features && d.direction_features.path_realized_reason) ||
+      (d.scores && d.scores.path_realized_reason) ||
+      d.path_realized_reason ||
+      ""
+  ).trim();
+  const reasonMap = {
+    sell_first: "先触卖",
+    buy_first: "先触买",
+    no_touch: "未触达",
+    same_bar_both: "同根双触",
+    invalid_ref_or_empty: "无效开盘/无分钟",
+  };
+  const label = reasonMap[reason] || reason || (n > 0 ? "先触卖" : n < 0 ? "先触买" : "中性");
+  const pred = pickScoreNum(d, "y_path");
+  let hitNote = "";
+  if (pred != null && n !== 0 && Math.abs(pred) >= 1e-9) {
+    const agree = (pred > 0 && n > 0) || (pred < 0 && n < 0);
+    hitNote = agree ? " · 与 ŷ_path 同号" : " · 与 ŷ_path 异号";
+  }
+  const trig = d.path_realized_trig && typeof d.path_realized_trig === "object"
+    ? d.path_realized_trig
+    : null;
+  const trigNote =
+    trig && trig.sell_trig_pct != null && trig.buy_trig_pct != null
+      ? ` · 对照触发=模型口径 卖${trig.sell_trig_pct}%/买${trig.buy_trig_pct}%`
+      : "";
+  return {
+    text: fmtPathScore(n),
+    tip: `${PATH_REALIZED_TITLE} · ${label}${hitNote}${trigNote}`,
+    n,
+    agree:
+      pred != null && n !== 0
+        ? (pred > 0 && n > 0) || (pred < 0 && n < 0)
+        : null,
+  };
+}
+
+/** 百分点真实值：优先后端字段，缺则用开/收/昨收推算（兼容旧 payload）。 */
+function fmtRealizedPct(v) {
+  if (v == null || v === "") return "—";
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "—";
+  return `${n.toFixed(2)}%`;
+}
+
+function _signAgree(pred, real, eps = 0.05) {
+  if (pred == null || real == null) return null;
+  if (Math.abs(pred) < eps || Math.abs(real) < eps) return null;
+  return (pred > 0) === (real > 0);
+}
+
+function pickTauRealized(d) {
+  let n =
+    pickScoreNum(d, "tau_realized") ??
+    (d.tau_realized != null && Number.isFinite(Number(d.tau_realized))
+      ? Number(d.tau_realized)
+      : null);
+  if (n == null) {
+    const o = Number(d.open);
+    const c = Number(d.close);
+    if (Number.isFinite(o) && Number.isFinite(c) && o > 0) {
+      n = (c / o - 1) * 100;
+    }
+  }
+  if (n == null) return { text: "—", tip: TAU_REALIZED_TITLE, n: null };
+  const pred = pickScoreNum(d, "y_tau") ?? pickScoreNum(d, "direction_score");
+  const agree = _signAgree(pred, n);
+  return {
+    text: fmtRealizedPct(n),
+    tip:
+      TAU_REALIZED_TITLE +
+      (agree === true ? " · 与 ŷ_τ 同号" : agree === false ? " · 与 ŷ_τ 异号" : ""),
+    n,
+    agree,
+  };
+}
+
+function pickEodRealized(d) {
+  let n =
+    pickScoreNum(d, "eod_realized") ??
+    (d.eod_realized != null && Number.isFinite(Number(d.eod_realized))
+      ? Number(d.eod_realized)
+      : null);
+  if (n == null) {
+    const pc = Number(d.prev_close);
+    const c = Number(d.close);
+    if (Number.isFinite(pc) && Number.isFinite(c) && pc > 0) {
+      n = (c / pc - 1) * 100;
+    }
+  }
+  if (n == null) return { text: "—", tip: EOD_REALIZED_TITLE, n: null };
+  const pred = pickScoreNum(d, "y_eod");
+  const agree = _signAgree(pred, n);
+  return {
+    text: fmtRealizedPct(n),
+    tip:
+      EOD_REALIZED_TITLE +
+      (agree === true ? " · 与 ŷ_EOD 同号" : agree === false ? " · 与 ŷ_EOD 异号" : ""),
+    n,
+    agree,
+  };
+}
+
+/** y_path 预测 + path实：单行「预估值(真实值)」。 */
+function pathMergedCellHtml(d, fallback, rules, scoreDetailJson) {
+  const it = t0DayScoreItem(d, fallback, rules);
+  const pred = resolvePathScore(it);
+  const predTxt = pred != null ? fmtPathScore(pred) : "—";
+  const pr = pickPathRealized(d);
+  const realTxt = pr.n != null ? pr.text : "—";
+  const agreeCls =
+    pr.agree === true ? " is-path-hit" : pr.agree === false ? " is-path-miss" : "";
+  const tipParts = [
+    pred != null ? Y_PATH_TITLE : "暂无 ŷ_path",
+    pr.n != null ? pr.tip : PATH_REALIZED_TITLE,
+  ];
+  if (pr.agree === true) tipParts.push("预测与真实同号");
+  else if (pr.agree === false) tipParts.push("预测与真实异号");
+  const text = `${predTxt}(${realTxt})`;
+  return (
+    `<td class="num paper-t0-col-path paper-t0-col-y paper-t0-col-y-path paper-t0-y-score paper-t0-y-merged has-tip${agreeCls}" ` +
+    `data-score-tip="path" data-score-detail="${scoreDetailJson}" ` +
+    `title="${escapeText(tipParts.join(" · "))}">` +
+    `<span class="paper-t0-y-combo">${escapeText(text)}</span>` +
+    `</td>`
+  );
+}
+
+/** y_eod / y_τ：单行「预估值(真实值)」。 */
+function yPctMergedCellHtml(kind, d, fallback, rules, scoreDetailJson, titleExtra) {
+  const it = t0DayScoreItem(d, fallback, rules);
+  const isEod = kind === "eod";
+  const pred = isEod ? resolveEodScore(it) : resolveTauScore(it);
+  let predTxt = pred != null ? fmtTableScore(it, pred) : "—";
+  if (!isEod && predTxt === "—") {
+    const ds = d.direction_score;
+    if (ds != null && ds !== "" && Number.isFinite(Number(ds))) {
+      predTxt = fmtTableScore(it, Number(ds));
+    }
+  }
+  const pr = isEod ? pickEodRealized(d) : pickTauRealized(d);
+  const realTxt = pr.n != null ? pr.text : "—";
+  const agreeCls =
+    pr.agree === true ? " is-path-hit" : pr.agree === false ? " is-path-miss" : "";
+  const yTitle = isEod ? Y_EOD_TITLE : Y_TAU_TITLE;
+  const realTitle = isEod ? EOD_REALIZED_TITLE : TAU_REALIZED_TITLE;
+  const tipParts = [
+    pred != null || predTxt !== "—" ? yTitle : `暂无 ${isEod ? "ŷ_EOD" : "ŷ_τ"}`,
+    pr.n != null ? pr.tip : realTitle,
+  ];
+  if (titleExtra) tipParts.push(String(titleExtra));
+  if (pr.agree === true) tipParts.push("预测与真实同号");
+  else if (pr.agree === false) tipParts.push("预测与真实异号");
+  const text = `${predTxt}(${realTxt})`;
+  const colKey = kind;
+  return (
+    `<td class="num paper-t0-col-${escapeText(colKey)} paper-t0-col-y paper-t0-col-y-${escapeText(
+      colKey
+    )} paper-t0-y-score paper-t0-y-merged has-tip${agreeCls}" ` +
+    `data-score-tip="${escapeText(kind)}" data-score-detail="${scoreDetailJson}" ` +
+    `title="${escapeText(tipParts.join(" · "))}">` +
+    `<span class="paper-t0-y-combo">${escapeText(text)}</span>` +
+    `</td>`
+  );
+}
+
+/** 成交日 → 与持仓/观察同源的 tip + resolve 载荷。 */
+function t0DayScoreItem(d, fallback = {}, rules = {}) {
   const scores = d.scores && typeof d.scores === "object" ? d.scores : {};
   const feats =
     (d.direction_features && typeof d.direction_features === "object"
@@ -181,29 +413,48 @@ function t0DayScoreItem(d, fallback = {}) {
   const yTrade = pickScoreNum(d, "y_trade");
   const yOn = pickScoreNum(d, "y_on");
   const yNc = pickScoreNum(d, "y_nowcast");
+  const yPath = pickScoreNum(d, "y_path");
   return {
-    stock_code: d.stock_code || fallback.stock_code || null,
-    stock_name: d.stock_name || fallback.stock_name || null,
-    predicted_score_eod: yEod,
-    predicted_score: yEod,
-    predicted_score_tau: yTau,
-    score_rem: yTau,
-    predicted_score_blend: yTrade,
-    decision_score: yTrade,
-    predicted_score_on: yOn,
-    predicted_score_nowcast: yNc,
+    ...scores,
+    stock_code: d.stock_code || fallback.stock_code || scores.stock_code || null,
+    stock_name: d.stock_name || fallback.stock_name || scores.stock_name || null,
+    predicted_score_eod: scores.predicted_score_eod ?? yEod,
+    predicted_score: scores.predicted_score ?? scores.predicted_score_eod ?? yEod,
+    predicted_score_tau: scores.predicted_score_tau ?? yTau,
+    score_rem: scores.score_rem ?? scores.predicted_score_tau ?? yTau,
+    predicted_score_blend: scores.predicted_score_blend ?? scores.decision_score ?? yTrade,
+    decision_score: scores.decision_score ?? scores.predicted_score_blend ?? yTrade,
+    score: scores.score ?? scores.predicted_score_blend ?? scores.decision_score ?? yTrade,
+    predicted_score_on: scores.predicted_score_on ?? yOn,
+    predicted_score_nowcast: scores.predicted_score_nowcast ?? yNc,
+    predicted_score_path: scores.predicted_score_path ?? scores.y_path ?? yPath,
+    y_path: scores.y_path ?? yPath,
+    y_path_status: scores.y_path_status ?? null,
+    y_path_error: scores.y_path_error ?? null,
+    features_path: scores.features_path || feats.features_path || null,
+    formula_terms_path: scores.formula_terms_path || scores.score_formula_terms_path || null,
+    score_formula_terms_path: scores.formula_terms_path || scores.score_formula_terms_path || null,
+    path_tip_model: scores.path_tip_model || null,
+    y_path_enter:
+      rules.y_path_enter != null && Number.isFinite(Number(rules.y_path_enter))
+        ? Number(rules.y_path_enter)
+        : null,
+    rules: rules && Object.keys(rules).length ? rules : null,
+    predicted_score_blend_vs: scores.predicted_score_blend_vs ?? null,
     y_check: scores.y_check ?? feats.y_check ?? null,
     eod_trust: scores.eod_trust ?? feats.eod_trust ?? null,
-    dual_score_window: scores.dual_score_window || feats.dual_score_window || "intraday",
+    dual_score_window:
+      scores.dual_score_window || feats.dual_score_window || "intraday",
     dual_score_fusion: scores.dual_score_fusion || feats.dual_score_fusion || null,
-    dual_score_weights: scores.dual_score_weights || null,
-    dual_score_head: scores.dual_score_head || null,
+    dual_score_weights: scores.dual_score_weights || feats.dual_score_weights || null,
+    dual_score_head: scores.dual_score_head || feats.dual_score_head || null,
+    dual_score_single_head: scores.dual_score_single_head ?? feats.dual_score_single_head ?? null,
     as_of_tau: scores.as_of_tau || feats.as_of_tau || null,
     rem_tau: scores.rem_tau || null,
     gap_pct: scores.gap_pct ?? feats.gap_pct ?? null,
     predicted_score_eod_rem: scores.predicted_score_eod_rem ?? null,
     y_spec_tau: scores.y_spec_tau || null,
-    features_tau: scores.features_tau || null,
+    features_tau: scores.features_tau || feats.features_tau || null,
     score_formula_terms: scores.score_formula_terms || scores.formula_terms || null,
     formula_terms: scores.score_formula_terms || scores.formula_terms || null,
     factor_coefficients: scores.factor_coefficients || null,
@@ -222,6 +473,24 @@ function t0DayScoreItem(d, fallback = {}) {
   };
 }
 
+/** 表列 y_*：与 holdings_table / watching 同源 resolve。 */
+function t0FmtYScore(d, kind, fallback = {}, rules = {}) {
+  const it = t0DayScoreItem(d, fallback, rules);
+  if (kind === "path") {
+    const p = resolvePathScore(it);
+    return p != null ? fmtPathScore(p) : "—";
+  }
+  const resolvers = {
+    eod: resolveEodScore,
+    tau: resolveTauScore,
+    trade: resolveTradeScore,
+    on: resolveOnScore,
+    nowcast: resolveNowcastScore,
+  };
+  const fn = resolvers[kind];
+  return fmtTableScore(it, fn ? fn(it) : null);
+}
+
 function t0YScoreCell(tip, text, detailJson, title) {
   const colKey = tip === "nowcast" ? "nc" : tip;
   return (
@@ -233,15 +502,6 @@ function t0YScoreCell(tip, text, detailJson, title) {
       text
     )}</td>`
   );
-}
-
-function pickTau(d) {
-  const v = pickScore(d, "y_tau");
-  if (v !== "—") return v;
-  const ds = d.direction_score;
-  return ds != null && ds !== "" && Number.isFinite(Number(ds))
-    ? `${Number(ds).toFixed(2)}%`
-    : "—";
 }
 
 function fmtT0LegTime(v) {
@@ -486,6 +746,7 @@ function tradeColgroup(showStock, showReason = false, showDelete = false) {
     t0Col("paper-t0-col-date", "date") +
     t0Col("paper-t0-col-eod", "eod") +
     t0Col("paper-t0-col-tau", "tau") +
+    t0Col("paper-t0-col-path", "path") +
     t0Col("paper-t0-col-trade", "trade") +
     t0Col("paper-t0-col-on", "on") +
     t0Col("paper-t0-col-nc", "nc") +
@@ -500,6 +761,77 @@ function tradeColgroup(showStock, showReason = false, showDelete = false) {
 }
 
 export const T0_TRADE_TABLE_MAX_ROWS = 50;
+
+const FS_BTN_OPEN = "全屏";
+const FS_BTN_CLOSE = "退出";
+let tradesFsBound = false;
+
+function syncTradesFsBodyClass() {
+  const open = document.querySelector(".paper-t0-trades-panel.is-fs");
+  document.body.classList.toggle("paper-t0-trades-fs-open", !!open);
+}
+
+function setTradesFsBtn(panel, on) {
+  const btn = panel && panel.querySelector("[data-trades-fs-toggle]");
+  if (!btn) return;
+  btn.textContent = on ? FS_BTN_CLOSE : FS_BTN_OPEN;
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.title = on ? "退出全屏（Esc）" : "全屏查看成交明细";
+}
+
+function exitTradesFs(panel) {
+  if (!panel) return;
+  panel.classList.remove("is-fs");
+  setTradesFsBtn(panel, false);
+  syncTradesFsBodyClass();
+}
+
+function enterTradesFs(panel) {
+  document.querySelectorAll(".paper-t0-trades-panel.is-fs").forEach((el) => {
+    if (el !== panel) exitTradesFs(el);
+  });
+  panel.classList.add("is-fs");
+  setTradesFsBtn(panel, true);
+  syncTradesFsBodyClass();
+}
+
+/** 成交明细全屏：点「全屏」铺满视口，Esc /「退出」收回。 */
+export function bindT0TradesFullscreen() {
+  if (tradesFsBound || typeof document === "undefined") return;
+  tradesFsBound = true;
+  document.addEventListener("click", (ev) => {
+    const btn = ev.target && ev.target.closest && ev.target.closest("[data-trades-fs-toggle]");
+    if (!btn) return;
+    const panel = btn.closest("[data-trades-panel]");
+    if (!panel) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (panel.classList.contains("is-fs")) exitTradesFs(panel);
+    else enterTradesFs(panel);
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape") return;
+    const open = document.querySelector(".paper-t0-trades-panel.is-fs");
+    if (!open) return;
+    ev.preventDefault();
+    exitTradesFs(open);
+  });
+}
+
+function wrapTradesFullscreenPanel(innerHtml, caption) {
+  bindT0TradesFullscreen();
+  const headMain = caption ? `<div class="paper-t0-trades-fs-head-main">${caption}</div>` : "";
+  return (
+    `<div class="paper-t0-trades-panel" data-trades-panel>` +
+    `<div class="paper-t0-trades-fs-head">` +
+    headMain +
+    `<button type="button" class="dialog-btn secondary paper-t0-trades-fs-btn" ` +
+    `data-trades-fs-toggle aria-pressed="false" title="全屏查看成交明细">${FS_BTN_OPEN}</button>` +
+    `</div>` +
+    innerHtml +
+    `</div>`
+  );
+}
 
 /**
  * 成交明细表（纸面 / 量化回测共用）
@@ -529,10 +861,19 @@ export function buildT0TradeTableHtml(opts) {
   const head =
     (showStock ? `<th scope="col" class="paper-t0-col-stock">股票</th>` : "") +
     `<th scope="col" class="paper-t0-col-date">日</th>` +
-    `<th scope="col" class="paper-t0-col-eod num paper-t0-col-y paper-t0-col-y-eod" title="y_eod 收盘先验">y_eod</th>` +
-    `<th scope="col" class="paper-t0-col-tau num paper-t0-col-y paper-t0-col-y-tau" title="${escapeText(scoreTip)}">y_τ</th>` +
+    `<th scope="col" class="paper-t0-col-eod num paper-t0-col-y paper-t0-col-y-eod" title="${escapeText(
+      `${Y_EOD_TITLE} · 显示：预估值(真实值)`
+    )}">y_eod</th>` +
+    `<th scope="col" class="paper-t0-col-tau num paper-t0-col-y paper-t0-col-y-tau" title="${escapeText(
+      `${scoreTip} · 显示：预估值(真实值)`
+    )}">y_τ</th>` +
+    `<th scope="col" class="paper-t0-col-path num paper-t0-col-y paper-t0-col-y-path" title="${escapeText(
+      `${Y_PATH_TITLE} · 显示：预估值(真实值)`
+    )}">y_path</th>` +
     `<th scope="col" class="paper-t0-col-trade num paper-t0-col-y paper-t0-col-y-trade" title="y_trade 可交易性">y_trade</th>` +
-    `<th scope="col" class="paper-t0-col-on num paper-t0-col-y paper-t0-col-y-on" title="y_on 尾盘/隔夜">y_on</th>` +
+    `<th scope="col" class="paper-t0-col-on num paper-t0-col-y paper-t0-col-y-on" title="${escapeText(
+      `${Y_ON_TITLE}`
+    )}">y_on</th>` +
     `<th scope="col" class="paper-t0-col-nc num paper-t0-col-y paper-t0-col-y-nc" title="y_nowcast · Kalman 权昨收">y_nc</th>` +
     `<th scope="col" class="paper-t0-col-dir">向</th>` +
     `<th scope="col" class="paper-t0-col-process" title="5m 第一触达时点；缺分钟日已跳过">过程</th>` +
@@ -546,9 +887,9 @@ export function buildT0TradeTableHtml(opts) {
     .map((d) => {
       const skipped = !!d.skipped;
       const dir = d.direction === "reverse_t" ? "反" : d.direction === "long_t" ? "正" : "—";
-      const tau = pickTau(d);
+      const rules = (data && data.rules) || {};
       const scoreDetailJson = escapeText(
-        watchingScoreDetail(t0DayScoreItem(d, fallback))
+        watchingScoreDetail(t0DayScoreItem(d, fallback, rules))
       );
       const legs = tradeLegCells(d);
       const qty = legQtyCells(d);
@@ -567,9 +908,6 @@ export function buildT0TradeTableHtml(opts) {
             ? process
             : `卖 ${qty.sellQty}股 @ ${fmtT0LegPrice(legs.sellPx)} · 买 ${qty.buyQty}股 @ ${fmtT0LegPrice(legs.buyPx)}` +
               (showTime ? "" : " · 缺触达时刻"));
-      const tauTitle = d.direction_reason
-        ? `${Y_TAU_TITLE} · ${d.direction_reason}`
-        : Y_TAU_TITLE;
       const delBtn =
         showDelete && code && !skipped
           ? `<button type="button" class="paper-t0-ledger-del" data-code="${escapeText(
@@ -582,11 +920,26 @@ export function buildT0TradeTableHtml(opts) {
         `<tr class="${skipped ? "is-skipped" : ""}" data-code="${escapeText(code)}">` +
         (showStock ? stockCellHtml(d, fallback) : "") +
         `<td class="paper-t0-col-date">${escapeText(d.date || "")}</td>` +
-        t0YScoreCell("eod", pickScore(d, "y_eod"), scoreDetailJson, Y_EOD_TITLE) +
-        t0YScoreCell("tau", tau, scoreDetailJson, tauTitle) +
-        t0YScoreCell("trade", pickScore(d, "y_trade"), scoreDetailJson, TRADE_TITLE) +
-        t0YScoreCell("on", pickScore(d, "y_on"), scoreDetailJson, Y_ON_TITLE) +
-        t0YScoreCell("nowcast", pickScore(d, "y_nowcast"), scoreDetailJson, Y_NOWCAST_TITLE) +
+        yPctMergedCellHtml(
+          "eod",
+          d,
+          fallback,
+          rules,
+          scoreDetailJson,
+          null
+        ) +
+        yPctMergedCellHtml(
+          "tau",
+          d,
+          fallback,
+          rules,
+          scoreDetailJson,
+          d.direction_reason || null
+        ) +
+        pathMergedCellHtml(d, fallback, rules, scoreDetailJson) +
+        t0YScoreCell("trade", t0FmtYScore(d, "trade", fallback, rules), scoreDetailJson, TRADE_TITLE) +
+        t0YScoreCell("on", t0FmtYScore(d, "on", fallback, rules), scoreDetailJson, Y_ON_TITLE) +
+        t0YScoreCell("nowcast", t0FmtYScore(d, "nowcast", fallback, rules), scoreDetailJson, Y_NOWCAST_TITLE) +
         `<td class="paper-t0-col-dir">${dir}</td>` +
         `<td class="paper-t0-col-process" title="${escapeText(legTip)}">${
           skipped ? `<span class="paper-t0-leg-empty">—</span>` : legProcessFlowHtml(d)
@@ -614,13 +967,13 @@ export function buildT0TradeTableHtml(opts) {
       ? `<p class="quant-trades-caption paper-t0-table-more">表内最近 ${maxRows} 笔 · 样本共 ${days.length} 笔 · 可滚动查看</p>`
       : "";
 
-  return (
-    `${caption}` +
+  const tableBlock =
     `<div class="quant-weight-table-wrap paper-t0-trades-wrap">` +
     `<table class="${TABLE_CLASS}">` +
     tradeColgroup(showStock, showReason, showDelete) +
     `<thead><tr>${head}</tr></thead><tbody>${rows}</tbody></table>` +
     `</div>` +
-    moreHint
-  );
+    moreHint;
+
+  return wrapTradesFullscreenPanel(tableBlock, caption);
 }

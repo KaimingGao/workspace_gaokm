@@ -6,6 +6,7 @@
   y_τ      — 盘中主方向（开→收）；|y_τ| 超 enter 门槛后连续放大额度
   y_on     — 尾盘是否强制回补
   y_nowcast— 对照置信：与 y_τ 异号时可跳过（`y_block_tau_nowcast_sign`）；同向增强仅作影子标注
+  y_path   — 分钟第一触达顺序（±100）；|ŷ_path|≥enter 才入场，且须与 τ 方向一致
 
 选向分数默认**即时算**（开盘决策信息集：昨收因子 + 今开缺口），
 不依赖 score_ledger / 分池簿冻结快照；账本与簿仅作可选兜底。
@@ -22,6 +23,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_TRADE_FLOOR = 0.01
 DEFAULT_EOD_PRIOR = 0.01
 DEFAULT_TAU_ENTER = 0.40
+DEFAULT_TAU_ENTER_STRONG = 0.60
 DEFAULT_ON_RISK = 0.01
 DEFAULT_ON_ALLOW = 0.01
 DEFAULT_RATIO_BOOST_CAP = 1.25
@@ -30,6 +32,9 @@ DEFAULT_TAU_BOOST_CAP = 1.15
 DEFAULT_EOD_ALIGN_BOOST = 1.10
 DEFAULT_RATIO_TAU_SOFT_BAND = 0.20
 DEFAULT_TAU_NOWCAST_SIGN_EPS = 0.05
+DEFAULT_PATH_ENTER = 30.0  # ŷ_path ±100；|ŷ|<enter 横盘跳过；≥enter 且与 τ 冲突才否决
+DEFAULT_GAP_TIER_PCT = 1.5
+DEFAULT_PATH_ABANDON_BARS = 6
 
 # dual_y 下 y_τ 符号 → 正/反 T 映射（回测对照）
 # scalp / trend: y_τ>0→反T（趋势跟随：OC 向上，日内更可能 low→high，先买后卖）
@@ -176,6 +181,8 @@ def _slim_features_tau(feats: Any, *, limit: int = 16) -> Optional[Dict[str, Any
         "theme_day",
         "gap_atr",
         "gap_vs_sector",
+        "yclose_loc",
+        "mom3_pct",
         "ret_open_to_tau",
     )
     out: Dict[str, Any] = {}
@@ -257,6 +264,71 @@ def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
         out["formula_terms_on"] = on_terms
         out["score_formula_terms_on"] = on_terms
 
+    path_terms = _slim_formula_terms(
+        item.get("formula_terms_path") or item.get("score_formula_terms_path"),
+        limit=12,
+    )
+    if not path_terms or not (path_terms.get("terms") or path_terms.get("total") is not None):
+        # 旧快照缺组成时：用 features_path / features_tau 现场补拆解
+        try:
+            from core.research.path_ridge import explain_path_prediction, load_path_model
+
+            feats = item.get("features_path")
+            if not isinstance(feats, dict) or not feats:
+                feats = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+            expl = explain_path_prediction(feats, model_doc=load_path_model())
+            path_terms = _slim_formula_terms(expl, limit=12)
+        except Exception:  # noqa: BLE001
+            logger.debug("path tip explain fallback failed", exc_info=True)
+            path_terms = None
+    if path_terms and (path_terms.get("terms") or path_terms.get("total") is not None):
+        out["formula_terms_path"] = path_terms
+        out["score_formula_terms_path"] = path_terms
+
+    try:
+        from core.research.path_ridge import path_tip_model_snapshot
+
+        tip_m = path_tip_model_snapshot()
+        if tip_m:
+            out["path_tip_model"] = tip_m
+    except Exception:  # noqa: BLE001
+        logger.debug("path_tip_model snapshot failed", exc_info=True)
+
+    feats_path = item.get("features_path")
+    if isinstance(feats_path, dict) and feats_path:
+        slim_path = {
+            str(k): v
+            for k, v in feats_path.items()
+            if v is not None and str(k) in {
+                "gap_pct",
+                "sector_gap_breadth",
+                "theme_day",
+                "gap_atr",
+                "gap_vs_sector",
+                "yclose_loc",
+                "mom3_pct",
+            }
+        }
+        if slim_path:
+            out["features_path"] = slim_path
+    elif isinstance(item.get("features_tau"), dict):
+        # 无 path 特征时退回 τ 开盘 Z，便于 tip 重算组成
+        slim_path = {
+            str(k): v
+            for k, v in item["features_tau"].items()
+            if v is not None and str(k) in {
+                "gap_pct",
+                "sector_gap_breadth",
+                "theme_day",
+                "gap_atr",
+                "gap_vs_sector",
+                "yclose_loc",
+                "mom3_pct",
+            }
+        }
+        if slim_path:
+            out["features_path"] = slim_path
+
     feats_tau = _slim_features_tau(item.get("features_tau"))
     if feats_tau:
         out["features_tau"] = feats_tau
@@ -296,7 +368,7 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
     if not isinstance(score_snap, dict) or not scores_have_any(score_snap):
         return None
     out: Dict[str, Any] = {}
-    for k in ("y_eod", "y_tau", "y_trade", "y_on", "y_nowcast", "y_check", "eod_trust"):
+    for k in ("y_eod", "y_tau", "y_trade", "y_on", "y_on_path", "y_nowcast", "y_path", "y_check", "eod_trust"):
         if k in score_snap and score_snap.get(k) is not None:
             out[k] = score_snap.get(k)
     for k, v in tip_fields_from_item(score_snap).items():
@@ -322,7 +394,7 @@ def attach_day_scores(
         feats.update({k: v for k, v in features.items() if v is not None or k not in feats})
     snap = score_snap if isinstance(score_snap, dict) else None
     if scores_have_any(snap):
-        for k in ("y_eod", "y_tau", "y_trade", "y_on", "y_nowcast", "y_check", "eod_trust"):
+        for k in ("y_eod", "y_tau", "y_trade", "y_on", "y_on_path", "y_nowcast", "y_path", "y_check", "eod_trust"):
             if feats.get(k) is None and snap.get(k) is not None:
                 feats[k] = snap.get(k)
         packed = pack_day_scores(snap)
@@ -334,7 +406,68 @@ def attach_day_scores(
             out["scores"] = packed
     if feats:
         out["direction_features"] = feats
+    return attach_eod_tau_realized(out)
+
+
+def attach_eod_tau_realized(
+    day: Optional[dict],
+    *,
+    open_px: Optional[float] = None,
+    close_px: Optional[float] = None,
+    prev_close: Optional[float] = None,
+) -> Dict[str, Any]:
+    """写入 y_eod / y_τ 对照真实收益（与训练标签同口径）。
+
+    - ``eod_realized``: close[T]/close[T−1]−1（%）
+    - ``tau_realized``: close[T]/open[T]−1（%）
+    """
+    out: Dict[str, Any] = dict(day or {})
+    o = _f(open_px if open_px is not None else out.get("open"))
+    c = _f(close_px if close_px is not None else out.get("close"))
+    pc = _f(prev_close if prev_close is not None else out.get("prev_close"))
+    if isinstance(out.get("bar"), dict):
+        bar = out["bar"]
+        if o is None:
+            o = _f(bar.get("open"))
+        if c is None:
+            c = _f(bar.get("close"))
+        if pc is None:
+            pc = _f(bar.get("prev_close"))
+
+    tau_r: Optional[float] = None
+    eod_r: Optional[float] = None
+    if o is not None and c is not None and float(o) > 0:
+        tau_r = round((float(c) / float(o) - 1.0) * 100.0, 4)
+    if pc is not None and c is not None and float(pc) > 0:
+        eod_r = round((float(c) / float(pc) - 1.0) * 100.0, 4)
+
+    if o is not None:
+        out["open"] = float(o)
+    if c is not None:
+        out["close"] = float(c)
+    if pc is not None:
+        out["prev_close"] = float(pc)
+
+    scores = dict(out.get("scores") or {}) if isinstance(out.get("scores"), dict) else {}
+    feats = (
+        dict(out.get("direction_features") or {})
+        if isinstance(out.get("direction_features"), dict)
+        else {}
+    )
+    if tau_r is not None:
+        out["tau_realized"] = tau_r
+        scores["tau_realized"] = tau_r
+        feats["tau_realized"] = tau_r
+    if eod_r is not None:
+        out["eod_realized"] = eod_r
+        scores["eod_realized"] = eod_r
+        feats["eod_realized"] = eod_r
+    if scores:
+        out["scores"] = scores
+    if feats:
+        out["direction_features"] = feats
     return out
+
 
 
 def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
@@ -386,9 +519,17 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     if y_on is None:
         y_on = _f(item.get("predicted_score_on"))
 
+    y_on_path = _f(item.get("y_on_path"))
+    if y_on_path is None:
+        y_on_path = _f(item.get("predicted_score_on_path"))
+
     y_nowcast = _f(item.get("y_nowcast"))
     if y_nowcast is None:
         y_nowcast = _f(item.get("predicted_score_nowcast"))
+
+    y_path = _f(item.get("y_path"))
+    if y_path is None:
+        y_path = _f(item.get("predicted_score_path"))
 
     y_check = item.get("y_check")
     if y_check is not None:
@@ -401,11 +542,39 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         "y_trade": y_trade,
         "y_on": y_on,
         "y_nowcast": y_nowcast,
+        "y_path": y_path,
         "y_check": y_check,
         "eod_trust": eod_trust,
     }
+    if y_on_path is not None:
+        out["y_on_path"] = y_on_path
+        out["predicted_score_on_path"] = y_on_path
+
+    gap = _f(item.get("gap_pct"))
+    if gap is None and isinstance(item.get("features_tau"), dict):
+        gap = _f(item["features_tau"].get("gap_pct"))
+    if gap is not None:
+        out["gap_pct"] = gap
+    status = item.get("y_path_status")
+    if status:
+        out["y_path_status"] = str(status)
+    if item.get("y_path_error"):
+        out["y_path_error"] = str(item.get("y_path_error"))
     out.update(tip_fields_from_item(item))
     return out
+
+
+def _y_path_missing_reason(scores: dict) -> str:
+    status = str(scores.get("y_path_status") or "")
+    detail = {
+        "no_model": "path_ridge 模型未 promote（/quant → ŷ_path 拟合/启用）",
+        "feature_missing": "path 开盘特征不足",
+        "predict_none": "path 模型无法出分",
+        "error": scores.get("y_path_error") or "path 预测异常",
+    }.get(status)
+    if detail:
+        return f"dual_y：缺 y_path（{detail}）"
+    return "dual_y：缺 y_path（path_ridge 未加载或未算分）"
 
 
 def scores_from_ledger_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
@@ -420,6 +589,9 @@ def scores_from_ledger_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
         "predicted_score_nowcast": row.get("yhat_nowcast")
         if row.get("yhat_nowcast") is not None
         else row.get("predicted_score_nowcast"),
+        "predicted_score_path": row.get("yhat_path")
+        if row.get("yhat_path") is not None
+        else row.get("predicted_score_path"),
         "y_check": row.get("y_check"),
         "eod_trust": row.get("eod_trust"),
     }
@@ -469,49 +641,79 @@ def _tau_direction_sign(y_tau: Optional[float], tau_enter: float) -> int:
     return 0
 
 
-def scale_t0_ratio(base_ratio: float, scores: dict, cfg: dict) -> float:
-    """按 dual_y 分数缩放做 T 比例：|y_trade| · |y_τ| · eod 同向。"""
-    r = float(base_ratio)
+def t0_confidence_scale(scores: dict, cfg: dict) -> float:
+    """ŷ 信心 → 目标价倍数：1=按配置触发；弱信号压低目标（更容易触达、利润更薄）。
+
+    沿用 ``y_ratio_*`` 配置键。各路信号取**最弱**一档（min），再映射到
+    ``[y_ratio_cut, 1]``；eod 同向略抬升（仍不超过 1）。
+    """
     if not isinstance(scores, dict):
-        return max(0.05, min(1.0, r))
+        return 1.0
 
     floor = trade_mag_floor(cfg)
-    boost_cap = _cfg_float(cfg, "y_ratio_boost_cap", DEFAULT_RATIO_BOOST_CAP)
     cut = _cfg_float(cfg, "y_ratio_cut", DEFAULT_RATIO_CUT)
+    cut = max(0.2, min(float(cut), 1.0))
     tau_enter = _cfg_float(cfg, "y_tau_enter", DEFAULT_TAU_ENTER)
-    tau_boost_cap = _cfg_float(cfg, "y_ratio_tau_boost_cap", DEFAULT_TAU_BOOST_CAP)
     eod_prior = _cfg_float(cfg, "y_eod_prior", DEFAULT_EOD_PRIOR)
     eod_align_boost = _cfg_float(cfg, "y_ratio_eod_align_boost", DEFAULT_EOD_ALIGN_BOOST)
     soft_band = _cfg_float(cfg, "y_ratio_tau_soft_band", DEFAULT_RATIO_TAU_SOFT_BAND)
+
+    strengths: List[float] = []
 
     y_trade = _f(scores.get("y_trade"))
     if y_trade is not None:
         mag = abs(y_trade)
         if mag < floor:
-            r = r * cut
+            strengths.append(0.0)
         else:
             span = max(0.5, floor + 1.0)
-            t = min(1.0, max(0.0, (mag - floor) / span))
-            r = r * (1.0 + (boost_cap - 1.0) * t)
+            strengths.append(min(1.0, max(0.0, (mag - floor) / span)))
 
     y_tau = _f(scores.get("y_tau"))
     if y_tau is not None and abs(y_tau) >= tau_enter:
-        # 刚过入场线：额外砍仓，避免紫光那种弱 τ 满仓反T
         if soft_band > 0 and abs(y_tau) < tau_enter + soft_band:
-            r = r * cut
+            strengths.append(0.0)
         else:
             span_t = max(0.5, tau_enter + 0.5)
-            t_tau = min(1.0, max(0.0, (abs(y_tau) - tau_enter) / span_t))
-            r = r * (1.0 + (tau_boost_cap - 1.0) * t_tau)
+            strengths.append(min(1.0, max(0.0, (abs(y_tau) - tau_enter) / span_t)))
 
+    if not strengths:
+        return 1.0
+
+    strength = min(strengths)
     y_eod = _f(scores.get("y_eod"))
     if y_tau is not None and y_eod is not None:
         prior = _eod_prior_sign(y_eod, eod_prior)
         main = _tau_direction_sign(y_tau, tau_enter)
         if prior != 0 and main != 0 and prior == main:
-            r = r * eod_align_boost
+            strength = min(1.0, strength * eod_align_boost)
 
-    return max(0.05, min(1.0, r))
+    return max(cut, min(1.0, cut + (1.0 - cut) * strength))
+
+
+def scale_t0_triggers(
+    sell_pct: float,
+    buy_pct: float,
+    scores: dict,
+    cfg: dict,
+) -> Dict[str, float]:
+    """按 ŷ 信心缩放卖/买触发 %（目标价距离）。"""
+    sell = float(sell_pct)
+    buy = float(buy_pct)
+    scale = t0_confidence_scale(scores, cfg) if isinstance(scores, dict) else 1.0
+    return {
+        "sell_trigger_pct": round(max(0.1, min(sell * scale, 20.0)), 4),
+        "buy_trigger_pct": round(max(0.1, min(buy * scale, 20.0)), 4),
+        "trigger_scale": round(scale, 4),
+        "sell_trigger_pct_base": round(sell, 4),
+        "buy_trigger_pct_base": round(buy, 4),
+    }
+
+
+def scale_t0_ratio(base_ratio: float, scores: dict, cfg: dict) -> float:
+    """兼容旧调用：动仓比例固定为基准，不再随 ŷ 缩放。"""
+    _ = scores, cfg
+    return max(0.05, min(1.0, float(base_ratio)))
 
 
 def normalize_y_tau_map(raw: Any) -> str:
@@ -530,6 +732,145 @@ def normalize_y_tau_map(raw: Any) -> str:
     if mode not in Y_TAU_MAP_CHOICES:
         mode = Y_TAU_MAP_DEFAULT
     return mode
+
+
+def _path_direction_sign(y_path: Optional[float], path_enter: float) -> int:
+    if y_path is None:
+        return 0
+    if y_path >= path_enter:
+        return 1
+    if y_path <= -path_enter:
+        return -1
+    return 0
+
+
+def _nowcast_oc_pct(y_nowcast_cc: Optional[float], gap_pct: Optional[float]) -> Optional[float]:
+    """把昨收口径 nowcast 映回 open→close（与 y_τ 同窗口）。"""
+    if y_nowcast_cc is None or gap_pct is None:
+        return None
+    try:
+        g = float(gap_pct) / 100.0
+        cc = float(y_nowcast_cc) / 100.0
+    except (TypeError, ValueError):
+        return None
+    denom = 1.0 + g
+    if abs(denom) < 1e-9:
+        return None
+    oc = ((1.0 + cc) / denom - 1.0) * 100.0
+    return round(oc, 4)
+
+
+def _gap_tier_direction_override(
+    gap_pct: Optional[float],
+    tau_sign: int,
+    cfg: dict,
+) -> Optional[Dict[str, Any]]:
+    """大缺口分档：skip_opposite 跳过与大缺口均值回归相悖的 τ 方向。"""
+    mode = str(cfg.get("y_gap_tier_mode") or "skip_opposite").strip().lower()
+    if mode in {"", "off", "none", "false", "0"}:
+        return None
+    tier = _cfg_float(cfg, "y_gap_tier_pct", DEFAULT_GAP_TIER_PCT)
+    if gap_pct is None or abs(float(gap_pct)) < tier:
+        return None
+    g = float(gap_pct)
+    tau_dir = direction_from_y_tau_sign(tau_sign, cfg)
+    if mode == "revert":
+        want = "long_t" if g > 0 else "reverse_t"
+        if tau_dir == want:
+            return None
+        return {
+            "skip": True,
+            "direction": None,
+            "reason": (
+                f"dual_y[gap_tier/revert]：gap={g:+.2f}%≥{tier}% 期望{want}，"
+                f"τ→{tau_dir} 跳过"
+            ),
+        }
+    # skip_opposite：大缺口日禁止「顺势」映射
+    if g >= tier and tau_dir == "reverse_t":
+        return {
+            "skip": True,
+            "direction": None,
+            "reason": (
+                f"dual_y[gap_tier]：高开{g:+.2f}%≥{tier}% 跳过反T（τ顺势映射）"
+            ),
+        }
+    if g <= -tier and tau_dir == "long_t":
+        return {
+            "skip": True,
+            "direction": None,
+            "reason": (
+                f"dual_y[gap_tier]：低开{g:+.2f}%≤-{tier}% 跳过正T（τ顺势映射）"
+            ),
+        }
+    return None
+
+
+def _attach_y_path_to_item(item: dict, *, hist_bars: Optional[Sequence[dict]] = None) -> None:
+    """即时算分后补 ŷ_path（开盘特征 → path_ridge）。"""
+    if not isinstance(item, dict):
+        return
+    feats_tau = item.get("features_tau") if isinstance(item.get("features_tau"), dict) else {}
+    row: Dict[str, Any] = dict(feats_tau)
+    if row.get("gap_pct") is None:
+        row["gap_pct"] = item.get("gap_pct")
+    hist = [b for b in (hist_bars or []) if isinstance(b, dict)]
+    try:
+        from core.research.path_panel import path_features_from_open_row
+        from core.research.path_ridge import (
+            explain_path_prediction,
+            load_path_model,
+            predict_path_from_features,
+        )
+
+        model = load_path_model()
+        if model is None:
+            if _f(item.get("y_path")) is None:
+                item["y_path_status"] = "no_model"
+            return
+        prev = hist[-1] if hist else None
+        path_feats = path_features_from_open_row(row, hist=hist, prev_bar=prev)
+        existing = _f(item.get("y_path"))
+        if existing is not None:
+            item["y_path_status"] = "ok"
+            if not isinstance(item.get("features_path"), dict):
+                ft = dict(feats_tau)
+                for k, v in path_feats.items():
+                    if v is not None:
+                        ft[k] = v
+                if ft:
+                    item["features_path"] = ft
+            if item.get("formula_terms_path") is None:
+                expl = explain_path_prediction(
+                    item.get("features_path") or path_feats, model_doc=model
+                )
+                if expl:
+                    item["formula_terms_path"] = expl
+                    item["score_formula_terms_path"] = expl
+            return
+        if not any(v is not None for v in path_feats.values()):
+            item["y_path_status"] = "feature_missing"
+            return
+        y_path = predict_path_from_features(path_feats, model_doc=model)
+        if y_path is not None:
+            item["y_path"] = y_path
+            item["predicted_score_path"] = y_path
+            item["y_path_status"] = "ok"
+            ft = dict(feats_tau)
+            for k, v in path_feats.items():
+                if v is not None:
+                    ft[k] = v
+            item["features_path"] = ft
+            expl = explain_path_prediction(path_feats, model_doc=model)
+            if expl:
+                item["formula_terms_path"] = expl
+                item["score_formula_terms_path"] = expl
+        else:
+            item["y_path_status"] = "predict_none"
+    except Exception as exc:  # noqa: BLE001
+        item["y_path_status"] = "error"
+        item["y_path_error"] = str(exc)[:120]
+        logger.debug("attach y_path failed", exc_info=True)
 
 
 def direction_from_y_tau_sign(tau_sign: int, cfg: dict) -> str:
@@ -555,13 +896,17 @@ def resolve_dual_y_direction(
     cash: float,
     shares: float,
 ) -> Dict[str, Any]:
-    """dual_y 选向：|y_trade|下限 → 主方向(y_τ + y_tau_map) → 可选 τ↔nowcast 异号跳过。
+    """dual_y 选向：|y_trade|下限 → 主方向(y_τ + y_tau_map) → path 入场/否决 → 可选 τ↔nowcast 异号跳过。
 
-    y_eod 仅用于额度同向加成（与 y_τ 窗口不同：昨收→收 vs 开→收）。
+    y_eod 仅用于目标价同向回升（与 y_τ 窗口不同：昨收→收 vs 开→收）。
+    y_path：|ŷ_path|<enter 横盘跳过；≥enter 且与 τ 方向冲突则否决。
     """
     trade_floor = trade_mag_floor(cfg)
     eod_prior = _cfg_float(cfg, "y_eod_prior", DEFAULT_EOD_PRIOR)
     tau_enter = _cfg_float(cfg, "y_tau_enter", DEFAULT_TAU_ENTER)
+    tau_enter_strong = _cfg_float(cfg, "y_tau_enter_strong", DEFAULT_TAU_ENTER_STRONG)
+    if tau_enter_strong < tau_enter:
+        tau_enter_strong = tau_enter
     # 新键优先；旧 y_block_trade_tau_sign 仅作迁移别名；皆缺则默认开
     if "y_block_tau_nowcast_sign" in cfg:
         block_tau_nc = bool(cfg.get("y_block_tau_nowcast_sign"))
@@ -581,7 +926,16 @@ def resolve_dual_y_direction(
     y_tau = _f(scores.get("y_tau"))
     y_trade = _f(scores.get("y_trade"))
     y_nowcast = _f(scores.get("y_nowcast"))
+    y_path = _f(scores.get("y_path"))
     y_check = scores.get("y_check")
+    gap_pct = _f(scores.get("gap_pct"))
+    if gap_pct is None and isinstance(scores.get("features_tau"), dict):
+        gap_pct = _f(scores["features_tau"].get("gap_pct"))
+
+    use_path = bool(cfg.get("y_use_path", True))
+    path_enter = _cfg_float(cfg, "y_path_enter", DEFAULT_PATH_ENTER)
+    path_required = bool(cfg.get("y_path_required", False))
+    use_nowcast_oc = bool(cfg.get("y_nowcast_oc_gate", True))
 
     features = {
         "y_eod": y_eod,
@@ -589,7 +943,11 @@ def resolve_dual_y_direction(
         "y_trade": y_trade,
         "y_on": _f(scores.get("y_on")),
         "y_nowcast": y_nowcast,
+        "y_path": y_path,
         "y_check": y_check,
+        "gap_pct": gap_pct,
+        "y_tau_enter": tau_enter,
+        "y_tau_enter_strong": tau_enter_strong,
     }
 
     if y_trade is None and y_tau is None and y_eod is None:
@@ -634,26 +992,48 @@ def resolve_dual_y_direction(
             "signal_skip": True,
         }
 
-    # 可选：y_τ 与 y_nowcast 异号则跳过（缺 nowcast / 过弱则不拦）
+    # 弱信号区：过 enter 但未达 strong → 不定向（避免微弱 τ 满仓做错边）
+    if abs(y_tau) < tau_enter_strong:
+        return {
+            "direction": None,
+            "skip": True,
+            "direction_score": y_tau,
+            "direction_reason": (
+                f"dual_y：|y_τ|={abs(y_tau):.3f}% 弱信号区"
+                f"（{tau_enter}%≤|y_τ|<{tau_enter_strong}%）跳过"
+            ),
+            "features": features,
+            "signal_skip": True,
+        }
+
+    # 可选：y_τ 与 nowcast 异号则跳过（默认 OC 口径；缺 nowcast / 过弱则不拦）
+    nc_compare = y_nowcast
+    nc_label = "y_nowcast"
+    if use_nowcast_oc and y_nowcast is not None and gap_pct is not None:
+        nc_oc = _nowcast_oc_pct(y_nowcast, gap_pct)
+        if nc_oc is not None:
+            nc_compare = nc_oc
+            nc_label = "y_nowcast_oc"
+            features["y_nowcast_oc"] = nc_oc
     if (
         block_tau_nc
-        and y_nowcast is not None
+        and nc_compare is not None
         and abs(y_tau) >= sign_eps
-        and abs(y_nowcast) >= sign_eps
-        and (y_tau > 0) != (y_nowcast > 0)
+        and abs(nc_compare) >= sign_eps
+        and (y_tau > 0) != (nc_compare > 0)
     ):
         return {
             "direction": None,
             "skip": True,
             "direction_score": y_tau,
             "direction_reason": (
-                f"dual_y：y_τ={y_tau:.3f}% 与 y_nowcast={y_nowcast:.3f}% 异号跳过"
+                f"dual_y：y_τ={y_tau:.3f}% 与 {nc_label}={nc_compare:.3f}% 异号跳过"
             ),
             "features": features,
             "signal_skip": True,
         }
 
-    # y_eod 仅标注 / 额度同向加成（scale_t0_ratio）
+    # y_eod 仅标注 / 目标价同向回升（t0_confidence_scale）
     prior = 0
     if y_eod is not None:
         if y_eod >= eod_prior:
@@ -663,6 +1043,66 @@ def resolve_dual_y_direction(
 
     main = 1 if y_tau >= tau_enter else -1
     direction = direction_from_y_tau_sign(main, cfg)
+
+    gap_block = _gap_tier_direction_override(gap_pct, main, cfg)
+    if gap_block and gap_block.get("skip"):
+        return {
+            "direction": None,
+            "skip": True,
+            "direction_score": y_tau,
+            "direction_reason": str(gap_block.get("reason") or "大缺口分档跳过"),
+            "features": features,
+            "signal_skip": True,
+        }
+
+    path_sign = _path_direction_sign(y_path, path_enter)
+    if use_path:
+        if y_path is None and path_required:
+            return {
+                "direction": None,
+                "skip": True,
+                "direction_score": y_tau,
+                "direction_reason": _y_path_missing_reason(scores),
+                "features": features,
+                "signal_skip": True,
+            }
+        # path 入场闸：|ŷ_path|<enter 横盘跳过；≥enter 且与 τ 冲突才否决
+        if y_path is not None and path_sign == 0:
+            return {
+                "direction": None,
+                "skip": True,
+                "direction_score": y_tau,
+                "direction_reason": (
+                    f"dual_y：|y_path|={abs(y_path):.1f}<{path_enter} 横盘跳过"
+                ),
+                "features": features,
+                "signal_skip": True,
+            }
+        if y_path is not None and path_sign != 0:
+            path_wants_long = path_sign > 0
+            path_wants_reverse = path_sign < 0
+            if direction == "long_t" and not path_wants_long:
+                return {
+                    "direction": None,
+                    "skip": True,
+                    "direction_score": y_tau,
+                    "direction_reason": (
+                        f"dual_y：y_τ→{direction} 但 y_path={y_path:.1f} 预测先买（不一致）"
+                    ),
+                    "features": features,
+                    "signal_skip": True,
+                }
+            if direction == "reverse_t" and not path_wants_reverse:
+                return {
+                    "direction": None,
+                    "skip": True,
+                    "direction_score": y_tau,
+                    "direction_reason": (
+                        f"dual_y：y_τ→{direction} 但 y_path={y_path:.1f} 预测先卖（不一致）"
+                    ),
+                    "features": features,
+                    "signal_skip": True,
+                }
 
     if direction == "reverse_t" and not (cash > 0 and shares > 0):
         return {
@@ -683,6 +1123,10 @@ def resolve_dual_y_direction(
     else:
         features["nowcast_align"] = False
 
+    path_note = ""
+    if y_path is not None and path_sign != 0:
+        path_note = f"；y_path={y_path:.1f}一致"
+
     return {
         "direction": direction,
         "skip": False,
@@ -691,6 +1135,7 @@ def resolve_dual_y_direction(
             f"dual_y[{tau_map}]：y_τ={y_tau:.3f}%→{direction}（{map_tag}）"
             + (f"；y_eod先验={prior:+d}" if prior else "")
             + (f"；y_trade={y_trade:.3f}%" if y_trade is not None else "")
+            + path_note
             + nc_note
         ),
         "features": {**features, "y_tau_map": tau_map},
@@ -796,7 +1241,10 @@ def load_scores_for_code_date(code: str, as_of: str) -> Dict[str, Optional[float
 def scores_have_any(scores: Optional[dict]) -> bool:
     if not isinstance(scores, dict):
         return False
-    return any(_f(scores.get(k)) is not None for k in ("y_eod", "y_tau", "y_trade", "y_on"))
+    return any(
+        _f(scores.get(k)) is not None
+        for k in ("y_eod", "y_tau", "y_trade", "y_on", "y_path")
+    )
 
 
 def open_decision_quote(
@@ -913,20 +1361,20 @@ def _enrich_quote_path_price(
 
 
 def _scoring_models() -> Tuple[Any, Dict[str, Any], Any]:
-    """(rem_doc, cluster_models_by_code, global_return_model)。"""
+    """(tau_doc, cluster_models_by_code, global_return_model)。"""
     if _MODEL_CACHE.get("ok"):
         return (
-            _MODEL_CACHE.get("rem"),
+            _MODEL_CACHE.get("tau") or _MODEL_CACHE.get("rem"),
             _MODEL_CACHE.get("cluster") or {},
             _MODEL_CACHE.get("global_rm"),
         )
-    rem = None
+    tau = None
     try:
         from core.research.tau_ridge import load_tau_model
 
-        rem = load_tau_model()
+        tau = load_tau_model()
     except Exception:  # noqa: BLE001
-        logger.debug("load rem model failed", exc_info=True)
+        logger.debug("load tau model failed", exc_info=True)
     cluster: Dict[str, Any] = {}
     try:
         from core.signal.cluster.live import (
@@ -948,9 +1396,9 @@ def _scoring_models() -> Tuple[Any, Dict[str, Any], Any]:
         logger.debug("load global return model failed", exc_info=True)
     _MODEL_CACHE.clear()
     _MODEL_CACHE.update(
-        {"ok": True, "rem": rem, "cluster": cluster, "global_rm": global_rm}
+        {"ok": True, "tau": tau, "cluster": cluster, "global_rm": global_rm}
     )
-    return rem, cluster, global_rm
+    return tau, cluster, global_rm
 
 
 def clear_score_model_cache() -> None:
@@ -1181,20 +1629,56 @@ def compute_scores_from_bars(
             from core.research.tau_panel import GAP_ATR_WINDOW
         except Exception:  # noqa: BLE001
             GAP_ATR_WINDOW = 14
-        # EOD 仍用开盘决策 quote；ŷ_ON 需路径现价 + 含当日 bar（PIT 会切掉 asof）
-        q_dual = _enrich_quote_path_price(q, day, code=raw)
+        # 开盘 PIT：τ / EOD / 决策用开盘 quote（price=open）；勿把当日 close 喂进 ŷ_ON
+        # （否则表列 y_on≈当日 OC，与 τ实假相关）。
         dual_bars = list(hist[-max(int(GAP_ATR_WINDOW) + 6, 20) :])
+        # 当日 bar 仅供 asof 对齐；hist_bars_pit 会剥掉 asof 日 K，不吃 T 振幅
         if day is not None:
             dual_bars = dual_bars + [day]
         attach_dual_score_pit(
             item,
-            quote=q_dual,
+            quote=q,
             bars=dual_bars,
             rem_model_doc=rem,
             sector_gap_breadth=item.get("sector_gap_breadth"),
             fuse_intraday=bool(fuse_intraday),
             sector_gap_median=item.get("_sector_gap_median"),
         )
+        # 复盘对照：路径价 ŷ_ON（可含当日 close）写入旁路字段，不覆盖决策 y_on
+        try:
+            from core.signal.dual_score.on import attach_on_score_pit
+
+            q_path = _enrich_quote_path_price(dict(q or {}), day, code=raw)
+            open_on = item.get("predicted_score_on")
+            open_feats = (
+                dict(item.get("features_on") or {})
+                if isinstance(item.get("features_on"), dict)
+                else {}
+            )
+            attach_on_score_pit(
+                item,
+                quote=q_path,
+                bars=dual_bars,
+                gap_pct=item.get("gap_pct"),
+                sector_gap_breadth=item.get("sector_gap_breadth"),
+                theme_day=(item.get("features_tau") or {}).get("theme_day")
+                if isinstance(item.get("features_tau"), dict)
+                else None,
+            )
+            path_on = item.get("predicted_score_on")
+            path_feats = item.get("features_on")
+            # 恢复开盘决策口径
+            item["predicted_score_on"] = open_on
+            item["y_on"] = open_on
+            if open_feats:
+                item["features_on"] = open_feats
+            if path_on is not None:
+                item["predicted_score_on_path"] = path_on
+                item["y_on_path"] = path_on
+            if isinstance(path_feats, dict) and path_feats:
+                item["features_on_path"] = dict(path_feats)
+        except Exception:  # noqa: BLE001
+            logger.debug("attach path-enriched y_on failed", exc_info=True)
         # 即时算路径未走 score_stock，补 EOD 组成表供 tip 对照因子
         try:
             eod_model = None
@@ -1228,6 +1712,14 @@ def compute_scores_from_bars(
                 item["eod_trust"] = st.get("eod_trust")
         except Exception:  # noqa: BLE001
             logger.debug("build_y_state in compute failed", exc_info=True)
+        _attach_y_path_to_item(item, hist_bars=hist)
+        try:
+            from core.signal.dual_score import align_trade_score_fields
+
+            # 与持仓/观察表同源；勿 refresh_window（历史日须保留 fuse_intraday 窗）
+            align_trade_score_fields(item, write_score=False, refresh_window=False)
+        except Exception:  # noqa: BLE001
+            logger.debug("align_trade_score_fields in compute failed", exc_info=True)
         out = scores_from_item(item)
         out["_score_source"] = "compute"
         return out
@@ -1507,6 +1999,12 @@ def _scores_from_live_book(code: str) -> Dict[str, Optional[float]]:
                 continue
             rc = str(row.get("stock_code") or row.get("code") or "").strip()
             if rc == key:
+                try:
+                    from core.signal.dual_score import align_trade_score_fields
+
+                    align_trade_score_fields(row, write_score=False)
+                except Exception:  # noqa: BLE001
+                    logger.debug("align live book row failed", exc_info=True)
                 sc = scores_from_item(row)
                 if scores_have_any(sc):
                     sc["_score_source"] = "live_book"

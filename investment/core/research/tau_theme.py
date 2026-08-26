@@ -22,9 +22,9 @@ def resolve_theme_day(
     gap_trigger_pct: float = 2.0,
     breadth_theme_min: float = 0.5,
 ) -> float:
-    """主题日 =1：广度≥门槛，或截面 |gap| 中位≥trigger（与 tau_panel 同构）。
+    """主题日 =1：广度≥门槛，或截面 |gap| 中位≥trigger，或本票 |gap|≥trigger。
 
-    无截面信息时退化为「本票 |gap|≥trigger」（单票路径弱代理）。
+    本票大缺口在有截面时也记主题（开盘可得、无泄漏）；避免「池静、个股跳空」永远 theme=0。
     """
     trigger = float(gap_trigger_pct)
     bmin = float(breadth_theme_min)
@@ -37,7 +37,7 @@ def resolve_theme_day(
         return 1.0
     if med is not None and med >= trigger:
         return 1.0
-    if b is None and med is None and gap_pct is not None:
+    if gap_pct is not None:
         try:
             if abs(float(gap_pct)) >= trigger:
                 return 1.0

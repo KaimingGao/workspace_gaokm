@@ -2,8 +2,8 @@
  * 观察池 HTML 渲染 helpers（纯字符串 / 轻量 DOM 写入）。
  */
 import { escapeHtml } from "../shared.js";
-import { fmtTableScore } from "../paper/fmt.js?v=p1227";
-import { marketPriorDetailFields, tailAnomalyDetailFields } from "../score_tooltip.js?v=p1227";
+import { fmtTableScore } from "../paper/fmt.js?v=p1472";
+import { marketPriorDetailFields, tailAnomalyDetailFields } from "../score_tooltip.js?v=p1472";
 import { watchingNameSpanHtml } from "./names.js";
 
 export function describeWatchingSource(src, index) {
@@ -121,6 +121,17 @@ export function watchingScoreDetail(it) {
           ? it.score_rem
           : it.predicted_score_rem),
     predicted_score_on: it && it.predicted_score_on,
+    predicted_score_path: it && (it.predicted_score_path != null ? it.predicted_score_path : it.y_path),
+    y_path: it && it.y_path,
+    y_path_status: (it && it.y_path_status) || null,
+    y_path_error: (it && it.y_path_error) || null,
+    features_path: (it && it.features_path) || null,
+    formula_terms_path: slimFormulaTerms(
+      (it && (it.formula_terms_path || it.score_formula_terms_path)) || null,
+      12
+    ),
+    path_tip_model: (it && it.path_tip_model) || null,
+    y_path_enter: it && it.y_path_enter != null ? it.y_path_enter : null,
     gap_pct: it && it.gap_pct,
     predicted_score: it && it.predicted_score != null ? it.predicted_score : it && it.score,
     score: it && it.score != null ? it.score : it && it.predicted_score,

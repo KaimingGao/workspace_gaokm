@@ -95,7 +95,7 @@ def compare_portfolio_neutralization(
 def summarize_portfolio_neutral_compare(
     *,
     codes: Optional[List[str]] = None,
-    lookback: int = 90,
+    lookback: Optional[int] = None,
     top_k: Optional[int] = None,
     horizon_days: Optional[int] = None,
     min_score: Optional[float] = None,
@@ -106,10 +106,12 @@ def summarize_portfolio_neutral_compare(
     from core.research.portfolio_bars import DAILY_PORTFOLIO_MAX_NAMES
     from core.watching.store import read_watching
     from quant.research.portfolio_data import (
+        DAILY_BT_UI_LOOKBACK,
         load_portfolio_stock_bars,
         resolve_daily_topk_backtest_kwargs,
     )
 
+    lb = int(lookback) if lookback is not None else int(DAILY_BT_UI_LOOKBACK)
     candidates = list(codes or [])
     if not candidates:
         try:
@@ -124,7 +126,7 @@ def summarize_portfolio_neutral_compare(
     n_all = len(candidates)
     stock_bars, failures, fundamentals_by_code = load_portfolio_stock_bars(
         candidates,
-        lookback=lookback,
+        lookback=lb,
         fetch_fundamentals=fetch_fundamentals,
         offline_ok=True,
         max_names=DAILY_PORTFOLIO_MAX_NAMES,

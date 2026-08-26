@@ -9,10 +9,13 @@ import {
   resolveEodScore,
   resolveNowcastScore,
   resolveOnScore,
+  resolvePathScore,
   resolveTauLiftedScore,
   resolveTauScore,
   resolveTradeScore,
-} from "./paper/fmt.js?v=p1226";
+  fmtPathScore,
+  Y_PATH_TITLE,
+} from "./paper/fmt.js?v=p1472";
 import { renderYPathVizHtml } from "./y_path_viz.js?v=p1169";
 import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
 import { ON_FEAT_META } from "./quant/factor_meta.js?v=p1226";
@@ -95,6 +98,10 @@ function resolveWeights(raw) {
   let wt = Number(w.w_tau);
   if (!Number.isFinite(we)) we = 0.5;
   if (!Number.isFinite(wt)) wt = 0.5;
+  const win = String((raw && raw.dual_score_window) || w.window || "");
+  if (win !== "eod_next" && wt <= 1e-12 && resolveTau(raw) != null) {
+    wt = 0.5;
+  }
   return { w_eod: we, w_tau: wt };
 }
 
@@ -118,7 +125,29 @@ const TAU_FEAT_LABELS = {
   gap_atr: "缺口 / ATR",
   gap_vs_sector: "行业相对缺口",
   ret_open_to_tau: "开盘→τ 收益 %",
+  yclose_loc: "昨收位置",
+  mom3_pct: "近3日动量 %",
 };
+
+const PATH_FEAT_LABELS = {
+  gap_pct: "跳空 %",
+  sector_gap_breadth: "同业缺口广度",
+  theme_day: "主题日",
+  gap_atr: "缺口 / ATR",
+  gap_vs_sector: "行业相对缺口",
+  yclose_loc: "昨收位置",
+  mom3_pct: "近3日动量 %",
+};
+
+function resolvePathEnter(raw) {
+  const pathEnterRaw =
+    raw && raw.y_path_enter != null
+      ? Number(raw.y_path_enter)
+      : raw && raw.rules && raw.rules.y_path_enter != null
+        ? Number(raw.rules.y_path_enter)
+        : 30;
+  return Number.isFinite(pathEnterRaw) ? pathEnterRaw : 15;
+}
 
 /** ŷ_EOD：表列 score · 含因子组成。 */
 export function formatScoreHero(raw) {
@@ -188,6 +217,9 @@ function termFeatLabel(t, key) {
   if (key === "on" && k && ON_FEAT_META[k] && ON_FEAT_META[k].label) {
     return ON_FEAT_META[k].label;
   }
+  if (key === "path" && k && PATH_FEAT_LABELS[k]) {
+    return PATH_FEAT_LABELS[k];
+  }
   return FACTOR_LABELS[k] || TAU_FEAT_LABELS[k] || k || "—";
 }
 
@@ -216,6 +248,111 @@ function formatCompactEodTip(raw) {
     gate +
     `</div>`
   );
+}
+
+/** y_path 列 tip：头值=拟合原值（=组成合计=表列）；因子表见 formatFormulaTermsSection。 */
+function formatCompactPathTip(raw) {
+  const fit = resolvePathScore(raw);
+  const fitTxt = fit == null ? "—" : fmtPathScore(fit);
+  const pathEnter = resolvePathEnter(raw);
+  const below = fit != null && Math.abs(fit) < pathEnter;
+  let bias = "";
+  if (fit != null && Number.isFinite(fit) && Math.abs(fit) >= pathEnter) {
+    bias = fit > 0 ? "先触卖·偏正T" : "先触买·偏反T";
+  }
+  const status = String((raw && raw.y_path_status) || "");
+  const statusNote =
+    status && status !== "ok"
+      ? ` · ${(raw && raw.y_path_error) || status}`
+      : "";
+  let gate = "";
+  if (pathEnter != null) {
+    gate = `<div class="score-hero-gate${below ? " is-warn" : ""}">|ŷ_path| ≥ ${escapeText(
+      String(pathEnter)
+    )}${below ? " · 当前低于门槛" : ""}${
+      bias ? ` · ${escapeText(bias)}` : ""
+    }</div>`;
+  }
+  return (
+    `<div class="score-layer score-layer-path">` +
+    `<div class="score-layer-head">` +
+    `<div class="score-hero-label">ŷ_path · 第一触达（拟合）</div>` +
+    `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
+    `</div>` +
+    `<div class="score-hero-hint">±100 · 与表列 / 组成合计 / path 闸同口径${escapeText(
+      statusNote
+    )}</div>` +
+    gate +
+    `</div>`
+  );
+}
+
+/** 缺 formula_terms_path 时用 path_tip_model + 开盘特征现场重算组成。 */
+function rebuildPathFormulaTerms(raw) {
+  const existing =
+    (raw && (raw.formula_terms_path || raw.score_formula_terms_path)) || null;
+  if (
+    existing &&
+    typeof existing === "object" &&
+    Array.isArray(existing.terms) &&
+    existing.terms.length
+  ) {
+    return existing;
+  }
+  const model = (raw && raw.path_tip_model) || null;
+  if (!model || typeof model !== "object") return null;
+  const coefs = model.coefficients || {};
+  const means = model.zscore_means || {};
+  const stds = model.zscore_stds || {};
+  const active = Array.isArray(model.active_features)
+    ? model.active_features
+    : Object.keys(coefs);
+  const feats =
+    (raw && raw.features_path) ||
+    (raw && raw.features_tau) ||
+    {};
+  const intercept = Number(model.intercept) || 0;
+  const terms = [];
+  let total = intercept;
+  for (const name of active) {
+    if (coefs[name] == null) continue;
+    const beta = Number(coefs[name]);
+    if (!Number.isFinite(beta)) continue;
+    let z = 0;
+    let note = "";
+    const v = feats[name];
+    if (v == null || v === "") {
+      note = "缺特征·z≈0";
+    } else {
+      const fv = Number(v);
+      if (!Number.isFinite(fv)) {
+        note = "缺特征·z≈0";
+      } else {
+        const mu = Number(means[name]) || 0;
+        let sd = Number(stds[name]);
+        if (!Number.isFinite(sd) || Math.abs(sd) < 1e-9) sd = 1;
+        z = (fv - mu) / sd;
+      }
+    }
+    const contrib = beta * z;
+    total += contrib;
+    terms.push({
+      key: String(name),
+      label: PATH_FEAT_LABELS[name] || name,
+      beta,
+      z,
+      contrib,
+      ...(note ? { note } : {}),
+    });
+  }
+  if (!terms.length && Math.abs(intercept) < 1e-12) return null;
+  terms.sort((a, b) => Math.abs(b.contrib) - Math.abs(a.contrib));
+  return {
+    intercept,
+    terms: terms.slice(0, 16),
+    total,
+    head: "path",
+  };
 }
 
 /** y_τ 列 tip：头值=拟合原值（=组成合计=表列）；昨收口径仅作对照。 */
@@ -263,7 +400,7 @@ function formatCompactTauTip(raw) {
   );
 }
 
-/** y_on 列：旁路 open 链头。 */
+/** y_on 列：开盘决策口径旁路（勿与含当日 close 的 y_on_path 混读）。 */
 function formatCompactOnTip(raw) {
   const on = resolveOnScore(raw);
   const val = on == null ? "—" : `${fmtSigned(on, 2)}%`;
@@ -271,13 +408,28 @@ function formatCompactOnTip(raw) {
     (raw && raw.y_spec_on && raw.y_spec_on.formula) ||
     (raw && raw.on_y_spec) ||
     "open[T+1]/open[T]−1";
+  const pathOn =
+    raw && raw.y_on_path != null && Number.isFinite(Number(raw.y_on_path))
+      ? Number(raw.y_on_path)
+      : raw &&
+          raw.predicted_score_on_path != null &&
+          Number.isFinite(Number(raw.predicted_score_on_path))
+        ? Number(raw.predicted_score_on_path)
+        : null;
+  const pathLine =
+    pathOn == null
+      ? ""
+      : `<div class="score-hero-hint">复盘路径价 y_on_path=${escapeText(
+          `${fmtSigned(pathOn, 2)}%`
+        )}（可含当日 close · 不定向）</div>`;
   return (
     `<div class="score-layer score-layer-on">` +
     `<div class="score-layer-head">` +
     `<div class="score-hero-label">y_on</div>` +
     `<div class="score-hero-value ${signCls(on)}">${escapeText(val)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">${escapeText(String(ySpec))} · 旁路 · 不进排序</div>` +
+    `<div class="score-hero-hint">${escapeText(String(ySpec))} · 开盘决策 · 旁路 · 不进排序</div>` +
+    pathLine +
     `</div>`
   );
 }
@@ -736,19 +888,29 @@ export function formatFormulaTermsSection(raw, opts = {}) {
       ? raw && (raw.formula_terms_tau || raw.score_formula_terms_tau)
       : key === "on"
         ? raw && (raw.formula_terms_on || raw.score_formula_terms_on)
-        : raw && (raw.formula_terms || raw.score_formula_terms);
+        : key === "path"
+          ? raw && (raw.formula_terms_path || raw.score_formula_terms_path)
+          : raw && (raw.formula_terms || raw.score_formula_terms);
   if (!expl || typeof expl !== "object") return "";
   const terms = Array.isArray(expl.terms) ? expl.terms : [];
   if (!terms.length && expl.intercept == null) return "";
 
   const title =
-    key === "tau" ? "ŷ_τ 组成" : key === "on" ? "ŷ_ON 组成" : "ŷ_EOD 组成";
+    key === "tau"
+      ? "ŷ_τ 组成"
+      : key === "on"
+        ? "ŷ_ON 组成"
+        : key === "path"
+          ? "ŷ_path 组成"
+          : "ŷ_EOD 组成";
   const totalLabel =
     key === "tau"
       ? "合计 ŷ_τ（T收/T开）"
       : key === "on"
         ? "合计 ŷ_ON"
-        : "合计 ŷ_EOD";
+        : key === "path"
+          ? "合计 ŷ_path"
+          : "合计 ŷ_EOD";
 
   const rows = terms
     .map((t) => {
@@ -810,7 +972,9 @@ export function formatFormulaTermsSection(raw, opts = {}) {
   const caption =
     key === "tau"
       ? "β×z = 贡献；合计=Ridge 拟合原值（T收/T开），与表列 ŷ_τ / τ 闸同口径。昨收（缺口∘ŷ_τ）只用于 ŷ_trade 融合对照。"
-      : "β×z = 贡献；条长∝|贡献|";
+      : key === "path"
+        ? "β×z = 贡献；合计=path_ridge 拟合原值（±100），与表列 y_path / dual_y 闸同口径。"
+        : "β×z = 贡献；条长∝|贡献|";
   return (
     `<div class="score-formula-section">` +
     `<div class="score-section-title">${escapeText(title)}</div>` +
@@ -831,7 +995,9 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     `<td class="score-ft-name">${escapeText(totalLabel)}</td>` +
     `<td class="num">—</td>` +
     `<td class="num">—</td>` +
-    `<td class="num ${signCls(expl.total)}">${escapeText(total)}%</td>` +
+    `<td class="num ${signCls(expl.total)}">${escapeText(
+      key === "path" ? total : `${total}%`
+    )}</td>` +
     `</tr>` +
     `</tbody></table>` +
     `<div class="score-formula-caption">${escapeText(caption)}</div>` +
@@ -1272,18 +1438,28 @@ export function formatT0DirectionDetail(raw) {
   const yKeys = [
     ["y_eod", "y_eod"],
     ["y_tau", "y_τ"],
+    ["y_path", "y_path"],
     ["y_trade", "y_trade"],
     ["y_on", "y_on"],
     ["y_nowcast", "nowcast"],
   ];
+  const pathEnter = resolvePathEnter(raw);
   const yRows = yKeys
     .map(([k, label]) => {
       const v = feats[k] ?? scores[k];
       if (v == null || v === "") return "";
       const n = Number(v);
-      const txt = Number.isFinite(n) ? `${fmtSigned(n, 3)}%` : String(v);
+      let txt;
+      let hint = "";
+      if (k === "y_path") {
+        txt = Number.isFinite(n) ? fmtPathScore(n) : String(v);
+        hint = `${Y_PATH_TITLE} · |y_path|≥${pathEnter}`;
+      } else {
+        txt = Number.isFinite(n) ? `${fmtSigned(n, 3)}%` : String(v);
+      }
       return (
-        `<div class="score-row"><span class="k">${escapeText(label)}</span>` +
+        `<div class="score-row"${hint ? ` title="${escapeText(hint)}"` : ""}>` +
+        `<span class="k">${escapeText(label)}</span>` +
         `<span class="v ${signCls(n)}">${escapeText(txt)}</span></div>`
       );
     })
@@ -1491,12 +1667,14 @@ export function createScoreTooltipController() {
     if (tip === "eod") return "eod";
     if (tip === "nowcast" || tip === "nc") return "nowcast";
     if (tip === "tau" || tip === "rem") return "tau";
+    if (tip === "path") return "path";
     if (tip === "on") return "on";
     if (tip === "trade" || tip === "score") return "trade";
     if (cell.classList.contains("watching-score-eod")) return "eod";
     if (cell.classList.contains("watching-score-cal")) return "cal";
     if (cell.classList.contains("watching-score-nowcast")) return "nowcast";
     if (cell.classList.contains("watching-score-tau")) return "tau";
+    if (cell.classList.contains("watching-score-path")) return "path";
     if (cell.classList.contains("watching-score-on")) return "on";
     return "trade";
   }
@@ -1632,6 +1810,48 @@ export function createScoreTooltipController() {
         formatCompactOnTip(raw),
         formatFormulaTermsSection(raw, { key: "on" }),
       ].filter(Boolean);
+      showCompactScoreTip(cell, parts.join(""), { sticky });
+      return;
+    }
+
+    if (tipMode === "path") {
+      const rebuilt = rebuildPathFormulaTerms(raw);
+      if (rebuilt) {
+        raw.formula_terms_path = rebuilt;
+        raw.score_formula_terms_path = rebuilt;
+      }
+      let termsHtml = formatFormulaTermsSection(raw, { key: "path" });
+      if (!termsHtml) {
+        const feat = (raw && (raw.features_path || raw.features_tau)) || {};
+        const featRows = Object.entries(PATH_FEAT_LABELS)
+          .map(([k, label]) => {
+            const v = feat[k];
+            if (v == null || v === "") return "";
+            const n = Number(v);
+            if (!Number.isFinite(n)) return "";
+            return (
+              `<tr>` +
+              `<td class="score-ft-name">${escapeText(label)}</td>` +
+              `<td class="num">—</td>` +
+              `<td class="num ${signCls(n)}">${escapeText(fmtSigned(n, 2))}</td>` +
+              `<td class="num">—</td>` +
+              `</tr>`
+            );
+          })
+          .filter(Boolean)
+          .join("");
+        if (featRows) {
+          termsHtml =
+            `<div class="score-formula-section">` +
+            `<div class="score-section-title">ŷ_path 组成</div>` +
+            `<table class="score-formula-table">` +
+            `<thead><tr><th>因子</th><th>β</th><th>z/原值</th><th>贡献</th></tr></thead>` +
+            `<tbody>${featRows}</tbody></table>` +
+            `<div class="score-formula-caption">暂无 β·z 拆解（重跑回测后可见完整组成）</div>` +
+            `</div>`;
+        }
+      }
+      const parts = [formatCompactPathTip(raw), termsHtml].filter(Boolean);
       showCompactScoreTip(cell, parts.join(""), { sticky });
       return;
     }

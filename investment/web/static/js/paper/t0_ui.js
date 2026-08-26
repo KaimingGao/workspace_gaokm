@@ -120,8 +120,12 @@ export function renderPaperT0(els, data) {
     ` · <span title="${escapeHtml(yTauMapScoreTip(tauMap, enter))}">τ = y_τ</span></p>` +
     `</div>`;
 
-  daysEl.innerHTML =
-    caption + buildT0TradeTableHtml({ data, days, maxRows: T0_TRADE_TABLE_MAX_ROWS });
+  daysEl.innerHTML = buildT0TradeTableHtml({
+    data,
+    days,
+    caption,
+    maxRows: T0_TRADE_TABLE_MAX_ROWS,
+  });
   renderT0Viz(vizEl, data);
   placeT0DaysBelowContrib(vizEl, daysEl);
 }
@@ -243,16 +247,17 @@ export function renderPaperT0Preview(els, data) {
     ? ` · 主因 ${topSkip.map((t) => `${t.reason}×${t.count}`).join(" / ")}`
     : "";
   const tradeBlock = days.length
-    ? `<div class="paper-t0-days-head paper-t0-preview-days-head">` +
-      `<h4 class="paper-t0-days-title">预演明细</h4>` +
-      `<p class="quant-trades-caption">成交 ${tradeDays.length} · 跳过 ${skipRows.length}` +
-      escapeHtml(skipHint) +
-      ` · 正${longN}/反${revN}` +
-      ` · <span title="${tip}">τ = y_τ</span></p>` +
-      `</div>` +
-      buildT0TradeTableHtml({
+    ? buildT0TradeTableHtml({
         data: tableData,
         days,
+        caption:
+          `<div class="paper-t0-days-head paper-t0-preview-days-head">` +
+          `<h4 class="paper-t0-days-title">预演明细</h4>` +
+          `<p class="quant-trades-caption">成交 ${tradeDays.length} · 跳过 ${skipRows.length}` +
+          escapeHtml(skipHint) +
+          ` · 正${longN}/反${revN}` +
+          ` · <span title="${tip}">τ = y_τ</span></p>` +
+          `</div>`,
         maxRows: Math.max(T0_TRADE_TABLE_MAX_ROWS, days.length),
         showReason: true,
         preserveOrder: true,

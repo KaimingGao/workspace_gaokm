@@ -54,6 +54,9 @@ class DailyRunService:
         paper_cross_section_rebalance: Optional[bool] = None,
         export_quant_report: Optional[bool] = None,
         portfolio_neutral_compare: Optional[bool] = None,
+        top_k: Optional[int] = None,
+        horizon_days: Optional[int] = None,
+        lookback: Optional[int] = None,
     ) -> Dict[str, Any]:
         overrides = {
             k: v
@@ -259,6 +262,9 @@ class DailyRunService:
                 quant_report_payload = qs.build_daily_report(
                     include_cross_section=cross_section,
                     include_portfolio_neutral_compare=portfolio_neutral_compare,
+                    top_k=top_k,
+                    horizon_days=horizon_days,
+                    lookback=lookback,
                 )
                 path = qs.save_daily_report(quant_report_payload)
                 step: Dict[str, Any] = {
@@ -267,6 +273,9 @@ class DailyRunService:
                     "path": path,
                     "factor_sample_count": (quant_report_payload.get("factor_ic") or {}).get("sample_count"),
                     "portfolio_neutral_compare": portfolio_neutral_compare,
+                    "top_k": top_k,
+                    "horizon_days": horizon_days,
+                    "lookback": lookback,
                 }
                 if portfolio_neutral_compare:
                     nc = quant_report_payload.get("portfolio_neutral_compare_summary") or {}

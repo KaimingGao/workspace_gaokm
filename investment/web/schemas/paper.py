@@ -68,7 +68,7 @@ class T0BacktestRequest(BaseModel):
     from_paper: bool = True
     lookback: int = Field(default=10, ge=10, le=500)
     initial_shares: float = Field(default=1000, ge=100, le=100000)
-    t0_ratio: float = Field(default=0.3, ge=0.05, le=1.0)
+    t0_ratio: float = Field(default=1.0, ge=0.05, le=1.0)
     sell_trigger_pct: float = Field(default=2.0, ge=0.1, le=20)
     buy_trigger_pct: float = Field(default=1.5, ge=0.1, le=20)
     must_cover_same_day: bool = False
@@ -94,8 +94,14 @@ class T0BacktestRequest(BaseModel):
     y_tau_enter: Optional[float] = Field(
         default=None, ge=0.01, le=5.0, description="dual_y：|y_τ|入场门槛（收益百分点）"
     )
+    y_tau_enter_strong: Optional[float] = Field(
+        default=None,
+        ge=0.01,
+        le=5.0,
+        description="dual_y：|y_τ| 强信号门槛；enter≤|τ|<strong 弱信号跳过",
+    )
     y_eod_prior: Optional[float] = Field(
-        default=None, ge=0.01, le=5.0, description="dual_y：|y_eod|同向放大动仓门槛（收益百分点）"
+        default=None, ge=0.01, le=5.0, description="dual_y：|y_eod|同向略抬目标价信心门槛（收益百分点）"
     )
     y_on_allow: Optional[float] = Field(
         default=None, ge=0.01, le=10.0, description="dual_y：|y_on|隔夜放行门槛（收益百分点）"
@@ -105,6 +111,19 @@ class T0BacktestRequest(BaseModel):
     y_tau_map: Optional[str] = Field(
         default=None, max_length=24, description="scalp|trend|fixed_long|fixed_reverse"
     )
+    y_use_path: Optional[bool] = None
+    y_path_enter: Optional[float] = Field(
+        default=None,
+        ge=1.0,
+        le=100.0,
+        description="dual_y：|y_path|≥此值才入场（±100）；不足横盘跳过",
+    )
+    y_path_required: Optional[bool] = None
+    y_gap_tier_mode: Optional[str] = Field(default=None, max_length=24)
+    y_gap_tier_pct: Optional[float] = Field(default=None, ge=0.3, le=8.0)
+    y_nowcast_oc_gate: Optional[bool] = None
+    y_path_abandon_enabled: Optional[bool] = None
+    y_path_abandon_bars: Optional[int] = Field(default=None, ge=2, le=48)
     t0_pm_degrade: Optional[str] = Field(
         default=None,
         max_length=8,
@@ -187,6 +206,7 @@ class PaperExecutionPatchRequest(BaseModel):
     must_cover_same_day: Optional[bool] = None
     y_trade_floor: Optional[float] = None
     y_tau_enter: Optional[float] = None
+    y_tau_enter_strong: Optional[float] = None
     y_eod_prior: Optional[float] = None
     y_on_allow: Optional[float] = None
     y_on_risk: Optional[float] = None
@@ -194,6 +214,14 @@ class PaperExecutionPatchRequest(BaseModel):
     y_tau_map: Optional[str] = Field(
         default=None, max_length=24, description="scalp|trend|fixed_long|fixed_reverse"
     )
+    y_use_path: Optional[bool] = None
+    y_path_enter: Optional[float] = None
+    y_path_required: Optional[bool] = None
+    y_gap_tier_mode: Optional[str] = None
+    y_gap_tier_pct: Optional[float] = None
+    y_nowcast_oc_gate: Optional[bool] = None
+    y_path_abandon_enabled: Optional[bool] = None
+    y_path_abandon_bars: Optional[int] = None
     y_score_source: Optional[str] = Field(
         default=None, max_length=24, description="compute|live_book|ledger"
     )

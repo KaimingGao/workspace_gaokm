@@ -196,7 +196,7 @@
                 <strong>填 ≥2</strong>=按目标 k 切簇（尽量贴近 K；实际上限≈有效票数，不因离群拆成单票堆）。
               </p>
               <h4>双层 ŷ</h4>
-              <p><strong>本组只产 ŷ_EOD</strong>。<code>ŷ_τ</code>（当日剩余 / rem Ridge）在独立「ŷ_τ」区块拟合与启用，<strong>不进聚类、不改组 β</strong>。</p>
+              <p><strong>本组只产 ŷ_EOD</strong>。<code>ŷ_τ</code>（当日剩余 / τ Ridge）在独立「ŷ_τ」区块拟合与启用，<strong>不进聚类、不改组 β</strong>。</p>
               <h4>OOS 语义</h4>
               <p><strong>基线</strong>：全局人工预定义线性加权（<code>heuristic_score</code>）。<strong>研究臂</strong>：本页回归模型 → <code>predicted_score</code>（ŷ_EOD）。</p>
               <h4>因子系数 β</h4>
@@ -280,11 +280,11 @@
   <section class="dashboard-section quant-section" id="quant-section-tau" aria-labelledby="quant-section-tau-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-tau-title" class="dashboard-section-title">ŷ_τ</h3>
-      <p class="dashboard-section-desc quant-section-desc">open→close rem Ridge · 副轴 / τ 闸</p>
+      <p class="dashboard-section-desc quant-section-desc">open→close τ Ridge · 副轴 / τ 闸</p>
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
-        <div id="quant-rem-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
+        <div id="quant-tau-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
           <span class="quant-pro-status-chip" data-state="idle">待命</span>
           <span class="quant-rem-status-msg">拟合后看 OOS · 过门再启用</span>
         </div>
@@ -293,8 +293,8 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                <strong>ŷ_τ</strong> = rem Ridge，标签 <code>close[T]/open[T]−1</code>；字段
-                <code>predicted_score_tau</code>（别名 <code>score_rem</code>）。
+                <strong>ŷ_τ</strong> = τ Ridge，标签 <code>close[T]/open[T]−1</code>；字段
+                <code>predicted_score_tau</code>（兼容别名 <code>score_rem</code>）。
               </p>
               <p>
                 <strong>不进聚类、不改 ŷ_EOD</strong>。启用后只影响主题日 soft hold / τ 闸；表列主分仍是 ŷ_EOD。
@@ -304,14 +304,14 @@
               </p>
             </div>
           </details>
-          <button type="button" id="quant-rem-ridge-run" class="dialog-btn secondary" title="观察池拟合 rem Ridge + 时间 OOS（不写盘）">拟合</button>
-          <button type="button" id="quant-rem-ridge-persist" class="dialog-btn secondary" title="人审后写入 live/rem_ridge_model.json">启用</button>
-          <button type="button" id="quant-rem-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
+          <button type="button" id="quant-tau-ridge-run" class="dialog-btn secondary" title="观察池拟合 ŷ_τ Ridge + 时间 OOS（不写盘）">拟合</button>
+          <button type="button" id="quant-tau-ridge-persist" class="dialog-btn secondary" title="人审后写入 live/tau_ridge_model.json">启用</button>
+          <button type="button" id="quant-tau-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
         </div>
       </div>
       <div class="quant-pro-card-body">
-        <div id="quant-rem-result" class="quant-weight-table-wrap" aria-label="rem 拟合摘要"></div>
-        <div id="quant-rem-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ 因子系数表"></div>
+        <div id="quant-tau-result" class="quant-weight-table-wrap" aria-label="ŷ_τ 拟合摘要"></div>
+        <div id="quant-tau-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_τ 因子系数表"></div>
       </div>
     </div>
   </section>
@@ -350,6 +350,47 @@
       <div class="quant-pro-card-body">
         <div id="quant-on-result" class="quant-weight-table-wrap" aria-label="on 拟合摘要"></div>
         <div id="quant-on-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_ON 因子系数表"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ŷ_path：做 T 分钟第一触达顺序；与 y_τ 联合选向 -->
+  <section class="dashboard-section quant-section" id="quant-section-path" aria-labelledby="quant-section-path-title">
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="quant-section-path-title" class="dashboard-section-title">ŷ_path</h3>
+      <p class="dashboard-section-desc quant-section-desc">5m 第一触达顺序 · dual_y 选向 · 需分钟缓存</p>
+    </header>
+    <div class="dashboard-card quant-pro-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+        <div id="quant-path-summary" class="quant-rem-status quant-card-head-status" aria-live="polite">
+          <span class="quant-pro-status-chip" data-state="idle">待命</span>
+          <span class="quant-rem-status-msg">拟合后看 OOS · 过门再启用</span>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="ŷ_path 操作">
+          <details class="quant-help-fold quant-pro-help-fold">
+            <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
+            <div class="quant-help-body quant-pro-help-body">
+              <p>
+                <strong>ŷ_path</strong> = 开盘 Z → 分钟线<strong>卖/买触发谁先触达</strong>（标签 ±100）。
+                字段 <code>y_path</code> / <code>predicted_score_path</code>。
+              </p>
+              <p>
+                <strong>与 ŷ_τ 联合选向</strong>：y_τ 定 OC 方向，y_path 定第一腿顺序。
+                |ŷ_path|&lt;入场门槛则横盘跳过；达门槛后不一致则否决。
+                落盘 <code>path_ridge_model.json</code>；配置见
+                <a class="quant-hero-link" href="/follow#paper-t0-spec">交易执行 · 做 T 规则</a>。
+              </p>
+              <p>依赖观察池 <strong>5m 分钟缓存</strong>；无分钟线时会报错。</p>
+            </div>
+          </details>
+          <button type="button" id="quant-path-ridge-run" class="dialog-btn secondary" title="观察池拟合 path Ridge + 时间 OOS（不写盘）">拟合</button>
+          <button type="button" id="quant-path-ridge-persist" class="dialog-btn secondary" title="人审后写入 live/path_ridge_model.json；未过 OOS 闸时可确认强制启用">启用</button>
+          <button type="button" id="quant-path-ridge-status" class="dialog-btn secondary" title="读取已启用 live 模型">状态</button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body">
+        <div id="quant-path-result" class="quant-weight-table-wrap" aria-label="path 拟合摘要"></div>
+        <div id="quant-path-coef-table" class="quant-weight-table-wrap" aria-label="ŷ_path 因子系数表"></div>
       </div>
     </div>
   </section>
@@ -589,6 +630,46 @@
             <option value="quant" selected>量化研究</option>
           </select>
           <div id="quant-ops-preset-flags" class="sr-only" aria-hidden="true"></div>
+          <div class="quant-control-band quant-pro-control-band quant-daily-bt-band" aria-label="日报 Top-K 配置">
+            <div class="quant-actions-inline quant-pro-params-inline">
+              <label
+                class="platform-field quant-pro-field"
+                title="组合槽数。默认 3；跟纸面 = max_positions。"
+              >
+                <span class="quant-pro-field-label">K</span>
+                <select id="quant-daily-top-k">
+                  <option value="paper">跟纸面</option>
+                  <option value="3" selected>3</option>
+                  <option value="10">10</option>
+                  <option value="15">15</option>
+                  <option value="20">20</option>
+                </select>
+              </label>
+              <label
+                class="platform-field quant-pro-field"
+                title="持有几个交易日再调仓。默认 1 日；跟纸面 = paper hold。≠ ŷ 标签窗口 scoring.horizon_days。"
+              >
+                <span class="quant-pro-field-label">持有</span>
+                <select id="quant-daily-horizon">
+                  <option value="paper">跟纸面</option>
+                  <option value="1" selected>1日</option>
+                  <option value="3">3日</option>
+                </select>
+              </label>
+              <label
+                class="platform-field quant-pro-field"
+                title="拉多少根共同交易日线（样本长度）。可选 30 / 60 / 90；默认 30。"
+              >
+                <span class="quant-pro-field-label">Lookback</span>
+                <select id="quant-daily-lookback">
+                  <option value="30" selected>30</option>
+                  <option value="60">60</option>
+                  <option value="90">90</option>
+                </select>
+              </label>
+              <p class="quant-sub quant-daily-bt-hint">这次 Top-K 可改 · 不写 signal_config · 成本开</p>
+            </div>
+          </div>
           <div
             id="quant-daily-archive"
             class="quant-daily-archive"

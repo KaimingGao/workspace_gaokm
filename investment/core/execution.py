@@ -13,6 +13,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 import hashlib
+import os
 import json
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
@@ -59,6 +60,14 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_block_tau_nowcast_sign",
         "y_tau_nowcast_sign_eps",
         "y_tau_map",
+        "y_use_path",
+        "y_path_enter",
+        "y_path_required",
+        "y_gap_tier_mode",
+        "y_gap_tier_pct",
+        "y_nowcast_oc_gate",
+        "y_path_abandon_enabled",
+        "y_path_abandon_bars",
         "y_ratio_boost_cap",
         "y_ratio_cut",
         "y_ratio_tau_boost_cap",
@@ -81,7 +90,7 @@ DEFAULT_RUNTIME: Dict[str, Any] = {
 # 生产默认 overlay：钉住与现行纸面/回测一致的关键行为；其余继承 DEFAULT_T0_RULES
 DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "enabled": True,
-    "t0_ratio": 0.4,
+    "t0_ratio": 1.0,
     "sell_trigger_pct": 2.0,
     "buy_trigger_pct": 1.5,
     "fill_mode": "trigger",
@@ -500,6 +509,22 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in execution.py", exc_info=True)
         cluster_book = None
+    path_model_present = False
+    path_model_shadow = False
+    path_model_promoted = False
+    path_last_report_exists = False
+    try:
+        from core.research.path_ridge import load_path_last_report, load_path_model, path_model_path
+
+        pm = load_path_model()
+        path_model_present = pm is not None
+        path_model_shadow = bool(pm and pm.get("_shadow"))
+        path_model_promoted = os.path.isfile(path_model_path())
+        path_last_report_exists = load_path_last_report() is not None
+    except Exception:  # noqa: BLE001
+        logger.debug("path model probe failed", exc_info=True)
+        path_model_promoted = False
+        path_last_report_exists = False
     view = {
         "ok": True,
         "strategy_id": bundle.get("strategy_id"),
@@ -532,6 +557,14 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_block_tau_nowcast_sign": t0.get("y_block_tau_nowcast_sign"),
             "y_tau_nowcast_sign_eps": t0.get("y_tau_nowcast_sign_eps"),
             "y_tau_map": t0.get("y_tau_map"),
+            "y_use_path": t0.get("y_use_path"),
+            "y_path_enter": t0.get("y_path_enter"),
+            "y_path_required": t0.get("y_path_required"),
+            "y_gap_tier_mode": t0.get("y_gap_tier_mode"),
+            "y_gap_tier_pct": t0.get("y_gap_tier_pct"),
+            "y_nowcast_oc_gate": t0.get("y_nowcast_oc_gate"),
+            "y_path_abandon_enabled": t0.get("y_path_abandon_enabled"),
+            "y_path_abandon_bars": t0.get("y_path_abandon_bars"),
             "y_ratio_boost_cap": t0.get("y_ratio_boost_cap"),
             "y_ratio_cut": t0.get("y_ratio_cut"),
             "y_ratio_tau_boost_cap": t0.get("y_ratio_tau_boost_cap"),
@@ -548,6 +581,10 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
         or {},
         "runtime_defaults": bundle.get("runtime_defaults") or {},
         "cluster_book": cluster_book,
+        "path_model_present": path_model_present,
+        "path_model_promoted": path_model_promoted,
+        "path_model_shadow": path_model_shadow,
+        "path_last_report_exists": path_last_report_exists,
     }
     # 旧 signal 选向字段：仅非 dual_y 时透出，避免与 y_τ 门槛混淆
     if str(t0.get("direction") or "") != "dual_y":

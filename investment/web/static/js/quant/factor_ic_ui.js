@@ -369,6 +369,7 @@ export function createFactorIcUi(deps) {
   function remCoefTableHtml(rm, opts = {}) {
     if (!rm || typeof rm !== "object") return "";
     const isOn = opts.head === "on";
+    const isPath = opts.head === "path";
     const coefs =
       rm.coefficients && typeof rm.coefficients === "object" ? rm.coefficients : {};
     const means =
@@ -400,7 +401,16 @@ export function createFactorIcUi(deps) {
       "gap_vs_sector",
       "ret_open_to_tau",
     ]);
-    const zExtra = isOn ? onExtra : remExtra;
+    const pathExtra = new Set([
+      "gap_pct",
+      "sector_gap_breadth",
+      "theme_day",
+      "gap_atr",
+      "gap_vs_sector",
+      "yclose_loc",
+      "mom3_pct",
+    ]);
+    const zExtra = isPath ? pathExtra : isOn ? onExtra : remExtra;
     const activeList = Array.isArray(rm.active_features)
       ? rm.active_features.map(String)
       : Object.keys(coefs);
@@ -423,7 +433,7 @@ export function createFactorIcUi(deps) {
           label: remFactorDisplayLabel(name),
           ols,
           abs: Math.abs(ols),
-          kind: isOn ? (inZ ? "路径" : "其它") : inZ ? "开盘" : "日线",
+          kind: isPath ? (inZ ? "路径" : "其它") : isOn ? (inZ ? "路径" : "其它") : inZ ? "开盘" : "日线",
           mu,
           sd,
           scanHot: Math.abs(ols) >= 0.05,
@@ -440,7 +450,12 @@ export function createFactorIcUi(deps) {
       .sort((a, b) => b.abs - a.abs)
       .map((r, i) => ({ ...r, rank: i + 1 }));
     if (!rows.length) {
-      return `<p class="sub">${isOn ? "暂无 ŷ_ON 入模因子" : "暂无 rem 入模因子"}</p>`;
+      const emptyMsg = isPath
+        ? "暂无 ŷ_path 入模因子"
+        : isOn
+          ? "暂无 ŷ_ON 入模因子"
+          : "暂无 rem 入模因子";
+      return `<p class="sub">${emptyMsg}</p>`;
     }
 
     const intercept =
@@ -464,12 +479,16 @@ export function createFactorIcUi(deps) {
     const exclN = Object.keys(rm.exclusion_reasons || {}).length;
     const ySpec =
       (rm.y_spec && rm.y_spec.formula) ||
-      (isOn ? "open[T+1]/open[T]-1" : "close[T]/open[T]-1");
+      (isPath
+        ? "first_touch(sell,buy)"
+        : isOn
+          ? "open[T+1]/open[T]-1"
+          : "close[T]/open[T]-1");
     const oos = opts.oos || {};
     const openN = rows.filter((r) => r.kind === "开盘" || r.kind === "路径").length;
     const posN = rows.filter((r) => r.ols >= 0).length;
     const negN = rows.length - posN;
-    const yhatTag = isOn ? "ŷ_ON" : "ŷ_τ";
+    const yhatTag = isPath ? "ŷ_path" : isOn ? "ŷ_ON" : "ŷ_τ";
 
     const kpi = (label, value, tip) =>
       `<span class="quant-rem-coef-kpi" title="${esc(tip || label)}">` +
@@ -484,7 +503,7 @@ export function createFactorIcUi(deps) {
 
     const kpis =
       `<div class="quant-rem-coef-kpis" role="group" aria-label="${esc(
-        isOn ? "on 模型摘要" : "τ 模型摘要"
+        isPath ? "path 模型摘要" : isOn ? "on 模型摘要" : "τ 模型摘要"
       )}">` +
       kpi("标签", ySpec, `${yhatTag} 训练标签`) +
       (intercept != null ? kpi("截距", intercept.toFixed(3), "模型截距（%）") : "") +
@@ -494,14 +513,28 @@ export function createFactorIcUi(deps) {
       (oos.ic != null && Number.isFinite(Number(oos.ic))
         ? kpi("OOS IC", Number(oos.ic).toFixed(3), "时间切分样本外 IC")
         : "") +
-      (oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))
+      (oos.sign_hit_rate != null && Number.isFinite(Number(oos.sign_hit_rate))
         ? kpi(
             "命中",
-            `${(Number(oos.sign_hit) * 100).toFixed(1)}%`,
+            `${(Number(oos.sign_hit_rate) * 100).toFixed(1)}%`,
             "样本外方向命中率"
           )
-        : "") +
-      kpi("入模", `${rows.length}`, isOn ? `路径 ${openN}` : `开盘 ${openN} · 日线 ${rows.length - openN}`) +
+        : oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))
+          ? kpi(
+              "命中",
+              `${(Number(oos.sign_hit) * 100).toFixed(1)}%`,
+              "样本外方向命中率"
+            )
+          : "") +
+      kpi(
+        "入模",
+        `${rows.length}`,
+        isPath
+          ? `路径 ${openN}`
+          : isOn
+            ? `路径 ${openN}`
+            : `开盘 ${openN} · 日线 ${rows.length - openN}`
+      ) +
       kpi("β±", `${posN}/${negN}`, "正系数 / 负系数个数") +
       (exclN > 0 ? kpi("省略", exclN, "未入模因子已隐藏") : "") +
       `</div>`;
@@ -509,13 +542,13 @@ export function createFactorIcUi(deps) {
     const head =
       `<div class="quant-rem-coef-head">` +
       `<div class="quant-rem-coef-head-main">` +
-      `<span class="quant-rem-coef-title">${isOn ? "ŷ_ON 系数表" : "系数表"}</span>` +
+      `<span class="quant-rem-coef-title">${isPath ? "ŷ_path 系数表" : isOn ? "ŷ_ON 系数表" : "ŷ_τ 系数表"}</span>` +
       `<span class="quant-rem-coef-sub">按 |β| 降序 · 标准化斜率</span>` +
       `</div>` +
       `<div class="quant-rem-coef-legend" aria-hidden="true">` +
       `<span class="quant-rem-leg is-pos">正β</span>` +
       `<span class="quant-rem-leg is-neg">负β</span>` +
-      (isOn
+      (isPath || isOn
         ? `<span class="quant-rem-leg is-open">路径</span>`
         : `<span class="quant-rem-leg is-open">开盘</span>` +
           `<span class="quant-rem-leg is-eod">日线</span>`) +

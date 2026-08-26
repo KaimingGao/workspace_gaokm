@@ -14,7 +14,7 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertEqual(bundle["t0"]["direction"], "dual_y")
         self.assertEqual(bundle["t0_sources"].get("direction"), "runtime_fallback")
         self.assertEqual(bundle["t0"]["fill_mode"], "trigger")
-        self.assertAlmostEqual(float(bundle["t0"]["t0_ratio"]), 0.4)
+        self.assertAlmostEqual(float(bundle["t0"]["t0_ratio"]), 1.0)
         self.assertTrue(bundle["effective_hash"])
         self.assertIn("dual_y", bundle["summary"])
 
@@ -60,7 +60,7 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertIn("execution", spec)
         t0 = (spec["execution"].get("overlays") or {}).get("t0") or {}
         self.assertTrue(t0.get("enabled"))
-        self.assertAlmostEqual(float(t0.get("t0_ratio")), 0.4)
+        self.assertAlmostEqual(float(t0.get("t0_ratio")), 1.0)
 
     def test_conservative_t0_ratio(self):
         from core.strategy import get_strategy_spec
@@ -75,7 +75,7 @@ class TestExecutionResolve(unittest.TestCase):
         paper = {"rules": {}, "cash": 100000, "cost_model": "simple_cn"}
         apply_strategy_to_paper(paper, "short")
         self.assertIn("t0", paper["rules"])
-        self.assertAlmostEqual(float(paper["rules"]["t0"]["t0_ratio"]), 0.4)
+        self.assertAlmostEqual(float(paper["rules"]["t0"]["t0_ratio"]), 1.0)
         self.assertEqual(paper.get("execution_version"), "1.0.0")
         self.assertEqual(paper["rules"].get("execution_mode"), "next_open")
         self.assertTrue(paper["rules"]["t0"].get("enabled"))

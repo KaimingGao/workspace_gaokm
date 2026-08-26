@@ -167,6 +167,7 @@ class TestSignalFillAndExport(unittest.TestCase):
         lines = build_portfolio_backtest_markdown_lines(result)
         text = "\n".join(lines)
         self.assertIn("分数口径", text)
+        self.assertIn("配置：", text)
         self.assertIn("选股键=ŷ_EOD", text)
         self.assertIn("关 τ 闸", text)
         self.assertIn("ŷ_EOD", text)  # fill table header

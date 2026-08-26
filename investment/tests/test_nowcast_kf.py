@@ -619,7 +619,7 @@ class TestNowcastKf(unittest.TestCase):
         )
         self.assertAlmostEqual(we, 0.3)
         self.assertAlmostEqual(wt, 0.7)
-        self.assertIn("rem_missing", note)
+        self.assertIn("tau_missing", note)
 
         we2, wt2, note2 = resolve_fusion_weights(
             {"w_mode": "kalman", "w_eod": 0.4, "w_tau": 0.6},
@@ -627,7 +627,7 @@ class TestNowcastKf(unittest.TestCase):
         )
         self.assertAlmostEqual(we2, 0.4)
         self.assertAlmostEqual(wt2, 0.6)
-        self.assertIn("rem_missing", note2)
+        self.assertIn("tau_missing", note2)
 
     def test_resolve_eod_prior_var_prefers_cluster_rmse(self):
         from core.signal.nowcast_kf import resolve_eod_prior_var

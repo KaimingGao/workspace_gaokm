@@ -541,10 +541,15 @@ class QuantOpsMixin:
         include_portfolio_backtest: bool = True,
         include_portfolio_neutral_compare: bool = True,
         include_legacy_probe: bool = False,
+        top_k: Optional[int] = None,
+        horizon_days: Optional[int] = None,
+        lookback: Optional[int] = None,
     ) -> Dict[str, Any]:
         """量化日报：主叙事=组ŷ / 簿 / OOS / 横截面ŷ / Top-K(ŷ)。
 
         单票 IC·OLS·权建议·阈值 默认不跑，仅 ``include_legacy_probe=True`` 进附录。
+        top_k / horizon_days / lookback 缺省跟日报表单默认（见 resolve_daily_topk_backtest_kwargs /
+        DAILY_BT_UI_*；K·持有跟纸面，lookback 默认 30）。
         """
         cfg = self.config_summary()
         ic = None
@@ -593,10 +598,23 @@ class QuantOpsMixin:
                     "附录·单票阈值探针。 " + str(note0)
                 ).strip()
 
-        portfolio_summary = self.portfolio_daily_summary() if include_portfolio_backtest else None
+        portfolio_bt_kwargs: Dict[str, Any] = {}
+        if top_k is not None:
+            portfolio_bt_kwargs["top_k"] = int(top_k)
+        if horizon_days is not None:
+            portfolio_bt_kwargs["horizon_days"] = int(horizon_days)
+        if lookback is not None:
+            portfolio_bt_kwargs["lookback"] = int(lookback)
+        portfolio_summary = (
+            self.portfolio_daily_summary(**portfolio_bt_kwargs)
+            if include_portfolio_backtest
+            else None
+        )
         neutral_compare_summary = None
         if include_portfolio_backtest and include_portfolio_neutral_compare:
-            neutral_compare_summary = self.portfolio_neutral_compare_summary()
+            neutral_compare_summary = self.portfolio_neutral_compare_summary(
+                **portfolio_bt_kwargs
+            )
         cluster_live = None
         try:
             from core.signal.cluster.live import (

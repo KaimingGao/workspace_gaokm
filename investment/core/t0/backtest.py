@@ -283,7 +283,7 @@ def _walk_t0(
     sellable = shares  # 回测简化：日初持仓均可卖；实盘 Worker 用 tplus1 FIFO 批次
     cash = float(initial_cash or 0)
     lot = max(int(cfg.get("lot_size") or 100), 1)
-    ratio = float(cfg.get("t0_ratio") or 0.4)
+    ratio = float(cfg.get("t0_ratio") or 1.0)
     # 反T / dual_y：研究现金须覆盖「抬手后」目标股数（200×40%→抬到100股）
     if cash <= 0 and str(cfg.get("direction") or "auto") in {
         "auto",
@@ -376,7 +376,9 @@ def _walk_t0(
                     "reason": "缺分钟线，跳过（已删除日线模拟）",
                     "skip_category": "missing_minute",
                     "shares": shares,
+                    "open": float(bar_day.get("open") or 0) or None,
                     "close": float(bar.get("close") or bar.get("open") or 0) or None,
+                    "prev_close": float(bar_day.get("prev_close") or 0) or None,
                     "pnl": 0,
                     "exposure_pnl": 0,
                     "signal_skip": False,
@@ -450,6 +452,20 @@ def _walk_t0(
                     "signal_skip": bool(day.get("signal_skip")),
                     "path_mode": day.get("path_mode") or cfg.get("path_mode") or "first_touch",
                     "minute_path": used_minute,
+                    "path_abandon": bool(day.get("path_abandon")),
+                    "directional_amplitude": day.get("directional_amplitude"),
+                    "prefix_bars": day.get("prefix_bars"),
+                    "path_realized": day.get("path_realized"),
+                    "path_realized_reason": day.get("path_realized_reason"),
+                    "path_realized_trig": day.get("path_realized_trig"),
+                    "eod_realized": day.get("eod_realized"),
+                    "tau_realized": day.get("tau_realized"),
+                    "open": day.get("open")
+                    if day.get("open") is not None
+                    else (float(bar.get("open") or 0) or None),
+                    "prev_close": day.get("prev_close")
+                    if day.get("prev_close") is not None
+                    else (float(bar_day.get("prev_close") or 0) or None),
                     **_t0_range_fields(day),
                 }
             )
@@ -497,6 +513,7 @@ def _walk_t0(
         days.append(
             {
                 "date": bar.get("date"),
+                "open": float(bar.get("open") or 0) or None,
                 "direction": direction,
                 "sold_qty": sold,
                 "covered_qty": covered,
@@ -516,6 +533,14 @@ def _walk_t0(
                 "cover_policy": day.get("cover_policy"),
                 "path_mode": day.get("path_mode") or cfg.get("path_mode") or "first_touch",
                 "minute_path": used_minute,
+                "path_realized": day.get("path_realized"),
+                "path_realized_reason": day.get("path_realized_reason"),
+                "path_realized_trig": day.get("path_realized_trig"),
+                "eod_realized": day.get("eod_realized"),
+                "tau_realized": day.get("tau_realized"),
+                "prev_close": day.get("prev_close")
+                if day.get("prev_close") is not None
+                else (float(bar_day.get("prev_close") or 0) or None),
                 "touch_sell_at": day.get("touch_sell_at"),
                 "touch_cover_at": day.get("touch_cover_at") or day.get("touch_buy_at"),
                 "touch_buy_at": day.get("touch_buy_at"),
@@ -608,6 +633,14 @@ def _walk_t0(
             "y_block_tau_nowcast_sign": cfg.get("y_block_tau_nowcast_sign"),
             "y_tau_nowcast_sign_eps": cfg.get("y_tau_nowcast_sign_eps"),
             "y_tau_map": cfg.get("y_tau_map"),
+            "y_use_path": cfg.get("y_use_path"),
+            "y_path_enter": cfg.get("y_path_enter"),
+            "y_path_required": cfg.get("y_path_required"),
+            "y_gap_tier_mode": cfg.get("y_gap_tier_mode"),
+            "y_gap_tier_pct": cfg.get("y_gap_tier_pct"),
+            "y_nowcast_oc_gate": cfg.get("y_nowcast_oc_gate"),
+            "y_path_abandon_enabled": cfg.get("y_path_abandon_enabled"),
+            "y_path_abandon_bars": cfg.get("y_path_abandon_bars"),
             "t0_pm_degrade": cfg.get("t0_pm_degrade"),
             "t0_pm_chase_interval_min": cfg.get("t0_pm_chase_interval_min"),
             "y_ratio_tau_soft_band": cfg.get("y_ratio_tau_soft_band"),

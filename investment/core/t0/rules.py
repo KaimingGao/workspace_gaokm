@@ -10,7 +10,6 @@ from core.t0.config import load_t0_rules, resolve_min_range_pct
 from core.t0.score_policy import (
     resolve_cover_policy,
     resolve_dual_y_direction,
-    scale_t0_ratio,
     scores_from_item,
     scores_have_any,
 )
@@ -358,6 +357,24 @@ def _skip_result(
     }
     if bar is not None:
         out["date"] = bar.get("date")
+        try:
+            o = float(bar.get("open") or 0)
+            if o > 0:
+                out["open"] = o
+        except (TypeError, ValueError):
+            pass
+        try:
+            c = float(bar.get("close") or bar.get("open") or 0)
+            if c > 0:
+                out["close"] = c
+        except (TypeError, ValueError):
+            pass
+        try:
+            pc = float(bar.get("prev_close") or 0)
+            if pc > 0:
+                out["prev_close"] = pc
+        except (TypeError, ValueError):
+            pass
     if extra:
         out.update(extra)
     return out

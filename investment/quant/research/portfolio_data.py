@@ -12,10 +12,19 @@ from core.research.portfolio_bars import (
     should_fetch_backtest_fundamentals,
 )
 
+# `/quant` 生成日报表单默认（≠ 纸面 max_positions；cron/CLI 不传仍走 resolve 纸面对齐）
+DAILY_BT_UI_TOP_K = 3
+DAILY_BT_UI_HORIZON_DAYS = 1
+DAILY_BT_UI_LOOKBACK = 30
+
 __all__ = [
+    "DAILY_BT_UI_TOP_K",
+    "DAILY_BT_UI_HORIZON_DAYS",
+    "DAILY_BT_UI_LOOKBACK",
     "should_fetch_backtest_fundamentals",
     "load_portfolio_stock_bars",
     "resolve_daily_topk_backtest_kwargs",
+    "daily_bt_option_defaults",
     "summarize_portfolio_backtest",
     "DAILY_PORTFOLIO_MAX_NAMES",
 ]
@@ -36,7 +45,10 @@ def resolve_daily_topk_backtest_kwargs(
     d = backtest_portfolio_defaults()
     yhat_h = int(get_scoring_horizon_days())
     paper_h = int(d.get("horizon_days") or yhat_h)
-    k = int(top_k) if top_k is not None else int(d.get("top_k") or 3)
+    # 研究默认 top_k=3（小组合探路）；日报必须跟纸面 max_positions，否则累计会被
+    # 3 槽 + 单票 25% 上限压成半仓，和纸面/历史基线不可比。
+    paper_k = int(d.get("max_positions") or d.get("top_k") or 20)
+    k = int(top_k) if top_k is not None else paper_k
     # 持有期跟纸面，避免 ŷ(h=1) 迫使日频换仓把费用吃光；ŷ 仍按 scoring.horizon_days 训练
     h = int(horizon_days) if horizon_days is not None else paper_h
     costs = True if apply_costs is None else bool(apply_costs)
@@ -54,7 +66,28 @@ def resolve_daily_topk_backtest_kwargs(
         "min_predicted_score": pred,
         "yhat_horizon_days": yhat_h,
         "paper_horizon_days": paper_h,
+        "paper_max_positions": paper_k,
+        "lookback": DAILY_BT_UI_LOOKBACK,
         "rank_mode": "predicted_score",
+    }
+
+
+def daily_bt_option_defaults() -> Dict[str, Any]:
+    """`/quant` 生成日报表单默认（K=3 / h=1）；纸面值在 paper_*，供「跟纸面」标签。"""
+    d = resolve_daily_topk_backtest_kwargs()
+    return {
+        "top_k": DAILY_BT_UI_TOP_K,
+        "horizon_days": DAILY_BT_UI_HORIZON_DAYS,
+        "paper_max_positions": d["paper_max_positions"],
+        "paper_horizon_days": d["paper_horizon_days"],
+        "yhat_horizon_days": d["yhat_horizon_days"],
+        "min_predicted_score": d["min_predicted_score"],
+        "lookback": DAILY_BT_UI_LOOKBACK,
+        "apply_costs": True,
+        "note": (
+            "表单默认 K=3 · 持有 1 日 · lookback 30；跟纸面用 paper_*；"
+            "cron/CLI 不传则仍跟纸面；ŷ 标签窗口仍是 scoring.horizon_days；不写 signal_config"
+        ),
     }
 
 
@@ -76,7 +109,7 @@ def _watching_sector_overlay() -> Dict[str, Any]:
 def summarize_portfolio_backtest(
     *,
     codes: Optional[List[str]] = None,
-    lookback: int = 90,
+    lookback: int = DAILY_BT_UI_LOOKBACK,
     top_k: Optional[int] = None,
     horizon_days: Optional[int] = None,
     min_score: Optional[float] = None,
@@ -160,6 +193,8 @@ def summarize_portfolio_backtest(
     params["rank_key"] = "predicted_score_eod"
     params["yhat_horizon_days"] = resolved["yhat_horizon_days"]
     params["paper_horizon_days"] = resolved["paper_horizon_days"]
+    params["paper_max_positions"] = resolved.get("paper_max_positions")
+    params["lookback"] = int(lookback)
     note_bits = []
     if n_all > DAILY_PORTFOLIO_MAX_NAMES:
         note_bits.append(
@@ -167,8 +202,18 @@ def summarize_portfolio_backtest(
             "基本面仅本地缓存（避免串行远端挂死）"
         )
     note_bits.append("选股键=ŷ_EOD · 关 τ 闸（日线无可靠分钟 τ；≠ live ŷ_trade）")
+    paper_k = resolved.get("paper_max_positions")
+    if paper_k is not None and int(paper_k) != int(resolved["top_k"]):
+        k_note = f"K={resolved['top_k']}（≠纸面 max_positions={paper_k}）"
+    else:
+        k_note = f"K={resolved['top_k']}（纸面 max_positions）"
+    paper_h = resolved.get("paper_horizon_days")
+    if paper_h is not None and int(paper_h) != int(resolved["horizon_days"]):
+        h_note = f"h={resolved['horizon_days']}（≠纸面持有 {paper_h}）"
+    else:
+        h_note = f"h={resolved['horizon_days']}（纸面持有）"
     note_bits.append(
-        f"K={resolved['top_k']}（纸面 max_positions）· h={resolved['horizon_days']}（纸面持有）"
+        f"{k_note}· {h_note}"
         f"· 成本={'开' if resolved['apply_costs'] else '关'} · 权重含现金"
         f"· 止损={params.get('stop_pct') or '关'}"
         + (

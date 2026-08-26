@@ -417,15 +417,21 @@
                     <span>启用</span>
                     <input type="checkbox" name="enabled" checked />
                   </label>
-                  <label class="paper-t0-field">
+                  <label class="paper-t0-field" title="固定底仓做 T 比例；不随 ŷ 缩放（ŷ 改缩放卖/买目标价）">
                     <span>动仓%</span>
-                    <input type="number" name="t0_ratio" min="5" max="100" step="5" value="30" />
+                    <input type="number" name="t0_ratio" min="5" max="100" step="5" value="100" />
                   </label>
-                  <label class="paper-t0-field">
+                  <label
+                    class="paper-t0-field"
+                    title="满目标卖出触发%（相对开盘）；弱 ŷ 信心会按比例压低"
+                  >
                     <span>卖触发%</span>
                     <input type="number" name="sell_trigger_pct" min="0.1" max="20" step="0.1" value="2" />
                   </label>
-                  <label class="paper-t0-field">
+                  <label
+                    class="paper-t0-field"
+                    title="满目标买入触发%（相对开盘）；弱 ŷ 信心会按比例压低"
+                  >
                     <span>买触发%</span>
                     <input type="number" name="buy_trigger_pct" min="0.1" max="20" step="0.1" value="1.5" />
                   </label>
@@ -500,6 +506,73 @@
                   </label>
                   <label
                     class="paper-t0-field"
+                    title="dual_y：|y_τ| 过入场但未达此值视为弱信号区，不定向（默认 0.60）"
+                  >
+                    <span>y_τ强信号%</span>
+                    <input type="number" name="y_tau_enter_strong" min="0.01" max="5" step="0.01" value="0.60" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="dual_y：启用 ŷ_path 与 y_τ 联合选向（需 path_ridge 模型）"
+                  >
+                    <span>y_path选向</span>
+                    <input type="checkbox" name="y_use_path" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="dual_y：|y_path|≥此值才入场（标签 ±100，默认 30）；不足则横盘跳过。达门槛后若与 τ 方向冲突仍否决"
+                  >
+                    <span>y_path入场</span>
+                    <input type="number" name="y_path_enter" min="1" max="100" step="1" value="30" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="缺 y_path 时是否直接跳过（默认关：无模型时不拦）"
+                  >
+                    <span>path必填</span>
+                    <input type="checkbox" name="y_path_required" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="大缺口分档：skip_opposite=跳反向T；revert=强制反向；off=关"
+                  >
+                    <span>缺口分档</span>
+                    <select name="y_gap_tier_mode">
+                      <option value="skip_opposite" selected>跳反向</option>
+                      <option value="revert">强制反向</option>
+                      <option value="off">关</option>
+                    </select>
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="|gap|≥此值（%）触发缺口分档；默认 1.5"
+                  >
+                    <span>缺口阈值%</span>
+                    <input type="number" name="y_gap_tier_pct" min="0.5" max="10" step="0.1" value="1.5" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="异号闸用 OC 口径对照 y_nowcast（与 y_τ 同为 open→close）；默认开"
+                  >
+                    <span>nowcast OC</span>
+                    <input type="checkbox" name="y_nowcast_oc_gate" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="前 N 根 5m 仍无方向振幅则放弃当日做 T；默认 6"
+                  >
+                    <span>前缀放弃</span>
+                    <input type="checkbox" name="y_path_abandon_enabled" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="前缀放弃：连续 5m 根数（2–48）；默认 6"
+                  >
+                    <span>放弃根数</span>
+                    <input type="number" name="y_path_abandon_bars" min="2" max="48" step="1" value="6" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
                     title="y_τ 与 y_nowcast 异号时跳过（盘中方向与 Kalman 对照拧着）。缺 nowcast 或过弱不拦；默认开"
                   >
                     <span>异号跳过</span>
@@ -521,7 +594,7 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="dual_y：|y_eod|≥此值且与 y_τ 同向时略放大动仓"
+                    title="dual_y：|y_eod|≥此值且与 y_τ 同向时略抬目标价信心"
                   >
                     <span>y_eod先验%</span>
                     <input type="number" name="y_eod_prior" min="0.01" max="5" step="0.01" value="0.01" />

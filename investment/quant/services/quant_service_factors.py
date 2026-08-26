@@ -373,6 +373,7 @@ class QuantFactorMixin:
         persist: bool = False,
         note: str = "",
         tau_hm: Optional[str] = None,
+        force_promote: bool = False,
     ) -> Dict[str, Any]:
         """R0：观察池 ŷ_τ 头 Ridge；可选 persist live 模型。
 
@@ -387,6 +388,7 @@ class QuantFactorMixin:
             load_tau_model,
             persist_tau_model,
             save_tau_last_report,
+            tau_promote_gate,
         )
 
         uni = read_watching()
@@ -404,11 +406,14 @@ class QuantFactorMixin:
             last = load_tau_last_report()
             if last:
                 saved = persist_tau_model(
-                    last, note=note or "persist last rem report"
+                    last,
+                    note=note or "persist last tau report",
+                    force=bool(force_promote),
                 )
                 out = dict(last)
                 out["persisted"] = saved
                 out["from_last_report"] = True
+                out["promote_gate"] = saved.get("promote_gate") or tau_promote_gate(last)
                 if saved.get("promoted_at"):
                     out["promoted_at"] = saved["promoted_at"]
                 return out
@@ -456,29 +461,56 @@ class QuantFactorMixin:
         report["minute_cache_universe"] = len(codes) if use_minute else None
         if report.get("success"):
             save_tau_last_report(report)
+            if not report.get("promote_gate"):
+                report["promote_gate"] = tau_promote_gate(report)
         if persist and report.get("success"):
-            saved = persist_tau_model(report, note=note or "api tau-ridge persist")
+            saved = persist_tau_model(
+                report,
+                note=note or "api tau-ridge persist",
+                force=bool(force_promote),
+            )
             report["persisted"] = saved
+            report["promote_gate"] = saved.get("promote_gate") or tau_promote_gate(report)
             if saved.get("promoted_at"):
                 report["promoted_at"] = saved["promoted_at"]
         else:
             report["persisted"] = {"success": False, "skipped": True}
             live = load_tau_model()
             report["live_model_present"] = bool(live)
+            if report.get("success") and not report.get("promote_gate"):
+                report["promote_gate"] = tau_promote_gate(report)
         return report
 
     def get_tau_ridge_model(self) -> Dict[str, Any]:
-        from quant.research.tau_ridge import load_tau_model, tau_model_path
+        from quant.research.tau_ridge import (
+            load_tau_last_report,
+            load_tau_model,
+            tau_model_path,
+            tau_promote_gate,
+        )
 
         doc = load_tau_model()
+        last = load_tau_last_report()
         if not doc:
-            return {
+            out = {
                 "success": False,
                 "exists": False,
                 "path": tau_model_path(),
-                "note": "尚无 ŷ_τ 模型；POST /api/quant/rem-ridge persist=true",
+                "last_report_exists": bool(last),
+                "note": "尚无 ŷ_τ 模型；POST /api/quant/tau-ridge persist=true",
             }
-        return {"success": True, "exists": True, "path": tau_model_path(), **doc}
+            if last:
+                out["promote_gate"] = tau_promote_gate(last)
+                out["oos"] = last.get("oos")
+            return out
+        return {
+            "success": True,
+            "exists": True,
+            "path": tau_model_path(),
+            "last_report_exists": bool(last),
+            "promote_gate": tau_promote_gate(doc if doc.get("oos") else (last or doc)),
+            **doc,
+        }
 
     run_rem_ridge_experiment = run_tau_ridge_experiment
     get_rem_ridge_model = get_tau_ridge_model
@@ -568,6 +600,222 @@ class QuantFactorMixin:
                 "note": "尚无 on 模型；POST /api/quant/on-ridge persist=true",
             }
         return {"success": True, "exists": True, "path": on_model_path(), **doc}
+
+    def run_path_ridge_experiment(
+        self,
+        *,
+        lookback: int = 120,
+        watching_limit: int = 36,
+        ridge_lambda: float = 1.0,
+        gap_trigger_pct: float = 2.0,
+        sell_trig_pct: Optional[float] = None,
+        buy_trig_pct: Optional[float] = None,
+        minute_period: str = "5",
+        minute_lookback_days: int = 150,
+        persist: bool = False,
+        note: str = "",
+        force_promote: bool = False,
+    ) -> Dict[str, Any]:
+        """观察池 ŷ_path Ridge：开盘 Z → 分钟卖/买触发先后顺序。"""
+        from core.data.facade import bars_and_source
+        from core.execution import resolve_t0_rules
+        from core.ports.market import fetch_minute_bars, group_minute_bars_by_date
+        from core.store import load_minute_cache
+        from core.watching.store import read_watching
+        from quant.research.path_ridge import (
+            fit_path_ridge_report,
+            load_path_last_report,
+            load_path_model,
+            path_promote_gate,
+            persist_path_model,
+            save_path_last_report,
+        )
+
+        # 训练触发默认对齐纸面/执行 T0（与做 T 可交易口径一致）
+        try:
+            t0 = resolve_t0_rules(channel="backtest", has_minute=True) or {}
+            paper_sell = float(t0.get("sell_trigger_pct") or 2.0)
+            paper_buy = float(t0.get("buy_trigger_pct") or 1.5)
+        except Exception:  # noqa: BLE001
+            logger.debug("path ridge paper triggers fallback", exc_info=True)
+            paper_sell, paper_buy = 2.0, 1.5
+        sell_trig = float(sell_trig_pct) if sell_trig_pct is not None else paper_sell
+        buy_trig = float(buy_trig_pct) if buy_trig_pct is not None else paper_buy
+
+        uni = read_watching()
+        codes = list(uni.get("watchlist") or [])
+        limit = max(2, min(int(watching_limit or 36), 40))
+        codes = codes[:limit]
+        if len(codes) < 2:
+            return {
+                "success": False,
+                "error": "研究池至少 2 只才可跑 ŷ_path Ridge",
+                "task": "path_ridge",
+            }
+
+        if persist:
+            last = load_path_last_report()
+            if last:
+                saved = persist_path_model(
+                    last,
+                    note=note or "persist last path report",
+                    force=bool(force_promote),
+                )
+                out = dict(last)
+                out["persisted"] = saved
+                out["from_last_report"] = True
+                out["promote_gate"] = saved.get("promote_gate") or path_promote_gate(last)
+                if saved.get("promoted_at"):
+                    out["promoted_at"] = saved["promoted_at"]
+                return out
+
+        period = str(minute_period or "5").strip() or "5"
+        mlook = max(20, min(int(minute_lookback_days or 90), 240))
+        # 缓存过短时仍尝试远端拉长（东财 5m 常只有近月，不能假装 150 日）
+        min_cache_days = max(20, min(int(mlook * 0.4), 60))
+        minute_by_code_date: Dict[str, Dict[str, Any]] = {}
+        minute_codes_hit = 0
+        minute_days_total = 0
+        minute_cache_short_refetch = 0
+        minute_span_days: List[int] = []
+
+        stock_bars: List[Dict[str, Any]] = []
+        for code in codes:
+            bars, _src = bars_and_source(code, limit=lookback + 40)
+            if not bars:
+                continue
+            stock_bars.append({"code": str(code), "bars": bars})
+            raw = str(code).strip()
+            mbars: Optional[List[dict]] = None
+            cache_days = 0
+            try:
+                packed = load_minute_cache(
+                    "CN",
+                    raw,
+                    period,
+                    min_bars=10,
+                    max_age_hours=720.0,
+                    ignore_age=True,
+                )
+                if packed:
+                    mbars, _meta = packed
+                    cache_days = len(group_minute_bars_by_date(mbars or []) or {})
+            except Exception:  # noqa: BLE001
+                logger.debug("path ridge minute cache miss for %s", raw, exc_info=True)
+            need_fetch = not mbars or cache_days < min_cache_days
+            if need_fetch:
+                if mbars and cache_days < min_cache_days:
+                    minute_cache_short_refetch += 1
+                try:
+                    fetched, _meta = fetch_minute_bars(
+                        raw,
+                        period=period,
+                        lookback_days=mlook,
+                        use_cache=True,
+                    )
+                    if fetched:
+                        mbars = fetched
+                except Exception:  # noqa: BLE001
+                    logger.debug("path ridge minute fetch failed for %s", raw, exc_info=True)
+            if not mbars:
+                continue
+            by_day = group_minute_bars_by_date(mbars)
+            if not by_day:
+                continue
+            minute_by_code_date[raw] = by_day
+            minute_codes_hit += 1
+            minute_days_total += len(by_day)
+            minute_span_days.append(len(by_day))
+
+        if minute_codes_hit < 1:
+            return {
+                "success": False,
+                "error": (
+                    f"无可用分钟线（period={period}）；请先预热分钟缓存或缩小观察池"
+                ),
+                "task": "path_ridge",
+                "minute_period": period,
+                "watching_limit": limit,
+            }
+
+        report = fit_path_ridge_report(
+            stock_bars,
+            minute_by_code_date=minute_by_code_date,
+            ridge_lambda=ridge_lambda,
+            gap_trigger_pct=gap_trigger_pct,
+            sell_trig_pct=sell_trig,
+            buy_trig_pct=buy_trig,
+        )
+        report["watching_limit"] = limit
+        report["lookback"] = lookback
+        report["minute_period"] = period
+        report["minute_lookback_days"] = mlook
+        report["minute_codes_hit"] = minute_codes_hit
+        report["minute_codes_universe"] = len(codes)
+        report["minute_days_total"] = minute_days_total
+        report["minute_cache_short_refetch"] = minute_cache_short_refetch
+        report["minute_min_cache_days"] = min_cache_days
+        if minute_span_days:
+            ss = sorted(minute_span_days)
+            report["minute_span_days_med"] = ss[len(ss) // 2]
+            report["minute_span_days_min"] = ss[0]
+            report["minute_span_days_max"] = ss[-1]
+        report["sell_trig_pct"] = sell_trig
+        report["buy_trig_pct"] = buy_trig
+        report["triggers_from_paper"] = sell_trig_pct is None and buy_trig_pct is None
+        if report.get("success"):
+            save_path_last_report(report)
+        if persist and report.get("success"):
+            saved = persist_path_model(
+                report,
+                note=note or "api path-ridge persist",
+                force=bool(force_promote),
+            )
+            report["persisted"] = saved
+            report["promote_gate"] = saved.get("promote_gate") or path_promote_gate(report)
+            if saved.get("promoted_at"):
+                report["promoted_at"] = saved["promoted_at"]
+        else:
+            report["persisted"] = {"success": False, "skipped": True}
+            live = load_path_model()
+            report["live_model_present"] = bool(live)
+            if report.get("success") and not report.get("promote_gate"):
+                report["promote_gate"] = path_promote_gate(report)
+        return report
+
+    def get_path_ridge_model(self) -> Dict[str, Any]:
+        from quant.research.path_ridge import (
+            load_path_last_report,
+            load_path_model,
+            path_model_path,
+            path_promote_gate,
+        )
+
+        doc = load_path_model()
+        last = load_path_last_report()
+        if not doc:
+            out = {
+                "success": False,
+                "exists": False,
+                "path": path_model_path(),
+                "last_report_exists": bool(last),
+                "note": "尚无 ŷ_path 模型；POST /api/quant/path-ridge persist=true",
+            }
+            if last:
+                out["promote_gate"] = path_promote_gate(last)
+                out["oos"] = last.get("oos")
+            return out
+        gate_src = doc if not doc.get("_shadow") else (last or doc)
+        return {
+            "success": True,
+            "exists": True,
+            "path": path_model_path(),
+            "promoted": not bool(doc.get("_shadow")),
+            "shadow": bool(doc.get("_shadow")),
+            "last_report_exists": bool(last),
+            "promote_gate": path_promote_gate(gate_src),
+            **doc,
+        }
 
     def run_factor_ols_pool_experiment(
         self,

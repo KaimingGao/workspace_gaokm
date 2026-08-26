@@ -16,7 +16,9 @@ from web.schemas import (
     FactorExperimentRequest,
     FactorOlsPoolRequest,
     OnRidgeRequest,
+    PathRidgeRequest,
     RemRidgeRequest,
+    TauRidgeRequest,
     ThresholdSuggestRequest,
     WeightSuggestRequest,
     YhatResidualShadowRequest,
@@ -100,11 +102,11 @@ def quant_factor_ols_pool(body: FactorOlsPoolRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.post("/api/quant/rem-ridge")
-def quant_rem_ridge(body: RemRidgeRequest) -> Dict[str, Any]:
-    """R0：open→close ŷ_τ 头 Ridge + 时间 OOS；可选 persist 到 live。"""
+@router.post("/api/quant/tau-ridge")
+def quant_tau_ridge(body: TauRidgeRequest) -> Dict[str, Any]:
+    """ŷ_τ Ridge + 时间 OOS；可选 persist 到 live/tau_ridge_model.json。"""
     try:
-        return deps.quant.run_rem_ridge_experiment(
+        return deps.quant.run_tau_ridge_experiment(
             lookback=body.lookback,
             watching_limit=body.watching_limit,
             ridge_lambda=body.ridge_lambda,
@@ -113,9 +115,16 @@ def quant_rem_ridge(body: RemRidgeRequest) -> Dict[str, Any]:
             persist=body.persist,
             note=body.note,
             tau_hm=body.tau_hm,
+            force_promote=body.force_promote,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/rem-ridge")
+def quant_rem_ridge(body: RemRidgeRequest) -> Dict[str, Any]:
+    """兼容旧路径 → 同 ``/api/quant/tau-ridge``。"""
+    return quant_tau_ridge(body)
 
 
 @router.post("/api/quant/yhat-residual/shadow")
@@ -145,13 +154,19 @@ def quant_excess_mode_shadow(body: ExcessModeShadowRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/api/quant/rem-ridge/model")
-def quant_rem_ridge_model() -> Dict[str, Any]:
-    """读取已 promote 的 ŷ_τ 模型（若有；落盘文件名 rem_ridge_model.json 为历史兼容）。"""
+@router.get("/api/quant/tau-ridge/model")
+def quant_tau_ridge_model() -> Dict[str, Any]:
+    """读取已 promote 的 ŷ_τ 模型（主路径 tau_ridge_model.json；可读旧 rem 文件）。"""
     try:
-        return deps.quant.get_rem_ridge_model()
+        return deps.quant.get_tau_ridge_model()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/rem-ridge/model")
+def quant_rem_ridge_model() -> Dict[str, Any]:
+    """兼容旧路径 → 同 ``/api/quant/tau-ridge/model``。"""
+    return quant_tau_ridge_model()
 
 
 @router.post("/api/quant/on-ridge")
@@ -173,9 +188,39 @@ def quant_on_ridge(body: OnRidgeRequest) -> Dict[str, Any]:
 
 @router.get("/api/quant/on-ridge/model")
 def quant_on_ridge_model() -> Dict[str, Any]:
-    """读取已 promote 的 on 模型（若有）。"""
+    """读取已 promote 的 ŷ_ON 模型（若有）。"""
     try:
         return deps.quant.get_on_ridge_model()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/path-ridge")
+def quant_path_ridge(body: PathRidgeRequest) -> Dict[str, Any]:
+    """ŷ_path Ridge：开盘 Z → 分钟卖/买触发先后顺序 + 时间 OOS；可选 persist。"""
+    try:
+        return deps.quant.run_path_ridge_experiment(
+            lookback=body.lookback,
+            watching_limit=body.watching_limit,
+            ridge_lambda=body.ridge_lambda,
+            gap_trigger_pct=body.gap_trigger_pct,
+            sell_trig_pct=body.sell_trig_pct,
+            buy_trig_pct=body.buy_trig_pct,
+            minute_period=body.minute_period,
+            minute_lookback_days=body.minute_lookback_days,
+            persist=body.persist,
+            force_promote=body.force_promote,
+            note=body.note,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/path-ridge/model")
+def quant_path_ridge_model() -> Dict[str, Any]:
+    """读取已 promote 的 ŷ_path 模型（若有）。"""
+    try:
+        return deps.quant.get_path_ridge_model()
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

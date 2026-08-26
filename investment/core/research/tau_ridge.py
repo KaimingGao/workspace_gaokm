@@ -25,6 +25,8 @@ TAU_FEATURE_EXTRA = (
     "theme_day",
     "gap_atr",
     "gap_vs_sector",
+    "yclose_loc",
+    "mom3_pct",
 )
 # τ 头只吃开盘新信息，避免与 ŷ_EOD 的 X 双重计权
 TAU_Z_FEATURES = (
@@ -33,6 +35,8 @@ TAU_Z_FEATURES = (
     "theme_day",
     "gap_atr",
     "gap_vs_sector",
+    "yclose_loc",
+    "mom3_pct",
     "ret_open_to_tau",
     "sector_ret_to_tau",
 )
@@ -160,6 +164,109 @@ def _sign_hit(preds: List[Optional[float]], ys: List[float]) -> Optional[float]:
     return round(hits / n, 4)
 
 
+def _oos_sign_buckets(
+    preds: Sequence[Optional[float]],
+    ys: Sequence[float],
+) -> Dict[str, Any]:
+    """分桶同号率 + 正负召回（展示/ promote 用）。"""
+    buckets = {
+        "abs_ge_0_4": {"n": 0, "hit": 0},
+        "abs_ge_0_6": {"n": 0, "hit": 0},
+    }
+    pos_hit = pos_n = neg_hit = neg_n = 0
+    n_valid = 0
+    hits = 0
+    for pred, y in zip(preds, ys):
+        if pred is None:
+            continue
+        n_valid += 1
+        ok = (float(pred) > 0) == (float(y) > 0)
+        if ok:
+            hits += 1
+        if float(y) > 0:
+            pos_n += 1
+            if ok:
+                pos_hit += 1
+        elif float(y) < 0:
+            neg_n += 1
+            if ok:
+                neg_hit += 1
+        ap = abs(float(pred))
+        for key, thr in (("abs_ge_0_4", 0.4), ("abs_ge_0_6", 0.6)):
+            if ap >= thr:
+                buckets[key]["n"] += 1
+                if ok:
+                    buckets[key]["hit"] += 1
+    out: Dict[str, Any] = {
+        "n_valid": n_valid,
+        "pos_recall": round(pos_hit / pos_n, 4) if pos_n else None,
+        "neg_recall": round(neg_hit / neg_n, 4) if neg_n else None,
+        "n_pos": pos_n,
+        "n_neg": neg_n,
+        "buckets": {},
+    }
+    for key, pack in buckets.items():
+        n = int(pack["n"])
+        out["buckets"][key] = {
+            "n": n,
+            "sign_hit": round(pack["hit"] / n, 4) if n else None,
+        }
+    return out
+
+
+TAU_PROMOTE_MIN_SIGN_HIT = 0.55
+TAU_PROMOTE_MIN_N_TEST = 80
+TAU_PROMOTE_MIN_STRONG_HIT = 0.58  # |ŷ|≥0.6 桶
+
+
+def tau_promote_gate(report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """promote 闸：OOS sign_hit / n_test / 强信号桶。"""
+    rep = report if isinstance(report, dict) else {}
+    oos = rep.get("oos") if isinstance(rep.get("oos"), dict) else {}
+    n = oos.get("n_valid")
+    if n is None:
+        n = oos.get("n_test")
+    try:
+        n_i = int(n or 0)
+    except (TypeError, ValueError):
+        n_i = 0
+    hit = oos.get("sign_hit")
+    try:
+        hit_f = float(hit) if hit is not None else None
+    except (TypeError, ValueError):
+        hit_f = None
+    blockers: List[str] = []
+    if n_i < TAU_PROMOTE_MIN_N_TEST:
+        blockers.append(f"n_test={n_i}<{TAU_PROMOTE_MIN_N_TEST}")
+    if hit_f is None:
+        blockers.append("缺 OOS sign_hit")
+    elif hit_f < TAU_PROMOTE_MIN_SIGN_HIT:
+        blockers.append(f"sign_hit={hit_f:.3f}<{TAU_PROMOTE_MIN_SIGN_HIT}")
+    buckets = oos.get("buckets") if isinstance(oos.get("buckets"), dict) else {}
+    strong = buckets.get("abs_ge_0_6") if isinstance(buckets.get("abs_ge_0_6"), dict) else {}
+    s_hit = strong.get("sign_hit")
+    s_n = int(strong.get("n") or 0)
+    try:
+        s_hit_f = float(s_hit) if s_hit is not None else None
+    except (TypeError, ValueError):
+        s_hit_f = None
+    if s_n >= 30 and s_hit_f is not None and s_hit_f < TAU_PROMOTE_MIN_STRONG_HIT:
+        blockers.append(
+            f"|ŷ|≥0.6 sign_hit={s_hit_f:.3f}<{TAU_PROMOTE_MIN_STRONG_HIT}"
+        )
+    return {
+        "ok": not blockers,
+        "blockers": blockers,
+        "min_sign_hit": TAU_PROMOTE_MIN_SIGN_HIT,
+        "min_n_test": TAU_PROMOTE_MIN_N_TEST,
+        "min_strong_hit": TAU_PROMOTE_MIN_STRONG_HIT,
+        "n_test": n_i,
+        "sign_hit": hit_f,
+        "strong_sign_hit": s_hit_f,
+        "strong_n": s_n,
+    }
+
+
 def _residual_var(
     preds: List[Optional[float]], ys: List[float]
 ) -> Optional[float]:
@@ -206,13 +313,54 @@ def _oos_by_theme(
     }
 
 
-def _z_only_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
-    src = row or {}
-    out: Dict[str, Optional[float]] = {}
-    for k in TAU_Z_FEATURES:
-        if k in src:
-            out[k] = src.get(k)
+def _theme_counts(metas: Sequence[dict]) -> Dict[str, Any]:
+    n = len(metas or [])
+    n_th = sum(1 for m in (metas or []) if int((m or {}).get("theme_day") or 0) == 1)
+    return {
+        "n": n,
+        "n_theme": n_th,
+        "theme_rate": round(n_th / float(n), 4) if n else None,
+    }
+
+
+def _theme_trigger_sensitivity(
+    metas: Sequence[dict],
+    *,
+    triggers: Sequence[float] = (1.5, 2.0, 2.5),
+) -> Dict[str, Any]:
+    """报告用：不同 gap_trigger 下本票 |gap| 主题正例率（不重跑截面）。"""
+    from core.research.tau_theme import resolve_theme_day
+
+    out: Dict[str, Any] = {}
+    rows = list(metas or [])
+    n = len(rows)
+    for thr in triggers:
+        n_th = 0
+        for m in rows:
+            gap = (m or {}).get("gap_pct")
+            b = (m or {}).get("sector_gap_breadth")
+            if (
+                resolve_theme_day(
+                    gap_pct=gap,
+                    sector_breadth=b,
+                    gap_trigger_pct=float(thr),
+                )
+                >= 1.0
+            ):
+                n_th += 1
+        key = str(thr).replace(".", "_")
+        out[key] = {
+            "trigger": float(thr),
+            "n_theme": n_th,
+            "theme_rate": round(n_th / float(n), 4) if n else None,
+        }
     return out
+
+
+def _z_only_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
+    """始终输出完整 TAU_Z_FEATURES 键，避免 theme_day 等被静默丢掉。"""
+    src = row or {}
+    return {k: src.get(k) for k in TAU_Z_FEATURES}
 
 
 def _z_only_xs(xs: Sequence[dict]) -> List[dict]:
@@ -318,22 +466,17 @@ def fit_tau_ridge_report(
         else None
     )
 
-    feat_names: List[str] = []
-    seen = set()
-    for row in xs_tr:
-        for k in row.keys():
-            if k in TAU_FIT_DROP_ALIASES:
-                continue
-            if k not in seen:
-                seen.add(k)
-                feat_names.append(k)
-    if not feat_names:
-        drop_opt = set() if use_minute else {"ret_open_to_tau", "sector_ret_to_tau"}
-        feat_names = [k for k in TAU_Z_FEATURES if k not in drop_opt]
+    # 始终纳入开盘 Z 键（含 theme_day）；分钟专用键仅 minute 模式
+    drop_opt = set() if use_minute else {"ret_open_to_tau", "sector_ret_to_tau"}
+    feat_names = [k for k in TAU_Z_FEATURES if k not in drop_opt and k not in TAU_FIT_DROP_ALIASES]
+
+    # 去训练均值，减轻截距偏置；推理时截距加回
+    y_mean = sum(float(y) for y in ys_tr) / max(1, len(ys_tr))
+    ys_tr_dm = [float(y) - y_mean for y in ys_tr]
 
     fit = fit_factor_ols_from_panel(
         xs_tr,
-        ys_tr,
+        ys_tr_dm,
         feature_names=feat_names,
         ridge_lambda=ridge_lambda,
         standardize=True,
@@ -343,10 +486,9 @@ def fit_tau_ridge_report(
     )
     if not fit.get("success"):
         # Z 截面过弱（合成/窄池）时退回截距头
-        mu = sum(float(y) for y in ys_tr) / max(1, len(ys_tr))
         fit = {
             "success": True,
-            "intercept": round(mu, 6),
+            "intercept": 0.0,
             "coefficients": {},
             "active_features": [],
             "zscore_means": {},
@@ -354,30 +496,57 @@ def fit_tau_ridge_report(
             "note": "Z 方差不足，ŷ_τ 用训练均值",
         }
 
-    preds_te = _predict_rows(fit, xs_te) if xs_te else []
+    preds_dm = _predict_rows(fit, xs_te) if xs_te else []
+    preds_te = [
+        (float(p) + y_mean) if p is not None else None for p in (preds_dm or [])
+    ]
     by_theme = _oos_by_theme(preds_te, ys_te, metas_te) if ys_te else {}
+    bucket_pack = _oos_sign_buckets(preds_te, ys_te) if ys_te else {}
     oos = {
         "n_train": len(ys_tr),
         "n_test": len(ys_te),
+        "n_valid": bucket_pack.get("n_valid"),
         "ic": _ic(preds_te, ys_te) if ys_te else None,
         "sign_hit": _sign_hit(preds_te, ys_te) if ys_te else None,
         "residual_var": _residual_var(preds_te, ys_te) if ys_te else None,
         "by_theme": by_theme,
+        "theme_counts": {
+            "train": _theme_counts(metas_tr),
+            "oos": _theme_counts(metas_te),
+            "all": _theme_counts(metas_use),
+        },
+        "theme_trigger_sensitivity": _theme_trigger_sensitivity(metas_use),
+        "feature_fill": None,
+        "buckets": bucket_pack.get("buckets") or {},
+        "pos_recall": bucket_pack.get("pos_recall"),
+        "neg_recall": bucket_pack.get("neg_recall"),
+        "n_pos": bucket_pack.get("n_pos"),
+        "n_neg": bucket_pack.get("n_neg"),
+        "y_label_mean": round(y_mean, 6),
         "train_frac": train_frac,
         "theme_boost": theme_boost if use_theme_weights else None,
         "target": target,
         "residualized": False,
         "tau": tau_key,
     }
+    try:
+        from core.research.path_panel import feature_fill_rates
+
+        oos["feature_fill"] = feature_fill_rates(
+            xs_z, ("theme_day", "yclose_loc", "mom3_pct", "gap_atr", "gap_vs_sector")
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("tau feature_fill failed", exc_info=True)
 
     w_all = (
         theme_sample_weights(metas_use, theme_boost=theme_boost)
         if use_theme_weights
         else None
     )
+    ys_all_dm = [float(y) - y_mean for y in ys_use]
     fit_full = fit_factor_ols_from_panel(
         xs_z,
-        ys_use,
+        ys_all_dm,
         feature_names=feat_names,
         ridge_lambda=ridge_lambda,
         standardize=True,
@@ -387,6 +556,13 @@ def fit_tau_ridge_report(
     )
     model = fit_full if fit_full.get("success") else fit
     model = dict(model)
+    try:
+        model["intercept"] = round(float(model.get("intercept") or 0.0) + y_mean, 6)
+    except (TypeError, ValueError):
+        model["intercept"] = round(y_mean, 6)
+    model["intercept_demeaned"] = round(float(fit.get("intercept") or 0.0), 6)
+    model["y_label_mean"] = round(y_mean, 6)
+    model["y_demeaned"] = True
     model["horizon_mode"] = "tau_to_close" if use_minute else "open_to_close"
     model["target"] = target
     model["residualized"] = False
@@ -397,11 +573,11 @@ def fit_tau_ridge_report(
         "formula": y_formula,
         "unit": "pct",
         "tau": tau_key,
-        "note": "Z-only τ→close；live 与 ŷ_EOD 正交加权成 ŷ_trade（缺口∘ŷ_τ）",
+        "note": "Z-only τ→close；demean+theme_day+yclose/mom3；live 与 ŷ_EOD 正交加权成 ŷ_trade",
     }
     model["extra_features"] = list(TAU_Z_FEATURES)
 
-    return {
+    report = {
         "success": True,
         "task": "tau_ridge",
         "stock_count": len(enriched),
@@ -411,15 +587,24 @@ def fit_tau_ridge_report(
         "return_model": model,
         "tau": tau_key,
         "y_spec": dict(model.get("y_spec") or {}),
-        "schema": "rem_ridge_v6",
+        "schema": "tau_ridge_v8",
         "target": target,
         "residualized": False,
-        "note": "ŷ_τ(Z) 独立估 τ→close；与 EOD 解耦，live 才加权",
+        "note": "ŷ_τ(Z) 独立估 τ→close；theme+|gap|；yclose_loc/mom3；与 EOD 解耦",
     }
+    report["promote_gate"] = tau_promote_gate(report)
+    return report
 
 
 def tau_model_path() -> str:
-    """Live 模型路径（文件名 ``rem_ridge_model.json`` 为历史兼容，语义为 ŷ_τ 头）。"""
+    """Live ŷ_τ 模型主路径。"""
+    from core.paths import LIVE_DIR
+
+    return os.path.join(LIVE_DIR, "tau_ridge_model.json")
+
+
+def tau_model_path_legacy() -> str:
+    """旧文件名（rem_ridge_*）；仅读兼容。"""
     from core.paths import LIVE_DIR
 
     return os.path.join(LIVE_DIR, "rem_ridge_model.json")
@@ -428,7 +613,29 @@ def tau_model_path() -> str:
 def tau_last_report_path() -> str:
     from core.paths import LIVE_DIR
 
+    return os.path.join(LIVE_DIR, "tau_ridge_last_report.json")
+
+
+def tau_last_report_path_legacy() -> str:
+    from core.paths import LIVE_DIR
+
     return os.path.join(LIVE_DIR, "rem_ridge_last_report.json")
+
+
+def _load_json_model(path: str) -> Optional[Dict[str, Any]]:
+    if not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            doc = json.load(f)
+    except Exception:  # noqa: BLE001
+        logger.debug("load tau json failed: %s", path, exc_info=True)
+        return None
+    if not isinstance(doc, dict) or not isinstance(doc.get("return_model"), dict):
+        return None
+    if doc.get("success") is False:
+        return None
+    return doc
 
 
 def save_tau_last_report(report: Dict[str, Any]) -> None:
@@ -439,27 +646,28 @@ def save_tau_last_report(report: Dict[str, Any]) -> None:
     path = tau_last_report_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, report)
+    # 过渡期双写旧路径，避免旧 UI 读 last report 落空
+    try:
+        atomic_write_json(tau_last_report_path_legacy(), report)
+    except Exception:  # noqa: BLE001
+        logger.debug("legacy tau last_report write failed", exc_info=True)
 
 
 def load_tau_last_report() -> Optional[Dict[str, Any]]:
-    path = tau_last_report_path()
-    if not os.path.isfile(path):
-        return None
-    try:
-        with open(path, encoding="utf-8") as f:
-            doc = json.load(f)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in tau_ridge.py", exc_info=True)
-        return None
-    if not isinstance(doc, dict) or not doc.get("success"):
-        return None
-    if not isinstance(doc.get("return_model"), dict):
-        return None
-    return doc
+    for path in (tau_last_report_path(), tau_last_report_path_legacy()):
+        doc = _load_json_model(path)
+        if doc and doc.get("success"):
+            return doc
+    return None
 
 
-def persist_tau_model(report: Dict[str, Any], *, note: str = "") -> Dict[str, Any]:
-    """人审后写入 data/live/rem_ridge_model.json（契约：τ + y_spec）。"""
+def persist_tau_model(
+    report: Dict[str, Any],
+    *,
+    note: str = "",
+    force: bool = False,
+) -> Dict[str, Any]:
+    """人审后写入 data/live/tau_ridge_model.json（契约：τ + y_spec）。"""
     if not report.get("success"):
         return {"success": False, "error": report.get("error") or "no report"}
     rm = report.get("return_model")
@@ -467,6 +675,13 @@ def persist_tau_model(report: Dict[str, Any], *, note: str = "") -> Dict[str, An
         return {"success": False, "error": "return_model missing"}
     if not rm.get("coefficients") and rm.get("intercept") is None:
         return {"success": False, "error": "return_model missing"}
+    gate = tau_promote_gate(report)
+    if not force and not gate.get("ok"):
+        return {
+            "success": False,
+            "error": "promote 未过闸：" + "；".join(gate.get("blockers") or []),
+            "promote_gate": gate,
+        }
     from core.numbers import now_iso_utc
 
     y_spec = dict(rm.get("y_spec") or {})
@@ -491,7 +706,10 @@ def persist_tau_model(report: Dict[str, Any], *, note: str = "") -> Dict[str, An
     rm["target"] = target
     rm["residualized"] = residualized
 
-    schema = str(report.get("schema") or "rem_ridge_v6")
+    raw_schema = str(report.get("schema") or "tau_ridge_v8")
+    if raw_schema.startswith("rem_ridge"):
+        raw_schema = "tau_ridge_v8"
+    schema = raw_schema
     doc = {
         "success": True,
         "promoted_at": now_iso_utc(),
@@ -507,33 +725,34 @@ def persist_tau_model(report: Dict[str, Any], *, note: str = "") -> Dict[str, An
         "as_of_tau": tau,
         "y_spec": y_spec,
         "y_spec_tau": y_spec,
+        "promote_gate": gate,
         "dual_score_head": "predicted_score_tau",
         "contract_note": "ŷ_τ(Z) 估 open→close；live 与 ŷ_EOD 加权融合（缺口∘ŷ_τ）；不覆盖 EOD predicted_score。",
     }
     path = tau_model_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)
     atomic_write_json(path, doc)
+    # 过渡期双写旧 rem 文件名，避免未刷新客户端读不到模型
+    try:
+        atomic_write_json(tau_model_path_legacy(), doc)
+    except Exception:  # noqa: BLE001
+        logger.debug("legacy tau model write failed", exc_info=True)
     return {
         "success": True,
         "path": path,
+        "legacy_path": tau_model_path_legacy(),
         "promoted_at": doc["promoted_at"],
         "tau": tau,
         "schema": doc["schema"],
+        "promote_gate": gate,
     }
 
 
 def load_tau_model() -> Optional[Dict[str, Any]]:
-    path = tau_model_path()
-    if not os.path.isfile(path):
-        return None
-    try:
-        with open(path, encoding="utf-8") as f:
-            doc = json.load(f)
-        if isinstance(doc, dict) and isinstance(doc.get("return_model"), dict):
+    for path in (tau_model_path(), tau_model_path_legacy()):
+        doc = _load_json_model(path)
+        if doc:
             return doc
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in tau_ridge.py", exc_info=True)
-        return None
     return None
 
 
@@ -557,6 +776,8 @@ _TAU_FEAT_LABELS = {
     "theme_day": "主题日",
     "gap_atr": "缺口 / ATR",
     "gap_vs_sector": "行业相对缺口",
+    "yclose_loc": "昨收位置",
+    "mom3_pct": "近3日动量 %",
     "ret_open_to_tau": "开盘→τ 收益 %",
     "sector_ret_to_tau": "板块中位开→τ %",
 }

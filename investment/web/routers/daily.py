@@ -10,6 +10,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import JSONResponse
 
 from quant.ops.daily_presets import list_daily_presets
+from quant.research.portfolio_data import daily_bt_option_defaults
 from web import deps
 from web.schemas import DailyRunRequest
 
@@ -18,7 +19,11 @@ router = APIRouter(tags=["daily"])
 
 @router.get("/api/daily/presets")
 def daily_presets() -> Dict[str, Any]:
-    return {"success": True, "presets": list_daily_presets()}
+    return {
+        "success": True,
+        "presets": list_daily_presets(),
+        "bt_defaults": daily_bt_option_defaults(),
+    }
 
 
 @router.get("/api/daily/last")
@@ -49,6 +54,9 @@ def daily_run(body: DailyRunRequest) -> Any:
             paper_cross_section_rebalance=body.paper_cross_section_rebalance,
             export_quant_report=body.export_quant_report,
             portfolio_neutral_compare=body.portfolio_neutral_compare,
+            top_k=body.top_k,
+            horizon_days=body.horizon_days,
+            lookback=body.lookback,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e)) from e

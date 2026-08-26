@@ -166,6 +166,14 @@ def row_from_scored_item(
         yhat_nowcast = _to_float(item.get("yhat_nowcast"))
     if yhat_nowcast is not None and abs(float(yhat_nowcast)) > 20.0:
         yhat_nowcast = None
+    yhat_path = _to_float(item.get("predicted_score_path"))
+    if yhat_path is None:
+        yhat_path = _to_float(item.get("yhat_path"))
+    if yhat_path is None:
+        yhat_path = _to_float(item.get("y_path"))
+    # path 头标签 ±100，勿用 EOD 的 >20 守卫
+    if yhat_path is not None and abs(float(yhat_path)) > 120.0:
+        yhat_path = None
     terms = _terms_top(
         item.get("score_formula_terms") or item.get("formula_terms_top")
     )
@@ -201,6 +209,7 @@ def row_from_scored_item(
         "yhat_nowcast": (
             round(yhat_nowcast, 6) if yhat_nowcast is not None else None
         ),
+        "yhat_path": round(yhat_path, 4) if yhat_path is not None else None,
         "y_check": y_check,
         "y_disagree": round(y_disagree, 6) if y_disagree is not None else None,
         "eod_trust": round(eod_trust, 4) if eod_trust is not None else None,
