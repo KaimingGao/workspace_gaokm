@@ -70,7 +70,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_path_abandon_enabled": True,
     "y_path_abandon_bars": 6,
     "y_ratio_boost_cap": 1.25,
-    "y_ratio_cut": 0.75,
+    "y_ratio_cut": 0.60,
     "y_ratio_tau_boost_cap": 1.15,
     "y_ratio_eod_align_boost": 1.10,
     # |y_τ| 刚过入场线时额外压低目标价（乘 y_ratio_cut）
@@ -136,7 +136,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_on_risk", 0.01, 10.0, 0.01),
         ("y_on_allow", 0.01, 10.0, 0.01),
         ("y_ratio_boost_cap", 1.0, 2.0, 1.25),
-        ("y_ratio_cut", 0.2, 1.0, 0.75),
+        ("y_ratio_cut", 0.2, 1.0, 0.60),
         ("y_ratio_tau_boost_cap", 1.0, 1.5, 1.15),
         ("y_ratio_eod_align_boost", 1.0, 1.5, 1.10),
         ("y_ratio_tau_soft_band", 0.0, 2.0, 0.20),

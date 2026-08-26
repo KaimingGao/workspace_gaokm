@@ -85,8 +85,8 @@ export function adaptiveSizingBounds(t0 = {}) {
   const buy = Number(t0.buy_trigger_pct);
   const baseSell = Number.isFinite(sell) ? sell : 2;
   const baseBuy = Number.isFinite(buy) ? buy : 1.5;
-  const cut = Number(t0.y_ratio_cut ?? 0.75);
-  const cutSafe = Number.isFinite(cut) && cut > 0 && cut <= 1 ? cut : 0.75;
+  const cut = Number(t0.y_ratio_cut ?? 0.6);
+  const cutSafe = Number.isFinite(cut) && cut > 0 && cut <= 1 ? cut : 0.6;
   const minSell = Math.max(0.1, +(baseSell * cutSafe).toFixed(2));
   const minBuy = Math.max(0.1, +(baseBuy * cutSafe).toFixed(2));
   const basePct = Math.round(

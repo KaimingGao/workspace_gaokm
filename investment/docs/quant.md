@@ -352,7 +352,7 @@ watchlist
 | 语义 | A 股 **底仓做 T（T+1）**：正 T 先卖旧仓再买回；反 T 先低吸加仓再卖旧仓换仓（禁卖当日新买股） |
 | 选向 | 默认 **`direction=dual_y`** + **`y_score_source=compute`**：开盘信息集（昨收因子 + 今开缺口）即时算 ŷ；**y_τ 定正/反 T**，y_eod 仅同向略放大额度，\|y_trade\| 为幅度闸（与调仓 ŷ_τ **买入闸**分工不同，见上节）；批量共享截面缺口；失败回退 live 簿（**不读冻结账本**）；`ledger` 仅对照 |
 | 动仓 | 基准 **`t0_ratio`**（默认 100%）**固定**，不随 ŷ 缩放 |
-| 目标价 | 卖/买触发 **`sell_trigger_pct` / `buy_trigger_pct`**：满目标=配置值；**`t0_confidence_scale`** 按 \|y_trade\|、\|y_τ\|、eod 同向把触发压到 `[y_ratio_cut, 1]×基准`（信心大→满目标，信心小→降低目标）；\|y_τ\| 刚过入场线时另乘 soft band 视为弱信号 |
+| 目标价 | 卖/买触发 **`sell_trigger_pct` / `buy_trigger_pct`**：满目标=配置值；**`t0_confidence_scale`** 按 \|y_trade\|、\|y_τ\|、eod 同向把触发压到 `[y_ratio_cut, 1]×基准`（默认 **60%～100%**；信心大→满目标，信心小→降低目标）；\|y_τ\| 刚过入场线时另乘 soft band 视为弱信号 |
 | 成交 | 默认 **`fill_mode=trigger`**（偏保守）；回测附带 optimistic 上界对照 |
 | 门禁 | **双层滚动**（回测 / Worker 同口径）：① **总量振幅** — 前缀 `(high−low)/ref ≥ min_range`；② **方向振幅** — 正 T 要求前缀 high 达卖出触发，反 T 要求 low 达低吸触发；未达标则下根 5m 重试，**扫到方向振幅或全日末** |
 | 风控 | **`y_block_tau_nowcast_sign`**（默认**开**）：y_τ↔y_nowcast 异号跳过（缺 nowcast / 过弱不拦）；**中点追价**（`t0_pm_degrade` 默认 14:00 起算 + `t0_pm_chase_interval_min`=10）：禁新开第一腿，已开未平则旧目标↔现价中点再触价（`pm_chase`；纯中点仍在外侧则继续等 / 收盘 `eod_cover`） |
