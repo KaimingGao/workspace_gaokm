@@ -351,7 +351,7 @@ watchlist
 | 目标 | **底仓 overlay**：在既定持仓上对可卖量做日内往返，验 timing 规则；**非**独立选股 Alpha（见上节对照表） |
 | 语义 | A 股 **底仓做 T（T+1）**：正 T 先卖旧仓再买回；反 T 先低吸加仓再卖旧仓换仓（禁卖当日新买股） |
 | 选向 | 默认 **`direction=dual_y`** + **`y_score_source=compute`**：开盘信息集（昨收因子 + 今开缺口）即时算 ŷ；**y_τ 定正/反 T**，y_eod 仅同向略放大额度，\|y_trade\| 为幅度闸（与调仓 ŷ_τ **买入闸**分工不同，见上节）；批量共享截面缺口；失败回退 live 簿（**不读冻结账本**）；`ledger` 仅对照 |
-| 动仓 | 基准 **`t0_ratio`**（默认 100%）**固定**，不随 ŷ 缩放 |
+| 动仓 | **固定 100%**（`t0_ratio=1.0`，UI 已去掉动仓%）；不随 ŷ 缩放可卖量 |
 | 目标价 | 卖/买触发 **`sell_trigger_pct` / `buy_trigger_pct`**（默认各 **1.0%**）：基准=配置值；**`t0_confidence_scale`** 按 \|y_trade\|、\|y_τ\|、eod 同向映射到 `[y_ratio_cut, y_ratio_boost_cap]×基准`（默认 **60%～200%**；信心大→抬高目标，信心小→降低目标）；\|y_τ\| 刚过入场线时 soft band 视为弱信号 |
 | 成交 | 默认 **`fill_mode=trigger`**（偏保守）；**`must_cover_same_day=true`**（当日强制回补）；**`use_atr=false`**；回测附带 optimistic 上界对照 |
 | 门禁 | **双层滚动**（回测 / Worker 同口径）：① **总量振幅** — 前缀 `(high−low)/ref ≥ min_range`（默认 **0.2%**）；② **方向振幅** — 正 T 要求前缀 high 达卖出触发，反 T 要求 low 达低吸触发；未达标则下根 5m 重试，**扫到方向振幅或全日末** |
@@ -980,6 +980,8 @@ y = \bigl(\mathrm{close}[t+h] / \mathrm{close}[t] - 1\bigr) \times 100
 | 昨日复盘 Horizon 下拉 | **1**（可选更长） | 对账标签长度 |
 
 **原则**：估 β、打 ŷ、复盘 \(r_h\)、回测持有期应使用**同一 \(h\)**；改 UI 持有期后需重跑分组并 promote，再谈 live 一致性。
+
+> **方法论**：日级趋势与做 T 方向采用 **多频率 · 多目标 · Ensemble/Bagging**，见 [design-spine · 预估方法论](design-spine.md#预估方法论)。
 
 ### 2.5 双层 predicted_score（ŷ_EOD + ŷ_τ）
 

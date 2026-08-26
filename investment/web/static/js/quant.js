@@ -79,6 +79,9 @@ const { installScoreReview } = await import(
 const { installClusterBarsUi } = await import(
   `./quant/cluster_bars_ui.js?v=${encodeURIComponent(_QV)}`
 );
+const { installClusterMinuteUi } = await import(
+  `./quant/cluster_minute_ui.js?v=${encodeURIComponent(_QV)}`
+);
 
 /** Quant research panel — shell + domain installs.
  * A4: 禁止再往根文件堆域逻辑；新能力进 quant/domain_* 或子模块，按页懒加载。
@@ -278,6 +281,7 @@ export function initQuant(ctx) {
   const cluster = installClusterProbe(q);
   const suggest = installSuggest(q);
   const clusterBars = installClusterBarsUi(q);
+  const clusterMinute = installClusterMinuteUi(q);
   const strategy = installStrategy(q);
   const exportDomain = installExportInterpret(q);
   const scoreReviewDomain = installScoreReview(q);
@@ -287,6 +291,7 @@ export function initQuant(ctx) {
   q.cluster = cluster;
   q.suggest = suggest;
   q.clusterBars = clusterBars;
+  q.clusterMinute = clusterMinute;
   q.strategy = strategy;
   q.exportDomain = exportDomain;
   q.scoreReviewDomain = scoreReviewDomain;

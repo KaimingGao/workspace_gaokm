@@ -335,6 +335,7 @@ def resolve_effective_execution(
         notes=notes,
     )
     t0 = load_t0_rules(raw_t0)
+    t0["t0_ratio"] = 1.0
 
     # rebalance：Spec paper_rules ← paper.rules（非 t0 键）
     rebalance = deepcopy(strategy_exe.get("_paper_rules") or {})
@@ -709,6 +710,8 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_out["y_path_abandon_enabled"] = bool(t0_in.get("y_path_abandon_enabled"))
     # 选向仅 dual_y
     t0_out["direction"] = "dual_y"
+    if "t0_ratio" in t0_in:
+        t0_out["t0_ratio"] = 1.0
 
     coupling_out: Dict[str, Any] = {}
     if coupling_in is not None:
@@ -741,6 +744,7 @@ def apply_execution_patch_to_paper(
     prev_t0 = dict(rules.get("t0") or {}) if isinstance(rules.get("t0"), dict) else {}
     new_t0 = dict(prev_t0)
     new_t0.update(normalized.get("t0") or {})
+    new_t0["t0_ratio"] = 1.0
     rules["t0"] = new_t0
 
     coupling_patch = normalized.get("coupling") or {}

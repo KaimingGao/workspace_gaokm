@@ -1,9 +1,6 @@
 """量化研究台 API — cluster live management。"""
 
-
 import logging
-
-logger = logging.getLogger(__name__)
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, HTTPException
@@ -11,14 +8,17 @@ from fastapi import APIRouter, HTTPException
 from web import deps
 from web.schemas import (
     ClusterApplyShortcutRequest,
+    ClusterBarsRefreshRequest,
+    ClusterMinuteRefreshRequest,
     ClusterModeRequest,
     ClusterMultiScoreRequest,
     ClusterPaperPreviewRequest,
     ClusterPromoteRequest,
     ClusterRollbackRequest,
-    ClusterBarsRefreshRequest,
     FactorOlsClusterRequest,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["quant"])
 
@@ -43,6 +43,39 @@ def quant_cluster_bars_refresh(body: ClusterBarsRefreshRequest) -> Dict[str, Any
         if body.sync:
             return deps.quant.run_cluster_bars_refresh(**kwargs)
         return deps.quant.start_cluster_bars_refresh_job(**kwargs)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/quant/cluster-minute/status")
+def quant_cluster_minute_status(
+    watching_limit: int = 100,
+    period: str = "5",
+    min_span_days: int = 40,
+) -> Dict[str, Any]:
+    """观察池 5m 分钟缓存覆盖（研究枢纽 UI）。"""
+    try:
+        return deps.quant.cluster_minute_status(
+            watching_limit=watching_limit,
+            period=period,
+            min_span_days=min_span_days,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.post("/api/quant/cluster-minute/refresh")
+def quant_cluster_minute_refresh(body: ClusterMinuteRefreshRequest) -> Dict[str, Any]:
+    """预热观察池 5m 分钟线；默认后台 Job（``GET /api/jobs/cluster-minute-refresh``）。"""
+    kwargs = dict(
+        watching_limit=body.watching_limit,
+        period=body.period,
+        lookback_days=body.lookback_days,
+    )
+    try:
+        if body.sync:
+            return deps.quant.run_cluster_minute_refresh(**kwargs)
+        return deps.quant.start_cluster_minute_refresh_job(**kwargs)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

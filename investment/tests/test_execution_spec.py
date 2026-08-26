@@ -31,7 +31,7 @@ class TestExecutionResolve(unittest.TestCase):
 
         paper = {"strategy_id": "short", "rules": {"t0": {"t0_ratio": 0.25, "direction": "long_t"}}}
         bundle = resolve_effective_execution(paper=paper, channel="paper")
-        self.assertAlmostEqual(float(bundle["t0"]["t0_ratio"]), 0.25)
+        self.assertAlmostEqual(float(bundle["t0"]["t0_ratio"]), 1.0)
         # 旧选向已下线，一律收敛 dual_y
         self.assertEqual(bundle["t0"]["direction"], "dual_y")
         self.assertEqual(bundle["t0_sources"].get("t0_ratio"), "paper")
@@ -229,7 +229,7 @@ class TestExecutionResolve(unittest.TestCase):
             }
         )
         self.assertTrue(ok, errs)
-        self.assertAlmostEqual(norm["t0"]["t0_ratio"], 0.3)
+        self.assertAlmostEqual(norm["t0"]["t0_ratio"], 1.0)
         self.assertEqual(norm["coupling"]["t0_vs_stance"], "skip_if_avoid")
 
         paper = {"strategy_id": "short", "rules": {}}
@@ -257,11 +257,13 @@ class TestExecutionResolve(unittest.TestCase):
         )
 
         paper = {"strategy_id": "short", "rules": {}}
-        apply_execution_patch_to_paper(paper, {"t0": {"t0_ratio": 0.55}})
+        apply_execution_patch_to_paper(paper, {"t0": {"sell_trigger_pct": 2.5}})
+        self.assertAlmostEqual(float(paper["rules"]["t0"]["sell_trigger_pct"]), 2.5)
+        self.assertAlmostEqual(float(paper["rules"]["t0"]["t0_ratio"]), 1.0)
         diff = execution_diff_against_strategy(paper)
         self.assertTrue(diff["changed"])
         paths = {c["path"] for c in diff["t0_changes"]}
-        self.assertIn("t0_ratio", paths)
+        self.assertIn("sell_trigger_pct", paths)
 
     def test_coupling_skip_on_holdings(self):
         from core.t0.rules import simulate_t0_on_holdings

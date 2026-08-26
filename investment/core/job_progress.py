@@ -452,6 +452,7 @@ try:
     from core.paths import (
         CHAT_JOB_PATH,
         CLUSTER_BARS_REFRESH_JOB_PATH,
+        CLUSTER_MINUTE_REFRESH_JOB_PATH,
         PAPER_JOB_PATH,
         QUANT_OLS_CLUSTERS_JOB_PATH,
         QUANT_PARAM_GRID_JOB_PATH,
@@ -464,6 +465,9 @@ try:
     cluster_bars_refresh_job = job_registry.slot(
         "cluster-bars-refresh", persist_path=CLUSTER_BARS_REFRESH_JOB_PATH
     )
+    cluster_minute_refresh_job = job_registry.slot(
+        "cluster-minute-refresh", persist_path=CLUSTER_MINUTE_REFRESH_JOB_PATH
+    )
     quant_param_grid_job = job_registry.slot(
         "quant-param-grid", persist_path=QUANT_PARAM_GRID_JOB_PATH
     )
@@ -473,5 +477,6 @@ except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流
     paper_job = job_registry.slot("paper")
     quant_ols_clusters_job = job_registry.slot("quant-ols-clusters")
     cluster_bars_refresh_job = job_registry.slot("cluster-bars-refresh")
+    cluster_minute_refresh_job = job_registry.slot("cluster-minute-refresh")
     quant_param_grid_job = job_registry.slot("quant-param-grid")
     chat_job = job_registry.slot("chat")

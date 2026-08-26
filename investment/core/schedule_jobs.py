@@ -246,11 +246,19 @@ def _minute_warmup_core(
     period: str = "5",
     cap: int = 25,
     lookback_days: int = 90,
+    progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """分钟线预热核心逻辑（无 job slot）。
 
     period=5 默认 lookback≈90 交易日，对齐做T回测窗口；过短会导致回测大量「缺分钟跳过」。
     """
+    from core.data.policy import (
+        MINUTE_WARMUP_MAX_CAL_GAP_DAYS,
+        minute_warmup_ready_min_span_days,
+        minute_warmup_skip_em,
+        minute_warmup_skip_if_ready,
+        minute_warmup_stale_hours,
+    )
     from core.ports.market import fetch_minute_bars
 
     watch = _resolve_warmup_codes(codes, cap=max(1, int(cap)))
@@ -263,14 +271,48 @@ def _minute_warmup_core(
     else:
         span = min(max(int(lookback_days or 90), 20), 120)
     warmed = 0
+    skipped_ready = 0
     errors: List[str] = []
-    for code in watch:
+    total = len(watch)
+    skip_em = minute_warmup_skip_em()
+    skip_if_ready = minute_warmup_skip_if_ready()
+    ready_min_span = minute_warmup_ready_min_span_days()
+    stale_h = minute_warmup_stale_hours()
+    if skip_if_ready:
+        from quant.research.cluster_minute_status import minute_cache_ready
+
+    for i, code in enumerate(watch, start=1):
+        progress_code = code
+        if skip_if_ready:
+            ready, _snap, reason = minute_cache_ready(
+                code,
+                period=period_s,
+                min_span_days=ready_min_span,
+                stale_hours=stale_h,
+                max_calendar_gap_days=MINUTE_WARMUP_MAX_CAL_GAP_DAYS,
+            )
+            if ready:
+                skipped_ready += 1
+                warmed += 1
+                progress_code = f"skip {code}"
+                if progress_cb:
+                    try:
+                        progress_cb(i, total, progress_code)
+                    except Exception:  # noqa: BLE001 — best-effort 进度回调
+                        logger.debug("minute_warmup progress_cb failed", exc_info=True)
+                continue
+        if progress_cb:
+            try:
+                progress_cb(i, total, progress_code)
+            except Exception:  # noqa: BLE001 — best-effort 进度回调
+                logger.debug("minute_warmup progress_cb failed", exc_info=True)
         bars, meta = fetch_minute_bars(
             code,
             period=period_s,
             use_cache=True,
             lookback_days=span,
             max_age_hours=0.01,  # 强制尝试刷新；失败仍可回退过期缓存
+            skip_em=skip_em,
         )
         if bars:
             warmed += 1
@@ -283,8 +325,14 @@ def _minute_warmup_core(
         "lookback_days": span,
         "total": len(watch),
         "warmed": warmed,
+        "skipped_ready": skipped_ready,
+        "skip_if_ready": skip_if_ready,
+        "ready_min_span_days": ready_min_span if skip_if_ready else None,
         "errors": errors[:10],
-        "note": "5 分钟线预热；供 tail_anomaly / 做T回测。",
+        "note": (
+            "5 分钟线预热；供 tail_anomaly / 做T回测。"
+            + (" BaoStock-only（跳过东财反爬）。" if skip_em else "")
+        ),
     }
 
 

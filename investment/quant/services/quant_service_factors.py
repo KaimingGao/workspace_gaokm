@@ -1312,6 +1312,139 @@ class QuantFactorMixin:
             "job": cluster_bars_refresh_job.get(),
         }
 
+    def cluster_minute_status(
+        self,
+        *,
+        watching_limit: int = 100,
+        period: str = "5",
+        min_span_days: int = 40,
+    ) -> Dict[str, Any]:
+        """观察池 5m 分钟缓存覆盖（研究枢纽 UI）。"""
+        from quant.research.cluster_minute_status import build_cluster_minute_status
+
+        return build_cluster_minute_status(
+            watching_limit=watching_limit,
+            period=period,
+            min_span_days=min_span_days,
+        )
+
+    def run_cluster_minute_refresh(
+        self,
+        *,
+        watching_limit: int = 100,
+        period: str = "5",
+        lookback_days: int = 120,
+        progress_cb: Optional[Any] = None,
+    ) -> Dict[str, Any]:
+        """同步：预热观察池 5m 分钟线。"""
+        from quant.research.cluster_minute_status import refresh_cluster_minute_only
+
+        return refresh_cluster_minute_only(
+            watching_limit=watching_limit,
+            period=period,
+            lookback_days=lookback_days,
+            progress_cb=progress_cb,
+        )
+
+    def start_cluster_minute_refresh_job(
+        self,
+        *,
+        watching_limit: int = 100,
+        period: str = "5",
+        lookback_days: int = 120,
+    ) -> Dict[str, Any]:
+        """后台 Job：预热 5m 分钟线；轮询 ``GET /api/jobs/cluster-minute-refresh``。"""
+        import threading
+
+        from core.job_progress import cluster_minute_refresh_job
+        from quant.research.factor_ols_clusters import clamp_watching_limit
+
+        cluster_minute_refresh_job.reclaim_if_stale()
+        if cluster_minute_refresh_job.is_running():
+            return {
+                "ok": True,
+                "success": True,
+                "background": True,
+                "reused": True,
+                "job": cluster_minute_refresh_job.get(),
+            }
+
+        watch_limit = clamp_watching_limit(watching_limit or 100, 100)
+        try:
+            from core.watching.store import read_watching
+
+            n_watch_all = len(list((read_watching() or {}).get("watchlist") or []))
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
+            n_watch_all = watch_limit
+        n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
+        job_total = max(1, n_watch)
+
+        job_id = cluster_minute_refresh_job.start(
+            kind="cluster_minute_refresh",
+            total=job_total,
+            message="排队中…",
+        )
+
+        def _progress(msg: str, cur: int = 0, tot: int = 0) -> None:
+            t = max(1, int(tot or n_watch or 1))
+            c = max(0, min(t, int(cur or 0)))
+            cluster_minute_refresh_job.update(
+                current=c,
+                total=job_total,
+                message=str(msg or "预热 5m…"),
+                job_id=job_id,
+            )
+
+        def _worker() -> None:
+            stop_hb = threading.Event()
+
+            def _heartbeat() -> None:
+                while not stop_hb.wait(8.0):
+                    if not cluster_minute_refresh_job.touch(job_id=job_id):
+                        return
+
+            hb = threading.Thread(
+                target=_heartbeat, name=f"cluster-minute-hb-{job_id}", daemon=True
+            )
+            hb.start()
+            try:
+                if cluster_minute_refresh_job.is_cancel_requested():
+                    cluster_minute_refresh_job.finish(error="已取消", job_id=job_id)
+                    return
+                result = self.run_cluster_minute_refresh(
+                    watching_limit=watch_limit,
+                    period=period,
+                    lookback_days=lookback_days,
+                    progress_cb=_progress,
+                )
+                if cluster_minute_refresh_job.is_cancel_requested():
+                    cluster_minute_refresh_job.finish(error="已取消", job_id=job_id)
+                    return
+                if not result.get("success"):
+                    cluster_minute_refresh_job.finish(
+                        error=str(result.get("error") or "分钟预热失败"),
+                        result=result,
+                        job_id=job_id,
+                    )
+                    return
+                cluster_minute_refresh_job.finish(result=result, job_id=job_id)
+            except Exception as e:
+                logger.exception("unexpected error in cluster_minute_refresh worker")
+                cluster_minute_refresh_job.finish(error=str(e), job_id=job_id)
+            finally:
+                stop_hb.set()
+
+        threading.Thread(
+            target=_worker, name=f"cluster-minute-{job_id}", daemon=True
+        ).start()
+        return {
+            "ok": True,
+            "success": True,
+            "background": True,
+            "job": cluster_minute_refresh_job.get(),
+        }
+
     def start_factor_ols_cluster_job(self, **kwargs: Any) -> Dict[str, Any]:
         """FH2：后台跑分组 OLS；轮询 ``GET /api/jobs/quant-ols-clusters``。"""
         import threading

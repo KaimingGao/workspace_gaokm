@@ -103,7 +103,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-bars-title" class="dashboard-section-title">日线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-bars-desc">
-        PIT 日 K 本地仓 · 观察池末 bar 对齐 as-of · ŷ_EOD / IC / OOS 共用 · ≠ 5m 分钟线
+        PIT 日 K 本地仓 · 增量 merge（自 date_max 补至今日）· 观察池末 bar 对齐 as-of · ŷ_EOD / IC / OOS 共用 · ≠ 5m 分钟线
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-bars-card">
@@ -169,6 +169,70 @@
           </div>
         </div>
         <footer class="quant-bars-foot" id="quant-bars-foot" aria-label="日线仓元数据"></footer>
+      </div>
+    </div>
+  </section>
+
+  <!-- 分钟线：观察池 5m 缓存（ŷ_path / T0 回测） -->
+  <section class="dashboard-section quant-section" id="quant-section-minute" aria-labelledby="quant-section-minute-title">
+    <header class="dashboard-section-head quant-section-head">
+      <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
+      <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
+        5m 本地仓 · 强更全量更新（窗口重拉 + merge）· ŷ_path 第一触达 / T0 回测 / tail_anomaly · ≠ 日 K 增量
+      </p>
+    </header>
+    <div class="dashboard-card quant-pro-card quant-bars-card quant-minute-card">
+      <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
+        <div id="quant-cluster-minute-strip" class="quant-cluster-bars-strip quant-bars-desk-status quant-card-head-status" aria-live="polite">
+          <span id="quant-cluster-minute-chip" class="quant-pro-status-chip" data-state="idle">—</span>
+          <span id="quant-cluster-minute-msg" class="quant-cluster-bars-msg">加载覆盖…</span>
+        </div>
+        <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="分钟线操作">
+          <button type="button" id="quant-cluster-minute-refresh" class="dialog-btn secondary" title="全量拉取观察池 5m（窗口重拉 + merge；已 Ready 跳过 · lookback 120 交易日 · 逐只串行 · Limit100 约 30–90 分钟）">
+            强更 5m
+          </button>
+        </div>
+      </div>
+      <div class="quant-pro-card-body quant-bars-body">
+        <div id="quant-minute-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="5m 强更进度"></div>
+        <div id="quant-minute-context-strip" class="quant-bars-context-strip" aria-live="polite"></div>
+        <div class="quant-bars-kpi-row" id="quant-minute-kpis" aria-label="分钟覆盖 KPI">
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="ok" title="交易日跨度 ≥ 40 天（ŷ_path 软闸）">
+            <span class="quant-pro-kpi-label">Ready</span>
+            <span class="quant-pro-kpi-value" id="quant-minute-kpi-ok">—</span>
+            <span class="quant-pro-kpi-sub" id="quant-minute-kpi-ok-sub">≥40d · — / —</span>
+          </div>
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="span" title="有缓存标的的交易日跨度中位数">
+            <span class="quant-pro-kpi-label">Span med</span>
+            <span class="quant-pro-kpi-value" id="quant-minute-kpi-span">—</span>
+            <span class="quant-pro-kpi-sub" id="quant-minute-kpi-span-sub">交易日</span>
+          </div>
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="short" title="有缓存但跨度 &lt; 40 交易日">
+            <span class="quant-pro-kpi-label">Short</span>
+            <span class="quant-pro-kpi-value" id="quant-minute-kpi-short">—</span>
+            <span class="quant-pro-kpi-sub">跨度不足</span>
+          </div>
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="missing" title="观察池内无本地 5m 缓存">
+            <span class="quant-pro-kpi-label">Missing</span>
+            <span class="quant-pro-kpi-value" id="quant-minute-kpi-missing">—</span>
+            <span class="quant-pro-kpi-sub">无本地仓</span>
+          </div>
+        </div>
+        <div class="quant-bars-viz-grid">
+          <div class="quant-bars-viz-panel">
+            <div class="quant-bars-viz-head">
+              <span class="quant-bars-viz-title">Span mix</span>
+              <span class="quant-bars-viz-meta" id="quant-minute-cov-pct">—</span>
+            </div>
+            <div
+              class="quant-bars-viz-body quant-bars-bar-rows"
+              id="quant-minute-cov-body"
+              role="img"
+              aria-label="分钟跨度构成"
+            ></div>
+          </div>
+        </div>
+        <footer class="quant-bars-foot" id="quant-minute-foot" aria-label="分钟仓元数据"></footer>
       </div>
     </div>
   </section>
@@ -380,7 +444,7 @@
                 落盘 <code>path_ridge_model.json</code>；配置见
                 <a class="quant-hero-link" href="/follow#paper-t0-spec">交易执行 · 做 T 规则</a>。
               </p>
-              <p>依赖观察池 <strong>5m 分钟缓存</strong>；无分钟线时会报错。</p>
+              <p>依赖观察池 <strong>5m 分钟缓存</strong>；无分钟线时会报错。可在上方「分钟线」区块点 <strong>强更 5m</strong>。</p>
             </div>
           </details>
           <button type="button" id="quant-path-ridge-run" class="dialog-btn secondary" title="观察池拟合 path Ridge + 时间 OOS（不写盘）">拟合</button>

@@ -46,7 +46,7 @@ def _tplus1_skip_reason(*, side: str, shares: float, sellable: float, lot: int) 
 
 
 def _ratio_lot_skip_reason(*, side: str, shares: float, t0_ratio: float, lot: int) -> str:
-    """可卖够、但持仓×动仓% 仍不足 1 手。"""
+    """可卖够、但持仓×动仓比例仍不足 1 手（动仓固定 100%）。"""
     sh = int(shares)
     raw = int(float(shares) * float(t0_ratio))
     pct = f"{float(t0_ratio):.0%}"

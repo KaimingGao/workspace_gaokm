@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 
 class TestMinuteStaleFallback(unittest.TestCase):
@@ -23,23 +23,18 @@ class TestMinuteStaleFallback(unittest.TestCase):
         ] * 12
         stale_meta = {"data_source": "akshare:stock_zh_a_hist_min_em:5", "from_cache": True}
 
+        def _load(market, code, period, **kw):
+            if kw.get("ignore_age"):
+                return list(stale_bars), dict(stale_meta)
+            return None
+
         with patch.object(mh, "resolve_market_code", return_value=("CN", "600519")), patch.object(
-            mh, "load_minute_cache"
-        ) as load_cache, patch(
-            "skills.common.ak_lock.import_akshare"
-        ) as import_ak, patch("core.http_retry.call_with_retry") as retry:
-            # 新鲜缓存 miss；ignore_age 命中过期
-            def _load(market, code, period, **kw):
-                if kw.get("ignore_age"):
-                    return list(stale_bars), dict(stale_meta)
-                return None
-
-            load_cache.side_effect = _load
-            retry.side_effect = ConnectionError(
-                "('Connection aborted.', RemoteDisconnected('Remote end closed'))"
-            )
-            import_ak.return_value = MagicMock()
-
+            mh, "load_minute_cache", side_effect=_load
+        ), patch.object(
+            mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
+        ), patch.object(
+            mh, "_maybe_fetch_baostock_minute_bars", return_value=([], {})
+        ):
             bars, meta = mh.fetch_a_minute_bars("600519", period="5", use_cache=True)
             self.assertEqual(len(bars), 12)
             self.assertTrue(meta.get("cache_stale"))

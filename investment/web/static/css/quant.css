@@ -5944,7 +5944,8 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   animation: quant-bars-head-pulse 1.35s ease-in-out infinite;
 }
 
-.quant-bars-card.is-busy .quant-cluster-bars-msg {
+.quant-bars-card.is-busy .quant-cluster-bars-msg,
+.quant-minute-card.is-busy .quant-cluster-bars-msg {
   animation: quant-pro-pulse 1.1s ease-in-out infinite;
   color: var(--accent);
 }
@@ -5953,7 +5954,8 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   animation: quant-pro-pulse 1.1s ease-in-out infinite;
 }
 
-.quant-bars-card.is-busy #quant-cluster-bars-refresh.is-busy:disabled {
+.quant-bars-card.is-busy #quant-cluster-bars-refresh.is-busy:disabled,
+.quant-minute-card.is-busy #quant-cluster-minute-refresh.is-busy:disabled {
   animation: quant-pro-pulse 1.1s ease-in-out infinite;
   border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
   color: var(--accent);
@@ -6077,6 +6079,22 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   background: color-mix(in srgb, var(--warn, #b45309) 75%, var(--surface));
 }
 
+.quant-bars-progress.is-done {
+  border-color: color-mix(in srgb, var(--quant-up, #dc2626) 35%, var(--line, #e5e7eb));
+}
+
+.quant-bars-progress.is-done .quant-bars-progress-phase {
+  color: var(--quant-up, #dc2626);
+}
+
+.quant-bars-progress.is-done .quant-bars-progress-fill {
+  background: var(--quant-up, #dc2626);
+}
+
+.quant-bars-progress-facts .quant-job-hb-stale {
+  color: var(--warn, #d97706);
+}
+
 .quant-bars-progress-facts {
   display: flex;
   flex-wrap: wrap;
@@ -6099,6 +6117,11 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   color: var(--ink-2);
   line-height: 1.4;
   word-break: break-word;
+}
+
+.quant-bars-progress-msg--err {
+  color: var(--warn, #d97706);
+  font-weight: 600;
 }
 
 .quant-bars-progress-hint {

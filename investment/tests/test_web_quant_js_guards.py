@@ -64,6 +64,27 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("quant-weight-table-wrap", panel)
         self.assertIn("quant-cross-run", panel)
 
+        self.assertIn('id="quant-section-minute"', panel)
+        self.assertIn('id="quant-cluster-minute-refresh"', panel)
+        self.assertIn("强更 5m", panel)
+        self.assertIn("增量 merge", panel)
+        self.assertIn("强更全量更新", panel)
+        minute_js = self._read("web", "static", "js", "quant", "cluster_minute_ui.js")
+        self.assertIn("installClusterMinuteUi", minute_js)
+        self.assertIn("/api/quant/cluster-minute/status", minute_js)
+        self.assertIn("/api/jobs/cluster-minute-refresh", minute_js)
+        self.assertIn("unwrapJobSnap", minute_js)
+        self.assertIn("applyJobFailure", minute_js)
+        self.assertIn("syncJobSlot", minute_js)
+        bars_js = self._read("web", "static", "js", "quant", "cluster_bars_ui.js")
+        self.assertIn("unwrapJobSnap", bars_js)
+        self.assertIn("syncJobSlot", bars_js)
+        self.assertIn("applyJobFailure", bars_js)
+        job_js = self._read("web", "static", "js", "quant", "cluster_job_ui.js")
+        self.assertIn("unwrapJobSnap", job_js)
+        quant_js = self._read("web", "static", "js", "quant.js")
+        self.assertIn("installClusterMinuteUi", quant_js)
+
         replay = self._read("web", "static", "partials", "replay_panel.html")
         self.assertIn("quant-neutral-compare-table", replay)
         self.assertIn('id="replay-kpi-row"', replay)
@@ -107,6 +128,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
 
     def test_follow_panel_t0_form_defaults(self):
         panel = self._read("web", "static", "partials", "follow_panel.html")
+        self.assertNotIn('name="t0_ratio"', panel)
+        self.assertNotIn("动仓%", panel)
         self.assertIn('name="sell_trigger_pct"', panel)
         self.assertIn('value="1"', panel)
         self.assertIn('name="enabled" checked', panel)
@@ -120,6 +143,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('if (el.type === "checkbox")', ui)
         self.assertIn("el.checked = !!val", ui)
         self.assertIn('set("enabled", t0.enabled !== false)', ui)
+        self.assertIn('t0_ratio: 1.0', ui)
         self.assertIn('specKpi("启用", enabledLbl', ui)
 
     def test_follow_panel_target_price_ratio_controls(self):

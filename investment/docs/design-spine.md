@@ -1,12 +1,13 @@
 # 产品核心设计主轴
 
-[← 文档索引](README.md) · 工程分层见 [architecture.md](architecture.md) · 因子/stance 细节见 [quant.md](quant.md) · ŷ 全链路见 [quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路) · 盘中/实时增强见 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案) · τ 契约与分组升级见 [quant.md · τ 契约升级](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级) · Web 主路径见 [quant-ui.md](quant-ui.md)
+[← 文档索引](README.md) · 工程分层见 [architecture.md](architecture.md) · **预估方法论**见 [§ 多频率 Ensemble](design-spine.md#预估方法论) · 因子/stance 细节见 [quant.md](quant.md) · ŷ 全链路见 [quant.md · ŷ 全链路](quant.md#predicted_scoreŷ全链路) · 盘中/实时增强见 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案) · τ 契约与分组升级见 [quant.md · τ 契约升级](quant.md#14-决策时刻-τ-契约--双层-predicted_score--分组目标升级) · Web 主路径见 [quant-ui.md](quant-ui.md)
 
 本文是产品的 **核心设计主轴**，分三层读：
 
 1. **本质与因果链**：已发生事实 → 影响估计 → 验证 → 动作（见 [因果链](#因果链已发生--影响估计--动作)）。  
-2. **现行实现主轴**：数据 → 信号 → 因子 → 倾向 → 动作；**量化主轴 + AI 旁路**两条轨（可复现、可验收）。  
-3. **北极星与能力地图**：北极星 = **策略落地为稳定风险调整收益的转化效率**（见 [产品北极星](#产品北极星)）；六大模块是支撑能力地图，不是北极星本身。**现行产品边界** = 研究台 + 模拟账户（**策略验证**）；真·实盘 OMS **暂不启动**，待策略在回测与纸面验证成熟后另立项（N6）。
+2. **预估方法论**：多频率 · 多目标 · Ensemble/Bagging（见 [预估方法论](#预估方法论)）——天级趋势与做 T 方向的分工与融合原则。  
+3. **现行实现主轴**：数据 → 信号 → 因子 → 倾向 → 动作；**量化主轴 + AI 旁路**两条轨（可复现、可验收）。  
+4. **北极星与能力地图**：北极星 = **策略落地为稳定风险调整收益的转化效率**（见 [产品北极星](#产品北极星)）；六大模块是支撑能力地图，不是北极星本身。**现行产品边界** = 研究台 + 模拟账户（**策略验证**）；真·实盘 OMS **暂不启动**，待策略在回测与纸面验证成熟后另立项（N6）。
 
 其它文档（控制论、金字塔、策略层、Web 说明书）都围绕本主轴展开，不与之冲突。
 
@@ -92,7 +93,7 @@ flowchart LR
 |----------|----------|------------|--------|
 | **事实输入** | 当时可见的价量、财务、资讯、账本 | `ports` · `fetch_daily_bars` · fundamentals · sentiment · `watching` / `paper` | 基本面多为 **snapshot**（非完整 PIT）；须在质量/文档标明 |
 | **清洗门禁** | 能否进入生产估计 | `normalize_bars` · `assess_quality` · `allows_production_score` · manifest `adjust_policy` | thin/empty/fallback → `hard_reject`，不硬塞分 |
-| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **双层**：`predicted_score`（EOD）+ `predicted_score_tau`（τ；兼容 `score_rem`）· `compute_buy_stance` | 生产主排序 = **EOD ŷ**；τ 头独立 Ridge（`tau_ridge`），不改组 β；融合见 [predicted-score-chain §2.5](quant.md#predicted_scoreŷ全链路)；组 β 仅 `cluster_scoring.mode=active` 进主分（FH0）；`heuristic_score` **仅研究对照基线**；LLM **不改** `score` / `stance_label` |
+| **Alpha 估计** | 已发生形态对「相对吸引力」的影响 | `factor_registry` · `score_bars`→sub_scores · `ReturnScoreModel`（β）· **多目标多头**：ŷ_EOD / ŷ_τ / ŷ_ON / ŷ_path · **blend 融合** · **分组 bagging**（cluster OLS）· `compute_buy_stance` | 方法论见 [design-spine · 预估方法论](design-spine.md#预估方法论)；生产主排序 = **EOD ŷ**；τ/path 等独立 Ridge + OOS；融合见 [quant §2.5](quant.md#25-双层-predicted_scoreŷ_eod--ŷ_τ)；组 β 仅 `active` 进主分（FH0）；`heuristic_score` **仅研究对照**；LLM **不改**分 |
 | **Risk 估计** | 已发生敞口对「能买多少 / 要不要停」的影响 | `check_account_risk` · `optimize_weights` · `strategy_monitor`（回撤 · 滚动 IC · 行业覆盖） · 成本 `simple_cn` | 监控 **只告警**；不自动改权、不代客下单 |
 | **验证** | 同一规则在历史上是否仍有效 | `backtest` · OOS/regime · `wf_slices` · IC / `weight_suggest` · 纸面 `ops_report` 五问 | 研究结果 ≠ 实盘保证；OOS 失败须可见 |
 | **动作** | 估计如何变成可审计行为 | 观察 · 人建仓 · `run_daily_cycle` / 横截面调仓 · `paper_daily` · DecisionRecord | **现行不接 OMS**（策略验证）；配置变更走 feedback → **人审 promote** |
@@ -119,6 +120,70 @@ flowchart LR
 | 券商 OMS 未闸门上线 | 把「影响估计」直接变成不可撤销的真实下单 |
 
 更细的逻辑链（数据→信号→因子→倾向→动作）见下文；PIT 约定见 [architecture.md · 数据层](architecture.md#数据层)；风控对照见 [architecture.md · 风控层](architecture.md#风控层)。
+
+---
+
+## 预估方法论：多频率 · 多目标 · Ensemble
+
+<a id="预估方法论"></a>
+
+**基本原则**：为提升 **日级涨跌趋势**（调仓排序 / 买卖闸）与 **底仓做 T 方向**（正 T / 反 T / 跳过）的可靠性，不依赖单一模型或单一频率，而是 **多频率、多目标** 从多角度估计，再以 **ensemble（融合）** 与 **bagging（分组/多样本聚合）** 降低单点失效与过拟合风险。
+
+这与「一个黑盒分数决定一切」相反：每个头有独立标签、独立 OOS、独立晋升门禁；融合层只组合 **已过闸** 的估计，且保留审计字段。
+
+### 三个设计轴
+
+| 轴 | 含义 | 目的 |
+|----|------|------|
+| **多频率** | 同一决策日同时使用 **日线因子**、**开盘/τ 时刻**、**5m 分钟路径** 等不同时间粒度的已发生信息 | 日级趋势看「隔夜→多日」；做 T 看「开盘→盘中触价顺序」 |
+| **多目标** | 不同 **标签 \(y\)** / 决策任务：EOD 前瞻收益、τ 剩余收益、ON 隔夜、path 先触达方向… | 避免用一个回归头同时充当排序、买入闸、定方向、触价 timing |
+| **Ensemble / Bagging** | 多模型输出 **正交融合** 或 **分组再聚合**；弱信号降权、冲突否决 | 提升稳健性，而非堆更多同名因子 |
+
+```text
+多频率事实（日 / 开 / 5m）
+    → 多目标 Ridge 头（各自 y、各自 OOS）
+    → 融合层（blend / 门控 / 冲突否决）
+    → 动作层（调仓 ŷ_trade · dual_y 定向 · 5m 执行）
+```
+
+### 天级趋势 vs 做 T 方向（分工，不混用）
+
+| 任务 | 主要频率 | 主要目标头 | 融合 / 门控 | 代码落点 |
+|------|----------|------------|-------------|----------|
+| **调仓：谁更强 / 买不买** | 日线 + 开盘缺口 | **ŷ_EOD**（多日前瞻）· **ŷ_τ**（买入闸）· **ŷ_ON** | **ŷ_trade** = blend(ŷ_EOD, 缺口∘ŷ_τ)；过 EOD floor + τ 闸 | `dual_score/` · `paper_rebalance` |
+| **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 路径** | **y_τ** 定方向 · **y_path** 先触达 · \|y_trade\| 幅度闸 | `dual_y`：`resolve_dual_y_direction`；与 τ **模型共用、接口不同** | `core/t0/score_policy.py` · `path_ridge` |
+| **执行：何时触价** | **5m** 第一触达 | 卖/买触发 % · 滚动振幅门禁 | 与估计层分离；缺分钟跳过 | `core/t0/` · `minute_path` |
+
+详见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t) · [quant.md · 双层 ŷ §2.5](quant.md#25-双层-predicted_scoreŷ_eod--ŷ_τ) · [quant.md · y_path](quant.md#predicted_scoreŷ全链路)。
+
+### Ensemble 在本仓库的具体形态
+
+| 机制 | 类型 | 说明 |
+|------|------|------|
+| **ŷ_trade blend** | Ensemble（固定权融合） | `fusion_mode=blend`：\(w\cdot\hat y_{\mathrm{EOD}} + w\cdot(\text{缺口}\circ\hat y_\tau)\)；收盘后 `eod_next` 剥离当日 τ 防泄漏 |
+| **Nowcast / Kalman** | Ensemble（序贯融合） | EOD 先验 → open → 当前 τ；\(R\) 来自 τ OOS 分层；默认 **对照列**，`use_as_rank_key=false` |
+| **分组 OLS / Ridge** | Bagging（宇宙子集） | 观察池按主题/相似度 **聚类** → 组内独立 fit β / Ridge；`active` 组才进 live ŷ（FH0）；OOS 失败率闸 |
+| **多 Ridge 头** | Multi-target（非堆叠单分） | `tau_ridge` · `on_ridge` · `path_ridge` 各自 artifact；**不**改组 β |
+| **dual_y 联合选向** | Ensemble + 否决 | y_τ 与 y_path 方向一致才入场；\|ŷ_path\| 不足 → 横盘；冲突 → skip |
+| **影子簿 / promote** | Bagging 的工程化验收 | 新头先 shadow · OOS 对照 active → **人审 promote** 才切换 live |
+
+**尚未默认启用、须 eval + 人审**：GBDT blend、端到端 NN（见 [quant.md · 演进路径](quant.md#工业常见因子分类对照本仓库)）。原则不变：新模型须证明 **相对现行 ensemble 的增量**，且不得黑盒改写 `stance_label`。
+
+### 数据层对多频率的支撑
+
+| 频率 | 来源 | 缓存 |
+|------|------|------|
+| 日线 | AkShare 等 · DataService | `daily` / `bars.db` |
+| 5m 分钟 | AkShare 东财（近）+ BaoStock（深） | `minute_bars`；强更见 [architecture · 分钟线采集](architecture.md#分钟线采集架构akshare--baostock) |
+
+分钟数据服务于 **path 标签 / 做 T 回测 / Worker 5m 盯盘**，不是替代日线 ŷ_EOD 的主排序轴。
+
+### 硬边界（与 Ensemble 并存）
+
+- **不**用未 OOS / 未 promote 的头静默覆盖 `signal_config` 或 live 排序。
+- **不**让 LLM 改写 `score` / `stance_label`；AI 只解释已算出的多头估计。
+- 单头失效时 **降级**（跳过该闸、回退 live 簿、cache:stale 分钟），而非把整个链路绑死在某一源上。
+- 融合提高的是 **可靠性（稳健 IC / 少极端误判）**，不是保证胜率；仍须纸面五问与 promote 门禁验收。
 
 ---
 

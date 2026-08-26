@@ -147,7 +147,18 @@ def build_cluster_bars_status(*, watching_limit: int = 100) -> Dict[str, Any]:
         "as_of_rule": "trading_day_before_1505_prev",
         "date_distribution": [{"date": d, "count": c} for d, c in dist],
         "forced_marker": marker if marker else None,
+        "refresh_job": _bars_refresh_job_snapshot(),
     }
+
+
+def _bars_refresh_job_snapshot() -> Optional[Dict[str, Any]]:
+    from core.job_progress import cluster_bars_refresh_job
+    from quant.research.cluster_refresh_job_snapshot import public_refresh_job_snapshot
+
+    return public_refresh_job_snapshot(
+        cluster_bars_refresh_job,
+        result_summary_key="bars_refresh",
+    )
 
 
 def refresh_cluster_bars_only(

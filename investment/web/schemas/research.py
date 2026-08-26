@@ -241,6 +241,19 @@ class ClusterBarsRefreshRequest(BaseModel):
     )
 
 
+class ClusterMinuteRefreshRequest(BaseModel):
+    """观察池 5m 分钟线预热（ŷ_path / T0 回测）。"""
+
+    period: str = Field(default="5", description="分钟周期；默认 5m")
+    lookback_days: int = Field(default=120, ge=20, le=120)
+    watching_limit: int = Field(default=100, ge=3, le=100)
+    min_span_days: int = Field(default=40, ge=10, le=120)
+    sync: bool = Field(
+        default=False,
+        description="true=同步跑（单测）；默认入队 Job，轮询 GET /api/jobs/cluster-minute-refresh",
+    )
+
+
 class FactorCsIcRequest(BaseModel):
     """S1 · 研究池逐因子日频截面 IC。"""
 

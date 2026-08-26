@@ -1,17 +1,19 @@
-"""A 股分钟线拉取（东财）；本地缓存 data/store/minute/{period}/CN/{code}.json。
+"""A 股分钟线拉取（东财主 · BaoStock 备）；本地缓存 data/store/minute/{period}/CN/{code}.json。
 
-限量（东财常见）：1 分钟约近 5 日；5/15/30/60 分钟约近 120 交易日。
+限量（东财常见）：1 分钟约近 5 日；5/15/30/60 分钟约近 120 交易日（实测常更短）。
+BaoStock 备：5/15/30/60 约 2020-01-03 至今；东财失败或历史过短时自动尝试。
 做 T 第一触达默认 period=5。
 """
 
 from __future__ import annotations
 
 import logging
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.data.policy import MINUTE_CACHE_HOURS
+from core.data.policy import MINUTE_CACHE_HOURS, minute_fetch_delay_sec
 from core.numbers import to_float as _to_float
 from core.store import load_minute_cache, merge_minute_bars_by_time, save_minute_cache
 from skills.common.history import resolve_market_code
@@ -75,6 +77,161 @@ def group_minute_bars_by_date(bars: List[dict]) -> Dict[str, List[dict]]:
     return dict(out)
 
 
+def _calendar_span_days(bars: List[dict]) -> int:
+    if not bars:
+        return 0
+    try:
+        d0 = datetime.strptime(str(bars[0].get("date") or "")[:10], "%Y-%m-%d")
+        d1 = datetime.strptime(str(bars[-1].get("date") or "")[:10], "%Y-%m-%d")
+        return max(0, (d1 - d0).days)
+    except (ValueError, TypeError):
+        return 0
+
+
+def _merge_save_minute_bars(
+    market: str,
+    bare: str,
+    bars: List[dict],
+    *,
+    period: str,
+    data_source: str,
+    adjust_policy: Optional[str],
+    use_cache: bool,
+) -> Tuple[List[dict], Dict[str, Any]]:
+    meta: Dict[str, Any] = {
+        "market": market,
+        "code": bare,
+        "stock_code": bare,
+        "period": period,
+        "data_source": data_source,
+        "from_cache": False,
+        "ok": bool(bars),
+        "bar_count": len(bars),
+        "adjust_policy": adjust_policy,
+    }
+    if bars:
+        meta["date_min"] = bars[0].get("date")
+        meta["date_max"] = bars[-1].get("date")
+        if use_cache:
+            old = load_minute_cache(
+                market, bare, period, min_bars=1, max_age_hours=0, ignore_age=True
+            )
+            if old:
+                bars = merge_minute_bars_by_time(old[0], bars)
+            save_minute_cache(
+                market,
+                bare,
+                bars,
+                period=period,
+                data_source=data_source,
+                stock_code=bare,
+                adjust_policy=adjust_policy,
+            )
+            meta["bar_count"] = len(bars)
+            meta["cached"] = True
+    return bars, meta
+
+
+def _fetch_em_minute_bars(
+    bare: str,
+    *,
+    period: str,
+    lookback_days: int,
+    adjust: str,
+) -> Tuple[List[dict], Dict[str, Any], Optional[str]]:
+    """东财分钟线；返回 (bars, meta, error)。"""
+    from core.http_retry import call_with_retry
+    from skills.common.ak_lock import import_akshare
+
+    ak = import_akshare()
+    end = datetime.now()
+    if period == "1":
+        span = min(int(lookback_days or 5), 8)
+    else:
+        span = min(max(int(lookback_days or 90), 5), 150)
+    start = end - timedelta(days=max(span * 2, 10))
+    start_s = start.strftime("%Y-%m-%d 09:30:00")
+    end_s = end.strftime("%Y-%m-%d 15:00:00")
+    adj = "" if period == "1" else (adjust or "qfq")
+    try:
+        def _once():
+            return ak.stock_zh_a_hist_min_em(
+                symbol=bare,
+                start_date=start_s,
+                end_date=end_s,
+                period=period,
+                adjust=adj,
+            )
+
+        df = call_with_retry(_once, retries=2, base_delay_sec=0.6, max_delay_sec=5.0)
+    except Exception as e:
+        logger.warning(
+            "fetch_a_minute_bars em failed %s period=%s: %s", bare, period, e
+        )
+        return [], {}, str(e)
+
+    records = df.to_dict(orient="records") if df is not None and hasattr(df, "to_dict") else []
+    bars = normalize_minute_bars(records)
+    src = f"akshare:stock_zh_a_hist_min_em:{period}"
+    meta: Dict[str, Any] = {
+        "data_source": src,
+        "bar_count": len(bars),
+        "adjust_policy": adj or None,
+        "em_start": start_s,
+        "em_end": end_s,
+    }
+    if bars:
+        meta["date_min"] = bars[0].get("date")
+        meta["date_max"] = bars[-1].get("date")
+    return bars, meta, None
+
+
+def _maybe_fetch_baostock_minute_bars(
+    bare: str,
+    *,
+    period: str,
+    lookback_days: int,
+    adjust: str,
+    em_bars: List[dict],
+    em_error: Optional[str],
+) -> Tuple[List[dict], Dict[str, Any]]:
+    from skills.common.baostock_minute import (
+        baostock_enabled,
+        fetch_baostock_minute_bars,
+        suggest_baostock_start,
+    )
+
+    if not baostock_enabled():
+        return [], {}
+    need = bool(em_error) or not em_bars
+    if not need and em_bars:
+        cal_span = _calendar_span_days(em_bars)
+        target_cal = max(30, int(lookback_days or 90) * 2)
+        if cal_span < target_cal:
+            need = True
+    if not need:
+        return [], {}
+    start_s = suggest_baostock_start(lookback_days)
+    bs_bars, bs_meta = fetch_baostock_minute_bars(
+        bare,
+        period=period,
+        start_date=start_s,
+        adjust=adjust,
+    )
+    if bs_meta:
+        bs_meta["backfill_reason"] = (
+            "em_error" if em_error else ("em_short" if em_bars else "em_empty")
+        )
+    return bs_bars, bs_meta
+
+
+def _throttle_minute_remote_fetch() -> None:
+    """AkShare（东财）分钟拉取后的频控间隔。"""
+    delay = minute_fetch_delay_sec()
+    if delay > 0:
+        time.sleep(delay)
+
+
 def _load_stale_minute(
     market: str, bare: str, period: str, *, min_bars: int = 10
 ) -> Optional[Tuple[List[dict], Dict[str, Any]]]:
@@ -102,10 +259,12 @@ def fetch_a_minute_bars(
     use_cache: bool = True,
     max_age_hours: float = MINUTE_CACHE_HOURS,
     adjust: str = "qfq",
+    skip_em: bool = False,
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """拉取 A 股分钟线；失败返回空列表。
 
     period: "1"|"5"|"15"|"30"|"60"
+    skip_em: 批量预热时跳过东财，仅 BaoStock（避免反爬封 IP）。
     远端失败时回退本地过期缓存（与日线 fetch 一致），避免做T回测整批挂死。
     """
     market, bare = resolve_market_code(code)
@@ -130,93 +289,91 @@ def fetch_a_minute_bars(
             meta["ok"] = True
             return bars, meta
 
-    from core.http_retry import call_with_retry
-    from skills.common.ak_lock import import_akshare
-
-    ak = import_akshare()
-    end = datetime.now()
-    # 1 分钟源通常只有近 5 日；5 分钟约 120 交易日
-    if period == "1":
-        span = min(int(lookback_days or 5), 8)
-    else:
-        span = min(max(int(lookback_days or 90), 5), 150)
-    start = end - timedelta(days=max(span * 2, 10))
-    start_s = start.strftime("%Y-%m-%d 09:30:00")
-    end_s = end.strftime("%Y-%m-%d 15:00:00")
-
     adj = "" if period == "1" else (adjust or "qfq")
-    try:
-        def _once():
-            return ak.stock_zh_a_hist_min_em(
-                symbol=bare,
-                start_date=start_s,
-                end_date=end_s,
-                period=period,
-                adjust=adj,
-            )
+    em_bars: List[dict] = []
+    em_meta: Dict[str, Any] = {}
+    em_error: Optional[str] = None
+    bs_bars: List[dict] = []
+    bs_meta: Dict[str, Any] = {}
+    remote_attempted = False
 
-        df = call_with_retry(_once, retries=2, base_delay_sec=0.6, max_delay_sec=5.0)
-    except Exception as e:
-        logger.warning(
-            "fetch_a_minute_bars remote failed %s period=%s: %s", bare, period, e
+    if skip_em:
+        from skills.common.baostock_minute import (
+            baostock_enabled,
+            fetch_baostock_minute_bars,
+            suggest_baostock_start,
         )
+
+        em_error = "skip_em"
+        if baostock_enabled():
+            bs_bars, bs_meta = fetch_baostock_minute_bars(
+                bare,
+                period=period,
+                start_date=suggest_baostock_start(lookback_days),
+                adjust=adjust or "qfq",
+            )
+            bs_meta = dict(bs_meta or {})
+            bs_meta["backfill_reason"] = "skip_em_warmup"
+        bars = list(bs_bars or [])
+        src = str(bs_meta.get("data_source") or "baostock") if bars else "empty"
+        remote_attempted = True
+    else:
+        em_bars, em_meta, em_error = _fetch_em_minute_bars(
+            bare, period=period, lookback_days=lookback_days, adjust=adjust or "qfq"
+        )
+        remote_attempted = True
+        bs_bars, bs_meta = _maybe_fetch_baostock_minute_bars(
+            bare,
+            period=period,
+            lookback_days=lookback_days,
+            adjust=adjust or "qfq",
+            em_bars=em_bars,
+            em_error=em_error,
+        )
+        bars = merge_minute_bars_by_time(em_bars or [], bs_bars or [])
+        sources: List[str] = []
+        if em_bars:
+            sources.append(str(em_meta.get("data_source") or "em"))
+        if bs_bars:
+            sources.append(str(bs_meta.get("data_source") or "baostock"))
+        src = "+".join(sources) if sources else "empty"
+
+    if remote_attempted and not skip_em:
+        _throttle_minute_remote_fetch()
+    if not bars:
         if use_cache:
             stale = _load_stale_minute(market, bare, period)
             if stale:
                 bars, meta = stale
-                meta["remote_error"] = str(e)
+                meta["remote_error"] = em_error or bs_meta.get("error")
                 meta["period"] = period
                 return bars, meta
+        hint = "东财/BaoStock 分钟源均失败；可稍后重试或检查 baostock 安装"
         return [], {
             "data_source": "empty",
-            "error": str(e),
+            "error": em_error or bs_meta.get("error") or "no_minute_bars",
             "period": period,
-            "hint": "东财分钟源断开；可先跑分钟预热或稍后重试",
+            "hint": hint,
+            "em_error": em_error,
+            "bs_error": bs_meta.get("error"),
         }
 
-    records = df.to_dict(orient="records") if df is not None and hasattr(df, "to_dict") else []
-    bars = normalize_minute_bars(records)
-    src = f"akshare:stock_zh_a_hist_min_em:{period}"
-    meta: Dict[str, Any] = {
-        "market": market,
-        "code": bare,
-        "stock_code": bare,
-        "period": period,
-        "data_source": src,
-        "from_cache": False,
-        "ok": bool(bars),
-        "bar_count": len(bars),
-        "adjust_policy": adj or None,
-    }
-    if bars:
-        meta["date_min"] = bars[0].get("date")
-        meta["date_max"] = bars[-1].get("date")
-        if use_cache:
-            # 与旧缓存增量合并
-            old = load_minute_cache(
-                market, bare, period, min_bars=1, max_age_hours=0, ignore_age=True
-            )
-            if old:
-                bars = merge_minute_bars_by_time(old[0], bars)
-            save_minute_cache(
-                market,
-                bare,
-                bars,
-                period=period,
-                data_source=src,
-                stock_code=bare,
-                adjust_policy=adj or None,
-            )
-            meta["bar_count"] = len(bars)
-            meta["cached"] = True
-    elif use_cache:
-        # 远端空结果也尽量用本地过期缓存，避免整批做T回测失败
-        stale = _load_stale_minute(market, bare, period)
-        if stale:
-            bars, meta = stale
-            meta["remote_empty"] = True
-            meta["period"] = period
-            return bars, meta
+    bars, meta = _merge_save_minute_bars(
+        market,
+        bare,
+        bars,
+        period=period,
+        data_source=src,
+        adjust_policy=adj or None,
+        use_cache=use_cache,
+    )
+    meta["em"] = em_meta if not skip_em else {"skipped": True, "reason": "skip_em"}
+    if bs_meta:
+        meta["baostock"] = bs_meta
+    if em_error and not skip_em:
+        meta["em_error"] = em_error
+    if skip_em:
+        meta["skip_em"] = True
     return bars, meta
 
 
@@ -227,6 +384,8 @@ def fetch_minute_bars(
     lookback_days: int = 90,
     use_cache: bool = True,
     max_age_hours: float = MINUTE_CACHE_HOURS,
+    adjust: str = "qfq",
+    skip_em: bool = False,
 ) -> Tuple[List[dict], Dict[str, Any]]:
     """对外入口：目前仅 A 股。"""
     return fetch_a_minute_bars(
@@ -235,4 +394,6 @@ def fetch_minute_bars(
         lookback_days=lookback_days,
         use_cache=use_cache,
         max_age_hours=max_age_hours,
+        adjust=adjust,
+        skip_em=skip_em,
     )

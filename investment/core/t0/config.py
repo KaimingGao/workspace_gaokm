@@ -102,6 +102,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
             if v is not None:
                 cfg[k] = v
     cfg["t0_ratio"] = max(0.05, min(float(cfg.get("t0_ratio") or 1.0), 1.0))
+    # 纸面/回测生效路径在 core.execution.resolve 再强制为 1.0
     cfg["sell_trigger_pct"] = max(0.1, min(float(cfg.get("sell_trigger_pct") or 1.0), 20.0))
     cfg["buy_trigger_pct"] = max(0.1, min(float(cfg.get("buy_trigger_pct") or 1.0), 20.0))
     cfg["lot_size"] = max(1, int(cfg.get("lot_size") or 100))

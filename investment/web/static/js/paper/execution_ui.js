@@ -94,9 +94,7 @@ export function adaptiveSizingBounds(t0 = {}) {
   const minBuy = Math.max(0.1, +(baseBuy * cutSafe).toFixed(2));
   const maxSell = Math.max(0.1, +(baseSell * capSafe).toFixed(2));
   const maxBuy = Math.max(0.1, +(baseBuy * capSafe).toFixed(2));
-  const ratioPct = Math.round(
-    Number.isFinite(Number(t0.t0_ratio)) ? Number(t0.t0_ratio) * 100 : 100
-  );
+  const ratioPct = 100;
   // 刻度：相对基准触发 %（基准=100，弱≈cut×100，强上限=cap×100）
   const maxPct = Math.round(capSafe * 100);
   const minPct = Math.max(5, Math.round(cutSafe * 100));
@@ -522,7 +520,6 @@ export function fillExecutionForm(root, execution) {
     el.value = String(val);
   };
   set("enabled", t0.enabled !== false);
-  set("t0_ratio", t0.t0_ratio != null ? Math.round(Number(t0.t0_ratio) * 100) : 100);
   set("sell_trigger_pct", t0.sell_trigger_pct);
   set("buy_trigger_pct", t0.buy_trigger_pct);
   set(
@@ -598,13 +595,12 @@ export function collectExecutionForm(root) {
     const el = root.querySelector(`[name="${name}"]`);
     return el ? !!el.checked : fallback;
   };
-  const ratioPct = num("t0_ratio", 100);
   const cutPct = Math.max(20, Math.min(num("y_ratio_cut", 60), 100));
   let boostPct = Math.max(100, Math.min(num("y_ratio_boost_cap", 200), 200));
   if (boostPct < cutPct) boostPct = cutPct;
   const t0 = {
     enabled: chk("enabled", true),
-    t0_ratio: Math.max(0.05, Math.min(ratioPct / 100, 1)),
+    t0_ratio: 1.0,
     sell_trigger_pct: num("sell_trigger_pct", 1),
     buy_trigger_pct: num("buy_trigger_pct", 1),
     y_ratio_cut: Math.max(0.2, Math.min(cutPct / 100, 1)),
@@ -704,7 +700,7 @@ export function collectT0BacktestBody(root, opts = {}) {
     compare_optimistic: true,
     use_minute: true,
     compare_daily: false,
-    t0_ratio: t0.t0_ratio != null ? t0.t0_ratio : 1.0,
+    t0_ratio: 1.0,
     sell_trigger_pct: t0.sell_trigger_pct != null ? t0.sell_trigger_pct : 1,
     buy_trigger_pct: t0.buy_trigger_pct != null ? t0.buy_trigger_pct : 1,
     y_ratio_cut: t0.y_ratio_cut != null ? t0.y_ratio_cut : 0.6,
