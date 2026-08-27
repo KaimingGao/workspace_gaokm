@@ -8,13 +8,17 @@ from typing import Any, Dict, List, Optional, Sequence
 SKIP_CAT_LABELS: Dict[str, str] = {
     "missing_minute": "缺分钟",
     "missing_scores": "缺ŷ",
+    "y_eod_flat": "y_eod未过门槛",
     "y_tau_flat": "y_τ横盘",
     "y_tau_weak": "y_τ弱信号",
     "y_path_flat": "y_path横盘",
-    "y_path_disagree": "y_τ↔y_path不一致",
+    "y_path_disagree": "y_τ↔y_path异号",
     "gap_tier_skip": "大缺口反向跳过",
     "path_abandon": "前缀无空间放弃",
+    "prefix_segment": "段向待确认",
     "y_trade_weak": "y_trade幅度不足",
+    "eod_tau_disagree": "y_eod↔y_τ异号",
+    "trade_tau_disagree": "y_trade↔y_τ异号",
     "trade_tau_sign": "异号跳过",
     "conflict": "旧冲突(已下线)",
     "amplitude": "振幅不足",
@@ -29,13 +33,17 @@ SKIP_CAT_LABELS: Dict[str, str] = {
 SKIP_CAT_COLORS: Dict[str, str] = {
     "missing_minute": "#94a3b8",
     "missing_scores": "#94a3b8",
+    "y_eod_flat": "#f59e0b",
     "y_tau_flat": "#f59e0b",
     "y_tau_weak": "#fbbf24",
     "y_path_flat": "#d97706",
     "y_path_disagree": "#dc2626",
     "gap_tier_skip": "#ea580c",
     "path_abandon": "#a8a29e",
+    "prefix_segment": "#9ca3af",
     "y_trade_weak": "#fb923c",
+    "eod_tau_disagree": "#b91c1c",
+    "trade_tau_disagree": "#c2410c",
     "trade_tau_sign": "#e11d48",
     "conflict": "#ef4444",
     "amplitude": "#64748b",
@@ -54,6 +62,18 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "missing_minute"
     if "缺" in r and ("y_" in r or "快照" in r or "即时算分" in r):
         return "missing_scores"
+    if "y_path" in r and "异号" in r:
+        return "y_path_disagree"
+    if "y_path" in r and ("未过门槛" in r or "≥-" in r):
+        return "y_path_flat"
+    if "y_eod" in r and "未过门槛" in r:
+        return "y_eod_flat"
+    if "y_τ" in r and "未过门槛" in r:
+        return "y_tau_flat"
+    if "y_eod" in r and "y_τ" in r and "异号" in r and "|y_eod|" in r:
+        return "eod_tau_disagree"
+    if "y_trade" in r and "y_τ" in r and "异号" in r and "|y_trade|" in r:
+        return "trade_tau_disagree"
     if "异号" in r or "trade_tau_sign" in r.lower():
         return "trade_tau_sign"
     if "y_trade" in r:
@@ -65,13 +85,16 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         or ("y_check" in r.lower() and "conflict" in r.lower())
     ):
         return "other"
-    if "y_path" in r and (
-        "不一致" in r
-        or "预测先" in r
-        or "先高后低" in r
-        or "先低后高" in r
-        or "上冲偏大" in r
-        or "下探偏大" in r
+    if (
+        "y_path" in r
+        and (
+            "不一致" in r
+            or "预测先" in r
+            or "先高后低" in r
+            or "先低后高" in r
+            or "上冲偏大" in r
+            or "下探偏大" in r
+        )
     ):
         return "y_path_disagree"
     if "y_path" in r and ("横盘" in r or "|y_path|" in r):
@@ -84,6 +107,8 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "gap_tier_skip"
     if "放弃" in r and ("反T" in r or "正T" in r or "前缀" in r):
         return "path_abandon"
+    if "待回落" in r or "待反弹" in r or "回落确认" in r or "反弹确认" in r:
+        return "prefix_segment"
     if "上移振幅" in r or "下移振幅" in r or "方向振幅" in r:
         return "directional_amplitude"
     if "振幅" in r:
@@ -311,11 +336,20 @@ def _path_agreement(
     y_path: Optional[float],
     direction: str,
     *,
+    y_tau: Optional[float] = None,
     path_enter: float = 0.02,
 ) -> Optional[str]:
-    """成交日 path 与 τ 方向是否一致：agree / disagree / flat。"""
+    """成交日 y_τ 与 y_path 是否同号（准入口径）；缺 y_τ 时回退方向对照。"""
     if y_path is None:
         return None
+    if y_tau is not None:
+        from core.t0.score_policy import _tau_path_same_sign
+
+        if _tau_path_same_sign(y_tau, y_path):
+            return "agree"
+        if abs(float(y_path)) <= float(path_enter) and abs(float(y_tau)) < float(path_enter):
+            return "flat"
+        return "disagree"
     thr = float(path_enter)
     if abs(float(y_path)) <= thr:
         return "flat"
@@ -368,13 +402,18 @@ def build_y_path_attribution(
             continue
         sc = extract_scores(d)
         y_path = sc.get("y_path")
+        y_tau = sc.get("y_tau")
+        if y_tau is None and isinstance(d.get("direction_features"), dict):
+            y_tau = d["direction_features"].get("y_tau")
         direction = str(d.get("direction") or d.get("direction_used") or "")
         pnl = round(float(d.get("pnl") or 0) + float(d.get("exposure_pnl") or 0), 2)
         if y_path is None:
             traded_no_path += 1
             continue
         traded_with_path += 1
-        agree = _path_agreement(y_path, direction, path_enter=path_enter)
+        agree = _path_agreement(
+            y_path, direction, y_tau=y_tau, path_enter=path_enter
+        )
         if agree == "agree":
             traded_agree += 1
             pnl_agree = round(pnl_agree + pnl, 2)
@@ -661,7 +700,8 @@ def _summary_from_counts(
         "cover_rate_pct": round(cover_n / traded_n * 100.0, 2) if traded_n else None,
         "score_coverage_pct": round(score_seen / score_total * 100.0, 2) if score_total else None,
         "y_tau_enter": _f(cfg.get("y_tau_enter")) or 0.25,
-        "y_trade_floor": _f(cfg.get("y_trade_floor")) or 0.15,
+        "y_trade_enter": _f(cfg.get("y_trade_enter") or cfg.get("y_trade_floor")) or 0.15,
+        "y_trade_floor": _f(cfg.get("y_trade_floor") or cfg.get("y_trade_enter")) or 0.15,
     }
 
 

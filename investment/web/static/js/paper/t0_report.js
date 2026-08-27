@@ -365,7 +365,9 @@ export function buildT0ReportHtml(data, opts = {}) {
       { tip: "|y_τ| 低于入场则横盘跳过" }
     ),
     metricCell("跳过日", String(data.skip_days ?? 0), {
-      tip: skipInsight ? `主因 ${skipInsight}` : "",
+      tip: skipInsight
+        ? `主因 ${skipInsight}（悬停归因区「跳过构成」看全部分类 tip）`
+        : "无跳过分类",
     }),
     metricCell("信号跳过", String(data.signal_skip_days ?? 0)),
     metricCell("τ OC 命中", fmtPct(sm.tau_oc_hit_rate_pct ?? data.tau_oc_hit_rate_pct), {

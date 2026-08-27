@@ -22,7 +22,7 @@ import {
   resolvePathScore,
   fmtPathScore,
   nowcastOcPct,
-} from "./fmt.js?v=p1507";
+} from "./fmt.js?v=p1528";
 import {
   adaptiveSizingDayTip,
   normalizeYTauMap,
@@ -34,13 +34,17 @@ import { TRADE_TITLE } from "../quant/watching_quotes_ui.js";
 export const SKIP_CAT_LABEL = {
   missing_scores: "缺ŷ快照",
   missing_minute: "缺分钟线",
+  y_eod_flat: "y_eod未过门槛",
   y_tau_flat: "y_τ横盘",
   y_tau_weak: "y_τ弱信号",
   y_path_flat: "y_path横盘",
-  y_path_disagree: "y_τ↔y_path不一致",
+  y_path_disagree: "y_τ↔y_path异号",
   gap_tier_skip: "大缺口反向跳过",
   path_abandon: "前缀无空间放弃",
+  prefix_segment: "段向待确认",
   y_trade_weak: "y_trade幅度不足",
+  eod_tau_disagree: "y_eod↔y_τ异号",
+  trade_tau_disagree: "y_trade↔y_τ异号",
   trade_tau_sign: "异号跳过",
   conflict: "旧冲突",
   amplitude: "振幅不足",
@@ -59,21 +63,29 @@ export const SKIP_CAT_TIP = {
   missing_minute:
     "缺当日分钟线，无法模拟触达与成交路径。",
   y_tau_flat:
-    "|ŷ_τ| 低于入场门槛（默认 0.02%）：视为横盘，不定向、不开仓。",
+    "|ŷ_τ| 低于入场门槛（默认 0.02%）：视为横盘，不定向、不开仓（path 关时）。",
+  y_eod_flat:
+    "|ŷ_eod| 低于 y_eod_enter（默认 0.01%）：隔夜主轴过弱，dual_y 跳过。",
   y_tau_weak:
     "历史跳过类别（旧双闸弱信号区）；现已并入 y_τ 入场，新跑批不再产生。",
   y_path_flat:
-    "|ŷ_path|≤path enter（默认 0.02%）：未过门槛，不参与 dual_y 选向。",
+    "ŷ_path 未过 y_path_enter（默认 0.02%），或 ŷ_τ 未过 y_tau_enter（path 开时联合闸）。",
   y_path_disagree:
-    "ŷ_τ 与 ŷ_path 方向不一致（dual_y）：两边拧着则跳过。",
+    "ŷ_τ 与 ŷ_path 异号：dual_y 准入要求两预测同号且各过门槛。",
+  eod_tau_disagree:
+    "|ŷ_eod|>y_eod_strong（默认 0.1%）且 ŷ_eod 与 ŷ_τ 异号：隔夜主轴与盘中方向冲突，跳过。",
+  trade_tau_disagree:
+    "|ŷ_trade|>y_trade_strong（默认 0.1%）且 ŷ_trade 与 ŷ_τ 异号：融合幅度与盘中方向冲突，跳过。",
   gap_tier_skip:
     "大缺口档位与拟做方向冲突（如大高开仍想正 T），规则直接跳过。",
   path_abandon:
-    "开盘后前缀分钟已无足够空间触达卖/买触发，放弃当日做 T。",
+    "前缀 N 根 5m 仍无方向/段向确认：放弃当日做 T。",
+  prefix_segment:
+    "方向振幅已够，但第一腿段向未确认：正 T 待自 high 回落，反 T 待自 low 弹起（Worker 可重试）。",
   y_trade_weak:
-    "|ŷ_trade| 幅度不足（相对 floor），融合分太弱不开仓。",
+    "|ŷ_trade| 未过入场（y_trade_enter），融合分太弱不开仓。",
   trade_tau_sign:
-    "ŷ_trade 与 ŷ_τ 异号（或 |nowcast| 够强且 τ↔nowcast 异号闸开启时拧着），方向冲突跳过。",
+    "强 trade/nc 与 τ 异号，或历史 τ↔nowcast 异号闸跳过。",
   conflict:
     "旧版 eod↔τ / y_check 冲突闸（已下线），历史回放可能仍出现。",
   amplitude:
@@ -509,10 +521,24 @@ function t0DayScoreItem(d, fallback = {}, rules = {}) {
       scores.y_nowcast_oc_gate ??
       (rules.y_nowcast_oc_gate != null ? rules.y_nowcast_oc_gate : null),
     nowcast_compare_label: feats.nowcast_compare_label ?? scores.nowcast_compare_label ?? null,
-    y_nowcast_enter:
+    y_nc_enter:
+      feats.y_nc_enter ??
+      scores.y_nc_enter ??
+      (rules.y_nc_enter != null ? rules.y_nc_enter : null),
+    y_nc_strong:
+      feats.y_nc_strong ??
+      scores.y_nc_strong ??
+      rules.y_nc_strong ??
       feats.y_nowcast_enter ??
       scores.y_nowcast_enter ??
       (rules.y_nowcast_enter != null ? rules.y_nowcast_enter : null),
+    y_nowcast_enter:
+      feats.y_nowcast_enter ??
+      scores.y_nowcast_enter ??
+      rules.y_nowcast_enter ??
+      feats.y_nc_strong ??
+      scores.y_nc_strong ??
+      (rules.y_nc_strong != null ? rules.y_nc_strong : null),
     predicted_score_eod_rem: scores.predicted_score_eod_rem ?? null,
     y_spec_tau: scores.y_spec_tau || null,
     features_tau: scores.features_tau || feats.features_tau || null,

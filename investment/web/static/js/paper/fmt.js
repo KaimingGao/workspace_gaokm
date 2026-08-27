@@ -333,12 +333,13 @@ export function resolvePathScore(it) {
   return null;
 }
 
-/** 表列 y_path：signed range %，一位小数。 */
+/** 表列 y_path：signed range %；|v|<1 用两位小数避免 0.02% 显示成 +0.0。 */
 export function fmtPathScore(v, opts = {}) {
   const empty = opts.empty ?? "—";
   const n = Number(v);
   if (!Number.isFinite(n)) return empty;
-  return `${n > 0 ? "+" : ""}${n.toFixed(1)}`;
+  const digits = opts.digits ?? (Math.abs(n) < 1 ? 2 : 1);
+  return `${n > 0 ? "+" : ""}${n.toFixed(digits)}`;
 }
 
 /** ŷ_ON：隔夜 open 链旁路头。 */

@@ -116,7 +116,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
     def test_follow_panel_nc_terminology(self):
         panel = self._read("web", "static", "partials", "follow_panel.html")
         self.assertIn("nowcast oc", panel)
-        self.assertIn("nc异号", panel)
+        self.assertIn("nc闸", panel)
+        self.assertIn("异号闸", panel)
 
     def test_t0_trades_fullscreen_toggle(self):
         table_js = self._read("web", "static", "js", "paper", "t0_table.js")
@@ -153,15 +154,35 @@ class TestWebQuantJsGuards(unittest.TestCase):
 
     def test_follow_panel_t0_form_defaults(self):
         panel = self._read("web", "static", "partials", "follow_panel.html")
-        self.assertNotIn('name="t0_ratio"', panel)
-        self.assertNotIn("动仓%", panel)
-        self.assertIn('name="sell_trigger_pct"', panel)
+        self.assertIn('class="paper-t0-cfg-block is-long"', panel)
+        self.assertIn('class="paper-t0-cfg-block is-reverse"', panel)
+        self.assertIn("<legend>正 T</legend>", panel)
+        self.assertIn("<legend>反 T</legend>", panel)
+        self.assertIn('name="sell_trigger_pct_long"', panel)
+        self.assertIn('name="buy_trigger_pct_long"', panel)
+        self.assertIn('name="sell_trigger_pct_reverse"', panel)
+        self.assertIn('name="buy_trigger_pct_reverse"', panel)
+        self.assertIn('name="min_range_pct_long"', panel)
+        self.assertIn('name="min_range_pct_reverse"', panel)
+        self.assertIn('name="fill_mode_long"', panel)
+        self.assertIn('name="fill_mode_reverse"', panel)
+        self.assertIn('name="y_tau_enter_long"', panel)
+        self.assertIn('name="y_tau_enter_reverse"', panel)
+        self.assertIn('name="y_path_enter_long"', panel)
+        self.assertIn('name="y_path_enter_reverse"', panel)
         self.assertIn('value="1"', panel)
         self.assertIn('name="enabled" checked', panel)
-        self.assertIn('name="must_cover_same_day" checked', panel)
-        self.assertIn('name="y_path_enter"', panel)
-        self.assertIn('name="y_path_enter" min="0.01" max="5" step="0.01" value="0.02"', panel)
-        self.assertIn('value="3.0"', panel)
+        self.assertIn('name="must_cover_same_day_long"', panel)
+        self.assertIn('name="t0_pm_degrade_long"', panel)
+        self.assertIn('name="t0_pm_chase_interval_min_long"', panel)
+        self.assertIn('name="must_cover_same_day_reverse" checked', panel)
+        self.assertIn('name="t0_pm_degrade_reverse"', panel)
+        self.assertIn('name="t0_pm_chase_interval_min_reverse"', panel)
+        self.assertIn('name="y_prefix_segment_enabled"', panel)
+        self.assertIn('name="y_prefix_segment_enabled_long" checked', panel)
+        self.assertIn('name="y_prefix_segment_enabled_reverse" checked', panel)
+        self.assertIn('name="y_prefix_pullback_pct_long"', panel)
+        self.assertIn('name="y_prefix_bounce_pct_reverse"', panel)
 
     def test_execution_ui_fill_form_sets_checkbox_false(self):
         ui = self._read("web", "static", "js", "paper", "execution_ui.js")
@@ -171,6 +192,31 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('t0_ratio: 1.0', ui)
         self.assertIn('specKpi("启用", enabledLbl', ui)
 
+    def test_t0_viz_contrib_main_cause_and_attr(self):
+        viz = self._read("web", "static", "js", "paper", "t0_viz.js")
+        table = self._read("web", "static", "js", "paper", "t0_table.js")
+        css = self._read("web", "static", "css", "follow.css")
+        paper_js = self._read("web", "static", "js", "paper.js")
+        self.assertIn("renderContribSection", viz)
+        self.assertIn("paper-t0-viz-pnl-bar", viz)
+        self.assertIn("buildSkipTipHtml", viz)
+        self.assertIn("wireT0SkipTips", viz)
+        self.assertIn("data-skip-tip", viz)
+        self.assertIn("wireT0SkipTips", paper_js)
+        self.assertIn("eod_tau_disagree", viz)
+        self.assertIn("y_eod_flat", viz)
+        self.assertIn("eod_tau_disagree", table)
+        self.assertIn("SKIP_CAT_TIP", table)
+        self.assertIn(".paper-t0-viz-contrib-meta", css)
+        self.assertIn(".paper-t0-viz-contrib-hint", css)
+        self.assertIn(".paper-t0-skip-tip", css)
+        self.assertIn(".paper-t0-skip-tip-inner", css)
+        # 已撤：归因/分票 PnL 增补图
+        self.assertNotIn('data-viz="stockpnl"', viz)
+        self.assertNotIn('data-viz="tauattr"', viz)
+        self.assertNotIn("drawAttrPnlBars", viz)
+        self.assertNotIn("drawStockContribBars", viz)
+
     def test_follow_panel_target_price_ratio_controls(self):
         panel = self._read("web", "static", "partials", "follow_panel.html")
         ui = self._read("web", "static", "js", "paper", "execution_ui.js")
@@ -179,7 +225,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("目标弱%", panel)
         self.assertIn("目标强%", panel)
         self.assertIn("y_ratio_boost_cap", ui)
-        self.assertIn("adaptiveSizingBounds", ui)
+        self.assertIn('set("y_prefix_segment_enabled_long"', ui)
+        self.assertIn('y_prefix_segment_enabled_reverse', ui)
 
     def test_interpret_request_has_offline(self):
         try:

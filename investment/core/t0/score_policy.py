@@ -1,12 +1,12 @@
 """多层 ŷ 驱动的 A 股底仓做 T 策略（dual_y）。
 
 角色（PIT）：
-  y_trade  — |ŷ_trade| 下限（预期日波动幅度）/ 额度主缩放
-  y_eod    — T−1 冻结先验（与 y_τ 同向时略放大额度）
-  y_τ      — 盘中主方向（开→收）；|y_τ| 超 enter 门槛后连续放大额度
+  y_trade  — |ŷ_trade| 下限 + 强闸同 τ；额度主缩放
+  y_eod    — |ŷ_eod| 下限 + 强闸同 τ；同向略抬目标价（y_eod_prior）
+  y_τ      — 盘中主方向（开→收）；正/反 T 可分 enter（y_tau_enter_long / _reverse）
   y_on     — 尾盘是否强制回补
-  y_nowcast— 对照 nc（Kalman 昨收）；|nc| 够强且与 y_τ 异号可跳过（OC 开比 nowcast oc）
-  y_path   — 分钟极值时间序 signed range%；|ŷ_path|>enter 才入场，且须与 τ 方向一致
+  y_nowcast— 对照 nc；|nc|≥enter；|nc|>strong 须与 y_τ 同号（OC 开比 y_nc_oc）
+  y_path   — 分钟极值时间序 signed range%；与 y_τ 联合准入（同号+双 enter，可分正反）
 
 选向分数默认**即时算**（开盘决策信息集：昨收因子 + 今开缺口），
 不依赖 score_ledger / 分池簿冻结快照；账本与簿仅作可选兜底。
@@ -20,8 +20,11 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 logger = logging.getLogger(__name__)
 
 # 默认阈值（ŷ 为百分比点；可用 rules 覆盖）
-DEFAULT_TRADE_FLOOR = 0.02
+DEFAULT_TRADE_ENTER = 0.02
+DEFAULT_TRADE_STRONG = 0.1  # |y_trade|>此值时须 y_trade 与 y_τ 同号
 DEFAULT_EOD_PRIOR = 0.01
+DEFAULT_EOD_ENTER = 0.01  # |y_eod| 准入下限（%点）
+DEFAULT_EOD_STRONG = 0.1  # |y_eod|>此值时须 y_eod 与 y_τ 同号
 DEFAULT_TAU_ENTER = 0.02
 DEFAULT_ON_RISK = 0.01
 DEFAULT_ON_ALLOW = 0.01
@@ -31,7 +34,8 @@ DEFAULT_TAU_BOOST_CAP = 1.15
 DEFAULT_EOD_ALIGN_BOOST = 1.10
 DEFAULT_RATIO_TAU_SOFT_BAND = 0.20
 DEFAULT_TAU_NOWCAST_SIGN_EPS = 0.05
-DEFAULT_NOWCAST_ENTER = 1.0  # |nowcast|≥此值且与 y_τ 异号才拦
+DEFAULT_NC_ENTER = 0.01
+DEFAULT_NC_STRONG = 3.0
 DEFAULT_PATH_ENTER = 0.02  # ŷ_path 极值序 %；|ŷ|≤enter 横盘跳过；与 y_tau_enter 同尺度
 DEFAULT_GAP_TIER_PCT = 1.5
 DEFAULT_PATH_ABANDON_BARS = 6
@@ -655,17 +659,25 @@ def scores_from_ledger_row(row: Optional[dict]) -> Dict[str, Optional[float]]:
     return scores_from_item(mapped)
 
 
-def normalize_y_trade_floor(raw: Any) -> float:
-    """|y_trade| 下限（收益百分点）；旧配置负值加载时取 abs。"""
+def normalize_y_trade_enter(raw: Any) -> float:
+    """|y_trade| 入场下限（收益百分点）；旧配置负值加载时取 abs。"""
     try:
-        val = float(DEFAULT_TRADE_FLOOR if raw is None or raw == "" else raw)
+        val = float(DEFAULT_TRADE_ENTER if raw is None or raw == "" else raw)
     except (TypeError, ValueError):
-        val = DEFAULT_TRADE_FLOOR
+        val = DEFAULT_TRADE_ENTER
     return max(0.0, min(abs(val), 5.0))
 
 
+def normalize_y_trade_floor(raw: Any) -> float:
+    """别名：y_trade_floor → y_trade_enter。"""
+    return normalize_y_trade_enter(raw)
+
+
 def trade_mag_floor(cfg: dict) -> float:
-    return normalize_y_trade_floor(cfg.get("y_trade_floor"))
+    raw = cfg.get("y_trade_enter")
+    if raw is None or raw == "":
+        raw = cfg.get("y_trade_floor")
+    return normalize_y_trade_enter(raw)
 
 
 def _cfg_float(cfg: dict, key: str, default: float) -> float:
@@ -688,14 +700,50 @@ def _eod_prior_sign(y_eod: Optional[float], eod_prior: float) -> int:
     return 0
 
 
-def _tau_direction_sign(y_tau: Optional[float], tau_enter: float) -> int:
+def _tau_direction_sign(
+    y_tau: Optional[float],
+    tau_enter: float,
+    *,
+    tau_enter_neg: Optional[float] = None,
+) -> int:
     if y_tau is None:
         return 0
-    if y_tau >= tau_enter:
+    te_pos = float(tau_enter)
+    te_neg = float(tau_enter if tau_enter_neg is None else tau_enter_neg)
+    if y_tau >= te_pos:
         return 1
-    if y_tau <= -tau_enter:
+    if y_tau <= -te_neg:
         return -1
     return 0
+
+
+def side_tau_enter(cfg: dict, *, for_reverse: bool) -> float:
+    """正T用 y_tau_enter_long（−τ）；反T用 y_tau_enter_reverse（+τ）；缺省回退 y_tau_enter。"""
+    base = _cfg_float(cfg, "y_tau_enter", DEFAULT_TAU_ENTER)
+    key = "y_tau_enter_reverse" if for_reverse else "y_tau_enter_long"
+    raw = _f(cfg.get(key))
+    v = float(base if raw is None else raw)
+    return max(0.01, v)
+
+
+def side_path_enter(cfg: dict, *, for_reverse: bool) -> float:
+    """正/反 path 入场；缺省回退 y_path_enter（再缺则用对应侧 τ enter）。"""
+    tau_side = side_tau_enter(cfg, for_reverse=for_reverse)
+    base = _cfg_float(cfg, "y_path_enter", tau_side)
+    key = "y_path_enter_reverse" if for_reverse else "y_path_enter_long"
+    raw = _f(cfg.get(key))
+    v = float(base if raw is None else raw)
+    return max(0.01, v)
+
+
+def enters_for_y_tau(cfg: dict, y_tau: float) -> Tuple[float, float, bool]:
+    """按 y_τ 符号选门槛。Returns (tau_enter, path_enter, for_reverse)。y_τ=0 → reverse 侧仅作占位。"""
+    for_reverse = float(y_tau) >= 0
+    return (
+        side_tau_enter(cfg, for_reverse=for_reverse),
+        side_path_enter(cfg, for_reverse=for_reverse),
+        for_reverse,
+    )
 
 
 def t0_confidence_scale(scores: dict, cfg: dict) -> float:
@@ -714,7 +762,6 @@ def t0_confidence_scale(scores: dict, cfg: dict) -> float:
     cap = max(1.0, min(float(cap), 2.0))
     if cap < cut:
         cap = cut
-    tau_enter = _cfg_float(cfg, "y_tau_enter", DEFAULT_TAU_ENTER)
     eod_prior = _cfg_float(cfg, "y_eod_prior", DEFAULT_EOD_PRIOR)
     eod_align_boost = _cfg_float(cfg, "y_ratio_eod_align_boost", DEFAULT_EOD_ALIGN_BOOST)
     soft_band = _cfg_float(cfg, "y_ratio_tau_soft_band", DEFAULT_RATIO_TAU_SOFT_BAND)
@@ -731,12 +778,18 @@ def t0_confidence_scale(scores: dict, cfg: dict) -> float:
             strengths.append(min(1.0, max(0.0, (mag - floor) / span)))
 
     y_tau = _f(scores.get("y_tau"))
-    if y_tau is not None and abs(y_tau) >= tau_enter:
-        if soft_band > 0 and abs(y_tau) < tau_enter + soft_band:
-            strengths.append(0.0)
-        else:
-            span_t = max(0.5, tau_enter + 0.5)
-            strengths.append(min(1.0, max(0.0, (abs(y_tau) - tau_enter) / span_t)))
+    tau_enter = DEFAULT_TAU_ENTER
+    tau_enter_neg = DEFAULT_TAU_ENTER
+    if y_tau is not None:
+        tau_enter = side_tau_enter(cfg, for_reverse=True)
+        tau_enter_neg = side_tau_enter(cfg, for_reverse=False)
+        te = tau_enter if y_tau >= 0 else tau_enter_neg
+        if abs(y_tau) >= te:
+            if soft_band > 0 and abs(y_tau) < te + soft_band:
+                strengths.append(0.0)
+            else:
+                span_t = max(0.5, te + 0.5)
+                strengths.append(min(1.0, max(0.0, (abs(y_tau) - te) / span_t)))
 
     if not strengths:
         return 1.0
@@ -745,7 +798,9 @@ def t0_confidence_scale(scores: dict, cfg: dict) -> float:
     y_eod = _f(scores.get("y_eod"))
     if y_tau is not None and y_eod is not None:
         prior = _eod_prior_sign(y_eod, eod_prior)
-        main = _tau_direction_sign(y_tau, tau_enter)
+        main = _tau_direction_sign(
+            y_tau, tau_enter, tau_enter_neg=tau_enter_neg
+        )
         if prior != 0 and main != 0 and prior == main:
             strength = min(1.0, strength * eod_align_boost)
 
@@ -793,6 +848,83 @@ def normalize_y_tau_map(raw: Any) -> str:
     if mode not in Y_TAU_MAP_CHOICES:
         mode = Y_TAU_MAP_DEFAULT
     return mode
+
+
+def _tau_path_same_sign(
+    y_tau: Optional[float],
+    y_path: Optional[float],
+    *,
+    sign_eps: float = 1e-9,
+) -> bool:
+    """y_τ 与 y_path 同号（均非零）。"""
+    if y_tau is None or y_path is None:
+        return False
+    if abs(float(y_tau)) <= sign_eps or abs(float(y_path)) <= sign_eps:
+        return False
+    return (float(y_tau) > 0) == (float(y_path) > 0)
+
+
+def _tau_path_enter_gate(
+    y_tau: float,
+    y_path: float,
+    tau_enter: float,
+    path_enter: float,
+) -> Tuple[bool, Optional[str]]:
+    """同号且各自过门槛：正侧 y>enter；负侧 y<-enter。"""
+    if not _tau_path_same_sign(y_tau, y_path):
+        return False, (
+            f"dual_y：y_τ={y_tau:.3f}% 与 y_path={y_path:.3f}% 异号跳过"
+        )
+    te, pe = float(tau_enter), float(path_enter)
+    yt, yp = float(y_tau), float(y_path)
+    if yt > 0:
+        if yt <= te:
+            return False, f"dual_y：y_τ={yt:.3f}%≤{te}% 未过门槛"
+        if yp <= pe:
+            return False, f"dual_y：y_path={yp:.3f}%≤{pe}% 未过门槛"
+        return True, None
+    if yt < -te:
+        if yp >= -pe:
+            return False, f"dual_y：y_path={yp:.3f}%≥-{pe}% 未过门槛"
+        return True, None
+    return False, f"dual_y：y_τ={yt:.3f}% 未过门槛"
+
+
+def _strong_head_tau_sign_gate(
+    y_head: float,
+    y_tau: float,
+    gate_pct: float,
+    head_key: str,
+    *,
+    sign_eps: float = 1e-9,
+) -> Tuple[bool, Optional[str]]:
+    """|y_head|>gate 时要求与 y_τ 同号（均非零）。"""
+    g = float(gate_pct)
+    yh, yt = float(y_head), float(y_tau)
+    if abs(yh) <= g:
+        return True, None
+    if abs(yt) <= sign_eps:
+        return False, (
+            f"dual_y：|{head_key}|={abs(yh):.3f}%>{g}% 但 y_τ={yt:.3f}%≈0 异号跳过"
+        )
+    if (yh > 0) == (yt > 0):
+        return True, None
+    return False, (
+        f"dual_y：|{head_key}|={abs(yh):.3f}%>{g}% 且 "
+        f"{head_key}={yh:.3f}% 与 y_τ={yt:.3f}% 异号跳过"
+    )
+
+
+def _eod_tau_sign_gate(
+    y_eod: float,
+    y_tau: float,
+    gate_pct: float,
+    *,
+    sign_eps: float = 1e-9,
+) -> Tuple[bool, Optional[str]]:
+    return _strong_head_tau_sign_gate(
+        y_eod, y_tau, gate_pct, "y_eod", sign_eps=sign_eps
+    )
 
 
 def _path_direction_sign(y_path: Optional[float], path_enter: float) -> int:
@@ -1040,24 +1172,53 @@ def resolve_dual_y_direction(
     cash: float,
     shares: float,
 ) -> Dict[str, Any]:
-    """dual_y 选向：|y_trade|下限 → τ/path 双门槛且同向 → 可选 τ↔nowcast 异号跳过。
+    """dual_y 准入链（顺序固定）：
 
-    做 T 准入（y_use_path 开且 ŷ_path 可得时）：
-      |y_τ|≥y_tau_enter 定正/反 T；
-      |y_path|>y_path_enter 且与 τ 同向（正T↔y_path>0，反T↔y_path<0）；
-      任一侧未过门槛或异号则跳过。
-    y_path 缺失时默认不拦（y_path_required 开则拦）。
-    y_eod 仅目标价同向回升，不参与准入。
+    1. |y_trade|≥y_trade_enter（入场下限）
+    2. 有 y_τ（方向锚）
+    3. path 开且可得 ŷ_path：y_τ·y_path 同号且各过**侧向** enter；
+       否则 |y_τ|≥侧向 y_tau_enter（正T=long / 反T=reverse）
+    4. path 必填但缺 ŷ_path → 跳过
+    5. 有 y_eod：|y_eod|≥y_eod_enter；|y_eod|>y_eod_strong 须与 y_τ 同号
+    6. 有 y_trade：|y_trade|>y_trade_strong 须与 y_τ 同号
+    7. 可选 nc：|nc|≥y_nc_enter；|nc|>y_nc_strong 须与 τ 同号（异号闸关则跳过整步）
+    通过后 y_τ 映射正/反 T；y_eod_prior 仅抬目标价。
     """
     from core.t0.config import coerce_cfg_bool
 
-    trade_floor = trade_mag_floor(cfg)
+    trade_enter = trade_mag_floor(cfg)
     eod_prior = _cfg_float(cfg, "y_eod_prior", DEFAULT_EOD_PRIOR)
+    eod_enter = _cfg_float(cfg, "y_eod_enter", DEFAULT_EOD_ENTER)
+    eod_enter = max(0.01, min(float(eod_enter), 5.0))
+    eod_strong = _cfg_float(
+        cfg, "y_eod_strong", _cfg_float(cfg, "y_eod_tau_sign_gate", DEFAULT_EOD_STRONG)
+    )
+    eod_strong = max(0.05, min(float(eod_strong), 5.0))
+    trade_strong = _cfg_float(
+        cfg, "y_trade_strong", _cfg_float(cfg, "y_trade_tau_sign_gate", DEFAULT_TRADE_STRONG)
+    )
+    trade_strong = max(0.05, min(float(trade_strong), 5.0))
     tau_enter = _cfg_float(cfg, "y_tau_enter", DEFAULT_TAU_ENTER)
     # 旧键 y_tau_enter_strong：若更高则并入入场闸（双闸已合并）
     strong_legacy = _f(cfg.get("y_tau_enter_strong"))
     if strong_legacy is not None and strong_legacy > tau_enter:
         tau_enter = strong_legacy
+
+    tau_enter_long = side_tau_enter(
+        {**cfg, "y_tau_enter": tau_enter}, for_reverse=False
+    )
+    tau_enter_reverse = side_tau_enter(
+        {**cfg, "y_tau_enter": tau_enter}, for_reverse=True
+    )
+    path_enter = _cfg_float(cfg, "y_path_enter", tau_enter)
+    path_enter_long = side_path_enter(
+        {**cfg, "y_path_enter": path_enter, "y_tau_enter": tau_enter},
+        for_reverse=False,
+    )
+    path_enter_reverse = side_path_enter(
+        {**cfg, "y_path_enter": path_enter, "y_tau_enter": tau_enter},
+        for_reverse=True,
+    )
 
     # 新键优先；旧 y_block_trade_tau_sign 仅作迁移别名；皆缺则默认开
     if "y_block_tau_nowcast_sign" in cfg:
@@ -1071,8 +1232,14 @@ def resolve_dual_y_direction(
         "y_tau_nowcast_sign_eps",
         _cfg_float(cfg, "y_trade_tau_sign_eps", DEFAULT_TAU_NOWCAST_SIGN_EPS),
     )
-    nc_enter = _cfg_float(cfg, "y_nowcast_enter", DEFAULT_NOWCAST_ENTER)
-    nc_enter = max(sign_eps, min(float(nc_enter), 10.0))
+    nc_enter = _cfg_float(cfg, "y_nc_enter", DEFAULT_NC_ENTER)
+    nc_enter = max(0.01, min(float(nc_enter), 10.0))
+    nc_strong = _cfg_float(
+        cfg,
+        "y_nc_strong",
+        _cfg_float(cfg, "y_nowcast_enter", DEFAULT_NC_STRONG),
+    )
+    nc_strong = max(0.05, min(float(nc_strong), 10.0))
     tau_map = normalize_y_tau_map(cfg.get("y_tau_map"))
     map_tag = Y_TAU_MAP_LABELS.get(tau_map, tau_map)
 
@@ -1087,7 +1254,6 @@ def resolve_dual_y_direction(
         gap_pct = _f(scores["features_tau"].get("gap_pct"))
 
     use_path = bool(cfg.get("y_use_path", True))
-    path_enter = _cfg_float(cfg, "y_path_enter", tau_enter)
     path_required = bool(cfg.get("y_path_required", False))
     use_nowcast_oc = coerce_cfg_bool(cfg.get("y_nowcast_oc_gate"), False)
 
@@ -1101,7 +1267,21 @@ def resolve_dual_y_direction(
         "y_check": y_check,
         "gap_pct": gap_pct,
         "y_tau_enter": tau_enter,
-        "y_nowcast_enter": nc_enter,
+        "y_tau_enter_long": tau_enter_long,
+        "y_tau_enter_reverse": tau_enter_reverse,
+        "y_path_enter": path_enter,
+        "y_path_enter_long": path_enter_long,
+        "y_path_enter_reverse": path_enter_reverse,
+        "y_nc_enter": nc_enter,
+        "y_nc_strong": nc_strong,
+        "y_nowcast_enter": nc_strong,
+        "y_eod_enter": eod_enter,
+        "y_eod_strong": eod_strong,
+        "y_trade_enter": trade_enter,
+        "y_trade_strong": trade_strong,
+        "y_eod_tau_sign_gate": eod_strong,
+        "y_trade_tau_sign_gate": trade_strong,
+        "y_trade_floor": trade_enter,
     }
 
     if y_trade is None and y_tau is None and y_eod is None:
@@ -1114,13 +1294,13 @@ def resolve_dual_y_direction(
             "signal_skip": True,
         }
 
-    if y_trade is not None and abs(y_trade) < trade_floor:
+    if y_trade is not None and abs(y_trade) < trade_enter:
         return {
             "direction": None,
             "skip": True,
             "direction_score": y_tau if y_tau is not None else y_trade,
             "direction_reason": (
-                f"dual_y：|y_trade|={abs(y_trade):.3f}%<{trade_floor}% 预期幅度不足"
+                f"dual_y：|y_trade|={abs(y_trade):.3f}%<{trade_enter}% 未过入场"
             ),
             "features": features,
             "signal_skip": True,
@@ -1136,17 +1316,117 @@ def resolve_dual_y_direction(
             "signal_skip": True,
         }
 
-    if abs(y_tau) < tau_enter:
+    side_tau, side_path, for_reverse = enters_for_y_tau(
+        {
+            **cfg,
+            "y_tau_enter": tau_enter,
+            "y_tau_enter_long": tau_enter_long,
+            "y_tau_enter_reverse": tau_enter_reverse,
+            "y_path_enter": path_enter,
+            "y_path_enter_long": path_enter_long,
+            "y_path_enter_reverse": path_enter_reverse,
+        },
+        y_tau,
+    )
+    side_tag = "反T" if for_reverse else "正T"
+
+    if use_path and y_path is not None:
+        enter_ok, enter_reason = _tau_path_enter_gate(
+            y_tau, y_path, side_tau, side_path
+        )
+        if not enter_ok:
+            return {
+                "direction": None,
+                "skip": True,
+                "direction_score": y_tau,
+                "direction_reason": enter_reason or f"dual_y：y_τ/y_path 未过{side_tag}门槛",
+                "features": features,
+                "signal_skip": True,
+            }
+    elif y_tau > 0:
+        if y_tau <= side_tau:
+            return {
+                "direction": None,
+                "skip": True,
+                "direction_score": y_tau,
+                "direction_reason": (
+                    f"dual_y：y_τ={y_tau:.3f}%≤{side_tau}%（{side_tag}入场）跳过"
+                ),
+                "features": features,
+                "signal_skip": True,
+            }
+    elif y_tau < 0:
+        if y_tau >= -side_tau:
+            return {
+                "direction": None,
+                "skip": True,
+                "direction_score": y_tau,
+                "direction_reason": (
+                    f"dual_y：y_τ={y_tau:.3f}%≥-{side_tau}%（{side_tag}入场）跳过"
+                ),
+                "features": features,
+                "signal_skip": True,
+            }
+    else:
         return {
             "direction": None,
             "skip": True,
             "direction_score": y_tau,
-            "direction_reason": f"dual_y：|y_τ|={abs(y_tau):.3f}%<{tau_enter}% 横盘跳过",
+            "direction_reason": "dual_y：y_τ=0 横盘跳过",
             "features": features,
             "signal_skip": True,
         }
 
-    # 可选：y_τ 与 nowcast 异号则跳过（仅 |nowcast| 够强时；OC 开时用 y_nc_oc）
+    if use_path and y_path is None and path_required:
+        return {
+            "direction": None,
+            "skip": True,
+            "direction_score": y_tau,
+            "direction_reason": _y_path_missing_reason(scores),
+            "features": features,
+            "signal_skip": True,
+        }
+
+    if y_eod is not None:
+        if abs(y_eod) < eod_enter:
+            return {
+                "direction": None,
+                "skip": True,
+                "direction_score": y_tau,
+                "direction_reason": (
+                    f"dual_y：|y_eod|={abs(y_eod):.3f}%<{eod_enter}% 未过门槛"
+                ),
+                "features": features,
+                "signal_skip": True,
+            }
+        eod_ok, eod_reason = _eod_tau_sign_gate(
+            y_eod, y_tau, eod_strong, sign_eps=sign_eps
+        )
+        if not eod_ok:
+            return {
+                "direction": None,
+                "skip": True,
+                "direction_score": y_tau,
+                "direction_reason": eod_reason or "dual_y：强 y_eod 与 y_τ 异号跳过",
+                "features": features,
+                "signal_skip": True,
+            }
+
+    if y_trade is not None:
+        trade_ok, trade_reason = _strong_head_tau_sign_gate(
+            y_trade, y_tau, trade_strong, "y_trade", sign_eps=sign_eps
+        )
+        if not trade_ok:
+            return {
+                "direction": None,
+                "skip": True,
+                "direction_score": y_tau,
+                "direction_reason": trade_reason or "dual_y：强 y_trade 与 y_τ 异号跳过",
+                "features": features,
+                "signal_skip": True,
+            }
+
+    # 可选：y_τ 与 nc 联合闸（入场 + 强同 τ；OC 开时用 y_nc_oc）
     nc_cc = _nowcast_cc_pct(scores) if isinstance(scores, dict) else None
     if nc_cc is not None:
         features["y_nc"] = nc_cc
@@ -1161,24 +1441,32 @@ def resolve_dual_y_direction(
                 nc_label = "y_nc_oc"
     features["y_nowcast_oc_gate"] = use_nowcast_oc
     features["nowcast_compare_label"] = nc_label
-    if (
-        block_tau_nc
-        and nc_compare is not None
-        and abs(y_tau) >= sign_eps
-        and abs(nc_compare) >= nc_enter
-        and (y_tau > 0) != (nc_compare > 0)
-    ):
-        return {
-            "direction": None,
-            "skip": True,
-            "direction_score": y_tau,
-            "direction_reason": (
-                f"dual_y：y_τ={y_tau:.3f}% 与 {nc_label}={nc_compare:.3f}% 异号跳过"
-                f"（|{nc_label}|≥{nc_enter}%）"
-            ),
-            "features": features,
-            "signal_skip": True,
-        }
+    if block_tau_nc and nc_compare is not None and abs(y_tau) >= sign_eps:
+        if abs(nc_compare) < nc_enter:
+            return {
+                "direction": None,
+                "skip": True,
+                "direction_score": y_tau,
+                "direction_reason": (
+                    f"dual_y：|{nc_label}|={abs(nc_compare):.3f}%<{nc_enter}% 未过入场"
+                ),
+                "features": features,
+                "signal_skip": True,
+            }
+        nc_ok, nc_reason = _strong_head_tau_sign_gate(
+            nc_compare, y_tau, nc_strong, nc_label, sign_eps=sign_eps
+        )
+        if not nc_ok:
+            return {
+                "direction": None,
+                "skip": True,
+                "direction_score": y_tau,
+                "direction_reason": nc_reason or (
+                    f"dual_y：强 {nc_label} 与 y_τ 异号跳过"
+                ),
+                "features": features,
+                "signal_skip": True,
+            }
 
     # y_eod 仅标注 / 目标价同向回升（t0_confidence_scale）
     prior = 0
@@ -1188,7 +1476,7 @@ def resolve_dual_y_direction(
         elif y_eod <= -eod_prior:
             prior = -1
 
-    main = 1 if y_tau >= tau_enter else -1
+    main = 1 if y_tau > 0 else -1
     direction = direction_from_y_tau_sign(main, cfg)
 
     gap_block = _gap_tier_direction_override(gap_pct, main, cfg)
@@ -1201,55 +1489,6 @@ def resolve_dual_y_direction(
             "features": features,
             "signal_skip": True,
         }
-
-    path_sign = _path_direction_sign(y_path, path_enter)
-    if use_path:
-        if y_path is None and path_required:
-            return {
-                "direction": None,
-                "skip": True,
-                "direction_score": y_tau,
-                "direction_reason": _y_path_missing_reason(scores),
-                "features": features,
-                "signal_skip": True,
-            }
-        # path 入场闸：|ŷ_path|≤enter 横盘跳过；>enter 且与 τ 冲突才否决
-        if y_path is not None and path_sign == 0:
-            return {
-                "direction": None,
-                "skip": True,
-                "direction_score": y_tau,
-                "direction_reason": (
-                    f"dual_y：|y_path|={abs(y_path):.3f}%≤{path_enter}% 横盘跳过"
-                ),
-                "features": features,
-                "signal_skip": True,
-            }
-        if y_path is not None and path_sign != 0:
-            path_wants_long = path_sign > 0
-            path_wants_reverse = path_sign < 0
-            if direction == "long_t" and not path_wants_long:
-                return {
-                    "direction": None,
-                    "skip": True,
-                    "direction_score": y_tau,
-                    "direction_reason": (
-                        f"dual_y：y_τ→{direction} 但 y_path={y_path:.3f}% 先高后低（不一致）"
-                    ),
-                    "features": features,
-                    "signal_skip": True,
-                }
-            if direction == "reverse_t" and not path_wants_reverse:
-                return {
-                    "direction": None,
-                    "skip": True,
-                    "direction_score": y_tau,
-                    "direction_reason": (
-                        f"dual_y：y_τ→{direction} 但 y_path={y_path:.3f}% 先低后高（不一致）"
-                    ),
-                    "features": features,
-                    "signal_skip": True,
-                }
 
     if direction == "reverse_t" and not (cash > 0 and shares > 0):
         return {
@@ -1271,8 +1510,11 @@ def resolve_dual_y_direction(
         features["nowcast_align"] = False
 
     path_note = ""
-    if y_path is not None and path_sign != 0:
-        path_note = f"；y_path={y_path:.1f}一致"
+    if use_path and y_path is not None and _tau_path_same_sign(y_tau, y_path):
+        path_note = (
+            f"；y_path={y_path:.3f}%同号过闸"
+            f"({side_tag} τ>{side_tau:.3f}%,path>{side_path:.3f}%)"
+        )
 
     return {
         "direction": direction,
@@ -1296,23 +1538,28 @@ def resolve_cover_policy(
     direction: Optional[str],
     cfg: dict,
 ) -> Dict[str, Any]:
-    """尾盘回补：默认强制；仅当 y_on 强烈支持隔夜敞口时放行。
+    """尾盘回补策略。
 
-    long_t 默认强制当日回补：卖空后若买不回会留下隔夜空头敞口，
-    风险不对称，故不论 y_on 一律回补（仅 reverse_t 在 y_on 强烈看涨时放行）。
+    - **正T**：默认未触达买回则放弃回补；勾选「强制当日回补」则收盘强买。
+    - **反T**：默认强制卖回旧仓；表单关「当日回补」且 y_on 强烈看涨时可隔夜多头。
     """
+    if direction == "long_t":
+        if bool(cfg.get("must_cover_same_day")):
+            return {
+                "must_cover": True,
+                "reason": "正T表单强制当日回补",
+                "allow_overnight": False,
+            }
+        return {
+            "must_cover": False,
+            "reason": "正T未触达买回则放弃回补（减仓落袋）",
+            "allow_overnight": True,
+        }
+
     if bool(cfg.get("must_cover_same_day")):
         return {
             "must_cover": True,
             "reason": "表单强制当日回补",
-            "allow_overnight": False,
-        }
-
-    # long_t 一律当日回补，防未回补空头敞口（风险不对称）
-    if direction == "long_t":
-        return {
-            "must_cover": True,
-            "reason": "long_t 默认强制回补（防未回补空头敞口）",
             "allow_overnight": False,
         }
 
@@ -1351,7 +1598,6 @@ def resolve_cover_policy(
         }
 
     # |y_on| 很大：仅反T在 y_on 强烈看涨时允许隔夜多头敞口
-    # （long_t 已在函数开头一律回补，不在此放行）
     if direction == "reverse_t" and y_on >= on_allow:
         return {
             "must_cover": False,

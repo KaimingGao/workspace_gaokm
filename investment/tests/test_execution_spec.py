@@ -147,6 +147,8 @@ class TestExecutionResolve(unittest.TestCase):
         defaults = load_t0_rules()
         self.assertEqual(defaults["t0_pm_degrade"], "14:00")
         self.assertEqual(defaults["t0_pm_chase_interval_min"], 10)
+        self.assertEqual(defaults["t0_pm_chase_interval_min_long"], 10)
+        self.assertEqual(defaults["t0_pm_chase_interval_min_reverse"], 10)
         self.assertTrue(defaults["y_block_tau_nowcast_sign"])
         self.assertNotIn("t0_adverse_stop_pct", defaults)
         self.assertNotIn("t0_time_stop", defaults)
@@ -190,12 +192,12 @@ class TestExecutionResolve(unittest.TestCase):
             {
                 "direction": "dual_y",
                 "y_nowcast_oc_gate": False,
-                "y_nowcast_enter": 6.0,
+                "y_nc_strong": 6.0,
                 "y_ratio_boost_cap": 2.0,
             }
         )
         self.assertFalse(out["y_nowcast_oc_gate"])
-        self.assertEqual(out["y_nowcast_enter"], 6.0)
+        self.assertEqual(out["y_nc_strong"], 6.0)
         self.assertEqual(out["y_ratio_boost_cap"], 2.0)
 
     def test_coerce_cfg_bool_and_paper_oc_gate(self):

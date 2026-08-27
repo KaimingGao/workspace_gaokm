@@ -12,7 +12,7 @@ from core.t0.costs import (
     t0_fees_total,
     t0_pnl_from_trades,
 )
-from core.t0.config import load_t0_rules, resolve_min_range_pct
+from core.t0.config import load_t0_rules, resolve_min_range_pct, apply_side_exec_params, resolve_path_abandon_bars
 from core.t0.rules import (
     _error_result,
     _fill_buy,
@@ -134,10 +134,9 @@ def _maybe_pm_chase_level(
     last_chase_min: Optional[int],
     interval_min: int,
 ) -> Tuple[float, Optional[int], bool]:
-    """中点追价：目标 = 旧目标与现价中点；到点起算，之后每 interval_min 再调。
+    """反T/正T 中点追价：目标 = 旧目标与现价中点；到点起算，之后每 interval_min 再调。
 
-    纯中点：卖目标仍高于现价、买目标仍低于现价，当根一般不因追价本身成交；
-    需后续分钟 high/low 真正触达，或多次下移后触达；触不到则走收盘强制平。
+    反T：卖旧仓目标下移；正T：买回目标上移。触不到则走 eod / 放弃回补。
 
     Returns (new_level, last_chase_min, adjusted_this_bar).
     """
@@ -288,6 +287,117 @@ def prefix_directional_amplitude_ok(
     return {"ok": True, "reason": "未知方向，跳过方向振幅", "direction": direction}
 
 
+def _prefix_segment_params(cfg: dict, direction: str) -> tuple[bool, float]:
+    """段向确认开关与阈值（正T=回落%，反T=反弹%）。"""
+    direction = str(direction or "").strip().lower()
+    if not bool(cfg.get("y_prefix_segment_enabled", True)):
+        return False, 0.0
+    side_flag = (
+        "y_prefix_segment_enabled_long"
+        if direction == "long_t"
+        else "y_prefix_segment_enabled_reverse"
+    )
+    if not bool(cfg.get(side_flag, True)):
+        return False, 0.0
+    key = (
+        "y_prefix_pullback_pct_long"
+        if direction == "long_t"
+        else "y_prefix_bounce_pct_reverse"
+    )
+    try:
+        pct = float(cfg.get(key) if cfg.get(key) is not None and cfg.get(key) != "" else 0.25)
+    except (TypeError, ValueError):
+        pct = 0.25
+    if pct <= 0:
+        return False, 0.0
+    return True, max(0.0, min(pct, 2.0))
+
+
+def prefix_segment_entry_ok(
+    minute_bars: Sequence[dict],
+    *,
+    direction: str,
+    ref: float,
+    sell_trig: float,
+    buy_trig: float,
+    cfg: dict,
+) -> Dict[str, Any]:
+    """第一腿段向确认：正T须下行段（close 自前缀 high 回落）；反T须上升段（close 自前缀 low 弹起）。"""
+    direction = str(direction or "").strip().lower()
+    dir_amp = prefix_directional_amplitude_ok(
+        minute_bars,
+        direction=direction,
+        ref=ref,
+        sell_trig=sell_trig,
+        buy_trig=buy_trig,
+    )
+    seg_on, seg_pct = _prefix_segment_params(cfg, direction)
+    base = {
+        "direction": direction,
+        "segment_enabled": seg_on,
+        "segment_pct": round(seg_pct, 4) if seg_on else None,
+        "directional_amplitude": dir_amp,
+    }
+    if not dir_amp.get("ok"):
+        return {
+            **base,
+            "ok": False,
+            "reason": str(dir_amp.get("reason") or "方向振幅未达标"),
+        }
+    if not seg_on:
+        return {**base, "ok": True, "reason": "段向确认关", "segment": "off"}
+
+    highs = [float(b.get("high") or 0) for b in minute_bars if float(b.get("high") or 0) > 0]
+    lows = [float(b.get("low") or 0) for b in minute_bars if float(b.get("low") or 0) > 0]
+    if not highs or not lows:
+        return {**base, "ok": False, "reason": "无效 OHLC"}
+    hi = max(highs)
+    lo = min(lows)
+    close = float((minute_bars[-1] or {}).get("close") or 0)
+    if close <= 0:
+        return {**base, "ok": False, "reason": "无效 close"}
+
+    if direction == "long_t":
+        floor_px = hi * (1.0 - seg_pct / 100.0)
+        pullback_pct = (hi - close) / hi * 100.0 if hi > 0 else 0.0
+        ok = close <= floor_px
+        return {
+            **base,
+            "ok": ok,
+            "segment": "pullback",
+            "prefix_high": round(hi, 4),
+            "prefix_low": round(lo, 4),
+            "close": round(close, 4),
+            "segment_floor": round(floor_px, 4),
+            "segment_delta_pct": round(pullback_pct, 4),
+            "reason": (
+                f"正T回落确认 {pullback_pct:.2f}%≥{seg_pct:.2f}%"
+                if ok
+                else f"正T待回落 {pullback_pct:.2f}%<{seg_pct:.2f}%"
+            ),
+        }
+    if direction == "reverse_t":
+        ceil_px = lo * (1.0 + seg_pct / 100.0)
+        bounce_pct = (close - lo) / lo * 100.0 if lo > 0 else 0.0
+        ok = close >= ceil_px
+        return {
+            **base,
+            "ok": ok,
+            "segment": "bounce",
+            "prefix_high": round(hi, 4),
+            "prefix_low": round(lo, 4),
+            "close": round(close, 4),
+            "segment_ceiling": round(ceil_px, 4),
+            "segment_delta_pct": round(bounce_pct, 4),
+            "reason": (
+                f"反T反弹确认 {bounce_pct:.2f}%≥{seg_pct:.2f}%"
+                if ok
+                else f"反T待反弹 {bounce_pct:.2f}%<{seg_pct:.2f}%"
+            ),
+        }
+    return {**base, "ok": True, "reason": "未知方向，跳过段向确认", "segment": "skip"}
+
+
 def _session_close_at(minute_bars: Sequence[dict], bar: Optional[dict] = None) -> str:
     """分钟路径收盘腿时点：末根 K 线时间，否则当日 15:00。"""
     if minute_bars:
@@ -375,15 +485,23 @@ def _first_touch_long(
     pm_chase_iv = _pm_chase_interval_min(cfg)
     chase_buy_level: Optional[float] = None
     last_chase_min: Optional[int] = None
+    seg_on, seg_pct = _prefix_segment_params(cfg, "long_t")
+    prefix_hi = 0.0
 
     for mb in minute_bars:
         hi = float(mb.get("high") or 0)
         lo = float(mb.get("low") or 0)
+        close = float(mb.get("close") or 0)
         ts = mb.get("datetime") or mb.get("date")
         pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm))
+        if hi > 0:
+            prefix_hi = max(prefix_hi, hi)
 
-        # 中点追价窗：未开第一腿则不再新开
+        # 午后窗：未开第一腿则不再新开
         if sold_qty <= 0 and qty > 0 and hi >= sell_level and not pm_hit:
+            if seg_on and prefix_hi > 0 and close > 0:
+                if close > prefix_hi * (1.0 - seg_pct / 100.0):
+                    continue
             fill_sell = _fill_sell(hi, sell_level, fill_mode)
             cash_delta += append_t0_leg(
                 trades,
@@ -402,7 +520,6 @@ def _first_touch_long(
             sold_qty = qty
             sold_price = fill_sell
             touch_sell_at = ts
-            chase_buy_level = sold_price * (1.0 - buy_trig / 100.0)
             continue
 
         if sold_qty > 0 and covered <= 0:
@@ -452,7 +569,6 @@ def _first_touch_long(
         if cfg.get("must_cover_same_day") and _allows_eod_cover(
             minute_bars, sess_bars, defer_eod=defer_eod
         ):
-            fill_buy = sess_close
             cover = sold_qty
             close_at = _session_close_at(sess_bars, sess_bar)
             cash_delta += append_t0_leg(
@@ -462,18 +578,19 @@ def _first_touch_long(
                 side="t0_buy",
                 stock_code=stock_code,
                 shares=cover,
-                price=fill_buy,
+                price=sess_close,
                 trigger=sess_close,
                 at=close_at,
                 leg_kind="eod_cover",
-                note="强制当日回补（收盘）",
+                note="正T强制收盘买回",
             )
             shares_now += cover
             covered = cover
             touch_cover_at = close_at or touch_cover_at
             exit_reason = "eod_cover"
-        elif not cfg.get("must_cover_same_day"):
+        else:
             exposure_pnl = round((sold_price - sess_close) * sold_qty, 2)
+            exit_reason = "abandon_cover"
 
     if sold_qty <= 0:
         return _skip_result(
@@ -632,15 +749,23 @@ def _first_touch_reverse(
     pm_chase_iv = _pm_chase_interval_min(cfg)
     chase_sell_level: Optional[float] = None
     last_chase_min: Optional[int] = None
+    seg_on, seg_pct = _prefix_segment_params(cfg, "reverse_t")
+    prefix_lo = 0.0
 
     for mb in minute_bars:
         hi = float(mb.get("high") or 0)
         lo = float(mb.get("low") or 0)
+        close = float(mb.get("close") or 0)
         ts = mb.get("datetime") or mb.get("date")
         pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm))
+        if lo > 0:
+            prefix_lo = lo if prefix_lo <= 0 else min(prefix_lo, lo)
 
         # 中点追价窗：未开第一腿则不再低吸
         if bought_qty <= 0 and lo <= buy_level and not pm_hit:
+            if seg_on and prefix_lo > 0 and close > 0:
+                if close < prefix_lo * (1.0 + seg_pct / 100.0):
+                    continue
             if fill_mode == "optimistic":
                 fill_buy = lo
             elif fill_mode == "mid":
@@ -794,13 +919,16 @@ def _first_touch_reverse(
 
 
 def _touch_path_complete(out: dict, direction: str) -> bool:
-    """第二腿 intraday 完成，或 session 末 eod / 敞口已入账。"""
+    """第二腿 intraday 完成，或 session 末 eod / 放弃回补敞口已入账。"""
     if direction == "long_t":
         sold = int(out.get("sold_qty") or 0)
         covered = int(out.get("covered_qty") or 0)
         if sold <= 0:
             return False
         if covered >= sold:
+            return True
+        # 正T放弃买回（减仓落袋）或未回补敞口已标记
+        if str(out.get("exit_reason") or "") in ("abandon_cover", "eod_cover"):
             return True
         return abs(float(out.get("exposure_pnl") or 0)) > 1e-9
     if direction == "reverse_t":
@@ -960,6 +1088,15 @@ def simulate_t0_day_minute(
 
     base_t0_ratio = float(cfg_day.get("t0_ratio") or 1.0)
     # 动仓比例固定为基准；ŷ 信心改缩放卖/买目标价（见 trigger_scale_meta）
+    # 定向前总量振幅用两侧振幅下限的较松者，定方向后再用侧向下限复核
+    cfg_pre = dict(cfg_day)
+    try:
+        ml = cfg_day.get("min_range_pct_long")
+        mr = cfg_day.get("min_range_pct_reverse")
+        if ml is not None and mr is not None:
+            cfg_pre["min_range_pct"] = min(float(ml), float(mr))
+    except (TypeError, ValueError):
+        pass
 
     fill_mode = str(cfg_day.get("fill_mode") or "trigger")
     last_amp_skip: Optional[Dict[str, Any]] = None
@@ -974,7 +1111,7 @@ def simulate_t0_day_minute(
 
     for n in range(2, len(mins) + 1):
         prefix = mins[:n]
-        gate = prefix_range_gate(prefix, bar, cost=cost, cfg=cfg_day)
+        gate = prefix_range_gate(prefix, bar, cost=cost, cfg=cfg_pre)
         bar_n = gate["bar_day"]
         ref = gate.get("ref")
         if ref is None or float(ref) <= 0:
@@ -1033,6 +1170,57 @@ def simulate_t0_day_minute(
             )
 
         direction = str(dir_res["direction"])
+        cfg_side = apply_side_exec_params(cfg_day, direction)
+        scaled_side = scale_triggers_with_atr(
+            cfg_side,
+            atr_pct=scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct,
+        )
+        sell_trig = float(scaled_side["sell_trigger_pct"])
+        buy_trig = float(scaled_side["buy_trigger_pct"])
+        fill_mode = str(cfg_side.get("fill_mode") or "trigger")
+        side_trigger_meta: Dict[str, float] = {
+            "sell_trigger_pct_base": round(sell_trig, 4),
+            "buy_trigger_pct_base": round(buy_trig, 4),
+            "trigger_scale": 1.0,
+        }
+        if str(cfg_side.get("direction") or "") == "dual_y" and scores_have_any(score_snap):
+            trig = scale_t0_triggers(sell_trig, buy_trig, score_snap or {}, cfg_side)
+            sell_trig = float(trig["sell_trigger_pct"])
+            buy_trig = float(trig["buy_trigger_pct"])
+            cfg_side["sell_trigger_pct"] = sell_trig
+            cfg_side["buy_trigger_pct"] = buy_trig
+            side_trigger_meta = {
+                "sell_trigger_pct_base": float(trig["sell_trigger_pct_base"]),
+                "buy_trigger_pct_base": float(trig["buy_trigger_pct_base"]),
+                "trigger_scale": float(trig["trigger_scale"]),
+            }
+        else:
+            cfg_side["sell_trigger_pct"] = sell_trig
+            cfg_side["buy_trigger_pct"] = buy_trig
+        trigger_scale_meta = side_trigger_meta
+
+        gate_side = prefix_range_gate(prefix, bar, cost=cost, cfg=cfg_side)
+        if not gate_side.get("ok"):
+            range_pct_side = gate_side.get("range_pct")
+            last_amp_skip = _skip_result(
+                reason=(
+                    f"振幅不足 {float(range_pct_side):.2f}% < {float(gate_side['min_range_pct']):.2f}%"
+                    if range_pct_side is not None and not gate_side.get("flat")
+                    else "一字板/无波动"
+                ),
+                shares=shares,
+                bar=bar_n,
+                extra={
+                    "range_pct": range_pct_side,
+                    "min_range_pct": gate_side["min_range_pct"],
+                    "path_mode": "first_touch",
+                    "range_mode": "rolling",
+                    "prefix_bars": n,
+                    "direction_used": direction,
+                },
+            )
+            continue
+
         at_session_end = n >= len(mins)
         dir_amp = prefix_directional_amplitude_ok(
             prefix,
@@ -1041,15 +1229,35 @@ def simulate_t0_day_minute(
             sell_trig=sell_trig,
             buy_trig=buy_trig,
         )
-        if not dir_amp.get("ok") and not at_session_end:
+        seg = prefix_segment_entry_ok(
+            prefix,
+            direction=direction,
+            ref=float(ref),
+            sell_trig=sell_trig,
+            buy_trig=buy_trig,
+            cfg=cfg_side,
+        )
+        entry_ready = (dir_amp.get("ok") and seg.get("ok")) or at_session_end
+        if not entry_ready and not at_session_end:
             abandon_on = bool(cfg_day.get("y_path_abandon_enabled", True))
-            abandon_bars = int(cfg_day.get("y_path_abandon_bars") or 12)
+            abandon_bars = resolve_path_abandon_bars(cfg_side, direction)
+            wait_reason = str(
+                seg.get("reason") if dir_amp.get("ok") else dir_amp.get("reason") or "方向振幅未达标"
+            )
             if abandon_on and n >= abandon_bars:
-                abandon_reason = str(dir_amp.get("reason") or "方向振幅未达标")
-                if direction == "reverse_t":
-                    abandon_reason = f"前缀无低吸空间，放弃反T（{abandon_reason}）"
+                if not dir_amp.get("ok"):
+                    if direction == "reverse_t":
+                        abandon_reason = f"前缀无低吸空间，放弃反T（{wait_reason}）"
+                    elif direction == "long_t":
+                        abandon_reason = f"前缀无高抛空间，放弃正T（{wait_reason}）"
+                    else:
+                        abandon_reason = wait_reason
+                elif direction == "reverse_t":
+                    abandon_reason = f"前缀无反弹确认，放弃反T（{wait_reason}）"
                 elif direction == "long_t":
-                    abandon_reason = f"前缀无高抛空间，放弃正T（{abandon_reason}）"
+                    abandon_reason = f"前缀无回落确认，放弃正T（{wait_reason}）"
+                else:
+                    abandon_reason = wait_reason
                 return _finish(
                     _skip_result(
                         reason=abandon_reason,
@@ -1062,13 +1270,14 @@ def simulate_t0_day_minute(
                             "prefix_bars": n,
                             "range_pct": range_pct,
                             "directional_amplitude": dir_amp,
+                            "prefix_segment": seg,
                             "path_abandon": True,
                         },
                     ),
                     dir_res,
                 )
             last_dir_wait = _skip_result(
-                reason=str(dir_amp.get("reason") or "方向振幅未达标"),
+                reason=wait_reason,
                 shares=shares,
                 bar=bar_n,
                 extra={
@@ -1078,6 +1287,7 @@ def simulate_t0_day_minute(
                     "prefix_bars": n,
                     "range_pct": range_pct,
                     "directional_amplitude": dir_amp,
+                    "prefix_segment": seg,
                 },
             )
             continue
@@ -1087,9 +1297,9 @@ def simulate_t0_day_minute(
             cover_meta = resolve_cover_policy(
                 scores=score_snap or {},
                 direction=direction,
-                cfg=cfg_day,
+                cfg=cfg_side,
             )
-            cfg_day["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
+            cfg_side["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
 
         if direction == "reverse_t":
             out = _first_touch_reverse(
@@ -1103,7 +1313,7 @@ def simulate_t0_day_minute(
                 buy_trig=buy_trig,
                 lot=lot,
                 fill_mode=fill_mode,
-                cfg=cfg_day,
+                cfg=cfg_side,
                 cost_model=cost_model,
                 cost_params=cost_params,
                 stock_code=stock_code,
@@ -1122,13 +1332,13 @@ def simulate_t0_day_minute(
                 buy_trig=buy_trig,
                 lot=lot,
                 fill_mode=fill_mode,
-                cfg=cfg_day,
+                cfg=cfg_side,
                 cost_model=cost_model,
                 cost_params=cost_params,
                 stock_code=stock_code,
                 atr_pct=scaled.get("atr_pct"),
                 range_pct=range_pct,
-                t0_ratio=float(cfg_day["t0_ratio"]),
+                t0_ratio=float(cfg_side["t0_ratio"]),
                 **path_kwargs,
             )
 

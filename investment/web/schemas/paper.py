@@ -71,8 +71,16 @@ class T0BacktestRequest(BaseModel):
     t0_ratio: float = Field(default=1.0, ge=0.05, le=1.0)
     sell_trigger_pct: float = Field(default=1.0, ge=0.1, le=20)
     buy_trigger_pct: float = Field(default=1.0, ge=0.1, le=20)
+    sell_trigger_pct_long: Optional[float] = Field(default=None, ge=0.1, le=20)
+    buy_trigger_pct_long: Optional[float] = Field(default=None, ge=0.1, le=20)
+    sell_trigger_pct_reverse: Optional[float] = Field(default=None, ge=0.1, le=20)
+    buy_trigger_pct_reverse: Optional[float] = Field(default=None, ge=0.1, le=20)
     must_cover_same_day: bool = True
+    must_cover_same_day_long: Optional[bool] = Field(default=None)
+    must_cover_same_day_reverse: Optional[bool] = Field(default=None)
     fill_mode: Optional[str] = Field(default=None, max_length=16)
+    fill_mode_long: Optional[str] = Field(default=None, max_length=16)
+    fill_mode_reverse: Optional[str] = Field(default=None, max_length=16)
     direction: Optional[str] = Field(default=None, max_length=16)
     path_mode: Optional[str] = Field(default=None, max_length=16)
     dir_enter: Optional[float] = Field(
@@ -82,17 +90,43 @@ class T0BacktestRequest(BaseModel):
         description="已废弃于 dual_y；仅旧 signal 选向 |score| 门槛（约 ±1），默认 0.35",
     )
     min_range_pct: Optional[float] = Field(
-        default=None, ge=0.2, le=30.0, description="振幅下限%；空=自动 max(卖+买)*0.6"
+        default=None, ge=0.1, le=30.0, description="振幅下限%兜底；空=自动"
     )
+    min_range_pct_long: Optional[float] = Field(default=None, ge=0.1, le=30.0)
+    min_range_pct_reverse: Optional[float] = Field(default=None, ge=0.1, le=30.0)
     compare_optimistic: bool = True
     use_minute: bool = True
     compare_daily: bool = False  # 已废弃：日线模拟已删除
     use_atr: Optional[bool] = None
+    y_trade_enter: Optional[float] = Field(
+        default=None, ge=0.0, le=5.0, description="dual_y：|y_trade|入场下限（收益百分点）"
+    )
+    y_trade_strong: Optional[float] = Field(
+        default=None,
+        ge=0.05,
+        le=5.0,
+        description="dual_y：|y_trade|>此值须与 y_τ 同号（默认 0.1%）",
+    )
     y_trade_floor: Optional[float] = Field(
-        default=None, ge=0.0, le=5.0, description="dual_y：|y_trade|下限（收益百分点，预期日波动幅度）"
+        default=None, ge=0.0, le=5.0, description="已弃用：别名 y_trade_enter"
     )
     y_tau_enter: Optional[float] = Field(
-        default=None, ge=0.01, le=5.0, description="dual_y：|y_τ|入场门槛（收益百分点）"
+        default=None,
+        ge=0.01,
+        le=5.0,
+        description="dual_y：τ 入场兜底（侧向未设时正/反共用）",
+    )
+    y_tau_enter_long: Optional[float] = Field(
+        default=None,
+        ge=0.01,
+        le=5.0,
+        description="dual_y：正T（y_τ<0）入场 |y_τ| 门槛",
+    )
+    y_tau_enter_reverse: Optional[float] = Field(
+        default=None,
+        ge=0.01,
+        le=5.0,
+        description="dual_y：反T（y_τ>0）入场 |y_τ| 门槛",
     )
     y_tau_enter_strong: Optional[float] = Field(
         default=None,
@@ -115,16 +149,52 @@ class T0BacktestRequest(BaseModel):
     y_eod_prior: Optional[float] = Field(
         default=None, ge=0.01, le=5.0, description="dual_y：|y_eod|同向略抬目标价信心门槛（收益百分点）"
     )
+    y_eod_enter: Optional[float] = Field(
+        default=None,
+        ge=0.01,
+        le=5.0,
+        description="dual_y：可得 ŷ_eod 时 |y_eod| 准入下限（收益百分点，默认 0.01）",
+    )
+    y_eod_strong: Optional[float] = Field(
+        default=None,
+        ge=0.05,
+        le=5.0,
+        description="dual_y：|y_eod|>此值须与 y_τ 同号（默认 0.1%）",
+    )
+    y_eod_tau_sign_gate: Optional[float] = Field(
+        default=None,
+        ge=0.05,
+        le=5.0,
+        description="已弃用：别名 y_eod_strong",
+    )
+    y_trade_tau_sign_gate: Optional[float] = Field(
+        default=None,
+        ge=0.05,
+        le=5.0,
+        description="已弃用：别名 y_trade_strong",
+    )
     y_on_allow: Optional[float] = Field(
         default=None, ge=0.01, le=10.0, description="dual_y：|y_on|隔夜放行门槛（收益百分点）"
     )
     y_on_risk: Optional[float] = Field(default=None, ge=0.01, le=10.0)
     y_block_tau_nowcast_sign: Optional[bool] = None
+    y_nc_enter: Optional[float] = Field(
+        default=None,
+        ge=0.01,
+        le=10.0,
+        description="dual_y：|nc| 入场下限（收益百分点，默认 0.01）",
+    )
+    y_nc_strong: Optional[float] = Field(
+        default=None,
+        ge=0.05,
+        le=10.0,
+        description="dual_y：|nc|>此值须与 y_τ 同号（默认 3%）",
+    )
     y_nowcast_enter: Optional[float] = Field(
         default=None,
         ge=0.05,
         le=10.0,
-        description="dual_y：|nowcast|≥此值且与 y_τ 异号才拦（收益百分点）",
+        description="已弃用：别名 y_nc_strong",
     )
     y_tau_map: Optional[str] = Field(
         default=None, max_length=24, description="scalp|trend|fixed_long|fixed_reverse"
@@ -134,7 +204,19 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.01,
         le=5.0,
-        description="dual_y：|y_path|>此值才入场（收益百分点，与 y_tau_enter 同尺度）",
+        description="dual_y：path 入场兜底（侧向未设时正/反共用）",
+    )
+    y_path_enter_long: Optional[float] = Field(
+        default=None,
+        ge=0.01,
+        le=5.0,
+        description="dual_y：正T path 入场门槛",
+    )
+    y_path_enter_reverse: Optional[float] = Field(
+        default=None,
+        ge=0.01,
+        le=5.0,
+        description="dual_y：反T path 入场门槛",
     )
     y_path_required: Optional[bool] = None
     y_gap_tier_mode: Optional[str] = Field(default=None, max_length=24)
@@ -142,16 +224,43 @@ class T0BacktestRequest(BaseModel):
     y_nowcast_oc_gate: Optional[bool] = None
     y_path_abandon_enabled: Optional[bool] = None
     y_path_abandon_bars: Optional[int] = Field(default=None, ge=2, le=48)
+    y_prefix_segment_enabled: Optional[bool] = None
+    y_prefix_segment_enabled_long: Optional[bool] = None
+    y_prefix_segment_enabled_reverse: Optional[bool] = None
+    y_prefix_pullback_pct_long: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    y_prefix_bounce_pct_reverse: Optional[float] = Field(default=None, ge=0.0, le=2.0)
     t0_pm_degrade: Optional[str] = Field(
         default=None,
         max_length=8,
-        description="中点追价起算 HH:MM：禁新开；已开未平则旧目标↔现价中点",
+        description="legacy：等同 t0_pm_degrade_reverse",
+    )
+    t0_pm_degrade_long: Optional[str] = Field(
+        default=None,
+        max_length=8,
+        description="正T午后闸 HH:MM；禁新开 + 买回中点追价",
+    )
+    t0_pm_degrade_reverse: Optional[str] = Field(
+        default=None,
+        max_length=8,
+        description="反T午后闸 HH:MM；禁新开 + 卖旧中点追价",
     )
     t0_pm_chase_interval_min: Optional[int] = Field(
         default=None,
         ge=1,
         le=60,
-        description="中点追价间隔（分钟），默认 10",
+        description="legacy：等同 t0_pm_chase_interval_min_reverse",
+    )
+    t0_pm_chase_interval_min_long: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=60,
+        description="正T中点追价间隔（分钟），默认 10",
+    )
+    t0_pm_chase_interval_min_reverse: Optional[int] = Field(
+        default=None,
+        ge=1,
+        le=60,
+        description="反T中点追价间隔（分钟），默认 10",
     )
 
 
@@ -215,37 +324,68 @@ class PaperExecutionPatchRequest(BaseModel):
     t0_ratio: Optional[float] = None
     sell_trigger_pct: Optional[float] = None
     buy_trigger_pct: Optional[float] = None
+    sell_trigger_pct_long: Optional[float] = None
+    buy_trigger_pct_long: Optional[float] = None
+    sell_trigger_pct_reverse: Optional[float] = None
+    buy_trigger_pct_reverse: Optional[float] = None
     fill_mode: Optional[str] = None
+    fill_mode_long: Optional[str] = None
+    fill_mode_reverse: Optional[str] = None
     direction: Optional[str] = None
     path_mode: Optional[str] = None
     dir_enter: Optional[float] = None
     min_range_pct: Optional[float] = None
+    min_range_pct_long: Optional[float] = None
+    min_range_pct_reverse: Optional[float] = None
     use_atr: Optional[bool] = None
     must_cover_same_day: Optional[bool] = None
+    must_cover_same_day_long: Optional[bool] = None
+    must_cover_same_day_reverse: Optional[bool] = None
+    y_trade_enter: Optional[float] = None
+    y_trade_strong: Optional[float] = None
     y_trade_floor: Optional[float] = None
     y_tau_enter: Optional[float] = None
     y_tau_enter_strong: Optional[float] = None
+    y_tau_enter_long: Optional[float] = None
+    y_tau_enter_reverse: Optional[float] = None
     y_ratio_cut: Optional[float] = None
     y_ratio_boost_cap: Optional[float] = None
     y_eod_prior: Optional[float] = None
+    y_eod_enter: Optional[float] = None
+    y_eod_strong: Optional[float] = None
+    y_eod_tau_sign_gate: Optional[float] = None
+    y_trade_tau_sign_gate: Optional[float] = None
     y_on_allow: Optional[float] = None
     y_on_risk: Optional[float] = None
     y_block_tau_nowcast_sign: Optional[bool] = None
+    y_nc_enter: Optional[float] = None
+    y_nc_strong: Optional[float] = None
     y_nowcast_enter: Optional[float] = None
     y_tau_map: Optional[str] = Field(
         default=None, max_length=24, description="scalp|trend|fixed_long|fixed_reverse"
     )
     y_use_path: Optional[bool] = None
     y_path_enter: Optional[float] = None
+    y_path_enter_long: Optional[float] = None
+    y_path_enter_reverse: Optional[float] = None
     y_path_required: Optional[bool] = None
     y_gap_tier_mode: Optional[str] = None
     y_gap_tier_pct: Optional[float] = None
     y_nowcast_oc_gate: Optional[bool] = None
     y_path_abandon_enabled: Optional[bool] = None
     y_path_abandon_bars: Optional[int] = None
+    y_prefix_segment_enabled: Optional[bool] = None
+    y_prefix_segment_enabled_long: Optional[bool] = None
+    y_prefix_segment_enabled_reverse: Optional[bool] = None
+    y_prefix_pullback_pct_long: Optional[float] = None
+    y_prefix_bounce_pct_reverse: Optional[float] = None
     y_score_source: Optional[str] = Field(
         default=None, max_length=24, description="compute|live_book|ledger"
     )
     t0_pm_degrade: Optional[str] = None
+    t0_pm_degrade_long: Optional[str] = None
+    t0_pm_degrade_reverse: Optional[str] = None
     t0_pm_chase_interval_min: Optional[int] = None
+    t0_pm_chase_interval_min_long: Optional[int] = None
+    t0_pm_chase_interval_min_reverse: Optional[int] = None
 

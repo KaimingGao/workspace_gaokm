@@ -463,7 +463,7 @@ def _retryable_skip(reason: str) -> bool:
     r = str(reason or "")
     return any(
         x in r
-        for x in ("振幅", "分钟", "未触及", "等待", "上移振幅", "下移振幅", "方向振幅")
+        for x in ("振幅", "分钟", "未触及", "等待", "上移振幅", "下移振幅", "方向振幅", "待回落", "待反弹")
     )
 
 
@@ -477,7 +477,9 @@ def _dual_y_threshold_skip(reason: str) -> bool:
         for x in (
             "横盘跳过",
             "|y_path|",
+            "未过门槛",
             "预期幅度不足",
+            "未过入场",
             "缺 y_τ",
             "缺 y_eod",
             "即时算分失败",
@@ -486,6 +488,8 @@ def _dual_y_threshold_skip(reason: str) -> bool:
             "午盘后",
             "无成交腿",
             "异号",
+            "|y_eod|",
+            "|y_trade|",
         )
     )
 
@@ -666,7 +670,9 @@ def _intraday_setup(
         _first_touch_reverse,
         prefix_directional_amplitude_ok,
         prefix_range_gate,
+        prefix_segment_entry_ok,
     )
+    from core.t0.config import apply_side_exec_params, resolve_path_abandon_bars
     from core.t0.rules import (
         _skip_result,
         resolve_direction,
@@ -762,7 +768,13 @@ def _intraday_setup(
     direction = str(dir_res["direction"])
     from core.t0.score_policy import resolve_cover_policy, scale_t0_triggers, scores_have_any
 
-    cfg_exec = dict(cfg)
+    cfg_exec = apply_side_exec_params(dict(cfg), direction)
+    scaled_side = scale_triggers_with_atr(
+        cfg_exec,
+        atr_pct=scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct,
+    )
+    sell_trig = float(scaled_side["sell_trigger_pct"])
+    buy_trig = float(scaled_side["buy_trigger_pct"])
     base_ratio = float(cfg_exec.get("t0_ratio") or 1.0)
     t0_ratio = base_ratio
     cfg_exec["t0_ratio"] = t0_ratio
@@ -777,7 +789,34 @@ def _intraday_setup(
             "buy_trigger_pct_base": float(trig["buy_trigger_pct_base"]),
             "trigger_scale": float(trig["trigger_scale"]),
         }
+    else:
+        cfg_exec["sell_trigger_pct"] = sell_trig
+        cfg_exec["buy_trigger_pct"] = buy_trig
     fill_mode = str(cfg_exec.get("fill_mode") or "trigger")
+
+    gate_side = prefix_range_gate(minute_bars, bar, cost=cost, cfg=cfg_exec)
+    if not gate_side.get("ok"):
+        range_pct_side = gate_side.get("range_pct")
+        min_range = gate_side.get("min_range_pct")
+        reason = (
+            f"振幅不足 {float(range_pct_side):.2f}% < {float(min_range):.2f}%"
+            if range_pct_side is not None and not gate_side.get("flat")
+            else "一字板/无波动"
+            if gate_side.get("flat")
+            else f"振幅不足 < {float(min_range):.2f}%"
+        )
+        return _skip_result(
+            reason=reason,
+            shares=shares,
+            bar=bar_day,
+            extra={
+                "range_pct": range_pct_side,
+                "min_range_pct": min_range,
+                "range_mode": "rolling",
+                "prefix_bars": gate_side.get("prefix_bars"),
+                "direction_used": direction,
+            },
+        )
 
     cover_meta = None
     if str(cfg.get("direction") or "") == "dual_y":
@@ -798,17 +837,61 @@ def _intraday_setup(
         sell_trig=sell_trig,
         buy_trig=buy_trig,
     )
-    if not dir_amp.get("ok") and not at_session_end:
+    seg = prefix_segment_entry_ok(
+        minute_bars,
+        direction=direction,
+        ref=ref,
+        sell_trig=sell_trig,
+        buy_trig=buy_trig,
+        cfg=cfg_exec,
+    )
+    entry_ready = (dir_amp.get("ok") and seg.get("ok")) or at_session_end
+    if not entry_ready and not at_session_end:
+        prefix_bars = len(minute_bars)
+        wait_reason = str(
+            seg.get("reason") if dir_amp.get("ok") else dir_amp.get("reason") or "方向振幅未达标"
+        )
+        abandon_on = bool(cfg_exec.get("y_path_abandon_enabled", True))
+        abandon_bars = resolve_path_abandon_bars(cfg_exec, direction)
+        if abandon_on and prefix_bars >= abandon_bars:
+            if not dir_amp.get("ok"):
+                if direction == "reverse_t":
+                    abandon_reason = f"前缀无低吸空间，放弃反T（{wait_reason}）"
+                elif direction == "long_t":
+                    abandon_reason = f"前缀无高抛空间，放弃正T（{wait_reason}）"
+                else:
+                    abandon_reason = wait_reason
+            elif direction == "reverse_t":
+                abandon_reason = f"前缀无反弹确认，放弃反T（{wait_reason}）"
+            elif direction == "long_t":
+                abandon_reason = f"前缀无回落确认，放弃正T（{wait_reason}）"
+            else:
+                abandon_reason = wait_reason
+            return _skip_result(
+                reason=abandon_reason,
+                shares=shares,
+                bar=bar_day,
+                extra={
+                    "direction_used": direction,
+                    "range_mode": "rolling",
+                    "prefix_bars": prefix_bars,
+                    "range_pct": range_pct,
+                    "directional_amplitude": dir_amp,
+                    "prefix_segment": seg,
+                    "path_abandon": True,
+                },
+            )
         return _skip_result(
-            reason=str(dir_amp.get("reason") or "方向振幅未达标"),
+            reason=wait_reason,
             shares=shares,
             bar=bar_day,
             extra={
                 "direction_used": direction,
                 "range_mode": "rolling",
-                "prefix_bars": gate.get("prefix_bars"),
+                "prefix_bars": prefix_bars,
                 "range_pct": range_pct,
                 "directional_amplitude": dir_amp,
+                "prefix_segment": seg,
             },
         )
 

@@ -58,6 +58,7 @@ import {
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
 } from "./paper/t0_ui.js";
 import { buildT0SummaryLine } from "./paper/t0_report.js";
+import { wireT0SkipTips } from "./paper/t0_viz.js";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p1416";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1416";
@@ -1795,6 +1796,10 @@ export function initPaper(ctx) {
         ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail]",
     });
   }
+  const paperT0VizHost = document.getElementById("paper-t0-viz");
+  if (paperT0VizHost) {
+    wireT0SkipTips(paperT0VizHost, scoreTips);
+  }
   const paperT0WorkerTradesHost = document.getElementById("paper-t0-worker-trades");
   if (paperT0WorkerTradesHost) {
     scoreTips.bindHost(paperT0WorkerTradesHost, {
@@ -2706,11 +2711,7 @@ export function initPaper(ctx) {
           return;
         }
         if (paperT0EditStatus) {
-          paperT0EditStatus.textContent =
-            (data.message || "已保存") +
-            (data.execution && data.execution.effective_hash
-              ? ` · hash ${String(data.execution.effective_hash).slice(0, 8)}`
-              : "");
+          paperT0EditStatus.textContent = data.message || "已保存";
         }
         await refreshPaperAfterExecution(data.execution);
       } catch (err) {
@@ -2760,7 +2761,7 @@ export function initPaper(ctx) {
         }
         if (paperT0EditStatus) {
           paperT0EditStatus.textContent = data.changed
-            ? `相对 Spec 有差异 · paper ${String(data.paper_hash || "").slice(0, 8)}`
+            ? `相对 Spec 有 ${(data.t0_changes || []).length + (data.coupling_changes || []).length} 项差异`
             : "与策略默认一致";
         }
       } catch (err) {

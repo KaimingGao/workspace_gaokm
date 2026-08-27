@@ -272,9 +272,9 @@ function formatCompactPathTip(raw) {
       : "";
   let gate = "";
   if (pathEnter != null) {
-    gate = `<div class="score-hero-gate${below ? " is-warn" : ""}">|ŷ_path| > ${escapeText(
+    gate = `<div class="score-hero-gate${below ? " is-warn" : ""}">path 准入：与 τ 同号且各过 enter（path ${escapeText(
       String(pathEnter)
-    )}${below ? " · 未过门槛" : ""}${
+    )}%）${below ? " · path未过下限" : ""}${
       bias ? ` · ${escapeText(bias)}` : ""
     }</div>`;
   }
@@ -714,13 +714,13 @@ function resolveNcOcGate(raw) {
 function resolveNcOcEnter(raw) {
   if (!raw || typeof raw !== "object") return null;
   const rules = raw.rules && typeof raw.rules === "object" ? raw.rules : {};
-  const n =
-    raw.y_nowcast_enter != null && raw.y_nowcast_enter !== ""
-      ? Number(raw.y_nowcast_enter)
-      : rules.y_nowcast_enter != null && rules.y_nowcast_enter !== ""
-        ? Number(rules.y_nowcast_enter)
-        : null;
-  return n != null && Number.isFinite(n) ? n : null;
+  const pick = (k) => {
+    const v = raw[k] != null && raw[k] !== "" ? raw[k] : rules[k];
+    if (v == null || v === "") return null;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : null;
+  };
+  return pick("y_nc_strong") ?? pick("y_nowcast_enter");
 }
 
 function resolveNcOcValues(raw) {
@@ -1539,7 +1539,7 @@ export function formatT0DirectionDetail(raw) {
     `<div class="score-hero-value ${signCls(score)}">${escapeText(scoreTxt)}</div>` +
     `<div class="score-hero-hint">收益百分点 · 与表列 ŷ% 同口径 · dual_y 主方向</div>` +
     `<div class="score-hero-semantics">` +
-    `语义：|y_τ|≥门槛才入场，符号经 τ 映射决定正/反 T · <strong>不是</strong> 旧 signal ±1 启发式分` +
+    `语义：τ 定正/反 T；trade/τ/path/eod 各独立下限；path 开时 τ·path 同号且双过闸；|eod|&gt;强闸须与 τ 同号` +
     `</div>` +
     `<div class="score-hero-gate">门槛 ±${escapeText(String(enter))}% · ${escapeText(
       decision

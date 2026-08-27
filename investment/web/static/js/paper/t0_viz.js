@@ -31,13 +31,17 @@ const THEME = {
 const SKIP_CAT_COLORS = {
   missing_minute: "#94a3b8",
   missing_scores: "#94a3b8",
+  y_eod_flat: "#f59e0b",
   y_tau_flat: "#f59e0b",
   y_tau_weak: "#fbbf24",
   y_path_flat: "#d97706",
   y_path_disagree: "#dc2626",
   gap_tier_skip: "#ea580c",
   path_abandon: "#a8a29e",
+  prefix_segment: "#9ca3af",
   y_trade_weak: "#fb923c",
+  eod_tau_disagree: "#b91c1c",
+  trade_tau_disagree: "#c2410c",
   trade_tau_sign: "#e11d48",
   conflict: "#ef4444",
   amplitude: "#64748b",
@@ -708,20 +712,57 @@ function drawDirectionPnl(canvas, pnlByDir, split) {
 function renderKpiRow(summary, compare) {
   const sm = summary || {};
   const chips = [
-    ["参与率", sm.participate_rate_pct != null ? `${sm.participate_rate_pct}%` : null],
-    ["ŷ覆盖", sm.score_coverage_pct != null ? `${sm.score_coverage_pct}%` : null],
-    ["往返率", sm.cover_rate_pct != null ? `${sm.cover_rate_pct}%` : null],
-    ["τ门槛", sm.y_tau_enter != null ? `|y_τ|≥${sm.y_tau_enter}%` : null],
-    ["信号跳过", sm.signal_skip_rate_pct != null ? `${sm.signal_skip_rate_pct}%` : null],
+    [
+      "参与率",
+      sm.participate_rate_pct != null ? `${sm.participate_rate_pct}%` : null,
+      "成交日 / 可评估日",
+    ],
+    [
+      "ŷ覆盖",
+      sm.score_coverage_pct != null ? `${sm.score_coverage_pct}%` : null,
+      "有 y_τ 快照的评估日占比",
+    ],
+    [
+      "往返率",
+      sm.cover_rate_pct != null ? `${sm.cover_rate_pct}%` : null,
+      "卖出回补或买入卖回完成比例",
+    ],
+    [
+      "τ门槛",
+      sm.y_tau_enter != null ? `|y_τ|≥${sm.y_tau_enter}%` : null,
+      "|y_τ| 低于入场则横盘跳过",
+    ],
+    [
+      "信号跳过",
+      sm.signal_skip_rate_pct != null ? `${sm.signal_skip_rate_pct}%` : null,
+      "dual_y / 异号 / 幅度不足等信号层跳过占比",
+    ],
+    [
+      "τ·OC命中",
+      sm.tau_oc_hit_rate_pct != null ? `${sm.tau_oc_hit_rate_pct}%` : null,
+      "成交日 y_τ 符号 vs 实际 open→close",
+    ],
+    [
+      "path一致",
+      sm.path_agree_rate_pct != null ? `${sm.path_agree_rate_pct}%` : null,
+      "成交日 y_τ 与 y_path 同号率",
+    ],
   ];
-  if (sm.avg_y_tau_traded != null) chips.push(["成交τ̄", `${fmtNum(sm.avg_y_tau_traded, 2)}%`]);
-  if (sm.avg_y_tau_signal_skip != null) chips.push(["跳过τ̄", `${fmtNum(sm.avg_y_tau_signal_skip, 2)}%`]);
-  if (compare && compare.delta_ratio_pct != null) chips.push(["乐观Δ", `${compare.delta_ratio_pct}%`]);
+  if (sm.avg_y_tau_traded != null) {
+    chips.push(["成交τ̄", `${fmtNum(sm.avg_y_tau_traded, 2)}%`, "成交日平均 y_τ"]);
+  }
+  if (sm.avg_y_tau_signal_skip != null) {
+    chips.push(["跳过τ̄", `${fmtNum(sm.avg_y_tau_signal_skip, 2)}%`, "信号跳过日平均 y_τ"]);
+  }
+  if (compare && compare.delta_ratio_pct != null) {
+    chips.push(["乐观Δ", `${compare.delta_ratio_pct}%`, "乐观上界未兑现空间占比"]);
+  }
   const html = chips
     .filter(([, v]) => v != null)
     .map(
-      ([k, v]) =>
-        `<span class="paper-t0-viz-kpi"><em>${esc(k)}</em><strong>${esc(v)}</strong></span>`
+      ([k, v, tip]) =>
+        `<span class="paper-t0-viz-kpi has-tip" title="${esc(tip || "")}">` +
+        `<em>${esc(k)}</em><strong>${esc(v)}</strong></span>`
     )
     .join("");
   return html ? `<div class="paper-t0-viz-kpis">${html}</div>` : "";
@@ -754,9 +795,24 @@ function skipLegendHtml(categories, total) {
         const pct = c.pct != null ? c.pct : Math.round((cnt / total) * 1000) / 10;
         const barW = Math.round((cnt / max) * 100);
         const tip = skipCatTip(c.id, c.label);
-        const title = `${c.label || c.id} · ${cnt}（${pct}%）\n${tip}`;
+        const payload = {
+          kind: "legend",
+          skipDays: total,
+          breakdown: [
+            {
+              id: c.id,
+              label: c.label,
+              count: cnt,
+              pct,
+              color: c.color || skipCatColor(c.id),
+              tip,
+            },
+          ],
+        };
         return (
-          `<div class="paper-t0-viz-skip-row" title="${esc(title)}" tabindex="0">` +
+          `<div class="paper-t0-viz-skip-row has-tip" data-skip-tip="${esc(
+            JSON.stringify(payload)
+          )}" tabindex="0">` +
           `<span class="paper-t0-viz-dot" style="background:${esc(c.color || skipCatColor(c.id))}"></span>` +
           `<span class="paper-t0-viz-skip-label">${esc(c.label)}</span>` +
           `<span class="paper-t0-viz-skip-bar"><i style="width:${barW}%;background:${esc(
@@ -771,13 +827,111 @@ function skipLegendHtml(categories, total) {
   );
 }
 
+/** 主因悬浮卡 HTML（替代原生 title） */
+export function buildSkipTipHtml(payload) {
+  if (!payload || typeof payload !== "object") return "";
+  if (payload.ok) {
+    return (
+      `<div class="paper-t0-skip-tip-inner">` +
+      `<header class="paper-t0-skip-tip-head">` +
+      `<span class="paper-t0-skip-tip-badge is-ok">全成交</span>` +
+      `<span class="paper-t0-skip-tip-eyebrow">分票 · 跳过主因</span>` +
+      `</header>` +
+      `<p class="paper-t0-skip-tip-lead">该票评估窗内无跳过日，全部进入成交路径。</p>` +
+      `</div>`
+    );
+  }
+  const skipDays = Number(payload.skipDays || 0);
+  const breakdown = Array.isArray(payload.breakdown) ? payload.breakdown : [];
+  if (!breakdown.length) return "";
+  const top = breakdown[0];
+  const kind = payload.kind === "legend" ? "跳过构成" : "分票 · 跳过主因";
+  const rows = breakdown
+    .map((c, i) => {
+      const color = c.color || skipCatColor(c.id);
+      const tip = c.tip || skipCatTip(c.id, c.label);
+      const pct =
+        c.pct != null
+          ? c.pct
+          : skipDays
+            ? Math.round((Number(c.count || 0) / skipDays) * 1000) / 10
+            : null;
+      const isTop = i === 0;
+      return (
+        `<div class="paper-t0-skip-tip-row${isTop ? " is-top" : ""}">` +
+        `<div class="paper-t0-skip-tip-row-head">` +
+        `<i class="paper-t0-skip-tip-swatch" style="background:${esc(color)}" aria-hidden="true"></i>` +
+        `<strong class="paper-t0-skip-tip-name">${esc(c.label || c.id || "—")}</strong>` +
+        `<span class="paper-t0-skip-tip-stat">` +
+        `<b>${esc(String(c.count ?? 0))}</b>` +
+        (pct != null ? `<em>${esc(String(pct))}%</em>` : "") +
+        `</span>` +
+        `</div>` +
+        (tip ? `<p class="paper-t0-skip-tip-def">${esc(tip)}</p>` : "") +
+        `</div>`
+      );
+    })
+    .join("");
+  const stack =
+    skipDays > 0 && breakdown.length
+      ? `<div class="paper-t0-skip-tip-stack" aria-hidden="true">` +
+        breakdown
+          .map((c) => {
+            const w = Math.round((Number(c.count || 0) / skipDays) * 100);
+            const bg = c.color || skipCatColor(c.id);
+            return `<i style="width:${Math.max(w, w > 0 ? 2 : 0)}%;background:${esc(bg)}"></i>`;
+          })
+          .join("") +
+        `</div>`
+      : "";
+  return (
+    `<div class="paper-t0-skip-tip-inner">` +
+    `<header class="paper-t0-skip-tip-head">` +
+    `<span class="paper-t0-skip-tip-badge" style="--skip-c:${esc(
+      top.color || skipCatColor(top.id)
+    )}">${esc(top.label || top.id || "主因")}</span>` +
+    `<span class="paper-t0-skip-tip-eyebrow">${esc(kind)}</span>` +
+    `</header>` +
+    `<p class="paper-t0-skip-tip-lead">` +
+    (payload.kind === "legend"
+      ? `本类 ${esc(String(top.count ?? 0))} 次` +
+        (top.pct != null ? ` · 占跳过 ${esc(String(top.pct))}%` : "")
+      : `跳过 ${esc(String(skipDays))} 日` +
+        (top.label ? ` · 主因 ${esc(top.label)}` : "")) +
+    `</p>` +
+    stack +
+    `<div class="paper-t0-skip-tip-list">${rows}</div>` +
+    `<p class="paper-t0-skip-tip-foot">色标=跳过分类 · 占比相对本票/全样本跳过日</p>` +
+    `</div>`
+  );
+}
+
+/** 在 viz / 分票表宿主上挂主因专业 tip（事件委托，重绘后仍有效） */
+export function wireT0SkipTips(host, tipCtrl) {
+  if (!host || !tipCtrl || typeof tipCtrl.bindAttrTip !== "function") return;
+  tipCtrl.bindAttrTip(host, {
+    selector: "[data-skip-tip]",
+    className: "score-tooltip paper-t0-skip-tip",
+    buildHtml: (el) => {
+      try {
+        return buildSkipTipHtml(JSON.parse(el.getAttribute("data-skip-tip") || "{}"));
+      } catch (_) {
+        return "";
+      }
+    },
+  });
+}
+
 function skipReasonCellHtml(r) {
   const skipDays = Number(r.skip_days || 0);
   if (!skipDays) {
     if (Number(r.trade_days || 0) > 0) {
+      const payload = { ok: true };
       return (
         `<td class="paper-t0-col-viz-skip">` +
-        `<span class="paper-t0-skip-none paper-t0-skip-none--ok">全成交</span></td>`
+        `<span class="paper-t0-skip-none paper-t0-skip-none--ok has-tip" data-skip-tip="${esc(
+          JSON.stringify(payload)
+        )}">全成交</span></td>`
       );
     }
     return `<td class="paper-t0-col-viz-skip"><span class="paper-t0-skip-none">—</span></td>`;
@@ -801,24 +955,29 @@ function skipReasonCellHtml(r) {
   }
   const top = breakdown[0];
   const color = top.color || skipCatColor(top.id);
-  const tip = breakdown
-    .map((c) => {
-      const pct =
+  const tipPayload = {
+    kind: "stock",
+    skipDays,
+    breakdown: breakdown.map((c) => ({
+      id: c.id,
+      label: c.label,
+      count: c.count,
+      pct:
         c.pct != null
           ? c.pct
           : skipDays
             ? Math.round((Number(c.count || 0) / skipDays) * 1000) / 10
-            : null;
-      const def = skipCatTip(c.id, c.label);
-      return `${c.label} ${c.count ?? 0}${pct != null ? ` (${pct}%)` : ""} — ${def}`;
-    })
-    .join("\n");
+            : null,
+      color: c.color || skipCatColor(c.id),
+      tip: skipCatTip(c.id, c.label),
+    })),
+  };
   const stack = breakdown
     .map((c) => {
       const w =
         skipDays > 0 ? Math.round((Number(c.count || 0) / skipDays) * 100) : 0;
       const bg = c.color || skipCatColor(c.id);
-      return `<i style="width:${Math.max(w, w > 0 ? 2 : 0)}%;background:${esc(bg)}" title="${esc(c.label)}"></i>`;
+      return `<i style="width:${Math.max(w, w > 0 ? 2 : 0)}%;background:${esc(bg)}"></i>`;
     })
     .join("");
   const topPct =
@@ -829,7 +988,9 @@ function skipReasonCellHtml(r) {
         : null;
   return (
     `<td class="paper-t0-col-viz-skip">` +
-    `<div class="paper-t0-skip-cell" title="${esc(tip)}">` +
+    `<div class="paper-t0-skip-cell has-tip" data-skip-tip="${esc(
+      JSON.stringify(tipPayload)
+    )}">` +
     `<div class="paper-t0-skip-head">` +
     `<span class="paper-t0-skip-pill" style="--skip-c:${esc(color)}">` +
     `<i class="paper-t0-skip-dot" aria-hidden="true"></i>` +
@@ -874,13 +1035,52 @@ function fmtContribReturn(r) {
   };
 }
 
+function contribInsight(rows) {
+  if (!rows || !rows.length) return { meta: "", tip: "" };
+  const n = rows.length;
+  const totalPnl = rows.reduce((s, r) => s + Number(r.pnl || 0), 0);
+  const skipVotes = {};
+  rows.forEach((r) => {
+    const id = r.skip_top_id || (r.skip_breakdown && r.skip_breakdown[0] && r.skip_breakdown[0].id);
+    const label =
+      r.skip_top_label ||
+      (r.skip_breakdown && r.skip_breakdown[0] && r.skip_breakdown[0].label) ||
+      id;
+    if (!id) return;
+    if (!skipVotes[id]) skipVotes[id] = { id, label, n: 0, count: 0 };
+    skipVotes[id].n += 1;
+    skipVotes[id].count += Number(r.skip_top_count || (r.skip_breakdown && r.skip_breakdown[0]?.count) || 0);
+  });
+  const topSkip = Object.values(skipVotes).sort((a, b) => b.n - a.n || b.count - a.count)[0];
+  const best = [...rows].sort((a, b) => Number(b.pnl || 0) - Number(a.pnl || 0))[0];
+  const worst = [...rows].sort((a, b) => Number(a.pnl || 0) - Number(b.pnl || 0))[0];
+  const bits = [
+    `${n} 只`,
+    `合计 ${fmtMoney(totalPnl)}`,
+    topSkip ? `主因 ${topSkip.label}×${topSkip.n}` : null,
+  ].filter(Boolean);
+  const tipBits = [
+    "分票贡献：每票独立虚拟底仓回测后合并；PnL 不可与真实账户权益直接等同。",
+    best && best.stock_name
+      ? `贡献最大：${best.stock_name || best.stock_code} ${fmtMoney(best.pnl)}`
+      : null,
+    worst && worst !== best && worst.stock_name
+      ? `拖累最大：${worst.stock_name || worst.stock_code} ${fmtMoney(worst.pnl)}`
+      : null,
+    topSkip ? `跨票跳过主因：${topSkip.label}（${topSkip.n}/${n} 票）— ${skipCatTip(topSkip.id, topSkip.label)}` : null,
+  ].filter(Boolean);
+  return { meta: bits.join(" · "), tip: tipBits.join("\n") };
+}
+
 function renderStockContrib(rows) {
   if (!rows || !rows.length) return "";
+  const maxAbs = Math.max(1, ...rows.map((r) => Math.abs(Number(r.pnl || 0))));
   const body = rows
     .map((r) => {
       const pnl = Number(r.pnl || 0);
       const cls = paperMetricClass(pnl);
       const ret = fmtContribReturn(r);
+      const barW = Math.max(4, Math.round((Math.abs(pnl) / maxAbs) * 48));
       const fallback = {
         stock_code: r.stock_code,
         stock_name: r.stock_name,
@@ -888,20 +1088,25 @@ function renderStockContrib(rows) {
       return (
         `<tr class="paper-t0-contrib-row">` +
         stockCellHtml(r, fallback) +
-        `<td class="num paper-t0-col-viz-shares">${fmtContribShares(r.shares)}</td>` +
-        `<td class="paper-t0-col-viz-dt">${fmtContribDate(r.window_start_date)}</td>` +
-        `<td class="num paper-t0-col-viz-px">${fmtContribPrice(r.start_price)}</td>` +
-        `<td class="paper-t0-col-viz-dt">${fmtContribDate(r.window_end_date)}</td>` +
-        `<td class="num paper-t0-col-viz-px">${fmtContribPrice(r.end_price)}</td>` +
-        `<td class="num paper-t0-col-viz-lr">${esc(`${r.long_days ?? 0}/${r.reverse_days ?? 0}`)}</td>` +
-        `<td class="num paper-t0-col-viz-days">${esc(String(r.trade_days ?? 0))}</td>` +
-        `<td class="num paper-t0-col-viz-days">${esc(String(r.skip_days ?? 0))}</td>` +
+        `<td class="num paper-t0-col-viz-shares" title="回测虚拟底仓股数">${fmtContribShares(r.shares)}</td>` +
+        `<td class="paper-t0-col-viz-dt" title="评估窗口首日">${fmtContribDate(r.window_start_date)}</td>` +
+        `<td class="num paper-t0-col-viz-px" title="窗口首日收盘价">${fmtContribPrice(r.start_price)}</td>` +
+        `<td class="paper-t0-col-viz-dt" title="评估窗口末日">${fmtContribDate(r.window_end_date)}</td>` +
+        `<td class="num paper-t0-col-viz-px" title="窗口末日收盘价">${fmtContribPrice(r.end_price)}</td>` +
+        `<td class="num paper-t0-col-viz-lr" title="正T日 / 反T日">${esc(`${r.long_days ?? 0}/${r.reverse_days ?? 0}`)}</td>` +
+        `<td class="num paper-t0-col-viz-days" title="成交日数">${esc(String(r.trade_days ?? 0))}</td>` +
+        `<td class="num paper-t0-col-viz-days" title="跳过日数">${esc(String(r.skip_days ?? 0))}</td>` +
         skipReasonCellHtml(r) +
-        `<td class="num paper-t0-col-viz-pct">${
+        `<td class="num paper-t0-col-viz-pct" title="成交日占评估日">${
           r.participate_rate_pct != null ? esc(`${r.participate_rate_pct}%`) : "—"
         }</td>` +
-        `<td class="num paper-t0-col-viz-ret ${ret.cls}" title="${esc(ret.tip)}">${esc(ret.text)}</td>` +
-        `<td class="num paper-t0-col-pnl ${cls}">${esc(pnl.toFixed(1))}</td>` +
+        `<td class="num paper-t0-col-viz-ret ${ret.cls} has-tip" title="${esc(ret.tip)}">${esc(ret.text)}</td>` +
+        `<td class="num paper-t0-col-pnl ${cls} has-tip" title="${esc(
+          `含敞口净 PnL ${pnl.toFixed(1)} · 条长∝|PnL|`
+        )}">` +
+        `<span class="paper-t0-viz-pnl-bar" style="width:${barW}px" aria-hidden="true"></span>` +
+        `<span class="paper-t0-viz-pnl-num">${esc(pnl.toFixed(1))}</span>` +
+        `</td>` +
         `</tr>`
       );
     })
@@ -932,13 +1137,34 @@ function renderStockContrib(rows) {
     `<th scope="col" class="paper-t0-col-viz-dt" title="评估窗口末日">结束日期</th>` +
     `<th scope="col" class="paper-t0-col-viz-px num" title="窗口末日收盘价">结束价</th>` +
     `<th scope="col" class="paper-t0-col-viz-lr num" title="正T日 / 反T日">正/反</th>` +
-    `<th scope="col" class="paper-t0-col-viz-days num">成交</th>` +
-    `<th scope="col" class="paper-t0-col-viz-days num">跳过</th>` +
-    `<th scope="col" class="paper-t0-col-viz-skip" title="跳过主因（色标+占比条；悬停看构成）">主因</th>` +
+    `<th scope="col" class="paper-t0-col-viz-days num" title="成交日数">成交</th>` +
+    `<th scope="col" class="paper-t0-col-viz-days num" title="跳过日数">跳过</th>` +
+    `<th scope="col" class="paper-t0-col-viz-skip" title="跳过主因（色标+占比条；悬停看结构化 tip）">主因</th>` +
     `<th scope="col" class="paper-t0-col-viz-pct num" title="成交日占评估日">参与%</th>` +
     `<th scope="col" class="paper-t0-col-viz-ret num" title="含敞口净PnL/虚拟底仓市值">收益%</th>` +
-    `<th scope="col" class="paper-t0-col-pnl num">PnL</th>` +
+    `<th scope="col" class="paper-t0-col-pnl num" title="含敞口净盈亏；条长∝|PnL|">PnL</th>` +
     `</tr></thead><tbody>${body}</tbody></table></div>`
+  );
+}
+
+function renderContribSection(rows) {
+  if (!rows || !rows.length) return "";
+  const insight = contribInsight(rows);
+  return (
+    `<section class="paper-t0-viz-contrib">` +
+    `<div class="paper-t0-viz-contrib-head">` +
+    `<div class="paper-t0-viz-contrib-title-block">` +
+    `<h4>分票贡献</h4>` +
+    (insight.meta
+      ? `<span class="paper-t0-viz-contrib-meta has-tip" title="${esc(insight.tip)}">${esc(
+          insight.meta
+        )}</span>`
+      : "") +
+    `</div>` +
+    `<p class="paper-t0-viz-contrib-hint">主因列=跳过构成 Top；悬停看结构化 tip · 多票虚拟仓独立计后合并</p>` +
+    `</div>` +
+    renderStockContrib(rows) +
+    `</section>`
   );
 }
 
@@ -1054,10 +1280,13 @@ export function renderT0Viz(host, data) {
 
   if (viz.skip_categories && viz.skip_categories.length) {
     const total = viz.skip_categories.reduce((s, c) => s + Number(c.count || 0), 0);
+    const top = viz.skip_categories[0];
     cards.push(
       vizCard(
         "跳过构成",
-        `合计 ${total} 次 · 悬停扇区/图例看口径`,
+        `合计 ${total} 次` +
+          (top ? ` · 主因 ${top.label} ${top.pct ?? ""}%` : "") +
+          ` · 悬停扇区/图例看 tip`,
         chartCanvas("skip"),
         skipLegendHtml(viz.skip_categories, total),
         legendChips([{ color: THEME.otherSkip, label: "按跳过原因" }])
@@ -1080,23 +1309,26 @@ export function renderT0Viz(host, data) {
     );
   }
 
-  const contribHtml =
-    viz.stock_contrib && viz.stock_contrib.length >= 1
-      ? `<section class="paper-t0-viz-contrib">` +
-        `<div class="paper-t0-viz-contrib-head"><h4>分票贡献</h4></div>` +
-        renderStockContrib(viz.stock_contrib) +
-        `</section>`
-      : "";
+  const topSkipLabel =
+    viz.skip_categories && viz.skip_categories[0]
+      ? `${viz.skip_categories[0].label} ${viz.skip_categories[0].pct ?? ""}%`
+      : "—";
 
   host.hidden = false;
   host.innerHTML =
     `<div class="paper-t0-viz-head">` +
+    `<div class="paper-t0-viz-head-main">` +
     `<span class="paper-t0-viz-title">归因分析</span>` +
-    `<span class="quant-sub">正T ${ds.long_t ?? 0} · 反T ${ds.reverse_t ?? 0} · 成交 ${viz.trade_count ?? 0} · 跳过 ${viz.skip_count ?? 0}</span>` +
+    `<span class="quant-sub">正T ${ds.long_t ?? 0} · 反T ${ds.reverse_t ?? 0} · 成交 ${viz.trade_count ?? 0} · 跳过 ${viz.skip_count ?? 0}` +
+    (viz.skip_categories && viz.skip_categories.length
+      ? ` · 主因 ${esc(topSkipLabel)}`
+      : "") +
+    `</span>` +
+    `</div>` +
     `</div>` +
     renderKpiRow(sm, viz.compare) +
     `<div class="paper-t0-viz-grid">${cards.join("")}</div>` +
-    contribHtml;
+    renderContribSection(viz.stock_contrib);
 
   function paintCharts() {
     const cum = host.querySelector('canvas[data-viz="cum"]');
