@@ -11,6 +11,7 @@ import {
 } from "./quant/watching_insights_ui.js?v=p1457";
 import { TRADE_TITLE, formatPrevCloseDisplay, formatOpenDisplay, resolveOpenPx } from "./quant/watching_quotes_ui.js?v=p1227";
 import { buildHoldingSharesTip } from "./paper/holding_lots_tip.js?v=p1227";
+import { holdingT0BadgeHtml } from "./paper/holding_t0_badge.js?v=p1526";
 
 function escapeHtml(s) {
   return String(s ?? "")
@@ -153,6 +154,8 @@ export function holdingToRow(
     pnlNum: pnl != null && Number.isFinite(Number(pnl)) ? Number(pnl) : null,
     boughtDate: h.bought_date || "—",
     sharesTip: buildHoldingSharesTip(h),
+    t0Intraday: h.t0_intraday || null,
+    t0BadgeHtml: holdingT0BadgeHtml(h.t0_intraday, escapeHtml),
     origin,
     originLabel: h.origin_label || "—",
     inBook,
@@ -193,6 +196,14 @@ const COLS = [
     title: "标题情绪摘要",
   },
   { id: "shares", label: "股数", width: 56, num: true, title: "持仓股数；悬停查看买入批次与 T+1 可卖" },
+  {
+    id: "t0",
+    label: "做T",
+    width: 52,
+    headClass: "watching-col-center paper-hold-t0-head",
+    cellClass: "watching-col-center paper-hold-t0",
+    title: "当日实时做 T：正T/反T · 盯盘/一腿/完成",
+  },
   { id: "prev_close", label: "昨收", width: 78, num: true, title: "上一交易日收盘价" },
   { id: "open", label: "今开", width: 78, num: true, title: "今日开盘价" },
   { id: "price", label: "现价", width: 78, num: true, title: "最新成交价" },
@@ -326,6 +337,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
         d.isFocusHolding ? "is-focus-holding" : "",
         d.inBook ? "is-cluster-book" : "",
         d.oosFailed ? "is-oos-failed" : "",
+        d.t0Intraday?.phase === "after_leg1" ? "is-t0-leg1" : "",
       ]
         .filter(Boolean)
         .join(" "),
@@ -368,6 +380,7 @@ export async function mountHoldingsTableIsland(host, options = {}) {
           text
         )}</span>`;
       }
+      if (col.id === "t0") return d.t0BadgeHtml || holdingT0BadgeHtml(null, escapeHtml);
       if (col.id === "price") return escapeHtml(d.priceText || "—");
       if (col.id === "prev_close") {
         return `<span class="paper-hold-prev-close" title="上一交易日收盘价">${escapeHtml(

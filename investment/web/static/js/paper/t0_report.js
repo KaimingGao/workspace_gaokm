@@ -405,7 +405,7 @@ export function buildT0ReportHtml(data, opts = {}) {
     metricCell("y_path选向", pathRules.y_use_path === false ? "关" : "开"),
     metricCell(
       "path门槛",
-      pathRules.y_path_enter != null ? `|y_p|≥${pathRules.y_path_enter}` : "≥2"
+      pathRules.y_path_enter != null ? `|y_p|>${pathRules.y_path_enter}` : ">0.02"
     ),
     metricCell("path跳过", String(sm.path_skip_days ?? data.path_skip_days ?? 0)),
     metricCell("分钟路径日", String(data.minute_path_days ?? 0)),

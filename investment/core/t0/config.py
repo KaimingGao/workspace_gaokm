@@ -73,7 +73,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_nowcast_enter": 3.0,
     "y_tau_map": "trend",
     "y_use_path": True,
-    "y_path_enter": 2.0,
+    "y_path_enter": 0.02,
     "y_path_required": False,
     "y_gap_tier_mode": "skip_opposite",
     "y_gap_tier_pct": 1.0,
@@ -156,7 +156,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_ratio_tau_soft_band", 0.0, 2.0, 0.20),
         ("y_tau_nowcast_sign_eps", 0.0, 1.0, 0.05),
         ("y_nowcast_enter", 0.05, 10.0, 3.0),
-        ("y_path_enter", 1.0, 100.0, 2.0),
+        ("y_path_enter", 0.01, 5.0, 0.02),
         ("y_gap_tier_pct", 0.3, 8.0, 1.0),
     ):
         try:

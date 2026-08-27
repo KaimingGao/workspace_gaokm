@@ -97,7 +97,7 @@ class TestT0Core(unittest.TestCase):
         self.assertTrue(d["must_cover_same_day"])
         self.assertFalse(d["use_atr"])
         self.assertEqual(d["min_range_pct"], 0.2)
-        self.assertEqual(d["y_path_enter"], 2.0)
+        self.assertEqual(d["y_path_enter"], 0.02)
         self.assertFalse(d["y_nowcast_oc_gate"])
         self.assertEqual(d["y_nowcast_enter"], 3.0)
         self.assertEqual(d["y_path_abandon_bars"], 12)
@@ -152,7 +152,12 @@ class TestT0Core(unittest.TestCase):
             bar=bar,
             shares=1000,
             cost=100,
-            rules=_rules(sell_trigger_pct=2.0, buy_trigger_pct=1.5, direction="long_t"),
+            rules=_rules(
+                sell_trigger_pct=2.0,
+                buy_trigger_pct=1.5,
+                direction="long_t",
+                min_range_pct=1.5,
+            ),
             minute_bars=_mins_hl(bar=bar))
         self.assertTrue(out["success"])
         self.assertTrue(out["skipped"])
@@ -601,7 +606,7 @@ class TestT0Core(unittest.TestCase):
                 "date": "2024-01-02",
                 "open": 100,
                 "high": 105,
-                "low": 100,
+                "low": 101.5,
                 "close": 104,
             },
         ]
@@ -2067,7 +2072,6 @@ class TestDualYDirection(unittest.TestCase):
             scores={
                 "y_trade": 0.50,
                 "y_tau": 0.70,
-                "y_eod": 0.27,
                 "y_nowcast": -1.20,
             },
             cfg={
@@ -2081,7 +2085,7 @@ class TestDualYDirection(unittest.TestCase):
         )
         self.assertTrue(out.get("skip"))
         self.assertIn("异号", out.get("direction_reason") or "")
-        self.assertIn("nowcast", out.get("direction_reason") or "")
+        self.assertIn("y_nc", out.get("direction_reason") or "")
 
         # 弱 nowcast 异号不拦
         weak = resolve_dual_y_direction(
@@ -2717,9 +2721,9 @@ class TestT0Viz(unittest.TestCase):
             {
                 "date": "2026-01-11",
                 "skipped": True,
-                "reason": "dual_y：y_τ→long_t 但 y_path=25.0 预测先卖（不一致）",
+                "reason": "dual_y：y_τ→long_t 但 y_path=25.000% 先高后低（不一致）",
                 "skip_category": classify_t0_skip_reason(
-                    "dual_y：y_τ→long_t 但 y_path=25.0 预测先卖（不一致）"
+                    "dual_y：y_τ→long_t 但 y_path=25.000% 先高后低（不一致）"
                 ),
             },
         ]

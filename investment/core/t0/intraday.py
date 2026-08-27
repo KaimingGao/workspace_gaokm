@@ -122,6 +122,127 @@ def load_intraday_state() -> Dict[str, Any]:
         return {}
 
 
+REBALANCE_T0_BLOCK_REVERSE = "做T反T进行中（已买待卖旧仓），调仓跳过卖出"
+REBALANCE_T0_BLOCK_LONG = "做T正T已卖待回补，调仓跳过重复卖出"
+
+
+def open_t0_leg_rebalance_block(st: Optional[dict]) -> Optional[str]:
+    """未平做 T 腿 → 调仓卖出应跳过（反 T 防打断；正 T 防重复卖）。"""
+    if not isinstance(st, dict):
+        return None
+    phase = str(st.get("phase") or "").strip().lower()
+    if phase in (PHASE_DONE, PHASE_SKIPPED):
+        return None
+    legs = int(st.get("legs_written") or 0)
+    if phase != PHASE_AFTER_LEG1 and legs <= 0:
+        return None
+    direction = str(st.get("direction") or "").strip().lower()
+    if direction == "reverse_t":
+        return REBALANCE_T0_BLOCK_REVERSE
+    if direction == "long_t":
+        return REBALANCE_T0_BLOCK_LONG
+    if legs > 0:
+        return "做T未平腿进行中，调仓跳过卖出"
+    return None
+
+
+def load_rebalance_t0_sell_blocks(*, session_date: Optional[str] = None) -> Dict[str, str]:
+    """当日盘中未平做 T → code → 调仓跳过原因。"""
+    from core.market.calendar import resolve_session_date
+    from core.signal.session_pit import shanghai_now
+
+    sess = str(session_date or resolve_session_date(now=shanghai_now()) or "")[:10]
+    if not sess:
+        return {}
+    state = load_intraday_state()
+    if str(state.get("session_date") or "")[:10] != sess:
+        return {}
+    stocks = state.get("stocks") if isinstance(state.get("stocks"), dict) else {}
+    out: Dict[str, str] = {}
+    for code, raw in stocks.items():
+        c = str(code or "").strip()
+        if not c:
+            continue
+        reason = open_t0_leg_rebalance_block(raw if isinstance(raw, dict) else {})
+        if reason:
+            out[c] = reason
+    return out
+
+
+def holding_t0_intraday_status(st: Optional[dict]) -> Optional[Dict[str, Any]]:
+    """持仓表用：当日实时做 T 状态摘要（无状态返回 None）。"""
+    if not isinstance(st, dict):
+        return None
+    phase = str(st.get("phase") or PHASE_IDLE).strip().lower() or PHASE_IDLE
+    snap = st.get("day_snapshot") if isinstance(st.get("day_snapshot"), dict) else {}
+    direction = str(
+        st.get("direction") or snap.get("direction_used") or snap.get("direction") or ""
+    ).strip().lower()
+    legs = int(st.get("legs_written") or 0)
+    wait_reason = str(st.get("wait_reason") or "").strip()
+    reason = str(st.get("reason") or snap.get("reason") or wait_reason or "").strip()
+
+    dir_label = "反T" if direction == "reverse_t" else "正T" if direction == "long_t" else None
+    phase_label = {
+        PHASE_IDLE: "盯",
+        PHASE_AFTER_LEG1: "一腿",
+        PHASE_DONE: "完成",
+        PHASE_SKIPPED: "终锁",
+    }.get(phase)
+
+    if phase == PHASE_IDLE and not direction:
+        return None
+    if phase == PHASE_SKIPPED:
+        title = reason or "当日终态锁死"
+    elif phase == PHASE_DONE:
+        title = reason or "当日做 T 往返已完成"
+    elif phase == PHASE_AFTER_LEG1:
+        if direction == "reverse_t":
+            title = "反T · 已买待卖旧仓 · 调仓已跳过卖出"
+        elif direction == "long_t":
+            title = "正T · 已卖待回补 · 调仓已跳过重复卖出"
+        else:
+            title = wait_reason or "已落第一腿，等待第二触达 / 收盘回补"
+    else:
+        title = wait_reason or reason or "已定方向，等待触价 / 下一根 5m"
+
+    badge = f"{dir_label}·{phase_label}" if dir_label and phase_label else (phase_label or dir_label)
+    if not badge:
+        return None
+    return {
+        "phase": phase,
+        "direction": direction or None,
+        "legs_written": legs,
+        "label": phase_label,
+        "dir_label": dir_label,
+        "badge": badge,
+        "title": title,
+    }
+
+
+def load_holding_t0_status_by_code(*, session_date: Optional[str] = None) -> Dict[str, dict]:
+    """当日盘中做 T 状态 → code → 持仓表摘要。"""
+    from core.market.calendar import resolve_session_date
+    from core.signal.session_pit import shanghai_now
+
+    sess = str(session_date or resolve_session_date(now=shanghai_now()) or "")[:10]
+    if not sess:
+        return {}
+    state = load_intraday_state()
+    if str(state.get("session_date") or "")[:10] != sess:
+        return {}
+    stocks = state.get("stocks") if isinstance(state.get("stocks"), dict) else {}
+    out: Dict[str, dict] = {}
+    for code, raw in stocks.items():
+        c = str(code or "").strip()
+        if not c:
+            continue
+        status = holding_t0_intraday_status(raw if isinstance(raw, dict) else {})
+        if status:
+            out[c] = status
+    return out
+
+
 def build_intraday_desk_status() -> Dict[str, Any]:
     """今日盘中盯盘桌面：逐票 phase / 原因（供 Follow 做 T 后台区展示）。"""
     from core.market.calendar import resolve_session_date

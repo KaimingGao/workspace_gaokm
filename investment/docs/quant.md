@@ -1130,7 +1130,7 @@ EOD 锚在 **收**，与 open 链 **并列**（选股主轴），不是 open 链
 
 规划字段：`predicted_score_on` / `y_spec_on` / `data/live/on_ridge_model.json`；复盘 IC(\(\hat y_{\mathrm{ON}}, y_{\mathrm{ON}}\)) 与 open 链分段单独报。训练：`POST /api/quant/on-ridge`。
 
-**做 T 路径头 \(y_{\mathrm{path}}\)**：开盘 Z → 分钟卖/买触发**谁先触达**（标签 ±100）；与 \(y_\tau\) **联合选向**（dual_y）。`y_path_enter`（默认 **2**）为**入场门槛**：\(|\hat y_{\mathrm{path}}|\) 不足则横盘跳过；达门槛后与 \(\tau\) 方向冲突则否决。规划字段：`y_path` / `data/live/path_ridge_model.json`。训练：`POST /api/quant/path-ridge`（需观察池 **5m 分钟缓存**）；状态：`GET /api/quant/path-ridge/model`。
+**做 T 路径头 \(y_{\mathrm{path}}\)**：开盘 Z → 分钟极值时间序（先 low→high 则 \((H-L)/\mathrm{ref}\%\)，先 high→low 则 \((L-H)/\mathrm{ref}\%\)）；与 \(y_\tau\) 同尺度（收益百分点）。\(y_{\mathrm{path}}>0\)：先低后高 → 正T（先卖后买）；\<0：先高后低 → 反T（先买后卖）。**dual_y 准入**（`y_use_path` 且可得 ŷ_path）：\(|y_\tau|\ge y_{\tau,\mathrm{enter}}\) 与 \(|y_{\mathrm{path}}|>y_{\mathrm{path,enter}}\) 须**同时**满足且**同向**；另前置 \(|y_{\mathrm{trade}}|\) 幅度闸。缺 ŷ_path 默认不拦（`y_path_required` 开则拦）。规划：`path_ridge_model.json`；训练 `POST /api/quant/path-ridge`。
 
 ---
 

@@ -150,8 +150,8 @@ function resolvePathEnter(raw) {
       ? Number(raw.y_path_enter)
       : raw && raw.rules && raw.rules.y_path_enter != null
         ? Number(raw.rules.y_path_enter)
-        : 30;
-  return Number.isFinite(pathEnterRaw) ? pathEnterRaw : 15;
+        : 0.02;
+  return Number.isFinite(pathEnterRaw) ? pathEnterRaw : 0.02;
 }
 
 /** ŷ_EOD：表列 score · 含因子组成。 */
@@ -260,10 +260,10 @@ function formatCompactPathTip(raw) {
   const fit = resolvePathScore(raw);
   const fitTxt = fit == null ? "—" : fmtPathScore(fit);
   const pathEnter = resolvePathEnter(raw);
-  const below = fit != null && Math.abs(fit) < pathEnter;
+  const below = fit != null && Math.abs(fit) <= pathEnter;
   let bias = "";
-  if (fit != null && Number.isFinite(fit) && Math.abs(fit) >= pathEnter) {
-    bias = fit > 0 ? "先触卖·偏正T" : "先触买·偏反T";
+  if (fit != null && Number.isFinite(fit) && Math.abs(fit) > pathEnter) {
+    bias = fit > 0 ? "先低后高·正T·先卖后买" : "先高后低·反T·先买后卖";
   }
   const status = String((raw && raw.y_path_status) || "");
   const statusNote =
@@ -272,19 +272,19 @@ function formatCompactPathTip(raw) {
       : "";
   let gate = "";
   if (pathEnter != null) {
-    gate = `<div class="score-hero-gate${below ? " is-warn" : ""}">|ŷ_path| ≥ ${escapeText(
+    gate = `<div class="score-hero-gate${below ? " is-warn" : ""}">|ŷ_path| > ${escapeText(
       String(pathEnter)
-    )}${below ? " · 当前低于门槛" : ""}${
+    )}${below ? " · 未过门槛" : ""}${
       bias ? ` · ${escapeText(bias)}` : ""
     }</div>`;
   }
   return (
     `<div class="score-layer score-layer-path">` +
     `<div class="score-layer-head">` +
-    `<div class="score-hero-label">ŷ_path · 第一触达（拟合）</div>` +
+    `<div class="score-hero-label">ŷ_path · 极值序（拟合）</div>` +
     `<div class="score-hero-value ${signCls(fit)}">${escapeText(fitTxt)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">±100 · 与表列 / 组成合计 / path 闸同口径${escapeText(
+    `<div class="score-hero-hint">signed range% · 与表列 / 组成合计 / path 闸同口径${escapeText(
       statusNote
     )}</div>` +
     gate +
@@ -1086,7 +1086,7 @@ export function formatFormulaTermsSection(raw, opts = {}) {
     key === "tau"
       ? "β×z = 贡献；合计=Ridge 拟合原值（T收/T开），与表列 ŷ_τ / τ 闸同口径。昨收（缺口∘ŷ_τ）只用于 ŷ_trade 融合对照。"
       : key === "path"
-        ? "β×z = 贡献；合计=path_ridge 拟合原值（±100），与表列 y_path / dual_y 闸同口径。"
+        ? "β×z = 贡献；合计=path_ridge 拟合原值（signed range%），与表列 y_path / dual_y 闸同口径。"
         : "β×z = 贡献；条长∝|贡献|";
   return (
     `<div class="score-formula-section">` +
@@ -1566,7 +1566,7 @@ export function formatT0DirectionDetail(raw) {
       let hint = "";
       if (k === "y_path") {
         txt = Number.isFinite(n) ? fmtPathScore(n) : String(v);
-        hint = `${Y_PATH_TITLE} · |y_path|≥${pathEnter}`;
+        hint = `${Y_PATH_TITLE} · |y_path|>${pathEnter}`;
       } else {
         txt = Number.isFinite(n) ? `${fmtSigned(n, 3)}%` : String(v);
       }

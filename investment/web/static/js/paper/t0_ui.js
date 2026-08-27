@@ -261,6 +261,7 @@ export function renderPaperT0Preview(els, data) {
         maxRows: Math.max(T0_TRADE_TABLE_MAX_ROWS, days.length),
         showReason: true,
         preserveOrder: true,
+        showRealized: false,
       })
     : `<p class="paper-t0-desk-empty">无持仓结果</p>`;
   previewEl.innerHTML =
@@ -280,10 +281,16 @@ function workerLastRunToTableData(lastRun, execution) {
     (r) => r && !r.skipped && (r.trades || []).length
   );
   const rules = (lastRun && lastRun.rules) || (execution && execution.t0) || {};
-  const days = results.map((r) => ({
-    ...r,
-    direction: r.direction || r.direction_used,
-  }));
+  const sess = String(lastRun?.session_date || "").slice(0, 10);
+  const days = results.map((r) => {
+    const raw = String(r.date || sess || "").trim();
+    const iso = (raw.match(/^(\d{4}-\d{2}-\d{2})/) || [])[1] || raw.slice(0, 10);
+    return {
+      ...r,
+      direction: r.direction || r.direction_used,
+      date: iso || sess,
+    };
+  });
   const traded = pickTradeDays({ trade_days_sample: days, days });
   const tag = lastRun?.source === "paper_t0_auto" ? "自动" : "手动";
   return {
@@ -379,6 +386,7 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution } = {}) {
         days,
         maxRows: T0_TRADE_TABLE_MAX_ROWS,
         showDelete: true,
+        showRealized: false,
       }) +
       `<p class="paper-t0-desk-foot" title="${tip}">τ = y_τ · ${escapeHtml(
         String(tauMap || "scalp")

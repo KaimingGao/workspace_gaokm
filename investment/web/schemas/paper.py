@@ -132,9 +132,9 @@ class T0BacktestRequest(BaseModel):
     y_use_path: Optional[bool] = None
     y_path_enter: Optional[float] = Field(
         default=None,
-        ge=1.0,
-        le=100.0,
-        description="dual_y：|y_path|≥此值才入场（±100）；不足横盘跳过",
+        ge=0.01,
+        le=5.0,
+        description="dual_y：|y_path|>此值才入场（收益百分点，与 y_tau_enter 同尺度）",
     )
     y_path_required: Optional[bool] = None
     y_gap_tier_mode: Optional[str] = Field(default=None, max_length=24)

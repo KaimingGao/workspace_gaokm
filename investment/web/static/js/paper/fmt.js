@@ -297,9 +297,9 @@ export const Y_NC_OC_TITLE =
 export const Y_NOWCAST_TITLE = Y_NC_TITLE;
 
 /** ŷ_path：分钟第一触达顺序头（path_ridge）；dual_y 与 y_τ 联合选向。 */
-export const Y_PATH_TITLE = "ŷ_path · 路径选向 first_touch（±100）";
+export const Y_PATH_TITLE = "ŷ_path · 极值序 signed (H−L)/ref%";
 export const PATH_REALIZED_TITLE =
-  "path实 · 模型触发口径 first_touch（卖先+100 / 买先−100；与 ŷ_path 同标签）";
+  "path实 · 先 low→high 为正、先 high→low 为负（与 ŷ_path 同标签）";
 
 /** ŷ_τ 表列 / tip：Ridge 拟合原值（T收/T开），与组成合计、τ 买入闸同口径。
 
@@ -323,7 +323,7 @@ export function resolveTauLiftedScore(it) {
   return _looksLikeYhatPct(lifted) ? lifted : null;
 }
 
-/** ŷ_path：分钟第一触达顺序（±100，非收益%）。 */
+/** ŷ_path：极值序 signed range%（path_ridge）。 */
 export function resolvePathScore(it) {
   if (!it || typeof it !== "object") return null;
   for (const c of [it.predicted_score_path, it.y_path]) {
@@ -333,7 +333,7 @@ export function resolvePathScore(it) {
   return null;
 }
 
-/** 表列 y_path：±100 尺度，一位小数。 */
+/** 表列 y_path：signed range %，一位小数。 */
 export function fmtPathScore(v, opts = {}) {
   const empty = opts.empty ?? "—";
   const n = Number(v);

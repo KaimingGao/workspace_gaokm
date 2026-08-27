@@ -107,7 +107,7 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_on_allow": 0.02,
     "y_nowcast_enter": 3.0,
     "y_nowcast_oc_gate": False,
-    "y_path_enter": 2.0,
+    "y_path_enter": 0.02,
     "y_gap_tier_pct": 1.0,
     "y_path_abandon_bars": 12,
     "y_block_tau_nowcast_sign": True,

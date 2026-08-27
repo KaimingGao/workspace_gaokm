@@ -37,6 +37,50 @@ def _bars(n: int = 40, start: float = 10.0):
     return out
 
 
+def _minute_low_then_high(open_px: float, dkey: str):
+    """先 low 后 high：label 为正 (H−L)/ref%。"""
+    return [
+        {
+            "date": dkey,
+            "time": "09:35",
+            "open": open_px,
+            "high": round(open_px * 1.01, 4),
+            "low": round(open_px * 0.98, 4),
+            "close": open_px,
+        },
+        {
+            "date": dkey,
+            "time": "09:40",
+            "open": open_px,
+            "high": round(open_px * 1.05, 4),
+            "low": round(open_px * 0.99, 4),
+            "close": round(open_px * 1.02, 4),
+        },
+    ]
+
+
+def _minute_high_then_low(open_px: float, dkey: str):
+    """先 high 后 low：label 为负 (L−H)/ref%。"""
+    return [
+        {
+            "date": dkey,
+            "time": "09:35",
+            "open": open_px,
+            "high": round(open_px * 1.02, 4),
+            "low": round(open_px * 0.99, 4),
+            "close": round(open_px * 1.01, 4),
+        },
+        {
+            "date": dkey,
+            "time": "09:40",
+            "open": open_px,
+            "high": round(open_px * 1.01, 4),
+            "low": round(open_px * 0.95, 4),
+            "close": open_px,
+        },
+    ]
+
+
 def _minute_sell_first(open_px: float, dkey: str):
     sell_level = open_px * 1.02
     return [
@@ -65,20 +109,38 @@ def _minute_buy_first(open_px: float, dkey: str):
     ]
 
 
-def _minute_map_for_bars(bars, *, sell_first: bool = True):
+def _minute_map_for_bars(bars, *, low_then_high: bool = True):
     out = {}
     for b in bars:
         dkey = str(b.get("date") or "")[:10]
         op = float(b["open"])
         out[dkey] = (
-            _minute_sell_first(op, dkey)
-            if sell_first
-            else _minute_buy_first(op, dkey)
+            _minute_low_then_high(op, dkey)
+            if low_then_high
+            else _minute_high_then_low(op, dkey)
         )
     return out
 
 
 class TestPathPanel(unittest.TestCase):
+    def test_extreme_order_low_then_high(self):
+        from core.research.path_panel import extreme_order_path_label
+
+        mins = _minute_low_then_high(10.0, "2025-06-01")
+        label, reason = extreme_order_path_label(mins, ref=10.0)
+        self.assertEqual(reason, "low_then_high")
+        self.assertGreater(label, 0)
+        self.assertAlmostEqual(label, 7.0, places=2)
+
+    def test_extreme_order_high_then_low(self):
+        from core.research.path_panel import extreme_order_path_label
+
+        mins = _minute_high_then_low(10.0, "2025-06-01")
+        label, reason = extreme_order_path_label(mins, ref=10.0)
+        self.assertEqual(reason, "high_then_low")
+        self.assertLess(label, 0)
+        self.assertAlmostEqual(label, -7.0, places=2)
+
     def test_first_touch_label_sell_first(self):
         from core.research.path_panel import first_touch_path_label
 
@@ -95,15 +157,13 @@ class TestPathPanel(unittest.TestCase):
         from core.research.path_panel import attach_path_realized
 
         day = attach_path_realized(
-            {"scores": {"y_path": -12.0}},
-            _minute_sell_first(10.0, "2025-06-01"),
+            {"scores": {"y_path": -1.2}},
+            _minute_low_then_high(10.0, "2025-06-01"),
             ref=10.0,
-            sell_trig_pct=2.0,
-            buy_trig_pct=1.5,
         )
-        self.assertEqual(day.get("path_realized"), 100.0)
-        self.assertEqual(day.get("path_realized_reason"), "sell_first")
-        self.assertEqual(day["scores"].get("path_realized"), 100.0)
+        self.assertGreater(day.get("path_realized"), 0)
+        self.assertEqual(day.get("path_realized_reason"), "low_then_high")
+        self.assertEqual(day["scores"].get("path_realized"), day.get("path_realized"))
 
     def test_collect_prefers_minute_open_ref(self):
         from core.research.path_panel import collect_path_day_sample
@@ -118,35 +178,41 @@ class TestPathPanel(unittest.TestCase):
             "prev_close": 9.9,
         }
         hist = _bars(20, 9.5)
-        # 相对分钟 open 9.85 先触 +2% 卖
+        # 相对分钟 open 9.85：先 low 后 high
         mins = [
             {
                 "date": "2025-06-10",
                 "open": 9.85,
-                "high": 9.85 * 1.021,
-                "low": 9.85 * 0.999,
-                "close": 9.9,
-            }
+                "high": 9.85 * 1.01,
+                "low": 9.85 * 0.98,
+                "close": 9.88,
+            },
+            {
+                "date": "2025-06-10",
+                "open": 9.9,
+                "high": 9.85 * 1.05,
+                "low": 9.9,
+                "close": 9.95,
+            },
         ]
         sample = collect_path_day_sample(
             code="T",
             day_bar=day,
             hist_bars=hist,
             minute_bars=mins,
-            sell_trig_pct=2.0,
-            buy_trig_pct=1.5,
         )
         self.assertIsNotNone(sample)
         self.assertEqual(sample["ref_src"], "minute_open")
         self.assertLess(float(sample["ref_mismatch_pct"]), -0.5)
-        self.assertEqual(sample["label"], 100.0)
+        self.assertGreater(float(sample["label"]), 0)
+        self.assertEqual(sample["label_reason"], "low_then_high")
 
     def test_audit_flags_short_minute_span(self):
         from core.research.path_panel import audit_path_minute_coverage
 
         bars = _bars(30, 10.0)
         # 只给最近 5 日分钟
-        minute_map = {"A": {b["date"]: _minute_sell_first(float(b["open"]), b["date"]) for b in bars[-5:]}}
+        minute_map = {"A": {b["date"]: _minute_low_then_high(float(b["open"]), b["date"]) for b in bars[-5:]}}
         audit = audit_path_minute_coverage(
             [{"code": "A", "bars": bars}],
             minute_map,
@@ -166,8 +232,8 @@ class TestPathPanel(unittest.TestCase):
             {"code": "B", "bars": bars_b},
         ]
         minute_map = {
-            "A": _minute_map_for_bars(bars_a, sell_first=True),
-            "B": _minute_map_for_bars(bars_b, sell_first=False),
+            "A": _minute_map_for_bars(bars_a, low_then_high=True),
+            "B": _minute_map_for_bars(bars_b, low_then_high=False),
         }
         panels = build_path_panels_from_bars(stock_bars, minute_by_code_date=minute_map)
         self.assertGreaterEqual(len(panels), 2)
@@ -180,8 +246,8 @@ class TestPathPanel(unittest.TestCase):
         bars_a = _bars(35, 10.0)
         bars_b = _bars(35, 12.0)
         minute_map = {
-            "A": _minute_map_for_bars(bars_a, sell_first=True),
-            "B": _minute_map_for_bars(bars_b, sell_first=False),
+            "A": _minute_map_for_bars(bars_a, low_then_high=True),
+            "B": _minute_map_for_bars(bars_b, low_then_high=False),
         }
         panels = build_path_panels_from_bars(
             [{"code": "A", "bars": bars_a}, {"code": "B", "bars": bars_b}],
@@ -208,8 +274,8 @@ class TestPathPanel(unittest.TestCase):
         panels = build_path_panels_from_bars(
             [{"code": "A", "bars": bars_a}, {"code": "B", "bars": bars_b}],
             minute_by_code_date={
-                "A": _minute_map_for_bars(bars_a, sell_first=True),
-                "B": _minute_map_for_bars(bars_b, sell_first=False),
+                "A": _minute_map_for_bars(bars_a, low_then_high=True),
+                "B": _minute_map_for_bars(bars_b, low_then_high=False),
             },
         )
         xs = []
@@ -244,7 +310,7 @@ class TestPathRidgeHelpers(unittest.TestCase):
         # 全样本差但无强桶 → 硬拦
         bad = path_promote_gate({"oos": {"sign_hit": 0.5, "n_valid": 100}})
         self.assertFalse(bad["ok"])
-        self.assertTrue(any("≥30" in b or "abs" in b.lower() or "桶" in b for b in bad["blockers"]))
+        self.assertTrue(any("≥2" in b or "abs" in b.lower() or "桶" in b for b in bad["blockers"]))
 
         # 强桶过闸：全样本可软
         ok = path_promote_gate(
@@ -252,7 +318,7 @@ class TestPathRidgeHelpers(unittest.TestCase):
                 "oos": {
                     "sign_hit": 0.54,
                     "n_valid": 100,
-                    "buckets": {"abs_ge_30": {"n": 45, "sign_hit": 0.70}},
+                    "buckets": {"abs_ge_2": {"n": 45, "sign_hit": 0.70}},
                 }
             }
         )
@@ -293,9 +359,9 @@ class TestPathRidgeFit(unittest.TestCase):
             {"code": "C", "bars": bars_c},
         ]
         minute_map = {
-            "A": _minute_map_for_bars(bars_a, sell_first=True),
-            "B": _minute_map_for_bars(bars_b, sell_first=False),
-            "C": _minute_map_for_bars(bars_c, sell_first=True),
+            "A": _minute_map_for_bars(bars_a, low_then_high=True),
+            "B": _minute_map_for_bars(bars_b, low_then_high=False),
+            "C": _minute_map_for_bars(bars_c, low_then_high=True),
         }
         report = fit_path_ridge_report(
             stock_bars,
@@ -306,20 +372,19 @@ class TestPathRidgeFit(unittest.TestCase):
         )
         self.assertTrue(report.get("success"), report.get("error"))
         self.assertEqual(report.get("schema"), "path_ridge_v2")
-        self.assertEqual(report.get("target"), "first_touch_signed")
+        self.assertEqual(report.get("target"), "extreme_order_signed_range")
         self.assertEqual(report.get("sell_trig_pct"), 1.0)
         self.assertEqual(report.get("buy_trig_pct"), 1.0)
         rm = report["return_model"]
         self.assertTrue(rm.get("y_demeaned"))
         self.assertIn("y_label_mean", rm)
-        self.assertEqual(rm.get("sell_trig_pct"), 1.0)
-        self.assertEqual(rm.get("buy_trig_pct"), 1.0)
+        self.assertEqual(rm.get("path_label_mode"), "extreme_order")
         self.assertEqual(
-            (rm.get("y_spec") or {}).get("formula"), "first_touch(sell_trig,buy_trig)"
+            (rm.get("y_spec") or {}).get("formula"), "extreme_order(low,high)"
         )
         oos = report.get("oos") or {}
         self.assertIn("buckets", oos)
-        self.assertIn("abs_ge_30", oos["buckets"])
+        self.assertIn("abs_ge_2", oos["buckets"])
         self.assertIn("balance", oos)
         gate = report.get("promote_gate") or {}
         self.assertIn("ok", gate)
@@ -329,7 +394,7 @@ class TestPathRidgeFit(unittest.TestCase):
             os.makedirs(live, exist_ok=True)
             with patch("core.paths.LIVE_DIR", live):
                 blocked = persist_path_model(report, note="test")
-                # 强桶硬闸：小样本通常缺 |ŷ|≥30 n，默认应拦 promote
+                # 强桶硬闸：小样本通常缺 |ŷ|≥2% n，默认应拦 promote
                 if not gate.get("ok"):
                     self.assertFalse(blocked.get("success"))
                     self.assertIn("promote_gate", blocked)
@@ -353,12 +418,12 @@ class TestPathRidgeFit(unittest.TestCase):
         )
 
         bars = _bars(40, 10.0)
-        minute_map = _minute_map_for_bars(bars, sell_first=True)
+        minute_map = _minute_map_for_bars(bars, low_then_high=True)
         report = fit_path_ridge_report(
             [{"code": "A", "bars": bars}, {"code": "B", "bars": _bars(40, 12.0)}],
             minute_by_code_date={
                 "A": minute_map,
-                "B": _minute_map_for_bars(_bars(40, 12.0), sell_first=False),
+                "B": _minute_map_for_bars(_bars(40, 12.0), low_then_high=False),
             },
             ridge_lambda=1.0,
         )
@@ -382,7 +447,7 @@ class TestPathRidgeService(unittest.TestCase):
             pass
 
         bars = _bars(40, 10.0)
-        minute_map = _minute_map_for_bars(bars, sell_first=True)
+        minute_map = _minute_map_for_bars(bars, low_then_high=True)
 
         with patch("core.watching.store.read_watching") as rw, patch(
             "core.data.facade.bars_and_source", return_value=(bars, "mock")

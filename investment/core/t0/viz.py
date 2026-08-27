@@ -65,7 +65,14 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         or ("y_check" in r.lower() and "conflict" in r.lower())
     ):
         return "other"
-    if "y_path" in r and ("不一致" in r or "预测先" in r):
+    if "y_path" in r and (
+        "不一致" in r
+        or "预测先" in r
+        or "先高后低" in r
+        or "先低后高" in r
+        or "上冲偏大" in r
+        or "下探偏大" in r
+    ):
         return "y_path_disagree"
     if "y_path" in r and ("横盘" in r or "|y_path|" in r):
         return "y_path_flat"
@@ -304,15 +311,16 @@ def _path_agreement(
     y_path: Optional[float],
     direction: str,
     *,
-    path_enter: float = 30.0,
+    path_enter: float = 0.02,
 ) -> Optional[str]:
     """成交日 path 与 τ 方向是否一致：agree / disagree / flat。"""
     if y_path is None:
         return None
-    if abs(float(y_path)) < float(path_enter):
+    thr = float(path_enter)
+    if abs(float(y_path)) <= thr:
         return "flat"
-    wants_long = float(y_path) >= float(path_enter)
-    wants_reverse = float(y_path) <= -float(path_enter)
+    wants_long = float(y_path) > thr
+    wants_reverse = float(y_path) < -thr
     if direction == "long_t":
         if wants_long:
             return "agree"
@@ -329,7 +337,7 @@ def _path_agreement(
 def build_y_path_attribution(
     days: Sequence[dict],
     *,
-    path_enter: float = 30.0,
+    path_enter: float = 0.02,
 ) -> Dict[str, Any]:
     """y_path 联合选向归因：成交一致率 + path 相关跳过分类。"""
     path_skip_ids = (
@@ -406,7 +414,7 @@ def build_y_path_attribution(
 def _merge_y_path_attribution(
     parts: Sequence[Optional[dict]],
     *,
-    path_enter: float = 30.0,
+    path_enter: float = 0.02,
 ) -> Dict[str, Any]:
     """合并多票 y_path 归因块。"""
     skip_by_cat: Dict[str, int] = defaultdict(int)
@@ -823,12 +831,12 @@ def build_t0_viz_payload(
         if y_tau_hist.get(b)
     ]
     y_tau_attribution = build_y_tau_attribution(days)
-    path_enter = 30.0
+    path_enter = 0.02
     if isinstance(rules, dict) and rules.get("y_path_enter") is not None:
         try:
             path_enter = float(rules.get("y_path_enter"))
         except (TypeError, ValueError):
-            path_enter = 30.0
+            path_enter = 0.02
     y_path_attribution = build_y_path_attribution(days, path_enter=path_enter)
 
     stock_contrib: List[Dict[str, Any]] = []
@@ -1022,7 +1030,7 @@ def merge_t0_viz_payloads(
 
     y_path_attribution = _merge_y_path_attribution(
         [p.get("y_path_attribution") for p in (payloads or []) if isinstance(p, dict)],
-        path_enter=float((rules or {}).get("y_path_enter") or 2.0),
+        path_enter=float((rules or {}).get("y_path_enter") or 0.02),
     )
     path_sm = (
         y_path_attribution.get("summary")

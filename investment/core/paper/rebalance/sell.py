@@ -29,6 +29,7 @@ from core.paper.rebalance.reasons import (
 )
 from core.paper.rebalance.state import RebalanceState
 from core.ports.market import quote_price as _quote_price
+from core.t0.intraday import load_rebalance_t0_sell_blocks
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +78,25 @@ def run_sell_leg(state: RebalanceState) -> None:
     _tau_floor_meta = state.tau_floor_meta
     _tau_floor = state.tau_floor
     sentiment_prior_summary = state.sentiment_prior_summary
+
+    t0_sell_blocks = load_rebalance_t0_sell_blocks()
+
+    def _t0_rebalance_block(code: str) -> Optional[str]:
+        return t0_sell_blocks.get(str(code or "").strip())
+
+    def _record_t0_open_leg_skip(code: str, h: dict, *, path: str) -> None:
+        reason = _t0_rebalance_block(code)
+        if not reason:
+            return
+        sell_match_skips.append(
+            {
+                "stock_code": code,
+                "stock_name": h.get("stock_name"),
+                "reason": reason,
+                "score": score_by_code.get(code),
+                "path": path,
+            }
+        )
 
     for h in holdings:
         code = str(h.get("stock_code") or "")
@@ -336,6 +356,11 @@ def run_sell_leg(state: RebalanceState) -> None:
             kept.append(h)
             continue
 
+        if _t0_rebalance_block(code):
+            _record_t0_open_leg_skip(code, h, path="t0_open_leg")
+            kept.append(h)
+            continue
+
         from core.paper.tplus1 import TPLUS1_LOCK_REASON, clip_sell_shares, consume_sell_lots
 
         sell_shares, t1_meta = clip_sell_shares(h, sell_shares)
@@ -405,6 +430,9 @@ def run_sell_leg(state: RebalanceState) -> None:
             r = _sell_match_block_reason(code, quote)
             if r:
                 return r
+            t0_r = _t0_rebalance_block(str(code or ""))
+            if t0_r:
+                return t0_r
             row = kept_by_code.get(str(code or ""))
             if row is not None and not is_fully_sellable(row):
                 return TPLUS1_LOCK_REASON
@@ -606,6 +634,9 @@ def run_sell_leg(state: RebalanceState) -> None:
                                     "path": "risk_excess_name",
                                 })
                                 continue
+                            if _t0_rebalance_block(code):
+                                _record_t0_open_leg_skip(code, h, path="t0_open_leg")
+                                continue
                             from core.paper.tplus1 import (
                                 TPLUS1_LOCK_REASON,
                                 clip_sell_shares,
@@ -709,6 +740,9 @@ def run_sell_leg(state: RebalanceState) -> None:
                                 "score": score_by_code.get(code),
                                 "path": "risk_excess_sector",
                             })
+                            continue
+                        if _t0_rebalance_block(code):
+                            _record_t0_open_leg_skip(code, h, path="t0_open_leg")
                             continue
                         fill_px = apply_fill_price(
                             "sell", float(price), model=cost_model, params=fee_params

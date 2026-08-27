@@ -30,6 +30,7 @@ import {
 } from "../quant/watching_insights_ui.js?v=p1457";
 import { TRADE_TITLE, formatPrevCloseDisplay, formatOpenDisplay } from "../quant/watching_quotes_ui.js?v=p1227";
 import { buildHoldingSharesTip } from "./holding_lots_tip.js?v=p1227";
+import { holdingT0BadgeHtml } from "./holding_t0_badge.js?v=p1526";
 
 const ORIGIN_HINT = {
   manual: "你手动建仓或加仓",
@@ -225,6 +226,10 @@ export function buildPaperHoldingsTableHtml({
         `<td class="num"><span class="paper-hold-shares-qty has-tip" title="${escapeText(
           buildHoldingSharesTip(h) || `持仓 ${h.shares ?? "—"} 股`
         )}">${escapeText(h.shares ?? "—")}</span></td>` +
+        `<td class="watching-col-center paper-hold-t0">${holdingT0BadgeHtml(
+          h.t0_intraday,
+          escapeText
+        )}</td>` +
         `<td class="num paper-hold-prev-close" title="上一交易日收盘价">${escapeText(
           formatPrevCloseDisplay(h, { unit: h.unit, currency: h.currency })
         )}</td>` +
@@ -299,6 +304,7 @@ export function buildPaperHoldingsTableHtml({
     `<th title="股票名称与代码">股票</th>` +
     `<th class="watching-col-center" title="标题情绪摘要">情绪</th>` +
     `<th title="持仓股数">股数</th>` +
+    `<th class="watching-col-center paper-hold-t0-head" title="当日实时做 T：正T/反T · 盯盘/一腿/完成">做T</th>` +
     `<th title="上一交易日收盘价">昨收</th>` +
     `<th title="今日开盘价">今开</th>` +
     `<th title="最新成交价">现价</th>` +

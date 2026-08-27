@@ -63,7 +63,7 @@ export const SKIP_CAT_TIP = {
   y_tau_weak:
     "历史跳过类别（旧双闸弱信号区）；现已并入 y_τ 入场，新跑批不再产生。",
   y_path_flat:
-    "|ŷ_path| 低于 path enter（默认 30）：路径头横盘，不参与 dual_y 选向。",
+    "|ŷ_path|≤path enter（默认 0.02%）：未过门槛，不参与 dual_y 选向。",
   y_path_disagree:
     "ŷ_τ 与 ŷ_path 方向不一致（dual_y）：两边拧着则跳过。",
   gap_tier_skip:
@@ -97,7 +97,7 @@ const TABLE_CLASS = "quant-weight-table paper-t0-table paper-t0-trades-table";
 /** 列轨宽度：colgroup inline width + CSS 同源，避免 fixed 表头/体错位 */
 const T0_TRADE_COL_W = {
   stock: "10.5rem",
-  date: "78px",
+  date: "104px",
   eod: "82px",
   tau: "82px",
   path: "110px",
@@ -124,6 +124,14 @@ function truncateName(name, max = 6) {
 function t0Col(cls, key) {
   const w = T0_TRADE_COL_W[key];
   return `<col class="${cls}" style="width:${w}" />`;
+}
+
+/** 成交日：统一 YYYY-MM-DD，避免 ISO 时间戳被列宽裁成 2026-08-2… */
+function fmtTradeDate(raw, fallback) {
+  const s = String(raw || fallback || "").trim();
+  if (!s) return "";
+  const m = s.match(/^(\d{4}-\d{2}-\d{2})/);
+  return m ? m[1] : s.slice(0, 10);
 }
 
 /** 股票名 + 代码（对齐数据中心 watching-stock：名上行、码下行） */
@@ -242,13 +250,20 @@ function pickPathRealized(d) {
       ""
   ).trim();
   const reasonMap = {
-    sell_first: "先触卖",
-    buy_first: "先触买",
-    no_touch: "未触达",
-    same_bar_both: "同根双触",
+    low_then_high: "先低后高",
+    high_then_low: "先高后低",
+    skew_up: "上冲偏大",
+    skew_down: "下探偏大",
+    flat_skew: "偏斜中性",
+    same_bar_extreme: "同根极值",
+    flat_range: "无振幅",
+    sell_first: "先触卖(旧)",
+    buy_first: "先触买(旧)",
+    no_touch: "未触达(旧)",
+    same_bar_both: "同根双触(旧)",
     invalid_ref_or_empty: "无效开盘/无分钟",
   };
-  const label = reasonMap[reason] || reason || (n > 0 ? "先触卖" : n < 0 ? "先触买" : "中性");
+  const label = reasonMap[reason] || reason || (n > 0 ? "先低后高·正T" : n < 0 ? "先高后低·反T" : "中性");
   const pred = pickScoreNum(d, "y_path");
   let hitNote = "";
   if (pred != null && n !== 0 && Math.abs(pred) >= 1e-9) {
@@ -259,9 +274,13 @@ function pickPathRealized(d) {
     ? d.path_realized_trig
     : null;
   const trigNote =
-    trig && trig.sell_trig_pct != null && trig.buy_trig_pct != null
-      ? ` · 对照触发=模型口径 卖${trig.sell_trig_pct}%/买${trig.buy_trig_pct}%`
-      : "";
+    trig && trig.path_label_mode
+      ? ` · 对照=${trig.path_label_mode}`
+      : trig && trig.sell_trig_pct != null && trig.buy_trig_pct != null
+        ? ` · 对照触发=卖${trig.sell_trig_pct}%/买${trig.buy_trig_pct}%`
+        : trig && trig.note
+          ? ` · ${trig.note}`
+          : "";
   return {
     text: fmtPathScore(n),
     tip: `${PATH_REALIZED_TITLE} · ${label}${hitNote}${trigNote}`,
@@ -339,22 +358,33 @@ function pickEodRealized(d) {
   };
 }
 
-/** y_path 预测 + path实：单行「预估值(真实值)」。 */
-function pathMergedCellHtml(d, fallback, rules, scoreDetailJson) {
+/** 回测：预估值(真实值)；实时做 T 无收盘真实 label，只显示预估值。 */
+function fmtPredRealizedText(predTxt, pr, showRealized) {
+  if (!showRealized || pr == null || pr.n == null) return predTxt;
+  return `${predTxt}(${pr.text})`;
+}
+
+function predRealizedAgreeCls(pr, showRealized) {
+  if (!showRealized || !pr) return "";
+  if (pr.agree === true) return " is-path-hit";
+  if (pr.agree === false) return " is-path-miss";
+  return "";
+}
+
+/** y_path：回测配对真实值；实时做 T 只显示 ŷ。 */
+function pathMergedCellHtml(d, fallback, rules, scoreDetailJson, showRealized = true) {
   const it = t0DayScoreItem(d, fallback, rules);
   const pred = resolvePathScore(it);
   const predTxt = pred != null ? fmtPathScore(pred) : "—";
-  const pr = pickPathRealized(d);
-  const realTxt = pr.n != null ? pr.text : "—";
-  const agreeCls =
-    pr.agree === true ? " is-path-hit" : pr.agree === false ? " is-path-miss" : "";
-  const tipParts = [
-    pred != null ? Y_PATH_TITLE : "暂无 ŷ_path",
-    pr.n != null ? pr.tip : PATH_REALIZED_TITLE,
-  ];
-  if (pr.agree === true) tipParts.push("预测与真实同号");
-  else if (pr.agree === false) tipParts.push("预测与真实异号");
-  const text = `${predTxt}(${realTxt})`;
+  const pr = showRealized ? pickPathRealized(d) : { n: null, tip: PATH_REALIZED_TITLE };
+  const agreeCls = predRealizedAgreeCls(pr, showRealized);
+  const tipParts = [pred != null ? Y_PATH_TITLE : "暂无 ŷ_path"];
+  if (showRealized) {
+    tipParts.push(pr.n != null ? pr.tip : PATH_REALIZED_TITLE);
+    if (pr.agree === true) tipParts.push("预测与真实同号");
+    else if (pr.agree === false) tipParts.push("预测与真实异号");
+  }
+  const text = fmtPredRealizedText(predTxt, pr, showRealized);
   return (
     `<td class="num paper-t0-col-path paper-t0-col-y paper-t0-col-y-path paper-t0-y-score paper-t0-y-merged has-tip${agreeCls}" ` +
     `data-score-tip="path" data-score-detail="${scoreDetailJson}" ` +
@@ -364,8 +394,8 @@ function pathMergedCellHtml(d, fallback, rules, scoreDetailJson) {
   );
 }
 
-/** y_eod / y_τ：单行「预估值(真实值)」。 */
-function yPctMergedCellHtml(kind, d, fallback, rules, scoreDetailJson, titleExtra) {
+/** y_eod / y_τ：回测配对真实值；实时做 T 只显示 ŷ。 */
+function yPctMergedCellHtml(kind, d, fallback, rules, scoreDetailJson, titleExtra, showRealized = true) {
   const it = t0DayScoreItem(d, fallback, rules);
   const isEod = kind === "eod";
   const pred = isEod ? resolveEodScore(it) : resolveTauScore(it);
@@ -376,20 +406,24 @@ function yPctMergedCellHtml(kind, d, fallback, rules, scoreDetailJson, titleExtr
       predTxt = fmtTableScore(it, Number(ds));
     }
   }
-  const pr = isEod ? pickEodRealized(d) : pickTauRealized(d);
-  const realTxt = pr.n != null ? pr.text : "—";
-  const agreeCls =
-    pr.agree === true ? " is-path-hit" : pr.agree === false ? " is-path-miss" : "";
+  const pr = showRealized
+    ? isEod
+      ? pickEodRealized(d)
+      : pickTauRealized(d)
+    : { n: null, tip: isEod ? EOD_REALIZED_TITLE : TAU_REALIZED_TITLE };
+  const agreeCls = predRealizedAgreeCls(pr, showRealized);
   const yTitle = isEod ? Y_EOD_TITLE : Y_TAU_TITLE;
   const realTitle = isEod ? EOD_REALIZED_TITLE : TAU_REALIZED_TITLE;
   const tipParts = [
     pred != null || predTxt !== "—" ? yTitle : `暂无 ${isEod ? "ŷ_EOD" : "ŷ_τ"}`,
-    pr.n != null ? pr.tip : realTitle,
   ];
+  if (showRealized) tipParts.push(pr.n != null ? pr.tip : realTitle);
   if (titleExtra) tipParts.push(String(titleExtra));
-  if (pr.agree === true) tipParts.push("预测与真实同号");
-  else if (pr.agree === false) tipParts.push("预测与真实异号");
-  const text = `${predTxt}(${realTxt})`;
+  if (showRealized) {
+    if (pr.agree === true) tipParts.push("预测与真实同号");
+    else if (pr.agree === false) tipParts.push("预测与真实异号");
+  }
+  const text = fmtPredRealizedText(predTxt, pr, showRealized);
   const colKey = kind;
   return (
     `<td class="num paper-t0-col-${escapeText(colKey)} paper-t0-col-y paper-t0-col-y-${escapeText(
@@ -441,7 +475,7 @@ function t0DayScoreItem(d, fallback = {}, rules = {}) {
     y_path_enter:
       rules.y_path_enter != null && Number.isFinite(Number(rules.y_path_enter))
         ? Number(rules.y_path_enter)
-        : null,
+        : 0.02,
     rules: rules && Object.keys(rules).length ? rules : null,
     predicted_score_blend_vs: scores.predicted_score_blend_vs ?? null,
     y_check: scores.y_check ?? feats.y_check ?? null,
@@ -915,7 +949,7 @@ function wrapTradesFullscreenPanel(innerHtml, caption) {
 
 /**
  * 成交明细表（纸面 / 量化回测共用）
- * @param {{ data?: object, days: object[], caption?: string, maxRows?: number, showReason?: boolean, preserveOrder?: boolean, showDelete?: boolean }} opts
+ * @param {{ data?: object, days: object[], caption?: string, maxRows?: number, showReason?: boolean, preserveOrder?: boolean, showDelete?: boolean, showRealized?: boolean }} opts
  */
 export function buildT0TradeTableHtml(opts) {
   const {
@@ -926,6 +960,7 @@ export function buildT0TradeTableHtml(opts) {
     showReason = false,
     preserveOrder = false,
     showDelete = false,
+    showRealized = true,
   } = opts || {};
   if (!days || !days.length) return caption || "";
   const showStock = shouldShowStockColumn(data, days);
@@ -940,17 +975,18 @@ export function buildT0TradeTableHtml(opts) {
   };
 
   const ncHead = "y_nc";
+  const pairHint = showRealized ? " · 显示：预估值(真实值)" : "";
   const head =
     (showStock ? `<th scope="col" class="paper-t0-col-stock">股票</th>` : "") +
     `<th scope="col" class="paper-t0-col-date">日</th>` +
     `<th scope="col" class="paper-t0-col-eod num paper-t0-col-y paper-t0-col-y-eod" title="${escapeText(
-      `${Y_EOD_TITLE} · 显示：预估值(真实值)`
+      `${Y_EOD_TITLE}${pairHint}`
     )}">y_eod</th>` +
     `<th scope="col" class="paper-t0-col-tau num paper-t0-col-y paper-t0-col-y-tau" title="${escapeText(
-      `${scoreTip} · 显示：预估值(真实值)`
+      `${scoreTip}${pairHint}`
     )}">y_τ</th>` +
     `<th scope="col" class="paper-t0-col-path num paper-t0-col-y paper-t0-col-y-path" title="${escapeText(
-      `${Y_PATH_TITLE} · 显示：预估值(真实值)`
+      `${Y_PATH_TITLE}${pairHint}`
     )}">y_path</th>` +
     `<th scope="col" class="paper-t0-col-trade num paper-t0-col-y paper-t0-col-y-trade" title="y_trade 可交易性">y_trade</th>` +
     `<th scope="col" class="paper-t0-col-on num paper-t0-col-y paper-t0-col-y-on" title="${escapeText(
@@ -1006,14 +1042,19 @@ export function buildT0TradeTableHtml(opts) {
       return (
         `<tr class="${skipped ? "is-skipped" : ""}" data-code="${escapeText(code)}">` +
         (showStock ? stockCellHtml(d, fallback) : "") +
-        `<td class="paper-t0-col-date">${escapeText(d.date || "")}</td>` +
+        `<td class="paper-t0-col-date" title="${escapeText(
+          fmtTradeDate(d.date, data.sessionDate || data.session_date)
+        )}">${escapeText(
+          fmtTradeDate(d.date, data.sessionDate || data.session_date)
+        )}</td>` +
         yPctMergedCellHtml(
           "eod",
           d,
           fallback,
           rules,
           scoreDetailJson,
-          null
+          null,
+          showRealized
         ) +
         yPctMergedCellHtml(
           "tau",
@@ -1021,9 +1062,10 @@ export function buildT0TradeTableHtml(opts) {
           fallback,
           rules,
           scoreDetailJson,
-          d.direction_reason || null
+          d.direction_reason || null,
+          showRealized
         ) +
-        pathMergedCellHtml(d, fallback, rules, scoreDetailJson) +
+        pathMergedCellHtml(d, fallback, rules, scoreDetailJson, showRealized) +
         t0YScoreCell("trade", t0FmtYScore(d, "trade", fallback, rules), scoreDetailJson, TRADE_TITLE) +
         t0YScoreCell("on", t0FmtYScore(d, "on", fallback, rules), scoreDetailJson, Y_ON_TITLE) +
         t0YScoreCell(

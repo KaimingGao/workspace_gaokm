@@ -171,7 +171,7 @@ def row_from_scored_item(
         yhat_path = _to_float(item.get("yhat_path"))
     if yhat_path is None:
         yhat_path = _to_float(item.get("y_path"))
-    # path 头标签 ±100，勿用 EOD 的 >20 守卫
+    # path 头为 signed range%；勿用 EOD 的 >20 守卫；>|120| 多为旧 ±100 脏值
     if yhat_path is not None and abs(float(yhat_path)) > 120.0:
         yhat_path = None
     terms = _terms_top(

@@ -166,6 +166,13 @@ class PaperAccountMixin:
                 }
             )
             enriched_holdings = []
+            try:
+                from core.t0.intraday import load_holding_t0_status_by_code
+
+                t0_by_code = load_holding_t0_status_by_code()
+            except Exception:  # noqa: BLE001
+                logger.debug("holding t0 intraday status skipped", exc_info=True)
+                t0_by_code = {}
             for h in summary.get("holdings") or []:
                 code = str(h.get("stock_code") or "")
                 enriched = dict(h)
@@ -201,6 +208,9 @@ class PaperAccountMixin:
                     log.debug("holding on hydrate skipped %s: %s", code, e)
                 # 与调仓报告 / 观察表同源：仅目标簿 book[]，不含 scored_all 全宇宙
                 enriched["in_book"] = code in book_codes
+                t0_st = t0_by_code.get(code)
+                if t0_st:
+                    enriched["t0_intraday"] = t0_st
                 enriched_holdings.append(enriched)
 
             summary["holdings"] = enriched_holdings
@@ -355,20 +365,30 @@ class PaperAccountMixin:
             raw_holdings = []
             from core.paper.tplus1 import snapshot_tplus1
 
+            try:
+                from core.t0.intraday import load_holding_t0_status_by_code
+
+                t0_by_code = load_holding_t0_status_by_code()
+            except Exception:  # noqa: BLE001
+                logger.debug("lite holding t0 intraday status skipped", exc_info=True)
+                t0_by_code = {}
             for h in paper.get("holdings") or []:
                 t1 = snapshot_tplus1(h)
-                raw_holdings.append(
-                    {
-                        "stock_code": h.get("stock_code"),
-                        "stock_name": h.get("stock_name"),
-                        "shares": h.get("shares"),
-                        "cost": h.get("cost"),
-                        "bought_at": h.get("bought_at"),
-                        "sellable_shares": t1["sellable_shares"],
-                        "locked_shares": t1["locked_shares"],
-                        "origin": h.get("origin"),
-                    }
-                )
+                code = str(h.get("stock_code") or "")
+                row = {
+                    "stock_code": h.get("stock_code"),
+                    "stock_name": h.get("stock_name"),
+                    "shares": h.get("shares"),
+                    "cost": h.get("cost"),
+                    "bought_at": h.get("bought_at"),
+                    "sellable_shares": t1["sellable_shares"],
+                    "locked_shares": t1["locked_shares"],
+                    "origin": h.get("origin"),
+                }
+                t0_st = t0_by_code.get(code)
+                if t0_st:
+                    row["t0_intraday"] = t0_st
+                raw_holdings.append(row)
             return {
                 "ok": True,
                 "initialized": True,

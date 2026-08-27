@@ -480,7 +480,7 @@ export function createFactorIcUi(deps) {
     const ySpec =
       (rm.y_spec && rm.y_spec.formula) ||
       (isPath
-        ? "first_touch(sell,buy)"
+        ? "extreme_order(low,high)"
         : isOn
           ? "open[T+1]/open[T]-1"
           : "close[T]/open[T]-1");

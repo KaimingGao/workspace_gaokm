@@ -6,7 +6,7 @@
   y_τ      — 盘中主方向（开→收）；|y_τ| 超 enter 门槛后连续放大额度
   y_on     — 尾盘是否强制回补
   y_nowcast— 对照 nc（Kalman 昨收）；|nc| 够强且与 y_τ 异号可跳过（OC 开比 nowcast oc）
-  y_path   — 分钟第一触达顺序（±100）；|ŷ_path|≥enter 才入场，且须与 τ 方向一致
+  y_path   — 分钟极值时间序 signed range%；|ŷ_path|>enter 才入场，且须与 τ 方向一致
 
 选向分数默认**即时算**（开盘决策信息集：昨收因子 + 今开缺口），
 不依赖 score_ledger / 分池簿冻结快照；账本与簿仅作可选兜底。
@@ -32,7 +32,7 @@ DEFAULT_EOD_ALIGN_BOOST = 1.10
 DEFAULT_RATIO_TAU_SOFT_BAND = 0.20
 DEFAULT_TAU_NOWCAST_SIGN_EPS = 0.05
 DEFAULT_NOWCAST_ENTER = 1.0  # |nowcast|≥此值且与 y_τ 异号才拦
-DEFAULT_PATH_ENTER = 2.0  # ŷ_path ±100；|ŷ|<enter 横盘跳过；≥enter 且与 τ 冲突才否决
+DEFAULT_PATH_ENTER = 0.02  # ŷ_path 极值序 %；|ŷ|≤enter 横盘跳过；与 y_tau_enter 同尺度
 DEFAULT_GAP_TIER_PCT = 1.5
 DEFAULT_PATH_ABANDON_BARS = 6
 
@@ -798,9 +798,10 @@ def normalize_y_tau_map(raw: Any) -> str:
 def _path_direction_sign(y_path: Optional[float], path_enter: float) -> int:
     if y_path is None:
         return 0
-    if y_path >= path_enter:
+    thr = float(path_enter)
+    if y_path > thr:
         return 1
-    if y_path <= -path_enter:
+    if y_path < -thr:
         return -1
     return 0
 
@@ -1039,10 +1040,14 @@ def resolve_dual_y_direction(
     cash: float,
     shares: float,
 ) -> Dict[str, Any]:
-    """dual_y 选向：|y_trade|下限 → 主方向(y_τ + y_tau_map) → path 入场/否决 → 可选 τ↔nowcast 异号跳过。
+    """dual_y 选向：|y_trade|下限 → τ/path 双门槛且同向 → 可选 τ↔nowcast 异号跳过。
 
-    y_eod 仅用于目标价同向回升（与 y_τ 窗口不同：昨收→收 vs 开→收）。
-    y_path：|ŷ_path|<enter 横盘跳过；≥enter 且与 τ 方向冲突则否决。
+    做 T 准入（y_use_path 开且 ŷ_path 可得时）：
+      |y_τ|≥y_tau_enter 定正/反 T；
+      |y_path|>y_path_enter 且与 τ 同向（正T↔y_path>0，反T↔y_path<0）；
+      任一侧未过门槛或异号则跳过。
+    y_path 缺失时默认不拦（y_path_required 开则拦）。
+    y_eod 仅目标价同向回升，不参与准入。
     """
     from core.t0.config import coerce_cfg_bool
 
@@ -1082,7 +1087,7 @@ def resolve_dual_y_direction(
         gap_pct = _f(scores["features_tau"].get("gap_pct"))
 
     use_path = bool(cfg.get("y_use_path", True))
-    path_enter = _cfg_float(cfg, "y_path_enter", DEFAULT_PATH_ENTER)
+    path_enter = _cfg_float(cfg, "y_path_enter", tau_enter)
     path_required = bool(cfg.get("y_path_required", False))
     use_nowcast_oc = coerce_cfg_bool(cfg.get("y_nowcast_oc_gate"), False)
 
@@ -1208,14 +1213,14 @@ def resolve_dual_y_direction(
                 "features": features,
                 "signal_skip": True,
             }
-        # path 入场闸：|ŷ_path|<enter 横盘跳过；≥enter 且与 τ 冲突才否决
+        # path 入场闸：|ŷ_path|≤enter 横盘跳过；>enter 且与 τ 冲突才否决
         if y_path is not None and path_sign == 0:
             return {
                 "direction": None,
                 "skip": True,
                 "direction_score": y_tau,
                 "direction_reason": (
-                    f"dual_y：|y_path|={abs(y_path):.1f}<{path_enter} 横盘跳过"
+                    f"dual_y：|y_path|={abs(y_path):.3f}%≤{path_enter}% 横盘跳过"
                 ),
                 "features": features,
                 "signal_skip": True,
@@ -1229,7 +1234,7 @@ def resolve_dual_y_direction(
                     "skip": True,
                     "direction_score": y_tau,
                     "direction_reason": (
-                        f"dual_y：y_τ→{direction} 但 y_path={y_path:.1f} 预测先买（不一致）"
+                        f"dual_y：y_τ→{direction} 但 y_path={y_path:.3f}% 先高后低（不一致）"
                     ),
                     "features": features,
                     "signal_skip": True,
@@ -1240,7 +1245,7 @@ def resolve_dual_y_direction(
                     "skip": True,
                     "direction_score": y_tau,
                     "direction_reason": (
-                        f"dual_y：y_τ→{direction} 但 y_path={y_path:.1f} 预测先卖（不一致）"
+                        f"dual_y：y_τ→{direction} 但 y_path={y_path:.3f}% 先低后高（不一致）"
                     ),
                     "features": features,
                     "signal_skip": True,

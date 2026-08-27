@@ -538,6 +538,54 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
   white-space: nowrap;
 }
 
+.paper-hold-t0,
+.paper-hold-t0-head {
+  text-align: center;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+
+.paper-hold-t0-badge {
+  display: inline-block;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  line-height: 1.35;
+  white-space: nowrap;
+  border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
+  background: color-mix(in srgb, var(--ink) 4%, var(--bg-card, var(--surface)));
+  color: var(--ink-2);
+}
+
+.paper-hold-t0-badge.is-long {
+  color: color-mix(in srgb, var(--up, #c0392b) 88%, var(--ink));
+  border-color: color-mix(in srgb, var(--up, #c0392b) 35%, var(--line));
+}
+
+.paper-hold-t0-badge.is-rev {
+  color: color-mix(in srgb, var(--accent, #2563eb) 88%, var(--ink));
+  border-color: color-mix(in srgb, var(--accent, #2563eb) 35%, var(--line));
+}
+
+.paper-hold-t0-badge.is-leg1 {
+  font-weight: 800;
+  background: color-mix(in srgb, var(--accent, #2563eb) 10%, var(--bg-card, var(--surface)));
+}
+
+.paper-hold-t0-badge.is-done {
+  opacity: 0.72;
+}
+
+.paper-hold-t0-badge.is-locked {
+  opacity: 0.65;
+}
+
+.paper-hold-t0-empty {
+  color: var(--ink-3);
+}
+
 .paper-holdings-table td.paper-hold-origin {
   text-align: center;
   vertical-align: middle;
@@ -4146,10 +4194,13 @@ body[data-page="follow"] .paper-t0-table {
 
 /* 列轨 px：与 watching_table_island.js COLS 同源 */
 .paper-t0-col-stock { width: 10.5rem; min-width: 10.5rem; }
-.paper-t0-col-date { width: 78px; min-width: 78px; }
-.paper-t0-table td.paper-t0-col-date {
+.paper-t0-col-date { width: 104px; min-width: 104px; }
+.paper-t0-table td.paper-t0-col-date,
+.paper-t0-table th.paper-t0-col-date {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  overflow: visible;
+  text-overflow: unset;
 }
 .paper-t0-col-dir { width: 48px; min-width: 48px; text-align: center; }
 .paper-t0-table th.paper-t0-col-dir,

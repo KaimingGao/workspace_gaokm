@@ -1,9 +1,10 @@
-"""ŷ_path 训练面板：开盘特征 → 分钟第一触达顺序（卖触发 vs 买触发）。
+"""ŷ_path 训练面板：开盘特征 → 分钟极值**时间序**（与 y_τ 同尺度 %）。
 
-标签（百分点尺度，与 ridge 回归一致）：
-  +100 — 前缀先触达卖出触发（偏正 T：先卖）
-  -100 — 前缀先触达买入触发（偏反 T：先买）
-     0 — 未触达 / 同根双触 / 无效
+标签（相对锚价 ref 的百分点）：
+  先 low 后 high → y_path = (high−low)/ref×100  （等价 (high−open)−(low−open) 再除以 ref）
+  先 high 后 low → y_path = (low−high)/ref×100
+
+``first_touch_path_label`` 保留供触价对照；训练与 path实 用 ``extreme_order_path_label``。
 
 无未来函数：特征仅用 T 开盘信息集（与 τ 头 / score_t0_direction 同源）。
 """
@@ -128,11 +129,9 @@ def audit_path_minute_coverage(
             if ref is None or ref <= 0:
                 reasons["invalid_ref"] = reasons.get("invalid_ref", 0) + 1
                 continue
-            _lab, why = first_touch_path_label(
+            _lab, why = extreme_order_path_label(
                 mins,
                 ref=float(ref),
-                sell_trig_pct=sell_trig_pct,
-                buy_trig_pct=buy_trig_pct,
             )
             reasons[str(why)] = reasons.get(str(why), 0) + 1
     spans_sorted = sorted(spans)
@@ -160,6 +159,70 @@ def audit_path_minute_coverage(
             else []
         ),
     }
+
+
+def _minute_day_extremes(minute_bars: Sequence[dict]) -> Tuple[Optional[float], Optional[float]]:
+    day_hi: Optional[float] = None
+    day_lo: Optional[float] = None
+    for bar in minute_bars or []:
+        if not isinstance(bar, dict):
+            continue
+        hi = _f(bar.get("high"))
+        lo = _f(bar.get("low"))
+        if hi is not None:
+            day_hi = hi if day_hi is None else max(day_hi, hi)
+        if lo is not None:
+            day_lo = lo if day_lo is None else min(day_lo, lo)
+    return day_hi, day_lo
+
+
+def _first_extreme_bar_indices(
+    minute_bars: Sequence[dict],
+    day_high: float,
+    day_low: float,
+    *,
+    eps: float = 1e-6,
+) -> Tuple[Optional[int], Optional[int]]:
+    """返回 (low_idx, high_idx)：日内极值首次出现的 bar 下标。"""
+    low_idx: Optional[int] = None
+    high_idx: Optional[int] = None
+    for i, bar in enumerate(minute_bars or []):
+        if not isinstance(bar, dict):
+            continue
+        lo = _f(bar.get("low"))
+        hi = _f(bar.get("high"))
+        if low_idx is None and lo is not None and lo <= day_low + eps:
+            low_idx = i
+        if high_idx is None and hi is not None and hi >= day_high - eps:
+            high_idx = i
+        if low_idx is not None and high_idx is not None:
+            break
+    return low_idx, high_idx
+
+
+def extreme_order_path_label(
+    minute_bars: Sequence[dict],
+    *,
+    ref: float,
+) -> Tuple[float, str]:
+    """极值时间序：先 low→high 则 (H−L)/ref%；先 high→low 则 (L−H)/ref%。"""
+    if ref <= 0 or not minute_bars:
+        return 0.0, "invalid_ref_or_empty"
+    day_hi, day_lo = _minute_day_extremes(minute_bars)
+    if day_hi is None or day_lo is None:
+        return 0.0, "invalid_ref_or_empty"
+    span = float(day_hi) - float(day_lo)
+    if span <= 1e-9:
+        return 0.0, "flat_range"
+    low_idx, high_idx = _first_extreme_bar_indices(minute_bars, day_hi, day_lo)
+    if low_idx is None or high_idx is None:
+        return 0.0, "invalid_ref_or_empty"
+    if low_idx == high_idx:
+        return 0.0, "same_bar_extreme"
+    span_pct = span / float(ref) * 100.0
+    if low_idx < high_idx:
+        return round(span_pct, 4), "low_then_high"
+    return round(-span_pct, 4), "high_then_low"
 
 
 def first_touch_path_label(
@@ -200,23 +263,33 @@ def attach_path_realized(
     sell_trig_pct: float = 2.0,
     buy_trig_pct: float = 1.5,
 ) -> Dict[str, Any]:
-    """把真实 first_touch 标签写入日结果（与 ŷ_path 同尺度 ±100）。"""
+    """把真实极值序标签写入日结果（signed (H−L)/ref %，与 ŷ_path 同尺度）。"""
     out: Dict[str, Any] = dict(day or {})
+    minute_open = None
+    for b in minute_bars or []:
+        if isinstance(b, dict):
+            minute_open = _f(b.get("open"))
+            if minute_open is not None and minute_open > 0:
+                break
     open_px = ref
     if open_px is None:
-        open_px = _f(out.get("open"))
+        open_px = minute_open if minute_open and minute_open > 0 else _f(out.get("open"))
     if open_px is None and isinstance(out.get("bar"), dict):
         open_px = _f(out["bar"].get("open"))
     if open_px is None or float(open_px) <= 0 or not minute_bars:
         return out
-    label, reason = first_touch_path_label(
+    label, reason = extreme_order_path_label(
         minute_bars,
         ref=float(open_px),
-        sell_trig_pct=float(sell_trig_pct),
-        buy_trig_pct=float(buy_trig_pct),
     )
+    day_hi, day_lo = _minute_day_extremes(minute_bars)
     out["path_realized"] = float(label)
     out["path_realized_reason"] = str(reason)
+    if day_hi is not None and day_lo is not None:
+        out["path_realized_range"] = round(float(day_hi) - float(day_lo), 6)
+        out["path_realized_range_pct"] = round(
+            (float(day_hi) - float(day_lo)) / float(open_px) * 100.0, 4
+        )
     # 同步进 scores / direction_features，供 tip / 表列读取
     scores = dict(out.get("scores") or {}) if isinstance(out.get("scores"), dict) else {}
     scores["path_realized"] = float(label)
@@ -264,11 +337,7 @@ def collect_path_day_sample(
     sell_trig_pct: float = 2.0,
     buy_trig_pct: float = 1.5,
 ) -> Optional[Dict[str, Any]]:
-    """单日：开盘特征 + 分钟第一触达标签。
-
-    触发锚点优先用**当日首根分钟 open**（与高低点同源）；若与日线 open
-    偏差过大则记 ``ref_mismatch_pct``，避免日线/分钟复权口径不一致污染标签。
-    """
+    """单日：开盘特征 + 分钟极值时间序标签（先 low→high 为正）。"""
     if not isinstance(day_bar, dict):
         return None
     daily_open = _f(day_bar.get("open"))
@@ -298,20 +367,25 @@ def collect_path_day_sample(
         gap_open = daily_open if daily_open and daily_open > 0 else ref
         if pc and gap_open:
             feats["gap_pct"] = round((float(gap_open) / float(pc) - 1.0) * 100.0, 4)
-    label, reason = first_touch_path_label(
+    label, reason = extreme_order_path_label(
         minute_bars,
         ref=ref,
-        sell_trig_pct=sell_trig_pct,
-        buy_trig_pct=buy_trig_pct,
     )
     if label == 0.0:
         return None
+    day_hi, day_lo = _minute_day_extremes(minute_bars)
+    label_range = (
+        round(float(day_hi) - float(day_lo), 6)
+        if day_hi is not None and day_lo is not None
+        else None
+    )
     return {
         "code": str(code or "").strip(),
         "date": str(day_bar.get("date") or "")[:10],
         "features": feats,
         "label": label,
         "label_reason": reason,
+        "label_range": label_range,
         "ref": float(ref),
         "ref_src": ref_src,
         "ref_mismatch_pct": ref_mismatch_pct,

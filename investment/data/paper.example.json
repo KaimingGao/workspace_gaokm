@@ -29,7 +29,7 @@
       "min_range_pct": 0.2,
       "y_tau_enter": 0.02,
       "y_trade_floor": 0.02,
-      "y_path_enter": 2.0,
+      "y_path_enter": 0.02,
       "y_nowcast_oc_gate": false,
       "y_nowcast_enter": 3.0
     }

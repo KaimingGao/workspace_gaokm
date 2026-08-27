@@ -65,11 +65,11 @@ const COUPLING_LABELS = {
   only_if_hold: "仅 hold/watch",
 };
 
-function fmtThresholdPct(val, fallback) {
+function fmtThresholdPct(val, fallback, op = "≥") {
   const n = Number(val ?? fallback);
   if (!Number.isFinite(n)) return "—";
   const s = Math.abs(n) >= 1 ? n.toFixed(1) : n.toFixed(2);
-  return `≥${s}%`;
+  return `${op}${s}%`;
 }
 
 function fmtTriggerPair(sell, buy) {
@@ -307,15 +307,15 @@ function buildDualYPipelineHtml(t0) {
     PATH_MODE_LABELS[String(t0.path_mode || "first_touch").toLowerCase()] || "5m";
   const pathSub =
     t0.y_use_path !== false
-      ? `|y_p|≥${fmtThresholdPct(t0.y_path_enter, 2)}`
+      ? `|y_p|${fmtThresholdPct(t0.y_path_enter, 0.02, ">")}`
       : pathLbl;
   const pathTip =
     t0.y_use_path !== false
-      ? "ŷ_path 入场闸：|y_p|≥门槛才做 T；达门槛后与 τ 冲突则否决"
+      ? "准入：|τ|与|path|各过门槛且同向（正T↔path>0）；缺 ŷ_path 时不拦（除非强制）"
       : "分钟路径首触达";
   const nodes = [
     { stage: "trade", role: "资格", label: "trade", sub: fmtThresholdPct(t0.y_trade_floor, 0.02), tip: "ŷ_trade 幅度门槛" },
-    { stage: "tau", role: "方向", label: "τ", sub: fmtThresholdPct(t0.y_tau_enter, 0.02), tip: "ŷ_τ 定正/反 T（|τ|<入场则跳过）" },
+    { stage: "tau", role: "方向", label: "τ", sub: fmtThresholdPct(t0.y_tau_enter, 0.02), tip: "|ŷ_τ|≥入场闸定正/反T；未过闸横盘跳过" },
     { stage: "path", role: "路径", label: "path", sub: pathSub, tip: pathTip },
     { stage: "eod", role: "先验", label: "eod", sub: fmtThresholdPct(t0.y_eod_prior, 0.02), tip: "ŷ_eod 同向略抬目标价信心" },
     { stage: "on", role: "回补", label: "on", sub: fmtThresholdPct(t0.y_on_allow, 0.02), tip: "ŷ_on 收盘回补" },
@@ -370,7 +370,7 @@ export function renderExecutionRulesHtml(execution) {
       : "1%";
   const pathUseLbl = t0.y_use_path !== false ? "开" : "关";
   const pathEnterLbl =
-    t0.y_use_path !== false ? fmtThresholdPct(t0.y_path_enter, 2) : "—";
+    t0.y_use_path !== false ? fmtThresholdPct(t0.y_path_enter, 0.02, ">") : "—";
   const gapTierLbl =
     t0.y_gap_tier_mode && String(t0.y_gap_tier_mode).toLowerCase() !== "off"
       ? `${t0.y_gap_tier_mode} · ${fmtThresholdPct(t0.y_gap_tier_pct, 1.0)}`
@@ -547,7 +547,7 @@ export function fillExecutionForm(root, execution) {
   set("y_trade_floor", t0.y_trade_floor != null ? t0.y_trade_floor : 0.02);
   set("y_tau_enter", t0.y_tau_enter != null ? t0.y_tau_enter : 0.02);
   set("y_use_path", t0.y_use_path !== false);
-  set("y_path_enter", t0.y_path_enter != null ? t0.y_path_enter : 2);
+  set("y_path_enter", t0.y_path_enter != null ? t0.y_path_enter : 0.02);
   set("y_path_required", !!t0.y_path_required);
   set("y_gap_tier_mode", t0.y_gap_tier_mode || "skip_opposite");
   set("y_gap_tier_pct", t0.y_gap_tier_pct != null ? t0.y_gap_tier_pct : 1.0);
@@ -616,7 +616,7 @@ export function collectExecutionForm(root) {
     // 兼容旧键：与入场同步，避免纸面残留更高 strong 把闸抬回去
     y_tau_enter_strong: Math.max(0.01, Math.min(num("y_tau_enter", 0.02), 5)),
     y_use_path: chk("y_use_path", true),
-    y_path_enter: Math.max(1, Math.min(num("y_path_enter", 2), 100)),
+    y_path_enter: Math.max(0.01, Math.min(num("y_path_enter", 0.02), 5)),
     y_path_required: chk("y_path_required", false),
     y_gap_tier_mode: str("y_gap_tier_mode", "skip_opposite"),
     y_gap_tier_pct: Math.max(0.5, Math.min(num("y_gap_tier_pct", 1.0), 10)),
@@ -714,7 +714,7 @@ export function collectT0BacktestBody(root, opts = {}) {
     y_trade_floor: t0.y_trade_floor != null ? t0.y_trade_floor : 0.02,
     y_tau_enter: t0.y_tau_enter != null ? t0.y_tau_enter : 0.02,
     y_use_path: t0.y_use_path !== false,
-    y_path_enter: t0.y_path_enter != null ? t0.y_path_enter : 2,
+    y_path_enter: t0.y_path_enter != null ? t0.y_path_enter : 0.02,
     y_path_required: !!t0.y_path_required,
     y_gap_tier_mode: t0.y_gap_tier_mode || "skip_opposite",
     y_gap_tier_pct: t0.y_gap_tier_pct != null ? t0.y_gap_tier_pct : 1.0,

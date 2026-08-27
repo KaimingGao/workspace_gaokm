@@ -18,10 +18,13 @@ from core.research.tau_ridge import _predict_rows, _subset, _time_split_indices
 PATH_MIN_STD_EXEMPT = PATH_Z_FEATURES
 PATH_PROMOTE_MIN_SIGN_HIT = 0.55  # 全样本：软条件（warnings）
 PATH_PROMOTE_MIN_N_TEST = 80  # 全样本：软条件
-PATH_PROMOTE_MIN_STRONG_HIT = 0.65  # |ŷ|≥30 硬闸
+PATH_PROMOTE_MIN_STRONG_HIT = 0.55  # |ŷ|≥2% 强桶
 PATH_PROMOTE_MIN_STRONG_N = 40
+PATH_STRONG_BUCKET = "abs_ge_2"
 DEFAULT_SELL_TRIG_PCT = 2.0
 DEFAULT_BUY_TRIG_PCT = 1.5
+PATH_LABEL_STRONG_ABS = 2.0
+PATH_LABEL_BUCKET_MID = 1.5
 
 
 def _stack_panels(enriched: Sequence[Dict[str, Any]]) -> tuple:
@@ -85,8 +88,8 @@ def _oos_sign_metrics(
     hits = 0
     n_valid = 0
     buckets = {
-        "abs_ge_15": {"n": 0, "hit": 0},
-        "abs_ge_30": {"n": 0, "hit": 0},
+        f"abs_ge_{PATH_LABEL_BUCKET_MID}": {"n": 0, "hit": 0},
+        f"abs_ge_{int(PATH_LABEL_STRONG_ABS)}": {"n": 0, "hit": 0},
     }
     pos_hit = pos_n = neg_hit = neg_n = 0
     for pred, y in zip(preds, ys):
@@ -105,7 +108,10 @@ def _oos_sign_metrics(
             if ok:
                 neg_hit += 1
         ap = abs(float(pred))
-        for key, thr in (("abs_ge_15", 15.0), ("abs_ge_30", 30.0)):
+        for key, thr in (
+            (f"abs_ge_{PATH_LABEL_BUCKET_MID}", PATH_LABEL_BUCKET_MID),
+            (f"abs_ge_{int(PATH_LABEL_STRONG_ABS)}", PATH_LABEL_STRONG_ABS),
+        ):
             if ap >= thr:
                 buckets[key]["n"] += 1
                 if ok:
@@ -156,7 +162,7 @@ def path_label_triggers(
 
 
 def path_promote_gate(report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
-    """promote 闸：硬看 |ŷ|≥30 强桶；全样本 hit/n 仅 warnings。"""
+    """promote 闸：硬看 |ŷ|≥2% 强桶；全样本 hit/n 仅 warnings。"""
     rep = report if isinstance(report, dict) else {}
     oos = rep.get("oos") if isinstance(rep.get("oos"), dict) else {}
     n = oos.get("n_valid")
@@ -174,7 +180,7 @@ def path_promote_gate(report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     except (TypeError, ValueError):
         hit_f = None
     buckets = oos.get("buckets") if isinstance(oos.get("buckets"), dict) else {}
-    strong = buckets.get("abs_ge_30") if isinstance(buckets.get("abs_ge_30"), dict) else {}
+    strong = buckets.get(PATH_STRONG_BUCKET) if isinstance(buckets.get(PATH_STRONG_BUCKET), dict) else {}
     s_n = int(strong.get("n") or 0)
     try:
         s_hit_f = float(strong["sign_hit"]) if strong.get("sign_hit") is not None else None
@@ -183,12 +189,12 @@ def path_promote_gate(report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
     blockers: List[str] = []
     if s_n < PATH_PROMOTE_MIN_STRONG_N:
-        blockers.append(f"|ŷ|≥30 n={s_n}<{PATH_PROMOTE_MIN_STRONG_N}")
+        blockers.append(f"|ŷ|≥{PATH_LABEL_STRONG_ABS}% n={s_n}<{PATH_PROMOTE_MIN_STRONG_N}")
     if s_hit_f is None:
-        blockers.append("缺 |ŷ|≥30 桶 sign_hit")
+        blockers.append(f"缺 |ŷ|≥{PATH_LABEL_STRONG_ABS}% 桶 sign_hit")
     elif s_hit_f < PATH_PROMOTE_MIN_STRONG_HIT:
         blockers.append(
-            f"|ŷ|≥30 sign_hit={s_hit_f:.3f}<{PATH_PROMOTE_MIN_STRONG_HIT}"
+            f"|ŷ|≥{PATH_LABEL_STRONG_ABS}% sign_hit={s_hit_f:.3f}<{PATH_PROMOTE_MIN_STRONG_HIT}"
         )
 
     warn: List[str] = []
@@ -214,7 +220,7 @@ def path_promote_gate(report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
             intercept = abs(float(rm.get("intercept")))
         except (TypeError, ValueError):
             intercept = None
-    if intercept is not None and intercept > 40:
+    if intercept is not None and intercept > 8:
         warn.append(f"|intercept|={intercept:.1f} 偏置偏大")
     return {
         "ok": not blockers,
@@ -335,15 +341,14 @@ def fit_path_ridge_report(
     model["intercept_demeaned"] = round(float(fit.get("intercept") or 0.0), 6)
     model["y_label_mean"] = round(y_mean, 6)
     model["y_demeaned"] = True
+    model["path_label_mode"] = "extreme_order"
     model["sell_trig_pct"] = float(sell_trig_pct)
     model["buy_trig_pct"] = float(buy_trig_pct)
     model["y_spec"] = {
-        "formula": "first_touch(sell_trig,buy_trig)",
-        "unit": "pct_signed",
+        "formula": "extreme_order(low,high)",
+        "unit": "pct_signed_range",
         "tau": "open",
-        "sell_trig_pct": float(sell_trig_pct),
-        "buy_trig_pct": float(buy_trig_pct),
-        "note": "+ 卖触发先触达；- 买触发先触达；训练 demean+类别平衡",
+        "note": "先 low→high：(H−L)/ref%；先 high→low：(L−H)/ref%；训练 demean+类别平衡",
     }
     model["extra_features"] = list(PATH_Z_FEATURES)
 
@@ -355,10 +360,10 @@ def fit_path_ridge_report(
         "oos": oos,
         "return_model": model,
         "schema": "path_ridge_v2",
-        "target": "first_touch_signed",
+        "target": "extreme_order_signed_range",
         "sell_trig_pct": float(sell_trig_pct),
         "buy_trig_pct": float(buy_trig_pct),
-        "note": "开盘 Z → 分钟第一触达顺序；供 dual_y 与 y_τ 联合选向",
+        "note": "开盘 Z → 分钟极值时间序 signed range%；供 dual_y 与 y_τ 联合选向",
     }
     report["promote_gate"] = path_promote_gate(report)
     return report
@@ -455,7 +460,7 @@ def persist_path_model(
         "buy_trig_pct": report.get("buy_trig_pct", rm.get("buy_trig_pct")),
         "promote_gate": gate,
         "dual_score_head": "y_path",
-        "contract_note": "ŷ_path：开盘 Z → 分钟卖/买触发先后顺序",
+        "contract_note": "ŷ_path：开盘 Z → 分钟极值序 signed (H−L)/ref%",
     }
     path = path_model_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)

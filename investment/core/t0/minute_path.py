@@ -90,6 +90,25 @@ def _hm_reached(ts: Any, stop_hm: Optional[Tuple[int, int]]) -> bool:
     return cur[0] > stop_hm[0] or (cur[0] == stop_hm[0] and cur[1] >= stop_hm[1])
 
 
+def _allows_eod_cover(
+    minute_bars: Sequence[dict],
+    session_bars: Optional[Sequence[dict]],
+    *,
+    defer_eod: bool,
+) -> bool:
+    """defer_eod 时仅末根 ≥14:55 才强制回补，避免盘中前缀误当收盘。"""
+    sess = session_bars if session_bars is not None else minute_bars
+    if len(minute_bars) < len(sess):
+        return False
+    if not defer_eod:
+        return True
+    if not minute_bars:
+        return False
+    last = minute_bars[-1]
+    ts = last.get("datetime") or last.get("date")
+    return _hm_reached(ts, (14, 55))
+
+
 def _ts_minutes(ts: Any) -> Optional[int]:
     """当日分钟数（0–1439）；解析失败返回 None。"""
     hm = _ts_hm(ts)
@@ -427,9 +446,12 @@ def _first_touch_long(
                 exit_reason = "pm_chase" if used_chase else "trigger"
                 continue
 
-    if sold_qty > 0 and covered <= 0 and (at_session_end or not defer_eod):
+    at_end = len(minute_bars) >= len(sess_bars)
+    if sold_qty > 0 and covered <= 0 and at_end:
         sess_close = float(sess_bar.get("close") or close)
-        if cfg.get("must_cover_same_day"):
+        if cfg.get("must_cover_same_day") and _allows_eod_cover(
+            minute_bars, sess_bars, defer_eod=defer_eod
+        ):
             fill_buy = sess_close
             cover = sold_qty
             close_at = _session_close_at(sess_bars, sess_bar)
@@ -450,7 +472,7 @@ def _first_touch_long(
             covered = cover
             touch_cover_at = close_at or touch_cover_at
             exit_reason = "eod_cover"
-        else:
+        elif not cfg.get("must_cover_same_day"):
             exposure_pnl = round((sold_price - sess_close) * sold_qty, 2)
 
     if sold_qty <= 0:
@@ -707,10 +729,13 @@ def _first_touch_reverse(
             },
         )
 
-    if sold_back <= 0 and (at_session_end or not defer_eod):
+    at_end = len(minute_bars) >= len(sess_bars)
+    if sold_back <= 0 and at_end:
         sell_old_qty = min(bought_qty, sell_old_cap)
         sess_close = float(sess_bar.get("close") or close)
-        if cfg.get("must_cover_same_day") and sell_old_qty > 0:
+        if cfg.get("must_cover_same_day") and sell_old_qty > 0 and _allows_eod_cover(
+            minute_bars, sess_bars, defer_eod=defer_eod
+        ):
             fill_sell = sess_close
             close_at = _session_close_at(sess_bars, sess_bar)
             cash_delta += append_t0_leg(
@@ -907,9 +932,8 @@ def simulate_t0_day_minute(
             )
             if isinstance(packed, dict):
                 packed["path_realized_trig"] = {
-                    "sell_trig_pct": float(path_sell_trig),
-                    "buy_trig_pct": float(path_buy_trig),
-                    "note": "对照=path模型训练触发",
+                    "path_label_mode": "extreme_order",
+                    "note": "对照=极值序 signed (H−L)/ref%；非触价触发",
                 }
         except Exception:  # noqa: BLE001
             logger.debug("attach_path_realized failed", exc_info=True)

@@ -126,6 +126,31 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("bindT0TradesFullscreen", table_js)
         self.assertIn(".paper-t0-trades-panel.is-fs", css)
 
+    def test_t0_trade_date_col_fits_iso_day(self):
+        table_js = self._read("web", "static", "js", "paper", "t0_table.js")
+        css = self._read("web", "static", "css", "follow.css")
+        self.assertIn('date: "104px"', table_js)
+        self.assertIn("fmtTradeDate", table_js)
+        self.assertIn("width: 104px", css)
+        self.assertIn(".paper-t0-col-date", css)
+
+    def test_live_t0_tables_omit_realized_pair(self):
+        table_js = self._read("web", "static", "js", "paper", "t0_table.js")
+        ui_js = self._read("web", "static", "js", "paper", "t0_ui.js")
+        self.assertIn("fmtPredRealizedText", table_js)
+        self.assertIn("showRealized = true", table_js)
+        self.assertEqual(ui_js.count("showRealized: false"), 2)
+
+    def test_holdings_table_has_t0_column(self):
+        island_js = self._read("web", "static", "js", "holdings_table_island.js")
+        badge_js = self._read("web", "static", "js", "paper", "holding_t0_badge.js")
+        css = self._read("web", "static", "css", "follow.css")
+        self.assertIn('id: "t0"', island_js)
+        self.assertIn("holdingT0BadgeHtml", island_js)
+        self.assertIn("t0_intraday", island_js)
+        self.assertIn("paper-hold-t0-badge", badge_js)
+        self.assertIn(".paper-hold-t0-badge", css)
+
     def test_follow_panel_t0_form_defaults(self):
         panel = self._read("web", "static", "partials", "follow_panel.html")
         self.assertNotIn('name="t0_ratio"', panel)
@@ -135,7 +160,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('name="enabled" checked', panel)
         self.assertIn('name="must_cover_same_day" checked', panel)
         self.assertIn('name="y_path_enter"', panel)
-        self.assertIn('value="2"', panel)
+        self.assertIn('name="y_path_enter" min="0.01" max="5" step="0.01" value="0.02"', panel)
         self.assertIn('value="3.0"', panel)
 
     def test_execution_ui_fill_form_sets_checkbox_false(self):
