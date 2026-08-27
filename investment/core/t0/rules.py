@@ -3,7 +3,7 @@
 import logging
 
 logger = logging.getLogger(__name__)
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.numbers import now_iso_local as _now_iso
 from core.t0.config import load_t0_rules, resolve_min_range_pct
@@ -54,10 +54,14 @@ def _ref_price(bar: dict, cost: float, rules: dict) -> float:
 
 
 def atr_pct_from_bars(bars: Sequence[dict], window: int = 14) -> Optional[float]:
-    """近 window 根的平均振幅占收盘价 %（简化 ATR%）。"""
-    if not bars or len(bars) < 2:
+    """近 window 根的平均振幅占收盘价 %（简化 ATR%）。
+
+    样本不足 ``min(window, 8)`` 时返回 None，避免过早用噪声 ATR 抬触发价。
+    """
+    min_n = min(max(2, int(window or 14)), 8)
+    if not bars or len(bars) < min_n:
         return None
-    w = max(2, min(int(window), len(bars)))
+    w = max(min_n, min(int(window), len(bars)))
     slice_bars = list(bars)[-w:]
     ranges: List[float] = []
     for b in slice_bars:
@@ -67,7 +71,7 @@ def atr_pct_from_bars(bars: Sequence[dict], window: int = 14) -> Optional[float]
         if high <= 0 or low <= 0 or close <= 0 or high < low:
             continue
         ranges.append((high - low) / close * 100.0)
-    if not ranges:
+    if len(ranges) < min_n:
         return None
     return round(sum(ranges) / len(ranges), 4)
 
@@ -195,8 +199,8 @@ def _auto_direction(
     cfg: dict,
     cash: float,
     shares: float,
-) -> str:
-    """auto 选向：按跳空强弱返回 long_t | reverse_t，不明默认正 T。"""
+) -> Tuple[str, str]:
+    """auto 选向：按跳空强弱返回 (direction, reason_tag)；不明默认正 T。"""
     open_px = float(bar.get("open") or 0)
     gap_ref = float(bar.get("prev_close") or 0)
     if gap_ref <= 0:
@@ -204,15 +208,15 @@ def _auto_direction(
         if trig_ref > 0 and abs(open_px - trig_ref) / max(trig_ref, 1e-9) > 1e-6:
             gap_ref = trig_ref
     if open_px <= 0 or gap_ref <= 0:
-        return "long_t"
+        return "long_t", "auto_default"
     strong = float(cfg.get("auto_strong_pct") or 0.5)
     weak = float(cfg.get("auto_weak_pct") or 0.5)
     chg = (open_px / gap_ref - 1.0) * 100.0
     if chg >= strong:
-        return "long_t"
+        return "long_t", "auto_gap_up"
     if chg <= -weak and cash > 0 and shares > 0:
-        return "reverse_t"
-    return "long_t"
+        return "reverse_t", "auto_gap_down"
+    return "long_t", "auto_default"
 
 
 def resolve_direction(
@@ -254,12 +258,12 @@ def resolve_direction(
         scored = score_t0_direction(bar=bar, cfg=cfg, hist_bars=hist_bars, atr_pct=atr_pct)
         if not scored.get("ok"):
             # 缺特征：回退 auto，避免纸面完全不能做
-            d = _auto_direction(bar=bar, ref=ref, cfg=cfg, cash=cash, shares=shares)
+            d, tag = _auto_direction(bar=bar, ref=ref, cfg=cfg, cash=cash, shares=shares)
             return {
                 "direction": d,
                 "skip": False,
                 "direction_score": 0.0,
-                "direction_reason": f"{scored.get('reason')}；回退auto→{d}",
+                "direction_reason": f"{scored.get('reason')}；回退{tag}→{d}",
                 "features": scored.get("features"),
             }
         score = float(scored.get("score") or 0)
@@ -296,12 +300,12 @@ def resolve_direction(
             "features": scored.get("features"),
         }
     # auto
-    d = _auto_direction(bar=bar, ref=ref, cfg=cfg, cash=cash, shares=shares)
+    d, tag = _auto_direction(bar=bar, ref=ref, cfg=cfg, cash=cash, shares=shares)
     return {
         "direction": d,
         "skip": False,
         "direction_score": None,
-        "direction_reason": f"auto→{d}",
+        "direction_reason": f"{tag}→{d}",
     }
 
 
@@ -407,6 +411,7 @@ def simulate_t0_day(
     score_snap = scores if isinstance(scores, dict) else None
     if str(cfg.get("direction") or "") == "dual_y" and not scores_have_any(score_snap):
         from core.t0.score_policy import (
+            resolve_fuse_intraday,
             resolve_scores_for_code,
             resolve_y_score_source,
             tau_pool_day_score_kwargs,
@@ -421,7 +426,7 @@ def simulate_t0_day(
                 day_bar=bar if isinstance(bar, dict) else None,
                 as_of=as_of or None,
                 source=y_src,
-                fuse_intraday=True,
+                fuse_intraday=resolve_fuse_intraday(cfg),
                 allow_fallback=(y_src != "compute"),
                 **tau_pool_day_score_kwargs(tau_pool_day, stock_code),
             )

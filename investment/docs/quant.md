@@ -352,15 +352,15 @@ watchlist
 | 语义 | A 股 **底仓做 T（T+1）**：正 T 先卖旧仓再买回；反 T 先低吸加仓再卖旧仓换仓（禁卖当日新买股） |
 | 选向 | 默认 **`direction=dual_y`** + **`y_score_source=compute`**：开盘信息集（昨收因子 + 今开缺口）即时算 ŷ；**y_τ 定正/反 T**（`y_tau_enter_long` / `y_tau_enter_reverse` 分侧入场，缺省回退 `y_tau_enter`；path 同理 `y_path_enter_*`），y_eod 仅同向略放大额度，\|y_trade\| 为幅度闸（与调仓 ŷ_τ **买入闸**分工不同，见上节）；批量共享截面缺口；失败回退 live 簿（**不读冻结账本**）；`ledger` 仅对照 |
 | 动仓 | **固定 100%**（`t0_ratio=1.0`，UI 已去掉动仓%）；不随 ŷ 缩放可卖量 |
-| 目标价 | 卖/买触发 **`sell_trigger_pct` / `buy_trigger_pct`**（默认各 **1.0%**）：基准=配置值；**`t0_confidence_scale`** 按 \|y_trade\|、\|y_τ\|、eod 同向映射到 `[y_ratio_cut, y_ratio_boost_cap]×基准`（默认 **60%～200%**；信心大→抬高目标，信心小→降低目标）；\|y_τ\| 刚过入场线时 soft band 视为弱信号 |
-| 成交 | 默认 **`fill_mode=trigger`**；**正/反可分侧** `fill_mode_{long\|reverse}`、`sell\|buy_trigger_pct_*`、`min_range_pct_*`、`must_cover_same_day_*`、`t0_pm_degrade_*`；**正T** 默认不强制回补、**15:00** 起可中点追价买回；**反T** 默认强制卖旧、**14:00** 起中点追价 |
-| 门禁 | **三层滚动**（回测 / Worker 同口径）：① **总量振幅** — 前缀 `(high−low)/ref ≥ min_range`（默认 **0.1%**）；② **方向振幅** — 正 T 要求前缀 high 达卖出触发，反 T 要求 low 达低吸触发；③ **段向确认**（可关）— 正 T 须自前缀 high **回落**，反 T 须自前缀 low **弹起**后再开第一腿；未达标则下根 5m 重试，**超 N 根放弃** |
+| 目标价 | **leg1 相对 ref**、**leg2 相对第一腿成交价**（`sell_trigger_pct` / `buy_trigger_pct`）；**`t0_confidence_scale`** 按 \|y_trade\|、\|y_τ\|、eod 同向映射到 `[y_ratio_cut, y_ratio_boost_cap]×基准`（默认 **60%～200%**）；\|y_τ\| 刚过入场线时 soft band 视为弱信号 |
+| 成交 | 默认 **`fill_mode=trigger`**；**正/反可分侧** `fill_mode_{long\|reverse}`、`sell\|buy_trigger_pct_*`、`min_range_pct_*`、`must_cover_same_day_*`、`t0_pm_degrade_*`；**正T** 默认不强制回补、**15:00** 起可中点追价买回；**反T** 默认强制卖旧、**14:00** 起中点追价；`t0_pm_degrade` **端点不含**（该整点根仍可新开，追价仍从该点起算） |
+| 门禁 | **三层滚动**（回测 / Worker 同口径）：① **总量振幅** — 前缀 `(high−low)/ref ≥ min_range`（默认 **0.1%**）；② **方向振幅** — 正 T 要求前缀 high 达卖出触发，反 T 要求 low 达低吸触发；③ **段向确认**（可关）— 正 T 须自前缀 high **回落**，反 T 须自前缀 low **弹起**；确认后 **粘滞开闸**（首次就绪起后续根再触价成交，**不回溯**确认前触价）。**勿**要求「确认与触价同根」——旧死锁会漏成交并虚高回测，已废弃。一字板不烧 abandon；过闸后等待超 N 根才放弃 |
 | 风控 | **`y_block_tau_nowcast_sign`**（默认**开**）：nc **入场** `y_nc_enter`（默认 0.01%）+ **强同 τ** `y_nc_strong`（默认 3%）；**`y_nowcast_oc_gate=false`** 时比 nc 昨收口径；**`t0_pm_chase_interval_min`** 默认 10 |
 | 路径 | 第一触达沿前缀 **逐根加长**；第二腿 **defer 至 session 末** 再 `eod_cover` / `pm_chase` 或正T默认 `abandon_cover`；**无盘中不利止损** |
 | 纸面 | `POST /api/paper/t0` 默认 **dry_run 预演**，`confirm=true` 才写账 |
 | 自动落账 | Follow Worker · **5m 盯盘触达即落账**（交易时段 **5 分钟**轮询 + 分钟缓存，不再日终整段回放） |
 | 手动补跑 | Follow「手动预演 / 手动落账」· `POST /api/paper/t0`（预演 dry_run / 确认 confirm） |
-| 回测 | **仅 5m 第一触达**（缺分钟日跳过）；**已删除日线模拟**；默认绑模拟持仓；**可卖量=日初总持仓**（不维护 lots 级 T+1 冻结，跨日连续反 T 与实盘 Worker 可有细微差） |
+| 回测 | **仅 5m 第一触达**（缺分钟日跳过）；**已删除日线模拟**；默认绑模拟持仓；**可卖量=日初总持仓**；dual_y 按 `dual_score_window` 决定是否 fuse ŷ_τ（`eod_next` 不 fuse）；ATR 仅用 T−1 及更早 |
 | 边界 | **不接实盘**；不做日线 high/low 顺序猜测；不改变 `advice.stance_label`；正/反 T **PnL 基数**分别为卖出/买入名义（汇总 long_pnl/reverse_pnl 口径略异，量级通常很小） |
 
 

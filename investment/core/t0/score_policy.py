@@ -2406,6 +2406,20 @@ def resolve_y_score_source(cfg: Optional[dict] = None) -> str:
     return DEFAULT_Y_SCORE_SOURCE
 
 
+def resolve_fuse_intraday(cfg: Optional[dict] = None) -> bool:
+    """回测/即时算是否融合盘中 ŷ_τ。
+
+    ``dual_score_window`` / ``y_score_window`` = ``eod_next``（或 eod/close）时
+    不得 fuse，避免缺口∘ŷ_τ≈当日涨跌污染决策分。
+    """
+    window = str(
+        (cfg or {}).get("dual_score_window")
+        or (cfg or {}).get("y_score_window")
+        or "intraday_historical"
+    ).strip().lower()
+    return window not in {"eod_next", "eod", "close"}
+
+
 def resolve_scores_for_code(
     code: str,
     *,
@@ -2504,16 +2518,25 @@ def load_scores_map_for_codes(
     hist_bars_by_code: Optional[Dict[str, Sequence[dict]]] = None,
     day_bars_by_code: Optional[Dict[str, dict]] = None,
     allow_fallback: bool = True,
+    fuse_intraday: Optional[bool] = None,
+    rules: Optional[dict] = None,
 ) -> Dict[str, Dict[str, Optional[float]]]:
     """批量取 dual_y 分数。
 
     默认 ``source=compute``：用日线批量即时算（截面缺口共享）。
     ``prefer_live_book=True`` 仅兼容旧调用（等价 source=live_book）。
+    ``fuse_intraday`` 缺省时由 ``rules`` / ``dual_score_window`` 解析（eod_next → False）。
     """
     out: Dict[str, Dict[str, Optional[float]]] = {}
     want = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
     if not want:
         return out
+
+    fuse = (
+        bool(fuse_intraday)
+        if fuse_intraday is not None
+        else resolve_fuse_intraday(rules)
+    )
 
     if source is None:
         src = "live_book" if prefer_live_book else DEFAULT_Y_SCORE_SOURCE
@@ -2532,7 +2555,7 @@ def load_scores_map_for_codes(
             if day_bars_by_code and code in day_bars_by_code:
                 day = day_bars_by_code.get(code)
             specs.append({"code": code, "hist_bars": hist or [], "day_bar": day})
-        computed = compute_scores_map_from_bars(specs, fuse_intraday=True)
+        computed = compute_scores_map_from_bars(specs, fuse_intraday=fuse)
         out.update(computed)
         if not allow_fallback:
             return out
@@ -2559,7 +2582,7 @@ def load_scores_map_for_codes(
             day_bar=day,
             as_of=as_of,
             source=src,
-            fuse_intraday=True,
+            fuse_intraday=fuse,
             allow_fallback=allow_fallback,
         )
         if scores_have_any(sc):

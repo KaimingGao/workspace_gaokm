@@ -23,11 +23,12 @@ def coerce_cfg_bool(val: Any, default: bool = True) -> bool:
     return default
 
 
-# t0_pm_degrade_{long|reverse}: HH:MM 起算（禁新开；已开未平则第二腿中点追价，否则 eod/放弃）
+# t0_pm_degrade_{long|reverse}: HH:MM 之后禁新开（端点不含；已开未平则第二腿中点追价，否则 eod/放弃）
 # t0_pm_degrade:  legacy，等同 reverse 侧
 # t0_pm_chase_interval_min_{long|reverse}: 起算后每隔 N 分钟再中点一次（1–60）
 # t0_pm_chase_interval_min: legacy，等同 reverse 侧
 # must_cover_same_day_{long|reverse}: 正T默认关；反T默认开
+# sell|buy_trigger_pct_*：leg1 相对 ref；leg2 相对第一腿成交价（正T买回 / 反T卖旧）
 #
 # fill_mode:
 #   trigger     — 按触发价成交（默认，偏保守）
@@ -104,6 +105,8 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_path_abandon_enabled": True,
     "y_path_abandon_bars": 12,
     # 第一腿段向确认：正T须从前缀 high 回落；反T须从前缀 low 弹起（%）
+    # 确认后粘滞开闸（首次 entry_ready 起后续根可触价）——正确语义；
+    # 禁止恢复「同根确认∧触价」死锁：那会系统性漏成交、虚高回测。
     "y_prefix_segment_enabled": True,
     "y_prefix_segment_enabled_long": True,
     "y_prefix_segment_enabled_reverse": True,

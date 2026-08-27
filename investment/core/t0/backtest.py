@@ -354,11 +354,10 @@ def _walk_t0(
             prev_c = float(history[gi - 1].get("close") or 0)
             if prev_c > 0:
                 bar_day["prev_close"] = prev_c
-        hist_incl = history[: gi + 1]
         hist_prior = history[:gi]
-        atr = atr_pct_from_bars(hist_incl, atr_window) if cfg.get("use_atr") else None
-        # ATR 用到当日会略宽；选向只用 hist_prior（无前视）
-        atr_for_dir = atr_pct_from_bars(hist_prior, atr_window) if hist_prior else None
+        # ATR 仅用 T−1 及更早，避免当日振幅前视抬触发价
+        atr = atr_pct_from_bars(hist_prior, atr_window) if cfg.get("use_atr") else None
+        atr_for_dir = atr
         mins = None
         used_minute = False
         if minute_by_date and dkey:
@@ -390,7 +389,11 @@ def _walk_t0(
         score_snap = None
         pool_day = None
         if str(cfg.get("direction") or "") == "dual_y" and stock_code and dkey:
-            from core.t0.score_policy import resolve_scores_for_code, resolve_y_score_source
+            from core.t0.score_policy import (
+                resolve_fuse_intraday,
+                resolve_scores_for_code,
+                resolve_y_score_source,
+            )
 
             src = resolve_y_score_source(cfg)
             pool_day = tau_pool.get(dkey) if isinstance(tau_pool.get(dkey), dict) else {}
@@ -404,7 +407,7 @@ def _walk_t0(
                 hist_bars=hist_prior,
                 day_bar=bar_day,
                 source=src,
-                fuse_intraday=True,
+                fuse_intraday=resolve_fuse_intraday(cfg),
                 allow_fallback=(src != "compute"),
                 as_of=str(history[gi - 1].get("date") or "")[:10] if gi > 0 else dkey[:10],
                 pool_gaps=pool_day.get("pool_gaps"),
@@ -486,9 +489,16 @@ def _walk_t0(
         if sold > 0 or bought > 0:
             trade_count += 1
             completed = (sold > 0 and covered >= sold) or (bought > 0 and sold_back >= bought)
+            # 正T abandon_cover 是主动放弃回补（默认设计），不计入 uncover
+            intentional_abandon = (
+                direction == "long_t"
+                and sold > 0
+                and covered < sold
+                and str(day.get("exit_reason") or "") in ("abandon_cover", "abandon_cover_cash")
+            )
             if direction == "long_t":
                 long_days += 1
-                if completed:
+                if completed or intentional_abandon:
                     long_cover += 1
                     cover_count += 1
             elif direction == "reverse_t":
@@ -496,7 +506,9 @@ def _walk_t0(
                 if completed:
                     reverse_cover += 1
                     cover_count += 1
-            if uncovered > 0 or (bought > 0 and sold_back == 0):
+            if not intentional_abandon and (
+                uncovered > 0 or (bought > 0 and sold_back == 0)
+            ):
                 uncover_days += 1
             if day_pnl:
                 if direction == "long_t":

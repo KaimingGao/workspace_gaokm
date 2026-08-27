@@ -1314,6 +1314,7 @@ class PaperTradesMixin:
                     hist_bars_by_code=hist_bars_by_code or None,
                     day_bars_by_code=bars_by_code or None,
                     allow_fallback=(y_src != "compute"),
+                    rules=eff_t0,
                 )
             except Exception:  # noqa: BLE001
                 logger.debug("dual_y scores hydrate failed", exc_info=True)
@@ -1776,6 +1777,7 @@ class PaperTradesMixin:
                             hist_bars_by_code={code: hist_by_code.get(code) or []},
                             day_bars_by_code={code: bar},
                             allow_fallback=(y_src != "compute"),
+                            rules=eff_t0,
                         ).get(code)
                         scores = accept_intraday_dual_y_scores(raw_scores, source=y_src)
                     except Exception:  # noqa: BLE001

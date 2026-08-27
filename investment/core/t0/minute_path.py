@@ -81,13 +81,29 @@ def _ts_hm(ts: Any) -> Optional[Tuple[int, int]]:
     return _parse_hm(s[:8] if len(s) >= 5 else s)
 
 
-def _hm_reached(ts: Any, stop_hm: Optional[Tuple[int, int]]) -> bool:
+def _hm_reached(
+    ts: Any,
+    stop_hm: Optional[Tuple[int, int]],
+    *,
+    inclusive: bool = True,
+) -> bool:
+    """是否已到/过 ``stop_hm``。
+
+    ``inclusive=True``（默认）：端点计入（收盘窗 14:55 整根可用）。
+    ``inclusive=False``：端点不计（午后禁新开 ``t0_pm_degrade=13:00`` 时 13:00 根仍可开）。
+    """
     if not stop_hm:
         return False
     cur = _ts_hm(ts)
     if not cur:
         return False
-    return cur[0] > stop_hm[0] or (cur[0] == stop_hm[0] and cur[1] >= stop_hm[1])
+    if cur[0] > stop_hm[0]:
+        return True
+    if cur[0] < stop_hm[0]:
+        return False
+    if inclusive:
+        return cur[1] >= stop_hm[1]
+    return cur[1] > stop_hm[1]
 
 
 def _allows_eod_cover(
@@ -140,7 +156,7 @@ def _maybe_pm_chase_level(
 
     Returns (new_level, last_chase_min, adjusted_this_bar).
     """
-    if not pm_hm or not _hm_reached(ts, pm_hm):
+    if not pm_hm or not _hm_reached(ts, pm_hm, inclusive=True):
         return level, last_chase_min, False
     if not (level > 0 and px > 0):
         return level, last_chase_min, False
@@ -493,7 +509,7 @@ def _first_touch_long(
         lo = float(mb.get("low") or 0)
         close = float(mb.get("close") or 0)
         ts = mb.get("datetime") or mb.get("date")
-        pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm))
+        pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm, inclusive=False))
         if hi > 0:
             prefix_hi = max(prefix_hi, hi)
 
@@ -525,53 +541,29 @@ def _first_touch_long(
             continue
 
         if sold_qty > 0 and covered <= 0:
+            # 第二腿：相对 leg1 成交价的回撤幅度（与配置 buy_trigger 语义一致）
             base_buy = sold_price * (1.0 - buy_trig / 100.0)
             if chase_buy_level is None:
                 chase_buy_level = base_buy
-            px = float(mb.get("close") or hi or sold_price)
-            chase_buy_level, last_chase_min, _ = _maybe_pm_chase_level(
-                level=float(chase_buy_level),
-                px=px,
-                ts=ts,
-                pm_hm=pm_hm,
-                last_chase_min=last_chase_min,
-                interval_min=pm_chase_iv,
-            )
             buy_level = float(chase_buy_level)
-            if lo <= buy_level:
-                fill_buy = _fill_buy(lo, buy_level, fill_mode)
-                cover = sold_qty
-                used_chase = last_chase_min is not None
-                cash_delta += append_t0_leg(
-                    trades,
-                    cost_model=cost_model,
-                    cost_params=cost_params,
-                    side="t0_buy",
-                    stock_code=stock_code,
-                    shares=cover,
-                    price=fill_buy,
-                    trigger=buy_level,
-                    at=ts,
-                    leg_kind="pm_chase" if used_chase else "trigger",
-                    note=(
-                        f"正T中点追价买回（目标{buy_level:.4f}）"
-                        if used_chase
-                        else "正T买回（分钟第一触达）"
-                    ),
+            used_chase = last_chase_min is not None
+            # 先按当前目标触价；不可成再追价，同根用新目标再试（避免未触就抬价）
+            if lo > buy_level:
+                px = float(mb.get("close") or hi or sold_price)
+                chase_buy_level, last_chase_min, adjusted = _maybe_pm_chase_level(
+                    level=float(chase_buy_level),
+                    px=px,
+                    ts=ts,
+                    pm_hm=pm_hm,
+                    last_chase_min=last_chase_min,
+                    interval_min=pm_chase_iv,
                 )
-                shares_now += cover
-                covered = cover
-                touch_cover_at = ts
-                exit_reason = "pm_chase" if used_chase else "trigger"
-                continue
-
-    at_end = len(minute_bars) >= len(sess_bars)
-    if sold_qty > 0 and covered <= 0 and at_end:
-        sess_close = float(sess_bar.get("close") or close)
-        eod_ok = _allows_eod_cover(minute_bars, sess_bars, defer_eod=defer_eod)
-        if cfg.get("must_cover_same_day") and eod_ok:
+                buy_level = float(chase_buy_level)
+                used_chase = last_chase_min is not None
+                if not adjusted or lo > buy_level:
+                    continue
+            fill_buy = _fill_buy(lo, buy_level, fill_mode)
             cover = sold_qty
-            close_at = _session_close_at(sess_bars, sess_bar)
             cash_delta += append_t0_leg(
                 trades,
                 cost_model=cost_model,
@@ -579,16 +571,52 @@ def _first_touch_long(
                 side="t0_buy",
                 stock_code=stock_code,
                 shares=cover,
-                price=sess_close,
-                trigger=sess_close,
-                at=close_at,
-                leg_kind="eod_cover",
-                note="正T强制收盘买回",
+                price=fill_buy,
+                trigger=buy_level,
+                at=ts,
+                leg_kind="pm_chase" if used_chase else "trigger",
+                note=(
+                    f"正T中点追价买回（目标{buy_level:.4f}）"
+                    if used_chase
+                    else "正T买回（分钟第一触达）"
+                ),
             )
             shares_now += cover
             covered = cover
-            touch_cover_at = close_at or touch_cover_at
-            exit_reason = "eod_cover"
+            touch_cover_at = ts
+            exit_reason = "pm_chase" if used_chase else "trigger"
+            continue
+
+    at_end = len(minute_bars) >= len(sess_bars)
+    if sold_qty > 0 and covered <= 0 and at_end:
+        sess_close = float(sess_bar.get("close") or close)
+        eod_ok = _allows_eod_cover(minute_bars, sess_bars, defer_eod=defer_eod)
+        if cfg.get("must_cover_same_day") and eod_ok:
+            cover = sold_qty
+            buy_amount = cover * sess_close
+            # 卖出净得须能覆盖收盘买回（含后续手续费由 append 再扣）；不足则改记敞口
+            if buy_amount > cash_delta + 1e-6:
+                exposure_pnl = round((sold_price - sess_close) * sold_qty, 2)
+                exit_reason = "abandon_cover_cash"
+            else:
+                close_at = _session_close_at(sess_bars, sess_bar)
+                cash_delta += append_t0_leg(
+                    trades,
+                    cost_model=cost_model,
+                    cost_params=cost_params,
+                    side="t0_buy",
+                    stock_code=stock_code,
+                    shares=cover,
+                    price=sess_close,
+                    trigger=sess_close,
+                    at=close_at,
+                    leg_kind="eod_cover",
+                    note="正T强制收盘买回",
+                )
+                shares_now += cover
+                covered = cover
+                touch_cover_at = close_at or touch_cover_at
+                exit_reason = "eod_cover"
         elif eod_ok or not defer_eod:
             exposure_pnl = round((sold_price - sess_close) * sold_qty, 2)
             exit_reason = "abandon_cover"
@@ -758,7 +786,7 @@ def _first_touch_reverse(
         lo = float(mb.get("low") or 0)
         close = float(mb.get("close") or 0)
         ts = mb.get("datetime") or mb.get("date")
-        pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm))
+        pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm, inclusive=False))
         if lo > 0:
             prefix_lo = lo if prefix_lo <= 0 else min(prefix_lo, lo)
 
@@ -799,6 +827,7 @@ def _first_touch_reverse(
             bought_qty = qty
             buy_price = fill_buy
             touch_buy_at = ts
+            # 第二腿：相对低吸成交价上浮 sell_trigger%（非 ref）
             chase_sell_level = buy_price * (1.0 + sell_trig / 100.0)
             # 同根不明先后：低吸后不在同一根卖旧仓
             continue
@@ -808,41 +837,49 @@ def _first_touch_reverse(
             if chase_sell_level is None:
                 chase_sell_level = base_sell
             sell_old_qty = min(bought_qty, sell_old_cap)
-            px = float(mb.get("close") or lo or buy_price)
-            chase_sell_level, last_chase_min, _ = _maybe_pm_chase_level(
-                level=float(chase_sell_level),
-                px=px,
-                ts=ts,
-                pm_hm=pm_hm,
-                last_chase_min=last_chase_min,
-                interval_min=pm_chase_iv,
-            )
             sell_level = float(chase_sell_level)
-            if sell_old_qty > 0 and hi >= sell_level:
-                fill_sell = _fill_sell(hi, sell_level, fill_mode)
-                used_chase = last_chase_min is not None
-                cash_delta += append_t0_leg(
-                    trades,
-                    cost_model=cost_model,
-                    cost_params=cost_params,
-                    side="t0_sell",
-                    stock_code=stock_code,
-                    shares=sell_old_qty,
-                    price=fill_sell,
-                    trigger=sell_level,
-                    at=ts,
-                    leg_kind="pm_chase" if used_chase else "trigger",
-                    note=(
-                        f"反T中点追价卖旧仓（目标{sell_level:.4f}）"
-                        if used_chase
-                        else "反T卖旧底仓（分钟第一触达；T+1可卖）"
-                    ),
+            used_chase = last_chase_min is not None
+            # 先按当前目标触价；不可成再追价，同根用新目标再试（避免未触就压价）
+            if sell_old_qty <= 0 or hi < sell_level:
+                px = float(mb.get("close") or lo or buy_price)
+                chase_sell_level, last_chase_min, adjusted = _maybe_pm_chase_level(
+                    level=float(chase_sell_level),
+                    px=px,
+                    ts=ts,
+                    pm_hm=pm_hm,
+                    last_chase_min=last_chase_min,
+                    interval_min=pm_chase_iv,
                 )
-                shares_now -= sell_old_qty
-                sold_back = sell_old_qty
-                touch_sell_at = ts
-                exit_reason = "pm_chase" if used_chase else "trigger"
-                continue
+                # must_cover：追价不得低于低吸成本（盘中主动割肉应交 eod）
+                if cfg.get("must_cover_same_day") and buy_price > 0:
+                    chase_sell_level = max(float(chase_sell_level), float(buy_price))
+                sell_level = float(chase_sell_level)
+                used_chase = last_chase_min is not None
+                if not adjusted or sell_old_qty <= 0 or hi < sell_level:
+                    continue
+            fill_sell = _fill_sell(hi, sell_level, fill_mode)
+            cash_delta += append_t0_leg(
+                trades,
+                cost_model=cost_model,
+                cost_params=cost_params,
+                side="t0_sell",
+                stock_code=stock_code,
+                shares=sell_old_qty,
+                price=fill_sell,
+                trigger=sell_level,
+                at=ts,
+                leg_kind="pm_chase" if used_chase else "trigger",
+                note=(
+                    f"反T中点追价卖旧仓（目标{sell_level:.4f}）"
+                    if used_chase
+                    else "反T卖旧底仓（分钟第一触达；T+1可卖）"
+                ),
+            )
+            shares_now -= sell_old_qty
+            sold_back = sell_old_qty
+            touch_sell_at = ts
+            exit_reason = "pm_chase" if used_chase else "trigger"
+            continue
 
     if bought_qty <= 0:
         return _skip_result(
@@ -861,9 +898,8 @@ def _first_touch_reverse(
     if sold_back <= 0 and at_end:
         sell_old_qty = min(bought_qty, sell_old_cap)
         sess_close = float(sess_bar.get("close") or close)
-        if cfg.get("must_cover_same_day") and sell_old_qty > 0 and _allows_eod_cover(
-            minute_bars, sess_bars, defer_eod=defer_eod
-        ):
+        eod_ok = _allows_eod_cover(minute_bars, sess_bars, defer_eod=defer_eod)
+        if cfg.get("must_cover_same_day") and sell_old_qty > 0 and eod_ok:
             fill_sell = sess_close
             close_at = _session_close_at(sess_bars, sess_bar)
             cash_delta += append_t0_leg(
@@ -883,8 +919,10 @@ def _first_touch_reverse(
             sold_back = sell_old_qty
             touch_sell_at = close_at or touch_sell_at
             exit_reason = "eod_cover"
-        elif not cfg.get("must_cover_same_day"):
+        elif (eod_ok or not defer_eod) and not cfg.get("must_cover_same_day"):
+            # 与正T对称：仅在收盘窗就绪（或非 defer）时记敞口；盘中前缀继续等
             exposure_pnl = round((sess_close - buy_price) * bought_qty, 2)
+            exit_reason = exit_reason or "abandon_cover"
 
     if sold_back > 0:
         pnl = t0_pnl_from_trades(trades)
@@ -931,7 +969,11 @@ def _touch_path_complete(out: dict, direction: str) -> bool:
         if covered >= sold:
             return True
         # 正T放弃买回（减仓落袋）或未回补敞口已标记
-        if str(out.get("exit_reason") or "") in ("abandon_cover", "eod_cover"):
+        if str(out.get("exit_reason") or "") in (
+            "abandon_cover",
+            "abandon_cover_cash",
+            "eod_cover",
+        ):
             return True
         return abs(float(out.get("exposure_pnl") or 0)) > 1e-9
     if direction == "reverse_t":
@@ -940,6 +982,8 @@ def _touch_path_complete(out: dict, direction: str) -> bool:
         if bought <= 0:
             return False
         if sold_back >= bought:
+            return True
+        if str(out.get("exit_reason") or "") in ("abandon_cover", "eod_cover"):
             return True
         return abs(float(out.get("exposure_pnl") or 0)) > 1e-9
     return bool(out.get("trades"))
@@ -1103,7 +1147,7 @@ def _annotate_trace_pm_blocks(
     for r in trace or []:
         row = dict(r)
         ts = row.get("datetime")
-        pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm))
+        pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm, inclusive=False))
         row["pm_hit"] = pm_hit
         row["pm_block"] = bool(pm_hit and row.get("touch_leg1"))
         rows.append(row)
@@ -1163,7 +1207,7 @@ def _plan_forward_leg1_gates(
     atr_pct: Optional[float],
     score_snap: Optional[dict],
 ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Optional[dict]]:
-    """滑动前缀：逐根评估门禁，构建 leg1 仅能在 entry_ready 根成交的 gate 函数。
+    """滑动前缀：逐根评估门禁，构建 leg1 粘滞闸（首次 entry_ready 后后续根均可触价）。
 
     Returns (plan, early_exit, dir_res_for_finish).
     plan 含 leg1_gate_at / direction / cfg_side / triggers / ref / range_pct 等。
@@ -1180,6 +1224,8 @@ def _plan_forward_leg1_gates(
     last_amp_skip: Optional[Dict[str, Any]] = None
     last_dir_wait: Optional[Dict[str, Any]] = None
     cover_meta: Optional[dict] = None
+    # 仅统计「振幅已过闸但段向未确认」的评估根数；一字板/无波动不烧 abandon 预算
+    wait_eval_count = 0
 
     for j in range(n_bars):
         m = mins[j]
@@ -1391,6 +1437,7 @@ def _plan_forward_leg1_gates(
             wait_reason = str(
                 seg.get("reason") if dir_amp.get("ok") else dir_amp.get("reason") or "方向振幅未达标"
             )
+            wait_eval_count += 1
 
         trace_rows.append(
             _forward_trace_row(
@@ -1444,7 +1491,7 @@ def _plan_forward_leg1_gates(
             )
             abandon_on = bool(cfg_day.get("y_path_abandon_enabled", True))
             abandon_bars = resolve_path_abandon_bars(cfg_side, direction)
-            if abandon_on and n >= abandon_bars:
+            if abandon_on and wait_eval_count >= abandon_bars:
                 if not dir_amp.get("ok"):
                     if direction == "reverse_t":
                         abandon_reason = f"前缀无低吸空间，放弃反T（{wait_reason}）"
@@ -1484,14 +1531,22 @@ def _plan_forward_leg1_gates(
             return None, last_amp_skip, None
         return None, None, None
 
+    first_ready = next((i for i, ok in enumerate(entry_flags) if ok), None)
+
     def leg1_gate_at(idx: int) -> bool:
-        if idx < 0 or idx >= n_bars:
+        """段向确认后粘滞开闸：idx >= 首个 entry_ready 即可触价。
+
+        正确语义是「确认生效 → 等下一次触价」；禁止改回「仅 entry_ready 当根」
+        （确认与触价常错开 → 第一腿永不成交 → 回测参与率/PnL 虚高）。
+        """
+        if first_ready is None or idx < 0 or idx >= n_bars:
             return False
-        return bool(entry_flags[idx])
+        return idx >= first_ready
 
     plan = dict(plan_tail)
     plan["leg1_gate_at"] = leg1_gate_at
     plan["gate_trace"] = trace_rows
+    plan["first_entry_ready_idx"] = first_ready
     if not any(entry_flags) and last_dir_wait is not None:
         plan["pending_wait"] = last_dir_wait
     return plan, None, plan_tail.get("dir_res")
@@ -1518,7 +1573,7 @@ def run_forward_first_touch(
     base_t0_ratio: Optional[float] = None,
     defer_eod: bool = True,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[dict]]:
-    """前向滑动窗口第一触达：仅在当前根 entry_ready 时允许开第一腿。
+    """前向滑动窗口第一触达：段向确认后粘滞开闸，后续根触价可开第一腿（不回溯确认前触价）。
 
     ``defer_eod=True``（Worker 盘中前缀）：末根未到 14:55 不强平。
     回测传 ``False``：当日收盘强制回补，即使分钟缓存在午前截断。
@@ -1667,14 +1722,14 @@ def simulate_t0_day_minute(
 ) -> Dict[str, Any]:
     """单日做 T：选向仍用开盘/隔夜特征；成交路径按分钟第一触达（前向滑动窗口）。
 
-    振幅/段向门禁按 5m 前缀逐根评估；第一腿仅在当前根 entry_ready 时触价成交（不回溯）。
+    振幅/段向门禁按 5m 前缀逐根评估；段向确认后粘滞开闸，后续根触价即可成交（不回溯确认前触价）。
     """
     from core.t0.score_policy import (
         attach_day_scores,
+        resolve_cover_policy,
+        resolve_fuse_intraday,
         resolve_scores_for_code,
         resolve_y_score_source,
-        resolve_cover_policy,
-        scale_t0_triggers,
         scores_have_any,
         tau_pool_day_score_kwargs,
     )
@@ -1694,7 +1749,7 @@ def simulate_t0_day_minute(
                 day_bar=bar if isinstance(bar, dict) else None,
                 as_of=as_of or None,
                 source=resolve_y_score_source(cfg),
-                fuse_intraday=True,
+                fuse_intraday=resolve_fuse_intraday(cfg),
                 allow_fallback=(resolve_y_score_source(cfg) != "compute"),
                 **tau_pool_day_score_kwargs(tau_pool_day, stock_code),
             )
@@ -1708,22 +1763,12 @@ def simulate_t0_day_minute(
     cfg_day["sell_trigger_pct"] = sell_trig
     cfg_day["buy_trigger_pct"] = buy_trig
     cfg_day["path_mode"] = "first_touch"
+    # 信心缩放只在 _side_trigger_pack 做一次（避免与侧向键叠加双重缩放）
     trigger_scale_meta: Dict[str, float] = {
         "sell_trigger_pct_base": round(sell_trig, 4),
         "buy_trigger_pct_base": round(buy_trig, 4),
         "trigger_scale": 1.0,
     }
-    if str(cfg_day.get("direction") or "") == "dual_y" and scores_have_any(score_snap):
-        trig = scale_t0_triggers(sell_trig, buy_trig, score_snap or {}, cfg_day)
-        sell_trig = float(trig["sell_trigger_pct"])
-        buy_trig = float(trig["buy_trigger_pct"])
-        cfg_day["sell_trigger_pct"] = sell_trig
-        cfg_day["buy_trigger_pct"] = buy_trig
-        trigger_scale_meta = {
-            "sell_trigger_pct_base": float(trig["sell_trigger_pct_base"]),
-            "buy_trigger_pct_base": float(trig["buy_trigger_pct_base"]),
-            "trigger_scale": float(trig["trigger_scale"]),
-        }
 
     # path实对照：用 path 模型训练触发（与 ŷ_path 同口径）；成交仍用上方 execution 触发
     try:

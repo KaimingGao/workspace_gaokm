@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Sequence
 SKIP_CAT_LABELS: Dict[str, str] = {
     "missing_minute": "缺分钟",
     "missing_scores": "缺ŷ",
+    "y_path_missing": "缺y_path",
     "y_eod_flat": "y_eod未过门槛",
     "y_tau_flat": "y_τ横盘",
     "y_tau_weak": "y_τ弱信号",
@@ -33,6 +34,7 @@ SKIP_CAT_LABELS: Dict[str, str] = {
 SKIP_CAT_COLORS: Dict[str, str] = {
     "missing_minute": "#94a3b8",
     "missing_scores": "#94a3b8",
+    "y_path_missing": "#64748b",
     "y_eod_flat": "#f59e0b",
     "y_tau_flat": "#f59e0b",
     "y_tau_weak": "#fbbf24",
@@ -60,6 +62,8 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
     r = str(reason or "")
     if "缺" in r and ("分钟" in r or "minute" in r.lower()):
         return "missing_minute"
+    if "缺 y_path" in r or ("缺" in r and "y_path" in r):
+        return "y_path_missing"
     if "缺" in r and ("y_" in r or "快照" in r or "即时算分" in r):
         return "missing_scores"
     if "y_path" in r and "异号" in r:
@@ -579,8 +583,14 @@ def _cover_completed(day: dict) -> Optional[bool]:
     bought = int(day.get("bought_qty") or 0)
     sold_back = int(day.get("sold_back_qty") or 0)
     direction = str(day.get("direction") or day.get("direction_used") or "")
+    exit_reason = str(day.get("exit_reason") or "")
     if direction == "long_t" and sold > 0:
-        return covered >= sold
+        if covered >= sold:
+            return True
+        # 正T主动放弃回补（含现金不足放弃）按设计计为完成侧
+        if exit_reason in ("abandon_cover", "abandon_cover_cash"):
+            return True
+        return False
     if direction == "reverse_t" and bought > 0:
         return sold_back >= bought
     if sold > 0 or bought > 0:

@@ -729,6 +729,8 @@ def _intraday_setup(
         score_snap=scores,
         session_bar=bar_day,
         base_t0_ratio=base_ratio,
+        # 强制收盘窗：不得再 defer，否则午前末根无法 eod/敞口入账
+        defer_eod=not bool(force_session_close),
     )
     dir_res = dir_res or {}
     direction = str((out or {}).get("direction_used") or dir_res.get("direction") or "")
