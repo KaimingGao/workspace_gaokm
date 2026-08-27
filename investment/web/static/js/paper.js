@@ -2617,7 +2617,7 @@ export function initPaper(ctx) {
         setT0ActionBusy(
           paperT0Bt,
           false,
-          aborted ? "回测超时（已中止；可 Alt+点单票再试）" : String(err.message || err)
+          aborted ? "回测超时（已中止）。可先预热 5 分钟线，或 Alt+点单票再试" : String(err.message || err)
         );
       } finally {
         if (timer) clearTimeout(timer);
@@ -2631,19 +2631,46 @@ export function initPaper(ctx) {
       e.preventDefault();
       if (paperT0Run.disabled) return;
       setT0ActionBusy(paperT0Run, true, "预演中…");
+      const ac = typeof AbortController !== "undefined" ? new AbortController() : null;
+      const timer =
+        ac &&
+        setTimeout(() => {
+          try {
+            ac.abort();
+          } catch (_) {
+            /* ignore */
+          }
+        }, 180000);
       try {
         const res = await fetch("/api/paper/t0", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ dry_run: true }),
+          signal: ac ? ac.signal : undefined,
         });
-        const data = await res.json();
+        let data = {};
+        try {
+          data = await res.json();
+        } catch (_) {
+          data = {};
+        }
+        const detail = data.detail;
+        const detailText =
+          typeof detail === "string"
+            ? detail
+            : Array.isArray(detail)
+              ? detail.map((x) => x?.msg || x).filter(Boolean).join("；")
+              : "";
         if (!res.ok || data.success === false) {
-          setT0ActionBusy(
-            paperT0Run,
-            false,
-            data.error || data.detail || "预演失败"
-          );
+          const errMsg =
+            data.error ||
+            detailText ||
+            (res.status === 503
+              ? "账本正被其他操作占用，请稍后再试"
+              : res.status === 404
+                ? "请先初始化纸面账户"
+                : "预演失败");
+          setT0ActionBusy(paperT0Run, false, errMsg);
           renderPaperT0Preview(null);
           return;
         }
@@ -2667,8 +2694,16 @@ export function initPaper(ctx) {
         }
         renderPaperT0Preview(data);
       } catch (err) {
-        setT0ActionBusy(paperT0Run, false, String(err.message || err));
+        const aborted = err && (err.name === "AbortError" || /abort/i.test(String(err)));
+        setT0ActionBusy(
+          paperT0Run,
+          false,
+          aborted
+            ? "预演超时（已中止）。持仓多时可先预热 5 分钟线，或稍后再试"
+            : String(err.message || err)
+        );
       } finally {
+        if (timer) clearTimeout(timer);
         clearT0ActionBusy(paperT0Run);
       }
     });

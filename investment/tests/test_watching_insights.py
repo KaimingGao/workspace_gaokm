@@ -265,7 +265,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertEqual(out["count"], 100)
         self.assertEqual(out.get("truncated"), 0)
         self.assertTrue(all(i.get("score") is not None for i in out["items"]))
-        self.assertGreaterEqual(_INSIGHT_HARD_CAP, 100)
+        self.assertGreaterEqual(_INSIGHT_HARD_CAP, 200)
 
     def test_spot_valuation_warms_when_disk_empty(self):
         from core.watching.insights import _spot_valuation_map

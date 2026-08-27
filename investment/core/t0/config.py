@@ -48,8 +48,8 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "sell_trigger_pct": 1.0,
     "buy_trigger_pct": 1.0,
     "sell_trigger_pct_long": 1.0,
-    "buy_trigger_pct_long": 1.0,
-    "sell_trigger_pct_reverse": 1.0,
+    "buy_trigger_pct_long": 5.0,
+    "sell_trigger_pct_reverse": 5.0,
     "buy_trigger_pct_reverse": 1.0,
     "must_cover_same_day": True,
     "must_cover_same_day_long": False,
@@ -70,31 +70,31 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "path_mode": "first_touch",
     "minute_period": "5",
     "min_range_pct": 0.1,
-    "min_range_pct_long": 0.1,
-    "min_range_pct_reverse": 0.1,
+    "min_range_pct_long": 1.0,
+    "min_range_pct_reverse": 1.0,
     "use_atr": False,
     "atr_window": 14,
     "atr_sell_mult": 0.9,
     "atr_buy_mult": 0.7,
     # dual_y 阈值（百分比点）：*_enter 入场下限；*_strong 超强须与 τ 同号
-    "y_trade_enter": 0.02,
-    "y_trade_strong": 0.1,
-    "y_tau_enter": 0.02,
+    "y_trade_enter": 0.01,
+    "y_trade_strong": 2.0,
+    "y_tau_enter": 0.01,
     # 正T（−τ）/ 反T（+τ）分侧入场；缺省与 y_tau_enter 同
-    "y_tau_enter_long": 0.02,
-    "y_tau_enter_reverse": 0.02,
-    "y_path_enter": 0.02,
-    "y_path_enter_long": 0.02,
-    "y_path_enter_reverse": 0.02,
+    "y_tau_enter_long": 0.01,
+    "y_tau_enter_reverse": 0.01,
+    "y_path_enter": 0.01,
+    "y_path_enter_long": 0.01,
+    "y_path_enter_reverse": 0.01,
     "y_eod_enter": 0.01,
-    "y_eod_strong": 0.1,
-    "y_eod_prior": 0.02,
+    "y_eod_strong": 2.0,
+    "y_eod_prior": 0.01,
     "y_on_risk": 0.01,
-    "y_on_allow": 0.02,
+    "y_on_allow": 0.01,
     "y_block_tau_nowcast_sign": True,
     "y_tau_nowcast_sign_eps": 0.05,
     "y_nc_enter": 0.01,
-    "y_nc_strong": 3.0,
+    "y_nc_strong": 2.0,
     "y_tau_map": "trend",
     "y_use_path": True,
     "y_path_required": False,
@@ -107,8 +107,8 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_prefix_segment_enabled": True,
     "y_prefix_segment_enabled_long": True,
     "y_prefix_segment_enabled_reverse": True,
-    "y_prefix_pullback_pct_long": 0.25,
-    "y_prefix_bounce_pct_reverse": 0.25,
+    "y_prefix_pullback_pct_long": 0.5,
+    "y_prefix_bounce_pct_reverse": 0.5,
     "y_ratio_boost_cap": 2.0,
     "y_ratio_cut": 0.60,
     "y_ratio_tau_boost_cap": 1.15,
@@ -116,9 +116,9 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     # |y_τ| 刚过入场线时额外压低目标价（乘 y_ratio_cut）
     "y_ratio_tau_soft_band": 0.20,
     # 午后闸：到点后禁新开；已开未平则第二腿中点追价（正/反可分侧起算时刻）
-    "t0_pm_degrade": "14:00",
+    "t0_pm_degrade": "13:00",
     "t0_pm_degrade_long": "15:00",
-    "t0_pm_degrade_reverse": "14:00",
+    "t0_pm_degrade_reverse": "13:00",
     "t0_pm_chase_interval_min": 10,
     "t0_pm_chase_interval_min_long": 10,
     "t0_pm_chase_interval_min_reverse": 10,
@@ -184,11 +184,12 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         "buy_trigger_pct_reverse",
     ):
         base_k = "sell_trigger_pct" if side_trig.startswith("sell_") else "buy_trigger_pct"
-        if side_trig not in override_keys or cfg.get(side_trig) is None or cfg.get(side_trig) == "":
+        raw_trig = cfg.get(side_trig)
+        if raw_trig is None or raw_trig == "":
             cfg[side_trig] = float(cfg[base_k])
         else:
             try:
-                cfg[side_trig] = max(0.1, min(float(cfg[side_trig]), 20.0))
+                cfg[side_trig] = max(0.1, min(float(raw_trig), 20.0))
             except (TypeError, ValueError):
                 cfg[side_trig] = float(cfg[base_k])
     cfg["lot_size"] = max(1, int(cfg.get("lot_size") or 100))
@@ -257,16 +258,16 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     # override_keys 已在函数开头定义
     _migrate_dual_y_gate_keys(cfg, override_keys)
     for yk, lo, hi, default in (
-        ("y_eod_prior", 0.01, 5.0, 0.02),
+        ("y_eod_prior", 0.01, 5.0, 0.01),
         ("y_eod_enter", 0.01, 5.0, 0.01),
-        ("y_eod_strong", 0.05, 5.0, 0.1),
-        ("y_trade_enter", 0.01, 5.0, 0.02),
-        ("y_trade_strong", 0.05, 5.0, 0.1),
-        ("y_tau_enter", 0.01, 5.0, 0.02),
-        ("y_tau_enter_long", 0.01, 5.0, 0.02),
-        ("y_tau_enter_reverse", 0.01, 5.0, 0.02),
+        ("y_eod_strong", 0.05, 5.0, 2.0),
+        ("y_trade_enter", 0.01, 5.0, 0.01),
+        ("y_trade_strong", 0.05, 5.0, 2.0),
+        ("y_tau_enter", 0.01, 5.0, 0.01),
+        ("y_tau_enter_long", 0.01, 5.0, 0.01),
+        ("y_tau_enter_reverse", 0.01, 5.0, 0.01),
         ("y_on_risk", 0.01, 10.0, 0.01),
-        ("y_on_allow", 0.01, 10.0, 0.02),
+        ("y_on_allow", 0.01, 10.0, 0.01),
         ("y_ratio_boost_cap", 1.0, 2.0, 2.0),
         ("y_ratio_cut", 0.2, 1.0, 0.60),
         ("y_ratio_tau_boost_cap", 1.0, 1.5, 1.15),
@@ -274,10 +275,10 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_ratio_tau_soft_band", 0.0, 2.0, 0.20),
         ("y_tau_nowcast_sign_eps", 0.0, 1.0, 0.05),
         ("y_nc_enter", 0.01, 10.0, 0.01),
-        ("y_nc_strong", 0.05, 10.0, 3.0),
-        ("y_path_enter", 0.01, 5.0, 0.02),
-        ("y_path_enter_long", 0.01, 5.0, 0.02),
-        ("y_path_enter_reverse", 0.01, 5.0, 0.02),
+        ("y_nc_strong", 0.05, 10.0, 2.0),
+        ("y_path_enter", 0.01, 5.0, 0.01),
+        ("y_path_enter_long", 0.01, 5.0, 0.01),
+        ("y_path_enter_reverse", 0.01, 5.0, 0.01),
         ("y_gap_tier_pct", 0.3, 8.0, 1.0),
     ):
         try:
@@ -353,8 +354,8 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         cfg.get("y_prefix_segment_enabled_reverse", cfg.get("y_prefix_segment_enabled", True))
     )
     for seg_key, seg_default in (
-        ("y_prefix_pullback_pct_long", 0.25),
-        ("y_prefix_bounce_pct_reverse", 0.25),
+        ("y_prefix_pullback_pct_long", 0.5),
+        ("y_prefix_bounce_pct_reverse", 0.5),
     ):
         try:
             raw_seg = cfg.get(seg_key)
@@ -386,7 +387,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     pm_legacy = cfg.get("t0_pm_degrade")
     for side_key, default in (
         ("t0_pm_degrade_long", "15:00"),
-        ("t0_pm_degrade_reverse", "14:00"),
+        ("t0_pm_degrade_reverse", "13:00"),
     ):
         if side_key not in override_keys or cfg.get(side_key) is None:
             if side_key == "t0_pm_degrade_reverse" and pm_legacy is not None:
@@ -443,11 +444,12 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("min_range_pct_long", "min_range_pct"),
         ("min_range_pct_reverse", "min_range_pct"),
     ):
-        if mr_side not in override_keys or cfg.get(mr_side) is None or cfg.get(mr_side) == "":
+        raw_mr = cfg.get(mr_side)
+        if raw_mr is None or raw_mr == "":
             cfg[mr_side] = cfg.get(base_mr)
-        elif cfg.get(mr_side) is not None:
+        else:
             try:
-                cfg[mr_side] = max(0.1, min(float(cfg[mr_side]), 30.0))
+                cfg[mr_side] = max(0.1, min(float(raw_mr), 30.0))
             except (TypeError, ValueError):
                 cfg[mr_side] = cfg.get(base_mr)
     return cfg
@@ -490,7 +492,7 @@ def apply_side_exec_params(cfg: dict, direction: Optional[str]) -> Dict[str, Any
         s = str(pm).strip()
         out["t0_pm_degrade"] = "" if s in {"", "0", "off", "none", "-"} else s
     elif not out.get("t0_pm_degrade"):
-        out["t0_pm_degrade"] = "15:00" if direction == "long_t" else "14:00"
+        out["t0_pm_degrade"] = "15:00" if direction == "long_t" else "13:00"
     iv = out.get(f"t0_pm_chase_interval_min{suf}")
     if iv is not None and iv != "":
         try:

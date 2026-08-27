@@ -664,18 +664,9 @@ def _intraday_setup(
     force_session_close: bool = False,
 ) -> Dict[str, Any]:
     from core.t0.costs import resolve_t0_cost_context
-    from core.t0.minute_path import (
-        _day_ohlc_from_minutes,
-        _first_touch_long,
-        _first_touch_reverse,
-        prefix_directional_amplitude_ok,
-        prefix_range_gate,
-        prefix_segment_entry_ok,
-    )
-    from core.t0.config import apply_side_exec_params, resolve_path_abandon_bars
+    from core.t0.minute_path import _day_ohlc_from_minutes, run_forward_first_touch
     from core.t0.rules import (
         _skip_result,
-        resolve_direction,
         scale_triggers_with_atr,
     )
 
@@ -706,260 +697,64 @@ def _intraday_setup(
     lot = int(cfg.get("lot_size") or 100)
     shares = float(holding.get("shares") or 0)
     scaled = scale_triggers_with_atr(cfg, atr_pct=atr_pct)
-    sell_trig = float(scaled["sell_trigger_pct"])
-    buy_trig = float(scaled["buy_trigger_pct"])
-    trigger_scale_meta = {
-        "sell_trigger_pct_base": round(sell_trig, 4),
-        "buy_trigger_pct_base": round(buy_trig, 4),
-        "trigger_scale": 1.0,
-    }
     cost = float(holding.get("cost") or 0)
     if shares <= 0:
         return _skip_result(reason="无效 bar 或持仓", shares=shares, bar=bar_day)
 
-    gate = prefix_range_gate(minute_bars, bar, cost=cost, cfg=cfg)
-    ref = float(gate.get("ref") or 0)
-    bar_day = gate.get("bar_day") or bar_day
-    if ref <= 0:
-        return _skip_result(reason="无效 bar 或持仓", shares=shares, bar=bar_day)
+    cfg_pre = dict(cfg)
+    try:
+        ml = cfg.get("min_range_pct_long")
+        mr = cfg.get("min_range_pct_reverse")
+        if ml is not None and mr is not None:
+            cfg_pre["min_range_pct"] = min(float(ml), float(mr))
+    except (TypeError, ValueError):
+        pass
 
-    if not gate.get("ok"):
-        range_pct = gate.get("range_pct")
-        min_range = gate.get("min_range_pct")
-        reason = (
-            f"振幅不足 {float(range_pct):.2f}% < {float(min_range):.2f}%"
-            if range_pct is not None and not gate.get("flat")
-            else "一字板/无波动"
-            if gate.get("flat")
-            else f"振幅不足 < {float(min_range):.2f}%"
-        )
-        return _skip_result(
-            reason=reason,
-            shares=shares,
-            bar=bar_day,
-            extra={
-                "range_pct": range_pct,
-                "min_range_pct": min_range,
-                "range_mode": "rolling",
-                "prefix_bars": gate.get("prefix_bars"),
-            },
-        )
-
-    range_pct = float(gate.get("range_pct") or 0)
-
-    dir_res = resolve_direction(
-        bar=bar_day,
-        ref=ref,
-        cfg=cfg,
-        cash=float(cash or 0),
+    base_ratio = float(cfg.get("t0_ratio") or 1.0)
+    out, dir_res = run_forward_first_touch(
+        minute_bars=minute_bars,
+        bar=bar,
         shares=shares,
+        cost=cost,
+        sellable_shares=sellable,
+        cfg_day=cfg,
+        cfg_pre=cfg_pre,
+        cash=float(cash or 0),
+        stock_code=code,
+        lot=lot,
+        cost_model=cost_model,
+        cost_params=cost_params,
+        atr_pct=scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct,
         hist_bars=hist_bars,
-        atr_pct=scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct,
-        scores=scores,
+        score_snap=scores,
+        session_bar=bar_day,
+        base_t0_ratio=base_ratio,
     )
-    if dir_res.get("skip") or not dir_res.get("direction"):
+    dir_res = dir_res or {}
+    direction = str((out or {}).get("direction_used") or dir_res.get("direction") or "")
+
+    if out is None:
         return _skip_result(
-            reason=str(dir_res.get("direction_reason") or "选向跳过"),
+            reason="分钟线不足，无法第一触达",
             shares=shares,
             bar=bar_day,
-            extra={"signal_skip": True},
+            extra={"path_mode": "first_touch", "range_mode": "forward"},
         )
 
-    direction = str(dir_res["direction"])
-    from core.t0.score_policy import resolve_cover_policy, scale_t0_triggers, scores_have_any
-
-    cfg_exec = apply_side_exec_params(dict(cfg), direction)
-    scaled_side = scale_triggers_with_atr(
-        cfg_exec,
-        atr_pct=scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct,
-    )
-    sell_trig = float(scaled_side["sell_trigger_pct"])
-    buy_trig = float(scaled_side["buy_trigger_pct"])
-    base_ratio = float(cfg_exec.get("t0_ratio") or 1.0)
-    t0_ratio = base_ratio
-    cfg_exec["t0_ratio"] = t0_ratio
-    if str(cfg_exec.get("direction") or "") == "dual_y" and scores_have_any(scores):
-        trig = scale_t0_triggers(sell_trig, buy_trig, scores or {}, cfg_exec)
-        sell_trig = float(trig["sell_trigger_pct"])
-        buy_trig = float(trig["buy_trigger_pct"])
-        cfg_exec["sell_trigger_pct"] = sell_trig
-        cfg_exec["buy_trigger_pct"] = buy_trig
-        trigger_scale_meta = {
-            "sell_trigger_pct_base": float(trig["sell_trigger_pct_base"]),
-            "buy_trigger_pct_base": float(trig["buy_trigger_pct_base"]),
-            "trigger_scale": float(trig["trigger_scale"]),
-        }
-    else:
-        cfg_exec["sell_trigger_pct"] = sell_trig
-        cfg_exec["buy_trigger_pct"] = buy_trig
-    fill_mode = str(cfg_exec.get("fill_mode") or "trigger")
-
-    gate_side = prefix_range_gate(minute_bars, bar, cost=cost, cfg=cfg_exec)
-    if not gate_side.get("ok"):
-        range_pct_side = gate_side.get("range_pct")
-        min_range = gate_side.get("min_range_pct")
-        reason = (
-            f"振幅不足 {float(range_pct_side):.2f}% < {float(min_range):.2f}%"
-            if range_pct_side is not None and not gate_side.get("flat")
-            else "一字板/无波动"
-            if gate_side.get("flat")
-            else f"振幅不足 < {float(min_range):.2f}%"
-        )
-        return _skip_result(
-            reason=reason,
-            shares=shares,
-            bar=bar_day,
-            extra={
-                "range_pct": range_pct_side,
-                "min_range_pct": min_range,
-                "range_mode": "rolling",
-                "prefix_bars": gate_side.get("prefix_bars"),
-                "direction_used": direction,
-            },
-        )
-
-    cover_meta = None
-    if str(cfg.get("direction") or "") == "dual_y":
-        cover_meta = resolve_cover_policy(
-            scores=scores or {},
-            direction=direction,
-            cfg=cfg_exec,
-        )
-        cfg_exec["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
-
-    # 真正收盘窗才允许 eod_cover：末根 ≥14:55，或 Worker 收盘收尾 tick。
-    # 盘中前缀若 session_bars==minute_bars 且不 defer，会把下一根 5m 误当收盘（伪往返）。
-    at_session_end = bool(force_session_close) or _minute_at_session_close(minute_bars)
-    dir_amp = prefix_directional_amplitude_ok(
-        minute_bars,
-        direction=direction,
-        ref=ref,
-        sell_trig=sell_trig,
-        buy_trig=buy_trig,
-    )
-    seg = prefix_segment_entry_ok(
-        minute_bars,
-        direction=direction,
-        ref=ref,
-        sell_trig=sell_trig,
-        buy_trig=buy_trig,
-        cfg=cfg_exec,
-    )
-    entry_ready = (dir_amp.get("ok") and seg.get("ok")) or at_session_end
-    if not entry_ready and not at_session_end:
-        prefix_bars = len(minute_bars)
-        wait_reason = str(
-            seg.get("reason") if dir_amp.get("ok") else dir_amp.get("reason") or "方向振幅未达标"
-        )
-        abandon_on = bool(cfg_exec.get("y_path_abandon_enabled", True))
-        abandon_bars = resolve_path_abandon_bars(cfg_exec, direction)
-        if abandon_on and prefix_bars >= abandon_bars:
-            if not dir_amp.get("ok"):
-                if direction == "reverse_t":
-                    abandon_reason = f"前缀无低吸空间，放弃反T（{wait_reason}）"
-                elif direction == "long_t":
-                    abandon_reason = f"前缀无高抛空间，放弃正T（{wait_reason}）"
-                else:
-                    abandon_reason = wait_reason
-            elif direction == "reverse_t":
-                abandon_reason = f"前缀无反弹确认，放弃反T（{wait_reason}）"
-            elif direction == "long_t":
-                abandon_reason = f"前缀无回落确认，放弃正T（{wait_reason}）"
-            else:
-                abandon_reason = wait_reason
-            return _skip_result(
-                reason=abandon_reason,
-                shares=shares,
-                bar=bar_day,
-                extra={
-                    "direction_used": direction,
-                    "range_mode": "rolling",
-                    "prefix_bars": prefix_bars,
-                    "range_pct": range_pct,
-                    "directional_amplitude": dir_amp,
-                    "prefix_segment": seg,
-                    "path_abandon": True,
-                },
-            )
-        return _skip_result(
-            reason=wait_reason,
-            shares=shares,
-            bar=bar_day,
-            extra={
-                "direction_used": direction,
-                "range_mode": "rolling",
-                "prefix_bars": prefix_bars,
-                "range_pct": range_pct,
-                "directional_amplitude": dir_amp,
-                "prefix_segment": seg,
-            },
-        )
-
-    # defer_eod=True：第二腿等到真正 session 末；盘中用 pad 让 len(prefix)<len(session)。
-    session_bars: List[dict] = list(minute_bars)
-    if not at_session_end:
-        session_bars = list(minute_bars) + [
-            {"datetime": "eod_pad", "open": 0, "high": 0, "low": 0, "close": 0}
-        ]
-    path_kwargs = {
-        "session_bars": session_bars,
-        "session_bar": bar_day,
-        "defer_eod": True,
-    }
-
-    if direction == "reverse_t":
-        day = _first_touch_reverse(
-            minute_bars=minute_bars,
-            bar=bar_day,
-            shares=shares,
-            cash=float(cash or 0),
-            sellable_shares=sellable,
-            ref=ref,
-            sell_trig=sell_trig,
-            buy_trig=buy_trig,
-            lot=lot,
-            fill_mode=fill_mode,
-            cfg=cfg_exec,
-            cost_model=cost_model,
-            cost_params=cost_params,
-            stock_code=code,
-            atr_pct=scaled.get("atr_pct"),
-            range_pct=range_pct,
-            **path_kwargs,
-        )
-    else:
-        day = _first_touch_long(
-            minute_bars=minute_bars,
-            bar=bar_day,
-            shares=shares,
-            sellable_shares=sellable,
-            ref=ref,
-            sell_trig=sell_trig,
-            buy_trig=buy_trig,
-            lot=lot,
-            fill_mode=fill_mode,
-            cfg=cfg_exec,
-            cost_model=cost_model,
-            cost_params=cost_params,
-            stock_code=code,
-            atr_pct=scaled.get("atr_pct"),
-            range_pct=range_pct,
-            t0_ratio=t0_ratio,
-            **path_kwargs,
-        )
-
-    if day.get("skipped"):
+    if out.get("skipped"):
         from core.t0.score_policy import attach_day_scores
 
         return attach_day_scores(
             {
-                **day,
+                **out,
                 "direction_score": dir_res.get("direction_score"),
                 "direction_reason": dir_res.get("direction_reason"),
             },
             scores,
             features=dir_res.get("features"),
         )
+
+    day = out
     trades = list(day.get("trades") or [])
     if not trades:
         from core.t0.score_policy import attach_day_scores
@@ -974,12 +769,17 @@ def _intraday_setup(
             features=dir_res.get("features"),
         )
 
+    trigger_scale_meta = {
+        "sell_trigger_pct_base": day.get("sell_trigger_pct_base"),
+        "buy_trigger_pct_base": day.get("buy_trigger_pct_base"),
+        "trigger_scale": day.get("trigger_scale"),
+    }
+    t0_ratio = float(day.get("t0_ratio") or base_ratio)
+    cover_meta = day.get("cover_policy")
     if isinstance(day, dict):
         day["t0_ratio_base"] = round(base_ratio, 4)
         day["t0_ratio"] = round(t0_ratio, 4)
-        day.update(trigger_scale_meta)
-        day["sell_trigger_pct"] = round(sell_trig, 4)
-        day["buy_trigger_pct"] = round(buy_trig, 4)
+        day.update({k: v for k, v in trigger_scale_meta.items() if v is not None})
         day["direction_score"] = dir_res.get("direction_score")
         day["direction_reason"] = dir_res.get("direction_reason")
         if cover_meta:

@@ -170,16 +170,33 @@ export function stockCellHtml(row, fallback = {}) {
   );
 }
 
+export function hasForwardGateTrace(d) {
+  return Array.isArray(d?.forward_trace) && d.forward_trace.length > 0;
+}
+
 export function pickTradeDays(data) {
+  const sample = (data && (data.trade_days_sample || data.days)) || [];
+  return sample.filter((d) => _isTradedDay(d));
+}
+
+/** 成交明细：含成交日 + 带 forward_trace 的跳过日（便于看门禁为何未成交）。 */
+export function pickDetailDays(data, { includeSkippedGateTrace = true } = {}) {
   const sample = (data && (data.trade_days_sample || data.days)) || [];
   return sample.filter(
     (d) =>
-      Number(d.sold_qty) > 0 ||
-      Number(d.bought_qty) > 0 ||
-      Number(d.covered_qty) > 0 ||
-      Number(d.sold_back_qty) > 0 ||
-      Number(d.pnl) !== 0 ||
-      Number(d.exposure_pnl) !== 0
+      _isTradedDay(d) ||
+      (includeSkippedGateTrace && d.skipped && hasForwardGateTrace(d))
+  );
+}
+
+function _isTradedDay(d) {
+  return (
+    Number(d.sold_qty) > 0 ||
+    Number(d.bought_qty) > 0 ||
+    Number(d.covered_qty) > 0 ||
+    Number(d.sold_back_qty) > 0 ||
+    Number(d.pnl) !== 0 ||
+    Number(d.exposure_pnl) !== 0
   );
 }
 
@@ -878,6 +895,93 @@ export function daysHaveIntradayTime(days) {
   return (days || []).some((d) => !!d.minute_path || collectLegRecords(d).some((l) => !!l.time));
 }
 
+function tradeTableColCount(showStock, showReason, showDelete) {
+  let n = 13;
+  if (showStock) n += 1;
+  if (showReason) n += 1;
+  if (showDelete) n += 1;
+  return n;
+}
+
+function fmtGateYN(v) {
+  if (v === true) return "Y";
+  if (v === false) return "N";
+  return "—";
+}
+
+function forwardGateTraceInnerHtml(trace, d) {
+  const rows = (trace || [])
+    .map((r) => {
+      const cls = [
+        r.leg1_fill ? "is-fill" : "",
+        r.touch_blocked ? "is-blocked" : "",
+        r.pm_block ? "is-pm-block" : "",
+        r.entry_ready ? "is-ready" : "",
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return (
+        `<tr class="${cls}">` +
+        `<td>${escapeText(r.time || "")}</td>` +
+        `<td class="num">${r.prefix_bars ?? ""}</td>` +
+        `<td class="num">${r.range_pct != null ? Number(r.range_pct).toFixed(2) : "—"}</td>` +
+        `<td>${fmtGateYN(r.range_ok)}</td>` +
+        `<td>${fmtGateYN(r.dir_amp_ok)}</td>` +
+        `<td>${fmtGateYN(r.seg_ok)}</td>` +
+        `<td>${r.entry_ready ? "Y" : "N"}</td>` +
+        `<td>${r.touch_leg1 ? "Y" : "—"}</td>` +
+        `<td>${r.touch_blocked ? "Y" : "—"}</td>` +
+        `<td>${r.pm_block ? "Y" : r.pm_hit ? "窗" : "—"}</td>` +
+        `<td>${r.leg1_fill ? "★" : r.leg2_fill ? "②" : "—"}</td>` +
+        `</tr>`
+      );
+    })
+    .join("");
+  const mode = d.range_mode || "forward";
+  const rangeNote =
+    d.range_pct != null && Number.isFinite(Number(d.range_pct))
+      ? ` · 日振幅 ${Number(d.range_pct).toFixed(2)}%`
+      : "";
+  const wait = String(d.wait_reason || d.reason || "").trim();
+  const waitNote = wait ? ` · ${wait}` : "";
+  return (
+    `<div class="paper-t0-gate-trace">` +
+    `<p class="paper-t0-gate-trace-cap">前向滑动窗口门禁` +
+    ` <span class="paper-t0-gate-trace-mode">${escapeText(mode)}</span>` +
+    `${escapeText(rangeNote)}${escapeText(waitNote)}</p>` +
+    `<div class="paper-t0-gate-trace-scroll">` +
+    `<table class="paper-t0-gate-trace-table">` +
+    `<thead><tr>` +
+    `<th>时刻</th><th>n</th><th>振幅%</th><th>振</th><th>向</th><th>段</th>` +
+    `<th>ready</th><th>触</th><th>挡</th><th>午后</th><th>腿</th>` +
+    `</tr></thead><tbody>${rows}</tbody></table></div>` +
+    `<p class="quant-trades-caption paper-t0-gate-trace-foot">` +
+    `振=总量振幅 · 向=方向振幅 · 段=段向确认 · 午后=触价但禁新开 · ★=第一腿成交` +
+    `</p></div>`
+  );
+}
+
+let _gateTraceBound = false;
+
+/** 成交明细：点击含 forward_trace 的行展开门禁表（委托绑定，只注册一次）。 */
+export function ensureT0GateTraceBindings() {
+  if (_gateTraceBound) return;
+  _gateTraceBound = true;
+  document.addEventListener("click", (e) => {
+    const tr = e.target.closest("tr.paper-t0-row-gate-expandable");
+    if (!tr || e.target.closest("button, a, .paper-t0-ledger-del")) return;
+    const key = tr.dataset.gateKey;
+    if (!key) return;
+    const detail = tr.parentElement?.querySelector(`tr.paper-t0-gate-trace-row[data-gate-for="${key}"]`);
+    if (!detail) return;
+    const icon = tr.querySelector(".paper-t0-expand-icon");
+    const open = detail.hidden;
+    detail.hidden = !open;
+    tr.classList.toggle("is-gate-expanded", open);
+    if (icon) icon.textContent = open ? "⌄" : "›";
+  });
+}
+
 function tradeColgroup(showStock, showReason = false, showDelete = false) {
   let html = "<colgroup>";
   if (showStock) html += t0Col("paper-t0-col-stock", "stock");
@@ -991,6 +1095,7 @@ export function buildT0TradeTableHtml(opts) {
   if (!days || !days.length) return caption || "";
   const showStock = shouldShowStockColumn(data, days);
   const showTime = daysHaveIntradayTime(days);
+  const colSpan = tradeTableColCount(showStock, showReason, showDelete);
   const rules = (data && data.rules) || {};
   const enter = yTauEnter(data);
   const tauMap = normalizeYTauMap(rules.y_tau_map);
@@ -1033,8 +1138,10 @@ export function buildT0TradeTableHtml(opts) {
     (showDelete ? `<th scope="col" class="paper-t0-col-act">操作</th>` : "");
 
   const rows = (preserveOrder ? days.slice(0, maxRows) : days.slice(-maxRows).reverse())
-    .map((d) => {
+    .map((d, rowIdx) => {
       const skipped = !!d.skipped;
+      const hasTrace = hasForwardGateTrace(d);
+      const gateKey = hasTrace ? `gate-${rowIdx}` : "";
       const dir = d.direction === "reverse_t" ? "反" : d.direction === "long_t" ? "正" : "—";
       const rules = (data && data.rules) || {};
       const scoreDetailJson = escapeText(
@@ -1066,13 +1173,17 @@ export function buildT0TradeTableHtml(opts) {
             ? `<span class="paper-t0-leg-empty">—</span>`
             : "";
       return (
-        `<tr class="${skipped ? "is-skipped" : ""}" data-code="${escapeText(code)}">` +
+        `<tr class="${skipped ? "is-skipped" : ""}${hasTrace ? " paper-t0-row-gate-expandable" : ""}"` +
+        ` data-code="${escapeText(code)}"` +
+        (gateKey ? ` data-gate-key="${gateKey}" title="点击展开前向门禁 trace"` : "") +
+        `>` +
         (showStock ? stockCellHtml(d, fallback) : "") +
-        `<td class="paper-t0-col-date" title="${escapeText(
-          fmtTradeDate(d.date, data.sessionDate || data.session_date)
-        )}">${escapeText(
-          fmtTradeDate(d.date, data.sessionDate || data.session_date)
-        )}</td>` +
+        `<td class="paper-t0-col-date${hasTrace ? " paper-t0-col-date-expand" : ""}" title="${escapeText(
+          (hasTrace ? "点击展开前向门禁 · " : "") +
+            fmtTradeDate(d.date, data.sessionDate || data.session_date)
+        )}">` +
+        (hasTrace ? `<span class="paper-t0-expand-icon" aria-hidden="true">›</span>` : "") +
+        `${escapeText(fmtTradeDate(d.date, data.sessionDate || data.session_date))}</td>` +
         yPctMergedCellHtml(
           "eod",
           d,
@@ -1118,7 +1229,12 @@ export function buildT0TradeTableHtml(opts) {
             )}</td>`
           : "") +
         (showDelete ? `<td class="paper-t0-col-act">${delBtn}</td>` : "") +
-        `</tr>`
+        `</tr>` +
+        (hasTrace
+          ? `<tr class="paper-t0-gate-trace-row" data-gate-for="${gateKey}" hidden>` +
+            `<td colspan="${colSpan}">${forwardGateTraceInnerHtml(d.forward_trace, d)}</td>` +
+            `</tr>`
+          : "")
       );
     })
     .join("");
@@ -1138,3 +1254,5 @@ export function buildT0TradeTableHtml(opts) {
 
   return wrapTradesFullscreenPanel(tableBlock, caption);
 }
+
+ensureT0GateTraceBindings();

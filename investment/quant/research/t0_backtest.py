@@ -1,10 +1,10 @@
 """做 T 回测研究封装（供 QuantService / CLI）。"""
 
+from __future__ import annotations
 
 import logging
-
-logger = logging.getLogger(__name__)
-from typing import Any, Dict, List, Optional, Tuple
+import time
+from typing import Any, Callable, Dict, List, Optional, Tuple, TypeVar
 
 from core.t0.backtest import (
     _optimistic_delta_ratio_pct,
@@ -12,13 +12,20 @@ from core.t0.backtest import (
     derive_t0_quality_metrics,
 )
 
+logger = logging.getLogger(__name__)
+
 # 持仓做T回测：只用纸面股票池，仓位/现金用虚拟假设（放宽实盘约束）
 T0_BT_DEFAULT_LOOKBACK = 10
 T0_BT_VIRTUAL_SHARES = 10_000.0
 T0_BT_VIRTUAL_CASH = 2_000_000.0
 
-# 东财分钟接口偶发挂死；多持仓串行时会把整次「做T回测」拖成无响应。
-_MINUTE_FETCH_TIMEOUT_SEC = 18.0
+# 仅「本地无分钟缓存」才打远端；东财偶发挂死，回测走 BaoStock 并设短超时。
+_MINUTE_FETCH_TIMEOUT_SEC = 12.0
+# 前端 fetch 180s 会 abort；整批须在此前返回（部分成功也好过整页超时）。
+_HOLDINGS_DEADLINE_SEC = 150.0
+_QUOTE_TIMEOUT_SEC = 4.0
+
+_T = TypeVar("_T")
 
 
 # 回测响应 rules / execution.t0 与纸面 ExecutionSpec 对齐的字段
@@ -130,6 +137,47 @@ def _rules_summary(bt_rules: dict) -> Dict[str, Any]:
     return _bt_rules_view(bt_rules)
 
 
+def _call_with_timeout(fn: Callable[[], _T], timeout_sec: float) -> _T:
+    """限时调用；超时立刻返回，不 ``shutdown(wait=True)`` 等挂死的远端线程。"""
+    from concurrent.futures import ThreadPoolExecutor
+    from concurrent.futures import TimeoutError as FuturesTimeout
+
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        return pool.submit(fn).result(timeout=max(0.5, float(timeout_sec)))
+    except FuturesTimeout as exc:
+        raise TimeoutError(f"timeout ({timeout_sec}s)") from exc
+    finally:
+        pool.shutdown(wait=False)
+
+
+def _local_minute_by_date(
+    code: str, period: str
+) -> Tuple[Dict[str, List[dict]], Dict[str, Any]]:
+    """回测优先读本地分钟缓存（忽略 TTL）。历史 5m 不必等东财刷新。"""
+    try:
+        from skills.common.history import resolve_market_code
+        from skills.common.minute_history import _load_stale_minute, group_minute_bars_by_date
+
+        market, bare = resolve_market_code(code)
+        if market != "CN" or not bare:
+            raw = str(code or "").strip()
+            if raw.isdigit() and len(raw) == 6:
+                market, bare = "CN", raw
+            else:
+                return {}, {"ok": False, "error": f"仅支持 A 股分钟线: {code}"}
+        packed = _load_stale_minute(market, bare, str(period or "5"))
+        if not packed or not packed[0]:
+            return {}, {"ok": False, "from_cache": False, "period": period}
+        bars, meta = packed
+        meta = dict(meta or {})
+        meta["period"] = period
+        return group_minute_bars_by_date(bars), meta
+    except Exception as e:
+        logger.debug("local minute cache failed for %s", code, exc_info=True)
+        return {}, {"ok": False, "error": str(e), "period": period}
+
+
 def _fetch_minute_by_date(
     code: str,
     *,
@@ -137,34 +185,63 @@ def _fetch_minute_by_date(
     lookback_days: int = 90,
     timeout_sec: float = _MINUTE_FETCH_TIMEOUT_SEC,
 ) -> Tuple[Dict[str, List[dict]], Dict[str, Any]]:
-    """返回 (minute_by_date, meta)；失败则 ({}, meta)。"""
-    try:
-        from concurrent.futures import ThreadPoolExecutor
-        from concurrent.futures import TimeoutError as FuturesTimeout
+    """返回 (minute_by_date, meta)；失败则 ({}, meta)。
 
+    先用本地缓存（含过期）；无缓存才短超时拉远端（跳过东财，避免 ak_lock 挂死
+    把整次「做T回测」拖过前端 180s abort）。
+    """
+    by_date, meta = _local_minute_by_date(code, period)
+    if by_date:
+        return by_date, meta
+    try:
         from core.ports.market import fetch_minute_bars, group_minute_bars_by_date
 
         def _load():
             return fetch_minute_bars(
-                code, period=period, lookback_days=lookback_days, use_cache=True
+                code,
+                period=period,
+                lookback_days=lookback_days,
+                use_cache=True,
+                skip_em=True,
             )
 
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            fut = pool.submit(_load)
-            try:
-                bars, meta = fut.result(timeout=max(1.0, float(timeout_sec or 5.0)))
-            except FuturesTimeout:
-                return {}, {
-                    "ok": False,
-                    "error": f"minute fetch timeout ({timeout_sec}s)",
-                    "period": period,
-                }
+        try:
+            bars, remote_meta = _call_with_timeout(
+                _load, max(1.0, float(timeout_sec or 5.0))
+            )
+        except TimeoutError:
+            return {}, {
+                "ok": False,
+                "error": f"minute fetch timeout ({timeout_sec}s)",
+                "period": period,
+                "hint": "无本地 5m 缓存；请先在研究页预热分钟线",
+            }
         if not bars:
-            return {}, meta or {"ok": False}
-        return group_minute_bars_by_date(bars), meta
+            out_meta = dict(remote_meta or {"ok": False})
+            out_meta.setdefault("error", "无分钟 K")
+            return {}, out_meta
+        return group_minute_bars_by_date(bars), remote_meta
     except Exception as e:
-        logger.exception('unexpected error in _fetch_minute_by_date')
+        logger.exception("unexpected error in _fetch_minute_by_date")
         return {}, {"ok": False, "error": str(e), "period": period}
+
+
+def _quote_for_backtest(code: str, *, timeout_sec: float = _QUOTE_TIMEOUT_SEC) -> Dict[str, Any]:
+    """解析名称/代码；超时则退回原串，避免腾讯行情拖死整次回测。"""
+    try:
+        from core.data.facade import get_quote
+
+        try:
+            q = _call_with_timeout(
+                lambda: get_quote(code), max(0.5, float(timeout_sec or 4.0))
+            )
+        except TimeoutError:
+            logger.warning("t0 backtest quote timeout after %.1fs: %s", timeout_sec, code)
+            return {"success": False, "error": f"quote timeout ({timeout_sec}s)"}
+        return q if isinstance(q, dict) else {"success": False}
+    except Exception:
+        logger.debug("t0 backtest quote failed for %s", code, exc_info=True)
+        return {"success": False}
 
 
 def _align_daily_bars_to_minute(
@@ -213,9 +290,10 @@ def run_t0_backtest_for_code(
     compare_daily: bool = False,
     compare_no_t0: bool = True,
     tau_pool_by_date: Optional[Dict[str, Any]] = None,
+    stock_name: Optional[str] = None,
+    skip_quote: bool = False,
 ) -> Dict[str, Any]:
     from core.data.facade import bars_and_source as fetch_daily_bars
-    from core.data.facade import get_quote
 
     _ = (use_minute, compare_daily)  # 日线模拟已删除；强制分钟
     from core.t0.score_policy import (
@@ -227,12 +305,25 @@ def run_t0_backtest_for_code(
 
     eval_lb = max(10, int(lookback or T0_BT_DEFAULT_LOOKBACK))
     warmup = int(T0_BACKTEST_SCORE_WARMUP)
-    quote = get_quote(code)
+    quote: Dict[str, Any]
+    if skip_quote:
+        quote = {
+            "success": True,
+            "stock_code": str(code).strip(),
+            "stock_name": stock_name,
+        }
+    else:
+        quote = _quote_for_backtest(code)
     sym = quote.get("stock_code") if quote.get("success") else code
     fetch_n = eval_lb + warmup + 5
-    bars_all, src = fetch_daily_bars(code, limit=fetch_n)
-    if not bars_all and quote.get("success"):
-        bars_all, src = fetch_daily_bars(sym, limit=fetch_n)
+    # 回测只读本地日线（含过期缓存）；缺缓存时快速失败，勿打东财拖死整批
+    bars_all, src = fetch_daily_bars(
+        str(sym), limit=fetch_n, offline_ok=True, offline_only=True
+    )
+    if not bars_all and str(sym) != str(code):
+        bars_all, src = fetch_daily_bars(
+            str(code), limit=fetch_n, offline_ok=True, offline_only=True
+        )
     if not bars_all:
         return {"success": False, "error": f"无法获取 {code} 日线", "task": "t0_backtest"}
 
@@ -267,11 +358,6 @@ def run_t0_backtest_for_code(
             "use_minute": False,
         }
 
-    usable_minute = {
-        str(d)
-        for d, ms in minute_by_date.items()
-        if ms and len(ms) >= 2
-    }
     eval_slice = list(bars_all[-eval_lb:])
     bars_eval, align_meta = _align_daily_bars_to_minute(eval_slice, minute_by_date)
     if not bars_eval:
@@ -319,7 +405,9 @@ def run_t0_backtest_for_code(
         tau_pool_by_date=tau_pool,
     )
     report["data_source"] = src
-    report["stock_name"] = quote.get("stock_name") if quote.get("success") else None
+    report["stock_name"] = (
+        (quote.get("stock_name") if quote.get("success") else None) or stock_name
+    )
     if report.get("viz") and isinstance(report["viz"], dict):
         for row in report["viz"].get("stock_contrib") or []:
             if isinstance(row, dict):
@@ -444,6 +532,7 @@ def run_t0_backtest_for_holdings(
     )
 
     per: List[Dict[str, Any]] = []
+    t_deadline = time.time() + float(_HOLDINGS_DEADLINE_SEC)
     total_pnl = 0.0
     total_exposure = 0.0
     total_trades = 0
@@ -460,6 +549,16 @@ def run_t0_backtest_for_holdings(
         code = str(h.get("stock_code") or "").strip()
         if not code:
             continue
+        if time.time() >= t_deadline:
+            one = {
+                "success": False,
+                "error": "回测截止：已达时间上限（请预热 5m 缓存或缩小回看窗）",
+                "task": "t0_backtest",
+                "stock_code": code,
+                "stock_name": h.get("stock_name"),
+            }
+            per.append(one)
+            continue
         # 只用纸面股票名单；股数/成本走虚拟仓（成本由日线开窗决定）
         one = run_t0_backtest_for_code(
             code,
@@ -473,6 +572,8 @@ def run_t0_backtest_for_holdings(
             use_minute=True,
             compare_daily=False,
             tau_pool_by_date=tau_pool,
+            stock_name=h.get("stock_name"),
+            skip_quote=True,
         )
         one["stock_name"] = one.get("stock_name") or h.get("stock_name")
         one["paper_shares"] = float(h.get("shares") or 0)

@@ -1179,9 +1179,8 @@ def resolve_dual_y_direction(
     3. path 开且可得 ŷ_path：y_τ·y_path 同号且各过**侧向** enter；
        否则 |y_τ|≥侧向 y_tau_enter（正T=long / 反T=reverse）
     4. path 必填但缺 ŷ_path → 跳过
-    5. 有 y_eod：|y_eod|≥y_eod_enter；|y_eod|>y_eod_strong 须与 y_τ 同号
-    6. 有 y_trade：|y_trade|>y_trade_strong 须与 y_τ 同号
-    7. 可选 nc：|nc|≥y_nc_enter；|nc|>y_nc_strong 须与 τ 同号（异号闸关则跳过整步）
+    5. 有 y_eod：|y_eod|≥y_eod_enter；|y_eod|>y_eod_strong 须与 y_τ 同号（fixed_* 跳过）
+    6. 可选 nc：|nc|≥y_nc_enter；|nc|>y_nc_strong 须与 τ 同号（异号闸关则跳过整步）
     通过后 y_τ 映射正/反 T；y_eod_prior 仅抬目标价。
     """
     from core.t0.config import coerce_cfg_bool
@@ -1387,7 +1386,7 @@ def resolve_dual_y_direction(
             "signal_skip": True,
         }
 
-    if y_eod is not None:
+    if y_eod is not None and tau_map not in ("fixed_long", "fixed_reverse"):
         if abs(y_eod) < eod_enter:
             return {
                 "direction": None,
@@ -1408,20 +1407,6 @@ def resolve_dual_y_direction(
                 "skip": True,
                 "direction_score": y_tau,
                 "direction_reason": eod_reason or "dual_y：强 y_eod 与 y_τ 异号跳过",
-                "features": features,
-                "signal_skip": True,
-            }
-
-    if y_trade is not None:
-        trade_ok, trade_reason = _strong_head_tau_sign_gate(
-            y_trade, y_tau, trade_strong, "y_trade", sign_eps=sign_eps
-        )
-        if not trade_ok:
-            return {
-                "direction": None,
-                "skip": True,
-                "direction_score": y_tau,
-                "direction_reason": trade_reason or "dual_y：强 y_trade 与 y_τ 异号跳过",
                 "features": features,
                 "signal_skip": True,
             }
@@ -1846,9 +1831,7 @@ def _t0_index_bars_for_score(
         # 与刷簿相对强弱同口径：多取几根，避免短窗/偶发空包把 RS 打成中性
         pack = fetch_live_index_bars(market=mkt, limit=120) or {}
         bars = list(pack.get("bars") or [])
-        if not bars:
-            pack = fetch_live_index_bars(market=mkt, limit=120, use_cache=False) or {}
-            bars = list(pack.get("bars") or [])
+        # 空包时不再 use_cache=False 二次打网：回测逐日会把挂死的指数源放大成整次超时
         if not bars:
             return None
         idx_eod, _ = prepare_eod_bars(bars, quote)
@@ -2228,7 +2211,12 @@ def load_bars_by_code_for_tau_pool(
             continue
         seen.add(code)
         try:
-            bars, _src = bars_and_source(code, limit=max(20, int(limit or 80)))
+            bars, _src = bars_and_source(
+                code,
+                limit=max(20, int(limit or 80)),
+                offline_ok=True,
+                offline_only=True,
+            )
         except Exception:  # noqa: BLE001
             logger.debug("tau pool bars load failed for %s", code, exc_info=True)
             continue

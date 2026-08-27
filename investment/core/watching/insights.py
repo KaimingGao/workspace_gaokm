@@ -26,9 +26,11 @@ STANCE_SHORT = {
 _INSIGHT_STOCK_TIMEOUT = 12.0
 _INSIGHT_BATCH_TIMEOUT = 90.0
 _INSIGHT_MAX_WORKERS = 12
-# 与观察池上限对齐（watching 常见 100）；勿砍到更小导致尾部无分
-_INSIGHT_DEFAULT_LIMIT = 100
-_INSIGHT_HARD_CAP = 120
+from core.watching.store import WATCHING_MAX_SIZE
+
+# 与观察池上限对齐；勿砍到更小导致尾部无分
+_INSIGHT_DEFAULT_LIMIT = WATCHING_MAX_SIZE
+_INSIGHT_HARD_CAP = WATCHING_MAX_SIZE + 20
 
 
 def _days_since(iso: Optional[str]) -> Optional[int]:

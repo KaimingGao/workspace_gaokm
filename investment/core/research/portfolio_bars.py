@@ -9,8 +9,10 @@ from core.signal.config import load_signal_config
 from core.signal.fundamentals_bridge import fetch_fundamentals_batch
 
 # 日报/轻量回测：超过此数则只读缓存、优先离线日线，并截断候选。
-# 与 watching.max_size 对齐，避免日报 100→40 和满池历史回测不可比。
-DAILY_PORTFOLIO_MAX_NAMES = 100
+from core.watching.store import WATCHING_MAX_SIZE
+
+# 与 watching.max_size 对齐，避免日报截断与满池历史回测不可比。
+DAILY_PORTFOLIO_MAX_NAMES = WATCHING_MAX_SIZE
 _CACHE_WORKERS = 12
 _REMOTE_ITEM_TIMEOUT = 25.0
 

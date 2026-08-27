@@ -38,7 +38,10 @@ def _mins(date, points):
 
 
 def _mins_hl(date=None, o=100, high=105, low=98, close=101, bar=None):
-    """先冲高后回落：利好正T两腿。可传 bar 对齐 OHLC/开盘跳空。"""
+    """先冲高后回落：利好正T两腿。可传 bar 对齐 OHLC/开盘跳空。
+
+    三根 5m：首根窄幅预热（前向窗口不过闸），10:00 卖、14:00 买回。
+    """
     if isinstance(bar, dict):
         date = bar.get("date") or date
         o = float(bar.get("open") or o)
@@ -48,14 +51,15 @@ def _mins_hl(date=None, o=100, high=105, low=98, close=101, bar=None):
     return _mins(
         str(date),
         [
-            (1000, o, high, o, high - 0.5),
+            (935, o, o + 0.1, o - 0.1, o),
+            (1000, o, high, max(o, high - 0.5), high - 0.5),
             (1400, high - 0.5, high - 0.5, low, close),
         ],
     )
 
 
 def _mins_lh(date=None, o=100, high=105, low=96, close=101, bar=None):
-    """先砸后拉：利好反T两腿。"""
+    """先砸后拉：利好反T两腿。首根窄幅预热，10:00 买、14:00 卖旧仓。"""
     if isinstance(bar, dict):
         date = bar.get("date") or date
         o = float(bar.get("open") or o)
@@ -65,6 +69,7 @@ def _mins_lh(date=None, o=100, high=105, low=96, close=101, bar=None):
     return _mins(
         str(date),
         [
+            (935, o, o + 0.1, o - 0.1, o),
             (1000, o, o, low, low + 0.5),
             (1400, low + 0.5, high, low + 0.5, close),
         ],
@@ -78,9 +83,30 @@ def _rules(**kwargs):
         "use_atr": False,
         "t0_pm_degrade": "",
         "y_block_tau_nowcast_sign": False,
+        # 路径用例沿用较低门槛；与纸面策略默认（1% / 0.5%）解耦
+        "min_range_pct_long": 0.1,
+        "min_range_pct_reverse": 0.1,
+        "y_prefix_pullback_pct_long": 0.25,
+        "y_prefix_bounce_pct_reverse": 0.25,
     }
     base.update(kwargs)
     base["path_mode"] = "first_touch"
+    # 单测常只写共用触发%；同步到侧向键以免策略默认（买5/卖5）盖过
+    if "sell_trigger_pct" in kwargs:
+        if "sell_trigger_pct_long" not in kwargs:
+            base["sell_trigger_pct_long"] = kwargs["sell_trigger_pct"]
+        if "sell_trigger_pct_reverse" not in kwargs:
+            base["sell_trigger_pct_reverse"] = kwargs["sell_trigger_pct"]
+    if "buy_trigger_pct" in kwargs:
+        if "buy_trigger_pct_long" not in kwargs:
+            base["buy_trigger_pct_long"] = kwargs["buy_trigger_pct"]
+        if "buy_trigger_pct_reverse" not in kwargs:
+            base["buy_trigger_pct_reverse"] = kwargs["buy_trigger_pct"]
+    if "min_range_pct" in kwargs:
+        if "min_range_pct_long" not in kwargs:
+            base["min_range_pct_long"] = kwargs["min_range_pct"]
+        if "min_range_pct_reverse" not in kwargs:
+            base["min_range_pct_reverse"] = kwargs["min_range_pct"]
     return base
 
 
@@ -98,26 +124,33 @@ class TestT0Core(unittest.TestCase):
         self.assertFalse(d["must_cover_same_day_long"])
         self.assertTrue(d["must_cover_same_day_reverse"])
         self.assertEqual(d["t0_pm_degrade_long"], "15:00")
-        self.assertEqual(d["t0_pm_degrade_reverse"], "14:00")
+        self.assertEqual(d["t0_pm_degrade_reverse"], "13:00")
+        self.assertEqual(d["t0_pm_degrade"], "13:00")
         self.assertEqual(d["t0_pm_chase_interval_min_long"], 10)
         self.assertEqual(d["t0_pm_chase_interval_min_reverse"], 10)
         self.assertFalse(d["use_atr"])
         self.assertEqual(d["min_range_pct"], 0.1)
-        self.assertEqual(d["y_path_enter"], 0.02)
+        self.assertEqual(d["min_range_pct_long"], 1.0)
+        self.assertEqual(d["min_range_pct_reverse"], 1.0)
+        self.assertEqual(d["buy_trigger_pct_long"], 5.0)
+        self.assertEqual(d["sell_trigger_pct_reverse"], 5.0)
+        self.assertEqual(d["y_path_enter"], 0.01)
         self.assertFalse(d["y_nowcast_oc_gate"])
         self.assertEqual(d["y_nc_enter"], 0.01)
-        self.assertEqual(d["y_nc_strong"], 3.0)
-        self.assertEqual(d["y_nowcast_enter"], 3.0)
+        self.assertEqual(d["y_nc_strong"], 2.0)
+        self.assertEqual(d["y_nowcast_enter"], 2.0)
         self.assertEqual(d["y_path_abandon_bars"], 12)
         self.assertTrue(d["y_prefix_segment_enabled"])
         self.assertTrue(d["y_prefix_segment_enabled_long"])
         self.assertTrue(d["y_prefix_segment_enabled_reverse"])
-        self.assertEqual(d["y_prefix_pullback_pct_long"], 0.25)
-        self.assertEqual(d["y_prefix_bounce_pct_reverse"], 0.25)
-        self.assertEqual(d["y_trade_enter"], 0.02)
-        self.assertEqual(d["y_trade_strong"], 0.1)
-        self.assertEqual(d["y_eod_strong"], 0.1)
-        self.assertEqual(d["y_trade_floor"], 0.02)
+        self.assertEqual(d["y_prefix_pullback_pct_long"], 0.5)
+        self.assertEqual(d["y_prefix_bounce_pct_reverse"], 0.5)
+        self.assertEqual(d["y_trade_enter"], 0.01)
+        self.assertEqual(d["y_trade_strong"], 2.0)
+        self.assertEqual(d["y_eod_prior"], 0.01)
+        self.assertEqual(d["y_eod_strong"], 2.0)
+        self.assertEqual(d["y_on_allow"], 0.01)
+        self.assertEqual(d["y_trade_floor"], 0.01)
         self.assertEqual(d["y_tau_map"], "trend")
         self.assertTrue(d["enabled"])
 
@@ -180,7 +213,7 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(out["sold_qty"], 0)
         self.assertIn("振幅", out.get("reason") or "")
 
-    def test_rolling_range_gate_waits_for_prefix(self):
+    def test_forward_range_gate_waits_for_prefix(self):
         """前缀振幅未达标时不跑触达；午后扩幅后才评估（对齐 live Worker）。"""
         bar = _bar("2026-01-10", 100, 103, 99.5, 100)
         mins = _mins(
@@ -203,7 +236,7 @@ class TestT0Core(unittest.TestCase):
             ),
             minute_bars=mins,
         )
-        self.assertEqual(out.get("range_mode"), "rolling")
+        self.assertEqual(out.get("range_mode"), "forward")
         self.assertGreaterEqual(int(out.get("prefix_bars") or 0), 3)
         self.assertGreater(out.get("sold_qty") or 0, 0)
 
@@ -225,10 +258,12 @@ class TestT0Core(unittest.TestCase):
         self.assertTrue(out["success"])
         self.assertEqual(out.get("sold_qty") or 0, 0)
         self.assertFalse(out.get("trades") or [])
-        # 分钟路径：未触达可记跳过
+        # 分钟路径：未触达或方向振幅/段向未达标可记跳过
         if out.get("skipped"):
+            reason = str(out.get("reason") or "")
             self.assertTrue(
-                "未触" in (out.get("reason") or "") or "触" in (out.get("reason") or "")
+                any(x in reason for x in ("未触", "触", "振幅", "回落", "反弹", "上移", "下移")),
+                reason,
             )
     def test_tplus1_sellable_cap(self):
         bar = _bar("2026-01-10", 100, 110, 90, 100)
@@ -662,6 +697,14 @@ class TestT0Core(unittest.TestCase):
         bar = _bar("2024-01-03", 100, 105, 97, 100)
         minutes = [
             {
+                "datetime": "2024-01-03 09:35:00",
+                "date": "2024-01-03",
+                "open": 100,
+                "high": 100.2,
+                "low": 99.8,
+                "close": 100,
+            },
+            {
                 "datetime": "2024-01-03 10:00:00",
                 "date": "2024-01-03",
                 "open": 100,
@@ -700,6 +743,8 @@ class TestT0Core(unittest.TestCase):
         self.assertTrue(all(t.get("at") for t in trades), trades)
         self.assertEqual(trades[0].get("leg_kind"), "trigger")
         self.assertEqual(trades[1].get("leg_kind"), "trigger")
+        self.assertIn("10:00", str(trades[0].get("at") or ""))
+        self.assertIn("11:00", str(trades[1].get("at") or ""))
 
     def test_minute_forced_eod_cover_stamps_at(self):
         """反T：must_cover 时收盘强制卖旧仓，at 落在 15:00。"""
@@ -745,10 +790,59 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(len(eod), 1)
         self.assertIn("15:00", str(eod[0].get("at") or ""))
 
+    def test_reverse_t_truncated_minutes_eod_uses_daily_close(self):
+        """5m 缓存在午前截断时，回测仍按日线收盘强制卖旧仓。
+
+        对齐 600150 2026-08-27：低吸已成交，卖 5% 当天高点够不到；
+        旧逻辑 defer_eod + 末根 10:40 会只买不回补。
+        """
+        bar = _bar("2026-08-27", 34.15, 34.59, 33.85, 34.52)
+        mins = _mins(
+            "2026-08-27",
+            [
+                (935, 34.15, 34.20, 34.00, 34.10),
+                (940, 34.10, 34.12, 33.80, 33.945),
+                (1040, 34.00, 34.11, 33.95, 34.11),
+            ],
+        )
+        out = simulate_t0_day(
+            bar=bar,
+            shares=10000,
+            cost=34.15,
+            cash=500000,
+            minute_bars=mins,
+            rules=_rules(
+                direction="reverse_t",
+                fill_mode="trigger",
+                min_range_pct=0.5,
+                sell_trigger_pct=5.0,
+                buy_trigger_pct=1.0,
+                must_cover_same_day=True,
+                t0_pm_degrade="",
+                t0_ratio=1.0,
+            ),
+        )
+        self.assertTrue(out.get("success"), out.get("reason"))
+        self.assertGreater(int(out.get("bought_qty") or 0), 0)
+        self.assertEqual(out.get("exit_reason"), "eod_cover")
+        sells = [t for t in (out.get("trades") or []) if str(t.get("side", "")).endswith("sell")]
+        eod = [t for t in sells if t.get("leg_kind") == "eod_cover"]
+        self.assertEqual(len(eod), 1)
+        self.assertIn("15:00", str(eod[0].get("at") or ""))
+        self.assertAlmostEqual(float(eod[0]["price"]), 34.52, places=2)
+
     def test_long_t_abandons_cover_when_buyback_misses(self):
         """正T：卖出后买不回 → 放弃回补（减仓落袋），不收盘强买。"""
         bar = _bar("2024-01-03", 100, 105, 99, 100)
         minutes = [
+            {
+                "datetime": "2024-01-03 09:35:00",
+                "date": "2024-01-03",
+                "open": 100,
+                "high": 100.2,
+                "low": 99.8,
+                "close": 100,
+            },
             {
                 "datetime": "2024-01-03 10:00:00",
                 "date": "2024-01-03",
@@ -977,6 +1071,48 @@ class TestT0Core(unittest.TestCase):
         self.assertTrue(out.get("path_abandon"))
         self.assertIn("反弹", str(out.get("reason") or ""))
 
+    def test_forward_no_retroactive_leg1_before_amplitude_gate(self):
+        """前向窗口：振幅未过闸的早触价不得成交；仅在过闸且 entry_ready 根买入。"""
+        d = "2024-01-07"
+        bar = _bar(d, 100, 103, 94, 100)
+        mins = _mins(
+            d,
+            [
+                (935, 100, 100.05, 99.95, 100),
+                (940, 100, 100.05, 99.9, 99.92),
+                (945, 99.92, 99.92, 99.5, 99.55),
+                (1000, 99.5, 99.6, 96.0, 97.0),
+            ],
+        )
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            minute_bars=mins,
+            rules=_rules(
+                direction="reverse_t",
+                fill_mode="trigger",
+                min_range_pct=1.0,
+                sell_trigger_pct=1.5,
+                buy_trigger_pct=2.0,
+                y_prefix_bounce_pct_reverse=0.25,
+            ),
+        )
+        self.assertTrue(out.get("success"), out)
+        buys = [t for t in out.get("trades") or [] if str(t.get("side") or "") == "t0_buy"]
+        self.assertEqual(len(buys), 1, out)
+        self.assertIn("10:00", str(buys[0].get("at") or ""), out)
+        self.assertNotIn("09:45", str(buys[0].get("at") or ""), out)
+        self.assertEqual(out.get("range_mode"), "forward")
+        ft = out.get("forward_trace") or []
+        self.assertGreaterEqual(len(ft), 4, out)
+        blocked = [r for r in ft if r.get("touch_blocked")]
+        self.assertFalse(blocked, "振幅未过闸时不应标 touch_blocked")
+        ready = [r for r in ft if r.get("entry_ready")]
+        self.assertEqual(len(ready), 1, out)
+        self.assertTrue(ready[0].get("leg1_fill"), out)
+
     def test_backtest_minute_by_date_sets_first_touch(self):
         bars = []
         for i in range(8):
@@ -1026,6 +1162,194 @@ class TestT0Core(unittest.TestCase):
         self.assertGreaterEqual(int(report.get("minute_path_days") or 0), 1)
         self.assertNotIn("daily_compare", report)
         self.assertGreaterEqual(int(report.get("missing_minute_days") or 0), 1)
+
+    def test_backtest_day_carries_forward_trace(self):
+        bars = [_bar(f"2024-01-{i+1:02d}", 100, 103, 94, 100) for i in range(8)]
+        d = bars[-1]["date"]
+        mins = {
+            d: _mins(
+                d,
+                [
+                    (935, 100, 100.05, 99.95, 100),
+                    (940, 100, 100.05, 99.9, 99.92),
+                    (945, 99.92, 99.92, 99.5, 99.55),
+                    (1000, 99.5, 99.6, 96.0, 97.0),
+                ],
+            )
+        }
+        report = backtest_t0_on_bars(
+            bars,
+            initial_shares=1000,
+            initial_cost=100,
+            initial_cash=50000,
+            rules=_rules(
+                direction="reverse_t",
+                fill_mode="trigger",
+                min_range_pct=1.0,
+                sell_trigger_pct=1.5,
+                buy_trigger_pct=2.0,
+                y_prefix_bounce_pct_reverse=0.25,
+            ),
+            minute_by_date=mins,
+            compare_optimistic=False,
+        )
+        traded = [
+            x
+            for x in (report.get("days") or [])
+            if int(x.get("bought_qty") or 0) > 0 or int(x.get("sold_qty") or 0) > 0
+        ]
+        self.assertEqual(len(traded), 1, report)
+        ft = traded[0].get("forward_trace") or []
+        self.assertGreaterEqual(len(ft), 4, traded[0])
+        self.assertTrue(any(r.get("leg1_fill") for r in ft), ft)
+
+    def test_simulate_day_matches_intraday_setup_trades(self):
+        """回测 simulate 与 Worker _intraday_setup 全日分钟应同腿同价。"""
+        from core.t0.intraday import _intraday_setup
+
+        d = "2024-01-07"
+        bar = _bar(d, 100, 103, 94, 100)
+        mins = _mins(
+            d,
+            [
+                (935, 100, 100.05, 99.95, 100),
+                (940, 100, 100.05, 99.9, 99.92),
+                (945, 99.92, 99.92, 99.5, 99.55),
+                (1000, 99.5, 99.6, 96.0, 97.0),
+                (1500, 97.0, 100.5, 97.0, 100.0),
+            ],
+        )
+        rules = _rules(
+            direction="reverse_t",
+            fill_mode="trigger",
+            min_range_pct=1.0,
+            sell_trigger_pct=1.5,
+            buy_trigger_pct=2.0,
+            y_prefix_bounce_pct_reverse=0.25,
+        )
+        cfg = load_t0_rules(rules)
+        day_out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            minute_bars=mins,
+            rules=rules,
+        )
+        setup = _intraday_setup(
+            code="688047",
+            holding={"shares": 1000, "cost": 100, "stock_name": "测"},
+            bar=bar,
+            minute_bars=mins,
+            cfg=cfg,
+            sellable=1000,
+            cash=50000,
+            atr_pct=None,
+            hist_bars=None,
+            scores=None,
+            stance_code="hold",
+            coupling_mode="independent",
+        )
+        self.assertTrue(day_out.get("success"), day_out)
+        self.assertTrue(setup.get("ready"), setup)
+
+        def _norm_trades(trades):
+            return [
+                (
+                    str(t.get("side") or ""),
+                    int(t.get("shares") or 0),
+                    round(float(t.get("price") or 0), 4),
+                    str(t.get("at") or "")[11:16],
+                )
+                for t in (trades or [])
+            ]
+
+        self.assertEqual(
+            _norm_trades(day_out.get("trades")),
+            _norm_trades(setup.get("trades")),
+            (day_out.get("trades"), setup.get("trades")),
+        )
+
+    def test_intraday_forward_no_retroactive_leg1(self):
+        """Worker 递增长前缀：振幅未过闸的早触价不得落账。"""
+        from core.t0.intraday import process_holding_intraday
+
+        d = "2024-01-07"
+        bar = _bar(d, 100, 103, 94, 100)
+        all_mins = _mins(
+            d,
+            [
+                (935, 100, 100.05, 99.95, 100),
+                (940, 100, 100.05, 99.9, 99.92),
+                (945, 99.92, 99.92, 99.5, 99.55),
+                (1000, 99.5, 99.6, 96.0, 97.0),
+            ],
+        )
+        cfg = load_t0_rules(
+            _rules(
+                direction="reverse_t",
+                fill_mode="trigger",
+                min_range_pct=1.0,
+                sell_trigger_pct=1.5,
+                buy_trigger_pct=2.0,
+                y_prefix_bounce_pct_reverse=0.25,
+            )
+        )
+        holding = {"shares": 1000, "cost": 100, "stock_name": "测"}
+        paper = {"cash": 50000.0, "holdings": [holding], "trades": []}
+        st: dict = {"phase": "idle", "legs_written": 0}
+        legs: list = []
+        for n in range(2, len(all_mins) + 1):
+            st, new_legs, _ = process_holding_intraday(
+                code="688047",
+                holding=holding,
+                stock_state=st,
+                minute_bars=all_mins[:n],
+                bar=bar,
+                cfg=cfg,
+                sellable=1000,
+                cash=float(paper.get("cash") or 0),
+                atr_pct=None,
+                hist_bars=None,
+                scores=None,
+                stance_code="hold",
+                coupling_mode="independent",
+                as_of=d,
+                log_source="paper_t0_auto",
+                paper=paper,
+                applied_legs=len(legs),
+            )
+            legs.extend(new_legs)
+        buys = [t for t in legs if str(t.get("side") or "") == "t0_buy"]
+        self.assertEqual(len(buys), 1, legs)
+        self.assertIn("10:00", str(buys[0].get("at") or ""), legs)
+        self.assertNotIn("09:45", str(buys[0].get("at") or ""), legs)
+
+    def test_forward_trace_pm_block_after_degrade(self):
+        """午后禁新开：触价行标 pm_block。"""
+        d = "2024-01-08"
+        bar = _bar(d, 100, 106, 98, 101)
+        mins = _mins_hl(d, o=100, high=106, low=98, close=101, bar=bar)
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            minute_bars=mins,
+            rules=_rules(
+                direction="long_t",
+                fill_mode="trigger",
+                min_range_pct=0.5,
+                sell_trigger_pct=1.0,
+                buy_trigger_pct=1.0,
+                t0_pm_degrade_long="09:30",
+            ),
+        )
+        ft = out.get("forward_trace") or []
+        self.assertTrue(ft, out)
+        pm_blocks = [r for r in ft if r.get("pm_block")]
+        self.assertTrue(pm_blocks, ft)
+        self.assertEqual(int(out.get("sold_qty") or 0), 0, out)
 
     def test_require_minute_rejects_daily_only(self):
         bars = [_bar(f"2024-01-{i+1:02d}", 100, 106, 96, 101) for i in range(5)]
@@ -1172,8 +1496,8 @@ class TestDualYDirection(unittest.TestCase):
         cfg = load_t0_rules({"direction": "yhat"})
         self.assertEqual(cfg["direction"], "dual_y")
         self.assertIn("y_trade_floor", cfg)
-        self.assertEqual(cfg["y_tau_enter"], 0.02)
-        self.assertEqual(cfg["y_tau_enter_strong"], 0.02)
+        self.assertEqual(cfg["y_tau_enter"], 0.01)
+        self.assertEqual(cfg["y_tau_enter_strong"], 0.01)
         self.assertEqual(cfg["y_score_source"], "compute")
 
     def test_y_tau_enter_strong_migrates_into_enter(self):
@@ -1974,7 +2298,7 @@ class TestDualYDirection(unittest.TestCase):
             shares=1000,
         )
         self.assertTrue(out.get("skip"))
-        self.assertIn("y_trade", out.get("direction_reason") or "")
+        self.assertIn("y_eod", out.get("direction_reason") or "")
 
         ok = resolve_dual_y_direction(
             scores={"y_trade": 1.5, "y_tau": 0.8, "y_eod": 1.2},
@@ -1995,20 +2319,21 @@ class TestDualYDirection(unittest.TestCase):
         cfg = load_t0_rules(
             {
                 "y_tau_enter": 0.02,
-                "y_trade_strong": 0.1,
+                "y_eod_strong": 0.1,
                 "y_use_path": False,
                 "y_block_tau_nowcast_sign": False,
             }
         )
         blocked = resolve_dual_y_direction(
-            scores={"y_trade": 0.15, "y_tau": -0.5, "y_eod": None},
+            scores={"y_trade": 0.15, "y_tau": -0.5, "y_eod": 0.15},
             cfg=cfg,
             cash=50000,
             shares=1000,
         )
         self.assertTrue(blocked.get("skip"))
+        self.assertIn("y_eod", blocked.get("direction_reason") or "")
         allowed = resolve_dual_y_direction(
-            scores={"y_trade": 0.08, "y_tau": -0.5, "y_eod": None},
+            scores={"y_trade": 0.08, "y_tau": -0.5, "y_eod": 0.08},
             cfg=cfg,
             cash=50000,
             shares=1000,
@@ -2201,6 +2526,7 @@ class TestDualYDirection(unittest.TestCase):
                 "fill_mode": "optimistic",
                 "t0_ratio": 0.4,
                 "sell_trigger_pct": 2.0,
+                "sell_trigger_pct_long": 2.0,
                 "buy_trigger_pct": 1.5,
                 "y_tau_enter": 0.25,
                 "y_trade_floor": 0.15,
@@ -2268,6 +2594,7 @@ class TestDualYDirection(unittest.TestCase):
                 "buy_trigger_pct": 1.0,
                 "must_cover_same_day": True,
                 "t0_pm_degrade": "",
+                "y_prefix_pullback_pct_long": 0.25,
             }
         )
         out = _intraday_setup(
@@ -2371,6 +2698,58 @@ class TestDualYDirection(unittest.TestCase):
             all(not str(t.get("side", "")).endswith("buy") for t in (st3.get("pending_trades") or [])),
         )
 
+    def test_intraday_setup_reverse_defers_eod_on_morning_prefix(self):
+        """反T盘中前缀已低吸时，Worker 不得把 10:40 当成收盘强平。"""
+        from core.t0.intraday import _intraday_setup
+
+        d = "2026-08-27"
+        bar = _bar(d, 34.15, 34.59, 33.85, 34.52)
+        mins = _mins(
+            d,
+            [
+                (935, 34.15, 34.20, 34.00, 34.10),
+                (940, 34.10, 34.12, 33.80, 33.945),
+                (1040, 34.00, 34.11, 33.95, 34.11),
+            ],
+        )
+        holding = {"shares": 10000, "cost": 34.15, "stock_name": "中国船舶"}
+        cfg = load_t0_rules(
+            {
+                "direction": "reverse_t",
+                "use_atr": False,
+                "min_range_pct": 0.5,
+                "fill_mode": "trigger",
+                "t0_ratio": 1.0,
+                "sell_trigger_pct": 5.0,
+                "buy_trigger_pct": 1.0,
+                "must_cover_same_day": True,
+                "t0_pm_degrade": "",
+                "y_prefix_bounce_pct_reverse": 0.25,
+            }
+        )
+        out = _intraday_setup(
+            code="600150",
+            holding=holding,
+            bar=bar,
+            minute_bars=mins,
+            cfg=cfg,
+            sellable=10000,
+            cash=500000,
+            atr_pct=None,
+            hist_bars=None,
+            scores=None,
+            stance_code="hold",
+            coupling_mode="independent",
+        )
+        self.assertTrue(out.get("ready"), out)
+        day = out.get("day_result") or {}
+        self.assertGreater(int(day.get("bought_qty") or 0), 0)
+        self.assertEqual(int(day.get("sold_back_qty") or 0), 0)
+        trades = day.get("trades") or []
+        self.assertEqual(len(trades), 1)
+        self.assertNotEqual(trades[0].get("leg_kind"), "eod_cover")
+        self.assertFalse(out.get("path_complete"))
+
     def test_intraday_setup_eod_cover_at_session_close(self):
         """正T：收盘窗未买回 → abandon_cover，不强制买回。"""
         from core.t0.intraday import _intraday_setup
@@ -2398,6 +2777,7 @@ class TestDualYDirection(unittest.TestCase):
                 "buy_trigger_pct": 1.0,
                 "must_cover_same_day_long": False,
                 "t0_pm_degrade_long": "",
+                "y_prefix_pullback_pct_long": 0.25,
             }
         )
         out = _intraday_setup(
@@ -2530,7 +2910,8 @@ class TestDualYDirection(unittest.TestCase):
         mins = _mins(
             "2026-07-29",
             [
-                (935, 100, 100, 98.4, 98.5),
+                (930, 100, 100.05, 99.95, 100),
+                (935, 100, 100, 98.4, 98.65),
                 (1400, 99.5, 100.0, 99.0, 99.2),
                 (1410, 99.2, 101.0, 99.1, 100.5),
                 (1500, 100.5, 100.8, 100.0, 100.5),
@@ -2635,6 +3016,7 @@ class TestDualYDirection(unittest.TestCase):
                 t0_pm_degrade="14:00",
                 t0_pm_chase_interval_min=10,
                 use_atr=False,
+                y_prefix_bounce_pct_reverse=0.1,
             ),
             minute_bars=_mins("2026-07-29", pts),
         )
@@ -2684,6 +3066,7 @@ class TestDualYDirection(unittest.TestCase):
         mins = _mins(
             "2026-07-29",
             [
+                (930, 100, 100.05, 99.95, 100),
                 (935, 100, 102.5, 100, 102),
                 (1500, 101.5, 101.8, 100.5, 101),
             ],
@@ -3546,8 +3929,86 @@ class TestT0HoldingsVirtualSizing(unittest.TestCase):
         self.assertEqual(kwargs["initial_cash"], m.T0_BT_VIRTUAL_CASH)
         self.assertIsNone(kwargs["initial_cost"])
         self.assertTrue(out.get("virtual_sizing"))
+        self.assertTrue(kwargs.get("skip_quote"))
+        self.assertEqual(kwargs.get("stock_name"), "茅台")
         self.assertAlmostEqual(float(out["cumulative_return_pct"]), 0.1)
         self.assertIn("虚拟每票", out.get("scope_label") or "")
+
+    def test_fetch_minute_prefers_stale_local_cache(self):
+        from unittest.mock import patch
+
+        from quant.research import t0_backtest as m
+
+        bars = [
+            {
+                "datetime": "2026-08-20 09:35:00",
+                "date": "2026-08-20",
+                "open": 10,
+                "high": 11,
+                "low": 9,
+                "close": 10.5,
+                "volume": 1,
+            }
+        ] * 12
+        meta = {"data_source": "cache", "from_cache": True, "ok": True}
+        with patch(
+            "skills.common.minute_history._load_stale_minute",
+            return_value=(bars, meta),
+        ), patch(
+            "skills.common.history.resolve_market_code", return_value=("CN", "600519")
+        ), patch("core.ports.market.fetch_minute_bars") as remote:
+            by_date, out_meta = m._fetch_minute_by_date("600519", period="5")
+        remote.assert_not_called()
+        self.assertIn("2026-08-20", by_date)
+        self.assertTrue(out_meta.get("from_cache"))
+        self.assertGreaterEqual(len(by_date["2026-08-20"]), 10)
+
+    def test_fetch_minute_remote_skips_em_when_no_cache(self):
+        from unittest.mock import patch
+
+        from quant.research import t0_backtest as m
+
+        with patch.object(m, "_local_minute_by_date", return_value=({}, {"ok": False})), patch(
+            "core.ports.market.fetch_minute_bars", return_value=([], {"ok": False})
+        ) as remote:
+            by_date, meta = m._fetch_minute_by_date("600519", timeout_sec=1)
+        remote.assert_called_once()
+        self.assertTrue(remote.call_args.kwargs.get("skip_em"))
+        self.assertFalse(by_date)
+        self.assertIn("无分钟", str(meta.get("error") or ""))
+
+    def test_call_with_timeout_does_not_wait_on_shutdown(self):
+        import time
+
+        from quant.research.t0_backtest import _call_with_timeout
+
+        t0 = time.time()
+        with self.assertRaises(TimeoutError):
+            _call_with_timeout(lambda: time.sleep(30), 0.3)
+        self.assertLess(time.time() - t0, 2.0)
+
+    def test_tau_pool_bars_offline_only(self):
+        from unittest.mock import patch
+
+        from core.t0 import score_policy as sp
+
+        seen = []
+
+        def fake(code, limit=80, **kw):
+            seen.append(dict(kw, code=code, limit=limit))
+            return (
+                [
+                    {"date": "2026-08-01", "open": 10, "close": 10},
+                    {"date": "2026-08-02", "open": 11, "close": 11},
+                ],
+                "cache",
+            )
+
+        with patch("core.data.facade.bars_and_source", side_effect=fake):
+            out = sp.load_bars_by_code_for_tau_pool(["600519"], limit=40)
+        self.assertIn("600519", out)
+        self.assertTrue(seen[0].get("offline_ok"))
+        self.assertTrue(seen[0].get("offline_only"))
 
 
 class TestIntradaySkipLogic(unittest.TestCase):

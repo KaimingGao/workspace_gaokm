@@ -1104,17 +1104,25 @@ class PaperTradesMixin:
         log_source: str = "paper_t0",
         skip_open_fill_gate: bool = False,
     ) -> Dict[str, Any]:
-        """纸面底仓做 T（非实盘）。全程加写锁，防与调仓/其他做T并发覆盖账本。
+        """纸面底仓做 T（非实盘）。
 
-        dry_run=True：只预演，不写账本（仍加锁，保证读到一致快照）。
+        dry_run=True：只预演，不写账本；**不加写锁**（避免拉分钟线期间阻塞调仓/落账）。
+        confirm 写账仍全程加写锁。
         仅 5m 第一触达；缺分钟线的票跳过（已删除日线模拟）。
         """
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
+        if dry_run:
+            return self._simulate_t0_impl(
+                rules=rules,
+                dry_run=True,
+                log_source=log_source,
+                skip_open_fill_gate=skip_open_fill_gate,
+            )
         with paper_write_lock(self.path):
             return self._simulate_t0_impl(
                 rules=rules,
-                dry_run=dry_run,
+                dry_run=False,
                 log_source=log_source,
                 skip_open_fill_gate=skip_open_fill_gate,
             )
@@ -1175,47 +1183,91 @@ class PaperTradesMixin:
         eff_t0 = strip_execution_meta(bundle["t0"])
         period = str(eff_t0.get("minute_period") or "5")
 
-        bars_by_code: Dict[str, Any] = {}
-        atr_by_code: Dict[str, float] = {}
-        hist_bars_by_code: Dict[str, Any] = {}
-        minute_bars_by_code: Dict[str, Any] = {}
-        for h in holdings:
+        def _load_one_holding(h: dict) -> Optional[tuple]:
             code = str(h.get("stock_code") or "")
             if not code:
-                continue
+                return None
             bars, _src = bars_and_source(code, limit=40)
-            if bars:
-                bar = dict(bars[-1])
-                if len(bars) >= 2 and not bar.get("prev_close"):
-                    prev_c = float(bars[-2].get("close") or 0)
-                    if prev_c > 0:
-                        bar["prev_close"] = prev_c
-                bars_by_code[code] = bar
-                hist_bars_by_code[code] = bars[:-1]
-                atr = atr_pct_from_bars(bars[:-1] or bars, 14)
-                if atr is not None:
-                    atr_by_code[code] = atr
-                # 纸面预演：尽量用当日 5m 第一触达
-                try:
-                    from core.ports.market import (
-                        fetch_minute_bars,
-                        group_minute_bars_by_date,
-                    )
+            if not bars:
+                return None
+            bar = dict(bars[-1])
+            if len(bars) >= 2 and not bar.get("prev_close"):
+                prev_c = float(bars[-2].get("close") or 0)
+                if prev_c > 0:
+                    bar["prev_close"] = prev_c
+            hist = bars[:-1]
+            atr = atr_pct_from_bars(hist or bars, 14)
+            minute_day: Optional[list] = None
+            try:
+                from core.ports.market import fetch_minute_bars, group_minute_bars_by_date
 
+                if dry_run:
+                    from core.ports.market import resolve_market_code
+                    from skills.common.minute_history import load_minute_cache
+
+                    market, bare = resolve_market_code(code)
+                    cached = (
+                        load_minute_cache(
+                            market, bare, period, min_bars=2, max_age_hours=168.0
+                        )
+                        if market and bare
+                        else None
+                    )
+                    if cached:
+                        mbars, _meta = cached
+                        by_day = group_minute_bars_by_date(mbars) if mbars else {}
+                        day_key = str(bar.get("date") or "")
+                        if day_key and by_day.get(day_key):
+                            minute_day = by_day[day_key]
+                        elif by_day:
+                            minute_day = by_day[sorted(by_day.keys())[-1]]
+                else:
                     mbars, _mmeta = fetch_minute_bars(
-                        code, period=period, lookback_days=10, use_cache=True
+                        code,
+                        period=period,
+                        lookback_days=10,
+                        use_cache=True,
                     )
                     by_day = group_minute_bars_by_date(mbars) if mbars else {}
                     day_key = str(bar.get("date") or "")
                     if day_key and by_day.get(day_key):
-                        minute_bars_by_code[code] = by_day[day_key]
+                        minute_day = by_day[day_key]
                     elif by_day:
-                        # 取最近有分钟的一天（盘中可能日线已更新、分钟仍是昨日）
-                        last_d = sorted(by_day.keys())[-1]
-                        minute_bars_by_code[code] = by_day[last_d]
-                except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                    logger.debug("catch except Exception: in paper_trades.py", exc_info=True)
-                    pass
+                        minute_day = by_day[sorted(by_day.keys())[-1]]
+            except Exception:  # noqa: BLE001
+                logger.debug("minute hydrate failed %s", code, exc_info=True)
+            return code, bar, hist, atr, minute_day
+
+        bars_by_code: Dict[str, Any] = {}
+        atr_by_code: Dict[str, float] = {}
+        hist_bars_by_code: Dict[str, Any] = {}
+        minute_bars_by_code: Dict[str, Any] = {}
+        loaded: List[tuple] = []
+        if dry_run and len(holdings) > 1:
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            workers = min(4, len(holdings))
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futs = [pool.submit(_load_one_holding, h) for h in holdings]
+                for fut in as_completed(futs):
+                    try:
+                        row = fut.result()
+                        if row:
+                            loaded.append(row)
+                    except Exception:  # noqa: BLE001
+                        logger.debug("holding hydrate failed", exc_info=True)
+        else:
+            for h in holdings:
+                row = _load_one_holding(h)
+                if row:
+                    loaded.append(row)
+        for code, bar, hist, atr, minute_day in loaded:
+            bars_by_code[code] = bar
+            hist_bars_by_code[code] = hist
+            if atr is not None:
+                atr_by_code[code] = atr
+            if minute_day:
+                minute_bars_by_code[code] = minute_day
 
         stance_by_code: Dict[str, Any] = {}
         coup_mode = str((bundle.get("coupling") or {}).get("t0_vs_stance") or "independent")
@@ -1282,6 +1334,16 @@ class PaperTradesMixin:
         )
         result["execution"] = execution_public_view(bundle)
         if dry_run:
+            miss = sum(
+                1
+                for c in (bars_by_code or {})
+                if c and c not in (minute_bars_by_code or {})
+            )
+            if miss:
+                result["minute_cache_miss"] = miss
+                note = str(result.get("note") or "").strip()
+                hint = f"预演仅用本地分钟缓存，{miss} 只缺缓存已按跳过处理"
+                result["note"] = f"{note} · {hint}" if note else hint
             return {"ok": True, **result}
 
         _write_t0_auto_last_run(paper, result=result, source=str(log_source or "paper_t0"))

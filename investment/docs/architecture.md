@@ -1335,7 +1335,7 @@ BS → core/backtest/service.py → engine · topk_backtest · topk_weights
 | 模块 | 功能 |
 |------|------|
 | `core/research/` | OLS fit、walk-forward、ŷ_τ 头（`tau_ridge`）等研究算法 |
-| `t0/` | 做 T 回测内核 · `minute_path.prefix_range_gate`（滚动前缀振幅，回测=Worker 同口径）· `intraday.py` · `auto_worker.py` |
+| `t0/` | 做 T 回测内核 · `minute_path.prefix_range_gate`（前向前缀振幅，回测=Worker 同口径）· `intraday.py` · `auto_worker.py` |
 
 ---
 

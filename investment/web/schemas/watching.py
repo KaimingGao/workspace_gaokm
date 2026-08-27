@@ -6,6 +6,8 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
+from core.watching.store import WATCHING_MAX_SIZE
+
 class WatchingWatchAdd(BaseModel):
     query: str = Field(..., min_length=1, max_length=64)
     sync_paper: bool = False
@@ -34,7 +36,7 @@ class WatchingSyncPaper(BaseModel):
 class WatchingFile(BaseModel):
     version: int = 1
     name: str = "default"
-    max_size: int = Field(default=30, ge=5, le=100)
+    max_size: int = Field(default=30, ge=5, le=WATCHING_MAX_SIZE)
     sources: list = Field(default_factory=list)
     watchlist: list = Field(default_factory=list)
     watchlist_origins: Optional[list] = None

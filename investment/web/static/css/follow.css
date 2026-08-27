@@ -4506,6 +4506,97 @@ body[data-page="follow"] .paper-t0-table {
   border-radius: 999px;
 }
 
+.paper-t0-row-gate-expandable {
+  cursor: pointer;
+}
+
+.paper-t0-row-gate-expandable:hover td {
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+}
+
+.paper-t0-col-date-expand {
+  white-space: nowrap;
+}
+
+.paper-t0-expand-icon {
+  display: inline-block;
+  width: 1em;
+  margin-right: 4px;
+  color: var(--ink-3);
+  font-size: 11px;
+  vertical-align: middle;
+}
+
+.paper-t0-row-gate-expandable.is-gate-expanded .paper-t0-expand-icon {
+  color: var(--accent);
+}
+
+.paper-t0-gate-trace-row > td {
+  padding: 0 8px 10px;
+  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+.paper-t0-gate-trace {
+  padding: 8px 4px 4px;
+}
+
+.paper-t0-gate-trace-cap {
+  margin: 0 0 6px;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.paper-t0-gate-trace-mode {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  color: var(--accent);
+}
+
+.paper-t0-gate-trace-scroll {
+  overflow-x: auto;
+}
+
+.paper-t0-gate-trace-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.paper-t0-gate-trace-table th,
+.paper-t0-gate-trace-table td {
+  padding: 3px 6px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
+  text-align: center;
+  white-space: nowrap;
+}
+
+.paper-t0-gate-trace-table th {
+  color: var(--ink-3);
+  font-weight: 500;
+}
+
+.paper-t0-gate-trace-table tr.is-ready td {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.paper-t0-gate-trace-table tr.is-blocked td {
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+
+.paper-t0-gate-trace-table tr.is-fill td {
+  background: color-mix(in srgb, var(--ok) 14%, transparent);
+  font-weight: 600;
+}
+
+.paper-t0-gate-trace-table tr.is-pm-block td {
+  background: color-mix(in srgb, var(--warn) 10%, transparent);
+}
+
+.paper-t0-gate-trace-foot {
+  margin: 6px 0 0;
+}
+
 .paper-t0-col-ret {
   width: 76px;
   min-width: 76px;

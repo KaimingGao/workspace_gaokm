@@ -5,6 +5,7 @@ import { renderT0Viz } from "./t0_viz.js";
 import { buildT0ReportHtml } from "./t0_report.js";
 import {
   buildT0TradeTableHtml,
+  pickDetailDays,
   pickTradeDays,
   stockCellHtml,
   T0_TRADE_TABLE_MAX_ROWS,
@@ -81,7 +82,7 @@ export function renderPaperT0(els, data) {
   const zeroHint = tradeDays <= 0 ? buildZeroTradeHint(data) : "";
   metricsEl.innerHTML = buildT0ReportHtml(data, { zeroHint });
 
-  const days = pickTradeDays(data);
+  const days = pickDetailDays(data);
   if (!daysEl) {
     renderT0Viz(vizEl, data);
     return;
@@ -259,7 +260,6 @@ export function renderPaperT0Preview(els, data) {
           ` · <span title="${tip}">τ = y_τ</span></p>` +
           `</div>`,
         maxRows: Math.max(T0_TRADE_TABLE_MAX_ROWS, days.length),
-        showReason: true,
         preserveOrder: true,
         showRealized: false,
       })

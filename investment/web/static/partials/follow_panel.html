@@ -421,7 +421,7 @@
                   </label>
                   <label class="paper-t0-field" title="评估窗：统计做T的交易日数（默认 10）；y_τ/ATR 另用 ≥40 日因子缓冲，与窗长无关。改完会记住。">
                     <span>回测窗</span>
-                    <input type="number" name="lookback" min="10" max="500" step="5" value="10" />
+                    <input type="number" name="lookback" min="10" max="500" step="5" value="30" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -467,21 +467,21 @@
                     title="目标价缩放：|y_eod|≥此值且与 y_τ 同向时略抬触发（非准入闸）"
                   >
                     <span>y_eod先验%</span>
-                    <input type="number" name="y_eod_prior" min="0.01" max="5" step="0.01" value="0.02" />
+                    <input type="number" name="y_eod_prior" min="0.01" max="5" step="0.01" value="0.01" />
                   </label>
                   <label
                     class="paper-t0-field"
                     title="dual_y：|y_trade| 低于此入场（%）跳过；|y_trade| 超 trade强% 须与 y_τ 同号"
                   >
                     <span>trade入场%</span>
-                    <input type="number" name="y_trade_enter" min="0.01" max="5" step="0.01" value="0.02" />
+                    <input type="number" name="y_trade_enter" min="0.01" max="5" step="0.01" value="0.01" />
                   </label>
                   <label
                     class="paper-t0-field"
                     title="dual_y：|y_trade| 超过此强闸（%）时须与 y_τ 同号"
                   >
                     <span>trade强%</span>
-                    <input type="number" name="y_trade_strong" min="0.05" max="5" step="0.01" value="0.1" />
+                    <input type="number" name="y_trade_strong" min="0.05" max="5" step="0.01" value="2" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -495,7 +495,7 @@
                     title="dual_y：|y_eod| 超过此强闸（%）时须与 y_τ 同号"
                   >
                     <span>eod强%</span>
-                    <input type="number" name="y_eod_strong" min="0.05" max="5" step="0.01" value="0.1" />
+                    <input type="number" name="y_eod_strong" min="0.05" max="5" step="0.01" value="2" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -509,7 +509,7 @@
                     title="dual_y：|nc| 超过此强闸（%）时须与 y_τ 同号；OC 开时比 y_nc_oc"
                   >
                     <span>nc强%</span>
-                    <input type="number" name="y_nc_strong" min="0.05" max="10" step="0.05" value="3.0" />
+                    <input type="number" name="y_nc_strong" min="0.05" max="10" step="0.05" value="2" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -583,7 +583,7 @@
                     title="反T关「当日回补」时：|y_on|≥此值才允许隔夜多头敞口；单位=收益百分点。正T不适用"
                   >
                     <span>y_on放行%</span>
-                    <input type="number" name="y_on_allow" min="0.01" max="10" step="0.01" value="0.02" />
+                    <input type="number" name="y_on_allow" min="0.01" max="10" step="0.01" value="0.01" />
                   </label>
                   </div>
                 </fieldset>
@@ -605,7 +605,7 @@
                     title="买回触发%（相对卖出价）；触不到则放弃回补"
                   >
                     <span>买触发%</span>
-                    <input type="number" name="buy_trigger_pct_long" min="0.1" max="20" step="0.1" value="1" />
+                    <input type="number" name="buy_trigger_pct_long" min="0.1" max="20" step="0.1" value="5" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -618,7 +618,7 @@
                       min="0.1"
                       max="30"
                       step="0.1"
-                      value="0.1"
+                      value="1"
                     />
                   </label>
                   <label class="paper-t0-field" title="成交模式">
@@ -634,14 +634,14 @@
                     title="y_τ&lt;0 时 |y_τ| 须≥此入场；可低于反T以更容易开正T"
                   >
                     <span>τ入场%</span>
-                    <input type="number" name="y_tau_enter_long" min="0.01" max="5" step="0.01" value="0.02" />
+                    <input type="number" name="y_tau_enter_long" min="0.01" max="5" step="0.01" value="0.01" />
                   </label>
                   <label
                     class="paper-t0-field"
                     title="path 开时 |y_path| 须≥此入场（与 τ 入场独立）"
                   >
                     <span>path入场%</span>
-                    <input type="number" name="y_path_enter_long" min="0.01" max="5" step="0.01" value="0.02" />
+                    <input type="number" name="y_path_enter_long" min="0.01" max="5" step="0.01" value="0.01" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -676,7 +676,7 @@
                     title="第一腿卖出须自前缀 high 回落≥此值（%）；下行段确认开时生效"
                   >
                     <span>回落确认%</span>
-                    <input type="number" name="y_prefix_pullback_pct_long" min="0" max="2" step="0.05" value="0.25" />
+                    <input type="number" name="y_prefix_pullback_pct_long" min="0" max="2" step="0.05" value="0.5" />
                   </label>
                   </div>
                 </fieldset>
@@ -697,7 +697,7 @@
                     title="卖旧仓触发%（相对低吸价）；可追价/收盘强平"
                   >
                     <span>卖触发%</span>
-                    <input type="number" name="sell_trigger_pct_reverse" min="0.1" max="20" step="0.1" value="1" />
+                    <input type="number" name="sell_trigger_pct_reverse" min="0.1" max="20" step="0.1" value="5" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -710,7 +710,7 @@
                       min="0.1"
                       max="30"
                       step="0.1"
-                      value="0.1"
+                      value="1"
                     />
                   </label>
                   <label class="paper-t0-field" title="成交模式">
@@ -726,14 +726,14 @@
                     title="y_τ&gt;0 时 |y_τ| 须≥此入场；建议高于正T以少开错向反T"
                   >
                     <span>τ入场%</span>
-                    <input type="number" name="y_tau_enter_reverse" min="0.01" max="5" step="0.01" value="0.02" />
+                    <input type="number" name="y_tau_enter_reverse" min="0.01" max="5" step="0.01" value="0.01" />
                   </label>
                   <label
                     class="paper-t0-field"
                     title="path 开时 |y_path| 须≥此入场（建议不低于正T侧）"
                   >
                     <span>path入场%</span>
-                    <input type="number" name="y_path_enter_reverse" min="0.01" max="5" step="0.01" value="0.02" />
+                    <input type="number" name="y_path_enter_reverse" min="0.01" max="5" step="0.01" value="0.01" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -747,7 +747,7 @@
                     title="中点追价起算 HH:MM：到点后禁止新开；已开未平则第二腿目标=旧目标与现价中点，触不到则收盘强制平。空=关"
                   >
                     <span>中点追价</span>
-                    <input type="text" name="t0_pm_degrade_reverse" maxlength="5" placeholder="14:00" value="14:00" />
+                    <input type="text" name="t0_pm_degrade_reverse" maxlength="5" placeholder="13:00" value="13:00" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -768,7 +768,7 @@
                     title="第一腿买入须自前缀 low 弹起≥此值（%）；上升段确认开时生效"
                   >
                     <span>反弹确认%</span>
-                    <input type="number" name="y_prefix_bounce_pct_reverse" min="0" max="2" step="0.05" value="0.25" />
+                    <input type="number" name="y_prefix_bounce_pct_reverse" min="0" max="2" step="0.05" value="0.5" />
                   </label>
                   </div>
                 </fieldset>

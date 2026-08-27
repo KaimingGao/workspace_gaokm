@@ -66,7 +66,7 @@ class T0BacktestRequest(BaseModel):
     code: Optional[str] = None
     codes: Optional[list] = None
     from_paper: bool = True
-    lookback: int = Field(default=10, ge=10, le=500)
+    lookback: int = Field(default=30, ge=10, le=500)
     initial_shares: float = Field(default=1000, ge=100, le=100000)
     t0_ratio: float = Field(default=1.0, ge=0.05, le=1.0)
     sell_trigger_pct: float = Field(default=1.0, ge=0.1, le=20)

@@ -1,7 +1,7 @@
 {
   "version": 1,
   "name": "default",
-  "max_size": 100,
+  "max_size": 200,
   "sources": [],
   "watchlist": [
     "300750",

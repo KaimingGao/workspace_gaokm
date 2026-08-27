@@ -11,6 +11,8 @@ from core.io_atomic import atomic_write_json
 from core.numbers import now_iso_local as _now_iso
 from core.paths import WATCHING_EXAMPLE_PATH, WATCHING_PATH
 
+WATCHING_MAX_SIZE = 200
+
 
 def validate_watching(data: Any) -> Dict[str, Any]:
     if not isinstance(data, dict):
@@ -19,7 +21,7 @@ def validate_watching(data: Any) -> Dict[str, Any]:
     if not isinstance(sources, list):
         raise ValueError("sources 须为数组")
     max_size = int(data.get("max_size") or 30)
-    max_size = max(5, min(max_size, 100))
+    max_size = max(5, min(max_size, WATCHING_MAX_SIZE))
     watchlist = data.get("watchlist") or []
     if not isinstance(watchlist, list):
         raise ValueError("watchlist 须为数组")

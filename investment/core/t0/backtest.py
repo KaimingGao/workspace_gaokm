@@ -65,7 +65,7 @@ def summarize_t0_day_legs(day: Dict[str, Any]) -> Dict[str, Any]:
 def _t0_range_fields(day: Dict[str, Any]) -> Dict[str, Any]:
     """回测日明细：滚动振幅审计字段（与 Worker / simulate_t0_day_minute 同口径）。"""
     out: Dict[str, Any] = {}
-    for k in ("range_mode", "prefix_bars", "range_pct", "min_range_pct"):
+    for k in ("range_mode", "prefix_bars", "range_pct", "min_range_pct", "forward_trace"):
         v = day.get(k)
         if v is not None:
             out[k] = v

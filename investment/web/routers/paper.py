@@ -324,6 +324,8 @@ def paper_t0(body: PaperT0Request | None = None) -> Dict[str, Any]:
         return deps.paper.simulate_t0(dry_run=dry_run, log_source="paper_t0")
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
+    except TimeoutError as e:
+        raise HTTPException(status_code=503, detail=str(e)) from e
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

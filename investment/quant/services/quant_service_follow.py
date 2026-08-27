@@ -14,7 +14,7 @@ class QuantFollowMixin:
         self,
         code: str = "",
         *,
-        lookback: int = 10,
+        lookback: int = 30,
         initial_shares: float = 1000,
         rules: Optional[dict] = None,
         from_paper: bool = False,

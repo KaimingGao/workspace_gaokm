@@ -5,7 +5,7 @@ import { escapeHtml as defaultEscapeHtml } from "../shared.js";
 import { researchGridHtml as defaultResearchGridHtml, metricCell as defaultMetricCell } from "./research_grid.js";
 import { fmtPct as defaultFmtPct, metricClass as defaultMetricClass } from "./bt_result.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
-import { buildT0TradeTableHtml, pickTradeDays } from "../paper/t0_table.js";
+import { buildT0TradeTableHtml, pickDetailDays } from "../paper/t0_table.js";
 import { buildT0MetricCards } from "../paper/t0_report.js";
 import { watchingNameSpanHtml } from "./names.js";
 
@@ -275,7 +275,7 @@ export function createBtTablesUi(deps = {}) {
 
   function buildT0BacktestDaysHtml(data) {
     if (!data || !data.success) return "";
-    const days = pickTradeDays(data);
+    const days = pickDetailDays(data);
     if (!days.length) {
       return `<p class="quant-trades-caption">区间内无做 T 成交日</p>`;
     }

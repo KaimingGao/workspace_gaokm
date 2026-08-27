@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 SCHEMA = "score_calibration_v1"
 _MIN_PAIRS = 40
 _MIN_HOLD_PAIRS = 15
-_PANEL_WATCHING_LIMIT = 100
+from core.watching.store import WATCHING_MAX_SIZE as _PANEL_WATCHING_LIMIT
 _PANEL_LOOKBACK_DEFAULT = 80
 
 

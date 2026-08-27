@@ -500,7 +500,7 @@ function _restoreT0Lookback(root) {
     const el = root && root.querySelector('[name="lookback"]');
     if (!el) return;
     if (Number.isFinite(n)) el.value = String(_clampLookback(n));
-    else if (el.value === "" || !Number.isFinite(Number(el.value))) el.value = "10";
+    else if (el.value === "" || !Number.isFinite(Number(el.value))) el.value = "30";
   } catch (_) {
     /* ignore */
   }
@@ -553,14 +553,14 @@ export function fillExecutionForm(root, execution) {
   } else if (t0.min_range_pct != null && t0.min_range_pct !== "") {
     set("min_range_pct_long", t0.min_range_pct);
   } else {
-    set("min_range_pct_long", 0.1);
+    set("min_range_pct_long", 1);
   }
   if (t0.min_range_pct_reverse != null && t0.min_range_pct_reverse !== "") {
     set("min_range_pct_reverse", t0.min_range_pct_reverse);
   } else if (t0.min_range_pct != null && t0.min_range_pct !== "") {
     set("min_range_pct_reverse", t0.min_range_pct);
   } else {
-    set("min_range_pct_reverse", 0.1);
+    set("min_range_pct_reverse", 1);
   }
   set("fill_mode", t0.fill_mode || "trigger");
   set("direction", "dual_y");
@@ -578,28 +578,28 @@ export function fillExecutionForm(root, execution) {
   const g = dualYGateThresholds(t0);
   set(
     "y_trade_enter",
-    g.tradeEnter != null && Number.isFinite(g.tradeEnter) ? g.tradeEnter : 0.02
+    g.tradeEnter != null && Number.isFinite(g.tradeEnter) ? g.tradeEnter : 0.01
   );
   set(
     "y_tau_enter_long",
-    g.tauEnterLong != null && Number.isFinite(g.tauEnterLong) ? g.tauEnterLong : 0.02
+    g.tauEnterLong != null && Number.isFinite(g.tauEnterLong) ? g.tauEnterLong : 0.01
   );
   set(
     "y_tau_enter_reverse",
     g.tauEnterReverse != null && Number.isFinite(g.tauEnterReverse)
       ? g.tauEnterReverse
-      : 0.02
+      : 0.01
   );
   set("y_use_path", t0.y_use_path !== false);
   set(
     "y_path_enter_long",
-    g.pathEnterLong != null && Number.isFinite(g.pathEnterLong) ? g.pathEnterLong : 0.02
+    g.pathEnterLong != null && Number.isFinite(g.pathEnterLong) ? g.pathEnterLong : 0.01
   );
   set(
     "y_path_enter_reverse",
     g.pathEnterReverse != null && Number.isFinite(g.pathEnterReverse)
       ? g.pathEnterReverse
-      : 0.02
+      : 0.01
   );
   set("y_path_required", !!t0.y_path_required);
   set("y_gap_tier_mode", t0.y_gap_tier_mode || "skip_opposite");
@@ -615,23 +615,23 @@ export function fillExecutionForm(root, execution) {
   set("y_prefix_segment_enabled_reverse", t0.y_prefix_segment_enabled_reverse !== false);
   set(
     "y_prefix_pullback_pct_long",
-    t0.y_prefix_pullback_pct_long != null ? t0.y_prefix_pullback_pct_long : 0.25
+    t0.y_prefix_pullback_pct_long != null ? t0.y_prefix_pullback_pct_long : 0.5
   );
   set(
     "y_prefix_bounce_pct_reverse",
-    t0.y_prefix_bounce_pct_reverse != null ? t0.y_prefix_bounce_pct_reverse : 0.25
+    t0.y_prefix_bounce_pct_reverse != null ? t0.y_prefix_bounce_pct_reverse : 0.5
   );
-  set("y_eod_prior", t0.y_eod_prior != null ? t0.y_eod_prior : 0.02);
+  set("y_eod_prior", t0.y_eod_prior != null ? t0.y_eod_prior : 0.01);
   set("y_eod_enter", t0.y_eod_enter != null ? t0.y_eod_enter : 0.01);
   set(
     "y_eod_strong",
-    g.eodStrong != null && Number.isFinite(g.eodStrong) ? g.eodStrong : 0.1
+    g.eodStrong != null && Number.isFinite(g.eodStrong) ? g.eodStrong : 2
   );
   set(
     "y_trade_strong",
-    g.tradeStrong != null && Number.isFinite(g.tradeStrong) ? g.tradeStrong : 0.1
+    g.tradeStrong != null && Number.isFinite(g.tradeStrong) ? g.tradeStrong : 2
   );
-  set("y_on_allow", t0.y_on_allow != null ? t0.y_on_allow : 0.02);
+  set("y_on_allow", t0.y_on_allow != null ? t0.y_on_allow : 0.01);
   set(
     "y_block_tau_nowcast_sign",
     t0.y_block_tau_nowcast_sign !== false
@@ -642,7 +642,7 @@ export function fillExecutionForm(root, execution) {
   );
   set(
     "y_nc_strong",
-    g.ncStrong != null && Number.isFinite(g.ncStrong) ? g.ncStrong : 3.0
+    g.ncStrong != null && Number.isFinite(g.ncStrong) ? g.ncStrong : 2.0
   );
   set(
     "t0_pm_degrade_long",
@@ -650,7 +650,7 @@ export function fillExecutionForm(root, execution) {
   );
   set(
     "t0_pm_degrade_reverse",
-    t0.t0_pm_degrade_reverse ?? t0.t0_pm_degrade ?? "14:00"
+    t0.t0_pm_degrade_reverse ?? t0.t0_pm_degrade ?? "13:00"
   );
   set(
     "t0_pm_chase_interval_min_long",
@@ -877,7 +877,7 @@ export function resolveT0BacktestScope(root, evt = {}) {
 export function collectT0BacktestBody(root, opts = {}) {
   const patch = collectExecutionForm(root) || { t0: {} };
   const t0 = patch.t0 || {};
-  const lookback = persistT0Lookback(root) ?? 10;
+  const lookback = persistT0Lookback(root) ?? 30;
   const body = {
     from_paper: true,
     lookback,
@@ -890,13 +890,13 @@ export function collectT0BacktestBody(root, opts = {}) {
     sell_trigger_pct_long:
       t0.sell_trigger_pct_long != null ? t0.sell_trigger_pct_long : t0.sell_trigger_pct != null ? t0.sell_trigger_pct : 1,
     buy_trigger_pct_long:
-      t0.buy_trigger_pct_long != null ? t0.buy_trigger_pct_long : t0.buy_trigger_pct != null ? t0.buy_trigger_pct : 1,
+      t0.buy_trigger_pct_long != null ? t0.buy_trigger_pct_long : t0.buy_trigger_pct != null ? t0.buy_trigger_pct : 5,
     sell_trigger_pct_reverse:
       t0.sell_trigger_pct_reverse != null
         ? t0.sell_trigger_pct_reverse
         : t0.sell_trigger_pct != null
           ? t0.sell_trigger_pct
-          : 1,
+          : 5,
     buy_trigger_pct_reverse:
       t0.buy_trigger_pct_reverse != null
         ? t0.buy_trigger_pct_reverse
@@ -917,46 +917,46 @@ export function collectT0BacktestBody(root, opts = {}) {
     must_cover_same_day:
       (t0.must_cover_same_day_reverse ?? t0.must_cover_same_day) !== false,
     use_atr: t0.use_atr === true,
-    y_trade_enter: t0.y_trade_enter != null ? t0.y_trade_enter : t0.y_trade_floor != null ? t0.y_trade_floor : 0.02,
+    y_trade_enter: t0.y_trade_enter != null ? t0.y_trade_enter : t0.y_trade_floor != null ? t0.y_trade_floor : 0.01,
     y_trade_strong:
       t0.y_trade_strong != null
         ? t0.y_trade_strong
         : t0.y_trade_tau_sign_gate != null
           ? t0.y_trade_tau_sign_gate
-          : 0.1,
+          : 2,
     y_trade_floor:
       t0.y_trade_enter != null
         ? t0.y_trade_enter
         : t0.y_trade_floor != null
           ? t0.y_trade_floor
-          : 0.02,
-    y_tau_enter: t0.y_tau_enter != null ? t0.y_tau_enter : 0.02,
+          : 0.01,
+    y_tau_enter: t0.y_tau_enter != null ? t0.y_tau_enter : 0.01,
     y_tau_enter_long:
       t0.y_tau_enter_long != null
         ? t0.y_tau_enter_long
         : t0.y_tau_enter != null
           ? t0.y_tau_enter
-          : 0.02,
+          : 0.01,
     y_tau_enter_reverse:
       t0.y_tau_enter_reverse != null
         ? t0.y_tau_enter_reverse
         : t0.y_tau_enter != null
           ? t0.y_tau_enter
-          : 0.02,
+          : 0.01,
     y_use_path: t0.y_use_path !== false,
-    y_path_enter: t0.y_path_enter != null ? t0.y_path_enter : 0.02,
+    y_path_enter: t0.y_path_enter != null ? t0.y_path_enter : 0.01,
     y_path_enter_long:
       t0.y_path_enter_long != null
         ? t0.y_path_enter_long
         : t0.y_path_enter != null
           ? t0.y_path_enter
-          : 0.02,
+          : 0.01,
     y_path_enter_reverse:
       t0.y_path_enter_reverse != null
         ? t0.y_path_enter_reverse
         : t0.y_path_enter != null
           ? t0.y_path_enter
-          : 0.02,
+          : 0.01,
     y_path_required: !!t0.y_path_required,
     y_gap_tier_mode: t0.y_gap_tier_mode || "skip_opposite",
     y_gap_tier_pct: t0.y_gap_tier_pct != null ? t0.y_gap_tier_pct : 1.0,
@@ -968,30 +968,30 @@ export function collectT0BacktestBody(root, opts = {}) {
     y_prefix_segment_enabled_long: t0.y_prefix_segment_enabled_long !== false,
     y_prefix_segment_enabled_reverse: t0.y_prefix_segment_enabled_reverse !== false,
     y_prefix_pullback_pct_long:
-      t0.y_prefix_pullback_pct_long != null ? t0.y_prefix_pullback_pct_long : 0.25,
+      t0.y_prefix_pullback_pct_long != null ? t0.y_prefix_pullback_pct_long : 0.5,
     y_prefix_bounce_pct_reverse:
-      t0.y_prefix_bounce_pct_reverse != null ? t0.y_prefix_bounce_pct_reverse : 0.25,
-    y_eod_prior: t0.y_eod_prior != null ? t0.y_eod_prior : 0.02,
+      t0.y_prefix_bounce_pct_reverse != null ? t0.y_prefix_bounce_pct_reverse : 0.5,
+    y_eod_prior: t0.y_eod_prior != null ? t0.y_eod_prior : 0.01,
     y_eod_enter: t0.y_eod_enter != null ? t0.y_eod_enter : 0.01,
     y_eod_strong:
       t0.y_eod_strong != null
         ? t0.y_eod_strong
         : t0.y_eod_tau_sign_gate != null
           ? t0.y_eod_tau_sign_gate
-          : 0.1,
+          : 2,
     y_eod_tau_sign_gate:
       t0.y_eod_strong != null
         ? t0.y_eod_strong
         : t0.y_eod_tau_sign_gate != null
           ? t0.y_eod_tau_sign_gate
-          : 0.1,
+          : 2,
     y_trade_tau_sign_gate:
       t0.y_trade_strong != null
         ? t0.y_trade_strong
         : t0.y_trade_tau_sign_gate != null
           ? t0.y_trade_tau_sign_gate
-          : 0.1,
-    y_on_allow: t0.y_on_allow != null ? t0.y_on_allow : 0.02,
+          : 2,
+    y_on_allow: t0.y_on_allow != null ? t0.y_on_allow : 0.01,
     y_block_tau_nowcast_sign: t0.y_block_tau_nowcast_sign !== false,
     y_nc_enter: t0.y_nc_enter != null ? t0.y_nc_enter : 0.01,
     y_nc_strong:
@@ -999,17 +999,17 @@ export function collectT0BacktestBody(root, opts = {}) {
         ? t0.y_nc_strong
         : t0.y_nowcast_enter != null
           ? t0.y_nowcast_enter
-          : 3.0,
+          : 2,
     y_nowcast_enter:
       t0.y_nc_strong != null
         ? t0.y_nc_strong
         : t0.y_nowcast_enter != null
           ? t0.y_nowcast_enter
-          : 3.0,
+          : 2,
     t0_pm_degrade_long: t0.t0_pm_degrade_long != null ? t0.t0_pm_degrade_long : "15:00",
     t0_pm_degrade_reverse:
-      t0.t0_pm_degrade_reverse ?? t0.t0_pm_degrade ?? "14:00",
-    t0_pm_degrade: t0.t0_pm_degrade_reverse ?? t0.t0_pm_degrade ?? "14:00",
+      t0.t0_pm_degrade_reverse ?? t0.t0_pm_degrade ?? "13:00",
+    t0_pm_degrade: t0.t0_pm_degrade_reverse ?? t0.t0_pm_degrade ?? "13:00",
     t0_pm_chase_interval_min_long:
       t0.t0_pm_chase_interval_min_long ??
       t0.t0_pm_chase_interval_min ??
