@@ -455,11 +455,20 @@ def lock_zero_legs_after_morning(
     }
 
 
+def _path_abandon_skip(reason: str) -> bool:
+    """前缀路径放弃：与回测 path_abandon 终态对齐，不可当盘口条件无限重试。"""
+    r = str(reason or "")
+    return "放弃正T" in r or "放弃反T" in r or r.startswith("前缀无")
+
+
 def _retryable_skip(reason: str) -> bool:
     """可重试跳过：振幅/未触价等盘口条件，等下一根 5m；不写入 skipped 终态。
 
     dual_y 门槛（横盘/y_check/幅度）在日线对齐且即时分就绪后应终锁，故不在此列。
+    path_abandon 文案含「待回落/待反弹/振幅」子串，须先排除，否则永远 idle。
     """
+    if _path_abandon_skip(reason):
+        return False
     r = str(reason or "")
     return any(
         x in r
@@ -694,6 +703,11 @@ def _intraday_setup(
             return {"pending": True, "reason": "dual_y：即时算分未就绪，等待重试"}
 
     bar_day = _day_ohlc_from_minutes(minute_bars, bar)
+    # 与回测一致：高低用已有 5m；收盘价优先日线，供 eod/敞口标记（尤其 force_session_close）
+    daily_close = float((bar or {}).get("close") or 0)
+    bar_session = dict(bar_day)
+    if daily_close > 0:
+        bar_session["close"] = daily_close
     lot = int(cfg.get("lot_size") or 100)
     shares = float(holding.get("shares") or 0)
     scaled = scale_triggers_with_atr(cfg, atr_pct=atr_pct)
@@ -727,7 +741,7 @@ def _intraday_setup(
         atr_pct=scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct,
         hist_bars=hist_bars,
         score_snap=scores,
-        session_bar=bar_day,
+        session_bar=bar_session,
         base_t0_ratio=base_ratio,
         # 强制收盘窗：不得再 defer，否则午前末根无法 eod/敞口入账
         defer_eod=not bool(force_session_close),
@@ -813,27 +827,38 @@ def _apply_trades_to_paper(
     *,
     as_of: str,
     log_source: str,
-) -> float:
+) -> List[dict]:
     from core.paper.ledger import append_operation_log, append_trade_legs_to_operation_log
     from core.paper.tplus1 import apply_t0_trades, sellable_shares as t1_after
     from core.paper.ledger import _now_iso
 
-    from core.t0.costs import t0_leg_cash_delta
+    from core.t0.costs import t0_fee_side, t0_leg_cash_delta
 
     if not trades:
-        return 0.0
+        return []
     ts = _now_iso()
-    pnl_delta = 0.0
     cash = float(paper.get("cash") or 0)
     legs: List[dict] = []
     for t in trades:
+        delta = float(t0_leg_cash_delta(t) or 0)
+        # 共享现金：买腿不得透支（他票已花掉本票卖出回笼时跳过买回）
+        if t0_fee_side(t.get("side")) == "buy" and cash + delta < -1e-6:
+            logger.info(
+                "t0 apply skip buy: cash=%.2f need=%.2f code=%s",
+                cash,
+                -delta,
+                holding.get("stock_code"),
+            )
+            continue
         row = dict(t)
         row["ts"] = ts
         row["stock_name"] = holding.get("stock_name")
         legs.append(row)
         paper.setdefault("trades", []).append(row)
-        cash += t0_leg_cash_delta(row)
+        cash += delta
 
+    if not legs:
+        return []
     apply_t0_trades(holding, legs, as_of=as_of, ts=ts)
     paper["cash"] = round(cash, 2)
     holding["t0"] = {
@@ -856,7 +881,7 @@ def _apply_trades_to_paper(
         detail=f"做T{auto_tag}·盘中 · 成交 {len(legs)} 笔",
         meta={"origin": "t0", "source": src, "trade_count": len(legs), "intraday": True},
     )
-    return pnl_delta
+    return legs
 
 
 def process_holding_intraday(
@@ -942,6 +967,17 @@ def process_holding_intraday(
         return st, [], {}
     if setup.get("skipped"):
         reason = str(setup.get("reason") or "")
+        # path_abandon：回测已终态；实盘不得因文案含「待回落」等误判可重试
+        if setup.get("path_abandon") or _path_abandon_skip(reason):
+            st["phase"] = PHASE_SKIPPED
+            st["reason"] = setup.get("reason")
+            st.pop("wait_reason", None)
+            st["day_snapshot"] = {
+                **setup,
+                "stock_code": code,
+                "stock_name": holding.get("stock_name"),
+            }
+            return st, [], st["day_snapshot"]
         if _retryable_skip(reason) and phase in (PHASE_IDLE, PHASE_AFTER_LEG1):
             st["last_bar_ts"] = setup.get("last_bar_ts") or (
                 _bar_ts(minute_bars[-1]) if minute_bars else last_ts
@@ -997,14 +1033,14 @@ def process_holding_intraday(
         st["sellable_day_start"] = sim_sellable
         st["cash_day_start"] = sim_cash
 
-    _apply_trades_to_paper(
+    applied = _apply_trades_to_paper(
         paper,
         holding,
         new_trades,
         as_of=as_of,
         log_source=log_source,
     )
-    legs_written += len(new_trades)
+    legs_written += len(applied)
     st["legs_written"] = legs_written
     st["last_bar_ts"] = setup.get("last_bar_ts") or last_ts
     # 仅往返完成才 done；单腿落账保持 after_leg1（勿用 len(trades) 误判）

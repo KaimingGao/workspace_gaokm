@@ -1183,6 +1183,26 @@ class PaperTradesMixin:
         eff_t0 = strip_execution_meta(bundle["t0"])
         period = str(eff_t0.get("minute_period") or "5")
 
+        # 与 Worker 一致：按当前交易会话对齐日线/分钟，禁止用未滚日的 bars[-1] 当今日
+        try:
+            from core.market.calendar import resolve_session_date
+            from core.signal.session_pit import asof_session_final, shanghai_now
+            from core.t0.intraday import session_in_market
+
+            _now = shanghai_now()
+            session_date = resolve_session_date(now=_now)
+            in_market, _ = session_in_market(now=_now)
+            session_closed = bool(
+                session_date and asof_session_final(session_date, now=_now)
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("session resolve for simulate_t0 failed", exc_info=True)
+            session_date = None
+            in_market = False
+            session_closed = True
+        # 盘中整单：defer 收盘回补；收盘后/休市：允许 eod（与 Worker force_session_close 对齐）
+        defer_eod = bool(in_market) and not session_closed
+
         def _load_one_holding(h: dict) -> Optional[tuple]:
             code = str(h.get("stock_code") or "")
             if not code:
@@ -1190,14 +1210,7 @@ class PaperTradesMixin:
             bars, _src = bars_and_source(code, limit=40)
             if not bars:
                 return None
-            bar = dict(bars[-1])
-            if len(bars) >= 2 and not bar.get("prev_close"):
-                prev_c = float(bars[-2].get("close") or 0)
-                if prev_c > 0:
-                    bar["prev_close"] = prev_c
-            hist = bars[:-1]
-            atr = atr_pct_from_bars(hist or bars, 14)
-            minute_day: Optional[list] = None
+            by_day: Dict[str, Any] = {}
             try:
                 from core.ports.market import fetch_minute_bars, group_minute_bars_by_date
 
@@ -1216,11 +1229,6 @@ class PaperTradesMixin:
                     if cached:
                         mbars, _meta = cached
                         by_day = group_minute_bars_by_date(mbars) if mbars else {}
-                        day_key = str(bar.get("date") or "")
-                        if day_key and by_day.get(day_key):
-                            minute_day = by_day[day_key]
-                        elif by_day:
-                            minute_day = by_day[sorted(by_day.keys())[-1]]
                 else:
                     mbars, _mmeta = fetch_minute_bars(
                         code,
@@ -1229,13 +1237,35 @@ class PaperTradesMixin:
                         use_cache=True,
                     )
                     by_day = group_minute_bars_by_date(mbars) if mbars else {}
-                    day_key = str(bar.get("date") or "")
-                    if day_key and by_day.get(day_key):
-                        minute_day = by_day[day_key]
-                    elif by_day:
-                        minute_day = by_day[sorted(by_day.keys())[-1]]
             except Exception:  # noqa: BLE001
                 logger.debug("minute hydrate failed %s", code, exc_info=True)
+
+            from core.t0.intraday import align_session_day_context
+
+            aligned = align_session_day_context(
+                session_date=session_date,
+                daily_bars=list(bars),
+                minute_by_day=by_day,
+            )
+            if aligned.get("pending") or not aligned.get("ok"):
+                if not dry_run:
+                    # 实盘：不回退昨收整段回放
+                    return None
+                # 预演：会话未开盘时可用最近完整日（分钟仍同日，禁止跨日）
+                bar = dict(bars[-1])
+                if len(bars) >= 2 and not bar.get("prev_close"):
+                    prev_c = float(bars[-2].get("close") or 0)
+                    if prev_c > 0:
+                        bar["prev_close"] = prev_c
+                hist = list(bars[:-1])
+                day_key = str(bar.get("date") or "")[:10]
+                minute_day = list(by_day.get(day_key) or []) or None
+                atr = atr_pct_from_bars(hist, 14) if hist else None
+                return code, bar, hist, atr, minute_day
+            bar = dict(aligned.get("bar") or {})
+            hist = list(aligned.get("hist") or [])
+            minute_day = list(aligned.get("minute_bars") or []) or None
+            atr = atr_pct_from_bars(hist, 14) if hist else None
             return code, bar, hist, atr, minute_day
 
         bars_by_code: Dict[str, Any] = {}
@@ -1297,19 +1327,25 @@ class PaperTradesMixin:
         scores_by_code = None
         if str(eff_t0.get("direction") or "") == "dual_y":
             try:
-                from core.t0.score_policy import load_scores_map_for_codes
+                from core.t0.score_policy import (
+                    load_scores_map_for_codes,
+                    resolve_score_as_of,
+                )
 
                 codes = [str(h.get("stock_code") or "") for h in holdings if h.get("stock_code")]
+                # ledger 决策日 = hist 末日（T−1）；禁止用当日 bar.date
                 as_of = None
-                for bar in bars_by_code.values():
-                    if isinstance(bar, dict) and bar.get("date"):
-                        as_of = str(bar.get("date"))[:10]
+                for code in codes:
+                    as_of = resolve_score_as_of(
+                        hist_bars=hist_bars_by_code.get(code),
+                        day_bar=bars_by_code.get(code),
+                    )
+                    if as_of:
                         break
-                # 用已拉取的日线即时算（开盘信息集）；compute 不回退 live_book
                 y_src = str(eff_t0.get("y_score_source") or "compute")
                 scores_by_code = load_scores_map_for_codes(
                     codes,
-                    as_of=as_of,
+                    as_of=as_of or None,
                     source=y_src,
                     hist_bars_by_code=hist_bars_by_code or None,
                     day_bars_by_code=bars_by_code or None,
@@ -1319,6 +1355,23 @@ class PaperTradesMixin:
             except Exception:  # noqa: BLE001
                 logger.debug("dual_y scores hydrate failed", exc_info=True)
                 scores_by_code = None
+
+        # 盘中已落账腿的票禁止整单回放，避免在已变簿上再开一轮
+        skip_codes: set = set()
+        try:
+            from core.market.calendar import resolve_session_date
+            from core.signal.session_pit import shanghai_now
+            from core.t0.intraday import load_intraday_state
+
+            sess = resolve_session_date(now=shanghai_now())
+            ist = load_intraday_state()
+            if str(ist.get("session_date") or "") == str(sess or ""):
+                stocks_st = ist.get("stocks") if isinstance(ist.get("stocks"), dict) else {}
+                for c, st in stocks_st.items():
+                    if isinstance(st, dict) and int(st.get("legs_written") or 0) > 0:
+                        skip_codes.add(str(c))
+        except Exception:  # noqa: BLE001
+            logger.debug("load open intraday legs for simulate_t0 failed", exc_info=True)
 
         result = simulate_t0_on_holdings(
             paper,
@@ -1332,6 +1385,8 @@ class PaperTradesMixin:
             coupling=bundle.get("coupling"),
             scores_by_code=scores_by_code or None,
             log_source=str(log_source or "paper_t0"),
+            skip_codes=skip_codes or None,
+            defer_eod=defer_eod,
         )
         result["execution"] = execution_public_view(bundle)
         if dry_run:
@@ -1764,17 +1819,24 @@ class PaperTradesMixin:
                 ):
                     continue
 
-                atr = atr_pct_from_bars(hist_by_code.get(code) or bars[:-1] or bars, 14)
+                atr = atr_pct_from_bars(hist_by_code.get(code) or [], 14)
                 scores = None
                 if str(eff_t0.get("direction") or "") == "dual_y":
                     try:
-                        from core.t0.score_policy import load_scores_map_for_codes
+                        from core.t0.score_policy import (
+                            load_scores_map_for_codes,
+                            resolve_score_as_of,
+                        )
 
+                        hist_c = hist_by_code.get(code) or []
+                        as_of_score = resolve_score_as_of(
+                            hist_bars=hist_c, day_bar=bar
+                        )
                         raw_scores = load_scores_map_for_codes(
                             [code],
-                            as_of=str(bar.get("date") or "")[:10] or None,
+                            as_of=as_of_score or None,
                             source=y_src,
-                            hist_bars_by_code={code: hist_by_code.get(code) or []},
+                            hist_bars_by_code={code: hist_c},
                             day_bars_by_code={code: bar},
                             allow_fallback=(y_src != "compute"),
                             rules=eff_t0,

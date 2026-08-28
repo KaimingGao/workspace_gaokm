@@ -401,8 +401,12 @@ def simulate_t0_day(
     minute_bars: Optional[Sequence[dict]] = None,
     scores: Optional[dict] = None,
     tau_pool_day: Optional[dict] = None,
+    defer_eod: bool = False,
 ) -> Dict[str, Any]:
-    """单票单日做 T：仅 5m 第一触达（已删除日线 high/low 代理）。"""
+    """单票单日做 T：仅 5m 第一触达（已删除日线 high/low 代理）。
+
+    ``defer_eod=True``：盘中前缀不强平（纸面整单/Worker）；回测完整日默认 False。
+    """
     cfg = load_t0_rules(rules)
     cfg["path_mode"] = "first_touch"
     if not cfg.get("enabled", True):
@@ -412,12 +416,16 @@ def simulate_t0_day(
     if str(cfg.get("direction") or "") == "dual_y" and not scores_have_any(score_snap):
         from core.t0.score_policy import (
             resolve_fuse_intraday,
+            resolve_score_as_of,
             resolve_scores_for_code,
             resolve_y_score_source,
             tau_pool_day_score_kwargs,
         )
 
-        as_of = str((bar or {}).get("date") or "")[:10]
+        as_of = resolve_score_as_of(
+            hist_bars=hist_bars,
+            day_bar=bar if isinstance(bar, dict) else None,
+        )
         if stock_code:
             y_src = resolve_y_score_source(cfg)
             score_snap = resolve_scores_for_code(
@@ -466,6 +474,7 @@ def simulate_t0_day(
         hist_bars=hist_bars,
         scores=score_snap,
         tau_pool_day=tau_pool_day,
+        defer_eod=bool(defer_eod),
     )
 
 
@@ -483,6 +492,8 @@ def simulate_t0_on_holdings(
     coupling: Optional[dict] = None,
     scores_by_code: Optional[Dict[str, dict]] = None,
     log_source: str = "paper_t0",
+    skip_codes: Optional[Any] = None,
+    defer_eod: bool = False,
 ) -> Dict[str, Any]:
     """对纸面持仓逐票跑单日做 T（需传入当日 bar）。
 
@@ -491,6 +502,8 @@ def simulate_t0_on_holdings(
     minute_bars_by_code：各票当日分钟线，有则第一触达。
     stance_by_code：code → stance_code 或 {stance_code,...}；配合 coupling.t0_vs_stance。
     scores_by_code：code → dual_y ŷ 快照。
+    skip_codes：盘中已落账腿的代码，跳过以防整单回放重复落账。
+    defer_eod：盘中整单为 True，避免半日分钟误强平。
     """
     from core.execution import stance_allows_t0
 
@@ -504,6 +517,7 @@ def simulate_t0_on_holdings(
         exe = ((paper.get("rules") or {}).get("execution") or {}) if isinstance(paper.get("rules"), dict) else {}
         coup = (exe.get("coupling") if isinstance(exe, dict) else None) or {}
     coup_mode = str((coup or {}).get("t0_vs_stance") or "independent")
+    skip_set = {str(c) for c in (skip_codes or []) if str(c or "").strip()}
 
     holdings = []
     for h in paper.get("holdings") or []:
@@ -540,6 +554,23 @@ def simulate_t0_on_holdings(
         code = str(h.get("stock_code") or "")
         bar = bars_by_code.get(code)
         if not code or not bar:
+            continue
+        if code in skip_set:
+            skip_count += 1
+            results.append(
+                {
+                    "stock_code": code,
+                    "stock_name": h.get("stock_name"),
+                    "success": True,
+                    "skipped": True,
+                    "reason": "盘中已有成交腿，跳过整单回放（防重复落账）",
+                    "skip_category": "intraday_legs_open",
+                    "trades": [],
+                    "pnl": 0.0,
+                    "shares_end": float(h.get("shares") or 0),
+                    "cash_delta": 0.0,
+                }
+            )
             continue
         shares = float(h.get("shares") or 0)
         cost = float(h.get("cost") or 0)
@@ -614,6 +645,7 @@ def simulate_t0_on_holdings(
             hist_bars=hist,
             minute_bars=mins,
             scores=score_snap,
+            defer_eod=bool(defer_eod),
         )
         if mins and len(mins) >= 2 and day.get("path_mode") == "first_touch":
             minute_path_count += 1
@@ -628,34 +660,86 @@ def simulate_t0_on_holdings(
             continue
 
         ts = _now_iso()
+        from core.t0.costs import t0_fee_side, t0_leg_cash_delta
+
+        applied_trades: List[dict] = []
         for t in day.get("trades") or []:
             row = dict(t)
+            delta = float(t0_leg_cash_delta(row) or 0)
+            if t0_fee_side(row.get("side")) == "buy" and working_cash + delta < -1e-6:
+                continue
             row["ts"] = ts
             row["stock_name"] = h.get("stock_name")
+            applied_trades.append(row)
             all_trades.append(row)
 
         apply_t0_trades(
             h,
-            day.get("trades") or [],
+            applied_trades,
             as_of=as_of or str(ts)[:10],
             ts=ts,
         )
         from core.paper.tplus1 import sellable_shares as t1_after
 
+        day_out = dict(day)
+        if len(applied_trades) != len(day.get("trades") or []):
+            day_out["trades"] = applied_trades
+            day_out["cash_delta"] = round(
+                sum(float(t0_leg_cash_delta(t) or 0) for t in applied_trades), 2
+            )
+            # 买回被共享现金闸掉：按未回补敞口记账
+            if str(day_out.get("direction_used") or "") == "long_t":
+                sold_q = int(day_out.get("sold_qty") or 0)
+                cov = sum(
+                    int(t.get("shares") or 0)
+                    for t in applied_trades
+                    if str(t.get("side") or "").endswith("buy")
+                )
+                day_out["covered_qty"] = cov
+                day_out["uncovered_qty"] = max(0, sold_q - cov)
+                if sold_q > 0 and cov < sold_q:
+                    day_out["exit_reason"] = "abandon_cover_cash"
+                    day_out["pnl"] = 0.0
+                elif cov >= sold_q > 0:
+                    day_out["pnl"] = day_out["cash_delta"]
+            elif str(day_out.get("direction_used") or "") == "reverse_t":
+                bought_q = int(day_out.get("bought_qty") or 0)
+                sold_back = sum(
+                    int(t.get("shares") or 0)
+                    for t in applied_trades
+                    if str(t.get("side") or "").endswith("sell")
+                )
+                # reverse: first leg is buy — if buy skipped, clear
+                has_buy = any(
+                    str(t.get("side") or "").endswith("buy") for t in applied_trades
+                )
+                if not has_buy:
+                    day_out["bought_qty"] = 0
+                    day_out["sold_back_qty"] = 0
+                    day_out["uncovered_qty"] = 0
+                    day_out["pnl"] = 0.0
+                    day_out["skipped"] = True
+                    day_out["reason"] = "共享现金不足，跳过反T低吸"
+                else:
+                    day_out["sold_back_qty"] = sold_back
+                    day_out["uncovered_qty"] = max(0, bought_q - sold_back)
+                    if sold_back >= bought_q > 0:
+                        day_out["pnl"] = day_out["cash_delta"]
+
         h["t0"] = {
             "enabled": True,
             "sellable_shares": t1_after(h, as_of=as_of or None),
-            "day_sold": day.get("sold_qty") or 0,
-            "day_bought": (day.get("covered_qty") or 0) + (day.get("bought_qty") or 0),
-            "day_pnl": day.get("pnl") or 0,
-            "day_exposure_pnl": day.get("exposure_pnl") or 0,
-            "direction": day.get("direction_used"),
-            "last_date": day.get("date"),
+            "day_sold": day_out.get("sold_qty") or 0,
+            "day_bought": (day_out.get("covered_qty") or 0) + (day_out.get("bought_qty") or 0),
+            "day_pnl": day_out.get("pnl") or 0,
+            "day_exposure_pnl": day_out.get("exposure_pnl") or 0,
+            "direction": day_out.get("direction_used"),
+            "last_date": day_out.get("date"),
         }
-        working_cash += float(day.get("cash_delta") or 0)
-        pnl_total += float(day.get("pnl") or 0)
-        exposure_total += float(day.get("exposure_pnl") or 0)
-        results.append({"stock_code": code, "stock_name": h.get("stock_name"), **day})
+        working_cash += float(day_out.get("cash_delta") or 0)
+        pnl_total += float(day_out.get("pnl") or 0)
+        exposure_total += float(day_out.get("exposure_pnl") or 0)
+        results.append({"stock_code": code, "stock_name": h.get("stock_name"), **day_out})
 
     if not dry_run:
         for t in all_trades:

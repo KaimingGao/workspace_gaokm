@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 from core.t0.costs import (
+    apply_t0_leg_costs,
     append_t0_leg,
     resolve_t0_cost_context,
     t0_fees_total,
@@ -166,6 +167,53 @@ def _maybe_pm_chase_level(
     if last_chase_min is not None and (cur_min - last_chase_min) < interval_min:
         return level, last_chase_min, False
     return (level + px) / 2.0, cur_min, True
+
+
+def _max_affordable_buy_lots(
+    cash: float,
+    price: float,
+    lot: int,
+    *,
+    cost_model: str,
+    cost_params: dict,
+    cap: Optional[int] = None,
+) -> int:
+    """按含费净现金可买手数（不透支）；``cap`` 为股数上限（已手数对齐亦可）。"""
+    if cash <= 0 or price <= 0:
+        return 0
+    lot_i = max(int(lot or 100), 1)
+    qty = _lot_floor(cash / price, lot_i)
+    if cap is not None:
+        qty = min(qty, _lot_floor(float(cap), lot_i))
+    while qty >= lot_i:
+        probe = apply_t0_leg_costs(
+            {"side": "t0_buy", "shares": qty, "price": price},
+            cost_model=cost_model,
+            cost_params=cost_params,
+        )
+        if cash + float(probe.get("net_cash_delta") or 0) >= -1e-6:
+            return int(qty)
+        qty -= lot_i
+    return 0
+
+
+def _buy_self_funded(
+    cash_delta: float,
+    *,
+    shares: float,
+    price: float,
+    cost_model: str,
+    cost_params: dict,
+) -> bool:
+    """卖出净得是否够覆盖一笔买回（含手续费）。"""
+    if shares <= 0 or price <= 0:
+        return False
+    probe = apply_t0_leg_costs(
+        {"side": "t0_buy", "shares": shares, "price": price},
+        cost_model=cost_model,
+        cost_params=cost_params,
+    )
+    return cash_delta + float(probe.get("net_cash_delta") or 0) >= -1e-6
 
 
 def _day_ohlc_from_minutes(minute_bars: Sequence[dict], daily_bar: Optional[dict] = None) -> dict:
@@ -564,6 +612,15 @@ def _first_touch_long(
                     continue
             fill_buy = _fill_buy(lo, buy_level, fill_mode)
             cover = sold_qty
+            # 与 EOD 一致：卖出净得须覆盖买回净现金；追价抬高后不够则本根不成交
+            if not _buy_self_funded(
+                cash_delta,
+                shares=cover,
+                price=fill_buy,
+                cost_model=cost_model,
+                cost_params=cost_params,
+            ):
+                continue
             cash_delta += append_t0_leg(
                 trades,
                 cost_model=cost_model,
@@ -593,9 +650,14 @@ def _first_touch_long(
         eod_ok = _allows_eod_cover(minute_bars, sess_bars, defer_eod=defer_eod)
         if cfg.get("must_cover_same_day") and eod_ok:
             cover = sold_qty
-            buy_amount = cover * sess_close
-            # 卖出净得须能覆盖收盘买回（含后续手续费由 append 再扣）；不足则改记敞口
-            if buy_amount > cash_delta + 1e-6:
+            # 卖出净得须覆盖买回净现金（含佣金/滑点）；不足则改记敞口
+            if not _buy_self_funded(
+                cash_delta,
+                shares=cover,
+                price=sess_close,
+                cost_model=cost_model,
+                cost_params=cost_params,
+            ):
                 exposure_pnl = round((sold_price - sess_close) * sold_qty, 2)
                 exit_reason = "abandon_cover_cash"
             else:
@@ -737,17 +799,25 @@ def _first_touch_reverse(
             },
         )
 
-    afford = _lot_floor(cash / max(buy_level, 1e-6), lot)
-    qty = min(max_shares, afford, _lot_floor(sellable, lot))
+    afford = _max_affordable_buy_lots(
+        cash,
+        buy_level,
+        lot,
+        cost_model=cost_model,
+        cost_params=cost_params,
+        cap=min(max_shares, _lot_floor(sellable, lot)),
+    )
+    qty = int(afford)
     if qty <= 0:
-        afford_n = int(afford)
+        gross_afford = _lot_floor(cash / max(buy_level, 1e-6), lot)
+        afford_n = int(gross_afford)
         if afford_n < lot:
             reason = (
                 f"反T：现金不够 1 手（现金 {cash:.0f} 约可买 {afford_n} 股 < {lot}；"
                 f"目标 {int(max_shares)} 股）"
             )
         else:
-            reason = "反T：买不起或可卖旧仓不足"
+            reason = "反T：买不起或可卖旧仓不足（含手续费）"
         return _skip_result(
             reason=reason,
             shares=shares,
@@ -803,13 +873,17 @@ def _first_touch_reverse(
                 fill_buy = (lo + buy_level) / 2.0
             else:
                 fill_buy = buy_level
-            buy_amount = qty * fill_buy
-            if buy_amount > cash + 1e-6:
-                qty = _lot_floor(cash / max(fill_buy, 1e-6), lot)
-                qty = min(qty, sell_old_cap)
-                if qty <= 0:
-                    continue
-                buy_amount = qty * fill_buy
+            # 含费再缩量，避免 append 后现金转负
+            qty = _max_affordable_buy_lots(
+                cash,
+                fill_buy,
+                lot,
+                cost_model=cost_model,
+                cost_params=cost_params,
+                cap=min(qty, sell_old_cap),
+            )
+            if qty <= 0:
+                continue
             cash_delta += append_t0_leg(
                 trades,
                 cost_model=cost_model,
@@ -934,7 +1008,7 @@ def _first_touch_reverse(
         "buy_level": round(buy_level, 4),
         "sold_qty": 0,
         "covered_qty": 0,
-        "uncovered_qty": 0,
+        "uncovered_qty": max(0, int(bought_qty) - int(sold_back)),
         "bought_qty": bought_qty,
         "sold_back_qty": sold_back,
         "trades": trades,
@@ -1719,15 +1793,18 @@ def simulate_t0_day_minute(
     hist_bars: Optional[Sequence[dict]] = None,
     scores: Optional[dict] = None,
     tau_pool_day: Optional[dict] = None,
+    defer_eod: bool = False,
 ) -> Dict[str, Any]:
     """单日做 T：选向仍用开盘/隔夜特征；成交路径按分钟第一触达（前向滑动窗口）。
 
     振幅/段向门禁按 5m 前缀逐根评估；段向确认后粘滞开闸，后续根触价即可成交（不回溯确认前触价）。
+    ``defer_eod=True`` 时盘中前缀不强平（纸面整单/Worker）。
     """
     from core.t0.score_policy import (
         attach_day_scores,
         resolve_cover_policy,
         resolve_fuse_intraday,
+        resolve_score_as_of,
         resolve_scores_for_code,
         resolve_y_score_source,
         scores_have_any,
@@ -1741,7 +1818,10 @@ def simulate_t0_day_minute(
 
     score_snap = scores if isinstance(scores, dict) else None
     if str(cfg.get("direction") or "") == "dual_y" and not scores_have_any(score_snap):
-        as_of = str((bar or {}).get("date") or "")[:10]
+        as_of = resolve_score_as_of(
+            hist_bars=hist_bars,
+            day_bar=bar if isinstance(bar, dict) else None,
+        )
         if stock_code:
             score_snap = resolve_scores_for_code(
                 stock_code,
@@ -1871,7 +1951,7 @@ def simulate_t0_day_minute(
         score_snap=score_snap,
         session_bar=bar_session,
         base_t0_ratio=base_t0_ratio,
-        defer_eod=False,
+        defer_eod=bool(defer_eod),
     )
     if out is None:
         return _finish(

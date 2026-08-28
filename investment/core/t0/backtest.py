@@ -17,13 +17,13 @@ def _research_cash_for_reverse(
     t0_ratio: float,
     lot: int = 100,
 ) -> float:
-    """反T研究现金：至少够买「抬手后」目标股数（小仓 100～200 股会抬到 1 手）。"""
+    """反T研究现金：至少够买「抬手后」目标股数（含简易佣金缓冲）。"""
     if shares <= 0 or px <= 0:
         return 0.0
     lot_i = max(int(lot or 100), 1)
     qty = _t0_qty_lots(shares, t0_ratio, lot_i, shares)
-    # 相对触发价略低，预留一点缓冲
-    return float(qty) * float(px) * 1.05
+    # 相对触发价略低 + 佣金下限，避免 simple_cn 下刚好买不起
+    return float(qty) * float(px) * 1.05 + 10.0
 
 
 def summarize_t0_day_legs(day: Dict[str, Any]) -> Dict[str, Any]:
@@ -489,12 +489,11 @@ def _walk_t0(
         if sold > 0 or bought > 0:
             trade_count += 1
             completed = (sold > 0 and covered >= sold) or (bought > 0 and sold_back >= bought)
-            # 正T abandon_cover 是主动放弃回补（默认设计），不计入 uncover
-            intentional_abandon = (
-                direction == "long_t"
-                and sold > 0
-                and covered < sold
-                and str(day.get("exit_reason") or "") in ("abandon_cover", "abandon_cover_cash")
+            exit_r = str(day.get("exit_reason") or "")
+            # 正/反 T 主动放弃回补（含现金不足）按设计完成，不计入 uncover
+            intentional_abandon = exit_r in ("abandon_cover", "abandon_cover_cash") and (
+                (direction == "long_t" and sold > 0 and covered < sold)
+                or (direction == "reverse_t" and bought > 0 and sold_back < bought)
             )
             if direction == "long_t":
                 long_days += 1
@@ -503,7 +502,7 @@ def _walk_t0(
                     cover_count += 1
             elif direction == "reverse_t":
                 reverse_days += 1
-                if completed:
+                if completed or intentional_abandon:
                     reverse_cover += 1
                     cover_count += 1
             if not intentional_abandon and (
@@ -517,7 +516,10 @@ def _walk_t0(
                     reverse_pnl += day_pnl
         sellable = shares  # 日末重置；不跟踪当日新买股的 T+1 冻结
 
-        if day_pnl:
+        # 胜率分母含已开仓日（含 pnl=0 的 abandon），避免只统计有已实现盈亏的子集
+        if sold > 0 or bought > 0:
+            pnls.append(day_pnl)
+        elif day_pnl:
             pnls.append(day_pnl)
         if day.get("exposure_pnl"):
             exposures.append(float(day["exposure_pnl"]))
@@ -543,6 +545,8 @@ def _walk_t0(
                 "direction_features": day.get("direction_features"),
                 "scores": day.get("scores"),
                 "cover_policy": day.get("cover_policy"),
+                "exit_reason": day.get("exit_reason"),
+                "must_cover_same_day": day.get("must_cover_same_day"),
                 "path_mode": day.get("path_mode") or cfg.get("path_mode") or "first_touch",
                 "minute_path": used_minute,
                 "path_realized": day.get("path_realized"),

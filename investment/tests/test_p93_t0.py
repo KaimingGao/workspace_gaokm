@@ -124,6 +124,47 @@ class TestT0Core(unittest.TestCase):
         self.assertFalse(resolve_fuse_intraday({"dual_score_window": "eod_next"}))
         self.assertFalse(resolve_fuse_intraday({"y_score_window": "eod"}))
 
+    def test_resolve_score_as_of_prefers_hist_prior(self):
+        from core.t0.score_policy import resolve_score_as_of
+
+        self.assertEqual(
+            resolve_score_as_of(
+                hist_bars=[{"date": "2026-01-09"}, {"date": "2026-01-10"}],
+                day_bar={"date": "2026-01-11"},
+            ),
+            "2026-01-10",
+        )
+        self.assertEqual(
+            resolve_score_as_of(hist_bars=[], day_bar={"date": "2026-01-11"}),
+            "2026-01-11",
+        )
+
+    def test_resolve_path_abandon_bars_side_keys(self):
+        from core.t0.config import resolve_path_abandon_bars
+
+        cfg = {
+            "y_path_abandon_bars": 12,
+            "y_path_abandon_bars_long": 8,
+            "y_path_abandon_bars_reverse": 20,
+        }
+        self.assertEqual(resolve_path_abandon_bars(cfg, "long_t"), 8)
+        self.assertEqual(resolve_path_abandon_bars(cfg, "reverse_t"), 20)
+        self.assertEqual(resolve_path_abandon_bars(cfg, None), 12)
+
+    def test_must_cover_legacy_false_overrides_reverse_default(self):
+        """legacy must_cover_same_day=False 须落到反T侧，不被默认 True 吞掉。"""
+        from core.t0.config import load_t0_rules
+
+        cfg = load_t0_rules({"must_cover_same_day": False})
+        self.assertFalse(cfg["must_cover_same_day_reverse"])
+        self.assertFalse(cfg["must_cover_same_day"])
+        # 侧向键显式优先于 legacy
+        cfg2 = load_t0_rules(
+            {"must_cover_same_day": False, "must_cover_same_day_reverse": True}
+        )
+        self.assertTrue(cfg2["must_cover_same_day_reverse"])
+        self.assertTrue(cfg2["must_cover_same_day"])
+
     def test_atr_pct_requires_min_bars(self):
         from core.t0.rules import atr_pct_from_bars
 
@@ -853,6 +894,43 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(len(eod), 1)
         self.assertIn("15:00", str(eod[0].get("at") or ""))
 
+    def test_defer_eod_skips_midday_force_cover(self):
+        """盘中 defer_eod：半日分钟末根不到 14:55 不强平。"""
+        d = "2026-08-27"
+        bar = _bar(d, 34.15, 34.59, 33.85, 34.52)
+        mins = _mins(
+            d,
+            [
+                (935, 34.15, 34.20, 34.00, 34.10),
+                (940, 34.10, 34.12, 33.80, 33.945),
+                (1040, 34.00, 34.11, 33.95, 34.11),
+            ],
+        )
+        out = simulate_t0_day(
+            bar=bar,
+            shares=10000,
+            cost=34.15,
+            cash=500000,
+            minute_bars=mins,
+            rules=_rules(
+                direction="reverse_t",
+                fill_mode="trigger",
+                min_range_pct=0.5,
+                sell_trigger_pct=5.0,
+                buy_trigger_pct=1.0,
+                must_cover_same_day=True,
+                t0_pm_degrade="",
+                t0_ratio=1.0,
+            ),
+            defer_eod=True,
+        )
+        self.assertTrue(out.get("success"), out.get("reason"))
+        self.assertGreater(int(out.get("bought_qty") or 0), 0)
+        self.assertEqual(int(out.get("sold_back_qty") or 0), 0)
+        self.assertNotEqual(out.get("exit_reason"), "eod_cover")
+        sells = [t for t in (out.get("trades") or []) if str(t.get("side", "")).endswith("sell")]
+        self.assertEqual(len(sells), 0)
+
     def test_reverse_t_truncated_minutes_eod_uses_daily_close(self):
         """5m 缓存在午前截断时，回测仍按日线收盘强制卖旧仓。
 
@@ -892,6 +970,58 @@ class TestT0Core(unittest.TestCase):
         eod = [t for t in sells if t.get("leg_kind") == "eod_cover"]
         self.assertEqual(len(eod), 1)
         self.assertIn("15:00", str(eod[0].get("at") or ""))
+        self.assertAlmostEqual(float(eod[0]["price"]), 34.52, places=2)
+
+    def test_intraday_setup_eod_uses_daily_close_not_minute(self):
+        """盘中 force_session_close：eod 标记价用日线收盘，不用末根 5m close。"""
+        from core.t0.intraday import _intraday_setup
+
+        d = "2026-08-27"
+        bar = _bar(d, 34.15, 34.59, 33.85, 34.52)
+        mins = _mins(
+            d,
+            [
+                (935, 34.15, 34.20, 34.00, 34.10),
+                (940, 34.10, 34.12, 33.80, 33.945),
+                (1455, 34.00, 34.11, 33.95, 34.11),  # 末根 close≠日线
+            ],
+        )
+        holding = {"shares": 10000, "cost": 34.15, "stock_name": "中国船舶"}
+        cfg = load_t0_rules(
+            {
+                "direction": "reverse_t",
+                "use_atr": False,
+                "min_range_pct": 0.5,
+                "fill_mode": "trigger",
+                "t0_ratio": 1.0,
+                "sell_trigger_pct": 5.0,
+                "buy_trigger_pct": 1.0,
+                "must_cover_same_day": True,
+                "t0_pm_degrade": "",
+                "y_prefix_bounce_pct_reverse": 0.25,
+            }
+        )
+        out = _intraday_setup(
+            code="600150",
+            holding=holding,
+            bar=bar,
+            minute_bars=mins,
+            cfg=cfg,
+            sellable=10000,
+            cash=500000,
+            atr_pct=None,
+            hist_bars=None,
+            scores=None,
+            stance_code="hold",
+            coupling_mode="independent",
+            force_session_close=True,
+        )
+        self.assertTrue(out.get("ready"), out)
+        day = out.get("day_result") or {}
+        self.assertEqual(day.get("exit_reason"), "eod_cover", day)
+        sells = [t for t in (day.get("trades") or []) if str(t.get("side", "")).endswith("sell")]
+        eod = [t for t in sells if t.get("leg_kind") == "eod_cover"]
+        self.assertEqual(len(eod), 1, day)
         self.assertAlmostEqual(float(eod[0]["price"]), 34.52, places=2)
 
     def test_long_t_abandons_cover_when_buyback_misses(self):
@@ -1677,6 +1807,39 @@ class TestT0Core(unittest.TestCase):
             if (e.get("meta") or {}).get("origin") == "t0"
         ]
         self.assertGreater(len(t0_logs), 0)
+
+    def test_skip_codes_blocks_holdings_replay(self):
+        """盘中已落账腿：整单回放跳过该票，不重复成交。"""
+        paper = {
+            "cash": 100000,
+            "holdings": [{"stock_code": "600519", "stock_name": "茅台", "shares": 1000, "cost": 100}],
+            "trades": [],
+            "rules": {
+                "t0": {
+                    "t0_ratio": 0.4,
+                    "direction": "long_t",
+                    "fill_mode": "trigger",
+                    "path_mode": "first_touch",
+                    "use_atr": False,
+                    "min_range_pct": 1.0,
+                    "must_cover_same_day_long": False,
+                }
+            },
+        }
+        bars = {"600519": _bar("2026-01-09", 100, 105, 98, 101)}
+        mins = {"600519": _mins_hl(bar=bars["600519"])}
+        out = simulate_t0_on_holdings(
+            paper,
+            bars_by_code=bars,
+            minute_bars_by_code=mins,
+            dry_run=True,
+            skip_codes={"600519"},
+        )
+        self.assertTrue(out["success"])
+        self.assertEqual(len(out.get("trades") or []), 0)
+        row = (out.get("results") or [None])[0]
+        self.assertTrue(row.get("skipped"))
+        self.assertEqual(row.get("skip_category"), "intraday_legs_open")
 
     def test_routing_and_skill_task(self):
         self.assertEqual(infer_quant_task("茅台底仓做T回测一下"), "t0_backtest")
@@ -3471,13 +3634,18 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(cfg["y_tau_map"], "trend")
 
     def test_dual_y_overnight_allow_when_yon_aligns(self):
+        from core.t0.config import load_t0_rules
         from core.t0.score_policy import resolve_cover_policy
 
+        cfg = load_t0_rules(
+            {"must_cover_same_day": False, "y_on_allow": 1.2, "y_trade_floor": 0.15}
+        )
         cover = resolve_cover_policy(
             scores={"y_on": 1.5, "y_trade": 0.3},
             direction="reverse_t",
-            cfg={"must_cover_same_day": False, "y_on_allow": 1.2, "y_trade_floor": 0.15},
+            cfg=cfg,
         )
+        self.assertFalse(cfg["must_cover_same_day_reverse"])
         self.assertFalse(cover["must_cover"])
         self.assertTrue(cover["allow_overnight"])
 
@@ -3801,6 +3969,40 @@ class TestDualYDirection(unittest.TestCase):
 
 
 class TestT0Viz(unittest.TestCase):
+    def test_cover_completed_treats_intentional_abandon(self):
+        """正/反 T 主动 abandon 计完成；缺 exit_reason 的反T敞口仍 incomplete。"""
+        from core.t0.viz import _cover_completed
+
+        self.assertTrue(
+            _cover_completed(
+                {
+                    "direction": "long_t",
+                    "sold_qty": 400,
+                    "covered_qty": 0,
+                    "exit_reason": "abandon_cover",
+                }
+            )
+        )
+        self.assertTrue(
+            _cover_completed(
+                {
+                    "direction": "reverse_t",
+                    "bought_qty": 400,
+                    "sold_back_qty": 0,
+                    "exit_reason": "abandon_cover",
+                }
+            )
+        )
+        self.assertFalse(
+            _cover_completed(
+                {
+                    "direction": "reverse_t",
+                    "bought_qty": 400,
+                    "sold_back_qty": 0,
+                }
+            )
+        )
+
     def test_y_tau_attribution_hit_miss(self):
         from core.t0.viz import build_y_tau_attribution
 
@@ -3993,6 +4195,14 @@ class TestT0Viz(unittest.TestCase):
         self.assertEqual(
             classify_t0_skip_reason("正T上移振幅 0.80%<2.00%"),
             "directional_amplitude",
+        )
+        self.assertEqual(
+            classify_t0_skip_reason("反T：现金不够 1 手（现金 1000 …）"),
+            "cash",
+        )
+        self.assertEqual(
+            classify_t0_skip_reason("盘中已有成交腿，跳过整单回放（防重复落账）"),
+            "intraday_legs_open",
         )
 
     def test_walk_t0_skip_row_path_mode_uses_cfg_not_day_rules(self):
@@ -4460,6 +4670,13 @@ class TestIntradaySkipLogic(unittest.TestCase):
         self.assertTrue(_retryable_skip("振幅不足 0.30% < 0.80%"))
         self.assertTrue(_retryable_skip("正T分钟路径未触及卖出价"))
         self.assertFalse(_retryable_skip("dual_y：|y_τ|=0.027%<0.1% 横盘跳过"))
+        # path_abandon 文案含「待回落/振幅」不得误判可重试
+        self.assertFalse(
+            _retryable_skip("前缀无回落确认，放弃正T（正T待回落 0.20%<0.50%）")
+        )
+        self.assertFalse(
+            _retryable_skip("前缀无低吸空间，放弃反T（反T下移振幅 0.30%<0.80%）")
+        )
         self.assertTrue(_dual_y_threshold_skip("dual_y：|y_τ|=0.027%<0.1% 横盘跳过"))
         self.assertTrue(_dual_y_threshold_skip("dual_y：y_path=10.000%≤15.0% 未过门槛"))
         self.assertTrue(_dual_y_threshold_skip("dual_y：|y_path|=1.1<30.0 横盘跳过"))

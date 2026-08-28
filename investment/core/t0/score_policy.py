@@ -2420,6 +2420,19 @@ def resolve_fuse_intraday(cfg: Optional[dict] = None) -> bool:
     return window not in {"eod_next", "eod", "close"}
 
 
+def resolve_score_as_of(
+    *,
+    hist_bars: Optional[Sequence[dict]] = None,
+    day_bar: Optional[dict] = None,
+) -> str:
+    """分数账本 as_of：优先 hist 末日（T−1），避免单日兜底误用当日 ledger。"""
+    for b in reversed(list(hist_bars or [])):
+        d = str((b or {}).get("date") or "")[:10]
+        if d:
+            return d
+    return str((day_bar or {}).get("date") or "")[:10]
+
+
 def resolve_scores_for_code(
     code: str,
     *,

@@ -231,13 +231,17 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["must_cover_same_day_long"] = coerce_cfg_bool(
         cfg.get("must_cover_same_day_long"), False
     )
-    if (
-        "must_cover_same_day_reverse" not in override_keys
-        or cfg.get("must_cover_same_day_reverse") is None
-    ):
+    # 反T侧：显式侧向键优先；否则若只写了 legacy must_cover_same_day，用其覆盖默认 True
+    # （旧逻辑用 coerce(default_reverse=True, legacy) 会吞掉 legacy=False）
+    if "must_cover_same_day_reverse" in override_keys and cfg.get(
+        "must_cover_same_day_reverse"
+    ) is not None:
         cfg["must_cover_same_day_reverse"] = coerce_cfg_bool(
-            cfg.get("must_cover_same_day_reverse"),
-            coerce_cfg_bool(cfg.get("must_cover_same_day"), True),
+            cfg.get("must_cover_same_day_reverse"), True
+        )
+    elif "must_cover_same_day" in override_keys and cfg.get("must_cover_same_day") is not None:
+        cfg["must_cover_same_day_reverse"] = coerce_cfg_bool(
+            cfg.get("must_cover_same_day"), True
         )
     else:
         cfg["must_cover_same_day_reverse"] = coerce_cfg_bool(
@@ -503,20 +507,30 @@ def apply_side_exec_params(cfg: dict, direction: Optional[str]) -> Dict[str, Any
         except (TypeError, ValueError):
             pass
     elif not out.get("t0_pm_chase_interval_min"):
+        side_iv = out.get(f"t0_pm_chase_interval_min{suf}")
         try:
-            out["t0_pm_chase_interval_min"] = max(
-                1, min(int(out.get("t0_pm_chase_interval_min_reverse") or 10), 60)
-            )
+            raw_iv = side_iv if side_iv is not None and side_iv != "" else 10
+            out["t0_pm_chase_interval_min"] = max(1, min(int(raw_iv), 60))
         except (TypeError, ValueError):
             out["t0_pm_chase_interval_min"] = 10
     return out
 
 
 def resolve_path_abandon_bars(cfg: dict, direction: Optional[str] = None) -> int:
-    """前缀放弃根数（正/反共用 ``y_path_abandon_bars``）。"""
-    _ = direction
+    """前缀放弃根数；优先侧向键，否则共用 ``y_path_abandon_bars``。"""
+    d = str(direction or "").strip().lower()
+    side_key = None
+    if d == "long_t":
+        side_key = "y_path_abandon_bars_long"
+    elif d == "reverse_t":
+        side_key = "y_path_abandon_bars_reverse"
+    raw = None
+    if side_key is not None and (cfg or {}).get(side_key) is not None:
+        raw = (cfg or {}).get(side_key)
+    else:
+        raw = (cfg or {}).get("y_path_abandon_bars")
     try:
-        return max(2, min(int(cfg.get("y_path_abandon_bars") or 12), 48))
+        return max(2, min(int(raw or 12), 48))
     except (TypeError, ValueError):
         return 12
 

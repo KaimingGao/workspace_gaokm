@@ -25,9 +25,11 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "amplitude": "振幅不足",
     "directional_amplitude": "方向振幅",
     "lot_size": "手数不足",
+    "cash": "现金不足",
     "tplus1": "T+1无可卖",
     "path": "路径否决",
     "trigger_miss": "未触达",
+    "intraday_legs_open": "盘中已落账",
     "other": "其它",
 }
 
@@ -51,9 +53,11 @@ SKIP_CAT_COLORS: Dict[str, str] = {
     "amplitude": "#64748b",
     "directional_amplitude": "#78716c",
     "lot_size": "#a78bfa",
+    "cash": "#f472b6",
     "tplus1": "#c084fc",
     "path": "#6366f1",
     "trigger_miss": "#cbd5e1",
+    "intraday_legs_open": "#94a3b8",
     "other": "#d1d5db",
 }
 
@@ -126,8 +130,10 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "trigger_miss"
     if "路径" in r or "veto" in r.lower():
         return "path"
+    if "重复落账" in r or "盘中已有成交腿" in r:
+        return "intraday_legs_open"
     if "现金" in r or "买不起" in r:
-        return "lot_size"
+        return "cash"
     return "other"
 
 
@@ -592,7 +598,12 @@ def _cover_completed(day: dict) -> Optional[bool]:
             return True
         return False
     if direction == "reverse_t" and bought > 0:
-        return sold_back >= bought
+        if sold_back >= bought:
+            return True
+        # 反T允许隔夜多头时主动放弃卖旧仓，与正T abandon 对称计完成
+        if exit_reason in ("abandon_cover", "abandon_cover_cash"):
+            return True
+        return False
     if sold > 0 or bought > 0:
         return (sold > 0 and covered >= sold) or (bought > 0 and sold_back >= bought)
     return None
