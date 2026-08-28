@@ -253,6 +253,7 @@ def _build_cash_impact(
             max_turnover_pct = None
     try:
         from core.paper.rebalance import build_rebalance_cash_impact
+        from core.paper.rebalance.cash_reserve import resolve_min_cash_pct
 
         cash_impact = build_rebalance_cash_impact(
             cash_before=cash_before,
@@ -263,6 +264,7 @@ def _build_cash_impact(
             equity_before=equity_before,
             cost_model=cost_model,
             max_turnover_pct=max_turnover_pct,
+            min_cash_pct=resolve_min_cash_pct(paper.get("rules") or {}),
         )
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in paper_cycle.py", exc_info=True)

@@ -147,6 +147,48 @@ def _results_with_trades_only(results: Optional[list]) -> List[dict]:
     return out
 
 
+def _results_from_flat_trades(
+    trades: List[dict], *, session_date: Optional[str] = None
+) -> List[dict]:
+    """top-level trades 缺少 per-stock results 时，合成落账明细行（盘中兜底）。"""
+    by_code: Dict[str, Dict[str, Any]] = {}
+    sess = str(session_date or "")[:10] if session_date else ""
+    for t in trades or []:
+        if not isinstance(t, dict):
+            continue
+        code = str(t.get("stock_code") or "").strip()
+        if not code:
+            continue
+        row = by_code.get(code)
+        if row is None:
+            row = {
+                "stock_code": code,
+                "date": sess or None,
+                "skipped": False,
+                "success": True,
+                "trades": [],
+            }
+            by_code[code] = row
+        row["trades"].append(t)
+    for row in by_code.values():
+        legs = row["trades"]
+        sells = [x for x in legs if str(x.get("side") or "").endswith("sell")]
+        buys = [x for x in legs if str(x.get("side") or "").endswith("buy")]
+        if sells and not buys:
+            row["direction_used"] = "long_t"
+            row["sold_qty"] = int(sells[0].get("shares") or 0)
+        elif buys and not sells:
+            row["direction_used"] = "reverse_t"
+            row["bought_qty"] = int(buys[0].get("shares") or 0)
+        elif buys and sells:
+            row["direction_used"] = "reverse_t"
+            row["bought_qty"] = int(buys[0].get("shares") or 0)
+            row["sold_back_qty"] = int(sells[-1].get("shares") or 0)
+        if buys and sells and str(row.get("direction_used") or "") == "long_t":
+            row["covered_qty"] = sum(int(x.get("shares") or 0) for x in buys)
+    return list(by_code.values())
+
+
 def _merge_t0_result_rows(
     prev: Optional[list],
     new_rows: List[dict],
@@ -197,6 +239,10 @@ def _write_t0_auto_last_run(paper: dict, *, result: dict, source: str) -> None:
     trade_rows = _compact_t0_result_rows(
         _results_with_trades_only(result.get("results"))
     )
+    if not trade_rows and legs_in:
+        trade_rows = _compact_t0_result_rows(
+            _results_from_flat_trades(legs_in, session_date=sess)
+        )
     merged = _merge_t0_result_rows(
         prev_lr.get("results"),
         trade_rows,
@@ -1003,9 +1049,61 @@ class PaperTradesMixin:
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
         from core.paper import manual_sell
+        from core.paper.exec import manual_sell_intents
+        from core.paper.open_fill import (
+            PHASE_CLOSED,
+            get_rebalance_timing,
+            is_next_open_mode,
+            merge_pending_orders,
+            paper_fill_phase,
+            pending_from_trades,
+            stage_pending,
+        )
 
         with paper_write_lock(self.path):
             paper = load_paper(self.path)
+            timing = get_rebalance_timing(paper)
+            phase = paper_fill_phase(timing=timing)
+            # 收盘后 / 非交易日：挂次日开盘卖出，不改仓
+            if is_next_open_mode(paper) and phase == PHASE_CLOSED:
+                intents = manual_sell_intents(
+                    paper, codes=codes, stock_code=stock_code, shares=shares
+                )
+                incoming = pending_from_trades(
+                    intents, [], source="manual_sell"
+                )
+                merged = merge_pending_orders(paper.get("pending_orders"), incoming)
+                stage_pending(paper, merged)
+                n_legs = len(incoming.get("legs") or [])
+                target = str(merged.get("target_fill_date") or "")[:10]
+                append_operation_log(
+                    paper,
+                    "sell",
+                    detail=(
+                        f"收盘后挂开盘卖出 {n_legs} 笔"
+                        + (f"（目标 {target}）" if target else "")
+                    ),
+                    meta={
+                        "staged": True,
+                        "source": "manual_sell",
+                        "codes": [t.get("stock_code") for t in intents],
+                        "target_fill_date": target or None,
+                        "legs": n_legs,
+                    },
+                )
+                save_paper(paper, self.path)
+                out = self.status()
+                out["trades"] = []
+                out["staged"] = True
+                out["fill_action"] = "staged"
+                out["pending_orders"] = merged
+                out["message"] = (
+                    f"已挂 {n_legs} 笔次日开盘卖出"
+                    + (f"（目标 {target}）" if target else "")
+                    + " · 持仓未改，开盘窗按开盘价成交"
+                )
+                return out
+
             from core.paper.open_fill import require_open_fill
 
             blocked = require_open_fill(paper, action="手动卖出")
@@ -1698,13 +1796,16 @@ class PaperTradesMixin:
 
             sess = resolve_session_date(now=shanghai_now())
             intraday_state = load_intraday_state()
+            state_aligned = str(intraday_state.get("session_date") or "") == str(sess or "")
+            if not state_aligned:
+                intraday_state = {"session_date": sess, "stocks": {}, "results": []}
             stock_states = (
                 dict(intraday_state.get("stocks") or {})
-                if str(intraday_state.get("session_date") or "") == str(sess or "")
-                and isinstance(intraday_state.get("stocks"), dict)
+                if isinstance(intraday_state.get("stocks"), dict)
                 else {}
             )
             unlocked_any = False
+            state_dirty = not state_aligned
             for _code, _st in list(stock_states.items()):
                 _u = unlock_retryable_skipped(_st if isinstance(_st, dict) else {})
                 if _u is not None:
@@ -1803,8 +1904,10 @@ class PaperTradesMixin:
                             "legs_written": 0,
                             "stock_name": str(h.get("stock_name") or ""),
                         }
+                        state_dirty = True
                     elif not stock_states[code].get("stock_name") and h.get("stock_name"):
                         stock_states[code]["stock_name"] = str(h.get("stock_name") or "")
+                        state_dirty = True
                     continue
 
                 bar = dict(aligned.get("bar") or {})
@@ -1909,7 +2012,6 @@ class PaperTradesMixin:
                     for r in (tick_out.get("results") or [])
                     if isinstance(r, dict)
                     and str(r.get("stock_code") or "") in traded_codes
-                    and (r.get("trades") or [])
                 ]
                 _write_t0_auto_last_run(
                     paper,

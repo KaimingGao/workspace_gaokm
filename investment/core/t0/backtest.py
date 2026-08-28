@@ -341,19 +341,23 @@ def _walk_t0(
                 }
             )
             continue
-        # signal/auto/reverse_t 需现金；每日补足研究用现金（防前日半腿耗尽）
-        if str(cfg.get("direction") or "") in {"auto", "reverse_t", "signal", "dual_y"}:
-            px = float(bar.get("close") or bar.get("open") or cost or 0)
-            if px > 0 and shares > 0:
-                need = _research_cash_for_reverse(shares, px, t0_ratio=ratio, lot=lot)
-                if cash < need * 0.95:
-                    cash = max(cash, need)
         # auto/signal 依赖昨收；日线源未必带 prev_close
         bar_day = dict(bar)
         if gi > 0 and not bar_day.get("prev_close"):
             prev_c = float(history[gi - 1].get("close") or 0)
             if prev_c > 0:
                 bar_day["prev_close"] = prev_c
+        # 研究现金：每日补足到反T目标股数所需（防半腿耗尽后永久停做）。
+        # 会掩盖累积亏损下的真实资金约束；严格回测应关掉补足并记现金不足跳过。
+        # 用 open/prev_close 定补足额，避免 T 日 close 前视
+        if str(cfg.get("direction") or "") in {"auto", "reverse_t", "signal", "dual_y"}:
+            px = float(
+                bar_day.get("open") or bar_day.get("prev_close") or cost or 0
+            )
+            if px > 0 and shares > 0:
+                need = _research_cash_for_reverse(shares, px, t0_ratio=ratio, lot=lot)
+                if cash < need * 0.95:
+                    cash = max(cash, need)
         hist_prior = history[:gi]
         # ATR 仅用 T−1 及更早，避免当日振幅前视抬触发价
         atr = atr_pct_from_bars(hist_prior, atr_window) if cfg.get("use_atr") else None

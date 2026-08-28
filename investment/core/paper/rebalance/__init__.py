@@ -94,7 +94,9 @@ def simulate_cross_section_rebalance(
     - 分池（``respect_max_positions=False``）：滞回——买入仍看目标簿且 ŷ_EOD≥min_score（+τ 闸）；
       **卖出仅当 ŷ_trade < min_hold_score**，不因「未进簿/截断」清仓。
       （卖/表/排序同一轴；买入门槛仍用隔夜 ŷ_EOD。）
-      分池买入 sizing：``min(cash, equity × ratio)``，ratio 优先吃 optimize 目标仓，否则 1/簿长，再受 position_pct 封顶。
+      分池买入 sizing：``min(spendable, equity × ratio)``，
+      ``spendable = cash − equity×min_cash_pct``（默认保留净值 20% 现金供反 T）；
+      ratio 优先吃 optimize 目标仓，否则 1/簿长，再受 position_pct 封顶。
     买入前强制 check_account_risk；超限则拦截加仓并写 risk_block 日志。
 
     ``score_lookup``：可选全量打分行（含低于 min_score 未进簿的票），供卖出腿带分。

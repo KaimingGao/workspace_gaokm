@@ -28,6 +28,12 @@ export function renderPaperRulesHtml(data) {
       "仓位",
       rules.position_pct != null ? `${Math.round(rules.position_pct * 100)}%` : "—",
     ],
+    [
+      "现金底仓",
+      rules.min_cash_pct != null
+        ? `${Math.round(Number(rules.min_cash_pct) * 100)}%`
+        : "20%",
+    ],
     ["止损", rules.stop_loss_pnl != null ? `${rules.stop_loss_pnl}%` : "—"],
     ["做T", t0Label],
   ];

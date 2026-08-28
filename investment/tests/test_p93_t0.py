@@ -1307,6 +1307,59 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(len(sells), 1, out)
         self.assertIn("10:10", str(sells[0].get("at") or ""), out)
 
+    def test_abandon_stops_after_first_entry_ready(self):
+        """首次 entry_ready 后 close 贴回极值不再烧 abandon；粘滞闸仍可再触价成交。
+
+        旧逻辑：确认后 seg 再变 False 继续计数 → 低 abandon 预算整日作废。
+        """
+        d = "2024-02-05"
+        bar = _bar(d, 100, 102, 99, 100)
+        mins = _mins(
+            d,
+            [
+                (935, 100, 100.2, 99.8, 100.0),
+                (940, 100, 100.3, 99.7, 100.1),
+                (945, 100.1, 101.5, 100.0, 101.3),  # 触价未回落 → wait
+                (950, 101.2, 101.3, 100.9, 101.0),  # wait
+                (955, 101.0, 100.8, 100.5, 100.6),  # 回落确认
+                # 确认后 close 贴回高点（段向再变 False）；旧码会继续烧 budget
+                (1000, 100.6, 101.4, 100.5, 101.3),
+                (1005, 101.2, 101.3, 101.0, 101.2),
+                (1010, 101.1, 101.2, 100.9, 101.1),
+                (1015, 101.0, 101.1, 100.8, 101.0),
+                (1020, 100.9, 102.0, 100.8, 101.5),  # 再触价 → 须成交
+                (1430, 101.0, 101.1, 99.0, 99.5),
+                (1500, 99.5, 99.6, 99.0, 99.2),
+            ],
+        )
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            minute_bars=mins,
+            rules=_rules(
+                direction="long_t",
+                fill_mode="trigger",
+                min_range_pct=0.5,
+                sell_trigger_pct=1.0,
+                buy_trigger_pct=5.0,
+                must_cover_same_day=True,
+                y_prefix_pullback_pct_long=0.5,
+                y_path_abandon_bars=4,
+            ),
+        )
+        self.assertFalse(out.get("path_abandon"), out)
+        self.assertTrue(out.get("success"), out)
+        sells = [t for t in out.get("trades") or [] if str(t.get("side", "")).endswith("sell")]
+        self.assertEqual(len(sells), 1, out)
+        # 09:55 确认后粘滞开闸；10:00 hi≥sell 即成交（不得因后续 seg 再失败而 abandon）
+        self.assertIn("10:00", str(sells[0].get("at") or ""), out)
+        fill_rows = [
+            r for r in (out.get("forward_trace") or []) if r.get("leg1_fill")
+        ]
+        self.assertEqual(len(fill_rows), 1, out)
+        self.assertFalse(fill_rows[0].get("touch_blocked"), fill_rows[0])
+
     def test_pm_degrade_excludes_endpoint_bar(self):
         """P1-3：t0_pm_degrade=13:00 时 13:00 根仍可开反T低吸。"""
         d = "2024-02-02"
@@ -3401,6 +3454,61 @@ class TestDualYDirection(unittest.TestCase):
             self.assertEqual(out.get("exit_reason"), "eod_cover", out)
             self.assertEqual(sell.get("leg_kind"), "eod_cover")
 
+    def test_must_cover_chase_not_above_sold(self):
+        """must_cover 正T：追价目标不得高于卖出价（宁可等 eod）。"""
+        from core.t0.minute_path import _first_touch_long
+
+        bar = {"date": "2026-07-29", "open": 100, "high": 106, "low": 99, "close": 101}
+        mins = [
+            {"datetime": "2026-07-29 09:30:00", "open": 100, "high": 100.05, "low": 99.95, "close": 100},
+            {"datetime": "2026-07-29 09:35:00", "open": 100, "high": 102.5, "low": 100, "close": 102},
+            # 午后推高：中点追价若无天花板会抬过卖出价；有天花板则钉在 sold
+            {"datetime": "2026-07-29 14:00:00", "open": 102, "high": 104, "low": 101.8, "close": 103.5},
+            {"datetime": "2026-07-29 14:10:00", "open": 103.5, "high": 105, "low": 102.5, "close": 104},
+            {"datetime": "2026-07-29 14:20:00", "open": 104, "high": 105, "low": 103, "close": 103.5},
+            # lo 触及卖出价：天花板下可按 sold 成交（zero 成本）
+            {"datetime": "2026-07-29 14:30:00", "open": 103, "high": 103.2, "low": 101.9, "close": 102.0},
+            {"datetime": "2026-07-29 15:00:00", "open": 102, "high": 102.2, "low": 101.5, "close": 101.5},
+        ]
+        out = _first_touch_long(
+            minute_bars=mins,
+            bar=bar,
+            shares=1000,
+            sellable_shares=1000,
+            ref=100.0,
+            sell_trig=2.0,
+            buy_trig=1.5,
+            lot=100,
+            fill_mode="trigger",
+            cfg={
+                "t0_ratio": 0.4,
+                "must_cover_same_day": True,
+                "lot_size": 100,
+                "t0_pm_degrade": "14:00",
+                "t0_pm_chase_interval_min": 10,
+                "y_prefix_segment_enabled": False,
+            },
+            cost_model="zero",
+            cost_params={},
+            stock_code="",
+            atr_pct=None,
+            range_pct=3.0,
+            t0_ratio=0.4,
+            session_bars=mins,
+            session_bar=bar,
+            defer_eod=False,
+            leg1_gate_at=lambda _i: True,
+        )
+        sell = next(t for t in out["trades"] if t.get("side") == "t0_sell")
+        buy = next(t for t in out["trades"] if t.get("side") == "t0_buy")
+        sold_px = float(sell["price"])
+        if buy.get("leg_kind") == "pm_chase":
+            self.assertLessEqual(float(buy["price"]), sold_px + 1e-6, out)
+        else:
+            self.assertEqual(out.get("exit_reason"), "eod_cover", out)
+            self.assertEqual(buy.get("leg_kind"), "eod_cover")
+            self.assertLessEqual(float(buy["price"]), sold_px + 1e-6, out)
+
     def test_reverse_t_pm_chase_interval_holds(self):
         """未满间隔不二次中点：14:00 调一次后 14:05 不调，原中点仍触不到则不成交。"""
         bar = _bar("2026-07-29", 100, 102, 97, 99)
@@ -4607,6 +4715,7 @@ class TestIntradaySkipLogic(unittest.TestCase):
             ):
                 desk = mod.build_intraday_desk_status()
         self.assertTrue(desk["same_session"])
+        self.assertTrue(desk.get("state_aligned"))
         self.assertEqual(desk["locked_count"], 1)
         self.assertEqual(desk["counts"]["skipped"], 1)
         self.assertEqual(desk["counts"]["idle"], 2)
@@ -4656,6 +4765,48 @@ class TestIntradaySkipLogic(unittest.TestCase):
                 desk = mod.build_intraday_desk_status()
         self.assertEqual(desk["rows"][0]["stock_code"], "600029")
         self.assertEqual(desk["rows"][0]["stock_name"], "南方航空")
+
+    def test_desk_status_from_holdings_when_state_stale(self):
+        import json
+        import tempfile
+        from unittest.mock import patch
+
+        from core.t0 import intraday as mod
+
+        fake = {
+            "session_date": "2026-08-25",
+            "stocks": {
+                "600519": {
+                    "phase": "done",
+                    "legs_written": 2,
+                    "last_bar_ts": "2026-08-25 15:00:00",
+                }
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "t0_intraday_state.json")
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(fake, f)
+            with patch.object(mod, "_state_path", return_value=path), patch(
+                "core.market.calendar.resolve_session_date", return_value="2026-08-28"
+            ), patch(
+                "core.paper.load_paper",
+                return_value={
+                    "holdings": [
+                        {"stock_code": "600519", "stock_name": "贵州茅台"},
+                        {"stock_code": "000001", "stock_name": "平安银行"},
+                    ]
+                },
+            ):
+                desk = mod.build_intraday_desk_status()
+        self.assertFalse(desk.get("state_aligned"))
+        self.assertTrue(desk["same_session"])
+        self.assertEqual(desk["universe_count"], 2)
+        codes = {r["stock_code"] for r in desk["rows"]}
+        self.assertEqual(codes, {"600519", "000001"})
+        idle = next(r for r in desk["rows"] if r["stock_code"] == "000001")
+        self.assertEqual(idle["phase"], "idle")
+        self.assertIn("Worker", idle.get("reason") or "")
 
     def test_dual_y_threshold_lock_and_session_align(self):
         from core.t0.intraday import (
@@ -4947,6 +5098,43 @@ class TestT0AutoLastRunDetail(unittest.TestCase):
                 source="paper_t0_auto",
             )
             self.assertNotIn("last_run", paper.get("rules", {}).get("t0_auto", {}))
+
+    def test_last_run_from_flat_trades_when_results_empty(self):
+        import tempfile
+        from services.paper_trades import _write_t0_auto_last_run
+        from core.paper import load_paper, save_paper
+
+        legs = [
+            {
+                "side": "t0_sell",
+                "stock_code": "600519",
+                "shares": 100,
+                "price": 10.2,
+                "at": "2026-08-28 10:05:00",
+            }
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            paper = {"cash": 100000, "holdings": [], "rules": {}, "trades": [], "operation_log": []}
+            save_paper(paper, path)
+            paper = load_paper(path)
+            _write_t0_auto_last_run(
+                paper,
+                result={
+                    "success": True,
+                    "trades": legs,
+                    "session_date": "2026-08-28",
+                    "results": [],
+                },
+                source="paper_t0_auto",
+            )
+            save_paper(paper, path)
+            lr = load_paper(path)["rules"]["t0_auto"]["last_run"]
+            self.assertIsNotNone(lr.get("ts"))
+            self.assertEqual(len(lr.get("results") or []), 1)
+            row = lr["results"][0]
+            self.assertEqual(row["stock_code"], "600519")
+            self.assertEqual(len(row.get("trades") or []), 1)
 
 
 class TestDeleteT0Records(unittest.TestCase):

@@ -243,6 +243,60 @@ def load_holding_t0_status_by_code(*, session_date: Optional[str] = None) -> Dic
     return out
 
 
+def _desk_row_from_stock_state(
+    code: str,
+    raw: Optional[dict],
+    *,
+    name_by_code: Dict[str, str],
+    state_aligned: bool,
+) -> Dict[str, Any]:
+    """单票盯盘行；raw 为空时按持仓占位 idle。"""
+    c = str(code or "").strip()
+    raw = raw if isinstance(raw, dict) else {}
+    snap = raw.get("day_snapshot") if isinstance(raw.get("day_snapshot"), dict) else {}
+    phase = str(raw.get("phase") or PHASE_IDLE).strip().lower() or PHASE_IDLE
+    reason = str(
+        raw.get("reason")
+        or raw.get("wait_reason")
+        or snap.get("reason")
+        or snap.get("direction_reason")
+        or ""
+    ).strip()
+    if not reason and not raw:
+        reason = (
+            "等待 Worker 首根 5m K 线"
+            if not state_aligned
+            else "等待下一根 5m"
+        )
+    legs = int(raw.get("legs_written") or 0)
+    locked = phase == PHASE_SKIPPED
+    direction = str(
+        raw.get("direction")
+        or snap.get("direction_used")
+        or snap.get("direction")
+        or ""
+    ).strip()
+    name = resolve_stock_name(
+        c,
+        fallback=str(snap.get("stock_name") or raw.get("stock_name") or ""),
+        name_by_code=name_by_code,
+    )
+    return {
+        "stock_code": c,
+        "stock_name": name,
+        "phase": phase,
+        "locked": locked,
+        "signal_skip": bool(snap.get("signal_skip")),
+        "legs_written": legs,
+        "reason": reason,
+        "direction": direction or None,
+        "last_bar_ts": str(raw.get("last_bar_ts") or "")[:19] or None,
+        "unlocked_from_skip": str(raw.get("unlocked_from_skip") or "").strip() or None,
+        "ref": snap.get("ref"),
+        "range_pct": snap.get("range_pct"),
+    }
+
+
 def build_intraday_desk_status() -> Dict[str, Any]:
     """今日盘中盯盘桌面：逐票 phase / 原因（供 Follow 做 T 后台区展示）。"""
     from core.market.calendar import resolve_session_date
@@ -251,11 +305,16 @@ def build_intraday_desk_status() -> Dict[str, Any]:
     sess = str(resolve_session_date(now=shanghai_now()) or "")[:10]
     state = load_intraday_state()
     state_sess = str(state.get("session_date") or "")[:10]
-    stocks_raw = state.get("stocks") if isinstance(state.get("stocks"), dict) else {}
-    same_session = bool(sess and state_sess and sess == state_sess)
+    state_aligned = bool(sess and state_sess and sess == state_sess)
+    stocks_raw = (
+        state.get("stocks")
+        if state_aligned and isinstance(state.get("stocks"), dict)
+        else {}
+    )
 
     # idle 态常缺 stock_name：纸面持仓 → a_code_name 兜底
     name_by_code: Dict[str, str] = {}
+    holding_codes: List[str] = []
     try:
         from core.paths import PAPER_PATH
         from core.paper import load_paper
@@ -266,6 +325,8 @@ def build_intraday_desk_status() -> Dict[str, Any]:
                 continue
             c = str(h.get("stock_code") or "").strip()
             n = str(h.get("stock_name") or "").strip()
+            if c:
+                holding_codes.append(c)
             if c and n and n != c:
                 name_by_code[c] = n
     except Exception:  # noqa: BLE001
@@ -284,7 +345,6 @@ def build_intraday_desk_status() -> Dict[str, Any]:
         PHASE_AFTER_LEG1: 2,
         PHASE_DONE: 3,
     }
-    rows: List[Dict[str, Any]] = []
     counts = {
         PHASE_IDLE: 0,
         PHASE_AFTER_LEG1: 0,
@@ -295,60 +355,33 @@ def build_intraday_desk_status() -> Dict[str, Any]:
     locked_n = 0
     legs_total = 0
 
-    if same_session:
-        for code, raw in stocks_raw.items():
-            if not isinstance(raw, dict):
-                continue
-            c = str(code or "").strip()
-            if not c:
-                continue
-            phase = str(raw.get("phase") or PHASE_IDLE).strip().lower() or PHASE_IDLE
-            if phase not in counts:
-                counts["other"] += 1
-            else:
-                counts[phase] += 1
-            snap = raw.get("day_snapshot") if isinstance(raw.get("day_snapshot"), dict) else {}
-            reason = str(
-                raw.get("reason")
-                or raw.get("wait_reason")
-                or snap.get("reason")
-                or snap.get("direction_reason")
-                or ""
-            ).strip()
-            legs = int(raw.get("legs_written") or 0)
-            legs_total += max(0, legs)
-            locked = phase == PHASE_SKIPPED
-            if locked:
-                locked_n += 1
-            direction = str(
-                raw.get("direction")
-                or snap.get("direction_used")
-                or snap.get("direction")
-                or ""
-            ).strip()
-            signal_skip = bool(snap.get("signal_skip"))
-            unlocked = str(raw.get("unlocked_from_skip") or "").strip()
-            name = resolve_stock_name(
-                c,
-                fallback=str(snap.get("stock_name") or raw.get("stock_name") or ""),
-                name_by_code=name_by_code,
-            )
-            rows.append(
-                {
-                    "stock_code": c,
-                    "stock_name": name,
-                    "phase": phase,
-                    "locked": locked,
-                    "signal_skip": signal_skip,
-                    "legs_written": legs,
-                    "reason": reason,
-                    "direction": direction or None,
-                    "last_bar_ts": str(raw.get("last_bar_ts") or "")[:19] or None,
-                    "unlocked_from_skip": unlocked or None,
-                    "ref": snap.get("ref"),
-                    "range_pct": snap.get("range_pct"),
-                }
-            )
+    codes_ordered: List[str] = []
+    seen: set = set()
+    for c in holding_codes:
+        if c not in seen:
+            seen.add(c)
+            codes_ordered.append(c)
+    for c in stocks_raw:
+        cs = str(c or "").strip()
+        if cs and cs not in seen:
+            seen.add(cs)
+            codes_ordered.append(cs)
+
+    rows: List[Dict[str, Any]] = []
+    for c in codes_ordered:
+        raw = stocks_raw.get(c) if isinstance(stocks_raw.get(c), dict) else None
+        row = _desk_row_from_stock_state(
+            c, raw, name_by_code=name_by_code, state_aligned=state_aligned
+        )
+        phase = str(row.get("phase") or PHASE_IDLE)
+        if phase not in counts:
+            counts["other"] += 1
+        else:
+            counts[phase] += 1
+        legs_total += max(0, int(row.get("legs_written") or 0))
+        if row.get("locked"):
+            locked_n += 1
+        rows.append(row)
 
     # 按最近 K 线时间升序（无时间戳的排最后）；同刻再按阶段 / 代码
     rows.sort(
@@ -359,10 +392,12 @@ def build_intraday_desk_status() -> Dict[str, Any]:
             str(r.get("stock_code") or ""),
         )
     )
+    desk_active = bool(sess and rows)
     return {
         "session_date": sess or state_sess or None,
         "state_session_date": state_sess or None,
-        "same_session": same_session,
+        "state_aligned": state_aligned,
+        "same_session": desk_active,
         "updated_at": state.get("updated_at"),
         "universe_count": len(rows),
         "counts": counts,
@@ -372,8 +407,12 @@ def build_intraday_desk_status() -> Dict[str, Any]:
         "note": (
             "skipped=终锁：≥11:30 无成交腿，或 dual_y 门槛 / stance；"
             "上午振幅/未触价可重试；idle=盯盘；after_leg1=已第一腿；done=当日完成"
-            if same_session
-            else "尚无今日盘中状态（Worker 未开或未进入交易时段）"
+            if state_aligned
+            else (
+                "盘中状态尚未对齐今日会话（已按持仓占位；打开 Worker 后将更新）"
+                if rows
+                else "尚无持仓或 Worker 未开"
+            )
         ),
     }
 
@@ -1055,7 +1094,11 @@ def process_holding_intraday(
         "stock_code": code,
         "stock_name": holding.get("stock_name"),
     }
-    return st, new_trades, st["day_snapshot"]
+    if applied:
+        cum = list((day_result.get("trades") or [])[:legs_written])
+        if cum:
+            st["day_snapshot"]["trades"] = cum
+    return st, applied, st["day_snapshot"]
 
 
 def run_intraday_session_tick(
@@ -1088,7 +1131,7 @@ def run_intraday_session_tick(
         unlocked = unlock_retryable_skipped(stocks.get(code))
         if unlocked is not None:
             stocks[code] = unlocked
-        st, new_trades, snap = process_holding_intraday(
+        st, applied, snap = process_holding_intraday(
             code=code,
             holding=holding,
             stock_state=stocks.get(code),
@@ -1110,8 +1153,8 @@ def run_intraday_session_tick(
             force_session_close=bool(ctx.get("force_session_close")),
         )
         stocks[code] = st
-        if new_trades:
-            all_new.extend(new_trades)
+        if applied:
+            all_new.extend(applied)
         if snap:
             # 更新 results 里该票快照
             results = [r for r in results if str(r.get("stock_code") or "") != code]

@@ -201,6 +201,14 @@ function renderRebalanceReport(
           : "";
       note += ` · 换手软上限已截断买入${cap}`;
     }
+    if (
+      preview &&
+      cashImpact &&
+      cashImpact.min_cash_pct != null &&
+      Number(cashImpact.min_cash_pct) > 0
+    ) {
+      note += ` · 现金底仓≥${Number(cashImpact.min_cash_pct)}%（反T）`;
+    }
     const tauGate = dualScore && dualScore.tau_gate;
     if (
       preview &&

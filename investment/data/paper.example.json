@@ -13,6 +13,7 @@
     "signal_limit": 8,
     "max_positions": 20,
     "position_pct": 0.15,
+    "min_cash_pct": 0.2,
     "stop_loss_pnl": -8,
     "max_hold_days": 5,
     "min_hold_score": 45,

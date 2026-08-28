@@ -197,6 +197,7 @@ _REBALANCE_KEYS = (
     "reduce_score",
     "max_positions",
     "position_pct",
+    "min_cash_pct",
     "horizon_days",
     "signal_limit",
     "stop_loss_pnl",

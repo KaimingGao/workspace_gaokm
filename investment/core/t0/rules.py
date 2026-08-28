@@ -479,6 +479,19 @@ def simulate_t0_day(
 
 
 
+def _first_t0_leg_price(trades: Sequence[dict], side_suffix: str) -> float:
+    for t in trades or []:
+        if str(t.get("side") or "").endswith(side_suffix):
+            px = float(t.get("price") or 0)
+            if px > 0:
+                return px
+    return 0.0
+
+
+def _bar_close_px(bar: dict) -> float:
+    return float(bar.get("close") or bar.get("open") or 0)
+
+
 def simulate_t0_on_holdings(
     paper: dict,
     *,
@@ -700,8 +713,18 @@ def simulate_t0_on_holdings(
                 if sold_q > 0 and cov < sold_q:
                     day_out["exit_reason"] = "abandon_cover_cash"
                     day_out["pnl"] = 0.0
+                    uncovered = sold_q - cov
+                    sold_px = _first_t0_leg_price(applied_trades, "sell") or _first_t0_leg_price(
+                        day.get("trades") or [], "sell"
+                    )
+                    close_px = _bar_close_px(bar)
+                    if sold_px > 0 and close_px > 0 and uncovered > 0:
+                        day_out["exposure_pnl"] = round(
+                            (sold_px - close_px) * uncovered, 2
+                        )
                 elif cov >= sold_q > 0:
                     day_out["pnl"] = day_out["cash_delta"]
+                    day_out["exposure_pnl"] = 0.0
             elif str(day_out.get("direction_used") or "") == "reverse_t":
                 bought_q = int(day_out.get("bought_qty") or 0)
                 sold_back = sum(
@@ -722,9 +745,24 @@ def simulate_t0_on_holdings(
                     day_out["reason"] = "共享现金不足，跳过反T低吸"
                 else:
                     day_out["sold_back_qty"] = sold_back
-                    day_out["uncovered_qty"] = max(0, bought_q - sold_back)
+                    uncovered = max(0, bought_q - sold_back)
+                    day_out["uncovered_qty"] = uncovered
                     if sold_back >= bought_q > 0:
                         day_out["pnl"] = day_out["cash_delta"]
+                        day_out["exposure_pnl"] = 0.0
+                    elif uncovered > 0:
+                        buy_px = _first_t0_leg_price(applied_trades, "buy") or _first_t0_leg_price(
+                            day.get("trades") or [], "buy"
+                        )
+                        close_px = _bar_close_px(bar)
+                        if buy_px > 0 and close_px > 0:
+                            day_out["exposure_pnl"] = round(
+                                (close_px - buy_px) * uncovered, 2
+                            )
+                        day_out["exit_reason"] = day_out.get("exit_reason") or "abandon_cover_cash"
+                        day_out["pnl"] = (
+                            day_out["cash_delta"] if sold_back > 0 else 0.0
+                        )
 
         h["t0"] = {
             "enabled": True,

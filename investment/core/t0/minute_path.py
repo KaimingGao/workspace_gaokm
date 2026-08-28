@@ -549,8 +549,6 @@ def _first_touch_long(
     pm_chase_iv = _pm_chase_interval_min(cfg)
     chase_buy_level: Optional[float] = None
     last_chase_min: Optional[int] = None
-    seg_on, seg_pct = _prefix_segment_params(cfg, "long_t")
-    prefix_hi = 0.0
 
     for idx, mb in enumerate(minute_bars):
         hi = float(mb.get("high") or 0)
@@ -558,16 +556,11 @@ def _first_touch_long(
         close = float(mb.get("close") or 0)
         ts = mb.get("datetime") or mb.get("date")
         pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm, inclusive=False))
-        if hi > 0:
-            prefix_hi = max(prefix_hi, hi)
 
         # 午后窗：未开第一腿则不再新开
         if sold_qty <= 0 and qty > 0 and hi >= sell_level and not pm_hit:
             if leg1_gate_at is not None and not leg1_gate_at(idx):
                 continue
-            if leg1_gate_at is None and seg_on and prefix_hi > 0 and close > 0:
-                if close > prefix_hi * (1.0 - seg_pct / 100.0):
-                    continue
             fill_sell = _fill_sell(hi, sell_level, fill_mode)
             cash_delta += append_t0_leg(
                 trades,
@@ -606,6 +599,9 @@ def _first_touch_long(
                     last_chase_min=last_chase_min,
                     interval_min=pm_chase_iv,
                 )
+                # must_cover：追价不得高于卖出价（盘中主动追高应交 eod）
+                if cfg.get("must_cover_same_day") and sold_price > 0:
+                    chase_buy_level = min(float(chase_buy_level), float(sold_price))
                 buy_level = float(chase_buy_level)
                 used_chase = last_chase_min is not None
                 if not adjusted or lo > buy_level:
@@ -844,12 +840,11 @@ def _first_touch_reverse(
     touch_sell_at = None
     exit_reason = None
     sell_old_cap = _lot_floor(sellable, lot)
+    sell_old_qty = 0
     pm_hm = _parse_hm(cfg.get("t0_pm_degrade"))
     pm_chase_iv = _pm_chase_interval_min(cfg)
     chase_sell_level: Optional[float] = None
     last_chase_min: Optional[int] = None
-    seg_on, seg_pct = _prefix_segment_params(cfg, "reverse_t")
-    prefix_lo = 0.0
 
     for idx, mb in enumerate(minute_bars):
         hi = float(mb.get("high") or 0)
@@ -857,16 +852,11 @@ def _first_touch_reverse(
         close = float(mb.get("close") or 0)
         ts = mb.get("datetime") or mb.get("date")
         pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm, inclusive=False))
-        if lo > 0:
-            prefix_lo = lo if prefix_lo <= 0 else min(prefix_lo, lo)
 
         # 中点追价窗：未开第一腿则不再低吸
         if bought_qty <= 0 and lo <= buy_level and not pm_hit:
             if leg1_gate_at is not None and not leg1_gate_at(idx):
                 continue
-            if leg1_gate_at is None and seg_on and prefix_lo > 0 and close > 0:
-                if close < prefix_lo * (1.0 + seg_pct / 100.0):
-                    continue
             if fill_mode == "optimistic":
                 fill_buy = lo
             elif fill_mode == "mid":
@@ -901,6 +891,7 @@ def _first_touch_reverse(
             bought_qty = qty
             buy_price = fill_buy
             touch_buy_at = ts
+            sell_old_qty = min(bought_qty, sell_old_cap)
             # 第二腿：相对低吸成交价上浮 sell_trigger%（非 ref）
             chase_sell_level = buy_price * (1.0 + sell_trig / 100.0)
             # 同根不明先后：低吸后不在同一根卖旧仓
@@ -910,7 +901,6 @@ def _first_touch_reverse(
             base_sell = buy_price * (1.0 + sell_trig / 100.0)
             if chase_sell_level is None:
                 chase_sell_level = base_sell
-            sell_old_qty = min(bought_qty, sell_old_cap)
             sell_level = float(chase_sell_level)
             used_chase = last_chase_min is not None
             # 先按当前目标触价；不可成再追价，同根用新目标再试（避免未触就压价）
@@ -1126,6 +1116,7 @@ def _forward_trace_row(
     dir_amp_ok: Optional[bool] = None,
     seg_ok: Optional[bool] = None,
     entry_ready: bool = False,
+    gate_open: bool = False,
     ref: Optional[float] = None,
     sell_trig: Optional[float] = None,
     buy_trig: Optional[float] = None,
@@ -1144,7 +1135,8 @@ def _forward_trace_row(
         touch_leg1 = lo <= float(buy_level)
     elif direction == "long_t" and sell_level is not None:
         touch_leg1 = hi >= float(sell_level)
-    if touch_leg1 and not entry_ready:
+    # 粘滞开闸：idx >= first_ready 后可成交，不得因当根 entry_ready=False 标 blocked
+    if touch_leg1 and not (entry_ready or gate_open):
         touch_blocked = True
     return {
         "idx": idx,
@@ -1198,12 +1190,14 @@ def _annotate_forward_trace(
             if at and at == str(row.get("datetime") or ""):
                 if side == leg1_side:
                     row["leg1_fill"] = True
+                    row["touch_blocked"] = False
                 elif side == leg2_side:
                     row["leg2_fill"] = True
                 break
             if at and str(row.get("time") or "") and at[11:16] == str(row.get("time") or ""):
                 if side == leg1_side:
                     row["leg1_fill"] = True
+                    row["touch_blocked"] = False
                 elif side == leg2_side:
                     row["leg2_fill"] = True
                 break
@@ -1298,7 +1292,8 @@ def _plan_forward_leg1_gates(
     last_amp_skip: Optional[Dict[str, Any]] = None
     last_dir_wait: Optional[Dict[str, Any]] = None
     cover_meta: Optional[dict] = None
-    # 仅统计「振幅已过闸但段向未确认」的评估根数；一字板/无波动不烧 abandon 预算
+    # 仅统计「尚未开闸」时振幅已过但段向/方向未确认的评估根数；
+    # 一字板/无波动不烧；首次 entry_ready 后冻结（交给粘滞闸等触价）。
     wait_eval_count = 0
 
     for j in range(n_bars):
@@ -1506,12 +1501,16 @@ def _plan_forward_leg1_gates(
         )
         entry_ready = bool(dir_amp.get("ok") and seg.get("ok"))
         entry_flags[j] = entry_ready
+        # 已开闸后不再烧 abandon：段向用最新 close，确认后 close 贴回极值属常态，
+        # 继续计数会把粘滞闸整日作废（确认→空等触价）。
+        ever_ready = any(entry_flags[: j + 1])
         wait_reason = None
         if not entry_ready:
             wait_reason = str(
                 seg.get("reason") if dir_amp.get("ok") else dir_amp.get("reason") or "方向振幅未达标"
             )
-            wait_eval_count += 1
+            if not ever_ready:
+                wait_eval_count += 1
 
         trace_rows.append(
             _forward_trace_row(
@@ -1527,6 +1526,7 @@ def _plan_forward_leg1_gates(
                 dir_amp_ok=bool(dir_amp.get("ok")),
                 seg_ok=bool(seg.get("ok")),
                 entry_ready=entry_ready,
+                gate_open=ever_ready,
                 ref=float(ref),
                 sell_trig=sell_trig,
                 buy_trig=buy_trig,
@@ -1548,7 +1548,7 @@ def _plan_forward_leg1_gates(
             "cover_meta": cover_meta,
         }
 
-        if not entry_ready:
+        if not entry_ready and not ever_ready:
             last_dir_wait = _skip_result(
                 reason=wait_reason or "方向振幅未达标",
                 shares=shares,

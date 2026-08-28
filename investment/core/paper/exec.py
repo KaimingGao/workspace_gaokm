@@ -444,6 +444,88 @@ def manual_buy(
     return trade
 
 
+def manual_sell_intents(
+    paper: dict,
+    *,
+    codes: Optional[List[str]] = None,
+    stock_code: Optional[str] = None,
+    shares: Optional[float] = None,
+    as_of: Optional[str] = None,
+) -> List[dict]:
+    """解析手动卖出意图（不改仓），供收盘后挂次日开盘单。
+
+    T+1 按挂单目标成交日 ``as_of`` 判断（默认下一开盘日），今日买入可挂明日卖。
+    """
+    if stock_code and not codes:
+        targets = [str(stock_code).strip()]
+    else:
+        targets = [str(c).strip() for c in (codes or []) if str(c).strip()]
+    if not targets:
+        raise ValueError("请勾选要卖出的持仓")
+    if shares is not None and len(targets) != 1:
+        raise ValueError("指定股数时只能卖一只")
+    if shares is not None and float(shares) <= 0:
+        raise ValueError("股数须大于 0")
+
+    if not as_of:
+        from core.paper.open_fill import _target_fill_date, get_rebalance_timing
+        from core.signal.session_pit import shanghai_now
+
+        as_of = _target_fill_date(shanghai_now(), timing=get_rebalance_timing(paper))
+
+    holdings = list(paper.get("holdings") or [])
+    by_code = {str(h.get("stock_code")): h for h in holdings if h.get("stock_code")}
+    intents: List[dict] = []
+    t1_blocked = False
+
+    for code in targets:
+        h = by_code.get(code)
+        if not h:
+            raise ValueError(f"持仓中没有 {code}")
+        held = float(h.get("shares") or 0)
+        if held <= 0:
+            raise ValueError(f"{code} 持仓股数为 0")
+        if shares is not None:
+            want = min(held, float(shares))
+            if want + 1e-9 < held:
+                lot = _lot_shares(want)
+                if lot <= 0:
+                    raise ValueError("减仓至少 100 股（或点清仓）")
+                sell_shares = float(lot)
+            else:
+                sell_shares = held
+        else:
+            sell_shares = held
+
+        from core.paper.tplus1 import TPLUS1_LOCK_REASON, clip_sell_shares
+
+        sell_shares, t1_meta = clip_sell_shares(h, sell_shares, as_of=as_of)
+        if sell_shares <= 1e-9:
+            t1_blocked = True
+            continue
+
+        cost = float(h.get("cost") or 0)
+        intents.append(
+            {
+                "side": "sell",
+                "stock_code": code,
+                "stock_name": h.get("stock_name"),
+                "shares": sell_shares,
+                "price": cost if cost > 0 else None,
+                "note": "手动清仓" if sell_shares >= held - 1e-9 else "手动减仓",
+                "origin": ORIGIN_MANUAL,
+            }
+        )
+
+    if not intents:
+        if t1_blocked:
+            raise ValueError(
+                "T+1 锁定：相对开盘成交日仍不可卖（例如同日买入又挂同日卖）"
+            )
+        raise ValueError("没有可卖出的持仓")
+    return intents
+
+
 def manual_sell(
     paper: dict,
     *,
@@ -550,6 +632,7 @@ def manual_sell(
                 "pnl_pct": pnl_pct,
                 "note": "手动清仓" if sell_shares >= held - 1e-9 else "手动减仓",
                 "tplus1_locked_shares": t1_meta.get("locked"),
+                "origin": ORIGIN_MANUAL,
             },
             fee_info,
         )

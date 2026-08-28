@@ -225,6 +225,106 @@ class TestT0Costs(unittest.TestCase):
             self.assertIn(out.get("exit_reason"), ("eod_cover", "abandon_cover_cash"), out)
             self.assertGreaterEqual(float(out.get("cash_delta") or 0), -1e-6, out)
 
+    def test_walk_t0_cash_topup_uses_open_not_close(self):
+        """反T研究现金补足不得用 T 日 close（前视）。"""
+        from unittest.mock import patch
+
+        from core.t0.backtest import _research_cash_for_reverse, _walk_t0
+
+        captured: list[float] = []
+        real_fn = _research_cash_for_reverse
+
+        def spy(shares, px, **kw):
+            captured.append(float(px))
+            return real_fn(shares, px, **kw)
+
+        bar = {"date": "2026-01-09", "open": 10, "high": 15, "low": 10, "close": 15}
+        history = [
+            {"date": "2026-01-08", "open": 9, "high": 10, "low": 9, "close": 10},
+            {"date": "2026-01-09", "open": 10, "high": 15, "low": 10, "close": 15},
+        ]
+        mins = {
+            "2026-01-09": [
+                {"datetime": "2026-01-09 09:35:00", "open": 10, "high": 10.1, "low": 9.9, "close": 10},
+                {"datetime": "2026-01-09 09:40:00", "open": 10, "high": 10, "low": 9.5, "close": 9.6},
+                {"datetime": "2026-01-09 15:00:00", "open": 9.6, "high": 15, "low": 9.5, "close": 15},
+            ]
+        }
+        rules = {
+            "direction": "reverse_t",
+            "t0_ratio": 0.4,
+            "sell_trigger_pct": 2.0,
+            "buy_trigger_pct": 1.0,
+            "fill_mode": "trigger",
+            "path_mode": "first_touch",
+            "use_atr": False,
+            "min_range_pct": 0.5,
+            "y_prefix_segment_enabled": False,
+            "lot_size": 100,
+        }
+        with patch("core.t0.backtest._research_cash_for_reverse", side_effect=spy):
+            _walk_t0(
+                [bar],
+                initial_shares=1000,
+                initial_cost=10,
+                initial_cash=100.0,
+                rules=rules,
+                cost_config=None,
+                stock_code="600519",
+                minute_by_date=mins,
+                bars_history=history,
+            )
+        self.assertTrue(captured, "应触发研究现金补足")
+        self.assertNotIn(15.0, captured, captured)
+        self.assertTrue(all(px == 10.0 for px in captured), captured)
+
+    def test_holdings_long_t_exposure_when_shared_cash_blocks_cover(self):
+        """共享现金闸掉买回腿时，须按未回补敞口重算 exposure_pnl。"""
+        from core.t0.rules import simulate_t0_on_holdings
+
+        bar = {"date": "2026-08-25", "open": 10.0, "high": 10.6, "low": 9.5, "close": 10.0}
+        minute_bars = [
+            {"datetime": "2026-08-25 09:35:00", "open": 10.0, "high": 10.0, "low": 10.0, "close": 10.0},
+            {"datetime": "2026-08-25 09:40:00", "open": 10.0, "high": 10.6, "low": 10.0, "close": 10.5},
+            {"datetime": "2026-08-25 09:45:00", "open": 10.5, "high": 10.5, "low": 9.5, "close": 9.6},
+        ]
+        paper = {
+            "cash": -8000.0,
+            "holdings": [
+                {"stock_code": "600519", "stock_name": "茅台", "shares": 1000, "cost": 10.0}
+            ],
+            "trades": [],
+            "rules": {
+                "t0": {
+                    "t0_ratio": 0.4,
+                    "sell_trigger_pct": 2.0,
+                    "buy_trigger_pct": 1.5,
+                    "direction": "long_t",
+                    "fill_mode": "trigger",
+                    "path_mode": "first_touch",
+                    "use_atr": False,
+                    "min_range_pct": 0.5,
+                    "y_prefix_segment_enabled": False,
+                    "must_cover_same_day": False,
+                    "lot_size": 100,
+                }
+            },
+        }
+        out = simulate_t0_on_holdings(
+            paper,
+            bars_by_code={"600519": bar},
+            minute_bars_by_code={"600519": minute_bars},
+            dry_run=True,
+        )
+        row = (out.get("results") or [None])[0]
+        self.assertIsNotNone(row, out)
+        self.assertEqual(row.get("exit_reason"), "abandon_cover_cash", row)
+        self.assertGreater(int(row.get("sold_qty") or 0), 0, row)
+        self.assertEqual(int(row.get("covered_qty") or 0), 0, row)
+        exp = float(row.get("exposure_pnl") or 0)
+        self.assertNotEqual(exp, 0.0, row)
+        self.assertAlmostEqual(float(out.get("exposure_pnl_total") or 0), exp, places=2)
+
 
 if __name__ == "__main__":
     unittest.main()

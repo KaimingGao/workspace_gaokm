@@ -146,6 +146,7 @@ class TestPaperRebalance(unittest.TestCase):
             # 示例账本 initial_cash=100万，现金改小会触发回撤拦买
             paper["initial_cash"] = 50000.0
             paper["snapshots"] = []
+            paper.setdefault("rules", {})["min_cash_pct"] = 0.2
 
             ranking = [
                 {
@@ -183,12 +184,25 @@ class TestPaperRebalance(unittest.TestCase):
             with patch(
                 "core.paper.rebalance._batch_query_quotes", side_effect=fake_batch
             ), patch(
+                "core.paper.rebalance.buy._batch_query_quotes", side_effect=fake_batch
+            ), patch(
                 "skills.common.quote_api.StockAPI.query", side_effect=fake_query
             ), patch(
                 "core.ports.market.query_quote", side_effect=fake_query
             ), patch(
                 "core.paper.rebalance._quote_price",
                 side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
+            ), patch(
+                "core.paper.rebalance.buy._quote_price",
+                side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
+            ), patch(
+                "core.paper.rebalance.buy._buy_match_block_reason", return_value=None
+            ), patch(
+                "core.event_prior.get_event_prior_cfg",
+                return_value={"mode": "off"},
+            ), patch(
+                "core.sentiment_prior.get_sentiment_prior_cfg",
+                return_value={"mode": "off"},
             ), patch(
                 "core.risk.check_account_risk",
                 return_value={
@@ -198,7 +212,13 @@ class TestPaperRebalance(unittest.TestCase):
                     "limits": {"max_position_pct": 25.0, "max_sector_pct": 40.0},
                 },
             ):
-                result = simulate_cross_section_rebalance(paper, ranking, top_k=2)
+                result = simulate_cross_section_rebalance(
+                    paper,
+                    ranking,
+                    top_k=2,
+                    min_score=0.5,
+                    skip_sentiment_prior=True,
+                )
 
             self.assertTrue(result["success"])
             self.assertEqual(len(result["sell_trades"]), 1)
@@ -762,9 +782,9 @@ class TestClusterSellHysteresis(unittest.TestCase):
         paper = {
             "cash": 25000.0,
             "strategy_id": "short",
-            "cost_model": "simple_cn",
+            "cost_model": "zero",
             "holdings": [],
-            "rules": {"max_positions": 5, "position_pct": 0.2},
+            "rules": {"max_positions": 5, "position_pct": 0.2, "min_cash_pct": 0},
             "operation_log": [],
             "trades": [],
             "initial_cash": 100000.0,
@@ -792,20 +812,32 @@ class TestClusterSellHysteresis(unittest.TestCase):
                 for c in (codes or [])
             }
 
+        mtm = {
+            "equity": 100000.0,
+            "cash": 25000.0,
+            "max_drawdown_pct": 0.0,
+            "current_drawdown_pct": 0.0,
+            "holdings": [],
+            "position_count": 0,
+        }
         with patch(
             "core.paper.rebalance._batch_query_quotes", side_effect=fake_batch
+        ), patch(
+            "core.paper.rebalance.buy._batch_query_quotes", side_effect=fake_batch
         ), patch(
             "core.paper.rebalance._quote_price",
             side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
         ), patch(
+            "core.paper.rebalance.buy._quote_price",
+            side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
+        ), patch(
+            "core.paper.rebalance.buy._buy_match_block_reason", return_value=None
+        ), patch(
             "core.paper.mark_to_market",
-            return_value={
-                "equity": 100000.0,
-                "cash": 25000.0,
-                "max_drawdown_pct": 0.0,
-                "current_drawdown_pct": 0.0,
-                "holdings": [],
-            },
+            return_value=mtm,
+        ), patch(
+            "core.paper.ledger.mark_to_market",
+            return_value=mtm,
         ), patch(
             "core.risk.check_account_risk",
             return_value={
@@ -840,7 +872,213 @@ class TestClusterSellHysteresis(unittest.TestCase):
         buys = result.get("buy_trades") or []
         self.assertEqual(len(buys), 1)
         # equity×0.2=20000 → 1000股；旧 cash×0.2=5000 → 仅 200股
+        # min_cash_pct=0 以隔离本用例（默认 20% 底仓会把 spendable 压到 5k）
         self.assertEqual(int(buys[0]["shares"]), 1000)
+
+    def test_rebalance_keeps_min_cash_pct_for_reverse_t(self):
+        """策略调仓买腿保留净值≥20%现金（反T底仓）；不得花光。"""
+        paper = {
+            "cash": 100000.0,
+            "strategy_id": "short",
+            "cost_model": "zero",
+            "holdings": [],
+            "rules": {
+                "max_positions": 1,
+                "position_pct": 1.0,
+                "min_cash_pct": 0.2,
+            },
+            "operation_log": [],
+            "trades": [],
+            "initial_cash": 100000.0,
+        }
+        ranking = [
+            {
+                "stock_code": "000001",
+                "stock_name": "新票",
+                "score": 2.0,
+                "predicted_score": 2.0,
+                "predicted_score_eod": 2.0,
+                "predicted_score_tau": 1.0,
+                "predicted_score_blend": 1.5,
+            }
+        ]
+
+        def fake_batch(codes, **_kw):
+            return {
+                c: {
+                    "success": True,
+                    "stock_code": c,
+                    "stock_name": c,
+                    "price_raw": 10.0,
+                }
+                for c in (codes or [])
+            }
+
+        mtm = {
+            "equity": 100000.0,
+            "cash": 100000.0,
+            "max_drawdown_pct": 0.0,
+            "current_drawdown_pct": 0.0,
+            "holdings": [],
+            "position_count": 0,
+        }
+        with patch(
+            "core.paper.rebalance._batch_query_quotes", side_effect=fake_batch
+        ), patch(
+            "core.paper.rebalance.buy._batch_query_quotes", side_effect=fake_batch
+        ), patch(
+            "core.paper.rebalance._quote_price",
+            side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
+        ), patch(
+            "core.paper.rebalance.buy._quote_price",
+            side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
+        ), patch(
+            "core.paper.rebalance.buy._buy_match_block_reason", return_value=None
+        ), patch(
+            "core.paper.mark_to_market",
+            return_value=mtm,
+        ), patch(
+            "core.paper.ledger.mark_to_market",
+            return_value=mtm,
+        ), patch(
+            "core.risk.check_account_risk",
+            return_value={
+                "ok": True,
+                "blocks": [],
+                "warnings": [],
+                "limits": {"max_position_pct": 100.0, "max_sector_pct": 100.0},
+            },
+        ), patch(
+            "core.portfolio_optimize.optimize_weights",
+            return_value={"weights_pct": {"000001": 100.0}, "mode": "score_budget"},
+        ), patch(
+            "core.event_prior.get_event_prior_cfg",
+            return_value={"mode": "off"},
+        ), patch(
+            "core.sentiment_prior.get_sentiment_prior_cfg",
+            return_value={"mode": "off"},
+        ), patch(
+            "core.signal.score_display.resolve_hold_floor",
+            return_value=0.0,
+        ):
+            result = simulate_cross_section_rebalance(
+                paper,
+                ranking,
+                top_k=1,
+                min_score=0.5,
+                respect_max_positions=False,
+                skip_sentiment_prior=True,
+            )
+
+        self.assertTrue(result["success"], result)
+        buys = result.get("buy_trades") or []
+        self.assertEqual(len(buys), 1, result)
+        # spendable = 100k − 20k = 80k → 8000 股 @10
+        self.assertEqual(int(buys[0]["shares"]), 8000)
+        cash_after = float(paper.get("cash") or 0)
+        self.assertAlmostEqual(cash_after, 20000.0, places=2)
+        impact = result.get("cash_impact") or {}
+        self.assertAlmostEqual(float(impact.get("min_cash_pct") or 0), 20.0, places=2)
+
+    def test_rebalance_blocks_buy_when_cash_already_below_reserve(self):
+        """现金已低于净值×底仓时，调仓买腿 spendable=0，不再新开。"""
+        paper = {
+            "cash": 15000.0,
+            "strategy_id": "short",
+            "cost_model": "zero",
+            "holdings": [],
+            "rules": {
+                "max_positions": 5,
+                "position_pct": 0.3,
+                "min_cash_pct": 0.2,
+            },
+            "operation_log": [],
+            "trades": [],
+            "initial_cash": 100000.0,
+        }
+        ranking = [
+            {
+                "stock_code": "000001",
+                "stock_name": "新票",
+                "score": 2.0,
+                "predicted_score": 2.0,
+                "predicted_score_eod": 2.0,
+                "predicted_score_tau": 1.0,
+                "predicted_score_blend": 1.5,
+            },
+        ]
+
+        def fake_batch(codes, **_kw):
+            return {
+                c: {
+                    "success": True,
+                    "stock_code": c,
+                    "stock_name": c,
+                    "price_raw": 10.0,
+                }
+                for c in (codes or [])
+            }
+
+        # 净值按 10 万计：底仓 2 万 > 现金 1.5 万 → spendable=0
+        mtm = {
+            "equity": 100000.0,
+            "cash": 15000.0,
+            "max_drawdown_pct": 0.0,
+            "current_drawdown_pct": 0.0,
+            "holdings": [],
+            "position_count": 0,
+        }
+        with patch(
+            "core.paper.rebalance._batch_query_quotes", side_effect=fake_batch
+        ), patch(
+            "core.paper.rebalance.buy._batch_query_quotes", side_effect=fake_batch
+        ), patch(
+            "core.paper.rebalance._quote_price",
+            side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
+        ), patch(
+            "core.paper.rebalance.buy._quote_price",
+            side_effect=lambda q: float((q or {}).get("price_raw") or 0) or None,
+        ), patch(
+            "core.paper.rebalance.buy._buy_match_block_reason", return_value=None
+        ), patch(
+            "core.paper.mark_to_market",
+            return_value=mtm,
+        ), patch(
+            "core.paper.ledger.mark_to_market",
+            return_value=mtm,
+        ), patch(
+            "core.risk.check_account_risk",
+            return_value={
+                "ok": True,
+                "blocks": [],
+                "warnings": [],
+                "limits": {"max_position_pct": 25.0, "max_sector_pct": 40.0},
+            },
+        ), patch(
+            "core.portfolio_optimize.optimize_weights",
+            return_value={"weights_pct": {}, "mode": "score_budget"},
+        ), patch(
+            "core.event_prior.get_event_prior_cfg",
+            return_value={"mode": "off"},
+        ), patch(
+            "core.sentiment_prior.get_sentiment_prior_cfg",
+            return_value={"mode": "off"},
+        ), patch(
+            "core.signal.score_display.resolve_hold_floor",
+            return_value=0.0,
+        ):
+            result = simulate_cross_section_rebalance(
+                paper,
+                ranking,
+                top_k=1,
+                min_score=0.5,
+                respect_max_positions=False,
+                skip_sentiment_prior=True,
+            )
+
+        self.assertTrue(result["success"], result)
+        self.assertEqual(result.get("buy_trades") or [], [], result)
+        self.assertEqual(float(paper.get("cash") or 0), 15000.0)
 
 
 if __name__ == "__main__":

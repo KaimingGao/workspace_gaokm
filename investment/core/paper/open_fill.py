@@ -100,8 +100,8 @@ def require_open_fill(
     until = timing.get("open_fill_until_hm") or "10:00"
     return (
         f"已收盘不{action}（next_open）。"
-        f"请确认调仓以挂次日开盘单；开盘窗 {after}–{until} 成交隔夜单。"
-        "盘中可按现价买卖（当日新买批次仍受 T+1 锁定）。"
+        f"手动买卖可挂次日开盘单；策略调仓请点「确认调仓」。"
+        f"开盘窗 {after}–{until} 成交隔夜单；盘中可按现价即时成交。"
     )
 
 
@@ -229,6 +229,36 @@ def stage_pending(paper: dict, pending: dict) -> dict:
     return pending
 
 
+def merge_pending_orders(
+    existing: Optional[dict],
+    incoming: dict,
+) -> Dict[str, Any]:
+    """合并挂单：同 ``side+stock_code`` 以新腿覆盖；其余保留。"""
+    base = dict(incoming or {})
+    old_legs = list((existing or {}).get("legs") or []) if isinstance(existing, dict) else []
+    new_legs = list(base.get("legs") or [])
+    replace_keys = {
+        (str(l.get("side") or "").lower(), str(l.get("stock_code") or "").strip())
+        for l in new_legs
+        if str(l.get("stock_code") or "").strip()
+    }
+    kept = [
+        l
+        for l in old_legs
+        if (
+            str(l.get("side") or "").lower(),
+            str(l.get("stock_code") or "").strip(),
+        )
+        not in replace_keys
+    ]
+    base["legs"] = kept + new_legs
+    if isinstance(existing, dict):
+        # 保留更早的 as_of；目标成交日取 incoming（通常为下一开盘日）
+        if existing.get("as_of") and not base.get("as_of"):
+            base["as_of"] = existing.get("as_of")
+    return base
+
+
 def _quote_open_px(quote: Optional[dict]) -> Optional[float]:
     import re
 
@@ -259,6 +289,7 @@ def _apply_leg_at_open(
     leg: dict,
     *,
     open_px: float,
+    as_of: Optional[str] = None,
 ) -> Tuple[Optional[dict], Optional[str]]:
     from core.paper.ledger import ORIGIN_STRATEGY, _now_iso, merge_origin
     from core.paper.costs import (
@@ -291,7 +322,9 @@ def _apply_leg_at_open(
         have = float((existing or {}).get("shares") or 0)
         from core.paper.tplus1 import TPLUS1_LOCK_REASON, clip_sell_shares, consume_sell_lots
 
-        sell_shares, t1_meta = clip_sell_shares(existing or {}, min(shares, have))
+        sell_shares, t1_meta = clip_sell_shares(
+            existing or {}, min(shares, have), as_of=as_of
+        )
         sell_shares = float(_lot_shares(sell_shares) or sell_shares)
         if sell_shares <= 0 or not existing:
             return None, t1_meta.get("reason") or TPLUS1_LOCK_REASON if have > 0 else "no_position"
@@ -453,7 +486,7 @@ def fill_pending_at_open(
             leftover.append(leg)
             skips.append({"stock_code": code, "reason": "no_open"})
             continue
-        trade, err = _apply_leg_at_open(paper, leg, open_px=open_px)
+        trade, err = _apply_leg_at_open(paper, leg, open_px=open_px, as_of=today)
         if err:
             leftover.append(leg)
             skips.append({"stock_code": code, "reason": err})

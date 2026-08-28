@@ -213,6 +213,109 @@ class TestNextOpenCommit(unittest.TestCase):
         self.assertIsNone(require_open_fill(self._paper(), now=_dt(9, 30)))
         self.assertIsNone(require_open_fill(self._paper(), now=_dt(10, 30)))
 
+    def test_manual_sell_stages_pending_after_close(self):
+        """收盘后手动清仓 → 挂次日开盘单，不改持仓。"""
+        import json
+        import tempfile
+        from services.paper_service import PaperService
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            paper = {
+                "cash": 100000.0,
+                "initial_cash": 100000.0,
+                "holdings": [
+                    {
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 200,
+                        "cost": 100.0,
+                        "lots": [{"shares": 200, "buy_date": "2026-08-20"}],
+                    }
+                ],
+                "trades": [],
+                "operation_log": [],
+                "rules": {"execution_mode": "next_open"},
+                "pending_orders": None,
+            }
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(paper, f)
+
+            svc = PaperService(path)
+            with patch(
+                "core.paper.open_fill.paper_fill_phase", return_value="closed"
+            ), patch(
+                "core.paper.open_fill.is_next_open_mode", return_value=True
+            ), patch(
+                "core.paper.open_fill._target_fill_date", return_value="2026-08-24"
+            ):
+                out = svc.sell(stock_code="600519")
+
+            self.assertTrue(out.get("staged"), out)
+            self.assertEqual(out.get("fill_action"), "staged")
+            po = out.get("pending_orders") or {}
+            legs = po.get("legs") or []
+            self.assertEqual(len(legs), 1, po)
+            self.assertEqual(legs[0].get("side"), "sell")
+            self.assertEqual(legs[0].get("stock_code"), "600519")
+            self.assertEqual(float(legs[0].get("shares") or 0), 200.0)
+            with open(path, encoding="utf-8") as f:
+                reloaded = json.load(f)
+            self.assertEqual(len(reloaded.get("holdings") or []), 1)
+            self.assertEqual(
+                float((reloaded["holdings"][0]).get("shares") or 0), 200.0
+            )
+            self.assertIn("挂", str(out.get("message") or ""))
+
+    def test_manual_sell_stages_same_day_buy_for_next_open(self):
+        """收盘后挂次日开盘卖：今日买入不受 T+1 拦挂（成交日已过 T+1）。"""
+        import json
+        import tempfile
+        from services.paper_service import PaperService
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "paper.json")
+            paper = {
+                "cash": 100000.0,
+                "initial_cash": 100000.0,
+                "holdings": [
+                    {
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 200,
+                        "cost": 100.0,
+                        "lots": [
+                            {
+                                "shares": 200,
+                                "bought_date": "2026-08-28",
+                                "bought_at": "2026-08-28T09:40:00",
+                            }
+                        ],
+                    }
+                ],
+                "trades": [],
+                "operation_log": [],
+                "rules": {"execution_mode": "next_open"},
+                "pending_orders": None,
+            }
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(paper, f)
+
+            svc = PaperService(path)
+            with patch(
+                "core.paper.open_fill.paper_fill_phase", return_value="closed"
+            ), patch(
+                "core.paper.open_fill.is_next_open_mode", return_value=True
+            ), patch(
+                "core.paper.open_fill._target_fill_date", return_value="2026-08-31"
+            ):
+                out = svc.sell(stock_code="600519")
+
+            self.assertTrue(out.get("staged"), out)
+            legs = (out.get("pending_orders") or {}).get("legs") or []
+            self.assertEqual(len(legs), 1, out)
+            self.assertEqual(float(legs[0].get("shares") or 0), 200.0)
+
 
 class TestExecutionTiming(unittest.TestCase):
     def test_default_next_open(self):

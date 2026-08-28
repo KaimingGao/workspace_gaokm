@@ -112,8 +112,15 @@ def build_rebalance_cash_impact(
     cost_model: Optional[str] = None,
     max_turnover_pct: Optional[float] = None,
     turnover_capped: bool = False,
+    min_cash_pct: Optional[float] = None,
 ) -> Dict[str, Any]:
     """资金影响 + 换手摘要（预演/落账共用）。"""
+    from core.paper.rebalance.cash_reserve import (
+        cash_floor,
+        resolve_min_cash_pct,
+        spendable_cash,
+    )
+
     turn = compute_turnover_stats(
         sell_trades,
         buy_trades,
@@ -121,6 +128,13 @@ def build_rebalance_cash_impact(
         max_turnover_pct=max_turnover_pct,
     )
     cash_after = float((summary or {}).get("cash") or 0)
+    eq_after = float((summary or {}).get("equity") or equity_before or 0)
+    reserve_pct = (
+        float(min_cash_pct)
+        if min_cash_pct is not None
+        else resolve_min_cash_pct(None)
+    )
+    floor_after = cash_floor(eq_after, reserve_pct)
     return {
         "cash_before": round(float(cash_before or 0), 2),
         "buy_amount": turn["buy_amount"],
@@ -139,4 +153,10 @@ def build_rebalance_cash_impact(
         "turnover_definition": turn.get("definition"),
         "buy_count": turn.get("buy_count"),
         "sell_count": turn.get("sell_count"),
+        "min_cash_pct": round(reserve_pct * 100.0, 2),
+        "cash_floor_after": round(floor_after, 2),
+        "spendable_after": round(
+            spendable_cash(cash_after, eq_after, reserve_pct), 2
+        ),
+        "cash_reserve_ok": cash_after + 1e-6 >= floor_after,
     }

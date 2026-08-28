@@ -191,6 +191,7 @@ export function pickDetailDays(data, { includeSkippedGateTrace = true } = {}) {
 
 function _isTradedDay(d) {
   return (
+    (Array.isArray(d.trades) && d.trades.length > 0) ||
     Number(d.sold_qty) > 0 ||
     Number(d.bought_qty) > 0 ||
     Number(d.covered_qty) > 0 ||

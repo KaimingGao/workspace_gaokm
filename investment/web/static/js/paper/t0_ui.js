@@ -495,7 +495,7 @@ export function renderPaperT0WorkerDesk(el, desk) {
     String(sess)
   )}</span>`;
 
-  if (!desk.same_session || !desk.rows.length) {
+  if (!desk.rows.length) {
     el.innerHTML =
       `<details class="paper-t0-desk-fold"${openAttr}>` +
       `<summary class="paper-t0-desk-fold-sum">` +
@@ -509,6 +509,13 @@ export function renderPaperT0WorkerDesk(el, desk) {
       `</details>`;
     return;
   }
+
+  const staleBanner =
+    desk.state_aligned === false
+      ? `<p class="paper-t0-desk-empty paper-t0-desk-stale">${escapeHtml(
+          desk.note || "盘中状态尚未对齐今日会话"
+        )}</p>`
+      : "";
 
   const body = desk.rows
     .map((r) => {
@@ -560,6 +567,7 @@ export function renderPaperT0WorkerDesk(el, desk) {
     sessLine +
     `<span class="paper-t0-desk-chips">${chips}</span>` +
     `</summary>` +
+    staleBanner +
     `<div class="paper-t0-desk-board">` +
     `<div class="quant-weight-table-wrap paper-t0-desk-wrap">` +
     `<table class="quant-weight-table paper-t0-table paper-t0-desk-table">` +

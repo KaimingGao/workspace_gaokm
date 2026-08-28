@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from core.paper.ledger import _now_iso, append_operation_log, build_ops_report
 from core.paper.costs import resolve_cost_model
+from core.paper.rebalance.cash_reserve import resolve_min_cash_pct
 from core.paper.rebalance.turnover import (
     build_rebalance_cash_impact,
     compute_turnover_stats,
@@ -226,6 +227,7 @@ def finalize_cross_section_rebalance_report(
         cost_model=cost_model,
         max_turnover_pct=max_turnover_pct,
         turnover_capped=turnover_capped,
+        min_cash_pct=resolve_min_cash_pct(rules if isinstance(rules, dict) else None),
     )
     turnover = compute_turnover_stats(
         sell_trades,

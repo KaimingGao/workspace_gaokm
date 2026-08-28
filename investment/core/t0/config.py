@@ -107,6 +107,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     # 第一腿段向确认：正T须从前缀 high 回落；反T须从前缀 low 弹起（%）
     # 确认后粘滞开闸（首次 entry_ready 起后续根可触价）——正确语义；
     # 禁止恢复「同根确认∧触价」死锁：那会系统性漏成交、虚高回测。
+    # abandon 仅统计「尚未开闸」的等待根；首次 ready 后冻结，交给粘滞闸。
     "y_prefix_segment_enabled": True,
     "y_prefix_segment_enabled_long": True,
     "y_prefix_segment_enabled_reverse": True,

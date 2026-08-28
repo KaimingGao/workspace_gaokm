@@ -12,6 +12,7 @@ from core.paper.ledger import ORIGIN_STRATEGY, _now_iso, append_operation_log
 from core.paper.costs import annotate_trade, apply_fill_price, calc_trade_fees
 from core.paper.rebalance.match import _batch_query_quotes, _buy_match_block_reason
 from core.paper.rebalance.state import RebalanceState
+from core.paper.rebalance.cash_reserve import resolve_min_cash_pct, spendable_cash
 from core.paper.rebalance.turnover import (
     clip_shares_to_turnover_budget,
     resolve_buy_turnover_budget,
@@ -89,6 +90,11 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
     ) or float(equity_before or 0)
     max_pos_pct = float(risk_limits.get("max_position_pct") or 25.0)
     max_sec_pct = float(risk_limits.get("max_sector_pct") or 40.0)
+    # 策略调仓保留净值比例现金，供反 T；买腿只花 spendable
+    min_cash_pct = resolve_min_cash_pct(rules)
+
+    def _spendable() -> float:
+        return spendable_cash(cash, budget_equity, min_cash_pct)
 
     # P0 · 批量预取买入候选行情（含舆情缩仓待补回）
     _restore_codes = [
@@ -224,7 +230,7 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
                     "buy", amount, model=cost_model, params=fee_params
                 )
                 need = amount + float(fee_info.get("fees") or 0)
-                if need > cash + 1e-6:
+                if need > _spendable() + 1e-6:
                     continue
                 trade = annotate_trade(
                     {
@@ -603,12 +609,13 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
                     pass
             elif not respect_max_positions and max_positions > 0:
                 ratio = min(ratio, 1.0 / float(max_positions))
-            # sizing 基准统一按净值比例：position_pct / 目标仓语义是 equity 百分比
+            # sizing：净值×权重，但不得超过可花现金（总现金 − 反T底仓）
             # 横截面过去用 cash*ratio 导致严重欠仓（满仓时单笔只有分池的 1/7），改为与分池一致
+            avail = _spendable()
             if budget_equity > 0:
-                budget = min(cash, budget_equity * ratio)
+                budget = min(avail, budget_equity * ratio)
             else:
-                budget = cash * ratio
+                budget = avail * ratio
             if budget < price * 100:
                 continue
             shares = int(budget // price // 100) * 100
@@ -650,7 +657,7 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
                 "buy", amount, model=cost_model, params=fee_params
             )
             need = amount + float(fee_info.get("fees") or 0)
-            if need > cash + 1e-6:
+            if need > avail + 1e-6:
                 continue
 
             # P0 + R5：双边换手预算拆分。50% 给 sell，50% 给 buy；sell 侧未满可溢出给 buy
@@ -685,7 +692,7 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
                             "buy", amount, model=cost_model, params=fee_params
                         )
                         need = amount + float(fee_info.get("fees") or 0)
-                        if need > cash + 1e-6:
+                        if need > _spendable() + 1e-6:
                             continue
                         _to_clipped = True
                         turnover_capped = True
@@ -802,10 +809,11 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
                     pass
             if _ratio <= 0:
                 continue
+            _avail = _spendable()
             if not respect_max_positions and budget_equity > 0:
-                _budget = min(cash, budget_equity * _ratio)
+                _budget = min(_avail, budget_equity * _ratio)
             else:
-                _budget = cash * _ratio
+                _budget = _avail * _ratio
             if _budget < _price * 100:
                 continue
             _shares = int(_budget // _price // 100) * 100
@@ -835,7 +843,7 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
                 "buy", _amount, model=cost_model, params=fee_params
             )
             _need = _amount + float(_fee_info.get("fees") or 0)
-            if _need > cash + 1e-6:
+            if _need > _avail + 1e-6:
                 continue
 
             # 换手软上限复检 + R5 双边拆分；超限则裁剪到剩余预算
@@ -870,7 +878,7 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
                         "buy", _amount, model=cost_model, params=fee_params
                     )
                     _need = _amount + float(_fee_info.get("fees") or 0)
-                    if _need > cash + 1e-6:
+                    if _need > _spendable() + 1e-6:
                         continue
                     _to_retry_note = "换手背包半仓补入 · 预算裁剪"
             else:
