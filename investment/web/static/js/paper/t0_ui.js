@@ -32,7 +32,7 @@ function buildZeroTradeHint(data) {
   const sell = (data.rules && data.rules.sell_trigger_pct) ?? "1";
   const buy = (data.rules && data.rules.buy_trigger_pct) ?? "1";
   const tips = tplus1Skip
-    ? "旧仓被 T+1 锁定；需隔日可卖仓才能正T先卖 / 反T卖旧"
+    ? "旧仓被 T+1 锁定；需隔日可卖仓才能反T先卖 / 正T卖旧"
     : ampSkip
       ? "振幅门禁偏严；可调低振幅下限或关闭 ATR 自适应"
       : lotSkip
@@ -112,7 +112,7 @@ export function renderPaperT0(els, data) {
       : `${days.length} 笔成交`,
     `指标日 ${data.t0_trade_days ?? "—"}`,
     data.cover_rate_pct != null ? `往返 ${data.cover_rate_pct}%` : null,
-    `正${data.long_t_days ?? 0}/反${data.reverse_t_days ?? 0}`,
+    `正${data.reverse_t_days ?? 0}/反${data.long_t_days ?? 0}`,
   ].filter(Boolean);
   const caption =
     `<div class="paper-t0-days-head">` +
@@ -151,10 +151,10 @@ function buildSkipReasonTop(skips) {
     .sort((a, b) => b.count - a.count);
 }
 
-/** 预演 results → 与回测成交明细同构的日行（含跳过，便于看 y_*）。 */
+/** 预演 results → 成交明细日行（仅有成交；跳过不进表）。 */
 function previewResultsToTradeDays(results) {
   return (results || [])
-    .filter((r) => r && (r.stock_code || r.skipped || (r.trades || []).length))
+    .filter((r) => r && !r.skipped && (r.trades || []).length)
     .map((r) => ({
       ...r,
       direction: r.direction_used || r.direction || "",
@@ -162,12 +162,7 @@ function previewResultsToTradeDays(results) {
         !!r.minute_path ||
         r.path_mode === "first_touch" ||
         r.intraday_path === "first_touch",
-    }))
-    .sort((a, b) => {
-      const as = a.skipped ? 1 : 0;
-      const bs = b.skipped ? 1 : 0;
-      return as - bs;
-    });
+    }));
 }
 
 export function renderPaperT0Preview(els, data) {
@@ -186,8 +181,8 @@ export function renderPaperT0Preview(els, data) {
   }
   const allRows = data.results || [];
   const days = previewResultsToTradeDays(allRows);
-  const tradeDays = days.filter((d) => !d.skipped && (d.trades || []).length);
-  const skipRows = days.filter((d) => d.skipped);
+  const tradeDays = days;
+  const skipRows = allRows.filter((r) => r && r.skipped);
   const tradeN = (data.trades || []).length;
   const pnl = data.pnl_total ?? 0;
   const exposure = data.exposure_pnl_total ?? 0;
@@ -228,7 +223,7 @@ export function renderPaperT0Preview(els, data) {
       : "") +
     previewMetricChip("is-univ", "票", `${tradeDays.length}/${allRows.length}`) +
     previewMetricChip("is-univ", "腿", tradeN) +
-    previewMetricChip("is-done", "正/反", `${longN}/${revN}`) +
+    previewMetricChip("is-done", "正/反", `${revN}/${longN}`) +
     previewMetricChip(pnlCls, "PnL", Number.isFinite(pnlN) ? pnlN.toFixed(1) : pnl) +
     previewMetricChip(
       "is-idle",
@@ -254,9 +249,9 @@ export function renderPaperT0Preview(els, data) {
         caption:
           `<div class="paper-t0-days-head paper-t0-preview-days-head">` +
           `<h4 class="paper-t0-days-title">预演明细</h4>` +
-          `<p class="quant-trades-caption">成交 ${tradeDays.length} · 跳过 ${skipRows.length}` +
+          `<p class="quant-trades-caption">成交 ${tradeDays.length} · 跳过 ${skipN}` +
           escapeHtml(skipHint) +
-          ` · 正${longN}/反${revN}` +
+          ` · 正${revN}/反${longN}` +
           ` · <span title="${tip}">τ = y_τ</span></p>` +
           `</div>`,
         maxRows: Math.max(T0_TRADE_TABLE_MAX_ROWS, days.length),
@@ -368,13 +363,13 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution } = {}) {
     `<span class="paper-t0-desk-chip-k">${escapeHtml(tag)}</span>` +
     `<span class="paper-t0-desk-chip-v">${escapeHtml(countLabel)}</span>` +
     `</span>` +
-    (longN
-      ? `<span class="paper-t0-desk-chip is-done"><span class="paper-t0-desk-chip-k">正</span>` +
-        `<span class="paper-t0-desk-chip-v">${longN}</span></span>`
-      : "") +
     (revN
-      ? `<span class="paper-t0-desk-chip is-idle"><span class="paper-t0-desk-chip-k">反</span>` +
+      ? `<span class="paper-t0-desk-chip is-done"><span class="paper-t0-desk-chip-k">正</span>` +
         `<span class="paper-t0-desk-chip-v">${revN}</span></span>`
+      : "") +
+    (longN
+      ? `<span class="paper-t0-desk-chip is-idle"><span class="paper-t0-desk-chip-k">反</span>` +
+        `<span class="paper-t0-desk-chip-v">${longN}</span></span>`
       : "") +
     `</span>`;
   const tip = escapeHtml(yTauMapScoreTip(tauMap, enter));
@@ -411,10 +406,10 @@ function deskPhaseBadge(phase, locked) {
 
 function deskDirCell(direction) {
   if (direction === "reverse_t") {
-    return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-rev" title="反T">反T</span></td>`;
+    return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-rev" title="先买后卖">正T</span></td>`;
   }
   if (direction === "long_t") {
-    return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-long" title="正T">正T</span></td>`;
+    return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-long" title="先卖后买">反T</span></td>`;
   }
   return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-none">—</span></td>`;
 }

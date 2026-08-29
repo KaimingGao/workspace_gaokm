@@ -265,9 +265,35 @@ class TestPathPanel(unittest.TestCase):
         for d in shared[:5]:
             self.assertEqual(len(set(by_date[d])), 1, f"breadth should match on {d}")
 
+    def test_multi_tau_grid_expands_rows(self):
+        from core.research.path_panel import build_path_panels_from_bars
+
+        bars = _bars(25, 10.0)
+        panels_1 = build_path_panels_from_bars(
+            [{"code": "A", "bars": bars}],
+            minute_by_code_date={"A": _minute_map_for_bars(bars, low_then_high=True)},
+            tau_grid=None,
+            minute_tau_hm="10:30",
+        )
+        panels_4 = build_path_panels_from_bars(
+            [{"code": "A", "bars": bars}],
+            minute_by_code_date={"A": _minute_map_for_bars(bars, low_then_high=True)},
+            tau_grid=["09:45", "10:00", "10:15", "10:30"],
+        )
+        n1 = sum(len(p.get("ys") or []) for p in panels_1)
+        n4 = sum(len(p.get("ys") or []) for p in panels_4)
+        self.assertGreater(n1, 0)
+        self.assertEqual(n4, n1 * 4)
+        metas = []
+        for p in panels_4:
+            metas.extend(p.get("metas") or [])
+        taus = {str(m.get("tau")) for m in metas}
+        self.assertEqual(taus, {"09:45", "10:00", "10:15", "10:30"})
+
     def test_z_rows_keep_yclose_loc_key(self):
         from core.research.path_panel import PATH_Z_FEATURES, build_path_panels_from_bars
         from core.research.path_ridge import _z_only_xs
+        from core.signal.minute_tau_feats import MINUTE_TAU_PACK_KEYS
 
         bars_a = _bars(35, 10.0)
         bars_b = _bars(35, 12.0)
@@ -287,6 +313,12 @@ class TestPathPanel(unittest.TestCase):
             for k in PATH_Z_FEATURES:
                 self.assertIn(k, row)
             self.assertIn("yclose_loc", row)
+        # 分钟小包应写入（夹具 09:35/09:40 ≤ 默认 10:30）
+        filled = sum(1 for row in z if row.get("ret_open_to_tau") is not None)
+        self.assertGreater(filled, 0, "expected ret_open_to_tau from path minute pack")
+        for k in ("range_pct", "path_sign"):
+            self.assertIn(k, MINUTE_TAU_PACK_KEYS)
+            self.assertTrue(any(row.get(k) is not None for row in z))
 
 
 class TestPathRidgeHelpers(unittest.TestCase):
@@ -371,7 +403,9 @@ class TestPathRidgeFit(unittest.TestCase):
             buy_trig_pct=1.0,
         )
         self.assertTrue(report.get("success"), report.get("error"))
-        self.assertEqual(report.get("schema"), "path_ridge_v2")
+        self.assertEqual(report.get("schema"), "path_ridge_v3")
+        self.assertTrue(report.get("tau_grid"))
+        self.assertIn("by_tau", report.get("oos") or {})
         self.assertEqual(report.get("target"), "extreme_order_signed_range")
         self.assertEqual(report.get("sell_trig_pct"), 1.0)
         self.assertEqual(report.get("buy_trig_pct"), 1.0)
@@ -379,13 +413,14 @@ class TestPathRidgeFit(unittest.TestCase):
         self.assertTrue(rm.get("y_demeaned"))
         self.assertIn("y_label_mean", rm)
         self.assertEqual(rm.get("path_label_mode"), "extreme_order")
-        self.assertEqual(
-            (rm.get("y_spec") or {}).get("formula"), "extreme_order(low,high)"
-        )
+        formula = str((rm.get("y_spec") or {}).get("formula") or "")
+        self.assertIn("extreme_order(low,high)", formula)
+        self.assertIn("09:45", formula)
+        self.assertEqual((rm.get("y_spec") or {}).get("tau_grid"), report.get("tau_grid"))
         oos = report.get("oos") or {}
         self.assertIn("buckets", oos)
-        self.assertIn("abs_ge_2", oos["buckets"])
-        self.assertIn("balance", oos)
+        self.assertIn("by_tau", oos)
+        self.assertGreaterEqual(len(oos.get("by_tau") or {}), 2)
         gate = report.get("promote_gate") or {}
         self.assertIn("ok", gate)
 
@@ -403,7 +438,10 @@ class TestPathRidgeFit(unittest.TestCase):
                 doc = load_path_model()
                 self.assertIsNotNone(doc)
                 self.assertEqual(doc.get("dual_score_head"), "y_path")
+                self.assertEqual(doc.get("schema"), "path_ridge_v3")
                 self.assertEqual(doc.get("sell_trig_pct"), 1.0)
+                self.assertEqual(doc.get("tau_grid"), report.get("tau_grid"))
+                self.assertEqual(doc.get("minute_tau_hm"), report.get("minute_tau_hm"))
                 yhat = predict_path_from_features(
                     {"gap_pct": 1.2, "gap_atr": 0.5, "theme_day": 0.1},
                     model_doc=doc,

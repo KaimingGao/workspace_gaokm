@@ -240,6 +240,12 @@ export function buildPortfolioBacktestSummaryText(data) {
     : data.params?.apply_tau_buy_gate === true
       ? " · 选股 ŷ_trade·τ闸开"
       : " · 选股 ŷ_EOD·关τ闸";
+  const eng =
+    data.params?.engine || data.request?.engine || data.engine || "topk_research";
+  const engNote =
+    eng === "paper_replay"
+      ? " · 引擎 纸面回放(可实现)"
+      : " · 引擎 研究Top-K";
   const dropN = Number(
     data.params?.dropped_thin_count || (data.dropped_stocks || []).length || 0
   );
@@ -272,7 +278,7 @@ export function buildPortfolioBacktestSummaryText(data) {
   const text =
     `标的 ${(data.loaded_stocks || []).length} · 共同日 ${data.params?.common_dates} · 交易 ${m.trade_count} · 累计 ${m.total_return_pct}% · 胜率 ${m.win_rate_pct}% · 成本 ${
       costModel === "simple_cn" ? "A股简化" : costModel
-    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${wfNote}${attrNote}${pitNote}${auditNote}${matchNote}${scoreAxisNote}${dropNote}${dropoutNote}${icNote}${qNote}${benchNote}`;
+    }${data.params?.neutralize ? ` · 中性化 ${data.params?.neutralized_rebalances || 0} 次` : ""}${fundNote}${oosNote}${regimeNote}${dqNote}${costCmpNote}${wfNote}${attrNote}${pitNote}${auditNote}${matchNote}${scoreAxisNote}${engNote}${dropNote}${dropoutNote}${icNote}${qNote}${benchNote}`;
   const qBad = qb.ok && qb.monotonic_increasing === false;
   return { text, warn: !!(oosFailed || qBad) };
 }

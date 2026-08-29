@@ -18,7 +18,18 @@ def _date_of(raw: Any) -> str:
 
 
 def session_date(now: Optional[datetime] = None) -> str:
-    """当前会话交易日（上海时区；非交易日回退到最近已过交易日）。"""
+    """当前会话交易日（上海时区；非交易日回退到最近已过交易日）。
+
+    纸面回放上下文内直接返回注入的 ``as_of``（信任回放日历，含合成交易日）。
+    """
+    try:
+        from core.paper.replay_ctx import replay_as_of
+
+        day = replay_as_of()
+        if day:
+            return day
+    except Exception:  # noqa: BLE001 — 回放时钟不可用时走真实日历
+        pass
     from core.market.calendar import resolve_session_date
     from core.signal.session_pit import shanghai_now
 
@@ -26,7 +37,18 @@ def session_date(now: Optional[datetime] = None) -> str:
 
 
 def _session_of(as_of: Optional[str] = None) -> str:
-    """把日历日归一成交易会话日，避免周末 as_of 把旧仓误锁到下周一。"""
+    """把日历日归一成交易会话日，避免周末 as_of 把旧仓误锁到下周一。
+
+    回放中信任传入/注入日期，不做交易所日历重映射（合成日线可过 T+1）。
+    """
+    try:
+        from core.paper.replay_ctx import replay_as_of
+
+        if replay_as_of():
+            d = _date_of(as_of) or replay_as_of()
+            return d or str(replay_as_of())
+    except Exception:  # noqa: BLE001 — 回放时钟不可用时走真实日历
+        pass
     d = _date_of(as_of)
     if not d:
         return session_date()

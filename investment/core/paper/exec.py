@@ -37,12 +37,33 @@ def _bars_and_source(code: str, *, limit: int, **kwargs):
 
 
 def _query_quote(code: str) -> dict:
+    from core.paper.replay_ctx import replay_batch_query
+
+    c = str(code or "").strip()
+    if not c:
+        return {}
+    override = replay_batch_query()
+    if override is not None:
+        try:
+            return dict((override([c]) or {}).get(c) or {})
+        except Exception:  # noqa: BLE001 — 回放源失败不打网
+            logger.debug("replay _query_quote failed", exc_info=True)
+            return {}
     from core.data.facade import get_quote
 
-    return get_quote(str(code or "").strip())
+    return get_quote(c)
 
 
 def _batch_query_quotes(codes: List[str]) -> Dict[str, Any]:
+    from core.paper.replay_ctx import replay_batch_query
+
+    override = replay_batch_query()
+    if override is not None:
+        try:
+            return dict(override(list(codes or [])) or {})
+        except Exception:  # noqa: BLE001 — 回放源失败不打网
+            logger.debug("replay _batch_query_quotes failed", exc_info=True)
+            return {}
     from core.data.service import get_default_service
 
     return get_default_service().batch_get_quotes(codes) or {}
@@ -149,6 +170,15 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
         from core.paper.tplus1 import snapshot_tplus1
 
         t1 = snapshot_tplus1(h)
+        change_asof = None
+        try:
+            from core.market.calendar import resolve_session_date
+            from core.signal.session_pit import quote_asof, shanghai_now
+
+            change_asof = quote_asof(quote) or resolve_session_date(now=shanghai_now())
+        except Exception:
+            logger.debug("change_asof resolve failed", exc_info=True)
+            change_asof = None
         rows.append(
             {
                 "stock_code": code,
@@ -162,6 +192,7 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
                 "market_value": round(mv, 2),
                 "pnl_pct": pnl_pct,
                 "change_pct": change_pct,
+                "change_asof": change_asof,
                 "bought_at": bought_at,
                 "bought_date": bought_date,
                 "hold_days": hold_days,
@@ -744,6 +775,15 @@ def simulate_buys(paper: dict, pool: List[dict]) -> List[dict]:
         if item.get("hard_reject"):
             item["skip_reason"] = f"硬性拒绝：{item.get('reject_reason') or '未知原因'}"
             continue
+        try:
+            from core.signal.overheat_gate import paper_overheat_block
+
+            oh_block, oh_reason = paper_overheat_block(item)
+            if oh_block:
+                item["skip_reason"] = f"过热闸：{oh_reason or '追高风险'}"
+                continue
+        except Exception:  # noqa: BLE001
+            logger.debug("paper overheat gate in exec skipped", exc_info=True)
         score = item.get("score")
         if score is None or float(score) < min_score:
             item["skip_reason"] = f"评分{score}<{min_score:.1f}，不满足加仓阈值"

@@ -241,10 +241,17 @@ export function buildPaperHoldingsTableHtml({
           h.unit,
           h.currency
         )}</td>` +
-        `<td class="num paper-hold-chg ${metricCls(h.change_pct)}" title="相对昨收">${fmtPct(
-          h.change_pct,
-          { signed: true }
-        )}</td>` +
+        `<td class="num paper-hold-chg has-tip ${metricCls(h.change_pct)}" ` +
+        `data-hold-chg-tip="${escapeText(
+          JSON.stringify({
+            code,
+            name,
+            chg: h.change_pct != null ? Number(h.change_pct) : null,
+            asof: h.change_asof || h.quote_as_of || h.as_of || null,
+          })
+        )}" title="相对昨收 · 悬停看涨跌日5m K">${fmtPct(h.change_pct, {
+          signed: true,
+        })}</td>` +
         `<td class="num paper-hold-score watching-score-eod has-tip ${scoreCls(
           scoreEod
         )}" data-score-detail="${scoreDetailJson}" data-score-tip="eod" title="${escapeText(

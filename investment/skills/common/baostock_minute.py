@@ -1,6 +1,6 @@
-"""BaoStock A 股分钟 K 线（备用源 · 历史深度通常优于东财近月切片）。
+"""BaoStock A 股分钟 K 线（备用源）。
 
-官方：5/15/30/60 分钟约 2020-01-03 至今。前复权 adjustflag=2。
+官方 5/15/30/60 分钟约 2020-01-03 至今；本仓默认只回看 **30 日历日**。前复权 adjustflag=2。
 """
 
 from __future__ import annotations
@@ -292,9 +292,11 @@ def fetch_baostock_minute_bars(
 
 
 def suggest_baostock_start(lookback_days: int) -> str:
-    """按回看交易日粗算日历起点（上限 2020-01-03）。"""
-    days = max(5, int(lookback_days or 90))
-    cal = max(days * 2, 30)
+    """按日历日回看算起点（默认 30 日，上限见策略；再封顶 2020-01-03）。"""
+    from core.data.policy import minute_baostock_lookback_days
+
+    cap = minute_baostock_lookback_days()
+    cal = min(max(5, int(lookback_days or cap)), cap)
     start = datetime.now() - timedelta(days=min(cal, 730))
     start_s = start.strftime("%Y-%m-%d")
     return start_s if start_s >= BAOSTOCK_MINUTE_START else BAOSTOCK_MINUTE_START

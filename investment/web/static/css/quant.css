@@ -5773,6 +5773,13 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   min-width: 8.25rem;
 }
 
+/* 引擎：研究 Top-K / 纸面回放 */
+#quant-bt-engine,
+.quant-pro-field select#quant-bt-engine {
+  width: 9.5rem;
+  min-width: 9.5rem;
+}
+
 .quant-pro-field select:focus {
   outline: none;
   border-color: var(--accent);
@@ -10388,6 +10395,16 @@ body[data-page="quant"] .quant-page .quant-cluster-hub > .quant-kpi-row .quant-k
   background: color-mix(in srgb, var(--accent, #1890ff) 8%, var(--surface));
 }
 
+.quant-page .quant-rem-leg.is-minute {
+  color: color-mix(in srgb, #0d9488 78%, var(--ink));
+  border-color: color-mix(in srgb, #0d9488 32%, var(--line));
+  background: color-mix(in srgb, #0d9488 8%, var(--surface));
+}
+
+.quant-page .quant-rem-leg.is-eod {
+  color: var(--ink-3);
+}
+
 .quant-page .quant-rem-coef-frame {
   border: 1px solid color-mix(in srgb, var(--line) 85%, transparent);
   border-radius: 3px;
@@ -10489,6 +10506,23 @@ body[data-page="quant"] .quant-page .quant-cluster-hub > .quant-kpi-row .quant-k
   gap: 6px;
 }
 
+.quant-page .quant-rem-coef-by-tau {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.quant-page .quant-rem-coef-by-tau-lab {
+  font-size: 0.62rem;
+  font-weight: 650;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-right: 2px;
+}
+
 .quant-page .quant-rem-coef-kpi {
   display: inline-flex;
   flex-direction: column;
@@ -10500,8 +10534,11 @@ body[data-page="quant"] .quant-page .quant-cluster-hub > .quant-kpi-row .quant-k
   background: color-mix(in srgb, var(--ink) 1.2%, var(--surface));
 }
 
-.quant-page .quant-rem-coef-kpi:first-child {
-  min-width: 9.5rem;
+.quant-page .quant-rem-coef-kpi:first-child,
+.quant-page .quant-rem-coef-kpi.is-formula {
+  min-width: min(100%, 22rem);
+  max-width: 100%;
+  flex: 1 1 18rem;
 }
 
 .quant-page .quant-rem-coef-kpi-k {
@@ -10518,11 +10555,21 @@ body[data-page="quant"] .quant-page .quant-cluster-hub > .quant-kpi-row .quant-k
   font-weight: 700;
   font-variant-numeric: tabular-nums;
   color: var(--ink);
-  line-height: 1.2;
+  line-height: 1.25;
   max-width: 11rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.quant-page .quant-rem-coef-kpi.is-formula .quant-rem-coef-kpi-v {
+  max-width: none;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+  word-break: break-all;
+  font-size: 0.72rem;
+  font-weight: 650;
 }
 
 .quant-page .quant-rem-coef-chart {
@@ -10685,6 +10732,12 @@ body[data-page="quant"] .quant-page .quant-cluster-hub > .quant-kpi-row .quant-k
   color: color-mix(in srgb, var(--accent, #1890ff) 80%, var(--ink));
   border-color: color-mix(in srgb, var(--accent, #1890ff) 35%, var(--line));
   background: color-mix(in srgb, var(--accent, #1890ff) 10%, var(--surface));
+}
+
+.quant-page .quant-rem-kind-chip.is-minute {
+  color: color-mix(in srgb, #0d9488 78%, var(--ink));
+  border-color: color-mix(in srgb, #0d9488 35%, var(--line));
+  background: color-mix(in srgb, #0d9488 10%, var(--surface));
 }
 
 .quant-page .quant-rem-kind-chip.is-eod {

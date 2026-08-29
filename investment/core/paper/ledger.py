@@ -80,6 +80,15 @@ def mutate_paper(
 
 
 def _now_iso() -> str:
+    """当前时间；纸面回放上下文内固定为会话日开盘，保证 T+1 lots 日期正确。"""
+    try:
+        from core.paper.replay_ctx import replay_as_of
+
+        day = replay_as_of()
+        if day:
+            return f"{day}T09:30:00.000"
+    except Exception:  # noqa: BLE001 — 回放时钟不可用时回退真实时间
+        logger.debug("replay_as_of for _now_iso failed", exc_info=True)
     return datetime.now().isoformat(timespec="milliseconds")
 
 

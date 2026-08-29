@@ -6,11 +6,13 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
+from core.data.policy import MINUTE_EM_LOOKBACK_DAYS, MINUTE_WARMUP_READY_MIN_SPAN_DAYS
+
 logger = logging.getLogger(__name__)
 
 DEFAULT_MINUTE_PERIOD = "5"
-DEFAULT_MIN_SPAN_DAYS = 40
-DEFAULT_LOOKBACK_DAYS = 120
+DEFAULT_MIN_SPAN_DAYS = MINUTE_WARMUP_READY_MIN_SPAN_DAYS
+DEFAULT_LOOKBACK_DAYS = MINUTE_EM_LOOKBACK_DAYS
 
 
 def _resolve_watching_codes(*, watching_limit: int = 100) -> List[str]:
@@ -135,7 +137,8 @@ def build_cluster_minute_status(
     missing = 0
     stale = 0
     spans: List[int] = []
-    span_buckets: Dict[str, int] = {"≥90d": 0, "40–89d": 0, "<40d": 0}
+    short_label = f"<{min_span}d"
+    span_buckets: Dict[str, int] = {short_label: 0}
 
     now = datetime.now()
     stale_cutoff = now - timedelta(hours=max(1.0, float(stale_hours or 24.0)))
@@ -159,13 +162,9 @@ def build_cluster_minute_status(
             stale += 1
         if span >= min_span:
             cached_ok += 1
-            if span >= 90:
-                span_buckets["≥90d"] += 1
-            else:
-                span_buckets["40–89d"] += 1
         else:
             short += 1
-            span_buckets["<40d"] += 1
+            span_buckets[short_label] += 1
 
     total = len(codes)
     spans_sorted = sorted(spans)
@@ -229,10 +228,12 @@ def refresh_cluster_minute_only(
 ) -> Dict[str, Any]:
     """预热观察池 5m 分钟线（研究枢纽 UI；不占用 schedule slot）。"""
     from core.schedule_jobs import _minute_warmup_core
+    from core.data.policy import minute_em_lookback_days
 
     limit = max(1, int(watching_limit or 100))
     period_s = str(period or DEFAULT_MINUTE_PERIOD)
-    lb = min(max(int(lookback_days or DEFAULT_LOOKBACK_DAYS), 20), 120)
+    cap = minute_em_lookback_days()
+    lb = min(max(int(lookback_days or DEFAULT_LOOKBACK_DAYS), 5), cap)
     codes = _resolve_watching_codes(watching_limit=limit)
     n_codes = len(codes)
     if n_codes < 1:

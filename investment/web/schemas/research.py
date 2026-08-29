@@ -61,7 +61,7 @@ class TauRidgeRequest(BaseModel):
     note: str = Field(default="", max_length=200)
     tau_hm: Optional[str] = Field(
         default=None,
-        description="open | 09:45；缺省跟随 dual_score.enable_minute_tau",
+        description="open | 09:45 | 10:30；缺省跟随 dual_score.enable_minute_tau / minute_tau_hm",
         max_length=8,
     )
 
@@ -91,7 +91,7 @@ class OnRidgeRequest(BaseModel):
 
 
 class PathRidgeRequest(BaseModel):
-    """分钟第一触达顺序 Ridge（做 T dual_y · y_path 选向）。"""
+    """ŷ_path Ridge：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序（dual_y · y_path）。"""
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
@@ -245,9 +245,9 @@ class ClusterMinuteRefreshRequest(BaseModel):
     """观察池 5m 分钟线预热（ŷ_path / T0 回测）。"""
 
     period: str = Field(default="5", description="分钟周期；默认 5m")
-    lookback_days: int = Field(default=120, ge=20, le=120)
+    lookback_days: int = Field(default=30, ge=5, le=90)
     watching_limit: int = Field(default=100, ge=3, le=100)
-    min_span_days: int = Field(default=40, ge=10, le=120)
+    min_span_days: int = Field(default=30, ge=10, le=120)
     sync: bool = Field(
         default=False,
         description="true=同步跑（单测）；默认入队 Job，轮询 GET /api/jobs/cluster-minute-refresh",

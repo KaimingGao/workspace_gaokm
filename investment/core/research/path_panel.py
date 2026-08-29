@@ -1,12 +1,12 @@
-"""ŷ_path 训练面板：开盘特征 → 分钟极值**时间序**（与 y_τ 同尺度 %）。
+"""ŷ_path 训练面板：与 ŷ_τ 同因子集（开盘 Z + 早盘前缀分钟小包）→ 全日极值时间序。
 
 标签（相对锚价 ref 的百分点）：
-  先 low 后 high → y_path = (high−low)/ref×100  （等价 (high−open)−(low−open) 再除以 ref）
+  先 low 后 high → y_path = (high−low)/ref×100
   先 high 后 low → y_path = (low−high)/ref×100
 
 ``first_touch_path_label`` 保留供触价对照；训练与 path实 用 ``extreme_order_path_label``。
 
-无未来函数：特征仅用 T 开盘信息集（与 τ 头 / score_t0_direction 同源）。
+无未来函数：特征 = 开盘信息集 + ≤τ（默认 10:30）分钟前缀；标签可用全日分钟极值序。
 """
 
 from __future__ import annotations
@@ -17,15 +17,18 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 logger = logging.getLogger(__name__)
 
 from core.research.tau_panel import (
-    GAP_ATR_WINDOW,
+    DEFAULT_MINUTE_TAU_GRID,
     attach_cross_section_breadth,
     collect_tau_open_panel,
     hist_bars_pit,
     mom3_pct_from_hist,
+    normalize_minute_tau_grid,
     yclose_loc_from_prev,
 )
+from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS, extract_minute_tau_pack
 
-PATH_Z_FEATURES = (
+# 与 ŷ_τ 开盘 Z 同源；分钟小包同属做 T 早盘前缀信息集（默认 τ=10:30）
+PATH_OPEN_FEATURES = (
     "gap_pct",
     "sector_gap_breadth",
     "theme_day",
@@ -34,6 +37,11 @@ PATH_Z_FEATURES = (
     "yclose_loc",
     "mom3_pct",
 )
+PATH_Z_FEATURES = PATH_OPEN_FEATURES + MINUTE_TAU_ALL_KEYS
+# 做 T 固定前缀默认齐窗 ≈10:30（与 y_path_abandon_bars=12 / minute_tau_hm 对齐）
+DEFAULT_PATH_MINUTE_TAU_HM = "10:30"
+# 训练多 τ 默认网格（与 dual_score.minute_tau_grid / τ 头一致）
+DEFAULT_PATH_TAU_GRID = DEFAULT_MINUTE_TAU_GRID
 
 
 def _f(x: Any) -> Optional[float]:
@@ -312,11 +320,13 @@ def path_features_from_open_row(
     hist: Optional[Sequence[dict]] = None,
     prev_bar: Optional[dict] = None,
 ) -> Dict[str, Optional[float]]:
-    """从 τ 开盘行 + 历史补 yclose_loc / mom3。"""
+    """从 τ 开盘/前缀行补齐 PATH_Z（含分钟小包键；缺则 None）。"""
     out: Dict[str, Optional[float]] = {}
     for k in PATH_Z_FEATURES:
         if k in row:
             out[k] = _f(row.get(k))
+        else:
+            out[k] = None
     open_px = _f(row.get("open"))
     if open_px is None:
         open_px = _f(row.get("open_px"))
@@ -324,6 +334,45 @@ def path_features_from_open_row(
         out["yclose_loc"] = _yclose_loc(prev_bar, float(open_px))
     if out.get("mom3_pct") is None and hist:
         out["mom3_pct"] = _mom3_pct(hist)
+    return out
+
+
+def _normalize_path_tau_hm(raw: Any) -> str:
+    s = str(raw or "").strip()
+    if not s:
+        return DEFAULT_PATH_MINUTE_TAU_HM
+    if ":" in s:
+        return s[:5]
+    digits = "".join(ch for ch in s if ch.isdigit())
+    if len(digits) >= 4:
+        return f"{digits[:2]}:{digits[2:4]}"
+    return DEFAULT_PATH_MINUTE_TAU_HM
+
+
+def attach_path_minute_feats(
+    feats: dict,
+    *,
+    minute_bars: Sequence[dict],
+    trade_date: str,
+    open_px: Optional[float] = None,
+    prev_close: Optional[float] = None,
+    tau_hm: Any = None,
+) -> Dict[str, Optional[float]]:
+    """写入 ≤τ 分钟小包（与 ŷ_τ enable_minute_tau 同源）；已有非空键不覆盖。"""
+    out = dict(feats or {})
+    hm = _normalize_path_tau_hm(tau_hm)
+    pack = extract_minute_tau_pack(
+        minute_bars,
+        trade_date=str(trade_date or "")[:10],
+        tau_hm=hm,
+        open_px=open_px,
+        prev_close=prev_close,
+    )
+    for k in MINUTE_TAU_ALL_KEYS:
+        if out.get(k) is not None:
+            continue
+        if k in pack and pack.get(k) is not None:
+            out[k] = _f(pack.get(k))
     return out
 
 
@@ -336,8 +385,9 @@ def collect_path_day_sample(
     tau_row: Optional[dict] = None,
     sell_trig_pct: float = 2.0,
     buy_trig_pct: float = 1.5,
+    minute_tau_hm: Any = None,
 ) -> Optional[Dict[str, Any]]:
-    """单日：开盘特征 + 分钟极值时间序标签（先 low→high 为正）。"""
+    """单日：开盘 Z + 早盘前缀分钟小包 + 全日极值时间序标签。"""
     if not isinstance(day_bar, dict):
         return None
     daily_open = _f(day_bar.get("open"))
@@ -367,6 +417,21 @@ def collect_path_day_sample(
         gap_open = daily_open if daily_open and daily_open > 0 else ref
         if pc and gap_open:
             feats["gap_pct"] = round((float(gap_open) / float(pc) - 1.0) * 100.0, 4)
+    dkey = str(day_bar.get("date") or "")[:10]
+    pc_feat = _f(day_bar.get("prev_close"))
+    if pc_feat is None and prev:
+        pc_feat = _f(prev.get("close"))
+    hm = minute_tau_hm
+    if hm is None and isinstance(tau_row, dict):
+        hm = tau_row.get("tau_hm") or tau_row.get("as_of_tau")
+    feats = attach_path_minute_feats(
+        feats,
+        minute_bars=minute_bars,
+        trade_date=dkey,
+        open_px=float(ref),
+        prev_close=pc_feat,
+        tau_hm=hm,
+    )
     label, reason = extreme_order_path_label(
         minute_bars,
         ref=ref,
@@ -381,7 +446,7 @@ def collect_path_day_sample(
     )
     return {
         "code": str(code or "").strip(),
-        "date": str(day_bar.get("date") or "")[:10],
+        "date": dkey,
         "features": feats,
         "label": label,
         "label_reason": reason,
@@ -389,6 +454,7 @@ def collect_path_day_sample(
         "ref": float(ref),
         "ref_src": ref_src,
         "ref_mismatch_pct": ref_mismatch_pct,
+        "minute_tau_hm": _normalize_path_tau_hm(hm),
     }
 
 
@@ -400,9 +466,27 @@ def build_path_panels_from_bars(
     buy_trig_pct: float = 1.5,
     min_history: int = 12,
     gap_trigger_pct: float = 2.0,
+    minute_tau_hm: Any = None,
+    tau_grid: Optional[Sequence[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """批量：每票日线 + 可选 ``{code: {date: minute_bars}}``。"""
+    """批量：每票日线 + 可选 ``{code: {date: minute_bars}}``。
+
+    特征与 ŷ_τ 对齐（开盘 Z + ≤τ 分钟小包）；标签仍用全日极值序。
+    ``tau_grid`` 非空：同日多 τ 各一行、标签相同、共享 β（与 τ 头变长前缀同款）。
+    ``tau_grid is None``：单点 ``minute_tau_hm``（默认 10:30）。
+    """
     minute_map = minute_by_code_date if isinstance(minute_by_code_date, dict) else {}
+    if tau_grid is not None:
+        clocks = normalize_minute_tau_grid(
+            tau_hm=minute_tau_hm or DEFAULT_PATH_MINUTE_TAU_HM,
+            tau_grid=tau_grid,
+        )
+    else:
+        clocks = [
+            _normalize_path_tau_hm(
+                minute_tau_hm if minute_tau_hm is not None else DEFAULT_PATH_MINUTE_TAU_HM
+            )
+        ]
     enriched: List[Dict[str, Any]] = []
     for pack in stock_bars or []:
         if not isinstance(pack, dict):
@@ -434,31 +518,36 @@ def build_path_panels_from_bars(
             if not mins:
                 continue
             hist = bars[:i]
-            sample = collect_path_day_sample(
-                code=code,
-                day_bar=day,
-                hist_bars=hist,
-                minute_bars=mins,
-                tau_row=tau_by_date.get(dkey),
-                sell_trig_pct=sell_trig_pct,
-                buy_trig_pct=buy_trig_pct,
-            )
-            if not sample:
-                continue
-            xs_out.append(sample["features"])
-            ys_out.append(float(sample["label"]))
-            dates_out.append(dkey)
-            metas_out.append(
-                {
-                    "code": code,
-                    "stock_code": code,
-                    "date": dkey,
-                    "label_reason": sample.get("label_reason"),
-                    "gap_pct": sample["features"].get("gap_pct"),
-                    "ref_src": sample.get("ref_src"),
-                    "ref_mismatch_pct": sample.get("ref_mismatch_pct"),
-                }
-            )
+            for hm in clocks:
+                sample = collect_path_day_sample(
+                    code=code,
+                    day_bar=day,
+                    hist_bars=hist,
+                    minute_bars=mins,
+                    tau_row=tau_by_date.get(dkey),
+                    sell_trig_pct=sell_trig_pct,
+                    buy_trig_pct=buy_trig_pct,
+                    minute_tau_hm=hm,
+                )
+                if not sample:
+                    continue
+                xs_out.append(sample["features"])
+                ys_out.append(float(sample["label"]))
+                dates_out.append(dkey)
+                metas_out.append(
+                    {
+                        "code": code,
+                        "stock_code": code,
+                        "date": dkey,
+                        "tau": sample.get("minute_tau_hm") or hm,
+                        "minute_tau_hm": sample.get("minute_tau_hm") or hm,
+                        "label_reason": sample.get("label_reason"),
+                        "gap_pct": sample["features"].get("gap_pct"),
+                        "ref_src": sample.get("ref_src"),
+                        "ref_mismatch_pct": sample.get("ref_mismatch_pct"),
+                        "ret_open_to_tau": sample["features"].get("ret_open_to_tau"),
+                    }
+                )
         if xs_out:
             enriched.append(
                 {

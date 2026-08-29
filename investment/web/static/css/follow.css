@@ -560,13 +560,13 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 }
 
 .paper-hold-t0-badge.is-long {
-  color: color-mix(in srgb, var(--up, #c0392b) 88%, var(--ink));
-  border-color: color-mix(in srgb, var(--up, #c0392b) 35%, var(--line));
+  color: color-mix(in srgb, var(--down, #16a34a) 88%, var(--ink));
+  border-color: color-mix(in srgb, var(--down, #16a34a) 35%, var(--line));
 }
 
 .paper-hold-t0-badge.is-rev {
-  color: color-mix(in srgb, var(--accent, #2563eb) 88%, var(--ink));
-  border-color: color-mix(in srgb, var(--accent, #2563eb) 35%, var(--line));
+  color: color-mix(in srgb, var(--up, #c0392b) 88%, var(--ink));
+  border-color: color-mix(in srgb, var(--up, #c0392b) 35%, var(--line));
 }
 
 .paper-hold-t0-badge.is-leg1 {
@@ -2390,13 +2390,13 @@ body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react
 }
 
 .paper-t0-spec-tau-act.is-long {
-  color: #1e40af;
-  background: color-mix(in srgb, #3b82f6 12%, transparent);
+  color: #047857;
+  background: color-mix(in srgb, #059669 12%, transparent);
 }
 
 .paper-t0-spec-tau-act.is-reverse {
-  color: #92400e;
-  background: color-mix(in srgb, #f59e0b 12%, transparent);
+  color: #b91c1c;
+  background: color-mix(in srgb, #dc2626 12%, transparent);
 }
 
 .paper-t0-spec-gauge-track {
@@ -3237,6 +3237,84 @@ body[data-page="follow"] .follow-ops-t0 {
 .paper-t0-skip-tip-foot {
   margin: 0;
   font-size: 0.64rem;
+  line-height: 1.35;
+  color: #94a3b8;
+}
+
+/* 做T成交「过程」列 tip：链路文案 + 5m 迷你 K */
+.score-tooltip.paper-t0-process-tip {
+  max-width: min(460px, calc(100vw - 24px));
+  padding: 12px 14px;
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
+}
+
+.paper-t0-process-tip-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.paper-t0-process-tip-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.paper-t0-process-tip-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #0f766e;
+  background: rgba(15, 118, 110, 0.1);
+}
+
+.paper-t0-process-tip-eyebrow {
+  font-size: 0.64rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.paper-t0-process-tip-lead {
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--ink-2, #475569);
+  word-break: break-word;
+}
+
+.paper-t0-process-tip-chart {
+  margin: 2px 0 0;
+  border: 1px solid var(--line, #e2e8f0);
+  border-radius: 6px;
+  background: #fafbfc;
+  overflow: hidden;
+  line-height: 0;
+}
+
+.paper-t0-process-kline {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+
+.paper-t0-process-tip-empty {
+  margin: 0;
+  padding: 18px 10px;
+  text-align: center;
+  font-size: 0.72rem;
+  color: #94a3b8;
+  line-height: 1.35;
+}
+
+.paper-t0-process-tip-foot {
+  margin: 0;
+  font-size: 0.62rem;
   line-height: 1.35;
   color: #94a3b8;
 }
@@ -4476,14 +4554,14 @@ body[data-page="follow"] .paper-t0-table {
 .paper-t0-col-nc { width: 82px; min-width: 82px; }
 .paper-t0-col-nc-oc { width: 82px; min-width: 82px; }
 .paper-t0-table col.paper-t0-col-process {
-  width: 272px;
+  width: 320px;
 }
 
 .paper-t0-table th.paper-t0-col-process,
 .paper-t0-table td.paper-t0-col-process {
-  width: 272px;
-  min-width: 272px;
-  max-width: 272px;
+  width: 320px;
+  min-width: 320px;
+  max-width: 320px;
   text-align: left;
   padding-left: 8px;
   padding-right: 8px;
@@ -4506,96 +4584,6 @@ body[data-page="follow"] .paper-t0-table {
   border-radius: 999px;
 }
 
-.paper-t0-row-gate-expandable {
-  cursor: pointer;
-}
-
-.paper-t0-row-gate-expandable:hover td {
-  background: color-mix(in srgb, var(--accent) 6%, transparent);
-}
-
-.paper-t0-col-date-expand {
-  white-space: nowrap;
-}
-
-.paper-t0-expand-icon {
-  display: inline-block;
-  width: 1em;
-  margin-right: 4px;
-  color: var(--ink-3);
-  font-size: 11px;
-  vertical-align: middle;
-}
-
-.paper-t0-row-gate-expandable.is-gate-expanded .paper-t0-expand-icon {
-  color: var(--accent);
-}
-
-.paper-t0-gate-trace-row > td {
-  padding: 0 8px 10px;
-  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
-}
-
-.paper-t0-gate-trace {
-  padding: 8px 4px 4px;
-}
-
-.paper-t0-gate-trace-cap {
-  margin: 0 0 6px;
-  font-size: 12px;
-  color: var(--ink-2);
-}
-
-.paper-t0-gate-trace-mode {
-  font-family: var(--font-mono, ui-monospace, monospace);
-  color: var(--accent);
-}
-
-.paper-t0-gate-trace-scroll {
-  overflow-x: auto;
-}
-
-.paper-t0-gate-trace-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 11px;
-  font-variant-numeric: tabular-nums;
-}
-
-.paper-t0-gate-trace-table th,
-.paper-t0-gate-trace-table td {
-  padding: 3px 6px;
-  border-bottom: 1px solid color-mix(in srgb, var(--line) 55%, transparent);
-  text-align: center;
-  white-space: nowrap;
-}
-
-.paper-t0-gate-trace-table th {
-  color: var(--ink-3);
-  font-weight: 500;
-}
-
-.paper-t0-gate-trace-table tr.is-ready td {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.paper-t0-gate-trace-table tr.is-blocked td {
-  background: color-mix(in srgb, var(--warn) 12%, transparent);
-}
-
-.paper-t0-gate-trace-table tr.is-fill td {
-  background: color-mix(in srgb, var(--ok) 14%, transparent);
-  font-weight: 600;
-}
-
-.paper-t0-gate-trace-table tr.is-pm-block td {
-  background: color-mix(in srgb, var(--warn) 10%, transparent);
-}
-
-.paper-t0-gate-trace-foot {
-  margin: 6px 0 0;
-}
 
 .paper-t0-col-ret {
   width: 76px;
@@ -9470,15 +9458,15 @@ body[data-page="follow"] .paper-t0-desk-dir {
 }
 
 body[data-page="follow"] .paper-t0-desk-dir.is-long {
-  color: var(--quant-up, #dc2626);
-  border-color: color-mix(in srgb, var(--quant-up, #dc2626) 35%, var(--border));
-  background: color-mix(in srgb, var(--quant-up, #dc2626) 8%, var(--surface));
-}
-
-body[data-page="follow"] .paper-t0-desk-dir.is-rev {
   color: var(--quant-down, #16a34a);
   border-color: color-mix(in srgb, var(--quant-down, #16a34a) 35%, var(--border));
   background: color-mix(in srgb, var(--quant-down, #16a34a) 8%, var(--surface));
+}
+
+body[data-page="follow"] .paper-t0-desk-dir.is-rev {
+  color: var(--quant-up, #dc2626);
+  border-color: color-mix(in srgb, var(--quant-up, #dc2626) 35%, var(--border));
+  background: color-mix(in srgb, var(--quant-up, #dc2626) 8%, var(--surface));
 }
 
 body[data-page="follow"] .paper-t0-desk-dir.is-none {

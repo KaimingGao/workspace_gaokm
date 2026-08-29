@@ -3,6 +3,7 @@ import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "../l
 import { mountVirtualTable } from "../virtual_table.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
 import { renderT0Viz, wireT0SkipTips } from "../paper/t0_viz.js";
+import { wireT0ProcessTips } from "../paper/t0_table.js?v=p1641";
 import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringFloors } from "./scoring.js";
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { downloadBlob } from "../shared.js";
@@ -561,6 +562,7 @@ export function installBacktest(q) {
     const stEl = document.getElementById("quant-exclude-st");
     const amtEl = document.getElementById("quant-min-amount-pctile");
     const benchEl = document.getElementById("quant-benchmark-code");
+    const engEl = document.getElementById("quant-bt-engine");
     let lookback = 120;
     let topK = 3;
     let weightMode = "score_budget";
@@ -568,6 +570,7 @@ export function installBacktest(q) {
     let excludeSt = true;
     let minAvgAmountPctile = null;
     let benchmarkCode = "000300";
+    let engine = "topk_research";
     if (lbEl && lbEl.value !== "") {
       const n = Number(lbEl.value);
       if (Number.isFinite(n)) lookback = Math.max(40, Math.min(500, Math.round(n)));
@@ -595,6 +598,10 @@ export function installBacktest(q) {
       const allowedB = new Set(["000300", "000905", "399006", "pool"]);
       if (allowedB.has(String(benchEl.value))) benchmarkCode = String(benchEl.value);
     }
+    if (engEl && engEl.value) {
+      const allowedE = new Set(["topk_research", "paper_replay"]);
+      if (allowedE.has(String(engEl.value))) engine = String(engEl.value);
+    }
     const rankMode = "predicted_score";
     return {
       lookback,
@@ -606,6 +613,7 @@ export function installBacktest(q) {
       min_avg_amount_pctile: minAvgAmountPctile,
       benchmark_code: benchmarkCode,
       rank_mode: rankMode,
+      engine,
     };
   }
 
@@ -960,6 +968,15 @@ export function installBacktest(q) {
     if (els.quantT0Viz && btSimScoreTips) {
       wireT0SkipTips(els.quantT0Viz, btSimScoreTips);
     }
+    if (els.quantT0Days && btSimScoreTips) {
+      wireT0ProcessTips(els.quantT0Days, btSimScoreTips);
+      if (els.quantT0Days.dataset.scoreTipWired !== "1") {
+        btSimScoreTips.bindHost(els.quantT0Days, {
+          scoreSelector:
+            ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail]",
+        });
+      }
+    }
   }
 
   function renderUniversePanel(uni) {
@@ -1272,10 +1289,6 @@ export function installBacktest(q) {
 
   async function runPortfolioBacktest() {
     const watchN = Object.keys(state.watchingNameByCode || {}).length;
-    const busyBase =
-      watchN >= 40
-        ? `Top-K 回测中（观察池约 ${watchN} 只 · 已跳过 IC/分层/WF；lookback/horizon 越大越慢）…`
-        : "Top-K 回测中（先读本地日线，缺的再补远端；已跳过 IC/分层）…";
     const started = Date.now();
     const fmtElapsed = () => {
       const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
@@ -1283,10 +1296,10 @@ export function installBacktest(q) {
         ? `${sec}s`
         : `${Math.floor(sec / 60)}m${String(sec % 60).padStart(2, "0")}s`;
     };
-    setQuantBtBusy(true, `${busyBase} ${fmtElapsed()}`);
-    const tick = setInterval(() => {
-      setQuantBtBusy(true, `${busyBase} ${fmtElapsed()}`);
-    }, 1000);
+    let busyBase = "回测中…";
+    const refreshBusy = () => setQuantBtBusy(true, `${busyBase} ${fmtElapsed()}`);
+    refreshBusy();
+    const tick = setInterval(refreshBusy, 1000);
     try {
       await ensureScoringFloors();
       const {
@@ -1299,7 +1312,15 @@ export function installBacktest(q) {
         min_avg_amount_pctile,
         benchmark_code,
         rank_mode,
+        engine,
       } = readPortfolioBtParams();
+      const engLabel =
+        engine === "paper_replay" ? "纸面回放" : "研究 Top-K";
+      busyBase =
+        watchN >= 40
+          ? `${engLabel}中（观察池约 ${watchN} 只 · lookback/horizon 越大越慢）…`
+          : `${engLabel}中（先读本地日线，缺的再补远端）…`;
+      refreshBusy();
       const payload = {
         lookback,
         top_k,
@@ -1313,12 +1334,13 @@ export function installBacktest(q) {
         min_avg_amount_pctile,
         benchmark_code,
         rank_mode,
+        engine: engine || "topk_research",
         // 大池交互回测：关 WF / 零成本 / 截面 IC / 分层（各再跑一遍横截面，易超前端超时）
         include_wf_slices: false,
         include_cost_compare: false,
         include_score_ic: false,
         include_quantile: false,
-        include_benchmark: true,
+        include_benchmark: engine !== "paper_replay",
       };
       const ctrl = typeof AbortController !== "undefined" ? new AbortController() : null;
       // 满池 × lookback120 × horizon1 可 >10min；留 20min 余量

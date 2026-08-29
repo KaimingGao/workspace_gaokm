@@ -40,9 +40,9 @@ IC_KIND_META: Dict[str, Dict[str, str]] = {
         "note": "概览展示用；不是 OOS，不可做人审 promote 唯一依据。",
     },
     "tau_spearman": {
-        "label": "τ/rem Spearman",
+        "label": "τ Spearman",
         "role": "aux_tau",
-        "note": "盘中剩余收益头；与 EOD 主 IC 分轨，勿并排成同一数字。",
+        "note": "ŷ_τ 头 IC；与 EOD 主 IC 分轨，勿并排成同一数字。",
     },
 }
 

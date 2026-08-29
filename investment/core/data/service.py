@@ -157,7 +157,7 @@ class MarketDataService:
         code: str,
         *,
         period: str = "5",
-        lookback_days: int = 90,
+        lookback_days: int = 30,
         use_cache: bool = True,
         max_age_hours: float = MINUTE_CACHE_HOURS,
     ) -> DataEnvelope:
@@ -166,7 +166,7 @@ class MarketDataService:
             packed = self.ports.minute.fetch_minute(
                 raw,
                 period=str(period or "5"),
-                lookback_days=int(lookback_days or 90),
+                lookback_days=int(lookback_days or 30),
                 use_cache=bool(use_cache),
                 max_age_hours=float(max_age_hours or MINUTE_CACHE_HOURS),
             )
@@ -213,7 +213,7 @@ class MarketDataService:
                 "bar_count": len(bar_list),
                 "period": str(period or "5"),
                 "meta": meta,
-                "note": "分钟缓存/拉取；供 ŷ_τ@09:45 等；非 EOD 主轴。",
+                "note": "分钟缓存/拉取；供 ŷ_τ@10:30（≈12×5m）等；非 EOD 主轴。",
             },
             data_source=str(meta.get("data_source") or "minute"),
             fetched_at=datetime.now().isoformat(timespec="seconds"),
@@ -222,7 +222,7 @@ class MarketDataService:
                 bar_count=len(bar_list),
             ),
             non_pit=True,
-            note="分钟缓存/拉取；供 ŷ_τ@09:45 等；非 EOD 主轴。",
+            note="分钟缓存/拉取；供 ŷ_τ@10:30（≈12×5m）等；非 EOD 主轴。",
             production_ok=False,
             gate_reason="minute_non_pit" if ok else "minute_empty",
         )

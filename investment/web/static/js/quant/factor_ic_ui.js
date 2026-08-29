@@ -101,11 +101,19 @@ export function createFactorIcUi(deps) {
         r.label ||
         name;
       if (r.description) {
+        const prev = factorMetaByName[name] || {};
+        const tax = classifyFactor(name, prev);
         factorMetaByName[name] = {
-          ...(factorMetaByName[name] || {}),
+          ...prev,
           name,
           label: label !== name ? label : meta0.label || label,
           description: r.description,
+          family: tax.family,
+          family_label: tax.familyLabel,
+          family_tip: tax.familyTip,
+          source: tax.source,
+          source_label: tax.sourceLabel,
+          source_note: tax.sourceNote,
         };
         const lab = factorMetaByName[name].label;
         if (lab) factorMetaByLabel[lab] = factorMetaByName[name];
@@ -322,8 +330,23 @@ export function createFactorIcUi(deps) {
     theme_day: "主题日",
     gap_atr: "缺口 / ATR",
     gap_vs_sector: "行业相对缺口",
+    yclose_loc: "昨收位置",
+    mom3_pct: "近3日动量 %",
     ret_open_to_tau: "开盘→τ 收益 %",
+    ret_prev_to_tau: "昨收→τ 收益 %",
+    range_pct: "前缀振幅 %",
+    loc_hl: "HL 位置",
+    up_extent: "相对开盘上探 %",
+    down_extent: "相对开盘下探 %",
+    path_sign: "路径符号",
+    pullback_from_high: "自高回撤 %",
+    bounce_from_low: "自低反弹 %",
+    ret_last_15m: "近15m 收益 %",
+    realized_vol: "前缀已实现波动 %",
+    vol_last3_vs_avg: "近3根量/均量",
+    tau_elapsed_min: "τ距开盘分钟",
     sector_ret_to_tau: "板块中位开→τ %",
+    ret_vs_sector: "开→τ 相对板块 %",
     ret_oc: "开→收 %",
     ret_cc: "收→收 %",
     y_on_today: "今开/昨开 %",
@@ -380,15 +403,32 @@ export function createFactorIcUi(deps) {
       (rm.zscore_stds && typeof rm.zscore_stds === "object" && rm.zscore_stds) ||
       (rm.z_stds && typeof rm.z_stds === "object" && rm.z_stds) ||
       {};
-    const remExtra = new Set([
+    const remOpenExtra = new Set([
       "gap_pct",
       "open_gap",
       "sector_gap_breadth",
       "theme_day",
       "gap_atr",
       "gap_vs_sector",
+      "yclose_loc",
+      "mom3_pct",
+    ]);
+    const remMinuteExtra = new Set([
       "ret_open_to_tau",
+      "ret_prev_to_tau",
+      "range_pct",
+      "loc_hl",
+      "up_extent",
+      "down_extent",
+      "path_sign",
+      "pullback_from_high",
+      "bounce_from_low",
+      "ret_last_15m",
+      "realized_vol",
+      "vol_last3_vs_avg",
+      "tau_elapsed_min",
       "sector_ret_to_tau",
+      "ret_vs_sector",
     ]);
     const onExtra = new Set([
       "ret_oc",
@@ -410,7 +450,6 @@ export function createFactorIcUi(deps) {
       "yclose_loc",
       "mom3_pct",
     ]);
-    const zExtra = isPath ? pathExtra : isOn ? onExtra : remExtra;
     const activeList = Array.isArray(rm.active_features)
       ? rm.active_features.map(String)
       : Object.keys(coefs);
@@ -427,13 +466,26 @@ export function createFactorIcUi(deps) {
           stds[name] != null && Number.isFinite(Number(stds[name]))
             ? Number(stds[name])
             : null;
-        const inZ = zExtra.has(name);
+        let kind;
+        if (isPath) {
+          if (remMinuteExtra.has(name)) kind = "分钟";
+          else if (pathExtra.has(name) || remOpenExtra.has(name)) kind = "开盘";
+          else kind = "其它";
+        } else if (isOn) {
+          kind = onExtra.has(name) ? "路径" : "其它";
+        } else if (remMinuteExtra.has(name)) {
+          kind = "分钟";
+        } else if (remOpenExtra.has(name)) {
+          kind = "开盘";
+        } else {
+          kind = "日线";
+        }
         return {
           name,
           label: remFactorDisplayLabel(name),
           ols,
           abs: Math.abs(ols),
-          kind: isPath ? (inZ ? "路径" : "其它") : isOn ? (inZ ? "路径" : "其它") : inZ ? "开盘" : "日线",
+          kind,
           mu,
           sd,
           scanHot: Math.abs(ols) >= 0.05,
@@ -486,12 +538,15 @@ export function createFactorIcUi(deps) {
           : "close[T]/open[T]-1");
     const oos = opts.oos || {};
     const openN = rows.filter((r) => r.kind === "开盘" || r.kind === "路径").length;
+    const minuteN = rows.filter((r) => r.kind === "分钟").length;
     const posN = rows.filter((r) => r.ols >= 0).length;
     const negN = rows.length - posN;
     const yhatTag = isPath ? "ŷ_path" : isOn ? "ŷ_ON" : "ŷ_τ";
 
-    const kpi = (label, value, tip) =>
-      `<span class="quant-rem-coef-kpi" title="${esc(tip || label)}">` +
+    const kpi = (label, value, tip, extraClass) =>
+      `<span class="quant-rem-coef-kpi${
+        extraClass ? ` ${extraClass}` : ""
+      }" title="${esc(tip || String(value) || label)}">` +
       `<span class="quant-rem-coef-kpi-k">${esc(label)}</span>` +
       `<span class="quant-rem-coef-kpi-v">${esc(String(value))}</span>` +
       `</span>`;
@@ -505,7 +560,7 @@ export function createFactorIcUi(deps) {
       `<div class="quant-rem-coef-kpis" role="group" aria-label="${esc(
         isPath ? "path 模型摘要" : isOn ? "on 模型摘要" : "τ 模型摘要"
       )}">` +
-      kpi("标签", ySpec, `${yhatTag} 训练标签`) +
+      kpi("标签", ySpec, `${yhatTag} 训练标签 · ${ySpec}`, "is-formula") +
       (intercept != null ? kpi("截距", intercept.toFixed(3), "模型截距（%）") : "") +
       (nFmt != null ? kpi("样本 n", nFmt, "入模观测数") : "") +
       (r2 != null ? kpi("R²", r2.toFixed(3), "样本内拟合优度") : "") +
@@ -530,14 +585,50 @@ export function createFactorIcUi(deps) {
         "入模",
         `${rows.length}`,
         isPath
-          ? `路径 ${openN}`
+          ? `开盘 ${openN} · 分钟 ${minuteN}`
           : isOn
             ? `路径 ${openN}`
-            : `开盘 ${openN} · 日线 ${rows.length - openN}`
+            : `开盘 ${openN} · 分钟 ${minuteN} · 其它 ${rows.length - openN - minuteN}`
       ) +
       kpi("β±", `${posN}/${negN}`, "正系数 / 负系数个数") +
       (exclN > 0 ? kpi("省略", exclN, "未入模因子已隐藏") : "") +
       `</div>`;
+
+    const byTau = oos.by_tau && typeof oos.by_tau === "object" ? oos.by_tau : null;
+    const byTauKeys = byTau
+      ? Object.keys(byTau).filter((k) => byTau[k] && Number(byTau[k].n) > 0)
+      : [];
+    const byTauTip = isPath
+      ? "极值序标签下 τ 越晚特征更贴标签，命中易虚高；优先分档对照，live 仍用决策钟"
+      : "OC 标签下 τ 越晚命中通常越高（开→τ 已实现垫高）；优先对照各档 IC";
+    const byTauRow =
+      !isOn && byTauKeys.length > 1
+        ? `<div class="quant-rem-coef-by-tau" title="${esc(byTauTip)}">` +
+          `<span class="quant-rem-coef-by-tau-lab">OOS · 按 τ</span>` +
+          byTauKeys
+            .sort()
+            .map((t) => {
+              const b = byTau[t] || {};
+              const hit =
+                b.sign_hit != null && Number.isFinite(Number(b.sign_hit))
+                  ? `${(Number(b.sign_hit) * 100).toFixed(0)}%`
+                  : "—";
+              const ic =
+                b.ic != null && Number.isFinite(Number(b.ic))
+                  ? Number(b.ic).toFixed(2)
+                  : "—";
+              return (
+                `<span class="quant-rem-coef-kpi" title="${esc(
+                  `${t} · n=${b.n ?? "—"} · hit=${hit} · IC=${ic}`
+                )}">` +
+                `<span class="quant-rem-coef-kpi-k">${esc(t)}</span>` +
+                `<span class="quant-rem-coef-kpi-v">${esc(hit)}</span>` +
+                `</span>`
+              );
+            })
+            .join("") +
+          `</div>`
+        : "";
 
     const head =
       `<div class="quant-rem-coef-head">` +
@@ -548,10 +639,14 @@ export function createFactorIcUi(deps) {
       `<div class="quant-rem-coef-legend" aria-hidden="true">` +
       `<span class="quant-rem-leg is-pos">正β</span>` +
       `<span class="quant-rem-leg is-neg">负β</span>` +
-      (isPath || isOn
-        ? `<span class="quant-rem-leg is-open">路径</span>`
-        : `<span class="quant-rem-leg is-open">开盘</span>` +
-          `<span class="quant-rem-leg is-eod">日线</span>`) +
+      (isPath
+        ? `<span class="quant-rem-leg is-open">开盘</span>` +
+          `<span class="quant-rem-leg is-minute">分钟</span>`
+        : isOn
+          ? `<span class="quant-rem-leg is-open">路径</span>`
+          : `<span class="quant-rem-leg is-open">开盘</span>` +
+            `<span class="quant-rem-leg is-minute">分钟</span>` +
+            `<span class="quant-rem-leg is-eod">日线</span>`) +
       `</div>` +
       `</div>`;
 
@@ -596,6 +691,9 @@ export function createFactorIcUi(deps) {
       if (isOn) {
         return `${shown}${key}：T 日路径 / 开盘 Z，用于估 open[T+1]/open[T]−1。正 β 表示该值偏高时 ŷ_ON 更高。`;
       }
+      if (r.kind === "分钟") {
+        return `${shown}${key}：≤τ 的 5m 路径摘要。正 β 表示该值偏高时 ŷ_τ（open→close）更高。`;
+      }
       if (r.kind === "开盘") {
         return `${shown}${key}：ŷ_τ 开盘/截面特征。正 β 表示该值偏高时 ŷ_τ 更高。`;
       }
@@ -620,9 +718,11 @@ export function createFactorIcUi(deps) {
           label: "类型",
           width: 72,
           center: true,
-          title: isOn
-            ? "路径=T 日已实现 + 开盘 Z"
-            : "日线=T−1 因子；开盘=缺口/广度等 τ 特征",
+          title: isPath
+            ? "开盘=缺口 Z；分钟=≤τ 前缀小包（与 ŷ_τ 同键）"
+            : isOn
+              ? "路径=T 日已实现 + 开盘 Z"
+              : "开盘=缺口 Z；分钟=≤τ 的 5m 路径；日线=T−1 因子",
         },
         {
           id: "ols",
@@ -657,15 +757,23 @@ export function createFactorIcUi(deps) {
       (col, r) => {
         if (col.id === "factor") return factorCell(r);
         if (col.id === "kind") {
-          const pathLike = r.kind === "开盘" || r.kind === "路径";
+          const chipClass =
+            r.kind === "开盘" || r.kind === "路径"
+              ? "is-open"
+              : r.kind === "分钟"
+                ? "is-minute"
+                : "is-eod";
+          const kindTip = isOn
+            ? "T 日路径 / 开盘 Z（ON 头）"
+            : r.kind === "分钟"
+              ? "≤τ 的 5m 路径摘要（分钟 τ）"
+              : r.kind === "开盘"
+                ? "开盘/截面特征（τ 特有）"
+                : "T−1 日线因子";
           return (
-            `<span class="quant-rem-kind-chip ${pathLike ? "is-open" : "is-eod"}" title="${esc(
-              isOn
-                ? "T 日路径 / 开盘 Z（ON 头）"
-                : pathLike
-                  ? "开盘/截面特征（τ 特有）"
-                  : "T−1 日线因子"
-            )}">${esc(r.kind)}</span>`
+            `<span class="quant-rem-kind-chip ${chipClass}" title="${esc(kindTip)}">${esc(
+              r.kind
+            )}</span>`
           );
         }
         if (col.id === "ols") return betaCell(r);
@@ -695,6 +803,7 @@ export function createFactorIcUi(deps) {
       `<div class="quant-rem-coef">` +
       head +
       kpis +
+      byTauRow +
       `<div class="quant-rem-coef-frame">${grid}</div>` +
       `</div>`
     );

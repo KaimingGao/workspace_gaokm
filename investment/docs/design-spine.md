@@ -62,7 +62,7 @@
 影响估计（Alpha / Risk 两条估计）
     ├─ Alpha：**双层 ŷ**
     │         · ŷ_EOD = predicted_score：T−1 因子 → 组 β → 前瞻 h 日（主排序 / 买入）
-    │         · ŷ_τ = predicted_score_tau（雏形 score_rem）：X+Z_≤τ → 当日剩余（展示/门控→规划买入闸）
+    │         · ŷ_τ = predicted_score_tau：X+Z_≤τ → open→close（分钟前缀可选；旧名 score_rem 仅兼容）
     │         heuristic 加权 score 仅研究基线，不驱动 live 选股
     └─ Risk：回撤/集中度/成本/滚动 ŷ IC（能买多少、要不要停）
     ▼
@@ -136,7 +136,7 @@ flowchart LR
 | 轴 | 含义 | 目的 |
 |----|------|------|
 | **多频率** | 同一决策日同时使用 **日线因子**、**开盘/τ 时刻**、**5m 分钟路径** 等不同时间粒度的已发生信息 | 日级趋势看「隔夜→多日」；做 T 看「开盘→盘中触价顺序」 |
-| **多目标** | 不同 **标签 \(y\)** / 决策任务：EOD 前瞻收益、τ 剩余收益、ON 隔夜、path 先触达方向… | 避免用一个回归头同时充当排序、买入闸、定方向、触价 timing |
+| **多目标** | 不同 **标签 \(y\)** / 决策任务：EOD 前瞻收益、τ 剩余收益、ON 隔夜、path 极值序… | 避免用一个回归头同时充当排序、买入闸、定方向、触价 timing |
 | **Ensemble / Bagging** | 多模型输出 **正交融合** 或 **分组再聚合**；弱信号降权、冲突否决 | 提升稳健性，而非堆更多同名因子 |
 
 ```text
@@ -151,8 +151,8 @@ flowchart LR
 | 任务 | 主要频率 | 主要目标头 | 融合 / 门控 | 代码落点 |
 |------|----------|------------|-------------|----------|
 | **调仓：谁更强 / 买不买** | 日线 + 开盘缺口 | **ŷ_EOD**（多日前瞻）· **ŷ_τ**（买入闸）· **ŷ_ON** | **ŷ_trade** = blend(ŷ_EOD, 缺口∘ŷ_τ)；过 EOD floor + τ 闸 | `dual_score/` · `paper_rebalance` |
-| **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 路径** | **y_τ** 定方向 · **y_path** 先触达 · \|y_trade\| 幅度闸 | `dual_y`：`resolve_dual_y_direction`；与 τ **模型共用、接口不同** | `core/t0/score_policy.py` · `path_ridge` |
-| **执行：何时触价** | **5m** 第一触达 | 卖/买触发 % · 滚动振幅门禁 | 与估计层分离；缺分钟跳过 | `core/t0/` · `minute_path` |
+| **做 T：正 / 反 / 跳过** | 开盘 Z + **5m 前缀** | **y_τ** 定方向 · **y_path** 极值序 · \|y_trade\| 幅度闸 | `dual_y`：`resolve_dual_y_direction`；与 τ **因子对齐、β 独立** | `core/t0/score_policy.py` · `path_ridge` |
+| **执行：何时触价** | **5m** 第一触达 | 卖/买触发 % · 固定前缀振幅/阴阳占比 | 与估计层分离；缺分钟跳过 | `core/t0/` · `minute_path` |
 
 详见 [quant.md · 策略调仓 vs 底仓做 T](quant.md#策略调仓-vs-底仓做-t) · [quant.md · 双层 ŷ §2.5](quant.md#25-双层-predicted_scoreŷ_eod--ŷ_τ) · [quant.md · y_path](quant.md#predicted_scoreŷ全链路)。
 
@@ -761,7 +761,7 @@ data/*.json   → 配置与账本落盘
 
 ### 盘中 / 实时增强（进行中）
 
-EOD ŷ 主轴不变；事件先验 + open→close 剩余收益头的**能力定义与阶段表（P0–R3）**见专文：  
+EOD ŷ 主轴不变；事件先验 + open→close 的 **ŷ_τ 头**能力定义与阶段表（P0–R3）见专文：  
 [quant.md · 盘中剩余收益头](quant.md#13-盘中剩余收益头intraday-residual方案)。**P0～R3 代码已落地**；生产排序仍只用 EOD ŷ；ŷ_τ 需 `POST /api/quant/tau-ridge`（`persist=true`，落盘 `tau_ridge_model.json`；旧 `rem-ridge` / `rem_ridge_*` 仍兼容）后人审启用门控。
 
 **契约缺口与下一步**：**双层 ŷ** A1+F1 已落地；**F2** `predicted_score_blend` 可选（`fusion_mode=f2`）；**B1** promote 相对 active 的 OOS 失败率硬闸已落地；**B2/B3** focused 贪心 + promote-preflight / 落地卡已接通；A2 影子簿 + 复盘页 ŷ_τ 验收条已接。未做：**A3** 主轴切换（须影子簿达标）、分钟 τ 默认 live、分组重跑并成功 promote。见

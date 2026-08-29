@@ -197,7 +197,7 @@ def quant_on_ridge_model() -> Dict[str, Any]:
 
 @router.post("/api/quant/path-ridge")
 def quant_path_ridge(body: PathRidgeRequest) -> Dict[str, Any]:
-    """ŷ_path Ridge：开盘 Z → 分钟卖/买触发先后顺序 + 时间 OOS；可选 persist。"""
+    """ŷ_path Ridge：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序 + 时间 OOS；可选 persist。"""
     try:
         return deps.quant.run_path_ridge_experiment(
             lookback=body.lookback,

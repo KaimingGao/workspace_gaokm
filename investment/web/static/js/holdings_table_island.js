@@ -149,6 +149,7 @@ export function holdingToRow(
     chgText,
     chgCls: metricCls(chg),
     chgNum: chg != null && Number.isFinite(Number(chg)) ? Number(chg) : null,
+    changeAsof: h.change_asof || h.quote_as_of || h.as_of || null,
     pnlText,
     pnlCls: metricCls(pnl),
     pnlNum: pnl != null && Number.isFinite(Number(pnl)) ? Number(pnl) : null,
@@ -393,9 +394,20 @@ export async function mountHoldingsTableIsland(host, options = {}) {
         return `<span class="paper-hold-open" title="${escapeHtml(full)}">${escapeHtml(text)}</span>`;
       }
       if (col.id === "chg") {
-        return `<span class="paper-hold-chg ${escapeHtml(d.chgCls || "")}" title="相对昨收">${escapeHtml(
-          d.chgText || "—"
-        )}</span>`;
+        const tipJson = escapeHtml(
+          JSON.stringify({
+            code: d.code || "",
+            name: d.name || "",
+            chg: d.chgNum,
+            asof: d.changeAsof || null,
+          })
+        );
+        return (
+          `<span class="paper-hold-chg has-tip ${escapeHtml(d.chgCls || "")}" ` +
+          `data-hold-chg-tip="${tipJson}" title="相对昨收 · 悬停看涨跌日5m K">${escapeHtml(
+            d.chgText || "—"
+          )}</span>`
+        );
       }
       if (col.id === "cost") {
         return `<span class="paper-hold-cost" title="持仓加权平均成本">${escapeHtml(

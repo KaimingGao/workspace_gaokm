@@ -29,6 +29,7 @@ def read_dual_score_public() -> Dict[str, Any]:
         "enable_tau_shadow_book": bool(cfg.get("enable_tau_shadow_book")),
         "enable_minute_tau": bool(cfg.get("enable_minute_tau")),
         "minute_tau_hm": cfg.get("minute_tau_hm"),
+        "minute_tau_grid": cfg.get("minute_tau_grid"),
         "nowcast": cfg.get("nowcast"),
         "y_spec": cfg.get("y_spec"),
         "note": "簿排序用 ŷ_trade=w·ŷ_EOD+w·(缺口∘ŷ_τ)；主 score 仍 EOD；ŷ_nowcast 为 Kalman 影子；买入另过 τ 闸",

@@ -344,6 +344,24 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
                 continue
             if item.get("hard_reject"):
                 continue
+            # 过热纸面闸：mom5/当日大涨等（生产 ŷ 不硬拒入簿，买入侧单独拦）
+            try:
+                from core.signal.overheat_gate import paper_overheat_block
+
+                oh_block, oh_reason = paper_overheat_block(item)
+                if oh_block:
+                    risk_budget_skips.append(
+                        {
+                            "stock_code": code,
+                            "stock_name": item.get("stock_name"),
+                            "reason": oh_reason or "overheat_paper_gate",
+                            "score": item.get("score"),
+                            "overheat": item.get("overheat"),
+                        }
+                    )
+                    continue
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("paper overheat gate skipped", exc_info=True)
             # SS-E2：predicted 轨须 production ŷ；heuristic 轨仍走 buy_gate_for_item
             try:
                 from core.signal.gate import allows_production_yhat
@@ -609,7 +627,7 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
                     pass
             elif not respect_max_positions and max_positions > 0:
                 ratio = min(ratio, 1.0 / float(max_positions))
-            # sizing：净值×权重，但不得超过可花现金（总现金 − 反T底仓）
+            # sizing：净值×权重，但不得超过可花现金（总现金 − 正T低吸底仓）
             # 横截面过去用 cash*ratio 导致严重欠仓（满仓时单笔只有分池的 1/7），改为与分池一致
             avail = _spendable()
             if budget_equity > 0:

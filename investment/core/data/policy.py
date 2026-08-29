@@ -26,12 +26,18 @@ QFQ_LONG_GAP_DAYS = 40
 DAILY_BARS_MAX_KEEP = 800
 # 5m 全日约 48 根；12000 ≈ 250 交易日，供 BaoStock 回填 + path 150d 回看
 MINUTE_BARS_MAX_KEEP = 12000
-# 批量预热/强更：每只票 AkShare（东财）远端拉取后休眠，降低反爬封 IP 风险
-MINUTE_FETCH_DELAY_SEC = 2.0
-MINUTE_FETCH_DELAY_MAX_SEC = 5.0
+# 远端分钟拉取后休眠（东财 / 新浪腾讯 / BaoStock 各睡一次）；降低反爬封 IP 风险
+MINUTE_FETCH_DELAY_SEC = 10.0
+MINUTE_FETCH_DELAY_MAX_SEC = 30.0
 # BaoStock 单票 query+遍历无内置超时；子进程 join 超时后 kill，避免强更整批挂死
 MINUTE_BAOSTOCK_TIMEOUT_SEC = 90.0
 MINUTE_BAOSTOCK_TIMEOUT_MAX_SEC = 180.0
+# 东财 / BaoStock 分钟窗口（日历日）；强更 lookback 与此对齐
+MINUTE_EM_LOOKBACK_DAYS = 30
+MINUTE_EM_LOOKBACK_MAX_DAYS = 90
+# BaoStock 分钟窗口（日历日）
+MINUTE_BAOSTOCK_LOOKBACK_DAYS = 30
+MINUTE_BAOSTOCK_LOOKBACK_MAX_DAYS = 90
 FUNDAMENTALS_HISTORY_MAX_POINTS = 40
 
 # —— 财务 PIT 门禁（DS-R3）——
@@ -73,7 +79,7 @@ def is_board_label(label: str | None) -> bool:
 
 
 def minute_fetch_delay_sec() -> float:
-    """AkShare 分钟批量拉取间隔（秒）；``INVESTMENT_MINUTE_FETCH_DELAY_SEC`` 可覆盖。"""
+    """东财 / 新浪腾讯 / BaoStock 分钟远端拉取后间隔（秒）；``INVESTMENT_MINUTE_FETCH_DELAY_SEC`` 可覆盖。"""
     raw = os.environ.get("INVESTMENT_MINUTE_FETCH_DELAY_SEC", str(MINUTE_FETCH_DELAY_SEC))
     try:
         v = float(raw)
@@ -83,13 +89,13 @@ def minute_fetch_delay_sec() -> float:
 
 
 def minute_warmup_skip_em() -> bool:
-    """批量预热默认跳过东财，仅 BaoStock + 本地 merge（``INVESTMENT_MINUTE_WARMUP_SKIP_EM=0`` 恢复东财）。"""
-    raw = os.environ.get("INVESTMENT_MINUTE_WARMUP_SKIP_EM", "1").strip().lower()
+    """批量预热默认走东财；``INVESTMENT_MINUTE_WARMUP_SKIP_EM=1`` 跳过东财（新浪/腾讯→BaoStock）。"""
+    raw = os.environ.get("INVESTMENT_MINUTE_WARMUP_SKIP_EM", "0").strip().lower()
     return raw not in ("0", "false", "no", "off")
 
 
 MINUTE_WARMUP_STALE_HOURS = 24.0
-MINUTE_WARMUP_READY_MIN_SPAN_DAYS = 40
+MINUTE_WARMUP_READY_MIN_SPAN_DAYS = 30
 MINUTE_WARMUP_MAX_CAL_GAP_DAYS = 4
 
 
@@ -100,7 +106,7 @@ def minute_warmup_skip_if_ready() -> bool:
 
 
 def minute_warmup_ready_min_span_days() -> int:
-    """与 UI Ready 闸一致，默认 40 交易日（有 bar 的日数）。"""
+    """与 UI Ready 闸一致，默认 30 交易日（有 bar 的日数）。"""
     raw = os.environ.get(
         "INVESTMENT_MINUTE_WARMUP_READY_MIN_SPAN_DAYS", str(MINUTE_WARMUP_READY_MIN_SPAN_DAYS)
     )
@@ -134,6 +140,36 @@ def minute_baostock_timeout_sec() -> float:
     if v <= 0:
         return 0.0
     return max(1.0, min(v, float(MINUTE_BAOSTOCK_TIMEOUT_MAX_SEC)))
+
+
+def minute_baostock_lookback_days() -> int:
+    """BaoStock 分钟回看日历日；``INVESTMENT_MINUTE_BS_LOOKBACK_DAYS`` 可覆盖。"""
+    raw = os.environ.get(
+        "INVESTMENT_MINUTE_BS_LOOKBACK_DAYS", str(MINUTE_BAOSTOCK_LOOKBACK_DAYS)
+    )
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        v = int(MINUTE_BAOSTOCK_LOOKBACK_DAYS)
+    return max(5, min(v, int(MINUTE_BAOSTOCK_LOOKBACK_MAX_DAYS)))
+
+
+def minute_em_lookback_days() -> int:
+    """东财分钟回看日历日；``INVESTMENT_MINUTE_EM_LOOKBACK_DAYS`` 可覆盖。"""
+    raw = os.environ.get(
+        "INVESTMENT_MINUTE_EM_LOOKBACK_DAYS", str(MINUTE_EM_LOOKBACK_DAYS)
+    )
+    try:
+        v = int(raw)
+    except (TypeError, ValueError):
+        v = int(MINUTE_EM_LOOKBACK_DAYS)
+    return max(5, min(v, int(MINUTE_EM_LOOKBACK_MAX_DAYS)))
+
+
+def minute_sina_tx_fallback() -> bool:
+    """东财空或 skip_em 时启用新浪/腾讯分钟近端；有数则跳过 BaoStock。``INVESTMENT_MINUTE_SINA_TX_FALLBACK=0`` 关闭。"""
+    raw = os.environ.get("INVESTMENT_MINUTE_SINA_TX_FALLBACK", "1").strip().lower()
+    return raw not in ("0", "false", "no", "off")
 
 
 # 兼容旧名

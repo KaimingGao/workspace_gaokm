@@ -18,6 +18,7 @@ from core.signal.factors.llm_sentiment import score_llm_sentiment
 from core.signal.factors.ma_slope import score_ma_slope
 from core.signal.factors.momentum import pct_change, score_momentum
 from core.signal.factors.money_flow import score_money_flow
+from core.signal.factors.overheat import score_overheat
 from core.signal.factors.quality import score_quality
 from core.signal.factors.relative_strength import score_relative_strength
 from core.signal.factors.reversal import score_reversal
@@ -113,6 +114,10 @@ def _compute_llm_sentiment(bars, *, llm_sentiment=None, **_kw):
 
 def _compute_gap_risk(bars, **_kw):
     return score_gap_risk(bars)
+
+
+def _compute_overheat(bars, **_kw):
+    return score_overheat(bars)
 
 
 def _compute_size(bars, *, fundamentals=None, **_kw):
@@ -235,6 +240,12 @@ _register(
     "跳空风险",
     _compute_gap_risk,
     "近端隔夜跳空幅度：过大跳空降分；缺数据不进 ŷ（omit）。",
+)
+_register(
+    "overheat",
+    "短期过热",
+    _compute_overheat,
+    "近 3/5 日与当日涨幅合成过热度：越热分越低；与动量趋势因子拆开，供风控与 heuristic 降权。",
 )
 _register(
     "size",

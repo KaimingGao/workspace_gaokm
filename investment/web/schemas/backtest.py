@@ -45,4 +45,9 @@ class PortfolioBacktestRequest(BaseModel):
     )
     return_model_min_samples: int = Field(default=24, ge=8, le=500)
     return_model_ridge_lambda: float = Field(default=0.0, ge=0.0, le=100.0)
+    # topk_research（默认）| paper_replay（纸面可实现回放）
+    engine: str = Field(
+        default="topk_research",
+        description="回测引擎：topk_research=独立腿聚合；paper_replay=纸面约束回放",
+    )
 

@@ -6,7 +6,7 @@ logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 from core.numbers import now_iso_local as _now_iso
-from core.t0.config import load_t0_rules, resolve_min_range_pct
+from core.t0.config import load_t0_rules, resolve_min_range_pct, t0_dir_label
 from core.t0.score_policy import (
     resolve_cover_policy,
     resolve_dual_y_direction,
@@ -148,7 +148,7 @@ def score_t0_direction(
         if yr > 1e-9 and yc > 0:
             loc = (yc - yl) / yr
             features["yclose_loc"] = round(loc, 4)
-            # 昨收偏高 → 偏正T延续；偏低 → 偏反T
+            # 昨收偏高 → 偏反T延续；偏低 → 偏正T
             yclose_loc_n = _clip((loc - 0.5) * 2.0)
 
     mom3_n = 0.0
@@ -200,7 +200,7 @@ def _auto_direction(
     cash: float,
     shares: float,
 ) -> Tuple[str, str]:
-    """auto 选向：按跳空强弱返回 (direction, reason_tag)；不明默认正 T。"""
+    """auto 选向：按跳空强弱返回 (direction, reason_tag)；不明默认反 T。"""
     open_px = float(bar.get("open") or 0)
     gap_ref = float(bar.get("prev_close") or 0)
     if gap_ref <= 0:
@@ -237,14 +237,14 @@ def resolve_direction(
             "direction": "long_t",
             "skip": False,
             "direction_score": None,
-            "direction_reason": "强制正T",
+            "direction_reason": "强制反T",
         }
     if mode == "reverse_t":
         return {
             "direction": "reverse_t",
             "skip": False,
             "direction_score": None,
-            "direction_reason": "强制反T",
+            "direction_reason": "强制正T",
         }
     if mode == "dual_y":
         sc = scores if isinstance(scores, dict) else scores_from_item(None)
@@ -263,7 +263,7 @@ def resolve_direction(
                 "direction": d,
                 "skip": False,
                 "direction_score": 0.0,
-                "direction_reason": f"{scored.get('reason')}；回退{tag}→{d}",
+                "direction_reason": f"{scored.get('reason')}；回退{tag}→{t0_dir_label(d)}",
                 "features": scored.get("features"),
             }
         score = float(scored.get("score") or 0)
@@ -289,7 +289,7 @@ def resolve_direction(
                 "direction": None,
                 "skip": True,
                 "direction_score": score,
-                "direction_reason": f"{scored.get('reason')}；反T缺现金跳过",
+                "direction_reason": f"{scored.get('reason')}；正T缺现金跳过",
                 "features": scored.get("features"),
             }
         return {
@@ -305,7 +305,7 @@ def resolve_direction(
         "direction": d,
         "skip": False,
         "direction_score": None,
-        "direction_reason": f"{tag}→{d}",
+        "direction_reason": f"{tag}→{t0_dir_label(d)}",
     }
 
 
@@ -742,7 +742,7 @@ def simulate_t0_on_holdings(
                     day_out["uncovered_qty"] = 0
                     day_out["pnl"] = 0.0
                     day_out["skipped"] = True
-                    day_out["reason"] = "共享现金不足，跳过反T低吸"
+                    day_out["reason"] = "共享现金不足，跳过正T低吸"
                 else:
                     day_out["sold_back_qty"] = sold_back
                     uncovered = max(0, bought_q - sold_back)

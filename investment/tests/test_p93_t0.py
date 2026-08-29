@@ -38,40 +38,43 @@ def _mins(date, points):
 
 
 def _mins_hl(date=None, o=100, high=105, low=98, close=101, bar=None):
-    """先冲高后回落：利好正T两腿。可传 bar 对齐 OHLC/开盘跳空。
-
-    三根 5m：首根窄幅预热（前向窗口不过闸），10:00 卖、14:00 买回。
-    """
+    """反T：固定前缀 4 根（单测默认），后半 2 根下跌确认 → 第 4 根卖；其后回落买回。"""
     if isinstance(bar, dict):
         date = bar.get("date") or date
         o = float(bar.get("open") or o)
         high = float(bar.get("high") or high)
         low = float(bar.get("low") or low)
         close = float(bar.get("close") or close)
+    mid = (o + high) / 2.0
     return _mins(
         str(date),
         [
-            (935, o, o + 0.1, o - 0.1, o),
-            (1000, o, high, max(o, high - 0.5), high - 0.5),
-            (1400, high - 0.5, high - 0.5, low, close),
+            (935, o, o + 0.2, o - 0.1, o + 0.1),  # 阳
+            (940, o + 0.1, mid, o, mid - 0.05),  # 冲半高
+            (945, mid - 0.05, mid, mid - 0.4, mid - 0.35),  # 阴 · 后半
+            (950, mid - 0.35, high, mid - 0.4, mid - 0.5),  # 阴 · 后半 → 确认卖
+            (1400, mid - 0.5, mid - 0.4, low, close),  # 买回
         ],
     )
 
 
 def _mins_lh(date=None, o=100, high=105, low=96, close=101, bar=None):
-    """先砸后拉：利好反T两腿。首根窄幅预热，10:00 买、14:00 卖旧仓。"""
+    """正T：固定前缀 4 根（单测默认），后半 2 根上涨确认 → 第 4 根买；其后冲高卖旧。"""
     if isinstance(bar, dict):
         date = bar.get("date") or date
         o = float(bar.get("open") or o)
         high = float(bar.get("high") or high)
         low = float(bar.get("low") or low)
         close = float(bar.get("close") or close)
+    mid = (o + low) / 2.0
     return _mins(
         str(date),
         [
-            (935, o, o + 0.1, o - 0.1, o),
-            (1000, o, o, low, low + 0.5),
-            (1400, low + 0.5, high, low + 0.5, close),
+            (935, o, o + 0.2, o - 0.2, o - 0.1),  # 阴
+            (940, o - 0.1, o, low, mid),  # 可阴可阳
+            (945, mid, mid + 0.3, mid - 0.1, mid + 0.2),  # 阳 · 后半
+            (950, mid + 0.2, mid + 0.5, mid, mid + 0.4),  # 阳 · 后半 → 确认买
+            (1400, mid + 0.4, high, mid + 0.3, close),  # 冲高卖旧
         ],
     )
 
@@ -86,22 +89,22 @@ def _rules(**kwargs):
         # 路径用例沿用较低门槛；与纸面策略默认（1% / 0.5%）解耦
         "min_range_pct_long": 0.1,
         "min_range_pct_reverse": 0.1,
-        "y_prefix_pullback_pct_long": 0.25,
-        "y_prefix_bounce_pct_reverse": 0.25,
+        # 正/反T单测夹具短：侧向固定前缀 4 根
+        "y_path_abandon_bars": 12,
+        "y_path_abandon_bars_reverse": 4,
+        "y_path_abandon_bars_long": 4,
+        "y_prefix_upbar_ratio_reverse": 0.5,
+        "y_prefix_downbar_ratio_long": 0.5,
     }
     base.update(kwargs)
     base["path_mode"] = "first_touch"
-    # 单测常只写共用触发%；同步到侧向键以免策略默认（买5/卖5）盖过
+    # 单测常只写共用触发%；同步到仍生效的第二腿侧向键
     if "sell_trigger_pct" in kwargs:
-        if "sell_trigger_pct_long" not in kwargs:
-            base["sell_trigger_pct_long"] = kwargs["sell_trigger_pct"]
         if "sell_trigger_pct_reverse" not in kwargs:
             base["sell_trigger_pct_reverse"] = kwargs["sell_trigger_pct"]
     if "buy_trigger_pct" in kwargs:
         if "buy_trigger_pct_long" not in kwargs:
             base["buy_trigger_pct_long"] = kwargs["buy_trigger_pct"]
-        if "buy_trigger_pct_reverse" not in kwargs:
-            base["buy_trigger_pct_reverse"] = kwargs["buy_trigger_pct"]
     if "min_range_pct" in kwargs:
         if "min_range_pct_long" not in kwargs:
             base["min_range_pct_long"] = kwargs["min_range_pct"]
@@ -115,6 +118,13 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(DEFAULT_T0_RULES["fill_mode"], "trigger")
         self.assertEqual(load_t0_rules()["fill_mode"], "trigger")
         self.assertEqual(load_t0_rules()["path_mode"], "first_touch")
+
+    def test_t0_dir_label(self):
+        from core.t0.config import t0_dir_label
+
+        self.assertEqual(t0_dir_label("reverse_t"), "正T")
+        self.assertEqual(t0_dir_label("long_t"), "反T")
+        self.assertEqual(t0_dir_label(""), "—")
 
     def test_resolve_fuse_intraday_by_window(self):
         from core.t0.score_policy import resolve_fuse_intraday
@@ -152,7 +162,7 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(resolve_path_abandon_bars(cfg, None), 12)
 
     def test_must_cover_legacy_false_overrides_reverse_default(self):
-        """legacy must_cover_same_day=False 须落到反T侧，不被默认 True 吞掉。"""
+        """legacy must_cover_same_day=False 须落到正T侧，不被默认 True 吞掉。"""
         from core.t0.config import load_t0_rules
 
         cfg = load_t0_rules({"must_cover_same_day": False})
@@ -238,6 +248,8 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(d["min_range_pct_reverse"], 1.0)
         self.assertEqual(d["buy_trigger_pct_long"], 5.0)
         self.assertEqual(d["sell_trigger_pct_reverse"], 5.0)
+        self.assertNotIn("sell_trigger_pct_long", d)
+        self.assertNotIn("buy_trigger_pct_reverse", d)
         self.assertEqual(d["y_path_enter"], 0.01)
         self.assertFalse(d["y_nowcast_oc_gate"])
         self.assertEqual(d["y_nc_enter"], 0.01)
@@ -247,10 +259,11 @@ class TestT0Core(unittest.TestCase):
         self.assertTrue(d["y_prefix_segment_enabled"])
         self.assertTrue(d["y_prefix_segment_enabled_long"])
         self.assertTrue(d["y_prefix_segment_enabled_reverse"])
-        self.assertEqual(d["y_prefix_pullback_pct_long"], 0.5)
-        self.assertEqual(d["y_prefix_bounce_pct_reverse"], 0.5)
+        self.assertEqual(d["y_prefix_upbar_ratio_reverse"], 0.6)
+        self.assertEqual(d["y_prefix_downbar_ratio_long"], 0.6)
+        self.assertEqual(d["y_tau_entry_price_mult"], 5.0)
         self.assertEqual(d["y_trade_enter"], 0.01)
-        self.assertEqual(d["y_trade_strong"], 2.0)
+        self.assertEqual(d["y_trade_strong"], 0.1)
         self.assertEqual(d["y_eod_prior"], 0.01)
         self.assertEqual(d["y_eod_strong"], 2.0)
         self.assertEqual(d["y_on_allow"], 0.01)
@@ -318,14 +331,16 @@ class TestT0Core(unittest.TestCase):
         self.assertIn("振幅", out.get("reason") or "")
 
     def test_forward_range_gate_waits_for_prefix(self):
-        """前缀振幅未达标时不跑触达；午后扩幅后才评估（对齐 live Worker）。"""
+        """前缀振幅未达标时不跑触达；齐窗后扩幅+阴线确认才卖。"""
         bar = _bar("2026-01-10", 100, 103, 99.5, 100)
         mins = _mins(
             "2026-01-10",
             [
-                (935, 100, 102.0, 99.98, 101.0),  # 触卖价 102，但前缀振幅仍小
-                (940, 100, 100.05, 99.99, 100.0),
-                (1400, 100, 103.0, 99.5, 100.0),  # 扩幅后过闸
+                (935, 100, 100.05, 99.98, 100.02),  # 窄幅
+                (940, 100.02, 100.06, 99.99, 100.01),
+                (945, 100.01, 100.05, 99.50, 99.70),  # 阴 · 拉开振幅
+                (950, 99.70, 103.0, 99.60, 99.65),  # 阴 · 齐窗触卖
+                (1400, 99.65, 100.5, 99.5, 100.0),
             ],
         )
         out = simulate_t0_day(
@@ -340,13 +355,24 @@ class TestT0Core(unittest.TestCase):
             ),
             minute_bars=mins,
         )
-        self.assertEqual(out.get("range_mode"), "forward")
-        self.assertGreaterEqual(int(out.get("prefix_bars") or 0), 3)
+        self.assertEqual(out.get("range_mode"), "fixed_prefix")
+        self.assertGreaterEqual(int(out.get("prefix_bars") or 0), 4)
         self.assertGreater(out.get("sold_qty") or 0, 0)
 
     def test_no_trigger_when_range_ok_but_levels_miss(self):
-        # 振幅够，但高点未到卖出阈值
-        bar = _bar("2026-01-10", 100, 101.2, 98.5, 100)
+        """振幅够但后半阴线占比不足 → 固定前缀放弃，不卖。"""
+        bar = _bar("2026-01-10", 100, 105, 98.5, 100)
+        # 后半 2 根均为阳 → 下跌占比 0% < 50%
+        mins = _mins(
+            "2026-01-10",
+            [
+                (935, 100, 100.2, 99.8, 99.9),
+                (940, 99.9, 102, 99.5, 101.5),
+                (945, 101.5, 103, 101.0, 102.5),  # 阳
+                (950, 102.5, 105, 102.0, 104.0),  # 阳
+                (1400, 104, 104.5, 98.5, 100.0),
+            ],
+        )
         out = simulate_t0_day(
             bar=bar,
             shares=1000,
@@ -357,18 +383,17 @@ class TestT0Core(unittest.TestCase):
                 direction="long_t",
                 min_range_pct=1.0,
             ),
-            minute_bars=_mins_hl(bar=bar),
+            minute_bars=mins,
         )
         self.assertTrue(out["success"])
         self.assertEqual(out.get("sold_qty") or 0, 0)
         self.assertFalse(out.get("trades") or [])
-        # 分钟路径：未触达或方向振幅/段向未达标可记跳过
-        if out.get("skipped"):
-            reason = str(out.get("reason") or "")
-            self.assertTrue(
-                any(x in reason for x in ("未触", "触", "振幅", "回落", "反弹", "上移", "下移")),
-                reason,
-            )
+        self.assertTrue(out.get("skipped") or out.get("path_abandon"))
+        reason = str(out.get("reason") or "")
+        self.assertTrue(
+            any(x in reason for x in ("固定前缀", "下跌", "放弃反T")),
+            reason,
+        )
     def test_tplus1_sellable_cap(self):
         bar = _bar("2026-01-10", 100, 110, 90, 100)
         out = simulate_t0_day(
@@ -412,7 +437,7 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(out["sold_qty"], 100)
 
     def test_reverse_t_buy_then_sell_old(self):
-        """反T：低吸加仓 + 卖旧底仓；完成往返后仓位不变。"""
+        """正T：低吸加仓 + 卖旧底仓；完成往返后仓位不变。"""
         bar = _bar("2026-01-10", 99, 103, 97, 101)
         out = simulate_t0_day(
             bar=bar,
@@ -440,7 +465,7 @@ class TestT0Core(unittest.TestCase):
         self.assertNotIn("卖回加的", notes)
 
     def test_reverse_t_requires_sellable_old(self):
-        """无可卖旧仓时反T不能靠卖当日新买股完成。"""
+        """无可卖旧仓时正T不能靠卖当日新买股完成。"""
         bar = _bar("2026-01-10", 99, 103, 97, 101)
         out = simulate_t0_day(
             bar=bar,
@@ -489,7 +514,7 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(out["shares_end"], 1000)
 
     def test_auto_gap_down_picks_reverse_t(self):
-        # 默认 ref=open 时，auto 必须看昨收跳空，否则永远正 T
+        # 默认 ref=open 时，auto 必须看昨收跳空，否则永远反 T
         bar = _bar("2026-01-10", 98, 103, 96, 100)
         bar["prev_close"] = 100
         out = simulate_t0_day(
@@ -530,7 +555,7 @@ class TestT0Core(unittest.TestCase):
 
 
     def test_signal_strong_gap_picks_long(self):
-        # 高开 + 昨收偏强 → 正T
+        # 高开 + 昨收偏强 → 反T
         hist = [
             _bar("d1", 98, 100, 97, 99),
             _bar("d2", 99, 101, 98, 100),
@@ -613,7 +638,18 @@ class TestT0Core(unittest.TestCase):
 
 
     def test_exposure_when_uncovered(self):
-        bar = _bar("2026-01-10", 100, 105, 104, 104.5)
+        bar = _bar("2026-01-10", 100, 105, 103, 104.5)
+        # 确认根 close≠收盘：卖@104 未回补 → 敞口按收盘计价
+        mins = _mins(
+            "2026-01-10",
+            [
+                (935, 100, 100.2, 99.8, 100.1),
+                (940, 100.1, 103, 100.0, 102.5),
+                (945, 102.5, 103.0, 101.8, 102.0),  # 阴
+                (950, 105.0, 105.0, 103.5, 104.0),  # 阴 · 卖@104
+                (1400, 104, 104.8, 103.2, 104.5),
+            ],
+        )
         out = simulate_t0_day(
             bar=bar,
             shares=1000,
@@ -627,7 +663,8 @@ class TestT0Core(unittest.TestCase):
                 must_cover_same_day=False,
                 min_range_pct=0.5,
             ),
-            minute_bars=_mins_hl(bar=bar))
+            minute_bars=mins,
+        )
         self.assertEqual(out["sold_qty"], 400)
         self.assertEqual(out["covered_qty"], 0)
         self.assertNotEqual(out["exposure_pnl"], 0)
@@ -737,34 +774,18 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(cfg.get("path_mode"), "first_touch")
 
     def test_minute_first_touch_avoids_false_cover(self):
-        """先砸后拉：正T卖在尾盘，分钟路径不应再用早盘低点虚回补。"""
+        """先砸后拉：反T 固定前缀确认后尾盘卖；不应虚用早盘低点回补。"""
         bar = _bar("2024-01-02", 100, 105, 97, 104)
-        minutes = [
-            {
-                "datetime": "2024-01-02 09:35:00",
-                "date": "2024-01-02",
-                "open": 100,
-                "high": 100.5,
-                "low": 97,
-                "close": 97.5,
-            },
-            {
-                "datetime": "2024-01-02 10:00:00",
-                "date": "2024-01-02",
-                "open": 97.5,
-                "high": 99,
-                "low": 97.2,
-                "close": 98,
-            },
-            {
-                "datetime": "2024-01-02 14:00:00",
-                "date": "2024-01-02",
-                "open": 100,
-                "high": 105,
-                "low": 101.5,
-                "close": 104,
-            },
-        ]
+        minutes = _mins(
+            "2024-01-02",
+            [
+                (935, 100, 100.2, 97.0, 97.5),  # 早盘砸
+                (940, 97.5, 99.0, 97.2, 98.0),
+                (945, 98.0, 99.0, 97.5, 97.8),  # 阴
+                (950, 97.8, 105.0, 97.5, 97.6),  # 阴 · 触卖确认
+                (1400, 104.0, 105.0, 103.5, 104.0),  # 高位无买回空间
+            ],
+        )
         synth = simulate_t0_day(
             bar=bar,
             shares=1000,
@@ -777,7 +798,8 @@ class TestT0Core(unittest.TestCase):
                 sell_trigger_pct=2.0,
                 buy_trigger_pct=1.5,
             ),
-            minute_bars=_mins_hl(bar=bar))
+            minute_bars=_mins_hl(bar=bar),
+        )
         minute = simulate_t0_day(
             bar=bar,
             shares=1000,
@@ -790,6 +812,7 @@ class TestT0Core(unittest.TestCase):
                 min_range_pct=1.0,
                 sell_trigger_pct=2.0,
                 buy_trigger_pct=1.5,
+                must_cover_same_day=False,
             ),
         )
         self.assertGreater(int(synth.get("covered_qty") or 0), 0)
@@ -799,32 +822,7 @@ class TestT0Core(unittest.TestCase):
 
     def test_minute_first_touch_covers_after_sell(self):
         bar = _bar("2024-01-03", 100, 105, 97, 100)
-        minutes = [
-            {
-                "datetime": "2024-01-03 09:35:00",
-                "date": "2024-01-03",
-                "open": 100,
-                "high": 100.2,
-                "low": 99.8,
-                "close": 100,
-            },
-            {
-                "datetime": "2024-01-03 10:00:00",
-                "date": "2024-01-03",
-                "open": 100,
-                "high": 105,
-                "low": 101,
-                "close": 104,
-            },
-            {
-                "datetime": "2024-01-03 11:00:00",
-                "date": "2024-01-03",
-                "open": 104,
-                "high": 104,
-                "low": 97,
-                "close": 98,
-            },
-        ]
+        minutes = _mins_hl(bar=bar)
         out = simulate_t0_day(
             bar=bar,
             shares=1000,
@@ -847,30 +845,22 @@ class TestT0Core(unittest.TestCase):
         self.assertTrue(all(t.get("at") for t in trades), trades)
         self.assertEqual(trades[0].get("leg_kind"), "trigger")
         self.assertEqual(trades[1].get("leg_kind"), "trigger")
-        self.assertIn("10:00", str(trades[0].get("at") or ""))
-        self.assertIn("11:00", str(trades[1].get("at") or ""))
+        self.assertIn("09:50", str(trades[0].get("at") or ""))
+        self.assertIn("14:00", str(trades[1].get("at") or ""))
 
     def test_minute_forced_eod_cover_stamps_at(self):
-        """反T：must_cover 时收盘强制卖旧仓，at 落在 15:00。"""
+        """正T：must_cover 时收盘强制卖旧仓，at 落在 15:00。"""
         bar = _bar("2024-01-03", 100, 105, 95, 100)
-        minutes = [
-            {
-                "datetime": "2024-01-03 10:00:00",
-                "date": "2024-01-03",
-                "open": 100,
-                "high": 101,
-                "low": 95,
-                "close": 96,
-            },
-            {
-                "datetime": "2024-01-03 15:00:00",
-                "date": "2024-01-03",
-                "open": 96,
-                "high": 97,
-                "low": 95.5,
-                "close": 96,
-            },
-        ]
+        minutes = _mins(
+            "2024-01-03",
+            [
+                (935, 100, 100.2, 99.5, 99.6),
+                (940, 99.6, 99.7, 95.0, 95.5),
+                (945, 95.5, 96.2, 95.3, 96.0),  # 阳
+                (950, 96.0, 96.8, 95.8, 96.5),  # 阳 → 买
+                (1500, 96.5, 97.0, 96.0, 96.2),  # 够不到卖触发 → eod
+            ],
+        )
         out = simulate_t0_day(
             bar=bar,
             shares=1000,
@@ -881,17 +871,19 @@ class TestT0Core(unittest.TestCase):
                 direction="reverse_t",
                 fill_mode="trigger",
                 min_range_pct=1.0,
-                sell_trigger_pct=2.0,
+                sell_trigger_pct=5.0,
                 buy_trigger_pct=1.5,
                 must_cover_same_day=True,
                 t0_pm_degrade="",
+                y_path_abandon_bars_reverse=4,
+                y_prefix_upbar_ratio_reverse=0.5,
             ),
         )
-        self.assertTrue(out["success"])
+        self.assertTrue(out["success"], out)
         sells = [t for t in (out.get("trades") or []) if str(t.get("side", "")).endswith("sell")]
-        self.assertTrue(sells)
+        self.assertTrue(sells, out)
         eod = [t for t in sells if t.get("leg_kind") == "eod_cover"]
-        self.assertEqual(len(eod), 1)
+        self.assertEqual(len(eod), 1, out)
         self.assertIn("15:00", str(eod[0].get("at") or ""))
 
     def test_defer_eod_skips_midday_force_cover(self):
@@ -901,9 +893,10 @@ class TestT0Core(unittest.TestCase):
         mins = _mins(
             d,
             [
-                (935, 34.15, 34.20, 34.00, 34.10),
-                (940, 34.10, 34.12, 33.80, 33.945),
-                (1040, 34.00, 34.11, 33.95, 34.11),
+                (935, 34.15, 34.20, 34.00, 34.05),
+                (940, 34.05, 34.08, 33.80, 33.90),
+                (945, 33.90, 34.05, 33.85, 34.00),  # 阳
+                (1040, 34.00, 34.15, 33.95, 34.11),  # 阳 → 买；末根午前
             ],
         )
         out = simulate_t0_day(
@@ -921,6 +914,8 @@ class TestT0Core(unittest.TestCase):
                 must_cover_same_day=True,
                 t0_pm_degrade="",
                 t0_ratio=1.0,
+                y_path_abandon_bars_reverse=4,
+                y_prefix_upbar_ratio_reverse=0.5,
             ),
             defer_eod=True,
         )
@@ -932,18 +927,15 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(len(sells), 0)
 
     def test_reverse_t_truncated_minutes_eod_uses_daily_close(self):
-        """5m 缓存在午前截断时，回测仍按日线收盘强制卖旧仓。
-
-        对齐 600150 2026-08-27：低吸已成交，卖 5% 当天高点够不到；
-        旧逻辑 defer_eod + 末根 10:40 会只买不回补。
-        """
+        """5m 缓存在午前截断时，回测仍按日线收盘强制卖旧仓。"""
         bar = _bar("2026-08-27", 34.15, 34.59, 33.85, 34.52)
         mins = _mins(
             "2026-08-27",
             [
-                (935, 34.15, 34.20, 34.00, 34.10),
-                (940, 34.10, 34.12, 33.80, 33.945),
-                (1040, 34.00, 34.11, 33.95, 34.11),
+                (935, 34.15, 34.20, 34.00, 34.05),
+                (940, 34.05, 34.08, 33.80, 33.90),
+                (945, 33.90, 34.05, 33.85, 34.00),
+                (1040, 34.00, 34.15, 33.95, 34.11),
             ],
         )
         out = simulate_t0_day(
@@ -961,16 +953,20 @@ class TestT0Core(unittest.TestCase):
                 must_cover_same_day=True,
                 t0_pm_degrade="",
                 t0_ratio=1.0,
+                y_path_abandon_bars_reverse=4,
+                y_prefix_upbar_ratio_reverse=0.5,
             ),
+            defer_eod=False,
         )
-        self.assertTrue(out.get("success"), out.get("reason"))
+        self.assertTrue(out.get("success"), out)
         self.assertGreater(int(out.get("bought_qty") or 0), 0)
-        self.assertEqual(out.get("exit_reason"), "eod_cover")
-        sells = [t for t in (out.get("trades") or []) if str(t.get("side", "")).endswith("sell")]
-        eod = [t for t in sells if t.get("leg_kind") == "eod_cover"]
-        self.assertEqual(len(eod), 1)
-        self.assertIn("15:00", str(eod[0].get("at") or ""))
-        self.assertAlmostEqual(float(eod[0]["price"]), 34.52, places=2)
+        eod = [
+            t
+            for t in (out.get("trades") or [])
+            if t.get("leg_kind") == "eod_cover"
+        ]
+        self.assertEqual(len(eod), 1, out)
+        self.assertAlmostEqual(float(eod[0].get("price") or 0), 34.52, places=2)
 
     def test_intraday_setup_eod_uses_daily_close_not_minute(self):
         """盘中 force_session_close：eod 标记价用日线收盘，不用末根 5m close。"""
@@ -981,8 +977,10 @@ class TestT0Core(unittest.TestCase):
         mins = _mins(
             d,
             [
-                (935, 34.15, 34.20, 34.00, 34.10),
-                (940, 34.10, 34.12, 33.80, 33.945),
+                (935, 34.15, 34.20, 34.00, 34.05),
+                (940, 34.05, 34.08, 33.80, 33.90),
+                (945, 33.90, 34.05, 33.85, 34.00),  # 阳
+                (950, 34.00, 34.15, 33.95, 34.10),  # 阳 → 买
                 (1455, 34.00, 34.11, 33.95, 34.11),  # 末根 close≠日线
             ],
         )
@@ -998,8 +996,9 @@ class TestT0Core(unittest.TestCase):
                 "buy_trigger_pct": 1.0,
                 "must_cover_same_day": True,
                 "t0_pm_degrade": "",
-                "y_prefix_bounce_pct_reverse": 0.25,
-            }
+                "y_path_abandon_bars_reverse": 4,
+                "y_prefix_upbar_ratio_reverse": 0.5,
+                    }
         )
         out = _intraday_setup(
             code="600150",
@@ -1025,34 +1024,18 @@ class TestT0Core(unittest.TestCase):
         self.assertAlmostEqual(float(eod[0]["price"]), 34.52, places=2)
 
     def test_long_t_abandons_cover_when_buyback_misses(self):
-        """正T：卖出后买不回 → 放弃回补（减仓落袋），不收盘强买。"""
+        """反T：卖出后买不回 → 放弃回补（减仓落袋），不收盘强买。"""
         bar = _bar("2024-01-03", 100, 105, 99, 100)
-        minutes = [
-            {
-                "datetime": "2024-01-03 09:35:00",
-                "date": "2024-01-03",
-                "open": 100,
-                "high": 100.2,
-                "low": 99.8,
-                "close": 100,
-            },
-            {
-                "datetime": "2024-01-03 10:00:00",
-                "date": "2024-01-03",
-                "open": 100,
-                "high": 105,
-                "low": 101,
-                "close": 104,
-            },
-            {
-                "datetime": "2024-01-03 15:00:00",
-                "date": "2024-01-03",
-                "open": 104,
-                "high": 104,
-                "low": 100.5,
-                "close": 100,
-            },
-        ]
+        minutes = _mins(
+            "2024-01-03",
+            [
+                (935, 100, 100.2, 99.8, 100.1),
+                (940, 100.1, 103, 100.0, 102.5),
+                (945, 102.5, 103.0, 101.8, 102.0),  # 阴
+                (950, 105.0, 105.0, 104.0, 104.0),  # 阴 · 卖@104
+                (1500, 104, 104, 103.5, 100),  # 买回位≈102.44；低点够不着
+            ],
+        )
         out = simulate_t0_day(
             bar=bar,
             shares=1000,
@@ -1077,22 +1060,16 @@ class TestT0Core(unittest.TestCase):
         self.assertNotEqual(out.get("exposure_pnl"), 0)
 
     def test_deferred_eod_allows_afternoon_trigger_buy(self):
-        """滚动前缀过关后卖；第二腿应能等到下午 trigger，而非前缀末 eod_cover。"""
+        """固定前缀确认后卖；第二腿应能等到下午 trigger，而非前缀末 eod_cover。"""
         d = "2024-01-03"
         bar = _bar(d, 100, 106, 99, 100)
         mins = _mins(
             d,
             [
-                (935, 100, 100.3, 99.7, 100),
-                (940, 100, 100.3, 99.7, 100),
-                (945, 100, 100.3, 99.7, 100),
-                (950, 100, 100.3, 99.7, 100),
-                (955, 100, 100.3, 99.7, 100),
-                (1000, 100, 100.3, 99.7, 100),
-                (1005, 100, 100.3, 99.7, 100),
-                (1010, 100, 106, 100, 105),
-                (1015, 105, 105.2, 104.8, 105),
-                (1020, 105, 105.2, 104.8, 105),
+                (935, 100, 100.2, 99.8, 100.1),
+                (940, 100.1, 103, 100.0, 102.5),
+                (945, 102.5, 103.0, 101.5, 101.8),  # 阴
+                (950, 101.8, 106, 101.5, 101.6),  # 阴 · 卖
                 (1100, 105, 105.2, 104.8, 105),
                 (1430, 101, 101.2, 98.0, 98.5),
                 (1500, 100, 100, 99.5, 100),
@@ -1118,24 +1095,13 @@ class TestT0Core(unittest.TestCase):
         self.assertEqual(len(buys), 1, trades)
         self.assertEqual(buys[0].get("leg_kind"), "trigger")
         self.assertIn("14:30", str(buys[0].get("at") or ""))
-        self.assertGreaterEqual(int(out.get("prefix_bars") or 0), 12)
+        self.assertEqual(out.get("range_mode"), "fixed_prefix")
 
     def test_directional_amplitude_waits_for_long_t_upside(self):
-        """总量振幅过关但上移不足时不触达；冲高后再卖，下午买回。"""
+        """反T：固定前缀未齐前不卖；齐窗后半阴线确认后卖，下午买回。"""
         d = "2024-01-03"
         bar = _bar(d, 100, 106, 94, 100)
-        mins = _mins(
-            d,
-            [
-                (935, 100, 100.1, 99.5, 99.8),
-                (940, 100, 100.1, 98.0, 98.5),
-                (945, 100, 100.1, 96.0, 96.5),
-                (950, 100, 100.1, 94.0, 94.5),
-                (1000, 94.5, 106, 94.5, 105),
-                (1430, 101, 101.2, 98.0, 98.5),
-                (1500, 100, 100, 99.5, 100),
-            ],
-        )
+        mins = _mins_hl(bar=bar)
         out = simulate_t0_day(
             bar=bar,
             shares=1000,
@@ -1156,24 +1122,23 @@ class TestT0Core(unittest.TestCase):
         buys = [t for t in trades if str(t.get("side", "")).endswith("buy")]
         self.assertEqual(len(sells), 1)
         self.assertEqual(len(buys), 1)
-        self.assertIn("10:00", str(sells[0].get("at") or ""))
+        self.assertIn("09:50", str(sells[0].get("at") or ""))
         self.assertEqual(buys[0].get("leg_kind"), "trigger")
+        self.assertEqual(out.get("range_mode"), "fixed_prefix")
 
-    def test_prefix_segment_long_waits_for_pullback(self):
-        """正T：冲高 K 线 close 贴 high 时不卖；回落确认后再卖。"""
+    def test_prefix_segment_long_waits_for_downbar(self):
+        """反T：固定前缀齐窗且后半下跌占比达标才卖。"""
         d = "2024-01-04"
         bar = _bar(d, 100, 106, 94, 100)
         mins = _mins(
             d,
             [
-                (935, 100, 100.1, 99.5, 99.8),
-                (940, 100, 100.1, 98.0, 98.5),
-                (945, 100, 100.1, 96.0, 96.5),
-                (950, 100, 100.1, 94.0, 94.5),
-                (1000, 94.5, 106, 94.5, 106),
-                (1005, 105, 105.5, 103, 104),
-                (1430, 101, 101.2, 100.3, 100.5),
-                (1500, 100, 100, 99.5, 100),
+                (935, 100, 100.2, 99.8, 100.1),  # 阳
+                (940, 100.1, 103, 100.0, 102.5),  # 阳 · 冲高未齐窗
+                (945, 102.5, 102.8, 101.5, 101.8),  # 阴
+                (950, 101.8, 106, 101.5, 101.6),  # 阴 · 齐窗卖
+                (1430, 101, 101.2, 94.5, 95.0),
+                (1500, 95, 95.5, 94.5, 95.0),
             ],
         )
         out = simulate_t0_day(
@@ -1188,26 +1153,63 @@ class TestT0Core(unittest.TestCase):
                 sell_trigger_pct=2.0,
                 buy_trigger_pct=1.5,
                 must_cover_same_day=True,
-                y_prefix_pullback_pct_long=0.25,
+                y_path_abandon_bars_long=4,
+                y_prefix_downbar_ratio_long=0.5,
             ),
         )
         self.assertTrue(out["success"], out.get("reason"))
         sells = [t for t in out.get("trades") or [] if str(t.get("side", "")).endswith("sell")]
         self.assertEqual(len(sells), 1)
-        self.assertIn("10:05", str(sells[0].get("at") or ""))
+        self.assertIn("09:50", str(sells[0].get("at") or ""))
+        self.assertEqual(out.get("range_mode"), "fixed_prefix")
 
-    def test_prefix_segment_reverse_waits_for_bounce(self):
-        """反T：下探 K 线 close 贴 low 时不买；反弹确认后再买。"""
+    def test_prefix_segment_reverse_waits_for_upbar(self):
+        """正T：固定前缀齐窗且后半上涨占比达标才买。"""
         d = "2024-01-05"
+        bar = _bar(d, 100, 103, 95, 101)
+        mins = _mins(
+            d,
+            [
+                (935, 100, 100.2, 99.5, 99.6),  # 阴
+                (940, 99.6, 99.7, 97, 97.2),  # 阴
+                (945, 97.2, 97.8, 97.0, 97.6),  # 阳
+                (950, 97.6, 98.2, 97.4, 98.0),  # 阳 → 4/4 齐窗买
+                (1400, 98.0, 103, 97.8, 101),
+            ],
+        )
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            minute_bars=mins,
+            rules=_rules(
+                direction="reverse_t",
+                fill_mode="trigger",
+                min_range_pct=1.0,
+                sell_trigger_pct=1.5,
+                buy_trigger_pct=2.0,
+                y_path_abandon_bars=4,
+                y_prefix_upbar_ratio_reverse=0.5,
+            ),
+        )
+        self.assertTrue(out["success"], out.get("reason"))
+        buys = [t for t in out.get("trades") or [] if str(t.get("side") or "") == "t0_buy"]
+        self.assertGreater(out.get("bought_qty") or 0, 0, out)
+        self.assertEqual(len(buys), 1, out.get("trades"))
+        self.assertIn("09:50", str(buys[0].get("at") or ""))
+
+    def test_fixed_prefix_rejects_downbar_heavy_reverse(self):
+        """正T：固定前缀后半多为阴线 → 放弃。"""
+        d = "2024-01-07"
         bar = _bar(d, 100, 103, 95, 101)
         mins = _mins(
             d,
             [
                 (935, 100, 100, 99, 99.5),
                 (940, 99.5, 99.5, 98, 98.2),
-                (945, 98, 98, 97, 97.1),
-                (950, 97, 97, 96, 96.05),
-                (1000, 96, 96.5, 95.5, 96.3),
+                (945, 98.2, 98.3, 97, 97.1),  # 阴
+                (950, 97.1, 97.2, 96, 96.05),  # 阴 → 后半 0% 上涨
                 (1400, 96.5, 103, 96, 101),
             ],
         )
@@ -1223,27 +1225,60 @@ class TestT0Core(unittest.TestCase):
                 min_range_pct=1.0,
                 sell_trigger_pct=1.5,
                 buy_trigger_pct=2.0,
-                y_prefix_bounce_pct_reverse=0.25,
+                y_path_abandon_bars=4,
+                y_prefix_upbar_ratio_reverse=0.6,
+            ),
+        )
+        self.assertTrue(out.get("skipped"), out)
+        self.assertIn("固定前缀", str(out.get("reason") or ""))
+
+    def test_fixed_prefix_confirm_off_allows_entry(self):
+        """关闭固定前缀确认时，齐窗仅振幅即可开第一腿。"""
+        d = "2024-01-08"
+        bar = _bar(d, 100, 103, 95, 101)
+        mins = _mins(
+            d,
+            [
+                (935, 100, 100, 99, 99.5),
+                (940, 99.5, 99.5, 98, 98.2),
+                (945, 98.2, 98.3, 97, 97.1),
+                (950, 97.1, 97.2, 96, 96.05),
+                (1400, 96.5, 103, 96, 101),
+            ],
+        )
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            minute_bars=mins,
+            rules=_rules(
+                direction="reverse_t",
+                fill_mode="trigger",
+                min_range_pct=1.0,
+                sell_trigger_pct=1.5,
+                buy_trigger_pct=2.0,
+                y_path_abandon_bars=4,
+                y_prefix_segment_enabled_reverse=False,
             ),
         )
         self.assertTrue(out["success"], out.get("reason"))
-        buys = [t for t in out.get("trades") or [] if str(t.get("side") or "") == "t0_buy"]
         self.assertGreater(out.get("bought_qty") or 0, 0, out)
-        self.assertEqual(len(buys), 1, out.get("trades"))
-        self.assertIn("10:00", str(buys[0].get("at") or ""))
 
-    def test_prefix_segment_abandon_reverse_without_bounce(self):
-        """反T：前缀久无反弹确认则放弃（全局 abandon 根数）。"""
+    def test_prefix_segment_abandon_reverse_without_upbar(self):
+        """正T：固定前缀齐窗后半上涨不足 → 放弃。"""
         d = "2024-01-06"
         bar = _bar(d, 100, 101, 94, 95)
-        points = []
-        px = 100.0
-        for i, hm in enumerate((935, 940, 945, 950, 955, 1000)):
-            lo = px - 0.8
-            close = lo + 0.05
-            points.append((hm, px, px, lo, close))
-            px = close
-        mins = _mins(d, points)
+        mins = _mins(
+            d,
+            [
+                (935, 100, 100.5, 99.5, 99.8),
+                (940, 99.8, 99.9, 98.5, 98.6),
+                (945, 98.6, 98.7, 97.5, 97.6),  # 阴
+                (950, 97.6, 97.7, 96.5, 96.6),  # 阴
+                (1400, 96.6, 97, 95, 95.5),
+            ],
+        )
         out = simulate_t0_day(
             bar=bar,
             shares=1000,
@@ -1257,33 +1292,124 @@ class TestT0Core(unittest.TestCase):
                 sell_trigger_pct=1.5,
                 buy_trigger_pct=0.5,
                 y_path_abandon_bars=4,
-                y_prefix_bounce_pct_reverse=0.25,
+                y_prefix_upbar_ratio_reverse=0.6,
             ),
         )
         self.assertTrue(out.get("skipped"), out)
         self.assertTrue(out.get("path_abandon"))
-        self.assertIn("反弹", str(out.get("reason") or ""))
+        self.assertIn("固定前缀", str(out.get("reason") or ""))
 
-    def test_sticky_leg1_gate_fills_on_retouch_after_pullback(self):
-        """正确契约：段向确认后粘滞开闸；确认根未触价时，后续再冲高须能成交。
+    def test_prefix_tau_entry_price_cap_reverse(self):
+        """正T：确认根买价超过开盘×(1+5×|ŷ_τ|%) → 放弃。"""
+        from core.t0.minute_path import tau_leg1_fill_price_ok
 
-        回归禁止：仅 entry_ready 当根允许触价（死锁 → 永不成交）。
-        """
-        d = "2024-02-01"
-        bar = _bar(d, 100, 102, 99, 100)
+        gate = tau_leg1_fill_price_ok(
+            fill_px=103.0,
+            ref=100.0,
+            y_tau=0.4,
+            direction="reverse_t",
+            mult=5.0,
+        )
+        self.assertFalse(gate["ok"], gate)
+        self.assertAlmostEqual(gate["bound_px"], 102.0, places=4)
+
+        d = "2024-02-11"
+        bar = _bar(d, 100, 110, 95, 108)
         mins = _mins(
             d,
             [
-                (935, 100, 100.2, 99.8, 100.0),
-                (940, 100, 100.3, 99.7, 100.1),
-                (945, 100.1, 101.5, 100.0, 101.3),  # 触价但未回落
-                (950, 101.2, 101.3, 100.9, 101.0),
-                (955, 101.0, 100.8, 100.5, 100.6),  # 回落确认，hi 已离开
-                (1000, 100.6, 100.7, 100.4, 100.5),
-                (1005, 100.5, 100.6, 100.3, 100.4),
-                (1010, 100.4, 102.0, 100.4, 101.2),  # 再触价 → 应成交
-                (1430, 101.0, 101.1, 99.0, 99.5),
-                (1500, 99.5, 99.6, 99.0, 99.2),
+                (935, 100, 100.2, 99.5, 99.6),  # 阴
+                (940, 99.6, 99.7, 97, 97.2),  # 阴
+                (945, 97.2, 105, 97.0, 104.0),  # 阳
+                (950, 104.0, 109, 103.5, 108.0),  # 阳 · 买价过高
+                (1400, 108.0, 110, 107, 108),
+            ],
+        )
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            minute_bars=mins,
+            scores={"y_tau": 0.4},
+            rules=_rules(
+                direction="reverse_t",
+                fill_mode="trigger",
+                min_range_pct=0.2,
+                sell_trigger_pct=1.5,
+                buy_trigger_pct=0.5,
+                y_path_abandon_bars=4,
+                y_prefix_upbar_ratio_reverse=0.5,
+                y_tau_entry_price_mult=5.0,
+            ),
+        )
+        self.assertTrue(out.get("skipped"), out)
+        self.assertTrue(out.get("path_abandon"), out)
+        self.assertIn("τ", out.get("reason") or "")
+
+    def test_prefix_tau_entry_price_floor_long(self):
+        """反T：确认根卖价低于开盘×(1−5×|ŷ_τ|%) → 放弃。"""
+        from core.t0.minute_path import tau_leg1_fill_price_ok
+
+        gate = tau_leg1_fill_price_ok(
+            fill_px=96.0,
+            ref=100.0,
+            y_tau=-0.4,
+            direction="long_t",
+            mult=5.0,
+        )
+        self.assertFalse(gate["ok"], gate)
+        self.assertAlmostEqual(gate["bound_px"], 98.0, places=4)
+
+        d = "2024-02-12"
+        bar = _bar(d, 100, 105, 90, 92)
+        mins = _mins(
+            d,
+            [
+                (935, 100, 100.2, 99.5, 100.1),  # 阳
+                (940, 100.1, 102, 100, 101.5),  # 阳
+                (945, 101.5, 101.6, 96, 96.5),  # 阴
+                (950, 96.5, 96.8, 95, 96.0),  # 阴 · 卖价过低
+                (1400, 96.0, 96.5, 90, 92),
+            ],
+        )
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            minute_bars=mins,
+            scores={"y_tau": -0.4},
+            rules=_rules(
+                direction="long_t",
+                fill_mode="trigger",
+                min_range_pct=0.2,
+                sell_trigger_pct=1.0,
+                buy_trigger_pct=2.0,
+                y_path_abandon_bars=4,
+                y_prefix_downbar_ratio_long=0.5,
+                y_tau_entry_price_mult=5.0,
+                must_cover_same_day=True,
+            ),
+        )
+        self.assertTrue(out.get("skipped"), out)
+        self.assertTrue(out.get("path_abandon"), out)
+        self.assertIn("τ", out.get("reason") or "")
+
+    def test_segment_confirm_bar_is_leg1_long(self):
+        """反T：固定前缀齐窗后半下跌确认根卖出；之后再冲高不得当第一腿。"""
+        d = "2024-02-01"
+        bar = _bar(d, 100, 106, 94, 100)
+        mins = _mins(
+            d,
+            [
+                (935, 100, 100.2, 99.8, 100.1),  # 阳
+                (940, 100.1, 103, 100.0, 102.8),  # 阳
+                (945, 102.8, 103.0, 101.5, 101.8),  # 阴
+                (950, 101.8, 102.5, 101.0, 101.2),  # 阴 → 齐窗卖@close
+                (1000, 101.2, 106.0, 101.0, 105.0),  # 再冲高不得第一腿
+                (1430, 101.0, 101.1, 94.0, 95.0),
+                (1500, 95.0, 95.5, 94.0, 94.5),
             ],
         )
         out = simulate_t0_day(
@@ -1298,38 +1424,30 @@ class TestT0Core(unittest.TestCase):
                 sell_trigger_pct=1.0,
                 buy_trigger_pct=5.0,
                 must_cover_same_day=True,
-                y_prefix_pullback_pct_long=0.5,
-                y_path_abandon_bars=48,
+                y_path_abandon_bars_long=4,
+                y_prefix_downbar_ratio_long=0.5,
             ),
         )
         self.assertTrue(out.get("success"), out)
         sells = [t for t in out.get("trades") or [] if str(t.get("side", "")).endswith("sell")]
         self.assertEqual(len(sells), 1, out)
-        self.assertIn("10:10", str(sells[0].get("at") or ""), out)
+        self.assertIn("09:50", str(sells[0].get("at") or ""), out)
+        self.assertAlmostEqual(float(sells[0].get("price") or 0), 101.2, places=2)
 
     def test_abandon_stops_after_first_entry_ready(self):
-        """首次 entry_ready 后 close 贴回极值不再烧 abandon；粘滞闸仍可再触价成交。
-
-        旧逻辑：确认后 seg 再变 False 继续计数 → 低 abandon 预算整日作废。
-        """
+        """首次固定前缀确认根即成交；齐窗后不再烧 abandon。"""
         d = "2024-02-05"
-        bar = _bar(d, 100, 102, 99, 100)
+        bar = _bar(d, 100, 106, 94, 100)
         mins = _mins(
             d,
             [
-                (935, 100, 100.2, 99.8, 100.0),
-                (940, 100, 100.3, 99.7, 100.1),
-                (945, 100.1, 101.5, 100.0, 101.3),  # 触价未回落 → wait
-                (950, 101.2, 101.3, 100.9, 101.0),  # wait
-                (955, 101.0, 100.8, 100.5, 100.6),  # 回落确认
-                # 确认后 close 贴回高点（段向再变 False）；旧码会继续烧 budget
-                (1000, 100.6, 101.4, 100.5, 101.3),
-                (1005, 101.2, 101.3, 101.0, 101.2),
-                (1010, 101.1, 101.2, 100.9, 101.1),
-                (1015, 101.0, 101.1, 100.8, 101.0),
-                (1020, 100.9, 102.0, 100.8, 101.5),  # 再触价 → 须成交
-                (1430, 101.0, 101.1, 99.0, 99.5),
-                (1500, 99.5, 99.6, 99.0, 99.2),
+                (935, 100, 100.2, 99.8, 100.1),
+                (940, 100.1, 103, 100.0, 102.8),
+                (945, 102.8, 103.0, 101.5, 101.8),  # 阴
+                (950, 101.8, 102.5, 101.0, 101.2),  # 阴 → 确认卖
+                (1000, 101.2, 104.0, 101.0, 103.5),
+                (1430, 101.0, 101.1, 94.0, 95.0),
+                (1500, 95.0, 95.5, 94.0, 94.5),
             ],
         )
         out = simulate_t0_day(
@@ -1344,34 +1462,32 @@ class TestT0Core(unittest.TestCase):
                 sell_trigger_pct=1.0,
                 buy_trigger_pct=5.0,
                 must_cover_same_day=True,
-                y_prefix_pullback_pct_long=0.5,
-                y_path_abandon_bars=4,
+                y_path_abandon_bars_long=4,
+                y_prefix_downbar_ratio_long=0.5,
             ),
         )
-        self.assertFalse(out.get("path_abandon"), out)
         self.assertTrue(out.get("success"), out)
         sells = [t for t in out.get("trades") or [] if str(t.get("side", "")).endswith("sell")]
         self.assertEqual(len(sells), 1, out)
-        # 09:55 确认后粘滞开闸；10:00 hi≥sell 即成交（不得因后续 seg 再失败而 abandon）
-        self.assertIn("10:00", str(sells[0].get("at") or ""), out)
-        fill_rows = [
-            r for r in (out.get("forward_trace") or []) if r.get("leg1_fill")
-        ]
-        self.assertEqual(len(fill_rows), 1, out)
-        self.assertFalse(fill_rows[0].get("touch_blocked"), fill_rows[0])
+        self.assertIn("09:50", str(sells[0].get("at") or ""), out)
+        ft = out.get("forward_trace") or []
+        fills = [r for r in ft if r.get("leg1_fill")]
+        self.assertEqual(len(fills), 1)
+        self.assertEqual(str(fills[0].get("time") or "")[:5], "09:50")
+        self.assertFalse(out.get("path_abandon"), out)
 
-    def test_pm_degrade_excludes_endpoint_bar(self):
-        """P1-3：t0_pm_degrade=13:00 时 13:00 根仍可开反T低吸。"""
-        d = "2024-02-02"
+    def test_segment_confirm_bar_is_leg1_reverse(self):
+        """正T：固定前缀齐窗后半上涨确认根买入；之后下探不得当第一腿。"""
+        d = "2024-02-06"
         bar = _bar(d, 100, 103, 94, 100)
         mins = _mins(
             d,
             [
-                (935, 100, 100.1, 99.9, 100.0),
-                (940, 100, 100.0, 96.8, 96.9),  # 触低吸区，未反弹
-                (945, 96.9, 97.2, 96.7, 96.85),
-                (950, 96.9, 98.5, 97.5, 98.2),  # 反弹确认；当根 lo>buy_level
-                (1300, 98.0, 98.1, 96.5, 97.0),  # 端点再触价
+                (935, 100, 100.2, 99.8, 99.9),  # 阴
+                (940, 99.9, 100.0, 97.0, 97.2),  # 阴
+                (945, 97.2, 97.8, 97.0, 97.6),  # 阳
+                (950, 97.6, 98.2, 97.4, 98.0),  # 阳 → 确认买
+                (955, 98.0, 98.1, 96.5, 96.7),  # 再下探不得第一腿
                 (1400, 97.0, 103, 97.0, 101),
             ],
         )
@@ -1387,26 +1503,66 @@ class TestT0Core(unittest.TestCase):
                 min_range_pct=0.5,
                 sell_trigger_pct=1.5,
                 buy_trigger_pct=3.0,
+                y_path_abandon_bars_reverse=4,
+                y_prefix_upbar_ratio_reverse=0.5,
+            ),
+        )
+        self.assertTrue(out.get("success"), out)
+        buys = [t for t in out.get("trades") or [] if str(t.get("side") or "") == "t0_buy"]
+        self.assertEqual(len(buys), 1, out)
+        self.assertIn("09:50", str(buys[0].get("at") or ""), out)
+        self.assertAlmostEqual(float(buys[0].get("price") or 0), 98.0, places=2)
+
+    def test_pm_degrade_excludes_endpoint_bar(self):
+        """P1-3：t0_pm_degrade=13:00 时 13:00 根仍可开正T（端点不计禁新开）。"""
+        d = "2024-02-02"
+        bar = _bar(d, 100, 103, 94, 100)
+        mins = _mins(
+            d,
+            [
+                (935, 100, 100.1, 99.9, 99.8),
+                (940, 99.8, 99.9, 97.0, 97.1),
+                (945, 97.1, 97.5, 97.0, 97.4),  # 阳
+                (1300, 97.4, 98.5, 97.2, 98.2),  # 阳 · 齐窗=确认根=端点
+                (1400, 98.0, 103, 97.0, 101),
+            ],
+        )
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=50000,
+            minute_bars=mins,
+            rules=_rules(
+                direction="reverse_t",
+                fill_mode="trigger",
+                min_range_pct=0.5,
+                sell_trigger_pct=1.5,
+                buy_trigger_pct=3.0,
                 t0_pm_degrade="13:00",
-                y_prefix_bounce_pct_reverse=0.25,
-                y_path_abandon_bars=48,
+                y_path_abandon_bars_reverse=4,
+                y_prefix_upbar_ratio_reverse=0.5,
             ),
         )
         self.assertTrue(out.get("success"), out)
         buys = [t for t in out.get("trades") or [] if str(t.get("side") or "") == "t0_buy"]
         self.assertEqual(len(buys), 1, out)
         self.assertIn("13:00", str(buys[0].get("at") or ""), out)
+        self.assertAlmostEqual(float(buys[0].get("price") or 0), 98.2, places=2)
 
     def test_leg2_trigger_uses_fill_not_ref(self):
-        """第二腿相对 leg1 成交价：正T 买回 = sold×(1−buy%)。"""
+        """第二腿相对 leg1 成交价：反T 买回 = sold×(1−buy%)。"""
         d = "2024-02-03"
         bar = _bar(d, 100, 106, 94, 100)
         mins = _mins(
             d,
             [
-                (935, 100, 100.1, 99.9, 100.0),
-                (1000, 100, 106, 104, 104.5),  # 卖出触价+回落同根够确认 → fill@101
-                (1400, 104, 104, 95.5, 96.0),  # lo 到 sold×0.95≈95.95
+                (935, 100, 100.2, 99.8, 100.1),  # 阳
+                (940, 100.1, 103, 100.0, 102.5),  # 阳
+                (945, 102.5, 103.0, 101.8, 102.0),  # 阴
+                # 阴 · 齐窗卖；fill@close=104.5（trigger 用 close）
+                (950, 105.0, 106.0, 104.0, 104.5),
+                (1400, 104, 104, 95.5, 96.0),  # lo 到 sold×0.95≈99.275
                 (1500, 95, 95.5, 94.5, 95.0),
             ],
         )
@@ -1422,26 +1578,28 @@ class TestT0Core(unittest.TestCase):
                 sell_trigger_pct=1.0,
                 buy_trigger_pct=5.0,
                 must_cover_same_day=False,
-                y_prefix_pullback_pct_long=0.25,
+                y_path_abandon_bars_long=4,
+                y_prefix_downbar_ratio_long=0.5,
             ),
         )
         self.assertTrue(out.get("success"), out)
         buys = [t for t in out.get("trades") or [] if str(t.get("side", "")).endswith("buy")]
         self.assertEqual(len(buys), 1, out)
-        # sold@101 → buy_level=95.95（若用 ref 则 95）
-        self.assertAlmostEqual(float(buys[0].get("price") or 0), 95.95, places=2)
+        # sold@104.5 → buy_level=99.275（若用 ref 则 95）
+        self.assertAlmostEqual(float(buys[0].get("price") or 0), 99.275, places=2)
 
     def test_forward_no_retroactive_leg1_before_amplitude_gate(self):
-        """前向窗口：振幅未过闸的早触价不得成交；仅在过闸且 entry_ready 后买入。"""
+        """前向固定前缀：振幅未过闸的早盘不得成交；齐窗后半上涨确认后买入。"""
         d = "2024-01-07"
         bar = _bar(d, 100, 103, 94, 100)
         mins = _mins(
             d,
             [
-                (935, 100, 100.05, 99.95, 100),
+                (935, 100, 100.05, 99.95, 100),  # 窄幅
                 (940, 100, 100.05, 99.9, 99.92),
-                (945, 99.92, 99.92, 99.5, 99.55),
-                (1000, 99.5, 99.6, 96.0, 97.0),
+                (945, 99.92, 100.5, 97.0, 97.5),  # 阳 · 振幅拉开
+                (1000, 97.5, 98.2, 97.2, 98.0),  # 阳 · 齐窗买
+                (1400, 98.0, 103, 97.5, 101),
             ],
         )
         out = simulate_t0_day(
@@ -1456,35 +1614,34 @@ class TestT0Core(unittest.TestCase):
                 min_range_pct=1.0,
                 sell_trigger_pct=1.5,
                 buy_trigger_pct=2.0,
-                y_prefix_bounce_pct_reverse=0.25,
+                y_path_abandon_bars_reverse=4,
+                y_prefix_upbar_ratio_reverse=0.5,
             ),
         )
         self.assertTrue(out.get("success"), out)
         buys = [t for t in out.get("trades") or [] if str(t.get("side") or "") == "t0_buy"]
         self.assertEqual(len(buys), 1, out)
         self.assertIn("10:00", str(buys[0].get("at") or ""), out)
-        self.assertNotIn("09:45", str(buys[0].get("at") or ""), out)
-        self.assertEqual(out.get("range_mode"), "forward")
+        self.assertNotIn("09:40", str(buys[0].get("at") or ""), out)
+        self.assertEqual(out.get("range_mode"), "fixed_prefix")
         ft = out.get("forward_trace") or []
         self.assertGreaterEqual(len(ft), 4, out)
-        blocked = [r for r in ft if r.get("touch_blocked")]
-        self.assertFalse(blocked, "振幅未过闸时不应标 touch_blocked")
         ready = [r for r in ft if r.get("entry_ready")]
         self.assertEqual(len(ready), 1, out)
         self.assertTrue(ready[0].get("leg1_fill"), out)
 
     def test_flat_prefix_does_not_burn_abandon_budget(self):
-        """P2-1：早盘一字板不烧 abandon；开板后仍可评估。"""
+        """早盘一字板不计入固定前缀决策；开板后凑齐固定窗仍可开。"""
         d = "2024-02-04"
         bar = _bar(d, 110, 110, 100, 105)
-        # 前 6 根一字板，再开板下探（反T）
         points = []
-        for hm in (935, 940, 945, 950, 955, 1000):
+        for hm in (935, 940, 945):
             points.append((hm, 110, 110.05, 109.95, 110.0))
         points.extend(
             [
-                (1005, 110, 110.1, 104.0, 105.0),
-                (1010, 105, 106, 103.5, 105.5),  # 反弹确认 + 触低吸
+                (1000, 110, 110.1, 104.0, 104.5),  # 阴 · 开板
+                (1005, 104.5, 105.5, 104.2, 105.2),  # 阳
+                (1010, 105.2, 106.0, 105.0, 105.8),  # 阳 · 若 fixed=6…
                 (1400, 105.5, 112, 105, 110),
             ]
         )
@@ -1501,12 +1658,13 @@ class TestT0Core(unittest.TestCase):
                 min_range_pct=1.0,
                 sell_trigger_pct=1.5,
                 buy_trigger_pct=2.0,
-                y_path_abandon_bars=4,
-                y_prefix_bounce_pct_reverse=0.25,
+                y_path_abandon_bars_reverse=6,
+                y_prefix_upbar_ratio_reverse=0.5,
             ),
         )
         self.assertTrue(out.get("success"), out)
         self.assertFalse(out.get("path_abandon"), out)
+        self.assertGreater(out.get("bought_qty") or 0, 0, out)
 
     def test_backtest_minute_by_date_sets_first_touch(self):
         bars = []
@@ -1561,17 +1719,7 @@ class TestT0Core(unittest.TestCase):
     def test_backtest_day_carries_forward_trace(self):
         bars = [_bar(f"2024-01-{i+1:02d}", 100, 103, 94, 100) for i in range(8)]
         d = bars[-1]["date"]
-        mins = {
-            d: _mins(
-                d,
-                [
-                    (935, 100, 100.05, 99.95, 100),
-                    (940, 100, 100.05, 99.9, 99.92),
-                    (945, 99.92, 99.92, 99.5, 99.55),
-                    (1000, 99.5, 99.6, 96.0, 97.0),
-                ],
-            )
-        }
+        mins = {d: _mins_lh(bar=bars[-1])}
         report = backtest_t0_on_bars(
             bars,
             initial_shares=1000,
@@ -1583,7 +1731,6 @@ class TestT0Core(unittest.TestCase):
                 min_range_pct=1.0,
                 sell_trigger_pct=1.5,
                 buy_trigger_pct=2.0,
-                y_prefix_bounce_pct_reverse=0.25,
             ),
             minute_by_date=mins,
             compare_optimistic=False,
@@ -1604,23 +1751,13 @@ class TestT0Core(unittest.TestCase):
 
         d = "2024-01-07"
         bar = _bar(d, 100, 103, 94, 100)
-        mins = _mins(
-            d,
-            [
-                (935, 100, 100.05, 99.95, 100),
-                (940, 100, 100.05, 99.9, 99.92),
-                (945, 99.92, 99.92, 99.5, 99.55),
-                (1000, 99.5, 99.6, 96.0, 97.0),
-                (1500, 97.0, 100.5, 97.0, 100.0),
-            ],
-        )
+        mins = _mins_lh(bar=bar)
         rules = _rules(
             direction="reverse_t",
             fill_mode="trigger",
             min_range_pct=1.0,
             sell_trigger_pct=1.5,
             buy_trigger_pct=2.0,
-            y_prefix_bounce_pct_reverse=0.25,
         )
         cfg = load_t0_rules(rules)
         day_out = simulate_t0_day(
@@ -1666,20 +1803,13 @@ class TestT0Core(unittest.TestCase):
         )
 
     def test_intraday_forward_no_retroactive_leg1(self):
-        """Worker 递增长前缀：振幅未过闸的早触价不得落账。"""
+        """Worker 递增长前缀：固定前缀未齐时的早触价不得落账。"""
         from core.t0.intraday import process_holding_intraday
 
         d = "2024-01-07"
         bar = _bar(d, 100, 103, 94, 100)
-        all_mins = _mins(
-            d,
-            [
-                (935, 100, 100.05, 99.95, 100),
-                (940, 100, 100.05, 99.9, 99.92),
-                (945, 99.92, 99.92, 99.5, 99.55),
-                (1000, 99.5, 99.6, 96.0, 97.0),
-            ],
-        )
+        # 第 2 根已触买价，但须等满 4 根且后半阳线占比过闸后才落账
+        all_mins = _mins_lh(bar=bar)
         cfg = load_t0_rules(
             _rules(
                 direction="reverse_t",
@@ -1687,7 +1817,6 @@ class TestT0Core(unittest.TestCase):
                 min_range_pct=1.0,
                 sell_trigger_pct=1.5,
                 buy_trigger_pct=2.0,
-                y_prefix_bounce_pct_reverse=0.25,
             )
         )
         holding = {"shares": 1000, "cost": 100, "stock_name": "测"}
@@ -1717,8 +1846,8 @@ class TestT0Core(unittest.TestCase):
             legs.extend(new_legs)
         buys = [t for t in legs if str(t.get("side") or "") == "t0_buy"]
         self.assertEqual(len(buys), 1, legs)
-        self.assertIn("10:00", str(buys[0].get("at") or ""), legs)
-        self.assertNotIn("09:45", str(buys[0].get("at") or ""), legs)
+        self.assertIn("09:50", str(buys[0].get("at") or ""), legs)
+        self.assertNotIn("09:40", str(buys[0].get("at") or ""), legs)
 
     def test_forward_trace_pm_block_after_degrade(self):
         """午后禁新开：触价行标 pm_block。"""
@@ -1835,6 +1964,9 @@ class TestT0Core(unittest.TestCase):
                     "path_mode": "first_touch",
                     "use_atr": False,
                     "min_range_pct": 1.0,
+                    "y_path_abandon_bars": 4,
+                    "y_path_abandon_bars_long": 4,
+                    "y_prefix_downbar_ratio_long": 0.5,
                 }
             },
         }
@@ -1963,24 +2095,25 @@ class TestDualYDirection(unittest.TestCase):
 
         cfg = load_t0_rules(
             {
-                "sell_trigger_pct_long": 0.8,
                 "buy_trigger_pct_long": 1.2,
                 "sell_trigger_pct_reverse": 1.5,
-                "buy_trigger_pct_reverse": 0.6,
                 "min_range_pct_long": 0.3,
                 "min_range_pct_reverse": 1.0,
                 "fill_mode_long": "trigger",
                 "fill_mode_reverse": "mid",
+                # 旧 leg1 侧向键应被丢弃
+                "sell_trigger_pct_long": 0.8,
+                "buy_trigger_pct_reverse": 0.6,
             }
         )
+        self.assertNotIn("sell_trigger_pct_long", cfg)
+        self.assertNotIn("buy_trigger_pct_reverse", cfg)
         long_cfg = apply_side_exec_params(cfg, "long_t")
-        self.assertEqual(long_cfg["sell_trigger_pct"], 0.8)
         self.assertEqual(long_cfg["buy_trigger_pct"], 1.2)
         self.assertEqual(long_cfg["min_range_pct"], 0.3)
         self.assertEqual(long_cfg["fill_mode"], "trigger")
         rev_cfg = apply_side_exec_params(cfg, "reverse_t")
         self.assertEqual(rev_cfg["sell_trigger_pct"], 1.5)
-        self.assertEqual(rev_cfg["buy_trigger_pct"], 0.6)
         self.assertEqual(rev_cfg["min_range_pct"], 1.0)
         self.assertEqual(rev_cfg["fill_mode"], "mid")
 
@@ -2003,15 +2136,15 @@ class TestDualYDirection(unittest.TestCase):
             shares=1000,
         )
         self.assertTrue(weak_rev.get("skip"))
-        self.assertIn("反T", weak_rev.get("direction_reason") or "")
+        self.assertIn("正T", weak_rev.get("direction_reason") or "")  # y_tau_enter_reverse=0.08 挡 0.05
 
         weak_long = resolve_dual_y_direction(
-            scores={"y_tau": -0.03, "y_trade": 0.5},
+            scores={"y_tau": -0.06, "y_trade": -0.5},
             cfg=cfg,
             cash=1e5,
             shares=1000,
         )
-        self.assertFalse(weak_long.get("skip"))
+        self.assertFalse(weak_long.get("skip"), weak_long.get("direction_reason"))
         self.assertEqual(weak_long.get("direction"), "long_t")
 
         strong_rev = resolve_dual_y_direction(
@@ -2645,7 +2778,7 @@ class TestDualYDirection(unittest.TestCase):
                 fill_mode="optimistic",
             ),
             scores={"y_trade": 0.2, "y_tau": 0.8, "y_eod": -0.5},
-            minute_bars=_mins_hl(bar=bar))
+            minute_bars=_mins_lh(bar=bar))
         self.assertFalse(out.get("skipped"), out.get("reason"))
         self.assertNotIn("异号", out.get("reason") or "")
         self.assertEqual(out.get("direction_used"), "reverse_t")
@@ -2716,33 +2849,53 @@ class TestDualYDirection(unittest.TestCase):
     def test_dual_y_strong_trade_tau_disagree_skips(self):
         from core.t0.score_policy import resolve_dual_y_direction
 
+        # |y_trade|>strong 且与 τ 异号 → 跳过（不再误靠 y_eod 闸）
         out = resolve_dual_y_direction(
-            scores={"y_trade": 1.5, "y_tau": -0.8, "y_eod": 0.5},
+            scores={"y_trade": -0.43, "y_tau": 0.10, "y_eod": 0.05},
             cfg={
-                "y_tau_enter": 0.25,
-                "y_trade_strong": 1.0,
+                "y_tau_enter": 0.05,
+                "y_trade_strong": 0.1,
+                "y_eod_strong": 5.0,
+                "y_eod_enter": 0.01,
                 "y_use_path": False,
                 "y_block_tau_nowcast_sign": False,
             },
             cash=50000,
             shares=1000,
         )
-        self.assertTrue(out.get("skip"))
-        self.assertIn("y_eod", out.get("direction_reason") or "")
+        self.assertTrue(out.get("skip"), out)
+        self.assertIn("y_trade", out.get("direction_reason") or "")
 
         ok = resolve_dual_y_direction(
-            scores={"y_trade": 1.5, "y_tau": 0.8, "y_eod": 1.2},
+            scores={"y_trade": 0.43, "y_tau": 0.10, "y_eod": 0.05},
             cfg={
-                "y_tau_enter": 0.25,
-                "y_trade_strong": 1.0,
+                "y_tau_enter": 0.05,
+                "y_trade_strong": 0.1,
+                "y_eod_strong": 5.0,
+                "y_eod_enter": 0.01,
                 "y_use_path": False,
                 "y_block_tau_nowcast_sign": False,
             },
             cash=50000,
             shares=1000,
         )
-        self.assertFalse(ok.get("skip"))
+        self.assertFalse(ok.get("skip"), ok.get("direction_reason"))
 
+        # |y_trade|≤strong：异号仍放行
+        weak = resolve_dual_y_direction(
+            scores={"y_trade": -0.05, "y_tau": 0.10, "y_eod": 0.05},
+            cfg={
+                "y_tau_enter": 0.05,
+                "y_trade_strong": 0.1,
+                "y_eod_strong": 5.0,
+                "y_eod_enter": 0.01,
+                "y_use_path": False,
+                "y_block_tau_nowcast_sign": False,
+            },
+            cash=50000,
+            shares=1000,
+        )
+        self.assertFalse(weak.get("skip"), weak.get("direction_reason"))
     def test_dual_y_strong_gate_uses_config_default_0_1(self):
         from core.t0.score_policy import resolve_dual_y_direction
 
@@ -2750,6 +2903,7 @@ class TestDualYDirection(unittest.TestCase):
             {
                 "y_tau_enter": 0.02,
                 "y_eod_strong": 0.1,
+                "y_trade_strong": 5.0,  # 抬高 trade 闸，专测 eod 默认 0.1
                 "y_use_path": False,
                 "y_block_tau_nowcast_sign": False,
             }
@@ -2770,6 +2924,23 @@ class TestDualYDirection(unittest.TestCase):
         )
         self.assertFalse(allowed.get("skip"), allowed.get("direction_reason"))
 
+        # 默认 y_trade_strong=0.1：普洛药业类 |trade|=0.43% 异号应拦
+        cfg_trade = load_t0_rules(
+            {
+                "y_tau_enter": 0.05,
+                "y_eod_strong": 5.0,
+                "y_use_path": False,
+                "y_block_tau_nowcast_sign": False,
+            }
+        )
+        pl = resolve_dual_y_direction(
+            scores={"y_trade": -0.43, "y_tau": 0.10, "y_eod": 1.01},
+            cfg=cfg_trade,
+            cash=50000,
+            shares=1000,
+        )
+        self.assertTrue(pl.get("skip"), pl)
+        self.assertIn("y_trade", pl.get("direction_reason") or "")
     def test_dual_y_long_t_and_cover(self):
         bar = _bar("2026-01-10", 100, 105, 98, 101)
         out = simulate_t0_day(
@@ -2788,7 +2959,7 @@ class TestDualYDirection(unittest.TestCase):
                 y_tau_enter=0.25,
             ),
             scores={
-                "y_trade": 0.3,
+                "y_trade": -0.3,
                 "y_tau": -0.8,
                 "y_eod": -0.4,
                 "y_on": 0.2,
@@ -2822,7 +2993,7 @@ class TestDualYDirection(unittest.TestCase):
                 "y_eod": 0.5,
                 "y_on": 0.1,
             },
-            minute_bars=_mins_hl(bar=bar))
+            minute_bars=_mins_lh(bar=bar))
         self.assertTrue(out["success"])
         self.assertFalse(out.get("skipped"), out.get("reason"))
         self.assertEqual(out.get("direction_used"), "reverse_t")
@@ -2956,7 +3127,6 @@ class TestDualYDirection(unittest.TestCase):
                 "fill_mode": "optimistic",
                 "t0_ratio": 0.4,
                 "sell_trigger_pct": 2.0,
-                "sell_trigger_pct_long": 2.0,
                 "buy_trigger_pct": 1.5,
                 "y_tau_enter": 0.25,
                 "y_trade_floor": 0.15,
@@ -2966,6 +3136,11 @@ class TestDualYDirection(unittest.TestCase):
                 "y_ratio_tau_soft_band": 0.0,
                 "y_block_tau_nowcast_sign": False,
                 "t0_pm_degrade": "",
+                # 与 _rules / _mins_hl 短前缀夹具对齐
+                "y_path_abandon_bars_long": 4,
+                "y_path_abandon_bars_reverse": 4,
+                "y_prefix_downbar_ratio_long": 0.5,
+                "y_prefix_upbar_ratio_reverse": 0.5,
             }
         )
         out = _intraday_setup(
@@ -3024,7 +3199,8 @@ class TestDualYDirection(unittest.TestCase):
                 "buy_trigger_pct": 1.0,
                 "must_cover_same_day": True,
                 "t0_pm_degrade": "",
-                "y_prefix_pullback_pct_long": 0.25,
+                "y_path_abandon_bars_long": 3,
+                "y_prefix_downbar_ratio_long": 0.5,
             }
         )
         out = _intraday_setup(
@@ -3098,7 +3274,7 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(new2, [])
         self.assertEqual(st2.get("phase"), "after_leg1")
 
-        # 收到 14:55 收盘 K：正T放弃买回，不再强平第二腿
+        # 收到 14:55 收盘 K：反T放弃买回，不再强平第二腿
         mins_eod = mins + _mins(d, [(1455, 9.47, 9.48, 9.45, 9.46)])
         st3, new3, _ = process_holding_intraday(
             code="601600",
@@ -3129,7 +3305,7 @@ class TestDualYDirection(unittest.TestCase):
         )
 
     def test_intraday_setup_reverse_defers_eod_on_morning_prefix(self):
-        """反T盘中前缀已低吸时，Worker 不得把 10:40 当成收盘强平。"""
+        """正T盘中前缀已低吸时，Worker 不得把 10:40 当成收盘强平。"""
         from core.t0.intraday import _intraday_setup
 
         d = "2026-08-27"
@@ -3154,7 +3330,8 @@ class TestDualYDirection(unittest.TestCase):
                 "buy_trigger_pct": 1.0,
                 "must_cover_same_day": True,
                 "t0_pm_degrade": "",
-                "y_prefix_bounce_pct_reverse": 0.25,
+                "y_path_abandon_bars_reverse": 3,
+                "y_prefix_upbar_ratio_reverse": 0.5,
             }
         )
         out = _intraday_setup(
@@ -3181,7 +3358,7 @@ class TestDualYDirection(unittest.TestCase):
         self.assertFalse(out.get("path_complete"))
 
     def test_intraday_setup_eod_cover_at_session_close(self):
-        """正T：收盘窗未买回 → abandon_cover，不强制买回。"""
+        """反T：收盘窗未买回 → abandon_cover，不强制买回。"""
         from core.t0.intraday import _intraday_setup
 
         d = "2026-08-26"
@@ -3207,7 +3384,8 @@ class TestDualYDirection(unittest.TestCase):
                 "buy_trigger_pct": 1.0,
                 "must_cover_same_day_long": False,
                 "t0_pm_degrade_long": "",
-                "y_prefix_pullback_pct_long": 0.25,
+                "y_path_abandon_bars_long": 3,
+                "y_prefix_downbar_ratio_long": 0.5,
             }
         )
         out = _intraday_setup(
@@ -3245,6 +3423,8 @@ class TestDualYDirection(unittest.TestCase):
         self.assertFalse(out.get("skip"))
         self.assertEqual(out.get("direction"), "reverse_t")
         self.assertIn("trend", out.get("direction_reason") or "")
+        self.assertIn("正T", out.get("direction_reason") or "")
+        self.assertNotIn("reverse_t", out.get("direction_reason") or "")
 
     def test_dual_y_blocks_tau_nowcast_sign_strong_disagree(self):
         """|nowcast| 够强且与 y_τ 异号 → 跳过；缺 nowcast 不拦。"""
@@ -3300,8 +3480,27 @@ class TestDualYDirection(unittest.TestCase):
         self.assertFalse(ok.get("skip"))
         self.assertNotIn("异号", ok.get("direction_reason") or "")
 
-        # y_trade↔y_τ 异号本身不再触发跳过
-        trade_only = resolve_dual_y_direction(
+        # |y_trade| 弱于 strong：异号不拦（本测专验 nc，非 trade 强闸）
+        trade_weak = resolve_dual_y_direction(
+            scores={
+                "y_trade": -0.05,
+                "y_tau": 0.70,
+                "y_eod": 0.27,
+                "y_nowcast": 0.40,
+            },
+            cfg={
+                "y_tau_enter": 0.40,
+                "y_trade_strong": 0.1,
+                "y_block_tau_nowcast_sign": True,
+            },
+            cash=50000,
+            shares=1000,
+        )
+        self.assertFalse(trade_weak.get("skip"), trade_weak.get("direction_reason"))
+        self.assertNotIn("异号", trade_weak.get("direction_reason") or "")
+
+        # |y_trade|>strong 且与 τ 异号：强闸跳过（与 nc 闸独立）
+        trade_strong = resolve_dual_y_direction(
             scores={
                 "y_trade": -0.48,
                 "y_tau": 0.70,
@@ -3310,13 +3509,14 @@ class TestDualYDirection(unittest.TestCase):
             },
             cfg={
                 "y_tau_enter": 0.40,
+                "y_trade_strong": 0.1,
                 "y_block_tau_nowcast_sign": True,
             },
             cash=50000,
             shares=1000,
         )
-        self.assertFalse(trade_only.get("skip"))
-        self.assertNotIn("异号", trade_only.get("direction_reason") or "")
+        self.assertTrue(trade_strong.get("skip"))
+        self.assertIn("y_trade", trade_strong.get("direction_reason") or "")
 
     def test_t0_confidence_scale_soft_tau_band_cuts(self):
         from core.t0.score_policy import t0_confidence_scale
@@ -3363,6 +3563,8 @@ class TestDualYDirection(unittest.TestCase):
                 t0_pm_degrade="14:00",
                 t0_pm_chase_interval_min=10,
                 use_atr=False,
+                y_path_abandon_bars_reverse=2,
+                y_prefix_segment_enabled_reverse=False,
             ),
             minute_bars=mins,
         )
@@ -3403,6 +3605,8 @@ class TestDualYDirection(unittest.TestCase):
                 t0_pm_degrade="14:00",
                 t0_pm_chase_interval_min=10,
                 use_atr=False,
+                y_path_abandon_bars_reverse=2,
+                y_prefix_segment_enabled_reverse=False,
             ),
             minute_bars=mins,
         )
@@ -3413,7 +3617,7 @@ class TestDualYDirection(unittest.TestCase):
         self.assertGreater(float(sell["price"]), 103.0)
 
     def test_must_cover_chase_not_below_buy(self):
-        """must_cover 反T：追价目标不得低于低吸价（宁可等 eod）。"""
+        """must_cover 正T：追价目标不得低于低吸价（宁可等 eod）。"""
         bar = _bar("2026-07-29", 100, 102, 90, 92)
         mins = _mins(
             "2026-07-29",
@@ -3442,6 +3646,8 @@ class TestDualYDirection(unittest.TestCase):
                 t0_pm_degrade="14:00",
                 t0_pm_chase_interval_min=10,
                 use_atr=False,
+                y_path_abandon_bars_reverse=2,
+                y_prefix_segment_enabled_reverse=False,
             ),
             minute_bars=mins,
         )
@@ -3455,7 +3661,7 @@ class TestDualYDirection(unittest.TestCase):
             self.assertEqual(sell.get("leg_kind"), "eod_cover")
 
     def test_must_cover_chase_not_above_sold(self):
-        """must_cover 正T：追价目标不得高于卖出价（宁可等 eod）。"""
+        """must_cover 反T：追价目标不得高于卖出价（宁可等 eod）。"""
         from core.t0.minute_path import _first_touch_long
 
         bar = {"date": "2026-07-29", "open": 100, "high": 106, "low": 99, "close": 101}
@@ -3497,7 +3703,6 @@ class TestDualYDirection(unittest.TestCase):
             session_bars=mins,
             session_bar=bar,
             defer_eod=False,
-            leg1_gate_at=lambda _i: True,
         )
         sell = next(t for t in out["trades"] if t.get("side") == "t0_sell")
         buy = next(t for t in out["trades"] if t.get("side") == "t0_buy")
@@ -3581,7 +3786,8 @@ class TestDualYDirection(unittest.TestCase):
                 t0_pm_degrade="14:00",
                 t0_pm_chase_interval_min=10,
                 use_atr=False,
-                y_prefix_bounce_pct_reverse=0.1,
+                y_path_abandon_bars_reverse=2,
+                y_prefix_segment_enabled_reverse=False,
             ),
             minute_bars=_mins("2026-07-29", pts),
         )
@@ -3592,7 +3798,7 @@ class TestDualYDirection(unittest.TestCase):
         self.assertLess(float(sell["price"]), 38.5)
 
     def test_long_t_no_pm_chase_abandons(self):
-        """正T：关中点追价；固定买回触不到 → abandon_cover。"""
+        """反T：关中点追价；固定买回触不到 → abandon_cover。"""
         bar = _bar("2026-07-29", 100, 103, 99, 101)
         # 卖@102 → 买回 100.47；午后 lo 最低 100.5，若追价本可成交，现应放弃
         mins = _mins(
@@ -3619,6 +3825,8 @@ class TestDualYDirection(unittest.TestCase):
                 t0_pm_degrade_long="",
                 t0_pm_chase_interval_min=10,
                 use_atr=False,
+                y_path_abandon_bars_long=2,
+                y_prefix_segment_enabled_long=False,
             ),
             minute_bars=mins,
         )
@@ -3626,7 +3834,7 @@ class TestDualYDirection(unittest.TestCase):
         self.assertFalse(any(t.get("side") == "t0_buy" for t in (out.get("trades") or [])))
 
     def test_long_t_pm_chase_buyback(self):
-        """正T：15:00 起中点追价抬高买回目标。"""
+        """反T：15:00 起中点追价抬高买回目标。"""
         bar = _bar("2026-07-29", 100, 103, 99, 101)
         # 卖@102 → 买回基准 102×0.985≈100.47；15:00 中点抬高后 lo 可触
         mins = _mins(
@@ -3652,6 +3860,8 @@ class TestDualYDirection(unittest.TestCase):
                 must_cover_same_day_long=False,
                 t0_pm_degrade_long="15:00",
                 t0_pm_chase_interval_min=10,
+                y_path_abandon_bars_long=2,
+                y_prefix_segment_enabled_long=False,
             ),
             minute_bars=mins,
         )
@@ -3660,7 +3870,7 @@ class TestDualYDirection(unittest.TestCase):
         self.assertEqual(buy.get("leg_kind"), "pm_chase")
 
     def test_long_t_must_cover_eod_buy(self):
-        """正T：勾选强制回补 → 收盘买回。"""
+        """反T：勾选强制回补 → 收盘买回。"""
         bar = _bar("2026-08-26", 100, 102, 99, 101)
         mins = _mins(
             "2026-08-26",
@@ -3680,6 +3890,8 @@ class TestDualYDirection(unittest.TestCase):
                 min_range_pct=0.5,
                 must_cover_same_day_long=True,
                 t0_pm_degrade_long="",
+                y_path_abandon_bars_long=2,
+                y_prefix_segment_enabled_long=False,
             ),
             minute_bars=mins,
         )
@@ -3713,6 +3925,8 @@ class TestDualYDirection(unittest.TestCase):
                 min_range_pct=1.0,
                 t0_pm_degrade="14:00",
                 use_atr=False,
+                y_path_abandon_bars_reverse=2,
+                y_prefix_segment_enabled_reverse=False,
             ),
             minute_bars=mins,
         )
@@ -4233,18 +4447,36 @@ class TestT0Viz(unittest.TestCase):
             "other",
         )
         self.assertEqual(
-            classify_t0_skip_reason("正T分钟路径未触及卖出价"),
+            classify_t0_skip_reason("反T分钟路径未触及卖出价"),
             "trigger_miss",
         )
         self.assertEqual(
-            classify_t0_skip_reason("反T分钟路径未触及低吸位"),
+            classify_t0_skip_reason("正T分钟路径未触及低吸位"),
             "trigger_miss",
         )
         self.assertEqual(
             classify_t0_skip_reason(
-                "反T：可卖旧仓 0 股（持仓 500 全被 T+1 锁定），第二腿卖不掉旧仓"
+                "正T：可卖旧仓 0 股（持仓 500 全被 T+1 锁定），第二腿卖不掉旧仓"
             ),
             "tplus1",
+        )
+        self.assertEqual(
+            classify_t0_skip_reason("正T待固定前缀 2/12"),
+            "prefix_segment",
+        )
+        self.assertEqual(
+            classify_t0_skip_reason("正T固定前缀后半上涨 0/2=0%<50%"),
+            "prefix_segment",
+        )
+        self.assertEqual(
+            classify_t0_skip_reason(
+                "固定前缀未确认，放弃正T（正T固定前缀后半上涨 0/2=0%<50%）"
+            ),
+            "path_abandon",
+        )
+        self.assertEqual(
+            classify_t0_skip_reason("振幅不足 0.30% < 1.00%"),
+            "amplitude",
         )
         from core.t0.viz import summarize_skip_reason_label
 
@@ -4257,18 +4489,18 @@ class TestT0Viz(unittest.TestCase):
             "y_τ横盘",
         )
         self.assertEqual(
-            summarize_skip_reason_label("反T分钟路径未触及低吸位"),
-            "反T未触低吸",
+            summarize_skip_reason_label("正T分钟路径未触及低吸位"),
+            "正T未触低吸",
         )
         self.assertEqual(
             summarize_skip_reason_label(
-                "反T：可卖旧仓 0 股（持仓 500 全被 T+1 锁定），第二腿卖不掉旧仓"
+                "正T：可卖旧仓 0 股（持仓 500 全被 T+1 锁定），第二腿卖不掉旧仓"
             ),
             "T+1无可卖",
         )
         self.assertEqual(
-            summarize_skip_reason_label("正T分钟路径未触及卖出价"),
-            "正T未触卖出",
+            summarize_skip_reason_label("反T分钟路径未触及卖出价"),
+            "反T未触卖出",
         )
         self.assertEqual(
             classify_t0_skip_reason("dual_y：y_path=10.000%≤15.0% 未过门槛"),
@@ -4301,11 +4533,11 @@ class TestT0Viz(unittest.TestCase):
             "trade_tau_sign",
         )
         self.assertEqual(
-            classify_t0_skip_reason("正T上移振幅 0.80%<2.00%"),
+            classify_t0_skip_reason("反T上移振幅 0.80%<2.00%"),
             "directional_amplitude",
         )
         self.assertEqual(
-            classify_t0_skip_reason("反T：现金不够 1 手（现金 1000 …）"),
+            classify_t0_skip_reason("正T：现金不够 1 手（现金 1000 …）"),
             "cash",
         )
         self.assertEqual(
@@ -4819,14 +5051,22 @@ class TestIntradaySkipLogic(unittest.TestCase):
 
         # 盘口可重试；dual_y 门槛对齐后终锁（不进 retryable）
         self.assertTrue(_retryable_skip("振幅不足 0.30% < 0.80%"))
-        self.assertTrue(_retryable_skip("正T分钟路径未触及卖出价"))
+        self.assertTrue(_retryable_skip("反T分钟路径未触及卖出价"))
+        self.assertTrue(_retryable_skip("正T待固定前缀 2/12"))
+        self.assertTrue(_retryable_skip("反T待固定前缀 2/12"))
         self.assertFalse(_retryable_skip("dual_y：|y_τ|=0.027%<0.1% 横盘跳过"))
-        # path_abandon 文案含「待回落/振幅」不得误判可重试
+        # path_abandon 文案含「待回落/待反弹/振幅」不得误判可重试
         self.assertFalse(
-            _retryable_skip("前缀无回落确认，放弃正T（正T待回落 0.20%<0.50%）")
+            _retryable_skip("前缀无回落确认，放弃反T（反T待回落 0.20%<0.50%）")
         )
         self.assertFalse(
-            _retryable_skip("前缀无低吸空间，放弃反T（反T下移振幅 0.30%<0.80%）")
+            _retryable_skip("前缀无低吸空间，放弃正T（正T下移振幅 0.30%<0.80%）")
+        )
+        self.assertFalse(
+            _retryable_skip("固定前缀未确认，放弃正T（正T固定前缀后半上涨 0/2=0%<50%）")
+        )
+        self.assertFalse(
+            _retryable_skip("固定前缀未确认，放弃反T（反T固定前缀后半下跌 0/2=0%<50%）")
         )
         self.assertTrue(_dual_y_threshold_skip("dual_y：|y_τ|=0.027%<0.1% 横盘跳过"))
         self.assertTrue(_dual_y_threshold_skip("dual_y：y_path=10.000%≤15.0% 未过门槛"))

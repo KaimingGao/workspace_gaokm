@@ -86,7 +86,8 @@ def daily_bt_option_defaults() -> Dict[str, Any]:
         "apply_costs": True,
         "note": (
             "表单默认 K=3 · 持有 1 日 · lookback 30；跟纸面用 paper_*；"
-            "cron/CLI 不传则仍跟纸面；ŷ 标签窗口仍是 scoring.horizon_days；不写 signal_config"
+            "cron/CLI 不传则仍跟纸面；ŷ 标签窗口仍是 scoring.horizon_days；不写 signal_config；"
+            "h=1 日频换仓为研究探路口径，≠纸面可实现（见 paper_replay）"
         ),
     }
 
@@ -169,11 +170,13 @@ def summarize_portfolio_backtest(
     if min_score is not None:
         bt_kwargs["min_score"] = float(min_score)
 
+    precomputed_ranks: Dict[str, Any] = {}
     bt = backtest_topk_equal_weight(
         stock_bars,
         **bt_kwargs,
         # 日报只有日线、无可靠分钟 τ；开 ŷ_τ 闸会把调仓打成 0 笔
         apply_tau_buy_gate=False,
+        precomputed_ranks=precomputed_ranks,
     )
     if not bt.get("success"):
         return bt
@@ -202,6 +205,7 @@ def summarize_portfolio_backtest(
             "基本面仅本地缓存（避免串行远端挂死）"
         )
     note_bits.append("选股键=ŷ_EOD · 关 τ 闸（日线无可靠分钟 τ；≠ live ŷ_trade）")
+    note_bits.append("引擎=topk_research（独立腿聚合；≠纸面可实现）")
     paper_k = resolved.get("paper_max_positions")
     if paper_k is not None and int(paper_k) != int(resolved["top_k"]):
         k_note = f"K={resolved['top_k']}（≠纸面 max_positions={paper_k}）"
@@ -233,8 +237,53 @@ def summarize_portfolio_backtest(
         "ŷ残差/超额标签对照未自动打开（研究枢纽影子 API）"
     )
     note = " · ".join(note_bits)
+    params["engine"] = "topk_research"
+
+    paper_replay_summary: Optional[Dict[str, Any]] = None
+    try:
+        from core.backtest.paper_replay import (
+            rankings_from_topk_precomputed,
+            summarize_paper_replay_for_daily,
+        )
+        from core.strategy import backtest_portfolio_defaults
+
+        paper_defs = backtest_portfolio_defaults()
+        paper_rules_cash = 0.2
+        try:
+            from core.paper.rebalance.cash_reserve import resolve_min_cash_pct
+
+            paper_rules_cash = float(resolve_min_cash_pct(None))
+        except Exception:  # noqa: BLE001 — 缺省 20%
+            logger.debug("resolve_min_cash_pct for daily paper_replay failed", exc_info=True)
+        mto = paper_defs.get("max_turnover_pct")
+        if mto is None:
+            mto = 40.0
+        yhat_ranks = rankings_from_topk_precomputed(
+            precomputed_ranks, top_k=int(resolved["top_k"])
+        )
+        paper_replay_summary = summarize_paper_replay_for_daily(
+            stock_bars,
+            top_k=int(resolved["top_k"]),
+            min_cash_pct=paper_rules_cash,
+            max_turnover_pct=float(mto) if mto is not None else None,
+            min_predicted_score=resolved.get("min_predicted_score"),
+            yhat_horizon_days=int(resolved["yhat_horizon_days"]),
+            lookback=int(lookback),
+            rankings_by_date=yhat_ranks if yhat_ranks else None,
+            rank_source="topk_precomputed" if yhat_ranks else "momentum_close",
+        )
+    except Exception as exc:  # noqa: BLE001 — 纸面回放失败不挡研究摘要
+        logger.warning("paper_replay daily summary failed: %s", exc, exc_info=True)
+        paper_replay_summary = {
+            "success": False,
+            "engine": "paper_replay",
+            "error": str(exc),
+            "note": "纸面回放不可用；研究 Top-K 摘要仍有效",
+        }
+
     return {
         "success": True,
+        "engine": "topk_research",
         "loaded_stocks": list(stock_bars.keys()),
         "trade_count": metrics.get("trade_count"),
         "total_return_pct": metrics.get("total_return_pct"),
@@ -262,10 +311,12 @@ def summarize_portfolio_backtest(
         "stop_shadow": bt.get("stop_shadow"),
         "signal_fill_sample": (bt.get("signal_fill_sample") or [])[-12:],
         "cost_model": bt.get("cost_model"),
+        "paper_replay": paper_replay_summary,
         "research_next": [
             "人审 ŷ 残差对照 POST /api/quant/yhat-residual/shadow",
             "人审 超额标签对照 POST /api/quant/excess-mode/shadow",
             "过门后再开 cross_section.yhat_residual / y_spec.excess_mode=index",
+            "可交易验证看 paper_replay（同摘要内嵌）",
         ],
         "sector_sync": {
             "ok": sector_sync.get("ok"),

@@ -3,7 +3,7 @@
  */
 import { escapeHtml } from "../shared.js";
 import { fmtTableScore } from "../paper/fmt.js?v=p1472";
-import { marketPriorDetailFields, tailAnomalyDetailFields } from "../score_tooltip.js?v=p1472";
+import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p1604";
 import { watchingNameSpanHtml } from "./names.js";
 
 export function describeWatchingSource(src, index) {
@@ -200,6 +200,7 @@ export function watchingScoreDetail(it) {
     warnings: ((it && it.warnings) || []).slice(0, 3),
     ...marketPriorDetailFields(it),
     ...tailAnomalyDetailFields(it),
+    ...overheatDetailFields(it),
   });
 }
 
@@ -214,6 +215,8 @@ function slimFormulaTerms(expl, maxTerms = 10) {
     "volume_price",
     "relative_strength",
     "size",
+    "overheat",
+    "gap_risk",
   ]);
   const sorted = [...terms].sort(
     (a, b) => Math.abs(Number(b?.contrib) || 0) - Math.abs(Number(a?.contrib) || 0)

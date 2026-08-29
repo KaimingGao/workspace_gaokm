@@ -269,7 +269,7 @@ def resolve_tau_to_close_segment(
     rem_is_open_to_close: Optional[bool] = None,
     feats: Optional[dict] = None,
 ) -> Tuple[Optional[float], str]:
-    """路径段 τ→收：优先显式特征，否则用 ŷ_τ / rem 标签做代理。"""
+    """路径段 τ→收：优先显式特征，否则用 ŷ_τ 标签做代理。"""
     ft = feats if isinstance(feats, dict) else {}
     explicit = _f(ft.get("ret_tau_to_close"))
     if explicit is not None:

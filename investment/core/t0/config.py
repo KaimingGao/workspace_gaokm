@@ -23,18 +23,30 @@ def coerce_cfg_bool(val: Any, default: bool = True) -> bool:
     return default
 
 
+def t0_dir_label(direction: Optional[str]) -> str:
+    """内部枚举 → 中文：reverse_t=正T，long_t=反T。"""
+    d = str(direction or "").strip().lower()
+    if d == "reverse_t":
+        return "正T"
+    if d == "long_t":
+        return "反T"
+    return d or "—"
+
+
+# 方向键：*_long = 反T，*_reverse = 正T（枚举见 minute_path 模块说明）
 # t0_pm_degrade_{long|reverse}: HH:MM 之后禁新开（端点不含；已开未平则第二腿中点追价，否则 eod/放弃）
 # t0_pm_degrade:  legacy，等同 reverse 侧
 # t0_pm_chase_interval_min_{long|reverse}: 起算后每隔 N 分钟再中点一次（1–60）
 # t0_pm_chase_interval_min: legacy，等同 reverse 侧
-# must_cover_same_day_{long|reverse}: 正T默认关；反T默认开
-# sell|buy_trigger_pct_*：leg1 相对 ref；leg2 相对第一腿成交价（正T买回 / 反T卖旧）
+# must_cover_same_day_{long|reverse}: 反T默认不强制回补；正T默认同日卖旧
+# 第二腿触发（相对第一腿成交价）：buy_trigger_pct_long（反T买回）、sell_trigger_pct_reverse（正T卖旧）
+# 正T买触发 / 反T卖触发（相对开盘）已下线；共用 sell|buy_trigger_pct 仅兜底缩放/振幅
 #
 # fill_mode:
 #   trigger     — 按触发价成交（默认，偏保守）
 #   mid         — 触发价与极值中点
 #   optimistic  — 卖用 high、买用 low（上界，对照用）
-# 正/反可分侧：sell|buy_trigger_pct_{long|reverse}、min_range_pct_*、fill_mode_*（缺省回退共用键）
+# 正/反可分侧：min_range_pct_*、fill_mode_*（缺省回退共用键）
 #
 # direction:
 #   dual_y  — y_trade 资格 · y_τ 主方向 · y_eod 目标价同向回升 · y_on 回补
@@ -48,10 +60,8 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "t0_ratio": 1.0,
     "sell_trigger_pct": 1.0,
     "buy_trigger_pct": 1.0,
-    "sell_trigger_pct_long": 1.0,
     "buy_trigger_pct_long": 5.0,
     "sell_trigger_pct_reverse": 5.0,
-    "buy_trigger_pct_reverse": 1.0,
     "must_cover_same_day": True,
     "must_cover_same_day_long": False,
     "must_cover_same_day_reverse": True,
@@ -79,9 +89,9 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "atr_buy_mult": 0.7,
     # dual_y 阈值（百分比点）：*_enter 入场下限；*_strong 超强须与 τ 同号
     "y_trade_enter": 0.01,
-    "y_trade_strong": 2.0,
+    "y_trade_strong": 0.1,
     "y_tau_enter": 0.01,
-    # 正T（−τ）/ 反T（+τ）分侧入场；缺省与 y_tau_enter 同
+    # 反T / 正T 分侧入场；缺省与 y_tau_enter 同
     "y_tau_enter_long": 0.01,
     "y_tau_enter_reverse": 0.01,
     "y_path_enter": 0.01,
@@ -104,15 +114,15 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_nowcast_oc_gate": False,
     "y_path_abandon_enabled": True,
     "y_path_abandon_bars": 12,
-    # 第一腿段向确认：正T须从前缀 high 回落；反T须从前缀 low 弹起（%）
-    # 确认后粘滞开闸（首次 entry_ready 起后续根可触价）——正确语义；
-    # 禁止恢复「同根确认∧触价」死锁：那会系统性漏成交、虚高回测。
-    # abandon 仅统计「尚未开闸」的等待根；首次 ready 后冻结，交给粘滞闸。
+    # 正/反T：固定前缀 N=abandon_bars；齐窗一次判定后半阴阳占比（不滚动探极值）
+    # 正T：后半 close>open ≥upbar_ratio；反T：后半 close<open ≥downbar_ratio
     "y_prefix_segment_enabled": True,
     "y_prefix_segment_enabled_long": True,
     "y_prefix_segment_enabled_reverse": True,
-    "y_prefix_pullback_pct_long": 0.5,
-    "y_prefix_bounce_pct_reverse": 0.5,
+    "y_prefix_upbar_ratio_reverse": 0.6,
+    "y_prefix_downbar_ratio_long": 0.6,
+    # 固定前缀确认根：第一腿价相对开盘 ≤/≥ |ŷ_τ|%×倍数（正T买上限 / 反T卖下限）；0=关
+    "y_tau_entry_price_mult": 5.0,
     "y_ratio_boost_cap": 2.0,
     "y_ratio_cut": 0.60,
     "y_ratio_tau_boost_cap": 1.15,
@@ -181,21 +191,24 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     # 纸面/回测生效路径在 core.execution.resolve 再强制为 1.0
     cfg["sell_trigger_pct"] = max(0.1, min(float(cfg.get("sell_trigger_pct") or 1.0), 20.0))
     cfg["buy_trigger_pct"] = max(0.1, min(float(cfg.get("buy_trigger_pct") or 1.0), 20.0))
-    for side_trig in (
-        "sell_trigger_pct_long",
-        "buy_trigger_pct_long",
-        "sell_trigger_pct_reverse",
-        "buy_trigger_pct_reverse",
+    # 仅保留第二腿侧向触发；旧 leg1 侧向键丢弃
+    for _dead_trig in ("sell_trigger_pct_long", "buy_trigger_pct_reverse"):
+        cfg.pop(_dead_trig, None)
+    for side_trig, base_k, default in (
+        ("buy_trigger_pct_long", "buy_trigger_pct", 5.0),
+        ("sell_trigger_pct_reverse", "sell_trigger_pct", 5.0),
     ):
-        base_k = "sell_trigger_pct" if side_trig.startswith("sell_") else "buy_trigger_pct"
         raw_trig = cfg.get(side_trig)
         if raw_trig is None or raw_trig == "":
-            cfg[side_trig] = float(cfg[base_k])
+            try:
+                cfg[side_trig] = max(0.1, min(float(cfg.get(base_k) or default), 20.0))
+            except (TypeError, ValueError):
+                cfg[side_trig] = float(default)
         else:
             try:
                 cfg[side_trig] = max(0.1, min(float(raw_trig), 20.0))
             except (TypeError, ValueError):
-                cfg[side_trig] = float(cfg[base_k])
+                cfg[side_trig] = float(default)
     cfg["lot_size"] = max(1, int(cfg.get("lot_size") or 100))
     cfg["auto_strong_pct"] = max(0.0, min(float(cfg.get("auto_strong_pct") or 0.5), 5.0))
     cfg["auto_weak_pct"] = max(0.0, min(float(cfg.get("auto_weak_pct") or 0.5), 5.0))
@@ -232,7 +245,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["must_cover_same_day_long"] = coerce_cfg_bool(
         cfg.get("must_cover_same_day_long"), False
     )
-    # 反T侧：显式侧向键优先；否则若只写了 legacy must_cover_same_day，用其覆盖默认 True
+    # 正T侧：显式侧向键优先；否则若只写了 legacy must_cover_same_day，用其覆盖默认 True
     # （旧逻辑用 coerce(default_reverse=True, legacy) 会吞掉 legacy=False）
     if "must_cover_same_day_reverse" in override_keys and cfg.get(
         "must_cover_same_day_reverse"
@@ -248,13 +261,14 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         cfg["must_cover_same_day_reverse"] = coerce_cfg_bool(
             cfg.get("must_cover_same_day_reverse"), True
         )
-    # legacy 键与反T侧对齐（旧读端）
+    # legacy 键与正T侧对齐（旧读端，T+1 规则决定当日卖旧仓可行性）
     cfg["must_cover_same_day"] = cfg["must_cover_same_day_reverse"]
     cfg["use_atr"] = coerce_cfg_bool(cfg.get("use_atr"), False)
     direction = str(cfg.get("direction") or "auto").strip().lower()
-    if direction in {"long", "正", "正t", "zheng"}:
+    # 中文 alias：正→reverse_t，反→long_t
+    if direction in {"long", "反", "反t", "fan"}:
         direction = "long_t"
-    elif direction in {"reverse", "反", "反t", "fan", "short_t"}:
+    elif direction in {"reverse", "正", "正t", "zheng", "short_t"}:
         direction = "reverse_t"
     elif direction in {"sig", "score", "factor"}:
         direction = "signal"
@@ -270,7 +284,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_eod_enter", 0.01, 5.0, 0.01),
         ("y_eod_strong", 0.05, 5.0, 2.0),
         ("y_trade_enter", 0.01, 5.0, 0.01),
-        ("y_trade_strong", 0.05, 5.0, 2.0),
+        ("y_trade_strong", 0.05, 5.0, 0.1),
         ("y_tau_enter", 0.01, 5.0, 0.01),
         ("y_tau_enter_long", 0.01, 5.0, 0.01),
         ("y_tau_enter_reverse", 0.01, 5.0, 0.01),
@@ -361,16 +375,24 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["y_prefix_segment_enabled_reverse"] = bool(
         cfg.get("y_prefix_segment_enabled_reverse", cfg.get("y_prefix_segment_enabled", True))
     )
-    for seg_key, seg_default in (
-        ("y_prefix_pullback_pct_long", 0.5),
-        ("y_prefix_bounce_pct_reverse", 0.5),
-    ):
-        try:
-            raw_seg = cfg.get(seg_key)
-            val_seg = float(seg_default if raw_seg is None or raw_seg == "" else raw_seg)
-        except (TypeError, ValueError):
-            val_seg = float(seg_default)
-        cfg[seg_key] = max(0.0, min(val_seg, 2.0))
+    try:
+        raw_up = cfg.get("y_prefix_upbar_ratio_reverse")
+        up_ratio = float(0.6 if raw_up is None or raw_up == "" else raw_up)
+    except (TypeError, ValueError):
+        up_ratio = 0.6
+    cfg["y_prefix_upbar_ratio_reverse"] = max(0.0, min(up_ratio, 1.0))
+    try:
+        raw_dn = cfg.get("y_prefix_downbar_ratio_long")
+        dn_ratio = float(0.6 if raw_dn is None or raw_dn == "" else raw_dn)
+    except (TypeError, ValueError):
+        dn_ratio = 0.6
+    cfg["y_prefix_downbar_ratio_long"] = max(0.0, min(dn_ratio, 1.0))
+    try:
+        raw_tau_px = cfg.get("y_tau_entry_price_mult")
+        tau_px_mult = float(5.0 if raw_tau_px is None or raw_tau_px == "" else raw_tau_px)
+    except (TypeError, ValueError):
+        tau_px_mult = 5.0
+    cfg["y_tau_entry_price_mult"] = max(0.0, min(tau_px_mult, 50.0))
     gap_mode = str(cfg.get("y_gap_tier_mode") or "skip_opposite").strip().lower()
     if gap_mode not in {"off", "none", "false", "0", "skip_opposite", "revert"}:
         gap_mode = "skip_opposite"
@@ -382,6 +404,11 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         "t0_adverse_stop_atr_mult",
         "t0_time_stop",
         "t0_time_stop_underwater_only",
+        "y_n_break_high_reverse",  # 已下线：正T卖旧破前高
+        "y_n_shape_gate_reverse",  # 已下线：正T N字
+        "y_prefix_n_rise_pct_reverse",
+        "y_prefix_pullback_pct_long",  # 已下线：滚动回落/反弹
+        "y_prefix_bounce_pct_reverse",
     ):
         cfg.pop(_dead, None)
     def _norm_pm_degrade(raw: Any, default: str) -> str:
@@ -464,20 +491,27 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
 
 
 def apply_side_exec_params(cfg: dict, direction: Optional[str]) -> Dict[str, Any]:
-    """按正/反 T 覆盖执行参数：卖/买触发、振幅下限、成交模式。
+    """按正/反 T 覆盖执行参数：第二腿触发、振幅下限、成交模式。
 
-    定向前用共用键；定方向后调用本函数再缩放触发价 / 跑路径。
+    固定前缀下第一腿不看相对开盘触发；仅：
+      正T → sell_trigger_pct_reverse；反T → buy_trigger_pct_long。
     """
     out = dict(cfg or {})
     if direction not in {"long_t", "reverse_t"}:
         return out
     suf = "_reverse" if direction == "reverse_t" else "_long"
-    for base in ("sell_trigger_pct", "buy_trigger_pct"):
-        sk = f"{base}{suf}"
-        raw = out.get(sk)
+    if direction == "reverse_t":
+        raw = out.get("sell_trigger_pct_reverse")
         if raw is not None and raw != "":
             try:
-                out[base] = max(0.1, min(float(raw), 20.0))
+                out["sell_trigger_pct"] = max(0.1, min(float(raw), 20.0))
+            except (TypeError, ValueError):
+                pass
+    else:
+        raw = out.get("buy_trigger_pct_long")
+        if raw is not None and raw != "":
+            try:
+                out["buy_trigger_pct"] = max(0.1, min(float(raw), 20.0))
             except (TypeError, ValueError):
                 pass
     mr = out.get(f"min_range_pct{suf}")

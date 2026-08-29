@@ -37,6 +37,7 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "technical_pattern": 0.02,
         "weekly_confirm": 0.01,
         "gap_risk": 0.01,
+        "overheat": 0.03,
         "size": 0.03,
         "earnings_yield": 0.03,
         "growth": 0.03,
@@ -45,18 +46,24 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "amihud": 0.02,
         "idio_momentum": 0.03,
         "alt_sentiment": 0.02,
+        "tail_anomaly": 0.02,
     },
     "factor_groups": {
         "trend": ["momentum", "ma_slope", "technical_pattern", "weekly_confirm"],
         "value_quality": ["value", "earnings_yield", "quality", "growth", "dividend"],
         "liquidity_flow": ["liquidity", "money_flow", "amihud", "volume_price"],
-        "risk": ["volatility", "gap_risk"],
+        "risk": ["volatility", "gap_risk", "tail_anomaly", "overheat"],
         "residual": ["relative_strength", "idio_momentum", "size"],
     },
     "hard_reject": {
         "min_bars": 2,
         "mom3_gain_max_pct": 15.0,
         "mom3_loss_min_pct": -12.0,
+        "mom5_gain_max_pct": 10.0,
+        "day_gain_max_pct": 6.0,
+        "soft_reject": False,
+        "paper_buy_enforce": True,
+        "soft_scale_yhat": False,
     },
     # FH3：rank.min_score 已 deprecated；生产选股门槛只认 scoring.min_predicted_score
     "rank": {
@@ -90,7 +97,8 @@ DEFAULT_SIGNAL_CONFIG: Dict[str, Any] = {
         "enable_cascade_shadow": True,
         "enable_tau_shadow_book": False,
         "enable_minute_tau": False,
-        "minute_tau_hm": "09:45",
+        "minute_tau_hm": "10:30",
+        "minute_tau_grid": ["09:45", "10:00", "10:15", "10:30"],
         "nowcast": {
             "enabled": False,
             "write_shadow": False,

@@ -178,7 +178,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
-        5m 本地仓 · 强更全量更新（窗口重拉 + merge）· ŷ_path 第一触达 / T0 回测 / tail_anomaly · ≠ 日 K 增量
+        5m 本地仓 · 强更全量更新（窗口重拉 + merge）· ŷ_path / T0 回测 / tail_anomaly · ≠ 日 K 增量
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-bars-card quant-minute-card">
@@ -188,7 +188,7 @@
           <span id="quant-cluster-minute-msg" class="quant-cluster-bars-msg">加载覆盖…</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="分钟线操作">
-          <button type="button" id="quant-cluster-minute-refresh" class="dialog-btn secondary" title="全量拉取观察池 5m（窗口重拉 + merge；已 Ready 跳过 · lookback 120 交易日 · 逐只串行 · Limit100 约 30–90 分钟）">
+          <button type="button" id="quant-cluster-minute-refresh" class="dialog-btn secondary" title="全量拉取观察池 5m（窗口重拉 + merge；已 Ready 跳过 · 东财/BaoStock 30 日历日 · 新浪/腾讯有数则跳过 BaoStock · 各源间隔 10s）">
             强更 5m
           </button>
         </div>
@@ -197,17 +197,17 @@
         <div id="quant-minute-progress" class="quant-bars-progress" hidden aria-live="polite" aria-label="5m 强更进度"></div>
         <div id="quant-minute-context-strip" class="quant-bars-context-strip" aria-live="polite"></div>
         <div class="quant-bars-kpi-row" id="quant-minute-kpis" aria-label="分钟覆盖 KPI">
-          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="ok" title="交易日跨度 ≥ 40 天（ŷ_path 软闸）">
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="ok" title="交易日跨度 ≥ 30 天（ŷ_path 软闸）">
             <span class="quant-pro-kpi-label">Ready</span>
             <span class="quant-pro-kpi-value" id="quant-minute-kpi-ok">—</span>
-            <span class="quant-pro-kpi-sub" id="quant-minute-kpi-ok-sub">≥40d · — / —</span>
+            <span class="quant-pro-kpi-sub" id="quant-minute-kpi-ok-sub">≥30d · — / —</span>
           </div>
           <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="span" title="有缓存标的的交易日跨度中位数">
             <span class="quant-pro-kpi-label">Span med</span>
             <span class="quant-pro-kpi-value" id="quant-minute-kpi-span">—</span>
             <span class="quant-pro-kpi-sub" id="quant-minute-kpi-span-sub">交易日</span>
           </div>
-          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="short" title="有缓存但跨度 &lt; 40 交易日">
+          <div class="quant-bars-kpi quant-pro-kpi-card dashboard-kpi-card" data-minute-kpi="short" title="有缓存但跨度 &lt; 30 交易日">
             <span class="quant-pro-kpi-label">Short</span>
             <span class="quant-pro-kpi-value" id="quant-minute-kpi-short">—</span>
             <span class="quant-pro-kpi-sub">跨度不足</span>
@@ -358,7 +358,7 @@
             <div class="quant-help-body quant-pro-help-body">
               <p>
                 <strong>ŷ_τ</strong> = τ Ridge，标签 <code>close[T]/open[T]−1</code>；字段
-                <code>predicted_score_tau</code>（兼容别名 <code>score_rem</code>）。
+                <code>predicted_score_tau</code>（= ŷ_τ；旧别名 <code>score_rem</code> 可读）。
               </p>
               <p>
                 <strong>不进聚类、不改 ŷ_EOD</strong>。启用后只影响主题日 soft hold / τ 闸；表列主分仍是 ŷ_EOD。
@@ -418,11 +418,11 @@
     </div>
   </section>
 
-  <!-- ŷ_path：做 T 分钟第一触达顺序；与 y_τ 联合选向 -->
+  <!-- ŷ_path：极值序 + 多 τ 前缀；与 y_τ 联合选向 -->
   <section class="dashboard-section quant-section" id="quant-section-path" aria-labelledby="quant-section-path-title">
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-path-title" class="dashboard-section-title">ŷ_path</h3>
-      <p class="dashboard-section-desc quant-section-desc">5m 第一触达顺序 · dual_y 选向 · 需分钟缓存</p>
+      <p class="dashboard-section-desc quant-section-desc">极值序 · 多 τ 共享 β · dual_y · 需分钟缓存</p>
     </header>
     <div class="dashboard-card quant-pro-card">
       <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools">
@@ -435,11 +435,12 @@
             <summary class="quant-pro-help-summary"><span class="quant-pro-help-icon" aria-hidden="true">?</span> 说明</summary>
             <div class="quant-help-body quant-pro-help-body">
               <p>
-                <strong>ŷ_path</strong> = 开盘 Z → 分钟线<strong>卖/买触发谁先触达</strong>（标签 ±100）。
+                <strong>ŷ_path</strong> = 开盘 Z + 早盘前缀分钟小包 → 全日极值序 signed range%
+                （先低后高为正）。训练默认多 τ 网格 <code>09:45|10:00|10:15|10:30</code> 共享 β，看 OOS <code>by_tau</code>；live 决策钟默认 10:30。
                 字段 <code>y_path</code> / <code>predicted_score_path</code>。
               </p>
               <p>
-                <strong>与 ŷ_τ 联合选向</strong>：y_τ 定 OC 方向，y_path 定第一腿顺序。
+                <strong>与 ŷ_τ 联合选向</strong>：y_τ 定 OC 方向，y_path 定极值序（先低后高→正T）。
                 |ŷ_path|&lt;入场门槛则横盘跳过；达门槛后不一致则否决。
                 落盘 <code>path_ridge_model.json</code>；配置见
                 <a class="quant-hero-link" href="/follow#paper-t0-spec">交易执行 · 做 T 规则</a>。

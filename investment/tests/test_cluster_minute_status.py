@@ -39,6 +39,7 @@ class TestClusterMinuteStatus(unittest.TestCase):
         self.assertFalse(st["coverage_ok"])
         self.assertEqual(st["coverage_pct"], round(100 / 3, 1))
         self.assertEqual(st["minute_span_days_med"], 95)
+        self.assertEqual(st["span_distribution"], [{"bucket": "<40d", "count": 1}])
 
     def test_minute_cache_ready(self):
         from quant.research.cluster_minute_status import minute_cache_ready
@@ -67,6 +68,30 @@ class TestClusterMinuteStatus(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(reason, "short")
 
+        with patch(
+            "quant.research.cluster_minute_status._minute_snapshot_for_code",
+            return_value={
+                "span_days": 30,
+                "fetched_at": datetime.now().isoformat(timespec="seconds"),
+                "date_max": datetime.now().strftime("%Y-%m-%d"),
+            },
+        ):
+            ok, _, reason = minute_cache_ready("600900")
+        self.assertTrue(ok)
+        self.assertEqual(reason, "ready")
+
+        with patch(
+            "quant.research.cluster_minute_status._minute_snapshot_for_code",
+            return_value={
+                "span_days": 29,
+                "fetched_at": datetime.now().isoformat(timespec="seconds"),
+                "date_max": datetime.now().strftime("%Y-%m-%d"),
+            },
+        ):
+            ok, _, reason = minute_cache_ready("600050")
+        self.assertFalse(ok)
+        self.assertEqual(reason, "short")
+
     def test_warmup_skips_ready(self):
         from core.schedule_jobs import _minute_warmup_core
 
@@ -86,6 +111,7 @@ class TestClusterMinuteStatus(unittest.TestCase):
         self.assertEqual(out["warmed"], 1)
         fetch.assert_called_once()
         self.assertEqual(fetch.call_args.args[0], "000001")
+        self.assertFalse(fetch.call_args.kwargs.get("skip_em"))
 
     def test_refresh_delegates_warmup(self):
         from quant.research.cluster_minute_status import refresh_cluster_minute_only
@@ -96,7 +122,7 @@ class TestClusterMinuteStatus(unittest.TestCase):
             "total": 2,
             "warmed": 2,
             "period": "5",
-            "lookback_days": 120,
+            "lookback_days": 30,
         }
         with patch(
             "quant.research.cluster_minute_status._resolve_watching_codes",
@@ -109,7 +135,7 @@ class TestClusterMinuteStatus(unittest.TestCase):
         self.assertTrue(out["success"])
         warm.assert_called_once()
         self.assertEqual(warm.call_args.kwargs["cap"], 2)
-        self.assertEqual(warm.call_args.kwargs["lookback_days"], 120)
+        self.assertEqual(warm.call_args.kwargs["lookback_days"], 30)
 
 
 if __name__ == "__main__":

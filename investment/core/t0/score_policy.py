@@ -17,6 +17,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List, Optional, Sequence, Tuple
 
+from core.t0.config import t0_dir_label
+
 logger = logging.getLogger(__name__)
 
 # 默认阈值（ŷ 为百分比点；可用 rules 覆盖）
@@ -40,17 +42,16 @@ DEFAULT_PATH_ENTER = 0.02  # ŷ_path 极值序 %；|ŷ|≤enter 横盘跳过；�
 DEFAULT_GAP_TIER_PCT = 1.5
 DEFAULT_PATH_ABANDON_BARS = 6
 
-# dual_y 下 y_τ 符号 → 正/反 T 映射（回测对照）
-# scalp / trend: y_τ>0→反T（趋势跟随：OC 向上，日内更可能 low→high，先买后卖）
-#   scalp 与 trend 语义一致，保留 scalp 仅作向后兼容别名
+# dual_y 下 y_τ 符号 → 正/反 T（映射见 minute_path）
+# scalp / trend: y_τ>0→正T；scalp 与 trend 同义，scalp 仅兼容
 # fixed_long / fixed_reverse: 忽略 y_τ 符号，固定方向（仍过 |y_τ| 门槛）
 Y_TAU_MAP_DEFAULT = "trend"
 Y_TAU_MAP_CHOICES = ("scalp", "trend", "fixed_long", "fixed_reverse")
 Y_TAU_MAP_LABELS = {
-    "scalp": "高抛低吸（y_τ>0→反T；与 trend 等价，保留兼容）",
-    "trend": "趋势跟随（y_τ>0→反T）",
-    "fixed_long": "固定正T",
-    "fixed_reverse": "固定反T",
+    "scalp": "符号定方向（兼容别名）",
+    "trend": "符号定方向",
+    "fixed_long": "固定反T",
+    "fixed_reverse": "固定正T",
 }
 
 # compute | live_book | ledger
@@ -174,10 +175,12 @@ def _slim_factor_coefs(coefs: Any, *, limit: int = 14) -> Optional[Dict[str, flo
     return {k: v for k, v in pairs[: max(1, int(limit))]}
 
 
-def _slim_features_tau(feats: Any, *, limit: int = 16) -> Optional[Dict[str, Any]]:
+def _slim_features_tau(feats: Any, *, limit: int = 24) -> Optional[Dict[str, Any]]:
     if not isinstance(feats, dict) or not feats:
         return None
-    # 先保住 τ Z 键，避免 dict 截断丢掉 gap_pct / breadth
+    # 先保住 τ Z 键，避免 dict 截断丢掉 gap_pct / breadth / 分钟小包
+    from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS
+
     pin = (
         "gap_pct",
         "open_gap",
@@ -187,8 +190,7 @@ def _slim_features_tau(feats: Any, *, limit: int = 16) -> Optional[Dict[str, Any
         "gap_vs_sector",
         "yclose_loc",
         "mom3_pct",
-        "ret_open_to_tau",
-    )
+    ) + MINUTE_TAU_ALL_KEYS
     out: Dict[str, Any] = {}
     lim = max(1, int(limit))
 
@@ -718,7 +720,7 @@ def _tau_direction_sign(
 
 
 def side_tau_enter(cfg: dict, *, for_reverse: bool) -> float:
-    """正T用 y_tau_enter_long（−τ）；反T用 y_tau_enter_reverse（+τ）；缺省回退 y_tau_enter。"""
+    """反T用 y_tau_enter_long，正T用 y_tau_enter_reverse；缺省回退 y_tau_enter。"""
     base = _cfg_float(cfg, "y_tau_enter", DEFAULT_TAU_ENTER)
     key = "y_tau_enter_reverse" if for_reverse else "y_tau_enter_long"
     raw = _f(cfg.get(key))
@@ -1058,17 +1060,17 @@ def _gap_tier_direction_override(
             "skip": True,
             "direction": None,
             "reason": (
-                f"dual_y[gap_tier/revert]：gap={g:+.2f}%≥{tier}% 期望{want}，"
-                f"τ→{tau_dir} 跳过"
+                f"dual_y[gap_tier/revert]：gap={g:+.2f}%≥{tier}% 期望{t0_dir_label(want)}，"
+                f"τ→{t0_dir_label(tau_dir)} 跳过"
             ),
         }
-    # skip_opposite：大缺口日禁止「顺势」映射
+    # skip_opposite：大缺口日禁止「顺势」映射（高开跳过正T、低开跳过反T）
     if g >= tier and tau_dir == "reverse_t":
         return {
             "skip": True,
             "direction": None,
             "reason": (
-                f"dual_y[gap_tier]：高开{g:+.2f}%≥{tier}% 跳过反T（τ顺势映射）"
+                f"dual_y[gap_tier]：高开{g:+.2f}%≥{tier}% 跳过正T（τ顺势映射，追高风险）"
             ),
         }
     if g <= -tier and tau_dir == "long_t":
@@ -1076,7 +1078,7 @@ def _gap_tier_direction_override(
             "skip": True,
             "direction": None,
             "reason": (
-                f"dual_y[gap_tier]：低开{g:+.2f}%≤-{tier}% 跳过正T（τ顺势映射）"
+                f"dual_y[gap_tier]：低开{g:+.2f}%≤-{tier}% 跳过反T（τ顺势映射，杀跌风险）"
             ),
         }
     return None
@@ -1152,16 +1154,15 @@ def _attach_y_path_to_item(item: dict, *, hist_bars: Optional[Sequence[dict]] = 
 def direction_from_y_tau_sign(tau_sign: int, cfg: dict) -> str:
     """由 y_τ 符号（±1）与 y_tau_map 解析 long_t / reverse_t。
 
-    y_τ>0（OC 向上，日内更可能 low→high）→ reverse_t（先买后卖）
-    y_τ<0（OC 向下，日内更可能 high→low）→ long_t（先卖后买）
-    scalp 与 trend 语义一致，保留 scalp 仅作向后兼容别名。
+    y_τ>0 → reverse_t（正T）；y_τ<0 → long_t（反T）。
+    scalp 与 trend 同义，scalp 仅兼容。
     """
     mode = normalize_y_tau_map(cfg.get("y_tau_map"))
     if mode == "fixed_long":
         return "long_t"
     if mode == "fixed_reverse":
         return "reverse_t"
-    # scalp / trend：趋势跟随
+    # scalp / trend：符号定方向
     return "reverse_t" if tau_sign > 0 else "long_t"
 
 
@@ -1177,10 +1178,11 @@ def resolve_dual_y_direction(
     1. |y_trade|≥y_trade_enter（入场下限）
     2. 有 y_τ（方向锚）
     3. path 开且可得 ŷ_path：y_τ·y_path 同号且各过**侧向** enter；
-       否则 |y_τ|≥侧向 y_tau_enter（正T=long / 反T=reverse）
+       否则 |y_τ|≥侧向 y_tau_enter（反T / 正T）
     4. path 必填但缺 ŷ_path → 跳过
-    5. 有 y_eod：|y_eod|≥y_eod_enter；|y_eod|>y_eod_strong 须与 y_τ 同号（fixed_* 跳过）
-    6. 可选 nc：|nc|≥y_nc_enter；|nc|>y_nc_strong 须与 τ 同号（异号闸关则跳过整步）
+    5. 有 y_trade：|y_trade|>y_trade_strong 须与 y_τ 同号（fixed_* 跳过）
+    6. 有 y_eod：|y_eod|≥y_eod_enter；|y_eod|>y_eod_strong 须与 y_τ 同号（fixed_* 跳过）
+    7. 可选 nc：|nc|≥y_nc_enter；|nc|>y_nc_strong 须与 τ 同号（异号闸关则跳过整步）
     通过后 y_τ 映射正/反 T；y_eod_prior 仅抬目标价。
     """
     from core.t0.config import coerce_cfg_bool
@@ -1240,7 +1242,6 @@ def resolve_dual_y_direction(
     )
     nc_strong = max(0.05, min(float(nc_strong), 10.0))
     tau_map = normalize_y_tau_map(cfg.get("y_tau_map"))
-    map_tag = Y_TAU_MAP_LABELS.get(tau_map, tau_map)
 
     y_eod = _f(scores.get("y_eod"))
     y_tau = _f(scores.get("y_tau"))
@@ -1327,7 +1328,7 @@ def resolve_dual_y_direction(
         },
         y_tau,
     )
-    side_tag = "反T" if for_reverse else "正T"
+    side_tag = "正T" if for_reverse else "反T"
 
     if use_path and y_path is not None:
         enter_ok, enter_reason = _tau_path_enter_gate(
@@ -1385,6 +1386,21 @@ def resolve_dual_y_direction(
             "features": features,
             "signal_skip": True,
         }
+
+    if y_trade is not None and tau_map not in ("fixed_long", "fixed_reverse"):
+        trade_ok, trade_reason = _strong_head_tau_sign_gate(
+            y_trade, y_tau, trade_strong, "y_trade", sign_eps=sign_eps
+        )
+        if not trade_ok:
+            return {
+                "direction": None,
+                "skip": True,
+                "direction_score": y_tau,
+                "direction_reason": trade_reason
+                or "dual_y：强 y_trade 与 y_τ 异号跳过",
+                "features": features,
+                "signal_skip": True,
+            }
 
     if y_eod is not None and tau_map not in ("fixed_long", "fixed_reverse"):
         if abs(y_eod) < eod_enter:
@@ -1481,7 +1497,7 @@ def resolve_dual_y_direction(
             "skip": True,
             "direction_score": y_tau,
             "direction_reason": (
-                f"dual_y[{tau_map}]：y_τ={y_tau:.3f}%→{direction} 但缺现金/仓"
+                f"dual_y[{tau_map}]：y_τ={y_tau:.3f}%→{t0_dir_label(direction)} 但缺现金/仓"
             ),
             "features": features,
             "signal_skip": True,
@@ -1506,7 +1522,7 @@ def resolve_dual_y_direction(
         "skip": False,
         "direction_score": y_tau,
         "direction_reason": (
-            f"dual_y[{tau_map}]：y_τ={y_tau:.3f}%→{direction}（{map_tag}）"
+            f"dual_y[{tau_map}]：y_τ={y_tau:.3f}%→{t0_dir_label(direction)}"
             + (f"；y_eod先验={prior:+d}" if prior else "")
             + (f"；y_trade={y_trade:.3f}%" if y_trade is not None else "")
             + path_note
@@ -1525,21 +1541,21 @@ def resolve_cover_policy(
 ) -> Dict[str, Any]:
     """尾盘回补策略。
 
-    - **正T**：默认未触达买回则放弃回补；勾选「强制当日回补」则收盘强买。
+    - **反T**：默认未触达买回则放弃回补；勾选「强制当日回补」则收盘强买。
       强买仍受卖出净得覆盖买回（``_buy_self_funded``）约束，不够则
-      ``abandon_cover_cash``——与反T「卖旧必成」不对称，属现金结构而非漏闸。
-    - **反T**：默认强制卖回旧仓；表单关「当日回补」且 y_on 强烈看涨时可隔夜多头。
+      ``abandon_cover_cash``——与正T「卖旧必成」不对称，属现金结构而非漏闸。
+    - **正T**：默认强制卖回旧仓；表单关「当日回补」且 y_on 强烈看涨时可隔夜多头。
     """
     if direction == "long_t":
         if bool(cfg.get("must_cover_same_day")):
             return {
                 "must_cover": True,
-                "reason": "正T表单强制当日回补",
+                "reason": "反T表单强制当日回补（买回旧仓）",
                 "allow_overnight": False,
             }
         return {
             "must_cover": False,
-            "reason": "正T未触达买回则放弃回补（减仓落袋）",
+            "reason": "反T未触达买回则放弃回补（减仓落袋）",
             "allow_overnight": True,
         }
 
@@ -1584,11 +1600,11 @@ def resolve_cover_policy(
             "allow_overnight": False,
         }
 
-    # |y_on| 很大：仅反T在 y_on 强烈看涨时允许隔夜多头敞口
+    # |y_on| 很大：仅正T在 y_on 强烈看涨时允许隔夜多头敞口
     if direction == "reverse_t" and y_on >= on_allow:
         return {
             "must_cover": False,
-            "reason": f"y_on={y_on:.3f}%支持反T隔夜多头",
+            "reason": f"y_on={y_on:.3f}%支持正T隔夜多头",
             "allow_overnight": True,
         }
 

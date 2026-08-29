@@ -201,10 +201,17 @@ class QuantReplayMixin:
         return_model_min_samples: int = 24,
         return_model_ridge_lambda: float = 0.0,
         persist_curve: bool = True,
+        engine: str = "topk_research",
     ) -> Dict[str, Any]:
         from core.backtest_service import run_topk as backtest_topk_equal_weight
         from core.strategy import backtest_portfolio_defaults
         from quant.research.portfolio_data import load_portfolio_stock_bars
+
+        engine_s = str(engine or "topk_research").strip().lower()
+        if engine_s not in ("topk_research", "paper_replay", "topk"):
+            engine_s = "topk_research"
+        if engine_s == "topk":
+            engine_s = "topk_research"
 
         bt_def = backtest_portfolio_defaults()
         top_k = int(top_k if top_k is not None else bt_def["top_k"])
@@ -263,6 +270,47 @@ class QuantReplayMixin:
                 },
             }
 
+        if engine_s == "paper_replay":
+            from core.backtest.paper_replay import backtest_paper_replay
+            from core.paper.rebalance.cash_reserve import resolve_min_cash_pct
+
+            result = backtest_paper_replay(
+                stock_bars,
+                top_k=top_k,
+                min_predicted_score=min_predicted_score,
+                min_score=float(min_score) if min_score is not None else None,
+                min_cash_pct=resolve_min_cash_pct(None),
+                max_turnover_pct=40.0,
+                cost_model="simple_cn" if apply_costs else "zero",
+                yhat_horizon_days=int(horizon_days or 1),
+                stop_loss_pnl=-8.0,
+                force_trim_cooldown_days=1,
+            )
+            result["loaded_stocks"] = list(stock_bars.keys())
+            result["failures"] = failures
+            result["request"] = {
+                "engine": "paper_replay",
+                "lookback": int(lookback),
+                "top_k": int(top_k),
+                "horizon_days": int(horizon_days),
+                "apply_costs": bool(apply_costs),
+                "min_predicted_score": min_predicted_score,
+                "score_axis_note": (
+                    "引擎=paper_replay：纸面 T+1/换手/现金底仓回放；"
+                    "信号日收盘打分→次日开盘调仓"
+                ),
+            }
+            result["universe"] = {
+                "source": resolved.get("source"),
+                "candidate_count": len(candidates),
+                "loaded_count": len(stock_bars),
+                "load_failures": failures,
+                "filters": filter_meta,
+                "filter_dropped": filter_dropped,
+                "note": "paper_replay 候选与 Top-K 同源；执行约束对齐纸面调仓。",
+            }
+            return result
+
         common_kw = dict(
             top_k=top_k,
             horizon_days=horizon_days,
@@ -287,6 +335,7 @@ class QuantReplayMixin:
         result["loaded_stocks"] = list(stock_bars.keys())
         result["failures"] = failures
         result["request"] = {
+            "engine": "topk_research",
             "lookback": int(lookback),
             "top_k": int(top_k),
             "horizon_days": int(horizon_days),
@@ -303,7 +352,10 @@ class QuantReplayMixin:
             "min_predicted_score": min_predicted_score,
             "apply_tau_buy_gate": False,
             "rank_key": "predicted_score_eod",
-            "score_axis_note": "选股键=ŷ_EOD · 关 τ 闸（日线无可靠分钟 τ；≠ live ŷ_trade）",
+            "score_axis_note": (
+                "选股键=ŷ_EOD · 关 τ 闸（日线无可靠分钟 τ；≠ live ŷ_trade）；"
+                "引擎=topk_research（≠纸面可实现）"
+            ),
             "return_model_min_samples": int(return_model_min_samples or 24),
             "return_model_ridge_lambda": float(return_model_ridge_lambda or 0.0),
         }

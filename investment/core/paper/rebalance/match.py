@@ -112,12 +112,29 @@ def attach_change_pct_to_rebalance_report(
 
 
 def _batch_query_quotes(codes: List[str], *, workers: int = 8) -> Dict[str, dict]:
-    """批量行情：优先经 DataService；失败再线程池逐票。"""
+    """批量行情：优先经 DataService；失败再线程池逐票。
+
+    纸面回放经 ``paper_replay_context`` 注入时走 override，不打网。
+    """
     if not codes:
         return {}
     uniq = list(dict.fromkeys(c for c in codes if c))
     if not uniq:
         return {}
+    try:
+        from core.paper.replay_ctx import replay_batch_query
+
+        override = replay_batch_query()
+    except Exception:  # noqa: BLE001 — 回放上下文不可用则走 live
+        logger.debug("replay_batch_query lookup failed", exc_info=True)
+        override = None
+    if override is not None:
+        try:
+            got = dict(override(uniq) or {})
+            return {c: (got.get(c) if isinstance(got.get(c), dict) else {}) for c in uniq}
+        except Exception:  # noqa: BLE001 — 回放源失败返回空，勿打网
+            logger.warning("replay batch_query failed", exc_info=True)
+            return {c: {} for c in uniq}
     try:
         from core.data.service import get_default_service
 

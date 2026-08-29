@@ -1,10 +1,10 @@
-"""策略调仓现金底仓：保留净值比例供反 T 低吸。"""
+"""策略调仓现金底仓：保留净值比例供正T低吸。"""
 
 from __future__ import annotations
 
 from typing import Any, Optional
 
-# 默认保留总净值 20% 现金，供反 T 第一腿
+# 默认保留总净值 20% 现金，供正T第一腿低吸
 DEFAULT_MIN_CASH_PCT = 0.20
 
 

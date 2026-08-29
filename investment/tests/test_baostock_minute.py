@@ -53,9 +53,11 @@ class TestBaostockMinute(unittest.TestCase):
         ), patch.object(
             mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
         ), patch.object(
+            mh, "_maybe_fetch_sina_tx_minute_bars", return_value=([], {})
+        ), patch.object(
             mh, "_maybe_fetch_baostock_minute_bars",
             return_value=([bs_bar], {"data_source": "baostock:test"}),
-        ), patch.object(
+        ), patch.object(mh, "_throttle_minute_remote_fetch"), patch.object(
             mh, "_merge_save_minute_bars",
             return_value=([em_bar, bs_bar], {"data_source": "baostock:test", "bar_count": 2}),
         ):
@@ -138,7 +140,9 @@ class TestBaostockMinute(unittest.TestCase):
             mh, "load_minute_cache", return_value=None
         ), patch.object(
             mh, "_fetch_em_minute_bars"
-        ) as em_fetch, patch(
+        ) as em_fetch, patch.object(
+            mh, "_maybe_fetch_sina_tx_minute_bars", return_value=([], {})
+        ), patch(
             "skills.common.baostock_minute.fetch_baostock_minute_bars",
             return_value=([bs_bar], {"data_source": "baostock:test", "ok": True}),
         ), patch(
@@ -151,6 +155,116 @@ class TestBaostockMinute(unittest.TestCase):
         em_fetch.assert_not_called()
         self.assertEqual(len(bars), 1)
         self.assertTrue(meta.get("skip_em"))
+
+    def test_throttle_after_em_and_baostock(self):
+        from skills.common import minute_history as mh
+
+        bs_bar = {
+            "datetime": "2024-06-01 09:35:00",
+            "date": "2024-06-01",
+            "open": 9,
+            "high": 10,
+            "low": 8,
+            "close": 9.5,
+            "volume": 200,
+        }
+        with patch.object(mh, "resolve_market_code", return_value=("CN", "600519")), patch.object(
+            mh, "load_minute_cache", return_value=None
+        ), patch.object(
+            mh, "_fetch_em_minute_bars", return_value=([], {}, "em down")
+        ), patch.object(
+            mh, "_maybe_fetch_sina_tx_minute_bars", return_value=([], {})
+        ), patch.object(
+            mh, "_maybe_fetch_baostock_minute_bars",
+            return_value=([bs_bar], {"data_source": "baostock:test"}),
+        ), patch.object(mh, "_throttle_minute_remote_fetch") as throttle, patch.object(
+            mh, "_merge_save_minute_bars",
+            return_value=([bs_bar], {"data_source": "baostock:test", "bar_count": 1}),
+        ):
+            mh.fetch_a_minute_bars("600519", use_cache=False, max_age_hours=0)
+        self.assertEqual(throttle.call_count, 2)
+
+    def test_throttle_after_baostock_when_skip_em(self):
+        from skills.common import minute_history as mh
+
+        bs_bar = {
+            "datetime": "2024-06-01 09:35:00",
+            "date": "2024-06-01",
+            "open": 9,
+            "high": 10,
+            "low": 8,
+            "close": 9.5,
+            "volume": 200,
+        }
+        with patch.object(mh, "resolve_market_code", return_value=("CN", "600519")), patch.object(
+            mh, "load_minute_cache", return_value=None
+        ), patch.object(
+            mh, "_maybe_fetch_sina_tx_minute_bars", return_value=([], {})
+        ), patch(
+            "skills.common.baostock_minute.fetch_baostock_minute_bars",
+            return_value=([bs_bar], {"data_source": "baostock:test", "ok": True}),
+        ), patch(
+            "skills.common.baostock_minute.baostock_enabled", return_value=True
+        ), patch.object(mh, "_throttle_minute_remote_fetch") as throttle, patch.object(
+            mh, "_merge_save_minute_bars",
+            return_value=([bs_bar], {"data_source": "baostock:test", "bar_count": 1}),
+        ):
+            mh.fetch_a_minute_bars("600519", use_cache=False, skip_em=True)
+        self.assertEqual(throttle.call_count, 1)
+
+    def test_suggest_baostock_start_caps_at_30_calendar_days(self):
+        from datetime import datetime, timedelta
+        from skills.common.baostock_minute import suggest_baostock_start
+
+        expected = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        self.assertEqual(suggest_baostock_start(120), expected)
+        self.assertEqual(suggest_baostock_start(90), expected)
+
+    def test_minute_baostock_lookback_policy(self):
+        from core.data.policy import minute_baostock_lookback_days
+
+        with patch.dict(os.environ):
+            os.environ.pop("INVESTMENT_MINUTE_BS_LOOKBACK_DAYS", None)
+            self.assertEqual(minute_baostock_lookback_days(), 30)
+        with patch.dict(os.environ, {"INVESTMENT_MINUTE_BS_LOOKBACK_DAYS": "15"}):
+            self.assertEqual(minute_baostock_lookback_days(), 15)
+        with patch.dict(os.environ, {"INVESTMENT_MINUTE_BS_LOOKBACK_DAYS": "999"}):
+            self.assertEqual(minute_baostock_lookback_days(), 90)
+
+    def test_maybe_fetch_baostock_uses_30d_start(self):
+        from datetime import datetime, timedelta
+        from skills.common import minute_history as mh
+
+        captured: dict = {}
+
+        def _fetch(bare, **kw):
+            captured["start_date"] = kw.get("start_date")
+            return [], {"data_source": "baostock:test"}
+
+        with patch("skills.common.baostock_minute.baostock_enabled", return_value=True), patch(
+            "skills.common.baostock_minute.fetch_baostock_minute_bars", side_effect=_fetch
+        ), patch.dict(os.environ):
+            os.environ.pop("INVESTMENT_MINUTE_BS_LOOKBACK_DAYS", None)
+            mh._maybe_fetch_baostock_minute_bars(
+                "601988",
+                period="5",
+                lookback_days=120,
+                adjust="qfq",
+                have_bars=[],
+            )
+        expected = (datetime.now() - timedelta(days=30)).strftime("%Y-%m-%d")
+        self.assertEqual(captured.get("start_date"), expected)
+
+    def test_minute_fetch_delay_default_and_cap(self):
+        from core.data.policy import minute_fetch_delay_sec, minute_warmup_skip_em
+
+        with patch.dict(os.environ):
+            os.environ.pop("INVESTMENT_MINUTE_FETCH_DELAY_SEC", None)
+            os.environ.pop("INVESTMENT_MINUTE_WARMUP_SKIP_EM", None)
+            self.assertEqual(minute_fetch_delay_sec(), 10.0)
+            self.assertFalse(minute_warmup_skip_em())
+        with patch.dict(os.environ, {"INVESTMENT_MINUTE_FETCH_DELAY_SEC": "99"}):
+            self.assertEqual(minute_fetch_delay_sec(), 30.0)
 
 
 if __name__ == "__main__":

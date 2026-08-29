@@ -26,6 +26,7 @@ class TestFactorTaxonomy(unittest.TestCase):
         self.assertEqual(classify_factor("value")["family"], "value_quality")
         self.assertEqual(classify_factor("amihud")["family"], "liquidity_flow")
         self.assertEqual(classify_factor("gap_risk")["family"], "risk")
+        self.assertEqual(classify_factor("overheat")["family"], "risk")
         self.assertEqual(classify_factor("size")["family"], "residual")
         self.assertEqual(classify_factor("reversal")["family"], "reversal")
         self.assertEqual(classify_factor("alt_sentiment")["family"], "sentiment")

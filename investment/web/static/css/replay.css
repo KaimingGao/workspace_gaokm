@@ -578,6 +578,11 @@ body[data-page="replay"] .replay-page #quant-weight-mode {
   min-width: 8.25rem !important;
 }
 
+body[data-page="replay"] .replay-page #quant-bt-engine {
+  width: 9.5rem !important;
+  min-width: 9.5rem !important;
+}
+
 body[data-page="replay"] .replay-page .dialog-btn {
   font-size: var(--r-fs-caption) !important;
   font-weight: 600 !important;

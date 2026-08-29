@@ -122,12 +122,12 @@ def load_intraday_state() -> Dict[str, Any]:
         return {}
 
 
-REBALANCE_T0_BLOCK_REVERSE = "做T反T进行中（已买待卖旧仓），调仓跳过卖出"
-REBALANCE_T0_BLOCK_LONG = "做T正T已卖待回补，调仓跳过重复卖出"
+REBALANCE_T0_BLOCK_REVERSE = "做T正T进行中（已买待卖旧仓），调仓跳过卖出"
+REBALANCE_T0_BLOCK_LONG = "做T反T已卖待回补，调仓跳过重复卖出"
 
 
 def open_t0_leg_rebalance_block(st: Optional[dict]) -> Optional[str]:
-    """未平做 T 腿 → 调仓卖出应跳过（反 T 防打断；正 T 防重复卖）。"""
+    """未平做 T 腿 → 调仓卖出应跳过（正T防打断；反T防重复卖）。"""
     if not isinstance(st, dict):
         return None
     phase = str(st.get("phase") or "").strip().lower()
@@ -147,7 +147,17 @@ def open_t0_leg_rebalance_block(st: Optional[dict]) -> Optional[str]:
 
 
 def load_rebalance_t0_sell_blocks(*, session_date: Optional[str] = None) -> Dict[str, str]:
-    """当日盘中未平做 T → code → 调仓跳过原因。"""
+    """当日盘中未平做 T → code → 调仓跳过原因。
+
+    纸面回放上下文内直接返回空（回放关闭做 T，避免读盘中状态/打网）。
+    """
+    try:
+        from core.paper.replay_ctx import replay_as_of
+
+        if replay_as_of():
+            return {}
+    except Exception:  # noqa: BLE001 — 回放时钟不可用时走 live
+        pass
     from core.market.calendar import resolve_session_date
     from core.signal.session_pit import shanghai_now
 
@@ -182,7 +192,7 @@ def holding_t0_intraday_status(st: Optional[dict]) -> Optional[Dict[str, Any]]:
     wait_reason = str(st.get("wait_reason") or "").strip()
     reason = str(st.get("reason") or snap.get("reason") or wait_reason or "").strip()
 
-    dir_label = "反T" if direction == "reverse_t" else "正T" if direction == "long_t" else None
+    dir_label = "正T" if direction == "reverse_t" else "反T" if direction == "long_t" else None
     phase_label = {
         PHASE_IDLE: "盯",
         PHASE_AFTER_LEG1: "一腿",
@@ -198,9 +208,9 @@ def holding_t0_intraday_status(st: Optional[dict]) -> Optional[Dict[str, Any]]:
         title = reason or "当日做 T 往返已完成"
     elif phase == PHASE_AFTER_LEG1:
         if direction == "reverse_t":
-            title = "反T · 已买待卖旧仓 · 调仓已跳过卖出"
+            title = "正T · 已买待卖旧仓 · 调仓已跳过卖出"
         elif direction == "long_t":
-            title = "正T · 已卖待回补 · 调仓已跳过重复卖出"
+            title = "反T · 已卖待回补 · 调仓已跳过重复卖出"
         else:
             title = wait_reason or "已落第一腿，等待第二触达 / 收盘回补"
     else:
@@ -504,14 +514,26 @@ def _retryable_skip(reason: str) -> bool:
     """可重试跳过：振幅/未触价等盘口条件，等下一根 5m；不写入 skipped 终态。
 
     dual_y 门槛（横盘/y_check/幅度）在日线对齐且即时分就绪后应终锁，故不在此列。
-    path_abandon 文案含「待回落/待反弹/振幅」子串，须先排除，否则永远 idle。
+    path_abandon 文案含「待回落/待反弹/待固定前缀/振幅」子串，须先排除，否则永远 idle。
     """
     if _path_abandon_skip(reason):
         return False
     r = str(reason or "")
     return any(
         x in r
-        for x in ("振幅", "分钟", "未触及", "等待", "上移振幅", "下移振幅", "方向振幅", "待回落", "待反弹")
+        for x in (
+            "振幅",
+            "分钟",
+            "未触及",
+            "等待",
+            "上移振幅",
+            "下移振幅",
+            "方向振幅",
+            "待回落",
+            "待反弹",
+            "待固定前缀",
+            "固定前缀后半",
+        )
     )
 
 

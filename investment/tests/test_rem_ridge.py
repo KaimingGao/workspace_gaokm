@@ -47,7 +47,8 @@ class TestRemPanel(unittest.TestCase):
         self.assertIn("gap_pct", xs[0])
         self.assertIn("gap_atr", xs[0])
         self.assertNotIn("momentum", xs[0])
-        self.assertIn("y_rem", metas[0])
+        self.assertIn("y_tau", metas[0])
+        self.assertNotIn("y_rem", metas[0])
 
     def test_breadth_and_theme_weights(self):
         from core.research.rem_panel import (
@@ -181,6 +182,18 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertIs(tr.predict_tau_from_features, rr.predict_rem_from_features)
         self.assertEqual(tr.TAU_Z_FEATURES, rr.REM_Z_FEATURES)
 
+    def test_oos_by_tau_buckets(self):
+        from core.research.tau_ridge import _oos_by_tau
+
+        preds = [1.0] * 5 + [-1.0] * 5 + [1.0] * 5 + [1.0] * 5
+        ys = [1.0] * 5 + [-1.0] * 5 + [1.0] * 5 + [-1.0] * 5
+        metas = [{"tau": "09:45"}] * 10 + [{"tau": "10:30"}] * 10
+        by = _oos_by_tau(preds, ys, metas)
+        self.assertEqual(by["09:45"]["n"], 10)
+        self.assertEqual(by["10:30"]["n"], 10)
+        self.assertAlmostEqual(by["09:45"]["sign_hit"], 1.0)
+        self.assertAlmostEqual(by["10:30"]["sign_hit"], 0.5)
+
     def test_fit_synthetic_pool(self):
         from quant.research.tau_ridge import fit_tau_ridge_report, persist_tau_model
 
@@ -199,7 +212,7 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertIn("return_model", report)
         self.assertIn("oos", report)
         self.assertEqual(report.get("tau"), "open")
-        self.assertEqual(report.get("schema"), "tau_ridge_v8")
+        self.assertTrue(str(report.get("schema") or "").startswith("tau_ridge_v"))
         rm = report["return_model"]
         self.assertIn("coefficients", rm)
         self.assertTrue(rm.get("y_demeaned"))
@@ -215,6 +228,7 @@ class TestRemRidgeFit(unittest.TestCase):
         self.assertIn("mom3_pct", extras)
         oos = report.get("oos") or {}
         self.assertIn("by_theme", oos)
+        self.assertEqual(oos.get("by_tau") or {}, {})
         self.assertIn("theme", oos.get("by_theme") or {})
         self.assertIn("normal", oos.get("by_theme") or {})
         self.assertIn("theme_counts", oos)
@@ -241,14 +255,14 @@ class TestRemRidgeFit(unittest.TestCase):
                 else:
                     saved = blocked
                 self.assertTrue(saved.get("success"), saved)
-                self.assertEqual(saved.get("schema"), "tau_ridge_v8")
+                self.assertEqual(saved.get("schema"), "tau_ridge_v10")
                 self.assertTrue(os.path.isfile(os.path.join(live, "tau_ridge_model.json")))
                 self.assertTrue(os.path.isfile(os.path.join(live, "rem_ridge_model.json")))
                 from quant.research.tau_ridge import load_tau_model, predict_tau_from_features
 
                 doc = load_tau_model()
                 self.assertIsNotNone(doc)
-                self.assertEqual(doc.get("schema"), "tau_ridge_v8")
+                self.assertEqual(doc.get("schema"), "tau_ridge_v10")
                 self.assertEqual(doc.get("tau"), "open")
                 self.assertEqual(doc.get("dual_score_head"), "predicted_score_tau")
                 yhat = predict_tau_from_features(
@@ -320,7 +334,7 @@ class TestRemRidgeFit(unittest.TestCase):
 
         dummy = {
             "success": True,
-            "schema": "tau_ridge_v8",
+            "schema": "tau_ridge_v10",
             "return_model": {
                 "coefficients": {"gap_pct": 0.1},
                 "intercept": 0.0,
@@ -357,7 +371,7 @@ class TestRemRidgeFit(unittest.TestCase):
 
         dummy = {
             "success": True,
-            "schema": "tau_ridge_v8",
+            "schema": "tau_ridge_v10",
             "return_model": {
                 "coefficients": {"gap_pct": 0.2},
                 "intercept": 0.0,
@@ -383,7 +397,7 @@ class TestRemRidgeFit(unittest.TestCase):
                 self.assertTrue(os.path.isfile(os.path.join(live, "rem_ridge_model.json")))
                 doc = load_tau_model()
                 self.assertIsNotNone(doc)
-                self.assertEqual(doc.get("schema"), "tau_ridge_v8")
+                self.assertEqual(doc.get("schema"), "tau_ridge_v10")
                 self.assertAlmostEqual(
                     float((doc.get("return_model") or {}).get("coefficients")["gap_pct"]),
                     0.2,

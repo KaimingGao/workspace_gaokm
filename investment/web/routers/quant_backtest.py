@@ -42,10 +42,8 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
         if body.use_atr is not None:
             rules["use_atr"] = body.use_atr
         for yk in (
-            "sell_trigger_pct_long",
             "buy_trigger_pct_long",
             "sell_trigger_pct_reverse",
-            "buy_trigger_pct_reverse",
             "fill_mode_long",
             "fill_mode_reverse",
             "min_range_pct_long",
@@ -84,8 +82,9 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             "y_prefix_segment_enabled",
             "y_prefix_segment_enabled_long",
             "y_prefix_segment_enabled_reverse",
-            "y_prefix_pullback_pct_long",
-            "y_prefix_bounce_pct_reverse",
+            "y_prefix_upbar_ratio_reverse",
+            "y_prefix_downbar_ratio_long",
+            "y_tau_entry_price_mult",
             "must_cover_same_day_long",
             "must_cover_same_day_reverse",
             "t0_pm_degrade_long",
@@ -156,6 +155,7 @@ def quant_portfolio_backtest(body: PortfolioBacktestRequest) -> Dict[str, Any]:
             min_predicted_score=body.min_predicted_score,
             return_model_min_samples=body.return_model_min_samples,
             return_model_ridge_lambda=body.return_model_ridge_lambda,
+            engine=body.engine,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

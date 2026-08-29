@@ -426,7 +426,7 @@ function drawYtauScatter(canvas, points, threshold = 0.25) {
     return pad.l + (base + jitter) * plotW;
   };
 
-  // 方向分区底色（y_τ>0→反T，y_τ<0→正T）
+  // 方向分区底色（y_τ>0→正T，y_τ<0→反T）
   ctx.fillStyle = THEME.reverseTLight;
   ctx.fillRect(pad.l, yLine(maxY), plotW, yLine(threshold) - yLine(maxY));
   ctx.fillStyle = THEME.longTLight;
@@ -671,8 +671,8 @@ function drawDirectionPnl(canvas, pnlByDir, split) {
   ctx.stroke();
 
   const rows = [
-    { label: "正T", val: longP, color: THEME.longT, light: THEME.longTLight, days: split?.long_t },
-    { label: "反T", val: revP, color: THEME.reverseT, light: THEME.reverseTLight, days: split?.reverse_t },
+    { label: "正T", val: revP, color: THEME.reverseT, light: THEME.reverseTLight, days: split?.reverse_t },
+    { label: "反T", val: longP, color: THEME.longT, light: THEME.longTLight, days: split?.long_t },
   ];
 
   rows.forEach((row, i) => {
@@ -1093,7 +1093,7 @@ function renderStockContrib(rows) {
         `<td class="num paper-t0-col-viz-px" title="窗口首日收盘价">${fmtContribPrice(r.start_price)}</td>` +
         `<td class="paper-t0-col-viz-dt" title="评估窗口末日">${fmtContribDate(r.window_end_date)}</td>` +
         `<td class="num paper-t0-col-viz-px" title="窗口末日收盘价">${fmtContribPrice(r.end_price)}</td>` +
-        `<td class="num paper-t0-col-viz-lr" title="正T日 / 反T日">${esc(`${r.long_days ?? 0}/${r.reverse_days ?? 0}`)}</td>` +
+        `<td class="num paper-t0-col-viz-lr" title="正T日 / 反T日">${esc(`${r.reverse_days ?? 0}/${r.long_days ?? 0}`)}</td>` +
         `<td class="num paper-t0-col-viz-days" title="成交日数">${esc(String(r.trade_days ?? 0))}</td>` +
         `<td class="num paper-t0-col-viz-days" title="跳过日数">${esc(String(r.skip_days ?? 0))}</td>` +
         skipReasonCellHtml(r) +
@@ -1270,8 +1270,8 @@ export function renderT0Viz(host, data) {
         chartCanvas("scatter"),
         `<div data-role="scatter-foot"></div>`,
         legendChips([
-          { color: THEME.longT, label: "正T成交" },
-          { color: THEME.reverseT, label: "反T成交" },
+          { color: THEME.reverseT, label: "正T成交" },
+          { color: THEME.longT, label: "反T成交" },
           { color: THEME.signalSkip, label: "信号跳过(含负τ)" },
         ])
       )
@@ -1302,8 +1302,8 @@ export function renderT0Viz(host, data) {
         chartCanvas("dirpnl"),
         `<div data-role="dir-foot"></div>`,
         legendChips([
-          { color: THEME.longT, label: "正T" },
-          { color: THEME.reverseT, label: "反T" },
+          { color: THEME.reverseT, label: "正T" },
+          { color: THEME.longT, label: "反T" },
         ])
       )
     );
@@ -1319,7 +1319,7 @@ export function renderT0Viz(host, data) {
     `<div class="paper-t0-viz-head">` +
     `<div class="paper-t0-viz-head-main">` +
     `<span class="paper-t0-viz-title">归因分析</span>` +
-    `<span class="quant-sub">正T ${ds.long_t ?? 0} · 反T ${ds.reverse_t ?? 0} · 成交 ${viz.trade_count ?? 0} · 跳过 ${viz.skip_count ?? 0}` +
+    `<span class="quant-sub">正T ${ds.reverse_t ?? 0} · 反T ${ds.long_t ?? 0} · 成交 ${viz.trade_count ?? 0} · 跳过 ${viz.skip_count ?? 0}` +
     (viz.skip_categories && viz.skip_categories.length
       ? ` · 主因 ${esc(topSkipLabel)}`
       : "") +
@@ -1385,7 +1385,7 @@ export function renderT0Viz(host, data) {
       const foot = host.querySelector('[data-role="scatter-foot"]');
       if (foot && meta) {
         foot.innerHTML = [
-          `<span>成交 <b>${meta.nTraded}</b>（正${meta.nLong}/反${meta.nRev}）</span>`,
+          `<span>成交 <b>${meta.nTraded}</b>（正${meta.nRev}/反${meta.nLong}）</span>`,
           `<span>信号跳过 <b>${meta.nSkip}</b></span>`,
           meta.nSkipNeg > 0
             ? `<span>负τ跳过(≤−0.1%) <b>${meta.nSkipNeg}</b> · 多在灰带|y_τ|&lt;τ</span>`
@@ -1411,7 +1411,7 @@ export function renderT0Viz(host, data) {
         const netCls = meta.net >= 0 ? "up" : "down";
         foot.innerHTML = [
           `<span>合计 <b class="${netCls}">${fmtMoney(meta.net)}</b></span>`,
-          meta.longShare != null ? `<span>正T贡献 <b>${meta.longShare}%</b></span>` : "",
+          meta.longShare != null ? `<span>反T贡献 <b>${meta.longShare}%</b></span>` : "",
         ]
           .filter(Boolean)
           .join('<span class="sep">·</span>');

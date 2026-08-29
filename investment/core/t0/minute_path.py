@@ -1,4 +1,7 @@
-"""做 T：分钟线第一触达路径（已删除日线 high/low 代理）。"""
+"""做 T：分钟线第一触达路径（已删除日线 high/low 代理）。
+
+方向：long_t=反T（先卖后买），reverse_t=正T（先买后卖）。
+"""
 
 
 import logging
@@ -13,7 +16,13 @@ from core.t0.costs import (
     t0_fees_total,
     t0_pnl_from_trades,
 )
-from core.t0.config import load_t0_rules, resolve_min_range_pct, apply_side_exec_params, resolve_path_abandon_bars
+from core.t0.config import (
+    load_t0_rules,
+    resolve_min_range_pct,
+    apply_side_exec_params,
+    resolve_path_abandon_bars,
+    t0_dir_label,
+)
 from core.t0.rules import (
     _error_result,
     _fill_buy,
@@ -34,16 +43,16 @@ def _tplus1_skip_reason(*, side: str, shares: float, sellable: float, lot: int) 
     if side == "reverse_t":
         if sv <= 0:
             return (
-                f"反T：可卖旧仓 0 股（持仓 {sh} 全被 T+1 锁定），"
+                f"正T：可卖旧仓 0 股（持仓 {sh} 全被 T+1 锁定），"
                 f"第二腿卖不掉旧仓"
             )
         return (
-            f"反T：可卖旧仓仅 {sv} 股 < {lot}（持仓 {sh}），"
+            f"正T：可卖旧仓仅 {sv} 股 < {lot}（持仓 {sh}），"
             f"第二腿不够 1 手"
         )
     if sv <= 0:
-        return f"正T：可卖 0 股（持仓 {sh} 全被 T+1 锁定），无法先卖"
-    return f"正T：可卖仅 {sv} 股 < {lot}（持仓 {sh}），不够 1 手"
+        return f"反T：可卖 0 股（持仓 {sh} 全被 T+1 锁定），无法先卖"
+    return f"反T：可卖仅 {sv} 股 < {lot}（持仓 {sh}），不够 1 手"
 
 
 def _ratio_lot_skip_reason(*, side: str, shares: float, t0_ratio: float, lot: int) -> str:
@@ -51,7 +60,7 @@ def _ratio_lot_skip_reason(*, side: str, shares: float, t0_ratio: float, lot: in
     sh = int(shares)
     raw = int(float(shares) * float(t0_ratio))
     pct = f"{float(t0_ratio):.0%}"
-    tag = "反T" if side == "reverse_t" else "正T"
+    tag = t0_dir_label(side)
     return f"{tag}：动仓不足 1 手（持仓 {sh}×{pct}≈{raw} < {lot}）"
 
 
@@ -151,9 +160,9 @@ def _maybe_pm_chase_level(
     last_chase_min: Optional[int],
     interval_min: int,
 ) -> Tuple[float, Optional[int], bool]:
-    """反T/正T 中点追价：目标 = 旧目标与现价中点；到点起算，之后每 interval_min 再调。
+    """正T/反T 中点追价：目标 = 旧目标与现价中点；到点起算，之后每 interval_min 再调。
 
-    反T：卖旧仓目标下移；正T：买回目标上移。触不到则走 eod / 放弃回补。
+    正T：卖旧仓目标下移（第二腿卖）；反T：买回目标上移（第二腿买）。触不到则走 eod / 放弃回补。
 
     Returns (new_level, last_chase_min, adjusted_this_bar).
     """
@@ -247,8 +256,7 @@ def prefix_range_gate(
 ) -> Dict[str, Any]:
     """前向前缀振幅门禁：仅用 ``minute_bars`` 前缀合成 high/low（与 Worker 单 tick 同口径）。
 
-    仅判断波动幅度是否达 min_range_pct；第一腿方向是否具备空间见
-    ``prefix_directional_amplitude_ok``。
+    判断波动幅度是否达 min_range_pct（一字板视为不足）。
 
     Returns ok/range_pct/min_range_pct/bar_day/ref/prefix_bars；无效输入时 ok=False。
     """
@@ -295,171 +303,206 @@ def prefix_range_gate(
     }
 
 
-def prefix_directional_amplitude_ok(
-    minute_bars: Sequence[dict],
-    *,
-    direction: str,
-    ref: float,
-    sell_trig: float,
-    buy_trig: float,
-) -> Dict[str, Any]:
-    """方向振幅：前缀是否已具备第一腿方向的触达空间（与总量振幅门禁分离）。
-
-    long_t — 前缀 high 达卖出触发（向上振幅）；reverse_t — 前缀 low 达低吸触发（向下振幅）。
-    """
-    if ref <= 0 or len(minute_bars or []) < 1:
-        return {"ok": False, "reason": "无效 ref 或分钟线"}
-    highs = [float(b.get("high") or 0) for b in minute_bars if float(b.get("high") or 0) > 0]
-    lows = [float(b.get("low") or 0) for b in minute_bars if float(b.get("low") or 0) > 0]
-    if not highs or not lows:
-        return {"ok": False, "reason": "无效 OHLC"}
-    hi = max(highs)
-    lo = min(lows)
+def _prefix_bar_ratio_params(cfg: dict, direction: str) -> tuple[int, float]:
+    """固定前缀：根数 + 后半段阳/阴K占比阈值（正T上涨 / 反T下跌）。"""
     direction = str(direction or "").strip().lower()
+    bars = resolve_path_abandon_bars(cfg or {}, direction)
     if direction == "long_t":
-        sell_level = ref * (1.0 + float(sell_trig) / 100.0)
-        up_pct = (hi - ref) / ref * 100.0
-        ok = hi >= sell_level
-        return {
-            "ok": ok,
-            "direction": direction,
-            "up_pct": round(up_pct, 4),
-            "down_pct": None,
-            "trigger_level": round(sell_level, 4),
-            "reason": (
-                f"正T上移振幅 {up_pct:.2f}%≥{float(sell_trig):.2f}%"
-                if ok
-                else f"正T上移振幅 {up_pct:.2f}%<{float(sell_trig):.2f}%"
-            ),
-        }
-    if direction == "reverse_t":
-        buy_level = ref * (1.0 - float(buy_trig) / 100.0)
-        down_pct = (ref - lo) / ref * 100.0
-        ok = lo <= buy_level
-        return {
-            "ok": ok,
-            "direction": direction,
-            "up_pct": None,
-            "down_pct": round(down_pct, 4),
-            "trigger_level": round(buy_level, 4),
-            "reason": (
-                f"反T下移振幅 {down_pct:.2f}%≥{float(buy_trig):.2f}%"
-                if ok
-                else f"反T下移振幅 {down_pct:.2f}%<{float(buy_trig):.2f}%"
-            ),
-        }
-    return {"ok": True, "reason": "未知方向，跳过方向振幅", "direction": direction}
-
-
-def _prefix_segment_params(cfg: dict, direction: str) -> tuple[bool, float]:
-    """段向确认开关与阈值（正T=回落%，反T=反弹%）。"""
-    direction = str(direction or "").strip().lower()
-    if not bool(cfg.get("y_prefix_segment_enabled", True)):
-        return False, 0.0
-    side_flag = (
-        "y_prefix_segment_enabled_long"
-        if direction == "long_t"
-        else "y_prefix_segment_enabled_reverse"
-    )
-    if not bool(cfg.get(side_flag, True)):
-        return False, 0.0
-    key = (
-        "y_prefix_pullback_pct_long"
-        if direction == "long_t"
-        else "y_prefix_bounce_pct_reverse"
-    )
+        key, default = "y_prefix_downbar_ratio_long", 0.6
+    else:
+        key, default = "y_prefix_upbar_ratio_reverse", 0.6
     try:
-        pct = float(cfg.get(key) if cfg.get(key) is not None and cfg.get(key) != "" else 0.25)
+        raw = (cfg or {}).get(key)
+        ratio = float(default if raw is None or raw == "" else raw)
     except (TypeError, ValueError):
-        pct = 0.25
-    if pct <= 0:
-        return False, 0.0
-    return True, max(0.0, min(pct, 2.0))
+        ratio = float(default)
+    return int(bars), max(0.0, min(float(ratio), 1.0))
 
 
-def prefix_segment_entry_ok(
+def _prefix_upbar_ratio_params(cfg: dict) -> tuple[int, float]:
+    """兼容别名：正T固定前缀参数。"""
+    return _prefix_bar_ratio_params(cfg or {}, "reverse_t")
+
+
+def _score_y_tau(score_snap: Optional[dict]) -> Optional[float]:
+    """从分数快照取 ŷ_τ（百分点）。"""
+    if not isinstance(score_snap, dict):
+        return None
+    for key in ("y_tau", "predicted_score_tau", "score_rem", "yhat_tau"):
+        raw = score_snap.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _tau_entry_price_mult(cfg: Optional[dict]) -> float:
+    """第一腿相对开盘允许偏离：|ŷ_τ|% × 倍数；≤0 关闭门禁。"""
+    try:
+        raw = (cfg or {}).get("y_tau_entry_price_mult")
+        mult = float(5.0 if raw is None or raw == "" else raw)
+    except (TypeError, ValueError):
+        mult = 5.0
+    return max(0.0, min(mult, 50.0))
+
+
+def tau_leg1_fill_price_ok(
+    *,
+    fill_px: float,
+    ref: float,
+    y_tau: Optional[float],
+    direction: str,
+    cfg: Optional[dict] = None,
+    mult: Optional[float] = None,
+) -> Dict[str, Any]:
+    """固定前缀确认根：第一腿成交价相对开盘不得偏离超过 |ŷ_τ|×倍数。
+
+    正T：买入价 ≤ open×(1 + mult×|ŷ_τ|/100)
+    反T：卖出价 ≥ open×(1 − mult×|ŷ_τ|/100)（镜像）
+    缺 ŷ_τ 或倍数≤0 时跳过（ok=True）。
+    """
+    direction = str(direction or "").strip().lower()
+    m = float(mult) if mult is not None else _tau_entry_price_mult(cfg)
+    base: Dict[str, Any] = {
+        "direction": direction,
+        "mult": round(m, 4),
+        "y_tau": None if y_tau is None else round(float(y_tau), 4),
+        "ref": round(float(ref), 4) if ref else None,
+        "fill_px": round(float(fill_px), 4) if fill_px else None,
+    }
+    if m <= 0 or ref is None or float(ref) <= 0 or fill_px is None or float(fill_px) <= 0:
+        return {**base, "ok": True, "skipped": True, "reason": "τ入场价门禁关/无效价"}
+    if y_tau is None:
+        return {**base, "ok": True, "skipped": True, "reason": "缺ŷ_τ，跳过入场价门禁"}
+    band_pct = abs(float(y_tau)) * m
+    base["band_pct"] = round(band_pct, 4)
+    px = float(fill_px)
+    o = float(ref)
+    if direction == "reverse_t":
+        ceil = o * (1.0 + band_pct / 100.0)
+        base["bound_px"] = round(ceil, 4)
+        base["bound_kind"] = "ceil"
+        ok = px <= ceil + 1e-9
+        return {
+            **base,
+            "ok": ok,
+            "skipped": False,
+            "reason": (
+                f"正T买价≤开盘×(1+{m:g}×|ŷ_τ|)：{px:.3f}≤{ceil:.3f}"
+                if ok
+                else (
+                    f"正T买价超τ带 {px:.3f}>{ceil:.3f}"
+                    f"（开盘×(1+{m:g}×|{float(y_tau):.3f}%|））"
+                ),
+            ),
+        }
+    if direction == "long_t":
+        floor = o * (1.0 - band_pct / 100.0)
+        base["bound_px"] = round(floor, 4)
+        base["bound_kind"] = "floor"
+        ok = px >= floor - 1e-9
+        return {
+            **base,
+            "ok": ok,
+            "skipped": False,
+            "reason": (
+                f"反T卖价≥开盘×(1−{m:g}×|ŷ_τ|)：{px:.3f}≥{floor:.3f}"
+                if ok
+                else (
+                    f"反T卖价破τ带 {px:.3f}<{floor:.3f}"
+                    f"（开盘×(1−{m:g}×|{float(y_tau):.3f}%|））"
+                ),
+            ),
+        }
+    return {**base, "ok": True, "skipped": True, "reason": "非正/反T，跳过入场价门禁"}
+
+
+def prefix_fixed_bar_ratio_entry_ok(
     minute_bars: Sequence[dict],
     *,
     direction: str,
-    ref: float,
-    sell_trig: float,
-    buy_trig: float,
     cfg: dict,
 ) -> Dict[str, Any]:
-    """第一腿段向确认：正T须下行段（close 自前缀 high 回落）；反T须上升段（close 自前缀 low 弹起）。"""
+    """固定前缀门禁：前 N 根齐后看后半段阴阳占比。
+
+    正T：close>open 占比≥阈值；反T：close<open 占比≥阈值。
+    取消贪心滚动探极值 / 回落·反弹。
+    """
     direction = str(direction or "").strip().lower()
-    dir_amp = prefix_directional_amplitude_ok(
-        minute_bars,
-        direction=direction,
-        ref=ref,
-        sell_trig=sell_trig,
-        buy_trig=buy_trig,
-    )
-    seg_on, seg_pct = _prefix_segment_params(cfg, direction)
-    base = {
+    want_up = direction == "reverse_t"
+    if direction not in ("reverse_t", "long_t"):
+        return {
+            "ok": True,
+            "direction": direction,
+            "segment": "skip",
+            "reason": "非正/反T，跳过固定前缀占比",
+        }
+    side = "正T" if want_up else "反T"
+    seg_name = "fixed_upbar" if want_up else "fixed_downbar"
+    ratio_key = "upbar_ratio" if want_up else "downbar_ratio"
+    thr_key = "upbar_ratio_thr" if want_up else "downbar_ratio_thr"
+    count_key = "up_bars" if want_up else "down_bars"
+    move_label = "上涨" if want_up else "下跌"
+
+    fixed_n, thr = _prefix_bar_ratio_params(cfg or {}, direction)
+    bars = [b for b in (minute_bars or []) if isinstance(b, dict)]
+    base: Dict[str, Any] = {
         "direction": direction,
-        "segment_enabled": seg_on,
-        "segment_pct": round(seg_pct, 4) if seg_on else None,
-        "directional_amplitude": dir_amp,
+        "segment": seg_name,
+        "fixed_bars": fixed_n,
+        thr_key: round(thr, 4),
     }
-    if not dir_amp.get("ok"):
+    if len(bars) < fixed_n:
         return {
             **base,
             "ok": False,
-            "reason": str(dir_amp.get("reason") or "方向振幅未达标"),
+            "segment": "fixed_prefix_wait",
+            "prefix_bars": len(bars),
+            "reason": f"{side}待固定前缀 {len(bars)}/{fixed_n}",
         }
-    if not seg_on:
-        return {**base, "ok": True, "reason": "段向确认关", "segment": "off"}
 
-    highs = [float(b.get("high") or 0) for b in minute_bars if float(b.get("high") or 0) > 0]
-    lows = [float(b.get("low") or 0) for b in minute_bars if float(b.get("low") or 0) > 0]
-    if not highs or not lows:
-        return {**base, "ok": False, "reason": "无效 OHLC"}
-    hi = max(highs)
-    lo = min(lows)
-    close = float((minute_bars[-1] or {}).get("close") or 0)
-    if close <= 0:
-        return {**base, "ok": False, "reason": "无效 close"}
-
-    if direction == "long_t":
-        floor_px = hi * (1.0 - seg_pct / 100.0)
-        pullback_pct = (hi - close) / hi * 100.0 if hi > 0 else 0.0
-        ok = close <= floor_px
+    win = bars[:fixed_n]
+    half = max(1, fixed_n // 2)
+    tail = win[-half:]
+    hit_n = 0
+    valid_n = 0
+    for b in tail:
+        o = float(b.get("open") or 0)
+        c = float(b.get("close") or 0)
+        if o <= 0 or c <= 0:
+            continue
+        valid_n += 1
+        if (c > o) if want_up else (c < o):
+            hit_n += 1
+    if valid_n <= 0:
         return {
             **base,
-            "ok": ok,
-            "segment": "pullback",
-            "prefix_high": round(hi, 4),
-            "prefix_low": round(lo, 4),
-            "close": round(close, 4),
-            "segment_floor": round(floor_px, 4),
-            "segment_delta_pct": round(pullback_pct, 4),
-            "reason": (
-                f"正T回落确认 {pullback_pct:.2f}%≥{seg_pct:.2f}%"
-                if ok
-                else f"正T待回落 {pullback_pct:.2f}%<{seg_pct:.2f}%"
-            ),
+            "ok": False,
+            "segment": seg_name,
+            "prefix_bars": fixed_n,
+            "half_bars": half,
+            "reason": f"{side}固定前缀后半段无有效 OHLC",
         }
-    if direction == "reverse_t":
-        ceil_px = lo * (1.0 + seg_pct / 100.0)
-        bounce_pct = (close - lo) / lo * 100.0 if lo > 0 else 0.0
-        ok = close >= ceil_px
-        return {
-            **base,
-            "ok": ok,
-            "segment": "bounce",
-            "prefix_high": round(hi, 4),
-            "prefix_low": round(lo, 4),
-            "close": round(close, 4),
-            "segment_ceiling": round(ceil_px, 4),
-            "segment_delta_pct": round(bounce_pct, 4),
-            "reason": (
-                f"反T反弹确认 {bounce_pct:.2f}%≥{seg_pct:.2f}%"
-                if ok
-                else f"反T待反弹 {bounce_pct:.2f}%<{seg_pct:.2f}%"
-            ),
-        }
-    return {**base, "ok": True, "reason": "未知方向，跳过段向确认", "segment": "skip"}
+    ratio = hit_n / float(valid_n)
+    ok = ratio + 1e-12 >= thr
+    return {
+        **base,
+        "ok": ok,
+        "segment": seg_name,
+        "prefix_bars": fixed_n,
+        "half_bars": half,
+        count_key: hit_n,
+        "half_valid": valid_n,
+        ratio_key: round(ratio, 4),
+        "reason": (
+            f"{side}固定前缀后半{move_label} {hit_n}/{valid_n}={ratio:.0%}≥{thr:.0%}"
+            if ok
+            else f"{side}固定前缀后半{move_label} {hit_n}/{valid_n}={ratio:.0%}<{thr:.0%}"
+        ),
+    }
 
 
 def _session_close_at(minute_bars: Sequence[dict], bar: Optional[dict] = None) -> str:
@@ -557,11 +600,19 @@ def _first_touch_long(
         ts = mb.get("datetime") or mb.get("date")
         pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm, inclusive=False))
 
-        # 午后窗：未开第一腿则不再新开
-        if sold_qty <= 0 and qty > 0 and hi >= sell_level and not pm_hit:
-            if leg1_gate_at is not None and not leg1_gate_at(idx):
-                continue
-            fill_sell = _fill_sell(hi, sell_level, fill_mode)
+        # 开盘→固定前缀确认根卖出第一腿（成交价用 close）
+        if sold_qty <= 0 and qty > 0 and not pm_hit:
+            gated = leg1_gate_at is not None
+            if gated:
+                if not leg1_gate_at(idx):
+                    continue
+                if close <= 0:
+                    continue
+                fill_sell = float(close)
+            else:
+                if hi < sell_level:
+                    continue
+                fill_sell = _fill_sell(hi, sell_level, fill_mode)
             cash_delta += append_t0_leg(
                 trades,
                 cost_model=cost_model,
@@ -573,7 +624,7 @@ def _first_touch_long(
                 trigger=sell_level,
                 at=ts,
                 leg_kind="trigger",
-                note="正T卖出（分钟第一触达）",
+                note="反T卖出（固定前缀后半下跌确认）",
             )
             shares_now -= qty
             sold_qty = qty
@@ -629,9 +680,9 @@ def _first_touch_long(
                 at=ts,
                 leg_kind="pm_chase" if used_chase else "trigger",
                 note=(
-                    f"正T中点追价买回（目标{buy_level:.4f}）"
+                    f"反T中点追价买回（目标{buy_level:.4f}）"
                     if used_chase
-                    else "正T买回（分钟第一触达）"
+                    else "反T买回（分钟第一触达）"
                 ),
             )
             shares_now += cover
@@ -669,7 +720,7 @@ def _first_touch_long(
                     trigger=sess_close,
                     at=close_at,
                     leg_kind="eod_cover",
-                    note="正T强制收盘买回",
+                    note="反T强制收盘买回",
                 )
                 shares_now += cover
                 covered = cover
@@ -681,7 +732,7 @@ def _first_touch_long(
 
     if sold_qty <= 0:
         return _skip_result(
-            reason="正T分钟路径未触及卖出价",
+            reason="反T分钟路径未触及卖出价",
             shares=shares,
             bar=bar,
             extra={
@@ -724,7 +775,7 @@ def _first_touch_long(
         "touch_sell_at": touch_sell_at,
         "touch_cover_at": touch_cover_at,
         "exit_reason": exit_reason,
-        "note": "分钟第一触达（正T）",
+        "note": "分钟第一触达（反T）",
     }
 
 
@@ -756,7 +807,9 @@ def _first_touch_reverse(
     sess_bars = session_bars if session_bars is not None else minute_bars
     sess_bar = session_bar if session_bar is not None else bar
     t0_ratio = float(cfg["t0_ratio"])
-    buy_level = ref * (1.0 - buy_trig / 100.0)
+    # 固定前缀：第一腿按确认根 close；预估可买手数用开盘价（不再用相对开盘买触发）
+    afford_px = float(ref) if float(ref) > 0 else 0.0
+    buy_level = afford_px  # 兼容返回字段；非门禁旧路径见下方 else
     sellable = float(sellable_shares if sellable_shares is not None else shares)
     sellable = min(sellable, shares)
     if sellable < lot:
@@ -774,7 +827,7 @@ def _first_touch_reverse(
         )
     if cash <= 0:
         return _skip_result(
-            reason="反T：缺现金（低吸加仓需要预留现金）",
+            reason="正T：缺现金（低吸加仓需要预留现金）",
             shares=shares,
             bar=bar,
             extra={"direction_used": "reverse_t", "path_mode": "first_touch"},
@@ -797,7 +850,7 @@ def _first_touch_reverse(
 
     afford = _max_affordable_buy_lots(
         cash,
-        buy_level,
+        afford_px if afford_px > 0 else 1.0,
         lot,
         cost_model=cost_model,
         cost_params=cost_params,
@@ -805,15 +858,15 @@ def _first_touch_reverse(
     )
     qty = int(afford)
     if qty <= 0:
-        gross_afford = _lot_floor(cash / max(buy_level, 1e-6), lot)
+        gross_afford = _lot_floor(cash / max(afford_px, 1e-6), lot)
         afford_n = int(gross_afford)
         if afford_n < lot:
             reason = (
-                f"反T：现金不够 1 手（现金 {cash:.0f} 约可买 {afford_n} 股 < {lot}；"
+                f"正T：现金不够 1 手（现金 {cash:.0f} 约可买 {afford_n} 股 < {lot}；"
                 f"目标 {int(max_shares)} 股）"
             )
         else:
-            reason = "反T：买不起或可卖旧仓不足（含手续费）"
+            reason = "正T：买不起或可卖旧仓不足（含手续费）"
         return _skip_result(
             reason=reason,
             shares=shares,
@@ -853,16 +906,27 @@ def _first_touch_reverse(
         ts = mb.get("datetime") or mb.get("date")
         pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm, inclusive=False))
 
-        # 中点追价窗：未开第一腿则不再低吸
-        if bought_qty <= 0 and lo <= buy_level and not pm_hit:
-            if leg1_gate_at is not None and not leg1_gate_at(idx):
-                continue
-            if fill_mode == "optimistic":
-                fill_buy = lo
-            elif fill_mode == "mid":
-                fill_buy = (lo + buy_level) / 2.0
+        # 开盘→固定前缀确认根买入第一腿（成交价用 close）
+        if bought_qty <= 0 and not pm_hit:
+            gated = leg1_gate_at is not None
+            if gated:
+                if not leg1_gate_at(idx):
+                    continue
+                if close <= 0:
+                    continue
+                fill_buy = float(close)
             else:
-                fill_buy = buy_level
+                # 无门禁兜底（非固定前缀）：相对开盘低吸；正常路径不应进入
+                leg1_buy_level = ref * (1.0 - buy_trig / 100.0)
+                if lo > leg1_buy_level:
+                    continue
+                if fill_mode == "optimistic":
+                    fill_buy = lo
+                elif fill_mode == "mid":
+                    fill_buy = (lo + leg1_buy_level) / 2.0
+                else:
+                    fill_buy = leg1_buy_level
+                buy_level = leg1_buy_level
             # 含费再缩量，避免 append 后现金转负
             qty = _max_affordable_buy_lots(
                 cash,
@@ -885,7 +949,7 @@ def _first_touch_reverse(
                 trigger=buy_level,
                 at=ts,
                 leg_kind="trigger",
-                note="反T低吸加仓（分钟第一触达；新股T+1锁仓）",
+                note="正T加仓（固定前缀后半上涨占比确认；新股T+1锁仓）",
             )
             shares_now += qty
             bought_qty = qty
@@ -934,9 +998,9 @@ def _first_touch_reverse(
                 at=ts,
                 leg_kind="pm_chase" if used_chase else "trigger",
                 note=(
-                    f"反T中点追价卖旧仓（目标{sell_level:.4f}）"
+                    f"正T中点追价卖旧仓（目标{sell_level:.4f}）"
                     if used_chase
-                    else "反T卖旧底仓（分钟第一触达；T+1可卖）"
+                    else "正T卖旧底仓（分钟第一触达；T+1可卖）"
                 ),
             )
             shares_now -= sell_old_qty
@@ -947,7 +1011,7 @@ def _first_touch_reverse(
 
     if bought_qty <= 0:
         return _skip_result(
-            reason="反T分钟路径未触及低吸位",
+            reason="正T分钟路径未触及低吸位",
             shares=shares,
             bar=bar,
             extra={
@@ -984,7 +1048,7 @@ def _first_touch_reverse(
             touch_sell_at = close_at or touch_sell_at
             exit_reason = "eod_cover"
         elif (eod_ok or not defer_eod) and not cfg.get("must_cover_same_day"):
-            # 与正T对称：仅在收盘窗就绪（或非 defer）时记敞口；盘中前缀继续等
+            # 与反T对称：仅在收盘窗就绪（或非 defer）时记敞口；盘中前缀继续等
             exposure_pnl = round((sess_close - buy_price) * bought_qty, 2)
             exit_reason = exit_reason or "abandon_cover"
 
@@ -1019,7 +1083,7 @@ def _first_touch_reverse(
         "touch_buy_at": touch_buy_at,
         "touch_sell_at": touch_sell_at,
         "exit_reason": exit_reason,
-        "note": "分钟第一触达（反T·T+1换仓）",
+        "note": "分钟第一触达（正T·T+1换仓）",
     }
 
 
@@ -1032,7 +1096,7 @@ def _touch_path_complete(out: dict, direction: str) -> bool:
             return False
         if covered >= sold:
             return True
-        # 正T放弃买回（减仓落袋）或未回补敞口已标记
+        # 反T放弃买回（减仓落袋）或未回补敞口已标记
         if str(out.get("exit_reason") or "") in (
             "abandon_cover",
             "abandon_cover_cash",
@@ -1135,7 +1199,7 @@ def _forward_trace_row(
         touch_leg1 = lo <= float(buy_level)
     elif direction == "long_t" and sell_level is not None:
         touch_leg1 = hi >= float(sell_level)
-    # 粘滞开闸：idx >= first_ready 后可成交，不得因当根 entry_ready=False 标 blocked
+    # 粘滞开闸已废弃：仅固定前缀确认根可成交；触价但未确认时标 blocked（诊断用）
     if touch_leg1 and not (entry_ready or gate_open):
         touch_blocked = True
     return {
@@ -1275,11 +1339,11 @@ def _plan_forward_leg1_gates(
     atr_pct: Optional[float],
     score_snap: Optional[dict],
 ) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]], Optional[dict]]:
-    """滑动前缀：逐根评估门禁，构建 leg1 粘滞闸（首次 entry_ready 后后续根均可触价）。
+    """前缀第一腿闸：正/反T 均固定前缀 + 后半阳/阴占比（一次判定，不滚动）。
 
     Returns (plan, early_exit, dir_res_for_finish).
-    plan 含 leg1_gate_at / direction / cfg_side / triggers / ref / range_pct 等。
-  early_exit 为 signal_skip / abandon / 全日振幅不足等应直接返回的结果。
+    plan 含 leg1_gate_at（仅 entry_ready 当根为 True）/ direction / cfg_side / triggers / ref 等。
+    early_exit 为 signal_skip / abandon / 全日振幅不足等应直接返回的结果。
     """
     from core.t0.score_policy import resolve_cover_policy
 
@@ -1292,9 +1356,6 @@ def _plan_forward_leg1_gates(
     last_amp_skip: Optional[Dict[str, Any]] = None
     last_dir_wait: Optional[Dict[str, Any]] = None
     cover_meta: Optional[dict] = None
-    # 仅统计「尚未开闸」时振幅已过但段向/方向未确认的评估根数；
-    # 一字板/无波动不烧；首次 entry_ready 后冻结（交给粘滞闸等触价）。
-    wait_eval_count = 0
 
     for j in range(n_bars):
         m = mins[j]
@@ -1484,33 +1545,151 @@ def _plan_forward_leg1_gates(
             continue
 
         range_pct_side = float(gate_side.get("range_pct") or range_pct or 0)
-        dir_amp = prefix_directional_amplitude_ok(
-            prefix,
-            direction=direction,
-            ref=float(ref),
-            sell_trig=sell_trig,
-            buy_trig=buy_trig,
+
+        # 正/反T：固定前缀 N 根（默认=abandon_bars）+ 后半段阳/阴占比；不贪心探极值回落/反弹
+        fixed_n, _ratio_thr = _prefix_bar_ratio_params(cfg_side, direction)
+        side_label = "正T" if direction == "reverse_t" else "反T"
+        seg_enabled_key = (
+            "y_prefix_segment_enabled_reverse"
+            if direction == "reverse_t"
+            else "y_prefix_segment_enabled_long"
         )
-        seg = prefix_segment_entry_ok(
-            prefix,
-            direction=direction,
-            ref=float(ref),
-            sell_trig=sell_trig,
-            buy_trig=buy_trig,
-            cfg=cfg_side,
-        )
-        entry_ready = bool(dir_amp.get("ok") and seg.get("ok"))
-        entry_flags[j] = entry_ready
-        # 已开闸后不再烧 abandon：段向用最新 close，确认后 close 贴回极值属常态，
-        # 继续计数会把粘滞闸整日作废（确认→空等触价）。
-        ever_ready = any(entry_flags[: j + 1])
-        wait_reason = None
-        if not entry_ready:
-            wait_reason = str(
-                seg.get("reason") if dir_amp.get("ok") else dir_amp.get("reason") or "方向振幅未达标"
+        dir_amp = {
+            "ok": True,
+            "reason": f"{side_label}固定前缀：跳过探极值振幅",
+            "direction": direction,
+        }
+        if n < fixed_n:
+            seg = {
+                "ok": False,
+                "segment": "fixed_prefix_wait",
+                "fixed_bars": fixed_n,
+                "prefix_bars": n,
+                "reason": f"{side_label}待固定前缀 {n}/{fixed_n}",
+            }
+            entry_ready = False
+            wait_reason = str(seg["reason"])
+            # 未齐窗不烧 abandon；齐窗当根再判定
+            ever_ready = any(entry_flags[:j])
+        elif j == fixed_n - 1:
+            fixed_prefix = mins[:fixed_n]
+            gate_fixed = prefix_range_gate(fixed_prefix, bar, cost=cost, cfg=cfg_side)
+            seg = prefix_fixed_bar_ratio_entry_ok(
+                fixed_prefix, direction=direction, cfg=cfg_side
             )
-            if not ever_ready:
-                wait_eval_count += 1
+            if not gate_fixed.get("ok"):
+                seg = {
+                    **seg,
+                    "ok": False,
+                    "range_gate": gate_fixed,
+                    "reason": (
+                        f"振幅不足 {float(gate_fixed.get('range_pct') or 0):.2f}% "
+                        f"< {float(gate_fixed.get('min_range_pct') or 0):.2f}%"
+                        if not gate_fixed.get("flat")
+                        else "一字板/无波动"
+                    ),
+                }
+            elif not bool(cfg_side.get(seg_enabled_key, True)):
+                seg = {
+                    "ok": True,
+                    "segment": "fixed_prefix_off",
+                    "fixed_bars": fixed_n,
+                    "reason": f"{side_label}固定前缀确认关",
+                }
+            entry_ready = bool(seg.get("ok"))
+            # 确认根成交价：相对开盘偏离不得超过 |ŷ_τ|×倍数（正T买上限 / 反T卖下限）
+            if entry_ready:
+                fill_px = float(m.get("close") or 0)
+                tau_px = tau_leg1_fill_price_ok(
+                    fill_px=fill_px,
+                    ref=float(ref),
+                    y_tau=_score_y_tau(score_snap),
+                    direction=direction,
+                    cfg=cfg_side,
+                )
+                seg = {**seg, "tau_entry_price": tau_px}
+                if not bool(tau_px.get("ok")):
+                    entry_ready = False
+                    wait_reason = str(tau_px.get("reason") or f"{side_label}τ入场价未过")
+                    seg = {
+                        **seg,
+                        "ok": False,
+                        "reason": wait_reason,
+                    }
+            entry_flags[j] = entry_ready
+            ever_ready = entry_ready
+            wait_reason = (
+                None if entry_ready else str(seg.get("reason") or f"{side_label}固定前缀未过")
+            )
+        else:
+            # 决策窗已过：不再滚动重评
+            seg = {
+                "ok": False,
+                "segment": "fixed_prefix_passed",
+                "fixed_bars": fixed_n,
+                "reason": f"{side_label}固定前缀决策已过",
+            }
+            entry_ready = False
+            ever_ready = any(entry_flags[:j])
+            wait_reason = None
+
+        if j == fixed_n - 1 and not entry_ready:
+            # 齐窗未过 → 立即放弃（不再滚动）
+            abandon_on = bool(cfg_day.get("y_path_abandon_enabled", True))
+            wait_reason = wait_reason or str(seg.get("reason") or f"{side_label}固定前缀未过")
+            last_dir_wait = _skip_result(
+                reason=wait_reason,
+                shares=shares,
+                bar=bar_n,
+                extra={
+                    "direction_used": direction,
+                    "path_mode": "first_touch",
+                    "range_mode": "fixed_prefix",
+                    "prefix_bars": n,
+                    "range_pct": range_pct_side,
+                    "directional_amplitude": dir_amp,
+                    "prefix_segment": seg,
+                },
+            )
+            if abandon_on:
+                early = _skip_result(
+                    reason=f"固定前缀未确认，放弃{side_label}（{wait_reason}）",
+                    shares=shares,
+                    bar=bar_n,
+                    extra={
+                        "direction_used": direction,
+                        "path_mode": "first_touch",
+                        "range_mode": "fixed_prefix",
+                        "prefix_bars": n,
+                        "range_pct": range_pct_side,
+                        "directional_amplitude": dir_amp,
+                        "prefix_segment": seg,
+                        "path_abandon": True,
+                        "forward_trace": trace_rows
+                        + [
+                            _forward_trace_row(
+                                idx=j,
+                                m=m,
+                                prefix_bars=n,
+                                evaluated=True,
+                                range_ok=True,
+                                range_pct=range_pct_side,
+                                min_range_pct=gate_side.get("min_range_pct"),
+                                direction=direction,
+                                side_range_ok=True,
+                                dir_amp_ok=True,
+                                seg_ok=False,
+                                entry_ready=False,
+                                gate_open=False,
+                                ref=float(ref),
+                                sell_trig=sell_trig,
+                                buy_trig=buy_trig,
+                                wait_reason=wait_reason,
+                            )
+                        ],
+                    },
+                )
+                return None, early, dir_res_locked or dir_res
 
         trace_rows.append(
             _forward_trace_row(
@@ -1526,7 +1705,7 @@ def _plan_forward_leg1_gates(
                 dir_amp_ok=bool(dir_amp.get("ok")),
                 seg_ok=bool(seg.get("ok")),
                 entry_ready=entry_ready,
-                gate_open=ever_ready,
+                gate_open=entry_ready,
                 ref=float(ref),
                 sell_trig=sell_trig,
                 buy_trig=buy_trig,
@@ -1548,54 +1727,21 @@ def _plan_forward_leg1_gates(
             "cover_meta": cover_meta,
         }
 
-        if not entry_ready and not ever_ready:
+        if n < fixed_n:
             last_dir_wait = _skip_result(
-                reason=wait_reason or "方向振幅未达标",
+                reason=wait_reason or f"{side_label}待固定前缀 {n}/{fixed_n}",
                 shares=shares,
                 bar=bar_n,
                 extra={
                     "direction_used": direction,
                     "path_mode": "first_touch",
-                    "range_mode": "forward",
+                    "range_mode": "fixed_prefix",
                     "prefix_bars": n,
                     "range_pct": range_pct_side,
-                    "directional_amplitude": dir_amp,
                     "prefix_segment": seg,
                 },
             )
-            abandon_on = bool(cfg_day.get("y_path_abandon_enabled", True))
-            abandon_bars = resolve_path_abandon_bars(cfg_side, direction)
-            if abandon_on and wait_eval_count >= abandon_bars:
-                if not dir_amp.get("ok"):
-                    if direction == "reverse_t":
-                        abandon_reason = f"前缀无低吸空间，放弃反T（{wait_reason}）"
-                    elif direction == "long_t":
-                        abandon_reason = f"前缀无高抛空间，放弃正T（{wait_reason}）"
-                    else:
-                        abandon_reason = wait_reason
-                elif direction == "reverse_t":
-                    abandon_reason = f"前缀无反弹确认，放弃反T（{wait_reason}）"
-                elif direction == "long_t":
-                    abandon_reason = f"前缀无回落确认，放弃正T（{wait_reason}）"
-                else:
-                    abandon_reason = wait_reason
-                early = _skip_result(
-                    reason=abandon_reason,
-                    shares=shares,
-                    bar=bar_n,
-                    extra={
-                        "direction_used": direction,
-                        "path_mode": "first_touch",
-                        "range_mode": "forward",
-                        "prefix_bars": n,
-                        "range_pct": range_pct_side,
-                        "directional_amplitude": dir_amp,
-                        "prefix_segment": seg,
-                        "path_abandon": True,
-                        "forward_trace": trace_rows,
-                    },
-                )
-                return None, early, dir_res_locked or dir_res
+            continue
 
     if plan_tail is None:
         if last_amp_skip is not None:
@@ -1608,14 +1754,13 @@ def _plan_forward_leg1_gates(
     first_ready = next((i for i, ok in enumerate(entry_flags) if ok), None)
 
     def leg1_gate_at(idx: int) -> bool:
-        """段向确认后粘滞开闸：idx >= 首个 entry_ready 即可触价。
+        """仅确认根可开第一腿。
 
-        正确语义是「确认生效 → 等下一次触价」；禁止改回「仅 entry_ready 当根」
-        （确认与触价常错开 → 第一腿永不成交 → 回测参与率/PnL 虚高）。
+        正T：固定前缀齐且后半上涨占比达标当根买；反T：固定前缀齐且后半下跌占比达标当根卖。
         """
-        if first_ready is None or idx < 0 or idx >= n_bars:
+        if idx < 0 or idx >= n_bars:
             return False
-        return idx >= first_ready
+        return bool(entry_flags[idx])
 
     plan = dict(plan_tail)
     plan["leg1_gate_at"] = leg1_gate_at
@@ -1647,7 +1792,7 @@ def run_forward_first_touch(
     base_t0_ratio: Optional[float] = None,
     defer_eod: bool = True,
 ) -> Tuple[Optional[Dict[str, Any]], Optional[dict]]:
-    """前向滑动窗口第一触达：段向确认后粘滞开闸，后续根触价可开第一腿（不回溯确认前触价）。
+    """前向固定前缀第一触达：开盘→振幅→齐窗阴阳占比（+τ入场价）确认根成交第一腿。
 
     ``defer_eod=True``（Worker 盘中前缀）：末根未到 14:55 不强平。
     回测传 ``False``：当日收盘强制回补，即使分钟缓存在午前截断。
@@ -1752,7 +1897,7 @@ def run_forward_first_touch(
     if isinstance(out, dict):
         out["path_mode"] = "first_touch"
         out["intraday_path"] = "first_touch"
-        out["range_mode"] = "forward"
+        out["range_mode"] = "fixed_prefix"
         out["prefix_bars"] = len(mins)
         out["minute_bars"] = len(mins)
         out["direction_score"] = (dir_res or {}).get("direction_score")
@@ -1795,9 +1940,9 @@ def simulate_t0_day_minute(
     tau_pool_day: Optional[dict] = None,
     defer_eod: bool = False,
 ) -> Dict[str, Any]:
-    """单日做 T：选向仍用开盘/隔夜特征；成交路径按分钟第一触达（前向滑动窗口）。
+    """单日做 T：选向仍用开盘/隔夜特征；成交路径按分钟第一触达（固定前缀）。
 
-    振幅/段向门禁按 5m 前缀逐根评估；段向确认后粘滞开闸，后续根触价即可成交（不回溯确认前触价）。
+    振幅门禁 + 固定前缀阴阳占比（+τ入场价）齐窗确认根成交第一腿；第二腿相对第一腿价。
     ``defer_eod=True`` 时盘中前缀不强平（纸面整单/Worker）。
     """
     from core.t0.score_policy import (

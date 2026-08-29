@@ -16,7 +16,7 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "y_path_disagree": "y_τ↔y_path异号",
     "gap_tier_skip": "大缺口反向跳过",
     "path_abandon": "前缀无空间放弃",
-    "prefix_segment": "段向待确认",
+    "prefix_segment": "固定前缀待确认",
     "y_trade_weak": "y_trade幅度不足",
     "eod_tau_disagree": "y_eod↔y_τ异号",
     "trade_tau_disagree": "y_trade↔y_τ异号",
@@ -115,7 +115,17 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "gap_tier_skip"
     if "放弃" in r and ("反T" in r or "正T" in r or "前缀" in r):
         return "path_abandon"
-    if "待回落" in r or "待反弹" in r or "回落确认" in r or "反弹确认" in r:
+    # 固定前缀齐窗/后半阴阳占比（现口径）；旧「回落/反弹」文案保留兼容历史账本
+    if (
+        "待固定前缀" in r
+        or "固定前缀后半" in r
+        or "固定前缀确认关" in r
+        or "固定前缀未过" in r
+        or "待回落" in r
+        or "待反弹" in r
+        or "回落确认" in r
+        or "反弹确认" in r
+    ):
         return "prefix_segment"
     if "上移振幅" in r or "下移振幅" in r or "方向振幅" in r:
         return "directional_amplitude"
@@ -142,10 +152,10 @@ def summarize_skip_reason_label(reason: Optional[str]) -> str:
     r = str(reason or "").strip() or "跳过"
     cat = classify_t0_skip_reason(r)
     if cat == "trigger_miss":
-        if "反T" in r:
-            return "反T未触低吸"
         if "正T" in r:
-            return "正T未触卖出"
+            return "正T未触低吸"
+        if "反T" in r:
+            return "反T未触卖出"
         return SKIP_CAT_LABELS.get(cat, "未触达")
     if cat == "tplus1":
         return "T+1无可卖"
@@ -593,14 +603,14 @@ def _cover_completed(day: dict) -> Optional[bool]:
     if direction == "long_t" and sold > 0:
         if covered >= sold:
             return True
-        # 正T主动放弃回补（含现金不足放弃）按设计计为完成侧
+        # 反T主动放弃回补（含现金不足放弃）按设计计为完成侧
         if exit_reason in ("abandon_cover", "abandon_cover_cash"):
             return True
         return False
     if direction == "reverse_t" and bought > 0:
         if sold_back >= bought:
             return True
-        # 反T允许隔夜多头时主动放弃卖旧仓，与正T abandon 对称计完成
+        # 正T允许隔夜多头时主动放弃卖旧仓，与反T abandon 对称计完成
         if exit_reason in ("abandon_cover", "abandon_cover_cash"):
             return True
         return False

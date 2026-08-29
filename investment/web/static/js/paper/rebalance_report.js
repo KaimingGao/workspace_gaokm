@@ -33,6 +33,7 @@ export function createRebalanceReportController(deps) {
     formatMarketPriorSection,
     marketPriorDetailFields,
     tailAnomalyDetailFields,
+    overheatDetailFields,
     scoreTips,
     showPlainTooltip,
     hideScoreTooltip,
@@ -207,7 +208,7 @@ function renderRebalanceReport(
       cashImpact.min_cash_pct != null &&
       Number(cashImpact.min_cash_pct) > 0
     ) {
-      note += ` · 现金底仓≥${Number(cashImpact.min_cash_pct)}%（反T）`;
+      note += ` · 现金底仓≥${Number(cashImpact.min_cash_pct)}%（正T低吸）`;
     }
     const tauGate = dualScore && dualScore.tau_gate;
     if (
@@ -503,6 +504,7 @@ function renderRebalanceReport(
       sentiment_prior: r.sentiment_prior || null,
       ...marketPriorDetailFields(r),
       ...tailAnomalyDetailFields(r),
+      ...overheatDetailFields(r),
     };
   }
 

@@ -36,8 +36,8 @@ export function installClusterMinuteUi(q) {
   }
 
   const esc = typeof escapeHtml === "function" ? escapeHtml : (s) => String(s ?? "");
-  const LOOKBACK_DAYS = 120;
-  const MIN_SPAN_DAYS = 40;
+  const LOOKBACK_DAYS = 30;
+  const MIN_SPAN_DAYS = 30;
 
   let inflight = null;
   let jobFailure = null;
@@ -81,7 +81,7 @@ export function installClusterMinuteUi(q) {
       hint:
         bits.length
           ? bits.join(" · ")
-          : "逐只串行 · lookback 120 交易日 · 默认 BaoStock 回填（跳过东财反爬）",
+          : "逐只串行 · 东财/BaoStock 30 日历日 · 新浪/腾讯有数则跳过 BaoStock · 各源间隔 10s",
     });
   }
 
@@ -126,7 +126,7 @@ export function installClusterMinuteUi(q) {
       pollStartedAt,
       esc,
       mode: "running",
-      hint: "逐只串行 · lookback 120 交易日 · 默认 BaoStock 回填（跳过东财反爬）· 间隔约 2s/只 · Ready% 为 span≥40d 覆盖（与 Job 进度不同步刷新）",
+      hint: "逐只串行 · 东财/BaoStock 30 日历日 · 新浪/腾讯有数则跳过 BaoStock · 各源间隔 10s · Ready% 为 span≥30d 覆盖（与 Job 进度不同步刷新）",
     });
   }
 
@@ -245,7 +245,7 @@ export function installClusterMinuteUi(q) {
       </div>
       <dl class="quant-bars-strip-facts">
         <div><dt>Universe</dt><dd>watching · Limit ${esc(limit)} · ${total} 只</dd></div>
-        <div><dt>Lookback</dt><dd>强更 ${esc(lb)} 交易日 · Ready ≥ ${esc(minSpan)}d</dd></div>
+        <div><dt>Lookback</dt><dd>强更 ${esc(lb)} 日历日 · Ready ≥ ${esc(minSpan)}d</dd></div>
         <div><dt>Span</dt><dd>med ${esc(data.minute_span_days_med ?? "—")}d · ${esc(data.minute_span_days_min ?? "—")}→${esc(data.minute_span_days_max ?? "—")}</dd></div>
       </dl>
       <div class="quant-bars-strip-badges">${badges.join("")}</div>
@@ -256,7 +256,6 @@ export function installClusterMinuteUi(q) {
     const total = Math.max(0, Number(data.universe_count) || 0);
     const ok = Number(data.cached_ok) || 0;
     const short = Number(data.short) || 0;
-    const missing = Number(data.missing) || 0;
     const pct = total > 0 ? Math.round((1000 * ok) / total) / 10 : 0;
     if (covPct) covPct.textContent = total > 0 ? `${pct}% ready` : "—";
 
@@ -267,21 +266,30 @@ export function installClusterMinuteUi(q) {
     }
 
     const dist = Array.isArray(data.span_distribution) ? data.span_distribution : [];
-    const rows = dist.map((row) => ({
-      label: String(row.bucket || "—"),
-      count: Number(row.count) || 0,
-      state: String(row.bucket || "").startsWith("<") ? "is-warn" : "is-ok",
-      title: String(row.bucket || ""),
-      universeTotal: total,
-    }));
-    if (!rows.length) {
-      rows.push(
-        { label: "Ready", count: ok, state: "is-ok", title: "Ready", universeTotal: total },
-        { label: "Short", count: short, state: "is-warn", title: "Short", universeTotal: total },
-        { label: "Missing", count: missing, state: "is-bad", title: "Missing", universeTotal: total }
-      );
+    const minSpan = Number(data.min_span_days) || MIN_SPAN_DAYS;
+    const shortLabel = `<${minSpan}d`;
+    const rows = dist
+      .filter((row) => String(row.bucket || "").startsWith("<"))
+      .map((row) => ({
+        label: String(row.bucket || shortLabel),
+        count: Number(row.count) || 0,
+        state: "is-warn",
+        title: String(row.bucket || shortLabel),
+        universeTotal: total,
+      }));
+    if (!rows.length && short > 0) {
+      rows.push({
+        label: shortLabel,
+        count: short,
+        state: "is-warn",
+        title: shortLabel,
+        universeTotal: total,
+      });
     }
-    renderBarRows(covBody, rows.filter((r) => r.count > 0), { emptyText: "无覆盖数据", head });
+    renderBarRows(covBody, rows.filter((r) => r.count > 0), {
+      emptyText: `无 ${shortLabel}`,
+      head,
+    });
   }
 
   function renderFoot(data) {

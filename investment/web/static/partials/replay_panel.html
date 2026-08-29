@@ -2,7 +2,7 @@
   <div class="dashboard-head-text quant-head-text">
     <p class="dashboard-eyebrow">Backtest Desk</p>
     <h2>历史回测</h2>
-    <p id="replay-meta" class="dashboard-meta quant-meta" aria-live="polite">历史验证 · Top-K 按 ŷ_EOD · 关 τ 闸 · 非实盘</p>
+    <p id="replay-meta" class="dashboard-meta quant-meta" aria-live="polite">历史验证 · 研究 Top-K 或纸面回放 · 非实盘</p>
     <p class="dashboard-section-desc replay-head-path">
       <a class="replay-hero-link" href="/watching">观察</a>
       →
@@ -169,7 +169,14 @@
                 <option value="pool">池等权</option>
               </select>
             </label>
-            <button type="button" id="quant-portfolio-run" class="dialog-btn">Top-K 回测</button>
+            <label class="platform-field quant-pro-field" title="topk_research=独立腿聚合研究；paper_replay=纸面 T+1/换手/现金回放">
+              <span class="quant-pro-field-label">引擎</span>
+              <select id="quant-bt-engine">
+                <option value="topk_research" selected>研究 Top-K</option>
+                <option value="paper_replay">纸面回放</option>
+              </select>
+            </label>
+            <button type="button" id="quant-portfolio-run" class="dialog-btn">跑回测</button>
             <button type="button" id="quant-portfolio-compare" class="dialog-btn secondary">中性化对照</button>
             <button
               type="button"

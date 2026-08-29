@@ -75,7 +75,7 @@ def get_minute_bars(
     code: str,
     *,
     period: str = "5",
-    lookback_days: int = 90,
+    lookback_days: int = 30,
     use_cache: bool = True,
     max_age_hours: float = MINUTE_CACHE_HOURS,
 ) -> Dict[str, Any]:

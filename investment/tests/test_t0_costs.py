@@ -75,7 +75,7 @@ class TestT0Costs(unittest.TestCase):
         self.assertEqual(trades[0]["net_cash_delta"], gross)
 
     def test_eod_cover_abandons_when_buy_fees_exceed_sell_net(self):
-        """正T must_cover：卖出净得不够买回（含佣金）→ abandon_cover_cash。"""
+        """反T must_cover：卖出净得不够买回（含佣金）→ abandon_cover_cash。"""
         from core.paper.costs import cost_params
         from core.t0.minute_path import _first_touch_long
 
@@ -135,7 +135,7 @@ class TestT0Costs(unittest.TestCase):
         self.assertEqual(len(paper.get("trades") or []), 0)
 
     def test_reverse_leg1_shrinks_for_fees(self):
-        """反T低吸：含佣金后缩量，现金不转负。"""
+        """正T低吸：含佣金后缩量，现金不转负。"""
         from core.paper.costs import cost_params
         from core.t0.minute_path import _first_touch_reverse
 
@@ -178,7 +178,7 @@ class TestT0Costs(unittest.TestCase):
         self.assertGreaterEqual(10399.0 + float(buy.get("net_cash_delta") or 0), -1e-6)
 
     def test_long_midday_cover_skips_when_not_self_funded(self):
-        """正T盘中追价买回若使现金转负，则本根不成交（与 EOD 闸一致）。"""
+        """反T盘中追价买回若使现金转负，则本根不成交（与 EOD 闸一致）。"""
         from core.paper.costs import cost_params
         from core.t0.minute_path import _first_touch_long
 
@@ -226,7 +226,7 @@ class TestT0Costs(unittest.TestCase):
             self.assertGreaterEqual(float(out.get("cash_delta") or 0), -1e-6, out)
 
     def test_walk_t0_cash_topup_uses_open_not_close(self):
-        """反T研究现金补足不得用 T 日 close（前视）。"""
+        """正T研究现金补足不得用 T 日 close（前视）。"""
         from unittest.mock import patch
 
         from core.t0.backtest import _research_cash_for_reverse, _walk_t0

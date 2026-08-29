@@ -574,7 +574,7 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
         if cfg:
             bullets.append(cfg)
         bullets.append(
-            f"Top-K 回测（ŷ_EOD）：累计 {ps.get('total_return_pct')}% · "
+            f"Top-K 研究回测（topk_research / ŷ_EOD）：累计 {ps.get('total_return_pct')}% · "
             f"胜率 {ps.get('win_rate_pct')}% · 交易 {ps.get('trade_count')}"
             f" · {_topk_score_axis_note(ps)}"
             + (
@@ -583,6 +583,15 @@ def build_report_executive_summary(report: Dict[str, Any]) -> Dict[str, Any]:
                 else ""
             )
         )
+        pr = ps.get("paper_replay") or {}
+        if pr.get("success"):
+            bullets.append(
+                f"纸面回放（paper_replay / 可实现）：累计 {pr.get('total_return_pct')}% · "
+                f"回撤 {pr.get('max_drawdown_pct')}% · 成交 {pr.get('trade_count')}"
+                f" · ≠研究腿聚合"
+            )
+        elif pr.get("error"):
+            bullets.append(f"纸面回放不可用：{pr.get('error')}")
 
     nc = report.get("portfolio_neutral_compare_summary") or {}
     if nc.get("success"):
@@ -1094,7 +1103,17 @@ def build_portfolio_backtest_markdown_lines(ps: Dict[str, Any]) -> List[str]:
         f"- 分数口径：{_topk_score_axis_note(ps)}",
         f"- 成本：{ps.get('cost_model') or (ps.get('params') or {}).get('cost_mode') or '—'}",
         f"- 标的：{', '.join(ps.get('loaded_stocks') or [])}",
+        f"- 引擎：{(ps.get('params') or {}).get('engine') or ps.get('engine') or 'topk_research'}（研究腿聚合）",
     ]
+    pr = ps.get("paper_replay") or {}
+    if pr.get("success"):
+        lines.append(
+            f"- 纸面回放（可实现）：累计 **{pr.get('total_return_pct')}%** · "
+            f"回撤 {pr.get('max_drawdown_pct')}% · 成交 {pr.get('trade_count')}"
+            f" · {(pr.get('note') or '')[:80]}"
+        )
+    elif isinstance(pr, dict) and pr.get("error"):
+        lines.append(f"- 纸面回放：不可用（{pr.get('error')}）")
     cc = ps.get("cost_compare") or {}
     if cc.get("ok"):
         lines.append(

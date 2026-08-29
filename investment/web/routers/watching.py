@@ -308,17 +308,24 @@ def watching_daily_chart(code: str, lookback: int = 60) -> Dict[str, Any]:
 
 
 @router.get("/api/watching/minute-tail")
-def watching_minute_tail(code: str, tail_minutes: int = 30) -> Dict[str, Any]:
-    """5 分钟尾盘序列（tail_anomaly 迷你图）。"""
+def watching_minute_tail(
+    code: str,
+    tail_minutes: int = 30,
+    fetch_if_missing: bool = True,
+    as_of: Optional[str] = None,
+) -> Dict[str, Any]:
+    """涨跌会话日 5m K（持仓涨跌 tip · tail_anomaly）。as_of 缺省=当前会话交易日。"""
     from core.signal.tail_anomaly_view import build_minute_tail_view
 
     c = str(code or "").strip()
     if not c:
         raise HTTPException(status_code=400, detail="请指定股票代码")
     try:
-        out = build_minute_tail_view(c, tail_minutes=int(tail_minutes or 30))
-        if not out.get("ok"):
-            return out
-        return out
+        return build_minute_tail_view(
+            c,
+            tail_minutes=int(tail_minutes or 30),
+            fetch_if_missing=bool(fetch_if_missing),
+            as_of=str(as_of).strip()[:10] if as_of else None,
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e

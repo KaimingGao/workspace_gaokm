@@ -1829,6 +1829,7 @@ def backtest_topk_equal_weight(
         "success": True,
         "strategy": strategy,
         "params": {
+            "engine": "topk_research",
             "top_k": top_k,
             "horizon_days": horizon_days,
             "min_score": min_score,
@@ -1941,7 +1942,8 @@ def backtest_topk_equal_weight(
                 else ""
             )
             + "排序=融合分 blend（ŷ_EOD+ŷ_τ）；表列 score=融合分；tip 仍分列 ŷ_EOD / ŷ_τ；"
-            + "非交易所仿真，仅供研究。"
+            + "引擎=topk_research（独立腿聚合，无纸面 T+1/换手/现金底仓）；"
+            + "≠纸面可实现收益，可交易验证见 paper_replay。"
         ),
     }
     from core.backtest.oos_report import attach_robustness_fields
@@ -1996,5 +1998,9 @@ def aggregate_stock_backtests(results: List[dict]) -> Dict[str, Any]:
         "avg_total_return_pct": round(avg_total, 2) if avg_total is not None else None,
         "avg_win_rate_pct": round(avg_win, 2) if avg_win is not None else None,
         "total_trades": sum(trade_counts),
-        "note": "等权聚合各票独立 walk-forward 累计收益；产品名 Top-K 回测，非真实模拟仓回放。",
+        "note": (
+            "引擎=single_stock_wf_agg：等权聚合各票独立 walk-forward 累计收益；"
+            "产品名含 Top-K 字样，非组合调仓、非 paper_replay 纸面回放。"
+        ),
+        "params": {"engine": "single_stock_wf_agg"},
     }

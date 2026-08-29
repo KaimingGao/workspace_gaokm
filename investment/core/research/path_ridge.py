@@ -1,4 +1,4 @@
-"""ŷ_path Ridge：开盘 Z → 分钟第一触达顺序（卖先 / 买先）。"""
+"""ŷ_path Ridge：与 ŷ_τ 同因子键（开盘 Z + 早盘前缀分钟小包）→ 极值序 signed range %。"""
 
 from __future__ import annotations
 
@@ -12,7 +12,13 @@ logger = logging.getLogger(__name__)
 
 from core.io_atomic import atomic_write_json
 from core.research.factor_ols_fit import fit_factor_ols_from_panel
-from core.research.path_panel import PATH_Z_FEATURES, build_path_panels_from_bars
+from core.research.path_panel import (
+    DEFAULT_PATH_MINUTE_TAU_HM,
+    DEFAULT_PATH_TAU_GRID,
+    PATH_Z_FEATURES,
+    build_path_panels_from_bars,
+)
+from core.research.tau_panel import normalize_minute_tau_grid
 from core.research.tau_ridge import _predict_rows, _subset, _time_split_indices
 
 PATH_MIN_STD_EXEMPT = PATH_Z_FEATURES
@@ -237,6 +243,33 @@ def path_promote_gate(report: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     }
 
 
+def _oos_by_tau(
+    preds: Sequence[Optional[float]],
+    ys: Sequence[float],
+    metas: Sequence[dict],
+) -> Dict[str, Any]:
+    """按决策钟 τ 分层 OOS（极值序标签；晚 τ 特征更贴标签，须分桶看）。"""
+    buckets: Dict[str, Dict[str, List[Any]]] = {}
+    for p, y, m in zip(preds, ys, metas):
+        tau = str((m or {}).get("tau") or (m or {}).get("minute_tau_hm") or "10:30").strip()
+        slot = buckets.setdefault(tau, {"ps": [], "zs": []})
+        slot["ps"].append(p)
+        slot["zs"].append(float(y))
+    out: Dict[str, Any] = {}
+    for tau in sorted(buckets.keys()):
+        ps = buckets[tau]["ps"]
+        zs = buckets[tau]["zs"]
+        pack = _oos_sign_metrics(ps, zs) if zs else {}
+        out[tau] = {
+            "n": len(zs),
+            "sign_hit": pack.get("sign_hit"),
+            "n_valid": pack.get("n_valid"),
+            "pos_recall": pack.get("pos_recall"),
+            "neg_recall": pack.get("neg_recall"),
+        }
+    return out
+
+
 def fit_path_ridge_report(
     stock_bars: Sequence[Dict[str, Any]],
     *,
@@ -247,7 +280,19 @@ def fit_path_ridge_report(
     sell_trig_pct: float = DEFAULT_SELL_TRIG_PCT,
     buy_trig_pct: float = DEFAULT_BUY_TRIG_PCT,
     train_frac: float = 0.7,
+    minute_tau_hm: Optional[str] = None,
+    tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
+    """池化拟合 ŷ_path + 时间 OOS。
+
+    ``tau_grid``：变长前缀少数时钟共享 β（同日标签=全日极值序，特征≤各 τ）；
+    默认 ``DEFAULT_PATH_TAU_GRID``。live 决策钟见 ``minute_tau_hm``（默认 10:30）。
+    """
+    live_hm = str(minute_tau_hm or DEFAULT_PATH_MINUTE_TAU_HM).strip() or DEFAULT_PATH_MINUTE_TAU_HM
+    grid = normalize_minute_tau_grid(
+        tau_hm=live_hm,
+        tau_grid=list(tau_grid) if tau_grid is not None else list(DEFAULT_PATH_TAU_GRID),
+    )
     enriched = build_path_panels_from_bars(
         stock_bars,
         minute_by_code_date=minute_by_code_date,
@@ -255,6 +300,8 @@ def fit_path_ridge_report(
         buy_trig_pct=buy_trig_pct,
         min_history=min_history,
         gap_trigger_pct=gap_trigger_pct,
+        minute_tau_hm=live_hm,
+        tau_grid=grid,
     )
     xs, ys, dates, metas = _stack_panels(enriched)
     if len(ys) < 20:
@@ -264,12 +311,14 @@ def fit_path_ridge_report(
             "task": "path_ridge",
             "sample_count": len(ys),
             "stock_count": len(enriched),
+            "tau_grid": list(grid),
+            "minute_tau_hm": live_hm,
         }
 
     xs_z = _z_only_xs(xs)
     train_idx, test_idx = _time_split_indices(dates, train_frac=train_frac)
     xs_tr, ys_tr, metas_tr = _subset(xs_z, ys, metas, train_idx)
-    xs_te, ys_te, _ = _subset(xs_z, ys, metas, test_idx)
+    xs_te, ys_te, metas_te = _subset(xs_z, ys, metas, test_idx)
 
     xs_tr, ys_tr, metas_tr, bal_info = _balance_signed_train(xs_tr, ys_tr, metas_tr)
 
@@ -307,8 +356,12 @@ def fit_path_ridge_report(
             (float(p) + y_mean) if p is not None else None for p in (preds_dm or [])
         ]
         oos.update(_oos_sign_metrics(preds, ys_te))
+        if grid and len(grid) > 1:
+            oos["by_tau"] = _oos_by_tau(preds, ys_te, metas_te)
     oos["y_label_mean"] = round(y_mean, 4)
     oos["balance"] = bal_info
+    oos["tau_grid"] = list(grid)
+    oos["minute_tau_hm"] = live_hm
     try:
         from core.research.path_panel import audit_path_minute_coverage, feature_fill_rates
 
@@ -330,6 +383,8 @@ def fit_path_ridge_report(
         "n_pos": n_pos,
         "n_neg": n_neg,
         "pos_share": round(n_pos / float(len(ys)), 4) if ys else None,
+        "n_unique_days": len({str(d)[:10] for d in dates}),
+        "rows_per_day": round(len(ys) / max(1, len({str(d)[:10] for d in dates})), 2),
     }
 
     model = dict(fit)
@@ -344,13 +399,25 @@ def fit_path_ridge_report(
     model["path_label_mode"] = "extreme_order"
     model["sell_trig_pct"] = float(sell_trig_pct)
     model["buy_trig_pct"] = float(buy_trig_pct)
+    if grid and len(grid) > 1:
+        y_formula = f"extreme_order(low,high) · τ∈{{{','.join(grid)}}}"
+        y_note = (
+            "变长前缀少数时钟共享 β；标签=全日极值序 signed range%；"
+            "τ 越晚特征更贴标签，看 OOS.by_tau；live 决策钟=minute_tau_hm"
+        )
+    else:
+        y_formula = f"extreme_order(low,high) · τ={live_hm}"
+        y_note = "单 τ 前缀分钟小包 + 开盘 Z；训练 demean+类别平衡"
     model["y_spec"] = {
-        "formula": "extreme_order(low,high)",
+        "formula": y_formula,
         "unit": "pct_signed_range",
-        "tau": "open",
-        "note": "先 low→high：(H−L)/ref%；先 high→low：(L−H)/ref%；训练 demean+类别平衡",
+        "tau": live_hm,
+        "tau_grid": list(grid),
+        "note": y_note,
     }
     model["extra_features"] = list(PATH_Z_FEATURES)
+    model["minute_tau_hm"] = live_hm
+    model["tau_grid"] = list(grid)
 
     report = {
         "success": True,
@@ -359,11 +426,17 @@ def fit_path_ridge_report(
         "sample_count": len(ys),
         "oos": oos,
         "return_model": model,
-        "schema": "path_ridge_v2",
+        "schema": "path_ridge_v3",
         "target": "extreme_order_signed_range",
         "sell_trig_pct": float(sell_trig_pct),
         "buy_trig_pct": float(buy_trig_pct),
-        "note": "开盘 Z → 分钟极值时间序 signed range%；供 dual_y 与 y_τ 联合选向",
+        "minute_tau_hm": live_hm,
+        "tau_grid": list(grid),
+        "note": (
+            "开盘 Z + 多 τ 前缀分钟小包 → 全日极值序；供 dual_y 与 y_τ 联合选向"
+            if grid and len(grid) > 1
+            else "开盘 Z + 前缀分钟小包 → 全日极值序；供 dual_y 与 y_τ 联合选向"
+        ),
     }
     report["promote_gate"] = path_promote_gate(report)
     return report
@@ -455,12 +528,14 @@ def persist_path_model(
         "oos": report.get("oos"),
         "sample_count": report.get("sample_count"),
         "stock_count": report.get("stock_count"),
-        "schema": report.get("schema") or "path_ridge_v2",
+        "schema": report.get("schema") or "path_ridge_v3",
         "sell_trig_pct": report.get("sell_trig_pct", rm.get("sell_trig_pct")),
         "buy_trig_pct": report.get("buy_trig_pct", rm.get("buy_trig_pct")),
+        "minute_tau_hm": report.get("minute_tau_hm") or rm.get("minute_tau_hm"),
+        "tau_grid": report.get("tau_grid") or rm.get("tau_grid"),
         "promote_gate": gate,
         "dual_score_head": "y_path",
-        "contract_note": "ŷ_path：开盘 Z → 分钟极值序 signed (H−L)/ref%",
+        "contract_note": "ŷ_path：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序 signed range%；live=minute_tau_hm",
     }
     path = path_model_path()
     os.makedirs(os.path.dirname(path), exist_ok=True)

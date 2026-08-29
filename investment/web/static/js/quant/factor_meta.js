@@ -8,7 +8,7 @@ export const FACTOR_FAMILY_DEFS = [
   { id: "trend", label: "趋势", tip: "价格方向、均线、形态；OLS 趋势族共线只打这一组" },
   { id: "value_quality", label: "价值质量", tip: "基本面：估值、盈利收益率、质量、成长、股息" },
   { id: "liquidity_flow", label: "流动性", tip: "成交、冲击成本、资金流" },
-  { id: "risk", label: "风险", tip: "波动、跳空" },
+  { id: "risk", label: "风险", tip: "波动、跳空、过热、尾盘异动" },
   { id: "residual", label: "残差", tip: "相对市场、特异动量、规模" },
   { id: "reversal", label: "反转", tip: "短线反转，与动量拆开避免双计" },
   { id: "sentiment", label: "舆情", tip: "研究旁路，默认不进 ŷ" },
@@ -19,7 +19,7 @@ const FAMILY_MEMBERS = {
   trend: ["momentum", "ma_slope", "technical_pattern", "weekly_confirm"],
   value_quality: ["value", "earnings_yield", "quality", "growth", "dividend"],
   liquidity_flow: ["liquidity", "money_flow", "amihud", "volume_price"],
-  risk: ["volatility", "gap_risk"],
+  risk: ["volatility", "gap_risk", "tail_anomaly", "overheat"],
   residual: ["relative_strength", "idio_momentum", "size"],
   reversal: ["reversal"],
   sentiment: ["alt_sentiment", "llm_sentiment"],
@@ -96,10 +96,34 @@ function fallbackClassify(name) {
 
 /**
  * @param {string} name
- * @param {object} [meta] factorMeta 行（API 优先）
+ * @param {object} [meta] factorMeta 行（API 优先补来源；族归属以本地 FAMILY_MEMBERS 为准）
  */
 export function classifyFactor(name, meta) {
+  const key = String(name || "").trim();
   const m = meta && typeof meta === "object" ? meta : {};
+  const fallback = fallbackClassify(key);
+
+  // 已编入本地族表的因子：族标签以 FAMILY_MEMBERS 为准（避免旧 API/实验行把
+  // overheat、tail_anomaly 等钉死在「其他」；也避免空 meta 时误标）。
+  if (NAME_TO_FAMILY[key]) {
+    const source = String(m.source || fallback.source || "sourced");
+    const ov = SOURCE_OVERRIDE[key];
+    return {
+      family: fallback.family,
+      familyLabel: fallback.familyLabel,
+      familyTip: fallback.familyTip,
+      familyOrder: fallback.familyOrder,
+      source,
+      sourceLabel: String(
+        m.source_label || (ov && ov.label) || fallback.sourceLabel || ""
+      ),
+      sourceNote: String(
+        m.source_note || m.status_note || (ov && ov.note) || fallback.sourceNote || ""
+      ),
+      sourced: source === "sourced",
+    };
+  }
+
   if (m.family && m.family_label) {
     const fid = String(m.family);
     const def = FAMILY_BY_ID[fid];
@@ -115,7 +139,7 @@ export function classifyFactor(name, meta) {
       sourced: source === "sourced",
     };
   }
-  return fallbackClassify(name);
+  return fallback;
 }
 
 /** ŷ_τ 开盘/截面特征不在因子注册表，本地兜底注释。 */
@@ -123,7 +147,7 @@ export const TAU_FEAT_META = {
   gap_pct: {
     label: "跳空 %",
     description:
-      "开盘相对昨收的跳空幅度（%）。ŷ_τ 用它预测开盘→收盘剩余收益；τ=open 时即隔夜缺口。",
+      "开盘相对昨收的跳空幅度（%）。ŷ_τ 默认用它预测 open→close；τ=open 时即隔夜缺口。",
   },
   open_gap: {
     label: "开盘缺口",
@@ -153,12 +177,73 @@ export const TAU_FEAT_META = {
   ret_open_to_tau: {
     label: "开盘→τ 收益 %",
     description:
-      "开盘到 τ 时刻已实现收益（%）。τ=open 时为 0；τ=09:45 时为开盘→09:45。ŷ_τ 预测的是 τ 之后到收盘的剩余。",
+      "开盘到 τ 时刻已实现收益（%）。τ=open 时为 0；分钟 τ 默认≈10:30。ŷ_τ 标签仍是 open→close；此特征是已实现前缀（会抬高 OC 命中，需警惕）。",
+  },
+  ret_prev_to_tau: {
+    label: "昨收→τ 收益 %",
+    description: "昨收到 τ 价已实现收益（%）。含隔夜缺口 + 开盘→τ，刻画到决策点的总位移。",
+  },
+  range_pct: {
+    label: "前缀振幅 %",
+    description: "开盘→τ 前缀 (H−L)/open（%）。振幅大表示路径嘈杂，常与回撤/反弹因子共线。",
+  },
+  loc_hl: {
+    label: "HL 位置",
+    description: "现价在前缀 [L,H] 箱中的位置 0–1。近 1=贴着前缀高，近 0=贴着前缀低。",
+  },
+  up_extent: {
+    label: "相对开盘上探 %",
+    description: "(前缀高−开盘)/开盘（%）。衡量开盘后上冲空间。",
+  },
+  down_extent: {
+    label: "相对开盘下探 %",
+    description: "(开盘−前缀低)/开盘（%）。衡量开盘后下探空间。",
+  },
+  path_sign: {
+    label: "路径符号",
+    description: "+1 先低后高（探底回升），−1 先高后低（冲高回落）。粗粒度路径形状。",
+  },
+  pullback_from_high: {
+    label: "自高回撤 %",
+    description: "相对前缀高点的回撤（%）。大回撤常对应冲高回落；与剩余窗标签的关系需看 β 符号。",
+  },
+  bounce_from_low: {
+    label: "自低反弹 %",
+    description: "相对前缀低点的反弹（%）。大反弹常对应探底回升。",
+  },
+  ret_last_15m: {
+    label: "近15m 收益 %",
+    description: "τ 前约 15 分钟（约 3 根 5m）收益（%）。刻画临门动量。",
+  },
+  realized_vol: {
+    label: "前缀已实现波动 %",
+    description: "开盘→τ 的 5m 收益标准差（%）。路径噪声强度。",
+  },
+  vol_last3_vs_avg: {
+    label: "近3根量/均量",
+    description: "近 3 根 5m 成交量 / 前缀均量。>1 表示临门放量。",
+  },
+  tau_elapsed_min: {
+    label: "τ距开盘分钟",
+    description:
+      "决策钟相对 09:30 的分钟数。变长前缀共享 β 时告诉模型前缀有多长（如 10:30→60）。",
   },
   sector_ret_to_tau: {
     label: "板块中位开→τ %",
     description:
       "同日池内开盘→τ 已实现收益的中位数（%）。仅分钟 τ 训练/预测用，剥离板块盘中 beta。",
+  },
+  ret_vs_sector: {
+    label: "开→τ 相对板块 %",
+    description: "个股开盘→τ − 板块中位开→τ（%）。正值=相对板块更强的前缀。",
+  },
+  yclose_loc: {
+    label: "昨收位置",
+    description: "昨收在昨高低中的位置 0–1。刻画隔夜起点相对昨路径的落点。",
+  },
+  mom3_pct: {
+    label: "近3日动量 %",
+    description: "近 3 个交易日收盘动量（%）。短端趋势，与开盘缺口正交补充。",
   },
 };
 
@@ -212,7 +297,22 @@ export function createFactorMetaCache(opts = {}) {
   }
 
   async function ensureFactorMeta() {
-    if (Object.keys(factorMetaByName).length) return factorMetaByName;
+    const needsRefresh = () => {
+      const keys = Object.keys(factorMetaByName);
+      if (!keys.length) return true;
+      // 本地已编族但缓存行仍缺 family / 钉在 other → 重拉 API
+      for (const k of keys) {
+        if (!NAME_TO_FAMILY[k]) continue;
+        const fam = String((factorMetaByName[k] && factorMetaByName[k].family) || "");
+        if (!fam || fam === "other") return true;
+      }
+      // 本地风险族成员未进缓存
+      for (const k of FAMILY_MEMBERS.risk || []) {
+        if (!factorMetaByName[k]) return true;
+      }
+      return false;
+    };
+    if (!needsRefresh()) return factorMetaByName;
     if (factorMetaPromise) return factorMetaPromise;
     factorMetaPromise = (async () => {
       try {
@@ -220,17 +320,28 @@ export function createFactorMetaCache(opts = {}) {
         const data = await res.json();
         const list = data.factors || data.rows || [];
         rememberFactorMeta(
-          (list || []).map((r) => ({
-            name: r.name || r.factor,
-            label: r.label,
-            description: r.description || "",
-            family: r.family || "",
-            family_label: r.family_label || "",
-            family_tip: r.family_tip || "",
-            source: r.source || "",
-            source_label: r.source_label || "",
-            source_note: r.source_note || "",
-          }))
+          (list || []).map((r) => {
+            const name = r.name || r.factor;
+            const tax = classifyFactor(name, {
+              family: r.family || "",
+              family_label: r.family_label || "",
+              family_tip: r.family_tip || "",
+              source: r.source || "",
+              source_label: r.source_label || "",
+              source_note: r.source_note || "",
+            });
+            return {
+              name,
+              label: r.label,
+              description: r.description || "",
+              family: tax.family,
+              family_label: tax.familyLabel,
+              family_tip: tax.familyTip,
+              source: tax.source,
+              source_label: tax.sourceLabel,
+              source_note: tax.sourceNote,
+            };
+          })
         );
       } catch (_) {
         /* ignore */

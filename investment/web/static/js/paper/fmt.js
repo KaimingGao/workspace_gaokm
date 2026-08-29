@@ -296,7 +296,7 @@ export const Y_NC_OC_TITLE =
 /** @deprecated 用 Y_NC_TITLE */
 export const Y_NOWCAST_TITLE = Y_NC_TITLE;
 
-/** ŷ_path：分钟第一触达顺序头（path_ridge）；dual_y 与 y_τ 联合选向。 */
+/** ŷ_path：极值序 signed range%（path_ridge；多 τ 训 / live 单钟）；dual_y 与 y_τ 联合选向。 */
 export const Y_PATH_TITLE = "ŷ_path · 极值序 signed (H−L)/ref%";
 export const PATH_REALIZED_TITLE =
   "path实 · 先 low→high 为正、先 high→low 为负（与 ŷ_path 同标签）";

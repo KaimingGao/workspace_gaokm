@@ -4,22 +4,22 @@ import { escapeText } from "./fmt.js";
 
 export const Y_TAU_MAP_LABELS = {
   trend: "符号定方向",
-  fixed_long: "固定正T",
-  fixed_reverse: "固定反T",
+  fixed_long: "固定反T",
+  fixed_reverse: "固定正T",
 };
 
 /** 表单 / 规则卡选项文案（与 follow 下拉 value 一一对应）。 */
 export const Y_TAU_MAP_SELECT_LABELS = {
   trend: "符号定方向",
-  fixed_long: "固定正T",
-  fixed_reverse: "固定反T",
+  fixed_long: "固定反T",
+  fixed_reverse: "固定正T",
 };
 
 /** 规则卡 / 摘要用短标签（表格列头等紧凑场景）。 */
 export const Y_TAU_MAP_SHORT = {
   trend: "符号",
-  fixed_long: "固定正T",
-  fixed_reverse: "固定反T",
+  fixed_long: "固定反T",
+  fixed_reverse: "固定正T",
 };
 
 /** 与后端 normalize_y_tau_map 对齐（scalp 等别名 → trend）。 */
@@ -142,10 +142,10 @@ export function yTauMapScoreTip(mode, enter = 0.25) {
   const thr = Number.isFinite(e) ? e : 0.25;
   const tail = "|y_trade| 不足则跳过。";
   if (m === "fixed_long") {
-    return `dual_y[固定正T]：|y_τ|≥${thr}% 固定正T；${tail}`;
+    return `dual_y[固定反T]：|y_τ|≥${thr}%；${tail}`;
   }
   if (m === "fixed_reverse") {
-    return `dual_y[固定反T]：|y_τ|≥${thr}% 固定反T；${tail}`;
+    return `dual_y[固定正T]：|y_τ|≥${thr}%；${tail}`;
   }
   return `dual_y：|y_τ|≥${thr}% 定方向（符号映射）；${tail}`;
 }
@@ -201,7 +201,7 @@ function buildDualYGateMatrixHtml(t0) {
       stage: "tau",
       role: "方向",
       head: "τ",
-      enter: `正${tauLong}/反${tauRev}`,
+      enter: `正${tauRev}/反${tauLong}`,
       strong: g.pathOn ? "联合path" : "方向锚",
       tip: g.pathOn
         ? "path 开：正/反分侧 τ·path 同号双过 enter；符号映射正/反 T"
@@ -211,7 +211,7 @@ function buildDualYGateMatrixHtml(t0) {
       stage: "path",
       role: "路径",
       head: "path",
-      enter: g.pathOn ? `正${pathLong}/反${pathRev}` : "关",
+      enter: g.pathOn ? `正${pathRev}/反${pathLong}` : "关",
       strong: g.pathOn ? "须同τ" : "—",
       tip: g.pathOn
         ? "path 开：正/反分侧 |ŷ_path| 过 enter（与 τ 侧向独立）"
@@ -329,13 +329,13 @@ function buildTauMapVisualHtml(mode, enterRaw) {
 
   let rows = "";
   if (k === "fixed_long") {
-    rows = tauRow("single", "±", `<span class="mono">|y_τ|</span> 达标`, "正T", "long", "固定正T");
+    rows = tauRow("single", "±", `<span class="mono">|y_τ|</span> 达标`, "反T", "long", "固定反T");
   } else if (k === "fixed_reverse") {
-    rows = tauRow("single", "±", `<span class="mono">|y_τ|</span> 达标`, "反T", "reverse", "固定反T");
+    rows = tauRow("single", "±", `<span class="mono">|y_τ|</span> 达标`, "正T", "reverse", "固定正T");
   } else {
     rows =
-      tauRow("up", "+", `<span class="mono">y_τ</span> &gt; 0`, "反T", "reverse", "卖高优先") +
-      tauRow("down", "−", `<span class="mono">y_τ</span> &lt; 0`, "正T", "long", "买低优先");
+      tauRow("up", "+", `<span class="mono">y_τ</span> &gt; 0`, "正T", "reverse", "先买后卖") +
+      tauRow("down", "−", `<span class="mono">y_τ</span> &lt; 0`, "反T", "long", "先卖后买");
   }
 
   return (
@@ -411,7 +411,7 @@ export function renderExecutionRulesHtml(execution) {
     FILL_MODE_LABELS[
       String(t0.fill_mode_reverse || t0.fill_mode || "trigger").toLowerCase()
     ] || t0.fill_mode_reverse || t0.fill_mode || "—";
-  const fillLbl = `正${fillLong}/反${fillRev}`;
+  const fillLbl = `正${fillRev}/反${fillLong}`;
   const pathLbl =
     PATH_MODE_LABELS[String(t0.path_mode || "first_touch").toLowerCase()] || t0.path_mode || "—";
   const pathModelOk = execution.path_model_present !== false;
@@ -523,20 +523,12 @@ export function fillExecutionForm(root, execution) {
   };
   set("enabled", t0.enabled !== false);
   set(
-    "sell_trigger_pct_long",
-    t0.sell_trigger_pct_long != null ? t0.sell_trigger_pct_long : t0.sell_trigger_pct
-  );
-  set(
     "buy_trigger_pct_long",
-    t0.buy_trigger_pct_long != null ? t0.buy_trigger_pct_long : t0.buy_trigger_pct
+    t0.buy_trigger_pct_long != null ? t0.buy_trigger_pct_long : 5
   );
   set(
     "sell_trigger_pct_reverse",
-    t0.sell_trigger_pct_reverse != null ? t0.sell_trigger_pct_reverse : t0.sell_trigger_pct
-  );
-  set(
-    "buy_trigger_pct_reverse",
-    t0.buy_trigger_pct_reverse != null ? t0.buy_trigger_pct_reverse : t0.buy_trigger_pct
+    t0.sell_trigger_pct_reverse != null ? t0.sell_trigger_pct_reverse : 5
   );
   set(
     "y_ratio_cut",
@@ -614,12 +606,16 @@ export function fillExecutionForm(root, execution) {
   set("y_prefix_segment_enabled_long", t0.y_prefix_segment_enabled_long !== false);
   set("y_prefix_segment_enabled_reverse", t0.y_prefix_segment_enabled_reverse !== false);
   set(
-    "y_prefix_pullback_pct_long",
-    t0.y_prefix_pullback_pct_long != null ? t0.y_prefix_pullback_pct_long : 0.5
+    "y_prefix_upbar_ratio_reverse",
+    t0.y_prefix_upbar_ratio_reverse != null ? t0.y_prefix_upbar_ratio_reverse : 0.6
   );
   set(
-    "y_prefix_bounce_pct_reverse",
-    t0.y_prefix_bounce_pct_reverse != null ? t0.y_prefix_bounce_pct_reverse : 0.5
+    "y_prefix_downbar_ratio_long",
+    t0.y_prefix_downbar_ratio_long != null ? t0.y_prefix_downbar_ratio_long : 0.6
+  );
+  set(
+    "y_tau_entry_price_mult",
+    t0.y_tau_entry_price_mult != null ? t0.y_tau_entry_price_mult : 5
   );
   set("y_eod_prior", t0.y_eod_prior != null ? t0.y_eod_prior : 0.01);
   set("y_eod_enter", t0.y_eod_enter != null ? t0.y_eod_enter : 0.01);
@@ -696,25 +692,11 @@ export function collectExecutionForm(root) {
   const t0 = {
     enabled: chk("enabled", true),
     t0_ratio: 1.0,
-    sell_trigger_pct_long: Math.max(0.1, Math.min(num("sell_trigger_pct_long", 1), 20)),
-    buy_trigger_pct_long: Math.max(0.1, Math.min(num("buy_trigger_pct_long", 1), 20)),
-    sell_trigger_pct_reverse: Math.max(0.1, Math.min(num("sell_trigger_pct_reverse", 1), 20)),
-    buy_trigger_pct_reverse: Math.max(0.1, Math.min(num("buy_trigger_pct_reverse", 1), 20)),
-    // 兜底键：取两侧较松卖/买，兼容旧读端
-    sell_trigger_pct: Math.max(
-      0.1,
-      Math.min(
-        Math.min(num("sell_trigger_pct_long", 1), num("sell_trigger_pct_reverse", 1)),
-        20
-      )
-    ),
-    buy_trigger_pct: Math.max(
-      0.1,
-      Math.min(
-        Math.min(num("buy_trigger_pct_long", 1), num("buy_trigger_pct_reverse", 1)),
-        20
-      )
-    ),
+    buy_trigger_pct_long: Math.max(0.1, Math.min(num("buy_trigger_pct_long", 5), 20)),
+    sell_trigger_pct_reverse: Math.max(0.1, Math.min(num("sell_trigger_pct_reverse", 5), 20)),
+    // 兜底键：第二腿侧向值（兼容旧读端）
+    sell_trigger_pct: Math.max(0.1, Math.min(num("sell_trigger_pct_reverse", 5), 20)),
+    buy_trigger_pct: Math.max(0.1, Math.min(num("buy_trigger_pct_long", 5), 20)),
     y_ratio_cut: Math.max(0.2, Math.min(cutPct / 100, 1)),
     y_ratio_boost_cap: Math.max(1.0, Math.min(boostPct / 100, 2)),
     fill_mode_long: str("fill_mode_long", "trigger"),
@@ -775,13 +757,17 @@ export function collectExecutionForm(root) {
     y_prefix_segment_enabled: chk("y_prefix_segment_enabled", true),
     y_prefix_segment_enabled_long: chk("y_prefix_segment_enabled_long", true),
     y_prefix_segment_enabled_reverse: chk("y_prefix_segment_enabled_reverse", true),
-    y_prefix_pullback_pct_long: Math.max(
+    y_prefix_upbar_ratio_reverse: Math.max(
       0,
-      Math.min(num("y_prefix_pullback_pct_long", 0.25), 2)
+      Math.min(num("y_prefix_upbar_ratio_reverse", 0.6), 1)
     ),
-    y_prefix_bounce_pct_reverse: Math.max(
+    y_prefix_downbar_ratio_long: Math.max(
       0,
-      Math.min(num("y_prefix_bounce_pct_reverse", 0.25), 2)
+      Math.min(num("y_prefix_downbar_ratio_long", 0.6), 1)
+    ),
+    y_tau_entry_price_mult: Math.max(
+      0,
+      Math.min(num("y_tau_entry_price_mult", 5), 50)
     ),
     y_eod_prior: Math.max(0.01, Math.min(num("y_eod_prior", 0.02), 5)),
     y_eod_enter: Math.max(0.01, Math.min(num("y_eod_enter", 0.01), 5)),
@@ -885,10 +871,8 @@ export function collectT0BacktestBody(root, opts = {}) {
     use_minute: true,
     compare_daily: false,
     t0_ratio: 1.0,
-    sell_trigger_pct: t0.sell_trigger_pct != null ? t0.sell_trigger_pct : 1,
-    buy_trigger_pct: t0.buy_trigger_pct != null ? t0.buy_trigger_pct : 1,
-    sell_trigger_pct_long:
-      t0.sell_trigger_pct_long != null ? t0.sell_trigger_pct_long : t0.sell_trigger_pct != null ? t0.sell_trigger_pct : 1,
+    sell_trigger_pct: t0.sell_trigger_pct_reverse != null ? t0.sell_trigger_pct_reverse : t0.sell_trigger_pct != null ? t0.sell_trigger_pct : 5,
+    buy_trigger_pct: t0.buy_trigger_pct_long != null ? t0.buy_trigger_pct_long : t0.buy_trigger_pct != null ? t0.buy_trigger_pct : 5,
     buy_trigger_pct_long:
       t0.buy_trigger_pct_long != null ? t0.buy_trigger_pct_long : t0.buy_trigger_pct != null ? t0.buy_trigger_pct : 5,
     sell_trigger_pct_reverse:
@@ -897,12 +881,6 @@ export function collectT0BacktestBody(root, opts = {}) {
         : t0.sell_trigger_pct != null
           ? t0.sell_trigger_pct
           : 5,
-    buy_trigger_pct_reverse:
-      t0.buy_trigger_pct_reverse != null
-        ? t0.buy_trigger_pct_reverse
-        : t0.buy_trigger_pct != null
-          ? t0.buy_trigger_pct
-          : 1,
     y_ratio_cut: t0.y_ratio_cut != null ? t0.y_ratio_cut : 0.6,
     y_ratio_boost_cap: t0.y_ratio_boost_cap != null ? t0.y_ratio_boost_cap : 2.0,
     fill_mode: t0.fill_mode || "trigger",
@@ -967,10 +945,12 @@ export function collectT0BacktestBody(root, opts = {}) {
     y_prefix_segment_enabled: t0.y_prefix_segment_enabled !== false,
     y_prefix_segment_enabled_long: t0.y_prefix_segment_enabled_long !== false,
     y_prefix_segment_enabled_reverse: t0.y_prefix_segment_enabled_reverse !== false,
-    y_prefix_pullback_pct_long:
-      t0.y_prefix_pullback_pct_long != null ? t0.y_prefix_pullback_pct_long : 0.5,
-    y_prefix_bounce_pct_reverse:
-      t0.y_prefix_bounce_pct_reverse != null ? t0.y_prefix_bounce_pct_reverse : 0.5,
+    y_prefix_upbar_ratio_reverse:
+      t0.y_prefix_upbar_ratio_reverse != null ? t0.y_prefix_upbar_ratio_reverse : 0.6,
+    y_prefix_downbar_ratio_long:
+      t0.y_prefix_downbar_ratio_long != null ? t0.y_prefix_downbar_ratio_long : 0.6,
+    y_tau_entry_price_mult:
+      t0.y_tau_entry_price_mult != null ? t0.y_tau_entry_price_mult : 5,
     y_eod_prior: t0.y_eod_prior != null ? t0.y_eod_prior : 0.01,
     y_eod_enter: t0.y_eod_enter != null ? t0.y_eod_enter : 0.01,
     y_eod_strong:

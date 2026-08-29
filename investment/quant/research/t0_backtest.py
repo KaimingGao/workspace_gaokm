@@ -34,10 +34,8 @@ _BT_RULES_VIEW_KEYS = (
     "t0_ratio",
     "sell_trigger_pct",
     "buy_trigger_pct",
-    "sell_trigger_pct_long",
     "buy_trigger_pct_long",
     "sell_trigger_pct_reverse",
-    "buy_trigger_pct_reverse",
     "fill_mode",
     "fill_mode_long",
     "fill_mode_reverse",
@@ -84,8 +82,6 @@ _BT_RULES_VIEW_KEYS = (
     "y_prefix_segment_enabled",
     "y_prefix_segment_enabled_long",
     "y_prefix_segment_enabled_reverse",
-    "y_prefix_pullback_pct_long",
-    "y_prefix_bounce_pct_reverse",
     "t0_pm_degrade",
     "t0_pm_degrade_long",
     "t0_pm_degrade_reverse",
@@ -480,7 +476,7 @@ def run_t0_backtest_for_holdings(
     """对持仓列表逐票回测并汇总（研究用，不改账本）。
 
     股票池取自纸面持仓；仓位/现金默认虚拟假设（每票 ``virtual_shares``、
-    研究现金 ``virtual_cash``），放宽小仓/现金不足对反T的约束，主看累计收益比例。
+    研究现金 ``virtual_cash``），放宽小仓/现金不足对正T低吸的约束，主看累计收益比例。
     """
     if not holdings:
         return {
@@ -634,7 +630,7 @@ def run_t0_backtest_for_holdings(
             opt_trades += int(opt.get("t0_trade_days") or 0)
             opt_exposure += float(opt.get("exposure_pnl_total") or 0)
 
-    # 合并各票成交样本供 UI；最近按日 + 保留若干反T，避免「近一周全正」误以为没有反T
+    # 合并各票成交样本供 UI；最近按日 + 保留若干反T成交样本，避免「近一周全正T」误以为没有反T
     # 注意：trade_days_sample=[] 时勿用 `or days`，否则会把全日跳过行灌进样本
     trade_sample: List[Dict[str, Any]] = []
     skip_reason_counts: Dict[str, int] = {}
@@ -792,7 +788,7 @@ def run_t0_backtest_for_holdings(
                 "stock_code": one.get("stock_code"),
                 "stock_name": one.get("stock_name"),
                 "optimistic_compare": one.get("optimistic_compare") or out.get("optimistic_compare"),
-                "days": one.get("trade_days_sample") or one.get("days") or trade_sample,
+                "days": one.get("trade_days_sample") or trade_sample,
                 "trade_days_sample": one.get("trade_days_sample") or trade_sample,
                 "rules": one.get("rules"),
                 "uncover_days": one.get("uncover_days"),

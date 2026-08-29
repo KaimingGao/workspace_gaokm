@@ -71,10 +71,8 @@ class T0BacktestRequest(BaseModel):
     t0_ratio: float = Field(default=1.0, ge=0.05, le=1.0)
     sell_trigger_pct: float = Field(default=1.0, ge=0.1, le=20)
     buy_trigger_pct: float = Field(default=1.0, ge=0.1, le=20)
-    sell_trigger_pct_long: Optional[float] = Field(default=None, ge=0.1, le=20)
     buy_trigger_pct_long: Optional[float] = Field(default=None, ge=0.1, le=20)
     sell_trigger_pct_reverse: Optional[float] = Field(default=None, ge=0.1, le=20)
-    buy_trigger_pct_reverse: Optional[float] = Field(default=None, ge=0.1, le=20)
     must_cover_same_day: bool = True
     must_cover_same_day_long: Optional[bool] = Field(default=None)
     must_cover_same_day_reverse: Optional[bool] = Field(default=None)
@@ -120,13 +118,13 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.01,
         le=5.0,
-        description="dual_y：正T（y_τ<0）入场 |y_τ| 门槛",
+        description="dual_y：反T（y_τ<0）入场 |y_τ| 门槛",
     )
     y_tau_enter_reverse: Optional[float] = Field(
         default=None,
         ge=0.01,
         le=5.0,
-        description="dual_y：反T（y_τ>0）入场 |y_τ| 门槛",
+        description="dual_y：正T（y_τ>0）入场 |y_τ| 门槛",
     )
     y_tau_enter_strong: Optional[float] = Field(
         default=None,
@@ -210,13 +208,13 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.01,
         le=5.0,
-        description="dual_y：正T path 入场门槛",
+        description="dual_y：反T path 入场门槛",
     )
     y_path_enter_reverse: Optional[float] = Field(
         default=None,
         ge=0.01,
         le=5.0,
-        description="dual_y：反T path 入场门槛",
+        description="dual_y：正T path 入场门槛",
     )
     y_path_required: Optional[bool] = None
     y_gap_tier_mode: Optional[str] = Field(default=None, max_length=24)
@@ -227,8 +225,24 @@ class T0BacktestRequest(BaseModel):
     y_prefix_segment_enabled: Optional[bool] = None
     y_prefix_segment_enabled_long: Optional[bool] = None
     y_prefix_segment_enabled_reverse: Optional[bool] = None
-    y_prefix_pullback_pct_long: Optional[float] = Field(default=None, ge=0.0, le=2.0)
-    y_prefix_bounce_pct_reverse: Optional[float] = Field(default=None, ge=0.0, le=2.0)
+    y_prefix_upbar_ratio_reverse: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="正T：固定前缀后半上涨K占比下限",
+    )
+    y_prefix_downbar_ratio_long: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="反T：固定前缀后半下跌K占比下限",
+    )
+    y_tau_entry_price_mult: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=50.0,
+        description="固定前缀确认根：|ŷ_τ|×倍数限制第一腿价（正T买上限/反T卖下限）；0=关",
+    )
     t0_pm_degrade: Optional[str] = Field(
         default=None,
         max_length=8,
@@ -237,12 +251,12 @@ class T0BacktestRequest(BaseModel):
     t0_pm_degrade_long: Optional[str] = Field(
         default=None,
         max_length=8,
-        description="正T午后闸 HH:MM；禁新开 + 买回中点追价",
+        description="反T午后闸 HH:MM；禁新开 + 买回中点追价",
     )
     t0_pm_degrade_reverse: Optional[str] = Field(
         default=None,
         max_length=8,
-        description="反T午后闸 HH:MM；禁新开 + 卖旧中点追价",
+        description="正T午后闸 HH:MM；禁新开 + 卖旧中点追价",
     )
     t0_pm_chase_interval_min: Optional[int] = Field(
         default=None,
@@ -254,13 +268,13 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=1,
         le=60,
-        description="正T中点追价间隔（分钟），默认 10",
+        description="反T中点追价间隔（分钟），默认 10（买回上移）",
     )
     t0_pm_chase_interval_min_reverse: Optional[int] = Field(
         default=None,
         ge=1,
         le=60,
-        description="反T中点追价间隔（分钟），默认 10",
+        description="正T中点追价间隔（分钟），默认 10（卖旧下移）",
     )
 
 
@@ -324,10 +338,8 @@ class PaperExecutionPatchRequest(BaseModel):
     t0_ratio: Optional[float] = None
     sell_trigger_pct: Optional[float] = None
     buy_trigger_pct: Optional[float] = None
-    sell_trigger_pct_long: Optional[float] = None
     buy_trigger_pct_long: Optional[float] = None
     sell_trigger_pct_reverse: Optional[float] = None
-    buy_trigger_pct_reverse: Optional[float] = None
     fill_mode: Optional[str] = None
     fill_mode_long: Optional[str] = None
     fill_mode_reverse: Optional[str] = None
@@ -377,8 +389,9 @@ class PaperExecutionPatchRequest(BaseModel):
     y_prefix_segment_enabled: Optional[bool] = None
     y_prefix_segment_enabled_long: Optional[bool] = None
     y_prefix_segment_enabled_reverse: Optional[bool] = None
-    y_prefix_pullback_pct_long: Optional[float] = None
-    y_prefix_bounce_pct_reverse: Optional[float] = None
+    y_prefix_upbar_ratio_reverse: Optional[float] = None
+    y_prefix_downbar_ratio_long: Optional[float] = None
+    y_tau_entry_price_mult: Optional[float] = None
     y_score_source: Optional[str] = Field(
         default=None, max_length=24, description="compute|live_book|ledger"
     )

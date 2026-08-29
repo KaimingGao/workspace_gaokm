@@ -41,7 +41,7 @@ export const SKIP_CAT_LABEL = {
   y_path_disagree: "y_τ↔y_path异号",
   gap_tier_skip: "大缺口反向跳过",
   path_abandon: "前缀无空间放弃",
-  prefix_segment: "段向待确认",
+  prefix_segment: "固定前缀待确认",
   y_trade_weak: "y_trade幅度不足",
   eod_tau_disagree: "y_eod↔y_τ异号",
   trade_tau_disagree: "y_trade↔y_τ异号",
@@ -79,9 +79,9 @@ export const SKIP_CAT_TIP = {
   gap_tier_skip:
     "大缺口档位与拟做方向冲突（如大高开仍想正 T），规则直接跳过。",
   path_abandon:
-    "前缀 N 根 5m 仍无方向/段向确认：放弃当日做 T。",
+    "固定前缀 N 根 5m 齐窗后仍未过振幅/后半阴阳占比：放弃当日做 T。",
   prefix_segment:
-    "方向振幅已够，但第一腿段向未确认：正 T 待自 high 回落，反 T 待自 low 弹起（Worker 可重试）。",
+    "振幅已够，但固定前缀未齐或后半阴阳占比未达标：正 T 待后半上涨、反 T 待后半下跌（Worker 可重试）。",
   y_trade_weak:
     "|ŷ_trade| 未过入场（y_trade_enter），融合分太弱不开仓。",
   trade_tau_sign:
@@ -89,13 +89,13 @@ export const SKIP_CAT_TIP = {
   conflict:
     "旧版 eod↔τ / y_check 冲突闸（已下线），历史回放可能仍出现。",
   amplitude:
-    "当日高低振幅不足以覆盖触发带，无法形成有效做 T 空间。",
+    "固定前缀高低振幅低于侧向「振幅下限%」，无法形成有效做 T 空间。",
   directional_amplitude:
-    "沿选定方向（上移/下移）的可用振幅不足。",
+    "沿选定方向（上移/下移）的可用振幅不足（旧口径；现多并入固定前缀闸）。",
   lot_size:
     "按规则算出的买卖量不足 1 手，或现金买不起。",
   tplus1:
-    "T+1 锁定：当日无可卖旧仓（正 T 先卖路径走不通）。",
+    "T+1 锁定：当日无可卖旧仓（反 T 先卖 / 正 T 卖旧仓走不通）。",
   path:
     "分钟路径规则否决（veto），与预测头 dual_y 不一致类不同。",
   trigger_miss:
@@ -117,7 +117,7 @@ const T0_TRADE_COL_W = {
   on: "82px",
   nc: "82px",
   dir: "48px",
-  process: "272px",
+  process: "320px",
   retPct: "76px",
   pnl: "72px",
   exp: "72px",
@@ -170,23 +170,36 @@ export function stockCellHtml(row, fallback = {}) {
   );
 }
 
-export function hasForwardGateTrace(d) {
-  return Array.isArray(d?.forward_trace) && d.forward_trace.length > 0;
-}
 
 export function pickTradeDays(data) {
   const sample = (data && (data.trade_days_sample || data.days)) || [];
   return sample.filter((d) => _isTradedDay(d));
 }
 
-/** 成交明细：含成交日 + 带 forward_trace 的跳过日（便于看门禁为何未成交）。 */
-export function pickDetailDays(data, { includeSkippedGateTrace = true } = {}) {
-  const sample = (data && (data.trade_days_sample || data.days)) || [];
-  return sample.filter(
-    (d) =>
-      _isTradedDay(d) ||
-      (includeSkippedGateTrace && d.skipped && hasForwardGateTrace(d))
-  );
+/** 成交明细：仅成交日（无成交/跳过行不进表）。 */
+export function pickDetailDays(data) {
+  const traded = Array.isArray(data?.trade_days_sample) ? data.trade_days_sample : [];
+  const allDays = Array.isArray(data?.days) ? data.days : [];
+  const out = [];
+  const seen = new Set();
+  const add = (d) => {
+    if (!d || typeof d !== "object") return;
+    const k = `${String(d.stock_code || "").trim()}|${String(d.date || "").slice(0, 10)}`;
+    if (seen.has(k)) return;
+    seen.add(k);
+    out.push(d);
+  };
+  for (const d of traded) {
+    if (_isTradedDay(d)) add(d);
+  }
+  // trade_days_sample 缺省时从 days 取成交（勿把空数组当成 falsy 再灌全日跳过）
+  if (!traded.length) {
+    for (const d of allDays) {
+      if (_isTradedDay(d)) add(d);
+    }
+  }
+  out.sort((a, b) => String(a.date || "").localeCompare(String(b.date || "")));
+  return out;
 }
 
 function _isTradedDay(d) {
@@ -904,82 +917,203 @@ function tradeTableColCount(showStock, showReason, showDelete) {
   return n;
 }
 
-function fmtGateYN(v) {
-  if (v === true) return "Y";
-  if (v === false) return "N";
-  return "—";
+
+/** 过程 tip：从 forward_trace 压成迷你 K 线点（[hm,o,h,l,c,flag]）。
+ * flag: 1=leg1 · 2=leg2 · 4=前缀 low · 8=前缀 high（可按位或）。
+ */
+function compactTraceBars(trace, { prefixBars = 0 } = {}) {
+  const rows = Array.isArray(trace) ? trace : [];
+  const out = [];
+  let readyIdx = -1;
+  for (let i = 0; i < rows.length; i++) {
+    const r = rows[i];
+    const o = Number(r.open);
+    const h = Number(r.high);
+    const l = Number(r.low);
+    const c = Number(r.close);
+    if (!(o > 0 && h > 0 && l > 0 && c > 0)) continue;
+    let flag = 0;
+    if (r.leg1_fill) flag = 1;
+    else if (r.leg2_fill) flag = 2;
+    if (r.entry_ready || r.leg1_fill) readyIdx = out.length;
+    const hm = String(r.time || "").replace(":", "") || String(r.idx ?? out.length);
+    out.push([hm, o, h, l, c, flag]);
+  }
+  if (out.length < 1) return out;
+  // 前缀窗：确认根（含）以前；无确认时用 prefixBars / 全长
+  let winEnd = readyIdx >= 0 ? readyIdx : out.length - 1;
+  const nPref = Number(prefixBars);
+  if (!(readyIdx >= 0) && Number.isFinite(nPref) && nPref >= 2) {
+    winEnd = Math.min(out.length - 1, Math.max(0, Math.floor(nPref) - 1));
+  }
+  let loI = 0;
+  let hiI = 0;
+  let loV = Number(out[0][3]);
+  let hiV = Number(out[0][2]);
+  for (let i = 1; i <= winEnd; i++) {
+    const l = Number(out[i][3]);
+    const h = Number(out[i][2]);
+    if (l < loV) {
+      loV = l;
+      loI = i;
+    }
+    if (h > hiV) {
+      hiV = h;
+      hiI = i;
+    }
+  }
+  out[loI][5] = Number(out[loI][5] || 0) | 4;
+  out[hiI][5] = Number(out[hiI][5] || 0) | 8;
+  return out;
 }
 
-function forwardGateTraceInnerHtml(trace, d) {
-  const rows = (trace || [])
-    .map((r) => {
-      const cls = [
-        r.leg1_fill ? "is-fill" : "",
-        r.touch_blocked ? "is-blocked" : "",
-        r.pm_block ? "is-pm-block" : "",
-        r.entry_ready ? "is-ready" : "",
-      ]
-        .filter(Boolean)
-        .join(" ");
-      return (
-        `<tr class="${cls}">` +
-        `<td>${escapeText(r.time || "")}</td>` +
-        `<td class="num">${r.prefix_bars ?? ""}</td>` +
-        `<td class="num">${r.range_pct != null ? Number(r.range_pct).toFixed(2) : "—"}</td>` +
-        `<td>${fmtGateYN(r.range_ok)}</td>` +
-        `<td>${fmtGateYN(r.dir_amp_ok)}</td>` +
-        `<td>${fmtGateYN(r.seg_ok)}</td>` +
-        `<td>${r.entry_ready ? "Y" : "N"}</td>` +
-        `<td>${r.touch_leg1 ? "Y" : "—"}</td>` +
-        `<td>${r.touch_blocked ? "Y" : "—"}</td>` +
-        `<td>${r.pm_block ? "Y" : r.pm_hit ? "窗" : "—"}</td>` +
-        `<td>${r.leg1_fill ? "★" : r.leg2_fill ? "②" : "—"}</td>` +
-        `</tr>`
+/** 同步 SVG 迷你 K 线（tip 内用，避免悬停再拉 LW）。 */
+export function miniKlineSvgFromBars(
+  bars,
+  { width = 420, height = 176, dir = "", emptyHtml = "" } = {}
+) {
+  const pts = Array.isArray(bars) ? bars : [];
+  if (pts.length < 2) {
+    return (
+      emptyHtml || `<p class="paper-t0-process-tip-empty">无 5m OHLC</p>`
+    );
+  }
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const b of pts) {
+    const l = Number(b[3]);
+    const h = Number(b[2]);
+    if (l < lo) lo = l;
+    if (h > hi) hi = h;
+  }
+  if (!(hi > lo)) {
+    lo *= 0.999;
+    hi *= 1.001;
+  }
+  const padL = 6;
+  const padR = 6;
+  const padT = 14;
+  const padB = 20;
+  const plotW = width - padL - padR;
+  const plotH = height - padT - padB;
+  const n = pts.length;
+  const slot = plotW / n;
+  const bodyW = Math.max(2.5, Math.min(10, slot * 0.58));
+  const yScale = (p) => padT + ((hi - p) / (hi - lo)) * plotH;
+  const up = "#ef4444";
+  const down = "#22c55e";
+  // leg1/leg2 相对方向：正T 先买后卖；反T 先卖后买
+  const rev = dir === "正T" || dir === "reverse_t";
+  const parts = [];
+  pts.forEach((b, i) => {
+    const o = Number(b[1]);
+    const h = Number(b[2]);
+    const l = Number(b[3]);
+    const c = Number(b[4]);
+    const flag = Number(b[5] || 0);
+    const x = padL + slot * i + slot / 2;
+    const yO = yScale(o);
+    const yC = yScale(c);
+    const yH = yScale(h);
+    const yL = yScale(l);
+    const bull = c >= o;
+    const color = bull ? up : down;
+    const top = Math.min(yO, yC);
+    const bot = Math.max(yO, yC);
+    const bodyH = Math.max(1.5, bot - top);
+    parts.push(
+      `<line x1="${x.toFixed(1)}" y1="${yH.toFixed(1)}" x2="${x.toFixed(1)}" y2="${yL.toFixed(1)}" stroke="${color}" stroke-width="1.25"/>` +
+        `<rect x="${(x - bodyW / 2).toFixed(1)}" y="${top.toFixed(1)}" width="${bodyW.toFixed(1)}" height="${bodyH.toFixed(1)}" fill="${color}"/>`
+    );
+    const leg = flag & 3;
+    if (leg === 1 || leg === 2) {
+      const isBuy = rev ? leg === 1 : leg === 2;
+      const cy = isBuy ? yL + 9 : yH - 9;
+      const fill = isBuy ? "#2563eb" : "#b45309";
+      const label = isBuy ? "买" : "卖";
+      parts.push(
+        `<circle cx="${x.toFixed(1)}" cy="${cy.toFixed(1)}" r="4" fill="${fill}" stroke="#fff" stroke-width="1"/>` +
+          `<text x="${x.toFixed(1)}" y="${(cy + (isBuy ? 12 : -6)).toFixed(1)}" text-anchor="middle" font-size="10" fill="${fill}" font-family="IBM Plex Mono,monospace">${label}</text>`
       );
-    })
-    .join("");
-  const mode = d.range_mode || "forward";
-  const rangeNote =
-    d.range_pct != null && Number.isFinite(Number(d.range_pct))
-      ? ` · 日振幅 ${Number(d.range_pct).toFixed(2)}%`
-      : "";
-  const wait = String(d.wait_reason || d.reason || "").trim();
-  const waitNote = wait ? ` · ${wait}` : "";
+    }
+    if (flag & 4) {
+      const ly = leg ? yL + 22 : yL + 11;
+      parts.push(
+        `<text x="${x.toFixed(1)}" y="${ly.toFixed(1)}" text-anchor="middle" font-size="9" font-weight="700" fill="#0f766e" font-family="IBM Plex Mono,monospace">L</text>`
+      );
+    }
+    if (flag & 8) {
+      const hy = leg ? yH - 16 : yH - 4;
+      parts.push(
+        `<text x="${x.toFixed(1)}" y="${hy.toFixed(1)}" text-anchor="middle" font-size="9" font-weight="700" fill="#a16207" font-family="IBM Plex Mono,monospace">H</text>`
+      );
+    }
+  });
+  const t0 = String(pts[0][0] || "");
+  const t1 = String(pts[pts.length - 1][0] || "");
+  const fmtHm = (s) => (s.length >= 3 ? `${s.slice(0, -2)}:${s.slice(-2)}` : s);
+  parts.push(
+    `<text x="${padL}" y="${height - 5}" font-size="10" fill="#94a3b8" font-family="IBM Plex Mono,monospace">${escapeText(fmtHm(t0))}</text>` +
+      `<text x="${width - padR}" y="${height - 5}" text-anchor="end" font-size="10" fill="#94a3b8" font-family="IBM Plex Mono,monospace">${escapeText(fmtHm(t1))}</text>`
+  );
   return (
-    `<div class="paper-t0-gate-trace">` +
-    `<p class="paper-t0-gate-trace-cap">前向滑动窗口门禁` +
-    ` <span class="paper-t0-gate-trace-mode">${escapeText(mode)}</span>` +
-    `${escapeText(rangeNote)}${escapeText(waitNote)}</p>` +
-    `<div class="paper-t0-gate-trace-scroll">` +
-    `<table class="paper-t0-gate-trace-table">` +
-    `<thead><tr>` +
-    `<th>时刻</th><th>n</th><th>振幅%</th><th>振</th><th>向</th><th>段</th>` +
-    `<th>ready</th><th>触</th><th>挡</th><th>午后</th><th>腿</th>` +
-    `</tr></thead><tbody>${rows}</tbody></table></div>` +
-    `<p class="quant-trades-caption paper-t0-gate-trace-foot">` +
-    `振=总量振幅 · 向=方向振幅 · 段=段向确认 · 午后=触价但禁新开 · ★=第一腿成交` +
-    `</p></div>`
+    `<svg class="paper-t0-process-kline" viewBox="0 0 ${width} ${height}" width="${width}" height="${height}" role="img" aria-label="5分钟K线">${parts.join("")}</svg>`
   );
 }
 
-let _gateTraceBound = false;
+export function buildProcessTipPayload(d, legTip) {
+  const bars = compactTraceBars(d && d.forward_trace, {
+    prefixBars: Number(d && d.prefix_bars) || 0,
+  });
+  const dirRaw = (d && (d.direction || d.direction_used)) || "";
+  return {
+    text: String(legTip || "").trim(),
+    dir: dirRaw === "reverse_t" ? "正T" : dirRaw === "long_t" ? "反T" : "",
+    bars,
+  };
+}
 
-/** 成交明细：点击含 forward_trace 的行展开门禁表（委托绑定，只注册一次）。 */
-export function ensureT0GateTraceBindings() {
-  if (_gateTraceBound) return;
-  _gateTraceBound = true;
-  document.addEventListener("click", (e) => {
-    const tr = e.target.closest("tr.paper-t0-row-gate-expandable");
-    if (!tr || e.target.closest("button, a, .paper-t0-ledger-del")) return;
-    const key = tr.dataset.gateKey;
-    if (!key) return;
-    const detail = tr.parentElement?.querySelector(`tr.paper-t0-gate-trace-row[data-gate-for="${key}"]`);
-    if (!detail) return;
-    const icon = tr.querySelector(".paper-t0-expand-icon");
-    const open = detail.hidden;
-    detail.hidden = !open;
-    tr.classList.toggle("is-gate-expanded", open);
-    if (icon) icon.textContent = open ? "⌄" : "›";
+export function buildProcessTipHtml(payload) {
+  let p = payload;
+  if (typeof p === "string") {
+    try {
+      p = JSON.parse(p);
+    } catch (_) {
+      p = { text: p, bars: [] };
+    }
+  }
+  p = p || {};
+  const text = String(p.text || "").trim();
+  const dir = String(p.dir || "").trim();
+  const bars = Array.isArray(p.bars) ? p.bars : [];
+  const chart = miniKlineSvgFromBars(bars, { dir });
+  return (
+    `<div class="paper-t0-process-tip-inner">` +
+    `<header class="paper-t0-process-tip-head">` +
+    (dir ? `<span class="paper-t0-process-tip-badge">${escapeText(dir)}</span>` : "") +
+    `<span class="paper-t0-process-tip-eyebrow">过程 · 5m K</span>` +
+    `</header>` +
+    (text ? `<p class="paper-t0-process-tip-lead">${escapeText(text)}</p>` : "") +
+    `<div class="paper-t0-process-tip-chart">${chart}</div>` +
+    `<p class="paper-t0-process-tip-foot">买/卖=成交腿 · L/H=前缀极值 · 数据来自 forward_trace</p>` +
+    `</div>`
+  );
+}
+
+/** 成交明细「过程」列：悬停看链路文案 + 迷你 K 线。 */
+export function wireT0ProcessTips(host, tipCtrl) {
+  if (!host || !tipCtrl || typeof tipCtrl.bindAttrTip !== "function") return;
+  tipCtrl.bindAttrTip(host, {
+    selector: "[data-t0-process-tip]",
+    wireKey: "t0-process-tip",
+    className: "score-tooltip paper-t0-process-tip",
+    buildHtml: (el) => {
+      try {
+        return buildProcessTipHtml(JSON.parse(el.getAttribute("data-t0-process-tip") || "{}"));
+      } catch (_) {
+        return buildProcessTipHtml({ text: el.getAttribute("title") || "" });
+      }
+    },
   });
 }
 
@@ -1096,7 +1230,6 @@ export function buildT0TradeTableHtml(opts) {
   if (!days || !days.length) return caption || "";
   const showStock = shouldShowStockColumn(data, days);
   const showTime = daysHaveIntradayTime(days);
-  const colSpan = tradeTableColCount(showStock, showReason, showDelete);
   const rules = (data && data.rules) || {};
   const enter = yTauEnter(data);
   const tauMap = normalizeYTauMap(rules.y_tau_map);
@@ -1139,11 +1272,9 @@ export function buildT0TradeTableHtml(opts) {
     (showDelete ? `<th scope="col" class="paper-t0-col-act">操作</th>` : "");
 
   const rows = (preserveOrder ? days.slice(0, maxRows) : days.slice(-maxRows).reverse())
-    .map((d, rowIdx) => {
+    .map((d) => {
       const skipped = !!d.skipped;
-      const hasTrace = hasForwardGateTrace(d);
-      const gateKey = hasTrace ? `gate-${rowIdx}` : "";
-      const dir = d.direction === "reverse_t" ? "反" : d.direction === "long_t" ? "正" : "—";
+      const dir = d.direction === "reverse_t" ? "正" : d.direction === "long_t" ? "反" : "—";
       const rules = (data && data.rules) || {};
       const scoreDetailJson = escapeText(
         watchingScoreDetail(t0DayScoreItem(d, fallback, rules))
@@ -1165,6 +1296,7 @@ export function buildT0TradeTableHtml(opts) {
             ? process
             : `卖 ${qty.sellQty}股 @ ${fmtT0LegPrice(legs.sellPx)} · 买 ${qty.buyQty}股 @ ${fmtT0LegPrice(legs.buyPx)}` +
               (showTime ? "" : " · 缺触达时刻"));
+      const processTipJson = escapeText(JSON.stringify(buildProcessTipPayload(d, legTip)));
       const delBtn =
         showDelete && code && !skipped
           ? `<button type="button" class="paper-t0-ledger-del" data-code="${escapeText(
@@ -1174,16 +1306,12 @@ export function buildT0TradeTableHtml(opts) {
             ? `<span class="paper-t0-leg-empty">—</span>`
             : "";
       return (
-        `<tr class="${skipped ? "is-skipped" : ""}${hasTrace ? " paper-t0-row-gate-expandable" : ""}"` +
-        ` data-code="${escapeText(code)}"` +
-        (gateKey ? ` data-gate-key="${gateKey}" title="点击展开前向门禁 trace"` : "") +
-        `>` +
+        `<tr class="${skipped ? "is-skipped" : ""}"` +
+        ` data-code="${escapeText(code)}">` +
         (showStock ? stockCellHtml(d, fallback) : "") +
-        `<td class="paper-t0-col-date${hasTrace ? " paper-t0-col-date-expand" : ""}" title="${escapeText(
-          (hasTrace ? "点击展开前向门禁 · " : "") +
-            fmtTradeDate(d.date, data.sessionDate || data.session_date)
+        `<td class="paper-t0-col-date" title="${escapeText(
+          fmtTradeDate(d.date, data.sessionDate || data.session_date)
         )}">` +
-        (hasTrace ? `<span class="paper-t0-expand-icon" aria-hidden="true">›</span>` : "") +
         `${escapeText(fmtTradeDate(d.date, data.sessionDate || data.session_date))}</td>` +
         yPctMergedCellHtml(
           "eod",
@@ -1214,8 +1342,10 @@ export function buildT0TradeTableHtml(opts) {
         ) +
         fmtNowcastOcCell(d, fallback, rules, scoreDetailJson) +
         `<td class="paper-t0-col-dir">${dir}</td>` +
-        `<td class="paper-t0-col-process" title="${escapeText(legTip)}">${
-          skipped ? `<span class="paper-t0-leg-empty">—</span>` : legProcessFlowHtml(d)
+        `<td class="paper-t0-col-process has-tip" data-t0-process-tip="${processTipJson}">${
+          skipped
+            ? `<span class="paper-t0-leg-empty">—</span>`
+            : legProcessFlowHtml(d)
         }</td>` +
         `<td class="num paper-t0-col-ret ${paperMetricClass(retCell.pct)}" title="${escapeText(
           retCell.tip
@@ -1230,12 +1360,7 @@ export function buildT0TradeTableHtml(opts) {
             )}</td>`
           : "") +
         (showDelete ? `<td class="paper-t0-col-act">${delBtn}</td>` : "") +
-        `</tr>` +
-        (hasTrace
-          ? `<tr class="paper-t0-gate-trace-row" data-gate-for="${gateKey}" hidden>` +
-            `<td colspan="${colSpan}">${forwardGateTraceInnerHtml(d.forward_trace, d)}</td>` +
-            `</tr>`
-          : "")
+        `</tr>`
       );
     })
     .join("");
@@ -1256,4 +1381,3 @@ export function buildT0TradeTableHtml(opts) {
   return wrapTradesFullscreenPanel(tableBlock, caption);
 }
 
-ensureT0GateTraceBindings();

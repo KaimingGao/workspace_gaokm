@@ -33,6 +33,8 @@ from core.signal.nowcast_kf import (
     run_live_nowcast,
 )
 
+from core.signal.minute_tau_feats import MINUTE_TAU_ALL_KEYS
+
 _TAU_FEATURE_KEYS = (
     "gap_pct",
     "sector_gap_breadth",
@@ -41,9 +43,7 @@ _TAU_FEATURE_KEYS = (
     "gap_vs_sector",
     "yclose_loc",
     "mom3_pct",
-    "ret_open_to_tau",
-    "sector_ret_to_tau",
-)
+) + MINUTE_TAU_ALL_KEYS
 
 _TAU_CORE_Z_KEYS = (
     "gap_pct",
@@ -58,8 +58,11 @@ _TAU_CORE_Z_KEYS = (
 
 
 def features_tau_snapshot(feats: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    from core.signal.minute_tau_feats import attach_ret_vs_sector
+
     out: Dict[str, Any] = {}
-    src = feats or {}
+    src = dict(feats or {})
+    attach_ret_vs_sector(src)
     for k in _TAU_FEATURE_KEYS:
         if k in src:
             out[k] = src.get(k)
@@ -203,6 +206,7 @@ def apply_tau_score_fields(
     signal_item["predicted_score_tau_cascade"] = cascade
     signal_item["realized_t1_to_tau"] = realized
     signal_item["predicted_score_tau"] = y_tau
+    # 兼容别名（= ŷ_τ）；新读路径请用 predicted_score_tau
     signal_item["predicted_score_rem"] = y_tau
     signal_item["score_rem"] = y_tau
     signal_item["as_of_tau"] = as_of
@@ -210,6 +214,7 @@ def apply_tau_score_fields(
     signal_item["features_tau"] = feat_snap
     signal_item["features_tau_fill"] = fill_diag
     signal_item["gap_pct"] = gap_pct
+    # 兼容旧键；等同 as_of_tau / y_spec_tau.formula
     signal_item["rem_tau"] = as_of
     signal_item["rem_y_spec"] = y_spec.get("formula")
     signal_item["dual_score_fusion"] = cfg["fusion_mode"]

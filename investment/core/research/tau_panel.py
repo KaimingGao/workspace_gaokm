@@ -14,6 +14,43 @@ GAP_ATR_WINDOW = 14
 GAP_ATR_CLIP = 10.0
 _SECTOR_REL_MIN_N = 3
 
+# 变长前缀：少数决策时钟（对齐做T前缀窗，非整根独立标签）
+DEFAULT_MINUTE_TAU_GRID = ("09:45", "10:00", "10:15", "10:30")
+
+
+def normalize_minute_tau_grid(
+    tau_hm: Optional[str] = None,
+    tau_grid: Optional[Sequence[str]] = None,
+) -> List[str]:
+    """解析训练用 τ 网格；空则回退单点 ``tau_hm`` / 默认网格。"""
+    if tau_grid is not None:
+        out: List[str] = []
+        for t in tau_grid:
+            s = str(t or "").strip()
+            if not s or s.lower() == "open":
+                continue
+            if ":" not in s and len(s) == 4 and s.isdigit():
+                s = f"{s[:2]}:{s[2:]}"
+            if s not in out:
+                out.append(s)
+        if out:
+            return out
+    hm = str(tau_hm or "").strip()
+    if hm and hm.lower() not in ("", "open"):
+        if ":" not in hm and len(hm) == 4 and hm.isdigit():
+            hm = f"{hm[:2]}:{hm[2:]}"
+        return [hm]
+    return list(DEFAULT_MINUTE_TAU_GRID)
+
+
+def tau_elapsed_min_from_open(tau_hm: str) -> Optional[float]:
+    """相对 09:30 的分钟数（5m 前缀长度代理）。"""
+    s = str(tau_hm or "").strip().replace(":", "")
+    if len(s) != 4 or not s.isdigit():
+        return None
+    h, m = int(s[:2]), int(s[2:])
+    return float(h * 60 + m - (9 * 60 + 30))
+
 
 def _gap_pct(prev_close: float, open_px: float) -> Optional[float]:
     if prev_close is None or open_px is None:
@@ -188,12 +225,12 @@ def collect_tau_open_panel(
     respect_regime: bool = False,
     config: Optional[dict] = None,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
-    """单票 open→close rem 面板。
+    """单票 open→close 的 y_τ 面板（τ=open）。
 
     返回 ``(xs, ys, decision_dates, meta_rows)``。
     ``decision_dates`` = 交易日 T（开盘决策日）；ATR 窗口截止 T-1。
     只写 Z 特征（缺口 / ATR）；日线因子已在 ŷ_EOD，此处不算。
-    ``meta_rows`` 含 gap_pct 等辅助字段。
+    ``meta_rows`` 含 ``y_tau``（= open→close %）等辅助字段。
     """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
@@ -243,7 +280,7 @@ def collect_tau_open_panel(
                 "open": o,
                 "close": c,
                 "prev_close": pc,
-                "y_rem": float(y),
+                "y_tau": float(y),
                 "yclose_loc": row.get("yclose_loc"),
                 "mom3_pct": row.get("mom3_pct"),
             }
@@ -260,11 +297,14 @@ def attach_cross_section_breadth(
     """多票面板：按日计算 gap 广度，写回每行 xs 的 sector_gap_breadth（全市场代理）。
 
     同时写 ``gap_vs_sector`` = 个股缺口 − 同行中位（同伴不足则减全截面中位）。
+    ``sector_ret_to_tau`` 按 **(date, τ)** 聚合，避免变长前缀把不同时钟的开→τ 混中位。
     ``panels`` 元素：``{code, xs, ys, dates, metas}``。
     """
-    # date -> [(code, gap), ...]  and ret_open_to_tau by date
+    # date -> [(code, gap), ...]  unique per (date, code)
     by_date: Dict[str, List[Tuple[str, float]]] = {}
-    ret_by_date: Dict[str, List[float]] = {}
+    seen_gap: set = set()
+    # (date, tau) -> ret_open_to_tau list
+    ret_by_date_tau: Dict[Tuple[str, str], List[float]] = {}
     for p in panels:
         code_p = str(p.get("code") or "").strip()
         xs_p = list(p.get("xs") or [])
@@ -272,9 +312,13 @@ def attach_cross_section_breadth(
             d = str(m.get("date") or "")[:10]
             g = m.get("gap_pct")
             c = str(m.get("stock_code") or code_p or "").strip()
+            tau_k = str(m.get("tau") or "open").strip() or "open"
             if not d or g is None:
                 continue
-            by_date.setdefault(d, []).append((c, float(g)))
+            gap_key = (d, c)
+            if gap_key not in seen_gap:
+                seen_gap.add(gap_key)
+                by_date.setdefault(d, []).append((c, float(g)))
             rot = None
             if i < len(xs_p) and xs_p[i].get("ret_open_to_tau") is not None:
                 try:
@@ -287,7 +331,7 @@ def attach_cross_section_breadth(
                 except (TypeError, ValueError):
                     rot = None
             if rot is not None:
-                ret_by_date.setdefault(d, []).append(rot)
+                ret_by_date_tau.setdefault((d, tau_k), []).append(rot)
 
     sm = sector_map
     if sm is None:
@@ -303,7 +347,7 @@ def attach_cross_section_breadth(
     theme_by_date: Dict[str, int] = {}
     gaps_by_date: Dict[str, List[float]] = {}
     ref_by_date: Dict[str, Dict[str, Optional[float]]] = {}
-    sector_ret_by_date: Dict[str, Optional[float]] = {}
+    sector_ret_by_date_tau: Dict[Tuple[str, str], Optional[float]] = {}
     trigger = float(gap_trigger_pct)
     from core.research.tau_theme import resolve_theme_day
 
@@ -328,7 +372,9 @@ def attach_cross_section_breadth(
             if c:
                 gaps_map[c] = g
         ref_by_date[d] = sector_gap_reference_by_code(gaps_map, sector_map=sm)
-        sector_ret_by_date[d] = _finite_median(ret_by_date.get(d) or [])
+
+    for key, vals in ret_by_date_tau.items():
+        sector_ret_by_date_tau[key] = _finite_median(vals)
 
     out: List[Dict[str, Any]] = []
     for p in panels:
@@ -340,8 +386,10 @@ def attach_cross_section_breadth(
             b = breadth_by_date.get(d)
             th = theme_by_date.get(d, 0)
             code_i = code_p
+            tau_k = "open"
             if i < len(metas):
                 code_i = str(metas[i].get("stock_code") or code_p or "").strip()
+                tau_k = str(metas[i].get("tau") or "open").strip() or "open"
             gap_i = None
             if i < len(xs) and xs[i].get("gap_pct") is not None:
                 try:
@@ -355,7 +403,7 @@ def attach_cross_section_breadth(
                     gap_i = None
             ref = (ref_by_date.get(d) or {}).get(code_i)
             rel = gap_vs_sector_value(gap_i, ref)
-            sret = sector_ret_by_date.get(d)
+            sret = sector_ret_by_date_tau.get((d, tau_k))
             # 日级主题 OR 本票大缺口（与 resolve_theme_day 对齐）
             th_row = int(
                 resolve_theme_day(
@@ -373,6 +421,14 @@ def attach_cross_section_breadth(
                 xs[i]["gap_vs_sector"] = rel
                 if sret is not None:
                     xs[i]["sector_ret_to_tau"] = round(float(sret), 6)
+                    rot = xs[i].get("ret_open_to_tau")
+                    if rot is not None:
+                        try:
+                            xs[i]["ret_vs_sector"] = round(
+                                float(rot) - float(sret), 6
+                            )
+                        except (TypeError, ValueError):
+                            pass
             if i < len(metas):
                 metas[i]["sector_gap_breadth"] = b
                 metas[i]["theme_day"] = th
@@ -380,6 +436,8 @@ def attach_cross_section_breadth(
                 metas[i]["sector_gap_median"] = ref
                 if sret is not None:
                     metas[i]["sector_ret_to_tau"] = round(float(sret), 6)
+                    if i < len(xs) and xs[i].get("ret_vs_sector") is not None:
+                        metas[i]["ret_vs_sector"] = xs[i]["ret_vs_sector"]
         out.append({**p, "xs": xs, "metas": metas, "dates": dates})
     return out
 
@@ -406,7 +464,7 @@ def price_at_tau_from_minutes(
     minute_bars: Sequence[dict],
     *,
     trade_date: str,
-    tau_hm: str = "09:45",
+    tau_hm: str = "10:30",
 ) -> Optional[float]:
     """R1：从分钟线取 τ 时刻价（≤τ 的最后一根）。无数据返回 None。"""
     day = str(trade_date or "")[:10]
@@ -440,21 +498,86 @@ def price_at_tau_from_minutes(
     return best
 
 
+def _minute_bar_day(b: dict) -> str:
+    if not isinstance(b, dict):
+        return ""
+    d = str(b.get("date") or "")[:10]
+    if len(d) == 10 and d[4] == "-":
+        return d
+    t = str(b.get("datetime") or b.get("time") or "")
+    return t[:10] if len(t) >= 10 else ""
+
+
+def _minute_bar_hm(b: dict) -> str:
+    t = str(b.get("datetime") or b.get("time") or b.get("date") or "")
+    for part in t.replace("T", " ").split(" "):
+        if ":" in part:
+            return part[:5].replace(":", "")
+    return ""
+
+
+def minute_session_open_close(
+    minute_bars: Sequence[dict],
+    *,
+    trade_date: str,
+) -> Tuple[Optional[float], Optional[float]]:
+    """同日分钟序列的开盘价（首根 open）与收盘价（末根 close）。"""
+    day = str(trade_date or "")[:10]
+    if not day or not minute_bars:
+        return None, None
+    first_hm = ""
+    last_hm = ""
+    open_px: Optional[float] = None
+    close_px: Optional[float] = None
+    for b in minute_bars:
+        if not isinstance(b, dict):
+            continue
+        if _minute_bar_day(b) != day and day not in str(b.get("datetime") or ""):
+            continue
+        hm = _minute_bar_hm(b)
+        if not hm:
+            continue
+        try:
+            o = float(b.get("open") or 0.0) or None
+            c = float(b.get("close") or b.get("price") or 0.0) or None
+        except (TypeError, ValueError):
+            continue
+        if open_px is None or hm < first_hm:
+            if o is not None and o > 0:
+                open_px = o
+                first_hm = hm
+            elif c is not None and c > 0:
+                open_px = c
+                first_hm = hm
+        if close_px is None or hm >= last_hm:
+            if c is not None and c > 0:
+                close_px = c
+                last_hm = hm
+    return open_px, close_px
+
+
 def collect_tau_intraday_panel(
     bars: List[dict],
     minute_bars: Optional[List[dict]] = None,
     *,
-    tau_hm: str = "09:45",
+    tau_hm: str = "10:30",
+    tau_grid: Optional[Sequence[str]] = None,
     min_history: int = 12,
     max_window: int = 30,
     index_bars: Optional[List[dict]] = None,
     fundamentals: Optional[dict] = None,
     stock_code: Optional[str] = None,
 ) -> Tuple[List[Dict[str, Optional[float]]], List[float], List[str], List[Dict[str, Any]]]:
-    """R1：τ=09:45 剩余收益面板；无分钟线时跳过该日（不回退泄漏）。只写 Z，不算日线因子。"""
+    """分钟 τ 面板（变长前缀 / 少数时钟）：特征 ≤τ，标签 y_τ = 日线 close/open−1。
+
+    与 τ=open 头同一标签口径（日线 open→close）；仅信息集多了前缀分钟路径。
+    ``tau_grid`` 非空时：同一交易日在多个 τ 各采一行（共享 β，**同日 y 相同**）；
+    默认网格 ``09:45|10:00|10:15|10:30``。
+    """
     min_history = max(5, int(min_history or 12))
     max_window = max(min_history, int(max_window or 30))
     _ = (index_bars, fundamentals)
+    clocks = normalize_minute_tau_grid(tau_hm=tau_hm, tau_grid=tau_grid)
     xs: List[Dict[str, Optional[float]]] = []
     ys: List[float] = []
     dates: List[str] = []
@@ -464,42 +587,77 @@ def collect_tau_intraday_panel(
         b_t = bars[i]
         b_prev = bars[i - 1]
         date_t = str(b_t.get("date") or "")[:10]
+        date_prev = str(b_prev.get("date") or "")[:10]
         try:
             o = float(b_t.get("open"))
             c = float(b_t.get("close"))
             pc = float(b_prev.get("close"))
         except (TypeError, ValueError):
             continue
-        px_tau = price_at_tau_from_minutes(
-            minute_bars or [], trade_date=date_t, tau_hm=tau_hm
-        )
-        if px_tau is None or px_tau <= 0 or c <= 0:
+        if o <= 0 or c <= 0 or pc <= 0:
             continue
-        y = (c / px_tau - 1.0) * 100.0
+        y_oc = _open_to_close_pct(o, c)
+        if y_oc is None:
+            continue
+        o_min, c_min = minute_session_open_close(
+            minute_bars or [], trade_date=date_t
+        )
         gap = _gap_pct(pc, o)
-        ret_open_tau = (px_tau / o - 1.0) * 100.0 if o > 0 else None
         window = bars[max(0, i - max_window) : i]
         if len(window) < min_history:
             continue
-        row: Dict[str, Optional[float]] = {
-            "gap_pct": float(gap) if gap is not None else None,
-            "open_gap": float(gap) if gap is not None else None,
-            "gap_atr": gap_atr_from_hist(gap, window),
-            "ret_open_to_tau": ret_open_tau,
-        }
-        xs.append(row)
-        ys.append(float(y))
-        dates.append(date_t)
-        metas.append(
-            {
-                "stock_code": stock_code,
-                "date": date_t,
-                "tau": tau_hm,
-                "gap_pct": gap,
-                "price_tau": px_tau,
-                "y_rem": float(y),
-            }
+        from core.signal.minute_tau_feats import extract_minute_tau_pack
+
+        _, c_prev_min = minute_session_open_close(
+            minute_bars or [], trade_date=date_prev
         )
+        for clock in clocks:
+            px_tau = price_at_tau_from_minutes(
+                minute_bars or [], trade_date=date_t, tau_hm=clock
+            )
+            if px_tau is None or px_tau <= 0:
+                continue
+            pack = extract_minute_tau_pack(
+                minute_bars or [],
+                trade_date=date_t,
+                tau_hm=clock,
+                open_px=o_min if o_min and o_min > 0 else o,
+                prev_close=c_prev_min if c_prev_min and c_prev_min > 0 else None,
+            )
+            if len(pack) < 2:
+                continue
+            row: Dict[str, Optional[float]] = {
+                "gap_pct": float(gap) if gap is not None else None,
+                "open_gap": float(gap) if gap is not None else None,
+                "gap_atr": gap_atr_from_hist(gap, window),
+            }
+            row.update(pack)
+            if "ret_open_to_tau" not in row:
+                open_for_ret = float(o_min) if o_min and o_min > 0 else float(o)
+                if open_for_ret > 0:
+                    row["ret_open_to_tau"] = (px_tau / open_for_ret - 1.0) * 100.0
+            elapsed = tau_elapsed_min_from_open(clock)
+            if elapsed is not None:
+                row["tau_elapsed_min"] = elapsed
+            xs.append(row)
+            ys.append(float(y_oc))
+            dates.append(date_t)
+            metas.append(
+                {
+                    "stock_code": stock_code,
+                    "date": date_t,
+                    "tau": clock,
+                    "gap_pct": gap,
+                    "price_tau": px_tau,
+                    "open": o,
+                    "close": c,
+                    "open_minute": o_min,
+                    "close_minute": c_min,
+                    "y_tau": float(y_oc),
+                    "ret_open_to_tau": row.get("ret_open_to_tau"),
+                    "tau_elapsed_min": elapsed,
+                }
+            )
     return xs, ys, dates, metas
 
 # --- Backward-compatible aliases (deprecated) ---

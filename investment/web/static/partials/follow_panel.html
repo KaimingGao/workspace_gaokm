@@ -430,8 +430,8 @@
                     <span>τ映射</span>
                     <select name="y_tau_map">
                       <option value="trend" selected>符号定方向</option>
-                      <option value="fixed_long">固定正T</option>
-                      <option value="fixed_reverse">固定反T</option>
+                      <option value="fixed_long">固定反T</option>
+                      <option value="fixed_reverse">固定正T</option>
                     </select>
                   </label>
                   <input type="hidden" name="direction" value="dual_y" />
@@ -464,6 +464,13 @@
                   </label>
                   <label
                     class="paper-t0-field"
+                    title="固定前缀确认根：第一腿价相对开盘偏离不得超过 |ŷ_τ|%×此倍数（正T买价上限 / 反T卖价下限镜像）；0=关；默认 5"
+                  >
+                    <span>τ入场价倍</span>
+                    <input type="number" name="y_tau_entry_price_mult" min="0" max="50" step="0.5" value="5" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
                     title="目标价缩放：|y_eod|≥此值且与 y_τ 同向时略抬触发（非准入闸）"
                   >
                     <span>y_eod先验%</span>
@@ -481,7 +488,7 @@
                     title="dual_y：|y_trade| 超过此强闸（%）时须与 y_τ 同号"
                   >
                     <span>trade强%</span>
-                    <input type="number" name="y_trade_strong" min="0.05" max="5" step="0.01" value="2" />
+                    <input type="number" name="y_trade_strong" min="0.05" max="5" step="0.01" value="0.1" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -566,21 +573,21 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="前 N 根 5m 仍无方向/段向确认则放弃当日做 T（正/反共用）；默认 12"
+                    title="正/反T：固定前缀根数（齐窗判定后半阳/阴占比）；默认 12"
                   >
-                    <span>放弃根数</span>
+                    <span>放弃/前缀根数</span>
                     <input type="number" name="y_path_abandon_bars" min="2" max="48" step="1" value="12" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="开=第一腿须段向确认：正T自 high 回落、反T自 low 弹起后再触价（总开关）"
+                    title="正/反T固定前缀确认总开关；侧向可单独关"
                   >
-                    <span>段向总开关</span>
+                    <span>固定前缀总开关</span>
                     <input type="checkbox" name="y_prefix_segment_enabled" checked />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="反T关「当日回补」时：|y_on|≥此值才允许隔夜多头敞口；单位=收益百分点。正T不适用"
+                    title="正T关「当日回补」时：|y_on|≥此值才允许隔夜多头敞口；单位=收益百分点。反T不适用"
                   >
                     <span>y_on放行%</span>
                     <input type="number" name="y_on_allow" min="0.01" max="10" step="0.01" value="0.01" />
@@ -589,17 +596,95 @@
                 </fieldset>
 
                 <div class="paper-t0-cfg-sides">
-                <fieldset class="paper-t0-cfg-block is-long">
+                <fieldset class="paper-t0-cfg-block is-reverse">
                   <legend>正 T</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">先卖后买；默认买不回则放弃回补；可开强制收盘买回 / 中点追价</p>
+                  <p class="paper-t0-cfg-hint quant-sub">先买后卖；固定前缀后半上涨确认后加仓，冲高卖等量旧仓；可追价 / 收盘强平</p>
                   <div class="paper-t0-form-grid">
                   <label
                     class="paper-t0-field"
-                    title="挂高卖出触发%（相对开盘）；当日按 ŷ 信心缩放"
+                    title="卖旧仓触发%（相对第一腿买价）；可追价/收盘强平"
                   >
                     <span>卖触发%</span>
-                    <input type="number" name="sell_trigger_pct_long" min="0.1" max="20" step="0.1" value="1" />
+                    <input type="number" name="sell_trigger_pct_reverse" min="0.1" max="20" step="0.1" value="5" />
                   </label>
+                  <label
+                    class="paper-t0-field"
+                    title="固定前缀 (high−low)/ref% 下限；建议不低于反T（低吸更依赖前缀空间）"
+                  >
+                    <span>振幅下限%</span>
+                    <input
+                      type="number"
+                      name="min_range_pct_reverse"
+                      min="0.1"
+                      max="30"
+                      step="0.1"
+                      value="1"
+                    />
+                  </label>
+                  <label class="paper-t0-field" title="成交模式">
+                    <span>成交</span>
+                    <select name="fill_mode_reverse">
+                      <option value="trigger">trigger</option>
+                      <option value="mid">mid</option>
+                      <option value="optimistic">optimistic</option>
+                    </select>
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="y_τ&gt;0 时 |y_τ| 须≥此入场；建议高于反T以少开错向正T"
+                  >
+                    <span>τ入场%</span>
+                    <input type="number" name="y_tau_enter_reverse" min="0.01" max="5" step="0.01" value="0.01" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="path 开时 |y_path| 须≥此入场（建议不低于反T侧）"
+                  >
+                    <span>path入场%</span>
+                    <input type="number" name="y_path_enter_reverse" min="0.01" max="5" step="0.01" value="0.01" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="开=未卖回旧仓时收盘强制卖；关=可按 y_on 放行隔夜多头"
+                  >
+                    <span>当日回补</span>
+                    <input type="checkbox" name="must_cover_same_day_reverse" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="中点追价起算 HH:MM：到点后禁止新开；已开未平则第二腿目标=旧目标与现价中点，触不到则收盘强制平。空=关"
+                  >
+                    <span>中点追价</span>
+                    <input type="text" name="t0_pm_degrade_reverse" maxlength="5" placeholder="13:00" value="13:00" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="中点追价间隔（分钟）：起算后首次中点，之后每隔该分钟再调一次"
+                  >
+                    <span>追价间隔分</span>
+                    <input type="number" name="t0_pm_chase_interval_min_reverse" min="1" max="60" step="1" value="10" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="开=正T用固定前缀+后半上涨占比开第一腿；关=不做该确认（仍受振幅等约束）"
+                  >
+                    <span>固定前缀确认</span>
+                    <input type="checkbox" name="y_prefix_segment_enabled_reverse" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="固定前缀后半段中 close&gt;open 的 K 线占比下限（默认 0.6=60%）；前缀根数=前缀放弃根数"
+                  >
+                    <span>后半上涨占比</span>
+                    <input type="number" name="y_prefix_upbar_ratio_reverse" min="0" max="1" step="0.05" value="0.6" />
+                  </label>
+                  </div>
+                </fieldset>
+
+                <fieldset class="paper-t0-cfg-block is-long">
+                  <legend>反 T</legend>
+                  <p class="paper-t0-cfg-hint quant-sub">先卖后买；固定前缀后半下跌确认后卖出，回落买回等量；默认买不回则放弃回补</p>
+                  <div class="paper-t0-form-grid">
                   <label
                     class="paper-t0-field"
                     title="买回触发%（相对卖出价）；触不到则放弃回补"
@@ -609,7 +694,7 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="日振幅%下限"
+                    title="固定前缀 (high−low)/ref% 下限"
                   >
                     <span>振幅下限%</span>
                     <input
@@ -631,7 +716,7 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="y_τ&lt;0 时 |y_τ| 须≥此入场；可低于反T以更容易开正T"
+                    title="y_τ&lt;0 时 |y_τ| 须≥此入场；可低于正T以更容易开反T"
                   >
                     <span>τ入场%</span>
                     <input type="number" name="y_tau_enter_long" min="0.01" max="5" step="0.01" value="0.01" />
@@ -666,109 +751,17 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="开=第一腿仅在下行段（自前缀 high 回落）卖出；关=触达即卖"
+                    title="开=反T用固定前缀+后半下跌占比开第一腿；关=不做该确认（仍受振幅等约束）"
                   >
-                    <span>下行段确认</span>
+                    <span>固定前缀确认</span>
                     <input type="checkbox" name="y_prefix_segment_enabled_long" checked />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="第一腿卖出须自前缀 high 回落≥此值（%）；下行段确认开时生效"
+                    title="固定前缀后半段中 close&lt;open 的 K 线占比下限（默认 0.6=60%）；前缀根数=前缀放弃根数"
                   >
-                    <span>回落确认%</span>
-                    <input type="number" name="y_prefix_pullback_pct_long" min="0" max="2" step="0.05" value="0.5" />
-                  </label>
-                  </div>
-                </fieldset>
-
-                <fieldset class="paper-t0-cfg-block is-reverse">
-                  <legend>反 T</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">先买后卖；买入后依赖后续涨幅；可追价 / 收盘强平</p>
-                  <div class="paper-t0-form-grid">
-                  <label
-                    class="paper-t0-field"
-                    title="低吸买入触发%（相对开盘）；当日按 ŷ 信心缩放"
-                  >
-                    <span>买触发%</span>
-                    <input type="number" name="buy_trigger_pct_reverse" min="0.1" max="20" step="0.1" value="1" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="卖旧仓触发%（相对低吸价）；可追价/收盘强平"
-                  >
-                    <span>卖触发%</span>
-                    <input type="number" name="sell_trigger_pct_reverse" min="0.1" max="20" step="0.1" value="5" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="日振幅%下限；建议不低于正T（低吸更依赖前缀空间）"
-                  >
-                    <span>振幅下限%</span>
-                    <input
-                      type="number"
-                      name="min_range_pct_reverse"
-                      min="0.1"
-                      max="30"
-                      step="0.1"
-                      value="1"
-                    />
-                  </label>
-                  <label class="paper-t0-field" title="成交模式">
-                    <span>成交</span>
-                    <select name="fill_mode_reverse">
-                      <option value="trigger">trigger</option>
-                      <option value="mid">mid</option>
-                      <option value="optimistic">optimistic</option>
-                    </select>
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="y_τ&gt;0 时 |y_τ| 须≥此入场；建议高于正T以少开错向反T"
-                  >
-                    <span>τ入场%</span>
-                    <input type="number" name="y_tau_enter_reverse" min="0.01" max="5" step="0.01" value="0.01" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="path 开时 |y_path| 须≥此入场（建议不低于正T侧）"
-                  >
-                    <span>path入场%</span>
-                    <input type="number" name="y_path_enter_reverse" min="0.01" max="5" step="0.01" value="0.01" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="开=未卖回旧仓时收盘强制卖；关=可按 y_on 放行隔夜多头"
-                  >
-                    <span>当日回补</span>
-                    <input type="checkbox" name="must_cover_same_day_reverse" checked />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="中点追价起算 HH:MM：到点后禁止新开；已开未平则第二腿目标=旧目标与现价中点，触不到则收盘强制平。空=关"
-                  >
-                    <span>中点追价</span>
-                    <input type="text" name="t0_pm_degrade_reverse" maxlength="5" placeholder="13:00" value="13:00" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="中点追价间隔（分钟）：起算后首次中点，之后每隔该分钟再调一次"
-                  >
-                    <span>追价间隔分</span>
-                    <input type="number" name="t0_pm_chase_interval_min_reverse" min="1" max="60" step="1" value="10" />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="开=第一腿仅在上升段（自前缀 low 弹起）买入；关=触达即买"
-                  >
-                    <span>上升段确认</span>
-                    <input type="checkbox" name="y_prefix_segment_enabled_reverse" checked />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="第一腿买入须自前缀 low 弹起≥此值（%）；上升段确认开时生效"
-                  >
-                    <span>反弹确认%</span>
-                    <input type="number" name="y_prefix_bounce_pct_reverse" min="0" max="2" step="0.05" value="0.5" />
+                    <span>后半下跌占比</span>
+                    <input type="number" name="y_prefix_downbar_ratio_long" min="0" max="1" step="0.05" value="0.6" />
                   </label>
                   </div>
                 </fieldset>

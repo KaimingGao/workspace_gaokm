@@ -15,7 +15,12 @@ from core.research.tau_panel import (
     attach_cross_section_breadth,
     collect_tau_open_panel,
     collect_tau_intraday_panel,
+    normalize_minute_tau_grid,
     theme_sample_weights,
+)
+from core.signal.minute_tau_feats import (
+    MINUTE_TAU_ALL_KEYS,
+    MINUTE_TAU_FEAT_LABELS,
 )
 
 TAU_FEATURE_EXTRA = (
@@ -37,11 +42,9 @@ TAU_Z_FEATURES = (
     "gap_vs_sector",
     "yclose_loc",
     "mom3_pct",
-    "ret_open_to_tau",
-    "sector_ret_to_tau",
-)
+) + MINUTE_TAU_ALL_KEYS
 # gap/breadth 单位是百分点或 [0,1]，勿用 0–100 分制的 min_std=5 误剔
-TAU_MIN_STD_EXEMPT = TAU_FEATURE_EXTRA + ("ret_open_to_tau", "sector_ret_to_tau")
+TAU_MIN_STD_EXEMPT = TAU_FEATURE_EXTRA + MINUTE_TAU_ALL_KEYS
 # open_gap ≡ gap_pct，只拟合其一，避免 Ridge 双计
 TAU_FIT_DROP_ALIASES = frozenset({"open_gap"})
 
@@ -62,14 +65,27 @@ def _stack_panels(
 
 
 def _time_split_indices(dates: List[str], *, train_frac: float = 0.7) -> tuple:
-    """按日期排序后前 train_frac 为训练。"""
-    order = sorted(range(len(dates)), key=lambda i: dates[i])
-    n = len(order)
+    """按**唯一交易日**排序切分，再展开到行下标（变长前缀同日多行不拆到两侧）。"""
+    n = len(dates)
     if n < 10:
-        return order, []
-    cut = max(4, int(n * float(train_frac)))
-    cut = min(cut, n - 2)
-    return order[:cut], order[cut:]
+        return list(range(n)), []
+    uniq = sorted({str(d)[:10] for d in dates if str(d)[:10]})
+    if len(uniq) < 4:
+        order = sorted(range(n), key=lambda i: dates[i])
+        cut = max(4, int(n * float(train_frac)))
+        cut = min(cut, n - 2)
+        return order[:cut], order[cut:]
+    cut_d = max(2, int(len(uniq) * float(train_frac)))
+    cut_d = min(cut_d, len(uniq) - 1)
+    train_days = set(uniq[:cut_d])
+    train_idx = [i for i, d in enumerate(dates) if str(d)[:10] in train_days]
+    test_idx = [i for i, d in enumerate(dates) if str(d)[:10] not in train_days]
+    if len(test_idx) < 2 or len(train_idx) < 4:
+        order = sorted(range(n), key=lambda i: dates[i])
+        cut = max(4, int(n * float(train_frac)))
+        cut = min(cut, n - 2)
+        return order[:cut], order[cut:]
+    return train_idx, test_idx
 
 
 def _subset(xs, ys, metas, idxs):
@@ -313,6 +329,31 @@ def _oos_by_theme(
     }
 
 
+def _oos_by_tau(
+    preds: List[Optional[float]],
+    ys: List[float],
+    metas: List[dict],
+) -> Dict[str, Any]:
+    """按决策钟 τ 分层 OOS（OC 标签下，τ 越晚 hit 通常越高——已实现开→τ 垫高）。"""
+    buckets: Dict[str, Dict[str, List[Any]]] = {}
+    for p, y, m in zip(preds, ys, metas):
+        tau = str((m or {}).get("tau") or "open").strip() or "open"
+        slot = buckets.setdefault(tau, {"ps": [], "zs": []})
+        slot["ps"].append(p)
+        slot["zs"].append(float(y))
+    out: Dict[str, Any] = {}
+    for tau in sorted(buckets.keys()):
+        ps = buckets[tau]["ps"]
+        zs = buckets[tau]["zs"]
+        out[tau] = {
+            "n": len(zs),
+            "ic": _ic(ps, zs) if zs else None,
+            "sign_hit": _sign_hit(ps, zs) if zs else None,
+            "residual_var": _residual_var(ps, zs) if zs else None,
+        }
+    return out
+
+
 def _theme_counts(metas: Sequence[dict]) -> Dict[str, Any]:
     n = len(metas or [])
     n_th = sum(1 for m in (metas or []) if int((m or {}).get("theme_day") or 0) == 1)
@@ -373,12 +414,19 @@ def build_tau_panels_from_bars(
     min_history: int = 12,
     gap_trigger_pct: float = 2.0,
     tau_hm: str = "open",
+    tau_grid: Optional[Sequence[str]] = None,
 ) -> List[Dict[str, Any]]:
     """``stock_bars``: ``[{code, bars, minute_bars?, index_bars?, fundamentals?}, ...]``。
 
     ``tau_hm=open``：开盘→收盘标签；否则用分钟价训 τ→收盘（无分钟则跳过该日）。
+    ``tau_grid``：变长前缀少数时钟（共享 β）。
     """
     use_minute = str(tau_hm or "open").strip().lower() not in ("", "open")
+    grid = (
+        normalize_minute_tau_grid(tau_hm=tau_hm, tau_grid=tau_grid)
+        if use_minute
+        else None
+    )
     raw: List[Dict[str, Any]] = []
     for item in stock_bars:
         code = str(item.get("code") or item.get("stock_code") or "").strip()
@@ -390,6 +438,7 @@ def build_tau_panels_from_bars(
                 bars,
                 item.get("minute_bars"),
                 tau_hm=str(tau_hm),
+                tau_grid=grid,
                 min_history=min_history,
                 index_bars=item.get("index_bars"),
                 fundamentals=item.get("fundamentals"),
@@ -427,19 +476,27 @@ def fit_tau_ridge_report(
     train_frac: float = 0.7,
     use_theme_weights: bool = True,
     tau_hm: str = "open",
+    tau_grid: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_τ 头 Ridge + 时间 OOS。
 
-    默认标签 = y_oc = close[T]/open[T]−1；``tau_hm`` 非 open 时为 close/price[τ]−1。
-    特征仅 Z；不读 EOD 模型、不残差化；与 ŷ_EOD 解耦，live 才加权。
+    标签统一为 y_oc = 日线 close[T]/open[T]−1；分钟仅作 ≤τ 特征。
+    ``tau_hm`` 非 open 时换信息集（前缀分钟路径）；``tau_grid`` 变长前缀共享 β。
+    OOS 按交易日切分。
     """
     tau_key = str(tau_hm or "open").strip() or "open"
     use_minute = tau_key.lower() not in ("", "open")
+    grid = (
+        normalize_minute_tau_grid(tau_hm=tau_key, tau_grid=tau_grid)
+        if use_minute
+        else None
+    )
     enriched = build_tau_panels_from_bars(
         stock_bars,
         min_history=min_history,
         gap_trigger_pct=gap_trigger_pct,
         tau_hm=tau_key,
+        tau_grid=grid,
     )
     xs, ys, dates, metas = _stack_panels(enriched)
     if len(ys) < 20:
@@ -450,10 +507,11 @@ def fit_tau_ridge_report(
             "sample_count": len(ys),
             "stock_count": len(enriched),
             "tau": tau_key,
+            "tau_grid": grid,
         }
 
     xs_use, ys_use, dates_use, metas_use = xs, ys, dates, metas
-    target = "tau_to_close_z" if use_minute else "open_to_close_z"
+    target = "open_to_close_z"
 
     xs_z = _z_only_xs(xs_use)
     train_idx, test_idx = _time_split_indices(dates_use, train_frac=train_frac)
@@ -467,7 +525,7 @@ def fit_tau_ridge_report(
     )
 
     # 始终纳入开盘 Z 键（含 theme_day）；分钟专用键仅 minute 模式
-    drop_opt = set() if use_minute else {"ret_open_to_tau", "sector_ret_to_tau"}
+    drop_opt = set() if use_minute else set(MINUTE_TAU_ALL_KEYS)
     feat_names = [k for k in TAU_Z_FEATURES if k not in drop_opt and k not in TAU_FIT_DROP_ALIASES]
 
     # 去训练均值，减轻截距偏置；推理时截距加回
@@ -501,6 +559,7 @@ def fit_tau_ridge_report(
         (float(p) + y_mean) if p is not None else None for p in (preds_dm or [])
     ]
     by_theme = _oos_by_theme(preds_te, ys_te, metas_te) if ys_te else {}
+    by_tau = _oos_by_tau(preds_te, ys_te, metas_te) if ys_te and use_minute else {}
     bucket_pack = _oos_sign_buckets(preds_te, ys_te) if ys_te else {}
     oos = {
         "n_train": len(ys_tr),
@@ -510,6 +569,7 @@ def fit_tau_ridge_report(
         "sign_hit": _sign_hit(preds_te, ys_te) if ys_te else None,
         "residual_var": _residual_var(preds_te, ys_te) if ys_te else None,
         "by_theme": by_theme,
+        "by_tau": by_tau,
         "theme_counts": {
             "train": _theme_counts(metas_tr),
             "oos": _theme_counts(metas_te),
@@ -563,17 +623,26 @@ def fit_tau_ridge_report(
     model["intercept_demeaned"] = round(float(fit.get("intercept") or 0.0), 6)
     model["y_label_mean"] = round(y_mean, 6)
     model["y_demeaned"] = True
-    model["horizon_mode"] = "tau_to_close" if use_minute else "open_to_close"
+    model["horizon_mode"] = "open_to_close"
     model["target"] = target
     model["residualized"] = False
-    y_formula = (
-        f"close[T]/price[{tau_key}]-1" if use_minute else "close[T]/open[T]-1"
-    )
+    if use_minute and grid and len(grid) > 1:
+        y_formula = f"close[T]/open[T]-1 · τ∈{{{','.join(grid)}}}"
+    elif use_minute:
+        y_formula = f"close[T]/open[T]-1 · τ={tau_key}"
+    else:
+        y_formula = "close[T]/open[T]-1"
     model["y_spec"] = {
         "formula": y_formula,
         "unit": "pct",
         "tau": tau_key,
-        "note": "Z-only τ→close；demean+theme_day+yclose/mom3；live 与 ŷ_EOD 正交加权成 ŷ_trade",
+        "tau_grid": list(grid) if grid else None,
+        "note": (
+            "变长前缀少数时钟共享 β；标签=日线 open→close；"
+            "τ 越晚 OC hit 通常越高（开→τ 已实现垫高），看 by_tau；live 决策钟=minute_tau_hm"
+            if use_minute
+            else "Z-only open→close；demean+theme_day+yclose/mom3；live 与 ŷ_EOD 正交加权成 ŷ_trade"
+        ),
     }
     model["extra_features"] = list(TAU_Z_FEATURES)
 
@@ -586,11 +655,16 @@ def fit_tau_ridge_report(
         "oos": oos,
         "return_model": model,
         "tau": tau_key,
+        "tau_grid": list(grid) if grid else None,
         "y_spec": dict(model.get("y_spec") or {}),
-        "schema": "tau_ridge_v8",
+        "schema": "tau_ridge_v10",
         "target": target,
         "residualized": False,
-        "note": "ŷ_τ(Z) 独立估 τ→close；theme+|gap|；yclose_loc/mom3；与 EOD 解耦",
+        "note": (
+            "ŷ_τ(Z) 变长前缀少数时钟共享 β；OC 标签；OOS.by_tau；按日 OOS；与 EOD 解耦"
+            if use_minute
+            else "ŷ_τ(Z) 独立估 open→close；theme+|gap|；yclose_loc/mom3；与 EOD 解耦"
+        ),
     }
     report["promote_gate"] = tau_promote_gate(report)
     return report
@@ -778,8 +852,7 @@ _TAU_FEAT_LABELS = {
     "gap_vs_sector": "行业相对缺口",
     "yclose_loc": "昨收位置",
     "mom3_pct": "近3日动量 %",
-    "ret_open_to_tau": "开盘→τ 收益 %",
-    "sector_ret_to_tau": "板块中位开→τ %",
+    **MINUTE_TAU_FEAT_LABELS,
 }
 
 

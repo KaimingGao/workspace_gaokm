@@ -30,7 +30,7 @@ class TestHoldingT0IntradayStatus(unittest.TestCase):
         st = holding_t0_intraday_status(
             {"phase": "after_leg1", "direction": "reverse_t", "legs_written": 1}
         )
-        self.assertEqual(st["badge"], "反T·一腿")
+        self.assertEqual(st["badge"], "正T·一腿")
         self.assertIn("已买待卖旧仓", st["title"])
 
     def test_after_leg1_long(self):
@@ -39,14 +39,14 @@ class TestHoldingT0IntradayStatus(unittest.TestCase):
         st = holding_t0_intraday_status(
             {"phase": "after_leg1", "direction": "long_t", "legs_written": 1}
         )
-        self.assertEqual(st["badge"], "正T·一腿")
+        self.assertEqual(st["badge"], "反T·一腿")
         self.assertIn("已卖待回补", st["title"])
 
     def test_idle_with_direction(self):
         from core.t0.intraday import holding_t0_intraday_status
 
         st = holding_t0_intraday_status({"phase": "idle", "direction": "long_t"})
-        self.assertEqual(st["badge"], "正T·盯")
+        self.assertEqual(st["badge"], "反T·盯")
 
     def test_idle_without_direction_hidden(self):
         from core.t0.intraday import holding_t0_intraday_status

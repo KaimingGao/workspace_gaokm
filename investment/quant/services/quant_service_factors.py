@@ -421,12 +421,19 @@ class QuantFactorMixin:
         ds = get_dual_score_cfg()
         if tau_hm is None:
             if ds.get("enable_minute_tau"):
-                tau_key = str(ds.get("minute_tau_hm") or "09:45")
+                tau_key = str(ds.get("minute_tau_hm") or "10:30")
             else:
                 tau_key = "open"
         else:
             tau_key = str(tau_hm or "open").strip() or "open"
         use_minute = tau_key.lower() not in ("", "open")
+        tau_grid = None
+        if use_minute:
+            raw_grid = ds.get("minute_tau_grid")
+            if isinstance(raw_grid, (list, tuple)) and raw_grid:
+                tau_grid = [str(x).strip() for x in raw_grid if str(x).strip()]
+            else:
+                tau_grid = None  # fit 内用 DEFAULT_MINUTE_TAU_GRID
 
         stock_bars: List[Dict[str, Any]] = []
         minute_hit = 0
@@ -437,13 +444,22 @@ class QuantFactorMixin:
             row: Dict[str, Any] = {"code": str(code), "bars": bars}
             if use_minute:
                 try:
+                    from core.ports.market import resolve_market_code
                     from core.store import load_minute_cache
 
-                    packed = load_minute_cache("A", str(code), "1")
-                    mb = (packed or {}).get("bars") if isinstance(packed, dict) else None
-                    if mb:
-                        row["minute_bars"] = mb
-                        minute_hit += 1
+                    mkt, pure = resolve_market_code(str(code))
+                    packed = load_minute_cache(
+                        mkt or "CN",
+                        pure or str(code),
+                        "5",
+                        min_bars=1,
+                        ignore_age=True,
+                    )
+                    if packed:
+                        mb, _meta = packed
+                        if mb:
+                            row["minute_bars"] = mb
+                            minute_hit += 1
                 except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
                     logger.debug("catch except Exception: in quant_service_factors.py", exc_info=True)
                     pass
@@ -454,6 +470,7 @@ class QuantFactorMixin:
             gap_trigger_pct=gap_trigger_pct,
             theme_boost=theme_boost,
             tau_hm=tau_key,
+            tau_grid=tau_grid,
         )
         report["watching_limit"] = limit
         report["lookback"] = lookback
@@ -489,27 +506,72 @@ class QuantFactorMixin:
             tau_promote_gate,
         )
 
-        doc = load_tau_model()
+        live = load_tau_model()
         last = load_tau_last_report()
-        if not doc:
-            out = {
+        if not live and not last:
+            return {
+                "success": False,
+                "exists": False,
+                "path": tau_model_path(),
+                "last_report_exists": False,
+                "note": "尚无 ŷ_τ 模型；POST /api/quant/tau-ridge persist=true",
+            }
+
+        def _tau_key(doc: Optional[Dict[str, Any]]) -> tuple:
+            if not isinstance(doc, dict):
+                return ("", "", None)
+            return (
+                str(doc.get("tau") or ""),
+                str(doc.get("target") or ""),
+                doc.get("sample_count"),
+            )
+
+        # 研究台：有 last report 且与 live 不一致时，优先展示最近拟合（避免刷新退回旧启用模型）
+        use_last = False
+        if last and isinstance(last.get("return_model"), dict):
+            if not live:
+                use_last = True
+            elif _tau_key(last) != _tau_key(live):
+                use_last = True
+
+        if use_last:
+            out = dict(last)
+            out.update(
+                {
+                    "success": True,
+                    "exists": True,
+                    "path": tau_model_path(),
+                    "promoted": False,
+                    "shadow": True,
+                    "last_report_exists": True,
+                    "live_model_present": bool(live),
+                    "live_tau": (live or {}).get("tau") if live else None,
+                    "promote_gate": tau_promote_gate(last),
+                }
+            )
+            return out
+
+        if not live:
+            return {
                 "success": False,
                 "exists": False,
                 "path": tau_model_path(),
                 "last_report_exists": bool(last),
                 "note": "尚无 ŷ_τ 模型；POST /api/quant/tau-ridge persist=true",
             }
-            if last:
-                out["promote_gate"] = tau_promote_gate(last)
-                out["oos"] = last.get("oos")
-            return out
+
         return {
             "success": True,
             "exists": True,
             "path": tau_model_path(),
+            "promoted": True,
+            "shadow": False,
             "last_report_exists": bool(last),
-            "promote_gate": tau_promote_gate(doc if doc.get("oos") else (last or doc)),
-            **doc,
+            "live_model_present": True,
+            "promote_gate": tau_promote_gate(
+                live if live.get("oos") else (last or live)
+            ),
+            **live,
         }
 
     run_rem_ridge_experiment = run_tau_ridge_experiment
@@ -616,7 +678,7 @@ class QuantFactorMixin:
         note: str = "",
         force_promote: bool = False,
     ) -> Dict[str, Any]:
-        """观察池 ŷ_path Ridge：开盘 Z → 分钟卖/买触发先后顺序。"""
+        """观察池 ŷ_path Ridge：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序。"""
         from core.data.facade import bars_and_source
         from core.execution import resolve_t0_rules
         from core.ports.market import fetch_minute_bars, group_minute_bars_by_date
@@ -738,6 +800,16 @@ class QuantFactorMixin:
                 "watching_limit": limit,
             }
 
+        from core.signal.dual_score import get_dual_score_cfg
+
+        ds = get_dual_score_cfg() or {}
+        path_tau_hm = str(ds.get("minute_tau_hm") or "10:30")
+        raw_grid = ds.get("minute_tau_grid")
+        path_tau_grid = (
+            [str(x).strip() for x in raw_grid if str(x).strip()]
+            if isinstance(raw_grid, (list, tuple)) and raw_grid
+            else None
+        )
         report = fit_path_ridge_report(
             stock_bars,
             minute_by_code_date=minute_by_code_date,
@@ -745,6 +817,8 @@ class QuantFactorMixin:
             gap_trigger_pct=gap_trigger_pct,
             sell_trig_pct=sell_trig,
             buy_trig_pct=buy_trig,
+            minute_tau_hm=path_tau_hm,
+            tau_grid=path_tau_grid,
         )
         report["watching_limit"] = limit
         report["lookback"] = lookback
@@ -1317,7 +1391,7 @@ class QuantFactorMixin:
         *,
         watching_limit: int = 100,
         period: str = "5",
-        min_span_days: int = 40,
+        min_span_days: int = 30,
     ) -> Dict[str, Any]:
         """观察池 5m 分钟缓存覆盖（研究枢纽 UI）。"""
         from quant.research.cluster_minute_status import build_cluster_minute_status
@@ -1333,7 +1407,7 @@ class QuantFactorMixin:
         *,
         watching_limit: int = 100,
         period: str = "5",
-        lookback_days: int = 120,
+        lookback_days: int = 30,
         progress_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
         """同步：预热观察池 5m 分钟线。"""
@@ -1351,7 +1425,7 @@ class QuantFactorMixin:
         *,
         watching_limit: int = 100,
         period: str = "5",
-        lookback_days: int = 120,
+        lookback_days: int = 30,
     ) -> Dict[str, Any]:
         """后台 Job：预热 5m 分钟线；轮询 ``GET /api/jobs/cluster-minute-refresh``。"""
         import threading

@@ -173,6 +173,8 @@ def score_bars(
     min_bars = int(hr.get("min_bars", 2))
     gain_max = float(hr.get("mom3_gain_max_pct", 15))
     loss_min = float(hr.get("mom3_loss_min_pct", -12))
+    gain5_max = float(hr.get("mom5_gain_max_pct", 10))
+    day_gain_max = float(hr.get("day_gain_max_pct", 6))
     stop_pct = float((cfg.get("invalidation") or {}).get("stop_pct", 0.03))
 
     horizon_days = max(1, min(int(horizon_days or 3), 10))
@@ -188,6 +190,7 @@ def score_bars(
         }
 
     mom3 = pct_change(bars, min(3, len(bars) - 1))
+    mom5 = pct_change(bars, min(5, len(bars) - 1)) if len(bars) > 5 else mom3
 
     # 检查是否配置了"硬拒绝改为降权"
     soft_reject = bool((cfg.get("hard_reject") or {}).get("soft_reject", False))
@@ -202,7 +205,7 @@ def score_bars(
             reject_reason = f"近3日涨幅过大({mom3:.1f}%)，短线追高风险高"
             mom3_notes.append(reject_reason)
         else:
-            mom3_notes.append(f"近3日涨幅 {mom3:.1f}%（不硬拒，交给 ŷ）")
+            mom3_notes.append(f"近3日涨幅 {mom3:.1f}%（不硬拒，交给 ŷ / 纸面过热闸）")
 
     if mom3 is not None and mom3 <= loss_min:
         if apply_mom3_reject:
@@ -210,13 +213,40 @@ def score_bars(
             reject_reason = f"近3日跌幅过大({mom3:.1f}%)，短线动能偏弱"
             mom3_notes.append(reject_reason)
         else:
-            mom3_notes.append(f"近3日跌幅 {mom3:.1f}%（不硬拒，交给 ŷ）")
+            mom3_notes.append(f"近3日跌幅 {mom3:.1f}%（不硬拒，交给 ŷ / 纸面过热闸）")
+
+    if mom5 is not None and mom5 >= gain5_max:
+        msg = f"近5日涨幅过大({mom5:.1f}%≥{gain5_max:g}%)"
+        if apply_mom3_reject:
+            hard_reject = True
+            reject_reason = reject_reason or msg
+            mom3_notes.append(msg)
+        else:
+            mom3_notes.append(f"{msg}（不硬拒，交给纸面过热闸）")
 
     last_change = None
     if quote and quote.get("change_raw") is not None:
         last_change = float(quote["change_raw"])
     elif len(bars) >= 2:
         last_change = pct_change(bars, 1)
+
+    if last_change is None and bars:
+        try:
+            o = float(bars[-1].get("open") or 0)
+            c = float(bars[-1].get("close") or 0)
+            if o > 0:
+                last_change = (c / o - 1.0) * 100.0
+        except (TypeError, ValueError):
+            last_change = None
+
+    if last_change is not None and last_change >= day_gain_max:
+        msg = f"当日涨幅过大({last_change:.1f}%≥{day_gain_max:g}%)"
+        if apply_mom3_reject:
+            hard_reject = True
+            reject_reason = reject_reason or msg
+            mom3_notes.append(msg)
+        else:
+            mom3_notes.append(f"{msg}（不硬拒，交给纸面过热闸）")
 
     # 前置风控检查
     risk_config = cfg.get("pre_trade_risk", {})
@@ -406,12 +436,14 @@ def score_bars(
     if risk_penalty > 0:
         contrib_out["risk_penalty"] = round(-risk_penalty, 2)
 
-    return {
+    out = {
         "score": total,
         "hard_reject": hard_reject,
         "reject_reason": reject_reason,
         "mom3_chase_risk": bool(
-            mom3 is not None and (mom3 >= gain_max or mom3 <= loss_min)
+            (mom3 is not None and (mom3 >= gain_max or mom3 <= loss_min))
+            or (mom5 is not None and mom5 >= gain5_max)
+            or (last_change is not None and last_change >= day_gain_max)
         ),
         "factors": factors,
         "reasons": reasons,
@@ -424,6 +456,13 @@ def score_bars(
             "penalty": round(interaction_penalty, 2),
         },
     }
+    try:
+        from core.signal.overheat_gate import annotate_item_overheat
+
+        annotate_item_overheat(out, config=cfg)
+    except Exception:  # noqa: BLE001
+        logger.debug("annotate_item_overheat skipped", exc_info=True)
+    return out
 
 
 def rank_candidates(

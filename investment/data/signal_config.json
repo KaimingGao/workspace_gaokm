@@ -13,6 +13,7 @@
     "technical_pattern": 0.02,
     "weekly_confirm": 0.01,
     "gap_risk": 0.01,
+    "overheat": 0.03,
     "size": 0.03,
     "earnings_yield": 0.03,
     "growth": 0.03,
@@ -46,7 +47,8 @@
     "risk": [
       "volatility",
       "gap_risk",
-      "tail_anomaly"
+      "tail_anomaly",
+      "overheat"
     ],
     "residual": [
       "relative_strength",
@@ -57,7 +59,12 @@
   "hard_reject": {
     "min_bars": 2,
     "mom3_gain_max_pct": 15,
-    "mom3_loss_min_pct": -12
+    "mom3_loss_min_pct": -12,
+    "mom5_gain_max_pct": 10,
+    "day_gain_max_pct": 6,
+    "soft_reject": false,
+    "paper_buy_enforce": true,
+    "soft_scale_yhat": false
   },
   "rank": {
     "min_score": 55,
@@ -84,8 +91,9 @@
     "eod_residual_var": 1.0,
     "enable_cascade_shadow": true,
     "enable_tau_shadow_book": false,
-    "enable_minute_tau": false,
-    "minute_tau_hm": "09:45",
+    "enable_minute_tau": true,
+    "minute_tau_hm": "10:30",
+    "minute_tau_grid": ["09:45", "10:00", "10:15", "10:30"],
     "nowcast": {
       "enabled": false,
       "write_shadow": false,

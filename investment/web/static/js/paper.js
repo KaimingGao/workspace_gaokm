@@ -37,7 +37,7 @@ import {
   buildPaperHoldingsTableHtml,
   buildPaperOriginBarHtml,
   buildPaperHoldActionBarHtml,
-} from "./paper/holdings_ui.js?v=p1457";
+} from "./paper/holdings_ui.js?v=p1617";
 import { renderPaperRulesHtml } from "./paper/rules_ui.js";
 import {
   renderExecutionRulesHtml,
@@ -59,6 +59,8 @@ import {
 } from "./paper/t0_ui.js";
 import { buildT0SummaryLine } from "./paper/t0_report.js";
 import { wireT0SkipTips } from "./paper/t0_viz.js";
+import { wireT0ProcessTips } from "./paper/t0_table.js?v=p1641";
+import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1641";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p1416";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1416";
@@ -75,8 +77,9 @@ import {
   formatMarketPriorSection,
   marketPriorDetailFields,
   tailAnomalyDetailFields,
+  overheatDetailFields,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p1472";
+} from "./score_tooltip.js?v=p1617";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 
@@ -1787,6 +1790,7 @@ export function initPaper(ctx) {
       if (scoreTips.tipEl && scoreTips.tipEl.dataset.sticky === "1") return;
       hideScoreTooltip();
     });
+    wireHoldingsChgTips(holdingsTableEl, scoreTips, { apiFetch });
   }
 
   const paperT0DaysHost = document.getElementById("paper-t0-days");
@@ -1795,6 +1799,7 @@ export function initPaper(ctx) {
       scoreSelector:
         ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail]",
     });
+    wireT0ProcessTips(paperT0DaysHost, scoreTips);
   }
   const paperT0VizHost = document.getElementById("paper-t0-viz");
   if (paperT0VizHost) {
@@ -1806,6 +1811,7 @@ export function initPaper(ctx) {
       scoreSelector:
         ".paper-t0-y-score[data-score-detail], .paper-t0-dir-score[data-score-detail]",
     });
+    wireT0ProcessTips(paperT0WorkerTradesHost, scoreTips);
     paperT0WorkerTradesHost.addEventListener("click", async (ev) => {
       const btn = ev.target && ev.target.closest
         ? ev.target.closest("button.paper-t0-ledger-del")
@@ -2026,6 +2032,7 @@ export function initPaper(ctx) {
       formatMarketPriorSection,
       marketPriorDetailFields,
       tailAnomalyDetailFields,
+      overheatDetailFields,
       scoreTips,
       showPlainTooltip,
       hideScoreTooltip,

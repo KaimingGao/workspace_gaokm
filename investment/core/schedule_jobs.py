@@ -245,15 +245,17 @@ def _minute_warmup_core(
     codes: Optional[List[str]] = None,
     period: str = "5",
     cap: int = 25,
-    lookback_days: int = 90,
+    lookback_days: int = 30,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
     """分钟线预热核心逻辑（无 job slot）。
 
-    period=5 默认 lookback≈90 交易日，对齐做T回测窗口；过短会导致回测大量「缺分钟跳过」。
+    period=5 默认 lookback 30 日历日（东财/BaoStock 窗口）；1 分钟仍只拉近几日。
     """
     from core.data.policy import (
         MINUTE_WARMUP_MAX_CAL_GAP_DAYS,
+        minute_em_lookback_days,
+        minute_fetch_delay_sec,
         minute_warmup_ready_min_span_days,
         minute_warmup_skip_em,
         minute_warmup_skip_if_ready,
@@ -265,16 +267,18 @@ def _minute_warmup_core(
     if not watch:
         return {"ok": False, "error": "无标的：请传 codes 或配置 watching / validation_universe"}
     period_s = str(period or "5")
-    # 1 分钟源通常只有近几日；5m+ 拉到回测常用窗口
+    # 1 分钟源通常只有近几日；5m+ 对齐东财窗口
+    em_cap = minute_em_lookback_days()
     if period_s == "1":
         span = min(max(int(lookback_days or 5), 3), 8)
     else:
-        span = min(max(int(lookback_days or 90), 20), 120)
+        span = min(max(int(lookback_days or em_cap), 5), em_cap)
     warmed = 0
     skipped_ready = 0
     errors: List[str] = []
     total = len(watch)
     skip_em = minute_warmup_skip_em()
+    fetch_delay = minute_fetch_delay_sec()
     skip_if_ready = minute_warmup_skip_if_ready()
     ready_min_span = minute_warmup_ready_min_span_days()
     stale_h = minute_warmup_stale_hours()
@@ -331,7 +335,11 @@ def _minute_warmup_core(
         "errors": errors[:10],
         "note": (
             "5 分钟线预热；供 tail_anomaly / 做T回测。"
-            + (" BaoStock-only（跳过东财反爬）。" if skip_em else "")
+            + (
+                f" 跳过东财 · 新浪/腾讯（有数则跳过 BaoStock）· 各源间隔 {fetch_delay:g}s。"
+                if skip_em
+                else f" 东财→新浪/腾讯（有数则跳过 BaoStock）· 各源间隔 {fetch_delay:g}s。"
+            )
         ),
     }
 
@@ -341,7 +349,7 @@ def run_minute_warmup(
     codes: Optional[List[str]] = None,
     period: str = "5",
     cap: int = 25,
-    lookback_days: int = 90,
+    lookback_days: int = 30,
 ) -> Dict[str, Any]:
     """预热观察名单 5 分钟线缓存（tail_anomaly / T0 用）。"""
     slot = job_registry.slot("schedule")

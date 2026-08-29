@@ -26,8 +26,9 @@ DEFAULT_NOWCAST: Dict[str, Any] = {
     "gap_q_boost": 2.0,
 }
 
-_ALLOWED_TAUS = ("eod", "open", "09:45", "14:00")
+_ALLOWED_TAUS = ("eod", "open", "09:45", "10:30", "14:00")
 _TAU_INDEX = {t: i for i, t in enumerate(_ALLOWED_TAUS)}
+_MINUTE_TAUS = ("09:45", "10:30", "14:00")
 _Q_BOOST_CAP = 4.0
 
 
@@ -173,6 +174,8 @@ def normalize_tau_label(raw: Any) -> str:
     low = s.lower()
     if low in ("0945", "09:45"):
         return "09:45"
+    if low in ("1030", "10:30"):
+        return "10:30"
     if low in ("1400", "14:00"):
         return "14:00"
     if low == "eod":
@@ -190,15 +193,17 @@ def normalize_tau_label(raw: Any) -> str:
         return "open"
     if hm < "09:45":
         return "open"
-    if hm < "14:00":
+    if hm < "10:30":
         return "09:45"
+    if hm < "14:00":
+        return "10:30"
     if hm < "15:05":
         return "14:00"
     return "open"
 
 
 def live_tau_path(configured: Optional[Sequence[str]], as_of: Any) -> List[str]:
-    """已到达且已配置的时钟。分钟 τ 不叠：09:45 与 14:00 只取当前档。"""
+    """已到达且已配置的时钟。分钟 τ 不叠：只取当前分钟档（09:45/10:30/14:00）。"""
     allowed = {str(t).strip() for t in (configured or []) if str(t).strip()}
     allowed.add("eod")
     now = normalize_tau_label(as_of)
@@ -206,7 +211,7 @@ def live_tau_path(configured: Optional[Sequence[str]], as_of: Any) -> List[str]:
     out: List[str] = ["eod"]
     if "open" in allowed and _TAU_INDEX["open"] <= now_i:
         out.append("open")
-    if now in ("09:45", "14:00") and now in allowed:
+    if now in _MINUTE_TAUS and now in allowed:
         out.append(now)
     return out
 
@@ -242,6 +247,8 @@ def merge_nowcast_cfg(raw: Any) -> Dict[str, Any]:
         s = str(t or "").strip()
         if s == "0945":
             s = "09:45"
+        if s == "1030":
+            s = "10:30"
         if s == "1400":
             s = "14:00"
         if s in _ALLOWED_TAUS and s not in cleaned:
@@ -442,7 +449,7 @@ def kalman_nowcast(
     tau_label = normalize_tau_label(as_of)
     q = as_process_q(q_process, 0.05)
     z = _as_opt_float(y_tau)
-    if z is not None and tau_label in ("09:45", "14:00"):
+    if z is not None and tau_label in _MINUTE_TAUS:
         z = remaining_at_tau(z, realized_open_to_tau)
     steps: List[Dict[str, Any]] = [
         {"tau": "eod", "yhat": y_eod, "observe": False, "q": 0.0}
@@ -480,7 +487,7 @@ def run_live_nowcast(
 ) -> Dict[str, Any]:
     """Live：按已到达时钟顺序滤波；同一 ŷ_τ 只在最后一档观测一次。
 
-    ``y_tau`` 为 rem 原始输出；分钟档按 rem 标签决定是否再映到剩余窗。
+    ``y_tau`` 为 ŷ_τ 原始输出（现网 open→close）；分钟档按 y_spec 映到剩余窗进 Kalman。
     """
     cfg = merge_nowcast_cfg(nowcast_cfg)
     taus_use = ensure_asof_in_taus(
@@ -489,7 +496,7 @@ def run_live_nowcast(
         allow_minute=bool(allow_minute) or ret_open_to_tau is not None,
     )
     path = live_tau_path(taus_use, as_of)
-    if path and path[-1] in ("09:45", "14:00") and ret_open_to_tau is None:
+    if path and path[-1] in _MINUTE_TAUS and ret_open_to_tau is None:
         path = path[:-1]
     q_eff, q_note = adaptive_process_q(
         q_process if q_process is not None else cfg.get("q_process"),
@@ -609,7 +616,10 @@ def nordhaus_from_nowcast_rows(rows: Sequence[Dict[str, Any]]) -> Optional[float
 
 
 def rem_label_is_open_to_close(rem_model_doc: Optional[dict]) -> bool:
-    """τ 头是否估 open→close。分钟 τ 模型估 τ→close 时返回 False。"""
+    """τ 头是否估 open→close（含分钟特征但标签仍为 OC 的现网）。
+
+    仅当 ``horizon_mode=tau_to_close`` 或公式显式 price[τ] 时返回 False（旧分钟残差头）。
+    """
     doc = rem_model_doc if isinstance(rem_model_doc, dict) else {}
     rm = doc.get("return_model") if isinstance(doc.get("return_model"), dict) else doc
     if not isinstance(rm, dict):
@@ -624,7 +634,7 @@ def rem_label_is_open_to_close(rem_model_doc: Optional[dict]) -> bool:
         ys = doc.get("y_spec") if isinstance(doc.get("y_spec"), dict) else {}
     tau = str((ys or {}).get("tau") or "open").strip().lower()
     formula = str((ys or {}).get("formula") or "").lower()
-    if "price[" in formula:
+    if "price_min[" in formula or "/price[" in formula:
         return False
     if "open" in formula:
         return True
@@ -640,14 +650,14 @@ def align_rem_yhat_to_clock(
 ) -> Optional[float]:
     """把 ŷ_τ 映到当前时钟的剩余窗，与 ŷ_EOD_rem / y_spec_tau 对齐。
 
-    OC 头在 09:45/14:00：用 open→τ 已实现做几何剩余映射。
+    OC 头在分钟 τ（09:45/10:30/14:00）：用 open→τ 已实现做几何剩余映射。
     已是 τ→close 的模型：不再映射，避免双重扣减。
     """
     clock_n = normalize_tau_label(clock)
     z = _as_opt_float(y_tau)
     if z is None:
         return None
-    if clock_n not in ("09:45", "14:00"):
+    if clock_n not in _MINUTE_TAUS:
         return round(z, 6)
     if not rem_label_is_open_to_close(rem_model_doc):
         return round(z, 6)
@@ -660,7 +670,7 @@ def ensure_asof_in_taus(
     *,
     allow_minute: bool = False,
 ) -> List[str]:
-    """分钟 as_of 且允许时，把当前时钟并进 nowcast.taus（不叠 09:45+14:00）。"""
+    """分钟 as_of 且允许时，把当前时钟并进 nowcast.taus（分钟档不叠）。"""
     cleaned: List[str] = []
     src = taus or ["eod", "open"]
     if not isinstance(src, (list, tuple)):
@@ -669,6 +679,8 @@ def ensure_asof_in_taus(
         s = str(t or "").strip()
         if s == "0945":
             s = "09:45"
+        if s == "1030":
+            s = "10:30"
         if s == "1400":
             s = "14:00"
         if s in _ALLOWED_TAUS and s not in cleaned:
@@ -680,7 +692,7 @@ def ensure_asof_in_taus(
     if not allow_minute:
         return cleaned
     clock = normalize_tau_label(as_of)
-    if clock in ("09:45", "14:00") and clock not in cleaned:
+    if clock in _MINUTE_TAUS and clock not in cleaned:
         cleaned.append(clock)
     return cleaned
 

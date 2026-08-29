@@ -49,7 +49,9 @@ DEFAULT_DUAL_SCORE: Dict[str, Any] = {
     "enable_tau_shadow_book": False,
     # 有本地分钟缓存时附加 ret_open_to_tau（默认关；开后仍不拉网）
     "enable_minute_tau": False,
-    "minute_tau_hm": "09:45",
+    "minute_tau_hm": "10:30",
+    # 变长前缀训练时钟（共享 β）；live 特征仍用 minute_tau_hm
+    "minute_tau_grid": ["09:45", "10:00", "10:15", "10:30"],
     # nowcast / Kalman：默认只写影子字段，不改排序键
     "nowcast": dict(DEFAULT_NOWCAST),
     # 高维 Y(τ)：校验 / 展示 / 过滤（不改 predicted_score 语义）
@@ -185,10 +187,24 @@ def get_dual_score_cfg(config: Optional[dict] = None) -> Dict[str, Any]:
     raw["enable_tau_shadow_book"] = bool(raw.get("enable_tau_shadow_book", False))
     raw["enable_cascade_shadow"] = bool(raw.get("enable_cascade_shadow", True))
     raw["enable_minute_tau"] = bool(raw.get("enable_minute_tau", False))
-    hm = str(raw.get("minute_tau_hm") or "09:45").strip() or "09:45"
+    hm = str(raw.get("minute_tau_hm") or "10:30").strip() or "10:30"
     if ":" not in hm and len(hm) == 4 and hm.isdigit():
         hm = f"{hm[:2]}:{hm[2:]}"
     raw["minute_tau_hm"] = hm
+    grid_raw = raw.get("minute_tau_grid")
+    if isinstance(grid_raw, (list, tuple)):
+        grid: list = []
+        for t in grid_raw:
+            s = str(t or "").strip()
+            if not s or s.lower() == "open":
+                continue
+            if ":" not in s and len(s) == 4 and s.isdigit():
+                s = f"{s[:2]}:{s[2:]}"
+            if s not in grid:
+                grid.append(s)
+        raw["minute_tau_grid"] = grid or ["09:45", "10:00", "10:15", "10:30"]
+    else:
+        raw["minute_tau_grid"] = ["09:45", "10:00", "10:15", "10:30"]
     w_mode = str(raw.get("w_mode") or "fixed").strip().lower()
     if w_mode not in ("fixed", "theme_boost", "variance", "kalman"):
         w_mode = "fixed"

@@ -11,7 +11,7 @@ import { apiFetch } from "./api_client.js";
 import { loadAndPaintMacroStrip } from "./macro_context_ui.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "./lw_charts.js";
 import { mountVirtualTable, colStyle } from "./virtual_table.js";
-import { createScoreTooltipController } from "./score_tooltip.js?v=p1472";
+import { createScoreTooltipController } from "./score_tooltip.js?v=p1604";
 import { fmtScore, scoreCls } from "./paper/fmt.js?v=p1472";
 import {
   defaultScoringFloors,
@@ -44,7 +44,7 @@ import { createFactorMetaCache } from "./quant/factor_meta.js";
 import { buildUniversePanelHtml } from "./quant/universe_ui.js";
 import { researchGridHtml, metricCell } from "./quant/research_grid.js";
 import { createPromoteHintsRenderer } from "./quant/promote_hints_ui.js";
-import { createFactorIcUi } from "./quant/factor_ic_ui.js";
+import { createFactorIcUi } from "./quant/factor_ic_ui.js?v=p1640";
 import { createBtTablesUi } from "./quant/bt_tables.js";
 import { installClusterProbe } from "./quant/domain_cluster.js";
 import { installSuggest } from "./quant/domain_suggest.js";
@@ -684,14 +684,18 @@ export function initQuant(ctx) {
       }
       const oos = data.oos || {};
       const gate = data.promote_gate || null;
-      const chip = data.shadow ? "影子" : data.promoted === false ? "拟合" : "已启用";
+      const chip = data.shadow ? "拟合" : data.promoted === false ? "拟合" : "已启用";
+      const liveNote =
+        data.shadow && data.live_tau
+          ? ` · live 仍为 ${data.live_tau}`
+          : "";
       renderRemStatus(sum, {
         state: "ok",
         chip,
         message: data.shadow
           ? gate && !gate.ok
-            ? `last report · 闸：${(gate.blockers || []).join("；")}（可强制启用）`
-            : "last report 推理 · 过门后点「启用」"
+            ? `last report · 闸：${(gate.blockers || []).join("；")}（可强制启用）${liveNote}`
+            : `last report · 过门后点「启用」${liveNote}`
           : "",
         oos,
         sampleCount: data.sample_count,
@@ -708,13 +712,17 @@ export function initQuant(ctx) {
         if (oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) {
           syncOverviewTau(
             oos.sign_hit,
-            `模型 OOS · IC ${fmtRemIc(oos.ic)}`,
+            `${data.shadow ? "拟合" : "模型"} OOS · IC ${fmtRemIc(oos.ic)}`,
             "hit"
           );
         } else if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
-          syncOverviewTau(oos.ic, "模型 OOS", "ic");
+          syncOverviewTau(oos.ic, data.shadow ? "拟合 OOS" : "模型 OOS", "ic");
         } else {
-          syncOverviewTau("已启用", data.promoted_at || "ŷ_τ", "text");
+          syncOverviewTau(
+            data.shadow ? "已拟合" : "已启用",
+            data.promoted_at || "ŷ_τ",
+            "text"
+          );
         }
       }
     } catch (_) {
@@ -1952,23 +1960,35 @@ export function initQuant(ctx) {
         return;
       }
       const oos = data.oos || {};
+      const gate = data.promote_gate || null;
+      const chip = data.shadow ? "拟合" : "已启用";
+      const liveNote =
+        data.shadow && data.live_tau
+          ? ` · live 仍为 ${data.live_tau}`
+          : "";
       renderRemStatus(sum, {
         state: "ok",
-        chip: "已启用",
+        chip,
+        message: data.shadow
+          ? gate && !gate.ok
+            ? `last report · 闸：${(gate.blockers || []).join("；")}（可强制启用）${liveNote}`
+            : `last report · 过门后点「启用」${liveNote}`
+          : "",
         oos,
         sampleCount: data.sample_count,
         promotedAt: data.promoted_at,
       });
+      syncTauPersistBtn(gate, { hasReport: true });
       if (oos.sign_hit != null && Number.isFinite(Number(oos.sign_hit))) {
         syncOverviewTau(
           oos.sign_hit,
-          `已启用 · IC ${fmtRemIc(oos.ic)} · ${fmtRemTs(data.promoted_at) || ""}`,
+          `${chip} · IC ${fmtRemIc(oos.ic)} · ${fmtRemTs(data.promoted_at) || ""}`,
           "hit"
         );
       } else if (oos.ic != null && Number.isFinite(Number(oos.ic))) {
-        syncOverviewTau(oos.ic, `已启用 · ${fmtRemTs(data.promoted_at) || ""}`, "ic");
+        syncOverviewTau(oos.ic, `${chip} · ${fmtRemTs(data.promoted_at) || ""}`, "ic");
       } else {
-        syncOverviewTau("已启用", data.promoted_at || "ŷ_τ 模型", "text");
+        syncOverviewTau(chip, data.promoted_at || "ŷ_τ 模型", "text");
       }
       clearRemResultBox();
       await renderRemCoefTable(data.return_model || {}, { oos });

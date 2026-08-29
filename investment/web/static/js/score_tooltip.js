@@ -38,6 +38,7 @@ const FACTOR_LABELS = {
   technical_pattern: "技术形态",
   weekly_confirm: "周线确认",
   gap_risk: "跳空风险",
+  overheat: "短期过热",
   size: "规模",
   earnings_yield: "盈利收益率",
   growth: "成长",
@@ -263,7 +264,7 @@ function formatCompactPathTip(raw) {
   const below = fit != null && Math.abs(fit) <= pathEnter;
   let bias = "";
   if (fit != null && Number.isFinite(fit) && Math.abs(fit) > pathEnter) {
-    bias = fit > 0 ? "先低后高·正T·先卖后买" : "先高后低·反T·先买后卖";
+    bias = fit > 0 ? "先低后高·正T" : "先高后低·反T";
   }
   const status = String((raw && raw.y_path_status) || "");
   const statusNote =
@@ -1359,6 +1360,98 @@ export function tailAnomalyDetailFields(it) {
   };
 }
 
+/** 供 data-score-detail 嵌入的 overheat 字段（控制体积）。 */
+export function overheatDetailFields(it) {
+  if (!it || typeof it !== "object") return {};
+  const pack = it.overheat;
+  const fac = it.factors && typeof it.factors === "object" ? it.factors : {};
+  const subs =
+    it.sub_scores && typeof it.sub_scores === "object" ? it.sub_scores : {};
+  const sub =
+    (pack && pack.score != null ? pack.score : subs.overheat) ?? null;
+  const rawPct =
+    (pack && pack.raw_pct != null ? pack.raw_pct : fac.overheat_raw_pct) ?? null;
+  const scale =
+    (pack && pack.scale != null
+      ? pack.scale
+      : it.overheat_scale != null
+        ? it.overheat_scale
+        : fac.overheat_scale) ?? null;
+  const level = (pack && pack.level) || null;
+  const paperHr = it.paper_hard_reject;
+  const paperReason = it.paper_reject_reason || (pack && pack.reason) || null;
+  const mom5 = fac.momentum_5d ?? (pack && pack.mom5) ?? null;
+  const mom3 = fac.momentum_3d ?? (pack && pack.mom3) ?? null;
+  if (
+    sub == null &&
+    rawPct == null &&
+    scale == null &&
+    !paperHr &&
+    mom5 == null
+  ) {
+    return {};
+  }
+  return {
+    overheat: {
+      sub_score: sub,
+      raw_pct: rawPct,
+      scale,
+      level,
+      momentum_5d: mom5,
+      momentum_3d: mom3,
+      paper_hard_reject: paperHr || false,
+      paper_reject_reason: paperReason,
+      predicted_score_overheat_scaled: it.predicted_score_overheat_scaled ?? null,
+    },
+  };
+}
+
+/** overheat：短期过热（heuristic 子分 + 纸面闸 tip）。 */
+export function formatOverheatSection(raw) {
+  const pack = raw && raw.overheat;
+  if (!pack || typeof pack !== "object") return "";
+  const lines = [];
+  if (pack.sub_score != null && Number.isFinite(Number(pack.sub_score))) {
+    lines.push(`子分 ${Number(pack.sub_score).toFixed(1)}（权重约 0.03 · 越低越热）`);
+  }
+  if (pack.raw_pct != null && Number.isFinite(Number(pack.raw_pct))) {
+    lines.push(`过热幅度 ${Number(pack.raw_pct).toFixed(2)}%`);
+  }
+  if (pack.momentum_5d != null && Number.isFinite(Number(pack.momentum_5d))) {
+    lines.push(`mom5 ${Number(pack.momentum_5d).toFixed(2)}%`);
+  }
+  if (pack.momentum_3d != null && Number.isFinite(Number(pack.momentum_3d))) {
+    lines.push(`mom3 ${Number(pack.momentum_3d).toFixed(2)}%`);
+  }
+  if (pack.scale != null && Number.isFinite(Number(pack.scale))) {
+    lines.push(`软折扣 ×${Number(pack.scale).toFixed(2)}`);
+  }
+  if (
+    pack.predicted_score_overheat_scaled != null &&
+    Number.isFinite(Number(pack.predicted_score_overheat_scaled))
+  ) {
+    lines.push(
+      `ŷ×过热 ${Number(pack.predicted_score_overheat_scaled).toFixed(3)}%（对照列）`
+    );
+  }
+  if (pack.paper_hard_reject) {
+    lines.push(
+      `纸面禁买：${pack.paper_reject_reason || pack.level || "过热追高"}`
+    );
+  } else if (pack.level && pack.level !== "none") {
+    lines.push(`等级 ${pack.level}`);
+  }
+  if (!lines.length) return "";
+  return (
+    `<div class="score-sentiment-section">` +
+    `<div class="score-section-title">短期过热 · overheat</div>` +
+    lines
+      .map((b) => `<div class="score-sentiment-line">${escapeText(b)}</div>`)
+      .join("") +
+    `</div>`
+  );
+}
+
 /** tail_anomaly 因子：尾盘放量 + 价格斜率（进 ŷ，权重低）。 */
 export function formatTailAnomalySection(raw) {
   const pack = raw && raw.tail_anomaly;
@@ -1513,7 +1606,7 @@ export function formatT0DirectionDetail(raw) {
   const scoreTxt = Number.isFinite(score) ? `${fmtSigned(score, 2)}%` : "—";
   const dir = String((raw && raw.direction) || "");
   const dirLabel =
-    dir === "long_t" ? "正 T" : dir === "reverse_t" ? "反 T" : dir || "—";
+    dir === "long_t" ? "反 T" : dir === "reverse_t" ? "正 T" : dir || "—";
   const enterRaw =
     raw && raw.y_tau_enter != null
       ? Number(raw.y_tau_enter)
@@ -1724,7 +1817,7 @@ export function createScoreTooltipController() {
     place(tip, anchor);
   }
 
-  function showHtml(anchor, html, { className = "score-tooltip" } = {}) {
+  function showHtml(anchor, html, { className = "score-tooltip", onShow = null } = {}) {
     const body = String(html || "").trim();
     if (!anchor || !body) return;
     hide();
@@ -1736,6 +1829,13 @@ export function createScoreTooltipController() {
     tipEl = tip;
     tipAnchor = anchor;
     place(tip, anchor);
+    if (typeof onShow === "function") {
+      try {
+        onShow(anchor, tip);
+      } catch (_) {
+        /* tip chart mount optional */
+      }
+    }
   }
 
   function bindAttrTip(
@@ -1745,9 +1845,16 @@ export function createScoreTooltipController() {
       htmlAttr = "data-tip-html",
       className = "score-tooltip plain-hover-tip",
       buildHtml = null,
+      onShow = null,
+      wireKey = "",
     } = {}
   ) {
-    if (!host || host.dataset.attrTipWired === "1") return;
+    if (!host) return;
+    const key = String(wireKey || selector || "default");
+    if (!host.__attrTipKeys) host.__attrTipKeys = new Set();
+    if (host.__attrTipKeys.has(key)) return;
+    host.__attrTipKeys.add(key);
+    // 兼容旧「单次绑定」检测
     host.dataset.attrTipWired = "1";
     host.addEventListener("mouseover", (e) => {
       const el = e.target.closest(selector);
@@ -1760,7 +1867,7 @@ export function createScoreTooltipController() {
         html = el.getAttribute(htmlAttr) || "";
       }
       if (!html) return;
-      showHtml(el, html, { className });
+      showHtml(el, html, { className, onShow });
     });
     host.addEventListener("mouseout", (e) => {
       const from = e.target.closest(selector);
@@ -2050,6 +2157,8 @@ export function createScoreTooltipController() {
       !!raw.market_prior_active ||
       !!(raw.market_prior_warnings && raw.market_prior_warnings.length) ||
       !!(raw.tail_anomaly && typeof raw.tail_anomaly === "object") ||
+      !!(raw.overheat && typeof raw.overheat === "object") ||
+      !!raw.paper_hard_reject ||
       !!(raw.dual_score_fusion && String(raw.dual_score_fusion).trim());
 
     // 空对象（JSON 解析失败）才跳过；未打分也展示 ŷ_EOD/ŷ_τ 占位，避免悬停无反应
@@ -2093,6 +2202,7 @@ export function createScoreTooltipController() {
     html += formatSentimentGateSection(raw);
     html += formatMarketPriorSection(raw);
     html += formatTailAnomalySection(raw);
+    html += formatOverheatSection(raw);
     if (hardReject && rejectReason) {
       html += `<div class="score-detail-reject">
         <span class="score-detail-reject-icon">⚠</span>

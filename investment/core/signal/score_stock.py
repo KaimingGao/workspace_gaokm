@@ -1003,7 +1003,7 @@ def score_stock(
 
             ds_cfg = get_dual_score_cfg()
             if ds_cfg.get("enable_minute_tau"):
-                hm = str(ds_cfg.get("minute_tau_hm") or "09:45")
+                hm = str(ds_cfg.get("minute_tau_hm") or "10:30")
                 trade_day = ""
                 if bars:
                     trade_day = str((bars[-1] or {}).get("date") or "")[:10]
@@ -1028,7 +1028,10 @@ def score_stock(
                         open_px = None
                 if trade_day and open_px and open_px > 0:
                     from core.ports.market import resolve_market_code
-                    from core.research.tau_panel import price_at_tau_from_minutes
+                    from core.signal.minute_tau_feats import (
+                        attach_ret_vs_sector,
+                        extract_minute_tau_pack,
+                    )
                     from core.store import load_minute_cache
 
                     mkt, pure = resolve_market_code(str(code))
@@ -1041,18 +1044,38 @@ def score_stock(
                     )
                     if packed:
                         minute_bars, _meta = packed
-                        px_tau = price_at_tau_from_minutes(
-                            minute_bars, trade_date=trade_day, tau_hm=hm
+                        prev_c = None
+                        if quote:
+                            try:
+                                prev_c = float(
+                                    quote.get("prev_close")
+                                    or quote.get("pre_close")
+                                    or quote.get("yesterday_close")
+                                    or 0.0
+                                ) or None
+                            except (TypeError, ValueError):
+                                prev_c = None
+                        if prev_c is None and bars and len(bars) >= 2:
+                            try:
+                                prev_c = float((bars[-2] or {}).get("close") or 0.0) or None
+                            except (TypeError, ValueError):
+                                prev_c = None
+                        pack = extract_minute_tau_pack(
+                            minute_bars,
+                            trade_date=trade_day,
+                            tau_hm=hm,
+                            open_px=open_px,
+                            prev_close=prev_c,
                         )
-                        if px_tau is not None and px_tau > 0:
-                            feats["ret_open_to_tau"] = round(
-                                (float(px_tau) / float(open_px) - 1.0) * 100.0, 6
-                            )
+                        if pack.get("ret_open_to_tau") is not None:
+                            feats.update(pack)
+                            attach_ret_vs_sector(feats)
                             as_of_tau_override = f"{trade_day}T{hm}:00+08:00"
                             y_spec_override = {
                                 "tau": hm,
                                 "formula": f"close[T]/price[{hm}]-1",
-                                "note": "分钟缓存命中；无网拉；模型缺特征时 z≈0",
+                                "note": "分钟小包；无网拉；模型缺特征时 z≈0",
+                                "minute_pack": sorted(pack.keys()),
                             }
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in score_stock.py", exc_info=True)
@@ -1105,6 +1128,26 @@ def score_stock(
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         logger.warning("rem/event_prior attach failed for %s", code, exc_info=True)
+
+    try:
+        from core.signal.overheat_gate import annotate_item_overheat
+
+        annotate_item_overheat(signal_item, config=cfg)
+        # 同步回 scored，便于刷簿落盘
+        for k in (
+            "overheat",
+            "overheat_scale",
+            "mom_chase_risk",
+            "paper_hard_reject",
+            "paper_reject_reason",
+            "predicted_score_overheat_scaled",
+        ):
+            if k in signal_item:
+                scored[k] = signal_item[k]
+        if scored.get("mom3_chase_risk") is None:
+            scored["mom3_chase_risk"] = signal_item.get("mom_chase_risk")
+    except Exception:  # noqa: BLE001
+        logger.debug("overheat annotate on signal_item skipped", exc_info=True)
 
     return {
         "success": True,

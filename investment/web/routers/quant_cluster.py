@@ -51,7 +51,7 @@ def quant_cluster_bars_refresh(body: ClusterBarsRefreshRequest) -> Dict[str, Any
 def quant_cluster_minute_status(
     watching_limit: int = 100,
     period: str = "5",
-    min_span_days: int = 40,
+    min_span_days: int = 30,
 ) -> Dict[str, Any]:
     """观察池 5m 分钟缓存覆盖（研究枢纽 UI）。"""
     try:

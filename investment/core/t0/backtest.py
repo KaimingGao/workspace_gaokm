@@ -17,7 +17,7 @@ def _research_cash_for_reverse(
     t0_ratio: float,
     lot: int = 100,
 ) -> float:
-    """反T研究现金：至少够买「抬手后」目标股数（含简易佣金缓冲）。"""
+    """正T研究现金：至少够买「抬手后」目标股数（含简易佣金缓冲）。"""
     if shares <= 0 or px <= 0:
         return 0.0
     lot_i = max(int(lot or 100), 1)
@@ -63,9 +63,12 @@ def summarize_t0_day_legs(day: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _t0_range_fields(day: Dict[str, Any]) -> Dict[str, Any]:
-    """回测日明细：滚动振幅审计字段（与 Worker / simulate_t0_day_minute 同口径）。"""
+    """回测日明细：振幅/前缀审计字段。无成交日不落 forward_trace（明细只记成交）。"""
     out: Dict[str, Any] = {}
-    for k in ("range_mode", "prefix_bars", "range_pct", "min_range_pct", "forward_trace"):
+    keys = ["range_mode", "prefix_bars", "range_pct", "min_range_pct"]
+    if not day.get("skipped"):
+        keys.append("forward_trace")
+    for k in keys:
         v = day.get(k)
         if v is not None:
             out[k] = v
@@ -250,7 +253,7 @@ def backtest_t0_on_bars(
             if bars_history is not None and len(history) > len(bars)
             else ""
         )
-        + "T+1（正T卖旧买回 / 反T买新卖旧换仓）；非实盘、不保证收益。"
+        + "T+1（反T卖旧买回 / 正T买新卖旧换仓）；非实盘、不保证收益。"
         "主指标看含敞口净PnL / 完成往返率 / 参与率 / 敞口。"
     )
     return primary
@@ -284,7 +287,7 @@ def _walk_t0(
     cash = float(initial_cash or 0)
     lot = max(int(cfg.get("lot_size") or 100), 1)
     ratio = float(cfg.get("t0_ratio") or 1.0)
-    # 反T / dual_y：研究现金须覆盖「抬手后」目标股数（200×40%→抬到100股）
+    # 正T / dual_y：研究现金须覆盖「抬手后」目标股数（200×40%→抬到100股）
     if cash <= 0 and str(cfg.get("direction") or "auto") in {
         "auto",
         "reverse_t",
@@ -347,7 +350,7 @@ def _walk_t0(
             prev_c = float(history[gi - 1].get("close") or 0)
             if prev_c > 0:
                 bar_day["prev_close"] = prev_c
-        # 研究现金：每日补足到反T目标股数所需（防半腿耗尽后永久停做）。
+        # 研究现金：每日补足到正T目标股数所需（防半腿耗尽后永久停做）。
         # 会掩盖累积亏损下的真实资金约束；严格回测应关掉补足并记现金不足跳过。
         # 用 open/prev_close 定补足额，避免 T 日 close 前视
         if str(cfg.get("direction") or "") in {"auto", "reverse_t", "signal", "dual_y"}:
@@ -462,6 +465,7 @@ def _walk_t0(
                     "path_abandon": bool(day.get("path_abandon")),
                     "directional_amplitude": day.get("directional_amplitude"),
                     "prefix_bars": day.get("prefix_bars"),
+                    "direction": day.get("direction_used") or day.get("direction"),
                     "path_realized": day.get("path_realized"),
                     "path_realized_reason": day.get("path_realized_reason"),
                     "path_realized_trig": day.get("path_realized_trig"),
@@ -637,10 +641,8 @@ def _walk_t0(
             "t0_ratio": cfg["t0_ratio"],
             "sell_trigger_pct": cfg["sell_trigger_pct"],
             "buy_trigger_pct": cfg["buy_trigger_pct"],
-            "sell_trigger_pct_long": cfg.get("sell_trigger_pct_long"),
             "buy_trigger_pct_long": cfg.get("buy_trigger_pct_long"),
             "sell_trigger_pct_reverse": cfg.get("sell_trigger_pct_reverse"),
-            "buy_trigger_pct_reverse": cfg.get("buy_trigger_pct_reverse"),
             "must_cover_same_day": cfg["must_cover_same_day"],
             "must_cover_same_day_long": cfg.get("must_cover_same_day_long"),
             "must_cover_same_day_reverse": cfg.get("must_cover_same_day_reverse"),
@@ -687,8 +689,9 @@ def _walk_t0(
             "y_prefix_segment_enabled": cfg.get("y_prefix_segment_enabled"),
             "y_prefix_segment_enabled_long": cfg.get("y_prefix_segment_enabled_long"),
             "y_prefix_segment_enabled_reverse": cfg.get("y_prefix_segment_enabled_reverse"),
-            "y_prefix_pullback_pct_long": cfg.get("y_prefix_pullback_pct_long"),
-            "y_prefix_bounce_pct_reverse": cfg.get("y_prefix_bounce_pct_reverse"),
+            "y_prefix_upbar_ratio_reverse": cfg.get("y_prefix_upbar_ratio_reverse"),
+            "y_prefix_downbar_ratio_long": cfg.get("y_prefix_downbar_ratio_long"),
+            "y_tau_entry_price_mult": cfg.get("y_tau_entry_price_mult"),
             "t0_pm_degrade": cfg.get("t0_pm_degrade"),
             "t0_pm_degrade_long": cfg.get("t0_pm_degrade_long"),
             "t0_pm_degrade_reverse": cfg.get("t0_pm_degrade_reverse"),
