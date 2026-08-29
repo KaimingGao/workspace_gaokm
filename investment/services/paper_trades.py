@@ -175,16 +175,16 @@ def _results_from_flat_trades(
         sells = [x for x in legs if str(x.get("side") or "").endswith("sell")]
         buys = [x for x in legs if str(x.get("side") or "").endswith("buy")]
         if sells and not buys:
-            row["direction_used"] = "long_t"
+            row["direction_used"] = "sell_then_buy"
             row["sold_qty"] = int(sells[0].get("shares") or 0)
         elif buys and not sells:
-            row["direction_used"] = "reverse_t"
+            row["direction_used"] = "buy_then_sell"
             row["bought_qty"] = int(buys[0].get("shares") or 0)
         elif buys and sells:
-            row["direction_used"] = "reverse_t"
+            row["direction_used"] = "buy_then_sell"
             row["bought_qty"] = int(buys[0].get("shares") or 0)
             row["sold_back_qty"] = int(sells[-1].get("shares") or 0)
-        if buys and sells and str(row.get("direction_used") or "") == "long_t":
+        if buys and sells and str(row.get("direction_used") or "") == "sell_then_buy":
             row["covered_qty"] = sum(int(x.get("shares") or 0) for x in buys)
     return list(by_code.values())
 

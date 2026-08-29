@@ -33,22 +33,22 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "t0_ratio",
         "sell_trigger_pct",
         "buy_trigger_pct",
-        "buy_trigger_pct_long",
-        "sell_trigger_pct_reverse",
+        "buy_trigger_pct_sell_then_buy",
+        "sell_trigger_pct_buy_then_sell",
         "must_cover_same_day",
-        "must_cover_same_day_long",
-        "must_cover_same_day_reverse",
+        "must_cover_same_day_sell_then_buy",
+        "must_cover_same_day_buy_then_sell",
         "lot_size",
         "ref",
         "fill_mode",
-        "fill_mode_long",
-        "fill_mode_reverse",
+        "fill_mode_sell_then_buy",
+        "fill_mode_buy_then_sell",
         "direction",
         "path_mode",
         "minute_period",
         "min_range_pct",
-        "min_range_pct_long",
-        "min_range_pct_reverse",
+        "min_range_pct_sell_then_buy",
+        "min_range_pct_buy_then_sell",
         "use_atr",
         "atr_window",
         "atr_sell_mult",
@@ -70,8 +70,8 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_trade_tau_sign_gate",
         "y_tau_enter",
         "y_tau_enter_strong",
-        "y_tau_enter_long",
-        "y_tau_enter_reverse",
+        "y_tau_enter_sell_then_buy",
+        "y_tau_enter_buy_then_sell",
         "y_on_risk",
         "y_on_allow",
         "y_block_tau_nowcast_sign",
@@ -82,21 +82,21 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_tau_map",
         "y_use_path",
         "y_path_enter",
-        "y_path_enter_long",
-        "y_path_enter_reverse",
+        "y_path_enter_sell_then_buy",
+        "y_path_enter_buy_then_sell",
         "y_path_required",
         "y_gap_tier_mode",
         "y_gap_tier_pct",
         "y_nowcast_oc_gate",
         "y_path_abandon_enabled",
         "y_path_abandon_bars",
-        "y_path_abandon_bars_long",
-        "y_path_abandon_bars_reverse",
+        "y_path_abandon_bars_sell_then_buy",
+        "y_path_abandon_bars_buy_then_sell",
         "y_prefix_segment_enabled",
-        "y_prefix_segment_enabled_long",
-        "y_prefix_segment_enabled_reverse",
-        "y_prefix_upbar_ratio_reverse",
-        "y_prefix_downbar_ratio_long",
+        "y_prefix_segment_enabled_sell_then_buy",
+        "y_prefix_segment_enabled_buy_then_sell",
+        "y_prefix_upbar_ratio_buy_then_sell",
+        "y_prefix_downbar_ratio_sell_then_buy",
         "y_tau_entry_price_mult",
         "y_ratio_boost_cap",
         "y_ratio_cut",
@@ -105,11 +105,11 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_ratio_tau_soft_band",
         "y_score_source",
         "t0_pm_degrade",
-        "t0_pm_degrade_long",
-        "t0_pm_degrade_reverse",
+        "t0_pm_degrade_sell_then_buy",
+        "t0_pm_degrade_buy_then_sell",
         "t0_pm_chase_interval_min",
-        "t0_pm_chase_interval_min_long",
-        "t0_pm_chase_interval_min_reverse",
+        "t0_pm_chase_interval_min_sell_then_buy",
+        "t0_pm_chase_interval_min_buy_then_sell",
     }
 )
 
@@ -125,52 +125,52 @@ DEFAULT_RUNTIME: Dict[str, Any] = {
 DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "enabled": True,
     "t0_ratio": 1.0,
-    "sell_trigger_pct": 1.0,
+    "sell_trigger_pct": 3.0,
     "buy_trigger_pct": 1.0,
-    "buy_trigger_pct_long": 5.0,
-    "sell_trigger_pct_reverse": 5.0,
+    "buy_trigger_pct_sell_then_buy": 1.0,
+    "sell_trigger_pct_buy_then_sell": 3.0,
     "fill_mode": "trigger",
-    "fill_mode_long": "trigger",
-    "fill_mode_reverse": "trigger",
+    "fill_mode_sell_then_buy": "trigger",
+    "fill_mode_buy_then_sell": "trigger",
     "use_atr": False,
     "must_cover_same_day": True,
-    "must_cover_same_day_long": False,
-    "must_cover_same_day_reverse": True,
-    "min_range_pct": 0.1,
-    "min_range_pct_long": 1.0,
-    "min_range_pct_reverse": 1.0,
+    "must_cover_same_day_sell_then_buy": False,
+    "must_cover_same_day_buy_then_sell": True,
+    "min_range_pct": 0.2,
+    "min_range_pct_sell_then_buy": 0.2,
+    "min_range_pct_buy_then_sell": 0.2,
     "ref": "open",
     "lot_size": 100,
     "y_tau_enter": 0.01,
-    "y_tau_enter_long": 0.01,
-    "y_tau_enter_reverse": 0.01,
+    "y_tau_enter_sell_then_buy": 0.01,
+    "y_tau_enter_buy_then_sell": 0.01,
     "y_trade_enter": 0.01,
     "y_trade_strong": 0.1,
     "y_eod_prior": 0.01,
     "y_eod_enter": 0.01,
-    "y_eod_strong": 2.0,
+    "y_eod_strong": 0.1,
     "y_on_allow": 0.01,
     "y_nc_enter": 0.01,
-    "y_nc_strong": 2.0,
+    "y_nc_strong": 1.0,
     "y_nowcast_oc_gate": False,
     "y_path_enter": 0.01,
-    "y_path_enter_long": 0.01,
-    "y_path_enter_reverse": 0.01,
+    "y_path_enter_sell_then_buy": 0.01,
+    "y_path_enter_buy_then_sell": 0.01,
     "y_gap_tier_pct": 1.0,
     "y_path_abandon_bars": 12,
     "y_prefix_segment_enabled": True,
-    "y_prefix_segment_enabled_long": True,
-    "y_prefix_segment_enabled_reverse": True,
-    "y_prefix_upbar_ratio_reverse": 0.6,
-    "y_prefix_downbar_ratio_long": 0.6,
+    "y_prefix_segment_enabled_sell_then_buy": True,
+    "y_prefix_segment_enabled_buy_then_sell": True,
+    "y_prefix_upbar_ratio_buy_then_sell": 0.2,
+    "y_prefix_downbar_ratio_sell_then_buy": 0.2,
     "y_tau_entry_price_mult": 5.0,
     "y_block_tau_nowcast_sign": True,
-    "t0_pm_degrade": "13:00",
-    "t0_pm_degrade_long": "15:00",
-    "t0_pm_degrade_reverse": "13:00",
+    "t0_pm_degrade": "14:00",
+    "t0_pm_degrade_sell_then_buy": "15:00",
+    "t0_pm_degrade_buy_then_sell": "14:00",
     "t0_pm_chase_interval_min": 10,
-    "t0_pm_chase_interval_min_long": 10,
-    "t0_pm_chase_interval_min_reverse": 10,
+    "t0_pm_chase_interval_min_sell_then_buy": 10,
+    "t0_pm_chase_interval_min_buy_then_sell": 10,
     # direction / path_mode 留给 runtime_defaults，避免与 DEFAULT_T0 双轨
 }
 
@@ -323,7 +323,7 @@ def _apply_channel_fallbacks(
         sources["direction"] = "runtime_fallback"
         notes.append(f"{ch}: direction 未显式声明 → {fb}")
 
-    # 生产仅保留 dual_y；旧 long_t/signal/auto/reverse_t 一律收敛
+    # 生产仅保留 dual_y；旧 sell_then_buy/signal/auto/buy_then_sell 一律收敛
     dir_now = str(out.get("direction") or "").strip().lower()
     if dir_now != "dual_y":
         notes.append(f"direction={dir_now} 已下线 → dual_y")
@@ -615,21 +615,21 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "t0_ratio": t0.get("t0_ratio"),
             "sell_trigger_pct": t0.get("sell_trigger_pct"),
             "buy_trigger_pct": t0.get("buy_trigger_pct"),
-                    "buy_trigger_pct_long": t0.get("buy_trigger_pct_long"),
-            "sell_trigger_pct_reverse": t0.get("sell_trigger_pct_reverse"),
+                    "buy_trigger_pct_sell_then_buy": t0.get("buy_trigger_pct_sell_then_buy"),
+            "sell_trigger_pct_buy_then_sell": t0.get("sell_trigger_pct_buy_then_sell"),
                     "must_cover_same_day": bool(t0.get("must_cover_same_day")),
-            "must_cover_same_day_long": t0.get("must_cover_same_day_long"),
-            "must_cover_same_day_reverse": t0.get("must_cover_same_day_reverse"),
+            "must_cover_same_day_sell_then_buy": t0.get("must_cover_same_day_sell_then_buy"),
+            "must_cover_same_day_buy_then_sell": t0.get("must_cover_same_day_buy_then_sell"),
             "fill_mode": t0.get("fill_mode"),
-            "fill_mode_long": t0.get("fill_mode_long"),
-            "fill_mode_reverse": t0.get("fill_mode_reverse"),
+            "fill_mode_sell_then_buy": t0.get("fill_mode_sell_then_buy"),
+            "fill_mode_buy_then_sell": t0.get("fill_mode_buy_then_sell"),
             "direction": t0.get("direction"),
             "path_mode": t0.get("path_mode"),
             "use_atr": t0.get("use_atr"),
             "atr_window": t0.get("atr_window"),
             "min_range_pct": t0.get("min_range_pct"),
-            "min_range_pct_long": t0.get("min_range_pct_long"),
-            "min_range_pct_reverse": t0.get("min_range_pct_reverse"),
+            "min_range_pct_sell_then_buy": t0.get("min_range_pct_sell_then_buy"),
+            "min_range_pct_buy_then_sell": t0.get("min_range_pct_buy_then_sell"),
             "ref": t0.get("ref"),
             "lot_size": t0.get("lot_size"),
             "minute_period": t0.get("minute_period"),
@@ -643,8 +643,8 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_trade_tau_sign_gate": t0.get("y_trade_tau_sign_gate") or t0.get("y_trade_strong"),
             "y_tau_enter": t0.get("y_tau_enter"),
             "y_tau_enter_strong": t0.get("y_tau_enter"),
-            "y_tau_enter_long": t0.get("y_tau_enter_long"),
-            "y_tau_enter_reverse": t0.get("y_tau_enter_reverse"),
+            "y_tau_enter_sell_then_buy": t0.get("y_tau_enter_sell_then_buy"),
+            "y_tau_enter_buy_then_sell": t0.get("y_tau_enter_buy_then_sell"),
             "y_on_risk": t0.get("y_on_risk"),
             "y_on_allow": t0.get("y_on_allow"),
             "y_block_tau_nowcast_sign": t0.get("y_block_tau_nowcast_sign"),
@@ -655,8 +655,8 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_tau_map": t0.get("y_tau_map"),
             "y_use_path": t0.get("y_use_path"),
             "y_path_enter": t0.get("y_path_enter"),
-            "y_path_enter_long": t0.get("y_path_enter_long"),
-            "y_path_enter_reverse": t0.get("y_path_enter_reverse"),
+            "y_path_enter_sell_then_buy": t0.get("y_path_enter_sell_then_buy"),
+            "y_path_enter_buy_then_sell": t0.get("y_path_enter_buy_then_sell"),
             "y_path_required": t0.get("y_path_required"),
             "y_gap_tier_mode": t0.get("y_gap_tier_mode"),
             "y_gap_tier_pct": t0.get("y_gap_tier_pct"),
@@ -664,10 +664,10 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_path_abandon_enabled": t0.get("y_path_abandon_enabled"),
             "y_path_abandon_bars": t0.get("y_path_abandon_bars"),
             "y_prefix_segment_enabled": t0.get("y_prefix_segment_enabled"),
-            "y_prefix_segment_enabled_long": t0.get("y_prefix_segment_enabled_long"),
-            "y_prefix_segment_enabled_reverse": t0.get("y_prefix_segment_enabled_reverse"),
-                            "y_prefix_upbar_ratio_reverse": t0.get("y_prefix_upbar_ratio_reverse"),
-            "y_prefix_downbar_ratio_long": t0.get("y_prefix_downbar_ratio_long"),
+            "y_prefix_segment_enabled_sell_then_buy": t0.get("y_prefix_segment_enabled_sell_then_buy"),
+            "y_prefix_segment_enabled_buy_then_sell": t0.get("y_prefix_segment_enabled_buy_then_sell"),
+                            "y_prefix_upbar_ratio_buy_then_sell": t0.get("y_prefix_upbar_ratio_buy_then_sell"),
+            "y_prefix_downbar_ratio_sell_then_buy": t0.get("y_prefix_downbar_ratio_sell_then_buy"),
             "y_tau_entry_price_mult": t0.get("y_tau_entry_price_mult"),
                             "y_ratio_boost_cap": t0.get("y_ratio_boost_cap"),
             "y_ratio_cut": t0.get("y_ratio_cut"),
@@ -676,11 +676,11 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_ratio_tau_soft_band": t0.get("y_ratio_tau_soft_band"),
             "y_score_source": t0.get("y_score_source"),
             "t0_pm_degrade": t0.get("t0_pm_degrade"),
-            "t0_pm_degrade_long": t0.get("t0_pm_degrade_long"),
-            "t0_pm_degrade_reverse": t0.get("t0_pm_degrade_reverse"),
+            "t0_pm_degrade_sell_then_buy": t0.get("t0_pm_degrade_sell_then_buy"),
+            "t0_pm_degrade_buy_then_sell": t0.get("t0_pm_degrade_buy_then_sell"),
             "t0_pm_chase_interval_min": t0.get("t0_pm_chase_interval_min"),
-            "t0_pm_chase_interval_min_long": t0.get("t0_pm_chase_interval_min_long"),
-            "t0_pm_chase_interval_min_reverse": t0.get("t0_pm_chase_interval_min_reverse"),
+            "t0_pm_chase_interval_min_sell_then_buy": t0.get("t0_pm_chase_interval_min_sell_then_buy"),
+            "t0_pm_chase_interval_min_buy_then_sell": t0.get("t0_pm_chase_interval_min_buy_then_sell"),
         },
         "t0_sources": bundle.get("t0_sources") or {},
         "rebalance": bundle.get("rebalance") or {},
@@ -789,10 +789,10 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_out["use_atr"] = bool(t0_in.get("use_atr"))
     if "must_cover_same_day" in t0_in:
         t0_out["must_cover_same_day"] = bool(t0_in.get("must_cover_same_day"))
-    if "must_cover_same_day_long" in t0_in:
-        t0_out["must_cover_same_day_long"] = bool(t0_in.get("must_cover_same_day_long"))
-    if "must_cover_same_day_reverse" in t0_in:
-        t0_out["must_cover_same_day_reverse"] = bool(t0_in.get("must_cover_same_day_reverse"))
+    if "must_cover_same_day_sell_then_buy" in t0_in:
+        t0_out["must_cover_same_day_sell_then_buy"] = bool(t0_in.get("must_cover_same_day_sell_then_buy"))
+    if "must_cover_same_day_buy_then_sell" in t0_in:
+        t0_out["must_cover_same_day_buy_then_sell"] = bool(t0_in.get("must_cover_same_day_buy_then_sell"))
     if "y_block_tau_nowcast_sign" in t0_in:
         t0_out["y_block_tau_nowcast_sign"] = bool(t0_in.get("y_block_tau_nowcast_sign"))
     if "y_nowcast_oc_gate" in t0_in:
@@ -805,11 +805,11 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_out["y_path_abandon_enabled"] = bool(t0_in.get("y_path_abandon_enabled"))
     if "y_prefix_segment_enabled" in t0_in:
         t0_out["y_prefix_segment_enabled"] = bool(t0_in.get("y_prefix_segment_enabled"))
-    if "y_prefix_segment_enabled_long" in t0_in:
-        t0_out["y_prefix_segment_enabled_long"] = bool(t0_in.get("y_prefix_segment_enabled_long"))
-    if "y_prefix_segment_enabled_reverse" in t0_in:
-        t0_out["y_prefix_segment_enabled_reverse"] = bool(
-            t0_in.get("y_prefix_segment_enabled_reverse")
+    if "y_prefix_segment_enabled_sell_then_buy" in t0_in:
+        t0_out["y_prefix_segment_enabled_sell_then_buy"] = bool(t0_in.get("y_prefix_segment_enabled_sell_then_buy"))
+    if "y_prefix_segment_enabled_buy_then_sell" in t0_in:
+        t0_out["y_prefix_segment_enabled_buy_then_sell"] = bool(
+            t0_in.get("y_prefix_segment_enabled_buy_then_sell")
         )
     # 选向仅 dual_y
     t0_out["direction"] = "dual_y"

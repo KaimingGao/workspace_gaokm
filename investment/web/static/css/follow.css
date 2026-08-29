@@ -559,12 +559,12 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
   color: var(--ink-2);
 }
 
-.paper-hold-t0-badge.is-long {
+.paper-hold-t0-badge.is-sell-then-buy {
   color: color-mix(in srgb, var(--down, #16a34a) 88%, var(--ink));
   border-color: color-mix(in srgb, var(--down, #16a34a) 35%, var(--line));
 }
 
-.paper-hold-t0-badge.is-rev {
+.paper-hold-t0-badge.is-buy-then-sell {
   color: color-mix(in srgb, var(--up, #c0392b) 88%, var(--ink));
   border-color: color-mix(in srgb, var(--up, #c0392b) 35%, var(--line));
 }
@@ -2389,12 +2389,12 @@ body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react
   white-space: nowrap;
 }
 
-.paper-t0-spec-tau-act.is-long {
+.paper-t0-spec-tau-act.is-sell-then-buy {
   color: #047857;
   background: color-mix(in srgb, #059669 12%, transparent);
 }
 
-.paper-t0-spec-tau-act.is-reverse {
+.paper-t0-spec-tau-act.is-buy-then-sell {
   color: #b91c1c;
   background: color-mix(in srgb, #dc2626 12%, transparent);
 }
@@ -2548,11 +2548,11 @@ body[data-page="follow"] .follow-page .paper-holdings-react-grid .watching-react
   color: var(--ink);
 }
 
-.paper-t0-cfg-block.is-long {
+.paper-t0-cfg-block.is-sell-then-buy {
   border-color: color-mix(in srgb, var(--pos, #2a7a4b) 35%, var(--line, #ccc));
 }
 
-.paper-t0-cfg-block.is-reverse {
+.paper-t0-cfg-block.is-buy-then-sell {
   border-color: color-mix(in srgb, var(--neg, #b33) 35%, var(--line, #ccc));
 }
 
@@ -9457,13 +9457,13 @@ body[data-page="follow"] .paper-t0-desk-dir {
   border: 1px solid transparent;
 }
 
-body[data-page="follow"] .paper-t0-desk-dir.is-long {
+body[data-page="follow"] .paper-t0-desk-dir.is-sell-then-buy {
   color: var(--quant-down, #16a34a);
   border-color: color-mix(in srgb, var(--quant-down, #16a34a) 35%, var(--border));
   background: color-mix(in srgb, var(--quant-down, #16a34a) 8%, var(--surface));
 }
 
-body[data-page="follow"] .paper-t0-desk-dir.is-rev {
+body[data-page="follow"] .paper-t0-desk-dir.is-buy-then-sell {
   color: var(--quant-up, #dc2626);
   border-color: color-mix(in srgb, var(--quant-up, #dc2626) 35%, var(--border));
   background: color-mix(in srgb, var(--quant-up, #dc2626) 8%, var(--surface));

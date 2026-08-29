@@ -29,7 +29,7 @@ class TestExecutionResolve(unittest.TestCase):
     def test_paper_override_wins(self):
         from core.execution import resolve_effective_execution
 
-        paper = {"strategy_id": "short", "rules": {"t0": {"t0_ratio": 0.25, "direction": "long_t"}}}
+        paper = {"strategy_id": "short", "rules": {"t0": {"t0_ratio": 0.25, "direction": "sell_then_buy"}}}
         bundle = resolve_effective_execution(paper=paper, channel="paper")
         self.assertAlmostEqual(float(bundle["t0"]["t0_ratio"]), 1.0)
         # 旧选向已下线，一律收敛 dual_y
@@ -41,7 +41,7 @@ class TestExecutionResolve(unittest.TestCase):
 
         raw = resolve_t0_rules(
             strategy="short",
-            rules={"direction": "reverse_t", "path_mode": "adverse"},
+            rules={"direction": "buy_then_sell", "path_mode": "adverse"},
             channel="backtest",
             has_minute=True,
         )
@@ -145,10 +145,10 @@ class TestExecutionResolve(unittest.TestCase):
         from core.t0.config import load_t0_rules
 
         defaults = load_t0_rules()
-        self.assertEqual(defaults["t0_pm_degrade"], "13:00")
+        self.assertEqual(defaults["t0_pm_degrade"], "14:00")
         self.assertEqual(defaults["t0_pm_chase_interval_min"], 10)
-        self.assertEqual(defaults["t0_pm_chase_interval_min_long"], 10)
-        self.assertEqual(defaults["t0_pm_chase_interval_min_reverse"], 10)
+        self.assertEqual(defaults["t0_pm_chase_interval_min_sell_then_buy"], 10)
+        self.assertEqual(defaults["t0_pm_chase_interval_min_buy_then_sell"], 10)
         self.assertTrue(defaults["y_block_tau_nowcast_sign"])
         self.assertNotIn("t0_adverse_stop_pct", defaults)
         self.assertNotIn("t0_time_stop", defaults)
@@ -170,7 +170,7 @@ class TestExecutionResolve(unittest.TestCase):
         view = execution_public_view(
             resolve_effective_execution(paper=paper, channel="paper")
         )
-        self.assertEqual(view["t0"]["t0_pm_degrade"], "13:00")
+        self.assertEqual(view["t0"]["t0_pm_degrade"], "14:00")
         self.assertEqual(view["t0"]["t0_pm_chase_interval_min"], 10)
         self.assertNotIn("t0_adverse_stop_pct", view["t0"])
         self.assertTrue(view["t0"]["y_block_tau_nowcast_sign"])
@@ -226,7 +226,7 @@ class TestExecutionResolve(unittest.TestCase):
 
         ok, norm, errs = validate_execution_patch(
             {
-                "t0": {"t0_ratio": 0.3, "direction": "long_t"},
+                "t0": {"t0_ratio": 0.3, "direction": "sell_then_buy"},
                 "coupling": {"t0_vs_stance": "skip_if_avoid"},
             }
         )
@@ -288,7 +288,7 @@ class TestExecutionResolve(unittest.TestCase):
         out = simulate_t0_on_holdings(
             paper,
             bars_by_code={"600519": bar},
-            rules={"direction": "long_t", "sell_trigger_pct": 2, "buy_trigger_pct": 1.5},
+            rules={"direction": "sell_then_buy", "sell_trigger_pct": 2, "buy_trigger_pct": 1.5},
             dry_run=True,
             stance_by_code={"600519": "avoid"},
             coupling={"t0_vs_stance": "skip_if_avoid"},

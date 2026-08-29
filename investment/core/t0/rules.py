@@ -208,15 +208,15 @@ def _auto_direction(
         if trig_ref > 0 and abs(open_px - trig_ref) / max(trig_ref, 1e-9) > 1e-6:
             gap_ref = trig_ref
     if open_px <= 0 or gap_ref <= 0:
-        return "long_t", "auto_default"
+        return "sell_then_buy", "auto_default"
     strong = float(cfg.get("auto_strong_pct") or 0.5)
     weak = float(cfg.get("auto_weak_pct") or 0.5)
     chg = (open_px / gap_ref - 1.0) * 100.0
     if chg >= strong:
-        return "long_t", "auto_gap_up"
+        return "sell_then_buy", "auto_gap_up"
     if chg <= -weak and cash > 0 and shares > 0:
-        return "reverse_t", "auto_gap_down"
-    return "long_t", "auto_default"
+        return "buy_then_sell", "auto_gap_down"
+    return "sell_then_buy", "auto_default"
 
 
 def resolve_direction(
@@ -232,16 +232,16 @@ def resolve_direction(
 ) -> Dict[str, Any]:
     """统一选向：返回 direction / skip / score / reason。"""
     mode = str(cfg.get("direction") or "auto")
-    if mode == "long_t":
+    if mode == "sell_then_buy":
         return {
-            "direction": "long_t",
+            "direction": "sell_then_buy",
             "skip": False,
             "direction_score": None,
             "direction_reason": "强制反T",
         }
-    if mode == "reverse_t":
+    if mode == "buy_then_sell":
         return {
-            "direction": "reverse_t",
+            "direction": "buy_then_sell",
             "skip": False,
             "direction_score": None,
             "direction_reason": "强制正T",
@@ -270,7 +270,7 @@ def resolve_direction(
         enter = float(cfg.get("dir_enter") or 0.35)
         if score >= enter:
             return {
-                "direction": "long_t",
+                "direction": "sell_then_buy",
                 "skip": False,
                 "direction_score": score,
                 "direction_reason": scored.get("reason"),
@@ -279,7 +279,7 @@ def resolve_direction(
         if score <= -enter:
             if cash > 0 and shares > 0:
                 return {
-                    "direction": "reverse_t",
+                    "direction": "buy_then_sell",
                     "skip": False,
                     "direction_score": score,
                     "direction_reason": scored.get("reason"),
@@ -560,8 +560,11 @@ def simulate_t0_on_holdings(
     coupling_skip_count = 0
     minute_path_count = 0
 
-    # 预演用副本；确认时写回
-    work_holdings = holdings
+    # 预演用副本；确认时写回。按代码排序，共享现金池执行序确定可复现。
+    work_holdings = sorted(
+        holdings,
+        key=lambda h: str((h or {}).get("stock_code") or ""),
+    )
 
     for h in work_holdings:
         code = str(h.get("stock_code") or "")
@@ -701,7 +704,7 @@ def simulate_t0_on_holdings(
                 sum(float(t0_leg_cash_delta(t) or 0) for t in applied_trades), 2
             )
             # 买回被共享现金闸掉：按未回补敞口记账
-            if str(day_out.get("direction_used") or "") == "long_t":
+            if str(day_out.get("direction_used") or "") == "sell_then_buy":
                 sold_q = int(day_out.get("sold_qty") or 0)
                 cov = sum(
                     int(t.get("shares") or 0)
@@ -725,7 +728,7 @@ def simulate_t0_on_holdings(
                 elif cov >= sold_q > 0:
                     day_out["pnl"] = day_out["cash_delta"]
                     day_out["exposure_pnl"] = 0.0
-            elif str(day_out.get("direction_used") or "") == "reverse_t":
+            elif str(day_out.get("direction_used") or "") == "buy_then_sell":
                 bought_q = int(day_out.get("bought_qty") or 0)
                 sold_back = sum(
                     int(t.get("shares") or 0)

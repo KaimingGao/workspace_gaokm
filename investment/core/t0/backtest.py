@@ -7,10 +7,11 @@ logger = logging.getLogger(__name__)
 from typing import Any, Dict, List, Optional
 
 from core.t0.config import load_t0_rules
+from core.t0.minute_path import T0_INTENTIONAL_ABANDON_EXITS
 from core.t0.rules import _t0_qty_lots, atr_pct_from_bars, simulate_t0_day
 
 
-def _research_cash_for_reverse(
+def _research_cash_for_buy_then_sell(
     shares: float,
     px: float,
     *,
@@ -32,7 +33,7 @@ def summarize_t0_day_legs(day: Dict[str, Any]) -> Dict[str, Any]:
     direction = str(day.get("direction_used") or day.get("direction") or "")
     sells = [t for t in trades if str(t.get("side") or "").lower().endswith("sell")]
     buys = [t for t in trades if str(t.get("side") or "").lower().endswith("buy")]
-    rev = direction == "reverse_t"
+    rev = direction == "buy_then_sell"
     if rev:
         sell_t = sells[-1] if sells else None
         buy_t = buys[0] if buys else None
@@ -290,11 +291,11 @@ def _walk_t0(
     # 正T / dual_y：研究现金须覆盖「抬手后」目标股数（200×40%→抬到100股）
     if cash <= 0 and str(cfg.get("direction") or "auto") in {
         "auto",
-        "reverse_t",
+        "buy_then_sell",
         "signal",
         "dual_y",
     }:
-        cash = _research_cash_for_reverse(shares, cost, t0_ratio=ratio, lot=lot)
+        cash = _research_cash_for_buy_then_sell(shares, cost, t0_ratio=ratio, lot=lot)
     tau_pool = tau_pool_by_date if isinstance(tau_pool_by_date, dict) else {}
 
     days: List[dict] = []
@@ -305,12 +306,12 @@ def _walk_t0(
     uncover_days = 0
     skip_count = 0
     signal_skip_days = 0
-    long_days = 0
-    reverse_days = 0
-    long_pnl = 0.0
-    reverse_pnl = 0.0
-    long_cover = 0
-    reverse_cover = 0
+    sell_then_buy_days = 0
+    buy_then_sell_days = 0
+    sell_then_buy_pnl = 0.0
+    buy_then_sell_pnl = 0.0
+    sell_then_buy_cover = 0
+    buy_then_sell_cover = 0
     minute_days = 0
     missing_minute_days = 0
     atr_window = int(cfg.get("atr_window") or 14)
@@ -353,12 +354,12 @@ def _walk_t0(
         # 研究现金：每日补足到正T目标股数所需（防半腿耗尽后永久停做）。
         # 会掩盖累积亏损下的真实资金约束；严格回测应关掉补足并记现金不足跳过。
         # 用 open/prev_close 定补足额，避免 T 日 close 前视
-        if str(cfg.get("direction") or "") in {"auto", "reverse_t", "signal", "dual_y"}:
+        if str(cfg.get("direction") or "") in {"auto", "buy_then_sell", "signal", "dual_y"}:
             px = float(
                 bar_day.get("open") or bar_day.get("prev_close") or cost or 0
             )
             if px > 0 and shares > 0:
-                need = _research_cash_for_reverse(shares, px, t0_ratio=ratio, lot=lot)
+                need = _research_cash_for_buy_then_sell(shares, px, t0_ratio=ratio, lot=lot)
                 if cash < need * 0.95:
                     cash = max(cash, need)
         hist_prior = history[:gi]
@@ -498,30 +499,30 @@ def _walk_t0(
             trade_count += 1
             completed = (sold > 0 and covered >= sold) or (bought > 0 and sold_back >= bought)
             exit_r = str(day.get("exit_reason") or "")
-            # 正/反 T 主动放弃回补（含现金不足）按设计完成，不计入 uncover
-            intentional_abandon = exit_r in ("abandon_cover", "abandon_cover_cash") and (
-                (direction == "long_t" and sold > 0 and covered < sold)
-                or (direction == "reverse_t" and bought > 0 and sold_back < bought)
+            # 正/反 T 主动放弃回补（含现金不足 / 可卖旧仓不足）按设计完成，不计入 uncover
+            intentional_abandon = exit_r in T0_INTENTIONAL_ABANDON_EXITS and (
+                (direction == "sell_then_buy" and sold > 0 and covered < sold)
+                or (direction == "buy_then_sell" and bought > 0 and sold_back < bought)
             )
-            if direction == "long_t":
-                long_days += 1
+            if direction == "sell_then_buy":
+                sell_then_buy_days += 1
                 if completed or intentional_abandon:
-                    long_cover += 1
+                    sell_then_buy_cover += 1
                     cover_count += 1
-            elif direction == "reverse_t":
-                reverse_days += 1
+            elif direction == "buy_then_sell":
+                buy_then_sell_days += 1
                 if completed or intentional_abandon:
-                    reverse_cover += 1
+                    buy_then_sell_cover += 1
                     cover_count += 1
             if not intentional_abandon and (
                 uncovered > 0 or (bought > 0 and sold_back == 0)
             ):
                 uncover_days += 1
             if day_pnl:
-                if direction == "long_t":
-                    long_pnl += day_pnl
-                elif direction == "reverse_t":
-                    reverse_pnl += day_pnl
+                if direction == "sell_then_buy":
+                    sell_then_buy_pnl += day_pnl
+                elif direction == "buy_then_sell":
+                    buy_then_sell_pnl += day_pnl
         sellable = shares  # 日末重置；不跟踪当日新买股的 T+1 冻结
 
         # 胜率分母含已开仓日（含 pnl=0 的 abandon），避免只统计有已实现盈亏的子集
@@ -622,12 +623,12 @@ def _walk_t0(
         "uncover_days": uncover_days,
         "skip_days": skip_count,
         "signal_skip_days": signal_skip_days,
-        "long_t_days": long_days,
-        "reverse_t_days": reverse_days,
-        "long_t_pnl": round(long_pnl, 2),
-        "reverse_t_pnl": round(reverse_pnl, 2),
-        "long_t_cover_days": long_cover,
-        "reverse_t_cover_days": reverse_cover,
+        "sell_then_buy_days": sell_then_buy_days,
+        "buy_then_sell_days": buy_then_sell_days,
+        "sell_then_buy_pnl": round(sell_then_buy_pnl, 2),
+        "buy_then_sell_pnl": round(buy_then_sell_pnl, 2),
+        "sell_then_buy_cover_days": sell_then_buy_cover,
+        "buy_then_sell_cover_days": buy_then_sell_cover,
         "minute_path_days": minute_days,
         "missing_minute_days": missing_minute_days,
         "t0_pnl_total": total_pnl,
@@ -641,20 +642,20 @@ def _walk_t0(
             "t0_ratio": cfg["t0_ratio"],
             "sell_trigger_pct": cfg["sell_trigger_pct"],
             "buy_trigger_pct": cfg["buy_trigger_pct"],
-            "buy_trigger_pct_long": cfg.get("buy_trigger_pct_long"),
-            "sell_trigger_pct_reverse": cfg.get("sell_trigger_pct_reverse"),
+            "buy_trigger_pct_sell_then_buy": cfg.get("buy_trigger_pct_sell_then_buy"),
+            "sell_trigger_pct_buy_then_sell": cfg.get("sell_trigger_pct_buy_then_sell"),
             "must_cover_same_day": cfg["must_cover_same_day"],
-            "must_cover_same_day_long": cfg.get("must_cover_same_day_long"),
-            "must_cover_same_day_reverse": cfg.get("must_cover_same_day_reverse"),
+            "must_cover_same_day_sell_then_buy": cfg.get("must_cover_same_day_sell_then_buy"),
+            "must_cover_same_day_buy_then_sell": cfg.get("must_cover_same_day_buy_then_sell"),
             "fill_mode": cfg["fill_mode"],
-            "fill_mode_long": cfg.get("fill_mode_long"),
-            "fill_mode_reverse": cfg.get("fill_mode_reverse"),
+            "fill_mode_sell_then_buy": cfg.get("fill_mode_sell_then_buy"),
+            "fill_mode_buy_then_sell": cfg.get("fill_mode_buy_then_sell"),
             "direction": cfg["direction"],
             "path_mode": cfg.get("path_mode"),
             "minute_period": cfg.get("minute_period"),
             "min_range_pct": cfg.get("min_range_pct"),
-            "min_range_pct_long": cfg.get("min_range_pct_long"),
-            "min_range_pct_reverse": cfg.get("min_range_pct_reverse"),
+            "min_range_pct_sell_then_buy": cfg.get("min_range_pct_sell_then_buy"),
+            "min_range_pct_buy_then_sell": cfg.get("min_range_pct_buy_then_sell"),
             "use_atr": cfg.get("use_atr"),
             "ref": cfg.get("ref"),
             "y_trade_enter": cfg.get("y_trade_enter") or cfg.get("y_trade_floor"),
@@ -666,8 +667,8 @@ def _walk_t0(
             "y_eod_tau_sign_gate": cfg.get("y_eod_tau_sign_gate") or cfg.get("y_eod_strong"),
             "y_trade_tau_sign_gate": cfg.get("y_trade_tau_sign_gate") or cfg.get("y_trade_strong"),
             "y_tau_enter": cfg.get("y_tau_enter"),
-            "y_tau_enter_long": cfg.get("y_tau_enter_long"),
-            "y_tau_enter_reverse": cfg.get("y_tau_enter_reverse"),
+            "y_tau_enter_sell_then_buy": cfg.get("y_tau_enter_sell_then_buy"),
+            "y_tau_enter_buy_then_sell": cfg.get("y_tau_enter_buy_then_sell"),
             "y_on_risk": cfg.get("y_on_risk"),
             "y_on_allow": cfg.get("y_on_allow"),
             "y_block_tau_nowcast_sign": cfg.get("y_block_tau_nowcast_sign"),
@@ -678,8 +679,8 @@ def _walk_t0(
             "y_tau_map": cfg.get("y_tau_map"),
             "y_use_path": cfg.get("y_use_path"),
             "y_path_enter": cfg.get("y_path_enter"),
-            "y_path_enter_long": cfg.get("y_path_enter_long"),
-            "y_path_enter_reverse": cfg.get("y_path_enter_reverse"),
+            "y_path_enter_sell_then_buy": cfg.get("y_path_enter_sell_then_buy"),
+            "y_path_enter_buy_then_sell": cfg.get("y_path_enter_buy_then_sell"),
             "y_path_required": cfg.get("y_path_required"),
             "y_gap_tier_mode": cfg.get("y_gap_tier_mode"),
             "y_gap_tier_pct": cfg.get("y_gap_tier_pct"),
@@ -687,17 +688,17 @@ def _walk_t0(
             "y_path_abandon_enabled": cfg.get("y_path_abandon_enabled"),
             "y_path_abandon_bars": cfg.get("y_path_abandon_bars"),
             "y_prefix_segment_enabled": cfg.get("y_prefix_segment_enabled"),
-            "y_prefix_segment_enabled_long": cfg.get("y_prefix_segment_enabled_long"),
-            "y_prefix_segment_enabled_reverse": cfg.get("y_prefix_segment_enabled_reverse"),
-            "y_prefix_upbar_ratio_reverse": cfg.get("y_prefix_upbar_ratio_reverse"),
-            "y_prefix_downbar_ratio_long": cfg.get("y_prefix_downbar_ratio_long"),
+            "y_prefix_segment_enabled_sell_then_buy": cfg.get("y_prefix_segment_enabled_sell_then_buy"),
+            "y_prefix_segment_enabled_buy_then_sell": cfg.get("y_prefix_segment_enabled_buy_then_sell"),
+            "y_prefix_upbar_ratio_buy_then_sell": cfg.get("y_prefix_upbar_ratio_buy_then_sell"),
+            "y_prefix_downbar_ratio_sell_then_buy": cfg.get("y_prefix_downbar_ratio_sell_then_buy"),
             "y_tau_entry_price_mult": cfg.get("y_tau_entry_price_mult"),
             "t0_pm_degrade": cfg.get("t0_pm_degrade"),
-            "t0_pm_degrade_long": cfg.get("t0_pm_degrade_long"),
-            "t0_pm_degrade_reverse": cfg.get("t0_pm_degrade_reverse"),
+            "t0_pm_degrade_sell_then_buy": cfg.get("t0_pm_degrade_sell_then_buy"),
+            "t0_pm_degrade_buy_then_sell": cfg.get("t0_pm_degrade_buy_then_sell"),
             "t0_pm_chase_interval_min": cfg.get("t0_pm_chase_interval_min"),
-            "t0_pm_chase_interval_min_long": cfg.get("t0_pm_chase_interval_min_long"),
-            "t0_pm_chase_interval_min_reverse": cfg.get("t0_pm_chase_interval_min_reverse"),
+            "t0_pm_chase_interval_min_sell_then_buy": cfg.get("t0_pm_chase_interval_min_sell_then_buy"),
+            "t0_pm_chase_interval_min_buy_then_sell": cfg.get("t0_pm_chase_interval_min_buy_then_sell"),
             "y_ratio_cut": cfg.get("y_ratio_cut"),
             "y_ratio_boost_cap": cfg.get("y_ratio_boost_cap"),
             "y_ratio_tau_soft_band": cfg.get("y_ratio_tau_soft_band"),

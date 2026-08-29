@@ -24,52 +24,103 @@ def coerce_cfg_bool(val: Any, default: bool = True) -> bool:
 
 
 def t0_dir_label(direction: Optional[str]) -> str:
-    """内部枚举 → 中文：reverse_t=正T，long_t=反T。"""
+    """内部枚举 → 中文：buy_then_sell=正T，sell_then_buy=反T。"""
     d = str(direction or "").strip().lower()
-    if d == "reverse_t":
+    if d == "buy_then_sell":
         return "正T"
-    if d == "long_t":
+    if d == "sell_then_buy":
         return "反T"
     return d or "—"
 
 
-# 方向键：*_long = 反T，*_reverse = 正T（枚举见 minute_path 模块说明）
-# t0_pm_degrade_{long|reverse}: HH:MM 之后禁新开（端点不含；已开未平则第二腿中点追价，否则 eod/放弃）
-# t0_pm_degrade:  legacy，等同 reverse 侧
-# t0_pm_chase_interval_min_{long|reverse}: 起算后每隔 N 分钟再中点一次（1–60）
-# t0_pm_chase_interval_min: legacy，等同 reverse 侧
-# must_cover_same_day_{long|reverse}: 反T默认不强制回补；正T默认同日卖旧
-# 第二腿触发（相对第一腿成交价）：buy_trigger_pct_long（反T买回）、sell_trigger_pct_reverse（正T卖旧）
-# 正T买触发 / 反T卖触发（相对开盘）已下线；共用 sell|buy_trigger_pct 仅兜底缩放/振幅
+# 方向键：*_buy_then_sell = 正T，*_sell_then_buy = 反T
+# t0_pm_degrade_*：HH:MM 之后禁新开（端点不含；已开未平则第二腿中点追价）
+# t0_pm_degrade：legacy，等同正T侧
+# must_cover_same_day_*：反T默认不强制回补；正T默认同日卖旧
+# 第二腿：sell_trigger_pct_buy_then_sell（正T卖旧）、buy_trigger_pct_sell_then_buy（反T买回）
 #
-# fill_mode:
-#   trigger     — 按触发价成交（默认，偏保守）
-#   mid         — 触发价与极值中点
-#   optimistic  — 卖用 high、买用 low（上界，对照用）
-# 正/反可分侧：min_range_pct_*、fill_mode_*（缺省回退共用键）
+# fill_mode: trigger | mid | optimistic；可分侧 fill_mode_*
 #
 # direction:
 #   dual_y  — y_trade 资格 · y_τ 主方向 · y_eod 目标价同向回升 · y_on 回补
-#   y_tau_map（dual_y 子选项）— scalp|trend|fixed_long|fixed_reverse
-#   （long_t / reverse_t / auto / signal 已下线；仅单测可经 load_t0_rules 显式传入）
+#   y_tau_map — trend|fixed_sell_then_buy|fixed_buy_then_sell
+#   （sell_then_buy / buy_then_sell / auto / signal 仅单测可显式传入）
 #
-# path_mode: 仅 first_touch（分钟时间序第一触达）。日线 dual_touch/veto/adverse 已删除。
+# path_mode: 仅 first_touch（分钟时间序第一触达）。
+
+# 已废弃命名（旧 long_t/reverse_t 与 *_long/*_reverse）；加载时丢弃，不迁移取值
+_DEAD_T0_KEYS = (
+    "buy_trigger_pct_long",
+    "sell_trigger_pct_reverse",
+    "sell_trigger_pct_long",  # 旧 leg1 误键
+    "buy_trigger_pct_reverse",  # 旧 leg1 误键
+    "must_cover_same_day_long",
+    "must_cover_same_day_reverse",
+    "fill_mode_long",
+    "fill_mode_reverse",
+    "min_range_pct_long",
+    "min_range_pct_reverse",
+    "y_tau_enter_long",
+    "y_tau_enter_reverse",
+    "y_path_enter_long",
+    "y_path_enter_reverse",
+    "y_path_abandon_bars_long",
+    "y_path_abandon_bars_reverse",
+    "y_prefix_segment_enabled_long",
+    "y_prefix_segment_enabled_reverse",
+    "y_prefix_upbar_ratio_reverse",
+    "y_prefix_downbar_ratio_long",
+    "t0_pm_degrade_long",
+    "t0_pm_degrade_reverse",
+    "t0_pm_chase_interval_min_long",
+    "t0_pm_chase_interval_min_reverse",
+    "y_n_break_high_reverse",
+    "y_n_shape_gate_reverse",
+    "y_prefix_n_rise_pct_reverse",
+    "y_prefix_pullback_pct_long",
+    "y_prefix_bounce_pct_reverse",
+)
+
+
+def drop_dead_t0_keys(cfg: dict) -> None:
+    """就地丢弃已废弃做 T 键（含旧 long/reverse 命名）。"""
+    if not isinstance(cfg, dict):
+        return
+    for k in _DEAD_T0_KEYS:
+        cfg.pop(k, None)
+
+
+def normalize_t0_direction(raw: Any, *, default: str = "dual_y") -> str:
+    """统一方向枚举：buy_then_sell / sell_then_buy / dual_y / auto / signal。"""
+    direction = str(raw or default).strip().lower()
+    if direction in {"反", "反t", "sell_then_buy"}:
+        return "sell_then_buy"
+    if direction in {"正", "正t", "buy_then_sell"}:
+        return "buy_then_sell"
+    if direction in {"sig", "score", "factor", "signal"}:
+        return "signal"
+    if direction in {"dual", "yhat", "dual_score", "multi_y", "dual_y"}:
+        return "dual_y"
+    if direction in {"auto", "buy_then_sell", "sell_then_buy"}:
+        return direction
+    return default
+
 
 DEFAULT_T0_RULES: Dict[str, Any] = {
     "enabled": True,
     "t0_ratio": 1.0,
-    "sell_trigger_pct": 1.0,
+    "sell_trigger_pct": 3.0,
     "buy_trigger_pct": 1.0,
-    "buy_trigger_pct_long": 5.0,
-    "sell_trigger_pct_reverse": 5.0,
+    "buy_trigger_pct_sell_then_buy": 1.0,
+    "sell_trigger_pct_buy_then_sell": 3.0,
     "must_cover_same_day": True,
-    "must_cover_same_day_long": False,
-    "must_cover_same_day_reverse": True,
+    "must_cover_same_day_sell_then_buy": False,
+    "must_cover_same_day_buy_then_sell": True,
     "lot_size": 100,
     "ref": "open",
     "fill_mode": "trigger",
-    "fill_mode_long": "trigger",
-    "fill_mode_reverse": "trigger",
+    "fill_mode_sell_then_buy": "trigger",
+    "fill_mode_buy_then_sell": "trigger",
     "direction": "dual_y",
     "auto_strong_pct": 0.5,
     "auto_weak_pct": 0.5,
@@ -80,9 +131,9 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "w_gap_atr": 0.15,
     "path_mode": "first_touch",
     "minute_period": "5",
-    "min_range_pct": 0.1,
-    "min_range_pct_long": 1.0,
-    "min_range_pct_reverse": 1.0,
+    "min_range_pct": 0.2,
+    "min_range_pct_sell_then_buy": 0.2,
+    "min_range_pct_buy_then_sell": 0.2,
     "use_atr": False,
     "atr_window": 14,
     "atr_sell_mult": 0.9,
@@ -92,20 +143,20 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_trade_strong": 0.1,
     "y_tau_enter": 0.01,
     # 反T / 正T 分侧入场；缺省与 y_tau_enter 同
-    "y_tau_enter_long": 0.01,
-    "y_tau_enter_reverse": 0.01,
+    "y_tau_enter_sell_then_buy": 0.01,
+    "y_tau_enter_buy_then_sell": 0.01,
     "y_path_enter": 0.01,
-    "y_path_enter_long": 0.01,
-    "y_path_enter_reverse": 0.01,
+    "y_path_enter_sell_then_buy": 0.01,
+    "y_path_enter_buy_then_sell": 0.01,
     "y_eod_enter": 0.01,
-    "y_eod_strong": 2.0,
+    "y_eod_strong": 0.1,
     "y_eod_prior": 0.01,
     "y_on_risk": 0.01,
     "y_on_allow": 0.01,
     "y_block_tau_nowcast_sign": True,
     "y_tau_nowcast_sign_eps": 0.05,
     "y_nc_enter": 0.01,
-    "y_nc_strong": 2.0,
+    "y_nc_strong": 1.0,
     "y_tau_map": "trend",
     "y_use_path": True,
     "y_path_required": False,
@@ -117,11 +168,11 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     # 正/反T：固定前缀 N=abandon_bars；齐窗一次判定后半阴阳占比（不滚动探极值）
     # 正T：后半 close>open ≥upbar_ratio；反T：后半 close<open ≥downbar_ratio
     "y_prefix_segment_enabled": True,
-    "y_prefix_segment_enabled_long": True,
-    "y_prefix_segment_enabled_reverse": True,
-    "y_prefix_upbar_ratio_reverse": 0.6,
-    "y_prefix_downbar_ratio_long": 0.6,
-    # 固定前缀确认根：第一腿价相对开盘 ≤/≥ |ŷ_τ|%×倍数（正T买上限 / 反T卖下限）；0=关
+    "y_prefix_segment_enabled_sell_then_buy": True,
+    "y_prefix_segment_enabled_buy_then_sell": True,
+    "y_prefix_upbar_ratio_buy_then_sell": 0.2,
+    "y_prefix_downbar_ratio_sell_then_buy": 0.2,
+    # 固定前缀确认根：允许带宽 = |ŷ_τ|%×倍数（越大越宽/越松；正T买上限 / 反T卖下限）；0=关
     "y_tau_entry_price_mult": 5.0,
     "y_ratio_boost_cap": 2.0,
     "y_ratio_cut": 0.60,
@@ -130,12 +181,12 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     # |y_τ| 刚过入场线时额外压低目标价（乘 y_ratio_cut）
     "y_ratio_tau_soft_band": 0.20,
     # 午后闸：到点后禁新开；已开未平则第二腿中点追价（正/反可分侧起算时刻）
-    "t0_pm_degrade": "13:00",
-    "t0_pm_degrade_long": "15:00",
-    "t0_pm_degrade_reverse": "13:00",
+    "t0_pm_degrade": "14:00",
+    "t0_pm_degrade_sell_then_buy": "15:00",
+    "t0_pm_degrade_buy_then_sell": "14:00",
     "t0_pm_chase_interval_min": 10,
-    "t0_pm_chase_interval_min_long": 10,
-    "t0_pm_chase_interval_min_reverse": 10,
+    "t0_pm_chase_interval_min_sell_then_buy": 10,
+    "t0_pm_chase_interval_min_buy_then_sell": 10,
     # dual_y 分数来源：compute=开盘信息集即时算（默认）；live_book/ledger 仅兜底或对照
     "y_score_source": "compute",
     "note": "A股T+1底仓做T；仅5m first_touch（已删除日线模拟）；非实盘。",
@@ -187,16 +238,14 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         for k, v in override.items():
             if v is not None:
                 cfg[k] = v
+    drop_dead_t0_keys(cfg)
     cfg["t0_ratio"] = max(0.05, min(float(cfg.get("t0_ratio") or 1.0), 1.0))
     # 纸面/回测生效路径在 core.execution.resolve 再强制为 1.0
-    cfg["sell_trigger_pct"] = max(0.1, min(float(cfg.get("sell_trigger_pct") or 1.0), 20.0))
+    cfg["sell_trigger_pct"] = max(0.1, min(float(cfg.get("sell_trigger_pct") or 3.0), 20.0))
     cfg["buy_trigger_pct"] = max(0.1, min(float(cfg.get("buy_trigger_pct") or 1.0), 20.0))
-    # 仅保留第二腿侧向触发；旧 leg1 侧向键丢弃
-    for _dead_trig in ("sell_trigger_pct_long", "buy_trigger_pct_reverse"):
-        cfg.pop(_dead_trig, None)
     for side_trig, base_k, default in (
-        ("buy_trigger_pct_long", "buy_trigger_pct", 5.0),
-        ("sell_trigger_pct_reverse", "sell_trigger_pct", 5.0),
+        ("buy_trigger_pct_sell_then_buy", "buy_trigger_pct", 1.0),
+        ("sell_trigger_pct_buy_then_sell", "sell_trigger_pct", 3.0),
     ):
         raw_trig = cfg.get(side_trig)
         if raw_trig is None or raw_trig == "":
@@ -233,7 +282,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     if fill not in {"trigger", "mid", "optimistic"}:
         fill = "trigger"
     cfg["fill_mode"] = fill
-    for fill_side in ("fill_mode_long", "fill_mode_reverse"):
+    for fill_side in ("fill_mode_sell_then_buy", "fill_mode_buy_then_sell"):
         if fill_side not in override_keys or cfg.get(fill_side) is None or cfg.get(fill_side) == "":
             cfg[fill_side] = fill
         else:
@@ -242,52 +291,40 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
                 fs = fill
             cfg[fill_side] = fs
     cfg["enabled"] = coerce_cfg_bool(cfg.get("enabled"), True)
-    cfg["must_cover_same_day_long"] = coerce_cfg_bool(
-        cfg.get("must_cover_same_day_long"), False
+    cfg["must_cover_same_day_sell_then_buy"] = coerce_cfg_bool(
+        cfg.get("must_cover_same_day_sell_then_buy"), False
     )
     # 正T侧：显式侧向键优先；否则若只写了 legacy must_cover_same_day，用其覆盖默认 True
     # （旧逻辑用 coerce(default_reverse=True, legacy) 会吞掉 legacy=False）
-    if "must_cover_same_day_reverse" in override_keys and cfg.get(
-        "must_cover_same_day_reverse"
+    if "must_cover_same_day_buy_then_sell" in override_keys and cfg.get(
+        "must_cover_same_day_buy_then_sell"
     ) is not None:
-        cfg["must_cover_same_day_reverse"] = coerce_cfg_bool(
-            cfg.get("must_cover_same_day_reverse"), True
+        cfg["must_cover_same_day_buy_then_sell"] = coerce_cfg_bool(
+            cfg.get("must_cover_same_day_buy_then_sell"), True
         )
     elif "must_cover_same_day" in override_keys and cfg.get("must_cover_same_day") is not None:
-        cfg["must_cover_same_day_reverse"] = coerce_cfg_bool(
+        cfg["must_cover_same_day_buy_then_sell"] = coerce_cfg_bool(
             cfg.get("must_cover_same_day"), True
         )
     else:
-        cfg["must_cover_same_day_reverse"] = coerce_cfg_bool(
-            cfg.get("must_cover_same_day_reverse"), True
+        cfg["must_cover_same_day_buy_then_sell"] = coerce_cfg_bool(
+            cfg.get("must_cover_same_day_buy_then_sell"), True
         )
     # legacy 键与正T侧对齐（旧读端，T+1 规则决定当日卖旧仓可行性）
-    cfg["must_cover_same_day"] = cfg["must_cover_same_day_reverse"]
+    cfg["must_cover_same_day"] = cfg["must_cover_same_day_buy_then_sell"]
     cfg["use_atr"] = coerce_cfg_bool(cfg.get("use_atr"), False)
-    direction = str(cfg.get("direction") or "auto").strip().lower()
-    # 中文 alias：正→reverse_t，反→long_t
-    if direction in {"long", "反", "反t", "fan"}:
-        direction = "long_t"
-    elif direction in {"reverse", "正", "正t", "zheng", "short_t"}:
-        direction = "reverse_t"
-    elif direction in {"sig", "score", "factor"}:
-        direction = "signal"
-    elif direction in {"dual", "yhat", "dual_score", "multi_y"}:
-        direction = "dual_y"
-    if direction not in {"auto", "long_t", "reverse_t", "signal", "dual_y"}:
-        direction = "dual_y"
-    cfg["direction"] = direction
+    cfg["direction"] = normalize_t0_direction(cfg.get("direction"), default="dual_y")
     # override_keys 已在函数开头定义
     _migrate_dual_y_gate_keys(cfg, override_keys)
     for yk, lo, hi, default in (
         ("y_eod_prior", 0.01, 5.0, 0.01),
         ("y_eod_enter", 0.01, 5.0, 0.01),
-        ("y_eod_strong", 0.05, 5.0, 2.0),
+        ("y_eod_strong", 0.05, 5.0, 0.1),
         ("y_trade_enter", 0.01, 5.0, 0.01),
         ("y_trade_strong", 0.05, 5.0, 0.1),
         ("y_tau_enter", 0.01, 5.0, 0.01),
-        ("y_tau_enter_long", 0.01, 5.0, 0.01),
-        ("y_tau_enter_reverse", 0.01, 5.0, 0.01),
+        ("y_tau_enter_sell_then_buy", 0.01, 5.0, 0.01),
+        ("y_tau_enter_buy_then_sell", 0.01, 5.0, 0.01),
         ("y_on_risk", 0.01, 10.0, 0.01),
         ("y_on_allow", 0.01, 10.0, 0.01),
         ("y_ratio_boost_cap", 1.0, 2.0, 2.0),
@@ -297,10 +334,10 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_ratio_tau_soft_band", 0.0, 2.0, 0.20),
         ("y_tau_nowcast_sign_eps", 0.0, 1.0, 0.05),
         ("y_nc_enter", 0.01, 10.0, 0.01),
-        ("y_nc_strong", 0.05, 10.0, 2.0),
+        ("y_nc_strong", 0.05, 10.0, 1.0),
         ("y_path_enter", 0.01, 5.0, 0.01),
-        ("y_path_enter_long", 0.01, 5.0, 0.01),
-        ("y_path_enter_reverse", 0.01, 5.0, 0.01),
+        ("y_path_enter_sell_then_buy", 0.01, 5.0, 0.01),
+        ("y_path_enter_buy_then_sell", 0.01, 5.0, 0.01),
         ("y_gap_tier_pct", 0.3, 8.0, 1.0),
     ):
         try:
@@ -324,10 +361,10 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["y_tau_enter_strong"] = float(cfg["y_tau_enter"])
     # 侧向门槛：未显式覆盖时跟随 y_tau_enter / y_path_enter（兼容旧纸面）
     for side_key, base_key in (
-        ("y_tau_enter_long", "y_tau_enter"),
-        ("y_tau_enter_reverse", "y_tau_enter"),
-        ("y_path_enter_long", "y_path_enter"),
-        ("y_path_enter_reverse", "y_path_enter"),
+        ("y_tau_enter_sell_then_buy", "y_tau_enter"),
+        ("y_tau_enter_buy_then_sell", "y_tau_enter"),
+        ("y_path_enter_sell_then_buy", "y_path_enter"),
+        ("y_path_enter_buy_then_sell", "y_path_enter"),
     ):
         if side_key not in override_keys or cfg.get(side_key) is None or cfg.get(side_key) == "":
             cfg[side_key] = float(cfg[base_key])
@@ -357,7 +394,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         cfg["y_path_abandon_bars"] = max(2, min(int(cfg.get("y_path_abandon_bars") or 12), 48))
     except (TypeError, ValueError):
         cfg["y_path_abandon_bars"] = 12
-    for ab_side in ("y_path_abandon_bars_long", "y_path_abandon_bars_reverse"):
+    for ab_side in ("y_path_abandon_bars_sell_then_buy", "y_path_abandon_bars_buy_then_sell"):
         if ab_side not in override_keys:
             cfg[ab_side] = int(cfg["y_path_abandon_bars"])
             continue
@@ -369,24 +406,31 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         except (TypeError, ValueError):
             cfg[ab_side] = int(cfg["y_path_abandon_bars"])
     cfg["y_prefix_segment_enabled"] = bool(cfg.get("y_prefix_segment_enabled", True))
-    cfg["y_prefix_segment_enabled_long"] = bool(
-        cfg.get("y_prefix_segment_enabled_long", cfg.get("y_prefix_segment_enabled", True))
-    )
-    cfg["y_prefix_segment_enabled_reverse"] = bool(
-        cfg.get("y_prefix_segment_enabled_reverse", cfg.get("y_prefix_segment_enabled", True))
-    )
+    for seg_side in (
+        "y_prefix_segment_enabled_sell_then_buy",
+        "y_prefix_segment_enabled_buy_then_sell",
+    ):
+        if seg_side in override_keys and cfg.get(seg_side) is not None:
+            cfg[seg_side] = bool(cfg.get(seg_side))
+        elif "y_prefix_segment_enabled" in override_keys:
+            # 只改总开关时，两侧跟随（避免 DEFAULT 侧向 True 盖住总关）
+            cfg[seg_side] = bool(cfg["y_prefix_segment_enabled"])
+        else:
+            cfg[seg_side] = bool(
+                cfg.get(seg_side, cfg.get("y_prefix_segment_enabled", True))
+            )
     try:
-        raw_up = cfg.get("y_prefix_upbar_ratio_reverse")
-        up_ratio = float(0.6 if raw_up is None or raw_up == "" else raw_up)
+        raw_up = cfg.get("y_prefix_upbar_ratio_buy_then_sell")
+        up_ratio = float(0.2 if raw_up is None or raw_up == "" else raw_up)
     except (TypeError, ValueError):
-        up_ratio = 0.6
-    cfg["y_prefix_upbar_ratio_reverse"] = max(0.0, min(up_ratio, 1.0))
+        up_ratio = 0.2
+    cfg["y_prefix_upbar_ratio_buy_then_sell"] = max(0.0, min(up_ratio, 1.0))
     try:
-        raw_dn = cfg.get("y_prefix_downbar_ratio_long")
-        dn_ratio = float(0.6 if raw_dn is None or raw_dn == "" else raw_dn)
+        raw_dn = cfg.get("y_prefix_downbar_ratio_sell_then_buy")
+        dn_ratio = float(0.2 if raw_dn is None or raw_dn == "" else raw_dn)
     except (TypeError, ValueError):
-        dn_ratio = 0.6
-    cfg["y_prefix_downbar_ratio_long"] = max(0.0, min(dn_ratio, 1.0))
+        dn_ratio = 0.2
+    cfg["y_prefix_downbar_ratio_sell_then_buy"] = max(0.0, min(dn_ratio, 1.0))
     try:
         raw_tau_px = cfg.get("y_tau_entry_price_mult")
         tau_px_mult = float(5.0 if raw_tau_px is None or raw_tau_px == "" else raw_tau_px)
@@ -404,13 +448,9 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         "t0_adverse_stop_atr_mult",
         "t0_time_stop",
         "t0_time_stop_underwater_only",
-        "y_n_break_high_reverse",  # 已下线：正T卖旧破前高
-        "y_n_shape_gate_reverse",  # 已下线：正T N字
-        "y_prefix_n_rise_pct_reverse",
-        "y_prefix_pullback_pct_long",  # 已下线：滚动回落/反弹
-        "y_prefix_bounce_pct_reverse",
     ):
         cfg.pop(_dead, None)
+    drop_dead_t0_keys(cfg)  # 含旧 long/reverse 命名与已下线 N 字键
     def _norm_pm_degrade(raw: Any, default: str) -> str:
         if raw is None:
             return default
@@ -421,21 +461,21 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
 
     pm_legacy = cfg.get("t0_pm_degrade")
     for side_key, default in (
-        ("t0_pm_degrade_long", "15:00"),
-        ("t0_pm_degrade_reverse", "13:00"),
+        ("t0_pm_degrade_sell_then_buy", "15:00"),
+        ("t0_pm_degrade_buy_then_sell", "14:00"),
     ):
         if side_key not in override_keys or cfg.get(side_key) is None:
-            if side_key == "t0_pm_degrade_reverse" and pm_legacy is not None:
+            if side_key == "t0_pm_degrade_buy_then_sell" and pm_legacy is not None:
                 cfg[side_key] = _norm_pm_degrade(pm_legacy, default)
             else:
                 cfg[side_key] = _norm_pm_degrade(cfg.get(side_key), default)
         else:
             cfg[side_key] = _norm_pm_degrade(cfg.get(side_key), default)
-    cfg["t0_pm_degrade"] = cfg["t0_pm_degrade_reverse"]
+    cfg["t0_pm_degrade"] = cfg["t0_pm_degrade_buy_then_sell"]
     legacy_iv = cfg.get("t0_pm_chase_interval_min")
-    for iv_key in ("t0_pm_chase_interval_min_long", "t0_pm_chase_interval_min_reverse"):
+    for iv_key in ("t0_pm_chase_interval_min_sell_then_buy", "t0_pm_chase_interval_min_buy_then_sell"):
         if iv_key not in override_keys or cfg.get(iv_key) is None or cfg.get(iv_key) == "":
-            if iv_key == "t0_pm_chase_interval_min_reverse" and legacy_iv is not None:
+            if iv_key == "t0_pm_chase_interval_min_buy_then_sell" and legacy_iv is not None:
                 raw_iv = legacy_iv
             else:
                 raw_iv = cfg.get(iv_key)
@@ -446,7 +486,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         except (TypeError, ValueError):
             iv = 10
         cfg[iv_key] = max(1, min(iv, 60))
-    cfg["t0_pm_chase_interval_min"] = cfg["t0_pm_chase_interval_min_reverse"]
+    cfg["t0_pm_chase_interval_min"] = cfg["t0_pm_chase_interval_min_buy_then_sell"]
     from core.t0.score_policy import normalize_y_tau_map
 
     cfg["y_tau_map"] = normalize_y_tau_map(cfg.get("y_tau_map"))
@@ -476,8 +516,8 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     if cfg.get("min_range_pct") is not None:
         cfg["min_range_pct"] = max(0.1, min(float(cfg["min_range_pct"]), 30.0))
     for mr_side, base_mr in (
-        ("min_range_pct_long", "min_range_pct"),
-        ("min_range_pct_reverse", "min_range_pct"),
+        ("min_range_pct_sell_then_buy", "min_range_pct"),
+        ("min_range_pct_buy_then_sell", "min_range_pct"),
     ):
         raw_mr = cfg.get(mr_side)
         if raw_mr is None or raw_mr == "":
@@ -494,21 +534,21 @@ def apply_side_exec_params(cfg: dict, direction: Optional[str]) -> Dict[str, Any
     """按正/反 T 覆盖执行参数：第二腿触发、振幅下限、成交模式。
 
     固定前缀下第一腿不看相对开盘触发；仅：
-      正T → sell_trigger_pct_reverse；反T → buy_trigger_pct_long。
+      正T → sell_trigger_pct_buy_then_sell；反T → buy_trigger_pct_sell_then_buy。
     """
     out = dict(cfg or {})
-    if direction not in {"long_t", "reverse_t"}:
+    if direction not in {"sell_then_buy", "buy_then_sell"}:
         return out
-    suf = "_reverse" if direction == "reverse_t" else "_long"
-    if direction == "reverse_t":
-        raw = out.get("sell_trigger_pct_reverse")
+    suf = "_buy_then_sell" if direction == "buy_then_sell" else "_sell_then_buy"
+    if direction == "buy_then_sell":
+        raw = out.get("sell_trigger_pct_buy_then_sell")
         if raw is not None and raw != "":
             try:
                 out["sell_trigger_pct"] = max(0.1, min(float(raw), 20.0))
             except (TypeError, ValueError):
                 pass
     else:
-        raw = out.get("buy_trigger_pct_long")
+        raw = out.get("buy_trigger_pct_sell_then_buy")
         if raw is not None and raw != "":
             try:
                 out["buy_trigger_pct"] = max(0.1, min(float(raw), 20.0))
@@ -527,14 +567,14 @@ def apply_side_exec_params(cfg: dict, direction: Optional[str]) -> Dict[str, Any
             out["fill_mode"] = fs
     mc = out.get(f"must_cover_same_day{suf}")
     if mc is not None:
-        default_mc = direction == "reverse_t"
+        default_mc = direction == "buy_then_sell"
         out["must_cover_same_day"] = coerce_cfg_bool(mc, default_mc)
     pm = out.get(f"t0_pm_degrade{suf}")
     if pm is not None:
         s = str(pm).strip()
         out["t0_pm_degrade"] = "" if s in {"", "0", "off", "none", "-"} else s
     elif not out.get("t0_pm_degrade"):
-        out["t0_pm_degrade"] = "15:00" if direction == "long_t" else "13:00"
+        out["t0_pm_degrade"] = "15:00" if direction == "sell_then_buy" else "14:00"
     iv = out.get(f"t0_pm_chase_interval_min{suf}")
     if iv is not None and iv != "":
         try:
@@ -555,10 +595,10 @@ def resolve_path_abandon_bars(cfg: dict, direction: Optional[str] = None) -> int
     """前缀放弃根数；优先侧向键，否则共用 ``y_path_abandon_bars``。"""
     d = str(direction or "").strip().lower()
     side_key = None
-    if d == "long_t":
-        side_key = "y_path_abandon_bars_long"
-    elif d == "reverse_t":
-        side_key = "y_path_abandon_bars_reverse"
+    if d == "sell_then_buy":
+        side_key = "y_path_abandon_bars_sell_then_buy"
+    elif d == "buy_then_sell":
+        side_key = "y_path_abandon_bars_buy_then_sell"
     raw = None
     if side_key is not None and (cfg or {}).get(side_key) is not None:
         raw = (cfg or {}).get(side_key)

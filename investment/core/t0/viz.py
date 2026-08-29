@@ -239,8 +239,8 @@ def _tau_oc_hit(y_tau: Optional[float], oc_real: Optional[float], *, eps: float 
 def build_y_tau_attribution(days: Sequence[dict]) -> Dict[str, Any]:
     """y_τ 方向命中 × 做T方向 × gap 分桶归因（成交日）。"""
     by_dir: Dict[str, Dict[str, Any]] = {
-        "long_t": {"n": 0, "pnl": 0.0, "hit": 0, "miss": 0, "flat": 0},
-        "reverse_t": {"n": 0, "pnl": 0.0, "hit": 0, "miss": 0, "flat": 0},
+        "sell_then_buy": {"n": 0, "pnl": 0.0, "hit": 0, "miss": 0, "flat": 0},
+        "buy_then_sell": {"n": 0, "pnl": 0.0, "hit": 0, "miss": 0, "flat": 0},
     }
     by_gap: Dict[str, Dict[str, Any]] = defaultdict(
         lambda: {"n": 0, "pnl": 0.0, "hit": 0, "miss": 0}
@@ -373,17 +373,17 @@ def _path_agreement(
     thr = float(path_enter)
     if abs(float(y_path)) <= thr:
         return "flat"
-    wants_long = float(y_path) > thr
-    wants_reverse = float(y_path) < -thr
-    if direction == "long_t":
-        if wants_long:
+    wants_sell_then_buy = float(y_path) > thr
+    wants_buy_then_sell = float(y_path) < -thr
+    if direction == "sell_then_buy":
+        if wants_sell_then_buy:
             return "agree"
-        if wants_reverse:
+        if wants_buy_then_sell:
             return "disagree"
-    elif direction == "reverse_t":
-        if wants_reverse:
+    elif direction == "buy_then_sell":
+        if wants_buy_then_sell:
             return "agree"
-        if wants_long:
+        if wants_sell_then_buy:
             return "disagree"
     return None
 
@@ -594,24 +594,28 @@ def is_traded_t0_day(day: dict) -> bool:
 
 
 def _cover_completed(day: dict) -> Optional[bool]:
+    from core.t0.minute_path import T0_INTENTIONAL_ABANDON_EXITS, T0_PENDING_EXIT
+
     sold = int(day.get("sold_qty") or 0)
     covered = int(day.get("covered_qty") or 0)
     bought = int(day.get("bought_qty") or 0)
     sold_back = int(day.get("sold_back_qty") or 0)
     direction = str(day.get("direction") or day.get("direction_used") or "")
     exit_reason = str(day.get("exit_reason") or "")
-    if direction == "long_t" and sold > 0:
+    if exit_reason == T0_PENDING_EXIT:
+        return False
+    if direction == "sell_then_buy" and sold > 0:
         if covered >= sold:
             return True
         # 反T主动放弃回补（含现金不足放弃）按设计计为完成侧
-        if exit_reason in ("abandon_cover", "abandon_cover_cash"):
+        if exit_reason in T0_INTENTIONAL_ABANDON_EXITS:
             return True
         return False
-    if direction == "reverse_t" and bought > 0:
+    if direction == "buy_then_sell" and bought > 0:
         if sold_back >= bought:
             return True
-        # 正T允许隔夜多头时主动放弃卖旧仓，与反T abandon 对称计完成
-        if exit_reason in ("abandon_cover", "abandon_cover_cash"):
+        # 正T允许隔夜多头 / 可卖旧仓不足时主动放弃卖旧，与反T abandon 对称计完成
+        if exit_reason in T0_INTENTIONAL_ABANDON_EXITS:
             return True
         return False
     if sold > 0 or bought > 0:
@@ -752,8 +756,8 @@ def build_t0_viz_payload(
     y_tau_hist: Dict[str, int] = defaultdict(int)
     trade_points: List[Dict[str, Any]] = []
     y_tau_scatter: List[Dict[str, Any]] = []
-    direction_split = {"long_t": 0, "reverse_t": 0}
-    pnl_by_direction = {"long_t": 0.0, "reverse_t": 0.0}
+    direction_split = {"sell_then_buy": 0, "buy_then_sell": 0}
+    pnl_by_direction = {"sell_then_buy": 0.0, "buy_then_sell": 0.0}
     traded_n = 0
     skip_n = 0
     signal_skip_n = 0
@@ -921,8 +925,8 @@ def build_t0_viz_payload(
             "pnl": pnl_sum,
             "trade_days": traded_n,
             "skip_days": skip_n,
-            "long_days": direction_split.get("long_t") or 0,
-            "reverse_days": direction_split.get("reverse_t") or 0,
+            "sell_then_buy_days": direction_split.get("sell_then_buy") or 0,
+            "buy_then_sell_days": direction_split.get("buy_then_sell") or 0,
             "participate_rate_pct": round(traded_n / total * 100.0, 2) if total else None,
             "score_coverage_pct": round(score_seen / score_total * 100.0, 2) if score_total else None,
         }
@@ -1002,8 +1006,8 @@ def merge_t0_viz_payloads(
     trade_points: List[Dict[str, Any]] = []
     y_tau_scatter: List[Dict[str, Any]] = []
     stock_contrib: List[Dict[str, Any]] = []
-    direction_split = {"long_t": 0, "reverse_t": 0}
-    pnl_by_direction = {"long_t": 0.0, "reverse_t": 0.0}
+    direction_split = {"sell_then_buy": 0, "buy_then_sell": 0}
+    pnl_by_direction = {"sell_then_buy": 0.0, "buy_then_sell": 0.0}
     traded_n = 0
     skip_n = 0
     signal_skip_n = 0
@@ -1050,11 +1054,11 @@ def merge_t0_viz_payloads(
             if isinstance(st, dict):
                 stock_contrib.append(dict(st))
         ds = p.get("direction_split") or {}
-        direction_split["long_t"] += int(ds.get("long_t") or 0)
-        direction_split["reverse_t"] += int(ds.get("reverse_t") or 0)
+        direction_split["sell_then_buy"] += int(ds.get("sell_then_buy") or 0)
+        direction_split["buy_then_sell"] += int(ds.get("buy_then_sell") or 0)
         pbd = p.get("pnl_by_direction") or {}
-        pnl_by_direction["long_t"] += float(pbd.get("long_t") or 0)
-        pnl_by_direction["reverse_t"] += float(pbd.get("reverse_t") or 0)
+        pnl_by_direction["sell_then_buy"] += float(pbd.get("sell_then_buy") or 0)
+        pnl_by_direction["buy_then_sell"] += float(pbd.get("buy_then_sell") or 0)
         traded_n += int(p.get("trade_count") or 0)
         skip_n += int(p.get("skip_count") or 0)
         sm = p.get("summary") or {}

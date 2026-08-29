@@ -3,7 +3,7 @@
 角色（PIT）：
   y_trade  — |ŷ_trade| 下限 + 强闸同 τ；额度主缩放
   y_eod    — |ŷ_eod| 下限 + 强闸同 τ；同向略抬目标价（y_eod_prior）
-  y_τ      — 盘中主方向（开→收）；正/反 T 可分 enter（y_tau_enter_long / _reverse）
+  y_τ      — 盘中主方向（开→收）；正/反 T 可分 enter（y_tau_enter_buy_then_sell / _sell_then_buy）
   y_on     — 尾盘是否强制回补
   y_nowcast— 对照 nc；|nc|≥enter；|nc|>strong 须与 y_τ 同号（OC 开比 y_nc_oc）
   y_path   — 分钟极值时间序 signed range%；与 y_τ 联合准入（同号+双 enter，可分正反）
@@ -22,12 +22,12 @@ from core.t0.config import t0_dir_label
 logger = logging.getLogger(__name__)
 
 # 默认阈值（ŷ 为百分比点；可用 rules 覆盖）
-DEFAULT_TRADE_ENTER = 0.02
+DEFAULT_TRADE_ENTER = 0.01
 DEFAULT_TRADE_STRONG = 0.1  # |y_trade|>此值时须 y_trade 与 y_τ 同号
 DEFAULT_EOD_PRIOR = 0.01
 DEFAULT_EOD_ENTER = 0.01  # |y_eod| 准入下限（%点）
 DEFAULT_EOD_STRONG = 0.1  # |y_eod|>此值时须 y_eod 与 y_τ 同号
-DEFAULT_TAU_ENTER = 0.02
+DEFAULT_TAU_ENTER = 0.01
 DEFAULT_ON_RISK = 0.01
 DEFAULT_ON_ALLOW = 0.01
 DEFAULT_RATIO_BOOST_CAP = 2.0
@@ -37,21 +37,21 @@ DEFAULT_EOD_ALIGN_BOOST = 1.10
 DEFAULT_RATIO_TAU_SOFT_BAND = 0.20
 DEFAULT_TAU_NOWCAST_SIGN_EPS = 0.05
 DEFAULT_NC_ENTER = 0.01
-DEFAULT_NC_STRONG = 3.0
-DEFAULT_PATH_ENTER = 0.02  # ŷ_path 极值序 %；|ŷ|≤enter 横盘跳过；与 y_tau_enter 同尺度
-DEFAULT_GAP_TIER_PCT = 1.5
-DEFAULT_PATH_ABANDON_BARS = 6
+DEFAULT_NC_STRONG = 1.0
+DEFAULT_PATH_ENTER = 0.01  # ŷ_path 极值序 %；|ŷ|≤enter 横盘跳过；与 y_tau_enter 同尺度
+DEFAULT_GAP_TIER_PCT = 1.0
+DEFAULT_PATH_ABANDON_BARS = 12
 
 # dual_y 下 y_τ 符号 → 正/反 T（映射见 minute_path）
 # scalp / trend: y_τ>0→正T；scalp 与 trend 同义，scalp 仅兼容
-# fixed_long / fixed_reverse: 忽略 y_τ 符号，固定方向（仍过 |y_τ| 门槛）
+# fixed_sell_then_buy / fixed_buy_then_sell: 忽略 y_τ 符号，固定方向（仍过 |y_τ| 门槛）
 Y_TAU_MAP_DEFAULT = "trend"
-Y_TAU_MAP_CHOICES = ("scalp", "trend", "fixed_long", "fixed_reverse")
+Y_TAU_MAP_CHOICES = ("scalp", "trend", "fixed_sell_then_buy", "fixed_buy_then_sell")
 Y_TAU_MAP_LABELS = {
     "scalp": "符号定方向（兼容别名）",
     "trend": "符号定方向",
-    "fixed_long": "固定反T",
-    "fixed_reverse": "固定正T",
+    "fixed_sell_then_buy": "固定反T",
+    "fixed_buy_then_sell": "固定正T",
 }
 
 # compute | live_book | ledger
@@ -719,32 +719,32 @@ def _tau_direction_sign(
     return 0
 
 
-def side_tau_enter(cfg: dict, *, for_reverse: bool) -> float:
-    """反T用 y_tau_enter_long，正T用 y_tau_enter_reverse；缺省回退 y_tau_enter。"""
+def side_tau_enter(cfg: dict, *, for_buy_then_sell: bool) -> float:
+    """反T用 y_tau_enter_sell_then_buy，正T用 y_tau_enter_buy_then_sell；缺省回退 y_tau_enter。"""
     base = _cfg_float(cfg, "y_tau_enter", DEFAULT_TAU_ENTER)
-    key = "y_tau_enter_reverse" if for_reverse else "y_tau_enter_long"
+    key = "y_tau_enter_buy_then_sell" if for_buy_then_sell else "y_tau_enter_sell_then_buy"
     raw = _f(cfg.get(key))
     v = float(base if raw is None else raw)
     return max(0.01, v)
 
 
-def side_path_enter(cfg: dict, *, for_reverse: bool) -> float:
+def side_path_enter(cfg: dict, *, for_buy_then_sell: bool) -> float:
     """正/反 path 入场；缺省回退 y_path_enter（再缺则用对应侧 τ enter）。"""
-    tau_side = side_tau_enter(cfg, for_reverse=for_reverse)
+    tau_side = side_tau_enter(cfg, for_buy_then_sell=for_buy_then_sell)
     base = _cfg_float(cfg, "y_path_enter", tau_side)
-    key = "y_path_enter_reverse" if for_reverse else "y_path_enter_long"
+    key = "y_path_enter_buy_then_sell" if for_buy_then_sell else "y_path_enter_sell_then_buy"
     raw = _f(cfg.get(key))
     v = float(base if raw is None else raw)
     return max(0.01, v)
 
 
 def enters_for_y_tau(cfg: dict, y_tau: float) -> Tuple[float, float, bool]:
-    """按 y_τ 符号选门槛。Returns (tau_enter, path_enter, for_reverse)。y_τ=0 → reverse 侧仅作占位。"""
-    for_reverse = float(y_tau) >= 0
+    """按 y_τ 符号选门槛。Returns (tau_enter, path_enter, for_buy_then_sell)。y_τ=0 → 正T侧仅作占位。"""
+    for_buy_then_sell = float(y_tau) >= 0
     return (
-        side_tau_enter(cfg, for_reverse=for_reverse),
-        side_path_enter(cfg, for_reverse=for_reverse),
-        for_reverse,
+        side_tau_enter(cfg, for_buy_then_sell=for_buy_then_sell),
+        side_path_enter(cfg, for_buy_then_sell=for_buy_then_sell),
+        for_buy_then_sell,
     )
 
 
@@ -783,8 +783,8 @@ def t0_confidence_scale(scores: dict, cfg: dict) -> float:
     tau_enter = DEFAULT_TAU_ENTER
     tau_enter_neg = DEFAULT_TAU_ENTER
     if y_tau is not None:
-        tau_enter = side_tau_enter(cfg, for_reverse=True)
-        tau_enter_neg = side_tau_enter(cfg, for_reverse=False)
+        tau_enter = side_tau_enter(cfg, for_buy_then_sell=True)
+        tau_enter_neg = side_tau_enter(cfg, for_buy_then_sell=False)
         te = tau_enter if y_tau >= 0 else tau_enter_neg
         if abs(y_tau) >= te:
             if soft_band > 0 and abs(y_tau) < te + soft_band:
@@ -841,10 +841,6 @@ def normalize_y_tau_map(raw: Any) -> str:
         "momentum": "trend",
         "invert": "trend",
         "scalp": "trend",  # 语义修正后与 trend 等价
-        "long": "fixed_long",
-        "always_long": "fixed_long",
-        "reverse": "fixed_reverse",
-        "always_reverse": "fixed_reverse",
     }
     mode = aliases.get(mode, mode)
     if mode not in Y_TAU_MAP_CHOICES:
@@ -1053,7 +1049,7 @@ def _gap_tier_direction_override(
     g = float(gap_pct)
     tau_dir = direction_from_y_tau_sign(tau_sign, cfg)
     if mode == "revert":
-        want = "long_t" if g > 0 else "reverse_t"
+        want = "sell_then_buy" if g > 0 else "buy_then_sell"
         if tau_dir == want:
             return None
         return {
@@ -1065,7 +1061,7 @@ def _gap_tier_direction_override(
             ),
         }
     # skip_opposite：大缺口日禁止「顺势」映射（高开跳过正T、低开跳过反T）
-    if g >= tier and tau_dir == "reverse_t":
+    if g >= tier and tau_dir == "buy_then_sell":
         return {
             "skip": True,
             "direction": None,
@@ -1073,7 +1069,7 @@ def _gap_tier_direction_override(
                 f"dual_y[gap_tier]：高开{g:+.2f}%≥{tier}% 跳过正T（τ顺势映射，追高风险）"
             ),
         }
-    if g <= -tier and tau_dir == "long_t":
+    if g <= -tier and tau_dir == "sell_then_buy":
         return {
             "skip": True,
             "direction": None,
@@ -1152,18 +1148,18 @@ def _attach_y_path_to_item(item: dict, *, hist_bars: Optional[Sequence[dict]] = 
 
 
 def direction_from_y_tau_sign(tau_sign: int, cfg: dict) -> str:
-    """由 y_τ 符号（±1）与 y_tau_map 解析 long_t / reverse_t。
+    """由 y_τ 符号（±1）与 y_tau_map 解析 sell_then_buy / buy_then_sell。
 
-    y_τ>0 → reverse_t（正T）；y_τ<0 → long_t（反T）。
+    y_τ>0 → buy_then_sell（正T）；y_τ<0 → sell_then_buy（反T）。
     scalp 与 trend 同义，scalp 仅兼容。
     """
     mode = normalize_y_tau_map(cfg.get("y_tau_map"))
-    if mode == "fixed_long":
-        return "long_t"
-    if mode == "fixed_reverse":
-        return "reverse_t"
+    if mode == "fixed_sell_then_buy":
+        return "sell_then_buy"
+    if mode == "fixed_buy_then_sell":
+        return "buy_then_sell"
     # scalp / trend：符号定方向
-    return "reverse_t" if tau_sign > 0 else "long_t"
+    return "buy_then_sell" if tau_sign > 0 else "sell_then_buy"
 
 
 def resolve_dual_y_direction(
@@ -1205,20 +1201,20 @@ def resolve_dual_y_direction(
     if strong_legacy is not None and strong_legacy > tau_enter:
         tau_enter = strong_legacy
 
-    tau_enter_long = side_tau_enter(
-        {**cfg, "y_tau_enter": tau_enter}, for_reverse=False
+    tau_enter_sell_then_buy = side_tau_enter(
+        {**cfg, "y_tau_enter": tau_enter}, for_buy_then_sell=False
     )
-    tau_enter_reverse = side_tau_enter(
-        {**cfg, "y_tau_enter": tau_enter}, for_reverse=True
+    tau_enter_buy_then_sell = side_tau_enter(
+        {**cfg, "y_tau_enter": tau_enter}, for_buy_then_sell=True
     )
     path_enter = _cfg_float(cfg, "y_path_enter", tau_enter)
-    path_enter_long = side_path_enter(
+    path_enter_sell_then_buy = side_path_enter(
         {**cfg, "y_path_enter": path_enter, "y_tau_enter": tau_enter},
-        for_reverse=False,
+        for_buy_then_sell=False,
     )
-    path_enter_reverse = side_path_enter(
+    path_enter_buy_then_sell = side_path_enter(
         {**cfg, "y_path_enter": path_enter, "y_tau_enter": tau_enter},
-        for_reverse=True,
+        for_buy_then_sell=True,
     )
 
     # 新键优先；旧 y_block_trade_tau_sign 仅作迁移别名；皆缺则默认开
@@ -1267,11 +1263,11 @@ def resolve_dual_y_direction(
         "y_check": y_check,
         "gap_pct": gap_pct,
         "y_tau_enter": tau_enter,
-        "y_tau_enter_long": tau_enter_long,
-        "y_tau_enter_reverse": tau_enter_reverse,
+        "y_tau_enter_sell_then_buy": tau_enter_sell_then_buy,
+        "y_tau_enter_buy_then_sell": tau_enter_buy_then_sell,
         "y_path_enter": path_enter,
-        "y_path_enter_long": path_enter_long,
-        "y_path_enter_reverse": path_enter_reverse,
+        "y_path_enter_sell_then_buy": path_enter_sell_then_buy,
+        "y_path_enter_buy_then_sell": path_enter_buy_then_sell,
         "y_nc_enter": nc_enter,
         "y_nc_strong": nc_strong,
         "y_nowcast_enter": nc_strong,
@@ -1316,19 +1312,19 @@ def resolve_dual_y_direction(
             "signal_skip": True,
         }
 
-    side_tau, side_path, for_reverse = enters_for_y_tau(
+    side_tau, side_path, for_buy_then_sell = enters_for_y_tau(
         {
             **cfg,
             "y_tau_enter": tau_enter,
-            "y_tau_enter_long": tau_enter_long,
-            "y_tau_enter_reverse": tau_enter_reverse,
+            "y_tau_enter_sell_then_buy": tau_enter_sell_then_buy,
+            "y_tau_enter_buy_then_sell": tau_enter_buy_then_sell,
             "y_path_enter": path_enter,
-            "y_path_enter_long": path_enter_long,
-            "y_path_enter_reverse": path_enter_reverse,
+            "y_path_enter_sell_then_buy": path_enter_sell_then_buy,
+            "y_path_enter_buy_then_sell": path_enter_buy_then_sell,
         },
         y_tau,
     )
-    side_tag = "正T" if for_reverse else "反T"
+    side_tag = "正T" if for_buy_then_sell else "反T"
 
     if use_path and y_path is not None:
         enter_ok, enter_reason = _tau_path_enter_gate(
@@ -1387,7 +1383,7 @@ def resolve_dual_y_direction(
             "signal_skip": True,
         }
 
-    if y_trade is not None and tau_map not in ("fixed_long", "fixed_reverse"):
+    if y_trade is not None and tau_map not in ("fixed_sell_then_buy", "fixed_buy_then_sell"):
         trade_ok, trade_reason = _strong_head_tau_sign_gate(
             y_trade, y_tau, trade_strong, "y_trade", sign_eps=sign_eps
         )
@@ -1402,7 +1398,7 @@ def resolve_dual_y_direction(
                 "signal_skip": True,
             }
 
-    if y_eod is not None and tau_map not in ("fixed_long", "fixed_reverse"):
+    if y_eod is not None and tau_map not in ("fixed_sell_then_buy", "fixed_buy_then_sell"):
         if abs(y_eod) < eod_enter:
             return {
                 "direction": None,
@@ -1491,7 +1487,7 @@ def resolve_dual_y_direction(
             "signal_skip": True,
         }
 
-    if direction == "reverse_t" and not (cash > 0 and shares > 0):
+    if direction == "buy_then_sell" and not (cash > 0 and shares > 0):
         return {
             "direction": None,
             "skip": True,
@@ -1546,7 +1542,7 @@ def resolve_cover_policy(
       ``abandon_cover_cash``——与正T「卖旧必成」不对称，属现金结构而非漏闸。
     - **正T**：默认强制卖回旧仓；表单关「当日回补」且 y_on 强烈看涨时可隔夜多头。
     """
-    if direction == "long_t":
+    if direction == "sell_then_buy":
         if bool(cfg.get("must_cover_same_day")):
             return {
                 "must_cover": True,
@@ -1601,7 +1597,7 @@ def resolve_cover_policy(
         }
 
     # |y_on| 很大：仅正T在 y_on 强烈看涨时允许隔夜多头敞口
-    if direction == "reverse_t" and y_on >= on_allow:
+    if direction == "buy_then_sell" and y_on >= on_allow:
         return {
             "must_cover": False,
             "reason": f"y_on={y_on:.3f}%支持正T隔夜多头",

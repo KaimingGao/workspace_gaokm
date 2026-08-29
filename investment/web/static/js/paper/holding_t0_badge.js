@@ -8,7 +8,7 @@ export function holdingT0BadgeHtml(t0, escapeHtml = (s) => String(s ?? "")) {
   const direction = String(t0.direction || "");
   const cls = [
     "paper-hold-t0-badge",
-    direction === "reverse_t" ? "is-rev" : direction === "long_t" ? "is-long" : "",
+    direction === "buy_then_sell" ? "is-buy-then-sell" : direction === "sell_then_buy" ? "is-sell-then-buy" : "",
     phase === "after_leg1" ? "is-leg1" : "",
     phase === "idle" ? "is-idle" : "",
     phase === "done" ? "is-done" : "",

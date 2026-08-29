@@ -216,11 +216,11 @@ export function buildT0MetricCards(data) {
     },
     {
       label: "正/反 PnL",
-      value: `${fmtMoney(data.reverse_t_pnl, { signed: true })} / ${fmtMoney(data.long_t_pnl, { signed: true })}`,
+      value: `${fmtMoney(data.buy_then_sell_pnl, { signed: true })} / ${fmtMoney(data.sell_then_buy_pnl, { signed: true })}`,
     },
     {
       label: "正/反日",
-      value: `${data.reverse_t_days ?? 0} / ${data.long_t_days ?? 0}`,
+      value: `${data.buy_then_sell_days ?? 0} / ${data.sell_then_buy_days ?? 0}`,
     },
     {
       label: "缺分钟跳过",
@@ -320,8 +320,8 @@ export function buildT0ReportHtml(data, opts = {}) {
     }),
     metricCell(
       "正T / 反T",
-      `${fmtMoney(data.reverse_t_pnl, { signed: true })} / ${fmtMoney(data.long_t_pnl, { signed: true })}`,
-      { tip: `成交日 ${data.reverse_t_days ?? 0} 正 · ${data.long_t_days ?? 0} 反` }
+      `${fmtMoney(data.buy_then_sell_pnl, { signed: true })} / ${fmtMoney(data.sell_then_buy_pnl, { signed: true })}`,
+      { tip: `成交日 ${data.buy_then_sell_days ?? 0} 正 · ${data.sell_then_buy_days ?? 0} 反` }
     ),
   ]);
 

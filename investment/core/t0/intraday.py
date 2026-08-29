@@ -122,8 +122,8 @@ def load_intraday_state() -> Dict[str, Any]:
         return {}
 
 
-REBALANCE_T0_BLOCK_REVERSE = "做T正T进行中（已买待卖旧仓），调仓跳过卖出"
-REBALANCE_T0_BLOCK_LONG = "做T反T已卖待回补，调仓跳过重复卖出"
+REBALANCE_T0_BLOCK_BUY_THEN_SELL = "做T正T进行中（已买待卖旧仓），调仓跳过卖出"
+REBALANCE_T0_BLOCK_SELL_THEN_BUY = "做T反T已卖待回补，调仓跳过重复卖出"
 
 
 def open_t0_leg_rebalance_block(st: Optional[dict]) -> Optional[str]:
@@ -137,10 +137,10 @@ def open_t0_leg_rebalance_block(st: Optional[dict]) -> Optional[str]:
     if phase != PHASE_AFTER_LEG1 and legs <= 0:
         return None
     direction = str(st.get("direction") or "").strip().lower()
-    if direction == "reverse_t":
-        return REBALANCE_T0_BLOCK_REVERSE
-    if direction == "long_t":
-        return REBALANCE_T0_BLOCK_LONG
+    if direction == "buy_then_sell":
+        return REBALANCE_T0_BLOCK_BUY_THEN_SELL
+    if direction == "sell_then_buy":
+        return REBALANCE_T0_BLOCK_SELL_THEN_BUY
     if legs > 0:
         return "做T未平腿进行中，调仓跳过卖出"
     return None
@@ -192,7 +192,7 @@ def holding_t0_intraday_status(st: Optional[dict]) -> Optional[Dict[str, Any]]:
     wait_reason = str(st.get("wait_reason") or "").strip()
     reason = str(st.get("reason") or snap.get("reason") or wait_reason or "").strip()
 
-    dir_label = "正T" if direction == "reverse_t" else "反T" if direction == "long_t" else None
+    dir_label = "正T" if direction == "buy_then_sell" else "反T" if direction == "sell_then_buy" else None
     phase_label = {
         PHASE_IDLE: "盯",
         PHASE_AFTER_LEG1: "一腿",
@@ -207,9 +207,9 @@ def holding_t0_intraday_status(st: Optional[dict]) -> Optional[Dict[str, Any]]:
     elif phase == PHASE_DONE:
         title = reason or "当日做 T 往返已完成"
     elif phase == PHASE_AFTER_LEG1:
-        if direction == "reverse_t":
+        if direction == "buy_then_sell":
             title = "正T · 已买待卖旧仓 · 调仓已跳过卖出"
-        elif direction == "long_t":
+        elif direction == "sell_then_buy":
             title = "反T · 已卖待回补 · 调仓已跳过重复卖出"
         else:
             title = wait_reason or "已落第一腿，等待第二触达 / 收盘回补"
@@ -778,8 +778,8 @@ def _intraday_setup(
 
     cfg_pre = dict(cfg)
     try:
-        ml = cfg.get("min_range_pct_long")
-        mr = cfg.get("min_range_pct_reverse")
+        ml = cfg.get("min_range_pct_sell_then_buy")
+        mr = cfg.get("min_range_pct_buy_then_sell")
         if ml is not None and mr is not None:
             cfg_pre["min_range_pct"] = min(float(ml), float(mr))
     except (TypeError, ValueError):

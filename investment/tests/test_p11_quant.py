@@ -875,7 +875,7 @@ class TestClusterSellHysteresis(unittest.TestCase):
         # min_cash_pct=0 以隔离本用例（默认 20% 底仓会把 spendable 压到 5k）
         self.assertEqual(int(buys[0]["shares"]), 1000)
 
-    def test_rebalance_keeps_min_cash_pct_for_reverse_t(self):
+    def test_rebalance_keeps_min_cash_pct_for_buy_then_sell_t(self):
         """策略调仓买腿保留净值≥20%现金（正T低吸底仓需要现金）；不得花光。"""
         paper = {
             "cash": 100000.0,

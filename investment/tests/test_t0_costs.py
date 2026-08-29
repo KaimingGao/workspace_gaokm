@@ -13,7 +13,7 @@ if ROOT not in sys.path:
 
 class TestT0Costs(unittest.TestCase):
     def test_simple_cn_pnl_matches_cash_delta(self):
-        from core.t0.minute_path import _first_touch_long
+        from core.t0.minute_path import _first_touch_sell_then_buy
 
         minute_bars = [
             {"datetime": "2026-08-25 09:35:00", "open": 10.0, "high": 10.0, "low": 10.0, "close": 10.0},
@@ -22,7 +22,7 @@ class TestT0Costs(unittest.TestCase):
         ]
         bar = {"date": "2026-08-25", "open": 10.0, "high": 10.6, "low": 9.8, "close": 10.0}
         paper = {"cost_model": "simple_cn", "cost_params": {}}
-        out = _first_touch_long(
+        out = _first_touch_sell_then_buy(
             minute_bars=minute_bars,
             bar=bar,
             shares=1000,
@@ -77,7 +77,7 @@ class TestT0Costs(unittest.TestCase):
     def test_eod_cover_abandons_when_buy_fees_exceed_sell_net(self):
         """反T must_cover：卖出净得不够买回（含佣金）→ abandon_cover_cash。"""
         from core.paper.costs import cost_params
-        from core.t0.minute_path import _first_touch_long
+        from core.t0.minute_path import _first_touch_sell_then_buy
 
         minute_bars = [
             {"datetime": "2026-08-25 09:35:00", "open": 10.0, "high": 10.0, "low": 10.0, "close": 10.0},
@@ -87,7 +87,7 @@ class TestT0Costs(unittest.TestCase):
         ]
         bar = {"date": "2026-08-25", "open": 10.0, "high": 10.6, "low": 10.0, "close": 10.5}
         paper = {"cost_model": "simple_cn", "cost_params": {}}
-        out = _first_touch_long(
+        out = _first_touch_sell_then_buy(
             minute_bars=minute_bars,
             bar=bar,
             shares=1000,
@@ -134,10 +134,10 @@ class TestT0Costs(unittest.TestCase):
         self.assertAlmostEqual(float(paper["cash"]), 100.0)
         self.assertEqual(len(paper.get("trades") or []), 0)
 
-    def test_reverse_leg1_shrinks_for_fees(self):
+    def test_buy_then_sell_leg1_shrinks_for_fees(self):
         """正T低吸：含佣金后缩量，现金不转负。"""
         from core.paper.costs import cost_params
-        from core.t0.minute_path import _first_touch_reverse
+        from core.t0.minute_path import _first_touch_buy_then_sell
 
         # 触发价 10.395×1000+佣金5=10400；现金略少 → 必须缩量
         minute_bars = [
@@ -147,7 +147,7 @@ class TestT0Costs(unittest.TestCase):
         ]
         bar = {"date": "2026-08-25", "open": 10.5, "high": 11.2, "low": 10.3, "close": 11.0}
         paper = {"cost_model": "simple_cn", "cost_params": {}}
-        out = _first_touch_reverse(
+        out = _first_touch_buy_then_sell(
             minute_bars=minute_bars,
             bar=bar,
             shares=1000,
@@ -177,10 +177,10 @@ class TestT0Costs(unittest.TestCase):
         buy = next(t for t in out["trades"] if t.get("side") == "t0_buy")
         self.assertGreaterEqual(10399.0 + float(buy.get("net_cash_delta") or 0), -1e-6)
 
-    def test_long_midday_cover_skips_when_not_self_funded(self):
+    def test_sell_then_buy_midday_cover_skips_when_not_self_funded(self):
         """反T盘中追价买回若使现金转负，则本根不成交（与 EOD 闸一致）。"""
         from core.paper.costs import cost_params
-        from core.t0.minute_path import _first_touch_long
+        from core.t0.minute_path import _first_touch_sell_then_buy
 
         # 卖@10.5 后追价中点抬到接近/高于卖价，simple_cn 下净现金不够买回
         minute_bars = [
@@ -192,7 +192,7 @@ class TestT0Costs(unittest.TestCase):
         ]
         bar = {"date": "2026-08-25", "open": 10.0, "high": 10.6, "low": 10.0, "close": 10.5}
         paper = {"cost_model": "simple_cn", "cost_params": {}}
-        out = _first_touch_long(
+        out = _first_touch_sell_then_buy(
             minute_bars=minute_bars,
             bar=bar,
             shares=1000,
@@ -229,10 +229,10 @@ class TestT0Costs(unittest.TestCase):
         """正T研究现金补足不得用 T 日 close（前视）。"""
         from unittest.mock import patch
 
-        from core.t0.backtest import _research_cash_for_reverse, _walk_t0
+        from core.t0.backtest import _research_cash_for_buy_then_sell, _walk_t0
 
         captured: list[float] = []
-        real_fn = _research_cash_for_reverse
+        real_fn = _research_cash_for_buy_then_sell
 
         def spy(shares, px, **kw):
             captured.append(float(px))
@@ -251,7 +251,7 @@ class TestT0Costs(unittest.TestCase):
             ]
         }
         rules = {
-            "direction": "reverse_t",
+            "direction": "buy_then_sell",
             "t0_ratio": 0.4,
             "sell_trigger_pct": 2.0,
             "buy_trigger_pct": 1.0,
@@ -262,7 +262,7 @@ class TestT0Costs(unittest.TestCase):
             "y_prefix_segment_enabled": False,
             "lot_size": 100,
         }
-        with patch("core.t0.backtest._research_cash_for_reverse", side_effect=spy):
+        with patch("core.t0.backtest._research_cash_for_buy_then_sell", side_effect=spy):
             _walk_t0(
                 [bar],
                 initial_shares=1000,
@@ -278,7 +278,7 @@ class TestT0Costs(unittest.TestCase):
         self.assertNotIn(15.0, captured, captured)
         self.assertTrue(all(px == 10.0 for px in captured), captured)
 
-    def test_holdings_long_t_exposure_when_shared_cash_blocks_cover(self):
+    def test_holdings_sell_then_buy_exposure_when_shared_cash_blocks_cover(self):
         """共享现金闸掉买回腿时，须按未回补敞口重算 exposure_pnl。"""
         from core.t0.rules import simulate_t0_on_holdings
 
@@ -299,12 +299,13 @@ class TestT0Costs(unittest.TestCase):
                     "t0_ratio": 0.4,
                     "sell_trigger_pct": 2.0,
                     "buy_trigger_pct": 1.5,
-                    "direction": "long_t",
+                    "direction": "sell_then_buy",
                     "fill_mode": "trigger",
                     "path_mode": "first_touch",
                     "use_atr": False,
                     "min_range_pct": 0.5,
                     "y_prefix_segment_enabled": False,
+                    "y_path_abandon_bars": 2,
                     "must_cover_same_day": False,
                     "lot_size": 100,
                 }

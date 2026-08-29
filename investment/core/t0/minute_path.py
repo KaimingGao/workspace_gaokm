@@ -1,6 +1,6 @@
 """做 T：分钟线第一触达路径（已删除日线 high/low 代理）。
 
-方向：long_t=反T（先卖后买），reverse_t=正T（先买后卖）。
+方向：sell_then_buy=反T（先卖后买），buy_then_sell=正T（先买后卖）。
 """
 
 
@@ -35,12 +35,18 @@ from core.t0.rules import (
     scale_triggers_with_atr,
 )
 
+# 主动放弃回补（已入账 → 计完成）；盘中前缀未完成为 defer_eod_pending（不计完成）
+T0_INTENTIONAL_ABANDON_EXITS = frozenset(
+    {"abandon_cover", "abandon_cover_cash", "abandon_cover_cap"}
+)
+T0_PENDING_EXIT = "defer_eod_pending"
+
 
 def _tplus1_skip_reason(*, side: str, shares: float, sellable: float, lot: int) -> str:
     """可卖不足 1 手：主因是 T+1，不是动仓比例。"""
     sh = int(shares)
     sv = int(sellable)
-    if side == "reverse_t":
+    if side == "buy_then_sell":
         if sv <= 0:
             return (
                 f"正T：可卖旧仓 0 股（持仓 {sh} 全被 T+1 锁定），"
@@ -118,14 +124,10 @@ def _hm_reached(
 
 def _allows_eod_cover(
     minute_bars: Sequence[dict],
-    session_bars: Optional[Sequence[dict]],
     *,
     defer_eod: bool,
 ) -> bool:
     """defer_eod 时仅末根 ≥14:55 才强制回补，避免盘中前缀误当收盘。"""
-    sess = session_bars if session_bars is not None else minute_bars
-    if len(minute_bars) < len(sess):
-        return False
     if not defer_eod:
         return True
     if not minute_bars:
@@ -307,10 +309,10 @@ def _prefix_bar_ratio_params(cfg: dict, direction: str) -> tuple[int, float]:
     """固定前缀：根数 + 后半段阳/阴K占比阈值（正T上涨 / 反T下跌）。"""
     direction = str(direction or "").strip().lower()
     bars = resolve_path_abandon_bars(cfg or {}, direction)
-    if direction == "long_t":
-        key, default = "y_prefix_downbar_ratio_long", 0.6
+    if direction == "sell_then_buy":
+        key, default = "y_prefix_downbar_ratio_sell_then_buy", 0.2
     else:
-        key, default = "y_prefix_upbar_ratio_reverse", 0.6
+        key, default = "y_prefix_upbar_ratio_buy_then_sell", 0.2
     try:
         raw = (cfg or {}).get(key)
         ratio = float(default if raw is None or raw == "" else raw)
@@ -321,7 +323,7 @@ def _prefix_bar_ratio_params(cfg: dict, direction: str) -> tuple[int, float]:
 
 def _prefix_upbar_ratio_params(cfg: dict) -> tuple[int, float]:
     """兼容别名：正T固定前缀参数。"""
-    return _prefix_bar_ratio_params(cfg or {}, "reverse_t")
+    return _prefix_bar_ratio_params(cfg or {}, "buy_then_sell")
 
 
 def _score_y_tau(score_snap: Optional[dict]) -> Optional[float]:
@@ -340,7 +342,7 @@ def _score_y_tau(score_snap: Optional[dict]) -> Optional[float]:
 
 
 def _tau_entry_price_mult(cfg: Optional[dict]) -> float:
-    """第一腿相对开盘允许偏离：|ŷ_τ|% × 倍数；≤0 关闭门禁。"""
+    """第一腿相对开盘允许带宽：|ŷ_τ|% × 倍数（越大越宽/越松）；≤0 关闭门禁。"""
     try:
         raw = (cfg or {}).get("y_tau_entry_price_mult")
         mult = float(5.0 if raw is None or raw == "" else raw)
@@ -358,10 +360,10 @@ def tau_leg1_fill_price_ok(
     cfg: Optional[dict] = None,
     mult: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """固定前缀确认根：第一腿成交价相对开盘不得偏离超过 |ŷ_τ|×倍数。
+    """固定前缀确认根：第一腿成交价相对开盘允许带宽 = |ŷ_τ|% × mult。
 
-    正T：买入价 ≤ open×(1 + mult×|ŷ_τ|/100)
-    反T：卖出价 ≥ open×(1 − mult×|ŷ_τ|/100)（镜像）
+    mult 是**带宽乘数**（越大越宽松），不是严格性：默认 5 → 允许偏离
+    5×|ŷ_τ|%。正T：买价 ≤ open×(1+band)；反T：卖价 ≥ open×(1−band)。
     缺 ŷ_τ 或倍数≤0 时跳过（ok=True）。
     """
     direction = str(direction or "").strip().lower()
@@ -381,7 +383,7 @@ def tau_leg1_fill_price_ok(
     base["band_pct"] = round(band_pct, 4)
     px = float(fill_px)
     o = float(ref)
-    if direction == "reverse_t":
+    if direction == "buy_then_sell":
         ceil = o * (1.0 + band_pct / 100.0)
         base["bound_px"] = round(ceil, 4)
         base["bound_kind"] = "ceil"
@@ -399,7 +401,7 @@ def tau_leg1_fill_price_ok(
                 ),
             ),
         }
-    if direction == "long_t":
+    if direction == "sell_then_buy":
         floor = o * (1.0 - band_pct / 100.0)
         base["bound_px"] = round(floor, 4)
         base["bound_kind"] = "floor"
@@ -432,8 +434,8 @@ def prefix_fixed_bar_ratio_entry_ok(
     取消贪心滚动探极值 / 回落·反弹。
     """
     direction = str(direction or "").strip().lower()
-    want_up = direction == "reverse_t"
-    if direction not in ("reverse_t", "long_t"):
+    want_up = direction == "buy_then_sell"
+    if direction not in ("buy_then_sell", "sell_then_buy"):
         return {
             "ok": True,
             "direction": direction,
@@ -518,7 +520,7 @@ def _session_close_at(minute_bars: Sequence[dict], bar: Optional[dict] = None) -
     return ""
 
 
-def _first_touch_long(
+def _first_touch_sell_then_buy(
     *,
     minute_bars: Sequence[dict],
     bar: dict,
@@ -541,6 +543,7 @@ def _first_touch_long(
     defer_eod: bool = False,
     leg1_gate_at: Optional[Callable[[int], bool]] = None,
 ) -> Dict[str, Any]:
+    """反 T 分钟路径：先卖后买回。"""
     close = float(bar.get("close") or 0)
     sess_bars = session_bars if session_bars is not None else minute_bars
     sess_bar = session_bar if session_bar is not None else bar
@@ -550,12 +553,12 @@ def _first_touch_long(
     if sellable < lot:
         return _skip_result(
             reason=_tplus1_skip_reason(
-                side="long_t", shares=shares, sellable=sellable, lot=lot
+                side="sell_then_buy", shares=shares, sellable=sellable, lot=lot
             ),
             shares=shares,
             bar=bar,
             extra={
-                "direction_used": "long_t",
+                "direction_used": "sell_then_buy",
                 "sellable_shares": sellable,
                 "t0_ratio": t0_ratio,
                 "path_mode": "first_touch",
@@ -565,12 +568,12 @@ def _first_touch_long(
     if qty <= 0:
         return _skip_result(
             reason=_ratio_lot_skip_reason(
-                side="long_t", shares=shares, t0_ratio=t0_ratio, lot=lot
+                side="sell_then_buy", shares=shares, t0_ratio=t0_ratio, lot=lot
             ),
             shares=shares,
             bar=bar,
             extra={
-                "direction_used": "long_t",
+                "direction_used": "sell_then_buy",
                 "sellable_shares": sellable,
                 "t0_ratio": t0_ratio,
                 "path_mode": "first_touch",
@@ -694,7 +697,7 @@ def _first_touch_long(
     at_end = len(minute_bars) >= len(sess_bars)
     if sold_qty > 0 and covered <= 0 and at_end:
         sess_close = float(sess_bar.get("close") or close)
-        eod_ok = _allows_eod_cover(minute_bars, sess_bars, defer_eod=defer_eod)
+        eod_ok = _allows_eod_cover(minute_bars, defer_eod=defer_eod)
         if cfg.get("must_cover_same_day") and eod_ok:
             cover = sold_qty
             # 卖出净得须覆盖买回净现金（含佣金/滑点）；不足则改记敞口
@@ -729,6 +732,9 @@ def _first_touch_long(
         elif eod_ok or not defer_eod:
             exposure_pnl = round((sold_price - sess_close) * sold_qty, 2)
             exit_reason = "abandon_cover"
+        elif defer_eod and not eod_ok:
+            # 盘中前缀：已卖未买回，不记敞口估值（等后续 K / 收盘窗）
+            exit_reason = T0_PENDING_EXIT
 
     if sold_qty <= 0:
         return _skip_result(
@@ -736,7 +742,7 @@ def _first_touch_long(
             shares=shares,
             bar=bar,
             extra={
-                "direction_used": "long_t",
+                "direction_used": "sell_then_buy",
                 "path_mode": "first_touch",
                 "sell_level": round(sell_level, 4),
                 "range_pct": round(range_pct, 4),
@@ -764,7 +770,7 @@ def _first_touch_long(
         "cost_model": cost_model,
         "shares_end": shares_now,
         "cash_delta": round(cash_delta, 2),
-        "direction_used": "long_t",
+        "direction_used": "sell_then_buy",
         "fill_mode": fill_mode,
         "sell_trigger_pct": sell_trig,
         "buy_trigger_pct": buy_trig,
@@ -779,7 +785,7 @@ def _first_touch_long(
     }
 
 
-def _first_touch_reverse(
+def _first_touch_buy_then_sell(
     *,
     minute_bars: Sequence[dict],
     bar: dict,
@@ -802,25 +808,25 @@ def _first_touch_reverse(
     defer_eod: bool = False,
     leg1_gate_at: Optional[Callable[[int], bool]] = None,
 ) -> Dict[str, Any]:
-    """反 T 分钟路径：低吸加仓后卖旧底仓（T+1），不卖当日新买股。"""
+    """正 T 分钟路径：低吸加仓后卖旧底仓（T+1），不卖当日新买股。"""
     close = float(bar.get("close") or 0)
     sess_bars = session_bars if session_bars is not None else minute_bars
     sess_bar = session_bar if session_bar is not None else bar
     t0_ratio = float(cfg["t0_ratio"])
     # 固定前缀：第一腿按确认根 close；预估可买手数用开盘价（不再用相对开盘买触发）
     afford_px = float(ref) if float(ref) > 0 else 0.0
-    buy_level = afford_px  # 兼容返回字段；非门禁旧路径见下方 else
+    buy_level = afford_px  # 返回字段占位；gated 成交价用确认根 close
     sellable = float(sellable_shares if sellable_shares is not None else shares)
     sellable = min(sellable, shares)
     if sellable < lot:
         return _skip_result(
             reason=_tplus1_skip_reason(
-                side="reverse_t", shares=shares, sellable=sellable, lot=lot
+                side="buy_then_sell", shares=shares, sellable=sellable, lot=lot
             ),
             shares=shares,
             bar=bar,
             extra={
-                "direction_used": "reverse_t",
+                "direction_used": "buy_then_sell",
                 "path_mode": "first_touch",
                 "sellable_shares": sellable,
             },
@@ -830,18 +836,18 @@ def _first_touch_reverse(
             reason="正T：缺现金（低吸加仓需要预留现金）",
             shares=shares,
             bar=bar,
-            extra={"direction_used": "reverse_t", "path_mode": "first_touch"},
+            extra={"direction_used": "buy_then_sell", "path_mode": "first_touch"},
         )
     max_shares = _t0_qty_lots(shares, t0_ratio, lot, sellable)
     if max_shares <= 0:
         return _skip_result(
             reason=_ratio_lot_skip_reason(
-                side="reverse_t", shares=shares, t0_ratio=t0_ratio, lot=lot
+                side="buy_then_sell", shares=shares, t0_ratio=t0_ratio, lot=lot
             ),
             shares=shares,
             bar=bar,
             extra={
-                "direction_used": "reverse_t",
+                "direction_used": "buy_then_sell",
                 "path_mode": "first_touch",
                 "sellable_shares": sellable,
                 "t0_ratio": t0_ratio,
@@ -872,7 +878,7 @@ def _first_touch_reverse(
             shares=shares,
             bar=bar,
             extra={
-                "direction_used": "reverse_t",
+                "direction_used": "buy_then_sell",
                 "path_mode": "first_touch",
                 "cash": round(cash, 2),
                 "afford_shares": afford_n,
@@ -1015,7 +1021,7 @@ def _first_touch_reverse(
             shares=shares,
             bar=bar,
             extra={
-                "direction_used": "reverse_t",
+                "direction_used": "buy_then_sell",
                 "path_mode": "first_touch",
                 "buy_level": round(buy_level, 4),
                 "range_pct": round(range_pct, 4),
@@ -1024,9 +1030,9 @@ def _first_touch_reverse(
 
     at_end = len(minute_bars) >= len(sess_bars)
     if sold_back <= 0 and at_end:
-        sell_old_qty = min(bought_qty, sell_old_cap)
+        # sell_old_qty 已在 leg1 按入口 sell_old_cap 锁定；勿再读外部可卖
         sess_close = float(sess_bar.get("close") or close)
-        eod_ok = _allows_eod_cover(minute_bars, sess_bars, defer_eod=defer_eod)
+        eod_ok = _allows_eod_cover(minute_bars, defer_eod=defer_eod)
         if cfg.get("must_cover_same_day") and sell_old_qty > 0 and eod_ok:
             fill_sell = sess_close
             close_at = _session_close_at(sess_bars, sess_bar)
@@ -1051,6 +1057,13 @@ def _first_touch_reverse(
             # 与反T对称：仅在收盘窗就绪（或非 defer）时记敞口；盘中前缀继续等
             exposure_pnl = round((sess_close - buy_price) * bought_qty, 2)
             exit_reason = exit_reason or "abandon_cover"
+        elif eod_ok and cfg.get("must_cover_same_day") and bought_qty > 0 and sell_old_qty <= 0:
+            # 防御：must_cover 但可卖旧仓为 0，无法卖回 → 记多头敞口
+            exposure_pnl = round((sess_close - buy_price) * bought_qty, 2)
+            exit_reason = "abandon_cover_cap"
+        elif defer_eod and not eod_ok and bought_qty > 0:
+            # 盘中前缀：已买未卖旧，不记敞口估值（等后续 K / 收盘窗）
+            exit_reason = T0_PENDING_EXIT
 
     if sold_back > 0:
         pnl = t0_pnl_from_trades(trades)
@@ -1072,7 +1085,7 @@ def _first_touch_reverse(
         "cost_model": cost_model,
         "shares_end": shares_now,
         "cash_delta": round(cash_delta, 2),
-        "direction_used": "reverse_t",
+        "direction_used": "buy_then_sell",
         "fill_mode": fill_mode,
         "sell_trigger_pct": sell_trig,
         "buy_trigger_pct": buy_trig,
@@ -1089,7 +1102,11 @@ def _first_touch_reverse(
 
 def _touch_path_complete(out: dict, direction: str) -> bool:
     """第二腿 intraday 完成，或 session 末 eod / 放弃回补敞口已入账。"""
-    if direction == "long_t":
+    exit_reason = str(out.get("exit_reason") or "")
+    # 盘中前缀未到收盘窗：显式未完成（且不得靠 exposure 误判完成）
+    if exit_reason == T0_PENDING_EXIT:
+        return False
+    if direction == "sell_then_buy":
         sold = int(out.get("sold_qty") or 0)
         covered = int(out.get("covered_qty") or 0)
         if sold <= 0:
@@ -1097,21 +1114,17 @@ def _touch_path_complete(out: dict, direction: str) -> bool:
         if covered >= sold:
             return True
         # 反T放弃买回（减仓落袋）或未回补敞口已标记
-        if str(out.get("exit_reason") or "") in (
-            "abandon_cover",
-            "abandon_cover_cash",
-            "eod_cover",
-        ):
+        if exit_reason in T0_INTENTIONAL_ABANDON_EXITS or exit_reason == "eod_cover":
             return True
         return abs(float(out.get("exposure_pnl") or 0)) > 1e-9
-    if direction == "reverse_t":
+    if direction == "buy_then_sell":
         bought = int(out.get("bought_qty") or 0)
         sold_back = int(out.get("sold_back_qty") or 0)
         if bought <= 0:
             return False
         if sold_back >= bought:
             return True
-        if str(out.get("exit_reason") or "") in ("abandon_cover", "eod_cover"):
+        if exit_reason in T0_INTENTIONAL_ABANDON_EXITS or exit_reason == "eod_cover":
             return True
         return abs(float(out.get("exposure_pnl") or 0)) > 1e-9
     return bool(out.get("trades"))
@@ -1195,9 +1208,9 @@ def _forward_trace_row(
     hi = float(m.get("high") or 0)
     touch_leg1 = False
     touch_blocked = False
-    if direction == "reverse_t" and buy_level is not None:
+    if direction == "buy_then_sell" and buy_level is not None:
         touch_leg1 = lo <= float(buy_level)
-    elif direction == "long_t" and sell_level is not None:
+    elif direction == "sell_then_buy" and sell_level is not None:
         touch_leg1 = hi >= float(sell_level)
     # 粘滞开闸已废弃：仅固定前缀确认根可成交；触价但未确认时标 blocked（诊断用）
     if touch_leg1 and not (entry_ready or gate_open):
@@ -1245,8 +1258,8 @@ def _annotate_forward_trace(
     if not rows or not isinstance(out, dict):
         return rows
     trades = out.get("trades") or []
-    leg1_side = "t0_buy" if direction == "reverse_t" else "t0_sell"
-    leg2_side = "t0_sell" if direction == "reverse_t" else "t0_buy"
+    leg1_side = "t0_buy" if direction == "buy_then_sell" else "t0_sell"
+    leg2_side = "t0_sell" if direction == "buy_then_sell" else "t0_buy"
     for t in trades:
         side = str(t.get("side") or "")
         at = str(t.get("at") or "")
@@ -1315,7 +1328,7 @@ def _set_forward_trace_on_result(
     )
     cfg_side = (
         apply_side_exec_params(cfg_day, dir_used)
-        if dir_used in {"long_t", "reverse_t"}
+        if dir_used in {"sell_then_buy", "buy_then_sell"}
         else cfg_day
     )
     result["forward_trace"] = _finalize_forward_trace(
@@ -1548,11 +1561,11 @@ def _plan_forward_leg1_gates(
 
         # 正/反T：固定前缀 N 根（默认=abandon_bars）+ 后半段阳/阴占比；不贪心探极值回落/反弹
         fixed_n, _ratio_thr = _prefix_bar_ratio_params(cfg_side, direction)
-        side_label = "正T" if direction == "reverse_t" else "反T"
+        side_label = "正T" if direction == "buy_then_sell" else "反T"
         seg_enabled_key = (
-            "y_prefix_segment_enabled_reverse"
-            if direction == "reverse_t"
-            else "y_prefix_segment_enabled_long"
+            "y_prefix_segment_enabled_buy_then_sell"
+            if direction == "buy_then_sell"
+            else "y_prefix_segment_enabled_sell_then_buy"
         )
         dir_amp = {
             "ok": True,
@@ -1570,7 +1583,6 @@ def _plan_forward_leg1_gates(
             entry_ready = False
             wait_reason = str(seg["reason"])
             # 未齐窗不烧 abandon；齐窗当根再判定
-            ever_ready = any(entry_flags[:j])
         elif j == fixed_n - 1:
             fixed_prefix = mins[:fixed_n]
             gate_fixed = prefix_range_gate(fixed_prefix, bar, cost=cost, cfg=cfg_side)
@@ -1617,7 +1629,6 @@ def _plan_forward_leg1_gates(
                         "reason": wait_reason,
                     }
             entry_flags[j] = entry_ready
-            ever_ready = entry_ready
             wait_reason = (
                 None if entry_ready else str(seg.get("reason") or f"{side_label}固定前缀未过")
             )
@@ -1630,7 +1641,6 @@ def _plan_forward_leg1_gates(
                 "reason": f"{side_label}固定前缀决策已过",
             }
             entry_ready = False
-            ever_ready = any(entry_flags[:j])
             wait_reason = None
 
         if j == fixed_n - 1 and not entry_ready:
@@ -1751,8 +1761,6 @@ def _plan_forward_leg1_gates(
             return None, last_amp_skip, None
         return None, None, None
 
-    first_ready = next((i for i, ok in enumerate(entry_flags) if ok), None)
-
     def leg1_gate_at(idx: int) -> bool:
         """仅确认根可开第一腿。
 
@@ -1765,7 +1773,6 @@ def _plan_forward_leg1_gates(
     plan = dict(plan_tail)
     plan["leg1_gate_at"] = leg1_gate_at
     plan["gate_trace"] = trace_rows
-    plan["first_entry_ready_idx"] = first_ready
     if not any(entry_flags) and last_dir_wait is not None:
         plan["pending_wait"] = last_dir_wait
     return plan, None, plan_tail.get("dir_res")
@@ -1852,8 +1859,8 @@ def run_forward_first_touch(
             )
             return pending, dir_res
 
-    if direction == "reverse_t":
-        out = _first_touch_reverse(
+    if direction == "buy_then_sell":
+        out = _first_touch_buy_then_sell(
             minute_bars=mins,
             bar=bar_day,
             shares=shares,
@@ -1874,7 +1881,7 @@ def run_forward_first_touch(
         )
     else:
         ratio = float(base_t0_ratio if base_t0_ratio is not None else cfg_day.get("t0_ratio") or 1.0)
-        out = _first_touch_long(
+        out = _first_touch_sell_then_buy(
             minute_bars=mins,
             bar=bar_day,
             shares=shares,
@@ -2071,8 +2078,8 @@ def simulate_t0_day_minute(
     # 定向前总量振幅用两侧振幅下限的较松者，定方向后再用侧向下限复核
     cfg_pre = dict(cfg_day)
     try:
-        ml = cfg_day.get("min_range_pct_long")
-        mr = cfg_day.get("min_range_pct_reverse")
+        ml = cfg_day.get("min_range_pct_sell_then_buy")
+        mr = cfg_day.get("min_range_pct_buy_then_sell")
         if ml is not None and mr is not None:
             cfg_pre["min_range_pct"] = min(float(ml), float(mr))
     except (TypeError, ValueError):

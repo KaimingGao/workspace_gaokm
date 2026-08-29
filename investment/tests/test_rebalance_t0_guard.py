@@ -17,27 +17,27 @@ from core.t0.intraday import (
     PHASE_AFTER_LEG1,
     PHASE_DONE,
     PHASE_IDLE,
-    REBALANCE_T0_BLOCK_LONG,
-    REBALANCE_T0_BLOCK_REVERSE,
+    REBALANCE_T0_BLOCK_SELL_THEN_BUY,
+    REBALANCE_T0_BLOCK_BUY_THEN_SELL,
     open_t0_leg_rebalance_block,
 )
 
 
 class TestHoldingT0IntradayStatus(unittest.TestCase):
-    def test_after_leg1_reverse(self):
+    def test_after_leg1_buy_then_sell(self):
         from core.t0.intraday import holding_t0_intraday_status
 
         st = holding_t0_intraday_status(
-            {"phase": "after_leg1", "direction": "reverse_t", "legs_written": 1}
+            {"phase": "after_leg1", "direction": "buy_then_sell", "legs_written": 1}
         )
         self.assertEqual(st["badge"], "正T·一腿")
         self.assertIn("已买待卖旧仓", st["title"])
 
-    def test_after_leg1_long(self):
+    def test_after_leg1_sell_then_buy(self):
         from core.t0.intraday import holding_t0_intraday_status
 
         st = holding_t0_intraday_status(
-            {"phase": "after_leg1", "direction": "long_t", "legs_written": 1}
+            {"phase": "after_leg1", "direction": "sell_then_buy", "legs_written": 1}
         )
         self.assertEqual(st["badge"], "反T·一腿")
         self.assertIn("已卖待回补", st["title"])
@@ -45,7 +45,7 @@ class TestHoldingT0IntradayStatus(unittest.TestCase):
     def test_idle_with_direction(self):
         from core.t0.intraday import holding_t0_intraday_status
 
-        st = holding_t0_intraday_status({"phase": "idle", "direction": "long_t"})
+        st = holding_t0_intraday_status({"phase": "idle", "direction": "sell_then_buy"})
         self.assertEqual(st["badge"], "反T·盯")
 
     def test_idle_without_direction_hidden(self):
@@ -55,28 +55,28 @@ class TestHoldingT0IntradayStatus(unittest.TestCase):
 
 
 class TestOpenT0LegRebalanceBlock(unittest.TestCase):
-    def test_reverse_t_after_leg1_blocks(self):
+    def test_buy_then_sell_after_leg1_blocks(self):
         st = {
             "phase": PHASE_AFTER_LEG1,
-            "direction": "reverse_t",
+            "direction": "buy_then_sell",
             "legs_written": 1,
         }
-        self.assertEqual(open_t0_leg_rebalance_block(st), REBALANCE_T0_BLOCK_REVERSE)
+        self.assertEqual(open_t0_leg_rebalance_block(st), REBALANCE_T0_BLOCK_BUY_THEN_SELL)
 
-    def test_long_t_after_leg1_blocks(self):
+    def test_sell_then_buy_after_leg1_blocks(self):
         st = {
             "phase": PHASE_AFTER_LEG1,
-            "direction": "long_t",
+            "direction": "sell_then_buy",
             "legs_written": 1,
         }
-        self.assertEqual(open_t0_leg_rebalance_block(st), REBALANCE_T0_BLOCK_LONG)
+        self.assertEqual(open_t0_leg_rebalance_block(st), REBALANCE_T0_BLOCK_SELL_THEN_BUY)
 
     def test_idle_before_first_leg_allows_rebalance(self):
-        st = {"phase": PHASE_IDLE, "direction": "reverse_t", "legs_written": 0}
+        st = {"phase": PHASE_IDLE, "direction": "buy_then_sell", "legs_written": 0}
         self.assertIsNone(open_t0_leg_rebalance_block(st))
 
     def test_done_allows_rebalance(self):
-        st = {"phase": PHASE_DONE, "direction": "long_t", "legs_written": 2}
+        st = {"phase": PHASE_DONE, "direction": "sell_then_buy", "legs_written": 2}
         self.assertIsNone(open_t0_leg_rebalance_block(st))
 
 
@@ -128,8 +128,8 @@ class TestRunSellLegT0Guard(unittest.TestCase):
         )
 
     @patch("core.paper.rebalance.sell.load_rebalance_t0_sell_blocks")
-    def test_main_sell_skips_reverse_t_open_leg(self, load_blocks):
-        load_blocks.return_value = {"600000": REBALANCE_T0_BLOCK_REVERSE}
+    def test_main_sell_skips_buy_then_sell_open_leg(self, load_blocks):
+        load_blocks.return_value = {"600000": REBALANCE_T0_BLOCK_BUY_THEN_SELL}
         paper = {
             "holdings": [
                 {
@@ -155,8 +155,8 @@ class TestRunSellLegT0Guard(unittest.TestCase):
         )
 
     @patch("core.paper.rebalance.sell.load_rebalance_t0_sell_blocks")
-    def test_main_sell_skips_long_t_after_first_sell(self, load_blocks):
-        load_blocks.return_value = {"600000": REBALANCE_T0_BLOCK_LONG}
+    def test_main_sell_skips_sell_then_buy_after_first_sell(self, load_blocks):
+        load_blocks.return_value = {"600000": REBALANCE_T0_BLOCK_SELL_THEN_BUY}
         paper = {
             "holdings": [
                 {

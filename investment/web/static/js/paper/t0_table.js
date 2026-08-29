@@ -814,12 +814,12 @@ function dayReturnPct(d) {
     return Number(d.day_return_pct);
   }
   const net = Number(d.pnl || 0) + Number(d.exposure_pnl || 0);
-  const rev = d.direction === "reverse_t";
-  const qty = rev
+  const isBuyThenSell = d.direction === "buy_then_sell";
+  const qty = isBuyThenSell
     ? Number(d.bought_qty || d.buy_shares || 0)
     : Number(d.sold_qty || d.sell_shares || 0);
   const legs = tradeLegCells(d);
-  const px = rev
+  const px = isBuyThenSell
     ? Number(legs.buyPx || d.buy_price || 0)
     : Number(legs.sellPx || d.sell_price || 0);
   const notional = qty * px;
@@ -862,8 +862,8 @@ export function fmtLegProcess(d) {
 }
 
 function legQtyCells(d) {
-  const rev = d.direction === "reverse_t";
-  if (rev) {
+  const isBuyThenSell = d.direction === "buy_then_sell";
+  if (isBuyThenSell) {
     return {
       sellQty: d.sell_shares ?? d.sold_back_qty ?? 0,
       buyQty: d.buy_shares ?? d.bought_qty ?? 0,
@@ -888,8 +888,8 @@ export function tradeLegCells(d) {
   const trades = Array.isArray(d?.trades) ? d.trades : [];
   const sellLegs = trades.filter((t) => /sell$/i.test(String(t.side || "")));
   const buyLegs = trades.filter((t) => /buy$/i.test(String(t.side || "")));
-  const rev = d.direction === "reverse_t";
-  if (rev) {
+  const isBuyThenSell = d.direction === "buy_then_sell";
+  if (isBuyThenSell) {
     return {
       sellAt: sellLegs[sellLegs.length - 1]?.at || d.touch_sell_at,
       sellPx: sellLegs[sellLegs.length - 1]?.price,
@@ -1003,7 +1003,7 @@ export function miniKlineSvgFromBars(
   const up = "#ef4444";
   const down = "#22c55e";
   // leg1/leg2 相对方向：正T 先买后卖；反T 先卖后买
-  const rev = dir === "正T" || dir === "reverse_t";
+  const isBuyThenSell = dir === "正T" || dir === "buy_then_sell";
   const parts = [];
   pts.forEach((b, i) => {
     const o = Number(b[1]);
@@ -1027,7 +1027,7 @@ export function miniKlineSvgFromBars(
     );
     const leg = flag & 3;
     if (leg === 1 || leg === 2) {
-      const isBuy = rev ? leg === 1 : leg === 2;
+      const isBuy = isBuyThenSell ? leg === 1 : leg === 2;
       const cy = isBuy ? yL + 9 : yH - 9;
       const fill = isBuy ? "#2563eb" : "#b45309";
       const label = isBuy ? "买" : "卖";
@@ -1068,7 +1068,7 @@ export function buildProcessTipPayload(d, legTip) {
   const dirRaw = (d && (d.direction || d.direction_used)) || "";
   return {
     text: String(legTip || "").trim(),
-    dir: dirRaw === "reverse_t" ? "正T" : dirRaw === "long_t" ? "反T" : "",
+    dir: dirRaw === "buy_then_sell" ? "正T" : dirRaw === "sell_then_buy" ? "反T" : "",
     bars,
   };
 }
@@ -1274,7 +1274,7 @@ export function buildT0TradeTableHtml(opts) {
   const rows = (preserveOrder ? days.slice(0, maxRows) : days.slice(-maxRows).reverse())
     .map((d) => {
       const skipped = !!d.skipped;
-      const dir = d.direction === "reverse_t" ? "正" : d.direction === "long_t" ? "反" : "—";
+      const dir = d.direction === "buy_then_sell" ? "正" : d.direction === "sell_then_buy" ? "反" : "—";
       const rules = (data && data.rules) || {};
       const scoreDetailJson = escapeText(
         watchingScoreDetail(t0DayScoreItem(d, fallback, rules))

@@ -34,28 +34,28 @@ _BT_RULES_VIEW_KEYS = (
     "t0_ratio",
     "sell_trigger_pct",
     "buy_trigger_pct",
-    "buy_trigger_pct_long",
-    "sell_trigger_pct_reverse",
+    "buy_trigger_pct_sell_then_buy",
+    "sell_trigger_pct_buy_then_sell",
     "fill_mode",
-    "fill_mode_long",
-    "fill_mode_reverse",
+    "fill_mode_sell_then_buy",
+    "fill_mode_buy_then_sell",
     "direction",
     "path_mode",
     "minute_period",
     "min_range_pct",
-    "min_range_pct_long",
-    "min_range_pct_reverse",
+    "min_range_pct_sell_then_buy",
+    "min_range_pct_buy_then_sell",
     "use_atr",
     "atr_window",
     "must_cover_same_day",
-    "must_cover_same_day_long",
-    "must_cover_same_day_reverse",
+    "must_cover_same_day_sell_then_buy",
+    "must_cover_same_day_buy_then_sell",
     "y_trade_enter",
     "y_trade_strong",
     "y_trade_floor",
     "y_tau_enter",
-    "y_tau_enter_long",
-    "y_tau_enter_reverse",
+    "y_tau_enter_sell_then_buy",
+    "y_tau_enter_buy_then_sell",
     "y_eod_prior",
     "y_eod_enter",
     "y_eod_strong",
@@ -71,8 +71,8 @@ _BT_RULES_VIEW_KEYS = (
     "y_tau_map",
     "y_use_path",
     "y_path_enter",
-    "y_path_enter_long",
-    "y_path_enter_reverse",
+    "y_path_enter_sell_then_buy",
+    "y_path_enter_buy_then_sell",
     "y_path_required",
     "y_gap_tier_mode",
     "y_gap_tier_pct",
@@ -80,14 +80,14 @@ _BT_RULES_VIEW_KEYS = (
     "y_path_abandon_enabled",
     "y_path_abandon_bars",
     "y_prefix_segment_enabled",
-    "y_prefix_segment_enabled_long",
-    "y_prefix_segment_enabled_reverse",
+    "y_prefix_segment_enabled_sell_then_buy",
+    "y_prefix_segment_enabled_buy_then_sell",
     "t0_pm_degrade",
-    "t0_pm_degrade_long",
-    "t0_pm_degrade_reverse",
+    "t0_pm_degrade_sell_then_buy",
+    "t0_pm_degrade_buy_then_sell",
     "t0_pm_chase_interval_min",
-    "t0_pm_chase_interval_min_long",
-    "t0_pm_chase_interval_min_reverse",
+    "t0_pm_chase_interval_min_sell_then_buy",
+    "t0_pm_chase_interval_min_buy_then_sell",
     "y_ratio_cut",
     "y_ratio_boost_cap",
     "y_ratio_tau_soft_band",
@@ -534,10 +534,10 @@ def run_t0_backtest_for_holdings(
     total_trades = 0
     total_covers = 0
     total_hold_mv = 0.0
-    long_pnl = 0.0
-    reverse_pnl = 0.0
-    long_cover = 0
-    reverse_cover = 0
+    sell_then_buy_pnl = 0.0
+    buy_then_sell_pnl = 0.0
+    sell_then_buy_cover = 0
+    buy_then_sell_cover = 0
     minute_path_days = 0
     missing_minute_days = 0
 
@@ -587,10 +587,10 @@ def run_t0_backtest_for_holdings(
             total_trades += int(one.get("t0_trade_days") or 0)
             total_covers += int(one.get("t0_cover_days") or 0)
             total_hold_mv += float(one.get("hold_mv_start") or 0)
-            long_pnl += float(one.get("long_t_pnl") or 0)
-            reverse_pnl += float(one.get("reverse_t_pnl") or 0)
-            long_cover += int(one.get("long_t_cover_days") or 0)
-            reverse_cover += int(one.get("reverse_t_cover_days") or 0)
+            sell_then_buy_pnl += float(one.get("sell_then_buy_pnl") or 0)
+            buy_then_sell_pnl += float(one.get("buy_then_sell_pnl") or 0)
+            sell_then_buy_cover += int(one.get("sell_then_buy_cover_days") or 0)
+            buy_then_sell_cover += int(one.get("buy_then_sell_cover_days") or 0)
             minute_path_days += int(one.get("minute_path_days") or 0)
             missing_minute_days += int(one.get("missing_minute_days") or 0)
 
@@ -610,8 +610,8 @@ def run_t0_backtest_for_holdings(
 
     skip_days = sum(int(x.get("skip_days") or 0) for x in ok)
     signal_skip_days = sum(int(x.get("signal_skip_days") or 0) for x in ok)
-    long_days = sum(int(x.get("long_t_days") or 0) for x in ok)
-    reverse_days = sum(int(x.get("reverse_t_days") or 0) for x in ok)
+    sell_then_buy_days = sum(int(x.get("sell_then_buy_days") or 0) for x in ok)
+    buy_then_sell_days = sum(int(x.get("buy_then_sell_days") or 0) for x in ok)
     uncover_days = sum(int(x.get("uncover_days") or 0) for x in ok)
     win_days = sum(int(x.get("t0_win_days") or 0) for x in ok)
     loss_days = sum(int(x.get("t0_loss_days") or 0) for x in ok)
@@ -666,7 +666,7 @@ def run_t0_backtest_for_holdings(
     seen = {(r.get("stock_code"), r.get("date"), r.get("direction")) for r in recent}
     rev_extra: List[Dict[str, Any]] = []
     for r in reversed(trade_sample):
-        if (r.get("direction") or r.get("direction_used")) != "reverse_t":
+        if (r.get("direction") or r.get("direction_used")) != "buy_then_sell":
             continue
         key = (r.get("stock_code"), r.get("date"), r.get("direction"))
         if key in seen:
@@ -697,12 +697,12 @@ def run_t0_backtest_for_holdings(
         "t0_cover_days": total_covers,
         "skip_days": skip_days,
         "signal_skip_days": signal_skip_days,
-        "long_t_days": long_days,
-        "reverse_t_days": reverse_days,
-        "long_t_pnl": round(long_pnl, 2),
-        "reverse_t_pnl": round(reverse_pnl, 2),
-        "long_t_cover_days": long_cover,
-        "reverse_t_cover_days": reverse_cover,
+        "sell_then_buy_days": sell_then_buy_days,
+        "buy_then_sell_days": buy_then_sell_days,
+        "sell_then_buy_pnl": round(sell_then_buy_pnl, 2),
+        "buy_then_sell_pnl": round(buy_then_sell_pnl, 2),
+        "sell_then_buy_cover_days": sell_then_buy_cover,
+        "buy_then_sell_cover_days": buy_then_sell_cover,
         "uncover_days": uncover_days,
         "minute_path_days": minute_path_days,
         "missing_minute_days": missing_minute_days,
@@ -793,10 +793,10 @@ def run_t0_backtest_for_holdings(
                 "rules": one.get("rules"),
                 "uncover_days": one.get("uncover_days"),
                 "hold_mv_start": one.get("hold_mv_start"),
-                "long_t_pnl": one.get("long_t_pnl"),
-                "reverse_t_pnl": one.get("reverse_t_pnl"),
-                "long_t_cover_days": one.get("long_t_cover_days"),
-                "reverse_t_cover_days": one.get("reverse_t_cover_days"),
+                "sell_then_buy_pnl": one.get("sell_then_buy_pnl"),
+                "buy_then_sell_pnl": one.get("buy_then_sell_pnl"),
+                "sell_then_buy_cover_days": one.get("sell_then_buy_cover_days"),
+                "buy_then_sell_cover_days": one.get("buy_then_sell_cover_days"),
                 "t0_cover_days": one.get("t0_cover_days"),
                 "minute_path_days": one.get("minute_path_days"),
                 "missing_minute_days": one.get("missing_minute_days"),

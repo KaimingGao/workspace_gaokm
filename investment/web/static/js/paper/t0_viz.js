@@ -8,10 +8,10 @@ const THEME = {
   actualLight: "rgba(37,99,235,0.15)",
   optimistic: "#7c3aed",
   optimisticLight: "rgba(124,58,237,0.12)",
-  longT: "#059669",
-  longTLight: "rgba(5,150,105,0.14)",
-  reverseT: "#dc2626",
-  reverseTLight: "rgba(220,38,38,0.12)",
+  sellThenBuy: "#059669",
+  sellThenBuyLight: "rgba(5,150,105,0.14)",
+  buyThenSell: "#dc2626",
+  buyThenSellLight: "rgba(220,38,38,0.12)",
   signalSkip: "#d97706",
   signalSkipLight: "rgba(217,119,6,0.55)",
   otherSkip: "#94a3b8",
@@ -371,7 +371,7 @@ function drawDailyActivity(canvas, rows) {
     [
       { n: Number(r.other_skip || 0), c: THEME.otherSkip },
       { n: Number(r.signal_skip || 0), c: THEME.signalSkip },
-      { n: Number(r.traded || 0), c: THEME.longT },
+      { n: Number(r.traded || 0), c: THEME.sellThenBuy },
     ].forEach((p) => {
       if (p.n <= 0) return;
       const bh = (p.n / maxTot) * plotH;
@@ -427,9 +427,9 @@ function drawYtauScatter(canvas, points, threshold = 0.25) {
   };
 
   // 方向分区底色（y_τ>0→正T，y_τ<0→反T）
-  ctx.fillStyle = THEME.reverseTLight;
+  ctx.fillStyle = THEME.buyThenSellLight;
   ctx.fillRect(pad.l, yLine(maxY), plotW, yLine(threshold) - yLine(maxY));
-  ctx.fillStyle = THEME.longTLight;
+  ctx.fillStyle = THEME.sellThenBuyLight;
   ctx.fillRect(pad.l, yLine(-threshold), plotW, yLine(minY) - yLine(-threshold));
   ctx.fillStyle = "rgba(148,163,184,0.07)";
   ctx.fillRect(pad.l, yLine(threshold), plotW, yLine(-threshold) - yLine(threshold));
@@ -460,8 +460,8 @@ function drawYtauScatter(canvas, points, threshold = 0.25) {
 
   let nTraded = 0;
   let nSkip = 0;
-  let nLong = 0;
-  let nRev = 0;
+  let nSellThenBuy = 0;
+  let nBuyThenSell = 0;
   let nSkipNeg = 0;
 
   sorted.forEach((p, i) => {
@@ -471,16 +471,16 @@ function drawYtauScatter(canvas, points, threshold = 0.25) {
     const traded = p.outcome === "traded";
     if (traded) {
       nTraded += 1;
-      if (p.direction === "reverse_t") nRev += 1;
-      else nLong += 1;
+      if (p.direction === "buy_then_sell") nBuyThenSell += 1;
+      else nSellThenBuy += 1;
     } else {
       nSkip += 1;
       if (yv < -0.1) nSkipNeg += 1;
     }
     const color = traded
-      ? p.direction === "reverse_t"
-        ? THEME.reverseT
-        : THEME.longT
+      ? p.direction === "buy_then_sell"
+        ? THEME.buyThenSell
+        : THEME.sellThenBuy
       : THEME.signalSkip;
     const r = traded ? 4.5 : 3.5;
     ctx.beginPath();
@@ -505,7 +505,7 @@ function drawYtauScatter(canvas, points, threshold = 0.25) {
     ctx.fillText(fmtDateShort(dates[idx]), x, h - pad.b + 4);
   });
 
-  return { nTraded, nSkip, nSkipNeg, nLong, nRev, threshold };
+  return { nTraded, nSkip, nSkipNeg, nSellThenBuy, nBuyThenSell, threshold };
 }
 
 /** 跳过构成 — canvas 环形图；返回扇区几何供悬停 hit-test */
@@ -644,9 +644,9 @@ function wireSkipDonutHover(canvas, meta) {
 /** 方向 PnL — 双向水平柱 */
 function drawDirectionPnl(canvas, pnlByDir, split) {
   if (!canvas || !pnlByDir) return null;
-  const longP = Number(pnlByDir.long_t || 0);
-  const revP = Number(pnlByDir.reverse_t || 0);
-  if (!longP && !revP) return null;
+  const sellThenBuyPnl = Number(pnlByDir.sell_then_buy || 0);
+  const buyThenSellPnl = Number(pnlByDir.buy_then_sell || 0);
+  if (!sellThenBuyPnl && !buyThenSellPnl) return null;
 
   const { w, h } = getChartSize(canvas);
   const ctx = setupCanvas(canvas, w, h);
@@ -654,7 +654,7 @@ function drawDirectionPnl(canvas, pnlByDir, split) {
 
   const pad = { l: 44, r: 52, t: 20, b: 24 };
   const plotW = w - pad.l - pad.r;
-  const maxAbs = Math.max(Math.abs(longP), Math.abs(revP), 1);
+  const maxAbs = Math.max(Math.abs(sellThenBuyPnl), Math.abs(buyThenSellPnl), 1);
   const midX = pad.l + plotW / 2;
   const barH = Math.min(24, (h - pad.t - pad.b - 18) / 2);
   const gap = Math.max(12, (h - pad.t - pad.b - barH * 2) / 2);
@@ -671,8 +671,8 @@ function drawDirectionPnl(canvas, pnlByDir, split) {
   ctx.stroke();
 
   const rows = [
-    { label: "正T", val: revP, color: THEME.reverseT, light: THEME.reverseTLight, days: split?.reverse_t },
-    { label: "反T", val: longP, color: THEME.longT, light: THEME.longTLight, days: split?.long_t },
+    { label: "正T", val: buyThenSellPnl, color: THEME.buyThenSell, light: THEME.buyThenSellLight, days: split?.buy_then_sell },
+    { label: "反T", val: sellThenBuyPnl, color: THEME.sellThenBuy, light: THEME.sellThenBuyLight, days: split?.sell_then_buy },
   ];
 
   rows.forEach((row, i) => {
@@ -704,9 +704,9 @@ function drawDirectionPnl(canvas, pnlByDir, split) {
     ctx.fillText(fmtMoney(row.val), tx, y + barH / 2);
   });
 
-  const net = longP + revP;
-  const longShare = net !== 0 ? Math.round((longP / net) * 1000) / 10 : null;
-  return { longP, revP, net, longShare };
+  const net = sellThenBuyPnl + buyThenSellPnl;
+  const sellThenBuyShare = net !== 0 ? Math.round((sellThenBuyPnl / net) * 1000) / 10 : null;
+  return { sellThenBuyPnl, buyThenSellPnl, net, sellThenBuyShare };
 }
 
 function renderKpiRow(summary, compare) {
@@ -1093,7 +1093,7 @@ function renderStockContrib(rows) {
         `<td class="num paper-t0-col-viz-px" title="窗口首日收盘价">${fmtContribPrice(r.start_price)}</td>` +
         `<td class="paper-t0-col-viz-dt" title="评估窗口末日">${fmtContribDate(r.window_end_date)}</td>` +
         `<td class="num paper-t0-col-viz-px" title="窗口末日收盘价">${fmtContribPrice(r.end_price)}</td>` +
-        `<td class="num paper-t0-col-viz-lr" title="正T日 / 反T日">${esc(`${r.reverse_days ?? 0}/${r.long_days ?? 0}`)}</td>` +
+        `<td class="num paper-t0-col-viz-lr" title="正T日 / 反T日">${esc(`${r.buy_then_sell_days ?? 0}/${r.sell_then_buy_days ?? 0}`)}</td>` +
         `<td class="num paper-t0-col-viz-days" title="成交日数">${esc(String(r.trade_days ?? 0))}</td>` +
         `<td class="num paper-t0-col-viz-days" title="跳过日数">${esc(String(r.skip_days ?? 0))}</td>` +
         skipReasonCellHtml(r) +
@@ -1254,7 +1254,7 @@ export function renderT0Viz(host, data) {
         chartCanvas("activity"),
         `<div data-role="activity-foot"></div>`,
         legendChips([
-          { color: THEME.longT, label: "成交" },
+          { color: THEME.sellThenBuy, label: "成交" },
           { color: THEME.signalSkip, label: "信号跳过" },
           { color: THEME.otherSkip, label: "其它跳过" },
         ])
@@ -1270,8 +1270,8 @@ export function renderT0Viz(host, data) {
         chartCanvas("scatter"),
         `<div data-role="scatter-foot"></div>`,
         legendChips([
-          { color: THEME.reverseT, label: "正T成交" },
-          { color: THEME.longT, label: "反T成交" },
+          { color: THEME.buyThenSell, label: "正T成交" },
+          { color: THEME.sellThenBuy, label: "反T成交" },
           { color: THEME.signalSkip, label: "信号跳过(含负τ)" },
         ])
       )
@@ -1302,8 +1302,8 @@ export function renderT0Viz(host, data) {
         chartCanvas("dirpnl"),
         `<div data-role="dir-foot"></div>`,
         legendChips([
-          { color: THEME.reverseT, label: "正T" },
-          { color: THEME.longT, label: "反T" },
+          { color: THEME.buyThenSell, label: "正T" },
+          { color: THEME.sellThenBuy, label: "反T" },
         ])
       )
     );
@@ -1319,7 +1319,7 @@ export function renderT0Viz(host, data) {
     `<div class="paper-t0-viz-head">` +
     `<div class="paper-t0-viz-head-main">` +
     `<span class="paper-t0-viz-title">归因分析</span>` +
-    `<span class="quant-sub">正T ${ds.reverse_t ?? 0} · 反T ${ds.long_t ?? 0} · 成交 ${viz.trade_count ?? 0} · 跳过 ${viz.skip_count ?? 0}` +
+    `<span class="quant-sub">正T ${ds.buy_then_sell ?? 0} · 反T ${ds.sell_then_buy ?? 0} · 成交 ${viz.trade_count ?? 0} · 跳过 ${viz.skip_count ?? 0}` +
     (viz.skip_categories && viz.skip_categories.length
       ? ` · 主因 ${esc(topSkipLabel)}`
       : "") +
@@ -1385,7 +1385,7 @@ export function renderT0Viz(host, data) {
       const foot = host.querySelector('[data-role="scatter-foot"]');
       if (foot && meta) {
         foot.innerHTML = [
-          `<span>成交 <b>${meta.nTraded}</b>（正${meta.nRev}/反${meta.nLong}）</span>`,
+          `<span>成交 <b>${meta.nTraded}</b>（正${meta.nBuyThenSell}/反${meta.nSellThenBuy}）</span>`,
           `<span>信号跳过 <b>${meta.nSkip}</b></span>`,
           meta.nSkipNeg > 0
             ? `<span>负τ跳过(≤−0.1%) <b>${meta.nSkipNeg}</b> · 多在灰带|y_τ|&lt;τ</span>`
@@ -1411,7 +1411,7 @@ export function renderT0Viz(host, data) {
         const netCls = meta.net >= 0 ? "up" : "down";
         foot.innerHTML = [
           `<span>合计 <b class="${netCls}">${fmtMoney(meta.net)}</b></span>`,
-          meta.longShare != null ? `<span>反T贡献 <b>${meta.longShare}%</b></span>` : "",
+          meta.sellThenBuyShare != null ? `<span>反T贡献 <b>${meta.sellThenBuyShare}%</b></span>` : "",
         ]
           .filter(Boolean)
           .join('<span class="sep">·</span>');

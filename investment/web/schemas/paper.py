@@ -66,19 +66,19 @@ class T0BacktestRequest(BaseModel):
     code: Optional[str] = None
     codes: Optional[list] = None
     from_paper: bool = True
-    lookback: int = Field(default=30, ge=10, le=500)
+    lookback: int = Field(default=10, ge=10, le=500)
     initial_shares: float = Field(default=1000, ge=100, le=100000)
     t0_ratio: float = Field(default=1.0, ge=0.05, le=1.0)
     sell_trigger_pct: float = Field(default=1.0, ge=0.1, le=20)
     buy_trigger_pct: float = Field(default=1.0, ge=0.1, le=20)
-    buy_trigger_pct_long: Optional[float] = Field(default=None, ge=0.1, le=20)
-    sell_trigger_pct_reverse: Optional[float] = Field(default=None, ge=0.1, le=20)
+    buy_trigger_pct_sell_then_buy: Optional[float] = Field(default=None, ge=0.1, le=20)
+    sell_trigger_pct_buy_then_sell: Optional[float] = Field(default=None, ge=0.1, le=20)
     must_cover_same_day: bool = True
-    must_cover_same_day_long: Optional[bool] = Field(default=None)
-    must_cover_same_day_reverse: Optional[bool] = Field(default=None)
+    must_cover_same_day_sell_then_buy: Optional[bool] = Field(default=None)
+    must_cover_same_day_buy_then_sell: Optional[bool] = Field(default=None)
     fill_mode: Optional[str] = Field(default=None, max_length=16)
-    fill_mode_long: Optional[str] = Field(default=None, max_length=16)
-    fill_mode_reverse: Optional[str] = Field(default=None, max_length=16)
+    fill_mode_sell_then_buy: Optional[str] = Field(default=None, max_length=16)
+    fill_mode_buy_then_sell: Optional[str] = Field(default=None, max_length=16)
     direction: Optional[str] = Field(default=None, max_length=16)
     path_mode: Optional[str] = Field(default=None, max_length=16)
     dir_enter: Optional[float] = Field(
@@ -90,8 +90,8 @@ class T0BacktestRequest(BaseModel):
     min_range_pct: Optional[float] = Field(
         default=None, ge=0.1, le=30.0, description="振幅下限%兜底；空=自动"
     )
-    min_range_pct_long: Optional[float] = Field(default=None, ge=0.1, le=30.0)
-    min_range_pct_reverse: Optional[float] = Field(default=None, ge=0.1, le=30.0)
+    min_range_pct_sell_then_buy: Optional[float] = Field(default=None, ge=0.1, le=30.0)
+    min_range_pct_buy_then_sell: Optional[float] = Field(default=None, ge=0.1, le=30.0)
     compare_optimistic: bool = True
     use_minute: bool = True
     compare_daily: bool = False  # 已废弃：日线模拟已删除
@@ -114,13 +114,13 @@ class T0BacktestRequest(BaseModel):
         le=5.0,
         description="dual_y：τ 入场兜底（侧向未设时正/反共用）",
     )
-    y_tau_enter_long: Optional[float] = Field(
+    y_tau_enter_sell_then_buy: Optional[float] = Field(
         default=None,
         ge=0.01,
         le=5.0,
         description="dual_y：反T（y_τ<0）入场 |y_τ| 门槛",
     )
-    y_tau_enter_reverse: Optional[float] = Field(
+    y_tau_enter_buy_then_sell: Optional[float] = Field(
         default=None,
         ge=0.01,
         le=5.0,
@@ -195,7 +195,7 @@ class T0BacktestRequest(BaseModel):
         description="已弃用：别名 y_nc_strong",
     )
     y_tau_map: Optional[str] = Field(
-        default=None, max_length=24, description="scalp|trend|fixed_long|fixed_reverse"
+        default=None, max_length=24, description="scalp|trend|fixed_sell_then_buy|fixed_buy_then_sell"
     )
     y_use_path: Optional[bool] = None
     y_path_enter: Optional[float] = Field(
@@ -204,13 +204,13 @@ class T0BacktestRequest(BaseModel):
         le=5.0,
         description="dual_y：path 入场兜底（侧向未设时正/反共用）",
     )
-    y_path_enter_long: Optional[float] = Field(
+    y_path_enter_sell_then_buy: Optional[float] = Field(
         default=None,
         ge=0.01,
         le=5.0,
         description="dual_y：反T path 入场门槛",
     )
-    y_path_enter_reverse: Optional[float] = Field(
+    y_path_enter_buy_then_sell: Optional[float] = Field(
         default=None,
         ge=0.01,
         le=5.0,
@@ -223,15 +223,15 @@ class T0BacktestRequest(BaseModel):
     y_path_abandon_enabled: Optional[bool] = None
     y_path_abandon_bars: Optional[int] = Field(default=None, ge=2, le=48)
     y_prefix_segment_enabled: Optional[bool] = None
-    y_prefix_segment_enabled_long: Optional[bool] = None
-    y_prefix_segment_enabled_reverse: Optional[bool] = None
-    y_prefix_upbar_ratio_reverse: Optional[float] = Field(
+    y_prefix_segment_enabled_sell_then_buy: Optional[bool] = None
+    y_prefix_segment_enabled_buy_then_sell: Optional[bool] = None
+    y_prefix_upbar_ratio_buy_then_sell: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
         description="正T：固定前缀后半上涨K占比下限",
     )
-    y_prefix_downbar_ratio_long: Optional[float] = Field(
+    y_prefix_downbar_ratio_sell_then_buy: Optional[float] = Field(
         default=None,
         ge=0.0,
         le=1.0,
@@ -241,19 +241,19 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.0,
         le=50.0,
-        description="固定前缀确认根：|ŷ_τ|×倍数限制第一腿价（正T买上限/反T卖下限）；0=关",
+        description="固定前缀确认根：允许带宽=|ŷ_τ|%×倍数（越大越松；正T买上限/反T卖下限）；0=关",
     )
     t0_pm_degrade: Optional[str] = Field(
         default=None,
         max_length=8,
-        description="legacy：等同 t0_pm_degrade_reverse",
+        description="legacy：等同 t0_pm_degrade_buy_then_sell",
     )
-    t0_pm_degrade_long: Optional[str] = Field(
+    t0_pm_degrade_sell_then_buy: Optional[str] = Field(
         default=None,
         max_length=8,
         description="反T午后闸 HH:MM；禁新开 + 买回中点追价",
     )
-    t0_pm_degrade_reverse: Optional[str] = Field(
+    t0_pm_degrade_buy_then_sell: Optional[str] = Field(
         default=None,
         max_length=8,
         description="正T午后闸 HH:MM；禁新开 + 卖旧中点追价",
@@ -262,15 +262,15 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=1,
         le=60,
-        description="legacy：等同 t0_pm_chase_interval_min_reverse",
+        description="legacy：等同 t0_pm_chase_interval_min_buy_then_sell",
     )
-    t0_pm_chase_interval_min_long: Optional[int] = Field(
+    t0_pm_chase_interval_min_sell_then_buy: Optional[int] = Field(
         default=None,
         ge=1,
         le=60,
         description="反T中点追价间隔（分钟），默认 10（买回上移）",
     )
-    t0_pm_chase_interval_min_reverse: Optional[int] = Field(
+    t0_pm_chase_interval_min_buy_then_sell: Optional[int] = Field(
         default=None,
         ge=1,
         le=60,
@@ -338,28 +338,28 @@ class PaperExecutionPatchRequest(BaseModel):
     t0_ratio: Optional[float] = None
     sell_trigger_pct: Optional[float] = None
     buy_trigger_pct: Optional[float] = None
-    buy_trigger_pct_long: Optional[float] = None
-    sell_trigger_pct_reverse: Optional[float] = None
+    buy_trigger_pct_sell_then_buy: Optional[float] = None
+    sell_trigger_pct_buy_then_sell: Optional[float] = None
     fill_mode: Optional[str] = None
-    fill_mode_long: Optional[str] = None
-    fill_mode_reverse: Optional[str] = None
+    fill_mode_sell_then_buy: Optional[str] = None
+    fill_mode_buy_then_sell: Optional[str] = None
     direction: Optional[str] = None
     path_mode: Optional[str] = None
     dir_enter: Optional[float] = None
     min_range_pct: Optional[float] = None
-    min_range_pct_long: Optional[float] = None
-    min_range_pct_reverse: Optional[float] = None
+    min_range_pct_sell_then_buy: Optional[float] = None
+    min_range_pct_buy_then_sell: Optional[float] = None
     use_atr: Optional[bool] = None
     must_cover_same_day: Optional[bool] = None
-    must_cover_same_day_long: Optional[bool] = None
-    must_cover_same_day_reverse: Optional[bool] = None
+    must_cover_same_day_sell_then_buy: Optional[bool] = None
+    must_cover_same_day_buy_then_sell: Optional[bool] = None
     y_trade_enter: Optional[float] = None
     y_trade_strong: Optional[float] = None
     y_trade_floor: Optional[float] = None
     y_tau_enter: Optional[float] = None
     y_tau_enter_strong: Optional[float] = None
-    y_tau_enter_long: Optional[float] = None
-    y_tau_enter_reverse: Optional[float] = None
+    y_tau_enter_sell_then_buy: Optional[float] = None
+    y_tau_enter_buy_then_sell: Optional[float] = None
     y_ratio_cut: Optional[float] = None
     y_ratio_boost_cap: Optional[float] = None
     y_eod_prior: Optional[float] = None
@@ -374,12 +374,12 @@ class PaperExecutionPatchRequest(BaseModel):
     y_nc_strong: Optional[float] = None
     y_nowcast_enter: Optional[float] = None
     y_tau_map: Optional[str] = Field(
-        default=None, max_length=24, description="scalp|trend|fixed_long|fixed_reverse"
+        default=None, max_length=24, description="scalp|trend|fixed_sell_then_buy|fixed_buy_then_sell"
     )
     y_use_path: Optional[bool] = None
     y_path_enter: Optional[float] = None
-    y_path_enter_long: Optional[float] = None
-    y_path_enter_reverse: Optional[float] = None
+    y_path_enter_sell_then_buy: Optional[float] = None
+    y_path_enter_buy_then_sell: Optional[float] = None
     y_path_required: Optional[bool] = None
     y_gap_tier_mode: Optional[str] = None
     y_gap_tier_pct: Optional[float] = None
@@ -387,18 +387,18 @@ class PaperExecutionPatchRequest(BaseModel):
     y_path_abandon_enabled: Optional[bool] = None
     y_path_abandon_bars: Optional[int] = None
     y_prefix_segment_enabled: Optional[bool] = None
-    y_prefix_segment_enabled_long: Optional[bool] = None
-    y_prefix_segment_enabled_reverse: Optional[bool] = None
-    y_prefix_upbar_ratio_reverse: Optional[float] = None
-    y_prefix_downbar_ratio_long: Optional[float] = None
+    y_prefix_segment_enabled_sell_then_buy: Optional[bool] = None
+    y_prefix_segment_enabled_buy_then_sell: Optional[bool] = None
+    y_prefix_upbar_ratio_buy_then_sell: Optional[float] = None
+    y_prefix_downbar_ratio_sell_then_buy: Optional[float] = None
     y_tau_entry_price_mult: Optional[float] = None
     y_score_source: Optional[str] = Field(
         default=None, max_length=24, description="compute|live_book|ledger"
     )
     t0_pm_degrade: Optional[str] = None
-    t0_pm_degrade_long: Optional[str] = None
-    t0_pm_degrade_reverse: Optional[str] = None
+    t0_pm_degrade_sell_then_buy: Optional[str] = None
+    t0_pm_degrade_buy_then_sell: Optional[str] = None
     t0_pm_chase_interval_min: Optional[int] = None
-    t0_pm_chase_interval_min_long: Optional[int] = None
-    t0_pm_chase_interval_min_reverse: Optional[int] = None
+    t0_pm_chase_interval_min_sell_then_buy: Optional[int] = None
+    t0_pm_chase_interval_min_buy_then_sell: Optional[int] = None
 

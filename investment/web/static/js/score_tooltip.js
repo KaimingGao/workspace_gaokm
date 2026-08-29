@@ -1606,7 +1606,7 @@ export function formatT0DirectionDetail(raw) {
   const scoreTxt = Number.isFinite(score) ? `${fmtSigned(score, 2)}%` : "—";
   const dir = String((raw && raw.direction) || "");
   const dirLabel =
-    dir === "long_t" ? "反 T" : dir === "reverse_t" ? "正 T" : dir || "—";
+    dir === "sell_then_buy" ? "反 T" : dir === "buy_then_sell" ? "正 T" : dir || "—";
   const enterRaw =
     raw && raw.y_tau_enter != null
       ? Number(raw.y_tau_enter)
@@ -1619,10 +1619,10 @@ export function formatT0DirectionDetail(raw) {
   if (reason) decision = reason;
   else if (Number.isFinite(score)) {
     if (Math.abs(score) < enter) decision = `|y_τ|<${enter}% 横盘跳过`;
-    else if (dir === "long_t" || dir === "reverse_t") decision = dirLabel;
+    else if (dir === "sell_then_buy" || dir === "buy_then_sell") decision = dirLabel;
     else if (score >= enter) decision = "正 T（依 τ 映射）";
     else if (score <= -enter) decision = "反 T（依 τ 映射）";
-  } else if (dir === "long_t" || dir === "reverse_t") {
+  } else if (dir === "sell_then_buy" || dir === "buy_then_sell") {
     decision = dirLabel;
   }
   let html = '<div class="score-detail">';

@@ -112,7 +112,7 @@ export function renderPaperT0(els, data) {
       : `${days.length} 笔成交`,
     `指标日 ${data.t0_trade_days ?? "—"}`,
     data.cover_rate_pct != null ? `往返 ${data.cover_rate_pct}%` : null,
-    `正${data.reverse_t_days ?? 0}/反${data.long_t_days ?? 0}`,
+    `正${data.buy_then_sell_days ?? 0}/反${data.sell_then_buy_days ?? 0}`,
   ].filter(Boolean);
   const caption =
     `<div class="paper-t0-days-head">` +
@@ -187,8 +187,8 @@ export function renderPaperT0Preview(els, data) {
   const pnl = data.pnl_total ?? 0;
   const exposure = data.exposure_pnl_total ?? 0;
   const skipN = data.skip_count ?? skipRows.length;
-  const longN = tradeDays.filter((d) => d.direction === "long_t").length;
-  const revN = tradeDays.filter((d) => d.direction === "reverse_t").length;
+  const sellThenBuyN = tradeDays.filter((d) => d.direction === "sell_then_buy").length;
+  const buyThenSellN = tradeDays.filter((d) => d.direction === "buy_then_sell").length;
   const pnlN = Number(pnl);
   const pnlCls =
     Number.isFinite(pnlN) && pnlN > 0
@@ -223,7 +223,7 @@ export function renderPaperT0Preview(els, data) {
       : "") +
     previewMetricChip("is-univ", "票", `${tradeDays.length}/${allRows.length}`) +
     previewMetricChip("is-univ", "腿", tradeN) +
-    previewMetricChip("is-done", "正/反", `${revN}/${longN}`) +
+    previewMetricChip("is-done", "正/反", `${buyThenSellN}/${sellThenBuyN}`) +
     previewMetricChip(pnlCls, "PnL", Number.isFinite(pnlN) ? pnlN.toFixed(1) : pnl) +
     previewMetricChip(
       "is-idle",
@@ -251,7 +251,7 @@ export function renderPaperT0Preview(els, data) {
           `<h4 class="paper-t0-days-title">预演明细</h4>` +
           `<p class="quant-trades-caption">成交 ${tradeDays.length} · 跳过 ${skipN}` +
           escapeHtml(skipHint) +
-          ` · 正${revN}/反${longN}` +
+          ` · 正${buyThenSellN}/反${sellThenBuyN}` +
           ` · <span title="${tip}">τ = y_τ</span></p>` +
           `</div>`,
         maxRows: Math.max(T0_TRADE_TABLE_MAX_ROWS, days.length),
@@ -346,8 +346,8 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution } = {}) {
       : 0.25;
   const tauMap = normalizeYTauMap(data.rules && data.rules.y_tau_map);
   const tag = data.workerTag || "—";
-  const longN = days.filter((d) => d.direction === "long_t").length;
-  const revN = days.filter((d) => d.direction === "reverse_t").length;
+  const sellThenBuyN = days.filter((d) => d.direction === "sell_then_buy").length;
+  const buyThenSellN = days.filter((d) => d.direction === "buy_then_sell").length;
   const countLabel =
     days.length > T0_TRADE_TABLE_MAX_ROWS
       ? `${days.length} 笔 · 表内 ${T0_TRADE_TABLE_MAX_ROWS}`
@@ -363,13 +363,13 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution } = {}) {
     `<span class="paper-t0-desk-chip-k">${escapeHtml(tag)}</span>` +
     `<span class="paper-t0-desk-chip-v">${escapeHtml(countLabel)}</span>` +
     `</span>` +
-    (revN
+    (buyThenSellN
       ? `<span class="paper-t0-desk-chip is-done"><span class="paper-t0-desk-chip-k">正</span>` +
-        `<span class="paper-t0-desk-chip-v">${revN}</span></span>`
+        `<span class="paper-t0-desk-chip-v">${buyThenSellN}</span></span>`
       : "") +
-    (longN
+    (sellThenBuyN
       ? `<span class="paper-t0-desk-chip is-idle"><span class="paper-t0-desk-chip-k">反</span>` +
-        `<span class="paper-t0-desk-chip-v">${longN}</span></span>`
+        `<span class="paper-t0-desk-chip-v">${sellThenBuyN}</span></span>`
       : "") +
     `</span>`;
   const tip = escapeHtml(yTauMapScoreTip(tauMap, enter));
@@ -405,11 +405,11 @@ function deskPhaseBadge(phase, locked) {
 }
 
 function deskDirCell(direction) {
-  if (direction === "reverse_t") {
-    return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-rev" title="先买后卖">正T</span></td>`;
+  if (direction === "buy_then_sell") {
+    return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-buy-then-sell" title="先买后卖">正T</span></td>`;
   }
-  if (direction === "long_t") {
-    return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-long" title="先卖后买">反T</span></td>`;
+  if (direction === "sell_then_buy") {
+    return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-sell-then-buy" title="先卖后买">反T</span></td>`;
   }
   return `<td class="paper-t0-col-dir"><span class="paper-t0-desk-dir is-none">—</span></td>`;
 }
