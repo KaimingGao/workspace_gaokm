@@ -11,6 +11,7 @@ function typeCls(t) {
     sell: "is-sell",
     rebalance: "is-rebalance",
     cluster_pool_rebalance: "is-cluster",
+    watching_matrix_rebalance: "is-rebalance",
     t0_batch: "is-rebalance",
     sync_paper: "is-sync",
     init: "is-init",
@@ -75,13 +76,16 @@ function originLabelOf(l) {
   if (origin === "strategy") return "策略";
   if (origin === "mixed") return "手动+策略";
   if (origin === "cluster" || origin === "research") return "研究枢纽";
+  if (origin === "matrix") return "矩阵调仓";
   const detail = String(l.detail || "");
   if (detail.includes("[调仓]")) return "策略";
   if (l.type === "sync_paper") return "观察建仓";
   if (l.type === "t0_batch") return source === "paper_t0_auto" ? "做T·自动" : "做T";
   if (l.type === "cluster_pool_rebalance") return "研究枢纽";
+  if (l.type === "watching_matrix_rebalance") return "矩阵调仓";
   if (l.type === "rebalance") return "策略汇总";
   if (meta.cluster_mode || meta.source === "research_hub") return "研究枢纽";
+  if (meta.matrix_mode) return "矩阵调仓";
   if (l.type === "buy" || l.type === "sell") return "手动";
   return "";
 }
@@ -96,8 +100,8 @@ export function logMatchesTradingFilter(l, filter) {
   const detail = String(l.detail || "");
   if (f === "manual") {
     if (type === "sync_paper") return false;
-    if (type === "rebalance" || type === "cluster_pool_rebalance" || type === "t0_batch") return false;
-    if (origin === "t0" || origin === "strategy" || origin === "cluster") return false;
+    if (type === "rebalance" || type === "cluster_pool_rebalance" || type === "watching_matrix_rebalance" || type === "t0_batch") return false;
+    if (origin === "t0" || origin === "strategy" || origin === "cluster" || origin === "matrix") return false;
     if (detail.includes("[调仓]") || detail.startsWith("做T")) return false;
     return type === "buy" || type === "sell" || origin === "manual" || !origin;
   }
@@ -105,8 +109,10 @@ export function logMatchesTradingFilter(l, filter) {
     return (
       type === "rebalance" ||
       type === "cluster_pool_rebalance" ||
+      type === "watching_matrix_rebalance" ||
       origin === "strategy" ||
       origin === "cluster" ||
+      origin === "matrix" ||
       detail.includes("[调仓]")
     );
   }
@@ -163,7 +169,7 @@ function renderLogItem(l, { tradeCols = false } = {}) {
 
   let primary = "";
   let secondaryParts = [];
-  if (l.type === "rebalance" || l.type === "cluster_pool_rebalance" || l.type === "t0_batch") {
+  if (l.type === "rebalance" || l.type === "cluster_pool_rebalance" || l.type === "watching_matrix_rebalance" || l.type === "t0_batch") {
     const buyN = meta.buy_count != null ? Number(meta.buy_count) : NaN;
     const sellN = meta.sell_count != null ? Number(meta.sell_count) : NaN;
     const tradeN = meta.trade_count != null ? Number(meta.trade_count) : NaN;
@@ -175,10 +181,16 @@ function renderLogItem(l, { tradeCols = false } = {}) {
     if (l.type === "t0_batch") {
       primary = String(l.detail || "做T汇总");
     } else {
+      const fallback =
+        l.type === "cluster_pool_rebalance"
+          ? "分池调仓"
+          : l.type === "watching_matrix_rebalance"
+            ? "矩阵调仓"
+            : "策略调仓";
       primary =
         Number.isFinite(buyN) || Number.isFinite(sellN)
           ? `买入 ${Number.isFinite(buyN) ? buyN : 0} 笔 · 卖出 ${Number.isFinite(sellN) ? sellN : 0} 笔`
-          : String(l.detail || (l.type === "cluster_pool_rebalance" ? "分池调仓" : "策略调仓"));
+          : String(l.detail || fallback);
     }
     if (Number.isFinite(tradeN) && l.type === "t0_batch") {
       secondaryParts.push(`${tradeN} 笔`);
@@ -330,10 +342,12 @@ function dayLabel(key, items) {
   const buyN = items.filter((x) => x.type === "buy" || x.type === "sync_paper").length;
   const sellN = items.filter((x) => x.type === "sell").length;
   const clusterN = items.filter((x) => x.type === "cluster_pool_rebalance").length;
+  const matrixN = items.filter((x) => x.type === "watching_matrix_rebalance").length;
   const parts = [];
   if (buyN) parts.push(`买${buyN}`);
   if (sellN) parts.push(`卖${sellN}`);
   if (clusterN) parts.push(`分池${clusterN}`);
+  if (matrixN) parts.push(`矩阵${matrixN}`);
   return parts.length ? `${base} · ${parts.join(" ")}` : base;
 }
 
@@ -384,6 +398,7 @@ export function buildPaperLogsCsv(logs, { tradingOnly = true } = {}) {
     "sell",
     "rebalance",
     "cluster_pool_rebalance",
+    "watching_matrix_rebalance",
     "sync_paper",
   ]);
   const rows = (logs || []).filter((l) =>
@@ -442,6 +457,7 @@ export function buildPaperLogsView(data, showAllState, logFilter = "all") {
     "sell",
     "rebalance",
     "cluster_pool_rebalance",
+    "watching_matrix_rebalance",
     "t0_batch",
     "sync_paper",
   ]);

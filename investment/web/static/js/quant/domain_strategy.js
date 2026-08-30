@@ -1254,7 +1254,7 @@ export function installStrategy(q) {
           buy != null && Number.isFinite(buy) ? `· 买入/入簿 ≥ ${buy}%` : "",
           hold != null && Number.isFinite(hold) ? `· 卖出 < ${hold}%` : "",
           "",
-          "仅改 signal_config.scoring；不改 weights。保存后请刷新分池簿再预演调仓。",
+          "仅改 signal_config.scoring；不改 weights。保存后请到 /follow 预演调仓。",
         ]
           .filter(Boolean)
           .join("\n")
@@ -1281,7 +1281,7 @@ export function installStrategy(q) {
       if (st) {
         st.textContent = `已保存 · 买入 ≥ ${f.min_predicted_score ?? "—"}% · 卖出 < ${
           f.min_hold_predicted_score ?? "—"
-        }% · 请刷新分池簿`;
+        }% · 请到 /follow 预演`;
       }
       loadStrategyList().catch(() => {});
     } catch (err) {

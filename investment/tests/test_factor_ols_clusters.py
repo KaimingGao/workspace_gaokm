@@ -1056,7 +1056,8 @@ class TestFactorOlsClusters(unittest.TestCase):
         self.assertIn("① 对照", land)
         self.assertIn("live-refit", land)
         self.assertIn("live-refit", cluster)
-        self.assertIn("live-refresh", land)
+        self.assertNotIn("live-refresh", land)
+        self.assertNotIn("刷新簿", land)
         self.assertNotIn('details class="quant-cluster-more', land)
         self.assertNotIn("① 花名册", land)
 

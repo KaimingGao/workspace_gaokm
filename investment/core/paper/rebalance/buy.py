@@ -608,6 +608,56 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
                 )
                 continue
 
+            # 早盘 path_matrix 买闸（默认开；见 rebalance_timing.path_matrix）
+            _path_buy_lambda = 1.0
+            try:
+                from core.paper.rebalance.path_matrix import (
+                    buy_execution_gate,
+                    get_path_matrix_cfg,
+                )
+
+                _pm_cfg = get_path_matrix_cfg(paper=paper)
+                if _pm_cfg.get("enabled"):
+                    _w_star = 0.0
+                    if code in target_w:
+                        try:
+                            _w_star = float(target_w[code]) / 100.0
+                        except (TypeError, ValueError):
+                            _w_star = float(position_pct or 0.15)
+                    else:
+                        _w_star = float(position_pct or 0.15)
+                    _pm_gate = buy_execution_gate(
+                        item,
+                        w=0.0,
+                        w_star_day=max(_w_star, 1e-6),
+                        in_topk=True,
+                        cfg=_pm_cfg,
+                        buy_floor=min_score,
+                        hold_floor=float(state.min_hold_score),
+                    )
+                    if not _pm_gate.get("allow"):
+                        risk_budget_skips.append(
+                            {
+                                "stock_code": code,
+                                "stock_name": item.get("stock_name"),
+                                "reason": _pm_gate.get("reason")
+                                or "path_matrix 本窗不买",
+                                "score": score,
+                                "path_matrix": True,
+                                "path_matrix_action": _pm_gate.get("action"),
+                            }
+                        )
+                        continue
+                    try:
+                        _path_buy_lambda = max(
+                            0.0, min(1.0, float(_pm_gate.get("lambda") or 1.0))
+                        )
+                    except (TypeError, ValueError):
+                        _path_buy_lambda = 1.0
+            except Exception:  # noqa: BLE001
+                logger.debug("path_matrix buy gate failed", exc_info=True)
+                _path_buy_lambda = 1.0
+
             ratio = position_pct
             if prior_apply and prior_apply.get("ratio") is not None:
                 try:
@@ -637,6 +687,8 @@ def run_buy_leg(state: RebalanceState, *, target_w: Optional[Dict[str, Any]] = N
             if budget < price * 100:
                 continue
             shares = int(budget // price // 100) * 100
+            if _path_buy_lambda < 1.0 - 1e-9:
+                shares = int(shares * _path_buy_lambda // 100) * 100
             if shares <= 0:
                 continue
 

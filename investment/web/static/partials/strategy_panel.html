@@ -746,22 +746,22 @@
                   </span>
                   <div>
                     <h3>调仓规则</h3>
-                    <p class="strategy-alpha-risk-desc">分池目标簿 + ŷ 滞回 · 预演后确认 · 不在本页下单</p>
+                    <p class="strategy-alpha-risk-desc">观察池 + path_matrix · 预演后确认 · 不在本页下单</p>
                   </div>
                 </div>
                 <div class="strategy-logic">
                   <div class="strategy-logic-item">
-                    <h4>分池路径（live active）</h4>
+                    <h4>观察池路径（Follow）</h4>
                     <ul>
-                      <li>目标簿：组 ŷ 排序，按买入门槛入簿后截断</li>
-                      <li>买入：簿内且 ŷ ≥ 买入门槛；卖出：ŷ &lt; 卖出门槛</li>
-                      <li>刷新簿在研究枢纽落地卡「刷新簿」（不重聚类）</li>
+                      <li>目标：y_trade Top-K + 策略限额（最多几只 / 单票%）</li>
+                      <li>时机：早盘 path_matrix（y_path / y_nowcast / y_on）</li>
+                      <li>组合限额来自策略中心 promote 的纸面策略</li>
                     </ul>
                   </div>
                   <div class="strategy-logic-item">
                     <h4>执行落点</h4>
                     <ul>
-                      <li>交易执行页：预演调仓 → 确认调仓（才写纸面）</li>
+                      <li>交易执行页：预演调仓 → 确认落账（才写纸面）</li>
                       <li>可选做 T 为独立 overlay，与选股 ŷ 解耦</li>
                     </ul>
                   </div>

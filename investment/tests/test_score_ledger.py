@@ -460,133 +460,18 @@ class TestScoreLedger(unittest.TestCase):
             self.assertEqual(out2["as_of"], "2026-08-11")
             self.assertTrue(out2["remapped"])
 
-    def test_freeze_from_cluster_book_uses_resolved_as_of(self):
-        from core.score_ledger import freeze_from_cluster_book, load_ledger
-
-        book = {
-            "updated_at": "2026-08-12T07:00:00Z",
-            "book": [
-                {
-                    "stock_code": "600519",
-                    "stock_name": "茅台",
-                    "predicted_score": 1.5,
-                    "cluster_label": "G1",
-                }
-            ],
-            "meta": {"version": 1},
-        }
-        with self._patch_dir(), patch(
-            "core.score_ledger.freeze.resolve_freeze_as_of",
-            return_value={
-                "as_of": "2026-08-11",
-                "session_date": "2026-08-12",
-                "prev_trading_day": "2026-08-11",
-                "feature_as_of": "2026-08-11",
-                "requested_as_of": "2026-08-12",
-                "remapped": True,
-                "note": "下调",
-            },
-        ):
-            out = freeze_from_cluster_book(
-                as_of="2026-08-12", book_doc=book, force=True
-            )
-            self.assertTrue(out["success"])
-            self.assertEqual(out["as_of"], "2026-08-11")
-            led = load_ledger("2026-08-11")
-            self.assertFalse(led.get("empty"))
-            self.assertEqual(led["meta"].get("feature_as_of"), "2026-08-11")
-            self.assertTrue(load_ledger("2026-08-12").get("empty"))
-            self.assertIsNone(out.get("skipped_newer"))
-
-    def test_freeze_reports_skipped_newer_when_bars_lag(self):
+    def test_freeze_from_cluster_book_deprecated(self):
         from core.score_ledger import freeze_from_cluster_book
 
-        book = {
-            "updated_at": "2026-08-18T07:00:00Z",
-            "book": [
-                {
-                    "stock_code": "600519",
-                    "predicted_score": 1.5,
-                    "cluster_label": "G1",
-                }
-            ],
-            "meta": {"version": 1},
-        }
-        with self._patch_dir(), patch(
-            "core.score_ledger.freeze.resolve_freeze_as_of",
-            return_value={
-                "as_of": "2026-08-18",
-                "session_date": "2026-08-20",
-                "prev_trading_day": "2026-08-19",
-                "feature_as_of": "2026-08-18",
-                "requested_as_of": None,
-                "remapped": False,
-                "note": "按因子截止日 2026-08-18 冻结",
-            },
-        ):
-            out = freeze_from_cluster_book(book_doc=book, force=True)
-            self.assertTrue(out["success"])
-            self.assertEqual(out["as_of"], "2026-08-18")
-            self.assertEqual(out.get("skipped_newer"), "2026-08-19")
-
-    def test_freeze_prefers_scored_all_universe_with_in_book(self):
-        from core.score_ledger import (
-            freeze_from_cluster_book,
-            load_ledger,
-            rows_for_book_review,
+        out = freeze_from_cluster_book(
+            as_of="2026-08-12",
+            book_doc={"book": [{"stock_code": "600519", "predicted_score": 1.5}]},
+            force=True,
         )
+        self.assertFalse(out.get("success"))
+        self.assertTrue(out.get("deprecated"))
+        self.assertIn("停用", str(out.get("error") or ""))
 
-        book = {
-            "updated_at": "2026-08-12T07:00:00Z",
-            "book": [
-                {
-                    "stock_code": "600519",
-                    "stock_name": "茅台",
-                    "predicted_score": 1.5,
-                    "predicted_score_eod": 1.5,
-                }
-            ],
-            "scored_all": [
-                {
-                    "stock_code": "600519",
-                    "stock_name": "茅台",
-                    "predicted_score": 1.5,
-                    "predicted_score_eod": 1.5,
-                },
-                {
-                    "stock_code": "601988",
-                    "stock_name": "中国银行",
-                    "predicted_score": -0.8,
-                    "predicted_score_eod": -0.8,
-                },
-            ],
-            "meta": {"version": 9},
-        }
-        with self._patch_dir(), patch(
-            "core.score_ledger.freeze.resolve_freeze_as_of",
-            return_value={
-                "as_of": "2026-08-11",
-                "session_date": "2026-08-12",
-                "prev_trading_day": "2026-08-11",
-                "feature_as_of": "2026-08-11",
-                "requested_as_of": "2026-08-12",
-                "remapped": True,
-                "note": None,
-            },
-        ):
-            out = freeze_from_cluster_book(as_of="2026-08-12", book_doc=book, force=True)
-            self.assertTrue(out["success"])
-            self.assertEqual(out["n_rows"], 2)
-            led = load_ledger("2026-08-11")
-            self.assertEqual(led["meta"].get("freeze_universe"), "scored_all")
-            rows = led.get("rows") or []
-            by = {str(r["code"]): r for r in rows}
-            self.assertTrue(by["600519"].get("in_book"))
-            self.assertFalse(by["601988"].get("in_book"))
-            self.assertAlmostEqual(float(by["601988"]["yhat_eod"]), -0.8)
-            book_rows = rows_for_book_review(rows)
-            self.assertEqual(len(book_rows), 1)
-            self.assertEqual(book_rows[0]["code"], "600519")
     def test_tau_shadow_freeze_and_review(self):
         from core.score_ledger import (
             build_tau_shadow_review,
@@ -987,41 +872,15 @@ class TestLedgerFreezeGate(unittest.TestCase):
             self.assertEqual(out, "2026-08-21")
 
     def test_cluster_auto_skip_does_not_write(self):
-        from datetime import datetime, timezone, timedelta
-        from core.score_ledger import freeze_from_cluster_book, load_ledger
-        import tempfile
-        import os
+        from core.score_ledger import freeze_from_cluster_book
 
-        cn = timezone(timedelta(hours=8))
-        noon = datetime(2026, 8, 24, 11, 0, tzinfo=cn)
-        book = {
-            "updated_at": "2026-08-24T03:00:00Z",
-            "book": [{"stock_code": "600519", "predicted_score": 1.2}],
-            "meta": {"version": 1},
-        }
-        with tempfile.TemporaryDirectory() as td:
-            with patch(
-                "core.score_ledger.io.ledger_dir", return_value=td
-            ), patch(
-                "core.market.calendar.resolve_session_date", return_value="2026-08-24"
-            ), patch(
-                "core.signal.session_pit.shanghai_now", return_value=noon
-            ), patch(
-                "core.score_ledger.freeze.resolve_freeze_as_of",
-                return_value={
-                    "as_of": "2026-08-21",
-                    "session_date": "2026-08-24",
-                    "prev_trading_day": "2026-08-21",
-                    "feature_as_of": "2026-08-21",
-                    "requested_as_of": None,
-                    "remapped": False,
-                    "note": "按因子截止日",
-                },
-            ):
-                out = freeze_from_cluster_book(book_doc=book, auto=True)
-                self.assertTrue(out.get("skipped"))
-                self.assertFalse(out.get("success"))
-                self.assertTrue(load_ledger("2026-08-21").get("empty"))
+        out = freeze_from_cluster_book(
+            book_doc={"book": [{"stock_code": "600519", "predicted_score": 1.2}]},
+            auto=True,
+        )
+        self.assertFalse(out.get("success"))
+        self.assertTrue(out.get("deprecated"))
+        self.assertEqual(out.get("n_rows"), 0)
 
 
 if __name__ == "__main__":

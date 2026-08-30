@@ -141,17 +141,17 @@ class TestClusterPointerFh1(unittest.TestCase):
 
         with _live_tmp() as ctx:
             promote_cluster_artifact(_artifact())
-            # 无簿 → 应拦截
-            blocked = set_cluster_scoring_mode("active")
-            self.assertFalse(blocked["success"])
-            # force 豁免并写审计
+            # 健康不允许 → 拦截
             with patch(
                 "core.signal.cluster.live.assess_cluster_live_health",
-                return_value={"allow_active": True, "alerts": []},
+                return_value={"allow_active": False, "alerts": ["stale"]},
             ), patch(
                 "core.signal.cluster.live.build_cluster_enable_evidence",
-                return_value={"gate": {"ok": True, "blockers": []}},
+                return_value={"gate": {"ok": False, "blockers": ["stale"]}},
             ):
+                blocked = set_cluster_scoring_mode("active")
+                self.assertFalse(blocked["success"])
+                # force 豁免并写审计（仍有 blockers 时才记 force_audit）
                 forced = set_cluster_scoring_mode("active", force=True)
             self.assertTrue(forced["success"])
             self.assertTrue(os.path.isfile(ctx["audit"]))

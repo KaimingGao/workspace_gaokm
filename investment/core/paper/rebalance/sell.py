@@ -173,6 +173,50 @@ def run_sell_leg(state: RebalanceState) -> None:
                         reason = f"ŷ_trade 低于 min_hold_score({min_hold_score})"
                         reason_tag = SELL_REASON_BELOW_HOLD
 
+        # 早盘 path_matrix 卖闸（默认开）：pending_exit 本窗 defer；λ 缩卖出比例
+        _path_sell_frac = 1.0
+        if reason:
+            try:
+                from core.paper.rebalance.path_matrix import (
+                    get_path_matrix_cfg,
+                    sell_execution_gate,
+                )
+
+                _pm_cfg = get_path_matrix_cfg(paper=paper)
+                if _pm_cfg.get("enabled"):
+                    _pm_sell = sell_execution_gate(
+                        src_item or {"score": score, "y_trade": score},
+                        w=1.0,
+                        w_star_day=0.0,
+                        in_topk=bool(in_top),
+                        cfg=_pm_cfg,
+                        buy_floor=None,
+                        hold_floor=min_hold_score,
+                    )
+                    if _pm_sell.get("defer") or not _pm_sell.get("allow"):
+                        event_prior_soft_holds.append(
+                            {
+                                "stock_code": code,
+                                "path_matrix_defer": True,
+                                "path_matrix_action": _pm_sell.get("action"),
+                                "reason": _pm_sell.get("reason")
+                                or "path_matrix 本窗推迟卖出",
+                            }
+                        )
+                        reason = None
+                        reason_tag = None
+                        kept.append(h)
+                        continue
+                    try:
+                        _path_sell_frac = max(
+                            0.0, min(1.0, float(_pm_sell.get("sell_fraction") or 1.0))
+                        )
+                    except (TypeError, ValueError):
+                        _path_sell_frac = 1.0
+            except Exception:  # noqa: BLE001
+                logger.debug("path_matrix sell gate failed", exc_info=True)
+                _path_sell_frac = 1.0
+
         # P1：主题开盘缺口 / rem / 舆情看多 · 卖出改为 soft hold（不改 ŷ）
         # 分池滞回卖因「低于*」；横截面另有「不在 TopK」——主题日同样保护，避免踏空
         _soft_hold_eligible = bool(
@@ -283,6 +327,10 @@ def run_sell_leg(state: RebalanceState) -> None:
         sell_note = None
         sentiment_prior_trim = False
         market_prior_trim = False
+        if reason and _path_sell_frac < 1.0 - 1e-9:
+            sell_shares = float(shares) * float(_path_sell_frac)
+            keep_shares = float(shares) - float(sell_shares)
+            sell_note = f"path_matrix λ卖出{_path_sell_frac:.0%}"
 
         # 市场级 prior：主动缩仓（不改 ŷ）
         if not reason and isinstance(src_item, dict) and not skip_market_prior:

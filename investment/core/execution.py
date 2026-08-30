@@ -178,6 +178,18 @@ DEFAULT_REBALANCE_TIMING: Dict[str, Any] = {
     "execution_mode": "next_open",  # next_open=盘中现价、收盘后挂次日开盘；close=确认即成交
     "open_fill_after_hm": "09:15",
     "open_fill_until_hm": "10:00",
+    # 早盘路径择时调仓矩阵（默认开；见 core.paper.rebalance.path_matrix）
+    "path_matrix": {
+        "enabled": True,
+        "mode": "path",  # path | linear
+        "path_enter": 1.0,
+        "path_half": 1.0,
+        "path_full": 2.0,
+        "y_on_allow": 0.01,
+        "y_on_half": 0.0,
+        "require_nowcast_for_open": True,
+        "allow_pending_exit_on_path_low": True,
+    },
 }
 
 DEFAULT_EXECUTION: Dict[str, Any] = {
@@ -398,7 +410,7 @@ def resolve_effective_execution(
     t0 = load_t0_rules(raw_t0)
     t0["t0_ratio"] = 1.0
 
-    # rebalance：Spec paper_rules ← paper.rules（非 t0 键）
+    # rebalance 规则键：Spec paper_rules ← paper.rules（非 t0）
     rebalance = deepcopy(strategy_exe.get("_paper_rules") or {})
     paper_rules = (paper or {}).get("rules") or {}
     if isinstance(paper_rules, dict):
@@ -406,10 +418,11 @@ def resolve_effective_execution(
             if k in paper_rules and paper_rules[k] is not None:
                 rebalance[k] = paper_rules[k]
 
+    # 成交时机 + path_matrix：Spec ← paper.rules.execution.rebalance_timing
     timing = deepcopy(DEFAULT_REBALANCE_TIMING)
     spec_timing = strategy_exe.get("rebalance_timing")
     if isinstance(spec_timing, dict):
-        timing.update({k: v for k, v in spec_timing.items() if v is not None})
+        timing = _merge_dict(timing, spec_timing)
     if isinstance(paper_rules, dict):
         if paper_rules.get("execution_mode"):
             timing["execution_mode"] = paper_rules.get("execution_mode")
@@ -419,13 +432,13 @@ def resolve_effective_execution(
                 timing["execution_mode"] = paper_exe.get("execution_mode")
             rt = paper_exe.get("rebalance_timing")
             if isinstance(rt, dict):
-                timing.update({k: v for k, v in rt.items() if v is not None})
+                timing = _merge_dict(timing, rt)
     if isinstance(request_override, dict):
         if request_override.get("execution_mode"):
             timing["execution_mode"] = request_override.get("execution_mode")
         req_t = request_override.get("rebalance_timing")
         if isinstance(req_t, dict):
-            timing.update({k: v for k, v in req_t.items() if v is not None})
+            timing = _merge_dict(timing, req_t)
     mode = str(timing.get("execution_mode") or "next_open").strip().lower()
     if mode not in ("next_open", "close"):
         mode = "next_open"
@@ -560,31 +573,8 @@ def _timing_summary(timing: Optional[dict]) -> str:
 def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
     """API / Web 用精简视图。"""
     t0 = bundle.get("t0") or {}
-    # L4：只读分池合并簿（不改全局 weights）
+    # 分池簿已停用
     cluster_book = None
-    try:
-        from core.signal.cluster.live import (
-            get_cluster_scoring_cfg,
-            load_active_cluster_book,
-            load_active_cluster_weights,
-        )
-
-        cs = get_cluster_scoring_cfg()
-        book_doc = load_active_cluster_book()
-        active = load_active_cluster_weights()
-        if book_doc and cs.get("mode") in ("shadow", "active"):
-            cluster_book = {
-                "mode": cs.get("mode"),
-                "updated_at": book_doc.get("updated_at"),
-                "name_count": len(book_doc.get("book") or []),
-                "book": (book_doc.get("book") or [])[:20],
-                "cluster_version": (active or {}).get("version"),
-                "signal_config_touched": False,
-                "note": "execution 只读分池簿；权重源见 weight_source",
-            }
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in execution.py", exc_info=True)
-        cluster_book = None
     path_model_present = False
     path_model_shadow = False
     path_model_promoted = False
@@ -743,7 +733,12 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
     coupling_in: Optional[dict] = None
     lock = bool(raw.get("lock", True))
 
-    if isinstance(raw.get("t0"), dict) or "coupling" in raw or "overlays" in raw:
+    if (
+        isinstance(raw.get("t0"), dict)
+        or "coupling" in raw
+        or "overlays" in raw
+        or "rebalance_timing" in raw
+    ):
         t0_in = dict(raw.get("t0") or {})
         if isinstance(raw.get("overlays"), dict) and isinstance(raw["overlays"].get("t0"), dict):
             t0_in = {**t0_in, **raw["overlays"]["t0"]}
@@ -753,7 +748,15 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_in = {
             k: v
             for k, v in raw.items()
-            if k not in {"lock", "reset", "note", "coupling", "channel"}
+            if k
+            not in {
+                "lock",
+                "reset",
+                "note",
+                "coupling",
+                "channel",
+                "rebalance_timing",
+            }
         }
 
     # 旧异号键 → τ↔nowcast
@@ -811,10 +814,6 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_out["y_prefix_segment_enabled_buy_then_sell"] = bool(
             t0_in.get("y_prefix_segment_enabled_buy_then_sell")
         )
-    # 选向仅 dual_y
-    t0_out["direction"] = "dual_y"
-    if "t0_ratio" in t0_in:
-        t0_out["t0_ratio"] = 1.0
 
     coupling_out: Dict[str, Any] = {}
     if coupling_in is not None:
@@ -829,7 +828,48 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
     if errors:
         return False, {}, errors
 
-    return True, {"t0": t0_out, "coupling": coupling_out, "lock": lock}, []
+    # 选向仅 dual_y（有 t0 补丁时才写入，避免仅改 rebalance_timing 污染 t0）
+    if t0_in:
+        t0_out["direction"] = "dual_y"
+        if "t0_ratio" in t0_in:
+            t0_out["t0_ratio"] = 1.0
+
+    timing_out: Dict[str, Any] = {}
+    raw_timing = raw.get("rebalance_timing") if isinstance(raw, dict) else None
+    if isinstance(raw_timing, dict):
+        pm_in = raw_timing.get("path_matrix")
+        if isinstance(pm_in, dict):
+            try:
+                from core.paper.rebalance.path_matrix import get_path_matrix_cfg
+
+                pm = get_path_matrix_cfg({"path_matrix": pm_in})
+                timing_out["path_matrix"] = {
+                    "enabled": bool(pm.get("enabled")),
+                    "mode": str(pm.get("mode") or "path"),
+                    "path_enter": float(pm.get("path_enter") or 1.0),
+                    "path_half": float(pm.get("path_half") or 1.0),
+                    "path_full": float(pm.get("path_full") or 2.0),
+                    "y_on_allow": float(pm.get("y_on_allow") or 0.01),
+                    "y_on_half": float(pm.get("y_on_half") or 0.0),
+                    "require_nowcast_for_open": bool(pm.get("require_nowcast_for_open", True)),
+                    "allow_pending_exit_on_path_low": bool(
+                        pm.get("allow_pending_exit_on_path_low", True)
+                    ),
+                }
+            except Exception as e:  # noqa: BLE001
+                errors.append(f"path_matrix 校验失败: {e}")
+                return False, {}, errors
+        if raw_timing.get("execution_mode") is not None:
+            mode = str(raw_timing.get("execution_mode") or "next_open").strip().lower()
+            if mode not in ("next_open", "close"):
+                errors.append("rebalance_timing.execution_mode 须为 next_open|close")
+                return False, {}, errors
+            timing_out["execution_mode"] = mode
+
+    out_norm: Dict[str, Any] = {"t0": t0_out, "coupling": coupling_out, "lock": lock}
+    if timing_out:
+        out_norm["rebalance_timing"] = timing_out
+    return True, out_norm, []
 
 
 def apply_execution_patch_to_paper(
@@ -838,24 +878,45 @@ def apply_execution_patch_to_paper(
     *,
     note: str = "",
 ) -> Dict[str, Any]:
-    """写入 paper.rules.t0 / paper.rules.execution.coupling；返回生效视图 meta。"""
+    """写入 paper.rules.t0 / paper.rules.execution（coupling · rebalance_timing）。"""
     ok, normalized, errors = validate_execution_patch(patch)
     if not ok:
         return {"ok": False, "errors": errors}
 
     rules = dict(paper.get("rules") or {})
-    prev_t0 = dict(rules.get("t0") or {}) if isinstance(rules.get("t0"), dict) else {}
-    new_t0 = dict(prev_t0)
-    new_t0.update(normalized.get("t0") or {})
-    new_t0["t0_ratio"] = 1.0
-    rules["t0"] = new_t0
+    t0_patch = normalized.get("t0") or {}
+    if t0_patch:
+        prev_t0 = dict(rules.get("t0") or {}) if isinstance(rules.get("t0"), dict) else {}
+        new_t0 = dict(prev_t0)
+        new_t0.update(t0_patch)
+        new_t0["t0_ratio"] = 1.0
+        rules["t0"] = new_t0
 
+    exe = dict(rules.get("execution") or {}) if isinstance(rules.get("execution"), dict) else {}
     coupling_patch = normalized.get("coupling") or {}
     if coupling_patch:
-        exe = dict(rules.get("execution") or {}) if isinstance(rules.get("execution"), dict) else {}
         coup = dict(exe.get("coupling") or {})
         coup.update(coupling_patch)
         exe["coupling"] = coup
+
+    timing_patch = normalized.get("rebalance_timing") or {}
+    if timing_patch:
+        rt = dict(exe.get("rebalance_timing") or {})
+        if isinstance(timing_patch.get("path_matrix"), dict):
+            prev_pm = (
+                dict(rt.get("path_matrix") or {})
+                if isinstance(rt.get("path_matrix"), dict)
+                else {}
+            )
+            prev_pm.update(timing_patch["path_matrix"])
+            rt["path_matrix"] = prev_pm
+        for k, v in timing_patch.items():
+            if k == "path_matrix" or v is None:
+                continue
+            rt[k] = v
+        exe["rebalance_timing"] = rt
+
+    if coupling_patch or timing_patch:
         rules["execution"] = exe
 
     paper["rules"] = rules

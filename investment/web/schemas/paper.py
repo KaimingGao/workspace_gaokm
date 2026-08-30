@@ -28,7 +28,11 @@ class PaperRebalanceRequest(BaseModel):
     )
     cluster_mode: bool = Field(
         default=False,
-        description="true=分池 live（组权打分→全局排序截断）；不写全局 weights",
+        description="已停用：分池调仓不再支持；请用 matrix_mode",
+    )
+    matrix_mode: bool = Field(
+        default=True,
+        description="观察池实时算分 + path_matrix 预演/落账（默认且唯一调仓路径）",
     )
     dry_run: bool = Field(
         default=False,
@@ -331,6 +335,10 @@ class PaperExecutionPatchRequest(BaseModel):
 
     t0: Optional[dict] = None
     coupling: Optional[dict] = None
+    rebalance_timing: Optional[dict] = Field(
+        default=None,
+        description="调仓时机；含 path_matrix（早盘路径择时）",
+    )
     lock: bool = True
     note: str = ""
     # 扁平快捷字段（写入 t0）

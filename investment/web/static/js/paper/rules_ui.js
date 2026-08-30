@@ -37,6 +37,22 @@ export function renderPaperRulesHtml(data) {
     ["止损", rules.stop_loss_pnl != null ? `${rules.stop_loss_pnl}%` : "—"],
     ["做T", t0Label],
   ];
+  const timing =
+    (exe.rebalance_timing && typeof exe.rebalance_timing === "object"
+      ? exe.rebalance_timing
+      : null) || {};
+  const pm =
+    timing.path_matrix && typeof timing.path_matrix === "object"
+      ? timing.path_matrix
+      : null;
+  if (pm) {
+    chips.push([
+      "择时",
+      pm.mode === "linear"
+        ? "线性"
+        : `path≥${pm.path_enter != null ? pm.path_enter : 1}%`,
+    ]);
+  }
   if (exe.effective_hash) {
     chips.push(["exec", String(exe.effective_hash).slice(0, 8)]);
   }

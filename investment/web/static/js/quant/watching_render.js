@@ -412,21 +412,17 @@ export function renderWatchingWatchTableFallback(rows, { onPickCountUpdate } = {
       const code = escapeHtml(d.code || "");
       const name = d.name || d.code || "—";
       const alertCls = d.isSentimentAlert ? " is-sentiment-alert" : "";
-      const bookBadge = d.inBook
-        ? `<span class="watching-book-badge" title="分池目标簿">簿</span>`
-        : "";
       const oosBadge = d.oosFailed
         ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
         : "";
       return (
-        `<tr data-code="${code}" class="watching-watch-row${alertCls}${d.inBook ? " is-cluster-book" : ""}${
+        `<tr data-code="${code}" class="watching-watch-row${alertCls}${
           d.oosFailed ? " is-oos-failed" : ""
         }">` +
         `<td class="watching-pick-cell"><input type="checkbox" class="watching-pick" value="${code}" data-code="${code}" /></td>` +
         `<td class="watching-stock" title="${escapeHtml(name)} ${code}">` +
         `<span class="watching-name-row">` +
         watchingNameSpanHtml(name) +
-        bookBadge +
         oosBadge +
         `</span>` +
         `<span class="watching-code-sub">${code}<span class="watching-mkt"></span></span></td>` +

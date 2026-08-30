@@ -64,7 +64,7 @@ def _stack_panels(
     return xs_all, ys_all, dates_all, metas_all
 
 
-def _time_split_indices(dates: List[str], *, train_frac: float = 0.7) -> tuple:
+def _time_split_indices(dates: List[str], *, train_frac: float = 0.9) -> tuple:
     """按**唯一交易日**排序切分，再展开到行下标（变长前缀同日多行不拆到两侧）。"""
     n = len(dates)
     if n < 10:
@@ -473,7 +473,7 @@ def fit_tau_ridge_report(
     min_history: int = 12,
     gap_trigger_pct: float = 2.0,
     theme_boost: float = 1.5,
-    train_frac: float = 0.7,
+    train_frac: float = 0.9,
     use_theme_weights: bool = True,
     tau_hm: str = "open",
     tau_grid: Optional[Sequence[str]] = None,

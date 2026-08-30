@@ -34,8 +34,8 @@ class PaperAccountMixin:
     def _compute_holding_scores(self, paper: dict, summary: dict) -> dict:
         """计算当前持仓的评分，合并到 summary.holdings 中。
 
-        优先读 active 分池簿（与观察/调仓同源 tip 字段，毫秒级）；簿外票才
-        簿外票才经 SignalService ``score_one``（带超时）。**不**经 observation_pool / min_score TopN。
+        经 SignalService ``score_one``（带超时）。**不**经 observation_pool / min_score TopN。
+        分池簿快路径已停用。
         """
         holdings = paper.get("holdings") or []
         holding_codes = [str(h.get("stock_code")) for h in holdings if h.get("stock_code")]
@@ -59,82 +59,50 @@ class PaperAccountMixin:
                 return svc.pack_holding_row(item, cluster_mode=cluster_mode)
 
             score_by_code: Dict[str, Any] = {}
-            book_codes: set = set()
-            # 1) 分池簿快路径（持仓几乎都在 scored_all 里）
-            try:
-                from core.signal.cluster.live import load_active_cluster_book
+            missing = list(holding_codes)
+            per_timeout = 8.0
+            workers = min(len(missing), 6)
 
-                book_doc = load_active_cluster_book() or {}
-                book_codes = {
-                    str(r.get("stock_code") or r.get("code") or "").strip()
-                    for r in (book_doc.get("book") or [])
-                    if isinstance(r, dict)
-                    and str(r.get("stock_code") or r.get("code") or "").strip()
-                }
-                book_rows = list(book_doc.get("scored_all") or []) + list(
-                    book_doc.get("book") or []
-                )
-                book_meta = book_doc.get("meta") or {}
-                book_mode = book_meta.get("cluster_mode") or book_meta.get("mode")
-                for row in book_rows:
-                    if not isinstance(row, dict):
-                        continue
-                    code = str(row.get("stock_code") or row.get("code") or "").strip()
-                    if not code or code in score_by_code:
-                        continue
-                    if code not in holding_codes:
-                        continue
-                    score_by_code[code] = _pack_item(row, cluster_mode=book_mode)
-            except Exception as e:
-                log.debug("cluster book tip hydrate skipped: %s", e)
-                book_codes = set()
+            def _one(code: str) -> tuple:
+                try:
+                    result = svc.score_one(
+                        code,
+                        horizon_days=horizon,
+                        skip_fundamentals=True,
+                    )
+                except Exception as e:
+                    logger.exception('unexpected error in _one')
+                    return code, {"success": False, "error": str(e)}
+                return code, result.as_dict() if hasattr(result, "as_dict") else (result or {})
 
-            missing = [c for c in holding_codes if c not in score_by_code]
-            # 2) 簿外才 live 打分；单票超时，避免拖死 /api/paper
-            if missing:
-                per_timeout = 8.0
-                workers = min(len(missing), 6)
-
-                def _one(code: str) -> tuple:
-                    try:
-                        result = svc.score_one(
-                            code,
-                            horizon_days=horizon,
-                            skip_fundamentals=True,
+            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
+                futs = {ex.submit(_one, c): c for c in missing}
+                try:
+                    for fut in concurrent.futures.as_completed(
+                        futs, timeout=per_timeout * max(1, len(missing) / workers) + 2
+                    ):
+                        code = futs[fut]
+                        try:
+                            _, result = fut.result(timeout=per_timeout)
+                        except Exception as e:
+                            log.warning("holding score timeout/fail %s: %s", code, e)
+                            continue
+                        item = (
+                            (result.get("signal_item") or {})
+                            if result.get("success")
+                            else {}
                         )
-                    except Exception as e:
-                        logger.exception('unexpected error in _one')
-                        return code, {"success": False, "error": str(e)}
-                    return code, result.as_dict() if hasattr(result, "as_dict") else (result or {})
-
-                with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-                    futs = {ex.submit(_one, c): c for c in missing}
-                    try:
-                        for fut in concurrent.futures.as_completed(
-                            futs, timeout=per_timeout * max(1, len(missing) / workers) + 2
-                        ):
-                            code = futs[fut]
-                            try:
-                                _, result = fut.result(timeout=per_timeout)
-                            except Exception as e:
-                                log.warning("holding score timeout/fail %s: %s", code, e)
-                                continue
-                            item = (
-                                (result.get("signal_item") or {})
-                                if result.get("success")
-                                else {}
-                            )
-                            if not item:
-                                continue
-                            score_by_code[code] = _pack_item(
-                                item, cluster_mode=result.get("cluster_mode")
-                            )
-                    except concurrent.futures.TimeoutError:
-                        log.warning(
-                            "holding scores partial timeout; book=%d live_pending=%d",
-                            len(holding_codes) - len(missing),
-                            len(missing),
+                        if not item:
+                            continue
+                        score_by_code[code] = _pack_item(
+                            item, cluster_mode=result.get("cluster_mode")
                         )
+                except concurrent.futures.TimeoutError:
+                    log.warning(
+                        "holding scores partial timeout; scored=%d pending=%d",
+                        len(score_by_code),
+                        len(missing) - len(score_by_code),
+                    )
 
             # 持仓经济字段勿被评分包覆盖；其余与数据中心同源透传
             _HOLDING_KEEP = frozenset(
@@ -206,8 +174,7 @@ class PaperAccountMixin:
                     hydrate_holding_on_fields(enriched)
                 except Exception as e:
                     log.debug("holding on hydrate skipped %s: %s", code, e)
-                # 与调仓报告 / 观察表同源：仅目标簿 book[]，不含 scored_all 全宇宙
-                enriched["in_book"] = code in book_codes
+                enriched.pop("in_book", None)
                 t0_st = t0_by_code.get(code)
                 if t0_st:
                     enriched["t0_intraday"] = t0_st
@@ -223,6 +190,18 @@ class PaperAccountMixin:
                 "holding scores unavailable: %s", e, exc_info=True
             )
         return summary
+
+    def _strategy_label(self, paper: Optional[dict]) -> Optional[str]:
+        sid = (paper or {}).get("strategy_id") if isinstance(paper, dict) else None
+        if not sid:
+            return None
+        try:
+            from core.strategy import get_strategy_spec
+
+            return get_strategy_spec(str(sid)).get("label")
+        except Exception:  # noqa: BLE001
+            logger.debug("strategy_label resolve failed", exc_info=True)
+            return None
 
     def _execution_view(self, paper: dict) -> Dict[str, Any]:
         """生效 ExecutionSpec（纸面 channel）供 Web / API。"""
@@ -396,6 +375,8 @@ class PaperAccountMixin:
                 "path": self.path,
                 "name": paper.get("name"),
                 "strategy_id": paper.get("strategy_id") or "short",
+                "strategy_label": self._strategy_label(paper),
+                "strategy_version": paper.get("strategy_version"),
                 "summary": {
                     "cash": paper.get("cash"),
                     "holdings": raw_holdings,
@@ -441,6 +422,7 @@ class PaperAccountMixin:
             "name": paper.get("name"),
             "version": paper.get("version"),
             "strategy_id": paper.get("strategy_id") or "short",
+            "strategy_label": self._strategy_label(paper),
             "strategy_version": paper.get("strategy_version"),
             "cost_model": paper.get("cost_model") or "simple_cn",
             "cost_params": paper.get("cost_params") or {},

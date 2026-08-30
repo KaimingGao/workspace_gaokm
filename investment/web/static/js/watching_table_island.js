@@ -159,7 +159,6 @@ export async function mountWatchingTableIsland(host, options = {}) {
         d.isHardReject ? "is-hard-reject" : "",
         d.yhatHistHit ? "is-yhat-hist-hit" : "",
         d.yhatHistDim ? "is-yhat-hist-dim" : "",
-        d.inBook ? "is-cluster-book" : "",
         d.oosFailed ? "is-oos-failed" : "",
       ]
         .filter(Boolean)
@@ -189,9 +188,6 @@ export async function mountWatchingTableIsland(host, options = {}) {
         );
       }
       if (col.id === "name") {
-        const bookBadge = d.inBook
-          ? `<span class="watching-book-badge" title="分池目标簿">簿</span>`
-          : "";
         const oosBadge = d.oosFailed
           ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
           : "";
@@ -201,7 +197,6 @@ export async function mountWatchingTableIsland(host, options = {}) {
           `<span class="watching-name-text" title="${escapeHtml(d.name || "")}" data-full-name="${escapeHtml(
             d.name || ""
           )}">${escapeHtml(truncateName(d.name || d.code))}</span>` +
-          bookBadge +
           oosBadge +
           `</span>` +
           `<span class="watching-code-sub">${escapeHtml(d.code || "")}` +

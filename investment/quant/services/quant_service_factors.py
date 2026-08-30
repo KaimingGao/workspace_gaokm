@@ -249,15 +249,16 @@ class QuantFactorMixin:
         *,
         watching_limit: int = 36,
         top_k: int = 10,
-        prefer_cluster_book: bool = True,
+        prefer_cluster_book: bool = False,
     ) -> Dict[str, Any]:
-        """ŷ 行业残差 on/off 影子对照（不写盘）。"""
+        """ŷ 行业残差 on/off 影子对照（不写盘）。分池簿已停用。"""
         from core.research.yhat_residual_shadow import compare_yhat_residual_shadow
         from core.watching.store import read_watching
 
         items: List[Dict[str, Any]] = []
         source = "none"
         if prefer_cluster_book:
+            # 保留参数兼容；load 恒为 None
             try:
                 from core.signal.cluster.live import load_active_cluster_book
 
@@ -366,7 +367,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 36,
+        watching_limit: int = 200,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
@@ -377,11 +378,12 @@ class QuantFactorMixin:
     ) -> Dict[str, Any]:
         """R0：观察池 ŷ_τ 头 Ridge；可选 persist live 模型。
 
-        ``tau_hm`` 缺省跟随 ``dual_score``：enable_minute_tau 时用 minute_tau_hm，否则 open。
+        默认用满观察池。``tau_hm`` 缺省跟随 ``dual_score``：
+        enable_minute_tau 时用 minute_tau_hm，否则 open。
         """
         from core.data.facade import bars_and_source
         from core.signal.dual_score import get_dual_score_cfg
-        from core.watching.store import read_watching
+        from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from quant.research.tau_ridge import (
             fit_tau_ridge_report,
             load_tau_last_report,
@@ -392,9 +394,14 @@ class QuantFactorMixin:
         )
 
         uni = read_watching()
-        codes = list(uni.get("watchlist") or [])
-        limit = max(2, min(int(watching_limit or 36), 40))
-        codes = codes[:limit]
+        pool = [
+            str(c).strip()
+            for c in (uni.get("watchlist") or [])
+            if str(c).strip()
+        ]
+        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
+        limit = max(2, min(int(watching_limit or cap), cap))
+        codes = pool[:limit]
         if len(codes) < 2:
             return {
                 "success": False,
@@ -473,6 +480,7 @@ class QuantFactorMixin:
             tau_grid=tau_grid,
         )
         report["watching_limit"] = limit
+        report["watching_pool_size"] = len(pool)
         report["lookback"] = lookback
         report["minute_cache_hit"] = minute_hit if use_minute else None
         report["minute_cache_universe"] = len(codes) if use_minute else None
@@ -581,16 +589,16 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 36,
+        watching_limit: int = 200,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         theme_boost: float = 1.5,
         persist: bool = False,
         note: str = "",
     ) -> Dict[str, Any]:
-        """R0+：观察池 ŷ_ON Ridge；可选 persist live 模型。"""
+        """R0+：观察池 ŷ_ON Ridge；可选 persist live 模型。默认用满观察池。"""
         from core.data.facade import bars_and_source
-        from core.watching.store import read_watching
+        from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from quant.research.on_ridge import (
             fit_on_ridge_report,
             load_on_last_report,
@@ -600,9 +608,14 @@ class QuantFactorMixin:
         )
 
         uni = read_watching()
-        codes = list(uni.get("watchlist") or [])
-        limit = max(2, min(int(watching_limit or 36), 40))
-        codes = codes[:limit]
+        pool = [
+            str(c).strip()
+            for c in (uni.get("watchlist") or [])
+            if str(c).strip()
+        ]
+        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
+        limit = max(2, min(int(watching_limit or cap), cap))
+        codes = pool[:limit]
         if len(codes) < 2:
             return {
                 "success": False,
@@ -636,6 +649,7 @@ class QuantFactorMixin:
             theme_boost=theme_boost,
         )
         report["watching_limit"] = limit
+        report["watching_pool_size"] = len(pool)
         report["lookback"] = lookback
         if report.get("success"):
             save_on_last_report(report)
@@ -667,7 +681,7 @@ class QuantFactorMixin:
         self,
         *,
         lookback: int = 120,
-        watching_limit: int = 36,
+        watching_limit: int = 200,
         ridge_lambda: float = 1.0,
         gap_trigger_pct: float = 2.0,
         sell_trig_pct: Optional[float] = None,
@@ -678,12 +692,15 @@ class QuantFactorMixin:
         note: str = "",
         force_promote: bool = False,
     ) -> Dict[str, Any]:
-        """观察池 ŷ_path Ridge：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序。"""
+        """观察池 ŷ_path Ridge：开盘 Z + 多 τ 前缀分钟小包 → 全日极值序。
+
+        默认用满观察池；分钟线**只读本地缓存**，不打远端（缺缓存的票跳过）。
+        """
         from core.data.facade import bars_and_source
         from core.execution import resolve_t0_rules
-        from core.ports.market import fetch_minute_bars, group_minute_bars_by_date
+        from core.ports.market import group_minute_bars_by_date
         from core.store import load_minute_cache
-        from core.watching.store import read_watching
+        from core.watching.store import WATCHING_MAX_SIZE, read_watching
         from quant.research.path_ridge import (
             fit_path_ridge_report,
             load_path_last_report,
@@ -705,9 +722,15 @@ class QuantFactorMixin:
         buy_trig = float(buy_trig_pct) if buy_trig_pct is not None else paper_buy
 
         uni = read_watching()
-        codes = list(uni.get("watchlist") or [])
-        limit = max(2, min(int(watching_limit or 36), 40))
-        codes = codes[:limit]
+        pool = [
+            str(c).strip()
+            for c in (uni.get("watchlist") or [])
+            if str(c).strip()
+        ]
+        # 默认吃满观察池；watching_limit 仅作上限（测试可传小值）
+        cap = max(2, min(int(WATCHING_MAX_SIZE), 500))
+        limit = max(2, min(int(watching_limit or cap), cap))
+        codes = pool[:limit]
         if len(codes) < 2:
             return {
                 "success": False,
@@ -733,12 +756,10 @@ class QuantFactorMixin:
 
         period = str(minute_period or "5").strip() or "5"
         mlook = max(20, min(int(minute_lookback_days or 90), 240))
-        # 缓存过短时仍尝试远端拉长（东财 5m 常只有近月，不能假装 150 日）
-        min_cache_days = max(20, min(int(mlook * 0.4), 60))
         minute_by_code_date: Dict[str, Dict[str, Any]] = {}
         minute_codes_hit = 0
+        minute_codes_miss = 0
         minute_days_total = 0
-        minute_cache_short_refetch = 0
         minute_span_days: List[int] = []
 
         stock_bars: List[Dict[str, Any]] = []
@@ -749,7 +770,6 @@ class QuantFactorMixin:
             stock_bars.append({"code": str(code), "bars": bars})
             raw = str(code).strip()
             mbars: Optional[List[dict]] = None
-            cache_days = 0
             try:
                 packed = load_minute_cache(
                     "CN",
@@ -761,28 +781,15 @@ class QuantFactorMixin:
                 )
                 if packed:
                     mbars, _meta = packed
-                    cache_days = len(group_minute_bars_by_date(mbars or []) or {})
             except Exception:  # noqa: BLE001
                 logger.debug("path ridge minute cache miss for %s", raw, exc_info=True)
-            need_fetch = not mbars or cache_days < min_cache_days
-            if need_fetch:
-                if mbars and cache_days < min_cache_days:
-                    minute_cache_short_refetch += 1
-                try:
-                    fetched, _meta = fetch_minute_bars(
-                        raw,
-                        period=period,
-                        lookback_days=mlook,
-                        use_cache=True,
-                    )
-                    if fetched:
-                        mbars = fetched
-                except Exception:  # noqa: BLE001
-                    logger.debug("path ridge minute fetch failed for %s", raw, exc_info=True)
+            # 只用缓存：不 fetch_minute_bars；无缓存则跳过该票分钟样本
             if not mbars:
+                minute_codes_miss += 1
                 continue
             by_day = group_minute_bars_by_date(mbars)
             if not by_day:
+                minute_codes_miss += 1
                 continue
             minute_by_code_date[raw] = by_day
             minute_codes_hit += 1
@@ -793,11 +800,15 @@ class QuantFactorMixin:
             return {
                 "success": False,
                 "error": (
-                    f"无可用分钟线（period={period}）；请先预热分钟缓存或缩小观察池"
+                    f"无本地分钟缓存（period={period} · 池 {len(codes)} 只）；"
+                    "请先「强更 5m」，拟合不再拉远端"
                 ),
                 "task": "path_ridge",
                 "minute_period": period,
                 "watching_limit": limit,
+                "watching_pool_size": len(pool),
+                "minute_cache_only": True,
+                "minute_codes_miss": minute_codes_miss,
             }
 
         from core.signal.dual_score import get_dual_score_cfg
@@ -821,14 +832,16 @@ class QuantFactorMixin:
             tau_grid=path_tau_grid,
         )
         report["watching_limit"] = limit
+        report["watching_pool_size"] = len(pool)
         report["lookback"] = lookback
         report["minute_period"] = period
         report["minute_lookback_days"] = mlook
         report["minute_codes_hit"] = minute_codes_hit
+        report["minute_codes_miss"] = minute_codes_miss
         report["minute_codes_universe"] = len(codes)
         report["minute_days_total"] = minute_days_total
-        report["minute_cache_short_refetch"] = minute_cache_short_refetch
-        report["minute_min_cache_days"] = min_cache_days
+        report["minute_cache_only"] = True
+        report["minute_cache_short_refetch"] = 0
         if minute_span_days:
             ss = sorted(minute_span_days)
             report["minute_span_days_med"] = ss[len(ss) // 2]

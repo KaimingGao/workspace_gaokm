@@ -26,133 +26,14 @@ def freeze_from_cluster_book(
     auto: bool = False,
     force: bool = False,
 ) -> Dict[str, Any]:
-    """从 active 集群书冻结 ŷ；决策日对齐因子截止（见 resolve_freeze_as_of）。
-
-    优先冻 ``scored_all``（打分宇宙，供校准 g(ŷ) 全轴拟合）；无则回退 ``book``。
-    行上打 ``in_book``：复盘 UI / 命中率仍默认只看簿内。
-
-    ``auto=True``：刷簿附带冻结，盘中跳过。
-    ``force=True``：绕过收盘闸（测试 / 显式重建）。
-    """
-    from core.signal.cluster.live import load_active_cluster_book
-
-    # 自动路径：收盘前直接跳过（不解析、不写盘）
-    if auto and not force:
-        gate0 = session_allows_ledger_freeze(auto=True, force=False)
-        if not gate0.get("ok"):
-            resolved = resolve_freeze_as_of(
-                as_of, book_doc=book_doc if isinstance(book_doc, dict) else None
-            )
-            return {
-                "success": False,
-                "skipped": True,
-                "error": gate0.get("reason") or "盘中跳过冻结",
-                "as_of": resolved.get("as_of"),
-                "n_rows": 0,
-                "resolve": resolved,
-                "gate": gate0,
-            }
-
-    doc = book_doc if isinstance(book_doc, dict) else load_active_cluster_book()
-    if not doc:
-        resolved = resolve_freeze_as_of(as_of, book_doc=None)
-        return {
-            "success": False,
-            "error": "无集群书",
-            "as_of": resolved.get("as_of"),
-            "n_rows": 0,
-            "resolve": resolved,
-        }
-    book = list(doc.get("book") or [])
-    scored_all = list(doc.get("scored_all") or [])
-    book_codes = {
-        str(r.get("stock_code") or r.get("code") or "").strip()
-        for r in book
-        if isinstance(r, dict) and str(r.get("stock_code") or r.get("code") or "").strip()
+    """分池簿已停用：不再从集群书冻结 ŷ。"""
+    _ = as_of, book_doc, auto, force
+    return {
+        "success": False,
+        "deprecated": True,
+        "error": "分池簿已停用；账本冻结请改用其他数据源",
+        "n_rows": 0,
     }
-    universe = scored_all if scored_all else book
-    freeze_rows: List[dict] = []
-    for item in universe:
-        if not isinstance(item, dict):
-            continue
-        code = str(item.get("stock_code") or item.get("code") or "").strip()
-        if not code:
-            continue
-        row = dict(item)
-        row["in_book"] = (code in book_codes) if book_codes else True
-        freeze_rows.append(row)
-    meta = doc.get("meta") if isinstance(doc.get("meta"), dict) else {}
-    resolved = resolve_freeze_as_of(as_of, book_doc=doc)
-    d = date_key(resolved.get("as_of"))
-    if not d:
-        return {
-            "success": False,
-            "error": "无法解析冻结决策日",
-            "n_rows": 0,
-            "resolve": resolved,
-        }
-    # 显式/日更：按解析后的决策日再闸（禁止盘中冻「当日」半日 K）
-    gate = session_allows_ledger_freeze(as_of=d, auto=False, force=force)
-    if not gate.get("ok"):
-        return {
-            "success": False,
-            "skipped": True,
-            "error": gate.get("reason") or "盘中跳过冻结",
-            "as_of": d,
-            "n_rows": 0,
-            "resolve": resolved,
-            "gate": gate,
-        }
-    src = "cluster_scored_all" if scored_all else "cluster_book"
-    out = _lio.upsert_ledger_rows(
-        d,
-        freeze_rows,
-        source=src,
-        meta={
-            "cluster_version": meta.get("version") or doc.get("version"),
-            "book_updated_at": doc.get("updated_at"),
-            "feature_as_of": resolved.get("feature_as_of"),
-            "session_date": resolved.get("session_date"),
-            "freeze_remapped": bool(resolved.get("remapped")),
-            "freeze_note": resolved.get("note"),
-            "freeze_universe": "scored_all" if scored_all else "book",
-            "n_book": len(book_codes),
-            "n_universe": len(freeze_rows),
-            "freeze_gate": gate.get("reason"),
-        },
-    )
-    out["resolve"] = resolved
-    out["gate"] = gate
-    if resolved.get("note"):
-        out["note"] = resolved.get("note")
-    prev = date_key(resolved.get("prev_trading_day"))
-    out["skipped_newer"] = prev if prev and d and prev > d else None
-    # 同步冻结 τ 影子簿成员（失败不影响主账本）
-    try:
-        shadow_out = freeze_from_tau_shadow_book(as_of=d, auto=False, force=force)
-        out["tau_shadow"] = {
-            "success": shadow_out.get("success"),
-            "skipped": shadow_out.get("skipped"),
-            "n_rows": shadow_out.get("n_rows"),
-            "path": shadow_out.get("path"),
-            "error": shadow_out.get("error"),
-        }
-    except Exception as exc:
-        logger.exception('unexpected error in freeze_from_cluster_book')
-        out["tau_shadow"] = {"success": False, "error": str(exc)}
-    try:
-        nc_out = freeze_from_nowcast_shadow_book(as_of=d, auto=False, force=force)
-        out["nowcast_shadow"] = {
-            "success": nc_out.get("success"),
-            "skipped": nc_out.get("skipped"),
-            "n_rows": nc_out.get("n_rows"),
-            "path": nc_out.get("path"),
-            "error": nc_out.get("error"),
-        }
-    except Exception as exc:
-        logger.exception('unexpected error in freeze_from_cluster_book')
-        out["nowcast_shadow"] = {"success": False, "error": str(exc)}
-    return out
 
 
 def freeze_from_tau_shadow_book(

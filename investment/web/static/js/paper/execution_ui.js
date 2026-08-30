@@ -815,6 +815,132 @@ export function collectExecutionForm(root) {
   };
 }
 
+/** 同步 |y_path| λ 刻度文案、模式徽章与面板 viz 高亮。 */
+function syncPathMatrixViz(root) {
+  if (!root) return;
+  const num = (name, fallback) => {
+    const el = root.querySelector(`[name="${name}"]`);
+    if (!el || el.value === "") return fallback;
+    const n = Number(el.value);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const fmt = (v) => {
+    const n = Number(v);
+    if (!Number.isFinite(n)) return "—";
+    return `${Number.isInteger(n) ? n : Number(n.toFixed(2))}%`;
+  };
+  const enterEl = document.getElementById("pm-viz-enter");
+  const halfEl = document.getElementById("pm-viz-half");
+  const fullEl = document.getElementById("pm-viz-full");
+  if (enterEl) enterEl.textContent = fmt(num("pm_path_enter", 1));
+  if (halfEl) halfEl.textContent = fmt(num("pm_path_half", 1));
+  if (fullEl) fullEl.textContent = fmt(num("pm_path_full", 2));
+  const modeEl = root.querySelector('[name="pm_mode"]');
+  const badge = document.getElementById("paper-path-matrix-badge");
+  if (badge && modeEl) {
+    const linear = modeEl.value === "linear";
+    badge.textContent = linear ? "线性对照" : "路径择时";
+    badge.classList.add("is-on");
+    badge.classList.toggle("is-linear", linear);
+  }
+  const modePanel = root.querySelector('.follow-path-matrix-panel[data-panel="mode"]');
+  if (modePanel && modeEl) {
+    const linear = modeEl.value === "linear";
+    const a = modePanel.querySelector(".follow-path-matrix-viz-seg.is-a");
+    const b = modePanel.querySelector(".follow-path-matrix-viz-seg.is-b");
+    if (a) a.classList.toggle("is-dim", linear);
+    if (b) b.classList.toggle("is-dim", !linear);
+  }
+  const gatesPanel = root.querySelector('.follow-path-matrix-panel[data-panel="gates"]');
+  if (gatesPanel) {
+    const ncOn = !!root.querySelector('[name="pm_require_nowcast"]')?.checked;
+    const exitOn = !!root.querySelector('[name="pm_pending_exit"]')?.checked;
+    const nc = gatesPanel.querySelector(".follow-path-matrix-viz-seg.is-nc");
+    const exit = gatesPanel.querySelector(".follow-path-matrix-viz-seg.is-exit");
+    if (nc) nc.classList.toggle("is-dim", !ncOn);
+    if (exit) exit.classList.toggle("is-dim", !exitOn);
+  }
+}
+
+/** 从 execution.rebalance_timing.path_matrix 填调仓择时表单。 */
+export function fillPathMatrixForm(root, execution) {
+  if (!root) return;
+  const timing =
+    (execution && execution.rebalance_timing) ||
+    (execution && execution.execution && execution.execution.rebalance_timing) ||
+    {};
+  const pm =
+    (timing && timing.path_matrix && typeof timing.path_matrix === "object"
+      ? timing.path_matrix
+      : null) || {};
+  const set = (name, val) => {
+    const el = root.querySelector(`[name="${name}"]`);
+    if (!el) return;
+    if (el.type === "checkbox") {
+      el.checked = !!val;
+      return;
+    }
+    if (val == null) return;
+    el.value = String(val);
+  };
+  set("pm_mode", pm.mode === "linear" ? "linear" : "path");
+  set("pm_path_enter", pm.path_enter != null ? pm.path_enter : 1);
+  set("pm_path_half", pm.path_half != null ? pm.path_half : 1);
+  set("pm_path_full", pm.path_full != null ? pm.path_full : 2);
+  set("pm_y_on_allow", pm.y_on_allow != null ? pm.y_on_allow : 0.01);
+  set("pm_y_on_half", pm.y_on_half != null ? pm.y_on_half : 0);
+  set("pm_require_nowcast", pm.require_nowcast_for_open !== false);
+  set("pm_pending_exit", pm.allow_pending_exit_on_path_low !== false);
+  syncPathMatrixViz(root);
+  if (!root.dataset.pmVizBound) {
+    root.dataset.pmVizBound = "1";
+    root.addEventListener("input", () => syncPathMatrixViz(root));
+    root.addEventListener("change", () => syncPathMatrixViz(root));
+  }
+}
+
+/** 收集 path_matrix 保存体（只改 rebalance_timing，不动 t0）。 */
+export function collectPathMatrixForm(root) {
+  if (!root) return null;
+  const num = (name, fallback) => {
+    const el = root.querySelector(`[name="${name}"]`);
+    if (!el || el.value === "") return fallback;
+    const n = Number(el.value);
+    return Number.isFinite(n) ? n : fallback;
+  };
+  const chk = (name, fallback = true) => {
+    const el = root.querySelector(`[name="${name}"]`);
+    return el ? !!el.checked : fallback;
+  };
+  const str = (name, fallback) => {
+    const el = root.querySelector(`[name="${name}"]`);
+    return el && el.value !== "" ? el.value : fallback;
+  };
+  const enter = Math.max(0.01, Math.min(num("pm_path_enter", 1), 5));
+  let half = Math.max(0.01, Math.min(num("pm_path_half", 1), 5));
+  let full = Math.max(0.01, Math.min(num("pm_path_full", 2), 10));
+  if (half > full) half = full;
+  if (enter > half) {
+    /* keep enter; half already ≤ full */
+  }
+  return {
+    lock: true,
+    rebalance_timing: {
+      path_matrix: {
+        enabled: true,
+        mode: str("pm_mode", "path") === "linear" ? "linear" : "path",
+        path_enter: enter,
+        path_half: half,
+        path_full: full,
+        y_on_allow: Math.max(0, Math.min(num("pm_y_on_allow", 0.01), 5)),
+        y_on_half: Math.max(-5, Math.min(num("pm_y_on_half", 0), 5)),
+        require_nowcast_for_open: chk("pm_require_nowcast", true),
+        allow_pending_exit_on_path_low: chk("pm_pending_exit", true),
+      },
+    },
+  };
+}
+
 /** 做 T 区块根节点：复选框在 form 外，须从 section 查找。 */
 function t0PanelRoot(formRoot) {
   if (formRoot) {

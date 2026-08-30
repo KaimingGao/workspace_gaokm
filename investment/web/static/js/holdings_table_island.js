@@ -336,7 +336,6 @@ export async function mountHoldingsTableIsland(host, options = {}) {
         d.isChartActive ? "is-chart-active" : "",
         d.isAdjustActive ? "is-adjust-active" : "",
         d.isFocusHolding ? "is-focus-holding" : "",
-        d.inBook ? "is-cluster-book" : "",
         d.oosFailed ? "is-oos-failed" : "",
         d.t0Intraday?.phase === "after_leg1" ? "is-t0-leg1" : "",
       ]
@@ -355,9 +354,6 @@ export async function mountHoldingsTableIsland(host, options = {}) {
     },
     cellHtml: (col, d) => {
       if (col.id === "name") {
-        const bookBadge = d.inBook
-          ? `<span class="watching-book-badge" title="分池目标簿">簿</span>`
-          : "";
         const oosBadge = d.oosFailed
           ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
           : "";
@@ -367,7 +363,6 @@ export async function mountHoldingsTableIsland(host, options = {}) {
           `<span class="paper-wl-name-text" title="${escapeHtml(d.name || "")}" data-full-name="${escapeHtml(
             d.name || ""
           )}">${escapeHtml(truncateName(d.name || d.code))}</span>` +
-          bookBadge +
           oosBadge +
           `</span>` +
           `<span class="paper-wl-code">${escapeHtml(d.code || "")}</span></div>`

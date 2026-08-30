@@ -229,12 +229,6 @@ def active_enable_blockers(
         blockers.append("cluster_pointer 存在但 artifact 不可读（拒绝 active）")
     if not resolved:
         blockers.append("无 cluster_weights（请先 promote）")
-    else:
-        # 缺簿：active 前须有 book（可 force 豁免）
-        from core.paths import CLUSTER_BOOK_ACTIVE_PATH
-
-        if not os.path.isfile(CLUSTER_BOOK_ACTIVE_PATH):
-            blockers.append("无 cluster_book_active（请刷新簿）")
     # 去重
     seen = set()
     out = []

@@ -873,56 +873,12 @@ def build_watching_insights(
     valuation_by = _spot_valuation_map(cleaned)
     items_by_code: Dict[str, Dict[str, Any]] = {}
 
-    # 分池簿快路径：观察 tip / score 与交易执行同源，避免 100 票 live 打分拖死悬浮
-    book_by_code: Dict[str, dict] = {}
-    try:
-        from core.signal.cluster.live import load_active_cluster_book
-
-        book_doc = load_active_cluster_book() or {}
-        for row in list(book_doc.get("scored_all") or []) + list(book_doc.get("book") or []):
-            if not isinstance(row, dict):
-                continue
-            c = str(row.get("stock_code") or row.get("code") or "").strip()
-            if not c or c in book_by_code:
-                continue
-            book_by_code[c] = row
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
-        book_by_code = {}
-
-    missing: List[str] = []
-    book_hits: List[tuple] = []  # (code, row, key)
-    for c in cleaned:
-        key = str(c).zfill(6) if str(c).isdigit() else str(c)
-        row = book_by_code.get(c) or book_by_code.get(key)
-        if row and (
-            row.get("score") is not None
-            or row.get("predicted_score") is not None
-            or row.get("score_formula_terms")
-        ):
-            book_hits.append((c, row, key))
-        else:
-            missing.append(c)
+    # 分池簿快路径已停用：一律 live 打分
+    missing: List[str] = list(cleaned)
+    book_hits: List[tuple] = []
 
     n_jobs = len(missing)
     workers = min(_INSIGHT_MAX_WORKERS, max(1, n_jobs)) if n_jobs else 0
-    # 簿快路径同步完成：保证 ŷ / *_cal 不被 live 打分拖死整批超时
-    for c, row, key in book_hits:
-        try:
-            items_by_code[c] = _insight_from_book_row(
-                c,
-                row,
-                added_at=added.get(c) or added.get(str(c)),
-                valuation=valuation_by.get(key),
-                paper_ctx=paper_ctx,
-            )
-        except Exception as e:
-            logger.exception('unexpected error in build_watching_insights')
-            items_by_code[c] = _blank(
-                c,
-                added_at=added.get(c),
-                error=f"簿快路径失败: {e}",
-            )
 
     pool = ThreadPoolExecutor(max_workers=workers) if n_jobs else None
     try:
@@ -984,11 +940,7 @@ def build_watching_insights(
         for c in cleaned
     ]
     truncated = max(0, len([str(c).strip() for c in (codes or []) if str(c).strip()]) - len(cleaned))
-    book_n = sum(1 for c in cleaned if c in items_by_code and c not in missing)
-    note = (
-        "轻量观察摘要（跳过基本面/同业/独立指数重拉）；不改 stance 主契约。"
-        + (f" 分池簿快路径 {book_n}/{len(cleaned)}。" if book_n else "")
-    )
+    note = "轻量观察摘要（跳过基本面/同业/独立指数重拉）；不改 stance 主契约。"
     if truncated:
         note += f" 本次仅返回前 {len(cleaned)} 只（截断 {truncated}）。"
     return {
@@ -997,7 +949,7 @@ def build_watching_insights(
         "items": items,
         "truncated": truncated,
         "note": note,
-        "book_hit": book_n,
+        "book_hit": 0,
         "live_scored": len(missing),
     }
 

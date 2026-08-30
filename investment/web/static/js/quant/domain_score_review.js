@@ -603,12 +603,9 @@ export function installScoreReview(ctx) {
     if (!readAsOf() && cur) selectedAsOf = cur;
     const freezeBtn = document.getElementById("quant-score-ledger-freeze");
     if (freezeBtn) {
-      const cal = String(data.calendar_as_of || "").trim();
-      const dates = Array.isArray(data.dates) ? data.dates.map(String) : [];
-      freezeBtn.title =
-        cal && dates.length && !dates.includes(cal)
-          ? `按因子截止日冻结。上一交易日 ${cal} 尚无账本；日线未齐时会覆盖已有截止日，看起来像没变化`
-          : "按因子截止日冻结分池簿 ŷ（通常为上一交易日；收盘后日线齐才可能是今日）";
+      freezeBtn.disabled = true;
+      freezeBtn.textContent = "冻结打分（已停用）";
+      freezeBtn.title = "分池簿冻结已停用";
     }
     row.innerHTML = entries
       .map((e) => {
@@ -872,72 +869,8 @@ export function installScoreReview(ctx) {
   }
 
   async function freezeLedger() {
-    const freezeBtn = document.getElementById("quant-score-ledger-freeze");
-    if (freezeBtn) {
-      freezeBtn.disabled = true;
-      freezeBtn.setAttribute("aria-busy", "true");
-    }
-    setStatus("冻结打分中…", { busy: true });
-    try {
-      // as_of=null：后端按因子截止日解析，避免会话日空标签
-      const res = await fetch("/api/quant/score-ledger/freeze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ as_of: null }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.detail || res.statusText);
-      const freezeAsOf = String(data.as_of || "").trim();
-      const resolveNote =
-        (data.resolve && data.resolve.note) || data.note || "";
-      const skippedNote = freezeSkippedNote(data);
-      // 停在实际冻到的决策日，不要跳回「已回填默认日」（会看起来像没冻）
-      if (freezeAsOf) setAsOf(freezeAsOf);
-      try {
-        await loadLedgerIndex();
-      } catch (_) {
-        /* ignore */
-      }
-      const freezeHead =
-        `已冻结 ${data.n_rows ?? 0} 只 · 决策日 ${freezeAsOf || "—"}` +
-        (skippedNote
-          ? ` · ${skippedNote}`
-          : resolveNote
-            ? ` · ${resolveNote}`
-            : "");
-      setStatus(freezeHead, { ok: true, error: !!skippedNote });
-      if (setQuantMeta) {
-        setQuantMeta(freezeHead, { busy: true, error: !!skippedNote });
-      }
-      // 刚冻的日子可能还没 outcomes；禁止 thin-fallback 偷偷切走
-      const out = await runReview({
-        autofill: true,
-        allowThinFallback: false,
-      });
-      const reviewLine =
-        document.getElementById("quant-score-review-status")?.textContent ||
-        "";
-      const keepFreeze =
-        reviewLine && !reviewLine.startsWith("已冻结")
-          ? `${freezeHead} · ${reviewLine}`
-          : freezeHead;
-      setStatus(keepFreeze, {
-        ok: !skippedNote && !!(out && out.summary && out.summary.hit_rate != null),
-        error: !!skippedNote || !!(out && out.empty),
-      });
-      if (setQuantMeta) {
-        setQuantMeta(keepFreeze, {
-          busy: false,
-          error: !!skippedNote || !!(out && out.empty),
-        });
-      }
-      return out;
-    } finally {
-      if (freezeBtn) {
-        freezeBtn.disabled = false;
-        freezeBtn.removeAttribute("aria-busy");
-      }
-    }
+    setStatus("分池簿冻结已停用", { error: true });
+    if (setQuantMeta) setQuantMeta("分池簿冻结已停用");
   }
 
   function jumpRefit() {
@@ -1413,7 +1346,7 @@ export function installScoreReview(ctx) {
       body: JSON.stringify({
         watching_limit: 36,
         top_k: 10,
-        prefer_cluster_book: true,
+        prefer_cluster_book: false,
       }),
     });
     const data = await res.json().catch(() => ({}));

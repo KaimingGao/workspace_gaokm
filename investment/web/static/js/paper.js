@@ -18,7 +18,7 @@ import {
   Y_NOWCAST_TITLE,
   scoreSeriesStats,
   isHeuristicScoreScale,
-} from "./paper/fmt.js?v=p1472";
+} from "./paper/fmt.js?v=p1660";
 import { drawSeries, appendLiveNavPoint } from "./paper/chart.js?v=p1163";
 import { TRADE_TITLE } from "./quant/watching_quotes_ui.js?v=p1457";
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
@@ -38,18 +38,20 @@ import {
   buildPaperOriginBarHtml,
   buildPaperHoldActionBarHtml,
 } from "./paper/holdings_ui.js?v=p1617";
-import { renderPaperRulesHtml } from "./paper/rules_ui.js";
+import { renderPaperRulesHtml } from "./paper/rules_ui.js?v=p1658";
 import {
   renderExecutionRulesHtml,
   fillExecutionForm,
   collectExecutionForm,
+  fillPathMatrixForm,
+  collectPathMatrixForm,
   persistT0Lookback,
   collectT0BacktestBody,
   resolveT0BacktestScope,
   normalizeExecutionView,
   renderExecutionDiffHtml,
-} from "./paper/execution_ui.js";
-import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js";
+} from "./paper/execution_ui.js?v=p1661";
+import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p1658";
 import { downloadBlob } from "./shared.js";
 import {
   renderPaperT0 as renderPaperT0Ui,
@@ -62,8 +64,8 @@ import { wireT0SkipTips } from "./paper/t0_viz.js";
 import { wireT0ProcessTips } from "./paper/t0_table.js?v=p1648";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1648";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
-import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p1416";
-import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1416";
+import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1662";
+import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p1662";
 import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
 import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p1416";
 import {
@@ -891,6 +893,7 @@ export function initPaper(ctx) {
 
     if (rulesEl) rulesEl.innerHTML = renderPaperRulesHtml(data);
 
+    const pathMatrixForm = document.getElementById("paper-path-matrix-form");
     const t0RulesEl = document.getElementById("paper-t0-rules");
     const t0Form = document.getElementById("paper-t0-form");
     let execution = data && data.execution;
@@ -898,6 +901,7 @@ export function initPaper(ctx) {
       if (execution && execution.ok !== false) {
         t0RulesEl.innerHTML = renderExecutionRulesHtml(execution);
         if (t0Form) fillExecutionForm(t0Form, execution);
+        if (pathMatrixForm) fillPathMatrixForm(pathMatrixForm, execution);
       } else {
         t0RulesEl.innerHTML = `<p class="quant-sub">加载 ExecutionSpec…</p>`;
         // 旧进程未带 execution 字段时兜底拉专用接口
@@ -912,6 +916,7 @@ export function initPaper(ctx) {
             if (lastAccountData) lastAccountData.execution = exe;
             t0RulesEl.innerHTML = renderExecutionRulesHtml(exe);
             if (t0Form) fillExecutionForm(t0Form, exe);
+            if (pathMatrixForm) fillPathMatrixForm(pathMatrixForm, exe);
           })
           .catch((err) => {
             t0RulesEl.innerHTML = renderExecutionRulesHtml({
@@ -920,6 +925,8 @@ export function initPaper(ctx) {
             });
           });
       }
+    } else if (pathMatrixForm && execution && execution.ok !== false) {
+      fillPathMatrixForm(pathMatrixForm, execution);
     }
 
     const logsView = buildPaperLogsView(data, paperLogShowAll, paperLogFilter);
@@ -1461,15 +1468,54 @@ export function initPaper(ctx) {
     const costNote = document.getElementById("follow-cost-note");
     const costSelect = document.getElementById("paper-cost-model");
     const fundCostLabel = document.getElementById("follow-fund-cost-label");
-    const stratSelect = document.getElementById("paper-strategy");
+    const stratHidden = document.getElementById("paper-strategy");
+    const stratLabel = document.getElementById("paper-strategy-label");
+    const stratVer = document.getElementById("paper-strategy-version");
+    const stratRules = document.getElementById("paper-strategy-rules");
     const model = data.cost_model || (data.summary && data.summary.cost_model) || "zero";
     if (costSelect && costSelect.value !== model) costSelect.value = model;
-    if (stratSelect && data.strategy_id) {
-      const opt = Array.from(stratSelect.options || []).find(
-        (o) => o.value === data.strategy_id
-      );
-      if (opt && stratSelect.value !== data.strategy_id) {
-        stratSelect.value = data.strategy_id;
+    const STRATEGY_LABELS = {
+      short_conservative: "保守短线",
+      short: "短线评分",
+    };
+    const sid = data.strategy_id ? String(data.strategy_id) : "";
+    if (sid) {
+      if (stratHidden && stratHidden.value !== sid) stratHidden.value = sid;
+      if (stratLabel) {
+        stratLabel.textContent =
+          data.strategy_label || STRATEGY_LABELS[sid] || sid;
+      }
+    } else if (stratLabel && !String(stratLabel.textContent || "").trim()) {
+      stratLabel.textContent = "—";
+    }
+    if (stratVer) {
+      const ver = String(data.strategy_version || "").trim();
+      if (ver) {
+        stratVer.hidden = false;
+        stratVer.textContent = `@${ver}`;
+      } else {
+        stratVer.hidden = true;
+        stratVer.textContent = "";
+      }
+    }
+    if (stratRules) {
+      const rules = data.rules || (data.config_preview && data.config_preview.rules) || {};
+      const parts = [];
+      const maxPos = Number(rules.max_positions);
+      if (Number.isFinite(maxPos) && maxPos > 0) parts.push(`≤${maxPos}只`);
+      const rawPct = Number(rules.position_pct);
+      if (Number.isFinite(rawPct) && rawPct > 0) {
+        const pct = rawPct <= 1 ? Math.round(rawPct * 100) : Math.round(rawPct);
+        parts.push(`单票${pct}%`);
+      }
+      if (parts.length) {
+        stratRules.hidden = false;
+        stratRules.textContent = parts.join(" · ");
+        stratRules.title = "来自当前策略纸面规则（组合限额）";
+      } else {
+        stratRules.hidden = true;
+        stratRules.textContent = "";
+        stratRules.removeAttribute("title");
       }
     }
     if (costNote) {
@@ -1950,8 +1996,6 @@ export function initPaper(ctx) {
       "paper-run",
       "paper-adjust",
       "paper-daily",
-      "paper-daily-n5",
-      "paper-feedback-alerts",
       "paper-init",
     ]
       .map((id) => document.getElementById(id))
@@ -2038,7 +2082,12 @@ export function initPaper(ctx) {
       hideScoreTooltip,
       metricCls,
       setFollowClusterPreviewPending: (v) => {
-        if (followClusterRef) followClusterRef.setFollowClusterPreviewPending(v);
+        if (followClusterRef && followClusterRef.setFollowClusterPreviewPending) {
+          followClusterRef.setFollowClusterPreviewPending(v);
+        }
+      },
+      setFollowMatrixPreviewPending: (v) => {
+        if (followClusterRef) followClusterRef.setFollowMatrixPreviewPending(v);
       },
     });
     const dismissRebalancePreview = (...args) =>
@@ -2250,13 +2299,6 @@ export function initPaper(ctx) {
       dismissRebalancePreview,
       loadPaper,
     });
-    const fmtFollowBookTs = (...a) => clusterRebalanceUi.fmtFollowBookTs(...a);
-    const formatFollowClusterStatus = (...a) =>
-      clusterRebalanceUi.formatFollowClusterStatus(...a);
-    const refreshFollowClusterStatus = (...a) =>
-      clusterRebalanceUi.refreshFollowClusterStatus(...a);
-    const runClusterPaperRebalance = (...a) =>
-      clusterRebalanceUi.runClusterPaperRebalance(...a);
     followClusterRef = clusterRebalanceUi;
 
     const paperAdjustBtn = document.getElementById("paper-adjust");
@@ -2267,13 +2309,8 @@ export function initPaper(ctx) {
       dismissRebalancePreview();
       e.preventDefault();
       try {
-        await refreshFollowClusterStatus();
-        if (followClusterRef && followClusterRef.followClusterActive) {
-          await runClusterPaperRebalance({ dryRun: true });
-        } else {
-          followClusterRef && followClusterRef.setFollowClusterPreviewPending(false);
-          await runPaper(true, { dryRun: true });
-        }
+        // 手动预演：观察池实时算分 + path_matrix（唯一调仓路径）
+        await followClusterRef.runWatchingMatrixPreview();
       } catch (err) {
         setPaperMetaText(String(err.message || err));
       }
@@ -2287,14 +2324,16 @@ export function initPaper(ctx) {
         if (rebalanceConfirmBtn.disabled) return;
         rebalanceConfirmBtn.disabled = true;
         try {
-          if (followClusterRef && (followClusterRef.followClusterPreviewPending || followClusterRef.followClusterActive)) {
+          const matrixPending =
+            followClusterRef && followClusterRef.followMatrixPreviewPending;
+          if (matrixPending && followClusterRef.runWatchingMatrixPreview) {
             if (
               !window.confirm(
                 [
-                  "确认按分池目标簿落账？",
+                  "确认按观察池 path_matrix 落账？",
                   "",
                   "将按预演清单改写 paper.json 持仓与现金。",
-                  "不写入 signal_config.weights。",
+                  "确认时会重新算分与报价，清单可能与预演略有差异。",
                   "此为纸面模拟，非实盘委托。",
                 ].join("\n")
               )
@@ -2302,9 +2341,10 @@ export function initPaper(ctx) {
               rebalanceConfirmBtn.disabled = false;
               return;
             }
-            await runClusterPaperRebalance({ dryRun: false });
+            await followClusterRef.runWatchingMatrixPreview({ dryRun: false });
           } else {
-            await runPaper(true, { dryRun: false });
+            setPaperMetaText("请先点「预演调仓」，再确认落账");
+            rebalanceConfirmBtn.disabled = false;
           }
         } catch (err) {
           setPaperMetaText(String(err.message || err));
@@ -2363,96 +2403,6 @@ export function initPaper(ctx) {
     });
     }
 
-    const paperDailyN5 = document.getElementById("paper-daily-n5");
-    if (paperDailyN5) {
-      paperDailyN5.addEventListener("click", async (e) => {
-        e.preventDefault();
-        if (!paperInitialized) {
-          setPaperMetaText("请先初始化模拟账户后再跑纸面日更");
-          return;
-        }
-        const stratEl = document.getElementById("paper-strategy");
-        setPaperMetaText("纸面日更（paper_daily）运行中…");
-        setPaperBusy(true);
-        try {
-          const res = await fetch("/api/schedule/run", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              kind: "paper_daily",
-              strategy: stratEl ? stratEl.value : "short_conservative",
-              simulate_buy: false,
-            }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.detail || data.error || res.statusText);
-          const ops =
-            data.ops_report ||
-            {
-              strategy_id: data.strategy_id,
-              strategy_version: data.strategy_version,
-              cost_model: data.cost_model,
-              data_quality: data.data_quality,
-              risk_blocks: data.risk_blocks,
-              monitor_alerts: data.monitor_alerts,
-              buys_blocked: data.buys_blocked,
-            };
-          renderOpsReport(ops, { forceShow: true });
-          const n = (data.monitor_alerts || []).length;
-          setPaperMetaText(
-            `纸面日更完成 · 告警 ${n} · ${data.strategy_id || "—"} @ ${data.strategy_version || "—"}`
-          );
-          await loadPaper({ quiet: true }).catch(() => {});
-        } catch (err) {
-          setPaperMetaText(String(err.message || err));
-        } finally {
-          setPaperBusy(false);
-        }
-      });
-    }
-
-    const paperFeedbackAlerts = document.getElementById("paper-feedback-alerts");
-    if (paperFeedbackAlerts) {
-      paperFeedbackAlerts.addEventListener("click", async (e) => {
-        e.preventDefault();
-        const ops = window.__paperLastOpsReport || {};
-        const alerts = Array.isArray(ops.monitor_alerts) ? ops.monitor_alerts : [];
-        if (!alerts.length) {
-          setPaperMetaText("暂无监控告警；请先「纸面日更」或预演调仓");
-          return;
-        }
-        setPaperMetaText("根据告警生成配置建议…");
-        try {
-          const res = await fetch("/api/feedback/suggest", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ monitor_alerts: alerts }),
-          });
-          const data = await res.json();
-          if (!res.ok) throw new Error(data.detail || data.error || res.statusText);
-          const reasons = (data.reasons || []).slice(0, 3).join("；");
-          setPaperMetaText(
-            `建议已生成（未写盘）· ${reasons || "见平台页"} · 人审后到策略页 promote`
-          );
-          const note = document.getElementById("paper-rebalance-preview-note");
-          if (note) {
-            note.hidden = false;
-            note.textContent = JSON.stringify(
-              { reasons: data.reasons, patch: data.patch, note: data.note },
-              null,
-              2
-            );
-          }
-          const section = document.getElementById("paper-rebalance-section");
-          if (section) section.hidden = false;
-        } catch (err) {
-          setPaperMetaText(String(err.message || err));
-        }
-      });
-    }
-
-    // 须在本 block 内调用：refreshFollowClusterStatus 为块级函数，外层会 ReferenceError 卡在「加载中…」
-    refreshFollowClusterStatus().catch(() => {});
   }
 
   ctx.reloadPaper = loadPaper;
@@ -2723,6 +2673,8 @@ export function initPaper(ctx) {
     const t0RulesEl = document.getElementById("paper-t0-rules");
     if (t0RulesEl && exec) t0RulesEl.innerHTML = renderExecutionRulesHtml(exec);
     if (paperT0Form && exec) fillExecutionForm(paperT0Form, exec);
+    const pathMatrixForm = document.getElementById("paper-path-matrix-form");
+    if (pathMatrixForm && exec) fillPathMatrixForm(pathMatrixForm, exec);
     try {
       const { ok, data } = await apiFetch("/api/paper");
       if (ok) await renderPaperAccountDetail(data);
@@ -2758,6 +2710,41 @@ export function initPaper(ctx) {
         await refreshPaperAfterExecution(data.execution);
       } catch (err) {
         if (paperT0EditStatus) paperT0EditStatus.textContent = String(err.message || err);
+      }
+    });
+  }
+  const paperPathMatrixForm = document.getElementById("paper-path-matrix-form");
+  const paperPathMatrixStatus = document.getElementById("paper-path-matrix-status");
+  if (paperPathMatrixForm) {
+    paperPathMatrixForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const body = collectPathMatrixForm(paperPathMatrixForm);
+      if (!body) return;
+      if (paperPathMatrixStatus) paperPathMatrixStatus.textContent = "保存中…";
+      try {
+        const res = await fetch("/api/paper/execution", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ ...body, note: "follow path_matrix UI" }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.ok === false) {
+          const err = data.detail || data.errors || data.error || "保存失败";
+          if (paperPathMatrixStatus) {
+            paperPathMatrixStatus.textContent = Array.isArray(err)
+              ? err.join("; ")
+              : String(err);
+          }
+          return;
+        }
+        if (paperPathMatrixStatus) {
+          paperPathMatrixStatus.textContent = data.message || "已保存择时";
+        }
+        await refreshPaperAfterExecution(data.execution);
+      } catch (err) {
+        if (paperPathMatrixStatus) {
+          paperPathMatrixStatus.textContent = String(err.message || err);
+        }
       }
     });
   }

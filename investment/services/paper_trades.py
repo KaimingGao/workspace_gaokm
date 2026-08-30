@@ -757,50 +757,42 @@ class PaperTradesMixin:
         top_k: Optional[int] = None,
         limit: Optional[int] = None,
         cluster_mode: bool = False,
+        matrix_mode: bool = True,
         dry_run: bool = False,
         strategy: Optional[str] = None,
     ) -> Dict[str, Any]:
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
-        from core.paper.rebalance.orchestrator import (
-            prepare_cluster_book_rank,
-            resolve_rebalance_mode,
-            run_paper_rebalance,
+
+        # 分池簿调仓已停用；唯一路径 = 观察池 + path_matrix
+        _ = matrix_mode  # API 兼容；非 cluster 一律矩阵
+        if cluster_mode:
+            return {
+                "success": False,
+                "ok": False,
+                "mode": "cluster_book",
+                "matrix_mode": False,
+                "cluster_mode": True,
+                "dry_run": bool(dry_run),
+                "error": "分池调仓已停用；请使用观察池 path_matrix（matrix_mode=true）",
+                "confirm_supported": False,
+            }
+
+        from core.paper.rebalance.watching_matrix import (
+            simulate_watching_matrix_preview,
         )
 
-        # 打分 / 行情 / 模拟全部在写锁外；锁内只做短写，避免「分池落账」长时间占锁。
         paper_ro = load_paper(self.path)
         token0 = _paper_mutation_token(paper_ro)
-        mode = resolve_rebalance_mode(paper_ro, cluster_mode=cluster_mode)
-        ranked_pre = None
-        if mode == "cluster_book":
-            ranked_pre = prepare_cluster_book_rank(paper_ro, dry_run=dry_run)
-            if not (ranked_pre.get("success") or ranked_pre.get("ok")):
-                return {
-                    **ranked_pre,
-                    "mode": mode,
-                    "cluster_mode": True,
-                    "dry_run": dry_run,
-                    "success": False,
-                    "ok": False,
-                }
-
         work = copy.deepcopy(paper_ro)
         holdings_before = copy.deepcopy(work.get("holdings") or [])
         if not dry_run:
             capture_mark_snapshot(work)
-        result = run_paper_rebalance(
-            work,
-            mode=mode,
-            dry_run=dry_run,
-            top_k=top_k,
-            limit=limit,
-            cluster_mode=cluster_mode,
-            strategy=str(strategy or work.get("strategy_id") or "short_conservative"),
-            ranked=ranked_pre if mode == "cluster_book" else None,
+        result = simulate_watching_matrix_preview(
+            work, top_k=top_k, dry_run=dry_run
         )
         if not (result.get("success") or result.get("ok")):
-            return {**result, "mode": mode}
+            return {**result, "matrix_mode": True}
 
         from core.paper.open_fill import apply_next_open_commit
 
@@ -809,101 +801,43 @@ class PaperTradesMixin:
             work,
             result,
             dry_run=dry_run,
-            source="cluster" if mode == "cluster_book" else "rebalance",
+            source="matrix",
         )
 
-        ranking = list(result.get("ranking") or [])
-        score_rows = list(result.get("score_rows") or [])
-        k = int(result.get("top_k") or top_k or 0)
-        ranked = result.get("cluster_pools") or result.get("cross_section")
-        health = result.get("health")
-        use_cluster = mode == "cluster_book"
-        # 兜底：simulate 合并后偶发缺 ranking/score_rows 时从 cluster_pools 取
-        if isinstance(ranked, dict):
-            if not ranking:
-                ranking = list(ranked.get("book") or ranked.get("ranking") or [])
-            if not score_rows:
-                score_rows = list(ranked.get("scored_all") or [])
-                if not score_rows:
-                    for g in ranked.get("groups") or []:
-                        score_rows.extend(list(g.get("ranking") or []))
-
-        summary = mark_to_market(work)
         sell_trades = list(result.get("sell_trades") or [])
         buy_trades = list(result.get("buy_trades") or [])
-        report = _rebalance_report_from_legs(
-            ranking=ranking,
-            sell_trades=sell_trades,
-            buy_trades=buy_trades,
-            holdings_before=holdings_before,
-            holdings_after=work.get("holdings") or [],
-            risk_budget_skips=result.get("risk_budget_skips"),
-            score_rows=score_rows or None,
-        )
+        report = list(result.get("rebalance_report") or [])
+        if not report:
+            report = _rebalance_report_from_legs(
+                ranking=[],
+                sell_trades=sell_trades,
+                buy_trades=buy_trades,
+                holdings_before=holdings_before,
+                holdings_after=work.get("holdings") or [],
+                risk_budget_skips=result.get("risk_budget_skips"),
+            )
+        summary = result.get("summary") or mark_to_market(work)
         try:
             from core.paper.rebalance import attach_change_pct_to_rebalance_report
 
             attach_change_pct_to_rebalance_report(report, summary=summary)
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in paper_trades.py", exc_info=True)
-            pass
-        if use_cluster:
-            try:
-                from core.signal.score_display import annotate_score_gate
-
-                for row in report:
-                    gate = annotate_score_gate(
-                        row.get("score"), paper=work, item=row
-                    )
-                    row["min_score"] = gate["min_score"]
-                    if row.get("below_min_score") is None:
-                        row["below_min_score"] = gate["below_min_score"]
-                    elif gate["below_min_score"]:
-                        row["below_min_score"] = True
-                    if gate.get("gate_score") is not None:
-                        row["eod_gate_score"] = gate.get("gate_score")
-            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-                logger.debug("catch except Exception: in paper_trades.py", exc_info=True)
-                pass
+        except Exception:  # noqa: BLE001
+            logger.debug("attach_change_pct matrix failed", exc_info=True)
 
         base_out = {
+            **result,
             "success": True,
             "ok": True,
-            "mode": mode,
+            "mode": "watching_matrix",
             "dry_run": dry_run,
-            "top_k": k,
-            "cluster_mode": use_cluster,
+            "matrix_mode": True,
+            "cluster_mode": False,
             "sell_trades": sell_trades,
             "buy_trades": buy_trades,
             "rebalance_report": report,
             "summary": summary,
-            "cash_impact": result.get("cash_impact"),
-            "turnover": result.get("turnover"),
-            "turnover_capped": result.get("turnover_capped"),
-            "risk_budget_skips": result.get("risk_budget_skips"),
-            "attribution": result.get("attribution"),
-            "risk_gate": result.get("risk_gate"),
-            "ops_report": result.get("ops_report"),
-            "dual_score": result.get("dual_score"),
-            "empty_reason": result.get("empty_reason"),
-            "min_score": result.get("min_score"),
-            "min_hold_score": result.get("min_hold_score"),
-            "observation_pool_count": len(ranking),
+            "confirm_supported": True,
         }
-        if use_cluster:
-            base_out["cluster_pools"] = ranked
-            base_out["health"] = health
-            # 建簿阶段空簿原因（与调仓 empty_reason 分列）
-            if isinstance(ranked, dict) and ranked.get("empty_reason"):
-                base_out["book_empty_reason"] = ranked.get("empty_reason")
-                base_out["below_min_score_count"] = ranked.get(
-                    "below_min_score_count"
-                )
-                if not base_out.get("empty_reason") and not ranking:
-                    base_out["empty_reason"] = ranked.get("empty_reason")
-        else:
-            base_out["cross_section"] = ranked
-
         if result.get("fill_action"):
             base_out["fill_action"] = result.get("fill_action")
             base_out["fill_phase"] = result.get("fill_phase")
@@ -916,69 +850,53 @@ class PaperTradesMixin:
             base_out["note"] = result.get("note")
 
         if dry_run:
-            if use_cluster and not base_out.get("note"):
-                base_out["note"] = (
-                    "分池预演 · 复用目标簿 · 未写 paper.json"
-                    if result.get("book_reused")
-                    else "分池预演 · 未写 paper.json"
-                )
-            if use_cluster and result.get("book_reused"):
-                base_out["book_reused"] = True
+            if not base_out.get("note"):
+                base_out["note"] = "矩阵预演 · 未写 paper.json"
             return base_out
 
         fill_action = str(result.get("fill_action") or "immediate")
-        if use_cluster and result.get("book_reused"):
-            base_out["book_reused"] = True
-            if not base_out.get("note"):
-                base_out["note"] = "分池落账 · 复用预演目标簿"
         append_snapshot(work, summary)
-        staged = fill_action == "staged"
         deferred = fill_action in ("staged", "kept_pending")
-        if use_cluster:
-            if not deferred:
-                append_trade_legs_to_operation_log(
-                    work,
-                    sell_trades,
-                    buy_trades,
-                    origin="cluster",
-                    source="follow",
-                )
-            verb = "挂开盘单" if staged else (
-                "保留挂单" if fill_action == "kept_pending" else (
-                    "开盘成交" if fill_action.startswith("open_fill") else "调仓"
-                )
-            )
-            append_operation_log(
+        if not deferred:
+            append_trade_legs_to_operation_log(
                 work,
-                "cluster_pool_rebalance",
-                detail=(
-                    f"分池 live {verb} Top{k} · v{(ranked or {}).get('cluster_version')} · "
-                    f"卖 {len(sell_trades)} · 买 {len(buy_trades)}"
-                ),
-                meta={
-                    "mode": mode,
-                    "cluster_mode": True,
-                    "cluster_version": (ranked or {}).get("cluster_version"),
-                    "book_codes": [r.get("stock_code") for r in ranking],
-                    "buy_count": len(buy_trades),
-                    "sell_count": len(sell_trades),
-                    "fill_action": fill_action,
-                    "health_alerts": ((health or {}).get("alerts") or [])[:5],
-                    "signal_config_touched": False,
-                    "origin": "cluster",
-                    "source": "follow",
-                },
+                sell_trades,
+                buy_trades,
+                origin="matrix",
+                source="follow",
             )
-            work["last_cluster_pool"] = {
-                "applied_at": summary.get("as_of") if isinstance(summary, dict) else None,
-                "cluster_version": (ranked or {}).get("cluster_version"),
-                "book_codes": [r.get("stock_code") for r in ranking],
+        verb = (
+            "挂开盘单"
+            if fill_action == "staged"
+            else (
+                "保留挂单"
+                if fill_action == "kept_pending"
+                else (
+                    "开盘成交"
+                    if fill_action.startswith("open_fill")
+                    else "调仓"
+                )
+            )
+        )
+        append_operation_log(
+            work,
+            "watching_matrix_rebalance",
+            detail=(
+                f"矩阵 live {verb} · "
+                f"卖 {len(sell_trades)} · 买 {len(buy_trades)}"
+            ),
+            meta={
+                "mode": "watching_matrix",
+                "matrix_mode": True,
                 "buy_count": len(buy_trades),
                 "sell_count": len(sell_trades),
-                "signal_config_touched": False,
-            }
+                "fill_action": fill_action,
+                "origin": "matrix",
+                "source": "follow",
+                "path_matrix": result.get("path_matrix"),
+            },
+        )
 
-        # 锁内短写：直接 atomic_write，避免 save_paper 再套一层 path_lock（曾导致 macOS 自锁 503）
         from core.io_atomic import atomic_write_json
         from core.paper import trim_paper_lists
 
@@ -988,15 +906,17 @@ class PaperTradesMixin:
                 return {
                     "success": False,
                     "ok": False,
-                    "mode": mode,
+                    "mode": "watching_matrix",
                     "dry_run": False,
-                    "cluster_mode": use_cluster,
+                    "matrix_mode": True,
                     "error": "账本已变更，请重新预演后再确认调仓",
+                    "confirm_supported": True,
                 }
             work.pop("watchlist", None)
             trim_paper_lists(work)
             atomic_write_json(self.path, work)
         return base_out
+
 
     def buy(self, *, stock_code: str, amount: Optional[float] = None, shares: Optional[float] = None) -> Dict[str, Any]:
         if not os.path.isfile(self.path):

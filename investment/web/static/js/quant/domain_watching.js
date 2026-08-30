@@ -1491,18 +1491,8 @@ export function installWatching(q) {
   }
 
   async function fetchClusterBookCodeSet() {
-    try {
-      const res = await fetch("/api/quant/cluster-live/status?light=1");
-      const data = await res.json();
-      const codes = (data && data.book && data.book.codes) || [];
-      return new Set(
-        (Array.isArray(codes) ? codes : [])
-          .map((c) => normalizeProbeCode(c))
-          .filter(Boolean)
-      );
-    } catch (_) {
-      return new Set();
-    }
+    // 分池簿 UI 已停用；不再拉取 book codes / 画「簿」徽章
+    return new Set();
   }
 
   async function renderWatchingWatchTable(wl, names, paperCodes, scores) {

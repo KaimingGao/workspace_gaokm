@@ -136,16 +136,15 @@ def quant_factor_ols_clusters_last_report() -> Dict[str, Any]:
 
 @router.post("/api/quant/cluster-paper-preview")
 def quant_cluster_paper_preview(body: ClusterPaperPreviewRequest) -> Dict[str, Any]:
-    """分池候选簿 → 纸面调仓预演；confirm=true 写 paper.json（不写 signal_config）。"""
-    try:
-        return deps.quant.preview_cluster_paper_rebalance(
-            body.book or [],
-            top_k=body.top_k,
-            confirm=bool(body.confirm),
-            artifact=body.artifact,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    """分池簿→纸面调仓已停用；请改用 Follow「预演调仓」（观察池 + path_matrix）。"""
+    _ = body
+    return {
+        "success": False,
+        "ok": False,
+        "error": "分池簿纸面调仓已停用；请到交易执行页用观察池 path_matrix 预演/确认",
+        "deprecated": True,
+        "redirect": "/follow",
+    }
 
 
 @router.post("/api/quant/cluster-multi-score")
@@ -244,11 +243,14 @@ def quant_cluster_live_mode(body: ClusterModeRequest) -> Dict[str, Any]:
 
 @router.post("/api/quant/cluster-live/refresh-book")
 def quant_cluster_live_refresh_book() -> Dict[str, Any]:
-    """日更：按 active map 重打分并刷新合并簿（不重聚类）。"""
-    try:
-        return deps.quant.refresh_cluster_live_book()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e)) from e
+    """分池簿已停用。"""
+    return {
+        "success": False,
+        "ok": False,
+        "deprecated": True,
+        "error": "分池簿已停用；调仓请用 /follow 观察池 path_matrix",
+        "signal_config_touched": False,
+    }
 
 
 @router.post("/api/quant/cluster-live/rank")

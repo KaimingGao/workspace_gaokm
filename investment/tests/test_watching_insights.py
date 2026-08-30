@@ -91,6 +91,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertIsNone(item["excess_return_pct"])
         self.assertEqual(item["excess_label"], "RS66")
 
+    @unittest.skip("分池簿快路径已停用")
     def test_book_row_forwards_trade_score_fields(self):
         from core.watching.insights import _insight_from_book_row
 
@@ -119,6 +120,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertAlmostEqual(out["realized_t1_to_tau"], 0.30)
         self.assertFalse(out.get("oos_failed"))
 
+    @unittest.skip("分池簿快路径已停用")
     def test_book_row_marks_oos_failed_global(self):
         from core.watching.insights import _insight_from_book_row
 
@@ -137,6 +139,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertTrue(out["oos_failed"])
         self.assertEqual(out["return_model_source"], "oos_failed_global")
 
+    @unittest.skip("分池簿快路径已停用")
     def test_book_row_repairs_stale_eod_next_blend(self):
         """旧簿 eod_next 掺了 τ 时，读路径剥离为 ŷ_EOD。"""
         from core.watching.insights import _insight_from_book_row
@@ -168,6 +171,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertAlmostEqual(out["score"], 0.234547, places=5)
         self.assertAlmostEqual(out["decision_score"], 0.234547, places=5)
 
+    @unittest.skip("分池簿快路径已停用")
     def test_book_row_hydrates_eod_rem_when_missing(self):
         from core.watching.insights import _insight_from_book_row
 
@@ -188,6 +192,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertIsNone(out.get("predicted_score_tau"))
         self.assertAlmostEqual(out["predicted_score_blend"], 0.40)
 
+    @unittest.skip("分池簿快路径已停用")
     def test_book_row_hydrates_trade_fields_without_live_quote(self):
         """簿快路径不拉行情：无缺口时 rem=EOD，并写出 ŷ_trade。"""
         from core.watching.insights import _insight_from_book_row
@@ -210,6 +215,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertIsNotNone(out.get("predicted_score_blend"))
         self.assertAlmostEqual(float(out["score"]), float(out["predicted_score_blend"]), places=5)
 
+    @unittest.skip("分池簿快路径已停用")
     def test_book_row_fills_stance_volr_excess_from_local_bars(self):
         """簿行无 factors 时，仍用本地日线补倾向 / 量比 / 超额，避免表列整列「—」。"""
         from core.watching.insights import _insight_from_book_row
@@ -318,6 +324,7 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertEqual(item["pe"], 18.2)
         self.assertEqual(item["pb"], 7.1)
 
+    @unittest.skip("分池簿快路径已停用")
     def test_book_row_keeps_dual_track_on_oos_failed_heuristic(self):
         """heuristic 0–100 与组 ŷ% 双轨并存；不把 0–100 写进 predicted_score。"""
         from core.watching.insights import _insight_from_book_row

@@ -1436,7 +1436,8 @@ export function initQuant(ctx) {
       busy: true,
     });
     try {
-      const tauLimit = Math.min(40, Math.max(2, Number(readWatchingLimit()) || 36));
+      // 满观察池（与 ŷ_path 一致）
+      const tauLimit = 200;
       const res = await fetch("/api/quant/tau-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1547,7 +1548,8 @@ export function initQuant(ctx) {
       busy: true,
     });
     try {
-      const onLimit = Math.min(40, Math.max(2, Number(readWatchingLimit()) || 36));
+      // 满观察池（与 ŷ_τ / ŷ_path 一致）
+      const onLimit = 200;
       const res = await fetch("/api/quant/on-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -1617,7 +1619,8 @@ export function initQuant(ctx) {
       busy: true,
     });
     try {
-      const pathLimit = Math.min(40, Math.max(2, Number(readWatchingLimit()) || 36));
+      // 满观察池；只读本地 5m 缓存（服务端不再拉远端）
+      const pathLimit = 200;
       const res = await fetch("/api/quant/path-ridge", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

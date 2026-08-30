@@ -32,6 +32,24 @@ from core.paper.rebalance.reasons import (  # noqa: F401 — facade re-export
 )
 from core.paper.rebalance.buy import run_buy_leg
 from core.paper.rebalance.gate import apply_post_sell_gate
+from core.paper.rebalance.path_matrix import (  # noqa: F401 — facade re-export
+    ACTION_ADD,
+    ACTION_EXIT,
+    ACTION_HOLD,
+    ACTION_OPEN,
+    ACTION_PENDING_EXIT,
+    ACTION_REDUCE,
+    ACTION_SKIP,
+    MODE_LINEAR,
+    MODE_PATH,
+    buy_execution_gate,
+    compare_linear_vs_path,
+    get_path_matrix_cfg,
+    plan_book_actions,
+    resolve_rebalance_action,
+    resolve_rebalance_action_from_item,
+    sell_execution_gate,
+)
 from core.paper.rebalance.report import finalize_cross_section_rebalance_report
 from core.paper.rebalance.sell import run_sell_leg
 from core.paper.rebalance.state import RebalanceState, ScoreIndexes, build_score_indexes
@@ -46,6 +64,15 @@ from core.ports.market import quote_price as _quote_price  # noqa: F401 — faca
 logger = logging.getLogger(__name__)
 
 __all__ = [
+    "ACTION_ADD",
+    "ACTION_EXIT",
+    "ACTION_HOLD",
+    "ACTION_OPEN",
+    "ACTION_PENDING_EXIT",
+    "ACTION_REDUCE",
+    "ACTION_SKIP",
+    "MODE_LINEAR",
+    "MODE_PATH",
     "SELL_REASON_BELOW_HOLD",
     "SELL_REASON_HARD_REJECT",
     "SELL_REASON_MARKET_TRIM",
@@ -58,10 +85,17 @@ __all__ = [
     "_sell_match_block_reason",
     "attach_change_pct_to_rebalance_report",
     "build_rebalance_cash_impact",
+    "buy_execution_gate",
     "clip_shares_to_turnover_budget",
+    "compare_linear_vs_path",
     "compute_turnover_stats",
+    "get_path_matrix_cfg",
+    "plan_book_actions",
     "quote_change_pct",
     "resolve_buy_turnover_budget",
+    "resolve_rebalance_action",
+    "resolve_rebalance_action_from_item",
+    "sell_execution_gate",
     "RebalanceState",
     "ScoreIndexes",
     "build_score_indexes",

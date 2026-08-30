@@ -951,45 +951,16 @@ def save_active_cluster_book(
     meta: Optional[dict] = None,
     scored_all: Optional[Sequence[Dict[str, Any]]] = None,
 ) -> str:
-    """L4：落盘分池合并簿供 execution 只读。"""
+    """分池簿已停用：不再落盘（保留签名兼容旧调用）。"""
+    _ = book, meta, scored_all
     from core.paths import CLUSTER_BOOK_ACTIVE_PATH
 
-    _ensure_dirs()
-    payload = {
-        "success": True,
-        "updated_at": now_iso_utc(),
-        "book": list(book or []),
-        "scored_all": list(scored_all or []),
-        "meta": meta or {},
-        "signal_config_touched": False,
-        "note": "分池合并簿；execution 只读，不写全局 weights",
-    }
-    atomic_write_json(CLUSTER_BOOK_ACTIVE_PATH, payload)
-    # 昨日复盘：收盘后按因子截止日冻结 ŷ（盘中刷簿不写账本）
-    try:
-        from core.score_ledger import freeze_from_cluster_book
-
-        freeze_from_cluster_book(as_of=None, book_doc=payload, auto=True)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
-        pass
+    logger.info("save_active_cluster_book skipped (cluster book deprecated)")
     return CLUSTER_BOOK_ACTIVE_PATH
 
 
 def load_active_cluster_book() -> Optional[Dict[str, Any]]:
-    from core.paths import CLUSTER_BOOK_ACTIVE_PATH
-
-    if not os.path.isfile(CLUSTER_BOOK_ACTIVE_PATH):
-        return None
-    try:
-        with open(CLUSTER_BOOK_ACTIVE_PATH, encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            _align_cluster_book_trade_scores(data)
-            return data
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
-        return None
+    """分池簿已停用：始终返回 None。"""
     return None
 
 
@@ -1018,25 +989,10 @@ def save_tau_shadow_cluster_book(
     *,
     meta: Optional[dict] = None,
 ) -> str:
-    """A2：ŷ_τ 影子簿落盘；execution / 纸面不读此文件。"""
+    """分池簿已停用：τ 影子簿不再落盘。"""
+    _ = book, meta
     from core.paths import CLUSTER_BOOK_TAU_SHADOW_PATH
 
-    _ensure_dirs()
-    payload = {
-        "success": True,
-        "updated_at": now_iso_utc(),
-        "book": list(book or []),
-        "meta": meta or {},
-        "note": "A2 τ 影子簿；不写 signal_config；不驱动买入",
-    }
-    atomic_write_json(CLUSTER_BOOK_TAU_SHADOW_PATH, payload)
-    try:
-        from core.score_ledger import freeze_from_tau_shadow_book
-
-        freeze_from_tau_shadow_book(shadow_doc=payload, auto=True)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
-        pass
     return CLUSTER_BOOK_TAU_SHADOW_PATH
 
 
@@ -1045,59 +1001,20 @@ def save_nowcast_shadow_cluster_book(
     *,
     meta: Optional[dict] = None,
 ) -> str:
-    """N3：ŷ_nowcast 影子簿落盘；execution / 纸面不读此文件。"""
+    """分池簿已停用：nowcast 影子簿不再落盘。"""
+    _ = book, meta
     from core.paths import LIVE_DIR
 
-    _ensure_dirs()
-    path = os.path.join(LIVE_DIR, "cluster_book_nowcast_shadow.json")
-    payload = {
-        "success": True,
-        "updated_at": now_iso_utc(),
-        "book": list(book or []),
-        "meta": meta or {},
-        "note": "N3 nowcast Kalman 影子簿；不写 signal_config；不驱动买入",
-    }
-    atomic_write_json(path, payload)
-    try:
-        from core.score_ledger import freeze_from_nowcast_shadow_book
-
-        freeze_from_nowcast_shadow_book(shadow_doc=payload, auto=True)
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
-        pass
-    return path
+    return os.path.join(LIVE_DIR, "cluster_book_nowcast_shadow.json")
 
 
 def load_nowcast_shadow_cluster_book() -> Optional[Dict[str, Any]]:
-    from core.paths import LIVE_DIR
-
-    path = os.path.join(LIVE_DIR, "cluster_book_nowcast_shadow.json")
-    if not os.path.isfile(path):
-        return None
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            return data
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
-        return None
+    """分池簿已停用。"""
     return None
 
 
 def load_tau_shadow_cluster_book() -> Optional[Dict[str, Any]]:
-    from core.paths import CLUSTER_BOOK_TAU_SHADOW_PATH
-
-    if not os.path.isfile(CLUSTER_BOOK_TAU_SHADOW_PATH):
-        return None
-    try:
-        with open(CLUSTER_BOOK_TAU_SHADOW_PATH, encoding="utf-8") as f:
-            data = json.load(f)
-        if isinstance(data, dict):
-            return data
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
-        return None
+    """分池簿已停用。"""
     return None
 
 
@@ -1410,37 +1327,14 @@ def set_cluster_scoring_mode(
 
 
 def refresh_cluster_book_daily(*, light: bool = False) -> Dict[str, Any]:
-    """L3：不重聚类，仅按 active map 重打分并刷新合并簿。
-
-    ``light=True``：跳过健康 IC（对照一键应用用，避免再等一轮）。
-    """
-    from core.signal.service import get_default_signal_service
-
-    health = assess_cluster_live_health(compute_ic=False if light else None)
-    ranked = get_default_signal_service().rank_cluster_pools(
-        None, persist_book=True
-    ).as_dict()
-    try:
-        from core.live_config_manifest import write_live_config_manifest
-
-        write_live_config_manifest(note="after cluster_daily_refresh")
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in cluster_live.py", exc_info=True)
-        pass
+    """分池簿已停用：不再刷簿/落盘（保留入口兼容）。"""
+    _ = light
     return {
-        "success": bool(ranked.get("success")),
+        "success": False,
+        "ok": False,
         "task": "cluster_daily_refresh",
-        "health": health,
-        "rank": {
-            "success": ranked.get("success"),
-            "book": ranked.get("book"),
-            "cluster_version": ranked.get("cluster_version"),
-            "error": ranked.get("error"),
-            "name_count": len(ranked.get("book") or []),
-            "features_tau_fill": ranked.get("features_tau_fill"),
-            "sector_gap_breadth": ranked.get("sector_gap_breadth"),
-        },
-        "light": bool(light),
+        "deprecated": True,
+        "error": "分池簿已停用；调仓请用 /follow 观察池 path_matrix",
         "signal_config_touched": False,
     }
 
@@ -1479,21 +1373,17 @@ def maybe_auto_demote_stale() -> Dict[str, Any]:
 
 
 def prepare_cluster_for_daily() -> Dict[str, Any]:
-    """日更入口：陈旧降级 +（shadow|active 时）刷新分池簿。"""
+    """日更入口：陈旧降级（不再刷新分池簿）。"""
     demote = maybe_auto_demote_stale()
-    cs = get_cluster_scoring_cfg()
-    mode = cs.get("mode") or "off"
-    refresh = None
-    if mode in ("shadow", "active") and load_active_cluster_weights():
-        refresh = refresh_cluster_book_daily()
     return {
         "success": True,
         "task": "cluster_prepare_daily",
         "demote": demote,
-        "refresh": refresh,
+        "refresh": None,
         "cluster_scoring": get_cluster_scoring_cfg(),
         "health": assess_cluster_live_health(),
         "signal_config_touched": False,
+        "note": "分池簿已停用；仅做陈旧降级",
     }
 
 
@@ -1530,13 +1420,10 @@ def apply_cluster_live_shortcut(
     from_draft: bool = True,
     note: str = "",
     mode: str = "shadow",
-    refresh_book: bool = True,
+    refresh_book: bool = False,
     force: bool = False,
 ) -> Dict[str, Any]:
-    """一键：晋升 → 刷新分池簿 → 设 mode（默认 shadow）。
-
-    FH1：先刷簿再 active，避免「active 无簿」硬拦；仍不写全局 weights。
-    """
+    """一键：晋升 → 设 mode（默认 shadow）。分池簿已停用，不再刷簿。"""
     art = artifact
     if from_draft or not art:
         art = load_cluster_draft() or art
@@ -1578,8 +1465,8 @@ def apply_cluster_live_shortcut(
         "signal_config_touched": False,
         "note": (
             f"已应用分组 v{promo.get('version')} · mode="
-            f"{(mode_out.get('cluster_scoring') or {}).get('mode', mode)} · "
-            "分池簿已刷新（若开启）"
+            f"{(mode_out.get('cluster_scoring') or {}).get('mode', mode)}"
+            " · 分池簿已停用"
         ),
     }
 

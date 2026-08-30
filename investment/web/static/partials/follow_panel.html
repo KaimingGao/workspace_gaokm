@@ -240,60 +240,178 @@
     <section class="dashboard-section quant-section follow-rebalance-section" id="follow-section-rebalance" aria-labelledby="follow-section-rebalance-title" aria-label="策略调仓">
       <header class="dashboard-section-head quant-section-head follow-section-head">
         <h3 id="follow-section-rebalance-title" class="dashboard-section-title">策略调仓</h3>
-        <p class="dashboard-section-desc quant-section-desc" title="研究枢纽对照/启用后，此处吃 live 组权更新 score；买卖只在本页。日常加减仓用上方持仓表">手动触发 · 预演后确认</p>
+        <p class="dashboard-section-desc quant-section-desc" title="组合限额来自当前策略；买卖时机走观察池 + path_matrix">观察池实时算分 · 早盘 path_matrix · 预演后确认</p>
       </header>
       <div class="dashboard-card quant-pro-card follow-ops-card" id="follow-fold-rebalance">
-        <div class="dashboard-card-head quant-pro-card-head quant-card-head--tools follow-card-head">
-          <p class="quant-fingerprint quant-card-head-status follow-card-status" aria-live="polite">
-            <span id="follow-cluster-status" class="follow-ops-note">分组打分：加载中…</span>
-            <span
-              id="paper-ops-load-status"
-              class="watching-toolbar-meta follow-holdings-load-status follow-ops-load-status"
-              hidden
-            ></span>
-          </p>
-          <div class="dashboard-card-tools quant-card-tools-secondary follow-card-tools" role="group" aria-label="调仓操作">
-            <button
-              type="button"
-              id="paper-daily-n5"
-              class="dialog-btn secondary"
-              title="调度 paper_daily：五问 + DecisionRecord + 衰减告警（不等同于确认调仓）"
-            >
-              纸面日更
-            </button>
-            <button
-              type="button"
-              id="paper-feedback-alerts"
-              class="dialog-btn secondary"
-              title="用最近调仓/日更的监控告警生成配置建议（不写盘）"
-            >
-              告警→建议
-            </button>
-          </div>
-        </div>
         <div class="quant-pro-card-body follow-card-body">
-          <div class="quant-control-band quant-pro-control-band follow-control-band follow-control-band--rebalance" aria-label="策略调仓参数">
-            <div class="quant-cluster-params quant-actions-inline follow-actions-inline follow-rebalance-actions">
-              <label class="platform-field quant-pro-field follow-platform-field" title="选择调仓策略">
-                <span class="quant-pro-field-label follow-field-label">策略</span>
-                <select id="paper-strategy" class="follow-strategy-select" title="选择调仓策略">
-                  <option value="short_conservative" selected>保守短线</option>
-                  <option value="short">短线评分</option>
-                </select>
-              </label>
-              <button
-                type="button"
-                id="paper-adjust"
-                class="dialog-btn dialog-btn-keep-case follow-adjust"
-                title="预演调仓：先出买卖清单，点「确认调仓」才写纸面。未启用分组时走策略/全局评分加减仓；研究枢纽已「启用」组权（mode=active）时自动改走分池合并簿。"
-              >
-                预演调仓
-              </button>
-              <div class="quant-oos-band follow-oos-band follow-oos-band--inline">
-                <span class="quant-oos-band-label">纸面</span>
-                <span class="quant-oos-band-text">先预演再确认；盘中现价成交，收盘后只挂次日开盘单（持仓不会马上变）</span>
+          <div class="follow-path-matrix" id="follow-path-matrix" aria-label="策略调仓与路径择时">
+            <form id="paper-path-matrix-form" class="follow-path-matrix-form" autocomplete="off">
+              <div class="follow-path-matrix-toolbar" aria-label="策略与操作">
+                <div class="follow-path-matrix-strategy" title="组合限额来自策略中心 promote 的纸面策略；调仓页不可切换">
+                  <span class="follow-path-matrix-strategy-kicker">策略</span>
+                  <a id="paper-strategy-link" class="follow-strategy-link" href="/strategy" title="在策略中心查看 / 晋升策略">
+                    <span id="paper-strategy-label">—</span>
+                  </a>
+                  <span id="paper-strategy-version" class="follow-strategy-version" hidden></span>
+                  <span id="paper-strategy-rules" class="follow-strategy-rules" hidden></span>
+                  <input type="hidden" id="paper-strategy" value="short_conservative" />
+                </div>
+                <div class="follow-path-matrix-meta" aria-label="执行元信息">
+                  <span class="follow-path-matrix-chip" title="决策窗">09:30–10:30</span>
+                  <span id="paper-path-matrix-badge" class="follow-path-matrix-badge is-on" title="执行模式">路径择时</span>
+                  <span class="follow-path-matrix-chip is-muted" title="成交规则">盘中现价 · 收盘挂开盘</span>
+                </div>
+                <div class="follow-path-matrix-actions">
+                  <button type="submit" class="dialog-btn secondary" id="paper-path-matrix-save">保存择时</button>
+                  <button type="button" id="paper-adjust" class="dialog-btn dialog-btn-keep-case follow-adjust" title="预演调仓：观察池实时算分 + path_matrix；确认后按同一路径落账。">预演调仓</button>
+                  <span id="paper-path-matrix-status" class="follow-ops-note" aria-live="polite"></span>
+                  <span id="paper-ops-load-status" class="watching-toolbar-meta follow-holdings-load-status follow-ops-load-status" hidden></span>
+                </div>
               </div>
-            </div>
+              <div class="follow-path-matrix-roles" aria-label="分数角色">
+                <div class="follow-path-matrix-role" data-role="trade">
+                  <span class="follow-path-matrix-role-sym">y_trade</span>
+                  <span class="follow-path-matrix-role-job">定标的</span>
+                  <span class="follow-path-matrix-role-desc">Top-K / 目标仓</span>
+                </div>
+                <div class="follow-path-matrix-role" data-role="path">
+                  <span class="follow-path-matrix-role-sym">y_path</span>
+                  <span class="follow-path-matrix-role-job">定时机</span>
+                  <span class="follow-path-matrix-role-desc">低买高卖 · 定 λ</span>
+                </div>
+                <div class="follow-path-matrix-role" data-role="nc">
+                  <span class="follow-path-matrix-role-sym">y_nowcast</span>
+                  <span class="follow-path-matrix-role-job">确认/否决</span>
+                  <span class="follow-path-matrix-role-desc">同号才开/加</span>
+                </div>
+                <div class="follow-path-matrix-role" data-role="on">
+                  <span class="follow-path-matrix-role-sym">y_on</span>
+                  <span class="follow-path-matrix-role-job">隔夜折扣</span>
+                  <span class="follow-path-matrix-role-desc">收盘留仓</span>
+                </div>
+              </div>
+              <div class="follow-path-matrix-panels">
+                <section class="follow-path-matrix-panel" data-panel="mode" aria-labelledby="pm-panel-mode">
+                  <header class="follow-path-matrix-panel-head">
+                    <h4 id="pm-panel-mode" class="follow-path-matrix-panel-title">执行模式</h4>
+                    <p class="follow-path-matrix-panel-note">预演/确认读此配置 · 与做 T 无关</p>
+                  </header>
+                  <div class="follow-path-matrix-viz" aria-hidden="true">
+                    <span class="follow-path-matrix-viz-seg is-a">路径择时</span>
+                    <span class="follow-path-matrix-viz-seg is-b is-dim">线性对照</span>
+                  </div>
+                  <div class="follow-path-matrix-viz-marks" aria-hidden="true">
+                    <span>当前生效</span>
+                    <span>对照</span>
+                  </div>
+                  <div class="follow-path-matrix-body">
+                    <label class="follow-path-matrix-box follow-path-matrix-box--select" title="path=择时；linear=缺口立刻补（对照）">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">模式</span>
+                        <span class="follow-path-matrix-box-desc">预演/确认读此配置</span>
+                      </span>
+                      <select name="pm_mode">
+                        <option value="path" selected>路径择时</option>
+                        <option value="linear">线性对照</option>
+                      </select>
+                    </label>
+                  </div>
+                </section>
+                <section class="follow-path-matrix-panel" data-panel="path" aria-labelledby="pm-panel-path">
+                  <header class="follow-path-matrix-panel-head">
+                    <h4 id="pm-panel-path" class="follow-path-matrix-panel-title">|y_path| 执行力度</h4>
+                    <p class="follow-path-matrix-panel-note">横盘跳过 → 半仓 → 全量推向目标</p>
+                  </header>
+                  <div class="follow-path-matrix-viz follow-path-matrix-viz--3" aria-hidden="true">
+                    <span class="follow-path-matrix-viz-seg is-skip">λ=0</span>
+                    <span class="follow-path-matrix-viz-seg is-half">λ½</span>
+                    <span class="follow-path-matrix-viz-seg is-full">λ=1</span>
+                  </div>
+                  <div class="follow-path-matrix-viz-marks" aria-hidden="true">
+                    <span>0</span>
+                    <span id="pm-viz-enter">1%</span>
+                    <span id="pm-viz-half">1%</span>
+                    <span id="pm-viz-full">2%</span>
+                  </div>
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row3">
+                    <label class="follow-path-matrix-field" title="|y_path| 低于此值视为横盘，本窗不调">
+                      <span class="follow-path-matrix-field-label">门槛 %</span>
+                      <input type="number" name="pm_path_enter" min="0.01" max="5" step="0.1" value="1" />
+                    </label>
+                    <label class="follow-path-matrix-field" title="≥此值半仓执行；默认与门槛相同">
+                      <span class="follow-path-matrix-field-label">半量 %</span>
+                      <input type="number" name="pm_path_half" min="0.01" max="5" step="0.1" value="1" />
+                    </label>
+                    <label class="follow-path-matrix-field" title="≥此值全量推向目标仓">
+                      <span class="follow-path-matrix-field-label">全量 %</span>
+                      <input type="number" name="pm_path_full" min="0.01" max="10" step="0.1" value="2" />
+                    </label>
+                  </div>
+                </section>
+                <section class="follow-path-matrix-panel" data-panel="on" aria-labelledby="pm-panel-on">
+                  <header class="follow-path-matrix-panel-head">
+                    <h4 id="pm-panel-on" class="follow-path-matrix-panel-title">隔夜 y_on</h4>
+                    <p class="follow-path-matrix-panel-note">收盘目标仓折扣</p>
+                  </header>
+                  <div class="follow-path-matrix-viz follow-path-matrix-viz--3" aria-hidden="true">
+                    <span class="follow-path-matrix-viz-seg is-cut">清/减</span>
+                    <span class="follow-path-matrix-viz-seg is-half">半仓</span>
+                    <span class="follow-path-matrix-viz-seg is-full">满仓</span>
+                  </div>
+                  <div class="follow-path-matrix-viz-marks" aria-hidden="true">
+                    <span>&lt;半仓</span>
+                    <span>≥半仓</span>
+                    <span>≥满仓</span>
+                  </div>
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row2">
+                    <label class="follow-path-matrix-box" title="y_on≥此值允许满仓隔夜">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">满仓 %</span>
+                        <span class="follow-path-matrix-box-desc">y_on ≥ allow</span>
+                      </span>
+                      <input type="number" name="pm_y_on_allow" min="0" max="5" step="0.01" value="0.01" />
+                    </label>
+                    <label class="follow-path-matrix-box" title="y_on≥half 且 &lt;allow → 半仓隔夜">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">半仓 %</span>
+                        <span class="follow-path-matrix-box-desc">half ≤ y_on &lt; allow</span>
+                      </span>
+                      <input type="number" name="pm_y_on_half" min="-5" max="5" step="0.01" value="0" />
+                    </label>
+                  </div>
+                </section>
+                <section class="follow-path-matrix-panel" data-panel="gates" aria-labelledby="pm-panel-gates">
+                  <header class="follow-path-matrix-panel-head">
+                    <h4 id="pm-panel-gates" class="follow-path-matrix-panel-title">闸门</h4>
+                    <p class="follow-path-matrix-panel-note">开仓确认与清仓时机</p>
+                  </header>
+                  <div class="follow-path-matrix-viz follow-path-matrix-viz--2" aria-hidden="true">
+                    <span class="follow-path-matrix-viz-seg is-nc">nowcast</span>
+                    <span class="follow-path-matrix-viz-seg is-exit">pending</span>
+                  </div>
+                  <div class="follow-path-matrix-viz-marks" aria-hidden="true">
+                    <span>开/加确认</span>
+                    <span>清仓择时</span>
+                  </div>
+                  <div class="follow-path-matrix-body follow-path-matrix-body--row2">
+                    <label class="follow-path-matrix-box follow-path-matrix-box--check" title="开/加仓要求 y_nowcast 与 y_trade 同号">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">nowcast 确认</span>
+                        <span class="follow-path-matrix-box-desc">异号不开/不加</span>
+                      </span>
+                      <input type="checkbox" name="pm_require_nowcast" checked />
+                    </label>
+                    <label class="follow-path-matrix-box follow-path-matrix-box--check" title="必清但 path 仍在低点时本窗推迟卖出">
+                      <span class="follow-path-matrix-box-text">
+                        <span class="follow-path-matrix-box-title">低点推迟清仓</span>
+                        <span class="follow-path-matrix-box-desc">path&gt;0 → pending</span>
+                      </span>
+                      <input type="checkbox" name="pm_pending_exit" checked />
+                    </label>
+                  </div>
+                </section>
+              </div>
+            </form>
           </div>
           <div
             id="paper-pending-orders"
@@ -308,8 +426,8 @@
             <div class="follow-ops-subhead">
               <span class="follow-ops-subtitle">调仓报告</span>
               <div class="follow-ops-subactions">
-                <button type="button" id="paper-rebalance-confirm" class="dialog-btn" hidden title="确认后按预演清单落账：盘中现价成交，收盘后挂次日开盘单（持仓次日开盘窗才变）">
-                  确认调仓
+                <button type="button" id="paper-rebalance-confirm" class="dialog-btn" hidden title="确认后按矩阵预演清单落账：盘中现价成交，收盘后挂次日开盘单（持仓次日开盘窗才变）">
+                  确认落账
                 </button>
                 <button type="button" id="paper-rebalance-close" class="dialog-btn secondary" title="关闭调仓报告">×</button>
               </div>
@@ -322,7 +440,6 @@
         </div>
       </div>
     </section>
-
     <section class="dashboard-section quant-section follow-t0-section" id="follow-section-t0" aria-labelledby="follow-section-t0-title">
       <header class="dashboard-section-head quant-section-head follow-section-head">
         <h3 id="follow-section-t0-title" class="dashboard-section-title">做 T</h3>

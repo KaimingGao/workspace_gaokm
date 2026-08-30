@@ -92,7 +92,7 @@ def fit_on_ridge_report(
     min_history: int = 12,
     gap_trigger_pct: float = 2.0,
     theme_boost: float = 1.5,
-    train_frac: float = 0.7,
+    train_frac: float = 0.9,
     use_theme_weights: bool = True,
 ) -> Dict[str, Any]:
     """池化拟合 ŷ_ON(Z) + 时间 OOS。标签 = open[T+1]/open[T]-1（决策日 T）。"""

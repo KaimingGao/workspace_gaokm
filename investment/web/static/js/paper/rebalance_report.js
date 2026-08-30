@@ -39,6 +39,7 @@ export function createRebalanceReportController(deps) {
     hideScoreTooltip,
     metricCls,
     setFollowClusterPreviewPending,
+    setFollowMatrixPreviewPending,
   } = deps;
 
 /** 确认落账或点 × 后收起预演区（持仓/流水另由 loadPaper 刷新）。 */
@@ -68,6 +69,7 @@ function dismissRebalancePreview() {
     nextEl.innerHTML = "";
   }
   if (typeof setFollowClusterPreviewPending === "function") setFollowClusterPreviewPending(false);
+  if (typeof setFollowMatrixPreviewPending === "function") setFollowMatrixPreviewPending(false);
 }
 
 function emptyReasonLabel(code) {
@@ -747,41 +749,41 @@ function renderRebalanceReport(
         reasonText.includes("cross_market");
       if (isPrior && (decision.includes("减仓") || decision.includes("卖出"))) {
         decisionTip = reasonText
-          ? `${reasonText}（强看空先验 · 不改 ŷ）；点「确认调仓」后才成交`
-          : "舆情先验 · 强看空缩仓（不改 ŷ）；点「确认调仓」后才成交";
+          ? `${reasonText}（强看空先验 · 不改 ŷ）；点「确认落账」后才成交`
+          : "舆情先验 · 强看空缩仓（不改 ŷ）；点「确认落账」后才成交";
       } else if (
         isMarketPrior &&
         (decision.includes("减仓") || decision.includes("卖出"))
       ) {
         decisionTip = reasonText
-          ? `${reasonText}（M prior 缩仓 · 不改 ŷ）；点「确认调仓」后才成交`
-          : "市场 prior · M 层缩仓（不改 ŷ）；点「确认调仓」后才成交";
+          ? `${reasonText}（M prior 缩仓 · 不改 ŷ）；点「确认落账」后才成交`
+          : "市场 prior · M 层缩仓（不改 ŷ）；点「确认落账」后才成交";
       } else if (decision.includes("止损卖出")) {
         decisionTip = reasonText
-          ? `${reasonText}；点「确认调仓」后才成交`
-          : "止损规则触发，预演清仓；点「确认调仓」后才成交";
+          ? `${reasonText}；点「确认落账」后才成交`
+          : "止损规则触发，预演清仓；点「确认落账」后才成交";
       } else if (decision.includes("超时卖出")) {
         decisionTip = reasonText
-          ? `${reasonText}；点「确认调仓」后才成交`
-          : "持有超时且趋势向下，预演清仓；点「确认调仓」后才成交";
+          ? `${reasonText}；点「确认落账」后才成交`
+          : "持有超时且趋势向下，预演清仓；点「确认落账」后才成交";
       } else if (decision.includes("跳过")) {
         decisionTip = isMarketPrior
           ? reasonText
-            ? `${reasonText}；点「确认调仓」后仍不会新开仓`
-            : "市场 prior · 跳过新开仓；点「确认调仓」后仍不会买入"
+            ? `${reasonText}；点「确认落账」后仍不会新开仓`
+            : "市场 prior · 跳过新开仓；点「确认落账」后仍不会买入"
           : isPrior
           ? reasonText
-            ? `${reasonText}；点「确认调仓」后仍不会新开仓`
-            : "舆情先验 · 跳过新开仓；点「确认调仓」后仍不会买入"
+            ? `${reasonText}；点「确认落账」后仍不会新开仓`
+            : "舆情先验 · 跳过新开仓；点「确认落账」后仍不会买入"
           : reasonText || "风险预算（单票/行业上限）未买入";
       } else if (decision.includes("减仓")) {
         decisionTip = reasonText
-          ? `${reasonText}；点「确认调仓」后才成交`
-          : "预演减仓；点「确认调仓」后才成交";
+          ? `${reasonText}；点「确认落账」后才成交`
+          : "预演减仓；点「确认落账」后才成交";
       } else if (decision.includes("卖出")) {
         decisionTip = reasonText
-          ? `${reasonText}；点「确认调仓」后才成交`
-          : "分池卖出：ŷ_trade 低于卖出门槛（min_hold）；点「确认调仓」后才成交";
+          ? `${reasonText}；点「确认落账」后才成交`
+          : "矩阵卖出：path_matrix 决议减/清；点「确认落账」后才成交";
       } else if (reasonText) {
         decisionTip = reasonText;
       }
@@ -793,15 +795,11 @@ function renderRebalanceReport(
       const chgCls = metricCls(chgPct);
       const prevCloseText = rebalancePrevCloseText(r);
       const priceText = fmtRebalancePx(r.price);
-      const inBook = !!(r.in_book || r.inBook);
       const oosFailed =
         !!r.oos_failed ||
         !!r.oosFailed ||
         isHeuristicScoreScale(r) ||
         String(r.return_model_source || "").startsWith("oos_failed");
-      const bookBadge = inBook
-        ? `<span class="watching-book-badge" title="分池目标簿">簿</span>`
-        : "";
       const oosBadge = oosFailed
         ? `<span class="watching-oos-badge" title="OOS 失败组 · 禁止新买 · 表列 ŷ 仅对照">OOS</span>`
         : "";
@@ -823,7 +821,7 @@ function renderRebalanceReport(
       return (
         `<div class="rebalance-row ${cls}${hasDetail ? " is-expandable" : ""}${
           oosFailed ? " is-oos-failed" : ""
-        }${inBook ? " is-cluster-book" : ""}" role="row" ` +
+        }" role="row" ` +
         `data-detail-idx="${idx}"` +
         `${hasDetail ? ' title="点击展开评分明细"' : ""}>` +
         `<div class="rebalance-stock" role="cell">` +
@@ -831,7 +829,6 @@ function renderRebalanceReport(
         `<span class="rebalance-stock-main">` +
         `<span class="rebalance-stock-name">` +
         `<span class="rebalance-stock-name-text">${name}</span>` +
-        bookBadge +
         oosBadge +
         sentPriorBadge +
         marketPriorBadge +

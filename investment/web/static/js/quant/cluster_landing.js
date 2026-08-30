@@ -334,7 +334,6 @@ export function clusterLandingHtml(data) {
     `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="live-off">关闭</button>` +
     `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="live-rollback">回滚</button>` +
     `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="artifact">导出映射</button>` +
-    `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="live-refresh">刷新簿</button>` +
     `<button type="button" class="dialog-btn secondary dialog-btn-keep-case" data-cluster-export="live-refit" ` +
     `title="跳到研究枢纽「跑分组」重估组 β（人审后对照/启用）。">建议重估</button>` +
     `</div></div>`;

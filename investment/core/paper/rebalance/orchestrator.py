@@ -95,22 +95,13 @@ def resolve_rebalance_mode(
     *,
     cluster_mode: bool = False,
 ) -> RebalanceMode:
-    """Pick cross_section vs cluster_book from paper rules and live cluster scoring."""
-    rules = paper.get("rules") or {}
-    scoring_mode = "off"
-    try:
-        from core.signal.cluster.live import get_cluster_scoring_cfg
+    """纸面调仓模式。
 
-        scoring_mode = str(
-            (get_cluster_scoring_cfg() or {}).get("mode") or "off"
-        ).strip().lower()
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in paper_rebalance_orchestrator.py", exc_info=True)
-        scoring_mode = "off"
-    use_cluster = bool(cluster_mode) or bool(
-        rules.get("cluster_mode") if isinstance(rules, dict) else False
-    ) or scoring_mode == "active"
-    return "cluster_book" if use_cluster else "cross_section"
+    分池簿路径已停用；保留 ``cluster_mode`` 参数仅为 API 兼容，一律走横截面
+    （Follow 主路径由 ``PaperTradesMixin.rebalance(matrix_mode=…)`` 接管）。
+    """
+    _ = paper, cluster_mode
+    return "cross_section"
 
 
 def _resolve_top_k_limit(
@@ -246,14 +237,14 @@ def run_paper_rebalance(
             dry_run=dry_run,
         )
     if mode == "cluster_book":
-        return _run_cluster_book(
-            paper,
-            dry_run=dry_run,
-            top_k=top_k,
-            limit=limit,
-            cluster_mode=cluster_mode,
-            ranked=ranked,
-        )
+        return {
+            "success": False,
+            "ok": False,
+            "mode": "cluster_book",
+            "dry_run": dry_run,
+            "error": "分池簿调仓已停用；请用观察池 path_matrix",
+            "confirm_supported": False,
+        }
     return _run_cross_section(
         paper,
         dry_run=dry_run,

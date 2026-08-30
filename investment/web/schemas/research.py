@@ -42,10 +42,10 @@ class TauRidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=36,
+        default=200,
         ge=2,
-        le=40,
-        description="观察池截断；默认满池级 36（上限 40）",
+        le=200,
+        description="观察池上限（默认满池 200）",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -75,10 +75,10 @@ class OnRidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=36,
+        default=200,
         ge=2,
-        le=40,
-        description="观察池截断；默认满池级 36（上限 40）",
+        le=200,
+        description="观察池上限（默认满池 200）",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -95,10 +95,10 @@ class PathRidgeRequest(BaseModel):
 
     lookback: int = Field(default=120, ge=40, le=500)
     watching_limit: int = Field(
-        default=36,
+        default=200,
         ge=2,
-        le=40,
-        description="观察池截断；需分钟缓存覆盖",
+        le=200,
+        description="观察池上限（默认满池 200）；拟合只读本地 5m 缓存、不拉远端",
     )
     ridge_lambda: float = Field(default=1.0, ge=0.0, le=100.0)
     gap_trigger_pct: float = Field(default=2.0, ge=0.5, le=10.0)
@@ -123,7 +123,7 @@ class PathRidgeRequest(BaseModel):
         default=150,
         ge=20,
         le=240,
-        description="拉分钟线回看自然日（默认 150，抬 path 样本）",
+        description="兼容字段；拟合已改为只读缓存，不再按此天数拉远端",
     )
     persist: bool = Field(
         default=False,
@@ -352,7 +352,7 @@ class YhatResidualShadowRequest(BaseModel):
     watching_limit: int = Field(default=36, ge=3, le=80)
     top_k: int = Field(default=10, ge=3, le=40)
     prefer_cluster_book: bool = Field(
-        default=True, description="优先用 active 分池簿；否则 live 打分观察池"
+        default=False, description="已停用：分池簿不再使用；一律 live 打分观察池"
     )
 
 

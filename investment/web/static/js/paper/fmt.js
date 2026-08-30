@@ -182,6 +182,7 @@ export function resolveTradeScore(it) {
   // 旧实现把 predicted_score 放在 score 前，双头下 y_trade 塌成 y_eod（数据中心/交易执行两列相同）。
   const candidates = [
     it.decision_score,
+    it.y_trade,
     it.score,
     it.predicted_score_blend,
     it.score_cluster,
@@ -253,6 +254,8 @@ export function resolveNowcastCcScore(it) {
     if (Math.abs(ref - fused) > 0.5) return fused;
   }
   if (persisted != null) return persisted;
+  const yn = _numField(it.y_nowcast ?? it.y_nc);
+  if (yn != null && _looksLikeYhatPct(yn)) return yn;
   return booked;
 }
 
@@ -346,8 +349,11 @@ export function fmtPathScore(v, opts = {}) {
 export function resolveOnScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
-  const n = _numField(it.predicted_score_on);
-  return _looksLikeYhatPct(n) ? n : null;
+  for (const c of [it.predicted_score_on, it.y_on]) {
+    const n = _numField(c);
+    if (_looksLikeYhatPct(n)) return n;
+  }
+  return null;
 }
 
 /** ŷ_EOD：隔夜主轴（买门槛用这一层）。 */

@@ -388,7 +388,7 @@ export function installClusterProbe(q) {
       return;
     }
     if (key === "live-refresh") {
-      runClusterLiveRefresh();
+      setQuantMeta("分池簿已停用");
       return;
     }
     if (key === "live-rollback") {
@@ -562,33 +562,8 @@ export function installClusterProbe(q) {
     return resolveProbeInputToCode(raw) || "茅台";
   }
 
-  function paintClusterBookBadges(bookCodes) {
-    const root = els.quantFactorList;
-    if (!root) return;
-    const bookSet = new Set(
-      (bookCodes || [])
-        .map((c) => normalizeProbeCode(c))
-        .filter(Boolean)
-    );
-    root.querySelectorAll(".quant-cluster-member[data-code]").forEach((el) => {
-      const code = normalizeProbeCode(el.getAttribute("data-code") || "");
-      const inBook = !!(code && bookSet.has(code));
-      el.classList.toggle("is-book", inBook);
-      if (inBook) el.setAttribute("title", "在分池目标簿");
-      else el.removeAttribute("title");
-      const nameEl = el.querySelector(".quant-cluster-member-name");
-      if (!nameEl) return;
-      let badge = nameEl.querySelector(".quant-book-badge");
-      if (inBook && !badge) {
-        badge = document.createElement("span");
-        badge.className = "quant-book-badge";
-        badge.title = "分池目标簿";
-        badge.textContent = "簿";
-        nameEl.appendChild(badge);
-      } else if (!inBook && badge) {
-        badge.remove();
-      }
-    });
+  function paintClusterBookBadges(_bookCodes) {
+    // 分池簿徽章已停用
   }
 
   async function refreshClusterLiveStatus() {
@@ -607,8 +582,7 @@ export function installClusterProbe(q) {
         }</p>`;
         return;
       }
-      const bookCodes = (data.book && data.book.codes) || [];
-      state.clusterBookCodes = Array.isArray(bookCodes) ? bookCodes : [];
+      state.clusterBookCodes = [];
       const research =
         state.quantLastOlsClusters && state.quantLastOlsClusters.success
           ? state.quantLastOlsClusters
@@ -623,7 +597,6 @@ export function installClusterProbe(q) {
         ...data,
         research_n_clusters: researchN,
       });
-      paintClusterBookBadges(state.clusterBookCodes);
     } catch (err) {
       const host = document.getElementById("quant-cluster-landing");
       if (host) {
@@ -933,7 +906,6 @@ export function installClusterProbe(q) {
           "将执行：",
           "· 晋升当前分组映射为 live",
           "· 模式切换为 shadow（对照）",
-          "· 按组ŷ 刷新分池目标簿",
           "",
           "说明：",
           "· 交易执行页选股仍用现行规则，直至「② 启用」",
@@ -945,7 +917,7 @@ export function installClusterProbe(q) {
     ) {
       return;
     }
-    setQuantMeta("正在进入对照…晋升映射 / 刷簿（跳过舆情）", { busy: true });
+    setQuantMeta("正在进入对照…晋升映射（跳过舆情）", { busy: true });
     const body = { from_draft: true, mode: "shadow", note: "落地·对照" };
     if (art && art.success && art.code_map) {
       body.artifact = art;
@@ -954,7 +926,7 @@ export function installClusterProbe(q) {
     const started = Date.now();
     const tick = setInterval(() => {
       const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
-      setQuantMeta(`正在进入对照… ${sec}s · 刷分池簿`, { busy: true });
+      setQuantMeta(`正在进入对照… ${sec}s`, { busy: true });
     }, 1000);
     let out;
     try {
@@ -974,7 +946,7 @@ export function installClusterProbe(q) {
     const sec = Math.max(1, Math.round((Date.now() - started) / 1000));
     setQuantMeta(
       `已进入对照（shadow）· ${sec}s` +
-        (n ? ` · 目标簿 ${n} 只` : "") +
+        (n ? ` · 排序 ${n} 只` : "") +
         ` · 启用前交易执行选股未切换`
     );
     refreshClusterLiveStatus();
@@ -1001,14 +973,13 @@ export function installClusterProbe(q) {
           "启用组ŷ选股？",
           "",
           "证据摘要：",
-          `· 目标簿 ${ev.name_count ?? "—"} 只 · 上限 ${ev.max_names ?? "—"}`,
+          `· 排序候选 ${ev.name_count ?? "—"} 只 · 上限 ${ev.max_names ?? "—"}`,
           `· OOS（heuristic 基线 vs ŷ）：通过 ${oos.pass_count ?? 0} · 失败 ${oos.fail_count ?? 0}`,
           `· 相对当前纸面：约卖 ${turn.would_sell_count ?? 0} · 买 ${turn.would_buy_count ?? 0}`,
           `· 映射健康覆盖 ${cov}`,
           "",
           "启用后：",
-          "· 自动轻量刷簿（对齐当日开盘 Z / ŷ_τ）",
-          "· 交易执行页「预演调仓」将按组ŷ 排序与目标簿执行",
+          "· 交易执行页「预演调仓」将按组ŷ 排序执行",
           "· 不写入 signal_config.weights",
           "· 过门 ≠ 自动 promote；可随时关闭或回滚",
         ].join("\n");
@@ -1035,7 +1006,7 @@ export function installClusterProbe(q) {
       confirmMsg = [
         "切回对照（shadow）？",
         "",
-        "映射与目标簿保留；交易执行页选股暂不吃组ŷ。",
+        "映射保留；交易执行页选股暂不吃组ŷ。",
         "不改写 signal_config.weights。",
       ].join("\n");
     }
@@ -1055,36 +1026,7 @@ export function installClusterProbe(q) {
       return;
     }
     if (mode === "active") {
-      setQuantMeta("已启用 · 正在轻量刷簿…", { busy: true });
-      const ref = await postClusterLive("/api/quant/cluster-live/refresh-book", {});
-      if (!ref.ok) {
-        setQuantMeta(
-          `已启用组ŷ · 刷簿失败（请手动刷新簿）· ${ref.error}`,
-          { error: true }
-        );
-        refreshClusterLiveStatus();
-        return;
-      }
-      const n = (ref.data.rank && ref.data.rank.name_count) || 0;
-      const fill = (ref.data.rank && ref.data.rank.features_tau_fill) || {};
-      const emptyReason = (ref.data.rank && ref.data.rank.empty_reason) || "";
-      const belowN =
-        (ref.data.rank && ref.data.rank.below_min_score_count) != null
-          ? Number(ref.data.rank.below_min_score_count)
-          : null;
-      const fillNote =
-        fill.mean_fill_rate != null
-          ? ` · Z齐套 ${(Number(fill.mean_fill_rate) * 100).toFixed(0)}%`
-          : "";
-      const emptyNote =
-        n === 0 && emptyReason
-          ? ` · 空簿：${emptyReason}${
-              belowN != null ? `（低于门槛 ${belowN}）` : ""
-            }`
-          : "";
-      setQuantMeta(
-        `已启用组ŷ · 已轻量刷簿 ${n} 只${fillNote}${emptyNote} · 交易执行预演按组ŷ 选股`
-      );
+      setQuantMeta(`已启用组ŷ · 交易执行预演按组ŷ 选股`);
       refreshClusterLiveStatus();
       return;
     }
@@ -1118,37 +1060,18 @@ export function installClusterProbe(q) {
         : null;
     const emptyNote =
       n === 0 && emptyReason
-        ? ` · 空簿：${emptyReason}${
+        ? ` · 空：${emptyReason}${
             belowN != null ? `（低于门槛 ${belowN}）` : ""
           }`
         : "";
     setQuantMeta(
-      `分池簿 ${n} 只 · v${out.data.cluster_version ?? "—"} · 无跨组总榜${emptyNote}`
+      `分池排序 ${n} 只 · v${out.data.cluster_version ?? "—"} · 无跨组总榜${emptyNote}`
     );
     refreshClusterLiveStatus();
   }
 
   async function runClusterLiveRefresh() {
-    setQuantMeta("刷新合并簿…", { busy: true });
-    const out = await postClusterLive("/api/quant/cluster-live/refresh-book", {});
-    if (!out.ok) {
-      setQuantMeta(`刷新失败 · ${out.error}`, { error: true });
-      return;
-    }
-    const n = (out.data.rank && out.data.rank.name_count) || 0;
-    const emptyReason = (out.data.rank && out.data.rank.empty_reason) || "";
-    const belowN =
-      out.data.rank && out.data.rank.below_min_score_count != null
-        ? Number(out.data.rank.below_min_score_count)
-        : null;
-    const emptyNote =
-      n === 0 && emptyReason
-        ? ` · 空簿：${emptyReason}${
-            belowN != null ? `（低于门槛 ${belowN}）` : ""
-          }`
-        : "";
-    setQuantMeta(`日更完成 · 簿 ${n} 只 · 未重聚类${emptyNote}`);
-    refreshClusterLiveStatus();
+    setQuantMeta("分池簿已停用");
   }
 
   async function runClusterLiveRollback() {

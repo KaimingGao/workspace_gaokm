@@ -176,11 +176,12 @@ def rank_cluster_pools(
     max_names: Optional[int] = None,
     min_score: Optional[float] = None,
     watching_path: Optional[str] = None,
-    persist_book: bool = True,
+    persist_book: bool = False,
 ) -> Dict[str, Any]:
     """live 分池排序：组收益分后跨组按分数排序截断。
 
     ``top_n_per_group`` 已废弃（保留入参兼容旧 API），不再做组内 Top-N。
+    分池簿已停用：``persist_book`` 即使为 True 也不再落盘。
     """
     from core.signal.cluster.live import (
         get_cluster_scoring_cfg,

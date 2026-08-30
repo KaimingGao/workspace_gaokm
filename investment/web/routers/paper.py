@@ -132,6 +132,8 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             "coupling": req.coupling,
             "lock": req.lock,
         }
+        if isinstance(req.rebalance_timing, dict):
+            payload["rebalance_timing"] = req.rebalance_timing
         out = deps.paper.save_execution(payload, note=req.note or "")
         if not out.get("ok"):
             raise HTTPException(status_code=400, detail=out.get("errors") or out)
@@ -262,6 +264,7 @@ def paper_rebalance(body: PaperRebalanceRequest) -> Dict[str, Any]:
                 top_k=body.top_k,
                 limit=body.limit,
                 cluster_mode=bool(body.cluster_mode),
+                matrix_mode=bool(body.matrix_mode),
                 dry_run=bool(body.dry_run),
                 strategy=body.strategy,
             )

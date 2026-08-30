@@ -121,37 +121,26 @@ export function createOlsUi(deps) {
     return list.length ? list.join("、") : "—";
   }
 
-  function formatMemberChipsHtml(codes, nameByCode, bookCodes) {
+  function formatMemberChipsHtml(codes, nameByCode, _bookCodes) {
     const watchingNameByCode = getWatchingNameByCode();
     const map = nameByCode || {};
-    const bookSet = new Set(
-      (bookCodes || [])
-        .map((c) => normalizeProbeCode(c))
-        .filter(Boolean)
-    );
     const chips = (codes || []).map((m) => {
       const c = normalizeProbeCode(m);
       const n = String(map[c] || watchingNameByCode[c] || "")
         .trim()
         .replace(/\s+/g, "");
-      const inBook = !!(c && bookSet.has(c));
-      const bookBadge = inBook
-        ? `<span class="quant-book-badge" title="分池目标簿">簿</span>`
-        : "";
-      const bookCls = inBook ? " is-book" : "";
-      const bookTitle = inBook ? ` title="在分池目标簿"` : "";
       const codeAttr = c ? ` data-code="${esc(c)}"` : "";
       if (n && c && n !== c) {
         return (
-          `<span class="quant-cluster-member${bookCls}"${codeAttr}${bookTitle}>` +
-          `<span class="quant-cluster-member-name">${esc(n)}${bookBadge}</span>` +
+          `<span class="quant-cluster-member"${codeAttr}>` +
+          `<span class="quant-cluster-member-name">${esc(n)}</span>` +
           `<span class="quant-cluster-member-code">${esc(c)}</span>` +
           `</span>`
         );
       }
       return (
-        `<span class="quant-cluster-member${bookCls}"${codeAttr}${bookTitle}>` +
-        `<span class="quant-cluster-member-name">${esc(n || c || "—")}${bookBadge}</span>` +
+        `<span class="quant-cluster-member"${codeAttr}>` +
+        `<span class="quant-cluster-member-name">${esc(n || c || "—")}</span>` +
         `</span>`
       );
     });
