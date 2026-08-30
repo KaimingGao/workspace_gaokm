@@ -666,7 +666,8 @@ def run_t0_backtest_for_holdings(
     seen = {(r.get("stock_code"), r.get("date"), r.get("direction")) for r in recent}
     rev_extra: List[Dict[str, Any]] = []
     for r in reversed(trade_sample):
-        if (r.get("direction") or r.get("direction_used")) != "buy_then_sell":
+        # 补抽反T（sell_then_buy），避免近窗全正T时明细看不到反T
+        if (r.get("direction") or r.get("direction_used")) != "sell_then_buy":
             continue
         key = (r.get("stock_code"), r.get("date"), r.get("direction"))
         if key in seen:
