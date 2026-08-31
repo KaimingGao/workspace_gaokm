@@ -231,10 +231,14 @@ class FactorOlsClusterRequest(BaseModel):
 
 
 class ClusterBarsRefreshRequest(BaseModel):
-    """观察池日线强制增量更新（不跑 OLS 分组）。"""
+    """观察池日线更新（不跑 OLS 分组）。"""
 
     lookback: int = Field(default=80, ge=40, le=500)
     watching_limit: int = Field(default=100, ge=3, le=100)
+    mode: str = Field(
+        default="topup",
+        description="topup=增量补齐到最新；full=整窗强更（仓坏/复权兜底）",
+    )
     sync: bool = Field(
         default=False,
         description="true=同步跑（单测）；默认入队 Job，轮询 GET /api/jobs/cluster-bars-refresh",

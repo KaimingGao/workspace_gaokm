@@ -3,7 +3,8 @@
 角色（PIT）：
   y_trade  — |ŷ_trade| 下限 + 强闸同 τ；额度主缩放
   y_eod    — |ŷ_eod| 下限 + 强闸同 τ；同向略抬目标价（y_eod_prior）
-  y_τ      — 盘中主方向（开→收）；正/反 T 可分 enter（y_tau_enter_buy_then_sell / _sell_then_buy）
+  y_τ      — 盘中主方向（开→收 OC 拟合）；正/反 T 可分 enter（y_tau_enter_buy_then_sell / _sell_then_buy）
+             定向锚优先 y_tau_oc（映射前）；剩余映射分仅供融合/对照，不定向
   y_on     — 尾盘是否强制回补
   y_nowcast— 对照 nc；|nc|≥enter；|nc|>strong 须与 y_τ 同号（OC 开比 y_nc_oc）
   y_path   — 分钟极值时间序 signed range%；与 y_τ 联合准入（同号+双 enter，可分正反）
@@ -136,6 +137,7 @@ def _slim_formula_terms(
     for meta_k in (
         "y_eod",
         "y_tau",
+        "y_tau_raw",
         "trade",
         "cascade",
         "nowcast",
@@ -220,11 +222,17 @@ def tau_pool_day_score_kwargs(
     pool = pool_day if isinstance(pool_day, dict) else {}
     ref = pool.get("ref_by_code") if isinstance(pool.get("ref_by_code"), dict) else {}
     key = str(code or "").strip()
-    return {
+    out: Dict[str, Any] = {
         "pool_gaps": pool.get("pool_gaps"),
         "sector_gap_breadth": pool.get("sector_gap_breadth"),
         "sector_gap_median": ref.get(key) if key else None,
     }
+    if pool.get("sector_ret_to_tau") is not None:
+        try:
+            out["sector_ret_to_tau"] = float(pool.get("sector_ret_to_tau"))
+        except (TypeError, ValueError):
+            pass
+    return out
 
 
 def tip_fields_from_item(item: Optional[dict]) -> Dict[str, Any]:
@@ -383,6 +391,7 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
     for k in (
         "y_eod",
         "y_tau",
+        "y_tau_oc",
         "y_trade",
         "y_on",
         "y_on_path",
@@ -398,6 +407,19 @@ def pack_day_scores(score_snap: Optional[dict]) -> Optional[Dict[str, Any]]:
             out[k] = score_snap.get(k)
     for k, v in tip_fields_from_item(score_snap).items():
         out[k] = v
+    if out.get("y_tau_oc") is None:
+        ft = out.get("formula_terms_tau") or out.get("score_formula_terms_tau")
+        if not isinstance(ft, dict):
+            ft = score_snap.get("formula_terms_tau") or score_snap.get(
+                "score_formula_terms_tau"
+            )
+        if isinstance(ft, dict):
+            oc = _f(ft.get("y_tau_raw"))
+            if oc is None:
+                oc = _f(ft.get("total"))
+            if oc is not None:
+                out["y_tau_oc"] = oc
+                out["predicted_score_tau_oc"] = oc
     src = score_snap.get("_score_source")
     if src:
         out["_score_source"] = src
@@ -422,6 +444,7 @@ def attach_day_scores(
         for k in (
             "y_eod",
             "y_tau",
+            "y_tau_oc",
             "y_trade",
             "y_on",
             "y_on_path",
@@ -509,7 +532,11 @@ def attach_eod_tau_realized(
 
 
 def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
-    """从 signal_item / 账本行 / insights 抽出做T用分数。"""
+    """从 signal_item / 账本行 / insights 抽出做T用分数。
+
+    契约：``y_tau`` = OC 拟合（开→收），与训练 / 表列 / 定向同口径。
+    剩余映射分（若有）放 ``y_tau_mapped``，不定向。
+    """
     if not isinstance(item, dict):
         return {
             "y_eod": None,
@@ -526,13 +553,36 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
     if y_eod is None:
         y_eod = _f(item.get("yhat_eod"))
 
-    y_tau = _f(item.get("y_tau"))
-    if y_tau is None:
-        y_tau = _f(item.get("predicted_score_tau"))
-    if y_tau is None:
-        y_tau = _f(item.get("score_rem"))
-    if y_tau is None:
-        y_tau = _f(item.get("yhat_tau"))
+    # 可能已是剩余映射（predicted_score_tau / 旧 y_tau）
+    y_tau_mapped = _f(item.get("y_tau_mapped"))
+    if y_tau_mapped is None:
+        y_tau_mapped = _f(item.get("predicted_score_tau"))
+    if y_tau_mapped is None:
+        y_tau_mapped = _f(item.get("score_rem"))
+    if y_tau_mapped is None:
+        y_tau_mapped = _f(item.get("yhat_tau"))
+    # 显式写入的 y_tau：若同时有 y_tau_oc 且二者不同，视 y_tau 为 mapped
+    y_tau_field = _f(item.get("y_tau"))
+
+    y_tau_oc = _f(item.get("y_tau_oc"))
+    if y_tau_oc is None:
+        y_tau_oc = _f(item.get("predicted_score_tau_oc"))
+    if y_tau_oc is None:
+        ft = item.get("formula_terms_tau")
+        if isinstance(ft, dict):
+            y_tau_oc = _f(ft.get("y_tau_raw"))
+
+    if y_tau_mapped is None and y_tau_field is not None:
+        if y_tau_oc is None or abs(y_tau_field - y_tau_oc) < 1e-9:
+            y_tau_mapped = y_tau_field
+        else:
+            y_tau_mapped = y_tau_field
+    # 做T主口径：OC；无 OC 时回退 mapped / 字段
+    y_tau = y_tau_oc if y_tau_oc is not None else (
+        y_tau_field if y_tau_field is not None else y_tau_mapped
+    )
+    if y_tau_oc is None and y_tau is not None:
+        y_tau_oc = y_tau
 
     # 契约：predicted_score / predicted_score_eod = ŷ_EOD；ŷ_trade = blend / decision_score。
     # 旧实现先读 predicted_score，双头下会把 y_trade 塌成 y_eod（成交明细两列相同）。
@@ -584,6 +634,11 @@ def scores_from_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
         "y_check": y_check,
         "eod_trust": eod_trust,
     }
+    if y_tau_oc is not None:
+        out["y_tau_oc"] = y_tau_oc
+        out["predicted_score_tau_oc"] = y_tau_oc
+    if y_tau_mapped is not None:
+        out["y_tau_mapped"] = y_tau_mapped
     if y_on_path is not None:
         out["y_on_path"] = y_on_path
         out["predicted_score_on_path"] = y_on_path
@@ -779,7 +834,7 @@ def t0_confidence_scale(scores: dict, cfg: dict) -> float:
             span = max(0.5, floor + 1.0)
             strengths.append(min(1.0, max(0.0, (mag - floor) / span)))
 
-    y_tau = _f(scores.get("y_tau"))
+    y_tau = resolve_direction_y_tau(scores)
     tau_enter = DEFAULT_TAU_ENTER
     tau_enter_neg = DEFAULT_TAU_ENTER
     if y_tau is not None:
@@ -832,6 +887,32 @@ def scale_t0_ratio(base_ratio: float, scores: dict, cfg: dict) -> float:
     """兼容旧调用：动仓比例固定为基准，不再随 ŷ 缩放。"""
     _ = scores, cfg
     return max(0.05, min(1.0, float(base_ratio)))
+
+
+def resolve_direction_y_tau(scores: Optional[dict]) -> Optional[float]:
+    """做 T 定向 / |y_τ| 闸用的 ŷ：优先 OC 拟合（开→收），与训练·表列·组成合计同口径。
+
+    ``y_tau`` / ``predicted_score_tau`` 在分钟时钟下可能是剩余映射后的值，
+    与 OC 异号时会出现「表列负τ、成交却正T」；定向不得再用映射后分。
+    无 OC 字段时回退 mapped ``y_tau``（旧快照）。
+    """
+    if not isinstance(scores, dict):
+        return None
+    for key in ("y_tau_oc", "predicted_score_tau_oc"):
+        v = _f(scores.get(key))
+        if v is not None:
+            return v
+    ft = scores.get("formula_terms_tau") or scores.get("score_formula_terms_tau")
+    if isinstance(ft, dict):
+        for key in ("y_tau_raw", "total"):
+            v = _f(ft.get(key))
+            if v is not None:
+                return v
+    for key in ("y_tau", "predicted_score_tau", "score_rem", "yhat_tau"):
+        v = _f(scores.get(key))
+        if v is not None:
+            return v
+    return None
 
 
 def normalize_y_tau_map(raw: Any) -> str:
@@ -1179,7 +1260,8 @@ def resolve_dual_y_direction(
     5. 有 y_trade：|y_trade|>y_trade_strong 须与 y_τ 同号（fixed_* 跳过）
     6. 有 y_eod：|y_eod|≥y_eod_enter；|y_eod|>y_eod_strong 须与 y_τ 同号（fixed_* 跳过）
     7. 可选 nc：|nc|≥y_nc_enter；|nc|>y_nc_strong 须与 τ 同号（异号闸关则跳过整步）
-    通过后 y_τ 映射正/反 T；y_eod_prior 仅抬目标价。
+    通过后 y_τ（OC 拟合）映射正/反 T；y_eod_prior 仅抬目标价。
+    定向锚见 ``resolve_direction_y_tau``（优先 y_tau_oc）。
     """
     from core.t0.config import coerce_cfg_bool
 
@@ -1240,7 +1322,21 @@ def resolve_dual_y_direction(
     tau_map = normalize_y_tau_map(cfg.get("y_tau_map"))
 
     y_eod = _f(scores.get("y_eod"))
-    y_tau = _f(scores.get("y_tau"))
+    y_tau = resolve_direction_y_tau(scores)
+    y_tau_mapped = _f(scores.get("y_tau_mapped"))
+    if y_tau_mapped is None:
+        y_tau_mapped = _f(scores.get("y_tau"))
+    if y_tau_mapped is None:
+        y_tau_mapped = _f(scores.get("predicted_score_tau"))
+    # 若主字段已是 OC，mapped 与 OC 同值时仍保留；仅当 predicted 与 OC 不同才是真剩余
+    y_tau_oc_probe = _f(scores.get("y_tau_oc")) or _f(scores.get("predicted_score_tau_oc"))
+    pred_tau = _f(scores.get("predicted_score_tau"))
+    if (
+        y_tau_oc_probe is not None
+        and pred_tau is not None
+        and abs(pred_tau - y_tau_oc_probe) > 1e-9
+    ):
+        y_tau_mapped = pred_tau
     y_trade = _f(scores.get("y_trade"))
     y_nowcast = _f(scores.get("y_nowcast"))
     y_path = _f(scores.get("y_path"))
@@ -1256,6 +1352,8 @@ def resolve_dual_y_direction(
     features = {
         "y_eod": y_eod,
         "y_tau": y_tau,
+        "y_tau_oc": y_tau,
+        "y_tau_mapped": y_tau_mapped,
         "y_trade": y_trade,
         "y_on": _f(scores.get("y_on")),
         "y_nowcast": y_nowcast,
@@ -1903,6 +2001,7 @@ def compute_scores_from_bars(
     fundamentals: Optional[dict] = None,
     sector_gap_median: Optional[float] = None,
     minute_bars: Optional[Sequence[dict]] = None,
+    sector_ret_to_tau: Optional[float] = None,
 ) -> Dict[str, Optional[float]]:
     """开盘决策信息集即时算 dual_y 分数（不读账本/簿）。
 
@@ -1911,6 +2010,7 @@ def compute_scores_from_bars(
     ``pool_gaps`` / ``sector_gap_breadth``：截面缺口（批量算分时传入，增强 ŷ_τ）。
     ``sector_gap_median``：同行/截面参照缺口（``gap_vs_sector = gap − median``）。
     ``index_bars`` / ``fundamentals``：可选；缺省时拉本地指数+估值，对齐数据中心相对强弱等。
+    ``sector_ret_to_tau``：开→τ 池中位（训练 panel 同口径）；缺省由 dual_score 从分钟仓聚合。
     ``minute_bars``：可选当日 5m；``enable_minute_tau`` 时写入 ≤τ 小包（否则可读缓存）。
     """
     raw = str(code or "").strip()
@@ -2017,6 +2117,11 @@ def compute_scores_from_bars(
                 item["_sector_gap_median"] = float(sector_gap_median)
             except (TypeError, ValueError):
                 pass
+        if sector_ret_to_tau is not None:
+            try:
+                item["_sector_ret_to_tau"] = float(sector_ret_to_tau)
+            except (TypeError, ValueError):
+                pass
         try:
             from core.research.tau_panel import GAP_ATR_WINDOW
         except Exception:  # noqa: BLE001
@@ -2036,6 +2141,7 @@ def compute_scores_from_bars(
             fuse_intraday=bool(fuse_intraday),
             sector_gap_median=item.get("_sector_gap_median"),
             minute_bars=minute_bars,
+            sector_ret_to_tau=item.get("_sector_ret_to_tau"),
         )
         # 复盘对照：路径价 ŷ_ON（可含当日 close）写入旁路字段，不覆盖决策 y_on
         try:
@@ -2464,6 +2570,7 @@ def resolve_scores_for_code(
     sector_gap_breadth: Optional[float] = None,
     sector_gap_median: Optional[float] = None,
     minute_bars: Optional[Sequence[dict]] = None,
+    sector_ret_to_tau: Optional[float] = None,
 ) -> Dict[str, Optional[float]]:
     """按 ``source`` 解析 dual_y 分数；默认即时算。
 
@@ -2491,6 +2598,7 @@ def resolve_scores_for_code(
             sector_gap_breadth=sector_gap_breadth,
             sector_gap_median=sector_gap_median,
             minute_bars=minute_bars,
+            sector_ret_to_tau=sector_ret_to_tau,
         )
         if scores_have_any(sc):
             return sc
@@ -2515,6 +2623,7 @@ def resolve_scores_for_code(
             sector_gap_breadth=sector_gap_breadth,
             sector_gap_median=sector_gap_median,
             minute_bars=minute_bars,
+            sector_ret_to_tau=sector_ret_to_tau,
         )
 
     # ledger（显式对照 / 旧路径）
@@ -2538,6 +2647,7 @@ def resolve_scores_for_code(
             sector_gap_breadth=sector_gap_breadth,
             sector_gap_median=sector_gap_median,
             minute_bars=minute_bars,
+            sector_ret_to_tau=sector_ret_to_tau,
         )
     return sc
 

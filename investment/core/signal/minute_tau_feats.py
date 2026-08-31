@@ -214,6 +214,176 @@ def attach_ret_vs_sector(feats: Dict[str, Any]) -> None:
     feats["ret_vs_sector"] = round(float(a) - float(b), 6)
 
 
+def sector_ret_median(peer_rets: Sequence[Any]) -> Optional[float]:
+    """同伴 ``ret_open_to_tau`` 中位数（与 ``tau_panel.attach_cross_section_breadth`` 同口径）。"""
+    vals: List[float] = []
+    for v in peer_rets or []:
+        x = _f(v)
+        if x is not None:
+            vals.append(float(x))
+    if not vals:
+        return None
+    vals.sort()
+    n = len(vals)
+    mid = n // 2
+    if n % 2:
+        return round(vals[mid], 6)
+    return round(0.5 * (vals[mid - 1] + vals[mid]), 6)
+
+
+def apply_sector_ret_cs(
+    feats: Optional[Dict[str, Any]],
+    sector_ret_to_tau: Optional[float],
+) -> Dict[str, Any]:
+    """写入截面开→τ 中位，并派生 ``ret_vs_sector``（已有非空键不覆盖）。"""
+    out = dict(feats or {})
+    sret = _f(sector_ret_to_tau)
+    if sret is not None and out.get("sector_ret_to_tau") is None:
+        out["sector_ret_to_tau"] = round(float(sret), 6)
+    attach_ret_vs_sector(out)
+    return out
+
+
+# (trade_date, tau_hm) → 池中位；做 T 回测同日多票复用
+_SECTOR_RET_CACHE: Dict[Tuple[str, str], Optional[float]] = {}
+
+
+def clear_sector_ret_cache() -> None:
+    _SECTOR_RET_CACHE.clear()
+
+
+def resolve_sector_ret_to_tau(
+    trade_date: str,
+    tau_hm: str = "10:30",
+    *,
+    codes: Optional[Sequence[str]] = None,
+    known_rets: Optional[Sequence[Any]] = None,
+    cap: int = 80,
+    use_cache: bool = True,
+) -> Optional[float]:
+    """解析 ``sector_ret_to_tau``：优先已知同伴收益，否则读活跃簿/观察池/分钟仓宇宙。
+
+    与训练 ``attach_cross_section_breadth`` 一致：对 (date, τ) 下多票 ``ret_open_to_tau`` 取中位。
+    """
+    day = str(trade_date or "")[:10]
+    hm = str(tau_hm or "10:30").strip() or "10:30"
+    if len(day) < 10:
+        return None
+
+    if known_rets is not None:
+        return sector_ret_median(known_rets)
+
+    cache_key = (day, hm)
+    if use_cache and cache_key in _SECTOR_RET_CACHE:
+        return _SECTOR_RET_CACHE[cache_key]
+
+    peer_codes = [str(c).strip() for c in (codes or []) if str(c or "").strip()]
+    if not peer_codes:
+        peer_codes = _peer_codes_for_sector_ret(cap=max(8, int(cap or 80)))
+    if not peer_codes:
+        if use_cache:
+            _SECTOR_RET_CACHE[cache_key] = None
+        return None
+
+    rets: List[float] = []
+    try:
+        from core.ports.market import resolve_market_code
+        from core.store import load_minute_cache
+    except Exception:
+        if use_cache:
+            _SECTOR_RET_CACHE[cache_key] = None
+        return None
+
+    for raw in peer_codes[: max(8, int(cap or 80))]:
+        try:
+            mkt, pure = resolve_market_code(str(raw))
+            packed = load_minute_cache(
+                mkt or "CN",
+                pure or str(raw),
+                period="5",
+                min_bars=2,
+                ignore_age=True,
+            )
+        except Exception:
+            continue
+        if not packed:
+            continue
+        bars = list(packed[0] or [])
+        if len(bars) < 2:
+            continue
+        pack = extract_minute_tau_pack(
+            bars,
+            trade_date=day,
+            tau_hm=hm,
+        )
+        rot = _f(pack.get("ret_open_to_tau"))
+        if rot is not None:
+            rets.append(float(rot))
+
+    med = sector_ret_median(rets)
+    if use_cache:
+        _SECTOR_RET_CACHE[cache_key] = med
+    return med
+
+
+def _peer_codes_for_sector_ret(*, cap: int = 80) -> List[str]:
+    """同伴宇宙：活跃簿 → 观察池 → 本地分钟仓代码。"""
+    n = max(8, int(cap or 80))
+    try:
+        from core.t0.score_policy import active_book_codes_for_tau_pool
+
+        codes = active_book_codes_for_tau_pool(cap=n)
+        if codes:
+            return list(codes)
+    except Exception:
+        pass
+    try:
+        from core.paths import WATCHING_PATH
+        import json
+        import os
+
+        if os.path.isfile(WATCHING_PATH):
+            with open(WATCHING_PATH, encoding="utf-8") as f:
+                doc = json.load(f) or {}
+            wl = doc.get("watchlist") if isinstance(doc, dict) else None
+            out = []
+            seen = set()
+            if isinstance(wl, list):
+                for x in wl:
+                    c = str(x or "").strip()
+                    if isinstance(x, dict):
+                        c = str(x.get("stock_code") or x.get("code") or "").strip()
+                    if not c or c in seen:
+                        continue
+                    seen.add(c)
+                    out.append(c)
+                    if len(out) >= n:
+                        return out
+            if out:
+                return out
+    except Exception:
+        pass
+    try:
+        from core.store import get_store_dir
+        import sqlite3
+        import os
+
+        db = os.path.join(get_store_dir(), "bars.db")
+        if not os.path.isfile(db):
+            return []
+        conn = sqlite3.connect(db)
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT code FROM minute_cache_meta ORDER BY code LIMIT ?",
+                (n,),
+            ).fetchall()
+        finally:
+            conn.close()
+        return [str(r[0]).strip() for r in rows if r and str(r[0]).strip()]
+    except Exception:
+        return []
+
+
 def merge_minute_tau_pack_into_feats(
     feats: Optional[Dict[str, Any]],
     *,

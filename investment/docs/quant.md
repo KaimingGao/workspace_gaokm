@@ -352,11 +352,11 @@ watchlist
 | 语义 | A 股 **底仓做 T（T+1）**：**正 T** 先买后卖（低点加仓，冲高后卖等量旧仓）；**反 T** 先卖后买（高点先卖，回落后买回等量）。禁卖当日新买股 |
 | 选向 | 默认 **`direction=dual_y`** + **`y_score_source=compute`**：开盘信息集（昨收因子 + 今开缺口）即时算 ŷ；**y_τ 定正/反 T**（`y_tau_enter_sell_then_buy` / `y_tau_enter_buy_then_sell` 分侧入场，缺省回退 `y_tau_enter`；path 同理 `y_path_enter_*`），y_eod 仅同向略放大额度，\|y_trade\| 为幅度闸（与调仓 ŷ_τ **买入闸**分工不同，见上节）；批量共享截面缺口；失败回退 live 簿（**不读冻结账本**）；`ledger` 仅对照 |
 | 动仓 | **固定 100%**（`t0_ratio=1.0`，UI 已去掉动仓%）；不随 ŷ 缩放可卖量 |
-| 目标价 | **leg1 相对 ref**、**leg2 相对第一腿成交价**（`sell_trigger_pct` / `buy_trigger_pct`）；**`t0_confidence_scale`** 按 \|y_trade\|、\|y_τ\|、eod 同向映射到 `[y_ratio_cut, y_ratio_boost_cap]×基准`（默认 **60%～200%**）；\|y_τ\| 刚过入场线时 soft band 视为弱信号 |
-| 成交 | 默认 **`fill_mode=trigger`**；**正/反可分侧** `fill_mode_*`、`sell\|buy_trigger_pct_*`、`min_range_pct_*`、`must_cover_same_day_*`、`t0_pm_degrade_*`；**反T** 默认不强制回补、**15:00** 起可中点追价买回；**正T** 默认强制卖旧、**14:00** 起中点追价；`t0_pm_degrade` **端点不含**（该整点根仍可新开，追价仍从该点起算） |
-| 门禁 | **固定前缀**（回测 / Worker 同口径）：① **总量振幅** — 前缀 `(high−low)/ref ≥ min_range`（默认 0.2%）；② **固定前缀 N 根**（默认=`y_path_abandon_bars`=12≈10:30）齐窗后，正T后半上涨占比 / 反T后半下跌占比（默认 0.2）；③ **τ入场价** — 确认根允许带宽 `|ŷ_τ|%×y_tau_entry_price_mult`（默认 5，**越大越宽/越松**）。一字板不烧 abandon；齐窗未过则放弃 |
-| 路径 | 第一触达仅在确认根；第二腿 **defer 至 session 末** 再 `eod_cover` / `pm_chase` 或反T默认 `abandon_cover`（正T可卖旧不足 → `abandon_cover_cap`）；盘中前缀未完成为 `defer_eod_pending`（不记敞口）；**无盘中不利止损**；正T卖旧目标=`买价×(1+卖触发%)` |
-| 风控 | **`y_block_tau_nowcast_sign`**（默认**开**）：nc **入场** `y_nc_enter`（默认 0.01%）+ **强同 τ** `y_nc_strong`（默认 1%）；**`y_nowcast_oc_gate=false`** 时比 nc 昨收口径；**`t0_pm_chase_interval_min`** 默认 10 |
+| 目标价 | **leg1=固定前缀确认根收盘**、**leg2 相对第一腿成交价**（正T `sell_trigger_pct_buy_then_sell` / 反T `buy_trigger_pct_sell_then_buy`）；**`t0_confidence_scale`** 按 \|y_trade\|、\|y_τ\|、eod 同向映射到 `[y_ratio_cut, y_ratio_boost_cap]×基准`（默认 **60%～200%**）；\|y_τ\| 刚过入场线时 soft band 视为弱信号。不做相对开盘低吸/冲高 |
+| 成交 | 默认 **`fill_mode=trigger`**；**正/反可分侧** `fill_mode_*`、第二腿触发%、`must_cover_same_day_*`、`t0_pm_degrade_*`；**正T** 默认强制卖旧、**14:00** 起中点追价；**反T** 默认不强制回补、**13:00** 起可中点追价买回；`t0_pm_degrade` **端点不含** |
+| 门禁 | **固定前缀**（回测 / Worker 同口径）：① **总量振幅** — 前缀 `(high−low)/ref ≥ min_range`（默认 0.2%，UI 不暴露）；② **固定前缀 N 根**（默认=`y_path_abandon_bars`=6≈10:00）齐窗后，正T后半上涨占比 / 反T后半下跌占比（默认 0.2）；③ **前缀 vs \|ŷ_path\|** — 前缀 `(H−L)/ref% > |ŷ_path|` 则跳过（`y_prefix_vs_path_skip`，默认开；缺 path 不拦）。τ入场价倍已下线（`y_tau_entry_price_mult=0`） |
+| 路径 | 第一触达仅在确认根；第二腿：**止损**（正T跌破/反T涨破，默认各 1.2%、延迟 2 根、收盘确认）优先于触发/追价；其后卖/买触发与中点追价；正T触不到则 `eod_cover`；反T触不到则默认 `abandon_cover`（勾选当日回补则 `eod_cover`） |
+| 风控 | **`y_block_tau_nowcast_sign`**（默认**开**）：nc **入场** `y_nc_enter`（默认 0.01%）+ **强同 τ** `y_nc_strong`（默认 0.5%）；**`y_nowcast_oc_gate=false`** 时比 nc 昨收口径；**`t0_pm_chase_interval_min`** 默认 10 |
 | 纸面 | `POST /api/paper/t0` 默认 **dry_run 预演**，`confirm=true` 才写账 |
 | 自动落账 | Follow Worker · **5m 盯盘触达即落账**（交易时段 **5 分钟**轮询 + 分钟缓存，不再日终整段回放） |
 | 手动补跑 | Follow「手动预演 / 手动落账」· `POST /api/paper/t0`（预演 dry_run / 确认 confirm） |
@@ -365,7 +365,7 @@ watchlist
 
 ##### 正T / 反T 前缀形态（现行）
 
-A 股 T+1 下 **正 T = 先买后卖**（枚举 `buy_then_sell`），**反 T = 先卖后买**（枚举 `sell_then_buy`）。第一腿由**固定前缀**确认（默认 N=12≈10:30），不再滚动探极值：
+A 股 T+1 下 **正 T = 先买后卖**（枚举 `buy_then_sell`），**反 T = 先卖后买**（枚举 `sell_then_buy`）。第一腿由**固定前缀**确认（默认 N=6≈10:00），不再滚动探极值：
 
 | 方向 | 确认条件 | 第二腿目标 |
 |------|----------|------------|
@@ -1142,7 +1142,7 @@ EOD 锚在 **收**，与 open 链 **并列**（选股主轴），不是 open 链
 
 规划字段：`predicted_score_on` / `y_spec_on` / `data/live/on_ridge_model.json`；复盘 IC(\(\hat y_{\mathrm{ON}}, y_{\mathrm{ON}}\)) 与 open 链分段单独报。训练：`POST /api/quant/on-ridge`。
 
-**做 T 路径头 \(y_{\mathrm{path}}\)**：特征与 \(y_\tau\) **对齐**（开盘 Z + 早盘前缀分钟小包）；训练默认 **多 τ 网格** `09:45|10:00|10:15|10:30` 共享 β（同日标签=全日极值序，特征≤各 τ；看 `OOS.by_tau`）；live 决策钟默认 `10:30`≈固定前缀齐窗。标签：先 low→high 则 \((H-L)/\mathrm{ref}\%\)，先 high→low 则 \((L-H)/\mathrm{ref}\%\)。\(y_{\mathrm{path}}>0\)：先低后高 → 正T；\<0：先高后低 → 反T。**dual_y 准入**（顺序）：① \(|y_{\mathrm{trade}}|\ge y_{\mathrm{trade,enter}}\) ② \(y_\tau\) 方向锚：path 开且可得 ŷ_path 时 **\(y_\tau\) 与 \(y_{\mathrm{path}}\) 同号**且正侧各 **\(>y_{\tau,\mathrm{enter}}\)** / **\(>y_{\mathrm{path},\mathrm{enter}}\)**（负侧 **\(<-\)**）；path 关则 \(|y_\tau|\ge y_{\tau,\mathrm{enter}}\) ③ **强闸同号**（path/τ 入场后）：\(|y_{\mathrm{trade}}|>y_{\mathrm{trade,strong}}\)（默认 **0.1%**）或 \(|y_{\mathrm{eod}}|>y_{\mathrm{eod,strong}}\)（默认 **2%**）时须与 \(y_\tau\) 同号；另有 \(|y_{\mathrm{eod}}|\ge y_{\mathrm{eod,enter}}\) ④ 可选 nc 强闸与 \(y_\tau\) 异号 → 跳过。\(y_{\mathrm{eod,prior}}\) 仅抬目标价。缺 ŷ_path 默认不拦（`y_path_required` 开则拦）。规划：`path_ridge_model.json`（β 与 τ 独立，因子键与多 τ 训法对齐）。
+**做 T 路径头 \(y_{\mathrm{path}}\)**：特征与 \(y_\tau\) **对齐**（开盘 Z + 早盘前缀分钟小包）；训练默认 **多 τ 网格** `09:45|10:00|10:15|10:30` 共享 β（同日标签=全日极值序，特征≤各 τ；看 `OOS.by_tau`）；live 决策钟默认 `10:30`（路径特征截断；做T固定前缀默认 N=6≈10:00，二者可不同步）。标签：先 low→high 则 \((H-L)/\mathrm{ref}\%\)，先 high→low 则 \((L-H)/\mathrm{ref}\%\)。\(y_{\mathrm{path}}>0\)：先低后高 → 正T；\<0：先高后低 → 反T。**dual_y 准入**（顺序）：① \(|y_{\mathrm{trade}}|\ge y_{\mathrm{trade,enter}}\) ② \(y_\tau\) 方向锚：path 开且可得 ŷ_path 时 **\(y_\tau\) 与 \(y_{\mathrm{path}}\) 同号**且正侧各 **\(>y_{\tau,\mathrm{enter}}\)** / **\(>y_{\mathrm{path},\mathrm{enter}}\)**（负侧 **\(<-\)**）；path 关则 \(|y_\tau|\ge y_{\tau,\mathrm{enter}}\) ③ **强闸同号**（path/τ 入场后）：\(|y_{\mathrm{trade}}|>y_{\mathrm{trade,strong}}\)（默认 **0.5%**）或 \(|y_{\mathrm{eod}}|>y_{\mathrm{eod,strong}}\)（默认 **0.5%**）时须与 \(y_\tau\) 同号；另有 \(|y_{\mathrm{eod}}|\ge y_{\mathrm{eod,enter}}\) ④ 可选 nc 强闸与 \(y_\tau\) 异号 → 跳过。\(y_{\mathrm{eod,prior}}\) 仅抬目标价。缺 ŷ_path 默认不拦（`y_path_required` 开则拦）。规划：`path_ridge_model.json`（β 与 τ 独立，因子键与多 τ 训法对齐）。
 
 ---
 

@@ -79,11 +79,13 @@ export function nowcastOcPct(yNowcastCc, gapPct) {
 
 export function resolveGapPct(it) {
   if (!it || typeof it !== "object") return null;
-  const g = _numField(it.gap_pct);
-  if (g != null) return g;
+  // 优先 τ 特征包内缺口（与组成 / 打分瞬间同口径）；勿被 live 顶层 gap 漂移带偏
   const ft = it.features_tau;
-  if (ft && typeof ft === "object") return _numField(ft.gap_pct);
-  return null;
+  if (ft && typeof ft === "object") {
+    const fg = _numField(ft.gap_pct);
+    if (fg != null) return fg;
+  }
+  return _numField(it.gap_pct);
 }
 
 /** ŷ_τ（开盘后）按缺口映到现价对昨收。 */
@@ -304,23 +306,49 @@ export const Y_PATH_TITLE = "ŷ_path · 极值序 signed (H−L)/ref%";
 export const PATH_REALIZED_TITLE =
   "path实 · 先 low→high 为正、先 high→low 为负（与 ŷ_path 同标签）";
 
-/** ŷ_τ 表列 / tip：Ridge 拟合原值（T收/T开），与组成合计、τ 买入闸同口径。
+/** OC 头原始 ŷ（映射前）：与组成合计 / tip 大标题同口径。 */
+function _tauOcRaw(it) {
+  if (!it || typeof it !== "object") return null;
+  const ft = it.formula_terms_tau || it.score_formula_terms_tau;
+  for (const c of [
+    it.y_tau_oc,
+    it.predicted_score_tau_oc,
+    ft && typeof ft === "object" ? ft.y_tau_raw : null,
+    ft && typeof ft === "object" ? ft.total : null,
+  ]) {
+    const n = _numField(c);
+    if (_looksLikeYhatPct(n)) return n;
+  }
+  return null;
+}
 
-  勿在此做缺口∘抬昨收——那只用于 ŷ_trade / nowcast 融合；抬完会与 tip 拆解对不上，
-  且 |昨收口径| 很大时会误导成「强 τ」（实际闸门看的仍是开→收原值）。
-  */
-export function resolveTauScore(it) {
+/** 分钟时钟剩余映射后的 ŷ_τ（决策/融合用）；无映射时与 OC 相同。 */
+export function resolveTauMappedScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
   const tau = _numField(it.predicted_score_tau ?? it.score_rem);
   return _looksLikeYhatPct(tau) ? tau : null;
 }
 
-/** 缺口∘ŷ_τ（昨收口径）；仅融合/对照用，不进 τ 表列。 */
+/** ŷ_τ 表列 / tip：Ridge 拟合原值（T收/T开），与组成合计同口径。
+
+  优先 y_tau_oc（映射前）；勿把 remaining 映射后的 predicted_score_tau 当成拟合原值，
+  否则 tip 大标题会与「合计 ŷ_τ」对不上（做T明细常见）。
+  勿在此做缺口∘抬昨收——那只用于 ŷ_trade / nowcast 融合。
+  */
+export function resolveTauScore(it) {
+  if (!it || typeof it !== "object") return null;
+  if (isHeuristicScoreScale(it)) return null;
+  const oc = _tauOcRaw(it);
+  if (oc != null) return oc;
+  return resolveTauMappedScore(it);
+}
+
+/** 缺口∘ŷ_τ（昨收口径）；对照用拟合原值，不进 τ 表列。 */
 export function resolveTauLiftedScore(it) {
   if (!it || typeof it !== "object") return null;
   if (isHeuristicScoreScale(it)) return null;
-  const tau = _numField(it.predicted_score_tau ?? it.score_rem);
+  const tau = resolveTauScore(it);
   if (tau == null) return null;
   const lifted = liftTauVsPrevClose(it, tau);
   return _looksLikeYhatPct(lifted) ? lifted : null;

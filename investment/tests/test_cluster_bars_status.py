@@ -65,6 +65,42 @@ class TestClusterBarsStatus(unittest.TestCase):
         self.assertIn("coverage_pct", st)
         self.assertEqual(st["coverage_pct"], 50.0)
 
+    def test_refresh_modes_delegate(self):
+        from quant.research.cluster_bars_status import refresh_cluster_bars_only
+
+        built = {
+            "bars_refresh": {
+                "requested": True,
+                "force_latest": True,
+                "full_window": False,
+                "mode": "topup",
+                "remote_count": 1,
+                "total": 2,
+                "cache_count": 1,
+                "note": "增量补齐到最新",
+            }
+        }
+        with patch("core.watching.store.read_watching", return_value={"watchlist": ["600519"]}), patch(
+            "quant.research.factor_ols_clusters.merge_cluster_universe",
+            return_value={"codes": ["600519"], "code_roles": {}},
+        ), patch(
+            "quant.research.cluster_panels.build_cluster_ols_panels",
+            return_value=built,
+        ) as build, patch(
+            "quant.research.cluster_bars_daily.mark_force_latest_bars_done"
+        ), patch(
+            "quant.research.cluster_bars_status.build_cluster_bars_status",
+            return_value={"success": True},
+        ):
+            top = refresh_cluster_bars_only(watching_limit=100, mode="topup")
+            full = refresh_cluster_bars_only(watching_limit=100, mode="full")
+        self.assertEqual(top["mode"], "topup")
+        self.assertEqual(full["mode"], "full")
+        self.assertTrue(build.call_args_list[0].kwargs.get("force_latest_bars"))
+        self.assertFalse(build.call_args_list[0].kwargs.get("full_window_bars"))
+        self.assertFalse(build.call_args_list[1].kwargs.get("force_latest_bars"))
+        self.assertTrue(build.call_args_list[1].kwargs.get("full_window_bars"))
+
 
 if __name__ == "__main__":
     unittest.main()

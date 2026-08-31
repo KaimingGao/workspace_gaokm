@@ -23,13 +23,13 @@ import {
   resolvePathScore,
   fmtPathScore,
   nowcastOcPct,
-} from "./fmt.js?v=p1528";
+} from "./fmt.js?v=p1734";
 import {
   adaptiveSizingDayTip,
   normalizeYTauMap,
   yTauMapScoreTip,
-} from "./execution_ui.js";
-import { watchingScoreDetail } from "../quant/watching_render.js?v=p1486";
+} from "./execution_ui.js?v=p1734";
+import { watchingScoreDetail } from "../quant/watching_render.js?v=p1734";
 import { TRADE_TITLE } from "../quant/watching_quotes_ui.js";
 
 export const SKIP_CAT_LABEL = {
@@ -74,9 +74,9 @@ export const SKIP_CAT_TIP = {
   y_path_disagree:
     "ŷ_τ 与 ŷ_path 异号：dual_y 准入要求两预测同号且各过门槛。",
   eod_tau_disagree:
-    "|ŷ_eod|>y_eod_strong（默认 0.1%）且 ŷ_eod 与 ŷ_τ 异号：隔夜主轴与盘中方向冲突，跳过。",
+    "|ŷ_eod|>y_eod_strong（默认 0.5%）且 ŷ_eod 与 ŷ_τ 异号：隔夜主轴与盘中方向冲突，跳过。",
   trade_tau_disagree:
-    "|ŷ_trade|>y_trade_strong（默认 0.1%）且 ŷ_trade 与 ŷ_τ 异号：融合幅度与盘中方向冲突，跳过。",
+    "|ŷ_trade|>y_trade_strong（默认 0.5%）且 ŷ_trade 与 ŷ_τ 异号：融合幅度与盘中方向冲突，跳过。",
   gap_tier_skip:
     "大缺口档位与拟做方向冲突（如大高开仍想正 T），规则直接跳过。",
   path_abandon:
@@ -520,6 +520,24 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
   const livePath = live ? resolvePathScore(live) : null;
   const dayEod = scores.predicted_score_eod ?? yEod;
   const dayTau = scores.predicted_score_tau ?? scores.score_rem ?? yTau;
+  const ftTau =
+    (scores.formula_terms_tau && typeof scores.formula_terms_tau === "object"
+      ? scores.formula_terms_tau
+      : null) ||
+    (scores.score_formula_terms_tau && typeof scores.score_formula_terms_tau === "object"
+      ? scores.score_formula_terms_tau
+      : null) ||
+    (feats.formula_terms_tau && typeof feats.formula_terms_tau === "object"
+      ? feats.formula_terms_tau
+      : null);
+  const dayTauOc =
+    scores.y_tau_oc ??
+    scores.predicted_score_tau_oc ??
+    (ftTau && ftTau.y_tau_raw != null ? ftTau.y_tau_raw : null) ??
+    (ftTau && ftTau.total != null ? ftTau.total : null) ??
+    (feats.y_tau_oc != null ? feats.y_tau_oc : null) ??
+    (feats.predicted_score_tau_oc != null ? feats.predicted_score_tau_oc : null) ??
+    null;
   const dayTrade =
     scores.predicted_score_blend ?? scores.decision_score ?? scores.score ?? yTrade;
   const dayOn = scores.predicted_score_on ?? yOn;
@@ -539,6 +557,8 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     predicted_score: dayEod ?? scores.predicted_score ?? liveEod,
     predicted_score_tau: dayTau ?? liveTau,
     score_rem: dayTau ?? scores.score_rem ?? liveTau,
+    y_tau_oc: dayTauOc,
+    predicted_score_tau_oc: dayTauOc,
     predicted_score_blend: dayTrade ?? liveTrade,
     decision_score: dayTrade ?? scores.decision_score ?? liveTrade,
     score: dayTrade ?? scores.score ?? liveTrade,
@@ -590,15 +610,14 @@ function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
     as_of_tau: scores.as_of_tau || feats.as_of_tau || live?.as_of_tau || null,
     rem_tau: scores.rem_tau || null,
     gap_pct:
-      scores.gap_pct ??
-      feats.gap_pct ??
       (scores.features_tau && scores.features_tau.gap_pct != null
         ? scores.features_tau.gap_pct
         : null) ??
       (feats.features_tau && feats.features_tau.gap_pct != null
         ? feats.features_tau.gap_pct
         : null) ??
-      live?.gap_pct ??
+      scores.gap_pct ??
+      feats.gap_pct ??
       null,
     y_nc: dayNc ?? feats.y_nc ?? scores.y_nc ?? liveNc ?? null,
     y_nc_oc:
@@ -823,6 +842,7 @@ const LEG_KIND_TAG = {
   eod_cover: { label: "收", cls: "is-eod" },
   pm_chase: { label: "追", cls: "is-stop" },
   pm_degrade: { label: "追", cls: "is-stop" }, // 旧账本兼容
+  stop: { label: "损", cls: "is-stop" },
 };
 
 function legKindTag(legKind) {

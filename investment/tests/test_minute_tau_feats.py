@@ -6,8 +6,11 @@ import unittest
 
 from core.signal.minute_tau_feats import (
     MINUTE_TAU_PACK_KEYS,
+    apply_sector_ret_cs,
     attach_ret_vs_sector,
+    clear_sector_ret_cache,
     extract_minute_tau_pack,
+    sector_ret_median,
 )
 
 
@@ -103,6 +106,20 @@ class TestMinuteTauPack(unittest.TestCase):
         feats = {"ret_open_to_tau": 2.0, "sector_ret_to_tau": 0.5}
         attach_ret_vs_sector(feats)
         self.assertAlmostEqual(feats["ret_vs_sector"], 1.5, places=6)
+
+    def test_apply_sector_ret_cs_and_median(self):
+        self.assertAlmostEqual(sector_ret_median([1.0, 3.0, 2.0]), 2.0, places=6)
+        self.assertAlmostEqual(sector_ret_median([1.0, 2.0]), 1.5, places=6)
+        self.assertIsNone(sector_ret_median([]))
+        feats = apply_sector_ret_cs({"ret_open_to_tau": 2.0}, 0.5)
+        self.assertAlmostEqual(feats["sector_ret_to_tau"], 0.5, places=6)
+        self.assertAlmostEqual(feats["ret_vs_sector"], 1.5, places=6)
+        # 已有键不覆盖
+        feats2 = apply_sector_ret_cs(
+            {"ret_open_to_tau": 2.0, "sector_ret_to_tau": 0.8}, 0.1
+        )
+        self.assertAlmostEqual(feats2["sector_ret_to_tau"], 0.8, places=6)
+        self.assertAlmostEqual(feats2["ret_vs_sector"], 1.2, places=6)
 
     def test_pack_keys_constant(self):
         self.assertEqual(len(MINUTE_TAU_PACK_KEYS), 13)
@@ -312,16 +329,26 @@ class TestMinuteTauPack(unittest.TestCase):
             "core.research.tau_ridge.predict_tau_from_features", return_value=0.12
         ) as pred:
             attach_dual_score_pit(
-                item, quote=quote, bars=bars, minute_bars=mins, fuse_intraday=True
+                item,
+                quote=quote,
+                bars=bars,
+                minute_bars=mins,
+                fuse_intraday=True,
+                sector_ret_to_tau=0.4,
             )
         self.assertIsNotNone(
             (item.get("features_tau") or {}).get("ret_open_to_tau"),
             item.get("features_tau"),
         )
+        self.assertAlmostEqual(
+            (item.get("features_tau") or {}).get("sector_ret_to_tau"), 0.4, places=5
+        )
+        self.assertIsNotNone((item.get("features_tau") or {}).get("ret_vs_sector"))
         # predict 收到含分钟小包的 feats
         call_feats = pred.call_args[0][0]
         self.assertIn("ret_open_to_tau", call_feats)
         self.assertNotEqual(call_feats.get("ret_open_to_tau"), 0)
+        self.assertAlmostEqual(call_feats.get("sector_ret_to_tau"), 0.4, places=5)
 
 
 if __name__ == "__main__":

@@ -129,6 +129,7 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("y_prefix_segment_enabled_buy_then_sell", req.y_prefix_segment_enabled_buy_then_sell),
             ("y_prefix_upbar_ratio_buy_then_sell", req.y_prefix_upbar_ratio_buy_then_sell),
             ("y_prefix_downbar_ratio_sell_then_buy", req.y_prefix_downbar_ratio_sell_then_buy),
+            ("y_prefix_vs_path_skip", req.y_prefix_vs_path_skip),
             ("y_tau_entry_price_mult", req.y_tau_entry_price_mult),
             ("y_score_source", req.y_score_source),
             ("t0_pm_degrade", req.t0_pm_degrade),
@@ -137,6 +138,10 @@ def paper_execution_save(body: PaperExecutionPatchRequest | None = None) -> Dict
             ("t0_pm_chase_interval_min", req.t0_pm_chase_interval_min),
             ("t0_pm_chase_interval_min_sell_then_buy", req.t0_pm_chase_interval_min_sell_then_buy),
             ("t0_pm_chase_interval_min_buy_then_sell", req.t0_pm_chase_interval_min_buy_then_sell),
+            ("t0_stop_pct_buy_then_sell", req.t0_stop_pct_buy_then_sell),
+            ("t0_stop_pct_sell_then_buy", req.t0_stop_pct_sell_then_buy),
+            ("t0_stop_arm_bars", req.t0_stop_arm_bars),
+            ("t0_stop_on_close", req.t0_stop_on_close),
         ):
             if v is not None and k not in t0:
                 t0[k] = v

@@ -209,6 +209,10 @@ def apply_tau_score_fields(
     # 兼容别名（= ŷ_τ）；新读路径请用 predicted_score_tau
     signal_item["predicted_score_rem"] = y_tau
     signal_item["score_rem"] = y_tau
+    # OC 头原始 ŷ（训练/Hub 同口径）；分钟时钟映射前，供画像命中对照
+    if y_tau_raw is not None:
+        signal_item["y_tau_oc"] = y_tau_raw
+        signal_item["predicted_score_tau_oc"] = y_tau_raw
     signal_item["as_of_tau"] = as_of
     signal_item["y_spec_tau"] = y_spec
     signal_item["features_tau"] = feat_snap
@@ -377,12 +381,14 @@ def attach_dual_score_pit(
     fuse_intraday: Optional[bool] = None,
     sector_gap_median: Optional[float] = None,
     minute_bars: Optional[Sequence[dict]] = None,
+    sector_ret_to_tau: Optional[float] = None,
 ) -> Dict[str, Any]:
     """历史回测 / 无实时行情时：用 PIT 日线 quote·bars 挂 ŷ_τ + blend。
 
     缺口 = open[T]/close[T−1]（与 live ``gap_pct_from_quote_bars`` 同口径）。
-    不拉同伴行情；``sector_gap_breadth`` 可由调用方截面预计算后传入。
-    ``sector_gap_median``：同行/截面参照（有则 ``gap_vs_sector = gap − median``）。
+    ``sector_gap_breadth`` / ``sector_gap_median``：开盘缺口截面。
+    ``sector_ret_to_tau``：开→τ 池中位（与训练 ``attach_cross_section_breadth`` 同口径）；
+    缺省时尽力从活跃簿分钟仓聚合，再写 ``ret_vs_sector``。
     ``minute_bars``：可选 ≤τ 分钟线；``enable_minute_tau`` 时并入分钟小包（亦可读本地缓存）。
     无 ŷ_τ 模型时仍写契约字段（ŷ_τ=None，ŷ_trade 退回 ŷ_EOD）。
     ``fuse_intraday=False`` / 簿上 ``dual_score_window=eod_next``：
@@ -555,6 +561,40 @@ def attach_dual_score_pit(
             )
         except Exception:  # noqa: BLE001
             logger.debug("minute tau pack attach in dual_score_pit failed", exc_info=True)
+    # 截面开→τ：训练 panel 有；serve 需显式补，否则 τ/path 头 CS 键恒缺→z=0
+    try:
+        from core.signal.minute_tau_feats import (
+            apply_sector_ret_cs,
+            resolve_sector_ret_to_tau,
+            sector_ret_median,
+        )
+
+        sret = sector_ret_to_tau
+        if sret is None and signal_item.get("_sector_ret_to_tau") is not None:
+            try:
+                sret = float(signal_item.get("_sector_ret_to_tau"))
+            except (TypeError, ValueError):
+                sret = None
+        if sret is None and isinstance(
+            signal_item.get("_peer_ret_open_to_tau"), (list, tuple)
+        ):
+            sret = sector_ret_median(signal_item.get("_peer_ret_open_to_tau") or [])
+        if sret is None and feats.get("sector_ret_to_tau") is None:
+            trade_day = ""
+            if isinstance(q, dict):
+                trade_day = str(q.get("date") or q.get("trade_date") or "")[:10]
+            if len(trade_day) < 10 and isinstance(b, (list, tuple)) and b:
+                trade_day = str((b[-1] or {}).get("date") or "")[:10]
+            hm = str(cfg.get("minute_tau_hm") or "10:30")
+            if len(trade_day) >= 10 and (
+                feats.get("ret_open_to_tau") is not None
+                or bool(cfg.get("enable_minute_tau"))
+            ):
+                sret = resolve_sector_ret_to_tau(trade_day, hm)
+        if sret is not None:
+            feats = apply_sector_ret_cs(feats, sret)
+    except Exception:  # noqa: BLE001
+        logger.debug("sector_ret_to_tau attach in dual_score_pit failed", exc_info=True)
     # 只传 τ 头 Z 特征；勿塞全日线 sub_scores（训练未用，易误导）
     rem_yhat = None
     try:

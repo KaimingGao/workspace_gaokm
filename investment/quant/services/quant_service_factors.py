@@ -1290,14 +1290,16 @@ class QuantFactorMixin:
         *,
         watching_limit: int = 100,
         lookback: int = 80,
+        mode: str = "topup",
         progress_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
-        """同步：仅强制增量更新观察池日线。"""
+        """同步：更新观察池日线（``mode=topup|full``）。"""
         from quant.research.cluster_bars_status import refresh_cluster_bars_only
 
         return refresh_cluster_bars_only(
             watching_limit=watching_limit,
             lookback=lookback,
+            mode=mode,
             progress_cb=progress_cb,
         )
 
@@ -1306,6 +1308,7 @@ class QuantFactorMixin:
         *,
         watching_limit: int = 100,
         lookback: int = 80,
+        mode: str = "topup",
     ) -> Dict[str, Any]:
         """后台 Job：仅更新日线；轮询 ``GET /api/jobs/cluster-bars-refresh``。"""
         import threading
@@ -1324,6 +1327,9 @@ class QuantFactorMixin:
             }
 
         watch_limit = clamp_watching_limit(watching_limit or 100, 100)
+        mode_s = str(mode or "topup").strip().lower()
+        if mode_s not in ("full", "topup"):
+            mode_s = "topup"
         try:
             from core.watching.store import read_watching
 
@@ -1333,6 +1339,7 @@ class QuantFactorMixin:
             n_watch_all = watch_limit
         n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
         job_total = max(10, n_watch + 5)
+        phase = "增量补齐日 K…" if mode_s == "topup" else "整窗强更日 K…"
 
         job_id = cluster_bars_refresh_job.start(
             kind="cluster_bars_refresh",
@@ -1347,7 +1354,7 @@ class QuantFactorMixin:
             cluster_bars_refresh_job.update(
                 current=mapped,
                 total=job_total,
-                message=str(msg or "更新日线…"),
+                message=str(msg or phase),
                 job_id=job_id,
             )
 
@@ -1370,6 +1377,7 @@ class QuantFactorMixin:
                 result = self.run_cluster_bars_refresh(
                     watching_limit=watch_limit,
                     lookback=lookback,
+                    mode=mode_s,
                     progress_cb=_progress,
                 )
                 if cluster_bars_refresh_job.is_cancel_requested():

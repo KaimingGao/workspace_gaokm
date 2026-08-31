@@ -20,7 +20,7 @@ import {
   Y_PATH_TITLE,
   Y_NC_TITLE,
   Y_NC_OC_TITLE,
-} from "./paper/fmt.js?v=p1507";
+} from "./paper/fmt.js?v=p1734";
 import { renderYPathVizHtml } from "./y_path_viz.js?v=p1169";
 import { hydrateTailAnomalyCharts } from "./tail_anomaly_chart.js";
 import { ON_FEAT_META } from "./quant/factor_meta.js?v=p1226";
@@ -423,7 +423,7 @@ function formatCompactTauTip(raw) {
         )}%</span></div>`
     );
   }
-  const gap = raw && raw.gap_pct;
+  const gap = raw && resolveGapPct(raw);
   if (gap != null && Number.isFinite(Number(gap))) {
     rows.push(
       `<div class="score-layer-row"><span>跳空缺口</span>` +
@@ -440,7 +440,7 @@ function formatCompactTauTip(raw) {
     `</div>` +
     `<div class="score-hero-hint">τ=${escapeText(
       tau
-    )} · 与表列 / 组成合计 / τ 闸同口径</div>` +
+    )} · 与表列 / 组成合计同口径</div>` +
     (rows.length
       ? `<div class="score-layer-compose">${rows.join("")}</div>`
       : "") +
@@ -486,7 +486,7 @@ function formatCompactOnTip(raw) {
 export function formatRemScoreSection(raw) {
   const rem = resolveTauScore(raw);
   const lifted = resolveTauLiftedScore(raw);
-  const gap = raw && raw.gap_pct;
+  const gap = raw && resolveGapPct(raw);
   const ep = raw && raw.event_prior;
   const tau = String((raw && (raw.as_of_tau || raw.rem_tau)) || "open");
   const hasRem = rem != null;
@@ -568,7 +568,7 @@ export function formatRemScoreSection(raw) {
   const body = !hasRem
     ? `<div class="score-hero-hint">未产出（需 ŷ_τ 模型）</div>`
     : hasTauTerms
-      ? `${compose}<div class="score-hero-hint">组成见表「ŷ_τ 组成」· 与表列 / τ 闸同口径</div>`
+      ? `${compose}<div class="score-hero-hint">组成见表「ŷ_τ 组成」· 与表列 / 合计同口径</div>`
       : compose ||
         `<div class="score-hero-hint">τ=${escapeText(tau)} · y=${escapeText(
           String(ySpec)
@@ -580,7 +580,7 @@ export function formatRemScoreSection(raw) {
     `<div class="score-hero-label">ŷ_τ · T收 / T开（拟合）</div>` +
     `<div class="score-hero-value ${signCls(rem)}">${escapeText(remTxt)}</div>` +
     `</div>` +
-    `<div class="score-hero-hint">τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 买入闸</div>` +
+    `<div class="score-hero-hint">τ=${escapeText(tau)} · ${escapeText(String(ySpec))} · 拟合原值</div>` +
     body +
     (warn ? `<div class="score-hero-hint">${escapeText(warn)}</div>` : "") +
     `</div>`

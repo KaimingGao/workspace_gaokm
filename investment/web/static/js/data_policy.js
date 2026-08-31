@@ -19,7 +19,7 @@ export const DATA_ARTIFACTS = [
   {
     id: "day_bars",
     name: "日 K 仓",
-    write: "研究枢纽 ·「强更日 K」/ 调度 bars_warmup",
+    write: "研究枢纽 ·「增量补齐」日常 /「强更日 K」全窗；调度 bars_warmup",
     read: "ŷ_EOD · IC/OOS · 仅本地仓时的现价回退",
   },
   {
@@ -85,7 +85,7 @@ export function minuteHubFoot() {
 
 /** 研究枢纽日线区补充 */
 export function dayBarsHubFoot() {
-  return "下游：ŷ_EOD / 分组 OLS · ≠ 5m；「刷新 watching」只改名单不改日K";
+  return "下游：ŷ_EOD / 分组 OLS · ≠ 5m；日常增量补齐 · 仓坏用强更日 K；「刷新 watching」只改名单";
 }
 
 /** 数据中心页头路径说明 */

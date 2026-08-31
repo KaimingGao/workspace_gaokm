@@ -42,6 +42,40 @@ T0_INTENTIONAL_ABANDON_EXITS = frozenset(
 T0_PENDING_EXIT = "defer_eod_pending"
 
 
+def _t0_stop_params(cfg: dict, direction: str) -> Tuple[float, int, bool]:
+    """正/反T止损：(pct, arm_bars, on_close)。pct≤0 表示关。
+
+    正T：跌破买价×(1−pct%)；反T：涨破卖价×(1+pct%)。
+    延迟根 / 收盘确认共用。
+    """
+    key = (
+        "t0_stop_pct_buy_then_sell"
+        if direction == "buy_then_sell"
+        else "t0_stop_pct_sell_then_buy"
+    )
+    try:
+        raw = (cfg or {}).get(key)
+        pct = float(0.0 if raw is None or raw == "" else raw)
+    except (TypeError, ValueError):
+        pct = 0.0
+    pct = max(0.0, min(pct, 20.0))
+    try:
+        raw_arm = (cfg or {}).get("t0_stop_arm_bars")
+        arm = int(2 if raw_arm is None or raw_arm == "" else raw_arm)
+    except (TypeError, ValueError):
+        arm = 2
+    arm = max(0, min(arm, 48))
+    from core.t0.config import coerce_cfg_bool
+
+    on_close = coerce_cfg_bool((cfg or {}).get("t0_stop_on_close"), True)
+    return pct, arm, on_close
+
+
+def _bts_stop_params(cfg: dict) -> Tuple[float, int, bool]:
+    """兼容旧调用：正T止损参数。"""
+    return _t0_stop_params(cfg, "buy_then_sell")
+
+
 def _tplus1_skip_reason(*, side: str, shares: float, sellable: float, lot: int) -> str:
     """可卖不足 1 手：主因是 T+1，不是动仓比例。"""
     sh = int(shares)
@@ -327,10 +361,10 @@ def _prefix_upbar_ratio_params(cfg: dict) -> tuple[int, float]:
 
 
 def _score_y_tau(score_snap: Optional[dict]) -> Optional[float]:
-    """从分数快照取 ŷ_τ（百分点）。"""
+    """从分数快照取 ŷ_τ（百分点）= OC 开→收；与定向同口径。"""
     if not isinstance(score_snap, dict):
         return None
-    for key in ("y_tau", "predicted_score_tau", "score_rem", "yhat_tau"):
+    for key in ("y_tau_oc", "predicted_score_tau_oc", "y_tau", "predicted_score_tau", "score_rem", "yhat_tau"):
         raw = score_snap.get(key)
         if raw is None or raw == "":
             continue
@@ -341,13 +375,70 @@ def _score_y_tau(score_snap: Optional[dict]) -> Optional[float]:
     return None
 
 
+def _score_y_path(score_snap: Optional[dict]) -> Optional[float]:
+    """从分数快照取 ŷ_path（极值序 signed range%）。"""
+    if not isinstance(score_snap, dict):
+        return None
+    for key in ("y_path", "predicted_score_path"):
+        raw = score_snap.get(key)
+        if raw is None or raw == "":
+            continue
+        try:
+            return float(raw)
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def prefix_range_vs_path_ok(
+    *,
+    range_pct: Optional[float],
+    y_path: Optional[float],
+    cfg: Optional[dict] = None,
+) -> Dict[str, Any]:
+    """前缀窗振幅 (H−L)/ref% 已超过 |ŷ_path| → 跳过（空间用尽 / 与 path 幅度矛盾）。
+
+    缺 ŷ_path、无效振幅、或 ``y_prefix_vs_path_skip=False`` 时放行。
+    """
+    from core.t0.config import coerce_cfg_bool
+
+    enabled = coerce_cfg_bool((cfg or {}).get("y_prefix_vs_path_skip"), True)
+    base: Dict[str, Any] = {
+        "enabled": enabled,
+        "range_pct": None if range_pct is None else round(float(range_pct), 4),
+        "y_path": None if y_path is None else round(float(y_path), 4),
+        "abs_y_path": None,
+    }
+    if not enabled:
+        return {**base, "ok": True, "skipped": True, "reason": "前缀vs|ŷ_path|闸关"}
+    if range_pct is None or y_path is None:
+        return {**base, "ok": True, "skipped": True, "reason": "缺前缀振幅或ŷ_path，跳过闸"}
+    try:
+        rp = float(range_pct)
+        yp = abs(float(y_path))
+    except (TypeError, ValueError):
+        return {**base, "ok": True, "skipped": True, "reason": "振幅/ŷ_path无效，跳过闸"}
+    base["abs_y_path"] = round(yp, 4)
+    ok = rp <= yp + 1e-9
+    return {
+        **base,
+        "ok": ok,
+        "skipped": False,
+        "reason": (
+            f"前缀振幅{rp:.3f}%≤|ŷ_path|{yp:.3f}%"
+            if ok
+            else f"前缀振幅{rp:.3f}%>|ŷ_path|{yp:.3f}%：空间用尽跳过"
+        ),
+    }
+
+
 def _tau_entry_price_mult(cfg: Optional[dict]) -> float:
     """第一腿相对开盘允许带宽：|ŷ_τ|% × 倍数（越大越宽/越松）；≤0 关闭门禁。"""
     try:
         raw = (cfg or {}).get("y_tau_entry_price_mult")
-        mult = float(5.0 if raw is None or raw == "" else raw)
+        mult = float(0.0 if raw is None or raw == "" else raw)
     except (TypeError, ValueError):
-        mult = 5.0
+        mult = 0.0
     return max(0.0, min(mult, 50.0))
 
 
@@ -362,9 +453,8 @@ def tau_leg1_fill_price_ok(
 ) -> Dict[str, Any]:
     """固定前缀确认根：第一腿成交价相对开盘允许带宽 = |ŷ_τ|% × mult。
 
-    mult 是**带宽乘数**（越大越宽松），不是严格性：默认 5 → 允许偏离
-    5×|ŷ_τ|%。正T：买价 ≤ open×(1+band)；反T：卖价 ≥ open×(1−band)。
-    缺 ŷ_τ 或倍数≤0 时跳过（ok=True）。
+    mult 是**带宽乘数**（越大越宽松）；默认已下线（0=关）。正T：买价 ≤ open×(1+band)；
+    反T：卖价 ≥ open×(1−band)。缺 ŷ_τ 或倍数≤0 时跳过（ok=True）。
     """
     direction = str(direction or "").strip().lower()
     m = float(mult) if mult is not None else _tau_entry_price_mult(cfg)
@@ -595,6 +685,9 @@ def _first_touch_sell_then_buy(
     pm_chase_iv = _pm_chase_interval_min(cfg)
     chase_buy_level: Optional[float] = None
     last_chase_min: Optional[int] = None
+    stop_pct, stop_arm_bars, stop_on_close = _t0_stop_params(cfg, "sell_then_buy")
+    leg1_idx: Optional[int] = None
+    stop_level: Optional[float] = None
 
     for idx, mb in enumerate(minute_bars):
         hi = float(mb.get("high") or 0)
@@ -633,9 +726,56 @@ def _first_touch_sell_then_buy(
             sold_qty = qty
             sold_price = fill_sell
             touch_sell_at = ts
+            leg1_idx = idx
+            if stop_pct > 0 and sold_price > 0:
+                stop_level = sold_price * (1.0 + stop_pct / 100.0)
+            # 同根不明先后：确认卖后不在同一根买回
             continue
 
         if sold_qty > 0 and covered <= 0:
+            # 涨破止损（先于买回触发/追价）：延迟 arm_bars 根；默认收盘确认
+            if (
+                stop_pct > 0
+                and stop_level is not None
+                and leg1_idx is not None
+                and (idx - leg1_idx) > stop_arm_bars
+            ):
+                hit_stop = (
+                    close > 0 and close >= float(stop_level) - 1e-12
+                    if stop_on_close
+                    else hi >= float(stop_level) - 1e-12
+                )
+                if hit_stop:
+                    fill_stop = (
+                        float(close) if stop_on_close else max(float(hi), float(stop_level))
+                    )
+                    if fill_stop <= 0:
+                        fill_stop = float(stop_level)
+                    cover = sold_qty
+                    # 止损强制买回（可动用账户现金；不要求卖出净得自给）
+                    cash_delta += append_t0_leg(
+                        trades,
+                        cost_model=cost_model,
+                        cost_params=cost_params,
+                        side="t0_buy",
+                        stock_code=stock_code,
+                        shares=cover,
+                        price=fill_stop,
+                        trigger=float(stop_level),
+                        at=ts,
+                        leg_kind="stop",
+                        note=(
+                            f"反T涨破止损买回（{stop_pct:.2f}%·"
+                            f"{'收盘确认' if stop_on_close else '触价'}·"
+                            f"延迟{stop_arm_bars}根）"
+                        ),
+                    )
+                    shares_now += cover
+                    covered = cover
+                    touch_cover_at = ts
+                    exit_reason = "stop_loss"
+                    continue
+
             # 第二腿：相对 leg1 成交价的回撤幅度（与配置 buy_trigger 语义一致）
             base_buy = sold_price * (1.0 - buy_trig / 100.0)
             if chase_buy_level is None:
@@ -653,9 +793,12 @@ def _first_touch_sell_then_buy(
                     last_chase_min=last_chase_min,
                     interval_min=pm_chase_iv,
                 )
-                # must_cover：追价不得高于卖出价（盘中主动追高应交 eod）
+                # must_cover：追价不得高于卖出价（盘中主动追高应交止损/eod）
                 if cfg.get("must_cover_same_day") and sold_price > 0:
-                    chase_buy_level = min(float(chase_buy_level), float(sold_price))
+                    ceil_px = float(sold_price)
+                    if stop_level is not None and stop_pct > 0:
+                        ceil_px = min(ceil_px, float(stop_level))
+                    chase_buy_level = min(float(chase_buy_level), ceil_px)
                 buy_level = float(chase_buy_level)
                 used_chase = last_chase_min is not None
                 if not adjusted or lo > buy_level:
@@ -904,6 +1047,9 @@ def _first_touch_buy_then_sell(
     pm_chase_iv = _pm_chase_interval_min(cfg)
     chase_sell_level: Optional[float] = None
     last_chase_min: Optional[int] = None
+    stop_pct, stop_arm_bars, stop_on_close = _t0_stop_params(cfg, "buy_then_sell")
+    leg1_idx: Optional[int] = None
+    stop_level: Optional[float] = None
 
     for idx, mb in enumerate(minute_bars):
         hi = float(mb.get("high") or 0)
@@ -922,7 +1068,7 @@ def _first_touch_buy_then_sell(
                     continue
                 fill_buy = float(close)
             else:
-                # 无门禁兜底（非固定前缀）：相对开盘低吸；正常路径不应进入
+                # 无固定前缀门禁：相对开盘触价（buy_trigger_pct）；正常默认走确认根
                 leg1_buy_level = ref * (1.0 - buy_trig / 100.0)
                 if lo > leg1_buy_level:
                     continue
@@ -962,12 +1108,55 @@ def _first_touch_buy_then_sell(
             buy_price = fill_buy
             touch_buy_at = ts
             sell_old_qty = min(bought_qty, sell_old_cap)
-            # 第二腿：相对低吸成交价上浮 sell_trigger%（非 ref）
+            # 第二腿：相对第一腿成交价上浮 sell_trigger%（非 ref）
             chase_sell_level = buy_price * (1.0 + sell_trig / 100.0)
-            # 同根不明先后：低吸后不在同一根卖旧仓
+            leg1_idx = idx
+            if stop_pct > 0 and buy_price > 0:
+                stop_level = buy_price * (1.0 - stop_pct / 100.0)
+            # 同根不明先后：确认买后不在同一根卖旧仓
             continue
 
         if bought_qty > 0 and sold_back <= 0:
+            # 跌破止损（先于卖触发/追价）：延迟 arm_bars 根；默认收盘确认
+            if (
+                stop_pct > 0
+                and stop_level is not None
+                and sell_old_qty > 0
+                and leg1_idx is not None
+                and (idx - leg1_idx) > stop_arm_bars
+            ):
+                hit_stop = (
+                    close > 0 and close <= float(stop_level) + 1e-12
+                    if stop_on_close
+                    else lo <= float(stop_level) + 1e-12
+                )
+                if hit_stop:
+                    fill_stop = float(close) if stop_on_close else min(float(lo), float(stop_level))
+                    if fill_stop <= 0:
+                        fill_stop = float(stop_level)
+                    cash_delta += append_t0_leg(
+                        trades,
+                        cost_model=cost_model,
+                        cost_params=cost_params,
+                        side="t0_sell",
+                        stock_code=stock_code,
+                        shares=sell_old_qty,
+                        price=fill_stop,
+                        trigger=float(stop_level),
+                        at=ts,
+                        leg_kind="stop",
+                        note=(
+                            f"正T跌破止损（{stop_pct:.2f}%·"
+                            f"{'收盘确认' if stop_on_close else '触价'}·"
+                            f"延迟{stop_arm_bars}根）"
+                        ),
+                    )
+                    shares_now -= sell_old_qty
+                    sold_back = sell_old_qty
+                    touch_sell_at = ts
+                    exit_reason = "stop_loss"
+                    continue
+
             base_sell = buy_price * (1.0 + sell_trig / 100.0)
             if chase_sell_level is None:
                 chase_sell_level = base_sell
@@ -984,9 +1173,12 @@ def _first_touch_buy_then_sell(
                     last_chase_min=last_chase_min,
                     interval_min=pm_chase_iv,
                 )
-                # must_cover：追价不得低于低吸成本（盘中主动割肉应交 eod）
+                # must_cover：追价不得低于成本（盘中主动割肉应交止损/eod）
                 if cfg.get("must_cover_same_day") and buy_price > 0:
-                    chase_sell_level = max(float(chase_sell_level), float(buy_price))
+                    floor_px = float(buy_price)
+                    if stop_level is not None and stop_pct > 0:
+                        floor_px = max(floor_px, float(stop_level))
+                    chase_sell_level = max(float(chase_sell_level), floor_px)
                 sell_level = float(chase_sell_level)
                 used_chase = last_chase_min is not None
                 if not adjusted or sell_old_qty <= 0 or hi < sell_level:
@@ -1017,7 +1209,7 @@ def _first_touch_buy_then_sell(
 
     if bought_qty <= 0:
         return _skip_result(
-            reason="正T分钟路径未触及低吸位",
+            reason="正T分钟路径未开成第一腿",
             shares=shares,
             bar=bar,
             extra={
@@ -1609,7 +1801,7 @@ def _plan_forward_leg1_gates(
                     "reason": f"{side_label}固定前缀确认关",
                 }
             entry_ready = bool(seg.get("ok"))
-            # 确认根成交价：相对开盘偏离不得超过 |ŷ_τ|×倍数（正T买上限 / 反T卖下限）
+            # 确认根成交价：相对开盘偏离不得超过 |ŷ_τ|×倍数（默认已关 mult=0）
             if entry_ready:
                 fill_px = float(m.get("close") or 0)
                 tau_px = tau_leg1_fill_price_ok(
@@ -1623,6 +1815,24 @@ def _plan_forward_leg1_gates(
                 if not bool(tau_px.get("ok")):
                     entry_ready = False
                     wait_reason = str(tau_px.get("reason") or f"{side_label}τ入场价未过")
+                    seg = {
+                        **seg,
+                        "ok": False,
+                        "reason": wait_reason,
+                    }
+            # 前缀 (H−L)/ref% 已超过 |ŷ_path| → 当日不做
+            if entry_ready:
+                path_rng = prefix_range_vs_path_ok(
+                    range_pct=gate_fixed.get("range_pct")
+                    if isinstance(gate_fixed, dict)
+                    else range_pct_side,
+                    y_path=_score_y_path(score_snap),
+                    cfg=cfg_side,
+                )
+                seg = {**seg, "prefix_vs_path": path_rng}
+                if not bool(path_rng.get("ok")):
+                    entry_ready = False
+                    wait_reason = str(path_rng.get("reason") or f"{side_label}前缀振幅>|ŷ_path|")
                     seg = {
                         **seg,
                         "ok": False,

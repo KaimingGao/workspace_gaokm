@@ -84,6 +84,7 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             "y_prefix_segment_enabled_buy_then_sell",
             "y_prefix_upbar_ratio_buy_then_sell",
             "y_prefix_downbar_ratio_sell_then_buy",
+            "y_prefix_vs_path_skip",
             "y_tau_entry_price_mult",
             "must_cover_same_day_sell_then_buy",
             "must_cover_same_day_buy_then_sell",
@@ -92,6 +93,10 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             "t0_pm_chase_interval_min",
             "t0_pm_chase_interval_min_sell_then_buy",
             "t0_pm_chase_interval_min_buy_then_sell",
+            "t0_stop_pct_buy_then_sell",
+            "t0_stop_pct_sell_then_buy",
+            "t0_stop_arm_bars",
+            "t0_stop_on_close",
         ):
             val = getattr(body, yk, None)
             if val is not None:

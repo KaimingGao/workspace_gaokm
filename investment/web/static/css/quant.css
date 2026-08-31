@@ -5962,7 +5962,9 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
 }
 
 .quant-bars-card.is-busy #quant-cluster-bars-refresh.is-busy:disabled,
-.quant-minute-card.is-busy #quant-cluster-minute-refresh.is-busy:disabled {
+.quant-bars-card.is-busy #quant-cluster-bars-topup.is-busy:disabled,
+.quant-minute-card.is-busy #quant-cluster-minute-refresh.is-busy:disabled,
+.quant-minute-card.is-busy #quant-cluster-minute-topup.is-busy:disabled {
   animation: quant-pro-pulse 1.1s ease-in-out infinite;
   border-color: color-mix(in srgb, var(--accent) 42%, var(--line));
   color: var(--accent);

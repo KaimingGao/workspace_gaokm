@@ -38,7 +38,7 @@ PATH_OPEN_FEATURES = (
     "mom3_pct",
 )
 PATH_Z_FEATURES = PATH_OPEN_FEATURES + MINUTE_TAU_ALL_KEYS
-# 做 T 固定前缀默认齐窗 ≈10:30（与 y_path_abandon_bars=12 / minute_tau_hm 对齐）
+# 做 T 固定前缀默认齐窗 ≈10:00（与 y_path_abandon_bars=6 对齐；path live 决策钟仍可独立为 10:30）
 DEFAULT_PATH_MINUTE_TAU_HM = "10:30"
 # 训练多 τ 默认网格（与 dual_score.minute_tau_grid / τ 头一致）
 DEFAULT_PATH_TAU_GRID = DEFAULT_MINUTE_TAU_GRID

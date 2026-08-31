@@ -38,6 +38,8 @@ def t0_dir_label(direction: Optional[str]) -> str:
 # t0_pm_degrade：legacy，等同正T侧
 # must_cover_same_day_*：反T默认不强制回补；正T默认同日卖旧
 # 第二腿：sell_trigger_pct_buy_then_sell（正T卖旧）、buy_trigger_pct_sell_then_buy（反T买回）
+# 第一腿：固定前缀确认根收盘；已废弃相对开盘低吸/冲高（buy_trigger_pct_buy_then_sell /
+#   sell_trigger_pct_sell_then_buy）
 #
 # fill_mode: trigger | mid | optimistic；可分侧 fill_mode_*
 #
@@ -54,6 +56,8 @@ _DEAD_T0_KEYS = (
     "sell_trigger_pct_reverse",
     "sell_trigger_pct_long",  # 旧 leg1 误键
     "buy_trigger_pct_reverse",  # 旧 leg1 误键
+    "buy_trigger_pct_buy_then_sell",  # 旧正T相对开盘低吸；第一腿改确认根收盘
+    "sell_trigger_pct_sell_then_buy",  # 旧反T相对开盘冲高卖
     "must_cover_same_day_long",
     "must_cover_same_day_reverse",
     "fill_mode_long",
@@ -140,7 +144,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "atr_buy_mult": 0.7,
     # dual_y 阈值（百分比点）：*_enter 入场下限；*_strong 超强须与 τ 同号
     "y_trade_enter": 0.01,
-    "y_trade_strong": 0.1,
+    "y_trade_strong": 0.5,
     "y_tau_enter": 0.01,
     # 反T / 正T 分侧入场；缺省与 y_tau_enter 同
     "y_tau_enter_sell_then_buy": 0.01,
@@ -149,14 +153,14 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_path_enter_sell_then_buy": 0.01,
     "y_path_enter_buy_then_sell": 0.01,
     "y_eod_enter": 0.01,
-    "y_eod_strong": 0.1,
+    "y_eod_strong": 0.5,
     "y_eod_prior": 0.01,
     "y_on_risk": 0.01,
     "y_on_allow": 0.01,
     "y_block_tau_nowcast_sign": True,
     "y_tau_nowcast_sign_eps": 0.05,
     "y_nc_enter": 0.01,
-    "y_nc_strong": 1.0,
+    "y_nc_strong": 0.5,
     "y_tau_map": "trend",
     "y_use_path": True,
     "y_path_required": False,
@@ -164,7 +168,7 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_gap_tier_pct": 1.0,
     "y_nowcast_oc_gate": False,
     "y_path_abandon_enabled": True,
-    "y_path_abandon_bars": 12,
+    "y_path_abandon_bars": 6,
     # 正/反T：固定前缀 N=abandon_bars；齐窗一次判定后半阴阳占比（不滚动探极值）
     # 正T：后半 close>open ≥upbar_ratio；反T：后半 close<open ≥downbar_ratio
     "y_prefix_segment_enabled": True,
@@ -173,20 +177,27 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_prefix_upbar_ratio_buy_then_sell": 0.2,
     "y_prefix_downbar_ratio_sell_then_buy": 0.2,
     # 固定前缀确认根：允许带宽 = |ŷ_τ|%×倍数（越大越宽/越松；正T买上限 / 反T卖下限）；0=关
-    "y_tau_entry_price_mult": 5.0,
+    "y_tau_entry_price_mult": 0.0,
+    # 前缀窗 (H−L)/ref% > |ŷ_path| 则跳过（空间用尽）
+    "y_prefix_vs_path_skip": True,
     "y_ratio_boost_cap": 2.0,
     "y_ratio_cut": 0.60,
     "y_ratio_tau_boost_cap": 1.15,
     "y_ratio_eod_align_boost": 1.10,
     # |y_τ| 刚过入场线时额外压低目标价（乘 y_ratio_cut）
     "y_ratio_tau_soft_band": 0.20,
-    # 午后闸：到点后禁新开；已开未平则第二腿中点追价（正/反可分侧起算时刻）
+    # 午后闸：到点后禁新开；已开未平则第二腿中点追价（与止损并存：止损管亏、追价管软卖）
     "t0_pm_degrade": "14:00",
-    "t0_pm_degrade_sell_then_buy": "15:00",
+    "t0_pm_degrade_sell_then_buy": "13:00",
     "t0_pm_degrade_buy_then_sell": "14:00",
     "t0_pm_chase_interval_min": 10,
     "t0_pm_chase_interval_min_sell_then_buy": 10,
     "t0_pm_chase_interval_min_buy_then_sell": 10,
+    # 正/反T第二腿止损（相对第一腿成交价）；0=关；默认延迟2根+收盘确认
+    "t0_stop_pct_buy_then_sell": 1.2,
+    "t0_stop_pct_sell_then_buy": 1.2,
+    "t0_stop_arm_bars": 2,
+    "t0_stop_on_close": True,
     # dual_y 分数来源：compute=开盘信息集即时算（默认）；live_book/ledger 仅兜底或对照
     "y_score_source": "compute",
     "note": "A股T+1底仓做T；仅5m first_touch（已删除日线模拟）；非实盘。",
@@ -319,9 +330,9 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     for yk, lo, hi, default in (
         ("y_eod_prior", 0.01, 5.0, 0.01),
         ("y_eod_enter", 0.01, 5.0, 0.01),
-        ("y_eod_strong", 0.05, 5.0, 0.1),
+        ("y_eod_strong", 0.05, 5.0, 0.5),
         ("y_trade_enter", 0.01, 5.0, 0.01),
-        ("y_trade_strong", 0.05, 5.0, 0.1),
+        ("y_trade_strong", 0.05, 5.0, 0.5),
         ("y_tau_enter", 0.01, 5.0, 0.01),
         ("y_tau_enter_sell_then_buy", 0.01, 5.0, 0.01),
         ("y_tau_enter_buy_then_sell", 0.01, 5.0, 0.01),
@@ -334,7 +345,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
         ("y_ratio_tau_soft_band", 0.0, 2.0, 0.20),
         ("y_tau_nowcast_sign_eps", 0.0, 1.0, 0.05),
         ("y_nc_enter", 0.01, 10.0, 0.01),
-        ("y_nc_strong", 0.05, 10.0, 1.0),
+        ("y_nc_strong", 0.05, 10.0, 0.5),
         ("y_path_enter", 0.01, 5.0, 0.01),
         ("y_path_enter_sell_then_buy", 0.01, 5.0, 0.01),
         ("y_path_enter_buy_then_sell", 0.01, 5.0, 0.01),
@@ -391,9 +402,9 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["y_nowcast_oc_gate"] = coerce_cfg_bool(cfg.get("y_nowcast_oc_gate"), False)
     cfg["y_path_abandon_enabled"] = bool(cfg.get("y_path_abandon_enabled", True))
     try:
-        cfg["y_path_abandon_bars"] = max(2, min(int(cfg.get("y_path_abandon_bars") or 12), 48))
+        cfg["y_path_abandon_bars"] = max(2, min(int(cfg.get("y_path_abandon_bars") or 6), 48))
     except (TypeError, ValueError):
-        cfg["y_path_abandon_bars"] = 12
+        cfg["y_path_abandon_bars"] = 6
     for ab_side in ("y_path_abandon_bars_sell_then_buy", "y_path_abandon_bars_buy_then_sell"):
         if ab_side not in override_keys:
             cfg[ab_side] = int(cfg["y_path_abandon_bars"])
@@ -433,10 +444,11 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg["y_prefix_downbar_ratio_sell_then_buy"] = max(0.0, min(dn_ratio, 1.0))
     try:
         raw_tau_px = cfg.get("y_tau_entry_price_mult")
-        tau_px_mult = float(5.0 if raw_tau_px is None or raw_tau_px == "" else raw_tau_px)
+        tau_px_mult = float(0.0 if raw_tau_px is None or raw_tau_px == "" else raw_tau_px)
     except (TypeError, ValueError):
-        tau_px_mult = 5.0
+        tau_px_mult = 0.0
     cfg["y_tau_entry_price_mult"] = max(0.0, min(tau_px_mult, 50.0))
+    cfg["y_prefix_vs_path_skip"] = coerce_cfg_bool(cfg.get("y_prefix_vs_path_skip"), True)
     gap_mode = str(cfg.get("y_gap_tier_mode") or "skip_opposite").strip().lower()
     if gap_mode not in {"off", "none", "false", "0", "skip_opposite", "revert"}:
         gap_mode = "skip_opposite"
@@ -461,7 +473,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
 
     pm_legacy = cfg.get("t0_pm_degrade")
     for side_key, default in (
-        ("t0_pm_degrade_sell_then_buy", "15:00"),
+        ("t0_pm_degrade_sell_then_buy", "13:00"),
         ("t0_pm_degrade_buy_then_sell", "14:00"),
     ):
         if side_key not in override_keys or cfg.get(side_key) is None:
@@ -487,6 +499,32 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
             iv = 10
         cfg[iv_key] = max(1, min(iv, 60))
     cfg["t0_pm_chase_interval_min"] = cfg["t0_pm_chase_interval_min_buy_then_sell"]
+    # 正T跌破止损
+    try:
+        raw_stop = cfg.get("t0_stop_pct_buy_then_sell")
+        if raw_stop is None or raw_stop == "":
+            stop_pct = 1.2
+        else:
+            stop_pct = float(raw_stop)
+    except (TypeError, ValueError):
+        stop_pct = 1.2
+    cfg["t0_stop_pct_buy_then_sell"] = max(0.0, min(stop_pct, 20.0))
+    try:
+        raw_stop_stb = cfg.get("t0_stop_pct_sell_then_buy")
+        if raw_stop_stb is None or raw_stop_stb == "":
+            stop_pct_stb = 1.2
+        else:
+            stop_pct_stb = float(raw_stop_stb)
+    except (TypeError, ValueError):
+        stop_pct_stb = 1.2
+    cfg["t0_stop_pct_sell_then_buy"] = max(0.0, min(stop_pct_stb, 20.0))
+    try:
+        raw_arm = cfg.get("t0_stop_arm_bars")
+        arm_bars = int(2 if raw_arm is None or raw_arm == "" else raw_arm)
+    except (TypeError, ValueError):
+        arm_bars = 2
+    cfg["t0_stop_arm_bars"] = max(0, min(arm_bars, 48))
+    cfg["t0_stop_on_close"] = coerce_cfg_bool(cfg.get("t0_stop_on_close"), True)
     from core.t0.score_policy import normalize_y_tau_map
 
     cfg["y_tau_map"] = normalize_y_tau_map(cfg.get("y_tau_map"))
@@ -533,25 +571,26 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
 def apply_side_exec_params(cfg: dict, direction: Optional[str]) -> Dict[str, Any]:
     """按正/反 T 覆盖执行参数：第二腿触发、振幅下限、成交模式。
 
-    固定前缀下第一腿不看相对开盘触发；仅：
-      正T → sell_trigger_pct_buy_then_sell；反T → buy_trigger_pct_sell_then_buy。
+    正T：卖触发=sell_trigger_pct_buy_then_sell（相对第一腿买价第二腿）。
+    反T：买触发=buy_trigger_pct_sell_then_buy（相对第一腿卖价第二腿）。
+    第一腿一律固定前缀确认根收盘（无相对开盘低吸/冲高触发%）。
     """
     out = dict(cfg or {})
     if direction not in {"sell_then_buy", "buy_then_sell"}:
         return out
     suf = "_buy_then_sell" if direction == "buy_then_sell" else "_sell_then_buy"
     if direction == "buy_then_sell":
-        raw = out.get("sell_trigger_pct_buy_then_sell")
-        if raw is not None and raw != "":
+        raw_sell = out.get("sell_trigger_pct_buy_then_sell")
+        if raw_sell is not None and raw_sell != "":
             try:
-                out["sell_trigger_pct"] = max(0.1, min(float(raw), 20.0))
+                out["sell_trigger_pct"] = max(0.1, min(float(raw_sell), 20.0))
             except (TypeError, ValueError):
                 pass
     else:
-        raw = out.get("buy_trigger_pct_sell_then_buy")
-        if raw is not None and raw != "":
+        raw_buy = out.get("buy_trigger_pct_sell_then_buy")
+        if raw_buy is not None and raw_buy != "":
             try:
-                out["buy_trigger_pct"] = max(0.1, min(float(raw), 20.0))
+                out["buy_trigger_pct"] = max(0.1, min(float(raw_buy), 20.0))
             except (TypeError, ValueError):
                 pass
     mr = out.get(f"min_range_pct{suf}")
@@ -573,8 +612,9 @@ def apply_side_exec_params(cfg: dict, direction: Optional[str]) -> Dict[str, Any
     if pm is not None:
         s = str(pm).strip()
         out["t0_pm_degrade"] = "" if s in {"", "0", "off", "none", "-"} else s
-    elif not out.get("t0_pm_degrade"):
-        out["t0_pm_degrade"] = "15:00" if direction == "sell_then_buy" else "14:00"
+    elif "t0_pm_degrade" not in out or out.get("t0_pm_degrade") is None:
+        # 缺侧向键时回落默认：正T 14:00 / 反T 13:00
+        out["t0_pm_degrade"] = "14:00" if direction == "buy_then_sell" else "13:00"
     iv = out.get(f"t0_pm_chase_interval_min{suf}")
     if iv is not None and iv != "":
         try:
@@ -605,9 +645,9 @@ def resolve_path_abandon_bars(cfg: dict, direction: Optional[str] = None) -> int
     else:
         raw = (cfg or {}).get("y_path_abandon_bars")
     try:
-        return max(2, min(int(raw or 12), 48))
+        return max(2, min(int(raw or 6), 48))
     except (TypeError, ValueError):
-        return 12
+        return 6
 
 
 def resolve_min_range_pct(cfg: dict) -> float:

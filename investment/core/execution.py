@@ -18,7 +18,7 @@ import json
 from copy import deepcopy
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.t0.config import load_t0_rules
+from core.t0.config import drop_dead_t0_keys, load_t0_rules
 
 DEFAULT_COUPLING: Dict[str, Any] = {
     "t0_vs_stance": "independent",  # independent | skip_if_avoid | only_if_hold
@@ -97,6 +97,7 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "y_prefix_segment_enabled_buy_then_sell",
         "y_prefix_upbar_ratio_buy_then_sell",
         "y_prefix_downbar_ratio_sell_then_buy",
+        "y_prefix_vs_path_skip",
         "y_tau_entry_price_mult",
         "y_ratio_boost_cap",
         "y_ratio_cut",
@@ -110,6 +111,10 @@ ALLOWED_T0_PATCH_KEYS = frozenset(
         "t0_pm_chase_interval_min",
         "t0_pm_chase_interval_min_sell_then_buy",
         "t0_pm_chase_interval_min_buy_then_sell",
+        "t0_stop_pct_buy_then_sell",
+        "t0_stop_pct_sell_then_buy",
+        "t0_stop_arm_bars",
+        "t0_stop_on_close",
     }
 )
 
@@ -145,32 +150,37 @@ DEFAULT_T0_OVERLAY: Dict[str, Any] = {
     "y_tau_enter_sell_then_buy": 0.01,
     "y_tau_enter_buy_then_sell": 0.01,
     "y_trade_enter": 0.01,
-    "y_trade_strong": 0.1,
+    "y_trade_strong": 0.5,
     "y_eod_prior": 0.01,
     "y_eod_enter": 0.01,
-    "y_eod_strong": 0.1,
+    "y_eod_strong": 0.5,
     "y_on_allow": 0.01,
     "y_nc_enter": 0.01,
-    "y_nc_strong": 1.0,
+    "y_nc_strong": 0.5,
     "y_nowcast_oc_gate": False,
     "y_path_enter": 0.01,
     "y_path_enter_sell_then_buy": 0.01,
     "y_path_enter_buy_then_sell": 0.01,
     "y_gap_tier_pct": 1.0,
-    "y_path_abandon_bars": 12,
+    "y_path_abandon_bars": 6,
     "y_prefix_segment_enabled": True,
     "y_prefix_segment_enabled_sell_then_buy": True,
     "y_prefix_segment_enabled_buy_then_sell": True,
     "y_prefix_upbar_ratio_buy_then_sell": 0.2,
     "y_prefix_downbar_ratio_sell_then_buy": 0.2,
-    "y_tau_entry_price_mult": 5.0,
+    "y_prefix_vs_path_skip": True,
+    "y_tau_entry_price_mult": 0.0,
     "y_block_tau_nowcast_sign": True,
     "t0_pm_degrade": "14:00",
-    "t0_pm_degrade_sell_then_buy": "15:00",
+    "t0_pm_degrade_sell_then_buy": "13:00",
     "t0_pm_degrade_buy_then_sell": "14:00",
     "t0_pm_chase_interval_min": 10,
     "t0_pm_chase_interval_min_sell_then_buy": 10,
     "t0_pm_chase_interval_min_buy_then_sell": 10,
+    "t0_stop_pct_buy_then_sell": 1.2,
+    "t0_stop_pct_sell_then_buy": 1.2,
+    "t0_stop_arm_bars": 2,
+    "t0_stop_on_close": True,
     # direction / path_mode 留给 runtime_defaults，避免与 DEFAULT_T0 双轨
 }
 
@@ -661,10 +671,11 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "y_prefix_segment_enabled": t0.get("y_prefix_segment_enabled"),
             "y_prefix_segment_enabled_sell_then_buy": t0.get("y_prefix_segment_enabled_sell_then_buy"),
             "y_prefix_segment_enabled_buy_then_sell": t0.get("y_prefix_segment_enabled_buy_then_sell"),
-                            "y_prefix_upbar_ratio_buy_then_sell": t0.get("y_prefix_upbar_ratio_buy_then_sell"),
+            "y_prefix_upbar_ratio_buy_then_sell": t0.get("y_prefix_upbar_ratio_buy_then_sell"),
             "y_prefix_downbar_ratio_sell_then_buy": t0.get("y_prefix_downbar_ratio_sell_then_buy"),
+            "y_prefix_vs_path_skip": t0.get("y_prefix_vs_path_skip"),
             "y_tau_entry_price_mult": t0.get("y_tau_entry_price_mult"),
-                            "y_ratio_boost_cap": t0.get("y_ratio_boost_cap"),
+            "y_ratio_boost_cap": t0.get("y_ratio_boost_cap"),
             "y_ratio_cut": t0.get("y_ratio_cut"),
             "y_ratio_tau_boost_cap": t0.get("y_ratio_tau_boost_cap"),
             "y_ratio_eod_align_boost": t0.get("y_ratio_eod_align_boost"),
@@ -676,6 +687,10 @@ def execution_public_view(bundle: Dict[str, Any]) -> Dict[str, Any]:
             "t0_pm_chase_interval_min": t0.get("t0_pm_chase_interval_min"),
             "t0_pm_chase_interval_min_sell_then_buy": t0.get("t0_pm_chase_interval_min_sell_then_buy"),
             "t0_pm_chase_interval_min_buy_then_sell": t0.get("t0_pm_chase_interval_min_buy_then_sell"),
+            "t0_stop_pct_buy_then_sell": t0.get("t0_stop_pct_buy_then_sell"),
+            "t0_stop_pct_sell_then_buy": t0.get("t0_stop_pct_sell_then_buy"),
+            "t0_stop_arm_bars": t0.get("t0_stop_arm_bars"),
+            "t0_stop_on_close": t0.get("t0_stop_on_close"),
         },
         "t0_sources": bundle.get("t0_sources") or {},
         "rebalance": bundle.get("rebalance") or {},
@@ -775,6 +790,7 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_in.pop("y_trade_tau_sign_eps", None)
     # 已下线键：忽略
     t0_in.pop("y_block_conflict", None)
+    drop_dead_t0_keys(t0_in)
 
     unknown = [k for k in t0_in.keys() if k not in ALLOWED_T0_PATCH_KEYS]
     if unknown:
@@ -819,6 +835,10 @@ def validate_execution_patch(raw: Any) -> Tuple[bool, Dict[str, Any], List[str]]
         t0_out["y_prefix_segment_enabled_buy_then_sell"] = bool(
             t0_in.get("y_prefix_segment_enabled_buy_then_sell")
         )
+    if "y_prefix_vs_path_skip" in t0_in:
+        t0_out["y_prefix_vs_path_skip"] = bool(t0_in.get("y_prefix_vs_path_skip"))
+    if "t0_stop_on_close" in t0_in:
+        t0_out["t0_stop_on_close"] = bool(t0_in.get("t0_stop_on_close"))
 
     coupling_out: Dict[str, Any] = {}
     if coupling_in is not None:

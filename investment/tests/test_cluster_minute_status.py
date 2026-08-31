@@ -42,7 +42,50 @@ class TestClusterMinuteStatus(unittest.TestCase):
         self.assertFalse(st["coverage_ok"])
         self.assertEqual(st["coverage_pct"], round(100 / 3, 1))
         self.assertEqual(st["minute_span_days_med"], 95)
-        self.assertEqual(st["span_distribution"], [{"bucket": "<40d", "count": 1}])
+        self.assertEqual(
+            st["span_distribution"],
+            [
+                {"bucket": "<40d", "count": 1},
+                {"bucket": "<20d", "count": 0},
+                {"bucket": "<10d", "count": 0},
+            ],
+        )
+
+    def test_span_mix_fine_cuts(self):
+        from quant.research.cluster_minute_status import build_cluster_minute_status
+
+        watch = ["A", "B", "C", "D", "E"]
+
+        def _snap(code: str, *, period: str = "5"):
+            spans = {"A": 95, "B": 25, "C": 15, "D": 5, "E": None}
+            if spans.get(code) is None:
+                return None
+            return {
+                "span_days": spans[code],
+                "bar_count": 100,
+                "fetched_at": "2026-08-26T10:00:00",
+            }
+
+        with patch("core.watching.store.read_watching", return_value={"watchlist": watch}), patch(
+            "quant.research.cluster_minute_status._minute_snapshot_for_code",
+            side_effect=_snap,
+        ), patch(
+            "quant.research.cluster_minute_status.build_minute_label_portrait",
+            return_value={"success": True, "tau": {}, "path": {}, "joint": {}},
+        ):
+            st = build_cluster_minute_status(watching_limit=100, min_span_days=30)
+        self.assertEqual(st["cached_ok"], 1)
+        self.assertEqual(st["short"], 3)
+        self.assertEqual(st["missing"], 1)
+        # 累计：B25+C15+D5 → <30d；C15+D5 → <20d；D5 → <10d（0 也返回）
+        self.assertEqual(
+            st["span_distribution"],
+            [
+                {"bucket": "<30d", "count": 3},
+                {"bucket": "<20d", "count": 2},
+                {"bucket": "<10d", "count": 1},
+            ],
+        )
 
     def test_minute_cache_ready(self):
         from quant.research.cluster_minute_status import minute_cache_ready
@@ -197,6 +240,56 @@ class TestClusterMinuteStatus(unittest.TestCase):
         by_code = {c: (lb, sem) for c, lb, sem in calls}
         self.assertEqual(by_code["000001"], (5, True))
         self.assertEqual(by_code["300750"], (30, False))
+
+    def test_topup_skips_fetched_today(self):
+        from quant.research.cluster_minute_status import _minute_topup_core
+
+        today = datetime.now().strftime("%Y-%m-%dT10:00:00")
+
+        def _snap(code: str, *, period: str = "5"):
+            if code == "600050":
+                # Short 但今日已拉过 → 应跳过，避免新浪近端空转
+                return {
+                    "span_days": 23,
+                    "date_max": "2026-08-31",
+                    "bar_count": 1071,
+                    "fetched_at": today,
+                }
+            if code == "000001":
+                # Ready 未对齐、非今日 → 仍 topup
+                return {
+                    "span_days": 40,
+                    "date_max": "2026-08-26",
+                    "bar_count": 100,
+                    "fetched_at": "2026-08-30T10:00:00",
+                }
+            return None
+
+        calls = []
+
+        def _fetch(code, **kwargs):
+            calls.append(code)
+            return [{"date": "2026-08-28 10:00:00"}], {"ok": True}
+
+        with patch(
+            "quant.research.cluster_minute_status.expected_minute_asof",
+            return_value="2026-08-28",
+        ), patch(
+            "quant.research.cluster_minute_status._minute_snapshot_for_code",
+            side_effect=_snap,
+        ), patch("core.ports.market.fetch_minute_bars", side_effect=_fetch):
+            out = _minute_topup_core(
+                codes=["600050", "000001", "300750"],
+                topup_lookback_days=5,
+                full_lookback_days=30,
+                workers=2,
+            )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["skipped_today"], 1)
+        self.assertEqual(out["topped"], 1)
+        self.assertEqual(out["bootstrapped"], 1)
+        self.assertEqual(set(calls), {"000001", "300750"})
+        self.assertNotIn("600050", calls)
 
     def test_refresh_topup_mode_delegates(self):
         from quant.research.cluster_minute_status import refresh_cluster_minute_only

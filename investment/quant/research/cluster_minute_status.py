@@ -19,8 +19,21 @@ DEFAULT_LOOKBACK_DAYS = MINUTE_EM_LOOKBACK_DAYS
 DEFAULT_TOPUP_LOOKBACK_DAYS = 5
 DEFAULT_TOPUP_WORKERS = 4
 DEFAULT_LABEL_MAX_DAYS = 120
+# Span mix 细档（累计）：在 Ready 闸 `<min_span>d` 之外再标 `<20d` / `<10d`
+SPAN_MIX_FINE_CUTS = (20, 10)
 _LABEL_PORTRAIT_TTL_SEC = 90.0
 _label_portrait_cache: Dict[str, Any] = {"key": None, "at": 0.0, "payload": None}
+
+
+def _span_mix_bucket_keys(min_span: int) -> List[str]:
+    """`<min_span>d` 优先，再追加更严的累计阈值（仅 cut < min_span）。"""
+    gate = max(1, int(min_span or DEFAULT_MIN_SPAN_DAYS))
+    keys = [f"<{gate}d"]
+    for cut in SPAN_MIX_FINE_CUTS:
+        c = int(cut)
+        if 0 < c < gate:
+            keys.append(f"<{c}d")
+    return keys
 
 def _resolve_watching_codes(*, watching_limit: int = 100) -> List[str]:
     from quant.research.factor_ols_clusters import clamp_watching_limit, merge_cluster_universe
@@ -326,8 +339,8 @@ def build_cluster_minute_status(
     missing = 0
     stale = 0
     spans: List[int] = []
-    short_label = f"<{min_span}d"
-    span_buckets: Dict[str, int] = {short_label: 0}
+    bucket_keys = _span_mix_bucket_keys(min_span)
+    span_buckets: Dict[str, int] = {k: 0 for k in bucket_keys}
 
     now = datetime.now()
     stale_cutoff = now - timedelta(hours=max(1.0, float(stale_hours or 24.0)))
@@ -353,7 +366,14 @@ def build_cluster_minute_status(
             cached_ok += 1
         else:
             short += 1
-            span_buckets[short_label] += 1
+            # 累计阈值：span=5 → 同时计入 <30d / <20d / <10d
+            for key in bucket_keys:
+                try:
+                    cut = int(str(key).strip("<>d"))
+                except (TypeError, ValueError):
+                    continue
+                if span < cut:
+                    span_buckets[key] += 1
 
     total = len(codes)
     spans_sorted = sorted(spans)
@@ -367,11 +387,8 @@ def build_cluster_minute_status(
     except Exception:  # noqa: BLE001
         backend = "unknown"
 
-    dist = [
-        {"bucket": k, "count": v}
-        for k, v in span_buckets.items()
-        if v > 0
-    ]
+    # 细档也返回 0，便于 UI 固定画出 <20d / <10d
+    dist = [{"bucket": k, "count": int(span_buckets.get(k, 0) or 0)} for k in bucket_keys]
 
     label_portrait: Optional[Dict[str, Any]] = None
     if include_label_portrait:
@@ -441,6 +458,21 @@ def expected_minute_asof(*, now: Optional[datetime] = None) -> str:
     return session
 
 
+def _minute_fetched_today(
+    fetched_at: Any, *, now: Optional[datetime] = None
+) -> bool:
+    """本地仓 ``fetched_at`` 是否落在今天（日历日）；增量补齐同日只拉一次。"""
+    s = str(fetched_at or "").strip()
+    if not s:
+        return False
+    try:
+        dt = datetime.fromisoformat(s)
+    except (ValueError, TypeError):
+        return False
+    today = (now or datetime.now()).date()
+    return dt.date() == today
+
+
 def _minute_topup_core(
     *,
     codes: List[str],
@@ -451,7 +483,7 @@ def _minute_topup_core(
     workers: int = DEFAULT_TOPUP_WORKERS,
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """观察池 5m 增量补齐：已对齐跳过；跨度够只拉近几日；缺/短才全窗口。"""
+    """观察池 5m 增量补齐：今日已拉过跳过；已对齐跳过；跨度够只拉近几日；缺/短才全窗口。"""
     from core.data.policy import minute_em_lookback_days
     from core.ports.market import fetch_minute_bars
 
@@ -465,9 +497,11 @@ def _minute_topup_core(
     top_lb = min(max(int(topup_lookback_days or DEFAULT_TOPUP_LOOKBACK_DAYS), 2), full_lb)
     min_span = max(1, int(min_span_days or DEFAULT_MIN_SPAN_DAYS))
     expected = expected_minute_asof()
+    now = datetime.now()
     n_workers = max(1, min(int(workers or DEFAULT_TOPUP_WORKERS), 8, len(watch)))
 
     skipped_aligned = 0
+    skipped_today = 0
     topped = 0
     bootstrapped = 0
     warmed = 0
@@ -476,10 +510,13 @@ def _minute_topup_core(
     done = 0
 
     def _plan(code: str) -> Tuple[str, str, int, bool]:
-        """返回 (code, action, lookback, skip_em)。action: skip|topup|full。"""
+        """返回 (code, action, lookback, skip_em)。action: skip|skip_today|topup|full。"""
         snap = _minute_snapshot_for_code(code, period=period_s)
         if not snap:
             return code, "full", full_lb, False
+        # 同日已拉过：增量不再打远端（含 Short 新浪近端空转）；强更 5m 不受此限
+        if _minute_fetched_today(snap.get("fetched_at"), now=now):
+            return code, "skip_today", 0, True
         span = int(snap.get("span_days") or 0)
         date_max = str(snap.get("date_max") or "")[:10]
         if span >= min_span and expected and date_max and date_max >= expected:
@@ -489,13 +526,24 @@ def _minute_topup_core(
         return code, "full", full_lb, False
 
     plans = [_plan(c) for c in watch]
-    to_fetch = [(c, act, lb, sem) for c, act, lb, sem in plans if act != "skip"]
+    to_fetch = [
+        (c, act, lb, sem)
+        for c, act, lb, sem in plans
+        if act not in ("skip", "skip_today")
+    ]
     skipped_aligned = sum(1 for _, act, _, _ in plans if act == "skip")
-    warmed += skipped_aligned
-    done = skipped_aligned
-    if progress_cb and skipped_aligned:
+    skipped_today = sum(1 for _, act, _, _ in plans if act == "skip_today")
+    skipped_total = skipped_aligned + skipped_today
+    warmed += skipped_total
+    done = skipped_total
+    if progress_cb and skipped_total:
         try:
-            progress_cb(done, total, f"skip aligned ×{skipped_aligned}")
+            bits = []
+            if skipped_today:
+                bits.append(f"今日跳过 ×{skipped_today}")
+            if skipped_aligned:
+                bits.append(f"对齐跳过 ×{skipped_aligned}")
+            progress_cb(done, total, " · ".join(bits) or f"skip ×{skipped_total}")
         except Exception:  # noqa: BLE001
             logger.debug("minute topup progress_cb failed", exc_info=True)
 
@@ -551,13 +599,14 @@ def _minute_topup_core(
         "total": total,
         "warmed": warmed,
         "skipped_aligned": skipped_aligned,
+        "skipped_today": skipped_today,
         "topped": topped,
         "bootstrapped": bootstrapped,
-        "skipped_ready": skipped_aligned,
+        "skipped_ready": skipped_aligned + skipped_today,
         "workers": n_workers,
         "errors": errors[:10],
         "note": (
-            f"5m 增量补齐 · 对齐跳过 · 近 {top_lb} 日 topup（优先新浪/腾讯）· "
+            f"5m 增量补齐 · 今日已拉跳过 · 对齐跳过 · 近 {top_lb} 日 topup（优先新浪/腾讯）· "
             f"缺/短全窗 {full_lb} 日 · {n_workers} 并发"
         ),
     }

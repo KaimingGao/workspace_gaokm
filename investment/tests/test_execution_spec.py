@@ -146,9 +146,14 @@ class TestExecutionResolve(unittest.TestCase):
 
         defaults = load_t0_rules()
         self.assertEqual(defaults["t0_pm_degrade"], "14:00")
+        self.assertEqual(defaults["t0_pm_degrade_buy_then_sell"], "14:00")
+        self.assertEqual(defaults["t0_pm_degrade_sell_then_buy"], "13:00")
         self.assertEqual(defaults["t0_pm_chase_interval_min"], 10)
         self.assertEqual(defaults["t0_pm_chase_interval_min_sell_then_buy"], 10)
         self.assertEqual(defaults["t0_pm_chase_interval_min_buy_then_sell"], 10)
+        self.assertAlmostEqual(defaults["t0_stop_pct_buy_then_sell"], 1.2)
+        self.assertEqual(defaults["t0_stop_arm_bars"], 2)
+        self.assertTrue(defaults["t0_stop_on_close"])
         self.assertTrue(defaults["y_block_tau_nowcast_sign"])
         self.assertNotIn("t0_adverse_stop_pct", defaults)
         self.assertNotIn("t0_time_stop", defaults)
@@ -157,13 +162,18 @@ class TestExecutionResolve(unittest.TestCase):
             {
                 "t0": {
                     "y_block_tau_nowcast_sign": True,
-                    "t0_pm_degrade": "14:00",
+                    "t0_pm_degrade_sell_then_buy": "13:00",
+                    "t0_pm_degrade_buy_then_sell": "14:00",
+                    "t0_stop_pct_buy_then_sell": 1.2,
+                    "t0_stop_arm_bars": 2,
+                    "t0_stop_on_close": True,
                     "t0_pm_chase_interval_min": 10,
                 }
             }
         )
         self.assertTrue(ok, errs)
-        self.assertEqual(norm["t0"]["t0_pm_degrade"], "14:00")
+        self.assertEqual(norm["t0"].get("t0_pm_degrade_buy_then_sell"), "14:00")
+        self.assertAlmostEqual(float(norm["t0"]["t0_stop_pct_buy_then_sell"]), 1.2)
         self.assertEqual(norm["t0"]["t0_pm_chase_interval_min"], 10)
         paper = {"strategy_id": "short", "rules": {}}
         apply_execution_patch_to_paper(paper, norm)
@@ -171,9 +181,33 @@ class TestExecutionResolve(unittest.TestCase):
             resolve_effective_execution(paper=paper, channel="paper")
         )
         self.assertEqual(view["t0"]["t0_pm_degrade"], "14:00")
+        self.assertEqual(view["t0"].get("t0_pm_degrade_buy_then_sell"), "14:00")
+        self.assertAlmostEqual(float(view["t0"]["t0_stop_pct_buy_then_sell"]), 1.2)
         self.assertEqual(view["t0"]["t0_pm_chase_interval_min"], 10)
         self.assertNotIn("t0_adverse_stop_pct", view["t0"])
         self.assertTrue(view["t0"]["y_block_tau_nowcast_sign"])
+
+        ok_dead, norm_dead, errs_dead = validate_execution_patch(
+            {
+                "t0": {
+                    "buy_trigger_pct_buy_then_sell": 0.7,
+                    "sell_trigger_pct_sell_then_buy": 2.4,
+                    "t0_pm_degrade_buy_then_sell": "14:00",
+                }
+            }
+        )
+        self.assertTrue(ok_dead, errs_dead)
+        self.assertNotIn("buy_trigger_pct_buy_then_sell", norm_dead.get("t0") or {})
+        self.assertNotIn("sell_trigger_pct_sell_then_buy", norm_dead.get("t0") or {})
+        self.assertEqual(norm_dead["t0"].get("t0_pm_degrade_buy_then_sell"), "14:00")
+
+    def test_t0_backtest_request_defaults_match_product(self):
+        from web.schemas.paper import T0BacktestRequest
+
+        req = T0BacktestRequest()
+        self.assertEqual(req.lookback, 20)
+        self.assertEqual(req.sell_trigger_pct, 3.0)
+        self.assertEqual(req.buy_trigger_pct, 1.0)
 
     def test_validate_patch_preserves_y_nowcast_oc_gate_false(self):
         from core.execution import validate_execution_patch

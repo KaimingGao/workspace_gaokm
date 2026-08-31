@@ -135,8 +135,8 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "tplus1"
     if "不足1手" in r or "动仓不足" in r or ("手" in r and "不足" in r):
         return "lot_size"
-    # 「分钟路径未触及…」优先归未触达，勿因含「路径」误入 path
-    if "未触及" in r or "未触" in r:
+    # 「分钟路径未触及/未开成…」优先归未触达，勿因含「路径」误入 path
+    if "未触及" in r or "未触" in r or "未开成第一腿" in r:
         return "trigger_miss"
     if "路径" in r or "veto" in r.lower():
         return "path"
@@ -153,7 +153,7 @@ def summarize_skip_reason_label(reason: Optional[str]) -> str:
     cat = classify_t0_skip_reason(r)
     if cat == "trigger_miss":
         if "正T" in r:
-            return "正T未触低吸"
+            return "正T未开第一腿" if "未开成" in r else "正T未触低吸"
         if "反T" in r:
             return "反T未触卖出"
         return SKIP_CAT_LABELS.get(cat, "未触达")
@@ -196,14 +196,63 @@ def extract_scores(day: dict) -> Dict[str, Optional[float]]:
             v = _f(day.get(key))
         return v
 
+    y_tau_oc = _pick("y_tau_oc")
+    if y_tau_oc is None:
+        y_tau_oc = _pick("predicted_score_tau_oc")
+    if y_tau_oc is None:
+        for blob in (feats, raw, day):
+            ft = blob.get("formula_terms_tau") if isinstance(blob, dict) else None
+            if isinstance(ft, dict):
+                y_tau_oc = _f(ft.get("y_tau_raw"))
+                if y_tau_oc is not None:
+                    break
+    ret_ot = None
+    for blob in (feats, raw):
+        if not isinstance(blob, dict):
+            continue
+        ft = blob.get("features_tau")
+        if isinstance(ft, dict) and ft.get("ret_open_to_tau") is not None:
+            ret_ot = _f(ft.get("ret_open_to_tau"))
+            if ret_ot is not None:
+                break
+        if blob.get("ret_open_to_tau") is not None:
+            ret_ot = _f(blob.get("ret_open_to_tau"))
+            if ret_ot is not None:
+                break
+
     return {
         "y_tau": y_tau,
+        "y_tau_oc": y_tau_oc,
+        "ret_open_to_tau": ret_ot,
         "y_path": _pick("y_path"),
         "y_eod": _pick("y_eod"),
         "y_trade": _pick("y_trade"),
         "y_on": _pick("y_on"),
         "gap_pct": gap,
     }
+
+
+def _compound_pct(a: Optional[float], b: Optional[float]) -> Optional[float]:
+    """(1+a%)(1+b%)−1，用于剩余ŷ还原 OC ŷ。"""
+    if a is None or b is None:
+        return None
+    try:
+        return round(((1.0 + float(a) / 100.0) * (1.0 + float(b) / 100.0) - 1.0) * 100.0, 6)
+    except (TypeError, ValueError):
+        return None
+
+
+def resolve_y_tau_oc_for_portrait(sc: Dict[str, Optional[float]]) -> Optional[float]:
+    """画像 τ 命中用：优先 OC 头原始 ŷ；旧日包可从剩余ŷ×open→τ 还原。"""
+    oc = _f(sc.get("y_tau_oc")) if isinstance(sc, dict) else None
+    if oc is not None:
+        return oc
+    y = _f(sc.get("y_tau")) if isinstance(sc, dict) else None
+    rot = _f(sc.get("ret_open_to_tau")) if isinstance(sc, dict) else None
+    restored = _compound_pct(y, rot)
+    if restored is not None:
+        return restored
+    return y
 
 
 def _gap_bucket(gap: Optional[float]) -> str:
@@ -290,6 +339,8 @@ def build_score_portrait(
     """回测日 τ/path 标签分布、ŷ 同号、预估命中。
 
     默认覆盖全部回测日（含跳过）；``traded_only=True`` 仅成交日。
+    τ 命中 / ŷ同号 使用 **OC 头原始 ŷ**（``y_tau_oc``，与训练/Hub 同口径），
+    不用分钟时钟剩余映射后的 ``y_tau``。
     """
     label_tau = {"pos": 0, "neg": 0, "zero": 0, "missing": 0}
     label_path = {"pos": 0, "neg": 0, "zero": 0, "missing": 0}
@@ -315,7 +366,7 @@ def build_score_portrait(
             continue
         # 无成交且未标跳过的空行（如 success=False 被丢弃前）仍计入若有分/标签
         sc = extract_scores(d)
-        y_tau = sc.get("y_tau")
+        y_tau = resolve_y_tau_oc_for_portrait(sc)
         y_path = sc.get("y_path")
         tau_r = _pick_realized(d, "tau_realized")
         if tau_r is None:
@@ -323,6 +374,7 @@ def build_score_portrait(
         path_r = _pick_realized(d, "path_realized")
         has_any = (
             y_tau is not None
+            or sc.get("y_tau") is not None
             or y_path is not None
             or tau_r is not None
             or path_r is not None
@@ -456,7 +508,7 @@ def build_score_portrait(
             "pred_neg": _side_pack(path_by_pred["pred_neg"]),
         },
         "note": (
-            f"scope={scope}；τ命中=ŷ_τ↔tau_realized(eps0.05)；"
+            f"scope={scope}；τ命中=ŷ_τ_oc(OC头)↔tau_realized(eps0.05)；"
             "path命中=ŷ_path↔path_realized；含跳过日（有分/标签才计入）"
         ),
     }

@@ -1666,7 +1666,7 @@ flowchart LR
 
 做 T 第一触达、ŷ_path 训练、tail_anomaly 等依赖 **5m 分钟缓存**（默认 period=`5`）。实现集中在 **skills 层**，上层经 `core.ports.market.fetch_minute_bars` 调用，**不**在业务里直连接 AkShare / BaoStock。
 
-**与日线（日 K）的差异**：研究台「日线」区块服务 **PIT 日 K**——`get_bars(incremental=True)` / **强更日 K** 从本地 `date_max` **增量 merge** 至今日，观察池末 bar 对齐 as-of，供 **ŷ_EOD / IC / OOS** 共用。分钟线为 **强更全量更新**（按 lookback **窗口重拉**远端再 merge，已 Ready 可跳过），**≠ 日 K 增量**；二者本地仓表/路径亦不同。
+**与日线（日 K）的差异**：研究台「日线」区块——日常 **「增量补齐」**（`get_bars(incremental=True)` / `force_latest_bars` 从本地 `date_max` **缺口 merge** 至今日）；兜底 **「强更日 K」**（`incremental=False` 整窗重拉）。观察池末 bar 对齐 as-of，供 **ŷ_EOD / IC / OOS** 共用。分钟线亦有 **增量补齐 / 强更 5m** 双入口（近几日 topup vs lookback 全窗），本地仓表/路径与日 K 不同。
 
 ### 分层与入口
 

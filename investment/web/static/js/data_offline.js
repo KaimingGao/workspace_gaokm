@@ -8,7 +8,7 @@
 import {
   OFFLINE_TOGGLE_TITLE_OFF,
   OFFLINE_TOGGLE_TITLE_ON,
-} from "./data_policy.js";
+} from "./data_policy.js?v=p1734";
 
 export const DATA_OFFLINE_KEY = "investment.data_offline_only";
 

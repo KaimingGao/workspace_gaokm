@@ -456,10 +456,10 @@ export function buildT0ReportHtml(data, opts = {}) {
         portrait.pred_joint && portrait.pred_joint.same_sign_rate,
         portrait.pred_joint && portrait.pred_joint.signed_n
       ),
-      { tip: "全样本 ŷ_τ 与 ŷ_path 同号率（双侧非零）" }
+      { tip: "全样本 ŷ_τ OC头 与 ŷ_path 同号率（双侧非零）" }
     ),
     metricCell("τ预估命中", fmtHit(portrait.tau_hit), {
-      tip: "全样本 ŷ_τ 符号 vs tau_realized（|·|<0.05% 不计）",
+      tip: "ŷ_τ OC头（映射前）符号 vs tau_realized；与训练/Hub同口径（|·|<0.05% 不计）",
     }),
     metricCell("path预估命中", fmtHit(portrait.path_hit), {
       tip: "全样本 ŷ_path 符号 vs path_realized（真实=0 不计）",
@@ -467,7 +467,7 @@ export function buildT0ReportHtml(data, opts = {}) {
     metricCell(
       "成交τ命中",
       fmtHit(portrait.traded && portrait.traded.tau_hit),
-      { tip: "仅成交日 τ 预估命中（对照）" }
+      { tip: "仅成交日；ŷ_τ OC头 vs tau_realized" }
     ),
     metricCell(
       "成交path命中",

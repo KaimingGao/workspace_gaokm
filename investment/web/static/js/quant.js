@@ -11,8 +11,8 @@ import { apiFetch } from "./api_client.js";
 import { loadAndPaintMacroStrip } from "./macro_context_ui.js";
 import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "./lw_charts.js";
 import { mountVirtualTable, colStyle } from "./virtual_table.js";
-import { createScoreTooltipController } from "./score_tooltip.js?v=p1604";
-import { fmtScore, scoreCls } from "./paper/fmt.js?v=p1472";
+import { createScoreTooltipController } from "./score_tooltip.js?v=p1734";
+import { fmtScore, scoreCls } from "./paper/fmt.js?v=p1734";
 import {
   defaultScoringFloors,
   mergeScoringFloors,

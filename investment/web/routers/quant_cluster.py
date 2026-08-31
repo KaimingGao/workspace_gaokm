@@ -34,10 +34,14 @@ def quant_cluster_bars_status(watching_limit: int = 100) -> Dict[str, Any]:
 
 @router.post("/api/quant/cluster-bars/refresh")
 def quant_cluster_bars_refresh(body: ClusterBarsRefreshRequest) -> Dict[str, Any]:
-    """强制增量更新观察池日线；默认后台 Job（``GET /api/jobs/cluster-bars-refresh``）。"""
+    """更新观察池日线；默认后台 Job（``GET /api/jobs/cluster-bars-refresh``）。
+
+    ``mode=topup``：增量补齐；``mode=full``：整窗强更。
+    """
     kwargs = dict(
         lookback=body.lookback,
         watching_limit=body.watching_limit,
+        mode=body.mode,
     )
     try:
         if body.sync:

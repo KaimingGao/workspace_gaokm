@@ -9,12 +9,13 @@ import {
   unwrapJobSnap,
 } from "./cluster_job_ui.js";
 
-/** 研究枢纽 · 观察池日 K 覆盖状态 + 可视化 + 「强更日 K」 */
+/** 研究枢纽 · 观察池日 K 覆盖 + 「增量补齐」/「强更日 K」 */
 export function installClusterBarsUi(q) {
   const { on, apiFetch, readWatchingLimit, escapeHtml } = q;
   const chip = document.getElementById("quant-cluster-bars-chip");
   const msgEl = document.getElementById("quant-cluster-bars-msg");
   const btn = document.getElementById("quant-cluster-bars-refresh");
+  const topupBtn = document.getElementById("quant-cluster-bars-topup");
   const kpiAlign = document.getElementById("quant-bars-kpi-align");
   const kpiAlignSub = document.getElementById("quant-bars-kpi-align-sub");
   const kpiExpected = document.getElementById("quant-bars-kpi-expected");
@@ -34,7 +35,12 @@ export function installClusterBarsUi(q) {
   const barsStrip = document.getElementById("quant-cluster-bars-strip");
 
   if (!chip || !msgEl || !btn) {
-    return { refreshStatus: async () => {}, startRefresh: async () => {} };
+    return { refreshStatus: async () => {}, startRefresh: async () => {}, startTopup: async () => {} };
+  }
+
+  function setBarsButtonsDisabled(disabled) {
+    btn.disabled = !!disabled;
+    if (topupBtn) topupBtn.disabled = !!disabled;
   }
 
   const esc = typeof escapeHtml === "function" ? escapeHtml : (s) => String(s ?? "");
@@ -44,10 +50,26 @@ export function installClusterBarsUi(q) {
   let jobSuccess = null;
   let lastPolledJob = null;
   let lastStatusJob = null;
+  let activeMode = "topup";
 
   function clearJobPanels() {
     jobFailure = null;
     jobSuccess = null;
+  }
+
+  function isTopupSummary(sum) {
+    return (
+      String(sum?.mode || "") === "topup" ||
+      sum?.force_latest === true ||
+      (sum?.full_window !== true && String(sum?.note || "").includes("增量"))
+    );
+  }
+
+  function modeLabel(modeOrSum) {
+    if (typeof modeOrSum === "string") {
+      return modeOrSum === "topup" ? "增量补齐" : "强更日 K";
+    }
+    return isTopupSummary(modeOrSum) ? "增量补齐" : "强更日 K";
   }
 
   function parseBarsProgressMessage(raw) {
@@ -149,12 +171,12 @@ export function installClusterBarsUi(q) {
 
   function paintProgressFailed(job, errText) {
     paintClusterJobPanel(progressEl, {
-      phase: "强更失败",
+      phase: "更新失败",
       job,
       esc,
       mode: "fail",
       errText,
-      hint: "可再次点击「强更日 K」重试",
+      hint: "可再次点击「增量补齐」或「强更日 K」重试",
     });
   }
 
@@ -163,12 +185,17 @@ export function installClusterBarsUi(q) {
     const bits = [];
     if (sum.remote_count != null) bits.push(`远端 ${sum.remote_count}/${sum.total ?? "—"}`);
     if (sum.cache_count != null) bits.push(`缓存 ${sum.cache_count}`);
+    const topup = isTopupSummary(sum);
     paintClusterJobPanel(progressEl, {
-      phase: "强更完成",
+      phase: topup ? "增量完成" : "强更完成",
       job,
       esc,
       mode: "done",
-      hint: bits.length ? bits.join(" · ") : "增量拉取 · 4 路并发 · 到批上限会超时收尾",
+      hint: bits.length
+        ? bits.join(" · ")
+        : topup
+          ? "缺口增量 merge · 4 路并发 · 到批上限会超时收尾"
+          : "整窗重拉 · 4 路并发 · 到批上限会超时收尾",
     });
   }
 
@@ -177,7 +204,7 @@ export function installClusterBarsUi(q) {
     jobFailure = null;
     setProStatusChip(chip, "ok", "DONE");
     const sum = job?.result_summary || job?.result?.bars_refresh || {};
-    const head = ["强更完成"];
+    const head = [isTopupSummary(sum) ? "增量完成" : "强更完成"];
     if (sum.remote_count != null) head.push(`远端 ${sum.remote_count}/${sum.total ?? "—"}`);
     const updated = Number(job?.updated_at);
     if (updated > 0) head.push(fmtAgeSec(Date.now() / 1000 - updated));
@@ -187,14 +214,15 @@ export function installClusterBarsUi(q) {
     barsStrip?.classList.remove("is-busy");
     barsBody?.classList.remove("is-busy");
     btn?.classList.remove("is-busy");
+    topupBtn?.classList.remove("is-busy");
   }
 
   function applyJobFailure(err, job) {
     jobSuccess = null;
-    const errText = String((err && err.message) || err || "日 K 强更失败");
+    const errText = String((err && err.message) || err || "日 K 更新失败");
     jobFailure = { errText, job: job || null };
     setProStatusChip(chip, "error", "FAIL");
-    const head = ["强更失败"];
+    const head = ["更新失败"];
     const j = jobFailure.job;
     if (j && j.current > 0 && j.total > 0) head.push(`${j.current}/${j.total}`);
     head.push(errText);
@@ -204,11 +232,16 @@ export function installClusterBarsUi(q) {
     barsStrip?.classList.remove("is-busy");
     barsBody?.classList.remove("is-busy");
     btn?.classList.remove("is-busy");
+    topupBtn?.classList.remove("is-busy");
   }
 
-  function paintProgressPanel(job, { pollStartedAt } = {}) {
+  function paintProgressPanel(job, { pollStartedAt, mode } = {}) {
     if (!progressEl) return;
-    const msg = job && (job.message || job.error) ? String(job.message || job.error) : "强更日 K…";
+    const topup =
+      mode === "topup" ||
+      isTopupSummary(job?.result_summary || job?.result?.bars_refresh);
+    const defaultMsg = topup ? "增量补齐日 K…" : "强更日 K…";
+    const msg = job && (job.message || job.error) ? String(job.message || job.error) : defaultMsg;
     const parsed = parseBarsProgressMessage(msg);
     const warn =
       parsed.timedOut ||
@@ -219,9 +252,11 @@ export function installClusterBarsUi(q) {
       pollStartedAt,
       esc,
       mode: "running",
-      hint: "强更跳过 36h 复用 · 几乎每只打远端 · 4 路并发防限流 · 到批上限会超时收尾",
-      extraFacts: barsParsedFacts(parsed, pollStartedAt),
       isWarn: warn,
+      hint: topup
+        ? "缺口增量 merge · 跳过 36h 复用 · 约 4 并发"
+        : "整窗重拉 · 仓坏/复权兜底 · 约 4 并发",
+      extraFacts: barsParsedFacts(parsed, pollStartedAt),
     });
   }
 
@@ -231,6 +266,7 @@ export function installClusterBarsUi(q) {
     barsStrip?.classList.toggle("is-busy", on);
     barsBody?.classList.toggle("is-busy", on);
     btn?.classList.toggle("is-busy", on);
+    topupBtn?.classList.toggle("is-busy", on);
     if (!on && !jobFailure && !jobSuccess) clearProgressPanel();
   }
 
@@ -492,7 +528,7 @@ export function installClusterBarsUi(q) {
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">强更 Job</span><span class="quant-bars-foot-v">${esc(jobLine)}</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Rule</span><span class="quant-bars-foot-v">交易日 15:05 前 as-of → 上一交易日</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Force</span><span class="quant-bars-foot-v">${esc(remote)}${marker.saved_at ? ` · ${esc(fmtUtcShort(marker.saved_at))} UTC` : ""}</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Write</span><span class="quant-bars-foot-v">本区强更 · ≠ 刷新名单 · ≠ 5m</span></div>
+      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Write</span><span class="quant-bars-foot-v">增量补齐 / 强更日 K · ≠ 刷新名单 · ≠ 5m</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Fields</span><span class="quant-bars-foot-v">${esc(fields)} · 下游 ŷ_EOD / OLS</span></div>
     </div>`;
   }
@@ -591,7 +627,7 @@ export function installClusterBarsUi(q) {
     if (st === "running") {
       clearJobPanels();
       if (!inflight) {
-        btn.disabled = true;
+        setBarsButtonsDisabled(true);
         inflight = (async () => {
           try {
             const result = await waitClusterBarsJob(job.id);
@@ -602,7 +638,7 @@ export function installClusterBarsUi(q) {
           } catch (err) {
             applyJobFailure(err, lastPolledJob);
           } finally {
-            btn.disabled = false;
+            setBarsButtonsDisabled(false);
             inflight = null;
           }
         })();
@@ -610,7 +646,7 @@ export function installClusterBarsUi(q) {
       return job;
     }
     if (st === "failed") {
-      applyJobFailure(new Error(job.error || job.message || "日 K 强更失败"), job);
+      applyJobFailure(new Error(job.error || job.message || "日 K 更新失败"), job);
       return job;
     }
     if (st === "done") {
@@ -620,15 +656,16 @@ export function installClusterBarsUi(q) {
     return job;
   }
 
-  async function waitClusterBarsJob(jobId) {
+  async function waitClusterBarsJob(jobId, mode = activeMode) {
     const started = Date.now();
     const softCapMs = 12 * 60 * 1000;
     const absoluteCapMs = 45 * 60 * 1000;
     const heartbeatFreshSec = 90;
     let sawOwnJob = false;
+    const waitLabel = modeLabel(mode);
     paintProgressPanel(
-      { message: "提交强更日 K…（排队后台 Job）", pct: 0 },
-      { pollStartedAt: started }
+      { message: `提交${waitLabel}…（排队后台 Job）`, pct: 0 },
+      { pollStartedAt: started, mode }
     );
     while (Date.now() - started < absoluteCapMs) {
       const { ok, data } = await apiFetch(
@@ -638,7 +675,7 @@ export function installClusterBarsUi(q) {
       if (!ok || !job) {
         paintProgressPanel(
           { message: "等待 Job 心跳…", pct: 0 },
-          { pollStartedAt: started }
+          { pollStartedAt: started, mode }
         );
         await new Promise((r) => setTimeout(r, 800));
         continue;
@@ -647,7 +684,7 @@ export function installClusterBarsUi(q) {
         if (sawOwnJob) break;
         paintProgressPanel(
           { message: "等待本任务接管…", pct: 0 },
-          { pollStartedAt: started }
+          { pollStartedAt: started, mode }
         );
         await new Promise((r) => setTimeout(r, 600));
         continue;
@@ -660,13 +697,13 @@ export function installClusterBarsUi(q) {
         return job.result || { success: true };
       }
       if (st === "failed") {
-        throw new Error(job.error || job.message || "日 K 强更失败");
+        throw new Error(job.error || job.message || `${waitLabel}失败`);
       }
       if (st === "idle" && sawOwnJob) {
         throw new Error("日 K 任务已结束但未返回结果");
       }
       const pct = Number(job.pct);
-      const line = job.message || "强更日 K…";
+      const line = job.message || `${waitLabel}…`;
       const parsed = parseBarsProgressMessage(line);
       const chipMap = {
         queue: "QUEUE",
@@ -678,7 +715,7 @@ export function installClusterBarsUi(q) {
       };
       setProStatusChip(chip, "busy", chipMap[parsed.phase] || "SYNC");
       setBarsBusy(true);
-      paintProgressPanel(job, { pollStartedAt: started });
+      paintProgressPanel(job, { pollStartedAt: started, mode });
       const headBits = [line];
       if (Number.isFinite(pct) && pct > 0) headBits.push(`${Math.round(pct)}%`);
       if (parsed.elapsedSec != null) headBits.push(fmtDuration(parsed.elapsedSec));
@@ -690,31 +727,34 @@ export function installClusterBarsUi(q) {
       const updatedAt = Number(job.updated_at || 0);
       const ageSec = updatedAt ? Date.now() / 1000 - updatedAt : 999;
       if (Date.now() - started > softCapMs && ageSec > heartbeatFreshSec) {
-        throw new Error("日 K 强更超时（长时间无进度）");
+        throw new Error(`${waitLabel}超时（长时间无进度）`);
       }
       await new Promise((r) => setTimeout(r, 500));
     }
-    throw new Error("日 K 强更超时");
+    throw new Error(`${waitLabel}超时`);
   }
 
-  async function startRefresh() {
+  async function startRefresh(mode = "full") {
     if (inflight) return inflight;
+    const modeS = mode === "topup" ? "topup" : "full";
+    activeMode = modeS;
+    const label = modeLabel(modeS);
     inflight = (async () => {
       clearJobPanels();
-      btn.disabled = true;
+      setBarsButtonsDisabled(true);
       setBarsBusy(true);
       setProStatusChip(chip, "busy", "QUEUE");
-      msgEl.textContent = "提交强更日 K…";
+      msgEl.textContent = `提交${label}…`;
       paintProgressPanel(
-        { message: "提交强更日 K…", pct: 0 },
-        { pollStartedAt: Date.now() }
+        { message: `提交${label}…`, pct: 0 },
+        { pollStartedAt: Date.now(), mode: modeS }
       );
       try {
         const limit = typeof readWatchingLimit === "function" ? readWatchingLimit() : 100;
         const { ok, data, error } = await apiFetch("/api/quant/cluster-bars/refresh", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ lookback: 80, watching_limit: limit }),
+          body: JSON.stringify({ lookback: 80, watching_limit: limit, mode: modeS }),
         });
         if (!ok) throw new Error(error || "提交失败");
         let result = data;
@@ -722,13 +762,13 @@ export function installClusterBarsUi(q) {
           if (data.reused) {
             paintProgressPanel(
               {
-                message: data.job.message || "复用进行中的强更 Job…",
+                message: data.job.message || "复用进行中的日 K Job…",
                 pct: data.job.pct,
               },
-              { pollStartedAt: Date.now() }
+              { pollStartedAt: Date.now(), mode: modeS }
             );
           }
-          result = await waitClusterBarsJob(data.job.id);
+          result = await waitClusterBarsJob(data.job.id, modeS);
         }
         if (result && result.status) {
           paint(result.status);
@@ -736,11 +776,12 @@ export function installClusterBarsUi(q) {
           await refreshStatus();
         }
         if (result && result.success === false) {
-          throw new Error(result.error || "日 K 强更失败");
+          throw new Error(result.error || `${label}失败`);
         }
         const br = (result && result.bars_refresh) || {};
         if (br.remote_count != null) {
-          msgEl.textContent = `强更完成 · 远端 ${br.remote_count}/${br.total ?? "—"} · 缓存 ${br.cache_count ?? "—"}`;
+          const doneLabel = isTopupSummary(br) ? "增量完成" : "强更完成";
+          msgEl.textContent = `${doneLabel} · 远端 ${br.remote_count}/${br.total ?? "—"} · 缓存 ${br.cache_count ?? "—"}`;
         }
         clearJobPanels();
         applyJobSuccess(lastPolledJob);
@@ -748,7 +789,7 @@ export function installClusterBarsUi(q) {
         applyJobFailure(err, lastPolledJob);
         throw err;
       } finally {
-        btn.disabled = false;
+        setBarsButtonsDisabled(false);
         inflight = null;
         if (!jobFailure && !jobSuccess) setBarsBusy(false);
         try {
@@ -761,10 +802,20 @@ export function installClusterBarsUi(q) {
     return inflight;
   }
 
+  async function startTopup() {
+    return startRefresh("topup");
+  }
+
   on("quant-cluster-bars-refresh", "click", (e) => {
     e.preventDefault();
-    startRefresh().catch(() => {});
+    startRefresh("full").catch(() => {});
   });
+  if (topupBtn) {
+    on("quant-cluster-bars-topup", "click", (e) => {
+      e.preventDefault();
+      startTopup().catch(() => {});
+    });
+  }
 
   (async () => {
     try {
@@ -775,5 +826,5 @@ export function installClusterBarsUi(q) {
     }
   })();
 
-  return { refreshStatus, startRefresh, syncJobSlot };
+  return { refreshStatus, startRefresh, startTopup, syncJobSlot };
 }

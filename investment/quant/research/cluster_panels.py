@@ -7,7 +7,8 @@
 
 拉日线默认 **刷新过期票**（约 36h 内缓存仍复用）；
 ``refresh_bars=False`` 时纯缓存优先，供改参快跑。
-``force_latest_bars=True``：跳过 36h 复用，增量拉网合并到最新（当日首次分组自动开）。
+``force_latest_bars=True``：跳过 36h 复用，增量拉网合并到最新（当日首次分组自动开 · UI「增量补齐」）。
+``full_window_bars=True``：整窗重拉（``incremental=False``；UI「强更日 K」兜底）。
 """
 
 
@@ -42,22 +43,24 @@ def _load_bars_for_cluster(
     lookback: int,
     refresh_bars: bool,
     force_latest_bars: bool = False,
+    full_window_bars: bool = False,
 ) -> tuple:
     """返回 (bars, src, fetched_remote).
 
     默认缓存优先；``refresh_bars`` 时仅对「超过约 36h / 条数不足」的票打远端；
-    ``force_latest_bars`` 时跳过 36h 复用，``cache_max_age_hours<=0`` 增量拉到最新。
+    ``force_latest_bars`` 时跳过 36h 复用，``cache_max_age_hours<=0`` 增量拉到最新；
+    ``full_window_bars`` 时整窗重拉（``incremental=False``），覆盖 force 增量。
     """
     from core.data.facade import bars_and_source_research as bars_and_source
 
     limit = lookback + 35
     min_bars = max(20, min(limit, 40))
-    if force_latest_bars:
+    if full_window_bars or force_latest_bars:
         bars, src = bars_and_source(
             code,
             limit=limit,
             cache_max_age_hours=0,
-            incremental=True,
+            incremental=not bool(full_window_bars),
             offline_ok=False,
         )
         src_s = str(src or "empty")
@@ -66,7 +69,7 @@ def _load_bars_for_cluster(
             or src_s.startswith("empty")
             or not src_s.startswith("cache")
         )
-        # skip_remote（末根已到今天）仍算完成强制路径，不计远端
+        # skip_remote（末根已到今天 / 增量无缺口）仍算完成强制路径，不计远端
         if src_s.startswith("cache"):
             remote = False
         if bars:
@@ -135,6 +138,7 @@ def _load_index_bars_once(
     limit: int,
     refresh_bars: bool,
     force_latest_bars: bool = False,
+    full_window_bars: bool = False,
     progress_cb: ProgressCb = None,
     progress_n: int = 1,
     timeout_sec: float = 12.0,
@@ -150,11 +154,12 @@ def _load_index_bars_once(
     if not bench_s:
         return []
     min_bars = max(15, min(limit, 30))
-    do_net = bool(refresh_bars or force_latest_bars)
-    age = 0.0 if force_latest_bars else (36.0 if refresh_bars else 24.0 * 14)
+    do_force = bool(force_latest_bars or full_window_bars)
+    do_net = bool(refresh_bars or do_force)
+    age = 0.0 if do_force else (36.0 if refresh_bars else 24.0 * 14)
 
     # 1) 本地缓存（含指数代码若曾入库）；强制最新时仍先试盘，不够再打网
-    if not force_latest_bars:
+    if not do_force:
         for code in _index_symbol_candidates(bench_s):
             try:
                 bars, _src = bars_and_source(
@@ -251,6 +256,7 @@ def _load_one_panel(
     index_bars: Optional[List[dict]],
     refresh_bars: bool = False,
     force_latest_bars: bool = False,
+    full_window_bars: bool = False,
 ) -> Dict[str, Any]:
     from core.fundamentals_pit import resolve_fundamentals_for_score
 
@@ -261,6 +267,7 @@ def _load_one_panel(
         lookback=lookback,
         refresh_bars=bool(refresh_bars),
         force_latest_bars=bool(force_latest_bars),
+        full_window_bars=bool(full_window_bars),
     )
     out: Dict[str, Any] = {
         "input_code": code,
@@ -356,19 +363,22 @@ def build_cluster_ols_panels(
     max_workers: int = 12,
     refresh_bars: bool = True,
     force_latest_bars: bool = False,
+    full_window_bars: bool = False,
 ) -> Dict[str, Any]:
     """构建分组 OLS 输入面板，并汇总财务 PIT 覆盖。
 
     refresh_bars=True（默认）：缓存未过期（约 36h）仍用本地；过期/缺条才限流拉网。
     refresh_bars=False：本地有足够日线即用，不打 AkShare（改参快跑）。
     force_latest_bars=True：增量强制对齐最新（覆盖 refresh 的 36h 复用）。
+    full_window_bars=True：整窗重拉（覆盖 force 增量）。
     """
     from core.fundamentals_pit import fundamentals_pit_summary
     from core.ports.market import default_benchmark, resolve_market_code
     from core.signal.config import load_signal_config
 
     use_pit = bool(pit_fundamentals)
-    do_force = bool(force_latest_bars)
+    do_full = bool(full_window_bars)
+    do_force = bool(force_latest_bars) or do_full
     do_refresh = bool(refresh_bars) or do_force
     roles = dict(code_roles or {})
     fund_cfg = (load_signal_config() or {}).get("fundamentals") or {}
@@ -386,8 +396,10 @@ def build_cluster_ols_panels(
 
     if progress_cb:
         try:
-            if do_force:
-                mode = "强制更新到最新"
+            if do_full:
+                mode = "整窗强更"
+            elif do_force:
+                mode = "增量补齐到最新"
             elif do_refresh:
                 mode = "刷新过期票"
             else:
@@ -422,7 +434,8 @@ def build_cluster_ols_panels(
                 bench,
                 limit=lookback + 35,
                 refresh_bars=do_refresh,
-                force_latest_bars=do_force,
+                force_latest_bars=bool(force_latest_bars) and not do_full,
+                full_window_bars=do_full,
                 progress_cb=progress_cb,
                 progress_n=n,
                 timeout_sec=idx_timeout,
@@ -458,7 +471,8 @@ def build_cluster_ols_panels(
                 fund_cfg=fund_cfg,
                 index_bars=_index_for(code),
                 refresh_bars=do_refresh,
-                force_latest_bars=do_force,
+                force_latest_bars=bool(force_latest_bars) and not do_full,
+                full_window_bars=do_full,
             ): i
             for i, code in enumerate(code_list)
         }
@@ -658,17 +672,23 @@ def build_cluster_ols_panels(
         "pit_fundamentals": use_pit,
         "bars_refresh": {
             "requested": do_refresh,
-            "force_latest": do_force,
+            "force_latest": bool(force_latest_bars) and not do_full,
+            "full_window": do_full,
+            "mode": "full" if do_full else ("topup" if do_force else ("refresh" if do_refresh else "cache")),
             "remote_count": int(remote_n),
             "total": int(n),
             "cache_count": max(0, int(n) - int(remote_n)),
             "note": (
-                f"强制增量更新到最新（远端 {remote_n}/{n}）"
-                if do_force
+                f"整窗强更（远端 {remote_n}/{n}）"
+                if do_full
                 else (
-                    f"刷新过期：远端更新 {remote_n}/{n}，其余用本地缓存"
-                    if do_refresh
-                    else f"缓存优先：未强制拉网（本批远端回退 {remote_n}/{n}）"
+                    f"增量补齐到最新（远端 {remote_n}/{n}）"
+                    if do_force
+                    else (
+                        f"刷新过期：远端更新 {remote_n}/{n}，其余用本地缓存"
+                        if do_refresh
+                        else f"缓存优先：未强制拉网（本批远端回退 {remote_n}/{n}）"
+                    )
                 )
             ),
         },

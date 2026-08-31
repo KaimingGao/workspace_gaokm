@@ -93,6 +93,9 @@ export function installClusterMinuteUi(q) {
     const sum = job?.result_summary || lastPolledJob?.result?.minute_warmup || {};
     const bits = [];
     if (sum.warmed != null) bits.push(`完成 ${sum.warmed}/${sum.total ?? "—"}`);
+    if (sum.skipped_today != null && Number(sum.skipped_today) > 0) {
+      bits.push(`今日跳过 ${sum.skipped_today}`);
+    }
     if (sum.skipped_aligned != null) bits.push(`对齐跳过 ${sum.skipped_aligned}`);
     else if (sum.skipped_ready != null) bits.push(`跳过 Ready ${sum.skipped_ready}`);
     if (sum.topped != null) bits.push(`topup ${sum.topped}`);
@@ -160,7 +163,7 @@ export function installClusterMinuteUi(q) {
       esc,
       mode: "running",
       hint: topup
-        ? `对齐跳过 · 近 ${TOPUP_LOOKBACK_DAYS} 日 merge · 约 4 并发 · 缺/短全窗口`
+        ? `今日已拉跳过 · 对齐跳过 · 近 ${TOPUP_LOOKBACK_DAYS} 日 merge · 约 4 并发 · 缺/短全窗口`
         : "逐只串行 · 东财/BaoStock 30 日历日 · 新浪/腾讯有数则跳过 BaoStock · 各源间隔 10s · Ready% 为 span≥30d 覆盖（与 Job 进度不同步刷新）",
     });
   }
@@ -304,25 +307,36 @@ export function installClusterMinuteUi(q) {
     const dist = Array.isArray(data.span_distribution) ? data.span_distribution : [];
     const minSpan = Number(data.min_span_days) || MIN_SPAN_DAYS;
     const shortLabel = `<${minSpan}d`;
-    const rows = dist
+    // 累计三档始终展示（含 0），避免全员落在 20–29d 时细档被滤掉、看起来「没变化」
+    const fineOrder = [shortLabel, "<20d", "<10d"];
+    const shortBucketState = (bucket) => {
+      if (bucket === "<10d") return "is-bad";
+      if (bucket === "<20d") return "is-warn";
+      return "is-warn";
+    };
+    const byBucket = new Map(fineOrder.map((k) => [k, 0]));
+    dist
       .filter((row) => String(row.bucket || "").startsWith("<"))
-      .map((row) => ({
-        label: String(row.bucket || shortLabel),
-        count: Number(row.count) || 0,
-        state: "is-warn",
-        title: String(row.bucket || shortLabel),
-        universeTotal: total,
-      }));
-    if (!rows.length && short > 0) {
-      rows.push({
-        label: shortLabel,
-        count: short,
-        state: "is-warn",
-        title: shortLabel,
-        universeTotal: total,
+      .forEach((row) => {
+        const label = String(row.bucket || shortLabel);
+        byBucket.set(label, Number(row.count) || 0);
       });
+    if (short > 0 && !(Number(byBucket.get(shortLabel)) > 0)) {
+      byBucket.set(shortLabel, short);
     }
-    renderBarRows(covBody, rows.filter((r) => r.count > 0), {
+    const ordered = [
+      ...fineOrder,
+      ...[...byBucket.keys()].filter((k) => !fineOrder.includes(k)),
+    ];
+    const rows = ordered.map((label) => ({
+      label,
+      count: byBucket.get(label) || 0,
+      state: shortBucketState(label),
+      title: label,
+      universeTotal: total,
+    }));
+    const hasShort = rows.some((r) => (Number(r.count) || 0) > 0);
+    renderBarRows(covBody, hasShort ? rows : [], {
       emptyText: `无 ${shortLabel}`,
       head,
     });
@@ -677,6 +691,9 @@ export function installClusterMinuteUi(q) {
         const mw = (result && result.minute_warmup) || {};
         if (mw.warmed != null) {
           const bits = [`${label}完成`, `${mw.warmed}/${mw.total ?? "—"}`];
+          if (mw.skipped_today != null && Number(mw.skipped_today) > 0) {
+            bits.push(`今日 ${mw.skipped_today}`);
+          }
           if (mw.skipped_aligned != null) bits.push(`跳过 ${mw.skipped_aligned}`);
           if (mw.topped != null) bits.push(`topup ${mw.topped}`);
           msgEl.textContent = bits.join(" · ");

@@ -165,9 +165,13 @@ def refresh_cluster_bars_only(
     *,
     watching_limit: int = 100,
     lookback: int = 80,
+    mode: str = "topup",
     progress_cb: Optional[Any] = None,
 ) -> Dict[str, Any]:
-    """仅强制增量更新观察池日线，不跑 OLS 分组。"""
+    """仅更新观察池日线，不跑 OLS 分组。
+
+    ``mode=topup``：强制增量对齐最新（日常）；``mode=full``：整窗重拉（仓坏/复权问题兜底）。
+    """
     from quant.research.cluster_bars_daily import (
         cluster_bars_session_date,
         mark_force_latest_bars_done,
@@ -177,6 +181,10 @@ def refresh_cluster_bars_only(
 
     limit = clamp_watching_limit(watching_limit, 100)
     lb = max(40, int(lookback or 80))
+    mode_s = str(mode or "topup").strip().lower()
+    if mode_s not in ("full", "topup"):
+        mode_s = "topup"
+    do_full = mode_s == "full"
     watchlist: List[Any] = []
     try:
         from core.watching.store import read_watching
@@ -200,6 +208,7 @@ def refresh_cluster_bars_only(
             "error": "观察池为空，无法更新日线",
             "watching_limit": limit,
             "universe_count": 0,
+            "mode": mode_s,
         }
 
     bars_session = cluster_bars_session_date()
@@ -219,11 +228,13 @@ def refresh_cluster_bars_only(
         code_roles=dict(uni.get("code_roles") or {}),
         progress_cb=_on_progress,
         refresh_bars=False,
-        force_latest_bars=True,
+        force_latest_bars=not do_full,
+        full_window_bars=do_full,
     )
     bars_refresh = dict(built.get("bars_refresh") or {})
     bars_refresh["manual_refresh"] = True
     bars_refresh["session_date"] = bars_session
+    bars_refresh["mode"] = mode_s
     mark_force_latest_bars_done(
         session_date=bars_session,
         remote_count=int(bars_refresh.get("remote_count") or 0),
@@ -233,6 +244,7 @@ def refresh_cluster_bars_only(
     return {
         "success": True,
         "task": "cluster_bars_refresh",
+        "mode": mode_s,
         "watching_limit": limit,
         "universe_count": n_codes,
         "lookback": lb,

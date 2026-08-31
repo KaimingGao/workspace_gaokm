@@ -3,7 +3,7 @@ import { renderLineChart, renderDualLineChart, renderMultiLineChart } from "../l
 import { mountVirtualTable } from "../virtual_table.js";
 import { fmtScore, scoreCls } from "../paper/fmt.js";
 import { renderT0Viz, wireT0SkipTips } from "../paper/t0_viz.js";
-import { wireT0ProcessTips } from "../paper/t0_table.js?v=p1648";
+import { wireT0ProcessTips } from "../paper/t0_table.js?v=p1734";
 import { portfolioBtScoreFloorPayload as buildBtScoreFloorPayload, mergeScoringFloors } from "./scoring.js";
 import { truncateStockName, watchingNameSpanHtml } from "./names.js";
 import { downloadBlob } from "../shared.js";

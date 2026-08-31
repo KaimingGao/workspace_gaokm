@@ -23,9 +23,9 @@ import {
   Y_PATH_TITLE,
   Y_ON_TITLE,
   Y_NOWCAST_TITLE,
-} from "./fmt.js?v=p1472";
+} from "./fmt.js?v=p1734";
 import { paginateItems, renderPagerHtml } from "../api_client.js";
-import { watchingScoreDetail } from "../quant/watching_render.js?v=p1457";
+import { watchingScoreDetail } from "../quant/watching_render.js?v=p1734";
 import {
   isSingleHeadItem,
   singleHeadBadgeHtml,

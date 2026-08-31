@@ -21,7 +21,7 @@ import {
   Y_NOWCAST_TITLE,
   scoreSeriesStats,
   isHeuristicScoreScale,
-} from "./paper/fmt.js?v=p1660";
+} from "./paper/fmt.js?v=p1734";
 import { drawSeries, appendLiveNavPoint } from "./paper/chart.js?v=p1163";
 import { TRADE_TITLE } from "./quant/watching_quotes_ui.js?v=p1457";
 import { renderOpsReport as renderOpsReportEl } from "./paper/ops_ui.js";
@@ -40,7 +40,7 @@ import {
   buildPaperHoldingsTableHtml,
   buildPaperOriginBarHtml,
   buildPaperHoldActionBarHtml,
-} from "./paper/holdings_ui.js?v=p1617";
+} from "./paper/holdings_ui.js?v=p1734";
 import { renderPaperRulesHtml } from "./paper/rules_ui.js?v=p1658";
 import {
   renderExecutionRulesHtml,
@@ -53,7 +53,7 @@ import {
   resolveT0BacktestScope,
   normalizeExecutionView,
   renderExecutionDiffHtml,
-} from "./paper/execution_ui.js?v=p1661";
+} from "./paper/execution_ui.js?v=p1734";
 import { buildPaperLogsView, buildPaperLogsCsv } from "./paper/logs_ui.js?v=p1658";
 import { downloadBlob } from "./shared.js";
 import {
@@ -62,10 +62,10 @@ import {
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
 } from "./paper/t0_ui.js";
-import { buildT0SummaryLine } from "./paper/t0_report.js";
+import { buildT0SummaryLine } from "./paper/t0_report.js?v=p1734";
 import { wireT0SkipTips } from "./paper/t0_viz.js";
-import { wireT0ProcessTips } from "./paper/t0_table.js?v=p1648";
-import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1705";
+import { wireT0ProcessTips } from "./paper/t0_table.js?v=p1734";
+import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1734";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1704";
 import {
@@ -73,7 +73,7 @@ import {
   installDataOfflineToggle,
   offlineOnlyQuery,
 } from "./data_offline.js";
-import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js";
+import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js?v=p1734";
 import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p1662";
 import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
 import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p1416";
@@ -90,7 +90,7 @@ import {
   tailAnomalyDetailFields,
   overheatDetailFields,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p1709";
+} from "./score_tooltip.js?v=p1734";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 

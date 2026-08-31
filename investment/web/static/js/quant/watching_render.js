@@ -2,8 +2,8 @@
  * 观察池 HTML 渲染 helpers（纯字符串 / 轻量 DOM 写入）。
  */
 import { escapeHtml } from "../shared.js";
-import { fmtTableScore } from "../paper/fmt.js?v=p1472";
-import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p1604";
+import { fmtTableScore } from "../paper/fmt.js?v=p1734";
+import { marketPriorDetailFields, tailAnomalyDetailFields, overheatDetailFields } from "../score_tooltip.js?v=p1734";
 import { watchingNameSpanHtml } from "./names.js";
 
 export function describeWatchingSource(src, index) {
@@ -104,15 +104,30 @@ export function watchingScoreDetail(it) {
         warnings: Array.isArray(ep.warnings) ? ep.warnings.slice(0, 2) : [],
       }
     : null;
+  const gapPct =
+    it &&
+    (it.features_tau && it.features_tau.gap_pct != null
+      ? it.features_tau.gap_pct
+      : it.gap_pct);
+  // tip 头必须带 OC：缺 y_tau_oc 时用组成合计，避免落成剩余映射分
+  let yTauOc =
+    it &&
+    (it.y_tau_oc != null
+      ? it.y_tau_oc
+      : it.predicted_score_tau_oc != null
+        ? it.predicted_score_tau_oc
+        : null);
+  if (yTauOc == null && tauTerms && tauTerms.y_tau_raw != null) {
+    yTauOc = tauTerms.y_tau_raw;
+  }
+  if (yTauOc == null && tauTerms && tauTerms.total != null) {
+    yTauOc = tauTerms.total;
+  }
   return JSON.stringify({
     stock_code: (it && (it.stock_code || it.code)) || null,
-    predicted_score_nowcast: it && it.predicted_score_nowcast,
-    nowcast_vs: (it && it.nowcast_vs) || null,
-    nowcast_as_of: (it && it.nowcast_as_of) || null,
-    nowcast_K: it && it.nowcast_K,
-    nowcast_q: it && it.nowcast_q,
-    nowcast_x_prior: it && it.nowcast_x_prior,
-    predicted_score_eod: it && it.predicted_score_eod,
+    // ŷ_τ OC 靠前，防止 data-score-detail 截断后 tip 退化成剩余映射分
+    y_tau_oc: yTauOc,
+    predicted_score_tau_oc: yTauOc,
     predicted_score_tau:
       it &&
       (it.predicted_score_tau != null
@@ -120,6 +135,14 @@ export function watchingScoreDetail(it) {
         : it.score_rem != null
           ? it.score_rem
           : it.predicted_score_rem),
+    gap_pct: gapPct,
+    predicted_score_nowcast: it && it.predicted_score_nowcast,
+    nowcast_vs: (it && it.nowcast_vs) || null,
+    nowcast_as_of: (it && it.nowcast_as_of) || null,
+    nowcast_K: it && it.nowcast_K,
+    nowcast_q: it && it.nowcast_q,
+    nowcast_x_prior: it && it.nowcast_x_prior,
+    predicted_score_eod: it && it.predicted_score_eod,
     predicted_score_on: it && it.predicted_score_on,
     predicted_score_path: it && (it.predicted_score_path != null ? it.predicted_score_path : it.y_path),
     y_path: it && it.y_path,
@@ -132,7 +155,6 @@ export function watchingScoreDetail(it) {
     ),
     path_tip_model: (it && it.path_tip_model) || null,
     y_path_enter: it && it.y_path_enter != null ? it.y_path_enter : null,
-    gap_pct: it && it.gap_pct,
     predicted_score: it && it.predicted_score != null ? it.predicted_score : it && it.score,
     score: it && it.score != null ? it.score : it && it.predicted_score,
     predicted_score_blend: it && it.predicted_score_blend,
@@ -231,6 +253,7 @@ function slimFormulaTerms(expl, maxTerms = 10) {
   return {
     intercept: expl.intercept,
     total: expl.total,
+    y_tau_raw: expl.y_tau_raw != null ? expl.y_tau_raw : null,
     terms: kept,
     head: expl.head,
   };

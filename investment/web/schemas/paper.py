@@ -74,13 +74,23 @@ class T0BacktestRequest(BaseModel):
     code: Optional[str] = None
     codes: Optional[list] = None
     from_paper: bool = True
-    lookback: int = Field(default=10, ge=10, le=500)
+    lookback: int = Field(default=20, ge=10, le=500)
     initial_shares: float = Field(default=1000, ge=100, le=100000)
     t0_ratio: float = Field(default=1.0, ge=0.05, le=1.0)
-    sell_trigger_pct: float = Field(default=1.0, ge=0.1, le=20)
+    sell_trigger_pct: float = Field(default=3.0, ge=0.1, le=20)
     buy_trigger_pct: float = Field(default=1.0, ge=0.1, le=20)
-    buy_trigger_pct_sell_then_buy: Optional[float] = Field(default=None, ge=0.1, le=20)
-    sell_trigger_pct_buy_then_sell: Optional[float] = Field(default=None, ge=0.1, le=20)
+    buy_trigger_pct_sell_then_buy: Optional[float] = Field(
+        default=None,
+        ge=0.1,
+        le=20,
+        description="反T第二腿买回触发%（相对卖出价）",
+    )
+    sell_trigger_pct_buy_then_sell: Optional[float] = Field(
+        default=None,
+        ge=0.1,
+        le=20,
+        description="正T第二腿卖旧触发%（相对买价）",
+    )
     must_cover_same_day: bool = True
     must_cover_same_day_sell_then_buy: Optional[bool] = Field(default=None)
     must_cover_same_day_buy_then_sell: Optional[bool] = Field(default=None)
@@ -111,7 +121,7 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.05,
         le=5.0,
-        description="dual_y：|y_trade|>此值须与 y_τ 同号（默认 0.1%）",
+        description="dual_y：|y_trade|>此值须与 y_τ 同号（默认 0.5%）",
     )
     y_trade_floor: Optional[float] = Field(
         default=None, ge=0.0, le=5.0, description="已弃用：别名 y_trade_enter"
@@ -165,7 +175,7 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.05,
         le=5.0,
-        description="dual_y：|y_eod|>此值须与 y_τ 同号（默认 0.1%）",
+        description="dual_y：|y_eod|>此值须与 y_τ 同号（默认 0.5%）",
     )
     y_eod_tau_sign_gate: Optional[float] = Field(
         default=None,
@@ -194,7 +204,7 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=0.05,
         le=10.0,
-        description="dual_y：|nc|>此值须与 y_τ 同号（默认 3%）",
+        description="dual_y：|nc|>此值须与 y_τ 同号（默认 0.5%）",
     )
     y_nowcast_enter: Optional[float] = Field(
         default=None,
@@ -245,6 +255,10 @@ class T0BacktestRequest(BaseModel):
         le=1.0,
         description="反T：固定前缀后半下跌K占比下限",
     )
+    y_prefix_vs_path_skip: Optional[bool] = Field(
+        default=None,
+        description="前缀窗(H−L)/ref% > |ŷ_path| 则跳过当日做T",
+    )
     y_tau_entry_price_mult: Optional[float] = Field(
         default=None,
         ge=0.0,
@@ -259,12 +273,12 @@ class T0BacktestRequest(BaseModel):
     t0_pm_degrade_sell_then_buy: Optional[str] = Field(
         default=None,
         max_length=8,
-        description="反T午后闸 HH:MM；禁新开 + 买回中点追价",
+        description="反T午后闸/中点追价起算 HH:MM；默认 13:00；空=关",
     )
     t0_pm_degrade_buy_then_sell: Optional[str] = Field(
         default=None,
         max_length=8,
-        description="正T午后闸 HH:MM；禁新开 + 卖旧中点追价",
+        description="正T午后闸/中点追价起算 HH:MM；默认 14:00；空=关",
     )
     t0_pm_chase_interval_min: Optional[int] = Field(
         default=None,
@@ -282,7 +296,29 @@ class T0BacktestRequest(BaseModel):
         default=None,
         ge=1,
         le=60,
-        description="正T中点追价间隔（分钟），默认 10（卖旧下移）",
+        description="正T中点追价间隔（分钟），默认 10（卖旧目标下移）",
+    )
+    t0_stop_pct_buy_then_sell: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=20.0,
+        description="正T跌破止损%（相对第一腿买价）；0=关",
+    )
+    t0_stop_pct_sell_then_buy: Optional[float] = Field(
+        default=None,
+        ge=0.0,
+        le=20.0,
+        description="反T涨破止损%（相对第一腿卖价）；0=关",
+    )
+    t0_stop_arm_bars: Optional[int] = Field(
+        default=None,
+        ge=0,
+        le=48,
+        description="正/反T止损：入场后跳过 N 根 5m 再启用",
+    )
+    t0_stop_on_close: Optional[bool] = Field(
+        default=None,
+        description="正/反T止损：true=收盘破线才触发",
     )
 
 
@@ -403,6 +439,7 @@ class PaperExecutionPatchRequest(BaseModel):
     y_prefix_segment_enabled_buy_then_sell: Optional[bool] = None
     y_prefix_upbar_ratio_buy_then_sell: Optional[float] = None
     y_prefix_downbar_ratio_sell_then_buy: Optional[float] = None
+    y_prefix_vs_path_skip: Optional[bool] = None
     y_tau_entry_price_mult: Optional[float] = None
     y_score_source: Optional[str] = Field(
         default=None, max_length=24, description="compute|live_book|ledger"
@@ -413,4 +450,8 @@ class PaperExecutionPatchRequest(BaseModel):
     t0_pm_chase_interval_min: Optional[int] = None
     t0_pm_chase_interval_min_sell_then_buy: Optional[int] = None
     t0_pm_chase_interval_min_buy_then_sell: Optional[int] = None
+    t0_stop_pct_buy_then_sell: Optional[float] = None
+    t0_stop_pct_sell_then_buy: Optional[float] = None
+    t0_stop_arm_bars: Optional[int] = None
+    t0_stop_on_close: Optional[bool] = None
 
