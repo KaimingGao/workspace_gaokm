@@ -3776,3 +3776,52 @@ body[data-page="watching"] .watching-empty-text {
   }
 }
 
+
+/* 数据模式：仅本地仓 / 可拉远端（与 follow .paper-t0-toggle 同形） */
+body[data-page="watching"] .data-offline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+  margin: 0;
+}
+body[data-page="watching"] .data-offline-toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+body[data-page="watching"] .data-offline-toggle .paper-t0-toggle-track {
+  position: relative;
+  width: 38px;
+  height: 22px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--ink-3) 22%, var(--line));
+  transition: background 0.18s ease;
+  flex: 0 0 auto;
+}
+body[data-page="watching"] .data-offline-toggle .paper-t0-toggle-track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+  transition: transform 0.18s ease;
+}
+body[data-page="watching"] .data-offline-toggle input:checked + .paper-t0-toggle-track {
+  background: color-mix(in srgb, #047857 75%, #059669);
+}
+body[data-page="watching"] .data-offline-toggle input:checked + .paper-t0-toggle-track::after {
+  transform: translateX(16px);
+}
+body[data-page="watching"] .data-offline-toggle-text {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--ink-2);
+  white-space: nowrap;
+}

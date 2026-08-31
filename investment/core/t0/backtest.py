@@ -421,6 +421,7 @@ def _walk_t0(
                 pool_gaps=pool_day.get("pool_gaps"),
                 sector_gap_breadth=pool_day.get("sector_gap_breadth"),
                 sector_gap_median=ref_map.get(stock_code),
+                minute_bars=mins,
             )
         day = simulate_t0_day(
             bar=bar_day,

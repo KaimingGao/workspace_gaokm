@@ -156,23 +156,26 @@ export async function hydrateHoldChgTip(tip, anchor, { apiFetch } = {}) {
   const foot = tip.querySelector(".paper-t0-process-tip-foot");
   if (foot) {
     const m = payload.meta || {};
-    const dayUsed = payload.as_of || m.date_max || asof || "涨跌日";
+    const chartDay = m.date_max || payload.as_of || asof || "涨跌日";
+    const sess = m.session_asof || asof || "";
     const src =
       m.source === "stale_cache"
         ? "过期仓"
         : m.source === "cache"
           ? "缓存"
-          : m.source
-            ? String(m.source)
-            : "5m";
-    foot.textContent = [
-      dayUsed,
-      "5m",
-      pts.length ? `${pts.length} 根` : "",
-      src,
-    ]
-      .filter(Boolean)
-      .join(" · ");
+          : m.source === "fetch_refresh"
+            ? "已补拉"
+            : m.source
+              ? String(m.source)
+              : "5m";
+    const bits = [chartDay, "5m", pts.length ? `${pts.length} 根` : "", src];
+    if (sess && chartDay && String(sess).slice(0, 10) !== String(chartDay).slice(0, 10)) {
+      bits.push(`会话 ${String(sess).slice(0, 10)}`);
+    }
+    if (pts.length > 0 && pts.length < 20) {
+      bits.push("覆盖偏短");
+    }
+    foot.textContent = bits.filter(Boolean).join(" · ");
   }
   placeTip(tip, anchor);
 }

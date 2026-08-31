@@ -145,6 +145,107 @@ class TestTailAnomalyView(unittest.TestCase):
             self.assertAlmostEqual(out["day_bars"][0]["close"], 9.0, places=4)
             os.environ.pop("INVESTMENT_STORE_DIR", None)
 
+    def test_session_day_needs_refresh_stale_morning(self):
+        from datetime import datetime
+        from core.signal.tail_anomaly_view import _session_day_needs_refresh
+
+        day = "2026-08-31"
+        bars = [
+            {
+                "date": day,
+                "datetime": f"{day} 10:05:00",
+                "open": 4.25,
+                "close": 4.24,
+                "high": 4.26,
+                "low": 4.23,
+            }
+        ]
+        with mock.patch(
+            "core.market.calendar.resolve_session_date", return_value=day
+        ), mock.patch("core.market.calendar.is_trading_day", return_value=True):
+            need = _session_day_needs_refresh(
+                bars,
+                session_asof=day,
+                now=datetime(2026, 8, 31, 17, 10, 0),
+            )
+        self.assertTrue(need)
+
+        with mock.patch(
+            "core.market.calendar.resolve_session_date", return_value=day
+        ), mock.patch("core.market.calendar.is_trading_day", return_value=True):
+            need2 = _session_day_needs_refresh(
+                [
+                    {
+                        "date": day,
+                        "datetime": f"{day} 14:55:00",
+                        "open": 4.3,
+                        "close": 4.3,
+                        "high": 4.31,
+                        "low": 4.29,
+                    }
+                ],
+                session_asof=day,
+                now=datetime(2026, 8, 31, 17, 10, 0),
+            )
+        self.assertFalse(need2)
+
+    def test_build_minute_tail_refreshes_incomplete_session_day(self):
+        from core.store import save_minute_cache
+        from core.signal import tail_anomaly_view as tav
+
+        day = "2026-08-31"
+        with tempfile.TemporaryDirectory() as td:
+            os.environ["INVESTMENT_STORE_DIR"] = td
+            stale = []
+            for hm in ("09:35", "09:40", "10:00", "10:05"):
+                stale.append(
+                    {
+                        "date": day,
+                        "datetime": f"{day} {hm}:00",
+                        "open": 4.28,
+                        "close": 4.24,
+                        "high": 4.28,
+                        "low": 4.23,
+                        "volume": 1000.0,
+                    }
+                )
+            save_minute_cache("CN", "600050", stale, period="5", data_source="test")
+            fresh = list(stale)
+            for hm in ("14:50", "14:55"):
+                fresh.append(
+                    {
+                        "date": day,
+                        "datetime": f"{day} {hm}:00",
+                        "open": 4.29,
+                        "close": 4.3,
+                        "high": 4.31,
+                        "low": 4.28,
+                        "volume": 2000.0,
+                    }
+                )
+            with mock.patch.object(
+                tav, "_resolve_change_asof", return_value=day
+            ), mock.patch.object(
+                tav,
+                "_session_day_needs_refresh",
+                return_value=True,
+            ), mock.patch(
+                "core.ports.market.fetch_minute_bars",
+                return_value=(fresh, {"data_source": "test_refresh"}),
+            ) as fetch:
+                out = build_minute_tail_view(
+                    "600050",
+                    as_of=day,
+                    fetch_if_missing=True,
+                    max_age_hours=24,
+                )
+            self.assertTrue(out.get("ok"), out)
+            fetch.assert_called_once()
+            self.assertEqual((out.get("meta") or {}).get("source"), "test_refresh")
+            self.assertGreaterEqual(len(out.get("day_bars") or []), 6)
+            self.assertAlmostEqual(out["day_bars"][-1]["close"], 4.3, places=4)
+            os.environ.pop("INVESTMENT_STORE_DIR", None)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -237,5 +237,92 @@ class TestMinuteTauPack(unittest.TestCase):
         self.assertEqual(metas[-1].get("close_minute"), 10.12)
 
 
+    def test_merge_minute_tau_pack_into_feats(self):
+        from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
+
+        day = "2026-08-28"
+        feats, as_of, y_spec = merge_minute_tau_pack_into_feats(
+            {"gap_pct": 0.5},
+            trade_date=day,
+            open_px=10.0,
+            prev_close=9.9,
+            tau_hm="10:30",
+            minute_bars=_bars(day)
+            + [
+                {
+                    "date": day,
+                    "datetime": f"{day} 10:30:00",
+                    "open": 10.1,
+                    "high": 10.2,
+                    "low": 10.0,
+                    "close": 10.15,
+                    "volume": 1000,
+                }
+            ],
+            load_cache_if_missing=False,
+        )
+        self.assertIsNotNone(feats.get("ret_open_to_tau"))
+        self.assertIsNotNone(feats.get("range_pct"))
+        self.assertEqual(as_of, f"{day}T10:30:00+08:00")
+        self.assertEqual((y_spec or {}).get("tau"), "10:30")
+        # 已有键不覆盖
+        feats2, _, _ = merge_minute_tau_pack_into_feats(
+            {"ret_open_to_tau": 9.9},
+            trade_date=day,
+            open_px=10.0,
+            minute_bars=_bars(day),
+            load_cache_if_missing=False,
+        )
+        self.assertAlmostEqual(feats2["ret_open_to_tau"], 9.9, places=4)
+
+    def test_attach_dual_score_pit_uses_minute_bars(self):
+        from unittest.mock import patch
+
+        from core.signal.dual_score import attach_dual_score_pit
+
+        day = "2026-08-28"
+        item = {"stock_code": "600000", "predicted_score_eod": 0.5}
+        quote = {"date": day, "open": 10.0, "prev_close": 9.9}
+        bars = [
+            {"date": "2026-08-27", "open": 9.8, "high": 10.0, "low": 9.7, "close": 9.9},
+            {"date": day, "open": 10.0, "high": 10.5, "low": 9.8, "close": 10.2},
+        ]
+        mins = _bars(day) + [
+            {
+                "date": day,
+                "datetime": f"{day} 10:30:00",
+                "open": 10.1,
+                "high": 10.2,
+                "low": 10.0,
+                "close": 10.15,
+                "volume": 1000,
+            }
+        ]
+        with patch(
+            "core.signal.dual_score.resolve.get_dual_score_cfg",
+            return_value={
+                "enable_minute_tau": True,
+                "minute_tau_hm": "10:30",
+                "tau": "open",
+                "y_spec": {"formula": "close[T]/open[T]-1"},
+            },
+        ), patch(
+            "core.research.tau_ridge.load_tau_model", return_value=None
+        ), patch(
+            "core.research.tau_ridge.predict_tau_from_features", return_value=0.12
+        ) as pred:
+            attach_dual_score_pit(
+                item, quote=quote, bars=bars, minute_bars=mins, fuse_intraday=True
+            )
+        self.assertIsNotNone(
+            (item.get("features_tau") or {}).get("ret_open_to_tau"),
+            item.get("features_tau"),
+        )
+        # predict 收到含分钟小包的 feats
+        call_feats = pred.call_args[0][0]
+        self.assertIn("ret_open_to_tau", call_feats)
+        self.assertNotEqual(call_feats.get("ret_open_to_tau"), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

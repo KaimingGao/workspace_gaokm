@@ -33,6 +33,19 @@ def paper_status(lite: bool = False) -> Dict[str, Any]:
     return deps.paper.status(lite=bool(lite))
 
 
+@router.get("/api/paper/holding-scores")
+def paper_holding_scores(offline_only: bool = True) -> Dict[str, Any]:
+    """持仓 ŷ：默认仅研究枢纽缓存；``offline_only=false`` 可补远端。"""
+    try:
+        from core.signal.score_display import json_safe
+
+        return json_safe(deps.paper.holding_scores(offline_only=bool(offline_only)))
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
 @router.get("/api/paper/execution")
 def paper_execution(channel: str = "paper") -> Dict[str, Any]:
     """生效 ExecutionSpec（含做 T overlay）；channel=paper|backtest。"""
@@ -267,6 +280,7 @@ def paper_rebalance(body: PaperRebalanceRequest) -> Dict[str, Any]:
                 matrix_mode=bool(body.matrix_mode),
                 dry_run=bool(body.dry_run),
                 strategy=body.strategy,
+                offline_only=bool(body.offline_only),
             )
         )
     except FileNotFoundError as e:

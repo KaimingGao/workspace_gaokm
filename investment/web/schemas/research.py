@@ -248,6 +248,16 @@ class ClusterMinuteRefreshRequest(BaseModel):
     lookback_days: int = Field(default=30, ge=5, le=90)
     watching_limit: int = Field(default=100, ge=3, le=100)
     min_span_days: int = Field(default=30, ge=10, le=120)
+    mode: str = Field(
+        default="full",
+        description="full=强更全窗口；topup=增量补齐（已对齐跳过 · 跨度够只补近几日）",
+    )
+    topup_lookback_days: int = Field(
+        default=5,
+        ge=2,
+        le=15,
+        description="mode=topup 时跨度已够的票补齐窗口（日历日）",
+    )
     sync: bool = Field(
         default=False,
         description="true=同步跑（单测）；默认入队 Job，轮询 GET /api/jobs/cluster-minute-refresh",

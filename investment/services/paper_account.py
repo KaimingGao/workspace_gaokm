@@ -31,11 +31,13 @@ class PaperAccountMixin:
             cost_model=paper.get("cost_model"),
         )
 
-    def _compute_holding_scores(self, paper: dict, summary: dict) -> dict:
+    def _compute_holding_scores(
+        self, paper: dict, summary: dict, *, offline_only: bool = True
+    ) -> dict:
         """计算当前持仓的评分，合并到 summary.holdings 中。
 
-        经 SignalService ``score_one``（带超时）。**不**经 observation_pool / min_score TopN。
-        分池簿快路径已停用。
+        经 SignalService ``score_one``（默认 ``offline_only``，带超时）。
+        **不**经 observation_pool / min_score TopN。
         """
         holdings = paper.get("holdings") or []
         holding_codes = [str(h.get("stock_code")) for h in holdings if h.get("stock_code")]
@@ -43,7 +45,6 @@ class PaperAccountMixin:
             return summary
 
         try:
-            import concurrent.futures
             import logging
 
             from core.signal.score_display import annotate_score_gate, selection_min_score
@@ -60,49 +61,42 @@ class PaperAccountMixin:
 
             score_by_code: Dict[str, Any] = {}
             missing = list(holding_codes)
-            per_timeout = 8.0
-            workers = min(len(missing), 6)
 
-            def _one(code: str) -> tuple:
+            # 串行 + 仅缓存：避免线程池在 Web 进程里叠请求卡死
+            for code in missing:
                 try:
                     result = svc.score_one(
                         code,
                         horizon_days=horizon,
                         skip_fundamentals=True,
+                        skip_sentiment=True,
+                        offline_only=bool(offline_only),
+                        quote_timeout=3.0 if offline_only else 8.0,
+                    )
+                    raw = (
+                        result.as_dict()
+                        if hasattr(result, "as_dict")
+                        else (result or {})
                     )
                 except Exception as e:
-                    logger.exception('unexpected error in _one')
-                    return code, {"success": False, "error": str(e)}
-                return code, result.as_dict() if hasattr(result, "as_dict") else (result or {})
-
-            with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as ex:
-                futs = {ex.submit(_one, c): c for c in missing}
+                    log.warning("holding score fail %s: %s", code, e)
+                    continue
+                if not isinstance(raw, dict) or raw.get("success") is False:
+                    continue
+                item = raw.get("signal_item")
+                if not isinstance(item, dict):
+                    continue
                 try:
-                    for fut in concurrent.futures.as_completed(
-                        futs, timeout=per_timeout * max(1, len(missing) / workers) + 2
-                    ):
-                        code = futs[fut]
-                        try:
-                            _, result = fut.result(timeout=per_timeout)
-                        except Exception as e:
-                            log.warning("holding score timeout/fail %s: %s", code, e)
-                            continue
-                        item = (
-                            (result.get("signal_item") or {})
-                            if result.get("success")
-                            else {}
-                        )
-                        if not item:
-                            continue
-                        score_by_code[code] = _pack_item(
-                            item, cluster_mode=result.get("cluster_mode")
-                        )
-                except concurrent.futures.TimeoutError:
-                    log.warning(
-                        "holding scores partial timeout; scored=%d pending=%d",
-                        len(score_by_code),
-                        len(missing) - len(score_by_code),
+                    from core.signal.dual_score import align_trade_score_fields
+
+                    align_trade_score_fields(
+                        item, write_score=False, refresh_window=False
                     )
+                except Exception:  # noqa: BLE001
+                    log.debug("align holding score failed %s", code, exc_info=True)
+                score_by_code[code] = _pack_item(
+                    item, cluster_mode=raw.get("cluster_mode")
+                )
 
             # 持仓经济字段勿被评分包覆盖；其余与数据中心同源透传
             _HOLDING_KEEP = frozenset(
@@ -190,6 +184,57 @@ class PaperAccountMixin:
                 "holding scores unavailable: %s", e, exc_info=True
             )
         return summary
+
+    def holding_scores(self, *, offline_only: bool = True) -> Dict[str, Any]:
+        """持仓 ŷ。默认仅本地日线/分钟缓存；``offline_only=False`` 可补远端。"""
+        import threading
+
+        if not os.path.isfile(self.path):
+            raise FileNotFoundError("请先初始化纸面账户")
+        lock = getattr(self, "_holding_scores_lock", None)
+        if lock is None:
+            lock = threading.Lock()
+            self._holding_scores_lock = lock
+        if not lock.acquire(blocking=False):
+            return {
+                "ok": True,
+                "busy": True,
+                "by_code": {},
+                "scored": 0,
+                "note": "持仓算分进行中",
+                "offline_only": bool(offline_only),
+            }
+        try:
+            paper = load_paper(self.path)
+            holdings = paper.get("holdings") or []
+            skeleton = {
+                "holdings": [
+                    {
+                        "stock_code": h.get("stock_code"),
+                        "stock_name": h.get("stock_name"),
+                    }
+                    for h in holdings
+                    if h.get("stock_code")
+                ]
+            }
+            enriched = self._compute_holding_scores(
+                paper, skeleton, offline_only=bool(offline_only)
+            )
+            by_code: Dict[str, Any] = {}
+            for row in enriched.get("holdings") or []:
+                code = str((row or {}).get("stock_code") or "").strip()
+                if code:
+                    by_code[code] = row
+            return {
+                "ok": True,
+                "busy": False,
+                "by_code": by_code,
+                "scored": len(by_code),
+                "selection_min_score": enriched.get("selection_min_score"),
+                "offline_only": bool(offline_only),
+            }
+        finally:
+            lock.release()
 
     def _strategy_label(self, paper: Optional[dict]) -> Optional[str]:
         sid = (paper or {}).get("strategy_id") if isinstance(paper, dict) else None
@@ -331,6 +376,49 @@ class PaperAccountMixin:
             "locked": False,
         }
 
+    def fill_pending(self, *, now=None) -> Dict[str, Any]:
+        """开盘窗 / 盘中追价成交挂单。无挂单或非交易时段则跳过。"""
+        if not os.path.isfile(self.path):
+            return {"ok": True, "filled": False, "reason": "no_paper", "trades": []}
+        from core.paper.open_fill import fill_pending_at_open
+
+        with paper_write_lock(self.path):
+            paper = load_paper(self.path)
+            po = paper.get("pending_orders")
+            if not isinstance(po, dict) or not (po.get("legs") or []):
+                return {"ok": True, "filled": False, "reason": "no_pending", "trades": []}
+            fill = fill_pending_at_open(paper, now=now)
+            if fill.get("filled") or fill.get("skips"):
+                if fill.get("filled"):
+                    trades = fill.get("trades") or []
+                    n_buy = sum(1 for t in trades if t.get("side") == "buy")
+                    n_sell = sum(1 for t in trades if t.get("side") == "sell")
+                    n_skip = len(fill.get("skips") or [])
+                    mode = str(fill.get("mode") or "open")
+                    verb = {
+                        "open": "开盘成交挂单",
+                        "chase": "中点追价成交挂单",
+                        "eod_force": "收盘追价成交挂单",
+                    }.get(mode, "成交挂单")
+                    bits = []
+                    if n_buy or n_sell:
+                        bits.append(f"买{n_buy} · 卖{n_sell}")
+                    if n_skip:
+                        bits.append(f"跳过{n_skip}")
+                    append_operation_log(
+                        paper,
+                        "rebalance",
+                        detail=verb + (f" · {' · '.join(bits)}" if bits else ""),
+                        meta={
+                            "fill_action": mode,
+                            "buy_count": n_buy,
+                            "sell_count": n_sell,
+                            "skip_count": n_skip,
+                        },
+                    )
+                save_paper(paper, self.path)
+            return fill
+
     def status(self, *, lite: bool = False) -> Dict[str, Any]:
         """账户摘要。
 
@@ -340,6 +428,15 @@ class PaperAccountMixin:
         if not os.path.isfile(self.path):
             return {"ok": True, "initialized": False, "path": self.path, "lite": lite}
         paper = load_paper(self.path)
+        if not lite:
+            po = paper.get("pending_orders")
+            if isinstance(po, dict) and (po.get("legs") or []):
+                try:
+                    fill = self.fill_pending()
+                    if fill.get("filled"):
+                        paper = load_paper(self.path)
+                except Exception:  # noqa: BLE001
+                    logger.debug("fill_pending in status skipped", exc_info=True)
         if lite:
             raw_holdings = []
             from core.paper.tplus1 import snapshot_tplus1
@@ -384,7 +481,7 @@ class PaperAccountMixin:
                 "operation_log": self._operation_log_for_ui(paper, limit=50),
             }
         summary = mark_to_market(paper)
-        summary = self._compute_holding_scores(paper, summary)
+        # 持仓 ŷ 不在本接口同步算（并发会卡死「加载中…」）；见 GET /api/paper/holding-scores
         north_star = paper.get("last_north_star")
         if not isinstance(north_star, dict):
             try:

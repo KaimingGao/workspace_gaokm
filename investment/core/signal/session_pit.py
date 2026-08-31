@@ -99,18 +99,23 @@ def refresh_dual_score_window(
         win = str(pit.get("dual_score_window") or "intraday")
     else:
         n = shanghai_now(now)
-        today = n.strftime("%Y-%m-%d")
-        # 今日会话未收完 → 盘中；已收完则保留簿上 eod_next（若有），否则 eod_next
-        if asof_session_final(today, now=n):
-            prev = ""
-            if isinstance(item, dict):
-                prev = str(item.get("dual_score_window") or "")
-            win = prev if prev in ("eod_next", "intraday") else "eod_next"
-            if win == "intraday":
-                # 收盘后不应再停在 intraday：强制滚窗
-                win = "eod_next"
-        else:
+        # 无行情上下文：仅在交易日盘中时段标 intraday；
+        # 开盘前 / 收盘后 / 周末一律 eod_next（勿把凌晨误判成盘中）。
+        t = (n.hour, n.minute)
+        in_session = (9, 30) <= t < _SESSION_CLOSE
+        trading = True
+        try:
+            from core.market.calendar import is_trading_day, resolve_session_date
+
+            sess = resolve_session_date(now=n)
+            trading = bool(sess and is_trading_day(sess))
+        except Exception:  # noqa: BLE001
+            logger.debug("trading-day check failed in refresh_dual_score_window", exc_info=True)
+            trading = n.weekday() < 5
+        if trading and in_session:
             win = "intraday"
+        else:
+            win = "eod_next"
     if isinstance(item, dict):
         item["dual_score_window"] = win
     return win

@@ -103,7 +103,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-bars-title" class="dashboard-section-title">日线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-bars-desc">
-        PIT 日 K 本地仓 · 增量 merge（自 date_max 补至今日）· 观察池末 bar 对齐 as-of · ŷ_EOD / IC / OOS 共用 · ≠ 5m 分钟线
+        写入口：本区「强更日 K」· 调度 bars_warmup · ≠「刷新 watching」（只改名单）· 下游 ŷ_EOD / OLS
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-bars-card">
@@ -113,7 +113,7 @@
           <span id="quant-cluster-bars-msg" class="quant-cluster-bars-msg">加载覆盖…</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="日线操作">
-          <button type="button" id="quant-cluster-bars-refresh" class="dialog-btn secondary" title="强制增量拉取观察池日 K（跳过 36h 复用 · 约 4 并发 · Limit100 约 2–3.5 分钟，可能超时收尾）">
+          <button type="button" id="quant-cluster-bars-refresh" class="dialog-btn secondary" title="写入观察池日 K 本地仓（强制增量 · 跳过 36h 复用）。不改名单、不写 5m、不算 ŷ。">
             强更日 K
           </button>
         </div>
@@ -178,7 +178,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
-        5m 本地仓 · 强更全量更新（窗口重拉 + merge）· ŷ_path / T0 回测 / tail_anomaly · ≠ 日 K 增量
+        写入口：日常「增量补齐」· 全窗「强更 5m」· 调度 minute_warmup · 下游 ŷ_τ@10:30 / path / 调仓 / 做T · Ready≠消费 as-of
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-bars-card quant-minute-card">
@@ -188,7 +188,10 @@
           <span id="quant-cluster-minute-msg" class="quant-cluster-bars-msg">加载覆盖…</span>
         </div>
         <div class="dashboard-card-tools quant-pro-card-tools" role="group" aria-label="分钟线操作">
-          <button type="button" id="quant-cluster-minute-refresh" class="dialog-btn secondary" title="全量拉取观察池 5m（窗口重拉 + merge；已 Ready 跳过 · 东财/BaoStock 30 日历日 · 新浪/腾讯有数则跳过 BaoStock · 各源间隔 10s）">
+          <button type="button" id="quant-cluster-minute-topup" class="dialog-btn secondary" title="写入 5m 仓（增量）：已对齐会话日跳过；跨度够只补近几日。调仓/做T/ŷ_τ 日常先点这个。不改日K、不算 ŷ。">
+            增量补齐
+          </button>
+          <button type="button" id="quant-cluster-minute-refresh" class="dialog-btn secondary" title="写入 5m 仓（全窗口重拉+merge）。仓损坏或跨度不够时用。不改日K、不算 ŷ。">
             强更 5m
           </button>
         </div>

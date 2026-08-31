@@ -89,13 +89,23 @@ async def watching_quotes(codes: str = "") -> Dict[str, Any]:
 
 
 @router.get("/api/watching/insights")
-async def watching_insights(codes: str = "") -> Dict[str, Any]:
-    """观察研究摘要（评分/倾向/超额等）。放到线程池，避免堵住 Web 事件循环。"""
+async def watching_insights(
+    codes: str = "",
+    offline_only: bool = True,
+) -> Dict[str, Any]:
+    """观察研究摘要（评分/倾向/超额等）。放到线程池，避免堵住 Web 事件循环。
+
+    ``offline_only`` 默认 true：只用研究枢纽本地仓；false 允许补远端。
+    """
     import asyncio
 
     try:
         parsed = _parse_codes(codes)
-        return await asyncio.to_thread(deps.watching.insights, parsed)
+        return await asyncio.to_thread(
+            deps.watching.insights,
+            parsed,
+            offline_only=bool(offline_only),
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e)) from e
 

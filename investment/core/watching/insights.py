@@ -308,34 +308,70 @@ def _insight_quote_bars(
     code: str,
     quote: Optional[dict] = None,
     bars: Optional[list] = None,
+    *,
+    offline_only: bool = True,
 ) -> tuple:
-    """观察簿 hydrate：缺 bars/quote 时本地补日线（ON/τ 特征需要）。"""
+    """观察簿 hydrate：缺 bars/quote 时补数。
+
+    ``offline_only=True``：只读本地日线并合成 quote（与策略调仓默认同源）。
+    ``offline_only=False``：可走远端日线/实时行情。
+    """
     q = dict(quote) if isinstance(quote, dict) else {}
     b = list(bars or [])
+    use_offline = bool(offline_only)
     if not b:
         try:
             from core.data.facade import get_bars
 
-            pack = get_bars(
-                code,
-                limit=45,
-                offline_ok=True,
-                cache_max_age_hours=72.0,
-            )
+            if use_offline:
+                pack = get_bars(
+                    code,
+                    limit=45,
+                    offline_only=True,
+                    reject_quote_fallback=True,
+                )
+            else:
+                pack = get_bars(
+                    code,
+                    limit=45,
+                    offline_ok=True,
+                    cache_max_age_hours=72.0,
+                )
             b = list(pack.get("bars") or [])
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
             b = []
     if not q.get("success") and q.get("price_raw") is None and q.get("open") is None:
-        try:
-            from core.data.facade import get_quote
+        if use_offline:
+            if b:
+                try:
+                    last = b[-1] if isinstance(b[-1], dict) else {}
+                    close = last.get("close")
+                    if close is not None:
+                        prev = b[-2] if len(b) >= 2 and isinstance(b[-2], dict) else {}
+                        q = {
+                            "success": True,
+                            "stock_code": str(code),
+                            "price_raw": close,
+                            "price": close,
+                            "open": last.get("open"),
+                            "high": last.get("high"),
+                            "low": last.get("low"),
+                            "pre_close": prev.get("close") if prev else last.get("pre_close"),
+                            "data_source": "offline_daily_synth",
+                        }
+                except Exception:  # noqa: BLE001
+                    logger.debug("synth quote from bars failed", exc_info=True)
+        else:
+            try:
+                from core.data.facade import get_quote
 
-            q2 = get_quote(code) or {}
-            if isinstance(q2, dict) and q2.get("success"):
-                q = q2
-        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-            logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
-            pass
+                q2 = get_quote(code) or {}
+                if isinstance(q2, dict) and q2.get("success"):
+                    q = q2
+            except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+                logger.debug("catch except Exception: in watching_insights.py", exc_info=True)
+                pass
     return q, b
 
 
@@ -696,22 +732,28 @@ def _insight_one(
     added_at: Optional[str] = None,
     valuation: Optional[Dict[str, Optional[float]]] = None,
     paper_ctx: Optional[dict] = None,
+    offline_only: bool = True,
 ) -> Dict[str, Any]:
-    """单票轻量摘要：与交易执行同源 SignalService（含分组因子系数）；不二次打指数/基本面/同业。"""
+    """单票轻量摘要：SignalService；默认 ``offline_only`` 与策略调仓对齐。"""
     out = _blank(code, added_at=added_at)
+    use_offline = bool(offline_only)
     try:
-        from core.data.facade import get_quote
         from core.signal.service import get_default_signal_service
         from core.stance import compute_buy_stance
 
         # cluster_mode=None → 读 signal_config.cluster_scoring（active 时用组 β，同持仓表）
         result = get_default_signal_service().score_one(
-            code, horizon_days=3, skip_fundamentals=True
+            code,
+            horizon_days=3,
+            skip_fundamentals=True,
+            skip_sentiment=True,
+            offline_only=use_offline,
+            quote_timeout=5.0 if use_offline else 8.0,
         )
         scored = result.as_dict()
         quote = (scored or {}).get("quote") or {}
         if not quote:
-            quote = get_quote(code)
+            quote, _bars = _insight_quote_bars(code, offline_only=use_offline)
         item = dict(result.item or {})
         out["score"] = _f(result.rank_key)
         if out["score"] is None:
@@ -842,8 +884,10 @@ def build_watching_insights(
     *,
     added_at_by_code: Optional[Dict[str, str]] = None,
     limit: int = _INSIGHT_DEFAULT_LIMIT,
+    offline_only: bool = True,
 ) -> Dict[str, Any]:
     added = added_at_by_code or {}
+    use_offline = bool(offline_only)
     cleaned = [
         str(c).strip() for c in (codes or []) if str(c).strip()
     ][: max(1, min(int(limit or _INSIGHT_DEFAULT_LIMIT), _INSIGHT_HARD_CAP))]
@@ -854,6 +898,7 @@ def build_watching_insights(
             "count": 0,
             "items": [],
             "note": "观察摘要为空",
+            "offline_only": use_offline,
         }
 
     # paper 门槛只读一次，避免每票 load_paper
@@ -893,6 +938,7 @@ def build_watching_insights(
                         added_at=added.get(c) or added.get(str(c)),
                         valuation=valuation_by.get(key),
                         paper_ctx=paper_ctx,
+                        offline_only=use_offline,
                     )
                 ] = c
         try:
@@ -951,6 +997,7 @@ def build_watching_insights(
         "note": note,
         "book_hit": 0,
         "live_scored": len(missing),
+        "offline_only": use_offline,
     }
 
 

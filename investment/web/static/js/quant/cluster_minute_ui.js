@@ -9,13 +9,15 @@ import {
   unwrapJobSnap,
 } from "./cluster_job_ui.js";
 
-/** 研究枢纽 · 观察池 5m 分钟覆盖 + 「强更 5m」 */
+/** 研究枢纽 · 观察池 5m 分钟覆盖 + 「增量补齐」/「强更 5m」 */
 export function installClusterMinuteUi(q) {
   const { on, apiFetch, readWatchingLimit, escapeHtml } = q;
   const chip = document.getElementById("quant-cluster-minute-chip");
   const msgEl = document.getElementById("quant-cluster-minute-msg");
   const btn = document.getElementById("quant-cluster-minute-refresh");
+  const topupBtn = document.getElementById("quant-cluster-minute-topup");
   const kpiOk = document.getElementById("quant-minute-kpi-ok");
+  const TOPUP_LOOKBACK_DAYS = 5;
   const kpiOkSub = document.getElementById("quant-minute-kpi-ok-sub");
   const kpiSpan = document.getElementById("quant-minute-kpi-span");
   const kpiSpanSub = document.getElementById("quant-minute-kpi-span-sub");
@@ -32,7 +34,12 @@ export function installClusterMinuteUi(q) {
   const minuteStrip = document.getElementById("quant-cluster-minute-strip");
 
   if (!chip || !msgEl || !btn) {
-    return { refreshStatus: async () => {}, startRefresh: async () => {} };
+    return { refreshStatus: async () => {}, startRefresh: async () => {}, startTopup: async () => {} };
+  }
+
+  function setMinuteButtonsDisabled(disabled) {
+    btn.disabled = !!disabled;
+    if (topupBtn) topupBtn.disabled = !!disabled;
   }
 
   const esc = typeof escapeHtml === "function" ? escapeHtml : (s) => String(s ?? "");
@@ -64,24 +71,40 @@ export function installClusterMinuteUi(q) {
       esc,
       mode: "fail",
       errText,
-      hint: "可再次点击「强更 5m」重试",
+      hint: "可再次点击「增量补齐」或「强更 5m」重试",
     });
+  }
+
+  function isTopupSummary(sum) {
+    return (
+      String(sum?.mode || "") === "topup" ||
+      String(sum?.kind || "").includes("topup") ||
+      sum?.topped != null
+    );
   }
 
   function paintProgressDone(job) {
     const sum = job?.result_summary || lastPolledJob?.result?.minute_warmup || {};
     const bits = [];
-    if (sum.warmed != null) bits.push(`预热 ${sum.warmed}/${sum.total ?? "—"}`);
-    if (sum.skipped_ready != null) bits.push(`跳过 Ready ${sum.skipped_ready}`);
+    if (sum.warmed != null) bits.push(`完成 ${sum.warmed}/${sum.total ?? "—"}`);
+    if (sum.skipped_aligned != null) bits.push(`对齐跳过 ${sum.skipped_aligned}`);
+    else if (sum.skipped_ready != null) bits.push(`跳过 Ready ${sum.skipped_ready}`);
+    if (sum.topped != null) bits.push(`topup ${sum.topped}`);
+    if (sum.bootstrapped != null && Number(sum.bootstrapped) > 0) {
+      bits.push(`全窗 ${sum.bootstrapped}`);
+    }
+    const topup = isTopupSummary(sum);
     paintClusterJobPanel(progressEl, {
-      phase: "强更完成",
+      phase: topup ? "增量完成" : "强更完成",
       job,
       esc,
       mode: "done",
       hint:
         bits.length
           ? bits.join(" · ")
-          : "逐只串行 · 东财/BaoStock 30 日历日 · 新浪/腾讯有数则跳过 BaoStock · 各源间隔 10s",
+          : topup
+            ? `增量补齐 · 近 ${TOPUP_LOOKBACK_DAYS} 日 · 约 4 并发`
+            : "逐只串行 · 东财/BaoStock 30 日历日 · 新浪/腾讯有数则跳过 BaoStock · 各源间隔 10s",
     });
   }
 
@@ -90,8 +113,9 @@ export function installClusterMinuteUi(q) {
     jobFailure = null;
     setProStatusChip(chip, "ok", "DONE");
     const sum = job?.result_summary || job?.result?.minute_warmup || {};
-    const head = ["强更完成"];
-    if (sum.warmed != null) head.push(`预热 ${sum.warmed}/${sum.total ?? "—"}`);
+    const topup = isTopupSummary(sum);
+    const head = [topup ? "增量完成" : "强更完成"];
+    if (sum.warmed != null) head.push(`${sum.warmed}/${sum.total ?? "—"}`);
     const updated = Number(job?.updated_at);
     if (updated > 0) head.push(fmtAgeSec(Date.now() / 1000 - updated));
     msgEl.textContent = head.join(" · ");
@@ -100,6 +124,7 @@ export function installClusterMinuteUi(q) {
     minuteStrip?.classList.remove("is-busy");
     minuteBody?.classList.remove("is-busy");
     btn?.classList.remove("is-busy");
+    topupBtn?.classList.remove("is-busy");
   }
 
   function applyJobFailure(err, job) {
@@ -117,16 +142,20 @@ export function installClusterMinuteUi(q) {
     minuteStrip?.classList.remove("is-busy");
     minuteBody?.classList.remove("is-busy");
     btn?.classList.remove("is-busy");
+    topupBtn?.classList.remove("is-busy");
   }
 
-  function paintProgressPanel(job, { pollStartedAt } = {}) {
+  function paintProgressPanel(job, { pollStartedAt, mode } = {}) {
+    const topup = mode === "topup" || isTopupSummary(job?.result_summary || job?.result?.minute_warmup);
     paintClusterJobPanel(progressEl, {
-      phase: "预热 5m",
+      phase: topup ? "增量补齐 5m" : "预热 5m",
       job,
       pollStartedAt,
       esc,
       mode: "running",
-      hint: "逐只串行 · 东财/BaoStock 30 日历日 · 新浪/腾讯有数则跳过 BaoStock · 各源间隔 10s · Ready% 为 span≥30d 覆盖（与 Job 进度不同步刷新）",
+      hint: topup
+        ? `对齐跳过 · 近 ${TOPUP_LOOKBACK_DAYS} 日 merge · 约 4 并发 · 缺/短全窗口`
+        : "逐只串行 · 东财/BaoStock 30 日历日 · 新浪/腾讯有数则跳过 BaoStock · 各源间隔 10s · Ready% 为 span≥30d 覆盖（与 Job 进度不同步刷新）",
     });
   }
 
@@ -136,6 +165,7 @@ export function installClusterMinuteUi(q) {
     minuteStrip?.classList.toggle("is-busy", onBusy);
     minuteBody?.classList.toggle("is-busy", onBusy);
     btn?.classList.toggle("is-busy", onBusy);
+    topupBtn?.classList.toggle("is-busy", onBusy);
     if (!onBusy && !jobFailure && !jobSuccess) clearProgressPanel();
   }
 
@@ -245,7 +275,7 @@ export function installClusterMinuteUi(q) {
       </div>
       <dl class="quant-bars-strip-facts">
         <div><dt>Universe</dt><dd>watching · Limit ${esc(limit)} · ${total} 只</dd></div>
-        <div><dt>Lookback</dt><dd>强更 ${esc(lb)} 日历日 · Ready ≥ ${esc(minSpan)}d</dd></div>
+        <div><dt>Lookback</dt><dd>增量 ${esc(TOPUP_LOOKBACK_DAYS)}d · 强更 ${esc(lb)}d · Ready ≥ ${esc(minSpan)}d</dd></div>
         <div><dt>Span</dt><dd>med ${esc(data.minute_span_days_med ?? "—")}d · ${esc(data.minute_span_days_min ?? "—")}→${esc(data.minute_span_days_max ?? "—")}</dd></div>
       </dl>
       <div class="quant-bars-strip-badges">${badges.join("")}</div>
@@ -305,7 +335,8 @@ export function installClusterMinuteUi(q) {
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Scope</span><span class="quant-bars-foot-v">watching · Limit ${esc(data.watching_limit ?? "—")}</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">强更 Job</span><span class="quant-bars-foot-v">${esc(jobLine)}</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Gate</span><span class="quant-bars-foot-v">Ready ≥ ${esc(data.min_span_days ?? MIN_SPAN_DAYS)} 交易日 · ŷ_path 软闸</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Downstream</span><span class="quant-bars-foot-v">ŷ_path · T0 回测 · tail_anomaly</span></div>
+      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Write</span><span class="quant-bars-foot-v">增量补齐 / 强更 5m · ≠ 日K · ≠ 现算 ŷ</span></div>
+      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Downstream</span><span class="quant-bars-foot-v">ŷ_τ@10:30 · ŷ_path · 调仓 · 做T · tip</span></div>
     </div>`;
   }
 
@@ -411,7 +442,7 @@ export function installClusterMinuteUi(q) {
     if (st === "running") {
       clearJobPanels();
       if (!inflight) {
-        btn.disabled = true;
+        setMinuteButtonsDisabled(true);
         inflight = (async () => {
           try {
             const result = await waitClusterMinuteJob(job.id);
@@ -422,7 +453,7 @@ export function installClusterMinuteUi(q) {
           } catch (err) {
             applyJobFailure(err, lastPolledJob);
           } finally {
-            btn.disabled = false;
+            setMinuteButtonsDisabled(false);
             inflight = null;
           }
         })();
@@ -440,12 +471,13 @@ export function installClusterMinuteUi(q) {
     return job;
   }
 
-  async function waitClusterMinuteJob(jobId) {
+  async function waitClusterMinuteJob(jobId, mode = "full") {
     const started = Date.now();
     const absoluteCapMs = 30 * 60 * 1000;
     let sawOwnJob = false;
     let pollN = 0;
-    paintProgressPanel({ message: "提交强更 5m…（排队后台 Job）", pct: 0 }, { pollStartedAt: started });
+    const waitLabel = mode === "topup" ? "增量补齐" : "强更 5m";
+    paintProgressPanel({ message: `提交${waitLabel}…（排队后台 Job）`, pct: 0 }, { pollStartedAt: started, mode });
     while (Date.now() - started < absoluteCapMs) {
       const { ok, data } = await apiFetch("/api/jobs/cluster-minute-refresh?progress=1");
       const job = unwrapJobSnap(data);
@@ -493,37 +525,50 @@ export function installClusterMinuteUi(q) {
     throw new Error("5m 强更超时");
   }
 
-  async function startRefresh() {
+  async function startRefresh(mode = "full") {
     if (inflight) return inflight;
+    const modeS = mode === "topup" ? "topup" : "full";
+    const label = modeS === "topup" ? "增量补齐" : "强更 5m";
     inflight = (async () => {
       clearJobPanels();
-      btn.disabled = true;
+      setMinuteButtonsDisabled(true);
       setMinuteBusy(true);
       setProStatusChip(chip, "busy", "QUEUE");
-      msgEl.textContent = "提交强更 5m…";
-      paintProgressPanel({ message: "提交强更 5m…", pct: 0 }, { pollStartedAt: Date.now() });
+      msgEl.textContent = `提交${label}…`;
+      paintProgressPanel(
+        { message: `提交${label}…`, pct: 0 },
+        { pollStartedAt: Date.now(), mode: modeS }
+      );
       try {
         const limit = typeof readWatchingLimit === "function" ? readWatchingLimit() : 100;
+        const body = {
+          lookback_days: LOOKBACK_DAYS,
+          watching_limit: limit,
+          period: "5",
+          min_span_days: MIN_SPAN_DAYS,
+          mode: modeS,
+        };
+        if (modeS === "topup") body.topup_lookback_days = TOPUP_LOOKBACK_DAYS;
         const { ok, data, error } = await apiFetch("/api/quant/cluster-minute/refresh", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            lookback_days: LOOKBACK_DAYS,
-            watching_limit: limit,
-            period: "5",
-            min_span_days: MIN_SPAN_DAYS,
-          }),
+          body: JSON.stringify(body),
         });
         if (!ok) throw new Error(error || "提交失败");
         let result = data;
         if (data && data.background && data.job) {
           if (data.reused) {
             paintProgressPanel(
-              { message: data.job.message || "复用进行中的 5m Job…", pct: data.job.pct, current: data.job.current, total: data.job.total },
-              { pollStartedAt: Date.now() }
+              {
+                message: data.job.message || `复用进行中的 5m Job…`,
+                pct: data.job.pct,
+                current: data.job.current,
+                total: data.job.total,
+              },
+              { pollStartedAt: Date.now(), mode: modeS }
             );
           }
-          result = await waitClusterMinuteJob(data.job.id);
+          result = await waitClusterMinuteJob(data.job.id, modeS);
         }
         if (result && result.status) {
           paint(result.status);
@@ -531,19 +576,22 @@ export function installClusterMinuteUi(q) {
           await refreshStatus();
         }
         if (result && result.success === false) {
-          throw new Error(result.error || "5m 强更失败");
+          throw new Error(result.error || `${label}失败`);
         }
         const mw = (result && result.minute_warmup) || {};
         if (mw.warmed != null) {
-          msgEl.textContent = `强更完成 · 预热 ${mw.warmed}/${mw.total ?? "—"} · lookback ${LOOKBACK_DAYS}d`;
+          const bits = [`${label}完成`, `${mw.warmed}/${mw.total ?? "—"}`];
+          if (mw.skipped_aligned != null) bits.push(`跳过 ${mw.skipped_aligned}`);
+          if (mw.topped != null) bits.push(`topup ${mw.topped}`);
+          msgEl.textContent = bits.join(" · ");
         }
         clearJobPanels();
-        applyJobSuccess(lastPolledJob);
+        applyJobSuccess(lastPolledJob || { result_summary: mw, result });
       } catch (err) {
         applyJobFailure(err, lastPolledJob);
         throw err;
       } finally {
-        btn.disabled = false;
+        setMinuteButtonsDisabled(false);
         inflight = null;
         if (!jobFailure && !jobSuccess) setMinuteBusy(false);
         try {
@@ -556,10 +604,20 @@ export function installClusterMinuteUi(q) {
     return inflight;
   }
 
+  async function startTopup() {
+    return startRefresh("topup");
+  }
+
   on("quant-cluster-minute-refresh", "click", (e) => {
     e.preventDefault();
-    startRefresh().catch(() => {});
+    startRefresh("full").catch(() => {});
   });
+  if (topupBtn) {
+    on("quant-cluster-minute-topup", "click", (e) => {
+      e.preventDefault();
+      startTopup().catch(() => {});
+    });
+  }
 
   (async () => {
     try {
@@ -570,5 +628,5 @@ export function installClusterMinuteUi(q) {
     }
   })();
 
-  return { refreshStatus, startRefresh, syncJobSlot };
+  return { refreshStatus, startRefresh, startTopup, syncJobSlot };
 }

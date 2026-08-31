@@ -13,10 +13,13 @@ export function createRebalanceReportController(deps) {
     resolveTradeScore,
     resolveEodScore,
     resolveTauScore,
+    resolvePathScore,
     resolveOnScore,
     resolveNowcastScore,
+    fmtPathScore,
     Y_EOD_TITLE,
     Y_TAU_TITLE,
+    Y_PATH_TITLE,
     Y_ON_TITLE,
     Y_NOWCAST_TITLE,
     TRADE_TITLE,
@@ -121,6 +124,7 @@ function renderRebalanceReport(
     emptyReason = null,
     minScore = null,
     marketContext = null,
+    matrixPreview = false,
   } = {}
 ) {
   const section = document.getElementById("paper-rebalance-section");
@@ -131,7 +135,7 @@ function renderRebalanceReport(
   if (!section || !container) return;
 
   if (opsReport) renderOpsReport(opsReport, { forceShow: true });
-
+  else if (matrixPreview) renderOpsReport(null);
   // 按分数降序展示（无分排后）
   report = Array.isArray(report)
     ? [...report].sort((a, b) => {
@@ -143,13 +147,28 @@ function renderRebalanceReport(
         return bs - as;
       })
     : report;
-  const skips = Array.isArray(riskBudgetSkips) ? riskBudgetSkips : [];
+  const isAlignedSkip = (s) => {
+    const r = String((s && s.reason) || "");
+    return (
+      r.includes("已对齐") ||
+      r.includes("不动") ||
+      r.includes("欲加仓但") ||
+      r.includes("欲减仓但") ||
+      r.includes("本窗跳过") ||
+      r.includes("本窗推迟") ||
+      r.includes("必清但")
+    );
+  };
+  const skips = (Array.isArray(riskBudgetSkips) ? riskBudgetSkips : []).filter(
+    (s) => s && !isAlignedSkip(s)
+  );
   const hasSkips = skips.length > 0;
   const hasRisk =
     riskGate &&
     ((Array.isArray(riskGate.blocks) && riskGate.blocks.length > 0) ||
       (Array.isArray(riskGate.warnings) && riskGate.warnings.length > 0));
   const hasCash =
+    !matrixPreview &&
     cashImpact &&
     (cashImpact.cash_before != null ||
       cashImpact.buy_amount != null ||
@@ -195,8 +214,17 @@ function renderRebalanceReport(
     }
   }
   if (previewNote) {
+    // 矩阵预演：有清单时确认按钮已够，不重复「预演未写账」；仅空仓原因写 note
+    if (matrixPreview && preview && !hasEmptyReason) {
+      previewNote.hidden = true;
+      previewNote.textContent = "";
+    } else {
     previewNote.hidden = !preview && !hasEmptyReason;
-    let note = preview ? "预演未成交 · 确认后才会改仓" : "";
+    let note = preview
+      ? matrixPreview
+        ? ""
+        : "预演未成交 · 确认后才会改仓"
+      : "";
     if (preview && cashImpact && cashImpact.turnover_capped) {
       const cap =
         cashImpact.max_turnover_pct != null
@@ -234,6 +262,8 @@ function renderRebalanceReport(
       note += (note ? " · " : "") + emptyReasonText + floorHint;
     }
     previewNote.textContent = note;
+    previewNote.hidden = !note;
+    }
   }
   if (confirmBtn) {
     confirmBtn.hidden = !preview || emptyReport;
@@ -248,7 +278,9 @@ function renderRebalanceReport(
         if (!Number.isFinite(n)) return "—";
         return n.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
       };
-      const net = Number(ci.net_cash_flow);
+      const netRaw =
+        ci.net_cash_flow != null ? ci.net_cash_flow : ci.net_cash;
+      const net = Number(netRaw);
       const netCls =
         !Number.isFinite(net) || net === 0 ? "" : net > 0 ? "up" : "down";
       const netText = Number.isFinite(net)
@@ -368,34 +400,91 @@ function renderRebalanceReport(
             : "") +
           `</div>`;
       }
+      const cashCells = [];
+      const buyAmt = Number(ci.buy_amount);
+      const sellAmt = Number(ci.sell_amount);
+      const buyPos = Number.isFinite(buyAmt) && buyAmt > 0;
+      const sellPos = Number.isFinite(sellAmt) && sellAmt > 0;
+      // 矩阵预演：只留有量买卖 + 换手；现金/净流与卖额重复，不画
+      if (!matrixPreview) {
+        if (ci.cash_before != null && Number.isFinite(Number(ci.cash_before))) {
+          cashCells.push(
+            `<div><dt>调仓前现金</dt><dd>${fmt(ci.cash_before)}</dd></div>`
+          );
+        }
+      }
+      if (
+        ci.buy_amount != null &&
+        Number.isFinite(buyAmt) &&
+        (!matrixPreview || buyPos)
+      ) {
+        cashCells.push(
+          `<div><dt>预计买入</dt><dd>${fmt(ci.buy_amount)}</dd></div>`
+        );
+      }
+      if (
+        ci.sell_amount != null &&
+        Number.isFinite(sellAmt) &&
+        (!matrixPreview || sellPos)
+      ) {
+        cashCells.push(
+          `<div><dt>预计卖出</dt><dd>${fmt(ci.sell_amount)}</dd></div>`
+        );
+      }
+      if (!matrixPreview && Number.isFinite(net)) {
+        cashCells.push(
+          `<div><dt>净现金流</dt><dd class="${netCls}">${netText}</dd></div>`
+        );
+      }
+      if (
+        !matrixPreview &&
+        ci.cash_after != null &&
+        Number.isFinite(Number(ci.cash_after))
+      ) {
+        cashCells.push(
+          `<div><dt>调仓后现金</dt><dd>${fmt(ci.cash_after)}</dd></div>`
+        );
+      }
+      const posBefore = ci.position_count_before;
+      const posAfter = ci.position_count_after;
+      if (
+        !matrixPreview &&
+        posBefore != null &&
+        posAfter != null &&
+        Number.isFinite(Number(posBefore)) &&
+        Number.isFinite(Number(posAfter))
+      ) {
+        cashCells.push(
+          `<div><dt>持仓只数</dt><dd>${escapeText(String(posBefore))} → ${escapeText(
+            String(posAfter)
+          )}</dd></div>`
+        );
+      }
+      if (ci.turnover_pct != null) {
+        cashCells.push(
+          `<div title="双边换手=(买额+卖额)/2/净值"><dt>换手</dt><dd${
+            ci.turnover_over_limit || ci.turnover_capped ? ' class="down"' : ""
+          }>${escapeText(String(ci.turnover_pct))}%${
+            ci.max_turnover_pct != null
+              ? ` / ${escapeText(String(ci.max_turnover_pct))}%`
+              : ""
+          }${ci.turnover_capped ? " · 已截断" : ""}</dd></div>`
+        );
+      }
+      const cashHeadLabel = matrixPreview ? "成交预估" : "资金影响";
+      const costNote = matrixPreview ? "" : costLabel;
       cashEl.hidden = false;
       cashEl.innerHTML =
         (marketCtxHtml || "") +
-        (hasCash
+        (hasCash && cashCells.length
           ? `<div class="paper-rebalance-cash-head">` +
-            `<span class="paper-rebalance-cash-label">资金影响</span>` +
-            `<span class="paper-rebalance-cash-note">${costLabel}</span>` +
-            `</div>` +
-            `<dl class="paper-rebalance-cash-grid" aria-label="资金影响">` +
-            `<div><dt>调仓前现金</dt><dd>${fmt(ci.cash_before)}</dd></div>` +
-            `<div><dt>预计买入</dt><dd>${fmt(ci.buy_amount)}</dd></div>` +
-            `<div><dt>预计卖出</dt><dd>${fmt(ci.sell_amount)}</dd></div>` +
-            `<div><dt>净现金流</dt><dd class="${netCls}">${netText}</dd></div>` +
-            `<div><dt>调仓后现金</dt><dd>${fmt(ci.cash_after)}</dd></div>` +
-            `<div><dt>持仓只数</dt><dd>${escapeText(
-              String(ci.position_count_before ?? "—")
-            )} → ${escapeText(String(ci.position_count_after ?? "—"))}</dd></div>` +
-            (ci.turnover_pct != null
-              ? `<div title="双边换手=(买额+卖额)/2/净值"><dt>换手</dt><dd${
-                  ci.turnover_over_limit || ci.turnover_capped
-                    ? ' class="down"'
-                    : ""
-                }>${escapeText(String(ci.turnover_pct))}%${
-                  ci.max_turnover_pct != null
-                    ? ` / ${escapeText(String(ci.max_turnover_pct))}%`
-                    : ""
-                }${ci.turnover_capped ? " · 已截断" : ""}</dd></div>`
+            `<span class="paper-rebalance-cash-label">${cashHeadLabel}</span>` +
+            (costNote
+              ? `<span class="paper-rebalance-cash-note">${costNote}</span>`
               : "") +
+            `</div>` +
+            `<dl class="paper-rebalance-cash-grid" aria-label="${cashHeadLabel}">` +
+            cashCells.join("") +
             `</dl>`
           : "") +
         emptyHtml +
@@ -445,6 +534,12 @@ function renderRebalanceReport(
       nowcast_x_prior: r.nowcast_x_prior,
       predicted_score_eod: r.predicted_score_eod,
       predicted_score_tau: r.predicted_score_tau,
+      predicted_score_path: r.predicted_score_path != null ? r.predicted_score_path : r.y_path,
+      y_path: r.y_path,
+      y_path_status: r.y_path_status || null,
+      y_path_error: r.y_path_error || null,
+      features_path: r.features_path || null,
+      formula_terms_path: r.formula_terms_path || r.score_formula_terms_path,
       predicted_score_on: r.predicted_score_on,
       gap_pct: r.gap_pct,
       predicted_score: r.predicted_score != null ? r.predicted_score : r.score,
@@ -660,6 +755,9 @@ function renderRebalanceReport(
       const scoreTauShown =
         scoreTau != null ? fmtTableScore(r, scoreTau) : "—";
       const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τ" : Y_TAU_TITLE;
+      const scorePath = resolvePathScore(r);
+      const scorePathShown = fmtPathScore(scorePath);
+      const scorePathTitle = scorePath == null ? "暂无 ŷ_path" : Y_PATH_TITLE;
       const scoreOn = resolveOnScore(r);
       const scoreOnShown =
         scoreOn != null ? fmtTableScore(r, scoreOn) : "—";
@@ -788,8 +886,13 @@ function renderRebalanceReport(
         decisionTip = reasonText;
       }
 
-      const name = escapeText(r.stock_name || r.stock_code || "");
-      const code = escapeText(r.stock_code || "");
+      const rawCode = String(r.stock_code || "").trim();
+      const rawName = String(r.stock_name || "").trim();
+      // 名称等于代码时视为缺名，避免「000739 / 000739」双行伪名
+      const nameLabel =
+        rawName && rawName !== rawCode ? rawName : rawName && !rawCode ? rawName : "—";
+      const name = escapeText(nameLabel);
+      const code = escapeText(rawCode);
       const chgPct = r.change_pct;
       const chgText = fmtPct(chgPct, { signed: true });
       const chgCls = metricCls(chgPct);
@@ -855,6 +958,11 @@ function renderRebalanceReport(
         )}" role="cell" ` +
         `data-score-detail="${tipDetailJson}" data-score-tip="tau" ` +
         `title="${escapeText(scoreTauTitle)}">${escapeText(scoreTauShown)}</div>` +
+        `<div class="num rebalance-score-path paper-hold-score watching-score-path has-tip ${scoreCls(
+          scorePath
+        )}" role="cell" ` +
+        `data-score-detail="${tipDetailJson}" data-score-tip="path" ` +
+        `title="${escapeText(scorePathTitle)}">${escapeText(scorePathShown)}</div>` +
         `<div class="num rebalance-score-on paper-hold-score watching-score-on has-tip ${scoreCls(
           scoreOn
         )}" role="cell" ` +
@@ -911,6 +1019,7 @@ function renderRebalanceReport(
     `<div class="rebalance-th num" role="columnheader" title="相对昨收的当日涨跌幅">涨跌</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_EOD · 隔夜主轴">y_eod</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_τ · τ→收盘剩余">y_τ</div>` +
+    `<div class="rebalance-th num" role="columnheader" title="ŷ_path · 极值序">y_path</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_ON · open 链旁路">y_on</div>` +
     `<div class="rebalance-th num" role="columnheader" title="ŷ_trade · 排序/卖门槛">y_trade</div>` +
     `<div class="rebalance-th num" role="columnheader" title="nowcast（nc）· 对照昨收">y_nc</div>` +

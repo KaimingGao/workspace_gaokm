@@ -25,16 +25,26 @@ def _f(x: Any) -> Optional[float]:
 
 def _watching_codes(*, include_held: Sequence[str] = ()) -> Tuple[List[str], Dict[str, Any]]:
     meta: Dict[str, Any] = {"source": "watching", "n_watch": 0, "n_held_extra": 0}
+    name_by_code: Dict[str, str] = {}
     try:
-        from core.watching.store import read_watching, refresh_watchlist
+        from core.watching.store import read_watching, refresh_watchlist, watchlist_names_for
 
         uni = read_watching()
         codes = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
         if not codes:
             refreshed = refresh_watchlist(uni)
             codes = [str(c).strip() for c in (refreshed.get("watchlist") or []) if str(c).strip()]
+            uni = refreshed
         meta["n_watch"] = len(codes)
         meta["watching_name"] = uni.get("name")
+        try:
+            names = watchlist_names_for(uni)
+            for c, n in zip(codes, names):
+                nn = str(n or "").strip()
+                if c and nn and nn != c:
+                    name_by_code[c] = nn
+        except Exception:  # noqa: BLE001
+            logger.debug("watchlist names map skipped", exc_info=True)
     except FileNotFoundError:
         return [], {"error": "watching.json 不存在", "source": "watching"}
     except Exception as exc:  # noqa: BLE001
@@ -51,31 +61,106 @@ def _watching_codes(*, include_held: Sequence[str] = ()) -> Tuple[List[str], Dic
             extra += 1
     meta["n_held_extra"] = extra
     meta["n_total"] = len(codes)
+    meta["name_by_code"] = name_by_code
     return codes, meta
 
 
-def _score_pool(codes: Sequence[str], *, horizon_days: int = 1) -> Tuple[List[dict], List[dict]]:
-    """观察池逐票 score_stock（含 dual_score / path）；失败进 rejected。"""
+def _resolve_report_name(
+    code: str,
+    *,
+    item: Optional[dict] = None,
+    paper: Optional[dict] = None,
+    name_by_code: Optional[Dict[str, str]] = None,
+) -> str:
+    """报告行股票名：signal → 持仓 → 观察池 → a_code_name。"""
+    c = str(code or "").strip()
+    fallback = ""
+    if isinstance(item, dict):
+        fallback = str(item.get("stock_name") or "").strip()
+    if paper and isinstance(paper.get("holdings"), list):
+        for h in paper["holdings"]:
+            if not isinstance(h, dict):
+                continue
+            if str(h.get("stock_code") or "").strip() != c:
+                continue
+            hn = str(h.get("stock_name") or "").strip()
+            if hn and hn != c:
+                return hn
+            break
+    try:
+        from core.t0.intraday import resolve_stock_name
+
+        return resolve_stock_name(
+            c, fallback=fallback, name_by_code=name_by_code or {}
+        ) or fallback or c
+    except Exception:  # noqa: BLE001
+        logger.debug("resolve_stock_name failed for %s", c, exc_info=True)
+        if fallback and fallback != c:
+            return fallback
+        mapped = (name_by_code or {}).get(c) or ""
+        return mapped or fallback or c
+
+
+def _score_pool(
+    codes: Sequence[str],
+    *,
+    horizon_days: int = 1,
+    offline_only: bool = True,
+) -> Tuple[List[dict], List[dict]]:
+    """观察池并行 score_stock。默认仅本地缓存；``offline_only=False`` 可补远端。"""
+    import time
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     from core.signal.score_stock import score_stock
 
     scored: List[dict] = []
     rejected: List[dict] = []
-    # 预演上限：与 watching max 对齐，避免一次打爆
-    for raw in list(codes)[:120]:
-        code = str(raw or "").strip()
-        if not code:
-            continue
+    pool = [str(c or "").strip() for c in list(codes)[:120] if str(c or "").strip()]
+    if not pool:
+        return scored, rejected
+
+    use_offline = bool(offline_only)
+    t0 = time.perf_counter()
+    try:
+        from core.signal.live_features import fetch_live_index_bars
+
+        fetch_live_index_bars(market="CN", limit=75, offline_only=use_offline)
+    except Exception:  # noqa: BLE001
+        logger.debug("warm index bars failed", exc_info=True)
+
+    def _score_one(code: str) -> Tuple[str, Any]:
         try:
             result = score_stock(
                 code,
                 horizon_days=max(1, int(horizon_days or 1)),
+                skip_fundamentals=True,
                 skip_sentiment=True,
-                quote_timeout=6.0,
+                offline_only=use_offline,
+                quote_timeout=5.0 if use_offline else 8.0,
             )
         except Exception as exc:  # noqa: BLE001
-            logger.debug("score_stock failed for %s", code, exc_info=True)
-            rejected.append({"stock_code": code, "reason": str(exc)[:120]})
-            continue
+            return code, {"success": False, "stock_code": code, "error": str(exc)[:120]}
+        return code, result
+
+    workers = max(1, min(8, len(pool)))
+    by_code: Dict[str, Any] = {}
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        futs = {ex.submit(_score_one, c): c for c in pool}
+        for fut in as_completed(futs):
+            code = futs[fut]
+            try:
+                _, result = fut.result()
+                by_code[code] = result
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("score future failed for %s", code, exc_info=True)
+                by_code[code] = {
+                    "success": False,
+                    "stock_code": code,
+                    "error": str(exc)[:120],
+                }
+
+    for code in pool:
+        result = by_code.get(code)
         if not isinstance(result, dict) or result.get("success") is False:
             rejected.append(
                 {
@@ -97,7 +182,6 @@ def _score_pool(codes: Sequence[str], *, horizon_days: int = 1) -> Tuple[List[di
                 }
             )
             continue
-        # 对齐 y_* 字段
         try:
             from core.signal.dual_score import align_trade_score_fields
 
@@ -107,7 +191,34 @@ def _score_pool(codes: Sequence[str], *, horizon_days: int = 1) -> Tuple[List[di
         if item.get("stock_code") is None:
             item["stock_code"] = code
         scored.append(item)
+
+    logger.info(
+        "watching_matrix score_pool n=%s scored=%s rejected=%s workers=%s elapsed=%.1fs offline_only=%s",
+        len(pool),
+        len(scored),
+        len(rejected),
+        workers,
+        time.perf_counter() - t0,
+        int(use_offline),
+    )
     return scored, rejected
+
+
+def _y_fuse_of(item: dict, cfg: Optional[dict] = None) -> Optional[float]:
+    from core.paper.rebalance.path_matrix import (
+        fuse_trade_nowcast,
+        get_path_matrix_cfg,
+        scores_from_rebalance_item,
+    )
+
+    sc = scores_from_rebalance_item(item)
+    rules = get_path_matrix_cfg(cfg)
+    return fuse_trade_nowcast(
+        sc.get("y_trade"),
+        sc.get("y_nowcast"),
+        w_trade=float(rules.get("fusion_w_trade") or 0.5),
+        w_nowcast=float(rules.get("fusion_w_nowcast") or 0.5),
+    )
 
 
 def _y_trade_of(item: dict) -> Optional[float]:
@@ -134,18 +245,37 @@ def _current_weights(paper: dict, equity: float) -> Dict[str, float]:
     return out
 
 
+def _is_oos_failed_item(item: Optional[dict]) -> bool:
+    """OOS 失败组 / 降级 heuristic：禁止新开与加仓。"""
+    if not isinstance(item, dict):
+        return False
+    if item.get("oos_failed") or item.get("oos_blocked") or item.get("oos_sleeve"):
+        return True
+    try:
+        from core.signal.rebalance_tracks import OOS_FAIL, resolve_oos_status
+
+        return resolve_oos_status(item) == OOS_FAIL
+    except Exception:  # noqa: BLE001
+        logger.debug("resolve_oos_status failed", exc_info=True)
+        src = str(item.get("return_model_source") or "")
+        return src.startswith("oos_failed")
+
+
 def _target_weights_for_topk(
     scored: Sequence[dict],
     *,
     top_k: int,
     buy_floor: float,
     max_position_pct: float,
+    cfg: Optional[dict] = None,
 ) -> Dict[str, float]:
-    """按 y_trade 选 Top-K，score_budget 分配目标仓（0–1）。"""
+    """按 y_fuse=加权(y_trade,y_nowcast) 选 Top-K，score_budget 分配目标仓（0–1）。"""
     rows: List[dict] = []
     for it in scored:
-        yt = _y_trade_of(it)
-        if yt is None or float(yt) < float(buy_floor):
+        if _is_oos_failed_item(it):
+            continue
+        yf = _y_fuse_of(it, cfg)
+        if yf is None or float(yf) < float(buy_floor):
             continue
         code = str(it.get("stock_code") or "").strip()
         if not code:
@@ -153,7 +283,7 @@ def _target_weights_for_topk(
         rows.append(
             {
                 "stock_code": code,
-                "score": float(yt),
+                "score": float(yf),
                 "sector": it.get("sector") or "未知",
             }
         )
@@ -183,18 +313,37 @@ def _target_weights_for_topk(
         return {str(r["stock_code"]): w for r in rows}
 
 
-def _quote_px(code: str) -> Optional[float]:
+def _quote_px(code: str, *, offline_only: bool = True) -> Optional[float]:
+    """预演/落账定价：默认本地日线末收；``offline_only=False`` 可打实时行情。"""
     try:
-        from core.data.facade import get_quote
+        from core.data.facade import get_bars
 
-        q = get_quote(code) or {}
-        px = _f(q.get("price_raw") if q.get("price_raw") is not None else q.get("price"))
-        if px is None:
-            px = _f(q.get("close"))
-        return float(px) if px is not None and px > 0 else None
+        pack = get_bars(
+            code,
+            limit=5,
+            offline_only=bool(offline_only),
+            reject_quote_fallback=True,
+        ) or {}
+        bars = list(pack.get("bars") or [])
+        if bars:
+            px = _f((bars[-1] or {}).get("close"))
+            if px is not None and px > 0:
+                return float(px)
     except Exception:  # noqa: BLE001
-        logger.debug("quote failed for %s", code, exc_info=True)
-        return None
+        logger.debug("cached bar price failed for %s", code, exc_info=True)
+    if not offline_only:
+        try:
+            from core.data.facade import get_quote
+
+            q = get_quote(code) or {}
+            px = _f(q.get("price_raw") if isinstance(q, dict) else None)
+            if px is None and isinstance(q, dict):
+                px = _f(q.get("price"))
+            if px is not None and px > 0:
+                return float(px)
+        except Exception:  # noqa: BLE001
+            logger.debug("live quote price failed for %s", code, exc_info=True)
+    return None
 
 
 def _lot_shares(amount: float, price: float) -> int:
@@ -235,6 +384,20 @@ _SCORE_PASSTHROUGH_KEYS = (
     "reject_reason",
     "sector",
 )
+
+
+def _is_path_window_noise_reason(reason: str) -> bool:
+    """矩阵预演跳过清单噪音：已对齐、|path|本窗闸、异号、清仓推迟等（by_action 已计数）。"""
+    r = str(reason or "")
+    if "已对齐" in r or "不动" in r:
+        return True
+    if "欲加仓但" in r or "欲减仓但" in r:
+        return True
+    if "本窗跳过" in r or "本窗推迟" in r:
+        return True
+    if "必清但" in r:
+        return True
+    return False
 
 
 def _score_fields_for_report(item: dict, scores: Dict[str, Optional[float]]) -> Dict[str, Any]:
@@ -449,8 +612,9 @@ def simulate_watching_matrix_preview(
     buy_floor: Optional[float] = None,
     hold_floor: Optional[float] = None,
     dry_run: bool = True,
+    offline_only: bool = True,
 ) -> Dict[str, Any]:
-    """观察池实时算分 + L1 path_matrix。dry_run 不写仓；False 则原地改 paper。"""
+    """观察池算分 + L1 path_matrix。默认 offline；dry_run 不写仓。"""
     from core.paper.ledger import mark_to_market
     from core.paper.rebalance.path_matrix import (
         ACTION_ADD,
@@ -495,6 +659,11 @@ def simulate_watching_matrix_preview(
         if isinstance(h, dict) and float(h.get("shares") or 0) > 0
     ]
     codes, pool_meta = _watching_codes(include_held=held_codes)
+    name_by_code = (
+        pool_meta.get("name_by_code")
+        if isinstance(pool_meta.get("name_by_code"), dict)
+        else {}
+    )
     if pool_meta.get("error"):
         return {
             "success": False,
@@ -518,27 +687,31 @@ def simulate_watching_matrix_preview(
             "confirm_supported": True,
         }
 
-    scored, rejected = _score_pool(codes, horizon_days=1)
+    # 与持仓表 score_one 同一 horizon，避免同票 ŷ 对不上
+    horizon = max(1, min(int(rules.get("horizon_days") or 3), 3))
+    use_offline = bool(offline_only)
+    scored, rejected = _score_pool(
+        codes, horizon_days=horizon, offline_only=use_offline
+    )
     summary = mark_to_market(paper) or {}
     equity = float(summary.get("equity") or 0) or 0.0
     cash_before = float(summary.get("cash") or paper.get("cash") or 0)
     cash = cash_before
     w_now = _current_weights(paper, equity if equity > 0 else 1.0)
+    # 预演/落账始终启用矩阵；Web 仅路径择时
+    pm_cfg = get_path_matrix_cfg(paper=paper)
+    pm_cfg["enabled"] = True
+    pm_cfg["mode"] = "path"
+    mode = "path"
+
     w_star = _target_weights_for_topk(
         scored,
         top_k=k,
         buy_floor=bf,
         max_position_pct=max_pos_pct,
+        cfg=pm_cfg,
     )
     top_codes = list(w_star.keys())
-
-    # 预演/落账始终启用矩阵；模式读账户配置（path | linear）
-    pm_cfg = get_path_matrix_cfg(paper=paper)
-    pm_cfg["enabled"] = True
-    mode = str(pm_cfg.get("mode") or "path").strip().lower()
-    if mode not in ("path", "linear"):
-        mode = "path"
-    pm_cfg["mode"] = mode
 
     item_by_code = {
         str(it.get("stock_code") or "").strip(): it
@@ -555,14 +728,22 @@ def simulate_watching_matrix_preview(
     sell_trades: List[dict] = []
     report: List[dict] = []
     skips: List[dict] = []
+    oos_excluded = 0
 
     universe = sorted(set(list(w_star.keys()) + list(w_now.keys()) + list(item_by_code.keys())))
     for code in universe:
         item = item_by_code.get(code) or {"stock_code": code}
         w = float(w_now.get(code) or 0.0)
         ws = float(w_star.get(code) or 0.0)
-        # 已持有但未进 Top-K：目标 0（由 hold 门槛在 resolve 内再判）
-        if code in w_now and code not in w_star:
+        oos_fail = _is_oos_failed_item(item)
+        if oos_fail:
+            oos_excluded += 1
+            if w <= 1e-9:
+                # 未持仓 OOS：直接过滤，不进决议/报告
+                continue
+            # 已持仓 OOS：目标清零（禁止滞回留仓 / 加仓），走减/清路径
+            ws = 0.0
+        elif code in w_now and code not in w_star:
             yt = _y_trade_of(item)
             if yt is not None and float(yt) >= hf:
                 # 滞回：未破 hold 则维持现仓为目标（本窗可不加）
@@ -579,13 +760,29 @@ def simulate_watching_matrix_preview(
             hold_floor=hf,
             mode=mode,
         )
+        # 双保险：OOS 不得开/加
+        act0 = str(dec.get("action") or "")
+        if oos_fail and act0 in (ACTION_OPEN, ACTION_ADD):
+            dec = {
+                **dec,
+                "action": ACTION_SKIP,
+                "execute": False,
+                "delta_w": 0.0,
+                "reason": "OOS 失败组 · 禁止新开/加仓",
+            }
         decisions.append({"stock_code": code, **dec})
         act = str(dec.get("action") or "")
         yt = (dec.get("scores") or {}).get("y_trade")
         yp = (dec.get("scores") or {}).get("y_path")
         yn = (dec.get("scores") or {}).get("y_nowcast")
         yo = (dec.get("scores") or {}).get("y_on")
-        name = item.get("stock_name")
+        name = _resolve_report_name(
+            code, item=item, paper=paper, name_by_code=name_by_code
+        )
+        if isinstance(item, dict) and name and (
+            not item.get("stock_name") or str(item.get("stock_name")) == code
+        ):
+            item["stock_name"] = name
         score_payload = _score_fields_for_report(
             item if isinstance(item, dict) else {},
             {"y_trade": yt, "y_path": yp, "y_nowcast": yn, "y_on": yo},
@@ -605,13 +802,21 @@ def simulate_watching_matrix_preview(
             **score_payload,
         }
 
+        held_sh = 0.0
+        for h in paper.get("holdings") or []:
+            if str(h.get("stock_code") or "").strip() == code:
+                held_sh = float(h.get("shares") or 0)
+                break
+
         if act in (ACTION_SKIP, ACTION_PENDING_EXIT) or not dec.get("execute"):
-            if act in (ACTION_SKIP, ACTION_PENDING_EXIT, "hold"):
+            reason = str(dec.get("reason") or act)
+            # 已对齐 / path 本窗闸 / 清仓推迟：不进跳过清单（by_action 已计数）
+            if act == ACTION_SKIP and not _is_path_window_noise_reason(reason):
                 skips.append(
                     {
                         "stock_code": code,
                         "stock_name": name,
-                        "reason": dec.get("reason") or act,
+                        "reason": reason,
                         "path_matrix": True,
                         "path_matrix_action": act,
                         "score": yt,
@@ -619,7 +824,7 @@ def simulate_watching_matrix_preview(
                 )
             continue
 
-        px = _quote_px(code)
+        px = _quote_px(code, offline_only=use_offline)
         if px is None or px <= 0:
             skips.append(
                 {
@@ -632,11 +837,6 @@ def simulate_watching_matrix_preview(
             continue
 
         delta = float(dec.get("delta_w") or 0.0)
-        held_sh = 0.0
-        for h in paper.get("holdings") or []:
-            if str(h.get("stock_code") or "").strip() == code:
-                held_sh = float(h.get("shares") or 0)
-                break
 
         if act in (ACTION_OPEN, ACTION_ADD) and delta > 0 and equity > 0:
             amount = float(equity) * abs(delta)
@@ -717,6 +917,14 @@ def simulate_watching_matrix_preview(
             )
             report.append(row)
 
+    # 先卖后买
+    report.sort(
+        key=lambda r: (
+            0 if str(r.get("side") or "") == "sell" else 1,
+            str(r.get("stock_code") or ""),
+        )
+    )
+
     apply_skips: List[dict] = []
     if not dry_run and (buy_trades or sell_trades):
         applied = _apply_matrix_trades(paper, sell_trades, buy_trades)
@@ -761,6 +969,7 @@ def simulate_watching_matrix_preview(
         "dry_run": bool(dry_run),
         "matrix_mode": True,
         "cluster_mode": False,
+        "offline_only": use_offline,
         "top_k": k,
         "min_score": bf,
         "min_hold_score": hf,
@@ -791,6 +1000,7 @@ def simulate_watching_matrix_preview(
         "path_matrix": {
             "enabled": True,
             "mode": mode,
+            "oos_excluded": oos_excluded,
             "cfg": {
                 k2: pm_cfg.get(k2)
                 for k2 in (
@@ -799,7 +1009,11 @@ def simulate_watching_matrix_preview(
                     "path_half",
                     "path_full",
                     "y_on_allow",
+                    "fusion_w_trade",
+                    "fusion_w_nowcast",
+                    "require_path_on_same_sign",
                     "require_nowcast_for_open",
+                    "allow_pending_exit_on_path_low",
                 )
             },
             "by_action": by_action,

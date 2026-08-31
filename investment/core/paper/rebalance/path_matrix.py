@@ -1,8 +1,9 @@
 """早盘调仓决策矩阵（L1 路径择时）与线性对照（L0）。
 
 目标层与执行层分离：
-  - 目标：y_trade 定 w*；y_on 定收盘可留仓折扣
-  - 执行：y_path 定早盘是否推、往哪侧推；y_nowcast 确认/否决
+  - 目标：y_fuse = 加权(y_trade, y_nowcast) 排序 Top-K / 定 w*
+  - 过滤：开加仓要求 y_path、y_on 与方向同号；|y_path| 定 λ
+  - 隔夜：y_on 另定收盘可留仓折扣 w*_close
 
 默认 ``enabled=True``：观察池预演/落账与买卖腿闸均走矩阵；仍可用配置显式关闭闸。
 """
@@ -24,20 +25,24 @@ ACTION_SKIP = "skip_window"  # 本窗不调，目标保留
 ACTION_PENDING_EXIT = "pending_exit"  # 必清但等更好卖点
 
 MODE_LINEAR = "linear"  # L0：缺口立刻补
-MODE_PATH = "path"  # L1：path + nowcast 闸
+MODE_PATH = "path"  # L1：path + on 同号闸
 
 DEFAULT_PATH_MATRIX: Dict[str, Any] = {
     "enabled": True,  # 手动观察池调仓始终用矩阵；买卖腿闸亦默认开
     "mode": MODE_PATH,  # path | linear
     "buy_floor": None,  # None → 调用方传入 / 回退 0.01
     "hold_floor": None,
-    "path_enter": 1.0,  # |ŷ_path| 横盘门槛（%）
-    "path_half": 1.0,  # ≥half → λ=0.5；与 enter 同则弱振幅半仓
-    "path_full": 2.0,  # ≥full → λ=1.0
-    "y_on_allow": 0.01,  # ≥allow → 隔夜满留
-    "y_on_half": 0.0,  # ≥half 且 <allow → 隔夜半仓
-    "nowcast_sign_eps": 0.0,  # nc 与 trade 同号判定；0=严格异号否决加仓侧
-    "require_nowcast_for_open": True,
+    "path_enter": 0.1,  # |ŷ_path| 横盘门槛（%）
+    "path_half": 0.5,  # ≥half → λ=0.5
+    "path_full": 1.0,  # ≥full → λ=1.0
+    "y_on_allow": 0.5,  # ≥allow → 隔夜满留
+    "y_on_half": 0.1,  # ≥half 且 <allow → 隔夜半仓
+    "fusion_w_trade": 0.5,  # y_trade 权重
+    "fusion_w_nowcast": 0.5,  # y_nowcast 权重
+    "sign_eps": 0.0,  # 同号判定；0=严格看符号
+    "nowcast_sign_eps": 0.0,  # 兼容旧键，并入 sign_eps
+    "require_nowcast_for_open": False,  # 废弃：开加不再单独卡 nc
+    "require_path_on_same_sign": True,  # 开/加：path、on 与方向同号
     "allow_pending_exit_on_path_low": True,  # path>0 时清仓可推迟
     "min_weight_eps": 1e-4,  # |w-w*| 小于此视为已对齐
 }
@@ -85,11 +90,14 @@ def get_path_matrix_cfg(
     out["mode"] = MODE_LINEAR if mode in {"linear", "l0", "score_budget"} else MODE_PATH
     out["enabled"] = bool(out.get("enabled"))
     for key, default, lo, hi in (
-        ("path_enter", 1.0, 0.01, 5.0),
-        ("path_half", 1.0, 0.01, 5.0),
-        ("path_full", 2.0, 0.01, 10.0),
-        ("y_on_allow", 0.01, 0.0, 5.0),
-        ("y_on_half", 0.0, -5.0, 5.0),
+        ("path_enter", 0.1, 0.01, 5.0),
+        ("path_half", 0.5, 0.01, 5.0),
+        ("path_full", 1.0, 0.01, 10.0),
+        ("y_on_allow", 0.5, 0.0, 5.0),
+        ("y_on_half", 0.1, -5.0, 5.0),
+        ("fusion_w_trade", 0.5, 0.0, 1.0),
+        ("fusion_w_nowcast", 0.5, 0.0, 1.0),
+        ("sign_eps", 0.0, 0.0, 1.0),
         ("nowcast_sign_eps", 0.0, 0.0, 1.0),
         ("min_weight_eps", 1e-4, 0.0, 0.05),
     ):
@@ -97,15 +105,70 @@ def get_path_matrix_cfg(
             out[key] = max(lo, min(float(out.get(key, default)), hi))
         except (TypeError, ValueError):
             out[key] = float(default)
+    # 旧 nowcast_sign_eps 并入 sign_eps（若未单独写 sign_eps）
+    if abs(float(out.get("sign_eps") or 0.0)) < 1e-15 and float(
+        out.get("nowcast_sign_eps") or 0.0
+    ) > 0:
+        out["sign_eps"] = float(out["nowcast_sign_eps"])
+    wt = float(out["fusion_w_trade"])
+    wn = float(out["fusion_w_nowcast"])
+    s = wt + wn
+    if s <= 1e-12:
+        out["fusion_w_trade"], out["fusion_w_nowcast"] = 0.5, 0.5
+    else:
+        out["fusion_w_trade"], out["fusion_w_nowcast"] = wt / s, wn / s
     if float(out["path_enter"]) > float(out["path_half"]):
         out["path_half"] = float(out["path_enter"])
     if float(out["path_half"]) > float(out["path_full"]):
         out["path_full"] = float(out["path_half"])
-    out["require_nowcast_for_open"] = bool(out.get("require_nowcast_for_open", True))
+    out["require_nowcast_for_open"] = bool(out.get("require_nowcast_for_open", False))
+    out["require_path_on_same_sign"] = bool(out.get("require_path_on_same_sign", True))
     out["allow_pending_exit_on_path_low"] = bool(
         out.get("allow_pending_exit_on_path_low", True)
     )
     return out
+
+
+def fuse_trade_nowcast(
+    y_trade: Optional[float],
+    y_nowcast: Optional[float],
+    *,
+    w_trade: float = 0.5,
+    w_nowcast: float = 0.5,
+) -> Optional[float]:
+    """加权融合；缺一侧则用另一侧；都缺则 None。"""
+    wt = max(0.0, float(w_trade))
+    wn = max(0.0, float(w_nowcast))
+    t = _f(y_trade)
+    n = _f(y_nowcast)
+    if t is None and n is None:
+        return None
+    if t is None:
+        return float(n)
+    if n is None:
+        return float(t)
+    s = wt + wn
+    if s <= 1e-12:
+        return 0.5 * float(t) + 0.5 * float(n)
+    return (wt * float(t) + wn * float(n)) / s
+
+
+def _same_sign(
+    a: Optional[float],
+    b: Optional[float],
+    *,
+    eps: float = 0.0,
+) -> Tuple[bool, str]:
+    """两数同号（相对 eps 中性带）。缺一则失败。"""
+    if a is None or b is None:
+        return False, "缺分数无法同号"
+    ea = float(eps)
+    fa, fb = float(a), float(b)
+    if abs(fa) <= ea or abs(fb) <= ea:
+        return False, f"|分|≤{ea} 中性"
+    if (fa > 0) == (fb > 0):
+        return True, "同号"
+    return False, "异号"
 
 
 def scores_from_rebalance_item(item: Optional[dict]) -> Dict[str, Optional[float]]:
@@ -146,9 +209,9 @@ def scores_from_rebalance_item(item: Optional[dict]) -> Dict[str, Optional[float
 
 def path_execution_lambda(y_path: Optional[float], cfg: dict) -> Tuple[float, str]:
     """|y_path| → 本窗执行力度 λ∈{0,0.5,1}。"""
-    enter = float(cfg.get("path_enter") or 1.0)
-    half = float(cfg.get("path_half") or 1.0)
-    full = float(cfg.get("path_full") or 2.0)
+    enter = float(cfg.get("path_enter") or 0.1)
+    half = float(cfg.get("path_half") or 0.5)
+    full = float(cfg.get("path_full") or 1.0)
     if y_path is None:
         return 0.0, "缺 y_path"
     mag = abs(float(y_path))
@@ -161,8 +224,8 @@ def path_execution_lambda(y_path: Optional[float], cfg: dict) -> Tuple[float, st
 
 def overnight_scale(y_on: Optional[float], cfg: dict) -> Tuple[float, str]:
     """隔夜可留仓比例：满 / 半 / 零。"""
-    allow = float(cfg.get("y_on_allow") or 0.01)
-    half = float(cfg.get("y_on_half") or 0.0)
+    allow = float(cfg.get("y_on_allow") or 0.5)
+    half = float(cfg.get("y_on_half") if cfg.get("y_on_half") is not None else 0.1)
     if y_on is None:
         return 0.0, "缺 y_on → 不隔夜"
     if float(y_on) >= allow:
@@ -311,8 +374,16 @@ def resolve_rebalance_action(
 
     bf, hf = _floors(rules, buy_floor=buy_floor, hold_floor=hold_floor)
     has_pos = float(w or 0.0) > float(rules["min_weight_eps"])
+    y_fuse = fuse_trade_nowcast(
+        y_trade,
+        y_nowcast,
+        w_trade=float(rules.get("fusion_w_trade") or 0.5),
+        w_nowcast=float(rules.get("fusion_w_nowcast") or 0.5),
+    )
+    # 目标层门槛用融合分；缺融合时回退 y_trade
+    y_stance = y_fuse if y_fuse is not None else y_trade
     tgt = resolve_target_weight(
-        y_trade=y_trade,
+        y_trade=y_stance,
         w_day=float(w_star_day or 0.0),
         cfg=rules,
         buy_floor=bf,
@@ -332,6 +403,7 @@ def resolve_rebalance_action(
         "y_path": y_path,
         "y_nowcast": y_nowcast,
         "y_on": y_on,
+        "y_fuse": y_fuse,
     }
     base = {
         "mode": use_mode,
@@ -352,15 +424,15 @@ def resolve_rebalance_action(
     }
 
     # —— 硬清仓义务 ——
-    must_exit = hard_reject or (y_trade is not None and float(y_trade) < hf) or (
+    must_exit = hard_reject or (y_stance is not None and float(y_stance) < hf) or (
         has_pos and w_star <= eps and float(w or 0.0) > eps
     )
-    # 双空：trade<0 且 on<0 → 目标已是 0；强调清仓
+    # 双空：融合分<0 且 on<0 → 目标已是 0；强调清仓
     if (
         has_pos
-        and y_trade is not None
+        and y_stance is not None
         and y_on is not None
-        and float(y_trade) < 0
+        and float(y_stance) < 0
         and float(y_on) < 0
     ):
         must_exit = True
@@ -368,7 +440,7 @@ def resolve_rebalance_action(
         w_close = 0.0
         base["w_star"] = 0.0
         base["w_close"] = 0.0
-        base["notes"].append("y_trade<0 且 y_on<0 双空清仓")
+        base["notes"].append("y_fuse<0 且 y_on<0 双空清仓")
 
     if use_mode == MODE_LINEAR:
         return _resolve_linear(
@@ -379,7 +451,7 @@ def resolve_rebalance_action(
             must_exit=must_exit,
             has_pos=has_pos,
             eps=eps,
-            y_trade=y_trade,
+            y_trade=y_stance,
             bf=bf,
             hf=hf,
         )
@@ -394,7 +466,7 @@ def resolve_rebalance_action(
         has_pos=has_pos,
         eps=eps,
         gap=gap,
-        y_trade=y_trade,
+        y_trade=y_stance,
         y_path=y_path,
         y_nowcast=y_nowcast,
         y_on=y_on,
@@ -464,7 +536,7 @@ def _resolve_path(
     bf: float,
     hf: float,
 ) -> Dict[str, Any]:
-    """L1：path 定时机，nowcast 确认。"""
+    """L1：path/on 与方向同号过滤；|path| 定 λ。"""
     out = dict(base)
     lam, lam_note = path_execution_lambda(y_path, rules)
     out["notes"].append(lam_note)
@@ -473,6 +545,10 @@ def _resolve_path(
     path_enter = float(rules["path_enter"])
     path_pos = y_path is not None and float(y_path) > path_enter
     path_neg = y_path is not None and float(y_path) < -path_enter
+    sign_eps = float(rules.get("sign_eps") or 0.0)
+    require_po = bool(rules.get("require_path_on_same_sign", True))
+    # 方向：要加仓为正，要减/清为负
+    direction = 1.0 if gap > eps else (-1.0 if gap < -eps else None)
 
     # 清仓义务
     if must_exit or (has_pos and w_star <= eps and w > eps):
@@ -531,19 +607,33 @@ def _resolve_path(
                 f"欲加仓但 path 非探底（y_path={y_path}），本窗跳过"
             )
             return out
-        ok_nc, nc_note = _same_sign_confirm(
-            y_trade,
-            y_nowcast,
-            eps=float(rules["nowcast_sign_eps"]),
-            require=bool(rules.get("require_nowcast_for_open", True)),
-        )
-        out["notes"].append(nc_note)
-        if not ok_nc:
-            out["action"] = ACTION_SKIP
-            out["delta_w"] = 0.0
-            out["execute"] = False
-            out["reason"] = f"欲加仓但 nowcast 未确认：{nc_note}"
-            return out
+        if require_po:
+            ok_path, path_note = _same_sign(direction, y_path, eps=sign_eps)
+            out["notes"].append(f"path过滤:{path_note}")
+            if not ok_path:
+                out["action"] = ACTION_SKIP
+                out["delta_w"] = 0.0
+                out["execute"] = False
+                out["reason"] = f"欲加仓但 path 不同号：{path_note}"
+                return out
+            ok_on, on_note = _same_sign(direction, y_on, eps=sign_eps)
+            out["notes"].append(f"on过滤:{on_note}")
+            if not ok_on:
+                out["action"] = ACTION_SKIP
+                out["delta_w"] = 0.0
+                out["execute"] = False
+                out["reason"] = f"欲加仓但 y_on 不同号：{on_note}"
+                return out
+        # 兼容：若显式打开旧 nowcast 闸
+        if bool(rules.get("require_nowcast_for_open")):
+            ok_nc, nc_note = _same_sign(y_trade, y_nowcast, eps=sign_eps)
+            out["notes"].append(f"nc过滤:{nc_note}")
+            if not ok_nc:
+                out["action"] = ACTION_SKIP
+                out["delta_w"] = 0.0
+                out["execute"] = False
+                out["reason"] = f"欲加仓但 nowcast 未确认：{nc_note}"
+                return out
         delta = lam * gap
         out["action"] = ACTION_ADD if has_pos else ACTION_OPEN
         out["delta_w"] = delta
@@ -563,27 +653,45 @@ def _resolve_path(
             out["execute"] = False
             out["reason"] = "欲减仓但非 path 高点，本窗跳过"
             return out
-        # 减仓确认：on<0 或 nc < trade（趋势走弱）
-        weaken = False
-        if y_on is not None and float(y_on) < 0:
-            weaken = True
-            out["notes"].append("y_on<0 支持减仓")
-        if (
-            y_nowcast is not None
-            and y_trade is not None
-            and float(y_nowcast) < float(y_trade)
-        ):
-            weaken = True
-            out["notes"].append("y_nowcast<y_trade 走弱")
-        if not weaken and y_trade is not None and float(y_trade) < bf:
-            weaken = True
-            out["notes"].append("y_trade 低于 buy_floor，弱持减仓")
-        if not weaken:
-            out["action"] = ACTION_SKIP
-            out["delta_w"] = 0.0
-            out["execute"] = False
-            out["reason"] = "path 高点但无走弱确认，本窗不减"
-            return out
+        if require_po:
+            ok_path, path_note = _same_sign(direction, y_path, eps=sign_eps)
+            out["notes"].append(f"path过滤:{path_note}")
+            if not ok_path:
+                out["action"] = ACTION_SKIP
+                out["delta_w"] = 0.0
+                out["execute"] = False
+                out["reason"] = f"欲减仓但 path 不同号：{path_note}"
+                return out
+            ok_on, on_note = _same_sign(direction, y_on, eps=sign_eps)
+            out["notes"].append(f"on过滤:{on_note}")
+            if not ok_on:
+                out["action"] = ACTION_SKIP
+                out["delta_w"] = 0.0
+                out["execute"] = False
+                out["reason"] = f"欲减仓但 y_on 不同号：{on_note}"
+                return out
+        else:
+            # 旧走弱确认（未开同号闸时）
+            weaken = False
+            if y_on is not None and float(y_on) < 0:
+                weaken = True
+                out["notes"].append("y_on<0 支持减仓")
+            if (
+                y_nowcast is not None
+                and y_trade is not None
+                and float(y_nowcast) < float(y_trade)
+            ):
+                weaken = True
+                out["notes"].append("y_nowcast<y_trade 走弱")
+            if not weaken and y_trade is not None and float(y_trade) < bf:
+                weaken = True
+                out["notes"].append("y_trade 低于 buy_floor，弱持减仓")
+            if not weaken:
+                out["action"] = ACTION_SKIP
+                out["delta_w"] = 0.0
+                out["execute"] = False
+                out["reason"] = "path 高点但无走弱确认，本窗不减"
+                return out
         delta = -lam * need
         out["action"] = ACTION_REDUCE
         out["delta_w"] = delta
@@ -871,6 +979,7 @@ __all__ = [
     "MODE_PATH",
     "buy_execution_gate",
     "compare_linear_vs_path",
+    "fuse_trade_nowcast",
     "get_path_matrix_cfg",
     "overnight_scale",
     "path_execution_lambda",

@@ -82,6 +82,329 @@ class TestPaperFillPhase(unittest.TestCase):
         self.assertTrue(out.get("filled"))
         self.assertFalse(paper.get("pending_orders"))
 
+    def test_open_fill_skips_limit_up_buy(self):
+        """开盘涨停：买单不成交，挂单保留。"""
+        from core.paper.open_fill import fill_pending_at_open, stage_pending
+
+        paper = {
+            "cash": 100000.0,
+            "holdings": [],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+        }
+        stage_pending(
+            paper,
+            {
+                "as_of": "2026-08-24",
+                "target_fill_date": "2026-08-24",
+                "legs": [
+                    {
+                        "side": "buy",
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 100,
+                        "intent_price": 10.0,
+                    }
+                ],
+            },
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "open_raw": 11.0,
+                "prev_close": 10.0,
+                "stock_name": "茅台",
+            }
+        }
+        out = fill_pending_at_open(paper, now=_dt(9, 30, "2026-08-24"), quotes=quotes)
+        self.assertFalse(out.get("filled"))
+        self.assertEqual(len(out.get("skips") or []), 1)
+        self.assertIn("涨停", str((out["skips"][0] or {}).get("reason") or ""))
+        legs = (paper.get("pending_orders") or {}).get("legs") or []
+        self.assertEqual(len(legs), 1)
+        self.assertEqual(paper.get("cash"), 100000.0)
+        self.assertFalse(paper.get("trades"))
+
+    def test_open_fill_skips_limit_down_sell(self):
+        """开盘跌停：卖单不成交，持仓与挂单都保留。"""
+        from core.paper.open_fill import fill_pending_at_open, stage_pending
+
+        paper = {
+            "cash": 100000.0,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 10.0,
+                }
+            ],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+        }
+        stage_pending(
+            paper,
+            {
+                "as_of": "2026-08-24",
+                "target_fill_date": "2026-08-24",
+                "legs": [
+                    {
+                        "side": "sell",
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 100,
+                        "intent_price": 10.0,
+                    }
+                ],
+            },
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "open_raw": 9.0,
+                "prev_close": 10.0,
+                "stock_name": "茅台",
+            }
+        }
+        out = fill_pending_at_open(paper, now=_dt(9, 30, "2026-08-24"), quotes=quotes)
+        self.assertFalse(out.get("filled"))
+        self.assertIn("跌停", str((out.get("skips") or [{}])[0].get("reason") or ""))
+        self.assertEqual(len(paper.get("holdings") or []), 1)
+        self.assertEqual(len((paper.get("pending_orders") or {}).get("legs") or []), 1)
+
+    def test_open_fill_skips_halted(self):
+        from core.paper.open_fill import fill_pending_at_open, stage_pending
+
+        paper = {
+            "cash": 100000.0,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 10.0,
+                }
+            ],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+        }
+        stage_pending(
+            paper,
+            {
+                "as_of": "2026-08-24",
+                "target_fill_date": "2026-08-24",
+                "legs": [
+                    {
+                        "side": "sell",
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 100,
+                        "intent_price": 10.0,
+                    }
+                ],
+            },
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "open_raw": 10.2,
+                "prev_close": 10.0,
+                "status": "停牌",
+                "stock_name": "茅台",
+            }
+        }
+        out = fill_pending_at_open(paper, now=_dt(9, 30, "2026-08-24"), quotes=quotes)
+        self.assertFalse(out.get("filled"))
+        self.assertIn("停牌", str((out.get("skips") or [{}])[0].get("reason") or ""))
+        self.assertEqual(len(paper.get("holdings") or []), 1)
+
+    def test_open_fill_still_fills_normal_open(self):
+        from core.paper.open_fill import fill_pending_at_open, stage_pending
+
+        paper = {
+            "cash": 100000.0,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 10.0,
+                }
+            ],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+        }
+        stage_pending(
+            paper,
+            {
+                "as_of": "2026-08-24",
+                "target_fill_date": "2026-08-24",
+                "legs": [
+                    {
+                        "side": "sell",
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 100,
+                        "intent_price": 10.0,
+                    }
+                ],
+            },
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "open_raw": 10.2,
+                "prev_close": 10.0,
+                "stock_name": "茅台",
+            }
+        }
+        out = fill_pending_at_open(paper, now=_dt(9, 30, "2026-08-24"), quotes=quotes)
+        self.assertTrue(out.get("filled"))
+        self.assertFalse(paper.get("pending_orders"))
+        self.assertEqual(len(paper.get("holdings") or []), 0)
+
+    def test_session_midpoint_chase_fills_sell(self):
+        """开盘后：按意向价与现价中点成交卖出挂单。"""
+        from core.paper.open_fill import fill_pending_at_open, stage_pending
+
+        paper = {
+            "cash": 100000.0,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 10.0,
+                }
+            ],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+        }
+        stage_pending(
+            paper,
+            {
+                "as_of": "2026-08-24",
+                "target_fill_date": "2026-08-24",
+                "legs": [
+                    {
+                        "side": "sell",
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 100,
+                        "intent_price": 12.0,
+                    }
+                ],
+            },
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "price_raw": 10.0,
+                "prev_close": 10.0,
+                "stock_name": "茅台",
+            }
+        }
+        out = fill_pending_at_open(paper, now=_dt(10, 30, "2026-08-24"), quotes=quotes)
+        self.assertTrue(out.get("filled"), out)
+        self.assertEqual(out.get("mode"), "chase")
+        self.assertFalse(paper.get("pending_orders"))
+        self.assertEqual(len(paper.get("holdings") or []), 0)
+        trade = (out.get("trades") or [])[0]
+        self.assertAlmostEqual(float(trade.get("price") or 0), 11.0, places=4)
+        self.assertIn("中点追价", str(trade.get("note") or ""))
+
+    def test_session_chase_respects_interval(self):
+        from core.paper.open_fill import fill_pending_at_open, stage_pending
+
+        paper = {
+            "cash": 100000.0,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 10.0,
+                }
+            ],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+        }
+        stage_pending(
+            paper,
+            {
+                "as_of": "2026-08-24",
+                "target_fill_date": "2026-08-24",
+                "legs": [
+                    {
+                        "side": "sell",
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 100,
+                        "intent_price": 12.0,
+                        "last_chase_at": "2026-08-24T10:25:00",
+                    }
+                ],
+            },
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "price_raw": 10.0,
+                "prev_close": 10.0,
+                "stock_name": "茅台",
+            }
+        }
+        out = fill_pending_at_open(paper, now=_dt(10, 30, "2026-08-24"), quotes=quotes)
+        self.assertFalse(out.get("filled"))
+        self.assertEqual(len((paper.get("pending_orders") or {}).get("legs") or []), 1)
+
+    def test_eod_force_fills_at_last(self):
+        from core.paper.open_fill import fill_pending_at_open, stage_pending
+
+        paper = {
+            "cash": 100000.0,
+            "holdings": [
+                {
+                    "stock_code": "600519",
+                    "stock_name": "茅台",
+                    "shares": 100,
+                    "cost": 10.0,
+                }
+            ],
+            "trades": [],
+            "rules": {"execution_mode": "next_open"},
+        }
+        stage_pending(
+            paper,
+            {
+                "as_of": "2026-08-24",
+                "target_fill_date": "2026-08-24",
+                "legs": [
+                    {
+                        "side": "sell",
+                        "stock_code": "600519",
+                        "stock_name": "茅台",
+                        "shares": 100,
+                        "intent_price": 12.0,
+                        "last_chase_at": "2026-08-24T14:55:00",
+                    }
+                ],
+            },
+        )
+        quotes = {
+            "600519": {
+                "success": True,
+                "price_raw": 9.8,
+                "prev_close": 10.0,
+                "stock_name": "茅台",
+            }
+        }
+        out = fill_pending_at_open(paper, now=_dt(14, 55, "2026-08-24"), quotes=quotes)
+        self.assertTrue(out.get("filled"), out)
+        self.assertEqual(out.get("mode"), "eod_force")
+        trade = (out.get("trades") or [])[0]
+        self.assertAlmostEqual(float(trade.get("price") or 0), 9.8, places=4)
+
 
 class TestNextOpenCommit(unittest.TestCase):
     def _paper(self):

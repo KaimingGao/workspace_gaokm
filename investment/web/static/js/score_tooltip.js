@@ -130,9 +130,23 @@ const TAU_FEAT_LABELS = {
   theme_day: "主题日",
   gap_atr: "缺口 / ATR",
   gap_vs_sector: "行业相对缺口",
-  ret_open_to_tau: "开盘→τ 收益 %",
   yclose_loc: "昨收位置",
   mom3_pct: "近3日动量 %",
+  ret_open_to_tau: "开盘→τ 收益 %",
+  ret_prev_to_tau: "昨收→τ 收益 %",
+  range_pct: "前缀振幅 %",
+  loc_hl: "HL 位置 0–1",
+  up_extent: "相对开盘上探 %",
+  down_extent: "相对开盘下探 %",
+  path_sign: "路径符号(+先低后高)",
+  pullback_from_high: "自高回撤 %",
+  bounce_from_low: "自低反弹 %",
+  ret_last_15m: "近15m 收益 %",
+  realized_vol: "前缀已实现波动 %",
+  vol_last3_vs_avg: "近3根量/均量",
+  tau_elapsed_min: "τ距开盘分钟",
+  sector_ret_to_tau: "板块中位开→τ %",
+  ret_vs_sector: "开→τ 相对板块 %",
 };
 
 const PATH_FEAT_LABELS = {
@@ -143,6 +157,21 @@ const PATH_FEAT_LABELS = {
   gap_vs_sector: "行业相对缺口",
   yclose_loc: "昨收位置",
   mom3_pct: "近3日动量 %",
+  ret_open_to_tau: "开盘→τ 收益 %",
+  ret_prev_to_tau: "昨收→τ 收益 %",
+  range_pct: "前缀振幅 %",
+  loc_hl: "HL 位置 0–1",
+  up_extent: "相对开盘上探 %",
+  down_extent: "相对开盘下探 %",
+  path_sign: "路径符号(+先低后高)",
+  pullback_from_high: "自高回撤 %",
+  bounce_from_low: "自低反弹 %",
+  ret_last_15m: "近15m 收益 %",
+  realized_vol: "前缀已实现波动 %",
+  vol_last3_vs_avg: "近3根量/均量",
+  tau_elapsed_min: "τ距开盘分钟",
+  sector_ret_to_tau: "板块中位开→τ %",
+  ret_vs_sector: "开→τ 相对板块 %",
 };
 
 function resolvePathEnter(raw) {
@@ -218,15 +247,28 @@ export function formatScoreHero(raw) {
 }
 
 function termFeatLabel(t, key) {
-  if (t && t.label) return t.label;
   const k = t && t.key;
   if (key === "on" && k && ON_FEAT_META[k] && ON_FEAT_META[k].label) {
     return ON_FEAT_META[k].label;
   }
+  // path/τ：优先中文名表，避免后端旧 payload 把 label 写成英文 key
   if (key === "path" && k && PATH_FEAT_LABELS[k]) {
     return PATH_FEAT_LABELS[k];
   }
-  return FACTOR_LABELS[k] || TAU_FEAT_LABELS[k] || k || "—";
+  if (key === "tau" && k && TAU_FEAT_LABELS[k]) {
+    return TAU_FEAT_LABELS[k];
+  }
+  if (t && t.label && String(t.label) !== String(k || "")) {
+    return t.label;
+  }
+  return (
+    FACTOR_LABELS[k] ||
+    TAU_FEAT_LABELS[k] ||
+    PATH_FEAT_LABELS[k] ||
+    (t && t.label) ||
+    k ||
+    "—"
+  );
 }
 
 /** y_eod 列：头值 + 因子表（不含 trade 全栈）。 */

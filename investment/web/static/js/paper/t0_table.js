@@ -10,6 +10,7 @@ import {
   resolveTauScore,
   resolveOnScore,
   resolveNowcastCcScore,
+  resolveNowcastScore,
   Y_EOD_TITLE,
   Y_TAU_TITLE,
   Y_ON_TITLE,
@@ -415,13 +416,14 @@ function predRealizedAgreeCls(pr, showRealized) {
 }
 
 /** y_path：回测配对真实值；实时做 T 只显示 ŷ。 */
-function pathMergedCellHtml(d, fallback, rules, scoreDetailJson, showRealized = true) {
-  const it = t0DayScoreItem(d, fallback, rules);
+function pathMergedCellHtml(d, fallback, rules, scoreDetailJson, showRealized = true, liveByCode = null) {
+  const it = t0DayScoreItem(d, fallback, rules, liveByCode);
   const pred = resolvePathScore(it);
   const predTxt = pred != null ? fmtPathScore(pred) : "—";
   const pr = showRealized ? pickPathRealized(d) : { n: null, tip: PATH_REALIZED_TITLE };
   const agreeCls = predRealizedAgreeCls(pr, showRealized);
   const tipParts = [pred != null ? Y_PATH_TITLE : "暂无 ŷ_path"];
+  if (it._scores_live_overlay) tipParts.push("缺快照·已用持仓分补洞");
   if (showRealized) {
     tipParts.push(pr.n != null ? pr.tip : PATH_REALIZED_TITLE);
     if (pr.agree === true) tipParts.push("预测与真实同号");
@@ -438,8 +440,8 @@ function pathMergedCellHtml(d, fallback, rules, scoreDetailJson, showRealized = 
 }
 
 /** y_eod / y_τ：回测配对真实值；实时做 T 只显示 ŷ。 */
-function yPctMergedCellHtml(kind, d, fallback, rules, scoreDetailJson, titleExtra, showRealized = true) {
-  const it = t0DayScoreItem(d, fallback, rules);
+function yPctMergedCellHtml(kind, d, fallback, rules, scoreDetailJson, titleExtra, showRealized = true, liveByCode = null) {
+  const it = t0DayScoreItem(d, fallback, rules, liveByCode);
   const isEod = kind === "eod";
   const pred = isEod ? resolveEodScore(it) : resolveTauScore(it);
   let predTxt = pred != null ? fmtTableScore(it, pred) : "—";
@@ -460,6 +462,12 @@ function yPctMergedCellHtml(kind, d, fallback, rules, scoreDetailJson, titleExtr
   const tipParts = [
     pred != null || predTxt !== "—" ? yTitle : `暂无 ${isEod ? "ŷ_EOD" : "ŷ_τ"}`,
   ];
+  if (it._scores_live_overlay) {
+    tipParts.push("缺快照·已用持仓分补洞");
+    if (isEod && it._decision_y_eod != null && Number.isFinite(Number(it._decision_y_eod))) {
+      tipParts.push(`决策时快照 ${Number(it._decision_y_eod).toFixed(3)}%`);
+    }
+  }
   if (showRealized) tipParts.push(pr.n != null ? pr.tip : realTitle);
   if (titleExtra) tipParts.push(String(titleExtra));
   if (showRealized) {
@@ -479,8 +487,11 @@ function yPctMergedCellHtml(kind, d, fallback, rules, scoreDetailJson, titleExtr
   );
 }
 
-/** 成交日 → 与持仓/观察同源的 tip + resolve 载荷。 */
-function t0DayScoreItem(d, fallback = {}, rules = {}) {
+/** 成交日 → tip + resolve 载荷。
+ * ``liveByCode``：仅补洞（日快照缺字段时）；**绝不覆盖**已有决策分。
+ * 回测/预演多日明细若盖持仓实时分，会出现「多日 ŷ 相同、负τ却正T」。
+ */
+function t0DayScoreItem(d, fallback = {}, rules = {}, liveByCode = null) {
   const scores = d.scores && typeof d.scores === "object" ? d.scores : {};
   const feats =
     (d.direction_features && typeof d.direction_features === "object"
@@ -494,26 +505,63 @@ function t0DayScoreItem(d, fallback = {}, rules = {}) {
   const yOn = pickScoreNum(d, "y_on");
   const yNc = pickScoreNum(d, "y_nowcast");
   const yPath = pickScoreNum(d, "y_path");
+  const code = String(
+    d.stock_code || fallback.stock_code || scores.stock_code || ""
+  ).trim();
+  const live =
+    liveByCode && code && typeof liveByCode[code] === "object"
+      ? liveByCode[code]
+      : null;
+  const liveEod = live ? resolveEodScore(live) : null;
+  const liveTau = live ? resolveTauScore(live) : null;
+  const liveTrade = live ? resolveTradeScore(live) : null;
+  const liveOn = live ? resolveOnScore(live) : null;
+  const liveNc = live ? resolveNowcastScore(live) : null;
+  const livePath = live ? resolvePathScore(live) : null;
+  const dayEod = scores.predicted_score_eod ?? yEod;
+  const dayTau = scores.predicted_score_tau ?? scores.score_rem ?? yTau;
+  const dayTrade =
+    scores.predicted_score_blend ?? scores.decision_score ?? scores.score ?? yTrade;
+  const dayOn = scores.predicted_score_on ?? yOn;
+  const dayNc = scores.predicted_score_nowcast ?? yNc;
+  const dayPath = scores.predicted_score_path ?? scores.y_path ?? yPath;
+  const filledFromLive =
+    live &&
+    ((dayEod == null && liveEod != null) ||
+      (dayTau == null && liveTau != null) ||
+      (dayTrade == null && liveTrade != null) ||
+      (dayPath == null && livePath != null));
   return {
     ...scores,
-    stock_code: d.stock_code || fallback.stock_code || scores.stock_code || null,
+    stock_code: code || null,
     stock_name: d.stock_name || fallback.stock_name || scores.stock_name || null,
-    predicted_score_eod: scores.predicted_score_eod ?? yEod,
-    predicted_score: scores.predicted_score ?? scores.predicted_score_eod ?? yEod,
-    predicted_score_tau: scores.predicted_score_tau ?? yTau,
-    score_rem: scores.score_rem ?? scores.predicted_score_tau ?? yTau,
-    predicted_score_blend: scores.predicted_score_blend ?? scores.decision_score ?? yTrade,
-    decision_score: scores.decision_score ?? scores.predicted_score_blend ?? yTrade,
-    score: scores.score ?? scores.predicted_score_blend ?? scores.decision_score ?? yTrade,
-    predicted_score_on: scores.predicted_score_on ?? yOn,
-    predicted_score_nowcast: scores.predicted_score_nowcast ?? yNc,
-    predicted_score_path: scores.predicted_score_path ?? scores.y_path ?? yPath,
-    y_path: scores.y_path ?? yPath,
-    y_path_status: scores.y_path_status ?? null,
-    y_path_error: scores.y_path_error ?? null,
-    features_path: scores.features_path || feats.features_path || null,
-    formula_terms_path: scores.formula_terms_path || scores.score_formula_terms_path || null,
-    score_formula_terms_path: scores.formula_terms_path || scores.score_formula_terms_path || null,
+    predicted_score_eod: dayEod ?? liveEod,
+    predicted_score: dayEod ?? scores.predicted_score ?? liveEod,
+    predicted_score_tau: dayTau ?? liveTau,
+    score_rem: dayTau ?? scores.score_rem ?? liveTau,
+    predicted_score_blend: dayTrade ?? liveTrade,
+    decision_score: dayTrade ?? scores.decision_score ?? liveTrade,
+    score: dayTrade ?? scores.score ?? liveTrade,
+    predicted_score_on: dayOn ?? liveOn,
+    predicted_score_nowcast: dayNc ?? liveNc,
+    predicted_score_path: dayPath ?? livePath,
+    y_path: dayPath ?? livePath,
+    y_path_status: scores.y_path_status ?? live?.y_path_status ?? null,
+    y_path_error: scores.y_path_error ?? live?.y_path_error ?? null,
+    features_path:
+      scores.features_path || feats.features_path || live?.features_path || null,
+    formula_terms_path:
+      scores.formula_terms_path ||
+      scores.score_formula_terms_path ||
+      live?.formula_terms_path ||
+      live?.score_formula_terms_path ||
+      null,
+    score_formula_terms_path:
+      scores.score_formula_terms_path ||
+      scores.formula_terms_path ||
+      live?.score_formula_terms_path ||
+      live?.formula_terms_path ||
+      null,
     path_tip_model: scores.path_tip_model || null,
     y_path_enter:
       rules.y_path_enter != null && Number.isFinite(Number(rules.y_path_enter))
@@ -521,15 +569,25 @@ function t0DayScoreItem(d, fallback = {}, rules = {}) {
         : 0.02,
     rules: rules && Object.keys(rules).length ? rules : null,
     predicted_score_blend_vs: scores.predicted_score_blend_vs ?? null,
-    y_check: scores.y_check ?? feats.y_check ?? null,
-    eod_trust: scores.eod_trust ?? feats.eod_trust ?? null,
+    y_check: scores.y_check ?? feats.y_check ?? live?.y_check ?? null,
+    eod_trust: scores.eod_trust ?? feats.eod_trust ?? live?.eod_trust ?? null,
     dual_score_window:
-      scores.dual_score_window || feats.dual_score_window || "intraday",
-    dual_score_fusion: scores.dual_score_fusion || feats.dual_score_fusion || null,
-    dual_score_weights: scores.dual_score_weights || feats.dual_score_weights || null,
-    dual_score_head: scores.dual_score_head || feats.dual_score_head || null,
-    dual_score_single_head: scores.dual_score_single_head ?? feats.dual_score_single_head ?? null,
-    as_of_tau: scores.as_of_tau || feats.as_of_tau || null,
+      scores.dual_score_window ||
+      feats.dual_score_window ||
+      live?.dual_score_window ||
+      "intraday",
+    dual_score_fusion:
+      scores.dual_score_fusion || feats.dual_score_fusion || live?.dual_score_fusion || null,
+    dual_score_weights:
+      scores.dual_score_weights || feats.dual_score_weights || live?.dual_score_weights || null,
+    dual_score_head:
+      scores.dual_score_head || feats.dual_score_head || live?.dual_score_head || null,
+    dual_score_single_head:
+      scores.dual_score_single_head ??
+      feats.dual_score_single_head ??
+      live?.dual_score_single_head ??
+      null,
+    as_of_tau: scores.as_of_tau || feats.as_of_tau || live?.as_of_tau || null,
     rem_tau: scores.rem_tau || null,
     gap_pct:
       scores.gap_pct ??
@@ -539,13 +597,16 @@ function t0DayScoreItem(d, fallback = {}, rules = {}) {
         : null) ??
       (feats.features_tau && feats.features_tau.gap_pct != null
         ? feats.features_tau.gap_pct
-        : null),
-    y_nc: feats.y_nc ?? scores.y_nc ?? null,
+        : null) ??
+      live?.gap_pct ??
+      null,
+    y_nc: dayNc ?? feats.y_nc ?? scores.y_nc ?? liveNc ?? null,
     y_nc_oc:
       feats.y_nc_oc ??
       feats.y_nowcast_oc ??
       scores.y_nc_oc ??
       scores.y_nowcast_oc ??
+      live?.y_nc_oc ??
       null,
     y_nowcast_oc_gate:
       feats.y_nowcast_oc_gate ??
@@ -559,7 +620,7 @@ function t0DayScoreItem(d, fallback = {}, rules = {}) {
     y_nc_strong:
       feats.y_nc_strong ??
       scores.y_nc_strong ??
-      rules.y_nc_strong ??
+      (rules.y_nc_strong != null ? rules.y_nc_strong : null) ??
       feats.y_nowcast_enter ??
       scores.y_nowcast_enter ??
       (rules.y_nowcast_enter != null ? rules.y_nowcast_enter : null),
@@ -570,30 +631,68 @@ function t0DayScoreItem(d, fallback = {}, rules = {}) {
       feats.y_nc_strong ??
       scores.y_nc_strong ??
       (rules.y_nc_strong != null ? rules.y_nc_strong : null),
-    predicted_score_eod_rem: scores.predicted_score_eod_rem ?? null,
-    y_spec_tau: scores.y_spec_tau || null,
-    features_tau: scores.features_tau || feats.features_tau || null,
-    score_formula_terms: scores.score_formula_terms || scores.formula_terms || null,
-    formula_terms: scores.score_formula_terms || scores.formula_terms || null,
-    factor_coefficients: scores.factor_coefficients || null,
-    formula_terms_tau: scores.formula_terms_tau || scores.score_formula_terms_tau || null,
-    score_formula_terms_tau: scores.formula_terms_tau || scores.score_formula_terms_tau || null,
-    factor_coefficients_tau: scores.factor_coefficients_tau || null,
-    formula_terms_on: scores.formula_terms_on || scores.score_formula_terms_on || null,
-    score_formula_terms_on: scores.formula_terms_on || scores.score_formula_terms_on || null,
-    cluster_label: scores.cluster_label || "",
-    weight_source: scores.weight_source || "",
+    predicted_score_eod_rem:
+      scores.predicted_score_eod_rem ?? live?.predicted_score_eod_rem ?? null,
+    y_spec_tau: scores.y_spec_tau || live?.y_spec_tau || null,
+    features_tau: scores.features_tau || feats.features_tau || live?.features_tau || null,
+    score_formula_terms:
+      scores.score_formula_terms ||
+      scores.formula_terms ||
+      live?.score_formula_terms ||
+      live?.formula_terms ||
+      null,
+    formula_terms:
+      scores.score_formula_terms ||
+      scores.formula_terms ||
+      live?.score_formula_terms ||
+      live?.formula_terms ||
+      null,
+    factor_coefficients: scores.factor_coefficients || live?.factor_coefficients || null,
+    formula_terms_tau:
+      scores.formula_terms_tau ||
+      scores.score_formula_terms_tau ||
+      live?.formula_terms_tau ||
+      live?.score_formula_terms_tau ||
+      null,
+    score_formula_terms_tau:
+      scores.score_formula_terms_tau ||
+      scores.formula_terms_tau ||
+      live?.score_formula_terms_tau ||
+      live?.formula_terms_tau ||
+      null,
+    factor_coefficients_tau:
+      scores.factor_coefficients_tau || live?.factor_coefficients_tau || null,
+    formula_terms_on:
+      scores.formula_terms_on ||
+      scores.score_formula_terms_on ||
+      live?.formula_terms_on ||
+      live?.score_formula_terms_on ||
+      null,
+    score_formula_terms_on:
+      scores.score_formula_terms_on ||
+      scores.formula_terms_on ||
+      live?.score_formula_terms_on ||
+      live?.formula_terms_on ||
+      null,
+    cluster_label: scores.cluster_label || live?.cluster_label || "",
+    weight_source: scores.weight_source || live?.weight_source || "",
     direction_reason: d.direction_reason || "",
     direction_score: d.direction_score,
     score_reasons: d.direction_reason ? [String(d.direction_reason)] : [],
     return_model_source:
-      scores.return_model_source || scores._score_source || "t0_backtest_compute",
+      scores.return_model_source ||
+      scores._score_source ||
+      live?.return_model_source ||
+      "t0_backtest_compute",
+    // 决策时冻结分（tip 可对照）；live 仅补洞时标记
+    _decision_y_eod: dayEod,
+    _scores_live_overlay: !!filledFromLive,
   };
 }
 
 /** 表列 y_*：与 holdings_table / watching 同源 resolve。 */
-function t0FmtYScore(d, kind, fallback = {}, rules = {}) {
-  const it = t0DayScoreItem(d, fallback, rules);
+function t0FmtYScore(d, kind, fallback = {}, rules = {}, liveByCode = null) {
+  const it = t0DayScoreItem(d, fallback, rules, liveByCode);
   if (kind === "path") {
     const p = resolvePathScore(it);
     return p != null ? fmtPathScore(p) : "—";
@@ -609,22 +708,22 @@ function t0FmtYScore(d, kind, fallback = {}, rules = {}) {
   return fmtTableScore(it, fn ? fn(it) : null);
 }
 
-function resolveNowcastCcValue(d, fallback, rules) {
-  const it = t0DayScoreItem(d, fallback, rules);
+function resolveNowcastCcValue(d, fallback, rules, liveByCode = null) {
+  const it = t0DayScoreItem(d, fallback, rules, liveByCode);
   const cc = resolveNowcastCcScore(it);
   if (cc != null && Number.isFinite(Number(cc))) return Number(cc);
   return pickScoreNum(d, "y_nowcast");
 }
 
-function resolveNowcastOcValue(d, fallback, rules) {
-  const it = t0DayScoreItem(d, fallback, rules);
+function resolveNowcastOcValue(d, fallback, rules, liveByCode = null) {
+  const it = t0DayScoreItem(d, fallback, rules, liveByCode);
   const feats =
     (d.direction_features && typeof d.direction_features === "object"
       ? d.direction_features
       : null) ||
     (d.features && typeof d.features === "object" ? d.features : {}) ||
     {};
-  const cc = resolveNowcastCcValue(d, fallback, rules);
+  const cc = resolveNowcastCcValue(d, fallback, rules, liveByCode);
   const gap = it.gap_pct;
   let oc =
     feats.y_nc_oc != null && Number.isFinite(Number(feats.y_nc_oc))
@@ -636,9 +735,9 @@ function resolveNowcastOcValue(d, fallback, rules) {
   return { oc, cc, gap };
 }
 
-function fmtNowcastOcCell(d, fallback, rules, scoreDetailJson) {
+function fmtNowcastOcCell(d, fallback, rules, scoreDetailJson, liveByCode = null) {
   const ocOn = rules.y_nowcast_oc_gate === true;
-  const { oc, cc, gap } = resolveNowcastOcValue(d, fallback, rules);
+  const { oc, cc, gap } = resolveNowcastOcValue(d, fallback, rules, liveByCode);
   if (oc == null) {
     const tip =
       gap == null
@@ -1226,8 +1325,12 @@ export function buildT0TradeTableHtml(opts) {
     preserveOrder = false,
     showDelete = false,
     showRealized = true,
+    liveScoresByCode = null,
   } = opts || {};
   if (!days || !days.length) return caption || "";
+  const liveByCode =
+    liveScoresByCode ||
+    (data && typeof data.liveScoresByCode === "object" ? data.liveScoresByCode : null);
   const showStock = shouldShowStockColumn(data, days);
   const showTime = daysHaveIntradayTime(days);
   const rules = (data && data.rules) || {};
@@ -1241,11 +1344,12 @@ export function buildT0TradeTableHtml(opts) {
 
   const ncHead = "y_nc";
   const pairHint = showRealized ? " · 显示：预估值(真实值)" : "";
+  const liveHint = liveByCode ? " · 缺快照时可用持仓分补洞（不覆盖决策分）" : "";
   const head =
     (showStock ? `<th scope="col" class="paper-t0-col-stock">股票</th>` : "") +
     `<th scope="col" class="paper-t0-col-date">日</th>` +
     `<th scope="col" class="paper-t0-col-eod num paper-t0-col-y paper-t0-col-y-eod" title="${escapeText(
-      `${Y_EOD_TITLE}${pairHint}`
+      `${Y_EOD_TITLE}${pairHint}${liveHint}`
     )}">y_eod</th>` +
     `<th scope="col" class="paper-t0-col-tau num paper-t0-col-y paper-t0-col-y-tau" title="${escapeText(
       `${scoreTip}${pairHint}`
@@ -1277,7 +1381,7 @@ export function buildT0TradeTableHtml(opts) {
       const dir = d.direction === "buy_then_sell" ? "正" : d.direction === "sell_then_buy" ? "反" : "—";
       const rules = (data && data.rules) || {};
       const scoreDetailJson = escapeText(
-        watchingScoreDetail(t0DayScoreItem(d, fallback, rules))
+        watchingScoreDetail(t0DayScoreItem(d, fallback, rules, liveByCode))
       );
       const legs = tradeLegCells(d);
       const qty = legQtyCells(d);
@@ -1320,7 +1424,8 @@ export function buildT0TradeTableHtml(opts) {
           rules,
           scoreDetailJson,
           null,
-          showRealized
+          showRealized,
+          liveByCode
         ) +
         yPctMergedCellHtml(
           "tau",
@@ -1329,18 +1434,29 @@ export function buildT0TradeTableHtml(opts) {
           rules,
           scoreDetailJson,
           d.direction_reason || null,
-          showRealized
+          showRealized,
+          liveByCode
         ) +
-        pathMergedCellHtml(d, fallback, rules, scoreDetailJson, showRealized) +
-        t0YScoreCell("trade", t0FmtYScore(d, "trade", fallback, rules), scoreDetailJson, TRADE_TITLE) +
-        t0YScoreCell("on", t0FmtYScore(d, "on", fallback, rules), scoreDetailJson, Y_ON_TITLE) +
+        pathMergedCellHtml(d, fallback, rules, scoreDetailJson, showRealized, liveByCode) +
+        t0YScoreCell(
+          "trade",
+          t0FmtYScore(d, "trade", fallback, rules, liveByCode),
+          scoreDetailJson,
+          TRADE_TITLE
+        ) +
+        t0YScoreCell(
+          "on",
+          t0FmtYScore(d, "on", fallback, rules, liveByCode),
+          scoreDetailJson,
+          Y_ON_TITLE
+        ) +
         t0YScoreCell(
           "nowcast",
-          t0FmtYScore(d, "nowcast", fallback, rules),
+          t0FmtYScore(d, "nowcast", fallback, rules, liveByCode),
           scoreDetailJson,
           Y_NC_TITLE
         ) +
-        fmtNowcastOcCell(d, fallback, rules, scoreDetailJson) +
+        fmtNowcastOcCell(d, fallback, rules, scoreDetailJson, liveByCode) +
         `<td class="paper-t0-col-dir">${dir}</td>` +
         `<td class="paper-t0-col-process has-tip" data-t0-process-tip="${processTipJson}">${
           skipped

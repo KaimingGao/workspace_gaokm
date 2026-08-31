@@ -646,7 +646,7 @@ body[data-page="follow"] .follow-pending-grid.watching-react-grid {
 
 .follow-page .rebalance-table {
   /* 与 base.css 同步：决策列 max-content，防「持有（评分…）」被截 */
-  --rebalance-cols: minmax(6.5rem, 1fr) 4.25rem 4.25rem 4.25rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem minmax(9rem, max-content);
+  --rebalance-cols: minmax(6.5rem, 1fr) 4.25rem 4.25rem 4.25rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem minmax(9rem, max-content);
   font-size: 0.78rem;
 }
 
@@ -8148,7 +8148,7 @@ body[data-page="follow"] .follow-path-matrix-toolbar {
   background: var(--pm-wash);
   box-sizing: border-box;
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.4fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   column-gap: 14px;
   row-gap: 8px;
@@ -8211,10 +8211,10 @@ body[data-page="follow"] .follow-path-matrix-meta {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-start;
+  justify-content: flex-end;
   gap: 0;
   min-width: 0;
-  justify-self: start;
+  justify-self: end;
   color: var(--pm-muted);
   font-size: 0.72rem;
   font-weight: 550;
@@ -8275,13 +8275,39 @@ body[data-page="follow"] .follow-path-matrix-badge.is-linear {
   border: 0;
 }
 
+body[data-page="follow"] .follow-path-matrix-footer {
+  width: 100%;
+  margin: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--pm-line);
+  background: var(--pm-wash);
+  box-sizing: border-box;
+}
+
 body[data-page="follow"] .follow-path-matrix-actions {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
+  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 8px 10px;
   min-width: 0;
-  justify-self: end;
+  width: 100%;
+}
+
+body[data-page="follow"] .follow-path-matrix-actions .follow-path-matrix-status {
+  max-width: min(28rem, 55vw);
+  margin: 0;
+  font-size: 0.72rem;
+  line-height: 1.3;
+  color: var(--pm-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+body[data-page="follow"] .follow-path-matrix-actions #paper-path-matrix-status:empty {
+  display: none;
 }
 
 body[data-page="follow"] .follow-path-matrix-actions #paper-adjust {
@@ -8442,10 +8468,20 @@ body[data-page="follow"] .follow-path-matrix-viz-seg {
 }
 
 body[data-page="follow"] .follow-path-matrix-panel[data-panel="mode"] .follow-path-matrix-viz-seg.is-a {
-  background: var(--pm-path);
+  background: var(--pm-trade);
 }
 body[data-page="follow"] .follow-path-matrix-panel[data-panel="mode"] .follow-path-matrix-viz-seg.is-b {
-  background: #64748b;
+  background: var(--pm-nc);
+}
+
+body[data-page="follow"] .follow-path-matrix-panel[data-panel="mode"] .follow-path-matrix-viz {
+  display: flex;
+  gap: 3px;
+}
+
+body[data-page="follow"] .follow-path-matrix-panel[data-panel="mode"] .follow-path-matrix-viz-seg {
+  min-width: 2.5rem;
+  flex: 1 1 0;
 }
 
 body[data-page="follow"] .follow-path-matrix-viz-seg.is-skip,
@@ -8503,18 +8539,18 @@ body[data-page="follow"] .follow-path-matrix-body--row2 {
 
 body[data-page="follow"] .follow-path-matrix-field {
   display: grid;
-  gap: 4px;
+  gap: 3px;
   margin: 0;
   min-width: 0;
 }
 
 body[data-page="follow"] .follow-path-matrix-field-label {
-  font-size: 0.64rem;
+  font-size: 0.62rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--pm-muted);
-  line-height: 1.2;
+  line-height: 1.15;
 }
 
 body[data-page="follow"] .follow-path-matrix-field input[type="number"],
@@ -8522,16 +8558,18 @@ body[data-page="follow"] .follow-path-matrix-field select {
   width: 100%;
   max-width: none;
   box-sizing: border-box;
-  min-height: 2rem;
-  padding: 0.28rem 0.45rem;
+  min-height: 1.5rem;
+  height: 1.5rem;
+  padding: 0.1rem 0.35rem;
   border: 1px solid var(--pm-line);
   border-radius: 3px;
   background: #fff;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   font-variant-numeric: tabular-nums;
   color: var(--pm-ink);
   appearance: none;
+  line-height: 1.2;
 }
 
 body[data-page="follow"] .follow-path-matrix-field select {
@@ -8557,9 +8595,9 @@ body[data-page="follow"] .follow-path-matrix-box {
   gap: 6px;
   margin: 0;
   min-width: 0;
-  min-height: 4.75rem;
+  min-height: 4.25rem;
   height: 100%;
-  padding: 8px 10px;
+  padding: 7px 9px;
   border: 1px solid var(--pm-line);
   border-radius: 3px;
   background: var(--pm-wash);
@@ -8602,16 +8640,18 @@ body[data-page="follow"] .follow-path-matrix-box input[type="number"],
 body[data-page="follow"] .follow-path-matrix-box select {
   width: 100%;
   box-sizing: border-box;
-  min-height: 1.85rem;
-  padding: 0.22rem 0.4rem;
+  min-height: 1.5rem;
+  height: 1.5rem;
+  padding: 0.1rem 0.35rem;
   border: 1px solid var(--pm-line);
   border-radius: 3px;
   background: #fff;
   font: inherit;
-  font-size: 0.8rem;
+  font-size: 0.76rem;
   font-variant-numeric: tabular-nums;
   color: var(--pm-ink);
   appearance: none;
+  line-height: 1.2;
 }
 
 body[data-page="follow"] .follow-path-matrix-box select {
@@ -8654,6 +8694,7 @@ body[data-page="follow"] .follow-path-matrix-box--check input[type="checkbox"] {
 }
 
 body[data-page="follow"] .follow-path-matrix-panel[data-panel="mode"] .follow-path-matrix-body,
+body[data-page="follow"] .follow-path-matrix-panel[data-panel="path"] .follow-path-matrix-body,
 body[data-page="follow"] .follow-path-matrix-panel[data-panel="on"] .follow-path-matrix-body,
 body[data-page="follow"] .follow-path-matrix-panel[data-panel="gates"] .follow-path-matrix-body {
   align-self: stretch;
@@ -8664,10 +8705,16 @@ body[data-page="follow"] .follow-path-matrix-panel[data-panel="gates"] .follow-p
     grid-template-columns: 1fr;
     justify-items: stretch;
   }
-  body[data-page="follow"] .follow-path-matrix-meta,
-  body[data-page="follow"] .follow-path-matrix-actions {
+  body[data-page="follow"] .follow-path-matrix-meta {
     justify-self: stretch;
     justify-content: flex-start;
+  }
+  body[data-page="follow"] .follow-path-matrix-actions {
+    justify-content: flex-start;
+  }
+  body[data-page="follow"] .follow-path-matrix-actions .follow-path-matrix-status {
+    max-width: 100%;
+    flex: 1 1 100%;
   }
   body[data-page="follow"] .follow-path-matrix-meta > * + *::before {
     margin: 0 6px;

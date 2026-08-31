@@ -536,6 +536,42 @@ class TestPathRidgeService(unittest.TestCase):
         keys = [t["key"] for t in expl["terms"]]
         self.assertEqual(keys[0], "gap_pct")  # |contrib| 2 > 2? wait both 2 and 2
         self.assertIn("mom3_pct", keys)
+        by_key = {t["key"]: t for t in expl["terms"]}
+        self.assertEqual(by_key["gap_pct"]["label"], "跳空 %")
+        self.assertEqual(by_key["mom3_pct"]["label"], "近3日动量 %")
+
+    def test_explain_path_minute_feat_labels_zh(self):
+        from core.research.path_ridge import explain_path_prediction
+
+        model = {
+            "return_model": {
+                "intercept": 0.0,
+                "coefficients": {
+                    "ret_open_to_tau": 1.0,
+                    "range_pct": 0.5,
+                    "pullback_from_high": -0.2,
+                },
+                "active_features": [
+                    "ret_open_to_tau",
+                    "range_pct",
+                    "pullback_from_high",
+                ],
+                "zscore_means": {},
+                "zscore_stds": {},
+            }
+        }
+        expl = explain_path_prediction(
+            {
+                "ret_open_to_tau": 1.0,
+                "range_pct": 2.0,
+                "pullback_from_high": 1.0,
+            },
+            model_doc=model,
+        )
+        by_key = {t["key"]: t["label"] for t in (expl or {}).get("terms") or []}
+        self.assertEqual(by_key["ret_open_to_tau"], "开盘→τ 收益 %")
+        self.assertEqual(by_key["range_pct"], "前缀振幅 %")
+        self.assertEqual(by_key["pullback_from_high"], "自高回撤 %")
 
     def test_get_path_ridge_model_missing(self):
         from quant.services.quant_service_factors import QuantFactorMixin

@@ -9,15 +9,18 @@ import {
   fmtPct,
   metricCls,
   fmtTableScore,
+  fmtPathScore,
   scoreCls,
   resolveTradeScore,
   resolveEodScore,
   resolveTauScore,
+  resolvePathScore,
   resolveOnScore,
   resolveNowcastScore,
   isHeuristicScoreScale,
   Y_EOD_TITLE,
   Y_TAU_TITLE,
+  Y_PATH_TITLE,
   Y_ON_TITLE,
   Y_NOWCAST_TITLE,
 } from "./fmt.js?v=p1472";
@@ -114,6 +117,8 @@ export function buildPaperHoldingsTableHtml({
             ? `${Y_EOD_TITLE} · 点击排序`
             : key === "score_tau"
               ? `${Y_TAU_TITLE} · 点击排序`
+            : key === "score_path"
+              ? `${Y_PATH_TITLE} · 点击排序`
             : key === "score_on"
               ? `${Y_ON_TITLE} · 点击排序`
             : key === "score_nowcast"
@@ -142,6 +147,7 @@ export function buildPaperHoldingsTableHtml({
       const score = resolveTradeScore(h);
       const scoreEod = resolveEodScore(h);
       const scoreTau = resolveTauScore(h);
+      const scorePath = resolvePathScore(h);
       const scoreOn = resolveOnScore(h);
       const scoreNowcast = resolveNowcastScore(h);
       const belowMin = !!h.below_min_score;
@@ -152,6 +158,7 @@ export function buildPaperHoldingsTableHtml({
       if (scoreShown === "—" && hardReject) scoreShown = "拒";
       const scoreEodShown = fmtTableScore(h, scoreEod);
       const scoreTauShown = fmtTableScore(h, scoreTau);
+      const scorePathShown = fmtPathScore(scorePath);
       const scoreOnShown = fmtTableScore(h, scoreOn);
       const scoreNowcastShown = fmtTableScore(h, scoreNowcast);
       const singleHead = isSingleHeadItem(h);
@@ -177,6 +184,7 @@ export function buildPaperHoldingsTableHtml({
       const yCheckBadge = yCheckBadgeHtml(h, escapeText);
       const scoreEodTitle = scoreEod == null ? "暂无 ŷ_EOD" : Y_EOD_TITLE;
       const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τ" : Y_TAU_TITLE;
+      const scorePathTitle = scorePath == null ? "暂无 ŷ_path" : Y_PATH_TITLE;
       const scoreOnTitle = scoreOn == null ? "暂无 ŷ_ON" : Y_ON_TITLE;
       const scoreNowcastTitle =
         scoreNowcast == null ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见" : Y_NOWCAST_TITLE;
@@ -257,6 +265,11 @@ export function buildPaperHoldingsTableHtml({
         )}" data-score-detail="${scoreDetailJson}" data-score-tip="tau" title="${escapeText(
           scoreTauTitle
         )}">${escapeText(scoreTauShown)}</td>` +
+        `<td class="num paper-hold-score watching-score-path has-tip ${scoreCls(
+          scorePath
+        )}" data-score-detail="${scoreDetailJson}" data-score-tip="path" title="${escapeText(
+          scorePathTitle
+        )}">${escapeText(scorePathShown)}</td>` +
         `<td class="num paper-hold-score watching-score-on has-tip ${scoreCls(
           scoreOn
         )}" data-score-detail="${scoreDetailJson}" data-score-tip="on" title="${escapeText(
@@ -313,6 +326,7 @@ export function buildPaperHoldingsTableHtml({
     `${sortThHtml("涨跌", "chg")}` +
     `${sortThHtml("y_eod", "score_eod")}` +
     `${sortThHtml("y_τ", "score_tau")}` +
+    `${sortThHtml("y_path", "score_path")}` +
     `${sortThHtml("y_on", "score_on")}` +
     `${sortThHtml("y_trade", "score")}` +
     `${sortThHtml("y_nc", "score_nowcast")}` +

@@ -10,10 +10,13 @@ import {
   resolveTradeScore,
   resolveEodScore,
   resolveTauScore,
+  resolvePathScore,
   resolveOnScore,
   resolveNowcastScore,
+  fmtPathScore,
   Y_EOD_TITLE,
   Y_TAU_TITLE,
+  Y_PATH_TITLE,
   Y_ON_TITLE,
   Y_NOWCAST_TITLE,
   scoreSeriesStats,
@@ -62,9 +65,15 @@ import {
 import { buildT0SummaryLine } from "./paper/t0_report.js";
 import { wireT0SkipTips } from "./paper/t0_viz.js";
 import { wireT0ProcessTips } from "./paper/t0_table.js?v=p1648";
-import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1648";
+import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1705";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
-import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1662";
+import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1704";
+import {
+  getDataOfflineOnly,
+  installDataOfflineToggle,
+  offlineOnlyQuery,
+} from "./data_offline.js";
+import { rebalanceDataFoot, t0DataFoot } from "./data_policy.js";
 import { createRebalanceReportController } from "./paper/rebalance_report.js?v=p1662";
 import { waitPaperJob as waitPaperJobPoll } from "./paper/job_poll.js?v=p1416";
 import { renderFollowNorthStar as renderFollowNorthStarUi } from "./paper/north_star_ui.js?v=p1416";
@@ -81,7 +90,7 @@ import {
   tailAnomalyDetailFields,
   overheatDetailFields,
   createScoreTooltipController,
-} from "./score_tooltip.js?v=p1617";
+} from "./score_tooltip.js?v=p1709";
 
 import { formatDailySteps, runDaily } from "./shared.js";
 
@@ -998,7 +1007,7 @@ export function initPaper(ctx) {
       legs,
       asOf: po.as_of || po.staged_at || "",
       source: po.source || "",
-      text: `挂开盘单 ${bits.join(" · ") || `${legs.length} 笔`} → ${target} 09:15–10:00 成交` +
+      text: `挂开盘单 ${bits.join(" · ") || `${legs.length} 笔`} → ${target} 09:15–10:00 尝试成交` +
         (sameDay ? "（今日）" : ""),
     };
   }
@@ -1048,7 +1057,9 @@ export function initPaper(ctx) {
         const px = Number(leg && (leg.intent_price ?? leg.price));
         const amt =
           Number.isFinite(shares) && Number.isFinite(px) ? shares * px : null;
-        const note = String((leg && leg.note) || "").trim();
+        const note = String(
+          (leg && (leg.skip_reason || leg.note)) || ""
+        ).trim();
         const score =
           leg && leg.score != null && Number.isFinite(Number(leg.score))
             ? Number(leg.score)
@@ -1081,7 +1092,7 @@ export function initPaper(ctx) {
       `</span>` +
       `<span class="follow-pending-target">目标 ${escapeText(brief.target)} · 09:15–10:00</span>` +
       `</div>` +
-      `<p class="follow-ops-note">意向价仅供参考；开盘窗按开盘价成交，此前持仓不变。</p>` +
+      `<p class="follow-ops-note">意向价仅供参考。开盘窗按开盘价尝试成交；未成则盘中按「意向价与现价中点」追价，14:50 起改用现价强平。涨停买不到、跌停卖不出、停牌则跳过并留单。</p>` +
       `<div class="watching-react-grid-host follow-pending-grid-host">` +
       `<div class="watching-react-grid follow-pending-grid" role="table" aria-label="次日开盘挂单明细">` +
       `<div class="watching-react-grid-head">` +
@@ -1103,13 +1114,38 @@ export function initPaper(ctx) {
     }
   }
 
+  function liveScoresByCodeFromHoldings() {
+    const hs =
+      (lastAccountData && lastAccountData.summary && lastAccountData.summary.holdings) ||
+      [];
+    const m = {};
+    for (const h of hs) {
+      const c = String((h && h.stock_code) || "").trim();
+      if (!c) continue;
+      if (
+        h.predicted_score_eod == null &&
+        h.decision_score == null &&
+        h.y_path == null &&
+        h.predicted_score_path == null
+      ) {
+        continue;
+      }
+      m[c] = h;
+    }
+    return m;
+  }
+
   function renderT0WorkerDetail(data) {
     const el = document.getElementById("paper-t0-worker-trades");
     if (!el) return;
     const t0Auto =
       (data && data.rules && data.rules.t0_auto) || (data && data.t0_auto) || null;
     const execution = (data && data.execution) || lastAccountData?.execution || null;
-    renderPaperT0WorkerTradesUi(el, { t0Auto, execution });
+    renderPaperT0WorkerTradesUi(el, {
+      t0Auto,
+      execution,
+      liveScoresByCode: liveScoresByCodeFromHoldings(),
+    });
   }
 
   function renderT0LastRun(data) {
@@ -1370,6 +1406,103 @@ export function initPaper(ctx) {
       `看拟合 <a class="follow-hero-link" href="/platform">北极星</a>`;
   }
 
+  let holdingsScoreEnrichPromise = null;
+  async function enrichHoldingsScores() {
+    if (holdingsScoreEnrichPromise) return holdingsScoreEnrichPromise;
+    holdingsScoreEnrichPromise = (async () => {
+      setHoldingsLoadStatus("补 ŷ（缓存）…", { busy: true });
+      try {
+        const { ok, data, error } = await apiFetch(
+          `/api/paper/holding-scores?${offlineOnlyQuery()}`
+        );
+        if (!ok) {
+          setHoldingsLoadStatus(error || "补 ŷ 失败", { error: true });
+          return;
+        }
+        if (data && data.busy) {
+          setHoldingsLoadStatus("补 ŷ 进行中…", { busy: true });
+          return;
+        }
+        const byCode = (data && data.by_code) || {};
+        const codes = Object.keys(byCode);
+        if (!codes.length || !lastAccountData) {
+          setHoldingsLoadStatus("ŷ 无缓存结果", { ok: true });
+          return;
+        }
+        const sm = lastAccountData.summary || {};
+        const holdings = Array.isArray(sm.holdings) ? sm.holdings.map((h) => {
+          const code = String((h && h.stock_code) || "").trim();
+          const pack = byCode[code];
+          if (!pack || typeof pack !== "object") return h;
+          const keep = {
+            stock_code: h.stock_code,
+            stock_name: h.stock_name,
+            shares: h.shares,
+            cost: h.cost,
+            price: h.price,
+            open: h.open,
+            change_pct: h.change_pct,
+            change_asof: h.change_asof,
+            market_value: h.market_value,
+            pnl_pct: h.pnl_pct,
+            bought_at: h.bought_at,
+            bought_date: h.bought_date,
+            hold_days: h.hold_days,
+            sellable_shares: h.sellable_shares,
+            locked_shares: h.locked_shares,
+            lots: h.lots,
+            origin: h.origin,
+            origin_label: h.origin_label,
+            currency: h.currency,
+            unit: h.unit,
+            price_source: h.price_source,
+            t0_intraday: h.t0_intraday,
+          };
+          return { ...pack, ...keep };
+        }) : [];
+        lastAccountData = {
+          ...lastAccountData,
+          summary: { ...sm, holdings },
+        };
+        await renderPaperAccountDetail(lastAccountData);
+        // 持仓 ŷ 齐了再刷做 T 表，表列 y_eod 才能与持仓/调仓盖成同源
+        renderT0WorkerDetail(lastAccountData);
+        setHoldingsLoadStatus(`ŷ 已补 · ${codes.length} 只`, { ok: true });
+      } catch (err) {
+        setHoldingsLoadStatus(String((err && err.message) || err || "补 ŷ 失败"), {
+          error: true,
+        });
+      } finally {
+        holdingsScoreEnrichPromise = null;
+      }
+    })();
+    return holdingsScoreEnrichPromise;
+  }
+
+  function syncFollowDataPolicyFoots() {
+    const off = getDataOfflineOnly();
+    const reb = document.getElementById("follow-rebalance-data-foot");
+    if (reb) {
+      const t = rebalanceDataFoot(off);
+      reb.textContent = t;
+      reb.title = t;
+    }
+    const t0 = document.getElementById("follow-t0-data-foot");
+    if (t0) {
+      const t = t0DataFoot();
+      t0.textContent = t;
+      t0.title = t;
+    }
+  }
+  syncFollowDataPolicyFoots();
+
+  installDataOfflineToggle(document.getElementById("follow-data-offline"), {
+    onChange: () => {
+      syncFollowDataPolicyFoots();
+      enrichHoldingsScores().catch(() => {});
+    },
+  });
+
   async function loadPaper(opts = {}) {
     const quiet = !!(opts && opts.quiet);
     const force = !!(opts && opts.force);
@@ -1413,6 +1546,10 @@ export function initPaper(ctx) {
               : "未初始化",
             { ok: !!data.initialized }
           );
+        }
+        // ŷ 异步补：不挡净值/持仓表；仅本地缓存算分
+        if (data.initialized && n > 0) {
+          enrichHoldingsScores().catch(() => {});
         }
         return data;
       } catch (err) {
@@ -1735,6 +1872,7 @@ export function initPaper(ctx) {
           key === "score" ||
           key === "score_eod" ||
           key === "score_tau" ||
+          key === "score_path" ||
           key === "score_on" ||
           key === "score_nowcast" ||
           key === "pnl" ||
@@ -1990,7 +2128,9 @@ export function initPaper(ctx) {
   }
 
   if (document.getElementById("paper-init") || document.getElementById("paper-run") || document.getElementById("paper-adjust")) {
-    const opsStatusEl = document.getElementById("paper-ops-load-status");
+    const opsStatusEl =
+      document.getElementById("paper-path-matrix-status") ||
+      document.getElementById("paper-ops-load-status");
     let opsStatusTimer = null;
     const runBtns = [
       "paper-run",
@@ -2015,14 +2155,14 @@ export function initPaper(ctx) {
       }
       const text = String(msg || "").trim();
       opsStatusEl.textContent = text;
-      opsStatusEl.hidden = !text;
-      opsStatusEl.classList.toggle("is-busy", !!busy && !error);
-      opsStatusEl.classList.toggle("is-error", !!error);
-      opsStatusEl.classList.toggle("is-ok", !!ok && !error && !busy);
+      if ("hidden" in opsStatusEl) opsStatusEl.hidden = !text;
+      opsStatusEl.classList.toggle("is-busy", !!busy && !error && !!text);
+      opsStatusEl.classList.toggle("is-error", !!error && !!text);
+      opsStatusEl.classList.toggle("is-ok", !!ok && !error && !busy && !!text);
       if (text && ok && !error && !busy) {
         opsStatusTimer = setTimeout(() => {
-          opsStatusEl.classList.remove("is-ok");
-          opsStatusEl.hidden = true;
+          opsStatusEl.classList.remove("is-ok", "is-busy", "is-error");
+          if ("hidden" in opsStatusEl) opsStatusEl.hidden = true;
           opsStatusEl.textContent = "";
           opsStatusTimer = null;
         }, 5000);
@@ -2056,10 +2196,13 @@ export function initPaper(ctx) {
       resolveTradeScore,
       resolveEodScore,
       resolveTauScore,
+      resolvePathScore,
       resolveOnScore,
       resolveNowcastScore,
+      fmtPathScore,
       Y_EOD_TITLE,
       Y_TAU_TITLE,
+      Y_PATH_TITLE,
       Y_ON_TITLE,
       Y_NOWCAST_TITLE,
       TRADE_TITLE,
@@ -2429,6 +2572,7 @@ export function initPaper(ctx) {
   const paperT0Confirm = document.getElementById("paper-t0-confirm");
 
   function renderPaperT0(data) {
+    // 回测成交明细必须用各日决策快照；勿盖持仓实时分（否则多日 ŷ 相同、负τ却正T）
     renderPaperT0Ui(
       {
         metricsEl: paperT0Metrics,
@@ -2441,6 +2585,7 @@ export function initPaper(ctx) {
   }
 
   function renderPaperT0Preview(data) {
+    // 预演同行：用预演返回的会话快照，勿盖持仓实时分
     renderPaperT0PreviewUi(
       { previewEl: paperT0Preview, confirmEl: paperT0Confirm },
       data
@@ -2715,12 +2860,20 @@ export function initPaper(ctx) {
   }
   const paperPathMatrixForm = document.getElementById("paper-path-matrix-form");
   const paperPathMatrixStatus = document.getElementById("paper-path-matrix-status");
+  const setPathMatrixStatus = (msg, { error = false } = {}) => {
+    if (!paperPathMatrixStatus) return;
+    const text = String(msg || "").trim();
+    paperPathMatrixStatus.classList.remove("is-busy", "is-ok");
+    paperPathMatrixStatus.classList.toggle("is-error", !!error && !!text);
+    paperPathMatrixStatus.textContent = text;
+    paperPathMatrixStatus.hidden = !text;
+  };
   if (paperPathMatrixForm) {
     paperPathMatrixForm.addEventListener("submit", async (e) => {
       e.preventDefault();
       const body = collectPathMatrixForm(paperPathMatrixForm);
       if (!body) return;
-      if (paperPathMatrixStatus) paperPathMatrixStatus.textContent = "保存中…";
+      setPathMatrixStatus("保存中…");
       try {
         const res = await fetch("/api/paper/execution", {
           method: "POST",
@@ -2730,21 +2883,16 @@ export function initPaper(ctx) {
         const data = await res.json();
         if (!res.ok || data.ok === false) {
           const err = data.detail || data.errors || data.error || "保存失败";
-          if (paperPathMatrixStatus) {
-            paperPathMatrixStatus.textContent = Array.isArray(err)
-              ? err.join("; ")
-              : String(err);
-          }
+          setPathMatrixStatus(
+            Array.isArray(err) ? err.join("; ") : String(err),
+            { error: true }
+          );
           return;
         }
-        if (paperPathMatrixStatus) {
-          paperPathMatrixStatus.textContent = data.message || "已保存择时";
-        }
+        setPathMatrixStatus(data.message || "已保存择时");
         await refreshPaperAfterExecution(data.execution);
       } catch (err) {
-        if (paperPathMatrixStatus) {
-          paperPathMatrixStatus.textContent = String(err.message || err);
-        }
+        setPathMatrixStatus(String(err.message || err), { error: true });
       }
     });
   }

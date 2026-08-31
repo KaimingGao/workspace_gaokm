@@ -63,6 +63,8 @@ class TestSessionPit(unittest.TestCase):
 
     def test_refresh_flips_stale_eod_next_after_open(self):
         """簿上昨晚 eod_next，次日盘中应翻回 intraday。"""
+        from unittest.mock import patch
+
         from core.signal.session_pit import refresh_dual_score_window
         from core.signal.dual_score import align_trade_score_fields
 
@@ -86,7 +88,9 @@ class TestSessionPit(unittest.TestCase):
         win = refresh_dual_score_window(item, quote=quote, bars=bars, now=now)
         self.assertEqual(win, "intraday")
         self.assertEqual(item["dual_score_window"], "intraday")
-        align_trade_score_fields(item, write_score=True)
+        # align 无 quote 时会再 refresh；钉死盘中时钟，避免夜间跑测翻成 eod_next
+        with patch("core.signal.session_pit.shanghai_now", return_value=now):
+            align_trade_score_fields(item, write_score=True)
         self.assertEqual(item["dual_score_window"], "intraday")
         self.assertFalse(item.get("dual_score_single_head"))
         self.assertEqual(item.get("dual_score_head"), "blend")
@@ -105,6 +109,24 @@ class TestSessionPit(unittest.TestCase):
         ]
         win = refresh_dual_score_window(item, quote=quote, bars=bars, now=now)
         self.assertEqual(win, "eod_next")
+
+    def test_refresh_preopen_without_quote_is_eod_next(self):
+        """开盘前无 quote/bars：勿误判 intraday（否则持仓打包把 ŷ_trade 重算歪）。"""
+        from core.signal.session_pit import refresh_dual_score_window
+
+        item = {"dual_score_window": "eod_next"}
+        now = datetime(2026, 8, 31, 2, 15)
+        win = refresh_dual_score_window(item, now=now)
+        self.assertEqual(win, "eod_next")
+        self.assertEqual(item["dual_score_window"], "eod_next")
+
+    def test_refresh_midday_without_quote_is_intraday(self):
+        from core.signal.session_pit import refresh_dual_score_window
+
+        item = {"dual_score_window": "eod_next"}
+        now = datetime(2026, 8, 31, 10, 30)
+        win = refresh_dual_score_window(item, now=now)
+        self.assertEqual(win, "intraday")
 
     def test_quote_change_stripped_when_intraday(self):
         from core.signal.session_pit import quote_for_eod_score
@@ -288,6 +310,8 @@ class TestEodNextFusion(unittest.TestCase):
 
     def test_align_repairs_unlifted_intraday_blend(self):
         """盘中旧簿用 w·ŷ_EOD+w·ŷ_τ（未抬缺口）时，读路径重算缺口∘ŷ_τ。"""
+        from unittest.mock import patch
+
         from core.signal.dual_score import align_trade_score_fields
         from core.signal.nowcast_kf import compound_pct
 
@@ -301,7 +325,9 @@ class TestEodNextFusion(unittest.TestCase):
             "dual_score_weights": {"w_eod": 0.5, "w_tau": 0.5},
             "gap_pct": gap,
         }
-        align_trade_score_fields(item)
+        midday = datetime(2026, 8, 21, 10, 30)
+        with patch("core.signal.session_pit.shanghai_now", return_value=midday):
+            align_trade_score_fields(item)
         tau_cc = compound_pct(gap, y_tau)
         expect = 0.5 * y_eod + 0.5 * tau_cc
         self.assertAlmostEqual(item["predicted_score_blend"], expect, places=5)

@@ -38,6 +38,10 @@ class PaperRebalanceRequest(BaseModel):
         default=False,
         description="true=仅预演不写 paper.json（交易执行页）",
     )
+    offline_only: bool = Field(
+        default=True,
+        description="true=日线/分钟/指数只用本地仓；false=允许补远端（与数据中心开关同源）",
+    )
     strategy: Optional[str] = Field(
         default=None,
         description="调仓策略 ID（short / short_conservative）；省略则沿用 paper.strategy_id",

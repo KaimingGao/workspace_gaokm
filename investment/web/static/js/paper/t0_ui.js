@@ -106,6 +106,11 @@ export function renderPaperT0(els, data) {
       ? Number(data.rules.y_tau_enter)
       : 0.25;
   const tauMap = normalizeYTauMap(data.rules && data.rules.y_tau_map);
+  const sessDate =
+    data.session_date ||
+    data.as_of ||
+    (days[0] && (days[0].date || days[0].session_date)) ||
+    null;
   const captionBits = [
     days.length > T0_TRADE_TABLE_MAX_ROWS
       ? `样本 ${days.length} 笔（表内最近 ${T0_TRADE_TABLE_MAX_ROWS} 笔）`
@@ -113,12 +118,14 @@ export function renderPaperT0(els, data) {
     `指标日 ${data.t0_trade_days ?? "—"}`,
     data.cover_rate_pct != null ? `往返 ${data.cover_rate_pct}%` : null,
     `正${data.buy_then_sell_days ?? 0}/反${data.sell_then_buy_days ?? 0}`,
+    sessDate ? `会话 ${sessDate}` : null,
   ].filter(Boolean);
   const caption =
     `<div class="paper-t0-days-head">` +
     `<h4 class="paper-t0-days-title">成交明细</h4>` +
     `<p class="quant-trades-caption">${captionBits.join(" · ")}` +
-    ` · <span title="${escapeHtml(yTauMapScoreTip(tauMap, enter))}">τ = y_τ</span></p>` +
+    ` · <span title="${escapeHtml(yTauMapScoreTip(tauMap, enter))}">τ = y_τ</span>` +
+    ` · <span title="y_* 为该行「日」列会话快照（做T决策时冻结）；5m 路径仓在研究枢纽写入；≠持仓实时分 / ≠调仓ŷ开关">会话快照ŷ · 5m仓</span></p>` +
     `</div>`;
 
   daysEl.innerHTML = buildT0TradeTableHtml({
@@ -252,7 +259,8 @@ export function renderPaperT0Preview(els, data) {
           `<p class="quant-trades-caption">成交 ${tradeDays.length} · 跳过 ${skipN}` +
           escapeHtml(skipHint) +
           ` · 正${buyThenSellN}/反${sellThenBuyN}` +
-          ` · <span title="${tip}">τ = y_τ</span></p>` +
+          ` · <span title="${tip}">τ = y_τ</span>` +
+          ` · <span title="y_* 为该成交会话日快照，不是持仓表实时分">会话日快照分</span></p>` +
           `</div>`,
         maxRows: Math.max(T0_TRADE_TABLE_MAX_ROWS, days.length),
         preserveOrder: true,
@@ -301,7 +309,7 @@ function workerLastRunToTableData(lastRun, execution) {
 }
 
 /** Worker 上次落账成交/跳过明细（复用回测成交表）。 */
-export function renderPaperT0WorkerTrades(el, { t0Auto, execution } = {}) {
+export function renderPaperT0WorkerTrades(el, { t0Auto, execution, liveScoresByCode } = {}) {
   if (!el) return;
   const lr = (t0Auto && t0Auto.last_run) || null;
   if (!lr || lr.ts == null) {
@@ -331,7 +339,10 @@ export function renderPaperT0WorkerTrades(el, { t0Auto, execution } = {}) {
     );
     return;
   }
-  const data = workerLastRunToTableData(lr, execution);
+  const data = {
+    ...workerLastRunToTableData(lr, execution),
+    liveScoresByCode: liveScoresByCode || null,
+  };
   const days = pickTradeDays(data);
   if (!days.length) {
     el.innerHTML = foldShell(

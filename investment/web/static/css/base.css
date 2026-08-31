@@ -4634,9 +4634,9 @@ html[data-density="compact"] .table-pager {
 
 .rebalance-table {
   /* 股票吃左侧弹性；后列定宽；决策列随文案加长，避免 ellipsis 截断 */
-  --rebalance-cols: minmax(6.5rem, 1fr) 4.25rem 4.25rem 4.25rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem minmax(9rem, max-content);
-  width: max(100%, 64rem);
-  min-width: 64rem;
+  --rebalance-cols: minmax(6.5rem, 1fr) 4.25rem 4.25rem 4.25rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 4.5rem 6.25rem 3.5rem minmax(9rem, max-content);
+  width: max(100%, 68rem);
+  min-width: 68rem;
   font-size: 0.78rem;
   background: transparent;
 }

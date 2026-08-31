@@ -212,3 +212,77 @@ def attach_ret_vs_sector(feats: Dict[str, Any]) -> None:
     if a is None or b is None:
         return
     feats["ret_vs_sector"] = round(float(a) - float(b), 6)
+
+
+def merge_minute_tau_pack_into_feats(
+    feats: Optional[Dict[str, Any]],
+    *,
+    code: str = "",
+    trade_date: str,
+    open_px: Optional[float] = None,
+    prev_close: Optional[float] = None,
+    tau_hm: str = "10:30",
+    minute_bars: Optional[Sequence[dict]] = None,
+    load_cache_if_missing: bool = True,
+    max_age_hours: float = 36.0,
+) -> Tuple[Dict[str, Any], Optional[str], Optional[Dict[str, Any]]]:
+    """把 ≤τ 分钟小包并入 feats（已有非空键不覆盖）。
+
+    返回 ``(feats, as_of_tau_override, y_spec_override)``。
+    ``minute_bars`` 优先；缺则可选读本地 5m 缓存（不拉网）。
+    """
+    out = dict(feats or {})
+    day = str(trade_date or "")[:10]
+    hm = str(tau_hm or "10:30").strip() or "10:30"
+    if len(day) < 10:
+        return out, None, None
+    if out.get("ret_open_to_tau") is not None:
+        return out, None, None
+
+    bars = [b for b in (minute_bars or []) if isinstance(b, dict)]
+    if not bars and load_cache_if_missing and code:
+        try:
+            from core.ports.market import resolve_market_code
+            from core.store import load_minute_cache
+
+            mkt, pure = resolve_market_code(str(code))
+            packed = load_minute_cache(
+                mkt or "CN",
+                pure or str(code),
+                period="5",
+                min_bars=1,
+                max_age_hours=float(max_age_hours),
+            )
+            if packed:
+                bars = list(packed[0] or [])
+        except Exception:
+            bars = []
+
+    if len(bars) < 2:
+        return out, None, None
+
+    pack = extract_minute_tau_pack(
+        bars,
+        trade_date=day,
+        tau_hm=hm,
+        open_px=open_px,
+        prev_close=prev_close,
+    )
+    if pack.get("ret_open_to_tau") is None:
+        return out, None, None
+
+    for k, v in pack.items():
+        if v is None or v == "":
+            continue
+        if out.get(k) is None:
+            out[k] = v
+    attach_ret_vs_sector(out)
+    as_of = f"{day}T{hm}:00+08:00"
+    y_spec = {
+        "tau": hm,
+        "formula": f"close[T]/price[{hm}]-1",
+        "note": "分钟小包；无网拉；模型缺特征时 z≈0",
+        "minute_pack": sorted(pack.keys()),
+    }
+    return out, as_of, y_spec
+

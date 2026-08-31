@@ -164,6 +164,120 @@ class TestWatchingMatrixPreview(unittest.TestCase):
         acts = (out.get("path_matrix") or {}).get("by_action") or {}
         self.assertGreaterEqual(int(acts.get("skip_window") or 0), 1)
 
+    def test_held_path_skip_not_in_report(self):
+        """已持仓但本窗 path 闸：无成交，报告不进对照行（仅买/卖/加/减）。"""
+        from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
+
+        paper = {
+            "cash": 500_000,
+            "holdings": [
+                {
+                    "stock_code": "601111",
+                    "stock_name": "中国国航",
+                    "shares": 1400,
+                    "cost": 5.86,
+                }
+            ],
+            "rules": {"max_positions": 5, "position_pct": 0.2, "horizon_days": 3},
+        }
+        item = _signal_item(
+            stock_code="601111",
+            stock_name="中国国航",
+            y_path=0.05,
+            predicted_score_path=0.05,
+            y_trade=0.18,
+            predicted_score_blend=0.18,
+            predicted_score_eod=0.18,
+        )
+        with patch(
+            "core.paper.rebalance.watching_matrix._watching_codes",
+            return_value=(
+                ["601111"],
+                {"n_watch": 1, "n_total": 1, "name_by_code": {"601111": "中国国航"}},
+            ),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._score_pool",
+            return_value=([item], []),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._quote_px",
+            return_value=5.94,
+        ), patch(
+            "core.paper.ledger.mark_to_market",
+            return_value={
+                "equity": 500_000 + 1400 * 5.94,
+                "cash": 500_000,
+                "holdings": [
+                    {
+                        "stock_code": "601111",
+                        "stock_name": "中国国航",
+                        "shares": 1400,
+                        "price": 5.94,
+                        "change_pct": 1.02,
+                    }
+                ],
+            },
+        ), patch(
+            "core.signal.score_display.resolve_buy_floor",
+            return_value=0.01,
+        ), patch(
+            "core.signal.score_display.resolve_hold_floor",
+            return_value=0.01,
+        ):
+            out = simulate_watching_matrix_preview(paper, dry_run=True)
+
+        self.assertTrue(out.get("ok"))
+        self.assertEqual(len(out.get("buy_trades") or []), 0)
+        self.assertEqual(len(out.get("sell_trades") or []), 0)
+        self.assertEqual(len(out.get("rebalance_report") or []), 0)
+
+    def test_oos_failed_excluded_from_buys(self):
+        from core.paper.rebalance.watching_matrix import simulate_watching_matrix_preview
+
+        paper = {
+            "strategy_id": "short_conservative",
+            "cash": 1_000_000,
+            "holdings": [],
+            "rules": {"max_positions": 5, "position_pct": 0.2},
+        }
+        oos_item = _signal_item(
+            stock_code="600001",
+            stock_name="OOS票",
+            return_model_source="oos_failed_heuristic",
+            oos_failed=True,
+            y_trade=5.0,
+            predicted_score_blend=5.0,
+            y_path=3.0,
+            predicted_score_path=3.0,
+            y_nowcast=2.0,
+        )
+        ok_item = _signal_item(stock_code="600000", y_path=2.5, predicted_score_path=2.5)
+        with patch(
+            "core.paper.rebalance.watching_matrix._watching_codes",
+            return_value=(["600000", "600001"], {"n_watch": 2, "n_total": 2}),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._score_pool",
+            return_value=([ok_item, oos_item], []),
+        ), patch(
+            "core.paper.rebalance.watching_matrix._quote_px",
+            return_value=10.0,
+        ), patch(
+            "core.paper.ledger.mark_to_market",
+            return_value={"equity": 1_000_000, "cash": 1_000_000},
+        ), patch(
+            "core.signal.score_display.resolve_buy_floor",
+            return_value=0.01,
+        ), patch(
+            "core.signal.score_display.resolve_hold_floor",
+            return_value=0.01,
+        ):
+            out = simulate_watching_matrix_preview(paper, dry_run=True)
+
+        self.assertTrue(out.get("ok"))
+        buy_codes = [t.get("stock_code") for t in (out.get("buy_trades") or [])]
+        self.assertNotIn("600001", buy_codes)
+        self.assertIn("600000", buy_codes)
+        self.assertGreaterEqual(int((out.get("path_matrix") or {}).get("oos_excluded") or 0), 1)
+
     def test_matrix_mode_service_confirm_writes(self):
         from services.paper_trades import PaperTradesMixin
 

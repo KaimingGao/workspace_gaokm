@@ -760,6 +760,7 @@ class PaperTradesMixin:
         matrix_mode: bool = True,
         dry_run: bool = False,
         strategy: Optional[str] = None,
+        offline_only: bool = True,
     ) -> Dict[str, Any]:
         if not os.path.isfile(self.path):
             raise FileNotFoundError("请先初始化纸面账户")
@@ -789,7 +790,7 @@ class PaperTradesMixin:
         if not dry_run:
             capture_mark_snapshot(work)
         result = simulate_watching_matrix_preview(
-            work, top_k=top_k, dry_run=dry_run
+            work, top_k=top_k, dry_run=dry_run, offline_only=bool(offline_only)
         )
         if not (result.get("success") or result.get("ok")):
             return {**result, "matrix_mode": True}
@@ -1020,7 +1021,7 @@ class PaperTradesMixin:
                 out["message"] = (
                     f"已挂 {n_legs} 笔次日开盘卖出"
                     + (f"（目标 {target}）" if target else "")
-                    + " · 持仓未改，开盘窗按开盘价成交"
+                    + " · 持仓未改，开盘窗按开盘价尝试成交（涨停/跌停/停牌可能跳过）"
                 )
                 return out
 

@@ -324,6 +324,78 @@ class TestWatchingInsights(unittest.TestCase):
         self.assertEqual(item["pe"], 18.2)
         self.assertEqual(item["pb"], 7.1)
 
+    def test_insight_one_uses_offline_only(self):
+        """数据中心算分默认 offline_only + 不打实时 quote。"""
+        from core.watching.insights import _insight_one
+
+        captured = {}
+
+        def _fake_score(code, **kw):
+            captured.update(kw)
+            return {
+                "success": True,
+                "quote": {"success": True, "stock_code": code, "price_raw": 10.0},
+                "signal_item": {
+                    "stock_code": code,
+                    "score": 1.0,
+                    "predicted_score": 0.01,
+                    "hard_reject": False,
+                },
+            }
+
+        with patch("core.signal.score_stock.score_stock", side_effect=_fake_score), patch(
+            "core.watching.insights._spot_valuation_map", return_value={}
+        ), patch("core.data.facade.get_quote") as gq:
+            row = _insight_one("600519")
+        self.assertTrue(captured.get("offline_only"))
+        self.assertTrue(captured.get("skip_sentiment"))
+        self.assertTrue(captured.get("skip_fundamentals"))
+        self.assertEqual(row.get("stock_code"), "600519")
+        gq.assert_not_called()
+
+    def test_insight_one_live_mode_allows_remote_flag(self):
+        from core.watching.insights import _insight_one
+
+        captured = {}
+
+        def _fake_score(code, **kw):
+            captured.update(kw)
+            return {
+                "success": True,
+                "quote": {"success": True, "stock_code": code, "price_raw": 10.0},
+                "signal_item": {
+                    "stock_code": code,
+                    "score": 1.0,
+                    "predicted_score": 0.01,
+                    "hard_reject": False,
+                },
+            }
+
+        with patch("core.signal.score_stock.score_stock", side_effect=_fake_score), patch(
+            "core.watching.insights._spot_valuation_map", return_value={}
+        ):
+            _insight_one("600519", offline_only=False)
+        self.assertFalse(captured.get("offline_only"))
+
+    def test_insight_quote_bars_offline_no_live_quote(self):
+        from core.watching.insights import _insight_quote_bars
+
+        bars = [
+            {"date": "2026-08-27", "close": 9.5, "open": 9.4},
+            {"date": "2026-08-28", "close": 10.0, "open": 9.8, "high": 10.2, "low": 9.7},
+        ]
+        with patch(
+            "core.data.facade.get_bars",
+            return_value={"bars": bars, "data_source": "cache"},
+        ) as gb, patch("core.data.facade.get_quote") as gq:
+            q, b = _insight_quote_bars("600519")
+        self.assertEqual(len(b), 2)
+        self.assertTrue(q.get("success"))
+        self.assertEqual(q.get("price_raw"), 10.0)
+        self.assertEqual(q.get("data_source"), "offline_daily_synth")
+        self.assertTrue(gb.call_args.kwargs.get("offline_only"))
+        gq.assert_not_called()
+
     @unittest.skip("分池簿快路径已停用")
     def test_book_row_keeps_dual_track_on_oos_failed_heuristic(self):
         """heuristic 0–100 与组 ŷ% 双轨并存；不把 0–100 写进 predicted_score。"""

@@ -66,11 +66,16 @@ def quant_cluster_minute_status(
 
 @router.post("/api/quant/cluster-minute/refresh")
 def quant_cluster_minute_refresh(body: ClusterMinuteRefreshRequest) -> Dict[str, Any]:
-    """预热观察池 5m 分钟线；默认后台 Job（``GET /api/jobs/cluster-minute-refresh``）。"""
+    """预热观察池 5m 分钟线；默认后台 Job（``GET /api/jobs/cluster-minute-refresh``）。
+
+    ``mode=topup``：增量补齐（预演调仓日常用）；``mode=full``：强更全窗口。
+    """
     kwargs = dict(
         watching_limit=body.watching_limit,
         period=body.period,
         lookback_days=body.lookback_days,
+        mode=body.mode,
+        topup_lookback_days=body.topup_lookback_days,
     )
     try:
         if body.sync:

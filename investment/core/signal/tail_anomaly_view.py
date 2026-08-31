@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 from core.signal.factors.tail_anomaly import (
@@ -60,6 +61,53 @@ def _bar_time_label(b: dict) -> str:
     if len(dt) >= 5:
         return dt[-5:]
     return str(b.get("date") or "")[-5:] or "—"
+
+
+def _parse_bar_datetime(b: dict) -> Optional[datetime]:
+    raw = str((b or {}).get("datetime") or (b or {}).get("time") or "").strip()
+    if not raw:
+        return None
+    raw = raw.replace("T", " ")
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%d %H:%M"):
+        try:
+            return datetime.strptime(raw[:19] if len(raw) >= 19 else raw[:16], fmt)
+        except ValueError:
+            continue
+    return None
+
+
+def _session_day_needs_refresh(
+    day_bars: List[dict],
+    *,
+    session_asof: str,
+    now: Optional[datetime] = None,
+) -> bool:
+    """当前会话日分钟线是否明显落后盘面（有仓不刷新会让涨跌 tip K 停在上午）。"""
+    from core.market.calendar import is_trading_day, resolve_session_date
+    from core.signal.session_pit import shanghai_now
+
+    n = shanghai_now(now)
+    sess = str(resolve_session_date(now=n) or "")[:10]
+    target = str(session_asof or "")[:10]
+    if not target or target != sess:
+        return False
+    if not is_trading_day(sess):
+        return False
+    if not day_bars:
+        return True
+    last = day_bars[-1] if isinstance(day_bars[-1], dict) else {}
+    last_dt = _parse_bar_datetime(last)
+    if last_dt is None:
+        return True
+    # 收盘后：应至少看到午后末段 5m
+    if (n.hour, n.minute) >= (15, 5):
+        return (last_dt.hour, last_dt.minute) < (14, 55)
+    # 开盘前不逼刷
+    if (n.hour, n.minute) < (9, 30):
+        return False
+    # 盘中：末 bar 落后超过约两根 5m
+    lag_sec = (n.replace(tzinfo=None) - last_dt).total_seconds()
+    return lag_sec > 12 * 60
 
 
 def _resolve_change_asof(as_of: Optional[str] = None) -> str:
@@ -155,6 +203,35 @@ def build_minute_tail_view(
             }
         bars, meta = packed
         day_bars, used_day, day_note = _session_day_bars(bars, session_asof)
+        # 仅缓存路径：会话日明显落后（如只到上午）时强制补拉，避免 tip 与实时涨跌脱节。
+        # 本请求已 on-demand fetch 则不再二次拉。
+        if (
+            fetch_if_missing
+            and source in ("cache", "stale_cache")
+            and _session_day_needs_refresh(
+                day_bars, session_asof=session_asof or used_day
+            )
+        ):
+            try:
+                from core.ports.market import fetch_minute_bars
+
+                fresh_bars, fresh_meta = fetch_minute_bars(
+                    code,
+                    period=period_s,
+                    use_cache=False,
+                    lookback_days=max(1, int(lookback_days or 5)),
+                    max_age_hours=0.01,
+                )
+                if fresh_bars:
+                    bars = list(fresh_bars)
+                    meta = dict(fresh_meta or meta or {})
+                    source = str((fresh_meta or {}).get("data_source") or "fetch_refresh")
+                    packed = (bars, meta)
+                    day_bars, used_day, day_note = _session_day_bars(bars, session_asof)
+            except Exception:
+                logger.debug(
+                    "minute-tail session refresh failed for %s", code, exc_info=True
+                )
         # 尾盘指标：优先用会话日条；无则退回全样本尾部（兼容旧 tip）
         score_bars = day_bars if day_bars else bars
         tail = _tail_bars(score_bars, tail_minutes=tail_min)
@@ -213,6 +290,8 @@ def build_minute_tail_view(
                 "session_asof": session_asof or None,
                 "day_resolve": day_note,
                 "source": source,
+                "day_bar_count": len(chart_day),
+                "refreshed": source.startswith("fetch"),
             },
         }
     except Exception as exc:

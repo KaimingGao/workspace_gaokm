@@ -1,4 +1,6 @@
 import { apiFetch } from "../api_client.js";
+import { getDataOfflineOnly, installDataOfflineToggle, offlineOnlyQuery } from "../data_offline.js";
+import { scoresPolicyLine } from "../data_policy.js";
 import { renderLineChart } from "../lw_charts.js";
 import { syncOverviewUniverse } from "./factor_corr_ui.js";
 import { mountVirtualTable, colStyle } from "../virtual_table.js";
@@ -81,6 +83,26 @@ export function installWatching(q) {
       state.watchingSortDir = saved.dir === "asc" ? "asc" : "desc";
     }
   } catch (_) { /* ignore */ }
+
+  installDataOfflineToggle(document.getElementById("watching-data-offline"), {
+    onChange: () => {
+      const meta = document.getElementById("watching-page-meta");
+      if (meta) {
+        meta.textContent = `观察池 · ${scoresPolicyLine(getDataOfflineOnly())} · 日K/5m 在研究枢纽`;
+      }
+      try {
+        fillWatchingInsights();
+      } catch (_) {
+        /* fill may not be ready on first tick */
+      }
+    },
+  });
+  {
+    const meta = document.getElementById("watching-page-meta");
+    if (meta) {
+      meta.textContent = `观察池 · ${scoresPolicyLine(getDataOfflineOnly())} · 日K/5m 在研究枢纽`;
+    }
+  }
 
   function collectWatchingYhatItems() {
     const insightBy = state.watchingInsightByCode || {};
@@ -679,7 +701,7 @@ export function installWatching(q) {
         let res;
         try {
           res = await fetch(
-            `/api/watching/insights?codes=${encodeURIComponent(chunk.join(","))}`,
+            `/api/watching/insights?codes=${encodeURIComponent(chunk.join(","))}&${offlineOnlyQuery()}`,
             { signal: ctrl.signal }
           );
         } catch (err) {

@@ -133,9 +133,97 @@ class TestClusterMinuteStatus(unittest.TestCase):
         ):
             out = refresh_cluster_minute_only(watching_limit=100, lookback_days=120)
         self.assertTrue(out["success"])
+        self.assertEqual(out["mode"], "full")
         warm.assert_called_once()
         self.assertEqual(warm.call_args.kwargs["cap"], 2)
         self.assertEqual(warm.call_args.kwargs["lookback_days"], 30)
+
+    def test_expected_minute_asof_before_open(self):
+        from datetime import datetime
+        from quant.research.cluster_minute_status import expected_minute_asof
+
+        # 交易日开盘前 → 上一交易日
+        with patch(
+            "core.market.calendar.resolve_session_date", return_value="2026-08-28"
+        ), patch("core.market.calendar.is_trading_day", return_value=True), patch(
+            "core.market.calendar.prev_trading_day", return_value="2026-08-27"
+        ):
+            asof = expected_minute_asof(now=datetime(2026, 8, 28, 9, 0, 0))
+        self.assertEqual(asof, "2026-08-27")
+
+        with patch(
+            "core.market.calendar.resolve_session_date", return_value="2026-08-28"
+        ), patch("core.market.calendar.is_trading_day", return_value=True):
+            asof2 = expected_minute_asof(now=datetime(2026, 8, 28, 10, 0, 0))
+        self.assertEqual(asof2, "2026-08-28")
+
+    def test_topup_skips_aligned_and_short_lookback(self):
+        from quant.research.cluster_minute_status import _minute_topup_core
+
+        def _snap(code: str, *, period: str = "5"):
+            if code == "600519":
+                return {"span_days": 40, "date_max": "2026-08-28", "bar_count": 100}
+            if code == "000001":
+                return {"span_days": 40, "date_max": "2026-08-26", "bar_count": 100}
+            return None
+
+        calls = []
+
+        def _fetch(code, **kwargs):
+            calls.append((code, kwargs.get("lookback_days"), kwargs.get("skip_em")))
+            return [{"date": "2026-08-28 10:00:00"}], {"ok": True}
+
+        with patch(
+            "quant.research.cluster_minute_status.expected_minute_asof",
+            return_value="2026-08-28",
+        ), patch(
+            "quant.research.cluster_minute_status._minute_snapshot_for_code",
+            side_effect=_snap,
+        ), patch("core.ports.market.fetch_minute_bars", side_effect=_fetch):
+            out = _minute_topup_core(
+                codes=["600519", "000001", "300750"],
+                topup_lookback_days=5,
+                full_lookback_days=30,
+                workers=2,
+            )
+        self.assertTrue(out["ok"])
+        self.assertEqual(out["skipped_aligned"], 1)
+        self.assertEqual(out["topped"], 1)
+        self.assertEqual(out["bootstrapped"], 1)
+        self.assertEqual(len(calls), 2)
+        by_code = {c: (lb, sem) for c, lb, sem in calls}
+        self.assertEqual(by_code["000001"], (5, True))
+        self.assertEqual(by_code["300750"], (30, False))
+
+    def test_refresh_topup_mode_delegates(self):
+        from quant.research.cluster_minute_status import refresh_cluster_minute_only
+
+        warmup = {
+            "ok": True,
+            "kind": "minute_topup",
+            "mode": "topup",
+            "total": 2,
+            "warmed": 2,
+            "skipped_aligned": 1,
+            "topped": 1,
+        }
+        with patch(
+            "quant.research.cluster_minute_status._resolve_watching_codes",
+            return_value=["600519", "000001"],
+        ), patch(
+            "quant.research.cluster_minute_status._minute_topup_core",
+            return_value=warmup,
+        ) as top, patch(
+            "quant.research.cluster_minute_status.build_cluster_minute_status",
+            return_value={"success": True, "cached_ok": 2},
+        ):
+            out = refresh_cluster_minute_only(
+                watching_limit=100, mode="topup", topup_lookback_days=5
+            )
+        self.assertTrue(out["success"])
+        self.assertEqual(out["mode"], "topup")
+        top.assert_called_once()
+        self.assertEqual(top.call_args.kwargs["topup_lookback_days"], 5)
 
 
 if __name__ == "__main__":

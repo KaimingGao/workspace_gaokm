@@ -24,6 +24,9 @@ DEFAULT_TIMING: Dict[str, Any] = {
     "execution_mode": MODE_NEXT_OPEN,
     "open_fill_after_hm": "09:15",
     "open_fill_until_hm": "10:00",
+    # 开盘窗未成的挂单：盘中中点追价，尽量成交；近收盘改用现价强平
+    "pending_chase_interval_min": 10,
+    "pending_chase_eod_hm": "14:50",
 }
 
 _RESEARCH_KEYS = (
@@ -259,6 +262,46 @@ def merge_pending_orders(
     return base
 
 
+def _quote_for_open_match(quote: Optional[dict], open_px: float) -> dict:
+    """把开盘价写进撮合用行情，使涨跌停检查对开盘价而非最新价。"""
+    q = dict(quote or {})
+    q["price_raw"] = float(open_px)
+    q["price"] = float(open_px)
+    prev = q.get("prev_close") or q.get("pre_close") or q.get("yesterday_close")
+    if prev is not None:
+        try:
+            p0 = float(prev)
+            if p0 > 0:
+                q["change_raw"] = (float(open_px) / p0 - 1.0) * 100.0
+        except (TypeError, ValueError):
+            pass
+    return q
+
+
+def _open_fill_block_reason(
+    code: str,
+    side: str,
+    quote: Optional[dict],
+    open_px: float,
+) -> Optional[str]:
+    """开盘成交：涨停买不到、跌停卖不出、停牌两边都不成。"""
+    side_s = str(side or "").strip().lower()
+    q = _quote_for_open_match(quote, open_px)
+    try:
+        from core.paper.rebalance.match import (
+            _buy_match_block_reason,
+            _sell_match_block_reason,
+        )
+    except Exception:  # noqa: BLE001
+        logger.debug("open-fill match import failed", exc_info=True)
+        return None
+    if side_s == "buy":
+        return _buy_match_block_reason(code, q)
+    if side_s == "sell":
+        return _sell_match_block_reason(code, q)
+    return None
+
+
 def _quote_open_px(quote: Optional[dict]) -> Optional[float]:
     import re
 
@@ -284,12 +327,65 @@ def _quote_open_px(quote: Optional[dict]) -> Optional[float]:
     return f if f > 0 else None
 
 
+def _quote_last_px(quote: Optional[dict]) -> Optional[float]:
+    """现价：优先 price_raw，其次解析 price 文案。"""
+    if not isinstance(quote, dict):
+        return None
+    try:
+        from core.ports.market import quote_price
+
+        raw = quote_price(quote)
+        if raw is not None and float(raw) > 0:
+            return float(raw)
+    except Exception:  # noqa: BLE001
+        logger.debug("quote_price failed in open_fill", exc_info=True)
+    s = quote.get("price")
+    if s is None or s == "":
+        return None
+    import re
+
+    m = re.search(r"-?\d+(?:\.\d+)?", str(s).replace(",", ""))
+    if not m:
+        return None
+    try:
+        f = float(m.group(0))
+    except ValueError:
+        return None
+    return f if f > 0 else None
+
+
+def _leg_intent_px(leg: dict, last: float) -> float:
+    for k in ("chase_target", "intent_price", "price"):
+        try:
+            v = float(leg.get(k) or 0)
+        except (TypeError, ValueError):
+            v = 0.0
+        if v > 0:
+            return v
+    return float(last)
+
+
+def _chase_due(leg: dict, now: datetime, interval_min: int) -> bool:
+    raw = str(leg.get("last_chase_at") or "").strip()
+    if not raw:
+        return True
+    try:
+        prev = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+        if prev.tzinfo is not None:
+            prev = prev.replace(tzinfo=None)
+    except ValueError:
+        return True
+    delta = (now.replace(tzinfo=None) - prev).total_seconds()
+    return delta >= max(1, int(interval_min)) * 60
+
+
 def _apply_leg_at_open(
     paper: dict,
     leg: dict,
     *,
     open_px: float,
     as_of: Optional[str] = None,
+    note_prefix: str = "开盘成交",
 ) -> Tuple[Optional[dict], Optional[str]]:
     from core.paper.ledger import ORIGIN_STRATEGY, _now_iso, merge_origin
     from core.paper.costs import (
@@ -313,6 +409,7 @@ def _apply_leg_at_open(
     model = resolve_cost_model(paper)
     params = cost_params(paper)
     fill_px = apply_fill_price(side, float(open_px), model=model, params=params)
+    note_prefix = str(note_prefix or "开盘成交")
     cash = float(paper.get("cash") or 0)
     holdings = list(paper.get("holdings") or [])
     existing = next((h for h in holdings if str(h.get("stock_code")) == code), None)
@@ -344,7 +441,7 @@ def _apply_leg_at_open(
                 "pnl_pct": pnl_pct,
                 "score": leg.get("score"),
                 "origin": leg.get("origin") or ORIGIN_STRATEGY,
-                "note": f"开盘成交 · {leg.get('note') or '隔夜挂单'}",
+                "note": f"{note_prefix} · {leg.get('note') or '隔夜挂单'}",
                 "fill_timing": MODE_NEXT_OPEN,
                 "intent_price": leg.get("intent_price"),
             },
@@ -376,7 +473,7 @@ def _apply_leg_at_open(
             "amount": amount,
             "score": leg.get("score"),
             "origin": leg.get("origin") or ORIGIN_STRATEGY,
-            "note": f"开盘成交 · {leg.get('note') or '隔夜挂单'}",
+            "note": f"{note_prefix} · {leg.get('note') or '隔夜挂单'}",
             "fill_timing": MODE_NEXT_OPEN,
             "intent_price": leg.get("intent_price"),
         },
@@ -415,13 +512,16 @@ def fill_pending_at_open(
     now: Optional[datetime] = None,
     quotes: Optional[Dict[str, dict]] = None,
 ) -> Dict[str, Any]:
-    """用开盘价成交 ``pending_orders``。未到目标日或非开盘窗则跳过。"""
+    """成交 ``pending_orders``：开盘窗按开盘价；盘中中点追价；近收盘现价强平。
+
+    涨停买 / 跌停卖 / 停牌仍跳过并留单。收盘后（非交易时段）不再追，留到下一开盘窗。
+    """
     pending = paper.get("pending_orders") if isinstance(paper.get("pending_orders"), dict) else None
     if not pending or not (pending.get("legs") or []):
         return {"ok": True, "filled": False, "reason": "no_pending", "trades": []}
     timing = get_rebalance_timing(paper)
     phase = paper_fill_phase(now, timing=timing)
-    if phase != PHASE_OPEN:
+    if phase == PHASE_CLOSED:
         return {
             "ok": True,
             "filled": False,
@@ -432,7 +532,8 @@ def fill_pending_at_open(
         }
     from core.signal.session_pit import shanghai_now
 
-    today = shanghai_now(now).strftime("%Y-%m-%d")
+    n = shanghai_now(now)
+    today = n.strftime("%Y-%m-%d")
     target = _heal_preopen_target(pending, day=today, phase=phase)
     if target != str(pending.get("target_fill_date") or "")[:10]:
         pending = dict(pending)
@@ -462,6 +563,15 @@ def fill_pending_at_open(
         except Exception:  # noqa: BLE001
             logger.debug("batch_get_quotes failed in fill_pending_at_open", exc_info=True)
 
+    chase_iv = 10
+    try:
+        chase_iv = max(1, min(int(timing.get("pending_chase_interval_min") or 10), 60))
+    except (TypeError, ValueError):
+        chase_iv = 10
+    eod_hm = _parse_hm(timing.get("pending_chase_eod_hm"), (14, 50))
+    eod_force = phase == PHASE_SESSION and (n.hour, n.minute) >= eod_hm
+    chase_ts = n.replace(tzinfo=None).isoformat(timespec="seconds")
+
     filled_trades: List[dict] = []
     leftover: List[dict] = []
     skips: List[dict] = []
@@ -481,15 +591,68 @@ def fill_pending_at_open(
             except Exception:  # noqa: BLE001
                 logger.debug("get_quote failed for %s", code, exc_info=True)
                 q = {}
-        open_px = _quote_open_px(q)
-        if not open_px:
-            leftover.append(leg)
-            skips.append({"stock_code": code, "reason": "no_open"})
+        side = str(leg.get("side") or "")
+        if phase == PHASE_OPEN:
+            px = _quote_open_px(q)
+            if not px:
+                leftover.append({**leg, "skip_reason": "no_open"})
+                skips.append({"stock_code": code, "side": side, "reason": "no_open"})
+                continue
+            block = _open_fill_block_reason(
+                code, side, q if isinstance(q, dict) else {}, px
+            )
+            if block:
+                leftover.append({**leg, "skip_reason": block})
+                skips.append({"stock_code": code, "side": side, "reason": block})
+                continue
+            trade, err = _apply_leg_at_open(
+                paper, leg, open_px=px, as_of=today, note_prefix="开盘成交"
+            )
+        else:
+            last = _quote_last_px(q)
+            if not last:
+                leftover.append({**leg, "skip_reason": "no_last"})
+                skips.append({"stock_code": code, "side": side, "reason": "no_last"})
+                continue
+            block = _open_fill_block_reason(
+                code, side, q if isinstance(q, dict) else {}, last
+            )
+            if block:
+                leftover.append(
+                    {**leg, "skip_reason": block, "last_chase_at": chase_ts}
+                )
+                skips.append({"stock_code": code, "side": side, "reason": block})
+                continue
+            if not eod_force and not _chase_due(leg, n.replace(tzinfo=None), chase_iv):
+                leftover.append(dict(leg))
+                continue
+            intent = _leg_intent_px(leg, last)
+            fill_px = float(last) if eod_force else (float(intent) + float(last)) / 2.0
+            note_prefix = "收盘追价成交" if eod_force else "中点追价成交"
+            trade, err = _apply_leg_at_open(
+                paper,
+                {**leg, "chase_target": round(fill_px, 4)},
+                open_px=fill_px,
+                as_of=today,
+                note_prefix=note_prefix,
+            )
+            if err:
+                leftover.append(
+                    {
+                        **leg,
+                        "skip_reason": err,
+                        "chase_target": round(fill_px, 4),
+                        "last_chase_at": chase_ts,
+                    }
+                )
+                skips.append({"stock_code": code, "side": side, "reason": err})
+                continue
+            if trade:
+                filled_trades.append(trade)
             continue
-        trade, err = _apply_leg_at_open(paper, leg, open_px=open_px, as_of=today)
         if err:
-            leftover.append(leg)
-            skips.append({"stock_code": code, "reason": err})
+            leftover.append({**leg, "skip_reason": err})
+            skips.append({"stock_code": code, "side": side, "reason": err})
             continue
         if trade:
             filled_trades.append(trade)
@@ -507,6 +670,7 @@ def fill_pending_at_open(
         "ok": True,
         "filled": bool(filled_trades),
         "phase": phase,
+        "mode": "eod_force" if eod_force else ("chase" if phase == PHASE_SESSION else "open"),
         "trades": filled_trades,
         "skips": skips,
         "leftover": leftover,
@@ -541,6 +705,37 @@ def apply_next_open_commit(
         out["fill_action"] = "preview" if dry_run else "immediate"
         return mutated, out
     if phase == PHASE_SESSION:
+        leftover_po = (
+            original.get("pending_orders")
+            if isinstance(original.get("pending_orders"), dict)
+            else None
+        )
+        if leftover_po and (leftover_po.get("legs") or []):
+            paper = deepcopy(original)
+            _copy_research_fields(paper, mutated)
+            fill_old = fill_pending_at_open(paper, now=now)
+            out["open_fill"] = fill_old
+            leftover = (
+                paper.get("pending_orders")
+                if isinstance(paper.get("pending_orders"), dict)
+                else None
+            )
+            if leftover and (leftover.get("legs") or []):
+                out["fill_action"] = "kept_pending"
+                out["pending_orders"] = leftover
+                out["note"] = "盘中：挂单中点追价尚未全部成交，本次未改仓"
+                return paper, out
+            if fill_old.get("filled"):
+                out["fill_action"] = "session_chase_pending"
+                out["sell_trades"] = [
+                    t for t in fill_old.get("trades") or [] if t.get("side") == "sell"
+                ]
+                out["buy_trades"] = [
+                    t for t in fill_old.get("trades") or [] if t.get("side") == "buy"
+                ]
+                out["new_trades"] = out["buy_trades"]
+                out["note"] = "盘中：已按中点追价成交隔夜挂单（未再套用本次现价模拟）"
+                return paper, out
         out["fill_action"] = "immediate"
         out["note"] = "盘中：按现价成交"
         return mutated, out
@@ -585,10 +780,10 @@ def apply_next_open_commit(
     as_of = str(pending.get("as_of") or "")[:10]
     if target and as_of and target == as_of:
         out["note"] = (
-            f"盘前不成交：已挂 {n_legs} 笔今日开盘单（目标 {target}）"
+            f"盘前不成交：已挂 {n_legs} 笔今日开盘单（目标 {target}；涨停/跌停/停牌可能成交不了）"
         )
     else:
         out["note"] = (
-            f"收盘后不成交：已挂 {n_legs} 笔次日开盘单（目标 {target}）"
+            f"收盘后不成交：已挂 {n_legs} 笔次日开盘单（目标 {target}；涨停/跌停/停牌可能成交不了）"
         )
     return paper, out

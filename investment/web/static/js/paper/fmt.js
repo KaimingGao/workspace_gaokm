@@ -339,6 +339,8 @@ export function resolvePathScore(it) {
 /** 表列 y_path：signed range %；|v|<1 用两位小数避免 0.02% 显示成 +0.0。 */
 export function fmtPathScore(v, opts = {}) {
   const empty = opts.empty ?? "—";
+  // null/"" 不能走 Number()：Number(null)===0，会把「未打分」显示成 0
+  if (v == null || v === "") return empty;
   const n = Number(v);
   if (!Number.isFinite(n)) return empty;
   const digits = opts.digits ?? (Math.abs(n) < 1 ? 2 : 1);

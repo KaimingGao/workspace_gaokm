@@ -66,13 +66,16 @@ class TestWebQuantJsGuards(unittest.TestCase):
 
         self.assertIn('id="quant-section-minute"', panel)
         self.assertIn('id="quant-cluster-minute-refresh"', panel)
+        self.assertIn('id="quant-cluster-minute-topup"', panel)
         self.assertIn("强更 5m", panel)
+        self.assertIn("增量补齐", panel)
         self.assertIn("增量 merge", panel)
-        self.assertIn("强更全量更新", panel)
         minute_js = self._read("web", "static", "js", "quant", "cluster_minute_ui.js")
         self.assertIn("installClusterMinuteUi", minute_js)
         self.assertIn("/api/quant/cluster-minute/status", minute_js)
         self.assertIn("/api/jobs/cluster-minute-refresh", minute_js)
+        self.assertIn('mode: modeS', minute_js)
+        self.assertIn("startTopup", minute_js)
         self.assertIn("unwrapJobSnap", minute_js)
         self.assertIn("applyJobFailure", minute_js)
         self.assertIn("syncJobSlot", minute_js)
@@ -84,6 +87,26 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("unwrapJobSnap", job_js)
         quant_js = self._read("web", "static", "js", "quant.js")
         self.assertIn("installClusterMinuteUi", quant_js)
+
+        watching = self._read("web", "static", "partials", "watching_panel.html")
+        self.assertIn('id="watching-data-offline"', watching)
+        self.assertIn("仅本地仓", watching)
+        self.assertIn(
+            "data_offline.js",
+            self._read("web", "static", "js", "quant", "domain_watching.js"),
+        )
+        self.assertIn(
+            "offlineOnlyQuery",
+            self._read("web", "static", "js", "quant", "domain_watching.js"),
+        )
+        follow = self._read("web", "static", "partials", "follow_panel.html")
+        self.assertIn('id="follow-data-offline"', follow)
+        paper_js = self._read("web", "static", "js", "paper.js")
+        self.assertIn("offlineOnlyQuery", paper_js)
+        self.assertIn("installDataOfflineToggle", paper_js)
+        rb = self._read("web", "static", "js", "paper", "cluster_rebalance.js")
+        self.assertIn("offline_only", rb)
+        self.assertIn("getDataOfflineOnly", rb)
 
         replay = self._read("web", "static", "partials", "replay_panel.html")
         self.assertIn("quant-neutral-compare-table", replay)
@@ -101,6 +124,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('tip === "nc_oc"', tip_js)
         self.assertIn("formatNcOcSection", tip_js)
         self.assertIn('tipMode === "nc_oc"', tip_js)
+
+    def test_score_tooltip_path_feat_labels_zh(self):
+        tip_js = self._read("web", "static", "js", "score_tooltip.js")
+        self.assertIn('ret_open_to_tau: "开盘→τ 收益 %"', tip_js)
+        self.assertIn('range_pct: "前缀振幅 %"', tip_js)
+        self.assertIn('pullback_from_high: "自高回撤 %"', tip_js)
+        self.assertIn("PATH_FEAT_LABELS[k]", tip_js)
+        self.assertIn('key === "path" && k && PATH_FEAT_LABELS[k]', tip_js)
 
     def test_y_nc_column_uses_resolve_nowcast_cc_score(self):
         fmt_js = self._read("web", "static", "js", "paper", "fmt.js")
@@ -151,6 +182,20 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("t0_intraday", island_js)
         self.assertIn("paper-hold-t0-badge", badge_js)
         self.assertIn(".paper-hold-t0-badge", css)
+
+    def test_holdings_table_has_y_path_column(self):
+        island_js = self._read("web", "static", "js", "holdings_table_island.js")
+        ui_js = self._read("web", "static", "js", "paper", "holdings_ui.js")
+        sort_js = self._read("web", "static", "js", "paper", "holdings_sort.js")
+        self.assertIn('id: "score_path"', island_js)
+        self.assertIn('label: "y_path"', island_js)
+        self.assertIn("resolvePathScore", island_js)
+        self.assertIn("score_path: \"path\"", island_js)
+        self.assertIn('sortThHtml("y_path", "score_path")', ui_js)
+        self.assertIn("resolvePathScore", ui_js)
+        self.assertIn('data-score-tip="path"', ui_js)
+        self.assertIn('saved.key === "score_path"', sort_js)
+        self.assertIn("resolvePathScore", sort_js)
 
     def test_holdings_chg_has_minute_kline_tip(self):
         island_js = self._read("web", "static", "js", "holdings_table_island.js")
@@ -224,6 +269,7 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('id="paper-path-matrix-form"', panel)
         self.assertIn('id="follow-path-matrix"', panel)
         self.assertIn("follow-path-matrix-toolbar", panel)
+        self.assertIn("follow-path-matrix-footer", panel)
         self.assertIn("follow-path-matrix-actions", panel)
         self.assertNotIn("follow-path-matrix-pipeline", panel)
         self.assertNotIn("follow-path-matrix-flow", panel)
@@ -235,8 +281,8 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertNotIn('name="pm_enabled"', panel)
         self.assertIn("follow-path-matrix-roles", panel)
         self.assertIn("follow-path-matrix-viz", panel)
-        self.assertIn("follow-path-matrix-field", panel)
         self.assertIn("follow-path-matrix-box", panel)
+        self.assertNotIn("follow-path-matrix-field", panel)
         self.assertNotIn("follow-path-matrix-lambda", panel)
         self.assertNotIn("follow-path-matrix-gate-", panel)
         self.assertNotIn('class="follow-path-matrix-gate"', panel)
@@ -245,10 +291,14 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn('data-panel="path"', panel)
         self.assertIn('data-panel="on"', panel)
         self.assertIn('data-panel="gates"', panel)
-        self.assertIn('name="pm_mode"', panel)
+        self.assertNotIn('name="pm_mode"', panel)
+        self.assertNotIn("线性对照", panel)
         self.assertIn('name="pm_path_enter"', panel)
         self.assertIn('name="pm_y_on_allow"', panel)
-        self.assertIn('name="pm_require_nowcast"', panel)
+        self.assertIn('name="pm_fusion_w_trade"', panel)
+        self.assertIn('name="pm_fusion_w_nc"', panel)
+        self.assertIn('name="pm_require_path_on"', panel)
+        self.assertNotIn('name="pm_require_nowcast"', panel)
         exe_ui = self._read("web", "static", "js", "paper", "execution_ui.js")
         self.assertIn("enabled: true", exe_ui)
         self.assertNotIn("pm_enabled", exe_ui)
@@ -295,6 +345,10 @@ class TestWebQuantJsGuards(unittest.TestCase):
         self.assertIn("wireT0SkipTips", viz)
         self.assertIn("data-skip-tip", viz)
         self.assertIn("wireT0SkipTips", paper_js)
+        self.assertIn("leg.skip_reason || leg.note", paper_js)
+        self.assertIn("涨停买不到、跌停卖不出、停牌则跳过并留单", paper_js)
+        self.assertIn("意向价与现价中点", paper_js)
+        self.assertIn("14:50", paper_js)
         self.assertIn("eod_tau_disagree", viz)
         self.assertIn("y_eod_flat", viz)
         self.assertIn("eod_tau_disagree", table)

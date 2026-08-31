@@ -2,7 +2,7 @@
  * 交易执行 · 持仓主表（共享 virtual_table 内核，与数据中心同方案）。
  */
 
-import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, scoreCls, resolveTradeScore, resolveEodScore, resolveTauScore, resolveOnScore, resolveNowcastScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_ON_TITLE, Y_NOWCAST_TITLE } from "./paper/fmt.js?v=p1472";
+import { fmtPriceUnit, fmtPct, metricCls, fmtTableScore, fmtPathScore, scoreCls, resolveTradeScore, resolveEodScore, resolveTauScore, resolvePathScore, resolveOnScore, resolveNowcastScore, isHeuristicScoreScale, Y_EOD_TITLE, Y_TAU_TITLE, Y_PATH_TITLE, Y_ON_TITLE, Y_NOWCAST_TITLE } from "./paper/fmt.js?v=p1472";
 import { sentimentBadgeHtml, watchingScoreDetail } from "./quant/watching_render.js?v=p1457";
 import {
   isSingleHeadItem,
@@ -45,6 +45,7 @@ export function holdingToRow(
   const score = resolveTradeScore(h);
   const scoreEod = resolveEodScore(h);
   const scoreTau = resolveTauScore(h);
+  const scorePath = resolvePathScore(h);
   const scoreOn = resolveOnScore(h);
   const scoreNowcast = resolveNowcastScore(h);
   const belowMin = !!h.below_min_score;
@@ -56,6 +57,7 @@ export function holdingToRow(
   if (scoreText === "—" && hardReject) scoreText = "拒";
   const scoreEodText = fmtTableScore(h, scoreEod);
   const scoreTauText = fmtTableScore(h, scoreTau);
+  const scorePathText = fmtPathScore(scorePath);
   const scoreOnText = fmtTableScore(h, scoreOn);
   const scoreNowcastText = fmtTableScore(h, scoreNowcast);
   const origin = String(h.origin || "");
@@ -79,6 +81,7 @@ export function holdingToRow(
         : TRADE_TITLE;
   const scoreEodTitle = scoreEod == null ? "暂无 ŷ_EOD" : Y_EOD_TITLE;
   const scoreTauTitle = scoreTau == null ? "暂无 ŷ_τ" : Y_TAU_TITLE;
+  const scorePathTitle = scorePath == null ? "暂无 ŷ_path" : Y_PATH_TITLE;
   const scoreOnTitle = scoreOn == null ? "暂无 ŷ_ON" : Y_ON_TITLE;
   const scoreNowcastTitle =
     scoreNowcast == null ? "暂无 nowcast · 有 ŷ_EOD 与 ŷ_τ 后可见" : Y_NOWCAST_TITLE;
@@ -133,6 +136,11 @@ export function holdingToRow(
       scoreTau != null && Number.isFinite(Number(scoreTau)) ? Number(scoreTau) : null,
     scoreTauCls: scoreCls(scoreTau),
     scoreTauTitle,
+    scorePathText,
+    scorePathNum:
+      scorePath != null && Number.isFinite(Number(scorePath)) ? Number(scorePath) : null,
+    scorePathCls: scoreCls(scorePath),
+    scorePathTitle,
     scoreOnText,
     scoreOnNum:
       scoreOn != null && Number.isFinite(Number(scoreOn)) ? Number(scoreOn) : null,
@@ -237,6 +245,16 @@ const COLS = [
     title: Y_TAU_TITLE,
   },
   {
+    id: "score_path",
+    label: "y_path",
+    width: 82,
+    num: true,
+    sortable: true,
+    headClass: "watching-col-y",
+    cellClass: "watching-col-y",
+    title: Y_PATH_TITLE,
+  },
+  {
     id: "score_on",
     label: "y_on",
     width: 82,
@@ -305,6 +323,7 @@ function compare(id, a, b) {
   if (id === "score") return numCmp(Number(a.scoreNum), Number(b.scoreNum));
   if (id === "score_eod") return numCmp(Number(a.scoreEodNum), Number(b.scoreEodNum));
   if (id === "score_tau") return numCmp(Number(a.scoreTauNum), Number(b.scoreTauNum));
+  if (id === "score_path") return numCmp(Number(a.scorePathNum), Number(b.scorePathNum));
   if (id === "score_on") return numCmp(Number(a.scoreOnNum), Number(b.scoreOnNum));
   if (id === "score_nowcast") return numCmp(Number(a.scoreNowcastNum), Number(b.scoreNowcastNum));
   if (id === "pnl") return numCmp(Number(a.pnlNum), Number(b.pnlNum));
@@ -443,33 +462,51 @@ export async function mountHoldingsTableIsland(host, options = {}) {
           `${escapeHtml(d.scoreText || "—")}${badge}</span>`
         );
       }
-      if (col.id === "score_eod" || col.id === "score_tau" || col.id === "score_on" || col.id === "score_nowcast") {
-        const tipMap = { score_eod: "eod", score_tau: "tau", score_on: "on", score_nowcast: "nowcast" };
-        const skinMap = { score_eod: "eod", score_tau: "tau", score_on: "on", score_nowcast: "nowcast" };
+      if (col.id === "score_eod" || col.id === "score_tau" || col.id === "score_path" || col.id === "score_on" || col.id === "score_nowcast") {
+        const tipMap = {
+          score_eod: "eod",
+          score_tau: "tau",
+          score_path: "path",
+          score_on: "on",
+          score_nowcast: "nowcast",
+        };
+        const skinMap = {
+          score_eod: "eod",
+          score_tau: "tau",
+          score_path: "path",
+          score_on: "on",
+          score_nowcast: "nowcast",
+        };
         const textKey =
           col.id === "score_eod"
             ? "scoreEodText"
             : col.id === "score_tau"
               ? "scoreTauText"
-              : col.id === "score_on"
-                ? "scoreOnText"
-                : "scoreNowcastText";
+              : col.id === "score_path"
+                ? "scorePathText"
+                : col.id === "score_on"
+                  ? "scoreOnText"
+                  : "scoreNowcastText";
         const clsKey =
           col.id === "score_eod"
             ? "scoreEodCls"
             : col.id === "score_tau"
               ? "scoreTauCls"
-              : col.id === "score_on"
-                ? "scoreOnCls"
-                : "scoreNowcastCls";
+              : col.id === "score_path"
+                ? "scorePathCls"
+                : col.id === "score_on"
+                  ? "scoreOnCls"
+                  : "scoreNowcastCls";
         const titleKey =
           col.id === "score_eod"
             ? "scoreEodTitle"
             : col.id === "score_tau"
               ? "scoreTauTitle"
-              : col.id === "score_on"
-                ? "scoreOnTitle"
-                : "scoreNowcastTitle";
+              : col.id === "score_path"
+                ? "scorePathTitle"
+                : col.id === "score_on"
+                  ? "scoreOnTitle"
+                  : "scoreNowcastTitle";
         const detail = d.scoreDetail || "";
         const title = d[titleKey] || "";
         const text = d[textKey] || "—";

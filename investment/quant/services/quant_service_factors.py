@@ -1421,15 +1421,19 @@ class QuantFactorMixin:
         watching_limit: int = 100,
         period: str = "5",
         lookback_days: int = 30,
+        mode: str = "full",
+        topup_lookback_days: int = 5,
         progress_cb: Optional[Any] = None,
     ) -> Dict[str, Any]:
-        """同步：预热观察池 5m 分钟线。"""
+        """同步：预热观察池 5m 分钟线（``mode=full|topup``）。"""
         from quant.research.cluster_minute_status import refresh_cluster_minute_only
 
         return refresh_cluster_minute_only(
             watching_limit=watching_limit,
             period=period,
             lookback_days=lookback_days,
+            mode=mode,
+            topup_lookback_days=topup_lookback_days,
             progress_cb=progress_cb,
         )
 
@@ -1439,6 +1443,8 @@ class QuantFactorMixin:
         watching_limit: int = 100,
         period: str = "5",
         lookback_days: int = 30,
+        mode: str = "full",
+        topup_lookback_days: int = 5,
     ) -> Dict[str, Any]:
         """后台 Job：预热 5m 分钟线；轮询 ``GET /api/jobs/cluster-minute-refresh``。"""
         import threading
@@ -1457,6 +1463,9 @@ class QuantFactorMixin:
             }
 
         watch_limit = clamp_watching_limit(watching_limit or 100, 100)
+        mode_s = str(mode or "full").strip().lower()
+        if mode_s not in ("full", "topup"):
+            mode_s = "full"
         try:
             from core.watching.store import read_watching
 
@@ -1466,6 +1475,7 @@ class QuantFactorMixin:
             n_watch_all = watch_limit
         n_watch = min(n_watch_all, watch_limit) if n_watch_all else watch_limit
         job_total = max(1, n_watch)
+        phase = "增量补齐 5m…" if mode_s == "topup" else "预热 5m…"
 
         job_id = cluster_minute_refresh_job.start(
             kind="cluster_minute_refresh",
@@ -1479,7 +1489,7 @@ class QuantFactorMixin:
             cluster_minute_refresh_job.update(
                 current=c,
                 total=job_total,
-                message=str(msg or "预热 5m…"),
+                message=str(msg or phase),
                 job_id=job_id,
             )
 
@@ -1503,6 +1513,8 @@ class QuantFactorMixin:
                     watching_limit=watch_limit,
                     period=period,
                     lookback_days=lookback_days,
+                    mode=mode_s,
+                    topup_lookback_days=topup_lookback_days,
                     progress_cb=_progress,
                 )
                 if cluster_minute_refresh_job.is_cancel_requested():
@@ -1529,6 +1541,7 @@ class QuantFactorMixin:
             "ok": True,
             "success": True,
             "background": True,
+            "mode": mode_s,
             "job": cluster_minute_refresh_job.get(),
         }
 

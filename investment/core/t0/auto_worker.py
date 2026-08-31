@@ -201,12 +201,25 @@ class T0AutoWorker:
                 self._runtime["last_tick_message"] = "纸面账户未初始化"
             return
 
+        pending_msg = ""
+        try:
+            pending_fill = svc.fill_pending()
+            if pending_fill.get("filled"):
+                n = len(pending_fill.get("trades") or [])
+                mode = str(pending_fill.get("mode") or "chase")
+                pending_msg = f"挂单{mode}成交 {n}"
+        except Exception:  # noqa: BLE001
+            logger.debug("t0 worker fill_pending skipped", exc_info=True)
+
         with self._lock:
             self._runtime["last_tick_ts"] = _now_ts()
             self._runtime["last_run_session"] = sess
-            self._runtime["last_tick_message"] = (
-                f"5m 盯盘 · {sess or '—'}" if in_market else f"收盘收尾 · {sess or '—'}"
-            )
+            if pending_msg:
+                self._runtime["last_tick_message"] = pending_msg
+            else:
+                self._runtime["last_tick_message"] = (
+                    f"5m 盯盘 · {sess or '—'}" if in_market else f"收盘收尾 · {sess or '—'}"
+                )
 
         out = svc.run_t0_intraday_tick(
             skip_open_fill_gate=True,

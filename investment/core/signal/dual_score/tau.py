@@ -376,12 +376,14 @@ def attach_dual_score_pit(
     sector_gap_breadth: Optional[float] = None,
     fuse_intraday: Optional[bool] = None,
     sector_gap_median: Optional[float] = None,
+    minute_bars: Optional[Sequence[dict]] = None,
 ) -> Dict[str, Any]:
     """历史回测 / 无实时行情时：用 PIT 日线 quote·bars 挂 ŷ_τ + blend。
 
     缺口 = open[T]/close[T−1]（与 live ``gap_pct_from_quote_bars`` 同口径）。
     不拉同伴行情；``sector_gap_breadth`` 可由调用方截面预计算后传入。
     ``sector_gap_median``：同行/截面参照（有则 ``gap_vs_sector = gap − median``）。
+    ``minute_bars``：可选 ≤τ 分钟线；``enable_minute_tau`` 时并入分钟小包（亦可读本地缓存）。
     无 ŷ_τ 模型时仍写契约字段（ŷ_τ=None，ŷ_trade 退回 ŷ_EOD）。
     ``fuse_intraday=False`` / 簿上 ``dual_score_window=eod_next``：
     - τ 买入闸不吃当日 ŷ_τ；
@@ -507,6 +509,52 @@ def attach_dual_score_pit(
                 "gap_vs_sector"
             ) is None:
                 feats["gap_vs_sector"] = prior_ft.get("gap_vs_sector")
+    # 分钟小包（≤τ）：与 score_stock 同源；T0 回测可传入当日 minute_bars
+    as_of_tau_override: Optional[str] = None
+    y_spec_override: Optional[Dict[str, Any]] = None
+    if bool(cfg.get("enable_minute_tau")) and feats.get("ret_open_to_tau") is None:
+        try:
+            from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
+
+            trade_day = ""
+            if isinstance(q, dict):
+                trade_day = str(q.get("date") or q.get("trade_date") or "")[:10]
+            if len(trade_day) < 10 and isinstance(b, (list, tuple)) and b:
+                trade_day = str((b[-1] or {}).get("date") or "")[:10]
+            open_px = None
+            prev_c = None
+            if isinstance(q, dict):
+                try:
+                    open_px = float(q.get("open") or q.get("open_price") or 0.0) or None
+                except (TypeError, ValueError):
+                    open_px = None
+                try:
+                    prev_c = float(
+                        q.get("prev_close")
+                        or q.get("pre_close")
+                        or q.get("yesterday_close")
+                        or 0.0
+                    ) or None
+                except (TypeError, ValueError):
+                    prev_c = None
+            if prev_c is None and isinstance(b, (list, tuple)) and len(b) >= 2:
+                try:
+                    prev_c = float((b[-2] or {}).get("close") or 0.0) or None
+                except (TypeError, ValueError):
+                    prev_c = None
+            hm = str(cfg.get("minute_tau_hm") or "10:30")
+            feats, as_of_tau_override, y_spec_override = merge_minute_tau_pack_into_feats(
+                feats,
+                code=str(signal_item.get("stock_code") or ""),
+                trade_date=trade_day,
+                open_px=open_px,
+                prev_close=prev_c,
+                tau_hm=hm,
+                minute_bars=minute_bars,
+                load_cache_if_missing=True,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("minute tau pack attach in dual_score_pit failed", exc_info=True)
     # 只传 τ 头 Z 特征；勿塞全日线 sub_scores（训练未用，易误导）
     rem_yhat = None
     try:
@@ -535,7 +583,10 @@ def attach_dual_score_pit(
         event_prior=ep,
         # 传完整 signal_config（或调用方原 config），勿传已 flatten 的 dual 块
         config=config,
-        as_of_tau=str(cfg.get("tau") or "open"),
+        as_of_tau=as_of_tau_override
+        if as_of_tau_override is not None
+        else str(cfg.get("tau") or "open"),
+        y_spec_override=y_spec_override,
         rem_model_doc=rem_model_doc,
         fuse_intraday=_resolve_fuse_intraday(
             signal_item, fuse_intraday=fuse_intraday, quote=q, bars=b

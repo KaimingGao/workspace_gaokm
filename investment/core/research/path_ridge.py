@@ -20,6 +20,7 @@ from core.research.path_panel import (
 )
 from core.research.tau_panel import normalize_minute_tau_grid
 from core.research.tau_ridge import _predict_rows, _subset, _time_split_indices
+from core.signal.minute_tau_feats import MINUTE_TAU_FEAT_LABELS
 
 PATH_MIN_STD_EXEMPT = PATH_Z_FEATURES
 PATH_PROMOTE_MIN_SIGN_HIT = 0.55  # 全样本：软条件（warnings）
@@ -574,6 +575,7 @@ _PATH_FEAT_LABELS = {
     "gap_vs_sector": "行业相对缺口",
     "yclose_loc": "昨收位置",
     "mom3_pct": "近3日动量 %",
+    **MINUTE_TAU_FEAT_LABELS,
 }
 
 

@@ -20,8 +20,16 @@ class WatchingService:
 
         return list_watchlist_quotes(codes=codes)
 
-    def insights(self, codes: Optional[List[str]] = None) -> Dict[str, Any]:
-        """观察摘要：评分/倾向/超额/量比/估值/同业/观察天数。"""
+    def insights(
+        self,
+        codes: Optional[List[str]] = None,
+        *,
+        offline_only: bool = True,
+    ) -> Dict[str, Any]:
+        """观察摘要：评分/倾向/超额/量比/估值/同业/观察天数。
+
+        ``offline_only=True``（默认）：日线/分钟/指数只用本地仓，与策略调仓对齐。
+        """
         from core.watching.insights import build_watching_insights
         from core.watching.store import read_watching, watchlist_added_map
 
@@ -40,8 +48,18 @@ class WatchingService:
                 codes = [str(c).strip() for c in (uni.get("watchlist") or []) if str(c).strip()]
         except FileNotFoundError:
             if codes is None:
-                return {"ok": True, "count": 0, "items": [], "note": "尚未创建观察名单"}
-        return build_watching_insights(list(codes or []), added_at_by_code=added_map)
+                return {
+                    "ok": True,
+                    "count": 0,
+                    "items": [],
+                    "note": "尚未创建观察名单",
+                    "offline_only": bool(offline_only),
+                }
+        return build_watching_insights(
+            list(codes or []),
+            added_at_by_code=added_map,
+            offline_only=bool(offline_only),
+        )
 
     def sentiment_alerts(self) -> Dict[str, Any]:
         from core.sentiment import read_last_sentiment_alerts

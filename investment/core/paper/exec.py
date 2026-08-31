@@ -108,6 +108,60 @@ def _prev_session_equity(paper: dict, today_str: str) -> Optional[float]:
     return last_eq
 
 
+def _cached_bar_mark(code: str) -> Dict[str, Any]:
+    """研究枢纽日线缓存末根：close / open / 涨跌幅（不打网）。"""
+    out: Dict[str, Any] = {}
+    raw = str(code or "").strip()
+    if not raw:
+        return out
+    try:
+        from core.data.facade import get_bars
+
+        pack = (
+            get_bars(
+                raw,
+                limit=5,
+                offline_only=True,
+                reject_quote_fallback=True,
+            )
+            or {}
+        )
+        bars = list(pack.get("bars") or [])
+        if not bars:
+            return out
+        last = bars[-1] if isinstance(bars[-1], dict) else {}
+        try:
+            close = float(last.get("close") or 0) or None
+        except (TypeError, ValueError):
+            close = None
+        try:
+            open_px = float(last.get("open") or 0) or None
+        except (TypeError, ValueError):
+            open_px = None
+        prev = None
+        if len(bars) >= 2 and isinstance(bars[-2], dict):
+            try:
+                prev = float(bars[-2].get("close") or 0) or None
+            except (TypeError, ValueError):
+                prev = None
+        chg = None
+        if close is not None and prev is not None and prev > 0:
+            chg = round((close / prev - 1.0) * 100.0, 2)
+        if close is not None:
+            out["price"] = close
+        if open_px is not None:
+            out["open"] = open_px
+        if chg is not None:
+            out["change_pct"] = chg
+        day = str(last.get("date") or "")[:10]
+        if len(day) == 10:
+            out["change_asof"] = day
+        out["data_source"] = str(pack.get("data_source") or "bars_cache")
+    except Exception:  # noqa: BLE001
+        logger.debug("cached bar mark failed for %s", raw, exc_info=True)
+    return out
+
+
 def mark_to_market(paper: dict) -> Dict[str, Any]:
     cash = float(paper.get("cash") or 0)
     holdings = paper.get("holdings") or []
@@ -124,19 +178,42 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
             quotes_by_code = {}
     for h in holdings:
         code = h.get("stock_code")
-        quote = quotes_by_code.get(str(code or "").strip()) if code else None
-        if not isinstance(quote, dict):
-            try:
-                quote = _query_quote(str(code)) if code else {}
-            except Exception:  # noqa: BLE001 — 单票行情失败时用成本价盯市
-                logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
-                quote = {}
+        code_s = str(code or "").strip()
+        quote = quotes_by_code.get(code_s) if code_s else None
         if not isinstance(quote, dict):
             quote = {}
+        # 批量缺失时逐票补实时行情（涨跌/浮盈须跟盘）；再不行才用日线缓存
+        if code_s and not (
+            quote.get("success") and _quote_price(quote) is not None
+        ):
+            try:
+                q1 = _query_quote(code_s) if code_s else {}
+                if isinstance(q1, dict) and q1.get("success") and _quote_price(q1) is not None:
+                    quote = q1
+            except Exception:  # noqa: BLE001 — 单票行情失败时用日线/成本价盯市
+                logger.debug("catch except Exception: in paper_exec.py", exc_info=True)
         price = _quote_price(quote) if quote.get("success") else None
         open_px = _quote_open(quote) if quote.get("success") else None
         shares = float(h.get("shares") or 0)
         cost = float(h.get("cost") or 0)
+        bar_mark: Dict[str, Any] = {}
+        if price is None and code_s:
+            bar_mark = _cached_bar_mark(code_s)
+            if bar_mark.get("price") is not None:
+                price = float(bar_mark["price"])
+            if open_px is None and bar_mark.get("open") is not None:
+                open_px = float(bar_mark["open"])
+        if price is None:
+            for key in ("last_price", "price", "mark_price"):
+                try:
+                    v = float(h.get(key) or 0)
+                except (TypeError, ValueError):
+                    v = 0.0
+                if v > 0:
+                    price = v
+                    break
+            if price is None and cost > 0:
+                price = cost
         mv = (price or cost) * shares
         stock_value += mv
         pnl_pct = None
@@ -157,6 +234,8 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
                     change_pct = None
             if change_pct is not None:
                 change_pct = round(change_pct, 2)
+        if change_pct is None and bar_mark.get("change_pct") is not None:
+            change_pct = float(bar_mark["change_pct"])
         bought_at = h.get("bought_at")
         hold_days = None
         bought_date = None
@@ -178,7 +257,8 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
             change_asof = quote_asof(quote) or resolve_session_date(now=shanghai_now())
         except Exception:
             logger.debug("change_asof resolve failed", exc_info=True)
-            change_asof = None
+        if not change_asof and bar_mark.get("change_asof"):
+            change_asof = bar_mark.get("change_asof")
         rows.append(
             {
                 "stock_code": code,
@@ -201,6 +281,11 @@ def mark_to_market(paper: dict) -> Dict[str, Any]:
                 "lots": t1["lots"],
                 "origin": h.get("origin") or None,
                 "origin_label": ORIGIN_LABELS.get(str(h.get("origin") or ""), ""),
+                "price_source": (
+                    "quote"
+                    if quote.get("success") and _quote_price(quote) is not None
+                    else ("bars_cache" if bar_mark.get("price") is not None else "book")
+                ),
             }
         )
 

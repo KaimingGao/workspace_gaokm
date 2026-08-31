@@ -23,7 +23,8 @@ class TestPathMatrix(unittest.TestCase):
             "path_full": 2.0,
             "y_on_allow": 0.01,
             "y_on_half": 0.0,
-            "require_nowcast_for_open": True,
+            "require_path_on_same_sign": True,
+            "require_nowcast_for_open": False,
         }
         base.update(kwargs)
         return get_path_matrix_cfg({"path_matrix": base})
@@ -73,7 +74,7 @@ class TestPathMatrix(unittest.TestCase):
         self.assertEqual(d["action"], ACTION_SKIP)
         self.assertFalse(d["execute"])
 
-    def test_skip_open_when_nowcast_disagree(self):
+    def test_skip_open_when_y_on_disagree(self):
         from core.paper.rebalance.path_matrix import (
             ACTION_SKIP,
             resolve_rebalance_action,
@@ -81,6 +82,34 @@ class TestPathMatrix(unittest.TestCase):
 
         d = resolve_rebalance_action(
             y_trade=0.5,
+            y_path=2.0,
+            y_nowcast=0.3,
+            y_on=-0.2,
+            w=0.0,
+            w_star_day=0.1,
+            in_topk=True,
+            cfg=self._cfg(),
+            buy_floor=0.01,
+            hold_floor=0.01,
+        )
+        self.assertEqual(d["action"], ACTION_SKIP)
+
+    def test_fuse_trade_nowcast(self):
+        from core.paper.rebalance.path_matrix import fuse_trade_nowcast
+
+        self.assertAlmostEqual(fuse_trade_nowcast(1.0, 3.0, w_trade=0.5, w_nowcast=0.5), 2.0)
+        self.assertAlmostEqual(fuse_trade_nowcast(1.0, None), 1.0)
+        self.assertIsNone(fuse_trade_nowcast(None, None))
+
+    def test_open_despite_nowcast_disagree_when_fused_and_filters_ok(self):
+        """nc 进融合；开仓过滤改看 path/on 同号，不再单独否决 nc。"""
+        from core.paper.rebalance.path_matrix import (
+            ACTION_OPEN,
+            resolve_rebalance_action,
+        )
+
+        d = resolve_rebalance_action(
+            y_trade=0.8,
             y_path=2.0,
             y_nowcast=-0.2,
             y_on=0.2,
@@ -91,7 +120,8 @@ class TestPathMatrix(unittest.TestCase):
             buy_floor=0.01,
             hold_floor=0.01,
         )
-        self.assertEqual(d["action"], ACTION_SKIP)
+        self.assertEqual(d["action"], ACTION_OPEN)
+        self.assertAlmostEqual(d["scores"]["y_fuse"], 0.3)
 
     def test_flat_path_skips(self):
         from core.paper.rebalance.path_matrix import (

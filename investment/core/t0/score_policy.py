@@ -192,7 +192,7 @@ def _slim_features_tau(feats: Any, *, limit: int = 24) -> Optional[Dict[str, Any
         "mom3_pct",
     ) + MINUTE_TAU_ALL_KEYS
     out: Dict[str, Any] = {}
-    lim = max(1, int(limit))
+    lim = max(len(pin) + 4, int(limit))
 
     def _put(key: str, v: Any) -> None:
         if key in out or len(out) >= lim:
@@ -1902,6 +1902,7 @@ def compute_scores_from_bars(
     index_bars: Optional[Sequence[dict]] = None,
     fundamentals: Optional[dict] = None,
     sector_gap_median: Optional[float] = None,
+    minute_bars: Optional[Sequence[dict]] = None,
 ) -> Dict[str, Optional[float]]:
     """开盘决策信息集即时算 dual_y 分数（不读账本/簿）。
 
@@ -1910,6 +1911,7 @@ def compute_scores_from_bars(
     ``pool_gaps`` / ``sector_gap_breadth``：截面缺口（批量算分时传入，增强 ŷ_τ）。
     ``sector_gap_median``：同行/截面参照缺口（``gap_vs_sector = gap − median``）。
     ``index_bars`` / ``fundamentals``：可选；缺省时拉本地指数+估值，对齐数据中心相对强弱等。
+    ``minute_bars``：可选当日 5m；``enable_minute_tau`` 时写入 ≤τ 小包（否则可读缓存）。
     """
     raw = str(code or "").strip()
     hist = [b for b in (hist_bars or []) if isinstance(b, dict)]
@@ -2033,6 +2035,7 @@ def compute_scores_from_bars(
             sector_gap_breadth=item.get("sector_gap_breadth"),
             fuse_intraday=bool(fuse_intraday),
             sector_gap_median=item.get("_sector_gap_median"),
+            minute_bars=minute_bars,
         )
         # 复盘对照：路径价 ŷ_ON（可含当日 close）写入旁路字段，不覆盖决策 y_on
         try:
@@ -2460,6 +2463,7 @@ def resolve_scores_for_code(
     pool_gaps: Optional[Sequence[float]] = None,
     sector_gap_breadth: Optional[float] = None,
     sector_gap_median: Optional[float] = None,
+    minute_bars: Optional[Sequence[dict]] = None,
 ) -> Dict[str, Optional[float]]:
     """按 ``source`` 解析 dual_y 分数；默认即时算。
 
@@ -2486,6 +2490,7 @@ def resolve_scores_for_code(
             pool_gaps=pool_gaps,
             sector_gap_breadth=sector_gap_breadth,
             sector_gap_median=sector_gap_median,
+            minute_bars=minute_bars,
         )
         if scores_have_any(sc):
             return sc
@@ -2509,6 +2514,7 @@ def resolve_scores_for_code(
             pool_gaps=pool_gaps,
             sector_gap_breadth=sector_gap_breadth,
             sector_gap_median=sector_gap_median,
+            minute_bars=minute_bars,
         )
 
     # ledger（显式对照 / 旧路径）
@@ -2531,6 +2537,7 @@ def resolve_scores_for_code(
             pool_gaps=pool_gaps,
             sector_gap_breadth=sector_gap_breadth,
             sector_gap_median=sector_gap_median,
+            minute_bars=minute_bars,
         )
     return sc
 

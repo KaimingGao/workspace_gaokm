@@ -253,6 +253,21 @@ class TestScoreStockViaDs(unittest.TestCase):
         self.assertEqual(len(bars), 40)
         self.assertIn("akshare", src)
 
+    def test_fetch_daily_bars_offline_only_skips_pool(self):
+        from unittest.mock import patch
+        from core.signal.score_stock import _fetch_bars_isolated
+
+        empty = {"bars": [], "data_source": "empty", "production_ok": False}
+        with patch("core.data.facade.get_bars", return_value=empty), patch(
+            "core.ports.market.batch_map"
+        ) as m_batch:
+            bars, src = _fetch_bars_isolated(
+                "600519", limit=40, timeout=5.0, offline_only=True
+            )
+        m_batch.assert_not_called()
+        self.assertEqual(bars, [])
+        self.assertEqual(src, "empty")
+
 
 class TestMetrics(unittest.TestCase):
     def tearDown(self):

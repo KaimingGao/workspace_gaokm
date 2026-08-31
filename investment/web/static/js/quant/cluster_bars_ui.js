@@ -492,7 +492,8 @@ export function installClusterBarsUi(q) {
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">强更 Job</span><span class="quant-bars-foot-v">${esc(jobLine)}</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Rule</span><span class="quant-bars-foot-v">交易日 15:05 前 as-of → 上一交易日</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Force</span><span class="quant-bars-foot-v">${esc(remote)}${marker.saved_at ? ` · ${esc(fmtUtcShort(marker.saved_at))} UTC` : ""}</span></div>
-      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Fields</span><span class="quant-bars-foot-v">${esc(fields)} · 下游 ŷ_EOD / IC / OOS</span></div>
+      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Write</span><span class="quant-bars-foot-v">本区强更 · ≠ 刷新名单 · ≠ 5m</span></div>
+      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Fields</span><span class="quant-bars-foot-v">${esc(fields)} · 下游 ŷ_EOD / OLS</span></div>
     </div>`;
   }
 

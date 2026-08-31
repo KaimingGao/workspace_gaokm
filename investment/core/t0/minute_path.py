@@ -1983,6 +1983,7 @@ def simulate_t0_day_minute(
                 source=resolve_y_score_source(cfg),
                 fuse_intraday=resolve_fuse_intraday(cfg),
                 allow_fallback=(resolve_y_score_source(cfg) != "compute"),
+                minute_bars=minute_bars,
                 **tau_pool_day_score_kwargs(tau_pool_day, stock_code),
             )
 

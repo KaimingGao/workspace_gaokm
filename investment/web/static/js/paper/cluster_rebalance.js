@@ -1,5 +1,7 @@
 /** Paper · 观察池 path_matrix 预演/落账（Follow 调仓主路径）。 */
 
+import { getDataOfflineOnly } from "../data_offline.js";
+
 /**
  * @param {object} deps
  */
@@ -21,7 +23,11 @@ export function createClusterRebalanceController(deps) {
     setPaperBusy(true);
     showProgress(
       1,
-      dryRun ? "观察池矩阵预演（实时算分）…" : "矩阵落账（成交）…"
+      dryRun
+        ? getDataOfflineOnly()
+          ? "观察池矩阵预演（仅本地仓）…"
+          : "观察池矩阵预演（可拉远端）…"
+        : "矩阵落账（成交）…"
     );
     try {
       const res = await fetch("/api/paper/rebalance", {
@@ -30,6 +36,7 @@ export function createClusterRebalanceController(deps) {
         body: JSON.stringify({
           matrix_mode: true,
           dry_run: !!dryRun,
+          offline_only: getDataOfflineOnly(),
         }),
       });
       const data = await res.json().catch(() => ({}));
@@ -47,6 +54,7 @@ export function createClusterRebalanceController(deps) {
       const ci = data.cash_impact || null;
       const turnPct = ci && ci.turnover_pct != null ? ci.turnover_pct : null;
       const byAct = ((data.path_matrix || {}).by_action) || {};
+      const oosEx = ((data.path_matrix || {}).oos_excluded) || 0;
       const actBits = Object.keys(byAct)
         .map((k) => `${k}:${byAct[k]}`)
         .slice(0, 6)
@@ -62,6 +70,7 @@ export function createClusterRebalanceController(deps) {
         setPaperMetaText(
           `矩阵预演 · 观察池 ${poolN} · 已打分 ${scoredN} · 卖 ${sellN} · 买 ${buyN}` +
             (turnPct != null ? ` · 换手 ${turnPct}%` : "") +
+            (oosEx > 0 ? ` · OOS过滤 ${oosEx}` : "") +
             (actBits ? ` · ${actBits}` : "") +
             (sellN === 0 && buyN === 0 && data.empty_reason
               ? ` · ${emptyReasonLabel(data.empty_reason)}`
@@ -70,17 +79,16 @@ export function createClusterRebalanceController(deps) {
         );
         renderRebalanceReport(report, {
           preview: true,
-          cashImpact: ci,
+          // 矩阵预演：买卖已在清单/状态条；成交预估与 path 推迟名单噪音，不下发
+          cashImpact: null,
           riskGate: data.risk_gate || null,
-          riskBudgetSkips: data.risk_budget_skips || [],
+          riskBudgetSkips: [],
           dualScore: data.dual_score || null,
           emptyReason: data.empty_reason || null,
           minScore: data.min_score,
           marketContext: data.market_context || null,
-          opsReport: {
-            ...(data.ops_report || {}),
-            note: data.note || "观察池 path_matrix 预演",
-          },
+          opsReport: null,
+          matrixPreview: true,
         });
         const confirmBtn = document.getElementById("paper-rebalance-confirm");
         if (confirmBtn) {
@@ -89,11 +97,19 @@ export function createClusterRebalanceController(deps) {
         }
         const previewNote = document.getElementById("paper-rebalance-preview-note");
         if (previewNote) {
-          previewNote.hidden = false;
-          previewNote.textContent = canConfirm
-            ? "观察池 + path_matrix 预演。确认后按同一路径落账。"
-            : "观察池 + path_matrix 预演 · 无可执行买卖";
+          // 有可确认清单时确认按钮已够；不重复「预演未写账」文案
+          if (canConfirm) {
+            previewNote.hidden = true;
+            previewNote.textContent = "";
+          } else {
+            previewNote.hidden = false;
+            previewNote.textContent = "预演 · 无可执行买卖";
+          }
         }
+        showProgress(
+          100,
+          `预演完成 · 观察池 ${poolN} · 已打分 ${scoredN} · 卖 ${sellN} · 买 ${buyN}`
+        );
       } else {
         followMatrixPreviewPending = false;
         dismissRebalancePreview();
@@ -102,11 +118,21 @@ export function createClusterRebalanceController(deps) {
           ? note || "矩阵 · 已挂次日开盘单"
           : note || `矩阵落账 · 卖 ${sellN} · 买 ${buyN}`;
         setPaperMetaText(label);
+        showProgress(100, label);
       }
-      showProgress(100, "");
+    } catch (err) {
+      const msg = String((err && err.message) || err || "预演失败");
+      setPaperMetaText(msg);
+      const el = document.getElementById("paper-path-matrix-status");
+      if (el) {
+        el.hidden = false;
+        el.classList.remove("is-busy", "is-ok");
+        el.classList.add("is-error");
+        el.textContent = msg;
+      }
+      throw err;
     } finally {
       setPaperBusy(false);
-      hideProgress();
     }
   }
 

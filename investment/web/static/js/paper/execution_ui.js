@@ -832,32 +832,41 @@ function syncPathMatrixViz(root) {
   const enterEl = document.getElementById("pm-viz-enter");
   const halfEl = document.getElementById("pm-viz-half");
   const fullEl = document.getElementById("pm-viz-full");
-  if (enterEl) enterEl.textContent = fmt(num("pm_path_enter", 1));
-  if (halfEl) halfEl.textContent = fmt(num("pm_path_half", 1));
-  if (fullEl) fullEl.textContent = fmt(num("pm_path_full", 2));
-  const modeEl = root.querySelector('[name="pm_mode"]');
+  if (enterEl) enterEl.textContent = fmt(num("pm_path_enter", 0.1));
+  if (halfEl) halfEl.textContent = fmt(num("pm_path_half", 0.5));
+  if (fullEl) fullEl.textContent = fmt(num("pm_path_full", 1));
   const badge = document.getElementById("paper-path-matrix-badge");
-  if (badge && modeEl) {
-    const linear = modeEl.value === "linear";
-    badge.textContent = linear ? "线性对照" : "路径择时";
+  if (badge) {
+    badge.textContent = "路径择时";
     badge.classList.add("is-on");
-    badge.classList.toggle("is-linear", linear);
+    badge.classList.remove("is-linear");
   }
-  const modePanel = root.querySelector('.follow-path-matrix-panel[data-panel="mode"]');
-  if (modePanel && modeEl) {
-    const linear = modeEl.value === "linear";
-    const a = modePanel.querySelector(".follow-path-matrix-viz-seg.is-a");
-    const b = modePanel.querySelector(".follow-path-matrix-viz-seg.is-b");
-    if (a) a.classList.toggle("is-dim", linear);
-    if (b) b.classList.toggle("is-dim", !linear);
+  const wt = num("pm_fusion_w_trade", 0.5);
+  const wn = num("pm_fusion_w_nc", 0.5);
+  const wSum = Math.max(1e-9, Math.max(0, wt) + Math.max(0, wn));
+  const pt = Math.round((Math.max(0, wt) / wSum) * 100);
+  const pn = Math.max(0, 100 - pt);
+  const fuseTrade = document.getElementById("pm-viz-fuse-trade");
+  const fuseNc = document.getElementById("pm-viz-fuse-nc");
+  const fuseRatio = document.getElementById("pm-viz-fuse-ratio");
+  if (fuseTrade) {
+    fuseTrade.textContent = `trade ${pt}%`;
+    fuseTrade.style.flex = String(Math.max(pt, 1));
+    fuseTrade.classList.toggle("is-dim", pt <= 0);
   }
+  if (fuseNc) {
+    fuseNc.textContent = `nc ${pn}%`;
+    fuseNc.style.flex = String(Math.max(pn, 1));
+    fuseNc.classList.toggle("is-dim", pn <= 0);
+  }
+  if (fuseRatio) fuseRatio.textContent = `${pt} : ${pn}`;
   const gatesPanel = root.querySelector('.follow-path-matrix-panel[data-panel="gates"]');
   if (gatesPanel) {
-    const ncOn = !!root.querySelector('[name="pm_require_nowcast"]')?.checked;
+    const poOn = !!root.querySelector('[name="pm_require_path_on"]')?.checked;
     const exitOn = !!root.querySelector('[name="pm_pending_exit"]')?.checked;
     const nc = gatesPanel.querySelector(".follow-path-matrix-viz-seg.is-nc");
     const exit = gatesPanel.querySelector(".follow-path-matrix-viz-seg.is-exit");
-    if (nc) nc.classList.toggle("is-dim", !ncOn);
+    if (nc) nc.classList.toggle("is-dim", !poOn);
     if (exit) exit.classList.toggle("is-dim", !exitOn);
   }
 }
@@ -883,13 +892,31 @@ export function fillPathMatrixForm(root, execution) {
     if (val == null) return;
     el.value = String(val);
   };
-  set("pm_mode", pm.mode === "linear" ? "linear" : "path");
-  set("pm_path_enter", pm.path_enter != null ? pm.path_enter : 1);
-  set("pm_path_half", pm.path_half != null ? pm.path_half : 1);
-  set("pm_path_full", pm.path_full != null ? pm.path_full : 2);
-  set("pm_y_on_allow", pm.y_on_allow != null ? pm.y_on_allow : 0.01);
-  set("pm_y_on_half", pm.y_on_half != null ? pm.y_on_half : 0);
-  set("pm_require_nowcast", pm.require_nowcast_for_open !== false);
+  set("pm_path_enter", pm.path_enter != null ? pm.path_enter : 0.1);
+  set("pm_path_half", pm.path_half != null ? pm.path_half : 0.5);
+  set("pm_path_full", pm.path_full != null ? pm.path_full : 1);
+  set("pm_y_on_allow", pm.y_on_allow != null ? pm.y_on_allow : 0.5);
+  set("pm_y_on_half", pm.y_on_half != null ? pm.y_on_half : 0.1);
+  set(
+    "pm_fusion_w_trade",
+    pm.fusion_w_trade != null ? pm.fusion_w_trade : 0.5
+  );
+  set(
+    "pm_fusion_w_nc",
+    pm.fusion_w_nowcast != null ? pm.fusion_w_nowcast : 0.5
+  );
+  // 同号闸：优先新键；仅当旧账只有 nc 闸且未写新键时回退
+  let pathOn = true;
+  if (pm.require_path_on_same_sign != null) {
+    pathOn = !!pm.require_path_on_same_sign;
+  } else if (
+    pm.require_nowcast_for_open != null &&
+    pm.fusion_w_trade == null &&
+    pm.fusion_w_nowcast == null
+  ) {
+    pathOn = !!pm.require_nowcast_for_open;
+  }
+  set("pm_require_path_on", pathOn);
   set("pm_pending_exit", pm.allow_pending_exit_on_path_low !== false);
   syncPathMatrixViz(root);
   if (!root.dataset.pmVizBound) {
@@ -912,29 +939,35 @@ export function collectPathMatrixForm(root) {
     const el = root.querySelector(`[name="${name}"]`);
     return el ? !!el.checked : fallback;
   };
-  const str = (name, fallback) => {
-    const el = root.querySelector(`[name="${name}"]`);
-    return el && el.value !== "" ? el.value : fallback;
-  };
-  const enter = Math.max(0.01, Math.min(num("pm_path_enter", 1), 5));
-  let half = Math.max(0.01, Math.min(num("pm_path_half", 1), 5));
-  let full = Math.max(0.01, Math.min(num("pm_path_full", 2), 10));
+  const enter = Math.max(0.01, Math.min(num("pm_path_enter", 0.1), 5));
+  let half = Math.max(0.01, Math.min(num("pm_path_half", 0.5), 5));
+  let full = Math.max(0.01, Math.min(num("pm_path_full", 1), 10));
   if (half > full) half = full;
-  if (enter > half) {
-    /* keep enter; half already ≤ full */
+  let wTrade = Math.max(0, Math.min(num("pm_fusion_w_trade", 0.5), 1));
+  let wNc = Math.max(0, Math.min(num("pm_fusion_w_nc", 0.5), 1));
+  const wSum = wTrade + wNc;
+  if (wSum <= 1e-12) {
+    wTrade = 0.5;
+    wNc = 0.5;
+  } else {
+    wTrade /= wSum;
+    wNc /= wSum;
   }
   return {
     lock: true,
     rebalance_timing: {
       path_matrix: {
         enabled: true,
-        mode: str("pm_mode", "path") === "linear" ? "linear" : "path",
+        mode: "path",
         path_enter: enter,
         path_half: half,
         path_full: full,
-        y_on_allow: Math.max(0, Math.min(num("pm_y_on_allow", 0.01), 5)),
-        y_on_half: Math.max(-5, Math.min(num("pm_y_on_half", 0), 5)),
-        require_nowcast_for_open: chk("pm_require_nowcast", true),
+        y_on_allow: Math.max(0, Math.min(num("pm_y_on_allow", 0.5), 5)),
+        y_on_half: Math.max(-5, Math.min(num("pm_y_on_half", 0.1), 5)),
+        fusion_w_trade: Math.round(wTrade * 1000) / 1000,
+        fusion_w_nowcast: Math.round(wNc * 1000) / 1000,
+        require_path_on_same_sign: chk("pm_require_path_on", true),
+        require_nowcast_for_open: false,
         allow_pending_exit_on_path_low: chk("pm_pending_exit", true),
       },
     },

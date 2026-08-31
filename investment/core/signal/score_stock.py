@@ -50,9 +50,16 @@ def _call_with_timeout(func, timeout, *args, **kwargs):
     return result[0]
 
 
-def _fetch_bars_isolated(stock_code: str, *, limit: int = 40, timeout: float = 10.0):
+def _fetch_bars_isolated(
+    stock_code: str,
+    *,
+    limit: int = 40,
+    timeout: float = 10.0,
+    offline_only: bool = False,
+):
     """评分日线：主进程只读缓存；不足时经 DataService 进程池补远端。
 
+    ``offline_only=True``：仅本地缓存（研究枢纽强更写入），不打远端——预演调仓用。
     不在主进程直调 AkShare（避免超时后仍占 ak_lock）。
     """
     raw = str(stock_code or "").strip()
@@ -60,6 +67,8 @@ def _fetch_bars_isolated(stock_code: str, *, limit: int = 40, timeout: float = 1
         return [], "empty"
 
     need = min(15, int(limit or 40))
+    bars: list = []
+    src = "empty"
     try:
         from core.data.facade import get_bars
 
@@ -70,12 +79,15 @@ def _fetch_bars_isolated(stock_code: str, *, limit: int = 40, timeout: float = 1
             reject_quote_fallback=True,
         )
         bars = list((pack or {}).get("bars") or [])
-        if bars and len(bars) >= need:
-            src = str((pack or {}).get("data_source") or "cache")
+        src = str((pack or {}).get("data_source") or "cache")
+        if bars and (len(bars) >= need or offline_only):
             return bars[-int(limit) :], src
     except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
         logger.debug("catch except Exception: in score_stock.py", exc_info=True)
         pass
+
+    if offline_only:
+        return (bars[-int(limit) :], src) if bars else ([], "empty")
 
     try:
         from core.data.service import bars_pack_worker
@@ -100,9 +112,21 @@ def _fetch_bars_isolated(stock_code: str, *, limit: int = 40, timeout: float = 1
         return [], "empty"
 
 
-def fetch_daily_bars(stock_code: str, *, limit: int = 40, timeout: float = 10.0, **_kwargs):
+def fetch_daily_bars(
+    stock_code: str,
+    *,
+    limit: int = 40,
+    timeout: float = 10.0,
+    offline_only: bool = False,
+    **_kwargs,
+):
     """评分读日线入口（测试可 patch）；实现见 ``_fetch_bars_isolated``。"""
-    return _fetch_bars_isolated(stock_code, limit=limit, timeout=timeout)
+    return _fetch_bars_isolated(
+        stock_code,
+        limit=limit,
+        timeout=timeout,
+        offline_only=bool(offline_only),
+    )
 
 
 def _gated_reject_item(
@@ -176,6 +200,7 @@ def score_stock(
     pool_gaps: Optional[list] = None,
     sector_gap_median: Optional[float] = None,
     quote_timeout: float = 15.0,
+    offline_only: bool = False,
 ) -> Dict[str, Any]:
     """拉行情 + 日线 + score_bars，返回 signal_item 形状 dict。
 
@@ -189,6 +214,8 @@ def score_stock(
     ``fetch_sector_breadth=True``：主题缺口时再拉同伴行情算广度（默认关；
     有预计算值时不再拉；刷簿并行下勿开，否则 N×批量行情卡死）。
     ``quote_timeout``：单票行情秒数（分池刷簿宜 ≤6，避免对照长时间挂起）。
+    ``offline_only=True``：日线/分钟只用本地缓存（研究枢纽强更），不补远端；
+    无传入行情时用末根日线合成 quote，不打实时行情。
 
     cluster_mode: None=读 signal_config.cluster_scoring；
     off — 不用组 β；shadow — 可算 score_cluster 对照，主分仍全局/空；
@@ -203,26 +230,72 @@ def score_stock(
     horizon_days = max(1, min(int(horizon_days or 1), 10))
     raw = str(stock_code or "").strip()
     q_timeout = max(2.0, min(float(quote_timeout or 15.0), 30.0))
+    use_offline = bool(offline_only)
+
+    bars = []
+    data_source = "quote_fallback"
+    try:
+        bars, src = fetch_daily_bars(
+            raw, limit=40, timeout=10.0, offline_only=use_offline
+        )
+        if not bars and not use_offline:
+            bars, src = fetch_daily_bars(str(raw), limit=40, timeout=10.0)
+        if bars:
+            data_source = src
+    except TimeoutError:
+        bars = []
+    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
+        bars = []
 
     if quote is None:
-        try:
-            from core.data.facade import get_quote
+        if use_offline and bars:
+            last = bars[-1] if isinstance(bars[-1], dict) else {}
+            px = last.get("close")
+            try:
+                px_f = float(px) if px is not None else None
+            except (TypeError, ValueError):
+                px_f = None
+            quote = {
+                "success": bool(px_f and px_f > 0),
+                "stock_code": raw,
+                "stock_name": raw,
+                "price": px_f,
+                "close": px_f,
+                "open": last.get("open"),
+                "prev_close": (
+                    bars[-2].get("close")
+                    if len(bars) >= 2 and isinstance(bars[-2], dict)
+                    else None
+                ),
+                "date": str(last.get("date") or "")[:10],
+                "data_source": "bars_cache",
+            }
+        elif use_offline:
+            return {
+                "success": False,
+                "stock_code": raw,
+                "error": "无日线缓存（请到研究枢纽强更日 K）",
+            }
+        else:
+            try:
+                from core.data.facade import get_quote
 
-            # 设置超时，防止行情查询卡住
-            quote = _call_with_timeout(get_quote, q_timeout, raw)
-        except TimeoutError:
-            return {
-                "success": False,
-                "stock_code": raw,
-                "error": "行情查询超时",
-            }
-        except Exception as e:
-            logger.exception('unexpected error in score_stock')
-            return {
-                "success": False,
-                "stock_code": raw,
-                "error": f"行情查询失败: {e}",
-            }
+                # 设置超时，防止行情查询卡住
+                quote = _call_with_timeout(get_quote, q_timeout, raw)
+            except TimeoutError:
+                return {
+                    "success": False,
+                    "stock_code": raw,
+                    "error": "行情查询超时",
+                }
+            except Exception as e:
+                logger.exception('unexpected error in score_stock')
+                return {
+                    "success": False,
+                    "stock_code": raw,
+                    "error": f"行情查询失败: {e}",
+                }
 
     name = quote.get("stock_name") or raw
     code = quote.get("stock_code") or raw
@@ -233,19 +306,16 @@ def score_stock(
             "error": quote.get("error", "行情失败"),
         }
 
-    bars = []
-    data_source = "quote_fallback"
-    try:
-        bars, src = fetch_daily_bars(raw, limit=40, timeout=10.0)
-        if not bars:
+    if not bars and not use_offline:
+        try:
             bars, src = fetch_daily_bars(str(code), limit=40, timeout=10.0)
-        if bars:
-            data_source = src
-    except TimeoutError:
-        bars = []
-    except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
-        logger.debug("catch except Exception: in score_stock.py", exc_info=True)
-        bars = []
+            if bars:
+                data_source = src
+        except TimeoutError:
+            bars = []
+        except Exception:  # noqa: BLE001
+            logger.debug("catch except Exception: in score_stock.py", exc_info=True)
+            bars = []
 
     if not bars:
         bars = bars_from_quote_fallback(quote)
@@ -348,7 +418,9 @@ def score_stock(
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             mkt = "CN"
-        idx_pack = fetch_live_index_bars(market=mkt, limit=75)
+        idx_pack = fetch_live_index_bars(
+            market=mkt, limit=75, offline_only=use_offline
+        )
         index_meta = {
             "ok": bool(idx_pack.get("ok")),
             "benchmark": idx_pack.get("benchmark"),
@@ -1003,6 +1075,8 @@ def score_stock(
 
             ds_cfg = get_dual_score_cfg()
             if ds_cfg.get("enable_minute_tau"):
+                from core.signal.minute_tau_feats import merge_minute_tau_pack_into_feats
+
                 hm = str(ds_cfg.get("minute_tau_hm") or "10:30")
                 trade_day = ""
                 if bars:
@@ -1026,57 +1100,31 @@ def score_stock(
                         open_px = float((bars[-1] or {}).get("open") or 0.0) or None
                     except (TypeError, ValueError):
                         open_px = None
-                if trade_day and open_px and open_px > 0:
-                    from core.ports.market import resolve_market_code
-                    from core.signal.minute_tau_feats import (
-                        attach_ret_vs_sector,
-                        extract_minute_tau_pack,
-                    )
-                    from core.store import load_minute_cache
-
-                    mkt, pure = resolve_market_code(str(code))
-                    packed = load_minute_cache(
-                        mkt or "CN",
-                        pure or str(code),
-                        period="5",
-                        min_bars=1,
-                        max_age_hours=36.0,
-                    )
-                    if packed:
-                        minute_bars, _meta = packed
+                prev_c = None
+                if quote:
+                    try:
+                        prev_c = float(
+                            quote.get("prev_close")
+                            or quote.get("pre_close")
+                            or quote.get("yesterday_close")
+                            or 0.0
+                        ) or None
+                    except (TypeError, ValueError):
                         prev_c = None
-                        if quote:
-                            try:
-                                prev_c = float(
-                                    quote.get("prev_close")
-                                    or quote.get("pre_close")
-                                    or quote.get("yesterday_close")
-                                    or 0.0
-                                ) or None
-                            except (TypeError, ValueError):
-                                prev_c = None
-                        if prev_c is None and bars and len(bars) >= 2:
-                            try:
-                                prev_c = float((bars[-2] or {}).get("close") or 0.0) or None
-                            except (TypeError, ValueError):
-                                prev_c = None
-                        pack = extract_minute_tau_pack(
-                            minute_bars,
-                            trade_date=trade_day,
-                            tau_hm=hm,
-                            open_px=open_px,
-                            prev_close=prev_c,
-                        )
-                        if pack.get("ret_open_to_tau") is not None:
-                            feats.update(pack)
-                            attach_ret_vs_sector(feats)
-                            as_of_tau_override = f"{trade_day}T{hm}:00+08:00"
-                            y_spec_override = {
-                                "tau": hm,
-                                "formula": f"close[T]/price[{hm}]-1",
-                                "note": "分钟小包；无网拉；模型缺特征时 z≈0",
-                                "minute_pack": sorted(pack.keys()),
-                            }
+                if prev_c is None and bars and len(bars) >= 2:
+                    try:
+                        prev_c = float((bars[-2] or {}).get("close") or 0.0) or None
+                    except (TypeError, ValueError):
+                        prev_c = None
+                feats, as_of_tau_override, y_spec_override = merge_minute_tau_pack_into_feats(
+                    feats,
+                    code=str(code),
+                    trade_date=trade_day,
+                    open_px=open_px,
+                    prev_close=prev_c,
+                    tau_hm=hm,
+                    load_cache_if_missing=True,
+                )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in score_stock.py", exc_info=True)
             logger.debug("minute tau attach skipped for %s", code, exc_info=True)
@@ -1116,6 +1164,15 @@ def score_stock(
             )
         except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
             logger.debug("catch except Exception: in score_stock.py on", exc_info=True)
+        try:
+            from core.t0.score_policy import _attach_y_path_to_item
+
+            _attach_y_path_to_item(
+                signal_item,
+                hist_bars=bars if isinstance(bars, list) else None,
+            )
+        except Exception:  # noqa: BLE001 — best-effort 降级分支；不阻塞主流程
+            logger.debug("catch except Exception: in score_stock.py path", exc_info=True)
         trade = signal_item.get("predicted_score_tau")
         ep = build_event_prior_from_quote(
             quote,

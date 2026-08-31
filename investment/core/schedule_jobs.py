@@ -923,7 +923,7 @@ def run_paper_open_fill() -> Dict[str, Any]:
     if slot.is_running():
         return {"ok": False, "error": "已有调度任务在运行", "job": slot.get()}
 
-    job_id = slot.start(kind="paper_open_fill", total=2, message="开盘成交挂单…")
+    job_id = slot.start(kind="paper_open_fill", total=2, message="成交挂单…")
     try:
         from core.paper import append_operation_log, load_paper, mark_to_market, save_paper
         from core.paper.open_fill import fill_pending_at_open, paper_fill_phase
@@ -932,16 +932,27 @@ def run_paper_open_fill() -> Dict[str, Any]:
         slot.update(current=1, message="fill_pending_at_open")
         paper = load_paper(PAPER_PATH)
         fill = fill_pending_at_open(paper)
-        if fill.get("filled"):
+        n_skip = len(fill.get("skips") or [])
+        if fill.get("filled") or n_skip:
             summary = mark_to_market(paper)
             trades = fill.get("trades") or []
             n_buy = sum(1 for t in trades if t.get("side") == "buy")
             n_sell = sum(1 for t in trades if t.get("side") == "sell")
+            bits = []
+            if n_buy or n_sell:
+                bits.append(f"买{n_buy} · 卖{n_sell}")
+            if n_skip:
+                bits.append(f"跳过{n_skip}")
             append_operation_log(
                 paper,
                 "rebalance",
-                detail=f"开盘成交挂单 · 买{n_buy} · 卖{n_sell}",
-                meta={"fill_action": "open_fill", "buy_count": n_buy, "sell_count": n_sell},
+                detail="开盘成交挂单" + (f" · {' · '.join(bits)}" if bits else ""),
+                meta={
+                    "fill_action": "open_fill",
+                    "buy_count": n_buy,
+                    "sell_count": n_sell,
+                    "skip_count": n_skip,
+                },
             )
             save_paper(paper, PAPER_PATH)
         else:
@@ -955,7 +966,7 @@ def run_paper_open_fill() -> Dict[str, Any]:
                 "equity": summary.get("equity"),
                 "holdings": len(summary.get("holdings") or []),
             },
-            "note": "只在 09:15–10:00 成交隔夜挂单；非开盘窗会跳过。",
+            "note": "开盘窗按开盘价成交；盘中对未成腿中点追价；近收盘现价强平。",
         }
         path = _write_last_run({"ts": time.time(), "job_id": job_id, **result})
         result["path"] = path
