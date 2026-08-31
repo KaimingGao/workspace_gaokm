@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
@@ -17,7 +18,9 @@ DEFAULT_LOOKBACK_DAYS = MINUTE_EM_LOOKBACK_DAYS
 # 增量补齐：跨度已够的票只拉近几日 merge（对齐日 K「增量」思路）
 DEFAULT_TOPUP_LOOKBACK_DAYS = 5
 DEFAULT_TOPUP_WORKERS = 4
-
+DEFAULT_LABEL_MAX_DAYS = 120
+_LABEL_PORTRAIT_TTL_SEC = 90.0
+_label_portrait_cache: Dict[str, Any] = {"key": None, "at": 0.0, "payload": None}
 
 def _resolve_watching_codes(*, watching_limit: int = 100) -> List[str]:
     from quant.research.factor_ols_clusters import clamp_watching_limit, merge_cluster_universe
@@ -121,12 +124,194 @@ def minute_cache_ready(
     return True, snap, "ready"
 
 
+def _f(x: Any) -> Optional[float]:
+    if x is None or x == "":
+        return None
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    if v != v:
+        return None
+    return v
+
+
+def _sign_bucket(v: Optional[float], *, eps: float = 1e-9) -> str:
+    if v is None:
+        return "missing"
+    if abs(float(v)) <= eps:
+        return "zero"
+    return "pos" if float(v) > 0 else "neg"
+
+
+def _tau_oc_from_minute(day_bars: List[dict]) -> Optional[float]:
+    """开→收 %：当日分钟首根 open → 末根 close（与 τ 标签同方向口径）。"""
+    if not day_bars:
+        return None
+    o = _f(day_bars[0].get("open"))
+    c = _f(day_bars[-1].get("close"))
+    if o is None or c is None or o <= 0:
+        return None
+    return round((float(c) / float(o) - 1.0) * 100.0, 4)
+
+
+def _path_label_from_minute(day_bars: List[dict]) -> Tuple[Optional[float], str]:
+    from core.research.path_panel import extreme_order_path_label
+
+    if not day_bars:
+        return None, "empty"
+    ref = _f(day_bars[0].get("open"))
+    if ref is None or ref <= 0:
+        return None, "invalid_ref_or_empty"
+    label, reason = extreme_order_path_label(day_bars, ref=float(ref))
+    return float(label), str(reason or "")
+
+
+def build_minute_label_portrait(
+    *,
+    watching_limit: int = 100,
+    period: str = DEFAULT_MINUTE_PERIOD,
+    max_days_per_code: int = DEFAULT_LABEL_MAX_DAYS,
+    codes: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    """观察池 5m 上 τ(OC) / path(极值序) 标签数量画像（含同号/异号）。"""
+    from quant.research.factor_ols_clusters import clamp_watching_limit
+    from core.ports.market import group_minute_bars_by_date, resolve_market_code
+    from core.store import load_minute_cache
+
+    limit = clamp_watching_limit(watching_limit, 100)
+    period_s = str(period or DEFAULT_MINUTE_PERIOD)
+    max_days = max(10, min(int(max_days_per_code or DEFAULT_LABEL_MAX_DAYS), 400))
+    code_list = [str(c).strip() for c in (codes or _resolve_watching_codes(watching_limit=limit)) if str(c).strip()]
+
+    tau = {"pos": 0, "neg": 0, "zero": 0, "missing": 0}
+    path = {"pos": 0, "neg": 0, "zero": 0, "missing": 0}
+    path_reason: Dict[str, int] = {}
+    joint = {"same_sign": 0, "opposite_sign": 0, "flat": 0}
+    codes_with_cache = 0
+    days_scanned = 0
+
+    for code in code_list:
+        try:
+            market, sym = resolve_market_code(code)
+            packed = load_minute_cache(
+                market,
+                sym,
+                period_s,
+                min_bars=10,
+                ignore_age=True,
+            )
+        except Exception:  # noqa: BLE001
+            logger.debug("label portrait load failed for %s", code, exc_info=True)
+            packed = None
+        if not packed:
+            continue
+        bars, _meta = packed
+        by_day = group_minute_bars_by_date(bars or []) or {}
+        if not by_day:
+            continue
+        codes_with_cache += 1
+        day_keys = sorted(str(k)[:10] for k in by_day.keys() if str(k)[:10])
+        if len(day_keys) > max_days:
+            day_keys = day_keys[-max_days:]
+        for dkey in day_keys:
+            raw = by_day.get(dkey) or by_day.get(dkey[:10]) or []
+            day_bars = [b for b in raw if isinstance(b, dict)]
+            if not day_bars:
+                continue
+            days_scanned += 1
+            tau_v = _tau_oc_from_minute(day_bars)
+            path_v, reason = _path_label_from_minute(day_bars)
+            tb = _sign_bucket(tau_v)
+            pb = _sign_bucket(path_v)
+            tau[tb] = int(tau.get(tb) or 0) + 1
+            path[pb] = int(path.get(pb) or 0) + 1
+            if reason:
+                path_reason[reason] = int(path_reason.get(reason) or 0) + 1
+            if tb in ("pos", "neg") and pb in ("pos", "neg"):
+                if tb == pb:
+                    joint["same_sign"] += 1
+                else:
+                    joint["opposite_sign"] += 1
+            else:
+                joint["flat"] += 1
+
+    tau_n = int(tau["pos"] + tau["neg"] + tau["zero"] + tau["missing"])
+    path_n = int(path["pos"] + path["neg"] + path["zero"] + path["missing"])
+    signed_n = int(joint["same_sign"] + joint["opposite_sign"])
+    return {
+        "success": True,
+        "period": period_s,
+        "watching_limit": limit,
+        "universe_count": len(code_list),
+        "codes_with_cache": codes_with_cache,
+        "days_scanned": days_scanned,
+        "max_days_per_code": max_days,
+        "tau": {
+            **tau,
+            "n": tau_n,
+            "pos_share": round(tau["pos"] / float(tau["pos"] + tau["neg"]), 4)
+            if (tau["pos"] + tau["neg"])
+            else None,
+        },
+        "path": {
+            **path,
+            "n": path_n,
+            "pos_share": round(path["pos"] / float(path["pos"] + path["neg"]), 4)
+            if (path["pos"] + path["neg"])
+            else None,
+            "reasons": [
+                {"reason": k, "count": v}
+                for k, v in sorted(path_reason.items(), key=lambda kv: (-kv[1], kv[0]))
+            ],
+        },
+        "joint": {
+            **joint,
+            "signed_n": signed_n,
+            "same_sign_rate": round(joint["same_sign"] / float(signed_n), 4)
+            if signed_n
+            else None,
+        },
+        "note": "τ=当日分钟开→收%；path=极值序 signed (H−L)/open%；按票截断最近 max_days",
+    }
+
+
+def _cached_minute_label_portrait(
+    *,
+    watching_limit: int,
+    period: str,
+    codes: List[str],
+) -> Dict[str, Any]:
+    key = f"{watching_limit}|{period}|{len(codes)}|{','.join(codes[:8])}|{codes[-1] if codes else ''}"
+    now = time.time()
+    if (
+        _label_portrait_cache.get("key") == key
+        and isinstance(_label_portrait_cache.get("payload"), dict)
+        and (now - float(_label_portrait_cache.get("at") or 0.0)) < _LABEL_PORTRAIT_TTL_SEC
+    ):
+        out = dict(_label_portrait_cache["payload"])
+        out["cached"] = True
+        return out
+    payload = build_minute_label_portrait(
+        watching_limit=watching_limit,
+        period=period,
+        codes=codes,
+    )
+    _label_portrait_cache["key"] = key
+    _label_portrait_cache["at"] = now
+    _label_portrait_cache["payload"] = payload
+    out = dict(payload)
+    out["cached"] = False
+    return out
+
+
 def build_cluster_minute_status(
     *,
     watching_limit: int = 100,
     period: str = DEFAULT_MINUTE_PERIOD,
     min_span_days: int = DEFAULT_MIN_SPAN_DAYS,
     stale_hours: float = 24.0,
+    include_label_portrait: bool = True,
 ) -> Dict[str, Any]:
     """汇总观察池截断后的 5m 分钟缓存覆盖。"""
     from quant.research.factor_ols_clusters import clamp_watching_limit
@@ -188,6 +373,18 @@ def build_cluster_minute_status(
         if v > 0
     ]
 
+    label_portrait: Optional[Dict[str, Any]] = None
+    if include_label_portrait:
+        try:
+            label_portrait = _cached_minute_label_portrait(
+                watching_limit=limit,
+                period=period_s,
+                codes=codes,
+            )
+        except Exception:  # noqa: BLE001 — best-effort；覆盖状态仍返回
+            logger.debug("minute label portrait failed", exc_info=True)
+            label_portrait = {"success": False, "error": "label_portrait_failed"}
+
     return {
         "success": True,
         "task": "cluster_minute_status",
@@ -207,6 +404,7 @@ def build_cluster_minute_status(
         "minute_span_days_min": spans_sorted[0] if spans_sorted else 0,
         "minute_span_days_max": spans_sorted[-1] if spans_sorted else 0,
         "span_distribution": dist,
+        "label_portrait": label_portrait,
         "bars_backend": backend,
         "note": "5m 分钟线本地仓；供 ŷ_path / T0 回测 / tail_anomaly",
         "refresh_job": _minute_refresh_job_snapshot(),
@@ -428,6 +626,10 @@ def refresh_cluster_minute_only(
         )
         warmup = dict(warmup)
         warmup["mode"] = "full"
+    # 强更后作废标签画像缓存，强制重扫
+    _label_portrait_cache["key"] = None
+    _label_portrait_cache["at"] = 0.0
+    _label_portrait_cache["payload"] = None
     status = build_cluster_minute_status(watching_limit=limit, period=period_s)
     ok = bool(warmup.get("ok"))
     return {

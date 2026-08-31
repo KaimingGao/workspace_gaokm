@@ -29,6 +29,9 @@ class TestClusterMinuteStatus(unittest.TestCase):
         with patch("core.watching.store.read_watching", return_value={"watchlist": watch}), patch(
             "quant.research.cluster_minute_status._minute_snapshot_for_code",
             side_effect=_snap,
+        ), patch(
+            "quant.research.cluster_minute_status.build_minute_label_portrait",
+            return_value={"success": True, "tau": {"pos": 1}, "path": {"pos": 1}, "joint": {}},
         ):
             st = build_cluster_minute_status(watching_limit=100, min_span_days=40)
         self.assertTrue(st["success"])
@@ -224,6 +227,48 @@ class TestClusterMinuteStatus(unittest.TestCase):
         self.assertEqual(out["mode"], "topup")
         top.assert_called_once()
         self.assertEqual(top.call_args.kwargs["topup_lookback_days"], 5)
+
+    def test_label_portrait_sign_counts(self):
+        from quant.research.cluster_minute_status import build_minute_label_portrait
+
+        # day1: up open→close, low then high → path+
+        day_up = [
+            {"time": "09:35", "open": 10.0, "high": 10.1, "low": 9.9, "close": 10.0},
+            {"time": "10:00", "open": 10.0, "high": 10.5, "low": 10.0, "close": 10.4},
+        ]
+        # day2: down open→close, high then low → path−
+        day_dn = [
+            {"time": "09:35", "open": 10.0, "high": 10.4, "low": 9.95, "close": 10.2},
+            {"time": "10:00", "open": 10.2, "high": 10.2, "low": 9.5, "close": 9.6},
+        ]
+        bars = [
+            {**b, "date": "2026-08-20"} for b in day_up
+        ] + [
+            {**b, "date": "2026-08-21"} for b in day_dn
+        ]
+
+        with patch(
+            "quant.research.cluster_minute_status._resolve_watching_codes",
+            return_value=["600519"],
+        ), patch(
+            "core.ports.market.resolve_market_code",
+            return_value=("CN", "600519"),
+        ), patch(
+            "core.store.load_minute_cache",
+            return_value=(bars, {"bar_count": len(bars)}),
+        ), patch(
+            "core.ports.market.group_minute_bars_by_date",
+            return_value={"2026-08-20": day_up, "2026-08-21": day_dn},
+        ):
+            out = build_minute_label_portrait(watching_limit=10, codes=["600519"])
+        self.assertTrue(out["success"])
+        self.assertEqual(out["days_scanned"], 2)
+        self.assertEqual(out["tau"]["pos"], 1)
+        self.assertEqual(out["tau"]["neg"], 1)
+        self.assertEqual(out["path"]["pos"], 1)
+        self.assertEqual(out["path"]["neg"], 1)
+        self.assertEqual(out["joint"]["same_sign"], 2)
+        self.assertEqual(out["joint"]["opposite_sign"], 0)
 
 
 if __name__ == "__main__":

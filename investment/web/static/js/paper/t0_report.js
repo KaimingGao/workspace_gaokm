@@ -402,6 +402,98 @@ export function buildT0ReportHtml(data, opts = {}) {
     }),
   ]);
 
+  const portrait =
+    data.score_portrait ||
+    sm.score_portrait ||
+    (data.viz && data.viz.score_portrait) ||
+    {};
+  const fmtShare = (pack) => {
+    if (!pack || pack.pos_share == null || !Number.isFinite(Number(pack.pos_share))) return "—";
+    const p = Math.round(Number(pack.pos_share) * 1000) / 10;
+    return `+${pack.pos ?? 0}/−${pack.neg ?? 0} · ${p}%+`;
+  };
+  const fmtHit = (pack) => {
+    if (!pack || pack.hit_rate_pct == null) return "—";
+    const n = pack.n_judged != null ? ` · n=${pack.n_judged}` : "";
+    return `${Number(pack.hit_rate_pct).toFixed(1)}%${n}`;
+  };
+  const fmtRatePct = (rate, n) => {
+    if (rate == null || !Number.isFinite(Number(rate))) return "—";
+    const suffix = n != null ? ` · n=${n}` : "";
+    return `${(Number(rate) * 100).toFixed(1)}%${suffix}`;
+  };
+  const pathByPred = portrait.path_by_pred_sign || {};
+  const portraitSection = metricSection("回测样本画像", [
+    metricCell(
+      "样本日",
+      (() => {
+        const nAll = portrait.n_days ?? portrait.n_traded;
+        const nTr = portrait.n_traded ?? "—";
+        const nSk = portrait.n_skipped;
+        if (nAll == null) return "—";
+        const sk = nSk != null ? ` · 跳过${nSk}` : "";
+        return `${nAll}（成交${nTr}${sk}）`;
+      })(),
+      { tip: "全部回测日（含跳过）；主指标按全样本；括号为成交子集" }
+    ),
+    metricCell("τ标签", fmtShare(portrait.label_tau), {
+      tip: "全样本 tau_realized（open→close）正/负数量",
+    }),
+    metricCell("path标签", fmtShare(portrait.label_path), {
+      tip: "全样本 path_realized（极值序）正/负数量",
+    }),
+    metricCell(
+      "标签同号",
+      fmtRatePct(
+        portrait.label_joint && portrait.label_joint.same_sign_rate,
+        portrait.label_joint && portrait.label_joint.signed_n
+      ),
+      { tip: "全样本真实 τ OC 与 path 标签同号率（双侧非零）" }
+    ),
+    metricCell(
+      "ŷ同号",
+      fmtRatePct(
+        portrait.pred_joint && portrait.pred_joint.same_sign_rate,
+        portrait.pred_joint && portrait.pred_joint.signed_n
+      ),
+      { tip: "全样本 ŷ_τ 与 ŷ_path 同号率（双侧非零）" }
+    ),
+    metricCell("τ预估命中", fmtHit(portrait.tau_hit), {
+      tip: "全样本 ŷ_τ 符号 vs tau_realized（|·|<0.05% 不计）",
+    }),
+    metricCell("path预估命中", fmtHit(portrait.path_hit), {
+      tip: "全样本 ŷ_path 符号 vs path_realized（真实=0 不计）",
+    }),
+    metricCell(
+      "成交τ命中",
+      fmtHit(portrait.traded && portrait.traded.tau_hit),
+      { tip: "仅成交日 τ 预估命中（对照）" }
+    ),
+    metricCell(
+      "成交path命中",
+      fmtHit(portrait.traded && portrait.traded.path_hit),
+      { tip: "仅成交日 path 预估命中（对照）" }
+    ),
+    metricCell(
+      "path+命中",
+      (() => {
+        const b = pathByPred.pred_pos || {};
+        if (b.hit_rate == null) return "—";
+        return `${(Number(b.hit_rate) * 100).toFixed(0)}% · n=${(b.hit || 0) + (b.miss || 0)}`;
+      })(),
+      { tip: "全样本 ŷ_path>0 时的方向命中" }
+    ),
+    metricCell(
+      "path−错误率",
+      (() => {
+        const b = pathByPred.pred_neg || {};
+        if (b.err_rate == null) return "—";
+        return `${(Number(b.err_rate) * 100).toFixed(0)}% · n=${(b.hit || 0) + (b.miss || 0)}`;
+      })(),
+      { tip: "全样本 ŷ_path<0 时的方向错误率" }
+    ),
+  ]);
+
   const pathRules = rules.y_use_path != null ? rules : sm;
   const pathSection = metricSection("路径与对照", [
     metricCell("y_path选向", pathRules.y_use_path === false ? "关" : "开"),
@@ -436,6 +528,7 @@ export function buildT0ReportHtml(data, opts = {}) {
     pnlSection +
     execSection +
     signalSection +
+    portraitSection +
     pathSection +
     `</div>` +
     compareStrip(data) +

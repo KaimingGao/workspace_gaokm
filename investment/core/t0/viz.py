@@ -187,12 +187,21 @@ def extract_scores(day: dict) -> Dict[str, Optional[float]]:
         gap = _f(feats["features_tau"].get("gap_pct"))
     if gap is None and isinstance(raw.get("features_tau"), dict):
         gap = _f(raw["features_tau"].get("gap_pct"))
+
+    def _pick(key: str) -> Optional[float]:
+        v = _f(feats.get(key))
+        if v is None:
+            v = _f(raw.get(key))
+        if v is None:
+            v = _f(day.get(key))
+        return v
+
     return {
         "y_tau": y_tau,
-        "y_path": _f(feats.get("y_path")) if feats else _f(raw.get("y_path")),
-        "y_eod": _f(feats.get("y_eod")) if feats else _f(raw.get("y_eod")),
-        "y_trade": _f(feats.get("y_trade")) if feats else _f(raw.get("y_trade")),
-        "y_on": _f(feats.get("y_on")) if feats else _f(raw.get("y_on")),
+        "y_path": _pick("y_path"),
+        "y_eod": _pick("y_eod"),
+        "y_trade": _pick("y_trade"),
+        "y_on": _pick("y_on"),
         "gap_pct": gap,
     }
 
@@ -235,6 +244,379 @@ def _tau_oc_hit(y_tau: Optional[float], oc_real: Optional[float], *, eps: float 
         return None
     return (y_tau > 0) == (oc_real > 0)
 
+
+def _pick_realized(day: dict, key: str) -> Optional[float]:
+    feats = day.get("direction_features") if isinstance(day.get("direction_features"), dict) else {}
+    scores = day.get("scores") if isinstance(day.get("scores"), dict) else {}
+    v = _f(feats.get(key))
+    if v is None:
+        v = _f(scores.get(key))
+    if v is None:
+        v = _f(day.get(key))
+    return v
+
+
+def _sign_bucket(v: Optional[float], *, eps: float = 1e-9) -> str:
+    if v is None:
+        return "missing"
+    if abs(float(v)) <= eps:
+        return "zero"
+    return "pos" if float(v) > 0 else "neg"
+
+
+def _sign_hit(
+    pred: Optional[float],
+    real: Optional[float],
+    *,
+    pred_eps: float = 0.05,
+    real_eps: float = 0.05,
+) -> Optional[bool]:
+    if pred is None or real is None:
+        return None
+    if abs(float(pred)) < pred_eps or abs(float(real)) < real_eps:
+        return None
+    return (float(pred) > 0) == (float(real) > 0)
+
+
+def _bump(pack: Dict[str, int], key: str) -> None:
+    pack[key] = int(pack.get(key) or 0) + 1
+
+
+def build_score_portrait(
+    days: Sequence[dict],
+    *,
+    traded_only: bool = False,
+) -> Dict[str, Any]:
+    """回测日 τ/path 标签分布、ŷ 同号、预估命中。
+
+    默认覆盖全部回测日（含跳过）；``traded_only=True`` 仅成交日。
+    """
+    label_tau = {"pos": 0, "neg": 0, "zero": 0, "missing": 0}
+    label_path = {"pos": 0, "neg": 0, "zero": 0, "missing": 0}
+    label_joint = {"same_sign": 0, "opposite_sign": 0, "flat": 0}
+    pred_joint = {"same_sign": 0, "opposite_sign": 0, "flat": 0}
+    tau_hit = {"hit": 0, "miss": 0, "flat": 0}
+    path_hit = {"hit": 0, "miss": 0, "flat": 0}
+    path_by_pred = {
+        "pred_pos": {"hit": 0, "miss": 0, "flat": 0},
+        "pred_neg": {"hit": 0, "miss": 0, "flat": 0},
+    }
+    n_days = 0
+    n_traded = 0
+    n_skipped = 0
+    n_signal_skip = 0
+
+    for d in days or []:
+        if not isinstance(d, dict):
+            continue
+        traded = is_traded_t0_day(d)
+        skipped = bool(d.get("skipped"))
+        if traded_only and not traded:
+            continue
+        # 无成交且未标跳过的空行（如 success=False 被丢弃前）仍计入若有分/标签
+        sc = extract_scores(d)
+        y_tau = sc.get("y_tau")
+        y_path = sc.get("y_path")
+        tau_r = _pick_realized(d, "tau_realized")
+        if tau_r is None:
+            tau_r = _oc_realized_pct(d)
+        path_r = _pick_realized(d, "path_realized")
+        has_any = (
+            y_tau is not None
+            or y_path is not None
+            or tau_r is not None
+            or path_r is not None
+            or traded
+            or skipped
+        )
+        if not has_any:
+            continue
+
+        n_days += 1
+        if traded:
+            n_traded += 1
+        if skipped:
+            n_skipped += 1
+            if d.get("signal_skip"):
+                n_signal_skip += 1
+
+        tb = _sign_bucket(tau_r)
+        pb = _sign_bucket(path_r)
+        _bump(label_tau, tb)
+        _bump(label_path, pb)
+        if tb in ("pos", "neg") and pb in ("pos", "neg"):
+            _bump(label_joint, "same_sign" if tb == pb else "opposite_sign")
+        else:
+            _bump(label_joint, "flat")
+
+        if y_tau is not None and y_path is not None and abs(float(y_tau)) > 1e-9 and abs(float(y_path)) > 1e-9:
+            _bump(
+                pred_joint,
+                "same_sign" if (float(y_tau) > 0) == (float(y_path) > 0) else "opposite_sign",
+            )
+        else:
+            _bump(pred_joint, "flat")
+
+        th = _sign_hit(y_tau, tau_r, pred_eps=0.05, real_eps=0.05)
+        if th is True:
+            _bump(tau_hit, "hit")
+        elif th is False:
+            _bump(tau_hit, "miss")
+        else:
+            _bump(tau_hit, "flat")
+
+        ph = _sign_hit(y_path, path_r, pred_eps=1e-9, real_eps=1e-9)
+        if path_r is not None and abs(float(path_r)) <= 1e-9:
+            ph = None
+        if ph is True:
+            _bump(path_hit, "hit")
+        elif ph is False:
+            _bump(path_hit, "miss")
+        else:
+            _bump(path_hit, "flat")
+
+        if y_path is not None and abs(float(y_path)) > 1e-9:
+            side = "pred_pos" if float(y_path) > 0 else "pred_neg"
+            if ph is True:
+                _bump(path_by_pred[side], "hit")
+            elif ph is False:
+                _bump(path_by_pred[side], "miss")
+            else:
+                _bump(path_by_pred[side], "flat")
+
+    def _rate(hit: int, miss: int) -> Optional[float]:
+        denom = hit + miss
+        return round(hit / float(denom), 4) if denom else None
+
+    def _share(pos: int, neg: int) -> Optional[float]:
+        denom = pos + neg
+        return round(pos / float(denom), 4) if denom else None
+
+    tau_hm = int(tau_hit["hit"]) + int(tau_hit["miss"])
+    path_hm = int(path_hit["hit"]) + int(path_hit["miss"])
+    label_signed = int(label_joint["same_sign"]) + int(label_joint["opposite_sign"])
+    pred_signed = int(pred_joint["same_sign"]) + int(pred_joint["opposite_sign"])
+
+    def _side_pack(side: Dict[str, int]) -> Dict[str, Any]:
+        h, m = int(side["hit"]), int(side["miss"])
+        return {
+            **side,
+            "n": h + m + int(side["flat"]),
+            "hit_rate": _rate(h, m),
+            "err_rate": round(m / float(h + m), 4) if (h + m) else None,
+        }
+
+    scope = "traded" if traded_only else "all"
+    return {
+        "scope": scope,
+        "n_days": n_days,
+        "n_traded": n_traded,
+        "n_skipped": n_skipped,
+        "n_signal_skip": n_signal_skip,
+        # 兼容旧字段
+        "n_traded_compat": n_traded,
+        "label_tau": {
+            **label_tau,
+            "n": sum(label_tau.values()),
+            "pos_share": _share(label_tau["pos"], label_tau["neg"]),
+        },
+        "label_path": {
+            **label_path,
+            "n": sum(label_path.values()),
+            "pos_share": _share(label_path["pos"], label_path["neg"]),
+        },
+        "label_joint": {
+            **label_joint,
+            "signed_n": label_signed,
+            "same_sign_rate": _rate(label_joint["same_sign"], label_joint["opposite_sign"]),
+        },
+        "pred_joint": {
+            **pred_joint,
+            "signed_n": pred_signed,
+            "same_sign_rate": _rate(pred_joint["same_sign"], pred_joint["opposite_sign"]),
+        },
+        "tau_hit": {
+            **tau_hit,
+            "n_judged": tau_hm,
+            "hit_rate": _rate(tau_hit["hit"], tau_hit["miss"]),
+            "hit_rate_pct": round((_rate(tau_hit["hit"], tau_hit["miss"]) or 0) * 100.0, 2)
+            if tau_hm
+            else None,
+        },
+        "path_hit": {
+            **path_hit,
+            "n_judged": path_hm,
+            "hit_rate": _rate(path_hit["hit"], path_hit["miss"]),
+            "hit_rate_pct": round((_rate(path_hit["hit"], path_hit["miss"]) or 0) * 100.0, 2)
+            if path_hm
+            else None,
+        },
+        "path_by_pred_sign": {
+            "pred_pos": _side_pack(path_by_pred["pred_pos"]),
+            "pred_neg": _side_pack(path_by_pred["pred_neg"]),
+        },
+        "note": (
+            f"scope={scope}；τ命中=ŷ_τ↔tau_realized(eps0.05)；"
+            "path命中=ŷ_path↔path_realized；含跳过日（有分/标签才计入）"
+        ),
+    }
+
+
+def build_traded_score_portrait(days: Sequence[dict]) -> Dict[str, Any]:
+    """兼容旧名：仅成交日画像。"""
+    return build_score_portrait(days, traded_only=True)
+
+
+def build_backtest_score_portrait(days: Sequence[dict]) -> Dict[str, Any]:
+    """全回测日画像 + 成交子集对照。"""
+    all_port = build_score_portrait(days, traded_only=False)
+    traded_port = build_score_portrait(days, traded_only=True)
+    return {
+        **all_port,
+        "traded": traded_port,
+        "n_traded": traded_port.get("n_traded") or all_port.get("n_traded") or 0,
+    }
+
+
+def _merge_score_portraits(
+    parts: Sequence[Optional[dict]],
+) -> Dict[str, Any]:
+    """合并多票 score_portrait 计数并重算比率。"""
+    empty = build_score_portrait([])
+    keys_sign = ("pos", "neg", "zero", "missing")
+    keys_joint = ("same_sign", "opposite_sign", "flat")
+    keys_hit = ("hit", "miss", "flat")
+    label_tau = {k: 0 for k in keys_sign}
+    label_path = {k: 0 for k in keys_sign}
+    label_joint = {k: 0 for k in keys_joint}
+    pred_joint = {k: 0 for k in keys_joint}
+    tau_hit = {k: 0 for k in keys_hit}
+    path_hit = {k: 0 for k in keys_hit}
+    path_by_pred = {
+        "pred_pos": {k: 0 for k in keys_hit},
+        "pred_neg": {k: 0 for k in keys_hit},
+    }
+    n_days = n_traded = n_skipped = n_signal_skip = 0
+    traded_parts: List[dict] = []
+    for part in parts or []:
+        if not isinstance(part, dict):
+            continue
+        n_days += int(part.get("n_days") or part.get("n_traded") or 0)
+        n_traded += int(part.get("n_traded") or 0)
+        n_skipped += int(part.get("n_skipped") or 0)
+        n_signal_skip += int(part.get("n_signal_skip") or 0)
+        if isinstance(part.get("traded"), dict):
+            traded_parts.append(part["traded"])
+        for dst, src_key in (
+            (label_tau, "label_tau"),
+            (label_path, "label_path"),
+        ):
+            src = part.get(src_key) if isinstance(part.get(src_key), dict) else {}
+            for k in keys_sign:
+                dst[k] += int(src.get(k) or 0)
+        for dst, src_key in (
+            (label_joint, "label_joint"),
+            (pred_joint, "pred_joint"),
+        ):
+            src = part.get(src_key) if isinstance(part.get(src_key), dict) else {}
+            for k in keys_joint:
+                dst[k] += int(src.get(k) or 0)
+        for dst, src_key in ((tau_hit, "tau_hit"), (path_hit, "path_hit")):
+            src = part.get(src_key) if isinstance(part.get(src_key), dict) else {}
+            for k in keys_hit:
+                dst[k] += int(src.get(k) or 0)
+        by = part.get("path_by_pred_sign") if isinstance(part.get("path_by_pred_sign"), dict) else {}
+        for side in ("pred_pos", "pred_neg"):
+            src = by.get(side) if isinstance(by.get(side), dict) else {}
+            for k in keys_hit:
+                path_by_pred[side][k] += int(src.get(k) or 0)
+
+    def _rate(hit: int, miss: int) -> Optional[float]:
+        denom = hit + miss
+        return round(hit / float(denom), 4) if denom else None
+
+    def _share(pos: int, neg: int) -> Optional[float]:
+        denom = pos + neg
+        return round(pos / float(denom), 4) if denom else None
+
+    def _side_pack(side: Dict[str, int]) -> Dict[str, Any]:
+        h, m = int(side["hit"]), int(side["miss"])
+        return {
+            **side,
+            "n": h + m + int(side["flat"]),
+            "hit_rate": _rate(h, m),
+            "err_rate": round(m / float(h + m), 4) if (h + m) else None,
+        }
+
+    tau_hm = tau_hit["hit"] + tau_hit["miss"]
+    path_hm = path_hit["hit"] + path_hit["miss"]
+    label_signed = label_joint["same_sign"] + label_joint["opposite_sign"]
+    pred_signed = pred_joint["same_sign"] + pred_joint["opposite_sign"]
+    out = dict(empty)
+    out.update(
+        {
+            "scope": "all",
+            "n_days": n_days,
+            "n_traded": n_traded,
+            "n_skipped": n_skipped,
+            "n_signal_skip": n_signal_skip,
+            "label_tau": {
+                **label_tau,
+                "n": sum(label_tau.values()),
+                "pos_share": _share(label_tau["pos"], label_tau["neg"]),
+            },
+            "label_path": {
+                **label_path,
+                "n": sum(label_path.values()),
+                "pos_share": _share(label_path["pos"], label_path["neg"]),
+            },
+            "label_joint": {
+                **label_joint,
+                "signed_n": label_signed,
+                "same_sign_rate": _rate(label_joint["same_sign"], label_joint["opposite_sign"]),
+            },
+            "pred_joint": {
+                **pred_joint,
+                "signed_n": pred_signed,
+                "same_sign_rate": _rate(pred_joint["same_sign"], pred_joint["opposite_sign"]),
+            },
+            "tau_hit": {
+                **tau_hit,
+                "n_judged": tau_hm,
+                "hit_rate": _rate(tau_hit["hit"], tau_hit["miss"]),
+                "hit_rate_pct": round((_rate(tau_hit["hit"], tau_hit["miss"]) or 0) * 100.0, 2)
+                if tau_hm
+                else None,
+            },
+            "path_hit": {
+                **path_hit,
+                "n_judged": path_hm,
+                "hit_rate": _rate(path_hit["hit"], path_hit["miss"]),
+                "hit_rate_pct": round((_rate(path_hit["hit"], path_hit["miss"]) or 0) * 100.0, 2)
+                if path_hm
+                else None,
+            },
+            "path_by_pred_sign": {
+                "pred_pos": _side_pack(path_by_pred["pred_pos"]),
+                "pred_neg": _side_pack(path_by_pred["pred_neg"]),
+            },
+            "note": empty.get("note"),
+        }
+    )
+    if traded_parts:
+        out["traded"] = _merge_score_portraits(traded_parts)
+        # nested traded should not recurse forever — traded parts are traded_only portraits
+        if isinstance(out["traded"], dict):
+            out["traded"].pop("traded", None)
+            out["traded"]["scope"] = "traded"
+    return out
+
+
+def _merge_traded_score_portraits(
+    parts: Sequence[Optional[dict]],
+) -> Dict[str, Any]:
+    """兼容旧名。"""
+    return _merge_score_portraits(parts)
 
 def build_y_tau_attribution(days: Sequence[dict]) -> Dict[str, Any]:
     """y_τ 方向命中 × 做T方向 × gap 分桶归因（成交日）。"""
@@ -913,6 +1295,7 @@ def build_t0_viz_payload(
         except (TypeError, ValueError):
             path_enter = 0.02
     y_path_attribution = build_y_path_attribution(days, path_enter=path_enter)
+    score_portrait = build_backtest_score_portrait(days)
 
     stock_contrib: List[Dict[str, Any]] = []
     if stock_code or traded_n or skip_n:
@@ -970,6 +1353,19 @@ def build_t0_viz_payload(
 
     upgrade_acc = summarize_dual_y_upgrade_acceptance(days, rules=rules)
     summary["upgrade_acceptance"] = upgrade_acc
+    summary["score_portrait"] = score_portrait
+    if score_portrait.get("tau_hit", {}).get("hit_rate_pct") is not None:
+        summary["tau_pred_hit_rate_pct"] = score_portrait["tau_hit"]["hit_rate_pct"]
+    if score_portrait.get("path_hit", {}).get("hit_rate_pct") is not None:
+        summary["path_pred_hit_rate_pct"] = score_portrait["path_hit"]["hit_rate_pct"]
+    if score_portrait.get("pred_joint", {}).get("same_sign_rate") is not None:
+        summary["pred_same_sign_rate_pct"] = round(
+            float(score_portrait["pred_joint"]["same_sign_rate"]) * 100.0, 2
+        )
+    if score_portrait.get("label_joint", {}).get("same_sign_rate") is not None:
+        summary["label_same_sign_rate_pct"] = round(
+            float(score_portrait["label_joint"]["same_sign_rate"]) * 100.0, 2
+        )
 
     return {
         "skip_categories": skip_categories,
@@ -978,6 +1374,7 @@ def build_t0_viz_payload(
         "y_tau_buckets": y_tau_buckets,
         "y_tau_attribution": y_tau_attribution,
         "y_path_attribution": y_path_attribution,
+        "score_portrait": score_portrait,
         "y_tau_scatter": y_tau_scatter,
         "stock_contrib": stock_contrib,
         "direction_split": direction_split,
@@ -1117,6 +1514,23 @@ def merge_t0_viz_payloads(
     if path_sm.get("path_skip_days") is not None:
         summary["path_skip_days"] = path_sm.get("path_skip_days")
 
+    score_portrait = _merge_score_portraits(
+        [p.get("score_portrait") for p in (payloads or []) if isinstance(p, dict)]
+    )
+    summary["score_portrait"] = score_portrait
+    if score_portrait.get("tau_hit", {}).get("hit_rate_pct") is not None:
+        summary["tau_pred_hit_rate_pct"] = score_portrait["tau_hit"]["hit_rate_pct"]
+    if score_portrait.get("path_hit", {}).get("hit_rate_pct") is not None:
+        summary["path_pred_hit_rate_pct"] = score_portrait["path_hit"]["hit_rate_pct"]
+    if score_portrait.get("pred_joint", {}).get("same_sign_rate") is not None:
+        summary["pred_same_sign_rate_pct"] = round(
+            float(score_portrait["pred_joint"]["same_sign_rate"]) * 100.0, 2
+        )
+    if score_portrait.get("label_joint", {}).get("same_sign_rate") is not None:
+        summary["label_same_sign_rate_pct"] = round(
+            float(score_portrait["label_joint"]["same_sign_rate"]) * 100.0, 2
+        )
+
     stock_contrib.sort(key=lambda x: -abs(float(x.get("pnl") or 0)))
 
     out: Dict[str, Any] = {
@@ -1148,6 +1562,7 @@ def merge_t0_viz_payloads(
         ],
         "y_tau_attribution": y_tau_attribution,
         "y_path_attribution": y_path_attribution,
+        "score_portrait": score_portrait,
         "y_tau_scatter": y_tau_scatter,
         "stock_contrib": stock_contrib,
         "direction_split": direction_split,

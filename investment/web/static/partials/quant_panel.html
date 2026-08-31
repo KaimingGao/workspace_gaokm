@@ -178,7 +178,7 @@
     <header class="dashboard-section-head quant-section-head">
       <h3 id="quant-section-minute-title" class="dashboard-section-title">分钟线</h3>
       <p class="dashboard-section-desc quant-section-desc" id="quant-section-minute-desc">
-        写入口：日常「增量补齐」· 全窗「强更 5m」· 调度 minute_warmup · 下游 ŷ_τ@10:30 / path / 调仓 / 做T · Ready≠消费 as-of
+        写入口：日常「增量补齐」· 全窗「强更 5m」· 调度 minute_warmup · 标签画像（τ OC / path 极值序）· 下游 ŷ_τ@10:30 / path / 调仓 / 做T · Ready≠消费 as-of
       </p>
     </header>
     <div class="dashboard-card quant-pro-card quant-bars-card quant-minute-card">
@@ -221,7 +221,7 @@
             <span class="quant-pro-kpi-sub">无本地仓</span>
           </div>
         </div>
-        <div class="quant-bars-viz-grid">
+        <div class="quant-bars-viz-grid quant-minute-viz-grid">
           <div class="quant-bars-viz-panel">
             <div class="quant-bars-viz-head">
               <span class="quant-bars-viz-title">Span mix</span>
@@ -232,6 +232,42 @@
               id="quant-minute-cov-body"
               role="img"
               aria-label="分钟跨度构成"
+            ></div>
+          </div>
+          <div class="quant-bars-viz-panel">
+            <div class="quant-bars-viz-head">
+              <span class="quant-bars-viz-title">Label co-sign</span>
+              <span class="quant-bars-viz-meta" id="quant-minute-label-joint-meta">τ↔path</span>
+            </div>
+            <div
+              class="quant-bars-viz-body quant-bars-bar-rows"
+              id="quant-minute-label-joint-body"
+              role="img"
+              aria-label="τ 与 path 标签同号构成"
+            ></div>
+          </div>
+          <div class="quant-bars-viz-panel">
+            <div class="quant-bars-viz-head">
+              <span class="quant-bars-viz-title">τ label (OC)</span>
+              <span class="quant-bars-viz-meta" id="quant-minute-label-tau-meta">开→收</span>
+            </div>
+            <div
+              class="quant-bars-viz-body quant-bars-bar-rows"
+              id="quant-minute-label-tau-body"
+              role="img"
+              aria-label="τ 标签正负分布"
+            ></div>
+          </div>
+          <div class="quant-bars-viz-panel">
+            <div class="quant-bars-viz-head">
+              <span class="quant-bars-viz-title">path label</span>
+              <span class="quant-bars-viz-meta" id="quant-minute-label-path-meta">极值序</span>
+            </div>
+            <div
+              class="quant-bars-viz-body quant-bars-bar-rows"
+              id="quant-minute-label-path-body"
+              role="img"
+              aria-label="path 标签正负分布"
             ></div>
           </div>
         </div>

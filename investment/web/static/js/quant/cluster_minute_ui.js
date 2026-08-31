@@ -25,6 +25,12 @@ export function installClusterMinuteUi(q) {
   const kpiMissing = document.getElementById("quant-minute-kpi-missing");
   const covPct = document.getElementById("quant-minute-cov-pct");
   const covBody = document.getElementById("quant-minute-cov-body");
+  const labelTauMeta = document.getElementById("quant-minute-label-tau-meta");
+  const labelTauBody = document.getElementById("quant-minute-label-tau-body");
+  const labelPathMeta = document.getElementById("quant-minute-label-path-meta");
+  const labelPathBody = document.getElementById("quant-minute-label-path-body");
+  const labelJointMeta = document.getElementById("quant-minute-label-joint-meta");
+  const labelJointBody = document.getElementById("quant-minute-label-joint-body");
   const contextStrip = document.getElementById("quant-minute-context-strip");
   const progressEl = document.getElementById("quant-minute-progress");
   const footEl = document.getElementById("quant-minute-foot");
@@ -322,6 +328,93 @@ export function installClusterMinuteUi(q) {
     });
   }
 
+  function labelSignRows(pack, denom) {
+    const pos = Number(pack?.pos) || 0;
+    const neg = Number(pack?.neg) || 0;
+    const zero = Number(pack?.zero) || 0;
+    const missing = Number(pack?.missing) || 0;
+    const n = denom > 0 ? denom : pos + neg + zero + missing;
+    return [
+      { label: "+ pos", count: pos, state: "is-good", title: "正标签", universeTotal: n },
+      { label: "− neg", count: neg, state: "is-bad", title: "负标签", universeTotal: n },
+      { label: "0 flat", count: zero, state: "is-mid", title: "近零/无振幅", universeTotal: n },
+      { label: "missing", count: missing, state: "is-warn", title: "缺标签", universeTotal: n },
+    ].filter((r) => r.count > 0);
+  }
+
+  function renderLabelPortrait(data) {
+    const head = `<div class="quant-bars-bar-head" aria-hidden="true"><span>Bucket</span><span>Share</span><span>N</span></div>`;
+    const lp = data && data.label_portrait;
+    if (!lp || lp.success === false) {
+      if (labelTauMeta) labelTauMeta.textContent = "开→收";
+      if (labelPathMeta) labelPathMeta.textContent = "极值序";
+      if (labelJointMeta) labelJointMeta.textContent = "τ↔path";
+      renderBarRows(labelTauBody, [], { emptyText: "暂无标签画像", head });
+      renderBarRows(labelPathBody, [], { emptyText: "暂无标签画像", head });
+      renderBarRows(labelJointBody, [], { emptyText: "暂无同号统计", head });
+      return;
+    }
+    const days = Number(lp.days_scanned) || 0;
+    const tau = lp.tau || {};
+    const path = lp.path || {};
+    const joint = lp.joint || {};
+    const tauShare =
+      tau.pos_share != null && Number.isFinite(Number(tau.pos_share))
+        ? `${Math.round(Number(tau.pos_share) * 1000) / 10}%+`
+        : "—";
+    const pathShare =
+      path.pos_share != null && Number.isFinite(Number(path.pos_share))
+        ? `${Math.round(Number(path.pos_share) * 1000) / 10}%+`
+        : "—";
+    const sameRate =
+      joint.same_sign_rate != null && Number.isFinite(Number(joint.same_sign_rate))
+        ? `${Math.round(Number(joint.same_sign_rate) * 1000) / 10}%`
+        : "—";
+    if (labelTauMeta) labelTauMeta.textContent = `n=${days} · ${tauShare}`;
+    if (labelPathMeta) labelPathMeta.textContent = `n=${days} · ${pathShare}`;
+    if (labelJointMeta) {
+      labelJointMeta.textContent = `同号 ${sameRate}${lp.cached ? " · cache" : ""}`;
+    }
+    renderBarRows(labelTauBody, labelSignRows(tau, days), {
+      emptyText: "无 τ 标签日",
+      head,
+    });
+    renderBarRows(labelPathBody, labelSignRows(path, days), {
+      emptyText: "无 path 标签日",
+      head,
+    });
+    const signedN =
+      Number(joint.signed_n) ||
+      Number(joint.same_sign || 0) + Number(joint.opposite_sign || 0);
+    const jointRows = [
+      {
+        label: "same",
+        count: Number(joint.same_sign) || 0,
+        state: "is-good",
+        title: "τ 与 path 标签同号",
+        universeTotal: signedN || days,
+      },
+      {
+        label: "opp",
+        count: Number(joint.opposite_sign) || 0,
+        state: "is-bad",
+        title: "τ 与 path 标签异号",
+        universeTotal: signedN || days,
+      },
+      {
+        label: "flat",
+        count: Number(joint.flat) || 0,
+        state: "is-mid",
+        title: "任一侧近零/缺失",
+        universeTotal: days,
+      },
+    ].filter((r) => r.count > 0);
+    renderBarRows(labelJointBody, jointRows, {
+      emptyText: "无双标签日",
+      head,
+    });
+  }
+
   function renderFoot(data) {
     if (!footEl) return;
     if (!data || !data.success) {
@@ -336,6 +429,7 @@ export function installClusterMinuteUi(q) {
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">强更 Job</span><span class="quant-bars-foot-v">${esc(jobLine)}</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Gate</span><span class="quant-bars-foot-v">Ready ≥ ${esc(data.min_span_days ?? MIN_SPAN_DAYS)} 交易日 · ŷ_path 软闸</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Write</span><span class="quant-bars-foot-v">增量补齐 / 强更 5m · ≠ 日K · ≠ 现算 ŷ</span></div>
+      <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Labels</span><span class="quant-bars-foot-v">τ=分钟开→收% · path=极值序% · 每票≤${esc(data.label_portrait?.max_days_per_code ?? 120)}d</span></div>
       <div class="quant-bars-foot-item"><span class="quant-bars-foot-k">Downstream</span><span class="quant-bars-foot-v">ŷ_τ@10:30 · ŷ_path · 调仓 · 做T · tip</span></div>
     </div>`;
   }
@@ -395,12 +489,14 @@ export function installClusterMinuteUi(q) {
     if (!data || !data.success) {
       renderContextStrip(null);
       renderCoverageBar({ universe_count: 0, cached_ok: 0, short: 0, missing: 0, span_distribution: [] });
+      renderLabelPortrait(null);
       if (footEl) footEl.innerHTML = "";
       return;
     }
     renderContextStrip(data);
     renderKpis(data);
     renderCoverageBar(data);
+    renderLabelPortrait(data);
     renderFoot(data);
   }
 

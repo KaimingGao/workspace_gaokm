@@ -4532,6 +4532,77 @@ class TestT0Viz(unittest.TestCase):
         self.assertEqual(att["summary"]["path_skip_days"], 1)
         self.assertEqual(att["skip_by_category"][0]["id"], "y_path_disagree")
 
+    def test_traded_score_portrait_labels_and_hits(self):
+        from core.t0.viz import build_backtest_score_portrait, build_traded_score_portrait
+
+        days = [
+            {
+                "date": "2026-01-10",
+                "direction": "buy_then_sell",
+                "open": 10.0,
+                "close": 10.5,
+                "pnl": 10.0,
+                "bought_qty": 100,
+                "sold_qty": 100,
+                "scores": {
+                    "y_tau": 0.5,
+                    "y_path": 1.2,
+                    "tau_realized": 5.0,
+                    "path_realized": 3.0,
+                },
+            },
+            {
+                "date": "2026-01-11",
+                "direction": "buy_then_sell",
+                "open": 10.0,
+                "close": 9.5,
+                "pnl": -8.0,
+                "bought_qty": 100,
+                "sold_qty": 100,
+                "scores": {
+                    "y_tau": 0.4,
+                    "y_path": -1.5,
+                    "tau_realized": -5.0,
+                    "path_realized": 2.0,
+                },
+            },
+            {
+                "date": "2026-01-12",
+                "skipped": True,
+                "signal_skip": True,
+                "reason": "dual_y：y_τ↔y_path异号跳过",
+                "scores": {
+                    "y_tau": 0.5,
+                    "y_path": -0.8,
+                    "tau_realized": 1.0,
+                    "path_realized": 2.0,
+                },
+            },
+        ]
+        port = build_traded_score_portrait(days)
+        self.assertEqual(port["n_traded"], 2)
+        self.assertEqual(port["label_tau"]["pos"], 1)
+        self.assertEqual(port["label_tau"]["neg"], 1)
+        self.assertEqual(port["label_path"]["pos"], 2)
+        self.assertEqual(port["label_joint"]["same_sign"], 1)
+        self.assertEqual(port["label_joint"]["opposite_sign"], 1)
+        self.assertEqual(port["pred_joint"]["same_sign"], 1)
+        self.assertEqual(port["pred_joint"]["opposite_sign"], 1)
+        self.assertEqual(port["tau_hit"]["hit"], 1)
+        self.assertEqual(port["tau_hit"]["miss"], 1)
+        self.assertEqual(port["path_hit"]["hit"], 1)
+        self.assertEqual(port["path_hit"]["miss"], 1)
+        self.assertEqual(port["path_by_pred_sign"]["pred_neg"]["miss"], 1)
+
+        all_port = build_backtest_score_portrait(days)
+        self.assertEqual(all_port["scope"], "all")
+        self.assertEqual(all_port["n_days"], 3)
+        self.assertEqual(all_port["n_skipped"], 1)
+        self.assertEqual(all_port["pred_joint"]["opposite_sign"], 2)
+        self.assertEqual(all_port["path_hit"]["miss"], 2)
+        self.assertEqual(all_port["traded"]["n_traded"], 2)
+        self.assertEqual(all_port["traded"]["path_hit"]["miss"], 1)
+
     def test_backtest_includes_viz(self):
         bars = [_bar("d0", 100, 105, 98, 101) for _ in range(25)]
         for i, b in enumerate(bars):

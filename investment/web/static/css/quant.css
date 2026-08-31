@@ -6335,6 +6335,10 @@ body[data-page="replay"] .replay-page .quant-bt-trades-host .watching-react-grid
   align-items: stretch;
 }
 
+.quant-minute-viz-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
 .quant-bars-viz-panel {
   display: flex;
   flex-direction: column;
