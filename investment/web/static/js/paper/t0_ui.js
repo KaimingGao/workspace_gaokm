@@ -1,15 +1,15 @@
 /** Paper · 做T 指标与预演表渲染（从 paper.js 抽出）。 */
 
 import { yTauMapScoreTip, normalizeYTauMap } from "./execution_ui.js";
-import { renderT0Viz } from "./t0_viz.js?v=p1777";
-import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p1777";
+import { renderT0Viz } from "./t0_viz.js?v=p1797";
+import { buildT0ReportHtml, fmtT0DirDays } from "./t0_report.js?v=p1795";
 import {
   buildT0TradeTableHtml,
   pickDetailDays,
   pickTradeDays,
   stockCellHtml,
   T0_TRADE_TABLE_MAX_ROWS,
-} from "./t0_table.js?v=p1790";
+} from "./t0_table.js?v=p1797";
 
 function escapeHtml(s) {
   return String(s ?? "")

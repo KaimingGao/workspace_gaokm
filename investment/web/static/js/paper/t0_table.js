@@ -2050,7 +2050,7 @@ function tradeColgroup(showStock, showReason = false, showDelete = false) {
   return `${html}</colgroup>`;
 }
 
-export const T0_TRADE_TABLE_MAX_ROWS = 50;
+export const T0_TRADE_TABLE_MAX_ROWS = 500;
 
 const FS_BTN_OPEN = "全屏";
 const FS_BTN_CLOSE = "退出";

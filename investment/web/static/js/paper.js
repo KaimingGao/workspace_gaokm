@@ -61,10 +61,10 @@ import {
   renderPaperT0Preview as renderPaperT0PreviewUi,
   renderPaperT0WorkerTrades as renderPaperT0WorkerTradesUi,
   renderPaperT0WorkerDesk as renderPaperT0WorkerDeskUi,
-} from "./paper/t0_ui.js?v=p1790";
-import { buildT0SummaryLine } from "./paper/t0_report.js?v=p1777";
-import { wireT0SkipTips } from "./paper/t0_viz.js";
-import { wireT0ProcessTips } from "./paper/t0_table.js?v=p1790";
+} from "./paper/t0_ui.js?v=p1797";
+import { buildT0SummaryLine } from "./paper/t0_report.js?v=p1795";
+import { wireT0SkipTips } from "./paper/t0_viz.js?v=p1797";
+import { wireT0ProcessTips } from "./paper/t0_table.js?v=p1797";
 import { wireHoldingsChgTips } from "./paper/holding_chg_tip.js?v=p1737";
 import { createHoldingsIslandController } from "./paper/holdings_island.js";
 import { createClusterRebalanceController } from "./paper/cluster_rebalance.js?v=p1704";
