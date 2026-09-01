@@ -77,20 +77,6 @@ class T0BacktestRequest(BaseModel):
     lookback: int = Field(default=20, ge=10, le=500)
     initial_shares: float = Field(default=1000, ge=100, le=100000)
     t0_ratio: float = Field(default=1.0, ge=0.05, le=1.0)
-    sell_trigger_pct: float = Field(default=3.0, ge=0.1, le=20)
-    buy_trigger_pct: float = Field(default=1.0, ge=0.1, le=20)
-    buy_trigger_pct_sell_then_buy: Optional[float] = Field(
-        default=None,
-        ge=0.1,
-        le=20,
-        description="反T第二腿买回触发%（相对卖出价）",
-    )
-    sell_trigger_pct_buy_then_sell: Optional[float] = Field(
-        default=None,
-        ge=0.1,
-        le=20,
-        description="正T第二腿卖旧触发%（相对买价）",
-    )
     must_cover_same_day: bool = True
     must_cover_same_day_sell_then_buy: Optional[bool] = Field(default=None)
     must_cover_same_day_buy_then_sell: Optional[bool] = Field(default=None)
@@ -255,15 +241,65 @@ class T0BacktestRequest(BaseModel):
         le=1.0,
         description="反T：固定前缀后半下跌K占比下限",
     )
-    y_prefix_vs_path_skip: Optional[bool] = Field(
+    y_tau_entry_price_skip: Optional[bool] = Field(
         default=None,
-        description="前缀窗(H−L)/ref% > |ŷ_path|×mult 则跳过当日做T",
+        description="legacy：等同 y_tau_entry_price_skip_buy_then_sell",
     )
-    y_prefix_vs_path_mult: Optional[float] = Field(
+    y_tau_entry_price_mult: Optional[float] = Field(
         default=None,
         ge=0.5,
         le=5.0,
-        description="空间裕度：阈值=|ŷ_path|×本值；默认1；>1放宽、<1收紧",
+        description="legacy：等同 y_tau_entry_price_mult_buy_then_sell",
+    )
+    y_tau_entry_price_skip_buy_then_sell: Optional[bool] = Field(
+        default=None,
+        description="正T确认根：买价<open×(1+ŷ_τ×裕度)",
+    )
+    y_tau_entry_price_mult_buy_then_sell: Optional[float] = Field(
+        default=None,
+        ge=0.5,
+        le=5.0,
+        description="正T 买价裕度：bound=open×(1+ŷ_τ%×本值/100)",
+    )
+    y_tau_entry_price_skip_sell_then_buy: Optional[bool] = Field(
+        default=None,
+        description="反T确认根：卖价>open×(1+ŷ_τ×裕度)",
+    )
+    y_tau_entry_price_mult_sell_then_buy: Optional[float] = Field(
+        default=None,
+        ge=0.5,
+        le=5.0,
+        description="反T 卖价裕度：bound=open×(1+ŷ_τ%×本值/100)",
+    )
+    y_tau_exit_price_skip: Optional[bool] = Field(
+        default=None,
+        description="legacy：等同 y_tau_exit_price_skip_buy_then_sell",
+    )
+    y_tau_exit_price_mult: Optional[float] = Field(
+        default=None,
+        ge=0.5,
+        le=5.0,
+        description="legacy：等同 y_tau_exit_price_mult_buy_then_sell",
+    )
+    y_tau_exit_price_skip_buy_then_sell: Optional[bool] = Field(
+        default=None,
+        description="正T第二腿：卖价>open×(1+ŷ_τ×裕度)",
+    )
+    y_tau_exit_price_mult_buy_then_sell: Optional[float] = Field(
+        default=None,
+        ge=0.5,
+        le=5.0,
+        description="正T第二腿卖价裕度",
+    )
+    y_tau_exit_price_skip_sell_then_buy: Optional[bool] = Field(
+        default=None,
+        description="反T第二腿：买价<open×(1+ŷ_τ×裕度)",
+    )
+    y_tau_exit_price_mult_sell_then_buy: Optional[float] = Field(
+        default=None,
+        ge=0.5,
+        le=5.0,
+        description="反T第二腿买价裕度",
     )
     t0_pm_degrade: Optional[str] = Field(
         default=None,
@@ -273,7 +309,7 @@ class T0BacktestRequest(BaseModel):
     t0_pm_degrade_sell_then_buy: Optional[str] = Field(
         default=None,
         max_length=8,
-        description="反T午后闸/中点追价起算 HH:MM；默认 13:00；空=关",
+        description="反T午后闸/中点追价起算 HH:MM；默认 14:00；空=关",
     )
     t0_pm_degrade_buy_then_sell: Optional[str] = Field(
         default=None,
@@ -384,10 +420,6 @@ class PaperExecutionPatchRequest(BaseModel):
     # 扁平快捷字段（写入 t0）
     enabled: Optional[bool] = None
     t0_ratio: Optional[float] = None
-    sell_trigger_pct: Optional[float] = None
-    buy_trigger_pct: Optional[float] = None
-    buy_trigger_pct_sell_then_buy: Optional[float] = None
-    sell_trigger_pct_buy_then_sell: Optional[float] = None
     fill_mode: Optional[str] = None
     fill_mode_sell_then_buy: Optional[str] = None
     fill_mode_buy_then_sell: Optional[str] = None
@@ -439,8 +471,18 @@ class PaperExecutionPatchRequest(BaseModel):
     y_prefix_segment_enabled_buy_then_sell: Optional[bool] = None
     y_prefix_upbar_ratio_buy_then_sell: Optional[float] = None
     y_prefix_downbar_ratio_sell_then_buy: Optional[float] = None
-    y_prefix_vs_path_skip: Optional[bool] = None
-    y_prefix_vs_path_mult: Optional[float] = None
+    y_tau_entry_price_skip: Optional[bool] = None
+    y_tau_entry_price_mult: Optional[float] = None
+    y_tau_entry_price_skip_buy_then_sell: Optional[bool] = None
+    y_tau_entry_price_mult_buy_then_sell: Optional[float] = None
+    y_tau_entry_price_skip_sell_then_buy: Optional[bool] = None
+    y_tau_entry_price_mult_sell_then_buy: Optional[float] = None
+    y_tau_exit_price_skip: Optional[bool] = None
+    y_tau_exit_price_mult: Optional[float] = None
+    y_tau_exit_price_skip_buy_then_sell: Optional[bool] = None
+    y_tau_exit_price_mult_buy_then_sell: Optional[float] = None
+    y_tau_exit_price_skip_sell_then_buy: Optional[bool] = None
+    y_tau_exit_price_mult_sell_then_buy: Optional[float] = None
     y_score_source: Optional[str] = Field(
         default=None, max_length=24, description="compute|live_book|ledger"
     )

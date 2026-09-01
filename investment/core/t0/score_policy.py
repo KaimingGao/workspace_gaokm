@@ -864,25 +864,6 @@ def t0_confidence_scale(scores: dict, cfg: dict) -> float:
     return max(cut, min(cap, cut + (cap - cut) * strength))
 
 
-def scale_t0_triggers(
-    sell_pct: float,
-    buy_pct: float,
-    scores: dict,
-    cfg: dict,
-) -> Dict[str, float]:
-    """按 ŷ 信心缩放卖/买触发 %（目标价距离）；可高于基准（强信号）。"""
-    sell = float(sell_pct)
-    buy = float(buy_pct)
-    scale = t0_confidence_scale(scores, cfg) if isinstance(scores, dict) else 1.0
-    return {
-        "sell_trigger_pct": round(max(0.1, min(sell * scale, 20.0)), 4),
-        "buy_trigger_pct": round(max(0.1, min(buy * scale, 20.0)), 4),
-        "trigger_scale": round(scale, 4),
-        "sell_trigger_pct_base": round(sell, 4),
-        "buy_trigger_pct_base": round(buy, 4),
-    }
-
-
 def scale_t0_ratio(base_ratio: float, scores: dict, cfg: dict) -> float:
     """兼容旧调用：动仓比例固定为基准，不再随 ŷ 缩放。"""
     _ = scores, cfg
@@ -1185,7 +1166,7 @@ def _attach_y_path_to_item(item: dict, *, hist_bars: Optional[Sequence[dict]] = 
     """即时算分后补 ŷ_path（开盘 Z + 分钟小包 → path_ridge）。
 
     缺分钟小包时不写决策用 y_path（避免开盘-only 未校准幅度触发
-    ``y_prefix_vs_path_skip`` 几乎全日否决；选向改走纯 y_τ）。
+    ``y_tau_entry_price_skip_*`` 几乎全日否决第一腿；选向改走纯 y_τ）。
     因果前缀 path 见 ``predict_path_from_prefix_minutes``。
     """
     if not isinstance(item, dict):

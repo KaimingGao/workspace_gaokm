@@ -52,7 +52,7 @@ def _slot_rules(**kwargs):
         "direction": "buy_then_sell",
         "y_prefix_segment_enabled": False,
         "y_prefix_segment_enabled_buy_then_sell": False,
-        "y_prefix_vs_path_skip": False,
+        "y_tau_entry_price_skip": False,
         "min_range_pct": 0.1,
         "min_range_pct_buy_then_sell": 0.1,
         "t0_pm_degrade": "",
@@ -60,7 +60,6 @@ def _slot_rules(**kwargs):
         "t0_stop_pct_buy_then_sell": 0,
         "t0_stop_pct_sell_then_buy": 0,
         "must_cover_same_day_buy_then_sell": False,
-        "sell_trigger_pct_buy_then_sell": 3.0,
         "fill_mode": "trigger",
         "lot_size": 100,
         "ref": "open",
@@ -72,13 +71,14 @@ def _slot_rules(**kwargs):
 
 
 class TestT0Slots(unittest.TestCase):
-    def test_default_four_slots_from_1000(self):
+    def test_default_six_slots_from_1000(self):
         cfg = load_t0_rules()
         self.assertTrue(t0_slots_enabled(cfg))
-        self.assertEqual([s["hm"] for s in cfg["t0_slots"]], ["10:00", "10:30", "11:00", "11:30"])
+        hms = [s["hm"] for s in cfg["t0_slots"]]
+        self.assertEqual(hms, ["10:00", "10:30", "11:00", "11:30", "13:00", "14:00"])
         self.assertEqual(cfg["t0_slots"][0]["prefix_bars"], 6)
-        self.assertAlmostEqual(float(cfg["t0_slots"][0]["ratio"]), 0.20)
-        self.assertAlmostEqual(sum(float(s["ratio"]) for s in cfg["t0_slots"]), 0.80)
+        self.assertAlmostEqual(float(cfg["t0_slots"][0]["ratio"]), 0.15)
+        self.assertAlmostEqual(sum(float(s["ratio"]) for s in cfg["t0_slots"]), 0.90)
 
     def test_legacy_five_open_slots_migrate(self):
         cfg = load_t0_rules(
@@ -92,8 +92,11 @@ class TestT0Slots(unittest.TestCase):
                 ]
             }
         )
-        self.assertEqual([s["hm"] for s in cfg["t0_slots"]], ["10:00", "10:30", "11:00", "11:30"])
-        self.assertAlmostEqual(float(cfg["t0_slots"][0]["ratio"]), 0.20)
+        self.assertEqual(
+            [s["hm"] for s in cfg["t0_slots"]],
+            ["10:00", "10:30", "11:00", "11:30", "13:00", "14:00"],
+        )
+        self.assertAlmostEqual(float(cfg["t0_slots"][0]["ratio"]), 0.15)
 
     def test_buy_then_sell_fills_at_decision_confirm_close(self):
         date = "2026-03-02"
@@ -276,17 +279,18 @@ class TestT0Slots(unittest.TestCase):
         self.assertEqual(_slot_prefix_bars(mins, 6), mins[:6])
         self.assertEqual(_slot_prefix_bars(mins, 0), [])
 
-    def test_full_prefix_range_vs_path_uses_open_to_clock(self):
-        """11:30 振幅闸看 09:30～11:30 整段；早盘大振幅可对小 |ŷ_path| 跳过。"""
+    def test_slot_tau_entry_price_gate(self):
+        """确认根买价未低于 open×(1+ŷ_τ×裕度) 则本轮跳过。"""
         date = "2026-03-02"
         bar = _bar(date, 100, 120, 80, 101)
 
         def px(i, hm):
-            if i < 18:
-                return (100.0, 115.0, 85.0, 100.0)
-            if i < 24:
-                return (100.0, 100.3, 99.8, 100.1)
-            return (100.1, 100.2, 98.5, 99.0)
+            # 确认根 close=108；ŷ_τ=0.5、裕度=1 → bound=100.5
+            if i < 23:
+                return (100.0, 101.0, 99.0, 100.2)
+            if i == 23:
+                return (100.2, 109.0, 100.0, 108.0)
+            return (108.0, 108.5, 107.0, 107.5)
 
         mins = _am_mins(date, 26, px=px)
         out = simulate_t0_day(
@@ -297,23 +301,23 @@ class TestT0Slots(unittest.TestCase):
             sellable_shares=1000,
             rules=_slot_rules(
                 t0_slots=[
-                    {"id": "s1", "hm": "09:30", "prefix_bars": 0, "ratio": 0.20},
                     {"id": "s5", "hm": "11:30", "prefix_bars": 24, "ratio": 0.20},
                 ],
-                y_prefix_vs_path_skip=True,
+                y_tau_entry_price_skip=True,
+                y_tau_entry_price_mult=1.0,
                 y_prefix_segment_enabled=False,
                 y_prefix_segment_enabled_buy_then_sell=False,
             ),
             stock_code="600519",
             minute_bars=mins,
-            scores={"y_path": 0.8, "y_tau": 0.5, "y_trade": 0.4},
+            scores={"y_path": 5.0, "y_tau": 0.5, "y_trade": 0.4},
         )
         self.assertTrue(out.get("success"), out)
         rows = {r["id"]: r for r in (out.get("t0_slot_results") or [])}
         s5 = rows.get("s5") or {}
         reason = str(s5.get("reason") or "")
         self.assertTrue(
-            s5.get("skipped") or "ŷ_path" in reason or "振幅" in reason,
+            s5.get("skipped") or "买价" in reason or "τ" in reason,
             reason,
         )
 
@@ -339,8 +343,6 @@ class TestT0Slots(unittest.TestCase):
                 must_cover_same_day_sell_then_buy=False,
                 must_cover_same_day=False,
                 t0_stop_pct_sell_then_buy=0,
-                buy_trigger_pct=3.0,
-                buy_trigger_pct_sell_then_buy=3.0,
             ),
             stock_code="600519",
             minute_bars=mins,
@@ -598,6 +600,141 @@ class TestT0Slots(unittest.TestCase):
         extra = _slot_meta_extra({"id": "s2", "hm": "10:30"})
         self.assertEqual(extra["t0_slot"], "s2")
         self.assertEqual(extra["t0_slot_hm"], "10:30")
+
+    def test_allocate_slot_slices_redistributes_remainder(self):
+        from core.t0.slots import allocate_slot_slices
+
+        slots = [
+            {"ratio": 0.20},
+            {"ratio": 0.20},
+            {"ratio": 0.20},
+            {"ratio": 0.20},
+        ]
+        slices = allocate_slot_slices(1000, 350, slots, 100)
+        self.assertEqual(sum(slices), 300.0)
+        self.assertTrue(all(s >= 100 for s in slices if s > 0))
+
+    def test_merge_respects_sellable_below_shares(self):
+        date = "2026-03-02"
+        bar = _bar(date, 100, 105, 97, 101)
+
+        def px(i, hm):
+            if i < 5:
+                return (100.2, 100.5, 100.1, 100.3)
+            if i == 5:
+                return (100.3, 100.6, 100.0, 100.0)
+            if i >= 8:
+                return (99.5, 104.0, 99.0, 103.0)
+            return (99.0, 100.0, 98.8, 99.5)
+
+        mins = _am_mins(date, 14, px=px)
+        rules = _slot_rules(
+            t0_slots=[
+                {"id": "s1", "hm": "10:00", "prefix_bars": 6, "ratio": 0.50},
+                {"id": "s2", "hm": "10:30", "prefix_bars": 12, "ratio": 0.50},
+            ],
+            direction="sell_then_buy",
+            y_prefix_segment_enabled_sell_then_buy=False,
+            must_cover_same_day_sell_then_buy=False,
+            t0_stop_pct_sell_then_buy=0,
+        )
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=200000,
+            sellable_shares=300,
+            rules=rules,
+            stock_code="600519",
+            minute_bars=mins,
+        )
+        rows = {r["id"]: r for r in (out.get("t0_slot_results") or [])}
+        sold_total = sum(int(r.get("sold_qty") or 0) for r in rows.values())
+        self.assertLessEqual(sold_total, 300, rows)
+
+    def test_cash_reserved_across_buy_rounds(self):
+        date = "2026-03-02"
+        bar = _bar(date, 100, 105, 97, 101)
+
+        def px(i, hm):
+            if i < 5:
+                return (100.2, 100.5, 100.1, 100.3)
+            if i == 5:
+                return (100.3, 100.6, 100.0, 100.0)
+            # 第二腿触价抬高：10:00 买后不平，10:30 第二轮不应再占用现金
+            return (100.0, 100.15, 99.8, 99.9)
+
+        mins = _am_mins(date, 14, px=px)
+        rules = _slot_rules(
+            t0_slots=[
+                {"id": "s1", "hm": "10:00", "prefix_bars": 6, "ratio": 0.50},
+                {"id": "s2", "hm": "10:30", "prefix_bars": 12, "ratio": 0.50},
+            ],
+            direction="buy_then_sell",
+            y_tau_entry_price_skip=False,
+        )
+        out = simulate_t0_day(
+            bar=bar,
+            shares=1000,
+            cost=100,
+            cash=21000,
+            sellable_shares=1000,
+            rules=rules,
+            stock_code="600519",
+            minute_bars=mins,
+            defer_eod=True,
+        )
+        rows = out.get("t0_slot_results") or []
+        filled = [r for r in rows if int(r.get("bought_qty") or 0) > 0]
+        blocked = [
+            r
+            for r in rows
+            if r.get("skipped")
+            and (
+                "未落账" in str(r.get("reason") or "")
+                or "缺现金" in str(r.get("reason") or "")
+            )
+        ]
+        self.assertEqual(len(filled), 1, rows)
+        self.assertEqual(len(blocked), 1, rows)
+
+    def test_missing_y_tau_blocks_leg1_when_required(self):
+        from unittest import mock
+
+        from core.t0.minute_path import tau_leg1_fill_price_ok
+
+        gate = tau_leg1_fill_price_ok(
+            fill_px=100.0,
+            ref=100.0,
+            y_tau=None,
+            direction="buy_then_sell",
+            cfg={"y_tau_entry_price_skip": True, "y_tau_require_for_leg1": True},
+        )
+        self.assertFalse(gate.get("ok"))
+        self.assertIn("缺ŷ_τ", str(gate.get("reason") or ""))
+
+        date = "2026-03-02"
+        bar = _bar(date, 100, 105, 97, 101)
+        mins = _am_mins(date, 14, px=lambda i, hm: (100.2, 100.5, 100.1, 100.3))
+        with mock.patch("core.t0.minute_path._score_y_tau", return_value=None):
+            out = simulate_t0_day(
+                bar=bar,
+                shares=1000,
+                cost=100,
+                cash=200000,
+                sellable_shares=1000,
+                rules=_slot_rules(
+                    direction="buy_then_sell",
+                    y_tau_require_for_leg1=True,
+                    y_tau_entry_price_skip=True,
+                    y_prefix_segment_enabled_buy_then_sell=False,
+                ),
+                stock_code="600519",
+                minute_bars=mins,
+            )
+        reasons = " ".join(str(r.get("reason") or "") for r in (out.get("t0_slot_results") or []))
+        self.assertIn("缺ŷ_τ", reasons, reasons)
+        self.assertFalse(out.get("trades"), out)
 
 
 if __name__ == "__main__":

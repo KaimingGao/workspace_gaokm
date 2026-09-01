@@ -256,8 +256,6 @@ def promote_strategy(
     entry["execution_summary"] = {
         "t0_ratio": t0.get("t0_ratio"),
         "fill_mode": t0.get("fill_mode"),
-        "sell_trigger_pct": t0.get("sell_trigger_pct"),
-        "buy_trigger_pct": t0.get("buy_trigger_pct"),
         "coupling": (exe.get("coupling") or {}).get("t0_vs_stance"),
         "execution_version": exe.get("version"),
     }

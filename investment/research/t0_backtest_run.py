@@ -20,16 +20,12 @@ def main(argv=None) -> int:
     parser.add_argument("--lookback", type=int, default=30)
     parser.add_argument("--shares", type=float, default=1000)
     parser.add_argument("--t0-ratio", type=float, default=0.4)
-    parser.add_argument("--sell-pct", type=float, default=2.0)
-    parser.add_argument("--buy-pct", type=float, default=1.5)
     parser.add_argument("--must-cover", action="store_true")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
 
     rules = {
         "t0_ratio": args.t0_ratio,
-        "sell_trigger_pct": args.sell_pct,
-        "buy_trigger_pct": args.buy_pct,
         "must_cover_same_day": bool(args.must_cover),
     }
     report = run_t0_backtest_for_code(

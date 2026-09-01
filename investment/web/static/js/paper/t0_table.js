@@ -43,7 +43,9 @@ export const SKIP_CAT_LABEL = {
   gap_tier_skip: "大缺口反向跳过",
   path_abandon: "前缀无空间放弃",
   prefix_segment: "固定前缀待确认",
-  prefix_vs_path: "前缀>|ŷ_path|×裕度",
+  prefix_vs_path: "前缀>|ŷ_path|×裕度(旧)",
+  tau_entry_price: "入场价vs开盘×ŷ_τ",
+  tau_exit_price: "出场价vs开盘×ŷ_τ",
   y_trade_weak: "y_trade幅度不足",
   eod_tau_disagree: "y_eod↔y_τ异号",
   trade_tau_disagree: "y_trade↔y_τ异号",
@@ -85,7 +87,11 @@ export const SKIP_CAT_TIP = {
   prefix_segment:
     "固定前缀未齐或后半阴阳占比未达标：正 T 待后半上涨、反 T 待后半下跌（Worker 可重试）。",
   prefix_vs_path:
-    "前缀窗 (H−L)/ref% 已超过 |ŷ_path|×空间裕度：做 T 空间用尽，跳过本轮（现行闸，非旧「振幅下限」）。",
+    "历史口径：前缀窗 (H−L)/ref% 超过 |ŷ_path|×裕度（空间用尽）。现行已改为确认根入场价 vs open×(1+ŷ_τ×裕度)。",
+  tau_entry_price:
+    "确认根第一腿：正T买价须 < open×(1+ŷ_τ×买价裕度)；反T卖价须 > open×(1+ŷ_τ×卖价裕度)。可调裕度或关闸。",
+  tau_exit_price:
+    "第二腿：正T卖价须 > open×(1+ŷ_τ×卖价裕度)；反T买价须 < open×(1+ŷ_τ×买价裕度)。止损/收盘强平不受闸。",
   y_trade_weak:
     "|ŷ_trade| 未过入场（y_trade_enter），融合分太弱不开仓。",
   trade_tau_sign:
@@ -455,6 +461,8 @@ function slotPrefixBarsFromHm(hm, fallback) {
     "10:30": 12,
     "11:00": 18,
     "11:30": 24,
+    "13:00": 25,
+    "14:00": 37,
   };
   const key = String(hm || "").trim().slice(0, 5);
   if (key && Object.prototype.hasOwnProperty.call(map, key)) return map[key];

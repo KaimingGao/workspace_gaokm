@@ -17,7 +17,9 @@ SKIP_CAT_LABELS: Dict[str, str] = {
     "gap_tier_skip": "大缺口反向跳过",
     "path_abandon": "前缀无空间放弃",
     "prefix_segment": "固定前缀待确认",
-    "prefix_vs_path": "前缀>|ŷ_path|×裕度",
+    "prefix_vs_path": "前缀>|ŷ_path|×裕度(旧)",
+    "tau_entry_price": "入场价vs开盘×ŷ_τ",
+    "tau_exit_price": "出场价vs开盘×ŷ_τ",
     "y_trade_weak": "y_trade幅度不足",
     "eod_tau_disagree": "y_eod↔y_τ异号",
     "trade_tau_disagree": "y_trade↔y_τ异号",
@@ -59,6 +61,8 @@ SKIP_CAT_COLORS: Dict[str, str] = {
     "path_abandon": "#3f6f68",
     "prefix_segment": "#3a6480",
     "prefix_vs_path": "#2f5370",
+    "tau_entry_price": "#2a5f7a",
+    "tau_exit_price": "#356b85",
     "gap_tier_skip": "#b07a3a",
     "y_trade_weak": "#9a5b32",
     "path": "#4a5f8a",
@@ -121,7 +125,17 @@ def classify_t0_skip_reason(reason: Optional[str]) -> str:
         return "y_tau_flat"
     if "大缺口" in r or "gap_tier" in r.lower():
         return "gap_tier_skip"
-    # 前缀振幅 vs |ŷ_path|（现行闸）；勿因文案含「振幅」误入旧 min_range「振幅不足」
+    # 确认根入场 / 第二腿出场价 vs open×(1+ŷ_τ×裕度)
+    if "τ出场" in r:
+        return "tau_exit_price"
+    if (
+        "τ入场" in r
+        or "τ带" in r
+        or ("买价" in r and ("ŷ_τ" in r or "开盘×(1+" in r))
+        or ("卖价" in r and ("ŷ_τ" in r or "开盘×(1+" in r))
+        or "入场价" in r
+    ):
+        return "tau_entry_price"
     if (
         "空间用尽" in r
         or ">|ŷ_path|" in r

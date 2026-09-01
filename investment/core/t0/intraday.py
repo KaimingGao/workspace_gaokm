@@ -794,7 +794,6 @@ def _intraday_setup(
     from core.t0.minute_path import _day_ohlc_from_minutes, run_forward_first_touch
     from core.t0.rules import (
         _skip_result,
-        scale_triggers_with_atr,
     )
 
     cost_model, cost_params = resolve_t0_cost_context(paper=paper)
@@ -828,7 +827,6 @@ def _intraday_setup(
         bar_session["close"] = daily_close
     lot = int(cfg.get("lot_size") or 100)
     shares = float(holding.get("shares") or 0)
-    scaled = scale_triggers_with_atr(cfg, atr_pct=atr_pct)
     cost = float(holding.get("cost") or 0)
     if shares <= 0:
         return _skip_result(reason="无效 bar 或持仓", shares=shares, bar=bar_day)
@@ -856,7 +854,7 @@ def _intraday_setup(
         lot=lot,
         cost_model=cost_model,
         cost_params=cost_params,
-        atr_pct=scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct,
+        atr_pct=atr_pct,
         hist_bars=hist_bars,
         score_snap=scores,
         session_bar=bar_session,
@@ -911,17 +909,11 @@ def _intraday_setup(
             features=dir_res.get("features"),
         )
 
-    trigger_scale_meta = {
-        "sell_trigger_pct_base": day.get("sell_trigger_pct_base"),
-        "buy_trigger_pct_base": day.get("buy_trigger_pct_base"),
-        "trigger_scale": day.get("trigger_scale"),
-    }
     t0_ratio = float(day.get("t0_ratio") or base_ratio)
     cover_meta = day.get("cover_policy")
     if isinstance(day, dict):
         day["t0_ratio_base"] = round(base_ratio, 4)
         day["t0_ratio"] = round(t0_ratio, 4)
-        day.update({k: v for k, v in trigger_scale_meta.items() if v is not None})
         day["direction_score"] = dir_res.get("direction_score")
         day["direction_reason"] = dir_res.get("direction_reason")
         if cover_meta:
@@ -943,7 +935,6 @@ def _intraday_setup(
         "last_bar_ts": _bar_ts(minute_bars[-1]) if minute_bars else "",
         "t0_ratio_base": round(base_ratio, 4),
         "t0_ratio": round(t0_ratio, 4),
-        **trigger_scale_meta,
     }
 
 
@@ -1062,8 +1053,8 @@ def _process_holding_slots(
     """多轮独立做 T 盘中增量。"""
     from core.t0.costs import resolve_t0_cost_context
     from core.t0.minute_path import _day_ohlc_from_minutes
-    from core.t0.rules import _skip_result, scale_triggers_with_atr
-    from core.t0.slots import simulate_t0_slot, slot_specs
+    from core.t0.rules import _skip_result
+    from core.t0.slots import allocate_slot_slices, simulate_t0_slot, slot_specs
     from core.t0.score_policy import attach_day_scores, scores_have_any
 
     st = dict(stock_state or {})
@@ -1120,26 +1111,21 @@ def _process_holding_slots(
         }
     lot = int(cfg.get("lot_size") or 100)
     cost_model, cost_params = resolve_t0_cost_context(paper=paper)
-    scaled = scale_triggers_with_atr(cfg, atr_pct=atr_pct)
-    atr_use = scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct
+    atr_use = atr_pct
     bar_day = _day_ohlc_from_minutes(minute_bars, bar)
     cost = float(holding.get("cost") or 0)
     cfg_day = dict(cfg)
-    cfg_day["sell_trigger_pct"] = float(scaled["sell_trigger_pct"])
-    cfg_day["buy_trigger_pct"] = float(scaled["buy_trigger_pct"])
 
-    reserved = 0.0
+    slices = allocate_slot_slices(sim_shares, sim_sellable, specs, lot)
+    sellable_now = float(sim_sellable)
+    cash_now = float(sim_cash)
+    cash_locked = 0.0
     all_applied: List[dict] = []
     last_snap: dict = {}
     for i, spec in enumerate(specs):
         sid = str(spec.get("id") or "")
         rnd = dict(rounds.get(sid) or {"phase": PHASE_IDLE, "legs_written": 0, "slot": dict(spec)})
-        ratio = float(spec.get("ratio") or 0.20)
-        slice_qty = float(_t0_qty_from_cfg(sim_shares, ratio, lot, sim_sellable))
-        remain = max(0.0, sim_sellable - reserved)
-        if slice_qty > remain:
-            slice_qty = float(_t0_qty_from_cfg(remain, 1.0, lot, remain))
-        reserved += max(slice_qty, 0.0)
+        slice_qty = min(float(slices[i]), sellable_now)
 
         ph = str(rnd.get("phase") or PHASE_IDLE)
         if ph in (PHASE_DONE, PHASE_SKIPPED):
@@ -1152,6 +1138,7 @@ def _process_holding_slots(
             continue
 
         nxt = specs[i + 1] if i + 1 < len(specs) else None
+        avail_cash = max(0.0, cash_now - cash_locked)
         out = simulate_t0_slot(
             slot=spec,
             next_slot=nxt,
@@ -1161,7 +1148,7 @@ def _process_holding_slots(
             cost=cost,
             sellable_shares=slice_qty,
             cfg_day=cfg_day,
-            cash=sim_cash,
+            cash=avail_cash,
             stock_code=code,
             lot=lot,
             cost_model=cost_model,
@@ -1215,6 +1202,17 @@ def _process_holding_slots(
             )
             written += len(applied)
             all_applied.extend(applied)
+            for t in applied:
+                side = str(t.get("side") or "")
+                qty = float(t.get("shares") or 0)
+                from core.t0.costs import t0_leg_cash_delta
+
+                cash_now += t0_leg_cash_delta(t)
+                if side.endswith("sell"):
+                    sellable_now = max(0.0, sellable_now - qty)
+            from core.t0.slots import _open_leg1_cash_lock
+
+            cash_locked += _open_leg1_cash_lock(out)
         rnd["legs_written"] = written
         if path_complete and written > 0:
             rnd["phase"] = PHASE_DONE

@@ -26,8 +26,6 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
     try:
         rules = {
             "t0_ratio": body.t0_ratio,
-            "sell_trigger_pct": body.sell_trigger_pct,
-            "buy_trigger_pct": body.buy_trigger_pct,
             "must_cover_same_day": body.must_cover_same_day,
         }
         if body.fill_mode:
@@ -42,8 +40,6 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
         if body.use_atr is not None:
             rules["use_atr"] = body.use_atr
         for yk in (
-            "buy_trigger_pct_sell_then_buy",
-            "sell_trigger_pct_buy_then_sell",
             "fill_mode_sell_then_buy",
             "fill_mode_buy_then_sell",
             "min_range_pct_sell_then_buy",
@@ -84,8 +80,18 @@ def quant_t0_backtest(body: T0BacktestRequest) -> Dict[str, Any]:
             "y_prefix_segment_enabled_buy_then_sell",
             "y_prefix_upbar_ratio_buy_then_sell",
             "y_prefix_downbar_ratio_sell_then_buy",
-            "y_prefix_vs_path_skip",
-            "y_prefix_vs_path_mult",
+            "y_tau_entry_price_skip",
+            "y_tau_entry_price_mult",
+            "y_tau_entry_price_skip_buy_then_sell",
+            "y_tau_entry_price_mult_buy_then_sell",
+            "y_tau_entry_price_skip_sell_then_buy",
+            "y_tau_entry_price_mult_sell_then_buy",
+            "y_tau_exit_price_skip",
+            "y_tau_exit_price_mult",
+            "y_tau_exit_price_skip_buy_then_sell",
+            "y_tau_exit_price_mult_buy_then_sell",
+            "y_tau_exit_price_skip_sell_then_buy",
+            "y_tau_exit_price_mult_sell_then_buy",
             "must_cover_same_day_sell_then_buy",
             "must_cover_same_day_buy_then_sell",
             "t0_pm_degrade_sell_then_buy",

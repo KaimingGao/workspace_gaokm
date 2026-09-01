@@ -396,7 +396,7 @@ def _walk_t0(
     if shares <= 0 or cost <= 0:
         return {"success": False, "error": "无效初始仓位"}
 
-    sellable = shares  # 回测简化：日初持仓均可卖；实盘 Worker 用 tplus1 FIFO 批次
+    sellable = shares  # 回测：日初持仓均可卖；多轮引擎 merge/sequential 按 sellable 约束
     cash = float(initial_cash or 0)
     lot = max(int(cfg.get("lot_size") or 100), 1)
     ratio = float(cfg.get("t0_ratio") or 1.0)
@@ -788,10 +788,6 @@ def _walk_t0(
         "profit_factor": profit_factor,
         "rules": {
             "t0_ratio": cfg["t0_ratio"],
-            "sell_trigger_pct": cfg["sell_trigger_pct"],
-            "buy_trigger_pct": cfg["buy_trigger_pct"],
-            "buy_trigger_pct_sell_then_buy": cfg.get("buy_trigger_pct_sell_then_buy"),
-            "sell_trigger_pct_buy_then_sell": cfg.get("sell_trigger_pct_buy_then_sell"),
             "must_cover_same_day": cfg["must_cover_same_day"],
             "must_cover_same_day_sell_then_buy": cfg.get("must_cover_same_day_sell_then_buy"),
             "must_cover_same_day_buy_then_sell": cfg.get("must_cover_same_day_buy_then_sell"),
@@ -839,8 +835,34 @@ def _walk_t0(
             "y_prefix_segment_enabled_buy_then_sell": cfg.get("y_prefix_segment_enabled_buy_then_sell"),
             "y_prefix_upbar_ratio_buy_then_sell": cfg.get("y_prefix_upbar_ratio_buy_then_sell"),
             "y_prefix_downbar_ratio_sell_then_buy": cfg.get("y_prefix_downbar_ratio_sell_then_buy"),
-            "y_prefix_vs_path_skip": cfg.get("y_prefix_vs_path_skip"),
-            "y_prefix_vs_path_mult": cfg.get("y_prefix_vs_path_mult"),
+            "y_tau_entry_price_skip": cfg.get("y_tau_entry_price_skip"),
+            "y_tau_entry_price_mult": cfg.get("y_tau_entry_price_mult"),
+            "y_tau_entry_price_skip_buy_then_sell": cfg.get(
+                "y_tau_entry_price_skip_buy_then_sell"
+            ),
+            "y_tau_entry_price_mult_buy_then_sell": cfg.get(
+                "y_tau_entry_price_mult_buy_then_sell"
+            ),
+            "y_tau_entry_price_skip_sell_then_buy": cfg.get(
+                "y_tau_entry_price_skip_sell_then_buy"
+            ),
+            "y_tau_entry_price_mult_sell_then_buy": cfg.get(
+                "y_tau_entry_price_mult_sell_then_buy"
+            ),
+            "y_tau_exit_price_skip": cfg.get("y_tau_exit_price_skip"),
+            "y_tau_exit_price_mult": cfg.get("y_tau_exit_price_mult"),
+            "y_tau_exit_price_skip_buy_then_sell": cfg.get(
+                "y_tau_exit_price_skip_buy_then_sell"
+            ),
+            "y_tau_exit_price_mult_buy_then_sell": cfg.get(
+                "y_tau_exit_price_mult_buy_then_sell"
+            ),
+            "y_tau_exit_price_skip_sell_then_buy": cfg.get(
+                "y_tau_exit_price_skip_sell_then_buy"
+            ),
+            "y_tau_exit_price_mult_sell_then_buy": cfg.get(
+                "y_tau_exit_price_mult_sell_then_buy"
+            ),
             "t0_pm_degrade": cfg.get("t0_pm_degrade"),
             "t0_pm_degrade_sell_then_buy": cfg.get("t0_pm_degrade_sell_then_buy"),
             "t0_pm_degrade_buy_then_sell": cfg.get("t0_pm_degrade_buy_then_sell"),

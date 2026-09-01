@@ -560,7 +560,7 @@
               <form id="paper-t0-form" class="paper-t0-form" autocomplete="off">
                 <fieldset class="paper-t0-cfg-block is-shared">
                   <legend>共用</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">四轮槽位共用这一套买卖/止损（正反仍分侧）。各轮只独立选向、切 20% 仓、按本轮成交价挂止损与第二腿。不做 09:30 开盘轮。</p>
+                  <p class="paper-t0-cfg-hint quant-sub">六轮槽位共用这一套 τ 闸/止损（正反仍分侧）。各轮只独立选向、切 15% 仓（余量整手回补）、按本轮成交价挂止损与第二腿。不做 09:30 开盘轮。</p>
                   <div class="paper-t0-form-grid">
                   <label class="paper-t0-field">
                     <span>启用</span>
@@ -727,35 +727,14 @@
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="开：要求前缀窗 (H−L)/开盘% ≤ |ŷ_path|×空间裕度 才做T；超则跳过。缺 ŷ_path 不拦"
-                  >
-                    <span>前缀振幅&lt;|path| * 空间裕度</span>
-                    <input type="checkbox" name="y_prefix_vs_path_skip" checked />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="空间用尽阈=|ŷ_path|×空间裕度。默认1；>1放宽（如1.2）、&lt;1收紧。仅「前缀振幅&lt;|path| * 空间裕度」开启时生效"
-                  >
-                    <span>空间裕度</span>
-                    <input
-                      type="number"
-                      name="y_prefix_vs_path_mult"
-                      min="0.5"
-                      max="5"
-                      step="0.05"
-                      value="1"
-                    />
-                  </label>
-                  <label
-                    class="paper-t0-field"
-                    title="正/反T止损共用、四轮槽位也共用：入场后跳过 N 根 5m 再启用（默认 2≈10 分钟）"
+                    title="正/反T止损共用、六轮槽位也共用：入场后跳过 N 根 5m 再启用（默认 2≈10 分钟）"
                   >
                     <span>止损延迟根</span>
                     <input type="number" name="t0_stop_arm_bars" min="0" max="48" step="1" value="2" />
                   </label>
                   <label
                     class="paper-t0-field"
-                    title="正/反T止损共用、四轮槽位也共用：开=收盘破线才触发；关=影线刺破即触发（更易被扫）"
+                    title="正/反T止损共用、六轮槽位也共用：开=收盘破线才触发；关=影线刺破即触发（更易被扫）"
                   >
                     <span>止损收盘确认</span>
                     <input type="checkbox" name="t0_stop_on_close" checked />
@@ -773,18 +752,32 @@
                 <div class="paper-t0-cfg-sides">
                 <fieldset class="paper-t0-cfg-block is-buy-then-sell">
                   <legend>正 T</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">先买后卖；ŷ_τ/path 定是否做、前缀后半上涨占比确认后加仓；第二腿按卖触发% / 止损 / 中点追价 / 收盘强平</p>
+                  <p class="paper-t0-cfg-hint quant-sub">先买后卖；ŷ_τ/path 定是否做、前缀后半上涨占比确认后加仓；第二腿按 τ 卖价闸 / 止损 / 中点追价 / 收盘强平</p>
                   <div class="paper-t0-form-grid">
                   <label
-                    class="paper-t0-field has-tip"
-                    title="第二腿·卖触发%（相对该轮第一腿买价）：卖价=买价×(1+此%/100)；四轮共用。第一腿在确认根收盘成交（ŷ+后半占比）。"
+                    class="paper-t0-field"
+                    title="第二腿：卖价须 &gt; open×(1+ŷ_τ×裕度)；有符号ŷ_τ；止损/收盘强平不受此闸"
                   >
-                    <span>卖触发%</span>
-                    <input type="number" name="sell_trigger_pct_buy_then_sell" min="0.1" max="20" step="0.1" value="3" />
+                    <span>τ卖价闸</span>
+                    <input type="checkbox" name="y_tau_exit_price_skip_buy_then_sell" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="第二腿卖价裕度：bound=open×(1+ŷ_τ%×裕度/100)。卖价须高于 bound。默认2"
+                  >
+                    <span>卖价裕度</span>
+                    <input
+                      type="number"
+                      name="y_tau_exit_price_mult_buy_then_sell"
+                      min="0.5"
+                      max="5"
+                      step="0.05"
+                      value="2"
+                    />
                   </label>
                   <label
                     class="paper-t0-field has-tip"
-                    title="正T跌破止损%（相对该轮第一腿买价）：0=关。四轮共用此%。延迟/收盘确认见共用区。止损优先于中点追价。"
+                    title="正T跌破止损%（相对该轮第一腿买价）：0=关。六轮共用此%。延迟/收盘确认见共用区。止损优先于中点追价。"
                   >
                     <span>止损%</span>
                     <input type="number" name="t0_stop_pct_buy_then_sell" min="0" max="20" step="0.1" value="1.2" />
@@ -834,6 +827,27 @@
                   </label>
                   <label
                     class="paper-t0-field"
+                    title="第一腿：买价须 &lt; open×(1+ŷ_τ×裕度)；有符号ŷ_τ；缺ŷ_τ不拦；关则放行"
+                  >
+                    <span>τ买价闸</span>
+                    <input type="checkbox" name="y_tau_entry_price_skip_buy_then_sell" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="裕度乘在有符号ŷ_τ上：bound=open×(1+ŷ_τ%×裕度/100)。买价须低于 bound。默认0.5；&gt;1放宽、&lt;1收紧"
+                  >
+                    <span>买价裕度</span>
+                    <input
+                      type="number"
+                      name="y_tau_entry_price_mult_buy_then_sell"
+                      min="0.5"
+                      max="5"
+                      step="0.05"
+                      value="0.5"
+                    />
+                  </label>
+                  <label
+                    class="paper-t0-field"
                     title="开=正T用固定前缀+后半上涨占比开第一腿；关=不做该确认（仍受振幅等约束）"
                   >
                     <span>固定前缀确认</span>
@@ -851,18 +865,32 @@
 
                 <fieldset class="paper-t0-cfg-block is-sell-then-buy">
                   <legend>反 T</legend>
-                  <p class="paper-t0-cfg-hint quant-sub">先卖后买；ŷ_τ/path 定是否做、前缀后半下跌占比确认后卖出；第二腿按买触发% / 止损 / 中点追价（触不到则放弃回补，除非勾选当日回补）</p>
+                  <p class="paper-t0-cfg-hint quant-sub">先卖后买；ŷ_τ/path 定是否做、前缀后半下跌占比确认后卖出；第二腿按 τ 买价闸 / 止损 / 中点追价（触不到则放弃回补，除非勾选当日回补）</p>
                   <div class="paper-t0-form-grid">
                   <label
-                    class="paper-t0-field has-tip"
-                    title="第二腿·买触发%（相对该轮第一腿卖价）：买价=卖价×(1−此%/100)；四轮共用。第一腿在确认根收盘成交（ŷ+后半占比）。"
+                    class="paper-t0-field"
+                    title="第二腿：买价须 &lt; open×(1+ŷ_τ×裕度)；有符号ŷ_τ；止损/收盘强平不受此闸"
                   >
-                    <span>买触发%</span>
-                    <input type="number" name="buy_trigger_pct_sell_then_buy" min="0.1" max="20" step="0.1" value="1" />
+                    <span>τ买价闸</span>
+                    <input type="checkbox" name="y_tau_exit_price_skip_sell_then_buy" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="第二腿买价裕度：bound=open×(1+ŷ_τ%×裕度/100)。买价须低于 bound。默认1"
+                  >
+                    <span>买价裕度</span>
+                    <input
+                      type="number"
+                      name="y_tau_exit_price_mult_sell_then_buy"
+                      min="0.5"
+                      max="5"
+                      step="0.05"
+                      value="1"
+                    />
                   </label>
                   <label
                     class="paper-t0-field has-tip"
-                    title="反T涨破止损%（相对该轮第一腿卖价）：0=关。四轮共用此%。收盘≥卖价×(1+此%/100) 则强制买回。延迟/收盘确认见共用区。止损优先于中点追价。"
+                    title="反T涨破止损%（相对该轮第一腿卖价）：0=关。六轮共用此%。收盘≥卖价×(1+此%/100) 则强制买回。延迟/收盘确认见共用区。止损优先于中点追价。"
                   >
                     <span>止损%</span>
                     <input type="number" name="t0_stop_pct_sell_then_buy" min="0" max="20" step="0.1" value="1.2" />
@@ -901,7 +929,7 @@
                     title="中点追价起算 HH:MM：到点后禁新开；已卖未买回则买回目标=旧目标与现价中点。空=关"
                   >
                     <span>中点追价</span>
-                    <input type="text" name="t0_pm_degrade_sell_then_buy" maxlength="5" placeholder="13:00" value="13:00" />
+                    <input type="text" name="t0_pm_degrade_sell_then_buy" maxlength="5" placeholder="14:00" value="14:00" />
                   </label>
                   <label
                     class="paper-t0-field"
@@ -909,6 +937,27 @@
                   >
                     <span>追价间隔分</span>
                     <input type="number" name="t0_pm_chase_interval_min_sell_then_buy" min="1" max="60" step="1" value="10" />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="第一腿：卖价须 &gt; open×(1+ŷ_τ×裕度)；有符号ŷ_τ；缺ŷ_τ不拦；关则放行"
+                  >
+                    <span>τ卖价闸</span>
+                    <input type="checkbox" name="y_tau_entry_price_skip_sell_then_buy" checked />
+                  </label>
+                  <label
+                    class="paper-t0-field"
+                    title="裕度乘在有符号ŷ_τ上：bound=open×(1+ŷ_τ%×裕度/100)。卖价须高于 bound。默认1；&gt;1放宽、&lt;1收紧"
+                  >
+                    <span>卖价裕度</span>
+                    <input
+                      type="number"
+                      name="y_tau_entry_price_mult_sell_then_buy"
+                      min="0.5"
+                      max="5"
+                      step="0.05"
+                      value="1"
+                    />
                   </label>
                   <label
                     class="paper-t0-field"

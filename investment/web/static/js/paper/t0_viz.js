@@ -52,6 +52,8 @@ const SKIP_CAT_COLORS = {
   path_abandon: "#3f6f68",
   prefix_segment: "#3a6480",
   prefix_vs_path: "#2f5370",
+  tau_entry_price: "#2a5f7a",
+  tau_exit_price: "#356b85",
   gap_tier_skip: "#b07a3a",
   y_trade_weak: "#9a5b32",
   path: "#4a5f8a",

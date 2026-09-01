@@ -147,7 +147,7 @@ class TestExecutionResolve(unittest.TestCase):
         defaults = load_t0_rules()
         self.assertEqual(defaults["t0_pm_degrade"], "14:00")
         self.assertEqual(defaults["t0_pm_degrade_buy_then_sell"], "14:00")
-        self.assertEqual(defaults["t0_pm_degrade_sell_then_buy"], "13:00")
+        self.assertEqual(defaults["t0_pm_degrade_sell_then_buy"], "14:00")
         self.assertEqual(defaults["t0_pm_chase_interval_min"], 10)
         self.assertEqual(defaults["t0_pm_chase_interval_min_sell_then_buy"], 10)
         self.assertEqual(defaults["t0_pm_chase_interval_min_buy_then_sell"], 10)
@@ -202,12 +202,14 @@ class TestExecutionResolve(unittest.TestCase):
         self.assertEqual(norm_dead["t0"].get("t0_pm_degrade_buy_then_sell"), "14:00")
 
     def test_t0_backtest_request_defaults_match_product(self):
+        from core.t0.config import load_t0_rules
         from web.schemas.paper import T0BacktestRequest
 
         req = T0BacktestRequest()
+        d = load_t0_rules()
         self.assertEqual(req.lookback, 20)
-        self.assertEqual(req.sell_trigger_pct, 3.0)
-        self.assertEqual(req.buy_trigger_pct, 1.0)
+        self.assertAlmostEqual(float(d["y_tau_exit_price_mult_buy_then_sell"]), 2.0)
+        self.assertAlmostEqual(float(d["y_tau_exit_price_mult_sell_then_buy"]), 2.0)
 
     def test_validate_patch_preserves_y_nowcast_oc_gate_false(self):
         from core.execution import validate_execution_patch
@@ -293,13 +295,12 @@ class TestExecutionResolve(unittest.TestCase):
         )
 
         paper = {"strategy_id": "short", "rules": {}}
-        apply_execution_patch_to_paper(paper, {"t0": {"sell_trigger_pct": 2.5}})
-        self.assertAlmostEqual(float(paper["rules"]["t0"]["sell_trigger_pct"]), 2.5)
-        self.assertAlmostEqual(float(paper["rules"]["t0"]["t0_ratio"]), 1.0)
+        apply_execution_patch_to_paper(paper, {"t0": {"fill_mode": "mid"}})
+        self.assertEqual(paper["rules"]["t0"]["fill_mode"], "mid")
         diff = execution_diff_against_strategy(paper)
         self.assertTrue(diff["changed"])
         paths = {c["path"] for c in diff["t0_changes"]}
-        self.assertIn("sell_trigger_pct", paths)
+        self.assertIn("fill_mode", paths)
 
     def test_coupling_skip_on_holdings(self):
         from core.t0.rules import simulate_t0_on_holdings
@@ -322,7 +323,7 @@ class TestExecutionResolve(unittest.TestCase):
         out = simulate_t0_on_holdings(
             paper,
             bars_by_code={"600519": bar},
-            rules={"direction": "sell_then_buy", "sell_trigger_pct": 2, "buy_trigger_pct": 1.5},
+            rules={"direction": "sell_then_buy"},
             dry_run=True,
             stance_by_code={"600519": "avoid"},
             coupling={"t0_vs_stance": "skip_if_avoid"},

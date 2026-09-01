@@ -14,8 +14,8 @@ GAP_ATR_WINDOW = 14
 GAP_ATR_CLIP = 10.0
 _SECTOR_REL_MIN_N = 3
 
-# 变长前缀：少数决策时钟（含 09:30 开盘 Z + 做T四轮 10:00–11:30，非整根独立标签）
-DEFAULT_MINUTE_TAU_GRID = ("09:30", "10:00", "10:30", "11:00", "11:30")
+# 变长前缀：少数决策时钟（含 09:30 开盘 Z + 做T六轮 10:00–14:00，非整根独立标签）
+DEFAULT_MINUTE_TAU_GRID = ("09:30", "10:00", "10:30", "11:00", "11:30", "13:00", "14:00")
 
 
 def normalize_minute_tau_grid(

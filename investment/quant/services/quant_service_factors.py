@@ -697,7 +697,6 @@ class QuantFactorMixin:
         默认用满观察池；分钟线**只读本地缓存**，不打远端（缺缓存的票跳过）。
         """
         from core.data.facade import bars_and_source
-        from core.execution import resolve_t0_rules
         from core.ports.market import group_minute_bars_by_date
         from core.store import load_minute_cache
         from core.watching.store import WATCHING_MAX_SIZE, read_watching
@@ -710,16 +709,15 @@ class QuantFactorMixin:
             save_path_last_report,
         )
 
-        # 训练触发默认对齐纸面/执行 T0（与做 T 可交易口径一致）
-        try:
-            t0 = resolve_t0_rules(channel="backtest", has_minute=True) or {}
-            paper_sell = float(t0.get("sell_trigger_pct") or 1.0)
-            paper_buy = float(t0.get("buy_trigger_pct") or 1.0)
-        except Exception:  # noqa: BLE001
-            logger.debug("path ridge paper triggers fallback", exc_info=True)
-            paper_sell, paper_buy = 2.0, 1.5
-        sell_trig = float(sell_trig_pct) if sell_trig_pct is not None else paper_sell
-        buy_trig = float(buy_trig_pct) if buy_trig_pct is not None else paper_buy
+        # path 对照标签缺省（与旧 T0 触发% 解耦；仅用于 ŷ_path 训练/回放对照）
+        _PATH_RIDGE_SELL_TRIG = 2.0
+        _PATH_RIDGE_BUY_TRIG = 1.5
+        sell_trig = (
+            float(sell_trig_pct) if sell_trig_pct is not None else _PATH_RIDGE_SELL_TRIG
+        )
+        buy_trig = (
+            float(buy_trig_pct) if buy_trig_pct is not None else _PATH_RIDGE_BUY_TRIG
+        )
 
         uni = read_watching()
         pool = [
@@ -849,7 +847,6 @@ class QuantFactorMixin:
             report["minute_span_days_max"] = ss[-1]
         report["sell_trig_pct"] = sell_trig
         report["buy_trig_pct"] = buy_trig
-        report["triggers_from_paper"] = sell_trig_pct is None and buy_trig_pct is None
         if report.get("success"):
             save_path_last_report(report)
         if persist and report.get("success"):

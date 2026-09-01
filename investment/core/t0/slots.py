@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 from core.t0.config import apply_side_exec_params
 from core.t0.costs import t0_fees_total, t0_leg_cash_delta
 from core.t0.rules import (
+    _lot_floor,
     _ref_price,
     _skip_result,
     _t0_qty_lots,
@@ -43,6 +44,79 @@ def slot_specs(cfg: dict) -> List[dict]:
     from core.t0.config import normalize_t0_slots
 
     return normalize_t0_slots(None)
+
+
+def allocate_slot_slices(
+    shares: float,
+    sellable: float,
+    slots: Sequence[dict],
+    lot: int,
+) -> List[float]:
+    """按 ratio 切分可卖整手，余量逐轮回补（避免 <1 手静默浪费）。"""
+    lot_i = max(int(lot or 0), 1)
+    cap = float(_lot_floor(min(max(float(sellable), 0.0), float(shares)), lot_i))
+    if cap < lot_i or not slots:
+        return [0.0] * len(slots)
+    ratios = [max(float(s.get("ratio") or 0.15), 0.0) for s in slots]
+    total_r = sum(ratios) or 1.0
+    slices = [float(_lot_floor(cap * (r / total_r), lot_i)) for r in ratios]
+    leftover = int(round(cap - sum(slices)))
+    idx = 0
+    guard = 0
+    while leftover >= lot_i and slices and guard < len(slots) * 64:
+        j = idx % len(slices)
+        slices[j] += float(lot_i)
+        leftover -= lot_i
+        idx += 1
+        guard += 1
+    return slices
+
+
+def _open_leg1_cash_lock(out: dict) -> float:
+    """未平正 T 第一腿占用的现金（反 T 卖开不占买侧现金）。"""
+    direction = str(out.get("direction_used") or "")
+    bought = int(out.get("bought_qty") or 0)
+    sold_back = int(out.get("sold_back_qty") or 0)
+    if direction != "buy_then_sell" or bought <= sold_back:
+        return 0.0
+    for t in out.get("trades") or []:
+        if not isinstance(t, dict):
+            continue
+        if str(t.get("side") or "").endswith("buy"):
+            return max(0.0, -float(t0_leg_cash_delta(t)))
+    return 0.0
+
+
+def _try_apply_slot_trades(
+    trades: Sequence[dict],
+    *,
+    cash_now: float,
+    shares_now: float,
+    sellable_old: float,
+) -> Tuple[bool, float, float, float]:
+    """按时间序试落账一轮成交；失败则状态不变。"""
+    ordered = sorted(
+        [t for t in (trades or []) if isinstance(t, dict)],
+        key=lambda t: str(t.get("at") or ""),
+    )
+    cash = float(cash_now)
+    shares = float(shares_now)
+    sellable = float(sellable_old)
+    for trade in ordered:
+        side = str(trade.get("side") or "")
+        qty = float(trade.get("shares") or 0)
+        delta = t0_leg_cash_delta(trade)
+        if side.endswith("buy"):
+            if cash + delta < -1e-6:
+                return False, cash_now, shares_now, sellable_old
+            shares += qty
+        elif side.endswith("sell"):
+            if sellable + 1e-9 < qty:
+                return False, cash_now, shares_now, sellable_old
+            shares -= qty
+            sellable -= qty
+        cash += delta
+    return True, cash, shares, sellable
 
 
 def _decision_idx(prefix_bars: int) -> int:
@@ -76,11 +150,11 @@ def _score_slot(
     """返回 (plan, pending, skip)。plan 含 direction / cfg_side / 确认根参数。"""
     from core.t0.minute_path import (
         _day_ohlc_from_minutes,
-        _score_y_path,
-        _side_trigger_pack,
+        _score_y_tau,
+        _side_exec_pack,
         prefix_fixed_bar_ratio_entry_ok,
         prefix_range_gate,
-        prefix_range_vs_path_ok,
+        tau_leg1_fill_price_ok,
     )
     from core.t0.score_policy import (
         rescore_scores_at_fixed_prefix,
@@ -180,10 +254,10 @@ def _score_slot(
         cfg_side["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
 
     if prefix_n >= 2:
-        # 振幅 / 后半阴阳 / vs|ŷ_path|：一律用开盘→本钟整段前缀
+        # 后半阴阳 / τ入场价：一律用开盘→本钟整段前缀；确认根 close = 第一腿价
         prefix_win = _slot_prefix_bars(mins, prefix_n)
         gate_side = prefix_range_gate(prefix_win, bar, cost=cost, cfg=cfg_side)
-        # 振幅下限已下线；仅取 range_pct 供 vs|ŷ_path| 与诊断
+        # 振幅下限已下线；range_pct 仅诊断
         if gate_side.get("range_pct") is not None:
             range_pct = float(gate_side.get("range_pct") or range_pct)
         seg_key = (
@@ -213,18 +287,24 @@ def _score_slot(
                         ),
                     ),
                 )
-        y_path_gate = _score_y_path(live_snap)
-        path_rng = prefix_range_vs_path_ok(
-            range_pct=range_pct,
-            y_path=y_path_gate,
+        confirm_bar = prefix_win[-1] if prefix_win else None
+        try:
+            fill_px = float((confirm_bar or {}).get("close") or 0)
+        except (TypeError, ValueError):
+            fill_px = 0.0
+        tau_px = tau_leg1_fill_price_ok(
+            fill_px=fill_px,
+            ref=float(ref or 0),
+            y_tau=_score_y_tau(live_snap if isinstance(live_snap, dict) else None),
+            direction=direction,
             cfg=cfg_side,
         )
-        if not bool(path_rng.get("ok")):
+        if not bool(tau_px.get("ok")):
             return (
                 None,
                 None,
                 _skip_result(
-                    reason=str(path_rng.get("reason") or "前缀振幅>|ŷ_path|×裕度"),
+                    reason=str(tau_px.get("reason") or "τ入场价未过"),
                     shares=shares,
                     bar=bar_n if isinstance(bar_n, dict) else bar,
                     extra=_slot_meta_extra(
@@ -233,20 +313,11 @@ def _score_slot(
                 ),
             )
 
-    cfg_side, sell_trig, buy_trig, fill_mode, trigger_meta = _side_trigger_pack(
-        cfg_day=cfg_day,
-        cfg_side=cfg_side,
-        direction=direction,
-        atr_pct=atr_pct,
-        score_snap=live_snap,
-    )
+    cfg_side, fill_mode = _side_exec_pack(cfg_side=cfg_side)
     plan = {
         "direction": direction,
         "cfg_side": cfg_side,
-        "sell_trig": sell_trig,
-        "buy_trig": buy_trig,
         "fill_mode": fill_mode,
-        "trigger_scale_meta": trigger_meta,
         "ref": float(ref or 0),
         "range_pct": float(range_pct or 0),
         "bar_day": bar_n if isinstance(bar_n, dict) else bar,
@@ -364,6 +435,12 @@ def simulate_t0_slot(
         "leg1_gate_at": (lambda i, ci=confirm_idx: i == ci),
     }
     direction = str(plan["direction"])
+    from core.t0.minute_path import _score_y_tau
+
+    slot_y_tau = _score_y_tau(
+        plan.get("score_snap") if isinstance(plan.get("score_snap"), dict) else score_snap
+    )
+    path_kwargs["y_tau"] = slot_y_tau
     if direction == "buy_then_sell":
         out = _first_touch_buy_then_sell(
             minute_bars=mins,
@@ -372,8 +449,6 @@ def simulate_t0_slot(
             cash=float(cash or 0),
             sellable_shares=sellable_shares,
             ref=float(plan["ref"]),
-            sell_trig=float(plan["sell_trig"]),
-            buy_trig=float(plan["buy_trig"]),
             lot=lot,
             fill_mode=str(plan["fill_mode"]),
             cfg=cfg_slot,
@@ -391,8 +466,6 @@ def simulate_t0_slot(
             shares=shares,
             sellable_shares=sellable_shares,
             ref=float(plan["ref"]),
-            sell_trig=float(plan["sell_trig"]),
-            buy_trig=float(plan["buy_trig"]),
             lot=lot,
             fill_mode=str(plan["fill_mode"]),
             cfg=cfg_slot,
@@ -429,7 +502,6 @@ def simulate_t0_slot(
     if cover_meta:
         out["cover_policy"] = cover_meta
         out["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
-    out.update(plan.get("trigger_scale_meta") or {})
     _set_forward_trace_on_result(
         out,
         [],
@@ -686,6 +758,7 @@ def _merge_slot_day(
     bar: dict,
     shares: float,
     cash: float,
+    sellable_shares: Optional[float] = None,
     minute_bars: Optional[Sequence[dict]] = None,
 ) -> Dict[str, Any]:
     """按时间合并各轮成交；现金/可卖不够则整轮回滚丢弃。卖出只动日初可卖（T+1）。"""
@@ -700,7 +773,10 @@ def _merge_slot_day(
     dropped = set()
     cash_now = float(cash or 0)
     shares_now = float(shares)
-    sellable_old = float(shares)
+    sellable_cap = float(
+        sellable_shares if sellable_shares is not None else shares
+    )
+    sellable_old = min(max(sellable_cap, 0.0), float(shares))
     applied: Dict[str, List[Tuple[str, float, float]]] = {}
     for _at, trade, sid in tagged:
         if sid in dropped:
@@ -910,16 +986,16 @@ def simulate_t0_day_slots(
 ) -> Dict[str, Any]:
     """全日：多轮独立预估 + 确认根第一腿 + 各轮第二腿。"""
     slots = slot_specs(cfg)
-    sellable = float(sellable_shares if sellable_shares is not None else shares)
-    sellable = min(max(sellable, 0.0), float(shares))
+    sellable_cap = float(sellable_shares if sellable_shares is not None else shares)
+    sellable_cap = min(max(sellable_cap, 0.0), float(shares))
+    slices = allocate_slot_slices(shares, sellable_cap, slots, lot)
     outs: List[dict] = []
-    reserved = 0.0
+    cash_now = float(cash or 0)
+    shares_now = float(shares)
+    sellable_now = float(sellable_cap)
+    cash_locked = 0.0
     for i, slot in enumerate(slots):
-        ratio = float(slot.get("ratio") or 0.20)
-        slice_qty = float(_t0_qty_lots(shares, ratio, lot, sellable))
-        remain = max(0.0, sellable - reserved)
-        if slice_qty > remain:
-            slice_qty = float(_t0_qty_lots(remain, 1.0, lot, remain))
+        slice_qty = min(float(slices[i]), sellable_now)
         if slice_qty < lot:
             skip = _skip_result(
                 reason="本轮预留不足 1 手",
@@ -941,37 +1017,77 @@ def simulate_t0_day_slots(
                 )
             )
             continue
-        reserved += slice_qty
         nxt = slots[i + 1] if i + 1 < len(slots) else None
-        outs.append(
-            simulate_t0_slot(
-                slot=slot,
-                next_slot=nxt,
-                minute_bars=minute_bars,
-                bar=bar,
-                shares=shares,
-                cost=cost,
-                sellable_shares=slice_qty,
-                cfg_day=cfg,
-                cash=cash,
-                stock_code=stock_code,
-                lot=lot,
-                cost_model=cost_model,
-                cost_params=cost_params,
-                atr_pct=atr_pct,
-                hist_bars=hist_bars,
-                score_snap=score_snap,
-                session_bar=session_bar,
-                defer_eod=defer_eod,
-                tau_pool_day=tau_pool_day,
-            )
+        avail_cash = max(0.0, cash_now - cash_locked)
+        out = simulate_t0_slot(
+            slot=slot,
+            next_slot=nxt,
+            minute_bars=minute_bars,
+            bar=bar,
+            shares=shares,
+            cost=cost,
+            sellable_shares=slice_qty,
+            cfg_day=cfg,
+            cash=avail_cash,
+            stock_code=stock_code,
+            lot=lot,
+            cost_model=cost_model,
+            cost_params=cost_params,
+            atr_pct=atr_pct,
+            hist_bars=hist_bars,
+            score_snap=score_snap,
+            session_bar=session_bar,
+            defer_eod=defer_eod,
+            tau_pool_day=tau_pool_day,
         )
+        trades = list(out.get("trades") or [])
+        if trades:
+            ok, nc, ns, nsel = _try_apply_slot_trades(
+                trades,
+                cash_now=cash_now,
+                shares_now=shares_now,
+                sellable_old=sellable_now,
+            )
+            if not ok:
+                out = _skip_result(
+                    reason="现金或可卖不足，本轮未落账",
+                    shares=shares,
+                    bar=bar,
+                    extra={
+                        "t0_slot": slot.get("id"),
+                        "t0_slot_hm": slot.get("hm"),
+                        "direction_used": out.get("direction_used"),
+                    },
+                )
+                out = attach_slot_fit_portrait_scores(
+                    out,
+                    slot=slot,
+                    minute_bars=minute_bars,
+                    bar=bar if isinstance(bar, dict) else None,
+                    hist_bars=hist_bars,
+                    open_snap=score_snap if isinstance(score_snap, dict) else None,
+                    stock_code=stock_code,
+                    tau_pool_day=tau_pool_day,
+                    cfg_day=cfg,
+                )
+            else:
+                cash_now, shares_now, sellable_now = nc, ns, nsel
+                cash_locked += _open_leg1_cash_lock(out)
+        else:
+            cash_locked += _open_leg1_cash_lock(out)
+        outs.append(out)
     return _merge_slot_day(
-        slot_outs=outs, bar=bar, shares=shares, cash=cash, minute_bars=minute_bars
+        slot_outs=outs,
+        bar=bar,
+        shares=shares,
+        cash=cash,
+        sellable_shares=sellable_cap,
+        minute_bars=minute_bars,
     )
 
 
 __all__ = [
+    "allocate_slot_slices",
     "simulate_t0_day_slots",
     "simulate_t0_slot",
     "slot_specs",

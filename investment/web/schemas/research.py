@@ -106,13 +106,13 @@ class PathRidgeRequest(BaseModel):
         default=None,
         ge=0.1,
         le=20.0,
-        description="卖触发 %；缺省=纸面/执行 T0 sell_trigger_pct",
+        description="path 对照卖侧 % 标签；缺省 2.0",
     )
     buy_trig_pct: Optional[float] = Field(
         default=None,
         ge=0.1,
         le=20.0,
-        description="买触发 %；缺省=纸面/执行 T0 buy_trigger_pct",
+        description="path 对照买侧 % 标签；缺省 1.5",
     )
     minute_period: str = Field(
         default="5",

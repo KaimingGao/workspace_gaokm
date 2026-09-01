@@ -31,7 +31,6 @@ from core.t0.rules import (
     _skip_result,
     _t0_qty_lots,
     resolve_direction,
-    scale_triggers_with_atr,
 )
 
 # 主动放弃回补（已入账 → 计完成）；盘中前缀未完成为 defer_eod_pending（不计完成）
@@ -139,7 +138,7 @@ def _hm_reached(
     """是否已到/过 ``stop_hm``。
 
     ``inclusive=True``（默认）：端点计入（收盘窗 14:55 整根可用）。
-    ``inclusive=False``：端点不计（午后禁新开 ``t0_pm_degrade=13:00`` 时 13:00 根仍可开）。
+    ``inclusive=False``：端点不计（午后禁新开 ``t0_pm_degrade=14:00`` 时 14:00 根仍可开）。
     """
     if not stop_hm:
         return False
@@ -396,9 +395,27 @@ def _score_y_path(score_snap: Optional[dict]) -> Optional[float]:
     return None
 
 
-def _prefix_vs_path_mult(cfg: Optional[dict]) -> float:
-    """前缀振幅闸阈值：``range ≤ |ŷ_path| × mult``；默认 1.0。"""
-    raw = (cfg or {}).get("y_prefix_vs_path_mult")
+def _tau_entry_price_side_keys(direction: str) -> tuple[str, str]:
+    direction = str(direction or "").strip().lower()
+    if direction == "buy_then_sell":
+        return (
+            "y_tau_entry_price_skip_buy_then_sell",
+            "y_tau_entry_price_mult_buy_then_sell",
+        )
+    if direction == "sell_then_buy":
+        return (
+            "y_tau_entry_price_skip_sell_then_buy",
+            "y_tau_entry_price_mult_sell_then_buy",
+        )
+    return ("y_tau_entry_price_skip", "y_tau_entry_price_mult")
+
+
+def _tau_entry_price_mult(cfg: Optional[dict], direction: str = "") -> float:
+    """τ 入场价裕度：bound = open×(1 + ŷ_τ%×mult/100)；默认 1.0；正/反T 分侧。"""
+    _skip_key, mult_key = _tau_entry_price_side_keys(direction)
+    raw = (cfg or {}).get(mult_key)
+    if raw is None or raw == "":
+        raw = (cfg or {}).get("y_tau_entry_price_mult")
     try:
         m = float(1.0 if raw is None or raw == "" else raw)
     except (TypeError, ValueError):
@@ -406,63 +423,14 @@ def _prefix_vs_path_mult(cfg: Optional[dict]) -> float:
     return max(0.5, min(m, 5.0))
 
 
-def prefix_range_vs_path_ok(
-    *,
-    range_pct: Optional[float],
-    y_path: Optional[float],
-    cfg: Optional[dict] = None,
-) -> Dict[str, Any]:
-    """前缀窗振幅 (H−L)/ref% 已超过 |ŷ_path|×mult → 跳过（空间用尽 / 与 path 幅度矛盾）。
-
-    ``y_prefix_vs_path_mult`` 默认 1.0；>1 放宽、<1 收紧。
-    缺 ŷ_path、无效振幅、或 ``y_prefix_vs_path_skip=False`` 时放行。
-    """
+def _tau_entry_price_skip(cfg: Optional[dict], direction: str = "") -> bool:
     from core.t0.config import coerce_cfg_bool
 
-    enabled = coerce_cfg_bool((cfg or {}).get("y_prefix_vs_path_skip"), True)
-    mult = _prefix_vs_path_mult(cfg)
-    base: Dict[str, Any] = {
-        "enabled": enabled,
-        "range_pct": None if range_pct is None else round(float(range_pct), 4),
-        "y_path": None if y_path is None else round(float(y_path), 4),
-        "abs_y_path": None,
-        "mult": round(mult, 4),
-        "threshold": None,
-    }
-    if not enabled:
-        return {**base, "ok": True, "skipped": True, "reason": "前缀vs|ŷ_path|闸关"}
-    if range_pct is None or y_path is None:
-        return {**base, "ok": True, "skipped": True, "reason": "缺前缀振幅或ŷ_path，跳过闸"}
-    try:
-        rp = float(range_pct)
-        yp = abs(float(y_path))
-    except (TypeError, ValueError):
-        return {**base, "ok": True, "skipped": True, "reason": "振幅/ŷ_path无效，跳过闸"}
-    thr = yp * mult
-    base["abs_y_path"] = round(yp, 4)
-    base["threshold"] = round(thr, 4)
-    ok = rp <= thr + 1e-9
-    thr_txt = (
-        f"|ŷ_path|{yp:.3f}%"
-        if abs(mult - 1.0) < 1e-9
-        else f"|ŷ_path|×{mult:.2f}={thr:.3f}%"
-    )
-    return {
-        **base,
-        "ok": ok,
-        "skipped": False,
-        "reason": (
-            f"前缀振幅{rp:.3f}%≤{thr_txt}"
-            if ok
-            else f"前缀振幅{rp:.3f}%>{thr_txt}：空间用尽跳过"
-        ),
-    }
-
-
-def _tau_entry_price_mult(cfg: Optional[dict]) -> float:
-    """τ 入场价门禁已下线（Web 无配置）；恒关。"""
-    _ = cfg
-    return 0.0
+    skip_key, _mult_key = _tau_entry_price_side_keys(direction)
+    raw = (cfg or {}).get(skip_key)
+    if raw is None:
+        raw = (cfg or {}).get("y_tau_entry_price_skip")
+    return coerce_cfg_bool(raw, True)
 
 
 def tau_leg1_fill_price_ok(
@@ -474,65 +442,301 @@ def tau_leg1_fill_price_ok(
     cfg: Optional[dict] = None,
     mult: Optional[float] = None,
 ) -> Dict[str, Any]:
-    """固定前缀确认根：第一腿成交价相对开盘允许带宽 = |ŷ_τ|% × mult。
+    """确认根第一腿：有符号 ŷ_τ 定相对开盘边界。
 
-    mult 是**带宽乘数**（越大越宽松）；默认已下线（0=关）。正T：买价 ≤ open×(1+band)；
-    反T：卖价 ≥ open×(1−band)。缺 ŷ_τ 或倍数≤0 时跳过（ok=True）。
+    - 正T：买价 < open×(1 + ŷ_τ×裕度)（ŷ_τ 多为正 → 天花板）
+    - 反T：卖价 > open×(1 + ŷ_τ×裕度)（ŷ_τ 多为负 → 地板）
+    正T ``y_tau_entry_price_mult_buy_then_sell`` / 反T ``…_sell_then_buy`` 默认 1。
+    关对应侧 skip 或显式 ``mult≤0`` 时放行。缺 ŷ_τ / 无效价放行。
     """
     direction = str(direction or "").strip().lower()
-    m = float(mult) if mult is not None else _tau_entry_price_mult(cfg)
+    enabled = _tau_entry_price_skip(cfg, direction)
+    if mult is not None:
+        try:
+            m = float(mult)
+        except (TypeError, ValueError):
+            m = 0.0
+    else:
+        m = _tau_entry_price_mult(cfg, direction) if enabled else 0.0
     base: Dict[str, Any] = {
         "direction": direction,
+        "enabled": enabled,
         "mult": round(m, 4),
         "y_tau": None if y_tau is None else round(float(y_tau), 4),
         "ref": round(float(ref), 4) if ref else None,
         "fill_px": round(float(fill_px), 4) if fill_px else None,
     }
-    if m <= 0 or ref is None or float(ref) <= 0 or fill_px is None or float(fill_px) <= 0:
-        return {**base, "ok": True, "skipped": True, "reason": "τ入场价门禁关/无效价"}
+    if (not enabled) or m <= 0:
+        return {**base, "ok": True, "skipped": True, "reason": "τ入场价闸关"}
+    if ref is None or float(ref) <= 0 or fill_px is None or float(fill_px) <= 0:
+        return {**base, "ok": True, "skipped": True, "reason": "τ入场价门禁无效价"}
     if y_tau is None:
+        from core.t0.config import coerce_cfg_bool
+
+        require = coerce_cfg_bool((cfg or {}).get("y_tau_require_for_leg1"), True)
+        if enabled and require:
+            return {
+                **base,
+                "ok": False,
+                "skipped": False,
+                "reason": "缺ŷ_τ，不开第一腿",
+            }
         return {**base, "ok": True, "skipped": True, "reason": "缺ŷ_τ，跳过入场价门禁"}
-    band_pct = abs(float(y_tau)) * m
-    base["band_pct"] = round(band_pct, 4)
+    move_pct = float(y_tau) * m
+    base["move_pct"] = round(move_pct, 4)
     px = float(fill_px)
     o = float(ref)
+    bound = o * (1.0 + move_pct / 100.0)
+    base["bound_px"] = round(bound, 4)
+    formula = f"开盘×(1+{m:g}×ŷ_τ={float(y_tau):.3f}%)"
     if direction == "buy_then_sell":
-        ceil = o * (1.0 + band_pct / 100.0)
-        base["bound_px"] = round(ceil, 4)
         base["bound_kind"] = "ceil"
-        ok = px <= ceil + 1e-9
+        ok = px < bound + 1e-9
         return {
             **base,
             "ok": ok,
             "skipped": False,
             "reason": (
-                f"正T买价≤开盘×(1+{m:g}×|ŷ_τ|)：{px:.3f}≤{ceil:.3f}"
+                f"正T买价<{formula}：{px:.3f}<{bound:.3f}"
                 if ok
-                else (
-                    f"正T买价超τ带 {px:.3f}>{ceil:.3f}"
-                    f"（开盘×(1+{m:g}×|{float(y_tau):.3f}%|））"
-                ),
+                else f"正T买价未低于τ带 {px:.3f}≥{bound:.3f}（{formula}）"
             ),
         }
     if direction == "sell_then_buy":
-        floor = o * (1.0 - band_pct / 100.0)
-        base["bound_px"] = round(floor, 4)
         base["bound_kind"] = "floor"
-        ok = px >= floor - 1e-9
+        ok = px > bound - 1e-9
         return {
             **base,
             "ok": ok,
             "skipped": False,
             "reason": (
-                f"反T卖价≥开盘×(1−{m:g}×|ŷ_τ|)：{px:.3f}≥{floor:.3f}"
+                f"反T卖价>{formula}：{px:.3f}>{bound:.3f}"
                 if ok
-                else (
-                    f"反T卖价破τ带 {px:.3f}<{floor:.3f}"
-                    f"（开盘×(1−{m:g}×|{float(y_tau):.3f}%|））"
-                ),
+                else f"反T卖价未高于τ带 {px:.3f}≤{bound:.3f}（{formula}）"
             ),
         }
     return {**base, "ok": True, "skipped": True, "reason": "非正/反T，跳过入场价门禁"}
+
+
+def _tau_exit_price_side_keys(direction: str) -> tuple[str, str]:
+    direction = str(direction or "").strip().lower()
+    if direction == "buy_then_sell":
+        return (
+            "y_tau_exit_price_skip_buy_then_sell",
+            "y_tau_exit_price_mult_buy_then_sell",
+        )
+    if direction == "sell_then_buy":
+        return (
+            "y_tau_exit_price_skip_sell_then_buy",
+            "y_tau_exit_price_mult_sell_then_buy",
+        )
+    return ("y_tau_exit_price_skip", "y_tau_exit_price_mult")
+
+
+def _tau_exit_price_mult(cfg: Optional[dict], direction: str = "") -> float:
+    """第二腿 τ 出场裕度：bound = open×(1 + ŷ_τ%×mult/100)；正/反T 分侧。"""
+    _skip_key, mult_key = _tau_exit_price_side_keys(direction)
+    raw = (cfg or {}).get(mult_key)
+    if raw is None or raw == "":
+        raw = (cfg or {}).get("y_tau_exit_price_mult")
+    try:
+        m = float(1.0 if raw is None or raw == "" else raw)
+    except (TypeError, ValueError):
+        m = 1.0
+    return max(0.5, min(m, 5.0))
+
+
+def _tau_exit_price_skip(cfg: Optional[dict], direction: str = "") -> bool:
+    from core.t0.config import coerce_cfg_bool
+
+    skip_key, _mult_key = _tau_exit_price_side_keys(direction)
+    raw = (cfg or {}).get(skip_key)
+    if raw is None:
+        raw = (cfg or {}).get("y_tau_exit_price_skip")
+    return coerce_cfg_bool(raw, True)
+
+
+def tau_exit_bound_px(
+    *,
+    ref: float,
+    y_tau: Optional[float],
+    direction: str,
+    cfg: Optional[dict] = None,
+) -> Optional[float]:
+    """第二腿 bound=open×(1+ŷ_τ×裕度)；闸关 / 缺 ŷ_τ / 无效价 → None。"""
+    direction = str(direction or "").strip().lower()
+    if not _tau_exit_price_skip(cfg, direction):
+        return None
+    m = _tau_exit_price_mult(cfg, direction)
+    if m <= 0 or ref is None or float(ref) <= 0 or y_tau is None:
+        return None
+    return float(ref) * (1.0 + float(y_tau) * m / 100.0)
+
+
+def tau_leg2_fill_price_ok(
+    *,
+    fill_px: float,
+    ref: float,
+    y_tau: Optional[float],
+    direction: str,
+    cfg: Optional[dict] = None,
+    mult: Optional[float] = None,
+) -> Dict[str, Any]:
+    """第二腿：正T 卖价 > bound；反T 买价 < bound（同 open×(1+ŷ_τ×裕度)）。"""
+    direction = str(direction or "").strip().lower()
+    enabled = _tau_exit_price_skip(cfg, direction)
+    if mult is not None:
+        try:
+            m = float(mult)
+        except (TypeError, ValueError):
+            m = 0.0
+    else:
+        m = _tau_exit_price_mult(cfg, direction) if enabled else 0.0
+    base: Dict[str, Any] = {
+        "leg": 2,
+        "direction": direction,
+        "enabled": enabled,
+        "mult": round(m, 4),
+        "y_tau": None if y_tau is None else round(float(y_tau), 4),
+        "ref": round(float(ref), 4) if ref else None,
+        "fill_px": round(float(fill_px), 4) if fill_px else None,
+    }
+    if (not enabled) or m <= 0:
+        return {**base, "ok": True, "skipped": True, "reason": "τ出场价闸关"}
+    if ref is None or float(ref) <= 0 or fill_px is None or float(fill_px) <= 0:
+        return {**base, "ok": True, "skipped": True, "reason": "τ出场价门禁无效价"}
+    if y_tau is None:
+        return {**base, "ok": True, "skipped": True, "reason": "缺ŷ_τ，跳过出场价门禁"}
+    move_pct = float(y_tau) * m
+    bound = float(ref) * (1.0 + move_pct / 100.0)
+    base["move_pct"] = round(move_pct, 4)
+    base["bound_px"] = round(bound, 4)
+    formula = f"开盘×(1+{m:g}×ŷ_τ={float(y_tau):.3f}%)"
+    px = float(fill_px)
+    if direction == "buy_then_sell":
+        base["bound_kind"] = "floor"
+        ok = px > bound - 1e-9
+        return {
+            **base,
+            "ok": ok,
+            "skipped": False,
+            "reason": (
+                f"正T卖价>{formula}：{px:.3f}>{bound:.3f}"
+                if ok
+                else f"正T卖价未高于τ出场带 {px:.3f}≤{bound:.3f}（{formula}）"
+            ),
+        }
+    if direction == "sell_then_buy":
+        base["bound_kind"] = "ceil"
+        ok = px < bound + 1e-9
+        return {
+            **base,
+            "ok": ok,
+            "skipped": False,
+            "reason": (
+                f"反T买价<{formula}：{px:.3f}<{bound:.3f}"
+                if ok
+                else f"反T买价未低于τ出场带 {px:.3f}≥{bound:.3f}（{formula}）"
+            ),
+        }
+    return {**base, "ok": True, "skipped": True, "reason": "非正/反T，跳过出场价门禁"}
+
+
+def tau_entry_bound_px(
+    *,
+    ref: float,
+    y_tau: Optional[float],
+    direction: str,
+    cfg: Optional[dict] = None,
+) -> Optional[float]:
+    """第一腿 bound=open×(1+ŷ_τ×裕度)；闸关 / 缺 ŷ_τ → None。"""
+    direction = str(direction or "").strip().lower()
+    if not _tau_entry_price_skip(cfg, direction):
+        return None
+    m = _tau_entry_price_mult(cfg, direction)
+    if m <= 0 or ref is None or float(ref) <= 0 or y_tau is None:
+        return None
+    return float(ref) * (1.0 + float(y_tau) * m / 100.0)
+
+
+def _leg2_tau_target_px(
+    *,
+    ref: float,
+    y_tau: Optional[float],
+    direction: str,
+    cfg: dict,
+) -> Optional[float]:
+    """第二腿目标价：仅 τ 出场 bound；闸关/缺 ŷ_τ → None（盘中不触价，等止损/追价/EOD）。"""
+    return tau_exit_bound_px(ref=ref, y_tau=y_tau, direction=direction, cfg=cfg)
+
+
+def prefix_range_vs_path_ok(
+    *,
+    range_pct: Optional[float],
+    y_path: Optional[float],
+    cfg: Optional[dict] = None,
+) -> Dict[str, Any]:
+    """历史兼容：前缀振幅 vs |ŷ_path| 已下线；恒放行（诊断可仍读旧 reason）。"""
+    _ = cfg
+    return {
+        "enabled": False,
+        "ok": True,
+        "skipped": True,
+        "range_pct": None if range_pct is None else round(float(range_pct), 4),
+        "y_path": None if y_path is None else round(float(y_path), 4),
+        "reason": "前缀vs|ŷ_path|已改τ入场价闸",
+    }
+
+
+def _leg2_breakeven_target_px(*, leg1_px: float, direction: str) -> Optional[float]:
+    """缺 ŷ_τ 时第二腿回退目标：以 leg1 成交价为平盘线。"""
+    if leg1_px is None or float(leg1_px) <= 0:
+        return None
+    return float(leg1_px)
+
+
+def _stb_chase_buy_cap_px(
+    *,
+    sold_price: float,
+    stop_level: Optional[float],
+    stop_pct: float,
+    cfg: Optional[dict],
+) -> Optional[float]:
+    """反 T 午后买回追价上限（默认 ≤ leg1 卖价，防结构性亏）。"""
+    from core.t0.config import coerce_cfg_bool
+
+    if sold_price <= 0:
+        return None
+    cap_on = coerce_cfg_bool((cfg or {}).get("t0_pm_chase_cap_leg1_sell_then_buy"), True)
+    must = bool((cfg or {}).get("must_cover_same_day"))
+    if not cap_on and not must:
+        return None
+    ceil_px = float(sold_price)
+    if stop_level is not None and stop_pct > 0:
+        ceil_px = min(ceil_px, float(stop_level))
+    return ceil_px
+
+
+def _bts_chase_sell_floor_px(
+    *,
+    buy_price: float,
+    stop_level: Optional[float],
+    stop_pct: float,
+    cfg: Optional[dict],
+) -> Optional[float]:
+    """正 T 午后卖回追价下限（默认 ≥ leg1 买价）。"""
+    from core.t0.config import coerce_cfg_bool
+
+    if buy_price <= 0:
+        return None
+    floor_on = coerce_cfg_bool((cfg or {}).get("t0_pm_chase_cap_leg1_buy_then_sell"), True)
+    must = bool((cfg or {}).get("must_cover_same_day"))
+    if not floor_on and not must:
+        return None
+    floor_px = float(buy_price)
+    if stop_level is not None and stop_pct > 0:
+        floor_px = max(floor_px, float(stop_level))
+    return floor_px
 
 
 def prefix_fixed_bar_ratio_entry_ok(
@@ -602,7 +806,15 @@ def prefix_fixed_bar_ratio_entry_ok(
             "reason": f"{side}固定前缀后半段无有效 OHLC",
         }
     ratio = hit_n / float(valid_n)
-    ok = ratio + 1e-12 >= thr
+    try:
+        min_hits_cfg = max(1, int((cfg or {}).get("y_prefix_min_half_hits") or 2))
+    except (TypeError, ValueError):
+        min_hits_cfg = 2
+    import math
+
+    required_hits = max(min_hits_cfg, int(math.ceil(thr * valid_n - 1e-12)))
+    required_hits = min(required_hits, valid_n)
+    ok = hit_n >= required_hits
     return {
         **base,
         "ok": ok,
@@ -611,11 +823,12 @@ def prefix_fixed_bar_ratio_entry_ok(
         "half_bars": half,
         count_key: hit_n,
         "half_valid": valid_n,
+        "min_half_hits": required_hits,
         ratio_key: round(ratio, 4),
         "reason": (
-            f"{side}固定前缀后半{move_label} {hit_n}/{valid_n}={ratio:.0%}≥{thr:.0%}"
+            f"{side}固定前缀后半{move_label} {hit_n}/{valid_n}={ratio:.0%}≥{required_hits}根"
             if ok
-            else f"{side}固定前缀后半{move_label} {hit_n}/{valid_n}={ratio:.0%}<{thr:.0%}"
+            else f"{side}固定前缀后半{move_label}不足 {hit_n}/{valid_n}<{required_hits}根"
         ),
     }
 
@@ -640,8 +853,6 @@ def _first_touch_sell_then_buy(
     shares: float,
     sellable_shares: Optional[float],
     ref: float,
-    sell_trig: float,
-    buy_trig: float,
     lot: int,
     fill_mode: str,
     cfg: dict,
@@ -656,6 +867,7 @@ def _first_touch_sell_then_buy(
     session_bar: Optional[dict] = None,
     defer_eod: bool = False,
     leg1_gate_at: Optional[Callable[[int], bool]] = None,
+    y_tau: Optional[float] = None,
 ) -> Dict[str, Any]:
     """反 T 分钟路径：先卖后买回。"""
     close = float(bar.get("close") or 0)
@@ -664,7 +876,6 @@ def _first_touch_sell_then_buy(
     cash0 = float(cash or 0)
     sellable = float(sellable_shares if sellable_shares is not None else shares)
     sellable = min(sellable, shares)
-    sell_level = ref * (1.0 + sell_trig / 100.0)
     if sellable < lot:
         return _skip_result(
             reason=_tplus1_skip_reason(
@@ -713,6 +924,7 @@ def _first_touch_sell_then_buy(
     stop_pct, stop_arm_bars, stop_on_close = _t0_stop_params(cfg, "sell_then_buy")
     leg1_idx: Optional[int] = None
     stop_level: Optional[float] = None
+    sell_level = float(ref or 0)
 
     for idx, mb in enumerate(minute_bars):
         hi = float(mb.get("high") or 0)
@@ -721,7 +933,7 @@ def _first_touch_sell_then_buy(
         ts = mb.get("datetime") or mb.get("date")
         pm_hit = bool(pm_hm and _hm_reached(ts, pm_hm, inclusive=False))
 
-        # 第一腿：确认根收盘（leg1_gate_at）；无闸时保留相对开盘触价兜底
+        # 第一腿：确认根收盘（leg1_gate_at）；无闸时 τ 入场闸
         if sold_qty <= 0 and qty > 0:
             if pm_hit:
                 continue
@@ -733,9 +945,18 @@ def _first_touch_sell_then_buy(
                     continue
                 fill_sell = float(close)
             else:
-                if hi < sell_level:
+                if close <= 0:
                     continue
-                fill_sell = _fill_sell(hi, sell_level, fill_mode)
+                fill_sell = float(close)
+                gate = tau_leg1_fill_price_ok(
+                    fill_px=fill_sell,
+                    ref=ref,
+                    y_tau=y_tau,
+                    direction="sell_then_buy",
+                    cfg=cfg,
+                )
+                if not gate.get("ok"):
+                    continue
             cash_delta += append_t0_leg(
                 trades,
                 cost_model=cost_model,
@@ -744,7 +965,7 @@ def _first_touch_sell_then_buy(
                 stock_code=stock_code,
                 shares=qty,
                 price=fill_sell,
-                trigger=sell_level,
+                trigger=fill_sell,
                 at=ts,
                 leg_kind="trigger",
                 note="反T卖出（ŷ+前缀后半下跌确认）",
@@ -752,8 +973,19 @@ def _first_touch_sell_then_buy(
             shares_now -= qty
             sold_qty = qty
             sold_price = fill_sell
+            sell_level = float(sold_price)
             touch_sell_at = ts
             leg1_idx = idx
+            chase_buy_level = _leg2_tau_target_px(
+                ref=ref,
+                y_tau=y_tau,
+                direction="sell_then_buy",
+                cfg=cfg,
+            )
+            if chase_buy_level is None and sold_price > 0:
+                chase_buy_level = _leg2_breakeven_target_px(
+                    leg1_px=sold_price, direction="sell_then_buy"
+                )
             if stop_pct > 0 and sold_price > 0:
                 stop_level = sold_price * (1.0 + stop_pct / 100.0)
             # 同根不明先后：确认卖后不在同一根买回
@@ -811,34 +1043,90 @@ def _first_touch_sell_then_buy(
                     exit_reason = "stop_loss"
                     continue
 
-            # 第二腿：相对 leg1 成交价的回撤幅度（与配置 buy_trigger 语义一致）
-            base_buy = sold_price * (1.0 - buy_trig / 100.0)
-            if chase_buy_level is None:
-                chase_buy_level = base_buy
-            buy_level = float(chase_buy_level)
-            used_chase = last_chase_min is not None
-            # 先按当前目标触价；不可成再追价，同根用新目标再试（避免未触就抬价）
-            if lo > buy_level:
+            # 第二腿：τ 出场价闸（买回须低于 open×(1+ŷ_τ×买价裕度)）
+            tau_buy_target = chase_buy_level
+            if tau_buy_target is None:
+                tau_buy_target = _leg2_tau_target_px(
+                    ref=ref,
+                    y_tau=y_tau,
+                    direction="sell_then_buy",
+                    cfg=cfg,
+                )
+            if tau_buy_target is None:
+                tau_buy_target = _leg2_breakeven_target_px(
+                    leg1_px=sold_price, direction="sell_then_buy"
+                )
+            if tau_buy_target is None:
                 px = float(mb.get("close") or hi or sold_price)
                 chase_buy_level, last_chase_min, adjusted = _maybe_pm_chase_level(
-                    level=float(chase_buy_level),
+                    level=float(sold_price),
                     px=px,
                     ts=ts,
                     pm_hm=pm_hm,
                     last_chase_min=last_chase_min,
                     interval_min=pm_chase_iv,
                 )
-                # must_cover：追价不得高于卖出价（盘中主动追高应交止损/eod）
-                if cfg.get("must_cover_same_day") and sold_price > 0:
-                    ceil_px = float(sold_price)
-                    if stop_level is not None and stop_pct > 0:
-                        ceil_px = min(ceil_px, float(stop_level))
-                    chase_buy_level = min(float(chase_buy_level), ceil_px)
+                if not adjusted:
+                    continue
                 buy_level = float(chase_buy_level)
                 used_chase = last_chase_min is not None
-                if not adjusted or lo > buy_level:
+                ceil_px = _stb_chase_buy_cap_px(
+                    sold_price=sold_price,
+                    stop_level=stop_level,
+                    stop_pct=stop_pct,
+                    cfg=cfg,
+                )
+                if ceil_px is not None:
+                    buy_level = min(float(buy_level), float(ceil_px))
+                if lo > buy_level:
                     continue
+            else:
+                chase_buy_level = float(tau_buy_target)
+                buy_level = float(chase_buy_level)
+                used_chase = last_chase_min is not None
+                if lo > buy_level:
+                    px = float(mb.get("close") or hi or sold_price)
+                    chase_buy_level, last_chase_min, adjusted = _maybe_pm_chase_level(
+                        level=float(chase_buy_level),
+                        px=px,
+                        ts=ts,
+                        pm_hm=pm_hm,
+                        last_chase_min=last_chase_min,
+                        interval_min=pm_chase_iv,
+                    )
+                    ceil_px = _stb_chase_buy_cap_px(
+                        sold_price=sold_price,
+                        stop_level=stop_level,
+                        stop_pct=stop_pct,
+                        cfg=cfg,
+                    )
+                    if ceil_px is not None:
+                        chase_buy_level = min(float(chase_buy_level), float(ceil_px))
+                    chase_buy_level = min(float(chase_buy_level), float(tau_buy_target))
+                    buy_level = float(chase_buy_level)
+                    used_chase = last_chase_min is not None
+                    if not adjusted or lo > buy_level:
+                        continue
+                buy_level = min(float(buy_level), float(tau_buy_target))
+                ceil_px = _stb_chase_buy_cap_px(
+                    sold_price=sold_price,
+                    stop_level=stop_level,
+                    stop_pct=stop_pct,
+                    cfg=cfg,
+                )
+                if ceil_px is not None:
+                    buy_level = min(float(buy_level), float(ceil_px))
+            if lo > buy_level:
+                continue
             fill_buy = _fill_buy(lo, buy_level, fill_mode)
+            if not tau_leg2_fill_price_ok(
+                fill_px=fill_buy,
+                ref=ref,
+                y_tau=y_tau,
+                direction="sell_then_buy",
+                cfg=cfg,
+            ).get("ok"):
+                continue
             cover = sold_qty
             # 账户余额（开盘现金 + 当日累计）够则买回；不要求卖出净得自给
             if not _account_can_buy(
@@ -960,8 +1248,6 @@ def _first_touch_sell_then_buy(
         "cash_delta": round(cash_delta, 2),
         "direction_used": "sell_then_buy",
         "fill_mode": fill_mode,
-        "sell_trigger_pct": sell_trig,
-        "buy_trigger_pct": buy_trig,
         "atr_pct": atr_pct,
         "range_pct": round(range_pct, 4),
         "path_mode": "first_touch",
@@ -981,8 +1267,6 @@ def _first_touch_buy_then_sell(
     cash: float,
     sellable_shares: Optional[float],
     ref: float,
-    sell_trig: float,
-    buy_trig: float,
     lot: int,
     fill_mode: str,
     cfg: dict,
@@ -995,6 +1279,7 @@ def _first_touch_buy_then_sell(
     session_bar: Optional[dict] = None,
     defer_eod: bool = False,
     leg1_gate_at: Optional[Callable[[int], bool]] = None,
+    y_tau: Optional[float] = None,
 ) -> Dict[str, Any]:
     """正 T 分钟路径：确认根加仓后卖旧底仓（T+1），不卖当日新买股。"""
     close = float(bar.get("close") or 0)
@@ -1115,17 +1400,19 @@ def _first_touch_buy_then_sell(
                     continue
                 fill_buy = float(close)
             else:
-                # 无确认根闸：相对开盘触价兜底（正常默认走确认根）
-                leg1_buy_level = ref * (1.0 - buy_trig / 100.0)
-                if lo > leg1_buy_level:
+                if close <= 0:
                     continue
-                if fill_mode == "optimistic":
-                    fill_buy = lo
-                elif fill_mode == "mid":
-                    fill_buy = (lo + leg1_buy_level) / 2.0
-                else:
-                    fill_buy = leg1_buy_level
-                buy_level = leg1_buy_level
+                fill_buy = float(close)
+                gate = tau_leg1_fill_price_ok(
+                    fill_px=fill_buy,
+                    ref=ref,
+                    y_tau=y_tau,
+                    direction="buy_then_sell",
+                    cfg=cfg,
+                )
+                if not gate.get("ok"):
+                    continue
+                buy_level = float(gate.get("bound_px") or fill_buy)
             # 含费再缩量，避免 append 后现金转负
             qty = _max_affordable_buy_lots(
                 cash,
@@ -1155,8 +1442,16 @@ def _first_touch_buy_then_sell(
             buy_price = fill_buy
             touch_buy_at = ts
             sell_old_qty = min(bought_qty, sell_old_cap)
-            # 第二腿：相对第一腿成交价上浮 sell_trigger%（非 ref）
-            chase_sell_level = buy_price * (1.0 + sell_trig / 100.0)
+            chase_sell_level = _leg2_tau_target_px(
+                ref=ref,
+                y_tau=y_tau,
+                direction="buy_then_sell",
+                cfg=cfg,
+            )
+            if chase_sell_level is None and buy_price > 0:
+                chase_sell_level = _leg2_breakeven_target_px(
+                    leg1_px=buy_price, direction="buy_then_sell"
+                )
             leg1_idx = idx
             if stop_pct > 0 and buy_price > 0:
                 stop_level = buy_price * (1.0 - stop_pct / 100.0)
@@ -1204,33 +1499,89 @@ def _first_touch_buy_then_sell(
                     exit_reason = "stop_loss"
                     continue
 
-            base_sell = buy_price * (1.0 + sell_trig / 100.0)
-            if chase_sell_level is None:
-                chase_sell_level = base_sell
-            sell_level = float(chase_sell_level)
-            used_chase = last_chase_min is not None
-            # 先按当前目标触价；不可成再追价，同根用新目标再试（避免未触就压价）
-            if sell_old_qty <= 0 or hi < sell_level:
+            tau_sell_target = chase_sell_level
+            if tau_sell_target is None:
+                tau_sell_target = _leg2_tau_target_px(
+                    ref=ref,
+                    y_tau=y_tau,
+                    direction="buy_then_sell",
+                    cfg=cfg,
+                )
+            if tau_sell_target is None:
+                tau_sell_target = _leg2_breakeven_target_px(
+                    leg1_px=buy_price, direction="buy_then_sell"
+                )
+            if tau_sell_target is None:
                 px = float(mb.get("close") or lo or buy_price)
                 chase_sell_level, last_chase_min, adjusted = _maybe_pm_chase_level(
-                    level=float(chase_sell_level),
+                    level=float(buy_price),
                     px=px,
                     ts=ts,
                     pm_hm=pm_hm,
                     last_chase_min=last_chase_min,
                     interval_min=pm_chase_iv,
                 )
-                # must_cover：追价不得低于成本（盘中主动割肉应交止损/eod）
-                if cfg.get("must_cover_same_day") and buy_price > 0:
-                    floor_px = float(buy_price)
-                    if stop_level is not None and stop_pct > 0:
-                        floor_px = max(floor_px, float(stop_level))
-                    chase_sell_level = max(float(chase_sell_level), floor_px)
+                if not adjusted:
+                    continue
+                floor_px = _bts_chase_sell_floor_px(
+                    buy_price=buy_price,
+                    stop_level=stop_level,
+                    stop_pct=stop_pct,
+                    cfg=cfg,
+                )
+                if floor_px is not None:
+                    chase_sell_level = max(float(chase_sell_level), float(floor_px))
                 sell_level = float(chase_sell_level)
                 used_chase = last_chase_min is not None
-                if not adjusted or sell_old_qty <= 0 or hi < sell_level:
+                if sell_old_qty <= 0 or hi < sell_level:
                     continue
+            else:
+                chase_sell_level = float(tau_sell_target)
+                sell_level = float(chase_sell_level)
+                used_chase = last_chase_min is not None
+                if sell_old_qty <= 0 or hi < sell_level:
+                    px = float(mb.get("close") or lo or buy_price)
+                    chase_sell_level, last_chase_min, adjusted = _maybe_pm_chase_level(
+                        level=float(chase_sell_level),
+                        px=px,
+                        ts=ts,
+                        pm_hm=pm_hm,
+                        last_chase_min=last_chase_min,
+                        interval_min=pm_chase_iv,
+                    )
+                    floor_px = _bts_chase_sell_floor_px(
+                        buy_price=buy_price,
+                        stop_level=stop_level,
+                        stop_pct=stop_pct,
+                        cfg=cfg,
+                    )
+                    if floor_px is not None:
+                        chase_sell_level = max(float(chase_sell_level), float(floor_px))
+                    chase_sell_level = max(float(chase_sell_level), float(tau_sell_target))
+                    sell_level = float(chase_sell_level)
+                    used_chase = last_chase_min is not None
+                    if not adjusted or sell_old_qty <= 0 or hi < sell_level:
+                        continue
+                sell_level = max(float(sell_level), float(tau_sell_target))
+                floor_px = _bts_chase_sell_floor_px(
+                    buy_price=buy_price,
+                    stop_level=stop_level,
+                    stop_pct=stop_pct,
+                    cfg=cfg,
+                )
+                if floor_px is not None:
+                    sell_level = max(float(sell_level), float(floor_px))
+            if sell_old_qty <= 0 or hi < sell_level:
+                continue
             fill_sell = _fill_sell(hi, sell_level, fill_mode)
+            if not tau_leg2_fill_price_ok(
+                fill_px=fill_sell,
+                ref=ref,
+                y_tau=y_tau,
+                direction="buy_then_sell",
+                cfg=cfg,
+            ).get("ok"):
+                continue
             cash_delta += append_t0_leg(
                 trades,
                 cost_model=cost_model,
@@ -1337,8 +1688,6 @@ def _first_touch_buy_then_sell(
         "cash_delta": round(cash_delta, 2),
         "direction_used": "buy_then_sell",
         "fill_mode": fill_mode,
-        "sell_trigger_pct": sell_trig,
-        "buy_trigger_pct": buy_trig,
         "atr_pct": atr_pct,
         "range_pct": round(range_pct, 4),
         "path_mode": "first_touch",
@@ -1380,46 +1729,13 @@ def _touch_path_complete(out: dict, direction: str) -> bool:
     return bool(out.get("trades"))
 
 
-def _side_trigger_pack(
+def _side_exec_pack(
     *,
-    cfg_day: dict,
     cfg_side: dict,
-    direction: str,
-    atr_pct: Optional[float],
-    score_snap: Optional[dict],
-) -> Tuple[dict, float, float, str, Dict[str, float]]:
-    """侧向执行参数 + 缩放后卖/买触发价与 fill_mode。"""
-    from core.t0.score_policy import scale_t0_triggers, scores_have_any
-
-    scaled_side = scale_triggers_with_atr(
-        cfg_side,
-        atr_pct=atr_pct,
-    )
-    sell_trig = float(scaled_side["sell_trigger_pct"])
-    buy_trig = float(scaled_side["buy_trigger_pct"])
+) -> Tuple[dict, str]:
+    """侧向执行参数 + fill_mode（第二腿仅 τ 出场价闸）。"""
     fill_mode = str(cfg_side.get("fill_mode") or "trigger")
-    meta: Dict[str, float] = {
-        "sell_trigger_pct_base": round(sell_trig, 4),
-        "buy_trigger_pct_base": round(buy_trig, 4),
-        "trigger_scale": 1.0,
-    }
-    if str(cfg_day.get("direction") or "") == "dual_y" and scores_have_any(score_snap):
-        trig = scale_t0_triggers(sell_trig, buy_trig, score_snap or {}, cfg_side)
-        sell_trig = float(trig["sell_trigger_pct"])
-        buy_trig = float(trig["buy_trigger_pct"])
-        cfg_side = dict(cfg_side)
-        cfg_side["sell_trigger_pct"] = sell_trig
-        cfg_side["buy_trigger_pct"] = buy_trig
-        meta = {
-            "sell_trigger_pct_base": float(trig["sell_trigger_pct_base"]),
-            "buy_trigger_pct_base": float(trig["buy_trigger_pct_base"]),
-            "trigger_scale": float(trig["trigger_scale"]),
-        }
-    else:
-        cfg_side = dict(cfg_side)
-        cfg_side["sell_trigger_pct"] = sell_trig
-        cfg_side["buy_trigger_pct"] = buy_trig
-    return cfg_side, sell_trig, buy_trig, fill_mode, meta
+    return dict(cfg_side), fill_mode
 
 
 def _minute_bar_time(m: dict) -> str:
@@ -1445,22 +1761,46 @@ def _forward_trace_row(
     entry_ready: bool = False,
     gate_open: bool = False,
     ref: Optional[float] = None,
-    sell_trig: Optional[float] = None,
-    buy_trig: Optional[float] = None,
+    y_tau: Optional[float] = None,
+    cfg_side: Optional[dict] = None,
     wait_reason: Optional[str] = None,
 ) -> Dict[str, Any]:
-    sell_level = buy_level = None
-    if ref is not None and sell_trig is not None:
-        sell_level = round(float(ref) * (1.0 + float(sell_trig) / 100.0), 4)
-    if ref is not None and buy_trig is not None:
-        buy_level = round(float(ref) * (1.0 - float(buy_trig) / 100.0), 4)
+    sell_level = buy_level = tau_entry_bound = tau_exit_bound = None
+    direction_s = str(direction or "").strip().lower()
+    if ref is not None and y_tau is not None and direction_s in ("buy_then_sell", "sell_then_buy"):
+        tau_entry_bound = tau_entry_bound_px(
+            ref=float(ref),
+            y_tau=y_tau,
+            direction=direction_s,
+            cfg=cfg_side,
+        )
+        tau_exit_bound = tau_exit_bound_px(
+            ref=float(ref),
+            y_tau=y_tau,
+            direction=direction_s,
+            cfg=cfg_side,
+        )
+        if direction_s == "buy_then_sell":
+            buy_level = (
+                round(float(tau_entry_bound), 4) if tau_entry_bound is not None else None
+            )
+            sell_level = (
+                round(float(tau_exit_bound), 4) if tau_exit_bound is not None else None
+            )
+        else:
+            sell_level = (
+                round(float(tau_entry_bound), 4) if tau_entry_bound is not None else None
+            )
+            buy_level = (
+                round(float(tau_exit_bound), 4) if tau_exit_bound is not None else None
+            )
     lo = float(m.get("low") or 0)
     hi = float(m.get("high") or 0)
     touch_leg1 = False
     touch_blocked = False
-    if direction == "buy_then_sell" and buy_level is not None:
+    if direction_s == "buy_then_sell" and buy_level is not None:
         touch_leg1 = lo <= float(buy_level)
-    elif direction == "sell_then_buy" and sell_level is not None:
+    elif direction_s == "sell_then_buy" and sell_level is not None:
         touch_leg1 = hi >= float(sell_level)
     # 粘滞开闸已废弃：仅固定前缀确认根可成交；触价但未确认时标 blocked（诊断用）
     if touch_leg1 and not (entry_ready or gate_open):
@@ -1484,8 +1824,13 @@ def _forward_trace_row(
         "seg_ok": seg_ok,
         "entry_ready": bool(entry_ready),
         "ref": round(float(ref), 4) if ref is not None else None,
-        "sell_trig": round(float(sell_trig), 4) if sell_trig is not None else None,
-        "buy_trig": round(float(buy_trig), 4) if buy_trig is not None else None,
+        "y_tau": round(float(y_tau), 4) if y_tau is not None else None,
+        "tau_entry_bound": (
+            round(float(tau_entry_bound), 4) if tau_entry_bound is not None else None
+        ),
+        "tau_exit_bound": (
+            round(float(tau_exit_bound), 4) if tau_exit_bound is not None else None
+        ),
         "sell_level": sell_level,
         "buy_level": buy_level,
         "touch_leg1": touch_leg1,
@@ -1760,13 +2105,10 @@ def _plan_forward_leg1_gates(
                 )
 
         direction = str(direction_locked)
-        cfg_side, sell_trig, buy_trig, fill_mode, trigger_meta = _side_trigger_pack(
-            cfg_day=cfg_day,
+        cfg_side, fill_mode = _side_exec_pack(
             cfg_side=apply_side_exec_params(cfg_day, direction),
-            direction=direction,
-            atr_pct=atr_pct,
-            score_snap=live_snap,
         )
+        path_y_tau_trace = _score_y_tau(live_snap)
         if cover_meta is not None:
             cfg_side["must_cover_same_day"] = bool(cover_meta.get("must_cover"))
 
@@ -1896,24 +2238,12 @@ def _plan_forward_leg1_gates(
                 except Exception:  # noqa: BLE001
                     logger.debug("causal prefix y_path failed", exc_info=True)
                     y_path_gate = None
-            path_rng = prefix_range_vs_path_ok(
-                range_pct=gate_fixed.get("range_pct"),
-                y_path=y_path_gate,
-                cfg=cfg_side,
-            )
-            seg = {**seg, "prefix_vs_path": path_rng}
             if y_path_gate is not None:
                 seg["y_path_prefix"] = round(float(y_path_gate), 4)
                 if isinstance(live_snap, dict) and _score_y_path(live_snap) is None:
                     live_snap = dict(live_snap)
                     live_snap["y_path"] = seg["y_path_prefix"]
                     live_snap["predicted_score_path"] = seg["y_path_prefix"]
-            if not bool(path_rng.get("ok")):
-                entry_ready = False
-                wait_reason = str(
-                    path_rng.get("reason") or f"{side_label}前缀振幅>|ŷ_path|×裕度"
-                )
-                seg = {**seg, "ok": False, "reason": wait_reason}
 
         entry_flags[j] = entry_ready
         wait_reason = (
@@ -1969,8 +2299,8 @@ def _plan_forward_leg1_gates(
                                 entry_ready=False,
                                 gate_open=False,
                                 ref=float(ref),
-                                sell_trig=sell_trig,
-                                buy_trig=buy_trig,
+                                y_tau=path_y_tau_trace,
+                                cfg_side=cfg_side,
                                 wait_reason=wait_reason,
                             )
                         ],
@@ -1994,8 +2324,8 @@ def _plan_forward_leg1_gates(
                 entry_ready=entry_ready,
                 gate_open=entry_ready,
                 ref=float(ref),
-                sell_trig=sell_trig,
-                buy_trig=buy_trig,
+                y_tau=path_y_tau_trace,
+                cfg_side=cfg_side,
                 wait_reason=wait_reason,
             )
         )
@@ -2004,10 +2334,7 @@ def _plan_forward_leg1_gates(
             "direction": direction,
             "dir_res": dir_res_locked,
             "cfg_side": cfg_side,
-            "sell_trig": sell_trig,
-            "buy_trig": buy_trig,
             "fill_mode": fill_mode,
-            "trigger_scale_meta": trigger_meta,
             "ref": float(ref),
             "range_pct": range_pct_side,
             "bar_day": bar_n,
@@ -2106,6 +2433,13 @@ def run_forward_first_touch(
     if isinstance(plan.get("score_snap"), dict):
         score_snap = plan["score_snap"]
 
+    from core.t0.rules import _ensure_fixed_direction_path_y_tau
+
+    score_snap = _ensure_fixed_direction_path_y_tau(
+        score_snap if isinstance(score_snap, dict) else None,
+        plan.get("direction"),
+    )
+
     path_kwargs = {
         "session_bars": mins,
         "session_bar": bar_session,
@@ -2114,15 +2448,16 @@ def run_forward_first_touch(
     }
     direction = str(plan["direction"])
     cfg_side = plan["cfg_side"]
-    sell_trig = float(plan["sell_trig"])
-    buy_trig = float(plan["buy_trig"])
     fill_mode = str(plan["fill_mode"])
     ref = float(plan["ref"])
     range_pct = float(plan["range_pct"])
     bar_day = plan["bar_day"]
-    trigger_scale_meta = plan["trigger_scale_meta"]
     cover_meta = plan.get("cover_meta")
     dir_res = plan.get("dir_res") or dir_res
+    path_y_tau = _score_y_tau(
+        score_snap if isinstance(score_snap, dict) else plan.get("score_snap")
+    )
+    path_kwargs["y_tau"] = path_y_tau
 
     if not any(plan["leg1_gate_at"](i) for i in range(len(mins))):
         pending = plan.get("pending_wait")
@@ -2147,8 +2482,6 @@ def run_forward_first_touch(
             cash=float(cash or 0),
             sellable_shares=sellable_shares,
             ref=ref,
-            sell_trig=sell_trig,
-            buy_trig=buy_trig,
             lot=lot,
             fill_mode=fill_mode,
             cfg=cfg_side,
@@ -2167,8 +2500,6 @@ def run_forward_first_touch(
             shares=shares,
             sellable_shares=sellable_shares,
             ref=ref,
-            sell_trig=sell_trig,
-            buy_trig=buy_trig,
             lot=lot,
             fill_mode=fill_mode,
             cfg=cfg_side,
@@ -2204,9 +2535,6 @@ def run_forward_first_touch(
         base_ratio = float(base_t0_ratio if base_t0_ratio is not None else cfg_day.get("t0_ratio") or 1.0)
         out["t0_ratio_base"] = round(base_ratio, 4)
         out["t0_ratio"] = round(float(cfg_day.get("t0_ratio") or base_ratio), 4)
-        out.update(trigger_scale_meta)
-        out["sell_trigger_pct"] = round(sell_trig, 4)
-        out["buy_trigger_pct"] = round(buy_trig, 4)
         _set_forward_trace_on_result(
             out,
             plan.get("gate_trace") or [],
@@ -2278,29 +2606,18 @@ def simulate_t0_day_minute(
 
     mins = [dict(m) for m in (minute_bars or [])]
     mins.sort(key=lambda x: str(x.get("datetime") or ""))
-    scaled = scale_triggers_with_atr(cfg, atr_pct=atr_pct)
-    sell_trig = float(scaled["sell_trigger_pct"])
-    buy_trig = float(scaled["buy_trigger_pct"])
     cfg_day = dict(cfg)
-    cfg_day["sell_trigger_pct"] = sell_trig
-    cfg_day["buy_trigger_pct"] = buy_trig
     cfg_day["path_mode"] = "first_touch"
-    # 信心缩放只在 _side_trigger_pack 做一次（避免与侧向键叠加双重缩放）
-    trigger_scale_meta: Dict[str, float] = {
-        "sell_trigger_pct_base": round(sell_trig, 4),
-        "buy_trigger_pct_base": round(buy_trig, 4),
-        "trigger_scale": 1.0,
-    }
 
-    # path实对照：用 path 模型训练触发（与 ŷ_path 同口径）；成交仍用上方 execution 触发
+    # path实对照：用 path 模型训练标签阈值（研究对照，非成交触发）
     try:
         from core.research.path_ridge import load_path_model, path_label_triggers
 
         path_sell_trig, path_buy_trig = path_label_triggers(load_path_model())
     except Exception:  # noqa: BLE001
         logger.debug("path_label_triggers fallback", exc_info=True)
-        path_sell_trig = float(trigger_scale_meta["sell_trigger_pct_base"])
-        path_buy_trig = float(trigger_scale_meta["buy_trigger_pct_base"])
+        path_sell_trig = 2.0
+        path_buy_trig = 1.5
 
     def _finish(out: Optional[Dict[str, Any]], dir_res: Optional[dict] = None) -> Dict[str, Any]:
         nonlocal score_snap
@@ -2397,7 +2714,7 @@ def simulate_t0_day_minute(
             lot=lot,
             cost_model=cost_model,
             cost_params=cost_params,
-            atr_pct=scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct,
+            atr_pct=atr_pct,
             hist_bars=hist_bars,
             score_snap=score_snap,
             session_bar=bar_session,
@@ -2430,7 +2747,7 @@ def simulate_t0_day_minute(
         return _error_result("无效 bar 或持仓", shares)
 
     base_t0_ratio = float(cfg_day.get("t0_ratio") or 1.0)
-    # 动仓比例固定为基准；ŷ 信心改缩放卖/买目标价（见 trigger_scale_meta）
+    # 动仓比例固定为基准
     # 定向前总量振幅用两侧振幅下限的较松者，定方向后再用侧向下限复核
     cfg_pre = dict(cfg_day)
     try:
@@ -2454,7 +2771,7 @@ def simulate_t0_day_minute(
         lot=lot,
         cost_model=cost_model,
         cost_params=cost_params,
-        atr_pct=scaled.get("atr_pct") if scaled.get("atr_pct") is not None else atr_pct,
+        atr_pct=atr_pct,
         hist_bars=hist_bars,
         score_snap=score_snap,
         session_bar=bar_session,

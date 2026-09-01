@@ -151,7 +151,7 @@ class TestMinuteTauPack(unittest.TestCase):
                 {"date": d, "open": 10.0, "high": 10.5, "low": 9.5, "close": 10.0}
             )
         minutes = []
-        # 09:35 … 11:30 覆盖训练网格 + 做T四轮前缀（末档 11:30）
+        # 09:35 … 14:00 覆盖训练网格 + 做T六轮前缀
         hms = []
         for hm in (
             "09:35",
@@ -196,15 +196,16 @@ class TestMinuteTauPack(unittest.TestCase):
             )
         from core.research.tau_panel import DEFAULT_MINUTE_TAU_GRID
 
+        morning_grid = ["09:30", "10:00", "10:30", "11:00", "11:30"]
         _xs, ys, _dates, metas = collect_tau_intraday_panel(
             daily,
             minutes,
             tau_hm="10:30",
-            tau_grid=list(DEFAULT_MINUTE_TAU_GRID),
+            tau_grid=morning_grid,
             min_history=5,
         )
         taus = [m.get("tau") for m in metas if m.get("date") == day]
-        self.assertEqual(taus, list(DEFAULT_MINUTE_TAU_GRID))
+        self.assertEqual(taus, morning_grid)
         self.assertEqual(len(ys), 5)
         # 同日标签统一 open→close，多 τ 行 y 相同；特征（前缀）不同
         self.assertTrue(all(abs(y - ys[0]) < 1e-9 for y in ys))
@@ -217,7 +218,10 @@ class TestMinuteTauPack(unittest.TestCase):
         from core.research.tau_panel import DEFAULT_MINUTE_TAU_GRID
         from core.t0.config import DEFAULT_T0_SLOT_CLOCKS
 
-        self.assertEqual(tuple(DEFAULT_T0_SLOT_CLOCKS), ("10:00", "10:30", "11:00", "11:30"))
+        self.assertEqual(
+            tuple(DEFAULT_T0_SLOT_CLOCKS),
+            ("10:00", "10:30", "11:00", "11:30", "13:00", "14:00"),
+        )
         self.assertTrue(set(DEFAULT_T0_SLOT_CLOCKS).issubset(DEFAULT_MINUTE_TAU_GRID))
         self.assertIn("09:30", DEFAULT_MINUTE_TAU_GRID)
 

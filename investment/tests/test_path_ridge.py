@@ -497,9 +497,6 @@ class TestPathRidgeService(unittest.TestCase):
         ), patch(
             "core.ports.market.group_minute_bars_by_date",
             return_value=minute_map,
-        ), patch(
-            "core.execution.resolve_t0_rules",
-            return_value={"sell_trigger_pct": 1.2, "buy_trigger_pct": 0.9},
         ):
             rw.return_value = {"watchlist": ["A", "B"]}
             svc = Svc()
@@ -511,9 +508,8 @@ class TestPathRidgeService(unittest.TestCase):
         self.assertTrue(out.get("success"), out.get("error"))
         self.assertGreaterEqual(int(out.get("minute_codes_hit") or 0), 1)
         self.assertIn("return_model", out)
-        self.assertTrue(out.get("triggers_from_paper"))
-        self.assertAlmostEqual(float(out.get("sell_trig_pct")), 1.2)
-        self.assertAlmostEqual(float(out.get("buy_trig_pct")), 0.9)
+        self.assertAlmostEqual(float(out.get("sell_trig_pct")), 2.0)
+        self.assertAlmostEqual(float(out.get("buy_trig_pct")), 1.5)
         self.assertIn("promote_gate", out)
 
     def test_explain_path_prediction_terms(self):

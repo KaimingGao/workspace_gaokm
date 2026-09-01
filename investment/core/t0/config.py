@@ -37,9 +37,7 @@ def t0_dir_label(direction: Optional[str]) -> str:
 # t0_pm_degrade_*：HH:MM 之后禁新开（端点不含；已开未平则第二腿中点追价）
 # t0_pm_degrade：legacy，等同正T侧
 # must_cover_same_day_*：反T默认不强制回补；正T默认同日卖旧
-# 第二腿：sell_trigger_pct_buy_then_sell（正T卖旧）、buy_trigger_pct_sell_then_buy（反T买回）
-# 第一腿：固定前缀确认根收盘；已废弃相对开盘低吸/冲高（buy_trigger_pct_buy_then_sell /
-#   sell_trigger_pct_sell_then_buy）
+# 第二腿：τ 出场价闸（正T卖 / 反T买）；相对 leg1 的 % 触发已下线
 #
 # fill_mode: trigger | mid | optimistic；可分侧 fill_mode_*
 #
@@ -84,7 +82,6 @@ _DEAD_T0_KEYS = (
     "y_prefix_pullback_pct_long",
     "y_prefix_bounce_pct_reverse",
     # 已写死 / Web 无控件：残留 overlay 丢弃
-    "y_tau_entry_price_mult",
     "y_gap_tier_skip_low_open_reverse",
     "y_tau_nowcast_sign_eps",
     "y_trade_tau_sign_eps",
@@ -93,13 +90,41 @@ _DEAD_T0_KEYS = (
     "y_ratio_tau_soft_band",
     "t0_leg1_hunt_pct_buy_then_sell",
     "t0_leg1_hunt_pct_sell_then_buy",
+    # 已改为 τ 入场价闸
+    "y_prefix_vs_path_skip",
+    "y_prefix_vs_path_mult",
+    # 第二腿已改 τ 出场价闸；相对 leg1 的 % 触发下线
+    "sell_trigger_pct",
+    "buy_trigger_pct",
+    "buy_trigger_pct_sell_then_buy",
+    "sell_trigger_pct_buy_then_sell",
 )
+
+
+def _migrate_prefix_vs_path_to_tau_entry(cfg: dict) -> None:
+    """旧「前缀振幅 vs |path|」→ τ 入场价闸（仅当新键未显式给出时）。"""
+    if not isinstance(cfg, dict):
+        return
+    if "y_tau_entry_price_mult" not in cfg and "y_prefix_vs_path_mult" in cfg:
+        cfg["y_tau_entry_price_mult"] = cfg.get("y_prefix_vs_path_mult")
+    if "y_tau_entry_price_skip" not in cfg and "y_prefix_vs_path_skip" in cfg:
+        cfg["y_tau_entry_price_skip"] = cfg.get("y_prefix_vs_path_skip")
+    legacy_skip = cfg.get("y_tau_entry_price_skip")
+    legacy_mult = cfg.get("y_tau_entry_price_mult")
+    for side in ("buy_then_sell", "sell_then_buy"):
+        sk = f"y_tau_entry_price_skip_{side}"
+        mk = f"y_tau_entry_price_mult_{side}"
+        if sk not in cfg and legacy_skip is not None:
+            cfg[sk] = legacy_skip
+        if mk not in cfg and legacy_mult is not None:
+            cfg[mk] = legacy_mult
 
 
 def drop_dead_t0_keys(cfg: dict) -> None:
     """就地丢弃已废弃做 T 键（含旧 long/reverse 命名）。"""
     if not isinstance(cfg, dict):
         return
+    _migrate_prefix_vs_path_to_tau_entry(cfg)
     for k in _DEAD_T0_KEYS:
         cfg.pop(k, None)
 
@@ -123,10 +148,6 @@ def normalize_t0_direction(raw: Any, *, default: str = "dual_y") -> str:
 DEFAULT_T0_RULES: Dict[str, Any] = {
     "enabled": True,
     "t0_ratio": 1.0,
-    "sell_trigger_pct": 3.0,
-    "buy_trigger_pct": 1.0,
-    "buy_trigger_pct_sell_then_buy": 1.0,
-    "sell_trigger_pct_buy_then_sell": 3.0,
     "must_cover_same_day": True,
     "must_cover_same_day_sell_then_buy": False,
     "must_cover_same_day_buy_then_sell": True,
@@ -185,15 +206,32 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "y_prefix_segment_enabled_buy_then_sell": True,
     "y_prefix_upbar_ratio_buy_then_sell": 0.2,
     "y_prefix_downbar_ratio_sell_then_buy": 0.2,
-    # 前缀窗 (H−L)/ref% > |ŷ_path|×mult 则跳过（空间用尽）；mult 默认 1
-    "y_prefix_vs_path_skip": True,
-    "y_prefix_vs_path_mult": 1.0,
+    # 固定前缀后半段：除占比阈值外，至少命中 K 根（跨槽位统计显著性对齐）
+    "y_prefix_min_half_hits": 2,
+    # 缺 ŷ_τ 时禁止开第一腿（τ 闸开则硬跳过，不等午后追价）
+    "y_tau_require_for_leg1": True,
+    # 确认根第一腿：正T买价<open×(1+ŷ_τ×裕度)；反T卖价>同式（有符号ŷ_τ，分侧可调）
+    "y_tau_entry_price_skip": True,
+    "y_tau_entry_price_mult": 1.0,
+    "y_tau_entry_price_skip_buy_then_sell": True,
+    "y_tau_entry_price_mult_buy_then_sell": 0.5,
+    "y_tau_entry_price_skip_sell_then_buy": True,
+    "y_tau_entry_price_mult_sell_then_buy": 0.5,
+    "y_tau_exit_price_skip": True,
+    "y_tau_exit_price_mult": 1.0,
+    "y_tau_exit_price_skip_buy_then_sell": True,
+    "y_tau_exit_price_mult_buy_then_sell": 2.0,
+    "y_tau_exit_price_skip_sell_then_buy": True,
+    "y_tau_exit_price_mult_sell_then_buy": 2.0,
     "y_ratio_boost_cap": 2.0,
     "y_ratio_cut": 0.60,
     # 午后闸：到点后禁新开；已开未平则第二腿中点追价（与止损并存：止损管亏、追价管软卖）
     "t0_pm_degrade": "14:00",
-    "t0_pm_degrade_sell_then_buy": "13:00",
+    "t0_pm_degrade_sell_then_buy": "14:00",
     "t0_pm_degrade_buy_then_sell": "14:00",
+    # 午后追价：默认不超过/不低于 leg1 成交价（即使 must_cover=False）
+    "t0_pm_chase_cap_leg1_sell_then_buy": True,
+    "t0_pm_chase_cap_leg1_buy_then_sell": True,
     "t0_pm_chase_interval_min": 10,
     "t0_pm_chase_interval_min_sell_then_buy": 10,
     "t0_pm_chase_interval_min_buy_then_sell": 10,
@@ -204,30 +242,32 @@ DEFAULT_T0_RULES: Dict[str, Any] = {
     "t0_stop_on_close": True,
     # dual_y 分数来源：compute=开盘信息集即时算（默认）；live_book/ledger 仅兜底或对照
     "y_score_source": "compute",
-    # 多轮独立做T：10:00 起每 6 根 5m 一轮，各 20%；确认根收盘开第一腿（ŷ+后半占比）
-    # 不开 09:30。四轮共用一套买卖/止损配方
+    # 多轮独立做T：10:00–14:00 六轮各 15%；确认根收盘开第一腿（ŷ+后半占比）
+    # 不开 09:30。六轮共用一套买卖/止损配方
     "t0_slots_enabled": True,
     "t0_slots": None,
     "note": "A股T+1底仓做T；仅5m first_touch（已删除日线模拟）；非实盘。",
 }
 
-# 10:00 起每 6 根 5m 一轮，直到第 4 次（末轮 11:30）；不做开盘轮
+# 10:00 起早盘四轮 + 13:00/14:00 午后两轮；不做 09:30 开盘轮
 DEFAULT_T0_SLOTS: tuple = (
-    {"id": "s1", "hm": "10:00", "prefix_bars": 6, "ratio": 0.20},
-    {"id": "s2", "hm": "10:30", "prefix_bars": 12, "ratio": 0.20},
-    {"id": "s3", "hm": "11:00", "prefix_bars": 18, "ratio": 0.20},
-    {"id": "s4", "hm": "11:30", "prefix_bars": 24, "ratio": 0.20},
+    {"id": "s1", "hm": "10:00", "prefix_bars": 6, "ratio": 0.15},
+    {"id": "s2", "hm": "10:30", "prefix_bars": 12, "ratio": 0.15},
+    {"id": "s3", "hm": "11:00", "prefix_bars": 18, "ratio": 0.15},
+    {"id": "s4", "hm": "11:30", "prefix_bars": 24, "ratio": 0.15},
+    {"id": "s5", "hm": "13:00", "prefix_bars": 25, "ratio": 0.15},
+    {"id": "s6", "hm": "14:00", "prefix_bars": 37, "ratio": 0.15},
 )
 # 研究枢纽 τ / path 网格另含 09:30 开盘 Z；做T时钟是其中 10:00–11:30（live 调仓钟仍独立）
 DEFAULT_T0_SLOT_CLOCKS: tuple = tuple(
     str(s.get("hm") or "").strip() for s in DEFAULT_T0_SLOTS if str(s.get("hm") or "").strip()
 )
-# 纸面曾落盘的默认五轮（含 09:30 开盘）；加载时迁到现行四轮
+# 纸面曾落盘的默认五轮（含 09:30 开盘）；加载时迁到现行六轮
 _LEGACY_OPEN_FIVE_CLOCKS: tuple = ("09:30", "10:00", "10:30", "11:00", "11:30")
 
 
 def normalize_t0_slots(raw: Any) -> list:
-    """规范化槽位列表；空/缺省 → 默认四轮（10:00–11:30）。
+    """规范化槽位列表；空/缺省 → 默认六轮（10:00–14:00）。
 
     槽位只保留时钟 / 前缀根数 / 仓位切分。第二腿触发、止损、成交、dual_y 闸
     一律走账户级 ``load_t0_rules``（正/反分侧，不按槽位分套）。
@@ -250,9 +290,9 @@ def normalize_t0_slots(raw: Any) -> list:
             prefix_bars = 0
         prefix_bars = max(0, min(prefix_bars, 48))
         try:
-            ratio = float(item.get("ratio") if item.get("ratio") is not None else 0.20)
+            ratio = float(item.get("ratio") if item.get("ratio") is not None else 0.15)
         except (TypeError, ValueError):
-            ratio = 0.20
+            ratio = 0.15
         ratio = max(0.05, min(ratio, 1.0))
         out.append({"id": sid, "hm": hm, "prefix_bars": prefix_bars, "ratio": ratio})
     clocks = tuple(str(s.get("hm") or "").strip() for s in out)
@@ -313,29 +353,15 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     cfg = dict(DEFAULT_T0_RULES)
     override_keys = set(override.keys()) if override else set()
     if override:
-        for k, v in override.items():
+        ov = dict(override)
+        _migrate_prefix_vs_path_to_tau_entry(ov)
+        override_keys = set(ov.keys())
+        for k, v in ov.items():
             if v is not None:
                 cfg[k] = v
     drop_dead_t0_keys(cfg)
     cfg["t0_ratio"] = max(0.05, min(float(cfg.get("t0_ratio") or 1.0), 1.0))
     # 纸面/回测生效路径在 core.execution.resolve 再强制为 1.0
-    cfg["sell_trigger_pct"] = max(0.1, min(float(cfg.get("sell_trigger_pct") or 3.0), 20.0))
-    cfg["buy_trigger_pct"] = max(0.1, min(float(cfg.get("buy_trigger_pct") or 1.0), 20.0))
-    for side_trig, base_k, default in (
-        ("buy_trigger_pct_sell_then_buy", "buy_trigger_pct", 1.0),
-        ("sell_trigger_pct_buy_then_sell", "sell_trigger_pct", 3.0),
-    ):
-        raw_trig = cfg.get(side_trig)
-        if raw_trig is None or raw_trig == "":
-            try:
-                cfg[side_trig] = max(0.1, min(float(cfg.get(base_k) or default), 20.0))
-            except (TypeError, ValueError):
-                cfg[side_trig] = float(default)
-        else:
-            try:
-                cfg[side_trig] = max(0.1, min(float(raw_trig), 20.0))
-            except (TypeError, ValueError):
-                cfg[side_trig] = float(default)
     cfg["lot_size"] = max(1, int(cfg.get("lot_size") or 100))
     cfg["auto_strong_pct"] = max(0.0, min(float(cfg.get("auto_strong_pct") or 0.5), 5.0))
     cfg["auto_weak_pct"] = max(0.0, min(float(cfg.get("auto_weak_pct") or 0.5), 5.0))
@@ -501,13 +527,60 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
     except (TypeError, ValueError):
         dn_ratio = 0.2
     cfg["y_prefix_downbar_ratio_sell_then_buy"] = max(0.0, min(dn_ratio, 1.0))
-    cfg["y_prefix_vs_path_skip"] = coerce_cfg_bool(cfg.get("y_prefix_vs_path_skip"), True)
+    legacy_skip = coerce_cfg_bool(cfg.get("y_tau_entry_price_skip"), True)
     try:
-        raw_mult = cfg.get("y_prefix_vs_path_mult")
-        vs_mult = float(1.0 if raw_mult is None or raw_mult == "" else raw_mult)
+        raw_legacy_mult = cfg.get("y_tau_entry_price_mult")
+        legacy_mult = float(
+            1.0 if raw_legacy_mult is None or raw_legacy_mult == "" else raw_legacy_mult
+        )
     except (TypeError, ValueError):
-        vs_mult = 1.0
-    cfg["y_prefix_vs_path_mult"] = max(0.5, min(vs_mult, 5.0))
+        legacy_mult = 1.0
+    legacy_mult = max(0.5, min(legacy_mult, 5.0))
+    for side in ("buy_then_sell", "sell_then_buy"):
+        sk = f"y_tau_entry_price_skip_{side}"
+        mk = f"y_tau_entry_price_mult_{side}"
+        if sk not in override_keys or cfg.get(sk) is None:
+            if cfg.get(sk) is None:
+                cfg[sk] = legacy_skip
+        cfg[sk] = coerce_cfg_bool(cfg.get(sk), True)
+        try:
+            raw_side_mult = cfg.get(mk)
+            if raw_side_mult is None or raw_side_mult == "":
+                raw_side_mult = legacy_mult
+            side_mult = float(raw_side_mult)
+        except (TypeError, ValueError):
+            side_mult = legacy_mult
+        cfg[mk] = max(0.5, min(side_mult, 5.0))
+    cfg["y_tau_entry_price_skip"] = cfg["y_tau_entry_price_skip_buy_then_sell"]
+    cfg["y_tau_entry_price_mult"] = cfg["y_tau_entry_price_mult_buy_then_sell"]
+    legacy_exit_skip = coerce_cfg_bool(cfg.get("y_tau_exit_price_skip"), True)
+    try:
+        raw_legacy_exit_mult = cfg.get("y_tau_exit_price_mult")
+        legacy_exit_mult = float(
+            1.0
+            if raw_legacy_exit_mult is None or raw_legacy_exit_mult == ""
+            else raw_legacy_exit_mult
+        )
+    except (TypeError, ValueError):
+        legacy_exit_mult = 1.0
+    legacy_exit_mult = max(0.5, min(legacy_exit_mult, 5.0))
+    for side in ("buy_then_sell", "sell_then_buy"):
+        sk = f"y_tau_exit_price_skip_{side}"
+        mk = f"y_tau_exit_price_mult_{side}"
+        if sk not in override_keys or cfg.get(sk) is None:
+            if cfg.get(sk) is None:
+                cfg[sk] = legacy_exit_skip
+        cfg[sk] = coerce_cfg_bool(cfg.get(sk), True)
+        try:
+            raw_side_mult = cfg.get(mk)
+            if raw_side_mult is None or raw_side_mult == "":
+                raw_side_mult = legacy_exit_mult
+            side_mult = float(raw_side_mult)
+        except (TypeError, ValueError):
+            side_mult = legacy_exit_mult
+        cfg[mk] = max(0.5, min(side_mult, 5.0))
+    cfg["y_tau_exit_price_skip"] = cfg["y_tau_exit_price_skip_buy_then_sell"]
+    cfg["y_tau_exit_price_mult"] = cfg["y_tau_exit_price_mult_buy_then_sell"]
     gap_mode = str(cfg.get("y_gap_tier_mode") or "skip_opposite").strip().lower()
     if gap_mode not in {"off", "none", "false", "0", "skip_opposite", "revert"}:
         gap_mode = "skip_opposite"
@@ -541,7 +614,7 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
 
     pm_legacy = cfg.get("t0_pm_degrade")
     for side_key, default in (
-        ("t0_pm_degrade_sell_then_buy", "13:00"),
+        ("t0_pm_degrade_sell_then_buy", "14:00"),
         ("t0_pm_degrade_buy_then_sell", "14:00"),
     ):
         if side_key not in override_keys or cfg.get(side_key) is None:
@@ -643,30 +716,11 @@ def load_t0_rules(override: Optional[dict] = None) -> Dict[str, Any]:
 
 
 def apply_side_exec_params(cfg: dict, direction: Optional[str]) -> Dict[str, Any]:
-    """按正/反 T 覆盖执行参数：第二腿触发、成交模式等（振幅下限已下线）。
-
-    正T：卖触发=sell_trigger_pct_buy_then_sell（相对第一腿买价第二腿）。
-    反T：买触发=buy_trigger_pct_sell_then_buy（相对第一腿卖价第二腿）。
-    第一腿一律固定前缀确认根收盘（无相对开盘低吸/冲高触发%）。
-    """
+    """按正/反 T 覆盖执行参数：成交模式、回补、午后闸等（第二腿仅 τ 出场价闸）。"""
     out = dict(cfg or {})
     if direction not in {"sell_then_buy", "buy_then_sell"}:
         return out
     suf = "_buy_then_sell" if direction == "buy_then_sell" else "_sell_then_buy"
-    if direction == "buy_then_sell":
-        raw_sell = out.get("sell_trigger_pct_buy_then_sell")
-        if raw_sell is not None and raw_sell != "":
-            try:
-                out["sell_trigger_pct"] = max(0.1, min(float(raw_sell), 20.0))
-            except (TypeError, ValueError):
-                pass
-    else:
-        raw_buy = out.get("buy_trigger_pct_sell_then_buy")
-        if raw_buy is not None and raw_buy != "":
-            try:
-                out["buy_trigger_pct"] = max(0.1, min(float(raw_buy), 20.0))
-            except (TypeError, ValueError):
-                pass
     mr = out.get(f"min_range_pct{suf}")
     if mr is not None and mr != "":
         try:
@@ -687,8 +741,8 @@ def apply_side_exec_params(cfg: dict, direction: Optional[str]) -> Dict[str, Any
         s = str(pm).strip()
         out["t0_pm_degrade"] = "" if s in {"", "0", "off", "none", "-"} else s
     elif "t0_pm_degrade" not in out or out.get("t0_pm_degrade") is None:
-        # 缺侧向键时回落默认：正T 14:00 / 反T 13:00
-        out["t0_pm_degrade"] = "14:00" if direction == "buy_then_sell" else "13:00"
+        # 缺侧向键时回落默认：正/反 T 均为 14:00
+        out["t0_pm_degrade"] = "14:00"
     iv = out.get(f"t0_pm_chase_interval_min{suf}")
     if iv is not None and iv != "":
         try:

@@ -64,12 +64,12 @@ function fmtThresholdPct(val, fallback, op = "≥") {
   return `${op}${s}%`;
 }
 
-/** dual_y 目标价缩放区间（规则卡 gauge / 表注）；单位=触发幅度相对基准的 %。 */
+/** dual_y 目标价缩放区间（规则卡 gauge / 表注）；基准=τ 出场裕度。 */
 export function adaptiveSizingBounds(t0 = {}) {
-  const sell = Number(t0.sell_trigger_pct);
-  const buy = Number(t0.buy_trigger_pct);
+  const sell = Number(t0.y_tau_exit_price_mult_buy_then_sell);
+  const buy = Number(t0.y_tau_exit_price_mult_sell_then_buy);
   const baseSell = Number.isFinite(sell) ? sell : 2;
-  const baseBuy = Number.isFinite(buy) ? buy : 1.5;
+  const baseBuy = Number.isFinite(buy) ? buy : 2;
   const cut = Number(t0.y_ratio_cut ?? 0.6);
   const cutSafe = Number.isFinite(cut) && cut > 0 && cut <= 1 ? cut : 0.6;
   const cap = Number(t0.y_ratio_boost_cap ?? 2);
@@ -105,32 +105,27 @@ export function adaptiveSizingRuleLabel(t0 = {}) {
   const { baseSell, baseBuy, minSell, minBuy, maxSell, maxBuy, cut, cap } =
     adaptiveSizingBounds(t0);
   return (
-    `基准 卖+${baseSell}%/买−${baseBuy}%` +
-    ` · 弱×${cut}→+${minSell}%/−${minBuy}%` +
-    ` · 强×${cap}→+${maxSell}%/−${maxBuy}%`
+    `基准 正T卖×${baseSell}/反T买×${baseBuy}` +
+    ` · 弱×${cut}→×${minSell}/×${minBuy}` +
+    ` · 强×${cap}→×${maxSell}/×${maxBuy}`
   );
 }
 
-/** 成交日行 hover：基准触发 → 当日有效目标价。 */
+/** 成交日行 hover：τ 出场裕度基准 → 当日有效值。 */
 export function adaptiveSizingDayTip(day, rules = {}) {
-  const scale = Number(day?.trigger_scale);
-  const sellBase = Number(day?.sell_trigger_pct_base ?? rules?.sell_trigger_pct);
-  const buyBase = Number(day?.buy_trigger_pct_base ?? rules?.buy_trigger_pct);
-  const sellEff = Number(day?.sell_trigger_pct ?? sellBase);
-  const buyEff = Number(day?.buy_trigger_pct ?? buyBase);
-  if (!Number.isFinite(sellEff) || !Number.isFinite(buyEff)) return "";
+  const sellM = Number(
+    rules?.y_tau_exit_price_mult_buy_then_sell ??
+      day?.y_tau_exit_price_mult_buy_then_sell ??
+      2
+  );
+  const buyM = Number(
+    rules?.y_tau_exit_price_mult_sell_then_buy ??
+      day?.y_tau_exit_price_mult_sell_then_buy ??
+      2
+  );
+  if (!Number.isFinite(sellM) || !Number.isFinite(buyM)) return "";
   const fmt = (n) => (Number.isFinite(n) ? Number(n).toFixed(2).replace(/\.?0+$/, "") : "—");
-  if (!Number.isFinite(scale) || Math.abs(scale - 1) < 0.005) {
-    return `目标 卖+${fmt(sellEff)}% / 买−${fmt(buyEff)}%（基准）`;
-  }
-  if (Number.isFinite(sellBase) && Number.isFinite(buyBase)) {
-    return (
-      `目标 卖+${fmt(sellBase)}%→+${fmt(sellEff)}%` +
-      ` · 买−${fmt(buyBase)}%→−${fmt(buyEff)}%` +
-      `（ŷ×${scale.toFixed(2)}）`
-    );
-  }
-  return `目标 卖+${fmt(sellEff)}% / 买−${fmt(buyEff)}%（ŷ×${scale.toFixed(2)}）`;
+  return `τ出场裕度 正T卖×${fmt(sellM)} / 反T买×${fmt(buyM)}`;
 }
 
 /** dual_y 方向分说明（随 τ 映射变化）。enter 单位=收益百分点。 */
@@ -275,7 +270,7 @@ export function normalizeExecutionView(execution, rules) {
   const hasDetail =
     t0.direction != null ||
     t0.path_mode != null ||
-    t0.sell_trigger_pct != null ||
+    t0.y_tau_exit_price_mult_buy_then_sell != null ||
     t0.t0_ratio != null;
   if (!hasDetail && !base.effective_hash) return execution || null;
   return {
@@ -433,7 +428,7 @@ export function renderExecutionRulesHtml(execution) {
       : "") +
     `<div class="paper-t0-spec-kpi-strip" aria-label="核心参数">` +
     specKpi("启用", enabledLbl, "做 T overlay 总开关") +
-    specKpi("策略", "dual_y", "四轮共用 dual_y 闸与买卖/止损配方；各轮只独立选向") +
+    specKpi("策略", "dual_y", "六轮共用 dual_y 闸与买卖/止损配方；各轮只独立选向") +
     specKpi("动仓", `${ratioPct}%`, "固定底仓比例（不随 ŷ 缩放）") +
     specKpi("路径", pathLbl, "分钟触价路径") +
     specKpi("成交", fillLbl, "撮合假设") +
@@ -448,7 +443,7 @@ export function renderExecutionRulesHtml(execution) {
         const fmt = (n) => (Number.isFinite(n) && n > 0 ? `${n}%` : "关");
         return `正${fmt(bts)}/反${fmt(stb)}·${armLbl}·${conf}`;
       })(),
-      "相对该轮第一腿成交价；正T跌破卖旧 / 反T涨破买回；四轮共用同一套%；延迟与收盘确认共用"
+      "相对该轮第一腿成交价；正T跌破卖旧 / 反T涨破买回；六轮共用同一套%；延迟与收盘确认共用"
     ) +
     specKpi(
       "追价",
@@ -544,14 +539,6 @@ export function fillExecutionForm(root, execution) {
   };
   set("enabled", t0.enabled !== false);
   set(
-    "buy_trigger_pct_sell_then_buy",
-    t0.buy_trigger_pct_sell_then_buy != null ? t0.buy_trigger_pct_sell_then_buy : 1
-  );
-  set(
-    "sell_trigger_pct_buy_then_sell",
-    t0.sell_trigger_pct_buy_then_sell != null ? t0.sell_trigger_pct_buy_then_sell : 3
-  );
-  set(
     "y_ratio_cut",
     t0.y_ratio_cut != null ? Math.round(Number(t0.y_ratio_cut) * 100) : 60
   );
@@ -610,10 +597,57 @@ export function fillExecutionForm(root, execution) {
     t0.y_path_abandon_bars != null ? t0.y_path_abandon_bars : 6
   );
   set("y_prefix_segment_enabled", t0.y_prefix_segment_enabled !== false);
-  set("y_prefix_vs_path_skip", t0.y_prefix_vs_path_skip !== false);
   set(
-    "y_prefix_vs_path_mult",
-    t0.y_prefix_vs_path_mult != null ? t0.y_prefix_vs_path_mult : 1.0
+    "y_tau_entry_price_skip_buy_then_sell",
+    t0.y_tau_entry_price_skip_buy_then_sell !== false &&
+      t0.y_tau_entry_price_skip !== false
+  );
+  set(
+    "y_tau_entry_price_mult_buy_then_sell",
+    t0.y_tau_entry_price_mult_buy_then_sell != null
+      ? t0.y_tau_entry_price_mult_buy_then_sell
+      : t0.y_tau_entry_price_mult != null
+        ? t0.y_tau_entry_price_mult
+        : 0.5
+  );
+  set(
+    "y_tau_entry_price_skip_sell_then_buy",
+    t0.y_tau_entry_price_skip_sell_then_buy !== false &&
+      t0.y_tau_entry_price_skip !== false
+  );
+  set(
+    "y_tau_entry_price_mult_sell_then_buy",
+    t0.y_tau_entry_price_mult_sell_then_buy != null
+      ? t0.y_tau_entry_price_mult_sell_then_buy
+      : t0.y_tau_entry_price_mult != null
+        ? t0.y_tau_entry_price_mult
+        : 1.0
+  );
+  set(
+    "y_tau_exit_price_skip_buy_then_sell",
+    t0.y_tau_exit_price_skip_buy_then_sell !== false &&
+      t0.y_tau_exit_price_skip !== false
+  );
+  set(
+    "y_tau_exit_price_mult_buy_then_sell",
+    t0.y_tau_exit_price_mult_buy_then_sell != null
+      ? t0.y_tau_exit_price_mult_buy_then_sell
+      : t0.y_tau_exit_price_mult != null
+        ? t0.y_tau_exit_price_mult
+        : 2.0
+  );
+  set(
+    "y_tau_exit_price_skip_sell_then_buy",
+    t0.y_tau_exit_price_skip_sell_then_buy !== false &&
+      t0.y_tau_exit_price_skip !== false
+  );
+  set(
+    "y_tau_exit_price_mult_sell_then_buy",
+    t0.y_tau_exit_price_mult_sell_then_buy != null
+      ? t0.y_tau_exit_price_mult_sell_then_buy
+      : t0.y_tau_exit_price_mult != null
+        ? t0.y_tau_exit_price_mult
+        : 1.0
   );
   set("y_prefix_segment_enabled_sell_then_buy", t0.y_prefix_segment_enabled_sell_then_buy !== false);
   set("y_prefix_segment_enabled_buy_then_sell", t0.y_prefix_segment_enabled_buy_then_sell !== false);
@@ -650,7 +684,7 @@ export function fillExecutionForm(root, execution) {
   );
   set(
     "t0_pm_degrade_sell_then_buy",
-    t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "13:00"
+    t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "14:00"
   );
   set(
     "t0_pm_degrade_buy_then_sell",
@@ -713,11 +747,6 @@ export function collectExecutionForm(root) {
   const t0 = {
     enabled: chk("enabled", true),
     t0_ratio: 1.0,
-    buy_trigger_pct_sell_then_buy: Math.max(0.1, Math.min(num("buy_trigger_pct_sell_then_buy", 1), 20)),
-    sell_trigger_pct_buy_then_sell: Math.max(0.1, Math.min(num("sell_trigger_pct_buy_then_sell", 3), 20)),
-    // 兜底键：兼容旧读端（正T卖 / 反T买 第二腿）；无相对开盘第一腿低吸/冲高
-    sell_trigger_pct: Math.max(0.1, Math.min(num("sell_trigger_pct_buy_then_sell", 3), 20)),
-    buy_trigger_pct: Math.max(0.1, Math.min(num("buy_trigger_pct_sell_then_buy", 1), 20)),
     y_ratio_cut: Math.max(0.2, Math.min(cutPct / 100, 1)),
     y_ratio_boost_cap: Math.max(1.0, Math.min(boostPct / 100, 2)),
     fill_mode_sell_then_buy: str("fill_mode_sell_then_buy", "trigger"),
@@ -776,10 +805,37 @@ export function collectExecutionForm(root) {
       Math.min(Math.round(num("y_path_abandon_bars", 6)), 48)
     ),
     y_prefix_segment_enabled: chk("y_prefix_segment_enabled", true),
-    y_prefix_vs_path_skip: chk("y_prefix_vs_path_skip", true),
-    y_prefix_vs_path_mult: Math.max(
+    y_tau_entry_price_skip_buy_then_sell: chk(
+      "y_tau_entry_price_skip_buy_then_sell",
+      true
+    ),
+    y_tau_entry_price_mult_buy_then_sell: Math.max(
       0.5,
-      Math.min(num("y_prefix_vs_path_mult", 1.0), 5)
+      Math.min(num("y_tau_entry_price_mult_buy_then_sell", 0.5), 5)
+    ),
+    y_tau_entry_price_skip_sell_then_buy: chk(
+      "y_tau_entry_price_skip_sell_then_buy",
+      true
+    ),
+    y_tau_entry_price_mult_sell_then_buy: Math.max(
+      0.5,
+      Math.min(num("y_tau_entry_price_mult_sell_then_buy", 1.0), 5)
+    ),
+    y_tau_exit_price_skip_buy_then_sell: chk(
+      "y_tau_exit_price_skip_buy_then_sell",
+      true
+    ),
+    y_tau_exit_price_mult_buy_then_sell: Math.max(
+      0.5,
+      Math.min(num("y_tau_exit_price_mult_buy_then_sell", 2.0), 5)
+    ),
+    y_tau_exit_price_skip_sell_then_buy: chk(
+      "y_tau_exit_price_skip_sell_then_buy",
+      true
+    ),
+    y_tau_exit_price_mult_sell_then_buy: Math.max(
+      0.5,
+      Math.min(num("y_tau_exit_price_mult_sell_then_buy", 1.0), 5)
     ),
     y_prefix_segment_enabled_sell_then_buy: chk("y_prefix_segment_enabled_sell_then_buy", true),
     y_prefix_segment_enabled_buy_then_sell: chk("y_prefix_segment_enabled_buy_then_sell", true),
@@ -801,7 +857,7 @@ export function collectExecutionForm(root) {
     y_nc_enter: Math.max(0.01, Math.min(num("y_nc_enter", 0.01), 10)),
     y_nc_strong: Math.max(0.05, Math.min(num("y_nc_strong", 0.5), 10)),
     y_nowcast_enter: Math.max(0.05, Math.min(num("y_nc_strong", 0.5), 10)),
-    t0_pm_degrade_sell_then_buy: str("t0_pm_degrade_sell_then_buy", "13:00"),
+    t0_pm_degrade_sell_then_buy: str("t0_pm_degrade_sell_then_buy", "14:00"),
     t0_pm_degrade_buy_then_sell: str("t0_pm_degrade_buy_then_sell", "14:00"),
     t0_pm_degrade: str("t0_pm_degrade_buy_then_sell", "14:00"),
     t0_pm_chase_interval_min_sell_then_buy: Math.max(
@@ -1047,16 +1103,6 @@ export function collectT0BacktestBody(root, opts = {}) {
     use_minute: true,
     compare_daily: false,
     t0_ratio: 1.0,
-    sell_trigger_pct: t0.sell_trigger_pct_buy_then_sell != null ? t0.sell_trigger_pct_buy_then_sell : t0.sell_trigger_pct != null ? t0.sell_trigger_pct : 3,
-    buy_trigger_pct: t0.buy_trigger_pct_sell_then_buy != null ? t0.buy_trigger_pct_sell_then_buy : t0.buy_trigger_pct != null ? t0.buy_trigger_pct : 1,
-    buy_trigger_pct_sell_then_buy:
-      t0.buy_trigger_pct_sell_then_buy != null ? t0.buy_trigger_pct_sell_then_buy : t0.buy_trigger_pct != null ? t0.buy_trigger_pct : 1,
-    sell_trigger_pct_buy_then_sell:
-      t0.sell_trigger_pct_buy_then_sell != null
-        ? t0.sell_trigger_pct_buy_then_sell
-        : t0.sell_trigger_pct != null
-          ? t0.sell_trigger_pct
-          : 3,
     y_ratio_cut: t0.y_ratio_cut != null ? t0.y_ratio_cut : 0.6,
     y_ratio_boost_cap: t0.y_ratio_boost_cap != null ? t0.y_ratio_boost_cap : 2.0,
     fill_mode: t0.fill_mode || "trigger",
@@ -1119,9 +1165,42 @@ export function collectT0BacktestBody(root, opts = {}) {
     y_path_abandon_bars:
       t0.y_path_abandon_bars != null ? t0.y_path_abandon_bars : 6,
     y_prefix_segment_enabled: t0.y_prefix_segment_enabled !== false,
-    y_prefix_vs_path_skip: t0.y_prefix_vs_path_skip !== false,
-    y_prefix_vs_path_mult:
-      t0.y_prefix_vs_path_mult != null ? t0.y_prefix_vs_path_mult : 1.0,
+    y_tau_entry_price_skip_buy_then_sell:
+      t0.y_tau_entry_price_skip_buy_then_sell !== false &&
+      t0.y_tau_entry_price_skip !== false,
+    y_tau_entry_price_mult_buy_then_sell:
+      t0.y_tau_entry_price_mult_buy_then_sell != null
+        ? t0.y_tau_entry_price_mult_buy_then_sell
+        : t0.y_tau_entry_price_mult != null
+          ? t0.y_tau_entry_price_mult
+          : 0.5,
+    y_tau_entry_price_skip_sell_then_buy:
+      t0.y_tau_entry_price_skip_sell_then_buy !== false &&
+      t0.y_tau_entry_price_skip !== false,
+    y_tau_entry_price_mult_sell_then_buy:
+      t0.y_tau_entry_price_mult_sell_then_buy != null
+        ? t0.y_tau_entry_price_mult_sell_then_buy
+        : t0.y_tau_entry_price_mult != null
+          ? t0.y_tau_entry_price_mult
+          : 1.0,
+    y_tau_exit_price_skip_buy_then_sell:
+      t0.y_tau_exit_price_skip_buy_then_sell !== false &&
+      t0.y_tau_exit_price_skip !== false,
+    y_tau_exit_price_mult_buy_then_sell:
+      t0.y_tau_exit_price_mult_buy_then_sell != null
+        ? t0.y_tau_exit_price_mult_buy_then_sell
+        : t0.y_tau_exit_price_mult != null
+          ? t0.y_tau_exit_price_mult
+          : 2.0,
+    y_tau_exit_price_skip_sell_then_buy:
+      t0.y_tau_exit_price_skip_sell_then_buy !== false &&
+      t0.y_tau_exit_price_skip !== false,
+    y_tau_exit_price_mult_sell_then_buy:
+      t0.y_tau_exit_price_mult_sell_then_buy != null
+        ? t0.y_tau_exit_price_mult_sell_then_buy
+        : t0.y_tau_exit_price_mult != null
+          ? t0.y_tau_exit_price_mult
+          : 1.0,
     y_prefix_segment_enabled_sell_then_buy: t0.y_prefix_segment_enabled_sell_then_buy !== false,
     y_prefix_segment_enabled_buy_then_sell: t0.y_prefix_segment_enabled_buy_then_sell !== false,
     y_prefix_upbar_ratio_buy_then_sell:
@@ -1163,7 +1242,7 @@ export function collectT0BacktestBody(root, opts = {}) {
         : t0.y_nowcast_enter != null
           ? t0.y_nowcast_enter
           : 0.5,
-    t0_pm_degrade_sell_then_buy: t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "13:00",
+    t0_pm_degrade_sell_then_buy: t0.t0_pm_degrade_sell_then_buy != null ? t0.t0_pm_degrade_sell_then_buy : "14:00",
     t0_pm_degrade_buy_then_sell:
       t0.t0_pm_degrade_buy_then_sell ?? t0.t0_pm_degrade ?? "14:00",
     t0_pm_degrade: t0.t0_pm_degrade_buy_then_sell ?? t0.t0_pm_degrade ?? "14:00",

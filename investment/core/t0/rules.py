@@ -76,24 +76,6 @@ def atr_pct_from_bars(bars: Sequence[dict], window: int = 14) -> Optional[float]
     return round(sum(ranges) / len(ranges), 4)
 
 
-def scale_triggers_with_atr(
-    cfg: dict, *, atr_pct: Optional[float]
-) -> Dict[str, float]:
-    sell = float(cfg["sell_trigger_pct"])
-    buy = float(cfg["buy_trigger_pct"])
-    if not cfg.get("use_atr") or atr_pct is None or atr_pct <= 0:
-        return {"sell_trigger_pct": sell, "buy_trigger_pct": buy, "atr_pct": atr_pct}
-    sell = max(sell, atr_pct * float(cfg["atr_sell_mult"]))
-    buy = max(buy, atr_pct * float(cfg["atr_buy_mult"]))
-    sell = min(sell, 20.0)
-    buy = min(buy, 20.0)
-    return {
-        "sell_trigger_pct": round(sell, 4),
-        "buy_trigger_pct": round(buy, 4),
-        "atr_pct": atr_pct,
-    }
-
-
 def _clip(x: float, lo: float = -1.0, hi: float = 1.0) -> float:
     return max(lo, min(hi, x))
 
@@ -385,6 +367,23 @@ def _skip_result(
 
 
 
+def _ensure_fixed_direction_path_y_tau(
+    scores: Optional[dict], direction: Optional[str]
+) -> Optional[dict]:
+    """固定正/反 T 且无 ŷ 快照时：为 τ 出场 bound 注入符号化默认 ŷ（非 dual_y 选向）。"""
+    from core.t0.minute_path import _score_y_tau
+
+    d = str(direction or "").strip().lower()
+    if d not in ("buy_then_sell", "sell_then_buy"):
+        return scores
+    snap = dict(scores) if isinstance(scores, dict) else {}
+    if _score_y_tau(snap) is not None:
+        return snap
+    snap["y_tau"] = 0.5 if d == "buy_then_sell" else -0.5
+    snap["y_tau_oc"] = snap["y_tau"]
+    return snap
+
+
 def simulate_t0_day(
     *,
     bar: dict,
@@ -440,6 +439,8 @@ def simulate_t0_day(
                 use_minute_tau=False,
                 **tau_pool_day_score_kwargs(tau_pool_day, stock_code),
             )
+
+    score_snap = _ensure_fixed_direction_path_y_tau(score_snap, cfg.get("direction"))
 
     mins = list(minute_bars or [])
     from core.t0.config import t0_slots_enabled

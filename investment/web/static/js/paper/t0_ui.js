@@ -32,23 +32,33 @@ function buildZeroTradeHint(data) {
   const prefixVsPathSkip =
     reasonText.includes("空间用尽") ||
     reasonText.includes(">|ŷ_path|") ||
-    reasonText.includes("前缀振幅");
+    (reasonText.includes("前缀振幅") &&
+      (reasonText.includes("ŷ_path") || reasonText.includes("y_path")));
+  const tauEntrySkip =
+    reasonText.includes("τ带") ||
+    reasonText.includes("τ入场") ||
+    (reasonText.includes("开盘×(1+") &&
+      (reasonText.includes("买价") || reasonText.includes("卖价")) &&
+      !reasonText.includes("τ出场"));
+  const tauExitSkip = reasonText.includes("τ出场");
   const tplus1Skip =
     reasonText.includes("T+1") || reasonText.includes("可卖旧仓") || reasonText.includes("可卖 0");
   const lotSkip =
     reasonText.includes("动仓不足") || reasonText.includes("不足1手") || reasonText.includes("不足 1 手");
   const dir = (data.rules && data.rules.direction) || data.direction || "—";
-  const sell = (data.rules && data.rules.sell_trigger_pct) ?? "1";
-  const buy = (data.rules && data.rules.buy_trigger_pct) ?? "1";
   const tips = tplus1Skip
     ? "旧仓被 T+1 锁定；需隔日可卖仓才能反T先卖 / 正T卖旧"
-    : prefixVsPathSkip
-      ? "前缀振幅已超过 |ŷ_path|×空间裕度（空间用尽）；可调「空间裕度」、关「前缀 vs path」或等 path 更大"
-      : ampSkip
-        ? "旧振幅下限跳过（门禁已下线）；重跑预演后应消失"
-        : lotSkip
+    : tauExitSkip
+      ? "第二腿出场价未过 open×(1+ŷ_τ×裕度)；可调卖/买价裕度或关 τ卖价闸/τ买价闸"
+      : tauEntrySkip
+      ? "确认根入场价未过 open×(1+ŷ_τ×裕度)；可调「买价裕度/卖价裕度」或关闸"
+      : prefixVsPathSkip
+        ? "历史：前缀振幅>|ŷ_path|×裕度；现行已改τ入场价闸，重跑预演后应消失"
+        : ampSkip
+          ? "旧振幅下限跳过（门禁已下线）；重跑预演后应消失"
+          : lotSkip
           ? "仓位×做T比例不足 1 手；可提高做T比例或加仓"
-          : `未触及卖 +${sell}% / 买 -${buy}% 触发；可降阈值`;
+          : "未过 τ 出场价闸；可调卖/买价裕度或关闸";
   const mm = data.minute_meta || {};
   const missingMin = Number(data.missing_minute_days) || 0;
   const minuteHint =
@@ -456,6 +466,9 @@ function classifyDeskNote(note, locked) {
       return { id: "lot", label: "仓/钱" };
     return { id: "locked", label: "终锁" };
   }
+  if (r.includes("τ出场")) return { id: "tau_exit", label: "出场价" };
+  if (r.includes("τ带") || r.includes("τ入场") || (r.includes("开盘×(1+") && (r.includes("买价") || r.includes("卖价"))))
+    return { id: "tau_entry", label: "入场价" };
   if (r.includes("空间用尽") || (r.includes("前缀振幅") && (r.includes("ŷ_path") || r.includes("y_path"))))
     return { id: "prefix_vs_path", label: "空间用尽" };
   if (r.includes("振幅不足") || (r.includes("振幅") && !r.includes("前缀")))

@@ -122,8 +122,6 @@ class QuantEngine:
         if task == "t0_backtest":
             rules = {
                 "t0_ratio": params.get("t0_ratio"),
-                "sell_trigger_pct": params.get("sell_trigger_pct"),
-                "buy_trigger_pct": params.get("buy_trigger_pct"),
                 "must_cover_same_day": bool(params.get("must_cover_same_day")),
             }
             for key in ("fill_mode", "direction", "min_range_pct", "y_tau_map"):
