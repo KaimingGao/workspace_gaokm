@@ -2946,33 +2946,37 @@ body[data-page="follow"] .follow-ops-t0 {
   border-radius: 50%;
   position: relative;
   flex-shrink: 0;
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 55%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--ink) 8%, transparent),
+    0 1px 2px color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
 .paper-t0-viz-skip-donut-core {
   position: absolute;
-  inset: 22%;
+  inset: 23%;
   border-radius: 50%;
-  background: var(--surface, #fff);
+  background: color-mix(in srgb, var(--surface, #fff) 92%, var(--ink) 8%);
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 1px;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--line) 40%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--line) 55%, transparent);
   pointer-events: none;
 }
 
 .paper-t0-viz-skip-donut-core b {
   font-family: var(--font-mono, ui-monospace, monospace);
-  font-size: 0.95rem;
-  font-weight: 700;
+  font-size: 0.92rem;
+  font-weight: 650;
+  letter-spacing: -0.02em;
   color: var(--ink, #334155);
   line-height: 1.1;
 }
 
 .paper-t0-viz-skip-donut-core span {
-  font-size: 0.62rem;
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
   color: var(--ink-3, #94a3b8);
   line-height: 1.1;
 }

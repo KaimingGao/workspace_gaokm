@@ -1,7 +1,7 @@
 /** 做T回测可视化（canvas + CSS，无外部图表库）。 */
 
 import { paperMetricClass } from "./fmt.js";
-import { SKIP_CAT_TIP, stockCellHtml } from "./t0_table.js?v=p1797";
+import { SKIP_CAT_TIP, stockCellHtml } from "./t0_table.js?v=p1798";
 
 const THEME = {
   actual: "#2563eb",
@@ -29,32 +29,37 @@ const THEME = {
 
 /** 与 core/t0/viz.py SKIP_CAT_COLORS 对齐（旧 payload 无 color 时回退） */
 const SKIP_CAT_COLORS = {
-  missing_minute: "#64748b",
-  missing_scores: "#94a3b8",
-  y_path_missing: "#475569",
-  y_eod_flat: "#2563eb",
-  y_tau_flat: "#059669",
-  y_tau_weak: "#65a30d",
-  y_path_flat: "#a16207",
-  y_path_disagree: "#7c3aed",
-  gap_tier_skip: "#ea580c",
-  path_abandon: "#0d9488",
-  prefix_segment: "#0891b2",
-  prefix_vs_path: "#0284c7",
-  y_trade_weak: "#c2410c",
-  eod_tau_disagree: "#dc2626",
-  trade_tau_disagree: "#c026d3",
-  trade_tau_sign: "#e11d48",
-  conflict: "#f43f5e",
-  amplitude: "#78716c",
-  directional_amplitude: "#a8a29e",
-  lot_size: "#a78bfa",
-  cash: "#f472b6",
-  tplus1: "#c084fc",
-  path: "#4f46e5",
-  trigger_miss: "#cbd5e1",
-  intraday_legs_open: "#14b8a6",
-  other: "#d1d5db",
+  // 缺数 / 中性石板
+  missing_minute: "#5c6b7a",
+  missing_scores: "#8b98a5",
+  y_path_missing: "#44525f",
+  trigger_miss: "#b8c0c8",
+  other: "#cbd2d9",
+  amplitude: "#6e7378",
+  directional_amplitude: "#9aa0a6",
+  // 门槛不足 · 冷钢蓝 / 青灰
+  y_eod_flat: "#3d6a8a",
+  y_tau_flat: "#3a7a72",
+  y_tau_weak: "#5a7d8c",
+  y_path_flat: "#7a6a55",
+  // 异号 / 冲突 · 克制酒红 / 梅紫
+  eod_tau_disagree: "#b33a3a",
+  trade_tau_disagree: "#8f3d5b",
+  trade_tau_sign: "#c45c4a",
+  y_path_disagree: "#6b4c7a",
+  conflict: "#a04848",
+  // 前缀 / 空间 / 缺口 · 海石青 + 一枚赭石
+  path_abandon: "#3f6f68",
+  prefix_segment: "#3a6480",
+  prefix_vs_path: "#2f5370",
+  gap_tier_skip: "#b07a3a",
+  y_trade_weak: "#9a5b32",
+  path: "#4a5f8a",
+  // 约束类 · 灰紫 / 藕色
+  lot_size: "#6b5b8a",
+  cash: "#8a5a6e",
+  tplus1: "#6e5c82",
+  intraday_legs_open: "#4f7a6e",
 };
 
 function skipCatColor(id) {
